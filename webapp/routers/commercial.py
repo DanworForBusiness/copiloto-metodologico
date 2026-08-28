@@ -473,3 +473,64 @@ def commercial_data_lead_conversion_detail(request: Request, tipo: str = Query("
     except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
         return _commercial_data_error_response(request, exc, endpoint="lead_conversion_detail")
     return JSONResponse({"state": "ok", "lead_conversion_detail": detail})
+
+
+@router.get("/comercial/data/leads", include_in_schema=False)
+def commercial_data_leads(request: Request, tipo: str = Query("todos")):
+    """Leads (Bucket 2, ver HANDOFF) — universo propio `crm.lead
+    type=lead, active=True`, agrupado por empresa. NUNCA
+    type=opportunity (universo de Detalle Oportunidades/Prospectos/
+    Licencias, ya cerrados) — un lead convertido cambia de tipo y
+    desaparece SOLO de acá. LAZY, MISMO contrato fail-soft y MISMA gate
+    que el resto de Comercial — read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        leads = CommercialService().get_leads(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="leads")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="leads")
+    return JSONResponse({"state": "ok", "leads": leads})
+
+
+@router.get("/comercial/data/clients", include_in_schema=False)
+def commercial_data_clients(request: Request, tipo: str = Query("todos")):
+    """Clientes (Bucket 2, ver HANDOFF) — universo canónico: partners
+    res.partner con la property "Es Cliente?" = "Si" (contactos
+    colapsados a su empresa vía commercial_partner_id), con sus
+    oportunidades activas (etapas 1-8) y prospectos (etapa 0). Fallback
+    fail-soft a TODAS las oportunidades activas si esa property no
+    existe en esta instancia de Odoo — nunca una lista vacía disfrazada.
+    LAZY, MISMO contrato fail-soft y MISMA gate que el resto de
+    Comercial — read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        clients = CommercialService().get_clients(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="clients")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="clients")
+    return JSONResponse({"state": "ok", "clients": clients})
+
+
+@router.get("/comercial/data/ex-clients", include_in_schema=False)
+def commercial_data_ex_clients(request: Request, tipo: str = Query("todos")):
+    """Ex Clientes (Bucket 2, ver HANDOFF) — MISMA mecánica que Clientes,
+    property "Es Cliente?" = "Ex" — universo propio (incluye historial de
+    oportunidades ganadas/perdidas), endpoint y estado TOTALMENTE
+    separados de Clientes (sub-tab lazy independiente, MISMO criterio que
+    el legacy). LAZY, MISMO contrato fail-soft y MISMA gate — read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        clients = CommercialService().get_ex_clients(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="ex_clients")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="ex_clients")
+    return JSONResponse({"state": "ok", "ex_clients": clients})

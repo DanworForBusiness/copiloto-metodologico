@@ -64,11 +64,12 @@ function loadActivities(rows) {
 
 // --- Registry: sólo capabilities implementadas ------------------------------
 {
-  // Bucket 1 (ver HANDOFF) suma Licencias/Historial Perdidas/Detalle
-  // Oportunidades — CINCO capabilities con contenido real, en ese orden.
-  assertTrue(CAPABILITIES.length === 5, "5 capabilities implementadas");
-  assertTrue(CAPABILITIES.map(c => c.id).join() === "dashboard,actividades,licencias,historial-perdidas,detalle",
-    "Dashboard, Actividades, luego Bucket 1 en el orden pedido");
+  // Bucket 1 (ver HANDOFF) sumó Licencias/Historial Perdidas/Detalle
+  // Oportunidades; Bucket 2 suma Clientes/Leads — SIETE capabilities con
+  // contenido real, en ese orden.
+  assertTrue(CAPABILITIES.length === 7, "7 capabilities implementadas");
+  assertTrue(CAPABILITIES.map(c => c.id).join() === "dashboard,actividades,licencias,historial-perdidas,detalle,clientes,leads",
+    "Dashboard, Actividades, luego Bucket 1 y Bucket 2 en el orden pedido");
   assertTrue(CAPABILITIES[0].label === "Dashboard" && CAPABILITIES[1].label === "Actividades", "copy de la nav");
   assertTrue(commercialState.capability === "dashboard", "Dashboard es la capability default");
   assertTrue(commercialState.activitiesStatus === "idle", "Actividades arranca sin pedir nada (lazy)");
@@ -81,7 +82,7 @@ function loadActivities(rows) {
   assertTrue(count(html, 'aria-current="true"') === 1, "exactamente UNA capability marcada como actual");
   assertTrue(/class="is-active" aria-current="true" aria-controls="commercial-capability-panel" data-commercial-capability="dashboard"/.test(html),
     "la activa es Dashboard y apunta al panel único");
-  assertTrue(count(html, "<button") === 5, "una tab por capability implementada");
+  assertTrue(count(html, "<button") === 7, "una tab por capability implementada");
   ["role=\"tablist\"", "role=\"tab\"", "aria-selected"].forEach(banned =>
     assertTrue(!html.includes(banned), `no se declara un tablist ARIA incompleto (${banned})`));
   // Conmutar mueve aria-current y no lo duplica.

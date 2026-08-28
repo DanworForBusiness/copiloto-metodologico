@@ -85,7 +85,11 @@ def test_origin_is_frontend_only_over_the_payload_already_in_memory():
     # Oportunidades — el legacy ya los trata como la misma fuente, cero
     # endpoint propio para Licencias) y `/comercial/data/lost-history`
     # (Historial de Perdidas, universo propio).
-    assert code.count("/comercial/data/") == 17  # 4 iniciales + activities + forecast + creadas + creadas-años + prospects + ganadas + perdidas + suspendidas + pipeline-analytics-detail + lead-conversion-detail + retry de analytics (mismo endpoint) + opportunities-detail + lost-history
+    # Bucket 2 (ver HANDOFF) agrega TRES más: `/comercial/data/leads`,
+    # `/comercial/data/clients`, `/comercial/data/ex-clients` — universos
+    # totalmente propios, tres endpoints reales (nunca uno compartido
+    # "para no inflar la cuenta" — la fuente real así lo exige).
+    assert code.count("/comercial/data/") == 20  # 4 iniciales + activities + forecast + creadas + creadas-años + prospects + ganadas + perdidas + suspendidas + pipeline-analytics-detail + lead-conversion-detail + retry de analytics (mismo endpoint) + opportunities-detail + lost-history + leads + clients + ex-clients
     # No se usa el endpoint legacy: se mira el CÓDIGO, no la prosa (los
     # comentarios lo nombran a propósito para explicar por qué NO se usa).
     for banned in ("/crm/origen", "/comercial/data/origen", "/comercial/data/origin"):
@@ -160,7 +164,13 @@ def test_origin_lives_inside_the_activas_analysis_with_no_new_breakdown():
     # aparece TRES veces (orden de columna, un `change`/`input` de filtro
     # propio, y el "✕ Limpiar" del tab), MISMO patrón de re-render
     # quirúrgico que ya usa el resto de Comercial.
-    assert len(queries) == 58, queries   # + los 8 de Analítica del Pipeline + los 2 de la atribución de Conversión de Leads + los 2 de la tabla de Tiempo por etapa/Conversión etapa a etapa + 1 de "Retrasadas"/"Por vencer" clickeables en Actividades + 1 de "[data-commercial-analytics-body]" + 1 de "[data-commercial-creadas-summary-tile]" + 9 de Bucket 1 (ver HANDOFF)
+    # Bucket 2 (ver HANDOFF) agrega NUEVE más: `[data-commercial-leads-table]`
+    # y `[data-commercial-clientes-table]` — cada uno TRES veces (orden de
+    # columna, filtro propio, "✕ Limpiar" — MISMO patrón que Bucket 1) — y
+    # `[data-commercial-ex-clientes-table]` — TRES veces también (filtro
+    # Vendedor, Buscar, "✕ Limpiar" — Ex Clientes no tiene orden de columna,
+    # su tabla no es sortable).
+    assert len(queries) == 67, queries   # + los 8 de Analítica del Pipeline + los 2 de la atribución de Conversión de Leads + los 2 de la tabla de Tiempo por etapa/Conversión etapa a etapa + 1 de "Retrasadas"/"Por vencer" clickeables en Actividades + 1 de "[data-commercial-analytics-body]" + 1 de "[data-commercial-creadas-summary-tile]" + 9 de Bucket 1 + 9 de Bucket 2 (ver HANDOFF)
     assert '"[data-commercial-funnel-area]"' in queries
     # Un solo lugar arma el contenido de ese host — antes estaba duplicado.
     assert _COMMERCIAL_JS.count("function commercialFunnelAreaHtml(") == 1

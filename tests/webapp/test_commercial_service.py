@@ -3347,3 +3347,396 @@ def test_lost_history_configuration_and_transport_errors():
     with pytest.raises(CommercialConfigurationError):
         CommercialService(unconfigured).get_lost_history("todos")
     svc_module.clear_cache()
+
+
+# ============================================================================
+# Bucket 2 — Leads (`get_leads`, `GET /comercial/data/leads`). Universo:
+# `type=lead, active=True` — recuperado de
+# `crm-comercial`/`backend/routers/crm.py::get_leads`. NUNCA
+# `type=opportunity` (universo de Detalle/Prospectos/Licencias, ya
+# cerrados) — un lead convertido cambia de `type` y desaparece SOLO de
+# acá; uno perdido sin convertir queda `active=False` y también sale.
+# Agrupado por empresa (`partner_id` vinculado, si no `partner_name`
+# texto libre, si no "Sin empresa" — SIEMPRE última en el orden).
+# ============================================================================
+
+LEADS_STAGES = [{"id": 1, "name": "0 Prospección"}, {"id": 2, "name": "1 Contacto"}]
+LEADS_TAGS = [{"id": 10, "name": "New Names"}, {"id": 11, "name": "Base Instalada"}]
+
+LEADS_RAW = [
+    # Dos leads de la MISMA empresa vinculada -> agrupan juntos.
+    {"id": 1, "type": "lead", "active": True, "name": "Lead Uno", "partner_id": [300, "Empresa Alfa"],
+     "partner_name": False, "contact_name": "Juan Perez", "user_id": [50, "Vendedor A"],
+     "email_from": "juan@alfa.com", "create_date": "2026-01-10", "tag_ids": [10]},
+    {"id": 2, "type": "lead", "active": True, "name": "Lead Dos", "partner_id": [300, "Empresa Alfa"],
+     "partner_name": False, "contact_name": "Maria Lopez", "user_id": [51, "Vendedor B"],
+     "email_from": "maria@alfa.com", "create_date": "2026-01-15", "tag_ids": [11]},
+    # Empresa por texto libre (sin partner_id vinculado).
+    {"id": 3, "type": "lead", "active": True, "name": "Lead Tres", "partner_id": False,
+     "partner_name": "Empresa Beta", "contact_name": "Carlos Ruiz", "user_id": [50, "Vendedor A"],
+     "email_from": "", "create_date": "2026-02-01", "tag_ids": [10]},
+    # Sin empresa en absoluto -> "Sin empresa", último en el orden.
+    {"id": 4, "type": "lead", "active": True, "name": "Lead Cuatro", "partner_id": False,
+     "partner_name": False, "contact_name": "", "user_id": False,
+     "email_from": "", "create_date": "2026-02-05", "tag_ids": []},
+    # Lead perdido (active=False) -- excluido del universo.
+    {"id": 5, "type": "lead", "active": False, "name": "Lead Perdido", "partner_id": [300, "Empresa Alfa"],
+     "partner_name": False, "contact_name": "", "user_id": [50, "Vendedor A"],
+     "email_from": "", "create_date": "2026-01-01", "tag_ids": [10]},
+    # Convertido (type=opportunity) -- nunca debe colarse en Leads.
+    {"id": 6, "type": "opportunity", "active": True, "name": "Opp Convertida", "partner_id": [300, "Empresa Alfa"],
+     "partner_name": False, "contact_name": "", "user_id": [50, "Vendedor A"], "stage_id": 2,
+     "email_from": "", "create_date": "2026-01-20", "tag_ids": [10], "probability": 40},
+    # Prospecto (opportunity, etapa 0) -- tampoco debe colarse en Leads.
+    {"id": 7, "type": "opportunity", "active": True, "name": "Prospecto Opp", "partner_id": [300, "Empresa Alfa"],
+     "partner_name": False, "contact_name": "", "user_id": [50, "Vendedor A"], "stage_id": 1,
+     "email_from": "", "create_date": "2026-01-22", "tag_ids": [10], "probability": 5},
+]
+
+
+def _leads_client(**kwargs):
+    return FakeOdooClient(stages=LEADS_STAGES, tags=LEADS_TAGS, leads=LEADS_RAW, **kwargs)
+
+
+def test_leads_universe_is_type_lead_active_only():
+    # El oráculo: nunca type=opportunity (ni convertida ni prospecto), nunca
+    # un lead perdido (active=False).
+    svc_module.clear_cache()
+    data = CommercialService(_leads_client()).get_leads("todos")
+    all_lead_names = {l["lead"] for c in data["companies"] for l in c["leads"]}
+    assert all_lead_names == {"Lead Uno", "Lead Dos", "Lead Tres", "Lead Cuatro"}
+    assert "Opp Convertida" not in all_lead_names
+    assert "Prospecto Opp" not in all_lead_names
+    assert "Lead Perdido" not in all_lead_names
+    svc_module.clear_cache()
+
+
+def test_leads_grouped_by_company_sin_empresa_always_last():
+    svc_module.clear_cache()
+    data = CommercialService(_leads_client()).get_leads("todos")
+    names = [c["name"] for c in data["companies"]]
+    assert names == ["Empresa Alfa", "Empresa Beta", "Sin empresa"]
+    alfa = next(c for c in data["companies"] if c["name"] == "Empresa Alfa")
+    assert {l["lead"] for l in alfa["leads"]} == {"Lead Uno", "Lead Dos"}
+    assert data["total_companies"] == 3
+    assert data["total_leads"] == 4
+    svc_module.clear_cache()
+
+
+def test_leads_row_has_no_dead_fields():
+    # El legacy pide phone/stage/revenue/priority pero NUNCA los imprime
+    # (`renderLeadsTable`) — mismo criterio "sin dead fields" que Perdidas/
+    # Historial: acá ni se piden.
+    svc_module.clear_cache()
+    data = CommercialService(_leads_client()).get_leads("todos")
+    alfa = next(c for c in data["companies"] if c["name"] == "Empresa Alfa")
+    row = next(l for l in alfa["leads"] if l["lead"] == "Lead Uno")
+    assert set(row.keys()) == {"lead", "contact", "seller", "email", "create_date"}
+    assert row["contact"] == "Juan Perez" and row["seller"] == "Vendedor A"
+    assert row["email"] == "juan@alfa.com" and row["create_date"] == "2026-01-10"
+    svc_module.clear_cache()
+
+
+def test_leads_partitions_by_tipo_filtering_rows_and_dropping_empty_companies():
+    svc_module.clear_cache()
+    client = _leads_client()
+    service = CommercialService(client)
+    nn = service.get_leads("nn")
+    bi = service.get_leads("bi")
+    nn_names = {(c["name"], l["lead"]) for c in nn["companies"] for l in c["leads"]}
+    assert nn_names == {("Empresa Alfa", "Lead Uno"), ("Empresa Beta", "Lead Tres")}
+    bi_names = {(c["name"], l["lead"]) for c in bi["companies"] for l in c["leads"]}
+    assert bi_names == {("Empresa Alfa", "Lead Dos")}
+    # "Sin empresa" (Lead Cuatro, sin tags) desaparece de NN y BI: cero
+    # leads propios matchean ningún tag.
+    assert not any(c["name"] == "Sin empresa" for c in nn["companies"])
+    assert not any(c["name"] == "Sin empresa" for c in bi["companies"])
+    calls_after_todos = len(client.calls)
+    service.get_leads("nn")
+    service.get_leads("bi")
+    assert len(client.calls) == calls_after_todos
+    svc_module.clear_cache()
+
+
+def test_leads_never_writes_and_reads_only_known_models():
+    block = _COMMERCIAL_SERVICE_PY_SRC.split("def _build_leads(", 1)[1].split("\n    def get_leads", 1)[0]
+    for banned in (".create(", ".write(", ".unlink(", "execute_kw"):
+        assert banned not in block, banned
+    assert '"crm.lead"' in block
+
+
+def test_leads_invalid_tipo_falls_back_to_todos():
+    svc_module.clear_cache()
+    data = CommercialService(_leads_client()).get_leads("not-a-real-tipo")
+    assert data["total_companies"] == 3
+    svc_module.clear_cache()
+
+
+def test_leads_configuration_and_transport_errors():
+    svc_module.clear_cache()
+    client = _leads_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_leads("todos")
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+    unconfigured = _leads_client(configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_leads("todos")
+    svc_module.clear_cache()
+
+
+# ============================================================================
+# Bucket 2 — Clientes / Ex Clientes (`get_clients`/`get_ex_clients`).
+# "Cliente" es una property de `res.partner` ("Es Cliente?" = "Si"/"Ex"),
+# NUNCA derivada de crm.lead. Contactos se colapsan a su empresa vía
+# `commercial_partner_id`. Identidad por `id`, nunca por nombre de
+# display — dos partners homónimos quedan distintos.
+# ============================================================================
+
+def _cliente_prop(value):
+    return {"string": "Es Cliente?", "name": "x_es_cliente", "value": value,
+            "selection": [["si_val", "Si"], ["ex_val", "Ex"], ["no_val", "No"]]}
+
+
+CLI_STAGES = [
+    {"id": 1, "name": "0 Prospección"},
+    {"id": 2, "name": "1 Contacto"},
+    {"id": 3, "name": "5 Negociación"},
+]
+CLI_TAGS = [{"id": 10, "name": "New Names"}, {"id": 11, "name": "Base Instalada"}]
+
+CLI_PARTNERS = [
+    {"id": 100, "name": "Cliente Uno SA", "properties": [_cliente_prop("si_val")]},
+    {"id": 101, "name": "Cliente Dos SA", "properties": [_cliente_prop("si_val")]},
+    # Contacto (persona) de la empresa 100 -- se colapsa a ella, nunca
+    # aparece como fila propia.
+    {"id": 102, "name": "Juan Contacto", "properties": [], "commercial_partner_id": 100},
+    {"id": 103, "name": "Ex Cliente Tres SA", "properties": [_cliente_prop("ex_val")]},
+    # "No" -- nunca en ninguna de las dos listas.
+    {"id": 104, "name": "No Cliente Cuatro SA", "properties": [_cliente_prop("no_val")]},
+    # Cliente "Si" SIN ninguna oportunidad -- debe aparecer igual (0/0).
+    {"id": 105, "name": "Cliente Sin Oportunidades SA", "properties": [_cliente_prop("si_val")]},
+    # Dos partners con el MISMO nombre de display, IDs distintos --
+    # deben quedar DISTINTOS en el resultado.
+    {"id": 106, "name": "Cliente Homónimo SA", "properties": [_cliente_prop("si_val")]},
+    {"id": 107, "name": "Cliente Homónimo SA", "properties": [_cliente_prop("si_val")]},
+]
+
+CLI_LEADS = [
+    # 1) Empresa 100, activa (etapa 1-8), licencias=Si, NN.
+    {"id": 1, "type": "opportunity", "active": True, "name": "Opp Uno", "partner_id": [100, "Cliente Uno SA"],
+     "user_id": [50, "Vendedor A"], "stage_id": 2, "tag_ids": [10], "probability": 40,
+     "lead_properties": [_prop_horas(10), _prop_selection("Licencias", "si", [["si", "Si"], ["no", "No"]])]},
+    # 2) Contacto 102 (de la empresa 100), PROSPECTO -- colapsa a 100.
+    {"id": 2, "type": "opportunity", "active": True, "name": "Opp Dos Contacto", "partner_id": [102, "Juan Contacto"],
+     "user_id": [50, "Vendedor A"], "stage_id": 1, "tag_ids": [10], "probability": 10, "lead_properties": []},
+    # 3) Empresa 101, activa, BI, SIN licencias.
+    {"id": 3, "type": "opportunity", "active": True, "name": "Opp Tres", "partner_id": [101, "Cliente Dos SA"],
+     "user_id": [51, "Vendedor B"], "stage_id": 3, "tag_ids": [11], "probability": 60, "lead_properties": []},
+    # 4) Ex Cliente 103, activa -- NUNCA en Clientes.
+    {"id": 4, "type": "opportunity", "active": True, "name": "Opp Cuatro Ex", "partner_id": [103, "Ex Cliente Tres SA"],
+     "user_id": [50, "Vendedor A"], "stage_id": 2, "tag_ids": [10], "probability": 30, "lead_properties": []},
+    # 5) "No Cliente" 104 -- NUNCA en ninguna de las dos listas.
+    {"id": 5, "type": "opportunity", "active": True, "name": "Opp Cinco NoCliente", "partner_id": [104, "No Cliente Cuatro SA"],
+     "user_id": [50, "Vendedor A"], "stage_id": 2, "tag_ids": [10], "probability": 20, "lead_properties": []},
+    # 6) Ex Cliente 103, PERDIDA (active=False) -- SOLO historial de Ex Clientes.
+    {"id": 6, "type": "opportunity", "active": False, "name": "Opp Seis Ex Perdida", "partner_id": [103, "Ex Cliente Tres SA"],
+     "user_id": [51, "Vendedor B"], "stage_id": 2, "tag_ids": [10], "probability": 0, "lead_properties": []},
+    # 7/8) Dos homónimos DISTINTOS, cada uno con su propia oportunidad.
+    {"id": 7, "type": "opportunity", "active": True, "name": "Opp Siete Homonimo A", "partner_id": [106, "Cliente Homónimo SA"],
+     "user_id": [50, "Vendedor A"], "stage_id": 2, "tag_ids": [10], "probability": 25, "lead_properties": []},
+    {"id": 8, "type": "opportunity", "active": True, "name": "Opp Ocho Homonimo B", "partner_id": [107, "Cliente Homónimo SA"],
+     "user_id": [51, "Vendedor B"], "stage_id": 1, "tag_ids": [11], "probability": 15, "lead_properties": []},
+]
+
+
+def _clients_client(**kwargs):
+    return FakeOdooClient(stages=CLI_STAGES, tags=CLI_TAGS, leads=CLI_LEADS, partners=CLI_PARTNERS, **kwargs)
+
+
+def test_clients_universe_is_partners_flagged_si_never_ex_or_no():
+    svc_module.clear_cache()
+    data = CommercialService(_clients_client()).get_clients("todos")
+    ids = {c["id"] for c in data["clients"]}
+    assert ids == {100, 101, 105, 106, 107}
+    assert 103 not in ids  # Ex Cliente
+    assert 104 not in ids  # No Cliente
+    assert 102 not in ids  # contacto -- nunca fila propia
+    svc_module.clear_cache()
+
+
+def test_clients_child_contact_collapses_into_parent_company():
+    svc_module.clear_cache()
+    data = CommercialService(_clients_client()).get_clients("todos")
+    cliente_uno = next(c for c in data["clients"] if c["id"] == 100)
+    assert {o["opportunity"] for o in cliente_uno["active"]} == {"Opp Uno"}
+    assert {o["opportunity"] for o in cliente_uno["prospects"]} == {"Opp Dos Contacto"}
+    svc_module.clear_cache()
+
+
+def test_clients_same_display_name_distinct_ids_stay_distinct():
+    svc_module.clear_cache()
+    data = CommercialService(_clients_client()).get_clients("todos")
+    homonimos = [c for c in data["clients"] if c["name"] == "Cliente Homónimo SA"]
+    assert len(homonimos) == 2
+    assert {c["id"] for c in homonimos} == {106, 107}
+    ids_to_opps = {c["id"]: {o["opportunity"] for o in c["active"] + c["prospects"]} for c in homonimos}
+    assert ids_to_opps[106] == {"Opp Siete Homonimo A"}
+    assert ids_to_opps[107] == {"Opp Ocho Homonimo B"}
+    svc_module.clear_cache()
+
+
+def test_clients_with_zero_open_opportunities_still_appear():
+    svc_module.clear_cache()
+    data = CommercialService(_clients_client()).get_clients("todos")
+    sin_opps = next(c for c in data["clients"] if c["id"] == 105)
+    assert sin_opps["active"] == [] and sin_opps["prospects"] == []
+    svc_module.clear_cache()
+
+
+def test_clients_sorted_by_active_then_prospect_count_then_name():
+    svc_module.clear_cache()
+    data = CommercialService(_clients_client()).get_clients("todos")
+    order = [c["id"] for c in data["clients"]]
+    assert order == [100, 101, 106, 107, 105]
+    svc_module.clear_cache()
+
+
+def test_clients_has_licencias_and_sellers_aggregate_correctly():
+    svc_module.clear_cache()
+    data = CommercialService(_clients_client()).get_clients("todos")
+    cliente_uno = next(c for c in data["clients"] if c["id"] == 100)
+    assert cliente_uno["has_licencias"] is True
+    assert cliente_uno["sellers"] == ["Vendedor A"]
+    cliente_dos = next(c for c in data["clients"] if c["id"] == 101)
+    assert cliente_dos["has_licencias"] is False
+    svc_module.clear_cache()
+
+
+def test_clients_tipo_does_not_scope_when_cliente_property_resolves():
+    # Owner §13 (PROBADO, no inventado): "Cliente" es una clasificación a
+    # nivel EMPRESA, independiente del segmento NN/BI de sus oportunidades
+    # -- `tag_id` está literalmente sin usar en el legacy `get_clients`
+    # cuando la property resuelve. todos/nn/bi devuelven el MISMO universo.
+    svc_module.clear_cache()
+    service = CommercialService(_clients_client())
+    todos = service.get_clients("todos")
+    nn = service.get_clients("nn")
+    bi = service.get_clients("bi")
+    assert todos == nn == bi
+    svc_module.clear_cache()
+
+
+def test_clients_falls_back_to_all_active_opportunities_when_property_missing():
+    # Sin la property "Es Cliente?" configurada (`_partner_ids_by_cliente_value`
+    # devuelve None, no []): universo = TODAS las oportunidades activas,
+    # MISMO criterio fail-soft que el resto de Comercial -- nunca una lista
+    # vacía disfrazada de "sin clientes". Acá SÍ aplica Tipo (única forma de
+    # scopear sin la property).
+    svc_module.clear_cache()
+    client = FakeOdooClient(stages=CLI_STAGES, tags=CLI_TAGS, leads=CLI_LEADS, partners=[])  # sin partners -> property no resuelve
+    data = CommercialService(client).get_clients("todos")
+    ids = {c["id"] for c in data["clients"]}
+    # Con el fallback entran TODOS los partners con alguna oportunidad
+    # activa, incluidos 103 (Ex) y 104 (No) -- ya no hay property que los
+    # discrimine. Y 102 (el contacto) aparece como fila PROPIA: sin
+    # `cliente_ids` no hay un conjunto de empresas del que expandir
+    # contactos, así que el colapso a la empresa padre tampoco aplica acá
+    # -- comportamiento DISTINTO del camino primario, y correcto: el
+    # fallback es "toda oportunidad activa", literal.
+    assert ids == {100, 101, 102, 103, 104, 106, 107}
+    nn = CommercialService(client).get_clients("nn")
+    nn_ids = {c["id"] for c in nn["clients"]}
+    assert nn_ids == {100, 102, 103, 104, 106}  # sólo los que tienen alguna opp con tag NN (10)
+    svc_module.clear_cache()
+
+
+def test_clients_never_writes_and_reads_only_known_models():
+    block = _COMMERCIAL_SERVICE_PY_SRC.split("def _build_clients(", 1)[1].split("\n    def get_clients", 1)[0]
+    for banned in (".create(", ".write(", ".unlink(", "execute_kw"):
+        assert banned not in block, banned
+    for model in ('"res.partner"', '"crm.lead"'):
+        assert model in block, model
+
+
+def test_clients_invalid_tipo_falls_back_to_todos():
+    svc_module.clear_cache()
+    data = CommercialService(_clients_client()).get_clients("not-a-real-tipo")
+    assert data["total"] == 5
+    svc_module.clear_cache()
+
+
+def test_clients_configuration_and_transport_errors():
+    svc_module.clear_cache()
+    client = _clients_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_clients("todos")
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+    unconfigured = _clients_client(configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_clients("todos")
+    svc_module.clear_cache()
+
+
+# ── Ex Clientes ──────────────────────────────────────────────────────────
+
+def test_ex_clients_universe_is_partners_flagged_ex_never_si_or_no():
+    svc_module.clear_cache()
+    data = CommercialService(_clients_client()).get_ex_clients("todos")
+    ids = {c["id"] for c in data["clients"]}
+    assert ids == {103}
+    svc_module.clear_cache()
+
+
+def test_ex_clients_includes_history_bucket_of_inactive_opportunities():
+    # DIFERENCIA con Clientes: acá SÍ entran las oportunidades inactivas
+    # (ganadas/perdidas), en un bucket "history" propio.
+    svc_module.clear_cache()
+    data = CommercialService(_clients_client()).get_ex_clients("todos")
+    tres = next(c for c in data["clients"] if c["id"] == 103)
+    assert {o["opportunity"] for o in tres["active"]} == {"Opp Cuatro Ex"}
+    assert {o["opportunity"] for o in tres["history"]} == {"Opp Seis Ex Perdida"}
+    svc_module.clear_cache()
+
+
+def test_ex_clients_sorted_alphabetically_never_by_opportunity_count():
+    svc_module.clear_cache()
+    fn = _COMMERCIAL_SERVICE_PY_SRC.split("def _build_ex_clients(", 1)[1].split("\n    def get_ex_clients", 1)[0]
+    assert 'result.sort(key=lambda c: c["name"].lower())' in fn
+    svc_module.clear_cache()
+
+
+def test_ex_clients_no_fallback_when_property_missing_empty_not_full_universe():
+    # A diferencia de Clientes: sin la property no hay forma de saber
+    # quién es "Ex" -- universo VACÍO, nunca la lista completa de
+    # oportunidades activas mal etiquetada como "ex clientes".
+    svc_module.clear_cache()
+    client = FakeOdooClient(stages=CLI_STAGES, tags=CLI_TAGS, leads=CLI_LEADS, partners=[])
+    data = CommercialService(client).get_ex_clients("todos")
+    assert data["clients"] == [] and data["total"] == 0
+    svc_module.clear_cache()
+
+
+def test_ex_clients_never_writes_and_reads_only_known_models():
+    block = _COMMERCIAL_SERVICE_PY_SRC.split("def _build_ex_clients(", 1)[1].split("\n    def get_ex_clients", 1)[0]
+    for banned in (".create(", ".write(", ".unlink(", "execute_kw"):
+        assert banned not in block, banned
+    for model in ('"res.partner"', '"crm.lead"'):
+        assert model in block, model
+
+
+def test_ex_clients_configuration_and_transport_errors():
+    svc_module.clear_cache()
+    client = _clients_client()
+    client.raise_on("crm.lead", stage="execute")
+    with pytest.raises(CommercialDataError) as excinfo:
+        CommercialService(client).get_ex_clients("todos")
+    assert excinfo.value.stage == "execute"
+    svc_module.clear_cache()
+    unconfigured = _clients_client(configured=False)
+    with pytest.raises(CommercialConfigurationError):
+        CommercialService(unconfigured).get_ex_clients("todos")
+    svc_module.clear_cache()

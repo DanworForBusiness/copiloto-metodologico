@@ -18,12 +18,18 @@ from webapp.services.odoo_client import OdooTransportError
 
 class FakeOdooClient:
     def __init__(self, *, stages, tags, leads, lost_reasons=None, activities=None,
-                 messages=None, tracking=None, configured=True):
+                 messages=None, tracking=None, configured=True, partners=None):
         self.stages = stages
         self.tags = tags
         self.leads = leads
         self.lost_reasons = lost_reasons or []
         self.activities = activities or []
+        # `res.partner` (Bucket 2 — Clientes/Ex Clientes, ver HANDOFF): la
+        # property "Es Cliente?" vive en ESTE modelo, no en `crm.lead`.
+        # Cada dict: {"id", "name", "properties": [...], "commercial_partner_id": int|None}
+        # — `commercial_partner_id` ausente/None = es su propia empresa
+        # (no es un contacto hijo de otro partner).
+        self.partners = partners or []
         # Historial de cambios de campo (`mail.message` + `mail.tracking.value`):
         # es lo que Odoo usa para saber CUÁNDO una oportunidad cambió de
         # etapa o dejó de ser lead. Sin esto no se pueden probar tiempo por
@@ -74,6 +80,9 @@ class FakeOdooClient:
         if model == "crm.lead":
             matched = [lead for lead in self.leads if self._matches(lead, domain)]
             return [self._project(lead, fields) for lead in matched]
+        if model == "res.partner":
+            matched = [p for p in self.partners if self._matches_partner(p, domain)]
+            return [self._project_partner(p, fields) for p in matched]
         if model == "mail.message":
             matched = []
             for msg in self.messages:
@@ -149,6 +158,14 @@ class FakeOdooClient:
                 ok = lead.get("stage_id") in value
             elif field == "id" and op == "in":
                 ok = lead.get("id") in value
+            elif field == "partner_id" and op == "in":
+                # Bucket 2 — Clientes/Ex Clientes (ver HANDOFF): PRIMER
+                # consumidor que filtra `crm.lead` por `partner_id` (antes
+                # sólo se LEÍA, nunca se domain-filtraba). `partner_id` en
+                # el fixture crudo es `[id, name]` (MISMA convención que
+                # el resto de esta clase) — el dominio compara sólo el id.
+                raw = lead.get("partner_id")
+                ok = bool(raw) and raw[0] in value
             elif op == "in":
                 # `["active", "in", [True, False]]` es la forma real de pedirle
                 # a Odoo "traeme archivados TAMBIÉN" (la usa el join de
@@ -201,4 +218,29 @@ class FakeOdooClient:
                 base["stage_id"] = [lead["stage_id"], stage["name"]] if stage else False
             else:
                 base[f] = lead.get(f, False)
+        return base
+
+    def _matches_partner(self, partner: dict, domain: list) -> bool:
+        for field, op, value in domain:
+            if field == "commercial_partner_id" and op == "in":
+                cpid = partner.get("commercial_partner_id")
+                ok = cpid is not None and cpid in value
+            elif field == "id" and op == "in":
+                ok = partner.get("id") in value
+            elif field == "id" and op == "not in":
+                ok = partner.get("id") not in value
+            else:
+                raise AssertionError(f"unsupported {op!r} on res.partner field {field!r}")
+            if not ok:
+                return False
+        return True
+
+    def _project_partner(self, partner: dict, fields: list | None) -> dict:
+        base = {"id": partner["id"]}
+        for f in (fields or []):
+            if f == "commercial_partner_id":
+                cpid = partner.get("commercial_partner_id")
+                base[f] = [cpid, ""] if cpid is not None else False
+            else:
+                base[f] = partner.get(f, False)
         return base

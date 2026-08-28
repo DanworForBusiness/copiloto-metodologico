@@ -37,18 +37,20 @@
 // `data-breakdown` va sobre la SECCIÓN entera, así que el análisis no ocupa
 // espacio hasta que se lo acciona y desaparece completo al cerrarlo.
 
-// Capacidades IMPLEMENTADAS del workspace. Bucket 1 (ver HANDOFF) suma las
+// Capacidades IMPLEMENTADAS del workspace. Bucket 1 (ver HANDOFF) sumó las
 // TRES primeras tabs de tabla legacy — Licencias/Historial Perdidas/Detalle
-// Oportunidades. Deliberadamente NO se listan las que todavía no tienen
-// funcionalidad detrás (Clientes, Leads, Mis Tareas — próxima(s)
-// iteración(es)): una tab muerta es una promesa rota, se agregan cuando
-// exista contenido real.
+// Oportunidades. Bucket 2 suma Clientes (con su sub-tab Ex Clientes, ver
+// `commercialClientesHtml`) y Leads. Deliberadamente NO se lista Mis Tareas
+// (próxima iteración, semántica propia de usuario/escritura): una tab
+// muerta es una promesa rota, se agregan cuando exista contenido real.
 const COMMERCIAL_CAPABILITIES = [
   { id: "dashboard", label: "Dashboard" },
   { id: "actividades", label: "Actividades" },
   { id: "licencias", label: "Licencias" },
   { id: "historial-perdidas", label: "Historial Perdidas" },
   { id: "detalle", label: "Detalle Oportunidades" },
+  { id: "clientes", label: "Clientes" },
+  { id: "leads", label: "Leads" },
 ];
 
 const commercialState = {
@@ -198,6 +200,35 @@ const commercialState = {
   histMotivoFilter: "",
   histSortKey: null,
   histSortDir: 1,
+  // Bucket 2 — Leads (ver HANDOFF): universo propio (`type=lead`), LAZY,
+  // endpoint propio. `leadsExpanded` — MISMO patrón que
+  // `creadasExpandedMonths` (array de claves de empresa abiertas).
+  leads: null,
+  leadsStatus: "idle", // idle | loading | ready | error
+  leadsErrorState: "",
+  leadsExpanded: [],
+  leadsSearchText: "",
+  leadsSortKey: null,
+  leadsSortDir: 1,
+  // Bucket 2 — Clientes / Ex Clientes (ver HANDOFF): DOS datasets/estados
+  // separados (universos distintos), un sub-tab LOCAL (`clientesSubTab`,
+  // nunca una capability propia) que decide cuál se ve. Ex Clientes es
+  // LAZY DENTRO de Clientes — se pide recién al abrir ese sub-tab.
+  clients: null,
+  clientsStatus: "idle",
+  clientsErrorState: "",
+  clientesSubTab: "clientes", // "clientes" | "ex-clientes"
+  clientesExpanded: [],
+  clientesSearchText: "",
+  clientesSellerFilter: "",
+  clientesStatusFilter: "all", // all | active | prospect | none
+  clientesSortKey: null,
+  clientesSortDir: 1,
+  exClients: null,
+  exClientsStatus: "idle",
+  exClientsErrorState: "",
+  exClientesSearchText: "",
+  exClientesSellerFilter: "",
   // Filtros LOCALES de Actividades — client-side sobre el dataset ya
   // cargado, nunca un round-trip (ver commercialFilteredActivities).
   actPeriod: "all", // all | week:0 | week:1 | week:2
@@ -3486,6 +3517,406 @@ function commercialHistorialPerdidasHtml() {
     + `</div>`;
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Bucket 2 (ver HANDOFF) — Leads / Clientes / Ex Clientes.
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Leads (ver HANDOFF §8-11) ─────────────────────────────────────────────
+// Universo propio (`type=lead`) — NUNCA se confunde con Prospectos/
+// Detalle/Licencias (esos son `type=opportunity`). Agrupado por empresa,
+// fila expandible — MISMO mecanismo que Creadas (`creadasExpandedMonths`:
+// array de claves abiertas, toggle por índice, re-render de panel
+// completo — nunca un `<details>` nuevo ni un segundo motor de expandir).
+function commercialLeadsAllCompanies() {
+  return (commercialState.leads && commercialState.leads.companies) || [];
+}
+function commercialLeadsFilteredCompanies() {
+  const all = commercialLeadsAllCompanies();
+  const search = (commercialState.leadsSearchText || "").toLowerCase().trim();
+  if (!search) return all;
+  return all.filter(c =>
+    commercialEsc(c.name).toLowerCase().includes(search) || (c.name || "").toLowerCase().includes(search)
+    || c.leads.some(l => (l.lead || "").toLowerCase().includes(search) || (l.contact || "").toLowerCase().includes(search)));
+}
+function commercialLeadsClearFilters() {
+  commercialState.leadsSearchText = "";
+  commercialRenderCapability();
+}
+function commercialToggleLeadsSort(key) {
+  if (commercialState.leadsSortKey === key) commercialState.leadsSortDir *= -1;
+  else { commercialState.leadsSortKey = key; commercialState.leadsSortDir = 1; }
+}
+const COMMERCIAL_LEADS_SORT_KEYS = {
+  name: c => (c.name || "").toLowerCase(),
+  count: c => c.leads.length,
+};
+function commercialLeadsFiltersHtml() {
+  return `<div class="whatsnew-filters" data-commercial-leads-filters>
+      <label class="whatsnew-filter">
+        <span>Buscar</span>
+        <input type="search" data-commercial-leads-search aria-label="Buscar empresa o lead"
+          placeholder="Buscar…" value="${commercialEsc(commercialState.leadsSearchText)}">
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-leads-clear>✕ Limpiar</button>
+    </div>`;
+}
+function commercialLeadsTableHtml(companies) {
+  if (!companies.length) return commercialEmptyStateHtml("Sin resultados", "Ninguna empresa/lead coincide con este filtro.");
+  const keyFn = commercialState.leadsSortKey && COMMERCIAL_LEADS_SORT_KEYS[commercialState.leadsSortKey];
+  const dir = commercialState.leadsSortDir;
+  const sorted = keyFn ? [...companies].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  }) : companies;
+  const th = (key, label, cls = "") => {
+    const active = commercialState.leadsSortKey === key;
+    const arrow = active ? (commercialState.leadsSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-leads-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rows = sorted.map(c => {
+    const key = `${c.id}_${c.name}`;
+    const isOpen = commercialState.leadsExpanded.indexOf(key) !== -1;
+    const chevron = isOpen ? "▼" : "▶";
+    const inner = isOpen ? `
+      <tr class="is-total">
+        <td></td>
+        <td colspan="2">
+          <div class="matrix-scroll"><table class="dashboard-table commercial-leads-inner">
+            <thead><tr>
+              <th class="row-label-col">Lead</th><th class="left">Nombre y Apellido</th>
+              <th class="left">Email</th><th class="left">Vendedor</th><th>Fecha</th>
+            </tr></thead>
+            <tbody>${c.leads.map(l => `
+              <tr>
+                <td class="row-label">${commercialEsc(l.lead)}</td>
+                <td class="left">${commercialEsc(l.contact) || "—"}</td>
+                <td class="left">${l.email ? `<a href="mailto:${commercialEsc(l.email)}">${commercialEsc(l.email)}</a>` : "—"}</td>
+                <td class="left">${commercialEsc(l.seller) || "—"}</td>
+                <td>${l.create_date ? commercialEsc(commercialFmtDate(l.create_date)) : "—"}</td>
+              </tr>`).join("")}
+            </tbody>
+          </table></div>
+        </td>
+      </tr>` : "";
+    return `
+    <tr class="commercial-leads-company-row" data-commercial-leads-toggle="${commercialEsc(key)}" role="button" tabindex="0">
+      <td class="commercial-leads-chevron">${chevron}</td>
+      <td class="row-label">${commercialEsc(c.name)}</td>
+      <td>${commercialFmtInt(c.leads.length)}</td>
+    </tr>${inner}`;
+  }).join("");
+  return `<div class="matrix-scroll"><table class="dashboard-table">
+    <colgroup><col style="width:4%"><col style="width:70%"><col style="width:26%"></colgroup>
+    <thead><tr>
+      <th></th>
+      ${th("name", "Empresa", "row-label-col")}
+      ${th("count", "Leads")}
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+function commercialLeadsStatsHtml() {
+  const data = commercialState.leads;
+  if (!data) return "";
+  const noCompany = (data.companies || []).filter(c => c.name === "Sin empresa")
+    .reduce((s, c) => s + c.leads.length, 0);
+  return `<div class="activity-kpi-grid commercial-lc-kpis">
+      ${commercialKpi("Total leads", commercialFmtInt(data.total_leads))}
+      ${commercialKpi("Empresas", commercialFmtInt(data.total_companies))}
+      ${commercialKpi("Sin empresa", commercialFmtInt(noCompany))}
+    </div>`;
+}
+function commercialLeadsHtml() {
+  if (commercialState.leadsStatus === "loading") {
+    return commercialLoadingHtml("Cargando leads…");
+  }
+  if (commercialState.leadsStatus === "error") {
+    const configIncomplete = commercialState.leadsErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar los leads desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("leads", "Reintentar la carga de leads"));
+  }
+  const rows = commercialLeadsFilteredCompanies();
+  return `<div class="commercial-bucket1-panel">`
+    + commercialLeadsFiltersHtml()
+    + commercialLeadsStatsHtml()
+    + `<div data-commercial-leads-table>${commercialLeadsTableHtml(rows)}</div>`
+    + `</div>`;
+}
+
+// ── Clientes / Ex Clientes (ver HANDOFF §4-7) ────────────────────────────
+// Sub-tab LOCAL (`clientesSubTab`), MISMO patrón visual que el legacy
+// `switchClientesSubTab` — no es una capability nueva, así que no ocupa
+// una entrada propia en la nav. Ex Clientes es LAZY DENTRO de Clientes:
+// se pide la primera vez que se abre ese sub-tab, nunca junto con
+// Clientes (MISMO criterio "primer open -> una request" que el resto de
+// Comercial).
+function commercialClientesAllRows() {
+  return (commercialState.clients && commercialState.clients.clients) || [];
+}
+function commercialClientesFilteredRows() {
+  const all = commercialClientesAllRows();
+  const { clientesSellerFilter: fSeller, clientesStatusFilter: fStatus } = commercialState;
+  const search = (commercialState.clientesSearchText || "").toLowerCase().trim();
+  return all.filter(c => {
+    if (search && !(c.name || "").toLowerCase().includes(search)) return false;
+    if (fSeller && (c.sellers || []).indexOf(fSeller) === -1) return false;
+    if (fStatus === "active" && c.active.length === 0) return false;
+    if (fStatus === "prospect" && (c.prospects.length === 0 || c.active.length > 0)) return false;
+    if (fStatus === "none" && (c.active.length > 0 || c.prospects.length > 0)) return false;
+    return true;
+  });
+}
+function commercialToggleClientesSort(key) {
+  if (commercialState.clientesSortKey === key) commercialState.clientesSortDir *= -1;
+  else { commercialState.clientesSortKey = key; commercialState.clientesSortDir = 1; }
+}
+function commercialClientesClearFilters() {
+  commercialState.clientesSearchText = "";
+  commercialState.clientesSellerFilter = "";
+  commercialState.clientesStatusFilter = "all";
+  commercialRenderCapability();
+}
+const COMMERCIAL_CLIENTES_SORT_KEYS = {
+  name: c => (c.name || "").toLowerCase(),
+  seller: c => (c.sellers[0] || "").toLowerCase(),
+  active: c => c.active.length,
+  prospect: c => c.prospects.length,
+};
+function commercialClientesSellerOptions(rows) {
+  return [...new Set(rows.flatMap(c => c.sellers || []))].sort((a, b) => a.localeCompare(b, "es"));
+}
+function commercialClientesFiltersHtml() {
+  const all = commercialClientesAllRows();
+  const sellerOpts = commercialClientesSellerOptions(all).map(s =>
+    `<option value="${commercialEsc(s)}"${commercialState.clientesSellerFilter === s ? " selected" : ""}>${commercialEsc(s)}</option>`).join("");
+  const statusOpt = (value, label) =>
+    `<option value="${value}"${commercialState.clientesStatusFilter === value ? " selected" : ""}>${label}</option>`;
+  return `<div class="whatsnew-filters" data-commercial-clientes-filters>
+      <label class="whatsnew-filter">
+        <span>Buscar</span>
+        <input type="search" data-commercial-clientes-search aria-label="Buscar cliente"
+          placeholder="Buscar…" value="${commercialEsc(commercialState.clientesSearchText)}">
+      </label>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-clientes-seller-filter>
+          <option value=""${commercialState.clientesSellerFilter === "" ? " selected" : ""}>Todos</option>
+          ${sellerOpts}
+        </select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Estado</span>
+        <select data-commercial-clientes-status-filter>
+          ${statusOpt("all", "Todos")}
+          ${statusOpt("active", "Con activas (1–8)")}
+          ${statusOpt("prospect", "Sólo prospectos")}
+          ${statusOpt("none", "Sin oportunidades abiertas")}
+        </select>
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-clientes-clear>✕ Limpiar</button>
+    </div>`;
+}
+function commercialClientesStatsHtml() {
+  const rows = commercialClientesAllRows();
+  const withActive = rows.filter(c => c.active.length > 0).length;
+  const onlyProspect = rows.filter(c => c.active.length === 0 && c.prospects.length > 0).length;
+  return `<div class="activity-kpi-grid commercial-lc-kpis">
+      ${commercialKpi("Total clientes", commercialFmtInt(rows.length))}
+      ${commercialKpi("Con activas (1–8)", commercialFmtInt(withActive))}
+      ${commercialKpi("Sólo prospectos (0)", commercialFmtInt(onlyProspect))}
+    </div>`;
+}
+function commercialClienteOppRowHtml(o) {
+  const prob = o.probability != null ? commercialFmtPercent(o.probability) : "—";
+  const horas = o.hours ? `${commercialFmtInt(o.hours)} hs` : "—";
+  return `
+    <tr>
+      <td class="row-label">${commercialEsc(o.opportunity)}</td>
+      <td class="left">${commercialEsc(o.seller) || "—"}</td>
+      <td class="left">${commercialEsc(o.stage)}</td>
+      <td>${prob} · ${horas}</td>
+    </tr>`;
+}
+function commercialClientesTableHtml(rows) {
+  if (!rows.length) return commercialEmptyStateHtml("Sin resultados", "Ningún cliente coincide con este filtro.");
+  const keyFn = commercialState.clientesSortKey && COMMERCIAL_CLIENTES_SORT_KEYS[commercialState.clientesSortKey];
+  const dir = commercialState.clientesSortDir;
+  const sorted = keyFn ? [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  }) : rows;
+  const th = (key, label, cls = "") => {
+    const active = commercialState.clientesSortKey === key;
+    const arrow = active ? (commercialState.clientesSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-clientes-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const body = sorted.map(c => {
+    const hasOpps = c.active.length > 0 || c.prospects.length > 0;
+    const isOpen = hasOpps && commercialState.clientesExpanded.indexOf(c.id) !== -1;
+    const chevron = !hasOpps ? "" : (isOpen ? "▼" : "▶");
+    const licBadge = c.has_licencias
+      ? `<span class="dashboard-status-badge dashboard-status-badge--grey">Licencias</span>` : "";
+    const rowAttrs = hasOpps
+      ? `data-commercial-clientes-toggle="${c.id}" role="button" tabindex="0" class="commercial-leads-company-row"` : "";
+    let inner = "";
+    if (isOpen) {
+      const activeRows = c.active.length
+        ? `<tr class="is-total"><td colspan="4">Activas — etapas 1–8 (${c.active.length})</td></tr>`
+          + c.active.map(commercialClienteOppRowHtml).join("") : "";
+      const prospectRows = c.prospects.length
+        ? `<tr class="is-total"><td colspan="4">Prospectos — etapa 0 (${c.prospects.length})</td></tr>`
+          + c.prospects.map(commercialClienteOppRowHtml).join("") : "";
+      inner = `
+        <tr class="is-total"><td></td><td colspan="3">
+          <div class="matrix-scroll"><table class="dashboard-table commercial-leads-inner">
+            <thead><tr><th class="row-label-col">Oportunidad</th><th class="left">Vendedor</th>
+              <th class="left">Etapa</th><th>Prob. · Hs</th></tr></thead>
+            <tbody>${activeRows}${prospectRows}</tbody>
+          </table></div>
+        </td></tr>`;
+    }
+    return `
+    <tr ${rowAttrs}>
+      <td class="commercial-leads-chevron">${chevron}</td>
+      <td class="row-label">${commercialEsc(c.name)} ${licBadge}</td>
+      <td class="left">${commercialEsc((c.sellers || []).join(", ")) || "—"}</td>
+      <td>${c.active.length ? commercialFmtInt(c.active.length) : "—"}</td>
+      <td>${c.prospects.length ? commercialFmtInt(c.prospects.length) : "—"}</td>
+    </tr>${inner}`;
+  }).join("");
+  return `<div class="matrix-scroll"><table class="dashboard-table">
+    <colgroup><col style="width:4%"><col style="width:38%"><col style="width:28%">
+      <col style="width:15%"><col style="width:15%"></colgroup>
+    <thead><tr>
+      <th></th>
+      ${th("name", "Cliente", "row-label-col")}
+      ${th("seller", "Vendedor", "left")}
+      ${th("active", "Activas")}
+      ${th("prospect", "Prospectos")}
+    </tr></thead>
+    <tbody>${body}</tbody>
+  </table></div>`;
+}
+function commercialClientesSubPanelHtml() {
+  if (commercialState.clientsStatus === "loading") return commercialLoadingHtml("Cargando clientes…");
+  if (commercialState.clientsStatus === "error") {
+    const configIncomplete = commercialState.clientsErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar los clientes desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("clients", "Reintentar la carga de clientes"));
+  }
+  const rows = commercialClientesFilteredRows();
+  return commercialClientesFiltersHtml() + commercialClientesStatsHtml()
+    + `<div data-commercial-clientes-table>${commercialClientesTableHtml(rows)}</div>`;
+}
+
+// ── Ex Clientes (sub-tab) ─────────────────────────────────────────────────
+function commercialExClientesAllRows() {
+  return (commercialState.exClients && commercialState.exClients.clients) || [];
+}
+function commercialExClientesFilteredRows() {
+  const all = commercialExClientesAllRows();
+  const fSeller = commercialState.exClientesSellerFilter;
+  const search = (commercialState.exClientesSearchText || "").toLowerCase().trim();
+  return all.filter(c => {
+    if (search && !(c.name || "").toLowerCase().includes(search)) return false;
+    if (fSeller && (c.sellers || []).indexOf(fSeller) === -1) return false;
+    return true;
+  });
+}
+function commercialExClientesClearFilters() {
+  commercialState.exClientesSearchText = "";
+  commercialState.exClientesSellerFilter = "";
+  commercialRenderCapability();
+}
+function commercialExClientesStatsHtml() {
+  const rows = commercialExClientesAllRows();
+  const withHistory = rows.filter(c => (c.active.length + c.prospects.length + (c.history || []).length) > 0).length;
+  return `<div class="activity-kpi-grid commercial-lc-kpis">
+      ${commercialKpi("Total ex clientes", commercialFmtInt(rows.length))}
+      ${commercialKpi("Con historial de oportunidades", commercialFmtInt(withHistory))}
+    </div>`;
+}
+function commercialExClientesFiltersHtml() {
+  const all = commercialExClientesAllRows();
+  const sellerOpts = commercialClientesSellerOptions(all).map(s =>
+    `<option value="${commercialEsc(s)}"${commercialState.exClientesSellerFilter === s ? " selected" : ""}>${commercialEsc(s)}</option>`).join("");
+  return `<div class="whatsnew-filters" data-commercial-ex-clientes-filters>
+      <label class="whatsnew-filter">
+        <span>Buscar</span>
+        <input type="search" data-commercial-ex-clientes-search aria-label="Buscar ex cliente"
+          placeholder="Buscar…" value="${commercialEsc(commercialState.exClientesSearchText)}">
+      </label>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-ex-clientes-seller-filter>
+          <option value=""${commercialState.exClientesSellerFilter === "" ? " selected" : ""}>Todos</option>
+          ${sellerOpts}
+        </select>
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-ex-clientes-clear>✕ Limpiar</button>
+    </div>`;
+}
+function commercialExClientesTableHtml(rows) {
+  if (!rows.length) return commercialEmptyStateHtml("Sin resultados", "Ningún ex cliente coincide con este filtro.");
+  const body = rows.map(c => `
+    <tr>
+      <td class="row-label">${commercialEsc(c.name)}</td>
+      <td class="left">${commercialEsc((c.sellers || []).join(", ")) || "—"}</td>
+      <td>${c.active.length ? commercialFmtInt(c.active.length) : "—"}</td>
+      <td>${c.prospects.length ? commercialFmtInt(c.prospects.length) : "—"}</td>
+    </tr>`).join("");
+  return `<div class="matrix-scroll"><table class="dashboard-table">
+    <colgroup><col style="width:40%"><col style="width:30%"><col style="width:15%"><col style="width:15%"></colgroup>
+    <thead><tr>
+      <th class="row-label-col">Cliente</th>
+      <th class="left">Vendedor/es</th>
+      <th>Opps. activas (1–8)</th>
+      <th>Prospectos (0)</th>
+    </tr></thead>
+    <tbody>${body}</tbody>
+  </table></div>`;
+}
+function commercialExClientesSubPanelHtml() {
+  if (commercialState.exClientsStatus === "loading") return commercialLoadingHtml("Cargando ex clientes…");
+  if (commercialState.exClientsStatus === "error") {
+    const configIncomplete = commercialState.exClientsErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar los ex clientes desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("ex-clients", "Reintentar la carga de ex clientes"));
+  }
+  const rows = commercialExClientesFilteredRows();
+  return commercialExClientesFiltersHtml() + commercialExClientesStatsHtml()
+    + `<div data-commercial-ex-clientes-table>${commercialExClientesTableHtml(rows)}</div>`;
+}
+
+function commercialClientesSubTabsHtml() {
+  const tab = (id, label) => `<button type="button" class="${commercialState.clientesSubTab === id ? "is-active" : ""}"
+      data-commercial-clientes-subtab="${id}">${label}</button>`;
+  return `<div class="dashboard-view-switch" role="group" aria-label="Clientes / Ex Clientes">
+      ${tab("clientes", "Clientes")}${tab("ex-clientes", "Ex Clientes")}
+    </div>`;
+}
+function commercialClientesHtml() {
+  const body = commercialState.clientesSubTab === "ex-clientes"
+    ? commercialExClientesSubPanelHtml()
+    : commercialClientesSubPanelHtml();
+  return `<div class="commercial-bucket1-panel">${commercialClientesSubTabsHtml()}${body}</div>`;
+}
+
 // ── Analítica del Pipeline — detalle (ver HANDOFF) ───────────────────────
 // CINCO tiles (Edad del pipeline/Tiempo por etapa/Conversión etapa a etapa/
 // Tiempo de cierre/Estancadas) comparten UN SOLO fetch lazy
@@ -5555,6 +5986,8 @@ function commercialCapabilityHtml() {
     case "licencias": return commercialLicenciasHtml();
     case "historial-perdidas": return commercialHistorialPerdidasHtml();
     case "detalle": return commercialDetalleHtml();
+    case "clientes": return commercialClientesHtml();
+    case "leads": return commercialLeadsHtml();
     default: return commercialDashboardHtml();
   }
 }
@@ -5597,6 +6030,13 @@ function commercialSetCapability(capability) {
     commercialLoadOpportunitiesDetail();
   } else if (capability === "historial-perdidas" && commercialState.lostHistoryStatus === "idle") {
     commercialLoadLostHistory();
+  } else if (capability === "clientes" && commercialState.clientsStatus === "idle") {
+    // Bucket 2 (ver HANDOFF): SOLO Clientes se pide al abrir la
+    // capability — Ex Clientes es lazy DENTRO de este panel, se pide
+    // recién al abrir ese sub-tab (ver `commercialSetClientesSubTab`).
+    commercialLoadClients();
+  } else if (capability === "leads" && commercialState.leadsStatus === "idle") {
+    commercialLoadLeads();
   }
 }
 
@@ -5746,6 +6186,105 @@ async function commercialLoadLostHistory() {
     HubForegroundProgress.fail("commercial");
   }
   commercialRenderCapability();
+}
+
+// ── Bucket 2 — Leads (ver HANDOFF) ───────────────────────────────────────
+async function commercialLoadLeads() {
+  const requestedTipo = commercialState.tipo;
+  commercialState.leadsStatus = "loading";
+  commercialRenderCapability();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(requestedTipo)}`;
+    const resp = await fetch(`/comercial/data/leads?${qs}`).then(r => r.json());
+    if (commercialState.tipo !== requestedTipo) return;
+    if (resp.state === "ok") {
+      commercialState.leads = resp.leads;
+      commercialState.leadsStatus = "ready";
+      commercialState.leadsErrorState = "";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.leadsStatus = "error";
+      commercialState.leadsErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    if (commercialState.tipo !== requestedTipo) return;
+    commercialState.leadsStatus = "error";
+    commercialState.leadsErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderCapability();
+}
+
+// ── Bucket 2 — Clientes ───────────────────────────────────────────────────
+async function commercialLoadClients() {
+  const requestedTipo = commercialState.tipo;
+  commercialState.clientsStatus = "loading";
+  commercialRenderCapability();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(requestedTipo)}`;
+    const resp = await fetch(`/comercial/data/clients?${qs}`).then(r => r.json());
+    if (commercialState.tipo !== requestedTipo) return;
+    if (resp.state === "ok") {
+      commercialState.clients = resp.clients;
+      commercialState.clientsStatus = "ready";
+      commercialState.clientsErrorState = "";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.clientsStatus = "error";
+      commercialState.clientsErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    if (commercialState.tipo !== requestedTipo) return;
+    commercialState.clientsStatus = "error";
+    commercialState.clientsErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderCapability();
+}
+
+// ── Bucket 2 — Ex Clientes (LAZY dentro del sub-tab de Clientes) ─────────
+async function commercialLoadExClients() {
+  const requestedTipo = commercialState.tipo;
+  commercialState.exClientsStatus = "loading";
+  commercialRenderCapability();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(requestedTipo)}`;
+    const resp = await fetch(`/comercial/data/ex-clients?${qs}`).then(r => r.json());
+    if (commercialState.tipo !== requestedTipo) return;
+    if (resp.state === "ok") {
+      commercialState.exClients = resp.ex_clients;
+      commercialState.exClientsStatus = "ready";
+      commercialState.exClientsErrorState = "";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.exClientsStatus = "error";
+      commercialState.exClientsErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    if (commercialState.tipo !== requestedTipo) return;
+    commercialState.exClientsStatus = "error";
+    commercialState.exClientsErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderCapability();
+}
+
+// Sub-tab Clientes/Ex Clientes — MISMO criterio LAZY que el resto: Ex
+// Clientes se pide la PRIMERA vez que se abre ese sub-tab, nunca junto con
+// Clientes. Re-entrar con el dataset ya `ready` no vuelve a pedir nada.
+function commercialSetClientesSubTab(tab) {
+  if (tab === commercialState.clientesSubTab) return;
+  commercialState.clientesSubTab = tab;
+  commercialRenderCapability();
+  if (tab === "ex-clientes" && commercialState.exClientsStatus === "idle") {
+    commercialLoadExClients();
+  }
 }
 
 // ── Forecast — lazy load + render quirúrgico (C6, ver HANDOFF) ──────────────
@@ -6372,6 +6911,24 @@ function commercialSetTipo(tipo) {
   commercialState.histYearFilter = "";
   commercialState.histSellerFilter = "";
   commercialState.histMotivoFilter = "";
+  // Bucket 2 (ver HANDOFF): MISMO criterio — invalida y NO re-pide acá.
+  commercialState.leads = null;
+  commercialState.leadsStatus = "idle";
+  commercialState.leadsErrorState = "";
+  commercialState.leadsExpanded = [];
+  commercialState.leadsSearchText = "";
+  commercialState.clients = null;
+  commercialState.clientsStatus = "idle";
+  commercialState.clientsErrorState = "";
+  commercialState.clientesExpanded = [];
+  commercialState.clientesSearchText = "";
+  commercialState.clientesSellerFilter = "";
+  commercialState.clientesStatusFilter = "all";
+  commercialState.exClients = null;
+  commercialState.exClientsStatus = "idle";
+  commercialState.exClientsErrorState = "";
+  commercialState.exClientesSearchText = "";
+  commercialState.exClientesSellerFilter = "";
   // Forecast (C6, ver HANDOFF): se invalida igual que el resto, y NO se
   // re-pide acá — vuelve a "idle" y lo carga la próxima apertura del
   // desglose, ya con el tipo nuevo. MISMO criterio que Actividades: cero
@@ -6591,6 +7148,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (commercialState.opportunitiesDetailStatus !== "loading") commercialLoadOpportunitiesDetail();
       } else if (retryBtn.dataset.commercialRetry === "lost-history") {
         if (commercialState.lostHistoryStatus !== "loading") commercialLoadLostHistory();
+      } else if (retryBtn.dataset.commercialRetry === "leads") {
+        if (commercialState.leadsStatus !== "loading") commercialLoadLeads();
+      } else if (retryBtn.dataset.commercialRetry === "clients") {
+        if (commercialState.clientsStatus !== "loading") commercialLoadClients();
+      } else if (retryBtn.dataset.commercialRetry === "ex-clients") {
+        if (commercialState.exClientsStatus !== "loading") commercialLoadExClients();
       } else if (commercialState.status !== "loading") {
         commercialLoadData();
       }
@@ -6881,6 +7444,52 @@ document.addEventListener("DOMContentLoaded", () => {
       if (host) host.innerHTML = commercialLostHistoryTableHtml(commercialLostHistoryFilteredRows());
       return;
     }
+    // Bucket 2 — Clientes: sub-tab Clientes/Ex Clientes (ver HANDOFF).
+    const clientesSubtab = event.target.closest("[data-commercial-clientes-subtab]");
+    if (clientesSubtab) { commercialSetClientesSubTab(clientesSubtab.dataset.commercialClientesSubtab); return; }
+    // Leads — fila de empresa: expande/colapsa, MISMO patrón que Creadas
+    // (array de claves abiertas) — re-render QUIRÚRGICO de la tabla.
+    const leadsToggle = event.target.closest("[data-commercial-leads-toggle]");
+    if (leadsToggle) {
+      const key = leadsToggle.dataset.commercialLeadsToggle;
+      const open = commercialState.leadsExpanded;
+      const at = open.indexOf(key);
+      if (at === -1) open.push(key); else open.splice(at, 1);
+      const host = root.querySelector("[data-commercial-leads-table]");
+      if (host) host.innerHTML = commercialLeadsTableHtml(commercialLeadsFilteredCompanies());
+      return;
+    }
+    const leadsClear = event.target.closest("[data-commercial-leads-clear]");
+    if (leadsClear) { commercialLeadsClearFilters(); return; }
+    const leadsSortTh = event.target.closest("[data-commercial-leads-sort]");
+    if (leadsSortTh) {
+      commercialToggleLeadsSort(leadsSortTh.dataset.commercialLeadsSort);
+      const host = root.querySelector("[data-commercial-leads-table]");
+      if (host) host.innerHTML = commercialLeadsTableHtml(commercialLeadsFilteredCompanies());
+      return;
+    }
+    // Clientes — fila de cliente: expande/colapsa. MISMO criterio.
+    const clientesToggle = event.target.closest("[data-commercial-clientes-toggle]");
+    if (clientesToggle) {
+      const id = Number(clientesToggle.dataset.commercialClientesToggle);
+      const open = commercialState.clientesExpanded;
+      const at = open.indexOf(id);
+      if (at === -1) open.push(id); else open.splice(at, 1);
+      const host = root.querySelector("[data-commercial-clientes-table]");
+      if (host) host.innerHTML = commercialClientesTableHtml(commercialClientesFilteredRows());
+      return;
+    }
+    const clientesClear = event.target.closest("[data-commercial-clientes-clear]");
+    if (clientesClear) { commercialClientesClearFilters(); return; }
+    const clientesSortTh = event.target.closest("[data-commercial-clientes-sort]");
+    if (clientesSortTh) {
+      commercialToggleClientesSort(clientesSortTh.dataset.commercialClientesSort);
+      const host = root.querySelector("[data-commercial-clientes-table]");
+      if (host) host.innerHTML = commercialClientesTableHtml(commercialClientesFilteredRows());
+      return;
+    }
+    const exClientesClear = event.target.closest("[data-commercial-ex-clientes-clear]");
+    if (exClientesClear) { commercialExClientesClearFilters(); return; }
     // Analítica del Pipeline — orden de columna de las TRES sub-vistas con
     // tabla (Edad/Tiempo de cierre/Estancadas — Tiempo por etapa/Conversión
     // etapa a etapa son ranking `.bar-row`, sin sort): re-render QUIRÚRGICO
@@ -7173,6 +7782,24 @@ document.addEventListener("DOMContentLoaded", () => {
     const host = root.querySelector("[data-commercial-historial-table]");
     if (host) host.innerHTML = commercialLostHistoryTableHtml(commercialLostHistoryFilteredRows());
   });
+  // Bucket 2 — Clientes: Vendedor/Estado, MISMO criterio.
+  document.addEventListener("change", event => {
+    const sellerSelect = event.target.closest("[data-commercial-clientes-seller-filter]");
+    const statusSelect = event.target.closest("[data-commercial-clientes-status-filter]");
+    if (!sellerSelect && !statusSelect) return;
+    if (sellerSelect) commercialState.clientesSellerFilter = sellerSelect.value;
+    if (statusSelect) commercialState.clientesStatusFilter = statusSelect.value;
+    const host = root.querySelector("[data-commercial-clientes-table]");
+    if (host) host.innerHTML = commercialClientesTableHtml(commercialClientesFilteredRows());
+  });
+  // Bucket 2 — Ex Clientes: Vendedor.
+  document.addEventListener("change", event => {
+    const sellerSelect = event.target.closest("[data-commercial-ex-clientes-seller-filter]");
+    if (!sellerSelect) return;
+    commercialState.exClientesSellerFilter = sellerSelect.value;
+    const host = root.querySelector("[data-commercial-ex-clientes-table]");
+    if (host) host.innerHTML = commercialExClientesTableHtml(commercialExClientesFilteredRows());
+  });
   // Conversión de Leads (owner corrective, ver HANDOFF): las CUATRO
   // facetas de `<select>` (Campaña/Medio/Origen/Vendedor) son filtros
   // LOCALES sobre el payload ya cargado, MISMA composición AND que el
@@ -7345,6 +7972,28 @@ document.addEventListener("DOMContentLoaded", () => {
     commercialState.histSearchText = search.value;
     const host = root.querySelector("[data-commercial-historial-table]");
     if (host) host.innerHTML = commercialLostHistoryTableHtml(commercialLostHistoryFilteredRows());
+  });
+  // Bucket 2 — Buscar de Leads/Clientes/Ex Clientes, MISMO criterio.
+  document.addEventListener("input", event => {
+    const search = event.target.closest("[data-commercial-leads-search]");
+    if (!search) return;
+    commercialState.leadsSearchText = search.value;
+    const host = root.querySelector("[data-commercial-leads-table]");
+    if (host) host.innerHTML = commercialLeadsTableHtml(commercialLeadsFilteredCompanies());
+  });
+  document.addEventListener("input", event => {
+    const search = event.target.closest("[data-commercial-clientes-search]");
+    if (!search) return;
+    commercialState.clientesSearchText = search.value;
+    const host = root.querySelector("[data-commercial-clientes-table]");
+    if (host) host.innerHTML = commercialClientesTableHtml(commercialClientesFilteredRows());
+  });
+  document.addEventListener("input", event => {
+    const search = event.target.closest("[data-commercial-ex-clientes-search]");
+    if (!search) return;
+    commercialState.exClientesSearchText = search.value;
+    const host = root.querySelector("[data-commercial-ex-clientes-table]");
+    if (host) host.innerHTML = commercialExClientesTableHtml(commercialExClientesFilteredRows());
   });
   // Activación por teclado (Enter/Espacio) de un trigger `[data-event]`: el
   // motor compartido cablea su PROPIO `keydown` directo sobre el trigger

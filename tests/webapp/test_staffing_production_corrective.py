@@ -502,7 +502,7 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # PART 15 — route surface unchanged
 # ============================================================================
 
-def test_15_route_surface_still_116():
+def test_15_route_surface_still_119():
     # CI GATE CORRECTIVE (reconciliación de contratos stale, ver HANDOFF):
     # este test se había quedado pinneado en 84 mientras el snapshot real
     # (tests/route_surface.json, la fuente de verdad exhaustiva — ver
@@ -618,6 +618,19 @@ def test_15_route_surface_still_116():
     #     fecha", reusando LITERAL `_resolve_lost_motivos`/
     #     `_filter_excluded_lost` (nunca una segunda definicion de Perdidas).
     #     Ambos LAZY, read-only, mismo contrato fail-soft.
+    #   116 -> 119 (Commercial Table Tabs -- Bucket 2: Clientes/Leads, ver
+    #     HANDOFF): +3 GET.
+    #     `/comercial/data/leads` -- universo `crm.lead type=lead,
+    #     active=True`, agrupado por empresa -- NUNCA type=opportunity
+    #     (un lead convertido cambia de tipo y desaparece solo de aca).
+    #     `/comercial/data/clients` -- partners con la property de
+    #     res.partner "Es Cliente?" = "Si" (contactos colapsados a su
+    #     empresa via commercial_partner_id), fallback fail-soft a todas
+    #     las oportunidades activas si esa property no existe.
+    #     `/comercial/data/ex-clients` -- MISMA mecanica, property = "Ex",
+    #     endpoint/estado totalmente separados (sub-tab lazy independiente
+    #     con historial de oportunidades ganadas/perdidas).
+    #     Los tres LAZY, read-only, mismo contrato fail-soft.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -625,7 +638,7 @@ def test_15_route_surface_still_116():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 116
+    assert len(snapshot) == 119
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

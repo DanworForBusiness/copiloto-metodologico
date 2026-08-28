@@ -307,8 +307,19 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # veces (orden de columna, filtro `<select>`/Buscar propio, y "✕
     # Limpiar" del tab) — MISMO patrón de re-render quirúrgico que ya usa
     # el resto de Comercial, nunca un host nuevo por filtro.
+    # Bucket 2 (ver HANDOFF, "CLIENTES + LEADS") agrega NUEVE más: los DOS
+    # hosts estables nuevos `[data-commercial-leads-table]` (DOS veces —
+    # toggle de expansión de empresa y orden de columna) y
+    # `[data-commercial-clientes-table]` (CUATRO veces — toggle de
+    # expansión de cliente, orden de columna, filtro `<select>`/Buscar
+    # propio y "✕ Limpiar" del sub-tab Clientes) más
+    # `[data-commercial-ex-clientes-table]` (TRES veces — filtro
+    # `<select>`/Buscar propio y "✕ Limpiar" del sub-tab Ex Clientes, sin
+    # expansión ni orden porque esa tabla es plana) — MISMO patrón de
+    # re-render quirúrgico que ya usa el resto de Comercial, nunca un host
+    # nuevo por filtro.
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos cincuenta y ocho hooks y nada más.
+    # EXACTAMENTE estos sesenta y siete hooks y nada más.
     assert queries == [
         '`[data-section-id="${sectionId}"]`',
         '".chart-tooltip"',
@@ -345,6 +356,10 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-licencias-table]"',
         '"[data-commercial-detalle-table]"',
         '"[data-commercial-historial-table]"',
+        '"[data-commercial-leads-table]"',
+        '"[data-commercial-leads-table]"',
+        '"[data-commercial-clientes-table]"',
+        '"[data-commercial-clientes-table]"',
         '"[data-commercial-pipeline-age-table]"',
         '"[data-commercial-close-time-table]"',
         '"[data-commercial-stagnant-table]"',
@@ -360,6 +375,8 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-licencias-table]"',
         '"[data-commercial-detalle-table]"',
         '"[data-commercial-historial-table]"',
+        '"[data-commercial-clientes-table]"',
+        '"[data-commercial-ex-clientes-table]"',
         '"[data-commercial-lead-conversion-table]"',
         '"[data-commercial-creadas-search]"',
         '"[data-commercial-opportunities]"',
@@ -368,6 +385,9 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-licencias-table]"',
         '"[data-commercial-detalle-table]"',
         '"[data-commercial-historial-table]"',
+        '"[data-commercial-leads-table]"',
+        '"[data-commercial-clientes-table]"',
+        '"[data-commercial-ex-clientes-table]"',
     ], queries
     assert "document.querySelector" not in _COMMERCIAL_JS
 
@@ -1991,20 +2011,25 @@ def test_suspendidas_seller_filter_and_sort_and_clear_never_refetch():
 # ============================================================================
 
 def test_only_implemented_capabilities_are_listed():
-    # Bucket 1 (ver HANDOFF) suma las TRES primeras tabs de tabla legacy —
-    # Licencias/Historial Perdidas/Detalle Oportunidades — con contenido
-    # real detrás (endpoint + estado + render). Clientes/Leads/Mis Tareas
-    # siguen sin listar: próxima(s) iteración(es), ninguna tab muerta.
+    # Bucket 1 (ver HANDOFF) sumó las TRES primeras tabs de tabla legacy —
+    # Licencias/Historial Perdidas/Detalle Oportunidades. Bucket 2 suma
+    # Clientes (con su sub-tab Ex Clientes, no una capability propia) y
+    # Leads — con contenido real detrás (endpoint + estado + render). Mis
+    # Tareas sigue sin listar: próxima iteración, ninguna tab muerta.
     registry = _COMMERCIAL_JS.split("const COMMERCIAL_CAPABILITIES = [", 1)[1].split("];", 1)[0]
-    assert registry.count('id: "') == 5
+    assert registry.count('id: "') == 7
     assert '{ id: "dashboard", label: "Dashboard" }' in registry
     assert '{ id: "actividades", label: "Actividades" }' in registry
     assert '{ id: "licencias", label: "Licencias" }' in registry
     assert '{ id: "historial-perdidas", label: "Historial Perdidas" }' in registry
     assert '{ id: "detalle", label: "Detalle Oportunidades" }' in registry
+    assert '{ id: "clientes", label: "Clientes" }' in registry
+    assert '{ id: "leads", label: "Leads" }' in registry
     # Ninguna tab muerta: una capability sin funcionalidad detrás es una
-    # promesa rota.
-    for not_yet in ("clientes", "leads", "mis-tareas", "prospectos"):
+    # promesa rota. "ex-clientes" NUNCA es una capability propia — vive
+    # como sub-tab LOCAL dentro de "clientes" (ver
+    # `commercialClientesHtml`/`clientesSubTab`).
+    for not_yet in ("mis-tareas", "prospectos", "ex-clientes"):
         assert f'id: "{not_yet}"' not in registry
 
 

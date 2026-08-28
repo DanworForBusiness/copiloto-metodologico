@@ -2428,3 +2428,407 @@ class CommercialService:
         except OdooTransportError as exc:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]
+
+    # ── Bucket 2 — Leads (ver HANDOFF) ───────────────────────────────────────
+    # Universo: `type=lead, active=True` — recuperado de
+    # `crm-comercial`/`backend/routers/crm.py::get_leads`. NUNCA
+    # `type=opportunity` (ese universo es Detalle Oportunidades/Prospectos/
+    # Licencias, ya cerrados) — un lead convertido cambia de `type` a
+    # "opportunity" y por eso desaparece SOLO de acá, sin ningún filtro
+    # adicional: `type=lead` ya lo excluye. Un lead perdido (marcado
+    # perdido sin convertir) queda `active=False`, así que también sale
+    # del dominio — MISMO criterio "activo" que el resto de Comercial.
+    #
+    # Agrupado por EMPRESA — `partner_id` si existe, si no el texto libre
+    # `partner_name` (el legacy nunca fuerza un partner en un lead sin
+    # vincular), con "Sin empresa" como fallback final y SIEMPRE última en
+    # el orden (nunca alfabético con el resto). Fila = SOLO los campos que
+    # el legacy realmente imprime en `renderLeadsTable` (lead/contact/
+    # seller/email/create_date) — `phone`/`stage`/`revenue`/`priority` se
+    # piden en el legacy pero NUNCA se muestran (dead fields, mismo
+    # criterio "no se portan" ya aplicado a Perdidas/Historial) — así que
+    # acá ni se piden.
+    #
+    # Tipo: filtra CADA lead por su propio `tag_ids` (MISMO criterio que
+    # el resto de Comercial — partition post-fetch, nunca un segundo
+    # dominio Odoo por tipo) — una empresa con leads de varios segmentos
+    # sólo muestra los que matchean el tipo pedido, y desaparece del todo
+    # si ninguno matchea. El legacy resuelve esto distinto (un `tag_id`
+    # server-side por request), pero el resultado observable es el mismo:
+    # "los leads de este segmento, agrupados por empresa".
+    def _build_leads(self) -> dict:
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+        leads = self._client.search_read(
+            "crm.lead",
+            domain=[["type", "=", "lead"], ["active", "=", True]],
+            fields=["name", "partner_name", "contact_name", "partner_id", "user_id",
+                     "email_from", "create_date", "tag_ids"],
+            order="partner_name asc, name asc",
+        )
+        companies: dict = {}
+        for lead in leads:
+            if lead.get("partner_id"):
+                pid, pname = lead["partner_id"][0], lead["partner_id"][1]
+            else:
+                pid, pname = 0, lead.get("partner_name") or "Sin empresa"
+            key = (pid, pname)
+            if key not in companies:
+                companies[key] = {"id": pid, "name": pname, "leads": []}
+            companies[key]["leads"].append({
+                "lead": lead.get("name") or "",
+                "contact": lead.get("contact_name") or "",
+                "seller": lead["user_id"][1] if lead.get("user_id") else "",
+                "email": lead.get("email_from") or "",
+                "create_date": (lead.get("create_date") or "")[:10],
+                "_tag_ids": lead.get("tag_ids") or [],
+            })
+
+        def _partition(tag_id) -> dict:
+            result = []
+            for c in companies.values():
+                rows = c["leads"] if tag_id is None else [l for l in c["leads"] if tag_id in l["_tag_ids"]]
+                if not rows:
+                    continue
+                result.append({
+                    "id": c["id"], "name": c["name"],
+                    "leads": [{k: v for k, v in l.items() if k != "_tag_ids"} for l in rows],
+                })
+            result.sort(key=lambda c: (c["name"].lower() if c["name"] != "Sin empresa" else "zzz"))
+            total_leads = sum(len(c["leads"]) for c in result)
+            return {"companies": result, "total_companies": len(result), "total_leads": total_leads}
+
+        return {"todos": _partition(None), "nn": _partition(nn_id), "bi": _partition(bi_id)}
+
+    def get_leads(self, tipo: str = "todos") -> dict:
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:leads", self._build_leads)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
+    # ── Bucket 2 — Clientes / Ex Clientes (ver HANDOFF) ──────────────────────
+    # "Cliente" NO es una noción derivada de crm.lead — es una property
+    # PROPIA de `res.partner` ("Es Cliente?" = "Si"/"Ex", una selection
+    # property configurable en Odoo, resuelta por LABEL — nunca por
+    # posición, exactamente como `lead_properties` en `crm.lead`, pero acá
+    # sobre el modelo de partner). Recuperado 1:1 de
+    # `crm-comercial`/`backend/routers/crm.py::get_clients`/`get_ex_clients`
+    # (`_get_cliente_partner_ids`/`_get_ex_cliente_partner_ids`/
+    # `_expand_partner_ids_with_contacts`/`_resolve_opp_partner`).
+    #
+    # Contactos (personas) se COLAPSAN a su empresa vía
+    # `commercial_partner_id` — una oportunidad vinculada a un CONTACTO
+    # cuenta para la EMPRESA, nunca aparece como una fila propia. Identidad
+    # ESTABLE por `partner_id` (nunca por nombre de display — dos partners
+    # con el mismo nombre quedan DISTINTOS).
+    #
+    # FALLBACK deliberado del legacy (preservado 1:1, nunca "simplificado"
+    # a un solo camino): si la property "Es Cliente?" no existe en esta
+    # instancia de Odoo (`_partner_ids_by_cliente_value` devuelve `None`,
+    # no `[]` — la ausencia de la property es un caso DISTINTO de "nadie
+    # matchea"), el universo cae a TODAS las oportunidades activas
+    # (mismo patrón fail-soft que el resto de Comercial ante un dato no
+    # configurado, nunca una lista vacía disfrazada de "sin clientes").
+    _CLIENTE_PROP_LABELS = {"es cliente?", "es cliente", "¿es cliente?", "¿es cliente"}
+    _CLIENTE_SI_LABELS = {"si", "sí", "yes", "true"}
+    _CLIENTE_EX_LABELS = {"ex", "ex cliente", "ex-cliente", "ex clientes", "ex-clientes", "excliente", "exclientes"}
+
+    def _partner_ids_by_cliente_value(self, target_labels: set) -> list | None:
+        """`None` si la property "Es Cliente?" no existe en esta instancia
+        (el caller debe caer al fallback de dominio completo) — `[]` si la
+        property SÍ existe pero ningún partner matchea `target_labels`
+        (universo legítimamente vacío). Dos resultados observables
+        distintos por diseño, MISMO criterio que el legacy."""
+        all_partners = self._client.search_read("res.partner", domain=[], fields=["id", "properties"])
+        prop_internal_name = None
+        target_key = None
+        for p in all_partners:
+            props = p.get("properties")
+            if not isinstance(props, list):
+                continue
+            for prop in props:
+                label = (prop.get("string") or "").strip().lower()
+                if label not in self._CLIENTE_PROP_LABELS:
+                    continue
+                prop_internal_name = prop.get("name")
+                for key, display in (prop.get("selection") or []):
+                    if (display or "").strip().lower() in target_labels:
+                        target_key = key
+                        break
+                break
+            if prop_internal_name:
+                break
+        if not prop_internal_name or not target_key:
+            return None
+        result = []
+        for p in all_partners:
+            props = p.get("properties")
+            if not isinstance(props, list):
+                continue
+            for prop in props:
+                if prop.get("name") == prop_internal_name and prop.get("value") == target_key:
+                    result.append(p["id"])
+                    break
+        return result
+
+    def _expand_partner_ids_with_contacts(self, company_ids: list) -> tuple[list, dict, dict]:
+        if not company_ids:
+            return [], {}, {}
+        child_partners = self._client.search_read(
+            "res.partner",
+            domain=[["commercial_partner_id", "in", company_ids], ["id", "not in", company_ids]],
+            fields=["id", "commercial_partner_id"],
+        )
+        contact_to_company = {
+            p["id"]: p["commercial_partner_id"][0] for p in child_partners if p.get("commercial_partner_id")
+        }
+        all_ids = company_ids + list(contact_to_company.keys())
+        company_ids_needed = set(contact_to_company.values())
+        company_names: dict = {}
+        if company_ids_needed:
+            recs = self._client.search_read(
+                "res.partner", domain=[["id", "in", list(company_ids_needed)]], fields=["id", "name"]
+            )
+            company_names = {r["id"]: r["name"] for r in recs}
+        return all_ids, contact_to_company, company_names
+
+    @staticmethod
+    def _resolve_opp_partner(opp: dict, contact_to_company: dict, company_names: dict) -> tuple:
+        if opp.get("partner_id"):
+            raw_pid, raw_pname = opp["partner_id"][0], opp["partner_id"][1]
+            if raw_pid in contact_to_company:
+                pid = contact_to_company[raw_pid]
+                pname = company_names.get(pid, raw_pname)
+            else:
+                pid, pname = raw_pid, raw_pname
+        else:
+            pid, pname = 0, "Sin cliente"
+        return pid, pname
+
+    def _client_opp_row(self, opp: dict) -> dict:
+        props = opp.get("lead_properties") or []
+        return {
+            "opportunity": opp.get("name") or "",
+            "seller": opp["user_id"][1] if opp.get("user_id") else "",
+            "stage": opp["stage_id"][1] if opp.get("stage_id") else "",
+            "probability": opp.get("probability"),
+            "hours": get_property_num(props, "Horas"),
+            "_tag_ids": opp.get("tag_ids") or [],
+        }
+
+    def _build_clients(self) -> dict:
+        valid_ids, prospect_ids, _suspended_ids = self._stage_partition()
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+        cliente_ids = self._partner_ids_by_cliente_value(self._CLIENTE_SI_LABELS)
+        if cliente_ids is not None:
+            all_partner_ids, contact_to_company, company_names = self._expand_partner_ids_with_contacts(cliente_ids)
+            partner_domain = [["partner_id", "in", all_partner_ids]] if all_partner_ids else [["id", "=", -1]]
+        else:
+            contact_to_company, company_names = {}, {}
+            partner_domain = []
+
+        opps = self._client.search_read(
+            "crm.lead",
+            domain=[["type", "=", "opportunity"], ["active", "=", True]] + partner_domain,
+            fields=["id", "name", "partner_id", "user_id", "stage_id", "tag_ids",
+                     "probability", "lead_properties"],
+            order="partner_id asc, name asc",
+        )
+        clients: dict = {}
+        for opp in opps:
+            pid, pname = self._resolve_opp_partner(opp, contact_to_company, company_names)
+            sid = opp["stage_id"][0] if opp.get("stage_id") else None
+            if pid not in clients:
+                clients[pid] = {"id": pid, "name": pname, "active": [], "prospects": [],
+                                 "_sellers": set(), "_has_licencias": False}
+            rec = self._client_opp_row(opp)
+            if rec["seller"]:
+                clients[pid]["_sellers"].add(rec["seller"])
+            props = opp.get("lead_properties") or []
+            if _get_prop_label(props, "Licencias") == "Si":
+                clients[pid]["_has_licencias"] = True
+            if sid in valid_ids:
+                clients[pid]["active"].append(rec)
+            elif sid in prospect_ids:
+                clients[pid]["prospects"].append(rec)
+
+        # Partners marcados "Cliente" SIN ninguna oportunidad abierta —
+        # igual aparecen en la lista (0 activas, 0 prospectos). Sólo en el
+        # camino primario: el fallback no tiene una lista de partners
+        # "Cliente" propia de la que tomar estos huérfanos.
+        if cliente_ids is not None:
+            missing_ids = [pid for pid in cliente_ids if pid not in clients and pid != 0]
+            if missing_ids:
+                for p in self._client.search_read("res.partner", domain=[["id", "in", missing_ids]], fields=["id", "name"]):
+                    clients[p["id"]] = {"id": p["id"], "name": p["name"], "active": [], "prospects": [],
+                                          "_sellers": set(), "_has_licencias": False}
+
+        def _finalize(subset: dict) -> dict:
+            result = []
+            for c in subset.values():
+                result.append({
+                    "id": c["id"], "name": c["name"],
+                    "active": [{k: v for k, v in r.items() if k != "_tag_ids"} for r in c["active"]],
+                    "prospects": [{k: v for k, v in r.items() if k != "_tag_ids"} for r in c["prospects"]],
+                    "sellers": sorted(c["_sellers"]), "has_licencias": c["_has_licencias"],
+                })
+            result.sort(key=lambda c: (-len(c["active"]), -len(c["prospects"]), c["name"].lower()))
+            return {"clients": result, "total": len(result)}
+
+        # Tipo (ver HANDOFF §13 — PROBADO desde el propio legacy, no
+        # inventado): en el camino PRIMARIO (property resuelta), `tag_id`
+        # está LITERALMENTE sin usar en `get_clients` — "Cliente" es una
+        # clasificación a nivel EMPRESA, independiente del segmento NN/BI
+        # de sus oportunidades. `todos`/`nn`/`bi` devuelven el MISMO
+        # universo completo. Sólo el camino de FALLBACK (dominio sin
+        # `partner_id`, universo = TODAS las oportunidades activas)
+        # necesita algo que filtrar por Tipo — ahí SÍ se particiona cada
+        # cliente por sus propias oportunidades con ese tag (MISMO criterio
+        # de filtrado por-fila que Leads), preservando los partners
+        # "Cliente" sin oportunidades sin importar el tipo (no son
+        # oportunidades, no tienen tag que filtrar).
+        if cliente_ids is not None:
+            todos_view = _finalize(clients)
+            return {"todos": todos_view, "nn": todos_view, "bi": todos_view}
+
+        def _tag_filtered(tag_id) -> dict:
+            if tag_id is None:
+                return _finalize(clients)
+            subset = {}
+            for pid, c in clients.items():
+                active = [r for r in c["active"] if tag_id in r["_tag_ids"]]
+                prospects = [r for r in c["prospects"] if tag_id in r["_tag_ids"]]
+                if not active and not prospects:
+                    continue
+                subset[pid] = {**c, "active": active, "prospects": prospects}
+            return _finalize(subset)
+
+        return {"todos": _finalize(clients), "nn": _tag_filtered(nn_id), "bi": _tag_filtered(bi_id)}
+
+    def get_clients(self, tipo: str = "todos") -> dict:
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:clients", self._build_clients)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
+    # Ex Clientes — MISMA mecánica que Clientes, filtrando "Es Cliente?" =
+    # "Ex" (`_CLIENTE_EX_LABELS`) en vez de "Si". DOS diferencias reales
+    # sobre Clientes (owner decisión del propio legacy, preservadas 1:1):
+    #   1. TAMBIÉN trae oportunidades INACTIVAS (`active=False` —
+    #      ganadas/perdidas), en un TERCER bucket "history" — un ex
+    #      cliente sin nada activo hoy puede tener historial real.
+    #   2. Orden simple alfabético (`name.lower()`), NUNCA por cantidad de
+    #      oportunidades — un ex cliente casi por definición tiene poco o
+    #      nada abierto, así que ordenar por ese conteo sería casi
+    #      constante.
+    # SIN fallback a "todas las oportunidades" si la property no resuelve
+    # (a diferencia de Clientes): sin la property no hay forma de saber
+    # quién es "Ex" — universo vacío, no una lista completa mal
+    # etiquetada.
+    def _build_ex_clients(self) -> dict:
+        valid_ids, prospect_ids, _suspended_ids = self._stage_partition()
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+        ex_ids = self._partner_ids_by_cliente_value(self._CLIENTE_EX_LABELS) or []
+        if not ex_ids:
+            empty = {"clients": [], "total": 0}
+            return {"todos": empty, "nn": empty, "bi": empty}
+
+        all_ex_ids, contact_to_company, company_names = self._expand_partner_ids_with_contacts(ex_ids)
+        partner_domain = [["partner_id", "in", all_ex_ids]] if all_ex_ids else [["id", "=", -1]]
+
+        all_active = self._client.search_read(
+            "crm.lead",
+            domain=[["type", "=", "opportunity"], ["active", "=", True]] + partner_domain,
+            fields=["id", "name", "partner_id", "user_id", "stage_id", "tag_ids",
+                     "probability", "lead_properties"],
+            order="partner_id asc, name asc",
+        )
+        all_inactive = self._client.search_read(
+            "crm.lead",
+            domain=[["type", "=", "opportunity"], ["active", "=", False]] + partner_domain,
+            fields=["id", "name", "partner_id", "user_id", "stage_id", "tag_ids",
+                     "probability", "lead_properties"],
+            order="partner_id asc, name asc",
+        )
+
+        clients: dict = {}
+
+        def _add(opp: dict, bucket: str):
+            pid, pname = self._resolve_opp_partner(opp, contact_to_company, company_names)
+            if pid not in clients:
+                clients[pid] = {"id": pid, "name": pname, "active": [], "prospects": [], "history": [],
+                                 "_sellers": set(), "_has_licencias": False}
+            rec = self._client_opp_row(opp)
+            if rec["seller"]:
+                clients[pid]["_sellers"].add(rec["seller"])
+            props = opp.get("lead_properties") or []
+            if _get_prop_label(props, "Licencias") == "Si":
+                clients[pid]["_has_licencias"] = True
+            clients[pid][bucket].append(rec)
+
+        for opp in all_active:
+            sid = opp["stage_id"][0] if opp.get("stage_id") else None
+            bucket = "active" if sid in valid_ids else ("prospects" if sid in prospect_ids else "history")
+            _add(opp, bucket)
+        for opp in all_inactive:
+            _add(opp, "history")
+
+        missing_ids = [pid for pid in ex_ids if pid not in clients and pid != 0]
+        if missing_ids:
+            for p in self._client.search_read("res.partner", domain=[["id", "in", missing_ids]], fields=["id", "name"]):
+                clients[p["id"]] = {"id": p["id"], "name": p["name"], "active": [], "prospects": [], "history": [],
+                                      "_sellers": set(), "_has_licencias": False}
+
+        def _finalize(subset: dict) -> dict:
+            result = []
+            for c in subset.values():
+                result.append({
+                    "id": c["id"], "name": c["name"],
+                    "active": [{k: v for k, v in r.items() if k != "_tag_ids"} for r in c["active"]],
+                    "prospects": [{k: v for k, v in r.items() if k != "_tag_ids"} for r in c["prospects"]],
+                    "history": [{k: v for k, v in r.items() if k != "_tag_ids"} for r in c["history"]],
+                    "sellers": sorted(c["_sellers"]), "has_licencias": c["_has_licencias"],
+                })
+            result.sort(key=lambda c: c["name"].lower())
+            return {"clients": result, "total": len(result)}
+
+        def _tag_filtered(tag_id) -> dict:
+            if tag_id is None:
+                return _finalize(clients)
+            subset = {}
+            for pid, c in clients.items():
+                active = [r for r in c["active"] if tag_id in r["_tag_ids"]]
+                prospects = [r for r in c["prospects"] if tag_id in r["_tag_ids"]]
+                history = [r for r in c["history"] if tag_id in r["_tag_ids"]]
+                if not active and not prospects and not history:
+                    continue
+                subset[pid] = {**c, "active": active, "prospects": prospects, "history": history}
+            return _finalize(subset)
+
+        return {"todos": _finalize(clients), "nn": _tag_filtered(nn_id), "bi": _tag_filtered(bi_id)}
+
+    def get_ex_clients(self, tipo: str = "todos") -> dict:
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:ex-clients", self._build_ex_clients)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
