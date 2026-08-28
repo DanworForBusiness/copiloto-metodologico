@@ -145,7 +145,7 @@ def test_origin_lives_inside_the_activas_analysis_with_no_new_breakdown():
     # Y vive en el host que YA se re-renderiza con Etapa/Vendedor y no con la
     # búsqueda: cero hooks de DOM nuevos.
     queries = re.findall(r"\.querySelector[A-Za-z]*\(([^)]*)\)", _COMMERCIAL_JS)
-    assert len(queries) == 44, queries   # + los 8 de Analítica del Pipeline + los 2 de la atribución de Conversión de Leads (ver HANDOFF)
+    assert len(queries) == 46, queries   # + los 8 de Analítica del Pipeline + los 2 de la atribución de Conversión de Leads + los 2 de la tabla de Tiempo por etapa/Conversión etapa a etapa (ver HANDOFF)
     assert '"[data-commercial-funnel-area]"' in queries
     # Un solo lugar arma el contenido de ese host — antes estaba duplicado.
     assert _COMMERCIAL_JS.count("function commercialFunnelAreaHtml(") == 1

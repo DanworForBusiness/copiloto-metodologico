@@ -274,6 +274,13 @@ const commercialState = {
   closeTimeSortDir: 1,
   stagnantSortKey: null,
   stagnantSortDir: 1,
+  // Owner corrective (ver HANDOFF — tabla minimalista con headers reales):
+  // Tiempo por etapa/Conversión etapa a etapa pasaron de ranking `.bar-row`
+  // sin sort a tabla ordenable, MISMO criterio que el resto de la familia.
+  stageTimeSortKey: null,
+  stageTimeSortDir: 1,
+  stageConversionSortKey: null,
+  stageConversionSortDir: 1,
   leadConversionDetail: null,
   leadConversionDetailStatus: "idle",
   leadConversionDetailErrorState: "",
@@ -1668,10 +1675,29 @@ function commercialUrgencyColor(days) {
   if (abs <= 30) return "orange";
   return "red";
 }
-function commercialUrgencyLegendHtml() {
-  const tiers = [["green", "0-7 días"], ["amber", "8-15 días"], ["orange", "16-30 días"], ["red", "+30 días"]];
+// Primitivo GENÉRICO (reusa `.urgency-legend`, ya compartido) — recibe sus
+// propios tramos [color, label], nunca hardcodea una escala. Owner
+// corrective (ver HANDOFF — faltaban las referencias de color de Edad del
+// pipeline/Estancadas): esas dos escalas tienen umbrales DISTINTOS a los de
+// Actividades/Suspendidas/Prospectos (ver `commercialAgeColor`/
+// `commercialStagnantColor`), así que necesitan su PROPIA leyenda, no la de
+// urgencia — mismo primitivo visual, tramos propios.
+function commercialDaysLegendHtml(tiers) {
   return `<div class="urgency-legend">${tiers.map(([color, label]) =>
     `<b><i class="urgency-legend__dot urgency-legend__dot--${color}"></i>${label}</b>`).join("")}</div>`;
+}
+function commercialUrgencyLegendHtml() {
+  return commercialDaysLegendHtml([["green", "0-7 días"], ["amber", "8-15 días"], ["orange", "16-30 días"], ["red", "+30 días"]]);
+}
+// Edad del pipeline — MISMOS umbrales que `commercialAgeColor`.
+function commercialAgeLegendHtml() {
+  return commercialDaysLegendHtml([["green", "0-30 días"], ["amber", "31-60 días"], ["orange", "61-90 días"], ["red", "+90 días"]]);
+}
+// Estancadas — MISMOS umbrales que `commercialStagnantColor`. SIN tramo
+// verde: el universo entero ya es "más de 30 días sin movimiento" (filtro
+// del propio backend), así que un tramo 0-30 acá sería inalcanzable.
+function commercialStagnantLegendHtml() {
+  return commercialDaysLegendHtml([["amber", "31-60 días"], ["orange", "61-90 días"], ["red", "+90 días"]]);
 }
 
 // Claves de orden — MISMA semántica que `SORT_KEYS` del legacy
@@ -3035,7 +3061,7 @@ function commercialPipelineAgeBlockHtml(rows) {
       <td>${commercialDaysBadge(o.age_days, commercialAgeColor(o.age_days))}</td>
     </tr>`).join("");
   const avg = sorted.length ? Math.round(sorted.reduce((s, o) => s + (o.age_days || 0), 0) / sorted.length) : 0;
-  return `<div class="matrix-scroll"><table class="dashboard-table">
+  return `${commercialAgeLegendHtml()}<div class="matrix-scroll"><table class="dashboard-table">
     <colgroup><col style="width:22%"><col style="width:18%"><col style="width:16%">
       <col style="width:14%"><col style="width:14%"><col style="width:16%"></colgroup>
     <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente", "left")}${th("seller", "Vendedor", "left")}
@@ -3058,34 +3084,68 @@ function commercialPipelineAgeCountLabel() {
   return `${commercialFmtInt(rows.length)} oportunidad(es)`;
 }
 
-// — Tiempo por etapa: ranking `.bar-row` (MISMO primitivo que Perdidas —
-// Motivo), NUNCA una librería externa de gráficos/canvas — sin sort (orden
-// natural de etapa).
+// — Tiempo por etapa: tabla minimalista ordenable (owner corrective, ver
+// HANDOFF — "no me sirve imprimir los valores... si no va a haber un
+// header"). El ranking `.bar-row` mostraba Días Prom./Muestras SIN
+// encabezado — acá cada valor tiene su columna con `<th>` real, MISMO
+// primitivo `dashboard-table` que las otras tres sub-vistas con tabla. El
+// gráfico se conserva pero "achicado": una barra angosta bajo el nombre de
+// la etapa (ver `.commercial-pipeline-mini-bar` en commercial.css) en vez
+// de una fila completa — el diseño/funcionalidad de comparar etapas de un
+// vistazo se mantiene, sólo con menos protagonismo que antes.
+const COMMERCIAL_STAGE_TIME_SORT_KEYS = {
+  stage: r => (r.stage || "").toLowerCase(),
+  avg_days: r => r.avg_days ?? -Infinity,
+  sample_count: r => r.sample_count ?? -Infinity,
+};
+function commercialStageTimeSorted(rows) {
+  const keyFn = commercialState.stageTimeSortKey && COMMERCIAL_STAGE_TIME_SORT_KEYS[commercialState.stageTimeSortKey];
+  if (!keyFn) return rows;
+  const dir = commercialState.stageTimeSortDir;
+  return [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+function commercialToggleStageTimeSort(key) {
+  if (commercialState.stageTimeSortKey === key) commercialState.stageTimeSortDir *= -1;
+  else { commercialState.stageTimeSortKey = key; commercialState.stageTimeSortDir = 1; }
+}
 function commercialStageTimeBlockHtml(rows) {
   if (!rows.length) return commercialEmptyStateHtml("Sin datos", "No hay historial de etapas para este segmento.");
+  const sorted = commercialStageTimeSorted(rows);
   const max = Math.max(1, ...rows.map(r => r.avg_days || 0));
-  const rowsHtml = rows.map(r => {
+  const th = (key, label, cls = "") => {
+    const active = commercialState.stageTimeSortKey === key;
+    const arrow = active ? (commercialState.stageTimeSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-stage-time-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(r => {
     const color = commercialStageTimeColor(r.avg_days);
     const pct = r.avg_days ? (r.avg_days / max * 100).toFixed(1) : 0;
     return `
-    <div class="bar-row">
-      <span class="bar-label">${commercialEsc(r.stage)}</span>
-      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-      <span class="bar-value">${commercialDaysBadge(r.avg_days, color)} <span class="commercial-stage-time-samples">(${commercialFmtInt(r.sample_count)})</span></span>
-    </div>`;
+    <tr>
+      <td class="row-label">${commercialEsc(r.stage)}
+        <div class="commercial-pipeline-mini-bar"><div class="bar-fill" style="width:${pct}%"></div></div>
+      </td>
+      <td>${commercialDaysBadge(r.avg_days, color)}</td>
+      <td>${commercialFmtInt(r.sample_count)}</td>
+    </tr>`;
   }).join("");
-  // Wrapper propio (owner corrective — "Muestras" faltaba, ver HANDOFF):
-  // permite ensanchar `.bar-value` SCOPEADO a este consumidor, nunca el
-  // primitivo compartido — MISMO criterio que `.commercial-ganadas-ranking`/
-  // `.commercial-perdidas-ranking` (ver commercial.css). `.bar-track` es
-  // `flex:1`, así que ensanchar `.bar-value` ya "achica" el gráfico solo.
-  return `<div class="commercial-stage-time-ranking">${rowsHtml}</div>`;
+  return `<div class="matrix-scroll"><table class="dashboard-table commercial-pipeline-mini-bar-table">
+    <colgroup><col style="width:52%"><col style="width:26%"><col style="width:22%"></colgroup>
+    <thead><tr>${th("stage", "Etapa", "row-label-col")}${th("avg_days", "Días Prom.")}${th("sample_count", "Muestras")}</tr></thead>
+    <tbody>${rowsHtml}</tbody>
+  </table></div>`;
 }
 function commercialStageTimePanelBodyHtml() {
   const shared = commercialPipelineAnalyticsSharedStateHtml();
   if (shared) return shared;
   const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.stage_time) || [];
-  return commercialStageTimeBlockHtml(rows);
+  return `<div data-commercial-stage-time-table>${commercialStageTimeBlockHtml(rows)}</div>`;
 }
 function commercialStageTimeCountLabel() {
   if (commercialState.pipelineAnalyticsDetailStatus !== "ready") return "";
@@ -3094,33 +3154,69 @@ function commercialStageTimeCountLabel() {
   return `${commercialFmtInt(withData)} etapa(s) con datos`;
 }
 
-// — Conversión etapa a etapa: ranking `.bar-row` de la TASA de avance
-// (0-100%), MISMO primitivo. La última etapa no tiene "siguiente" — se
-// muestra sin barra/valor, nunca un 0% inventado.
+// — Conversión etapa a etapa: MISMO corrective — tabla minimalista
+// ordenable con las columnas reales del legacy (Etapa/Entraron/Avanzaron/
+// Tasa, ver HANDOFF — auditoría de `analytics-conversion-body`), gráfico
+// achicado a una barra angosta bajo la etapa. La última etapa no tiene
+// "siguiente" — se muestra sin barra/tasa, nunca un 0% inventado.
+const COMMERCIAL_STAGE_CONVERSION_SORT_KEYS = {
+  stage: r => (r.stage || "").toLowerCase(),
+  entered: r => r.entered ?? -Infinity,
+  advanced: r => r.advanced ?? -Infinity,
+  rate: r => r.rate ?? -Infinity,
+};
+function commercialStageConversionSorted(rows) {
+  const keyFn = commercialState.stageConversionSortKey && COMMERCIAL_STAGE_CONVERSION_SORT_KEYS[commercialState.stageConversionSortKey];
+  if (!keyFn) return rows;
+  const dir = commercialState.stageConversionSortDir;
+  return [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+function commercialToggleStageConversionSort(key) {
+  if (commercialState.stageConversionSortKey === key) commercialState.stageConversionSortDir *= -1;
+  else { commercialState.stageConversionSortKey = key; commercialState.stageConversionSortDir = 1; }
+}
 function commercialStageConversionBlockHtml(rows) {
   if (!rows.length) return commercialEmptyStateHtml("Sin datos", "No hay historial de etapas para este segmento.");
-  const rowsHtml = rows.map(r => {
+  const sorted = commercialStageConversionSorted(rows);
+  const th = (key, label, cls = "") => {
+    const active = commercialState.stageConversionSortKey === key;
+    const arrow = active ? (commercialState.stageConversionSortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-stage-conversion-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(r => {
     const hasRate = r.rate != null;
     const color = commercialConversionRateColor(r.rate);
     const pct = hasRate ? r.rate.toFixed(1) : 0;
     const value = hasRate
       ? `<span class="dashboard-status-badge dashboard-status-badge--${color || "grey"}">${commercialFmtPercent(r.rate)}</span>`
       : "—";
-    const label = hasRate ? `${commercialEsc(r.stage)} → ${commercialEsc(r.next_stage)}` : `${commercialEsc(r.stage)} (última etapa)`;
     return `
-    <div class="bar-row">
-      <span class="bar-label">${label}</span>
-      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-      <span class="bar-value">${value}</span>
-    </div>`;
+    <tr>
+      <td class="row-label">${commercialEsc(r.stage)}
+        <div class="commercial-pipeline-mini-bar"><div class="bar-fill" style="width:${pct}%"></div></div>
+      </td>
+      <td>${commercialFmtInt(r.entered)}</td>
+      <td>${r.advanced != null ? commercialFmtInt(r.advanced) : "—"}</td>
+      <td>${value}</td>
+    </tr>`;
   }).join("");
-  return rowsHtml;
+  return `<div class="matrix-scroll"><table class="dashboard-table commercial-pipeline-mini-bar-table">
+    <colgroup><col style="width:40%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>
+    <thead><tr>${th("stage", "Etapa", "row-label-col")}${th("entered", "Entraron")}${th("advanced", "Avanzaron")}${th("rate", "Tasa")}</tr></thead>
+    <tbody>${rowsHtml}</tbody>
+  </table></div>`;
 }
 function commercialStageConversionPanelBodyHtml() {
   const shared = commercialPipelineAnalyticsSharedStateHtml();
   if (shared) return shared;
   const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.stage_conversion) || [];
-  return commercialStageConversionBlockHtml(rows);
+  return `<div data-commercial-stage-conversion-table>${commercialStageConversionBlockHtml(rows)}</div>`;
 }
 function commercialStageConversionCountLabel() {
   if (commercialState.pipelineAnalyticsDetailStatus !== "ready") return "";
@@ -3240,7 +3336,7 @@ function commercialStagnantBlockHtml(rows) {
     </tr>`;
   }).join("");
   const avg = sorted.length ? Math.round(sorted.reduce((s, o) => s + (o.days_stagnant || 0), 0) / sorted.length) : 0;
-  return `<div class="matrix-scroll"><table class="dashboard-table">
+  return `${commercialStagnantLegendHtml()}<div class="matrix-scroll"><table class="dashboard-table">
     <colgroup><col style="width:18%"><col style="width:14%"><col style="width:13%"><col style="width:12%">
       <col style="width:8%"><col style="width:12%"><col style="width:12%"><col style="width:11%"></colgroup>
     <thead><tr>${th("opportunity", "Oportunidad", "row-label-col")}${th("client", "Cliente", "left")}${th("seller", "Vendedor", "left")}
@@ -5848,6 +5944,25 @@ document.addEventListener("DOMContentLoaded", () => {
       const host = root.querySelector("[data-commercial-stagnant-table]");
       const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.stagnant.opportunities) || [];
       if (host) host.innerHTML = commercialStagnantBlockHtml(rows);
+      return;
+    }
+    // Tiempo por etapa / Conversión etapa a etapa — owner corrective (ver
+    // HANDOFF): pasaron de ranking `.bar-row` sin sort a tabla ordenable,
+    // MISMO criterio de re-render QUIRÚRGICO que el resto de la familia.
+    const stageTimeSortTh = event.target.closest("[data-commercial-stage-time-sort]");
+    if (stageTimeSortTh) {
+      commercialToggleStageTimeSort(stageTimeSortTh.dataset.commercialStageTimeSort);
+      const host = root.querySelector("[data-commercial-stage-time-table]");
+      const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.stage_time) || [];
+      if (host) host.innerHTML = commercialStageTimeBlockHtml(rows);
+      return;
+    }
+    const stageConversionSortTh = event.target.closest("[data-commercial-stage-conversion-sort]");
+    if (stageConversionSortTh) {
+      commercialToggleStageConversionSort(stageConversionSortTh.dataset.commercialStageConversionSort);
+      const host = root.querySelector("[data-commercial-stage-conversion-table]");
+      const rows = (commercialState.pipelineAnalyticsDetail && commercialState.pipelineAnalyticsDetail.stage_conversion) || [];
+      if (host) host.innerHTML = commercialStageConversionBlockHtml(rows);
       return;
     }
     // Conversión de Leads — orden de columna de la tabla combinada (YA

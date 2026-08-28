@@ -270,8 +270,8 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # (`[data-commercial-lead-conversion-body]`/`-count`); y CUATRO
     # `[data-commercial-*-table]` — una por cada sub-vista con tabla
     # ordenable (Edad/Tiempo de cierre/Estancadas/Conversión de leads —
-    # Tiempo por etapa/Conversión etapa a etapa son ranking `.bar-row`, sin
-    # host de re-render quirúrgico propio).
+    # Tiempo por etapa/Conversión etapa a etapa eran ranking `.bar-row`, sin
+    # host de re-render quirúrgico propio, ANTES del corrective de abajo).
     # Owner corrective — paridad de atribución de Conversión de Leads (ver
     # HANDOFF §4/§5/§11) agrega DOS más: `[data-commercial-lead-conversion-
     # table]`, dos veces adicionales — una por el delegado de las CUATRO
@@ -280,8 +280,14 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # MISMO host que ya tocan el sort y Limpiar (vía re-render completo),
     # nunca la barra de filtros (ningún control de Conversión de Leads
     # regenera su propio `<select>`/`<input>`, así que ninguno pierde foco).
+    # Owner corrective — Tiempo por etapa/Conversión etapa a etapa pasaron
+    # de ranking `.bar-row` sin sort a tabla ordenable (ver HANDOFF —
+    # "no me sirve imprimir los valores... si no va a haber un header")
+    # agrega DOS más: `[data-commercial-stage-time-table]`/
+    # `[data-commercial-stage-conversion-table]`, cada uno UNA sola vez
+    # (sólo el delegado de orden de columna es quirúrgico ahí).
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos cuarenta y cuatro hooks y nada más.
+    # EXACTAMENTE estos cuarenta y seis hooks y nada más.
     assert queries == [
         '".chart-tooltip"',
         '\'[data-event="forecast"].is-active\'',
@@ -315,6 +321,8 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-pipeline-age-table]"',
         '"[data-commercial-close-time-table]"',
         '"[data-commercial-stagnant-table]"',
+        '"[data-commercial-stage-time-table]"',
+        '"[data-commercial-stage-conversion-table]"',
         '"[data-commercial-lead-conversion-table]"',
         '"[data-commercial-stage-filter]"',
         '"[data-commercial-seller-filter]"',
@@ -2065,18 +2073,53 @@ def test_analytics_service_never_writes_and_reads_only_known_models():
 # cierre/Estancadas), LAZY, nunca en la hidratación inicial.
 # ============================================================================
 
-def test_stage_time_bar_row_shows_sample_count_next_to_avg_days():
-    # Owner corrective (visual audit — captura en vivo): "Muestras"
-    # (`sample_count`) se calculaba en el backend pero nunca se mostraba —
-    # ahora acompaña "Días Prom." en el MISMO `.bar-value`, con un wrapper
-    # SCOPEADO (`commercial-stage-time-ranking`) que ensancha `.bar-value`
-    # sin tocar el primitivo compartido (MISMO criterio que Ganadas/
-    # Perdidas — ver commercial.css).
+def test_stage_time_is_a_sortable_table_with_real_headers_for_avg_days_and_samples():
+    # Owner corrective #2 (ver HANDOFF — "no me sirve imprimir los valores...
+    # si no va a haber un header"): el ranking `.bar-row` mostraba Días
+    # Prom./Muestras SIN encabezado — ahora es una `dashboard-table` real,
+    # MISMO primitivo que las otras tres sub-vistas con tabla, con `<th>`
+    # propio para cada valor y orden de columna. El gráfico se conserva
+    # pero achicado (`.commercial-pipeline-mini-bar`, ver commercial.css) en
+    # vez de una fila `.bar-row` completa.
     fn = _COMMERCIAL_JS.split("function commercialStageTimeBlockHtml(", 1)[1].split("\nfunction ", 1)[0]
-    assert "r.sample_count" in fn
-    assert "commercial-stage-time-ranking" in fn
+    assert '"Días Prom."' in fn
+    assert '"Muestras"' in fn
+    assert "commercial-pipeline-mini-bar" in fn
+    assert "data-commercial-stage-time-sort=" in fn
+    for banned in ("bar-row", "bar-track", "bar-value"):
+        assert banned not in fn, banned  # el gráfico completo del ranking se retiró, sólo queda la mini-barra
     commercial_css = (_STATIC / "commercial.css").read_text(encoding="utf-8")
-    assert commercial_css.count(".commercial-stage-time-ranking .bar-value") == 1
+    assert ".commercial-pipeline-mini-bar {" in commercial_css
+
+
+def test_stage_conversion_is_a_sortable_table_with_the_legacy_columns():
+    # Owner corrective #2 — "Idem conversión E->E para la tabla y headers/
+    # valores Entraron, Avanzaron, Tasa" — MISMAS columnas que el legacy
+    # `analytics-conversion-body` (ver HANDOFF, auditoría original).
+    fn = _COMMERCIAL_JS.split("function commercialStageConversionBlockHtml(", 1)[1].split("\nfunction ", 1)[0]
+    for expected in ('"Entraron"', '"Avanzaron"', '"Tasa"', "commercial-pipeline-mini-bar", "data-commercial-stage-conversion-sort="):
+        assert expected in fn, expected
+    for banned in ("bar-row", "bar-track", "bar-value"):
+        assert banned not in fn, banned
+
+
+def test_pipeline_age_and_stagnant_show_their_own_color_legend_before_the_table():
+    # Owner corrective #2 — "faltan las referencias de 0-30 días (verde),
+    # 31-60 (amarillo)... antes de la tabla". Escalas PROPIAS
+    # (`commercialAgeColor`/`commercialStagnantColor`), distintas de la de
+    # Actividades/Suspendidas/Prospectos (`commercialUrgencyColor`) — MISMO
+    # primitivo visual (`.urgency-legend`), tramos propios vía el helper
+    # genérico `commercialDaysLegendHtml`.
+    age_fn = _COMMERCIAL_JS.split("function commercialPipelineAgeBlockHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialAgeLegendHtml()" in age_fn
+    stagnant_fn = _COMMERCIAL_JS.split("function commercialStagnantBlockHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert "commercialStagnantLegendHtml()" in stagnant_fn
+    age_legend_fn = _COMMERCIAL_JS.split("function commercialAgeLegendHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert '"0-30 días"' in age_legend_fn and '"green"' in age_legend_fn
+    stagnant_legend_fn = _COMMERCIAL_JS.split("function commercialStagnantLegendHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert '"31-60 días"' in stagnant_legend_fn
+    assert '"green"' not in stagnant_legend_fn  # el universo entero ya es "+30 días", sin tramo verde alcanzable
+    assert _COMMERCIAL_JS.count("function commercialDaysLegendHtml(") == 1  # helper genérico, no duplicado
 
 
 def test_new_tables_give_text_columns_th_the_same_left_class_as_their_td():

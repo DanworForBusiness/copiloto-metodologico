@@ -887,12 +887,21 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
 .commercial-lc-attribution .commercial-lc-attr-origen .bar-track { height: 6px; }
 .commercial-lc-attribution .commercial-lc-attr-origen .bar-fill { opacity: .38; }
 
-/* Tiempo por Etapa — "Muestras" faltaba junto a "Días Prom." (owner
-   corrective, ver HANDOFF — captura en vivo). `.bar-value` compartido
-   (60px, ver tools.css) partía "24d (12)" en dos líneas — MISMO problema
-   y MISMA solución YA aplicada a Ganadas/Perdidas: ensanchar SCOPEADO a
-   este wrapper (`commercialStageTimeBlockHtml`, commercial.js), nunca el
-   primitivo. `.bar-track` es `flex:1` — ensancharle sitio a `.bar-value`
-   ya angosta el gráfico solo, sin tocar `.bar-track` a mano. */
-.commercial-stage-time-ranking .bar-value { width: 92px; white-space: nowrap; }
-.commercial-stage-time-samples { color: var(--ink-soft, var(--soft)); font-variant-numeric: tabular-nums; }
+/* Tiempo por Etapa / Conversión Etapa a Etapa — owner corrective (ver
+   HANDOFF: "no me sirve imprimir los valores... si no va a haber un
+   header" — captura en vivo). El ranking `.bar-row` mostraba Días Prom./
+   Muestras/Entraron/Avanzaron/Tasa SIN encabezado — ahora son tablas
+   `dashboard-table` reales (MISMO primitivo que Edad del pipeline/Tiempo
+   de cierre/Estancadas), cada valor con su `<th>`. El gráfico se
+   conserva pero ACHICADO: una barra angosta (6px) bajo el nombre de la
+   etapa en vez de una fila entera — reusa `.bar-fill` (MISMO `var(--gold)`,
+   nunca un color propio), nunca `.bar-track`/`.bar-row` en sí, así que
+   ningún otro consumidor de esos primitivos se mueve.
+   `white-space: normal` en la celda de etapa: `td.row-label` es
+   `nowrap` por default (tools.css) — necesario para que la mini-barra
+   pueda ir en su propia línea debajo del nombre en vez de intentar
+   compartir el renglón. */
+.commercial-pipeline-mini-bar-table td.row-label { white-space: normal; }
+.commercial-pipeline-mini-bar { height: 4px; margin-top: 4px; background: var(--bar-track-bg, rgba(0,0,0,.06)); border-radius: 2px; overflow: hidden; }
+.content-theme-dark .commercial-pipeline-mini-bar { background: rgba(255,255,255,.10); }
+.commercial-pipeline-mini-bar .bar-fill { position: static; height: 100%; border-radius: 2px; }
