@@ -367,6 +367,19 @@ def _call_graph(stage: str, fn):
         raise ReportingGraphError(stage=stage, status_code=exc.code) from None
     except urllib.error.URLError:
         raise ReportingGraphError(stage=stage, status_code=None) from None
+    except TimeoutError:
+        # RESILIENCY corrective (Fase 3B, ver HANDOFF §9): un timeout de
+        # LECTURA (`response.read()` dentro de `urlopen(...)`, ya con la
+        # conexión establecida) llega acá como `TimeoutError`/`socket.
+        # timeout` CRUDO — `urllib` NUNCA lo envuelve en `URLError` (eso
+        # solo pasa para fallos en la fase de conexión). Antes de este fix
+        # se propagaba sin clasificar, tumbando el request completo en vez
+        # de degradar igual que cualquier otro fallo de transporte. MISMO
+        # `status_code=None` que `URLError` — "sin respuesta HTTP
+        # recibida", la señal que el sync delta usa para decidir su
+        # fallback (ver AUDIT HANDOFF §9: nunca se reclasifica un status
+        # code HTTP real como transitorio, solo la ausencia de respuesta).
+        raise ReportingGraphError(stage=stage, status_code=None) from None
 
 
 def _list_items_url(
@@ -675,6 +688,7 @@ class ReportingRepository:
 
     def _delta_sync_list(
         self, *, site_id: str, list_id: str, select_fields: list[str] | None, cache_scope: str, stage: str,
+        legacy_fetch_fn,
     ) -> list[dict]:
         """Punto de entrada COMPARTIDO del sync delta — single-flight por
         `(cache_scope, site_id, list_id)` vía `_DELTA_CACHE` (ver
@@ -683,15 +697,32 @@ class ReportingRepository:
         guardado; si Graph lo invalida (`410 Gone` — señal documentada de
         Microsoft Graph para delta tokens expirados, ver AUDIT HANDOFF
         Fase 3A §4), se descarta SOLO este estado y se hace UN resync
-        completo controlado (nunca un loop — si el resync también falla,
-        la excepción se propaga sin reintentar de nuevo). Cualquier otra
-        falla preserva el contrato de error existente de Cartera
-        (`ReportingGraphError` se propaga sin cambios — MISMO manejo
-        centralizado que ya tiene el router). `list_id` es SIEMPRE el ID
+        completo controlado (nunca un loop). `list_id` es SIEMPRE el ID
         efectivo/resuelto — para Client Partner (target descubierto
         dinámicamente vía `/columns`) el caller ya lo resolvió ANTES de
         llamar acá, nunca un id adivinado/estático (ver
-        `_resolve_client_partners`)."""
+        `_resolve_client_partners`).
+
+        RESILIENCY corrective (Fase 3B, ver HANDOFF — owner smoke real:
+        un timeout de lectura en el `deltaLink` tumbó Cartera completo).
+        `ReportingGraphError.status_code is None` (URLError/TimeoutError —
+        ver `_call_graph` — "sin respuesta HTTP recibida en absoluto",
+        NUNCA un status code HTTP real reclasificado) es la ÚNICA señal
+        que dispara el fallback — un 410 sigue yendo a resync (arriba); un
+        403/404/500/etc. (CUALQUIER respuesta HTTP real) o cualquier
+        excepción que NO sea `ReportingGraphError` (bug de parseo,
+        `ReportingSourceError` por deltaLink faltante, etc.) se propaga
+        TAL CUAL, sin fallback — nunca se convierte un bug de negocio en
+        una degradación silenciosa. El fallback SIEMPRE corre
+        `legacy_fetch_fn` (el fetch completo pre-delta EXACTO de esta
+        fuente, provisto por el caller — CERO shaping/filtro nuevo acá) UNA
+        sola vez — si también falla, esa excepción se propaga (MISMO
+        contrato de error de Cartera de siempre, nunca silenciado). El
+        estado delta cacheado NUNCA se toca en este camino: `DeltaCache.
+        sync` ya garantiza que una excepción de `sync_fn` deja
+        `self._data[key]` exactamente como estaba (ver
+        reporting_delta_cache.py) — el próximo request reintenta desde el
+        MISMO `deltaLink` previo, nunca uno inventado ni una key borrada."""
         key = (cache_scope, site_id, list_id)
 
         def sync_fn(current):
@@ -704,33 +735,62 @@ class ReportingRepository:
                     return self._delta_cold_sync(site_id, list_id, select_fields, stage=stage, mode="resync")
                 raise
 
-        state = _DELTA_CACHE.sync(key, sync_fn)
+        try:
+            state = _DELTA_CACHE.sync(key, sync_fn)
+        except ReportingGraphError as exc:
+            if exc.status_code is not None:
+                raise
+            rows = legacy_fetch_fn()
+            _perf_logger.info(
+                "reporting.perf cartera.%s_delta mode=fallback reason=transport pages=0 changes=0 deletes=0 rows=%s",
+                stage, len(rows),
+            )
+            return rows
         return list(state["rows"].values())
 
     def _fetch_horas_proyectos_delta(self, site_id: str, *, cache_scope: str) -> list[dict]:
         """Horas por proyectos vía delta (Fase 3A) — wrapper delgado sobre
         `_delta_sync_list` (Fase 3B factorizó el transporte/estado a un
         primitivo compartido; comportamiento IDÉNTICO, ver
-        test_reporting_horas_delta_sync.py)."""
+        test_reporting_horas_delta_sync.py). `legacy_fetch_fn`: el MISMO
+        fetch completo (`hot_years=None`) que este scope usaba ANTES de
+        delta — único camino de fallback ante un fallo transitorio."""
+        def legacy_fetch_fn():
+            items, _filter_used = self._fetch_horas_proyectos(
+                site_id, hot_years=None, select=HORAS_PROYECTOS_SELECT_FIELDS,
+            )
+            return items
+
         return self._delta_sync_list(
             site_id=site_id, list_id=self.horas_proyectos_list_id,
             select_fields=HORAS_PROYECTOS_SELECT_FIELDS, cache_scope=cache_scope, stage="horas",
+            legacy_fetch_fn=legacy_fetch_fn,
         )
 
     def _fetch_proyectos_delta(self, site_id: str, *, cache_scope: str) -> list[dict]:
         """Proyectos vía delta (Fase 3B) — MISMA proyección
-        (`PROYECTOS_SELECT_FIELDS`) que la lectura completa de siempre."""
+        (`PROYECTOS_SELECT_FIELDS`) que la lectura completa de siempre.
+        `legacy_fetch_fn`: EXACTAMENTE `_items_narrowed_or_full`, el
+        fetch que este método usaba antes de delta."""
         return self._delta_sync_list(
             site_id=site_id, list_id=self.proyectos_list_id,
             select_fields=PROYECTOS_SELECT_FIELDS, cache_scope=cache_scope, stage="proyectos",
+            legacy_fetch_fn=lambda: self._items_narrowed_or_full(
+                site_id, self.proyectos_list_id, "proyectos", PROYECTOS_SELECT_FIELDS,
+            ),
         )
 
     def _fetch_cliente_delta(self, site_id: str, *, cache_scope: str) -> list[dict]:
         """Cliente vía delta (Fase 3B) — MISMA proyección
-        (`CLIENTE_SELECT_FIELDS`) que la lectura completa de siempre."""
+        (`CLIENTE_SELECT_FIELDS`) que la lectura completa de siempre.
+        `legacy_fetch_fn`: EXACTAMENTE `_items_narrowed_or_full`, el
+        fetch que este método usaba antes de delta."""
         return self._delta_sync_list(
             site_id=site_id, list_id=self.cliente_list_id,
             select_fields=CLIENTE_SELECT_FIELDS, cache_scope=cache_scope, stage="cliente",
+            legacy_fetch_fn=lambda: self._items_narrowed_or_full(
+                site_id, self.cliente_list_id, "cliente", CLIENTE_SELECT_FIELDS,
+            ),
         )
 
     # --- XLSX Facturadas ----------------------------------------------------
@@ -839,6 +899,7 @@ class ReportingRepository:
             items = self._delta_sync_list(
                 site_id=site_id, list_id=target, select_fields=None,
                 cache_scope=cache_scope, stage="client_partner",
+                legacy_fetch_fn=lambda: self._items(site_id, target, "client_partner"),
             )
         else:
             items = self._items(site_id, target, "client_partner")
