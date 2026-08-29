@@ -12,19 +12,27 @@ secuencial a un `ThreadPoolExecutor(max_workers=_TIME_LOGS_MAX_WORKERS=3)`
 LOCAL a la llamada — cada archivo se descarga+parsea en su propio worker
 (`_download_one_time_logs_file`), sin estado mutable compartido.
 
-Fase 1B: `get_cartera_proyecto` corre `get_cartera_facts_with_project_dimension`
-y `get_time_logs_worked_hours` en EXACTAMENTE dos workers top-level (MISMO
-patrón ya aceptado por el owner en `get_rentabilidad`, ver
-test_reporting_rentabilidad_concurrency.py — ERROR PRIORITY: se observa
-Facts SIEMPRE primero).
+Fase 1B (RETIRADA — owner A/B isolation, medición real): `get_cartera_proyecto`
+corrió brevemente `get_cartera_facts_with_project_dimension` y
+`get_time_logs_worked_hours` en dos workers top-level (MISMO patrón que
+`get_rentabilidad`, sin tocar) — la medición real combinada con Fase 1A dio
+PEOR resultado que la versión 100% secuencial (facts 14.9s→50.2s, time_logs
+26.6s→50.6s, CSV wall phase de Fase 1A solo 23.9s→47.4s con el MISMO pool de
+3 workers): fuerte indicio de contención real contra Microsoft
+365/SharePoint al combinar dos fuentes concurrentes, no un defecto de este
+código. Fase 1B fue REMOVIDA permanentemente — Facts y Time Logs vuelven a
+correr secuencial, en el thread que llamó a `get_cartera_proyecto` (nunca en
+un pool). Fase 1A SÍ se mantiene: midió mejor en aislamiento (~29% Time
+Logs, ~33% CSV wall download) — es una capa de concurrencia distinta (I/O
+intra-fuente Time Logs, nunca fan-out cross-fuente).
 
 Este archivo prueba (ningún assert de wall-clock — solo sincronización
 determinística vía threading.Event/lock):
-  A. las 6 descargas CSV se solapan en el tiempo;
+  A. las 6 descargas CSV de Time Logs se solapan en el tiempo (Fase 1A);
   B. como mucho 3 workers de CSV activos a la vez, y realmente se alcanzan 3;
-  C. las ramas Facts/Time Logs se solapan;
-  D. como mucho 2 workers top-level activos a la vez;
-  E. ningún worker sobrevive/filtra threads tras una excepción;
+  C. las ramas Facts/Time Logs corren SECUENCIAL, nunca solapadas (Fase 1B
+     retirada) — ambas en el thread que llamó, sin pool;
+  E. ningún worker de Fase 1A sobrevive/filtra threads tras una excepción;
   + presupuesto de llamadas remotas SIN CAMBIOS vs. la versión secuencial;
   + orden de merge determinístico (orden original de archivos, no orden de
     finalización);
@@ -280,35 +288,78 @@ def test_csv_downloads_overlap_and_are_capped_at_three_workers(monkeypatch):
     assert active["count"] == 0  # todos los workers liberaron correctamente
 
 
-# --- §8.C/D — Facts y Time Logs se solapan, tope de 2 top-level -----------
+# --- PHASE 1B REJECTED (owner A/B measurement — ver HANDOFF): la
+# concurrencia top-level Facts||TimeLogs midió PEOR en Graph/SharePoint
+# real (contención: facts 14.9s→50.2s, time_logs 26.6s→50.6s, CSV wall
+# phase 23.9s→47.4s con el MISMO pool de 3 workers de Fase 1A) — REMOVIDA
+# permanentemente. Fase 1A (pool acotado de 3 workers para las descargas
+# CSV DENTRO de Time Logs) se mantiene — es una capa de concurrencia
+# distinta (I/O intra-fuente, no fan-out cross-fuente) y SÍ midió mejor en
+# aislamiento (~29% Time Logs, ~33% CSV wall download). El test de abajo
+# reemplaza al que exigía overlap Facts/TimeLogs (retirado) — ahora prueba
+# lo contrario: que ambas ramas corren SECUENCIAL, Facts completo ANTES de
+# que Time Logs arranque, nunca solapadas.
 
-def test_facts_and_time_logs_branches_overlap_capped_at_two(monkeypatch):
+def test_facts_and_time_logs_branches_run_sequentially_never_overlap(monkeypatch):
     facts_started = threading.Event()
+    facts_finished = threading.Event()
     time_logs_started = threading.Event()
 
     def fake_facts(self, access_token, *, include_facturadas):
         facts_started.set()
-        started = time_logs_started.wait(timeout=2)
-        assert started, "time_logs nunca arrancó mientras facts estaba en vuelo — las ramas NO se solapan"
-        return [{
+        result = [{
             "cliente": "Danone", "clientPartner": "María López", "proyecto": "Soporte Danone",
             "idProyecto": "DAN-001", "tipoProyecto": "Proyecto", "estado": "En curso",
             "anio": "2026", "mes": "Agosto", "anioInicio": "2026",
             "hsTrabajadas": 10.0, "hsVendidas": 160.0, "hsCertificadas": 140.0, "facturadasProyecto": 290.0,
         }], {}
+        # Marca "facts terminó" en el ÚLTIMO instante que este fake controla
+        # antes de devolver el control al caller secuencial — si Time Logs
+        # llegara a arrancar en un thread separado ANTES de este punto
+        # (Fase 1B), el evento seguiría sin setearse cuando lo observe.
+        facts_finished.set()
+        return result
 
     def fake_time_logs(self, access_token, *, hot_years):
         time_logs_started.set()
-        started = facts_started.wait(timeout=2)
-        assert started, "facts nunca arrancó mientras time_logs estaba en vuelo — las ramas NO se solapan"
+        # Si las ramas corrieran concurrentes (Fase 1B), `facts_finished`
+        # podría no estar seteado todavía acá — con la topología secuencial
+        # correcta, Facts YA retornó (y `fake_facts` ya volvió al caller)
+        # antes de que Time Logs arranque siquiera.
+        assert facts_finished.is_set(), "time_logs arrancó ANTES de que facts terminara — las ramas se solaparon"
         return [{"proyecto": "Soporte Danone", "anio": "2026", "mes": "2026-08", "horas": 132.4}]
 
     monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_facts)
     monkeypatch.setattr(ReportingRepository, "get_time_logs_worked_hours", fake_time_logs)
 
     rows = ReportingService(_repo()).get_cartera_proyecto("tok")
+    assert facts_started.is_set()
+    assert time_logs_started.is_set()
     assert rows
     assert rows[0]["trabajadas"] == 132.4
+
+
+def test_facts_and_time_logs_run_on_the_calling_thread_no_pool(monkeypatch):
+    """Guard más fuerte todavía: sin `ThreadPoolExecutor` top-level, AMBAS
+    ramas deben ejecutar en el MISMO thread que llamó a
+    `get_cartera_proyecto` — nunca en un worker thread separado (lo que
+    Fase 1B sí hacía)."""
+    caller_thread = threading.current_thread().ident
+    seen_threads = []
+
+    def fake_facts(self, access_token, *, include_facturadas):
+        seen_threads.append(threading.current_thread().ident)
+        return [], {}
+
+    def fake_time_logs(self, access_token, *, hot_years):
+        seen_threads.append(threading.current_thread().ident)
+        return []
+
+    monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_facts)
+    monkeypatch.setattr(ReportingRepository, "get_time_logs_worked_hours", fake_time_logs)
+
+    ReportingService(_repo()).get_cartera_proyecto("tok")
+    assert seen_threads == [caller_thread, caller_thread]
 
 
 # --- §8.E — ningún worker sobrevive/filtra threads tras una excepción -----

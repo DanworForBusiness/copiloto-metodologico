@@ -534,63 +534,46 @@ class ReportingService:
         método ya leía), y es lo que permite que un proyecto que sólo existe
         en Time Logs pero resuelve contra Proyectos aparezca igual.
 
-        PERF PHASE 1B (owner corrective, ver HANDOFF — root cause
-        confirmado por timing real: `cartera_proyecto.time_logs`≈26.6s
-        corriendo secuencial DESPUÉS de `cartera_proyecto.facts`≈14.9s):
-        MISMO patrón ya aceptado por el owner en `get_rentabilidad` (TWO-WAY
-        CONCURRENCY corrective, 2026-08-19) — Facts y Time Logs son
-        data-independientes hasta el join en `_proyecto_rows`, así que
-        corren en un `ThreadPoolExecutor(max_workers=2)` LOCAL a esta
-        llamada (nunca global/compartido entre requests). Time Logs además
-        trae su propia concurrencia interna acotada (Fase 1A,
-        `_TIME_LOGS_MAX_WORKERS=3`), así que la presión máxima intencional
-        sobre Graph queda en ~3 operaciones de Time Logs + 1 de Facts en
-        vuelo, nunca un fan-out sin límite.
-
-        THREAD-SAFETY AUDIT (mismo resultado que `get_rentabilidad`):
-        `core/microsoft365.py` no posee/refresca tokens (nada que
-        sincronizar); el único estado mutable de instancia que ambas ramas
-        escriben es `self._repository._token` (`self._token = access_token`
-        al entrar a cada método) — siempre el MISMO valor, porque
-        `access_token` acá es una única variable pasada a ambas llamadas,
-        así que la escritura concurrente es redundante pero inofensiva
-        (atómica bajo el GIL, nunca un valor mezclado). `self.site_id`/
-        `*_list_id` se fijan una sola vez en `__init__` y nunca se
-        reasignan. Ningún `_StageTimer` se comparte entre las dos ramas.
-
-        ERROR PRIORITY (MISMO contrato que `get_rentabilidad`, owner
-        decision explícita — no es la semántica de falla exacta de la
-        versión secuencial): se observa el `Future` de Facts SIEMPRE
-        primero, sin importar cuál terminó antes en tiempo real. Facts
-        falla ⇒ su excepción se propaga con prioridad, aunque Time Logs
-        pueda haber arrancado o incluso completado mientras tanto (trabajo
-        Graph aceptado como posible desperdicio en ese escenario — ambas
-        ramas son read-only). Facts OK + Time Logs falla ⇒ se propaga la
-        excepción de Time Logs. `exc.stage`/`exc.status_code` de
-        `ReportingGraphError` viajan sin cambios en cualquiera de los dos
-        casos."""
+        PERF PHASE 1B — TEMPORALMENTE DESACTIVADA (owner A/B isolation,
+        ver HANDOFF: la medición real combinada de Fase 1A+1B empeoró TODO
+        — `cartera_proyecto.facts` 14.9s→50.2s, `time_logs` 26.6s→50.6s,
+        el CSV wall phase de Time Logs solo ~23.9s→~47.4s con el MISMO
+        pool de 3 workers — fuerte indicio de contención real contra
+        Microsoft 365/SharePoint, no un problema de este código). El
+        `ThreadPoolExecutor(max_workers=2)` top-level (Facts || Time Logs)
+        fue RETIRADO — Facts y Time Logs vuelven a correr SECUENCIAL
+        (Facts primero, después Time Logs), exactamente como antes de
+        Fase 1B. Fase 1A (pool acotado de 3 workers para las descargas CSV
+        de Time Logs, ver `_download_time_logs_rows`) se MANTIENE sin
+        cambios — este aislamiento A/B es justamente para medir su efecto
+        solo, sin el ruido de la concurrencia top-level combinada. El
+        patrón de concurrencia de dos ramas retirado de acá sigue vigente,
+        SIN TOCAR, en `get_rentabilidad` — este aislamiento es exclusivo
+        de Cartera/Proyecto."""
         _cp_total_start = time.perf_counter()
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            facts_future = pool.submit(
-                self._repository.get_cartera_facts_with_project_dimension,
-                access_token, include_facturadas=True,
-            )
-            time_logs_future = pool.submit(
-                self._repository.get_time_logs_worked_hours, access_token, hot_years=None,
-            )
-            # Orden determinístico OBLIGATORIO (ver ERROR PRIORITY arriba)
-            # — Facts SIEMPRE se observa antes que Time Logs, nunca "el que
-            # termine primero".
-            facts, project_dim = facts_future.result()
-            _perf_logger.info(
-                "reporting.perf cartera_proyecto.facts elapsed_ms=%s",
-                round((time.perf_counter() - _cp_total_start) * 1000),
-            )
-            time_logs = time_logs_future.result()
-            _perf_logger.info(
-                "reporting.perf cartera_proyecto.time_logs elapsed_ms=%s",
-                round((time.perf_counter() - _cp_total_start) * 1000),
-            )
+        _cp_facts_start = _cp_total_start
+        facts, project_dim = self._repository.get_cartera_facts_with_project_dimension(
+            access_token, include_facturadas=True,
+        )
+        _perf_logger.info(
+            "reporting.perf cartera_proyecto.facts elapsed_ms=%s",
+            round((time.perf_counter() - _cp_facts_start) * 1000),
+        )
+        # TIMER SEMANTICS corrective (owner, ver HANDOFF): cada stage mide
+        # SU PROPIA duración desde su propio inicio, nunca acumulado desde
+        # `_cp_total_start` — con la topología secuencial de acá (Facts,
+        # DESPUÉS Time Logs), `_cp_time_logs_start` es simplemente el
+        # instante en que Facts terminó, así que este timer refleja
+        # EXCLUSIVAMENTE la rama Time Logs (`time_logs.total`, el timer
+        # canónico interno de esta rama, debe coincidir con este valor
+        # menos el overhead despreciable de `get_time_logs_worked_hours`
+        # fuera de `_download_time_logs_rows`/`_resolve_time_logs_site_id`).
+        _cp_time_logs_start = time.perf_counter()
+        time_logs = self._repository.get_time_logs_worked_hours(access_token, hot_years=None)
+        _perf_logger.info(
+            "reporting.perf cartera_proyecto.time_logs elapsed_ms=%s",
+            round((time.perf_counter() - _cp_time_logs_start) * 1000),
+        )
         _cp_shaping_start = time.perf_counter()
         rows, unmatched = self._proyecto_rows(
             facts, _trab_by_proyecto_by_year(time_logs), project_dim,
