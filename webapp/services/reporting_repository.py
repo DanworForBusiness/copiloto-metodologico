@@ -134,8 +134,6 @@ CLI_CP_LOOKUP = ("ClientPartnerLookupId", "ClientPartnerId")
 CLI_CP_COLUMN_NAMES = ("ClientPartner",)
 CLI_CP_DISPLAY_NAMES = ("Client Partner",)
 PM_TITLE = "Title"                  # display del Client Partner = Title del target
-# MISMO criterio que PROYECTOS_SELECT_FIELDS arriba, Fase 3B.
-CLIENTE_SELECT_FIELDS = [CLI_NOMBRE, *CLI_CP_LOOKUP]
 
 # Batch A (Horas Vendidas/Participación/Calendario, ver artifacts/
 # reporting-integral-v0/real-data-lineage.md sección 8) — columnas
@@ -163,6 +161,24 @@ CLI_SALUD_OPERATIVO = ("Salud_x0020_Operativo",)
 CLI_SALUD_CONTINUIDAD = ("Salud_x0020_Continuidad",)
 CLI_SALUD_ESTRATEGICO = ("Salud_x0020_Estrategico",)
 CLI_SALUD_FINAL = ("Salud",)
+
+# REUSO DE ADQUISICIÓN DELTA corrective (Reporting/Horas Vendidas, ver
+# HANDOFF §4/§5/§6): Cliente pasa a compartir el MISMO canonical delta
+# state entre Cartera Y Batch A (Horas Vendidas/Participación/Calendario/
+# Salud) — MISMA key `(cache_scope, site_id, cliente_list_id)`, así que el
+# `$select` de cold-sync debe ser la UNIÓN de lo que CUALQUIER consumidor
+# necesita, nunca el subconjunto más chico de uno solo (Cartera solo
+# leía `CLI_NOMBRE`/`CLI_CP_LOOKUP` — agregar más columnas es SIEMPRE
+# seguro, ver `_items_narrowed_or_full`: un `$select` nunca filtra filas,
+# solo columnas, y el fallback sin `$select` ya cubre cualquier nombre de
+# campo candidato que no exista en el schema real). Cartera sigue
+# ignorando las columnas que no lee — CERO cambio de comportamiento ahí.
+CLIENTE_SELECT_FIELDS = [
+    CLI_NOMBRE, *CLI_CP_LOOKUP,
+    *CLI_FRECUENCIA_ACT, *CLI_PERMITE_ADELANTO, *CLI_CONDICION_PAGO, *CLI_CALENDARIO_ACT,
+    *CLI_SALUD_FINANCIERA, *CLI_SALUD_RELACION, *CLI_SALUD_OPERATIVO,
+    *CLI_SALUD_CONTINUIDAD, *CLI_SALUD_ESTRATEGICO, *CLI_SALUD_FINAL,
+]
 # Horas Productivas — panel "Cliente + Part" (ver real-data-lineage.md §8ter
 # item 1, ticket "CONTINUE REPORTING"): Time Logs Reports.tmdl línea 300
 # define la columna calculada `'Cliente + Part'` = `[Client] &" "&
@@ -493,6 +509,17 @@ def _first(fields: dict, *candidates) -> str:
     return ""
 
 
+def _filter_horas_items_by_years(items: list[dict], hot_years: list[str]) -> list[dict]:
+    """Filtro Python EXACTO que ya usaba el fallback de
+    `_fetch_horas_proyectos` (extraído, Reporting/Horas Vendidas corrective
+    — ver HANDOFF) — reusado TAMBIÉN cuando el canonical Horas delta state
+    (historia completa) se proyecta LOCALMENTE a una ventana `hot_years`
+    (`get_batch_a_facts`, ver ahí), nunca una segunda implementación del
+    mismo criterio."""
+    wanted = set(hot_years)
+    return [it for it in items if _text((it.get("fields") or {}).get(HP_ANIO)) in wanted]
+
+
 class ReportingRepository:
     """Acceso a fuentes SharePoint de Cartera. Inyectable para tests (site/list
     IDs por parámetro). NO posee token: cada método recibe `access_token`
@@ -593,9 +620,8 @@ class ReportingRepository:
             )
             return items, True
         except Exception:  # noqa: BLE001 — fallback de transporte, nunca una regla de negocio (mismo criterio que Staffing)
-            wanted = set(hot_years)
             all_items = self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos")
-            return [it for it in all_items if _text((it.get("fields") or {}).get(HP_ANIO)) in wanted], False
+            return _filter_horas_items_by_years(all_items, hot_years), False
 
     # --- DELTA-SYNC genérico (Horas Fase 3A, Proyectos/Cliente/Client -----
     # Partner Fase 3B, ver HANDOFF) — SOLO para el camino Cartera/Proyecto
@@ -1154,18 +1180,30 @@ class ReportingRepository:
         para poblar el <select> de Año de Cartera (HOT WINDOW / COLD HISTORY
         corrective). Delega en `_anio_estado_pairs(mantenimiento_only=True)`
         — Cartera Mantenimiento SOLO muestra `Tiempo & Materiales`
-        (Proyecto agrega la vida completa y nunca usa ventana)."""
+        (Proyecto agrega la vida completa y nunca usa ventana). SIN
+        `cache_scope` a propósito (§13 HANDOFF Reporting/Horas Vendidas —
+        "do not touch Mantenimiento") — sigue en la lectura completa de
+        siempre."""
         return self._anio_estado_pairs(access_token, mantenimiento_only=True)
 
-    def get_horas_anio_estado_pairs(self, access_token: str) -> list[dict]:
+    def get_horas_anio_estado_pairs(self, access_token: str, *, cache_scope: str | None = None) -> list[dict]:
         """Pares distintos (año, estado) de TODOS los tipos de proyecto —
         metadata del <select> de Año de Horas Vendidas (que abarca
         Mantenimiento + Proyecto, a diferencia de Cartera Mantenimiento).
         Delega en `_anio_estado_pairs(mantenimiento_only=False)` — MISMA
-        lectura mínima, sin duplicar la lógica Graph."""
-        return self._anio_estado_pairs(access_token, mantenimiento_only=False)
+        lectura mínima, sin duplicar la lógica Graph.
 
-    def _anio_estado_pairs(self, access_token: str, *, mantenimiento_only: bool) -> list[dict]:
+        `cache_scope` (REUSO DE ADQUISICIÓN DELTA corrective, ver HANDOFF):
+        `None` (default) preserva el comportamiento EXACTO de siempre —
+        Rentabilidad/Participación (`get_rentabilidad_anios`/
+        `get_participacion_anios`, MISMO método compartido) NUNCA lo pasan,
+        cero cambio para ellos. Solo `get_horas_vendidas_anios` (service)
+        opta por un `cache_scope` real."""
+        return self._anio_estado_pairs(access_token, mantenimiento_only=False, cache_scope=cache_scope)
+
+    def _anio_estado_pairs(
+        self, access_token: str, *, mantenimiento_only: bool, cache_scope: str | None = None,
+    ) -> list[dict]:
         """Core compartido de la metadata de años (HOT WINDOW / COLD HISTORY
         corrective, ver HANDOFF: "DO NOT CONFUSE OPTIONS WITH HYDRATED
         FACTS" — un año frío, no hidratado por la ventana caliente por
@@ -1176,23 +1214,38 @@ class ReportingRepository:
         `$select` acotado a `A_x00f1_o`+lookup de Proyecto en Horas por
         proyectos (NUNCA Cliente/HsTrabajadas/HsVendidas/HsFacturadas —
         no hacen falta para esto) + Tipo/Status en Proyectos (lista
-        pequeña, ya barata de por sí). SIGUE pagando una lectura paginada
-        completa de Horas por proyectos (Graph no permite "años distintos"
-        sin bajar los items) — pero el payload por-item es mínimo, mucho
-        más barato que el fact completo con join a Cliente/Client
-        Partner/XLSX. Si el owner confirma en el smoke que esto sigue
-        siendo caro, la métrica ya queda expuesta en
-        `danwor.reporting.perf` para decidir el próximo paso con evidencia,
-        nunca a ciegas."""
+        pequeña, ya barata de por sí). Camino de siempre (`cache_scope=None`):
+        SIGUE pagando una lectura paginada completa de Horas por proyectos
+        (Graph no permite "años distintos" sin bajar los items).
+
+        `cache_scope` no-`None` (REUSO DE ADQUISICIÓN DELTA corrective, ver
+        HANDOFF — Reporting/Horas Vendidas: "/anios-disponibles hacía una
+        SEGUNDA lectura full-history de Horas por proyectos, redundante con
+        la de Batch A"): Proyectos y Horas por proyectos se leen del MISMO
+        canonical delta state que Cartera/Proyecto y Batch A YA sincronizan
+        — key `(cache_scope, site_id, list_id)`, sin distinguir caller. El
+        `$select` acotado de arriba deja de aplicar (el delta cold-sync usa
+        la proyección UNIÓN de `PROYECTOS_SELECT_FIELDS`/
+        `HORAS_PROYECTOS_SELECT_FIELDS`, más ancha pero SIEMPRE superset —
+        ver AUDIT en HANDOFF) — el shaping de abajo solo lee los mismos 4
+        campos de siempre, el resto de las columnas extra se ignora."""
         self._token = access_token
         site_id = self._require_site_id()
         timer = _StageTimer("anios_disponibles")
-        proyectos_items = self._items(site_id, self.proyectos_list_id, "proyectos", [PROY_TITLE, PROY_TIPO, PROY_ESTADO])
+        if cache_scope is not None:
+            proyectos_items = self._fetch_proyectos_delta(site_id, cache_scope=cache_scope)
+        else:
+            proyectos_items = self._items(
+                site_id, self.proyectos_list_id, "proyectos", [PROY_TITLE, PROY_TIPO, PROY_ESTADO],
+            )
         timer.stage("proyectos", len(proyectos_items))
-        horas_items = self._items(
-            site_id, self.horas_proyectos_list_id, "horas_proyectos_anios",
-            [HP_ANIO, *HP_PROYECTO_LOOKUP],
-        )
+        if cache_scope is not None:
+            horas_items = self._fetch_horas_proyectos_delta(site_id, cache_scope=cache_scope)
+        else:
+            horas_items = self._items(
+                site_id, self.horas_proyectos_list_id, "horas_proyectos_anios",
+                [HP_ANIO, *HP_PROYECTO_LOOKUP],
+            )
         timer.stage("horas_proyectos_anios", len(horas_items))
 
         tipo_by_id = {_text(it.get("id")): _text((it.get("fields") or {}).get(PROY_TIPO)) for it in proyectos_items}
@@ -1217,7 +1270,9 @@ class ReportingRepository:
 
     # --- Batch A: Horas Vendidas / Participación / Calendario ---------------
 
-    def get_batch_a_facts(self, access_token: str, *, hot_years: list[str] | None = None) -> dict:
+    def get_batch_a_facts(
+        self, access_token: str, *, hot_years: list[str] | None = None, cache_scope: str | None = None,
+    ) -> dict:
         """UN solo fetch (adapter COMPARTIDO) para las experiencias que reusan
         el backbone de Cartera (Horas Vendidas, Participación, Calendario,
         Salud de Cliente — ver real-data-lineage.md sección 8/9). Reusa las
@@ -1240,30 +1295,63 @@ class ReportingRepository:
         COMPLETA (comportamiento de SIEMPRE — lo consume Participación, que
         agrega el gran total sobre TODOS los años hasta que migre a Año/
         Estado). Una lista (`["2026","2025"]`) acota SOLO la lectura de
-        "Horas por proyectos" (la tabla de hechos, la cara) por el MISMO
-        helper `_fetch_horas_proyectos` que usa Cartera — Horas Vendidas pide
-        únicamente su ventana caliente sin pagar el volumen de Participación.
-        Las listas de dimensión (Proyectos/Cliente/Client Partner) NO se
-        acotan por año (son el join, no el hecho — igual que en Cartera)."""
+        "Horas por proyectos" (la tabla de hechos, la cara) — Horas Vendidas
+        pide únicamente su ventana caliente sin pagar el volumen de
+        Participación. Las listas de dimensión (Proyectos/Cliente/Client
+        Partner) NO se acotan por año (son el join, no el hecho — igual que
+        en Cartera).
+
+        `cache_scope` (REUSO DE ADQUISICIÓN DELTA corrective, Reporting/
+        Horas Vendidas, ver HANDOFF): `None` (default) preserva el
+        comportamiento EXACTO de siempre — lecturas completas frescas de
+        Proyectos/Cliente/Client Partner + `_fetch_horas_proyectos(hot_years=...)`
+        con su propio `$filter` OData. Un `cache_scope` no-`None` reusa el
+        MISMO canonical delta state que Cartera/Proyecto YA sincroniza para
+        estas 4 fuentes (`_fetch_proyectos_delta`/`_fetch_cliente_delta`/
+        `_resolve_client_partners(cache_scope=...)`/`_fetch_horas_proyectos_delta`
+        — key `(cache_scope, site_id, list_id)`, SIN distinguir caller: si
+        Cartera/Proyecto ya sincronizó esta sesión, Batch A hereda el
+        checkpoint tibio SIN una sola llamada Graph propia). Horas por
+        proyectos delta SIEMPRE trae la historia COMPLETA (delta no tiene
+        noción de `$filter` — es un primitivo de colección completa +
+        checkpoint incremental) — `hot_years`, si se pasa, se aplica DESPUÉS
+        como una proyección LOCAL en Python (`_filter_horas_items_by_years`,
+        el MISMO criterio exacto que ya usaba el fallback de
+        `_fetch_horas_proyectos`, nunca una segunda implementación) — jamás
+        trunca la vida del proyecto ni cambia semántica de año, solo evita
+        el segundo viaje a Graph."""
         self._token = access_token
         site_id = self._require_site_id()
         timer = _StageTimer("batch_a")
 
-        proyectos_items = self._items(site_id, self.proyectos_list_id, "proyectos")
+        if cache_scope is not None:
+            proyectos_items = self._fetch_proyectos_delta(site_id, cache_scope=cache_scope)
+        else:
+            proyectos_items = self._items(site_id, self.proyectos_list_id, "proyectos")
         timer.stage("proyectos", len(proyectos_items))
-        clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
+        if cache_scope is not None:
+            clientes_items = self._fetch_cliente_delta(site_id, cache_scope=cache_scope)
+        else:
+            clientes_items = self._items(site_id, self.cliente_list_id, "cliente")
         timer.stage("cliente", len(clientes_items))
-        # Scope temporal: SOLO acota el hecho (Horas por proyectos). Mismo
-        # helper/fallback que Cartera (OData $filter + Prefer, cae a filtro
-        # Python si Graph rechaza) — cero lógica Graph duplicada.
-        horas_items, _filter_used = self._fetch_horas_proyectos(site_id, hot_years=hot_years)
+        # Scope temporal: SOLO acota el hecho (Horas por proyectos). Camino
+        # delta: canonical FULL-HISTORY, `hot_years` se aplica LOCALMENTE
+        # después (ver docstring). Camino de siempre: `$filter` OData +
+        # fallback Python, MISMO helper que Cartera.
+        if cache_scope is not None:
+            horas_items = self._fetch_horas_proyectos_delta(site_id, cache_scope=cache_scope)
+            if hot_years is not None:
+                horas_items = _filter_horas_items_by_years(horas_items, hot_years)
+            _filter_used = "delta"
+        else:
+            horas_items, _filter_used = self._fetch_horas_proyectos(site_id, hot_years=hot_years)
         if hot_years is not None:
             _perf_logger.info(
                 "reporting.perf batch_a.horas_proyectos_filter hot_years=%s filter_used=%s",
                 ",".join(hot_years), _filter_used,
             )
         timer.stage("horas_proyectos", len(horas_items))
-        cp_by_id = self._resolve_client_partners(site_id)
+        cp_by_id = self._resolve_client_partners(site_id, cache_scope=cache_scope)
         timer.stage("client_partner", len(cp_by_id))
 
         proy_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in proyectos_items}

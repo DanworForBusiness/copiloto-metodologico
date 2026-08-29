@@ -1181,7 +1181,9 @@ class ReportingService:
     # Comparten UN fetch (`get_batch_a_facts`). Horas Vendidas se sirve aparte
     # con scope temporal (ver `get_horas_vendidas` + `get_horas_vendidas_anios`).
 
-    def get_horas_vendidas(self, access_token: str, *, anios: list[str] | None = None) -> list[dict]:
+    def get_horas_vendidas(
+        self, access_token: str, *, anios: list[str] | None = None, cache_scope: str | None = None,
+    ) -> list[dict]:
         """Horas Vendidas con SCOPE TEMPORAL (owner directive — HV pide al
         mismo source-family SÓLO su ventana caliente, sin arrastrar la
         historia completa de Participación). `anios=None` (primera hidratación
@@ -1190,18 +1192,27 @@ class ReportingService:
         lista explícita (`["2024"]`) es el lazy-load de un año FRÍO puntual,
         disparado por el usuario al elegirlo en el <select> de Año — MISMO
         contrato que `get_cartera_mantenimiento(anios=...)`. El scope acota
-        SOLO la lectura de Horas por proyectos (ver `get_batch_a_facts`)."""
+        SOLO la lectura de Horas por proyectos (ver `get_batch_a_facts`).
+
+        `cache_scope` (REUSO DE ADQUISICIÓN DELTA corrective, ver HANDOFF):
+        pasado tal cual a `get_batch_a_facts` — `None` (default) preserva el
+        contrato de siempre."""
         hot_years = anios if anios is not None else self._default_hot_years()
-        facts = self._repository.get_batch_a_facts(access_token, hot_years=hot_years)["project_facts"]
+        facts = self._repository.get_batch_a_facts(
+            access_token, hot_years=hot_years, cache_scope=cache_scope,
+        )["project_facts"]
         return self._shape_horas_vendidas(facts)
 
-    def get_horas_vendidas_anios(self, access_token: str) -> list[dict]:
+    def get_horas_vendidas_anios(self, access_token: str, *, cache_scope: str | None = None) -> list[dict]:
         """Metadata de años/estado disponibles de Horas Vendidas (todos los
         tipos) — separada del fetch de datos a propósito (misma razón que
         Cartera: las OPCIONES del <select> de Año nunca deben confundirse con
         los años ya HIDRATADOS por la ventana caliente). Delegado 1:1 al
-        repository (`get_horas_anio_estado_pairs`)."""
-        return self._repository.get_horas_anio_estado_pairs(access_token)
+        repository (`get_horas_anio_estado_pairs`).
+
+        `cache_scope` (REUSO DE ADQUISICIÓN DELTA corrective, ver HANDOFF):
+        `None` (default) preserva el contrato de siempre."""
+        return self._repository.get_horas_anio_estado_pairs(access_token, cache_scope=cache_scope)
 
     def get_rentabilidad_anios(self, access_token: str) -> list[dict]:
         """Metadata de años/estado disponibles de Rentabilidad — MISMO
