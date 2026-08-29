@@ -20,6 +20,7 @@ defaults de filtro) — eso sigue 100% en reporting.js.
 from __future__ import annotations
 
 import logging
+import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -27,6 +28,12 @@ from datetime import datetime
 from webapp.services.reporting_repository import ReportingRepository, _is_valid_anio, _norm_key
 
 _logger = logging.getLogger("danwor.reporting")
+# PERF instrumentation permanente (bajo costo, ver HANDOFF Fase 1 §9) —
+# mismo logger/nombre que `reporting_repository.py` (`_perf_logger`), un
+# único stream `danwor.reporting.perf` para todas las líneas `reporting.perf`.
+# Acá sólo se agrega el timer EXTERIOR de `get_cartera_proyecto`
+# (`cartera_proyecto.*`), MISMO contrato stage-level que `_StageTimer`.
+_perf_logger = logging.getLogger("danwor.reporting.perf")
 
 # Proyectos placeholder "Horas No Productivas" del PBIP (real-data-lineage.md:284,
 # página "Hs No Asignadas": `[Project] IN {...}`) — parte del criterio de
@@ -525,13 +532,76 @@ class ReportingService:
         `..._with_project_dimension` en vez de `get_cartera_facts`: MISMO
         fetch, CERO llamadas Graph nuevas (devuelve la dimensión que ese
         método ya leía), y es lo que permite que un proyecto que sólo existe
-        en Time Logs pero resuelve contra Proyectos aparezca igual."""
-        facts, project_dim = self._repository.get_cartera_facts_with_project_dimension(
-            access_token, include_facturadas=True,
-        )
-        time_logs = self._repository.get_time_logs_worked_hours(access_token, hot_years=None)
+        en Time Logs pero resuelve contra Proyectos aparezca igual.
+
+        PERF PHASE 1B (owner corrective, ver HANDOFF — root cause
+        confirmado por timing real: `cartera_proyecto.time_logs`≈26.6s
+        corriendo secuencial DESPUÉS de `cartera_proyecto.facts`≈14.9s):
+        MISMO patrón ya aceptado por el owner en `get_rentabilidad` (TWO-WAY
+        CONCURRENCY corrective, 2026-08-19) — Facts y Time Logs son
+        data-independientes hasta el join en `_proyecto_rows`, así que
+        corren en un `ThreadPoolExecutor(max_workers=2)` LOCAL a esta
+        llamada (nunca global/compartido entre requests). Time Logs además
+        trae su propia concurrencia interna acotada (Fase 1A,
+        `_TIME_LOGS_MAX_WORKERS=3`), así que la presión máxima intencional
+        sobre Graph queda en ~3 operaciones de Time Logs + 1 de Facts en
+        vuelo, nunca un fan-out sin límite.
+
+        THREAD-SAFETY AUDIT (mismo resultado que `get_rentabilidad`):
+        `core/microsoft365.py` no posee/refresca tokens (nada que
+        sincronizar); el único estado mutable de instancia que ambas ramas
+        escriben es `self._repository._token` (`self._token = access_token`
+        al entrar a cada método) — siempre el MISMO valor, porque
+        `access_token` acá es una única variable pasada a ambas llamadas,
+        así que la escritura concurrente es redundante pero inofensiva
+        (atómica bajo el GIL, nunca un valor mezclado). `self.site_id`/
+        `*_list_id` se fijan una sola vez en `__init__` y nunca se
+        reasignan. Ningún `_StageTimer` se comparte entre las dos ramas.
+
+        ERROR PRIORITY (MISMO contrato que `get_rentabilidad`, owner
+        decision explícita — no es la semántica de falla exacta de la
+        versión secuencial): se observa el `Future` de Facts SIEMPRE
+        primero, sin importar cuál terminó antes en tiempo real. Facts
+        falla ⇒ su excepción se propaga con prioridad, aunque Time Logs
+        pueda haber arrancado o incluso completado mientras tanto (trabajo
+        Graph aceptado como posible desperdicio en ese escenario — ambas
+        ramas son read-only). Facts OK + Time Logs falla ⇒ se propaga la
+        excepción de Time Logs. `exc.stage`/`exc.status_code` de
+        `ReportingGraphError` viajan sin cambios en cualquiera de los dos
+        casos."""
+        _cp_total_start = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            facts_future = pool.submit(
+                self._repository.get_cartera_facts_with_project_dimension,
+                access_token, include_facturadas=True,
+            )
+            time_logs_future = pool.submit(
+                self._repository.get_time_logs_worked_hours, access_token, hot_years=None,
+            )
+            # Orden determinístico OBLIGATORIO (ver ERROR PRIORITY arriba)
+            # — Facts SIEMPRE se observa antes que Time Logs, nunca "el que
+            # termine primero".
+            facts, project_dim = facts_future.result()
+            _perf_logger.info(
+                "reporting.perf cartera_proyecto.facts elapsed_ms=%s",
+                round((time.perf_counter() - _cp_total_start) * 1000),
+            )
+            time_logs = time_logs_future.result()
+            _perf_logger.info(
+                "reporting.perf cartera_proyecto.time_logs elapsed_ms=%s",
+                round((time.perf_counter() - _cp_total_start) * 1000),
+            )
+        _cp_shaping_start = time.perf_counter()
         rows, unmatched = self._proyecto_rows(
             facts, _trab_by_proyecto_by_year(time_logs), project_dim,
+        )
+        _perf_logger.info(
+            "reporting.perf cartera_proyecto.shaping elapsed_ms=%s",
+            round((time.perf_counter() - _cp_shaping_start) * 1000),
+        )
+        _perf_logger.info(
+            "reporting.perf cartera_proyecto.total elapsed_ms=%s",
+            round((time.perf_counter() - _cp_total_start) * 1000),
         )
         if unmatched:
             # MISMO criterio que Mantenimiento: nunca se fabrica dimensión

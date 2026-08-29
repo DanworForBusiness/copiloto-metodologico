@@ -34,6 +34,7 @@ import io
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import config
@@ -181,6 +182,14 @@ USER_INFO_NAME = "Name"
 TIME_LOGS_SITE_PATH = "danwor.sharepoint.com:/sites/Operaciones"
 TIME_LOGS_FOLDER_PATH = "General/Template Dashboard"
 TIME_LOGS_REQUIRED_HEADERS = ("Date", "Client", "Project", "Task", "Email", "Duration Decimal")
+
+# PERF PHASE 1A (owner corrective, ver HANDOFF — root cause confirmado: 6
+# descargas CSV secuenciales ~24s de los ~26.5s de `time_logs.total`):
+# tope EXPLÍCITO de concurrencia I/O para las descargas de Time Logs — cada
+# archivo se descarga+parsea en su propio worker (`_download_one_time_logs_file`),
+# nunca un fan-out sin límite (cap de presión sobre Graph, ver Fase 1B para
+# el segundo nivel de concurrencia con el que este tope convive).
+_TIME_LOGS_MAX_WORKERS = 3
 # EXPLICIT SOURCE TOPOLOGY corrective (owner 2026-08-18 — "este método es un
 # adapter de una fuente conocida, NO un crawler genérico de SharePoint"): la
 # recursión genérica introducida por `f7a9d9b` entraba a CUALQUIER subcarpeta
@@ -920,12 +929,20 @@ class ReportingRepository:
     # --- Batch B: Time Logs Reports (CSV) -----------------------------------
 
     def _resolve_time_logs_site_id(self) -> str:
+        # PERF instrumentation permanente (bajo costo, MISMO contrato
+        # `reporting.perf` que `_StageTimer` — ver HANDOFF Fase 1 §9):
+        # queda como observabilidad stage-level, nunca por-item.
+        _tl_site_start = time.perf_counter()
         site = _call_graph("time_logs_site", lambda: microsoft365.graph_get_json(
             f"{GRAPH_BASE}/sites/{TIME_LOGS_SITE_PATH}", self._token,
         ))
         site_id = _text((site or {}).get("id"))
         if not site_id:
             raise ReportingSourceError("time_logs_site", "no se pudo resolver el sitio Operaciones")
+        _perf_logger.info(
+            "reporting.perf time_logs.resolve_site elapsed_ms=%s",
+            round((time.perf_counter() - _tl_site_start) * 1000),
+        )
         return site_id
 
     @staticmethod
@@ -975,11 +992,18 @@ class ReportingRepository:
         pedido no aparece en la raíz (años fríos históricos), y esa
         apertura es SIEMPRE un único listado de sus children directos,
         nunca una recursión."""
+        # PERF instrumentation permanente (bajo costo, MISMO contrato
+        # `reporting.perf` que `_StageTimer` — ver HANDOFF Fase 1 §9).
+        _tl_list_start = time.perf_counter()
         root_url = f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{_quote(TIME_LOGS_FOLDER_PATH)}:/children"
         root_children = _call_graph("time_logs_folder", lambda: microsoft365.graph_get_paged_values(
             root_url, access_token=self._token,
         ))
         root_files = [it for it in root_children if not it.get("folder") and self._is_time_logs_csv(it)]
+        _perf_logger.info(
+            "reporting.perf time_logs.list_root elapsed_ms=%s items=%s",
+            round((time.perf_counter() - _tl_list_start) * 1000), len(root_files),
+        )
         if hot_years is not None:
             wanted = set(hot_years)
             have = {_infer_time_logs_csv_year(it) for it in root_files}
@@ -1002,11 +1026,16 @@ class ReportingRepository:
         # Sin `_quote`: MISMO criterio que `_download_time_logs_rows`
         # (`/drive/items/{item_id}/content`) — el id de Graph nunca se
         # url-encodea acá.
+        _tl_prev_start = time.perf_counter()
         history_url = f"{GRAPH_BASE}/sites/{site_id}/drive/items/{history_id}/children"
         history_children = _call_graph("time_logs_folder", lambda: microsoft365.graph_get_paged_values(
             history_url, access_token=self._token,
         ))
         history_files = [it for it in history_children if not it.get("folder") and self._is_time_logs_csv(it)]
+        _perf_logger.info(
+            "reporting.perf time_logs.list_previous elapsed_ms=%s items=%s",
+            round((time.perf_counter() - _tl_prev_start) * 1000), len(history_files),
+        )
         return root_files + history_files
 
     def _download_time_logs_rows(self, site_id: str, *, hot_years: list[str] | None = None) -> list[dict]:
@@ -1028,7 +1057,24 @@ class ReportingRepository:
         post-filtro después de bajar todo) — si ningún archivo mapea a esos
         años (p. ej. un año futuro sin export todavía), es un dataset
         VACÍO legítimo (`[]`), no un `ReportingSourceError` — ese error
-        sigue reservado a la fuente genuinamente vacía/rota."""
+        sigue reservado a la fuente genuinamente vacía/rota.
+
+        PERF PHASE 1A (owner corrective, ver HANDOFF — root cause
+        confirmado por timing real: 6 descargas CSV secuenciales ~24s de
+        los ~26.5s de `time_logs.total`): cada archivo se descarga+parsea
+        en su PROPIO worker (`_download_one_time_logs_file`), acotado a
+        `_TIME_LOGS_MAX_WORKERS` concurrentes — SOLO cambia la topología de
+        ejecución (secuencial → pool acotado), CERO cambio de selección de
+        archivos/parseo/agregación/semántica de error (ver
+        `_download_one_time_logs_file` para el criterio fail-soft
+        por-archivo, IDÉNTICO al que tenía el loop secuencial). Resultados
+        recolectados por índice y mergeados en el ORDEN ORIGINAL de
+        `items` (determinismo — MISMO orden final que la versión
+        secuencial, nunca por orden de finalización del pool). Una
+        excepción inesperada de un worker (cualquier cosa que no sea el
+        fail-soft ya cubierto adentro) se propaga tal cual lo hacía la
+        versión secuencial — se cancelan los futures que todavía no
+        arrancaron y se re-lanza, sin swallowear nada."""
         items = self._list_time_logs_csv_items(site_id, hot_years=hot_years)
         if not items:
             raise ReportingSourceError("time_logs_files", "no se encontraron CSV en Template Dashboard")
@@ -1037,25 +1083,87 @@ class ReportingRepository:
             items = [it for it in items if _infer_time_logs_csv_year(it) in wanted]
             if not items:
                 return []
-        rows: list[dict] = []
-        for it in items:
-            item_id = _text(it.get("id"))
-            if not item_id:
-                continue
+
+        results: list[dict | None] = [None] * len(items)
+        with ThreadPoolExecutor(max_workers=_TIME_LOGS_MAX_WORKERS) as pool:
+            future_to_index = {
+                pool.submit(self._download_one_time_logs_file, site_id, it): idx
+                for idx, it in enumerate(items)
+            }
             try:
-                data = _call_graph("time_logs_download", lambda: microsoft365.graph_get_bytes(
-                    f"{GRAPH_BASE}/sites/{site_id}/drive/items/{item_id}/content", self._token,
-                ))
-                text = data.decode("utf-8-sig")
-            except (ReportingGraphError, UnicodeDecodeError):
+                for future in as_completed(future_to_index):
+                    results[future_to_index[future]] = future.result()
+            except Exception:
+                # Ningún worker YA ARRANCADO puede interrumpirse (threads,
+                # no procesos) — pero los que todavía están en cola sí se
+                # cancelan, para no seguir pagando llamadas Graph después de
+                # una falla real. La excepción original se re-lanza intacta
+                # (mismo criterio que el loop secuencial: nada se swallowea).
+                for f in future_to_index:
+                    f.cancel()
+                raise
+
+        rows: list[dict] = []
+        _tl_download_total_ms = 0.0
+        _tl_parse_total_ms = 0.0
+        for outcome in results:
+            if outcome is None:
                 continue
-            reader = csv.DictReader(io.StringIO(text))
-            if reader.fieldnames is None or not all(h in reader.fieldnames for h in TIME_LOGS_REQUIRED_HEADERS):
-                continue
-            rows.extend(reader)
+            _tl_download_total_ms += outcome["download_ms"]
+            _tl_parse_total_ms += outcome["parse_ms"]
+            rows.extend(outcome["rows"])
+        _perf_logger.info(
+            "reporting.perf time_logs.download_total elapsed_ms=%s", round(_tl_download_total_ms),
+        )
+        _perf_logger.info(
+            "reporting.perf time_logs.parse_total elapsed_ms=%s", round(_tl_parse_total_ms),
+        )
         if not rows:
             raise ReportingSourceError("time_logs_rows", "ningún CSV produjo filas válidas")
         return rows
+
+    def _download_one_time_logs_file(self, site_id: str, item: dict) -> dict | None:
+        """Unidad de trabajo del pool de Fase 1A — descarga+parsea UN
+        archivo Time Logs. Sin estado mutable compartido: `site_id`/`item`
+        son locales al worker (cada llamada recibe su propia referencia,
+        nunca una variable de loop reusada — el bug clásico de closures
+        sobre `it`), `data`/`text`/`reader`/`file_rows` son todas variables
+        locales de esta llamada. `self._token` se LEE (nunca se escribe
+        acá) — ya fue fijado por el método público antes de lanzar el pool,
+        ver AUDIT de thread-safety en HANDOFF.
+
+        Devuelve `None` si el item no tiene id (mismo `continue` silencioso
+        que la versión secuencial); si no, un dict `{rows, download_ms,
+        parse_ms}` — incluso cuando `rows` queda vacío (archivo fail-soft:
+        error de transporte, no decodifica, o headers requeridos
+        faltantes), MISMO criterio exacto que el loop secuencial anterior,
+        con logging equivalente al `status=failed`/`status=bad_headers` que
+        tenía como líneas INFO por-archivo (retirado en Fase 1 por
+        demasiado verboso para producción, ver HANDOFF §9 — el agregado
+        `time_logs.download_total`/`time_logs.parse_total` alcanza como
+        observabilidad permanente)."""
+        item_id = _text(item.get("id"))
+        if not item_id:
+            return None
+        _tl_dl_start = time.perf_counter()
+        try:
+            data = _call_graph("time_logs_download", lambda: microsoft365.graph_get_bytes(
+                f"{GRAPH_BASE}/sites/{site_id}/drive/items/{item_id}/content", self._token,
+            ))
+            text = data.decode("utf-8-sig")
+        except (ReportingGraphError, UnicodeDecodeError):
+            return {"rows": [], "download_ms": (time.perf_counter() - _tl_dl_start) * 1000, "parse_ms": 0.0}
+        _tl_dl_elapsed_ms = (time.perf_counter() - _tl_dl_start) * 1000
+        _tl_parse_start = time.perf_counter()
+        reader = csv.DictReader(io.StringIO(text))
+        if reader.fieldnames is None or not all(h in reader.fieldnames for h in TIME_LOGS_REQUIRED_HEADERS):
+            return {
+                "rows": [], "download_ms": _tl_dl_elapsed_ms,
+                "parse_ms": (time.perf_counter() - _tl_parse_start) * 1000,
+            }
+        file_rows = list(reader)
+        _tl_parse_elapsed_ms = (time.perf_counter() - _tl_parse_start) * 1000
+        return {"rows": file_rows, "download_ms": _tl_dl_elapsed_ms, "parse_ms": _tl_parse_elapsed_ms}
 
     def get_time_logs_facts(self, access_token: str, *, hot_years: list[str] | None = None) -> list[dict]:
         """Hechos de Time Logs Reports normalizados y unidos a Cliente vía
@@ -1181,10 +1289,13 @@ class ReportingRepository:
         `hot_years`: MISMO mecanismo de source-loading que
         `get_time_logs_facts` (selecciona archivos por nombre ANTES de
         descargar, ver `_download_time_logs_rows`)."""
+        # PERF instrumentation permanente (bajo costo, MISMO contrato
+        # `reporting.perf` que `_StageTimer` — ver HANDOFF Fase 1 §9).
+        _tl_total_start = time.perf_counter()
         self._token = access_token
         operaciones_site_id = self._resolve_time_logs_site_id()
         raw_rows = self._download_time_logs_rows(operaciones_site_id, hot_years=hot_years)
-        return [
+        result = [
             {
                 "proyecto": _text(row.get("Project")),
                 "mes": _time_logs_mes(row.get("Date")),
@@ -1193,6 +1304,11 @@ class ReportingRepository:
             }
             for row in raw_rows
         ]
+        _perf_logger.info(
+            "reporting.perf time_logs.total elapsed_ms=%s rows=%s",
+            round((time.perf_counter() - _tl_total_start) * 1000), len(result),
+        )
+        return result
 
     def get_time_logs_years_available(self, access_token: str) -> list[str]:
         """Metadata LIVIANA de años disponibles de Time Logs (HOT WINDOW /
