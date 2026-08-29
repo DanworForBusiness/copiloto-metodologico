@@ -2,12 +2,19 @@
 reporting_time_logs_cache.py — CACHE VERSIONED HISTORICAL TIME LOGS
 corrective (Reporting Cartera/Proyecto Fase 2, owner ticket, ver HANDOFF).
 
+`TimeLogsHistoricalCache` es un primitivo GENÉRICO (nombre histórico de su
+primer uso — Fase 3 lo reusa TAMBIÉN para Facturadas XLSX, ver
+`_FACTURADAS_CACHE`/`_facturadas_by_project_cached` en
+reporting_repository.py, MISMA clase, instancia separada — nunca
+renombrada para minimizar el diff de un cambio puramente cosmético).
+
 Cache EN PROCESO, thread-safe, single-flight, acotada por LRU, de la
-representación intermedia CANÓNICA de un archivo Time Logs individual
-(`list[dict]` con las MISMAS filas crudas que `_download_one_time_logs_file`
-ya produce hoy — Date/Client/Project/Task/Email/Duration Decimal — CERO
-fórmula de negocio acá, esto es puramente un memoize de "ya bajé y parseé
-este archivo, en esta versión, para este scope").
+representación intermedia CANÓNICA de UNA fuente versionada por driveItem
+(`list[dict]` de filas crudas para Time Logs — Date/Client/Project/Task/
+Email/Duration Decimal — o `dict[str, float]` ya agregado por proyecto
+para Facturadas, ver Fase 3 — CERO fórmula de negocio acá, esto es
+puramente un memoize de "ya leí/parseé esta fuente, en esta versión, para
+este scope").
 
 Clave: `(scope, drive_item_id, version)`.
 

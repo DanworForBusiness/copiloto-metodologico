@@ -561,7 +561,7 @@ class ReportingService:
         _cp_total_start = time.perf_counter()
         _cp_facts_start = _cp_total_start
         facts, project_dim = self._repository.get_cartera_facts_with_project_dimension(
-            access_token, include_facturadas=True,
+            access_token, include_facturadas=True, cache_scope=cache_scope,
         )
         _perf_logger.info(
             "reporting.perf cartera_proyecto.facts elapsed_ms=%s",

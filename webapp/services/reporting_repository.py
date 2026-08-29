@@ -203,6 +203,14 @@ _TIME_LOGS_MAX_WORKERS = 3
 # capturada en el momento de import.
 _TIME_LOGS_HISTORICAL_CACHE = TimeLogsHistoricalCache()
 
+# CACHE VERSIONED HISTORICAL TIME LOGS corrective, Fase 3 (ver HANDOFF §2 —
+# Facturadas XLSX clasificada VERSION-CACHE SAFE, mismo driveItem/eTag que
+# Time Logs): instancia SEPARADA de `_TIME_LOGS_HISTORICAL_CACHE` — presión
+# de LRU/eviction independiente por fuente (§8: "source invalidation
+# remains independent"), aunque la clase es la MISMA (nombre histórico, ver
+# reporting_time_logs_cache.py).
+_FACTURADAS_CACHE = TimeLogsHistoricalCache()
+
 # EXPLICIT SOURCE TOPOLOGY corrective (owner 2026-08-18 — "este método es un
 # adapter de una fuente conocida, NO un crawler genérico de SharePoint"): la
 # recursión genérica introducida por `f7a9d9b` entraba a CUALQUIER subcarpeta
@@ -271,13 +279,14 @@ def _is_historical_time_logs_item(item: dict) -> bool:
     return bool(_CSV_NAME_YEAR_RE.search(_text(item.get("name"))))
 
 
-def _time_logs_file_version(item: dict) -> str:
-    """Clave de versión ESTABLE de un driveItem — `eTag` (preferido: YA
-    viene en la MISMA respuesta de listado de carpeta que
-    `_list_time_logs_csv_items` hace hoy, sin una segunda llamada Graph,
-    ver AUDIT en HANDOFF) o, si faltara, `lastModifiedDateTime:size`
-    (fallback conservador — nunca se asume inmutabilidad sin chequeo de
-    versión)."""
+def _drive_item_version(item: dict) -> str:
+    """Clave de versión ESTABLE de un driveItem — `eTag` (preferido) o, si
+    faltara, `lastModifiedDateTime:size` (fallback conservador — nunca se
+    asume inmutabilidad sin chequeo de versión). GENÉRICO — no específico
+    de Time Logs (nombre original `_time_logs_file_version`, renombrado
+    Fase 3 al reusarse también para Facturadas XLSX, ver
+    `_facturadas_workbook_version` — MISMA fórmula, un solo lugar que la
+    define, nunca duplicada)."""
     etag = _text(item.get("eTag"))
     if etag:
         return f"etag:{etag}"
@@ -533,6 +542,26 @@ class ReportingRepository:
             self._token,
         ))
 
+    def _facturadas_workbook_metadata(self, site_id: str) -> dict | None:
+        """GET de METADATA del driveItem de Facturadas — SIN `:content`
+        (no descarga el archivo), 1 llamada Graph barata que expone
+        `eTag`/`lastModifiedDateTime`/`size`/`id` (CACHE VERSIONED
+        HISTORICAL TIME LOGS corrective Fase 3, ver HANDOFF §2 — VERSION-
+        CACHE SAFE: mismo tipo de recurso driveItem que Time Logs, Fase 2,
+        pero acá vía un GET dedicado — Facturadas nunca lista una carpeta,
+        se conoce el PATH exacto de antemano, a diferencia de Time Logs).
+
+        Fail-soft: cualquier falla de transporte devuelve `None` — el
+        caller cae al camino SIN cache (descarga siempre fresca), MISMO
+        comportamiento que existía antes de esta fase. Nunca rompe el
+        fetch por un problema de la metadata."""
+        try:
+            return _call_graph("facturadas_metadata", lambda: microsoft365.graph_get_json(
+                f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{_quote(FACTURADAS_XLSX_PATH)}", self._token,
+            ))
+        except ReportingGraphError:
+            return None
+
     def _facturadas_by_project(self, site_id: str) -> dict[str, float]:
         """SUM(`Suma de Cantidad`) por clave de proyecto normalizada, desde la
         tabla `Tabla24` del XLSX. Un proyecto ausente ⇒ (implícitamente) 0."""
@@ -546,6 +575,34 @@ class ReportingRepository:
                 continue
             by_key[key] = by_key.get(key, 0.0) + _num(row[i_cant] if i_cant < len(row) else None)
         return by_key
+
+    def _facturadas_by_project_cached(self, site_id: str, *, cache_scope: str | None) -> tuple[dict[str, float], str]:
+        """Wrapper de `_facturadas_by_project` con cache versionada
+        (Fase 3, VERSION-CACHE SAFE — ver AUDIT en HANDOFF §2). El VALOR
+        cacheado es el AGREGADO YA PARSEADO (`dict[str, float]` por
+        proyecto) — MÁS CHICO que los bytes crudos del XLSX y CERO
+        fórmula de negocio duplicada acá (la suma por proyecto sigue
+        viviendo, sin cambios, en `_facturadas_by_project`).
+
+        `cache_scope=None` preserva el comportamiento EXACTO de siempre —
+        sin cache, sin la llamada de metadata extra. Con `cache_scope`
+        no-`None`: 1 GET de metadata SIEMPRE (barato, necesario para saber
+        si hay HIT), download+parse SOLO en un MISS.
+
+        Devuelve `(by_key, cache_outcome)` — `cache_outcome` en
+        `{"n/a", "hit", "computed", "waited"}`, MISMA semántica que
+        `_download_one_time_logs_file_cached` (Fase 2), para el agregado
+        `reporting.perf cartera.cache` (ver `_cartera_facts_and_dimension`)."""
+        if cache_scope is None:
+            return self._facturadas_by_project(site_id), "n/a"
+        metadata = self._facturadas_workbook_metadata(site_id)
+        if metadata is None:
+            # Fail-soft: sin metadata confiable, nunca se inventa una
+            # versión — camino de siempre, sin cache.
+            return self._facturadas_by_project(site_id), "n/a"
+        key = (cache_scope, _text(metadata.get("id")) or FACTURADAS_XLSX_PATH, _drive_item_version(metadata))
+        value, outcome = _FACTURADAS_CACHE.get_or_compute(key, lambda: self._facturadas_by_project(site_id))
+        return value, outcome
 
     # --- Client Partner (lookup de Cliente → lista target descubierta) -------
 
@@ -605,6 +662,7 @@ class ReportingRepository:
 
     def get_cartera_facts_with_project_dimension(
         self, access_token: str, *, include_facturadas: bool = True, hot_years: list[str] | None = None,
+        cache_scope: str | None = None,
     ) -> tuple[list[dict], dict[str, dict]]:
         """MISMO fetch que `get_cartera_facts` (CERO llamadas Graph
         adicionales — UNION GRAIN corrective, owner 2026-08-18) más la
@@ -625,13 +683,19 @@ class ReportingRepository:
         MISMO criterio que el resto de este módulo). Un proyecto de Time
         Logs cuyo título no resuelve contra Proyectos en absoluto no tiene
         entrada en `project_dim` — el caller debe tratarlo como
-        "unmatched", nunca fabricar su dimensión."""
+        "unmatched", nunca fabricar su dimensión.
+
+        `cache_scope` (Fase 3, ver HANDOFF): pasado tal cual a
+        `_cartera_facts_and_dimension` — hoy SOLO afecta a Facturadas XLSX
+        (única fuente VERSION-CACHE SAFE de esta fase, ver AUDIT). `None`
+        (default) preserva el comportamiento EXACTO de siempre."""
         return self._cartera_facts_and_dimension(
-            access_token, include_facturadas=include_facturadas, hot_years=hot_years,
+            access_token, include_facturadas=include_facturadas, hot_years=hot_years, cache_scope=cache_scope,
         )
 
     def _cartera_facts_and_dimension(
         self, access_token: str, *, include_facturadas: bool = True, hot_years: list[str] | None = None,
+        cache_scope: str | None = None,
     ) -> tuple[list[dict], dict[str, dict]]:
         """Hechos de Cartera normalizados a grano proyecto×mes, con la dimensión
         de proyecto/cliente ya unida y `facturadasProyecto` (SUM del XLSX por
@@ -686,10 +750,32 @@ class ReportingRepository:
                 "reporting.perf cartera.horas_proyectos_filter hot_years=%s filter_used=%s",
                 ",".join(hot_years), filter_used,
             )
-        facturadas_by_key = self._facturadas_by_project(site_id) if include_facturadas else {}
+        if include_facturadas:
+            facturadas_by_key, _facturadas_cache_outcome = self._facturadas_by_project_cached(
+                site_id, cache_scope=cache_scope,
+            )
+        else:
+            facturadas_by_key, _facturadas_cache_outcome = {}, "n/a"
         timer.stage("facturadas_xlsx", len(facturadas_by_key))
         cp_by_id = self._resolve_client_partners(site_id)
         timer.stage("client_partner", len(cp_by_id))
+
+        # CACHE VERSIONED HISTORICAL TIME LOGS corrective, Fase 3 (ver
+        # HANDOFF §10): agregado de bajo costo — SOLO Facturadas XLSX es
+        # VERSION-CACHE SAFE en esta fase (ver AUDIT §3/§4 en HANDOFF —
+        # Proyectos/Cliente/Horas por proyectos/Client Partner quedan
+        # "n/a" hasta que el owner confirme un marcador de versión a nivel
+        # de LISTA, o apruebe un TTL explícito). `hit`/`computed`/`waited`
+        # colapsan a un booleano 0/1 para el contrato compacto pedido —
+        # `waited` cuenta como hit=0 (SÍ implicó trabajo remoto real en
+        # OTRO thread, nunca cero costo), mismo criterio que
+        # `historical_misses` de Fase 2.
+        if cache_scope is not None:
+            _perf_logger.info(
+                "reporting.perf cartera.cache proyectos_hit=n/a cliente_hit=n/a horas_hit=n/a "
+                "facturadas_hit=%s client_partner_hit=n/a",
+                1 if _facturadas_cache_outcome == "hit" else (0 if _facturadas_cache_outcome != "n/a" else "n/a"),
+            )
 
         # Los lookups de Horas apuntan al `item["id"]` del target (NO a fields["id"]).
         proy_by_id = {_text(it.get("id")): (it.get("fields") or {}) for it in proyectos_items}
@@ -1243,7 +1329,7 @@ class ReportingRepository:
         Con `cache_scope` no-`None` sobre un archivo histórico: clave
         `(cache_scope, item_id, version)` — `version` viene de la MISMA
         respuesta de listado de carpeta (`eTag`, o `lastModifiedDateTime
-        + size` si faltara, ver `_time_logs_file_version`), CERO llamada
+        + size` si faltara, ver `_drive_item_version`), CERO llamada
         Graph extra para versión. `get_or_compute` es single-flight (ver
         `TimeLogsHistoricalCache` — dos requests concurrentes para la
         MISMA key nunca disparan dos descargas). El VALOR cacheado son
@@ -1268,7 +1354,7 @@ class ReportingRepository:
                 outcome["cache_outcome"] = "n/a"
             return outcome
 
-        key = (cache_scope, item_id, _time_logs_file_version(item))
+        key = (cache_scope, item_id, _drive_item_version(item))
         inner_outcome: dict | None = None
 
         def _compute() -> list[dict]:

@@ -305,7 +305,7 @@ def test_facts_and_time_logs_branches_run_sequentially_never_overlap(monkeypatch
     facts_finished = threading.Event()
     time_logs_started = threading.Event()
 
-    def fake_facts(self, access_token, *, include_facturadas):
+    def fake_facts(self, access_token, *, include_facturadas, cache_scope=None):
         facts_started.set()
         result = [{
             "cliente": "Danone", "clientPartner": "María López", "proyecto": "Soporte Danone",
@@ -347,7 +347,7 @@ def test_facts_and_time_logs_run_on_the_calling_thread_no_pool(monkeypatch):
     caller_thread = threading.current_thread().ident
     seen_threads = []
 
-    def fake_facts(self, access_token, *, include_facturadas):
+    def fake_facts(self, access_token, *, include_facturadas, cache_scope=None):
         seen_threads.append(threading.current_thread().ident)
         return [], {}
 
@@ -512,7 +512,7 @@ def test_all_files_failing_still_raises_reporting_source_error(monkeypatch):
 # --- §5/ERROR PRIORITY — Facts observado siempre primero -------------------
 
 def test_facts_failure_takes_priority_over_time_logs(monkeypatch):
-    def fake_facts(self, access_token, *, include_facturadas):
+    def fake_facts(self, access_token, *, include_facturadas, cache_scope=None):
         raise ReportingGraphError(stage="proyectos", status_code=500)
 
     def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
@@ -528,7 +528,7 @@ def test_facts_failure_takes_priority_over_time_logs(monkeypatch):
 
 
 def test_facts_ok_time_logs_failure_propagates_time_logs_exception(monkeypatch):
-    def fake_facts(self, access_token, *, include_facturadas):
+    def fake_facts(self, access_token, *, include_facturadas, cache_scope=None):
         return [], {}
 
     def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
@@ -550,7 +550,7 @@ def _sequential_reference():
     sin threads — el payload concurrente de arriba debe coincidir EXACTO."""
     import unittest.mock as mock
 
-    def fake_facts(self, access_token, *, include_facturadas):
+    def fake_facts(self, access_token, *, include_facturadas, cache_scope=None):
         return [{
             "cliente": "Danone", "clientPartner": "María López", "proyecto": "Soporte Danone",
             "idProyecto": "DAN-001", "tipoProyecto": "Proyecto", "estado": "En curso",
@@ -570,7 +570,7 @@ def _sequential_reference():
 
 
 def test_result_payload_identical_to_sequential_reference(monkeypatch):
-    def fake_facts(self, access_token, *, include_facturadas):
+    def fake_facts(self, access_token, *, include_facturadas, cache_scope=None):
         return [{
             "cliente": "Danone", "clientPartner": "María López", "proyecto": "Soporte Danone",
             "idProyecto": "DAN-001", "tipoProyecto": "Proyecto", "estado": "En curso",

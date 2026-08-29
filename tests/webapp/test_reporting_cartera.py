@@ -478,7 +478,7 @@ class _HotYearsRecordingRepo:
         self.calls.append({"include_facturadas": include_facturadas, "hot_years": hot_years})
         return []
 
-    def get_cartera_facts_with_project_dimension(self, access_token, *, include_facturadas=True, hot_years=None):
+    def get_cartera_facts_with_project_dimension(self, access_token, *, include_facturadas=True, hot_years=None, cache_scope=None):
         # UNION GRAIN corrective (owner 2026-08-18): Mantenimiento/combo
         # ahora piden la dimensión de proyecto junto con los facts —
         # MISMO tracking de `calls` (es el mismo fetch subyacente, ver
@@ -565,7 +565,7 @@ class _FakeRepo:
     def get_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
         return self._facts
 
-    def get_cartera_facts_with_project_dimension(self, access_token, *, include_facturadas=True, hot_years=None):
+    def get_cartera_facts_with_project_dimension(self, access_token, *, include_facturadas=True, hot_years=None, cache_scope=None):
         # UNION GRAIN corrective — estos tests NO ejercitan el camino
         # Time-Logs-only (sus fixtures ya cubren la MISMA key desde
         # "Horas por proyectos"), project_dim vacío es seguro/no-op acá.
