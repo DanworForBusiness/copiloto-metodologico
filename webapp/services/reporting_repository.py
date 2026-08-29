@@ -39,6 +39,7 @@ from datetime import datetime
 
 import config
 from core import microsoft365
+from webapp.services.reporting_delta_cache import DeltaCache
 from webapp.services.reporting_time_logs_cache import TimeLogsHistoricalCache
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
@@ -103,6 +104,15 @@ HP_HS_VENDIDAS = "HsVendidas"
 # el campo por-item cuando es null (no significa que la columna no exista). NO se
 # inventa un fallback (nunca HsVendidas/Auditado/XLSX/etc.).
 HP_HS_FACTURADAS = "HsFacturadas"
+
+# Proyección exacta que `_cartera_facts_and_dimension` necesita de "Horas
+# por proyectos" — extraído a constante de módulo (Fase 3A, ver HANDOFF)
+# para que el sync delta (`_horas_delta_cold_sync`) use la MISMA lista,
+# nunca una duplicada que pueda divergir.
+HORAS_PROYECTOS_SELECT_FIELDS = [
+    HP_ANIO, HP_MES, HP_HS_TRABAJADAS, HP_HS_VENDIDAS, HP_HS_FACTURADAS,
+    *HP_PROYECTO_LOOKUP, *HP_EMPRESA_LOOKUP, HP_PROYECTO_TITLE,
+]
 
 PROY_ID_DANWOR = "ID_x0020_Proyecto_x0020_Danwor"   # "ID Proyecto Danwor" codificado
 PROY_TIPO = "TipodeProyecto"        # "Tiempo & Materiales" ⇒ Mantenimiento
@@ -210,6 +220,15 @@ _TIME_LOGS_HISTORICAL_CACHE = TimeLogsHistoricalCache()
 # remains independent"), aunque la clase es la MISMA (nombre histórico, ver
 # reporting_time_logs_cache.py).
 _FACTURADAS_CACHE = TimeLogsHistoricalCache()
+
+# DELTA-SYNC CARTERA PROJECT HOURS corrective, Fase 3A (ver HANDOFF +
+# reporting_delta_cache.py) — instancia ÚNICA, proceso-lifetime. Estado
+# MUTABLE (rows + deltaLink), nunca versionado por eTag como los dos
+# anteriores — ver docstring de `DeltaCache` para por qué es un primitivo
+# distinto. Módulo-level a propósito, MISMO criterio testeable que
+# `_TIME_LOGS_HISTORICAL_CACHE`/`_FACTURADAS_CACHE` (tests la reemplazan
+# vía `monkeypatch.setattr(repo_mod, "_HORAS_DELTA_CACHE", ...)`).
+_HORAS_DELTA_CACHE = DeltaCache()
 
 # EXPLICIT SOURCE TOPOLOGY corrective (owner 2026-08-18 — "este método es un
 # adapter de una fuente conocida, NO un crawler genérico de SharePoint"): la
@@ -355,6 +374,22 @@ def _list_items_url(
     if filter_expr:
         from urllib.parse import quote
         url += f"&$filter={quote(filter_expr, safe='')}"
+    return url
+
+
+def _list_items_delta_url(site_id: str, list_id: str, select_fields: list[str] | None) -> str:
+    """MISMO patrón de construcción que `_list_items_url`
+    (`$expand=fields($select=...)`) pero contra `/items/delta` — SOLO para
+    el sync INICIAL (frío), Fase 3A (ver HANDOFF). Un `@odata.deltaLink`
+    ya devuelto por Graph se reusa TAL CUAL para el sync warm — nunca se
+    reconstruye ni se re-parsea (AUDIT §1: la transport actual
+    (`microsoft365.graph_get_json`) ya acepta cualquier URL absoluta de
+    Graph sin reescribirla, cero cambio de transporte necesario)."""
+    url = f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items/delta?$expand=fields"
+    if select_fields:
+        from urllib.parse import quote
+        cols = ",".join(select_fields)
+        url += f"($select={quote(cols)})"
     return url
 
 
@@ -533,6 +568,116 @@ class ReportingRepository:
             wanted = set(hot_years)
             all_items = self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos")
             return [it for it in all_items if _text((it.get("fields") or {}).get(HP_ANIO)) in wanted], False
+
+    # --- DELTA-SYNC "Horas por proyectos" (Fase 3A, ver HANDOFF) -----------
+    # SOLO para el camino `hot_years=None` de Cartera/Proyecto con un
+    # `cache_scope` real — Mantenimiento (`hot_years=[...]`) sigue usando
+    # `_fetch_horas_proyectos` arriba, sin cambios. Reemplaza la relectura
+    # completa (1786 filas) por Microsoft Graph `/items/delta`: sync
+    # completo la primera vez por scope, checkpoint incremental después
+    # (`@odata.deltaLink` reusado TAL CUAL — nunca reconstruido).
+
+    def _horas_delta_apply_pages(self, url: str, working: dict[str, dict]) -> tuple[str, int, int, int]:
+        """Sigue `@odata.nextLink` aplicando cada página sobre `working`
+        (mutado IN-PLACE — el caller decide si `working` es un dict nuevo
+        vacío (cold) o una COPIA del estado previo (warm), nunca el
+        original en cache directamente). Un item con `@removed` se
+        remueve; cualquier otro se agrega/reemplaza — mismo item repetido
+        en la secuencia ⇒ la ÚLTIMA ocurrencia gana (asignación de dict en
+        orden de llegada). Devuelve `(delta_link, pages, changes, deletes)`
+        — `changes`/`deletes` cuentan EVENTOS vistos (no deduplicados por
+        id), solo para observabilidad, nunca afectan el estado final."""
+        pages = changes = deletes = 0
+        delta_link = ""
+        while url:
+            payload = _call_graph("horas_delta", lambda u=url: microsoft365.graph_get_json(u, self._token))
+            pages += 1
+            for item in payload.get("value") or []:
+                item_id = _text(item.get("id"))
+                if not item_id:
+                    continue
+                if "@removed" in item:
+                    if working.pop(item_id, None) is not None:
+                        deletes += 1
+                else:
+                    working[item_id] = item
+                    changes += 1
+            next_link = _text(payload.get("@odata.nextLink"))
+            if next_link:
+                url = next_link
+                continue
+            delta_link = _text(payload.get("@odata.deltaLink"))
+            url = ""
+        if not delta_link:
+            raise ReportingSourceError(
+                "horas_proyectos_delta", "Graph no devolvió @odata.deltaLink tras completar el sync",
+            )
+        return delta_link, pages, changes, deletes
+
+    def _horas_delta_cold_sync(self, site_id: str, *, mode: str = "cold") -> dict:
+        """Sync COMPLETO desde cero — MISMO fallback de `$select` que
+        `_fetch_horas_proyectos`/`_items_narrowed_or_full` (ante CUALQUIER
+        falla del intento con `$select`, un único reintento completo sin
+        `$select` — nunca dos veces, nunca repite la MISMA causa de
+        falla). El resultado (`rows`/`delta_link`) recién se arma en
+        variables LOCALES — nunca se publica un estado parcialmente
+        sincronizado (`DeltaCache.sync` solo adopta el `return` de esta
+        función si termina sin excepción, ver reporting_delta_cache.py)."""
+        url = _list_items_delta_url(site_id, self.horas_proyectos_list_id, HORAS_PROYECTOS_SELECT_FIELDS)
+        try:
+            working: dict[str, dict] = {}
+            delta_link, pages, changes, deletes = self._horas_delta_apply_pages(url, working)
+        except Exception:  # noqa: BLE001 — fallback de transporte (select inválido), MISMO criterio que _items_narrowed_or_full
+            url = _list_items_delta_url(site_id, self.horas_proyectos_list_id, None)
+            working = {}
+            delta_link, pages, changes, deletes = self._horas_delta_apply_pages(url, working)
+        _perf_logger.info(
+            "reporting.perf cartera.horas_delta mode=%s pages=%s changes=%s deletes=%s rows=%s",
+            mode, pages, changes, deletes, len(working),
+        )
+        return {"rows": working, "delta_link": delta_link}
+
+    def _horas_delta_warm_sync(self, site_id: str, current: dict) -> dict:
+        """Aplica el checkpoint sobre una COPIA del estado previo — el
+        dict original de `current["rows"]` nunca se muta hasta que este
+        método retorna con éxito (ver `DeltaCache.sync`: una excepción acá
+        deja el estado previo intacto)."""
+        working = dict(current["rows"])
+        delta_link, pages, changes, deletes = self._horas_delta_apply_pages(current["delta_link"], working)
+        _perf_logger.info(
+            "reporting.perf cartera.horas_delta mode=warm pages=%s changes=%s deletes=%s rows=%s",
+            pages, changes, deletes, len(working),
+        )
+        return {"rows": working, "delta_link": delta_link}
+
+    def _fetch_horas_proyectos_delta(self, site_id: str, *, cache_scope: str) -> list[dict]:
+        """Punto de entrada del sync delta — single-flight por
+        `(cache_scope, site_id, horas_proyectos_list_id)` vía
+        `_HORAS_DELTA_CACHE` (ver reporting_delta_cache.py). Primera
+        llamada para esta key ⇒ `_horas_delta_cold_sync`. Llamadas
+        siguientes ⇒ `_horas_delta_warm_sync` sobre el `deltaLink`
+        guardado; si Graph invalida el checkpoint (`410 Gone` — señal
+        documentada de Microsoft Graph para delta tokens expirados, ver
+        AUDIT HANDOFF §4), se descarta SOLO este estado y se hace UN
+        resync completo controlado (nunca un loop — si el resync también
+        falla, la excepción se propaga sin reintentar de nuevo). Cualquier
+        otra falla preserva el contrato de error existente de Cartera
+        (`ReportingGraphError` se propaga sin cambios — MISMO manejo
+        centralizado que ya tiene el router)."""
+        key = (cache_scope, site_id, self.horas_proyectos_list_id)
+
+        def sync_fn(current):
+            if current is None:
+                return self._horas_delta_cold_sync(site_id)
+            try:
+                return self._horas_delta_warm_sync(site_id, current)
+            except ReportingGraphError as exc:
+                if exc.status_code == 410:
+                    return self._horas_delta_cold_sync(site_id, mode="resync")
+                raise
+
+        state = _HORAS_DELTA_CACHE.sync(key, sync_fn)
+        return list(state["rows"].values())
 
     # --- XLSX Facturadas ----------------------------------------------------
 
@@ -741,9 +886,21 @@ class ReportingRepository:
         timer.stage("proyectos", len(proyectos_items))
         clientes_items = self._items_narrowed_or_full(site_id, self.cliente_list_id, "cliente", [CLI_NOMBRE, *CLI_CP_LOOKUP])
         timer.stage("cliente", len(clientes_items))
-        horas_select = [HP_ANIO, HP_MES, HP_HS_TRABAJADAS, HP_HS_VENDIDAS, HP_HS_FACTURADAS,
-                         *HP_PROYECTO_LOOKUP, *HP_EMPRESA_LOOKUP, HP_PROYECTO_TITLE]
-        horas_items, filter_used = self._fetch_horas_proyectos(site_id, hot_years=hot_years, select=horas_select)
+        # DELTA-SYNC CARTERA PROJECT HOURS corrective, Fase 3A (ver
+        # HANDOFF): el camino `hot_years=None` + `cache_scope` real (SOLO
+        # Cartera/Proyecto opta hoy — combo/tests que nunca pasan
+        # `cache_scope` quedan en el camino de siempre, MISMO criterio que
+        # Fase 2/3) reemplaza la lectura completa (1786 filas) por
+        # `/items/delta` — full sync solo la primera vez por scope,
+        # checkpoint incremental después. `hot_years=[...]` (Mantenimiento)
+        # NUNCA toca este camino — ver `_fetch_horas_proyectos` sin cambios.
+        if hot_years is None and cache_scope is not None:
+            horas_items = self._fetch_horas_proyectos_delta(site_id, cache_scope=cache_scope)
+            filter_used = False  # delta no usa $filter OData — campo retenido por compat de logging
+        else:
+            horas_items, filter_used = self._fetch_horas_proyectos(
+                site_id, hot_years=hot_years, select=HORAS_PROYECTOS_SELECT_FIELDS,
+            )
         timer.stage("horas_proyectos", len(horas_items))
         if hot_years is not None:
             _perf_logger.info(
