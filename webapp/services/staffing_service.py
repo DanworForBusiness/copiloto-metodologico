@@ -350,8 +350,23 @@ def build_absence_overlay_payload(join_result: AbsenceJoinResult, *, today: date
     cliente. `concept` es el ÚNICO campo derivado de Motivo — el valor crudo
     nunca existió más allá del repositorio (ver `AbsencePeriod`), así que no
     hay nada que filtrar acá: el payload ya es privacy-safe por
-    construcción."""
-    horizon_months = compute_horizon_months(today or date.today())
+    construcción.
+
+    `absence_history_start`/`absence_lookback_max_days` (Dirección
+    corrective — Timeline/ventana de ausencias dinámica, ver HANDOFF):
+    hacen EXPLÍCITO en el payload cuánta historia realmente hidrató este
+    mismo cálculo — `horizon_months[0]` es EXACTAMENTE el `horizon_start`
+    que `_overlaps_horizon` ya usó arriba para decidir qué períodos
+    entraron a `absences` (NUNCA una segunda fuente/fórmula: mismo
+    `horizon_months`, mismo `effective_today`, un solo cómputo). El
+    frontend NUNCA debe reimplementar "primer día del mes anterior" — sólo
+    lee estos dos campos. `absence_lookback_max_days` es lo que la UI
+    necesita directo (techo del selector); `absence_history_start` lo hace
+    auditable/observable (se puede verificar a ojo en el payload sin
+    recalcular nada)."""
+    effective_today = today or date.today()
+    horizon_months = compute_horizon_months(effective_today)
+    horizon_start = horizon_months[0]
     absences = []
     for period in join_result.periods:
         if not _overlaps_horizon(period.start_date, period.end_date, horizon_months):
@@ -373,6 +388,8 @@ def build_absence_overlay_payload(join_result: AbsenceJoinResult, *, today: date
         "absences": absences,
         "unmatched_count": len(join_result.unmatched),
         "ambiguous_count": len(join_result.ambiguous),
+        "absence_history_start": horizon_start.isoformat(),
+        "absence_lookback_max_days": (effective_today - horizon_start).days,
     }
 
 

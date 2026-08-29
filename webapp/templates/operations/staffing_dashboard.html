@@ -178,6 +178,47 @@
           <button type="button" @click="expandAllConsultants()">Expandir</button>
           <button type="button" @click="collapseAllConsultants()">Contraer</button>
         </div>
+        {# Ventana de ausencias (Dirección corrective, ver HANDOFF) — FILA
+           PROPIA, debajo del toolbar de Consultor/Proyecto/Expandir/
+           Contraer (owner: "que no esté en la misma línea") — MISMA clase
+           `.staffing-timeline-toolbar` (cero CSS nuevo, mismo criterio de
+           alineación a la derecha) como wrapper independiente, nunca
+           mezclado en la fila de arriba. MISMA gramática visual que
+           "Proyección a" del Detalle (`.staffing-detail-toolbar__n`),
+           pero estado INDEPENDIENTE (`absenceLookbackDays`, nunca acoplado
+           a `projectionDays`) y copy distinto a propósito ("Ausencias ·
+           últimos", nunca "Proyección a") para que no se confunda con la
+           proyección de asignaciones del Detalle — controles con
+           semánticas distintas sobre datasets distintos (ausencias vs.
+           asignaciones). Recalcula sobre `this.absences` ya cargado, sin
+           Graph — MISMO criterio que `projectionDays`. Gobierna el LANE
+           completo (los 4 conceptos — owner corrective: revocó una
+           versión previa que sólo filtraba "Vacaciones", detectada en su
+           propio smoke), ortogonal a los checkboxes de Concepto (N =
+           cuánto histórico veo; checkboxes = qué conceptos veo).
+           `:max="absenceLookbackMaxDays"` (owner corrective — techo
+           DINÁMICO, ya NO un número fijo): MISMA fuente runtime que el
+           clamp de `setAbsenceLookbackDays` (app.js) — nunca "HTML max
+           fijo X, JS max calculado Y". El valor real llega recién al
+           hidratar `_loadAbsences()`; hasta entonces el `<input>` arranca
+           en un estado SEGURO (`absenceLookbackMaxDays` inicial = 10, el
+           propio default).
+           `x-show="anyConceptSelected"` (owner corrective): el control
+           gobierna los 4 conceptos, así que su visibilidad sigue esa
+           MISMA semántica — oculto SÓLO cuando NINGÚN concepto está
+           tildado (un filtro activo pero invisible sería peor que no
+           tenerlo); visible con CUALQUIER combinación de al menos un
+           concepto tildado, no sólo cuando "Vacaciones" lo está. El
+           valor de `absenceLookbackDays` NUNCA se resetea al ocultarse
+           — es sólo presentación (`x-show`, no un `x-if` que
+           desmontaría/remontaría el estado). #}
+        <div class="staffing-timeline-toolbar" x-show="anyConceptSelected">
+          <label class="staffing-detail-toolbar__n" title="Cuánto historial reciente de ausencias se mantiene visible en el timeline (máximo según la historia realmente hidratada)">
+            <span>Ausencias · últimos</span>
+            <input type="number" min="1" :max="absenceLookbackMaxDays" :value="absenceLookbackDays" @change="setAbsenceLookbackDays($event.target.value)">
+            <span>día(s)</span>
+          </label>
+        </div>
         <div class="staffing-timeline-scroll">
           <div class="staffing-timeline">
             <div class="staffing-timeline__body">

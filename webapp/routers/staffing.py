@@ -387,7 +387,16 @@ def staffing_ausencias(request: Request, graph_token: str = Form("")):
         **_flatten_staffing_diagnostics(getattr(service, "last_diagnostics", {})),
     )
 
-    return JSONResponse({"state": "ok", "absences": overlay["absences"]})
+    return JSONResponse({
+        "state": "ok",
+        "absences": overlay["absences"],
+        # Dirección corrective — Timeline/ventana de ausencias dinámica (ver
+        # HANDOFF): el máximo del selector "Ausencias · últimos N días" ya
+        # no es un número fijo — viene de acá, MISMA fuente que decidió qué
+        # `absences` se hidrataron (ver build_absence_overlay_payload).
+        "absence_history_start": overlay["absence_history_start"],
+        "absence_lookback_max_days": overlay["absence_lookback_max_days"],
+    })
 
 
 # --- Compatibilidad histórica (nombres en inglés, Batch 3) ------------------
