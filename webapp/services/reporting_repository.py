@@ -39,6 +39,7 @@ from datetime import datetime
 
 import config
 from core import microsoft365
+from webapp.services.reporting_time_logs_cache import TimeLogsHistoricalCache
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
@@ -190,6 +191,18 @@ TIME_LOGS_REQUIRED_HEADERS = ("Date", "Client", "Project", "Task", "Email", "Dur
 # nunca un fan-out sin límite (cap de presión sobre Graph, ver Fase 1B para
 # el segundo nivel de concurrencia con el que este tope convive).
 _TIME_LOGS_MAX_WORKERS = 3
+
+# CACHE VERSIONED HISTORICAL TIME LOGS corrective (Reporting Cartera/
+# Proyecto Fase 2, ver HANDOFF + reporting_time_logs_cache.py) — instancia
+# ÚNICA, proceso-lifetime (nunca por-request, nunca global entre procesos:
+# sin Redis/DB/disco, ver HANDOFF §8). Módulo-level a propósito: los tests
+# la reemplazan vía `monkeypatch.setattr(repo_mod, "_TIME_LOGS_HISTORICAL_
+# CACHE", ...)` para aislamiento entre casos (ver
+# test_reporting_time_logs_historical_cache.py) — el código de producción
+# SIEMPRE hace el lookup vía este nombre de módulo, nunca una referencia
+# capturada en el momento de import.
+_TIME_LOGS_HISTORICAL_CACHE = TimeLogsHistoricalCache()
+
 # EXPLICIT SOURCE TOPOLOGY corrective (owner 2026-08-18 — "este método es un
 # adapter de una fuente conocida, NO un crawler genérico de SharePoint"): la
 # recursión genérica introducida por `f7a9d9b` entraba a CUALQUIER subcarpeta
@@ -245,6 +258,30 @@ def _infer_time_logs_csv_year(item: dict) -> str:
     if m:
         return m.group(1)
     return str(datetime.now().year)
+
+
+# CACHE VERSIONED HISTORICAL TIME LOGS corrective (Reporting Cartera/
+# Proyecto Fase 2, ver HANDOFF + reporting_time_logs_cache.py) — MISMA
+# señal de nombre que `_infer_time_logs_csv_year` (nunca una heurística
+# nueva): un archivo es "histórico" sii su nombre trae un año explícito
+# (`Time Logs Reports YYYY.csv`, siempre en `Times previos/`); el archivo
+# SIN año (`Time Logs Reports.csv`, la raíz) es el "actual" — NUNCA se
+# cachea en esta fase (política conservadora, ver HANDOFF §7).
+def _is_historical_time_logs_item(item: dict) -> bool:
+    return bool(_CSV_NAME_YEAR_RE.search(_text(item.get("name"))))
+
+
+def _time_logs_file_version(item: dict) -> str:
+    """Clave de versión ESTABLE de un driveItem — `eTag` (preferido: YA
+    viene en la MISMA respuesta de listado de carpeta que
+    `_list_time_logs_csv_items` hace hoy, sin una segunda llamada Graph,
+    ver AUDIT en HANDOFF) o, si faltara, `lastModifiedDateTime:size`
+    (fallback conservador — nunca se asume inmutabilidad sin chequeo de
+    versión)."""
+    etag = _text(item.get("eTag"))
+    if etag:
+        return f"etag:{etag}"
+    return f"lm:{_text(item.get('lastModifiedDateTime'))}:{_text(item.get('size'))}"
 
 
 class ReportingConfigurationError(Exception):
@@ -1038,7 +1075,9 @@ class ReportingRepository:
         )
         return root_files + history_files
 
-    def _download_time_logs_rows(self, site_id: str, *, hot_years: list[str] | None = None) -> list[dict]:
+    def _download_time_logs_rows(
+        self, site_id: str, *, hot_years: list[str] | None = None, cache_scope: str | None = None,
+    ) -> list[dict]:
         """Descarga + combina CSV de la carpeta (MISMA semántica que
         `Table.Combine`/header promovido del M: delimiter=",", UTF-8). Un
         archivo individual inválido (headers requeridos faltantes, o no
@@ -1062,10 +1101,10 @@ class ReportingRepository:
         PERF PHASE 1A (owner corrective, ver HANDOFF — root cause
         confirmado por timing real: 6 descargas CSV secuenciales ~24s de
         los ~26.5s de `time_logs.total`): cada archivo se descarga+parsea
-        en su PROPIO worker (`_download_one_time_logs_file`), acotado a
-        `_TIME_LOGS_MAX_WORKERS` concurrentes — SOLO cambia la topología de
-        ejecución (secuencial → pool acotado), CERO cambio de selección de
-        archivos/parseo/agregación/semántica de error (ver
+        en su PROPIO worker (`_download_one_time_logs_file_cached`),
+        acotado a `_TIME_LOGS_MAX_WORKERS` concurrentes — SOLO cambia la
+        topología de ejecución (secuencial → pool acotado), CERO cambio de
+        selección de archivos/parseo/agregación/semántica de error (ver
         `_download_one_time_logs_file` para el criterio fail-soft
         por-archivo, IDÉNTICO al que tenía el loop secuencial). Resultados
         recolectados por índice y mergeados en el ORDEN ORIGINAL de
@@ -1074,7 +1113,18 @@ class ReportingRepository:
         excepción inesperada de un worker (cualquier cosa que no sea el
         fail-soft ya cubierto adentro) se propaga tal cual lo hacía la
         versión secuencial — se cancelan los futures que todavía no
-        arrancaron y se re-lanza, sin swallowear nada."""
+        arrancaron y se re-lanza, sin swallowear nada.
+
+        `cache_scope` (CACHE VERSIONED HISTORICAL TIME LOGS corrective,
+        Fase 2, ver reporting_time_logs_cache.py): `None` (default)
+        preserva el comportamiento EXACTO de siempre — SIN caching, cada
+        archivo (histórico o actual) se descarga fresco, MISMO contrato
+        que `get_time_logs_facts` sigue usando (Batch B/Rentabilidad NO
+        opta por esta fase). Un `cache_scope` no-`None` (una identidad
+        estable del usuario Hub autenticado — NUNCA el `graph_token`)
+        activa la cache SOLO para archivos HISTÓRICOS
+        (`_is_historical_time_logs_item`) — el archivo actual sigue
+        SIEMPRE fresco, política conservadora Fase 2."""
         items = self._list_time_logs_csv_items(site_id, hot_years=hot_years)
         if not items:
             raise ReportingSourceError("time_logs_files", "no se encontraron CSV en Template Dashboard")
@@ -1087,7 +1137,7 @@ class ReportingRepository:
         results: list[dict | None] = [None] * len(items)
         with ThreadPoolExecutor(max_workers=_TIME_LOGS_MAX_WORKERS) as pool:
             future_to_index = {
-                pool.submit(self._download_one_time_logs_file, site_id, it): idx
+                pool.submit(self._download_one_time_logs_file_cached, site_id, it, cache_scope): idx
                 for idx, it in enumerate(items)
             }
             try:
@@ -1106,18 +1156,32 @@ class ReportingRepository:
         rows: list[dict] = []
         _tl_download_total_ms = 0.0
         _tl_parse_total_ms = 0.0
+        _hist_hits = _hist_misses = _hist_downloads = 0
         for outcome in results:
             if outcome is None:
                 continue
             _tl_download_total_ms += outcome["download_ms"]
             _tl_parse_total_ms += outcome["parse_ms"]
             rows.extend(outcome["rows"])
+            cache_outcome = outcome.get("cache_outcome", "n/a")
+            if cache_outcome == "hit":
+                _hist_hits += 1
+            elif cache_outcome == "computed":
+                _hist_misses += 1
+                _hist_downloads += 1
+            elif cache_outcome == "waited":
+                _hist_misses += 1
         _perf_logger.info(
             "reporting.perf time_logs.download_total elapsed_ms=%s", round(_tl_download_total_ms),
         )
         _perf_logger.info(
             "reporting.perf time_logs.parse_total elapsed_ms=%s", round(_tl_parse_total_ms),
         )
+        if cache_scope is not None:
+            _perf_logger.info(
+                "reporting.perf time_logs.cache historical_hits=%s historical_misses=%s historical_downloads=%s",
+                _hist_hits, _hist_misses, _hist_downloads,
+            )
         if not rows:
             raise ReportingSourceError("time_logs_rows", "ningún CSV produjo filas válidas")
         return rows
@@ -1164,6 +1228,60 @@ class ReportingRepository:
         file_rows = list(reader)
         _tl_parse_elapsed_ms = (time.perf_counter() - _tl_parse_start) * 1000
         return {"rows": file_rows, "download_ms": _tl_dl_elapsed_ms, "parse_ms": _tl_parse_elapsed_ms}
+
+    def _download_one_time_logs_file_cached(
+        self, site_id: str, item: dict, cache_scope: str | None,
+    ) -> dict | None:
+        """Wrapper de `_download_one_time_logs_file` con la cache
+        versionada de archivos HISTÓRICOS (Fase 2, ver
+        reporting_time_logs_cache.py). `cache_scope=None` (default de
+        siempre) o un archivo NO histórico (el actual, `_is_historical_
+        time_logs_item`) saltan la cache por completo — comportamiento
+        IDÉNTICO a `_download_one_time_logs_file` directo, MISMO
+        `download_ms`/`parse_ms` reales.
+
+        Con `cache_scope` no-`None` sobre un archivo histórico: clave
+        `(cache_scope, item_id, version)` — `version` viene de la MISMA
+        respuesta de listado de carpeta (`eTag`, o `lastModifiedDateTime
+        + size` si faltara, ver `_time_logs_file_version`), CERO llamada
+        Graph extra para versión. `get_or_compute` es single-flight (ver
+        `TimeLogsHistoricalCache` — dos requests concurrentes para la
+        MISMA key nunca disparan dos descargas). El VALOR cacheado son
+        las filas CSV crudas ya parseadas — la MISMA representación que
+        `_download_one_time_logs_file` produce hoy, CERO fórmula de
+        negocio agregada acá (eso sigue viviendo, sin cambios, en
+        `get_time_logs_worked_hours`/`get_time_logs_facts`).
+
+        `download_ms`/`parse_ms` reportados: el costo REAL de esta
+        llamada — 0/0 en un `"hit"` (verdad literal: no bajó ni parseó
+        nada), el split real de descarga/parseo en un `"computed"` (el
+        único worker que efectivamente pagó el costo), 0/0 en un
+        `"waited"` (esperó el resultado de otro thread, no un segundo
+        download propio — el tiempo de espera real se ve igual en el
+        `time_logs.total` exterior, no se duplica acá)."""
+        item_id = _text(item.get("id"))
+        if not item_id:
+            return None
+        if cache_scope is None or not _is_historical_time_logs_item(item):
+            outcome = self._download_one_time_logs_file(site_id, item)
+            if outcome is not None:
+                outcome["cache_outcome"] = "n/a"
+            return outcome
+
+        key = (cache_scope, item_id, _time_logs_file_version(item))
+        inner_outcome: dict | None = None
+
+        def _compute() -> list[dict]:
+            nonlocal inner_outcome
+            inner_outcome = self._download_one_time_logs_file(site_id, item)
+            return inner_outcome["rows"] if inner_outcome is not None else []
+
+        rows, cache_outcome = _TIME_LOGS_HISTORICAL_CACHE.get_or_compute(key, _compute)
+        if cache_outcome == "computed" and inner_outcome is not None:
+            download_ms, parse_ms = inner_outcome["download_ms"], inner_outcome["parse_ms"]
+        else:
+            download_ms, parse_ms = 0.0, 0.0
+        return {"rows": rows, "download_ms": download_ms, "parse_ms": parse_ms, "cache_outcome": cache_outcome}
 
     def get_time_logs_facts(self, access_token: str, *, hot_years: list[str] | None = None) -> list[dict]:
         """Hechos de Time Logs Reports normalizados y unidos a Cliente vía
@@ -1261,7 +1379,9 @@ class ReportingRepository:
         timer.total()
         return facts
 
-    def get_time_logs_worked_hours(self, access_token: str, *, hot_years: list[str] | None = None) -> list[dict]:
+    def get_time_logs_worked_hours(
+        self, access_token: str, *, hot_years: list[str] | None = None, cache_scope: str | None = None,
+    ) -> list[dict]:
         """Proyección MÍNIMA de Time Logs — `{proyecto, anio, mes, horas}`
         por fila, SIN resolver Proyectos/Cliente/porcentaje_part (CALL
         BUDGET corrective, owner decision 2026-08-18 — Cartera reportó
@@ -1288,13 +1408,23 @@ class ReportingRepository:
 
         `hot_years`: MISMO mecanismo de source-loading que
         `get_time_logs_facts` (selecciona archivos por nombre ANTES de
-        descargar, ver `_download_time_logs_rows`)."""
+        descargar, ver `_download_time_logs_rows`).
+
+        `cache_scope` (CACHE VERSIONED HISTORICAL TIME LOGS corrective,
+        Fase 2): `None` (default) preserva el comportamiento EXACTO de
+        siempre — sin caching. Un `cache_scope` no-`None` (identidad
+        estable del usuario Hub — NUNCA el `graph_token`) activa la cache
+        de archivos históricos en `_download_time_logs_rows`. Hoy SOLO
+        `get_cartera_proyecto` opta por esto — Mantenimiento (ventana
+        caliente ya acotada) y Rentabilidad/Batch B (`get_time_logs_facts`,
+        contrato completo distinto) quedan sin tocar, Fase 2 es
+        deliberadamente de una sola fuente/un solo consumidor."""
         # PERF instrumentation permanente (bajo costo, MISMO contrato
         # `reporting.perf` que `_StageTimer` — ver HANDOFF Fase 1 §9).
         _tl_total_start = time.perf_counter()
         self._token = access_token
         operaciones_site_id = self._resolve_time_logs_site_id()
-        raw_rows = self._download_time_logs_rows(operaciones_site_id, hot_years=hot_years)
+        raw_rows = self._download_time_logs_rows(operaciones_site_id, hot_years=hot_years, cache_scope=cache_scope)
         result = [
             {
                 "proyecto": _text(row.get("Project")),

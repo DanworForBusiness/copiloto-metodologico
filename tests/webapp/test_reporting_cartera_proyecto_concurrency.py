@@ -320,7 +320,7 @@ def test_facts_and_time_logs_branches_run_sequentially_never_overlap(monkeypatch
         facts_finished.set()
         return result
 
-    def fake_time_logs(self, access_token, *, hot_years):
+    def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
         time_logs_started.set()
         # Si las ramas corrieran concurrentes (Fase 1B), `facts_finished`
         # podría no estar seteado todavía acá — con la topología secuencial
@@ -351,7 +351,7 @@ def test_facts_and_time_logs_run_on_the_calling_thread_no_pool(monkeypatch):
         seen_threads.append(threading.current_thread().ident)
         return [], {}
 
-    def fake_time_logs(self, access_token, *, hot_years):
+    def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
         seen_threads.append(threading.current_thread().ident)
         return []
 
@@ -515,7 +515,7 @@ def test_facts_failure_takes_priority_over_time_logs(monkeypatch):
     def fake_facts(self, access_token, *, include_facturadas):
         raise ReportingGraphError(stage="proyectos", status_code=500)
 
-    def fake_time_logs(self, access_token, *, hot_years):
+    def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
         raise ReportingGraphError(stage="time_logs_site", status_code=503)
 
     monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_facts)
@@ -531,7 +531,7 @@ def test_facts_ok_time_logs_failure_propagates_time_logs_exception(monkeypatch):
     def fake_facts(self, access_token, *, include_facturadas):
         return [], {}
 
-    def fake_time_logs(self, access_token, *, hot_years):
+    def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
         raise ReportingGraphError(stage="time_logs_site", status_code=503)
 
     monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_facts)
@@ -558,7 +558,7 @@ def _sequential_reference():
             "hsTrabajadas": 10.0, "hsVendidas": 160.0, "hsCertificadas": 140.0, "facturadasProyecto": 290.0,
         }], {}
 
-    def fake_time_logs(self, access_token, *, hot_years):
+    def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
         return [
             {"proyecto": "Soporte Danone", "anio": "2026", "mes": "2026-08", "horas": 100.0},
             {"proyecto": "Soporte Danone", "anio": "2025", "mes": "2025-12", "horas": 32.4},
@@ -578,7 +578,7 @@ def test_result_payload_identical_to_sequential_reference(monkeypatch):
             "hsTrabajadas": 10.0, "hsVendidas": 160.0, "hsCertificadas": 140.0, "facturadasProyecto": 290.0,
         }], {}
 
-    def fake_time_logs(self, access_token, *, hot_years):
+    def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
         return [
             {"proyecto": "Soporte Danone", "anio": "2026", "mes": "2026-08", "horas": 100.0},
             {"proyecto": "Soporte Danone", "anio": "2025", "mes": "2025-12", "horas": 32.4},

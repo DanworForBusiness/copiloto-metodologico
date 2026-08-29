@@ -503,7 +503,7 @@ class ReportingService:
         current = datetime.now().year
         return [str(current), str(current - 1)]
 
-    def get_cartera_proyecto(self, access_token: str) -> list[dict]:
+    def get_cartera_proyecto(self, access_token: str, *, cache_scope: str | None = None) -> list[dict]:
         """Perspectiva Proyecto SOLA — SÍ necesita la XLSX
         (`facturadasProyecto`, ver `_proyecto_rows`). NUNCA recibe/aplica
         `hot_years` — agrega la VIDA COMPLETA del proyecto (ver
@@ -534,22 +534,30 @@ class ReportingService:
         método ya leía), y es lo que permite que un proyecto que sólo existe
         en Time Logs pero resuelve contra Proyectos aparezca igual.
 
-        PERF PHASE 1B — TEMPORALMENTE DESACTIVADA (owner A/B isolation,
-        ver HANDOFF: la medición real combinada de Fase 1A+1B empeoró TODO
-        — `cartera_proyecto.facts` 14.9s→50.2s, `time_logs` 26.6s→50.6s,
-        el CSV wall phase de Time Logs solo ~23.9s→~47.4s con el MISMO
-        pool de 3 workers — fuerte indicio de contención real contra
-        Microsoft 365/SharePoint, no un problema de este código). El
-        `ThreadPoolExecutor(max_workers=2)` top-level (Facts || Time Logs)
-        fue RETIRADO — Facts y Time Logs vuelven a correr SECUENCIAL
-        (Facts primero, después Time Logs), exactamente como antes de
-        Fase 1B. Fase 1A (pool acotado de 3 workers para las descargas CSV
-        de Time Logs, ver `_download_time_logs_rows`) se MANTIENE sin
-        cambios — este aislamiento A/B es justamente para medir su efecto
-        solo, sin el ruido de la concurrencia top-level combinada. El
-        patrón de concurrencia de dos ramas retirado de acá sigue vigente,
-        SIN TOCAR, en `get_rentabilidad` — este aislamiento es exclusivo
-        de Cartera/Proyecto."""
+        PERF PHASE 1B — RECHAZADA PERMANENTEMENTE (owner A/B isolation,
+        medición real, ver HANDOFF: Fase 1A+1B combinada empeoró TODO —
+        `cartera_proyecto.facts` 14.9s→50.2s, `time_logs` 26.6s→50.6s, el
+        CSV wall phase de Time Logs solo ~23.9s→~47.4s con el MISMO pool
+        de 3 workers — fuerte indicio de contención real contra Microsoft
+        365/SharePoint al combinar dos ramas top-level concurrentes, no un
+        problema de este código). El `ThreadPoolExecutor(max_workers=2)`
+        top-level (Facts || Time Logs) fue RETIRADO — Facts y Time Logs
+        corren SECUENCIAL, ambas en el thread que llamó a este método
+        (nunca en un pool). Fase 1A (pool acotado de 3 workers para las
+        descargas CSV DENTRO de Time Logs, ver `_download_time_logs_rows`)
+        SÍ se mantiene — midió mejor en aislamiento, es una capa de
+        concurrencia distinta (I/O intra-fuente, no fan-out cross-fuente).
+        El patrón de concurrencia de dos ramas retirado de acá sigue
+        vigente, SIN TOCAR, en `get_rentabilidad` — este rechazo es
+        exclusivo de Cartera/Proyecto.
+
+        `cache_scope` (CACHE VERSIONED HISTORICAL TIME LOGS corrective,
+        Fase 2, ver reporting_time_logs_cache.py): identidad ESTABLE y NO
+        secreta del usuario Hub autenticado (email de sesión, resuelto en
+        el router desde `auth_service.session_user(request)` — NUNCA el
+        `graph_token`, ver AUDIT en HANDOFF), pasada tal cual a
+        `get_time_logs_worked_hours`. `None` (default) preserva el
+        contrato de siempre — SIN caching."""
         _cp_total_start = time.perf_counter()
         _cp_facts_start = _cp_total_start
         facts, project_dim = self._repository.get_cartera_facts_with_project_dimension(
@@ -569,7 +577,9 @@ class ReportingService:
         # menos el overhead despreciable de `get_time_logs_worked_hours`
         # fuera de `_download_time_logs_rows`/`_resolve_time_logs_site_id`).
         _cp_time_logs_start = time.perf_counter()
-        time_logs = self._repository.get_time_logs_worked_hours(access_token, hot_years=None)
+        time_logs = self._repository.get_time_logs_worked_hours(
+            access_token, hot_years=None, cache_scope=cache_scope,
+        )
         _perf_logger.info(
             "reporting.perf cartera_proyecto.time_logs elapsed_ms=%s",
             round((time.perf_counter() - _cp_time_logs_start) * 1000),

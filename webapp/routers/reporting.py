@@ -129,7 +129,8 @@ def reporting_cartera_data(
     `/data/cartera/anios-disponibles`, un endpoint separado que el
     frontend dispara en paralelo SIN bloquear el primer render — ver
     `reporting_cartera_anios_disponibles` abajo."""
-    if not auth_service.session_user(request):
+    user = auth_service.session_user(request)
+    if not user:
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
         raise HTTPException(403, "No autorizado para Operations / Reporting")
@@ -142,7 +143,17 @@ def reporting_cartera_data(
             anios_list = [a.strip() for a in anios.split(",") if a.strip()] or None
             cartera = {"mantenimiento": service.get_cartera_mantenimiento(graph_token, anios=anios_list)}
         elif perspectiva == "proyecto":
-            cartera = {"proyecto": service.get_cartera_proyecto(graph_token)}
+            # CACHE VERSIONED HISTORICAL TIME LOGS corrective (Fase 2, ver
+            # HANDOFF + reporting_time_logs_cache.py): `cache_scope` es el
+            # email de la sesión Hub YA verificada arriba (`user`) — NUNCA
+            # `graph_token` (nunca se guarda/loguea/usa como key de cache).
+            # `sub` (no `email`) es la claim real del JWT de sesión (ver
+            # `auth_service.create_session`/`session_user`) — MISMO
+            # fallback defensivo que el resto del Hub usa para mostrar el
+            # usuario (`user.get("username") or user.get("email") or
+            # user.get("sub")`, ver operations_access.py/main.py).
+            cache_scope = str(user.get("username") or user.get("email") or user.get("sub") or "") or None
+            cartera = {"proyecto": service.get_cartera_proyecto(graph_token, cache_scope=cache_scope)}
         else:
             cartera = service.get_cartera(graph_token)
     except ReportingConfigurationError:
