@@ -39,13 +39,13 @@ from webapp.services.reporting_time_logs_cache import TimeLogsHistoricalCache
 def _isolate_horas_delta_cache(monkeypatch):
     """Toda llamada a `get_cartera_facts_with_project_dimension` con
     `cache_scope` real (hoy TODOS los tests de este archivo) también
-    dispara el sync delta de Fase 3A sobre `_HORAS_DELTA_CACHE` — un
+    dispara el sync delta de Fase 3A sobre `_DELTA_CACHE` — un
     singleton de MÓDULO. Sin este fixture, el estado (rows/deltaLink) de
     un test se filtraría al siguiente test que use el MISMO
     `(cache_scope, site_id, horas_list_id)`, nunca un problema de
     producción (cada request real es independiente) pero sí de
     aislamiento entre tests."""
-    monkeypatch.setattr(repo_mod, "_HORAS_DELTA_CACHE", DeltaCache())
+    monkeypatch.setattr(repo_mod, "_DELTA_CACHE", DeltaCache())
 
 
 _SITE = "site-1"
@@ -78,27 +78,38 @@ class _CallLog:
         self.paged = []
 
 
-def _patch(monkeypatch, *, xlsx_bytes, metadata=None, metadata_error=None, horas_delta_rows=None):
+def _patch(
+    monkeypatch, *, xlsx_bytes, metadata=None, metadata_error=None,
+    horas_delta_rows=None, proyectos_delta_rows=None, cliente_delta_rows=None, client_partner_delta_rows=None,
+):
     """`metadata`: dict devuelto por el GET de metadata (sin `:content`) —
     default `{"id": "fac-1", "eTag": "etag-v1", "lastModifiedDateTime":
     "2026-01-01T00:00:00Z", "size": 2048}`. `metadata_error`: si se pasa,
     el GET de metadata levanta esa excepción (simula falla de transporte,
-    ver test de fail-soft). `horas_delta_rows`: filas Graph crudas
-    (`{id, fields}`) que el sync delta de "Horas por proyectos" (Fase 3A,
-    ver reporting_delta_cache.py) debe devolver — default `[]` (una sola
-    página, deltaLink válido, sin filas) para que las llamadas de ESTE
-    archivo (centradas en Facturadas) que pasan `cache_scope` no rompan
-    por falta de fixture de Horas."""
+    ver test de fail-soft). `*_delta_rows`: filas Graph crudas
+    (`{id, fields}`) que el sync delta de cada fuente (Fase 3A Horas /
+    Fase 3B Proyectos/Cliente/Client Partner, ver reporting_delta_cache.py)
+    debe devolver — default `[]` (una sola página, deltaLink válido, sin
+    filas) para que las llamadas de ESTE archivo (centradas en
+    Facturadas) que pasan `cache_scope` no rompan por falta de fixture."""
     log = _CallLog()
     metadata = metadata if metadata is not None else {
         "id": "fac-1", "eTag": "etag-v1", "lastModifiedDateTime": "2026-01-01T00:00:00Z", "size": 2048,
     }
-    horas_delta_rows = horas_delta_rows if horas_delta_rows is not None else []
+    delta_rows_by_list = {
+        _HP: horas_delta_rows if horas_delta_rows is not None else [],
+        _PROY: proyectos_delta_rows if proyectos_delta_rows is not None else [],
+        _CLI: cliente_delta_rows if cliente_delta_rows is not None else [],
+        _CP: client_partner_delta_rows if client_partner_delta_rows is not None else [],
+    }
 
     def fake_json(url, access_token=None, **kw):
         log.json.append(url)
         if "/items/delta" in url:
-            return {"value": horas_delta_rows, "@odata.deltaLink": f"{url}&token=delta-v1"}
+            for list_id, rows in delta_rows_by_list.items():
+                if f"/lists/{list_id}/items/delta" in url:
+                    return {"value": rows, "@odata.deltaLink": f"{url}&token=delta-v1"}
+            return {"value": [], "@odata.deltaLink": f"{url}&token=delta-v1"}
         if metadata_error is not None:
             raise metadata_error
         return metadata
@@ -280,16 +291,13 @@ def test_end_to_end_facts_call_uses_cached_facturadas_on_warm_request(monkeypatc
         "fields": {"ProyectoLookupId": "p1", "EmpresaLookupId": "c1", "A_x00f1_o": "2026", "Mes": "Agosto",
                    "HsTrabajadas": "1", "HsVendidas": "1", "HsFacturadas": "1"},
     }
+    proyecto_row = {"id": "p1", "fields": {"Title": "Soporte Danone", "TipodeProyecto": "Proyecto", "Status": "En curso"}}
+    cliente_row = {"id": "c1", "fields": {"Title": "Danone"}}
     log = _patch(
         monkeypatch, xlsx_bytes=_facturadas_xlsx([("Soporte Danone", 290)]), horas_delta_rows=[horas_row],
+        proyectos_delta_rows=[proyecto_row], cliente_delta_rows=[cliente_row],
     )
     repo = _repo_with_token()
-    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", lambda url, access_token=None, **kw: (
-        _CP_COLUMNS if "/columns" in url else
-        _items([{"id": "p1", "Title": "Soporte Danone", "TipodeProyecto": "Proyecto", "Status": "En curso"}])
-        if _PROY in url else
-        _items([{"id": "c1", "Title": "Danone"}]) if _CLI in url else []
-    ))
 
     facts1, _dim1 = repo.get_cartera_facts_with_project_dimension(
         "tok", include_facturadas=True, cache_scope="user-a@danwor.com",

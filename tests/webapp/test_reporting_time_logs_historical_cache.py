@@ -282,13 +282,15 @@ def test_exception_in_compute_propagates_and_does_not_poison_future_attempts():
 # §13 CALL-BUDGET — 5 históricos + 1 actual
 # ============================================================
 
-def test_call_budget_cold_then_warm_then_one_etag_changed(monkeypatch):
-    """1ra llamada (fría): 5 históricos + 1 actual. 2da llamada idéntica
-    (tibia): 0 históricos (cache) + 1 actual (siempre fresco). 3ra llamada
-    con UN eTag histórico cambiado (2023): 1 histórico + 1 actual — los
-    otros 4 históricos siguen viniendo de cache. Cada tramo lee el log del
-    `_patch` vigente en ESE tramo (cada `_patch` devuelve un `_CallLog`
-    nuevo — no reusar el de un tramo anterior)."""
+def test_call_budget_cold_then_warm_then_one_historical_etag_changed(monkeypatch):
+    """1ra llamada (fría): 5 históricos + 1 actual = 6 descargas. 2da
+    llamada idéntica (tibia, Fase 3B — el actual AHORA también cachea):
+    CERO descargas — los 6 archivos vienen de cache. 3ra llamada con UN
+    eTag histórico cambiado (2023, el actual SIN cambios): 1 descarga —
+    solo hist-2023, los otros 4 históricos Y el actual siguen de cache.
+    Cada tramo lee el log del `_patch` vigente en ESE tramo (cada
+    `_patch` devuelve un `_CallLog` nuevo — no reusar el de un tramo
+    anterior)."""
     fresh_cache = TimeLogsHistoricalCache()
     monkeypatch.setattr(repo_mod, "_TIME_LOGS_HISTORICAL_CACHE", fresh_cache)
     repo = _repo()
@@ -303,32 +305,57 @@ def test_call_budget_cold_then_warm_then_one_etag_changed(monkeypatch):
     log2 = _patch(monkeypatch, root_files=root_files, history_files=history_files, file_rows=_default_file_rows)
     repo.get_time_logs_worked_hours("tok", cache_scope="user-a@danwor.com")
     d2 = [u for u in log2.bytes if "/content" in u]
-    assert len(d2) == 1
-    assert "current-1" in d2[0]
+    assert d2 == [], "warm sin cambios: los 6 archivos (histórico + actual) deben venir de cache"
 
     root_files3, history_files3 = _csv_files(etags={2023: "etag-2023-v2"})
     root_files3 = _mark_history_folder(root_files3)
     log3 = _patch(monkeypatch, root_files=root_files3, history_files=history_files3, file_rows=_default_file_rows)
     repo.get_time_logs_worked_hours("tok", cache_scope="user-a@danwor.com")
     d3 = [u for u in log3.bytes if "/content" in u]
-    assert len(d3) == 2, d3  # current (siempre) + hist-2023 (único eTag distinto)
-    assert any("current-1" in u for u in d3)
-    assert any("hist-2023" in u for u in d3)
+    assert len(d3) == 1, d3  # SOLO hist-2023 — el actual (sin cambio de eTag) sigue de cache
+    assert "hist-2023" in d3[0]
+    assert not any("current-1" in u for u in d3)
     assert not any(f"hist-{y}" in u for y in (2021, 2022, 2024, 2025) for u in d3)
 
 
-def test_current_file_is_never_cached_even_when_etag_unchanged(monkeypatch):
+def test_current_etag_change_triggers_only_current_download(monkeypatch):
+    """Fase 3B — el actual tiene EL MISMO contrato de versión que los
+    históricos: un cambio de SU eTag dispara SU descarga sin tocar a
+    ninguno de los 5 históricos (que siguen con eTag sin cambios)."""
+    fresh_cache = TimeLogsHistoricalCache()
+    monkeypatch.setattr(repo_mod, "_TIME_LOGS_HISTORICAL_CACHE", fresh_cache)
+    repo = _repo()
+
+    root_files, history_files = _csv_files()
+    root_files = _mark_history_folder(root_files)
+    _patch(monkeypatch, root_files=root_files, history_files=history_files, file_rows=_default_file_rows)
+    repo.get_time_logs_worked_hours("tok", cache_scope="user-a@danwor.com")  # cold
+
+    root_files2, history_files2 = _csv_files(etags={"current": "etag-current-v2"})
+    root_files2 = _mark_history_folder(root_files2)
+    log2 = _patch(monkeypatch, root_files=root_files2, history_files=history_files2, file_rows=_default_file_rows)
+    repo.get_time_logs_worked_hours("tok", cache_scope="user-a@danwor.com")
+    d2 = [u for u in log2.bytes if "/content" in u]
+    assert len(d2) == 1, d2
+    assert "current-1" in d2[0]
+
+
+def test_current_file_is_now_cached_same_contract_as_historical(monkeypatch):
+    """Fase 3B — a diferencia del contrato Fase 2 (actual SIEMPRE fresco),
+    el actual ahora participa de la MISMA cache versionada por eTag: 3
+    llamadas idénticas seguidas pagan SU descarga UNA sola vez."""
     fresh_cache = TimeLogsHistoricalCache()
     monkeypatch.setattr(repo_mod, "_TIME_LOGS_HISTORICAL_CACHE", fresh_cache)
     root_files, history_files = _csv_files()
     root_files = _mark_history_folder(root_files)
     repo = _repo()
 
+    current_downloads_total = 0
     for _ in range(3):
         log = _patch(monkeypatch, root_files=root_files, history_files=history_files, file_rows=_default_file_rows)
         repo.get_time_logs_worked_hours("tok", cache_scope="user-a@danwor.com")
-        current_downloads = [u for u in log.bytes if "/content" in u and "current-1" in u]
-        assert len(current_downloads) == 1, "el archivo actual debe descargarse SIEMPRE, nunca cachearse"
+        current_downloads_total += len([u for u in log.bytes if "/content" in u and "current-1" in u])
+    assert current_downloads_total == 1, "el actual debió descargarse UNA sola vez en 3 llamadas idénticas"
 
 
 # ============================================================
@@ -440,7 +467,7 @@ def test_scope_b_never_inherits_scope_a_cache_entries(monkeypatch):
     log_a2 = _patch(monkeypatch, root_files=root_files, history_files=history_files, file_rows=_default_file_rows)
     repo.get_time_logs_worked_hours("tok", cache_scope="user-a@danwor.com")
     downloads_a2 = [u for u in log_a2.bytes if "/content" in u]
-    assert len(downloads_a2) == 1  # solo el actual — históricos de A vinieron de cache
+    assert downloads_a2 == [], "warm sin cambios: los 6 archivos (histórico + actual) de A vinieron de cache"
 
     # B, primera vez — MISMOS archivos/eTags que A, pero scope DISTINTO:
     # debe pagar el costo COMPLETO, cero filtración desde A.

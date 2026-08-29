@@ -120,6 +120,11 @@ PROY_FECHA_INICIO = "FechadeInicio"
 PROY_ESTADO = "Status"              # Proyectos expone `Status` (no "Estado")
 PROY_EMPRESA_ID = "EmpresaId"
 PROY_TITLE = "Title"                # nombre del proyecto (join desde Proyectos)
+# MISMA proyección que `_cartera_facts_and_dimension` ya usaba inline —
+# extraída a constante de módulo (Fase 3B, ver HANDOFF) para que el sync
+# delta de Proyectos (`_fetch_proyectos_delta`) use la MISMA lista, nunca
+# una duplicada que pueda divergir.
+PROYECTOS_SELECT_FIELDS = [PROY_TITLE, PROY_TIPO, PROY_ESTADO, PROY_FECHA_INICIO, PROY_ID_DANWOR]
 
 CLI_NOMBRE = "Title"                # nombre del cliente = Cliente.Title
 # Client Partner es un LOOKUP de la lista Cliente (`ClientPartnerLookupId`). El
@@ -129,6 +134,8 @@ CLI_CP_LOOKUP = ("ClientPartnerLookupId", "ClientPartnerId")
 CLI_CP_COLUMN_NAMES = ("ClientPartner",)
 CLI_CP_DISPLAY_NAMES = ("Client Partner",)
 PM_TITLE = "Title"                  # display del Client Partner = Title del target
+# MISMO criterio que PROYECTOS_SELECT_FIELDS arriba, Fase 3B.
+CLIENTE_SELECT_FIELDS = [CLI_NOMBRE, *CLI_CP_LOOKUP]
 
 # Batch A (Horas Vendidas/Participación/Calendario, ver artifacts/
 # reporting-integral-v0/real-data-lineage.md sección 8) — columnas
@@ -221,14 +228,22 @@ _TIME_LOGS_HISTORICAL_CACHE = TimeLogsHistoricalCache()
 # reporting_time_logs_cache.py).
 _FACTURADAS_CACHE = TimeLogsHistoricalCache()
 
-# DELTA-SYNC CARTERA PROJECT HOURS corrective, Fase 3A (ver HANDOFF +
-# reporting_delta_cache.py) — instancia ÚNICA, proceso-lifetime. Estado
-# MUTABLE (rows + deltaLink), nunca versionado por eTag como los dos
-# anteriores — ver docstring de `DeltaCache` para por qué es un primitivo
-# distinto. Módulo-level a propósito, MISMO criterio testeable que
+# DELTA-SYNC corrective — Horas (Fase 3A) + Proyectos/Cliente/Client
+# Partner (Fase 3B, ver HANDOFF) — instancia ÚNICA COMPARTIDA por los 4
+# consumidores (`_delta_sync_list`), proceso-lifetime. Compartir UNA cache
+# es seguro: la key SIEMPRE incluye `list_id`, así que dos fuentes nunca
+# colisionan aunque compartan `cache_scope`/`site_id`. Estado MUTABLE
+# (rows + deltaLink), nunca versionado por eTag como Time Logs/Facturadas
+# — ver docstring de `DeltaCache` para por qué es un primitivo distinto.
+# `max_entries=100` (vs. el default 40 de Fase 3A): ahora son hasta 4
+# fuentes × N scopes compartiendo el mismo pool LRU — Proyectos/Cliente/
+# Client Partner son listas de referencia bastante más chicas que Horas
+# (1786 filas), así que el footprint total sigue siendo un orden de
+# magnitud menor que la preocupación original de Time Logs histórico.
+# Módulo-level a propósito, MISMO criterio testeable que
 # `_TIME_LOGS_HISTORICAL_CACHE`/`_FACTURADAS_CACHE` (tests la reemplazan
-# vía `monkeypatch.setattr(repo_mod, "_HORAS_DELTA_CACHE", ...)`).
-_HORAS_DELTA_CACHE = DeltaCache()
+# vía `monkeypatch.setattr(repo_mod, "_DELTA_CACHE", ...)`).
+_DELTA_CACHE = DeltaCache(max_entries=100)
 
 # EXPLICIT SOURCE TOPOLOGY corrective (owner 2026-08-18 — "este método es un
 # adapter de una fuente conocida, NO un crawler genérico de SharePoint"): la
@@ -569,28 +584,34 @@ class ReportingRepository:
             all_items = self._items(site_id, self.horas_proyectos_list_id, "horas_proyectos")
             return [it for it in all_items if _text((it.get("fields") or {}).get(HP_ANIO)) in wanted], False
 
-    # --- DELTA-SYNC "Horas por proyectos" (Fase 3A, ver HANDOFF) -----------
-    # SOLO para el camino `hot_years=None` de Cartera/Proyecto con un
-    # `cache_scope` real — Mantenimiento (`hot_years=[...]`) sigue usando
-    # `_fetch_horas_proyectos` arriba, sin cambios. Reemplaza la relectura
-    # completa (1786 filas) por Microsoft Graph `/items/delta`: sync
-    # completo la primera vez por scope, checkpoint incremental después
-    # (`@odata.deltaLink` reusado TAL CUAL — nunca reconstruido).
+    # --- DELTA-SYNC genérico (Horas Fase 3A, Proyectos/Cliente/Client -----
+    # Partner Fase 3B, ver HANDOFF) — SOLO para el camino Cartera/Proyecto
+    # con un `cache_scope` real (Mantenimiento y cualquier caller que
+    # nunca pase `cache_scope` siguen en sus lecturas de siempre, sin
+    # cambios). Primitivo COMPARTIDO por los 4 consumidores — la
+    # canonicalización de fila NUNCA vive acá (cada caller sigue leyendo
+    # `it.get("fields")` a su manera, MISMO criterio de siempre); esto es
+    # PURAMENTE transporte+estado (paginación, aplicación de cambios,
+    # single-flight, resync ante 410) — cero shaping de negocio.
 
-    def _horas_delta_apply_pages(self, url: str, working: dict[str, dict]) -> tuple[str, int, int, int]:
+    def _delta_apply_pages(self, url: str, working: dict[str, dict], *, stage: str) -> tuple[str, int, int, int]:
         """Sigue `@odata.nextLink` aplicando cada página sobre `working`
         (mutado IN-PLACE — el caller decide si `working` es un dict nuevo
         vacío (cold) o una COPIA del estado previo (warm), nunca el
         original en cache directamente). Un item con `@removed` se
         remueve; cualquier otro se agrega/reemplaza — mismo item repetido
         en la secuencia ⇒ la ÚLTIMA ocurrencia gana (asignación de dict en
-        orden de llegada). Devuelve `(delta_link, pages, changes, deletes)`
-        — `changes`/`deletes` cuentan EVENTOS vistos (no deduplicados por
-        id), solo para observabilidad, nunca afectan el estado final."""
+        orden de llegada, tanto dentro de una página como entre páginas).
+        Devuelve `(delta_link, pages, changes, deletes)` — `changes`/
+        `deletes` cuentan EVENTOS vistos (no deduplicados por id), solo
+        para observabilidad, nunca afectan el estado final. `stage`
+        rotula el error de transporte (`ReportingGraphError.stage`) por
+        fuente — `"horas_delta"`/`"proyectos_delta"`/`"cliente_delta"`/
+        `"client_partner_delta"`."""
         pages = changes = deletes = 0
         delta_link = ""
         while url:
-            payload = _call_graph("horas_delta", lambda u=url: microsoft365.graph_get_json(u, self._token))
+            payload = _call_graph(f"{stage}_delta", lambda u=url: microsoft365.graph_get_json(u, self._token))
             pages += 1
             for item in payload.get("value") or []:
                 item_id = _text(item.get("id"))
@@ -610,11 +631,13 @@ class ReportingRepository:
             url = ""
         if not delta_link:
             raise ReportingSourceError(
-                "horas_proyectos_delta", "Graph no devolvió @odata.deltaLink tras completar el sync",
+                f"{stage}_delta", "Graph no devolvió @odata.deltaLink tras completar el sync",
             )
         return delta_link, pages, changes, deletes
 
-    def _horas_delta_cold_sync(self, site_id: str, *, mode: str = "cold") -> dict:
+    def _delta_cold_sync(
+        self, site_id: str, list_id: str, select_fields: list[str] | None, *, stage: str, mode: str = "cold",
+    ) -> dict:
         """Sync COMPLETO desde cero — MISMO fallback de `$select` que
         `_fetch_horas_proyectos`/`_items_narrowed_or_full` (ante CUALQUIER
         falla del intento con `$select`, un único reintento completo sin
@@ -623,61 +646,92 @@ class ReportingRepository:
         variables LOCALES — nunca se publica un estado parcialmente
         sincronizado (`DeltaCache.sync` solo adopta el `return` de esta
         función si termina sin excepción, ver reporting_delta_cache.py)."""
-        url = _list_items_delta_url(site_id, self.horas_proyectos_list_id, HORAS_PROYECTOS_SELECT_FIELDS)
+        url = _list_items_delta_url(site_id, list_id, select_fields)
         try:
             working: dict[str, dict] = {}
-            delta_link, pages, changes, deletes = self._horas_delta_apply_pages(url, working)
+            delta_link, pages, changes, deletes = self._delta_apply_pages(url, working, stage=stage)
         except Exception:  # noqa: BLE001 — fallback de transporte (select inválido), MISMO criterio que _items_narrowed_or_full
-            url = _list_items_delta_url(site_id, self.horas_proyectos_list_id, None)
+            url = _list_items_delta_url(site_id, list_id, None)
             working = {}
-            delta_link, pages, changes, deletes = self._horas_delta_apply_pages(url, working)
+            delta_link, pages, changes, deletes = self._delta_apply_pages(url, working, stage=stage)
         _perf_logger.info(
-            "reporting.perf cartera.horas_delta mode=%s pages=%s changes=%s deletes=%s rows=%s",
-            mode, pages, changes, deletes, len(working),
+            "reporting.perf cartera.%s_delta mode=%s pages=%s changes=%s deletes=%s rows=%s",
+            stage, mode, pages, changes, deletes, len(working),
         )
         return {"rows": working, "delta_link": delta_link}
 
-    def _horas_delta_warm_sync(self, site_id: str, current: dict) -> dict:
+    def _delta_warm_sync(self, current: dict, *, stage: str) -> dict:
         """Aplica el checkpoint sobre una COPIA del estado previo — el
         dict original de `current["rows"]` nunca se muta hasta que este
         método retorna con éxito (ver `DeltaCache.sync`: una excepción acá
         deja el estado previo intacto)."""
         working = dict(current["rows"])
-        delta_link, pages, changes, deletes = self._horas_delta_apply_pages(current["delta_link"], working)
+        delta_link, pages, changes, deletes = self._delta_apply_pages(current["delta_link"], working, stage=stage)
         _perf_logger.info(
-            "reporting.perf cartera.horas_delta mode=warm pages=%s changes=%s deletes=%s rows=%s",
-            pages, changes, deletes, len(working),
+            "reporting.perf cartera.%s_delta mode=warm pages=%s changes=%s deletes=%s rows=%s",
+            stage, pages, changes, deletes, len(working),
         )
         return {"rows": working, "delta_link": delta_link}
 
-    def _fetch_horas_proyectos_delta(self, site_id: str, *, cache_scope: str) -> list[dict]:
-        """Punto de entrada del sync delta — single-flight por
-        `(cache_scope, site_id, horas_proyectos_list_id)` vía
-        `_HORAS_DELTA_CACHE` (ver reporting_delta_cache.py). Primera
-        llamada para esta key ⇒ `_horas_delta_cold_sync`. Llamadas
-        siguientes ⇒ `_horas_delta_warm_sync` sobre el `deltaLink`
-        guardado; si Graph invalida el checkpoint (`410 Gone` — señal
-        documentada de Microsoft Graph para delta tokens expirados, ver
-        AUDIT HANDOFF §4), se descarta SOLO este estado y se hace UN
-        resync completo controlado (nunca un loop — si el resync también
-        falla, la excepción se propaga sin reintentar de nuevo). Cualquier
-        otra falla preserva el contrato de error existente de Cartera
+    def _delta_sync_list(
+        self, *, site_id: str, list_id: str, select_fields: list[str] | None, cache_scope: str, stage: str,
+    ) -> list[dict]:
+        """Punto de entrada COMPARTIDO del sync delta — single-flight por
+        `(cache_scope, site_id, list_id)` vía `_DELTA_CACHE` (ver
+        reporting_delta_cache.py). Primera llamada para esta key ⇒ sync
+        completo. Llamadas siguientes ⇒ checkpoint sobre el `deltaLink`
+        guardado; si Graph lo invalida (`410 Gone` — señal documentada de
+        Microsoft Graph para delta tokens expirados, ver AUDIT HANDOFF
+        Fase 3A §4), se descarta SOLO este estado y se hace UN resync
+        completo controlado (nunca un loop — si el resync también falla,
+        la excepción se propaga sin reintentar de nuevo). Cualquier otra
+        falla preserva el contrato de error existente de Cartera
         (`ReportingGraphError` se propaga sin cambios — MISMO manejo
-        centralizado que ya tiene el router)."""
-        key = (cache_scope, site_id, self.horas_proyectos_list_id)
+        centralizado que ya tiene el router). `list_id` es SIEMPRE el ID
+        efectivo/resuelto — para Client Partner (target descubierto
+        dinámicamente vía `/columns`) el caller ya lo resolvió ANTES de
+        llamar acá, nunca un id adivinado/estático (ver
+        `_resolve_client_partners`)."""
+        key = (cache_scope, site_id, list_id)
 
         def sync_fn(current):
             if current is None:
-                return self._horas_delta_cold_sync(site_id)
+                return self._delta_cold_sync(site_id, list_id, select_fields, stage=stage)
             try:
-                return self._horas_delta_warm_sync(site_id, current)
+                return self._delta_warm_sync(current, stage=stage)
             except ReportingGraphError as exc:
                 if exc.status_code == 410:
-                    return self._horas_delta_cold_sync(site_id, mode="resync")
+                    return self._delta_cold_sync(site_id, list_id, select_fields, stage=stage, mode="resync")
                 raise
 
-        state = _HORAS_DELTA_CACHE.sync(key, sync_fn)
+        state = _DELTA_CACHE.sync(key, sync_fn)
         return list(state["rows"].values())
+
+    def _fetch_horas_proyectos_delta(self, site_id: str, *, cache_scope: str) -> list[dict]:
+        """Horas por proyectos vía delta (Fase 3A) — wrapper delgado sobre
+        `_delta_sync_list` (Fase 3B factorizó el transporte/estado a un
+        primitivo compartido; comportamiento IDÉNTICO, ver
+        test_reporting_horas_delta_sync.py)."""
+        return self._delta_sync_list(
+            site_id=site_id, list_id=self.horas_proyectos_list_id,
+            select_fields=HORAS_PROYECTOS_SELECT_FIELDS, cache_scope=cache_scope, stage="horas",
+        )
+
+    def _fetch_proyectos_delta(self, site_id: str, *, cache_scope: str) -> list[dict]:
+        """Proyectos vía delta (Fase 3B) — MISMA proyección
+        (`PROYECTOS_SELECT_FIELDS`) que la lectura completa de siempre."""
+        return self._delta_sync_list(
+            site_id=site_id, list_id=self.proyectos_list_id,
+            select_fields=PROYECTOS_SELECT_FIELDS, cache_scope=cache_scope, stage="proyectos",
+        )
+
+    def _fetch_cliente_delta(self, site_id: str, *, cache_scope: str) -> list[dict]:
+        """Cliente vía delta (Fase 3B) — MISMA proyección
+        (`CLIENTE_SELECT_FIELDS`) que la lectura completa de siempre."""
+        return self._delta_sync_list(
+            site_id=site_id, list_id=self.cliente_list_id,
+            select_fields=CLIENTE_SELECT_FIELDS, cache_scope=cache_scope, stage="cliente",
+        )
 
     # --- XLSX Facturadas ----------------------------------------------------
 
@@ -751,12 +805,24 @@ class ReportingRepository:
 
     # --- Client Partner (lookup de Cliente → lista target descubierta) -------
 
-    def _resolve_client_partners(self, site_id: str) -> dict[str, str]:
+    def _resolve_client_partners(self, site_id: str, *, cache_scope: str | None = None) -> dict[str, str]:
         """Mapea `id de item del target → Title` para el lookup Client Partner de
         la lista Cliente. El target se DESCUBRE de la metadata de columnas
         (`/lists/{cliente}/columns` → `lookup.listId`), NUNCA se asume por nombre
         (la relación de PMs es con Proyectos.PMId, no con Cliente). Se carga UNA
-        sola vez (sin N+1). Sin target discoverable ⇒ `{}` (CP en blanco)."""
+        sola vez (sin N+1). Sin target discoverable ⇒ `{}` (CP en blanco).
+
+        `cache_scope` (DELTA-SYNC corrective, Fase 3B, ver HANDOFF §6): el
+        descubrimiento del target (`/columns`, arriba) NUNCA se cachea —
+        sigue siendo un GET de metadata liviano, siempre fresco, MISMO
+        contrato de siempre (preserva el discovery contract tal cual). Una
+        vez conocido el `target` REAL/resuelto, la LECTURA de items de ESE
+        target sí opta por delta cuando `cache_scope` no es `None` — la key
+        de cache usa el id EFECTIVO descubierto (`_delta_sync_list`,
+        `list_id=target`), nunca un id adivinado/estático (si el target
+        cambiara de un request a otro, cosa que no debería pasar en
+        producción pero que el código nunca asume, cada `target` distinto
+        simplemente cae en su propia key de cache)."""
         columns = _call_graph("cliente_columns", lambda: microsoft365.graph_get_paged_values(
             f"{GRAPH_BASE}/sites/{site_id}/lists/{self.cliente_list_id}/columns", access_token=self._token,
         ))
@@ -769,7 +835,13 @@ class ReportingRepository:
                 break
         if not target:
             return {}
-        items = self._items(site_id, target, "client_partner")
+        if cache_scope is not None:
+            items = self._delta_sync_list(
+                site_id=site_id, list_id=target, select_fields=None,
+                cache_scope=cache_scope, stage="client_partner",
+            )
+        else:
+            items = self._items(site_id, target, "client_partner")
         return {_text(it.get("id")): _first(it.get("fields") or {}, PM_TITLE) for it in items}
 
     def _resolve_porcentaje_part_field(self, site_id: str) -> str:
@@ -879,12 +951,23 @@ class ReportingRepository:
         # del item (incluye metadata de sistema que esta lectura nunca usa).
         # `get_batch_a_facts` NO se toca (necesita más columnas de Cliente
         # para Participación/Calendario/Salud, ver ese método).
-        proyectos_items = self._items_narrowed_or_full(
-            site_id, self.proyectos_list_id, "proyectos",
-            [PROY_TITLE, PROY_TIPO, PROY_ESTADO, PROY_FECHA_INICIO, PROY_ID_DANWOR],
-        )
+        # DELTA-SYNC corrective, Fase 3B (ver HANDOFF — extiende Fase 3A a
+        # Proyectos/Cliente): SOLO con `cache_scope` real (Cartera/Proyecto
+        # — combo/Mantenimiento nunca pasan `cache_scope`, quedan en la
+        # lectura completa de siempre). A diferencia de Horas, Proyectos/
+        # Cliente NUNCA tuvieron `hot_years` — el gate acá es únicamente
+        # `cache_scope is not None`.
+        if cache_scope is not None:
+            proyectos_items = self._fetch_proyectos_delta(site_id, cache_scope=cache_scope)
+        else:
+            proyectos_items = self._items_narrowed_or_full(
+                site_id, self.proyectos_list_id, "proyectos", PROYECTOS_SELECT_FIELDS,
+            )
         timer.stage("proyectos", len(proyectos_items))
-        clientes_items = self._items_narrowed_or_full(site_id, self.cliente_list_id, "cliente", [CLI_NOMBRE, *CLI_CP_LOOKUP])
+        if cache_scope is not None:
+            clientes_items = self._fetch_cliente_delta(site_id, cache_scope=cache_scope)
+        else:
+            clientes_items = self._items_narrowed_or_full(site_id, self.cliente_list_id, "cliente", CLIENTE_SELECT_FIELDS)
         timer.stage("cliente", len(clientes_items))
         # DELTA-SYNC CARTERA PROJECT HOURS corrective, Fase 3A (ver
         # HANDOFF): el camino `hot_years=None` + `cache_scope` real (SOLO
@@ -914,7 +997,7 @@ class ReportingRepository:
         else:
             facturadas_by_key, _facturadas_cache_outcome = {}, "n/a"
         timer.stage("facturadas_xlsx", len(facturadas_by_key))
-        cp_by_id = self._resolve_client_partners(site_id)
+        cp_by_id = self._resolve_client_partners(site_id, cache_scope=cache_scope)
         timer.stage("client_partner", len(cp_by_id))
 
         # CACHE VERSIONED HISTORICAL TIME LOGS corrective, Fase 3 (ver
@@ -1359,15 +1442,17 @@ class ReportingRepository:
         arrancaron y se re-lanza, sin swallowear nada.
 
         `cache_scope` (CACHE VERSIONED HISTORICAL TIME LOGS corrective,
-        Fase 2, ver reporting_time_logs_cache.py): `None` (default)
-        preserva el comportamiento EXACTO de siempre — SIN caching, cada
-        archivo (histórico o actual) se descarga fresco, MISMO contrato
-        que `get_time_logs_facts` sigue usando (Batch B/Rentabilidad NO
-        opta por esta fase). Un `cache_scope` no-`None` (una identidad
-        estable del usuario Hub autenticado — NUNCA el `graph_token`)
-        activa la cache SOLO para archivos HISTÓRICOS
-        (`_is_historical_time_logs_item`) — el archivo actual sigue
-        SIEMPRE fresco, política conservadora Fase 2."""
+        Fase 2 histórico + Fase 3B actual, ver reporting_time_logs_cache.py):
+        `None` (default) preserva el comportamiento EXACTO de siempre —
+        SIN caching, cada archivo se descarga fresco, MISMO contrato que
+        `get_time_logs_facts` sigue usando (Batch B/Rentabilidad NO opta
+        por esta fase). Un `cache_scope` no-`None` (una identidad estable
+        del usuario Hub autenticado — NUNCA el `graph_token`) activa la
+        cache versionada por eTag para TODOS los archivos — históricos
+        (Fase 2) Y el actual (Fase 3B, `Time Logs Reports.csv`: MISMO tipo
+        de recurso driveItem, MISMO contrato de versión — un eTag sin
+        cambios sirve el resultado cacheado, un eTag distinto dispara
+        descarga+parseo fresco, nunca una ventana de tiempo arbitraria)."""
         items = self._list_time_logs_csv_items(site_id, hot_years=hot_years)
         if not items:
             raise ReportingSourceError("time_logs_files", "no se encontraron CSV en Template Dashboard")
@@ -1400,6 +1485,7 @@ class ReportingRepository:
         _tl_download_total_ms = 0.0
         _tl_parse_total_ms = 0.0
         _hist_hits = _hist_misses = _hist_downloads = 0
+        _current_hit = _current_download = 0
         for outcome in results:
             if outcome is None:
                 continue
@@ -1407,13 +1493,25 @@ class ReportingRepository:
             _tl_parse_total_ms += outcome["parse_ms"]
             rows.extend(outcome["rows"])
             cache_outcome = outcome.get("cache_outcome", "n/a")
-            if cache_outcome == "hit":
-                _hist_hits += 1
-            elif cache_outcome == "computed":
-                _hist_misses += 1
-                _hist_downloads += 1
-            elif cache_outcome == "waited":
-                _hist_misses += 1
+            if cache_outcome == "n/a":
+                continue
+            # Fase 3B: MISMO contrato hit/computed/waited para el archivo
+            # actual que para los históricos — solo cambia a qué contador
+            # (historical_*/current_*) aporta, ver docstring de
+            # `_download_one_time_logs_file_cached`.
+            if outcome.get("is_historical"):
+                if cache_outcome == "hit":
+                    _hist_hits += 1
+                elif cache_outcome == "computed":
+                    _hist_misses += 1
+                    _hist_downloads += 1
+                elif cache_outcome == "waited":
+                    _hist_misses += 1
+            else:
+                if cache_outcome == "hit":
+                    _current_hit = 1
+                else:  # "computed" o "waited" — ambos implicaron trabajo remoto real (propio o de otro thread)
+                    _current_download = 1
         _perf_logger.info(
             "reporting.perf time_logs.download_total elapsed_ms=%s", round(_tl_download_total_ms),
         )
@@ -1422,8 +1520,9 @@ class ReportingRepository:
         )
         if cache_scope is not None:
             _perf_logger.info(
-                "reporting.perf time_logs.cache historical_hits=%s historical_misses=%s historical_downloads=%s",
-                _hist_hits, _hist_misses, _hist_downloads,
+                "reporting.perf time_logs.cache historical_hits=%s historical_misses=%s "
+                "historical_downloads=%s current_hit=%s current_download=%s",
+                _hist_hits, _hist_misses, _hist_downloads, _current_hit, _current_download,
             )
         if not rows:
             raise ReportingSourceError("time_logs_rows", "ningún CSV produjo filas válidas")
@@ -1476,16 +1575,20 @@ class ReportingRepository:
         self, site_id: str, item: dict, cache_scope: str | None,
     ) -> dict | None:
         """Wrapper de `_download_one_time_logs_file` con la cache
-        versionada de archivos HISTÓRICOS (Fase 2, ver
-        reporting_time_logs_cache.py). `cache_scope=None` (default de
-        siempre) o un archivo NO histórico (el actual, `_is_historical_
-        time_logs_item`) saltan la cache por completo — comportamiento
+        versionada (Fase 2 histórico + Fase 3B actual, ver HANDOFF —
+        `EXTEND THE SAME VERSION-AWARE PARSED-RESULT CACHE TO THE CURRENT
+        FILE`, ver reporting_time_logs_cache.py). `cache_scope=None`
+        (default de siempre) salta la cache por completo — comportamiento
         IDÉNTICO a `_download_one_time_logs_file` directo, MISMO
-        `download_ms`/`parse_ms` reales.
+        `download_ms`/`parse_ms` reales — MISMO camino que
+        `get_time_logs_facts` (Batch B/Rentabilidad NUNCA optan por esta
+        fase).
 
-        Con `cache_scope` no-`None` sobre un archivo histórico: clave
-        `(cache_scope, item_id, version)` — `version` viene de la MISMA
-        respuesta de listado de carpeta (`eTag`, o `lastModifiedDateTime
+        Con `cache_scope` no-`None`, TODO archivo (histórico o actual —
+        Fase 3B eliminó la distinción, ambos son el MISMO tipo de recurso
+        driveItem y su metadata ya viene en la MISMA respuesta de listado
+        de carpeta, ver AUDIT en HANDOFF) usa clave `(cache_scope,
+        item_id, version)` — `version` = `eTag` (o `lastModifiedDateTime
         + size` si faltara, ver `_drive_item_version`), CERO llamada
         Graph extra para versión. `get_or_compute` es single-flight (ver
         `TimeLogsHistoricalCache` — dos requests concurrentes para la
@@ -1493,7 +1596,10 @@ class ReportingRepository:
         las filas CSV crudas ya parseadas — la MISMA representación que
         `_download_one_time_logs_file` produce hoy, CERO fórmula de
         negocio agregada acá (eso sigue viviendo, sin cambios, en
-        `get_time_logs_worked_hours`/`get_time_logs_facts`).
+        `get_time_logs_worked_hours`/`get_time_logs_facts`). El eTag del
+        archivo actual cambia cuando su contenido cambia — MISMO contrato
+        de versión ya aceptado para los históricos, nunca una ventana de
+        tiempo arbitraria.
 
         `download_ms`/`parse_ms` reportados: el costo REAL de esta
         llamada — 0/0 en un `"hit"` (verdad literal: no bajó ni parseó
@@ -1501,14 +1607,19 @@ class ReportingRepository:
         único worker que efectivamente pagó el costo), 0/0 en un
         `"waited"` (esperó el resultado de otro thread, no un segundo
         download propio — el tiempo de espera real se ve igual en el
-        `time_logs.total` exterior, no se duplica acá)."""
+        `time_logs.total` exterior, no se duplica acá). `is_historical`
+        viaja en el resultado SOLO para que `_download_time_logs_rows`
+        pueda separar los contadores `historical_*`/`current_*` de
+        observabilidad — nunca afecta la selección/parseo/agregación."""
         item_id = _text(item.get("id"))
         if not item_id:
             return None
-        if cache_scope is None or not _is_historical_time_logs_item(item):
+        is_historical = _is_historical_time_logs_item(item)
+        if cache_scope is None:
             outcome = self._download_one_time_logs_file(site_id, item)
             if outcome is not None:
                 outcome["cache_outcome"] = "n/a"
+                outcome["is_historical"] = is_historical
             return outcome
 
         key = (cache_scope, item_id, _drive_item_version(item))
@@ -1524,7 +1635,10 @@ class ReportingRepository:
             download_ms, parse_ms = inner_outcome["download_ms"], inner_outcome["parse_ms"]
         else:
             download_ms, parse_ms = 0.0, 0.0
-        return {"rows": rows, "download_ms": download_ms, "parse_ms": parse_ms, "cache_outcome": cache_outcome}
+        return {
+            "rows": rows, "download_ms": download_ms, "parse_ms": parse_ms,
+            "cache_outcome": cache_outcome, "is_historical": is_historical,
+        }
 
     def get_time_logs_facts(self, access_token: str, *, hot_years: list[str] | None = None) -> list[dict]:
         """Hechos de Time Logs Reports normalizados y unidos a Cliente vía

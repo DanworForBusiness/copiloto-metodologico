@@ -40,7 +40,7 @@ _SITE, _HP = "site-1", "hp-list"
 
 @pytest.fixture(autouse=True)
 def _isolate_horas_delta_cache(monkeypatch):
-    monkeypatch.setattr(repo_mod, "_HORAS_DELTA_CACHE", DeltaCache())
+    monkeypatch.setattr(repo_mod, "_DELTA_CACHE", DeltaCache())
 
 
 def _repo():
@@ -115,7 +115,7 @@ def test_a_cold_sync_one_page_full_state_deltalink_stored(monkeypatch):
     items = repo._fetch_horas_proyectos_delta(_SITE, cache_scope="user-a@danwor.com")
     assert {it["id"] for it in items} == {"h1", "h2"}
     assert server.calls == [cold]
-    state = repo_mod._HORAS_DELTA_CACHE._data[("user-a@danwor.com", _SITE, _HP)]
+    state = repo_mod._DELTA_CACHE._data[("user-a@danwor.com", _SITE, _HP)]
     assert state["delta_link"] == f"{cold}&dl=v1"
 
 
@@ -317,7 +317,7 @@ def test_i_failed_paged_sync_does_not_partially_mutate_previous_state(monkeypatc
 
     # El estado en cache sigue siendo el ORIGINAL (h1 con horas="1", NUNCA
     # "999") — la mutación parcial nunca se publicó.
-    state = repo_mod._HORAS_DELTA_CACHE._data[("user-a@danwor.com", _SITE, _HP)]
+    state = repo_mod._DELTA_CACHE._data[("user-a@danwor.com", _SITE, _HP)]
     assert state["rows"]["h1"]["fields"]["HsTrabajadas"] == "1"
     assert state["delta_link"] == delta1  # deltaLink tampoco avanzó
 
@@ -414,61 +414,57 @@ def test_business_equivalence_reference_full_list_vs_delta_cold_sync(monkeypatch
 
 
 def test_business_equivalence_final_cartera_facts_identical(monkeypatch):
-    from webapp.services.reporting_time_logs_cache import TimeLogsHistoricalCache
-
-    proyectos = [{"id": "p1", "Title": "Soporte Danone", "TipodeProyecto": "Proyecto",
-                  "FechadeInicio": "2026-01-15", "Status": "En curso",
-                  "ID_x0020_Proyecto_x0020_Danwor": "DAN-001"}]
-    clientes = [{"id": "c1", "Title": "Danone"}]
+    """Compara el resultado de negocio COMPLETO (`get_cartera_facts_with_
+    project_dimension`) entre el camino de referencia (sin `cache_scope`,
+    lecturas completas de siempre para Horas/Proyectos/Cliente) y el
+    camino delta (Fase 3A Horas + Fase 3B Proyectos/Cliente, todos
+    activados por el MISMO `cache_scope`) — deben producir EXACTAMENTE
+    los mismos facts."""
+    proy_list, cli_list = "proy-list", "cli-list"
+    proyecto_row = {"id": "p1", "fields": {
+        "Title": "Soporte Danone", "TipodeProyecto": "Proyecto", "FechadeInicio": "2026-01-15",
+        "Status": "En curso", "ID_x0020_Proyecto_x0020_Danwor": "DAN-001",
+    }}
+    cliente_row = {"id": "c1", "fields": {"Title": "Danone"}}
     horas_row = _row("h1", proyecto="p1", empresa="c1", anio="2026", mes="Agosto", horas="132")
 
-    def _build_paged(hp_source):
-        def fake_paged(url, access_token=None, **kw):
-            if "/columns" in url:
-                return []
-            if _HP in url:
-                return hp_source()
-            if "proy" in url.lower():
-                return [{"id": r.get("id", ""), "fields": r} for r in proyectos]
-            if "cli" in url.lower():
-                return [{"id": r.get("id", ""), "fields": r} for r in clientes]
+    def fake_paged_reference(url, access_token=None, **kw):
+        if "/columns" in url:
             return []
-        return fake_paged
+        if _HP in url:
+            return [horas_row]
+        if proy_list in url:
+            return [proyecto_row]
+        if cli_list in url:
+            return [cliente_row]
+        return []
 
-    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", _build_paged(lambda: [horas_row]))
-    repo_ref = ReportingRepository(site_id=_SITE, horas_proyectos_list_id=_HP, proyectos_list_id="proy-list",
-                                    cliente_list_id="cli-list")
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", fake_paged_reference)
+    repo_ref = ReportingRepository(
+        site_id=_SITE, horas_proyectos_list_id=_HP, proyectos_list_id=proy_list, cliente_list_id=cli_list,
+    )
     facts_ref, _dim_ref = repo_ref.get_cartera_facts_with_project_dimension(
         "tok", include_facturadas=False, cache_scope=None,
     )
 
-    server = _FakeDeltaServer()
-    cold = _cold_url()
-    server.add_page(cold, items=[horas_row], delta_link=f"{cold}&dl=v1")
+    delta_rows_by_list = {_HP: [horas_row], proy_list: [proyecto_row], cli_list: [cliente_row]}
 
-    def fake_json_and_paged(monkeypatch):
-        def fake_json(url, access_token=None, **kw):
-            if url in server.responses:
-                server.calls.append(url)
-                return server.responses[url]
-            raise AssertionError(f"URL no programada: {url}")
+    def fake_json_delta(url, access_token=None, **kw):
+        for list_id, rows in delta_rows_by_list.items():
+            if f"/lists/{list_id}/items/delta" in url:
+                return {"value": rows, "@odata.deltaLink": f"{url}&token=delta-v1"}
+        raise AssertionError(f"URL de delta no programada: {url}")
 
-        def fake_paged(url, access_token=None, **kw):
-            if "/columns" in url:
-                return []
-            if "proy" in url.lower():
-                return [{"id": r.get("id", ""), "fields": r} for r in proyectos]
-            if "cli" in url.lower():
-                return [{"id": r.get("id", ""), "fields": r} for r in clientes]
-            raise AssertionError(f"full-list fetch inesperado: {url}")
+    def fake_paged_delta(url, access_token=None, **kw):
+        if "/columns" in url:
+            return []
+        raise AssertionError(f"full-list fetch inesperado con cache_scope activo: {url}")
 
-        monkeypatch.setattr(repo_mod.microsoft365, "graph_get_json", fake_json)
-        monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", fake_paged)
-
-    fake_json_and_paged(monkeypatch)
-    repo_delta = ReportingRepository(site_id=_SITE, horas_proyectos_list_id="hp-list-delta",
-                                      proyectos_list_id="proy-list", cliente_list_id="cli-list")
-    repo_delta.horas_proyectos_list_id = _HP  # MISMO list id que el cold_url calculado arriba
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_json", fake_json_delta)
+    monkeypatch.setattr(repo_mod.microsoft365, "graph_get_paged_values", fake_paged_delta)
+    repo_delta = ReportingRepository(
+        site_id=_SITE, horas_proyectos_list_id=_HP, proyectos_list_id=proy_list, cliente_list_id=cli_list,
+    )
     facts_delta, _dim_delta = repo_delta.get_cartera_facts_with_project_dimension(
         "tok", include_facturadas=False, cache_scope="user-a@danwor.com",
     )
