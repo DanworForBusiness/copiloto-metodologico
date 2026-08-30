@@ -244,6 +244,16 @@ def run_feedback_analysis(kind: str = "all") -> str:
     return _capture_main(analyze_feedback, ["--type", kind])
 
 
+def run_copilot_reactions_backfill(apply: bool = False) -> str:
+    """HISTORICAL BACKFILL corrective (owner ticket "REACCIONES — COMPLETE
+    COPILOT COVERAGE + HISTORY" §8): dry-run por default, MISMO patrón
+    `apply`-flag que `run_tree_proposals`/`run_content_proposals` — nunca
+    corre solo, siempre disparado explícitamente desde acá o la CLI directa
+    (`backfill_copilot_reactions.py`)."""
+    import backfill_copilot_reactions
+    return _capture_main(backfill_copilot_reactions, ["--apply"] if apply else [])
+
+
 def run_tree_proposals(apply: bool = False) -> str:
     import propose_tree_updates
     return _capture_main(propose_tree_updates, ["--apply"] if apply else [])
