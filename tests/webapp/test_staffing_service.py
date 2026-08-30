@@ -21,9 +21,10 @@ class _FakeRepository:
     def __init__(self, records):
         self._records = records
 
-    def get_allocations(self, access_token, *, assignment_scope="operational"):
+    def get_allocations(self, access_token, *, assignment_scope="operational", cache_scope=None):
         self.last_token = access_token
         self.last_assignment_scope = assignment_scope
+        self.last_cache_scope = cache_scope
         return self._records
 
 

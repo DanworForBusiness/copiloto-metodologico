@@ -399,8 +399,15 @@ class StaffingService:
     def __init__(self, repository: StaffingRepository | None = None):
         self._repository = repository if repository is not None else StaffingRepository()
 
-    def get_overview(self, access_token: str, *, assignment_scope: str = "operational") -> list[StaffingOverviewRow]:
-        records = self._repository.get_allocations(access_token, assignment_scope=assignment_scope)
+    def get_overview(
+        self, access_token: str, *, assignment_scope: str = "operational", cache_scope: str | None = None,
+    ) -> list[StaffingOverviewRow]:
+        # cache_scope (SHARED SOURCE ACQUISITION corrective, ver HANDOFF) —
+        # passthrough puro a StaffingRepository.get_allocations; None
+        # preserva el comportamiento exacto de siempre (ver ahí).
+        records = self._repository.get_allocations(
+            access_token, assignment_scope=assignment_scope, cache_scope=cache_scope,
+        )
         # Diagnóstico (pre-PR corrective, ver HANDOFF) — passthrough puro del
         # repositorio; `getattr` con default `{}` porque un test double sin
         # ese atributo (varios existen en tests/webapp/test_staffing_routes.py)
@@ -412,14 +419,20 @@ class StaffingService:
         rows.sort(key=lambda row: (row.consultant_name, row.project_name))
         return rows
 
-    def get_absence_overlay(self, access_token: str, *, today: date | None = None) -> dict:
+    def get_absence_overlay(
+        self, access_token: str, *, today: date | None = None, cache_scope: str | None = None,
+    ) -> dict:
         """Ausencias APROBADAS ya unidas contra el universo de Colaboradores
         VIGENTE, listas para overlay del timeline (Consultor únicamente, ver
         template/app.js). Lee Ausencias + Colaboradores por separado de
         `get_overview` — carga LAZY e independiente (ver HANDOFF), nunca una
-        segunda pasada sobre Asignaciones."""
-        absences = self._repository.get_absences(access_token)
-        consultants = self._repository.get_consultants(access_token)
+        segunda pasada sobre Asignaciones.
+
+        `cache_scope` (SHARED SOURCE ACQUISITION corrective, ver HANDOFF) —
+        passthrough puro a `get_absences`/`get_consultants`; `None` preserva
+        el comportamiento exacto de siempre."""
+        absences = self._repository.get_absences(access_token, cache_scope=cache_scope)
+        consultants = self._repository.get_consultants(access_token, cache_scope=cache_scope)
         self.last_diagnostics = getattr(self._repository, "last_diagnostics", {})
         join_result = join_absences_to_consultants(absences, consultants)
         return build_absence_overlay_payload(join_result, today=today)

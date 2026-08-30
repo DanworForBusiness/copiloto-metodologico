@@ -116,7 +116,7 @@ def test_5_and_6_pipeline_trace_default_scope_is_operational_and_excludes_inacti
     # Eslabón 1: router llama get_overview(token) SIN scope explícito para
     # la carga inicial (ver webapp/routers/staffing.py::staffing_data).
     class _FakeRepo:
-        def get_allocations(self, token, *, assignment_scope="operational"):
+        def get_allocations(self, token, *, assignment_scope="operational", cache_scope=None):
             self.seen_scope = assignment_scope
             return []
     repo = _FakeRepo()

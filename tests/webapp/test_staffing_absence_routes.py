@@ -49,7 +49,7 @@ class _RecordingAbsenceService:
         self._overlay = overlay if overlay is not None else _OVERLAY_PAYLOAD
         self._error = error
 
-    def get_absence_overlay(self, access_token):
+    def get_absence_overlay(self, access_token, **kwargs):
         _RecordingAbsenceService.calls.append(access_token)
         if self._error is not None:
             raise self._error
@@ -369,7 +369,7 @@ def test_assignments_data_endpoint_never_touches_absences(monkeypatch):
     from webapp.services.staffing_service import StaffingOverviewRow
 
     class _AssignmentsOnly:
-        def get_overview(self, access_token):
+        def get_overview(self, access_token, **kwargs):
             return [StaffingOverviewRow(
                 assignment_id="1", consultant_id="1", consultant_name="Ana Pérez",
                 project_id="10", project_name="Proyecto Alfa",

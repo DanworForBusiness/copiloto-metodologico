@@ -108,8 +108,34 @@ import openpyxl
 
 import config
 from core import microsoft365
+from webapp.services.reporting_delta_cache import DeltaCache
+from webapp.services.reporting_time_logs_cache import TimeLogsHistoricalCache
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+
+# SHARED SOURCE ACQUISITION corrective (owner ticket, ver HANDOFF) — Staffing
+# lee las MISMAS 2 fuentes ya probadas de Reporting (`DeltaCache` para
+# Proyectos/Colaboradores/Cliente vía SharePoint List Delta, `TimeLogsHistoricalCache`
+# para el XLSX de Ausencias vía eTag) para eliminar la re-lectura remota de
+# fuentes estables ya adquiridas en la MISMA sesión (Initial → Historial →
+# Ausencias). Reusa las CLASES, nunca un framework nuevo. Instancias PROPIAS
+# de Staffing (`_STAFFING_DELTA_CACHE`/`_STAFFING_XLSX_CACHE`, ver abajo),
+# NUNCA compartidas con `reporting_repository._DELTA_CACHE`/
+# `_TIME_LOGS_HISTORICAL_CACHE`/`_FACTURADAS_CACHE` — aunque
+# `config.SHAREPOINT_GESTION_SITE_ID`/`SHAREPOINT_PROYECTOS_LIST_ID`/
+# `SHAREPOINT_CLIENTE_LIST_ID` son LITERALMENTE los mismos valores que usa
+# Reporting (confirmado leyendo `ReportingRepository.__init__`), el `$select`
+# efectivo de cada select depende de `StaffingFieldMapping.from_config()`
+# (internal names resueltos en RUNTIME vía `.env`, a diferencia de las
+# constantes Python hardcodeadas de Reporting como `PROY_TITLE`) — no hay
+# forma de probar ESTÁTICAMENTE que ambos módulos siempre pedirían el mismo
+# superset de columnas. Compartir la MISMA instancia arriesgaría que un
+# estado cacheado por Reporting bajo esa key le sirva a Staffing filas sin
+# el campo que necesita (o viceversa) — exactamente el riesgo que el "CLIENTE_SELECT_FIELDS
+# mistake" ya probó en Reporting, ahora entre dos MÓDULOS en vez de dos
+# consumidores del mismo módulo. Instancias separadas eliminan el riesgo por
+# construcción: la key `(cache_scope, site_id, list_id)` puede coincidir
+# textualmente sin que los dos diccionarios internos jamás se toquen.
 
 # Staffing Director Priority V2 (ver HANDOFF) — carga inicial NO histórica.
 # `assignment_scope="operational"` (default de `get_allocations`) excluye
@@ -286,17 +312,30 @@ class AbsenceGraphError(Exception):
 
 
 def _call_absence_graph(stage: str, fn: Callable[[], object]) -> object:
-    """Ejecuta una llamada Graph de Ausencias (`stage` = "site" |
+    """Ejecuta una llamada Graph de Ausencias (`stage` = "site" | "metadata" |
     "download") envolviendo CUALQUIER falla de transporte en
     `AbsenceGraphError` — nunca deja escapar el `HTTPError`/`URLError`
     crudo de `urllib` (ver docstring de `AbsenceGraphError`). `from None`
     corta la cadena de excepción explícitamente: nada downstream que
-    inspeccione `__cause__`/`__context__` puede llegar al objeto original."""
+    inspeccione `__cause__`/`__context__` puede llegar al objeto original.
+
+    RESILIENCY corrective (SHARED SOURCE ACQUISITION, ver HANDOFF — MISMO fix
+    ya probado en `reporting_repository._call_graph`, Reporting Fase 3B): un
+    timeout de LECTURA (`response.read()` dentro de `urlopen(...)`, ya con la
+    conexión establecida) llega acá como `TimeoutError` CRUDO — `urllib`
+    NUNCA lo envuelve en `URLError` (eso solo pasa para fallos en la fase de
+    conexión). Antes de este fix se propagaba sin clasificar, con el mismo
+    riesgo de tumbar el request completo que ya se probó en producción para
+    Reporting. MISMO `status_code=None` que `URLError` — "sin respuesta HTTP
+    recibida", la señal que el sync delta/version-cache de más abajo usa
+    para decidir su fallback."""
     try:
         return fn()
     except urllib.error.HTTPError as exc:
         raise AbsenceGraphError(stage=stage, status_code=exc.code) from None
     except urllib.error.URLError:
+        raise AbsenceGraphError(stage=stage, status_code=None) from None
+    except TimeoutError:
         raise AbsenceGraphError(stage=stage, status_code=None) from None
 
 
@@ -427,22 +466,81 @@ def _absence_hours_from_dias(value) -> int | None:
     return int(round(days * ABSENCE_HOURS_PER_DAY))
 
 
-def _download_absence_workbook(access_token: str) -> bytes:
-    """Descarga los bytes del XLSX autoritativo vía Graph: resuelve el sitio
-    Operaciones (mecanismo de sitio establecido) → drive de documentos por default →
-    `root:/{path}:/content`. `urllib` sigue el 302 a la URL pre-autenticada (ver
-    `microsoft365.graph_get_bytes`). NO persiste el archivo. Fallas de transporte se
-    envuelven en `AbsenceGraphError`."""
+def _resolve_absence_site_id(access_token: str) -> str:
+    """Resuelve SOLO el `site_id` del sitio Operaciones — extraído de
+    `_download_absence_workbook` (SHARED SOURCE ACQUISITION corrective, ver
+    HANDOFF) para que el camino con eTag cache pueda resolverlo UNA sola vez
+    y reusarlo tanto para la metadata (`stage="metadata"`) como para el
+    download (`stage="download"`), nunca dos resoluciones de sitio por
+    adquisición."""
     site = _call_absence_graph("site", lambda: microsoft365.graph_get_json(
         f"{GRAPH_BASE}/sites/{ABSENCE_SITE_PATH}", access_token,
     ))
     site_id = str((site or {}).get("id") or "")
     if not site_id:
         raise AbsenceSchemaError(stage="site", missing_fields=["site_id"], ambiguous_fields=[])
+    return site_id
+
+
+def _absence_workbook_metadata(site_id: str, access_token: str) -> dict | None:
+    """GET de METADATA del driveItem del XLSX de Ausencias — SIN `:content`
+    (no descarga el archivo), 1 llamada Graph barata que expone
+    `eTag`/`lastModifiedDateTime`/`size`/`id` (SHARED SOURCE ACQUISITION
+    corrective §5, ver HANDOFF — MISMO patrón que
+    `reporting_repository._facturadas_workbook_metadata`, instancia propia
+    de Staffing, nunca cross-import). Fail-soft: cualquier falla de
+    transporte devuelve `None` — el caller cae al camino SIN cache
+    (descarga siempre fresca), MISMO comportamiento que existía antes de
+    esta fase."""
+    try:
+        return _call_absence_graph("metadata", lambda: microsoft365.graph_get_json(
+            f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{quote(ABSENCE_XLSX_PATH)}", access_token,
+        ))
+    except AbsenceGraphError:
+        return None
+
+
+def _download_absence_workbook_bytes(site_id: str, access_token: str) -> bytes:
+    """Descarga los bytes del XLSX autoritativo vía Graph, dado un
+    `site_id` YA resuelto — `root:/{path}:/content`. `urllib` sigue el 302 a
+    la URL pre-autenticada (ver `microsoft365.graph_get_bytes`). NO persiste
+    el archivo. Fallas de transporte se envuelven en `AbsenceGraphError`."""
     return _call_absence_graph("download", lambda: microsoft365.graph_get_bytes(
         f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{quote(ABSENCE_XLSX_PATH)}:/content",
         access_token,
     ))
+
+
+def _download_absence_workbook(access_token: str) -> bytes:
+    """Descarga los bytes del XLSX autoritativo vía Graph: resuelve el sitio
+    Operaciones (mecanismo de sitio establecido) → drive de documentos por default →
+    `root:/{path}:/content`. `urllib` sigue el 302 a la URL pre-autenticada (ver
+    `microsoft365.graph_get_bytes`). NO persiste el archivo. Fallas de transporte se
+    envuelven en `AbsenceGraphError`.
+
+    Delega en `_resolve_absence_site_id`/`_download_absence_workbook_bytes`
+    (SHARED SOURCE ACQUISITION corrective, ver HANDOFF) — comportamiento
+    EXACTO de siempre, sin cache: sigue siendo el camino que usa
+    `get_absences(cache_scope=None)`."""
+    site_id = _resolve_absence_site_id(access_token)
+    return _download_absence_workbook_bytes(site_id, access_token)
+
+
+def _absence_workbook_version(item: dict) -> str:
+    """Clave de versión ESTABLE de un driveItem — `eTag` (preferido) o, si
+    faltara, `lastModifiedDateTime:size` (fallback conservador — nunca se
+    asume inmutabilidad sin chequeo de versión). MISMA fórmula que
+    `reporting_repository._drive_item_version` — duplicada deliberadamente
+    (instancia propia de Staffing, ver comentario de
+    `_STAFFING_DELTA_CACHE`/`_STAFFING_XLSX_CACHE` más arriba y el mismo
+    criterio ya usado para `_odata_quote`/`_list_items_url`: nunca un import
+    cruzado de un helper privado del otro módulo)."""
+    etag = str(item.get("eTag") or "").strip()
+    if etag:
+        return f"etag:{etag}"
+    lm = str(item.get("lastModifiedDateTime") or "").strip()
+    size = str(item.get("size") or "").strip()
+    return f"lm:{lm}:{size}"
 
 
 def _parse_absence_workbook(data: bytes) -> tuple[list, dict]:
@@ -567,11 +665,86 @@ def _list_items_url(
     return url
 
 
+def _list_items_delta_url(site_id: str, list_id: str, select_fields: list[str] | None) -> str:
+    """MISMO patrón de construcción que `_list_items_url`
+    (`$expand=fields($select=...)`) pero contra `/items/delta` — SOLO para
+    el sync frío/resync (SHARED SOURCE ACQUISITION corrective, ver HANDOFF).
+    Un `@odata.deltaLink` ya devuelto por Graph se reusa TAL CUAL para el
+    sync warm — nunca se reconstruye. MISMA fórmula que
+    `reporting_repository._list_items_delta_url`, duplicada acá (instancia
+    propia de Staffing, ver comentario de `_STAFFING_DELTA_CACHE`)."""
+    url = f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items/delta?$expand=fields"
+    if select_fields:
+        cols = ",".join(select_fields)
+        url += f"($select={quote(cols)})"
+    return url
+
+
 def _odata_quote(value: str) -> str:
     """Escape mínimo de literal OData (comilla simple → doble comilla
     simple) — `value` siempre es una constante interna nuestra (nunca input
     de usuario), pero escapar es gratis y correcto igual."""
     return value.replace("'", "''")
+
+
+class StaffingGraphError(Exception):
+    """Envoltorio SEGURO de una falla de transporte Graph durante el sync
+    delta de fuentes compartidas de Staffing (Proyectos/Colaboradores/
+    Cliente, SHARED SOURCE ACQUISITION corrective, ver HANDOFF) — expone
+    SOLO `stage`/`status_code`, nunca la excepción cruda de `urllib`.
+    Instancia PROPIA de Staffing, análoga a
+    `reporting_repository.ReportingGraphError` — nunca importada de ahí
+    (mismo criterio ya usado para `_odata_quote`/`_list_items_url`: evita
+    acoplar un módulo al privado del otro). Distinta de `AbsenceGraphError`
+    (Ausencias mantiene su propio vocabulario, sin cambios) — esta es SOLO
+    para el camino delta de dimensiones compartidas."""
+
+    def __init__(self, stage: str, status_code: int | None):
+        self.stage = stage
+        self.status_code = status_code
+        super().__init__(f"Staffing Graph error — stage={stage} status_code={status_code}")
+
+
+class StaffingSourceError(Exception):
+    """Falla NO transitoria del sync delta (p. ej. Graph nunca devolvió
+    `@odata.deltaLink` tras completar un sync — fuente rota/vacía). `stage`
+    es un label seguro, nunca datos de negocio."""
+
+    def __init__(self, stage: str, detail: str = ""):
+        self.stage = stage
+        super().__init__(f"Staffing source error — stage={stage}" + (f": {detail}" if detail else ""))
+
+
+def _call_staffing_graph(stage: str, fn: Callable[[], object]) -> object:
+    """MISMO criterio que `reporting_repository._call_graph` (instancia
+    propia, ver `StaffingGraphError`) — incluye desde el día uno el fix de
+    resiliencia ya probado ahí (Reporting Fase 3B, ver HANDOFF §9): un
+    timeout de LECTURA llega como `TimeoutError` crudo, `urllib` nunca lo
+    envuelve en `URLError`. `status_code=None` (URLError/TimeoutError) es la
+    señal de "sin respuesta HTTP recibida en absoluto" que `_delta_sync_list`
+    usa para decidir su fallback — nunca un status code HTTP real
+    reclasificado."""
+    try:
+        return fn()
+    except urllib.error.HTTPError as exc:
+        raise StaffingGraphError(stage=stage, status_code=exc.code) from None
+    except urllib.error.URLError:
+        raise StaffingGraphError(stage=stage, status_code=None) from None
+    except TimeoutError:
+        raise StaffingGraphError(stage=stage, status_code=None) from None
+
+
+# Instancias PROPIAS de Staffing (SHARED SOURCE ACQUISITION corrective, ver
+# comentario extenso junto a los imports arriba) — proceso-lifetime, módulo-
+# level a propósito: los tests las reemplazan vía
+# `monkeypatch.setattr(repo_mod, "_STAFFING_DELTA_CACHE", ...)`, MISMO
+# criterio testeable que `reporting_repository._DELTA_CACHE`/
+# `_TIME_LOGS_HISTORICAL_CACHE`. `max_entries` por defecto (40/40) — el
+# universo de Staffing (Proyectos/Colaboradores/Cliente/Ausencias del sitio
+# Gestión/Operaciones) es de un orden de magnitud comparable o menor al de
+# Reporting, sin necesidad demostrada de un tope mayor.
+_STAFFING_DELTA_CACHE = DeltaCache()
+_STAFFING_XLSX_CACHE = TimeLogsHistoricalCache()
 
 
 def _stringify(value) -> str | None:
@@ -720,9 +893,251 @@ class StaffingRepository:
         }
         return items
 
+    # --- DELTA-SYNC genérico (SHARED SOURCE ACQUISITION corrective, ver ------
+    # HANDOFF) — Proyectos/Colaboradores/Cliente, reusado por
+    # `get_allocations` (Initial/Historial) Y `get_consultants` (identidad
+    # de Ausencias). MISMO patrón probado en
+    # `reporting_repository._delta_apply_pages`/`_delta_cold_sync`/
+    # `_delta_warm_sync`/`_delta_sync_list` — transporte+estado puro, CERO
+    # canonicalización de fila de negocio (cada caller sigue leyendo
+    # `it.get("fields")` a su manera). Reimplementado acá (nunca importado
+    # de `reporting_repository`, ver comentario junto a `_STAFFING_DELTA_CACHE`)
+    # sobre `StaffingGraphError`/`_call_staffing_graph` propios de Staffing.
+
+    def _delta_apply_pages(
+        self, url: str, working: dict[str, dict], access_token: str, *, stage: str,
+    ) -> tuple[str, int, int, int]:
+        """Sigue `@odata.nextLink` aplicando cada página sobre `working`
+        (mutado IN-PLACE — el caller decide si es un dict nuevo vacío (cold)
+        o una COPIA del estado previo (warm)). Un item con `@removed` se
+        remueve; cualquier otro se agrega/reemplaza. Devuelve
+        `(delta_link, pages, changes, deletes)`."""
+        pages = changes = deletes = 0
+        delta_link = ""
+        while url:
+            payload = _call_staffing_graph(
+                f"{stage}_delta", lambda u=url: microsoft365.graph_get_json(u, access_token),
+            )
+            pages += 1
+            for item in payload.get("value") or []:
+                item_id = str(item.get("id") or "").strip()
+                if not item_id:
+                    continue
+                if "@removed" in item:
+                    if working.pop(item_id, None) is not None:
+                        deletes += 1
+                else:
+                    working[item_id] = item
+                    changes += 1
+            next_link = str(payload.get("@odata.nextLink") or "").strip()
+            if next_link:
+                url = next_link
+                continue
+            delta_link = str(payload.get("@odata.deltaLink") or "").strip()
+            url = ""
+        if not delta_link:
+            raise StaffingSourceError(
+                f"{stage}_delta", "Graph no devolvió @odata.deltaLink tras completar el sync",
+            )
+        return delta_link, pages, changes, deletes
+
+    def _delta_cold_sync(
+        self, site_id: str, list_id: str, select_fields: list[str] | None, access_token: str, *, stage: str,
+    ) -> tuple[dict, int]:
+        """Sync COMPLETO desde cero — ante CUALQUIER falla del intento con
+        `$select`, un único reintento completo sin `$select` (MISMO
+        fallback que `_fetch_asignaciones`/Reporting). El resultado recién
+        se arma en variables LOCALES — nunca se publica un estado
+        parcialmente sincronizado (`DeltaCache.sync` solo adopta el
+        `return` de esta función si termina sin excepción)."""
+        url = _list_items_delta_url(site_id, list_id, select_fields)
+        try:
+            working: dict[str, dict] = {}
+            delta_link, pages, _changes, _deletes = self._delta_apply_pages(url, working, access_token, stage=stage)
+        except Exception:  # noqa: BLE001 — fallback de transporte (select inválido), nunca una regla de negocio
+            url = _list_items_delta_url(site_id, list_id, None)
+            working = {}
+            delta_link, pages, _changes, _deletes = self._delta_apply_pages(url, working, access_token, stage=stage)
+        return {"rows": working, "delta_link": delta_link}, pages
+
+    def _delta_warm_sync(self, current: dict, access_token: str, *, stage: str) -> tuple[dict, int]:
+        """Aplica el checkpoint sobre una COPIA del estado previo — el dict
+        original de `current["rows"]` nunca se muta hasta que este método
+        retorna con éxito (una excepción acá deja el estado previo
+        intacto, ver `DeltaCache.sync`)."""
+        working = dict(current["rows"])
+        delta_link, pages, _changes, _deletes = self._delta_apply_pages(
+            current["delta_link"], working, access_token, stage=stage,
+        )
+        return {"rows": working, "delta_link": delta_link}, pages
+
+    def _delta_sync_list(
+        self, *, site_id: str, list_id: str, select_fields: list[str] | None, cache_scope: str, stage: str,
+        access_token: str, legacy_fetch_fn: Callable[[], list[dict]],
+    ) -> tuple[list[dict], str, int]:
+        """Punto de entrada COMPARTIDO del sync delta — single-flight por
+        `(cache_scope, site_id, list_id)` vía `_STAFFING_DELTA_CACHE`.
+        Primera llamada para esta key ⇒ sync completo. Llamadas siguientes
+        ⇒ checkpoint sobre el `deltaLink` guardado; ante `410 Gone` (delta
+        token expirado) se descarta SOLO este estado y se hace UN resync
+        completo controlado (nunca un loop).
+
+        RESILIENCY: `StaffingGraphError.status_code is None` (sin respuesta
+        HTTP recibida en absoluto — ver `_call_staffing_graph`) es la ÚNICA
+        señal que dispara el fallback a `legacy_fetch_fn` (el fetch completo
+        pre-delta EXACTO de esta fuente, provisto por el caller). Un 410 va
+        a resync (arriba); cualquier otro status code real o excepción que
+        no sea `StaffingGraphError` se propaga TAL CUAL. El estado delta
+        cacheado NUNCA se toca en el camino de fallback: `DeltaCache.sync`
+        ya garantiza que una excepción de `sync_fn` deja el estado previo
+        exactamente como estaba.
+
+        Devuelve `(rows, mode, pages)` — `mode` ∈
+        {"delta_cold", "delta_warm", "delta_fallback"} para `last_diagnostics`
+        (§10 del ticket). Un caller que solo ESPERA el resultado de un sync
+        concurrente ya en curso (single-flight "waiter") nunca dispara una
+        lectura propia — se etiqueta `"delta_warm"` (comparte el mismo
+        criterio que "no pagó una lectura completa")."""
+        key = (cache_scope, site_id, list_id)
+        diag = {"mode": "", "pages": 0}
+
+        def sync_fn(current):
+            if current is None:
+                state, pages = self._delta_cold_sync(site_id, list_id, select_fields, access_token, stage=stage)
+                diag["mode"], diag["pages"] = "delta_cold", pages
+                return state
+            try:
+                state, pages = self._delta_warm_sync(current, access_token, stage=stage)
+                diag["mode"], diag["pages"] = "delta_warm", pages
+                return state
+            except StaffingGraphError as exc:
+                if exc.status_code == 410:
+                    state, pages = self._delta_cold_sync(
+                        site_id, list_id, select_fields, access_token, stage=stage,
+                    )
+                    diag["mode"], diag["pages"] = "delta_cold", pages
+                    return state
+                raise
+
+        try:
+            state = _STAFFING_DELTA_CACHE.sync(key, sync_fn)
+        except StaffingGraphError as exc:
+            if exc.status_code is not None:
+                raise
+            rows = legacy_fetch_fn()
+            return rows, "delta_fallback", 0
+        mode = diag["mode"] or "delta_warm"
+        return list(state["rows"].values()), mode, diag["pages"]
+
+    def _timed_delta_fetch(
+        self, diagnostics_key: str, *, site_id: str, list_id: str, select_fields: list[str],
+        cache_scope: str, stage: str, access_token: str, legacy_fetch_fn: Callable[[], list[dict]],
+    ) -> list[dict]:
+        """Wrapper de diagnóstico ANÁLOGO a `_timed_fetch` para el camino
+        delta — MISMAS keys (`rows`/`pages`/`elapsed_ms`, §10 del ticket:
+        "existing elapsed_ms metrics must remain comparable before/after"),
+        más `acquisition` para hacer visible el modo sin reemplazar el
+        contrato existente."""
+        started = time.monotonic()
+        items, mode, pages = self._delta_sync_list(
+            site_id=site_id, list_id=list_id, select_fields=select_fields, cache_scope=cache_scope,
+            stage=stage, access_token=access_token, legacy_fetch_fn=legacy_fetch_fn,
+        )
+        self.last_diagnostics[diagnostics_key] = {
+            "rows": len(items), "pages": pages,
+            "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+            "acquisition": mode,
+        }
+        return items
+
+    def _fetch_proyectos_delta(
+        self, site_id: str, mapping: StaffingFieldMapping, access_token: str, *, cache_scope: str,
+    ) -> list[dict]:
+        """Proyectos vía delta — field-select union: Proyectos SOLO tiene UN
+        consumidor en Staffing (`get_allocations`, que únicamente lee
+        `proyecto_title`/`proyecto_empresa_lookup`), así que no hay
+        ambigüedad de superset. `legacy_fetch_fn` reproduce EXACTO el fetch
+        pre-delta de siempre (con o sin `$select`, según si
+        `proyecto_empresa_lookup` está configurado) para el fallback
+        transitorio."""
+        select_fields = [mapping.proyecto_title]
+        if mapping.proyecto_empresa_lookup:
+            select_fields.append(mapping.proyecto_empresa_lookup)
+
+        def legacy_fetch_fn() -> list[dict]:
+            if mapping.proyecto_empresa_lookup:
+                return microsoft365.graph_get_paged_values(
+                    _list_items_url(site_id, self.proyectos_list_id, select_fields), access_token,
+                )
+            return microsoft365.graph_get_paged_values(
+                _list_items_url(site_id, self.proyectos_list_id), access_token,
+            )
+
+        return self._timed_delta_fetch(
+            "proyectos", site_id=site_id, list_id=self.proyectos_list_id, select_fields=select_fields,
+            cache_scope=cache_scope, stage="proyectos", access_token=access_token, legacy_fetch_fn=legacy_fetch_fn,
+        )
+
+    def _fetch_colaboradores_delta(
+        self, diagnostics_key: str, site_id: str, mapping: StaffingFieldMapping, access_token: str,
+        *, cache_scope: str,
+    ) -> list[dict]:
+        """Colaboradores vía delta — field-select UNION corrective (§3 del
+        ticket, "no repetir el CLIENTE_SELECT_FIELDS mistake"): la MISMA
+        lista se lee desde `get_allocations` (title + `disponibilidad`
+        OPCIONAL) Y desde `get_consultants`/identidad de Ausencias (SOLO
+        title). El select de `get_allocations` YA ES el superset exacto de
+        ambos (title, más `disponibilidad` si está configurado) — reusado
+        acá TAL CUAL para los dos consumidores, así que ninguno pierde un
+        campo que necesita por el select del otro (`$select` solo puede
+        NARROWEAR columnas, nunca filas — probado leyendo cada línea que
+        consume campos de Colaboradores en ambos consumidores, no asumido).
+        `diagnostics_key` distingue `"colaboradores"` (get_allocations) de
+        `"colaboradores_identity"` (get_consultants) — MISMAS 2 keys que ya
+        usaba `_timed_fetch`, comportamiento de logging sin cambios."""
+        select_fields = [mapping.colaborador_title]
+        if mapping.colaborador_disponibilidad:
+            select_fields.append(mapping.colaborador_disponibilidad)
+
+        def legacy_fetch_fn() -> list[dict]:
+            return microsoft365.graph_get_paged_values(
+                _list_items_url(site_id, self.colaboradores_list_id, select_fields), access_token,
+            )
+
+        return self._timed_delta_fetch(
+            diagnostics_key, site_id=site_id, list_id=self.colaboradores_list_id, select_fields=select_fields,
+            cache_scope=cache_scope, stage="colaboradores", access_token=access_token,
+            legacy_fetch_fn=legacy_fetch_fn,
+        )
+
+    def _fetch_cliente_delta(
+        self, site_id: str, mapping: StaffingFieldMapping, access_token: str, *, cache_scope: str,
+    ) -> list[dict]:
+        """Cliente vía delta — SOLO `get_allocations` lee Cliente en
+        Staffing (`cliente_title` únicamente), sin ambigüedad de superset."""
+        select_fields = [mapping.cliente_title]
+
+        def legacy_fetch_fn() -> list[dict]:
+            return microsoft365.graph_get_paged_values(
+                _list_items_url(site_id, self.cliente_list_id, select_fields), access_token,
+            )
+
+        return self._timed_delta_fetch(
+            "cliente", site_id=site_id, list_id=self.cliente_list_id, select_fields=select_fields,
+            cache_scope=cache_scope, stage="cliente", access_token=access_token, legacy_fetch_fn=legacy_fetch_fn,
+        )
+
     def get_allocations(
-        self, access_token: str, *, assignment_scope: str = "operational",
+        self, access_token: str, *, assignment_scope: str = "operational", cache_scope: str | None = None,
     ) -> list[StaffingAllocationRecord]:
+        """`cache_scope` (SHARED SOURCE ACQUISITION corrective, ver HANDOFF)
+        — `None` (default) preserva el comportamiento EXACTO de siempre:
+        cada llamada relee Proyectos/Colaboradores/Cliente completos, sin
+        cache. Con un `cache_scope` real, esas 3 dimensiones se leen vía
+        `DeltaCache` (cold la primera vez por `(cache_scope, site_id,
+        list_id)`, checkpoint incremental después) — Asignaciones NUNCA
+        pasa por acá (§7 del ticket: Initial y Historial son adquisiciones
+        de hecho separadas, nunca cacheadas/reusadas entre sí)."""
         self.last_diagnostics = {}
         total_started = time.monotonic()
         site_id = self._require_site_id()
@@ -735,7 +1150,9 @@ class StaffingRepository:
         # configurado, se selecciona explícito junto con Title — mismo
         # motivo defensivo que Colaboradores (columnas lookup/choice custom
         # pueden quedar fuera de la proyección default de Graph).
-        if mapping.proyecto_empresa_lookup:
+        if cache_scope is not None:
+            proyectos = self._fetch_proyectos_delta(site_id, mapping, access_token, cache_scope=cache_scope)
+        elif mapping.proyecto_empresa_lookup:
             proyectos = self._timed_fetch(
                 "proyectos",
                 _list_items_url(
@@ -743,10 +1160,12 @@ class StaffingRepository:
                     [mapping.proyecto_title, mapping.proyecto_empresa_lookup],
                 ), access_token,
             )
+            self.last_diagnostics["proyectos"]["acquisition"] = "legacy"
         else:
             proyectos = self._timed_fetch(
                 "proyectos", _list_items_url(site_id, self.proyectos_list_id), access_token,
             )
+            self.last_diagnostics["proyectos"]["acquisition"] = "legacy"
         # Colaboradores SÍ pide `$select` explícito (a diferencia de
         # Asignaciones/Proyectos, que ya funcionan correctamente con
         # `$expand=fields` sin selección — no se tocan, sin necesidad
@@ -759,13 +1178,19 @@ class StaffingRepository:
         # siempre se selecciona; `colaborador_disponibilidad` solo si está
         # configurado (campo OPCIONAL — nunca se selecciona una columna
         # vacía/inexistente).
-        colaboradores_fields = [mapping.colaborador_title]
-        if mapping.colaborador_disponibilidad:
-            colaboradores_fields.append(mapping.colaborador_disponibilidad)
-        colaboradores = self._timed_fetch(
-            "colaboradores",
-            _list_items_url(site_id, self.colaboradores_list_id, colaboradores_fields), access_token,
-        )
+        if cache_scope is not None:
+            colaboradores = self._fetch_colaboradores_delta(
+                "colaboradores", site_id, mapping, access_token, cache_scope=cache_scope,
+            )
+        else:
+            colaboradores_fields = [mapping.colaborador_title]
+            if mapping.colaborador_disponibilidad:
+                colaboradores_fields.append(mapping.colaborador_disponibilidad)
+            colaboradores = self._timed_fetch(
+                "colaboradores",
+                _list_items_url(site_id, self.colaboradores_list_id, colaboradores_fields), access_token,
+            )
+            self.last_diagnostics["colaboradores"]["acquisition"] = "legacy"
 
         proyectos_by_id = {str(item.get("id")): item for item in proyectos if item.get("id") is not None}
         colaboradores_by_id = {str(item.get("id")): item for item in colaboradores if item.get("id") is not None}
@@ -779,10 +1204,14 @@ class StaffingRepository:
         # intacto).
         project_client_by_id: dict[str, tuple[str | None, str | None]] = {}
         if mapping.proyecto_empresa_lookup and mapping.cliente_title:
-            clientes = self._timed_fetch(
-                "cliente",
-                _list_items_url(site_id, self.cliente_list_id, [mapping.cliente_title]), access_token,
-            )
+            if cache_scope is not None:
+                clientes = self._fetch_cliente_delta(site_id, mapping, access_token, cache_scope=cache_scope)
+            else:
+                clientes = self._timed_fetch(
+                    "cliente",
+                    _list_items_url(site_id, self.cliente_list_id, [mapping.cliente_title]), access_token,
+                )
+                self.last_diagnostics["cliente"]["acquisition"] = "legacy"
             clientes_by_id = {str(item.get("id")): item for item in clientes if item.get("id") is not None}
             for pid, pitem in proyectos_by_id.items():
                 pfields = pitem.get("fields") or {}
@@ -829,7 +1258,7 @@ class StaffingRepository:
         self.last_diagnostics["total_elapsed_ms"] = round((time.monotonic() - total_started) * 1000, 1)
         return records
 
-    def get_absences(self, access_token: str) -> list[AbsencePeriod]:
+    def get_absences(self, access_token: str, *, cache_scope: str | None = None) -> list[AbsencePeriod]:
         """Ausencias APROBADAS desde el XLSX autoritativo en SharePoint
         (Approved Absence Overlay, generalización del Vacation Timeline
         Overlay original — ver HANDOFF): descarga "Solicitudes (2).xlsx" del
@@ -840,25 +1269,77 @@ class StaffingRepository:
         normaliza, no reordena). Filas sin nombre o sin ambas fechas se
         descartan fail-soft por fila. NO persiste el archivo.
 
+        `cache_scope` (SHARED SOURCE ACQUISITION corrective §5, ver HANDOFF)
+        — `None` (default) preserva el comportamiento EXACTO de siempre: 1
+        GET de sitio + 1 download+parse SIEMPRE. Con un `cache_scope` real:
+        1 GET de sitio + 1 GET de metadata SIEMPRE (barato, necesario para
+        saber si hay HIT) — el download+parse (caro) SOLO ocurre en un MISS
+        de versión (`eTag` preferido, `lastModifiedDateTime:size` fallback,
+        ver `_absence_workbook_version`). El VALOR cacheado es el resultado
+        YA PARSEADO (`periods`/`funnel`) — nunca los bytes crudos del XLSX,
+        ni una fórmula de negocio nueva (el parseo sigue siendo
+        `_parse_absence_workbook`, sin cambios). Semántica de negocio
+        idéntica cold vs. warm (§8/§11 del ticket) — solo cambia CÓMO se
+        adquiere la fuente.
+
         Embudo de diagnóstico (`self.last_diagnostics["ausencias"]`) — conteos
         PUROS por etapa (worksheet/xlsx_rows/Estado=Aprobada/períodos elegibles)
         para que UN refresh diga en qué etapa se cae a cero, sin loguear
-        nombres/fechas/PII. Observación pura, sin regla de negocio."""
+        nombres/fechas/PII. Observación pura, sin regla de negocio. Más
+        `workbook_hit` (`cache_scope` no-`None` únicamente) — `True` cuando
+        NO se disparó una descarga de contenido para esta llamada (hit de
+        cache o esperó una descarga concurrente de OTRO caller), `False`
+        cuando esta llamada fue la que efectivamente descargó."""
         started = time.monotonic()
-        data = _download_absence_workbook(access_token)
-        periods, funnel = _parse_absence_workbook(data)
+        site_id = _resolve_absence_site_id(access_token)
+        if cache_scope is None:
+            data = _download_absence_workbook_bytes(site_id, access_token)
+            periods, funnel = _parse_absence_workbook(data)
+            self.last_diagnostics["ausencias"] = {
+                **funnel, "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+            }
+            return periods
+
+        metadata = _absence_workbook_metadata(site_id, access_token)
+        if metadata is None:
+            # Fail-soft (MISMO criterio que Facturadas/Reporting Fase 3):
+            # sin metadata confiable, nunca se inventa una versión — camino
+            # de siempre, sin cache.
+            data = _download_absence_workbook_bytes(site_id, access_token)
+            periods, funnel = _parse_absence_workbook(data)
+            self.last_diagnostics["ausencias"] = {
+                **funnel, "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+                "workbook_hit": False,
+            }
+            return periods
+
+        key = (cache_scope, str(metadata.get("id") or "") or ABSENCE_XLSX_PATH, _absence_workbook_version(metadata))
+
+        def _compute() -> tuple[list, dict]:
+            data = _download_absence_workbook_bytes(site_id, access_token)
+            return _parse_absence_workbook(data)
+
+        (periods, funnel), outcome = _STAFFING_XLSX_CACHE.get_or_compute(key, _compute)
         self.last_diagnostics["ausencias"] = {
-            **funnel,
-            "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+            **funnel, "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+            "workbook_hit": outcome != "computed",
         }
         return periods
 
-    def get_consultants(self, access_token: str) -> list[tuple[str, str]]:
+    def get_consultants(self, access_token: str, *, cache_scope: str | None = None) -> list[tuple[str, str]]:
         """SOLO Colaboradores (id, nombre) — universo de identidad para el
         join determinístico de Ausencias (ver `StaffingService`), sin forzar
         una lectura completa de Asignaciones/Proyectos solo para resolver
         nombres. Reusa `colaborador_title` de `StaffingFieldMapping` — el
-        mismo mapeo que ya requiere `get_allocations`, sin un campo nuevo."""
+        mismo mapeo que ya requiere `get_allocations`, sin un campo nuevo.
+
+        `cache_scope` (SHARED SOURCE ACQUISITION corrective §3, ver HANDOFF)
+        — `None` preserva el comportamiento EXACTO de siempre. Con un
+        `cache_scope` real, reusa `_fetch_colaboradores_delta` — la MISMA
+        key `(cache_scope, site_id, colaboradores_list_id)` que
+        `get_allocations` ya pudo haber calentado en la MISMA sesión, así
+        que un consultor que ya vio Initial no vuelve a pagar una lectura
+        completa de Colaboradores para Ausencias."""
         site_id = self._require_site_id()
         title_field = self.field_mapping.colaborador_title
         if not title_field:
@@ -867,9 +1348,17 @@ class StaffingRepository:
                 "HANDOFF) — colaborador_title es requisito de get_consultants "
                 "igual que de get_allocations."
             )
-        items = self._timed_fetch(
-            "colaboradores_identity", _list_items_url(site_id, self.colaboradores_list_id, [title_field]), access_token,
-        )
+        mapping = self.field_mapping
+        if cache_scope is not None:
+            items = self._fetch_colaboradores_delta(
+                "colaboradores_identity", site_id, mapping, access_token, cache_scope=cache_scope,
+            )
+        else:
+            items = self._timed_fetch(
+                "colaboradores_identity",
+                _list_items_url(site_id, self.colaboradores_list_id, [title_field]), access_token,
+            )
+            self.last_diagnostics["colaboradores_identity"]["acquisition"] = "legacy"
         result: list[tuple[str, str]] = []
         for item in items:
             cid = str(item.get("id") or "")
