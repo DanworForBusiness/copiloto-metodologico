@@ -196,6 +196,68 @@ def _read_feedback(date_from: str, date_to: str) -> dict[str, dict]:
     return by_reply
 
 
+# type (feedback_store) -> area (Activity Log) del MISMO evento de feedback
+# transversal — Activity Log NUNCA guarda el comentario libre ("nunca valores
+# de negocio", ver routers/reporting.py\staffing.py\commercial.py), así que
+# el comentario SOLO existe acá, en FEEDBACK_LOG_DIR. Reacciones cruza ambas
+# fuentes (conteos/up-down de Activity Log, comentario de acá) por
+# (área, usuario, día) — MISMO nivel de precisión que el resto de este
+# archivo permite sin un id compartido real entre las dos escrituras (a
+# diferencia de assistant_response, que sí tiene `reply_id`).
+_REACTION_FEEDBACK_TYPE_TO_AREA = {
+    "reporting_report": "reporting",
+    "operations_dashboard": "staffing",
+    "commercial_capability": "crm",
+    # Copiloto (owner: "el copiloto tiene un sinnúmero de reacciones que
+    # debe ser tenido en cuenta") — ver webapp/routers/feedback.py, MISMA
+    # área que module.feedback/section.feedback/catalog.feedback/
+    # catalog_section.feedback ya usan al emitir su evento de Activity
+    # (activity_context._USAGE_EVENTS) — un solo lugar define la relación
+    # type↔área, nunca duplicada entre los dos escritores/lectores.
+    "module_content": "methodology",
+    "section_content": "methodology",
+    "catalog": "catalog",
+    "catalog_section": "catalog",
+}
+
+
+def _read_reaction_comments(date_from: str, date_to: str) -> dict[str, dict[str, list[dict]]]:
+    """(área -> usuario -> [ {ts, rating, comment} ]) — SOLO entradas que
+    realmente traen un comentario (el 👍/👎 sin comentario ya se cuenta
+    completo desde Activity Log; acá agregaríamos ruido, no información).
+    Fail-soft/best-effort, MISMO criterio que `_read_feedback`."""
+    low, high = _bounds(date_from, date_to)
+    by_area_user: dict[str, dict[str, list[dict]]] = {}
+    if not FEEDBACK_LOG_DIR.exists():
+        return by_area_user
+    for path in FEEDBACK_LOG_DIR.glob("*.yaml"):
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        area = _REACTION_FEEDBACK_TYPE_TO_AREA.get(str(data.get("type") or ""))
+        if not area:
+            continue
+        comment = str(data.get("comment") or "").strip()
+        if not comment:
+            continue
+        user = str(data.get("user") or "").strip()
+        if not user:
+            continue
+        ts = str(data.get("ts") or "")
+        day = ts[:10].replace("-", "")
+        if day and not (low <= day <= high):
+            continue
+        by_area_user.setdefault(area, {}).setdefault(user, []).append({
+            "ts": ts[:19].replace("T", " "),
+            "rating": str(data.get("rating") or ""),
+            "comment": comment,
+        })
+    return by_area_user
+
+
 def _read_events(date_from: str, date_to: str) -> list[dict]:
     """Parsea los JSONL del rango a una lista de eventos normalizados (día,
     tipo, usuario, nombre, ts, payload, module, raw_module, event_class).
@@ -548,6 +610,7 @@ def build_summary(
     all_events = _read_events(date_from, date_to)
     available_users = _user_facets(all_events)
     feedback_by_reply = _read_feedback(date_from, date_to)
+    reaction_comments = _read_reaction_comments(date_from, date_to)
 
     user = (user or "").strip()
     module = (module or "").strip()
@@ -646,6 +709,25 @@ def build_summary(
     # app.js. Usage-only: un data_load_failed dentro de Asignaciones no debe
     # aparecer al clickear "Asignaciones" en este dashboard.
     module_event_counts: dict[str, Counter] = {}
+    # REACCIONES (owner ticket — grupo colapsable nuevo): agregado por SECCIÓN
+    # (área) del feedback transversal "¿Qué te pareció este reporte?"
+    # (reporting.feedback/staffing.feedback/commercial.feedback, ver
+    # activity_context._USAGE_EVENTS — ya event_class==usage, cero segunda
+    # lectura de FEEDBACK_LOG_DIR para conteos). La señal de "esto es una
+    # reacción" es `payload.feedback_sentiment` (las tres escrituras ya lo
+    # emiten, ver routers/reporting.py\staffing.py\commercial.py) — NUNCA una
+    # lista hardcodeada de nombres de evento, así que un futuro N-ésimo
+    # `<algo>.feedback` que siga el MISMO contrato entra solo. MISMO criterio
+    # usage-only + MISMOS filtros activos (fecha/usuario/ámbito/área/módulo)
+    # que event_counts/event_user_counts — nunca un segundo universo. El
+    # split 👍/👎 (owner: tooltip de la barra + detalle por usuario) viaja
+    # aparte de `reaction_area_counts`/`reaction_area_user_counts` (el TOTAL
+    # sigue siendo la fuente de la barra/orden) para no perder el conteo de
+    # reacciones sin usuario identificado, que igual suman al total de sección.
+    reaction_area_counts: Counter = Counter()
+    reaction_area_sentiment: dict[str, dict[str, int]] = {}
+    reaction_area_user_counts: dict[str, Counter] = {}
+    reaction_area_user_sentiment: dict[str, dict[str, dict[str, int]]] = {}
 
     # CASCADE INTEGRITY (corrective de confianza). El desglose por usuario del
     # panel derecho tiene que resolverse por (modulo, evento), NUNCA por evento
@@ -705,6 +787,18 @@ def build_summary(
                 (module_event_user_counts
                  .setdefault(ev["module"], {})
                  .setdefault(ev["event"], Counter())[ev["user"]]) += 1
+
+        _fb_sentiment = ev["payload"].get("feedback_sentiment")
+        if _fb_sentiment:
+            _area = ev["area"]
+            _sent_key = "up" if _fb_sentiment == "positive" else "down"
+            reaction_area_counts[_area] += 1
+            reaction_area_sentiment.setdefault(_area, {"up": 0, "down": 0})[_sent_key] += 1
+            if ev["user"]:
+                reaction_area_user_counts.setdefault(_area, Counter())[ev["user"]] += 1
+                (reaction_area_user_sentiment
+                 .setdefault(_area, {})
+                 .setdefault(ev["user"], {"up": 0, "down": 0}))[_sent_key] += 1
 
         if ev["event"] == "catalog_view":
             kind = str(ev["payload"].get("kind") or "").strip()
@@ -815,6 +909,36 @@ def build_summary(
                                        **_breakdown(event_user_counts.get(event, Counter()),
                                                     display=display_names)}
 
+    # REACCIONES — MISMO motor izquierda/derecha que "Eventos" (ver
+    # data-breakdown-group/initEventBreakdown en app.js): izquierda = sección
+    # (área) + total de reacciones, MISMO orden descendente que event_counts
+    # (`most_common()`), con el split 👍/👎 en el tooltip (owner). Derecha:
+    # a diferencia de un desglose genérico (`_breakdown`, barra de %), acá
+    # cada usuario muestra su propio conteo 👍/👎 (owner: "mismo estilo que
+    # preguntas al asistente") y, si dejó comentario(s), la fila es
+    # expandible (`<details>`, MISMO primitivo visual que
+    # admin_activity_stories.html) para verlos — nunca un expand vacío si no
+    # hay nada que mostrar.
+    reaction_max = reaction_area_counts.most_common(1)[0][1] if reaction_area_counts else 0
+    reaction_rows = [
+        {"key": k, "label": area_label(k), "count": c,
+         "pct": round(100 * c / reaction_max) if reaction_max else 0,
+         "up": reaction_area_sentiment.get(k, {}).get("up", 0),
+         "down": reaction_area_sentiment.get(k, {}).get("down", 0)}
+        for k, c in reaction_area_counts.most_common()
+    ]
+    reaction_breakdowns = {}
+    for k in reaction_area_counts:
+        rows = []
+        for u, _c in reaction_area_user_counts.get(k, Counter()).most_common():
+            sentiment = reaction_area_user_sentiment.get(k, {}).get(u, {"up": 0, "down": 0})
+            rows.append({
+                "user": u, "label": _label_of(u, display_names),
+                "up": sentiment["up"], "down": sentiment["down"],
+                "comments": reaction_comments.get(k, {}).get(u, []),
+            })
+        reaction_breakdowns[k] = {"dim": "usuario", "label": area_label(k), "rows": rows}
+
     return {
         "date_from": date_from,
         "date_to": date_to,
@@ -898,4 +1022,7 @@ def build_summary(
         "tree_runs_page_window": trees["tree_runs_page_window"],
         "event_breakdowns": event_breakdowns,
         "event_descriptions": _EVENT_DESCRIPTIONS,
+        "reaction_total": sum(reaction_area_counts.values()),
+        "reaction_rows": reaction_rows,
+        "reaction_breakdowns": reaction_breakdowns,
     }

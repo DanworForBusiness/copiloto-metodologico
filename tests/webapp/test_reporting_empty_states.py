@@ -102,7 +102,12 @@ def test_the_shared_hub_consumers_are_untouched():
     # (módulo, evento), así que los paneles module-scoped traen su propio
     # empty-state. Es un consumidor MÁS del primitivo compartido, no una
     # redefinición — que es lo que este test protege.
-    assert activity.count('class="dashboard-empty"') == 5        # Copiloto / Métricas de Uso
+    # 5 -> 8 (Usage Metrics Reactions Drilldown, owner ticket): "Reacciones"
+    # reusa el MISMO primitivo tres veces, MISMO criterio que "Eventos" (panel
+    # default "Sin selección" + panel-por-sección "Sin desglose" + el propio
+    # "Sin reacciones" cuando el filtro activo no tiene ninguna) — cero CSS
+    # nuevo, cero redefinición.
+    assert activity.count('class="dashboard-empty"') == 8        # Copiloto / Métricas de Uso
     assert staffing.count('class="dashboard-empty"') == 2        # Asignaciones
     assert commercial.count('class="dashboard-empty"') == 1      # CRM, vía su helper
     assert "function commercialEmptyStateHtml(" in commercial

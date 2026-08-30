@@ -177,7 +177,7 @@ def test_default_section_order_is_tendencia_modulos_eventos_preguntas_arboles(mo
         "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8",
     )
     t = _hx(_owner_client(monkeypatch), "/admin/activity").text
-    ids = ["tendencia", "modulos-usuarios", "eventos-catalogo", "preguntas", "arboles"]
+    ids = ["tendencia", "modulos-usuarios", "eventos-catalogo", "reacciones", "preguntas", "arboles"]
     positions = [t.index(f'data-section-id="{sid}"') for sid in ids]
     assert positions == sorted(positions), f"orden real por posición: {positions}"
 
@@ -535,3 +535,269 @@ def test_daily_trend_pager_propagates_active_filters_like_stories_pager(monkeypa
     assert "user=u%40d.com" in t
 
 
+# ── USAGE METRICS REACTIONS DRILLDOWN (owner ticket) ──────────────────────────
+# "Reacciones": izquierda = sección (área) + total, derecha = usuarios de esa
+# sección — MISMO motor que "Eventos" (`data-breakdown-group`/
+# initEventBreakdown, ver app.js — sin cambios, cero test nuevo de JS: la
+# cobertura existente de Eventos ya prueba el engine). Fuente: los eventos de
+# feedback transversal YA existentes (reporting.feedback/staffing.feedback/
+# commercial.feedback), señal = payload.feedback_sentiment.
+
+_REACTION_ROWS = [
+    {"ts_utc": "2026-03-01T10:05:00+00:00", "event": "reporting.feedback", "user": "a@d.com", "name": "A",
+     "scope": "operations", "area": "reporting", "module": "reporting",
+     "payload": {"report_tab": "cartera", "feedback_sentiment": "positive"}},
+    {"ts_utc": "2026-03-01T10:06:00+00:00", "event": "staffing.feedback", "user": "b@d.com", "name": "B",
+     "scope": "operations", "area": "staffing", "module": "asignaciones",
+     "payload": {"feedback_sentiment": "negative"}},
+    {"ts_utc": "2026-03-01T10:07:00+00:00", "event": "staffing.feedback", "user": "a@d.com", "name": "A",
+     "scope": "operations", "area": "staffing", "module": "asignaciones",
+     "payload": {"feedback_sentiment": "positive"}},
+    # día distinto (para probar el filtro de fecha / integración con Tendencia).
+    {"ts_utc": "2026-03-05T09:00:00+00:00", "event": "commercial.feedback", "user": "c@d.com", "name": "C",
+     "scope": "commercial", "area": "crm", "module": "CM01",
+     "payload": {"capability": "dashboard", "feedback_sentiment": "positive"}},
+]
+
+
+def _seed_reactions(monkeypatch, tmp_path):
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    # ISOLACIÓN: `_read_reaction_comments` lee FEEDBACK_LOG_DIR — sin esto,
+    # un test sin comentario propio terminaría leyendo el FEEDBACK_LOG_DIR
+    # REAL de este entorno (mismo criterio que `_isolate_remote_store_
+    # persistence`/`_isolate_runtime_logs` en tests/conftest.py). Un vacío
+    # propio por default; los tests de comentario lo pisan explícitamente
+    # DESPUÉS de llamar acá (gana el último monkeypatch, mismo orden).
+    empty_feedback_dir = tmp_path / "_no_feedback_yaml"
+    empty_feedback_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(activity_analytics, "FEEDBACK_LOG_DIR", empty_feedback_dir)
+    day1 = [r for r in _REACTION_ROWS if r["ts_utc"].startswith("2026-03-01")]
+    day2 = [r for r in _REACTION_ROWS if r["ts_utc"].startswith("2026-03-05")]
+    (tmp_path / "activity_20260301.jsonl").write_text("\n".join(json.dumps(r) for r in day1) + "\n", encoding="utf-8")
+    (tmp_path / "activity_20260305.jsonl").write_text("\n".join(json.dumps(r) for r in day2) + "\n", encoding="utf-8")
+
+
+# A + B: el colapsable renderiza y agrega por sección, descendente por conteo
+# (Staffing 2, Reporting 1, CRM 1 — mismo criterio most_common() que Eventos).
+
+def test_reacciones_collapsible_renders_and_aggregates_by_section(monkeypatch, tmp_path):
+    _seed_reactions(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'data-section-id="reacciones"' in t
+    assert '<span class="dashboard-section__title">Reacciones</span>' in t
+    assert "4 reacción(es)" in t
+    assert 'data-event="staffing"' in t and 'data-event="reporting"' in t and 'data-event="crm"' in t
+    # Staffing tiene 2 reacciones, más que Reporting/CRM (1 c/u) — aparece
+    # primero (most_common(), MISMO orden que Eventos).
+    assert t.index('data-event="staffing"') < t.index('data-event="reporting"')
+
+
+# C + D: cada panel de sección contiene SOLO sus propios usuarios — sin
+# contaminación cruzada (la selección/reemplazo en sí es JS ya probado por
+# Eventos, initEventBreakdown, sin cambios).
+
+def _panel_html(t, key):
+    # Aísla SOLO el contenido de un panel data-breakdown="<key>" hasta el
+    # PRÓXIMO marcador data-breakdown=, sin depender de indentación exacta.
+    after = t.split(f'data-breakdown="{key}"', 1)[1]
+    return after.split('data-breakdown="')[0]
+
+
+def test_reacciones_right_panel_scoped_to_its_own_section_users_only(monkeypatch, tmp_path):
+    _seed_reactions(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    staffing_panel = _panel_html(t, "staffing")
+    assert 'activity-bar-label" title="a@d.com"' in staffing_panel
+    assert 'activity-bar-label" title="b@d.com"' in staffing_panel
+    assert 'title="c@d.com"' not in staffing_panel  # C reaccionó en CRM, nunca en Staffing.
+    reporting_panel = _panel_html(t, "reporting")
+    assert 'activity-bar-label" title="a@d.com"' in reporting_panel
+    assert 'title="b@d.com"' not in reporting_panel
+
+
+# E + F: el filtro de fecha activo (incluida la integración con el click-to-
+# day de Tendencia diaria, que setea date_from=date_to=día) recorta izquierda
+# Y derecha — mismo universo `events` que ya usa Eventos, nunca un segundo
+# filtro paralelo.
+
+def test_reacciones_respects_active_date_filter_and_daily_trend_click(monkeypatch, tmp_path):
+    _seed_reactions(monkeypatch, tmp_path)
+    # "click en 05/03 en Tendencia diaria" == date_from=date_to=2026-03-05.
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?date_from=2026-03-05&date_to=2026-03-05").text
+    assert "1 reacción(es)" in t
+    assert 'data-event="crm"' in t
+    assert 'data-event="staffing"' not in t and 'data-event="reporting"' not in t
+
+
+# G: 0 reacciones bajo el filtro actual es un estado VÁLIDO, no un error —
+# nunca se confunde con "No disponible".
+
+def test_reacciones_empty_state_is_valid_not_an_error(monkeypatch, tmp_path):
+    _seed_reactions(monkeypatch, tmp_path)
+    # Un día CON actividad de uso (así el dashboard entero no cae al estado
+    # "Sin actividad" — ver `{% if summary.total_events == 0 %}` — eso es una
+    # capa DISTINTA, ya cubierta por test_no_operations_business_metrics_
+    # invented y otros) pero SIN reacciones — exactamente el caso que este
+    # ticket pide distinguir de "No disponible".
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    (tmp_path / "activity_20260310.jsonl").write_text(
+        json.dumps({"ts_utc": "2026-03-10T09:00:00+00:00", "event": "login", "user": "d@d.com", "name": "D",
+                    "scope": "platform", "area": "auth", "payload": {}}) + "\n",
+        encoding="utf-8",
+    )
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?date_from=2026-03-10&date_to=2026-03-10").text
+    assert 'data-section-id="reacciones"' in t  # la sección sigue ahí...
+    assert "0 reacción(es)" in t
+    assert '<span class="dashboard-empty__label">Sin reacciones</span>' in t
+    assert "No disponible" not in t
+
+
+# H: Eventos/Preguntas/Árboles no regresionan — los 3 eventos de feedback
+# siguen apareciendo TAMBIÉN en "Eventos" (Reacciones es una lente adicional,
+# nunca un reemplazo).
+
+def test_existing_eventos_section_still_lists_feedback_events_unchanged(monkeypatch, tmp_path):
+    _seed_reactions(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert ">Reporting — feedback de reporte<" in t
+    assert ">Asignaciones — feedback de reporte<" in t
+    assert ">Comercial — feedback de capability<" in t
+
+
+# ── Reacciones: tooltip 👍/👎 + detalle de usuario estilo "Historia de
+# preguntas" (owner, follow-up mid-ticket) ────────────────────────────────
+
+def test_reaction_bar_hover_tooltip_shows_like_dislike_breakdown(monkeypatch, tmp_path):
+    _seed_reactions(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    # Staffing: A up + B down = 1 👍, 1 👎, de 2 totales.
+    assert 'title="Staffing: 1 👍 · 1 👎 de 2"' in t
+    # Reporting: solo A, up.
+    assert 'title="Reporting: 1 👍 · 0 👎 de 1"' in t
+
+
+def test_reaction_user_row_shows_like_dislike_emoji_counts(monkeypatch, tmp_path):
+    _seed_reactions(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    staffing_panel = _panel_html(t, "staffing")
+    assert "👍 1</span><span title=\"No le gustó\">👎 0" in staffing_panel  # A, up
+    assert "👍 0</span><span title=\"No le gustó\">👎 1" in staffing_panel  # B, down
+
+
+def _seed_reaction_comment(monkeypatch, tmp_path, *, feedback_type, user, ts, rating, comment=None):
+    import yaml as _yaml
+    from webapp.services import activity_analytics as _aa
+    monkeypatch.setattr(_aa, "FEEDBACK_LOG_DIR", tmp_path)
+    payload = {"type": feedback_type, "user": user, "ts": ts, "rating": rating}
+    if comment:
+        payload["comment"] = comment
+    (tmp_path / f"{feedback_type}_{user.replace('@', '_')}.yaml").write_text(
+        _yaml.safe_dump(payload, allow_unicode=True), encoding="utf-8",
+    )
+
+
+def test_reaction_user_with_comment_is_expandable_and_shows_it(monkeypatch, tmp_path):
+    activity_dir = tmp_path / "activity"
+    activity_dir.mkdir()
+    feedback_dir = tmp_path / "feedback"
+    feedback_dir.mkdir()
+    _seed_reactions(monkeypatch, activity_dir)
+    _seed_reaction_comment(
+        monkeypatch, feedback_dir, feedback_type="reporting_report", user="a@d.com",
+        ts="2026-03-01T10:05:00+00:00", rating="up", comment="Buenísimo el nuevo tab de Cartera",
+    )
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    reporting_panel = _panel_html(t, "reporting")
+    assert "<details class=\"assistant-story\">" in reporting_panel
+    assert "Buenísimo el nuevo tab de Cartera" in reporting_panel
+    assert "2026-03-01 10:05:00" in reporting_panel
+
+
+def test_reaction_user_without_comment_is_a_plain_non_expandable_row(monkeypatch, tmp_path):
+    # `_seed_reactions` ya aísla FEEDBACK_LOG_DIR a un directorio vacío por
+    # default (ver ahí) — B (staffing, down) nunca dejó comentario, cero YAML
+    # de feedback para user=b@d.com a propósito.
+    _seed_reactions(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    staffing_panel = _panel_html(t, "staffing")
+    assert "<details class=\"assistant-story\">" not in staffing_panel
+
+
+# ── Reacciones: Copiloto (owner — "el copiloto tiene un sinnúmero de
+# reacciones que debe ser tenido en cuenta si el checkbox de copiloto esta
+# encendido o sus derivados donde se ofrezcan reacciones") ───────────────────
+# module.feedback/section.feedback (área methodology) y catalog.feedback/
+# catalog_section.feedback (área catalog) — MISMA señal genérica
+# (payload.feedback_sentiment) que reporting.feedback/staffing.feedback/
+# commercial.feedback ya usan, cero cambio en build_summary: la fuente
+# (webapp/routers/feedback.py, ver test_feedback_activity_reactions.py) es lo
+# que faltaba, no la agregación.
+
+_COPILOT_REACTION_ROWS = [
+    {"ts_utc": "2026-03-01T11:00:00+00:00", "event": "module.feedback", "user": "d@d.com", "name": "D",
+     "scope": "copilot", "area": "methodology", "module": "CP01",
+     "payload": {"feedback_sentiment": "positive"}},
+    {"ts_utc": "2026-03-01T11:01:00+00:00", "event": "section.feedback", "user": "d@d.com", "name": "D",
+     "scope": "copilot", "area": "methodology", "module": "CP01",
+     "payload": {"feedback_sentiment": "negative"}},
+    {"ts_utc": "2026-03-01T11:02:00+00:00", "event": "catalog.feedback", "user": "e@d.com", "name": "E",
+     "scope": "copilot", "area": "catalog", "payload": {"feedback_sentiment": "positive"}},
+]
+
+
+def _seed_copilot_reactions(monkeypatch, tmp_path):
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    empty_feedback_dir = tmp_path / "_no_feedback_yaml"
+    empty_feedback_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(activity_analytics, "FEEDBACK_LOG_DIR", empty_feedback_dir)
+    (tmp_path / "activity_20260301.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in _COPILOT_REACTION_ROWS) + "\n", encoding="utf-8",
+    )
+
+
+def test_copilot_module_and_section_feedback_aggregate_under_metodologia(monkeypatch, tmp_path):
+    _seed_copilot_reactions(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert "3 reacción(es)" in t
+    assert 'data-event="methodology"' in t
+    # D reaccionó 2 veces (module up + section down) en Metodología.
+    assert 'title="Metodología: 1 👍 · 1 👎 de 2"' in t
+
+
+def test_copilot_catalog_feedback_aggregates_under_catalogo(monkeypatch, tmp_path):
+    _seed_copilot_reactions(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'data-event="catalog"' in t
+    assert 'title="Catálogo: 1 👍 · 0 👎 de 1"' in t
+    catalog_panel = _panel_html(t, "catalog")
+    assert 'title="e@d.com"' in catalog_panel
+    assert 'title="d@d.com"' not in catalog_panel  # D reaccionó en Metodología, nunca en Catálogo.
+
+
+def test_unchecking_copilot_ambito_excludes_its_reactions_from_the_left_panel(monkeypatch, tmp_path):
+    # "debe ser tenido en cuenta SI el checkbox de copiloto esta encendido" —
+    # el reverso también aplica: destildar Copiloto en Ámbito debe recortar
+    # Reacciones exactamente como recorta Eventos/Tendencia (MISMO universo
+    # `events` ya filtrado, nunca un segundo filtro paralelo para Reacciones).
+    # Mezcla copilot + operations a propósito: una selección que NO
+    # intersecta nada del universo presente cae al fallback "todo tildado"
+    # (guard existente, ver build_summary `sel_scopes`) — con SOLO eventos
+    # copilot sembrados, pedir operations/commercial daría un falso "excluido"
+    # por ese fallback, no por el filtro en sí.
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    empty_feedback_dir = tmp_path / "_no_feedback_yaml"
+    empty_feedback_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(activity_analytics, "FEEDBACK_LOG_DIR", empty_feedback_dir)
+    mixed_rows = _COPILOT_REACTION_ROWS + [
+        {"ts_utc": "2026-03-01T11:03:00+00:00", "event": "staffing.feedback", "user": "f@d.com", "name": "F",
+         "scope": "operations", "area": "staffing", "module": "asignaciones",
+         "payload": {"feedback_sentiment": "positive"}},
+    ]
+    (tmp_path / "activity_20260301.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in mixed_rows) + "\n", encoding="utf-8",
+    )
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?scope=operations").text
+    assert 'data-event="methodology"' not in t
+    assert 'data-event="catalog"' not in t
+    assert 'data-event="staffing"' in t
+    assert "1 reacción(es)" in t
