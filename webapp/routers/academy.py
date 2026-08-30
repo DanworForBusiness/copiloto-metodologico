@@ -136,6 +136,20 @@ def _save_academy_feedback(request: Request, stem: str, pack: str, rating: str, 
     except Exception:
         # El feedback no debe romper la navegación ni el contenido de Academy.
         pass
+    # USAGE METRICS — REACCIONES (owner: cobertura completa de Copiloto, ver
+    # AUDIT): MISMO criterio que module.feedback/section.feedback/
+    # catalog.feedback (webapp/routers/feedback.py) — evento del pipeline de
+    # Activity, área MISMA que `academy_selected` ya usa (AREA_ACADEMY, la
+    # navegación y su feedback viven en la misma área). Best-effort, FUERA
+    # del try/except de arriba a propósito: una falla acá nunca debe
+    # reescribir/perder el YAML de feedback que SÍ se guardó.
+    try:
+        log_activity(
+            "academy.feedback", user=user, scope=SCOPE_COPILOT, area=AREA_ACADEMY,
+            module=current.stem, feedback_sentiment=("positive" if rating == "up" else "negative"),
+        )
+    except Exception:  # noqa: BLE001 — el feedback nunca rompe la navegación
+        pass
 
 
 @router.post("/academy/{stem}/feedback", response_class=HTMLResponse, include_in_schema=False)

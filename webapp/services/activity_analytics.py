@@ -218,6 +218,14 @@ _REACTION_FEEDBACK_TYPE_TO_AREA = {
     "section_content": "methodology",
     "catalog": "catalog",
     "catalog_section": "catalog",
+    # Segunda ronda (owner AUDIT — cobertura completa de Copiloto): Academy y
+    # Asistente. `assistant_response` SÍ tiene `reply_id` (ver docstring
+    # arriba) pero acá se cruza por (área, usuario, día) igual que el resto —
+    # ese id más preciso ya lo usa `_read_feedback`/"Historia de preguntas"
+    # por separado; Reacciones es una LENTE adicional, nunca un segundo
+    # camino de correlación para el mismo dato.
+    "academy_content": "academy",
+    "assistant_response": "assistant",
 }
 
 

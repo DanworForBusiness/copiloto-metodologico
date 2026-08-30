@@ -829,3 +829,88 @@ def test_unchecking_copilot_ambito_excludes_its_reactions_from_the_left_panel(mo
     assert 'data-event="catalog"' not in t
     assert 'data-event="staffing"' in t
     assert "1 reacción(es)" in t
+
+
+# ── Reacciones: Copiloto, segunda ronda — Academy/Asistente/Árboles (owner
+# AUDIT: "el copiloto tiene un sinnúmero de reacciones", cobertura completa)
+# ─────────────────────────────────────────────────────────────────────────
+# academy.feedback (área academy, NUEVA que Reacciones puede mostrar),
+# assistant.feedback (área assistant, ídem) y tree.feedback (área
+# methodology — MISMA área/bucket que module.feedback/section.feedback, ver
+# _COPILOT_REACTION_ROWS arriba: prueba que "Tree pertenece a methodology"
+# se cumple de punta a punta, no solo en el mapeo). Fixture SEPARADA para no
+# tener que reajustar los conteos hardcodeados de los tests de la primera
+# ronda arriba.
+
+_COPILOT_REACTION_ROWS_2 = [
+    {"ts_utc": "2026-04-01T09:00:00+00:00", "event": "academy.feedback", "user": "g@d.com", "name": "G",
+     "scope": "copilot", "area": "academy", "module": "ACAD01_Paradigmas",
+     "payload": {"feedback_sentiment": "positive"}},
+    {"ts_utc": "2026-04-01T09:01:00+00:00", "event": "assistant.feedback", "user": "h@d.com", "name": "H",
+     "scope": "copilot", "area": "assistant", "module": "CP01",
+     "payload": {"feedback_sentiment": "negative", "reply_id": "reply-abc", "conversation_id": "conv-abc"}},
+    {"ts_utc": "2026-04-01T09:02:00+00:00", "event": "tree.feedback", "user": "d@d.com", "name": "D",
+     "scope": "copilot", "area": "methodology",
+     "payload": {"feedback_sentiment": "positive", "run_id": "run-1", "tree_id": "tree-1"}},
+    # día distinto — MISMA prueba de integración con Tendencia diaria/filtro
+    # de fecha que ya hace test_reacciones_respects_active_date_filter_and_
+    # daily_trend_click, ahora también sobre un productor de la 2ª ronda.
+    {"ts_utc": "2026-04-05T10:00:00+00:00", "event": "academy.feedback", "user": "g@d.com", "name": "G",
+     "scope": "copilot", "area": "academy", "module": "ACAD02_Datasphere",
+     "payload": {"feedback_sentiment": "positive"}},
+]
+
+
+def _seed_copilot_reactions_2(monkeypatch, tmp_path):
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    empty_feedback_dir = tmp_path / "_no_feedback_yaml_2"
+    empty_feedback_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(activity_analytics, "FEEDBACK_LOG_DIR", empty_feedback_dir)
+    day1 = [r for r in _COPILOT_REACTION_ROWS_2 if r["ts_utc"].startswith("2026-04-01")]
+    day2 = [r for r in _COPILOT_REACTION_ROWS_2 if r["ts_utc"].startswith("2026-04-05")]
+    (tmp_path / "activity_20260401.jsonl").write_text("\n".join(json.dumps(r) for r in day1) + "\n", encoding="utf-8")
+    (tmp_path / "activity_20260405.jsonl").write_text("\n".join(json.dumps(r) for r in day2) + "\n", encoding="utf-8")
+
+
+def test_academy_feedback_aggregates_under_academy_area(monkeypatch, tmp_path):
+    _seed_copilot_reactions_2(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'data-event="academy"' in t
+    academy_panel = _panel_html(t, "academy")
+    assert 'title="g@d.com"' in academy_panel
+
+
+def test_assistant_feedback_aggregates_under_assistant_area(monkeypatch, tmp_path):
+    _seed_copilot_reactions_2(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'data-event="assistant"' in t
+    assistant_panel = _panel_html(t, "assistant")
+    assert 'title="h@d.com"' in assistant_panel
+    assert 'title="Asistente: 0 👍 · 1 👎 de 1"' in t
+
+
+def test_tree_feedback_aggregates_under_methodology_same_bucket_as_module_section(monkeypatch, tmp_path):
+    _seed_copilot_reactions_2(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'data-event="methodology"' in t
+    methodology_panel = _panel_html(t, "methodology")
+    assert 'title="d@d.com"' in methodology_panel  # D reaccionó vía tree.feedback, MISMO bucket.
+
+
+def test_second_round_producers_are_classified_usage_and_labeled():
+    from webapp.services import activity_context
+    for event in ("academy.feedback", "assistant.feedback", "tree.feedback"):
+        assert activity_context.event_class(event) == activity_context.EVENT_CLASS_USAGE
+        assert activity_context.event_label(event) != event  # tiene label propio, nunca el nombre crudo.
+
+
+def test_daily_trend_click_filters_second_round_producers_to_their_original_day(monkeypatch, tmp_path):
+    # O: el filtro de fecha (incluida la integración con Tendencia diaria)
+    # también recorta correctamente los productores de la 2ª ronda — MISMO
+    # universo `events`, nunca un camino de filtro paralelo.
+    _seed_copilot_reactions_2(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?date_from=2026-04-05&date_to=2026-04-05").text
+    assert 'data-event="academy"' in t
+    assert "1 reacción(es)" in t  # solo la reacción del 05, no las 3 del 01.
+    assert 'data-event="assistant"' not in t
+    assert 'data-event="methodology"' not in t

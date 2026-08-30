@@ -39,7 +39,7 @@ from core.content_registry import DEFAULT_PACK, resolve_pack
 from webapp import access
 from webapp.copilot_runtime import store
 from webapp.services import auth_service
-from webapp.services.activity_service import log_verbose
+from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.activity_context import SCOPE_COPILOT, AREA_METHODOLOGY
 from webapp.services.content_service import load_module
 from webapp.templating import templates
@@ -287,6 +287,29 @@ def _feedback_form(request, run, rating, error=""):
     )
 
 
+def _log_tree_feedback_reaction(request: Request, run, rating: str) -> None:
+    """USAGE METRICS — REACCIONES (owner: cobertura completa de Copiloto, ver
+    AUDIT): MISMO criterio que module.feedback/section.feedback — evento del
+    pipeline de Activity, `log_activity` (NUNCA `log_verbose`: MISMO criterio
+    que `_log_assistant_feedback_reaction` en assistant.py — una reacción es
+    señal de negocio, no telemetría fina, a diferencia de tree_started/
+    tree_step/tree_outcome de arriba, que SÍ son verbose). MISMA área/
+    identidad de árbol que esos tres eventos (`answer()`, arriba: `run_id`/
+    `tree_id`, área methodology) — nunca una taxonomía nueva. NUNCA toca
+    CaseLibrary/WizardStore (eso sigue en `store.submit_feedback`, sin
+    cambios) — esto es SOLO la señal adicional hacia Activity Log. Best-
+    effort: nunca puede hacer que el feedback ya guardado se pierda."""
+    try:
+        log_activity(
+            "tree.feedback", user=(auth_service.session_user(request) or {}),
+            scope=SCOPE_COPILOT, area=AREA_METHODOLOGY,
+            run_id=run.id, tree_id=str(run.tree.get("id") or "") if getattr(run, "tree", None) else "",
+            feedback_sentiment=("positive" if rating == "up" else "negative"),
+        )
+    except Exception:  # noqa: BLE001 — el feedback nunca rompe la navegación
+        pass
+
+
 @router.post("/wizards/{run_id}/feedback", response_class=HTMLResponse)
 def tree_feedback(request: Request, run_id: str, rating: str = Form("")):
     try:
@@ -299,6 +322,7 @@ def tree_feedback(request: Request, run_id: str, rating: str = Form("")):
         run = store.submit_feedback(run_id, rating="up")      # 👍 finaliza directo
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    _log_tree_feedback_reaction(request, run, "up")
     return _thanks(request, run)
 
 
@@ -316,6 +340,7 @@ def tree_feedback_submit(
         raise HTTPException(410, str(exc)) from exc
     except ValueError as exc:                                  # falta lección → re-mostrar form con error
         return _feedback_form(request, store.get(run_id), rating, str(exc))
+    _log_tree_feedback_reaction(request, run, rating)
     return _thanks(request, run)
 
 

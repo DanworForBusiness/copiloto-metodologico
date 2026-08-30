@@ -39,7 +39,7 @@ from core.utils import slugify
 from webapp import access
 from webapp.copilot_runtime import assistant_store
 from webapp.services import auth_service
-from webapp.services.activity_service import log_verbose
+from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.activity_context import SCOPE_COPILOT, AREA_ASSISTANT
 from webapp.services.assistant_service import (
     AssistantChatService,
@@ -295,6 +295,27 @@ def _assistant_feedback_template(request, name, reply, **context):
     )
 
 
+def _log_assistant_feedback_reaction(reply, rating: str, user: dict | None) -> None:
+    """USAGE METRICS — REACCIONES (owner: cobertura completa de Copiloto, ver
+    AUDIT): MISMO criterio que module.feedback/section.feedback/academy.feedback
+    — evento del pipeline de Activity, `log_activity` (NUNCA `log_verbose`:
+    una reacción es una señal de negocio, no telemetría fina — MISMO criterio
+    que las otras 8 familias de feedback, todas siempre-on). `reply_id` viaja
+    en el payload, MISMO campo que `assistant_query` ya usa para correlacionar
+    con `AssistantFeedbackRepository.save` (ver ese comentario) — reusable
+    como clave de deduplicación de un futuro backfill histórico, nunca una
+    clave nueva. Best-effort: nunca puede hacer que `assistant_feedback(_submit)`
+    falle después de que el feedback YA se guardó."""
+    try:
+        log_activity(
+            "assistant.feedback", user=user, scope=SCOPE_COPILOT, area=AREA_ASSISTANT,
+            module=reply.module, reply_id=reply.id, conversation_id=reply.conversation_id,
+            feedback_sentiment=("positive" if rating == "up" else "negative"),
+        )
+    except Exception:  # noqa: BLE001 — el feedback nunca rompe la navegación
+        pass
+
+
 @router.post("/assistant/responses/{reply_id}/feedback", response_class=HTMLResponse)
 def assistant_feedback(request: Request, reply_id: str, rating: str = Form("")):
     try:
@@ -307,10 +328,12 @@ def assistant_feedback(request: Request, reply_id: str, rating: str = Form("")):
         return _assistant_feedback_template(
             request, "partials/assistant_feedback_form.html", reply, error="",
         )
+    user = auth_service.session_user(request)
     try:
-        assistant_feedback_repository.save(reply, "up", user=auth_service.session_user(request))
+        assistant_feedback_repository.save(reply, "up", user=user)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    _log_assistant_feedback_reaction(reply, "up", user)
     return _assistant_feedback_template(
         request, "partials/assistant_feedback_thanks.html", reply,
     )
@@ -322,9 +345,10 @@ def assistant_feedback_submit(
     reply_id: str,
     comment: str = Form(""),
 ):
+    user = auth_service.session_user(request)
     try:
         reply = assistant_store.reply_for_feedback(reply_id)
-        assistant_feedback_repository.save(reply, "down", comment, user=auth_service.session_user(request))
+        assistant_feedback_repository.save(reply, "down", comment, user=user)
     except KeyError as exc:
         raise HTTPException(410, "La respuesta ya no está disponible") from exc
     except StaleAssistantReplyError as exc:
@@ -333,6 +357,7 @@ def assistant_feedback_submit(
         return _assistant_feedback_template(
             request, "partials/assistant_feedback_form.html", reply, error=str(exc),
         )
+    _log_assistant_feedback_reaction(reply, "down", user)
     return _assistant_feedback_template(
         request, "partials/assistant_feedback_thanks.html", reply,
     )
