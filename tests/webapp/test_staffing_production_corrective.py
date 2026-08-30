@@ -512,7 +512,7 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # PART 15 — route surface unchanged
 # ============================================================================
 
-def test_15_route_surface_still_119():
+def test_15_route_surface_still_120():
     # CI GATE CORRECTIVE (reconciliación de contratos stale, ver HANDOFF):
     # este test se había quedado pinneado en 84 mientras el snapshot real
     # (tests/route_surface.json, la fuente de verdad exhaustiva — ver
@@ -641,6 +641,12 @@ def test_15_route_surface_still_119():
     #     endpoint/estado totalmente separados (sub-tab lazy independiente
     #     con historial de oportunidades ganadas/perdidas).
     #     Los tres LAZY, read-only, mismo contrato fail-soft.
+    #   119 -> 120 (Usage Metrics Daily Trend Corrective -- guardrail de
+    #     paginación, ver HANDOFF): +1 GET. `/admin/activity/trend` --
+    #     fragment liviano de solo "Tendencia diaria" (barras + paginador),
+    #     MISMO patrón que /admin/activity/stories//admin/activity/tree-runs
+    #     -- pasar de página no toca el resto del dashboard de Actividad. No
+    #     toca ninguna ruta de Staffing.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -648,7 +654,7 @@ def test_15_route_surface_still_119():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 119
+    assert len(snapshot) == 120
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot
