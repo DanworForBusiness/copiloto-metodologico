@@ -162,18 +162,7 @@
     <span class="dashboard-section__count">{{ summary.total_days }} día(s)</span>
   </summary>
   <div class="dashboard-section__body">
-    <div class="activity-chart">
-      {% for row in summary.daily_series %}
-      {# Tono del dorado según el valor (más alto = más intenso; van aclarando).
-         Mismo criterio en todos los gráficos: hsl gold, la claridad sube cuando
-         el valor baja — anda igual en tema claro y oscuro. #}
-      <div class="activity-chart__col" title="{{ row.day }}: {{ row.count }} evento(s)">
-        <span class="activity-chart__count">{{ row.count }}</span>
-        <div class="activity-chart__bar" style="height:{{ row.pct }}%"></div>
-        <span class="activity-chart__label">{{ row.day[4:6] }}/{{ row.day[6:8] }}</span>
-      </div>
-      {% endfor %}
-    </div>
+    {% include "partials/admin_activity_trend.html" %}
   </div>
 </details>
 {% endif %}

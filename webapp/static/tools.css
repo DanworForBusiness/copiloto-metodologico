@@ -741,7 +741,14 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 
    NO hay toggle-to-clear: clickear el ya seleccionado lo mantiene. La
    convencion viene de `initModuleFilter` (app.js), donde limpiar es una
-   accion explicita y separada. */
+   accion explicita y separada.
+
+   USAGE METRICS DAILY TREND corrective (owner ticket): "Tendencia diaria"
+   (`.activity-chart__col`, arriba) suma `.activity-bar-row--clickable` como
+   TERCER consumidor del MISMO bloque — click en una barra fija Desde=Hasta a
+   ese día (ver initActivityChartFilter en app.js). Cero declaracion nueva:
+   `padding`/`margin-left` heredados de acá conviven sin conflicto con el
+   flex-column propio de `.activity-chart__col` (ver arriba). */
 .activity-bar-row--clickable, .bar-row--clickable {
   cursor: pointer; padding: 3px 6px; margin-left: -6px; border-radius: 7px;
   transition: background .12s ease;

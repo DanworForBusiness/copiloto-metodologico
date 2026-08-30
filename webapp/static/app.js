@@ -1959,6 +1959,40 @@ function staffingDashboard(payload) {
 }
 document.body.addEventListener("htmx:load", () => initModuleFilter(document));
 
+// USAGE METRICS DAILY TREND corrective (owner ticket): barras de "Tendencia
+// diaria" clickeables — MISMO contrato Desde/Hasta que el form de filtros de
+// arriba (`.whatsnew-filters`), nunca un segundo estado de filtro oculto.
+// Clickear una barra fija Desde=Hasta=ese día y dispara la MISMA request que
+// "Actualizar" (`form.requestSubmit()` — no una fetch manual nueva), así que
+// cualquier otro filtro ya aplicado (usuario/módulo/ámbito/área) se preserva
+// tal cual. `data-day` es el YYYYMMDD canónico (ver activity_analytics.py) —
+// el label DD/MM visible es solo presentación, la key de filtro nunca se
+// deriva del texto mostrado. MISMO patrón de re-cableo que initModuleFilter
+// (htmx:load, scope) — necesario porque `#activity-dashboard` se reemplaza
+// entero (`hx-swap="outerHTML"`) en cada filtro aplicado, así que cualquier
+// listener atado en la corrida anterior murió con el DOM viejo.
+function initActivityChartFilter(scope) {
+  const bars = [...scope.querySelectorAll(".activity-chart__col[data-day]")];
+  if (!bars.length) return;
+  const form = scope.querySelector(".whatsnew-filters");
+  const from = form ? form.querySelector('input[name="date_from"]') : null;
+  const to = form ? form.querySelector('input[name="date_to"]') : null;
+  if (!form || !from || !to) return;
+  const filterDay = day => {
+    const iso = `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`;
+    from.value = iso;
+    to.value = iso;
+    if (form.requestSubmit) form.requestSubmit(); else form.submit();
+  };
+  bars.forEach(bar => {
+    bar.addEventListener("click", () => filterDay(bar.dataset.day));
+    bar.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); filterDay(bar.dataset.day); }
+    });
+  });
+}
+document.body.addEventListener("htmx:load", () => initActivityChartFilter(document));
+
 // ============================================================================
 // HubEstimatedProgress — primitivo COMPARTIDO del Hub (Operations) para
 // esperas FOREGROUND causadas por fetch de Graph/SharePoint. Reporting es el

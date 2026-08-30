@@ -4,6 +4,7 @@
   "GET /admin/activity",
   "GET /admin/activity/stories",
   "GET /admin/activity/tree-runs",
+  "GET /admin/activity/trend",
   "GET /admin/runtime/export.zip",
   "GET /admin/runtime/inventory",
   "GET /admin/sharepoint/seed.json",

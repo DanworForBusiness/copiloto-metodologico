@@ -367,6 +367,31 @@ def admin_activity(
     )
 
 
+@app.get("/admin/activity/trend", response_class=HTMLResponse, include_in_schema=False)
+def admin_activity_trend(
+    request: Request, date_from: str = "", date_to: str = "",
+    user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
+    scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
+    trend_page: int = 1,
+):
+    """Fragment liviano de solo 'Tendencia diaria' (barras + paginador-
+    guardrail) — MISMO patrón que admin_activity_stories/admin_activity_tree_runs:
+    pasar de página no toca el resto del dashboard (orden de drag-and-drop,
+    abierto/cerrado de las demás secciones)."""
+    _require_diagnostic(request)
+    if not _is_owner(request):
+        raise HTTPException(403, "Solo disponible para el owner")
+    summary = activity_analytics.build_summary(
+        date_from, date_to, user_filter, module_filter,
+        trend_page=trend_page,
+        scopes=scope_filter, areas=area_filter,
+    )
+    return templates.TemplateResponse(
+        request=request, name="partials/admin_activity_trend.html",
+        context={"summary": summary, "date_from": date_from, "date_to": date_to},
+    )
+
+
 @app.get("/admin/activity/stories", response_class=HTMLResponse, include_in_schema=False)
 def admin_activity_stories(
     request: Request, date_from: str = "", date_to: str = "",

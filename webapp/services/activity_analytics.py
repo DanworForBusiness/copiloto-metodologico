@@ -65,6 +65,16 @@ _RECENT_QUESTIONS_N = 20
 _STORY_PAGE_SIZES = (10, 15, 25, 50)
 _DEFAULT_STORY_PAGE_SIZE = 10
 
+# USAGE METRICS DAILY TREND corrective (owner ticket, guardrail de ancho): a
+# diferencia de Historia de preguntas/Recorridos (listas, tamaño de página
+# elegible por el owner), "Tendencia diaria" es un gráfico de barras de ancho
+# FIJO — más de ~25 columnas ya no entran legibles (`.activity-chart__bar`
+# max-width 26px + gap 6px, ver tools.css). Por eso acá el tamaño de página
+# es un UMBRAL fijo, no una preferencia seleccionable: mientras el rango
+# filtrado tenga ≤25 días, cero cambio de comportamiento (sin paginador, ver
+# `admin_activity_trend.html`) — recién aparece cuando genuinamente no entra.
+_DAILY_TREND_PAGE_SIZE = 25
+
 
 def _page_window(page: int, total_pages: int, radius: int = 2) -> list[int | None]:
     """Números de página a mostrar en el paginador: siempre primera/última,
@@ -526,6 +536,7 @@ def build_summary(
     date_from: str, date_to: str, user: str = "", module: str = "",
     story_page: int = 1, story_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
     run_page: int = 1, run_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
+    trend_page: int = 1,
     scopes: list[str] | None = None, areas: list[str] | None = None,
 ) -> dict:
     # Danwor Hub-wide (Batch A2): el dashboard opera sobre TODO el stream
@@ -729,11 +740,24 @@ def build_summary(
                     "feedback": feedback_by_reply.get(reply_id),
                 })
 
-    daily_series = [
+    daily_series_all = [
         {"day": day, "count": count, "pct": round(100 * count / max(daily_counts.values())) if daily_counts else 0}
         for day, count in sorted(daily_counts.items())
     ]
     total_days = len(daily_counts)
+
+    # PAGINACIÓN GUARDRAIL (owner ticket): más reciente primero — MISMO
+    # criterio que Historia de preguntas/Recorridos arriba (page 1 = los
+    # últimos `_DAILY_TREND_PAGE_SIZE` días) — pero DENTRO de cada página el
+    # orden queda cronológico ASCENDENTE (un gráfico de tiempo se lee
+    # izquierda→derecha; la paginación solo decide QUÉ ventana de días entra,
+    # nunca el sentido de lectura). Slice por índice desde el final, sin
+    # invertir/reinvertir la lista completa.
+    trend_total_pages = max(1, -(-total_days // _DAILY_TREND_PAGE_SIZE)) if total_days else 1
+    trend_page = max(1, min(trend_page or 1, trend_total_pages))
+    _trend_end = total_days - (trend_page - 1) * _DAILY_TREND_PAGE_SIZE
+    _trend_start = max(0, _trend_end - _DAILY_TREND_PAGE_SIZE)
+    daily_series = daily_series_all[_trend_start:_trend_end]
 
     # Resumen precalculado por conversación (fila colapsada del dashboard) + KPI de
     # costo: cuántas conversaciones tuvieron AL MENOS un turno con llamada real a
@@ -854,6 +878,9 @@ def build_summary(
             for kind, count in catalog_kind_counts.most_common()
         ],
         "daily_series": daily_series,
+        "trend_page": trend_page,
+        "trend_total_pages": trend_total_pages,
+        "trend_page_window": _page_window(trend_page, trend_total_pages),
         "assistant_stories": assistant_stories,
         "assistant_stories_total": assistant_stories_total,
         "assistant_stories_page": page,

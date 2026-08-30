@@ -361,3 +361,177 @@ def test_top_modules_shows_product_label_not_raw_stem_for_copilot(monkeypatch, t
     assert ">Arquitectura y Conectividad<" in t
     assert "01_Arquitectura_y_Conectividad" not in t
     assert '<option value="CP01"' in t
+
+
+# ── USAGE METRICS DAILY TREND CORRECTIVE (owner ticket) ──────────────────────
+# "Tendencia diaria" pasa de MM/DD a DD/MM y sus barras se vuelven clickeables
+# (Desde=Hasta=día clickeado, MISMO form/contrato que "Actualizar" — nunca un
+# segundo estado de filtro). `_seed_two_days` siembra DOS días bien distintos
+# (03 y 28) a propósito: si mes/día se invirtieran seguirían siendo strings de
+# 2 dígitos válidos y un bug de orden pasaría desapercibido con un solo día.
+
+def _seed_two_days(monkeypatch, tmp_path):
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    day1 = [
+        {"ts_utc": "2026-08-03T10:00:00+00:00", "event": "login", "user": "a@d.com", "name": "A", "scope": "platform", "area": "auth", "payload": {}},
+    ]
+    day2 = [
+        {"ts_utc": "2026-08-28T10:00:00+00:00", "event": "login", "user": "b@d.com", "name": "B", "scope": "platform", "area": "auth", "payload": {}},
+        {"ts_utc": "2026-08-28T11:00:00+00:00", "event": "login", "user": "c@d.com", "name": "C", "scope": "platform", "area": "auth", "payload": {}},
+    ]
+    (tmp_path / "activity_20260803.jsonl").write_text("\n".join(json.dumps(r) for r in day1) + "\n", encoding="utf-8")
+    (tmp_path / "activity_20260828.jsonl").write_text("\n".join(json.dumps(r) for r in day2) + "\n", encoding="utf-8")
+
+
+# A. DD/MM formatting — nunca MM/DD, mes y día no pueden invertirse.
+
+def test_tendencia_diaria_labels_render_dd_mm_not_mm_dd(monkeypatch, tmp_path):
+    _seed_two_days(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert '<span class="activity-chart__label">03/08</span>' in t
+    assert '<span class="activity-chart__label">28/08</span>' in t
+    assert '<span class="activity-chart__label">08/03</span>' not in t
+    assert '<span class="activity-chart__label">08/28</span>' not in t
+
+
+# B. la barra es la superficie de interacción — data-day canónico (YYYYMMDD,
+# nunca derivado del label DD/MM) + primitiva accesible reusada, cero clase
+# nueva inventada.
+
+def test_tendencia_diaria_bars_are_clickable_and_carry_canonical_day(monkeypatch, tmp_path):
+    _seed_two_days(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'data-day="20260803"' in t
+    assert 'data-day="20260828"' in t
+    assert 'class="activity-chart__col activity-bar-row--clickable' in t
+    assert 'role="button"' in t and 'tabindex="0"' in t
+    assert 'aria-label="Filtrar Métricas de uso por el 03/08"' in t
+
+
+# C/D. el click reusa el MISMO form/contrato Desde-Hasta (nunca una fetch
+# manual nueva) — probado por contenido de fuente, mismo criterio que el
+# resto de este archivo para app.js (ver _APP_JS arriba, "sin runtime de JS
+# en esta suite"). `.is-active` reconcilia server-side contra date_from/
+# date_to ya existentes — sin estado de UI paralelo.
+
+def test_daily_trend_click_reuses_existing_date_filter_contract_in_app_js():
+    assert "function initActivityChartFilter(scope)" in _APP_JS
+    assert 'scope.querySelectorAll(".activity-chart__col[data-day]")' in _APP_JS
+    assert 'form.querySelector(\'input[name="date_from"]\')' in _APP_JS
+    assert 'form.querySelector(\'input[name="date_to"]\')' in _APP_JS
+    assert "from.value = iso;" in _APP_JS and "to.value = iso;" in _APP_JS
+    assert "if (form.requestSubmit) form.requestSubmit(); else form.submit();" in _APP_JS
+    # re-cableo tras cada swap HTMX — mismo patrón que initModuleFilter.
+    assert 'document.body.addEventListener("htmx:load", () => initActivityChartFilter(document));' in _APP_JS
+
+
+def test_selecting_a_day_marks_only_that_bar_active_and_second_click_replaces_it(monkeypatch, tmp_path):
+    _seed_two_days(monkeypatch, tmp_path)
+    c = _owner_client(monkeypatch)
+    t1 = _hx(c, "/admin/activity?date_from=2026-08-03&date_to=2026-08-03").text
+    col1 = t1.split('data-day="20260803"')[0].rsplit("<div class=", 1)[-1]
+    assert "is-active" in col1
+    col2 = t1.split('data-day="20260828"')[0].rsplit("<div class=", 1)[-1]
+    assert "is-active" not in col2
+    # segundo click (otro día) reemplaza limpiamente la selección — nunca dos
+    # barras activas a la vez.
+    t2 = _hx(c, "/admin/activity?date_from=2026-08-28&date_to=2026-08-28").text
+    col1b = t2.split('data-day="20260803"')[0].rsplit("<div class=", 1)[-1]
+    col2b = t2.split('data-day="20260828"')[0].rsplit("<div class=", 1)[-1]
+    assert "is-active" not in col1b
+    assert "is-active" in col2b
+
+
+def test_selecting_a_day_narrows_dependent_content_and_echoes_date_controls(monkeypatch, tmp_path):
+    # "todo lo dependiente reconcilia al día elegido" + los controles Desde/
+    # Hasta visibles reflejan la selección (mismo `value=` de siempre).
+    _seed_two_days(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?date_from=2026-08-28&date_to=2026-08-28").text
+    assert 'name="date_from" value="2026-08-28"' in t
+    assert 'name="date_to" value="2026-08-28"' in t
+    assert "2 evento(s)" in t  # Resumen reconcilia: día 28 tiene 2 eventos, no 3.
+    assert 'title="20260803: 1 evento(s)"' not in t  # el 03 ya no aparece en la serie filtrada.
+
+
+# D. el filtro normal (sin pasar por el gráfico) sigue funcionando exactamente
+# igual después de este corrective — mismo contrato, ninguna regresión.
+
+def test_normal_date_filter_still_works_after_chart_corrective(monkeypatch, tmp_path):
+    _seed_two_days(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?date_from=2026-08-01&date_to=2026-08-10").text
+    assert 'data-day="20260803"' in t  # rango incluye el 03...
+    assert 'data-day="20260828"' not in t  # ...y excluye el 28, como siempre.
+
+
+# E. sin regresión al render no-click del gráfico (conteo/altura de barra).
+
+def test_tendencia_diaria_bar_count_and_height_render_unchanged(monkeypatch, tmp_path):
+    _seed_two_days(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert '<span class="activity-chart__count">1</span>' in t
+    assert '<span class="activity-chart__count">2</span>' in t
+    assert 'style="height:100%"' in t  # el día de 2 eventos es el pico → 100%.
+
+
+# ── USAGE METRICS DAILY TREND — GUARDRAIL DE PAGINACIÓN (owner ticket) ───────
+# Más de 25 días no entran legibles en el ancho fijo del gráfico de barras —
+# a partir de ahí aparece un paginador (MISMO primitivo `.activity-pager` que
+# Historia de preguntas/Recorridos), page 1 = los 25 días MÁS RECIENTES.
+
+def _seed_n_days(monkeypatch, tmp_path, n, *, start="2026-07-01"):
+    from datetime import date, timedelta
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    d0 = date.fromisoformat(start)
+    for i in range(n):
+        day = (d0 + timedelta(days=i)).strftime("%Y%m%d")
+        row = {"ts_utc": f"{day[:4]}-{day[4:6]}-{day[6:8]}T10:00:00+00:00", "event": "login",
+               "user": "u@d.com", "name": "U", "scope": "platform", "area": "auth", "payload": {}}
+        (tmp_path / f"activity_{day}.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+
+def test_no_pager_when_25_days_or_fewer(monkeypatch, tmp_path):
+    _seed_n_days(monkeypatch, tmp_path, 25)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'data-day="20260701"' in t and 'data-day="20260725"' in t  # los 25 entran enteros...
+    assert 'class="activity-pager"' not in t  # ...sin paginador — mismo comportamiento de siempre.
+
+
+def test_pager_appears_past_25_days_and_defaults_to_most_recent_window(monkeypatch, tmp_path):
+    _seed_n_days(monkeypatch, tmp_path, 30)  # 2026-07-01 .. 2026-07-30
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'class="activity-pager"' in t
+    # page 1 = los 25 MÁS RECIENTES (06..30) — los 5 más viejos (01..05) no
+    # entran en esta página.
+    assert 'data-day="20260706"' in t and 'data-day="20260730"' in t
+    assert 'data-day="20260701"' not in t and 'data-day="20260705"' not in t
+    # primera/anterior deshabilitadas en la página 1; hay una página 2.
+    assert 'title="Primera página"\n            disabled' in t
+    assert 'title="Anterior"\n            disabled' in t
+    assert 'trend_page=2' in t
+    # header "{{ total_days }} día(s)" sigue siendo el TOTAL real, no el de la página.
+    assert "30 día(s)" in t
+
+
+def test_pager_page_2_shows_the_older_remainder_via_dedicated_fragment_route(monkeypatch, tmp_path):
+    _seed_n_days(monkeypatch, tmp_path, 30)
+    c = _owner_client(monkeypatch)
+    t = _hx(c, "/admin/activity/trend?trend_page=2").text
+    # fragment liviano: solo el body de Tendencia, MISMO patrón que
+    # /admin/activity/stories y /admin/activity/tree-runs.
+    assert t.strip().startswith('<div id="activity-daily-trend-body">')
+    assert 'data-day="20260701"' in t and 'data-day="20260705"' in t
+    assert 'data-day="20260706"' not in t  # esos ya se vieron en la página 1.
+    # siguiente/última deshabilitadas en la última página; primera/anterior habilitadas.
+    assert 'title="Siguiente"\n            disabled' in t
+    assert 'title="Última página"\n            disabled' in t
+    assert 'trend_page=1' in t
+
+
+def test_daily_trend_pager_propagates_active_filters_like_stories_pager(monkeypatch, tmp_path):
+    # MISMO contrato que Historia de preguntas: cambiar de página nunca
+    # descarta el filtro de usuario/fecha ya aplicado (`base_qs`).
+    _seed_n_days(monkeypatch, tmp_path, 30)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?user=u%40d.com").text
+    assert "user=u%40d.com" in t
+
+
