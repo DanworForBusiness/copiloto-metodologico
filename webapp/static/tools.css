@@ -2344,6 +2344,17 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    en navegacion por teclado. */
 .experience-tabs button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .content-theme-dark { --tab-ink: #e4e4ec; --tab-ink-muted: #8b8b96; }
+/* Contraste corrective (owner smoke — tema oscuro, ver HANDOFF): `--tab-ink`
+   (#e4e4ec) contra el fondo oscuro real de Reporting no se distinguía lo
+   bastante del resto de los tabs sin seleccionar — hover Y activo (owner:
+   "no solo al seleccionarlo, sino también on mouseover") pasan a `--gold`,
+   MISMO color que ya usa `.tool-tabs button.is-active` (arriba, panel de
+   Copilot) para el mismo rol — nunca un tono nuevo. Sólo en tema oscuro:
+   tema claro sigue con `--tab-ink`/su fallback, sin tocar (nadie reportó
+   problema ahí). El subrayado (`border-bottom-color`, arriba) ya usaba
+   `--gold` — esto sólo extiende el mismo color al texto. */
+.content-theme-dark .experience-tabs button:hover,
+.content-theme-dark .experience-tabs button.is-active { color: var(--gold); }
 
 /* HUB BAR PRIMITIVE — categoría → UNA magnitud → UNA barra horizontal.
    Promovido desde reporting.css (donde vivía scopeado a

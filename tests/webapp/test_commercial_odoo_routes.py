@@ -1138,6 +1138,27 @@ def test_experience_tabs_stay_responsive_without_horizontal_scroll():
     assert "flex-wrap: wrap" in tabs_rule
 
 
+def test_experience_tabs_dark_theme_active_and_hover_use_gold_for_contrast():
+    # Owner smoke (tema oscuro): `--tab-ink`/`--tab-ink-muted` (#e4e4ec/
+    # #8b8b96) contra el fondo real de `.reporting-integral-preview` no se
+    # distinguían lo bastante entre sí — Reporting pinea esos tokens a sus
+    # valores de superficie clara (`--tab-ink: #1f1f24`, ver reporting.css)
+    # asumiendo un panel blanco que NUNCA se pinta de fondo (`--panel` no
+    # tiene ningún consumidor real de `background` en todo el CSS) — el
+    # texto casi negro terminaba renderizando sobre el fondo oscuro real del
+    # Hub. Se resuelve pasando el texto (activo Y hover, owner: "no solo al
+    # seleccionarlo, sino también on mouseover") a `--gold` — MISMO color
+    # que ya usa `.tool-tabs button.is-active` (panel de Copilot) para el
+    # mismo rol — sin depender de `--tab-ink` en absoluto, así que el pin de
+    # Reporting nunca puede volver a apagarlo. Sólo tema oscuro: tema claro
+    # (con su panel realmente blanco) sigue con `--tab-ink`/su fallback.
+    tools_css = (_STATIC / "tools.css").read_text(encoding="utf-8")
+    assert (
+        '.content-theme-dark .experience-tabs button:hover,\n'
+        '.content-theme-dark .experience-tabs button.is-active { color: var(--gold); }'
+    ) in tools_css
+
+
 def test_section_drag_affordance_is_scoped_to_actually_draggable_heads():
     # El cursor `grab` colgaba de `.dashboard-section__head` a secas y por lo
     # tanto lo anunciaba también en secciones deliberadamente NO reordenables
