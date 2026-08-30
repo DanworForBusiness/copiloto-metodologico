@@ -39,6 +39,7 @@ from datetime import datetime
 
 import config
 from core import microsoft365
+from webapp.services import reporting_time_logs_durable
 from webapp.services.reporting_delta_cache import DeltaCache
 from webapp.services.reporting_time_logs_cache import TimeLogsHistoricalCache
 
@@ -1618,15 +1619,52 @@ class ReportingRepository:
         (Fase 2) Y el actual (Fase 3B, `Time Logs Reports.csv`: MISMO tipo
         de recurso driveItem, MISMO contrato de versión — un eTag sin
         cambios sirve el resultado cacheado, un eTag distinto dispara
-        descarga+parseo fresco, nunca una ventana de tiempo arbitraria)."""
-        items = self._list_time_logs_csv_items(site_id, hot_years=hot_years)
-        if not items:
-            raise ReportingSourceError("time_logs_files", "no se encontraron CSV en Template Dashboard")
-        if hot_years is not None:
-            wanted = set(hot_years)
-            items = [it for it in items if _infer_time_logs_csv_year(it) in wanted]
-            if not items:
-                return []
+        descarga+parseo fresco, nunca una ventana de tiempo arbitraria).
+
+        AÑO CERRADO DURABLE (Integral Cold Start Fase 1, ver HANDOFF —
+        `reporting_time_logs_durable.py`): cuando el caller conoce sus
+        años de antemano (`hot_years` explícito — Rentabilidad/Horas
+        Vendidas), cada año YA cerrado (`is_closed_year`) con entrada
+        durable válida se resuelve ACÁ, ANTES de listar la carpeta — ese
+        año nunca vuelve a tocar Graph en absoluto para esta request. Los
+        años restantes (abiertos, o cerrados sin entrada durable todavía)
+        siguen el descubrimiento de siempre. En modo vida completa
+        (`hot_years=None`, Cartera/Proyecto) no hay forma de saber de
+        antemano qué años existen — la carpeta se sigue listando igual que
+        siempre, pero cada ITEM descubierto cuyo año ya está cerrado se
+        resuelve durable dentro de `_download_one_time_logs_file_cached`
+        (nunca acá), evitando la descarga+parseo real — el costo dominante
+        ya medido (~24-27s), aunque la llamada de listado en sí se
+        preserve (es barata y además la única forma de descubrir un año
+        cerrado nuevo que todavía no tiene entrada durable)."""
+        durable_years: dict[str, list[dict]] = {}
+        hot_years_to_discover = hot_years
+        if cache_scope is not None:
+            reporting_time_logs_durable.ensure_restored()
+            if hot_years is not None:
+                still_needed = []
+                for year in hot_years:
+                    if reporting_time_logs_durable.is_closed_year(year):
+                        durable_rows = reporting_time_logs_durable.load_closed_year_entry(cache_scope, year)
+                        if durable_rows is not None:
+                            durable_years[year] = durable_rows
+                            continue
+                    still_needed.append(year)
+                hot_years_to_discover = still_needed
+
+        if hot_years_to_discover is not None and not hot_years_to_discover:
+            # Todos los años pedidos ya se sirvieron durable — nunca se
+            # lista la carpeta para esta request.
+            items: list[dict] = []
+        else:
+            items = self._list_time_logs_csv_items(site_id, hot_years=hot_years_to_discover)
+            if not items and not durable_years:
+                raise ReportingSourceError("time_logs_files", "no se encontraron CSV en Template Dashboard")
+            if hot_years_to_discover is not None:
+                wanted = set(hot_years_to_discover)
+                items = [it for it in items if _infer_time_logs_csv_year(it) in wanted]
+                if not items and not durable_years:
+                    return []
 
         results: list[dict | None] = [None] * len(items)
         with ThreadPoolExecutor(max_workers=_TIME_LOGS_MAX_WORKERS) as pool:
@@ -1647,10 +1685,23 @@ class ReportingRepository:
                     f.cancel()
                 raise
 
+        # Los años servidos durable ANTES de listar (§ arriba) nunca pasan
+        # por el pool — se agregan acá directo, MISMO destino final
+        # (`rows`) que cualquier otra fuente de filas.
         rows: list[dict] = []
+        for year_rows in durable_years.values():
+            rows.extend(year_rows)
         _tl_download_total_ms = 0.0
         _tl_parse_total_ms = 0.0
         _hist_hits = _hist_misses = _hist_downloads = 0
+        # Cuenta TANTO los años resueltos antes de listar (Layer 1,
+        # `durable_years`) COMO los items descubiertos que igual resolvieron
+        # durable dentro del pool (Layer 2, modo vida completa — ver
+        # `_download_one_time_logs_file_cached`) — un solo contador,
+        # `durable_hits`, para la pregunta que el owner necesita responder
+        # tras el restart: "¿cuántos años cerrados NUNCA tocaron Graph para
+        # su contenido?".
+        _hist_durable_hits = len(durable_years)
         _current_hit = _current_download = 0
         for outcome in results:
             if outcome is None:
@@ -1664,9 +1715,14 @@ class ReportingRepository:
             # Fase 3B: MISMO contrato hit/computed/waited para el archivo
             # actual que para los históricos — solo cambia a qué contador
             # (historical_*/current_*) aporta, ver docstring de
-            # `_download_one_time_logs_file_cached`.
+            # `_download_one_time_logs_file_cached`. `durable_closed_year`
+            # (Integral Cold Start Fase 1) es un cuarto outcome posible
+            # SOLO para históricos — año cerrado resuelto durable dentro
+            # del pool, cero descarga/parseo real.
             if outcome.get("is_historical"):
-                if cache_outcome == "hit":
+                if cache_outcome == "durable_closed_year":
+                    _hist_durable_hits += 1
+                elif cache_outcome == "hit":
                     _hist_hits += 1
                 elif cache_outcome == "computed":
                     _hist_misses += 1
@@ -1689,6 +1745,17 @@ class ReportingRepository:
                 "reporting.perf time_logs.cache historical_hits=%s historical_misses=%s "
                 "historical_downloads=%s current_hit=%s current_download=%s",
                 _hist_hits, _hist_misses, _hist_downloads, _current_hit, _current_download,
+            )
+            # DURABLE VERSIONED STATE FOR HISTORICAL TIME LOGS corrective
+            # (Integral Cold Start Fase 1, ver HANDOFF) — SOLO agrega, nunca
+            # reemplaza la línea de arriba (§13 del ticket original: "Keep
+            # existing stage names... do not rename instrumentation").
+            # NUNCA scope/drive_item_id/eTag/filas de negocio — sólo
+            # conteos y un elapsed_ms de arranque, MISMO criterio de
+            # seguridad que el resto de este archivo.
+            _perf_logger.info(
+                "reporting.perf time_logs.closed_year_durable durable_hits=%s restore_elapsed_ms=%s",
+                _hist_durable_hits, reporting_time_logs_durable.restore_elapsed_ms(),
             )
         if not rows:
             raise ReportingSourceError("time_logs_rows", "ningún CSV produjo filas válidas")
@@ -1788,6 +1855,28 @@ class ReportingRepository:
                 outcome["is_historical"] = is_historical
             return outcome
 
+        # AÑO CERRADO DURABLE — Layer 2 (Integral Cold Start Fase 1, ver
+        # HANDOFF/reporting_time_logs_durable.py): cubre el modo vida
+        # completa (`hot_years=None`, Cartera/Proyecto — `_download_time_logs_rows`
+        # no pudo filtrar este item ANTES de listar porque no conocía el
+        # universo de años de antemano). `_infer_time_logs_csv_year`
+        # resuelve el archivo "actual" (sin sufijo) al año de HOY siempre
+        # — nunca puede clasificar como cerrado por construcción, así que
+        # este short-circuit nunca alcanza al archivo en curso sin
+        # necesitar un chequeo `is_historical` separado (igual se deja
+        # como guarda explícita, ver docstring del módulo). CERO descarga,
+        # CERO parseo — la garantía de frescura es el contrato de negocio
+        # de año cerrado, no un eTag (a diferencia del camino de abajo).
+        if is_historical:
+            year = _infer_time_logs_csv_year(item)
+            if reporting_time_logs_durable.is_closed_year(year):
+                durable_rows = reporting_time_logs_durable.load_closed_year_entry(cache_scope, year)
+                if durable_rows is not None:
+                    return {
+                        "rows": durable_rows, "download_ms": 0.0, "parse_ms": 0.0,
+                        "cache_outcome": "durable_closed_year", "is_historical": True,
+                    }
+
         key = (cache_scope, item_id, _drive_item_version(item))
         inner_outcome: dict | None = None
 
@@ -1799,6 +1888,17 @@ class ReportingRepository:
         rows, cache_outcome = _TIME_LOGS_HISTORICAL_CACHE.get_or_compute(key, _compute)
         if cache_outcome == "computed" and inner_outcome is not None:
             download_ms, parse_ms = inner_outcome["download_ms"], inner_outcome["parse_ms"]
+            # Primera vez (o entrada durable vieja/inválida) que este año
+            # cerrado se resuelve con éxito en este proceso — lo persiste
+            # para que el PRÓXIMO restart nunca vuelva a tocar Graph por
+            # él (ver `save_closed_year_entry`: best-effort, nunca rompe
+            # esta request si la escritura falla).
+            if is_historical and rows:
+                year = _infer_time_logs_csv_year(item)
+                if reporting_time_logs_durable.is_closed_year(year):
+                    reporting_time_logs_durable.save_closed_year_entry(
+                        cache_scope, year, item_id, _drive_item_version(item), rows,
+                    )
         else:
             download_ms, parse_ms = 0.0, 0.0
         return {
