@@ -369,12 +369,12 @@ def test_get_rentabilidad_defaults_to_hot_window(monkeypatch):
     from datetime import datetime
     captured = {}
 
-    def fake_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
+    def fake_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None, cache_scope=None):
         captured["hot_years"] = hot_years
         captured["include_facturadas"] = include_facturadas
         return [], {}
 
-    def fake_time_logs(self, access_token, *, hot_years=None):
+    def fake_time_logs(self, access_token, *, hot_years=None, cache_scope=None):
         captured["time_logs_hot_years"] = hot_years
         return []
 
@@ -396,11 +396,11 @@ def test_get_rentabilidad_defaults_to_hot_window(monkeypatch):
 def test_get_rentabilidad_cold_year_passes_explicit_scope(monkeypatch):
     captured = {}
 
-    def fake_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
+    def fake_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None, cache_scope=None):
         captured["hot_years"] = hot_years
         return [], {}
 
-    def fake_time_logs(self, access_token, *, hot_years=None):
+    def fake_time_logs(self, access_token, *, hot_years=None, cache_scope=None):
         captured["time_logs_hot_years"] = hot_years
         return []
 

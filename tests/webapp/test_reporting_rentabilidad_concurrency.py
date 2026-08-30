@@ -58,10 +58,10 @@ def _sequential_expected():
     """Referencia — MISMO shaping de `get_rentabilidad`, invocado sin
     concurrencia (mocks triviales, sin threads) — el payload de las ramas
     concurrentes de abajo debe coincidir EXACTO contra esto."""
-    def fake_cartera(self, access_token, *, include_facturadas, hot_years):
+    def fake_cartera(self, access_token, *, include_facturadas, hot_years, cache_scope=None):
         return list(_FACTS), {}
 
-    def fake_time_logs(self, access_token, *, hot_years):
+    def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
         return list(_TIME_LOGS)
 
     import unittest.mock as mock
@@ -75,11 +75,11 @@ def _sequential_expected():
 def test_both_branches_invoked_exactly_once_with_same_args(monkeypatch):
     calls = {"cartera": [], "time_logs": []}
 
-    def fake_cartera(self, access_token, *, include_facturadas, hot_years):
+    def fake_cartera(self, access_token, *, include_facturadas, hot_years, cache_scope=None):
         calls["cartera"].append((access_token, include_facturadas, hot_years))
         return list(_FACTS), {}
 
-    def fake_time_logs(self, access_token, *, hot_years):
+    def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
         calls["time_logs"].append((access_token, hot_years))
         return list(_TIME_LOGS)
 
@@ -102,10 +102,10 @@ def test_both_branches_invoked_exactly_once_with_same_args(monkeypatch):
 
 
 def test_result_payload_identical_to_sequential_contract(monkeypatch):
-    def fake_cartera(self, access_token, *, include_facturadas, hot_years):
+    def fake_cartera(self, access_token, *, include_facturadas, hot_years, cache_scope=None):
         return list(_FACTS), {}
 
-    def fake_time_logs(self, access_token, *, hot_years):
+    def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
         return list(_TIME_LOGS)
 
     monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_cartera)
@@ -123,7 +123,7 @@ def test_branches_actually_overlap_execution(monkeypatch):
     cartera_started = threading.Event()
     time_logs_started = threading.Event()
 
-    def fake_cartera(self, access_token, *, include_facturadas, hot_years):
+    def fake_cartera(self, access_token, *, include_facturadas, hot_years, cache_scope=None):
         cartera_started.set()
         # Solo se desbloquea si Time Logs YA arrancó — imposible si las
         # ramas fueran secuenciales (Time Logs ni se invoca hasta que
@@ -132,7 +132,7 @@ def test_branches_actually_overlap_execution(monkeypatch):
         assert started, "time_logs nunca arrancó mientras cartera estaba en vuelo — las ramas NO se solapan"
         return list(_FACTS), {}
 
-    def fake_time_logs(self, access_token, *, hot_years):
+    def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
         time_logs_started.set()
         started = cartera_started.wait(timeout=2)
         assert started, "cartera nunca arrancó mientras time_logs estaba en vuelo — las ramas NO se solapan"
@@ -148,10 +148,10 @@ def test_branches_actually_overlap_execution(monkeypatch):
 # --- C. ERROR PRIORITY -----------------------------------------------------
 
 def test_both_branches_fail_propagates_cartera_exception(monkeypatch):
-    def fake_cartera(self, access_token, *, include_facturadas, hot_years):
+    def fake_cartera(self, access_token, *, include_facturadas, hot_years, cache_scope=None):
         raise ReportingGraphError(stage="proyectos", status_code=500)
 
-    def fake_time_logs(self, access_token, *, hot_years):
+    def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
         # Escenario #3 (owner): NO se exige que time_logs no haya
         # arrancado o incluso fallado — solo que su excepción NUNCA sea
         # la que se propaga cuando Cartera también falla.
@@ -167,10 +167,10 @@ def test_both_branches_fail_propagates_cartera_exception(monkeypatch):
 
 
 def test_cartera_ok_time_logs_fails_propagates_time_logs_exception(monkeypatch):
-    def fake_cartera(self, access_token, *, include_facturadas, hot_years):
+    def fake_cartera(self, access_token, *, include_facturadas, hot_years, cache_scope=None):
         return list(_FACTS), {}
 
-    def fake_time_logs(self, access_token, *, hot_years):
+    def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
         raise ReportingGraphError(stage="time_logs_site", status_code=503)
 
     monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_cartera)
@@ -187,10 +187,10 @@ def test_cartera_fails_time_logs_ok_propagates_cartera_exception(monkeypatch):
     lado tiene éxito (o simplemente no le importa al caller): debe
     propagarse SIEMPRE la excepción de Cartera, MISMO criterio de
     prioridad."""
-    def fake_cartera(self, access_token, *, include_facturadas, hot_years):
+    def fake_cartera(self, access_token, *, include_facturadas, hot_years, cache_scope=None):
         raise ReportingGraphError(stage="cliente", status_code=404)
 
-    def fake_time_logs(self, access_token, *, hot_years):
+    def fake_time_logs(self, access_token, *, hot_years, cache_scope=None):
         return list(_TIME_LOGS)
 
     monkeypatch.setattr(ReportingRepository, "get_cartera_facts_with_project_dimension", fake_cartera)

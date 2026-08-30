@@ -218,8 +218,14 @@ def reporting_rentabilidad_data(request: Request, graph_token: str = Form(""), a
     `reporting_horas_vendidas_data` — CSV de años a hidratar; vacío/omitido
     resuelve al default de ventana caliente (año actual + anterior). La
     metadata de años seleccionables vive en
-    `/data/rentabilidad/anios-disponibles`."""
-    if not auth_service.session_user(request):
+    `/data/rentabilidad/anios-disponibles`.
+
+    RENTABILIDAD SHARED SOURCE REUSE corrective (ver HANDOFF): `cache_scope`
+    resuelto desde la sesión Hub YA verificada arriba (`user`) — MISMO
+    criterio exacto que `reporting_cartera_data`/`reporting_horas_vendidas_data`
+    (perspectiva Proyecto/Horas Vendidas) — NUNCA `graph_token`."""
+    user = auth_service.session_user(request)
+    if not user:
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
         raise HTTPException(403, "No autorizado para Operations / Reporting")
@@ -229,7 +235,8 @@ def reporting_rentabilidad_data(request: Request, graph_token: str = Form(""), a
     service = ReportingService()
     try:
         anios_list = [a.strip() for a in anios.split(",") if a.strip()] or None
-        rentabilidad = service.get_rentabilidad(graph_token, anios=anios_list)
+        cache_scope = str(user.get("username") or user.get("email") or user.get("sub") or "") or None
+        rentabilidad = service.get_rentabilidad(graph_token, anios=anios_list, cache_scope=cache_scope)
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
@@ -249,8 +256,15 @@ def reporting_rentabilidad_anios_disponibles(request: Request, graph_token: str 
     <select> de Año con años FRÍOS sin sumarle costo a la respuesta rápida
     de la ventana caliente). El frontend la dispara en PARALELO durante la
     hidratación del tab. MISMO gate/token/fail-soft que
-    `reporting_cartera_data`."""
-    if not auth_service.session_user(request):
+    `reporting_cartera_data`.
+
+    RENTABILIDAD SHARED SOURCE REUSE corrective (ver HANDOFF): `cache_scope`
+    MISMO criterio/resolución que `reporting_rentabilidad_data` — la MISMA
+    sesión resuelve el MISMO scope para ambas rutas, así que comparten el
+    canonical Delta state de Proyectos/Horas por proyectos sin importar
+    cuál de las dos llega primero."""
+    user = auth_service.session_user(request)
+    if not user:
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
         raise HTTPException(403, "No autorizado para Operations / Reporting")
@@ -259,7 +273,8 @@ def reporting_rentabilidad_anios_disponibles(request: Request, graph_token: str 
 
     service = ReportingService()
     try:
-        anios = service.get_rentabilidad_anios(graph_token)
+        cache_scope = str(user.get("username") or user.get("email") or user.get("sub") or "") or None
+        anios = service.get_rentabilidad_anios(graph_token, cache_scope=cache_scope)
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:

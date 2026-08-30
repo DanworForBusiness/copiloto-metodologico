@@ -989,10 +989,15 @@ class ReportingRepository:
         entrada en `project_dim` — el caller debe tratarlo como
         "unmatched", nunca fabricar su dimensión.
 
-        `cache_scope` (Fase 3, ver HANDOFF): pasado tal cual a
-        `_cartera_facts_and_dimension` — hoy SOLO afecta a Facturadas XLSX
-        (única fuente VERSION-CACHE SAFE de esta fase, ver AUDIT). `None`
-        (default) preserva el comportamiento EXACTO de siempre."""
+        `cache_scope` (Fase 3B + RENTABILIDAD SHARED SOURCE REUSE corrective,
+        ver HANDOFF): pasado tal cual a `_cartera_facts_and_dimension` —
+        real ⇒ Proyectos/Cliente/Client Partner/Horas por proyectos/
+        Facturadas XLSX todos optan por su primitivo compartido (Delta o
+        version-cache según la fuente, ver ese método); `hot_years` sigue
+        acotando Horas por proyectos, pero ahora como proyección LOCAL sobre
+        el canonical Delta state (nunca un segundo `$filter` remoto) cuando
+        `cache_scope` es real. `None` (default) preserva el comportamiento
+        EXACTO de siempre."""
         return self._cartera_facts_and_dimension(
             access_token, include_facturadas=include_facturadas, hot_years=hot_years, cache_scope=cache_scope,
         )
@@ -1056,16 +1061,28 @@ class ReportingRepository:
         else:
             clientes_items = self._items_narrowed_or_full(site_id, self.cliente_list_id, "cliente", CLIENTE_SELECT_FIELDS)
         timer.stage("cliente", len(clientes_items))
-        # DELTA-SYNC CARTERA PROJECT HOURS corrective, Fase 3A (ver
-        # HANDOFF): el camino `hot_years=None` + `cache_scope` real (SOLO
-        # Cartera/Proyecto opta hoy — combo/tests que nunca pasan
-        # `cache_scope` quedan en el camino de siempre, MISMO criterio que
-        # Fase 2/3) reemplaza la lectura completa (1786 filas) por
-        # `/items/delta` — full sync solo la primera vez por scope,
-        # checkpoint incremental después. `hot_years=[...]` (Mantenimiento)
-        # NUNCA toca este camino — ver `_fetch_horas_proyectos` sin cambios.
-        if hot_years is None and cache_scope is not None:
+        # DELTA-SYNC CARTERA PROJECT HOURS corrective, Fase 3A + RENTABILIDAD
+        # SHARED SOURCE REUSE corrective (ver HANDOFF): el camino `cache_scope`
+        # real reemplaza la lectura completa/`$filter` (Cartera/Proyecto,
+        # Rentabilidad — combo/Mantenimiento/tests que nunca pasan
+        # `cache_scope` quedan en el camino de siempre) por `/items/delta` —
+        # full sync solo la primera vez por scope, checkpoint incremental
+        # después. `hot_years=[...]` (Mantenimiento, o Rentabilidad con
+        # ventana caliente) NUNCA cambia el FETCH remoto bajo `cache_scope`
+        # real: el canonical Delta state SIEMPRE trae la historia COMPLETA
+        # (delta no tiene noción de `$filter`) — `hot_years` se aplica
+        # LOCALMENTE después (`_filter_horas_items_by_years`, MISMA
+        # proyección que `get_batch_a_facts` ya usa para Horas Vendidas,
+        # nunca una segunda implementación del criterio). Antes de este
+        # corrective, Rentabilidad (que SIEMPRE pasa `hot_years` explícito,
+        # nunca `None`) caía al `else` de abajo aun con `cache_scope` real —
+        # una segunda lectura remota de Horas por proyectos, redundante con
+        # la que Cartera/Proyecto (o la propia Rentabilidad/anios-disponibles)
+        # ya sincronizó bajo la MISMA key `(cache_scope, site_id, list_id)`.
+        if cache_scope is not None:
             horas_items = self._fetch_horas_proyectos_delta(site_id, cache_scope=cache_scope)
+            if hot_years is not None:
+                horas_items = _filter_horas_items_by_years(horas_items, hot_years)
             filter_used = False  # delta no usa $filter OData — campo retenido por compat de logging
         else:
             horas_items, filter_used = self._fetch_horas_proyectos(

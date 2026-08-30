@@ -926,7 +926,9 @@ class ReportingService:
     #    fijo — es Time Logs de los 2 proyectos placeholder, fuera del
     #    universo de Proyectos (sin Tipo/Estado propios que filtrar), el
     #    PBIP tampoco lo filtra.
-    def get_rentabilidad(self, access_token: str, *, anios: list[str] | None = None) -> dict:
+    def get_rentabilidad(
+        self, access_token: str, *, anios: list[str] | None = None, cache_scope: str | None = None,
+    ) -> dict:
         """Contrato para AMBAS perspectivas de Rentabilidad: `proyectos`
         (una fila por proyecto — TODOS los tipos, a diferencia de Cartera
         que separa Mantenimiento/Proyecto — con `certificadas`/`trabajadas`/
@@ -954,6 +956,22 @@ class ReportingService:
         `facturadasProyecto` (solo certificadas/vendidas) — la XLSX de
         Facturadas es un costo real que esta experiencia pagaba sin
         necesitarlo, mismo criterio que Cartera/Mantenimiento.
+
+        `cache_scope` (RENTABILIDAD SHARED SOURCE REUSE corrective, ver
+        HANDOFF): `None` (default) preserva el comportamiento EXACTO de
+        siempre. Un `cache_scope` real se pasa TAL CUAL a AMBAS ramas —
+        `get_cartera_facts_with_project_dimension` (Proyectos/Cliente/
+        Client Partner/Horas por proyectos, todos vía su primitivo Delta ya
+        probado) y `get_time_logs_worked_hours` (eTag/version cache ya
+        probado) — nunca un contrato de identidad propio de Rentabilidad,
+        MISMO scope que ya resuelve el router para Cartera/Horas Vendidas.
+        Horas por proyectos NUNCA paga una segunda lectura remota bajo
+        `hot_years` real: el canonical Delta state (historia completa) se
+        proyecta LOCALMENTE a `hot_years` (ver
+        `_cartera_facts_and_dimension`) — la MISMA state que
+        `get_cartera_proyecto`/`get_rentabilidad_anios` ya sincronizan bajo
+        la MISMA key `(cache_scope, site_id, list_id)`, así que sólo el
+        PRIMER consumidor de la sesión paga el sync completo.
 
         TIME LOGS SCOPE corrective (owner 2026-08-18 — root cause PROBADA
         de una regresión de performance real, ~14s→~92s, owner live
@@ -1030,10 +1048,11 @@ class ReportingService:
             # helper que Cartera/Mantenimiento ya usa, no un loader nuevo.
             cartera_future = executor.submit(
                 self._repository.get_cartera_facts_with_project_dimension,
-                access_token, include_facturadas=False, hot_years=hot_years,
+                access_token, include_facturadas=False, hot_years=hot_years, cache_scope=cache_scope,
             )
             time_logs_future = executor.submit(
-                self._repository.get_time_logs_worked_hours, access_token, hot_years=hot_years,
+                self._repository.get_time_logs_worked_hours,
+                access_token, hot_years=hot_years, cache_scope=cache_scope,
             )
             # Orden determinístico OBLIGATORIO (ver ERROR PRIORITY arriba)
             # — Cartera SIEMPRE se observa antes que Time Logs, nunca
@@ -1214,13 +1233,23 @@ class ReportingService:
         `None` (default) preserva el contrato de siempre."""
         return self._repository.get_horas_anio_estado_pairs(access_token, cache_scope=cache_scope)
 
-    def get_rentabilidad_anios(self, access_token: str) -> list[dict]:
+    def get_rentabilidad_anios(self, access_token: str, *, cache_scope: str | None = None) -> list[dict]:
         """Metadata de años/estado disponibles de Rentabilidad — MISMO
         dominio que Horas Vendidas (todos los tipos de proyecto, misma
         lectura mínima de Proyectos/Horas por proyectos) — reusa el MISMO
         `get_horas_anio_estado_pairs` en vez de un segundo método idéntico
-        (owner directive — "do not duplicate temporal runtime logic")."""
-        return self._repository.get_horas_anio_estado_pairs(access_token)
+        (owner directive — "do not duplicate temporal runtime logic").
+
+        `cache_scope` (RENTABILIDAD SHARED SOURCE REUSE corrective, ver
+        HANDOFF): pasado tal cual — `None` (default) preserva el
+        comportamiento EXACTO de siempre. Un `cache_scope` real reusa el
+        MISMO canonical Delta state de Proyectos/Horas por proyectos que
+        `get_rentabilidad`/`get_horas_vendidas_anios`/`get_cartera_proyecto`
+        ya sincronizan bajo la MISMA key — nunca una segunda enumeración
+        completa (§4 del ticket: exactamente lo que este corrective
+        elimina, que antes SIEMPRE releía Horas por proyectos completo acá
+        sin importar qué otro consumidor ya lo hubiera sincronizado)."""
+        return self._repository.get_horas_anio_estado_pairs(access_token, cache_scope=cache_scope)
 
     def _shape_horas_vendidas(self, facts: list[dict]) -> list[dict]:
         """Contrato EXACTO de `HORASVENDIDAS_ROWS` (reporting.js): una fila
