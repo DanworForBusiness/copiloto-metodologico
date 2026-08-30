@@ -18,6 +18,7 @@ from webapp.main import app
 from webapp import access
 from webapp.services import auth_service
 from webapp.services import activity_analytics
+from webapp.services import activity_context
 
 # app.js (sin runtime de JS en esta suite) se fija por CONTENIDO DE FUENTE,
 # mismo criterio que test_staffing_director_priority_v2.py ya usa para
@@ -562,6 +563,33 @@ _REACTION_ROWS = [
 
 def _seed_reactions(monkeypatch, tmp_path):
     monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    # RELEASE-EVIDENCE COROLLARY (owner audit — "prove the committed tree, not
+    # the dirty worktree"): `commercial.feedback` ya se emite (routers/
+    # commercial.py) pero su registro en `_USAGE_EVENTS`/`EVENT_LABELS`
+    # (activity_context.py) sigue DELIBERADAMENTE sin commitear — pertenece
+    # a un ticket propio (Commercial feedback route homologation), ver
+    # HANDOFF/commit ce82abf. Este test prueba que Reacciones agrega
+    # CUALQUIER evento `<x>.feedback` clasificado `usage` (la garantía
+    # genérica que build_summary ya ofrece, ver su propio docstring —
+    # nunca una lista hardcodeada), así que se registra acá, LOCAL al test,
+    # en vez de depender de que ese otro commit ya haya aterrizado — nunca
+    # se toca el archivo real de producción.
+    monkeypatch.setattr(
+        activity_context, "_USAGE_EVENTS",
+        activity_context._USAGE_EVENTS | {"commercial.feedback"},
+    )
+    # `EVENT_LABELS` se parchea en `activity_analytics` (no en
+    # `activity_context`): ese módulo lo importa por VALOR
+    # (`from ...activity_context import (..., EVENT_LABELS)`), así que
+    # reasignar el dict en `activity_context` después de ese import no
+    # afecta el binding local que `build_summary` realmente lee
+    # (`"event_labels": EVENT_LABELS`, ver activity_analytics.py) —
+    # parchear el módulo equivocado dejaría este fixture pasando en
+    # falso.
+    monkeypatch.setattr(
+        activity_analytics, "EVENT_LABELS",
+        {**activity_analytics.EVENT_LABELS, "commercial.feedback": "Comercial — feedback de capability"},
+    )
     # ISOLACIÓN: `_read_reaction_comments` lee FEEDBACK_LOG_DIR — sin esto,
     # un test sin comentario propio terminaría leyendo el FEEDBACK_LOG_DIR
     # REAL de este entorno (mismo criterio que `_isolate_remote_store_
