@@ -20,6 +20,7 @@ defaults de filtro) — eso sigue 100% en reporting.js.
 from __future__ import annotations
 
 import logging
+import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -27,6 +28,12 @@ from datetime import datetime
 from webapp.services.reporting_repository import ReportingRepository, _is_valid_anio, _norm_key
 
 _logger = logging.getLogger("danwor.reporting")
+# PERF instrumentation permanente (bajo costo, ver HANDOFF Fase 1 §9) —
+# mismo logger/nombre que `reporting_repository.py` (`_perf_logger`), un
+# único stream `danwor.reporting.perf` para todas las líneas `reporting.perf`.
+# Acá sólo se agrega el timer EXTERIOR de `get_cartera_proyecto`
+# (`cartera_proyecto.*`), MISMO contrato stage-level que `_StageTimer`.
+_perf_logger = logging.getLogger("danwor.reporting.perf")
 
 # Proyectos placeholder "Horas No Productivas" del PBIP (real-data-lineage.md:284,
 # página "Hs No Asignadas": `[Project] IN {...}`) — parte del criterio de
@@ -496,7 +503,7 @@ class ReportingService:
         current = datetime.now().year
         return [str(current), str(current - 1)]
 
-    def get_cartera_proyecto(self, access_token: str) -> list[dict]:
+    def get_cartera_proyecto(self, access_token: str, *, cache_scope: str | None = None) -> list[dict]:
         """Perspectiva Proyecto SOLA — SÍ necesita la XLSX
         (`facturadasProyecto`, ver `_proyecto_rows`). NUNCA recibe/aplica
         `hot_years` — agrega la VIDA COMPLETA del proyecto (ver
@@ -525,13 +532,69 @@ class ReportingService:
         `..._with_project_dimension` en vez de `get_cartera_facts`: MISMO
         fetch, CERO llamadas Graph nuevas (devuelve la dimensión que ese
         método ya leía), y es lo que permite que un proyecto que sólo existe
-        en Time Logs pero resuelve contra Proyectos aparezca igual."""
+        en Time Logs pero resuelve contra Proyectos aparezca igual.
+
+        PERF PHASE 1B — RECHAZADA PERMANENTEMENTE (owner A/B isolation,
+        medición real, ver HANDOFF: Fase 1A+1B combinada empeoró TODO —
+        `cartera_proyecto.facts` 14.9s→50.2s, `time_logs` 26.6s→50.6s, el
+        CSV wall phase de Time Logs solo ~23.9s→~47.4s con el MISMO pool
+        de 3 workers — fuerte indicio de contención real contra Microsoft
+        365/SharePoint al combinar dos ramas top-level concurrentes, no un
+        problema de este código). El `ThreadPoolExecutor(max_workers=2)`
+        top-level (Facts || Time Logs) fue RETIRADO — Facts y Time Logs
+        corren SECUENCIAL, ambas en el thread que llamó a este método
+        (nunca en un pool). Fase 1A (pool acotado de 3 workers para las
+        descargas CSV DENTRO de Time Logs, ver `_download_time_logs_rows`)
+        SÍ se mantiene — midió mejor en aislamiento, es una capa de
+        concurrencia distinta (I/O intra-fuente, no fan-out cross-fuente).
+        El patrón de concurrencia de dos ramas retirado de acá sigue
+        vigente, SIN TOCAR, en `get_rentabilidad` — este rechazo es
+        exclusivo de Cartera/Proyecto.
+
+        `cache_scope` (CACHE VERSIONED HISTORICAL TIME LOGS corrective,
+        Fase 2, ver reporting_time_logs_cache.py): identidad ESTABLE y NO
+        secreta del usuario Hub autenticado (email de sesión, resuelto en
+        el router desde `auth_service.session_user(request)` — NUNCA el
+        `graph_token`, ver AUDIT en HANDOFF), pasada tal cual a
+        `get_time_logs_worked_hours`. `None` (default) preserva el
+        contrato de siempre — SIN caching."""
+        _cp_total_start = time.perf_counter()
+        _cp_facts_start = _cp_total_start
         facts, project_dim = self._repository.get_cartera_facts_with_project_dimension(
-            access_token, include_facturadas=True,
+            access_token, include_facturadas=True, cache_scope=cache_scope,
         )
-        time_logs = self._repository.get_time_logs_worked_hours(access_token, hot_years=None)
+        _perf_logger.info(
+            "reporting.perf cartera_proyecto.facts elapsed_ms=%s",
+            round((time.perf_counter() - _cp_facts_start) * 1000),
+        )
+        # TIMER SEMANTICS corrective (owner, ver HANDOFF): cada stage mide
+        # SU PROPIA duración desde su propio inicio, nunca acumulado desde
+        # `_cp_total_start` — con la topología secuencial de acá (Facts,
+        # DESPUÉS Time Logs), `_cp_time_logs_start` es simplemente el
+        # instante en que Facts terminó, así que este timer refleja
+        # EXCLUSIVAMENTE la rama Time Logs (`time_logs.total`, el timer
+        # canónico interno de esta rama, debe coincidir con este valor
+        # menos el overhead despreciable de `get_time_logs_worked_hours`
+        # fuera de `_download_time_logs_rows`/`_resolve_time_logs_site_id`).
+        _cp_time_logs_start = time.perf_counter()
+        time_logs = self._repository.get_time_logs_worked_hours(
+            access_token, hot_years=None, cache_scope=cache_scope,
+        )
+        _perf_logger.info(
+            "reporting.perf cartera_proyecto.time_logs elapsed_ms=%s",
+            round((time.perf_counter() - _cp_time_logs_start) * 1000),
+        )
+        _cp_shaping_start = time.perf_counter()
         rows, unmatched = self._proyecto_rows(
             facts, _trab_by_proyecto_by_year(time_logs), project_dim,
+        )
+        _perf_logger.info(
+            "reporting.perf cartera_proyecto.shaping elapsed_ms=%s",
+            round((time.perf_counter() - _cp_shaping_start) * 1000),
+        )
+        _perf_logger.info(
+            "reporting.perf cartera_proyecto.total elapsed_ms=%s",
+            round((time.perf_counter() - _cp_total_start) * 1000),
         )
         if unmatched:
             # MISMO criterio que Mantenimiento: nunca se fabrica dimensión
@@ -863,7 +926,9 @@ class ReportingService:
     #    fijo — es Time Logs de los 2 proyectos placeholder, fuera del
     #    universo de Proyectos (sin Tipo/Estado propios que filtrar), el
     #    PBIP tampoco lo filtra.
-    def get_rentabilidad(self, access_token: str, *, anios: list[str] | None = None) -> dict:
+    def get_rentabilidad(
+        self, access_token: str, *, anios: list[str] | None = None, cache_scope: str | None = None,
+    ) -> dict:
         """Contrato para AMBAS perspectivas de Rentabilidad: `proyectos`
         (una fila por proyecto — TODOS los tipos, a diferencia de Cartera
         que separa Mantenimiento/Proyecto — con `certificadas`/`trabajadas`/
@@ -891,6 +956,22 @@ class ReportingService:
         `facturadasProyecto` (solo certificadas/vendidas) — la XLSX de
         Facturadas es un costo real que esta experiencia pagaba sin
         necesitarlo, mismo criterio que Cartera/Mantenimiento.
+
+        `cache_scope` (RENTABILIDAD SHARED SOURCE REUSE corrective, ver
+        HANDOFF): `None` (default) preserva el comportamiento EXACTO de
+        siempre. Un `cache_scope` real se pasa TAL CUAL a AMBAS ramas —
+        `get_cartera_facts_with_project_dimension` (Proyectos/Cliente/
+        Client Partner/Horas por proyectos, todos vía su primitivo Delta ya
+        probado) y `get_time_logs_worked_hours` (eTag/version cache ya
+        probado) — nunca un contrato de identidad propio de Rentabilidad,
+        MISMO scope que ya resuelve el router para Cartera/Horas Vendidas.
+        Horas por proyectos NUNCA paga una segunda lectura remota bajo
+        `hot_years` real: el canonical Delta state (historia completa) se
+        proyecta LOCALMENTE a `hot_years` (ver
+        `_cartera_facts_and_dimension`) — la MISMA state que
+        `get_cartera_proyecto`/`get_rentabilidad_anios` ya sincronizan bajo
+        la MISMA key `(cache_scope, site_id, list_id)`, así que sólo el
+        PRIMER consumidor de la sesión paga el sync completo.
 
         TIME LOGS SCOPE corrective (owner 2026-08-18 — root cause PROBADA
         de una regresión de performance real, ~14s→~92s, owner live
@@ -967,10 +1048,11 @@ class ReportingService:
             # helper que Cartera/Mantenimiento ya usa, no un loader nuevo.
             cartera_future = executor.submit(
                 self._repository.get_cartera_facts_with_project_dimension,
-                access_token, include_facturadas=False, hot_years=hot_years,
+                access_token, include_facturadas=False, hot_years=hot_years, cache_scope=cache_scope,
             )
             time_logs_future = executor.submit(
-                self._repository.get_time_logs_worked_hours, access_token, hot_years=hot_years,
+                self._repository.get_time_logs_worked_hours,
+                access_token, hot_years=hot_years, cache_scope=cache_scope,
             )
             # Orden determinístico OBLIGATORIO (ver ERROR PRIORITY arriba)
             # — Cartera SIEMPRE se observa antes que Time Logs, nunca
@@ -1118,7 +1200,9 @@ class ReportingService:
     # Comparten UN fetch (`get_batch_a_facts`). Horas Vendidas se sirve aparte
     # con scope temporal (ver `get_horas_vendidas` + `get_horas_vendidas_anios`).
 
-    def get_horas_vendidas(self, access_token: str, *, anios: list[str] | None = None) -> list[dict]:
+    def get_horas_vendidas(
+        self, access_token: str, *, anios: list[str] | None = None, cache_scope: str | None = None,
+    ) -> list[dict]:
         """Horas Vendidas con SCOPE TEMPORAL (owner directive — HV pide al
         mismo source-family SÓLO su ventana caliente, sin arrastrar la
         historia completa de Participación). `anios=None` (primera hidratación
@@ -1127,26 +1211,45 @@ class ReportingService:
         lista explícita (`["2024"]`) es el lazy-load de un año FRÍO puntual,
         disparado por el usuario al elegirlo en el <select> de Año — MISMO
         contrato que `get_cartera_mantenimiento(anios=...)`. El scope acota
-        SOLO la lectura de Horas por proyectos (ver `get_batch_a_facts`)."""
+        SOLO la lectura de Horas por proyectos (ver `get_batch_a_facts`).
+
+        `cache_scope` (REUSO DE ADQUISICIÓN DELTA corrective, ver HANDOFF):
+        pasado tal cual a `get_batch_a_facts` — `None` (default) preserva el
+        contrato de siempre."""
         hot_years = anios if anios is not None else self._default_hot_years()
-        facts = self._repository.get_batch_a_facts(access_token, hot_years=hot_years)["project_facts"]
+        facts = self._repository.get_batch_a_facts(
+            access_token, hot_years=hot_years, cache_scope=cache_scope,
+        )["project_facts"]
         return self._shape_horas_vendidas(facts)
 
-    def get_horas_vendidas_anios(self, access_token: str) -> list[dict]:
+    def get_horas_vendidas_anios(self, access_token: str, *, cache_scope: str | None = None) -> list[dict]:
         """Metadata de años/estado disponibles de Horas Vendidas (todos los
         tipos) — separada del fetch de datos a propósito (misma razón que
         Cartera: las OPCIONES del <select> de Año nunca deben confundirse con
         los años ya HIDRATADOS por la ventana caliente). Delegado 1:1 al
-        repository (`get_horas_anio_estado_pairs`)."""
-        return self._repository.get_horas_anio_estado_pairs(access_token)
+        repository (`get_horas_anio_estado_pairs`).
 
-    def get_rentabilidad_anios(self, access_token: str) -> list[dict]:
+        `cache_scope` (REUSO DE ADQUISICIÓN DELTA corrective, ver HANDOFF):
+        `None` (default) preserva el contrato de siempre."""
+        return self._repository.get_horas_anio_estado_pairs(access_token, cache_scope=cache_scope)
+
+    def get_rentabilidad_anios(self, access_token: str, *, cache_scope: str | None = None) -> list[dict]:
         """Metadata de años/estado disponibles de Rentabilidad — MISMO
         dominio que Horas Vendidas (todos los tipos de proyecto, misma
         lectura mínima de Proyectos/Horas por proyectos) — reusa el MISMO
         `get_horas_anio_estado_pairs` en vez de un segundo método idéntico
-        (owner directive — "do not duplicate temporal runtime logic")."""
-        return self._repository.get_horas_anio_estado_pairs(access_token)
+        (owner directive — "do not duplicate temporal runtime logic").
+
+        `cache_scope` (RENTABILIDAD SHARED SOURCE REUSE corrective, ver
+        HANDOFF): pasado tal cual — `None` (default) preserva el
+        comportamiento EXACTO de siempre. Un `cache_scope` real reusa el
+        MISMO canonical Delta state de Proyectos/Horas por proyectos que
+        `get_rentabilidad`/`get_horas_vendidas_anios`/`get_cartera_proyecto`
+        ya sincronizan bajo la MISMA key — nunca una segunda enumeración
+        completa (§4 del ticket: exactamente lo que este corrective
+        elimina, que antes SIEMPRE releía Horas por proyectos completo acá
+        sin importar qué otro consumidor ya lo hubiera sincronizado)."""
+        return self._repository.get_horas_anio_estado_pairs(access_token, cache_scope=cache_scope)
 
     def _shape_horas_vendidas(self, facts: list[dict]) -> list[dict]:
         """Contrato EXACTO de `HORASVENDIDAS_ROWS` (reporting.js): una fila

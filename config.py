@@ -57,8 +57,15 @@ SPACES_SYNC_INTERVAL = int(_env("SPACES_SYNC_INTERVAL", "120"))  # segundos entr
 # Dirs runtime a persistir (relativas a BASE_DIR). El catálogo puede vivir en otra
 # ruta vía DANWOR_CATALOG_DIR; el remote_store lo resuelve en runtime. (Se parsea
 # inline porque _csv_env se define más abajo en este módulo.)
+# `reporting_cache` (Integral Cold Start Fase 1, ver HANDOFF): estado durable
+# versionado de Time Logs históricos — MISMO mecanismo genérico de
+# remote_store (ningún cambio a ese módulo más allá del tracking de estado
+# de `restore()`), nunca un directorio con lógica de sync propia. SOLO
+# históricos en esta fase (ver reporting_time_logs_durable.py) — Delta de
+# Proyectos/Cliente/Horas/Client Partner, el archivo Time Logs actual y
+# Facturadas quedan explícitamente fuera de alcance.
 PERSIST_PATHS     = [p.strip() for p in _env(
-    "SPACES_PERSIST_PATHS", "catalog_local,case_library,feedback_log,activity_log,reports"
+    "SPACES_PERSIST_PATHS", "catalog_local,case_library,feedback_log,activity_log,reports,reporting_cache"
 ).split(",") if p.strip()]
 PERSIST_ENABLED   = bool(SPACES_ENDPOINT and SPACES_BUCKET and SPACES_KEY and SPACES_SECRET)
 

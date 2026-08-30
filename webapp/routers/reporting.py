@@ -129,7 +129,8 @@ def reporting_cartera_data(
     `/data/cartera/anios-disponibles`, un endpoint separado que el
     frontend dispara en paralelo SIN bloquear el primer render — ver
     `reporting_cartera_anios_disponibles` abajo."""
-    if not auth_service.session_user(request):
+    user = auth_service.session_user(request)
+    if not user:
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
         raise HTTPException(403, "No autorizado para Operations / Reporting")
@@ -142,7 +143,17 @@ def reporting_cartera_data(
             anios_list = [a.strip() for a in anios.split(",") if a.strip()] or None
             cartera = {"mantenimiento": service.get_cartera_mantenimiento(graph_token, anios=anios_list)}
         elif perspectiva == "proyecto":
-            cartera = {"proyecto": service.get_cartera_proyecto(graph_token)}
+            # CACHE VERSIONED HISTORICAL TIME LOGS corrective (Fase 2, ver
+            # HANDOFF + reporting_time_logs_cache.py): `cache_scope` es el
+            # email de la sesión Hub YA verificada arriba (`user`) — NUNCA
+            # `graph_token` (nunca se guarda/loguea/usa como key de cache).
+            # `sub` (no `email`) es la claim real del JWT de sesión (ver
+            # `auth_service.create_session`/`session_user`) — MISMO
+            # fallback defensivo que el resto del Hub usa para mostrar el
+            # usuario (`user.get("username") or user.get("email") or
+            # user.get("sub")`, ver operations_access.py/main.py).
+            cache_scope = str(user.get("username") or user.get("email") or user.get("sub") or "") or None
+            cartera = {"proyecto": service.get_cartera_proyecto(graph_token, cache_scope=cache_scope)}
         else:
             cartera = service.get_cartera(graph_token)
     except ReportingConfigurationError:
@@ -207,8 +218,14 @@ def reporting_rentabilidad_data(request: Request, graph_token: str = Form(""), a
     `reporting_horas_vendidas_data` — CSV de años a hidratar; vacío/omitido
     resuelve al default de ventana caliente (año actual + anterior). La
     metadata de años seleccionables vive en
-    `/data/rentabilidad/anios-disponibles`."""
-    if not auth_service.session_user(request):
+    `/data/rentabilidad/anios-disponibles`.
+
+    RENTABILIDAD SHARED SOURCE REUSE corrective (ver HANDOFF): `cache_scope`
+    resuelto desde la sesión Hub YA verificada arriba (`user`) — MISMO
+    criterio exacto que `reporting_cartera_data`/`reporting_horas_vendidas_data`
+    (perspectiva Proyecto/Horas Vendidas) — NUNCA `graph_token`."""
+    user = auth_service.session_user(request)
+    if not user:
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
         raise HTTPException(403, "No autorizado para Operations / Reporting")
@@ -218,7 +235,8 @@ def reporting_rentabilidad_data(request: Request, graph_token: str = Form(""), a
     service = ReportingService()
     try:
         anios_list = [a.strip() for a in anios.split(",") if a.strip()] or None
-        rentabilidad = service.get_rentabilidad(graph_token, anios=anios_list)
+        cache_scope = str(user.get("username") or user.get("email") or user.get("sub") or "") or None
+        rentabilidad = service.get_rentabilidad(graph_token, anios=anios_list, cache_scope=cache_scope)
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
@@ -238,8 +256,15 @@ def reporting_rentabilidad_anios_disponibles(request: Request, graph_token: str 
     <select> de Año con años FRÍOS sin sumarle costo a la respuesta rápida
     de la ventana caliente). El frontend la dispara en PARALELO durante la
     hidratación del tab. MISMO gate/token/fail-soft que
-    `reporting_cartera_data`."""
-    if not auth_service.session_user(request):
+    `reporting_cartera_data`.
+
+    RENTABILIDAD SHARED SOURCE REUSE corrective (ver HANDOFF): `cache_scope`
+    MISMO criterio/resolución que `reporting_rentabilidad_data` — la MISMA
+    sesión resuelve el MISMO scope para ambas rutas, así que comparten el
+    canonical Delta state de Proyectos/Horas por proyectos sin importar
+    cuál de las dos llega primero."""
+    user = auth_service.session_user(request)
+    if not user:
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
         raise HTTPException(403, "No autorizado para Operations / Reporting")
@@ -248,7 +273,8 @@ def reporting_rentabilidad_anios_disponibles(request: Request, graph_token: str 
 
     service = ReportingService()
     try:
-        anios = service.get_rentabilidad_anios(graph_token)
+        cache_scope = str(user.get("username") or user.get("email") or user.get("sub") or "") or None
+        anios = service.get_rentabilidad_anios(graph_token, cache_scope=cache_scope)
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
@@ -309,8 +335,14 @@ def reporting_horas_vendidas_data(request: Request, graph_token: str = Form(""),
     año es el lazy-load de un año FRÍO al elegirlo en el <select> de Año. La
     metadata de años seleccionables NO viaja acá (mismo motivo que Cartera:
     cada request de la ventana caliente pagaría una lectura extra) — vive en
-    `/data/horas-vendidas/anios-disponibles`."""
-    if not auth_service.session_user(request):
+    `/data/horas-vendidas/anios-disponibles`.
+
+    REUSO DE ADQUISICIÓN DELTA corrective (ver HANDOFF): `cache_scope`
+    resuelto desde la sesión Hub YA verificada arriba (`user`) — MISMO
+    criterio exacto que `reporting_cartera_data` (perspectiva Proyecto) —
+    NUNCA `graph_token`."""
+    user = auth_service.session_user(request)
+    if not user:
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
         raise HTTPException(403, "No autorizado para Operations / Reporting")
@@ -320,7 +352,8 @@ def reporting_horas_vendidas_data(request: Request, graph_token: str = Form(""),
     service = ReportingService()
     try:
         anios_list = [a.strip() for a in anios.split(",") if a.strip()] or None
-        horas_vendidas = service.get_horas_vendidas(graph_token, anios=anios_list)
+        cache_scope = str(user.get("username") or user.get("email") or user.get("sub") or "") or None
+        horas_vendidas = service.get_horas_vendidas(graph_token, anios=anios_list, cache_scope=cache_scope)
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:
@@ -339,8 +372,12 @@ def reporting_horas_vendidas_anios_disponibles(request: Request, graph_token: st
     — SEPARADA del fetch de datos a propósito (misma razón que Cartera: puebla
     el <select> de Año con años FRÍOS sin sumarle costo a la respuesta rápida
     de la ventana caliente). El frontend la dispara en PARALELO durante la
-    hidratación del tab. MISMO gate/token/fail-soft que `reporting_cartera_data`."""
-    if not auth_service.session_user(request):
+    hidratación del tab. MISMO gate/token/fail-soft que `reporting_cartera_data`.
+
+    REUSO DE ADQUISICIÓN DELTA corrective (ver HANDOFF): `cache_scope`
+    MISMO criterio que `reporting_horas_vendidas_data` arriba."""
+    user = auth_service.session_user(request)
+    if not user:
         return workspaces.platform_login_redirect(request)
     if not operations_access.is_operations_authorized(request):
         raise HTTPException(403, "No autorizado para Operations / Reporting")
@@ -349,7 +386,8 @@ def reporting_horas_vendidas_anios_disponibles(request: Request, graph_token: st
 
     service = ReportingService()
     try:
-        anios = service.get_horas_vendidas_anios(graph_token)
+        cache_scope = str(user.get("username") or user.get("email") or user.get("sub") or "") or None
+        anios = service.get_horas_vendidas_anios(graph_token, cache_scope=cache_scope)
     except ReportingConfigurationError:
         return JSONResponse({"state": "config_incomplete"})
     except ReportingGraphError as exc:

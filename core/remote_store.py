@@ -19,6 +19,7 @@ import asyncio
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 
 import config
@@ -31,9 +32,52 @@ _client_lock = threading.Lock()
 # saltear re-subidas de archivos sin cambios dentro de la vida del proceso.
 _signatures: dict[str, tuple[int, int]] = {}
 
+# RESTORE-COMPLETION coordination (Integral Cold Start Fase 1, ver HANDOFF):
+# un consumidor lazy (hoy sólo `reporting_time_logs_durable.py`) necesita
+# saber si el restore de arranque YA bajó su estado durable al FS local
+# ANTES de intentar leerlo — leer disco mientras el restore sigue en vuelo
+# reportaría un miss falso aunque el archivo esté a segundos de aparecer.
+# `_restore_state` empieza en "not_applicable" (nunca se tocó: o bien
+# `enabled()` es False, o `restore()` nunca se llamó todavía) — SOLO
+# `restore()` mismo lo mueve a "in_progress"/"completed"/"failed", nunca un
+# caller externo (evita un segundo punto de verdad sobre CUÁNDO arrancó).
+# `threading.Event`, no `asyncio.Event`: el consumidor real corre en un
+# request handler SYNC de FastAPI (threadpool), nunca en el event loop.
+_restore_state = "not_applicable"
+_restore_state_lock = threading.Lock()
+_restore_done = threading.Event()
+_restore_elapsed_ms: float | None = None
+
 
 def enabled() -> bool:
     return bool(config.PERSIST_ENABLED)
+
+
+def restore_status() -> str:
+    """'not_applicable' (Spaces deshabilitado, o `restore()` nunca corrió) |
+    'in_progress' | 'completed' | 'failed'. Lectura pura, nunca bloquea."""
+    return _restore_state
+
+
+def restore_elapsed_ms() -> float | None:
+    """`None` hasta que `restore()` termina al menos una vez en este
+    proceso — SOLO diagnóstico (§10 del ticket), nunca decide comportamiento."""
+    return _restore_elapsed_ms
+
+
+def await_restore(timeout: float) -> str:
+    """Bloqueante (uso desde un thread SYNC, nunca desde el event loop) —
+    si el restore YA terminó (o nunca aplica), devuelve de inmediato. Si
+    sigue en curso, espera hasta `timeout` segundos y devuelve el estado
+    que encuentre — puede seguir siendo 'in_progress' si el timeout venció
+    primero; el caller SIEMPRE debe tratar cualquier resultado que no sea
+    'completed' como "sin garantía de estado durable disponible" y
+    degradar con gracia (nunca lanza, nunca bloquea más allá de
+    `timeout`)."""
+    if _restore_state != "in_progress":
+        return _restore_state
+    _restore_done.wait(timeout=timeout)
+    return _restore_state
 
 
 def _key(rel_posix: str) -> str:
@@ -84,14 +128,29 @@ def _sig(path: Path) -> tuple[int, int]:
 
 def restore() -> int:
     """Baja al FS local todo lo persistido en el bucket. Pensado para el boot,
-    cuando el FS efímero arranca vacío. Devuelve la cantidad de archivos bajados."""
+    cuando el FS efímero arranca vacío. Devuelve la cantidad de archivos bajados.
+
+    RESTORE-COMPLETION coordination (ver arriba): marca `_restore_state`
+    'in_progress' apenas arranca (SOLO si `enabled()`, si no queda
+    'not_applicable' para siempre — ningún consumidor lazy debe esperar por
+    algo que nunca va a pasar) y 'completed'/'failed' al terminar, siempre
+    despertando a `_restore_done` — así un waiter que ya estaba bloqueado en
+    `await_restore` se libera apenas hay un resultado, sin polling."""
+    global _restore_state, _restore_elapsed_ms
     if not enabled():
         log.info("remote_store deshabilitado (sin credenciales Spaces) — no-op")
         return 0
+    with _restore_state_lock:
+        _restore_state = "in_progress"
+    _restore_started = time.perf_counter()
     try:
         client = _get_client()
     except Exception as exc:  # boto3 ausente o config inválida
         log.warning("remote_store.restore: no se pudo inicializar el cliente: %s", exc)
+        with _restore_state_lock:
+            _restore_state = "failed"
+        _restore_elapsed_ms = (time.perf_counter() - _restore_started) * 1000
+        _restore_done.set()
         return 0
 
     bucket = config.SPACES_BUCKET
@@ -132,6 +191,10 @@ def restore() -> int:
                 except Exception as exc:
                     log.warning("remote_store.restore: fallo bajando un objeto: %s", exc)
     log.info("remote_store.restore: %d archivos restaurados desde Spaces", downloaded)
+    with _restore_state_lock:
+        _restore_state = "completed"
+    _restore_elapsed_ms = (time.perf_counter() - _restore_started) * 1000
+    _restore_done.set()
     return downloaded
 
 

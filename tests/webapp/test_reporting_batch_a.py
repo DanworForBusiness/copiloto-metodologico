@@ -282,7 +282,7 @@ class _HotYearsRecordingBatchARepo:
     def __init__(self):
         self.calls = []
 
-    def get_batch_a_facts(self, access_token, *, hot_years=None):
+    def get_batch_a_facts(self, access_token, *, hot_years=None, cache_scope=None):
         self.calls.append(hot_years)
         return {"project_facts": [], "cliente_dim": []}
 
@@ -569,7 +569,7 @@ def test_get_horas_vendidas_defaults_to_hot_window(monkeypatch):
     from datetime import datetime
     captured = {}
 
-    def fake_facts(self, access_token, *, hot_years=None):
+    def fake_facts(self, access_token, *, hot_years=None, cache_scope=None):
         captured["hot_years"] = hot_years
         return {"project_facts": [], "cliente_dim": []}
 
@@ -583,7 +583,7 @@ def test_get_horas_vendidas_cold_year_passes_explicit_scope(monkeypatch):
     # Un año frío puntual (lazy-load al elegirlo) viaja como scope explícito.
     captured = {}
 
-    def fake_facts(self, access_token, *, hot_years=None):
+    def fake_facts(self, access_token, *, hot_years=None, cache_scope=None):
         captured["hot_years"] = hot_years
         return {"project_facts": [], "cliente_dim": []}
 

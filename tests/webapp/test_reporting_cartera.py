@@ -478,7 +478,7 @@ class _HotYearsRecordingRepo:
         self.calls.append({"include_facturadas": include_facturadas, "hot_years": hot_years})
         return []
 
-    def get_cartera_facts_with_project_dimension(self, access_token, *, include_facturadas=True, hot_years=None):
+    def get_cartera_facts_with_project_dimension(self, access_token, *, include_facturadas=True, hot_years=None, cache_scope=None):
         # UNION GRAIN corrective (owner 2026-08-18): Mantenimiento/combo
         # ahora piden la dimensión de proyecto junto con los facts —
         # MISMO tracking de `calls` (es el mismo fetch subyacente, ver
@@ -486,7 +486,7 @@ class _HotYearsRecordingRepo:
         self.calls.append({"include_facturadas": include_facturadas, "hot_years": hot_years})
         return [], {}
 
-    def get_time_logs_worked_hours(self, access_token, *, hot_years=None):
+    def get_time_logs_worked_hours(self, access_token, *, hot_years=None, cache_scope=None):
         self.time_logs_calls.append(hot_years)
         return []
 
@@ -565,13 +565,13 @@ class _FakeRepo:
     def get_cartera_facts(self, access_token, *, include_facturadas=True, hot_years=None):
         return self._facts
 
-    def get_cartera_facts_with_project_dimension(self, access_token, *, include_facturadas=True, hot_years=None):
+    def get_cartera_facts_with_project_dimension(self, access_token, *, include_facturadas=True, hot_years=None, cache_scope=None):
         # UNION GRAIN corrective — estos tests NO ejercitan el camino
         # Time-Logs-only (sus fixtures ya cubren la MISMA key desde
         # "Horas por proyectos"), project_dim vacío es seguro/no-op acá.
         return self._facts, {}
 
-    def get_time_logs_worked_hours(self, access_token, *, hot_years=None):
+    def get_time_logs_worked_hours(self, access_token, *, hot_years=None, cache_scope=None):
         return self._time_logs
 
     def get_cartera_mantenimiento_anio_estado_pairs(self, access_token):
@@ -790,8 +790,9 @@ class _PerspectivaAwareReportingService:
         self.called.append("mantenimiento")
         return [{"cliente": "solo-mantenimiento"}]
 
-    def get_cartera_proyecto(self, access_token):
+    def get_cartera_proyecto(self, access_token, *, cache_scope=None):
         self.called.append("proyecto")
+        self.last_cache_scope = cache_scope
         return [{"cliente": "solo-proyecto"}]
 
 
@@ -818,6 +819,20 @@ def test_cartera_endpoint_perspectiva_proyecto_calls_only_that_method(monkeypatc
     body = r.json()
     assert svc.called == ["proyecto"]
     assert body["cartera"] == {"proyecto": [{"cliente": "solo-proyecto"}]}
+
+
+def test_cartera_endpoint_perspectiva_proyecto_passes_session_email_as_cache_scope(monkeypatch):
+    # CACHE VERSIONED HISTORICAL TIME LOGS corrective (Fase 2, ver
+    # HANDOFF): el router resuelve `cache_scope` desde la sesión Hub YA
+    # autenticada (claim `sub` del JWT, ver `_SESSION` arriba) — NUNCA
+    # desde `graph_token`. Confirma el wiring exacto.
+    svc = _PerspectivaAwareReportingService()
+    monkeypatch.setattr(reporting_router, "ReportingService", lambda: svc)
+    _client.post(
+        "/operaciones/reporting/integral/data/cartera",
+        data={"graph_token": "tok", "perspectiva": "proyecto"},
+    )
+    assert svc.last_cache_scope == "staffing-test@danwor.com"
 
 
 def test_cartera_endpoint_perspectiva_omitted_preserves_retrocompat_combo(monkeypatch):

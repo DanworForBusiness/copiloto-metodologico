@@ -872,6 +872,38 @@ function staffingDashboard(payload) {
   const defaultConceptFilter = () =>
     Object.fromEntries(CONCEPT_OPTIONS.map(c => [c, true]));
 
+  // Techo del lookback de ausencias — DINÁMICO (Dirección corrective, ver
+  // HANDOFF), ya NO un número fijo. El backend hidrata ausencias sobre el
+  // MISMO horizonte que Asignaciones (`compute_horizon_months`,
+  // staffing_service.py) y ahora lo declara EXPLÍCITO en el payload del
+  // overlay (`absence_history_start`/`absence_lookback_max_days`, ver
+  // `_loadAbsences`) — este archivo NUNCA reimplementa "primer día del mes
+  // anterior", sólo LEE ese número. 28 fue el PISO mínimo garantizado
+  // (peor caso: "hoy" el 1º de marzo de un año no bisiesto) que motivó el
+  // discovery original — dejó de ser el contrato productivo: el máximo
+  // real puede ser mayor (hasta ~59 días según dónde caiga "hoy" en el
+  // mes) y la UI debe reflejar exactamente eso, nunca menos ni más de lo
+  // que el backend confirma. `absenceLookbackMaxDays` (estado, ver abajo)
+  // arranca en un valor SEGURO antes de hidratar (10, el propio default —
+  // nunca promete más de lo que el default ya necesita) y se actualiza en
+  // cuanto la respuesta real llega. El `<input max>` del template usa
+  // `:max="absenceLookbackMaxDays"` — MISMA fuente runtime que este
+  // clamp, nunca un segundo número fijo en Jinja (a diferencia del 365 de
+  // `projectionDays`, que sí es fijo porque su dataset no tiene este
+  // límite de historia garantizada).
+  //
+  // OWNER CORRECTIVE previo (ver HANDOFF): la primera versión de este
+  // control ("Vacaciones · últimos N días") filtraba SOLO el concepto
+  // "Vacaciones" — el owner detectó en su propia captura que el lane
+  // seguía mostrando registros VIEJOS de OTROS conceptos (Danwor Day) y
+  // revocó esa decisión: el control es del LANE COMPLETO de ausencias (los
+  // 4 conceptos), independiente de los checkboxes de Concepto (N = cuánto
+  // histórico veo; checkboxes = qué conceptos veo — dos preguntas
+  // ortogonales). Renombrado de
+  // `vacationLookbackDays`/`vacationCutoffISO`/`setVacationLookbackDays` a
+  // `absenceLookbackDays`/`absenceCutoffISO`/`setAbsenceLookbackDays` para
+  // que el nombre describa la semántica real.
+
   // Paleta determinística de identidad (project_id, o assignment_id si no
   // hay proyecto) — NUNCA aleatoria, mismo hash en cada render/filtro. El
   // color identifica la asignación/proyecto; el estado se superpone aparte
@@ -901,6 +933,54 @@ function staffingDashboard(payload) {
     const dt = new Date(y, m - 1, d);
     dt.setDate(dt.getDate() + days);
     return _isoFromLocalDate(dt);
+  }
+  function _localDateFromISO(iso) {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+  // Ventana de ausencias — CLIPPING VISUAL (Dirección corrective, ver
+  // HANDOFF — aplica a los 4 conceptos, no sólo Vacaciones, ver
+  // `absenceLookbackMaxDays` más abajo). `start_pct`/`end_pct` llegan
+  // PRECOMPUTADOS server-side
+  // (`compute_timeline_position`, staffing_service.py) sobre un horizonte
+  // cuyo mes de arranque el payload NUNCA manda como fecha — solo como
+  // `horizon[i].label` (texto para humanos). Recomputar `visible_start_pct`
+  // desde cero necesitaría esa fecha ancla, así que en vez de eso se
+  // DERIVA algebraicamente a partir de un punto YA confiable: el propio
+  // `start_pct` que el server calculó para ESA ausencia. La fórmula real
+  // (`_date_position_fraction`, Python) es:
+  //     pct(d) = (month_offset(d) + day_fraction(d)) / total_months * 100
+  // `month_offset(d)` es un desplazamiento ENTERO de meses respecto del
+  // ancla del horizonte — la diferencia `month_offset(d2) - month_offset(d1)`
+  // es EXACTAMENTE la cantidad de meses de calendario entre d1 y d2
+  // (`_monthsBetween`, aritmética pura, el ancla se cancela algebraicamente
+  // y nunca hace falta conocerla). `day_fraction(d)` sólo depende del PROPIO
+  // mes de `d` (día-1 sobre días-del-mes) — MISMA fórmula exacta que usa
+  // Python (`(d - month_start).days / days_in_month`), reimplementada acá
+  // con aritmética de fecha LOCAL pura (sin UTC, MISMO criterio que
+  // `_isoFromLocalDate`). Con esos dos ingredientes:
+  //     pct(cutoff) = start_pct_real + [_monthsBetween(start, cutoff) +
+  //       (_dayFractionOfMonth(cutoff) - _dayFractionOfMonth(start))] /
+  //       total_months * 100
+  // EXACTA (no aproximada — verificado algebraicamente y con un caso
+  // cruzando mes de distinta longitud, ver
+  // staffing_timeline_vacation_lookback.node.js), sin pedir ningún dato
+  // nuevo al backend y sin tocar `start_pct` del objeto fuente (se aplica
+  // sobre una COPIA en `filteredAbsences`, ver ahí — nunca se muta
+  // `this.absences`).
+  function _monthsBetween(a, b) {
+    return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  }
+  function _dayFractionOfMonth(d) {
+    const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    return (d.getDate() - 1) / daysInMonth;
+  }
+  function _visibleAbsenceStartPct(absence, cutoffISO, totalMonths) {
+    const startDate = _localDateFromISO(absence.start_date);
+    const cutoffDate = _localDateFromISO(cutoffISO);
+    const monthsDelta = _monthsBetween(startDate, cutoffDate);
+    const deltaFraction = monthsDelta + (_dayFractionOfMonth(cutoffDate) - _dayFractionOfMonth(startDate));
+    return absence.start_pct + (deltaFraction / totalMonths) * 100;
   }
   // Asignación "efectiva" en una fecha puntual: abierta hacia atrás sin
   // start_date, abierta hacia adelante sin end_date — mismo criterio
@@ -958,6 +1038,14 @@ function staffingDashboard(payload) {
       // `_reconcileSelections()`/`facetedAssignments()` (esos son
       // exclusivos del universo de Asignaciones).
       concept: defaultConceptFilter(),
+      // Summary Tile Filters corrective (ver HANDOFF — homologación del
+      // patrón clickeable de Commercial): "Activos vencidos" no tiene
+      // dropdown equivalente (a diferencia de `availability`, que YA es un
+      // filtro real reusado tal cual por las tarjetas Full Time/Part
+      // Time — ver `activeSummaryTile`) — vive en `filters` igual que
+      // cualquier otro filtro real, mismo mecanismo de
+      // `facetedAssignments`, nunca un segundo pipeline de filtrado.
+      activosVencidos: false,
     },
 
     // Lazy history (Staffing Director Priority V2, ver HANDOFF): el fetch
@@ -994,6 +1082,30 @@ function staffingDashboard(payload) {
     // sobre el dataset ya cargado, sin Graph.
     projectionDays: 35,
 
+    // Ventana de ausencias del Timeline (Dirección corrective, ver
+    // HANDOFF) — patrón EQUIVALENTE a `projectionDays` de arriba (control
+    // numérico independiente, recalcula sobre `this.absences` ya cargado,
+    // sin Graph) pero DELIBERADAMENTE un estado propio, nunca acoplado:
+    // `projectionDays` mira hacia ADELANTE para la columna de Asignación
+    // proyectada del detalle; este selector mira hacia ATRÁS
+    // (lookback) para cuánto historial reciente de ausencias se mantiene
+    // visible en el LANE del Timeline — dos preguntas de negocio distintas
+    // sobre dos datasets distintos (asignaciones vs. ausencias). Default 10
+    // (owner). NO participa de `resetFilters()` — MISMO criterio que
+    // `projectionDays`, que tampoco se toca ahí (ver `resetFilters`).
+    // OWNER CORRECTIVE (post-smoke, ver HANDOFF): renombrado de
+    // `vacationLookbackDays` — el control aplica a los 4 conceptos del
+    // lane (Vacaciones/Danwor Day/Cumpleaños/Otros), no sólo Vacaciones;
+    // el nombre viejo describía mal la semántica real.
+    absenceLookbackDays: 10,
+    // Techo DINÁMICO del selector de arriba (Dirección corrective, ver
+    // HANDOFF) — arranca en un valor SEGURO antes de hidratar (10, el
+    // propio default: nunca promete más historia de la que el default ya
+    // necesita) y se actualiza al resolver `_loadAbsences()` con
+    // `data.absence_lookback_max_days` (MISMA fuente que decidió qué
+    // ausencias se hidrataron server-side — nunca una fórmula propia).
+    absenceLookbackMaxDays: 10,
+
     // Detalle agregado por consultor — expansión de presentación pura
     // (nunca filtra), keyed igual que collapsedConsultants/timelineGroups.
     expandedDetailGroups: {},
@@ -1017,6 +1129,35 @@ function staffingDashboard(payload) {
       this.$watch("filters.client", () => this._reconcileSelections());
       this.$watch("filters.availability", () => this._reconcileSelections());
       this.$watch("filters.status", () => this._reconcileSelections());
+
+      // Summary Tile Filters (ver HANDOFF) — backstop de mutua exclusión
+      // para el camino MANUAL (§5.D del ticket: elegir Full Time/Part Time
+      // desde el `<select>` Disponibilidad, vía `x-model`, debe tener el
+      // MISMO efecto que clickear la tarjeta — ese camino nunca pasa por
+      // `clickFullTimeTile()`/`clickPartTimeTile()`, así que su propia
+      // mutua exclusión inline no alcanza acá). El camino de CLIC ya se
+      // resuelve solo en los handlers (ver `clickFullTimeTile`/
+      // `clickPartTimeTile`/`clickActivosVencidosTile`, arriba) — estos
+      // watchers son additivos, no la única fuente de la regla. Simétrico
+      // a propósito, sin ciclo (Alpine no re-dispara un watcher si el
+      // valor asignado ya es el vigente).
+      this.$watch("filters.availability", (value) => {
+        if (value === "Full Time" || value === "Part Time") this.filters.activosVencidos = false;
+      });
+      this.$watch("filters.activosVencidos", (value) => {
+        if (value) this.filters.availability = "";
+      });
+      // Activos vencidos exige Status Activo por definición
+      // (`is_activo_vencido`, staffing_service.py) — la tarjeta misma ya
+      // está oculta sin Activo tildado (`x-show="filters.status.Activo"`,
+      // ver template), pero el FILTRO no debía quedar encendido en
+      // silencio detrás de una tarjeta invisible (produciría panel vacío
+      // sin explicación si Activo se destilda después de activar la
+      // tarjeta) — mismo criterio defensivo que el watcher de Inactivo,
+      // abajo.
+      this.$watch("filters.status.Activo", (value) => {
+        if (!value) this.filters.activosVencidos = false;
+      });
 
       // Lazy history (ver HANDOFF): la PRIMERA vez que el usuario tilda
       // Inactivo, dispara el fetch del delta histórico — togglear de ida y
@@ -1042,6 +1183,18 @@ function staffingDashboard(payload) {
         const data = await response.json();
         if (data.state === "ok") {
           this.absences = data.absences || [];
+          // Techo dinámico del lookback (Dirección corrective, ver
+          // HANDOFF) — `data.absence_lookback_max_days` es la MISMA fuente
+          // que ya decidió qué `absences` se hidrataron (nunca una
+          // fórmula propia acá). "Si el máximo cambia entre
+          // hidrataciones" (owner): conservar `absenceLookbackDays` si
+          // sigue siendo válido bajo el nuevo máximo, clampear sólo si lo
+          // excede — nunca resetear a 10 porque llegó data nueva.
+          const max = Number(data.absence_lookback_max_days);
+          if (Number.isFinite(max) && max > 0) {
+            this.absenceLookbackMaxDays = max;
+            this.absenceLookbackDays = Math.min(max, Math.max(1, this.absenceLookbackDays));
+          }
         } else {
           // Fail-soft (ver HANDOFF): las asignaciones siguen 100% usables,
           // solo se omite el overlay + aviso propio no bloqueante.
@@ -1102,8 +1255,97 @@ function staffingDashboard(payload) {
       this.filters.project = "";
       this.filters.client = "";
       this.filters.availability = "";
+      this.filters.activosVencidos = false;
       this.filters.status = defaultStatusFilter();
       this.filters.concept = defaultConceptFilter();
+    },
+
+    // ── Summary Tile Filters (ver HANDOFF — homologación del patrón ──────
+    // clickeable de Commercial: tarjeta de resumen → filtra el panel →
+    // "Filtrado por…" → descartable). `filters.availability` YA ES la
+    // única fuente de verdad del dropdown "Disponibilidad de asignación"
+    // (ver template) — las tarjetas Full Time/Part Time la reusan TAL
+    // CUAL, nunca un segundo estado paralelo que pudiera desincronizarse
+    // (§5 del ticket: "Use one authoritative availability-filter state").
+    // "Activos vencidos" no tiene dropdown — vive en `filters.activosVencidos`
+    // (ver arriba), mismo nivel que cualquier otro filtro real.
+    //
+    // Mutua exclusión (§6 del ticket — sólo un filtro de tarjeta activo a
+    // la vez): el camino de CLIC la resuelve inline en cada handler (ver
+    // `clickFullTimeTile`/`clickPartTimeTile`/`clickActivosVencidosTile`,
+    // abajo); el camino MANUAL del `<select>` Disponibilidad la resuelve
+    // vía `$watch` en `init()` (nunca pasa por esos handlers). `activeSummaryTile`
+    // en sí es una lectura PURA de `filters` — nunca decide nada, sólo
+    // deriva qué tarjeta debe verse `.is-active` ahora mismo.
+    get activeSummaryTile() {
+      if (this.filters.activosVencidos) return "activos_vencidos";
+      if (this.filters.availability === "Full Time") return "full_time";
+      if (this.filters.availability === "Part Time") return "part_time";
+      return null;
+    },
+    get summaryTileFilterLabel() {
+      const tile = this.activeSummaryTile;
+      if (tile === "full_time") return "Full Time";
+      if (tile === "part_time") return "Part Time";
+      if (tile === "activos_vencidos") return "Activos vencidos";
+      return "";
+    },
+    // SAME-TILE CLICK (§9 del ticket): audit de Commercial encontró DOS
+    // convenciones activas — `initEventBreakdown` ([data-event], los NUEVE
+    // tiles de Resumen del landing legacy) SÍ togglea a apagado al
+    // reclickear la fila activa; `bar-row--clickable`/`initModuleFilter`
+    // (ranking Vendedor/Cliente DENTRO de un panel ya abierto) documentan
+    // EXPLÍCITAMENTE lo contrario ("SIN toggle-to-clear… limpiar es una
+    // acción explícita y separada"). Estas tarjetas son estructuralmente
+    // el mismo rol que los tiles de Resumen de Commercial (KPI de nivel
+    // superior en la grilla `.activity-kpi-grid`, no una fila de ranking
+    // dentro de un drilldown ya abierto) — se sigue esa convención:
+    // togglea a apagado.
+    //
+    // Mutua exclusión ESCRITA ACÁ TAMBIÉN (no sólo en los `$watch` de
+    // `init()`, ver abajo) — a propósito, dos caminos disparan el cambio
+    // de `filters.availability`/`filters.activosVencidos` con
+    // comportamiento distinto: un clic en la tarjeta (este handler,
+    // determinístico, sin depender de reactividad) y un cambio MANUAL del
+    // `<select>` Disponibilidad (`x-model`, nunca pasa por acá — §5.D del
+    // ticket exige que tenga el MISMO efecto, así que ESE camino sí
+    // necesita el watcher). Ninguna de las dos rutas es redundante con la
+    // otra, cubren triggers distintos.
+    clickFullTimeTile() {
+      if (this.filters.availability === "Full Time") {
+        this.filters.availability = "";
+      } else {
+        this.filters.availability = "Full Time";
+        this.filters.activosVencidos = false;
+      }
+    },
+    clickPartTimeTile() {
+      if (this.filters.availability === "Part Time") {
+        this.filters.availability = "";
+      } else {
+        this.filters.availability = "Part Time";
+        this.filters.activosVencidos = false;
+      }
+    },
+    clickActivosVencidosTile() {
+      if (this.filters.activosVencidos) {
+        this.filters.activosVencidos = false;
+      } else {
+        this.filters.activosVencidos = true;
+        this.filters.availability = "";
+      }
+    },
+    // Dismiss del chip "Filtrado por…" (§8.A del ticket) — SOLO el filtro
+    // de tarjeta, nunca Consultor/Proyecto/Cliente/Estado/Concepto (§7:
+    // "Do NOT silently wipe unrelated filters"). El botón "✕ Limpiar"
+    // global (§8.B — la ÚNICA "X" que el audit encontró en esta pantalla,
+    // ver HANDOFF) sigue apuntando a `resetFilters()`, cuyo contrato
+    // PROBADO de siempre ya es "limpiar TODO" — se preserva sin cambios
+    // (ahora también apaga `activosVencidos`, arriba), nunca se angosta
+    // retroactivamente para esta feature.
+    clearSummaryTileFilter() {
+      this.filters.availability = "";
+      this.filters.activosVencidos = false;
     },
 
     statusSlug(status) {
@@ -1208,6 +1450,13 @@ function staffingDashboard(payload) {
         if (excludeKey !== "project" && this.filters.project && a.project_id !== this.filters.project) return false;
         if (excludeKey !== "client" && this.filters.client && a.client_id !== this.filters.client) return false;
         if (excludeKey !== "availability" && this.filters.availability && a.availability !== this.filters.availability) return false;
+        // Activos vencidos (Summary Tile Filters corrective, ver HANDOFF) —
+        // `a.activo_vencido` es EXACTAMENTE el mismo predicado que ya
+        // alimenta el KPI `kpis.activosVencidos` (`is_activo_vencido`,
+        // staffing_service.py — server-side, única regla canónica, nunca
+        // reimplementada acá). Sin dropdown propio (ver `filters`) — se
+        // aplica siempre, igual criterio que `status`, más abajo.
+        if (this.filters.activosVencidos && !a.activo_vencido) return false;
         const statusKey = a.status || "Sin estado";
         if (this.filters.status[statusKey] === false) return false;
         return true;
@@ -1376,6 +1625,24 @@ function staffingDashboard(payload) {
       const n = Math.round(Number(value));
       this.projectionDays = Number.isFinite(n) ? Math.min(365, Math.max(1, n)) : this.projectionDays;
     },
+
+    // Ventana de ausencias del Timeline (ver `absenceLookbackDays` arriba)
+    // — cutoff = hoy - N días. `_addDaysISO` (MISMA función que
+    // `targetISOValue`, nunca una segunda implementación) acepta N negativo
+    // sin drama: construye un `Date` LOCAL puro (día/mes/año, sin horas) y
+    // vuelve a ISO — cero corrimiento de huso horario, cero off-by-one.
+    // Comparación de fechas SIEMPRE como string ISO (`>=`/`<`, lexicográfico
+    // — ordena igual que temporal para "YYYY-MM-DD"), MISMO criterio que
+    // `_isEffectiveOn` — nunca `new Date(iso)` para comparar.
+    get absenceCutoffISO() { return _addDaysISO(_todayISO(), -this.absenceLookbackDays); },
+    // Clamp contra el techo DINÁMICO (`absenceLookbackMaxDays`, MISMA
+    // fuente runtime que el `:max` del `<input>` — ver template) — nunca
+    // un número fijo acá.
+    setAbsenceLookbackDays(value) {
+      const n = Math.round(Number(value));
+      this.absenceLookbackDays = Number.isFinite(n)
+        ? Math.min(this.absenceLookbackMaxDays, Math.max(1, n)) : this.absenceLookbackDays;
+    },
     // Etiqueta por-asignación en el detalle expandido: "—" si esa asignación
     // puntual no está vigente en la fecha pedida, nunca un cero engañoso
     // (una asignación no-efectiva no tiene una carga "de cero horas", no
@@ -1533,15 +1800,72 @@ function staffingDashboard(payload) {
         .sort((x, y) => x.consultant_name.localeCompare(y.consultant_name));
     },
 
-    // Ausencias visibles tras el filtro Concepto (client-side puro, ver
-    // HANDOFF) — ÚNICA fuente que `absencesByConsultant`/la lane/el total
-    // de horas visible leen. Nunca llama a Graph, nunca recarga el XLSX,
-    // nunca toca `this.assignments`. `filters.concept[a.concept] !== false`
-    // (en vez de `=== true`) para que un concepto que por alguna razón no
-    // esté en el objeto de filtros (nunca debería pasar con los 4 fijos)
-    // quede visible por default, nunca oculto por ausencia de key.
+    // Visibilidad del control "Ausencias · últimos N días" (owner
+    // corrective, ver HANDOFF) — el selector gobierna el LANE completo (los
+    // 4 conceptos), así que se oculta ÚNICAMENTE cuando NINGÚN concepto
+    // está tildado (un filtro activo pero invisible confundiría más que
+    // sacarlo del todo) — nunca sólo porque "Vacaciones" esté destildado
+    // mientras Danwor Day/Cumpleaños/Otros siguen activos (el lookback
+    // TAMBIÉN los afecta a ellos). Puro sobre `this.filters.concept`, sin
+    // I/O — recalcula solo al tildar/destildar, el template ya usa
+    // `x-show` (nunca `x-if`), así que `absenceLookbackDays` sobrevive
+    // intacto mientras el control está oculto.
+    get anyConceptSelected() {
+      return CONCEPT_OPTIONS.some(c => this.filters.concept[c] !== false);
+    },
+
+    // Ausencias visibles tras el filtro Concepto Y la ventana de ausencias
+    // (client-side puro, ver HANDOFF) — ÚNICA fuente que
+    // `absencesByConsultant`/la lane/el total de horas visible leen (grep
+    // confirmado: sin otro consumidor — la tabla de Detalle y los KPIs de
+    // Resumen nunca tocan `this.absences`, así que este selector no puede
+    // filtrarlos aunque quisiera). Nunca llama a Graph, nunca recarga el
+    // XLSX, nunca toca `this.assignments`. `filters.concept[a.concept] !==
+    // false` (en vez de `=== true`) para que un concepto que por alguna
+    // razón no esté en el objeto de filtros (nunca debería pasar con los 4
+    // fijos) quede visible por default, nunca oculto por ausencia de key.
+    //
+    // Ventana de ausencias (Dirección corrective, ver `absenceCutoffISO`)
+    // — OWNER CORRECTIVE (revocando una decisión previa, ver HANDOFF): el
+    // cutoff aplica a los CUATRO conceptos del lane (Vacaciones/Danwor
+    // Day/Cumpleaños/Otros) — el owner detectó en su propio smoke que un
+    // registro viejo de Danwor Day seguía visible cuando sólo debía
+    // filtrarse "Vacaciones", y aclaró que la intención real siempre fue
+    // "cuánto histórico del LANE veo", ortogonal a "qué conceptos veo"
+    // (los checkboxes de Concepto). Compone AND con el filtro de Concepto
+    // existente (un período puede estar destildado por Concepto Y además
+    // caer antes del cutoff — cualquiera de los dos lo excluye igual).
+    //
+    // Excluye ÚNICAMENTE períodos que terminan COMPLETAMENTE antes del
+    // cutoff (`end_date < cutoff`). Un período que arrancó antes del
+    // cutoff pero todavía lo atraviesa (`end_date >= cutoff`) se CONSERVA,
+    // pero su BARRA se recorta visualmente a `[cutoff, end_date real]` —
+    // "Ausencias · últimos N días" es una VENTANA DE VISUALIZACIÓN con
+    // clipping, no un simple adentro/afuera. `visible_start_pct` se deriva
+    // algebraicamente del `start_pct` real (ver `_visibleAbsenceStartPct`
+    // arriba) — NUNCA se toca `end_pct` (el final real de la barra no
+    // cambia) ni las fechas (`start_date`/`end_date`, que el tooltip sigue
+    // mostrando REALES — ver el template, lee esos campos directo). El
+    // objeto original de `this.absences` NUNCA se muta: acá se arma una
+    // COPIA (`{...a, start_pct: ...}`) sólo para este render — `map`
+    // siempre devuelve un objeto nuevo, incluso cuando no hace falta clip
+    // (spread trivial), así que el consumidor nunca puede confundir cuál
+    // es cuál por identidad de referencia. Sin límite futuro adicional: el
+    // horizonte del Timeline (`_overlaps_horizon`, staffing_service.py) ya
+    // es el único techo hacia adelante.
     get filteredAbsences() {
-      return this.absences.filter(a => this.filters.concept[a.concept] !== false);
+      const cutoff = this.absenceCutoffISO;
+      const totalMonths = this.horizon.length;
+      return this.absences
+        .filter(a => {
+          if (this.filters.concept[a.concept] === false) return false;
+          if (a.end_date < cutoff) return false;
+          return true;
+        })
+        .map(a => {
+          if (a.start_date >= cutoff) return { ...a };
+          return { ...a, start_pct: _visibleAbsenceStartPct(a, cutoff, totalMonths) };
+        });
     },
 
     // Ausencias agrupadas por consultant_id — puro sobre filteredAbsences,

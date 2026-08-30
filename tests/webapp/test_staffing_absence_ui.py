@@ -163,7 +163,7 @@ def test_reset_filters_restores_default_concept_selection():
 def test_filtered_absences_is_pure_client_side_no_fetch():
     block = _APP_JS[_APP_JS.index("get filteredAbsences()"):_APP_JS.index("get absencesByConsultant()")]
     assert "fetch(" not in block
-    assert "this.absences.filter" in block
+    assert "this.absences" in block and ".filter(" in block
     assert "filters.concept" in block
 
 
@@ -220,8 +220,14 @@ def test_unchecking_all_concepts_empties_the_group_leaving_no_lane():
     # filteredAbsences vacío → absencesByConsultant vacío → group.absences
     # === [] → el x-if="group.absences.length > 0" ya existente oculta el
     # lane entero, sin necesidad de código extra ad-hoc.
+    # Absence Lookback corrective (ver HANDOFF): el filtro de Concepto se
+    # compone AND con el cutoff de la ventana de ausencias (los 4
+    # conceptos por igual, tras revocarse una versión previa exclusiva de
+    # "Vacaciones") — sigue siendo el MISMO filter() único antes del
+    # clipping visual (`.map`), nunca un segundo paso de filtrado.
     filtered_block = _APP_JS[_APP_JS.index("get filteredAbsences()"):_APP_JS.index("get absencesByConsultant()")]
-    assert "filter(a => this.filters.concept[a.concept] !== false)" in filtered_block
+    assert "if (this.filters.concept[a.concept] === false) return false;" in filtered_block
+    assert "if (a.end_date < cutoff) return false;" in filtered_block
     assert 'x-if="group.absences.length > 0"' in _DASHBOARD_HTML
 
 

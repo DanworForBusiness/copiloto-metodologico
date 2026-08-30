@@ -208,9 +208,15 @@ def staffing_data(request: Request, graph_token: str = Form("")):
         )
 
     user = auth_service.session_user(request)
+    # cache_scope (SHARED SOURCE ACQUISITION corrective, ver HANDOFF) —
+    # MISMA identidad estable de sesión que ya usa Reporting
+    # (webapp/routers/reporting.py), NUNCA graph_token. Resuelto acá y
+    # pasado explícito a StaffingService/StaffingRepository — nunca posee
+    # el estado de cache.
+    cache_scope = str((user or {}).get("username") or (user or {}).get("email") or (user or {}).get("sub") or "") or None
     service = StaffingService()
     try:
-        rows = service.get_overview(graph_token)
+        rows = service.get_overview(graph_token, cache_scope=cache_scope)
     except RuntimeError:
         # Config de Staffing incompleta (site_id / field mapping) — ver Batch 2/3.
         log_verbose(
@@ -276,9 +282,14 @@ def staffing_historial(request: Request, graph_token: str = Form("")):
         return JSONResponse({"state": "missing_token"})
 
     user = auth_service.session_user(request)
+    # cache_scope (SHARED SOURCE ACQUISITION corrective, ver HANDOFF) —
+    # MISMA resolución que staffing_data: si Initial ya calentó Proyectos/
+    # Colaboradores/Cliente en la MISMA sesión, Historial reusa ese estado
+    # en vez de releerlos completos.
+    cache_scope = str((user or {}).get("username") or (user or {}).get("email") or (user or {}).get("sub") or "") or None
     service = StaffingService()
     try:
-        rows = service.get_overview(graph_token, assignment_scope="historical_inactive")
+        rows = service.get_overview(graph_token, assignment_scope="historical_inactive", cache_scope=cache_scope)
     except RuntimeError:
         log_verbose(
             EVENT_CONFIGURATION_INCOMPLETE, user=user, scope=SCOPE_OPERATIONS,
@@ -327,9 +338,14 @@ def staffing_ausencias(request: Request, graph_token: str = Form("")):
         return JSONResponse({"state": "missing_token"})
 
     user = auth_service.session_user(request)
+    # cache_scope (SHARED SOURCE ACQUISITION corrective, ver HANDOFF) —
+    # MISMA resolución que staffing_data/staffing_historial: Colaboradores
+    # reusa el estado ya calentado por Initial/Historial (§3 del ticket) y
+    # el XLSX de Ausencias reusa el resultado parseado por versión (§5).
+    cache_scope = str((user or {}).get("username") or (user or {}).get("email") or (user or {}).get("sub") or "") or None
     service = StaffingService()
     try:
-        overlay = service.get_absence_overlay(graph_token)
+        overlay = service.get_absence_overlay(graph_token, cache_scope=cache_scope)
     except RuntimeError:
         log_verbose(
             EVENT_CONFIGURATION_INCOMPLETE, user=user, scope=SCOPE_OPERATIONS,
@@ -387,7 +403,16 @@ def staffing_ausencias(request: Request, graph_token: str = Form("")):
         **_flatten_staffing_diagnostics(getattr(service, "last_diagnostics", {})),
     )
 
-    return JSONResponse({"state": "ok", "absences": overlay["absences"]})
+    return JSONResponse({
+        "state": "ok",
+        "absences": overlay["absences"],
+        # Dirección corrective — Timeline/ventana de ausencias dinámica (ver
+        # HANDOFF): el máximo del selector "Ausencias · últimos N días" ya
+        # no es un número fijo — viene de acá, MISMA fuente que decidió qué
+        # `absences` se hidrataron (ver build_absence_overlay_payload).
+        "absence_history_start": overlay["absence_history_start"],
+        "absence_lookback_max_days": overlay["absence_lookback_max_days"],
+    })
 
 
 # --- Compatibilidad histórica (nombres en inglés, Batch 3) ------------------

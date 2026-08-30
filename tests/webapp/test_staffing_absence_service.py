@@ -230,10 +230,92 @@ def test_unmatched_and_ambiguous_counts_are_pure_counts_no_names():
 # separado, nunca mezclado con build_dashboard_payload.
 def test_absence_payload_has_no_kpi_or_allocation_keys():
     payload = build_absence_overlay_payload(AbsenceJoinResult(periods=[_period()], unmatched=[], ambiguous=[]), today=_TODAY)
-    assert set(payload.keys()) == {"absences", "unmatched_count", "ambiguous_count"}
+    assert set(payload.keys()) == {
+        "absences", "unmatched_count", "ambiguous_count",
+        # Dirección corrective — Timeline/ventana de ausencias dinámica.
+        "absence_history_start", "absence_lookback_max_days",
+    }
     absence_row = payload["absences"][0]
     for forbidden in ("allocation_value", "allocation_unit", "status", "activo_vencido"):
         assert forbidden not in absence_row
+
+
+# ============================================================================
+# absence_history_start / absence_lookback_max_days (Dirección corrective —
+# Timeline/ventana de ausencias dinámica, ver HANDOFF): MISMA fuente que
+# `_overlaps_horizon` ya usa para decidir qué se hidrata — nunca una
+# segunda fórmula. `absence_lookback_max_days = (today - horizon_start).days`.
+# ============================================================================
+
+_EMPTY_RESULT = AbsenceJoinResult(periods=[], unmatched=[], ambiguous=[])
+
+
+def test_absence_history_metadata_today_28_08_history_starts_01_07_max_58():
+    # Ejemplo textual EXACTO del owner: today=28/08/2026 -> horizon_start
+    # (mes anterior a agosto) = 01/07/2026 -> 58 días de diferencia.
+    payload = build_absence_overlay_payload(_EMPTY_RESULT, today=date(2026, 8, 28))
+    assert payload["absence_history_start"] == "2026-07-01"
+    assert payload["absence_lookback_max_days"] == 58
+
+
+def test_absence_history_metadata_worst_case_march_1st_non_leap_year_max_28():
+    # Peor caso determinístico: "hoy" cae el 1º de marzo de un año NO
+    # bisiesto -> horizon_start = 1º de febrero -> exactamente 28 días
+    # (Febrero de 2026 tiene 28 días — 2026 no es bisiesto).
+    payload = build_absence_overlay_payload(_EMPTY_RESULT, today=date(2026, 3, 1))
+    assert payload["absence_history_start"] == "2026-02-01"
+    assert payload["absence_lookback_max_days"] == 28
+
+
+def test_absence_history_metadata_leap_february_gives_29_day_floor():
+    # 2024 SÍ es bisiesto — "hoy" = 1º de marzo de 2024 -> horizon_start =
+    # 1º de febrero de 2024 -> 29 días (Febrero bisiesto), no 28. Prueba
+    # que el cálculo usa la duración REAL del mes, no un 28 fijo.
+    payload = build_absence_overlay_payload(_EMPTY_RESULT, today=date(2024, 3, 1))
+    assert payload["absence_history_start"] == "2024-02-01"
+    assert payload["absence_lookback_max_days"] == 29
+
+
+def test_absence_history_metadata_month_change_mid_month():
+    # "Hoy" a mitad de mes (no el día 1) -> horizon_start sigue siendo el
+    # 1º del mes anterior, el delta crece con los días ya transcurridos del
+    # mes actual. today=15/09/2026 -> horizon_start=01/08/2026 -> 45 días
+    # (agosto 31 + 14 días de septiembre transcurridos).
+    payload = build_absence_overlay_payload(_EMPTY_RESULT, today=date(2026, 9, 15))
+    assert payload["absence_history_start"] == "2026-08-01"
+    assert payload["absence_lookback_max_days"] == 45
+
+
+def test_absence_history_metadata_crosses_year_boundary():
+    # "Hoy" = enero -> el mes anterior es diciembre del año ANTERIOR.
+    # today=15/01/2027 -> horizon_start=01/12/2026 -> 45 días (diciembre 31
+    # + 14 días de enero transcurridos).
+    payload = build_absence_overlay_payload(_EMPTY_RESULT, today=date(2027, 1, 15))
+    assert payload["absence_history_start"] == "2026-12-01"
+    assert payload["absence_lookback_max_days"] == 45
+
+
+def test_absence_lookback_max_days_uses_the_exact_same_horizon_that_gates_absences():
+    # NO es una segunda fórmula: una ausencia que termina EXACTAMENTE en
+    # `absence_history_start` debe seguir hidratada (`_overlaps_horizon`
+    # usa `end >= horizon_start`), y una que termina un día antes debe
+    # quedar afuera — cross-check directo entre la metadata y el universo
+    # `absences` real del MISMO payload.
+    today = date(2026, 8, 28)
+    on_edge = AbsenceOverviewPeriod(
+        source_id="edge", consultant_id="c1", consultant_name="Edge",
+        start_date=date(2026, 7, 1), end_date=date(2026, 7, 1), concept="Vacaciones",
+    )
+    before_edge = AbsenceOverviewPeriod(
+        source_id="before", consultant_id="c1", consultant_name="Before",
+        start_date=date(2026, 6, 29), end_date=date(2026, 6, 30), concept="Vacaciones",
+    )
+    result = AbsenceJoinResult(periods=[on_edge, before_edge], unmatched=[], ambiguous=[])
+    payload = build_absence_overlay_payload(result, today=today)
+    assert payload["absence_history_start"] == "2026-07-01"
+    ids = {a["source_id"] for a in payload["absences"]}
+    assert "edge" in ids, "termina EXACTAMENTE en absence_history_start -> sigue hidratada"
+    assert "before" not in ids, "termina un día antes de absence_history_start -> nunca se hidrata"
 
 
 # ============================================================================

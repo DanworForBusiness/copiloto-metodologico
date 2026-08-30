@@ -71,7 +71,7 @@ def _unlisted_full_client(monkeypatch):
 
 
 class _RaisingIfCalledService:
-    def get_overview(self, access_token):
+    def get_overview(self, access_token, **kwargs):
         raise AssertionError("StaffingService.get_overview no debería llamarse")
 
 
@@ -82,7 +82,7 @@ class _RecordingService:
         self._rows = rows if rows is not None else []
         self._error = error
 
-    def get_overview(self, access_token):
+    def get_overview(self, access_token, **kwargs):
         _RecordingService.calls.append(access_token)
         if self._error is not None:
             raise self._error
@@ -736,7 +736,7 @@ def test_staffing_page_emits_exactly_one_usage_event_with_context(monkeypatch, t
 
 
 class _ConfigIncompleteService:
-    def get_overview(self, access_token):
+    def get_overview(self, access_token, **kwargs):
         raise RuntimeError("config de Staffing incompleta")
 
 

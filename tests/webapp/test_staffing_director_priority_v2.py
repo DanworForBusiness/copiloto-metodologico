@@ -73,7 +73,7 @@ def test_activo_vencido_never_rewrites_status_only_interprets_it():
 
 def test_build_dashboard_payload_embeds_activo_vencido_per_row():
     class _FakeRepo:
-        def get_allocations(self, token, *, assignment_scope="operational"):
+        def get_allocations(self, token, *, assignment_scope="operational", cache_scope=None):
             return []
 
     row_vencido = StaffingOverviewRow(
@@ -98,7 +98,7 @@ def test_build_dashboard_payload_embeds_activo_vencido_per_row():
 
 def test_get_overview_defaults_to_operational_scope():
     class _FakeRepo:
-        def get_allocations(self, token, *, assignment_scope="operational"):
+        def get_allocations(self, token, *, assignment_scope="operational", cache_scope=None):
             self.seen = assignment_scope
             return []
     repo = _FakeRepo()
@@ -108,7 +108,7 @@ def test_get_overview_defaults_to_operational_scope():
 
 def test_get_overview_forwards_historical_inactive_scope_explicitly():
     class _FakeRepo:
-        def get_allocations(self, token, *, assignment_scope="operational"):
+        def get_allocations(self, token, *, assignment_scope="operational", cache_scope=None):
             self.seen = assignment_scope
             return []
     repo = _FakeRepo()
@@ -282,7 +282,7 @@ class _RecordingHistoryService:
         self._rows = rows if rows is not None else []
         self._error = error
 
-    def get_overview(self, access_token, *, assignment_scope="operational"):
+    def get_overview(self, access_token, *, assignment_scope="operational", cache_scope=None):
         _RecordingHistoryService.calls.append((access_token, assignment_scope))
         if self._error is not None:
             raise self._error

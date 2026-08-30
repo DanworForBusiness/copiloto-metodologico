@@ -35,6 +35,10 @@ _OVERLAY_PAYLOAD = {
         "clipped_start": False, "clipped_end": False,
     }],
     "unmatched_count": 0, "ambiguous_count": 0,
+    # Dirección corrective — Timeline/ventana de ausencias dinámica (ver
+    # HANDOFF): el fixture de test double también los trae, MISMO campo que
+    # produce `build_absence_overlay_payload` real.
+    "absence_history_start": "2026-07-01", "absence_lookback_max_days": 58,
 }
 
 
@@ -45,7 +49,7 @@ class _RecordingAbsenceService:
         self._overlay = overlay if overlay is not None else _OVERLAY_PAYLOAD
         self._error = error
 
-    def get_absence_overlay(self, access_token):
+    def get_absence_overlay(self, access_token, **kwargs):
         _RecordingAbsenceService.calls.append(access_token)
         if self._error is not None:
             raise self._error
@@ -83,7 +87,7 @@ def test_ausencias_endpoint_response_never_includes_unmatched_ambiguous_counts_l
     # cliente (evita filtrar información de negocio no solicitada).
     monkeypatch.setattr(staffing_router, "StaffingService", lambda: _RecordingAbsenceService())
     response = client.post("/operaciones/staffing/asignaciones/ausencias", data={"graph_token": "tok"})
-    assert set(response.json().keys()) == {"state", "absences"}
+    assert set(response.json().keys()) == {"state", "absences", "absence_history_start", "absence_lookback_max_days"}
 
 
 def test_ausencias_endpoint_missing_token_never_calls_service(monkeypatch):
@@ -326,7 +330,7 @@ def test_ausencias_endpoint_successful_flow_unchanged(monkeypatch):
     monkeypatch.setattr(staffing_router, "StaffingService", lambda: _RecordingAbsenceService())
     response = client.post("/operaciones/staffing/asignaciones/ausencias", data={"graph_token": "tok"})
     assert response.status_code == 200
-    assert set(response.json().keys()) == {"state", "absences"}
+    assert set(response.json().keys()) == {"state", "absences", "absence_history_start", "absence_lookback_max_days"}
 
 
 def test_ausencias_endpoint_schema_error_response_contract_is_the_final_small_shape(monkeypatch):
@@ -365,7 +369,7 @@ def test_assignments_data_endpoint_never_touches_absences(monkeypatch):
     from webapp.services.staffing_service import StaffingOverviewRow
 
     class _AssignmentsOnly:
-        def get_overview(self, access_token):
+        def get_overview(self, access_token, **kwargs):
             return [StaffingOverviewRow(
                 assignment_id="1", consultant_id="1", consultant_name="Ana Pérez",
                 project_id="10", project_name="Proyecto Alfa",

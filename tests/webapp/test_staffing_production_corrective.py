@@ -116,7 +116,7 @@ def test_5_and_6_pipeline_trace_default_scope_is_operational_and_excludes_inacti
     # Eslabón 1: router llama get_overview(token) SIN scope explícito para
     # la carga inicial (ver webapp/routers/staffing.py::staffing_data).
     class _FakeRepo:
-        def get_allocations(self, token, *, assignment_scope="operational"):
+        def get_allocations(self, token, *, assignment_scope="operational", cache_scope=None):
             self.seen_scope = assignment_scope
             return []
     repo = _FakeRepo()
@@ -177,16 +177,26 @@ def test_initial_data_endpoint_never_passes_a_non_default_scope(monkeypatch):
 # ============================================================================
 
 def test_7_tentativo_toggle_has_no_watcher_and_no_fetch_path():
-    # El ÚNICO watcher que dispara un fetch está en filters.status.Inactivo
-    # — nunca existe un equivalente para Tentativo/Activo. Si alguna vez se
-    # agrega un fetch condicionado a Tentativo, esto debe fallar a
-    # propósito.
+    # El ÚNICO watcher que dispara un FETCH está en filters.status.Inactivo
+    # — nunca existe un equivalente para Tentativo. Si alguna vez se agrega
+    # un fetch condicionado a Tentativo, esto debe fallar a propósito.
+    #
+    # `filters.status.Activo` SÍ tiene un watcher (Summary Tile Filters
+    # corrective, ver HANDOFF — apaga `activosVencidos` si Activo se
+    # destilda, consistencia puramente LOCAL: la tarjeta "Activos vencidos"
+    # ya está oculta sin Activo tildado, este watcher evita que su filtro
+    # quede encendido en silencio detrás de una tarjeta invisible) — el
+    # invariante real de este test es "ningún watcher de Tentativo/Activo
+    # dispara un FETCH", no "no existe ningún watcher en absoluto".
     assert 'this.$watch("filters.status.Inactivo"' in _APP_JS
     assert 'this.$watch("filters.status.Tentativo"' not in _APP_JS
-    assert 'this.$watch("filters.status.Activo"' not in _APP_JS
+    activo_idx = _APP_JS.index('this.$watch("filters.status.Activo"')
+    activo_watcher_body = _APP_JS[activo_idx:activo_idx + 200]
+    assert "_loadInactiveHistory" not in activo_watcher_body
+    assert "fetch(" not in activo_watcher_body
     # _loadInactiveHistory (el ÚNICO método que hace fetch de historial) se
-    # llama SOLO desde ese watcher — buscamos que no haya una segunda
-    # invocación en ningún otro lugar del archivo.
+    # llama SOLO desde el watcher de Inactivo — buscamos que no haya una
+    # segunda invocación en ningún otro lugar del archivo.
     assert _APP_JS.count("_loadInactiveHistory()") == 2  # la definición async + la única llamada
 
 
