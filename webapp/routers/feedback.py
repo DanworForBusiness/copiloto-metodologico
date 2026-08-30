@@ -228,11 +228,17 @@ def _save_section_feedback(request: Request, document, section, selected: str, r
     # USAGE METRICS — REACCIONES: MISMO criterio que _save_module_feedback
     # (ver ahí) — área methodology (el feedback de una sección vive en la
     # MISMA área que la navegación de módulos), best-effort aparte.
+    # `section`/`section_title` (owner ticket "REACCIONES — PER-USER
+    # REACTED-OBJECT BREAKDOWN"): MISMOS valores `section.slug`/
+    # `section.title` ya usados arriba para el YAML — cero lookup nuevo,
+    # solo copiarlos también acá para que Reacciones pueda resolver A QUÉ
+    # sección concreta reaccionó cada persona (antes solo sabía el módulo).
     try:
         _, _log_module = normalize_feedback_module(document.summary.stem)
         log_activity(
             "section.feedback", user=user, scope=SCOPE_COPILOT, area=AREA_METHODOLOGY,
-            module=_log_module, feedback_sentiment=("positive" if rating == "up" else "negative"),
+            module=_log_module, section=section.slug, section_title=section.title,
+            feedback_sentiment=("positive" if rating == "up" else "negative"),
         )
     except Exception:  # noqa: BLE001 — el feedback nunca rompe la navegación
         pass
@@ -309,9 +315,15 @@ def _save_catalog_feedback(request: Request, kind: str, ref: str, pack: str, rat
     # (ver ahí). area=AREA_CATALOG (MISMA área que catalog_view/
     # catalog_regenerate) — sin `module` a propósito, catálogo no tiene esa
     # dimensión (mismo criterio que esos dos eventos, ninguno la lleva).
+    # `kind`/`ref` (owner ticket "REACCIONES — PER-USER REACTED-OBJECT
+    # BREAKDOWN"): MISMOS nombres de campo que `catalog_view` YA usa
+    # (webapp/main.py, log_verbose(..., kind=..., ref=...)) — reusa la
+    # convención existente en vez de inventar una nueva, cero lookup nuevo
+    # (son parámetros de esta misma función).
     try:
         log_activity(
             "catalog.feedback", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
+            kind=kind or "", ref=ref or "",
             feedback_sentiment=("positive" if rating == "up" else "negative"),
         )
     except Exception:  # noqa: BLE001 — el feedback nunca rompe la navegación
@@ -382,9 +394,13 @@ def _save_catalog_section_feedback(request: Request, cliente: str, dominio: str,
         pass
     # USAGE METRICS — REACCIONES: MISMO criterio que _save_catalog_feedback
     # (ver ahí) — MISMA área (catálogo), sin `module`.
+    # `cliente`/`dominio`/`section_slug` (owner ticket "REACCIONES —
+    # PER-USER REACTED-OBJECT BREAKDOWN"): MISMOS valores ya usados arriba
+    # para el YAML — cero lookup nuevo, solo copiarlos también acá.
     try:
         log_activity(
             "catalog_section.feedback", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
+            cliente=cliente or "", dominio=dominio or "", section_slug=slug or "",
             feedback_sentiment=("positive" if rating == "up" else "negative"),
         )
     except Exception:  # noqa: BLE001 — el feedback nunca rompe la navegación

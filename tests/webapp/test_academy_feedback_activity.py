@@ -29,6 +29,9 @@ def test_academy_feedback_up_emits_activity_reaction(monkeypatch, tmp_path):
     assert kw["scope"] == "copilot" and kw["area"] == "academy"
     assert kw["module"] == _STEM
     assert kw["feedback_sentiment"] == "positive"
+    # D (owner ticket "REACCIONES — PER-USER REACTED-OBJECT BREAKDOWN"): el
+    # título humano de la página viaja también al evento de Activity.
+    assert kw["academy_title"]
 
 
 def test_academy_feedback_down_is_negative_sentiment(monkeypatch, tmp_path):

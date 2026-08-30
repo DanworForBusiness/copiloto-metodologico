@@ -143,10 +143,16 @@ def _save_academy_feedback(request: Request, stem: str, pack: str, rating: str, 
     # navegación y su feedback viven en la misma área). Best-effort, FUERA
     # del try/except de arriba a propósito: una falla acá nunca debe
     # reescribir/perder el YAML de feedback que SÍ se guardó.
+    # `academy_title` (owner ticket "REACCIONES — PER-USER REACTED-OBJECT
+    # BREAKDOWN"): MISMO `current.title` ya usado arriba para el YAML — cero
+    # lookup nuevo. `module_label(stem)` no resuelve stems de Academy (no
+    # están en module_registry), así que sin esto Reacciones solo tendría
+    # el stem crudo como fallback.
     try:
         log_activity(
             "academy.feedback", user=user, scope=SCOPE_COPILOT, area=AREA_ACADEMY,
-            module=current.stem, feedback_sentiment=("positive" if rating == "up" else "negative"),
+            module=current.stem, academy_title=current.title,
+            feedback_sentiment=("positive" if rating == "up" else "negative"),
         )
     except Exception:  # noqa: BLE001 — el feedback nunca rompe la navegación
         pass

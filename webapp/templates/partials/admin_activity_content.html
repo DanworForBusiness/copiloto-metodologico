@@ -380,15 +380,36 @@
              de una barra de %(no hay "más/menos" que comparar en sentimiento
              — MISMO criterio que Tendencia diaria, dorado plano). Expandible
              (`<details>`, MISMO primitivo que admin_activity_stories.html)
-             SOLO si esa persona dejó comentario — nunca un expand vacío. #}
+             si esa persona dejó comentario Y/O si alguna de sus reacciones
+             resolvió un OBJETO concreto (owner ticket "PER-USER REACTED-
+             OBJECT BREAKDOWN" — antes solo comentario, dejando reacciones
+             sin texto sin ningún detalle de A QUÉ reaccionaron) — nunca un
+             expand vacío si no hay nada de ninguna de las dos cosas. #}
           {% for r in bd.rows %}
-          {% if r.comments %}
+          {% if r.comments or r.subjects %}
           <details class="assistant-story">
             <summary class="assistant-story__row">
               <span class="activity-bar-label"{% if r.user %} title="{{ r.user }}"{% endif %}>{{ r.label }}</span>
               <span class="assistant-story__icons"><span title="Le gustó">👍 {{ r.up }}</span><span title="No le gustó">👎 {{ r.down }}</span></span>
             </summary>
             <div class="assistant-story__detail">
+              {% if r.subjects %}
+              {# Objeto reaccionado (owner: "no poder ver exactamente dónde
+                 likeó es raro") — MISMO primitivo `.activity-bar-row` que el
+                 resto del dashboard, cero CSS/lenguaje visual nuevo. Solo
+                 las reacciones de ESTA persona que resolvieron un objeto
+                 concreto — el total de arriba (👍/👎) sigue siendo la fuente
+                 de verdad, esto es un subconjunto atribuible, nunca todas. #}
+              <div class="reaction-subjects">
+                {% for s in r.subjects %}
+                <div class="activity-bar-row">
+                  <span class="activity-bar-label">{{ s.label }}</span>
+                  <span class="assistant-story__icons"><span title="Le gustó">👍 {{ s.up }}</span><span title="No le gustó">👎 {{ s.down }}</span></span>
+                </div>
+                {% endfor %}
+              </div>
+              {% endif %}
+              {% if r.comments %}
               <ol class="story-timeline">
                 {% for c in r.comments %}
                 <li class="story-timeline__step">
@@ -400,6 +421,7 @@
                 </li>
                 {% endfor %}
               </ol>
+              {% endif %}
             </div>
           </details>
           {% else %}

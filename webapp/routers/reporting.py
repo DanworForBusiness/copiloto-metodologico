@@ -612,9 +612,13 @@ def reporting_feedback(request: Request, report_tab: str = Form(""), rating: str
     feedback_store.write_feedback_record(payload, prefix="reporting_feedback", stamp=now.strftime("%Y%m%d_%H%M%S"))
     # Evento del pipeline de Activity del Hub (mismo sink que Copilot/Staffing).
     # Metadata semántica: report_tab + sentimiento (nunca valores de negocio).
+    # `report_title` (owner ticket "REACCIONES — PER-USER REACTED-OBJECT
+    # BREAKDOWN"): MISMO valor `_REPORT_TABS[tab]` ya resuelto arriba para el
+    # YAML — cero lookup nuevo, solo copiarlo también acá para que Reacciones
+    # pueda mostrar "a qué reportó reaccionó" sin re-resolverlo en el render.
     log_activity(
         "reporting.feedback", user=user, scope=SCOPE_OPERATIONS, area=AREA_REPORTING,
-        module="reporting", report_tab=tab,
+        module="reporting", report_tab=tab, report_title=_REPORT_TABS[tab],
         feedback_sentiment=("positive" if rating == "up" else "negative"),
     )
     return JSONResponse({"state": "ok"})

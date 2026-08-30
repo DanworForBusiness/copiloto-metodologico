@@ -59,6 +59,10 @@ def test_feedback_thumbs_up_persists_shared_record_and_activity(monkeypatch):
     kw = events[0][1]
     assert kw["scope"] == "operations" and kw["area"] == "reporting"
     assert kw["report_tab"] == "rentabilidad" and kw["feedback_sentiment"] == "positive"
+    # C (owner ticket "REACCIONES — PER-USER REACTED-OBJECT BREAKDOWN"):
+    # el título humano ya resuelto para el YAML también viaja al evento de
+    # Activity, para que Reacciones sepa a qué reporte reaccionó cada persona.
+    assert kw["report_title"] == "Rentabilidad"
 
 
 def test_feedback_thumbs_down_is_negative_sentiment(monkeypatch):

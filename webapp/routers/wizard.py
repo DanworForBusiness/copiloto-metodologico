@@ -298,12 +298,23 @@ def _log_tree_feedback_reaction(request: Request, run, rating: str) -> None:
     `tree_id`, área methodology) — nunca una taxonomía nueva. NUNCA toca
     CaseLibrary/WizardStore (eso sigue en `store.submit_feedback`, sin
     cambios) — esto es SOLO la señal adicional hacia Activity Log. Best-
-    effort: nunca puede hacer que el feedback ya guardado se pierda."""
+    effort: nunca puede hacer que el feedback ya guardado se pierda.
+
+    `tree_title`/`module` (owner ticket "REACCIONES — PER-USER
+    REACTED-OBJECT BREAKDOWN"): `run.tree` YA tiene el título cargado en
+    memoria — cero lookup nuevo. `links.module_stem`/`links.module` es la
+    MISMA resolución que `case_library.py::create_for_run` ya usa para
+    saber a qué módulo pertenece un árbol — nunca una segunda forma de
+    leer ese vínculo."""
+    tree = run.tree if getattr(run, "tree", None) else {}
+    links = tree.get("links") or {}
+    module = str(links.get("module_stem") or links.get("module") or "")
     try:
         log_activity(
             "tree.feedback", user=(auth_service.session_user(request) or {}),
             scope=SCOPE_COPILOT, area=AREA_METHODOLOGY,
-            run_id=run.id, tree_id=str(run.tree.get("id") or "") if getattr(run, "tree", None) else "",
+            run_id=run.id, tree_id=str(tree.get("id") or ""),
+            module=module, tree_title=str(tree.get("title") or ""),
             feedback_sentiment=("positive" if rating == "up" else "negative"),
         )
     except Exception:  # noqa: BLE001 — el feedback nunca rompe la navegación

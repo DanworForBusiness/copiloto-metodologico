@@ -229,6 +229,78 @@ _REACTION_FEEDBACK_TYPE_TO_AREA = {
 }
 
 
+def _reaction_subject(event_name: str, module: str, payload: dict) -> tuple[str, str] | None:
+    """"Objeto reaccionado" — owner ticket "REACCIONES — PER-USER
+    REACTED-OBJECT BREAKDOWN": `(subject_key, subject_label)` del objeto
+    CONCRETO dentro de un área que recibió una reacción puntual, o `None`
+    si esa familia no representa un objeto propio (Staffing: feedback
+    transversal del tablero completo, sin sub-identidad real — NUNCA se
+    fabrica un bucket "General"). Concepto de PRESENTACIÓN/agregación
+    únicamente — no persiste, no cambia ningún schema — resuelto SIEMPRE a
+    partir de campos YA presentes en el evento (module/payload), nunca un
+    campo compartido inventado entre dominios distintos (cada rama usa el
+    suyo). Label: reusa `module_label`/el título ya capturado en el
+    payload al momento de la escritura — cero lookup nuevo acá.
+
+    Registros HISTÓRICOS (backfill_copilot_reactions.py): solo copian
+    `module` para los tipos que ya lo tenían — module.feedback/
+    academy.feedback/assistant.feedback resuelven igual con datos
+    backfilleados; section.feedback/catalog.feedback/catalog_section.
+    feedback/tree.feedback necesitan campos que el backfill actual NO
+    copia (section/section_title, kind/ref, cliente/dominio/section_slug,
+    tree_title) — esos registros devuelven `None` acá (ausencia elegante,
+    NUNCA un dato inventado), ver AUDIT."""
+    if event_name == "reporting.feedback":
+        tab = str(payload.get("report_tab") or "").strip()
+        if not tab:
+            return None
+        label = str(payload.get("report_title") or "").strip() or tab
+        return (f"reporting:{tab}", label)
+    if event_name == "module.feedback":
+        if not module:
+            return None
+        return (f"module:{module}", module_label(module))
+    if event_name == "section.feedback":
+        section = str(payload.get("section") or "").strip()
+        if not module or not section:
+            return None
+        title = str(payload.get("section_title") or "").strip() or section
+        return (f"section:{module}:{section}", f"{module_label(module)} · {title}")
+    if event_name == "catalog.feedback":
+        kind = str(payload.get("kind") or "").strip()
+        if not kind:
+            return None
+        ref = str(payload.get("ref") or "").strip()
+        # `kind` se muestra CRUDO a propósito: MISMO criterio que "Eventos" ya
+        # usa para catalog_view (catalog_kind_counts, sin mapa de labels) —
+        # el identificador técnico ES la convención ya establecida acá.
+        return (f"catalog:{kind}:{ref}", f"{kind} · {ref}" if ref else kind)
+    if event_name == "catalog_section.feedback":
+        cliente = str(payload.get("cliente") or "").strip()
+        dominio = str(payload.get("dominio") or "").strip()
+        if not cliente and not dominio:
+            return None
+        section = str(payload.get("section_slug") or "").strip()
+        label = " · ".join(part for part in (cliente, dominio) if part)
+        return (f"catalog_section:{cliente}:{dominio}:{section}", label)
+    if event_name == "academy.feedback":
+        if not module:
+            return None
+        label = str(payload.get("academy_title") or "").strip() or module_label(module)
+        return (f"academy:{module}", label)
+    if event_name == "assistant.feedback":
+        if not module:
+            return None
+        return (f"assistant:{module}", module_label(module))
+    if event_name == "tree.feedback":
+        tree_id = str(payload.get("tree_id") or "").strip()
+        if not tree_id:
+            return None
+        label = str(payload.get("tree_title") or "").strip() or tree_id
+        return (f"tree:{tree_id}", label)
+    return None  # staffing.feedback (sin sub-identidad real) y cualquier evento futuro sin resolver acá.
+
+
 def _read_reaction_comments(date_from: str, date_to: str) -> dict[str, dict[str, list[dict]]]:
     """(área -> usuario -> [ {ts, rating, comment} ]) — SOLO entradas que
     realmente traen un comentario (el 👍/👎 sin comentario ya se cuenta
@@ -736,6 +808,15 @@ def build_summary(
     reaction_area_sentiment: dict[str, dict[str, int]] = {}
     reaction_area_user_counts: dict[str, Counter] = {}
     reaction_area_user_sentiment: dict[str, dict[str, dict[str, int]]] = {}
+    # PER-USER REACTED-OBJECT BREAKDOWN (owner ticket): (área, usuario,
+    # subject_key) -> {"label", "up", "down"} — ver `_reaction_subject`.
+    # Incrementado EN LA MISMA iteración que reaction_area_user_sentiment
+    # (arriba), nunca un segundo pase — así el total del usuario y la suma
+    # de sus objetos reconcilian por construcción, nunca por un ajuste
+    # posterior. Una reacción sin objeto resoluble simplemente NUNCA entra
+    # acá (sigue sumando al total de arriba) — nunca un bucket "General"
+    # fabricado para forzar la reconciliación.
+    reaction_area_user_subjects: dict[str, dict[str, dict[str, dict[str, object]]]] = {}
 
     # CASCADE INTEGRITY (corrective de confianza). El desglose por usuario del
     # panel derecho tiene que resolverse por (modulo, evento), NUNCA por evento
@@ -807,6 +888,16 @@ def build_summary(
                 (reaction_area_user_sentiment
                  .setdefault(_area, {})
                  .setdefault(ev["user"], {"up": 0, "down": 0}))[_sent_key] += 1
+                _subject = _reaction_subject(ev["event"], ev["module"], ev["payload"])
+                if _subject is not None:
+                    _subject_key, _subject_label = _subject
+                    _bucket = (
+                        reaction_area_user_subjects
+                        .setdefault(_area, {})
+                        .setdefault(ev["user"], {})
+                        .setdefault(_subject_key, {"label": _subject_label, "up": 0, "down": 0})
+                    )
+                    _bucket[_sent_key] += 1
 
         if ev["event"] == "catalog_view":
             kind = str(ev["payload"].get("kind") or "").strip()
@@ -940,10 +1031,21 @@ def build_summary(
         rows = []
         for u, _c in reaction_area_user_counts.get(k, Counter()).most_common():
             sentiment = reaction_area_user_sentiment.get(k, {}).get(u, {"up": 0, "down": 0})
+            # PER-USER REACTED-OBJECT BREAKDOWN: solo las reacciones de ESTE
+            # usuario que resolvieron un objeto concreto (ver
+            # `_reaction_subject`) — nunca todas, nunca un relleno. El total
+            # de arriba (`up`/`down`) sigue siendo la fuente de verdad
+            # (incluye las que no resolvieron objeto); esta lista es
+            # estrictamente un subconjunto, ordenado por actividad.
+            subjects = sorted(
+                reaction_area_user_subjects.get(k, {}).get(u, {}).values(),
+                key=lambda s: s["up"] + s["down"], reverse=True,
+            )
             rows.append({
                 "user": u, "label": _label_of(u, display_names),
                 "up": sentiment["up"], "down": sentiment["down"],
                 "comments": reaction_comments.get(k, {}).get(u, []),
+                "subjects": subjects,
             })
         reaction_breakdowns[k] = {"dim": "usuario", "label": area_label(k), "rows": rows}
 

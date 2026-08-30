@@ -42,6 +42,11 @@ def test_tree_feedback_up_emits_activity_reaction(monkeypatch):
     assert kw["run_id"] == run.id
     assert kw["tree_id"]  # MISMO campo que tree_started/tree_step/tree_outcome ya usan.
     assert kw["feedback_sentiment"] == "positive"
+    # J (owner ticket "REACCIONES — PER-USER REACTED-OBJECT BREAKDOWN"):
+    # título del árbol + módulo, resueltos desde `run.tree` (mismo criterio
+    # que case_library.py::create_for_run usa para el mismo vínculo).
+    assert kw["tree_title"]
+    assert kw["module"] == "01_Arquitectura_y_Conectividad"  # tree["links"]["module"], sin normalizar.
 
 
 def test_tree_feedback_down_requires_lesson_and_is_negative_sentiment(monkeypatch):

@@ -914,3 +914,109 @@ def test_daily_trend_click_filters_second_round_producers_to_their_original_day(
     assert "1 reacción(es)" in t  # solo la reacción del 05, no las 3 del 01.
     assert 'data-event="assistant"' not in t
     assert 'data-event="methodology"' not in t
+
+
+# ── Reacciones: objeto reaccionado (owner — "no poder ver exactamente dónde
+# likeó es raro") ───────────────────────────────────────────────────────────
+# A/F/G/H/I/K del ticket "REACCIONES — PER-USER REACTED-OBJECT BREAKDOWN":
+# el detalle expandible ahora muestra A QUÉ objeto concreto reaccionó cada
+# persona (módulo/sección/reporte/etc.), no solo el total 👍/👎 de su área.
+
+_SUBJECT_ROWS = [
+    # I: usuario D reacciona en DOS módulos distintos dentro de Metodología
+    # -> dos filas de "objeto" separadas (A).
+    {"ts_utc": "2026-05-01T10:00:00+00:00", "event": "module.feedback", "user": "i@d.com", "name": "I",
+     "scope": "copilot", "area": "methodology", "module": "CP01",
+     "payload": {"feedback_sentiment": "positive"}},
+    {"ts_utc": "2026-05-01T10:01:00+00:00", "event": "module.feedback", "user": "i@d.com", "name": "I",
+     "scope": "copilot", "area": "methodology", "module": "CP02",
+     "payload": {"feedback_sentiment": "negative"}},
+    # G: MISMO usuario I también reacciona en Staffing (área DISTINTA, sin
+    # sub-identidad real) -- cuenta en el total de Staffing, nunca fabrica
+    # un "objeto" para esa reacción.
+    {"ts_utc": "2026-05-01T10:02:00+00:00", "event": "staffing.feedback", "user": "i@d.com", "name": "I",
+     "scope": "operations", "area": "staffing", "module": "OP01",
+     "payload": {"feedback_sentiment": "positive"}},
+    # día distinto -- integración con el filtro de fecha (H).
+    {"ts_utc": "2026-05-05T09:00:00+00:00", "event": "module.feedback", "user": "i@d.com", "name": "I",
+     "scope": "copilot", "area": "methodology", "module": "CP01",
+     "payload": {"feedback_sentiment": "positive"}},
+    # K: registro HISTÓRICO backfilleado (module.feedback, MISMO shape que
+    # backfill_copilot_reactions.py produce — con `backfill_marker`, sin
+    # ningún campo enriquecido más allá de `module`) -- prueba que Reacciones
+    # SÍ resuelve subject para lo que el backfill actual ya alcanza a cubrir.
+    {"ts_utc": "2026-05-01T11:00:00+00:00", "event": "module.feedback", "user": "j@d.com", "name": "J",
+     "scope": "copilot", "area": "methodology", "module": "CP03",
+     "payload": {"feedback_sentiment": "positive", "backfill_marker": "abc123", "backfill_source_type": "module_content"}},
+]
+
+
+def _seed_subject_rows(monkeypatch, tmp_path):
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    empty_feedback_dir = tmp_path / "_no_feedback_yaml_subjects"
+    empty_feedback_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(activity_analytics, "FEEDBACK_LOG_DIR", empty_feedback_dir)
+    day1 = [r for r in _SUBJECT_ROWS if r["ts_utc"].startswith("2026-05-01")]
+    day2 = [r for r in _SUBJECT_ROWS if r["ts_utc"].startswith("2026-05-05")]
+    (tmp_path / "activity_20260501.jsonl").write_text("\n".join(json.dumps(r) for r in day1) + "\n", encoding="utf-8")
+    (tmp_path / "activity_20260505.jsonl").write_text("\n".join(json.dumps(r) for r in day2) + "\n", encoding="utf-8")
+
+
+def test_user_with_reactions_in_two_modules_shows_two_subject_rows(monkeypatch, tmp_path):
+    _seed_subject_rows(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    methodology_panel = _panel_html(t, "methodology")
+    # I aparece expandible (tiene subjects, aunque nunca dejó comentario) y
+    # con DOS filas de objeto dentro de su detalle.
+    assert 'title="i@d.com"' in methodology_panel
+    assert '<div class="reaction-subjects">' in methodology_panel
+    # F: reconciliación -- I tiene 2 reacciones en methodology (día 1) y
+    # AMBAS resolvieron subject -- el total del usuario (👍1 👎1 en el día 1
+    # + 👍1 el día 5 = 👍2 👎1) debe coincidir con la suma de sus objetos.
+    assert '👍 2</span><span title="No le gustó">👎 1' in methodology_panel
+
+
+def test_unattributable_reaction_stays_in_total_without_fake_subject(monkeypatch, tmp_path):
+    _seed_subject_rows(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    staffing_panel = _panel_html(t, "staffing")
+    # G: staffing.feedback nunca tiene objeto -- ni "General" ni "Otro", el
+    # usuario I NO debería ser expandible en Staffing (sin comentario NI
+    # subjects), aunque SÍ cuenta en el total de arriba de Staffing.
+    assert 'data-event="staffing"' in t
+    assert 'title="Staffing: 1 👍 · 0 👎 de 1"' in t  # el total SÍ cuenta la reacción.
+    assert 'General' not in staffing_panel and 'Otro' not in staffing_panel
+
+
+def test_historical_backfilled_reaction_resolves_subject_when_module_is_present(monkeypatch, tmp_path):
+    # K: un evento con la MISMA forma que backfill_copilot_reactions.py
+    # produce hoy (solo `module`, sin campos enriquecidos) SÍ resuelve
+    # subject para module.feedback -- porque ese tipo nunca necesitó más
+    # que `module`, que el backfill YA copia.
+    _seed_subject_rows(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    methodology_panel = _panel_html(t, "methodology")
+    assert 'title="j@d.com"' in methodology_panel
+
+
+def test_daily_trend_click_updates_subject_detail_to_the_selected_day(monkeypatch, tmp_path):
+    # H: cambiar de día recalcula IZQUIERDA→DERECHA→detalle de objeto desde
+    # la MISMA población filtrada -- nunca un segundo estado de filtro.
+    _seed_subject_rows(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity?date_from=2026-05-05&date_to=2026-05-05").text
+    methodology_panel = _panel_html(t, "methodology")
+    assert 'title="i@d.com"' in methodology_panel
+    # el día 5 tiene UNA sola reacción (👍 CP01) -- el usuario ya no debería
+    # mostrar la reacción negativa de CP02 (esa fue el día 1).
+    assert '👍 1</span><span title="No le gustó">👎 0' in methodology_panel
+
+
+def test_changing_selected_area_never_leaves_stale_subject_rows(monkeypatch, tmp_path):
+    # I: el panel default ("Sin selección") nunca arrastra subjects de una
+    # sección previamente elegida -- MISMO mecanismo JS que ya aísla
+    # data-breakdown="" (initEventBreakdown, sin cambios), solo confirmamos
+    # que el panel default sigue sin contenido de ningún área concreta.
+    _seed_subject_rows(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    default_panel = t.split('data-breakdown=""')[1].split('data-breakdown="')[0]
+    assert 'reaction-subjects' not in default_panel

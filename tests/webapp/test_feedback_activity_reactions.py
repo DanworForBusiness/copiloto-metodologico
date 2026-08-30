@@ -68,6 +68,10 @@ def test_section_feedback_emits_activity_reaction_same_area_as_module(monkeypatc
     # MISMA área que la navegación de módulos, no una área "sección" aparte.
     assert kw["scope"] == "copilot" and kw["area"] == "methodology"
     assert kw["module"] == "CP01"
+    # B (owner ticket "REACCIONES — PER-USER REACTED-OBJECT BREAKDOWN"): la
+    # identidad de la sección concreta ahora viaja también al evento.
+    assert kw["section"] == "espacios-transportes"
+    assert kw["section_title"]  # título humano, no vacío.
 
 
 def test_catalog_feedback_emits_activity_reaction_in_catalog_area(monkeypatch, tmp_path):
@@ -81,6 +85,9 @@ def test_catalog_feedback_emits_activity_reaction_in_catalog_area(monkeypatch, t
     assert kw["scope"] == "copilot" and kw["area"] == "catalog"
     assert "module" not in kw  # catálogo no tiene dimensión de módulo, MISMO criterio que catalog_view.
     assert kw["feedback_sentiment"] == "positive"
+    # E (owner ticket "REACCIONES — PER-USER REACTED-OBJECT BREAKDOWN"):
+    # MISMOS nombres de campo que catalog_view (kind/ref), reusados acá.
+    assert kw["kind"] == "dominio" and kw["ref"] == "ventas"
 
 
 def test_catalog_section_feedback_emits_activity_reaction_in_catalog_area(monkeypatch, tmp_path):
@@ -96,6 +103,8 @@ def test_catalog_section_feedback_emits_activity_reaction_in_catalog_area(monkey
     kw = events[0][1]
     assert kw["scope"] == "copilot" and kw["area"] == "catalog"
     assert kw["feedback_sentiment"] == "negative"
+    # E: identidad concreta de la ficha (cliente/dominio/sección) reusada.
+    assert kw["cliente"] == "AySA" and kw["dominio"] == "Ventas" and kw["section_slug"] == "resumen"
 
 
 def test_activity_emission_never_breaks_the_feedback_write_or_response(monkeypatch, tmp_path):
