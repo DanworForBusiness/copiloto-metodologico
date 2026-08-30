@@ -1038,6 +1038,14 @@ function staffingDashboard(payload) {
       // `_reconcileSelections()`/`facetedAssignments()` (esos son
       // exclusivos del universo de Asignaciones).
       concept: defaultConceptFilter(),
+      // Summary Tile Filters corrective (ver HANDOFF — homologación del
+      // patrón clickeable de Commercial): "Activos vencidos" no tiene
+      // dropdown equivalente (a diferencia de `availability`, que YA es un
+      // filtro real reusado tal cual por las tarjetas Full Time/Part
+      // Time — ver `activeSummaryTile`) — vive en `filters` igual que
+      // cualquier otro filtro real, mismo mecanismo de
+      // `facetedAssignments`, nunca un segundo pipeline de filtrado.
+      activosVencidos: false,
     },
 
     // Lazy history (Staffing Director Priority V2, ver HANDOFF): el fetch
@@ -1121,6 +1129,35 @@ function staffingDashboard(payload) {
       this.$watch("filters.client", () => this._reconcileSelections());
       this.$watch("filters.availability", () => this._reconcileSelections());
       this.$watch("filters.status", () => this._reconcileSelections());
+
+      // Summary Tile Filters (ver HANDOFF) — backstop de mutua exclusión
+      // para el camino MANUAL (§5.D del ticket: elegir Full Time/Part Time
+      // desde el `<select>` Disponibilidad, vía `x-model`, debe tener el
+      // MISMO efecto que clickear la tarjeta — ese camino nunca pasa por
+      // `clickFullTimeTile()`/`clickPartTimeTile()`, así que su propia
+      // mutua exclusión inline no alcanza acá). El camino de CLIC ya se
+      // resuelve solo en los handlers (ver `clickFullTimeTile`/
+      // `clickPartTimeTile`/`clickActivosVencidosTile`, arriba) — estos
+      // watchers son additivos, no la única fuente de la regla. Simétrico
+      // a propósito, sin ciclo (Alpine no re-dispara un watcher si el
+      // valor asignado ya es el vigente).
+      this.$watch("filters.availability", (value) => {
+        if (value === "Full Time" || value === "Part Time") this.filters.activosVencidos = false;
+      });
+      this.$watch("filters.activosVencidos", (value) => {
+        if (value) this.filters.availability = "";
+      });
+      // Activos vencidos exige Status Activo por definición
+      // (`is_activo_vencido`, staffing_service.py) — la tarjeta misma ya
+      // está oculta sin Activo tildado (`x-show="filters.status.Activo"`,
+      // ver template), pero el FILTRO no debía quedar encendido en
+      // silencio detrás de una tarjeta invisible (produciría panel vacío
+      // sin explicación si Activo se destilda después de activar la
+      // tarjeta) — mismo criterio defensivo que el watcher de Inactivo,
+      // abajo.
+      this.$watch("filters.status.Activo", (value) => {
+        if (!value) this.filters.activosVencidos = false;
+      });
 
       // Lazy history (ver HANDOFF): la PRIMERA vez que el usuario tilda
       // Inactivo, dispara el fetch del delta histórico — togglear de ida y
@@ -1218,8 +1255,97 @@ function staffingDashboard(payload) {
       this.filters.project = "";
       this.filters.client = "";
       this.filters.availability = "";
+      this.filters.activosVencidos = false;
       this.filters.status = defaultStatusFilter();
       this.filters.concept = defaultConceptFilter();
+    },
+
+    // ── Summary Tile Filters (ver HANDOFF — homologación del patrón ──────
+    // clickeable de Commercial: tarjeta de resumen → filtra el panel →
+    // "Filtrado por…" → descartable). `filters.availability` YA ES la
+    // única fuente de verdad del dropdown "Disponibilidad de asignación"
+    // (ver template) — las tarjetas Full Time/Part Time la reusan TAL
+    // CUAL, nunca un segundo estado paralelo que pudiera desincronizarse
+    // (§5 del ticket: "Use one authoritative availability-filter state").
+    // "Activos vencidos" no tiene dropdown — vive en `filters.activosVencidos`
+    // (ver arriba), mismo nivel que cualquier otro filtro real.
+    //
+    // Mutua exclusión (§6 del ticket — sólo un filtro de tarjeta activo a
+    // la vez): el camino de CLIC la resuelve inline en cada handler (ver
+    // `clickFullTimeTile`/`clickPartTimeTile`/`clickActivosVencidosTile`,
+    // abajo); el camino MANUAL del `<select>` Disponibilidad la resuelve
+    // vía `$watch` en `init()` (nunca pasa por esos handlers). `activeSummaryTile`
+    // en sí es una lectura PURA de `filters` — nunca decide nada, sólo
+    // deriva qué tarjeta debe verse `.is-active` ahora mismo.
+    get activeSummaryTile() {
+      if (this.filters.activosVencidos) return "activos_vencidos";
+      if (this.filters.availability === "Full Time") return "full_time";
+      if (this.filters.availability === "Part Time") return "part_time";
+      return null;
+    },
+    get summaryTileFilterLabel() {
+      const tile = this.activeSummaryTile;
+      if (tile === "full_time") return "Full Time";
+      if (tile === "part_time") return "Part Time";
+      if (tile === "activos_vencidos") return "Activos vencidos";
+      return "";
+    },
+    // SAME-TILE CLICK (§9 del ticket): audit de Commercial encontró DOS
+    // convenciones activas — `initEventBreakdown` ([data-event], los NUEVE
+    // tiles de Resumen del landing legacy) SÍ togglea a apagado al
+    // reclickear la fila activa; `bar-row--clickable`/`initModuleFilter`
+    // (ranking Vendedor/Cliente DENTRO de un panel ya abierto) documentan
+    // EXPLÍCITAMENTE lo contrario ("SIN toggle-to-clear… limpiar es una
+    // acción explícita y separada"). Estas tarjetas son estructuralmente
+    // el mismo rol que los tiles de Resumen de Commercial (KPI de nivel
+    // superior en la grilla `.activity-kpi-grid`, no una fila de ranking
+    // dentro de un drilldown ya abierto) — se sigue esa convención:
+    // togglea a apagado.
+    //
+    // Mutua exclusión ESCRITA ACÁ TAMBIÉN (no sólo en los `$watch` de
+    // `init()`, ver abajo) — a propósito, dos caminos disparan el cambio
+    // de `filters.availability`/`filters.activosVencidos` con
+    // comportamiento distinto: un clic en la tarjeta (este handler,
+    // determinístico, sin depender de reactividad) y un cambio MANUAL del
+    // `<select>` Disponibilidad (`x-model`, nunca pasa por acá — §5.D del
+    // ticket exige que tenga el MISMO efecto, así que ESE camino sí
+    // necesita el watcher). Ninguna de las dos rutas es redundante con la
+    // otra, cubren triggers distintos.
+    clickFullTimeTile() {
+      if (this.filters.availability === "Full Time") {
+        this.filters.availability = "";
+      } else {
+        this.filters.availability = "Full Time";
+        this.filters.activosVencidos = false;
+      }
+    },
+    clickPartTimeTile() {
+      if (this.filters.availability === "Part Time") {
+        this.filters.availability = "";
+      } else {
+        this.filters.availability = "Part Time";
+        this.filters.activosVencidos = false;
+      }
+    },
+    clickActivosVencidosTile() {
+      if (this.filters.activosVencidos) {
+        this.filters.activosVencidos = false;
+      } else {
+        this.filters.activosVencidos = true;
+        this.filters.availability = "";
+      }
+    },
+    // Dismiss del chip "Filtrado por…" (§8.A del ticket) — SOLO el filtro
+    // de tarjeta, nunca Consultor/Proyecto/Cliente/Estado/Concepto (§7:
+    // "Do NOT silently wipe unrelated filters"). El botón "✕ Limpiar"
+    // global (§8.B — la ÚNICA "X" que el audit encontró en esta pantalla,
+    // ver HANDOFF) sigue apuntando a `resetFilters()`, cuyo contrato
+    // PROBADO de siempre ya es "limpiar TODO" — se preserva sin cambios
+    // (ahora también apaga `activosVencidos`, arriba), nunca se angosta
+    // retroactivamente para esta feature.
+    clearSummaryTileFilter() {
+      this.filters.availability = "";
+      this.filters.activosVencidos = false;
     },
 
     statusSlug(status) {
@@ -1324,6 +1450,13 @@ function staffingDashboard(payload) {
         if (excludeKey !== "project" && this.filters.project && a.project_id !== this.filters.project) return false;
         if (excludeKey !== "client" && this.filters.client && a.client_id !== this.filters.client) return false;
         if (excludeKey !== "availability" && this.filters.availability && a.availability !== this.filters.availability) return false;
+        // Activos vencidos (Summary Tile Filters corrective, ver HANDOFF) —
+        // `a.activo_vencido` es EXACTAMENTE el mismo predicado que ya
+        // alimenta el KPI `kpis.activosVencidos` (`is_activo_vencido`,
+        // staffing_service.py — server-side, única regla canónica, nunca
+        // reimplementada acá). Sin dropdown propio (ver `filters`) — se
+        // aplica siempre, igual criterio que `status`, más abajo.
+        if (this.filters.activosVencidos && !a.activo_vencido) return false;
         const statusKey = a.status || "Sin estado";
         if (this.filters.status[statusKey] === false) return false;
         return true;

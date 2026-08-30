@@ -146,15 +146,36 @@
             <span class="activity-kpi__value" x-text="kpis.activeHoursLabel"></span>
             <span class="activity-kpi__label">Horas activas / mes</span>
           </div>
-          <div class="activity-kpi">
+          {# Summary Tile Filters (ver HANDOFF — homologación del patrón
+             clickeable de Commercial, `.activity-kpi--clickable` +
+             `role="button"`/`aria-pressed`, ver tools.css/commercial.js):
+             tarjeta → filtra Timeline + Detalle → "Filtrado por…" →
+             descartable. `filters.availability` sigue siendo la ÚNICA
+             fuente de verdad (§5 del ticket) — la tarjeta sólo la
+             escribe, nunca duplica estado; `activeSummaryTile` (app.js)
+             deriva cuál tarjeta está `.is-active`, así que elegir
+             Full Time/Part Time a mano desde el dropdown de abajo
+             sincroniza la tarjeta automáticamente, sin código extra. #}
+          <div class="activity-kpi activity-kpi--clickable" :class="activeSummaryTile === 'full_time' ? 'is-active' : ''"
+               role="button" tabindex="0" :aria-pressed="activeSummaryTile === 'full_time' ? 'true' : 'false'"
+               aria-label="Filtrar por disponibilidad Full Time"
+               @click="clickFullTimeTile()" @keydown.enter="clickFullTimeTile()" @keydown.space.prevent="clickFullTimeTile()">
             <span class="activity-kpi__value" x-text="availabilityGroups['Full Time']"></span>
             <span class="activity-kpi__label">Full Time</span>
           </div>
-          <div class="activity-kpi">
+          <div class="activity-kpi activity-kpi--clickable" :class="activeSummaryTile === 'part_time' ? 'is-active' : ''"
+               role="button" tabindex="0" :aria-pressed="activeSummaryTile === 'part_time' ? 'true' : 'false'"
+               aria-label="Filtrar por disponibilidad Part Time"
+               @click="clickPartTimeTile()" @keydown.enter="clickPartTimeTile()" @keydown.space.prevent="clickPartTimeTile()">
             <span class="activity-kpi__value" x-text="availabilityGroups['Part Time']"></span>
             <span class="activity-kpi__label">Part Time</span>
           </div>
-          <div class="activity-kpi activity-kpi--warning" x-show="filters.status.Activo" title="Asignaciones marcadas como activas cuya fecha de finalización ya pasó.">
+          <div class="activity-kpi activity-kpi--warning activity-kpi--clickable" :class="activeSummaryTile === 'activos_vencidos' ? 'is-active' : ''"
+               x-show="filters.status.Activo"
+               role="button" tabindex="0" :aria-pressed="activeSummaryTile === 'activos_vencidos' ? 'true' : 'false'"
+               aria-label="Filtrar por asignaciones activas vencidas"
+               title="Asignaciones marcadas como activas cuya fecha de finalización ya pasó."
+               @click="clickActivosVencidosTile()" @keydown.enter="clickActivosVencidosTile()" @keydown.space.prevent="clickActivosVencidosTile()">
             <span class="activity-kpi__value" x-text="kpis.activosVencidos"></span>
             <span class="activity-kpi__label">Activos vencidos</span>
           </div>
@@ -170,6 +191,20 @@
         <span class="dashboard-section__count" x-text="timelineGroups.length + (groupBy === 'project' ? ' proyecto(s)' : ' consultor(es)')"></span>
       </summary>
       <div class="dashboard-section__body">
+        {# Summary Tile Filters — indicador "Filtrado por…" (§8/§15 del
+           ticket, ver HANDOFF) — MISMO primitivo compartido del Hub
+           (`.dashboard-subhead`/`.dashboard-subhead__filter`/
+           `__reset`, tools.css) que ya estrenó Métricas de Uso y reusa
+           Comercial (Ganadas/Perdidas/Creadas) — cero clase nueva, cero
+           chip inventado para Staffing. Vive en `.dashboard-section__body`
+           (contenido revelado por `<details>`, HERMANO del `<summary>`
+           colapsable de arriba, nunca dentro de él) — un click acá nunca
+           colapsa/expande la sección, sin necesitar `.stop`. #}
+        <p class="dashboard-subhead" x-show="activeSummaryTile" x-cloak>
+          <span class="dashboard-subhead__filter">Filtrado por <strong x-text="summaryTileFilterLabel"></strong>
+            <button type="button" class="dashboard-subhead__reset" @click="clearSummaryTileFilter()" title="Volver a Todos">✕</button>
+          </span>
+        </p>
         <div class="staffing-timeline-toolbar">
           <div class="dashboard-view-switch">
             <button type="button" :class="groupBy === 'consultant' ? 'is-active' : ''" @click="setGrouping('consultant')">Consultor</button>
