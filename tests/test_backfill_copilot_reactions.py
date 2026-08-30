@@ -79,7 +79,13 @@ def test_academy_content_backfills_to_academy_area(tmp_path):
     assert candidates[0]["module"] == "intro"
 
 
-def test_assistant_response_backfills_using_reply_id_as_marker_source(tmp_path):
+def test_assistant_response_backfills_using_filename_marker_not_reply_id(tmp_path):
+    # CORRECTIVE (owner AUDIT — "REACTIONS BACKFILL — FINAL CORRECTIVE"):
+    # reply_id identifica la RESPUESTA del asistente, NO un registro de
+    # feedback persistido -- AssistantFeedbackRepository.save no tiene
+    # ninguna invariante de unicidad por reply_id. El marker de
+    # deduplicación es SIEMPRE el nombre de archivo, igual que los otros
+    # cinco tipos; reply_id/conversation_id viajan solo como correlación.
     fb = tmp_path / "feedback_log"; fb.mkdir()
     act = tmp_path / "activity_log"
     _write_feedback(fb, "feedback_20260104_000000_dddddddd.yaml", {
@@ -94,10 +100,48 @@ def test_assistant_response_backfills_using_reply_id_as_marker_source(tmp_path):
     assert c["area"] == "assistant"
     assert c["module"] == "CP02"
     assert c["name"] == "D"
-    # marker derivado de reply_id (clave más fuerte que el filename), MISMO
-    # formato opaco (sha256 truncado) que el resto de los tipos.
-    expected_marker = bcr._opaque_marker("reply-123")
+    # marker derivado del NOMBRE DE ARCHIVO -- NUNCA de reply_id.
+    expected_marker = bcr._opaque_marker("feedback_20260104_000000_dddddddd.yaml")
     assert c["payload"]["backfill_marker"] == expected_marker
+    assert c["payload"]["backfill_marker"] != bcr._opaque_marker("reply-123")
+    # reply_id/conversation_id SÍ viajan -- solo como metadata de correlación.
+    assert c["payload"]["reply_id"] == "reply-123"
+    assert c["payload"]["conversation_id"] == "conv-1"
+
+
+# ── §1 del corrective: dos registros legítimos pueden compartir reply_id ────
+
+def test_two_assistant_records_sharing_reply_id_both_become_candidates(tmp_path):
+    # A: dos envíos de feedback LEGÍTIMOS para la MISMA respuesta (p. ej. un
+    # reenvío real) -- dos archivos YAML distintos, MISMO reply_id.
+    fb = tmp_path / "feedback_log"; fb.mkdir()
+    act = tmp_path / "activity_log"
+    _write_feedback(fb, "feedback_20260104_000000_first111.yaml", {
+        "type": "assistant_response", "module": "CP02", "rating": "up",
+        "reply_id": "reply-shared", "conversation_id": "conv-1",
+        "user": "d@d.com", "ts": "2026-01-18T07:00:00+00:00",
+    })
+    _write_feedback(fb, "feedback_20260104_000100_second22.yaml", {
+        "type": "assistant_response", "module": "CP02", "rating": "down",
+        "reply_id": "reply-shared", "conversation_id": "conv-1",
+        "user": "d@d.com", "ts": "2026-01-18T07:01:00+00:00",
+    })
+    candidates = bcr.plan(feedback_dir=fb, activity_dir=act)
+    assert len(candidates) == 2  # ambos sobreviven -- ninguno se pierde por compartir reply_id.
+    sentiments = {c["payload"]["feedback_sentiment"] for c in candidates}
+    assert sentiments == {"positive", "negative"}
+    for c in candidates:
+        assert c["payload"]["reply_id"] == "reply-shared"
+
+    # B: markers DISTINTOS pese al reply_id compartido.
+    markers = {c["payload"]["backfill_marker"] for c in candidates}
+    assert len(markers) == 2
+
+    # C: aplicar y re-planear -- la segunda corrida no inserta nada nuevo.
+    inserted = bcr.apply(candidates, activity_dir=act)
+    assert inserted == 2
+    assert bcr.plan(feedback_dir=fb, activity_dir=act) == []
+    assert len(_read_activity_day(act, "20260118")) == 2  # ambos eventos, nunca colapsados en uno.
 
 
 # ── Q: anónimo cuenta a la izquierda, nunca fabrica usuario ─────────────────
@@ -160,6 +204,76 @@ def test_unrecognized_type_is_skipped(tmp_path):
         "type": "some_future_type", "rating": "up", "ts": "2026-01-01T00:00:00+00:00",
     })
     assert bcr.plan(feedback_dir=fb, activity_dir=act) == []
+
+
+# ── §2 del corrective: normalización UTC real, nunca slicing de texto ──────
+
+def test_offset_timestamp_crossing_utc_day_boundary_normalizes_correctly(tmp_path):
+    # D + E + F: 23:30 a -05:00 es 04:30 UTC del día SIGUIENTE -- el
+    # candidato/evento debe reflejar el instante UTC real, y el archivo
+    # activity_YYYYMMDD.jsonl debe ser el del día UTC, no el del texto
+    # original.
+    fb = tmp_path / "feedback_log"; fb.mkdir()
+    act = tmp_path / "activity_log"
+    _write_feedback(fb, "module_feedback_boundary.yaml", {
+        "type": "module_content", "module": "CP01", "rating": "up",
+        "user": "a@d.com", "ts": "2026-01-15T23:30:00-05:00",
+    })
+    candidates = bcr.plan(feedback_dir=fb, activity_dir=act)
+    assert len(candidates) == 1
+    c = candidates[0]
+    # E: ts_utc es el instante UTC canónico, nunca el offset original.
+    assert c["ts_utc"] == "2026-01-16T04:30:00+00:00"
+    inserted = bcr.apply(candidates, activity_dir=act)
+    assert inserted == 1
+    # F: el archivo del día UTC, NUNCA el día del texto original (15, no 16).
+    assert list(act.glob("activity_*.jsonl")) == [act / "activity_20260116.jsonl"]
+    day_events = _read_activity_day(act, "20260116")
+    assert len(day_events) == 1
+    assert day_events[0]["ts_utc"] == "2026-01-16T04:30:00+00:00"
+    assert not (act / "activity_20260115.jsonl").exists()
+
+
+def test_naive_timestamp_without_timezone_is_skipped(tmp_path):
+    # G: sin offset -- nunca se asume UTC/local, se saltea.
+    fb = tmp_path / "feedback_log"; fb.mkdir()
+    act = tmp_path / "activity_log"
+    _write_feedback(fb, "module_feedback_naive.yaml", {
+        "type": "module_content", "module": "CP01", "rating": "up",
+        "user": "a@d.com", "ts": "2026-01-15T10:30:00",  # sin offset.
+    })
+    assert bcr.plan(feedback_dir=fb, activity_dir=act) == []
+    assert bcr._parse_utc("2026-01-15T10:30:00") is None
+
+
+def test_malformed_timestamp_is_skipped(tmp_path):
+    # H: texto que ni siquiera parsea como ISO 8601.
+    fb = tmp_path / "feedback_log"; fb.mkdir()
+    act = tmp_path / "activity_log"
+    _write_feedback(fb, "module_feedback_bad.yaml", {
+        "type": "module_content", "module": "CP01", "rating": "up",
+        "user": "a@d.com", "ts": "no-es-una-fecha",
+    })
+    assert bcr.plan(feedback_dir=fb, activity_dir=act) == []
+    assert bcr._parse_utc("no-es-una-fecha") is None
+    assert bcr._parse_utc("") is None
+
+
+def test_ordinary_utc_offset_record_is_semantically_unchanged(tmp_path):
+    # I: un registro +00:00 normal produce el MISMO ts_utc, byte a byte --
+    # la normalización es un no-op para lo que ya era UTC.
+    fb = tmp_path / "feedback_log"; fb.mkdir()
+    act = tmp_path / "activity_log"
+    original_ts = "2026-06-10T14:05:30+00:00"
+    _write_feedback(fb, "catalog_feedback_plain.yaml", {
+        "type": "catalog", "rating": "up", "user": "a@d.com", "ts": original_ts,
+    })
+    candidates = bcr.plan(feedback_dir=fb, activity_dir=act)
+    assert len(candidates) == 1
+    assert candidates[0]["ts_utc"] == original_ts
+    inserted = bcr.apply(candidates, activity_dir=act)
+    assert inserted == 1
+    assert list(act.glob("activity_*.jsonl")) == [act / "activity_20260610.jsonl"]
 
 
 # ── apply(): preserva timestamp original, escribe al día correcto (N/O) ────

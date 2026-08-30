@@ -32,10 +32,33 @@ NEVER runs automatically at application startup. `plan()` is pure/read-only
 and fully deterministic for a given pair of directories (sorted glob, no
 wall-clock/randomness in its own logic); `apply()` is the only function
 that writes. Safe to re-run: every synthetic event carries an opaque,
-filename- (or reply_id-, for assistant) derived marker in
-`payload.backfill_marker`, and `plan()` skips any source record whose
-marker already exists anywhere in ACTIVITY_LOG_DIR — never a timestamp-
-equality dedup.
+filename-derived marker in `payload.backfill_marker`, and `plan()` skips
+any source record whose marker already exists anywhere in ACTIVITY_LOG_DIR
+— never a timestamp-equality dedup.
+
+IDENTITY CORRECTIVE (owner AUDIT — "REACTIONS BACKFILL — FINAL CORRECTIVE"):
+the marker source is the persisted feedback YAML's own unique FILENAME for
+EVERY type, including `assistant_response` — never `reply_id`. Proven
+empirically that `AssistantFeedbackRepository.save` has no uniqueness
+invariant by `reply_id`: it identifies the assistant's REPLY, not a
+persisted FEEDBACK RECORD, and two legitimate feedback submissions for the
+same reply (e.g. a genuine resubmission) write two distinct YAML files
+that share the same `reply_id`. Using `reply_id` as the marker would
+collapse those two real reactions onto one marker, silently dropping the
+second. `reply_id`/`conversation_id` still travel in the synthetic event's
+payload as correlation metadata (same fields `assistant.feedback` already
+emits live) — just never as the dedup key.
+
+UTC NORMALIZATION CORRECTIVE (same audit): `ts` is parsed timezone-aware
+and normalized to UTC via `_parse_utc` BEFORE it becomes a candidate — the
+canonical `ts_utc` written to the synthetic event, and the
+`activity_YYYYMMDD.jsonl` day it lands in, are both derived from that
+normalized instant, never from slicing the source string's first 10
+characters. Every current producer (feedback.py/academy.py/
+assistant_service.py) writes `ts` via `datetime.now(timezone.utc)`, so
+today's real records are always already `+00:00` -- but the parser never
+relies on that assumption: a malformed or naive (no offset) timestamp is
+skipped, never guessed at, never defaulted to "now" or local time.
 
 CLI: `python backfill_copilot_reactions.py` (dry-run, prints counts only)
      `python backfill_copilot_reactions.py --apply` (writes)
@@ -49,6 +72,7 @@ import argparse
 import hashlib
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -74,9 +98,11 @@ _BACKFILL_TYPES: dict[str, tuple[str, str, str | None]] = {
 
 def _opaque_marker(source: str) -> str:
     """SHA-256 truncado, NUNCA reversible — MISMO criterio/longitud que
-    `reporting_time_logs_durable._opaque_scope_key`. `source` es la KEY
-    ESTABLE del registro origen (nombre de archivo YAML, o `reply_id` para
-    Assistant — ver `_candidate_for`) — nunca datos de usuario/token."""
+    `reporting_time_logs_durable._opaque_scope_key`. `source` es el NOMBRE
+    DE ARCHIVO del registro YAML origen — SIEMPRE, para todos los tipos
+    (ver `_candidate_for` y el corrective de identidad en el docstring del
+    módulo: `reply_id` NO es una identidad por-registro válida) — nunca
+    datos de usuario/token."""
     return hashlib.sha256(f"copilot_reaction_backfill:{source}".encode("utf-8")).hexdigest()[:32]
 
 
@@ -120,12 +146,34 @@ def _existing_markers(activity_dir: Path) -> set[str]:
     return markers
 
 
+def _parse_utc(ts: str) -> datetime | None:
+    """Parsea `ts` (ISO 8601) EXIGIENDO que sea timezone-aware, y normaliza
+    a UTC — NUNCA asume una zona horaria. `None` ante cualquier timestamp
+    inválido O naive (sin offset): un `datetime` naive no tiene forma
+    confiable de saber a qué instante UTC corresponde, así que fail-soft
+    (saltear el registro) es la ÚNICA opción segura — nunca "ahora", nunca
+    hora local adivinada, nunca UTC fabricado (§3 del corrective)."""
+    try:
+        parsed = datetime.fromisoformat(ts)
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
 def _day_key(ts_utc: str) -> str:
-    """YYYYMMDD desde el `ts` ISO 8601 ORIGINAL del registro — nunca la
-    fecha de HOY (§5: "Do not use now as event time"). Mismo formato que
-    `activity_YYYYMMDD.jsonl` ya usa en todo el resto del Hub."""
-    digits = "".join(ch for ch in ts_utc[:10] if ch.isdigit())
-    return digits
+    """YYYYMMDD desde un `ts_utc` YA NORMALIZADO a UTC por `_candidate_for`
+    (vía `_parse_utc`) — parseo real, NUNCA slicing de texto de los
+    primeros 10 caracteres: un timestamp con offset != +00:00 puede caer en
+    un día calendario UTC DISTINTO al que sugieren esos caracteres (AUDIT,
+    caso real: 23:30 a -05:00 es 04:30 UTC del día SIGUIENTE). Se re-parsea
+    acá (en vez de cachear el `datetime` crudo en el candidato) para que
+    `apply()` siga operando sobre el mismo dict JSON-serializable que se
+    escribe tal cual al archivo — por construcción, todo `ts_utc` que llega
+    acá ya pasó por `_parse_utc` con éxito antes de convertirse en
+    candidato, así que este re-parseo nunca falla en la práctica."""
+    return datetime.fromisoformat(ts_utc).strftime("%Y%m%d")
 
 
 def _candidate_for(path: Path, data: dict, existing_markers: set[str]) -> dict[str, Any] | None:
@@ -142,24 +190,28 @@ def _candidate_for(path: Path, data: dict, existing_markers: set[str]) -> dict[s
     rating = str(data.get("rating") or "")
     if rating not in {"up", "down"}:
         return None
-    ts = str(data.get("ts") or "").strip()
-    if len(ts) < 10:  # al menos "YYYY-MM-DD" -- fail-soft, nunca "now"
-        return None
-    # Assistant tiene una key MÁS FUERTE que el nombre de archivo (§9: "for
-    # Assistant, prefer its existing stable reply/record id") — el MISMO
-    # `reply_id` que `assistant_query` ya usa para correlacionar con
-    # "Historia de preguntas" (ver assistant_service.py). Igual de opaco que
-    # un hash de filename (uuid4 hex aleatorio), así que se hashea con el
-    # MISMO formato — nunca dos formatos de marker distintos conviviendo.
-    marker_source = str(data.get("reply_id") or "") if type_ == "assistant_response" else path.name
-    if not marker_source:
-        marker_source = path.name  # fallback fail-soft si un assistant_response viejo no trae reply_id
-    marker = _opaque_marker(marker_source)
+    ts_raw = str(data.get("ts") or "").strip()
+    parsed_utc = _parse_utc(ts_raw)
+    if parsed_utc is None:
+        return None  # inválido o naive -- nunca se asume/inventa una zona horaria (§2/§3)
+    canonical_ts_utc = parsed_utc.isoformat()
+    # IDENTIDAD DE DEDUPLICACIÓN — SIEMPRE el nombre de archivo YAML, para
+    # TODOS los tipos, incluido assistant_response (owner AUDIT — "reply_id
+    # identifica la RESPUESTA del asistente, NO un registro de feedback
+    # persistido": AssistantFeedbackRepository.save no tiene ninguna
+    # invariante de unicidad por reply_id, probado empíricamente que dos
+    # envíos legítimos de la MISMA respuesta escriben dos YAML distintos
+    # con el MISMO reply_id — usar reply_id como marker colapsaría esas dos
+    # reacciones reales en un solo marker, perdiendo la segunda en
+    # silencio). El nombre de archivo SÍ es una identidad estable por
+    # REGISTRO — `write_feedback_record`/cada `_save_*` siempre lo genera
+    # único (timestamp + uuid4 corto, ver feedback_store.py/los routers).
+    marker = _opaque_marker(path.name)
     if marker in existing_markers:
         return None
     module_value = str(data.get(module_field) or "") if module_field else ""
     event: dict[str, Any] = {
-        "ts_utc": ts,
+        "ts_utc": canonical_ts_utc,
         "event": event_name,
         "user": str(data.get("user") or ""),
         "name": str(data.get("name") or ""),
@@ -173,6 +225,18 @@ def _candidate_for(path: Path, data: dict, existing_markers: set[str]) -> dict[s
     }
     if module_value:
         event["module"] = module_value
+    # reply_id/conversation_id viajan SOLO como metadata de correlación
+    # (§1 del corrective: "reply_id must remain only correlation metadata")
+    # — MISMOS campos que `assistant.feedback` ya emite en vivo (ver
+    # webapp/routers/assistant.py::_log_assistant_feedback_reaction) —
+    # NUNCA la clave de deduplicación (esa es siempre `marker`, arriba).
+    if type_ == "assistant_response":
+        reply_id = str(data.get("reply_id") or "")
+        conversation_id = str(data.get("conversation_id") or "")
+        if reply_id:
+            event["payload"]["reply_id"] = reply_id
+        if conversation_id:
+            event["payload"]["conversation_id"] = conversation_id
     return event
 
 
