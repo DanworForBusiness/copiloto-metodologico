@@ -44,6 +44,8 @@ from webapp.templating import templates  # env Jinja compartida (Fase 2C); misma
 from webapp import access  # access policy de la web (owner/readonly/diagnostic)
 from webapp import nav     # navegación de la web (login redirect)
 from webapp import workspaces  # PLATFORM: identidad/switcher entre workspaces
+from webapp import operations_access  # access policy del workspace Operations
+from webapp import hub_metrics_access  # access policy de Usage Metrics (owner ticket "HUB METRICS")
 from webapp.routers import academy as academy_router
 from webapp.routers import pack_assets as pack_assets_router
 from webapp.routers import landing as landing_router
@@ -319,6 +321,21 @@ def _require_diagnostic(request: Request) -> None:
         raise HTTPException(403, "Solo disponible en modo diagnóstico")
 
 
+def _require_hub_metrics(request: Request) -> None:
+    """Frontera de seguridad REAL de Usage Metrics (owner ticket "HUB METRICS
+    — CENTRALIZE ACCESS AND ENABLE BY VERTICAL") — reemplaza el histórico
+    `_require_diagnostic` + owner-only de estas 4 rutas por la autorización
+    CENTRALIZADA (`webapp.hub_metrics_access`), que YA decide sola el
+    fallback a APP_OWNER cuando `HUB_METRICS_ALLOWED_USERS` no está
+    configurado (ver ese módulo) — nunca un segundo chequeo de owner acá.
+    Deliberadamente SIN `_require_diagnostic`: esta vista ahora también se
+    sirve desde Operations (fuera del modo diagnóstico del Copiloto, un
+    concepto de OTRO vertical) — MISMO mensaje/código 403 que el resto del
+    Hub usa para "no autorizado"."""
+    if not hub_metrics_access.can_access_hub_metrics_request(request):
+        raise HTTPException(403, "No autorizado para Usage Metrics")
+
+
 def _admin_result(request: Request, title: str, output: str):
     return templates.TemplateResponse(
         request=request,
@@ -333,11 +350,7 @@ def admin_activity(
     user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
     scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
 ):
-    _require_diagnostic(request)
-    # Gating más estricto que el resto del panel admin: esta vista expone
-    # nombre/mail real por evento (incluidas preguntas textuales al asistente).
-    if not _is_owner(request):
-        raise HTTPException(403, "Solo disponible para el owner")
+    _require_hub_metrics(request)
     summary = activity_analytics.build_summary(
         date_from, date_to, user_filter, module_filter,
         scopes=scope_filter, areas=area_filter,
@@ -378,9 +391,7 @@ def admin_activity_trend(
     guardrail) — MISMO patrón que admin_activity_stories/admin_activity_tree_runs:
     pasar de página no toca el resto del dashboard (orden de drag-and-drop,
     abierto/cerrado de las demás secciones)."""
-    _require_diagnostic(request)
-    if not _is_owner(request):
-        raise HTTPException(403, "Solo disponible para el owner")
+    _require_hub_metrics(request)
     summary = activity_analytics.build_summary(
         date_from, date_to, user_filter, module_filter,
         trend_page=trend_page,
@@ -402,9 +413,7 @@ def admin_activity_stories(
     """Fragment liviano de solo la 'Historia de preguntas' (lista + paginador),
     para que pasar de página no reemplace el dashboard entero (perdería el
     orden de drag-and-drop y el abierto/cerrado de las demás secciones)."""
-    _require_diagnostic(request)
-    if not _is_owner(request):
-        raise HTTPException(403, "Solo disponible para el owner")
+    _require_hub_metrics(request)
     summary = activity_analytics.build_summary(
         date_from, date_to, user_filter, module_filter, story_page, story_page_size,
         scopes=scope_filter, areas=area_filter,
@@ -425,9 +434,7 @@ def admin_activity_tree_runs(
     """Fragment liviano de solo 'Recorridos' (árboles de decisión) — mismo
     patrón que admin_activity_stories: pasar de página no toca el resto del
     dashboard."""
-    _require_diagnostic(request)
-    if not _is_owner(request):
-        raise HTTPException(403, "Solo disponible para el owner")
+    _require_hub_metrics(request)
     summary = activity_analytics.build_summary(
         date_from, date_to, user_filter, module_filter,
         run_page=run_page, run_page_size=run_page_size,
@@ -436,6 +443,55 @@ def admin_activity_tree_runs(
     return templates.TemplateResponse(
         request=request, name="partials/admin_activity_tree_runs.html",
         context={"summary": summary, "date_from": date_from, "date_to": date_to},
+    )
+
+
+@app.get("/operaciones/metricas", response_class=HTMLResponse, include_in_schema=False)
+def operations_metrics(
+    request: Request, date_from: str = "", date_to: str = "",
+    user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
+    scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
+):
+    """Usage Metrics expuesto DESDE Operations (owner ticket "HUB METRICS —
+    CENTRALIZE ACCESS AND ENABLE BY VERTICAL" §6): el MISMO reporte que
+    /admin/activity (activity_analytics.build_summary +
+    partials/admin_activity_content.html) — nunca una copia/fork, solo el
+    shell alrededor cambia (operations_nav.html en vez del nav de Copiloto).
+
+    TRES chequeos independientes, ninguno sustituye a otro (§1/§G/§H del
+    ticket): admisión a Operations (`operations_access` — MISMO patrón que
+    reporting.py/staffing.py, sin un segundo parser), la superficie
+    "operations" habilitada en HUB_METRICS_ENABLED_VERTICALS, y la
+    autorización de Metrics en sí (`_require_hub_metrics`, ver ahí — YA
+    resuelve el fallback a APP_OWNER cuando la lista no está configurada).
+    Ser Metrics-usuario NUNCA otorga Operations por sí solo, y viceversa."""
+    if not auth_service.session_user(request):
+        return workspaces.platform_login_redirect(request)
+    if not operations_access.is_operations_authorized(request):
+        raise HTTPException(403, "No autorizado para Operations")
+    if not hub_metrics_access.is_vertical_metrics_enabled("operations"):
+        raise HTTPException(403, "Usage Metrics no está habilitado para Operations")
+    _require_hub_metrics(request)
+    user = auth_service.session_user(request)
+    summary = activity_analytics.build_summary(
+        date_from, date_to, user_filter, module_filter,
+        scopes=scope_filter, areas=area_filter,
+    )
+    return templates.TemplateResponse(
+        request=request, name="operations/metrics.html",
+        context={
+            "current_workspace": workspaces.OPERATIONS,
+            "available_workspaces": workspaces.available_workspaces(user),
+            "pack": DEFAULT_PACK,
+            "user": user,
+            # Resalta "03 Métricas de uso" en operations_nav.html.
+            "active_page": "metrics",
+            # Ya pasamos los 3 chequeos arriba para llegar hasta acá -- True
+            # a secas, MISMO campo que staffing.py/reporting.py calculan
+            # para que el link se siga mostrando (activo) en esta página.
+            "can_hub_metrics": True,
+            "summary": summary, "date_from": date_from, "date_to": date_to,
+        },
     )
 
 

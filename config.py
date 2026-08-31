@@ -190,6 +190,31 @@ OPERATIONS_ALLOWED_USERS = _env("OPERATIONS_ALLOWED_USERS", "")
 # que exista un mecanismo de entitlement central (Commercial Hub Workspace
 # Foundation, ver HANDOFF).
 COMMERCIAL_ALLOWED_USERS = _env("COMMERCIAL_ALLOWED_USERS", "")
+# Usage Metrics como capacidad de HUB (owner ticket "HUB METRICS — CENTRALIZE
+# ACCESS AND ENABLE BY VERTICAL"): DOS preguntas independientes — "¿puedo
+# entrar al vertical?" (ALLOWED_USERS/OPERATIONS_ALLOWED_USERS/
+# COMMERCIAL_ALLOWED_USERS, arriba) vs "¿puedo ver Usage Metrics?" (acá).
+# Entrar a un vertical NUNCA implica ver sus métricas — nunca se acoplan.
+# MISMO parser/normalización que OPERATIONS_ALLOWED_USERS (ver
+# auth_service._csv_users) PERO con un contrato de MIGRACIÓN distinto y a
+# propósito, no fail-closed: ausente/vacío ⇒ preserva el comportamiento
+# HISTÓRICO de Usage Metrics (APP_OWNER-only, ver webapp/access.py); una vez
+# configurada la lista explícita, ES la única autoridad — sin bypass oculto
+# de APP_OWNER (si el dueño necesita seguir viendo Metrics, su identidad debe
+# estar acá explícita, auditable en config, como cualquier otro usuario). El
+# literal "ALL" queda rechazado igual que en Operations/Comercial — Metrics
+# nunca se abre a "todos" por accidente. Ver webapp/hub_metrics_access.py.
+HUB_METRICS_ALLOWED_USERS = _env("HUB_METRICS_ALLOWED_USERS", "")
+# Superficie de Usage Metrics por vertical — slugs canónicos separados por
+# coma (MISMO delimitador que todas las listas de arriba), case-insensitive.
+# "operations" habilita la entrada de Usage Metrics DESDE Operations (además
+# del acceso Copiloto/admin existente, que no depende de esta variable — ver
+# §7 del ticket). "commercial" queda deliberadamente FUERA del default: Comercial
+# no se habilita todavía, aunque el diseño ya lo soporta con solo agregar el
+# slug acá (sin código nuevo) cuando el owner lo autorice. Vacío/ausente =
+# ningún vertical adicional expone Metrics (el entry point de Copiloto/admin
+# sigue intacto de cualquier forma).
+HUB_METRICS_ENABLED_VERTICALS = _env("HUB_METRICS_ENABLED_VERTICALS", "operations")
 # Credenciales del CRM Odoo (Commercial Hub — Batch 1, read-only). Server-side
 # EXCLUSIVAMENTE — el browser nunca las ve ni las envía; ver
 # webapp/services/odoo_client.py. Sin default de producción (ni URL/DB

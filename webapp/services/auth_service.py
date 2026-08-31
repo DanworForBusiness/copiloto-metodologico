@@ -23,6 +23,7 @@ from config import (
     AZURE_CLIENT_ID,
     AZURE_TENANT_ID,
     COMMERCIAL_ALLOWED_USERS,
+    HUB_METRICS_ALLOWED_USERS,
     OPERATIONS_ALLOWED_USERS,
     SESSION_MAX_AGE,
     SESSION_SECRET,
@@ -146,6 +147,31 @@ def is_commercial_user(email: str) -> bool:
     if not email:
         return False
     return email in _commercial_set()
+
+
+def _hub_metrics_set() -> set[str]:
+    """Allowlist EXPLÍCITA de Usage Metrics (owner ticket "HUB METRICS —
+    CENTRALIZE ACCESS AND ENABLE BY VERTICAL") — reusa `_csv_users` para la
+    normalización, MISMA que Operations/Comercial. A DIFERENCIA de esas dos:
+    esta lista NO es fail-closed por sí sola — `webapp.hub_metrics_access` es
+    quien decide el fallback a APP_OWNER cuando está vacía (contrato de
+    migración, ver ese módulo); ACÁ solo se normaliza la lista, sin opinión
+    sobre qué hacer si está vacía. El literal "ALL" queda igual rechazado —
+    Metrics nunca se abre a "todos" por accidente de reuso del parser."""
+    result = _csv_users(HUB_METRICS_ALLOWED_USERS, empty_is_all=False)
+    return result if result is not None else set()
+
+
+def is_hub_metrics_user(email: str) -> bool:
+    """True si `email` (o su alias compacto) está EXPLÍCITAMENTE en
+    `HUB_METRICS_ALLOWED_USERS`. Predicado de PERTENENCIA a la lista
+    únicamente — el fallback a APP_OWNER cuando la lista está vacía vive en
+    `webapp.hub_metrics_access.can_access_hub_metrics`, no acá (ver ese
+    módulo para el contrato completo)."""
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    return email in _hub_metrics_set()
 
 
 # ── Verificación del id_token de Microsoft (JWKS del tenant) ───────────────────

@@ -41,7 +41,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from datetime import datetime, timezone
 
 from core.content_registry import DEFAULT_PACK
-from webapp import operations_access, workspaces
+from webapp import hub_metrics_access, operations_access, workspaces
 from webapp.graph_auth_state import graph_error_state
 from webapp.services import auth_service, feedback_store
 from webapp.services.activity_context import AREA_REPORTING, SCOPE_OPERATIONS
@@ -94,6 +94,13 @@ def reporting_integral_preview(request: Request):
             "user": user,
             # Resalta "02 Reporting" en operations_nav.html.
             "active_page": "reporting",
+            # "03 Métricas de uso" en operations_nav.html — MISMO criterio
+            # que staffing.py (ver ese comentario), owner ticket "HUB METRICS
+            # — CENTRALIZE ACCESS AND ENABLE BY VERTICAL" §6/§9.
+            "can_hub_metrics": (
+                hub_metrics_access.is_vertical_metrics_enabled("operations")
+                and hub_metrics_access.can_access_hub_metrics(user)
+            ),
         },
     )
 

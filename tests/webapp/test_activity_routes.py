@@ -191,15 +191,25 @@ def test_full_page_includes_sidebar_resize_handle(monkeypatch, tmp_path):
     assert 'data-resize="left"' in t
 
 
-# ── item 19: gate owner-only + diagnóstico sin cambios ────────────────────────
+# ── item 19 (SUPERSEDED — owner ticket "HUB METRICS — CENTRALIZE ACCESS AND
+# ENABLE BY VERTICAL"): el gate owner-only + diagnóstico se reemplazó por la
+# autorización CENTRALIZADA de Metrics (`webapp.hub_metrics_access`), que
+# YA NO exige modo diagnóstico -- justamente para que Operations pueda
+# llegar hasta acá sin ser "modo diagnóstico" de Copiloto (ver
+# test_hub_metrics_access.py para la cobertura A-J completa del nuevo
+# contrato). Sin `HUB_METRICS_ALLOWED_USERS` configurado (caso de ESTE
+# archivo/`_owner_client`, que nunca la toca), el comportamiento OBSERVABLE
+# para owner/no-owner es idéntico al histórico -- eso es lo que se sigue
+# probando acá. ──────────────────────────────────────────────────────────
 
 def test_access_gate_unchanged(monkeypatch, tmp_path):
     _seed(monkeypatch, tmp_path)
-    # Sin diagnóstico → 403.
-    assert _owner_client(monkeypatch, diagnostic=False).get("/admin/activity").status_code == 403
-    # Diagnóstico pero NO owner → 403.
+    # Sin modo diagnóstico YA NO importa -- Metrics no depende de eso.
+    assert _owner_client(monkeypatch, diagnostic=False).get("/admin/activity").status_code == 200
+    # NO owner (y sin HUB_METRICS_ALLOWED_USERS configurado) → 403, MISMO
+    # resultado observable que el gate histórico.
     assert _owner_client(monkeypatch, owner=False).get("/admin/activity").status_code == 403
-    # Owner + diagnóstico → 200.
+    # Owner → 200, MISMO resultado observable que el gate histórico.
     assert _owner_client(monkeypatch).get("/admin/activity").status_code == 200
 
 

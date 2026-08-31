@@ -1,14 +1,26 @@
 {# Nav izquierdo de Operaciones — mismo idioma visual que copilot_nav.html
-   (.module-nav/.nav-kicker/.module-link), sin acordeón: dos áreas planas
-   y productivas (Asignaciones/Reporting), no hace falta colapsar nada.
-   `active_page` ("staffing"|"reporting") lo pasa cada router — mismo
-   criterio que `active_stem` en copilot_nav.html, nunca un segundo
+   (.module-nav/.nav-kicker/.module-link), sin acordeón: áreas planas y
+   productivas (Asignaciones/Reporting/[Métricas de uso]), no hace falta
+   colapsar nada.
+   `active_page` ("staffing"|"reporting"|"metrics") lo pasa cada router —
+   mismo criterio que `active_stem` en copilot_nav.html, nunca un segundo
    parseo de `request.url.path` acá.
    La bienvenida de sesión reusa el MISMO macro compartido que
    copilot_nav.html (partials/workspace_shell.html) — misma fuente de
    identidad (auth_service/session), nunca un segundo parseo de claims ni
    una segunda copia del formateo de nombre. Sin `readonly`: Operaciones
-   no tiene el tier academy del Copiloto. #}
+   no tiene el tier academy del Copiloto.
+   "03 Métricas de uso" (owner ticket "HUB METRICS — CENTRALIZE ACCESS AND
+   ENABLE BY VERTICAL" §9): SOLO se imprime cuando `can_hub_metrics` es
+   True — cada router que incluye este partial lo calcula server-side
+   (`hub_metrics_access.is_vertical_metrics_enabled("operations") and
+   hub_metrics_access.can_access_hub_metrics(user)`, ver
+   webapp/routers/staffing.py\reporting.py) y lo pasa al contexto; SIN esa
+   variable en contexto (`can_hub_metrics` no definida), Jinja la evalúa
+   como undefined/falsy y el link no aparece — nunca un control deshabilitado
+   ni un link que lleve a un error de autorización (§9: "Do not expose
+   disabled controls or an authorization-error link"). La URL directa sigue
+   protegida server-side de cualquier forma, con o sin este link visible. #}
 {% from "partials/workspace_shell.html" import nav_welcome %}
 <aside class="module-nav" :class="navOpen&&'is-open'">
   {{ nav_welcome(user) }}
@@ -20,5 +32,10 @@
     <a href="/operaciones/reporting/integral" class="module-link {% if active_page == 'reporting' %}is-active{% endif %}">
       <span>02</span><strong>Reporting</strong>
     </a>
+    {% if can_hub_metrics %}
+    <a href="/operaciones/metricas" class="module-link {% if active_page == 'metrics' %}is-active{% endif %}">
+      <span>03</span><strong>Métricas de uso</strong>
+    </a>
+    {% endif %}
   </nav>
 </aside>

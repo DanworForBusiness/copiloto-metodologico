@@ -50,6 +50,7 @@
   "GET /login",
   "GET /modules/{stem}",
   "GET /onedanwor",
+  "GET /operaciones/metricas",
   "GET /operaciones/reporting/integral",
   "GET /operaciones/staffing/asignaciones",
   "GET /operations/staffing",

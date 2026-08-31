@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Métricas de uso · Operaciones · Danwor{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('metrics')"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {# Identidad IZQUIERDA: MISMO criterio que operations/staffing.html —
+     identidad animada transversal de Danwor, parametrizada con
+     OPERATIONS_APP_TITLE/SUBTITLE (ver ese template para el porqué). #}
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.OPERATIONS_APP_TITLE | urlencode }}&subtitle={{ config.OPERATIONS_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}
+    <select class="pack-select" aria-label="Área operativa" disabled>
+      <option selected>Métricas de uso</option>
+    </select>
+  {% endcall %}
+
+  {% include "partials/operations_nav.html" %}
+
+  {{ sidebar_resize_handle() }}
+
+  {# owner ticket "HUB METRICS — CENTRALIZE ACCESS AND ENABLE BY VERTICAL"
+     §6: el MISMO reporte que /admin/activity, nunca un fork — solo el shell
+     de arriba (nav/topbar de Operations en vez de Copiloto) es distinto. #}
+  <main id="content" class="module-content">
+    {% include "partials/admin_activity_content.html" %}
+  </main>
+</div>
+{% endblock %}
