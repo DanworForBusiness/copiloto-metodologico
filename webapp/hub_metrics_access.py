@@ -41,13 +41,24 @@ Copiloto ya exige su propia sesión/owner; Operations ya exige
 ``is_operations_authorized`` ANTES de llegar acá, ver §6 del ticket) — nunca
 en su lugar, así que duplicar esa admisión acá sería redundante, no un
 segundo gate real.
+
+TERCERA pregunta, ortogonal a las dos de arriba (owner ticket "HUB METRICS —
+ENFORCE VERTICAL DATA VISIBILITY"): una vez adentro de Metrics, ¿QUÉ DATOS
+puede ver? ``metrics_visibility_for(user)`` reusa los MISMOS predicados de
+vertical (``operations_access``/``commercial_access``) para resolver eso —
+ver esa función más abajo.
 """
 from __future__ import annotations
 
 from fastapi import Request
 
-from webapp import access
+from webapp import access, commercial_access, operations_access
 from webapp.services import auth_service
+from webapp.services.activity_context import (
+    AREA_ACADEMY, AREA_ASSISTANT, AREA_AUTH, AREA_CATALOG, AREA_CRM,
+    AREA_METHODOLOGY, AREA_REPORTING, AREA_STAFFING, AREA_UNKNOWN,
+    SCOPE_COMMERCIAL, SCOPE_COPILOT, SCOPE_OPERATIONS, SCOPE_PLATFORM, SCOPE_UNKNOWN,
+)
 from config import HUB_METRICS_ALLOWED_USERS, HUB_METRICS_ENABLED_VERTICALS
 
 
@@ -97,3 +108,33 @@ def is_vertical_metrics_enabled(vertical: str) -> bool:
     if not vertical:
         return False
     return vertical in metrics_enabled_verticals()
+
+
+# ── VERTICAL DATA VISIBILITY (owner ticket "HUB METRICS — ENFORCE VERTICAL
+# DATA VISIBILITY") ──────────────────────────────────────────────────────
+# Tercera pregunta, ortogonal a las dos de arriba (owner §1): "¿puede este
+# usuario ACCEDER al vertical?" ya lo deciden operations_access/
+# commercial_access — acá se REUSAN esos MISMOS predicados puros (nunca un
+# parser nuevo de OPERATIONS_ALLOWED_USERS/COMMERCIAL_ALLOWED_USERS, owner
+# §3) para resolver QUÉ DATOS de Reacciones/Usage Metrics puede VER ese
+# usuario, una vez que ya pasó `can_access_hub_metrics`. Compartido/no-
+# vertical (platform/auth, TODO Copiloto, unknown) siempre visible — owner
+# §9: "Metrics-authorized users may see Copiloto metrics regardless of
+# whether they entered Metrics from Operations", sin exigir una allowlist de
+# vertical adicional para Copiloto.
+def metrics_visibility_for(user: dict | None) -> tuple[frozenset[str], frozenset[str]]:
+    """(allowed_scopes, allowed_areas): el universo de datos que `user` puede
+    ver DENTRO de Usage Metrics. Devuelto a `activity_analytics.build_summary`
+    (vía webapp/main.py) para recortar la población de eventos ANTES de
+    cualquier agregación — ver ese módulo para el punto de aplicación único.
+    Nunca decide SI el usuario puede entrar a Metrics (eso es
+    `can_access_hub_metrics`, chequeado por separado en cada caller)."""
+    allowed_scopes = {SCOPE_PLATFORM, SCOPE_COPILOT, SCOPE_UNKNOWN}
+    allowed_areas = {AREA_AUTH, AREA_METHODOLOGY, AREA_ASSISTANT, AREA_ACADEMY, AREA_CATALOG, AREA_UNKNOWN}
+    if operations_access.is_operations_authorized_user(user):
+        allowed_scopes.add(SCOPE_OPERATIONS)
+        allowed_areas.update({AREA_REPORTING, AREA_STAFFING})
+    if commercial_access.is_commercial_authorized_user(user):
+        allowed_scopes.add(SCOPE_COMMERCIAL)
+        allowed_areas.add(AREA_CRM)
+    return frozenset(allowed_scopes), frozenset(allowed_areas)

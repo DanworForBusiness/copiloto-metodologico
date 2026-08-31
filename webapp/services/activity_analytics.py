@@ -27,7 +27,24 @@ from webapp.services.activity_context import (
     area_label, context_of, scope_label, module_label,
     normalize_event, event_class as _classify_event,
     EVENT_CLASS_USAGE, EVENT_MODULE_VIEWED, EVENT_LABELS,
+    AREA_CRM, AREA_REPORTING, AREA_STAFFING,
+    SCOPE_COMMERCIAL, SCOPE_OPERATIONS,
 )
+
+# VERTICAL DATA VISIBILITY (owner ticket "HUB METRICS — ENFORCE VERTICAL DATA
+# VISIBILITY" §2): mapa EXPLÍCITO scope/area -> vertical dueño, auditado
+# contra la taxonomía real de activity_context.py (nunca inventado/renombrado
+# acá). Un scope/area que NO aparece en estos dos sets (platform/auth,
+# Copiloto entero, unknown) es COMPARTIDO — visible para cualquier usuario
+# autorizado a Metrics sin exigir una allowlist de vertical adicional (owner
+# §9). `build_summary` recibe el universo YA RESUELTO (`allowed_scopes`/
+# `allowed_areas`) desde el caller (webapp.hub_metrics_access.
+# metrics_visibility_for) — este módulo nunca importa auth_service/
+# operations_access/commercial_access directamente (mantiene la dirección de
+# dependencia services -> nada-de-policy, MISMO criterio que el resto de este
+# archivo, que tampoco conoce FastAPI/Request).
+_VERTICAL_SCOPES = {SCOPE_OPERATIONS, SCOPE_COMMERCIAL}
+_VERTICAL_AREAS = {AREA_REPORTING, AREA_STAFFING, AREA_CRM}
 
 # Misma convención de nombre/rango que admin_tools._file_date /
 # runtime_purge: activity_YYYYMMDD.jsonl, bounds YYYYMMDD, vacío = sin límite.
@@ -680,6 +697,7 @@ def build_summary(
     run_page: int = 1, run_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
     trend_page: int = 1,
     scopes: list[str] | None = None, areas: list[str] | None = None,
+    allowed_scopes: set[str] | None = None, allowed_areas: set[str] | None = None,
 ) -> dict:
     # Danwor Hub-wide (Batch A2): el dashboard opera sobre TODO el stream
     # normalizado — la exclusión interina de Operations (A1) fue RETIRADA. Filtros
@@ -687,7 +705,26 @@ def build_summary(
     # scope (Ámbito) / area (Área) con faceting UNIDIRECCIONAL, y por último
     # module (transversal, corrective A2) — ver abajo por qué module se
     # resuelve DESPUÉS de scope/area en vez de junto con user.
+    #
+    # VERTICAL DATA VISIBILITY (owner ticket "HUB METRICS — ENFORCE VERTICAL
+    # DATA VISIBILITY" §4/§8): `allowed_scopes`/`allowed_areas` recortan el
+    # universo ACÁ, ANTES de cualquier otro filtro/faceting/agregación — un
+    # único punto de aplicación del que TODO lo demás (usuarios/módulos
+    # disponibles, event_counts, Reacciones, Daily Trend, Eventos, Historias,
+    # Recorridos, paginación) deriva por construcción, nunca un parche por
+    # tarjeta. `None` = sin restricción (compatibilidad con callers que no
+    # participan de autorización de vertical, p. ej. los tests que ejercitan
+    # taxonomía/faceting en aislamiento) — la FRONTERA DE SEGURIDAD real es
+    # que todo caller HTTP real (webapp/main.py) SIEMPRE calcula y pasa estos
+    # dos sets vía `webapp.hub_metrics_access.metrics_visibility_for`, nunca
+    # que esta función por sí sola sea la única defensa.
     all_events = _read_events(date_from, date_to)
+    if allowed_scopes is not None or allowed_areas is not None:
+        all_events = [
+            ev for ev in all_events
+            if (allowed_scopes is None or ev["scope"] in allowed_scopes)
+            and (allowed_areas is None or ev["area"] in allowed_areas)
+        ]
     available_users = _user_facets(all_events)
     feedback_by_reply = _read_feedback(date_from, date_to)
     reaction_comments = _read_reaction_comments(date_from, date_to)
@@ -727,13 +764,28 @@ def build_summary(
     sel_scopes = (requested_scopes & present_scopes) or present_scopes
     areas_for_scopes = {ev["area"] for ev in user_filtered if ev["scope"] in sel_scopes}
     sel_areas = (requested_areas & areas_for_scopes) or areas_for_scopes
+    # VERTICAL DATA VISIBILITY §6: un Ámbito/Área que el usuario NO puede ver
+    # (vertical restringida) sigue apareciendo como CHECKBOX -- destildado y
+    # deshabilitado -- para que el límite de autorización sea entendible sin
+    # exponer datos ("Do not hide them entirely"). NUNCA derivado de si hay
+    # eventos presentes ese rango de fecha (eso filtraría según exista o no
+    # actividad de esa vertical HOY, un leak temporal sutil) -- siempre el
+    # mapa ESTÁTICO `_VERTICAL_SCOPES`/`_VERTICAL_AREAS` menos lo autorizado.
+    restricted_scopes = (_VERTICAL_SCOPES - allowed_scopes) if allowed_scopes is not None else set()
+    restricted_areas = (_VERTICAL_AREAS - allowed_areas) if allowed_areas is not None else set()
     scope_facets = [
         {"key": k, "label": scope_label(k), "checked": k in sel_scopes}
-        for k in sorted(present_scopes)
+        for k in sorted(present_scopes - restricted_scopes)
+    ] + [
+        {"key": k, "label": scope_label(k), "checked": False, "disabled": True}
+        for k in sorted(restricted_scopes)
     ]
     area_facets = [
         {"key": k, "label": area_label(k), "checked": k in sel_areas, "disabled": k not in areas_for_scopes}
-        for k in sorted(present_areas)
+        for k in sorted(present_areas - restricted_areas)
+    ] + [
+        {"key": k, "label": area_label(k), "checked": False, "disabled": True}
+        for k in sorted(restricted_areas)
     ]
 
     scope_area_user_filtered = [
