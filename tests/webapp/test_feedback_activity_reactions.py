@@ -21,8 +21,18 @@ from fastapi.testclient import TestClient
 
 from webapp.main import app
 from webapp.routers import feedback as feedback_router
+from webapp.services import auth_service
 
 client = TestClient(app)
+# AUTH HARDENING (owner ticket "REACTIONS — FINAL AUTH HARDENING"): estas 4
+# rutas ya no persisten sin sesión válida -- MISMA convención que
+# test_routes.py (auth_service.create_session + cookie), el cliente de ESTE
+# archivo prueba comportamiento AUTENTICADO (emisión de Activity), no el caso
+# anónimo (ese vive en test_feedback_module_identity.py).
+client.cookies.set(
+    auth_service.COOKIE_NAME,
+    auth_service.create_session({"email": "reactor@danwor.com", "name": "Reactor User", "first_name": "Reactor", "family_name": "User"}),
+)
 
 
 def test_module_feedback_up_emits_activity_reaction(monkeypatch, tmp_path):
