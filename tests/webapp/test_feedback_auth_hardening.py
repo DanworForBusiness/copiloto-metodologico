@@ -141,35 +141,46 @@ def test_unauthenticated_request_is_rejected_and_persists_nothing(monkeypatch, t
     assert events == []
 
 
-# ── G: las 2 reacciones históricas anónimas (backfilleadas, no
-# recuperables — ver el AUDIT) siguen mostrando "Sin usuario identificado"
-# tras este hardening -- el gate solo afecta ESCRITURAS nuevas, nunca
-# reescribe/oculta lo ya persistido. ──────────────────────────────────────
+# ── G (SUPERSEDED — owner ticket "REACTIONS — EXCLUDE LEGACY UNATTRIBUTED
+# FEEDBACK"): las reacciones históricas sin usuario (backfilleadas, no
+# recuperables — ver el AUDIT) ya NO se muestran como "Sin usuario
+# identificado" -- Metrics las excluye de Reacciones por completo (owner
+# §1). Este test sigue probando lo que realmente le importa a ESTE
+# archivo (auth hardening): el gate solo afecta ESCRITURAS nuevas, nunca
+# reescribe/oculta el evento histórico persistido -- el evento SIGUE ahí
+# (línea intacta en el .jsonl), simplemente la agregación de Reacciones ya
+# no lo cuenta (ver test_activity_routes.py para la cobertura A-G completa
+# de esa exclusión). ───────────────────────────────────────────────────
 
-def test_historical_anonymous_reaction_still_renders_unidentified_after_hardening(monkeypatch, tmp_path):
+def test_historical_unattributed_reaction_is_untouched_but_excluded_from_reacciones(monkeypatch, tmp_path):
     import json
     from webapp.services import activity_analytics
-    from tests.webapp.test_activity_routes import _owner_client, _hx, _panel_html
+    from tests.webapp.test_activity_routes import _owner_client, _hx
 
     monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
     empty_feedback_dir = tmp_path / "_no_feedback_yaml"
     empty_feedback_dir.mkdir(exist_ok=True)
     monkeypatch.setattr(activity_analytics, "FEEDBACK_LOG_DIR", empty_feedback_dir)
     # MISMA forma que backfill_copilot_reactions.py produce para un registro
-    # SIN usuario -- el caso real reportado por el owner (catálogo=1,
-    # metodología=1, "Sin desglose de usuarios" antes de la corrección
-    # previa que agregó el bucket anónimo).
+    # SIN usuario -- el caso real reportado por el owner (catálogo=1).
+    activity_path = tmp_path / "activity_20260701.jsonl"
     historical = [
         {"ts_utc": "2026-07-01T10:00:00+00:00", "event": "catalog.feedback", "user": "", "name": "",
          "scope": "copilot", "area": "catalog",
          "payload": {"feedback_sentiment": "positive", "backfill_marker": "abc", "backfill_source_type": "catalog"}},
     ]
-    (tmp_path / "activity_20260701.jsonl").write_text(
-        "\n".join(json.dumps(r) for r in historical) + "\n", encoding="utf-8",
-    )
+    activity_path.write_text("\n".join(json.dumps(r) for r in historical) + "\n", encoding="utf-8")
+    before = activity_path.read_text(encoding="utf-8")
+
     t = _hx(_owner_client(monkeypatch), "/admin/activity").text
-    catalog_panel = _panel_html(t, "catalog")
-    assert "Sin usuario identificado" in catalog_panel
+
+    # El evento de Activity Log NUNCA se tocó -- este ticket es agregación
+    # de lectura solamente, jamás una reescritura de origen.
+    assert activity_path.read_text(encoding="utf-8") == before
+    # Pero Reacciones ya no lo cuenta -- sin usuario, sin área "catalog" en
+    # el panel (era su ÚNICA reacción).
+    assert 'data-event="catalog"' not in t
+    assert "Sin usuario identificado" not in t
 
 
 # ── H: sin regresión en la agregación existente -- una reacción AUTENTICADA

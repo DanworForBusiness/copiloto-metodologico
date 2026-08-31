@@ -16,7 +16,10 @@ levantan `HTTPException(401, "Sin sesión")` ANTES de cualquier persistencia
 webapp/routers/modules.py y webapp/main.py). Una reacción del Hub siempre
 requiere usuario autenticado; las dos reacciones históricas ya backfilleadas
 sin identidad (catálogo/metodología, PRE-existentes a este hardening) no se
-tocan ni se re-fabrican — siguen mostrando "Sin usuario identificado".
+tocan ni se re-fabrican — el evento de Activity Log persiste intacto, tal
+cual (owner ticket "REACTIONS — EXCLUDE LEGACY UNATTRIBUTED FEEDBACK":
+Reacciones ahora las excluye de la métrica por completo, en vez de
+mostrarlas bajo un bucket "Sin usuario identificado").
 
 Feature COPILOT que consume capacidades compartidas desde sus dueños explícitos
 (`core.content_registry`, `webapp.services.auth_service`,
