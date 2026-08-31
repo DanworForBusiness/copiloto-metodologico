@@ -1,0 +1,64 @@
+{% set _ns = namespace(qs="date_from=" ~ (date_from|urlencode) ~ "&date_to=" ~ (date_to|urlencode) ~ "&user=" ~ (summary.selected_user|urlencode) ~ "&module=" ~ (summary.selected_module|urlencode)) %}
+{% for f in summary.scope_facets if f.checked %}{% set _ns.qs = _ns.qs ~ "&scope=" ~ (f.key|urlencode) %}{% endfor %}
+{% for f in summary.area_facets if f.checked %}{% set _ns.qs = _ns.qs ~ "&area=" ~ (f.key|urlencode) %}{% endfor %}
+{% set base_qs = _ns.qs %}
+<div id="activity-daily-trend-body">
+  <div class="activity-chart">
+    {% for row in summary.daily_series %}
+    {# Tono del dorado según el valor (más alto = más intenso; van aclarando).
+       Mismo criterio en todos los gráficos: hsl gold, la claridad sube cuando
+       el valor baja — anda igual en tema claro y oscuro. #}
+    {# USAGE METRICS DAILY TREND corrective (owner ticket): cada barra es
+       clickeable — reusa el interactivo compartido `.activity-bar-row--
+       clickable` (ver tools.css, "CLICK PARA FILTRAR EN CASCADA") en vez de
+       inventar un lenguaje visual nuevo. `data-day` viaja el YYYYMMDD
+       canónico (JS lo traduce a Desde/Hasta, ver initActivityChartFilter en
+       app.js) — el label DD/MM de abajo es SOLO presentación, nunca la key
+       real de filtro (ver row_iso). `.is-active` server-side: refleja el
+       día YA filtrado (Desde==Hasta==este día) sin esperar un round-trip
+       extra ni duplicar el estado que ya viven `date_from`/`date_to`. #}
+    {% set row_iso = row.day[:4] ~ '-' ~ row.day[4:6] ~ '-' ~ row.day[6:8] %}
+    <div class="activity-chart__col activity-bar-row--clickable{% if date_from == row_iso and date_to == row_iso %} is-active{% endif %}"
+         data-day="{{ row.day }}" role="button" tabindex="0"
+         aria-label="Filtrar Métricas de uso por el {{ row.day[6:8] }}/{{ row.day[4:6] }}"
+         title="{{ row.day }}: {{ row.count }} evento(s)">
+      <span class="activity-chart__count">{{ row.count }}</span>
+      <div class="activity-chart__bar" style="height:{{ row.pct }}%"></div>
+      <span class="activity-chart__label">{{ row.day[6:8] }}/{{ row.day[4:6] }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# GUARDRAIL DE ANCHO (owner ticket): a diferencia de Historia de preguntas/
+     Recorridos, acá el tamaño de página es un UMBRAL fijo (25 días, ver
+     `_DAILY_TREND_PAGE_SIZE`), no una preferencia — un gráfico de barras de
+     ancho fijo no gana nada ofreciendo "más columnas por página", así que
+     este paginador omite a propósito el `<select>` de tamaño que sí tienen
+     Preguntas/Recorridos (única diferencia deliberada con ese patrón — el
+     resto, botones/ventana de páginas/hx-get/target, es IDÉNTICO). Invisible
+     mientras el rango filtrado entre en una sola página (≤25 días) — el
+     comportamiento de siempre, sin cambios. #}
+  {% if summary.trend_total_pages > 1 %}
+  <nav class="activity-pager" aria-label="Paginación de tendencia diaria">
+    <button type="button" class="activity-pager__btn" title="Primera página"
+            {% if summary.trend_page > 1 %}hx-get="/admin/activity/trend?{{ base_qs }}&trend_page=1" hx-target="#activity-daily-trend-body" hx-swap="outerHTML"{% else %}disabled{% endif %}>«</button>
+    <button type="button" class="activity-pager__btn" title="Anterior"
+            {% if summary.trend_page > 1 %}hx-get="/admin/activity/trend?{{ base_qs }}&trend_page={{ summary.trend_page - 1 }}" hx-target="#activity-daily-trend-body" hx-swap="outerHTML"{% else %}disabled{% endif %}>‹</button>
+    {% for p in summary.trend_page_window %}
+      {% if p is none %}
+      <span class="activity-pager__ellipsis">…</span>
+      {% elif p == summary.trend_page %}
+      <span class="activity-pager__page is-active" aria-current="page">{{ p }}</span>
+      {% else %}
+      <button type="button" class="activity-pager__page"
+              hx-get="/admin/activity/trend?{{ base_qs }}&trend_page={{ p }}"
+              hx-target="#activity-daily-trend-body" hx-swap="outerHTML">{{ p }}</button>
+      {% endif %}
+    {% endfor %}
+    <button type="button" class="activity-pager__btn" title="Siguiente"
+            {% if summary.trend_page < summary.trend_total_pages %}hx-get="/admin/activity/trend?{{ base_qs }}&trend_page={{ summary.trend_page + 1 }}" hx-target="#activity-daily-trend-body" hx-swap="outerHTML"{% else %}disabled{% endif %}>›</button>
+    <button type="button" class="activity-pager__btn" title="Última página"
+            {% if summary.trend_page < summary.trend_total_pages %}hx-get="/admin/activity/trend?{{ base_qs }}&trend_page={{ summary.trend_total_pages }}" hx-target="#activity-daily-trend-body" hx-swap="outerHTML"{% else %}disabled{% endif %}>»</button>
+  </nav>
+  {% endif %}
+</div>

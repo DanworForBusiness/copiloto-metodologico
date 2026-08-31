@@ -152,7 +152,7 @@
 
 {# Orden default de bloques (antes de cualquier drag/drop manual del owner):
    Resumen (arriba, fuera de este bloque) → Tendencia → Módulos y usuarios →
-   Eventos y catálogo → Historia de preguntas → Árboles. #}
+   Eventos → Reacciones → Historia de preguntas → Árboles. #}
 {% if summary.daily_series %}
 <details class="dashboard-section" data-section-id="tendencia" open>
   <summary class="dashboard-section__head" draggable="true">
@@ -162,18 +162,7 @@
     <span class="dashboard-section__count">{{ summary.total_days }} día(s)</span>
   </summary>
   <div class="dashboard-section__body">
-    <div class="activity-chart">
-      {% for row in summary.daily_series %}
-      {# Tono del dorado según el valor (más alto = más intenso; van aclarando).
-         Mismo criterio en todos los gráficos: hsl gold, la claridad sube cuando
-         el valor baja — anda igual en tema claro y oscuro. #}
-      <div class="activity-chart__col" title="{{ row.day }}: {{ row.count }} evento(s)">
-        <span class="activity-chart__count">{{ row.count }}</span>
-        <div class="activity-chart__bar" style="height:{{ row.pct }}%"></div>
-        <span class="activity-chart__label">{{ row.day[4:6] }}/{{ row.day[6:8] }}</span>
-      </div>
-      {% endfor %}
-    </div>
+    {% include "partials/admin_activity_trend.html" %}
   </div>
 </details>
 {% endif %}
@@ -334,6 +323,133 @@
         {% endfor %}
       </div>
     </div>
+  </div>
+</details>
+
+{# USAGE METRICS REACTIONS DRILLDOWN (owner ticket): MISMO motor
+   izquierda→derecha que "Eventos" arriba — mismo `data-breakdown-group`/
+   `initEventBreakdown` (app.js), cero JS nuevo. Sin gate `{% if %}` a nivel
+   de sección (mismo criterio que "Eventos", que tampoco lo tiene) — "0
+   reacciones bajo el filtro actual" es un ESTADO VÁLIDO propio (ver abajo),
+   nunca "sección ausente"; confundir ambos es exactamente lo que este
+   ticket pide evitar. Izquierda = SECCIÓN (área, `area_label` — MISMO
+   vocabulario que el filtro Área de arriba, nunca una taxonomía nueva) +
+   total de reacciones bajo el filtro activo (fecha/usuario/ámbito/área/
+   módulo YA aplicados en build_summary, MISMO universo que "Eventos" —
+   nunca un segundo filtro de fecha paralelo). Derecha = usuarios de la
+   sección elegida, MISMO `_breakdown`+`display_names` que cualquier otro
+   desglose por usuario de este dashboard — nunca un conteo-por-usuario
+   nuevo que Eventos no tenga. #}
+<details class="dashboard-section" data-section-id="reacciones" open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+    <span class="dashboard-section__caret"></span>
+    <span class="dashboard-section__title">Reacciones</span>
+    <span class="dashboard-section__count">{{ summary.reaction_total }} reacción(es)</span>
+  </summary>
+  <div class="dashboard-section__body">
+    {% if summary.reaction_rows %}
+    <div class="activity-grid-2" data-breakdown-group>
+      <div>
+        <p class="dashboard-subhead">Por sección <span class="dashboard-subhead__hint">· click para ver usuarios →</span></p>
+        {% for row in summary.reaction_rows %}
+        {# HOVER BREAKDOWN (owner): el tooltip nativo (title, cero JS —
+           MISMO mecanismo que Tendencia diaria) muestra 👍/👎 del total sin
+           necesitar hacer click. #}
+        <div class="activity-bar-row activity-bar-row--clickable" data-event="{{ row.key }}" role="button" tabindex="0"
+             aria-label="Ver usuarios que reaccionaron en {{ row.label }}"
+             title="{{ row.label }}: {{ row.up }} 👍 · {{ row.down }} 👎 de {{ row.count }}">
+          <span class="activity-bar-label">{{ row.label }}</span>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
+          <span class="activity-bar-count">{{ row.count }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div>
+        <div class="activity-breakdown__panel" data-breakdown="" hidden>
+          <div class="dashboard-empty">
+            <span class="dashboard-empty__label">Sin selección</span>
+            <p>Elegí una sección a la izquierda para ver quién reaccionó ahí (o volvé a hacer click en la elegida para des-seleccionarla).</p>
+          </div>
+        </div>
+        {% for key, bd in summary.reaction_breakdowns.items() %}
+        <div class="activity-breakdown__panel" data-breakdown="{{ key }}" hidden>
+          <p class="dashboard-subhead">Reacciones de <strong>{{ bd.label }}</strong> · por {{ bd.dim }} <button type="button" class="dashboard-subhead__reset" data-event-reset title="Cerrar desglose">✕</button></p>
+          {% if bd.rows %}
+          {# ESTILO "Historia de preguntas" (owner): 👍/👎 por usuario en vez
+             de una barra de %(no hay "más/menos" que comparar en sentimiento
+             — MISMO criterio que Tendencia diaria, dorado plano). Expandible
+             (`<details>`, MISMO primitivo que admin_activity_stories.html)
+             si esa persona dejó comentario Y/O si alguna de sus reacciones
+             resolvió un OBJETO concreto (owner ticket "PER-USER REACTED-
+             OBJECT BREAKDOWN" — antes solo comentario, dejando reacciones
+             sin texto sin ningún detalle de A QUÉ reaccionaron) — nunca un
+             expand vacío si no hay nada de ninguna de las dos cosas. #}
+          {% for r in bd.rows %}
+          {% if r.comments or r.subjects %}
+          <details class="assistant-story">
+            <summary class="assistant-story__row">
+              <span class="activity-bar-label"{% if r.user %} title="{{ r.user }}"{% endif %}>{{ r.label }}</span>
+              <span class="assistant-story__icons"><span title="Le gustó">👍 {{ r.up }}</span><span title="No le gustó">👎 {{ r.down }}</span></span>
+            </summary>
+            <div class="assistant-story__detail">
+              {% if r.subjects %}
+              {# Objeto reaccionado (owner: "no poder ver exactamente dónde
+                 likeó es raro") — MISMO primitivo `.activity-bar-row` que el
+                 resto del dashboard, cero CSS/lenguaje visual nuevo. Solo
+                 las reacciones de ESTA persona que resolvieron un objeto
+                 concreto — el total de arriba (👍/👎) sigue siendo la fuente
+                 de verdad, esto es un subconjunto atribuible, nunca todas. #}
+              <div class="reaction-subjects">
+                {% for s in r.subjects %}
+                <div class="activity-bar-row">
+                  <span class="activity-bar-label">{{ s.label }}</span>
+                  <span class="assistant-story__icons"><span title="Le gustó">👍 {{ s.up }}</span><span title="No le gustó">👎 {{ s.down }}</span></span>
+                </div>
+                {% endfor %}
+              </div>
+              {% endif %}
+              {% if r.comments %}
+              <ol class="story-timeline">
+                {% for c in r.comments %}
+                <li class="story-timeline__step">
+                  <span class="story-timeline__dot" aria-hidden="true">{{ '👍' if c.rating == 'up' else '👎' }}</span>
+                  <div class="story-timeline__body">
+                    <p class="story-timeline__lead">{{ c.ts }}</p>
+                    <p class="story-timeline__quote">{{ c.comment }}</p>
+                  </div>
+                </li>
+                {% endfor %}
+              </ol>
+              {% endif %}
+            </div>
+          </details>
+          {% else %}
+          <div class="activity-bar-row">
+            <span class="activity-bar-label"{% if r.user %} title="{{ r.user }}"{% endif %}>{{ r.label }}</span>
+            <span class="assistant-story__icons"><span title="Le gustó">👍 {{ r.up }}</span><span title="No le gustó">👎 {{ r.down }}</span></span>
+          </div>
+          {% endif %}
+          {% endfor %}
+          {% else %}
+          <div class="dashboard-empty">
+            <span class="dashboard-empty__label">Sin desglose</span>
+            <p>Esta sección no tiene un desglose de usuarios disponible en el rango seleccionado.</p>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    {# CASO A del ticket: 0 reacciones bajo el filtro ACTUAL — estado válido,
+       nunca un error ("No disponible" queda reservado para una falla real
+       de fuente, MISMA taxonomía que el resto del dashboard). #}
+    <div class="dashboard-empty">
+      <span class="dashboard-empty__label">Sin reacciones</span>
+      <p>Nadie dejó una reacción (👍/👎 de "¿Qué te pareció?"/"¿Te sirvió?") en Copiloto, Reporting, Asignaciones o Comercial dentro del rango/filtro seleccionado.</p>
+    </div>
+    {% endif %}
   </div>
 </details>
 

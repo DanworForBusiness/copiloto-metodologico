@@ -263,6 +263,24 @@ _USAGE_EVENTS: frozenset[str] = frozenset({
     "academy_selected",
     "catalog_view",
     "catalog_regenerate",
+    # Copiloto — feedback transversal (owner: "el copiloto tiene un
+    # sinnúmero de reacciones que debe ser tenido en cuenta" — ver
+    # webapp/routers/feedback.py). MISMA capacidad compartida que
+    # reporting.feedback/staffing.feedback/commercial.feedback (abajo) —
+    # module/section comparten área con la navegación de módulos
+    # (methodology); catalog/catalog_section con la de catálogo.
+    "module.feedback",
+    "section.feedback",
+    "catalog.feedback",
+    "catalog_section.feedback",
+    # Copiloto — cobertura completa de reacciones (owner AUDIT: "el copiloto
+    # tiene un sinnúmero de reacciones", 2ª ronda — Academy/Asistente/
+    # Árboles). MISMA capacidad, MISMA área que su propia navegación ya usa
+    # (academy_selected → academy; assistant_query → assistant; tree_* →
+    # methodology) — nunca una taxonomía nueva.
+    "academy.feedback",
+    "assistant.feedback",
+    "tree.feedback",
     # Operations — Reporting Integral (adopción real de las 6 experiencias +
     # feedback por reporte). Sin esto caían en `unknown` y el dashboard de uso
     # (event_class == usage) los descartaba (owner: el 👍 decía "Gracias" pero
@@ -336,6 +354,13 @@ EVENT_LABELS: dict[str, str] = {
     "tree_started": "Inicio de recorrido",
     "tree_step": "Paso de recorrido",
     "tree_outcome": "Resultado de recorrido",
+    "module.feedback": "Metodología — feedback de módulo",
+    "section.feedback": "Metodología — feedback de sección",
+    "catalog.feedback": "Catálogo — feedback de cierre",
+    "catalog_section.feedback": "Catálogo — feedback de sección",
+    "academy.feedback": "Academy — feedback de recorrido",
+    "assistant.feedback": "Asistente — feedback de respuesta",
+    "tree.feedback": "Metodología — feedback de recorrido",
     "reporting.tab_view": "Reporting — vista de pestaña",
     "reporting.perspective_change": "Reporting — cambio de perspectiva",
     "reporting.filter_change": "Reporting — cambio de filtro",

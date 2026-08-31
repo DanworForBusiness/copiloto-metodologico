@@ -65,6 +65,16 @@ _RECENT_QUESTIONS_N = 20
 _STORY_PAGE_SIZES = (10, 15, 25, 50)
 _DEFAULT_STORY_PAGE_SIZE = 10
 
+# USAGE METRICS DAILY TREND corrective (owner ticket, guardrail de ancho): a
+# diferencia de Historia de preguntas/Recorridos (listas, tamaño de página
+# elegible por el owner), "Tendencia diaria" es un gráfico de barras de ancho
+# FIJO — más de ~25 columnas ya no entran legibles (`.activity-chart__bar`
+# max-width 26px + gap 6px, ver tools.css). Por eso acá el tamaño de página
+# es un UMBRAL fijo, no una preferencia seleccionable: mientras el rango
+# filtrado tenga ≤25 días, cero cambio de comportamiento (sin paginador, ver
+# `admin_activity_trend.html`) — recién aparece cuando genuinamente no entra.
+_DAILY_TREND_PAGE_SIZE = 25
+
 
 def _page_window(page: int, total_pages: int, radius: int = 2) -> list[int | None]:
     """Números de página a mostrar en el paginador: siempre primera/última,
@@ -184,6 +194,148 @@ def _read_feedback(date_from: str, date_to: str) -> dict[str, dict]:
             "comment": str(data.get("comment") or ""),
         }
     return by_reply
+
+
+# type (feedback_store) -> area (Activity Log) del MISMO evento de feedback
+# transversal — Activity Log NUNCA guarda el comentario libre ("nunca valores
+# de negocio", ver routers/reporting.py\staffing.py\commercial.py), así que
+# el comentario SOLO existe acá, en FEEDBACK_LOG_DIR. Reacciones cruza ambas
+# fuentes (conteos/up-down de Activity Log, comentario de acá) por
+# (área, usuario, día) — MISMO nivel de precisión que el resto de este
+# archivo permite sin un id compartido real entre las dos escrituras (a
+# diferencia de assistant_response, que sí tiene `reply_id`).
+_REACTION_FEEDBACK_TYPE_TO_AREA = {
+    "reporting_report": "reporting",
+    "operations_dashboard": "staffing",
+    "commercial_capability": "crm",
+    # Copiloto (owner: "el copiloto tiene un sinnúmero de reacciones que
+    # debe ser tenido en cuenta") — ver webapp/routers/feedback.py, MISMA
+    # área que module.feedback/section.feedback/catalog.feedback/
+    # catalog_section.feedback ya usan al emitir su evento de Activity
+    # (activity_context._USAGE_EVENTS) — un solo lugar define la relación
+    # type↔área, nunca duplicada entre los dos escritores/lectores.
+    "module_content": "methodology",
+    "section_content": "methodology",
+    "catalog": "catalog",
+    "catalog_section": "catalog",
+    # Segunda ronda (owner AUDIT — cobertura completa de Copiloto): Academy y
+    # Asistente. `assistant_response` SÍ tiene `reply_id` (ver docstring
+    # arriba) pero acá se cruza por (área, usuario, día) igual que el resto —
+    # ese id más preciso ya lo usa `_read_feedback`/"Historia de preguntas"
+    # por separado; Reacciones es una LENTE adicional, nunca un segundo
+    # camino de correlación para el mismo dato.
+    "academy_content": "academy",
+    "assistant_response": "assistant",
+}
+
+
+def _reaction_subject(event_name: str, module: str, payload: dict) -> tuple[str, str] | None:
+    """"Objeto reaccionado" — owner ticket "REACCIONES — PER-USER
+    REACTED-OBJECT BREAKDOWN": `(subject_key, subject_label)` del objeto
+    CONCRETO dentro de un área que recibió una reacción puntual, o `None`
+    si esa familia no representa un objeto propio (Staffing: feedback
+    transversal del tablero completo, sin sub-identidad real — NUNCA se
+    fabrica un bucket "General"). Concepto de PRESENTACIÓN/agregación
+    únicamente — no persiste, no cambia ningún schema — resuelto SIEMPRE a
+    partir de campos YA presentes en el evento (module/payload), nunca un
+    campo compartido inventado entre dominios distintos (cada rama usa el
+    suyo). Label: reusa `module_label`/el título ya capturado en el
+    payload al momento de la escritura — cero lookup nuevo acá.
+
+    Registros HISTÓRICOS (backfill_copilot_reactions.py): solo copian
+    `module` para los tipos que ya lo tenían — module.feedback/
+    academy.feedback/assistant.feedback resuelven igual con datos
+    backfilleados; section.feedback/catalog.feedback/catalog_section.
+    feedback/tree.feedback necesitan campos que el backfill actual NO
+    copia (section/section_title, kind/ref, cliente/dominio/section_slug,
+    tree_title) — esos registros devuelven `None` acá (ausencia elegante,
+    NUNCA un dato inventado), ver AUDIT."""
+    if event_name == "reporting.feedback":
+        tab = str(payload.get("report_tab") or "").strip()
+        if not tab:
+            return None
+        label = str(payload.get("report_title") or "").strip() or tab
+        return (f"reporting:{tab}", label)
+    if event_name == "module.feedback":
+        if not module:
+            return None
+        return (f"module:{module}", module_label(module))
+    if event_name == "section.feedback":
+        section = str(payload.get("section") or "").strip()
+        if not module or not section:
+            return None
+        title = str(payload.get("section_title") or "").strip() or section
+        return (f"section:{module}:{section}", f"{module_label(module)} · {title}")
+    if event_name == "catalog.feedback":
+        kind = str(payload.get("kind") or "").strip()
+        if not kind:
+            return None
+        ref = str(payload.get("ref") or "").strip()
+        # `kind` se muestra CRUDO a propósito: MISMO criterio que "Eventos" ya
+        # usa para catalog_view (catalog_kind_counts, sin mapa de labels) —
+        # el identificador técnico ES la convención ya establecida acá.
+        return (f"catalog:{kind}:{ref}", f"{kind} · {ref}" if ref else kind)
+    if event_name == "catalog_section.feedback":
+        cliente = str(payload.get("cliente") or "").strip()
+        dominio = str(payload.get("dominio") or "").strip()
+        if not cliente and not dominio:
+            return None
+        section = str(payload.get("section_slug") or "").strip()
+        label = " · ".join(part for part in (cliente, dominio) if part)
+        return (f"catalog_section:{cliente}:{dominio}:{section}", label)
+    if event_name == "academy.feedback":
+        if not module:
+            return None
+        label = str(payload.get("academy_title") or "").strip() or module_label(module)
+        return (f"academy:{module}", label)
+    if event_name == "assistant.feedback":
+        if not module:
+            return None
+        return (f"assistant:{module}", module_label(module))
+    if event_name == "tree.feedback":
+        tree_id = str(payload.get("tree_id") or "").strip()
+        if not tree_id:
+            return None
+        label = str(payload.get("tree_title") or "").strip() or tree_id
+        return (f"tree:{tree_id}", label)
+    return None  # staffing.feedback (sin sub-identidad real) y cualquier evento futuro sin resolver acá.
+
+
+def _read_reaction_comments(date_from: str, date_to: str) -> dict[str, dict[str, list[dict]]]:
+    """(área -> usuario -> [ {ts, rating, comment} ]) — SOLO entradas que
+    realmente traen un comentario (el 👍/👎 sin comentario ya se cuenta
+    completo desde Activity Log; acá agregaríamos ruido, no información).
+    Fail-soft/best-effort, MISMO criterio que `_read_feedback`."""
+    low, high = _bounds(date_from, date_to)
+    by_area_user: dict[str, dict[str, list[dict]]] = {}
+    if not FEEDBACK_LOG_DIR.exists():
+        return by_area_user
+    for path in FEEDBACK_LOG_DIR.glob("*.yaml"):
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        area = _REACTION_FEEDBACK_TYPE_TO_AREA.get(str(data.get("type") or ""))
+        if not area:
+            continue
+        comment = str(data.get("comment") or "").strip()
+        if not comment:
+            continue
+        user = str(data.get("user") or "").strip()
+        if not user:
+            continue
+        ts = str(data.get("ts") or "")
+        day = ts[:10].replace("-", "")
+        if day and not (low <= day <= high):
+            continue
+        by_area_user.setdefault(area, {}).setdefault(user, []).append({
+            "ts": ts[:19].replace("T", " "),
+            "rating": str(data.get("rating") or ""),
+            "comment": comment,
+        })
+    return by_area_user
 
 
 def _read_events(date_from: str, date_to: str) -> list[dict]:
@@ -526,6 +678,7 @@ def build_summary(
     date_from: str, date_to: str, user: str = "", module: str = "",
     story_page: int = 1, story_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
     run_page: int = 1, run_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
+    trend_page: int = 1,
     scopes: list[str] | None = None, areas: list[str] | None = None,
 ) -> dict:
     # Danwor Hub-wide (Batch A2): el dashboard opera sobre TODO el stream
@@ -537,6 +690,7 @@ def build_summary(
     all_events = _read_events(date_from, date_to)
     available_users = _user_facets(all_events)
     feedback_by_reply = _read_feedback(date_from, date_to)
+    reaction_comments = _read_reaction_comments(date_from, date_to)
 
     user = (user or "").strip()
     module = (module or "").strip()
@@ -635,6 +789,34 @@ def build_summary(
     # app.js. Usage-only: un data_load_failed dentro de Asignaciones no debe
     # aparecer al clickear "Asignaciones" en este dashboard.
     module_event_counts: dict[str, Counter] = {}
+    # REACCIONES (owner ticket — grupo colapsable nuevo): agregado por SECCIÓN
+    # (área) del feedback transversal "¿Qué te pareció este reporte?"
+    # (reporting.feedback/staffing.feedback/commercial.feedback, ver
+    # activity_context._USAGE_EVENTS — ya event_class==usage, cero segunda
+    # lectura de FEEDBACK_LOG_DIR para conteos). La señal de "esto es una
+    # reacción" es `payload.feedback_sentiment` (las tres escrituras ya lo
+    # emiten, ver routers/reporting.py\staffing.py\commercial.py) — NUNCA una
+    # lista hardcodeada de nombres de evento, así que un futuro N-ésimo
+    # `<algo>.feedback` que siga el MISMO contrato entra solo. MISMO criterio
+    # usage-only + MISMOS filtros activos (fecha/usuario/ámbito/área/módulo)
+    # que event_counts/event_user_counts — nunca un segundo universo. El
+    # split 👍/👎 (owner: tooltip de la barra + detalle por usuario) viaja
+    # aparte de `reaction_area_counts`/`reaction_area_user_counts` (el TOTAL
+    # sigue siendo la fuente de la barra/orden) para no perder el conteo de
+    # reacciones sin usuario identificado, que igual suman al total de sección.
+    reaction_area_counts: Counter = Counter()
+    reaction_area_sentiment: dict[str, dict[str, int]] = {}
+    reaction_area_user_counts: dict[str, Counter] = {}
+    reaction_area_user_sentiment: dict[str, dict[str, dict[str, int]]] = {}
+    # PER-USER REACTED-OBJECT BREAKDOWN (owner ticket): (área, usuario,
+    # subject_key) -> {"label", "up", "down"} — ver `_reaction_subject`.
+    # Incrementado EN LA MISMA iteración que reaction_area_user_sentiment
+    # (arriba), nunca un segundo pase — así el total del usuario y la suma
+    # de sus objetos reconcilian por construcción, nunca por un ajuste
+    # posterior. Una reacción sin objeto resoluble simplemente NUNCA entra
+    # acá (sigue sumando al total de arriba) — nunca un bucket "General"
+    # fabricado para forzar la reconciliación.
+    reaction_area_user_subjects: dict[str, dict[str, dict[str, dict[str, object]]]] = {}
 
     # CASCADE INTEGRITY (corrective de confianza). El desglose por usuario del
     # panel derecho tiene que resolverse por (modulo, evento), NUNCA por evento
@@ -695,6 +877,28 @@ def build_summary(
                  .setdefault(ev["module"], {})
                  .setdefault(ev["event"], Counter())[ev["user"]]) += 1
 
+        _fb_sentiment = ev["payload"].get("feedback_sentiment")
+        if _fb_sentiment:
+            _area = ev["area"]
+            _sent_key = "up" if _fb_sentiment == "positive" else "down"
+            reaction_area_counts[_area] += 1
+            reaction_area_sentiment.setdefault(_area, {"up": 0, "down": 0})[_sent_key] += 1
+            if ev["user"]:
+                reaction_area_user_counts.setdefault(_area, Counter())[ev["user"]] += 1
+                (reaction_area_user_sentiment
+                 .setdefault(_area, {})
+                 .setdefault(ev["user"], {"up": 0, "down": 0}))[_sent_key] += 1
+                _subject = _reaction_subject(ev["event"], ev["module"], ev["payload"])
+                if _subject is not None:
+                    _subject_key, _subject_label = _subject
+                    _bucket = (
+                        reaction_area_user_subjects
+                        .setdefault(_area, {})
+                        .setdefault(ev["user"], {})
+                        .setdefault(_subject_key, {"label": _subject_label, "up": 0, "down": 0})
+                    )
+                    _bucket[_sent_key] += 1
+
         if ev["event"] == "catalog_view":
             kind = str(ev["payload"].get("kind") or "").strip()
             if kind:
@@ -729,11 +933,24 @@ def build_summary(
                     "feedback": feedback_by_reply.get(reply_id),
                 })
 
-    daily_series = [
+    daily_series_all = [
         {"day": day, "count": count, "pct": round(100 * count / max(daily_counts.values())) if daily_counts else 0}
         for day, count in sorted(daily_counts.items())
     ]
     total_days = len(daily_counts)
+
+    # PAGINACIÓN GUARDRAIL (owner ticket): más reciente primero — MISMO
+    # criterio que Historia de preguntas/Recorridos arriba (page 1 = los
+    # últimos `_DAILY_TREND_PAGE_SIZE` días) — pero DENTRO de cada página el
+    # orden queda cronológico ASCENDENTE (un gráfico de tiempo se lee
+    # izquierda→derecha; la paginación solo decide QUÉ ventana de días entra,
+    # nunca el sentido de lectura). Slice por índice desde el final, sin
+    # invertir/reinvertir la lista completa.
+    trend_total_pages = max(1, -(-total_days // _DAILY_TREND_PAGE_SIZE)) if total_days else 1
+    trend_page = max(1, min(trend_page or 1, trend_total_pages))
+    _trend_end = total_days - (trend_page - 1) * _DAILY_TREND_PAGE_SIZE
+    _trend_start = max(0, _trend_end - _DAILY_TREND_PAGE_SIZE)
+    daily_series = daily_series_all[_trend_start:_trend_end]
 
     # Resumen precalculado por conversación (fila colapsada del dashboard) + KPI de
     # costo: cuántas conversaciones tuvieron AL MENOS un turno con llamada real a
@@ -790,6 +1007,47 @@ def build_summary(
             event_breakdowns[event] = {"dim": "usuario",
                                        **_breakdown(event_user_counts.get(event, Counter()),
                                                     display=display_names)}
+
+    # REACCIONES — MISMO motor izquierda/derecha que "Eventos" (ver
+    # data-breakdown-group/initEventBreakdown en app.js): izquierda = sección
+    # (área) + total de reacciones, MISMO orden descendente que event_counts
+    # (`most_common()`), con el split 👍/👎 en el tooltip (owner). Derecha:
+    # a diferencia de un desglose genérico (`_breakdown`, barra de %), acá
+    # cada usuario muestra su propio conteo 👍/👎 (owner: "mismo estilo que
+    # preguntas al asistente") y, si dejó comentario(s), la fila es
+    # expandible (`<details>`, MISMO primitivo visual que
+    # admin_activity_stories.html) para verlos — nunca un expand vacío si no
+    # hay nada que mostrar.
+    reaction_max = reaction_area_counts.most_common(1)[0][1] if reaction_area_counts else 0
+    reaction_rows = [
+        {"key": k, "label": area_label(k), "count": c,
+         "pct": round(100 * c / reaction_max) if reaction_max else 0,
+         "up": reaction_area_sentiment.get(k, {}).get("up", 0),
+         "down": reaction_area_sentiment.get(k, {}).get("down", 0)}
+        for k, c in reaction_area_counts.most_common()
+    ]
+    reaction_breakdowns = {}
+    for k in reaction_area_counts:
+        rows = []
+        for u, _c in reaction_area_user_counts.get(k, Counter()).most_common():
+            sentiment = reaction_area_user_sentiment.get(k, {}).get(u, {"up": 0, "down": 0})
+            # PER-USER REACTED-OBJECT BREAKDOWN: solo las reacciones de ESTE
+            # usuario que resolvieron un objeto concreto (ver
+            # `_reaction_subject`) — nunca todas, nunca un relleno. El total
+            # de arriba (`up`/`down`) sigue siendo la fuente de verdad
+            # (incluye las que no resolvieron objeto); esta lista es
+            # estrictamente un subconjunto, ordenado por actividad.
+            subjects = sorted(
+                reaction_area_user_subjects.get(k, {}).get(u, {}).values(),
+                key=lambda s: s["up"] + s["down"], reverse=True,
+            )
+            rows.append({
+                "user": u, "label": _label_of(u, display_names),
+                "up": sentiment["up"], "down": sentiment["down"],
+                "comments": reaction_comments.get(k, {}).get(u, []),
+                "subjects": subjects,
+            })
+        reaction_breakdowns[k] = {"dim": "usuario", "label": area_label(k), "rows": rows}
 
     return {
         "date_from": date_from,
@@ -854,6 +1112,9 @@ def build_summary(
             for kind, count in catalog_kind_counts.most_common()
         ],
         "daily_series": daily_series,
+        "trend_page": trend_page,
+        "trend_total_pages": trend_total_pages,
+        "trend_page_window": _page_window(trend_page, trend_total_pages),
         "assistant_stories": assistant_stories,
         "assistant_stories_total": assistant_stories_total,
         "assistant_stories_page": page,
@@ -871,4 +1132,7 @@ def build_summary(
         "tree_runs_page_window": trees["tree_runs_page_window"],
         "event_breakdowns": event_breakdowns,
         "event_descriptions": _EVENT_DESCRIPTIONS,
+        "reaction_total": sum(reaction_area_counts.values()),
+        "reaction_rows": reaction_rows,
+        "reaction_breakdowns": reaction_breakdowns,
     }

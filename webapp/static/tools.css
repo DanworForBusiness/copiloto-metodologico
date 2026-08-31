@@ -728,6 +728,19 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .activity-bar-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: .73rem; }
 /* Filas de "Eventos por tipo" clickeables: al elegir una, el panel derecho
    muestra su desglose (ver initEventBreakdown en app.js). */
+/* PANEL DE DESGLOSE (Eventos Y Reacciones, ver initEventBreakdown/
+   initModuleFilter en app.js): `font-size` explícito acá, nunca dejado al
+   default del navegador — el contenido de Eventos ya lo traía por sí solo
+   (`.activity-bar-row` de arriba, `.73rem` propio), pero el de Reacciones
+   con comentario expandible reusa `<details class="assistant-story">`
+   (MISMO primitivo que "Historia de preguntas") SIN el `<li
+   class="activity-feed__item">` que ahí provee `.82rem` — sin este ancestro
+   quedaba en el tamaño de navegador por defecto (owner: "no respeta el
+   formato en materia de font size"). Mismo `.73rem` que el resto de este
+   dashboard compacto (Tendencia diaria/Eventos/Top módulos) — nunca el
+   `.82rem` de Historia de preguntas, que es una familia tipográfica aparte
+   y queda sin tocar. */
+.activity-breakdown__panel { font-size: .73rem; }
 /* CLICK PARA FILTRAR EN CASCADA — interaccion compartida.
    Nacio en Metricas de Uso (`admin_activity_content.html`: click en un modulo
    filtra la lista de eventos) y la reusa Comercial/Creadas (click en un
@@ -741,7 +754,14 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 
    NO hay toggle-to-clear: clickear el ya seleccionado lo mantiene. La
    convencion viene de `initModuleFilter` (app.js), donde limpiar es una
-   accion explicita y separada. */
+   accion explicita y separada.
+
+   USAGE METRICS DAILY TREND corrective (owner ticket): "Tendencia diaria"
+   (`.activity-chart__col`, arriba) suma `.activity-bar-row--clickable` como
+   TERCER consumidor del MISMO bloque — click en una barra fija Desde=Hasta a
+   ese día (ver initActivityChartFilter en app.js). Cero declaracion nueva:
+   `padding`/`margin-left` heredados de acá conviven sin conflicto con el
+   flex-column propio de `.activity-chart__col` (ver arriba). */
 .activity-bar-row--clickable, .bar-row--clickable {
   cursor: pointer; padding: 3px 6px; margin-left: -6px; border-radius: 7px;
   transition: background .12s ease;

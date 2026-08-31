@@ -6,6 +6,7 @@ import html
 import logging
 import os
 import re
+import sys
 import unicodedata
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
@@ -56,6 +57,51 @@ from webapp.routers import platform as platform_router
 from webapp.routers import commercial as commercial_router
 
 WEB_DIR = Path(__file__).parent
+
+# REPORTING PERF LOGGER — ENABLE EXISTING PRODUCTION TIMING LOGGER (owner
+# ticket, ver AUDIT "Cartera Proyecto Cold Penalty Source Attribution").
+# TODA la instrumentación de timing de Reporting/Cartera YA EXISTE (ver
+# reporting_repository.py/reporting_service.py/reporting_time_logs_durable.py
+# — logger `danwor.reporting.perf`, ya safe por diseño: solo elapsed_ms/
+# conteos, NUNCA token/scope crudo/filas/eTag) pero nunca llegaba a
+# DigitalOcean Runtime Logs. CAUSA RAÍZ (ver AUDIT §4): ningún archivo de
+# este repo configura logging en absoluto (cero `basicConfig`/`dictConfig`),
+# así que el root logger queda en su default de Python (`WARNING`, sin
+# handler) y `danwor.reporting.perf` HEREDA ese nivel — cada `.info(...)` de
+# esas líneas se descarta ANTES de llegar a cualquier handler, sin importar
+# qué capture DigitalOcean. Esto habilita ÚNICAMENTE ese logger, nunca root/
+# uvicorn/`danwor.reporting` (el general, sin `.perf`) — visibilidad pura,
+# cero cambio de comportamiento/caching/adquisición de Reporting.
+_REPORTING_PERF_LOGGER_NAME = "danwor.reporting.perf"
+# Nombre PROPIO del handler (Handler.set_name/get_name, stdlib) — guard de
+# idempotencia preciso: identifica ESTE handler puntual en vez de asumir
+# "cualquier handler presente ya es el nuestro" (`if logger.handlers`),
+# que sería frágil si algo más (p. ej. el plugin de logging de pytest, que
+# puede adjuntar sus propios handlers directo a un logger con
+# `propagate=False` para poder seguir capturándolo) ya dejó otro handler
+# ahí antes de que este bootstrap corra.
+_REPORTING_PERF_HANDLER_NAME = "reporting_perf_stdout"
+
+
+def _configure_reporting_perf_logging() -> None:
+    """Idempotente: un segundo import/bootstrap de este módulo en el MISMO
+    proceso (p. ej. un test que hace `from webapp.main import app` más de
+    una vez) nunca duplica ESTE handler puntual — guard mínimo, sin
+    abstracción de logging nueva, consistente con el resto de este archivo.
+    `propagate = False` es a propósito: el registro nunca burbujea a root,
+    así que root queda EXACTAMENTE como estaba, sin tocar."""
+    logger = logging.getLogger(_REPORTING_PERF_LOGGER_NAME)
+    if any(h.get_name() == _REPORTING_PERF_HANDLER_NAME for h in logger.handlers):
+        return
+    handler = logging.StreamHandler(sys.stdout)
+    handler.set_name(_REPORTING_PERF_HANDLER_NAME)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+
+_configure_reporting_perf_logging()
 
 
 def _display_diagnostic_title(title: str) -> str:
@@ -318,6 +364,31 @@ def admin_activity(
             "available_workspaces": workspaces.available_workspaces(session_user),
             **ctx,
         },
+    )
+
+
+@app.get("/admin/activity/trend", response_class=HTMLResponse, include_in_schema=False)
+def admin_activity_trend(
+    request: Request, date_from: str = "", date_to: str = "",
+    user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
+    scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
+    trend_page: int = 1,
+):
+    """Fragment liviano de solo 'Tendencia diaria' (barras + paginador-
+    guardrail) — MISMO patrón que admin_activity_stories/admin_activity_tree_runs:
+    pasar de página no toca el resto del dashboard (orden de drag-and-drop,
+    abierto/cerrado de las demás secciones)."""
+    _require_diagnostic(request)
+    if not _is_owner(request):
+        raise HTTPException(403, "Solo disponible para el owner")
+    summary = activity_analytics.build_summary(
+        date_from, date_to, user_filter, module_filter,
+        trend_page=trend_page,
+        scopes=scope_filter, areas=area_filter,
+    )
+    return templates.TemplateResponse(
+        request=request, name="partials/admin_activity_trend.html",
+        context={"summary": summary, "date_from": date_from, "date_to": date_to},
     )
 
 
