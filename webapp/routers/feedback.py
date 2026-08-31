@@ -8,6 +8,16 @@ sección de módulo, feedback de cierre de catálogo y micro-feedback por
 sección de catálogo. Extraído de ``webapp/main.py`` (Fase 2H) como relocación
 pura — sin rediseño de auth/persistencia/presentación.
 
+AUTH HARDENING (owner AUDIT "REACTIONS — TRACE MISSING USER IDENTITY" +
+ticket "REACTIONS — FINAL AUTH HARDENING"): los 4 `_save_*` ya NO coercen
+`auth_service.session_user(request) or {}` en silencio — sin sesión válida,
+levantan `HTTPException(401, "Sin sesión")` ANTES de cualquier persistencia
+(mismo código/mensaje que ya usan las páginas GET equivalentes, ver
+webapp/routers/modules.py y webapp/main.py). Una reacción del Hub siempre
+requiere usuario autenticado; las dos reacciones históricas ya backfilleadas
+sin identidad (catálogo/metodología, PRE-existentes a este hardening) no se
+tocan ni se re-fabrican — siguen mostrando "Sin usuario identificado".
+
 Feature COPILOT que consume capacidades compartidas desde sus dueños explícitos
 (`core.content_registry`, `webapp.services.auth_service`,
 `webapp.services.content_service`, `webapp.templating`, `config`) SIN importar
@@ -63,7 +73,21 @@ def normalize_feedback_module(raw_module: str) -> tuple[str, str]:
 # ── Feedback general de módulo (cierre de módulo) ──────────────────────────
 
 def _save_module_feedback(request: Request, document, selected: str, rating: str, comment: str = "") -> None:
-    user = auth_service.session_user(request) or {}
+    # AUTH HARDENING (owner: "una reacción válida del Hub requiere un usuario
+    # autenticado") — MISMO criterio que la página GET del módulo
+    # (webapp/routers/modules.py, `if not user: return nav.login_redirect`)
+    # y que las páginas GET de catálogo (webapp/main.py, `raise
+    # HTTPException(401, "Sin sesión")`), reusado tal cual acá. Chequea ANTES
+    # de cualquier try/except de abajo a propósito: `HTTPException` es una
+    # `Exception` como cualquier otra — levantarla DENTRO de esos bloques
+    # fail-soft la tragaría silenciosamente y renderizaría un falso éxito
+    # ("Gracias") sin haber persistido nada. Ya NUNCA se corrige a `{}`
+    # silenciosamente — antes esa coerción era exactamente lo que dejaba
+    # pasar una reacción anónima (ver AUDIT "REACTIONS — TRACE MISSING USER
+    # IDENTITY").
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
     now = datetime.now(timezone.utc)
     try:
         FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -78,7 +102,15 @@ def _save_module_feedback(request: Request, document, selected: str, rating: str
             "module_title": document.summary.title,
             "pack": selected,
             "rating": rating,
-            "user": str(user.get("username") or user.get("email") or ""),
+            # IDENTITY FIELD CORRECTIVE (found while auth-hardening this
+            # router): `auth_service.create_session`/`decode_session` NEVER
+            # populate `username`/`email` -- the ONLY identity key the
+            # session dict ever carries is `sub` (ver auth_service.py:224-
+            # 232). Sin `.get("sub")` acá, esta línea escribía SIEMPRE ""
+            # -- incluso con sesión válida -- desde el origen de esta
+            # feature; MISMA cadena de 3 keys que ya usan reporting.py/
+            # staffing.py/commercial.py/academy.py (nunca inventada acá).
+            "user": str(user.get("username") or user.get("email") or user.get("sub") or ""),
             "ts": now.isoformat(),
         }
         clean_comment = (comment or "").strip()
@@ -197,7 +229,10 @@ def _section_feedback_ctx(document, section, selected: str, **extra) -> dict:
 
 
 def _save_section_feedback(request: Request, document, section, selected: str, rating: str, comment: str = "") -> None:
-    user = auth_service.session_user(request) or {}
+    # AUTH HARDENING — MISMO criterio que _save_module_feedback (ver ahí).
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
     now = datetime.now(timezone.utc)
     try:
         FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -212,7 +247,9 @@ def _save_section_feedback(request: Request, document, section, selected: str, r
             "section_title": section.title,
             "pack": selected,
             "rating": rating,
-            "user": str(user.get("username") or user.get("email") or ""),
+            # IDENTITY FIELD CORRECTIVE — MISMO hallazgo/fix que
+            # _save_module_feedback (ver ahí): falta `.get("sub")`.
+            "user": str(user.get("username") or user.get("email") or user.get("sub") or ""),
             "ts": now.isoformat(),
         }
         clean_comment = (comment or "").strip()
@@ -293,14 +330,19 @@ def section_feedback_cancel(request: Request, stem: str, section_slug: str, pack
 
 # ── Feedback de cierre de catálogo / Novedades (partial catalog_feedback.html) ──
 def _save_catalog_feedback(request: Request, kind: str, ref: str, pack: str, rating: str, comment: str = "") -> None:
-    user = auth_service.session_user(request) or {}
+    # AUTH HARDENING — MISMO criterio que _save_module_feedback (ver ahí).
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
     now = datetime.now(timezone.utc)
     try:
         FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
         payload = {
             "type": "catalog", "catalog_kind": kind or "", "catalog_ref": ref or "",
             "pack": pack, "rating": rating,
-            "user": str(user.get("username") or user.get("email") or ""), "ts": now.isoformat(),
+            # IDENTITY FIELD CORRECTIVE — MISMO hallazgo/fix que
+            # _save_module_feedback (ver ahí): falta `.get("sub")`.
+            "user": str(user.get("username") or user.get("email") or user.get("sub") or ""), "ts": now.isoformat(),
         }
         c = (comment or "").strip()
         if c:
@@ -374,14 +416,19 @@ def catalog_feedback_cancel(request: Request, catalog_kind: str = Form(""), cata
 # ── Micro-feedback por sección del detalle de catálogo (simil módulos) ──────
 def _save_catalog_section_feedback(request: Request, cliente: str, dominio: str, slug: str,
                                    pack: str, rating: str, comment: str = "") -> None:
-    user = auth_service.session_user(request) or {}
+    # AUTH HARDENING — MISMO criterio que _save_module_feedback (ver ahí).
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
     now = datetime.now(timezone.utc)
     try:
         FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
         payload = {
             "type": "catalog_section", "cliente": cliente, "dominio": dominio, "section_slug": slug,
             "pack": pack, "rating": rating,
-            "user": str(user.get("username") or user.get("email") or ""), "ts": now.isoformat(),
+            # IDENTITY FIELD CORRECTIVE — MISMO hallazgo/fix que
+            # _save_module_feedback (ver ahí): falta `.get("sub")`.
+            "user": str(user.get("username") or user.get("email") or user.get("sub") or ""), "ts": now.isoformat(),
         }
         c = (comment or "").strip()
         if c:

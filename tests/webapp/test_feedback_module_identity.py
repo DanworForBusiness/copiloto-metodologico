@@ -16,8 +16,17 @@ from fastapi.testclient import TestClient
 
 from webapp.main import app
 from webapp.routers import feedback as feedback_router
+from webapp.services import auth_service
 
 client = TestClient(app)
+# AUTH HARDENING (owner ticket "REACTIONS — FINAL AUTH HARDENING"): estas 4
+# rutas ya no persisten sin sesión válida -- este archivo prueba escrituras
+# NUEVAS (module_id canónico), que son un caso AUTENTICADO por definición, así
+# que el cliente lleva sesión, MISMA convención que test_routes.py.
+client.cookies.set(
+    auth_service.COOKIE_NAME,
+    auth_service.create_session({"email": "identity@danwor.com", "name": "Identity User", "first_name": "Identity", "family_name": "User"}),
+)
 
 
 # ── normalize_feedback_module (seam puro, sin I/O) ───────────────────────────
@@ -145,18 +154,15 @@ def test_historical_and_new_feedback_for_the_same_route_stem_resolve_together(mo
     assert resolved_modules == {"CP01"}
 
 
-# test 10: comportamiento de auth/permisos sin cambios — feedback de módulo
-# sigue sin exigir sesión (anónimo → 200, mismo criterio que antes de esta
-# fase) y la validación de rating sigue rechazando valores inválidos igual.
-def test_feedback_auth_and_validation_behavior_unchanged(monkeypatch, tmp_path):
+# test 10 (SUPERSEDED — owner ticket "REACTIONS — FINAL AUTH HARDENING"):
+# feedback de módulo YA NO acepta anónimo (era 200, ahora 401 — ver ese
+# ticket, disparado por el AUDIT "REACTIONS — TRACE MISSING USER IDENTITY").
+# La validación de rating sigue rechazando valores inválidos igual (sin
+# cambios, ver test_feedback_auth_hardening.py para la cobertura dedicada
+# de los 6 casos D/E/F por familia).
+def test_feedback_validation_behavior_unchanged(monkeypatch, tmp_path):
     monkeypatch.setattr(feedback_router, "FEEDBACK_LOG_DIR", tmp_path)
-    anon = TestClient(app)
-    ok = anon.post(
-        "/modules/01_Arquitectura_y_Conectividad/feedback",
-        data={"rating": "up", "pack": "datasphere_core"},
-    )
-    assert ok.status_code == 200
-    bad_rating = anon.post(
+    bad_rating = client.post(
         "/modules/01_Arquitectura_y_Conectividad/feedback",
         data={"rating": "sideways", "pack": "datasphere_core"},
     )
