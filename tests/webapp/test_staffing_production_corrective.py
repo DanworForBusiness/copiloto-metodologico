@@ -647,6 +647,13 @@ def test_15_route_surface_still_120():
     #     MISMO patrón que /admin/activity/stories//admin/activity/tree-runs
     #     -- pasar de página no toca el resto del dashboard de Actividad. No
     #     toca ninguna ruta de Staffing.
+    #   120 -> 121 (owner ticket "HUB METRICS -- CENTRALIZE ACCESS AND
+    #     ENABLE BY VERTICAL"): +1 GET. `/operaciones/metricas` -- Usage
+    #     Metrics reexpuesto DESDE Operations, autorizado independientemente
+    #     via HUB_METRICS_ALLOWED_USERS (nunca acoplado a
+    #     OPERATIONS_ALLOWED_USERS) -- MISMO reporte que /admin/activity,
+    #     nunca un fork (ver webapp/hub_metrics_access.py). No toca ninguna
+    #     ruta de Staffing.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -654,7 +661,7 @@ def test_15_route_surface_still_120():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 120
+    assert len(snapshot) == 121
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

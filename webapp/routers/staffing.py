@@ -72,7 +72,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from core.content_registry import DEFAULT_PACK
-from webapp import operations_access, workspaces
+from webapp import hub_metrics_access, operations_access, workspaces
 from webapp.services import auth_service, feedback_store
 from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.activity_context import (
@@ -192,6 +192,15 @@ def staffing_page(request: Request):
             # Resalta "01 Asignaciones" en operations_nav.html (Reporting
             # Integral V0 — Align with Hub backbone corrective, ver HANDOFF).
             "active_page": "staffing",
+            # "03 Métricas de uso" en operations_nav.html (owner ticket "HUB
+            # METRICS — CENTRALIZE ACCESS AND ENABLE BY VERTICAL" §6/§9): AMBAS
+            # condiciones, ninguna sustituye a la otra — superficie habilitada
+            # Y usuario autorizado. Ya pasamos `is_operations_authorized` para
+            # llegar hasta acá; esto es un chequeo ADICIONAL, no un reemplazo.
+            "can_hub_metrics": (
+                hub_metrics_access.is_vertical_metrics_enabled("operations")
+                and hub_metrics_access.can_access_hub_metrics(user)
+            ),
         },
     )
 
