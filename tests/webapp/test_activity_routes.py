@@ -44,6 +44,18 @@ def _owner_client(monkeypatch, *, diagnostic=True, email="owner@danwor.com", own
     # de otros archivos de test durante la colección.
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com" if owner else "someone-else@danwor.com")
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", "ALL")
+    # VERTICAL DATA VISIBILITY (owner ticket "HUB METRICS — ENFORCE VERTICAL
+    # DATA VISIBILITY"): este fixture es el cliente "owner/both" del ticket
+    # (operations=true, commercial=true) -- la MAYORÍA de los tests de este
+    # archivo siembran datos Hub-wide (Copiloto+Operations+Comercial) y
+    # esperan verlos TODOS, sin ejercitar la restricción de vertical en sí
+    # (esa vive en test_hub_metrics_visibility.py). Sin esto, `email` no
+    # estaría en OPERATIONS_ALLOWED_USERS/COMMERCIAL_ALLOWED_USERS y
+    # metrics_visibility_for() recortaría el universo, rompiendo cada test
+    # que siembra reacciones/eventos de esas verticales -- MISMO email que ya
+    # usa la sesión, nunca uno hardcodeado aparte.
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", email)
+    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", email)
     session = auth_service.create_session(
         {"email": email, "name": "Owner", "first_name": "Own", "family_name": "Er"}
     )
@@ -92,8 +104,11 @@ def test_checkbox_state_survives_htmx_refresh(monkeypatch, tmp_path):
     assert 'name="scope" value="copilot" checked' in t
     assert 'name="scope" value="platform" checked' in t
     # Ámbito es estable (nunca desaparece por la selección de Área/de sí mismo):
-    # "operations" sigue OFRECIDO como opción, solo que destildado.
-    assert 'name="scope" value="operations" >' in t
+    # "operations" sigue OFRECIDO como opción, solo que destildado. Doble
+    # espacio antes de `>` desde el corrective "HUB METRICS — ENFORCE
+    # VERTICAL DATA VISIBILITY" (agrega un segundo `{% if %}` de `disabled`
+    # -- MISMO patrón que Área ya tenía).
+    assert 'name="scope" value="operations"  >' in t
     assert 'name="scope" value="operations" checked' not in t
 
 

@@ -66,8 +66,16 @@
       <span>Ámbito</span>
       <div class="dashboard-checkbox-group">
         {% for f in summary.scope_facets %}
-        <label class="dashboard-checkbox-option">
-          <input class="scope-area-checkbox" type="checkbox" name="scope" value="{{ f.key }}" {% if f.checked %}checked{% endif %}>
+        {# `disabled` (owner ticket "HUB METRICS — ENFORCE VERTICAL DATA
+           VISIBILITY" §6): Ámbito de una vertical que este usuario no puede
+           ver -- MISMO primitivo visual que Área ya usa para "no aplica al
+           Ámbito seleccionado" (dashboard-checkbox-option--disabled), sin
+           CSS nuevo. Server-side sigue siendo la frontera real
+           (build_summary nunca cuenta esos datos aunque se fuerce el query
+           param) -- esto es solo para que el límite se entienda sin
+           exponerlo. #}
+        <label class="dashboard-checkbox-option{% if f.disabled %} dashboard-checkbox-option--disabled{% endif %}">
+          <input class="scope-area-checkbox" type="checkbox" name="scope" value="{{ f.key }}" {% if f.checked %}checked{% endif %} {% if f.disabled %}disabled title="No autorizado para tu usuario"{% endif %}>
           <span>{{ f.label }}</span>
         </label>
         {% endfor %}
@@ -80,7 +88,7 @@
       <div class="dashboard-checkbox-group dashboard-checkbox-group--grid-2">
         {% for f in summary.area_facets %}
         <label class="dashboard-checkbox-option{% if f.disabled %} dashboard-checkbox-option--disabled{% endif %}">
-          <input class="scope-area-checkbox" type="checkbox" name="area" value="{{ f.key }}" {% if f.checked %}checked{% endif %} {% if f.disabled %}disabled title="No aplica al Ámbito seleccionado"{% endif %}>
+          <input class="scope-area-checkbox" type="checkbox" name="area" value="{{ f.key }}" {% if f.checked %}checked{% endif %} {% if f.disabled %}disabled title="No aplica al Ámbito seleccionado o no autorizado para tu usuario"{% endif %}>
           <span>{{ f.label }}</span>
         </label>
         {% endfor %}
@@ -88,9 +96,17 @@
     </label>
     {% endif %}
     <button type="submit" class="btn-primary">Actualizar</button>
+    {# `rejectattr('disabled')` ANTES de `rejectattr('checked')`: una opción
+       deshabilitada (por vertical no autorizada, o por incompatible con el
+       Ámbito elegido) nunca por sí sola debe mostrar "Limpiar" -- ese botón
+       es para deshacer una selección ACTIVA del usuario, no un estado
+       permanente fuera de su control (owner ticket "HUB METRICS — ENFORCE
+       VERTICAL DATA VISIBILITY" §6). Un Ámbito/Área REALMENTE destildado
+       por el usuario (disabled=False, checked=False) sigue disparando
+       "Limpiar" como siempre. #}
     {% if date_from or date_to or summary.selected_user or summary.selected_module
-          or (summary.scope_facets | rejectattr('checked') | list)
-          or (summary.area_facets | rejectattr('checked') | list) %}
+          or (summary.scope_facets | rejectattr('disabled') | rejectattr('checked') | list)
+          or (summary.area_facets | rejectattr('disabled') | rejectattr('checked') | list) %}
     <button type="button" class="whatsnew-filter__clear"
             hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true">✕ Limpiar</button>
     {% endif %}

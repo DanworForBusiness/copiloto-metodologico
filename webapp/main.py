@@ -336,6 +336,17 @@ def _require_hub_metrics(request: Request) -> None:
         raise HTTPException(403, "No autorizado para Usage Metrics")
 
 
+def _hub_metrics_visibility(request: Request) -> tuple[frozenset[str], frozenset[str]]:
+    """(allowed_scopes, allowed_areas) del usuario actual (owner ticket "HUB
+    METRICS — ENFORCE VERTICAL DATA VISIBILITY" §4) — SIEMPRE se calcula y
+    pasa a `build_summary` en las 5 rutas de Metrics de acá abajo, nunca
+    opcional: es la frontera real que evita que un usuario sin Comercial (p.
+    ej.) reciba scope=commercial/area=crm aunque lo pida por query param a
+    mano (`build_summary` intersecta la selección pedida contra lo
+    AUTORIZADO, nunca contra "todo lo que existe" — ver ese módulo)."""
+    return hub_metrics_access.metrics_visibility_for(auth_service.session_user(request))
+
+
 def _admin_result(request: Request, title: str, output: str):
     return templates.TemplateResponse(
         request=request,
@@ -351,9 +362,11 @@ def admin_activity(
     scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
 ):
     _require_hub_metrics(request)
+    allowed_scopes, allowed_areas = _hub_metrics_visibility(request)
     summary = activity_analytics.build_summary(
         date_from, date_to, user_filter, module_filter,
         scopes=scope_filter, areas=area_filter,
+        allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
     )
     ctx = {"summary": summary, "date_from": date_from, "date_to": date_to}
     if request.headers.get("HX-Request"):
@@ -392,10 +405,12 @@ def admin_activity_trend(
     pasar de página no toca el resto del dashboard (orden de drag-and-drop,
     abierto/cerrado de las demás secciones)."""
     _require_hub_metrics(request)
+    allowed_scopes, allowed_areas = _hub_metrics_visibility(request)
     summary = activity_analytics.build_summary(
         date_from, date_to, user_filter, module_filter,
         trend_page=trend_page,
         scopes=scope_filter, areas=area_filter,
+        allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
     )
     return templates.TemplateResponse(
         request=request, name="partials/admin_activity_trend.html",
@@ -414,9 +429,11 @@ def admin_activity_stories(
     para que pasar de página no reemplace el dashboard entero (perdería el
     orden de drag-and-drop y el abierto/cerrado de las demás secciones)."""
     _require_hub_metrics(request)
+    allowed_scopes, allowed_areas = _hub_metrics_visibility(request)
     summary = activity_analytics.build_summary(
         date_from, date_to, user_filter, module_filter, story_page, story_page_size,
         scopes=scope_filter, areas=area_filter,
+        allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
     )
     return templates.TemplateResponse(
         request=request, name="partials/admin_activity_stories.html",
@@ -435,10 +452,12 @@ def admin_activity_tree_runs(
     patrón que admin_activity_stories: pasar de página no toca el resto del
     dashboard."""
     _require_hub_metrics(request)
+    allowed_scopes, allowed_areas = _hub_metrics_visibility(request)
     summary = activity_analytics.build_summary(
         date_from, date_to, user_filter, module_filter,
         run_page=run_page, run_page_size=run_page_size,
         scopes=scope_filter, areas=area_filter,
+        allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
     )
     return templates.TemplateResponse(
         request=request, name="partials/admin_activity_tree_runs.html",
@@ -473,9 +492,11 @@ def operations_metrics(
         raise HTTPException(403, "Usage Metrics no está habilitado para Operations")
     _require_hub_metrics(request)
     user = auth_service.session_user(request)
+    allowed_scopes, allowed_areas = hub_metrics_access.metrics_visibility_for(user)
     summary = activity_analytics.build_summary(
         date_from, date_to, user_filter, module_filter,
         scopes=scope_filter, areas=area_filter,
+        allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
     )
     return templates.TemplateResponse(
         request=request, name="operations/metrics.html",
