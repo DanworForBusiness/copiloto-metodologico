@@ -1037,124 +1037,130 @@ def test_changing_selected_area_never_leaves_stale_subject_rows(monkeypatch, tmp
 # 200) -- una reacción sin `user` sigue siendo real y hasta este corrective
 # contaba en el total de área (izquierda) pero desaparecía del desglose por
 # usuario (derecha, "Sin desglose"). MISMO shape crudo que _SUBJECT_ROWS.
-_ANON_ROWS = [
-    # 1+4: anónimo, methodology, CP05 positive -- resuelve subject (module.feedback
-    # siempre resuelve con solo `module`, MISMO criterio que K en _SUBJECT_ROWS).
+# ── LEGACY UNATTRIBUTED FEEDBACK (owner ticket "REACTIONS — EXCLUDE LEGACY
+# UNATTRIBUTED FEEDBACK") ────────────────────────────────────────────────
+# SUPERSEDE al bloque anterior ("ANONYMOUS REACTION DETAIL"): tras la
+# decisión de producto de que Metrics solo reporte reacciones atribuibles,
+# una reacción SIN `user` ya NUNCA entra a Reacciones -- ni al total de
+# área, ni al desglose por usuario, ni al detalle de objeto. El bucket
+# "Sin usuario identificado" y su sentinel interno se eliminaron
+# (activity_analytics.py) -- MISMOS datos crudos que el bloque anterior
+# (mismo shape que el backfill produce), reusados acá para probar la
+# EXCLUSIÓN en vez de la inclusión.
+_UNATTRIBUTED_ROWS = [
+    # A/E: anónimo, methodology, CP05 positive -- debe quedar TOTALMENTE
+    # excluido (ni área, ni usuario, ni objeto).
     {"ts_utc": "2026-06-01T10:00:00+00:00", "event": "module.feedback", "user": "", "name": "",
      "scope": "copilot", "area": "methodology", "module": "CP05",
      "payload": {"feedback_sentiment": "positive"}},
-    # 2: SEGUNDA reacción anónima, MISMO día, área, sentimiento negativo, OTRO
-    # módulo -- prueba reconciliación 👍/👎 del bucket anónimo (item 3) y una
-    # segunda fila de objeto dentro del mismo desglose anónimo.
+    # B: SEGUNDA reacción sin usuario, MISMA área/día, OTRO módulo -- misma exclusión.
     {"ts_utc": "2026-06-01T10:01:00+00:00", "event": "module.feedback", "user": "", "name": "",
      "scope": "copilot", "area": "methodology", "module": "CP07",
      "payload": {"feedback_sentiment": "negative"}},
-    # 6: usuario AUTENTICADO, MISMA área y día -- control de regresión: su
-    # fila debe seguir con su email real, sin verse afectada por el anónimo.
+    # A/E/G: usuario AUTENTICADO, MISMA área y día -- la ÚNICA reacción que
+    # debe sobrevivir en methodology; su subject (CP06) debe seguir resolviendo.
     {"ts_utc": "2026-06-01T10:02:00+00:00", "event": "module.feedback", "user": "k@d.com", "name": "K",
      "scope": "copilot", "area": "methodology", "module": "CP06",
      "payload": {"feedback_sentiment": "negative"}},
-    # 5: anónimo en Staffing -- staffing.feedback NUNCA resuelve subject
-    # (ver test_unattributable_reaction_stays_in_total_without_fake_subject);
-    # la fila anónima debe seguir apareciendo, SIN expandir, SIN fabricar nada.
+    # C: anónimo en Staffing, ÚNICA reacción de esa área -- Staffing no debe
+    # aparecer en absoluto en el panel izquierdo de Reacciones (sin área row).
     {"ts_utc": "2026-06-01T10:03:00+00:00", "event": "staffing.feedback", "user": "", "name": "",
      "scope": "operations", "area": "staffing", "module": "OP01",
      "payload": {"feedback_sentiment": "positive"}},
-    # 7: anónimo en OTRO día -- prueba que el filtro de fecha sigue aplicando
-    # igual al bucket anónimo que al resto.
+    # F: anónimo en OTRO día, sin ninguna reacción atribuida ese día -- el
+    # filtro de fecha no debe "encontrar" nada para methodology ese día.
     {"ts_utc": "2026-06-05T09:00:00+00:00", "event": "module.feedback", "user": "", "name": "",
      "scope": "copilot", "area": "methodology", "module": "CP08",
      "payload": {"feedback_sentiment": "positive"}},
 ]
 
 
-def _seed_anon_rows(monkeypatch, tmp_path):
+def _seed_unattributed_rows(monkeypatch, tmp_path):
     monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
-    empty_feedback_dir = tmp_path / "_no_feedback_yaml_anon"
+    empty_feedback_dir = tmp_path / "_no_feedback_yaml_unattributed"
     empty_feedback_dir.mkdir(exist_ok=True)
     monkeypatch.setattr(activity_analytics, "FEEDBACK_LOG_DIR", empty_feedback_dir)
-    day1 = [r for r in _ANON_ROWS if r["ts_utc"].startswith("2026-06-01")]
-    day2 = [r for r in _ANON_ROWS if r["ts_utc"].startswith("2026-06-05")]
+    day1 = [r for r in _UNATTRIBUTED_ROWS if r["ts_utc"].startswith("2026-06-01")]
+    day2 = [r for r in _UNATTRIBUTED_ROWS if r["ts_utc"].startswith("2026-06-05")]
     (tmp_path / "activity_20260601.jsonl").write_text("\n".join(json.dumps(r) for r in day1) + "\n", encoding="utf-8")
     (tmp_path / "activity_20260605.jsonl").write_text("\n".join(json.dumps(r) for r in day2) + "\n", encoding="utf-8")
 
 
-def test_anonymous_reaction_still_increments_area_total(monkeypatch, tmp_path):
-    # 1: el total de IZQUIERDA (área) sigue contando la reacción anónima --
-    # sin cambios de comportamiento respecto de antes de este corrective.
-    _seed_anon_rows(monkeypatch, tmp_path)
+def test_authenticated_reaction_is_counted_in_area_and_user_totals(monkeypatch, tmp_path):
+    # A: la única reacción con usuario (k@d.com, CP06 negative) cuenta sola
+    # -- 0 up / 1 down / 1 total en methodology, pese a las 3 reacciones sin
+    # usuario que conviven en el mismo dataset (2 en methodology, 1 día 5).
+    _seed_unattributed_rows(monkeypatch, tmp_path)
     t = _hx(_owner_client(monkeypatch), "/admin/activity").text
-    # 4 reacciones en total en methodology (CP05+ · CP07- · CP06- día 1, CP08+ día 5).
-    assert 'title="Metodología: 2 👍 · 2 👎 de 4"' in t
-
-
-def test_anonymous_row_appears_on_the_right_panel(monkeypatch, tmp_path):
-    # 2: la fila anónima ya no desaparece del desglose derecho -- aparece
-    # bajo la etiqueta "Sin usuario identificado", NUNCA con un sentinel
-    # crudo visible ni un tooltip vacío.
-    _seed_anon_rows(monkeypatch, tmp_path)
-    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
-    methodology_panel = _panel_html(t, "methodology")
-    assert "Sin usuario identificado" in methodology_panel
-    assert "\x00anonymous" not in t  # el sentinel interno NUNCA llega al HTML.
-
-
-def test_anonymous_row_up_down_totals_reconcile(monkeypatch, tmp_path):
-    # 3: la fila anónima agregada (CP05 positive + CP07 negative día 1, CP08
-    # positive día 5) reconcilia 👍2 👎1 -- MISMA suma que sus 3 objetos
-    # (CP05 👍1, CP07 👎1, CP08 👍1) -- MISMO criterio que F en _SUBJECT_ROWS.
-    _seed_anon_rows(monkeypatch, tmp_path)
-    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
-    methodology_panel = _panel_html(t, "methodology")
-    anon_block = methodology_panel.split("Sin usuario identificado</span>", 1)[1]
-    assert '👍 2</span><span title="No le gustó">👎 1' in anon_block
-
-
-def test_anonymous_row_expands_with_subject_when_resolvable(monkeypatch, tmp_path):
-    # 4: module.feedback SIEMPRE resuelve subject con solo `module` -- el
-    # bucket anónimo debe quedar expandible con DOS filas de objeto (CP05, CP07).
-    _seed_anon_rows(monkeypatch, tmp_path)
-    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
-    methodology_panel = _panel_html(t, "methodology")
-    assert '<details class="assistant-story">' in methodology_panel
-    anon_block = methodology_panel.split("Sin usuario identificado</span>", 1)[1]
-    assert '<div class="reaction-subjects">' in anon_block.split("</details>", 1)[0]
-
-
-def test_anonymous_row_without_resolvable_subject_is_not_fabricated(monkeypatch, tmp_path):
-    # 5: staffing.feedback NUNCA resuelve subject -- el bucket anónimo de
-    # Staffing debe seguir apareciendo (cuenta en el total) pero SIN expandir
-    # y SIN "General"/"Otro" fabricado, MISMO criterio que G en _SUBJECT_ROWS.
-    _seed_anon_rows(monkeypatch, tmp_path)
-    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
-    staffing_panel = _panel_html(t, "staffing")
-    assert "Sin usuario identificado" in staffing_panel
-    assert 'General' not in staffing_panel and 'Otro' not in staffing_panel
-    anon_block = staffing_panel.split("Sin usuario identificado</span>", 1)[1]
-    # línea plana (activity-bar-row), NUNCA envuelta en <details> expandible.
-    assert not anon_block.lstrip().startswith("</summary>")
-    assert 'reaction-subjects' not in staffing_panel
-
-
-def test_authenticated_user_reaction_is_unaffected_by_anonymous_bucket(monkeypatch, tmp_path):
-    # 6: el usuario autenticado en la MISMA área/día sigue con su propia fila
-    # (email real en el tooltip, su propio subject CP06) -- coexiste con el
-    # bucket anónimo sin fusionarse ni perder datos.
-    _seed_anon_rows(monkeypatch, tmp_path)
-    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'title="Metodología: 0 👍 · 1 👎 de 1"' in t
     methodology_panel = _panel_html(t, "methodology")
     assert 'title="k@d.com"' in methodology_panel
+
+
+def test_empty_user_reaction_is_never_counted(monkeypatch, tmp_path):
+    # B: ninguna de las 3 reacciones sin usuario (CP05, CP07, CP08) aparece
+    # en ningún lado -- ni total, ni fila, ni el sentinel/label retirado.
+    _seed_unattributed_rows(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert "Sin usuario identificado" not in t
+    assert "\x00anonymous" not in t
+    methodology_panel = _panel_html(t, "methodology")
+    assert "CP05" not in methodology_panel
+    assert "CP07" not in methodology_panel
+
+
+def test_area_with_only_unattributed_reactions_creates_no_area_row(monkeypatch, tmp_path):
+    # C: Staffing tenía UNA sola reacción, sin usuario -- tras la exclusión
+    # no queda ninguna reacción atribuible en esa área, así que Staffing NO
+    # debe aparecer como fila en el panel izquierdo de Reacciones en absoluto.
+    _seed_unattributed_rows(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'data-event="staffing"' not in t
+    assert "Staffing:" not in t  # ningún title de barra para esa área.
+
+
+def test_empty_user_reaction_creates_no_user_row(monkeypatch, tmp_path):
+    # D: el panel derecho de methodology tiene EXACTAMENTE una fila de
+    # USUARIO (k@d.com) -- ninguna fila para las reacciones sin usuario, ni
+    # agregada ni suelta. `title="..."` distingue una fila de usuario (SIEMPRE
+    # la lleva cuando `r.user` es no vacío) de una fila de objeto anidada
+    # (`s.label`, nunca lleva `title`) -- ambas comparten la MISMA clase CSS
+    # `activity-bar-label`, así que contar esa clase a secas sobrecontaría.
+    _seed_unattributed_rows(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    methodology_panel = _panel_html(t, "methodology")
+    assert methodology_panel.count('activity-bar-label" title="') == 1
+    assert 'title="k@d.com"' in methodology_panel
+
+
+def test_mixed_authenticated_and_unattributed_counts_only_authenticated(monkeypatch, tmp_path):
+    # E: dataset mixto (2 sin usuario + 1 autenticada, misma área/día) --
+    # el total refleja SOLO la autenticada, reconciliando con su propia fila.
+    _seed_unattributed_rows(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
+    assert 'title="Metodología: 0 👍 · 1 👎 de 1"' in t
+    methodology_panel = _panel_html(t, "methodology")
     auth_block = methodology_panel.split('title="k@d.com"', 1)[1].split("</details>", 1)[0]
     assert '👍 0</span><span title="No le gustó">👎 1' in auth_block
 
 
-def test_anonymous_bucket_respects_date_and_area_filtering(monkeypatch, tmp_path):
-    # 7: filtrar por el día 5 (solo la reacción anónima de CP08) no debe
-    # arrastrar las reacciones anónimas del día 1 -- MISMO mecanismo de
-    # filtro que ya prueba H en _SUBJECT_ROWS, ahora sobre el bucket anónimo.
-    _seed_anon_rows(monkeypatch, tmp_path)
+def test_date_filter_finds_nothing_when_only_unattributed_reactions_exist_that_day(monkeypatch, tmp_path):
+    # F: el día 5 solo tiene una reacción sin usuario (CP08) -- filtrando a
+    # ese día, methodology no debe aparecer en absoluto en Reacciones.
+    _seed_unattributed_rows(monkeypatch, tmp_path)
     t = _hx(_owner_client(monkeypatch), "/admin/activity?date_from=2026-06-05&date_to=2026-06-05").text
-    assert 'title="Metodología: 1 👍 · 0 👎 de 1"' in t
+    assert "Metodología:" not in t
+    assert 'data-event="methodology"' not in t
+
+
+def test_reacted_object_detail_still_correct_for_authenticated_user(monkeypatch, tmp_path):
+    # G: el detalle de objeto de k@d.com (CP06, module.feedback siempre
+    # resuelve subject con solo `module`) sigue intacto -- sin cambios por
+    # la exclusión de las reacciones sin usuario a su alrededor.
+    _seed_unattributed_rows(monkeypatch, tmp_path)
+    t = _hx(_owner_client(monkeypatch), "/admin/activity").text
     methodology_panel = _panel_html(t, "methodology")
-    anon_block = methodology_panel.split("Sin usuario identificado</span>", 1)[1]
-    assert '👍 1</span><span title="No le gustó">👎 0' in anon_block
+    assert '<details class="assistant-story">' in methodology_panel
+    auth_block = methodology_panel.split('title="k@d.com"', 1)[1].split("</details>", 1)[0]
+    assert '<div class="reaction-subjects">' in auth_block
+    assert "CP07" not in auth_block  # NUNCA el objeto de una reacción sin usuario ajena.

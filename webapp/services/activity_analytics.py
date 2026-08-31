@@ -196,19 +196,6 @@ def _read_feedback(date_from: str, date_to: str) -> dict[str, dict]:
     return by_reply
 
 
-# ANONYMOUS REACTION DETAIL (owner ticket): módulo/sección/catálogo/academy
-# feedback NO exige sesión (ver webapp/routers/feedback.py\academy.py, POST
-# anónimo -> 200) — una reacción sin `user` sigue siendo real y cuenta en el
-# total de área (arriba, sin cambios), pero hasta este corrective quedaba
-# invisible en el panel derecho ("Sin desglose de usuarios") aunque el total
-# la reflejara bien. Este sentinel es una key INTERNA de agregación
-# ÚNICAMENTE (el prefijo NUL nunca puede colisionar con un email/sub real,
-# que siempre es texto imprimible) — NUNCA se persiste, NUNCA se muestra tal
-# cual (el label visible se fija aparte, "Sin usuario identificado", ver
-# `reaction_breakdowns`), NUNCA se confunde con una identidad real.
-_ANONYMOUS_REACTION_KEY = "\x00anonymous"
-_ANONYMOUS_REACTION_LABEL = "Sin usuario identificado"
-
 # type (feedback_store) -> area (Activity Log) del MISMO evento de feedback
 # transversal — Activity Log NUNCA guarda el comentario libre ("nunca valores
 # de negocio", ver routers/reporting.py\staffing.py\commercial.py), así que
@@ -890,27 +877,36 @@ def build_summary(
                  .setdefault(ev["module"], {})
                  .setdefault(ev["event"], Counter())[ev["user"]]) += 1
 
+        # LEGACY UNATTRIBUTED FEEDBACK (owner ticket "REACTIONS — EXCLUDE
+        # LEGACY UNATTRIBUTED FEEDBACK"): una reacción SIN `user` ya NUNCA
+        # entra a Reacciones -- ni al total de área (izquierda), ni al
+        # desglose por usuario (derecha), ni al detalle de objeto. Esto
+        # reemplaza el corrective anterior ("ANONYMOUS REACTION DETAIL", que
+        # las agregaba bajo un sentinel "Sin usuario identificado") tras la
+        # decisión de producto de que Metrics solo reporte reacciones
+        # atribuibles -- los registros históricos sin usuario (todos
+        # producidos por el bug de identidad YA corregido en el productor,
+        # nunca por un caso de negocio válido nuevo) quedan fuera de la
+        # métrica en vez de mostrarse como un bucket agregado. El evento de
+        # Activity Log persistido NO se toca -- esto es puramente qué
+        # agrega esta función de lectura, nunca una reescritura de origen.
         _fb_sentiment = ev["payload"].get("feedback_sentiment")
-        if _fb_sentiment:
+        if _fb_sentiment and ev["user"]:
             _area = ev["area"]
             _sent_key = "up" if _fb_sentiment == "positive" else "down"
             reaction_area_counts[_area] += 1
             reaction_area_sentiment.setdefault(_area, {"up": 0, "down": 0})[_sent_key] += 1
-            # Anónimo (sin sesión al reaccionar, o backfill histórico sin
-            # `user`) sigue agregando al desglose derecho bajo el sentinel
-            # -- NUNCA se descarta silenciosamente (ver _ANONYMOUS_REACTION_KEY).
-            _reaction_user_key = ev["user"] or _ANONYMOUS_REACTION_KEY
-            reaction_area_user_counts.setdefault(_area, Counter())[_reaction_user_key] += 1
+            reaction_area_user_counts.setdefault(_area, Counter())[ev["user"]] += 1
             (reaction_area_user_sentiment
              .setdefault(_area, {})
-             .setdefault(_reaction_user_key, {"up": 0, "down": 0}))[_sent_key] += 1
+             .setdefault(ev["user"], {"up": 0, "down": 0}))[_sent_key] += 1
             _subject = _reaction_subject(ev["event"], ev["module"], ev["payload"])
             if _subject is not None:
                 _subject_key, _subject_label = _subject
                 _bucket = (
                     reaction_area_user_subjects
                     .setdefault(_area, {})
-                    .setdefault(_reaction_user_key, {})
+                    .setdefault(ev["user"], {})
                     .setdefault(_subject_key, {"label": _subject_label, "up": 0, "down": 0})
                 )
                 _bucket[_sent_key] += 1
@@ -1057,19 +1053,9 @@ def build_summary(
                 reaction_area_user_subjects.get(k, {}).get(u, {}).values(),
                 key=lambda s: s["up"] + s["down"], reverse=True,
             )
-            _is_anon = u == _ANONYMOUS_REACTION_KEY
             rows.append({
-                # "user" queda "" para el anónimo -- nunca el sentinel crudo,
-                # que filtraría a data attrs / al tooltip `title="{{ r.user }}"`
-                # del template (ver `{% if r.user %}`, que así da False y
-                # correctamente no imprime nada).
-                "user": "" if _is_anon else u,
-                "label": _ANONYMOUS_REACTION_LABEL if _is_anon else _label_of(u, display_names),
+                "user": u, "label": _label_of(u, display_names),
                 "up": sentiment["up"], "down": sentiment["down"],
-                # Comentario libre requiere `user` no vacío por diseño
-                # preexistente (ver `_read_reaction_comments`, `if not user:
-                # continue`) -- el sentinel nunca aparece ahí, así que este
-                # lookup ya devuelve [] naturalmente para el anónimo.
                 "comments": reaction_comments.get(k, {}).get(u, []),
                 "subjects": subjects,
             })
