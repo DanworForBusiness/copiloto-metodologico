@@ -92,6 +92,94 @@
   const GRAPH_SCOPES = ["User.Read", "Sites.Read.All"];
   const CACHE_LOCATION = "sessionStorage";
 
+  // ── DIAGNÓSTICO DE ADQUISICIÓN DE TOKEN (owner ticket "STAFFING — MSAL
+  // TOKEN FAILURE TELEMETRY") ────────────────────────────────────────────
+  // `dwGraphToken` "Nunca lanza" (ver arriba) — ese contrato NO cambia acá.
+  // Lo que faltaba es que, cuando devuelve "", alguien pueda preguntar POR
+  // QUÉ sin inspeccionar la excepción cruda (que nunca sale de esta función).
+  // Whitelist EXPLÍCITA de lo que se captura — nunca token/id_token/
+  // refresh_token/código de auth/cookies/claims/UA completo (ver el resto de
+  // este archivo: MSAL es dueño absoluto de sus credenciales, esto no cambia
+  // esa regla, solo agrega contexto de POR QUÉ una adquisición falló).
+  //
+  // `lastTokenDiagnostic` es estado COMPARTIDO por diseño (mismo patrón que
+  // `needsInteraction` más abajo) — bajo llamadas CONCURRENTES a
+  // `dwGraphToken` (ver "D: seis fallos silenciosos concurrentes" en el
+  // harness), el diagnóstico que un caller lee inmediatamente después de su
+  // propio await puede, en teoría, pertenecer a OTRA llamada concurrente que
+  // resolvió en el medio. Aceptable a propósito: esto es telemetría de
+  // observabilidad ("por qué falló, en general, recién"), nunca una entrada
+  // de una decisión de negocio — y en la práctica real (un usuario, una
+  // pestaña, una carga) no hay concurrencia que perder.
+  let lastTokenDiagnostic = null;
+
+  // Probe de disponibilidad de storage — MISMO patrón que ya usaba
+  // `dwGraphAuthDiagnostics` en línea (ver abajo, ahora reusa esta función
+  // en vez de duplicar el try/set/get/remove). `storage` puede ser `null`/
+  // `undefined` (entorno sin ese storage global, p. ej. un harness de test) —
+  // se trata como "no disponible", nunca una excepción.
+  function probeStorage(storage) {
+    if (!storage) return false;
+    const probeKey = "dw-storage-probe";
+    try {
+      storage.setItem(probeKey, "1");
+      const ok = storage.getItem(probeKey) === "1";
+      storage.removeItem(probeKey);
+      return ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Buckets GRUESOS únicamente — NUNCA el user-agent completo (identificable,
+  // no necesario: "por qué falló" no requiere saber la build exacta).
+  function coarseBrowserFamily() {
+    const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+    if (ua.indexOf("Edg/") !== -1) return "edge";
+    if (ua.indexOf("Chrome/") !== -1) return "chrome";
+    if (ua.indexOf("Firefox/") !== -1) return "firefox";
+    // Chrome/Edge también incluyen "Safari/" en su UA — por eso este check
+    // va DESPUÉS de los suyos, nunca antes.
+    if (ua.indexOf("Safari/") !== -1) return "safari";
+    return "other";
+  }
+
+  function coarsePlatform() {
+    const nav = typeof navigator !== "undefined" ? navigator : {};
+    const platform = String(nav.platform || "").toLowerCase();
+    const ua = String(nav.userAgent || "").toLowerCase();
+    if (platform.indexOf("mac") !== -1 || ua.indexOf("macintosh") !== -1) return "macos";
+    if (platform.indexOf("win") !== -1 || ua.indexOf("windows") !== -1) return "windows";
+    if (ua.indexOf("iphone") !== -1 || ua.indexOf("ipad") !== -1) return "ios";
+    if (ua.indexOf("android") !== -1) return "android";
+    if (platform.indexOf("linux") !== -1 || ua.indexOf("linux") !== -1) return "linux";
+    return "other";
+  }
+
+  // Campos que NO dependen de en qué branch de `dwGraphToken` se falló —
+  // computados una sola vez por diagnóstico, nunca duplicados a mano en
+  // cada branch.
+  function commonDiagnosticFields() {
+    return {
+      browserFamily: coarseBrowserFamily(),
+      platform: coarsePlatform(),
+      cookieEnabled: !!(typeof navigator !== "undefined" && navigator.cookieEnabled),
+      sessionStorageAvailable: probeStorage(typeof sessionStorage !== "undefined" ? sessionStorage : null),
+      localStorageAvailable: probeStorage(typeof localStorage !== "undefined" ? localStorage : null),
+      isSecureContext: !!(typeof window !== "undefined" && window.isSecureContext),
+      route: (typeof window !== "undefined" && window.location && window.location.pathname) || "",
+    };
+  }
+
+  function recordTokenFailure(stage, hadAccount, err) {
+    lastTokenDiagnostic = Object.assign({
+      stage: stage,
+      hadAccount: hadAccount,
+      msalErrorCode: (err && err.errorCode) || null,
+      msalErrorName: (err && err.name) || null,
+    }, commonDiagnosticFields());
+  }
+
   // ── instancia única ────────────────────────────────────────────────────
   // UNA `PublicClientApplication` para todo el Hub. Memoizada por promesa (no
   // por valor) para que dos consumidores que arranquen a la vez compartan la
@@ -172,18 +260,30 @@
   // traduce a la acción correcta — que ahora ES la reautenticación explícita.
   window.dwGraphToken = async function () {
     let app;
-    try { app = await getApp(); } catch (e) { return ""; }
+    try { app = await getApp(); } catch (e) {
+      recordTokenFailure("app_init", false, e);
+      return "";
+    }
 
     const account = activeAccount(app);
 
     // SIN CUENTA en esta pestaña: no hay nada silencioso que intentar.
-    if (!account) { needsInteraction = true; return ""; }
+    if (!account) {
+      needsInteraction = true;
+      recordTokenFailure("no_account", false, null);
+      return "";
+    }
 
     try {
       // El corazón del fix: MSAL renueva sin interacción usando SU cache.
       const res = await app.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
-      if (res && res.accessToken) { needsInteraction = false; return res.accessToken; }
+      if (res && res.accessToken) {
+        needsInteraction = false;
+        lastTokenDiagnostic = null;   // éxito -- ningún diagnóstico de falla pendiente.
+        return res.accessToken;
+      }
       needsInteraction = true;
+      recordTokenFailure("acquire_silent_no_token", true, null);
       return "";
     } catch (e) {
       if (e instanceof msal.InteractionRequiredAuthError) {
@@ -193,13 +293,23 @@
         // el usuario decide. Es la diferencia entre ofrecer reautenticar y
         // hacerlo por él.
         needsInteraction = true;
+        recordTokenFailure("acquire_silent_interaction_required", true, e);
         return "";
       }
       // Un fallo de red o de configuración NO es un problema de autorización:
       // no se ofrece reautenticar algo que reautenticar no arregla.
+      recordTokenFailure("acquire_silent_error", true, e);
       return "";
     }
   };
+
+  // Getter del diagnóstico de la ÚLTIMA falla de `dwGraphToken` — no cambia
+  // su contrato ("Nunca lanza", devuelve string), solo permite que un
+  // caller pregunte POR QUÉ después del hecho. `null` si la última
+  // adquisición fue exitosa, o si `dwGraphToken` nunca corrió en esta
+  // pestaña. Ver el comentario de `lastTokenDiagnostic` (arriba) sobre la
+  // limitación conocida bajo llamadas concurrentes.
+  window.dwLastTokenFailureDiagnostic = function () { return lastTokenDiagnostic; };
 
   // ── LA ÚNICA PUERTA A LA INTERACCIÓN ──────────────────────────────────
   // Este es el ÚNICO lugar del proyecto que llama `acquireTokenPopup`. Se
@@ -289,13 +399,10 @@
   // particionado, y con navegación full-page eso significa perder la cache
   // entre verticales— no se puede deducir, hay que medirlo.
   window.dwGraphAuthDiagnostics = async function () {
-    const probeKey = "dw-storage-probe";
-    let sessionUsable = false;
-    try {
-      sessionStorage.setItem(probeKey, "1");
-      sessionUsable = sessionStorage.getItem(probeKey) === "1";
-      sessionStorage.removeItem(probeKey);
-    } catch (e) { sessionUsable = false; }
+    // `probeStorage` (arriba) — MISMA función que usa `recordTokenFailure`
+    // para `sessionStorageAvailable`/`localStorageAvailable`, nunca un
+    // segundo try/set/get/remove duplicado acá.
+    const sessionUsable = probeStorage(typeof sessionStorage !== "undefined" ? sessionStorage : null);
 
     const diag = {
       msalLoaded: typeof msal !== "undefined",
@@ -375,9 +482,13 @@
   // con `data-dw-graph-token`, y el parámetro lo inyecta este hook.
   const MARKER = "data-dw-graph-token";
   const PARAM = "graph_token";
+  // owner ticket "STAFFING — MSAL TOKEN FAILURE TELEMETRY": SOLO viaja
+  // cuando el token vino vacío (ver abajo) — MISMO nombre de campo que
+  // esperan los 3 routers de Staffing (`token_diagnostic`, Form field).
+  const DIAGNOSTIC_PARAM = "token_diagnostic";
 
   // Indexado por elemento (WeakMap, para no retener nodos removidos del DOM):
-  // "el token resuelto para ESTE request".
+  // "el token (+ diagnóstico si vino vacío) resuelto para ESTE request".
   const resolved = new WeakMap();
 
   function needsGraph(elt) {
@@ -403,7 +514,14 @@
       // request colgado sería peor — un spinner infinito sin explicación.
       .catch(() => "")
       .then((token) => {
-        resolved.set(elt, token || "");
+        // owner ticket "STAFFING — MSAL TOKEN FAILURE TELEMETRY": el
+        // diagnóstico SOLO se lee/adjunta cuando el token vino vacío — con
+        // token válido no hay nada que explicar, y no vale la pena el campo
+        // extra en el body. Leído en la MISMA vuelta que la resolución del
+        // token (ver el comentario de `lastTokenDiagnostic` sobre el límite
+        // conocido bajo llamadas concurrentes).
+        const diagnostic = token ? null : window.dwLastTokenFailureDiagnostic();
+        resolved.set(elt, { token: token || "", diagnostic: diagnostic });
         try { event.detail.issueRequest(true); }
         catch (e) { resolved.delete(elt); }
       });
@@ -414,8 +532,11 @@
     if (!needsGraph(elt)) return;
     // Se consume una sola vez: el próximo disparo del mismo elemento vuelve a
     // pasar por el gate y pide un token fresco.
-    const token = resolved.get(elt);
+    const entry = resolved.get(elt);
     resolved.delete(elt);
-    event.detail.parameters[PARAM] = token || "";
+    event.detail.parameters[PARAM] = (entry && entry.token) || "";
+    if (entry && entry.diagnostic) {
+      event.detail.parameters[DIAGNOSTIC_PARAM] = JSON.stringify(entry.diagnostic);
+    }
   });
 })();
