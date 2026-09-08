@@ -1654,9 +1654,15 @@ function reconcileExperienceFacets(expId, justChangedKey) {
 function pruneRentabilidadMes() {
   state.rentabilidadMeses = new Set([...state.rentabilidadMeses].filter(m => _mesValidoParaAlgunAnio(state.rentabilidadAnios, Number(m))));
 }
-function pruneHorasVendidasMes() {
-  state.horasVendidasMeses = new Set([...state.horasVendidasMeses].filter(m => _mesValidoParaAlgunAnio(state.horasVendidasAnios, Number(m))));
-}
+// Horas Vendidas (owner ticket "HORAS VENDIDAS — ENABLE FUTURE MONTH
+// SELECTION"): a diferencia de Rentabilidad arriba, acá NUNCA se poda un
+// Mes seleccionado por el cap operacional — un compromiso YA VENDIDO no
+// deja de ser válido por caer después de "hoy" (ver `horasVendidasMesPills`/
+// `horasVendidasSelectedRows`, MISMO criterio). No-op deliberado (nunca
+// eliminado del todo: preserva el nombre/call site documentado en
+// `reconcileExperienceFacets` para que quede explícito que esta experiencia
+// fue auditada y decidió NO podar, en vez de "olvidarse" de hacerlo).
+function pruneHorasVendidasMes() {}
 // Select faceteado — reemplaza `selectField(expId, key, label,
 // distinctValues(dataset, dim))` en las 5 experiencias filtrables: las
 // opciones YA vienen excluyendo el propio facet (ver facetOptions), nunca
@@ -2034,12 +2040,17 @@ function horasVendidasAnioPills() {
   const disabledAll = !_statusHasAnySelected(state.horasVendidasStatus);
   return pillMultiField("Año", horasVendidasAnioOptions(), state.horasVendidasAnios, "toggleHorasVendidasAnio", { disabledAll });
 }
-// Mes — 12 fijos, cap generalizado a multi-año (`_mesValidoParaAlgunAnio`,
-// MISMO criterio que Cartera/Rentabilidad).
+// Mes — 12 fijos, SIN cap de mes futuro (owner ticket "HORAS VENDIDAS —
+// ENABLE FUTURE MONTH SELECTION"): a diferencia de Cartera/Rentabilidad
+// (`_mesValidoParaAlgunAnio`, MISMO cap operacional "actual a la fecha"),
+// Horas Vendidas es un compromiso YA VENDIDO/proyectado — Oct/Nov/Dic del
+// año en curso son períodos de reporte VÁLIDOS, nunca deshabilitados por
+// caer después de "hoy". `disabledAll` (gate de Estado, ninguno tildado)
+// es la ÚNICA condición de disabled que sobrevive acá — deliberadamente
+// distinto motivo, no relacionado al mes futuro.
 function horasVendidasMesPills() {
   const options = MESES.map((abrev, i) => ({
     value: String(i + 1), label: abrev, title: MESES_LARGOS[i],
-    disabled: !_mesValidoParaAlgunAnio(state.horasVendidasAnios, i + 1),
   }));
   const disabledAll = !_statusHasAnySelected(state.horasVendidasStatus);
   return pillMultiField("Mes", options, state.horasVendidasMeses, "toggleHorasVendidasMes", { scroll: true, fill: true, disabledAll });
@@ -3652,17 +3663,29 @@ function toggleHorasVendidasMes(mes) {
 // no haber ningún filtro de Mes activo. Root cause: ese cap es correcto
 // para métricas operacionales (Certificadas/Trabajadas de Rentabilidad,
 // NUNCA tocadas acá) pero incorrecto para un compromiso YA VENDIDO, que se
-// conoce de antemano. Fix: el cap SOLO se mantiene si el usuario tildó un
-// Mes explícito (mismo comportamiento de siempre para esa selección
-// puntual) — sin Mes, se usan los valores reales de la fuente para los 12
-// meses (0 genuino si la fuente no tiene datos ahí, nunca fabricado).
+// conoce de antemano.
+//
+// FUTURE-MONTH SELECTION CORRECTIVE (owner ticket "HORAS VENDIDAS — ENABLE
+// FUTURE MONTH SELECTION"): el fix anterior solo dejaba de capar cuando NO
+// había Mes explícito tildado — pero elegir explícitamente Octubre/
+// Noviembre/Diciembre TODAVÍA activaba el cap (`capFutureMonths:
+// state.horasVendidasMeses.size > 0`), devolviendo `null` para ese mes
+// pese a haber sido seleccionado a propósito. Business correction: en
+// Horas Vendidas el mes SELECCIONADO es SIEMPRE autoritativo — "más allá
+// del mes actual" no es un estado inválido acá (a diferencia de
+// Certificadas/Trabajadas de Rentabilidad, que sí representan trabajo NO
+// ejecutado todavía). El cap YA NO se aplica NUNCA en esta función, con o
+// sin Mes tildado — ver `horasVendidasMesPills`/`pruneHorasVendidasMes`
+// para el resto del contrato (pill nunca disabled por futuro, selección
+// nunca podada por futuro). Cero valores fabricados: un mes sin dato en la
+// fuente sigue en 0 genuino, la única diferencia es que ya no se sustituye
+// por `null` ("no aplicable") solo por caer después de "hoy".
 function horasVendidasSelectedRows() {
   const anios = state.horasVendidasAnios;
   const base = HORASVENDIDAS_ROWS.filter(r => state.horasVendidasStatus[r.estado]);
   const rows = facetRowsExcept(base, state.filters.horasvendidas || {}, _HV_SELECT_FIELDS, "");
-  const capFutureMonths = state.horasVendidasMeses.size > 0;
   return rows.map(r => {
-    const arr = _yearRangeMonthly(r.vendidasByYear, r.monthly, anios, { capFutureMonths });
+    const arr = _yearRangeMonthly(r.vendidasByYear, r.monthly, anios, { capFutureMonths: false });
     return { ...r, monthly: _maskMeses(arr, state.horasVendidasMeses) };
   });
 }
