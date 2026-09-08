@@ -51,13 +51,34 @@ def test_horas_vendidas_and_rentabilidad_anio_is_now_multiselect_pills_like_cart
         assert "AnioOptions()" in body, fn
 
 
-def test_horas_vendidas_and_rentabilidad_mes_is_now_multiselect_pills_and_cap_aware():
-    for fn in ("horasVendidasMesPills", "rentabilidadMesPills"):
-        body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 500]
-        assert 'pillMultiField("Mes"' in body, fn
-        # Cap generalizado a multi-año (owner decision: válido si lo es
-        # para ALGÚN año tildado) — reusa el MISMO helper que Cartera.
-        assert "_mesValidoParaAlgunAnio(" in body, fn
+def test_rentabilidad_mes_is_multiselect_pills_and_cap_aware():
+    # Rentabilidad SIGUE deshabilitando meses futuros del año en curso
+    # (Certificadas/Trabajadas representan trabajo que todavía no se
+    # ejecutó) — protección NUNCA tocada por el ticket "HORAS VENDIDAS —
+    # ENABLE FUTURE MONTH SELECTION" (ver test siguiente, Horas Vendidas
+    # es la ÚNICA excepción).
+    fn = "rentabilidadMesPills"
+    body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 500]
+    assert 'pillMultiField("Mes"' in body, fn
+    # Cap generalizado a multi-año (owner decision: válido si lo es
+    # para ALGÚN año tildado) — reusa el MISMO helper que Cartera.
+    assert "_mesValidoParaAlgunAnio(" in body, fn
+
+
+def test_horas_vendidas_mes_is_multiselect_pills_without_future_month_cap():
+    # SUPERSEDE el contrato viejo (owner ticket "HORAS VENDIDAS — ENABLE
+    # FUTURE MONTH SELECTION"): Horas Vendidas es un compromiso YA VENDIDO/
+    # proyectado, un mes posterior a "hoy" es un período de reporte VÁLIDO,
+    # nunca deshabilitado — a diferencia de Rentabilidad (test anterior),
+    # que SÍ conserva `_mesValidoParaAlgunAnio`. Sigue siendo pills
+    # multi-select (eso no cambió), solo dejó de ser cap-aware.
+    fn = "horasVendidasMesPills"
+    body = _REPORTING_JS[_REPORTING_JS.index(f"function {fn}("):_REPORTING_JS.index(f"function {fn}(") + 500]
+    assert 'pillMultiField("Mes"' in body, fn
+    assert "_mesValidoParaAlgunAnio(" not in body, (
+        "horasVendidasMesPills ya NO debe usar el cap de mes futuro — "
+        "ver owner ticket HORAS VENDIDAS — ENABLE FUTURE MONTH SELECTION"
+    )
 
 
 def test_anio_options_functions_filter_through_valid_anio_value():
