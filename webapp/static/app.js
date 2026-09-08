@@ -1178,7 +1178,14 @@ function staffingDashboard(payload) {
       this.absencesLoadError = false;
       try {
         const token = await dwGraphToken();
+        // owner ticket "STAFFING — MSAL TOKEN FAILURE TELEMETRY": SOLO se
+        // adjunta cuando el token vino vacío -- con token válido no hay nada
+        // que explicar (MISMO criterio que el hook htmx de hub_auth.js).
         const body = new URLSearchParams({ graph_token: token });
+        if (!token && window.dwLastTokenFailureDiagnostic) {
+          const diagnostic = window.dwLastTokenFailureDiagnostic();
+          if (diagnostic) body.set("token_diagnostic", JSON.stringify(diagnostic));
+        }
         const response = await fetch("/operaciones/staffing/asignaciones/ausencias", { method: "POST", body });
         const data = await response.json();
         if (data.state === "ok") {
@@ -1213,7 +1220,13 @@ function staffingDashboard(payload) {
       this.historyLoadError = false;
       try {
         const token = await dwGraphToken();
+        // MISMO criterio que _loadAbsences (ver ahí) — owner ticket
+        // "STAFFING — MSAL TOKEN FAILURE TELEMETRY".
         const body = new URLSearchParams({ graph_token: token });
+        if (!token && window.dwLastTokenFailureDiagnostic) {
+          const diagnostic = window.dwLastTokenFailureDiagnostic();
+          if (diagnostic) body.set("token_diagnostic", JSON.stringify(diagnostic));
+        }
         const response = await fetch("/operaciones/staffing/asignaciones/historial", { method: "POST", body });
         const data = await response.json();
         if (data.state === "ok") {

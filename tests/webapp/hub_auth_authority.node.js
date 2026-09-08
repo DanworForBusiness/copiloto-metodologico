@@ -35,7 +35,11 @@ function makeMsal(behaviour, captured) {
   const b = behaviour || {};
   const log = [];
   class AuthError extends Error {
-    constructor(code) { super(code); this.errorCode = code; this.name = "AuthError"; }
+    // `this.constructor.name` (no un literal "AuthError" fijo) — así una
+    // subclase como `InteractionRequiredAuthError` reporta SU PROPIO nombre
+    // real, igual que MSAL de verdad (owner ticket "STAFFING — MSAL TOKEN
+    // FAILURE TELEMETRY", que sí distingue por `e.name`).
+    constructor(code) { super(code); this.errorCode = code; this.name = this.constructor.name; }
   }
   class InteractionRequiredAuthError extends AuthError { }
 
@@ -50,6 +54,10 @@ function makeMsal(behaviour, captured) {
       captured.silentScopes = req.scopes;
       if (b.silent === "interaction") throw new InteractionRequiredAuthError("interaction_required");
       if (b.silent === "network") throw new AuthError("network_error");
+      // "resuelve sin excepción, pero sin token" (owner ticket "STAFFING —
+      // MSAL TOKEN FAILURE TELEMETRY", stage=acquire_silent_no_token) — un
+      // caso real de MSAL, distinto de cualquier excepción.
+      if (b.silent === "no_token") return { accessToken: "", fromCache: true };
       return { accessToken: b.silentToken || "AT-SILENT", fromCache: true, expiresOn: new Date(0) };
     }
     async acquireTokenPopup(req) {
@@ -81,11 +89,26 @@ function makeEnv(behaviour, opts) {
     setItem(k, v) { if (options.storageThrows) throw new Error("particionado"); store[k] = v; },
     removeItem(k) { if (options.storageThrows) throw new Error("particionado"); delete store[k]; },
   };
+  // owner ticket "STAFFING — MSAL TOKEN FAILURE TELEMETRY": storage/navigator
+  // separados de `sessionStorage` arriba (distinto storage, distinto flag de
+  // falla — `localStorageThrows` nunca pisa `storageThrows`).
+  const localStore = {};
+  const localStorage = {
+    getItem(k) { if (options.localStorageThrows) throw new Error("particionado"); return k in localStore ? localStore[k] : null; },
+    setItem(k, v) { if (options.localStorageThrows) throw new Error("particionado"); localStore[k] = v; },
+    removeItem(k) { if (options.localStorageThrows) throw new Error("particionado"); delete localStore[k]; },
+  };
+  const navigator = options.navigator || {
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36",
+    platform: "Win32",
+    cookieEnabled: true,
+  };
   const win = { location: { origin: "https://hub.danwor.com", pathname: "/reporting", search: "" } };
   win.self = win;
   win.top = options.embedded ? { otro: true } : win;
+  win.isSecureContext = options.isSecureContext !== false;   // default true — solo false si se pide explícito.
   const sandbox = {
-    window: win, msal, sessionStorage, console, Promise, setTimeout, Object, JSON, Date, Error,
+    window: win, msal, sessionStorage, localStorage, navigator, console, Promise, setTimeout, Object, JSON, Date, Error,
     document: { addEventListener(t, fn) { (listeners[t] = listeners[t] || []).push(fn); } },
     fetch(url, init) {
       fetches.push({ url: String(url), method: (init && init.method) || "GET", body: init && init.body });
@@ -484,6 +507,147 @@ const ACCOUNT = { username: "joe@danwor.com", homeAccountId: "hid" };
     // de MSAL. Aca el doble no escribe, asi que el storage queda vacio.
     assertEqual(Object.keys(env.store).length, 0,
       "M: la autoridad no escribe claves propias de credenciales");
+  }
+
+  // ── N: DIAGNÓSTICO DE FALLA DE TOKEN (owner ticket "STAFFING — MSAL TOKEN
+  // FAILURE TELEMETRY") ───────────────────────────────────────────────────
+  // `dwGraphToken` sigue "Nunca lanza" y devolviendo "" (invariante C de
+  // arriba, sin cambios) — lo nuevo es que `dwLastTokenFailureDiagnostic()`
+  // deja dicho POR QUÉ, en vez de perder la excepción original.
+  {
+    // N1: adquisición exitosa -> sin diagnóstico pendiente.
+    const env = makeEnv({ accounts: [ACCOUNT], silentToken: "AT-OK" });
+    await env.win.dwGraphToken();
+    assertEqual(env.win.dwLastTokenFailureDiagnostic(), null,
+      "N1: el camino exitoso no deja ningún diagnóstico de falla");
+  }
+  {
+    // N2: sin cuenta -> stage=no_account, hadAccount=false, sin error MSAL
+    // (no hubo excepción, así que no hay código/nombre que reportar).
+    const env = makeEnv({ accounts: [] });
+    await env.win.dwGraphToken();
+    const d = env.win.dwLastTokenFailureDiagnostic();
+    assertEqual(d.stage, "no_account", "N2: distingue la etapa sin cuenta");
+    assertEqual(d.hadAccount, false, "N2: hadAccount refleja que no había cuenta");
+    assertEqual(d.msalErrorCode, null, "N2: sin excepción, sin código MSAL inventado");
+  }
+  {
+    // N3: InteractionRequiredAuthError -> stage + código/nombre reales.
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "interaction" });
+    await env.win.dwGraphToken();
+    const d = env.win.dwLastTokenFailureDiagnostic();
+    assertEqual(d.stage, "acquire_silent_interaction_required", "N3: distingue la etapa de interacción requerida");
+    assertEqual(d.msalErrorCode, "interaction_required", "N3: código MSAL real, no descartado");
+    assertEqual(d.msalErrorName, "InteractionRequiredAuthError", "N3: nombre de clase real");
+    assertEqual(d.hadAccount, true, "N3: hadAccount refleja que sí había cuenta");
+  }
+  {
+    // N4: fallo MSAL genérico (red/config) -> stage + código/nombre reales,
+    // MISMO criterio que N3 pero sin escalar a "hace falta interacción".
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "network" });
+    await env.win.dwGraphToken();
+    const d = env.win.dwLastTokenFailureDiagnostic();
+    assertEqual(d.stage, "acquire_silent_error", "N4: distingue la etapa de error genérico");
+    assertEqual(d.msalErrorCode, "network_error", "N4: código MSAL real");
+    assertEqual(d.msalErrorName, "AuthError", "N4: nombre de clase real");
+  }
+  {
+    // N4b: éxito SIN accessToken (caso real de MSAL, sin excepción) -> etapa
+    // propia, distinguible de los dos casos de arriba.
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "no_token" });
+    await env.win.dwGraphToken();
+    const d = env.win.dwLastTokenFailureDiagnostic();
+    assertEqual(d.stage, "acquire_silent_no_token", "N4b: distingue éxito-sin-token de una excepción");
+  }
+  {
+    // N5: falla de inicialización (config caída) -> etapa distinguible de
+    // las de arriba, ANTES de que exista cuenta u oportunidad de silencioso.
+    const env = makeEnv({ accounts: [ACCOUNT] }, { config: "disabled" });
+    await env.win.dwGraphToken();
+    const d = env.win.dwLastTokenFailureDiagnostic();
+    assertEqual(d.stage, "app_init", "N5: distingue la etapa de inicialización");
+    assertEqual(d.hadAccount, false, "N5: nunca se llegó a mirar la cuenta");
+  }
+  {
+    // N6: el diagnóstico NUNCA expone credenciales -- MISMO criterio que ya
+    // prueba G para `dwGraphAuthDiagnostics()`, acá para el nuevo getter.
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "interaction", popupToken: "AT-NUNCA" });
+    await env.win.dwGraphToken();
+    const json = JSON.stringify(env.win.dwLastTokenFailureDiagnostic());
+    assertTrue(!json.includes("AT-") && !json.includes("ID-TOKEN") && !json.includes("refresh"),
+      "N6: el diagnóstico de falla NUNCA expone credenciales");
+  }
+  {
+    // N7: campos comunes -- buckets GRUESOS, nunca el user-agent completo.
+    const env = makeEnv({ accounts: [] }, {
+      navigator: { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15", platform: "MacIntel", cookieEnabled: false },
+    });
+    await env.win.dwGraphToken();
+    const d = env.win.dwLastTokenFailureDiagnostic();
+    assertEqual(d.browserFamily, "safari", "N7: reconoce Safari (sin Chrome/Edg en el UA)");
+    assertEqual(d.platform, "macos", "N7: reconoce macOS");
+    assertEqual(d.cookieEnabled, false, "N7: refleja cookieEnabled real");
+    assertTrue(!JSON.stringify(d).includes("AppleWebKit"),
+      "N7: NUNCA el user-agent completo, solo el bucket grueso");
+    assertEqual(d.sessionStorageAvailable, true, "N7: sessionStorage disponible en este entorno de test");
+    assertEqual(d.localStorageAvailable, true, "N7: localStorage disponible en este entorno de test");
+  }
+  {
+    // N8: Chrome en Windows -- el otro extremo del bucketing, para probar
+    // que no siempre cae en "safari"/"macos" (Chrome también trae "Safari/"
+    // en su UA -- si el orden de chequeo estuviera mal, esto fallaría).
+    const env = makeEnv({ accounts: [] });   // navigator default: Chrome/Win32
+    await env.win.dwGraphToken();
+    const d = env.win.dwLastTokenFailureDiagnostic();
+    assertEqual(d.browserFamily, "chrome", "N8: Chrome no cae en el bucket Safari");
+    assertEqual(d.platform, "windows", "N8: reconoce Windows");
+  }
+  {
+    // N9: storage particionado -- se refleja como no disponible, nunca
+    // finge que sí (MISMO criterio que `dwGraphAuthDiagnostics`).
+    const env = makeEnv({ accounts: [] }, { storageThrows: true, localStorageThrows: true });
+    await env.win.dwGraphToken();
+    const d = env.win.dwLastTokenFailureDiagnostic();
+    assertEqual(d.sessionStorageAvailable, false, "N9: sessionStorage particionado se refleja como no disponible");
+    assertEqual(d.localStorageAvailable, false, "N9: localStorage particionado se refleja como no disponible");
+  }
+  {
+    // N10: isSecureContext -- refleja el contexto real, nunca asume true.
+    const env = makeEnv({ accounts: [] }, { isSecureContext: false });
+    await env.win.dwGraphToken();
+    const d = env.win.dwLastTokenFailureDiagnostic();
+    assertEqual(d.isSecureContext, false, "N10: refleja isSecureContext=false real");
+  }
+  {
+    // N11: route -- el pathname actual, nunca la URL completa (sin query string).
+    const env = makeEnv({ accounts: [] });
+    await env.win.dwGraphToken();
+    const d = env.win.dwLastTokenFailureDiagnostic();
+    assertEqual(d.route, "/reporting", "N11: captura el pathname del entorno de test");
+  }
+  {
+    // N12: htmx SOLO adjunta el diagnóstico cuando el token vino vacío --
+    // con token válido, el campo extra ni se arma (payload mínimo).
+    const env = makeEnv({ accounts: [ACCOUNT], silentToken: "AT-CON-TOKEN" });
+    const htmx = makeHtmx(env);
+    htmx.fire(makeElt(true, "ok"));
+    await drain(); await drain(); await drain();
+    assertEqual(htmx.issued[0].params.graph_token, "AT-CON-TOKEN", "N12: el token viaja igual que siempre");
+    assertEqual(htmx.issued[0].params.token_diagnostic, undefined,
+      "N12: sin falla, no se arma ningún campo de diagnóstico");
+  }
+  {
+    // N13: htmx SÍ adjunta el diagnóstico cuando el token vino vacío -- el
+    // servidor puede loguear POR QUÉ sin que el cliente tenga que reintentar
+    // ni exponer nada más que el string ya filtrado del lado del cliente.
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "interaction" });
+    const htmx = makeHtmx(env);
+    htmx.fire(makeElt(true, "falla-diagnostico"));
+    await drain(); await drain(); await drain();
+    assertEqual(htmx.issued[0].params.graph_token, "", "N13: el token sigue vacío, sin cambios");
+    const sent = JSON.parse(htmx.issued[0].params.token_diagnostic);
+    assertEqual(sent.stage, "acquire_silent_interaction_required",
+      "N13: el diagnóstico adjunto es el de ESTA falla");
   }
 
   if (failures > 0) {

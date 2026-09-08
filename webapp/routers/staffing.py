@@ -66,6 +66,7 @@ página real se re-inicializa y dispara su propio POST de HTMX fresco).
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -78,7 +79,7 @@ from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.activity_context import (
     SCOPE_OPERATIONS, AREA_STAFFING,
     EVENT_MODULE_VIEWED, EVENT_DATA_LOAD_FAILED, EVENT_DATA_LOAD_DIAGNOSTICS,
-    EVENT_CONFIGURATION_INCOMPLETE,
+    EVENT_CONFIGURATION_INCOMPLETE, EVENT_TOKEN_ACQUISITION_FAILED,
 )
 # MODULE IDENTIFIER CONVENTION V2 — Fase 2: los productores de Activity de
 # Staffing persisten el `module_id` canónico directo del registro (dueño
@@ -109,6 +110,56 @@ def _flatten_staffing_diagnostics(diagnostics: dict) -> dict:
         for key, value in stats.items():
             flat[f"{source}_{key}"] = value
     return flat
+
+
+# owner ticket "STAFFING — MSAL TOKEN FAILURE TELEMETRY": allowlist EXPLÍCITA
+# y por-tipo de los ÚNICOS campos que el diagnóstico de adquisición de token
+# (`hub_auth.js::dwGraphToken`) puede terminar en Activity Log. Nunca confía
+# a ciegas en el JSON que manda el cliente — un campo desconocido, de tipo
+# incorrecto, o el JSON entero siendo inválido/no-dict se descarta en
+# silencio, nunca rompe el request ni termina logueado igual. Ningún campo de
+# esta lista es una credencial/cookie/claim — ver hub_auth.js para qué SÍ
+# captura el cliente.
+_TOKEN_DIAGNOSTIC_FIELDS: dict[str, type] = {
+    "stage": str,
+    "msalErrorCode": str,
+    "msalErrorName": str,
+    "browserFamily": str,
+    "platform": str,
+    "cookieEnabled": bool,
+    "sessionStorageAvailable": bool,
+    "localStorageAvailable": bool,
+    "isSecureContext": bool,
+    "hadAccount": bool,
+    "route": str,
+}
+# Cota defensiva de largo — ningún valor de esta allowlist es de negocio,
+# así que nunca necesita más que esto; corta cualquier intento de abusar el
+# campo para transportar algo más largo.
+_TOKEN_DIAGNOSTIC_STRING_MAX_LEN = 64
+
+
+def _safe_token_diagnostic(raw: str) -> dict:
+    """JSON crudo del cliente -> SOLO los campos de `_TOKEN_DIAGNOSTIC_FIELDS`,
+    con el tipo esperado. Fail-soft total: JSON inválido, no-dict, o
+    cualquier excepción de parseo -> `{}` (el log_verbose de más abajo sigue
+    llamándose igual, solo sin campos de diagnóstico, nunca bloquea la
+    respuesta `missing_token`)."""
+    try:
+        data = json.loads(raw or "")
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    safe: dict = {}
+    for field, expected_type in _TOKEN_DIAGNOSTIC_FIELDS.items():
+        value = data.get(field)
+        if value is None or not isinstance(value, expected_type):
+            continue
+        if expected_type is str:
+            value = value[:_TOKEN_DIAGNOSTIC_STRING_MAX_LEN]
+        safe[field] = value
+    return safe
 
 
 @router.post("/operaciones/staffing/feedback", include_in_schema=False)
@@ -206,12 +257,22 @@ def staffing_page(request: Request):
 
 
 @router.post("/operaciones/staffing/asignaciones/data", response_class=HTMLResponse, include_in_schema=False)
-def staffing_data(request: Request, graph_token: str = Form("")):
+def staffing_data(request: Request, graph_token: str = Form(""), token_diagnostic: str = Form("")):
     redirect = _require_operations_session(request, next_path="/operaciones/staffing/asignaciones")
     if redirect is not None:
         return redirect
 
     if not graph_token:
+        # owner ticket "STAFFING — MSAL TOKEN FAILURE TELEMETRY": antes de
+        # este ticket este branch no logueaba nada — cero visibilidad de POR
+        # QUÉ el cliente nunca obtuvo el token (ver hub_auth.js::dwGraphToken).
+        # `token_diagnostic` ya viene filtrado por `_safe_token_diagnostic`
+        # (allowlist server-side, nunca confía en el cliente a ciegas).
+        log_verbose(
+            EVENT_TOKEN_ACQUISITION_FAILED, user=auth_service.session_user(request),
+            scope=SCOPE_OPERATIONS, area=AREA_STAFFING, module=OP01_MODULE_ID,
+            operation="initial", **_safe_token_diagnostic(token_diagnostic),
+        )
         return templates.TemplateResponse(
             request=request, name="operations/staffing_dashboard.html", context={"state": "missing_token"},
         )
@@ -271,7 +332,7 @@ def staffing_data(request: Request, graph_token: str = Form("")):
 
 
 @router.post("/operaciones/staffing/asignaciones/historial", include_in_schema=False)
-def staffing_historial(request: Request, graph_token: str = Form("")):
+def staffing_historial(request: Request, graph_token: str = Form(""), token_diagnostic: str = Form("")):
     """Carga LAZY del historial Inactivo (Staffing Director Priority V2, ver
     HANDOFF) — ruta NUEVA (route surface 82→83, cambio de contrato explícito
     y documentado, no oculto). Devuelve JSON (no HTML: `staffing_dashboard.html`
@@ -288,6 +349,13 @@ def staffing_historial(request: Request, graph_token: str = Form("")):
         return redirect
 
     if not graph_token:
+        # MISMO criterio que staffing_data (ver ahí) — owner ticket "STAFFING
+        # — MSAL TOKEN FAILURE TELEMETRY".
+        log_verbose(
+            EVENT_TOKEN_ACQUISITION_FAILED, user=auth_service.session_user(request),
+            scope=SCOPE_OPERATIONS, area=AREA_STAFFING, module=OP01_MODULE_ID,
+            operation="history", **_safe_token_diagnostic(token_diagnostic),
+        )
         return JSONResponse({"state": "missing_token"})
 
     user = auth_service.session_user(request)
@@ -331,7 +399,7 @@ def staffing_historial(request: Request, graph_token: str = Form("")):
 
 
 @router.post("/operaciones/staffing/asignaciones/ausencias", include_in_schema=False)
-def staffing_ausencias(request: Request, graph_token: str = Form("")):
+def staffing_ausencias(request: Request, graph_token: str = Form(""), token_diagnostic: str = Form("")):
     """Overlay de ausencias aprobadas (Staffing Approved Absence Overlay,
     ver HANDOFF — generalización del Vacation Timeline Overlay original) —
     carga LAZY e INDEPENDIENTE de `staffing_data`, MISMO patrón JSON que
@@ -344,6 +412,13 @@ def staffing_ausencias(request: Request, graph_token: str = Form("")):
         return redirect
 
     if not graph_token:
+        # MISMO criterio que staffing_data (ver ahí) — owner ticket "STAFFING
+        # — MSAL TOKEN FAILURE TELEMETRY".
+        log_verbose(
+            EVENT_TOKEN_ACQUISITION_FAILED, user=auth_service.session_user(request),
+            scope=SCOPE_OPERATIONS, area=AREA_STAFFING, module=OP01_MODULE_ID,
+            operation="absences", **_safe_token_diagnostic(token_diagnostic),
+        )
         return JSONResponse({"state": "missing_token"})
 
     user = auth_service.session_user(request)

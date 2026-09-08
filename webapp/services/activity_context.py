@@ -195,6 +195,16 @@ EVENT_DATA_LOAD_DIAGNOSTICS = "data_load_diagnostics"
 # es un problema DISTINTO de un `data_load_failed` (no es Graph/transporte),
 # así que NO se fuerza a ese evento; gana su propio nombre genérico reusable.
 EVENT_CONFIGURATION_INCOMPLETE = "configuration_incomplete"
+# `graph_token_acquisition_failed` (owner ticket "STAFFING — MSAL TOKEN
+# FAILURE TELEMETRY"): el cliente nunca obtuvo un access token de Graph
+# (silencioso, SIEMPRE — nunca popup/redirect, ver hub_auth.js::dwGraphToken)
+# así que el server recibió `graph_token=""`. Problema DISTINTO tanto de
+# `data_load_failed` (eso es una falla de TRANSPORTE con un token YA
+# obtenido) como de `configuration_incomplete` (eso es config de deployment
+# ausente) — antes de este ticket, este branch (`if not graph_token:` en
+# webapp/routers/staffing.py) no logueaba nada en absoluto: cero visibilidad
+# de cuál de las 5 etapas de `dwGraphToken` falló, para quién, ni por qué.
+EVENT_TOKEN_ACQUISITION_FAILED = "graph_token_acquisition_failed"
 
 # event → (nuevo event canónico, module inyectado o None, operation inyectada
 # o None). SOLO para eventos que renombramos — un evento no listado acá pasa
@@ -314,6 +324,9 @@ _DIAGNOSTIC_EVENTS: frozenset[str] = frozenset({
     # por un beacon de cliente (sin telemetry framework nuevo para este
     # batch, ver HANDOFF).
     "commercial.data_error",
+    # El cliente nunca obtuvo un access token de Graph (ver
+    # EVENT_TOKEN_ACQUISITION_FAILED arriba) — diagnóstico, no adopción real.
+    EVENT_TOKEN_ACQUISITION_FAILED,
 })
 
 
