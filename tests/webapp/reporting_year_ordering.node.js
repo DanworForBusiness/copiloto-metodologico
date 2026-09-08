@@ -56,6 +56,12 @@ const HORASVENDIDAS_ROWS = vm.runInContext("HORASVENDIDAS_ROWS", sandbox);
 const COMERCIAL_PARTICIPACION_ROWS = vm.runInContext("COMERCIAL_PARTICIPACION_ROWS", sandbox);
 const CAPACIDAD_PRODUCTIVAS_ROWS = vm.runInContext("CAPACIDAD_PRODUCTIVAS_ROWS", sandbox);
 const CAPACIDAD_NOASIGNADAS_ROWS = vm.runInContext("CAPACIDAD_NOASIGNADAS_ROWS", sandbox);
+// TASK CORRECTIVE (owner ticket "URGENT REPORTING CORRECTNESS — HNP TASK +
+// SOLD HOURS YEAR ACCUMULATION" §1B): `capacidadNoAsignadasAnioOptions`
+// ahora acota por la Tarea vigente (default = la tarea canónica 01) antes
+// de calcular años -- las filas de este fixture necesitan la etiqueta
+// explícita para seguir siendo elegibles bajo ese default.
+const NOASIGNADAS_TAREA_DEFAULT = vm.runInContext("NOASIGNADAS_TAREA_DEFAULT", sandbox);
 
 let failures = 0;
 function assertEqual(actual, expected, label) {
@@ -174,6 +180,7 @@ function clearAll(arr) { arr.length = 0; }
   clearAll(CAPACIDAD_NOASIGNADAS_ROWS);
   CAPACIDAD_NOASIGNADAS_ROWS.push({
     consultor: "Juan",
+    tarea: NOASIGNADAS_TAREA_DEFAULT,
     horasByYear: { "2024": Array(12).fill(0), "2026": Array(12).fill(0), "2025": Array(12).fill(0) },
   });
   state.filters.capacidad = {};

@@ -2099,7 +2099,9 @@ function renderCapacidadFilterBar() {
     // Consultor + Año juntos (owner: "CONSULTOR AÑO", uno junto al otro,
     // ver capacidadNoAsignadasAnioField) — a diferencia de Productivas,
     // cuyo Año vive en el toolbar de cada panel, no en este filter bar.
-    : facetSelectField("capacidad", "consultor", "Consultor") + capacidadNoAsignadasAnioField();
+    // Tarea (owner ticket "URGENT REPORTING CORRECTNESS — HNP TASK...")
+    // se agrega a continuación, MISMA fila del filter bar.
+    : facetSelectField("capacidad", "consultor", "Consultor") + capacidadNoAsignadasAnioField() + capacidadNoAsignadasTareaField();
   return filterBarShell(fields, "capacidad");
 }
 
@@ -3156,7 +3158,13 @@ function _mergeCapacidadRows(target, incoming, keyOf) {
 }
 function mergeBatchBRows(data) {
   _mergeCapacidadRows(CAPACIDAD_PRODUCTIVAS_ROWS, data.horasProductivas, r => `${r.cliente}|${r.proyecto}`);
-  _mergeCapacidadRows(CAPACIDAD_NOASIGNADAS_ROWS, data.horasProductivasNoAsignadas, r => r.consultor);
+  // Clave compuesta (consultor, tarea) — owner ticket "URGENT REPORTING
+  // CORRECTNESS — HNP TASK...": desde que el backend agrupa por (Consultor,
+  // Tarea), MISMO consultor puede tener VARIAS filas (una por tarea HNP) —
+  // usar solo `consultor` acá fusionaría un año frío de "Vacaciones" contra
+  // la fila de "No Asignación a Servicio" del mismo consultor, corrompiendo
+  // ambas (MISMO criterio ya usado arriba para cliente|proyecto).
+  _mergeCapacidadRows(CAPACIDAD_NOASIGNADAS_ROWS, data.horasProductivasNoAsignadas, r => `${r.consultor}|${r.tarea}`);
   Object.assign(CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR, data.horasProductivasDenominador || {});
 }
 // Lazy-load de un año FRÍO puntual — disparado desde renderCapacidad cuando
@@ -3382,9 +3390,22 @@ function _sumMonthlyArrays(arrays) {
 // `_mesValidoParaAlgunAnio`, aplicado ahora al DATO en vez de al pill).
 // Selección vacía (Todos) devuelve `fallbackArr` — la vista colapsada de
 // todos los años, MISMO comportamiento que el <select> retirado.
-function _yearRangeMonthly(byYearMap, fallbackArr, anios) {
+//
+// `capFutureMonths` (owner ticket "URGENT REPORTING CORRECTNESS — HNP TASK +
+// SOLD HOURS YEAR ACCUMULATION" §2): default `true` preserva el contrato de
+// SIEMPRE para todo llamador existente (Rentabilidad — Certificadas/
+// Trabajadas/Vendidas/No Asignadas — nunca tocado por este ticket). Horas
+// Vendidas es la ÚNICA excepción de negocio: un compromiso YA VENDIDO se
+// conoce de antemano (a diferencia de Certificadas/Trabajadas, que recién
+// existen a medida que pasa el tiempo), así que sin Mes explícito
+// seleccionado el año completo debe ser el horizonte — ver
+// `horasVendidasSelectedRows`, único caller que pasa `capFutureMonths: false`.
+function _yearRangeMonthly(byYearMap, fallbackArr, anios, { capFutureMonths = true } = {}) {
   if (anios.size === 0) return fallbackArr || _z12();
-  const perYear = [...anios].map(a => _applyMonthCap((byYearMap || {})[a] || _z12(), _operationalMonthCap(a)));
+  const perYear = [...anios].map(a => {
+    const raw = (byYearMap || {})[a] || _z12();
+    return capFutureMonths ? _applyMonthCap(raw, _operationalMonthCap(a)) : raw;
+  });
   return _sumMonthlyArrays(perYear);
 }
 // Diferencia elemento-a-elemento NULL-AWARE (ej. Rentabilidad horas =
@@ -3621,12 +3642,27 @@ function toggleHorasVendidasMes(mes) {
 // elegido (o colapsada si Todos) y enmascarada por Mes. Alimenta
 // jerarquía/matriz/KPIs/Q. AÑO/MES MULTI-SELECT corrective: MISMO
 // criterio que rentabilidadSelectedRows (`_yearRangeMonthly`).
+// FULL-YEAR HORIZON CORRECTIVE (owner ticket "URGENT REPORTING CORRECTNESS —
+// HNP TASK + SOLD HOURS YEAR ACCUMULATION" §2A/§2B): sin Mes explícito
+// tildado, Horas Vendidas debía mostrar el AÑO COMPLETO (Ene..Dic) como
+// horizonte — pero `_yearRangeMonthly` aplicaba el `_operationalMonthCap`
+// ("actual a la fecha") SIEMPRE, y `_maskMeses` con Set vacío ("Todos") es
+// un passthrough que nunca deshace ese cap (ver su comentario NULL-AWARE) —
+// así Oct/Nov/Dic del año en curso quedaban `null` ("no aplicable") pese a
+// no haber ningún filtro de Mes activo. Root cause: ese cap es correcto
+// para métricas operacionales (Certificadas/Trabajadas de Rentabilidad,
+// NUNCA tocadas acá) pero incorrecto para un compromiso YA VENDIDO, que se
+// conoce de antemano. Fix: el cap SOLO se mantiene si el usuario tildó un
+// Mes explícito (mismo comportamiento de siempre para esa selección
+// puntual) — sin Mes, se usan los valores reales de la fuente para los 12
+// meses (0 genuino si la fuente no tiene datos ahí, nunca fabricado).
 function horasVendidasSelectedRows() {
   const anios = state.horasVendidasAnios;
   const base = HORASVENDIDAS_ROWS.filter(r => state.horasVendidasStatus[r.estado]);
   const rows = facetRowsExcept(base, state.filters.horasvendidas || {}, _HV_SELECT_FIELDS, "");
+  const capFutureMonths = state.horasVendidasMeses.size > 0;
   return rows.map(r => {
-    const arr = _yearRangeMonthly(r.vendidasByYear, r.monthly, anios);
+    const arr = _yearRangeMonthly(r.vendidasByYear, r.monthly, anios, { capFutureMonths });
     return { ...r, monthly: _maskMeses(arr, state.horasVendidasMeses) };
   });
 }
@@ -4765,7 +4801,14 @@ const _CAPACIDAD_NOASIGNADAS_SELECT_FIELDS = [{ key: "consultor", field: "consul
 // HOT WINDOW / COLD HISTORY corrective — MISMO criterio que
 // capacidadProductivasAnioOptions (metadata ∪ años hidratados).
 function capacidadNoAsignadasAnioOptions() {
-  const rows = facetRowsExcept(CAPACIDAD_NOASIGNADAS_ROWS, state.filters.capacidad || {}, _CAPACIDAD_NOASIGNADAS_SELECT_FIELDS, "");
+  // Tarea (owner ticket "URGENT REPORTING CORRECTNESS — HNP TASK..."):
+  // escopeado a la tarea ELEGIDA -- sin esto, Año mostraría la unión de
+  // años de TODAS las tareas HNP, pudiendo ofrecer un año sin ninguna fila
+  // para la tarea vigente (UX confusa, "elegí 2026 y veo cero" para task
+  // 03 si solo 2025 tiene datos de esa tarea).
+  const tareaVigente = getFilter("capacidad", _NOASIGNADAS_TAREA_KEY) || NOASIGNADAS_TAREA_DEFAULT;
+  const rows = facetRowsExcept(CAPACIDAD_NOASIGNADAS_ROWS, state.filters.capacidad || {}, _CAPACIDAD_NOASIGNADAS_SELECT_FIELDS, "")
+    .filter(r => r.tarea === tareaVigente);
   const years = new Set(state.capacidadAniosDisponibles || []);
   rows.forEach(r => Object.keys(r.horasByYear || {}).forEach(y => years.add(y)));
   // YEAR ORDERING corrective (owner decision 2026-08-19): DESCENDENTE,
@@ -4790,16 +4833,50 @@ function pruneCapacidadNoAsignadasAnio() {
   const anio = (state.filters.capacidad || {})[key];
   if (!anio || !available.has(anio)) state.filters.capacidad[key] = capacidadNoAsignadasDefaultAnio();
 }
+// Tarea de No Asignadas (owner ticket "URGENT REPORTING CORRECTNESS — HNP
+// TASK + SOLD HOURS YEAR ACCUMULATION"): "Horas No Productivas" != "No
+// asignadas a servicios" — el proyecto placeholder HNP agrupa VARIAS tareas
+// de negocio distintas ("01. No Asignación a Servicio en Cliente",
+// "02. Vacaciones", otras) — sumarlas todas mezclaría conceptos. El backend
+// ahora agrupa por (consultor, tarea) — ver
+// reporting_service.py::_shape_horas_productivas_no_asignadas — así que este
+// selector filtra FILAS (mismo rol que Consultor), nunca proyecta una
+// columna (eso sigue siendo Año). Default FIJO a la tarea canónica —
+// NUNCA cae silenciosamente a "todas las tareas HNP" (owner: "never
+// silently fall back") — si esa tarea no tiene filas en el período/año
+// elegido, la tabla queda en "Sin resultados" honesto, nunca sustituida.
+// Deliberadamente SIN "Todas" (MISMO criterio que Año arriba: sumar tareas
+// de negocio distintas en una sola fila sería semánticamente incorrecto,
+// exactamente el bug que este ticket corrige) — el owner la deja como
+// exploratoria OPCIONAL, no obligatoria; se omite acá para no reintroducir
+// la ambigüedad que se está corrigiendo.
+const _NOASIGNADAS_TAREA_KEY = "tarea_noAsignadas";
+// MISMO literal EXACTO que reporting_service.py::_NO_ASIGNADAS_TASK — la
+// canonicalización del backend (`_canonical_hnp_task`) garantiza que esta
+// etiqueta aparece tal cual como `tarea` de cualquier fila de "No
+// Asignación a Servicio", sin importar cómo esté representada la variante
+// cruda en la fuente (ver ese comentario en Python para el porqué del
+// fuzzy match) — así el frontend nunca necesita duplicar ese match acá.
+const NOASIGNADAS_TAREA_DEFAULT = "01. No Asignación a Servicio en Cliente";
+function capacidadNoAsignadasTareaOptions() {
+  const rows = facetRowsExcept(CAPACIDAD_NOASIGNADAS_ROWS, state.filters.capacidad || {}, _CAPACIDAD_NOASIGNADAS_SELECT_FIELDS, "");
+  return distinctValues(rows, "tarea");
+}
 // Población canónica: TODOS los consultores, proyectados al Año elegido
 // (recalculado desde `horasByYear`, nunca un `monthly` colapsado — ese
 // campo ya no existe en el contrato real, ver `_shape_horas_productivas_
-// no_asignadas`). Consultor (el <select> compartido, ver
-// renderCapacidadFilterBar) se aplica DESPUÉS, vía `facetFilteredRows`
-// (MISMO criterio que Productivas/Comercial — Año vive FUERA del motor
-// genérico de facets, Consultor SÍ es un facet <select> normal).
+// no_asignadas`) Y filtrados a la Tarea elegida (default fijo, ver arriba).
+// Consultor (el <select> compartido, ver renderCapacidadFilterBar) se
+// aplica DESPUÉS, vía `facetFilteredRows` (MISMO criterio que Productivas/
+// Comercial — Año vive FUERA del motor genérico de facets, Consultor SÍ es
+// un facet <select> normal, Tarea es un filtro de fila bespoke como Año
+// pero sin proyección de columna).
 function capacidadNoAsignadasSelectedRows() {
   const anio = getFilter("capacidad", capacidadPanelAnioKey("noAsignadas")) || capacidadNoAsignadasDefaultAnio();
-  return CAPACIDAD_NOASIGNADAS_ROWS.map(r => ({ ...r, monthly: (r.horasByYear || {})[anio] || _z12() }));
+  const tarea = getFilter("capacidad", _NOASIGNADAS_TAREA_KEY) || NOASIGNADAS_TAREA_DEFAULT;
+  return CAPACIDAD_NOASIGNADAS_ROWS
+    .filter(r => r.tarea === tarea)
+    .map(r => ({ ...r, monthly: (r.horasByYear || {})[anio] || _z12() }));
 }
 
 // Gran total FIJO de UN panel — DENOMINADOR REAL de "% Incidencia" —
@@ -4899,6 +4976,20 @@ function capacidadNoAsignadasAnioField() {
     <span>Año</span>
     <select onchange="setFilter('capacidad','${key}', this.value)">
       ${options.map(a => `<option value="${esc(a)}" ${current === a ? "selected" : ""}>${esc(a)}</option>`).join("")}
+    </select>
+  </label>`;
+}
+// Tarea de No Asignadas (owner ticket "URGENT REPORTING CORRECTNESS — HNP
+// TASK..."): MISMA marca `<select>`/`.whatsnew-filter` que Año arriba,
+// también SIN "Todas" (ver `capacidadNoAsignadasSelectedRows` para el
+// porqué) — junto a Consultor/Año en el filter bar compartido.
+function capacidadNoAsignadasTareaField() {
+  const current = getFilter("capacidad", _NOASIGNADAS_TAREA_KEY) || NOASIGNADAS_TAREA_DEFAULT;
+  const options = capacidadNoAsignadasTareaOptions();
+  return `<label class="whatsnew-filter whatsnew-filter--narrow">
+    <span>Tarea</span>
+    <select onchange="setFilter('capacidad','${_NOASIGNADAS_TAREA_KEY}', this.value)">
+      ${options.map(t => `<option value="${esc(t)}" ${current === t ? "selected" : ""}>${esc(t)}</option>`).join("")}
     </select>
   </label>`;
 }

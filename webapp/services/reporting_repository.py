@@ -2005,10 +2005,10 @@ class ReportingRepository:
     def get_time_logs_worked_hours(
         self, access_token: str, *, hot_years: list[str] | None = None, cache_scope: str | None = None,
     ) -> list[dict]:
-        """Proyección MÍNIMA de Time Logs — `{proyecto, anio, mes, horas}`
-        por fila, SIN resolver Proyectos/Cliente/porcentaje_part (CALL
-        BUDGET corrective, owner decision 2026-08-18 — Cartera reportó
-        4x más llamadas Graph tras la reconciliación: 2/3 de esa
+        """Proyección MÍNIMA de Time Logs — `{proyecto, anio, mes, horas,
+        task}` por fila, SIN resolver Proyectos/Cliente/porcentaje_part
+        (CALL BUDGET corrective, owner decision 2026-08-18 — Cartera
+        reportó 4x más llamadas Graph tras la reconciliación: 2/3 de esa
         duplicación era releer Proyectos/Cliente/columnas que Cartera YA
         había leído para "Horas por proyectos", solo para enriquecer
         campos de Time Logs — `cliente`/`estado`/`porcentajePart` — que
@@ -2054,6 +2054,19 @@ class ReportingRepository:
                 "mes": _time_logs_mes(row.get("Date")),
                 "anio": _time_logs_anio(row.get("Date")),
                 "horas": _num(row.get("Duration Decimal")),
+                # `task` (owner ticket "URGENT REPORTING CORRECTNESS — HNP
+                # TASK + SOLD HOURS YEAR ACCUMULATION"): Rentabilidad/"No
+                # asignadas a servicios" necesita distinguir la tarea "01. No
+                # Asignación a Servicio en Cliente" de otras tareas del MISMO
+                # proyecto placeholder HNP (Vacaciones, etc.) — sin esto, el
+                # concepto sumaba el proyecto ENTERO. CERO llamada Graph
+                # extra: `row` ya es la fila CRUDA completa del CSV ya
+                # descargado por `_download_time_logs_rows` arriba (MISMA
+                # fuente que `get_time_logs_facts` lee `row.get("Task")`,
+                # ver ahí) — el CALL BUDGET corrective (ver docstring) es
+                # sobre evitar releer Proyectos/Cliente, nunca sobre qué
+                # columnas de una fila YA en memoria se proyectan.
+                "task": _text(row.get("Task")),
             }
             for row in raw_rows
         ]
