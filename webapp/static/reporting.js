@@ -5236,13 +5236,23 @@ function renderCapacidadNoAsignadas() {
   // Productivas: "Detalle" es la sección estable en ambas subvistas de
   // Capacidad, ver HANDOFF).
   // Total Horas tile (owner live QA — "para mejor reconciliación"): MISMO
-  // primitivo/formato que los paneles de Productivas
-  // (`renderDashboardKpi({label: "Total Horas", ...})`, ver `panel()` más
-  // arriba) — esta vista no tiene paneles, así que el tile va una sola vez,
-  // MISMO total que la fila "Total" de la tabla (`totalMonthly`, sumado).
+  // primitivo que los paneles de Productivas (`renderDashboardKpi({label:
+  // "Total Horas", ...})`, ver `panel()` más arriba) — esta vista no tiene
+  // paneles, así que el tile va una sola vez, MISMO total que la fila
+  // "Total" de la tabla (`totalMonthly`, sumado).
+  //
+  // Format "hours" (1 decimal), NO "hours0" (owner live QA — "1,339.5 no
+  // debe quedar redondeado a 1,340"): "No Asignadas" es el MISMO concepto
+  // de negocio que "No asignadas a servicios" de Rentabilidad (ver
+  // renderRentabilidad, format "hours" también) — reconciliar ambas
+  // superficies visualmente requiere la MISMA precisión. `hours0` sigue
+  // siendo el default de esta tab (Horas Productivas, tiles Y tablas —
+  // ver comentario de `_NF.hours0`), esta tile es la ÚNICA excepción
+  // documentada, justo porque tiene una contraparte cross-tab a reconciliar
+  // que las demás tiles de la tab no tienen.
   const body = `
     ${sectionToolbar(perspectiveSwitch("capacidad", false))}
-    <div class="activity-kpi-grid">${renderDashboardKpi({ label: "Total Horas", value: totalHorasNoAsignadas, format: "hours0" })}</div>
+    <div class="activity-kpi-grid">${renderDashboardKpi({ label: "Total Horas", value: totalHorasNoAsignadas, format: "hours" })}</div>
     ${rows.length ? `
     <div class="matrix-scroll">
       <table class="dashboard-table">
