@@ -5210,16 +5210,18 @@ function renderCapacidadNoAsignadas() {
   // §8bis). El trigger vive en el SHELL (`TAB_HYDRATION_TRIGGERS`, ver
   // `render()`), acá solo el gate.
   if (state.batchBDataStatus !== "ready") return renderBatchBDataState("los datos de Horas No Asignadas");
-  const baseRows = facetFilteredRows("capacidad");
-  // Row label = "Consultor (Hs Asig)" — MISMA columna calculada que la
-  // fuente real (Colaboradores["Consultor + Hs asig"]), no una etiqueta
-  // inventada. `hsAsig` es la capacidad de referencia estática del
-  // consultor, separada de `monthly` (horas NO asignadas del Año elegido,
-  // ya proyectado por `capacidadNoAsignadasSelectedRows` — ver
-  // facetFilteredRows("capacidad")/FACET_CONFIG.capacidad).
-  const rows = baseRows.map(r => ({ ...r, consultorLabel: `${r.consultor} (${r.hsAsig} hs Asig)` }));
-  const tree = buildTree(rows, ["consultorLabel"]);
+  const rows = facetFilteredRows("capacidad");
+  // Row label = Consultor a secas (owner live QA — "(0 hs Asig)" al lado de
+  // cada nombre no aporta valor): `hsAsig` es un GAP DOCUMENTADO del backend
+  // (ver reporting_service.py::_shape_horas_productivas_no_asignadas —
+  // requiere una lista SharePoint "Resumen Asignaciones" sin ID confirmado
+  // todavía, así que SIEMPRE llega en 0) — mostrar "(0 hs Asig)" en TODAS
+  // las filas sugería un dato real medido, no un placeholder. El campo
+  // sigue viviendo en la fila (backend, sin tocar) para cuando ese gap se
+  // resuelva; la UI simplemente deja de proyectarlo mientras tanto.
+  const tree = buildTree(rows, ["consultor"]);
   const totalMonthly = sumMonthly(rows);
+  const totalHorasNoAsignadas = rows.reduce((s, r) => s + r.monthly.reduce((a, b) => a + (b || 0), 0), 0);
   const stateKey = "capacidad::No Asignadas";
   // CORRECTIVO UX (owner live QA): la tabla mostraba 12 meses sin ningún
   // selector de Año (implícito qué año representaban) — el Año elegido
@@ -5233,8 +5235,14 @@ function renderCapacidadNoAsignadas() {
   // no lo necesitan. El perspective-switch SÍ va acá (mismo criterio que
   // Productivas: "Detalle" es la sección estable en ambas subvistas de
   // Capacidad, ver HANDOFF).
+  // Total Horas tile (owner live QA — "para mejor reconciliación"): MISMO
+  // primitivo/formato que los paneles de Productivas
+  // (`renderDashboardKpi({label: "Total Horas", ...})`, ver `panel()` más
+  // arriba) — esta vista no tiene paneles, así que el tile va una sola vez,
+  // MISMO total que la fila "Total" de la tabla (`totalMonthly`, sumado).
   const body = `
     ${sectionToolbar(perspectiveSwitch("capacidad", false))}
+    <div class="activity-kpi-grid">${renderDashboardKpi({ label: "Total Horas", value: totalHorasNoAsignadas, format: "hours0" })}</div>
     ${rows.length ? `
     <div class="matrix-scroll">
       <table class="dashboard-table">
