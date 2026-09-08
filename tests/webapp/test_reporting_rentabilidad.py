@@ -188,8 +188,15 @@ def test_get_rentabilidad_portfolio_monthly_totals_real_grain(monkeypatch):
         clientes=[{"id": "c1", "Title": "AySA"}],
         csv_files=[{"id": "f1", "name": "TimeLogs.csv"}],
         file_rows={"f1": [
-            # Proyecto placeholder de No Asignadas — NUNCA aporta a "proyectos", solo al portfolio noAsignadasMonthly.
-            {"Date": "2026-01-05", "Project": "Danwor - Horas No Productivas (#1)", "Duration Decimal": "4", "Email": "b@danwor.com", "Client": "Danwor", "Task": "Admin"},
+            # Proyecto placeholder de No Asignadas, tarea 01 — NUNCA aporta a
+            # "proyectos", solo al portfolio noAsignadasMonthly.
+            {"Date": "2026-01-05", "Project": "Danwor - Horas No Productivas (#1)", "Duration Decimal": "4", "Email": "b@danwor.com", "Client": "Danwor", "Task": "01. No Asignación a Servicio en Cliente"},
+            # TASK CORRECTIVE (owner ticket "URGENT REPORTING CORRECTNESS —
+            # HNP TASK + SOLD HOURS YEAR ACCUMULATION"): MISMO proyecto
+            # placeholder, OTRA tarea (Vacaciones) — "No asignadas a
+            # servicios" es el CONCEPTO tarea-01, nunca el proyecto HNP
+            # entero. Esta fila NUNCA debe sumar a noAsignadasMonthly.
+            {"Date": "2026-01-05", "Project": "Danwor - Horas No Productivas (#1)", "Duration Decimal": "6", "Email": "b@danwor.com", "Client": "Danwor", "Task": "02. Vacaciones"},
         ]},
     )
     result = _service().get_rentabilidad("tok")
@@ -203,7 +210,9 @@ def test_get_rentabilidad_portfolio_monthly_totals_real_grain(monkeypatch):
     assert by_proyecto["Proyecto Dos"]["vendMonthly"][0] == 7
     assert by_proyecto["Proyecto Uno"]["vendidas"] == 13
     assert by_proyecto["Proyecto Dos"]["vendidas"] == 7
-    # No asignadas SIGUE siendo portfolio: Enero=4 (SOLO el proyecto placeholder).
+    # No asignadas SIGUE siendo portfolio: Enero=4 (SOLO tarea 01 del
+    # proyecto placeholder — las 6h de Vacaciones del MISMO proyecto NUNCA
+    # entran, ver TASK CORRECTIVE arriba).
     assert result["noAsignadasMonthly"][0] == 4
     assert sum(result["noAsignadasMonthly"]) == 4
     # El placeholder NUNCA aparece como fila de proyecto real.

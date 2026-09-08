@@ -183,6 +183,28 @@ def _is_no_asignadas_task(task: str) -> bool:
     return _NO_ASIGNADAS_TASK_CORE in _norm_task(task)
 
 
+def _canonical_hnp_task(task: str) -> str:
+    """Etiqueta ESTABLE de un Task dentro de HNP (owner ticket "URGENT
+    REPORTING CORRECTNESS — HNP TASK + SOLD HOURS YEAR ACCUMULATION"):
+    "Horas No Productivas" != "No asignadas a servicios" — el proyecto
+    placeholder agrupa VARIAS tareas de negocio distintas ("01. No
+    Asignación a Servicio en Cliente", "02. Vacaciones", etc.), nunca deben
+    sumarse como si fueran un solo concepto.
+
+    Para la variante de "No Asignación a Servicio" específicamente, la
+    representación CRUDA en la fuente difiere en detalle (ver el fuzzy
+    match de `_is_no_asignadas_task` arriba — "el valor real difiere del
+    literal del slicer en algún detalle de representación") — por eso esta
+    función normaliza ESA variante a un único label ESTABLE (`_NO_ASIGNADAS_TASK`,
+    el mismo literal ya usado como default en la UI), para que un
+    selector/filtro pueda comparar por IGUALDAD exacta sin duplicar el
+    fuzzy match en el frontend. Cualquier OTRO Task (Vacaciones, etc.) se
+    conserva TAL CUAL viene de la fuente — nunca se fabrica una etiqueta
+    para lo que no la necesita."""
+    raw = str(task or "").strip()
+    return _NO_ASIGNADAS_TASK if _is_no_asignadas_task(raw) else raw
+
+
 def _time_logs_month_num(mes: str) -> int | None:
     """Índice 1-12 desde el `mes` YA normalizado a 'YYYY-MM' por el
     repositorio (`_time_logs_mes`) — NO reusa `_month_num` (ese parsea el
@@ -1146,13 +1168,24 @@ class ReportingService:
                 len(rentabilidad_unmatched), rentabilidad_unmatched[:10],
             )
 
+        # TASK CORRECTIVE (owner ticket "URGENT REPORTING CORRECTNESS — HNP
+        # TASK + SOLD HOURS YEAR ACCUMULATION"): "No asignadas a servicios"
+        # es un CONCEPTO específico (tarea "01. No Asignación a Servicio en
+        # Cliente"), NUNCA el proyecto placeholder HNP completo — ese
+        # proyecto también agrupa Vacaciones y otras tareas de negocio
+        # distintas, que ANTES de este corrective se sumaban acá igual
+        # (proyecto-only, sin filtro de tarea) inflando el concepto. MISMO
+        # predicado canónico que `_shape_horas_productivas_no_asignadas`
+        # (`_is_no_asignadas_task`) — nunca una segunda definición de "qué
+        # es No Asignadas" que pueda divergir. Sin dropdown acá a propósito
+        # (owner §1C): este es un escalar de portfolio fijo, siempre tarea 01.
         no_asignadas_by_year: dict[str, list[float]] = {}
         for tl in time_logs:
             anio = tl.get("anio")
             n = _time_logs_month_num(tl.get("mes"))
             if not _is_valid_anio(anio) or n is None:
                 continue
-            if tl.get("proyecto") in _TIME_LOGS_NO_ASIGNADAS_PROJECTS:
+            if tl.get("proyecto") in _TIME_LOGS_NO_ASIGNADAS_PROJECTS and _is_no_asignadas_task(tl.get("task", "")):
                 no_asignadas_by_year.setdefault(anio, [0.0] * 12)[n - 1] += tl["horas"]
 
         def _round_year_map(m: dict) -> dict:
@@ -1630,18 +1663,29 @@ class ReportingService:
         return self._shape_horas_productivas_no_asignadas(facts, colaboradores)
 
     def _shape_horas_productivas_no_asignadas(self, facts: list[dict], colaboradores: dict[str, str]) -> list[dict]:
-        """Contrato EXACTO de `CAPACIDAD_NOASIGNADAS_ROWS`: una fila por
-        Consultor con `horasByYear` (`{anio: [12]}`, MISMO patrón que
+        """Contrato de `CAPACIDAD_NOASIGNADAS_ROWS`: una fila por (Consultor,
+        Tarea) con `horasByYear` (`{anio: [12]}`, MISMO patrón que
         `_shape_horas_productivas` — CORRECTIVO UX: antes `monthly[12]`
         colapsaba TODOS los años presentes en una sola columna mensual sin
         que la UI mostrara ningún Año, semánticamente incorrecto en cuanto
         hubiera más de un año de datos; el selector Año vive en reporting.js,
         ver `capacidadNoAsignadasSelectedRows`) + `hsAsig`. Reusa los MISMOS
         `facts`/`colaboradores` que Productivas (ver `get_batch_b` — UN
-        fetch/combine de CSV para las 2 perspectivas). Población PBIP real
-        (real-data-lineage.md:284): `Project IN _HORAS_NO_PRODUCTIVAS_PROJECTS
-        AND Task == _NO_ASIGNADAS_TASK` — Task-only da hoy la misma
-        población pero es circunstancial, no la relación de negocio.
+        fetch/combine de CSV para las 2 perspectivas).
+
+        TASK CORRECTIVE (owner ticket "URGENT REPORTING CORRECTNESS — HNP
+        TASK + SOLD HOURS YEAR ACCUMULATION"): "Horas No Productivas" != "No
+        asignadas a servicios" — el proyecto placeholder HNP agrupa VARIAS
+        tareas de negocio distintas ("01. No Asignación a Servicio en
+        Cliente", "02. Vacaciones", otras), y ANTES de este corrective la
+        función filtraba a SOLO la tarea 01 (`_is_no_asignadas_task`), sin
+        forma de ver las demás. Ahora incluye TODAS las tareas observadas
+        bajo `_HORAS_NO_PRODUCTIVAS_PROJECTS` (el filtro de PROYECTO sigue
+        aplicando igual, nunca se toca) y agrupa por `(consultor,
+        _canonical_hnp_task(task))` — un selector "Tarea" en reporting.js
+        (`capacidadNoAsignadasTareaField`/`capacidadNoAsignadasSelectedRows`)
+        filtra estas filas, default FIJO a la tarea canónica (ver
+        `_canonical_hnp_task`), NUNCA "todas las tareas" implícito.
 
         `colaboradores` (`ReportingRepository.get_colaboradores_email_map`)
         resuelve el Email vía Colaboradores.Colaborador_x002e_LookupId →
@@ -1650,7 +1694,8 @@ class ReportingService:
         User Information List completa) se agrupan bajo `_SIN_CONSULTOR_LABEL`
         en vez de omitirse: Power BI, con la MISMA relación, muestra esas
         mismas horas bajo una fila "(Blank)" y las conserva en el total
-        (golden 1138.5h/1139 visual) — omitirlas rompería la paridad.
+        (golden 1138.5h/1139 visual para la tarea 01) — omitirlas rompería
+        la paridad.
 
         GAP DOCUMENTADO (no adivinado): `hsAsig` (capacidad de referencia
         estática del consultor, mock `Colaboradores['Consultor + Hs asig']`)
@@ -1662,11 +1707,12 @@ class ReportingService:
         resolver cuando el owner confirme esa lista (mismo criterio que
         cualquier otro gap de este proyecto: nunca inventar un internal
         name/ID)."""
-        groups: dict[str, dict[str, list[float]]] = {}
+        groups: dict[tuple[str, str], dict[str, list[float]]] = {}
         for f in facts:
             if f.get("proyecto") not in _HORAS_NO_PRODUCTIVAS_PROJECTS:
                 continue
-            if not _is_no_asignadas_task(f.get("task", "")):
+            tarea = _canonical_hnp_task(f.get("task", ""))
+            if not tarea:
                 continue
             n = _time_logs_month_num(f["mes"])
             if n is None:
@@ -1677,12 +1723,12 @@ class ReportingService:
             if not _is_valid_anio(anio):
                 continue
             consultor = colaboradores.get((f.get("email") or "").lower()) or _SIN_CONSULTOR_LABEL
-            by_year = groups.setdefault(consultor, {})
+            by_year = groups.setdefault((consultor, tarea), {})
             by_year.setdefault(anio, [0.0] * 12)[n - 1] += f["horas"]
         return [
             {
-                "consultor": consultor, "hsAsig": 0,
+                "consultor": consultor, "tarea": tarea, "hsAsig": 0,
                 "horasByYear": {a: [_round2(v) for v in arr] for a, arr in by_year.items()},
             }
-            for consultor, by_year in groups.items()
+            for (consultor, tarea), by_year in groups.items()
         ]

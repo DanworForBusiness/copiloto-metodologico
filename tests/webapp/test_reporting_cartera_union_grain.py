@@ -514,8 +514,14 @@ def _conservacion_fixture(monkeypatch):
              "Task": "Dev", "Email": "a@danwor.com", "Duration Decimal": "25"},
             {"Date": "2026-08-06", "Client": "ACME", "Project": "Fantasma Sin Alta",
              "Task": "Dev", "Email": "a@danwor.com", "Duration Decimal": "10"},
+            # TASK CORRECTIVE (owner ticket "URGENT REPORTING CORRECTNESS —
+            # HNP TASK + SOLD HOURS YEAR ACCUMULATION"): "No asignadas a
+            # servicios" es el CONCEPTO tarea-01 específicamente, nunca el
+            # proyecto placeholder HNP entero — la tarea acá debe ser la
+            # real ("01. No Asignación a Servicio en Cliente") para que esta
+            # hora siga clasificando como "No asignadas" en Rentabilidad.
             {"Date": "2026-08-07", "Client": "Danwor", "Project": "Danwor - Horas No Productivas (#1)",
-             "Task": "Interno", "Email": "a@danwor.com", "Duration Decimal": "7"},
+             "Task": "01. No Asignación a Servicio en Cliente", "Email": "a@danwor.com", "Duration Decimal": "7"},
         ]},
     )
     return 100.0, 50.0, 25.0, 10.0, 7.0

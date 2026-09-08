@@ -592,11 +592,16 @@ def test_shape_horas_productivas_preserves_3rd_decimal_owner_live_screenshot():
 _NA_TASK = "01. No Asignación a Servicio en Cliente"  # slicer del PBI (con prefijo "01. ")
 
 
-def test_shape_horas_productivas_no_asignadas_groups_by_consultant_monthly():
+def test_shape_horas_productivas_no_asignadas_groups_by_consultant_and_task_monthly():
     # Población PBIP real (real-data-lineage.md:284): Project IN
-    # {_HNP_PROJECT_1, _HNP_PROJECT_2} AND Task == _NA_TASK. Task-only daba la
-    # misma población en los datos vivos, pero es circunstancial — se prueba
-    # el filtro de Project activo (última fila, mismo Task, otro proyecto).
+    # {_HNP_PROJECT_1, _HNP_PROJECT_2}. TASK CORRECTIVE (owner ticket "URGENT
+    # REPORTING CORRECTNESS — HNP TASK + SOLD HOURS YEAR ACCUMULATION"):
+    # "Horas No Productivas" != "No asignadas a servicios" — el proyecto
+    # placeholder agrupa VARIAS tareas de negocio (ANTES de este corrective
+    # solo Task==_NA_TASK sobrevivía; ahora TODAS las tareas del proyecto
+    # placeholder aparecen, cada una su PROPIA fila (consultor, tarea) — el
+    # filtro de negocio real es solo el de Project, ver Rentabilidad para el
+    # escalar que SÍ sigue siendo tarea-01-only).
     facts = [
         {"cliente": "YPF", "proyecto": _HNP_PROJECT_1, "task": _NA_TASK,
          "email": "A@Danwor.com", "horas": 4.0, "mes": "2026-01", "anio": "2026"},
@@ -604,15 +609,19 @@ def test_shape_horas_productivas_no_asignadas_groups_by_consultant_monthly():
          "email": "a@danwor.com", "horas": 2.0, "mes": "2026-01", "anio": "2026"},
         {"cliente": "YPF", "proyecto": _HNP_PROJECT_1, "task": _NA_TASK,
          "email": "a@danwor.com", "horas": 6.0, "mes": "2026-03", "anio": "2026"},
-        # Otro Task (Productivas) — NUNCA debe aparecer en No Asignadas.
+        # Otra tarea (Dev) del MISMO proyecto placeholder — su PROPIA fila,
+        # nunca mezclada con la de _NA_TASK ni excluida.
         {"cliente": "YPF", "proyecto": _HNP_PROJECT_1, "task": "Dev", "email": "a@danwor.com", "horas": 5.0, "mes": "2026-01", "anio": "2026"},
         # MISMO Task, proyecto NO placeholder → excluido por el filtro de Project.
         {"cliente": "YPF", "proyecto": "SADI v2", "task": _NA_TASK, "email": "a@danwor.com", "horas": 99.0, "mes": "2026-01", "anio": "2026"},
     ]
     colaboradores = {"a@danwor.com": "Federico Bressi"}
     rows = _service()._shape_horas_productivas_no_asignadas(facts, colaboradores)
-    assert len(rows) == 1
-    r = rows[0]
+    assert len(rows) == 2
+    by_tarea = {r["tarea"]: r for r in rows}
+    assert set(by_tarea) == {_NA_TASK, "Dev"}
+
+    r = by_tarea[_NA_TASK]
     assert r["consultor"] == "Federico Bressi"
     assert r["hsAsig"] == 0  # gap documentado — no adivinado
     # CORRECTIVO UX Año: `horasByYear` (no `monthly` colapsado), MISMO
@@ -621,6 +630,10 @@ def test_shape_horas_productivas_no_asignadas_groups_by_consultant_monthly():
     assert r["horasByYear"]["2026"][0] == 6.0  # Enero: 4.0 (case-insensitive email match) + 2.0
     assert r["horasByYear"]["2026"][2] == 6.0  # Marzo
     assert sum(r["horasByYear"]["2026"]) == 12.0
+
+    dev = by_tarea["Dev"]
+    assert dev["consultor"] == "Federico Bressi"
+    assert dev["horasByYear"]["2026"][0] == 5.0
 
 
 def test_shape_horas_productivas_no_asignadas_keeps_years_separate():
@@ -670,12 +683,16 @@ def test_shape_horas_productivas_no_asignadas_groups_unresolved_email_under_blan
     assert rows[0]["horasByYear"]["2026"][0] == 4.0
 
 
-def test_no_asignadas_matches_task_by_core_phrase_and_ignores_other_tasks():
+def test_no_asignadas_canonicalizes_task_by_core_phrase_and_separates_other_tasks():
     # SOURCE PARITY + NORMALIZATION (match por FRASE NÚCLEO, owner: el match al
     # string COMPLETO seguía dejando No Asignadas en 0 filas en vivo). Robusto a:
     # prefijo "01." / "1." / sin prefijo, case, doble espacio, acentos,
-    # singular/plural y cierre "en cliente"/"en el cliente". Específico: otras
-    # tareas se excluyen.
+    # singular/plural y cierre "en cliente"/"en el cliente" — TODAS estas
+    # variantes CANONICALIZAN a la MISMA fila (`tarea` == _NA_TASK, ver
+    # `_canonical_hnp_task`), nunca filas separadas por variante de
+    # representación. TASK CORRECTIVE: una tarea de negocio GENUINAMENTE
+    # distinta (Desarrollo) es su PROPIA fila separada — nunca excluida ni
+    # mezclada (antes de este corrective, quedaba fuera del todo).
     facts = [
         {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": "01. No Asignación a Servicio en Cliente",
          "email": "a@danwor.com", "horas": 3.0, "mes": "2026-05", "anio": "2026"},
@@ -688,17 +705,21 @@ def test_no_asignadas_matches_task_by_core_phrase_and_ignores_other_tasks():
         # Plural + prefijo "1. " + sin acento en la fuente.
         {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": "1. No asignacion a Servicios",
          "email": "a@danwor.com", "horas": 1.0, "mes": "2026-06", "anio": "2026"},
-        # Task distinto (otra tarea) → excluido.
+        # Task GENUINAMENTE distinto → su PROPIA fila, nunca mezclado ni excluido.
         {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": "Desarrollo",
          "email": "a@danwor.com", "horas": 99.0, "mes": "2026-05", "anio": "2026"},
-        # Task vacío → excluido.
+        # Task vacío → excluido (sin identidad de tarea que agrupar).
         {"cliente": "C", "proyecto": _HNP_PROJECT_1, "task": "",
          "email": "a@danwor.com", "horas": 88.0, "mes": "2026-05", "anio": "2026"},
     ]
     rows = _service()._shape_horas_productivas_no_asignadas(facts, {"a@danwor.com": "Ana"})
-    assert len(rows) == 1
-    assert rows[0]["horasByYear"]["2026"][4] == 5.0  # Mayo: 3 + 2 (Desarrollo y vacío NO suman)
-    assert rows[0]["horasByYear"]["2026"][5] == 5.0  # Junio: 4 (sin prefijo) + 1 (plural)
+    assert len(rows) == 2
+    by_tarea = {r["tarea"]: r for r in rows}
+    assert set(by_tarea) == {_NA_TASK, "Desarrollo"}
+    na = by_tarea[_NA_TASK]
+    assert na["horasByYear"]["2026"][4] == 5.0  # Mayo: 3 + 2 (variantes canonicalizadas, vacío nunca suma)
+    assert na["horasByYear"]["2026"][5] == 5.0  # Junio: 4 (sin prefijo) + 1 (plural)
+    assert by_tarea["Desarrollo"]["horasByYear"]["2026"][4] == 99.0  # nunca mezclado con _NA_TASK
 
 
 def test_no_asignadas_golden_2026_monthly_and_total_reconcile():
