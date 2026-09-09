@@ -143,6 +143,119 @@ def test_push_path_success_returns_the_saved_profile(monkeypatch):
     assert saved["first_name"] == "Ana"
 
 
+# ============================================================================
+# Phase 3.6 — CREATE in-doubt remote durability: same-key retry + honest
+# UNKNOWN classification (§19 del ticket)
+# ============================================================================
+
+def test_confirmed_success_calls_push_path_exactly_once(monkeypatch):
+    # §19 "confirmed normal success regression": el camino feliz NUNCA
+    # reintenta -- solo un push cuando el primero ya confirmó.
+    calls: list = []
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: calls.append(path) or True)
+    profile_repository.create(_minimal_profile())
+    assert len(calls) == 1
+
+
+def test_initial_failure_then_retry_success_produces_exactly_one_profile(monkeypatch):
+    calls = {"n": 0}
+
+    def _push(path):
+        calls["n"] += 1
+        return calls["n"] > 1  # falla la 1ra vez, confirma la 2da (el reintento)
+
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", _push)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+
+    saved = profile_repository.create(_minimal_profile(first_name="Reintentado"))
+
+    assert calls["n"] == 2  # 1 intento inicial + 1 reintento explícito, nunca más
+    all_profiles = profile_repository.list()
+    assert len(all_profiles) == 1
+    assert all_profiles[0]["profile_id"] == saved["profile_id"]
+
+
+def test_retry_never_mints_a_second_uuid(monkeypatch):
+    seen_paths: list = []
+    calls = {"n": 0}
+
+    def _push(path):
+        calls["n"] += 1
+        seen_paths.append(path)
+        return calls["n"] > 1
+
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", _push)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+
+    profile_repository.create(_minimal_profile())
+
+    assert len(seen_paths) == 2
+    assert seen_paths[0] == seen_paths[1]  # MISMO path/profile_id en ambos intentos
+
+
+def test_initial_failure_and_retry_failure_raises_remote_outcome_unknown(monkeypatch):
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    with pytest.raises(ProfileRemoteOutcomeUnknownError):
+        profile_repository.create(_minimal_profile())
+
+
+def test_config_incomplete_does_not_attempt_a_pointless_retry(monkeypatch):
+    # §19 "config_incomplete -> no pointless retry": con enabled()==False,
+    # push_path() ya devuelve False determinísticamente en cada llamada --
+    # reintentar no puede cambiar nada, así que NUNCA se llama una 2da vez.
+    calls: list = []
+
+    def _push(path):
+        calls.append(path)
+        return False
+
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", _push)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
+    with pytest.raises(ProfileConfigIncompleteError):
+        profile_repository.create(_minimal_profile())
+    assert len(calls) == 1
+
+
+def test_unknown_create_does_not_appear_in_list(monkeypatch):
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    with pytest.raises(ProfileRemoteOutcomeUnknownError):
+        profile_repository.create(_minimal_profile(first_name="Fantasma"))
+    assert profile_repository.list() == []
+
+
+def test_unknown_create_leaves_no_local_file(monkeypatch):
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    with pytest.raises(ProfileRemoteOutcomeUnknownError):
+        profile_repository.create(_minimal_profile())
+    profiles_dir = config.BASE_DIR / "human-capital" / "profiles"
+    files = list(profiles_dir.iterdir()) if profiles_dir.exists() else []
+    assert files == []
+
+
+def test_unknown_create_cannot_be_silently_exposed_by_a_simulated_restore(monkeypatch):
+    # §19 "unknown create -> simulated restore cannot silently expose it":
+    # el archivo LOCAL nunca sobrevivió (ver test anterior) -- un restore
+    # simulado (releer desde el mismo directorio local, como haría
+    # remote_store.restore() sobre un FS efímero recién arrancado) no
+    # tiene NADA que pueda "resucitar" localmente. El riesgo residual de
+    # un objeto REMOTO huérfano está divulgado (ver docstring del módulo)
+    # pero no es lo que este test prueba -- esto prueba el lado LOCAL,
+    # que es el único que profile_repository controla directamente.
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    with pytest.raises(ProfileRemoteOutcomeUnknownError):
+        profile_repository.create(_minimal_profile(first_name="Fantasma"))
+
+    profiles_dir = config.BASE_DIR / "human-capital" / "profiles"
+    assert not profiles_dir.exists() or list(profiles_dir.iterdir()) == []
+    # Simula un restart/restore: el directorio local vuelve a "arrancar
+    # vacío" -- nada que restaurar LOCALMENTE para este intento.
+    assert profile_repository.list() == []
+
+
 # --- get() -------------------------------------------------------------
 
 def test_get_returns_the_created_profile(monkeypatch):
@@ -231,12 +344,23 @@ def test_config_incomplete_error_is_still_a_profile_storage_error(monkeypatch):
         profile_repository.create(_minimal_profile())
 
 
-def test_enabled_but_push_failure_raises_source_error_not_config_incomplete(monkeypatch):
+def test_enabled_but_push_failure_after_retry_raises_remote_outcome_unknown_not_config_incomplete(monkeypatch):
+    # Phase 3.6 reclasificación (ver docstring del módulo, "CREATE -- IN-
+    # DOUBT REMOTE DURABILITY"): con Spaces configurado, un push inicial
+    # fallido YA NO se reporta como un ProfileStorageError/SOURCE_ERROR
+    # común tras el reintento explícito de Phase 3.6 -- un `push_path()`
+    # que falla dos veces seguidas no PRUEBA ausencia remota (§7/§10 del
+    # ticket original de esta fase), así que la clasificación honesta es
+    # ProfileRemoteOutcomeUnknownError, nunca un source_error que
+    # afirmaría más certeza de la que existe. Sigue, de todos modos,
+    # NUNCA siendo ConfigIncompleteError (eso solo aplica con Spaces
+    # deshabilitado).
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
-    with pytest.raises(ProfileStorageError) as exc_info:
+    with pytest.raises(ProfileRemoteOutcomeUnknownError) as exc_info:
         profile_repository.create(_minimal_profile())
     assert not isinstance(exc_info.value, ProfileConfigIncompleteError)
+    assert not isinstance(exc_info.value, ProfileStorageError)
 
 
 # --- Phase 3.1: list() nunca devuelve un create() fallido -------------------

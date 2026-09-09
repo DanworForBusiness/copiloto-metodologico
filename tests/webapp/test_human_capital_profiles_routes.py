@@ -210,14 +210,40 @@ def test_spaces_disabled_post_is_classified_as_config_incomplete(monkeypatch):
     assert 'data-error-kind="config_incomplete"' in response.text
 
 
-def test_enabled_but_push_failure_post_is_classified_as_source_error(monkeypatch):
+def test_enabled_but_push_failure_after_retry_post_is_classified_as_remote_outcome_unknown(monkeypatch):
+    # Phase 3.6 reclasificación (ver profile_repository.create()): un push
+    # que falla dos veces seguidas (inicial + reintento explícito) con
+    # Spaces habilitado ya NO se muestra como "source_error" -- no
+    # podemos probar ausencia remota, así que la UI debe reflejar
+    # honestamente "Estado desconocido", nunca "No disponible".
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
     response = _client_as(_AUTHORIZED_EMAIL).post(
         "/human-capital/profiles", data={"first_name": "A", "last_name": "B"}
     )
     assert response.status_code == 200
-    assert 'data-error-kind="source_error"' in response.text
+    assert 'data-error-kind="remote_outcome_unknown"' in response.text
+    assert 'data-error-kind="source_error"' not in response.text
+
+
+def test_remote_outcome_unknown_never_reuses_no_disponible_text(monkeypatch):
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    response = _client_as(_AUTHORIZED_EMAIL).post(
+        "/human-capital/profiles", data={"first_name": "A", "last_name": "B"}
+    )
+    assert 'dashboard-empty__label">No disponible' not in response.text
+    assert 'dashboard-empty__label">Estado desconocido' in response.text
+
+
+def test_unresolved_create_never_reappears_on_a_subsequent_get(monkeypatch):
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Fantasma", "last_name": "Dos"})
+    response = client.get("/human-capital/profiles")
+    assert "Fantasma Dos" not in response.text
+    assert 'dashboard-empty__label">Sin resultados' in response.text
 
 
 def test_failed_create_never_reappears_on_a_subsequent_get(monkeypatch):

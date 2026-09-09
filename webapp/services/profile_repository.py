@@ -120,7 +120,50 @@ separado de `schema_version` (formato) y `updated_at` (auditoría/display).
 `create()` fija `revision=1`. Un Profile de fases anteriores (3/3.1/3.2)
 sin `revision` en disco se LEE como `revision=1` (`get()`/`list()`, ver
 abajo) — nunca una migración/rewrite masivo, nunca un write disparado
-solo por una lectura."""
+solo por una lectura.
+
+CREATE — IN-DOUBT REMOTE DURABILITY (Phase 3.6): Phase 3.4/3.6 probaron
+que un `push_path()` que devuelve `False` (post Phase 3.3) NO prueba
+ausencia remota — una excepción de transporte solo prueba que el caller
+no recibió confirmación, nunca que el PUT no haya llegado a completarse
+del lado del servidor (ack perdido). `delete_path()` tiene EXACTAMENTE
+la misma ambigüedad (su propio docstring ya lo dice: best-effort) — un
+`False` tampoco prueba que el objeto siga existiendo, y un `True` tampoco
+prueba que existiera antes (`DeleteObject` sobre una key inexistente
+también "confirma" sin error). Por lo tanto NINGUNA combinación de
+push/delete booleanos puede, por sí sola, demostrar la ausencia remota de
+un `create()` fallido — y `remote_store.restore()` no tiene forma de
+distinguir un objeto "committed" de uno de un `create()` sin resolver: si
+ese objeto quedó huérfano en el bucket, un restore posterior lo bajaría
+como un Profile legítimo más.
+
+Contrato adoptado (mínimo, evidencia-first, sin GET de verificación —
+Phase 3.4/3.5 ya establecieron que la consistencia de overwrite de DO
+Spaces no está probada en este proyecto como para confiar en un GET
+inmediato, y esa misma razón aplica acá): UN reintento explícito al
+MISMO `profile_id`/key/contenido (nunca un UUID nuevo — un reintento de
+persistencia interno no es una nueva intención de crear un Profile) antes
+de concluir cualquier cosa. Si el reintento confirma, éxito normal. Si el
+reintento TAMPOCO confirma, NO se reporta un `source_error` común (eso
+afirmaría una certeza de fallo que no existe) — se levanta
+`ProfileRemoteOutcomeUnknownError` (reusa la clase de Phase 3.5, mismo
+significado semántico exacto: "el estado remoto final no puede
+establecerse"). El archivo local se limpia en TODOS los casos de fallo
+(mismo invariante de Phase 3.1, sin relajar) — la limpieza está separada
+de la clasificación de qué tan cierto es ese fallo. `_cleanup_failed_write`
+(delete local + `delete_path` best-effort) sigue siendo la única acción
+de compensación — nunca se interpreta su resultado como prueba de nada
+(§10 del ticket).
+
+Riesgo residual, DIVULGADO explícitamente, no resuelto: si AMBOS intentos
+de PUT en realidad llegaron al remoto pero AMBOS acks se perdieron (una
+doble falla de red consecutiva, un escenario genuinamente raro), el
+objeto queda huérfano en el bucket y un restore futuro podría
+resucitarlo como un Profile ordinario. Cerrar esto por completo
+requeriría un protocolo de staging/promote (key temporal → CopyObject →
+delete) con más estados remotos y más máquina de recuperación — el
+ticket explícitamente pide NO construir eso sin evidencia que lo
+justifique, y una doble-pérdida-de-ack consecutiva no es esa evidencia."""
 from __future__ import annotations
 
 import json
@@ -203,17 +246,22 @@ class ProfileConcurrentModificationError(Exception):
 
 
 class ProfileRemoteOutcomeUnknownError(Exception):
-    """El candidato B no se confirmó Y la compensación (reescribir A) TAMPOCO
-    se confirmó (Phase 3.4 §2B/Phase 3.5 §2 caso 2B) — el estado remoto
-    queda genuinamente desconocido. Deliberadamente NO es un
-    `ProfileStorageError`: un `except ProfileStorageError` genérico NUNCA
-    debe atrapar esto por accidente y aplanarlo a un SOURCE_ERROR común
-    (Phase 3.5 §10, explícito: "Do not silently flatten this into
-    source_error") — es una CUARTA/SEXTA situación semántica, distinta,
-    que el router debe manejar con su propio `except` explícito. El
-    archivo LOCAL, en este punto, YA fue restaurado a A (ver `update()`)
-    — nunca queda en B, aunque el remoto no pueda confirmarse en ninguna
-    dirección."""
+    """El estado remoto final no puede establecerse — MISMO significado
+    semántico en sus DOS orígenes distintos:
+      - `update()` (Phase 3.5 §2B): el candidato B no se confirmó Y la
+        compensación (reescribir A) TAMPOCO se confirmó. El archivo LOCAL
+        ya fue restaurado a A en ese punto — nunca queda en B.
+      - `create()` (Phase 3.6 §7): el push inicial no se confirmó Y el
+        reintento explícito al MISMO profile_id/key TAMPOCO se confirmó.
+        El archivo LOCAL ya fue limpiado en ese punto (`_cleanup_failed_write`,
+        MISMO invariante de Phase 3.1) — nunca sobrevive un create sin
+        resolver.
+    Deliberadamente NO es un `ProfileStorageError`: un `except
+    ProfileStorageError` genérico NUNCA debe atrapar esto por accidente y
+    aplanarlo a un SOURCE_ERROR común (Phase 3.5 §10, explícito: "Do not
+    silently flatten this into source_error") — es una situación semántica
+    propia, distinta, que el router debe manejar con su propio `except`
+    explícito en AMBOS flujos (crear/editar)."""
 
 
 def _profiles_dir() -> Path:
@@ -316,14 +364,31 @@ def create(profile: dict) -> dict:
     (`human_capital_service.create_profile`) — este repository no conoce
     reglas de negocio, solo persiste lo que se le pasa.
 
-    Levanta `ProfileConfigIncompleteError` si Spaces no está configurado
-    (`remote_store.enabled() is False`) o `ProfileStorageError` (SOURCE_ERROR)
-    si está configurado pero `push_path()` igual no confirma el respaldo —
-    en NINGÚN caso se reporta éxito sin esa confirmación, Y en NINGÚN caso
-    el archivo local sobrevive a un fallo reportado (Phase 3.1, ver
-    `_cleanup_failed_write`) — un GET inmediato, un restart/restore, o el
-    ciclo periódico de `mirror_up()` nunca pueden resucitar una creación ya
-    reportada como fallida."""
+    Secuencia de fallo (Phase 3.6 — ver "CREATE — IN-DOUBT REMOTE
+    DURABILITY" en el docstring del módulo):
+      1. `push_path(path)` — si confirma, ÉXITO inmediato.
+      2. Si NO confirma y `remote_store.enabled() is False`: determinístico
+         — ni este intento ni un reintento pueden confirmar jamás en este
+         entorno, así que NO se reintenta. Limpieza + `ProfileConfigIncompleteError`.
+      3. Si NO confirma y `enabled() is True`: UN reintento explícito al
+         MISMO `path`/key/contenido (nunca un `profile_id` nuevo — un
+         reintento de persistencia interno no es una nueva intención de
+         crear). Si el reintento confirma, ÉXITO (mismo `profile_id` de
+         siempre, nunca un Profile duplicado).
+      4. Si el reintento TAMPOCO confirma: no podemos concluir que el
+         remoto nunca tuvo el Profile (un `push_path()`/`delete_path()`
+         que falla no prueba ausencia ni existencia, §10 del ticket) —
+         limpieza + `ProfileRemoteOutcomeUnknownError`, NUNCA un
+         `ProfileStorageError`/SOURCE_ERROR común que afirmaría una
+         certeza de fallo que no existe.
+
+    En NINGÚN caso de fallo (determinístico o desconocido) el archivo
+    local sobrevive a esta llamada (Phase 3.1, ver `_cleanup_failed_write`)
+    — un GET inmediato, un restart/restore, o el ciclo periódico de
+    `mirror_up()` nunca pueden resucitar LOCALMENTE una creación ya
+    reportada como fallida (el riesgo residual de un objeto REMOTO
+    huérfano tras una doble pérdida de ack está divulgado, no resuelto,
+    ver docstring del módulo)."""
     _ensure_restored()
     now = _now_iso()
     profile_id = str(uuid4())
@@ -339,16 +404,25 @@ def create(profile: dict) -> dict:
     _write_atomic(path, payload)
     if remote_store.push_path(path):
         return payload
-    # Durabilidad remota NO confirmada -- la creación es un FALLO de punta
-    # a punta: el archivo local NUNCA debe sobrevivir a esta llamada (ver
-    # docstring del módulo, Phase 3.1 root cause).
-    _cleanup_failed_write(path)
     if not remote_store.enabled():
+        # Determinístico (Phase 3.6 §6/§7): reintentar acá no puede
+        # cambiar nada, `enabled()` sigue False siempre -- ni se intenta.
+        _cleanup_failed_write(path)
         raise ProfileConfigIncompleteError(
             "El Banco de Perfiles todavía no está configurado para este entorno."
         )
-    raise ProfileStorageError(
-        "No pudimos confirmar el respaldo del Profile en este momento."
+    # Primer push NO confirmado, Spaces SÍ configurado -- un solo
+    # reintento explícito al MISMO profile_id/key/contenido (Phase 3.6
+    # §5/§6) antes de concluir cualquier cosa.
+    if remote_store.push_path(path):
+        return payload
+    # El reintento TAMPOCO confirmó -- clasificación honesta: no podemos
+    # probar ausencia remota (Phase 3.6 §7/§10), así que NUNCA se reporta
+    # como un source_error común.
+    _cleanup_failed_write(path)
+    raise ProfileRemoteOutcomeUnknownError(
+        "No pudimos confirmar si este Profile se guardó. Antes de reintentar, "
+        "revisá el listado — si ya aparece, no lo vuelvas a cargar."
     )
 
 

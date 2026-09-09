@@ -437,3 +437,34 @@ def test_update_profile_propagates_config_incomplete(monkeypatch):
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
     with pytest.raises(profile_repository.ProfileConfigIncompleteError):
         human_capital_service.update_profile(saved["profile_id"], 1, {"first_name": "Juan", "last_name": "Ruiz"})
+
+
+# ============================================================================
+# Phase 3.6 — create_profile propaga ProfileRemoteOutcomeUnknownError, y un
+# create() sin resolver nunca es tratado como Profile comprometido por la
+# detección de duplicados de una creación POSTERIOR (§14/§19 del ticket)
+# ============================================================================
+
+def test_create_profile_propagates_remote_outcome_unknown(monkeypatch):
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    with pytest.raises(profile_repository.ProfileRemoteOutcomeUnknownError):
+        human_capital_service.create_profile({"first_name": "Juan", "last_name": "Pérez"})
+
+
+def test_unresolved_create_does_not_trigger_a_duplicate_advisory_on_retry(monkeypatch):
+    # Phase 3.6 §14: "user retries -> duplicate advisory sees local
+    # ghost" NUNCA pasa, porque el create() sin resolver ya limpió su
+    # archivo local antes de propagar la excepción (mismo invariante de
+    # Phase 3.1) -- _find_duplicate lee list_profiles(), que NUNCA vio
+    # ese intento. El retry con los MISMOS datos (nombre/apellido) debe
+    # poder crearse sin ningún advisory de "duplicado de sí mismo".
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    with pytest.raises(profile_repository.ProfileRemoteOutcomeUnknownError):
+        human_capital_service.create_profile({"first_name": "Juan", "last_name": "Pérez"})
+
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
+    saved = human_capital_service.create_profile({"first_name": "Juan", "last_name": "Pérez"})
+    assert saved["first_name"] == "Juan"
+    assert len(profile_repository.list()) == 1

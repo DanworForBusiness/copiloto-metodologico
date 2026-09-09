@@ -52,6 +52,16 @@ visual, NUNCA superpuestas. Un `profile_id` inexistente en la URL es un
 404 HTTP genuino (`ProfileNotFoundError` → `HTTPException(404)`), NUNCA
 uno de los seis estados renderizados dentro del form.
 
+Capital Humano Phase 3.6 — Create In-Doubt Remote Durability: el POST de
+ALTA gana una CUARTA frontera de error, `ProfileRemoteOutcomeUnknownError`
+(MISMA clase que ya usaba `update()` desde Phase 3.5, mismo significado
+semántico: "no podemos probar qué pasó del lado remoto") — nunca
+aplanada a `No disponible`/SOURCE_ERROR, con copy que EXPLÍCITAMENTE
+desalienta un reintento ciego (Phase 3.6 §13): reintentar el form
+mintearía un `profile_id` NUEVO (a diferencia de `update()`, create no
+tiene una key existente sobre la cual reintentar desde la UI). Delta de
+superficie: 0 rutas nuevas — mismo POST existente.
+
 Consume `webapp.human_capital_access.is_human_capital_authorized`
 (allowlist explícita `HUMAN_CAPITAL_ALLOWED_USERS` del workspace Capital
 Humano, INDEPENDIENTE de `OPERATIONS_ALLOWED_USERS`/
@@ -129,6 +139,7 @@ def _profiles_panel_context(
     request: Request, *, error: str | None = None, form_values: dict | None = None,
     create_error: str | None = None, create_error_config_incomplete: bool = False,
     duplicate_advisory: dict | None = None, query: dict | None = None,
+    remote_outcome_unknown: str | None = None,
 ) -> dict:
     """Contexto compartido del fragmento `human_capital_profiles_panel.html`
     — usado TANTO por el GET (embebido en la página completa) COMO por el
@@ -176,7 +187,16 @@ def _profiles_panel_context(
     nunca superpuesta con `source_error`/`config_incomplete`/`error`
     (un `create()` que dispara advisory nunca llegó a intentar
     persistencia, así que `source_error` queda en lo que sea que
-    `list_profiles()` haya dado, independiente)."""
+    `list_profiles()` haya dado, independiente).
+
+    `remote_outcome_unknown` (Phase 3.6 §12/§13): el push inicial Y un
+    reintento explícito al MISMO `profile_id` tampoco confirmaron —
+    QUINTA situación semántica, propia, NUNCA aplanada a `source_error`
+    (`ProfileRemoteOutcomeUnknownError` no es un `ProfileStorageError`,
+    ver profile_repository.py). El copy debe desalentar explícitamente un
+    reintento ciego del form (§13): a diferencia de `update()`, un
+    reintento acá mintearía un `profile_id` NUEVO, así que "reintentá" es
+    la instrucción INCORRECTA."""
     source_error: str | None = None
     all_profiles: list[dict] = []
     try:
@@ -194,6 +214,7 @@ def _profiles_panel_context(
         "source_error": source_error,
         "config_incomplete": config_incomplete,
         "duplicate_advisory": duplicate_advisory,
+        "remote_outcome_unknown": remote_outcome_unknown,
         "error": error,
         "form_values": form_values or {},
         "valid_sources": human_capital_service.VALID_SOURCES,
@@ -284,6 +305,17 @@ def human_capital_profiles_create(
             context=_profiles_panel_context(
                 request, form_values=form_values, create_error=str(exc), create_error_config_incomplete=True,
             ),
+        )
+    except ProfileRemoteOutcomeUnknownError as exc:
+        # Phase 3.6 §7/§12/§13: el push inicial Y un reintento explícito
+        # al MISMO profile_id tampoco confirmaron -- QUINTA frontera de
+        # error, NUNCA aplanada a "No disponible"/SOURCE_ERROR (afirmaría
+        # una certeza de fallo que no existe). El copy debe desalentar un
+        # reintento ciego: a diferencia de update(), reintentar acá
+        # mintearía un profile_id NUEVO.
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_profiles_panel.html",
+            context=_profiles_panel_context(request, form_values=form_values, remote_outcome_unknown=str(exc)),
         )
     except ProfileStorageError as exc:
         # SOURCE_ERROR (Phase 3.1 §5B): Spaces configurado pero el push

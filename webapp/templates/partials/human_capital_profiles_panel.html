@@ -6,8 +6,8 @@
    entero re-renderizado).
 
    Contrato de error (Capital Humano Phase 3 §16, refinado por Phase 3.1
-   §5/§11, ampliado por Phase 3.2 §7/§22): CINCO estados, nunca la misma
-   superficie para dos de ellos.
+   §5/§11, ampliado por Phase 3.2 §7/§22 y Phase 3.6 §12/§13): SEIS
+   estados, nunca la misma superficie para dos de ellos.
      - `source_error` + `config_incomplete=True` (Spaces sin configurar)
        -> "No disponible", primitivo `.dashboard-empty` (MISMO eyebrow que
        SOURCE_ERROR abajo -- MISMO criterio ya usado por
@@ -32,7 +32,15 @@
      - `duplicate_advisory` (Phase 3.2 §9/§22) -> `.callout` (primitivo YA
        compartido, ver tools.css -- reusado tal cual, nunca
        `.dashboard-empty`/`.feedback-error`: no es un error ni un estado
-       vacío, es una pausa deliberada a mitad del alta). #}
+       vacío, es una pausa deliberada a mitad del alta).
+     - `remote_outcome_unknown` (Phase 3.6 §7/§12/§13): el push inicial Y
+       un reintento explícito al MISMO profile_id TAMPOCO confirmaron --
+       NUNCA se aplana a `source_error`/"No disponible" (afirmaría una
+       certeza de fallo que no existe). MISMO primitivo `.dashboard-empty`
+       pero con un eyebrow PROPIO ("Estado desconocido") y copy que
+       desalienta explícitamente un reintento ciego (a diferencia de un
+       fallo confirmado, reintentar acá podría mintear un Profile
+       duplicado si el intento original en realidad sí llegó al remoto). #}
 <div id="hc-profiles-panel">
   <form class="hc-profile-filters" hx-get="/human-capital/profiles" hx-target="#hc-profiles-panel" hx-swap="outerHTML">
     <div class="feedback-field">
@@ -141,6 +149,13 @@
         <button type="submit" form="hc-profile-form" name="duplicate_confirmed" value="true" class="btn-primary">Crear de todos modos</button>
       </div>
     </div>
+  </div>
+  {% endif %}
+
+  {% if remote_outcome_unknown %}
+  <div class="dashboard-empty" data-error-kind="remote_outcome_unknown">
+    <span class="dashboard-empty__label">Estado desconocido</span>
+    <p>{{ remote_outcome_unknown }}</p>
   </div>
   {% endif %}
 
