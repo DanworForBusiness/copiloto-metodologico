@@ -35,6 +35,23 @@ reutiliza `No disponible`/`feedback-error` (§22) — y un campo de form
 `duplicate_confirmed` (§11, override explícito, validado acá mismo con
 un simple `.strip().lower() == "true"`, sin estado global/sesión).
 
+Capital Humano Phase 3.5 — Safe Profile Edit (Revision + Compensating
+Overwrite): DOS rutas nuevas, MISMO estilo `{recurso}/{id}/acción` ya
+establecido en el Hub (`wizard.py`'s `/wizards/{run_id}/answer`,
+`assistant.py`'s `/assistant/responses/{reply_id}/feedback`) —
+`GET/POST /human-capital/profiles/{profile_id}/edit`. Router liviano
+otra vez (§13 del ticket): NUNCA compara `revision`, NUNCA loquea, NUNCA
+decide rollback — solo pasa `expected_revision` (un campo hidden
+server-issued del form) tal cual a `human_capital_service.update_profile`,
+que a su vez delega la comparación/lock/compensación exclusivamente a
+`profile_repository.update`. Seis fronteras de error para el form de
+edición (validación, posible duplicado -- excluyendo el Profile propio,
+config_incomplete, source_error, concurrent_modification,
+remote_outcome_unknown — Phase 3.5 §17), cada una a su propio contrato
+visual, NUNCA superpuestas. Un `profile_id` inexistente en la URL es un
+404 HTTP genuino (`ProfileNotFoundError` → `HTTPException(404)`), NUNCA
+uno de los seis estados renderizados dentro del form.
+
 Consume `webapp.human_capital_access.is_human_capital_authorized`
 (allowlist explícita `HUMAN_CAPITAL_ALLOWED_USERS` del workspace Capital
 Humano, INDEPENDIENTE de `OPERATIONS_ALLOWED_USERS`/
@@ -57,14 +74,17 @@ module ID solo por crear el workspace")."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
 from webapp.services import auth_service, human_capital_service
 from webapp.services.human_capital_service import (
+    ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
     ProfileDuplicateAdvisory,
+    ProfileNotFoundError,
+    ProfileRemoteOutcomeUnknownError,
     ProfileStorageError,
 )
 from webapp.templating import templates
@@ -280,3 +300,142 @@ def human_capital_profiles_create(
         request=request, name="partials/human_capital_profiles_panel.html",
         context=_profiles_panel_context(request),
     )
+
+
+def _edit_page_context(
+    profile_id: str, *, form_values: dict, expected_revision: int, error: str | None = None,
+    create_error: str | None = None, create_error_config_incomplete: bool = False,
+    duplicate_advisory: dict | None = None, concurrent_modification: bool = False,
+    remote_outcome_unknown: str | None = None,
+) -> dict:
+    """Contexto compartido de `human_capital_profile_edit_form.html` —
+    usado TANTO por el GET (carga inicial desde el Profile actual) COMO
+    por el POST (re-render con el intento fallido, MISMOS valores
+    tipeados), MISMO idioma exacto que `_profiles_panel_context` para
+    crear (Phase 3.5, seis fronteras de error, nunca superpuestas — ver
+    docstring del módulo):
+      - `error` (ValueError) -> `.feedback-error`, MISMO contrato que crear.
+      - `duplicate_advisory` -> MISMO `.callout callout--punch`, MISMO
+        contrato que crear (excluyendo este `profile_id`, ver
+        `human_capital_service.update_profile`).
+      - `create_error`/`config_incomplete` -> MISMO `.dashboard-empty`
+        "No disponible", MISMO contrato que crear.
+      - `concurrent_modification` -> estado PROPIO (Phase 3.5 §16): nunca
+        "No disponible", nunca un error de validación genérico — un
+        `.callout callout--warn` distinto, con su propio texto explicando
+        que el Profile cambió desde que se abrió el form.
+      - `remote_outcome_unknown` -> estado PROPIO (Phase 3.5 §10/§11):
+        NUNCA se aplana a `source_error` — su propio `.dashboard-empty`
+        con `data-error-kind="remote_outcome_unknown"` y un eyebrow
+        DISTINTO de "No disponible", para que nunca se lea como el mismo
+        fallo genérico de siempre."""
+    return {
+        "profile_id": profile_id,
+        "form_values": form_values,
+        "expected_revision": expected_revision,
+        "error": error,
+        "source_error": create_error,
+        "config_incomplete": create_error_config_incomplete,
+        "duplicate_advisory": duplicate_advisory,
+        "concurrent_modification": concurrent_modification,
+        "remote_outcome_unknown": remote_outcome_unknown,
+        "valid_sources": human_capital_service.VALID_SOURCES,
+    }
+
+
+@router.get("/human-capital/profiles/{profile_id}/edit", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profile_edit_page(request: Request, profile_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    profile = human_capital_service.get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(404, "Profile no encontrado")
+    user = auth_service.session_user(request)
+    return templates.TemplateResponse(
+        request=request, name="human_capital/profile_edit.html",
+        context={
+            "current_workspace": workspaces.HUMAN_CAPITAL,
+            "available_workspaces": workspaces.available_workspaces(user),
+            "pack": DEFAULT_PACK,
+            "user": user,
+            "active_page": "perfiles",
+            **_edit_page_context(profile_id, form_values=profile, expected_revision=profile.get("revision", 1)),
+        },
+    )
+
+
+@router.post("/human-capital/profiles/{profile_id}/edit", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profile_edit_submit(
+    request: Request,
+    profile_id: str,
+    first_name: str = Form(""), last_name: str = Form(""), email: str = Form(""),
+    phone: str = Form(""), linkedin_url: str = Form(""), location: str = Form(""),
+    profile_skills: str = Form(""), seniority: str = Form(""), source: str = Form(""),
+    tags: str = Form(""), notes: str = Form(""), potential_rating: str = Form(""),
+    potential_mark: str = Form(""), expected_revision: str = Form(""), duplicate_confirmed: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    form_values = {
+        "first_name": first_name, "last_name": last_name, "email": email, "phone": phone,
+        "linkedin_url": linkedin_url, "location": location, "profile_skills": profile_skills,
+        "seniority": seniority, "source": source, "tags": tags, "notes": notes,
+        "potential_rating": potential_rating, "potential_mark": potential_mark,
+    }
+    try:
+        expected_revision_int = int(expected_revision)
+    except ValueError:
+        # El campo es hidden y server-issued (§15) -- nunca debería llegar
+        # ausente/corrupto salvo manipulación directa del form; tratarlo
+        # como 400 es correcto acá (no es un estado de negocio, es un
+        # request malformado).
+        raise HTTPException(400, "expected_revision inválido") from None
+    confirmed = duplicate_confirmed.strip().lower() == "true"
+
+    def _render(**context_kwargs):
+        return templates.TemplateResponse(
+            request=request, name="human_capital/profile_edit.html",
+            context={
+                "current_workspace": workspaces.HUMAN_CAPITAL,
+                "available_workspaces": workspaces.available_workspaces(user),
+                "pack": DEFAULT_PACK,
+                "user": user,
+                "active_page": "perfiles",
+                **_edit_page_context(
+                    profile_id, form_values=form_values, expected_revision=expected_revision_int, **context_kwargs,
+                ),
+            },
+        )
+
+    try:
+        human_capital_service.update_profile(
+            profile_id, expected_revision_int, form_values, duplicate_confirmed=confirmed,
+        )
+    except ProfileNotFoundError:
+        raise HTTPException(404, "Profile no encontrado") from None
+    except ValueError as exc:
+        return _render(error=str(exc))
+    except ProfileDuplicateAdvisory as exc:
+        return _render(duplicate_advisory=exc.matched_profile)
+    except ProfileConcurrentModificationError:
+        # Phase 3.5 §16: nunca "No disponible", nunca un error de
+        # validación genérico -- estado propio, sin overwrite (el
+        # Profile en disco quedó completamente intacto, ver
+        # profile_repository.update).
+        return _render(concurrent_modification=True)
+    except ProfileConfigIncompleteError as exc:
+        return _render(create_error=str(exc), create_error_config_incomplete=True)
+    except ProfileRemoteOutcomeUnknownError as exc:
+        # Phase 3.5 §10: NUNCA se aplana a source_error -- estado propio,
+        # local ya restaurado a la versión anterior (ver
+        # profile_repository.update), remoto genuinamente desconocido.
+        return _render(remote_outcome_unknown=str(exc))
+    except ProfileStorageError as exc:
+        return _render(create_error=str(exc))
+    # Éxito: vuelve al listado -- "guardar" implica "terminé de editar
+    # esto", MISMO criterio que un alta exitosa vuelve al panel con el
+    # form limpio, pero acá la edición vive en su propia página.
+    return RedirectResponse(url="/human-capital/profiles", status_code=303)

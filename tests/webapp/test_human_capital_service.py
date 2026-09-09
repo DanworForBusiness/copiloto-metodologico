@@ -338,3 +338,102 @@ def test_duplicate_advisory_does_not_change_phase_3_1_durability_semantics(monke
     with pytest.raises(profile_repository.ProfileStorageError):
         human_capital_service.create_profile({"first_name": "Nueva", "last_name": "Persona"})
     assert profile_repository.list() == []
+
+
+# ============================================================================
+# Phase 3.5 — update_profile (validación compartida, duplicate-on-update
+# excluyendo el Profile propio, delegación de concurrencia/rollback)
+# ============================================================================
+
+def test_get_profile_delegates_to_repository():
+    saved = human_capital_service.create_profile({"first_name": "Juan", "last_name": "Gómez"})
+    fetched = human_capital_service.get_profile(saved["profile_id"])
+    assert fetched["first_name"] == "Juan"
+
+
+def test_get_profile_returns_none_for_missing():
+    assert human_capital_service.get_profile("does-not-exist") is None
+
+
+def test_update_profile_runs_the_same_validation_as_create():
+    saved = human_capital_service.create_profile({"first_name": "Juan", "last_name": "Gómez"})
+    with pytest.raises(ValueError):
+        human_capital_service.update_profile(saved["profile_id"], 1, {"first_name": "", "last_name": "Gómez"})
+
+
+def test_update_profile_rejects_invalid_source():
+    saved = human_capital_service.create_profile({"first_name": "Juan", "last_name": "Gómez"})
+    with pytest.raises(ValueError):
+        human_capital_service.update_profile(
+            saved["profile_id"], 1, {"first_name": "Juan", "last_name": "Gómez", "source": "Portal de empleo"},
+        )
+
+
+def test_update_profile_success_increments_revision():
+    saved = human_capital_service.create_profile({"first_name": "Juan", "last_name": "Gómez"})
+    updated = human_capital_service.update_profile(
+        saved["profile_id"], 1, {"first_name": "Juan", "last_name": "Ruiz"},
+    )
+    assert updated["last_name"] == "Ruiz"
+    assert updated["revision"] == 2
+
+
+def test_update_profile_stale_revision_raises_concurrent_modification():
+    saved = human_capital_service.create_profile({"first_name": "Juan", "last_name": "Gómez"})
+    human_capital_service.update_profile(saved["profile_id"], 1, {"first_name": "Juan", "last_name": "Uno"})
+    with pytest.raises(profile_repository.ProfileConcurrentModificationError):
+        human_capital_service.update_profile(saved["profile_id"], 1, {"first_name": "Juan", "last_name": "Dos"})
+
+
+def test_update_profile_on_missing_profile_raises_not_found():
+    with pytest.raises(profile_repository.ProfileNotFoundError):
+        human_capital_service.update_profile("does-not-exist", 1, {"first_name": "A", "last_name": "B"})
+
+
+def test_update_profile_editing_email_to_match_another_profile_triggers_advisory():
+    other = human_capital_service.create_profile(
+        {"first_name": "Otro", "last_name": "Perfil", "email": "otro@example.com"},
+    )
+    saved = human_capital_service.create_profile({"first_name": "Juan", "last_name": "Gómez"})
+    with pytest.raises(human_capital_service.ProfileDuplicateAdvisory) as exc_info:
+        human_capital_service.update_profile(
+            saved["profile_id"], 1,
+            {"first_name": "Juan", "last_name": "Gómez", "email": "otro@example.com"},
+        )
+    assert exc_info.value.matched_profile["profile_id"] == other["profile_id"]
+
+
+def test_update_profile_never_flags_itself_as_a_duplicate():
+    # Sin excluir el propio profile_id, CUALQUIER edición que no cambie
+    # email/nombre se marcaría como "duplicado de sí misma" -- confirma
+    # que eso NUNCA pasa.
+    saved = human_capital_service.create_profile(
+        {"first_name": "Juan", "last_name": "Gómez", "email": "juan@example.com"},
+    )
+    updated = human_capital_service.update_profile(
+        saved["profile_id"], 1,
+        {"first_name": "Juan", "last_name": "Gómez", "email": "juan@example.com", "location": "Rosario"},
+    )
+    assert updated["location"] == "Rosario"
+
+
+def test_update_profile_duplicate_confirmed_skips_the_check():
+    other = human_capital_service.create_profile(
+        {"first_name": "Otro", "last_name": "Perfil", "email": "otro@example.com"},
+    )
+    saved = human_capital_service.create_profile({"first_name": "Juan", "last_name": "Gómez"})
+    updated = human_capital_service.update_profile(
+        saved["profile_id"], 1,
+        {"first_name": "Juan", "last_name": "Gómez", "email": "otro@example.com"},
+        duplicate_confirmed=True,
+    )
+    assert updated["email"] == "otro@example.com"
+    assert other["profile_id"] != updated["profile_id"]
+
+
+def test_update_profile_propagates_config_incomplete(monkeypatch):
+    saved = human_capital_service.create_profile({"first_name": "Juan", "last_name": "Gómez"})
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
+    with pytest.raises(profile_repository.ProfileConfigIncompleteError):
+        human_capital_service.update_profile(saved["profile_id"], 1, {"first_name": "Juan", "last_name": "Ruiz"})

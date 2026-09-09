@@ -169,6 +169,7 @@
           <th>Seniority</th>
           <th>Ubicación</th>
           <th>Fuente</th>
+          <th>Acciones</th>
         </tr>
       </thead>
       <tbody>
@@ -179,6 +180,7 @@
           <td>{{ profile.seniority or "—" }}</td>
           <td>{{ profile.location or "—" }}</td>
           <td>{{ profile.source or "—" }}</td>
+          <td><a href="/human-capital/profiles/{{ profile.profile_id }}/edit">Editar</a></td>
         </tr>
         {% endfor %}
       </tbody>

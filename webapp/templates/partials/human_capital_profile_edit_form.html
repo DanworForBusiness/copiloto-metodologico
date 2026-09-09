@@ -1,0 +1,136 @@
+{# human_capital_profile_edit_form.html — Capital Humano Phase 3.5 (Safe
+   Profile Edit): fragmento del form de edición de UN Profile existente,
+   incluido por human_capital/profile_edit.html. Form PLANO (sin hx-post,
+   a diferencia del alta): esta página vive en su propia URL
+   (`/human-capital/profiles/{profile_id}/edit`), no embebida en el
+   listado, así que un POST-redirect-GET estándar del browser alcanza sin
+   necesitar HTMX (§16 del ticket: "No custom JS required" — un form
+   plano es la opción MÁS simple que ya lo satisface, no hace falta
+   replicar el idioma hx-post del panel de alta acá).
+
+   Seis fronteras de error, nunca superpuestas (Phase 3.5 §16/§17):
+     - `error` (validación) -> `.feedback-error`, MISMO contrato que el
+       alta (partials/human_capital_profiles_panel.html).
+     - `duplicate_advisory` -> `.callout callout--punch`, MISMO
+       primitivo/tono que el alta (excluyendo este Profile de la
+       comparación, ver human_capital_service.update_profile).
+     - `source_error` + `config_incomplete` -> `.dashboard-empty`
+       "No disponible", MISMO contrato que el alta.
+     - `concurrent_modification` -> `.callout callout--warn` (tono
+       DISTINTO del duplicado -- reusa el primitivo `.callout` ya
+       compartido en tools.css, nunca CSS nueva): el Profile cambió desde
+       que se abrió el form, NO se guardó nada.
+     - `remote_outcome_unknown` -> `.dashboard-empty` con
+       `data-error-kind="remote_outcome_unknown"` y un eyebrow PROPIO
+       ("Estado desconocido"), nunca "No disponible" (Phase 3.5 §10:
+       "Do not silently flatten this into source_error"). #}
+<form class="hc-profile-form" method="post" action="/human-capital/profiles/{{ profile_id }}/edit">
+  <input type="hidden" name="expected_revision" value="{{ expected_revision }}">
+
+  {% if error %}<p class="feedback-error">{{ error }}</p>{% endif %}
+
+  <div class="feedback-field">
+    <label for="hc-edit-first-name">Nombre</label>
+    <input id="hc-edit-first-name" name="first_name" type="text" value="{{ form_values.first_name or '' }}" required>
+  </div>
+  <div class="feedback-field">
+    <label for="hc-edit-last-name">Apellido</label>
+    <input id="hc-edit-last-name" name="last_name" type="text" value="{{ form_values.last_name or '' }}" required>
+  </div>
+  <div class="feedback-field">
+    <label for="hc-edit-email">Email</label>
+    <input id="hc-edit-email" name="email" type="email" value="{{ form_values.email or '' }}">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-edit-phone">Teléfono</label>
+    <input id="hc-edit-phone" name="phone" type="text" value="{{ form_values.phone or '' }}">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-edit-linkedin">LinkedIn</label>
+    <input id="hc-edit-linkedin" name="linkedin_url" type="text" value="{{ form_values.linkedin_url or '' }}">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-edit-location">Ubicación</label>
+    <input id="hc-edit-location" name="location" type="text" value="{{ form_values.location or '' }}">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-edit-skills">Perfil / Skills</label>
+    <input id="hc-edit-skills" name="profile_skills" type="text" value="{{ form_values.profile_skills or '' }}">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-edit-seniority">Seniority</label>
+    <input id="hc-edit-seniority" name="seniority" type="text" value="{{ form_values.seniority or '' }}">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-edit-source">Fuente</label>
+    <select id="hc-edit-source" name="source">
+      <option value="" {% if not form_values.source %}selected{% endif %}>Sin especificar</option>
+      {% for opt in valid_sources %}
+      <option value="{{ opt }}" {% if form_values.source == opt %}selected{% endif %}>{{ opt }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="feedback-field">
+    <label for="hc-edit-tags">Tags</label>
+    <input id="hc-edit-tags" name="tags" type="text" value="{{ form_values.tags or '' }}">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-edit-notes">Notas</label>
+    <textarea id="hc-edit-notes" name="notes" rows="2">{{ form_values.notes or '' }}</textarea>
+  </div>
+  <div class="feedback-field">
+    <label for="hc-edit-potential-rating">Potencial (1-5)</label>
+    <input id="hc-edit-potential-rating" name="potential_rating" type="text" value="{{ form_values.potential_rating or '' }}">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-edit-potential-mark">Marca de potencial</label>
+    <input id="hc-edit-potential-mark" name="potential_mark" type="text" value="{{ form_values.potential_mark or '' }}">
+  </div>
+
+  {% if duplicate_advisory %}
+  <div class="callout callout--punch" data-advisory-kind="possible_duplicate">
+    <div class="callout__head">
+      <span class="callout__icon">⚠️</span>
+      <span class="callout__title">Posible perfil duplicado</span>
+    </div>
+    <div class="callout__body">
+      <p>Ya existe un perfil posiblemente duplicado: <strong>{{ duplicate_advisory.first_name }} {{ duplicate_advisory.last_name }}</strong>{% if duplicate_advisory.email %} — {{ duplicate_advisory.email }}{% endif %}. Podés cancelar o guardarlo de todos modos.</p>
+      <div class="feedback-form-actions">
+        <a href="/human-capital/profiles" class="btn-secondary">Cancelar</a>
+        <button type="submit" name="duplicate_confirmed" value="true" class="btn-primary">Guardar de todos modos</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if concurrent_modification %}
+  <div class="callout callout--warn" data-advisory-kind="concurrent_modification">
+    <div class="callout__head">
+      <span class="callout__icon">⚠️</span>
+      <span class="callout__title">Este Profile cambió</span>
+    </div>
+    <div class="callout__body">
+      <p>Alguien más guardó un cambio en este Profile desde que abriste este formulario. Tu edición NO se guardó, para no perder el cambio ajeno. Volvé al listado para ver la versión actual y editar de nuevo si hace falta.</p>
+      <div class="feedback-form-actions">
+        <a href="/human-capital/profiles" class="btn-secondary">Volver al listado</a>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if source_error %}
+  <div class="dashboard-empty" data-error-kind="{{ 'config_incomplete' if config_incomplete else 'source_error' }}">
+    <span class="dashboard-empty__label">No disponible</span>
+    <p>{{ source_error }}</p>
+  </div>
+  {% endif %}
+
+  {% if remote_outcome_unknown %}
+  <div class="dashboard-empty" data-error-kind="remote_outcome_unknown">
+    <span class="dashboard-empty__label">Estado desconocido</span>
+    <p>{{ remote_outcome_unknown }}</p>
+  </div>
+  {% endif %}
+
+  <button type="submit" class="btn-primary">Guardar cambios</button>
+</form>

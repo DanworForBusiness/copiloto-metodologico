@@ -87,13 +87,47 @@ firma (`_signatures`, usado sólo por `mirror_up()`) se separó del
 resultado del PUT en sí. `create()` no cambió: sigue leyendo el mismo
 booleano exactamente igual (`if remote_store.push_path(path): ...`), pero
 ahora ese booleano es más fiel a la durabilidad remota real — ver
-`_cleanup_failed_write` para el detalle de qué defensa quedó redundante."""
+`_cleanup_failed_write` para el detalle de qué defensa quedó redundante.
+
+SAFE PROFILE EDIT (Phase 3.5 — `update()`, nuevo en esta fase): a
+diferencia de `create()` (siempre un `profile_id` nuevo, nunca hay una
+versión previa que proteger), `update()` sobrescribe un Profile
+EXISTENTE — Phase 3.4 (forensic, sin código) estableció que ni un
+remote-read-back de verificación (rechazado explícitamente: la
+consistencia de overwrite de DO Spaces no está probada en este proyecto
+como para confiar en comparar un GET inmediato) ni un `delete_path()`
+como compensación (borraría datos de negocio reales) son aceptables acá.
+El contrato adoptado es COMPENSATING OVERWRITE (Phase 3.5 §2/§3): si el
+push del candidato B no se confirma, se sobrescribe local Y remoto de
+nuevo con la versión anterior A (`_write_atomic` + `push_path`, MISMOS
+primitivos ya probados, nunca un mecanismo nuevo) — nunca un GET de
+verificación, nunca un delete. Esto es correcto sea que B nunca haya
+llegado al remoto O que haya llegado pero el ACK se perdió: en AMBOS
+casos, volver a escribir A produce un estado remoto conocido (A) si esa
+segunda escritura se confirma.
+
+CONCURRENCIA (Phase 3.4 §8-11, Phase 3.5 §8-9): un `threading.Lock()`
+GLOBAL de módulo (`_update_lock`, NUNCA un diccionario de locks por
+Profile — ver Phase 3.4 §10, "no lock dictionary") serializa la sección
+crítica COMPLETA de `update()` (leer versión actual → comparar revision
+→ escribir B → intentar push → eventual rollback a A → resultado final)
+dentro de ESTE proceso. Un lock process-local NO protege contra múltiples
+réplicas (Phase 3.4 §11/Phase 3.5 §9) — production Profile update sigue
+gateado por `App Platform replica count == 1`, sin resolver acá.
+
+REVISION (Phase 3.5 §5/§6): token técnico de concurrencia optimista,
+separado de `schema_version` (formato) y `updated_at` (auditoría/display).
+`create()` fija `revision=1`. Un Profile de fases anteriores (3/3.1/3.2)
+sin `revision` en disco se LEE como `revision=1` (`get()`/`list()`, ver
+abajo) — nunca una migración/rewrite masivo, nunca un write disparado
+solo por una lectura."""
 from __future__ import annotations
 
 import json
 import logging
 import os
 import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -110,6 +144,12 @@ _PROFILES_SUBDIR = "profiles"
 # reporting_time_logs_durable._RESTORE_WAIT_TIMEOUT_S: generoso frente al
 # costo real que evita, pero nunca indefinido.
 _RESTORE_WAIT_TIMEOUT_S = 15.0
+
+# Phase 3.5 §8: lock GLOBAL de módulo, NUNCA por-Profile (sin diccionario
+# de locks, sin framework) — cubre la sección crítica COMPLETA de
+# update() de punta a punta, nunca se libera entre el chequeo de revision
+# y el resultado final (ver update()).
+_update_lock = threading.Lock()
 
 # Únicos valores válidos de `source` (Legacy Profile Contract, Phase 2 §5 —
 # "Flyer" SÍ es válido acá: el bug legacy fue que el CHECK de la base lo
@@ -138,6 +178,42 @@ class ProfileConfigIncompleteError(ProfileStorageError):
     `ProfileStorageError` a propósito: cualquier caller que capture la
     clase base (p. ej. el manejo de `list()`/`get()` en el router) sigue
     funcionando sin cambios; solo el flujo de `create()` distingue."""
+
+
+class ProfileNotFoundError(Exception):
+    """`update()` sobre un `profile_id` que no existe (Phase 3.5 §10) —
+    NUNCA una subclase de `ProfileStorageError`: no es un fallo de
+    persistencia, es que el objetivo de la operación no existe. Distinto
+    del criterio fail-soft de `get()` (que devuelve `None`, nunca levanta):
+    `update()` necesita un target concreto para operar, así que un
+    `profile_id` inexistente es un error del caller/dominio, no un miss
+    silencioso — el router lo traduce a un 404 HTTP genuino, nunca a uno
+    de los estados renderizados dentro del panel."""
+
+
+class ProfileConcurrentModificationError(Exception):
+    """El Profile cambió desde que se leyó la `revision` esperada (Phase
+    3.4 §12/Phase 3.5 §10) — se detecta ANTES de cualquier escritura en
+    disco (ver `update()`, el chequeo corre antes del write atómico).
+    Deliberadamente NO es un `ProfileStorageError`: no es un fallo de
+    persistencia, es una precondición de concurrencia optimista que no se
+    cumplió — el router lo traduce a un estado `concurrent_modification`
+    propio, nunca a `No disponible` ni a un error de validación genérico
+    (Phase 3.5 §16)."""
+
+
+class ProfileRemoteOutcomeUnknownError(Exception):
+    """El candidato B no se confirmó Y la compensación (reescribir A) TAMPOCO
+    se confirmó (Phase 3.4 §2B/Phase 3.5 §2 caso 2B) — el estado remoto
+    queda genuinamente desconocido. Deliberadamente NO es un
+    `ProfileStorageError`: un `except ProfileStorageError` genérico NUNCA
+    debe atrapar esto por accidente y aplanarlo a un SOURCE_ERROR común
+    (Phase 3.5 §10, explícito: "Do not silently flatten this into
+    source_error") — es una CUARTA/SEXTA situación semántica, distinta,
+    que el router debe manejar con su propio `except` explícito. El
+    archivo LOCAL, en este punto, YA fue restaurado a A (ver `update()`)
+    — nunca queda en B, aunque el remoto no pueda confirmarse en ninguna
+    dirección."""
 
 
 def _profiles_dir() -> Path:
@@ -232,12 +308,13 @@ def _cleanup_failed_write(path: Path) -> None:
 
 def create(profile: dict) -> dict:
     """Crea un Profile nuevo: genera `profile_id` (uuid4) + `schema_version`
-    + `created_at`/`updated_at`, escribe el JSON localmente (crash-safe) y
-    confirma el write-through a Spaces vía `remote_store.push_path()` ANTES
-    de devolver — ver DURABILITY CONTRACT arriba. `profile` ya debe venir
-    validado/shapeado por el caller (`human_capital_service.create_profile`)
-    — este repository no conoce reglas de negocio, solo persiste lo que se
-    le pasa.
+    + `revision=1` (Phase 3.5, token de concurrencia optimista — ver
+    docstring del módulo) + `created_at`/`updated_at`, escribe el JSON
+    localmente (crash-safe) y confirma el write-through a Spaces vía
+    `remote_store.push_path()` ANTES de devolver — ver DURABILITY CONTRACT
+    arriba. `profile` ya debe venir validado/shapeado por el caller
+    (`human_capital_service.create_profile`) — este repository no conoce
+    reglas de negocio, solo persiste lo que se le pasa.
 
     Levanta `ProfileConfigIncompleteError` si Spaces no está configurado
     (`remote_store.enabled() is False`) o `ProfileStorageError` (SOURCE_ERROR)
@@ -253,6 +330,7 @@ def create(profile: dict) -> dict:
     payload = {
         "schema_version": _SCHEMA_VERSION,
         "profile_id": profile_id,
+        "revision": 1,
         **profile,
         "created_at": now,
         "updated_at": now,
@@ -274,6 +352,18 @@ def create(profile: dict) -> dict:
     )
 
 
+def _with_revision_default(payload: dict) -> dict:
+    """Backward compatibility (Phase 3.5 §6): un Profile persistido en
+    fases anteriores (3/3.1/3.2/3.3) nunca escribió `revision` — se LEE
+    como `revision=1` acá, en memoria, cada vez que se carga. Nunca
+    reescribe el archivo en disco: "no rewrite merely because it was
+    read" es explícito en el ticket — el campo solo queda persistido de
+    verdad la próxima vez que ese Profile pase por un write real
+    (`create()` ya lo fija; `update()` lo incrementa)."""
+    payload.setdefault("revision", 1)
+    return payload
+
+
 def get(profile_id: str) -> dict | None:
     """`None` si el archivo no existe o está corrupto — MISMO criterio
     fail-soft que `reporting_time_logs_durable.load_closed_year_entry`
@@ -291,7 +381,7 @@ def get(profile_id: str) -> dict | None:
         payload = json.loads(raw)
     except ValueError:
         return None
-    return payload if isinstance(payload, dict) else None
+    return _with_revision_default(payload) if isinstance(payload, dict) else None
 
 
 def list() -> list[dict]:  # noqa: A001 — nombre del contrato pedido (§8), no el builtin
@@ -321,5 +411,95 @@ def list() -> list[dict]:  # noqa: A001 — nombre del contrato pedido (§8), no
         except (OSError, ValueError):
             continue  # archivo corrupto/ilegible -- se saltea, no rompe el resto
         if isinstance(payload, dict) and payload.get("profile_id"):
-            profiles.append(payload)
+            profiles.append(_with_revision_default(payload))
     return profiles
+
+
+def update(profile_id: str, expected_revision: int, fields: dict) -> dict:
+    """Sobrescribe un Profile EXISTENTE con COMPENSATING OVERWRITE (Phase
+    3.5 §2/§3, ver docstring del módulo) — nunca un remote-read-back de
+    verificación (rechazado en Phase 3.5 §1: la consistencia de overwrite
+    de DO Spaces no está probada en este proyecto), nunca `delete_path()`
+    (Phase 3.5 §4: el Profile anterior es dato de negocio real, jamás se
+    borra como parte de un rollback de update).
+
+    `fields` ya debe venir validado/shapeado por el caller
+    (`human_capital_service.update_profile`) — MISMA división de
+    responsabilidad que `create()`. `expected_revision` es el token de
+    concurrencia optimista leído por el caller ANTES de construir el
+    candidato — se compara contra la `revision` actual DENTRO del lock,
+    nunca antes (un check-then-write sin lock no alcanza, Phase 3.4 §10).
+
+    Secuencia (lock GLOBAL de módulo, sostenido de punta a punta — Phase
+    3.5 §8, nunca se libera entre el chequeo de revision y el resultado
+    final):
+      1. `get(profile_id)` — si no existe, `ProfileNotFoundError` (ver esa
+         clase).
+      2. Si `revision` actual != `expected_revision`:
+         `ProfileConcurrentModificationError` ANTES de cualquier write —
+         el Profile en disco queda completamente intacto.
+      3. Construye el candidato B (`revision` = actual+1, `updated_at`
+         nuevo, `created_at`/`profile_id`/`schema_version` preservados de
+         A, nunca pisados por `fields`) y lo escribe local atómicamente.
+      4. `push_path(B)`:
+         - `True` → ÉXITO. Devuelve B. Local B, remoto B.
+         - `False` y `remote_store.enabled() is False` → CONFIG_INCOMPLETE
+           determinístico (nunca "unknown": ni B ni una eventual
+           compensación pueden confirmarse jamás en este entorno) —
+           restaura A localmente (el local NUNCA debe quedar en B sin
+           confirmación) y levanta `ProfileConfigIncompleteError`, sin
+           intentar un segundo push que ya se sabe que también fallaría.
+         - `False` y `enabled() is True` → intenta la COMPENSACIÓN:
+           reescribe A localmente (atómico, SIEMPRE corre, sea que la
+           compensación remota después confirme o no — el local queda en
+           A de inmediato) y `push_path(A)`:
+             - `True` → rollback confirmado: local A, remoto A, estado
+               consistente y conocido. `ProfileStorageError` (SOURCE_ERROR
+               — "no pudimos confirmar B, pero A sigue intacto").
+             - `False` → rollback NO confirmado: local A (ya restaurado),
+               remoto DESCONOCIDO. `ProfileRemoteOutcomeUnknownError` —
+               nunca se aplana a `ProfileStorageError` (ver esa clase)."""
+    with _update_lock:
+        current = get(profile_id)
+        if current is None:
+            raise ProfileNotFoundError(f"El Profile {profile_id} no existe.")
+        current_revision = current.get("revision", 1)
+        if current_revision != expected_revision:
+            raise ProfileConcurrentModificationError(
+                "Este Profile cambió desde que abriste el formulario de edición."
+            )
+        path = _profile_path(profile_id)
+        candidate = {
+            **current,
+            **fields,
+            "profile_id": profile_id,
+            "schema_version": _SCHEMA_VERSION,
+            "created_at": current.get("created_at"),
+            "revision": current_revision + 1,
+            "updated_at": _now_iso(),
+        }
+        _write_atomic(path, candidate)
+        if remote_store.push_path(path):
+            return candidate
+        # B no confirmado.
+        if not remote_store.enabled():
+            # Determinístico, nunca "unknown": en este entorno ni B ni una
+            # eventual compensación pueden confirmarse jamás -- restaura A
+            # sin intentar un segundo push que ya se sabe inútil.
+            _write_atomic(path, current)
+            raise ProfileConfigIncompleteError(
+                "El Banco de Perfiles todavía no está configurado para este entorno."
+            )
+        # Compensating overwrite -- Spaces SÍ está configurado, así que la
+        # compensación puede genuinamente confirmar o no. El local queda
+        # en A de inmediato, independientemente de si el push que sigue
+        # confirma (Phase 3.5 §11: "local state should remain A").
+        _write_atomic(path, current)
+        if remote_store.push_path(path):
+            raise ProfileStorageError(
+                "No pudimos confirmar el respaldo del cambio; se mantuvo la versión anterior del Profile."
+            )
+        raise ProfileRemoteOutcomeUnknownError(
+            "No pudimos confirmar el estado remoto de este Profile tras un fallo de guardado. "
+            "La versión local se mantuvo en el último estado conocido."
+        )

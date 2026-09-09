@@ -666,6 +666,11 @@ def test_15_route_surface_still_120():
     #     únicamente, sin CV/SharePoint todavía -- ver
     #     webapp/services/human_capital_service.py/profile_repository.py).
     #     No toca ninguna ruta de Staffing/Commercial/Reporting.
+    #   124 -> 126 (Capital Humano Phase 3.5 -- Safe Profile Edit): +2.
+    #     `GET/POST /human-capital/profiles/{profile_id}/edit` -- edición
+    #     de un Profile existente con concurrencia optimista (`revision`)
+    #     y compensating overwrite (ver profile_repository.update). No
+    #     toca ninguna ruta de Staffing/Commercial/Reporting.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -673,7 +678,7 @@ def test_15_route_surface_still_120():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 124
+    assert len(snapshot) == 126
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

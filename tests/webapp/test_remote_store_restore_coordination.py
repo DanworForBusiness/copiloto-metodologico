@@ -312,3 +312,54 @@ def test_mirror_up_reuploads_without_data_loss_when_signature_bookkeeping_was_mi
     assert fake_client.uploaded.count(key) == 2  # la subida original + la redundante
     assert path.read_text(encoding="utf-8") == "x"  # el contenido local nunca se tocó
     assert remote_store._signatures[key] == remote_store._sig(path)  # ahora sí queda registrada
+
+
+# ============================================================
+# Capital Humano Phase 3.5 §12/§23 — mirror_up() debe RETOMAR (nunca
+# saltear) un Profile restaurado por un rollback de update() cuya
+# compensación tampoco pudo confirmarse — probado, no asumido, exactamente
+# como pide el ticket ("Test it").
+# ============================================================
+
+def test_mirror_up_retries_a_rollback_restored_profile_after_unconfirmed_compensation(monkeypatch, tmp_path):
+    _enable_persistence(monkeypatch, tmp_path)
+    monkeypatch.setattr(config, "PERSIST_PATHS", ["human-capital"])
+    from webapp.services import profile_repository
+
+    fake_client = _FakeUploadClient()
+    monkeypatch.setattr(remote_store, "_get_client", lambda: fake_client)
+
+    minimal = {
+        "first_name": "Ana", "last_name": "Pérez", "email": None, "phone": None,
+        "linkedin_url": None, "location": None, "profile_skills": None,
+        "seniority": None, "source": None, "tags": None, "notes": None,
+        "potential_rating": None, "potential_mark": None,
+    }
+    saved = profile_repository.create(dict(minimal))
+    path = profile_repository._profile_path(saved["profile_id"])
+    key = f"human-capital/profiles/{path.name}"
+    assert remote_store._signatures.get(key) == remote_store._sig(path)  # create() ya la registró
+
+    # Fuerza que TANTO el push de B como la compensación de A fallen —
+    # exactamente el escenario "rollback cannot be confirmed" (§2B).
+    fake_client.fail_upload_for = {key}
+    with pytest.raises(profile_repository.ProfileRemoteOutcomeUnknownError):
+        profile_repository.update(saved["profile_id"], 1, dict(minimal, first_name="Bruno"))
+
+    # El local YA fue restaurado a A (mtime NUEVO vía el atomic-write del
+    # rollback) — su firma cacheada sigue siendo la de la subida ORIGINAL
+    # (create()), que ya no coincide con el mtime post-rollback.
+    assert remote_store._signatures.get(key) != remote_store._sig(path)
+
+    # Deja de fallar (simula que la conectividad se restablece) y corre el
+    # próximo ciclo de mirror_up() — debe RE-SUBIR A, nunca saltearlo por
+    # una firma stale, llevando el sistema de vuelta al último estado
+    # conocido (Phase 3.5 §12, "driving the system back toward the last
+    # known committed state").
+    fake_client.fail_upload_for = set()
+    uploaded = remote_store.mirror_up()
+
+    assert uploaded == 1
+    assert key in fake_client.uploaded
+    assert profile_repository.get(saved["profile_id"])["first_name"] == "Ana"  # local sigue en A
+    assert remote_store._signatures[key] == remote_store._sig(path)  # firma ahora al día con A

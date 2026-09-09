@@ -1,8 +1,9 @@
 """
 test_profile_repository.py — Capital Humano Phase 3 (First Profile Slice)
-+ Phase 3.1 (Profile Durability / Failure Semantics Corrective): contrato
-de `webapp.services.profile_repository`, sin HTTP, sin Spaces real (§19
-del ticket original — todo monkeypatcheado).
++ Phase 3.1 (Profile Durability / Failure Semantics Corrective) + Phase
+3.5 (Safe Profile Edit — Revision + Compensating Overwrite): contrato de
+`webapp.services.profile_repository`, sin HTTP, sin Spaces real (§19 del
+ticket original — todo monkeypatcheado).
 
 Aísla CADA test en su propio `tmp_path` (via `config.BASE_DIR`
 monkeypatcheado) para no ensuciar el working tree real ni otros tests —
@@ -11,12 +12,20 @@ así que el monkeypatch alcanza sin tocar el módulo bajo test."""
 from __future__ import annotations
 
 import json
+import threading
+from pathlib import Path
 
 import pytest
 
 import config
 from webapp.services import profile_repository
-from webapp.services.profile_repository import ProfileConfigIncompleteError, ProfileStorageError
+from webapp.services.profile_repository import (
+    ProfileConcurrentModificationError,
+    ProfileConfigIncompleteError,
+    ProfileNotFoundError,
+    ProfileRemoteOutcomeUnknownError,
+    ProfileStorageError,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -378,3 +387,324 @@ def test_successful_profile_still_restores_correctly(monkeypatch):
     assert fetched is not None
     assert fetched["first_name"] == "Sobrevive"
     assert profile_repository.list() == [fetched]
+
+
+# ============================================================================
+# Phase 3.5 — revision (§19 del ticket)
+# ============================================================================
+
+def test_create_sets_revision_1():
+    saved = profile_repository.create(_minimal_profile())
+    assert saved["revision"] == 1
+
+
+def test_legacy_profile_missing_revision_reads_as_1():
+    # Simula un Profile persistido en Phase 3/3.1/3.2/3.3, ANTES de que
+    # `revision` existiera -- escribe el JSON a mano, sin ese campo.
+    saved = profile_repository.create(_minimal_profile(first_name="Legacy"))
+    path = profile_repository._profile_path(saved["profile_id"])
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    del on_disk["revision"]
+    path.write_text(json.dumps(on_disk), encoding="utf-8")
+
+    fetched = profile_repository.get(saved["profile_id"])
+    assert fetched["revision"] == 1
+    listed = [p for p in profile_repository.list() if p["profile_id"] == saved["profile_id"]][0]
+    assert listed["revision"] == 1
+
+
+def test_read_does_not_rewrite_the_legacy_file():
+    # §6 del ticket: "Do not silently rewrite Profiles merely because
+    # they were read" -- el archivo en disco debe seguir SIN `revision`
+    # después de un get()/list(), solo el dict en memoria la expone.
+    saved = profile_repository.create(_minimal_profile(first_name="Legacy"))
+    path = profile_repository._profile_path(saved["profile_id"])
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    del on_disk["revision"]
+    path.write_text(json.dumps(on_disk), encoding="utf-8")
+    before = path.read_text(encoding="utf-8")
+
+    profile_repository.get(saved["profile_id"])
+    profile_repository.list()
+
+    after = path.read_text(encoding="utf-8")
+    assert after == before
+    assert "revision" not in json.loads(after)
+
+
+def test_successful_update_increments_revision_from_1_to_2():
+    saved = profile_repository.create(_minimal_profile(first_name="Ana"))
+    updated = profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Ana2"))
+    assert updated["revision"] == 2
+    assert updated["first_name"] == "Ana2"
+
+
+def test_second_update_increments_revision_from_2_to_3():
+    saved = profile_repository.create(_minimal_profile(first_name="Ana"))
+    profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Ana2"))
+    updated_again = profile_repository.update(saved["profile_id"], 2, _minimal_profile(first_name="Ana3"))
+    assert updated_again["revision"] == 3
+
+
+def test_failed_update_preserves_the_previous_revision(monkeypatch):
+    # B falla (1ra llamada a push_path), la compensación A confirma (2da)
+    # -- SOURCE_ERROR con rollback exitoso, no remote_outcome_unknown.
+    saved = profile_repository.create(_minimal_profile(first_name="Ana"))
+    calls = {"n": 0}
+
+    def _push(path):
+        calls["n"] += 1
+        return calls["n"] > 1
+
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", _push)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    with pytest.raises(ProfileStorageError):
+        profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Ana2"))
+    current = profile_repository.get(saved["profile_id"])
+    assert current["revision"] == 1
+    assert current["first_name"] == "Ana"
+
+
+def test_update_preserves_created_at():
+    saved = profile_repository.create(_minimal_profile())
+    updated = profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Cambiado"))
+    assert updated["created_at"] == saved["created_at"]
+
+
+def test_update_changes_updated_at():
+    saved = profile_repository.create(_minimal_profile())
+    updated = profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Cambiado"))
+    assert updated["updated_at"] != saved["updated_at"]
+
+
+def test_failed_update_does_not_change_updated_at(monkeypatch):
+    saved = profile_repository.create(_minimal_profile())
+    calls = {"n": 0}
+
+    def _push(path):
+        calls["n"] += 1
+        return calls["n"] > 1  # B falla, la compensación A confirma
+
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", _push)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    with pytest.raises(ProfileStorageError):
+        profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Cambiado"))
+    current = profile_repository.get(saved["profile_id"])
+    assert current["updated_at"] == saved["updated_at"]
+
+
+def test_update_preserves_profile_id_and_schema_version():
+    saved = profile_repository.create(_minimal_profile())
+    updated = profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Cambiado"))
+    assert updated["profile_id"] == saved["profile_id"]
+    assert updated["schema_version"] == saved["schema_version"]
+
+
+def test_update_on_missing_profile_raises_not_found():
+    with pytest.raises(ProfileNotFoundError):
+        profile_repository.update("does-not-exist", 1, _minimal_profile())
+
+
+# ============================================================================
+# Phase 3.5 — concurrencia optimista (§20 del ticket)
+# ============================================================================
+
+def test_matching_expected_revision_allows_the_write():
+    saved = profile_repository.create(_minimal_profile())
+    updated = profile_repository.update(saved["profile_id"], saved["revision"], _minimal_profile(first_name="OK"))
+    assert updated["first_name"] == "OK"
+
+
+def test_stale_expected_revision_raises_concurrent_modification():
+    saved = profile_repository.create(_minimal_profile())
+    profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Primero"))
+    with pytest.raises(ProfileConcurrentModificationError):
+        profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Segundo"))
+
+
+def test_stale_update_performs_zero_local_write():
+    saved = profile_repository.create(_minimal_profile(first_name="Original"))
+    profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Primero"))
+    path = profile_repository._profile_path(saved["profile_id"])
+    before = path.read_text(encoding="utf-8")
+    with pytest.raises(ProfileConcurrentModificationError):
+        profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Segundo"))
+    after = path.read_text(encoding="utf-8")
+    assert after == before  # ni un byte tocado -- el chequeo corre ANTES de cualquier write
+
+
+def test_stale_update_performs_zero_push_path_calls(monkeypatch):
+    saved = profile_repository.create(_minimal_profile())
+    profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Primero"))
+    calls: list[Path] = []
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: calls.append(path) or True)
+    with pytest.raises(ProfileConcurrentModificationError):
+        profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Segundo"))
+    assert calls == []
+
+
+def test_two_concurrent_updates_from_the_same_revision_exactly_one_succeeds():
+    # §20: "Add a real concurrency test with two threads if practical...
+    # Do not rely only on sequential simulation if the lock itself is
+    # being justified." -- dos threads REALES arrancan desde la MISMA
+    # revision leída de antemano (simulando "user 1 abre el form" / "user
+    # 2 abre el form" al mismo tiempo) e intentan actualizar
+    # simultáneamente; el lock global de update() debe serializarlos de
+    # forma que exactamente uno gane.
+    saved = profile_repository.create(_minimal_profile(first_name="Original"))
+    starting_revision = saved["revision"]
+    results: list[str] = []
+    barrier = threading.Barrier(2)
+
+    def _attempt(name: str):
+        barrier.wait(timeout=5)  # maximiza la chance de colisión real
+        try:
+            profile_repository.update(saved["profile_id"], starting_revision, _minimal_profile(first_name=name))
+            results.append(f"{name}:success")
+        except ProfileConcurrentModificationError:
+            results.append(f"{name}:concurrent_modification")
+
+    t1 = threading.Thread(target=_attempt, args=("UsuarioUno",))
+    t2 = threading.Thread(target=_attempt, args=("UsuarioDos",))
+    t1.start()
+    t2.start()
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+
+    successes = [r for r in results if r.endswith(":success")]
+    conflicts = [r for r in results if r.endswith(":concurrent_modification")]
+    assert len(successes) == 1
+    assert len(conflicts) == 1
+    final = profile_repository.get(saved["profile_id"])
+    assert final["revision"] == starting_revision + 1
+
+
+# ============================================================================
+# Phase 3.5 — fallos remotos / compensating overwrite (§21/§22 del ticket)
+# ============================================================================
+
+class _FakePushPath:
+    """Doble de `remote_store.push_path` con memoria de qué contenido
+    'llegó' realmente al remoto en cada llamada (`landed`), INDEPENDIENTE
+    de qué booleano se devuelve (`returns`) — necesario para modelar
+    exactamente el escenario ambiguo del §22: un PUT que sí aterriza pero
+    cuyo ack se pierde (`landed=True, returns=False`), distinto de un PUT
+    que genuinamente nunca llega (`landed=False, returns=False`)."""
+
+    def __init__(self):
+        self.calls: list[Path] = []
+        self.remote_content: dict[str, str] = {}
+        self._script: list[tuple[bool, bool]] = []
+
+    def queue(self, *, landed: bool, returns: bool) -> None:
+        self._script.append((landed, returns))
+
+    def __call__(self, path) -> bool:
+        path = Path(path)
+        self.calls.append(path)
+        landed, returns = self._script.pop(0) if self._script else (True, True)
+        if landed:
+            self.remote_content[str(path.resolve())] = path.read_text(encoding="utf-8")
+        return returns
+
+
+def test_update_b_push_success_is_durable(monkeypatch):
+    fake = _FakePushPath()
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", fake)
+    saved = profile_repository.create(_minimal_profile(first_name="Ana"))
+    fake.queue(landed=True, returns=True)
+
+    updated = profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Bruno"))
+
+    assert updated["first_name"] == "Bruno"
+    key = str(profile_repository._profile_path(saved["profile_id"]).resolve())
+    assert json.loads(fake.remote_content[key])["first_name"] == "Bruno"
+
+
+def test_update_b_fails_rollback_confirmed_leaves_local_a_and_no_b_visible(monkeypatch):
+    fake = _FakePushPath()
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", fake)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    saved = profile_repository.create(_minimal_profile(first_name="Ana"))
+    fake.queue(landed=False, returns=False)  # B nunca llega
+    fake.queue(landed=True, returns=True)  # compensación A SÍ confirma
+
+    with pytest.raises(ProfileStorageError):
+        profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Bruno"))
+
+    current = profile_repository.get(saved["profile_id"])
+    assert current["first_name"] == "Ana"
+    assert current["revision"] == 1
+    key = str(profile_repository._profile_path(saved["profile_id"]).resolve())
+    assert json.loads(fake.remote_content[key])["first_name"] == "Ana"  # nunca "Bruno" visible en el remoto
+
+
+def test_update_b_fails_rollback_also_fails_raises_remote_outcome_unknown(monkeypatch):
+    fake = _FakePushPath()
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", fake)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    saved = profile_repository.create(_minimal_profile(first_name="Ana"))
+    fake.queue(landed=False, returns=False)  # B falla
+    fake.queue(landed=False, returns=False)  # la compensación A TAMBIÉN falla
+
+    with pytest.raises(ProfileRemoteOutcomeUnknownError):
+        profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Bruno"))
+
+    # Phase 3.5 §11: el LOCAL igual queda en A -- nunca en B, aunque el
+    # remoto haya quedado genuinamente desconocido.
+    current = profile_repository.get(saved["profile_id"])
+    assert current["first_name"] == "Ana"
+    assert current["revision"] == 1
+
+
+def test_no_delete_path_is_ever_called_during_update_failure(monkeypatch):
+    # §4 del ticket: "Absolutely no delete_path() as compensation for
+    # update." -- ni en el caso de rollback confirmado ni en el de
+    # rollback fallido.
+    fake = _FakePushPath()
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", fake)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    delete_calls: list = []
+    monkeypatch.setattr(profile_repository.remote_store, "delete_path", lambda path: delete_calls.append(path))
+    saved = profile_repository.create(_minimal_profile(first_name="Ana"))
+
+    fake.queue(landed=False, returns=False)
+    fake.queue(landed=False, returns=False)
+    with pytest.raises(ProfileRemoteOutcomeUnknownError):
+        profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Bruno"))
+    assert delete_calls == []
+
+
+def test_update_disabled_raises_config_incomplete_and_restores_local_a(monkeypatch):
+    saved = profile_repository.create(_minimal_profile(first_name="Ana"))
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
+
+    with pytest.raises(ProfileConfigIncompleteError):
+        profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Bruno"))
+
+    current = profile_repository.get(saved["profile_id"])
+    assert current["first_name"] == "Ana"  # nunca queda en B sin confirmar
+    assert current["revision"] == 1
+
+
+def test_ambiguous_first_put_then_successful_compensating_overwrite_converges_to_a(monkeypatch):
+    # LA PRUEBA CRÍTICA del ticket (§22): el primer push(B) devuelve False
+    # pero el contenido "llegó" igual al remoto (ack perdido, no un fallo
+    # real) -- la compensación push(A) confirma. El estado remoto FINAL
+    # debe ser A, pese a que B haya llegado a existir transitoriamente.
+    fake = _FakePushPath()
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", fake)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    saved = profile_repository.create(_minimal_profile(first_name="Ana"))
+
+    fake.queue(landed=True, returns=False)  # B SÍ aterriza, pero el ack se pierde
+    fake.queue(landed=True, returns=True)  # la compensación A aterriza y confirma
+
+    with pytest.raises(ProfileStorageError):
+        profile_repository.update(saved["profile_id"], 1, _minimal_profile(first_name="Bruno"))
+
+    key = str(profile_repository._profile_path(saved["profile_id"]).resolve())
+    final_remote = json.loads(fake.remote_content[key])
+    assert final_remote["first_name"] == "Ana"  # el remoto CONVERGE a A, no queda en B
+    assert profile_repository.get(saved["profile_id"])["first_name"] == "Ana"
