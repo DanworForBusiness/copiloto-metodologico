@@ -15,18 +15,44 @@ negocio, NO una cache re-descargable — a diferencia de
 `remote_store.mirror_up()`, aceptable porque perder una escritura ahí solo
 implica re-descargar de SharePoint), acá `create()` llama
 `remote_store.push_path()` de forma SÍNCRONA e inmediata tras el write
-local. Si `push_path()` devuelve `False` (Spaces deshabilitado O la subida
-falló), `create()` levanta `ProfileStorageError` — el archivo local YA
-quedó escrito (crash-safe, nunca se borra: es la única copia del dato que
-el usuario acaba de cargar) pero el caller NUNCA debe reportar éxito sobre
-un Profile que no confirmó estar respaldado en Spaces. Ver Phase 2 §10 y
-Phase 3 §10 para el razonamiento completo — esto es una consecuencia
-DELIBERADA del contrato pedido, no un bug: en un entorno sin credenciales
-de Spaces configuradas (dev local, CI), `remote_store.enabled()` es
-siempre `False`, así que TODO `create()` reporta `ProfileStorageError` —
-el archivo local existe igual (y `list()`/`get()` lo siguen mostrando,
-porque ambos leen SOLO del filesystem local, nunca de Spaces
-directamente).
+local.
+
+FAILURE ATOMICITY CORRECTIVE (Phase 3.1 — bug encontrado en Phase 3):
+`create()` original dejaba el archivo local escrito AUNQUE `push_path()`
+devolviera `False`, razonando (correctamente para el caller HTTP, MAL para
+el estado observable) que "nunca se reporta éxito sin confirmación". El
+problema: `list()`/`get()` leen SOLO el filesystem local, así que ESE
+mismo archivo "fallido" reaparecía como una creación exitosa en el
+próximo GET — y peor, `remote_store.mirror_up()` (el ciclo periódico,
+`_persist_dirs()` + `rglob("*")` sobre CUALQUIER archivo bajo un directorio
+persistido) podía terminar subiéndolo de verdad más tarde, convirtiendo un
+"fallo reportado" en un "éxito silencioso" asincrónico — exactamente el
+contrato que Phase 3.1 prohíbe. Fix: si `push_path()` no confirma el
+respaldo remoto, el archivo local se BORRA antes de levantar la excepción
+(`_cleanup_failed_write`, ver abajo) — así ni `list()`/`get()` ni un
+`mirror_up()` posterior pueden volver a verlo. El write atómico
+(tempfile→flush→fsync→os.replace) NO cambia: la limpieza es un paso
+POSTERIOR y separado, nunca reemplaza la escritura crash-safe.
+
+CLASIFICACIÓN DE FALLO (Phase 3.1 §5): `remote_store.enabled() is False`
+(Spaces sin credenciales configuradas) es `ProfileConfigIncompleteError`
+— NO un fallo transitorio, es el filesystem efímero actuando como
+"datastore" temporal, inaceptable para producción por diseño (ver Phase 2
+§2/§10). `enabled() is True` pero `push_path()` igual devuelve `False` es
+`ProfileStorageError` (SOURCE_ERROR) — un fallo externo/transitorio,
+potencialmente reintentable (sin construir acá ningún framework de
+retry). `ProfileConfigIncompleteError` es subclase de `ProfileStorageError`
+— un `except ProfileStorageError` genérico (como el que ya usa `list()`/
+`get()` en el router) sigue capturando ambas sin cambios; el router de
+`create()` distingue explícitamente cuando corresponde (ver
+`webapp/routers/human_capital.py`).
+
+En un entorno sin credenciales de Spaces (dev local, CI): TODO `create()`
+sigue reportando fallo (`ProfileConfigIncompleteError`) — Phase 3 §12
+("NO convertir automáticamente enabled()==False en éxito") sigue vigente
+sin cambios — pero AHORA el archivo local NO sobrevive esa llamada, así
+que un retry en el mismo entorno nunca deja más de un archivo huérfano
+acumulándose.
 
 RESTORE COORDINATION (Phase 2 §11 / Phase 3 §11): antes de `list`/`get`/
 `create`, se espera (acotado, NUNCA polling) a que el restore de arranque
@@ -56,6 +82,7 @@ directamente, ver Phase 2 §1/§7)."""
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -64,6 +91,8 @@ from uuid import uuid4
 
 import config
 from core import remote_store
+
+_logger = logging.getLogger("danwor.human_capital")
 
 _SCHEMA_VERSION = 1
 _PERSIST_DIR_NAME = "human-capital"
@@ -84,7 +113,22 @@ class ProfileStorageError(Exception):
     """Fallo de PERSISTENCIA (filesystem local o remote_store/Spaces) —
     NUNCA de validación de negocio (eso es `ValueError`, ver
     `human_capital_service.create_profile`). El router lo traduce al
-    contrato de error `No disponible` del Hub, nunca a `Sin resultados`."""
+    contrato de error `No disponible`/SOURCE_ERROR del Hub, nunca a `Sin
+    resultados`. Clasificación por defecto: SOURCE_ERROR (fallo externo/
+    transitorio, potencialmente reintentable) — ver `ProfileConfigIncompleteError`
+    para la excepción explícita cuando la causa real es Spaces sin
+    configurar, no un fallo puntual."""
+
+
+class ProfileConfigIncompleteError(ProfileStorageError):
+    """Subclase de `ProfileStorageError` para el caso específico
+    `remote_store.enabled() is False` (Spaces sin credenciales) — Phase
+    3.1 §5: CONFIG_INCOMPLETE, NUNCA se trata como un fallo transitorio
+    (nunca se convierte en éxito local-only, nunca se ofrece reintentar
+    como si la próxima request pudiera resolverlo sola). Sigue siendo un
+    `ProfileStorageError` a propósito: cualquier caller que capture la
+    clase base (p. ej. el manejo de `list()`/`get()` en el router) sigue
+    funcionando sin cambios; solo el flujo de `create()` distingue."""
 
 
 def _profiles_dir() -> Path:
@@ -135,6 +179,39 @@ def _write_atomic(path: Path, payload: dict) -> None:
                 pass
 
 
+def _cleanup_failed_write(path: Path) -> None:
+    """Revierte un write local cuya durabilidad remota NUNCA se confirmó
+    (Phase 3.1 root cause, ver docstring del módulo) — el archivo deja de
+    existir para que NINGÚN lector posterior (`list()`/`get()`) ni el
+    ciclo periódico `remote_store.mirror_up()` (que camina TODO archivo
+    bajo un directorio persistido, sin importar cómo llegó ahí) puedan
+    completar asincrónicamente una creación que ya se reportó como
+    fallida.
+
+    También intenta un `remote_store.delete_path(path)` best-effort — NO
+    porque sea la defensa principal (la defensa principal es "nunca subir
+    lo que push_path() dijo que no confirmó"), sino como cobertura de una
+    carrera angosta y real: `push_path()` puede devolver `False` incluso
+    si el `PUT` remoto YA se completó, si la excepción ocurre en el paso
+    de bookkeeping POSTERIOR a la subida (`_signatures[key] = _sig(path)`
+    en `core/remote_store.py`, p. ej. si el archivo local desaparece entre
+    la subida y ese `stat()`). `delete_path()` opera EXCLUSIVAMENTE sobre
+    el objeto remoto (nunca toca disco, ver su propio docstring) — llamarlo
+    después de borrar el archivo local es seguro (no depende de que el
+    archivo siga existiendo). Nunca deja escapar sus propios errores: son
+    best-effort, no deben enmascarar la excepción de clasificación
+    (`ProfileConfigIncompleteError`/`ProfileStorageError`) que el llamador
+    ya va a levantar."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        _logger.warning("human_capital.profile_cleanup_failed reason=%s", type(exc).__name__)
+    try:
+        remote_store.delete_path(path)
+    except Exception as exc:  # noqa: BLE001 — best-effort, nunca enmascara el fallo real
+        _logger.warning("human_capital.profile_remote_cleanup_failed reason=%s", type(exc).__name__)
+
+
 def create(profile: dict) -> dict:
     """Crea un Profile nuevo: genera `profile_id` (uuid4) + `schema_version`
     + `created_at`/`updated_at`, escribe el JSON localmente (crash-safe) y
@@ -144,9 +221,14 @@ def create(profile: dict) -> dict:
     — este repository no conoce reglas de negocio, solo persiste lo que se
     le pasa.
 
-    Levanta `ProfileStorageError` si el write local falla O si
-    `push_path()` no confirma el respaldo remoto — en NINGÚN caso se
-    reporta éxito sin esa confirmación (Phase 3 §10, no negociable)."""
+    Levanta `ProfileConfigIncompleteError` si Spaces no está configurado
+    (`remote_store.enabled() is False`) o `ProfileStorageError` (SOURCE_ERROR)
+    si está configurado pero `push_path()` igual no confirma el respaldo —
+    en NINGÚN caso se reporta éxito sin esa confirmación, Y en NINGÚN caso
+    el archivo local sobrevive a un fallo reportado (Phase 3.1, ver
+    `_cleanup_failed_write`) — un GET inmediato, un restart/restore, o el
+    ciclo periódico de `mirror_up()` nunca pueden resucitar una creación ya
+    reportada como fallida."""
     _ensure_restored()
     now = _now_iso()
     profile_id = str(uuid4())
@@ -159,15 +241,19 @@ def create(profile: dict) -> dict:
     }
     path = _profile_path(profile_id)
     _write_atomic(path, payload)
-    if not remote_store.push_path(path):
-        # El archivo local YA existe (crash-safe) — nunca se borra: es la
-        # única copia del dato recién cargado. `list()`/`get()` lo seguirán
-        # viendo. Lo único que NO podemos hacer es reportarle éxito al
-        # caller sobre un Profile que no confirmó estar en Spaces.
-        raise ProfileStorageError(
-            "El Profile se guardó localmente pero no se pudo confirmar su respaldo en Spaces."
+    if remote_store.push_path(path):
+        return payload
+    # Durabilidad remota NO confirmada -- la creación es un FALLO de punta
+    # a punta: el archivo local NUNCA debe sobrevivir a esta llamada (ver
+    # docstring del módulo, Phase 3.1 root cause).
+    _cleanup_failed_write(path)
+    if not remote_store.enabled():
+        raise ProfileConfigIncompleteError(
+            "El Banco de Perfiles todavía no está configurado para este entorno."
         )
-    return payload
+    raise ProfileStorageError(
+        "No pudimos confirmar el respaldo del Profile en este momento."
+    )
 
 
 def get(profile_id: str) -> dict | None:

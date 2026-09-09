@@ -5,12 +5,19 @@
    MISMO `id`, `hx-swap="outerHTML"`, el POST devuelve este fragmento
    entero re-renderizado).
 
-   Contrato de error (Capital Humano Phase 3 §16): tres estados,
-   NUNCA la misma superficie para dos de ellos.
-     - `source_error` (persistencia/Spaces caída) -> "No disponible",
-       primitivo `.dashboard-empty` (MISMO que Reporting/Staffing/
-       Comercial) -- el form NO se limpia, MISMO valor de `form_values`
-       de lo que el usuario ya había tipeado.
+   Contrato de error (Capital Humano Phase 3 §16, refinado por Phase 3.1
+   §5/§11): CUATRO estados, nunca la misma superficie para dos de ellos.
+     - `source_error` + `config_incomplete=True` (Spaces sin configurar)
+       -> "No disponible", primitivo `.dashboard-empty` (MISMO eyebrow que
+       SOURCE_ERROR abajo -- MISMO criterio ya usado por
+       commercialForecastPanelBodyHtml/commercialActividadesHtml en
+       commercial.js: un solo primitivo visual, el texto/la clasificación
+       en tests es lo que distingue CONFIG_INCOMPLETE de SOURCE_ERROR,
+       nunca un componente nuevo) -- el form NO se limpia, MISMO valor de
+       `form_values` de lo que el usuario ya había tipeado.
+     - `source_error` + `config_incomplete=False` (persistencia/Spaces
+       caída) -> "No disponible", MISMO primitivo -- MISMA preservación
+       de `form_values`.
      - `error` (validación) -> `.feedback-error` (ya compartido en
        tools.css, ver partials/tree_feedback_form.html) al lado del form,
        valores tipeados preservados vía `form_values`.
@@ -80,9 +87,9 @@
   </form>
 
   {% if source_error %}
-  <div class="dashboard-empty">
+  <div class="dashboard-empty" data-error-kind="{{ 'config_incomplete' if config_incomplete else 'source_error' }}">
     <span class="dashboard-empty__label">No disponible</span>
-    <p>No pudimos acceder al Banco de Perfiles en este momento. {{ source_error }}</p>
+    <p>{{ source_error }}</p>
   </div>
   {% elif not profiles %}
   <div class="dashboard-empty">

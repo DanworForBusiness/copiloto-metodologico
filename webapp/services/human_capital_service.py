@@ -11,16 +11,25 @@ persiste lo que ya llega shapeado.
 Validación → `ValueError` (el router lo traduce al contrato de error
 `Validación` del Hub, re-mostrando el form — MISMO patrón exacto que
 `wizard.py::tree_feedback_submit` con `store.submit_feedback`). Fallo de
-persistencia → `profile_repository.ProfileStorageError` se deja propagar
-tal cual (el router lo traduce al contrato `No disponible`) — este service
-no la captura ni la reinterpreta, para no esconder la distinción entre
-"fuente vacía" y "fuente inaccesible" que el repository ya establece."""
+persistencia → `profile_repository.ProfileStorageError`/
+`ProfileConfigIncompleteError` se dejan propagar tal cual (el router las
+traduce a los contratos `No disponible`/SOURCE_ERROR y CONFIG_INCOMPLETE
+respectivamente, Phase 3.1 §5) — este service no las captura ni las
+reinterpreta, para no esconder ninguna de las distinciones que el
+repository ya establece."""
 from __future__ import annotations
 
 from webapp.services import profile_repository
-from webapp.services.profile_repository import ProfileStorageError, VALID_SOURCES  # re-exportados para el router
+from webapp.services.profile_repository import (  # re-exportados para el router
+    ProfileConfigIncompleteError,
+    ProfileStorageError,
+    VALID_SOURCES,
+)
 
-__all__ = ["ProfileStorageError", "VALID_SOURCES", "list_profiles", "create_profile"]
+__all__ = [
+    "ProfileConfigIncompleteError", "ProfileStorageError", "VALID_SOURCES",
+    "list_profiles", "create_profile",
+]
 
 _REQUIRED_FIELDS = ("first_name", "last_name")
 _OPTIONAL_FIELDS = (

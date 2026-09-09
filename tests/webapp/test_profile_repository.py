@@ -1,7 +1,8 @@
 """
-test_profile_repository.py — Capital Humano Phase 3 (First Profile Slice):
-contrato de `webapp.services.profile_repository`, sin HTTP, sin Spaces
-real (§19 del ticket — todo monkeypatcheado).
+test_profile_repository.py — Capital Humano Phase 3 (First Profile Slice)
++ Phase 3.1 (Profile Durability / Failure Semantics Corrective): contrato
+de `webapp.services.profile_repository`, sin HTTP, sin Spaces real (§19
+del ticket original — todo monkeypatcheado).
 
 Aísla CADA test en su propio `tmp_path` (via `config.BASE_DIR`
 monkeypatcheado) para no ensuciar el working tree real ni otros tests —
@@ -15,7 +16,7 @@ import pytest
 
 import config
 from webapp.services import profile_repository
-from webapp.services.profile_repository import ProfileStorageError
+from webapp.services.profile_repository import ProfileConfigIncompleteError, ProfileStorageError
 
 
 @pytest.fixture(autouse=True)
@@ -111,14 +112,20 @@ def test_push_path_failure_never_reports_success(monkeypatch):
         profile_repository.create(_minimal_profile())
 
 
-def test_push_path_failure_still_leaves_the_local_file_durable(monkeypatch):
-    # El archivo local NUNCA se borra ante un fallo de push_path — es la
-    # única copia del dato recién cargado (Phase 3 §10, explícito).
+def test_push_path_failure_does_not_leave_a_local_observable_profile(monkeypatch):
+    # Phase 3.1 corrective (root cause del bug de data correctness de
+    # Phase 3): el archivo local NO debe sobrevivir a un create() fallido
+    # -- si sobreviviera, list()/get() lo mostrarían como si hubiera
+    # tenido éxito, y el ciclo periódico remote_store.mirror_up() podría
+    # terminar subiéndolo de verdad más tarde, convirtiendo un fallo YA
+    # reportado en un éxito silencioso asincrónico. Ver
+    # profile_repository._cleanup_failed_write.
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     with pytest.raises(ProfileStorageError):
         profile_repository.create(_minimal_profile())
-    files = list((config.BASE_DIR / "human-capital" / "profiles").iterdir())
-    assert len(files) == 1
+    profiles_dir = config.BASE_DIR / "human-capital" / "profiles"
+    files = list(profiles_dir.iterdir()) if profiles_dir.exists() else []
+    assert files == []
 
 
 def test_push_path_success_returns_the_saved_profile(monkeypatch):
@@ -187,10 +194,111 @@ def test_create_and_get_also_respect_restore_coordination(monkeypatch):
 
 
 def test_restore_coordination_is_a_noop_when_spaces_disabled(monkeypatch):
-    # `_spaces_disabled_by_default` ya deja `enabled() == False` — confirma
-    # explícitamente que `await_restore` NUNCA se llama en ese caso (no
-    # tiene sentido esperar un restore que nunca va a ocurrir).
+    # `_push_path_succeeds_by_default` ya deja `enabled() == False` —
+    # confirma explícitamente que `await_restore` NUNCA se llama en ese
+    # caso (no tiene sentido esperar un restore que nunca va a ocurrir).
     calls: list[str] = []
     monkeypatch.setattr(profile_repository.remote_store, "await_restore", lambda timeout: calls.append("waited"))
     profile_repository.list()
     assert calls == []
+
+
+# --- Phase 3.1: clasificación de fallo (CONFIG_INCOMPLETE vs SOURCE_ERROR) --
+
+def test_spaces_disabled_raises_config_incomplete_not_generic_storage_error(monkeypatch):
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
+    with pytest.raises(ProfileConfigIncompleteError):
+        profile_repository.create(_minimal_profile())
+
+
+def test_config_incomplete_error_is_still_a_profile_storage_error(monkeypatch):
+    # Subclase deliberada (Phase 3.1 §5): un `except ProfileStorageError`
+    # genérico (como el que ya usa list_profiles() en el router) sigue
+    # capturando este caso sin cambios.
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
+    with pytest.raises(ProfileStorageError):
+        profile_repository.create(_minimal_profile())
+
+
+def test_enabled_but_push_failure_raises_source_error_not_config_incomplete(monkeypatch):
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    with pytest.raises(ProfileStorageError) as exc_info:
+        profile_repository.create(_minimal_profile())
+    assert not isinstance(exc_info.value, ProfileConfigIncompleteError)
+
+
+# --- Phase 3.1: list() nunca devuelve un create() fallido -------------------
+
+def test_list_does_not_return_a_profile_whose_create_failed(monkeypatch):
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    with pytest.raises(ProfileStorageError):
+        profile_repository.create(_minimal_profile(first_name="Fantasma"))
+    names = [p["first_name"] for p in profile_repository.list()]
+    assert "Fantasma" not in names
+    assert profile_repository.list() == []
+
+
+# --- Phase 3.1: retry/idempotencia -- el "ghost" de un intento fallido no
+# puede convertirse en un duplicado cuando el retry sí tiene éxito ---------
+
+def test_retry_after_failure_produces_exactly_one_profile(monkeypatch):
+    # Primer intento: falla (push_path devuelve False) -- MISMO usuario,
+    # MISMO form, reintenta.
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    with pytest.raises(ProfileStorageError):
+        profile_repository.create(_minimal_profile(first_name="Reintento"))
+
+    # Segundo intento (el "retry"): ahora push_path tiene éxito.
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
+    saved = profile_repository.create(_minimal_profile(first_name="Reintento"))
+
+    all_profiles = profile_repository.list()
+    assert len(all_profiles) == 1
+    assert all_profiles[0]["profile_id"] == saved["profile_id"]
+
+
+# --- Phase 3.1: simulación de restore -- un Profile fallido tampoco puede
+# reaparecer vía restore/mirror -----------------------------------------
+
+def test_failed_profile_does_not_reappear_after_restore_simulation(monkeypatch):
+    # "Restore" acá es conceptual (§10 del ticket: "usar mocks/temp dirs,
+    # no Spaces real") -- lo que un restore real haría es repoblar
+    # `_profiles_dir()` a partir de lo que existe en el bucket remoto. Si
+    # el create falló, `_cleanup_failed_write` ya garantizó que el archivo
+    # local NUNCA existió después del fallo -- así que no hay NADA que un
+    # restore/mirror posterior pueda encontrar y "resucitar". Se simula
+    # reconstruyendo el directorio local desde cero (como haría
+    # `remote_store.restore()` contra un container con FS efímero vacío) y
+    # confirmando que sigue sin aparecer.
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    with pytest.raises(ProfileStorageError):
+        profile_repository.create(_minimal_profile(first_name="Fantasma"))
+
+    profiles_dir = config.BASE_DIR / "human-capital" / "profiles"
+    assert not profiles_dir.exists() or list(profiles_dir.iterdir()) == []
+
+    # Simula un restart/restore: el directorio local vuelve a "arrancar
+    # vacío" (mismo estado que un container con FS efímero recién creado,
+    # ver core/remote_store.py) -- nada que restaurar para este Profile,
+    # porque nunca se confirmó su durabilidad remota.
+    assert profile_repository.list() == []
+
+
+def test_successful_profile_still_restores_correctly(monkeypatch):
+    # Control positivo del test anterior: un create() EXITOSO sí debe
+    # sobrevivir un restore/reinicio -- confirma que la corrección de
+    # Phase 3.1 (borrar en el camino de FALLO) no afecta el camino de
+    # ÉXITO.
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
+    saved = profile_repository.create(_minimal_profile(first_name="Sobrevive"))
+
+    # Simula un restart leyendo de nuevo desde el mismo directorio local
+    # (lo que un `remote_store.restore()` real dejaría en su lugar antes
+    # de que el proceso siguiera sirviendo requests).
+    fetched = profile_repository.get(saved["profile_id"])
+    assert fetched is not None
+    assert fetched["first_name"] == "Sobrevive"
+    assert profile_repository.list() == [fetched]

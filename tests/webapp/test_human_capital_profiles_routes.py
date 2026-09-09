@@ -195,6 +195,54 @@ def test_get_list_failure_shows_source_error_never_sin_resultados(monkeypatch):
 
 
 # ============================================================================
+# Phase 3.1 — clasificación explícita CONFIG_INCOMPLETE vs SOURCE_ERROR,
+# y la garantía de que un create() fallido nunca reaparece (root cause del
+# bug de data correctness de Phase 3).
+# ============================================================================
+
+def test_spaces_disabled_post_is_classified_as_config_incomplete(monkeypatch):
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
+    response = _client_as(_AUTHORIZED_EMAIL).post(
+        "/human-capital/profiles", data={"first_name": "A", "last_name": "B"}
+    )
+    assert response.status_code == 200
+    assert 'data-error-kind="config_incomplete"' in response.text
+
+
+def test_enabled_but_push_failure_post_is_classified_as_source_error(monkeypatch):
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    response = _client_as(_AUTHORIZED_EMAIL).post(
+        "/human-capital/profiles", data={"first_name": "A", "last_name": "B"}
+    )
+    assert response.status_code == 200
+    assert 'data-error-kind="source_error"' in response.text
+
+
+def test_failed_create_never_reappears_on_a_subsequent_get(monkeypatch):
+    # El fixture `_authorized_and_isolated` deja `push_path` en éxito por
+    # default -- forzamos el fallo explícitamente para este POST.
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Fantasma", "last_name": "Uno"})
+    response = client.get("/human-capital/profiles")
+    assert "Fantasma Uno" not in response.text
+    assert 'dashboard-empty__label">Sin resultados' in response.text
+
+
+def test_failed_create_then_retry_produces_exactly_one_profile(monkeypatch):
+    client = _client_as(_AUTHORIZED_EMAIL)
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    client.post("/human-capital/profiles", data={"first_name": "Reintento", "last_name": "Uno"})
+
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
+    client.post("/human-capital/profiles", data={"first_name": "Reintento", "last_name": "Uno"})
+
+    assert len(profile_repository.list()) == 1
+
+
+# ============================================================================
 # Scope guards (Phase 3 §25) — nada de CV/SharePoint/roles en esta ruta
 # ============================================================================
 
