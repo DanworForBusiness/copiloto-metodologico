@@ -287,6 +287,49 @@ def test_failed_profile_does_not_reappear_after_restore_simulation(monkeypatch):
     assert profile_repository.list() == []
 
 
+def test_list_and_filter_performance_baseline_local_benchmark():
+    # Phase 3.2 §13/§14 — SOLO evidencia para un baseline, NUNCA un gate de
+    # producción ("no inventar un límite de producción a partir de un
+    # benchmark sintético", §13). Crea un dataset local controlado,
+    # cronometra `repository.list()` y `human_capital_service.
+    # filter_profiles()` POR SEPARADO (son dos costos distintos: leer todo
+    # de disco vs. filtrar en memoria lo ya leído — ver Phase 3.2 §14, sin
+    # índice/cache en ninguno de los dos). Los números concretos
+    # observados en una corrida local se reportan en el OUTPUT de la fase
+    # (§30 "Performance baseline"), no se hardcodean acá. Los `assert
+    # ... < 5.0` son un umbral deliberadamente laxo (atrapar solo una
+    # regresión catastrófica, p. ej. un loop infinito o una lectura
+    # O(n²)) — nunca un SLA de producción inventado desde un benchmark
+    # sintético.
+    import time
+
+    from webapp.services import human_capital_service
+
+    profile_count = 300
+    for i in range(profile_count):
+        profile_repository.create(_minimal_profile(
+            first_name=f"Persona{i}", last_name="Test",
+            seniority="Senior" if i % 2 == 0 else "Junior",
+        ))
+
+    start = time.perf_counter()
+    profiles = profile_repository.list()
+    list_duration = time.perf_counter() - start
+    assert len(profiles) == profile_count
+
+    start = time.perf_counter()
+    filtered = human_capital_service.filter_profiles(profiles, {"q": "persona1", "seniority": "Senior"})
+    filter_duration = time.perf_counter() - start
+    assert filtered  # "Persona1", "Persona10".."Persona19", etc. con seniority Senior
+
+    print(
+        f"\n[Phase 3.2 perf baseline] N={profile_count} "
+        f"list()={list_duration * 1000:.2f}ms filter()={filter_duration * 1000:.2f}ms"
+    )
+    assert list_duration < 5.0
+    assert filter_duration < 5.0
+
+
 def test_successful_profile_still_restores_correctly(monkeypatch):
     # Control positivo del test anterior: un create() EXITOSO sí debe
     # sobrevivir un restore/reinicio -- confirma que la corrección de

@@ -282,3 +282,155 @@ def test_operaciones_and_comercial_namespaces_unaffected():
     response = TestClient(app).get("/comercial", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/platform?next=%2Fcomercial"
+
+
+# ============================================================================
+# Phase 3.2 §19 — búsqueda textual vía GET ?q=
+# ============================================================================
+
+def test_search_q_filters_the_list():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Gómez"})
+    client.post("/human-capital/profiles", data={"first_name": "Ana", "last_name": "Ruiz"})
+    response = client.get("/human-capital/profiles", params={"q": "juan"})
+    assert "Juan Gómez" in response.text
+    assert "Ana Ruiz" not in response.text
+
+
+def test_search_q_no_match_shows_sin_resultados_never_no_disponible():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Gómez"})
+    response = client.get("/human-capital/profiles", params={"q": "nadie-coincide"})
+    assert 'data-empty-kind="no_matches"' in response.text
+    assert 'dashboard-empty__label">No disponible' not in response.text
+
+
+def test_zero_profiles_dataset_shows_dataset_empty_kind_not_no_matches():
+    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital/profiles", params={"q": "cualquier-cosa"})
+    assert 'data-empty-kind="dataset_empty"' in response.text
+
+
+def test_combined_q_and_structured_filter():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Gómez", "seniority": "Senior"})
+    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Ruiz", "seniority": "Junior"})
+    response = client.get("/human-capital/profiles", params={"q": "juan", "seniority": "Senior"})
+    assert "Juan Gómez" in response.text
+    assert "Juan Ruiz" not in response.text
+
+
+def test_clear_filters_link_present_only_when_a_filter_is_active():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    plain = client.get("/human-capital/profiles")
+    assert "Limpiar filtros" not in plain.text
+    filtered = client.get("/human-capital/profiles", params={"q": "juan"})
+    assert "Limpiar filtros" in filtered.text
+
+
+# ============================================================================
+# Phase 3.2 §20 — filtros estructurados vía GET
+# ============================================================================
+
+def test_filter_by_seniority():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Uno", "last_name": "A", "seniority": "Senior"})
+    client.post("/human-capital/profiles", data={"first_name": "Dos", "last_name": "B", "seniority": "Junior"})
+    response = client.get("/human-capital/profiles", params={"seniority": "Senior"})
+    assert "Uno A" in response.text
+    assert "Dos B" not in response.text
+
+
+def test_filter_by_source():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Uno", "last_name": "A", "source": "LinkedIn"})
+    client.post("/human-capital/profiles", data={"first_name": "Dos", "last_name": "B", "source": "Referido"})
+    response = client.get("/human-capital/profiles", params={"source": "LinkedIn"})
+    assert "Uno A" in response.text
+    assert "Dos B" not in response.text
+
+
+def test_filter_by_location_contains():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Uno", "last_name": "A", "location": "Buenos Aires, Argentina"})
+    response = client.get("/human-capital/profiles", params={"location": "buenos aires"})
+    assert "Uno A" in response.text
+
+
+def test_filter_by_potential_mark():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Uno", "last_name": "A", "potential_mark": "Alto"})
+    client.post("/human-capital/profiles", data={"first_name": "Dos", "last_name": "B", "potential_mark": "Medio"})
+    response = client.get("/human-capital/profiles", params={"potential_mark": "Alto"})
+    assert "Uno A" in response.text
+    assert "Dos B" not in response.text
+
+
+def test_multiple_filters_use_and_semantics():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={
+        "first_name": "Uno", "last_name": "A", "seniority": "Senior", "source": "LinkedIn",
+    })
+    client.post("/human-capital/profiles", data={
+        "first_name": "Dos", "last_name": "B", "seniority": "Senior", "source": "Referido",
+    })
+    response = client.get("/human-capital/profiles", params={"seniority": "Senior", "source": "LinkedIn"})
+    assert "Uno A" in response.text
+    assert "Dos B" not in response.text
+
+
+def test_unknown_filter_value_shows_no_matches_not_an_error():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Uno", "last_name": "A", "seniority": "Senior"})
+    response = client.get("/human-capital/profiles", params={"seniority": "NoExiste"})
+    assert response.status_code == 200
+    assert 'data-empty-kind="no_matches"' in response.text
+
+
+# ============================================================================
+# Phase 3.2 §21/§22 — duplicate advisory end-to-end
+# ============================================================================
+
+def test_duplicate_advisory_is_shown_on_matching_email():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez", "email": "juan@example.com"})
+    response = client.post(
+        "/human-capital/profiles", data={"first_name": "Otro", "last_name": "Nombre", "email": "juan@example.com"}
+    )
+    assert response.status_code == 200
+    assert 'data-advisory-kind="possible_duplicate"' in response.text
+    assert "Juan Pérez" in response.text
+
+
+def test_duplicate_advisory_never_reuses_no_disponible_surface():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})
+    response = client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})
+    assert 'dashboard-empty__label">No disponible' not in response.text
+    assert 'class="feedback-error"' not in response.text
+
+
+def test_duplicate_advisory_does_not_create_the_profile():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})
+    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})
+    assert len(profile_repository.list()) == 1
+
+
+def test_duplicate_confirmed_creates_exactly_one_additional_profile():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})
+    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})  # advisory, no crea
+    response = client.post(
+        "/human-capital/profiles",
+        data={"first_name": "Juan", "last_name": "Pérez", "duplicate_confirmed": "true"},
+    )
+    assert response.status_code == 200
+    assert len(profile_repository.list()) == 2
+
+
+def test_different_person_does_not_trigger_advisory_over_http():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})
+    response = client.post("/human-capital/profiles", data={"first_name": "Ana", "last_name": "Gómez"})
+    assert 'data-advisory-kind="possible_duplicate"' not in response.text
+    assert "Ana Gómez" in response.text

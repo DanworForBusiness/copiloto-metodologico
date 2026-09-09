@@ -22,6 +22,19 @@ a contratos DISTINTOS del Hub (Phase 3.1 §5/§11) — nunca la misma
 superficie para dos de ellas. `ProfileConfigIncompleteError` es subclase
 de `ProfileStorageError`, así que el `except` MÁS ESPECÍFICO va primero.
 
+Capital Humano Phase 3.2 — Profile Search, Filters & Duplicate Advisory:
+MISMAS dos rutas (§23, delta de superficie 0 — search/filtros van por
+GET query params, `?q=&seniority=&source=&location=&potential_mark=`,
+combinables vía AND). El GET agrega esos cinco `Query(...)` opcionales y
+arma un dict `query` — eso es plumbing, NO lógica de filtrado (§6): el
+router nunca decide QUÉ campos son buscables ni CÓMO se comparan, eso
+vive enteramente en `human_capital_service.filter_profiles`/
+`_matches_search_text`/`_matches_structured_filters`. El POST agrega
+`ProfileDuplicateAdvisory` como una CUARTA frontera de error — nunca
+reutiliza `No disponible`/`feedback-error` (§22) — y un campo de form
+`duplicate_confirmed` (§11, override explícito, validado acá mismo con
+un simple `.strip().lower() == "true"`, sin estado global/sesión).
+
 Consume `webapp.human_capital_access.is_human_capital_authorized`
 (allowlist explícita `HUMAN_CAPITAL_ALLOWED_USERS` del workspace Capital
 Humano, INDEPENDIENTE de `OPERATIONS_ALLOWED_USERS`/
@@ -43,13 +56,17 @@ tal como estaba antes de esta fase (ver Phase 1 forensic, "no forzar un
 module ID solo por crear el workspace")."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
 from webapp.services import auth_service, human_capital_service
-from webapp.services.human_capital_service import ProfileConfigIncompleteError, ProfileStorageError
+from webapp.services.human_capital_service import (
+    ProfileConfigIncompleteError,
+    ProfileDuplicateAdvisory,
+    ProfileStorageError,
+)
 from webapp.templating import templates
 
 router = APIRouter()
@@ -91,6 +108,7 @@ def human_capital_page(request: Request):
 def _profiles_panel_context(
     request: Request, *, error: str | None = None, form_values: dict | None = None,
     create_error: str | None = None, create_error_config_incomplete: bool = False,
+    duplicate_advisory: dict | None = None, query: dict | None = None,
 ) -> dict:
     """Contexto compartido del fragmento `human_capital_profiles_panel.html`
     — usado TANTO por el GET (embebido en la página completa) COMO por el
@@ -119,33 +137,64 @@ def _profiles_panel_context(
     `commercialForecastPanelBodyHtml`/`commercialActividadesHtml` — un
     solo primitivo visual, el texto/la clasificación en tests es lo que
     distingue, nunca un componente nuevo) pero NUNCA se confunden con
-    `Sin resultados` (Phase 3 §16)."""
+    `Sin resultados` (Phase 3 §16).
+
+    `query` (Phase 3.2 §6): dict semántico `{q, seniority, source,
+    location, potential_mark}` armado por el caller a partir de los
+    `Query(...)` del GET (nunca por el POST, que no tiene concepto de
+    filtro propio) — se filtra en memoria vía
+    `human_capital_service.filter_profiles`, SOBRE el mismo resultado de
+    `list_profiles()` de arriba, nunca con una lectura de disco aparte
+    (Phase 3.2 §14, sin índice/cache). `dataset_has_any_profiles`
+    distingue "no hay NINGÚN Profile" (§7, `Sin resultados` con el copy
+    original) de "hay Profiles pero ninguno matchea el filtro actual"
+    (`Sin resultados` con copy distinto, NUNCA `No disponible`) — la
+    plantilla decide cuál mostrar según cuál de las dos listas está vacía.
+
+    `duplicate_advisory` (Phase 3.2 §9/§22): el Profile YA existente que
+    matcheó como posible duplicado — CUARTA situación semántica, propia,
+    nunca superpuesta con `source_error`/`config_incomplete`/`error`
+    (un `create()` que dispara advisory nunca llegó a intentar
+    persistencia, así que `source_error` queda en lo que sea que
+    `list_profiles()` haya dado, independiente)."""
     source_error: str | None = None
-    profiles: list[dict] = []
+    all_profiles: list[dict] = []
     try:
-        profiles = human_capital_service.list_profiles()
+        all_profiles = human_capital_service.list_profiles()
     except ProfileStorageError as exc:
         source_error = str(exc)
+    profiles = human_capital_service.filter_profiles(all_profiles, query) if query else all_profiles
     config_incomplete = False
     if create_error is not None:
         source_error = create_error
         config_incomplete = create_error_config_incomplete
     return {
         "profiles": profiles,
+        "dataset_has_any_profiles": bool(all_profiles),
         "source_error": source_error,
         "config_incomplete": config_incomplete,
+        "duplicate_advisory": duplicate_advisory,
         "error": error,
         "form_values": form_values or {},
         "valid_sources": human_capital_service.VALID_SOURCES,
+        "query": query or {},
     }
 
 
 @router.get("/human-capital/profiles", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_profiles_page(request: Request):
+def human_capital_profiles_page(
+    request: Request,
+    q: str = Query(""), seniority: str = Query(""), source: str = Query(""),
+    location: str = Query(""), potential_mark: str = Query(""),
+):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
     user = auth_service.session_user(request)
+    # Plumbing puro (Phase 3.2 §6): arma el dict semántico que el service
+    # sabe interpretar — el router no decide qué campos son buscables ni
+    # cómo se comparan, eso vive en human_capital_service.filter_profiles.
+    query = {"q": q, "seniority": seniority, "source": source, "location": location, "potential_mark": potential_mark}
     return templates.TemplateResponse(
         request=request, name="human_capital/profiles.html",
         context={
@@ -154,7 +203,7 @@ def human_capital_profiles_page(request: Request):
             "pack": DEFAULT_PACK,
             "user": user,
             "active_page": "perfiles",
-            **_profiles_panel_context(request),
+            **_profiles_panel_context(request, query=query),
         },
     )
 
@@ -166,7 +215,7 @@ def human_capital_profiles_create(
     phone: str = Form(""), linkedin_url: str = Form(""), location: str = Form(""),
     profile_skills: str = Form(""), seniority: str = Form(""), source: str = Form(""),
     tags: str = Form(""), notes: str = Form(""), potential_rating: str = Form(""),
-    potential_mark: str = Form(""),
+    potential_mark: str = Form(""), duplicate_confirmed: str = Form(""),
 ):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
@@ -177,8 +226,13 @@ def human_capital_profiles_create(
         "seniority": seniority, "source": source, "tags": tags, "notes": notes,
         "potential_rating": potential_rating, "potential_mark": potential_mark,
     }
+    # Override explícito, server-side, sin estado global/sesión (Phase
+    # 3.2 §11) — el propio botón "Crear de todos modos" del panel envía
+    # este campo con valor literal "true"; cualquier otro valor (ausente,
+    # "false", basura) se trata como NO confirmado.
+    confirmed = duplicate_confirmed.strip().lower() == "true"
     try:
-        human_capital_service.create_profile(form_values)
+        human_capital_service.create_profile(form_values, duplicate_confirmed=confirmed)
     except ValueError as exc:
         # Validación: re-muestra el panel con el error y los valores ya
         # tipeados preservados — MISMO patrón exacto que
@@ -186,6 +240,17 @@ def human_capital_profiles_create(
         return templates.TemplateResponse(
             request=request, name="partials/human_capital_profiles_panel.html",
             context=_profiles_panel_context(request, error=str(exc), form_values=form_values),
+        )
+    except ProfileDuplicateAdvisory as exc:
+        # Posible duplicado (Phase 3.2 §9/§22): CUARTA frontera de error,
+        # nunca "No disponible"/"feedback-error" — la creación no ocurrió
+        # todavía, el form queda con los valores tipeados intactos para
+        # que "Crear de todos modos" pueda reenviarlos tal cual.
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_profiles_panel.html",
+            context=_profiles_panel_context(
+                request, form_values=form_values, duplicate_advisory=exc.matched_profile,
+            ),
         )
     except ProfileConfigIncompleteError as exc:
         # CONFIG_INCOMPLETE (Phase 3.1 §5A): Spaces sin configurar — NUNCA
