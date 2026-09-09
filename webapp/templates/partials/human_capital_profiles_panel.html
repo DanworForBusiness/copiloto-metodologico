@@ -1,0 +1,118 @@
+{# human_capital_profiles_panel.html — fragmento compartido por
+   GET /human-capital/profiles (embebido en la página completa) y
+   POST /human-capital/profiles (fragmento solo, swap de HTMX) — MISMO
+   patrón que partials/tree_feedback_form.html (`hx-target` apunta a este
+   MISMO `id`, `hx-swap="outerHTML"`, el POST devuelve este fragmento
+   entero re-renderizado).
+
+   Contrato de error (Capital Humano Phase 3 §16): tres estados,
+   NUNCA la misma superficie para dos de ellos.
+     - `source_error` (persistencia/Spaces caída) -> "No disponible",
+       primitivo `.dashboard-empty` (MISMO que Reporting/Staffing/
+       Comercial) -- el form NO se limpia, MISMO valor de `form_values`
+       de lo que el usuario ya había tipeado.
+     - `error` (validación) -> `.feedback-error` (ya compartido en
+       tools.css, ver partials/tree_feedback_form.html) al lado del form,
+       valores tipeados preservados vía `form_values`.
+     - listado vacío sin error -> "Sin resultados", MISMO `.dashboard-empty`
+       pero con label distinto -- nunca se confunde con una falla real. #}
+<div id="hc-profiles-panel">
+  <form class="hc-profile-form" hx-post="/human-capital/profiles" hx-target="#hc-profiles-panel" hx-swap="outerHTML">
+    {% if error %}<p class="feedback-error">{{ error }}</p>{% endif %}
+    <div class="feedback-field">
+      <label for="hc-first-name">Nombre</label>
+      <input id="hc-first-name" name="first_name" type="text" value="{{ form_values.first_name or '' }}" required>
+    </div>
+    <div class="feedback-field">
+      <label for="hc-last-name">Apellido</label>
+      <input id="hc-last-name" name="last_name" type="text" value="{{ form_values.last_name or '' }}" required>
+    </div>
+    <div class="feedback-field">
+      <label for="hc-email">Email</label>
+      <input id="hc-email" name="email" type="email" value="{{ form_values.email or '' }}">
+    </div>
+    <div class="feedback-field">
+      <label for="hc-phone">Teléfono</label>
+      <input id="hc-phone" name="phone" type="text" value="{{ form_values.phone or '' }}">
+    </div>
+    <div class="feedback-field">
+      <label for="hc-linkedin">LinkedIn</label>
+      <input id="hc-linkedin" name="linkedin_url" type="text" value="{{ form_values.linkedin_url or '' }}">
+    </div>
+    <div class="feedback-field">
+      <label for="hc-location">Ubicación</label>
+      <input id="hc-location" name="location" type="text" value="{{ form_values.location or '' }}">
+    </div>
+    <div class="feedback-field">
+      <label for="hc-skills">Perfil / Skills</label>
+      <input id="hc-skills" name="profile_skills" type="text" value="{{ form_values.profile_skills or '' }}">
+    </div>
+    <div class="feedback-field">
+      <label for="hc-seniority">Seniority</label>
+      <input id="hc-seniority" name="seniority" type="text" value="{{ form_values.seniority or '' }}">
+    </div>
+    <div class="feedback-field">
+      <label for="hc-source">Fuente</label>
+      <select id="hc-source" name="source">
+        <option value="" {% if not form_values.source %}selected{% endif %}>Sin especificar</option>
+        {% for opt in valid_sources %}
+        <option value="{{ opt }}" {% if form_values.source == opt %}selected{% endif %}>{{ opt }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="feedback-field">
+      <label for="hc-tags">Tags</label>
+      <input id="hc-tags" name="tags" type="text" value="{{ form_values.tags or '' }}">
+    </div>
+    <div class="feedback-field">
+      <label for="hc-notes">Notas</label>
+      <textarea id="hc-notes" name="notes" rows="2">{{ form_values.notes or '' }}</textarea>
+    </div>
+    <div class="feedback-field">
+      <label for="hc-potential-rating">Potencial (1-5)</label>
+      <input id="hc-potential-rating" name="potential_rating" type="text" value="{{ form_values.potential_rating or '' }}">
+    </div>
+    <div class="feedback-field">
+      <label for="hc-potential-mark">Marca de potencial</label>
+      <input id="hc-potential-mark" name="potential_mark" type="text" value="{{ form_values.potential_mark or '' }}">
+    </div>
+    <button type="submit" class="btn-primary">Agregar al Banco de Perfiles</button>
+  </form>
+
+  {% if source_error %}
+  <div class="dashboard-empty">
+    <span class="dashboard-empty__label">No disponible</span>
+    <p>No pudimos acceder al Banco de Perfiles en este momento. {{ source_error }}</p>
+  </div>
+  {% elif not profiles %}
+  <div class="dashboard-empty">
+    <span class="dashboard-empty__label">Sin resultados</span>
+    <p>Todavía no hay perfiles cargados en el Banco de Perfiles.</p>
+  </div>
+  {% else %}
+  <div class="matrix-scroll">
+    <table class="dashboard-table">
+      <thead>
+        <tr>
+          <th class="row-label-col">Nombre</th>
+          <th>Perfil / Skills</th>
+          <th>Seniority</th>
+          <th>Ubicación</th>
+          <th>Fuente</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for profile in profiles %}
+        <tr>
+          <td class="row-label">{{ profile.first_name }} {{ profile.last_name }}</td>
+          <td>{{ profile.profile_skills or "—" }}</td>
+          <td>{{ profile.seniority or "—" }}</td>
+          <td>{{ profile.location or "—" }}</td>
+          <td>{{ profile.source or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>

@@ -1,21 +1,31 @@
 """
-human_capital.py — Capital Humano HTTP (Capital Humano Phase 1 — Hub
-Walking Skeleton).
+human_capital.py — Capital Humano HTTP.
 
-Objetivo de esta fase: probar el VERTICAL BOUNDARY antes de portar
-comportamiento funcional. `GET /human-capital` — shell autenticado, sin
-dato de negocio, sin Supabase, sin lógica legacy, sin roles internos
-(hrbp/hiring_manager, NO implementados) — la MISMA arquitectura Hub que ya
-demostraron Operations y Commercial (auth/sesión, topbar, switcher,
-sidebar, theme, CSS/JS compartido, loader canónico, permissions pattern),
-aplicada a un CUARTO workspace.
+Capital Humano Phase 1 — Hub Walking Skeleton: `GET /human-capital` — shell
+autenticado, sin dato de negocio, sin Supabase, sin lógica legacy, sin
+roles internos (hrbp/hiring_manager, NO implementados) — la MISMA
+arquitectura Hub que ya demostraron Operations y Commercial (auth/sesión,
+topbar, switcher, sidebar, theme, CSS/JS compartido, loader canónico,
+permissions pattern), aplicada a un CUARTO workspace.
+
+Capital Humano Phase 3 — First Profile Slice: `GET/POST /human-capital/
+profiles` — Banco de Perfiles (metadata únicamente, SIN CV/SharePoint,
+ver `webapp/services/human_capital_service.py`/
+`webapp/services/profile_repository.py`). Router liviano por diseño (§14
+del ticket): no conoce filesystem, no conoce Spaces, no genera UUID, no
+serializa JSON — solo resuelve `Request`/valida admisión/llama al
+service/renderiza. `ValueError` (validación de negocio) y
+`ProfileStorageError` (fallo de persistencia) son las DOS fronteras de
+error que el router traduce a los dos contratos DISTINTOS del Hub
+(Validación vs. `No disponible`) — nunca la misma superficie para ambas.
 
 Consume `webapp.human_capital_access.is_human_capital_authorized`
 (allowlist explícita `HUMAN_CAPITAL_ALLOWED_USERS` del workspace Capital
 Humano, INDEPENDIENTE de `OPERATIONS_ALLOWED_USERS`/
 `COMMERCIAL_ALLOWED_USERS`) — MISMO patrón que
 `webapp/routers/commercial.py` con `webapp.commercial_access` y
-`webapp/routers/staffing.py` con `webapp.operations_access`.
+`webapp/routers/staffing.py` con `webapp.operations_access` — para LAS TRES
+rutas de este router (el shell Y el Banco de Perfiles).
 
 El deep-link no autenticado entra por
 `webapp.workspaces.platform_login_redirect` (apunta a `/platform`) — NO
@@ -30,12 +40,13 @@ tal como estaba antes de esta fase (ver Phase 1 forensic, "no forzar un
 module ID solo por crear el workspace")."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
-from webapp.services import auth_service
+from webapp.services import auth_service, human_capital_service
+from webapp.services.human_capital_service import ProfileStorageError
 from webapp.templating import templates
 
 router = APIRouter()
@@ -71,4 +82,96 @@ def human_capital_page(request: Request):
             "user": user,
             "active_page": "inicio",
         },
+    )
+
+
+def _profiles_panel_context(
+    request: Request, *, error: str | None = None, form_values: dict | None = None,
+) -> dict:
+    """Contexto compartido del fragmento `human_capital_profiles_panel.html`
+    — usado TANTO por el GET (embebido en la página completa) COMO por el
+    POST (fragmento solo, para el swap de HTMX) — nunca dos plantillas con
+    la misma estructura mantenidas por separado.
+
+    `error`: mensaje de VALIDACIÓN (ValueError) para re-mostrar junto al
+    form con los valores ya tipeados preservados — NUNCA se usa para un
+    fallo de persistencia (eso es `source_error`, distinto, ver abajo).
+    `source_error`: fallo de filesystem/Spaces — contrato `No disponible`
+    del Hub, NUNCA `Sin resultados` (Phase 3 §16)."""
+    source_error: str | None = None
+    profiles: list[dict] = []
+    try:
+        profiles = human_capital_service.list_profiles()
+    except ProfileStorageError as exc:
+        source_error = str(exc)
+    return {
+        "profiles": profiles,
+        "source_error": source_error,
+        "error": error,
+        "form_values": form_values or {},
+        "valid_sources": human_capital_service.VALID_SOURCES,
+    }
+
+
+@router.get("/human-capital/profiles", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profiles_page(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    return templates.TemplateResponse(
+        request=request, name="human_capital/profiles.html",
+        context={
+            "current_workspace": workspaces.HUMAN_CAPITAL,
+            "available_workspaces": workspaces.available_workspaces(user),
+            "pack": DEFAULT_PACK,
+            "user": user,
+            "active_page": "perfiles",
+            **_profiles_panel_context(request),
+        },
+    )
+
+
+@router.post("/human-capital/profiles", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profiles_create(
+    request: Request,
+    first_name: str = Form(""), last_name: str = Form(""), email: str = Form(""),
+    phone: str = Form(""), linkedin_url: str = Form(""), location: str = Form(""),
+    profile_skills: str = Form(""), seniority: str = Form(""), source: str = Form(""),
+    tags: str = Form(""), notes: str = Form(""), potential_rating: str = Form(""),
+    potential_mark: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form_values = {
+        "first_name": first_name, "last_name": last_name, "email": email, "phone": phone,
+        "linkedin_url": linkedin_url, "location": location, "profile_skills": profile_skills,
+        "seniority": seniority, "source": source, "tags": tags, "notes": notes,
+        "potential_rating": potential_rating, "potential_mark": potential_mark,
+    }
+    try:
+        human_capital_service.create_profile(form_values)
+    except ValueError as exc:
+        # Validación: re-muestra el panel con el error y los valores ya
+        # tipeados preservados — MISMO patrón exacto que
+        # wizard.py::tree_feedback_submit con `store.submit_feedback`.
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_profiles_panel.html",
+            context=_profiles_panel_context(request, error=str(exc), form_values=form_values),
+        )
+    except ProfileStorageError as exc:
+        # Persistencia/fuente: contrato `No disponible`, NUNCA se reporta
+        # éxito sobre un Profile que no confirmó su respaldo en Spaces
+        # (Phase 3 §10) — el form NO se limpia, para no perder lo tipeado.
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_profiles_panel.html",
+            context={**_profiles_panel_context(request, form_values=form_values), "source_error": str(exc)},
+        )
+    # Éxito confirmado (push_path() ya devolvió True) — vuelve al listado
+    # con el form limpio (MISMO patrón que devolver el fragmento sin
+    # `form_values`, así el <input> vacío queda como default del template).
+    return templates.TemplateResponse(
+        request=request, name="partials/human_capital_profiles_panel.html",
+        context=_profiles_panel_context(request),
     )

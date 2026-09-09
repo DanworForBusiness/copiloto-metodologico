@@ -64,8 +64,21 @@ SPACES_SYNC_INTERVAL = int(_env("SPACES_SYNC_INTERVAL", "120"))  # segundos entr
 # históricos en esta fase (ver reporting_time_logs_durable.py) — Delta de
 # Proyectos/Cliente/Horas/Client Partner, el archivo Time Logs actual y
 # Facturadas quedan explícitamente fuera de alcance.
+# "human-capital" (Capital Humano Phase 3 — Profile metadata slice, ver
+# webapp/services/profile_repository.py): a diferencia de reporting_cache
+# (cache re-descargable, tolera el ciclo periódico de mirror_up), acá vive
+# DATO DE NEGOCIO real (Banco de Perfiles) — por eso cada `create()` además
+# hace write-through inmediato vía `remote_store.push_path()`, sin esperar
+# el próximo ciclo. Este registro en PERSIST_PATHS sigue siendo necesario
+# igual: es lo que hace que `restore()` sepa bajarlo al arrancar un
+# container con filesystem efímero vacío.
+#
+# IMPORTANTE (deployment): si el entorno YA define `SPACES_PERSIST_PATHS`
+# explícito (override de este default), hay que sumar "human-capital" a
+# ese valor real en el entorno también — este default de código NO alcanza
+# solo si la env var está seteada.
 PERSIST_PATHS     = [p.strip() for p in _env(
-    "SPACES_PERSIST_PATHS", "catalog_local,case_library,feedback_log,activity_log,reports,reporting_cache"
+    "SPACES_PERSIST_PATHS", "catalog_local,case_library,feedback_log,activity_log,reports,reporting_cache,human-capital"
 ).split(",") if p.strip()]
 PERSIST_ENABLED   = bool(SPACES_ENDPOINT and SPACES_BUCKET and SPACES_KEY and SPACES_SECRET)
 

@@ -660,6 +660,12 @@ def test_15_route_surface_still_120():
     #     exacto que Commercial Batch 0 (99 -> ver arriba) aplicado a un
     #     nuevo workspace -- sin dato de negocio, sin Supabase, sin roles.
     #     No toca ninguna ruta de Staffing/Commercial/Reporting.
+    #   122 -> 124 (Capital Humano Phase 3 -- First Profile Slice, ver
+    #     HANDOFF): +2. `GET/POST /human-capital/profiles` -- Banco de
+    #     Perfiles, primera capability real del cuarto workspace (metadata
+    #     únicamente, sin CV/SharePoint todavía -- ver
+    #     webapp/services/human_capital_service.py/profile_repository.py).
+    #     No toca ninguna ruta de Staffing/Commercial/Reporting.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -667,7 +673,7 @@ def test_15_route_surface_still_120():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 122
+    assert len(snapshot) == 124
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot
