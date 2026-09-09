@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('human-capital')"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {# Identidad IZQUIERDA: MISMO componente animado histórico que Copiloto/
+     Operations/Comercial (ver assets/danwor-animated-dancing.html vía
+     /brand/dancing/{pack}) — parametrizado con el título/subtítulo del
+     workspace. Capital Humano no tiene concepto de pack propio, así que
+     `pack` llega como DEFAULT_PACK desde human_capital.py — MISMO criterio
+     que Comercial (ver ese router). #}
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+
+  {% include "partials/human_capital_nav.html" %}
+
+  {# MISMO primitivo de resize que Copiloto/Operations/Comercial —
+     ver partials/workspace_shell.html::sidebar_resize_handle(). #}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero">
+      <p class="eyebrow">Capital Humano</p>
+      <h1>Gestión integral del ciclo de selección e incorporación</h1>
+    </section>
+
+    {# Estado informativo — MISMO primitivo Hub-compartido que Reporting/
+       Staffing/Comercial usan para "sin resultados todavía" (`.dashboard-
+       empty`/`.dashboard-empty__label`, ver tools.css), reusado acá para
+       comunicar honestamente que las capacidades llegan de a poco — NUNCA
+       una lista de funcionalidades como si ya estuvieran disponibles
+       (Phase 1: walking skeleton, sin dato de negocio todavía). #}
+    <div class="dashboard-empty">
+      <span class="dashboard-empty__label">En construcción</span>
+      <p>Las capacidades de Capital Humano se van a incorporar de manera incremental.</p>
+    </div>
+  </main>
+</div>
+{% endblock %}

@@ -654,6 +654,12 @@ def test_15_route_surface_still_120():
     #     OPERATIONS_ALLOWED_USERS) -- MISMO reporte que /admin/activity,
     #     nunca un fork (ver webapp/hub_metrics_access.py). No toca ninguna
     #     ruta de Staffing.
+    #   121 -> 122 (Capital Humano Phase 1 -- Hub Walking Skeleton, ver
+    #     HANDOFF): +1 GET. `/human-capital` -- shell mínimo del CUARTO
+    #     workspace (ver webapp/routers/human_capital.py), MISMO patrón
+    #     exacto que Commercial Batch 0 (99 -> ver arriba) aplicado a un
+    #     nuevo workspace -- sin dato de negocio, sin Supabase, sin roles.
+    #     No toca ninguna ruta de Staffing/Commercial/Reporting.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -661,7 +667,7 @@ def test_15_route_surface_still_120():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 121
+    assert len(snapshot) == 122
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

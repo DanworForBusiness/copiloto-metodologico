@@ -181,6 +181,83 @@ def test_operations_listing_alone_never_grants_commercial_discovery(monkeypatch)
     assert workspaces.COMMERCIAL not in result
 
 
+# --- Capital Humano (Capital Humano Phase 1 — Hub Walking Skeleton) -------
+# MISMO criterio exacto que las combinaciones de Operations/Commercial
+# arriba, aplicado a la allowlist INDEPENDIENTE de Capital Humano.
+
+def test_full_tier_without_human_capital_listing_sees_only_copilot(monkeypatch):
+    _admit_full(monkeypatch, "full-user@danwor.com")
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
+    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "")
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", "")
+
+    result = workspaces.available_workspaces(_user("full-user@danwor.com"))
+
+    assert result == [workspaces.COPILOT]
+
+
+def test_full_tier_with_human_capital_listing_sees_both_workspaces(monkeypatch):
+    _admit_full(monkeypatch, "full-user@danwor.com")
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
+    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "")
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", "full-user")
+
+    result = workspaces.available_workspaces(_user("full-user@danwor.com"))
+
+    assert result == [workspaces.COPILOT, workspaces.HUMAN_CAPITAL]
+
+
+def test_academy_tier_with_human_capital_listing_sees_both_workspaces(monkeypatch):
+    # MISMA combinación nueva que Operations/Commercial (ver arriba):
+    # Capital Humano no exige tier "full" — solo admisión base + su
+    # propia allowlist.
+    _admit_academy(monkeypatch, "academy-user@danwor.com")
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
+    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "")
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", "academy-user")
+
+    result = workspaces.available_workspaces(_user("academy-user@danwor.com"))
+
+    assert result == [workspaces.COPILOT, workspaces.HUMAN_CAPITAL]
+
+
+def test_human_capital_allowed_users_missing_denies_human_capital_regardless_of_tier(monkeypatch):
+    _admit_full(monkeypatch, "full-user@danwor.com")
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
+    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "")
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", "")
+
+    result = workspaces.available_workspaces(_user("full-user@danwor.com"))
+
+    assert result == [workspaces.COPILOT]
+
+
+def test_user_authorized_for_all_four_workspaces_sees_all_four(monkeypatch):
+    # Los cuatro workspaces son independientes entre sí — MISMO criterio
+    # que test_user_authorized_for_both_operations_and_commercial_sees_all_three,
+    # extendido al cuarto workspace.
+    _admit_full(monkeypatch, "power-user@danwor.com")
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "power-user")
+    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "power-user")
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", "power-user")
+
+    result = workspaces.available_workspaces(_user("power-user@danwor.com"))
+
+    assert result == [workspaces.COPILOT, workspaces.OPERATIONS, workspaces.COMMERCIAL, workspaces.HUMAN_CAPITAL]
+
+
+def test_operations_listing_alone_never_grants_human_capital_discovery(monkeypatch):
+    _admit_full(monkeypatch, "ops-only@danwor.com")
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "ops-only")
+    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "")
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", "")
+
+    result = workspaces.available_workspaces(_user("ops-only@danwor.com"))
+
+    assert result == [workspaces.COPILOT, workspaces.OPERATIONS]
+    assert workspaces.HUMAN_CAPITAL not in result
+
+
 def test_no_session_sees_no_workspaces():
     # user=None representa "sin sesión" — no una combinación de tiers
     # inventada. Bajo la política actual, un usuario CON sesión siempre

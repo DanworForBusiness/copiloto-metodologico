@@ -47,6 +47,7 @@
   "GET /favicon.ico",
   "GET /health",
   "GET /home",
+  "GET /human-capital",
   "GET /login",
   "GET /modules/{stem}",
   "GET /onedanwor",

@@ -57,6 +57,7 @@ from webapp.routers import reporting as reporting_router
 from webapp.routers import staffing as staffing_router
 from webapp.routers import platform as platform_router
 from webapp.routers import commercial as commercial_router
+from webapp.routers import human_capital as human_capital_router
 
 WEB_DIR = Path(__file__).parent
 
@@ -228,6 +229,7 @@ app.include_router(staffing_router.router)
 app.include_router(reporting_router.router)
 app.include_router(platform_router.router)
 app.include_router(commercial_router.router)
+app.include_router(human_capital_router.router)
 
 
 # Aliases a las capacidades ya extraídas (gate distribuido pre-2D). Los handlers

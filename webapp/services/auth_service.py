@@ -24,6 +24,7 @@ from config import (
     AZURE_TENANT_ID,
     COMMERCIAL_ALLOWED_USERS,
     HUB_METRICS_ALLOWED_USERS,
+    HUMAN_CAPITAL_ALLOWED_USERS,
     OPERATIONS_ALLOWED_USERS,
     SESSION_MAX_AGE,
     SESSION_SECRET,
@@ -147,6 +148,33 @@ def is_commercial_user(email: str) -> bool:
     if not email:
         return False
     return email in _commercial_set()
+
+
+def _human_capital_set() -> set[str]:
+    """Allowlist EXPLÍCITA y PROVISORIA de Capital Humano (Phase 1 — Hub
+    Walking Skeleton) — MISMO contrato que `_operations_set()`/
+    `_commercial_set()` (ver esos docstrings): SIEMPRE devuelve un
+    `set[str]` concreto, nunca `None`, y el literal "ALL" queda rechazado —
+    Capital Humano NUNCA puede abrirse a "todos" por accidente de reuso del
+    parser compartido ni por configurar `HUMAN_CAPITAL_ALLOWED_USERS=ALL`."""
+    result = _csv_users(HUMAN_CAPITAL_ALLOWED_USERS, empty_is_all=False)
+    return result if result is not None else set()
+
+
+def is_human_capital_user(email: str) -> bool:
+    """True si `email` (o su alias compacto `usuario@` + `AUTH_DEFAULT_DOMAIN`)
+    está en `HUMAN_CAPITAL_ALLOWED_USERS`. Deliberadamente ORTOGONAL a
+    `user_tier`/`is_authorized` — MISMO criterio que `is_commercial_user`/
+    `is_operations_user` (ver esos docstrings): un caller debe seguir
+    exigiendo `is_authorized(email)` por separado (ver
+    `webapp.human_capital_access.is_human_capital_authorized_user`). Esto es
+    SOLO admisión al workspace — no roles internos (hrbp/hiring_manager,
+    NO implementados en esta fase) ni data scope. Nunca "todos" — ver
+    `_human_capital_set()`."""
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    return email in _human_capital_set()
 
 
 def _hub_metrics_set() -> set[str]:

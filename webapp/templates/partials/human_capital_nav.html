@@ -1,0 +1,24 @@
+{# Nav izquierdo de Capital Humano — MISMO idioma visual que
+   commercial_nav.html/operations_nav.html (.module-nav/.nav-kicker/
+   .module-link), sin acordeón. Capital Humano Phase 1 (Hub Walking
+   Skeleton): UNA única landing, sin capabilities todavía — "no anticipar
+   Candidatos/Búsquedas/Entrevistas/Onboarding/Avisos/Indicadores/
+   Administración" (ver Phase 1 output). Cuando exista una primera
+   capacidad real, se agrega acá como un segundo <a>, MISMO criterio que
+   Commercial con CRM/Operations con Asignaciones.
+   `active_page` ("inicio") lo pasa el router — mismo criterio que
+   `active_page` en commercial_nav.html/operations_nav.html.
+   La bienvenida de sesión reusa el MISMO macro compartido que
+   copilot_nav.html/operations_nav.html/commercial_nav.html
+   (partials/workspace_shell.html) — misma fuente de identidad, nunca una
+   segunda copia del formateo de nombre. #}
+{% from "partials/workspace_shell.html" import nav_welcome %}
+<aside class="module-nav" :class="navOpen&&'is-open'">
+  {{ nav_welcome(user) }}
+  <nav aria-label="Capital Humano">
+    <p class="nav-kicker sidebar-workspace-kicker">CAPITAL HUMANO</p>
+    <a href="/human-capital" class="module-link {% if active_page == 'inicio' %}is-active{% endif %}">
+      <span>01</span><strong>Inicio</strong>
+    </a>
+  </nav>
+</aside>

@@ -190,6 +190,15 @@ OPERATIONS_ALLOWED_USERS = _env("OPERATIONS_ALLOWED_USERS", "")
 # que exista un mecanismo de entitlement central (Commercial Hub Workspace
 # Foundation, ver HANDOFF).
 COMMERCIAL_ALLOWED_USERS = _env("COMMERCIAL_ALLOWED_USERS", "")
+# Allowlist explícita del workspace Capital Humano (Phase 1 — Hub Walking
+# Skeleton) — MISMO contrato fail-closed que OPERATIONS_ALLOWED_USERS/
+# COMMERCIAL_ALLOWED_USERS arriba: ausente/vacío/"ALL" = NADIE autorizado,
+# nunca un fallback a "abierto". Provisorio hasta que exista un mecanismo
+# de entitlement central (Entra Groups/App Roles) — MISMO criterio que los
+# otros dos workspaces, sin roles internos (hrbp/hiring_manager) todavía:
+# esto es solo la frontera de admisión al workspace, no autorización de
+# capacidad.
+HUMAN_CAPITAL_ALLOWED_USERS = _env("HUMAN_CAPITAL_ALLOWED_USERS", "")
 # Usage Metrics como capacidad de HUB (owner ticket "HUB METRICS — CENTRALIZE
 # ACCESS AND ENABLE BY VERTICAL"): DOS preguntas independientes — "¿puedo
 # entrar al vertical?" (ALLOWED_USERS/OPERATIONS_ALLOWED_USERS/
