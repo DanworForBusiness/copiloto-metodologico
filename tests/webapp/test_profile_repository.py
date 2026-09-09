@@ -330,6 +330,39 @@ def test_list_and_filter_performance_baseline_local_benchmark():
     assert filter_duration < 5.0
 
 
+# --- Phase 3.3: contrato de remote_store.push_path() ejercido de punta a
+# punta a través de create() (no mockeado como caja negra) --------------
+
+def test_create_succeeds_end_to_end_when_only_signature_bookkeeping_fails(monkeypatch):
+    # Phase 3.3 §11/§10: a diferencia de todos los demás tests de este
+    # archivo, acá NO se mockea `profile_repository.remote_store.
+    # push_path` directamente -- se ejerce su implementación REAL (con
+    # `_get_client`/`_sig` mockeados en el punto de inyección más bajo que
+    # `remote_store.py` ya expone) a través de `create()`, para probar
+    # extremo a extremo que un PUT remoto exitoso con bookkeeping de firma
+    # fallido produce una creación EXITOSA -- sin ProfileConfigIncompleteError/
+    # ProfileStorageError, sin cleanup, el Profile queda en list().
+    from core import remote_store as remote_store_module
+
+    class _FakeClient:
+        def upload_file(self, filename, bucket, key):
+            pass  # el PUT remoto "sube" sin error
+
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    monkeypatch.setattr(remote_store_module, "_get_client", lambda: _FakeClient())
+
+    def _boom_sig(_path):
+        raise OSError("simulated post-upload bookkeeping failure")
+    monkeypatch.setattr(remote_store_module, "_sig", _boom_sig)
+
+    saved = profile_repository.create(_minimal_profile(first_name="SoloBookkeepingFalla"))
+
+    assert saved["first_name"] == "SoloBookkeepingFalla"
+    all_profiles = profile_repository.list()
+    assert len(all_profiles) == 1
+    assert all_profiles[0]["profile_id"] == saved["profile_id"]
+
+
 def test_successful_profile_still_restores_correctly(monkeypatch):
     # Control positivo del test anterior: un create() EXITOSO sí debe
     # sobrevivir un restore/reinicio -- confirma que la corrección de

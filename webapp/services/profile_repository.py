@@ -78,7 +78,16 @@ de conflicto). No aplica todavía porque `create()` siempre genera un
 
 Repository puro: NO conoce `Request`, NO renderiza HTML, NO importa
 FastAPI — solo filesystem + `core.remote_store` (NUNCA boto3/S3
-directamente, ver Phase 2 §1/§7)."""
+directamente, ver Phase 2 §1/§7).
+
+REMOTE WRITE OUTCOME (Phase 3.3, corrective en `core/remote_store.py`, no
+en este archivo): `remote_store.push_path()` ya NO puede devolver `False`
+para un PUT remoto que en realidad se completó — el bookkeeping local de
+firma (`_signatures`, usado sólo por `mirror_up()`) se separó del
+resultado del PUT en sí. `create()` no cambió: sigue leyendo el mismo
+booleano exactamente igual (`if remote_store.push_path(path): ...`), pero
+ahora ese booleano es más fiel a la durabilidad remota real — ver
+`_cleanup_failed_write` para el detalle de qué defensa quedó redundante."""
 from __future__ import annotations
 
 import json
@@ -188,14 +197,23 @@ def _cleanup_failed_write(path: Path) -> None:
     completar asincrónicamente una creación que ya se reportó como
     fallida.
 
-    También intenta un `remote_store.delete_path(path)` best-effort — NO
-    porque sea la defensa principal (la defensa principal es "nunca subir
-    lo que push_path() dijo que no confirmó"), sino como cobertura de una
-    carrera angosta y real: `push_path()` puede devolver `False` incluso
-    si el `PUT` remoto YA se completó, si la excepción ocurre en el paso
-    de bookkeeping POSTERIOR a la subida (`_signatures[key] = _sig(path)`
-    en `core/remote_store.py`, p. ej. si el archivo local desaparece entre
-    la subida y ese `stat()`). `delete_path()` opera EXCLUSIVAMENTE sobre
+    También intenta un `remote_store.delete_path(path)` best-effort.
+    NOTA (Phase 3.3 — Remote Store Durability Outcome corrective): esto
+    defendía originalmente contra una carrera real en `push_path()` — que
+    podía devolver `False` incluso con el `PUT` remoto YA completado, si
+    la excepción ocurría en el bookkeeping POSTERIOR a la subida
+    (`_signatures[key] = _sig(path)`). Esa carrera está CERRADA en la
+    fuente desde Phase 3.3: `push_path()` ahora separa el PUT remoto del
+    bookkeeping de firma en dos `try` distintos, así que un `False` de
+    `push_path()` HOY significa siempre "no se estableció durabilidad
+    remota" — nunca "el PUT succeeded pero el bookkeeping local falló".
+    Este `delete_path()` queda entonces como defensa-en-profundidad
+    PROVABLEMENTE redundante contra ese escenario específico (nunca
+    debería encontrar nada que borrar), pero se deja intacto
+    deliberadamente — es inocuo (un DELETE sobre una key que nunca se
+    llegó a subir es un no-op best-effort, ver `delete_path()`) y
+    remover código de limpieza que sigue siendo seguro está fuera del
+    scope mínimo de esta fase. `delete_path()` opera EXCLUSIVAMENTE sobre
     el objeto remoto (nunca toca disco, ver su propio docstring) — llamarlo
     después de borrar el archivo local es seguro (no depende de que el
     archivo siga existiendo). Nunca deja escapar sus propios errores: son
