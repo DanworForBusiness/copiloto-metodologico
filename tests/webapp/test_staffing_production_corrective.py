@@ -671,6 +671,13 @@ def test_15_route_surface_still_120():
     #     de un Profile existente con concurrencia optimista (`revision`)
     #     y compensating overwrite (ver profile_repository.update). No
     #     toca ninguna ruta de Staffing/Commercial/Reporting.
+    #   126 -> 129 (Capital Humano Phase 3.8 -- Safe Bulk Profile Import):
+    #     +3. `GET /human-capital/profiles/import` +
+    #     `POST .../import/preview` + `POST .../import/confirm` -- carga
+    #     masiva metadata-only vía XLSX, preview + confirm con identidad
+    #     preasignada firmada (ver profile_import_service.py y
+    #     profile_repository.create_with_explicit_id). No toca ninguna
+    #     ruta de Staffing/Commercial/Reporting.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -678,7 +685,7 @@ def test_15_route_surface_still_120():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 126
+    assert len(snapshot) == 129
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

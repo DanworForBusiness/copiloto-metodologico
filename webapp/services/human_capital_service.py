@@ -48,6 +48,7 @@ from webapp.services import profile_repository
 from webapp.services.profile_repository import (  # re-exportados para el router
     ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
+    ProfileIdConflictError,
     ProfileNotFoundError,
     ProfileRemoteOutcomeUnknownError,
     ProfileStorageError,
@@ -56,9 +57,10 @@ from webapp.services.profile_repository import (  # re-exportados para el router
 
 __all__ = [
     "ProfileConcurrentModificationError", "ProfileConfigIncompleteError",
-    "ProfileDuplicateAdvisory", "ProfileNotFoundError", "ProfileRemoteOutcomeUnknownError",
-    "ProfileStorageError", "VALID_SOURCES",
+    "ProfileDuplicateAdvisory", "ProfileIdConflictError", "ProfileNotFoundError",
+    "ProfileRemoteOutcomeUnknownError", "ProfileStorageError", "VALID_SOURCES",
     "list_profiles", "get_profile", "create_profile", "update_profile", "filter_profiles",
+    "validate_and_shape_fields", "find_duplicate", "create_profile_for_import",
 ]
 
 _REQUIRED_FIELDS = ("first_name", "last_name")
@@ -180,7 +182,7 @@ def filter_profiles(profiles: list[dict], query: dict | None) -> list[dict]:
     ]
 
 
-def _find_duplicate(profile: dict, existing: list[dict], *, exclude_profile_id: str | None = None) -> dict | None:
+def find_duplicate(profile: dict, existing: list[dict], *, exclude_profile_id: str | None = None) -> dict | None:
     """Contrato EXACTO de duplicate advisory pedido por el ticket (Phase
     3.2 §9 — el ZIP legacy original no está disponible en este entorno/
     sesión, ver OUTPUT §1: se reconstruye tal cual el algoritmo dado
@@ -208,7 +210,13 @@ def _find_duplicate(profile: dict, existing: list[dict], *, exclude_profile_id: 
     edición aplicada) está en `existing` — sin excluirlo, cualquier edición
     que no cambie email/nombre se marcaría como "duplicado de sí mismo".
     `create_profile` nunca pasa este parámetro (no hay profile_id propio
-    todavía que excluir)."""
+    todavía que excluir).
+
+    PÚBLICA desde Phase 3.8: `profile_import_service.py` reusa esta MISMA
+    función tal cual para detectar duplicados DENTRO del archivo subido
+    (mismo algoritmo — `existing` pasa a ser la lista de filas ya
+    aceptadas del MISMO archivo en vez de Profiles persistidos — Phase
+    3.7 §8/§10, "no bulk duplicate detection v2")."""
     if exclude_profile_id is not None:
         existing = [p for p in existing if p.get("profile_id") != exclude_profile_id]
     email = _normalize_email(profile.get("email"))
@@ -237,11 +245,14 @@ def get_profile(profile_id: str) -> dict | None:
     return profile_repository.get(profile_id)
 
 
-def _validate_and_shape_fields(fields: dict) -> dict:
-    """Validación + shaping de negocio COMPARTIDA entre `create_profile` y
-    `update_profile` (Phase 3.5 §13: "Service owns Profile input
-    validation; domain shaping" — un solo lugar, nunca duplicado entre
-    alta y edición). `fields` es el input crudo del form (strings).
+def validate_and_shape_fields(fields: dict) -> dict:
+    """Validación + shaping de negocio COMPARTIDA entre `create_profile`/
+    `update_profile`/`profile_import_service.py` (Phase 3.5 §13: "Service
+    owns Profile input validation; domain shaping" — un solo lugar, nunca
+    duplicado entre alta manual, edición, e import masivo — Phase 3.8 §8:
+    "Do NOT implement a parallel bulk validator"). `fields` es el input
+    crudo (strings) — sea de un form HTML o de una fila de spreadsheet ya
+    convertida a texto por el parser de import.
     Levanta `ValueError` (mensaje listo para mostrar al usuario) si:
       - falta `first_name`/`last_name` (§3, únicos campos requeridos —
         `email` sigue siendo opcional, nunca se usa como identidad, ver
@@ -294,7 +305,7 @@ def create_profile(fields: dict, *, duplicate_confirmed: bool = False) -> dict:
     """Validación SIEMPRE corre primero — un chequeo de duplicados sobre un
     Profile todavía inválido no tendría sentido (Phase 3.2).
 
-    `duplicate_confirmed=False` (default): si `_find_duplicate` encuentra
+    `duplicate_confirmed=False` (default): si `find_duplicate` encuentra
     un match contra los Profiles YA existentes (`profile_repository.list()`
     — una lectura adicional, solo acá, nunca si ya viene confirmado),
     levanta `ProfileDuplicateAdvisory` con el Profile existente que
@@ -306,9 +317,9 @@ def create_profile(fields: dict, *, duplicate_confirmed: bool = False) -> dict:
 
     Devuelve el Profile YA persistido (incluye `profile_id`/`schema_version`/
     `revision`/`created_at`/`updated_at`, agregados por el repository)."""
-    profile = _validate_and_shape_fields(fields)
+    profile = validate_and_shape_fields(fields)
     if not duplicate_confirmed:
-        duplicate = _find_duplicate(profile, profile_repository.list())
+        duplicate = find_duplicate(profile, profile_repository.list())
         if duplicate is not None:
             raise ProfileDuplicateAdvisory(duplicate)
     return profile_repository.create(profile)
@@ -318,14 +329,14 @@ def update_profile(
     profile_id: str, expected_revision: int, fields: dict, *, duplicate_confirmed: bool = False,
 ) -> dict:
     """Edición de un Profile EXISTENTE (Phase 3.5). MISMA validación que
-    `create_profile` (`_validate_and_shape_fields`, un solo lugar) —
+    `create_profile` (`validate_and_shape_fields`, un solo lugar) —
     corre SIEMPRE antes de cualquier chequeo de duplicado o de
     concurrencia, para no gastar un lock/lectura sobre un candidato
     todavía inválido.
 
     Duplicate advisory (Phase 3.5 §17): una edición puede cambiar
     email/nombre y por lo tanto crear un duplicado nuevo que no existía
-    antes de la edición — se corre el MISMO `_find_duplicate` que usa
+    antes de la edición — se corre el MISMO `find_duplicate` que usa
     `create_profile`, mismo criterio, EXCLUYENDO este mismo `profile_id`
     del conjunto de comparación (`exclude_profile_id`) para que una
     edición que no cambia email/nombre nunca se marque como duplicado de
@@ -341,9 +352,33 @@ def update_profile(
     `ProfileStorageError`/`ProfileRemoteOutcomeUnknownError`) se dejan
     propagar sin reinterpretar, MISMO criterio que `create_profile` con
     las suyas."""
-    profile = _validate_and_shape_fields(fields)
+    profile = validate_and_shape_fields(fields)
     if not duplicate_confirmed:
-        duplicate = _find_duplicate(profile, profile_repository.list(), exclude_profile_id=profile_id)
+        duplicate = find_duplicate(profile, profile_repository.list(), exclude_profile_id=profile_id)
         if duplicate is not None:
             raise ProfileDuplicateAdvisory(duplicate)
     return profile_repository.update(profile_id, expected_revision, profile)
+
+
+def create_profile_for_import(profile_id: str, fields: dict) -> tuple[dict, bool]:
+    """Camino INTERNO de bulk import (Phase 3.8 §17) — NUNCA expuesto al
+    alta manual, nombre deliberadamente DISTINTO de `create_profile` para
+    que una identidad preasignada externa nunca se confunda con una
+    feature general del alta. Solo `profile_import_service.py` debe
+    llamar esto, y solo DESPUÉS de verificar la firma del token de fila
+    (Phase 3.8 §13) — este service confía en que `profile_id`/`fields`
+    YA pasaron esa verificación; no vuelve a validar negocio ni a
+    chequear duplicados acá (esas decisiones ya se tomaron en preview,
+    con el listado completo de Profiles existentes disponible en ese
+    momento — repetirlas acá sería una segunda pasada de negocio
+    redundante, no una confirmación de persistencia).
+
+    Delega la comparación de idempotencia/collision íntegramente a
+    `profile_repository.create_with_explicit_id` (Phase 3.8 §14/§15) —
+    devuelve `(profile, created)`: `created=True` es CREATED,
+    `created=False` es ALREADY_COMMITTED (retry idempotente de la MISMA
+    fila, cero rewrite). `ProfileIdConflictError`/
+    `ProfileConfigIncompleteError`/`ProfileStorageError`/
+    `ProfileRemoteOutcomeUnknownError` se dejan propagar sin
+    reinterpretar, MISMO criterio que el resto de este service."""
+    return profile_repository.create_with_explicit_id(profile_id, fields)

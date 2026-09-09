@@ -107,7 +107,7 @@ casos, volver a escribir A produce un estado remoto conocido (A) si esa
 segunda escritura se confirma.
 
 CONCURRENCIA (Phase 3.4 §8-11, Phase 3.5 §8-9): un `threading.Lock()`
-GLOBAL de módulo (`_update_lock`, NUNCA un diccionario de locks por
+GLOBAL de módulo (`_write_lock`, NUNCA un diccionario de locks por
 Profile — ver Phase 3.4 §10, "no lock dictionary") serializa la sección
 crítica COMPLETA de `update()` (leer versión actual → comparar revision
 → escribir B → intentar push → eventual rollback a A → resultado final)
@@ -163,7 +163,19 @@ resucitarlo como un Profile ordinario. Cerrar esto por completo
 requeriría un protocolo de staging/promote (key temporal → CopyObject →
 delete) con más estados remotos y más máquina de recuperación — el
 ticket explícitamente pide NO construir eso sin evidencia que lo
-justifique, y una doble-pérdida-de-ack consecutiva no es esa evidencia."""
+justifique, y una doble-pérdida-de-ack consecutiva no es esa evidencia.
+
+BULK IMPORT — EXPLICIT-ID CREATE-ONLY (Phase 3.8): `create_with_explicit_id`
+es la ÚNICA extensión de superficie que bulk import necesita acá —
+`create()` sigue mintiendo su propio UUID sin cambios, `update()` sigue
+intacto. La identidad la asigna `webapp/services/profile_import_service.py`
+en preview (vía un token firmado, verificado ANTES de que este repository
+vea el `profile_id`) — este archivo nunca confía en un ID crudo del
+browser, solo en lo que YA pasó la verificación de firma del caller.
+"Create-only" es literal: un `profile_id` existente con el MISMO payload
+es un retry idempotente (`ALREADY_COMMITTED`, zero rewrite); con un
+payload DISTINTO es `ProfileIdConflictError` (zero write) — NUNCA un
+overwrite, sea cual sea el caso."""
 from __future__ import annotations
 
 import json
@@ -188,11 +200,16 @@ _PROFILES_SUBDIR = "profiles"
 # costo real que evita, pero nunca indefinido.
 _RESTORE_WAIT_TIMEOUT_S = 15.0
 
-# Phase 3.5 §8: lock GLOBAL de módulo, NUNCA por-Profile (sin diccionario
-# de locks, sin framework) — cubre la sección crítica COMPLETA de
-# update() de punta a punta, nunca se libera entre el chequeo de revision
-# y el resultado final (ver update()).
-_update_lock = threading.Lock()
+# Phase 3.5 §8 (ampliado por Phase 3.8 §16): lock GLOBAL de módulo, NUNCA
+# por-Profile (sin diccionario de locks, sin framework) — cubre la
+# sección crítica COMPLETA de CUALQUIER operación que necesite un
+# check-then-write sobre un profile_id ya conocido: `update()` (chequeo
+# de revision → escritura) y `create_with_explicit_id()` (chequeo de
+# existencia → escritura, Phase 3.8 bulk import). `create()` (UUID
+# siempre nuevo) NUNCA necesita este lock — no hay ninguna otra operación
+# que pueda estar compitiendo por un profile_id que nadie más conoce
+# todavía. Nunca se libera entre el chequeo y el resultado final.
+_write_lock = threading.Lock()
 
 # Únicos valores válidos de `source` (Legacy Profile Contract, Phase 2 §5 —
 # "Flyer" SÍ es válido acá: el bug legacy fue que el CHECK de la base lo
@@ -262,6 +279,38 @@ class ProfileRemoteOutcomeUnknownError(Exception):
     silently flatten this into source_error") — es una situación semántica
     propia, distinta, que el router debe manejar con su propio `except`
     explícito en AMBOS flujos (crear/editar)."""
+
+
+class ProfileIdConflictError(Exception):
+    """`create_with_explicit_id()` (Phase 3.8, bulk import) encontró un
+    `profile_id` que YA existe pero con campos de negocio DISTINTOS a los
+    propuestos — un estado de import inválido/corrupto/stale (un
+    `profile_id` no debería poder colisionar con otro intento real salvo
+    manipulación o un token de fila reusado incorrectamente), NUNCA una
+    situación de duplicate advisory (eso es `ProfileDuplicateAdvisory` en
+    `human_capital_service.py` — una persona distinta que PARECE la
+    misma; esto es la MISMA identidad técnica con datos que NO coinciden,
+    algo que nunca debería ocurrir en el flujo normal). Zero write: se
+    levanta ANTES de tocar el disco."""
+
+
+# Campos de NEGOCIO de un Profile (Phase 3.8 §15) — usados para decidir si
+# un `profile_id` ya existente representa el MISMO intento de creación
+# (mismo payload -> ALREADY_COMMITTED, idempotente) o uno DISTINTO
+# (-> ProfileIdConflictError). Deliberadamente duplica la lista de campos
+# que `human_capital_service.py` ya conoce (para validación/shaping) —
+# repository no importa de service (dirección de dependencia inversa
+# prohibida), y esta lista tiene un propósito distinto acá: no "qué
+# validar", sino "qué define la identidad de negocio de un intento de
+# creación" para la comparación de idempotencia.
+_BUSINESS_FIELDS = (
+    "first_name", "last_name", "email", "phone", "linkedin_url", "location",
+    "profile_skills", "seniority", "source", "tags", "notes", "potential_rating", "potential_mark",
+)
+
+
+def _business_fields_match(existing: dict, candidate: dict) -> bool:
+    return all(existing.get(field) == candidate.get(field) for field in _BUSINESS_FIELDS)
 
 
 def _profiles_dir() -> Path:
@@ -354,44 +403,28 @@ def _cleanup_failed_write(path: Path) -> None:
         _logger.warning("human_capital.profile_remote_cleanup_failed reason=%s", type(exc).__name__)
 
 
-def create(profile: dict) -> dict:
-    """Crea un Profile nuevo: genera `profile_id` (uuid4) + `schema_version`
-    + `revision=1` (Phase 3.5, token de concurrencia optimista — ver
-    docstring del módulo) + `created_at`/`updated_at`, escribe el JSON
-    localmente (crash-safe) y confirma el write-through a Spaces vía
-    `remote_store.push_path()` ANTES de devolver — ver DURABILITY CONTRACT
-    arriba. `profile` ya debe venir validado/shapeado por el caller
-    (`human_capital_service.create_profile`) — este repository no conoce
-    reglas de negocio, solo persiste lo que se le pasa.
+def _create_locked(profile_id: str, profile: dict) -> dict:
+    """Cuerpo COMPARTIDO de `create()`/`create_with_explicit_id()` (Phase
+    3.8): construye el payload (`schema_version`+`revision=1`+timestamps),
+    escribe local atómico, y confirma el write-through con el MISMO
+    contrato de reintento/clasificación de Phase 3.6 (ver docstring del
+    módulo, "CREATE — IN-DOUBT REMOTE DURABILITY") — IDÉNTICO sea que
+    `profile_id` venga recién generado (`create()`, sin necesidad de lock,
+    nadie más puede estar compitiendo por un UUID que nadie conoce
+    todavía) o preasignado y YA protegido por `_write_lock` en el caller
+    (`create_with_explicit_id()`). Esta función NUNCA valida negocio ni
+    decide concurrencia — eso ya corrió antes de llegar acá.
 
-    Secuencia de fallo (Phase 3.6 — ver "CREATE — IN-DOUBT REMOTE
-    DURABILITY" en el docstring del módulo):
+    Secuencia de fallo (sin cambios de Phase 3.6):
       1. `push_path(path)` — si confirma, ÉXITO inmediato.
       2. Si NO confirma y `remote_store.enabled() is False`: determinístico
          — ni este intento ni un reintento pueden confirmar jamás en este
          entorno, así que NO se reintenta. Limpieza + `ProfileConfigIncompleteError`.
       3. Si NO confirma y `enabled() is True`: UN reintento explícito al
-         MISMO `path`/key/contenido (nunca un `profile_id` nuevo — un
-         reintento de persistencia interno no es una nueva intención de
-         crear). Si el reintento confirma, ÉXITO (mismo `profile_id` de
-         siempre, nunca un Profile duplicado).
-      4. Si el reintento TAMPOCO confirma: no podemos concluir que el
-         remoto nunca tuvo el Profile (un `push_path()`/`delete_path()`
-         que falla no prueba ausencia ni existencia, §10 del ticket) —
-         limpieza + `ProfileRemoteOutcomeUnknownError`, NUNCA un
-         `ProfileStorageError`/SOURCE_ERROR común que afirmaría una
-         certeza de fallo que no existe.
-
-    En NINGÚN caso de fallo (determinístico o desconocido) el archivo
-    local sobrevive a esta llamada (Phase 3.1, ver `_cleanup_failed_write`)
-    — un GET inmediato, un restart/restore, o el ciclo periódico de
-    `mirror_up()` nunca pueden resucitar LOCALMENTE una creación ya
-    reportada como fallida (el riesgo residual de un objeto REMOTO
-    huérfano tras una doble pérdida de ack está divulgado, no resuelto,
-    ver docstring del módulo)."""
-    _ensure_restored()
+         MISMO `path`/key/contenido. Si confirma, ÉXITO.
+      4. Si el reintento TAMPOCO confirma: limpieza + `ProfileRemoteOutcomeUnknownError`,
+         NUNCA un `ProfileStorageError`/SOURCE_ERROR común."""
     now = _now_iso()
-    profile_id = str(uuid4())
     payload = {
         "schema_version": _SCHEMA_VERSION,
         "profile_id": profile_id,
@@ -405,25 +438,74 @@ def create(profile: dict) -> dict:
     if remote_store.push_path(path):
         return payload
     if not remote_store.enabled():
-        # Determinístico (Phase 3.6 §6/§7): reintentar acá no puede
-        # cambiar nada, `enabled()` sigue False siempre -- ni se intenta.
         _cleanup_failed_write(path)
         raise ProfileConfigIncompleteError(
             "El Banco de Perfiles todavía no está configurado para este entorno."
         )
-    # Primer push NO confirmado, Spaces SÍ configurado -- un solo
-    # reintento explícito al MISMO profile_id/key/contenido (Phase 3.6
-    # §5/§6) antes de concluir cualquier cosa.
     if remote_store.push_path(path):
         return payload
-    # El reintento TAMPOCO confirmó -- clasificación honesta: no podemos
-    # probar ausencia remota (Phase 3.6 §7/§10), así que NUNCA se reporta
-    # como un source_error común.
     _cleanup_failed_write(path)
     raise ProfileRemoteOutcomeUnknownError(
         "No pudimos confirmar si este Profile se guardó. Antes de reintentar, "
         "revisá el listado — si ya aparece, no lo vuelvas a cargar."
     )
+
+
+def create(profile: dict) -> dict:
+    """Crea un Profile nuevo: genera `profile_id` (uuid4) — SIEMPRE nuevo,
+    NUNCA aceptado como parámetro acá (ver `create_with_explicit_id` para
+    el camino interno de bulk import, Phase 3.8 §17: la identidad
+    preasignada es una capability DISTINTA, con nombre distinto a
+    propósito, para que un ID arbitrario externo nunca se filtre al alta
+    manual como si fuera una feature general). `profile` ya debe venir
+    validado/shapeado por el caller (`human_capital_service.create_profile`)
+    — este repository no conoce reglas de negocio, solo persiste lo que
+    se le pasa. Ver `_create_locked` para la secuencia de escritura/
+    reintento/clasificación de fallo (Phase 3.6) — IDÉNTICA acá."""
+    _ensure_restored()
+    profile_id = str(uuid4())
+    return _create_locked(profile_id, profile)
+
+
+def create_with_explicit_id(profile_id: str, profile: dict) -> tuple[dict, bool]:
+    """CREATE-ONLY con identidad PREASIGNADA (Phase 3.8 §14 — bulk import,
+    NUNCA expuesto al alta manual, ver `create()`). Invariante NO
+    NEGOCIABLE: esto JAMÁS sobrescribe un Profile committed existente —
+    "explicit ID create" no es "upsert".
+
+    Bajo `_write_lock` (sección crítica COMPLETA: chequeo de existencia →
+    write local → durabilidad remota, Phase 3.8 §16, MISMO lock que
+    `update()` reusa — nunca un lock competidor):
+      1. `get(profile_id)` — si YA existe:
+         - Si sus campos de NEGOCIO coinciden EXACTAMENTE con `profile`
+           (`_business_fields_match`): esto es un RETRY idempotente de la
+           MISMA fila de import (Phase 3.8 §15, "Existing ID + same
+           signed import payload" — el caller YA verificó la firma antes
+           de llegar acá) — devuelve `(existing, False)`. `False` señala
+           ALREADY_COMMITTED: nada se reescribe, `created_at`/`updated_at`/
+           `revision` del Profile YA persistido quedan completamente
+           intactos.
+         - Si NO coinciden: `ProfileIdConflictError` — un `profile_id`
+           reutilizado con datos distintos es un estado de import
+           inválido/corrupto, zero write (Phase 3.8 §15).
+      2. Si NO existe: procede exactamente como `create()` (vía
+         `_create_locked`, MISMO contrato de reintento/clasificación de
+         Phase 3.6) y devuelve `(payload, True)` — `True` señala CREATED.
+
+    Devuelve una tupla `(profile, created)` en vez de solo el dict — a
+    diferencia de `create()`/`update()` (un único resultado posible salvo
+    excepción), acá hay DOS resultados de éxito genuinamente distintos
+    (CREATED vs ALREADY_COMMITTED) que el caller de bulk import necesita
+    distinguir para el resumen de resultados (Phase 3.8 §18/§22)."""
+    with _write_lock:
+        existing = get(profile_id)
+        if existing is not None:
+            if _business_fields_match(existing, profile):
+                return existing, False
+            raise ProfileIdConflictError(
+                f"El Profile {profile_id} ya existe con datos distintos a los de este intento de importación."
+            )
+        return _create_locked(profile_id, profile), True
 
 
 def _with_revision_default(payload: dict) -> dict:
@@ -533,7 +615,7 @@ def update(profile_id: str, expected_revision: int, fields: dict) -> dict:
              - `False` → rollback NO confirmado: local A (ya restaurado),
                remoto DESCONOCIDO. `ProfileRemoteOutcomeUnknownError` —
                nunca se aplana a `ProfileStorageError` (ver esa clase)."""
-    with _update_lock:
+    with _write_lock:
         current = get(profile_id)
         if current is None:
             raise ProfileNotFoundError(f"El Profile {profile_id} no existe.")

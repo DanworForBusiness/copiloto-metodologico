@@ -62,6 +62,22 @@ mintearía un `profile_id` NUEVO (a diferencia de `update()`, create no
 tiene una key existente sobre la cual reintentar desde la UI). Delta de
 superficie: 0 rutas nuevas — mismo POST existente.
 
+Capital Humano Phase 3.8 — Safe Bulk Profile Import (Preview + Confirm):
+TRES rutas nuevas, `GET /human-capital/profiles/import` +
+`POST .../import/preview` + `POST .../import/confirm`. Router liviano
+otra vez: parsea el upload (acotado en bytes ANTES de leerlo entero, ver
+`profile_import_service.MAX_UPLOAD_BYTES`), delega TODO el parseo/
+preview/confirm a `webapp/services/profile_import_service.py`, y solo
+traduce sus resultados a contexto de plantilla — nunca decide qué es un
+duplicado, nunca firma/verifica tokens, nunca llama a
+`profile_repository` directamente. El archivo subido NUNCA se persiste
+(ni disco ni Spaces) — vive en memoria durante la única request que lo
+procesa. `preview` es de solo lectura (cero writes, ver
+`profile_import_service.build_preview`); `confirm` es la ÚNICA de las
+tres rutas que efectivamente persiste, y lo hace exclusivamente vía
+`human_capital_service.create_profile_for_import` — el MISMO camino de
+persistencia que el alta manual.
+
 Consume `webapp.human_capital_access.is_human_capital_authorized`
 (allowlist explícita `HUMAN_CAPITAL_ALLOWED_USERS` del workspace Capital
 Humano, INDEPENDIENTE de `OPERATIONS_ALLOWED_USERS`/
@@ -83,12 +99,12 @@ tal como estaba antes de esta fase (ver Phase 1 forensic, "no forzar un
 module ID solo por crear el workspace")."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, HTTPException, Query, Request
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
-from webapp.services import auth_service, human_capital_service
+from webapp.services import auth_service, human_capital_service, profile_import_service
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
@@ -471,3 +487,115 @@ def human_capital_profile_edit_submit(
     # esto", MISMO criterio que un alta exitosa vuelve al panel con el
     # form limpio, pero acá la edición vive en su propia página.
     return RedirectResponse(url="/human-capital/profiles", status_code=303)
+
+
+def _import_page_context(**kwargs) -> dict:
+    return {
+        "max_upload_mb": profile_import_service.MAX_UPLOAD_BYTES // (1024 * 1024),
+        "max_import_rows": profile_import_service.MAX_IMPORT_ROWS,
+        **kwargs,
+    }
+
+
+@router.get("/human-capital/profiles/import", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profiles_import_page(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    return templates.TemplateResponse(
+        request=request, name="human_capital/profile_import.html",
+        context={
+            "current_workspace": workspaces.HUMAN_CAPITAL,
+            "available_workspaces": workspaces.available_workspaces(user),
+            "pack": DEFAULT_PACK,
+            "user": user,
+            "active_page": "importar",
+            **_import_page_context(),
+        },
+    )
+
+
+@router.post("/human-capital/profiles/import/preview", response_class=HTMLResponse, include_in_schema=False)
+async def human_capital_profiles_import_preview(request: Request, file: UploadFile | None = File(None)):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    base_context = {
+        "current_workspace": workspaces.HUMAN_CAPITAL,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack": DEFAULT_PACK,
+        "user": user,
+        "active_page": "importar",
+    }
+    if file is None or not file.filename:
+        return templates.TemplateResponse(
+            request=request, name="human_capital/profile_import.html",
+            context={**base_context, **_import_page_context(file_error="Elegí un archivo XLSX para continuar.")},
+        )
+    # Lectura ACOTADA (Phase 3.8 §5): nunca `await file.read()` a secas,
+    # que leería un tamaño arbitrario a memoria antes de poder rechazarlo
+    # -- se lee como máximo un byte más del límite, lo justo para
+    # distinguir "cabe" de "no cabe" sin cargar un upload gigante entero.
+    data = await file.read(profile_import_service.MAX_UPLOAD_BYTES + 1)
+    if len(data) > profile_import_service.MAX_UPLOAD_BYTES:
+        return templates.TemplateResponse(
+            request=request, name="human_capital/profile_import.html",
+            context={**base_context, **_import_page_context(
+                file_error=f"El archivo supera el máximo de {profile_import_service.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+            )},
+        )
+    if not data:
+        return templates.TemplateResponse(
+            request=request, name="human_capital/profile_import.html",
+            context={**base_context, **_import_page_context(file_error="El archivo está vacío.")},
+        )
+    try:
+        rows = profile_import_service.parse_workbook(data)
+    except profile_import_service.ImportFileError as exc:
+        return templates.TemplateResponse(
+            request=request, name="human_capital/profile_import.html",
+            context={**base_context, **_import_page_context(file_error=str(exc))},
+        )
+    preview_rows = profile_import_service.build_preview(rows)
+    return templates.TemplateResponse(
+        request=request, name="human_capital/profile_import_preview.html",
+        context={**base_context, "preview_rows": preview_rows},
+    )
+
+
+@router.post("/human-capital/profiles/import/confirm", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profiles_import_confirm(
+    request: Request,
+    all_tokens: list[str] = Form(default=[]),
+    include_tokens: list[str] = Form(default=[]),
+    invalid_row_count: int = Form(0),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    results = profile_import_service.confirm_rows(all_tokens, include_tokens)
+    # `invalid_row_count` viaja como hidden field desde el preview (Phase
+    # 3.8 §22) -- las filas inválidas nunca reciben token, así que esta
+    # request no tiene otra forma de saber cuántas hubo en el archivo
+    # original; el propio conteo no es sensible (un número, no PII) y
+    # viaja sin firmar a propósito (es solo un total de resumen, nunca
+    # una decisión de persistencia -- alterarlo en el peor caso desvía un
+    # número en el resumen, nunca crea/omite un Profile).
+    summary = profile_import_service.summarize(
+        results, total_rows=len(all_tokens) + invalid_row_count, invalid_count=invalid_row_count,
+    )
+    return templates.TemplateResponse(
+        request=request, name="human_capital/profile_import_result.html",
+        context={
+            "current_workspace": workspaces.HUMAN_CAPITAL,
+            "available_workspaces": workspaces.available_workspaces(user),
+            "pack": DEFAULT_PACK,
+            "user": user,
+            "active_page": "importar",
+            "results": results,
+            "summary": summary,
+        },
+    )

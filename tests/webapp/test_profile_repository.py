@@ -22,6 +22,7 @@ from webapp.services import profile_repository
 from webapp.services.profile_repository import (
     ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
+    ProfileIdConflictError,
     ProfileNotFoundError,
     ProfileRemoteOutcomeUnknownError,
     ProfileStorageError,
@@ -832,3 +833,102 @@ def test_ambiguous_first_put_then_successful_compensating_overwrite_converges_to
     final_remote = json.loads(fake.remote_content[key])
     assert final_remote["first_name"] == "Ana"  # el remoto CONVERGE a A, no queda en B
     assert profile_repository.get(saved["profile_id"])["first_name"] == "Ana"
+
+
+# ============================================================================
+# Phase 3.8 — create_with_explicit_id(): create-only invariant, idempotencia,
+# colisión y concurrencia (§14/§15/§16 del ticket)
+# ============================================================================
+
+def _minimal_import_profile(**overrides) -> dict:
+    return _minimal_profile(**overrides)
+
+
+def test_explicit_id_create_succeeds_when_id_does_not_exist():
+    profile_id = "11111111-1111-1111-1111-111111111111"
+    saved, created = profile_repository.create_with_explicit_id(profile_id, _minimal_import_profile())
+    assert created is True
+    assert saved["profile_id"] == profile_id
+    assert saved["revision"] == 1
+
+
+def test_explicit_id_create_never_overwrites_an_existing_profile_with_different_data():
+    profile_id = "22222222-2222-2222-2222-222222222222"
+    profile_repository.create_with_explicit_id(profile_id, _minimal_import_profile(first_name="Original"))
+    with pytest.raises(ProfileIdConflictError):
+        profile_repository.create_with_explicit_id(profile_id, _minimal_import_profile(first_name="Distinto"))
+    # El Profile original queda absolutamente intacto -- zero write.
+    current = profile_repository.get(profile_id)
+    assert current["first_name"] == "Original"
+    assert current["revision"] == 1
+
+
+def test_explicit_id_create_with_same_payload_is_already_committed_not_a_rewrite():
+    profile_id = "33333333-3333-3333-3333-333333333333"
+    first, created_first = profile_repository.create_with_explicit_id(profile_id, _minimal_import_profile())
+    assert created_first is True
+    second, created_second = profile_repository.create_with_explicit_id(profile_id, _minimal_import_profile())
+    assert created_second is False  # ALREADY_COMMITTED
+    assert second["created_at"] == first["created_at"]
+    assert second["updated_at"] == first["updated_at"]
+    assert second["revision"] == first["revision"] == 1
+    assert len(profile_repository.list()) == 1
+
+
+def test_explicit_id_conflict_raises_before_any_write():
+    profile_id = "44444444-4444-4444-4444-444444444444"
+    profile_repository.create_with_explicit_id(profile_id, _minimal_import_profile(email="a@x.com"))
+    path = profile_repository._profile_path(profile_id)
+    before = path.read_text(encoding="utf-8")
+    with pytest.raises(ProfileIdConflictError):
+        profile_repository.create_with_explicit_id(profile_id, _minimal_import_profile(email="b@x.com"))
+    after = path.read_text(encoding="utf-8")
+    assert after == before  # ni un byte tocado
+
+
+def test_explicit_id_create_still_uses_the_retry_and_unknown_classification(monkeypatch):
+    # Phase 3.6's contract (reintento + REMOTE_OUTCOME_UNKNOWN) se hereda
+    # tal cual vía _create_locked -- no una segunda implementación.
+    profile_id = "55555555-5555-5555-5555-555555555555"
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
+    with pytest.raises(ProfileRemoteOutcomeUnknownError):
+        profile_repository.create_with_explicit_id(profile_id, _minimal_import_profile())
+    assert profile_repository.get(profile_id) is None  # limpieza -- mismo invariante de Phase 3.1/3.6
+
+
+def test_two_concurrent_confirmations_of_the_same_explicit_id_exactly_one_created():
+    # §16: "Two simultaneous confirmations of the same signed row must
+    # not both pass 'not exists' before writing" -- probado con dos
+    # threads reales, MISMO profile_id/payload (como si fuera el MISMO
+    # token de fila reenviado dos veces en paralelo).
+    profile_id = "66666666-6666-6666-6666-666666666666"
+    profile = _minimal_import_profile(first_name="Concurrente")
+    results: list[bool] = []
+    barrier = threading.Barrier(2)
+
+    def _attempt():
+        barrier.wait(timeout=5)
+        _saved, created = profile_repository.create_with_explicit_id(profile_id, dict(profile))
+        results.append(created)
+
+    t1 = threading.Thread(target=_attempt)
+    t2 = threading.Thread(target=_attempt)
+    t1.start()
+    t2.start()
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+
+    assert sorted(results) == [False, True]  # exactamente uno CREATED, el otro ALREADY_COMMITTED
+    all_profiles = [p for p in profile_repository.list() if p["profile_id"] == profile_id]
+    assert len(all_profiles) == 1
+
+
+def test_manual_create_is_unaffected_by_explicit_id_capability():
+    # §17: la capability preasignada NUNCA se filtra al alta manual --
+    # create() sigue minteando su propio UUID sin importar qué más exista
+    # en el módulo.
+    saved = profile_repository.create(_minimal_import_profile(first_name="Manual"))
+    import uuid as _uuid
+    parsed = _uuid.UUID(saved["profile_id"])
+    assert str(parsed) == saved["profile_id"]
