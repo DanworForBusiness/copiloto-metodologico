@@ -7,6 +7,7 @@ eso), sin Spaces real."""
 from __future__ import annotations
 
 import io
+import zipfile
 
 import openpyxl
 import pytest
@@ -377,3 +378,198 @@ def test_summarize_counts_each_status():
     summary = pis.summarize(results, total_rows=1, invalid_count=0)
     assert summary["CREATED"] == 1
     assert summary["total_rows"] == 1
+
+
+# ============================================================================
+# Phase 3.8.1 §3/§4 — separación de dominio del token firmado
+# ============================================================================
+
+def test_row_token_carries_the_purpose_claim():
+    data = _workbook_bytes(_ALL_HEADERS, [_row()])
+    preview = pis.build_preview(pis.parse_workbook(data))
+    claims = jwt.decode(preview[0].token, config.SESSION_SECRET, algorithms=["HS256"])
+    assert claims["purpose"] == "human_capital_profile_import_row"
+
+
+def test_valid_purpose_and_exp_is_accepted():
+    data = _workbook_bytes(_ALL_HEADERS, [_row()])
+    preview = pis.build_preview(pis.parse_workbook(data))
+    assert pis.verify_row_token(preview[0].token)["profile_id"] == preview[0].profile_id
+
+
+def test_wrong_purpose_is_rejected_even_with_a_valid_signature():
+    forged = jwt.encode(
+        {"purpose": "something_else", "profile_id": "x", "row_number": 1, "fields": {},
+         "has_duplicate_advisory": False, "exp": 9999999999},
+        config.SESSION_SECRET, algorithm="HS256",
+    )
+    with pytest.raises(pis.RowTokenError):
+        pis.verify_row_token(forged)
+
+
+def test_missing_purpose_is_rejected_even_with_a_valid_signature():
+    forged = jwt.encode(
+        {"profile_id": "x", "row_number": 1, "fields": {}, "has_duplicate_advisory": False, "exp": 9999999999},
+        config.SESSION_SECRET, algorithm="HS256",
+    )
+    with pytest.raises(pis.RowTokenError):
+        pis.verify_row_token(forged)
+
+
+def test_a_real_session_shaped_jwt_is_rejected_by_the_row_token_verifier():
+    from webapp.services import auth_service
+    session = auth_service.create_session(
+        {"email": "u@danwor.com", "name": "U", "first_name": "U", "family_name": ""}
+    )
+    with pytest.raises(pis.RowTokenError):
+        pis.verify_row_token(session)
+
+
+def test_a_row_token_cannot_authenticate_as_a_hub_session():
+    from webapp.services import auth_service
+    data = _workbook_bytes(_ALL_HEADERS, [_row()])
+    preview = pis.build_preview(pis.parse_workbook(data))
+    decoded = auth_service.decode_session(preview[0].token)
+    # La firma verifica (mismo secreto), pero el token de fila no tiene
+    # `sub` -- así que no puede autenticar a NINGÚN usuario real.
+    assert decoded is None or not decoded.get("sub")
+
+
+def test_expired_row_token_is_rejected_as_invalid_not_source_error(monkeypatch):
+    monkeypatch.setattr(pis, "_ROW_TOKEN_MAX_AGE_S", -10)
+    data = _workbook_bytes(_ALL_HEADERS, [_row()])
+    preview = pis.build_preview(pis.parse_workbook(data))
+    token = preview[0].token
+    results = pis.confirm_rows([token], [token])
+    assert results[0].status == "INVALID"  # nunca SOURCE_ERROR
+    assert profile_repository.list() == []
+
+
+# ============================================================================
+# Phase 3.8.1 §5/§6 — preflight del ZIP del XLSX (anti amplificación)
+# ============================================================================
+
+def test_normal_small_xlsx_passes_preflight():
+    data = _workbook_bytes(_ALL_HEADERS, [_row()])
+    pis._preflight_xlsx_zip(data)  # no levanta
+
+
+def test_non_zip_content_is_rejected_safely():
+    with pytest.raises(pis.ImportFileError):
+        pis._preflight_xlsx_zip(b"definitivamente no es un zip")
+
+
+def test_uncompressed_content_over_the_bound_is_rejected_before_openpyxl(monkeypatch):
+    monkeypatch.setattr(pis, "MAX_XLSX_UNCOMPRESSED_BYTES", 500)
+    # Un XLSX real normal descomprime a bastante más de 500 bytes.
+    data = _workbook_bytes(_ALL_HEADERS, [_row()])
+    with pytest.raises(pis.ImportFileError) as exc_info:
+        pis.parse_workbook(data)
+    assert "descomprimido" in str(exc_info.value)
+
+
+def test_too_many_zip_entries_is_rejected(monkeypatch):
+    monkeypatch.setattr(pis, "MAX_XLSX_ENTRIES", 2)
+    data = _workbook_bytes(_ALL_HEADERS, [_row()])  # un XLSX tiene > 2 entradas internas
+    with pytest.raises(pis.ImportFileError):
+        pis.parse_workbook(data)
+
+
+def test_a_synthetic_zip_bomb_within_the_upload_size_is_rejected(monkeypatch):
+    monkeypatch.setattr(pis, "MAX_XLSX_UNCOMPRESSED_BYTES", 1024)
+    # ZIP chico en bytes comprimidos, pero con una entrada que declara
+    # descomprimir a mucho más -- construido con contenido altamente
+    # comprimible (repetición), nunca un artefacto gigante en disco.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", b"0" * (64 * 1024))  # 64 KiB de ceros -> comprime a casi nada
+    payload = buf.getvalue()
+    assert len(payload) < 1024  # cabe holgado en cualquier MAX_UPLOAD_BYTES
+    with pytest.raises(pis.ImportFileError):
+        pis.parse_workbook(payload)
+
+
+def test_preflight_never_extracts_files_to_disk(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    data = _workbook_bytes(_ALL_HEADERS, [_row()])
+    pis.parse_workbook(data)
+    assert list(tmp_path.rglob("*.xml")) == []
+    assert list(tmp_path.rglob("*.xlsx")) == []
+
+
+# ============================================================================
+# Phase 3.8.1 §10-§13 — drift de duplicados entre preview y confirm
+# ============================================================================
+
+def test_no_drift_row_created_normally():
+    data = _workbook_bytes(_ALL_HEADERS, [_row(email="juan@x.com")])
+    preview = pis.build_preview(pis.parse_workbook(data))
+    token = preview[0].token
+    result = pis.confirm_rows([token], [token])[0]
+    assert result.status == "CREATED"
+
+
+def test_matching_profile_created_after_preview_requires_confirmation():
+    data = _workbook_bytes(_ALL_HEADERS, [_row(email="juan@x.com")])
+    preview = pis.build_preview(pis.parse_workbook(data))  # sin advisory: no existía nada
+    token = preview[0].token
+    assert preview[0].status == "eligible"
+
+    # DRIFT: alguien más crea un Profile que matchea, DESPUÉS del preview.
+    human_capital_service.create_profile({"first_name": "Juan", "last_name": "Perez", "email": "juan@x.com"})
+
+    result = pis.confirm_rows([token], [token])[0]
+    assert result.status == "DUPLICATE_REQUIRES_CONFIRMATION"
+    assert result.token is not None
+    # ZERO create de esta fila.
+    assert len([p for p in profile_repository.list() if p["profile_id"] == preview[0].profile_id]) == 0
+
+
+def test_confirming_the_refreshed_token_creates_the_profile_anyway():
+    data = _workbook_bytes(_ALL_HEADERS, [_row(email="juan@x.com")])
+    preview = pis.build_preview(pis.parse_workbook(data))
+    token = preview[0].token
+    human_capital_service.create_profile({"first_name": "Juan", "last_name": "Perez", "email": "juan@x.com"})
+
+    first = pis.confirm_rows([token], [token])[0]
+    assert first.status == "DUPLICATE_REQUIRES_CONFIRMATION"
+
+    second = pis.confirm_rows([first.token], [first.token])[0]
+    assert second.status == "CREATED"
+    assert len([p for p in profile_repository.list() if p["profile_id"] == preview[0].profile_id]) == 1
+
+
+def test_existing_advisory_explicitly_confirmed_still_creates_without_a_recheck_block():
+    human_capital_service.create_profile({"first_name": "Juan", "last_name": "Perez", "email": "juan@x.com"})
+    data = _workbook_bytes(_ALL_HEADERS, [_row(email="juan@x.com")])
+    preview = pis.build_preview(pis.parse_workbook(data))
+    assert preview[0].status == "existing_duplicate"  # advisory ya en preview
+    token = preview[0].token
+    result = pis.confirm_rows([token], [token])[0]
+    assert result.status == "CREATED"  # el usuario ya overrideó, procede
+
+
+def test_idempotent_retry_is_not_flagged_as_drift():
+    # Una fila ya creada en un confirm anterior: al reintentar el MISMO
+    # token, el rechequeo encuentra su PROPIO Profile en current_profiles
+    # y NO debe marcarlo como DUPLICATE_REQUIRES_CONFIRMATION.
+    data = _workbook_bytes(_ALL_HEADERS, [_row(email="juan@x.com")])
+    preview = pis.build_preview(pis.parse_workbook(data))
+    token = preview[0].token
+    assert pis.confirm_rows([token], [token])[0].status == "CREATED"
+    second = pis.confirm_rows([token], [token])[0]
+    assert second.status == "ALREADY_COMMITTED"
+
+
+def test_confirm_calls_list_profiles_exactly_once_per_batch(monkeypatch):
+    calls = []
+    original = human_capital_service.list_profiles
+    monkeypatch.setattr(human_capital_service, "list_profiles", lambda: (calls.append(1), original())[1])
+    data = _workbook_bytes(_ALL_HEADERS, [
+        _row(email="a@x.com"), _row(email="b@x.com"), _row(email="c@x.com"),
+    ])
+    preview = pis.build_preview(pis.parse_workbook(data))
+    calls.clear()  # ignora la llamada del preview
+    tokens = [p.token for p in preview]
+    pis.confirm_rows(tokens, tokens)
+    assert len(calls) == 1

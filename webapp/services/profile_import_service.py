@@ -71,6 +71,7 @@ from __future__ import annotations
 import io
 import time
 import uuid
+import zipfile
 from dataclasses import dataclass
 
 import openpyxl
@@ -79,12 +80,25 @@ from jose import JWTError, jwt
 import config
 from webapp.services import human_capital_service
 
-# Phase 3.8 §5 — límites de PRIMERA REBANADA, decisión de producto/
-# operación (sin evidencia de un límite Hub-wide preexistente que
-# heredar, ver forensic Phase 3.7 §15/§16) — deliberadamente modestos,
-# nunca presentados como un hecho de arquitectura.
+# Phase 3.8 §5 / Phase 3.8.1 §8 — límites de PRIMERA REBANADA, decisión de
+# producto/operación (sin evidencia de un límite Hub-wide preexistente
+# que heredar, ver forensic Phase 3.7 §15/§16) — deliberadamente
+# modestos, nunca presentados como un hecho de arquitectura.
+#
+# `MAX_IMPORT_ROWS` se redujo de 500 a 200 en Phase 3.8.1 tras MEDIR el
+# costo real del confirm síncrono (ver
+# tests/webapp/test_profile_import_confirm_performance.py): el overhead
+# de orquestación propio es lineal y chico (~1.6-3 ms/fila), pero el
+# total lo domina `N × latencia de PUT remoto`, y esa latencia contra DO
+# Spaces en producción es DESCONOCIDA (Phase 3.8.1 §9). A 200 filas, aun
+# con una latencia pesimista de ~25 ms/PUT, el confirm queda en ~5-6 s
+# (recuperable de forma idempotente vía los tokens si expira) — a 500
+# filas ese mismo escenario pesimista pasa de 13 s. 200 es el límite
+# operacional conservador del primer slice; se puede subir más adelante
+# midiendo la latencia real de Spaces en producción — SIN agregar
+# procesamiento en background (Phase 3.8.1 §8, clasificación B).
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024  # 2 MiB
-MAX_IMPORT_ROWS = 500
+MAX_IMPORT_ROWS = 200
 
 # Contrato de headers (Phase 3.7 §4/§7) — EXACTAMENTE los campos de
 # Profile que ya existen, ninguno nuevo. `nombre`/`apellido` son los
@@ -106,10 +120,31 @@ _HEADER_TO_FIELD = {
 }
 
 # Acotado (nunca indefinido) — el tiempo entre "abrí el preview" y
-# "confirmé el import" para un usuario real, con margen generoso, MISMO
-# criterio que el resto de los timeouts acotados de este módulo (ver
-# _RESTORE_WAIT_TIMEOUT_S en profile_repository.py).
+# "confirmé el import" para un usuario real, con margen para revisar y
+# reintentar de inmediato una fila UNKNOWN, pero NUNCA "resumible
+# indefinidamente" (Phase 3.8.1 §4): pasado esto, el token vale como
+# `INVALID / preview expired`, nunca `SOURCE_ERROR`.
 _ROW_TOKEN_MAX_AGE_S = 3600  # 1 hora
+
+# Phase 3.8.1 §3 — claim de dominio OBLIGATORIO. El mismo `SESSION_SECRET`
+# firma la cookie de sesión de auth Y este estado de import; sin un
+# `purpose` exacto, un JWT de sesión válido (misma firma, mismo alg) se
+# aceptaría por accidente como un token de fila. `verify_row_token`
+# exige igualdad EXACTA con esto; un JWT con `purpose` ausente/distinto
+# se rechaza como `RowTokenError` aunque la firma sea válida.
+_ROW_TOKEN_PURPOSE = "human_capital_profile_import_row"
+
+# Phase 3.8.1 §5 — límites de PRIMERA REBANADA para el preflight del ZIP
+# de un XLSX (protección contra amplificación de descompresión / "zip
+# bomb": `MAX_UPLOAD_BYTES` acota los bytes COMPRIMIDOS, nada acotaba lo
+# DESCOMPRIMIDO). Un XLSX real de 500 filas × 13 columnas descomprime a
+# ~100-300 KB y tiene ~10-20 entradas (`[Content_Types].xml`, `_rels/`,
+# `xl/workbook.xml`, `xl/worksheets/sheet1.xml`, `xl/styles.xml`,
+# `xl/sharedStrings.xml`, `docProps/…`) — estos límites dejan MUCHO
+# margen y aun así acotan una amplificación de ~10.000× a algo inocuo.
+# Decisión de producto/operación, no un hecho de arquitectura.
+MAX_XLSX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024  # 20 MiB
+MAX_XLSX_ENTRIES = 64
 
 
 class ImportFileError(Exception):
@@ -146,9 +181,13 @@ class PreviewRow:
 @dataclass
 class RowResult:
     """Resultado de UNA fila tras confirm (Phase 3.8 §18/§22). `token` se
-    retiene ÚNICAMENTE para `REMOTE_OUTCOME_UNKNOWN` (§19 — permite
-    reintentar ESA fila puntual con el MISMO profile_id, nunca minteando
-    uno nuevo)."""
+    retiene para dos estados que permiten una acción de seguimiento sobre
+    ESA fila puntual, SIEMPRE con el MISMO `profile_id` preasignado (nunca
+    minteando uno nuevo): `REMOTE_OUTCOME_UNKNOWN` (§19 — reintentar) y
+    `DUPLICATE_REQUIRES_CONFIRMATION` (Phase 3.8.1 §11 — el token
+    devuelto ya lleva `has_duplicate_advisory=True`, así que confirmarlo
+    de nuevo procede con las mismas semánticas de override que un
+    duplicado detectado en preview)."""
     row_number: int
     display_name: str
     status: str
@@ -173,16 +212,46 @@ def _cell_to_str(value) -> str:
     return str(value).strip()
 
 
+def _preflight_xlsx_zip(data: bytes) -> None:
+    """Phase 3.8.1 §5/§6 — inspecciona el DIRECTORIO CENTRAL del ZIP de un
+    XLSX ANTES de que openpyxl lo abra, para acotar la amplificación de
+    descompresión: `MAX_UPLOAD_BYTES` (2 MiB) acota lo COMPRIMIDO, pero un
+    XLSX de 2 MiB comprimido puede descomprimir a cientos de MB si está
+    hecho a propósito (zip bomb). Nunca extrae nada a disco — solo lee el
+    tamaño DECLARADO (`ZipInfo.file_size`, del central directory) de cada
+    entrada y la cantidad de entradas. Rechaza con `ImportFileError`
+    (mensaje seguro) si el contenido no es un ZIP, tiene demasiadas
+    entradas, o el total descomprimido declarado supera
+    `MAX_XLSX_UNCOMPRESSED_BYTES`."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            infos = archive.infolist()
+    except zipfile.BadZipFile as exc:
+        raise ImportFileError("No pudimos leer el archivo. Verificá que sea un XLSX válido.") from exc
+    if len(infos) > MAX_XLSX_ENTRIES:
+        raise ImportFileError("El archivo XLSX tiene una estructura inválida (demasiadas partes internas).")
+    total_uncompressed = sum(info.file_size for info in infos)
+    if total_uncompressed > MAX_XLSX_UNCOMPRESSED_BYTES:
+        raise ImportFileError(
+            f"El contenido del XLSX descomprimido supera el máximo permitido "
+            f"({MAX_XLSX_UNCOMPRESSED_BYTES // (1024 * 1024)} MB)."
+        )
+
+
 def parse_workbook(data: bytes) -> list[dict]:
     """Parsea el XLSX EN MEMORIA (`io.BytesIO`, `read_only=True,
     data_only=True` — MISMO idioma exacto que
     `staffing_repository.py::get_absences`, nunca persistido a disco,
-    Phase 3.7 §9/§14). Devuelve una lista de dicts `{header: valor_crudo}`
-    por fila de datos (excluye la fila de headers). Filas completamente
-    vacías se saltean sin contar para `MAX_IMPORT_ROWS`. Levanta
-    `ImportFileError` (mensaje seguro, nunca un traceback de openpyxl)
-    para: workbook ilegible, hoja sin fila de headers, headers requeridos
-    faltantes, o más de `MAX_IMPORT_ROWS` filas de datos."""
+    Phase 3.7 §9/§14). Un preflight del ZIP corre PRIMERO
+    (`_preflight_xlsx_zip`, Phase 3.8.1 §5) — acota la descompresión antes
+    de que openpyxl toque nada. Devuelve una lista de dicts
+    `{header: valor_crudo}` por fila de datos (excluye la fila de
+    headers). Filas completamente vacías se saltean sin contar para
+    `MAX_IMPORT_ROWS`. Levanta `ImportFileError` (mensaje seguro, nunca un
+    traceback de openpyxl) para: contenido no-ZIP/zip-bomb, workbook
+    ilegible, hoja sin fila de headers, headers requeridos faltantes, o
+    más de `MAX_IMPORT_ROWS` filas de datos."""
+    _preflight_xlsx_zip(data)
     try:
         workbook = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     except Exception as exc:  # noqa: BLE001 -- cualquier fallo de parseo se traduce a un mensaje seguro
@@ -215,10 +284,14 @@ def parse_workbook(data: bytes) -> list[dict]:
 def _sign_row_token(*, profile_id: str, row_number: int, fields: dict, has_duplicate_advisory: bool) -> str:
     """Firma el estado de UNA fila elegible (Phase 3.8 §12/§13) — MISMO
     signer/algoritmo exacto que `auth_service.create_session`
-    (`jose.jwt` + `config.SESSION_SECRET`, HS256). El browser recibe este
-    token opaco y lo devuelve tal cual en confirm — cualquier alteración
-    de `profile_id`/`fields`/`has_duplicate_advisory` invalida la firma."""
+    (`jose.jwt` + `config.SESSION_SECRET`, HS256), CON un claim de
+    dominio obligatorio `purpose` (Phase 3.8.1 §3) que separa este estado
+    de import de una cookie de sesión de auth firmada con el MISMO
+    secreto. El browser recibe este token opaco y lo devuelve tal cual en
+    confirm — cualquier alteración de `profile_id`/`fields`/
+    `has_duplicate_advisory`/`purpose` invalida la firma."""
     claims = {
+        "purpose": _ROW_TOKEN_PURPOSE,
         "profile_id": profile_id,
         "row_number": row_number,
         "fields": fields,
@@ -229,17 +302,26 @@ def _sign_row_token(*, profile_id: str, row_number: int, fields: dict, has_dupli
 
 
 def verify_row_token(token: str) -> dict:
-    """Verifica la firma y devuelve los claims de un token de fila —
-    NUNCA confía en un token sin verificar primero (condición obligatoria
-    #2 de Phase 3.8: "preview state returned by the browser MUST NOT be
-    blindly trusted"). Levanta `RowTokenError` (nunca `JWTError` crudo)
-    si la firma no verifica o el token expiró."""
+    """Verifica la firma Y el `purpose` de un token de fila, y devuelve
+    sus claims — NUNCA confía en un token sin verificar primero
+    (condición obligatoria #2 de Phase 3.8: "preview state returned by
+    the browser MUST NOT be blindly trusted"). Levanta `RowTokenError`
+    (nunca `JWTError` crudo) si la firma no verifica, el token expiró, o
+    el `purpose` está ausente/es distinto de `_ROW_TOKEN_PURPOSE` — este
+    último chequeo (Phase 3.8.1 §3) rechaza un JWT de sesión de auth
+    (misma firma válida, mismo alg, pero sin este `purpose`) que llegara
+    acá por accidente o de forma deliberada."""
     try:
-        return jwt.decode(token, config.SESSION_SECRET, algorithms=["HS256"])
+        claims = jwt.decode(token, config.SESSION_SECRET, algorithms=["HS256"])
     except JWTError as exc:
         raise RowTokenError(
             "El estado de esta fila expiró o no es válido. Volvé a la vista previa e intentá de nuevo."
         ) from exc
+    if claims.get("purpose") != _ROW_TOKEN_PURPOSE:
+        raise RowTokenError(
+            "El estado de esta fila no es válido. Volvé a la vista previa e intentá de nuevo."
+        )
+    return claims
 
 
 def build_preview(rows: list[dict]) -> list[PreviewRow]:
@@ -328,9 +410,27 @@ def confirm_rows(all_tokens: list[str], included_tokens: list[str]) -> list[RowR
     no confirmar, Phase 3.7 §8/Phase 3.8 §21: "no auto-upsert") se
     reportan como `DUPLICATE_SKIPPED` sin ningún intento de persistencia.
 
+    RECHEQUEO DE DUPLICADOS AL CONFIRMAR (Phase 3.8.1 §10-§13): el estado
+    de duplicado de preview es un SNAPSHOT — entre preview, la revisión
+    humana y confirm, otro alta/import pudo haber creado un Profile que
+    matchea. Al arrancar el batch se lee `list_profiles()` UNA sola vez
+    (nunca por fila, §13) y se arma un lookup request-local. Para una fila
+    que en preview NO tenía advisory (`has_duplicate_advisory=False`) pero
+    que AHORA matchea un Profile committed, NO se crea en silencio: se
+    devuelve `DUPLICATE_REQUIRES_CONFIRMATION` con un token refrescado
+    (mismo `profile_id`/`fields`, ahora `has_duplicate_advisory=True`)
+    para que el usuario decida deliberadamente. Una fila que YA tenía
+    advisory y el usuario incluyó explícitamente procede con las
+    semánticas de override de siempre (nunca se re-chequea — el usuario
+    ya decidió). Esto ACOTA el drift, NO crea una garantía transaccional
+    de unicidad (§12): un Profile podría crearse justo después del
+    rechequeo y antes del create de esta fila — aceptable porque la
+    detección de duplicados es advisory, nunca un constraint.
+
     No detiene el batch por una fila independiente (Phase 3.7 §9/Phase
     3.8 §18) — cada fila es un Profile independiente."""
     included = set(included_tokens)
+    current_profiles = human_capital_service.list_profiles()  # UNA vez para todo el batch (§13)
     results: list[RowResult] = []
     for token in all_tokens:
         try:
@@ -349,6 +449,26 @@ def confirm_rows(all_tokens: list[str], included_tokens: list[str]) -> list[RowR
                 message="No se creó -- no se confirmó esta fila.",
             ))
             continue
+
+        if not claims.get("has_duplicate_advisory"):
+            # Sin advisory en preview -- rechequear contra el estado
+            # ACTUAL (§11). `exclude_profile_id` = el id preasignado de
+            # ESTA fila: un retry idempotente (fila ya creada en un
+            # confirm anterior) encuentra su PROPIO Profile en
+            # `current_profiles` y NO debe marcarse como drift.
+            drift_match = human_capital_service.find_duplicate(
+                fields, current_profiles, exclude_profile_id=profile_id,
+            )
+            if drift_match is not None:
+                refreshed = _sign_row_token(
+                    profile_id=profile_id, row_number=row_number, fields=fields, has_duplicate_advisory=True,
+                )
+                results.append(RowResult(
+                    row_number, display_name, "DUPLICATE_REQUIRES_CONFIRMATION",
+                    "Apareció un Profile posiblemente duplicado desde la vista previa. Confirmalo de nuevo si querés crearlo igual.",
+                    token=refreshed,
+                ))
+                continue
 
         try:
             _profile, created = human_capital_service.create_profile_for_import(profile_id, fields)
@@ -376,8 +496,8 @@ def summarize(results: list[RowResult], *, total_rows: int, invalid_count: int) 
     agregado (el detalle por fila, con nombre/mensaje, es responsabilidad
     del router/template, nunca de un log)."""
     counts = {status: 0 for status in (
-        "CREATED", "ALREADY_COMMITTED", "DUPLICATE_SKIPPED", "SOURCE_ERROR",
-        "REMOTE_OUTCOME_UNKNOWN", "PROFILE_ID_CONFLICT", "INVALID",
+        "CREATED", "ALREADY_COMMITTED", "DUPLICATE_SKIPPED", "DUPLICATE_REQUIRES_CONFIRMATION",
+        "SOURCE_ERROR", "REMOTE_OUTCOME_UNKNOWN", "PROFILE_ID_CONFLICT", "INVALID",
     )}
     for result in results:
         counts[result.status] = counts.get(result.status, 0) + 1
