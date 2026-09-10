@@ -74,7 +74,10 @@ function assertFalse(cond, label) {
 }
 
 const LOADER_MARK = "section-analysis-loading";
-const ERROR_MARK = "empty-panel";
+// El estado de error de primera hidratación comparte `.dashboard-empty` con el
+// de cero-filas (owner increment: "consistent unavailable state") y se
+// distingue por el eyebrow — este marcador es el eyebrow de la falla.
+const ERROR_MARK = "No disponible";
 const FILTERBAR_MARK = "dashboard-sticky-header";
 
 // ============================================================================
