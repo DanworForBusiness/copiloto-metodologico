@@ -660,6 +660,11 @@ def build_document(html_text: str) -> dict:
     root = parse_tree(html_text)
     return {
         "version": 1,
+        # `revision` (distinto de `version`, el format version del esquema):
+        # contador de CONTENIDO para el Save optimista (ver
+        # commercial_strategy_repository.py) — el seed es siempre la
+        # revision 1; cada `save()` exitoso en runtime la incrementa.
+        "revision": 1,
         "meta": extract_meta(root),
         "nav": extract_nav(root),
         "hero": extract_hero(root),

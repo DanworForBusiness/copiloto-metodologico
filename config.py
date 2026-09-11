@@ -40,6 +40,15 @@ CONTENT_PACK      = _env("DANWOR_CONTENT_PACK", "datasphere_core")
 CASE_LIBRARY_DIR  = BASE_DIR / "case_library"
 FEEDBACK_LOG_DIR  = BASE_DIR / "feedback_log"
 ACTIVITY_LOG_DIR  = BASE_DIR / "activity_log"
+# Copia RUNTIME MUTABLE del documento de Estrategia Comercial (Commercial
+# Strategy edit persistence) — el YAML seedeado y committed (webapp/services/
+# commercial_strategy_data/) es SOLO el bootstrap inicial; una vez que existe
+# una edición guardada acá, esta ruta es la ÚNICA fuente de verdad en runtime
+# (ver webapp/services/commercial_strategy_repository.py). Registrada en
+# PERSIST_PATHS abajo para que `core/remote_store.py` la respalde/restaure
+# como CUALQUIER otro directorio persistido — mismo mecanismo genérico,
+# ningún código de sync propio.
+COMMERCIAL_STRATEGY_RUNTIME_DIR = BASE_DIR / "commercial_strategy_runtime"
 
 # ── Persistencia en DO Spaces ────────────────────────────────────────────────
 # App Platform corre sobre un FS efímero: en cada deploy/reciclado se borra todo
@@ -65,7 +74,8 @@ SPACES_SYNC_INTERVAL = int(_env("SPACES_SYNC_INTERVAL", "120"))  # segundos entr
 # Proyectos/Cliente/Horas/Client Partner, el archivo Time Logs actual y
 # Facturadas quedan explícitamente fuera de alcance.
 PERSIST_PATHS     = [p.strip() for p in _env(
-    "SPACES_PERSIST_PATHS", "catalog_local,case_library,feedback_log,activity_log,reports,reporting_cache"
+    "SPACES_PERSIST_PATHS",
+    "catalog_local,case_library,feedback_log,activity_log,reports,reporting_cache,commercial_strategy_runtime"
 ).split(",") if p.strip()]
 PERSIST_ENABLED   = bool(SPACES_ENDPOINT and SPACES_BUCKET and SPACES_KEY and SPACES_SECRET)
 

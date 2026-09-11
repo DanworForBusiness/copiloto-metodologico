@@ -1,62 +1,184 @@
-"""commercial_strategy_repository.py — READ CONTRACT del documento
-"Estrategia Comercial 2026" (Commercial Strategy — Phase 1, read-only).
+"""commercial_strategy_repository.py — READ + WRITE del documento
+"Estrategia Comercial" (Commercial Strategy — real editing pass).
 
-Fase 1 es deliberadamente de SOLO LECTURA (owner decision, ver storage gate):
-el gate de durabilidad/CSRF/concurrencia distribuida NO está resuelto
-todavía para escritura de usuario — este módulo expone ÚNICAMENTE
-`load_strategy()`. NO existen (ni deben agregarse "para después")
-`save_strategy`/`update_strategy`/`delete_strategy` en esta fase.
+Confirmación de topología (owner): DigitalOcean corre HOY 1 contenedor / 1
+proceso uvicorn para esta release — ver docstring de `save()` para el
+contrato exacto que esa confirmación habilita. Si el número de instancias
+sube, esta clase debe revisarse ANTES de aumentarlo (RLock + revision-check
+en memoria de un solo proceso deja de ser suficiente con más de un writer
+independiente — ver el storage gate original).
 
-Fuente actual: un YAML COMMITTED al repo (`commercial_strategy_data/
-strategy.yaml`), generado una única vez por `scripts/
-import_commercial_strategy.py` a partir del artefacto standalone del owner.
-Deliberadamente NO vive bajo `config.PERSIST_PATHS` — ese mecanismo es
-eventual (mirror cada `SPACES_SYNC_INTERVAL`, nunca síncrono con un write) y
-pensado para caches/logs regenerables, no para el único documento canónico
-de una feature todavía sin contrato de escritura (ver storage gate, Gate A).
-Un archivo COMMITTED es simplemente parte del código desplegado — mismo
-ciclo de vida que cualquier otro asset estático del repo.
+Dos fuentes, un único punto de lectura (`load()`):
 
-Seam de reemplazo (Phase 2): el consumidor (`webapp.routers.
-commercial_strategy`) solo conoce `load_strategy() -> dict`, nunca la ruta
-del YAML ni su mecanismo de lectura — el día que exista un store editable
-real (con su propio contrato de durabilidad/CSRF/concurrencia, ver storage
-gate), esta función puede reapuntar a él sin tocar el router ni los
-templates. `@lru_cache` es intencionalmente el ÚNICO "estado": un proceso
-lee el YAML una vez; no hay invalidación porque no hay escritura que
-invalidar en esta fase.
+  1. SEED committed (`commercial_strategy_data/strategy.yaml`, Phase 1) —
+     bootstrap/historia únicamente. Revision 1. Nunca se reescribe en
+     runtime, nunca se vuelve a importar del HTML fuente en operación
+     normal (eso sigue siendo `scripts/import_commercial_strategy.py`,
+     ejecutado a mano, una sola vez).
+  2. RUNTIME mutable (`config.COMMERCIAL_STRATEGY_RUNTIME_DIR`, registrada
+     en `config.PERSIST_PATHS` — el MISMO mecanismo genérico de
+     `core/remote_store.py` que ya usa case_library/feedback_log/etc.) —
+     fuente de verdad DESDE el primer `save()` exitoso. Antes de eso, no
+     existe — `load()` cae al seed sin escribir nada (el bootstrap del
+     archivo runtime es un efecto secundario del PRIMER save exitoso, no
+     de leer).
+
+`load()`/`save()` son la ÚNICA frontera que routers/templates deben conocer
+— ninguno de los dos sabe la ruta física de ningún archivo.
 """
 from __future__ import annotations
 
-from functools import lru_cache
+import copy
+import logging
+from datetime import datetime, timezone
 from pathlib import Path
+from threading import RLock
 
 import yaml
 
-_DATA_PATH = Path(__file__).parent / "commercial_strategy_data" / "strategy.yaml"
+import config
+from core import remote_store
+
+_logger = logging.getLogger("danwor.commercial_strategy")
+
+_SEED_PATH = Path(__file__).parent / "commercial_strategy_data" / "strategy.yaml"
+_RUNTIME_PATH = config.COMMERCIAL_STRATEGY_RUNTIME_DIR / "strategy.yaml"
 
 
 class CommercialStrategyUnavailable(Exception):
     """El documento no se pudo cargar (archivo ausente o YAML inválido) —
-    nunca se fabrica un documento vacío en su lugar (ver `webapp.routers.
-    commercial_strategy`, que traduce esto al mismo contrato fail-soft
-    `{"state": ...}` que el resto de Comercial, en vez de un 500 crudo)."""
+    nunca se fabrica un documento vacío en su lugar."""
 
 
-@lru_cache(maxsize=1)
+class StaleRevisionError(Exception):
+    """`save()` con `expected_revision` que ya no coincide con la revision
+    actual — otro Guardar ganó la carrera. `current_revision` viaja para que
+    el caller arme el 409 sin volver a leer."""
+
+    def __init__(self, current_revision: int):
+        super().__init__(f"Revision desactualizada: actual es {current_revision}")
+        self.current_revision = current_revision
+
+
+class DurablePushFailedError(Exception):
+    """`save()` escribió localmente pero el push síncrono a Spaces falló —
+    el local ya fue revertido a la versión canónica anterior ANTES de que
+    esta excepción se levante (ver `save()`). El caller debe reportar error,
+    nunca éxito."""
+
+
+def _read_yaml(path: Path) -> dict:
+    raw = path.read_text(encoding="utf-8")
+    data = yaml.safe_load(raw)
+    if not isinstance(data, dict) or not data.get("version") or not data.get("revision"):
+        raise CommercialStrategyUnavailable(f"Documento sin forma válida en {path}")
+    return data
+
+
+def _dump_yaml(document: dict) -> str:
+    return yaml.safe_dump(document, allow_unicode=True, sort_keys=False, default_flow_style=False, width=100)
+
+
+class CommercialStrategyRepository:
+    """Estado en memoria de UN proceso (ver docstring del módulo — contrato
+    de instancia única). `RLock` protege tanto la caché en memoria como el
+    archivo runtime en disco contra una carrera entre dos requests
+    CONCURRENTES del MISMO proceso — la única concurrencia que existe bajo
+    la topología confirmada."""
+
+    def __init__(self, seed_path: Path = _SEED_PATH, runtime_path: Path = _RUNTIME_PATH) -> None:
+        self._seed_path = seed_path
+        self._runtime_path = runtime_path
+        self._lock = RLock()
+        self._cache: dict | None = None
+
+    def _read_from_disk(self) -> dict:
+        if self._runtime_path.exists():
+            try:
+                return _read_yaml(self._runtime_path)
+            except OSError as exc:
+                raise CommercialStrategyUnavailable(f"No se pudo leer {self._runtime_path}: {exc}") from exc
+        try:
+            return _read_yaml(self._seed_path)
+        except OSError as exc:
+            raise CommercialStrategyUnavailable(f"No se pudo leer {self._seed_path}: {exc}") from exc
+
+    def load(self) -> dict:
+        """Documento canónico completo. Nunca muta el archivo runtime —
+        cargar cuando no existe simplemente devuelve el seed (revision 1),
+        sin bootstrap de disco (ver docstring del módulo)."""
+        with self._lock:
+            if self._cache is None:
+                self._cache = self._read_from_disk()
+            return copy.deepcopy(self._cache)
+
+    def save(self, updated_fields: dict, *, expected_revision: int, updated_by_id: str, updated_by_label: str) -> dict:
+        """Fusiona `updated_fields` (SOLO las claves editables conocidas —
+        ver `commercial_strategy_editing.merge_editable_fields`, nunca
+        aceptadas acá sin pasar por esa validación primero) sobre el
+        documento canónico actual, bajo `expected_revision` optimista.
+
+        Contrato de éxito (owner, storage gate): validar revision → construir
+        candidato N+1 → escritura atómica LOCAL → push SÍNCRONO a Spaces →
+        SOLO ENTONCES éxito. Si el push falla, el local se revierte a la
+        versión canónica anterior ANTES de propagar el error — nunca queda
+        una N+1 local sin confirmar en Spaces sirviéndose como si fuera
+        canónica (ver `DurablePushFailedError`).
+
+        `remote_store.enabled() == False` (sin credenciales Spaces
+        configuradas, MISMO criterio que case_library/feedback_log/etc. en
+        TODO este Hub — ver core/remote_store.py docstring: "dev local sin
+        cambios") se trata como éxito trivial del push — no hay backend
+        durable contra el cual fallar. Con Spaces configurado, un push que
+        realmente falla SIEMPRE revierte y nunca reporta éxito."""
+        with self._lock:
+            current = self._cache if self._cache is not None else self._read_from_disk()
+            if current.get("revision") != expected_revision:
+                raise StaleRevisionError(current.get("revision"))
+
+            candidate = copy.deepcopy(current)
+            candidate.update(updated_fields)
+            candidate["revision"] = expected_revision + 1
+            candidate["updated_at"] = datetime.now(timezone.utc).isoformat()
+            candidate["updated_by_id"] = updated_by_id
+            candidate["updated_by_label"] = updated_by_label
+
+            previous_bytes = self._runtime_path.read_bytes() if self._runtime_path.exists() else None
+            self._runtime_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = self._runtime_path.with_suffix(".yaml.tmp")
+            tmp_path.write_text(_dump_yaml(candidate), encoding="utf-8")
+            tmp_path.replace(self._runtime_path)
+
+            pushed = (not remote_store.enabled()) or remote_store.push_path(self._runtime_path)
+            if not pushed:
+                _logger.error("commercial_strategy.save: push síncrono a Spaces falló — revirtiendo local")
+                if previous_bytes is not None:
+                    self._runtime_path.write_bytes(previous_bytes)
+                else:
+                    self._runtime_path.unlink(missing_ok=True)
+                raise DurablePushFailedError()
+
+            self._cache = candidate
+            return copy.deepcopy(candidate)
+
+
+_repository = CommercialStrategyRepository()
+
+
+def _reset_for_tests() -> None:
+    """SOLO para tests: descarta la caché en memoria y vuelve a apuntar al
+    seed/runtime path por defecto — un test que ensucia `_RUNTIME_PATH` (vía
+    monkeypatch de `_repository`) no debe filtrarse a otros tests."""
+    global _repository
+    _repository = CommercialStrategyRepository()
+
+
 def load_strategy() -> dict:
-    """Documento canónico completo, tal cual lo produjo el import. Sin
-    transformación de presentación acá — eso es responsabilidad exclusiva
-    del template/renderer (ver `webapp/templates/commercial/strategy.html`),
-    nunca de la capa de datos."""
-    try:
-        raw = _DATA_PATH.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise CommercialStrategyUnavailable(f"No se pudo leer {_DATA_PATH}: {exc}") from exc
-    try:
-        document = yaml.safe_load(raw)
-    except yaml.YAMLError as exc:
-        raise CommercialStrategyUnavailable(f"YAML inválido en {_DATA_PATH}: {exc}") from exc
-    if not isinstance(document, dict) or not document.get("version"):
-        raise CommercialStrategyUnavailable(f"Documento sin forma válida en {_DATA_PATH}")
-    return document
+    return _repository.load()
+
+
+def save_strategy(updated_fields: dict, *, expected_revision: int, updated_by_id: str, updated_by_label: str) -> dict:
+    return _repository.save(
+        updated_fields, expected_revision=expected_revision,
+        updated_by_id=updated_by_id, updated_by_label=updated_by_label,
+    )

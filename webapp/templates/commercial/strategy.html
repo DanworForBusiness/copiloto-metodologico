@@ -96,32 +96,189 @@
       <p>El documento no está disponible en este momento. Reintentá en unos minutos.</p>
     </section>
     {% else %}
-    {#- Botón "Editar" — RENDERIZADO solo cuando `can_edit` (ver router:
-        commercial_access.can_edit_strategy_user), pero la defensa REAL es
-        server-side en `POST /comercial/estrategia` (mismo chequeo,
-        autoritativo) — ocultar el botón NUNCA es la seguridad acá. Guardar
-        pega al endpoint REAL: hoy responde 503 "concurrency_unconfirmed" de
-        forma honesta (ver docstring del router) — nunca un éxito fingido ni
-        un cambio que solo vive en el DOM. #}
+    {#- Botón "Editar" + panel de edición — RENDERIZADO solo cuando
+        `can_edit` (ver router: commercial_access.can_edit_strategy_user),
+        pero la defensa REAL es server-side en `POST /comercial/estrategia`
+        (mismo chequeo, autoritativo) — ocultar el botón NUNCA es la
+        seguridad acá.
+
+        Alcance editable de esta fase: hero, objectives (KPIs + notas +
+        supuestos) y next_steps.tasks (CRUD + reorden) — ver
+        webapp/services/commercial_strategy_editing.py y el reporte del
+        owner para la lista completa de campos que quedan de solo lectura
+        y por qué. `editable_doc` (ver router) es EXACTAMENTE ese
+        subconjunto, ya serializado — nunca el documento completo.
+
+        Guardar → POST real con `revision` — éxito recarga la página
+        (la única fuente de verdad de "cómo se ve VIEW ahora" es el
+        render del servidor, nunca una segunda copia en JS); 409/503/422
+        se muestran inline, SIN perder lo que el usuario tenía tipeado
+        (`doc` nunca se descarta en el camino de error). #}
     {% if can_edit %}
-    <div class="cs-edit-shell" x-data="{ editing: false, saving: false, result: null }">
-      <button type="button" class="btn-secondary" id="cs-edit-toggle" @click="editing = !editing; result = null">
+    {#- El JSON de `editable_doc` NUNCA va inline dentro de un atributo HTML
+        (ni con comillas dobles ni simples): `tojson` solo escapa `<`/`>`/`&`/
+        comillas SIMPLES — con el atributo en comillas DOBLES (lo que este
+        `x-data` necesita, porque el resto de la expresión Alpine usa
+        strings JS con comillas simples sin escapar, p. ej. `error: ''`),
+        una comilla DOBLE dentro de un campo editado por el usuario (p. ej.
+        `hero.lead`) rompería el atributo y podría inyectar HTML vivo —
+        encontrado exactamente así por el test de XSS de este módulo. Un
+        `<script type="application/json">` es inerte por construcción (las
+        comillas de su TEXTO nunca delimitan nada) — `x-data` solo lo lee. #}
+    <script type="application/json" id="cs-editable-doc">{{ editable_doc | tojson }}</script>
+    <div class="cs-edit-shell"
+         x-data="{
+           editing: false,
+           saving: false,
+           error: '',
+           original: JSON.parse(document.getElementById('cs-editable-doc').textContent),
+           doc: JSON.parse(document.getElementById('cs-editable-doc').textContent),
+           dirty: false,
+           taskSeq: 1,
+           startEdit() {
+             this.doc = JSON.parse(JSON.stringify(this.original));
+             this.dirty = false; this.error = '';
+             this.editing = true;
+           },
+           cancelEdit() {
+             if (this.dirty && !confirm('Tenés cambios sin guardar. ¿Descartarlos?')) return;
+             this.editing = false; this.dirty = false; this.error = '';
+           },
+           addTask() {
+             this.doc.next_steps.tasks.push({id: 'new-' + Date.now() + '-' + (this.taskSeq++), tarea: '', origen: '', responsable: '', q: 'a_definir'});
+             this.dirty = true;
+           },
+           removeTask(i) { this.doc.next_steps.tasks.splice(i, 1); this.dirty = true; },
+           moveTask(i, dir) {
+             const j = i + dir;
+             if (j < 0 || j >= this.doc.next_steps.tasks.length) return;
+             const arr = this.doc.next_steps.tasks;
+             const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+             this.dirty = true;
+           },
+           async save() {
+             this.saving = true; this.error = '';
+             try {
+               const res = await fetch('/comercial/estrategia', {
+                 method: 'POST', headers: {'Content-Type': 'application/json'},
+                 body: JSON.stringify({revision: this.doc.revision, hero: this.doc.hero, objectives: this.doc.objectives, next_steps: this.doc.next_steps}),
+               });
+               const data = await res.json().catch(() => ({}));
+               if (res.ok) { window.location.reload(); return; }
+               this.error = data.message || data.detail || ('Error ' + res.status);
+             } catch (e) {
+               this.error = 'No se pudo conectar con el servidor.';
+             } finally {
+               this.saving = false;
+             }
+           },
+         }"
+         @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = ''; }"
+    >
+      <button type="button" class="btn-secondary" id="cs-edit-toggle" @click="editing ? cancelEdit() : startEdit()">
         <span x-text="editing ? 'Cancelar' : 'Editar'"></span>
       </button>
-      <div x-show="editing" x-cloak class="callout callout--punch" id="cs-edit-panel">
-        <div class="callout__head"><span class="callout__icon">✏️</span><span class="callout__title">Modo edición</span></div>
-        <div class="callout__body">
-          <p>La edición de contenido de negocio está en preparación: la topología de escritura en
-             producción (instancia única vs. contenedores concurrentes) todavía no fue confirmada
-             por el owner. "Guardar" no persistirá cambios hasta que ese punto se resuelva — ver el
-             storage gate para el detalle.</p>
-          <button type="button" class="btn-primary" id="cs-save-btn" :disabled="saving"
-                  @click="saving = true; fetch('/comercial/estrategia', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'}).then(r => r.json().then(data => ({status: r.status, data: data}))).then(res => { result = res; saving = false; })">
+
+      <div x-show="editing" x-cloak class="cs-edit-panel" id="cs-edit-panel">
+        <div class="cs-edit-panel__header">
+          <span x-show="dirty" x-cloak class="cs-dirty-badge">Sin guardar</span>
+          <button type="button" class="btn-primary" id="cs-save-btn" :disabled="saving || !dirty" @click="save()">
             <span x-text="saving ? 'Guardando…' : 'Guardar'"></span>
           </button>
-          <p x-show="result" x-cloak id="cs-save-result">
-            <span x-text="result && result.data && result.data.message"></span>
-          </p>
+        </div>
+        <p x-show="error" x-cloak class="cs-edit-error" id="cs-save-error" x-text="error"></p>
+
+        <div class="cs-edit-field">
+          <label>Kicker</label>
+          <input type="text" x-model="doc.hero.kicker" @input="dirty = true">
+        </div>
+        <div class="cs-edit-field">
+          <label>Título — prefijo</label>
+          <input type="text" x-model="doc.hero.title_prefix" @input="dirty = true">
+        </div>
+        <div class="cs-edit-field">
+          <label>Título — acento dorado</label>
+          <input type="text" x-model="doc.hero.title_accent" @input="dirty = true">
+        </div>
+        <div class="cs-edit-field">
+          <label>Bajada</label>
+          <textarea x-model="doc.hero.lead" @input="dirty = true" rows="3"></textarea>
+        </div>
+        <div class="cs-edit-field">
+          <label>KPIs de portada</label>
+          <template x-for="(bn, i) in doc.hero.bignums" :key="i">
+            <div class="cs-edit-row">
+              <input type="text" x-model="bn.value" @input="dirty = true" placeholder="Valor">
+              <input type="text" x-model="bn.label" @input="dirty = true" placeholder="Etiqueta">
+            </div>
+          </template>
+        </div>
+
+        <div class="cs-edit-field">
+          <label>Objetivos de resultado</label>
+          <template x-for="(kpi, i) in doc.objectives.result_targets" :key="i">
+            <div class="cs-edit-kpi-row">
+              <input type="text" x-model="kpi.label" @input="dirty = true" placeholder="Etiqueta">
+              <input type="text" x-model="kpi.value" @input="dirty = true" placeholder="Valor">
+              <textarea x-model="kpi.detail" @input="dirty = true" placeholder="Detalle" rows="2"></textarea>
+            </div>
+          </template>
+        </div>
+        <div class="cs-edit-field">
+          <label>Objetivos de generación de demanda</label>
+          <template x-for="(kpi, i) in doc.objectives.demand_targets" :key="i">
+            <div class="cs-edit-kpi-row">
+              <input type="text" x-model="kpi.label" @input="dirty = true" placeholder="Etiqueta">
+              <input type="text" x-model="kpi.value" @input="dirty = true" placeholder="Valor">
+              <textarea x-model="kpi.detail" @input="dirty = true" placeholder="Detalle" rows="2"></textarea>
+            </div>
+          </template>
+        </div>
+        <div class="cs-edit-field">
+          <label>Base de cálculo del embudo — nota</label>
+          <textarea x-model="doc.objectives.calc_note" @input="dirty = true" rows="3"></textarea>
+        </div>
+        <div class="cs-edit-field">
+          <label>Por qué el 4x y el 40% conviven</label>
+          <textarea x-model="doc.objectives.coverage_note" @input="dirty = true" rows="3"></textarea>
+        </div>
+        <div class="cs-edit-field">
+          <label>Sensibilidad por mezcla de ticket — nota</label>
+          <textarea x-model="doc.objectives.sensitivity_note" @input="dirty = true" rows="3"></textarea>
+        </div>
+        <div class="cs-edit-field">
+          <label>Supuestos a afinar</label>
+          <template x-for="(item, i) in doc.objectives.assumptions_pending" :key="i">
+            <div class="cs-edit-row">
+              <input type="text" x-model="doc.objectives.assumptions_pending[i]" @input="dirty = true">
+              <button type="button" class="cs-edit-remove" title="Eliminar" @click="doc.objectives.assumptions_pending.splice(i, 1); dirty = true">✕</button>
+            </div>
+          </template>
+          <button type="button" class="btn-secondary" @click="doc.objectives.assumptions_pending.push(''); dirty = true">+ Agregar supuesto</button>
+        </div>
+
+        <div class="cs-edit-field">
+          <label>Próximos pasos</label>
+          <template x-for="(task, i) in doc.next_steps.tasks" :key="task.id">
+            <div class="cs-edit-task-row">
+              <div class="cs-edit-task-handle">
+                <button type="button" title="Subir" :disabled="i === 0" @click="moveTask(i, -1)">↑</button>
+                <button type="button" title="Bajar" :disabled="i === doc.next_steps.tasks.length - 1" @click="moveTask(i, 1)">↓</button>
+              </div>
+              <input type="text" x-model="task.tarea" @input="dirty = true" placeholder="Tarea">
+              <input type="text" x-model="task.origen" @input="dirty = true" placeholder="Origen">
+              <input type="text" x-model="task.responsable" @input="dirty = true" placeholder="Responsable">
+              <select x-model="task.q" @change="dirty = true">
+                <option value="Q1">Q1</option>
+                <option value="Q2">Q2</option>
+                <option value="Q3">Q3</option>
+                <option value="Q4">Q4</option>
+                <option value="a_definir">A definir</option>
+              </select>
+              <button type="button" class="cs-edit-remove" title="Eliminar tarea" @click="removeTask(i)">✕</button>
+            </div>
+          </template>
+          <button type="button" class="btn-secondary" @click="addTask()">+ Agregar tarea</button>
         </div>
       </div>
     </div>
