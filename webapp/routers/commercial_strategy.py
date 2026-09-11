@@ -108,9 +108,17 @@ def _require_commercial_session(request: Request, *, next_path: str | None = Non
 def _editable_doc(strategy: dict) -> dict:
     """Subconjunto EDITABLE del documento canónico — lo único que el cliente
     recibe como estado mutable de EDIT (ver commercial_strategy_editing.
-    EDITABLE_TOP_KEYS: el resto del documento es código+seed en esta fase,
-    nunca se manda como editable al cliente aunque sea de solo lectura)."""
+    EDITABLE_TOP_KEYS: el resto del documento es código+seed, nunca se
+    manda como editable al cliente aunque sea de solo lectura).
+
+    `annex_map.sap_tree`/`lob_tree` viajan TAL CUAL (ya tienen exactamente
+    la forma `{root, branches}` que `commercial_strategy_editing.
+    _validate_tree` espera) — el mapa de contactos (release blocker del
+    gate "PIVOT EDIT UX") es el único anexo editable; `eyebrow`/`title`/
+    `intro`/`lob_intro` de esa sección quedan código+seed, igual que el
+    resto de anexos."""
     objectives = strategy["objectives"]
+    annex_map = strategy["annex_map"]
     return {
         "revision": strategy["revision"],
         "hero": strategy["hero"],
@@ -123,6 +131,11 @@ def _editable_doc(strategy: dict) -> dict:
             "assumptions_pending": objectives["assumptions_pending"],
         },
         "next_steps": {"tasks": strategy["next_steps"]["tasks"]},
+        "annex_map": {
+            "sap_tree": annex_map["sap_tree"],
+            "lob_tree": annex_map["lob_tree"],
+            "notes": annex_map["notes"],
+        },
     }
 
 

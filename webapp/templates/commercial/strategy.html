@@ -45,6 +45,70 @@
 </div>
 {% endmacro %}
 
+{#- Edición INLINE (ver gate "PIVOT EDIT UX TO INLINE STRUCTURED EDITING"):
+    VIEW y EDIT ocupan el MISMO lugar visual — dos elementos hermanos
+    alternados con `x-show`, nunca un formulario aparte. El nodo
+    `contenteditable` NUNCA se re-renderiza reactivamente mientras el
+    usuario tipea (eso rompería el cursor — gotcha conocido de Alpine con
+    `x-text`+contenteditable): el `$watch('editing', ...)` solo copia
+    `doc` → DOM una vez, al ENTRAR a edición (cuando `startEdit()` ya
+    reemplazó `doc` por una copia fresca de `original`); de ahí en más,
+    `@input` es la ÚNICA vía que muta `doc`, vía `setPath` (ver x-data
+    más abajo). El modelo persistido sigue siendo el documento
+    estructurado — el DOM nunca se serializa ni se guarda como HTML. #}
+{% macro inline_text(path, tag='span', cls='', placeholder='', multiline=False) %}
+{% if can_edit %}
+<{{ tag }} class="cs-inline {{ cls }}" contenteditable="true" x-show="editing" x-cloak
+  data-placeholder="{{ placeholder }}"
+  x-init="$watch('editing', (v) => { if (v) { $nextTick(() => { $el.innerText = getPath('{{ path }}') || ''; }); } })"
+  @input="setPath('{{ path }}', $event.target.innerText); dirty = true"
+  @paste="$event.preventDefault(); document.execCommand('insertText', false, ($event.clipboardData || window.clipboardData).getData('text/plain'))"
+  {%- if not multiline %}
+  @keydown.enter.prevent
+  {%- endif %}
+></{{ tag }}>
+{% endif %}
+{% endmacro %}
+
+{#- Grilla de KPIs editable — MISMA tarjeta `.cs-kpi` que `kpi_card` (VIEW),
+    con label/value/detail inline y agregar/eliminar (el validador server
+    acepta 1..6 elementos, ver commercial_strategy_editing._kpi_list). #}
+{% macro kpi_grid_edit(arr_expr) %}
+{% if can_edit %}
+<div class="cs-kpi-grid" x-show="editing" x-cloak>
+  <template x-for="(kpi, ki) in {{ arr_expr }}" :key="ki">
+    <div class="cs-kpi cs-annex-edit-node">
+      <div class="cs-annex-node-actions"><button type="button" class="cs-edit-remove" title="Eliminar KPI" @click="removeAt({{ arr_expr }}, ki)">✕</button></div>
+      <input type="text" class="cs-inline-input cs-kpi__label" placeholder="Etiqueta" x-model="kpi.label" @input="dirty = true">
+      <input type="text" class="cs-inline-input cs-kpi__value" placeholder="Valor" x-model="kpi.value" @input="dirty = true">
+      <textarea class="cs-inline-input cs-kpi__detail" placeholder="Detalle (opcional)" rows="2" x-model="kpi.detail" @input="dirty = true"></textarea>
+    </div>
+  </template>
+  <button type="button" class="btn-secondary cs-annex-add" @click="addKpi({{ arr_expr }})">+ Agregar KPI</button>
+</div>
+{% endif %}
+{% endmacro %}
+
+{#- Lista de strings editable (supuestos, etc.) — bullets en VIEW, filas
+    con agregar/eliminar/reordenar en EDIT. #}
+{% macro string_list_edit(arr_expr) %}
+{% if can_edit %}
+<div x-show="editing" x-cloak class="cs-list-edit">
+  <template x-for="(item, li) in {{ arr_expr }}" :key="li">
+    <div class="cs-edit-row">
+      <input type="text" class="cs-inline-input" x-model="{{ arr_expr }}[li]" @input="dirty = true">
+      <div class="cs-annex-node-actions">
+        <button type="button" title="Subir" :disabled="li === 0" @click="moveInArray({{ arr_expr }}, li, -1)">↑</button>
+        <button type="button" title="Bajar" :disabled="li === {{ arr_expr }}.length - 1" @click="moveInArray({{ arr_expr }}, li, 1)">↓</button>
+        <button type="button" class="cs-edit-remove" title="Eliminar" @click="removeAt({{ arr_expr }}, li)">✕</button>
+      </div>
+    </div>
+  </template>
+  <button type="button" class="btn-secondary cs-annex-add" @click="{{ arr_expr }}.push(''); dirty = true">+ Agregar</button>
+</div>
+{% endif %}
+{% endmacro %}
+
 {% macro access_block(access) %}
 {% if access %}
 <div class="cs-block-label">Acceso</div>
@@ -68,6 +132,72 @@
 {% if panel.extra_table %}{{ data_table(panel.extra_table) }}{% endif %}
 {% if panel.pending %}
 {% call callout_wrap("punch", "⚠", panel.pending.title) %}{{ bullets(panel.pending['items']) }}{% endcall %}
+{% endif %}
+{% endmacro %}
+
+{#- Mapa de contactos (Anexo — release blocker, ver gate "PIVOT EDIT UX").
+    El árbol tiene cardinalidad DINÁMICA (agregar/eliminar/reordenar nodos)
+    — a diferencia de un leaf escalar fijo, no alcanza con un par VIEW/EDIT
+    server-rendered (`inline_text`): un nodo agregado en EDIT no existe en
+    el HTML que Jinja ya emitió. Por eso el árbol EDIT es 100% cliente
+    (`x-for` sobre `doc`), paralelo al árbol VIEW (server-rendered, sin
+    tocar — ver más abajo), alternados con `x-show` a nivel de sección
+    completa, nunca nodo por nodo.
+
+    Dentro de un `x-for`, la variable de loop YA es una referencia viva al
+    elemento del array — `x-model="b0.name"` alcanza y sobra (Alpine/Vue-
+    style: mutar una propiedad del objeto referenciado muta el array
+    original in-place). Nada de `getPath`/`setPath` acá — eso es solo para
+    los leaves ESCALARES fijos (`inline_text`) que no viven dentro de un
+    loop propio. Variable por profundidad (`b0`, `b1`, `b2`...) para que
+    los `x-for` anidados nunca se sombreen entre sí.
+
+    La PROFUNDIDAD del árbol SÍ es topología fija (ver item 6 del gate:
+    "fixed structural topology may remain non-editable") — la recursión de
+    estos macros la decide el SEED en tiempo de compilado de template (via
+    `sample_node`), nunca el `doc` dinámico: un nodo nuevo agregado en un
+    nivel que el seed no anticipó con hijos propios no ofrece "+ Agregar"
+    para SUS propios hijos. Coincide exactamente con la profundidad real
+    del árbol actual (root→branches→children→children, 3 niveles bajo
+    root en sap_tree; root→branches únicamente en lob_tree). #}
+{% macro annex_leaf_fields(var) %}
+<div class="cs-tnode cs-annex-edit-node" :class="{'cs-tnode--highlight': {{ var }}.highlight}">
+  <input type="text" class="cs-inline-input cs-tnode__name" placeholder="Nombre" x-model="{{ var }}.name" @input="dirty = true">
+  <input type="text" class="cs-inline-input cs-tnode__role" placeholder="Rol / responsable" x-model="{{ var }}.role" @input="dirty = true">
+  <textarea class="cs-inline-input cs-tnode__desc" placeholder="Descripción (opcional)" rows="2" x-model="{{ var }}.desc" @input="dirty = true"></textarea>
+  <input type="text" class="cs-inline-input cs-tnode__sellers" placeholder="Vendedores (opcional)" x-model="{{ var }}.sellers" @input="dirty = true">
+</div>
+{% endmacro %}
+
+{% macro annex_children_block(sample_node, arr_expr, depth) %}
+<div class="{{ 'cs-tbranch' if depth == 0 else 'cs-tsub' }}">
+  <template x-for="(b{{ depth }}, i{{ depth }}) in {{ arr_expr }}" :key="i{{ depth }}">
+    <div class="cs-annex-child">
+      <div class="cs-annex-node-actions">
+        <button type="button" title="Subir nodo" :disabled="i{{ depth }} === 0" @click="moveInArray({{ arr_expr }}, i{{ depth }}, -1)">↑</button>
+        <button type="button" title="Bajar nodo" :disabled="i{{ depth }} === {{ arr_expr }}.length - 1" @click="moveInArray({{ arr_expr }}, i{{ depth }}, 1)">↓</button>
+        <button type="button" class="cs-edit-remove" title="Eliminar nodo" @click="removeAt({{ arr_expr }}, i{{ depth }})">✕</button>
+      </div>
+      {{ annex_leaf_fields('b' ~ depth) }}
+      {% if sample_node and sample_node.children is defined %}
+      {{ annex_children_block(sample_node.children[0] if sample_node.children else none, 'b' ~ depth ~ '.children', depth + 1) }}
+      {% endif %}
+    </div>
+  </template>
+  <button type="button" class="btn-secondary cs-annex-add" @click="addAnnexNode({{ arr_expr }})">+ Agregar nodo</button>
+</div>
+{% endmacro %}
+
+{#- `tree_key`: 'sap_tree' o 'lob_tree'. `tree`: el dict ya cargado
+    (`strategy.annex_map.sap_tree`/`lob_tree`) — SOLO se usa para decidir
+    en tiempo de compilado qué niveles recursivos emitir (ver arriba),
+    nunca para los valores en sí (esos siempre vienen de `doc`, vivo). #}
+{% macro annex_tree_edit(tree, tree_key) %}
+{% if can_edit %}
+<div x-show="editing" x-cloak class="cs-tree">
+  {{ annex_leaf_fields('doc.annex_map.' ~ tree_key ~ '.root') }}
+  {{ annex_children_block(tree.branches[0] if tree.branches else none, 'doc.annex_map.' ~ tree_key ~ '.branches', 0) }}
+</div>
 {% endif %}
 {% endmacro %}
 
@@ -96,25 +226,42 @@
       <p>El documento no está disponible en este momento. Reintentá en unos minutos.</p>
     </section>
     {% else %}
-    {#- Botón "Editar" + panel de edición — RENDERIZADO solo cuando
-        `can_edit` (ver router: commercial_access.can_edit_strategy_user),
-        pero la defensa REAL es server-side en `POST /comercial/estrategia`
-        (mismo chequeo, autoritativo) — ocultar el botón NUNCA es la
-        seguridad acá.
+    {#- Edición INLINE (ver gate "PIVOT EDIT UX TO INLINE STRUCTURED
+        EDITING"): VIEW y EDIT son la MISMA página — este `x-data` envuelve
+        TODO el hero + índice + artículo (no solo un botón flotante), así
+        cualquier campo de negocio puede alternar su representación
+        view/edit in-place vía `x-show`. Disponible para CUALQUIER
+        visitante autorizado a Comercial (no solo `can_edit`) porque
+        `editable_doc` no es sensible — es el MISMO contenido que la
+        página ya renderiza server-side — y porque `editing` solo puede
+        pasar a `true` a través del botón "Editar", que SÍ queda
+        `{% raw %}{% endraw %}{% if can_edit %}` (ver más abajo): un
+        visitante sin permiso de edición no tiene ninguna vía de UI para
+        activarlo (`{% raw %}{% if can_edit %}{% endraw %}` gatea SOLO ese
+        botón, ver más abajo), sin necesidad de duplicar TODO este árbol
+        de templates en una rama "solo lectura" aparte. La defensa REAL
+        sigue siendo
+        server-side en `POST /comercial/estrategia` (mismo chequeo,
+        autoritativo) — esto nunca fue ni es la seguridad acá.
 
-        Alcance editable de esta fase: hero, objectives (KPIs + notas +
-        supuestos) y next_steps.tasks (CRUD + reorden) — ver
+        Alcance editable: hero, objectives (KPIs + notas + supuestos),
+        next_steps.tasks (CRUD + reorden) y annex_map (mapa de contactos:
+        nombres/roles/descripciones/vendedores + notas, con
+        agregar/eliminar/reordenar nodo) — ver
         webapp/services/commercial_strategy_editing.py y el reporte del
         owner para la lista completa de campos que quedan de solo lectura
         y por qué. `editable_doc` (ver router) es EXACTAMENTE ese
         subconjunto, ya serializado — nunca el documento completo.
 
-        Guardar → POST real con `revision` — éxito recarga la página
-        (la única fuente de verdad de "cómo se ve VIEW ahora" es el
-        render del servidor, nunca una segunda copia en JS); 409/503/422
+        El modelo persistido sigue siendo el documento ESTRUCTURADO —
+        `doc` es un borrador JS/Alpine, nunca se serializa DOM/innerHTML;
+        Guardar manda el `doc` estructurado completo por el MISMO pipeline
+        POST/repository/save ya aceptado (revision optimista, escritura
+        atómica, push síncrono, rollback en falla). Éxito recarga la
+        página (la única fuente de verdad de "cómo se ve VIEW ahora" es
+        el render del servidor, nunca una segunda copia en JS); 409/503/422
         se muestran inline, SIN perder lo que el usuario tenía tipeado
         (`doc` nunca se descarta en el camino de error). #}
-    {% if can_edit %}
     {#- El JSON de `editable_doc` NUNCA va inline dentro de un atributo HTML
         (ni con comillas dobles ni simples): `tojson` solo escapa `<`/`>`/`&`/
         comillas SIMPLES — con el atributo en comillas DOBLES (lo que este
@@ -144,24 +291,36 @@
              if (this.dirty && !confirm('Tenés cambios sin guardar. ¿Descartarlos?')) return;
              this.editing = false; this.dirty = false; this.error = '';
            },
+           getPath(path) {
+             const keys = path.match(/[^.\[\]]+/g) || [];
+             return keys.reduce((o, k) => (o === null || o === undefined) ? undefined : o[k], this.doc);
+           },
+           setPath(path, value) {
+             const keys = path.match(/[^.\[\]]+/g) || [];
+             let o = this.doc;
+             for (let i = 0; i < keys.length - 1; i++) { o = o[keys[i]]; }
+             o[keys[keys.length - 1]] = value;
+           },
            addTask() {
              this.doc.next_steps.tasks.push({id: 'new-' + Date.now() + '-' + (this.taskSeq++), tarea: '', origen: '', responsable: '', q: 'a_definir'});
              this.dirty = true;
            },
-           removeTask(i) { this.doc.next_steps.tasks.splice(i, 1); this.dirty = true; },
-           moveTask(i, dir) {
+           removeAt(arr, i) { arr.splice(i, 1); this.dirty = true; },
+           moveInArray(arr, i, dir) {
              const j = i + dir;
-             if (j < 0 || j >= this.doc.next_steps.tasks.length) return;
-             const arr = this.doc.next_steps.tasks;
+             if (j < 0 || j >= arr.length) return;
              const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
              this.dirty = true;
            },
+           addKpi(arr) { arr.push({label: '', value: '', detail: ''}); this.dirty = true; },
+           addAnnexNode(arr) { arr.push({name: '', role: '', desc: '', sellers: '', highlight: false, children: []}); this.dirty = true; },
+           addAnnexNote() { this.doc.annex_map.notes.push({title: '', text: ''}); this.dirty = true; },
            async save() {
              this.saving = true; this.error = '';
              try {
                const res = await fetch('/comercial/estrategia', {
                  method: 'POST', headers: {'Content-Type': 'application/json'},
-                 body: JSON.stringify({revision: this.doc.revision, hero: this.doc.hero, objectives: this.doc.objectives, next_steps: this.doc.next_steps}),
+                 body: JSON.stringify({revision: this.doc.revision, hero: this.doc.hero, objectives: this.doc.objectives, next_steps: this.doc.next_steps, annex_map: this.doc.annex_map}),
                });
                const data = await res.json().catch(() => ({}));
                if (res.ok) { window.location.reload(); return; }
@@ -175,124 +334,41 @@
          }"
          @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = ''; }"
     >
-      <button type="button" class="btn-secondary" id="cs-edit-toggle" @click="editing ? cancelEdit() : startEdit()">
-        <span x-text="editing ? 'Cancelar' : 'Editar'"></span>
-      </button>
-
-      <div x-show="editing" x-cloak class="cs-edit-panel" id="cs-edit-panel">
-        <div class="cs-edit-panel__header">
-          <span x-show="dirty" x-cloak class="cs-dirty-badge">Sin guardar</span>
-          <button type="button" class="btn-primary" id="cs-save-btn" :disabled="saving || !dirty" @click="save()">
-            <span x-text="saving ? 'Guardando…' : 'Guardar'"></span>
-          </button>
-        </div>
-        <p x-show="error" x-cloak class="cs-edit-error" id="cs-save-error" x-text="error"></p>
-
-        <div class="cs-edit-field">
-          <label>Kicker</label>
-          <input type="text" x-model="doc.hero.kicker" @input="dirty = true">
-        </div>
-        <div class="cs-edit-field">
-          <label>Título — prefijo</label>
-          <input type="text" x-model="doc.hero.title_prefix" @input="dirty = true">
-        </div>
-        <div class="cs-edit-field">
-          <label>Título — acento dorado</label>
-          <input type="text" x-model="doc.hero.title_accent" @input="dirty = true">
-        </div>
-        <div class="cs-edit-field">
-          <label>Bajada</label>
-          <textarea x-model="doc.hero.lead" @input="dirty = true" rows="3"></textarea>
-        </div>
-        <div class="cs-edit-field">
-          <label>KPIs de portada</label>
-          <template x-for="(bn, i) in doc.hero.bignums" :key="i">
-            <div class="cs-edit-row">
-              <input type="text" x-model="bn.value" @input="dirty = true" placeholder="Valor">
-              <input type="text" x-model="bn.label" @input="dirty = true" placeholder="Etiqueta">
-            </div>
-          </template>
-        </div>
-
-        <div class="cs-edit-field">
-          <label>Objetivos de resultado</label>
-          <template x-for="(kpi, i) in doc.objectives.result_targets" :key="i">
-            <div class="cs-edit-kpi-row">
-              <input type="text" x-model="kpi.label" @input="dirty = true" placeholder="Etiqueta">
-              <input type="text" x-model="kpi.value" @input="dirty = true" placeholder="Valor">
-              <textarea x-model="kpi.detail" @input="dirty = true" placeholder="Detalle" rows="2"></textarea>
-            </div>
-          </template>
-        </div>
-        <div class="cs-edit-field">
-          <label>Objetivos de generación de demanda</label>
-          <template x-for="(kpi, i) in doc.objectives.demand_targets" :key="i">
-            <div class="cs-edit-kpi-row">
-              <input type="text" x-model="kpi.label" @input="dirty = true" placeholder="Etiqueta">
-              <input type="text" x-model="kpi.value" @input="dirty = true" placeholder="Valor">
-              <textarea x-model="kpi.detail" @input="dirty = true" placeholder="Detalle" rows="2"></textarea>
-            </div>
-          </template>
-        </div>
-        <div class="cs-edit-field">
-          <label>Base de cálculo del embudo — nota</label>
-          <textarea x-model="doc.objectives.calc_note" @input="dirty = true" rows="3"></textarea>
-        </div>
-        <div class="cs-edit-field">
-          <label>Por qué el 4x y el 40% conviven</label>
-          <textarea x-model="doc.objectives.coverage_note" @input="dirty = true" rows="3"></textarea>
-        </div>
-        <div class="cs-edit-field">
-          <label>Sensibilidad por mezcla de ticket — nota</label>
-          <textarea x-model="doc.objectives.sensitivity_note" @input="dirty = true" rows="3"></textarea>
-        </div>
-        <div class="cs-edit-field">
-          <label>Supuestos a afinar</label>
-          <template x-for="(item, i) in doc.objectives.assumptions_pending" :key="i">
-            <div class="cs-edit-row">
-              <input type="text" x-model="doc.objectives.assumptions_pending[i]" @input="dirty = true">
-              <button type="button" class="cs-edit-remove" title="Eliminar" @click="doc.objectives.assumptions_pending.splice(i, 1); dirty = true">✕</button>
-            </div>
-          </template>
-          <button type="button" class="btn-secondary" @click="doc.objectives.assumptions_pending.push(''); dirty = true">+ Agregar supuesto</button>
-        </div>
-
-        <div class="cs-edit-field">
-          <label>Próximos pasos</label>
-          <template x-for="(task, i) in doc.next_steps.tasks" :key="task.id">
-            <div class="cs-edit-task-row">
-              <div class="cs-edit-task-handle">
-                <button type="button" title="Subir" :disabled="i === 0" @click="moveTask(i, -1)">↑</button>
-                <button type="button" title="Bajar" :disabled="i === doc.next_steps.tasks.length - 1" @click="moveTask(i, 1)">↓</button>
-              </div>
-              <input type="text" x-model="task.tarea" @input="dirty = true" placeholder="Tarea">
-              <input type="text" x-model="task.origen" @input="dirty = true" placeholder="Origen">
-              <input type="text" x-model="task.responsable" @input="dirty = true" placeholder="Responsable">
-              <select x-model="task.q" @change="dirty = true">
-                <option value="Q1">Q1</option>
-                <option value="Q2">Q2</option>
-                <option value="Q3">Q3</option>
-                <option value="Q4">Q4</option>
-                <option value="a_definir">A definir</option>
-              </select>
-              <button type="button" class="cs-edit-remove" title="Eliminar tarea" @click="removeTask(i)">✕</button>
-            </div>
-          </template>
-          <button type="button" class="btn-secondary" @click="addTask()">+ Agregar tarea</button>
-        </div>
+      {% if can_edit %}
+      <div class="cs-edit-toolbar">
+        <button type="button" class="btn-secondary" id="cs-edit-toggle" @click="editing ? cancelEdit() : startEdit()">
+          <span x-text="editing ? 'Cancelar' : 'Editar'"></span>
+        </button>
+        <span x-show="editing && dirty" x-cloak class="cs-dirty-badge">Sin guardar</span>
+        <button type="button" x-show="editing" x-cloak class="btn-primary" id="cs-save-btn" :disabled="saving || !dirty" @click="save()">
+          <span x-text="saving ? 'Guardando…' : 'Guardar'"></span>
+        </button>
       </div>
-    </div>
-    {% endif %}
-    <section id="hero" class="module-hero">
-      <p class="eyebrow">{{ strategy.hero.kicker }}</p>
-      <h1>{{ strategy.hero.title_prefix }} <span style="color:var(--gold)">{{ strategy.hero.title_accent }}</span></h1>
-      <p class="hero-lead full-page-subtitle">{{ md(strategy.hero.lead) }}</p>
-      <div class="cs-bignums">
-        {% for bn in strategy.hero.bignums %}
-        <div class="cs-bignum"><span class="cs-bignum__value">{{ bn.value }}</span><span class="cs-bignum__label">{{ bn.label }}</span></div>
-        {% endfor %}
-      </div>
-    </section>
+      <p x-show="editing && error" x-cloak class="cs-edit-error" id="cs-save-error" x-text="error"></p>
+      {% endif %}
+      <section id="hero" class="module-hero">
+        <p class="eyebrow" x-show="!editing">{{ strategy.hero.kicker }}</p>
+        {{ inline_text('hero.kicker', tag='p', cls='eyebrow', placeholder='Kicker') }}
+        <h1 x-show="!editing">{{ strategy.hero.title_prefix }} <span style="color:var(--gold)">{{ strategy.hero.title_accent }}</span></h1>
+        {% if can_edit %}
+        <h1 x-show="editing" x-cloak class="cs-inline-h1">
+          {{ inline_text('hero.title_prefix', tag='span', cls='cs-inline-title-prefix', placeholder='Título — prefijo') }}
+          {{ inline_text('hero.title_accent', tag='span', cls='cs-inline-title-accent', placeholder='Título — acento') }}
+        </h1>
+        {% endif %}
+        <p class="hero-lead full-page-subtitle" x-show="!editing">{{ md(strategy.hero.lead) }}</p>
+        {{ inline_text('hero.lead', tag='p', cls='hero-lead full-page-subtitle', placeholder='Bajada', multiline=True) }}
+        <div class="cs-bignums">
+          {% for bn in strategy.hero.bignums %}
+          <div class="cs-bignum">
+            <span class="cs-bignum__value" x-show="!editing">{{ bn.value }}</span>
+            {{ inline_text('hero.bignums[' ~ loop.index0 ~ '].value', tag='span', cls='cs-bignum__value', placeholder='Valor') }}
+            <span class="cs-bignum__label" x-show="!editing">{{ bn.label }}</span>
+            {{ inline_text('hero.bignums[' ~ loop.index0 ~ '].label', tag='span', cls='cs-bignum__label', placeholder='Etiqueta') }}
+          </div>
+          {% endfor %}
+        </div>
+      </section>
 
     {#- MISMO primitivo que module.html's "En este módulo" (.section-index,
         sin variante roadmap): `<span>NN</span>Título`, numeración secuencial
@@ -316,10 +392,12 @@
         <p>{{ md(strategy.objectives.intro) }}</p>
 
         <div class="cs-block-label">Objetivos de resultado</div>
-        <div class="cs-kpi-grid">{% for c in strategy.objectives.result_targets %}{{ kpi_card(c) }}{% endfor %}</div>
+        <div class="cs-kpi-grid" x-show="!editing">{% for c in strategy.objectives.result_targets %}{{ kpi_card(c) }}{% endfor %}</div>
+        {{ kpi_grid_edit('doc.objectives.result_targets') }}
 
         <div class="cs-block-label">Base de cálculo del embudo</div>
-        <p>{{ md(strategy.objectives.calc_note) }}</p>
+        <p x-show="!editing">{{ md(strategy.objectives.calc_note) }}</p>
+        {{ inline_text('objectives.calc_note', tag='p', placeholder='Base de cálculo del embudo — nota', multiline=True) }}
         {{ data_table(strategy.objectives.ticket_table) }}
 
         <div class="cs-block-label">El embudo</div>
@@ -335,15 +413,23 @@
         </div>
 
         <div class="cs-block-label">Objetivos de generación de demanda</div>
-        <div class="cs-kpi-grid">{% for c in strategy.objectives.demand_targets %}{{ kpi_card(c) }}{% endfor %}</div>
+        <div class="cs-kpi-grid" x-show="!editing">{% for c in strategy.objectives.demand_targets %}{{ kpi_card(c) }}{% endfor %}</div>
+        {{ kpi_grid_edit('doc.objectives.demand_targets') }}
 
-        {% call callout_wrap("punch", "💡", "Por qué el 4x y el 40% conviven") %}<p>{{ md(strategy.objectives.coverage_note) }}</p>{% endcall %}
+        {% call callout_wrap("punch", "💡", "Por qué el 4x y el 40% conviven") %}
+        <p x-show="!editing">{{ md(strategy.objectives.coverage_note) }}</p>
+        {{ inline_text('objectives.coverage_note', tag='p', multiline=True) }}
+        {% endcall %}
 
         <div class="cs-block-label">Sensibilidad por mezcla de ticket</div>
-        <p>{{ md(strategy.objectives.sensitivity_note) }}</p>
+        <p x-show="!editing">{{ md(strategy.objectives.sensitivity_note) }}</p>
+        {{ inline_text('objectives.sensitivity_note', tag='p', placeholder='Sensibilidad por mezcla de ticket — nota', multiline=True) }}
         {{ data_table(strategy.objectives.sensitivity_table) }}
 
-        {% call callout_wrap("", "📌", "Supuestos a afinar") %}{{ bullets(strategy.objectives.assumptions_pending) }}{% endcall %}
+        {% call callout_wrap("", "📌", "Supuestos a afinar") %}
+        <div x-show="!editing">{{ bullets(strategy.objectives.assumptions_pending) }}</div>
+        {{ string_list_edit('doc.objectives.assumptions_pending') }}
+        {% endcall %}
         {% set feedback_id = "objectives" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
@@ -492,11 +578,12 @@
         {% set feedback_id = "exclusions" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
-      {# ── Pilar 8 · Próximos pasos (tabla de tareas, READ-ONLY en Fase 1) #}
+      {# ── Pilar 8 · Próximos pasos (la tabla misma es el editor — ver gate
+          "PIVOT EDIT UX": nunca un formulario duplicado debajo) ────────── #}
       <section id="proximos" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.next_steps.eyebrow }}</span><h2>{{ strategy.next_steps.title }}</h2></div></header>
         <p>{{ md(strategy.next_steps.intro) }}</p>
-        <table>
+        <table x-show="!editing">
           <thead><tr><th>Tarea</th><th>Origen</th><th>Responsable</th><th>Q</th></tr></thead>
           <tbody>
             {% for t in strategy.next_steps.tasks %}
@@ -509,6 +596,37 @@
             {% endfor %}
           </tbody>
         </table>
+        {% if can_edit %}
+        <table x-show="editing" x-cloak class="cs-table-edit">
+          <thead><tr><th>Tarea</th><th>Origen</th><th>Responsable</th><th>Q</th><th></th></tr></thead>
+          <tbody>
+            <template x-for="(task, ti) in doc.next_steps.tasks" :key="task.id">
+              <tr>
+                <td><input type="text" class="cs-inline-input" x-model="task.tarea" @input="dirty = true"></td>
+                <td><input type="text" class="cs-inline-input" x-model="task.origen" @input="dirty = true"></td>
+                <td><input type="text" class="cs-inline-input" x-model="task.responsable" @input="dirty = true"></td>
+                <td>
+                  <select class="cs-inline-input" x-model="task.q" @change="dirty = true">
+                    <option value="Q1">Q1</option>
+                    <option value="Q2">Q2</option>
+                    <option value="Q3">Q3</option>
+                    <option value="Q4">Q4</option>
+                    <option value="a_definir">A definir</option>
+                  </select>
+                </td>
+                <td>
+                  <div class="cs-annex-node-actions">
+                    <button type="button" title="Subir" :disabled="ti === 0" @click="moveInArray(doc.next_steps.tasks, ti, -1)">↑</button>
+                    <button type="button" title="Bajar" :disabled="ti === doc.next_steps.tasks.length - 1" @click="moveInArray(doc.next_steps.tasks, ti, 1)">↓</button>
+                    <button type="button" class="cs-edit-remove" title="Eliminar tarea" @click="removeAt(doc.next_steps.tasks, ti)">✕</button>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <button type="button" x-show="editing" x-cloak class="btn-secondary cs-annex-add" @click="addTask()">+ Agregar tarea</button>
+        {% endif %}
         {% if strategy.next_steps.closing_note %}<p>{{ md(strategy.next_steps.closing_note) }}</p>{% endif %}
         {% set feedback_id = "next_steps" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
@@ -519,13 +637,14 @@
         <p>{{ md(strategy.annex_map.intro) }}</p>
         <div class="cs-block-label">Estructura de ventas SAP</div>
         {% set sap = strategy.annex_map.sap_tree %}
-        <div class="cs-tree">
+        <div class="cs-tree" x-show="!editing">
           <div class="cs-tnode cs-tnode--root"><div class="cs-tnode__name">{{ sap.root.name }}</div><div class="cs-tnode__role">{{ sap.root.role }}</div></div>
           <div class="cs-tbranch">
             {% for b in sap.branches %}
             <div class="cs-tnode{% if b.highlight %} cs-tnode--highlight{% endif %}">
               <div class="cs-tnode__name">{{ b.name }}</div><div class="cs-tnode__role">{{ b.role }}</div>
               {% if b.desc %}<div class="cs-tnode__desc">{{ md(b.desc) }}</div>{% endif %}
+              {% if b.sellers %}<div class="cs-tnode__sellers">{{ b.sellers }}</div>{% endif %}
               {% if b.children %}
               <div class="cs-tsub">
                 {% for leaf in b.children %}
@@ -548,11 +667,12 @@
             {% endfor %}
           </div>
         </div>
+        {{ annex_tree_edit(sap, 'sap_tree') }}
 
         <div class="cs-block-label" style="margin-top:32px;">LoB — BDC</div>
         {% set lob = strategy.annex_map.lob_tree %}
         {% if strategy.annex_map.lob_intro %}<p>{{ md(strategy.annex_map.lob_intro) }}</p>{% endif %}
-        <div class="cs-tree">
+        <div class="cs-tree" x-show="!editing">
           <div class="cs-tnode cs-tnode--root"><div class="cs-tnode__name">{{ lob.root.name }}</div><div class="cs-tnode__role">{{ lob.root.role }}</div></div>
           <div class="cs-tbranch">
             {% for b in lob.branches %}
@@ -560,8 +680,25 @@
             {% endfor %}
           </div>
         </div>
+        {{ annex_tree_edit(lob, 'lob_tree') }}
 
-        {% for n in strategy.annex_map.notes %}{% call callout_wrap("", "📎", n.title) %}<p>{{ md(n.text) }}</p>{% endcall %}{% endfor %}
+        <div x-show="!editing">
+          {% for n in strategy.annex_map.notes %}{% call callout_wrap("", "📎", n.title) %}<p>{{ md(n.text) }}</p>{% endcall %}{% endfor %}
+        </div>
+        {% if can_edit %}
+        <div x-show="editing" x-cloak class="cs-annex-notes-edit">
+          <template x-for="(note, ni) in doc.annex_map.notes" :key="ni">
+            <div class="callout cs-annex-note-edit">
+              <div class="cs-annex-node-actions">
+                <button type="button" class="cs-edit-remove" title="Eliminar nota" @click="removeAt(doc.annex_map.notes, ni)">✕</button>
+              </div>
+              <input type="text" class="cs-inline-input callout__title" placeholder="Título de la nota" x-model="note.title" @input="dirty = true">
+              <textarea class="cs-inline-input callout__body" placeholder="Texto de la nota" rows="2" x-model="note.text" @input="dirty = true"></textarea>
+            </div>
+          </template>
+          <button type="button" class="btn-secondary cs-annex-add" @click="addAnnexNote()">+ Agregar nota</button>
+        </div>
+        {% endif %}
         {% set feedback_id = "annex_map" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 

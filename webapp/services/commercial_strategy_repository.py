@@ -166,7 +166,21 @@ class CommercialStrategyRepository:
                 raise StaleRevisionError(current.get("revision"))
 
             candidate = copy.deepcopy(current)
-            candidate.update(updated_fields)
+            # Merge de UN nivel, nunca `candidate.update(updated_fields)`
+            # (bug real encontrado durante el gate de edición inline,
+            # confirmado con reproducción controlada antes de este fix):
+            # cada validador de commercial_strategy_editing devuelve SOLO
+            # las claves editables de esa sección (p. ej. `objectives` sin
+            # `eyebrow`/`title`/`intro`/`ticket_table`/`funnel`, que son
+            # código+seed) — un `.update()` top-level reemplazaría el dict
+            # ENTERO de esa sección, borrando esas claves no-editables en
+            # cada Save real. Reemplazar SOLO lo validado, preservar el
+            # resto de esa sección tal cual estaba.
+            for key, value in updated_fields.items():
+                if isinstance(candidate.get(key), dict) and isinstance(value, dict):
+                    candidate[key] = {**candidate[key], **value}
+                else:
+                    candidate[key] = value
             candidate["revision"] = expected_revision + 1
             candidate["updated_at"] = datetime.now(timezone.utc).isoformat()
             candidate["updated_by_id"] = updated_by_id

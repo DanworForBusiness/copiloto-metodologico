@@ -193,7 +193,76 @@
    propios (no default del browser): mismos tokens `--card`/--line`/`--ink`
    ya escalados por tema vía `.cs-doc` (ver arriba) — nunca un tema
    separado para el modo edición. */
-.cs-edit-shell { margin: 22px 0 -6px; }
+.cs-edit-shell { margin: 22px 0 14px; }
+/* Toolbar compacta — el botón genérico `.btn-secondary`/`.btn-primary`
+   trae `min-height:42px` (pensado para el wizard de Copiloto, ver
+   app.css), demasiado alto para un toggle chico flotando sobre el hero:
+   sin este override pisaba el eyebrow de abajo. Mismo look (mismo
+   `--line`/`--card`/`--gold`), solo más angosto en altura/padding. */
+.cs-edit-toolbar { display: flex; align-items: center; gap: 12px; }
+.cs-edit-toolbar .btn-secondary, .cs-edit-toolbar .btn-primary {
+  min-height: 30px; padding: 5px 12px; font-size: .74rem;
+}
+
+/* Edición INLINE (gate "PIVOT EDIT UX TO INLINE STRUCTURED EDITING") —
+   leaves `contenteditable` (`.cs-inline`) y controles compactos
+   (`.cs-inline-input`) que ocupan el MISMO lugar visual que su
+   contraparte VIEW, con un estado de foco/edición sutil (item 10 del
+   gate: "editing affordances should be subtle") en vez de chrome de
+   formulario pesado. */
+.cs-inline {
+  outline: 1px dashed var(--line); outline-offset: 3px; border-radius: 4px;
+  cursor: text; transition: outline-color .15s ease;
+}
+.cs-inline:hover, .cs-inline:focus { outline-color: var(--gold); outline-style: solid; }
+.cs-inline:empty:before { content: attr(data-placeholder); color: var(--dim); }
+/* `.eyebrow` trae `text-transform:uppercase` (app.css) — un contenteditable
+   captura vía `innerText` el texto YA transformado por CSS (`innerText` es
+   CSS-aware), así que sin este reset cualquier edición mayuscularía el
+   valor guardado de forma permanente, sin importar lo que haya tipeado el
+   usuario. Solo afecta a la variante EDIT — la VIEW (`.eyebrow` sin
+   `.cs-inline`) sigue transformándose visualmente como siempre. */
+.cs-inline.eyebrow { text-transform: none; }
+.cs-inline-h1 { margin: 12px 0 22px; font-size: clamp(2.4rem,5vw,4.5rem); line-height: .98; letter-spacing: -.055em; }
+.cs-inline-h1 .cs-inline-title-accent { color: var(--gold); }
+
+.cs-inline-input {
+  padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg2, var(--card)); color: var(--ink); font: inherit;
+}
+.content-theme-light .cs-doc .cs-inline-input { background: #f4f4f5; }
+.cs-inline-input:focus { outline: 2px solid var(--gold); outline-offset: 1px; border-color: var(--gold); }
+textarea.cs-inline-input { resize: vertical; width: 100%; }
+
+/* Controles compactos de colección (agregar/eliminar/reordenar) — MISMO
+   primitivo visual que `.cs-edit-task-handle`/`.cs-edit-remove` ya
+   aprobados (ver abajo), reusado para KPIs/supuestos/nodos del mapa/
+   tareas/notas — nunca un estilo nuevo por tipo de colección. */
+.cs-annex-node-actions { display: flex; align-items: center; gap: 4px; margin: 6px 0; }
+.cs-annex-node-actions button {
+  border: 1px solid var(--line); background: var(--card); color: var(--soft);
+  border-radius: 4px; cursor: pointer; font-size: .7rem; line-height: 1.4; padding: 3px 6px;
+}
+.cs-annex-node-actions button:disabled { opacity: .3; cursor: default; }
+.cs-annex-add { margin-top: 8px; }
+.cs-annex-edit-node { position: relative; }
+.cs-annex-edit-node .cs-annex-node-actions { position: absolute; top: 10px; right: 10px; margin: 0; }
+.cs-kpi-grid .cs-inline-input { margin-bottom: 6px; width: 100%; }
+.cs-kpi-grid textarea.cs-inline-input { min-height: 44px; }
+
+.cs-list-edit .cs-edit-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+
+/* Mapa de contactos — el árbol EDIT reusa `.cs-tnode`/`.cs-tbranch`/
+   `.cs-tsub` (VIEW) como contenedor visual; solo las 4 inputs/textarea
+   internas son nuevas. */
+.cs-annex-child { position: relative; }
+
+.cs-table-edit input, .cs-table-edit select { width: 100%; }
+.cs-table-edit td { vertical-align: middle; }
+
+.cs-annex-notes-edit .callout { position: relative; padding-right: 40px; }
+.cs-annex-notes-edit .callout .cs-annex-node-actions { position: absolute; top: 14px; right: 14px; margin: 0; }
+.cs-annex-notes-edit input.cs-inline-input { margin-bottom: 8px; width: 100%; font-weight: 700; }
 .cs-edit-panel, #cs-edit-panel {
   margin-top: 14px; padding: 20px 22px; border: 1px solid var(--line);
   border-radius: 12px; background: var(--card);

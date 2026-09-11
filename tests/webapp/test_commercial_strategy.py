@@ -170,9 +170,56 @@ def test_no_standalone_font_import_or_root_palette_reintroduced():
         assert banned not in css, banned
 
 
-def test_no_global_contenteditable_reintroduced():
-    html = (Path(__file__).resolve().parents[2] / "webapp" / "templates" / "commercial" / "strategy.html").read_text(encoding="utf-8")
-    assert "contenteditable" not in html
+def test_contenteditable_only_used_as_a_leaf_control_never_a_structural_wrapper(monkeypatch):
+    # Pivot Edit UX gate: contenteditable pasó de PROHIBIDO (mega-form, sin
+    # concurrencia confirmada) a AUTORIZADO explícitamente pero SOLO como
+    # leaf de negocio individual (item 4 del gate) — nunca en <main>/
+    # <section>/<table>/<tbody>/<tr>/<article>, que seguirían siendo el
+    # documento persistido si alguna vez volvieran contenteditable. Este
+    # test reemplaza la prohibición total: ahora prueba la forma correcta
+    # de usarlo, no su ausencia.
+    import re
+    _with_owner(monkeypatch)
+    rendered = owner_client.get("/comercial/estrategia").text
+    banned_wrappers = ("main", "section", "table", "tbody", "tr", "article", "body", "html")
+    for m in re.finditer(r"<(\w+)[^>]*\bcontenteditable\b", rendered):
+        tag = m.group(1).lower()
+        assert tag not in banned_wrappers, f"contenteditable found on structural wrapper <{tag}>"
+        assert tag in ("span", "p"), f"unexpected contenteditable host tag <{tag}>"
+
+
+def test_contenteditable_with_text_transform_css_has_it_neutralized(monkeypatch):
+    # Bug REAL encontrado en browser QA: `.eyebrow` trae `text-transform:
+    # uppercase` (app.css) — `innerText` (lo que lee `@input` en
+    # `inline_text`) es CSS-aware, así que sin este reset cualquier click
+    # + edición de `hero.kicker` mayusculizaba el valor guardado para
+    # siempre, sin importar lo que haya tipeado el usuario. La variante
+    # `.cs-inline.eyebrow` debe neutralizar el transform (ver
+    # commercial_strategy.css) — la VIEW (`.eyebrow` sin `.cs-inline`)
+    # sigue transformándose visualmente como siempre.
+    _with_owner(monkeypatch)
+    rendered = owner_client.get("/comercial/estrategia").text
+    assert 'class="cs-inline eyebrow"' in rendered
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_strategy.css").read_text(encoding="utf-8")
+    assert ".cs-inline.eyebrow" in css and "text-transform: none" in css.split(".cs-inline.eyebrow")[1].split("}")[0]
+
+
+def test_contenteditable_elements_never_persist_innerhtml_only_structured_paths(monkeypatch):
+    # El modelo persistido sigue siendo el documento ESTRUCTURADO — cada
+    # leaf contenteditable escribe a `doc` vía `setPath`/`getPath` (paths
+    # de negocio conocidos), nunca serializa su propio DOM/innerHTML. Un
+    # `contenteditable="true"` por cada `setPath(` (1:1, ver `inline_text`)
+    # y cero uso de `innerHTML` en todo el documento prueban esto sin
+    # depender de un regex frágil sobre el tag completo (sus propios
+    # atributos Alpine, p. ej. `(v) =>`, contienen `>` legítimos).
+    _with_owner(monkeypatch)
+    rendered = owner_client.get("/comercial/estrategia").text
+    assert rendered.count('contenteditable="true"') > 0
+    # +1 = la propia definición `setPath(path, value) {` en el x-data (ver
+    # más abajo), que también matchea la substring — cada @input="setPath(
+    # ...)" restante corresponde 1:1 a un leaf contenteditable.
+    assert rendered.count('contenteditable="true"') == rendered.count("setPath(") - 1
+    assert "innerHTML" not in rendered
 
 
 def test_all_expected_section_links_present_in_index():
@@ -306,10 +353,20 @@ def test_persisted_markup_never_leaks_arbitrary_html_tags():
 # ============================================================================
 
 def test_non_owner_never_sees_edit_affordance():
+    # Pivot Edit UX gate: la sección VIEW/EDIT vive en el MISMO árbol de
+    # templates (nunca una rama "solo lectura" duplicada — ver docstring de
+    # commercial_strategy.py), pero cada macro/bloque de edición (
+    # `inline_text`, `kpi_grid_edit`, `string_list_edit`, `annex_tree_edit`,
+    # tabla de próximos pasos, notas del mapa, toolbar) está gateado por
+    # `{% if can_edit %}` puertas adentro — un no-owner no recibe NINGUNA
+    # de esas strings en el HTML, aunque el template fuente sí las
+    # contenga (ver test_contenteditable_only_used_as_a_leaf_control...).
     text = client.get("/comercial/estrategia").text
-    for banned in ("cs-edit-toggle", "cs-edit-panel", ">Editar<", "editing-mode", "contenteditable"):
+    for banned in (
+        "cs-edit-toggle", "cs-edit-toolbar", ">Editar<", "editing-mode", "contenteditable",
+        "cs-annex-add", "cs-table-edit", "cs-annex-notes-edit",
+    ):
         assert banned not in text, banned
-    assert "contenteditable" not in _STRATEGY_HTML
 
 
 def test_non_owner_write_attempt_returns_403(monkeypatch):
@@ -335,12 +392,21 @@ def _with_owner(monkeypatch):
     monkeypatch.setattr(auth_service, "CONTENT_OWNER", "content-owner-test@danwor.com")
 
 
-def test_content_owner_sees_edit_affordance_and_panel(monkeypatch):
+def test_content_owner_sees_edit_affordance_and_inline_controls(monkeypatch):
+    # Pivot Edit UX gate: ya no existe un panel/formulario separado
+    # (`#cs-edit-panel` fue retirado) — el owner recibe el toggle, el
+    # save/cancel, y las afordancias de edición INLINE repartidas por
+    # todo el documento (contenteditable en leaves de hero/objectives,
+    # tabla editable de próximos pasos, árbol editable del mapa de
+    # contactos), todas ocultas por `x-show="editing"` hasta que activa
+    # "Editar" — presentes en el HTML, no en un `#cs-edit-panel` aparte.
     _with_owner(monkeypatch)
     text = owner_client.get("/comercial/estrategia").text
     assert 'id="cs-edit-toggle"' in text
-    assert 'id="cs-edit-panel"' in text
     assert 'id="cs-save-btn"' in text
+    assert "contenteditable" in text  # hero/objectives leaves
+    assert "cs-table-edit" in text  # próximos pasos, tabla editable in-place
+    assert "cs-tree" in text and "addAnnexNode(" in text  # mapa de contactos
 
 
 # ============================================================================
@@ -440,6 +506,11 @@ def _save_payload(revision: int, **overrides) -> dict:
             "assumptions_pending": doc["objectives"]["assumptions_pending"],
         },
         "next_steps": {"tasks": doc["next_steps"]["tasks"]},
+        "annex_map": {
+            "sap_tree": doc["annex_map"]["sap_tree"],
+            "lob_tree": doc["annex_map"]["lob_tree"],
+            "notes": doc["annex_map"]["notes"],
+        },
     }
     payload.update(overrides)
     return payload
@@ -526,6 +597,133 @@ def test_task_reorder_persists(tmp_path, monkeypatch):
     reloaded = load_strategy()["next_steps"]["tasks"]
     assert reloaded[0]["id"] == second_id
     assert reloaded[1]["id"] == first_id
+
+
+# ============================================================================
+# Mapa de contactos (annex_map) — release blocker del gate "PIVOT EDIT UX
+# TO INLINE STRUCTURED EDITING": nombre/rol editable en el árbol, agregar/
+# eliminar/reordenar nodo, notas CRUD.
+# ============================================================================
+
+def test_contact_map_root_and_branch_name_role_edit_persists(tmp_path, monkeypatch):
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    payload["annex_map"]["sap_tree"]["root"]["name"] = "SAP Editado"
+    payload["annex_map"]["sap_tree"]["branches"][0]["role"] = "Resp: Editado en el test"
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    saved = load_strategy()["annex_map"]["sap_tree"]
+    assert saved["root"]["name"] == "SAP Editado"
+    assert saved["branches"][0]["role"] == "Resp: Editado en el test"
+
+
+def test_contact_map_nested_child_desc_and_sellers_edit_persists(tmp_path, monkeypatch):
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    child = payload["annex_map"]["sap_tree"]["branches"][1]["children"][0]  # Corporate -> C-Field
+    child["desc"] = "Descripción editada"
+    child["sellers"] = "Vendedores editados"
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    saved_child = load_strategy()["annex_map"]["sap_tree"]["branches"][1]["children"][0]
+    assert saved_child["desc"] == "Descripción editada"
+    assert saved_child["sellers"] == "Vendedores editados"
+
+
+def test_contact_map_add_node_persists(tmp_path, monkeypatch):
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    before_count = len(payload["annex_map"]["lob_tree"]["branches"])
+    payload["annex_map"]["lob_tree"]["branches"].append(
+        {"name": "Nueva rama", "role": "Resp: Test", "desc": "", "sellers": "", "highlight": False, "children": []}
+    )
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    branches = load_strategy()["annex_map"]["lob_tree"]["branches"]
+    assert len(branches) == before_count + 1
+    assert branches[-1]["name"] == "Nueva rama"
+
+
+def test_contact_map_delete_node_persists(tmp_path, monkeypatch):
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    removed_name = payload["annex_map"]["lob_tree"]["branches"].pop(0)["name"]
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    names = [b["name"] for b in load_strategy()["annex_map"]["lob_tree"]["branches"]]
+    assert removed_name not in names
+
+
+def test_contact_map_reorder_node_persists(tmp_path, monkeypatch):
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    branches = payload["annex_map"]["sap_tree"]["branches"]
+    first_name, second_name = branches[0]["name"], branches[1]["name"]
+    branches[0], branches[1] = branches[1], branches[0]
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    reloaded = load_strategy()["annex_map"]["sap_tree"]["branches"]
+    assert reloaded[0]["name"] == second_name
+    assert reloaded[1]["name"] == first_name
+
+
+def test_contact_map_note_add_edit_delete_persists(tmp_path, monkeypatch):
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    payload["annex_map"]["notes"][0]["title"] = "Título editado"
+    payload["annex_map"]["notes"].append({"title": "Nota nueva", "text": "Texto nuevo"})
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    notes = load_strategy()["annex_map"]["notes"]
+    assert notes[0]["title"] == "Título editado"
+    assert notes[-1] == {"title": "Nota nueva", "text": "Texto nuevo"}
+
+
+def _leaf_node(name: str) -> dict:
+    return {"name": name, "role": "x", "desc": "", "sellers": "", "highlight": False}
+
+
+def test_contact_map_tree_depth_is_bounded_against_adversarial_nesting(tmp_path, monkeypatch):
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    root_node = _leaf_node("d0")
+    cursor = root_node
+    for i in range(1, 10):
+        child = _leaf_node(f"d{i}")
+        cursor["children"] = [child]
+        cursor = child
+    payload["annex_map"]["sap_tree"]["branches"][0]["children"] = [root_node]
+    res = _owner_post(payload)
+    assert res.status_code == 422
+
+
+def test_contact_map_only_editable_fields_change_non_editable_annex_map_metadata_survives(tmp_path, monkeypatch):
+    _with_owner(monkeypatch)
+    fresh = _isolated_repo(tmp_path, monkeypatch)
+    before = fresh.load()
+    payload = _save_payload(1)
+    payload["annex_map"]["sap_tree"]["root"]["name"] = "SAP Editado"
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    after = load_strategy()
+    assert after["annex_map"]["eyebrow"] == before["annex_map"]["eyebrow"]
+    assert after["annex_map"]["title"] == before["annex_map"]["title"]
+    assert after["annex_map"]["intro"] == before["annex_map"]["intro"]
+    assert after["annex_map"]["lob_intro"] == before["annex_map"]["lob_intro"]
 
 
 def test_invalid_enum_rejected_atomically(tmp_path, monkeypatch):
@@ -709,6 +907,43 @@ def test_empty_content_owner_write_fails_closed_with_valid_payload(tmp_path, mon
     _isolated_repo(tmp_path, monkeypatch)
     res = owner_client.post("/comercial/estrategia", json=_save_payload(1), headers={"Origin": "http://testserver"})
     assert res.status_code == 403
+
+
+def test_save_preserves_non_editable_sibling_fields_within_a_saved_section(tmp_path, monkeypatch):
+    # Bug REAL encontrado durante el gate de edición inline (antes de este
+    # test): `save()` hacía `candidate.update(updated_fields)` a nivel
+    # tope — como cada validador de commercial_strategy_editing devuelve
+    # SOLO las claves editables de una sección (p. ej. `objectives` sin
+    # `eyebrow`/`title`/`intro`/`ticket_table`/`funnel`), ese `.update()`
+    # reemplazaba el dict ENTERO de la sección, borrando esas claves
+    # código+seed en cada Save real — nunca detectado porque ningún test
+    # anterior recargaba esos campos específicos tras un save. Fix: merge
+    # de un nivel en `save()` (ver commercial_strategy_repository.py).
+    _with_owner(monkeypatch)
+    fresh = _isolated_repo(tmp_path, monkeypatch)
+    before = fresh.load()
+    assert before["objectives"]["eyebrow"]  # confirma que el seed realmente lo trae
+    assert "ticket_table" in before["objectives"]
+    assert "funnel" in before["objectives"]
+
+    payload = _save_payload(1)
+    payload["objectives"]["coverage_note"] = "Coverage note editada por el test"
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+
+    from webapp.services.commercial_strategy_repository import load_strategy
+    after = load_strategy()
+    assert after["objectives"]["coverage_note"] == "Coverage note editada por el test"
+    assert after["objectives"]["eyebrow"] == before["objectives"]["eyebrow"]
+    assert after["objectives"]["title"] == before["objectives"]["title"]
+    assert after["objectives"]["intro"] == before["objectives"]["intro"]
+    assert after["objectives"]["ticket_table"] == before["objectives"]["ticket_table"]
+    assert after["objectives"]["funnel"] == before["objectives"]["funnel"]
+    # hero y next_steps también son secciones parcialmente editables —
+    # mismo invariante.
+    assert "eyebrow" not in before["hero"] or after["hero"].get("eyebrow") == before["hero"].get("eyebrow")
+    assert after["next_steps"]["eyebrow"] == before["next_steps"]["eyebrow"]
+    assert after["next_steps"]["intro"] == before["next_steps"]["intro"]
 
 
 def test_repository_reload_sees_durable_saved_document(tmp_path, monkeypatch):
