@@ -286,7 +286,7 @@
     <section id="hero" class="module-hero">
       <p class="eyebrow">{{ strategy.hero.kicker }}</p>
       <h1>{{ strategy.hero.title_prefix }} <span style="color:var(--gold)">{{ strategy.hero.title_accent }}</span></h1>
-      <p>{{ md(strategy.hero.lead) }}</p>
+      <p class="hero-lead full-page-subtitle">{{ md(strategy.hero.lead) }}</p>
       <div class="cs-bignums">
         {% for bn in strategy.hero.bignums %}
         <div class="cs-bignum"><span class="cs-bignum__value">{{ bn.value }}</span><span class="cs-bignum__label">{{ bn.label }}</span></div>
@@ -561,7 +561,7 @@
           </div>
         </div>
 
-        {% for n in strategy.annex_map.notes %}{% call callout_wrap("", "📎", "Nota") %}<p>{{ md(n) }}</p>{% endcall %}{% endfor %}
+        {% for n in strategy.annex_map.notes %}{% call callout_wrap("", "📎", n.title) %}<p>{{ md(n.text) }}</p>{% endcall %}{% endfor %}
         {% set feedback_id = "annex_map" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 

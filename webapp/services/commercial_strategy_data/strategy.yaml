@@ -122,7 +122,7 @@ objectives:
     value: ~14–15
     detail: 'Piso de conversión: oportunidades que llegan a etapa Inicial con las 5 preguntas respondidas
       (~7 New Names + ~7 Base Instalada). Es lo que la cadencia semanal vigila de cerca.'
-  coverage_note: '**Por qué el 4x y el 40% conviven.** Son dos lentes distintos. Si generás 4x de pipeline
+  coverage_note: 'Son dos lentes distintos. Si generás 4x de pipeline
     (~22 opps) y ganás el 40%, cerrás ~9 deals ≈ USD 800K — 160% del objetivo. Ese colchón de ~50–60%
     por encima del piso de conversión es a propósito: absorbe los deals que caen al año siguiente, los
     que entran a ticket mínimo en vez de promedio, y los que rinden menos del 40%. El 4x manda sobre la
@@ -264,7 +264,7 @@ demand_generation:
       is_date: false
       muted: true
       sub: Branding — ARG / CH / UY
-  owner_note: '**Responsable del motor de demanda.** Julieta Tiddens conduce el marketing y el calendario
+  owner_note: 'Julieta Tiddens conduce el marketing y el calendario
     de contenidos que sostienen los canales inbound. Cada evento debe terminar cargado en el CRM con los
     contactos y la prospección asociada (Semillero de eventos · Pilar 4) — sin ese cierre, el evento no
     genera pipeline.'
@@ -275,7 +275,7 @@ segments:
     — es la puerta de entrada de contactos. Los Segmentos 2, 3 y 4 persiguen en conjunto los USD 250.000
     de licencias New Names. El Segmento 5 es la base instalada propia de Danwor (solo licencias, los otros
     USD 250K). El Segmento 6 es exclusivamente servicios (partners regionales).
-  new_name_note: '**Qué es "New Name" para Danwor.** Es todo cliente nuevo para Danwor. En esta estrategia,
+  new_name_note: 'Es todo cliente nuevo para Danwor. En esta estrategia,
     **todos los segmentos son New Names excepto el Segmento 5** (base propia de Danwor), que es Base Instalada.
     Un cliente puede ser Base Instalada de SAP y, al mismo tiempo, New Name para Danwor — el Segmento
     2 (C-Field Base Instalada) es exactamente ese caso. La palabra "New Names" se lee siempre desde la
@@ -895,10 +895,12 @@ annex_map:
   lob_intro: Especialistas de producto que dan soporte de venta a los AEs — nexo directo con los Account
     Executives.
   notes:
-  - '**Net New Names (NNN):** clientes sin ERP SAP hoy, clientes implementando SAP por primera vez que
-    aún no salieron en vivo, y clientes con SAP Business One.'
-  - '**Expectativa SAP:** SAP espera que los partners generen y trabajen sus propias oportunidades dentro
-    de Corporate, no solo que cierren deals ya derivados.'
+  - title: Net New Names (NNN)
+    text: Clientes sin ERP SAP hoy, clientes implementando SAP por primera vez que aún no salieron en
+      vivo, y clientes con SAP Business One.
+  - title: Expectativa SAP
+    text: SAP espera que los partners generen y trabajen sus propias oportunidades dentro de Corporate,
+      no solo que cierren deals ya derivados.
 annex_roles:
   eyebrow: Anexo
   title: Mapa de roles y responsabilidades
@@ -998,7 +1000,7 @@ annex_process:
     name: Propuesta presentada
     meta: Ejecutivo Comercial
     gate: Propuesta presentada = fecha de decisión obligatoria en CRM.
-  cooling_note: '**Umbral de enfriamiento:** más de 2 semanas sin respuesta del cliente = primera alerta.
+  cooling_note: 'Más de 2 semanas sin respuesta del cliente = primera alerta.
     La oportunidad se marca como enfriada en el seguimiento semanal.'
 annex_rules:
   eyebrow: Anexo
