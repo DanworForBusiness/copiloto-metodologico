@@ -1,18 +1,48 @@
-/* commercial_strategy.css — Estrategia Comercial (Commercial Strategy —
-   Phase 1, read-only).
+/* commercial_strategy.css — Estrategia Comercial (Commercial Strategy).
 
    Reuso deliberado: la página vive dentro de `.module-content`/`.methodology`/
    `.content-section`/`.callout`/`.status-badge` (mismos primitivos que un
-   módulo del Copiloto — ver webapp/templates/module.html), theme-aware por
-   herencia de esos mismos tokens (`var(--ink)`, `var(--soft)`, `var(--card)`,
-   `var(--line)`, `var(--gold)`). Este archivo SOLO cubre lo que no tiene
-   equivalente Hub ya existente: KPIs grandes con detalle (los objcard del
-   artefacto), el embudo, el árbol de contactos SAP, la línea de tiempo del
-   proceso, la barra de tabs de segmentos (más ancha que `.tool-tabs`, pensada
-   para el panel lateral angosto) y el badge de prioridad (concepto distinto a
-   `.status-badge`, que es de frescura de dato, no de ranking).
+   módulo del Copiloto — ver webapp/templates/module.html). Este archivo SOLO
+   cubre lo que no tiene equivalente Hub ya existente: KPIs grandes con
+   detalle (los objcard del artefacto), el embudo, el árbol de contactos SAP,
+   la línea de tiempo del proceso, la barra de tabs de segmentos (más ancha
+   que `.tool-tabs`, pensada para el panel lateral angosto) y el badge de
+   prioridad (concepto distinto a `.status-badge`, que es de frescura de
+   dato, no de ranking).
 
-   Prefijo `cs-` en cada clase nueva para no competir con el namespace global. */
+   ── SUPERFICIES Y TEMA (visual homologation correction) ────────────────
+   `var(--card)` es GLOBAL y FIJO-OSCURO (`:root{--card:#181819}`, app.css) —
+   nunca cambia con el tema. Adentro de `.module-content` (donde vive TODO
+   el contenido de un módulo/Estrategia) NINGÚN primitivo Hub existente lo
+   redefine para tema claro — la ÚNICA redefinición real en todo el Hub es
+   `.content-theme-light .copilot-panel{--card:#fff;--ink:#202124;
+   --soft:#62666d;--dim:#858a92;--line:rgba(32,33,36,.14)}` (tools.css), y
+   vive en el panel LATERAL, un scope distinto de `.module-content`.
+   Estrategia REUSA esa MISMA técnica (los MISMOS valores, no inventados) en
+   vez de parchear color por componente: `.cs-doc` (la clase que
+   `strategy.html` agrega a `<main class="module-content">`, exclusiva de
+   esta página) redefine ESOS MISMOS tokens para tema claro — así CUALQUIER
+   `cs-*` que ya usaba `var(--card)`/`var(--ink)`/`var(--soft)`/`var(--line)`
+   se vuelve correcto automáticamente, sin tocar cada regla una por una (y de
+   paso corrige `.callout`/`.status-badge` cuando aparecen dentro de
+   Estrategia, que también usan esos mismos tokens).
+
+   Tema oscuro: el `--card` GLOBAL (#181819) queda demasiado cerca de
+   `--bg` (#0c0c0d, body) — la separación de superficie que el owner pidió
+   ("una tile debe leerse como tile antes que por su borde") no existe con
+   esos dos valores. `.cs-doc` en oscuro sube `--card` a un gris
+   deliberadamente más claro (elegido a mano, NO copiado del artefacto
+   standalone) que sí separa visualmente la tile de la página. */
+.content-theme-light .cs-doc {
+  --card: #ffffff;
+  --ink: #202124;
+  --soft: #62666d;
+  --dim: #858a92;
+  --line: rgba(32,33,36,.14);
+}
+.content-theme-dark .cs-doc {
+  --card: #1e1e22;
+}
 
 .cs-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 18px 0; }
 .cs-kpi { padding: 18px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }

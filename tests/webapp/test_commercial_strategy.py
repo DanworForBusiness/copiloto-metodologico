@@ -142,6 +142,39 @@ def test_no_duplicate_strategy_specific_index_implementation():
         assert banned not in css, banned
 
 
+# ============================================================================
+# 26 — Contrato visual (regresión estructural — la validación de color/
+# contraste real es SIEMPRE en browser, ver reporte; esto solo evita que la
+# regresión concreta encontrada por el owner vuelva a colarse en silencio).
+# ============================================================================
+
+def test_strategy_tiles_theme_via_scoped_tokens_not_fixed_dark_only():
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_strategy.css").read_text(encoding="utf-8")
+    # La técnica REAL (no inventada): reusa la MISMA redefinición de
+    # `--card`/`--ink`/`--soft`/`--line` que `.copilot-panel` ya usa en
+    # tools.css, aplicada a `.cs-doc` — nunca overrides de color sueltos
+    # por componente como único mecanismo.
+    assert ".content-theme-light .cs-doc" in css
+    assert ".content-theme-dark .cs-doc" in css
+    assert "--card:" in css.replace(" ", "") or "--card :" in css
+
+
+def test_strategy_page_root_carries_the_theme_scoping_class():
+    html = (Path(__file__).resolve().parents[2] / "webapp" / "templates" / "commercial" / "strategy.html").read_text(encoding="utf-8")
+    assert 'class="module-content cs-doc"' in html
+
+
+def test_no_standalone_font_import_or_root_palette_reintroduced():
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_strategy.css").read_text(encoding="utf-8")
+    for banned in ("fonts.googleapis.com/css2?family=Barlow", "@import url", "--gold-dim", "--panel2"):
+        assert banned not in css, banned
+
+
+def test_no_global_contenteditable_reintroduced():
+    html = (Path(__file__).resolve().parents[2] / "webapp" / "templates" / "commercial" / "strategy.html").read_text(encoding="utf-8")
+    assert "contenteditable" not in html
+
+
 def test_all_expected_section_links_present_in_index():
     text = client.get("/comercial/estrategia").text
     index_html = text.split('aria-label="En este documento"')[1].split("</nav>")[0]
