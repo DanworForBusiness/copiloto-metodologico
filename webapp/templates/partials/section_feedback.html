@@ -1,32 +1,46 @@
-{# Micro-feedback por sección: botonera discreta, abajo a la derecha del último
-   componente de cada sección. Sin protagonismo visual — feedback ambiente. El
-   👍 se registra al toque; el 👎 despliega una línea de comentario OPCIONAL.
-   Cada widget tiene su propio id (section-feedback-<slug>) para el swap HTMX. #}
-<div id="section-feedback-{{ section.slug }}" class="section-feedback">
+{#- Micro-feedback por sección: botonera discreta, abajo a la derecha del
+    último componente de cada sección. Sin protagonismo visual — feedback
+    ambiente. El 👍 se registra al toque; el 👎 despliega una línea de
+    comentario OPCIONAL. Cada widget tiene su propio id
+    (section-feedback-<slug>) para el swap HTMX.
+
+    Primitivo TRANSVERSAL (ver tools.css: `.content-section:hover`,
+    `#reporting-main-content:hover`, `#staffing-rows:hover` ya comparten
+    esta MISMA botonera — Copilot no es el único consumidor). Los 3
+    `hx-post` apuntan a `{{ feedback_url_base }}/feedback[...]` — por
+    default, la ruta de Copilot (`/modules/<stem>/sections/<slug>`,
+    comportamiento IDÉNTICO al de siempre, cero cambio para los call
+    sites existentes); un caller nuevo (p. ej. Estrategia Comercial) puede
+    pasar `feedback_url_base`/`feedback_id` explícitos para reusar este
+    MISMO parcial contra SU PROPIO endpoint, en vez de duplicar el
+    componente. #}
+{% set _slug = feedback_id if feedback_id is defined else section.slug %}
+{% set _fb_base = feedback_url_base if feedback_url_base is defined else ("/modules/" ~ stem ~ "/sections/" ~ _slug) %}
+<div id="section-feedback-{{ _slug }}" class="section-feedback">
   {% if submitted %}
   <p class="section-feedback__thanks" role="status">
     <span class="section-feedback__emoji">{{ "&#128077;"|safe if rating == "up" else "&#128078;"|safe }}</span> &iexcl;Gracias!
   </p>
   {% elif form %}
   <form class="section-feedback__form"
-        hx-post="/modules/{{ stem }}/sections/{{ section.slug }}/feedback/submit"
-        hx-target="#section-feedback-{{ section.slug }}" hx-swap="outerHTML">
+        hx-post="{{ _fb_base }}/feedback/submit"
+        hx-target="#section-feedback-{{ _slug }}" hx-swap="outerHTML">
     <input type="hidden" name="pack" value="{{ pack }}">
     <input type="hidden" name="rating" value="down">
-    <label class="section-feedback__formlabel" for="sfc-{{ section.slug }}">&iquest;Qu&eacute; esperabas o qu&eacute; falt&oacute; ac&aacute;? <span>(opcional)</span></label>
-    <textarea id="sfc-{{ section.slug }}" name="comment" rows="2" placeholder="Una l&iacute;nea alcanza&hellip;"></textarea>
+    <label class="section-feedback__formlabel" for="sfc-{{ _slug }}">&iquest;Qu&eacute; esperabas o qu&eacute; falt&oacute; ac&aacute;? <span>(opcional)</span></label>
+    <textarea id="sfc-{{ _slug }}" name="comment" rows="2" placeholder="Una l&iacute;nea alcanza&hellip;"></textarea>
     <div class="section-feedback__formactions">
       <button type="button" class="section-feedback__ghost"
-              hx-post="/modules/{{ stem }}/sections/{{ section.slug }}/feedback/cancel"
-              hx-target="#section-feedback-{{ section.slug }}" hx-swap="outerHTML"
+              hx-post="{{ _fb_base }}/feedback/cancel"
+              hx-target="#section-feedback-{{ _slug }}" hx-swap="outerHTML"
               hx-vals='{"pack":"{{ pack }}"}'>Cancelar</button>
       <button type="submit" class="section-feedback__send">Enviar</button>
     </div>
   </form>
   {% else %}
   <form class="section-feedback__bar"
-        hx-post="/modules/{{ stem }}/sections/{{ section.slug }}/feedback"
-        hx-target="#section-feedback-{{ section.slug }}" hx-swap="outerHTML">
+        hx-post="{{ _fb_base }}/feedback"
+        hx-target="#section-feedback-{{ _slug }}" hx-swap="outerHTML">
     <input type="hidden" name="pack" value="{{ pack }}">
     <span class="section-feedback__prompt">&iquest;Qu&eacute; te pareci&oacute; esta secci&oacute;n?</span>
     <button type="submit" name="rating" value="up" class="section-feedback__react" aria-label="&Uacute;til" title="&Uacute;til">&#128077;</button>

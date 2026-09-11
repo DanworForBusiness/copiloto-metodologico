@@ -301,8 +301,8 @@
         nav_title). Sin resaltado de sección activa: la variante plana de
         Copilot tampoco lo hace (solo la variante "roadmap" la tiene) — mismo
         contrato, no una aproximación. #}
-    <nav class="section-index" aria-label="En este documento">
-      <p>En este documento</p>
+    <nav class="section-index" aria-label="En este módulo">
+      <p>En este módulo</p>
       {% for item in strategy.nav if item.id != "hero" %}
       <a href="#{{ item.id }}"><span>{{ "%02d"|format(loop.index) }}</span>{{ item.label | strategy_nav_title }}</a>
       {% endfor %}
@@ -344,6 +344,7 @@
         {{ data_table(strategy.objectives.sensitivity_table) }}
 
         {% call callout_wrap("", "📌", "Supuestos a afinar") %}{{ bullets(strategy.objectives.assumptions_pending) }}{% endcall %}
+        {% set feedback_id = "objectives" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 2 · Generación de demanda ─────────────────────────── #}
@@ -396,6 +397,7 @@
         </div>
 
         {% call callout_wrap("punch", "📣", "Responsable del motor de demanda") %}<p>{{ md(strategy.demand_generation.owner_note) }}</p>{% endcall %}
+        {% set feedback_id = "demand_generation" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 3 · Dónde jugamos (segmentos, con tabs) ───────────── #}
@@ -430,6 +432,7 @@
           {% endif %}
         </div>
         {% endfor %}
+        {% set feedback_id = "segments" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 4 · Criterio de foco ──────────────────────────────── #}
@@ -444,6 +447,7 @@
         <div class="cs-block-label">Regla de obtención y foco</div>
         {{ bullets(strategy.focus.rules) }}
         {% if strategy.focus.coherence_note %}<p>{{ md(strategy.focus.coherence_note) }}</p>{% endif %}
+        {% set feedback_id = "focus" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 5 · Capacidad ──────────────────────────────────────── #}
@@ -456,6 +460,7 @@
           <div class="cs-numitem"><span class="cs-numitem__num">·</span><div><span class="cs-numitem__detail">{{ md(r) }}</span></div></div>
           {% endfor %}
         </div>
+        {% set feedback_id = "capacity" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 6 · Cadencia de revisión ───────────────────────────── #}
@@ -473,6 +478,7 @@
           {% endfor %}
         </div>
         {% if strategy.cadence.note %}<p>{{ md(strategy.cadence.note) }}</p>{% endif %}
+        {% set feedback_id = "cadence" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 7 · Qué no se hace ─────────────────────────────────── #}
@@ -483,6 +489,7 @@
           <div class="cs-numitem"><span class="cs-numitem__num" style="color:#d65b5b;">✕</span><div><span class="cs-numitem__detail">{{ md(it.text) }}</span></div></div>
           {% endfor %}
         </div>
+        {% set feedback_id = "exclusions" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 8 · Próximos pasos (tabla de tareas, READ-ONLY en Fase 1) #}
@@ -503,6 +510,7 @@
           </tbody>
         </table>
         {% if strategy.next_steps.closing_note %}<p>{{ md(strategy.next_steps.closing_note) }}</p>{% endif %}
+        {% set feedback_id = "next_steps" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Anexo · Mapa de contactos SAP ────────────────────────────── #}
@@ -554,6 +562,7 @@
         </div>
 
         {% for n in strategy.annex_map.notes %}{% call callout_wrap("", "📎", "Nota") %}<p>{{ md(n) }}</p>{% endcall %}{% endfor %}
+        {% set feedback_id = "annex_map" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Anexo · Roles y responsabilidades ────────────────────────── #}
@@ -577,6 +586,7 @@
           </div>
           {% endfor %}
         </div>
+        {% set feedback_id = "annex_roles" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Anexo · Proceso comercial (timeline) ─────────────────────── #}
@@ -596,6 +606,7 @@
           {% endfor %}
         </div>
         {% call callout_wrap("warn", "⏱", "Umbral de enfriamiento") %}<p>{{ md(strategy.annex_process.cooling_note) }}</p>{% endcall %}
+        {% set feedback_id = "annex_process" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Anexo · Reglas de oro ────────────────────────────────────── #}
@@ -610,6 +621,7 @@
           </div>
           {% endfor %}
         </div>
+        {% set feedback_id = "annex_rules" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
     </article>

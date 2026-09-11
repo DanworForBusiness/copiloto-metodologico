@@ -43,6 +43,18 @@
 .content-theme-dark .cs-doc {
   --card: #1e1e22;
 }
+/* .section-feedback es el primitivo TRANSVERSAL de Copilot (tools.css),
+   reusado tal cual por Estrategia — ver partials/section_feedback.html.
+   Copilot lo consume FUERA de `.cs-doc`, donde `--line` nunca se
+   redefine (queda en el valor global casi invisible). Sin este reset,
+   el `--line` más oscuro que `.cs-doc` sube para las tiles/cards de
+   Estrategia se filtraba también a los botones 👍/👎, dándoles un
+   borde visible que Copilot no tiene. Se restaura acá el valor GLOBAL
+   (no uno inventado) para que la botonera se comporte idéntico en
+   ambos contextos. */
+.content-theme-light .cs-doc .section-feedback {
+  --line: rgba(226,232,245,.09);
+}
 
 .cs-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 18px 0; }
 .cs-kpi { padding: 18px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }

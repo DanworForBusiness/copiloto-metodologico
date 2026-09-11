@@ -120,8 +120,8 @@ def test_document_index_reuses_the_copilot_section_index_contract():
     # <a><span>NN</span>Título</a></nav>` — nunca una implementación propia.
     text = client.get("/comercial/estrategia").text
     assert 'class="section-index"' in text
-    assert 'aria-label="En este documento"' in text
-    assert "<p>En este documento</p>" in text
+    assert 'aria-label="En este módulo"' in text
+    assert "<p>En este módulo</p>" in text
     assert "<a href=\"#p1\"><span>01</span>Objetivos</a>" in text
     assert "<a href=\"#reglas\"><span>12</span>Reglas de oro</a>" in text
 
@@ -131,7 +131,7 @@ def test_document_index_has_no_leftover_source_number_prefix():
     # numera POR SU CUENTA (igual que Copilot); el prefijo del fuente no debe
     # duplicarse en el título visible.
     text = client.get("/comercial/estrategia").text
-    index_html = text.split('aria-label="En este documento"')[1].split("</nav>")[0]
+    index_html = text.split('aria-label="En este módulo"')[1].split("</nav>")[0]
     assert "1 · Objetivos" not in index_html
     assert ">Objetivos</a>" in index_html
 
@@ -177,7 +177,7 @@ def test_no_global_contenteditable_reintroduced():
 
 def test_all_expected_section_links_present_in_index():
     text = client.get("/comercial/estrategia").text
-    index_html = text.split('aria-label="En este documento"')[1].split("</nav>")[0]
+    index_html = text.split('aria-label="En este módulo"')[1].split("</nav>")[0]
     assert index_html.count("<a href=") == 12  # 13 secciones fuente - la portada (hero)
 
 
@@ -747,3 +747,109 @@ def test_nav_partial_lists_both_capabilities_in_order():
     idx_crm = _NAV_HTML.index('href="/comercial"')
     idx_strategy = _NAV_HTML.index('href="/comercial/estrategia"')
     assert idx_crm < idx_strategy
+
+
+# ============================================================================
+# Hub standardization pass — feedback de sección REUSA el primitivo
+# transversal de Copilot (partials/section_feedback.html, tools.css
+# .section-feedback*, feedback_store/type="section_content", evento
+# "section.feedback") — nunca un componente/endpoint/storage nuevo.
+# ============================================================================
+
+def _strategy_feedback_sections() -> tuple[str, ...]:
+    from webapp.routers.commercial_strategy import _FEEDBACK_SECTIONS
+    return _FEEDBACK_SECTIONS
+
+
+# C/D — cada sección prevista renderiza el primitivo compartido, con la
+# identidad TÉCNICA estable (las claves del propio modelo de datos), nunca
+# el id de ancla HTML (p1/genda/...) ni el título mutable.
+def test_every_intended_section_renders_the_shared_feedback_primitive():
+    text = client.get("/comercial/estrategia").text
+    sections = _strategy_feedback_sections()
+    assert len(sections) == 12
+    for section_id in sections:
+        assert f'id="section-feedback-{section_id}"' in text, section_id
+        assert f'hx-post="/comercial/estrategia/sections/{section_id}/feedback"' in text, section_id
+
+
+def test_feedback_identities_are_stable_model_keys_not_anchor_ids_or_titles():
+    sections = _strategy_feedback_sections()
+    # Las claves TÉCNICAS del propio modelo — nunca los anchors de sección
+    # (p1/genda/p2/...) ni una traducción de los títulos visibles.
+    for banned_anchor in ("p1", "genda", "p2", "p3", "p4", "p5", "p6", "mapa", "roles", "proceso", "reglas"):
+        assert banned_anchor not in sections
+    assert set(sections) == {
+        "objectives", "demand_generation", "segments", "focus", "capacity",
+        "cadence", "exclusions", "next_steps", "annex_map", "annex_roles",
+        "annex_process", "annex_rules",
+    }
+
+
+# E — reusa feedback_store/FEEDBACK_LOG_DIR y el MISMO type="section_content"
+# — nunca un directorio/formato/tipo de evento nuevo.
+def test_no_duplicate_feedback_storage_or_event_taxonomy():
+    assert "FEEDBACK_LOG_DIR" in _STRATEGY_PY
+    assert '"type": "section_content"' in _STRATEGY_PY
+    assert '"section.feedback"' in _STRATEGY_PY
+    for banned in ("STRATEGY_FEEDBACK_LOG_DIR", "type\": \"strategy_section", "commercial_strategy_feedback_store"):
+        assert banned not in _STRATEGY_PY, banned
+
+
+# F — el request sigue el MISMO contrato que Copilot: Form-encoded, HTMX,
+# re-renderiza el MISMO parcial.
+def test_section_feedback_follows_the_existing_hub_htmx_form_contract(monkeypatch):
+    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "commercial-test@danwor.com")
+    response = client.post(
+        "/comercial/estrategia/sections/objectives/feedback",
+        data={"rating": "up", "pack": "datasphere_core"},
+    )
+    assert response.status_code == 200
+    assert 'id="section-feedback-objectives"' in response.text
+    assert "&#128077;" in response.text or "👍" in response.text  # ¡Gracias! con el emoji correspondiente
+
+
+def test_section_feedback_down_shows_optional_comment_form():
+    response = client.post("/comercial/estrategia/sections/objectives/feedback", data={"rating": "down"})
+    assert response.status_code == 200
+    assert 'hx-post="/comercial/estrategia/sections/objectives/feedback/submit"' in response.text
+
+
+def test_section_feedback_cancel_returns_to_the_bar():
+    response = client.post("/comercial/estrategia/sections/objectives/feedback/cancel")
+    assert response.status_code == 200
+    assert 'class="section-feedback__bar"' in response.text
+
+
+def test_section_feedback_unknown_section_is_404():
+    response = client.post("/comercial/estrategia/sections/not-a-real-section/feedback", data={"rating": "up"})
+    assert response.status_code == 404
+
+
+# G/H — headers de sección reusan el primitivo real de Copilot; CERO regla
+# de heading propia de Estrategia sobrevive.
+def test_section_headers_reuse_the_exact_copilot_heading_markup():
+    text = client.get("/comercial/estrategia").text
+    assert text.count('<header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">') == 12
+
+
+def test_no_strategy_specific_heading_css_remains():
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_strategy.css").read_text(encoding="utf-8")
+    for banned in (".content-heading", ".section-eyebrow", " h2 ", "h2{", "h2 {"):
+        assert banned not in css, banned
+
+
+# I — CONTENT_OWNER es IRRELEVANTE para el feedback de sección — cualquier
+# usuario autorizado a Comercial puede reaccionar, sin ser editor.
+def test_content_owner_irrelevant_to_ordinary_section_feedback(monkeypatch):
+    monkeypatch.setattr(auth_service, "CONTENT_OWNER", "")  # nadie es editor
+    response = client.post("/comercial/estrategia/sections/objectives/feedback", data={"rating": "up"})
+    assert response.status_code == 200  # feedback funciona igual sin ningún CONTENT_OWNER configurado
+
+
+def test_section_feedback_route_never_checks_can_edit_strategy_user():
+    # `can_edit_strategy_user` SÍ aparece en la PROSA del bloque (explicando
+    # por qué NO se usa acá) — lo que este test protege es que nunca se
+    # LLAME como código real dentro de las rutas de feedback.
+    feedback_block = _STRATEGY_PY.split("# ── Feedback por sección")[1]
+    assert "can_edit_strategy_user(" not in feedback_block

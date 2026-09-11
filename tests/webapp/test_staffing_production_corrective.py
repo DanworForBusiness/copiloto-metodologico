@@ -668,11 +668,19 @@ def test_15_route_surface_still_120():
     #     can_edit_strategy_user, same-origin guard, y HOY un 503 honesto:
     #     el gate de concurrencia sigue sin confirmar, ver el router) — NUNCA
     #     devuelve éxito ni persiste. No toca ninguna ruta de Staffing.
+    #   123 -> 126 (Commercial Strategy — Hub Standardization Gate, ver
+    #     HANDOFF): +3 POST. `POST /comercial/estrategia/sections/
+    #     {section_id}/feedback[/submit|/cancel]` — la botonera de feedback
+    #     por sección reusa LITERAL el primitivo transversal de Copilot
+    #     (partials/section_feedback.html + tools.css), gateada por
+    #     can_view_strategy_user (autorización de LECTURA, nunca
+    #     can_edit_strategy_user — feedback no es edición). No toca ninguna
+    #     ruta de Staffing.
     import json
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 123
+    assert len(snapshot) == 126
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

@@ -41,10 +41,14 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request
+import yaml
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from config import FEEDBACK_LOG_DIR
 from core.content_registry import DEFAULT_PACK
 from webapp import commercial_access, same_origin_guard, workspaces
 from webapp.services import auth_service, commercial_strategy_editing, commercial_strategy_markup
@@ -60,6 +64,21 @@ from webapp.services.commercial_strategy_repository import (
 )
 from webapp.services.module_registry import CM02_MODULE_ID
 from webapp.templating import templates
+
+# Identidades TÉCNICAS estables de sección (ver el reporte del owner: "usar
+# identificadores técnicos estables ya presentes en el modelo de Estrategia,
+# nunca el título mutable") — son LITERAL las claves de nivel superior del
+# documento (`webapp.services.commercial_strategy_data.strategy.yaml`), la
+# MISMA fuente que ya usa el template para renderizar cada sección — nunca
+# una segunda lista inventada aparte. `hero`/`revision`/`meta`/`nav`/
+# `version` quedan fuera a propósito (no son "secciones" con feedback propio
+# — la portada no tiene botonera, MISMO criterio que Copilot no le pone
+# feedback al `#__module__`/hero de un módulo).
+_FEEDBACK_SECTIONS = (
+    "objectives", "demand_generation", "segments", "focus", "capacity",
+    "cadence", "exclusions", "next_steps", "annex_map", "annex_roles",
+    "annex_process", "annex_rules",
+)
 
 router = APIRouter()
 _logger = logging.getLogger("danwor.commercial_strategy")
@@ -203,3 +222,130 @@ async def commercial_strategy_save(request: Request):
         module=CM02_MODULE_ID, revision=saved["revision"],
     )
     return JSONResponse({"state": "ok", "document": _editable_doc(saved)})
+
+
+# ── Feedback por sección — REUSA el primitivo transversal de Copilot ───────
+# (`partials/section_feedback.html`, `.section-feedback*` en tools.css,
+# `feedback_store`/`type="section_content"`/evento `"section.feedback"` del
+# pipeline de Activity — ver docstrings de webapp/routers/feedback.py y
+# webapp/services/feedback_store.py) — CERO componente/endpoint/storage/
+# esquema de evento nuevo. Lo único que cambia respecto de Copilot:
+#   - el namespace de ruta (`/comercial/estrategia/sections/<id>` en vez de
+#     `/modules/<stem>/sections/<slug>`, porque Estrategia no tiene `stem`)
+#   - `scope=SCOPE_COMMERCIAL`/`area=AREA_STRATEGY` en vez de
+#     SCOPE_COPILOT/AREA_METHODOLOGY (scope/area SIEMPRE reflejan el
+#     workspace real — nunca se le pone la etiqueta de otro)
+#   - la autorización: `can_view_strategy_user` (VER Estrategia), NUNCA
+#     `can_edit_strategy_user` — dejar feedback de sección es una acción de
+#     LECTURA/reacción del Hub, no una edición de contenido de negocio;
+#     acoplarla a CONTENT_OWNER sería inventar un requisito que ni Copilot
+#     ni Comercial exigen para reaccionar a contenido que ya podés ver.
+
+
+def _require_can_view_strategy(request: Request):
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
+    if not commercial_access.can_view_strategy_user(user):
+        raise HTTPException(403, "No autorizado para Comercial")
+    return user
+
+
+def _section_or_404(section_id: str) -> dict:
+    if section_id not in _FEEDBACK_SECTIONS:
+        raise HTTPException(404, "Sección no encontrada")
+    try:
+        strategy = load_strategy()
+    except CommercialStrategyUnavailable as exc:
+        raise HTTPException(503, "Estrategia no disponible") from exc
+    return strategy[section_id]
+
+
+def _strategy_section_feedback_ctx(section_id: str, section: dict, **extra) -> dict:
+    return {
+        "feedback_id": section_id,
+        "feedback_url_base": f"/comercial/estrategia/sections/{section_id}",
+        "pack": DEFAULT_PACK,
+        **extra,
+    }
+
+
+def _save_strategy_section_feedback(request, user, section_id: str, section_title: str, rating: str, comment: str = "") -> None:
+    """MISMA implementación que `feedback._save_section_feedback` —
+    `type="section_content"` (encaja tal cual: `module`/`section_slug`/
+    `section_title` es exactamente la forma que ese tipo ya espera, ver su
+    docstring — nunca una taxonomía nueva), mismo store, mismo formato de
+    archivo. Deliberadamente duplicada acá en vez de importada de
+    `feedback.py` — MISMO criterio que ese módulo documenta para sus propias
+    4 implementaciones ("duplicadas a propósito, no una plataforma de
+    feedback genérica")."""
+    now = datetime.now(timezone.utc)
+    try:
+        FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "type": "section_content",
+            "module": CM02_MODULE_ID,
+            "module_title": "Estrategia Comercial",
+            "section_slug": section_id,
+            "section_title": section_title,
+            "pack": DEFAULT_PACK,
+            "rating": rating,
+            "user": str(user.get("username") or user.get("email") or user.get("sub") or ""),
+            "ts": now.isoformat(),
+        }
+        clean_comment = (comment or "").strip()
+        if clean_comment:
+            payload["comment"] = clean_comment
+        path = FEEDBACK_LOG_DIR / f"section_feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
+        temporary = path.with_suffix(".yaml.tmp")
+        temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        temporary.replace(path)
+    except Exception:  # noqa: BLE001 — el feedback nunca rompe la navegación
+        pass
+    try:
+        log_activity(
+            "section.feedback", user=user, scope=SCOPE_COMMERCIAL, area=AREA_STRATEGY,
+            module=CM02_MODULE_ID, section=section_id, section_title=section_title,
+            feedback_sentiment=("positive" if rating == "up" else "negative"),
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+@router.post("/comercial/estrategia/sections/{section_id}/feedback", response_class=HTMLResponse, include_in_schema=False)
+def commercial_strategy_section_feedback(request: Request, section_id: str, rating: str = Form("")):
+    user = _require_can_view_strategy(request)
+    if rating not in {"up", "down"}:
+        raise HTTPException(400, "Rating inválido")
+    section = _section_or_404(section_id)
+    if rating == "down":
+        return templates.TemplateResponse(
+            request=request, name="partials/section_feedback.html",
+            context=_strategy_section_feedback_ctx(section_id, section, form=True),
+        )
+    _save_strategy_section_feedback(request, user, section_id, section["title"], "up")
+    return templates.TemplateResponse(
+        request=request, name="partials/section_feedback.html",
+        context=_strategy_section_feedback_ctx(section_id, section, submitted=True, rating="up"),
+    )
+
+
+@router.post("/comercial/estrategia/sections/{section_id}/feedback/submit", response_class=HTMLResponse, include_in_schema=False)
+def commercial_strategy_section_feedback_submit(request: Request, section_id: str, comment: str = Form("")):
+    user = _require_can_view_strategy(request)
+    section = _section_or_404(section_id)
+    _save_strategy_section_feedback(request, user, section_id, section["title"], "down", comment)
+    return templates.TemplateResponse(
+        request=request, name="partials/section_feedback.html",
+        context=_strategy_section_feedback_ctx(section_id, section, submitted=True, rating="down"),
+    )
+
+
+@router.post("/comercial/estrategia/sections/{section_id}/feedback/cancel", response_class=HTMLResponse, include_in_schema=False)
+def commercial_strategy_section_feedback_cancel(request: Request, section_id: str):
+    _require_can_view_strategy(request)
+    section = _section_or_404(section_id)
+    return templates.TemplateResponse(
+        request=request, name="partials/section_feedback.html",
+        context=_strategy_section_feedback_ctx(section_id, section),
+    )
