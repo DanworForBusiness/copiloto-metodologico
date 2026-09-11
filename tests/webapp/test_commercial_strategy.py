@@ -1,0 +1,280 @@
+"""
+test_commercial_strategy.py — Commercial Strategy (Phase 1, READ-ONLY).
+
+Cubre el checklist del owner (storage gate + phase 1 spec):
+ A. nav expone "02 · Estrategia"
+ B. ruta protegida por la MISMA auth de Comercial
+ C. el documento seedeado carga
+ D. las 13 secciones fuente están representadas
+ E. tabs de segmento cambian correctamente (markup/estado Alpine presente)
+ F. sub-tabs anidados cambian correctamente
+ G. contenido de negocio real está presente (texto del artefacto fuente)
+ H. las filas de "Próximos pasos" preservan el orden fuente
+ I. status/prioridad mapean a las clases Hub esperadas
+ J. ningún bloque de HTML/script/style crudo del artefacto fuente se renderiza
+ K. no existe UI de Editar/Guardar en Fase 1
+ L. no existe ningún endpoint POST/write de Estrategia
+ M. la capability CRM (01) sigue intacta
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from webapp.main import app
+from webapp.services import auth_service
+
+_TEMPLATES = Path(__file__).resolve().parents[2] / "webapp" / "templates"
+_ROUTERS = Path(__file__).resolve().parents[2] / "webapp" / "routers"
+_STRATEGY_HTML = (_TEMPLATES / "commercial" / "strategy.html").read_text(encoding="utf-8")
+_STRATEGY_PY = (_ROUTERS / "commercial_strategy.py").read_text(encoding="utf-8")
+_NAV_HTML = (_TEMPLATES / "partials" / "commercial_nav.html").read_text(encoding="utf-8")
+
+auth_service.ALLOWED_USERS = "ALL"
+auth_service.COMMERCIAL_ALLOWED_USERS = "commercial-test@danwor.com,commercial-odoo-test@danwor.com"
+
+_SESSION = auth_service.create_session(
+    {"email": "commercial-test@danwor.com", "name": "Commercial Test", "first_name": "Commercial", "family_name": "Test"}
+)
+
+client = TestClient(app)
+client.cookies.set(auth_service.COOKIE_NAME, _SESSION)
+
+
+def _unlisted_client(monkeypatch):
+    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "commercial-test@danwor.com")
+    session = auth_service.create_session(
+        {"email": "unlisted@danwor.com", "name": "Unlisted", "first_name": "Unlisted", "family_name": "User"}
+    )
+    ro = TestClient(app)
+    ro.cookies.set(auth_service.COOKIE_NAME, session)
+    return ro
+
+
+# ============================================================================
+# A — Nav expone "02 · Estrategia"
+# ============================================================================
+
+def test_commercial_nav_exposes_estrategia_as_second_capability():
+    response = client.get("/comercial")
+    text = response.text
+    assert 'href="/comercial" class="module-link is-active"' in text
+    assert 'href="/comercial/estrategia" class="module-link ' in text
+    assert "<strong>Estrategia</strong>" in text
+
+
+def test_estrategia_page_highlights_its_own_nav_item():
+    response = client.get("/comercial/estrategia")
+    assert response.status_code == 200
+    assert 'href="/comercial/estrategia" class="module-link is-active"' in response.text
+
+
+# ============================================================================
+# B — Ruta protegida por la MISMA auth de Comercial
+# ============================================================================
+
+def test_anonymous_redirects_to_login():
+    anon = TestClient(app)
+    response = anon.get("/comercial/estrategia", follow_redirects=False)
+    assert response.status_code == 303
+
+
+def test_unlisted_authorized_app_user_is_denied_with_403(monkeypatch):
+    ro = _unlisted_client(monkeypatch)
+    response = ro.get("/comercial/estrategia")
+    assert response.status_code == 403
+
+
+def test_commercial_allowed_users_blank_denies_the_previously_authorized_user(monkeypatch):
+    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "")
+    response = client.get("/comercial/estrategia")
+    assert response.status_code == 403
+
+
+def test_route_reuses_commercial_workspace_gate_never_a_new_one():
+    assert "commercial_access.is_commercial_authorized" in _STRATEGY_PY
+    assert "workspaces.platform_login_redirect(" in _STRATEGY_PY
+
+
+# ============================================================================
+# C — El documento seedeado carga
+# ============================================================================
+
+def test_authorized_user_gets_200_and_real_content():
+    response = client.get("/comercial/estrategia")
+    assert response.status_code == 200
+    assert "no está disponible" not in response.text
+    assert "Dónde jugamos" in response.text
+
+
+# ============================================================================
+# D — Las 13 secciones fuente están representadas
+# ============================================================================
+
+def test_all_thirteen_source_sections_are_represented():
+    response = client.get("/comercial/estrategia")
+    text = response.text
+    for section_id in (
+        "hero", "p1", "genda", "p2", "p3", "p4", "p5", "p6", "proximos",
+        "mapa", "roles", "proceso", "reglas",
+    ):
+        assert f'id="{section_id}"' in text, section_id
+
+
+def test_section_titles_present():
+    text = client.get("/comercial/estrategia").text
+    for title in (
+        "Objetivos", "Generación de demanda", "Dónde jugamos", "Criterio de foco",
+        "Asignación de capacidad", "Cadencia de revisión", "Qué no se hace",
+        "Próximos pasos", "Mapa de contactos", "Mapa de roles y responsabilidades",
+        "Etapas del pipeline", "Reglas de oro",
+    ):
+        assert title in text, title
+
+
+# ============================================================================
+# E/F — Tabs de segmento y sub-tabs (markup + estado Alpine)
+# ============================================================================
+
+def test_segment_tabs_markup_present_for_all_six_segments():
+    text = client.get("/comercial/estrategia").text
+    assert 'class="cs-segtabs"' in text
+    for label in (
+        "1 · Semillero de eventos", "2 · C-Field Base Instalada", "3 · C-Field NNN",
+        "4 · C-Digital NNN", "5 · Base propia Danwor", "6 · Servicios / Partners",
+    ):
+        assert label in text, label
+    # Estado Alpine: un `seg` inicial + `x-show` por panel (6 paneles).
+    assert "x-data=\"{ seg: 'sgen'" in text
+    assert text.count("x-show=\"seg ===") == 6
+
+
+def test_nested_subtabs_markup_present_for_segments_with_subtabs():
+    text = client.get("/comercial/estrategia").text
+    assert 'class="cs-subtabs"' in text
+    for label in ("RISE/GROW aún no en vivo", "Business One", "New Names puros"):
+        assert text.count(label) >= 2  # aparece en C-Field NNN y C-Digital NNN
+    # `subsel` cubre exactamente los 2 segmentos con sub-tabs (s2, s3).
+    assert "'s2': 's2a'" in text
+    assert "'s3': 's3a'" in text
+
+
+# ============================================================================
+# G — Contenido de negocio real presente
+# ============================================================================
+
+def test_real_business_wording_from_source_artifact_is_present():
+    text = client.get("/comercial/estrategia").text
+    for fragment in (
+        "USD 500.000", "25.000 horas", "Modernización SAP", "Fernando Oriolo",
+        "María José", "Julieta Tiddens", "Reality Data Breakfast",
+        "Una oportunidad = un dueño", "Prospecto",
+    ):
+        assert fragment in text, fragment
+
+
+# ============================================================================
+# H — "Próximos pasos" preserva el orden fuente
+# ============================================================================
+
+def test_next_steps_rows_preserve_source_order():
+    text = client.get("/comercial/estrategia").text
+    first = text.index("Mapear cada cuenta por madurez de datos")
+    second = text.index("Ejecutar el mapeo de madurez de cuentas")
+    last = text.index("Organizar evento de generación de demanda")
+    assert first < second < last
+
+
+def test_next_steps_has_sixteen_rows():
+    from webapp.services.commercial_strategy_repository import load_strategy
+    load_strategy.cache_clear()
+    doc = load_strategy()
+    assert len(doc["next_steps"]["tasks"]) == 16
+
+
+# ============================================================================
+# I — Status/prioridad mapean a clases Hub
+# ============================================================================
+
+def test_status_and_priority_map_to_hub_badge_classes():
+    text = client.get("/comercial/estrategia").text
+    assert 'class="cs-priority">PRIORIDAD 1</span>' in text
+    assert 'cs-priority--new' in text  # Segmento 5 · "PRIORIDAD 5 · SOLO LICENCIAS"
+    assert "status-badge--tentativo" in text  # tareas Q4
+    assert "status-badge--inactivo" in text  # tareas "A definir"
+
+
+# ============================================================================
+# J — Ningún bloque de HTML/script/style crudo del artefacto se renderiza
+# ============================================================================
+
+def test_no_raw_source_script_or_style_block_is_rendered():
+    text = client.get("/comercial/estrategia").text
+    # Nada del JS/CSS vanilla propio del artefacto standalone sobrevivió.
+    for banned in (
+        "function applyEditMode", "globalEditBtn", "dragstart", "recolorQ",
+        "@import url('https://fonts.googleapis.com/css2?family=Barlow",
+        "--gold-dim", "font-family:'Barlow'",
+    ):
+        assert banned not in text, banned
+
+
+def test_persisted_markup_never_leaks_arbitrary_html_tags():
+    # El mini-markup solo puede producir <strong>/<em>/<a href="http(s)...">/<br>
+    # dentro del contenido persistido — nunca <script>/<img>/on*= atributos.
+    text = client.get("/comercial/estrategia").text
+    assert "<script>alert" not in text
+    assert "onerror=" not in text
+    assert "javascript:" not in text
+
+
+# ============================================================================
+# K — No existe UI de Editar/Guardar en Fase 1
+# ============================================================================
+
+def test_no_edit_or_save_ui_in_phase_1():
+    text = client.get("/comercial/estrategia").text
+    for banned in (
+        "Editar documento", "editing-mode", "contenteditable", "Guardar",
+        "add-task-btn", "del-btn", "drag-handle",
+    ):
+        assert banned not in text, banned
+    assert "contenteditable" not in _STRATEGY_HTML
+
+
+# ============================================================================
+# L — No existe ningún endpoint POST/write de Estrategia
+# ============================================================================
+
+def test_no_write_endpoint_exists_for_strategy():
+    assert "@router.post" not in _STRATEGY_PY
+    assert "@router.put" not in _STRATEGY_PY
+    assert "@router.delete" not in _STRATEGY_PY
+    assert "save_strategy" not in _STRATEGY_PY
+    response = client.post("/comercial/estrategia")
+    assert response.status_code in (404, 405)
+
+
+def test_repository_exposes_read_only_contract():
+    from webapp.services import commercial_strategy_repository as repo
+    text = Path(repo.__file__).read_text(encoding="utf-8")
+    for banned in ("def save_strategy", "def update_strategy", "def delete_strategy"):
+        assert banned not in text
+
+
+# ============================================================================
+# M — La capability CRM (01) sigue intacta
+# ============================================================================
+
+def test_crm_capability_unaffected():
+    response = client.get("/comercial")
+    assert response.status_code == 200
+    assert "<h1>Dashboard CRM</h1>" in response.text
+    assert 'href="/comercial" class="module-link is-active"' in response.text
+
+
+def test_nav_partial_lists_both_capabilities_in_order():
+    idx_crm = _NAV_HTML.index('href="/comercial"')
+    idx_strategy = _NAV_HTML.index('href="/comercial/estrategia"')
+    assert idx_crm < idx_strategy

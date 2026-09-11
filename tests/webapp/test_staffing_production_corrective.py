@@ -657,11 +657,16 @@ def test_15_route_surface_still_120():
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
+    #   121 -> 122 (Commercial Strategy — Phase 1, read-only, ver storage
+    #     gate/HANDOFF): +1 GET. `/comercial/estrategia` — segunda capability
+    #     top-level de Comercial (junto a CRM), documento seedeado,
+    #     SOLO LECTURA (sin POST/PUT/DELETE en esta fase). No toca ninguna
+    #     ruta de Staffing.
     import json
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 121
+    assert len(snapshot) == 122
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

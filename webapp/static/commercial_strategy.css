@@ -1,0 +1,128 @@
+/* commercial_strategy.css — Estrategia Comercial (Commercial Strategy —
+   Phase 1, read-only).
+
+   Reuso deliberado: la página vive dentro de `.module-content`/`.methodology`/
+   `.content-section`/`.callout`/`.status-badge` (mismos primitivos que un
+   módulo del Copiloto — ver webapp/templates/module.html), theme-aware por
+   herencia de esos mismos tokens (`var(--ink)`, `var(--soft)`, `var(--card)`,
+   `var(--line)`, `var(--gold)`). Este archivo SOLO cubre lo que no tiene
+   equivalente Hub ya existente: KPIs grandes con detalle (los objcard del
+   artefacto), el embudo, el árbol de contactos SAP, la línea de tiempo del
+   proceso, la barra de tabs de segmentos (más ancha que `.tool-tabs`, pensada
+   para el panel lateral angosto) y el badge de prioridad (concepto distinto a
+   `.status-badge`, que es de frescura de dato, no de ranking).
+
+   Prefijo `cs-` en cada clase nueva para no competir con el namespace global. */
+
+.cs-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 18px 0; }
+.cs-kpi { padding: 18px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.cs-kpi__label { display: block; color: var(--soft); font: 600 .7rem var(--sans); text-transform: uppercase; letter-spacing: .06em; }
+.cs-kpi__value { display: block; margin-top: 6px; color: var(--gold); font: 800 1.7rem var(--sans); line-height: 1.1; }
+.cs-kpi__detail { display: block; margin-top: 10px; color: var(--soft); font-size: .82rem; line-height: 1.55; }
+
+.cs-bignums { display: flex; flex-wrap: wrap; gap: 40px; margin: 22px 0 6px; }
+.cs-bignum__value { display: block; color: var(--gold); font: 800 2rem var(--sans); line-height: 1.05; }
+.cs-bignum__label { display: block; margin-top: 6px; max-width: 220px; color: var(--soft); font-size: .8rem; line-height: 1.4; }
+
+/* Embudo — sin equivalente Hub. Ancho decreciente por nivel, MISMO criterio
+   visual que el artefacto fuente (l1 100% → l4 42%), tokens en vez de hex. */
+.cs-funnel { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 20px 0 10px; }
+.cs-frow { display: flex; flex-direction: column; align-items: center; text-align: center; width: 100%; padding: 16px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.cs-frow[data-level="2"] { width: 82%; }
+.cs-frow[data-level="3"] { width: 62%; }
+.cs-frow[data-level="4"] { width: 46%; background: var(--gold); border-color: var(--gold); }
+.cs-frow[data-level="4"] .cs-frow__label, .cs-frow[data-level="4"] .cs-frow__sub { color: #3a2f05; }
+.cs-frow[data-level="4"] .cs-frow__value { color: #17140a; }
+.cs-frow__label { color: var(--soft); font: 600 .68rem var(--sans); text-transform: uppercase; letter-spacing: .06em; }
+.cs-frow__value { margin-top: 4px; color: var(--ink); font: 800 1.3rem var(--sans); }
+.cs-frow__sub { margin-top: 4px; color: var(--soft); font-size: .76rem; }
+.cs-farrow { color: var(--gold); opacity: .6; font-size: .8rem; line-height: 1; }
+
+/* Barra de tabs de segmentos/sub-tabs — MISMO lenguaje que .tool-tabs
+   (is-active, tokens) pero dimensionada para contenido principal, no el
+   panel lateral angosto. */
+.cs-segtabs, .cs-subtabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
+.cs-subtabs { margin-top: 14px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+.cs-segtabs button, .cs-subtabs button {
+  padding: 9px 16px; border: 1px solid var(--line); border-radius: 20px; background: var(--card);
+  color: var(--soft); font: 600 .82rem var(--sans); cursor: pointer; transition: border-color .15s, color .15s;
+}
+.cs-subtabs button { border-radius: 6px; padding: 7px 13px; font-size: .78rem; }
+.cs-segtabs button:hover, .cs-subtabs button:hover { border-color: var(--gold); color: var(--ink); }
+.cs-segtabs button.is-active, .cs-subtabs button.is-active { background: var(--gold); color: #17140a; border-color: var(--gold); }
+
+.cs-seg-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 10px; }
+.cs-seg-header h3 { margin: 0; font-size: 1.3rem; }
+.cs-priority {
+  display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 4px;
+  font: 700 .66rem var(--sans); text-transform: uppercase; letter-spacing: .04em;
+  background: rgba(231,176,8,.14); color: var(--gold); border: 1px solid rgba(231,176,8,.35);
+}
+.cs-priority--p2 { background: rgba(139,139,150,.14); color: var(--soft); border-color: var(--line); }
+.cs-priority--new { background: rgba(34,168,90,.14); color: #22a85a; border-color: rgba(34,168,90,.35); }
+
+.cs-block-label { margin: 22px 0 8px; color: var(--soft); font: 700 .7rem var(--sans); text-transform: uppercase; letter-spacing: .08em; }
+
+/* Árbol de contactos SAP / LoB — sin equivalente Hub. */
+.cs-tree { display: flex; flex-direction: column; gap: 10px; }
+.cs-tnode { padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.cs-tnode--root { border-color: var(--gold); background: rgba(231,176,8,.08); }
+.cs-tnode--highlight { border-color: rgba(231,176,8,.5); }
+.cs-tnode__name { font-weight: 700; color: var(--ink); font-size: .92rem; }
+.cs-tnode__role { margin-top: 2px; color: var(--gold); font-size: .76rem; }
+.cs-tnode__desc { margin-top: 3px; color: var(--soft); font-size: .78rem; line-height: 1.4; }
+.cs-tnode__sellers { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--soft); font-size: .74rem; line-height: 1.4; }
+.cs-tbranch { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 0 18px; padding-left: 16px; border-left: 1px solid rgba(231,176,8,.4); }
+.cs-tsub { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 0 14px; padding-left: 14px; border-left: 1px solid var(--line); }
+
+/* Línea de tiempo del proceso comercial — sin equivalente Hub. */
+.cs-timeline { display: flex; flex-direction: column; margin-top: 10px; }
+.cs-stage { display: flex; gap: 18px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.cs-stage:last-child { border-bottom: none; }
+.cs-stage__num { flex-shrink: 0; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--gold); border-radius: 8px; color: var(--gold); font-weight: 800; }
+.cs-stage__name { font-weight: 700; }
+.cs-stage__meta { margin-top: 2px; color: var(--soft); font-size: .78rem; }
+.cs-stage__gate { margin-top: 6px; color: var(--soft); font-size: .84rem; line-height: 1.5; }
+
+/* Reglas de oro / preguntas de foco — numeración simple reusable. */
+.cs-numlist { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.cs-numitem { display: flex; gap: 16px; align-items: flex-start; padding: 14px 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.cs-numitem__num { flex-shrink: 0; color: var(--gold); font: 800 1.1rem var(--sans); min-width: 1.6em; }
+.cs-numitem__title { font-weight: 700; font-size: .92rem; }
+.cs-numitem__detail { margin-top: 3px; color: var(--soft); font-size: .84rem; line-height: 1.5; }
+
+/* Roles (Pilar Roles y responsabilidades) — tarjeta compacta. */
+.cs-role-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; margin-top: 10px; }
+.cs-role { padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.cs-role h4 { margin: 0 0 2px; font-size: 1rem; }
+.cs-role__who { color: var(--gold); font-size: .76rem; font-weight: 600; margin-bottom: 10px; }
+.cs-role__mision { color: var(--soft); font-size: .84rem; font-style: italic; line-height: 1.5; padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.cs-role__label { color: var(--soft); font: 700 .68rem var(--sans); text-transform: uppercase; letter-spacing: .06em; margin: 10px 0 6px; }
+.cs-role ul { margin: 0; padding-left: 18px; }
+.cs-role .cs-role__no ul { color: #d65b5b; opacity: .9; }
+
+/* Calendario de eventos (Pilar 2). */
+.cs-evgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-top: 10px; }
+.cs-evcol { padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.cs-evmonth { color: var(--gold); font: 800 .78rem var(--sans); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.cs-evitem { margin-bottom: 10px; }
+.cs-evitem:last-child { margin-bottom: 0; }
+.cs-evitem__name { font-weight: 700; font-size: .86rem; }
+.cs-evitem__name--date { color: var(--gold); }
+.cs-evitem--muted .cs-evitem__name { color: var(--soft); font-weight: 600; }
+.cs-evitem__sub { margin-top: 2px; color: var(--soft); font-size: .76rem; line-height: 1.4; }
+
+/* Clusters de oferta / canales (Pilar 2). */
+.cs-cluster-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; margin-top: 10px; }
+.cs-cluster { padding: 18px; border: 1px solid var(--line); border-top: 2px solid var(--gold); border-radius: 10px; background: var(--card); }
+.cs-cluster__tag { color: var(--gold); font: 700 .68rem var(--sans); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 10px; }
+.cs-cluster h4 { margin: 0 0 2px; font-size: .98rem; }
+.cs-cluster ul { margin: 8px 0 0; padding-left: 18px; font-size: .82rem; color: var(--soft); }
+.cs-cluster__msg { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); font-size: .82rem; font-style: italic; color: var(--soft); }
+.cs-chan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 10px; }
+.cs-chan { padding: 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.cs-chan__title { font-weight: 700; margin-bottom: 8px; }
+
+@media (max-width: 760px) {
+  .cs-frow[data-level="2"], .cs-frow[data-level="3"], .cs-frow[data-level="4"] { width: 100%; }
+}

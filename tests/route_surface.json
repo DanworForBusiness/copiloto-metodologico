@@ -41,6 +41,7 @@
   "GET /comercial/data/prospects",
   "GET /comercial/data/summary",
   "GET /comercial/data/suspendidas",
+  "GET /comercial/estrategia",
   "GET /copilot",
   "GET /desafio",
   "GET /desafio/cerrar",

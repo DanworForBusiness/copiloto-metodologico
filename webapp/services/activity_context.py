@@ -57,6 +57,10 @@ AREA_CATALOG = "catalog"
 AREA_STAFFING = "staffing"
 AREA_REPORTING = "reporting"
 AREA_CRM = "crm"
+# Estrategia Comercial (Commercial Strategy — Phase 1, read-only): capability
+# separada de CRM (área/dato distinto, ver commercial_strategy.py) — MISMO
+# criterio que CRM tuvo su propia área en vez de reusar "commercial" a secas.
+AREA_STRATEGY = "strategy"
 AREA_UNKNOWN = "unknown"
 
 # Clasificación de eventos HISTÓRICOS (JSONL previos a esta fase, sin scope/area).
@@ -113,6 +117,7 @@ AREA_LABELS: dict[str, str] = {
     AREA_STAFFING: "Staffing",
     AREA_REPORTING: "Reporting",
     AREA_CRM: "CRM",
+    AREA_STRATEGY: "Estrategia",
     AREA_UNKNOWN: "Sin clasificar",
 }
 
