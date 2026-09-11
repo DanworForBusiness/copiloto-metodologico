@@ -129,6 +129,12 @@
 .cs-chan { padding: 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
 .cs-chan__title { font-weight: 700; margin-bottom: 8px; color: var(--ink); }
 
+/* Botón "Editar" + panel de edición — ver strategy.html/commercial_strategy.py
+   para el contrato completo (autorización real es server-side). */
+.cs-edit-shell { margin: 22px 0 -6px; }
+.cs-edit-panel, #cs-edit-panel { margin-top: 14px; }
+#cs-save-result { margin-top: 10px; color: var(--soft); font-size: .85rem; }
+
 @media (max-width: 760px) {
   .cs-frow[data-level="2"], .cs-frow[data-level="3"], .cs-frow[data-level="4"] { width: 100%; }
 }

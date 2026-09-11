@@ -662,11 +662,17 @@ def test_15_route_surface_still_120():
     #     top-level de Comercial (junto a CRM), documento seedeado,
     #     SOLO LECTURA (sin POST/PUT/DELETE en esta fase). No toca ninguna
     #     ruta de Staffing.
+    #   122 -> 123 (Commercial Strategy edit authorization, pre-PR
+    #     correction — ver HANDOFF): +1 POST. `POST /comercial/estrategia` —
+    #     4 capas de enforcement (sesión, CONTENT_OWNER via
+    #     can_edit_strategy_user, same-origin guard, y HOY un 503 honesto:
+    #     el gate de concurrencia sigue sin confirmar, ver el router) — NUNCA
+    #     devuelve éxito ni persiste. No toca ninguna ruta de Staffing.
     import json
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 122
+    assert len(snapshot) == 123
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

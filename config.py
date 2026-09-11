@@ -190,6 +190,16 @@ OPERATIONS_ALLOWED_USERS = _env("OPERATIONS_ALLOWED_USERS", "")
 # que exista un mecanismo de entitlement central (Commercial Hub Workspace
 # Foundation, ver HANDOFF).
 COMMERCIAL_ALLOWED_USERS = _env("COMMERCIAL_ALLOWED_USERS", "")
+# Editor de contenido de Estrategia Comercial (Commercial Strategy — edit
+# authorization): DOS preguntas independientes — "¿puedo VER Estrategia?"
+# (COMMERCIAL_ALLOWED_USERS, arriba) vs "¿puedo EDITARLA?" (acá). Estar en
+# COMMERCIAL_ALLOWED_USERS NUNCA implica poder editar — ver
+# webapp.commercial_access.can_edit_strategy_user. MISMO parser/normalización
+# que COMMERCIAL_ALLOWED_USERS (ver auth_service._csv_users) y MISMO contrato
+# fail-closed: ausente/vacío/"ALL" = NADIE puede editar, nunca un fallback a
+# "todo autorizado de Comercial" ni a APP_OWNER. Ejemplo:
+# CONTENT_OWNER=joconnor,bjawor
+CONTENT_OWNER = _env("CONTENT_OWNER", "")
 # Usage Metrics como capacidad de HUB (owner ticket "HUB METRICS — CENTRALIZE
 # ACCESS AND ENABLE BY VERTICAL"): DOS preguntas independientes — "¿puedo
 # entrar al vertical?" (ALLOWED_USERS/OPERATIONS_ALLOWED_USERS/

@@ -96,6 +96,36 @@
       <p>El documento no está disponible en este momento. Reintentá en unos minutos.</p>
     </section>
     {% else %}
+    {#- Botón "Editar" — RENDERIZADO solo cuando `can_edit` (ver router:
+        commercial_access.can_edit_strategy_user), pero la defensa REAL es
+        server-side en `POST /comercial/estrategia` (mismo chequeo,
+        autoritativo) — ocultar el botón NUNCA es la seguridad acá. Guardar
+        pega al endpoint REAL: hoy responde 503 "concurrency_unconfirmed" de
+        forma honesta (ver docstring del router) — nunca un éxito fingido ni
+        un cambio que solo vive en el DOM. #}
+    {% if can_edit %}
+    <div class="cs-edit-shell" x-data="{ editing: false, saving: false, result: null }">
+      <button type="button" class="btn-secondary" id="cs-edit-toggle" @click="editing = !editing; result = null">
+        <span x-text="editing ? 'Cancelar' : 'Editar'"></span>
+      </button>
+      <div x-show="editing" x-cloak class="callout callout--punch" id="cs-edit-panel">
+        <div class="callout__head"><span class="callout__icon">✏️</span><span class="callout__title">Modo edición</span></div>
+        <div class="callout__body">
+          <p>La edición de contenido de negocio está en preparación: la topología de escritura en
+             producción (instancia única vs. contenedores concurrentes) todavía no fue confirmada
+             por el owner. "Guardar" no persistirá cambios hasta que ese punto se resuelva — ver el
+             storage gate para el detalle.</p>
+          <button type="button" class="btn-primary" id="cs-save-btn" :disabled="saving"
+                  @click="saving = true; fetch('/comercial/estrategia', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'}).then(r => r.json().then(data => ({status: r.status, data: data}))).then(res => { result = res; saving = false; })">
+            <span x-text="saving ? 'Guardando…' : 'Guardar'"></span>
+          </button>
+          <p x-show="result" x-cloak id="cs-save-result">
+            <span x-text="result && result.data && result.data.message"></span>
+          </p>
+        </div>
+      </div>
+    </div>
+    {% endif %}
     <section id="hero" class="module-hero">
       <p class="eyebrow">{{ strategy.hero.kicker }}</p>
       <h1>{{ strategy.hero.title_prefix }} <span style="color:var(--gold)">{{ strategy.hero.title_accent }}</span></h1>

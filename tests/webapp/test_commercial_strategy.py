@@ -32,7 +32,9 @@ _STRATEGY_PY = (_ROUTERS / "commercial_strategy.py").read_text(encoding="utf-8")
 _NAV_HTML = (_TEMPLATES / "partials" / "commercial_nav.html").read_text(encoding="utf-8")
 
 auth_service.ALLOWED_USERS = "ALL"
-auth_service.COMMERCIAL_ALLOWED_USERS = "commercial-test@danwor.com,commercial-odoo-test@danwor.com"
+auth_service.COMMERCIAL_ALLOWED_USERS = (
+    "commercial-test@danwor.com,commercial-odoo-test@danwor.com,content-owner-test@danwor.com"
+)
 
 _SESSION = auth_service.create_session(
     {"email": "commercial-test@danwor.com", "name": "Commercial Test", "first_name": "Commercial", "family_name": "Test"}
@@ -264,30 +266,123 @@ def test_persisted_markup_never_leaks_arbitrary_html_tags():
 
 
 # ============================================================================
-# K — No existe UI de Editar/Guardar en Fase 1
+# K/F — Un usuario de Comercial NO listado en CONTENT_OWNER: sin Editar,
+# 403 si fuerza el POST. `client` (commercial-test@danwor.com) nunca está en
+# CONTENT_OWNER en este archivo — MISMO usuario que el resto de los tests de
+# lectura, deliberado (prueba el caso común: autorizado a Comercial, no a
+# editar).
 # ============================================================================
 
-def test_no_edit_or_save_ui_in_phase_1():
+def test_non_owner_never_sees_edit_affordance():
     text = client.get("/comercial/estrategia").text
-    for banned in (
-        "Editar documento", "editing-mode", "contenteditable", "Guardar",
-        "add-task-btn", "del-btn", "drag-handle",
-    ):
+    for banned in ("cs-edit-toggle", "cs-edit-panel", ">Editar<", "editing-mode", "contenteditable"):
         assert banned not in text, banned
     assert "contenteditable" not in _STRATEGY_HTML
 
 
+def test_non_owner_write_attempt_returns_403(monkeypatch):
+    monkeypatch.setattr(auth_service, "CONTENT_OWNER", "")
+    response = client.post("/comercial/estrategia")
+    assert response.status_code == 403
+
+
 # ============================================================================
-# L — No existe ningún endpoint POST/write de Estrategia
+# G — Usuario CONTENT_OWNER: recibe el affordance de Editar, puede "entrar"
+# a EDIT (el panel existe en el DOM, aunque hoy responda 503 honesto al
+# guardar — ver H/router).
 # ============================================================================
 
-def test_no_write_endpoint_exists_for_strategy():
-    assert "@router.post" not in _STRATEGY_PY
-    assert "@router.put" not in _STRATEGY_PY
-    assert "@router.delete" not in _STRATEGY_PY
-    assert "save_strategy" not in _STRATEGY_PY
-    response = client.post("/comercial/estrategia")
-    assert response.status_code in (404, 405)
+_OWNER_SESSION = auth_service.create_session(
+    {"email": "content-owner-test@danwor.com", "name": "Owner Test", "first_name": "Owner", "family_name": "Test"}
+)
+owner_client = TestClient(app)
+owner_client.cookies.set(auth_service.COOKIE_NAME, _OWNER_SESSION)
+
+
+def _with_owner(monkeypatch):
+    monkeypatch.setattr(auth_service, "CONTENT_OWNER", "content-owner-test@danwor.com")
+
+
+def test_content_owner_sees_edit_affordance_and_panel(monkeypatch):
+    _with_owner(monkeypatch)
+    text = owner_client.get("/comercial/estrategia").text
+    assert 'id="cs-edit-toggle"' in text
+    assert 'id="cs-edit-panel"' in text
+    assert 'id="cs-save-btn"' in text
+
+
+# ============================================================================
+# H — CONTENT_OWNER ausente/vacío: fail-closed, nadie edita implícitamente.
+# ============================================================================
+
+def test_empty_content_owner_fails_closed_for_everyone(monkeypatch):
+    monkeypatch.setattr(auth_service, "CONTENT_OWNER", "")
+    text = owner_client.get("/comercial/estrategia").text
+    assert 'id="cs-edit-toggle"' not in text
+    response = owner_client.post("/comercial/estrategia")
+    assert response.status_code == 403
+
+
+# ============================================================================
+# I — El parser de CONTENT_OWNER es el MISMO CSV/alias que el resto del Hub
+# (username compacto -> @AUTH_DEFAULT_DOMAIN, case-insensitive, coma-separado).
+# ============================================================================
+
+def test_content_owner_reuses_the_existing_csv_allowlist_convention(monkeypatch):
+    monkeypatch.setattr(auth_service, "CONTENT_OWNER", "Content-Owner-Test, otro-usuario")
+    assert auth_service.is_content_owner_user("content-owner-test@danwor.com") is True
+    assert auth_service.is_content_owner_user("otro-usuario@danwor.com") is True
+    assert auth_service.is_content_owner_user("nadie@danwor.com") is False
+
+
+def test_content_owner_never_accepts_the_all_wildcard(monkeypatch):
+    monkeypatch.setattr(auth_service, "CONTENT_OWNER", "ALL")
+    assert auth_service.is_content_owner_user("anyone@danwor.com") is False
+
+
+# ============================================================================
+# J — APP_OWNER solo NUNCA implica can_edit_strategy.
+# ============================================================================
+
+def test_app_owner_alone_does_not_bypass_content_owner(monkeypatch):
+    import config as _config
+    monkeypatch.setattr(_config, "APP_OWNER", "content-owner-test@danwor.com")
+    monkeypatch.setattr(auth_service, "CONTENT_OWNER", "")
+    text = owner_client.get("/comercial/estrategia").text
+    assert 'id="cs-edit-toggle"' not in text
+    response = owner_client.post("/comercial/estrategia")
+    assert response.status_code == 403
+
+
+def test_commercial_access_never_references_app_owner():
+    # `APP_OWNER` aparece en la PROSA de los docstrings (explicando por qué NO
+    # se usa, herencia de Phase 1) — lo que este test protege es que nunca se
+    # IMPORTE ni se LLAME como código real.
+    access_py = (Path(__file__).resolve().parents[2] / "webapp" / "commercial_access.py").read_text(encoding="utf-8")
+    assert "import access" not in access_py
+    assert "from webapp import access" not in access_py
+    assert "access.is_owner(" not in access_py
+    assert "from config import APP_OWNER" not in access_py
+
+
+# ============================================================================
+# L — El endpoint de escritura EXISTE, autoritativo, pero HONESTO: nunca
+# devuelve éxito (el storage gate no está resuelto) ni escribe el documento.
+# ============================================================================
+
+def test_write_endpoint_exists_and_enforces_auth_before_anything_else():
+    assert "@router.post" in _STRATEGY_PY
+
+
+def test_owner_write_attempt_is_honestly_unavailable_not_a_fake_success(monkeypatch):
+    _with_owner(monkeypatch)
+    response = owner_client.post(
+        "/comercial/estrategia", json={}, headers={"Origin": "http://testserver"},
+    )
+    assert response.status_code == 503
+    body = response.json()
+    assert body["state"] == "unavailable"
+    assert body["reason"] == "concurrency_unconfirmed"
 
 
 def test_repository_exposes_read_only_contract():
@@ -295,6 +390,25 @@ def test_repository_exposes_read_only_contract():
     text = Path(repo.__file__).read_text(encoding="utf-8")
     for banned in ("def save_strategy", "def update_strategy", "def delete_strategy"):
         assert banned not in text
+
+
+# ============================================================================
+# V — Un write forjado cross-site-style (sin Origin/Referer del mismo
+# origen) falla el guard, incluso siendo CONTENT_OWNER.
+# ============================================================================
+
+def test_forged_cross_site_style_write_fails_the_same_origin_guard(monkeypatch):
+    _with_owner(monkeypatch)
+    response = owner_client.post(
+        "/comercial/estrategia", json={}, headers={"Origin": "https://evil.example"},
+    )
+    assert response.status_code == 403
+
+
+def test_write_with_no_origin_or_referer_fails_closed(monkeypatch):
+    _with_owner(monkeypatch)
+    response = owner_client.post("/comercial/estrategia", json={}, headers={"Origin": "", "Referer": ""})
+    assert response.status_code == 403
 
 
 # ============================================================================
