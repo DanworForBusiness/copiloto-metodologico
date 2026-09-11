@@ -112,6 +112,40 @@ def test_authorized_user_gets_200_and_real_content():
 # D — Las 13 secciones fuente están representadas
 # ============================================================================
 
+def test_document_index_reuses_the_copilot_section_index_contract():
+    # MISMO primitivo que module.html's "En este módulo" (.section-index,
+    # variante plana sin roadmap): `<nav class="section-index"><p>...</p>
+    # <a><span>NN</span>Título</a></nav>` — nunca una implementación propia.
+    text = client.get("/comercial/estrategia").text
+    assert 'class="section-index"' in text
+    assert 'aria-label="En este documento"' in text
+    assert "<p>En este documento</p>" in text
+    assert "<a href=\"#p1\"><span>01</span>Objetivos</a>" in text
+    assert "<a href=\"#reglas\"><span>12</span>Reglas de oro</a>" in text
+
+
+def test_document_index_has_no_leftover_source_number_prefix():
+    # El artefacto fuente ya trae "1 · Objetivos" en el label — el índice
+    # numera POR SU CUENTA (igual que Copilot); el prefijo del fuente no debe
+    # duplicarse en el título visible.
+    text = client.get("/comercial/estrategia").text
+    index_html = text.split('aria-label="En este documento"')[1].split("</nav>")[0]
+    assert "1 · Objetivos" not in index_html
+    assert ">Objetivos</a>" in index_html
+
+
+def test_no_duplicate_strategy_specific_index_implementation():
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_strategy.css").read_text(encoding="utf-8")
+    for banned in (".cs-index", ".cs-nav", ".cs-toc", ".cs-section-index"):
+        assert banned not in css, banned
+
+
+def test_all_expected_section_links_present_in_index():
+    text = client.get("/comercial/estrategia").text
+    index_html = text.split('aria-label="En este documento"')[1].split("</nav>")[0]
+    assert index_html.count("<a href=") == 12  # 13 secciones fuente - la portada (hero)
+
+
 def test_all_thirteen_source_sections_are_represented():
     response = client.get("/comercial/estrategia")
     text = response.text

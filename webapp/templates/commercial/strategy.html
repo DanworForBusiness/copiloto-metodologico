@@ -107,10 +107,17 @@
       </div>
     </section>
 
-    <nav class="section-index" aria-label="Estrategia Comercial 2026">
+    {#- MISMO primitivo que module.html's "En este módulo" (.section-index,
+        sin variante roadmap): `<span>NN</span>Título`, numeración secuencial
+        propia del índice (NUNCA el "N · " que ya trae el label del artefacto
+        fuente — de ahí `strategy_nav_title`, ver commercial_strategy_markup.
+        nav_title). Sin resaltado de sección activa: la variante plana de
+        Copilot tampoco lo hace (solo la variante "roadmap" la tiene) — mismo
+        contrato, no una aproximación. #}
+    <nav class="section-index" aria-label="En este documento">
       <p>En este documento</p>
       {% for item in strategy.nav if item.id != "hero" %}
-      <a href="#{{ item.id }}" :class="activeSection === '{{ item.id }}' && 'is-current'">{{ item.label }}</a>
+      <a href="#{{ item.id }}"><span>{{ "%02d"|format(loop.index) }}</span>{{ item.label | strategy_nav_title }}</a>
       {% endfor %}
     </nav>
 

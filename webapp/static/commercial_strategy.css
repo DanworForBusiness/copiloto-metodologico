@@ -69,6 +69,12 @@
 .cs-tnode--root { border-color: var(--gold); background: rgba(231,176,8,.08); }
 .cs-tnode--highlight { border-color: rgba(231,176,8,.5); }
 .cs-tnode__name { font-weight: 700; color: var(--ink); font-size: .92rem; }
+/* `--root` NO tiene el fondo sólido fijo-oscuro de `.cs-tnode` — es un tinte
+   translúcido SOBRE el fondo de la página, que sí cambia con el tema. Forzar
+   `var(--ink)` (claro fijo) ahí se volvía ilegible en tema claro (texto casi
+   blanco sobre un tinte dorado casi blanco) — se hereda el color ambiente
+   correcto de `.module-content` en cualquier tema en vez de fijarlo acá. */
+.cs-tnode--root .cs-tnode__name { color: inherit; }
 .cs-tnode__role { margin-top: 2px; color: var(--gold); font-size: .76rem; }
 .cs-tnode__desc { margin-top: 3px; color: var(--soft); font-size: .78rem; line-height: 1.4; }
 .cs-tnode__sellers { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--soft); font-size: .74rem; line-height: 1.4; }
@@ -88,13 +94,13 @@
 .cs-numlist { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
 .cs-numitem { display: flex; gap: 16px; align-items: flex-start; padding: 14px 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
 .cs-numitem__num { flex-shrink: 0; color: var(--gold); font: 800 1.1rem var(--sans); min-width: 1.6em; }
-.cs-numitem__title { font-weight: 700; font-size: .92rem; }
+.cs-numitem__title { font-weight: 700; font-size: .92rem; color: var(--ink); }
 .cs-numitem__detail { margin-top: 3px; color: var(--soft); font-size: .84rem; line-height: 1.5; }
 
 /* Roles (Pilar Roles y responsabilidades) — tarjeta compacta. */
 .cs-role-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; margin-top: 10px; }
 .cs-role { padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
-.cs-role h4 { margin: 0 0 2px; font-size: 1rem; }
+.cs-role h4 { margin: 0 0 2px; font-size: 1rem; color: var(--ink); }
 .cs-role__who { color: var(--gold); font-size: .76rem; font-weight: 600; margin-bottom: 10px; }
 .cs-role__mision { color: var(--soft); font-size: .84rem; font-style: italic; line-height: 1.5; padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
 .cs-role__label { color: var(--soft); font: 700 .68rem var(--sans); text-transform: uppercase; letter-spacing: .06em; margin: 10px 0 6px; }
@@ -107,7 +113,7 @@
 .cs-evmonth { color: var(--gold); font: 800 .78rem var(--sans); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .cs-evitem { margin-bottom: 10px; }
 .cs-evitem:last-child { margin-bottom: 0; }
-.cs-evitem__name { font-weight: 700; font-size: .86rem; }
+.cs-evitem__name { font-weight: 700; font-size: .86rem; color: var(--ink); }
 .cs-evitem__name--date { color: var(--gold); }
 .cs-evitem--muted .cs-evitem__name { color: var(--soft); font-weight: 600; }
 .cs-evitem__sub { margin-top: 2px; color: var(--soft); font-size: .76rem; line-height: 1.4; }
@@ -116,13 +122,28 @@
 .cs-cluster-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; margin-top: 10px; }
 .cs-cluster { padding: 18px; border: 1px solid var(--line); border-top: 2px solid var(--gold); border-radius: 10px; background: var(--card); }
 .cs-cluster__tag { color: var(--gold); font: 700 .68rem var(--sans); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 10px; }
-.cs-cluster h4 { margin: 0 0 2px; font-size: .98rem; }
+.cs-cluster h4 { margin: 0 0 2px; font-size: .98rem; color: var(--ink); }
 .cs-cluster ul { margin: 8px 0 0; padding-left: 18px; font-size: .82rem; color: var(--soft); }
 .cs-cluster__msg { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); font-size: .82rem; font-style: italic; color: var(--soft); }
 .cs-chan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 10px; }
 .cs-chan { padding: 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
-.cs-chan__title { font-weight: 700; margin-bottom: 8px; }
+.cs-chan__title { font-weight: 700; margin-bottom: 8px; color: var(--ink); }
 
 @media (max-width: 760px) {
   .cs-frow[data-level="2"], .cs-frow[data-level="3"], .cs-frow[data-level="4"] { width: 100%; }
+}
+
+/* Tema claro — MISMO valor/patrón que layout.css ya usa para
+   .module-hero/.section-index/.content-section (`border-color: #d9d9d3`):
+   `var(--line)` es un blanco casi-transparente pensado para resaltar sobre
+   fondo OSCURO — en los elementos de esta hoja que NO viven dentro de una
+   card de fondo fijo-oscuro (`.cs-tnode`/`.cs-kpi`/etc., que no lo necesitan:
+   su propio fondo oscuro fijo ya los separa de la página en cualquier tema),
+   sino directamente sobre el fondo de la página (que SÍ cambia con el tema),
+   ese borde se volvía invisible en tema claro. Mismo criterio que el resto
+   del Hub: no un token nuevo, el MISMO valor ya aprobado. */
+.content-theme-light .cs-stage,
+.content-theme-light .cs-subtabs,
+.content-theme-light .cs-tsub {
+  border-color: #d9d9d3;
 }

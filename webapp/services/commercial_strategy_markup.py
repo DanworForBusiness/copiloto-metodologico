@@ -21,6 +21,11 @@ import re
 _LINK_RE = re.compile(r"\[([^\]\n]+)\]\((https?://[^\s)]+)\)")
 _BOLD_RE = re.compile(r"\*\*([^*\n]+)\*\*")
 _ITALIC_RE = re.compile(r"\*([^*\n]+)\*")
+# Prefijo "N · " (o "N. ") que el artefacto fuente ya trae embebido en la
+# etiqueta de nav (p. ej. "1 · Objetivos") — el índice reusa la numeración
+# PROPIA de `.section-index` (`%02d` secuencial, ver module.html), así que el
+# número del artefacto se descarta acá para no duplicarlo en el título.
+_NAV_PREFIX_RE = re.compile(r"^\d+\s*[·.]\s*")
 
 
 def render(raw: str | None) -> str:
@@ -54,3 +59,10 @@ def status_badge_class(raw: str | None) -> str:
     if "standby" in text or "stand-by" in text or "sin abordaje" in text:
         return "status-badge--inactivo"
     return "status-badge--otro"
+
+
+def nav_title(label: str | None) -> str:
+    """Etiqueta de nav sin el prefijo numérico del artefacto fuente (ver
+    `_NAV_PREFIX_RE`) — para usar con el índice `.section-index` (module.html),
+    que numera POR SU CUENTA (`%02d` secuencial) y solo necesita el título."""
+    return _NAV_PREFIX_RE.sub("", (label or "").strip())
