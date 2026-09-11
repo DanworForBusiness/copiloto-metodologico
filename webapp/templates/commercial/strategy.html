@@ -462,12 +462,16 @@
       <section id="p5" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.cadence.eyebrow }}</span><h2>{{ strategy.cadence.title }}</h2></div></header>
         <p>{{ md(strategy.cadence.intro) }}</p>
-        {% for m in strategy.cadence.meetings %}
-        <div class="cs-block-label" style="margin-top:26px;">{{ m.freq }}</div>
-        <h4 style="margin:2px 0 4px;">{{ m.title }}</h4>
-        <p style="margin:0 0 6px; color:var(--soft); font-size:.82rem;">{{ m.participants }}</p>
-        {{ bullets(m.bullets) }}
-        {% endfor %}
+        <div class="cs-meet-grid">
+          {% for m in strategy.cadence.meetings %}
+          <div class="cs-meet-card">
+            <div class="cs-meet-card__freq">{{ m.freq }}</div>
+            <h4>{{ m.title }}</h4>
+            <p class="cs-meet-card__parts">{{ m.participants }}</p>
+            {{ bullets(m.bullets) }}
+          </div>
+          {% endfor %}
+        </div>
         {% if strategy.cadence.note %}<p>{{ md(strategy.cadence.note) }}</p>{% endif %}
       </section>
 

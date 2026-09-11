@@ -54,12 +54,19 @@
 .cs-bignum__value { display: block; color: var(--gold); font: 800 2rem var(--sans); line-height: 1.05; }
 .cs-bignum__label { display: block; margin-top: 6px; max-width: 220px; color: var(--soft); font-size: .8rem; line-height: 1.4; }
 
-/* Embudo — sin equivalente Hub. Ancho decreciente por nivel, MISMO criterio
-   visual que el artefacto fuente (l1 100% → l4 42%), tokens en vez de hex. */
+/* Embudo — sin equivalente Hub. Ancho decreciente por nivel Y tono
+   graduado hacia el dorado (l1 neutro → l4 dorado sólido), MISMO criterio
+   visual que el artefacto fuente (panel neutro → tinte tenue → tinte
+   marcado → dorado sólido) — acá con `color-mix()` sobre los tokens de
+   tema (MISMO
+   primitivo que ya usa `.callout` en tools.css:
+   `color-mix(in srgb, var(--callout-accent) 9%, var(--card))`), así el
+   degradé se recalcula solo en cada tema en vez de hexs fijos copiados
+   del standalone. */
 .cs-funnel { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 20px 0 10px; }
 .cs-frow { display: flex; flex-direction: column; align-items: center; text-align: center; width: 100%; padding: 16px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
-.cs-frow[data-level="2"] { width: 82%; }
-.cs-frow[data-level="3"] { width: 62%; }
+.cs-frow[data-level="2"] { width: 82%; background: color-mix(in srgb, var(--gold) 7%, var(--card)); border-color: color-mix(in srgb, var(--gold) 25%, var(--line)); }
+.cs-frow[data-level="3"] { width: 62%; background: color-mix(in srgb, var(--gold) 18%, var(--card)); border-color: color-mix(in srgb, var(--gold) 45%, var(--line)); }
 .cs-frow[data-level="4"] { width: 46%; background: var(--gold); border-color: var(--gold); }
 .cs-frow[data-level="4"] .cs-frow__label, .cs-frow[data-level="4"] .cs-frow__sub { color: #3a2f05; }
 .cs-frow[data-level="4"] .cs-frow__value { color: #17140a; }
@@ -158,6 +165,16 @@
 .cs-chan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 10px; }
 .cs-chan { padding: 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
 .cs-chan__title { font-weight: 700; margin-bottom: 8px; color: var(--ink); }
+
+/* Cadencia de revisión (Pilar 6) — MISMA tarjeta que clusters/channels
+   (antes eran párrafos sueltos: el owner señaló que perdían legibilidad
+   frente a los grupos de bullets en recuadro del artefacto original). */
+.cs-meet-grid { display: flex; flex-direction: column; gap: 16px; margin-top: 10px; }
+.cs-meet-card { padding: 20px 22px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.cs-meet-card__freq { color: var(--gold); font: 800 .74rem var(--sans); text-transform: uppercase; letter-spacing: .07em; }
+.cs-meet-card h4 { margin: 6px 0 4px; font-size: 1.08rem; color: var(--ink); }
+.cs-meet-card__parts { margin: 0 0 12px; color: var(--soft); font-size: .8rem; }
+.cs-meet-card ul { margin: 0; padding-left: 18px; font-size: .86rem; color: var(--soft); line-height: 1.6; }
 
 /* Botón "Editar" + panel de edición — ver strategy.html/commercial_strategy.py
    para el contrato completo (autorización real es server-side). Inputs
