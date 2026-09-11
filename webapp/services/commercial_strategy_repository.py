@@ -44,6 +44,32 @@ _logger = logging.getLogger("danwor.commercial_strategy")
 _SEED_PATH = Path(__file__).parent / "commercial_strategy_data" / "strategy.yaml"
 _RUNTIME_PATH = config.COMMERCIAL_STRATEGY_RUNTIME_DIR / "strategy.yaml"
 
+# Startup Restore / Cache Race Gate (ver HANDOFF): `lifespan()` en main.py
+# arranca `remote_store.restore()` como background task SIN esperarlo —
+# la app queda lista para servir HTTP de inmediato (para que /health no
+# falle), mientras el runtime durable sigue bajando de Spaces. Como
+# `self._cache` de este módulo se puebla en el PRIMER `load()`/`save()` y
+# nunca se vuelve a leer disco después, una request que llega ANTES de que
+# el restore termine vería el runtime local todavía ausente, cachearía el
+# SEED (revision 1) para el resto de la vida del proceso, e ignoraría para
+# siempre el runtime restaurado que aparece segundos después — el MISMO
+# problema que ya resolvió `reporting_time_logs_durable.ensure_restored()`
+# para Time Logs (ver ese módulo y `core.remote_store.await_restore`).
+# Reusa el MISMO primitivo — acotado, nunca polling/sleep arbitrario — en
+# vez de inventar una segunda coordinación de restore para esta vertical.
+_RESTORE_WAIT_TIMEOUT_S = 15.0
+
+
+def _ensure_restored() -> None:
+    """Espera (acotada) a que el restore de arranque contra DO Spaces
+    termine, SOLO si genuinamente sigue en curso — no-op instantáneo si
+    Spaces está deshabilitado o el restore ya terminó (`await_restore`
+    devuelve de inmediato en ambos casos). Debe llamarse ANTES de
+    cualquier lectura de disco que pueble `self._cache` por primera vez."""
+    if not remote_store.enabled():
+        return
+    remote_store.await_restore(timeout=_RESTORE_WAIT_TIMEOUT_S)
+
 
 class CommercialStrategyUnavailable(Exception):
     """El documento no se pudo cargar (archivo ausente o YAML inválido) —
@@ -109,6 +135,7 @@ class CommercialStrategyRepository:
         sin bootstrap de disco (ver docstring del módulo)."""
         with self._lock:
             if self._cache is None:
+                _ensure_restored()
                 self._cache = self._read_from_disk()
             return copy.deepcopy(self._cache)
 
@@ -132,6 +159,8 @@ class CommercialStrategyRepository:
         durable contra el cual fallar. Con Spaces configurado, un push que
         realmente falla SIEMPRE revierte y nunca reporta éxito."""
         with self._lock:
+            if self._cache is None:
+                _ensure_restored()
             current = self._cache if self._cache is not None else self._read_from_disk()
             if current.get("revision") != expected_revision:
                 raise StaleRevisionError(current.get("revision"))
