@@ -607,6 +607,37 @@ def test_retry_after_push_failure_succeeds(tmp_path, monkeypatch):
     assert load_strategy()["revision"] == 2
 
 
+def test_two_consecutive_successful_saves_are_both_visible_same_process_no_restart(tmp_path, monkeypatch):
+    # Repository Cache Semantics Gate (ver HANDOFF): `load()` devuelve
+    # `copy.deepcopy(self._cache)` — nunca relee disco — y `save()` reescribe
+    # `self._cache` in-memory bajo el mismo RLock ANTES de retornar (ver
+    # commercial_strategy_repository.py). Los tests de arriba ya prueban
+    # save→load una vez (`test_prose_edit_save_reload_persists`) y
+    # fail→retry→load (`test_retry_after_push_failure_succeeds`), pero
+    # ninguno encadena DOS saves exitosos consecutivos (N -> N+1 -> N+2) en
+    # el mismo proceso sin reiniciar — este test cierra exactamente ese
+    # hueco, la prueba explícita que pidió el gate.
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    from webapp.services.commercial_strategy_repository import load_strategy
+
+    assert load_strategy()["revision"] == 1
+
+    payload_1 = _save_payload(1)
+    payload_1["hero"]["lead"] = "Primer guardado exitoso"
+    res_1 = _owner_post(payload_1)
+    assert res_1.status_code == 200, res_1.text
+    assert load_strategy()["hero"]["lead"] == "Primer guardado exitoso"
+    assert load_strategy()["revision"] == 2
+
+    payload_2 = _save_payload(2)
+    payload_2["hero"]["lead"] = "Segundo guardado exitoso"
+    res_2 = _owner_post(payload_2)
+    assert res_2.status_code == 200, res_2.text
+    assert load_strategy()["hero"]["lead"] == "Segundo guardado exitoso"
+    assert load_strategy()["revision"] == 3
+
+
 def test_malicious_markup_inert_on_reload_and_render(tmp_path, monkeypatch):
     _with_owner(monkeypatch)
     _isolated_repo(tmp_path, monkeypatch)
