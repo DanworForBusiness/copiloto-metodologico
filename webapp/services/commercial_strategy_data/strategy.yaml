@@ -60,7 +60,7 @@ hero:
   - value: '25.000'
     label: Horas de servicios, 100% New Names
 objectives:
-  eyebrow: Pilar 1
+  eyebrow: '[01]'
   title: Objetivos
   intro: 'Foco 100% en New Names. Hay dos clases de objetivo, y las dos se miden: los **objetivos de resultado**
     (licencias y servicios cerrados) y los **objetivos de generación** (el pipeline y las oportunidades
@@ -157,7 +157,7 @@ objectives:
   - Ciclo de venta promedio (¿3 / 6 / 9 meses?) — define cuándo hay que generar el pipeline para que los
     cierres caigan en 2026, no en 2027
 demand_generation:
-  eyebrow: Pilar 2
+  eyebrow: '[02]'
   title: Generación de demanda
   intro: La máquina que llena el funnel. Define qué vendemos, por qué canales generamos conversaciones
     y con qué eventos abrimos puertas — es lo que alimenta al Semillero de eventos y, a través de él,
@@ -269,7 +269,7 @@ demand_generation:
     contactos y la prospección asociada (Semillero de eventos · Pilar 4) — sin ese cierre, el evento no
     genera pipeline.'
 segments:
-  eyebrow: Pilar 3
+  eyebrow: '[03]'
   title: Dónde jugamos
   intro: Seis segmentos, ordenados por prioridad. El Semillero de eventos es el segmento de mayor prioridad
     — es la puerta de entrada de contactos. Los Segmentos 2, 3 y 4 persiguen en conjunto los USD 250.000
@@ -625,7 +625,7 @@ segments:
         - A evaluar
     subtabs: null
 focus:
-  eyebrow: Pilar 4
+  eyebrow: '[04]'
   title: Criterio de foco
   intro: Define cuándo una cuenta recibe tiempo activo del equipo. Las 5 preguntas son obligatorias —
     se completan en la 1ª o 2ª reunión con el cliente, sin excepción.
@@ -648,7 +648,7 @@ focus:
   coherence_note: 'Nota de coherencia con el Pilar 3: en el Segmento 2 (C-Field Base Instalada, Ale/Vero),
     el mapeo de madurez de datos ya cubre gran parte de la pregunta 4 antes de la primera reunión.'
 capacity:
-  eyebrow: Pilar 5
+  eyebrow: '[05]'
   title: Asignación de capacidad
   assignments_table:
     headers:
@@ -675,7 +675,7 @@ capacity:
   - El Segmento 5 (Base propia Danwor) corre como pista separada y en paralelo, a cargo de Soledad con
     apoyo de Mary — así se puede avanzar en más de un tema a la vez.
 cadence:
-  eyebrow: Pilar 6
+  eyebrow: '[06]'
   title: Cadencia de revisión
   intro: El mecanismo que sostiene la estrategia en el tiempo.
   meetings:
@@ -712,7 +712,7 @@ cadence:
     - Revisión de si la cadencia semanal se está sosteniendo
   note: Las decisiones que requieren al socio se toman en la reunión semanal de los lunes, no en la quincenal.
 exclusions:
-  eyebrow: Pilar 7
+  eyebrow: '[07]'
   title: Qué no se hace
   items:
   - text: '**Servicios en Base Instalada** — no se trabajan bajo esta estrategia; el desarrollo de servicios
@@ -723,7 +723,7 @@ exclusions:
   - text: '**Partners sin compromiso real** (patrón Concentrix/Invenzis/BCI reactivos) — se les da la
       oportunidad del diagnóstico de madurez con expectativas claras; si no responden, no se sigue insistiendo.'
 next_steps:
-  eyebrow: Pilar 8
+  eyebrow: '[08]'
   title: Próximos pasos
   intro: Todas las tareas concretas que quedaron definidas en la construcción de esta estrategia, con
     su segmento de origen, responsable y trimestre. Como el plan se pone en marcha sobre el cierre de
@@ -814,7 +814,7 @@ next_steps:
   closing_note: El grueso de las tareas cae en Q4 (cierre de 2026); las últimas seis quedan con timing
     a definir. La asignación se ajusta en la cadencia de revisión a medida que avanza la ejecución.
 annex_map:
-  eyebrow: Anexo
+  eyebrow: '[09]'
   title: Mapa de contactos — Estructura SAP
   intro: Estructura de ventas SAP (Enterprise y Corporate → C-Field / C-Digital) y la Line of Business
     de BDC, que es el nexo directo con los Account Executives.
@@ -902,7 +902,7 @@ annex_map:
     text: SAP espera que los partners generen y trabajen sus propias oportunidades dentro de Corporate,
       no solo que cierren deals ya derivados.
 annex_roles:
-  eyebrow: Anexo
+  eyebrow: '[10]'
   title: Mapa de roles y responsabilidades
   intro: Hoy el rol de Ejecutivo Comercial y el de Gerente Comercial – New Names son ocupados por la misma
     persona, Mary. Los roles quedan definidos igual, para que la estructura esté clara a medida que el
@@ -957,7 +957,7 @@ annex_roles:
     - Ejecución operativa del día a día
     - Conducción comercial permanente
 annex_process:
-  eyebrow: Anexo
+  eyebrow: '[11]'
   title: Etapas del pipeline
   intro: Prevalece la numeración definida en este proyecto (0 a 8) sobre versiones anteriores del proceso.
   stages:
@@ -1003,7 +1003,7 @@ annex_process:
   cooling_note: 'Más de 2 semanas sin respuesta del cliente = primera alerta.
     La oportunidad se marca como enfriada en el seguimiento semanal.'
 annex_rules:
-  eyebrow: Anexo
+  eyebrow: '[12]'
   title: Reglas de oro
   intro: Complementan las 5 preguntas de calificación del Pilar 4 — gobiernan el proceso completo, no
     solo la entrada de una oportunidad.

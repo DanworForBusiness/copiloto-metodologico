@@ -1264,6 +1264,26 @@ def test_section_headers_reuse_the_exact_copilot_heading_markup():
     assert text.count('<header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">') == 12
 
 
+def test_section_eyebrows_follow_the_copilot_bracketed_sequential_numbering():
+    # Owner feedback: "Pilar 1"/"Anexo" no seguía la convención de Copilot
+    # (`[01]`, `[02]`... — ver content_service.py `f'[{number:02d}]'`) — los
+    # 12 eyebrows de sección ahora son secuenciales 01-12, MISMO orden que
+    # ya usa "En este módulo" (el índice), sin inventar un esquema aparte.
+    seed_path = Path(__file__).resolve().parents[2] / "webapp" / "services" / "commercial_strategy_data" / "strategy.yaml"
+    import yaml
+    doc = yaml.safe_load(seed_path.read_text(encoding="utf-8"))
+    keys = (
+        "objectives", "demand_generation", "segments", "focus", "capacity",
+        "cadence", "exclusions", "next_steps", "annex_map", "annex_roles",
+        "annex_process", "annex_rules",
+    )
+    for i, key in enumerate(keys, start=1):
+        assert doc[key]["eyebrow"] == f"[{i:02d}]", key
+    text = client.get("/comercial/estrategia").text
+    for i in range(1, 13):
+        assert f"[{i:02d}]" in text
+
+
 def test_no_strategy_specific_heading_css_remains():
     css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_strategy.css").read_text(encoding="utf-8")
     for banned in (".content-heading", ".section-eyebrow", " h2 ", "h2{", "h2 {"):
