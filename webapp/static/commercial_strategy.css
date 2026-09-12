@@ -390,3 +390,15 @@ textarea.cs-inline-input { resize: vertical; }
    módulo cambia. `:last-of-type` alcanza porque todas las secciones de
    `.methodology` comparten la MISMA clase `.content-section`. */
 .methodology .content-section:last-of-type { border-bottom: none; }
+
+/* Information Architecture / Storytelling Pass (ver HANDOFF): el índice
+   "En este módulo" (`.section-index`, app.css — primitivo COMPARTIDO del
+   Hub) agrupa sus 12 links en 3 familias semánticas (Pilares/Activación/
+   Anexos) en vez de una secuencia plana. Reusa la MISMA tipografía que ya
+   usa `.section-index p` ("En este módulo": mayúsculas, color apagado) —
+   nunca una card nueva — y solo agrega `grid-column:1/-1` para que cada
+   caption de familia corte la fila del grid de 3 columnas. Scoped acá
+   (Estrategia) vía `.cs-nav-group`, nunca tocando la regla `.section-index p`
+   compartida por el resto del Hub. */
+.section-index p.cs-nav-group { grid-column: 1 / -1; margin: 0; }
+.section-index p.cs-nav-group:not(:first-of-type) { margin-top: 10px; }

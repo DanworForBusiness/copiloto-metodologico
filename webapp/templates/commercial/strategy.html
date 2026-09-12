@@ -559,36 +559,66 @@
       </section>
 
     {#- MISMO primitivo que module.html's "En este módulo" (.section-index,
-        sin variante roadmap): `<span>NN</span>Título`, numeración secuencial
-        propia del índice (NUNCA el "N · " que ya trae el label del artefacto
-        fuente — de ahí `strategy_nav_title`, ver commercial_strategy_markup.
-        nav_title). Sin resaltado de sección activa: la variante plana de
-        Copilot tampoco lo hace (solo la variante "roadmap" la tiene) — mismo
-        contrato, no una aproximación. #}
+        sin variante roadmap): `<span>código</span>Título`, NUNCA el "N · "
+        que ya trae el label del artefacto fuente (de ahí `strategy_nav_title`,
+        ver commercial_strategy_markup.nav_title). Sin resaltado de sección
+        activa: la variante plana de Copilot tampoco lo hace (solo la
+        variante "roadmap" la tiene) — mismo contrato, no una aproximación.
+
+        Information Architecture / Storytelling Pass (ver HANDOFF): el
+        documento se presenta como SEIS pilares, no doce secciones
+        equivalentes — `cs_nav_map` de abajo es la ÚNICA fuente de la
+        familia semántica (pilares/activación/anexos) y su código
+        (01-06/E1-E2/A1-A4), reusada tanto acá como en cada eyebrow de
+        sección más abajo para que ambos nunca puedan divergir. Es
+        metadata ESTRUCTURAL pura — código de template, nunca
+        `strategy.nav[].group` ni ningún otro campo leído del documento
+        (seed o runtime): mismo principio que el Structural Eyebrow
+        Ownership Gate — la clasificación de navegación no puede depender
+        de contenido persistido, o un documento runtime ya existente
+        quedaría mostrando la agrupación vieja para siempre. #}
+    {% set cs_nav_map = {
+      'p1': ('pilares', '01'), 'genda': ('pilares', '02'), 'p2': ('pilares', '03'),
+      'p3': ('pilares', '04'), 'p4': ('pilares', '05'), 'p5': ('pilares', '06'),
+      'p6': ('activacion', 'E1'), 'proximos': ('activacion', 'E2'),
+      'mapa': ('anexos', 'A1'), 'roles': ('anexos', 'A2'),
+      'proceso': ('anexos', 'A3'), 'reglas': ('anexos', 'A4'),
+    } %}
     <nav class="section-index" aria-label="En este módulo">
       <p>En este módulo</p>
-      {% for item in strategy.nav if item.id != "hero" %}
-      <a href="#{{ item.id }}"><span>{{ "%02d"|format(loop.index) }}</span>{{ item.label | strategy_nav_title }}</a>
+      <p class="cs-nav-group">Pilares estratégicos</p>
+      {% for item in strategy.nav if cs_nav_map.get(item.id, ('',''))[0] == 'pilares' %}
+      <a href="#{{ item.id }}"><span>{{ cs_nav_map[item.id][1] }}</span>{{ item.label | strategy_nav_title }}</a>
+      {% endfor %}
+      <p class="cs-nav-group">De la estrategia a la acción</p>
+      {% for item in strategy.nav if cs_nav_map.get(item.id, ('',''))[0] == 'activacion' %}
+      <a href="#{{ item.id }}"><span>{{ cs_nav_map[item.id][1] }}</span>{{ item.label | strategy_nav_title }}</a>
+      {% endfor %}
+      <p class="cs-nav-group">Anexos</p>
+      {% for item in strategy.nav if cs_nav_map.get(item.id, ('',''))[0] == 'anexos' %}
+      <a href="#{{ item.id }}"><span>{{ cs_nav_map[item.id][1] }}</span>{{ item.label | strategy_nav_title }}</a>
       {% endfor %}
     </nav>
 
     <article class="methodology">
 
-      {#- Los 12 eyebrows "[01]".."[12]" de acá abajo son LITERALES de
-          template, nunca `{{ strategy.X.eyebrow }}` — MISMA convención que
-          Copilot (`content_service.py`: `f'[{number:02d}]'`, código, no
-          dato) y MISMO orden que "En este módulo" arriba. Structural
-          Eyebrow Ownership Gate (ver HANDOFF): un valor de navegación
-          estructural del Hub no puede depender de contenido persistido —
-          si dependiera de `strategy.X.eyebrow`, un documento runtime ya
-          existente (creado antes de este fix) seguiría mostrando el valor
-          viejo para siempre, exactamente el bug que motivó este gate. La
-          clave `eyebrow` puede seguir viviendo en el YAML/runtime como
-          dato histórico sin uso — el renderer ya no la lee para nada. #}
+      {#- Los 12 eyebrows "[01]".."[A4]" de acá abajo leen `cs_nav_map`
+          (definido arriba, junto al índice) — NUNCA
+          `{{ strategy.X.eyebrow }}` — MISMA convención que Copilot
+          (`content_service.py`: `f'[{number:02d}]'`, código, no dato) y
+          MISMO agrupamiento semántico que "En este módulo" arriba (ambos
+          leen la MISMA fuente, nunca pueden divergir). Structural Eyebrow
+          Ownership Gate (ver HANDOFF): un valor de navegación estructural
+          del Hub no puede depender de contenido persistido — si dependiera
+          de `strategy.X.eyebrow`, un documento runtime ya existente
+          (creado antes de este fix) seguiría mostrando el valor viejo para
+          siempre, exactamente el bug que motivó ese gate. La clave
+          `eyebrow` puede seguir viviendo en el YAML/runtime como dato
+          histórico sin uso — el renderer ya no la lee para nada. #}
 
       {# ── Pilar 1 · Objetivos ──────────────────────────────────────── #}
       <section id="p1" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[01]</span><h2>{{ strategy.objectives.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p1'][1] }}]</span><h2>{{ strategy.objectives.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.objectives.intro) }}</p>
         {{ inline_text('objectives.intro', tag='p', placeholder='Introducción', multiline=True) }}
 
@@ -641,7 +671,7 @@
 
       {# ── Pilar 2 · Generación de demanda ─────────────────────────── #}
       <section id="genda" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[02]</span><h2>{{ strategy.demand_generation.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['genda'][1] }}]</span><h2>{{ strategy.demand_generation.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.demand_generation.intro) }}</p>
         {{ inline_text('demand_generation.intro', tag='p', placeholder='Introducción', multiline=True) }}
 
@@ -726,7 +756,7 @@
       {# ── Pilar 3 · Dónde jugamos (segmentos, con tabs) ───────────── #}
       <section id="p2" class="content-section"
                x-data="{ seg: '{{ strategy.segments['items'][0].id }}', subsel: { {% for seg in strategy.segments['items'] %}{% if seg.subtabs %}'{{ seg.id }}': '{{ seg.subtabs[0].id }}',{% endif %}{% endfor %} } }">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[03]</span><h2>{{ strategy.segments.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p2'][1] }}]</span><h2>{{ strategy.segments.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.segments.intro) }}</p>
         {{ inline_text('segments.intro', tag='p', placeholder='Introducción', multiline=True) }}
         {% call callout_wrap("punch", "ℹ", "Qué es \"New Name\" para Danwor") %}
@@ -780,7 +810,7 @@
 
       {# ── Pilar 4 · Criterio de foco ──────────────────────────────── #}
       <section id="p3" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[04]</span><h2>{{ strategy.focus.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p3'][1] }}]</span><h2>{{ strategy.focus.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.focus.intro) }}</p>
         {{ inline_text('focus.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-numlist" x-show="!editing">
@@ -807,7 +837,7 @@
 
       {# ── Pilar 5 · Capacidad ──────────────────────────────────────── #}
       <section id="p4" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[05]</span><h2>{{ strategy.capacity.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p4'][1] }}]</span><h2>{{ strategy.capacity.title }}</h2></div></header>
         <div x-show="!editing">{{ data_table(strategy.capacity.assignments_table) }}</div>
         {{ table_edit('doc.capacity.assignments_table') }}
         <div class="cs-block-label">Regla de prioridad de ejecución</div>
@@ -822,7 +852,7 @@
 
       {# ── Pilar 6 · Cadencia de revisión ───────────────────────────── #}
       <section id="p5" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[06]</span><h2>{{ strategy.cadence.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p5'][1] }}]</span><h2>{{ strategy.cadence.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.cadence.intro) }}</p>
         {{ inline_text('cadence.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-meet-grid" x-show="!editing">
@@ -848,7 +878,7 @@
 
       {# ── Pilar 7 · Qué no se hace ─────────────────────────────────── #}
       <section id="p6" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[07]</span><h2>{{ strategy.exclusions.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p6'][1] }}]</span><h2>{{ strategy.exclusions.title }}</h2></div></header>
         <div class="cs-numlist" x-show="!editing">
           {% for it in strategy.exclusions['items'] %}
           <div class="cs-numitem"><span class="cs-numitem__num" style="color:#d65b5b;">✕</span><div><span class="cs-numitem__detail">{{ md(it.text) }}</span></div></div>
@@ -861,7 +891,7 @@
       {# ── Pilar 8 · Próximos pasos (la tabla misma es el editor — ver gate
           "PIVOT EDIT UX": nunca un formulario duplicado debajo) ────────── #}
       <section id="proximos" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[08]</span><h2>{{ strategy.next_steps.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['proximos'][1] }}]</span><h2>{{ strategy.next_steps.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.next_steps.intro) }}</p>
         {{ inline_text('next_steps.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <table x-show="!editing">
@@ -915,7 +945,7 @@
 
       {# ── Anexo · Mapa de contactos SAP ────────────────────────────── #}
       <section id="mapa" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[09]</span><h2>{{ strategy.annex_map.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['mapa'][1] }}]</span><h2>{{ strategy.annex_map.title }}</h2></div></header>
         <p>{{ md(strategy.annex_map.intro) }}</p>
         <div class="cs-block-label">Estructura de ventas SAP</div>
         {% set sap = strategy.annex_map.sap_tree %}
@@ -986,7 +1016,7 @@
 
       {# ── Anexo · Roles y responsabilidades ────────────────────────── #}
       <section id="roles" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[10]</span><h2>{{ strategy.annex_roles.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['roles'][1] }}]</span><h2>{{ strategy.annex_roles.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.annex_roles.intro) }}</p>
         {{ inline_text('annex_roles.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-role-grid" x-show="!editing">
@@ -1017,7 +1047,7 @@
 
       {# ── Anexo · Proceso comercial (timeline) ─────────────────────── #}
       <section id="proceso" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[11]</span><h2>{{ strategy.annex_process.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['proceso'][1] }}]</span><h2>{{ strategy.annex_process.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.annex_process.intro) }}</p>
         {{ inline_text('annex_process.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-timeline" x-show="!editing">
@@ -1046,7 +1076,7 @@
 
       {# ── Anexo · Reglas de oro ────────────────────────────────────── #}
       <section id="reglas" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[12]</span><h2>{{ strategy.annex_rules.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['reglas'][1] }}]</span><h2>{{ strategy.annex_rules.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.annex_rules.intro) }}</p>
         {{ inline_text('annex_rules.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-numlist" x-show="!editing">
