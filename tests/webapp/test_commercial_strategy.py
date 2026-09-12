@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from webapp.main import app
@@ -858,6 +859,26 @@ def test_i_failed_save_due_to_stale_revision_preserves_the_full_complete_documen
     after = fresh.load()
     assert after["objectives"]["ticket_table"] == before["objectives"]["ticket_table"]
     assert after["capacity"]["priority_rules"] == before["capacity"]["priority_rules"]
+
+
+# ============================================================================
+# SAVE / BEFOREUNLOAD BUG gate (ver HANDOFF) — el `save()`/`beforeunload`
+# reales viven en JS dentro del template, no en Python; el test riguroso
+# EJECUTA ese código extraído en vivo del archivo fuente (nunca una copia
+# pegada) contra mocks de fetch/window — ver ese archivo. Este wrapper solo
+# lo corre como subproceso para que `pytest tests/` lo cubra también.
+# ============================================================================
+
+def test_save_lifecycle_node_suite_passes():
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node no está disponible en este entorno")
+    script = Path(__file__).resolve().parent / "test_commercial_strategy_save_lifecycle.node.js"
+    result = subprocess.run([node, str(script)], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
 
 
 def test_j_non_owner_sees_none_of_the_new_section_editing_controls():

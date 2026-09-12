@@ -491,7 +491,27 @@
                  body: JSON.stringify(this.doc),
                });
                const data = await res.json().catch(() => ({}));
-               if (res.ok) { window.location.reload(); return; }
+               if (res.ok) {
+                 // Bug real reportado por el owner: el Save YA había tenido
+                 // éxito server-side (revision avanzada) pero `dirty` seguía
+                 // en `true` cuando se disparaba este reload INTENCIONAL —
+                 // `@beforeunload` (ver más abajo) lo interpretaba como una
+                 // salida con cambios sin guardar y mostraba el diálogo
+                 // nativo del navegador. Si el usuario elegía 'Cancelar' en
+                 // ESE diálogo, la página se quedaba viendo la revision
+                 // vieja mientras el servidor ya estaba en la nueva —
+                 // cualquier próximo Save desde esa misma pestaña fallaba
+                 // con 409 (stale revision) aunque no hubiera ninguna
+                 // edición concurrente real. Desarmar `dirty` ANTES de
+                 // navegar es lo único que hace falta: la recarga sigue
+                 // siendo necesaria porque la vista VIEW es server-rendered
+                 // desde `strategy`, no desde `doc` — reemplazar `doc` en
+                 // el cliente no actualizaría ese HTML.
+                 this.dirty = false;
+                 this.editing = false;
+                 window.location.reload();
+                 return;
+               }
                this.error = data.message || data.detail || ('Error ' + res.status);
              } catch (e) {
                this.error = 'No se pudo conectar con el servidor.';
