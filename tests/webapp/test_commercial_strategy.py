@@ -1275,6 +1275,129 @@ def test_section_feedback_unknown_section_is_404():
     assert response.status_code == 404
 
 
+# ============================================================================
+# Contextual Section Feedback gate (ver HANDOFF): `subject` OPCIONAL en el
+# primitivo compartido `partials/section_feedback.html` — probado en dos
+# capas: A/B/C/D contra el PARCIAL EN AISLAMIENTO (nunca vía una página
+# completa — prueba que el componente es agnóstico de Estrategia, cualquier
+# caller Hub puede pasarlo), E/F/G contra la integración real de Estrategia
+# (`cs_feedback_subject` en strategy.html Y su espejo
+# `_FEEDBACK_SUBJECT_BY_SECTION` en el router — deben coincidir). H (los
+# consumers Hub existentes que NUNCA pasan `subject` siguen sin cambios) ya
+# está cubierto por `test_module_renders_per_section_feedback_widgets` en
+# test_routes.py — no se duplica acá.
+# ============================================================================
+
+def _render_section_feedback_partial(**extra) -> str:
+    from webapp.templating import templates
+    tmpl = templates.env.get_template("partials/section_feedback.html")
+    ctx = {"feedback_id": "x", "feedback_url_base": "/x", "pack": "datasphere_core", **extra}
+    return tmpl.render(**ctx)
+
+
+def test_shared_primitive_without_subject_keeps_the_generic_default():
+    # A: un caller que no pasa `subject` (el comportamiento de SIEMPRE,
+    # Copilot/Catalog/etc) no debe notar ningún cambio.
+    html = _render_section_feedback_partial()
+    assert "&iquest;Qu&eacute; te pareci&oacute; esta secci&oacute;n?" in html
+
+
+def test_shared_primitive_with_pillar_subject():
+    # B
+    html = _render_section_feedback_partial(subject="este pilar")
+    assert "&iquest;Qu&eacute; te pareci&oacute; este pilar?" in html
+    assert "esta secci&oacute;n" not in html
+
+
+def test_shared_primitive_with_annex_subject():
+    # C
+    html = _render_section_feedback_partial(subject="este anexo")
+    assert "&iquest;Qu&eacute; te pareci&oacute; este anexo?" in html
+    assert "esta secci&oacute;n" not in html
+
+
+def test_shared_primitive_subject_renders_as_plain_text_never_html():
+    # Gate item 7: interpolación segura — un `subject` con caracteres HTML
+    # especiales (nunca pasaría de Estrategia, pero el primitivo mismo debe
+    # ser seguro para cualquier caller Hub futuro) se escapa, nunca se
+    # inyecta crudo.
+    html = _render_section_feedback_partial(subject="<script>alert(1)</script>")
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_feedback_endpoint_contract_unaffected_by_subject(monkeypatch, tmp_path):
+    # D: el subject es metadata de PRESENTACIÓN — section_id, module,
+    # reaction values, endpoint, persistencia y telemetría siguen exactos
+    # (mismo criterio que test_section_feedback_follows_the_existing_hub_
+    # htmx_form_contract / test_no_duplicate_feedback_storage_or_event_
+    # taxonomy, ver arriba — este test prueba que agregar `subject` al
+    # contexto de render no le agregó una clave nueva al payload guardado).
+    import yaml as _yaml
+    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "commercial-test@danwor.com")
+    from webapp.routers import commercial_strategy as strategy_router
+    monkeypatch.setattr(strategy_router, "FEEDBACK_LOG_DIR", tmp_path)
+
+    response = client.post(
+        "/comercial/estrategia/sections/objectives/feedback",
+        data={"rating": "up", "pack": "datasphere_core"},
+    )
+    assert response.status_code == 200
+    saved = list(tmp_path.glob("section_feedback_*.yaml"))
+    assert len(saved) == 1
+    payload = _yaml.safe_load(saved[0].read_text(encoding="utf-8"))
+    assert set(payload.keys()) == {"type", "module", "module_title", "section_slug", "section_title", "pack", "rating", "user", "ts"}
+    assert payload["section_slug"] == "objectives"
+
+
+def _feedback_prompt_for_section(section_id: str) -> str:
+    text = owner_client.get("/comercial/estrategia").text
+    marker = f'id="section-feedback-{section_id}"'
+    start = text.index(marker)
+    end = text.index("</form>", start)
+    return text[start:end]
+
+
+def test_pillar_sections_use_este_pilar_subject(monkeypatch):
+    # E
+    _with_owner(monkeypatch)
+    for section_id in ("objectives", "demand_generation", "segments", "focus", "capacity", "cadence"):
+        fragment = _feedback_prompt_for_section(section_id)
+        assert "este pilar?" in fragment, section_id
+
+
+def test_activation_sections_keep_the_generic_fallback(monkeypatch):
+    # F
+    _with_owner(monkeypatch)
+    for section_id in ("exclusions", "next_steps"):
+        fragment = _feedback_prompt_for_section(section_id)
+        assert "esta secci&oacute;n?" in fragment, section_id
+        assert "este pilar" not in fragment
+        assert "este anexo" not in fragment
+
+
+def test_annex_sections_use_este_anexo_subject(monkeypatch):
+    # G
+    _with_owner(monkeypatch)
+    for section_id in ("annex_map", "annex_roles", "annex_process", "annex_rules"):
+        fragment = _feedback_prompt_for_section(section_id)
+        assert "este anexo?" in fragment, section_id
+
+
+def test_strategy_template_and_router_subject_maps_agree():
+    # E/F/G guardrail: `cs_feedback_subject` (strategy.html) y
+    # `_FEEDBACK_SUBJECT_BY_SECTION` (router) son la MISMA clasificación
+    # espejada en dos lenguajes de render — este test los compara
+    # directamente para que nunca puedan divergir en silencio.
+    import re
+    from webapp.routers.commercial_strategy import _FEEDBACK_SUBJECT_BY_SECTION
+    match = re.search(r"cs_feedback_subject = \{(.*?)\}\s*%\}", _STRATEGY_HTML, re.S)
+    assert match, "no se encontró cs_feedback_subject en strategy.html"
+    pairs = re.findall(r"'(\w+)':\s*'([^']+)'", match.group(1))
+    template_map = dict(pairs)
+    assert template_map == _FEEDBACK_SUBJECT_BY_SECTION
+
+
 # G/H — headers de sección reusan el primitivo real de Copilot; CERO regla
 # de heading propia de Estrategia sobrevive.
 def test_section_headers_reuse_the_exact_copilot_heading_markup():

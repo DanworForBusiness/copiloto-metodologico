@@ -80,6 +80,23 @@ _FEEDBACK_SECTIONS = (
     "annex_process", "annex_rules",
 )
 
+# Contextual Section Feedback gate (ver HANDOFF): fragmento gramatical
+# OPCIONAL que reemplaza "esta sección" en la pregunta del primitivo
+# compartido (`partials/section_feedback.html`, ver su docstring — el
+# parcial solo interpola texto, nunca infiere nada) — MISMA clasificación
+# semántica que `cs_nav_map` en strategy.html (pilares/activación/anexos),
+# expresada acá TAMBIÉN en Python porque los 3 endpoints de feedback
+# reaccionan/re-renderizan el parcial vía HTMX sin pasar por el documento
+# completo. "exclusions"/"next_steps" (activación) quedan deliberadamente
+# fuera del dict — `.get()` devuelve `None`, y el parcial cae al fallback
+# genérico "esta sección" (ver gate: ninguno de los dos es un pilar).
+_FEEDBACK_SUBJECT_BY_SECTION = {
+    "objectives": "este pilar", "demand_generation": "este pilar", "segments": "este pilar",
+    "focus": "este pilar", "capacity": "este pilar", "cadence": "este pilar",
+    "annex_map": "este anexo", "annex_roles": "este anexo",
+    "annex_process": "este anexo", "annex_rules": "este anexo",
+}
+
 router = APIRouter()
 _logger = logging.getLogger("danwor.commercial_strategy")
 
@@ -276,6 +293,7 @@ def _strategy_section_feedback_ctx(section_id: str, section: dict, **extra) -> d
         "feedback_id": section_id,
         "feedback_url_base": f"/comercial/estrategia/sections/{section_id}",
         "pack": DEFAULT_PACK,
+        "subject": _FEEDBACK_SUBJECT_BY_SECTION.get(section_id),
         **extra,
     }
 

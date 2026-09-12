@@ -13,7 +13,15 @@
     sites existentes); un caller nuevo (p. ej. Estrategia Comercial) puede
     pasar `feedback_url_base`/`feedback_id` explícitos para reusar este
     MISMO parcial contra SU PROPIO endpoint, en vez de duplicar el
-    componente. #}
+    componente.
+
+    `subject` (Contextual Section Feedback gate, ver HANDOFF): fragmento
+    gramatical OPCIONAL ("este pilar", "este anexo", etc) que el caller
+    puede pasar para reemplazar "esta sección" en la pregunta inicial —
+    interpolado como texto plano (autoescape de Jinja, nunca `|safe`), sin
+    inferencia de género/número/DOM acá: el caller manda el fragmento
+    completo ya armado. Sin `subject`, el default "esta sección" de
+    siempre — cero cambio para cualquier caller existente que no lo pase. #}
 {% set _slug = feedback_id if feedback_id is defined else section.slug %}
 {% set _fb_base = feedback_url_base if feedback_url_base is defined else ("/modules/" ~ stem ~ "/sections/" ~ _slug) %}
 <div id="section-feedback-{{ _slug }}" class="section-feedback">
@@ -42,7 +50,7 @@
         hx-post="{{ _fb_base }}/feedback"
         hx-target="#section-feedback-{{ _slug }}" hx-swap="outerHTML">
     <input type="hidden" name="pack" value="{{ pack }}">
-    <span class="section-feedback__prompt">&iquest;Qu&eacute; te pareci&oacute; esta secci&oacute;n?</span>
+    <span class="section-feedback__prompt">&iquest;Qu&eacute; te pareci&oacute; {% if subject is defined and subject %}{{ subject }}{% else %}esta secci&oacute;n{% endif %}?</span>
     <button type="submit" name="rating" value="up" class="section-feedback__react" aria-label="&Uacute;til" title="&Uacute;til">&#128077;</button>
     <button type="submit" name="rating" value="down" class="section-feedback__react" aria-label="Puede mejorar" title="Puede mejorar">&#128078;</button>
   </form>

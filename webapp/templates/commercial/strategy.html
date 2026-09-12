@@ -591,6 +591,24 @@
       'mapa': ('anexos', 'A01', 'annex_map'), 'roles': ('anexos', 'A02', 'annex_roles'),
       'proceso': ('anexos', 'A03', 'annex_process'), 'reglas': ('anexos', 'A04', 'annex_rules'),
     } %}
+    {#- Contextual Section Feedback gate (ver HANDOFF): fragmento gramatical
+        OPCIONAL para el primitivo compartido `section_feedback.html` (su
+        `subject`, ver ese parcial — nunca hardcodeado adentro del
+        componente, nunca inferido del DOM/label visible). MISMA
+        clasificación semántica que `cs_nav_map` de arriba (pilares/
+        activación/anexos) — espejada acá TAMBIÉN en
+        `commercial_strategy.py::_FEEDBACK_SUBJECT_BY_SECTION` porque los 3
+        endpoints de feedback re-renderizan el parcial vía HTMX sin pasar
+        por este template; ambos deben coincidir (cubierto por test).
+        Activación ("exclusions"/"next_steps") queda deliberadamente fuera
+        — cae al fallback genérico "esta sección" del parcial: "Qué no se
+        hace" no es ni un pilar ni un anexo. #}
+    {% set cs_feedback_subject = {
+      'objectives': 'este pilar', 'demand_generation': 'este pilar', 'segments': 'este pilar',
+      'focus': 'este pilar', 'capacity': 'este pilar', 'cadence': 'este pilar',
+      'annex_map': 'este anexo', 'annex_roles': 'este anexo',
+      'annex_process': 'este anexo', 'annex_rules': 'este anexo',
+    } %}
     {#- Owner feedback: la variante de renglones (captions full-width
         cortando el grid de 3 columnas) dejaba filas sueltas con mucho
         espacio vacío (p. ej. Activación con solo 2 de 3 columnas usadas,
@@ -691,7 +709,7 @@
         <div x-show="!editing">{{ bullets(strategy.objectives.assumptions_pending) }}</div>
         {{ string_list_edit('doc.objectives.assumptions_pending') }}
         {% endcall %}
-        {% set feedback_id = "objectives" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
+        {% set feedback_id = "objectives" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% set subject = cs_feedback_subject.get(feedback_id) %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 2 · Generación de demanda ─────────────────────────── #}
@@ -775,7 +793,7 @@
         <p x-show="!editing">{{ md(strategy.demand_generation.owner_note) }}</p>
         {{ inline_text('demand_generation.owner_note', tag='p', multiline=True) }}
         {% endcall %}
-        {% set feedback_id = "demand_generation" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
+        {% set feedback_id = "demand_generation" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% set subject = cs_feedback_subject.get(feedback_id) %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 3 · Dónde jugamos (segmentos, con tabs) ───────────── #}
@@ -830,7 +848,7 @@
           {% endif %}
         </div>
         {% endfor %}
-        {% set feedback_id = "segments" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
+        {% set feedback_id = "segments" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% set subject = cs_feedback_subject.get(feedback_id) %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 4 · Criterio de foco ──────────────────────────────── #}
@@ -857,7 +875,7 @@
         {{ string_list_edit('doc.focus.rules') }}
         {% if strategy.focus.coherence_note %}<p x-show="!editing">{{ md(strategy.focus.coherence_note) }}</p>{% endif %}
         {{ inline_text('focus.coherence_note', tag='p', placeholder='Nota de coherencia (opcional)', multiline=True) }}
-        {% set feedback_id = "focus" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
+        {% set feedback_id = "focus" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% set subject = cs_feedback_subject.get(feedback_id) %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 5 · Capacidad ──────────────────────────────────────── #}
@@ -872,7 +890,7 @@
           {% endfor %}
         </div>
         {{ string_list_edit('doc.capacity.priority_rules') }}
-        {% set feedback_id = "capacity" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
+        {% set feedback_id = "capacity" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% set subject = cs_feedback_subject.get(feedback_id) %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 6 · Cadencia de revisión ───────────────────────────── #}
@@ -898,7 +916,7 @@
              new_item="{freq:'',title:'',participants:'',bullets:[]}") }}
         {% if strategy.cadence.note %}<p x-show="!editing">{{ md(strategy.cadence.note) }}</p>{% endif %}
         {{ inline_text('cadence.note', tag='p', placeholder='Nota (opcional)', multiline=True) }}
-        {% set feedback_id = "cadence" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
+        {% set feedback_id = "cadence" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% set subject = cs_feedback_subject.get(feedback_id) %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 7 · Qué no se hace ─────────────────────────────────── #}
@@ -910,7 +928,7 @@
           {% endfor %}
         </div>
         {{ text_object_list_edit('doc.exclusions.items') }}
-        {% set feedback_id = "exclusions" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
+        {% set feedback_id = "exclusions" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% set subject = cs_feedback_subject.get(feedback_id) %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 8 · Próximos pasos (la tabla misma es el editor — ver gate
@@ -965,7 +983,7 @@
         {% endif %}
         {% if strategy.next_steps.closing_note %}<p x-show="!editing">{{ md(strategy.next_steps.closing_note) }}</p>{% endif %}
         {{ inline_text('next_steps.closing_note', tag='p', placeholder='Nota de cierre (opcional)', multiline=True) }}
-        {% set feedback_id = "next_steps" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
+        {% set feedback_id = "next_steps" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% set subject = cs_feedback_subject.get(feedback_id) %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Anexo · Mapa de contactos SAP ────────────────────────────── #}
@@ -1036,7 +1054,7 @@
           <button type="button" class="btn-secondary cs-annex-add" @click="addAnnexNote()">+ Agregar nota</button>
         </div>
         {% endif %}
-        {% set feedback_id = "annex_map" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
+        {% set feedback_id = "annex_map" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% set subject = cs_feedback_subject.get(feedback_id) %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Anexo · Roles y responsabilidades ────────────────────────── #}
@@ -1067,7 +1085,7 @@
               {'key': 'mision', 'type': 'textarea', 'placeholder': 'Misión'}],
              [{'key': 'responsibilities', 'label': 'Responsabilidades'}, {'key': 'not_responsible', 'label': 'No hace'}],
              new_item="{name:'',who:'',mision:'',responsibilities:[],not_responsible:[]}") }}
-        {% set feedback_id = "annex_roles" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
+        {% set feedback_id = "annex_roles" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% set subject = cs_feedback_subject.get(feedback_id) %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Anexo · Proceso comercial (timeline) ─────────────────────── #}
@@ -1096,7 +1114,7 @@
         <p x-show="!editing">{{ md(strategy.annex_process.cooling_note) }}</p>
         {{ inline_text('annex_process.cooling_note', tag='p', multiline=True) }}
         {% endcall %}
-        {% set feedback_id = "annex_process" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
+        {% set feedback_id = "annex_process" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% set subject = cs_feedback_subject.get(feedback_id) %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Anexo · Reglas de oro ────────────────────────────────────── #}
@@ -1116,7 +1134,7 @@
              [{'key': 'title', 'placeholder': 'Título de la regla'},
               {'key': 'detail', 'type': 'textarea', 'placeholder': 'Detalle'}],
              new_item="{title:'',detail:''}") }}
-        {% set feedback_id = "annex_rules" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
+        {% set feedback_id = "annex_rules" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% set subject = cs_feedback_subject.get(feedback_id) %}{% include "partials/section_feedback.html" %}
       </section>
 
     </article>
