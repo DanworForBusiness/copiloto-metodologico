@@ -83,19 +83,30 @@ _FEEDBACK_SECTIONS = (
 # Contextual Section Feedback gate (ver HANDOFF): fragmento gramatical
 # OPCIONAL que reemplaza "esta sección" en la pregunta del primitivo
 # compartido (`partials/section_feedback.html`, ver su docstring — el
-# parcial solo interpola texto, nunca infiere nada) — MISMA clasificación
-# semántica que `cs_nav_map` en strategy.html (pilares/activación/anexos),
-# expresada acá TAMBIÉN en Python porque los 3 endpoints de feedback
-# reaccionan/re-renderizan el parcial vía HTMX sin pasar por el documento
-# completo. "exclusions"/"next_steps" (activación) quedan deliberadamente
-# fuera del dict — `.get()` devuelve `None`, y el parcial cae al fallback
-# genérico "esta sección" (ver gate: ninguno de los dos es un pilar).
+# parcial solo interpola texto, nunca infiere nada). ÚNICA fuente de esta
+# clasificación semántica (Single Source Cleanup, ver HANDOFF) — ya NO
+# existe una segunda copia en strategy.html: tanto el render inicial
+# completo como los 3 endpoints HTMX de feedback (que re-renderizan el
+# parcial sin pasar por el documento entero) llaman a
+# `feedback_subject_for_section()` más abajo. "exclusions"/"next_steps"
+# (activación) quedan deliberadamente fuera del dict — el resolver
+# devuelve `None`, y el parcial cae al fallback genérico "esta sección"
+# (ver gate: ninguno de los dos es un pilar).
 _FEEDBACK_SUBJECT_BY_SECTION = {
     "objectives": "este pilar", "demand_generation": "este pilar", "segments": "este pilar",
     "focus": "este pilar", "capacity": "este pilar", "cadence": "este pilar",
     "annex_map": "este anexo", "annex_roles": "este anexo",
     "annex_process": "este anexo", "annex_rules": "este anexo",
 }
+
+
+def feedback_subject_for_section(section_id: str) -> str | None:
+    """Fragmento gramatical opcional para el prompt de feedback de esta
+    sección (`subject` del primitivo compartido) — ÚNICO punto que
+    cualquier caller (render inicial, HTMX) debe llamar; nunca leer
+    `_FEEDBACK_SUBJECT_BY_SECTION` directamente desde otro módulo."""
+    return _FEEDBACK_SUBJECT_BY_SECTION.get(section_id)
+
 
 router = APIRouter()
 _logger = logging.getLogger("danwor.commercial_strategy")
@@ -173,6 +184,12 @@ def commercial_strategy_page(request: Request):
             # chequeo server-side de forma autoritativa).
             "can_edit": commercial_access.can_edit_strategy_user(user),
             "editable_doc": editable_doc,
+            # Single Source Cleanup (ver HANDOFF): el template YA NO trae su
+            # propia copia de la clasificación pilar/activación/anexo para
+            # el `subject` de feedback — recibe el resultado YA RESUELTO acá,
+            # desde el MISMO resolver que usan los 3 endpoints HTMX de
+            # feedback más abajo (`feedback_subject_for_section`).
+            "feedback_subjects": {sid: feedback_subject_for_section(sid) for sid in _FEEDBACK_SECTIONS},
         },
     )
 
@@ -293,7 +310,7 @@ def _strategy_section_feedback_ctx(section_id: str, section: dict, **extra) -> d
         "feedback_id": section_id,
         "feedback_url_base": f"/comercial/estrategia/sections/{section_id}",
         "pack": DEFAULT_PACK,
-        "subject": _FEEDBACK_SUBJECT_BY_SECTION.get(section_id),
+        "subject": feedback_subject_for_section(section_id),
         **extra,
     }
 

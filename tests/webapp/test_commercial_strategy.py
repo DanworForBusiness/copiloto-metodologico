@@ -1384,18 +1384,46 @@ def test_annex_sections_use_este_anexo_subject(monkeypatch):
         assert "este anexo?" in fragment, section_id
 
 
-def test_strategy_template_and_router_subject_maps_agree():
-    # E/F/G guardrail: `cs_feedback_subject` (strategy.html) y
-    # `_FEEDBACK_SUBJECT_BY_SECTION` (router) son la MISMA clasificación
-    # espejada en dos lenguajes de render — este test los compara
-    # directamente para que nunca puedan divergir en silencio.
-    import re
-    from webapp.routers.commercial_strategy import _FEEDBACK_SUBJECT_BY_SECTION
-    match = re.search(r"cs_feedback_subject = \{(.*?)\}\s*%\}", _STRATEGY_HTML, re.S)
-    assert match, "no se encontró cs_feedback_subject en strategy.html"
-    pairs = re.findall(r"'(\w+)':\s*'([^']+)'", match.group(1))
-    template_map = dict(pairs)
-    assert template_map == _FEEDBACK_SUBJECT_BY_SECTION
+def test_feedback_subject_resolver_returns_expected_subject_per_family():
+    # Single Source Cleanup (ver HANDOFF): `feedback_subject_for_section` es
+    # la ÚNICA fuente de esta clasificación — probada acá en aislamiento,
+    # una función pura de `section_id`.
+    from webapp.routers.commercial_strategy import feedback_subject_for_section
+    for section_id in ("objectives", "demand_generation", "segments", "focus", "capacity", "cadence"):
+        assert feedback_subject_for_section(section_id) == "este pilar", section_id
+    for section_id in ("exclusions", "next_steps"):
+        assert feedback_subject_for_section(section_id) is None, section_id
+    for section_id in ("annex_map", "annex_roles", "annex_process", "annex_rules"):
+        assert feedback_subject_for_section(section_id) == "este anexo", section_id
+
+
+def test_initial_render_and_htmx_rerender_both_read_the_same_resolver(monkeypatch):
+    # Single Source Cleanup: prueba que AMBOS render paths (A: página
+    # completa inicial, B: respuesta HTMX de feedback) leen el MISMO
+    # resolver EN RUNTIME — no dos copias que coinciden por casualidad
+    # (lo que la vieja "parity guardrail" solo podía inferir). Parchea
+    # `feedback_subject_for_section` a un valor distintivo y confirma que
+    # los DOS paths lo reflejan de inmediato.
+    import webapp.routers.commercial_strategy as strategy_router
+    monkeypatch.setattr(
+        strategy_router, "feedback_subject_for_section",
+        lambda section_id: "un valor de prueba distintivo" if section_id == "objectives" else None,
+    )
+
+    initial_text = client.get("/comercial/estrategia").text
+    assert "un valor de prueba distintivo?" in initial_text
+
+    htmx_response = client.post("/comercial/estrategia/sections/objectives/feedback/cancel")
+    assert "un valor de prueba distintivo?" in htmx_response.text
+
+
+def test_strategy_template_has_no_second_family_classification():
+    # Item 2 del gate: "no second list of pillar ids / activation ids /
+    # annex ids inside the template" — strategy.html ya no define ningún
+    # dict/lista propia clasificando secciones; solo consume
+    # `feedback_subjects` (ya resuelto, inyectado por el router).
+    assert "cs_feedback_subject" not in _STRATEGY_HTML
+    assert _STRATEGY_HTML.count("{% set subject = feedback_subjects.get(feedback_id) %}") == 12
 
 
 # G/H — headers de sección reusan el primitivo real de Copilot; CERO regla
