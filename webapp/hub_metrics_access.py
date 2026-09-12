@@ -50,13 +50,15 @@ ver esa función más abajo.
 """
 from __future__ import annotations
 
+from typing import Callable
+
 from fastapi import Request
 
 from webapp import access, commercial_access, operations_access
-from webapp.services import auth_service
+from webapp.services import auth_service, module_registry
 from webapp.services.activity_context import (
-    AREA_ACADEMY, AREA_ASSISTANT, AREA_AUTH, AREA_CATALOG, AREA_CRM,
-    AREA_METHODOLOGY, AREA_REPORTING, AREA_STAFFING, AREA_UNKNOWN,
+    AREA_ACADEMY, AREA_ASSISTANT, AREA_AUTH, AREA_CATALOG,
+    AREA_METHODOLOGY, AREA_REPORTING, AREA_UNKNOWN,
     SCOPE_COMMERCIAL, SCOPE_COPILOT, SCOPE_OPERATIONS, SCOPE_PLATFORM, SCOPE_UNKNOWN,
 )
 from config import HUB_METRICS_ALLOWED_USERS, HUB_METRICS_ENABLED_VERTICALS
@@ -111,7 +113,8 @@ def is_vertical_metrics_enabled(vertical: str) -> bool:
 
 
 # ── VERTICAL DATA VISIBILITY (owner ticket "HUB METRICS — ENFORCE VERTICAL
-# DATA VISIBILITY") ──────────────────────────────────────────────────────
+# DATA VISIBILITY", generalizada por "HUB METRICS — GENERIC MODULE DISCOVERY
+# + STRATEGY CORRECTNESS") ──────────────────────────────────────────────────
 # Tercera pregunta, ortogonal a las dos de arriba (owner §1): "¿puede este
 # usuario ACCEDER al vertical?" ya lo deciden operations_access/
 # commercial_access — acá se REUSAN esos MISMOS predicados puros (nunca un
@@ -122,19 +125,58 @@ def is_vertical_metrics_enabled(vertical: str) -> bool:
 # §9: "Metrics-authorized users may see Copiloto metrics regardless of
 # whether they entered Metrics from Operations", sin exigir una allowlist de
 # vertical adicional para Copiloto.
+#
+# Áreas por workspace autorizado: derivadas de `module_registry` (la MISMA
+# capa de identidad que ya sabe qué módulos existen y en qué `area` viven,
+# ver ModuleDescriptor.area) en vez de una lista de áreas mantenida a mano
+# acá — un módulo NUEVO en un workspace YA gateado (p. ej. un futuro CM03 en
+# "commercial") queda automáticamente visible sin tocar este archivo, que es
+# exactamente lo que faltaba para Estrategia (CM02): estaba registrada en
+# module_registry desde su alta, pero esta función seguía agregando "crm" a
+# mano y nunca "strategy". `_WORKSPACE_AUTHORIZATION` es la ÚNICA lista que
+# sigue siendo manual acá — de WORKSPACES (operations/commercial), un
+# concepto de Hub-vertical de alto nivel que crece rara vez, nunca de
+# módulos/áreas individuales, que sí crecen por feature.
+_WORKSPACE_AUTHORIZATION: dict[str, Callable[[dict | None], bool]] = {
+    "operations": operations_access.is_operations_authorized_user,
+    "commercial": commercial_access.is_commercial_authorized_user,
+}
+_WORKSPACE_SCOPE: dict[str, str] = {
+    "operations": SCOPE_OPERATIONS,
+    "commercial": SCOPE_COMMERCIAL,
+}
+# Áreas que un workspace habilita ADEMÁS de las que module_registry ya
+# expone como módulos propios registrados — hoy solo Reporting: un dashboard
+# multi-tab de Operations sin entrada individual en module_registry (ver su
+# docstring — Phase 1, foundation only, no migra ningún consumidor
+# existente). Excepción preexistente y ortogonal a Comercial/Estrategia —
+# preserva el comportamiento HISTÓRICO exacto para Reporting sin inventar
+# una entrada de module_registry solo para satisfacer este gate.
+_WORKSPACE_EXTRA_AREAS: dict[str, frozenset[str]] = {
+    "operations": frozenset({AREA_REPORTING}),
+}
+
+
 def metrics_visibility_for(user: dict | None) -> tuple[frozenset[str], frozenset[str]]:
     """(allowed_scopes, allowed_areas): el universo de datos que `user` puede
     ver DENTRO de Usage Metrics. Devuelto a `activity_analytics.build_summary`
     (vía webapp/main.py) para recortar la población de eventos ANTES de
     cualquier agregación — ver ese módulo para el punto de aplicación único.
     Nunca decide SI el usuario puede entrar a Metrics (eso es
-    `can_access_hub_metrics`, chequeado por separado en cada caller)."""
+    `can_access_hub_metrics`, chequeado por separado en cada caller).
+
+    La autorización NUNCA se amplía respecto del contrato anterior: cada
+    área que un módulo aporta solo se agrega si el MISMO predicado que ya
+    gobierna el acceso real a ese workspace (`is_commercial_authorized_user`/
+    `is_operations_authorized_user`) es verdadero para `user` — idéntico
+    criterio que antes, solo que ahora cubre TODOS los módulos de ese
+    workspace en `module_registry`, no una lista de áreas copiada a mano."""
     allowed_scopes = {SCOPE_PLATFORM, SCOPE_COPILOT, SCOPE_UNKNOWN}
     allowed_areas = {AREA_AUTH, AREA_METHODOLOGY, AREA_ASSISTANT, AREA_ACADEMY, AREA_CATALOG, AREA_UNKNOWN}
-    if operations_access.is_operations_authorized_user(user):
-        allowed_scopes.add(SCOPE_OPERATIONS)
-        allowed_areas.update({AREA_REPORTING, AREA_STAFFING})
-    if commercial_access.is_commercial_authorized_user(user):
-        allowed_scopes.add(SCOPE_COMMERCIAL)
-        allowed_areas.add(AREA_CRM)
+    for workspace, is_authorized in _WORKSPACE_AUTHORIZATION.items():
+        if not is_authorized(user):
+            continue
+        allowed_scopes.add(_WORKSPACE_SCOPE[workspace])
+        allowed_areas.update(d.area for d in module_registry.all_entries() if d.workspace == workspace)
+        allowed_areas.update(_WORKSPACE_EXTRA_AREAS.get(workspace, frozenset()))
     return frozenset(allowed_scopes), frozenset(allowed_areas)

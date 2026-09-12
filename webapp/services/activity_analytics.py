@@ -27,24 +27,39 @@ from webapp.services.activity_context import (
     area_label, context_of, scope_label, module_label,
     normalize_event, event_class as _classify_event,
     EVENT_CLASS_USAGE, EVENT_MODULE_VIEWED, EVENT_LABELS,
-    AREA_CRM, AREA_REPORTING, AREA_STAFFING,
+    AREA_REPORTING,
     SCOPE_COMMERCIAL, SCOPE_OPERATIONS,
 )
 
 # VERTICAL DATA VISIBILITY (owner ticket "HUB METRICS — ENFORCE VERTICAL DATA
-# VISIBILITY" §2): mapa EXPLÍCITO scope/area -> vertical dueño, auditado
-# contra la taxonomía real de activity_context.py (nunca inventado/renombrado
-# acá). Un scope/area que NO aparece en estos dos sets (platform/auth,
-# Copiloto entero, unknown) es COMPARTIDO — visible para cualquier usuario
-# autorizado a Metrics sin exigir una allowlist de vertical adicional (owner
-# §9). `build_summary` recibe el universo YA RESUELTO (`allowed_scopes`/
-# `allowed_areas`) desde el caller (webapp.hub_metrics_access.
-# metrics_visibility_for) — este módulo nunca importa auth_service/
-# operations_access/commercial_access directamente (mantiene la dirección de
-# dependencia services -> nada-de-policy, MISMO criterio que el resto de este
-# archivo, que tampoco conoce FastAPI/Request).
+# VISIBILITY" §2, generalizada por "HUB METRICS — GENERIC MODULE DISCOVERY +
+# STRATEGY CORRECTNESS"): un scope/area que NO es de un vertical gateado
+# (platform/auth, TODO Copiloto, unknown) es COMPARTIDO — visible para
+# cualquier usuario autorizado a Metrics sin exigir una allowlist de
+# vertical adicional (owner §9). `build_summary` recibe el universo YA
+# RESUELTO (`allowed_scopes`/`allowed_areas`) desde el caller
+# (webapp.hub_metrics_access.metrics_visibility_for) — este módulo nunca
+# importa auth_service/operations_access/commercial_access directamente
+# (mantiene la dirección de dependencia services -> nada-de-policy, MISMO
+# criterio que el resto de este archivo, que tampoco conoce FastAPI/Request).
+#
+# `_VERTICAL_SCOPES` es workspace-level (operations/commercial) — crece rara
+# vez, nunca por módulo nuevo, así que sigue siendo un set chico explícito.
+# `_vertical_areas()` (abajo) YA NO es un set estático de áreas copiadas a
+# mano: se deriva de `module_registry` (identidad, no policy — mismo import
+# que ya usa el resto de este archivo para `module_label`) para que un
+# módulo nuevo en un workspace vertical YA conocido (p. ej. Estrategia,
+# `commercial`) entre automáticamente sin tocar este archivo. AREA_REPORTING
+# es la única excepción preexistente (dashboard de Operations sin entrada
+# propia en module_registry hoy — ver hub_metrics_access.
+# _WORKSPACE_EXTRA_AREAS, MISMA razón, MISMO criterio en los dos lugares).
 _VERTICAL_SCOPES = {SCOPE_OPERATIONS, SCOPE_COMMERCIAL}
-_VERTICAL_AREAS = {AREA_REPORTING, AREA_STAFFING, AREA_CRM}
+_VERTICAL_WORKSPACES = {"operations", "commercial"}
+
+
+def _vertical_areas() -> frozenset[str]:
+    from_registry = {d.area for d in module_registry.all_entries() if d.workspace in _VERTICAL_WORKSPACES}
+    return frozenset(from_registry | {AREA_REPORTING})
 
 # Misma convención de nombre/rango que admin_tools._file_date /
 # runtime_purge: activity_YYYYMMDD.jsonl, bounds YYYYMMDD, vacío = sin límite.
@@ -221,6 +236,17 @@ def _read_feedback(date_from: str, date_to: str) -> dict[str, dict]:
 # (área, usuario, día) — MISMO nivel de precisión que el resto de este
 # archivo permite sin un id compartido real entre las dos escrituras (a
 # diferencia de assistant_response, que sí tiene `reply_id`).
+#
+# FALLBACK únicamente (Strategy Correctness fix, ver HANDOFF): `type` solo
+# distinguía la FAMILIA de feedback, no el módulo concreto — dos productores
+# distintos que comparten `type="section_content"` (Copiloto Y Estrategia
+# Comercial, ver feedback.py/commercial_strategy.py) colapsaban SIEMPRE en
+# "methodology", aunque el registro ya trajera su propio `module` (CP01,
+# CM02...) capaz de resolver el área real vía `module_registry`. Ver
+# `_reaction_area_for_record` más abajo, que intenta esa resolución PRIMERO
+# y cae acá solo si el registro no trae un `module` resoluble (legacy, o un
+# `type` sin dimensión de módulo propia — reporting_report/
+# operations_dashboard/commercial_capability, que nunca la tuvieron).
 _REACTION_FEEDBACK_TYPE_TO_AREA = {
     "reporting_report": "reporting",
     "operations_dashboard": "staffing",
@@ -244,6 +270,24 @@ _REACTION_FEEDBACK_TYPE_TO_AREA = {
     "academy_content": "academy",
     "assistant_response": "assistant",
 }
+
+
+def _reaction_area_for_record(data: dict) -> str | None:
+    """Área canónica para un registro de FEEDBACK_LOG_DIR — resuelve por
+    IDENTIDAD DE MÓDULO primero (`module_registry`, la MISMA fuente que ya
+    labelea todo lo demás en este archivo, ver `module_label`), para que dos
+    productores que comparten el mismo `type` (Copiloto y Estrategia
+    Comercial, ambos `section_content`) no colapsen en la misma área. Cae al
+    mapa histórico `type` -> área (`_REACTION_FEEDBACK_TYPE_TO_AREA`) solo
+    si el registro no trae un `module` que `module_registry` reconozca —
+    legacy sin ese campo, o un `type` que nunca tuvo dimensión de módulo
+    (reporting_report/operations_dashboard/commercial_capability)."""
+    module_key = str(data.get("module") or "").strip()
+    if module_key:
+        resolved = module_registry.resolve(module_key)
+        if resolved:
+            return resolved.area
+    return _REACTION_FEEDBACK_TYPE_TO_AREA.get(str(data.get("type") or ""))
 
 
 def _reaction_subject(event_name: str, module: str, payload: dict) -> tuple[str, str] | None:
@@ -334,7 +378,7 @@ def _read_reaction_comments(date_from: str, date_to: str) -> dict[str, dict[str,
             continue
         if not isinstance(data, dict):
             continue
-        area = _REACTION_FEEDBACK_TYPE_TO_AREA.get(str(data.get("type") or ""))
+        area = _reaction_area_for_record(data)
         if not area:
             continue
         comment = str(data.get("comment") or "").strip()
@@ -770,9 +814,9 @@ def build_summary(
     # exponer datos ("Do not hide them entirely"). NUNCA derivado de si hay
     # eventos presentes ese rango de fecha (eso filtraría según exista o no
     # actividad de esa vertical HOY, un leak temporal sutil) -- siempre el
-    # mapa ESTÁTICO `_VERTICAL_SCOPES`/`_VERTICAL_AREAS` menos lo autorizado.
+    # mapa ESTÁTICO `_VERTICAL_SCOPES`/`_vertical_areas()` menos lo autorizado.
     restricted_scopes = (_VERTICAL_SCOPES - allowed_scopes) if allowed_scopes is not None else set()
-    restricted_areas = (_VERTICAL_AREAS - allowed_areas) if allowed_areas is not None else set()
+    restricted_areas = (_vertical_areas() - allowed_areas) if allowed_areas is not None else set()
     scope_facets = [
         {"key": k, "label": scope_label(k), "checked": k in sel_scopes}
         for k in sorted(present_scopes - restricted_scopes)

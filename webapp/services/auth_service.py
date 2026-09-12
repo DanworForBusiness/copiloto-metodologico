@@ -23,6 +23,7 @@ from config import (
     AZURE_CLIENT_ID,
     AZURE_TENANT_ID,
     COMMERCIAL_ALLOWED_USERS,
+    CONTENT_OWNER,
     HUB_METRICS_ALLOWED_USERS,
     OPERATIONS_ALLOWED_USERS,
     SESSION_MAX_AGE,
@@ -147,6 +148,32 @@ def is_commercial_user(email: str) -> bool:
     if not email:
         return False
     return email in _commercial_set()
+
+
+def _content_owner_set() -> set[str]:
+    """Allowlist EXPLÍCITA de editores de contenido de Estrategia Comercial —
+    MISMO contrato que `_commercial_set()`/`_operations_set()` (ver esos
+    docstrings): SIEMPRE devuelve un `set[str]` concreto, nunca `None`, y el
+    literal "ALL" queda rechazado — nadie puede editar por accidente de reuso
+    del parser compartido ni configurando `CONTENT_OWNER=ALL`."""
+    result = _csv_users(CONTENT_OWNER, empty_is_all=False)
+    return result if result is not None else set()
+
+
+def is_content_owner_user(email: str) -> bool:
+    """True si `email` (o su alias compacto `usuario@` + `AUTH_DEFAULT_DOMAIN`)
+    está EXPLÍCITAMENTE en `CONTENT_OWNER`. Deliberadamente ORTOGONAL a
+    `is_commercial_user`/`user_tier`/`is_authorized` — MISMO criterio que
+    `is_operations_user`/`is_commercial_user` (ver esos docstrings): un
+    caller debe seguir exigiendo `is_commercial_user`/`is_authorized` por
+    separado (ver `webapp.commercial_access.can_edit_strategy_user`). Nunca
+    "todos" — ver `_content_owner_set()`. Sin bypass de `APP_OWNER`: ese
+    predicado (`webapp/access.py`, diagnóstico del Copiloto) nunca se
+    referencia acá."""
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    return email in _content_owner_set()
 
 
 def _hub_metrics_set() -> set[str]:

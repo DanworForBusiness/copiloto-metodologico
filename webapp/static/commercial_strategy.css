@@ -1,0 +1,418 @@
+/* commercial_strategy.css — Estrategia Comercial (Commercial Strategy).
+
+   Reuso deliberado: la página vive dentro de `.module-content`/`.methodology`/
+   `.content-section`/`.callout`/`.status-badge` (mismos primitivos que un
+   módulo del Copiloto — ver webapp/templates/module.html). Este archivo SOLO
+   cubre lo que no tiene equivalente Hub ya existente: KPIs grandes con
+   detalle (los objcard del artefacto), el embudo, el árbol de contactos SAP,
+   la línea de tiempo del proceso, la barra de tabs de segmentos (más ancha
+   que `.tool-tabs`, pensada para el panel lateral angosto) y el badge de
+   prioridad (concepto distinto a `.status-badge`, que es de frescura de
+   dato, no de ranking).
+
+   ── SUPERFICIES Y TEMA (visual homologation correction) ────────────────
+   `var(--card)` es GLOBAL y FIJO-OSCURO (`:root{--card:#181819}`, app.css) —
+   nunca cambia con el tema. Adentro de `.module-content` (donde vive TODO
+   el contenido de un módulo/Estrategia) NINGÚN primitivo Hub existente lo
+   redefine para tema claro — la ÚNICA redefinición real en todo el Hub es
+   `.content-theme-light .copilot-panel{--card:#fff;--ink:#202124;
+   --soft:#62666d;--dim:#858a92;--line:rgba(32,33,36,.14)}` (tools.css), y
+   vive en el panel LATERAL, un scope distinto de `.module-content`.
+   Estrategia REUSA esa MISMA técnica (los MISMOS valores, no inventados) en
+   vez de parchear color por componente: `.cs-doc` (la clase que
+   `strategy.html` agrega a `<main class="module-content">`, exclusiva de
+   esta página) redefine ESOS MISMOS tokens para tema claro — así CUALQUIER
+   `cs-*` que ya usaba `var(--card)`/`var(--ink)`/`var(--soft)`/`var(--line)`
+   se vuelve correcto automáticamente, sin tocar cada regla una por una (y de
+   paso corrige `.callout`/`.status-badge` cuando aparecen dentro de
+   Estrategia, que también usan esos mismos tokens).
+
+   Tema oscuro: el `--card` GLOBAL (#181819) queda demasiado cerca de
+   `--bg` (#0c0c0d, body) — la separación de superficie que el owner pidió
+   ("una tile debe leerse como tile antes que por su borde") no existe con
+   esos dos valores. `.cs-doc` en oscuro sube `--card` a un gris
+   deliberadamente más claro (elegido a mano, NO copiado del artefacto
+   standalone) que sí separa visualmente la tile de la página. */
+.content-theme-light .cs-doc {
+  --card: #ffffff;
+  --ink: #202124;
+  --soft: #62666d;
+  --dim: #858a92;
+  --line: rgba(32,33,36,.14);
+}
+.content-theme-dark .cs-doc {
+  --card: #1e1e22;
+}
+/* .section-feedback es el primitivo TRANSVERSAL de Copilot (tools.css),
+   reusado tal cual por Estrategia — ver partials/section_feedback.html.
+   Copilot lo consume FUERA de `.cs-doc`, donde `--line` nunca se
+   redefine (queda en el valor global casi invisible). Sin este reset,
+   el `--line` más oscuro que `.cs-doc` sube para las tiles/cards de
+   Estrategia se filtraba también a los botones 👍/👎, dándoles un
+   borde visible que Copilot no tiene. Se restaura acá el valor GLOBAL
+   (no uno inventado) para que la botonera se comporte idéntico en
+   ambos contextos. */
+.content-theme-light .cs-doc .section-feedback {
+  --line: rgba(226,232,245,.09);
+}
+
+.cs-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 18px 0; }
+.cs-kpi { padding: 18px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.cs-kpi__label { display: block; color: var(--soft); font: 600 .7rem var(--sans); text-transform: uppercase; letter-spacing: .06em; }
+.cs-kpi__value { display: block; margin-top: 6px; color: var(--gold); font: 800 1.7rem var(--sans); line-height: 1.1; }
+.cs-kpi__detail { display: block; margin-top: 10px; color: var(--soft); font-size: .82rem; line-height: 1.55; }
+
+.cs-bignums { display: flex; flex-wrap: wrap; gap: 40px; margin: 22px 0 6px; }
+.cs-bignum__value { display: block; color: var(--gold); font: 800 2rem var(--sans); line-height: 1.05; }
+.cs-bignum__label { display: block; margin-top: 6px; max-width: 220px; color: var(--soft); font-size: .8rem; line-height: 1.4; }
+
+/* Embudo — sin equivalente Hub. Ancho decreciente por nivel Y tono
+   graduado hacia el dorado (l1 neutro → l4 dorado sólido), MISMO criterio
+   visual que el artefacto fuente (panel neutro → tinte tenue → tinte
+   marcado → dorado sólido) — acá con `color-mix()` sobre los tokens de
+   tema (MISMO
+   primitivo que ya usa `.callout` en tools.css:
+   `color-mix(in srgb, var(--callout-accent) 9%, var(--card))`), así el
+   degradé se recalcula solo en cada tema en vez de hexs fijos copiados
+   del standalone. */
+.cs-funnel { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 20px 0 10px; }
+.cs-frow { display: flex; flex-direction: column; align-items: center; text-align: center; width: 100%; padding: 16px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.cs-frow[data-level="2"] { width: 82%; background: color-mix(in srgb, var(--gold) 7%, var(--card)); border-color: color-mix(in srgb, var(--gold) 25%, var(--line)); }
+.cs-frow[data-level="3"] { width: 62%; background: color-mix(in srgb, var(--gold) 18%, var(--card)); border-color: color-mix(in srgb, var(--gold) 45%, var(--line)); }
+.cs-frow[data-level="4"] { width: 46%; background: var(--gold); border-color: var(--gold); }
+.cs-frow[data-level="4"] .cs-frow__label, .cs-frow[data-level="4"] .cs-frow__sub { color: #3a2f05; }
+.cs-frow[data-level="4"] .cs-frow__value { color: #17140a; }
+.cs-frow__label { color: var(--soft); font: 600 .68rem var(--sans); text-transform: uppercase; letter-spacing: .06em; }
+.cs-frow__value { margin-top: 4px; color: var(--ink); font: 800 1.3rem var(--sans); }
+.cs-frow__sub { margin-top: 4px; color: var(--soft); font-size: .76rem; }
+.cs-farrow { color: var(--gold); opacity: .6; font-size: .8rem; line-height: 1; }
+
+/* Barra de tabs de segmentos/sub-tabs — MISMO lenguaje que .tool-tabs
+   (is-active, tokens) pero dimensionada para contenido principal, no el
+   panel lateral angosto. */
+.cs-segtabs, .cs-subtabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
+.cs-subtabs { margin-top: 14px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+.cs-segtabs button, .cs-subtabs button {
+  padding: 9px 16px; border: 1px solid var(--line); border-radius: 20px; background: var(--card);
+  color: var(--soft); font: 600 .82rem var(--sans); cursor: pointer; transition: border-color .15s, color .15s;
+}
+.cs-subtabs button { border-radius: 6px; padding: 7px 13px; font-size: .78rem; }
+.cs-segtabs button:hover, .cs-subtabs button:hover { border-color: var(--gold); color: var(--ink); }
+.cs-segtabs button.is-active, .cs-subtabs button.is-active { background: var(--gold); color: #17140a; border-color: var(--gold); }
+
+.cs-seg-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 10px; }
+.cs-seg-header h3 { margin: 0; font-size: 1.3rem; }
+.cs-priority {
+  display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 4px;
+  font: 700 .66rem var(--sans); text-transform: uppercase; letter-spacing: .04em;
+  background: rgba(231,176,8,.14); color: var(--gold); border: 1px solid rgba(231,176,8,.35);
+}
+.cs-priority--p2 { background: rgba(139,139,150,.14); color: var(--soft); border-color: var(--line); }
+.cs-priority--new { background: rgba(34,168,90,.14); color: #22a85a; border-color: rgba(34,168,90,.35); }
+
+.cs-block-label { margin: 22px 0 8px; color: var(--soft); font: 700 .7rem var(--sans); text-transform: uppercase; letter-spacing: .08em; }
+
+/* Árbol de contactos SAP / LoB — sin equivalente Hub. */
+.cs-tree { display: flex; flex-direction: column; gap: 10px; }
+.cs-tnode { padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.cs-tnode--root { border-color: var(--gold); background: rgba(231,176,8,.08); }
+.cs-tnode--highlight { border-color: rgba(231,176,8,.5); }
+.cs-tnode__name { font-weight: 700; color: var(--ink); font-size: .92rem; }
+/* `--root` NO tiene el fondo sólido fijo-oscuro de `.cs-tnode` — es un tinte
+   translúcido SOBRE el fondo de la página, que sí cambia con el tema. Forzar
+   `var(--ink)` (claro fijo) ahí se volvía ilegible en tema claro (texto casi
+   blanco sobre un tinte dorado casi blanco) — se hereda el color ambiente
+   correcto de `.module-content` en cualquier tema en vez de fijarlo acá. */
+.cs-tnode--root .cs-tnode__name { color: inherit; }
+.cs-tnode__role { margin-top: 2px; color: var(--gold); font-size: .76rem; }
+.cs-tnode__desc { margin-top: 3px; color: var(--soft); font-size: .78rem; line-height: 1.4; }
+.cs-tnode__sellers { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--soft); font-size: .74rem; line-height: 1.4; }
+.cs-tbranch { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 0 18px; padding-left: 16px; border-left: 1px solid rgba(231,176,8,.4); }
+.cs-tsub { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 0 14px; padding-left: 14px; border-left: 1px solid var(--line); }
+
+/* Línea de tiempo del proceso comercial — sin equivalente Hub. */
+.cs-timeline { display: flex; flex-direction: column; margin-top: 10px; }
+.cs-stage { display: flex; gap: 18px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.cs-stage:last-child { border-bottom: none; }
+.cs-stage__num { flex-shrink: 0; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--gold); border-radius: 8px; color: var(--gold); font-weight: 800; }
+.cs-stage__name { font-weight: 700; }
+.cs-stage__meta { margin-top: 2px; color: var(--soft); font-size: .78rem; }
+.cs-stage__gate { margin-top: 6px; color: var(--soft); font-size: .84rem; line-height: 1.5; }
+
+/* Reglas de oro / preguntas de foco / prioridad de capacidad — numeración
+   simple reusable. El artefacto original renderiza esto como UN bloque
+   con borde único y líneas divisorias finas entre filas (nunca una tile
+   con borde propio por fila) — owner feedback: la versión anterior
+   (cada fila con su propio `border-radius`+gap) se leía como una grilla
+   de tiles en vez de una lista, perdiendo la fidelidad con el original. */
+.cs-numlist { display: flex; flex-direction: column; margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--card); }
+.cs-numitem { display: flex; gap: 16px; align-items: flex-start; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.cs-numitem:last-child { border-bottom: none; }
+.cs-numitem__num { flex-shrink: 0; color: var(--gold); font: 800 1.1rem var(--sans); min-width: 1.6em; }
+.cs-numitem__title { font-weight: 700; font-size: .92rem; color: var(--ink); }
+.cs-numitem__detail { margin-top: 3px; color: var(--soft); font-size: .84rem; line-height: 1.5; }
+
+/* Roles (Pilar Roles y responsabilidades) — tarjeta compacta. */
+.cs-role-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; margin-top: 10px; }
+.cs-role { padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.cs-role h4 { margin: 0 0 2px; font-size: 1rem; color: var(--ink); }
+.cs-role__who { color: var(--gold); font-size: .76rem; font-weight: 600; margin-bottom: 10px; }
+.cs-role__mision { color: var(--soft); font-size: .84rem; font-style: italic; line-height: 1.5; padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.cs-role__label { color: var(--soft); font: 700 .68rem var(--sans); text-transform: uppercase; letter-spacing: .06em; margin: 10px 0 6px; }
+.cs-role ul { margin: 0; padding-left: 18px; }
+.cs-role .cs-role__no ul { color: #d65b5b; opacity: .9; }
+
+/* Calendario de eventos (Pilar 2). */
+.cs-evgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-top: 10px; }
+.cs-evcol { padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.cs-evmonth { color: var(--gold); font: 800 .78rem var(--sans); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.cs-evitem { margin-bottom: 10px; }
+.cs-evitem:last-child { margin-bottom: 0; }
+.cs-evitem__name { font-weight: 700; font-size: .86rem; color: var(--ink); }
+.cs-evitem__name--date { color: var(--gold); }
+.cs-evitem--muted .cs-evitem__name { color: var(--soft); font-weight: 600; }
+.cs-evitem__sub { margin-top: 2px; color: var(--soft); font-size: .76rem; line-height: 1.4; }
+
+/* Clusters de oferta / canales (Pilar 2). */
+.cs-cluster-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; margin-top: 10px; }
+.cs-cluster { padding: 18px; border: 1px solid var(--line); border-top: 2px solid var(--gold); border-radius: 10px; background: var(--card); }
+.cs-cluster__tag { color: var(--gold); font: 700 .68rem var(--sans); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 10px; }
+.cs-cluster h4 { margin: 0 0 2px; font-size: .98rem; color: var(--ink); }
+.cs-cluster ul { margin: 8px 0 0; padding-left: 18px; font-size: .82rem; color: var(--soft); }
+.cs-cluster__msg { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); font-size: .82rem; font-style: italic; color: var(--soft); }
+.cs-chan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 10px; }
+.cs-chan { padding: 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.cs-chan__title { font-weight: 700; margin-bottom: 8px; color: var(--ink); }
+
+/* Cadencia de revisión (Pilar 6) — MISMA tarjeta que clusters/channels
+   (antes eran párrafos sueltos: el owner señaló que perdían legibilidad
+   frente a los grupos de bullets en recuadro del artefacto original). */
+.cs-meet-grid { display: flex; flex-direction: column; gap: 16px; margin-top: 10px; }
+.cs-meet-card { padding: 20px 22px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.cs-meet-card__freq { color: var(--gold); font: 800 .74rem var(--sans); text-transform: uppercase; letter-spacing: .07em; }
+.cs-meet-card h4 { margin: 6px 0 4px; font-size: 1.08rem; color: var(--ink); }
+.cs-meet-card__parts { margin: 0 0 12px; color: var(--soft); font-size: .8rem; }
+.cs-meet-card ul { margin: 0; padding-left: 18px; font-size: .86rem; color: var(--soft); line-height: 1.6; }
+
+/* Botón "Editar" + panel de edición — ver strategy.html/commercial_strategy.py
+   para el contrato completo (autorización real es server-side). Inputs
+   propios (no default del browser): mismos tokens `--card`/--line`/`--ink`
+   ya escalados por tema vía `.cs-doc` (ver arriba) — nunca un tema
+   separado para el modo edición. */
+.cs-edit-shell { margin: 22px 0 14px; }
+/* Toolbar compacta — el botón genérico `.btn-secondary`/`.btn-primary`
+   trae `min-height:42px` (pensado para el wizard de Copiloto, ver
+   app.css), demasiado alto para un toggle chico flotando sobre el hero:
+   sin este override pisaba el eyebrow de abajo. Mismo look (mismo
+   `--line`/`--card`/`--gold`), solo más angosto en altura/padding. */
+.cs-edit-toolbar { display: flex; align-items: center; gap: 12px; }
+.cs-edit-toolbar .btn-secondary, .cs-edit-toolbar .btn-primary {
+  min-height: 30px; padding: 5px 12px; font-size: .74rem;
+}
+
+/* Edición INLINE (gate "PIVOT EDIT UX TO INLINE STRUCTURED EDITING") —
+   leaves `contenteditable` (`.cs-inline`) y controles compactos
+   (`.cs-inline-input`) que ocupan el MISMO lugar visual que su
+   contraparte VIEW, con un estado de foco/edición sutil (item 10 del
+   gate: "editing affordances should be subtle") en vez de chrome de
+   formulario pesado. */
+.cs-inline {
+  outline: 1px dashed var(--line); outline-offset: 3px; border-radius: 4px;
+  cursor: text; transition: outline-color .15s ease;
+}
+.cs-inline:hover, .cs-inline:focus { outline-color: var(--gold); outline-style: solid; }
+.cs-inline:empty:before { content: attr(data-placeholder); color: var(--dim); }
+/* Bug REAL encontrado con un barrido sistemático de los 76 leaves
+   contenteditable de la página (no solo los primeros que se probaron a
+   mano): CUALQUIER clase VIEW con `text-transform` (`.eyebrow` en
+   app.css, `.cs-frow__label` acá mismo más abajo, y cualquier otra que
+   se agregue a futuro) rompe `inline_text` de la MISMA forma — un
+   contenteditable captura vía `innerText` el texto YA transformado por
+   CSS (`innerText` es CSS-aware), así que sin este reset cualquier
+   edición mayusculizaría/etc el valor guardado permanentemente, sin
+   importar lo que haya tipeado el usuario. Reset GENÉRICO (no una regla
+   por clase, que se olvidaría de la próxima) con `!important` porque
+   `.cs-inline` se define ACÁ ARRIBA en el archivo — sin especificidad
+   extra, una clase VIEW definida más abajo (MISMO archivo, MISMA
+   especificidad de una sola clase) ganaría la cascada por orden de
+   aparición. Afecta SOLO la variante EDIT — la VIEW sigue
+   transformándose visualmente como siempre. */
+.cs-inline { text-transform: none !important; }
+.cs-inline-h1 { margin: 12px 0 22px; font-size: clamp(2.4rem,5vw,4.5rem); line-height: .98; letter-spacing: -.055em; }
+.cs-inline-h1 .cs-inline-title-accent { color: var(--gold); }
+
+/* `font: inherit` (valor original) hacía que el mismo control se viera
+   grande dentro de una tile de KPI y chico dentro de una celda de tabla —
+   inconsistente entre colecciones (owner feedback). Tamaño FIJO y único
+   para todo `.cs-inline-input`, sin importar el contexto — MISMO valor
+   que ya usaba el mega-form original (`.cs-edit-field input`, retirado
+   en el pivot a edición inline) para sus inputs, no uno inventado. */
+.cs-inline-input {
+  display: block; width: 100%; box-sizing: border-box;
+  padding: 6px 9px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg2, var(--card)); color: var(--ink); font: 500 .86rem var(--sans);
+}
+.content-theme-light .cs-doc .cs-inline-input { background: #f4f4f5; }
+.cs-inline-input:focus { outline: 2px solid var(--gold); outline-offset: 1px; border-color: var(--gold); }
+textarea.cs-inline-input { resize: vertical; }
+
+/* Controles compactos de colección (agregar/eliminar/reordenar) — MISMO
+   primitivo visual que `.cs-edit-task-handle`/`.cs-edit-remove` ya
+   aprobados (ver abajo), reusado para KPIs/supuestos/nodos del mapa/
+   tareas/notas — nunca un estilo nuevo por tipo de colección. */
+.cs-annex-node-actions { display: flex; align-items: center; gap: 4px; margin: 6px 0; }
+.cs-annex-node-actions button {
+  border: 1px solid var(--line); background: var(--card); color: var(--soft);
+  border-radius: 4px; cursor: pointer; font-size: .7rem; line-height: 1.4; padding: 3px 6px;
+}
+.cs-annex-node-actions button:disabled { opacity: .3; cursor: default; }
+.cs-annex-add { margin-top: 8px; }
+.cs-annex-edit-node { position: relative; }
+.cs-annex-edit-node .cs-annex-node-actions { position: absolute; top: 10px; right: 10px; margin: 0; }
+.cs-kpi-grid .cs-inline-input { margin-bottom: 6px; }
+.cs-kpi-grid textarea.cs-inline-input { min-height: 44px; }
+
+.cs-list-edit .cs-edit-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+
+/* Mapa de contactos — el árbol EDIT reusa `.cs-tnode`/`.cs-tbranch`/
+   `.cs-tsub` (VIEW) como contenedor visual; solo las 4 inputs/textarea
+   internas son nuevas. */
+.cs-annex-child { position: relative; }
+
+.cs-table-edit input, .cs-table-edit select { width: 100%; }
+.cs-table-edit td { vertical-align: middle; }
+
+.cs-annex-notes-edit .callout { position: relative; padding-right: 40px; }
+.cs-annex-notes-edit .callout .cs-annex-node-actions { position: absolute; top: 14px; right: 14px; margin: 0; }
+.cs-annex-notes-edit input.cs-inline-input { font-weight: 700; }
+
+/* "COMPLETE VISIBLE BUSINESS VALUE EDITABILITY" gate — colección genérica
+   de tarjetas objeto (`object_list_edit`/`calendar_edit`: clusters, roles,
+   stages, golden rules, meetings, calendario) — MISMA tarjeta `.cs-tnode`/
+   `.cs-kpi` que ya usan annex tree/KPIs, reusada acá también en vez de
+   inventar un layout de tarjeta nuevo. */
+.cs-object-card { padding: 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); margin-bottom: 12px; }
+.cs-object-sublist { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.cs-object-sublist__label { display: block; margin-bottom: 6px; color: var(--soft); font: 700 .68rem var(--sans); text-transform: uppercase; letter-spacing: .06em; }
+.cs-calendar-item-edit { margin-top: 8px; padding: 10px 12px; }
+.cs-inline-checkbox { display: inline-flex; align-items: center; gap: 6px; margin-right: 14px; color: var(--soft); font-size: .8rem; }
+.cs-inline-checkbox input { margin: 0; }
+
+/* Encabezado de segmento en EDIT (título + badge de prioridad inline) y
+   editor de cuerpo de segmento/subtab (notas/acceso/estrategia/pendiente/
+   tabla extra) — MISMO `.cs-block-label` que el resto del documento ya usa
+   para separar bloques, ningún token nuevo. */
+.cs-seg-header-edit { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.cs-inline-h3 { font-size: 1.3rem; font-weight: 700; }
+.cs-segment-edit { margin-top: 12px; }
+.cs-edit-panel, #cs-edit-panel {
+  margin-top: 14px; padding: 20px 22px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--card);
+}
+.cs-edit-panel__header { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.cs-dirty-badge {
+  display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 4px;
+  background: rgba(214,91,91,.14); color: #d65b5b; border: 1px solid rgba(214,91,91,.35);
+  font: 700 .66rem var(--sans); text-transform: uppercase; letter-spacing: .04em;
+}
+.cs-edit-error {
+  margin: 0 0 14px; padding: 10px 14px; border-radius: 8px; background: rgba(214,91,91,.1);
+  border: 1px solid rgba(214,91,91,.35); color: var(--ink); font-size: .84rem;
+}
+.cs-edit-field { margin-bottom: 20px; }
+.cs-edit-field > label:first-child {
+  display: block; margin-bottom: 8px; color: var(--soft); font: 700 .7rem var(--sans);
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.cs-edit-field input[type="text"], .cs-edit-field textarea, .cs-edit-field select {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg2, var(--card)); color: var(--ink); font: 500 .86rem var(--sans);
+}
+.content-theme-light .cs-doc .cs-edit-field input[type="text"],
+.content-theme-light .cs-doc .cs-edit-field textarea,
+.content-theme-light .cs-doc .cs-edit-field select { background: #f4f4f5; }
+.cs-edit-field input[type="text"]:focus, .cs-edit-field textarea:focus, .cs-edit-field select:focus {
+  outline: 2px solid var(--gold); outline-offset: 1px; border-color: var(--gold);
+}
+.cs-edit-field textarea { resize: vertical; font-family: var(--sans); }
+.cs-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.cs-edit-row:has(button) { grid-template-columns: 1fr auto; align-items: center; }
+.cs-edit-kpi-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;
+  padding-bottom: 12px; border-bottom: 1px dashed var(--line);
+}
+.cs-edit-kpi-row textarea { grid-column: 1 / -1; }
+.cs-edit-task-row {
+  display: grid; grid-template-columns: 44px 2fr 1.4fr 1.2fr 110px 34px; gap: 8px;
+  align-items: center; margin-bottom: 8px;
+}
+.cs-edit-task-handle { display: flex; flex-direction: column; gap: 2px; }
+.cs-edit-task-handle button {
+  border: 1px solid var(--line); background: var(--card); color: var(--soft);
+  border-radius: 4px; cursor: pointer; font-size: .7rem; line-height: 1.4; padding: 0 4px;
+}
+.cs-edit-task-handle button:disabled { opacity: .3; cursor: default; }
+.cs-edit-remove {
+  border: 1px solid var(--line); background: transparent; color: var(--soft);
+  border-radius: 6px; cursor: pointer; font-size: .85rem; padding: 6px;
+}
+.cs-edit-remove:hover { color: #d65b5b; border-color: rgba(214,91,91,.4); background: rgba(214,91,91,.08); }
+@media (max-width: 760px) {
+  .cs-edit-task-row { grid-template-columns: 1fr; }
+  .cs-edit-row { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 760px) {
+  .cs-frow[data-level="2"], .cs-frow[data-level="3"], .cs-frow[data-level="4"] { width: 100%; }
+}
+
+/* Tema claro — MISMO valor/patrón que layout.css ya usa para
+   .module-hero/.section-index/.content-section (`border-color: #d9d9d3`):
+   `var(--line)` es un blanco casi-transparente pensado para resaltar sobre
+   fondo OSCURO — en los elementos de esta hoja que NO viven dentro de una
+   card de fondo fijo-oscuro (`.cs-tnode`/`.cs-kpi`/etc., que no lo necesitan:
+   su propio fondo oscuro fijo ya los separa de la página en cualquier tema),
+   sino directamente sobre el fondo de la página (que SÍ cambia con el tema),
+   ese borde se volvía invisible en tema claro. Mismo criterio que el resto
+   del Hub: no un token nuevo, el MISMO valor ya aprobado. */
+.content-theme-light .cs-stage,
+.content-theme-light .cs-subtabs,
+.content-theme-light .cs-tsub {
+  border-color: #d9d9d3;
+}
+
+/* Owner feedback: la ÚLTIMA sección del documento (hoy "Reglas de oro")
+   dejaba una línea horizontal de cierre + espacio en blanco después de la
+   botonera de feedback — `.content-section{border-bottom:1px solid
+   var(--line)}` es un primitivo COMPARTIDO de todo el Hub (ver app.css,
+   Copilot/Reporting/Staffing lo usan igual), así que el fix vive ACÁ
+   (scoped a Estrategia) en vez de tocar esa regla global — ningún otro
+   módulo cambia. `:last-of-type` alcanza porque todas las secciones de
+   `.methodology` comparten la MISMA clase `.content-section`. */
+.methodology .content-section:last-of-type { border-bottom: none; }
+
+/* Information Architecture / Storytelling Pass (ver HANDOFF): el índice
+   "En este módulo" (`.section-index`, app.css — primitivo COMPARTIDO del
+   Hub) agrupa sus 12 links en 3 familias semánticas (Pilares/Activación/
+   Anexos) en vez de una secuencia plana.
+
+   Owner feedback (2da vuelta): la primera versión cortaba el grid de 3
+   columnas con un caption full-width por familia — dejaba filas sueltas
+   a medio llenar (Activación usa 2 de 3 columnas, Anexos 1 de 3 en su
+   última fila), poco legible. Transponer: cada familia pasa a ser su
+   PROPIA columna (3 familias lado a lado), apilando sus ítems
+   verticalmente adentro — nunca una fila a medio llenar. `.cs-nav-grouped`
+   cambia el `.section-index` COMPARTIDO de `display:grid` (3 columnas de
+   ítems) a `display:block` (el layout real vive acá, en
+   `.cs-nav-families`) — scoped a esta variante, la regla del Hub sigue
+   intacta para cualquier otro módulo. Reusa la MISMA tipografía que ya
+   usa `.section-index p` ("En este módulo": mayúsculas, color apagado)
+   para el caption de cada familia — nunca una card nueva. */
+.section-index.cs-nav-grouped { display: block; }
+.section-index.cs-nav-grouped > p:first-child { margin: 0 0 18px; }
+.cs-nav-families { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px 24px; }
+.cs-nav-family { display: flex; flex-direction: column; gap: var(--idx-row-gap); min-width: 0; }
+.cs-nav-family .cs-nav-group { margin: 0 0 2px; }
+@media (max-width: 720px) {
+  .cs-nav-families { grid-template-columns: 1fr; gap: 18px; }
+}

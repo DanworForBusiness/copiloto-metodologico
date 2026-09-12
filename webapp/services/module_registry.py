@@ -144,6 +144,15 @@ _CM01_LEGACY_KEY = "crm"
 _CM01_VISIBLE_LABEL = "CRM"
 _CM01_DISPLAY_ORDER = 1
 
+# CM02 — Comercial/Estrategia (Commercial Strategy — Phase 1: read-only,
+# ver HANDOFF/storage gate). Segunda entrada de la colección de Comercial
+# (`display_order=2`, sigue a CM01) — MISMO criterio que CM01: literales
+# propios, sin Markdown backing.
+CM02_MODULE_ID = "CM02"
+_CM02_LEGACY_KEY = "estrategia"
+_CM02_VISIBLE_LABEL = "Estrategia"
+_CM02_DISPLAY_ORDER = 2
+
 
 def _build_entries() -> tuple[ModuleDescriptor, ...]:
     # `display_order` viene SIEMPRE del segundo elemento de la tupla
@@ -207,6 +216,15 @@ def _build_entries() -> tuple[ModuleDescriptor, ...]:
         kind="module", content_key=None,
         visible_label=_CM01_VISIBLE_LABEL,
         display_order=_CM01_DISPLAY_ORDER, legacy_aliases=(_CM01_LEGACY_KEY,),
+    ))
+    # Comercial/Estrategia — MISMO criterio que CM01, área "strategy" (ver
+    # activity_context.AREA_STRATEGY) en vez de "crm": es un documento de
+    # negocio distinto, no una vista más del dashboard Odoo.
+    entries.append(ModuleDescriptor(
+        module_id=CM02_MODULE_ID, workspace="commercial", area="strategy",
+        kind="module", content_key=None,
+        visible_label=_CM02_VISIBLE_LABEL,
+        display_order=_CM02_DISPLAY_ORDER, legacy_aliases=(_CM02_LEGACY_KEY,),
     ))
     return tuple(entries)
 
