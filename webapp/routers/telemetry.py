@@ -20,11 +20,27 @@ como Copiloto. El cliente puede mandar `module_id` (identidad ESTABLE de
 RESUELVE acá contra el registro canónico, nunca confía en un scope/area
 mandado directo por el cliente (ese campo ni siquiera existe en el payload
 aceptado, ver el filtro de `payload` más abajo, sin cambios respecto de
-antes). `module_id` vacío/desconocido/no reconocido cae al comportamiento
-HISTÓRICO exacto (Copiloto/Metodología, sin `module`) — ningún caller que
-no lo mande (o mande basura) nota una diferencia. Sin lista de módulos
-Estrategia/CRM/Academy acá: cualquier módulo que `module_registry` ya
-reconozca se resuelve solo.
+antes). Sin lista de módulos Estrategia/CRM/Academy acá: cualquier módulo
+que `module_registry` ya reconozca se resuelve solo.
+
+ATTRIBUTION HYGIENE (Hub Telemetry Invalid Module Context gate, ver
+HANDOFF): un `module_id` AUSENTE/vacío (caller legacy que todavía no lo
+manda) y un `module_id` PRESENTE pero que `module_registry` no reconoce
+(desconocido, spoofeado, de un módulo dado de baja) NO son el mismo caso —
+antes se colapsaban en el mismo fallback, lo que convertía un beacon
+moderno malformado en actividad de Copiloto legítima. Ahora: legacy (sin
+`module_id`) SÍ cae al fallback histórico exacto (Copiloto/Metodología, sin
+`module`); inválido (`module_id` presente pero no resuelve) NO se loguea en
+absoluto — el beacon se descarta silenciosamente (sigue respondiendo 204,
+sin UI de error), nunca contamina la métrica de otro módulo.
+
+TRUST BOUNDARY: `module_id` es metadata de atribución mandada por el
+cliente — el servidor la valida contra `module_registry` antes de usarla
+para nada; el cliente nunca controla `scope`/`area` directo (esos campos ni
+existen en el payload aceptado). Este endpoint es telemetría de producto,
+no una frontera de autorización: NO verifica si el usuario autenticado
+tiene acceso al workspace del módulo resuelto (misma falta de chequeo que
+tenía antes de este gate) -- solo exige sesión válida, igual que siempre.
 """
 from __future__ import annotations
 
@@ -57,16 +73,23 @@ _WORKSPACE_SCOPE = {
 }
 
 
-def _resolve_beacon_origin(module_id: str) -> tuple[str, str, str | None]:
-    """(scope, area, module) para un beacon — resuelve `module_id` (mandado
-    por el cliente, ver `window.DW_MODULE_ID`) contra `module_registry`,
-    NUNCA confiando en el string tal cual: una key vacía o que el registro
-    no reconoce (desconocida, spoofeada, o de un caller legacy que todavía
-    no manda `module_id`) cae al fallback histórico exacto — mismo scope/
-    area que este endpoint siempre usó, sin `module`."""
-    resolved = module_registry.resolve(module_id) if module_id else None
-    if resolved is None:
+def _resolve_beacon_origin(module_id: str) -> tuple[str, str, str | None] | None:
+    """(scope, area, module) para un beacon, o `None` si `module_id` vino
+    INVÁLIDO y el beacon debe descartarse sin loguear nada.
+
+    Tres casos, ver ATTRIBUTION HYGIENE arriba:
+    - `module_id` vacío (caller legacy, sin contexto) -> fallback histórico
+      exacto (Copiloto/Metodología, sin `module`).
+    - `module_id` presente y `module_registry` lo reconoce -> origen
+      resuelto del registro canónico.
+    - `module_id` presente pero NO reconocido (desconocido/spoofeado) ->
+      `None` — el caller NUNCA debe loguearlo como Copiloto ni como
+      cualquier otro origen inventado."""
+    if not module_id:
         return SCOPE_COPILOT, AREA_METHODOLOGY, None
+    resolved = module_registry.resolve(module_id)
+    if resolved is None:
+        return None
     return _WORKSPACE_SCOPE.get(resolved.workspace, SCOPE_COPILOT), resolved.area, resolved.module_id
 
 
@@ -92,9 +115,12 @@ async def telemetry_event(request: Request):
         # junto con event/module_id para que no colisionen con los keyword-only
         # de log_verbose). `module_id` SÍ es un campo aceptado, pero solo como
         # ENTRADA a `_resolve_beacon_origin` — el resultado resuelto es lo
-        # único que se persiste.
+        # único que se persiste. `None` (module_id inválido/no reconocido) ->
+        # el beacon se descarta sin loguear nada, ver ATTRIBUTION HYGIENE.
         module_id = str((data or {}).get("module_id") or "").strip()
-        scope, area, module = _resolve_beacon_origin(module_id)
-        payload = {k: v for k, v in data.items() if k not in ("event", "scope", "area", "module_id")}
-        log_verbose(event, user=user, scope=scope, area=area, module=module, **payload)
+        origin = _resolve_beacon_origin(module_id)
+        if origin is not None:
+            scope, area, module = origin
+            payload = {k: v for k, v in data.items() if k not in ("event", "scope", "area", "module_id")}
+            log_verbose(event, user=user, scope=scope, area=area, module=module, **payload)
     return Response(status_code=204)

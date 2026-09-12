@@ -50,9 +50,14 @@ def test_b_copilot_module_id_resolves_to_methodology_origin():
     assert (scope, area, module) == ("copilot", "methodology", "CP01")
 
 
-def test_c_unknown_module_id_cannot_set_arbitrary_area_scope():
-    scope, area, module = telemetry_router._resolve_beacon_origin("totally-fake-spoofed-id")
-    assert (scope, area, module) == ("copilot", "methodology", None)
+def test_c_unknown_module_id_is_invalid_not_copilot():
+    # Superseded by the Hub Telemetry Invalid Module Context gate: an
+    # unresolvable module_id used to collapse into the SAME fallback as a
+    # genuine legacy caller (Copilot/Methodology) -- that silently turned a
+    # malformed MODERN beacon into legitimate Copilot activity. Now it is
+    # `None` (invalid, caller must drop it), never Copilot.
+    origin = telemetry_router._resolve_beacon_origin("totally-fake-spoofed-id")
+    assert origin is None
 
 
 def test_d_empty_module_id_retains_safe_historical_behavior():
@@ -170,6 +175,48 @@ def test_f_legacy_beacon_without_module_id_still_attributes_to_copilot(monkeypat
     assert record["scope"] == "copilot"
     assert record["area"] == "methodology"
     assert "module" not in record
+
+
+# ============================================================================
+# E (Hub Telemetry Invalid Module Context gate) — HTTP end-to-end: un
+# module_id EXPLÍCITO pero no reconocido no debe generar NINGÚN registro de
+# actividad (ni Copiloto ni ningún otro), y la respuesta sigue siendo la
+# 204 normal (sin UI de error para telemetría).
+# ============================================================================
+
+def test_e_invalid_module_id_is_dropped_not_attributed_to_copilot(monkeypatch, tmp_path):
+    monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "VERBOSE", raising=False)
+    monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+
+    c = _owner_client(monkeypatch)
+    res = c.post(
+        "/telemetry/event",
+        json={"event": "nav_jump", "stem": "", "module_id": "totally-fake-spoofed-id", "href": "#p1"},
+    )
+    assert res.status_code == 204
+    assert not list(tmp_path.glob("activity_*.jsonl"))
+
+
+def test_e_invalid_module_id_does_not_leak_client_scope_area(monkeypatch, tmp_path):
+    # F: aun mandando scope/area/module directo en el body (campos NO
+    # aceptados, ver el filtro de `payload` en telemetry.py), un
+    # module_id inválido sigue sin generar registro -- el cliente no puede
+    # ni forzar un origen inventado ni forzar Copiloto por defecto.
+    monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "VERBOSE", raising=False)
+    monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+
+    c = _owner_client(monkeypatch)
+    res = c.post(
+        "/telemetry/event",
+        json={
+            "event": "nav_jump", "stem": "", "module_id": "totally-fake-spoofed-id",
+            "scope": "commercial", "area": "strategy", "module": "CM02",
+        },
+    )
+    assert res.status_code == 204
+    assert not list(tmp_path.glob("activity_*.jsonl"))
 
 
 # ============================================================================
