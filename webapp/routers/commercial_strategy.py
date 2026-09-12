@@ -177,6 +177,13 @@ def commercial_strategy_page(request: Request):
             "pack": DEFAULT_PACK,
             "user": user,
             "active_page": "estrategia",
+            # Hub Telemetry Origin Attribution gate (ver HANDOFF): MISMO
+            # `CM02_MODULE_ID` que ya se usa en el `log_activity` de arriba
+            # -- expuesto también al cliente (ver base.html
+            # window.DW_MODULE_ID) para que el beacon compartido de
+            # nav_jump (`.section-index a`, ver app.js) se atribuya a
+            # Estrategia en vez de caer en Copiloto/Metodología por default.
+            "dw_module_id": CM02_MODULE_ID,
             "strategy": strategy,
             "error_state": error_state,
             # `can_edit`: SOLO gobierna si el botón "Editar" se RENDERIZA —

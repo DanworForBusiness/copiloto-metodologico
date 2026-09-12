@@ -218,6 +218,14 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
                 for action in (*ALL_ACTIONS, *MODULE_ACTIONS)
             },
             "user": user,
+            # Hub Telemetry Origin Attribution gate (ver HANDOFF): MISMO
+            # `_persisted_module` que ya se calculó arriba para
+            # `log_activity("module_viewed", ...)` -- cero cómputo nuevo,
+            # solo lo exponemos también al cliente (ver base.html
+            # window.DW_MODULE_ID) para que el beacon compartido de
+            # nav_jump se atribuya a ESTE módulo en vez de caer siempre en
+            # Copiloto/Metodología por default.
+            "dw_module_id": _persisted_module,
             "current_workspace": workspaces.COPILOT,
             "available_workspaces": workspaces.available_workspaces(user),
             "conversation_id": conversation.id,

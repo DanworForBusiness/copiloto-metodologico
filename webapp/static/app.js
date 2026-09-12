@@ -282,7 +282,13 @@ function dwBeacon(event, payload = {}, once = false) {
   }
   try {
     const stem = (location.pathname.match(/\/modules\/([^/?#]+)/) || [])[1] || "";
-    const body = JSON.stringify({ event, stem, ...payload });
+    // Hub Telemetry Origin Attribution gate (ver HANDOFF): identidad
+    // ESTABLE del módulo actual (module_registry.module_id, ver
+    // base.html window.DW_MODULE_ID) -- el backend la resuelve vía
+    // module_registry, nunca confía en scope/area mandados por el
+    // cliente. Vacío para páginas que todavía no lo exponen (comportamiento
+    // histórico sin cambios, ver telemetry.py).
+    const body = JSON.stringify({ event, stem, module_id: window.DW_MODULE_ID || "", ...payload });
     if (navigator.sendBeacon) {
       navigator.sendBeacon("/telemetry/event", new Blob([body], { type: "application/json" }));
     } else {
