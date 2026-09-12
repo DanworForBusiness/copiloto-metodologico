@@ -574,9 +574,21 @@
 
     <article class="methodology">
 
+      {#- Los 12 eyebrows "[01]".."[12]" de acá abajo son LITERALES de
+          template, nunca `{{ strategy.X.eyebrow }}` — MISMA convención que
+          Copilot (`content_service.py`: `f'[{number:02d}]'`, código, no
+          dato) y MISMO orden que "En este módulo" arriba. Structural
+          Eyebrow Ownership Gate (ver HANDOFF): un valor de navegación
+          estructural del Hub no puede depender de contenido persistido —
+          si dependiera de `strategy.X.eyebrow`, un documento runtime ya
+          existente (creado antes de este fix) seguiría mostrando el valor
+          viejo para siempre, exactamente el bug que motivó este gate. La
+          clave `eyebrow` puede seguir viviendo en el YAML/runtime como
+          dato histórico sin uso — el renderer ya no la lee para nada. #}
+
       {# ── Pilar 1 · Objetivos ──────────────────────────────────────── #}
       <section id="p1" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.objectives.eyebrow }}</span><h2>{{ strategy.objectives.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[01]</span><h2>{{ strategy.objectives.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.objectives.intro) }}</p>
         {{ inline_text('objectives.intro', tag='p', placeholder='Introducción', multiline=True) }}
 
@@ -629,7 +641,7 @@
 
       {# ── Pilar 2 · Generación de demanda ─────────────────────────── #}
       <section id="genda" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.demand_generation.eyebrow }}</span><h2>{{ strategy.demand_generation.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[02]</span><h2>{{ strategy.demand_generation.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.demand_generation.intro) }}</p>
         {{ inline_text('demand_generation.intro', tag='p', placeholder='Introducción', multiline=True) }}
 
@@ -714,7 +726,7 @@
       {# ── Pilar 3 · Dónde jugamos (segmentos, con tabs) ───────────── #}
       <section id="p2" class="content-section"
                x-data="{ seg: '{{ strategy.segments['items'][0].id }}', subsel: { {% for seg in strategy.segments['items'] %}{% if seg.subtabs %}'{{ seg.id }}': '{{ seg.subtabs[0].id }}',{% endif %}{% endfor %} } }">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.segments.eyebrow }}</span><h2>{{ strategy.segments.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[03]</span><h2>{{ strategy.segments.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.segments.intro) }}</p>
         {{ inline_text('segments.intro', tag='p', placeholder='Introducción', multiline=True) }}
         {% call callout_wrap("punch", "ℹ", "Qué es \"New Name\" para Danwor") %}
@@ -768,7 +780,7 @@
 
       {# ── Pilar 4 · Criterio de foco ──────────────────────────────── #}
       <section id="p3" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.focus.eyebrow }}</span><h2>{{ strategy.focus.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[04]</span><h2>{{ strategy.focus.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.focus.intro) }}</p>
         {{ inline_text('focus.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-numlist" x-show="!editing">
@@ -795,7 +807,7 @@
 
       {# ── Pilar 5 · Capacidad ──────────────────────────────────────── #}
       <section id="p4" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.capacity.eyebrow }}</span><h2>{{ strategy.capacity.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[05]</span><h2>{{ strategy.capacity.title }}</h2></div></header>
         <div x-show="!editing">{{ data_table(strategy.capacity.assignments_table) }}</div>
         {{ table_edit('doc.capacity.assignments_table') }}
         <div class="cs-block-label">Regla de prioridad de ejecución</div>
@@ -810,7 +822,7 @@
 
       {# ── Pilar 6 · Cadencia de revisión ───────────────────────────── #}
       <section id="p5" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.cadence.eyebrow }}</span><h2>{{ strategy.cadence.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[06]</span><h2>{{ strategy.cadence.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.cadence.intro) }}</p>
         {{ inline_text('cadence.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-meet-grid" x-show="!editing">
@@ -836,7 +848,7 @@
 
       {# ── Pilar 7 · Qué no se hace ─────────────────────────────────── #}
       <section id="p6" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.exclusions.eyebrow }}</span><h2>{{ strategy.exclusions.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[07]</span><h2>{{ strategy.exclusions.title }}</h2></div></header>
         <div class="cs-numlist" x-show="!editing">
           {% for it in strategy.exclusions['items'] %}
           <div class="cs-numitem"><span class="cs-numitem__num" style="color:#d65b5b;">✕</span><div><span class="cs-numitem__detail">{{ md(it.text) }}</span></div></div>
@@ -849,7 +861,7 @@
       {# ── Pilar 8 · Próximos pasos (la tabla misma es el editor — ver gate
           "PIVOT EDIT UX": nunca un formulario duplicado debajo) ────────── #}
       <section id="proximos" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.next_steps.eyebrow }}</span><h2>{{ strategy.next_steps.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[08]</span><h2>{{ strategy.next_steps.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.next_steps.intro) }}</p>
         {{ inline_text('next_steps.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <table x-show="!editing">
@@ -903,7 +915,7 @@
 
       {# ── Anexo · Mapa de contactos SAP ────────────────────────────── #}
       <section id="mapa" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.annex_map.eyebrow }}</span><h2>{{ strategy.annex_map.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[09]</span><h2>{{ strategy.annex_map.title }}</h2></div></header>
         <p>{{ md(strategy.annex_map.intro) }}</p>
         <div class="cs-block-label">Estructura de ventas SAP</div>
         {% set sap = strategy.annex_map.sap_tree %}
@@ -974,7 +986,7 @@
 
       {# ── Anexo · Roles y responsabilidades ────────────────────────── #}
       <section id="roles" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.annex_roles.eyebrow }}</span><h2>{{ strategy.annex_roles.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[10]</span><h2>{{ strategy.annex_roles.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.annex_roles.intro) }}</p>
         {{ inline_text('annex_roles.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-role-grid" x-show="!editing">
@@ -1005,7 +1017,7 @@
 
       {# ── Anexo · Proceso comercial (timeline) ─────────────────────── #}
       <section id="proceso" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.annex_process.eyebrow }}</span><h2>{{ strategy.annex_process.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[11]</span><h2>{{ strategy.annex_process.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.annex_process.intro) }}</p>
         {{ inline_text('annex_process.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-timeline" x-show="!editing">
@@ -1034,7 +1046,7 @@
 
       {# ── Anexo · Reglas de oro ────────────────────────────────────── #}
       <section id="reglas" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.annex_rules.eyebrow }}</span><h2>{{ strategy.annex_rules.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[12]</span><h2>{{ strategy.annex_rules.title }}</h2></div></header>
         <p x-show="!editing">{{ md(strategy.annex_rules.intro) }}</p>
         {{ inline_text('annex_rules.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-numlist" x-show="!editing">

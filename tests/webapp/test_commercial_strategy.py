@@ -1266,22 +1266,49 @@ def test_section_headers_reuse_the_exact_copilot_heading_markup():
 
 def test_section_eyebrows_follow_the_copilot_bracketed_sequential_numbering():
     # Owner feedback: "Pilar 1"/"Anexo" no seguía la convención de Copilot
-    # (`[01]`, `[02]`... — ver content_service.py `f'[{number:02d}]'`) — los
-    # 12 eyebrows de sección ahora son secuenciales 01-12, MISMO orden que
-    # ya usa "En este módulo" (el índice), sin inventar un esquema aparte.
-    seed_path = Path(__file__).resolve().parents[2] / "webapp" / "services" / "commercial_strategy_data" / "strategy.yaml"
-    import yaml
-    doc = yaml.safe_load(seed_path.read_text(encoding="utf-8"))
-    keys = (
-        "objectives", "demand_generation", "segments", "focus", "capacity",
-        "cadence", "exclusions", "next_steps", "annex_map", "annex_roles",
-        "annex_process", "annex_rules",
-    )
-    for i, key in enumerate(keys, start=1):
-        assert doc[key]["eyebrow"] == f"[{i:02d}]", key
+    # (`[01]`, `[02]`... — ver content_service.py `f'[{number:02d}]'`).
+    # Structural Eyebrow Ownership Gate (ver HANDOFF): el número YA NO se
+    # lee de `strategy.X.eyebrow` — son literales fijos del template (ver
+    # strategy.html), así que este test solo prueba el OUTPUT renderizado,
+    # nunca el campo del documento (que quedó sin uso, ver el test de
+    # abajo que prueba justamente que un valor VIEJO ahí no cambia nada).
+    import re
     text = client.get("/comercial/estrategia").text
-    for i in range(1, 13):
-        assert f"[{i:02d}]" in text
+    eyebrows = re.findall(r'section-eyebrow">(\[\d\d\])</span>', text)
+    assert eyebrows == [f"[{i:02d}]" for i in range(1, 13)]
+
+
+def test_section_eyebrow_numbering_is_independent_of_persisted_eyebrow_field(tmp_path, monkeypatch):
+    # Structural Eyebrow Ownership Gate: un documento runtime YA EXISTENTE
+    # (creado antes de este fix, con `eyebrow: "Pilar 1"`/`"Anexo"` viejo)
+    # debe seguir renderizando `[01]`..`[12]` sin ningún parche manual ni
+    # migración — el valor persistido de `eyebrow` queda como dato histórico
+    # sin uso, nunca leído por el renderer. Repro exacta del bug real: un
+    # documento runtime que ya tenía guardado el `eyebrow` viejo seguía
+    # mostrándolo después de cambiar el seed, hasta que se lo parcheó a
+    # mano — este test prueba que ESE parche manual ya no hace falta.
+    import re
+    import yaml
+    from webapp.services import commercial_strategy_repository as repo_module
+
+    _with_owner(monkeypatch)
+    fresh = _isolated_repo(tmp_path, monkeypatch)
+    seed_path = Path(__file__).resolve().parents[2] / "webapp" / "services" / "commercial_strategy_data" / "strategy.yaml"
+    doc = yaml.safe_load(seed_path.read_text(encoding="utf-8"))
+    old_labels = {
+        "objectives": "Pilar 1", "demand_generation": "Pilar 2", "segments": "Pilar 3",
+        "focus": "Pilar 4", "capacity": "Pilar 5", "cadence": "Pilar 6",
+        "exclusions": "Pilar 7", "next_steps": "Pilar 8", "annex_map": "Anexo",
+        "annex_roles": "Anexo", "annex_process": "Anexo", "annex_rules": "Anexo",
+    }
+    for key, old_value in old_labels.items():
+        doc[key]["eyebrow"] = old_value
+    fresh._runtime_path.parent.mkdir(parents=True, exist_ok=True)
+    fresh._runtime_path.write_text(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+    rendered = owner_client.get("/comercial/estrategia").text
+    eyebrows = re.findall(r'section-eyebrow">(\[\d\d\])</span>', rendered)
+    assert eyebrows == [f"[{i:02d}]" for i in range(1, 13)]
 
 
 def test_no_strategy_specific_heading_css_remains():
