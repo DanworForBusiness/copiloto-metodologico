@@ -380,3 +380,13 @@ textarea.cs-inline-input { resize: vertical; }
 .content-theme-light .cs-tsub {
   border-color: #d9d9d3;
 }
+
+/* Owner feedback: la ÚLTIMA sección del documento (hoy "Reglas de oro")
+   dejaba una línea horizontal de cierre + espacio en blanco después de la
+   botonera de feedback — `.content-section{border-bottom:1px solid
+   var(--line)}` es un primitivo COMPARTIDO de todo el Hub (ver app.css,
+   Copilot/Reporting/Staffing lo usan igual), así que el fix vive ACÁ
+   (scoped a Estrategia) en vez de tocar esa regla global — ningún otro
+   módulo cambia. `:last-of-type` alcanza porque todas las secciones de
+   `.methodology` comparten la MISMA clase `.content-section`. */
+.methodology .content-section:last-of-type { border-bottom: none; }
