@@ -521,6 +521,22 @@
            },
          }"
          @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = ''; }"
+         {#- Viewport Experience Standardization gate (ver HANDOFF): un bloque
+             VIEW con `.content-block`/`.content-reveal` (ver app.js
+             initContentReveals) que Alpine oculta vía `x-show="!editing"`
+             pasa a `display:none` al entrar a edición -- el
+             IntersectionObserver compartido lo reporta como "no
+             intersectando" y le saca `.is-visible`, así que al Cancelar
+             (vuelve a `display:block`) reaparecería con un replay de fade
+             que el owner pidió evitar explícitamente ("ya visible
+             permanece visible, sin reingreso por simplemente renderizar
+             controles de edición"). Reconciliamos DESPUÉS de cada cambio
+             de `editing` (ambos sentidos) en vez de tocar el observer
+             compartido -- este toggle view/edit es exclusivo de Estrategia,
+             ningún otro módulo de Hub lo tiene. #}
+         x-init="$watch('editing', () => { $nextTick(() => {
+           $el.querySelectorAll('.content-reveal:not(.is-visible)').forEach(n => n.classList.add('is-visible'));
+         }); })"
     >
       {% if can_edit %}
       <div class="cs-edit-toolbar">
@@ -657,18 +673,18 @@
         <p x-show="!editing">{{ md(strategy.objectives.intro) }}</p>
         {{ inline_text('objectives.intro', tag='p', placeholder='Introducción', multiline=True) }}
 
-        <div class="cs-block-label">Objetivos de resultado</div>
-        <div class="cs-kpi-grid" x-show="!editing">{% for c in strategy.objectives.result_targets %}{{ kpi_card(c) }}{% endfor %}</div>
+        <div class="cs-block-label content-block">Objetivos de resultado</div>
+        <div class="cs-kpi-grid content-block" x-show="!editing">{% for c in strategy.objectives.result_targets %}{{ kpi_card(c) }}{% endfor %}</div>
         {{ kpi_grid_edit('doc.objectives.result_targets') }}
 
-        <div class="cs-block-label">Base de cálculo del embudo</div>
+        <div class="cs-block-label content-block">Base de cálculo del embudo</div>
         <p x-show="!editing">{{ md(strategy.objectives.calc_note) }}</p>
         {{ inline_text('objectives.calc_note', tag='p', placeholder='Base de cálculo del embudo — nota', multiline=True) }}
-        <div x-show="!editing">{{ data_table(strategy.objectives.ticket_table) }}</div>
+        <div class="content-block" x-show="!editing">{{ data_table(strategy.objectives.ticket_table) }}</div>
         {{ table_edit('doc.objectives.ticket_table') }}
 
-        <div class="cs-block-label">El embudo</div>
-        <div class="cs-funnel">
+        <div class="cs-block-label content-block">El embudo</div>
+        <div class="cs-funnel content-block">
           {% for row in strategy.objectives.funnel %}
           {% if not loop.first %}<div class="cs-farrow">▼</div>{% endif %}
           <div class="cs-frow" data-level="{{ row.level }}">
@@ -682,8 +698,8 @@
           {% endfor %}
         </div>
 
-        <div class="cs-block-label">Objetivos de generación de demanda</div>
-        <div class="cs-kpi-grid" x-show="!editing">{% for c in strategy.objectives.demand_targets %}{{ kpi_card(c) }}{% endfor %}</div>
+        <div class="cs-block-label content-block">Objetivos de generación de demanda</div>
+        <div class="cs-kpi-grid content-block" x-show="!editing">{% for c in strategy.objectives.demand_targets %}{{ kpi_card(c) }}{% endfor %}</div>
         {{ kpi_grid_edit('doc.objectives.demand_targets') }}
 
         {% call callout_wrap("punch", "💡", "Por qué el 4x y el 40% conviven") %}
@@ -691,10 +707,10 @@
         {{ inline_text('objectives.coverage_note', tag='p', multiline=True) }}
         {% endcall %}
 
-        <div class="cs-block-label">Sensibilidad por mezcla de ticket</div>
+        <div class="cs-block-label content-block">Sensibilidad por mezcla de ticket</div>
         <p x-show="!editing">{{ md(strategy.objectives.sensitivity_note) }}</p>
         {{ inline_text('objectives.sensitivity_note', tag='p', placeholder='Sensibilidad por mezcla de ticket — nota', multiline=True) }}
-        <div x-show="!editing">{{ data_table(strategy.objectives.sensitivity_table) }}</div>
+        <div class="content-block" x-show="!editing">{{ data_table(strategy.objectives.sensitivity_table) }}</div>
         {{ table_edit('doc.objectives.sensitivity_table') }}
 
         {% call callout_wrap("", "📌", "Supuestos a afinar") %}
@@ -711,7 +727,7 @@
         {{ inline_text('demand_generation.intro', tag='p', placeholder='Introducción', multiline=True) }}
 
         {% if strategy.demand_generation.demand_target %}
-        <div class="cs-kpi-grid" x-show="!editing">{{ kpi_card(strategy.demand_generation.demand_target) }}</div>
+        <div class="cs-kpi-grid content-block" x-show="!editing">{{ kpi_card(strategy.demand_generation.demand_target) }}</div>
         {% if can_edit %}
         <div class="cs-kpi-grid" x-show="editing" x-cloak>
           <div class="cs-kpi">
@@ -723,8 +739,8 @@
         {% endif %}
         {% endif %}
 
-        <div class="cs-block-label">Catálogo de oferta</div>
-        <div class="cs-cluster-grid" x-show="!editing">
+        <div class="cs-block-label content-block">Catálogo de oferta</div>
+        <div class="cs-cluster-grid content-block" x-show="!editing">
           {% for c in strategy.demand_generation.clusters %}
           <div class="cs-cluster">
             <div class="cs-cluster__tag">{{ c.tag }}</div>
@@ -741,8 +757,8 @@
              [{'key': 'bullets', 'label': 'Puntos'}],
              new_item="{tag:'',name:'',bullets:[],message:''}") }}
 
-        <div class="cs-block-label">Canales de demanda</div>
-        <div class="cs-chan-grid" x-show="!editing">
+        <div class="cs-block-label content-block">Canales de demanda</div>
+        <div class="cs-chan-grid content-block" x-show="!editing">
           {% for key in ["inbound", "outbound"] %}
           {% set box = strategy.demand_generation.channels.get(key) %}
           {% if box %}
@@ -761,12 +777,12 @@
         </div>
         {% endif %}
 
-        <div class="cs-block-label">Catálogo de eventos</div>
-        <div x-show="!editing">{{ data_table(strategy.demand_generation.events_catalog) }}</div>
+        <div class="cs-block-label content-block">Catálogo de eventos</div>
+        <div class="content-block" x-show="!editing">{{ data_table(strategy.demand_generation.events_catalog) }}</div>
         {{ table_edit('doc.demand_generation.events_catalog') }}
 
-        <div class="cs-block-label">Calendario</div>
-        <div class="cs-evgrid" x-show="!editing">
+        <div class="cs-block-label content-block">Calendario</div>
+        <div class="cs-evgrid content-block" x-show="!editing">
           {% for col in strategy.demand_generation.calendar %}
           <div class="cs-evcol">
             <div class="cs-evmonth">{{ col.month }}</div>
@@ -789,6 +805,15 @@
       </section>
 
       {# ── Pilar 3 · Dónde jugamos (segmentos, con tabs) ───────────── #}
+      {#- Viewport Experience Standardization gate (ver HANDOFF): el
+          contenido de cada tab/subtab (`x-show="seg === ..."` /
+          `subsel[...] === ...`) NO lleva `.content-block` a propósito --
+          su visibilidad la dispara un CLICK, nunca el scroll. Si
+          participara del reveal por IntersectionObserver, cambiar de tab
+          podría mostrar el panel recién revelado con opacity:0 hasta que
+          el observer lo alcance (mismo motivo por el que el contenido de
+          edición tampoco lleva reveal). Header/intro/callout previos a los
+          tabs SÍ son contenido estático de scroll y revelan normal. #}
       <section id="p2" class="content-section"
                x-data="{ seg: '{{ strategy.segments['items'][0].id }}', subsel: { {% for seg in strategy.segments['items'] %}{% if seg.subtabs %}'{{ seg.id }}': '{{ seg.subtabs[0].id }}',{% endif %}{% endfor %} } }">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p2'][1] }}]</span><h2 x-show="!editing">{{ strategy.segments.title }}</h2>{{ inline_text('segments.title', tag='h2', placeholder='Título de la sección') }}</div></header>
@@ -848,7 +873,7 @@
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p3'][1] }}]</span><h2 x-show="!editing">{{ strategy.focus.title }}</h2>{{ inline_text('focus.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.focus.intro) }}</p>
         {{ inline_text('focus.intro', tag='p', placeholder='Introducción', multiline=True) }}
-        <div class="cs-numlist" x-show="!editing">
+        <div class="cs-numlist content-block" x-show="!editing">
           {% for q in strategy.focus.questions %}
           <div class="cs-numitem"><span class="cs-numitem__num">{{ q.n }}</span><div><span class="cs-numitem__title">{{ q.text }}</span></div></div>
           {% endfor %}
@@ -862,8 +887,8 @@
           {% endfor %}
         </div>
         {% endif %}
-        <div class="cs-block-label">Regla de obtención y foco</div>
-        <div x-show="!editing">{{ bullets(strategy.focus.rules) }}</div>
+        <div class="cs-block-label content-block">Regla de obtención y foco</div>
+        <div class="content-block" x-show="!editing">{{ bullets(strategy.focus.rules) }}</div>
         {{ string_list_edit('doc.focus.rules') }}
         {% if strategy.focus.coherence_note %}<p x-show="!editing">{{ md(strategy.focus.coherence_note) }}</p>{% endif %}
         {{ inline_text('focus.coherence_note', tag='p', placeholder='Nota de coherencia (opcional)', multiline=True) }}
@@ -873,10 +898,10 @@
       {# ── Pilar 5 · Capacidad ──────────────────────────────────────── #}
       <section id="p4" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p4'][1] }}]</span><h2 x-show="!editing">{{ strategy.capacity.title }}</h2>{{ inline_text('capacity.title', tag='h2', placeholder='Título de la sección') }}</div></header>
-        <div x-show="!editing">{{ data_table(strategy.capacity.assignments_table) }}</div>
+        <div class="content-block" x-show="!editing">{{ data_table(strategy.capacity.assignments_table) }}</div>
         {{ table_edit('doc.capacity.assignments_table') }}
-        <div class="cs-block-label">Regla de prioridad de ejecución</div>
-        <div class="cs-numlist" x-show="!editing">
+        <div class="cs-block-label content-block">Regla de prioridad de ejecución</div>
+        <div class="cs-numlist content-block" x-show="!editing">
           {% for r in strategy.capacity.priority_rules %}
           <div class="cs-numitem"><span class="cs-numitem__num">·</span><div><span class="cs-numitem__detail">{{ md(r) }}</span></div></div>
           {% endfor %}
@@ -890,7 +915,7 @@
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p5'][1] }}]</span><h2 x-show="!editing">{{ strategy.cadence.title }}</h2>{{ inline_text('cadence.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.cadence.intro) }}</p>
         {{ inline_text('cadence.intro', tag='p', placeholder='Introducción', multiline=True) }}
-        <div class="cs-meet-grid" x-show="!editing">
+        <div class="cs-meet-grid content-block" x-show="!editing">
           {% for m in strategy.cadence.meetings %}
           <div class="cs-meet-card">
             <div class="cs-meet-card__freq">{{ m.freq }}</div>
@@ -914,7 +939,7 @@
       {# ── Pilar 7 · Qué no se hace ─────────────────────────────────── #}
       <section id="p6" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p6'][1] }}]</span><h2 x-show="!editing">{{ strategy.exclusions.title }}</h2>{{ inline_text('exclusions.title', tag='h2', placeholder='Título de la sección') }}</div></header>
-        <div class="cs-numlist" x-show="!editing">
+        <div class="cs-numlist content-block" x-show="!editing">
           {% for it in strategy.exclusions['items'] %}
           <div class="cs-numitem"><span class="cs-numitem__num" style="color:#d65b5b;">✕</span><div><span class="cs-numitem__detail">{{ md(it.text) }}</span></div></div>
           {% endfor %}
@@ -982,9 +1007,9 @@
       <section id="mapa" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['mapa'][1] }}]</span><h2 x-show="!editing">{{ strategy.annex_map.title }}</h2>{{ inline_text('annex_map.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p>{{ md(strategy.annex_map.intro) }}</p>
-        <div class="cs-block-label">Estructura de ventas SAP</div>
+        <div class="cs-block-label content-block">Estructura de ventas SAP</div>
         {% set sap = strategy.annex_map.sap_tree %}
-        <div class="cs-tree" x-show="!editing">
+        <div class="cs-tree content-block" x-show="!editing">
           <div class="cs-tnode cs-tnode--root"><div class="cs-tnode__name">{{ sap.root.name }}</div><div class="cs-tnode__role">{{ sap.root.role }}</div></div>
           <div class="cs-tbranch">
             {% for b in sap.branches %}
@@ -1016,10 +1041,10 @@
         </div>
         {{ annex_tree_edit(sap, 'sap_tree') }}
 
-        <div class="cs-block-label" style="margin-top:32px;">LoB — BDC</div>
+        <div class="cs-block-label content-block" style="margin-top:32px;">LoB — BDC</div>
         {% set lob = strategy.annex_map.lob_tree %}
         {% if strategy.annex_map.lob_intro %}<p>{{ md(strategy.annex_map.lob_intro) }}</p>{% endif %}
-        <div class="cs-tree" x-show="!editing">
+        <div class="cs-tree content-block" x-show="!editing">
           <div class="cs-tnode cs-tnode--root"><div class="cs-tnode__name">{{ lob.root.name }}</div><div class="cs-tnode__role">{{ lob.root.role }}</div></div>
           <div class="cs-tbranch">
             {% for b in lob.branches %}
@@ -1029,7 +1054,7 @@
         </div>
         {{ annex_tree_edit(lob, 'lob_tree') }}
 
-        <div x-show="!editing">
+        <div class="content-block" x-show="!editing">
           {% for n in strategy.annex_map.notes %}{% call callout_wrap("", "📎", n.title) %}<p>{{ md(n.text) }}</p>{% endcall %}{% endfor %}
         </div>
         {% if can_edit %}
@@ -1054,7 +1079,7 @@
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['roles'][1] }}]</span><h2 x-show="!editing">{{ strategy.annex_roles.title }}</h2>{{ inline_text('annex_roles.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.annex_roles.intro) }}</p>
         {{ inline_text('annex_roles.intro', tag='p', placeholder='Introducción', multiline=True) }}
-        <div class="cs-role-grid" x-show="!editing">
+        <div class="cs-role-grid content-block" x-show="!editing">
           {% for r in strategy.annex_roles.roles %}
           <div class="cs-role">
             <h4>{{ r.name }}</h4>
@@ -1085,7 +1110,7 @@
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['proceso'][1] }}]</span><h2 x-show="!editing">{{ strategy.annex_process.title }}</h2>{{ inline_text('annex_process.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.annex_process.intro) }}</p>
         {{ inline_text('annex_process.intro', tag='p', placeholder='Introducción', multiline=True) }}
-        <div class="cs-timeline" x-show="!editing">
+        <div class="cs-timeline content-block" x-show="!editing">
           {% for s in strategy.annex_process.stages %}
           <div class="cs-stage">
             <div class="cs-stage__num">{{ s.n }}</div>
@@ -1114,7 +1139,7 @@
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['reglas'][1] }}]</span><h2 x-show="!editing">{{ strategy.annex_rules.title }}</h2>{{ inline_text('annex_rules.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.annex_rules.intro) }}</p>
         {{ inline_text('annex_rules.intro', tag='p', placeholder='Introducción', multiline=True) }}
-        <div class="cs-numlist" x-show="!editing">
+        <div class="cs-numlist content-block" x-show="!editing">
           {% for r in strategy.annex_rules.rules %}
           <div class="cs-numitem">
             <span class="cs-numitem__num">{{ r.n }}</span>

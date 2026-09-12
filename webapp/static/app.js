@@ -237,6 +237,14 @@ function initContentReveals(shell) {
     ".content-section > .callout-row",
     ".content-section > .html-embed-shell",
     ".content-section > .support-links",
+    // Viewport Experience Standardization gate (ver HANDOFF): hook GENÉRICO
+    // para bloques que no calzan en ninguno de los tags/clases de arriba
+    // (grillas de KPIs, tablas/listas envueltas en un `<div x-show>` por el
+    // toggle VIEW/EDIT de Estrategia Comercial, timelines, árboles, etc.) --
+    // CUALQUIER módulo (no solo Estrategia) puede optar un bloque propio a
+    // este MISMO reveal marcándolo `.content-block`, en vez de que cada
+    // forma de contenedor nueva necesite su propia entrada acá.
+    ".content-section > .content-block",
     ".module-feedback",
     ".module-continue",
   ].join(",");
@@ -306,7 +314,26 @@ document.addEventListener("click", event => {
   const cont = el.closest(".module-continue");
   if (cont) { dwBeacon("module_continue", { via: "click", href: cont.getAttribute("href") || "" }); return; }
   const nav = el.closest(".section-index a, .module-roadmap__links a");
-  if (nav) { dwBeacon("nav_jump", { href: nav.getAttribute("href") || "" }); return; }
+  if (nav) {
+    dwBeacon("nav_jump", { href: nav.getAttribute("href") || "" });
+    // Viewport Experience Standardization gate (ver HANDOFF): un anchor jump
+    // (click, no scroll) puede aterrizar sobre contenido que el
+    // IntersectionObserver de initContentReveals() todavía no marcó
+    // `.is-visible` (nunca estuvo en viewport hasta este click) — el
+    // navegador ejecuta el jump nativo DESPUÉS de este listener, así que
+    // acá todavía no sabemos la posición final de scroll para revelar solo
+    // lo que quedará a la vista. En vez de arriesgar un flash de contenido
+    // opacity:0, reconciliamos TODO el bloque destino a visible de una:
+    // transversal (Copiloto Y Estrategia comparten `.section-index`), sin
+    // condicional por módulo.
+    const href = nav.getAttribute("href") || "";
+    const targetId = href.startsWith("#") ? href.slice(1) : "";
+    const target = targetId && document.getElementById(targetId);
+    if (target) {
+      target.querySelectorAll(".content-reveal:not(.is-visible)").forEach(node => node.classList.add("is-visible"));
+    }
+    return;
+  }
   const ext = el.closest(".methodology a[target='_blank']");
   if (ext) { dwBeacon("link_external", { href: ext.getAttribute("href") || "", cls: (ext.className || "").trim() }); }
 }, true);
