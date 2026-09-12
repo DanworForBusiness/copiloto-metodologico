@@ -256,6 +256,12 @@ intent_assets:
   - keywords: ["kba 3561284", "3561284", "transported access team added not overwritten", "acceso equipo transporte agregado no sobreescrito sac"]
     description: "KBA 3561284: Transported team access may be added to existing target team settings instead of overwriting (verificar contenido oficial)"
     asset: "https://userapps.support.sap.com/sap/support/knowledge/en/3561284"
+  - keywords: ["streaming read", "rfc streaming", "activar streaming read abapadapter", "kba 3209242", "3209242"]
+    description: "KBA 3209242: How to turn on Streaming Read for ABAPAdapter remote source"
+    asset: "https://userapps.support.sap.com/sap/support/knowledge/en/3209242"
+  - keywords: ["dialogue mode", "dialog mode abapadapter", "comparacion streaming read dialogo", "kba 3570139", "3570139"]
+    description: "KBA 3570139: [ABAPAdapter] Comparison between RFC streaming read and Dialogue mode"
+    asset: "https://userapps.support.sap.com/sap/support/knowledge/en/3570139"
 key_topics:
   - id: links
     label: Links
@@ -349,9 +355,9 @@ key_topics:
 | **3764217** | Schedule Publications failing for story based on SAP Datasphere live connecton | Técnico / Compatibilidad | 
 
 ## {dw-black}KBAs {dw-gold}SAP
-{{section_meta: keywords="kba sap, knowledge base article, kbas sac, kba 3576331, kba 3524959, kba 3311985, kba 3493600, kba 3460999, kba 3561284, gobierno contenido sac kba, transporte sac kba, deleted files sac, object id sac, workspace sac kba"}}
+{{section_meta: keywords="kba sap, knowledge base article, kbas sac, kba 3576331, kba 3524959, kba 3311985, kba 3493600, kba 3460999, kba 3561284, gobierno contenido sac kba, transporte sac kba, deleted files sac, object id sac, workspace sac kba, kba 3209242, kba 3570139, streaming read, rfc streaming, dialogue mode, abapadapter"}}
 {{subtitle: no-gap}}
->KBAs de gobierno y ciclo de vida de contenido SAP Analytics Cloud. A diferencia de las Notas SAP, las KBAs se acceden por el portal de knowledge (requiere login SAP).
+>KBAs puntuales para troubleshooting/configuración — de gobierno y ciclo de vida de contenido en SAP Analytics Cloud, y de conectividad ABAP/DPA (ABAPAdapter) en SAP Datasphere. A diferencia de las Notas SAP, las KBAs se acceden por el portal de knowledge (requiere login SAP); el preview público solo muestra el síntoma, nunca la causa/resolución completa.
 
 - 🗂️ KBA 3576331 · Folders created directly under a workspace are not visible in System → Workspace | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3576331)
 - 🔀 KBA 3524959 · After moving content in source and transferring to target, the location is not reflected correctly | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3524959)
@@ -359,3 +365,5 @@ key_topics:
 - 🧹 KBA 3493600 · A specific object failed to be imported through Content Network Storage (resource does not exist) | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3493600)
 - 🔐 KBA 3460999 · Object level security for teams during transports | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3460999)
 - 🔐 KBA 3561284 · Transported team access may be added to existing target team settings instead of overwriting | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3561284)
+- 🌊 KBA 3209242 · How to turn on Streaming Read for ABAPAdapter remote source | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3209242)
+- ⚖️ KBA 3570139 · [ABAPAdapter] Comparison between RFC streaming read and Dialogue mode | [Link](https://userapps.support.sap.com/sap/support/knowledge/en/3570139)
