@@ -120,14 +120,16 @@ def test_document_index_reuses_the_copilot_section_index_contract():
     # variante plana sin roadmap): `<nav class="section-index"><p>...</p>
     # <a><span>código</span>Título</a></nav>` — nunca una implementación
     # propia. Information Architecture Pass (ver HANDOFF): los códigos ya
-    # no son 01-12 secuenciales — ver test_section_index_groups_into_*
-    # para la semántica completa (pilares/activación/anexos).
+    # no son 01-12 secuenciales, y el nav agrega el modificador
+    # `cs-nav-grouped` (agrupación en columnas por familia, ver
+    # test_section_index_groups_into_*) — sigue siendo el MISMO
+    # `.section-index` compartido, solo con una clase extra.
     text = client.get("/comercial/estrategia").text
-    assert 'class="section-index"' in text
+    assert 'class="section-index cs-nav-grouped"' in text
     assert 'aria-label="En este módulo"' in text
     assert "<p>En este módulo</p>" in text
     assert "<a href=\"#p1\"><span>01</span>Objetivos</a>" in text
-    assert "<a href=\"#reglas\"><span>A4</span>Reglas de oro</a>" in text
+    assert "<a href=\"#reglas\"><span>A04</span>Reglas de oro</a>" in text
 
 
 def test_document_index_has_no_leftover_source_number_prefix():
@@ -1289,8 +1291,8 @@ def test_section_eyebrows_follow_the_copilot_bracketed_sequential_numbering():
     # test_section_index_groups_into_pilares_activacion_anexos_*).
     import re
     text = client.get("/comercial/estrategia").text
-    eyebrows = re.findall(r'section-eyebrow">(\[[0-9A-Z]{2}\])</span>', text)
-    assert eyebrows == ["[01]", "[02]", "[03]", "[04]", "[05]", "[06]", "[E1]", "[E2]", "[A1]", "[A2]", "[A3]", "[A4]"]
+    eyebrows = re.findall(r'section-eyebrow">(\[[0-9A-Z]{2,3}\])</span>', text)
+    assert eyebrows == ["[01]", "[02]", "[03]", "[04]", "[05]", "[06]", "[E01]", "[E02]", "[A01]", "[A02]", "[A03]", "[A04]"]
 
 
 def test_section_eyebrow_numbering_is_independent_of_persisted_eyebrow_field(tmp_path, monkeypatch):
@@ -1322,8 +1324,8 @@ def test_section_eyebrow_numbering_is_independent_of_persisted_eyebrow_field(tmp
     fresh._runtime_path.write_text(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
     rendered = owner_client.get("/comercial/estrategia").text
-    eyebrows = re.findall(r'section-eyebrow">(\[[0-9A-Z]{2}\])</span>', rendered)
-    assert eyebrows == ["[01]", "[02]", "[03]", "[04]", "[05]", "[06]", "[E1]", "[E2]", "[A1]", "[A2]", "[A3]", "[A4]"]
+    eyebrows = re.findall(r'section-eyebrow">(\[[0-9A-Z]{2,3}\])</span>', rendered)
+    assert eyebrows == ["[01]", "[02]", "[03]", "[04]", "[05]", "[06]", "[E01]", "[E02]", "[A01]", "[A02]", "[A03]", "[A04]"]
 
 
 def test_section_index_groups_into_pilares_activacion_anexos_semantic_families():
@@ -1357,20 +1359,20 @@ def test_section_index_groups_into_pilares_activacion_anexos_semantic_families()
     assert len(pilares) == 6
 
     assert [a[0] for a in activacion] == ["p6", "proximos"]
-    assert [a[1] for a in activacion] == ["E1", "E2"]
+    assert [a[1] for a in activacion] == ["E01", "E02"]
     assert [a[2] for a in activacion] == ["Qué no se hace", "Próximos pasos"]
     # La afirmación explícita del gate: ninguno de los dos vive en pilares.
     assert "p6" not in [p[0] for p in pilares]
     assert "proximos" not in [p[0] for p in pilares]
 
     assert [x[0] for x in anexos] == ["mapa", "roles", "proceso", "reglas"]
-    assert [x[1] for x in anexos] == ["A1", "A2", "A3", "A4"]
+    assert [x[1] for x in anexos] == ["A01", "A02", "A03", "A04"]
     assert len(anexos) == 4
 
     # Los eyebrows de sección (más abajo en el documento) leen la MISMA
     # fuente (`cs_nav_map`) que el índice de arriba — nunca pueden divergir.
-    eyebrows = re.findall(r'section-eyebrow">(\[[0-9A-Z]{2}\])</span>', text)
-    assert eyebrows == ["[01]", "[02]", "[03]", "[04]", "[05]", "[06]", "[E1]", "[E2]", "[A1]", "[A2]", "[A3]", "[A4]"]
+    eyebrows = re.findall(r'section-eyebrow">(\[[0-9A-Z]{2,3}\])</span>', text)
+    assert eyebrows == ["[01]", "[02]", "[03]", "[04]", "[05]", "[06]", "[E01]", "[E02]", "[A01]", "[A02]", "[A03]", "[A04]"]
 
     # Anchors técnicos: sin cambios (mismos ids que antes de este gate) —
     # el edit inline, el save payload y el feedback de sección siguen
@@ -1408,8 +1410,8 @@ def test_section_index_semantic_grouping_is_structural_not_from_nav_group_field(
     nav_html = text.split('aria-label="En este módulo"')[1].split("</nav>")[0]
     group_labels = re.findall(r'<p class="cs-nav-group">([^<]+)</p>', nav_html)
     assert group_labels == ["Pilares estratégicos", "De la estrategia a la acción", "Anexos"]
-    eyebrows = re.findall(r'section-eyebrow">(\[[0-9A-Z]{2}\])</span>', text)
-    assert eyebrows == ["[01]", "[02]", "[03]", "[04]", "[05]", "[06]", "[E1]", "[E2]", "[A1]", "[A2]", "[A3]", "[A4]"]
+    eyebrows = re.findall(r'section-eyebrow">(\[[0-9A-Z]{2,3}\])</span>', text)
+    assert eyebrows == ["[01]", "[02]", "[03]", "[04]", "[05]", "[06]", "[E01]", "[E02]", "[A01]", "[A02]", "[A03]", "[A04]"]
 
 
 def test_no_strategy_specific_heading_css_remains():

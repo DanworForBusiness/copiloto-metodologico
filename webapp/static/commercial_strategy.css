@@ -394,11 +394,25 @@ textarea.cs-inline-input { resize: vertical; }
 /* Information Architecture / Storytelling Pass (ver HANDOFF): el índice
    "En este módulo" (`.section-index`, app.css — primitivo COMPARTIDO del
    Hub) agrupa sus 12 links en 3 familias semánticas (Pilares/Activación/
-   Anexos) en vez de una secuencia plana. Reusa la MISMA tipografía que ya
-   usa `.section-index p` ("En este módulo": mayúsculas, color apagado) —
-   nunca una card nueva — y solo agrega `grid-column:1/-1` para que cada
-   caption de familia corte la fila del grid de 3 columnas. Scoped acá
-   (Estrategia) vía `.cs-nav-group`, nunca tocando la regla `.section-index p`
-   compartida por el resto del Hub. */
-.section-index p.cs-nav-group { grid-column: 1 / -1; margin: 0; }
-.section-index p.cs-nav-group:not(:first-of-type) { margin-top: 10px; }
+   Anexos) en vez de una secuencia plana.
+
+   Owner feedback (2da vuelta): la primera versión cortaba el grid de 3
+   columnas con un caption full-width por familia — dejaba filas sueltas
+   a medio llenar (Activación usa 2 de 3 columnas, Anexos 1 de 3 en su
+   última fila), poco legible. Transponer: cada familia pasa a ser su
+   PROPIA columna (3 familias lado a lado), apilando sus ítems
+   verticalmente adentro — nunca una fila a medio llenar. `.cs-nav-grouped`
+   cambia el `.section-index` COMPARTIDO de `display:grid` (3 columnas de
+   ítems) a `display:block` (el layout real vive acá, en
+   `.cs-nav-families`) — scoped a esta variante, la regla del Hub sigue
+   intacta para cualquier otro módulo. Reusa la MISMA tipografía que ya
+   usa `.section-index p` ("En este módulo": mayúsculas, color apagado)
+   para el caption de cada familia — nunca una card nueva. */
+.section-index.cs-nav-grouped { display: block; }
+.section-index.cs-nav-grouped > p:first-child { margin: 0 0 18px; }
+.cs-nav-families { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px 24px; }
+.cs-nav-family { display: flex; flex-direction: column; gap: var(--idx-row-gap); min-width: 0; }
+.cs-nav-family .cs-nav-group { margin: 0 0 2px; }
+@media (max-width: 720px) {
+  .cs-nav-families { grid-template-columns: 1fr; gap: 18px; }
+}

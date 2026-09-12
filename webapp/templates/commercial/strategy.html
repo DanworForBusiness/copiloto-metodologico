@@ -580,24 +580,42 @@
     {% set cs_nav_map = {
       'p1': ('pilares', '01'), 'genda': ('pilares', '02'), 'p2': ('pilares', '03'),
       'p3': ('pilares', '04'), 'p4': ('pilares', '05'), 'p5': ('pilares', '06'),
-      'p6': ('activacion', 'E1'), 'proximos': ('activacion', 'E2'),
-      'mapa': ('anexos', 'A1'), 'roles': ('anexos', 'A2'),
-      'proceso': ('anexos', 'A3'), 'reglas': ('anexos', 'A4'),
+      'p6': ('activacion', 'E01'), 'proximos': ('activacion', 'E02'),
+      'mapa': ('anexos', 'A01'), 'roles': ('anexos', 'A02'),
+      'proceso': ('anexos', 'A03'), 'reglas': ('anexos', 'A04'),
     } %}
-    <nav class="section-index" aria-label="En este módulo">
+    {#- Owner feedback: la variante de renglones (captions full-width
+        cortando el grid de 3 columnas) dejaba filas sueltas con mucho
+        espacio vacío (p. ej. Activación con solo 2 de 3 columnas usadas,
+        Anexos con 1 de 3 en su última fila) — poco legible/prolijo.
+        Transponer: cada familia pasa a ser su PROPIA columna (3 columnas
+        = 3 familias, lado a lado), con sus ítems apilados verticalmente
+        adentro — nunca una fila a medio llenar. `.cs-nav-grouped` en
+        `.section-index` cambia SOLO el layout (bloque en vez del grid de
+        3 columnas compartido), delegando el grid real a `.cs-nav-families`
+        (Estrategia-only, nunca toca la regla `.section-index` del Hub). #}
+    <nav class="section-index cs-nav-grouped" aria-label="En este módulo">
       <p>En este módulo</p>
-      <p class="cs-nav-group">Pilares estratégicos</p>
-      {% for item in strategy.nav if cs_nav_map.get(item.id, ('',''))[0] == 'pilares' %}
-      <a href="#{{ item.id }}"><span>{{ cs_nav_map[item.id][1] }}</span>{{ item.label | strategy_nav_title }}</a>
-      {% endfor %}
-      <p class="cs-nav-group">De la estrategia a la acción</p>
-      {% for item in strategy.nav if cs_nav_map.get(item.id, ('',''))[0] == 'activacion' %}
-      <a href="#{{ item.id }}"><span>{{ cs_nav_map[item.id][1] }}</span>{{ item.label | strategy_nav_title }}</a>
-      {% endfor %}
-      <p class="cs-nav-group">Anexos</p>
-      {% for item in strategy.nav if cs_nav_map.get(item.id, ('',''))[0] == 'anexos' %}
-      <a href="#{{ item.id }}"><span>{{ cs_nav_map[item.id][1] }}</span>{{ item.label | strategy_nav_title }}</a>
-      {% endfor %}
+      <div class="cs-nav-families">
+        <div class="cs-nav-family">
+          <p class="cs-nav-group">Pilares estratégicos</p>
+          {% for item in strategy.nav if cs_nav_map.get(item.id, ('',''))[0] == 'pilares' %}
+          <a href="#{{ item.id }}"><span>{{ cs_nav_map[item.id][1] }}</span>{{ item.label | strategy_nav_title }}</a>
+          {% endfor %}
+        </div>
+        <div class="cs-nav-family">
+          <p class="cs-nav-group">De la estrategia a la acción</p>
+          {% for item in strategy.nav if cs_nav_map.get(item.id, ('',''))[0] == 'activacion' %}
+          <a href="#{{ item.id }}"><span>{{ cs_nav_map[item.id][1] }}</span>{{ item.label | strategy_nav_title }}</a>
+          {% endfor %}
+        </div>
+        <div class="cs-nav-family">
+          <p class="cs-nav-group">Anexos</p>
+          {% for item in strategy.nav if cs_nav_map.get(item.id, ('',''))[0] == 'anexos' %}
+          <a href="#{{ item.id }}"><span>{{ cs_nav_map[item.id][1] }}</span>{{ item.label | strategy_nav_title }}</a>
+          {% endfor %}
+        </div>
+      </div>
     </nav>
 
     <article class="methodology">
