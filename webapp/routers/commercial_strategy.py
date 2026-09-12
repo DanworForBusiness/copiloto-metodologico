@@ -106,37 +106,22 @@ def _require_commercial_session(request: Request, *, next_path: str | None = Non
 
 
 def _editable_doc(strategy: dict) -> dict:
-    """Subconjunto EDITABLE del documento canónico — lo único que el cliente
-    recibe como estado mutable de EDIT (ver commercial_strategy_editing.
-    EDITABLE_TOP_KEYS: el resto del documento es código+seed, nunca se
-    manda como editable al cliente aunque sea de solo lectura).
-
-    `annex_map.sap_tree`/`lob_tree` viajan TAL CUAL (ya tienen exactamente
-    la forma `{root, branches}` que `commercial_strategy_editing.
-    _validate_tree` espera) — el mapa de contactos (release blocker del
-    gate "PIVOT EDIT UX") es el único anexo editable; `eyebrow`/`title`/
-    `intro`/`lob_intro` de esa sección quedan código+seed, igual que el
-    resto de anexos."""
-    objectives = strategy["objectives"]
-    annex_map = strategy["annex_map"]
-    return {
-        "revision": strategy["revision"],
-        "hero": strategy["hero"],
-        "objectives": {
-            "result_targets": objectives["result_targets"],
-            "demand_targets": objectives["demand_targets"],
-            "calc_note": objectives["calc_note"],
-            "coverage_note": objectives["coverage_note"],
-            "sensitivity_note": objectives["sensitivity_note"],
-            "assumptions_pending": objectives["assumptions_pending"],
-        },
-        "next_steps": {"tasks": strategy["next_steps"]["tasks"]},
-        "annex_map": {
-            "sap_tree": annex_map["sap_tree"],
-            "lob_tree": annex_map["lob_tree"],
-            "notes": annex_map["notes"],
-        },
-    }
+    """Estado mutable de EDIT que recibe el cliente — TODO valor visible de
+    negocio ahora es editable (gate "COMPLETE VISIBLE BUSINESS VALUE
+    EDITABILITY", ver HANDOFF), así que en vez de curar campo por campo
+    (que quedaba obsoleto cada vez que se agregaba una sección editable),
+    esto manda la sección COMPLETA tal cual vive en el canónico para cada
+    clave de `EDITABLE_TOP_KEYS` — incluye algunos campos estructurales
+    (eyebrow/title/ids/headers de tabla) que el cliente nunca edita
+    (ninguna afordancia de UI los toca) pero que viajan igual porque no
+    son sensibles: son el MISMO contenido que la página ya renderiza
+    server-side. El validador server-side (`merge_editable_fields`) sigue
+    siendo la ÚNICA frontera de verdad — nunca confía en lo que vuelva de
+    acá, recalcula lo estructural desde el documento canónico de nuevo."""
+    doc = {"revision": strategy["revision"]}
+    for key in commercial_strategy_editing.EDITABLE_TOP_KEYS:
+        doc[key] = strategy[key]
+    return doc
 
 
 @router.get("/comercial/estrategia", response_class=HTMLResponse, include_in_schema=False)
@@ -199,7 +184,20 @@ async def commercial_strategy_save(request: Request):
     expected_revision = body["revision"]
 
     try:
-        updated_fields = commercial_strategy_editing.merge_editable_fields(body)
+        current = load_strategy()
+    except CommercialStrategyUnavailable:
+        raise HTTPException(503, "Estrategia no disponible")
+
+    try:
+        # `current`: fuente de los campos ESTRUCTURALES que cada validador
+        # recupera (headers de tabla, access.kind, ids de segmento/subtab —
+        # ver commercial_strategy_editing.merge_editable_fields). Son
+        # topología/seed, nunca se editan ellos mismos, así que usar la
+        # versión recién leída (no necesariamente la misma `expected_revision`
+        # que mandó el cliente) es seguro — el chequeo de concurrencia
+        # optimista real sigue siendo 100% responsabilidad de `save_strategy`
+        # más abajo, esto no lo reemplaza ni lo adelanta.
+        updated_fields = commercial_strategy_editing.merge_editable_fields(body, current)
     except ValidationError as exc:
         raise HTTPException(422, str(exc))
 

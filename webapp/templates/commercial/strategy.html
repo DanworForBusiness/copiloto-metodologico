@@ -109,6 +109,133 @@
 {% endif %}
 {% endmacro %}
 
+{#- Tabla genérica editable — reusada por CADA tabla de la Estrategia
+    (ticket_table, sensitivity_table, events_catalog, assignments_table,
+    access.table de cualquier segmento/subtab, extra_table) — headers
+    SIEMPRE vienen de `doc` (ya los manda `_editable_doc` sin cambios,
+    ver router) pero NUNCA se editan (estructural), filas 100% editables
+    con agregar/eliminar. `arr_expr`: expresión JS del objeto TABLA
+    completo (`{headers, rows}`), p. ej. `doc.objectives.ticket_table`. #}
+{% macro table_edit(arr_expr) %}
+{% if can_edit %}
+<table x-show="editing" x-cloak class="cs-table-edit">
+  <tbody>
+    <template x-for="(row, ri) in {{ arr_expr }}.rows" :key="ri">
+      <tr>
+        <template x-for="(cell, ci) in row" :key="ci">
+          <td><input type="text" class="cs-inline-input" x-model="row[ci]" @input="dirty = true"></td>
+        </template>
+        <td><button type="button" class="cs-edit-remove" title="Eliminar fila" @click="removeAt({{ arr_expr }}.rows, ri)">✕</button></td>
+      </tr>
+    </template>
+  </tbody>
+</table>
+<button type="button" x-show="editing" x-cloak class="btn-secondary cs-annex-add" @click="{{ arr_expr }}.rows.push(Array({{ arr_expr }}.headers.length).fill('')); dirty = true">+ Agregar fila</button>
+{% endif %}
+{% endmacro %}
+
+{#- Colección genérica de "tarjetas" objeto (clusters, roles, stages,
+    golden rules, meetings...) — N objetos con campos de texto fijos +
+    opcionalmente 1-2 sub-listas de strings (bullets/responsibilities).
+    `fields`: [{key, type:'text'|'textarea', placeholder, rows}].
+    `list_fields`: [{key, label}]. `addable=False` para colecciones de
+    cardinalidad fija (ver validator — p. ej. `focus.questions`). #}
+{% macro object_list_edit(arr_expr, fields, list_fields=[], addable=True, new_item='{}') %}
+{% if can_edit %}
+<div x-show="editing" x-cloak class="cs-list-edit cs-object-list-edit">
+  <template x-for="(item, oi) in {{ arr_expr }}" :key="oi">
+    <div class="cs-annex-edit-node cs-object-card">
+      <div class="cs-annex-node-actions">
+        <button type="button" title="Subir" :disabled="oi === 0" @click="moveInArray({{ arr_expr }}, oi, -1)">↑</button>
+        <button type="button" title="Bajar" :disabled="oi === {{ arr_expr }}.length - 1" @click="moveInArray({{ arr_expr }}, oi, 1)">↓</button>
+        {% if addable %}<button type="button" class="cs-edit-remove" title="Eliminar" @click="removeAt({{ arr_expr }}, oi)">✕</button>{% endif %}
+      </div>
+      {% for f in fields %}
+      {% if f.type == 'textarea' %}
+      <textarea class="cs-inline-input" placeholder="{{ f.placeholder }}" rows="{{ f.rows or 2 }}" x-model="item.{{ f.key }}" @input="dirty = true"></textarea>
+      {% else %}
+      <input type="text" class="cs-inline-input" placeholder="{{ f.placeholder }}" x-model="item.{{ f.key }}" @input="dirty = true">
+      {% endif %}
+      {% endfor %}
+      {% for lf in list_fields %}
+      <div class="cs-object-sublist">
+        <label class="cs-object-sublist__label">{{ lf.label }}</label>
+        <template x-for="(sub, si) in item.{{ lf.key }}" :key="si">
+          <div class="cs-edit-row">
+            <input type="text" class="cs-inline-input" x-model="item.{{ lf.key }}[si]" @input="dirty = true">
+            <button type="button" class="cs-edit-remove" title="Eliminar" @click="removeAt(item.{{ lf.key }}, si)">✕</button>
+          </div>
+        </template>
+        <button type="button" class="btn-secondary cs-annex-add" @click="item.{{ lf.key }}.push(''); dirty = true">+ Agregar</button>
+      </div>
+      {% endfor %}
+    </div>
+  </template>
+  {% if addable %}
+  <button type="button" class="btn-secondary cs-annex-add" @click="{{ arr_expr }}.push({{ new_item }}); dirty = true">+ Agregar</button>
+  {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
+{#- Calendario (demand_generation.calendar): 2 niveles — meses con una
+    sub-lista de eventos propia (name/is_date/muted/sub) — forma distinta
+    de `object_list_edit` (esa solo soporta UNA sub-lista de strings, acá
+    la sub-lista es de OBJETOS), así que va bespoke. #}
+{% macro calendar_edit(arr_expr) %}
+{% if can_edit %}
+<div x-show="editing" x-cloak class="cs-list-edit cs-object-list-edit">
+  <template x-for="(month, mi) in {{ arr_expr }}" :key="mi">
+    <div class="cs-annex-edit-node cs-object-card">
+      <div class="cs-annex-node-actions">
+        <button type="button" title="Subir" :disabled="mi === 0" @click="moveInArray({{ arr_expr }}, mi, -1)">↑</button>
+        <button type="button" title="Bajar" :disabled="mi === {{ arr_expr }}.length - 1" @click="moveInArray({{ arr_expr }}, mi, 1)">↓</button>
+        <button type="button" class="cs-edit-remove" title="Eliminar mes" @click="removeAt({{ arr_expr }}, mi)">✕</button>
+      </div>
+      <input type="text" class="cs-inline-input" placeholder="Mes" x-model="month.month" @input="dirty = true">
+      <div class="cs-object-sublist">
+        <label class="cs-object-sublist__label">Eventos</label>
+        <template x-for="(it, ii) in month.items" :key="ii">
+          <div class="cs-annex-edit-node cs-calendar-item-edit">
+            <div class="cs-annex-node-actions">
+              <button type="button" class="cs-edit-remove" title="Eliminar evento" @click="removeAt(month.items, ii)">✕</button>
+            </div>
+            <input type="text" class="cs-inline-input" placeholder="Nombre / fecha" x-model="it.name" @input="dirty = true">
+            <input type="text" class="cs-inline-input" placeholder="Detalle (opcional)" x-model="it.sub" @input="dirty = true">
+            <label class="cs-inline-checkbox"><input type="checkbox" x-model="it.is_date" @change="dirty = true"> Es una fecha</label>
+            <label class="cs-inline-checkbox"><input type="checkbox" x-model="it.muted" @change="dirty = true"> Atenuado</label>
+          </div>
+        </template>
+        <button type="button" class="btn-secondary cs-annex-add" @click="month.items.push({name:'',is_date:false,muted:false,sub:''}); dirty = true">+ Agregar evento</button>
+      </div>
+    </div>
+  </template>
+  <button type="button" class="btn-secondary cs-annex-add" @click="{{ arr_expr }}.push({month:'',items:[]}); dirty = true">+ Agregar mes</button>
+</div>
+{% endif %}
+{% endmacro %}
+
+{#- Lista de objetos {text} (exclusions.items) — MISMO patrón que
+    `string_list_edit` pero un nivel de objeto más (el validador espera
+    `{text: str}`, no un string suelto). #}
+{% macro text_object_list_edit(arr_expr) %}
+{% if can_edit %}
+<div x-show="editing" x-cloak class="cs-list-edit">
+  <template x-for="(item, li) in {{ arr_expr }}" :key="li">
+    <div class="cs-edit-row">
+      <textarea class="cs-inline-input" rows="2" x-model="item.text" @input="dirty = true"></textarea>
+      <div class="cs-annex-node-actions">
+        <button type="button" title="Subir" :disabled="li === 0" @click="moveInArray({{ arr_expr }}, li, -1)">↑</button>
+        <button type="button" title="Bajar" :disabled="li === {{ arr_expr }}.length - 1" @click="moveInArray({{ arr_expr }}, li, 1)">↓</button>
+        <button type="button" class="cs-edit-remove" title="Eliminar" @click="removeAt({{ arr_expr }}, li)">✕</button>
+      </div>
+    </div>
+  </template>
+  <button type="button" class="btn-secondary cs-annex-add" @click="{{ arr_expr }}.push({text:''}); dirty = true">+ Agregar</button>
+</div>
+{% endif %}
+{% endmacro %}
+
 {% macro access_block(access) %}
 {% if access %}
 <div class="cs-block-label">Acceso</div>
@@ -132,6 +259,42 @@
 {% if panel.extra_table %}{{ data_table(panel.extra_table) }}{% endif %}
 {% if panel.pending %}
 {% call callout_wrap("punch", "⚠", panel.pending.title) %}{{ bullets(panel.pending['items']) }}{% endcall %}
+{% endif %}
+{% endmacro %}
+
+{#- Contraparte EDIT de `segment_body` — MISMO panel (segmento de nivel
+    superior o subtab), reusando `string_list_edit`/`table_edit` ya
+    genéricos. `notes`/`strategy` SIEMPRE se editan (aunque estén vacías
+    hoy — un segmento con `strategy: []` debe poder GANAR su primera
+    bullet, ver s2/s3 en el seed) — `access`/`pending`/`extra_table` son
+    polimórficos/opcionales DE VERDAD (estructural: `is none`, no
+    truthiness) y solo se editan si YA existen en el canónico (agregar el
+    BLOQUE es topología, ver commercial_strategy_editing._validate_access). #}
+{% macro segment_body_edit(panel, item_expr) %}
+{% if can_edit %}
+<div x-show="editing" x-cloak class="cs-segment-edit">
+  <div class="cs-block-label">Notas</div>
+  {{ string_list_edit(item_expr ~ '.notes') }}
+  {% if panel.access is not none %}
+  <div class="cs-block-label">Acceso</div>
+  {% if panel.access.kind == 'table' %}
+  {{ table_edit(item_expr ~ '.access.table') }}
+  {% else %}
+  {{ string_list_edit(item_expr ~ '.access.items') }}
+  {% endif %}
+  {% endif %}
+  <div class="cs-block-label">Estrategia</div>
+  {{ string_list_edit(item_expr ~ '.strategy') }}
+  {% if panel.pending is not none %}
+  <div class="cs-block-label">Pendiente</div>
+  {{ inline_text(item_expr ~ '.pending.title', tag='p', placeholder='Título del pendiente') }}
+  {{ string_list_edit(item_expr ~ '.pending.items') }}
+  {% endif %}
+  {% if panel.extra_table is not none %}
+  <div class="cs-block-label">Tabla adicional</div>
+  {{ table_edit(item_expr ~ '.extra_table') }}
+  {% endif %}
+</div>
 {% endif %}
 {% endmacro %}
 
@@ -320,7 +483,12 @@
              try {
                const res = await fetch('/comercial/estrategia', {
                  method: 'POST', headers: {'Content-Type': 'application/json'},
-                 body: JSON.stringify({revision: this.doc.revision, hero: this.doc.hero, objectives: this.doc.objectives, next_steps: this.doc.next_steps, annex_map: this.doc.annex_map}),
+                 // `doc` ya tiene EXACTAMENTE la forma de EDITABLE_TOP_KEYS
+                 // (ver `_editable_doc` del router: manda cada sección
+                 // completa) — no hace falta listar claves a mano, y
+                 // agregar una sección editable nueva no requiere tocar
+                 // esta línea.
+                 body: JSON.stringify(this.doc),
                });
                const data = await res.json().catch(() => ({}));
                if (res.ok) { window.location.reload(); return; }
@@ -389,7 +557,8 @@
       {# ── Pilar 1 · Objetivos ──────────────────────────────────────── #}
       <section id="p1" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.objectives.eyebrow }}</span><h2>{{ strategy.objectives.title }}</h2></div></header>
-        <p>{{ md(strategy.objectives.intro) }}</p>
+        <p x-show="!editing">{{ md(strategy.objectives.intro) }}</p>
+        {{ inline_text('objectives.intro', tag='p', placeholder='Introducción', multiline=True) }}
 
         <div class="cs-block-label">Objetivos de resultado</div>
         <div class="cs-kpi-grid" x-show="!editing">{% for c in strategy.objectives.result_targets %}{{ kpi_card(c) }}{% endfor %}</div>
@@ -398,16 +567,20 @@
         <div class="cs-block-label">Base de cálculo del embudo</div>
         <p x-show="!editing">{{ md(strategy.objectives.calc_note) }}</p>
         {{ inline_text('objectives.calc_note', tag='p', placeholder='Base de cálculo del embudo — nota', multiline=True) }}
-        {{ data_table(strategy.objectives.ticket_table) }}
+        <div x-show="!editing">{{ data_table(strategy.objectives.ticket_table) }}</div>
+        {{ table_edit('doc.objectives.ticket_table') }}
 
         <div class="cs-block-label">El embudo</div>
         <div class="cs-funnel">
           {% for row in strategy.objectives.funnel %}
           {% if not loop.first %}<div class="cs-farrow">▼</div>{% endif %}
           <div class="cs-frow" data-level="{{ row.level }}">
-            <span class="cs-frow__label">{{ row.label }}</span>
-            <span class="cs-frow__value">{{ row.value }}</span>
-            <span class="cs-frow__sub">{{ row.sub }}</span>
+            <span class="cs-frow__label" x-show="!editing">{{ row.label }}</span>
+            {{ inline_text('objectives.funnel[' ~ loop.index0 ~ '].label', tag='span', cls='cs-frow__label', placeholder='Etiqueta') }}
+            <span class="cs-frow__value" x-show="!editing">{{ row.value }}</span>
+            {{ inline_text('objectives.funnel[' ~ loop.index0 ~ '].value', tag='span', cls='cs-frow__value', placeholder='Valor') }}
+            <span class="cs-frow__sub" x-show="!editing">{{ row.sub }}</span>
+            {{ inline_text('objectives.funnel[' ~ loop.index0 ~ '].sub', tag='span', cls='cs-frow__sub', placeholder='Subtexto') }}
           </div>
           {% endfor %}
         </div>
@@ -424,7 +597,8 @@
         <div class="cs-block-label">Sensibilidad por mezcla de ticket</div>
         <p x-show="!editing">{{ md(strategy.objectives.sensitivity_note) }}</p>
         {{ inline_text('objectives.sensitivity_note', tag='p', placeholder='Sensibilidad por mezcla de ticket — nota', multiline=True) }}
-        {{ data_table(strategy.objectives.sensitivity_table) }}
+        <div x-show="!editing">{{ data_table(strategy.objectives.sensitivity_table) }}</div>
+        {{ table_edit('doc.objectives.sensitivity_table') }}
 
         {% call callout_wrap("", "📌", "Supuestos a afinar") %}
         <div x-show="!editing">{{ bullets(strategy.objectives.assumptions_pending) }}</div>
@@ -436,14 +610,24 @@
       {# ── Pilar 2 · Generación de demanda ─────────────────────────── #}
       <section id="genda" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.demand_generation.eyebrow }}</span><h2>{{ strategy.demand_generation.title }}</h2></div></header>
-        <p>{{ md(strategy.demand_generation.intro) }}</p>
+        <p x-show="!editing">{{ md(strategy.demand_generation.intro) }}</p>
+        {{ inline_text('demand_generation.intro', tag='p', placeholder='Introducción', multiline=True) }}
 
         {% if strategy.demand_generation.demand_target %}
-        <div class="cs-kpi-grid">{{ kpi_card(strategy.demand_generation.demand_target) }}</div>
+        <div class="cs-kpi-grid" x-show="!editing">{{ kpi_card(strategy.demand_generation.demand_target) }}</div>
+        {% if can_edit %}
+        <div class="cs-kpi-grid" x-show="editing" x-cloak>
+          <div class="cs-kpi">
+            <input type="text" class="cs-inline-input cs-kpi__label" placeholder="Etiqueta" x-model="doc.demand_generation.demand_target.label" @input="dirty = true">
+            <input type="text" class="cs-inline-input cs-kpi__value" placeholder="Valor" x-model="doc.demand_generation.demand_target.value" @input="dirty = true">
+            <textarea class="cs-inline-input cs-kpi__detail" placeholder="Detalle" rows="2" x-model="doc.demand_generation.demand_target.detail" @input="dirty = true"></textarea>
+          </div>
+        </div>
+        {% endif %}
         {% endif %}
 
         <div class="cs-block-label">Catálogo de oferta</div>
-        <div class="cs-cluster-grid">
+        <div class="cs-cluster-grid" x-show="!editing">
           {% for c in strategy.demand_generation.clusters %}
           <div class="cs-cluster">
             <div class="cs-cluster__tag">{{ c.tag }}</div>
@@ -453,9 +637,15 @@
           </div>
           {% endfor %}
         </div>
+        {{ object_list_edit('doc.demand_generation.clusters',
+             [{'key': 'tag', 'placeholder': 'Tag (p. ej. Cluster 1 · Principal revenue)'},
+              {'key': 'name', 'placeholder': 'Nombre'},
+              {'key': 'message', 'type': 'textarea', 'placeholder': 'Frase / mensaje (opcional)'}],
+             [{'key': 'bullets', 'label': 'Puntos'}],
+             new_item="{tag:'',name:'',bullets:[],message:''}") }}
 
         <div class="cs-block-label">Canales de demanda</div>
-        <div class="cs-chan-grid">
+        <div class="cs-chan-grid" x-show="!editing">
           {% for key in ["inbound", "outbound"] %}
           {% set box = strategy.demand_generation.channels.get(key) %}
           {% if box %}
@@ -463,12 +653,23 @@
           {% endif %}
           {% endfor %}
         </div>
+        {% if can_edit %}
+        <div class="cs-chan-grid" x-show="editing" x-cloak>
+          {% for key in ["inbound", "outbound"] %}
+          <div class="cs-chan">
+            <input type="text" class="cs-inline-input cs-chan__title" placeholder="Título del canal" x-model="doc.demand_generation.channels.{{ key }}.title" @input="dirty = true">
+            {{ string_list_edit('doc.demand_generation.channels.' ~ key ~ '.items') }}
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
 
         <div class="cs-block-label">Catálogo de eventos</div>
-        {{ data_table(strategy.demand_generation.events_catalog) }}
+        <div x-show="!editing">{{ data_table(strategy.demand_generation.events_catalog) }}</div>
+        {{ table_edit('doc.demand_generation.events_catalog') }}
 
         <div class="cs-block-label">Calendario</div>
-        <div class="cs-evgrid">
+        <div class="cs-evgrid" x-show="!editing">
           {% for col in strategy.demand_generation.calendar %}
           <div class="cs-evcol">
             <div class="cs-evmonth">{{ col.month }}</div>
@@ -481,8 +682,12 @@
           </div>
           {% endfor %}
         </div>
+        {{ calendar_edit('doc.demand_generation.calendar') }}
 
-        {% call callout_wrap("punch", "📣", "Responsable del motor de demanda") %}<p>{{ md(strategy.demand_generation.owner_note) }}</p>{% endcall %}
+        {% call callout_wrap("punch", "📣", "Responsable del motor de demanda") %}
+        <p x-show="!editing">{{ md(strategy.demand_generation.owner_note) }}</p>
+        {{ inline_text('demand_generation.owner_note', tag='p', multiline=True) }}
+        {% endcall %}
         {% set feedback_id = "demand_generation" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
@@ -490,8 +695,12 @@
       <section id="p2" class="content-section"
                x-data="{ seg: '{{ strategy.segments['items'][0].id }}', subsel: { {% for seg in strategy.segments['items'] %}{% if seg.subtabs %}'{{ seg.id }}': '{{ seg.subtabs[0].id }}',{% endif %}{% endfor %} } }">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.segments.eyebrow }}</span><h2>{{ strategy.segments.title }}</h2></div></header>
-        <p>{{ md(strategy.segments.intro) }}</p>
-        {% call callout_wrap("punch", "ℹ", "Qué es \"New Name\" para Danwor") %}<p>{{ md(strategy.segments.new_name_note) }}</p>{% endcall %}
+        <p x-show="!editing">{{ md(strategy.segments.intro) }}</p>
+        {{ inline_text('segments.intro', tag='p', placeholder='Introducción', multiline=True) }}
+        {% call callout_wrap("punch", "ℹ", "Qué es \"New Name\" para Danwor") %}
+        <p x-show="!editing">{{ md(strategy.segments.new_name_note) }}</p>
+        {{ inline_text('segments.new_name_note', tag='p', multiline=True) }}
+        {% endcall %}
 
         <div class="cs-segtabs" role="tablist">
           {% for seg in strategy.segments['items'] %}
@@ -500,9 +709,19 @@
         </div>
 
         {% for seg in strategy.segments['items'] %}
+        {% set seg_expr = 'doc.segments.items[' ~ loop.index0 ~ ']' %}
         <div x-show="seg === '{{ seg.id }}'" role="tabpanel">
-          <div class="cs-seg-header"><h3>{{ seg.title }}</h3>{{ priority_badge(seg.priority) }}</div>
+          <div class="cs-seg-header" x-show="!editing"><h3>{{ seg.title }}</h3>{{ priority_badge(seg.priority) }}</div>
+          {% if can_edit %}
+          <div class="cs-seg-header cs-seg-header-edit" x-show="editing" x-cloak>
+            {{ inline_text(seg_expr ~ '.title', tag='span', cls='cs-inline-h3', placeholder='Título del segmento') }}
+            {% if seg.priority %}{{ inline_text(seg_expr ~ '.priority.text', tag='span', cls='cs-priority', placeholder='Prioridad') }}{% endif %}
+          </div>
+          <div class="cs-block-label">Etiqueta de pestaña</div>
+          {{ inline_text(seg_expr ~ '.tab_label', tag='p', placeholder='Etiqueta de pestaña') }}
+          {% endif %}
           {{ segment_body(seg) }}
+          {{ segment_body_edit(seg, seg_expr) }}
 
           {% if seg.subtabs %}
           <div class="cs-subtabs" role="tablist">
@@ -511,8 +730,14 @@
             {% endfor %}
           </div>
           {% for sub in seg.subtabs %}
+          {% set sub_expr = seg_expr ~ '.subtabs[' ~ loop.index0 ~ ']' %}
           <div x-show="subsel['{{ seg.id }}'] === '{{ sub.id }}'" role="tabpanel">
+            {% if can_edit %}
+            <div class="cs-block-label" x-show="editing" x-cloak>Etiqueta de pestaña</div>
+            {{ inline_text(sub_expr ~ '.tab_label', tag='p', placeholder='Etiqueta de pestaña') }}
+            {% endif %}
             {{ segment_body(sub) }}
+            {{ segment_body_edit(sub, sub_expr) }}
           </div>
           {% endfor %}
           {% endif %}
@@ -524,36 +749,51 @@
       {# ── Pilar 4 · Criterio de foco ──────────────────────────────── #}
       <section id="p3" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.focus.eyebrow }}</span><h2>{{ strategy.focus.title }}</h2></div></header>
-        <p>{{ md(strategy.focus.intro) }}</p>
-        <div class="cs-numlist">
+        <p x-show="!editing">{{ md(strategy.focus.intro) }}</p>
+        {{ inline_text('focus.intro', tag='p', placeholder='Introducción', multiline=True) }}
+        <div class="cs-numlist" x-show="!editing">
           {% for q in strategy.focus.questions %}
           <div class="cs-numitem"><span class="cs-numitem__num">{{ q.n }}</span><div><span class="cs-numitem__title">{{ q.text }}</span></div></div>
           {% endfor %}
         </div>
+        {% if can_edit %}
+        <div class="cs-numlist" x-show="editing" x-cloak>
+          {% for q in strategy.focus.questions %}
+          <div class="cs-numitem"><span class="cs-numitem__num">{{ q.n }}</span>
+            {{ inline_text('focus.questions[' ~ loop.index0 ~ '].text', tag='div', placeholder='Pregunta') }}
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
         <div class="cs-block-label">Regla de obtención y foco</div>
-        {{ bullets(strategy.focus.rules) }}
-        {% if strategy.focus.coherence_note %}<p>{{ md(strategy.focus.coherence_note) }}</p>{% endif %}
+        <div x-show="!editing">{{ bullets(strategy.focus.rules) }}</div>
+        {{ string_list_edit('doc.focus.rules') }}
+        {% if strategy.focus.coherence_note %}<p x-show="!editing">{{ md(strategy.focus.coherence_note) }}</p>{% endif %}
+        {{ inline_text('focus.coherence_note', tag='p', placeholder='Nota de coherencia (opcional)', multiline=True) }}
         {% set feedback_id = "focus" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 5 · Capacidad ──────────────────────────────────────── #}
       <section id="p4" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.capacity.eyebrow }}</span><h2>{{ strategy.capacity.title }}</h2></div></header>
-        {{ data_table(strategy.capacity.assignments_table) }}
+        <div x-show="!editing">{{ data_table(strategy.capacity.assignments_table) }}</div>
+        {{ table_edit('doc.capacity.assignments_table') }}
         <div class="cs-block-label">Regla de prioridad de ejecución</div>
-        <div class="cs-numlist">
+        <div class="cs-numlist" x-show="!editing">
           {% for r in strategy.capacity.priority_rules %}
           <div class="cs-numitem"><span class="cs-numitem__num">·</span><div><span class="cs-numitem__detail">{{ md(r) }}</span></div></div>
           {% endfor %}
         </div>
+        {{ string_list_edit('doc.capacity.priority_rules') }}
         {% set feedback_id = "capacity" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 6 · Cadencia de revisión ───────────────────────────── #}
       <section id="p5" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.cadence.eyebrow }}</span><h2>{{ strategy.cadence.title }}</h2></div></header>
-        <p>{{ md(strategy.cadence.intro) }}</p>
-        <div class="cs-meet-grid">
+        <p x-show="!editing">{{ md(strategy.cadence.intro) }}</p>
+        {{ inline_text('cadence.intro', tag='p', placeholder='Introducción', multiline=True) }}
+        <div class="cs-meet-grid" x-show="!editing">
           {% for m in strategy.cadence.meetings %}
           <div class="cs-meet-card">
             <div class="cs-meet-card__freq">{{ m.freq }}</div>
@@ -563,18 +803,26 @@
           </div>
           {% endfor %}
         </div>
-        {% if strategy.cadence.note %}<p>{{ md(strategy.cadence.note) }}</p>{% endif %}
+        {{ object_list_edit('doc.cadence.meetings',
+             [{'key': 'freq', 'placeholder': 'Frecuencia (p. ej. Lunes — Parte 1)'},
+              {'key': 'title', 'placeholder': 'Título de la reunión'},
+              {'key': 'participants', 'placeholder': 'Participantes'}],
+             [{'key': 'bullets', 'label': 'Temas'}],
+             new_item="{freq:'',title:'',participants:'',bullets:[]}") }}
+        {% if strategy.cadence.note %}<p x-show="!editing">{{ md(strategy.cadence.note) }}</p>{% endif %}
+        {{ inline_text('cadence.note', tag='p', placeholder='Nota (opcional)', multiline=True) }}
         {% set feedback_id = "cadence" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Pilar 7 · Qué no se hace ─────────────────────────────────── #}
       <section id="p6" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.exclusions.eyebrow }}</span><h2>{{ strategy.exclusions.title }}</h2></div></header>
-        <div class="cs-numlist">
+        <div class="cs-numlist" x-show="!editing">
           {% for it in strategy.exclusions['items'] %}
           <div class="cs-numitem"><span class="cs-numitem__num" style="color:#d65b5b;">✕</span><div><span class="cs-numitem__detail">{{ md(it.text) }}</span></div></div>
           {% endfor %}
         </div>
+        {{ text_object_list_edit('doc.exclusions.items') }}
         {% set feedback_id = "exclusions" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
@@ -582,7 +830,8 @@
           "PIVOT EDIT UX": nunca un formulario duplicado debajo) ────────── #}
       <section id="proximos" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.next_steps.eyebrow }}</span><h2>{{ strategy.next_steps.title }}</h2></div></header>
-        <p>{{ md(strategy.next_steps.intro) }}</p>
+        <p x-show="!editing">{{ md(strategy.next_steps.intro) }}</p>
+        {{ inline_text('next_steps.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <table x-show="!editing">
           <thead><tr><th>Tarea</th><th>Origen</th><th>Responsable</th><th>Q</th></tr></thead>
           <tbody>
@@ -627,7 +876,8 @@
         </table>
         <button type="button" x-show="editing" x-cloak class="btn-secondary cs-annex-add" @click="addTask()">+ Agregar tarea</button>
         {% endif %}
-        {% if strategy.next_steps.closing_note %}<p>{{ md(strategy.next_steps.closing_note) }}</p>{% endif %}
+        {% if strategy.next_steps.closing_note %}<p x-show="!editing">{{ md(strategy.next_steps.closing_note) }}</p>{% endif %}
+        {{ inline_text('next_steps.closing_note', tag='p', placeholder='Nota de cierre (opcional)', multiline=True) }}
         {% set feedback_id = "next_steps" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
@@ -705,8 +955,9 @@
       {# ── Anexo · Roles y responsabilidades ────────────────────────── #}
       <section id="roles" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.annex_roles.eyebrow }}</span><h2>{{ strategy.annex_roles.title }}</h2></div></header>
-        <p>{{ md(strategy.annex_roles.intro) }}</p>
-        <div class="cs-role-grid">
+        <p x-show="!editing">{{ md(strategy.annex_roles.intro) }}</p>
+        {{ inline_text('annex_roles.intro', tag='p', placeholder='Introducción', multiline=True) }}
+        <div class="cs-role-grid" x-show="!editing">
           {% for r in strategy.annex_roles.roles %}
           <div class="cs-role">
             <h4>{{ r.name }}</h4>
@@ -723,14 +974,21 @@
           </div>
           {% endfor %}
         </div>
+        {{ object_list_edit('doc.annex_roles.roles',
+             [{'key': 'name', 'placeholder': 'Nombre del rol'},
+              {'key': 'who', 'placeholder': 'Quién lo ocupa hoy'},
+              {'key': 'mision', 'type': 'textarea', 'placeholder': 'Misión'}],
+             [{'key': 'responsibilities', 'label': 'Responsabilidades'}, {'key': 'not_responsible', 'label': 'No hace'}],
+             new_item="{name:'',who:'',mision:'',responsibilities:[],not_responsible:[]}") }}
         {% set feedback_id = "annex_roles" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Anexo · Proceso comercial (timeline) ─────────────────────── #}
       <section id="proceso" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.annex_process.eyebrow }}</span><h2>{{ strategy.annex_process.title }}</h2></div></header>
-        <p>{{ md(strategy.annex_process.intro) }}</p>
-        <div class="cs-timeline">
+        <p x-show="!editing">{{ md(strategy.annex_process.intro) }}</p>
+        {{ inline_text('annex_process.intro', tag='p', placeholder='Introducción', multiline=True) }}
+        <div class="cs-timeline" x-show="!editing">
           {% for s in strategy.annex_process.stages %}
           <div class="cs-stage">
             <div class="cs-stage__num">{{ s.n }}</div>
@@ -742,15 +1000,24 @@
           </div>
           {% endfor %}
         </div>
-        {% call callout_wrap("warn", "⏱", "Umbral de enfriamiento") %}<p>{{ md(strategy.annex_process.cooling_note) }}</p>{% endcall %}
+        {{ object_list_edit('doc.annex_process.stages',
+             [{'key': 'name', 'placeholder': 'Nombre de la etapa'},
+              {'key': 'meta', 'placeholder': 'Meta / responsable'},
+              {'key': 'gate', 'type': 'textarea', 'placeholder': 'Condición de avance (gate)'}],
+             new_item="{name:'',meta:'',gate:''}") }}
+        {% call callout_wrap("warn", "⏱", "Umbral de enfriamiento") %}
+        <p x-show="!editing">{{ md(strategy.annex_process.cooling_note) }}</p>
+        {{ inline_text('annex_process.cooling_note', tag='p', multiline=True) }}
+        {% endcall %}
         {% set feedback_id = "annex_process" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 
       {# ── Anexo · Reglas de oro ────────────────────────────────────── #}
       <section id="reglas" class="content-section">
         <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">{{ strategy.annex_rules.eyebrow }}</span><h2>{{ strategy.annex_rules.title }}</h2></div></header>
-        <p>{{ md(strategy.annex_rules.intro) }}</p>
-        <div class="cs-numlist">
+        <p x-show="!editing">{{ md(strategy.annex_rules.intro) }}</p>
+        {{ inline_text('annex_rules.intro', tag='p', placeholder='Introducción', multiline=True) }}
+        <div class="cs-numlist" x-show="!editing">
           {% for r in strategy.annex_rules.rules %}
           <div class="cs-numitem">
             <span class="cs-numitem__num">{{ r.n }}</span>
@@ -758,6 +1025,10 @@
           </div>
           {% endfor %}
         </div>
+        {{ object_list_edit('doc.annex_rules.rules',
+             [{'key': 'title', 'placeholder': 'Título de la regla'},
+              {'key': 'detail', 'type': 'textarea', 'placeholder': 'Detalle'}],
+             new_item="{title:'',detail:''}") }}
         {% set feedback_id = "annex_rules" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% include "partials/section_feedback.html" %}
       </section>
 

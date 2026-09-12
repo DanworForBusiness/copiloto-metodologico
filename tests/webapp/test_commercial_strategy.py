@@ -182,26 +182,28 @@ def test_contenteditable_only_used_as_a_leaf_control_never_a_structural_wrapper(
     _with_owner(monkeypatch)
     rendered = owner_client.get("/comercial/estrategia").text
     banned_wrappers = ("main", "section", "table", "tbody", "tr", "article", "body", "html")
+    allowed_leaf_tags = ("span", "p", "div")  # ver inline_text(): siempre un leaf de texto, nunca un wrapper multi-hijo
     for m in re.finditer(r"<(\w+)[^>]*\bcontenteditable\b", rendered):
         tag = m.group(1).lower()
         assert tag not in banned_wrappers, f"contenteditable found on structural wrapper <{tag}>"
-        assert tag in ("span", "p"), f"unexpected contenteditable host tag <{tag}>"
+        assert tag in allowed_leaf_tags, f"unexpected contenteditable host tag <{tag}>"
 
 
-def test_contenteditable_with_text_transform_css_has_it_neutralized(monkeypatch):
-    # Bug REAL encontrado en browser QA: `.eyebrow` trae `text-transform:
-    # uppercase` (app.css) — `innerText` (lo que lee `@input` en
-    # `inline_text`) es CSS-aware, así que sin este reset cualquier click
-    # + edición de `hero.kicker` mayusculizaba el valor guardado para
-    # siempre, sin importar lo que haya tipeado el usuario. La variante
-    # `.cs-inline.eyebrow` debe neutralizar el transform (ver
-    # commercial_strategy.css) — la VIEW (`.eyebrow` sin `.cs-inline`)
-    # sigue transformándose visualmente como siempre.
+def test_contenteditable_text_transform_neutralized_generically(monkeypatch):
+    # Bug REAL encontrado DOS VECES en browser QA con una regla estrecha
+    # (primero `.eyebrow`, después `.cs-frow__label` del embudo) — un
+    # barrido sistemático de los 76 leaves contenteditable de la página
+    # confirmó que cualquier clase VIEW con `text-transform` (`innerText`
+    # es CSS-aware) mayusculiza/etc el valor guardado permanentemente sin
+    # importar lo que haya tipeado el usuario. El reset ahora es GENÉRICO
+    # sobre `.cs-inline` (con `!important`, ver commercial_strategy.css) en
+    # vez de una regla por clase que se olvidaría de la próxima — esto
+    # prueba que la regla genérica existe, no una instancia puntual.
     _with_owner(monkeypatch)
     rendered = owner_client.get("/comercial/estrategia").text
     assert 'class="cs-inline eyebrow"' in rendered
     css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_strategy.css").read_text(encoding="utf-8")
-    assert ".cs-inline.eyebrow" in css and "text-transform: none" in css.split(".cs-inline.eyebrow")[1].split("}")[0]
+    assert ".cs-inline { text-transform: none !important; }" in css
 
 
 def test_contenteditable_elements_never_persist_innerhtml_only_structured_paths(monkeypatch):
@@ -491,27 +493,20 @@ def _isolated_repo(tmp_path, monkeypatch):
 
 
 def _save_payload(revision: int, **overrides) -> dict:
+    # "COMPLETE VISIBLE BUSINESS VALUE EDITABILITY" gate: TODO
+    # `EDITABLE_TOP_KEYS` viaja completo (mismo criterio que
+    # `_editable_doc` del router — manda la sección canónica entera, el
+    # validador server-side es la única frontera real, ver
+    # commercial_strategy_editing.py). Los tests que solo quieren tocar UN
+    # campo usan `overrides` para reemplazar una sección puntual (p. ej.
+    # `_save_payload(1, hero={**base_hero, "kicker": "..."})`).
     import yaml
+    from webapp.services import commercial_strategy_editing as editing
     seed_path = Path(__file__).resolve().parents[2] / "webapp" / "services" / "commercial_strategy_data" / "strategy.yaml"
     doc = yaml.safe_load(seed_path.read_text(encoding="utf-8"))
-    payload = {
-        "revision": revision,
-        "hero": doc["hero"],
-        "objectives": {
-            "result_targets": doc["objectives"]["result_targets"],
-            "demand_targets": doc["objectives"]["demand_targets"],
-            "calc_note": doc["objectives"]["calc_note"],
-            "coverage_note": doc["objectives"]["coverage_note"],
-            "sensitivity_note": doc["objectives"]["sensitivity_note"],
-            "assumptions_pending": doc["objectives"]["assumptions_pending"],
-        },
-        "next_steps": {"tasks": doc["next_steps"]["tasks"]},
-        "annex_map": {
-            "sap_tree": doc["annex_map"]["sap_tree"],
-            "lob_tree": doc["annex_map"]["lob_tree"],
-            "notes": doc["annex_map"]["notes"],
-        },
-    }
+    payload = {"revision": revision}
+    for key in editing.EDITABLE_TOP_KEYS:
+        payload[key] = doc[key]
     payload.update(overrides)
     return payload
 
@@ -724,6 +719,155 @@ def test_contact_map_only_editable_fields_change_non_editable_annex_map_metadata
     assert after["annex_map"]["title"] == before["annex_map"]["title"]
     assert after["annex_map"]["intro"] == before["annex_map"]["intro"]
     assert after["annex_map"]["lob_intro"] == before["annex_map"]["lob_intro"]
+
+
+# ============================================================================
+# "COMPLETE VISIBLE BUSINESS VALUE EDITABILITY" gate — tests A-J requeridos
+# por los hallazgos de validación manual del owner (ver HANDOFF): tabla de
+# economía del ticket, tabla de escenarios/sensibilidad, funnel, y una
+# muestra de las demás tablas/secciones que antes quedaban de solo lectura.
+# ============================================================================
+
+def test_a_ticket_table_minimum_row_edit_persists(tmp_path, monkeypatch):
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    payload["objectives"]["ticket_table"]["rows"][0] = ["Mínimo", "USD 21K", "USD 63K"]
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    saved_rows = load_strategy()["objectives"]["ticket_table"]["rows"]
+    assert saved_rows[0] == ["Mínimo", "USD 21K", "USD 63K"]
+
+
+def test_b_ticket_table_add_row_persists_and_headers_survive(tmp_path, monkeypatch):
+    # También cubre "otra celda de tabla editable" (item B) y confirma que
+    # `headers` (estructural, ver commercial_strategy_editing._table) NUNCA
+    # se pierde ni se acepta del cliente — sigue siendo el mismo que el
+    # canónico después de agregar una fila.
+    _with_owner(monkeypatch)
+    fresh = _isolated_repo(tmp_path, monkeypatch)
+    before_headers = fresh.load()["objectives"]["ticket_table"]["headers"]
+    payload = _save_payload(1)
+    payload["objectives"]["ticket_table"]["rows"].append(["Enterprise (ej.)", "USD 80K", "USD 240K"])
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    saved = load_strategy()["objectives"]["ticket_table"]
+    assert saved["rows"][-1] == ["Enterprise (ej.)", "USD 80K", "USD 240K"]
+    assert saved["headers"] == before_headers
+
+
+def test_c_ticket_table_computed_column_is_canonical_input_not_silently_recalculated(tmp_path, monkeypatch):
+    # Clasificación explícita (ver docstring de commercial_strategy_editing.py):
+    # la columna "Computado (×3)" NO es derivada — no existe una fórmula
+    # implementada en código en ningún lado del Hub, es contenido humano
+    # mantenido a mano. Este test prueba esa clasificación de forma
+    # explícita: editarla directamente persiste el valor EXACTO que mandó
+    # el cliente — el servidor NUNCA la recalcula ni la sobrescribe.
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    # Valor deliberadamente NO consistente con ninguna fórmula ×3 — si el
+    # servidor "corrigiera" esto de forma silenciosa, este test fallaría.
+    payload["objectives"]["ticket_table"]["rows"][0][2] = "USD 999K (valor arbitrario del test)"
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    assert load_strategy()["objectives"]["ticket_table"]["rows"][0][2] == "USD 999K (valor arbitrario del test)"
+
+
+def test_d_sensitivity_scenario_table_business_cell_edit_persists(tmp_path, monkeypatch):
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    payload["objectives"]["sensitivity_table"]["rows"][0][0] = "Todo al mínimo (editado por el test)"
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    assert load_strategy()["objectives"]["sensitivity_table"]["rows"][0][0] == "Todo al mínimo (editado por el test)"
+
+
+def test_e_funnel_stage_label_edit_persists(tmp_path, monkeypatch):
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    payload["objectives"]["funnel"][0]["label"] = "Pipeline a generar — editado por el test"
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    assert load_strategy()["objectives"]["funnel"][0]["label"] == "Pipeline a generar — editado por el test"
+
+
+def test_f_funnel_stage_business_value_edit_persists_and_level_stays_positional(tmp_path, monkeypatch):
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    payload["objectives"]["funnel"][2]["value"] = "USD 999K (test)"
+    payload["objectives"]["funnel"][2]["level"] = 999  # el cliente NUNCA controla level — estructural/posicional
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    saved_funnel = load_strategy()["objectives"]["funnel"]
+    assert saved_funnel[2]["value"] == "USD 999K (test)"
+    assert saved_funnel[2]["level"] == 3  # posición real (1-indexed), nunca el 999 que mandó el payload
+
+
+def test_g_capacity_assignments_table_cell_edit_persists(tmp_path, monkeypatch):
+    # "Otra tabla que antes quedaba de solo lectura" (item G) — capacity
+    # era código+seed antes de este gate.
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    payload["capacity"]["assignments_table"]["rows"][0][1] = "Responsable editado por el test"
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    assert load_strategy()["capacity"]["assignments_table"]["rows"][0][1] == "Responsable editado por el test"
+
+
+def test_g2_events_catalog_table_cell_edit_persists(tmp_path, monkeypatch):
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    payload["demand_generation"]["events_catalog"]["rows"][0][1] = "Objetivo editado por el test"
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+    from webapp.services.commercial_strategy_repository import load_strategy
+    assert load_strategy()["demand_generation"]["events_catalog"]["rows"][0][1] == "Objetivo editado por el test"
+
+
+def test_i_failed_save_due_to_stale_revision_preserves_the_full_complete_document(tmp_path, monkeypatch):
+    # "Failed Save preserves the complete inline draft" (item I) — a nivel
+    # server, lo que se puede probar es que un Save rechazado (revision
+    # vieja) no persiste NADA, ni siquiera parcialmente, y el documento
+    # completo (todas las 13 secciones editables) queda exactamente como
+    # estaba. El draft del cliente en sí vive en Alpine (`doc` nunca se
+    # descarta en el camino de error — ver comentario del x-data en
+    # strategy.html); acá se prueba el lado server del contrato.
+    _with_owner(monkeypatch)
+    fresh = _isolated_repo(tmp_path, monkeypatch)
+    before = fresh.load()
+    payload = _save_payload(1)
+    payload["objectives"]["ticket_table"]["rows"][0][1] = "Este cambio NO debería persistir"
+    payload["capacity"]["priority_rules"][0] = "Este otro tampoco"
+    # Alguien más ya guardó primero -> revision actual ya no es 1.
+    _owner_post(_save_payload(1))
+    stale_res = _owner_post(payload)
+    assert stale_res.status_code == 409
+    after = fresh.load()
+    assert after["objectives"]["ticket_table"] == before["objectives"]["ticket_table"]
+    assert after["capacity"]["priority_rules"] == before["capacity"]["priority_rules"]
+
+
+def test_j_non_owner_sees_none_of_the_new_section_editing_controls():
+    # Los NOMBRES de función viven en el `x-data` incondicional (inerte sin
+    # botón que los invoque — ver docstring del bloque de edición) — lo que
+    # importa para "no editing chrome" es que ninguna afordancia VISIBLE
+    # (clase CSS gateada por `{% if can_edit %}`) llegue al HTML.
+    text = client.get("/comercial/estrategia").text
+    for banned in ("cs-table-edit", "cs-object-list-edit", "cs-annex-add", "cs-segment-edit", "cs-list-edit"):
+        assert banned not in text, banned
 
 
 def test_invalid_enum_rejected_atomically(tmp_path, monkeypatch):

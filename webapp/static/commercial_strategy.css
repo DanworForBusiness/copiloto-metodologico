@@ -139,9 +139,15 @@
 .cs-stage__meta { margin-top: 2px; color: var(--soft); font-size: .78rem; }
 .cs-stage__gate { margin-top: 6px; color: var(--soft); font-size: .84rem; line-height: 1.5; }
 
-/* Reglas de oro / preguntas de foco — numeración simple reusable. */
-.cs-numlist { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
-.cs-numitem { display: flex; gap: 16px; align-items: flex-start; padding: 14px 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+/* Reglas de oro / preguntas de foco / prioridad de capacidad — numeración
+   simple reusable. El artefacto original renderiza esto como UN bloque
+   con borde único y líneas divisorias finas entre filas (nunca una tile
+   con borde propio por fila) — owner feedback: la versión anterior
+   (cada fila con su propio `border-radius`+gap) se leía como una grilla
+   de tiles en vez de una lista, perdiendo la fidelidad con el original. */
+.cs-numlist { display: flex; flex-direction: column; margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--card); }
+.cs-numitem { display: flex; gap: 16px; align-items: flex-start; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.cs-numitem:last-child { border-bottom: none; }
 .cs-numitem__num { flex-shrink: 0; color: var(--gold); font: 800 1.1rem var(--sans); min-width: 1.6em; }
 .cs-numitem__title { font-weight: 700; font-size: .92rem; color: var(--ink); }
 .cs-numitem__detail { margin-top: 3px; color: var(--soft); font-size: .84rem; line-height: 1.5; }
@@ -216,23 +222,39 @@
 }
 .cs-inline:hover, .cs-inline:focus { outline-color: var(--gold); outline-style: solid; }
 .cs-inline:empty:before { content: attr(data-placeholder); color: var(--dim); }
-/* `.eyebrow` trae `text-transform:uppercase` (app.css) — un contenteditable
-   captura vía `innerText` el texto YA transformado por CSS (`innerText` es
-   CSS-aware), así que sin este reset cualquier edición mayuscularía el
-   valor guardado de forma permanente, sin importar lo que haya tipeado el
-   usuario. Solo afecta a la variante EDIT — la VIEW (`.eyebrow` sin
-   `.cs-inline`) sigue transformándose visualmente como siempre. */
-.cs-inline.eyebrow { text-transform: none; }
+/* Bug REAL encontrado con un barrido sistemático de los 76 leaves
+   contenteditable de la página (no solo los primeros que se probaron a
+   mano): CUALQUIER clase VIEW con `text-transform` (`.eyebrow` en
+   app.css, `.cs-frow__label` acá mismo más abajo, y cualquier otra que
+   se agregue a futuro) rompe `inline_text` de la MISMA forma — un
+   contenteditable captura vía `innerText` el texto YA transformado por
+   CSS (`innerText` es CSS-aware), así que sin este reset cualquier
+   edición mayusculizaría/etc el valor guardado permanentemente, sin
+   importar lo que haya tipeado el usuario. Reset GENÉRICO (no una regla
+   por clase, que se olvidaría de la próxima) con `!important` porque
+   `.cs-inline` se define ACÁ ARRIBA en el archivo — sin especificidad
+   extra, una clase VIEW definida más abajo (MISMO archivo, MISMA
+   especificidad de una sola clase) ganaría la cascada por orden de
+   aparición. Afecta SOLO la variante EDIT — la VIEW sigue
+   transformándose visualmente como siempre. */
+.cs-inline { text-transform: none !important; }
 .cs-inline-h1 { margin: 12px 0 22px; font-size: clamp(2.4rem,5vw,4.5rem); line-height: .98; letter-spacing: -.055em; }
 .cs-inline-h1 .cs-inline-title-accent { color: var(--gold); }
 
+/* `font: inherit` (valor original) hacía que el mismo control se viera
+   grande dentro de una tile de KPI y chico dentro de una celda de tabla —
+   inconsistente entre colecciones (owner feedback). Tamaño FIJO y único
+   para todo `.cs-inline-input`, sin importar el contexto — MISMO valor
+   que ya usaba el mega-form original (`.cs-edit-field input`, retirado
+   en el pivot a edición inline) para sus inputs, no uno inventado. */
 .cs-inline-input {
-  padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px;
-  background: var(--bg2, var(--card)); color: var(--ink); font: inherit;
+  display: block; width: 100%; box-sizing: border-box;
+  padding: 6px 9px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg2, var(--card)); color: var(--ink); font: 500 .86rem var(--sans);
 }
 .content-theme-light .cs-doc .cs-inline-input { background: #f4f4f5; }
 .cs-inline-input:focus { outline: 2px solid var(--gold); outline-offset: 1px; border-color: var(--gold); }
-textarea.cs-inline-input { resize: vertical; width: 100%; }
+textarea.cs-inline-input { resize: vertical; }
 
 /* Controles compactos de colección (agregar/eliminar/reordenar) — MISMO
    primitivo visual que `.cs-edit-task-handle`/`.cs-edit-remove` ya
@@ -247,7 +269,7 @@ textarea.cs-inline-input { resize: vertical; width: 100%; }
 .cs-annex-add { margin-top: 8px; }
 .cs-annex-edit-node { position: relative; }
 .cs-annex-edit-node .cs-annex-node-actions { position: absolute; top: 10px; right: 10px; margin: 0; }
-.cs-kpi-grid .cs-inline-input { margin-bottom: 6px; width: 100%; }
+.cs-kpi-grid .cs-inline-input { margin-bottom: 6px; }
 .cs-kpi-grid textarea.cs-inline-input { min-height: 44px; }
 
 .cs-list-edit .cs-edit-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -262,7 +284,27 @@ textarea.cs-inline-input { resize: vertical; width: 100%; }
 
 .cs-annex-notes-edit .callout { position: relative; padding-right: 40px; }
 .cs-annex-notes-edit .callout .cs-annex-node-actions { position: absolute; top: 14px; right: 14px; margin: 0; }
-.cs-annex-notes-edit input.cs-inline-input { margin-bottom: 8px; width: 100%; font-weight: 700; }
+.cs-annex-notes-edit input.cs-inline-input { font-weight: 700; }
+
+/* "COMPLETE VISIBLE BUSINESS VALUE EDITABILITY" gate — colección genérica
+   de tarjetas objeto (`object_list_edit`/`calendar_edit`: clusters, roles,
+   stages, golden rules, meetings, calendario) — MISMA tarjeta `.cs-tnode`/
+   `.cs-kpi` que ya usan annex tree/KPIs, reusada acá también en vez de
+   inventar un layout de tarjeta nuevo. */
+.cs-object-card { padding: 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); margin-bottom: 12px; }
+.cs-object-sublist { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.cs-object-sublist__label { display: block; margin-bottom: 6px; color: var(--soft); font: 700 .68rem var(--sans); text-transform: uppercase; letter-spacing: .06em; }
+.cs-calendar-item-edit { margin-top: 8px; padding: 10px 12px; }
+.cs-inline-checkbox { display: inline-flex; align-items: center; gap: 6px; margin-right: 14px; color: var(--soft); font-size: .8rem; }
+.cs-inline-checkbox input { margin: 0; }
+
+/* Encabezado de segmento en EDIT (título + badge de prioridad inline) y
+   editor de cuerpo de segmento/subtab (notas/acceso/estrategia/pendiente/
+   tabla extra) — MISMO `.cs-block-label` que el resto del documento ya usa
+   para separar bloques, ningún token nuevo. */
+.cs-seg-header-edit { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.cs-inline-h3 { font-size: 1.3rem; font-weight: 700; }
+.cs-segment-edit { margin-top: 12px; }
 .cs-edit-panel, #cs-edit-panel {
   margin-top: 14px; padding: 20px 22px; border: 1px solid var(--line);
   border-radius: 12px; background: var(--card);
