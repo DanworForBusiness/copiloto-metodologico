@@ -315,6 +315,16 @@ _USAGE_EVENTS: frozenset[str] = frozenset({
     # compartida que Reporting/Copilot), owner: "no aplica solo al tablero
     # integral, sino también a asignaciones".
     "staffing.feedback",
+    # Comercial — Estrategia: un Save exitoso ES la acción con valor
+    # analítico real (adopción real de la edición inline) — MISMO criterio
+    # que "reporting.refresh"/"catalog_regenerate" arriba (una acción
+    # completada, no cada tecla/click de implementación). Cancelar y
+    # fallas de guardado (409/422/503) NO entran acá a propósito: Cancelar
+    # no es una acción de negocio, y las fallas son observabilidad
+    # OPERACIONAL, un diseño separado y deliberadamente diferido (ver
+    # HANDOFF) — no se inventa clasificación para eventos que ese ticket
+    # todavía no emite.
+    "strategy.saved",
 })
 _DIAGNOSTIC_EVENTS: frozenset[str] = frozenset({
     EVENT_DATA_LOAD_FAILED,
@@ -391,6 +401,7 @@ EVENT_LABELS: dict[str, str] = {
     "reporting.refresh": "Reporting — actualizar",
     "reporting.feedback": "Reporting — feedback de reporte",
     "staffing.feedback": "Asignaciones — feedback de reporte",
+    "strategy.saved": "Estrategia — guardado exitoso",
     # "commercial.data_error" NO tiene entrada acá a propósito: es un evento
     # de DIAGNÓSTICO (_DIAGNOSTIC_EVENTS), no de uso — mismo criterio que
     # EVENT_DATA_LOAD_FAILED/EVENT_CONFIGURATION_INCOMPLETE, ninguno de los
