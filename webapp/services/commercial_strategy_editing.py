@@ -12,8 +12,15 @@ persiste nunca, ver el router).
 Alcance editable ("COMPLETE VISIBLE BUSINESS VALUE EDITABILITY" gate, ver
 HANDOFF): TODO valor de negocio autorado y visible en la Estrategia. Lo
 único que queda código+seed es lo genuinamente ESTRUCTURAL:
-  - eyebrow/title de cada sección (encabezado — MISMO criterio que el
-    título de módulo de Copilot, nunca editable ahí tampoco)
+  - `eyebrow` de cada sección (`[01]`..`[A4]` — Structural Eyebrow
+    Ownership Gate: código+posición puro, `cs_nav_map` en strategy.html,
+    NUNCA leído del documento) y la familia/orden de navegación
+    (Information Architecture Pass) — MISMO criterio que el número de
+    módulo de Copilot, nunca editable ahí tampoco. El `title` de cada
+    sección, en cambio, ES contenido de negocio (Final Content Ownership
+    Gate) — se valida acá (`_title`) y es la MISMA fuente que usa tanto el
+    header de la sección como el índice "En este módulo" (nunca dos
+    copias independientes)
   - ids técnicos (`hero.nav[].id`, `segments.items[].id`, `funnel[].level`,
     `annex_process.stages[].n`, `annex_rules.rules[].n`) — se derivan de la
     POSICIÓN en el array, nunca se confía en lo que mande el cliente
@@ -71,6 +78,22 @@ def _text(value, *, max_len: int, field: str) -> str:
 
 def _bool(value) -> bool:
     return bool(value)
+
+
+_MAX_TITLE = 200
+
+
+def _title(value, *, field: str) -> str:
+    """Título visible de sección (Final Content Ownership Gate, ver
+    HANDOFF): MISMO criterio que `_text`, pero además rechaza vacío — a
+    diferencia de un cuerpo de texto libre (`intro`/`note`/etc, donde ""
+    es un valor válido), un título vacío rompe el header Y el índice "En
+    este módulo" (ambos leen esta MISMA fuente, ver strategy.html
+    `cs_nav_map`) — nunca un valor aceptable."""
+    text = _text(value, max_len=_MAX_TITLE, field=field)
+    if not text:
+        raise ValidationError(f"{field}: no puede estar vacío")
+    return text
 
 
 def _kpi(raw, *, field: str) -> dict:
@@ -169,6 +192,7 @@ def _validate_objectives(raw, current: dict) -> dict:
         raise ValidationError("objectives: forma inválida")
     cur = current.get("objectives", {})
     return {
+        "title": _title(raw.get("title", ""), field="objectives.title"),
         "intro": _text(raw.get("intro", ""), max_len=_MAX_TEXT, field="objectives.intro"),
         "result_targets": _kpi_list(raw.get("result_targets"), field="objectives.result_targets", max_items=6),
         "calc_note": _text(raw.get("calc_note", ""), max_len=_MAX_TEXT, field="objectives.calc_note"),
@@ -242,6 +266,7 @@ def _validate_demand_generation(raw, current: dict) -> dict:
         raise ValidationError("demand_generation.channels: forma inválida")
     cur = current.get("demand_generation", {})
     return {
+        "title": _title(raw.get("title", ""), field="demand_generation.title"),
         "intro": _text(raw.get("intro", ""), max_len=_MAX_TEXT, field="demand_generation.intro"),
         "demand_target": _kpi(raw.get("demand_target"), field="demand_generation.demand_target"),
         "clusters": _validate_clusters(raw.get("clusters")),
@@ -372,6 +397,7 @@ def _validate_segments(raw, current: dict) -> dict:
     if not isinstance(items_raw, list) or len(items_raw) != len(current_items):
         raise ValidationError(f"segments.items: se esperaban exactamente {len(current_items)} elementos")
     return {
+        "title": _title(raw.get("title", ""), field="segments.title"),
         "intro": _text(raw.get("intro", ""), max_len=_MAX_TEXT, field="segments.intro"),
         "new_name_note": _text(raw.get("new_name_note", ""), max_len=_MAX_TEXT, field="segments.new_name_note"),
         "items": [
@@ -393,6 +419,7 @@ def _validate_focus(raw, current) -> dict:
             raise ValidationError(f"focus.questions[{i}]: forma inválida")
         questions.append({"n": i + 1, "text": _text(q.get("text", ""), max_len=300, field=f"focus.questions[{i}].text")})
     return {
+        "title": _title(raw.get("title", ""), field="focus.title"),
         "intro": _text(raw.get("intro", ""), max_len=_MAX_TEXT, field="focus.intro"),
         "questions": questions,
         "rules": _string_list(raw.get("rules"), field="focus.rules"),
@@ -405,6 +432,7 @@ def _validate_capacity(raw, current: dict) -> dict:
         raise ValidationError("capacity: forma inválida")
     cur = current.get("capacity", {})
     return {
+        "title": _title(raw.get("title", ""), field="capacity.title"),
         "assignments_table": _table(raw.get("assignments_table"), field="capacity.assignments_table", current_table=cur.get("assignments_table")),
         "priority_rules": _string_list(raw.get("priority_rules"), field="capacity.priority_rules"),
     }
@@ -430,6 +458,7 @@ def _validate_cadence(raw, current) -> dict:
     if not isinstance(raw, dict):
         raise ValidationError("cadence: forma inválida")
     return {
+        "title": _title(raw.get("title", ""), field="cadence.title"),
         "intro": _text(raw.get("intro", ""), max_len=_MAX_TEXT, field="cadence.intro"),
         "meetings": _validate_meetings(raw.get("meetings")),
         "note": _text(raw.get("note", ""), max_len=_MAX_TEXT, field="cadence.note"),
@@ -447,7 +476,7 @@ def _validate_exclusions(raw, current) -> dict:
         if not isinstance(it, dict):
             raise ValidationError(f"exclusions.items[{i}]: forma inválida")
         out.append({"text": _text(it.get("text", ""), max_len=_MAX_TEXT, field=f"exclusions.items[{i}].text")})
-    return {"items": out}
+    return {"title": _title(raw.get("title", ""), field="exclusions.title"), "items": out}
 
 
 def _validate_task(raw, *, index: int, seen_ids: set[str]) -> dict:
@@ -480,6 +509,7 @@ def _validate_next_steps(raw, current) -> dict:
     seen_ids: set[str] = set()
     tasks = [_validate_task(t, index=i, seen_ids=seen_ids) for i, t in enumerate(tasks_raw)]
     return {
+        "title": _title(raw.get("title", ""), field="next_steps.title"),
         "intro": _text(raw.get("intro", ""), max_len=_MAX_TEXT, field="next_steps.intro"),
         "tasks": tasks,
         "closing_note": _text(raw.get("closing_note", ""), max_len=_MAX_TEXT, field="next_steps.closing_note"),
@@ -546,6 +576,7 @@ def _validate_annex_map(raw, current) -> dict:
     if not isinstance(raw, dict):
         raise ValidationError("annex_map: forma inválida")
     return {
+        "title": _title(raw.get("title", ""), field="annex_map.title"),
         "sap_tree": _validate_tree(raw.get("sap_tree"), field="annex_map.sap_tree"),
         "lob_tree": _validate_tree(raw.get("lob_tree"), field="annex_map.lob_tree"),
         "notes": _validate_annex_notes(raw.get("notes"), field="annex_map.notes"),
@@ -571,6 +602,7 @@ def _validate_annex_roles(raw, current) -> dict:
     if not isinstance(roles_raw, list) or len(roles_raw) > _MAX_LIST_ITEMS:
         raise ValidationError("annex_roles.roles: lista inválida")
     return {
+        "title": _title(raw.get("title", ""), field="annex_roles.title"),
         "intro": _text(raw.get("intro", ""), max_len=_MAX_TEXT, field="annex_roles.intro"),
         "roles": [_validate_role(r, field=f"annex_roles.roles[{i}]") for i, r in enumerate(roles_raw)],
     }
@@ -600,6 +632,7 @@ def _validate_annex_process(raw, current) -> dict:
     if not isinstance(raw, dict):
         raise ValidationError("annex_process: forma inválida")
     return {
+        "title": _title(raw.get("title", ""), field="annex_process.title"),
         "intro": _text(raw.get("intro", ""), max_len=_MAX_TEXT, field="annex_process.intro"),
         "stages": _validate_stages(raw.get("stages")),
         "cooling_note": _text(raw.get("cooling_note", ""), max_len=_MAX_TEXT, field="annex_process.cooling_note"),
@@ -627,6 +660,7 @@ def _validate_annex_rules(raw, current) -> dict:
     if not isinstance(raw, dict):
         raise ValidationError("annex_rules: forma inválida")
     return {
+        "title": _title(raw.get("title", ""), field="annex_rules.title"),
         "intro": _text(raw.get("intro", ""), max_len=_MAX_TEXT, field="annex_rules.intro"),
         "rules": _validate_golden_rules(raw.get("rules")),
     }

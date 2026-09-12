@@ -559,30 +559,37 @@
       </section>
 
     {#- MISMO primitivo que module.html's "En este módulo" (.section-index,
-        sin variante roadmap): `<span>código</span>Título`, NUNCA el "N · "
-        que ya trae el label del artefacto fuente (de ahí `strategy_nav_title`,
-        ver commercial_strategy_markup.nav_title). Sin resaltado de sección
-        activa: la variante plana de Copilot tampoco lo hace (solo la
-        variante "roadmap" la tiene) — mismo contrato, no una aproximación.
+        sin variante roadmap): `<span>código</span>Título`.
 
         Information Architecture / Storytelling Pass (ver HANDOFF): el
         documento se presenta como SEIS pilares, no doce secciones
         equivalentes — `cs_nav_map` de abajo es la ÚNICA fuente de la
-        familia semántica (pilares/activación/anexos) y su código
-        (01-06/E1-E2/A1-A4), reusada tanto acá como en cada eyebrow de
-        sección más abajo para que ambos nunca puedan divergir. Es
-        metadata ESTRUCTURAL pura — código de template, nunca
+        familia semántica (pilares/activación/anexos), su código
+        (01-06/E1-E2/A1-A4) y la clave de sección (3er elemento de la
+        tupla), reusada tanto acá como en cada eyebrow de sección más
+        abajo para que ambos nunca puedan divergir. Familia/código/orden
+        son metadata ESTRUCTURAL pura — código de template, nunca
         `strategy.nav[].group` ni ningún otro campo leído del documento
         (seed o runtime): mismo principio que el Structural Eyebrow
-        Ownership Gate — la clasificación de navegación no puede depender
-        de contenido persistido, o un documento runtime ya existente
-        quedaría mostrando la agrupación vieja para siempre. #}
+        Ownership Gate.
+
+        Final Content Ownership Gate (ver HANDOFF): el TÍTULO visible sí
+        es contenido de negocio editable — vive en `strategy.<key>.title`
+        (validado en commercial_strategy_editing._title), y es la ÚNICA
+        fuente que se lee acá abajo. `strategy.nav[].label` (un texto
+        aparte, nunca editable, con un "N · " embebido del artefacto
+        fuente) quedó sin uso — leerlo hubiera dejado el índice mostrando
+        una copia vieja/distinta después de editar el título de una
+        sección, exactamente la duplicación que este gate prohíbe.
+        Conceptualmente: `cs_nav_map` → familia/código/identidad estable;
+        `strategy.<key>.title` → etiqueta de negocio mutable. #}
     {% set cs_nav_map = {
-      'p1': ('pilares', '01'), 'genda': ('pilares', '02'), 'p2': ('pilares', '03'),
-      'p3': ('pilares', '04'), 'p4': ('pilares', '05'), 'p5': ('pilares', '06'),
-      'p6': ('activacion', 'E01'), 'proximos': ('activacion', 'E02'),
-      'mapa': ('anexos', 'A01'), 'roles': ('anexos', 'A02'),
-      'proceso': ('anexos', 'A03'), 'reglas': ('anexos', 'A04'),
+      'p1': ('pilares', '01', 'objectives'), 'genda': ('pilares', '02', 'demand_generation'),
+      'p2': ('pilares', '03', 'segments'), 'p3': ('pilares', '04', 'focus'),
+      'p4': ('pilares', '05', 'capacity'), 'p5': ('pilares', '06', 'cadence'),
+      'p6': ('activacion', 'E01', 'exclusions'), 'proximos': ('activacion', 'E02', 'next_steps'),
+      'mapa': ('anexos', 'A01', 'annex_map'), 'roles': ('anexos', 'A02', 'annex_roles'),
+      'proceso': ('anexos', 'A03', 'annex_process'), 'reglas': ('anexos', 'A04', 'annex_rules'),
     } %}
     {#- Owner feedback: la variante de renglones (captions full-width
         cortando el grid de 3 columnas) dejaba filas sueltas con mucho
@@ -599,20 +606,20 @@
       <div class="cs-nav-families">
         <div class="cs-nav-family">
           <p class="cs-nav-group">Pilares estratégicos</p>
-          {% for item in strategy.nav if cs_nav_map.get(item.id, ('',''))[0] == 'pilares' %}
-          <a href="#{{ item.id }}"><span>{{ cs_nav_map[item.id][1] }}</span>{{ item.label | strategy_nav_title }}</a>
+          {% for id, meta in cs_nav_map.items() if meta[0] == 'pilares' %}
+          <a href="#{{ id }}"><span>{{ meta[1] }}</span>{{ strategy[meta[2]].title }}</a>
           {% endfor %}
         </div>
         <div class="cs-nav-family">
           <p class="cs-nav-group">De la estrategia a la acción</p>
-          {% for item in strategy.nav if cs_nav_map.get(item.id, ('',''))[0] == 'activacion' %}
-          <a href="#{{ item.id }}"><span>{{ cs_nav_map[item.id][1] }}</span>{{ item.label | strategy_nav_title }}</a>
+          {% for id, meta in cs_nav_map.items() if meta[0] == 'activacion' %}
+          <a href="#{{ id }}"><span>{{ meta[1] }}</span>{{ strategy[meta[2]].title }}</a>
           {% endfor %}
         </div>
         <div class="cs-nav-family">
           <p class="cs-nav-group">Anexos</p>
-          {% for item in strategy.nav if cs_nav_map.get(item.id, ('',''))[0] == 'anexos' %}
-          <a href="#{{ item.id }}"><span>{{ cs_nav_map[item.id][1] }}</span>{{ item.label | strategy_nav_title }}</a>
+          {% for id, meta in cs_nav_map.items() if meta[0] == 'anexos' %}
+          <a href="#{{ id }}"><span>{{ meta[1] }}</span>{{ strategy[meta[2]].title }}</a>
           {% endfor %}
         </div>
       </div>
@@ -636,7 +643,7 @@
 
       {# ── Pilar 1 · Objetivos ──────────────────────────────────────── #}
       <section id="p1" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p1'][1] }}]</span><h2>{{ strategy.objectives.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p1'][1] }}]</span><h2 x-show="!editing">{{ strategy.objectives.title }}</h2>{{ inline_text('objectives.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.objectives.intro) }}</p>
         {{ inline_text('objectives.intro', tag='p', placeholder='Introducción', multiline=True) }}
 
@@ -689,7 +696,7 @@
 
       {# ── Pilar 2 · Generación de demanda ─────────────────────────── #}
       <section id="genda" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['genda'][1] }}]</span><h2>{{ strategy.demand_generation.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['genda'][1] }}]</span><h2 x-show="!editing">{{ strategy.demand_generation.title }}</h2>{{ inline_text('demand_generation.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.demand_generation.intro) }}</p>
         {{ inline_text('demand_generation.intro', tag='p', placeholder='Introducción', multiline=True) }}
 
@@ -774,7 +781,7 @@
       {# ── Pilar 3 · Dónde jugamos (segmentos, con tabs) ───────────── #}
       <section id="p2" class="content-section"
                x-data="{ seg: '{{ strategy.segments['items'][0].id }}', subsel: { {% for seg in strategy.segments['items'] %}{% if seg.subtabs %}'{{ seg.id }}': '{{ seg.subtabs[0].id }}',{% endif %}{% endfor %} } }">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p2'][1] }}]</span><h2>{{ strategy.segments.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p2'][1] }}]</span><h2 x-show="!editing">{{ strategy.segments.title }}</h2>{{ inline_text('segments.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.segments.intro) }}</p>
         {{ inline_text('segments.intro', tag='p', placeholder='Introducción', multiline=True) }}
         {% call callout_wrap("punch", "ℹ", "Qué es \"New Name\" para Danwor") %}
@@ -828,7 +835,7 @@
 
       {# ── Pilar 4 · Criterio de foco ──────────────────────────────── #}
       <section id="p3" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p3'][1] }}]</span><h2>{{ strategy.focus.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p3'][1] }}]</span><h2 x-show="!editing">{{ strategy.focus.title }}</h2>{{ inline_text('focus.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.focus.intro) }}</p>
         {{ inline_text('focus.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-numlist" x-show="!editing">
@@ -855,7 +862,7 @@
 
       {# ── Pilar 5 · Capacidad ──────────────────────────────────────── #}
       <section id="p4" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p4'][1] }}]</span><h2>{{ strategy.capacity.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p4'][1] }}]</span><h2 x-show="!editing">{{ strategy.capacity.title }}</h2>{{ inline_text('capacity.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <div x-show="!editing">{{ data_table(strategy.capacity.assignments_table) }}</div>
         {{ table_edit('doc.capacity.assignments_table') }}
         <div class="cs-block-label">Regla de prioridad de ejecución</div>
@@ -870,7 +877,7 @@
 
       {# ── Pilar 6 · Cadencia de revisión ───────────────────────────── #}
       <section id="p5" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p5'][1] }}]</span><h2>{{ strategy.cadence.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p5'][1] }}]</span><h2 x-show="!editing">{{ strategy.cadence.title }}</h2>{{ inline_text('cadence.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.cadence.intro) }}</p>
         {{ inline_text('cadence.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-meet-grid" x-show="!editing">
@@ -896,7 +903,7 @@
 
       {# ── Pilar 7 · Qué no se hace ─────────────────────────────────── #}
       <section id="p6" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p6'][1] }}]</span><h2>{{ strategy.exclusions.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['p6'][1] }}]</span><h2 x-show="!editing">{{ strategy.exclusions.title }}</h2>{{ inline_text('exclusions.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <div class="cs-numlist" x-show="!editing">
           {% for it in strategy.exclusions['items'] %}
           <div class="cs-numitem"><span class="cs-numitem__num" style="color:#d65b5b;">✕</span><div><span class="cs-numitem__detail">{{ md(it.text) }}</span></div></div>
@@ -909,7 +916,7 @@
       {# ── Pilar 8 · Próximos pasos (la tabla misma es el editor — ver gate
           "PIVOT EDIT UX": nunca un formulario duplicado debajo) ────────── #}
       <section id="proximos" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['proximos'][1] }}]</span><h2>{{ strategy.next_steps.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['proximos'][1] }}]</span><h2 x-show="!editing">{{ strategy.next_steps.title }}</h2>{{ inline_text('next_steps.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.next_steps.intro) }}</p>
         {{ inline_text('next_steps.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <table x-show="!editing">
@@ -963,7 +970,7 @@
 
       {# ── Anexo · Mapa de contactos SAP ────────────────────────────── #}
       <section id="mapa" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['mapa'][1] }}]</span><h2>{{ strategy.annex_map.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['mapa'][1] }}]</span><h2 x-show="!editing">{{ strategy.annex_map.title }}</h2>{{ inline_text('annex_map.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p>{{ md(strategy.annex_map.intro) }}</p>
         <div class="cs-block-label">Estructura de ventas SAP</div>
         {% set sap = strategy.annex_map.sap_tree %}
@@ -1034,7 +1041,7 @@
 
       {# ── Anexo · Roles y responsabilidades ────────────────────────── #}
       <section id="roles" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['roles'][1] }}]</span><h2>{{ strategy.annex_roles.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['roles'][1] }}]</span><h2 x-show="!editing">{{ strategy.annex_roles.title }}</h2>{{ inline_text('annex_roles.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.annex_roles.intro) }}</p>
         {{ inline_text('annex_roles.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-role-grid" x-show="!editing">
@@ -1065,7 +1072,7 @@
 
       {# ── Anexo · Proceso comercial (timeline) ─────────────────────── #}
       <section id="proceso" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['proceso'][1] }}]</span><h2>{{ strategy.annex_process.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['proceso'][1] }}]</span><h2 x-show="!editing">{{ strategy.annex_process.title }}</h2>{{ inline_text('annex_process.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.annex_process.intro) }}</p>
         {{ inline_text('annex_process.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-timeline" x-show="!editing">
@@ -1094,7 +1101,7 @@
 
       {# ── Anexo · Reglas de oro ────────────────────────────────────── #}
       <section id="reglas" class="content-section">
-        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['reglas'][1] }}]</span><h2>{{ strategy.annex_rules.title }}</h2></div></header>
+        <header class="content-heading"><div class="content-heading-copy"><span class="section-eyebrow">[{{ cs_nav_map['reglas'][1] }}]</span><h2 x-show="!editing">{{ strategy.annex_rules.title }}</h2>{{ inline_text('annex_rules.title', tag='h2', placeholder='Título de la sección') }}</div></header>
         <p x-show="!editing">{{ md(strategy.annex_rules.intro) }}</p>
         {{ inline_text('annex_rules.intro', tag='p', placeholder='Introducción', multiline=True) }}
         <div class="cs-numlist" x-show="!editing">

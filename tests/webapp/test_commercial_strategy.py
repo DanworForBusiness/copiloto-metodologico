@@ -197,7 +197,11 @@ def test_contenteditable_only_used_as_a_leaf_control_never_a_structural_wrapper(
     _with_owner(monkeypatch)
     rendered = owner_client.get("/comercial/estrategia").text
     banned_wrappers = ("main", "section", "table", "tbody", "tr", "article", "body", "html")
-    allowed_leaf_tags = ("span", "p", "div")  # ver inline_text(): siempre un leaf de texto, nunca un wrapper multi-hijo
+    # `h2` se sumó con el Final Content Ownership Gate (ver HANDOFF): el
+    # título de sección ahora es un leaf editable más (inline_text('X.title',
+    # tag='h2', ...)) — MISMO contrato de leaf-de-texto-único, nunca un
+    # wrapper multi-hijo, solo con otro tag semánticamente apropiado.
+    allowed_leaf_tags = ("span", "p", "div", "h2")  # ver inline_text(): siempre un leaf de texto, nunca un wrapper multi-hijo
     for m in re.finditer(r"<(\w+)[^>]*\bcontenteditable\b", rendered):
         tag = m.group(1).lower()
         assert tag not in banned_wrappers, f"contenteditable found on structural wrapper <{tag}>"
@@ -1412,6 +1416,86 @@ def test_section_index_semantic_grouping_is_structural_not_from_nav_group_field(
     assert group_labels == ["Pilares estratégicos", "De la estrategia a la acción", "Anexos"]
     eyebrows = re.findall(r'section-eyebrow">(\[[0-9A-Z]{2,3}\])</span>', text)
     assert eyebrows == ["[01]", "[02]", "[03]", "[04]", "[05]", "[06]", "[E01]", "[E02]", "[A01]", "[A02]", "[A03]", "[A04]"]
+
+
+def test_section_title_edit_persists_in_header_and_nav_with_stable_anchor_and_code(tmp_path, monkeypatch):
+    # Final Content Ownership Gate (ver HANDOFF): el título de sección ES
+    # contenido de negocio editable — prueba el round-trip completo (A, B,
+    # C, D del gate): Save → reload → el nuevo título aparece en el <h2>
+    # de la sección Y en el índice "En este módulo" (MISMA fuente,
+    # `strategy.objectives.title` — nunca dos copias independientes), el
+    # anchor técnico (`id="p1"`) y el código estructural (`[01]`) no
+    # cambian aunque el título sí.
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    payload["objectives"]["title"] = "Objetivos 2026"
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+
+    text = owner_client.get("/comercial/estrategia").text
+    assert '<h2 x-show="!editing">Objetivos 2026</h2>' in text
+    assert "Objetivos 2026</a>" in text  # el índice "En este módulo"
+    assert '<h2 x-show="!editing">Objetivos</h2>' not in text  # título viejo no sobrevive
+    assert 'id="p1"' in text  # anchor técnico sin cambios
+    assert 'section-eyebrow">[01]</span>' in text  # código estructural sin cambios
+
+
+def test_activation_and_annex_title_edits_preserve_structural_codes(tmp_path, monkeypatch):
+    # Gate E/F: editar el título de una sección de activación o de un anexo
+    # no debe tocar su código estructural (`[E01]`/`[A01]`) — ambas familias
+    # comparten la MISMA `cs_nav_map`, así que un solo caso de cada una
+    # alcanza para probar el contrato genéricamente.
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+    payload = _save_payload(1)
+    payload["exclusions"]["title"] = "Qué NO se hace (v2)"
+    payload["annex_map"]["title"] = "Mapa de contactos (v2)"
+    res = _owner_post(payload)
+    assert res.status_code == 200, res.text
+
+    text = owner_client.get("/comercial/estrategia").text
+    assert '<h2 x-show="!editing">Qué NO se hace (v2)</h2>' in text
+    assert "Qué NO se hace (v2)</a>" in text
+    assert 'section-eyebrow">[E01]</span>' in text
+    assert '<h2 x-show="!editing">Mapa de contactos (v2)</h2>' in text
+    assert "Mapa de contactos (v2)</a>" in text
+    assert 'section-eyebrow">[A01]</span>' in text
+
+
+def test_section_title_validation_rejects_empty_and_oversized(tmp_path, monkeypatch):
+    # Gate G: a diferencia de un cuerpo de texto libre (`intro`/`note`,
+    # donde "" es válido), un título vacío rompe el header Y el índice —
+    # `_title()` lo rechaza explícitamente, distinto de `_text()`.
+    _with_owner(monkeypatch)
+    _isolated_repo(tmp_path, monkeypatch)
+
+    empty_payload = _save_payload(1)
+    empty_payload["objectives"]["title"] = "   "
+    res = _owner_post(empty_payload)
+    assert res.status_code == 422
+    assert "no puede estar vacío" in res.json()["detail"]
+
+    oversized_payload = _save_payload(1)
+    oversized_payload["objectives"]["title"] = "x" * 201
+    res = _owner_post(oversized_payload)
+    assert res.status_code == 422
+    assert "excede el máximo" in res.json()["detail"]
+
+    # Rechazo atómico: ninguno de los dos payloads inválidos tocó el
+    # documento — el título original sigue intacto.
+    text = owner_client.get("/comercial/estrategia").text
+    assert '<h2 x-show="!editing">Objetivos</h2>' in text
+
+
+def test_non_owner_cannot_edit_section_titles():
+    # Gate I: el leaf contenteditable del título (`inline_text(...,
+    # placeholder='Título de la sección')`) vive detrás del MISMO gate
+    # `can_edit` que el resto de los controles de edición — un no-owner no
+    # debe recibir ningún marcador de edición de título en el HTML.
+    text = client.get("/comercial/estrategia").text
+    assert "Título de la sección" not in text
+    assert '<h2 x-show="!editing">Objetivos</h2>' in text  # sigue viendo el título, solo no puede editarlo
 
 
 def test_no_strategy_specific_heading_css_remains():

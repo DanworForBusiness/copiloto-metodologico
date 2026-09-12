@@ -89,7 +89,6 @@ _logger = logging.getLogger("danwor.commercial_strategy")
 # `templating.py` anticipa para el "segundo workspace", ver su docstring).
 templates.env.filters["strategy_markup"] = commercial_strategy_markup.render
 templates.env.filters["strategy_status_class"] = commercial_strategy_markup.status_badge_class
-templates.env.filters["strategy_nav_title"] = commercial_strategy_markup.nav_title
 
 
 def _require_commercial_session(request: Request, *, next_path: str | None = None):
