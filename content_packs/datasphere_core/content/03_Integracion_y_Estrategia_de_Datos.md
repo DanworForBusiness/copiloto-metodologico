@@ -399,6 +399,42 @@ La gestión de "Replicado" en una tabla remota (vía SDI) es el mecanismo inicia
 La Tabla Remota es el artefacto de **Ingesta federada**: apunta al origen, con la opción de replicarse. La Tabla Local es el resultado de **persistir** — ya sea por Replication Flow, Transformation Flow o Data Flow (ver [Modelado y Desarrollo →](/modules/04_Modelado_y_Desarrollo?pack={{pack}}#flujos-de-datos)). Una vez replicada, una tabla remota deja de comportarse como tal — en el sentido estricto — pero el objeto sigue siendo el mismo, con su vínculo al origen. 
 {{/callout}}
 
+### Streaming Read — Remote Tables vía DPA/ABAPAdapter
+{{section_meta: keywords="streaming read, rfc streaming, non-rfc streaming, dialog mode, dialogue mode, abapadapter, dp agent memoria, memoria dp agent, gateway host, gateway port, gateway service, rfc destination, batch size, out of memory dp agent, oom abapadapter, oom data provisioning agent, streaming read on off, sm59 abapadapter, ecc dialog mode timeout"}}
+{{support: SAP ABAP Connections="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/a75c1aacf951449ba3b740c7e46da3a9.html" Prerequisites for ABAP RFC Streaming="https://help.sap.com/docs/SAP_DATASPHERE/9f804b8efa8043539289f42f372c4862/62adb440e4214c53a3028a4fdb5e1156.html" Using RFC Streaming with Tables="https://help.sap.com/docs/HANA_SMART_DATA_INTEGRATION/7952ef28a6914997abc01745fef1b607/960a1e7197a94da7ae379caf305bdbc7.html" SAP ABAP Adapter Remote Source Configuration="https://help.sap.com/docs/HANA_SMART_DATA_INTEGRATION/7952ef28a6914997abc01745fef1b607/8575941eb7a344abadc21721418e28cb.html"}}
+
+> **Alcance**: esto describe el parámetro *Streaming Read* de una tabla remota cuando el **Data Provisioning Option** de la conexión ABAP/S4HANA es **Data Provisioning Agent** (SAP HANA SDI, vía **ABAPAdapter**) — no es una propiedad genérica de "una conexión S/4HANA". Remote Tables vía **Cloud Connector / ABAP SQL Service** son otro stack tecnológico (SDA) y no tienen este parámetro, y tampoco aplica a **Replication Flows**. Que una conexión tenga Cloud Connector configurado para otra capacidad (por ejemplo ABAP SQL Service o Replication Flows) no implica que el ABAPAdapter o su RFC Streaming estén participando: son mecanismos independientes. Regla general: identificar primero el mecanismo técnico efectivo de acceso/provisión, nunca inferirlo por el nombre lógico de la conexión.
+
+{{callout: title="Off no significa sin streaming" tone="warn" icon="🔀"}}
+SAP nombra explícitamente al modo Off: **non-RFC streaming** — no es la ausencia de un mecanismo, es otro mecanismo con nombre propio y comportamiento documentado.
+{{/callout}}
+
+| | Streaming Read = Off (non-RFC streaming) | Streaming Read = On (RFC Streaming Read) |
+|---|---|---|
+| **Transferencia** | El recordset objetivo se extrae completo, como un único batch | Transferencia progresiva en paquetes (*Batch Size*, configurable) vía callback RFC hacia el ABAPAdapter/DPA |
+| **Ejecución en el origen** | Corre en modo *dialog* de ABAP/ECC — sujeto a sus límites (por ejemplo, timeout de dialog mode) | Requiere registrar un server RFC (Gateway Host, Gateway Port/Gateway Service, RFC Destination vía SM59) |
+| **Configuración adicional** | Ninguna | Gateway Host/Port, RFC Destination — ver *Prerequisites for ABAP RFC Streaming* |
+
+{{callout_row}}
+{{callout: title="FACT — documentado por SAP" tone="punch" icon="📖"}}
+- **Off**: al traer el recordset completo en un solo batch, se necesita memoria suficiente para ese recordset completo. SAP publica una *regla general orientativa* (no una fórmula de sizing) de alrededor de 1 GB de RAM en el host del DP Agent por cada millón de registros — depende del ancho/tamaño real del registro, y varias sesiones concurrentes suman requerimiento adicional.
+- **On**: al recibir cada batch RFC, el DPA lo copia a una cola para enviarlo al Data Provisioning Server; SAP documenta el requerimiento de memoria de **ese proceso puntual** como aproximadamente **2× el Batch Size** configurado. El Batch Size es configurable — la documentación consultada muestra 50 MB como default, no una constante arquitectónica del ABAPAdapter.
+{{/callout}}
+{{callout: title="Interpretación arquitectónica Danwor" tone="success" icon="🌿"}}
+RFC Streaming desacopla en gran medida el requerimiento de memoria de una lectura puntual del tamaño total del resultset, al procesarlo en paquetes acotados. Esto NO significa que RFC Streaming elimine los OOM, que "2× Batch Size" sea toda la memoria que consume el proceso del DPA, ni que "1 GB por millón de filas" sea una fórmula exacta aplicable a cualquier tabla.
+{{/callout}}
+{{/callout_row}}
+
+{{callout: title="Streaming Read=Off no prueba un OOM" tone="warn" icon="⚠️"}}
+Un escenario de *resultset grande + non-RFC streaming + alta presión de memoria* es **consistente** con el mecanismo documentado arriba — pero sigue siendo una **hipótesis** hasta correlacionar evidencia real del caso: Remote Table/proceso involucrado, Data Provisioning Option de la conexión, tamaño real del resultset, concurrencia, initial loads activos en simultáneo, memoria asignada al host/proceso del DP Agent, `framework.trc`, errores/dumps del lado origen, y el timing de los eventos. Cadena a seguir siempre: hecho observado → mecanismo técnico → hipótesis → evidencia → recomendación.
+{{/callout}}
+
+La documentación actual de Datasphere marca la opción *Data Provisioning Agent* (SDI ABAPAdapter) como **legacy** — sigue soportada, no deprecada ni obsoleta — y para escenarios nuevos orienta hacia **ABAP SQL Service** para federación (cuando esté disponible) y **Replication Flows** para replicación. RFC Streaming Read sigue siendo relevante para landscapes que ya usan DPA/ABAPAdapter; para decisiones nuevas, el mecanismo apropiado se evalúa por federación vs. replicación, capacidades/versión del origen (ODP/CDS/Dictionary), delta, volumen, latencia, operación y restricciones — nunca por el nombre lógico de la conexión.
+
+{{callout: title="Regla Danwor" tone="success" icon="🌿"}}
+No inferir comportamiento por el nombre lógico de la conexión. Identificar primero el mecanismo técnico efectivo de acceso/provisión.
+{{/callout}}
+
 ## {dw-black}Federación vs. {dw-gold}Persistencia
 {{section_meta: keywords="federación, persistencia, federación vs persistencia, tablas remotas, tablas locales, replicación datos, tiempo real datasphere, cuándo federar, cuándo persistir, remote tables, local tables, estrategia datos datasphere, federo, persisto, federo o persisto, federar o persistir, conviene federar o persistir"}}
 
@@ -446,7 +482,7 @@ Te ayudamos a identificar el enfoque de Integración en SAP Datasphere a través
 ## {dw-black}Tipos de {dw-gold}Conexión
 {{section_meta: keywords="tipos de conexiones, qué conexión usar, conexión datasphere, DP agent cloud connector SDA, SQL service RFC, conexión SAP datasphere, cómo conectar datasphere, árbol conexiones"}}
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US"}}
-La elección del **tipo de conexión** (DP Agent, Cloud Connector, SDA, ABAP SQL service, RFC) depende de compatibilidades y limitaciones técnicas según origen, release y modalidad. La matriz oficial de tipos de conexión soportados está en el 🔗<link url="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US">SAP Help</link>. Para decidir el **mecanismo de extracción** asociado, usá el árbol de la sección *Estrategia de Extracción*.
+La elección del **tipo de conexión** (DP Agent, Cloud Connector, SDA, ABAP SQL service, RFC) depende de compatibilidades y limitaciones técnicas según origen, release y modalidad. La matriz oficial de tipos de conexión soportados está en el 🔗<link url="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US">SAP Help</link>. Para decidir el **mecanismo de extracción** asociado, usá el árbol de la sección *Estrategia de Extracción*. Un parámetro puntual de una tabla remota (por ejemplo, *Streaming Read* del ABAPAdapter, ver [Tablas Remotas →](#tablas-remotas)) depende siempre del mecanismo de provisión efectivamente elegido, nunca del nombre lógico de la conexión.
 
 {{tree_button: Opciones de Extracción}}
 
