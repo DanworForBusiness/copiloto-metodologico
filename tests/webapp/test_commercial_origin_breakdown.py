@@ -169,8 +169,12 @@ def test_origin_lives_inside_the_activas_analysis_with_no_new_breakdown():
     # columna, filtro propio, "✕ Limpiar" — MISMO patrón que Bucket 1) — y
     # `[data-commercial-ex-clientes-table]` — TRES veces también (filtro
     # Vendedor, Buscar, "✕ Limpiar" — Ex Clientes no tiene orden de columna,
-    # su tabla no es sortable).
-    assert len(queries) == 67, queries   # + los 8 de Analítica del Pipeline + los 2 de la atribución de Conversión de Leads + los 2 de la tabla de Tiempo por etapa/Conversión etapa a etapa + 1 de "Retrasadas"/"Por vencer" clickeables en Actividades + 1 de "[data-commercial-analytics-body]" + 1 de "[data-commercial-creadas-summary-tile]" + 9 de Bucket 1 + 9 de Bucket 2 (ver HANDOFF)
+    # su tabla no es sortable). Commercial Pipeline Forecast (ver HANDOFF)
+    # agrega UNA más: `[data-commercial-forecast-ratio]`, restaurando foco al
+    # campo Ratio prospecto (%) tras su propio re-render quirúrgico — MISMO
+    # patrón que la búsqueda de Creadas. Owner corrective (Expandir/Contraer)
+    # agrega DOS más: `"details.dashboard-section"`, una por botón.
+    assert len(queries) == 70, queries   # + los 8 de Analítica del Pipeline + los 2 de la atribución de Conversión de Leads + los 2 de la tabla de Tiempo por etapa/Conversión etapa a etapa + 1 de "Retrasadas"/"Por vencer" clickeables en Actividades + 1 de "[data-commercial-analytics-body]" + 1 de "[data-commercial-creadas-summary-tile]" + 9 de Bucket 1 + 9 de Bucket 2 + 1 de Ratio Pipeline Forecast + 2 de Expandir/Contraer (ver HANDOFF)
     assert '"[data-commercial-funnel-area]"' in queries
     # Un solo lugar arma el contenido de ese host — antes estaba duplicado.
     assert _COMMERCIAL_JS.count("function commercialFunnelAreaHtml(") == 1

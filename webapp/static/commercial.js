@@ -107,6 +107,20 @@ const commercialState = {
   // necesita. "" = sin filtro.
   forecastStageFilter: "",
   forecastSellerFilter: "",
+  // Vista del panel de Forecast (Pipeline Forecast, ver HANDOFF): switch de
+  // REPRESENTACIÓN sobre el MISMO universo filtrado (Etapa/Vendedor arriba),
+  // nunca un filtro nuevo — "mes" (default, comportamiento previo intacto)
+  // o "stage" (detalle agrupado por etapa con clasificación
+  // Cliente/Prospecto). Sobrevive el re-render quirúrgico del panel, igual
+  // que los filtros.
+  forecastViewMode: "mes", // mes | stage
+  // Ratio prospecto (%), Pipeline Forecast ver HANDOFF — texto CRUDO tal
+  // cual lo tipeó el usuario (nunca la fracción canónica: "10" en pantalla,
+  // 0.10 en el cálculo, ver `commercialForecastParseRatio`). Estado de VISTA
+  // pura, nunca persistida (owner GO: "blank ratio ≠ asumir 10%") — en
+  // blanco al cargar la página, sobrevive el switch de vista y los filtros
+  // locales.
+  forecastProspectRatioRaw: "",
   // Drill de "Creadas" (Creadas Legacy Parity, ver HANDOFF — paridad con el
   // legacy `#created-drill-section`/`/crm/opp-by-month`) — LAZY, MISMO
   // criterio que Forecast: no entra al `Promise.all` inicial, se pide la
@@ -1007,6 +1021,280 @@ function commercialForecastFilteredMonths(months) {
   });
 }
 
+// ── Forecast de pipeline — vista por etapa (Pipeline Forecast, ver HANDOFF)
+// ────────────────────────────────────────────────────────────────────────
+// Segunda REPRESENTACIÓN del mismo universo filtrado (`commercialForecast
+// FilteredMonths` de arriba) — nunca un fetch propio, nunca un segundo
+// filtro: reusa Etapa/Vendedor tal cual y sólo reagrupa por etapa en vez de
+// por mes. `client`/`stage` acá son los MISMOS campos que ya trae el
+// payload de `_build_forecast`; `classification` es el único campo nuevo
+// — MODELO A / "Pipeline Maturity Forecast" (owner GO final, ver HANDOFF):
+// PROSPECTO (etapa "0-...") / ACTIVA (etapas 1-8), pura etapa, MISMO
+// criterio que ya usan los tiles "Prospectos"/"Oportunidades Activas" del
+// Dashboard — `res.partner`/"Es Cliente?" NO participa (un modelo anterior
+// que sí lo mezclaba fue revertido: rompía la reconciliación con el
+// Dashboard en cuanto existiera una cuenta no-cliente con pipeline fuera de
+// la etapa 0 — ver commercial_service.py::_classify_opportunity_maturity).
+
+// "10" tipeado -> 0.10 canónico. Blanco -> `null` (sin ratio, nunca 0 —
+// 0 es una entrada VÁLIDA y distinta de "no hay ratio", ver owner GO §5/§8).
+// Fuera de 0–100 o no numérico -> `null` también: se rechaza a estado "sin
+// ratio" en vez de clampear un valor que el usuario no tipeó (no existe
+// convención previa de clamp en todo el Hub, ver discovery §5) — mismo
+// helper de texto que el blanco, MENOS AMBIGUO que inventar un tercer
+// estado visual para "inválido".
+function commercialForecastParseRatio(raw) {
+  const trimmed = String(raw ?? "").trim();
+  if (trimmed === "") return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+  return n / 100;
+}
+
+// Aplana los meses YA filtrados (Etapa/Vendedor) en una sola lista de
+// oportunidades — el universo que alimenta la vista por etapa es el mismo
+// que alimenta la tabla por mes, sólo que sin el eje de tiempo.
+function commercialForecastFlatOpportunities(filteredMonths) {
+  return (filteredMonths || []).flatMap(m => m.opportunities || []);
+}
+
+// Orden canónico de etapa (owner GO §12/discovery): el nombre de etapa ya
+// trae el prefijo numérico del embudo ("0 Prospecto", "4 Propuesta", ...) —
+// MISMO criterio que ya usa `commercialForecastFilterOptions` para el
+// `<select>` de Etapa. Un nombre sin prefijo numérico (no debería ocurrir en
+// este universo, pero sin asumirlo) cae al final, nunca antes que una etapa
+// numerada.
+function commercialForecastStageSortKey(stageName) {
+  const m = /^(\d+)/.exec(stageName || "");
+  return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+function commercialForecastGroupByStage(opps) {
+  const groups = new Map();
+  (opps || []).forEach(o => {
+    const key = o.stage || "";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(o);
+  });
+  return [...groups.entries()]
+    .map(([stage, opportunities]) => ({ stage, opportunities }))
+    .sort((a, b) => commercialForecastStageSortKey(a.stage) - commercialForecastStageSortKey(b.stage)
+      || a.stage.localeCompare(b.stage, "es"));
+}
+
+// Único punto de la aritmética "Forecast horas" por FILA — MODELO A: ACTIVA
+// (etapas 1-8) cuenta al 100% SIEMPRE (nunca depende del ratio ni puede
+// quedar en blanco), PROSPECTO (etapa 0) se pondera por el ratio, o queda
+// `null` si no hay ratio cargado. Reusado TAL CUAL por `commercialForecastCalc`
+// para agregar subtotal/total — un solo lugar con la fórmula, nunca una
+// reimplementación por nivel (owner GO: "No duplicated arithmetic by level").
+function commercialForecastRowForecastHours(opp, ratioFraction) {
+  if (opp.classification === "PROSPECTO") {
+    if (ratioFraction === null) return null;
+    return (opp.hours || 0) * ratioFraction;
+  }
+  return opp.hours || 0; // ACTIVA
+}
+
+// Agregado — MISMO helper para subtotal de etapa Y total general (owner GO:
+// "No duplicated arithmetic by level"). MODELO A: sólo dos magnitudes de
+// entrada (activa/prospecto) — sin Ex-cliente/Sin clasificar/Cobertura, que
+// pertenecían al modelo de relación de cuenta ya descartado (ver HANDOFF).
+function commercialForecastCalc(opps, ratioFraction) {
+  let activeHours = 0, prospectHours = 0, prospectWeighted = 0;
+  (opps || []).forEach(o => {
+    const hours = o.hours || 0;
+    if (o.classification === "PROSPECTO") {
+      prospectHours += hours;
+      const rowVal = commercialForecastRowForecastHours(o, ratioFraction);
+      if (rowVal !== null) prospectWeighted += rowVal;
+    } else {
+      activeHours += hours;
+    }
+  });
+  const hasRatio = ratioFraction !== null;
+  const forecastHours = hasRatio ? activeHours + prospectWeighted : null;
+  return {
+    count: (opps || []).length,
+    activeHours: Math.round(activeHours * 10) / 10,
+    prospectHours: Math.round(prospectHours * 10) / 10,
+    prospectWeighted: hasRatio ? Math.round(prospectWeighted * 10) / 10 : null,
+    forecastHours: hasRatio ? Math.round(forecastHours * 10) / 10 : null,
+  };
+}
+
+// "—" para null explícito (sin ratio / sin dato) — `commercialFmtInt(null)`
+// devolvería "0" (`Number(null) === 0`, NO es lo mismo que "sin valor"), así
+// que este wrapper es el único punto donde un cálculo puede mostrarse en
+// blanco de verdad. Sufijo "hs" fijo — usado en la TABLA, donde el header de
+// columna ("Horas"/"Forecast horas") no repite la unidad en cada celda.
+function commercialFmtForecastHours(value) {
+  return value === null ? "—" : `${commercialFmtInt(value)} hs`;
+}
+
+// MISMO null-safe que el de arriba, SIN el sufijo "hs" — para el resumen de
+// KPIs (owner corrective): la etiqueta de cada tile ya dice "Horas ..."/
+// "Ex-cliente"/"Sin clasificar", y el número + "hs" no entraba en el ancho
+// fijo de `.activity-kpi__value` (se cortaba). La TABLA de abajo sigue
+// usando `commercialFmtForecastHours` — ahí sí hace falta, sus columnas
+// numéricas no repiten la unidad en el header de cada fila.
+function commercialFmtForecastKpiValue(value) {
+  return value === null ? "—" : commercialFmtInt(value);
+}
+
+// Owner corrective (2da vuelta): vive DENTRO de la MISMA fila que Etapa/
+// Vendedor/Limpiar — `commercialForecastFiltersHtml` lo inserta como
+// ÚLTIMO hijo del flex row, ver abajo — nunca en una fila propia (la
+// primera versión de este corrective lo separaba en su propia línea; el
+// owner pidió consolidarlo con los filtros para aprovechar el espacio).
+// Cero estilo propio acá: el primitivo compartido `.dashboard-view-switch`
+// es `inline-flex`, entra tal cual como cualquier otro hijo del flex row.
+function commercialForecastViewSwitchHtml() {
+  const mode = commercialState.forecastViewMode || "mes";
+  const btn = (value, label) =>
+    `<button type="button" class="${mode === value ? "is-active" : ""}" data-commercial-forecast-view="${value}">${commercialEsc(label)}</button>`;
+  return `<div class="dashboard-view-switch" data-commercial-forecast-view-switch>
+      ${btn("mes", "Pipeline por mes de cierre")}
+      ${btn("stage", "Forecast de pipeline")}
+    </div>`;
+}
+
+// Campo Ratio prospecto (%) — único `input[type="number"]` de todo el Hub
+// (discovery: cero precedente previo), así que reusa el wrapper
+// `.whatsnew-filter` (label + control, MISMO look que Etapa/Vendedor) en vez
+// de inventar un layout propio. Placeholder "Ej. 10%" es ilustrativo — NUNCA
+// un value (owner GO: "Ej. 10% remains illustrative only").
+//
+// Owner corrective: vive DENTRO de la misma fila que Etapa/Vendedor
+// (`commercialForecastFiltersHtml` lo inserta ahí, ver abajo) — no en una
+// fila propia debajo del split — así los tres controles del universo
+// filtrado quedan juntos. El HELPER de blanco/inválido es una pieza
+// SEPARADA (`commercialForecastRatioHelperHtml`): metida adentro de
+// `.whatsnew-filters` (que es `display:flex` de una sola fila) rompería ese
+// layout, así que se renderiza aparte, debajo de la fila de filtros.
+function commercialForecastRatioFieldHtml() {
+  const raw = commercialState.forecastProspectRatioRaw || "";
+  return `<label class="whatsnew-filter">
+      <span>Ratio prospecto (%)</span>
+      <input type="number" min="0" max="100" step="any" placeholder="Ej. 10"
+        value="${commercialEsc(raw)}" data-commercial-forecast-ratio>
+    </label>`;
+}
+
+// Owner corrective: el aviso de blanco ("Ingresá un ratio...") se retiró —
+// los ocho tiles ya comunican el estado (Ratio aplicado/Forecast de horas en
+// "—") sin necesidad de repetirlo en texto. El de INVÁLIDO se conserva: no
+// es un estado neutro esperable, es una corrección activa que el usuario
+// necesita ver (0–100 es el rango, no obvio desde los tiles solos).
+function commercialForecastRatioHelperHtml(ratioFraction) {
+  const raw = commercialState.forecastProspectRatioRaw || "";
+  const isBlank = raw.trim() === "";
+  const isInvalid = !isBlank && ratioFraction === null;
+  if (isInvalid) return `<p class="forecast-scope">Ingresá un valor entre 0 y 100.</p>`;
+  return "";
+}
+
+// Fila de oportunidad de la vista por etapa — MISMAS columnas ya
+// disponibles en el payload (nunca un campo de negocio inventado, owner GO
+// §6): Oportunidad/Cliente/Vendedor/Horas/Clasificación, más "Forecast
+// horas" por el helper compartido de arriba.
+// Owner corrective: `.left` en la CELDA, no sólo en el header — el default
+// de `.dashboard-table td` es alineación DERECHA (igual que su `<th>`), así
+// que un header `.left` sin su celda `.left` quedaba desalineado (header a
+// la izquierda, valor a la derecha). Horas/Forecast horas quedan tal cual
+// (numéricas, alineadas a derecha por default). Sin columna "Clasificación"
+// (MODELO A, owner GO): cada grupo de etapa YA es homogéneo (todas sus filas
+// son PROSPECTO o todas ACTIVA), así que una columna por fila sería
+// redundante con el título del grupo — el agrupamiento por etapa comunica
+// la madurez, no hace falta repetirla por fila.
+function commercialForecastStageOppRowHtml(opp, ratioFraction) {
+  const forecastVal = commercialForecastRowForecastHours(opp, ratioFraction);
+  return `<tr>
+      <td class="row-label-col">${commercialEsc(opp.opportunity)}</td>
+      <td class="left">${commercialEsc(opp.client)}</td>
+      <td class="left">${commercialEsc(opp.seller)}</td>
+      <td>${commercialFmtInt(opp.hours)} hs</td>
+      <td>${commercialFmtForecastHours(forecastVal)}</td>
+    </tr>`;
+}
+
+function commercialForecastStageGroupHtml(group, ratioFraction, index) {
+  const calc = commercialForecastCalc(group.opportunities, ratioFraction);
+  const rows = group.opportunities.map(o => commercialForecastStageOppRowHtml(o, ratioFraction)).join("");
+  const id = `forecast-stage-${index}`;
+  const totalHours = calc.activeHours + calc.prospectHours;
+  return `<details class="dashboard-section" data-section-id="${id}" open>
+      <summary class="dashboard-section__head">
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">${commercialEsc(group.stage || "Sin etapa")}</span>
+        <span class="dashboard-section__count">${commercialFmtInt(calc.count)} oportunidades · ${commercialFmtForecastHours(calc.forecastHours)} forecast</span>
+      </summary>
+      <div class="dashboard-section__body">
+        <div class="matrix-scroll">
+          <table class="dashboard-table">
+            <colgroup><col style="width:30%"><col style="width:24%"><col style="width:20%"><col style="width:13%"><col style="width:13%"></colgroup>
+            <thead><tr><th class="left">Oportunidad</th><th class="left">Cliente/Cuenta</th><th class="left">Vendedor</th><th>Horas</th><th>Forecast horas</th></tr></thead>
+            <tbody>${rows}
+              <tr class="is-total">
+                <td class="row-label-col">Subtotal (${commercialFmtInt(calc.count)})</td>
+                <td></td><td></td>
+                <td>${commercialFmtInt(totalHours)} hs</td>
+                <td>${commercialFmtForecastHours(calc.forecastHours)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>`;
+}
+
+// Owner corrective — "al estilo Operaciones → Asignaciones": MISMO
+// primitivo compartido `.staffing-timeline-toolbar` (tools.css, ya usado
+// por Reporting/Staffing) — sólo el LOOK se reusa, nunca su motor de
+// estado (`treeExpandedSet`/`buildTree` en reporting.js): ese modelo exige
+// re-render vía Alpine/`render()`, mientras que los grupos de etapa acá son
+// `<details open>` 100% nativos, sin ningún estado JS de por medio (MISMO
+// criterio que el disclosure de Mapa de Contactos en Strategy). Expandir/
+// Contraer togglea la propiedad `.open` de los `<details>` DIRECTO —
+// instantáneo, sin regenerar HTML.
+function commercialForecastStageToolbarHtml() {
+  return `<div class="staffing-timeline-toolbar">
+      <button type="button" data-commercial-forecast-expand-all>Expandir</button>
+      <button type="button" data-commercial-forecast-collapse-all>Contraer</button>
+    </div>`;
+}
+
+// Cuerpo completo de la vista "Forecast de pipeline" — ratio + resumen +
+// grupos por etapa, sobre el universo YA filtrado por Etapa/Vendedor
+// (mismo `filtered` que recibe la vista por mes). Universo vacío tras
+// filtrar -> "Sin resultados", MISMA taxonomía que el resto del panel.
+function commercialForecastStageViewHtml(filteredMonths) {
+  const opps = commercialForecastFlatOpportunities(filteredMonths);
+  if (!opps.length) {
+    return commercialEmptyStateHtml("Sin resultados",
+      "Ninguna oportunidad tiene datos para esta combinación de filtros.");
+  }
+  const ratioFraction = commercialForecastParseRatio(commercialState.forecastProspectRatioRaw);
+  const calc = commercialForecastCalc(opps, ratioFraction);
+  const groups = commercialForecastGroupByStage(opps);
+  // MODELO A — cinco tiles primarios (owner GO final): activa/prospecto son
+  // las DOS únicas magnitudes de entrada, ratio/ajustadas/forecast son su
+  // derivación. Sin Ex-cliente/Sin clasificar/Cobertura clasificada — esas
+  // pertenecían al modelo de relación de cuenta ya descartado, y bajo este
+  // modelo no aportan a NINGÚN cálculo (ver HANDOFF, semantic audit).
+  const summaryTiles = [
+    commercialKpi("Horas activas", commercialFmtForecastKpiValue(calc.activeHours)),
+    commercialKpi("Horas prospecto", commercialFmtForecastKpiValue(calc.prospectHours)),
+    commercialKpi("Ratio aplicado", ratioFraction === null ? "—" : commercialFmtPercent(ratioFraction * 100)),
+    commercialKpi("Horas prospecto ajustadas", commercialFmtForecastKpiValue(calc.prospectWeighted)),
+    commercialKpi("Forecast de horas", commercialFmtForecastKpiValue(calc.forecastHours)),
+  ];
+  return commercialForecastStageToolbarHtml()
+    + commercialForecastRatioHelperHtml(ratioFraction)
+    + `<div class="activity-kpi-grid">${summaryTiles.join("")}</div>`
+    + groups.map((g, i) => commercialForecastStageGroupHtml(g, ratioFraction, i)).join("");
+}
+
 // Filas visibles de la TABLA: sólo los períodos con valor en la métrica
 // ACTIVA, igual que el legacy (`relevant`). Consecuencia aceptada por el
 // owner: la tabla puede mostrar menos filas que columnas tenga el gráfico
@@ -1032,7 +1320,7 @@ function commercialForecastPreambleHtml(mode) {
     </div>`;
 }
 
-function commercialForecastFiltersHtml(options) {
+function commercialForecastFiltersHtml(options, extraFieldHtml, viewSwitchHtml) {
   const opt = (value, selected) =>
     `<option value="${commercialEsc(value)}"${selected === value ? " selected" : ""}>${commercialEsc(value)}</option>`;
   // MISMOS primitivos que la barra de Activas (`.whatsnew-filters`) y el MISMO
@@ -1043,6 +1331,10 @@ function commercialForecastFiltersHtml(options) {
   // estire hasta el borde. A "Limpiar" lo empuja a la derecha un
   // `margin-left:auto` (commercial.css) — MISMO recurso que ya usa el Limpiar
   // suelto de Staffing, en vez de un campo elástico de relleno.
+  // Owner corrective: el switch de vista Pipeline/Forecast (si se pasa) va
+  // DESPUÉS de Limpiar — mismo grupo empujado a la derecha por su
+  // `margin-left:auto`, en vez de una fila propia arriba (aprovecha el
+  // espacio horizontal que la fila de filtros ya tenía libre).
   return `<div class="whatsnew-filters" data-commercial-forecast-filters>
       <label class="whatsnew-filter">
         <span>Etapa</span>
@@ -1058,7 +1350,9 @@ function commercialForecastFiltersHtml(options) {
           ${options.sellers.map(s => opt(s, commercialState.forecastSellerFilter)).join("")}
         </select>
       </label>
+      ${extraFieldHtml || ""}
       <button type="button" class="whatsnew-filter__clear" data-commercial-forecast-clear>✕ Limpiar</button>
+      ${viewSwitchHtml || ""}
     </div>`;
 }
 
@@ -1157,17 +1451,29 @@ function commercialForecastPanelBodyHtml(mode) {
   // completo (`months`), nunca del filtrado: una opción no puede
   // desaparecer por haberla elegido.
   const filtered = commercialForecastFilteredMonths(months);
-  // Gráfico y tabla LADO A LADO (owner smoke): el patrón a la izquierda, la
-  // precisión a la derecha — las dos lecturas del mismo período a la misma
-  // altura, sin scrollear entre una y otra. En viewport angosto la grilla
-  // vuelve a una columna (commercial.css), nunca se comprimen las dos a un
-  // ancho inútil.
-  return commercialForecastFiltersHtml(commercialForecastFilterOptions(months))
-    + commercialForecastPreambleHtml(mode)
-    + `<div class="analysis-split">
-        <div class="analysis-split__chart">${commercialForecastChartHtml(filtered, mode)}</div>
-        <div class="analysis-split__table">${commercialForecastTableHtml(filtered, mode)}</div>
-      </div>`;
+  // Vista activa (Pipeline Forecast, ver HANDOFF): switch de REPRESENTACIÓN
+  // arriba de "✕ Limpiar" (owner GO §2/§9/§10) — comparte Etapa/Vendedor con
+  // la vista por mes de cierre, nunca un filtro/fetch propio. "mes" es el
+  // comportamiento ORIGINAL intacto (gráfico+tabla lado a lado); "stage" NO
+  // muestra el gráfico mensual simultáneamente (owner GO §"Do not show the
+  // monthly-close charts simultaneously") — lo reemplaza por completo.
+  const viewMode = commercialState.forecastViewMode === "stage" ? "stage" : "mes";
+  const representation = viewMode === "stage"
+    ? commercialForecastStageViewHtml(filtered)
+    // Gráfico y tabla LADO A LADO (owner smoke): el patrón a la izquierda, la
+    // precisión a la derecha — las dos lecturas del mismo período a la misma
+    // altura, sin scrollear entre una y otra. En viewport angosto la grilla
+    // vuelve a una columna (commercial.css), nunca se comprimen las dos a un
+    // ancho inútil.
+    : commercialForecastPreambleHtml(mode)
+      + `<div class="analysis-split">
+          <div class="analysis-split__chart">${commercialForecastChartHtml(filtered, mode)}</div>
+          <div class="analysis-split__table">${commercialForecastTableHtml(filtered, mode)}</div>
+        </div>`;
+  return commercialForecastFiltersHtml(commercialForecastFilterOptions(months),
+      viewMode === "stage" ? commercialForecastRatioFieldHtml() : "",
+      commercialForecastViewSwitchHtml())
+    + representation;
 }
 
 // Conteo del header. "períodos", NUNCA "meses": el dataset puede incluir el
@@ -7086,6 +7392,12 @@ function commercialSetTipo(tipo) {
   // los filtros de Actividades y el texto libre de Oportunidades).
   commercialState.forecastStageFilter = "";
   commercialState.forecastSellerFilter = "";
+  // Vista y ratio del Forecast (Pipeline Forecast, ver HANDOFF): se
+  // invalidan junto con el resto — un ratio tipeado para el universo
+  // "Todos" no tiene por qué seguir aplicando al universo "NN"/"BI" recién
+  // cargado, MISMO criterio de "vuelve al default" que Etapa/Vendedor.
+  commercialState.forecastViewMode = "mes";
+  commercialState.forecastProspectRatioRaw = "";
   // Creadas (Creadas Legacy Parity, ver HANDOFF): MISMO criterio que
   // Forecast — invalida y NO re-pide acá, vuelve a "idle" y lo carga la
   // próxima apertura del desglose con el tipo nuevo. Año/mes/semana
@@ -7444,6 +7756,33 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialState.forecastStageFilter = "";
       commercialState.forecastSellerFilter = "";
       commercialRenderForecastPanel();
+      return;
+    }
+    // Switch de vista del Forecast (Pipeline Forecast, ver HANDOFF): cambia
+    // SÓLO la representación — Etapa/Vendedor y el ratio tipeado sobreviven
+    // intactos, MISMO re-render quirúrgico que el resto del panel, cero
+    // fetch nuevo (el payload ya está en `commercialState.forecast`).
+    const forecastView = event.target.closest("[data-commercial-forecast-view]");
+    if (forecastView) {
+      commercialState.forecastViewMode = forecastView.dataset.commercialForecastView;
+      commercialRenderForecastPanel();
+      return;
+    }
+    // Expandir/Contraer del Forecast por etapa (owner corrective — "al estilo
+    // Operaciones → Asignaciones"): togglea `.open` DIRECTO sobre los
+    // `<details>` ya en el DOM — sin `commercialRenderForecastPanel()`, que
+    // regeneraría el HTML entero por nada (el disclosure es 100% nativo,
+    // cero estado JS que sincronizar).
+    const forecastExpandAll = event.target.closest("[data-commercial-forecast-expand-all]");
+    if (forecastExpandAll) {
+      const body = forecastExpandAll.closest("[data-commercial-forecast-body]") || root;
+      body.querySelectorAll("details.dashboard-section").forEach(d => { d.open = true; });
+      return;
+    }
+    const forecastCollapseAll = event.target.closest("[data-commercial-forecast-collapse-all]");
+    if (forecastCollapseAll) {
+      const body = forecastCollapseAll.closest("[data-commercial-forecast-body]") || root;
+      body.querySelectorAll("details.dashboard-section").forEach(d => { d.open = false; });
       return;
     }
     // Prospectos — "✕ Limpiar" (Commercial Tile 5, ver HANDOFF): MISMO
@@ -7997,6 +8336,26 @@ document.addEventListener("DOMContentLoaded", () => {
     if (stageSelect) commercialState.forecastStageFilter = stageSelect.value;
     if (sellerSelect) commercialState.forecastSellerFilter = sellerSelect.value;
     commercialRenderForecastPanel();
+  });
+  // Ratio prospecto (%) del Forecast (Pipeline Forecast, ver HANDOFF): `input`,
+  // no `change` — recalcula en cada tecla (owner GO §19: "8. verify immediate
+  // recalculation"), nunca espera blur. El re-render QUIRÚRGICO regenera el
+  // `<input>` (vive dentro de `[data-commercial-forecast-body]`), así que el
+  // foco/cursor se captura ANTES y se restaura DESPUÉS — MISMO patrón que
+  // `commercialRenderCreadasPanel` de arriba, nunca un fetch: el cálculo es
+  // 100% client-side sobre el payload ya cargado.
+  document.addEventListener("input", event => {
+    const ratioInput = event.target.closest("[data-commercial-forecast-ratio]");
+    if (!ratioInput) return;
+    commercialState.forecastProspectRatioRaw = ratioInput.value;
+    const caret = ratioInput.selectionStart;
+    const panel = ratioInput.closest("[data-commercial-forecast-body]");
+    commercialRenderForecastPanel();
+    const again = panel && panel.querySelector("[data-commercial-forecast-ratio]");
+    if (again) {
+      again.focus();
+      try { again.setSelectionRange(caret, caret); } catch (e) { /* type=number sin soporte en todos los browsers */ }
+    }
   });
   // Año del drill de Creadas (Creadas Legacy Parity, ver HANDOFF). El año es
   // la UNICA interaccion del drill que puede hidratar: un año de la ventana

@@ -740,6 +740,8 @@
         {% endif %}
 
         <div class="cs-block-label content-block">Catálogo de oferta</div>
+        <p x-show="!editing">{{ md(strategy.demand_generation.clusters_intro) }}</p>
+        {{ inline_text('demand_generation.clusters_intro', tag='p', placeholder='Introducción del catálogo de oferta', multiline=True) }}
         <div class="cs-cluster-grid content-block" x-show="!editing">
           {% for c in strategy.demand_generation.clusters %}
           <div class="cs-cluster">
@@ -762,14 +764,14 @@
           {% for key in ["inbound", "outbound"] %}
           {% set box = strategy.demand_generation.channels.get(key) %}
           {% if box %}
-          <div class="cs-chan"><div class="cs-chan__title">{{ box.title }}</div>{{ bullets(box['items']) }}</div>
+          <div class="cs-chan cs-chan--{{ key }}"><div class="cs-chan__title">{{ box.title }}</div>{{ bullets(box['items']) }}</div>
           {% endif %}
           {% endfor %}
         </div>
         {% if can_edit %}
         <div class="cs-chan-grid" x-show="editing" x-cloak>
           {% for key in ["inbound", "outbound"] %}
-          <div class="cs-chan">
+          <div class="cs-chan cs-chan--{{ key }}">
             <input type="text" class="cs-inline-input cs-chan__title" placeholder="Título del canal" x-model="doc.demand_generation.channels.{{ key }}.title" @input="dirty = true">
             {{ string_list_edit('doc.demand_generation.channels.' ~ key ~ '.items') }}
           </div>
@@ -777,11 +779,15 @@
         </div>
         {% endif %}
 
-        <div class="cs-block-label content-block">Catálogo de eventos</div>
+        <div class="cs-block-label content-block">Catálogo de eventos que generan demanda</div>
+        <p x-show="!editing">{{ md(strategy.demand_generation.events_catalog_intro) }}</p>
+        {{ inline_text('demand_generation.events_catalog_intro', tag='p', placeholder='Introducción del catálogo de eventos', multiline=True) }}
         <div class="content-block" x-show="!editing">{{ data_table(strategy.demand_generation.events_catalog) }}</div>
         {{ table_edit('doc.demand_generation.events_catalog') }}
 
         <div class="cs-block-label content-block">Calendario</div>
+        <p x-show="!editing">{{ md(strategy.demand_generation.calendar_intro) }}</p>
+        {{ inline_text('demand_generation.calendar_intro', tag='p', placeholder='Introducción del calendario', multiline=True) }}
         <div class="cs-evgrid content-block" x-show="!editing">
           {% for col in strategy.demand_generation.calendar %}
           <div class="cs-evcol">
@@ -931,8 +937,8 @@
               {'key': 'participants', 'placeholder': 'Participantes'}],
              [{'key': 'bullets', 'label': 'Temas'}],
              new_item="{freq:'',title:'',participants:'',bullets:[]}") }}
-        {% if strategy.cadence.note %}<p x-show="!editing">{{ md(strategy.cadence.note) }}</p>{% endif %}
-        {{ inline_text('cadence.note', tag='p', placeholder='Nota (opcional)', multiline=True) }}
+        {% if strategy.cadence.note %}<p class="cs-note" x-show="!editing">{{ md(strategy.cadence.note) }}</p>{% endif %}
+        {{ inline_text('cadence.note', tag='p', cls='cs-note', placeholder='Nota (opcional)', multiline=True) }}
         {% set feedback_id = "cadence" %}{% set feedback_url_base = "/comercial/estrategia/sections/" ~ feedback_id %}{% set subject = feedback_subjects.get(feedback_id) %}{% include "partials/section_feedback.html" %}
       </section>
 
@@ -1009,35 +1015,57 @@
         <p>{{ md(strategy.annex_map.intro) }}</p>
         <div class="cs-block-label content-block">Estructura de ventas SAP</div>
         {% set sap = strategy.annex_map.sap_tree %}
+        {#- Contact Map Disclosure (Strategy Parity Addendum S6, ver HANDOFF):
+            el `<details>` de disclosure vive ADENTRO de `.cs-tree.content-block`
+            — nunca envolviéndolo — porque `.content-section > .content-block`
+            es el selector LITERAL (directo, no descendiente) que usa el
+            reveal engine (`initContentReveals`, app.js). Envolver `.cs-tree`
+            en un wrapper propio lo habría vuelto NIETO de `.content-section`
+            en vez de hijo directo, y `initContentReveals` jamás lo habría
+            observado (regresión real, no sólo textual — atrapada por
+            test_commercial_strategy_viewport_reveal.py). El nodo raíz
+            (Danwor) es el propio `<summary>`: siempre visible aunque el
+            `<details>` esté cerrado (semántica nativa), así que no hace
+            falta duplicar el rótulo "Estructura de ventas SAP" —ese texto
+            ya vive, sin tocar, en `.cs-block-label` de arriba. Disclosure
+            100% nativo/CSS, cero estado Alpine — nunca se persiste, ver
+            S6.1: no hay `doc.*` involucrado en ningún lado de este bloque. #}
         <div class="cs-tree content-block" x-show="!editing">
-          <div class="cs-tnode cs-tnode--root"><div class="cs-tnode__name">{{ sap.root.name }}</div><div class="cs-tnode__role">{{ sap.root.role }}</div></div>
-          <div class="cs-tbranch">
-            {% for b in sap.branches %}
-            <div class="cs-tnode{% if b.highlight %} cs-tnode--highlight{% endif %}">
-              <div class="cs-tnode__name">{{ b.name }}</div><div class="cs-tnode__role">{{ b.role }}</div>
-              {% if b.desc %}<div class="cs-tnode__desc">{{ md(b.desc) }}</div>{% endif %}
-              {% if b.sellers %}<div class="cs-tnode__sellers">{{ b.sellers }}</div>{% endif %}
-              {% if b.children %}
-              <div class="cs-tsub">
-                {% for leaf in b.children %}
-                <div class="cs-tnode{% if leaf.highlight %} cs-tnode--highlight{% endif %}">
-                  <div class="cs-tnode__name">{{ leaf.name }}</div><div class="cs-tnode__role">{{ leaf.role }}</div>
-                  {% if leaf.desc %}<div class="cs-tnode__desc">{{ md(leaf.desc) }}</div>{% endif %}
-                  {% if leaf.sellers %}<div class="cs-tnode__sellers">{{ leaf.sellers }}</div>{% endif %}
-                  {% if leaf.children %}
+          <details class="dashboard-section" open>
+            <summary class="dashboard-section__head">
+              <span class="dashboard-section__caret"></span>
+              <div class="cs-tnode cs-tnode--root"><div class="cs-tnode__name">{{ sap.root.name }}</div><div class="cs-tnode__role">{{ sap.root.role }}</div></div>
+            </summary>
+            <div class="dashboard-section__body">
+              <div class="cs-tbranch">
+                {% for b in sap.branches %}
+                <div class="cs-tnode{% if b.highlight %} cs-tnode--highlight{% endif %}">
+                  <div class="cs-tnode__name">{{ b.name }}</div><div class="cs-tnode__role">{{ b.role }}</div>
+                  {% if b.desc %}<div class="cs-tnode__desc">{{ md(b.desc) }}</div>{% endif %}
+                  {% if b.sellers %}<div class="cs-tnode__sellers">{{ b.sellers }}</div>{% endif %}
+                  {% if b.children %}
                   <div class="cs-tsub">
-                    {% for sub in leaf.children %}
-                    <div class="cs-tnode"><div class="cs-tnode__name">{{ sub.name }}</div><div class="cs-tnode__role">{{ sub.role }}</div>{% if sub.sellers %}<div class="cs-tnode__sellers">{{ sub.sellers }}</div>{% endif %}</div>
+                    {% for leaf in b.children %}
+                    <div class="cs-tnode{% if leaf.highlight %} cs-tnode--highlight{% endif %}">
+                      <div class="cs-tnode__name">{{ leaf.name }}</div><div class="cs-tnode__role">{{ leaf.role }}</div>
+                      {% if leaf.desc %}<div class="cs-tnode__desc">{{ md(leaf.desc) }}</div>{% endif %}
+                      {% if leaf.sellers %}<div class="cs-tnode__sellers">{{ leaf.sellers }}</div>{% endif %}
+                      {% if leaf.children %}
+                      <div class="cs-tsub">
+                        {% for sub in leaf.children %}
+                        <div class="cs-tnode"><div class="cs-tnode__name">{{ sub.name }}</div><div class="cs-tnode__role">{{ sub.role }}</div>{% if sub.sellers %}<div class="cs-tnode__sellers">{{ sub.sellers }}</div>{% endif %}</div>
+                        {% endfor %}
+                      </div>
+                      {% endif %}
+                    </div>
                     {% endfor %}
                   </div>
                   {% endif %}
                 </div>
                 {% endfor %}
               </div>
-              {% endif %}
             </div>
-            {% endfor %}
-          </div>
+          </details>
         </div>
         {{ annex_tree_edit(sap, 'sap_tree') }}
 
@@ -1045,12 +1073,19 @@
         {% set lob = strategy.annex_map.lob_tree %}
         {% if strategy.annex_map.lob_intro %}<p>{{ md(strategy.annex_map.lob_intro) }}</p>{% endif %}
         <div class="cs-tree content-block" x-show="!editing">
-          <div class="cs-tnode cs-tnode--root"><div class="cs-tnode__name">{{ lob.root.name }}</div><div class="cs-tnode__role">{{ lob.root.role }}</div></div>
-          <div class="cs-tbranch">
-            {% for b in lob.branches %}
-            <div class="cs-tnode"><div class="cs-tnode__name">{{ b.name }}</div><div class="cs-tnode__role">{{ b.role }}</div></div>
-            {% endfor %}
-          </div>
+          <details class="dashboard-section" open>
+            <summary class="dashboard-section__head">
+              <span class="dashboard-section__caret"></span>
+              <div class="cs-tnode cs-tnode--root"><div class="cs-tnode__name">{{ lob.root.name }}</div><div class="cs-tnode__role">{{ lob.root.role }}</div></div>
+            </summary>
+            <div class="dashboard-section__body">
+              <div class="cs-tbranch">
+                {% for b in lob.branches %}
+                <div class="cs-tnode"><div class="cs-tnode__name">{{ b.name }}</div><div class="cs-tnode__role">{{ b.role }}</div></div>
+                {% endfor %}
+              </div>
+            </div>
+          </details>
         </div>
         {{ annex_tree_edit(lob, 'lob_tree') }}
 

@@ -269,12 +269,19 @@ def _validate_demand_generation(raw, current: dict) -> dict:
         "title": _title(raw.get("title", ""), field="demand_generation.title"),
         "intro": _text(raw.get("intro", ""), max_len=_MAX_TEXT, field="demand_generation.intro"),
         "demand_target": _kpi(raw.get("demand_target"), field="demand_generation.demand_target"),
+        # Subtítulos explicativos de cada bloque (Strategy Parity Addendum,
+        # ver HANDOFF) — MISMO patrón que `intro`/`owner_note`: contenido de
+        # negocio autorado, opcional (`""` por defecto para compatibilidad
+        # con documentos runtime ya persistidos que no los tienen aún).
+        "clusters_intro": _text(raw.get("clusters_intro", ""), max_len=_MAX_TEXT, field="demand_generation.clusters_intro"),
         "clusters": _validate_clusters(raw.get("clusters")),
         "channels": {
             "inbound": _validate_channel_box(channels_raw.get("inbound"), field="demand_generation.channels.inbound"),
             "outbound": _validate_channel_box(channels_raw.get("outbound"), field="demand_generation.channels.outbound"),
         },
+        "events_catalog_intro": _text(raw.get("events_catalog_intro", ""), max_len=_MAX_TEXT, field="demand_generation.events_catalog_intro"),
         "events_catalog": _table(raw.get("events_catalog"), field="demand_generation.events_catalog", current_table=cur.get("events_catalog")),
+        "calendar_intro": _text(raw.get("calendar_intro", ""), max_len=_MAX_TEXT, field="demand_generation.calendar_intro"),
         "calendar": _validate_calendar(raw.get("calendar")),
         "owner_note": _text(raw.get("owner_note", ""), max_len=_MAX_TEXT, field="demand_generation.owner_note"),
     }

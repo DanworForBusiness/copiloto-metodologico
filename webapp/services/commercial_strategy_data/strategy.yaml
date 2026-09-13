@@ -169,6 +169,8 @@ demand_generation:
     detail: La demanda se mide en horas y coincide con el objetivo de servicios del Pilar 1. Las licencias
       (USD 500K) se apalancan sobre la misma máquina — cada oportunidad de servicios trae su licencia.
       Con win rate 40% y cobertura 4x (Pilar 1).
+  clusters_intro: 'Lo que vendemos, con su ticket en horas, su decisor y el mensaje que abre la
+    conversación. Todo es BDC con distintos enfoques: migración, arquitectura, gobierno y analítica/IA.'
   clusters:
   - tag: Cluster 1 · Principal revenue
     name: Modernización SAP
@@ -215,6 +217,8 @@ demand_generation:
       - LinkedIn Ads
       - Reuniones de descubrimiento + evaluación técnica gratuita
       - Eventos propios (CFO Meet Up) y clínicas de arquitectura con SAP
+  events_catalog_intro: Formatos repetibles, con su cadencia anual. La bajada mensual (SAP Now, ASUG
+    Motion, webinars, prospección) está en el calendario Sept–Dic de más abajo.
   events_catalog:
     headers:
     - Evento
@@ -236,6 +240,8 @@ demand_generation:
     - - Institucionales SAP
       - SAP House, SAP NOW, ASUG Motion, Transformation Day, PKOM, Partner Forum
       - Según agenda SAP
+  calendar_intro: La bajada mensual de la ventana de ejecución en curso. Cada evento cierra con una
+    acción de prospección — es donde nace el pipeline.
   calendar:
   - month: Septiembre
     items:

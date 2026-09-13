@@ -184,6 +184,25 @@
 .cs-chan { padding: 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
 .cs-chan__title { font-weight: 700; margin-bottom: 8px; color: var(--ink); }
 
+/* Inbound/Outbound (Strategy Parity Addendum, ver HANDOFF): distinción
+   semántica restaurada — accento de borde superior, MISMO recurso que ya
+   usa `.cs-cluster` (línea arriba, 2px, color del tag), nunca una superficie
+   recoloreada entera. Verde es el MISMO verde que ya usa el Hub para este
+   significado (`.activity-kpi:nth-child(2)`/`--positive`, tools.css) — sin
+   variante oscura propia porque ese verde tampoco la tiene ahí: ya funciona
+   igual en los dos temas. Oro reusa `var(--gold)`, el acento por default de
+   toda la vertical — MISMO que ya usa `.cs-cluster`. */
+.cs-chan--inbound { border-top: 2px solid #2e9e5b; }
+.cs-chan--inbound .cs-chan__title { color: #2e9e5b; }
+.cs-chan--outbound { border-top: 2px solid var(--gold); }
+.cs-chan--outbound .cs-chan__title { color: var(--gold); }
+
+/* Nota secundaria (Strategy Parity Addendum — Cadencia, ver HANDOFF): MISMO
+   patrón visual que `.cs-cluster__msg`/`.cs-role__mision` (itálica, más
+   chica, `--soft`) para una nota que acompaña sin competir con el cuerpo
+   principal — texto sin cambios, sólo jerarquía. */
+.cs-note { font-size: .84rem; font-style: italic; color: var(--soft); }
+
 /* Cadencia de revisión (Pilar 6) — MISMA tarjeta que clusters/channels
    (antes eran párrafos sueltos: el owner señaló que perdían legibilidad
    frente a los grupos de bullets en recuadro del artefacto original). */

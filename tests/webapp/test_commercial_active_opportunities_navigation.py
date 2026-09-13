@@ -180,7 +180,18 @@ def test_funnel_header_no_longer_carries_a_dimension_switch():
     assert "perspective-label" in header_block
     assert "dashboard-view-switch" not in header_block
     assert "data-commercial-dim" not in dist_fn
-    assert "staffing-timeline-toolbar" not in _COMMERCIAL_JS
+    # Commercial Pipeline Forecast (ver HANDOFF) introduce el ÚNICO uso de
+    # `.staffing-timeline-toolbar` en Comercial — owner corrective explícito
+    # ("Expandir/Contraer al estilo Operaciones → Asignaciones"), nunca cerca
+    # del header del Funnel que este test audita. Se prueba la ubicación
+    # exacta del markup emitido (una sola vez, dentro de
+    # `commercialForecastStageToolbarHtml`) en vez de banear la clase
+    # entera, que ahora es reuso legítimo — `.count` busca el `class=`
+    # real, no menciones en prosa/comentarios.
+    assert _COMMERCIAL_JS.count('class="staffing-timeline-toolbar"') == 1
+    toolbar_fn = _COMMERCIAL_JS.split("function commercialForecastStageToolbarHtml(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'class="staffing-timeline-toolbar"' in toolbar_fn
+    assert "staffing-timeline-toolbar" not in dist_fn
 
 
 def test_funnel_header_css_reuses_the_existing_label_left_control_right_pattern():
