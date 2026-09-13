@@ -1,0 +1,128 @@
+{# human_capital_profile_documents_panel.html — Capital Humano Phase 4.1
+   (Profile Documents): fragmento de "Documentos" incluido por
+   human_capital/profile_edit.html, DEBAJO del form de edición de campos
+   (ticket §19: reusa el GET de edición existente, sin página nueva).
+
+   Listado (§18): filename / uploaded_at / uploaded_by / "Abrir en
+   SharePoint" (link plano a `web_url`, nunca streameado por el Hub, sin
+   ruta de descarga propia).
+
+   Form de upload: multipart, MISMO patrón de graph_token vía
+   `window.dwGraphToken()` (hub_auth.js) que Staffing/Reporting ya usan —
+   un hidden input se completa async ANTES del submit real (un form plano
+   no puede esperar una promesa, así que el primer submit se intercepta,
+   se completa el token, y se re-dispara un segundo submit real que el
+   listener deja pasar).
+
+   Estados de fallo (§20), cada uno con su propio primitivo visual — MISMO
+   idioma que human_capital_profile_edit_form.html (nunca dos estados
+   superpuestos en el mismo render):
+     - VALIDATION_ERROR -> `.feedback-error`.
+     - CONFIG_INCOMPLETE / GRAPH_SOURCE_ERROR -> `.dashboard-empty` "No
+       disponible" (MISMO contrato que el resto del Hub).
+     - GRAPH_PERMISSION_DENIED -> `.dashboard-empty` con eyebrow propio
+       (nunca "No disponible": esto no se arregla reintentando).
+     - REMOTE_OUTCOME_UNKNOWN / DOCUMENT_METADATA_PERSISTENCE_ERROR ->
+       `.callout callout--warn` con su propio form de reintento (con
+       archivo re-adjuntado para upload-retry; sin archivo para
+       commit-retry, §17: "ZERO Graph PUT").
+     - RETRY_FILE_MISMATCH / DOCUMENT_ID_CONFLICT -> `.feedback-error`. #}
+<section class="hc-profile-documents" data-hc-documents-panel>
+  <h2>Documentos</h2>
+
+  {% if documents %}
+  <table class="dashboard-table hc-documents-table">
+    <thead>
+      <tr>
+        <th class="left">Archivo</th>
+        <th class="left">Subido</th>
+        <th class="left">Subido por</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for doc in documents %}
+      <tr>
+        <td class="left">{{ doc.filename }}</td>
+        <td class="left">{{ doc.uploaded_at }}</td>
+        <td class="left">{{ doc.uploaded_by }}</td>
+        <td>
+          {% if doc.web_url %}
+          <a href="{{ doc.web_url }}" target="_blank" rel="noopener noreferrer">Abrir en SharePoint</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="dashboard-empty__hint">Todavía no hay documentos cargados para este Profile.</p>
+  {% endif %}
+
+  {% if document_state %}
+    {% if document_state.kind == "VALIDATION_ERROR" or document_state.kind == "RETRY_FILE_MISMATCH" or document_state.kind == "DOCUMENT_ID_CONFLICT" %}
+    <p class="feedback-error" data-document-error-kind="{{ document_state.kind }}">{{ document_state.message }}</p>
+    {% elif document_state.kind == "GRAPH_PERMISSION_DENIED" %}
+    <div class="dashboard-empty" data-error-kind="graph_permission_denied">
+      <span class="dashboard-empty__label">Sin autorización</span>
+      <p>{{ document_state.message }}</p>
+    </div>
+    {% elif document_state.kind == "CONFIG_INCOMPLETE" or document_state.kind == "GRAPH_SOURCE_ERROR" %}
+    <div class="dashboard-empty" data-error-kind="{{ 'config_incomplete' if document_state.kind == 'CONFIG_INCOMPLETE' else 'source_error' }}">
+      <span class="dashboard-empty__label">No disponible</span>
+      <p>{{ document_state.message }}</p>
+    </div>
+    {% elif document_state.kind == "REMOTE_OUTCOME_UNKNOWN" or document_state.kind == "DOCUMENT_METADATA_PERSISTENCE_ERROR" %}
+    <div class="callout callout--warn" data-document-error-kind="{{ document_state.kind }}">
+      <div class="callout__head">
+        <span class="callout__icon">⚠️</span>
+        <span class="callout__title">Estado desconocido</span>
+      </div>
+      <div class="callout__body">
+        <p>{{ document_state.message }}</p>
+        {% if document_state.retry_kind == "upload" %}
+        <form class="hc-document-retry-form" method="post" action="/human-capital/profiles/{{ profile_id }}/documents/retry-upload" enctype="multipart/form-data" data-hc-document-upload-form>
+          <input type="hidden" name="token" value="{{ document_state.retry_token }}">
+          <input type="hidden" name="graph_token" value="">
+          <div class="feedback-field">
+            <label for="hc-document-retry-file">Volvé a elegir el mismo archivo</label>
+            <input id="hc-document-retry-file" name="file" type="file" accept=".pdf,.doc,.docx" required>
+          </div>
+          <button type="submit" class="btn-primary">Reintentar subida</button>
+        </form>
+        {% elif document_state.retry_kind == "commit" %}
+        <form method="post" action="/human-capital/profiles/{{ profile_id }}/documents/retry-commit">
+          <input type="hidden" name="token" value="{{ document_state.retry_token }}">
+          <button type="submit" class="btn-primary">Reintentar registro</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  {% endif %}
+
+  <form class="hc-document-upload-form" method="post" action="/human-capital/profiles/{{ profile_id }}/documents" enctype="multipart/form-data" data-hc-document-upload-form>
+    <input type="hidden" name="graph_token" value="">
+    <div class="feedback-field">
+      <label for="hc-document-file">Nuevo documento (PDF, DOC o DOCX)</label>
+      <input id="hc-document-file" name="file" type="file" accept=".pdf,.doc,.docx" required>
+    </div>
+    <button type="submit" class="btn-primary">Subir documento</button>
+  </form>
+</section>
+<script>
+(function () {
+  document.querySelectorAll("[data-hc-document-upload-form]").forEach(function (form) {
+    form.addEventListener("submit", function (event) {
+      if (form.dataset.hcTokenReady === "true") return; // segundo submit real, dejar pasar sin interceptar
+      event.preventDefault();
+      Promise.resolve(typeof window.dwGraphToken === "function" ? window.dwGraphToken() : "").then(function (token) {
+        var tokenField = form.querySelector("input[name=graph_token]");
+        if (tokenField) tokenField.value = token || "";
+        form.dataset.hcTokenReady = "true";
+        form.submit();
+      });
+    });
+  });
+})();
+</script>

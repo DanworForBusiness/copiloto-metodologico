@@ -212,6 +212,20 @@ COMMERCIAL_ALLOWED_USERS = _env("COMMERCIAL_ALLOWED_USERS", "")
 # esto es solo la frontera de admisión al workspace, no autorización de
 # capacidad.
 HUMAN_CAPITAL_ALLOWED_USERS = _env("HUMAN_CAPITAL_ALLOWED_USERS", "")
+# Capital Humano Phase 4.1 — Profile Documents (SharePoint, primer slice
+# CV). Identidad ESTABLE de Graph (site_id/drive_id/item_id de la carpeta
+# raíz de CVs) — NUNCA una URL de sharing (esas son solo insumo de
+# discovery/setup, ver webapp/services/profile_document_service.py).
+# Ausente/vacío = CONFIG_INCOMPLETE explícito (mismo contrato fail-closed
+# que el resto de config de integración de este Hub) — nunca un fallback
+# silencioso ni una resolución de path repetida en cada request.
+HC_SHAREPOINT_SITE_ID  = _env("HC_SHAREPOINT_SITE_ID", "")
+HC_SHAREPOINT_DRIVE_ID = _env("HC_SHAREPOINT_DRIVE_ID", "")
+HC_CV_ROOT_ITEM_ID     = _env("HC_CV_ROOT_ITEM_ID", "")
+# Diagnóstico OPCIONAL, nunca usado para resolver rutas en runtime (ticket
+# §11: "no repeated path traversal if stable item identity is
+# available") — solo referencia humana de dónde vive HC_CV_ROOT_ITEM_ID.
+HC_CV_ROOT_PATH         = _env("HC_CV_ROOT_PATH", "")
 # Usage Metrics como capacidad de HUB (owner ticket "HUB METRICS — CENTRALIZE
 # ACCESS AND ENABLE BY VERTICAL"): DOS preguntas independientes — "¿puedo
 # entrar al vertical?" (ALLOWED_USERS/OPERATIONS_ALLOWED_USERS/

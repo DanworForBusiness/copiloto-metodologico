@@ -678,6 +678,16 @@ def test_15_route_surface_still_120():
     #     preasignada firmada (ver profile_import_service.py y
     #     profile_repository.create_with_explicit_id). No toca ninguna
     #     ruta de Staffing/Commercial/Reporting.
+    #   129 -> 132 (Capital Humano Phase 4.1 -- Profile Documents, primera
+    #     rebanada SharePoint): +3.
+    #     `POST /human-capital/profiles/{profile_id}/documents` -- alta de
+    #     un documento nuevo (folder-ensure + upload con reintento único +
+    #     commit de metadata, ver profile_document_service.py).
+    #     `POST .../documents/retry-upload` -- reintento de upload con
+    #     identidad preasignada (MISMO document_id, token firmado §16).
+    #     `POST .../documents/retry-commit` -- reintento de SOLO
+    #     persistencia, cero PUT nuevo a Graph (token firmado §17). No toca
+    #     ninguna ruta de Staffing/Commercial/Reporting.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -685,7 +695,7 @@ def test_15_route_surface_still_120():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 129
+    assert len(snapshot) == 132
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

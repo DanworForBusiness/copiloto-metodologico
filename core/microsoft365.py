@@ -19,6 +19,13 @@ define política de cache — la memoización (TTL, `@lru_cache`, etc.) sigue
 siendo responsabilidad de cada repositorio/consumidor
 (`core/sharepoint_cases.py`, `webapp/services/catalog_reads.py`).
 
+Capital Humano Phase 4.1 (Profile Documents) agregó `graph_post_json`/
+`graph_put_bytes` — MISMOS primitivos de transporte, MISMA filosofía (sin
+retry/backoff, sin jerarquía de errores propia, `HTTPError`/`URLError` se
+propagan tal cual). Siguen sin existir PATCH/DELETE genéricos — cada
+capability nueva declara explícitamente qué verbos necesita, nunca una
+abstracción de cliente HTTP arbitraria.
+
 NO importa `webapp` ni `webapp.main` (evita crear una dependencia
 `tools`/`core` → `webapp`). NO contiene lógica de negocio, rutas, templates
 ni estado mutable de aplicación.
@@ -72,6 +79,44 @@ def graph_get_bytes(
     request = urllib.request.Request(url, headers=graph_headers(access_token))
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read()
+
+
+def graph_post_json(
+    url: str, access_token: str, body: dict, *, timeout: int = DEFAULT_TIMEOUT,
+) -> dict:
+    """POST JSON a Graph, devuelve el JSON decodificado de la respuesta.
+    MISMO idioma que `graph_get_json` (urllib crudo, sin retry/backoff, sin
+    normalizar errores — `HTTPError`/`URLError` se propagan al caller tal
+    cual). Agregado para Capital Humano Phase 4.1 (Profile Documents): la
+    ÚNICA operación de escritura mínima que necesita (crear la carpeta de
+    un Profile bajo la raíz de CVs, ver
+    `webapp/services/profile_document_service.py::ensure_profile_folder`).
+    NO agrega PATCH/DELETE — fuera de alcance (ver ticket §9)."""
+    payload = json.dumps(body).encode("utf-8")
+    headers = graph_headers(access_token)
+    headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def graph_put_bytes(
+    url: str, access_token: str, data: bytes, *, content_type: str = "application/octet-stream",
+    timeout: int = 30,
+) -> dict:
+    """PUT binario a Graph (upload simple de contenido, p. ej.
+    `.../items/{id}:/{name}:/content` — válido para archivos chicos, sin
+    sesión de upload resumable) — devuelve el JSON del `driveItem`
+    resultante. MISMO idioma que `graph_get_bytes` (urllib crudo, timeout
+    más alto que el default JSON). Sin retry/backoff acá — el contrato de
+    reintento semántico (mismo `document_id`/path/bytes, un único
+    reintento) vive en el caller, ver
+    `webapp/services/profile_document_service.py::upload_document_content`."""
+    headers = graph_headers(access_token)
+    headers["Content-Type"] = content_type
+    request = urllib.request.Request(url, data=data, headers=headers, method="PUT")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
 def graph_get_paged_values(

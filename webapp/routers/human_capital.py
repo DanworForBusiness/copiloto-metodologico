@@ -104,7 +104,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
-from webapp.services import auth_service, human_capital_service, profile_import_service
+from webapp.services import (
+    auth_service, human_capital_service, profile_document_repository, profile_document_service,
+    profile_document_validation, profile_import_service,
+)
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
@@ -409,6 +412,8 @@ def human_capital_profile_edit_page(request: Request, profile_id: str):
             "user": user,
             "active_page": "perfiles",
             **_edit_page_context(profile_id, form_values=profile, expected_revision=profile.get("revision", 1)),
+            "documents": profile_document_service.list_documents_for_profile(profile_id),
+            "document_state": None,
         },
     )
 
@@ -599,3 +604,232 @@ def human_capital_profiles_import_confirm(
             "summary": summary,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Capital Humano Phase 4.1 — Profile Documents (SharePoint, primera
+# rebanada CV). Router liviano otra vez (MISMO criterio que el resto de
+# este archivo): nunca habla Graph, nunca conoce `document_id`/rutas de
+# SharePoint, nunca firma/verifica tokens -- todo eso vive en
+# `webapp/services/profile_document_service.py`. Este router solo resuelve
+# `Request`/valida admisión/traduce las excepciones del service a
+# contratos de render, MISMO idioma que el resto de las rutas de este
+# archivo (ValueError -> feedback-error, *ConfigIncomplete -> "No
+# disponible" CONFIG_INCOMPLETE, etc. -- ver `_render_profile_edit_with_documents`).
+#
+# Reuso explícito del GET de edición existente (ticket §19): sin páginas
+# nuevas -- `human_capital/profile_edit.html` ahora también renderiza la
+# lista de documentos + el form de upload (partials/
+# human_capital_profile_documents_panel.html). Sin ruta de descarga (§19,
+# §18): "Abrir en SharePoint" es un link plano al `web_url` de Graph,
+# nunca streameado por el Hub.
+# ---------------------------------------------------------------------------
+
+def _render_profile_edit_with_documents(request: Request, profile_id: str, profile: dict, *, document_state: dict) -> HTMLResponse:
+    user = auth_service.session_user(request)
+    return templates.TemplateResponse(
+        request=request, name="human_capital/profile_edit.html",
+        context={
+            "current_workspace": workspaces.HUMAN_CAPITAL,
+            "available_workspaces": workspaces.available_workspaces(user),
+            "pack": DEFAULT_PACK,
+            "user": user,
+            "active_page": "perfiles",
+            **_edit_page_context(profile_id, form_values=profile, expected_revision=profile.get("revision", 1)),
+            "documents": profile_document_service.list_documents_for_profile(profile_id),
+            "document_state": document_state,
+        },
+    )
+
+
+def _document_uploader_identity(request: Request) -> str:
+    # MISMA precedencia que `cache_scope` en `staffing.py::staffing_data`
+    # (username -> email -> sub) -- identidad estable de sesión, usada
+    # tanto como `uploaded_by` (metadata mostrada al usuario) como
+    # `initiated_by`/comparación de reintento (nunca `graph_token`, que es
+    # efímero y ajeno a la identidad del Hub).
+    user = auth_service.session_user(request) or {}
+    return str(user.get("username") or user.get("email") or user.get("sub") or "")
+
+
+def _profile_or_404(profile_id: str) -> dict:
+    profile = human_capital_service.get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(404, "Profile no encontrado")
+    return profile
+
+
+@router.post("/human-capital/profiles/{profile_id}/documents", response_class=HTMLResponse, include_in_schema=False)
+async def human_capital_profile_documents_upload(
+    request: Request, profile_id: str,
+    file: UploadFile | None = File(None), graph_token: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    profile = _profile_or_404(profile_id)
+    if not graph_token:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile,
+            document_state={
+                "kind": "GRAPH_PERMISSION_DENIED",
+                "message": "No pudimos obtener autorización de Microsoft 365 para subir el documento. Volvé a iniciar sesión.",
+            },
+        )
+    if file is None or not file.filename:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile,
+            document_state={"kind": "VALIDATION_ERROR", "message": "Elegí un archivo para continuar."},
+        )
+    data = await file.read(profile_document_validation.MAX_CV_UPLOAD_BYTES + 1)
+    uploaded_by = _document_uploader_identity(request)
+    try:
+        profile_document_service.upload_document(
+            profile_id=profile_id, filename=file.filename, data=data, access_token=graph_token,
+            uploaded_by=uploaded_by,
+        )
+    except profile_document_validation.ProfileDocumentValidationError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "VALIDATION_ERROR", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentConfigIncompleteError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "CONFIG_INCOMPLETE", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentPermissionDeniedError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "GRAPH_PERMISSION_DENIED", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentGraphSourceError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "GRAPH_SOURCE_ERROR", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentUploadRetryRequired as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile,
+            document_state={
+                "kind": "REMOTE_OUTCOME_UNKNOWN", "message": str(exc),
+                "retry_token": exc.retry_token, "retry_kind": "upload",
+            },
+        )
+    except profile_document_service.ProfileDocumentCommitRetryRequired as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile,
+            document_state={
+                "kind": "DOCUMENT_METADATA_PERSISTENCE_ERROR", "message": str(exc),
+                "retry_token": exc.retry_token, "retry_kind": "commit",
+            },
+        )
+    except profile_document_repository.ProfileDocumentConfigIncompleteError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "CONFIG_INCOMPLETE", "message": str(exc)},
+        )
+    except profile_document_repository.ProfileDocumentIdConflictError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
+        )
+    return RedirectResponse(url=f"/human-capital/profiles/{profile_id}/edit", status_code=303)
+
+
+@router.post("/human-capital/profiles/{profile_id}/documents/retry-upload", response_class=HTMLResponse, include_in_schema=False)
+async def human_capital_profile_documents_retry_upload(
+    request: Request, profile_id: str,
+    token: str = Form(""), file: UploadFile | None = File(None), graph_token: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    profile = _profile_or_404(profile_id)
+    requesting_user = _document_uploader_identity(request)
+    if not graph_token:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile,
+            document_state={
+                "kind": "GRAPH_PERMISSION_DENIED",
+                "message": "No pudimos obtener autorización de Microsoft 365 para reintentar. Volvé a iniciar sesión.",
+            },
+        )
+    if file is None or not file.filename:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile,
+            document_state={"kind": "VALIDATION_ERROR", "message": "Elegí el mismo archivo para reintentar."},
+        )
+    data = await file.read(profile_document_validation.MAX_CV_UPLOAD_BYTES + 1)
+    try:
+        profile_document_service.retry_upload_document(
+            token=token, data=data, filename=file.filename, access_token=graph_token,
+            requesting_user_sub=requesting_user,
+        )
+    except profile_document_service.RetryTokenError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "VALIDATION_ERROR", "message": str(exc)},
+        )
+    except profile_document_validation.ProfileDocumentValidationError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "VALIDATION_ERROR", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentRetryFileMismatchError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "RETRY_FILE_MISMATCH", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentPermissionDeniedError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "GRAPH_PERMISSION_DENIED", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentUploadRetryRequired as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile,
+            document_state={
+                "kind": "REMOTE_OUTCOME_UNKNOWN", "message": str(exc),
+                "retry_token": exc.retry_token, "retry_kind": "upload",
+            },
+        )
+    except profile_document_service.ProfileDocumentCommitRetryRequired as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile,
+            document_state={
+                "kind": "DOCUMENT_METADATA_PERSISTENCE_ERROR", "message": str(exc),
+                "retry_token": exc.retry_token, "retry_kind": "commit",
+            },
+        )
+    except profile_document_repository.ProfileDocumentConfigIncompleteError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "CONFIG_INCOMPLETE", "message": str(exc)},
+        )
+    except profile_document_repository.ProfileDocumentIdConflictError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
+        )
+    return RedirectResponse(url=f"/human-capital/profiles/{profile_id}/edit", status_code=303)
+
+
+@router.post("/human-capital/profiles/{profile_id}/documents/retry-commit", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profile_documents_retry_commit(request: Request, profile_id: str, token: str = Form("")):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    profile = _profile_or_404(profile_id)
+    requesting_user = _document_uploader_identity(request)
+    try:
+        profile_document_service.retry_commit_document(token=token, requesting_user_sub=requesting_user)
+    except profile_document_service.RetryTokenError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "VALIDATION_ERROR", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentCommitRetryRequired as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile,
+            document_state={
+                "kind": "DOCUMENT_METADATA_PERSISTENCE_ERROR", "message": str(exc),
+                "retry_token": exc.retry_token, "retry_kind": "commit",
+            },
+        )
+    except profile_document_repository.ProfileDocumentConfigIncompleteError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "CONFIG_INCOMPLETE", "message": str(exc)},
+        )
+    except profile_document_repository.ProfileDocumentIdConflictError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
+        )
+    return RedirectResponse(url=f"/human-capital/profiles/{profile_id}/edit", status_code=303)
