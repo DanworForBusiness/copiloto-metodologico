@@ -641,19 +641,19 @@ def test_15_route_surface_still_120():
     #     endpoint/estado totalmente separados (sub-tab lazy independiente
     #     con historial de oportunidades ganadas/perdidas).
     #     Los tres LAZY, read-only, mismo contrato fail-soft.
-    #   119 -> 120 (Usage Metrics Daily Trend Corrective -- guardrail de
+    #   119 -> 120 (Commercial Feedback Corrective -- Homologacion al Danwor
+    #     Hub, ver HANDOFF): +1 POST. `/comercial/feedback` -- feedback
+    #     transversal "Que te parecio este reporte?" (un control por
+    #     capability), MISMA capacidad compartida que
+    #     /operaciones/reporting/integral/feedback y
+    #     /operaciones/staffing/feedback (mismo store, mismo pipeline de
+    #     Activity) -- Comercial NO crea almacenamiento propio.
+    #   120 -> 121 (Usage Metrics Daily Trend Corrective -- guardrail de
     #     paginación, ver HANDOFF): +1 GET. `/admin/activity/trend` --
     #     fragment liviano de solo "Tendencia diaria" (barras + paginador),
     #     MISMO patrón que /admin/activity/stories//admin/activity/tree-runs
     #     -- pasar de página no toca el resto del dashboard de Actividad. No
     #     toca ninguna ruta de Staffing.
-    #   120 -> 121 (owner ticket "HUB METRICS -- CENTRALIZE ACCESS AND
-    #     ENABLE BY VERTICAL"): +1 GET. `/operaciones/metricas` -- Usage
-    #     Metrics reexpuesto DESDE Operations, autorizado independientemente
-    #     via HUB_METRICS_ALLOWED_USERS (nunca acoplado a
-    #     OPERATIONS_ALLOWED_USERS) -- MISMO reporte que /admin/activity,
-    #     nunca un fork (ver webapp/hub_metrics_access.py). No toca ninguna
-    #     ruta de Staffing.
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -676,11 +676,19 @@ def test_15_route_surface_still_120():
     #     can_view_strategy_user (autorización de LECTURA, nunca
     #     can_edit_strategy_user — feedback no es edición). No toca ninguna
     #     ruta de Staffing.
+    #   126 -> 127 (Commercial Feedback Corrective — Homologación al Danwor
+    #     Hub, ver HANDOFF): +1 POST. `/comercial/feedback` — feedback
+    #     transversal "¿Qué te pareció este reporte?" (un control por
+    #     capability), MISMA capacidad compartida que
+    #     /operaciones/reporting/integral/feedback y
+    #     /operaciones/staffing/feedback (mismo store, mismo pipeline de
+    #     Activity) — Comercial NO crea almacenamiento propio. No toca
+    #     ninguna ruta de Staffing.
     import json
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 126
+    assert len(snapshot) == 127
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

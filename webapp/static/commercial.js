@@ -229,6 +229,12 @@ const commercialState = {
   exClientsErrorState: "",
   exClientesSearchText: "",
   exClientesSellerFilter: "",
+  // Feedback transversal "¿Qué te pareció este reporte?" (Homologación al
+  // Danwor Hub, ver HANDOFF) — MISMO contrato que `state.reportingFeedback`
+  // en reporting.js: un estado por CAPABILITY (keyed por
+  // `commercialState.capability`, MISMA unidad que el nav), nunca por
+  // sub-tab. `undefined | "form" | "sending" | "up" | "down" | "error"`.
+  feedback: {},
   // Filtros LOCALES de Actividades — client-side sobre el dataset ya
   // cargado, nunca un round-trip (ver commercialFilteredActivities).
   actPeriod: "all", // all | week:0 | week:1 | week:2
@@ -6006,16 +6012,125 @@ function commercialRender() {
   commercialWireCapability();
 }
 
-function commercialCapabilityHtml() {
-  switch (commercialState.capability) {
-    case "actividades": return commercialActividadesHtml();
-    case "licencias": return commercialLicenciasHtml();
-    case "historial-perdidas": return commercialHistorialPerdidasHtml();
-    case "detalle": return commercialDetalleHtml();
-    case "clientes": return commercialClientesHtml();
-    case "leads": return commercialLeadsHtml();
-    default: return commercialDashboardHtml();
+// ── Feedback transversal "¿Qué te pareció este reporte?" (Homologación al
+// Danwor Hub, ver HANDOFF) ───────────────────────────────────────────────
+// Reusa la CAPACIDAD compartida vía POST a /comercial/feedback (mismo store
+// + mismo pipeline de Activity que Copilot/Reporting/Staffing) — Comercial
+// NO tiene almacenamiento propio. UN control por CAPABILITY, SIEMPRE el
+// último elemento del panel activo (ver `commercialCapabilityHtml` abajo).
+// Estado por capability: undefined | "form" | "sending" | "up" | "down" |
+// "error" — MISMO contrato que `state.reportingFeedback[expId]`.
+
+// FEEDBACK VISIBILITY (MISMO criterio que `isActiveReportReady` en
+// reporting.js): sólo visible cuando el contenido PRESENTE de la capability
+// activa está en "ready" — nunca mientras carga o en error, y nunca "alguna
+// vez estuvo ready". Licencias/Detalle comparten el loader/status de
+// `opportunitiesDetail` (son capabilities DISTINTAS que leen el MISMO
+// dataset) pero cada una evalúa su PROPIA lectura de ese status — ambas
+// quedan listas/ocultas juntas porque comparten el dato, no por casualidad.
+// Clientes lee el status del SUB-TAB activo (Clientes vs Ex Clientes,
+// MISMO criterio "perspectiva activa" que Reporting/Cartera) — la identidad
+// del feedback sigue siendo "clientes" en los dos casos (ver HANDOFF: Ex
+// Clientes no es su propia capability de nav, así que no es su propio
+// feedback), sólo la lectura de status cambia con el sub-tab.
+function commercialFeedbackReady(cap) {
+  switch (cap) {
+    case "dashboard": return commercialState.status === "ready";
+    case "actividades": return commercialState.activitiesStatus === "ready";
+    case "licencias":
+    case "detalle": return commercialState.opportunitiesDetailStatus === "ready";
+    case "historial-perdidas": return commercialState.lostHistoryStatus === "ready";
+    case "clientes": return (commercialState.clientesSubTab === "ex-clientes"
+      ? commercialState.exClientsStatus : commercialState.clientsStatus) === "ready";
+    case "leads": return commercialState.leadsStatus === "ready";
+    default: return false;
   }
+}
+
+function commercialFeedbackHtml(cap) {
+  // MISMA botonera/formulario compartidos que Reporting/Staffing (clases
+  // `.section-feedback*` de tools.css): discreta, alineada a la derecha,
+  // opacity atenuada hasta el hover del contenido (`#commercial-main-content`
+  // sumado al selector compartido, ver tools.css). Copy fijo, MISMO criterio
+  // transversal: 👍 registra al toque; 👎 despliega la línea de comentario
+  // OPCIONAL, nunca un "Gracias" seco de una.
+  const st = commercialState.feedback[cap];
+  if (st === "up" || st === "down") {
+    return `<div class="section-feedback" data-commercial-feedback="${commercialEsc(cap)}">
+      <p class="section-feedback__thanks" role="status">
+        <span class="section-feedback__emoji">${st === "up" ? "👍" : "👎"}</span> ¡Gracias!
+      </p>
+    </div>`;
+  }
+  if (st === "form") {
+    return `<div class="section-feedback" data-commercial-feedback="${commercialEsc(cap)}">
+      <div class="section-feedback__form">
+        <label class="section-feedback__formlabel" for="cfc-${commercialEsc(cap)}">¿Qué esperabas o qué faltó acá? <span>(opcional)</span></label>
+        <textarea id="cfc-${commercialEsc(cap)}" rows="2" placeholder="Una línea alcanza…"></textarea>
+        <div class="section-feedback__formactions">
+          <button type="button" class="section-feedback__ghost" data-commercial-feedback-cancel="${commercialEsc(cap)}">Cancelar</button>
+          <button type="button" class="section-feedback__send" data-commercial-feedback-submit="${commercialEsc(cap)}" data-commercial-feedback-rating="down">Enviar</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  const disabled = st === "sending" ? "disabled" : "";
+  return `<div class="section-feedback" data-commercial-feedback="${commercialEsc(cap)}">
+    <div class="section-feedback__bar">
+      <span class="section-feedback__prompt">¿Qué te pareció este reporte?</span>
+      <button type="button" class="section-feedback__react" ${disabled} aria-label="Útil" title="Útil"
+        data-commercial-feedback-submit="${commercialEsc(cap)}" data-commercial-feedback-rating="up">👍</button>
+      <button type="button" class="section-feedback__react" ${disabled} aria-label="Puede mejorar" title="Puede mejorar"
+        data-commercial-feedback-open="${commercialEsc(cap)}">👎</button>
+      ${st === "error" ? `<span class="section-feedback__prompt">reintentá</span>` : ""}
+    </div>
+  </div>`;
+}
+function commercialOpenFeedbackForm(cap) {
+  commercialState.feedback[cap] = "form";
+  commercialRenderCapability();
+}
+function commercialCancelFeedback(cap) {
+  commercialState.feedback[cap] = undefined;
+  commercialRenderCapability();
+}
+async function commercialSubmitFeedback(cap, rating) {
+  if (commercialState.feedback[cap] === "sending") return;
+  // El comentario (opcional) del 👎 se lee del textarea ANTES de re-renderizar.
+  let comment = "";
+  if (rating === "down") {
+    const ta = document.getElementById("cfc-" + cap);
+    if (ta) comment = ta.value || "";
+  }
+  commercialState.feedback[cap] = "sending";
+  commercialRenderCapability();
+  try {
+    const body = { capability: cap, rating };
+    if (comment.trim()) body.comment = comment.trim();
+    const resp = await fetch("/comercial/feedback", { method: "POST", body: new URLSearchParams(body) });
+    const data = await resp.json();
+    commercialState.feedback[cap] = data.state === "ok" ? rating : "error";
+  } catch (e) {
+    commercialState.feedback[cap] = "error";
+  }
+  commercialRenderCapability();
+}
+
+function commercialCapabilityHtml() {
+  const cap = commercialState.capability;
+  let body;
+  switch (cap) {
+    case "actividades": body = commercialActividadesHtml(); break;
+    case "licencias": body = commercialLicenciasHtml(); break;
+    case "historial-perdidas": body = commercialHistorialPerdidasHtml(); break;
+    case "detalle": body = commercialDetalleHtml(); break;
+    case "clientes": body = commercialClientesHtml(); break;
+    case "leads": body = commercialLeadsHtml(); break;
+    default: body = commercialDashboardHtml(); break;
+  }
+  // Feedback SIEMPRE como ÚLTIMO elemento del panel — ver
+  // `commercialFeedbackReady`/`commercialFeedbackHtml` arriba.
+  return body + (commercialFeedbackReady(cap) ? commercialFeedbackHtml(cap) : "");
 }
 
 // Los motores compartidos se wirean SOLO cuando el Dashboard está en pantalla
@@ -6955,6 +7070,10 @@ function commercialSetTipo(tipo) {
   commercialState.exClientsErrorState = "";
   commercialState.exClientesSearchText = "";
   commercialState.exClientesSellerFilter = "";
+  // Feedback (ver HANDOFF): un cambio de Todos/NN/BI cambia el universo de
+  // CADA capability — el reporte que el usuario evaluó ya no es "este
+  // reporte", MISMO criterio que el resto del estado local de arriba.
+  commercialState.feedback = {};
   // Forecast (C6, ver HANDOFF): se invalida igual que el resto, y NO se
   // re-pide acá — vuelve a "idle" y lo carga la próxima apertura del
   // desglose, ya con el tipo nuevo. MISMO criterio que Actividades: cero
@@ -7516,6 +7635,21 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const exClientesClear = event.target.closest("[data-commercial-ex-clientes-clear]");
     if (exClientesClear) { commercialExClientesClearFilters(); return; }
+    // Feedback transversal "¿Qué te pareció este reporte?" (Homologación al
+    // Danwor Hub, ver HANDOFF) — MISMO trío de acciones que Reporting
+    // (reaccionar/abrir formulario del 👎/cancelar), wireado vía el MISMO
+    // delegado de click que el resto de Comercial (nunca `onclick=` inline,
+    // a diferencia de reporting.js — cada vertical wirea el componente
+    // compartido con SU PROPIO mecanismo ya existente).
+    const feedbackSubmit = event.target.closest("[data-commercial-feedback-submit]");
+    if (feedbackSubmit) {
+      commercialSubmitFeedback(feedbackSubmit.dataset.commercialFeedbackSubmit, feedbackSubmit.dataset.commercialFeedbackRating);
+      return;
+    }
+    const feedbackOpen = event.target.closest("[data-commercial-feedback-open]");
+    if (feedbackOpen) { commercialOpenFeedbackForm(feedbackOpen.dataset.commercialFeedbackOpen); return; }
+    const feedbackCancel = event.target.closest("[data-commercial-feedback-cancel]");
+    if (feedbackCancel) { commercialCancelFeedback(feedbackCancel.dataset.commercialFeedbackCancel); return; }
     // Analítica del Pipeline — orden de columna de las TRES sub-vistas con
     // tabla (Edad/Tiempo de cierre/Estancadas — Tiempo por etapa/Conversión
     // etapa a etapa son ranking `.bar-row`, sin sort): re-render QUIRÚRGICO

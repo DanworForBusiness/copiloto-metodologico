@@ -325,6 +325,11 @@ _USAGE_EVENTS: frozenset[str] = frozenset({
     # HANDOFF) — no se inventa clasificación para eventos que ese ticket
     # todavía no emite.
     "strategy.saved",
+    # Comercial/CRM — feedback transversal (Homologación al Danwor Hub, ver
+    # HANDOFF): MISMA capacidad compartida que Reporting/Staffing, un control
+    # por capability (Dashboard/Actividades/Licencias/Historial Perdidas/
+    # Detalle Oportunidades/Clientes/Leads).
+    "commercial.feedback",
 })
 _DIAGNOSTIC_EVENTS: frozenset[str] = frozenset({
     EVENT_DATA_LOAD_FAILED,
@@ -402,6 +407,7 @@ EVENT_LABELS: dict[str, str] = {
     "reporting.feedback": "Reporting — feedback de reporte",
     "staffing.feedback": "Asignaciones — feedback de reporte",
     "strategy.saved": "Estrategia — guardado exitoso",
+    "commercial.feedback": "Comercial — feedback de capability",
     # "commercial.data_error" NO tiene entrada acá a propósito: es un evento
     # de DIAGNÓSTICO (_DIAGNOSTIC_EVENTS), no de uso — mismo criterio que
     # EVENT_DATA_LOAD_FAILED/EVENT_CONFIGURATION_INCOMPLETE, ninguno de los

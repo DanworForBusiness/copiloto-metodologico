@@ -1682,12 +1682,14 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 }
 .content-section:hover .section-feedback__bar,
 .catalog-lineage:hover .section-feedback__bar,
-/* Reporting/Asignaciones reusan la MISMA botonera: la barra se ilumina al pasar
-   el mouse por CUALQUIER parte del contenido (owner: en Copilot basta scrollear/
-   mover el mouse en la sección; acá quedaba greyed y solo se activaba sobre el
-   texto). El contenedor de contenido es la "sección" equivalente. */
+/* Reporting/Asignaciones/Comercial reusan la MISMA botonera: la barra se
+   ilumina al pasar el mouse por CUALQUIER parte del contenido (owner: en
+   Copilot basta scrollear/mover el mouse en la sección; acá quedaba greyed
+   y solo se activaba sobre el texto). El contenedor de contenido es la
+   "sección" equivalente. */
 #reporting-main-content:hover .section-feedback__bar,
 #staffing-rows:hover .section-feedback__bar,
+#commercial-main-content:hover .section-feedback__bar,
 .section-feedback__bar:hover,
 .section-feedback__bar:focus-within {
   opacity: 1;
