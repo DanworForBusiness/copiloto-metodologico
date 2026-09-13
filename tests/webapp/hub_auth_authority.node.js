@@ -44,7 +44,7 @@ function makeMsal(behaviour, captured) {
   class InteractionRequiredAuthError extends AuthError { }
 
   class PublicClientApplication {
-    constructor(config) { log.push("new"); captured.config = config; this._active = null; }
+    constructor(config) { log.push("new"); captured.config = config; this._active = null; this._popupHappened = false; }
     async initialize() { log.push("initialize"); if (b.initializeThrows) throw new Error("init fallo"); }
     getAllAccounts() { return (b.accounts || []).slice(); }
     getActiveAccount() { return this._active; }
@@ -52,6 +52,15 @@ function makeMsal(behaviour, captured) {
     async acquireTokenSilent(req) {
       log.push("acquireTokenSilent");
       captured.silentScopes = req.scopes;
+      // Fase 4.1.1 corrective (§O): simula el consentimiento incremental
+      // real de MSAL — silencioso exige interacción HASTA que un popup
+      // exitoso corrió en ESTA instancia, después el silencioso alcanza
+      // (con `b.silentToken`, MISMO valor que cualquier otro camino
+      // silencioso exitoso). Distinto de `b.silent === "interaction"`
+      // (arriba), que SIEMPRE exige interacción, sin importar el popup.
+      if (b.silent === "interaction_until_popup" && !this._popupHappened) {
+        throw new InteractionRequiredAuthError("interaction_required");
+      }
       if (b.silent === "interaction") throw new InteractionRequiredAuthError("interaction_required");
       if (b.silent === "network") throw new AuthError("network_error");
       // "resuelve sin excepción, pero sin token" (owner ticket "STAFFING —
@@ -62,8 +71,10 @@ function makeMsal(behaviour, captured) {
     }
     async acquireTokenPopup(req) {
       log.push("acquireTokenPopup");
+      captured.popupScopes = req.scopes;
       if (b.popupDelayMs) await new Promise(r => setTimeout(r, b.popupDelayMs));
       if (b.popup === "cancel") throw new AuthError("user_cancelled");
+      this._popupHappened = true;
       return { accessToken: b.popupToken || "AT-POPUP" };
     }
     async loginPopup(req) {
@@ -115,7 +126,14 @@ function makeEnv(behaviour, opts) {
       if (String(url).indexOf("/api/auth/microsoft/config") === 0) {
         const cfg = options.config === "disabled"
           ? { enabled: false }
-          : { enabled: true, tenant_id: "TENANT", client_id: "CLIENT" };
+          : {
+            enabled: true, tenant_id: "TENANT", client_id: "CLIENT",
+            // Fase 4.1.1 corrective (§5): "" por default -- un test tiene
+            // que pedirlo EXPLICITO via `options.hcWriteScope` para probar
+            // el camino configurado, asi el default sigue probando el
+            // fail-closed sin que cada test viejo tenga que saberlo.
+            hc_document_write_scope: options.hcWriteScope || "",
+          };
         return Promise.resolve({ ok: options.configHttpOk !== false, json: () => Promise.resolve(cfg) });
       }
       if (String(url).indexOf("/api/auth/microsoft/token") === 0) {
@@ -648,6 +666,109 @@ const ACCOUNT = { username: "joe@danwor.com", homeAccountId: "hid" };
     const sent = JSON.parse(htmx.issued[0].params.token_diagnostic);
     assertEqual(sent.stage, "acquire_silent_interaction_required",
       "N13: el diagnóstico adjunto es el de ESTA falla");
+  }
+
+  // ── O: CAPITAL HUMANO — TOKEN DE ESCRITURA DE DOCUMENTOS (Fase 4.1.1
+  // corrective) ───────────────────────────────────────────────────────────
+  {
+    // O1: scope escrito CONFIGURADO -> pide GRAPH_SCOPES + el scope extra,
+    // NUNCA solo el extra (los reads del Hub siguen viajando en el mismo
+    // token/consentimiento).
+    const env = makeEnv({ accounts: [ACCOUNT], silentToken: "AT-WRITE" }, { hcWriteScope: "Sites.Selected" });
+    assertEqual(await env.win.dwHumanCapitalDocumentWriteToken(), "AT-WRITE",
+      "O1: devuelve el access token cuando el scope está configurado");
+    assertEqual(JSON.stringify(env.captured.silentScopes), '["User.Read","Sites.Read.All","Sites.Selected"]',
+      "O1: pide los scopes base MÁS el scope de escritura, en ese orden");
+  }
+  {
+    // O2: sin scope configurado -> "" SIN llamar a MSAL en absoluto (fail
+    // closed del lado del cliente, ANTES de gastar una llamada silenciosa).
+    const env = makeEnv({ accounts: [ACCOUNT], silentToken: "NO-DEBERIA-VERSE" });
+    assertEqual(await env.win.dwHumanCapitalDocumentWriteToken(), "",
+      "O2: sin hc_document_write_scope configurado, devuelve vacío");
+    assertTrue(!env.msalLog.includes("acquireTokenSilent"),
+      "O2: y ni siquiera intenta silencioso -- fail closed inmediato");
+  }
+  {
+    // O3: dwGraphToken (el resto del Hub) NUNCA pide el scope de escritura,
+    // esté o no configurado -- las dos funciones son independientes.
+    const env = makeEnv({ accounts: [ACCOUNT], silentToken: "AT-READ" }, { hcWriteScope: "Sites.Selected" });
+    await env.win.dwGraphToken();
+    assertEqual(JSON.stringify(env.captured.silentScopes), '["User.Read","Sites.Read.All"]',
+      "O3: dwGraphToken sigue pidiendo EXCLUSIVAMENTE los scopes base, sin importar hc_document_write_scope");
+  }
+  {
+    // O4: silencioso alcanza -> CERO popup (mismo camino feliz que dwGraphToken).
+    const env = makeEnv({ accounts: [ACCOUNT], silentToken: "AT-SILENT-OK" }, { hcWriteScope: "Sites.Selected" });
+    await env.win.dwHumanCapitalDocumentWriteToken();
+    assertTrue(!env.msalLog.includes("acquireTokenPopup"), "O4: con silencioso exitoso, sin popup");
+  }
+  {
+    // O5: cuando MSAL exige interacción, la función SÍ llega a un token —
+    // pero SIEMPRE delegando en `dwGraphReauthenticate` (nunca llamando
+    // `acquireTokenPopup` ella misma, GUARD 5): silencioso falla -> popup
+    // vía la puerta compartida (con el scope de escritura incluido) ->
+    // silencioso de nuevo, que ahora sí alcanza.
+    const env = makeEnv(
+      { accounts: [ACCOUNT], silent: "interaction_until_popup", popupToken: "AT-POPUP-WRITE", silentToken: "AT-AFTER-POPUP" },
+      { hcWriteScope: "Sites.Selected" },
+    );
+    assertEqual(await env.win.dwHumanCapitalDocumentWriteToken(), "AT-AFTER-POPUP",
+      "O5: tras la reautenticación, el segundo silencioso devuelve el token");
+    assertEqual(env.msalLog.filter(l => l === "acquireTokenPopup").length, 1, "O5: exactamente un popup");
+    assertEqual(env.msalLog.filter(l => l === "acquireTokenSilent").length, 2,
+      "O5: dos intentos silenciosos -- el que falla y el que confirma tras el popup");
+    assertTrue(JSON.stringify(env.captured.popupScopes).indexOf("Sites.Selected") !== -1,
+      "O5: el popup pide TAMBIÉN el scope de escritura, no solo lectura");
+  }
+  {
+    // O5b: el popup abierto es el de dwGraphReauthenticate -- GUARD 5 del
+    // proyecto ("acquireTokenPopup en un solo lugar") sigue cumpliéndose
+    // con la nueva función en juego, no solo en aislamiento.
+    const fs = require("fs");
+    const src = fs.readFileSync(HUB_AUTH, "utf-8");
+    const withoutComments = src.replace(/\/\*[\s\S]*?\*\//g, "").split("\n")
+      .filter(l => !l.trim().startsWith("//")).join("\n");
+    const occurrences = (withoutComments.match(/acquireTokenPopup/g) || []).length;
+    // Dos apariciones esperadas: la LLAMADA dentro de dwGraphReauthenticate
+    // y el nombre del método en la firma del doble de MSAL de este mismo
+    // harness no cuenta (vive en OTRO archivo) -- acá solo se lee
+    // hub_auth.js, así que UNA sola aparición (la llamada real).
+    assertEqual(occurrences, 1, "O5b: hub_auth.js sigue llamando acquireTokenPopup en UN solo lugar");
+  }
+  {
+    // O6: sin cuenta -> "" sin intentar nada, MISMO criterio que dwGraphToken.
+    const env = makeEnv({ accounts: [] }, { hcWriteScope: "Sites.Selected" });
+    assertEqual(await env.win.dwHumanCapitalDocumentWriteToken(), "",
+      "O6: sin cuenta activa, devuelve vacío");
+    assertTrue(!env.msalLog.includes("acquireTokenSilent") && !env.msalLog.includes("acquireTokenPopup"),
+      "O6: y no intenta ni silencioso ni popup");
+  }
+  {
+    // O7: cancelar el popup no propaga excepción -- vuelve "" limpio.
+    const env = makeEnv(
+      { accounts: [ACCOUNT], silent: "interaction", popup: "cancel" }, { hcWriteScope: "Sites.Selected" },
+    );
+    let threw = false, v = "sentinel";
+    try { v = await env.win.dwHumanCapitalDocumentWriteToken(); } catch (e) { threw = true; }
+    assertTrue(!threw, "O7: cancelar el popup no lanza");
+    assertEqual(v, "", "O7: y devuelve vacío");
+  }
+  {
+    // O8: reusa la MISMA instancia de MSAL que dwGraphToken -- nunca una
+    // segunda PublicClientApplication/Entra app para la capability nueva.
+    const env = makeEnv({ accounts: [ACCOUNT], silentToken: "X" }, { hcWriteScope: "Sites.Selected" });
+    await env.win.dwGraphToken();
+    await env.win.dwHumanCapitalDocumentWriteToken();
+    assertEqual(env.msalLog.filter(l => l === "new").length, 1,
+      "O8: UNA sola PublicClientApplication para ambas funciones");
+  }
+  {
+    // O9: un fallo de red/genérico (no InteractionRequired) devuelve "" sin
+    // escalar a popup -- mismo criterio que dwGraphToken con errores no-auth.
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "network" }, { hcWriteScope: "Sites.Selected" });
+    assertEqual(await env.win.dwHumanCapitalDocumentWriteToken(), "", "O9: fallo de red devuelve vacío");
+    assertTrue(!env.msalLog.includes("acquireTokenPopup"), "O9: sin popup ante un fallo no-auth");
   }
 
   if (failures > 0) {

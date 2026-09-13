@@ -39,6 +39,7 @@ def _authorized_and_isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "HC_SHAREPOINT_SITE_ID", "site-1")
     monkeypatch.setattr(config, "HC_SHAREPOINT_DRIVE_ID", "drive-1")
     monkeypatch.setattr(config, "HC_CV_ROOT_ITEM_ID", "root-1")
+    monkeypatch.setattr(config, "HC_DOCUMENT_WRITE_SCOPE", "https://danwor.sharepoint.com/Sites.Selected")
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
     monkeypatch.setattr(profile_document_repository.remote_store, "push_path", lambda path: True)
@@ -228,6 +229,29 @@ def test_upload_both_put_attempts_fail_shows_retry_form_with_token(monkeypatch):
     assert 'data-document-error-kind="REMOTE_OUTCOME_UNKNOWN"' in response.text
     assert 'action="/human-capital/profiles/' in response.text
     assert "retry-upload" in response.text
+    assert profile_document_repository.list_for_profile(profile["profile_id"]) == []
+
+
+def test_upload_folder_create_transport_ambiguity_shows_outcome_unknown_without_retry_token(monkeypatch):
+    # Fase 4.1.1 corrective: ambigüedad de carpeta (sin document_id
+    # todavía) -- estado REMOTE_OUTCOME_UNKNOWN, pero SIN form de
+    # reintento con token (a diferencia de la ambigüedad de upload):
+    # reintentar acá es simplemente reenviar la MISMA acción de upload.
+    monkeypatch.setattr(
+        profile_document_service.microsoft365, "graph_get_json",
+        lambda url, token: (_ for _ in ()).throw(_http_error(404)),
+    )
+    monkeypatch.setattr(
+        profile_document_service.microsoft365, "graph_post_json",
+        lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("timeout")),
+    )
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    response = _upload(client, profile["profile_id"])
+    assert response.status_code == 200
+    assert 'data-document-error-kind="REMOTE_OUTCOME_UNKNOWN"' in response.text
+    assert "retry-upload" not in response.text
+    assert "retry-commit" not in response.text
     assert profile_document_repository.list_for_profile(profile["profile_id"]) == []
 
 

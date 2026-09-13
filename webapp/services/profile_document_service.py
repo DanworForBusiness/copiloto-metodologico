@@ -93,9 +93,33 @@ class ProfileDocumentPermissionDeniedError(Exception):
 
 
 class ProfileDocumentGraphSourceError(Exception):
-    """Fallo de Graph/transporte no-403 en un paso que NO participa del
-    contrato de reintento de upload (p. ej. `ensure_profile_folder` fuera
-    de 404/409) — GRAPH_SOURCE_ERROR."""
+    """Fallo de Graph CONFIRMADO (una respuesta HTTP real, con código) que
+    no es 403/404/409 — un rechazo definitivo de Graph, nunca ambiguo,
+    nunca reintentado acá (reintentar un 4xx/5xx confirmado solo
+    amplificaría un error real, p. ej. de validación). También el
+    resultado de un fallo de TRANSPORTE en un paso de solo LECTURA (nada
+    se intentó escribir todavía, así que no hay ambigüedad de "¿se creó
+    algo?" que proteger — ver `ProfileDocumentFolderOutcomeUnknownError`
+    para ESA distinción, específica de la escritura de creación de
+    carpeta)."""
+
+
+class ProfileDocumentFolderOutcomeUnknownError(Exception):
+    """Fase 4.1.1, corrective (ticket §8): ni el intento de creación de
+    carpeta NI su único reintento (MISMO `profile_id`/payload/parent en
+    ambos) recibieron una respuesta HTTP confirmada — un fallo de
+    TRANSPORTE (`URLError` sin `HTTPError`, o cualquier "no-ACK") tras un
+    POST de escritura NO prueba que la carpeta no se haya creado del lado
+    del servidor. Deliberadamente distinta de `ProfileDocumentGraphSourceError`
+    (que solo cubre respuestas CONFIRMADAS): un `except
+    ProfileDocumentGraphSourceError` genérico nunca debe aplanar esto a
+    "seguro que falló". Sin token de reintento propio (a diferencia del
+    upload) — el `document_id` todavía no existe en este punto del flujo
+    (§15: se mintea DESPUÉS de `ensure_profile_folder`), así que un
+    reintento seguro es simplemente que el usuario reenvíe la MISMA acción
+    de upload: `ensure_profile_folder` es idempotente por diseño (lookup
+    por path + 409→re-lee), así que una carpeta que sí se haya creado en
+    el intento ambiguo aparecerá como "existente" en el próximo intento."""
 
 
 class ProfileDocumentUploadRetryRequired(Exception):
@@ -166,10 +190,19 @@ def _folder_create_body(profile_id: str) -> dict:
 
 
 def require_graph_config() -> None:
-    """CONFIG_INCOMPLETE fail-closed (§20) — chequeado ANTES de cualquier
+    """CONFIG_INCOMPLETE fail-closed (§20; §5 de la Fase 4.1.1 corrective
+    agregó `HC_DOCUMENT_WRITE_SCOPE`) — chequeado ANTES de cualquier
     llamada a Graph, para que un entorno sin configurar nunca intente un
-    request que de todos modos va a fallar de forma menos clara."""
-    if not (config.HC_SHAREPOINT_SITE_ID and config.HC_SHAREPOINT_DRIVE_ID and config.HC_CV_ROOT_ITEM_ID):
+    request que de todos modos va a fallar de forma menos clara. El
+    browser también falla cerrado del lado de la adquisición de token
+    (ver `hub_auth.js::dwHumanCapitalDocumentWriteToken`, que devuelve ""
+    si el scope no está configurado en `/api/auth/microsoft/config`) — ESTE
+    chequeo server-side es la clasificación explícita CONFIG_INCOMPLETE,
+    independiente de si el browser ya mandó o no un `graph_token` vacío."""
+    if not (
+        config.HC_SHAREPOINT_SITE_ID and config.HC_SHAREPOINT_DRIVE_ID and config.HC_CV_ROOT_ITEM_ID
+        and config.HC_DOCUMENT_WRITE_SCOPE
+    ):
         raise ProfileDocumentConfigIncompleteError(
             "La integración de documentos con SharePoint todavía no está configurada para este entorno."
         )
@@ -200,20 +233,22 @@ def build_remote_filename(document_id: str, original_filename: str) -> str:
 
 def ensure_profile_folder(profile_id: str, access_token: str) -> str:
     """Devuelve el `item_id` de la carpeta `<CV root>/<profile_id>`,
-    creándola si hace falta. Contrato EXACTO del ticket §10:
+    creándola si hace falta. Contrato EXACTO del ticket §9 (Fase 4.1.1,
+    corrective):
       1. nombre determinístico = `profile_id`;
-      2. lee/chequea bajo la raíz configurada (lookup por path, 404 =
-         ausente);
-      3. ausente → crea UNA vez (`conflictBehavior=fail`);
-      4. conflicto de creación concurrente (409) → re-lee la carpeta ya
-         creada por el otro request — NUNCA crea una segunda carpeta con
-         nombre distinto;
-      5. devuelve el `item_id`.
+      2. GET por path bajo la raíz configurada — 200 existe, 404 ausente
+         confirmado (una respuesta HTTP real en ambos casos);
+      3. ausente → intenta crear (`_create_folder_with_retry`, ver abajo):
+         confirmado (201/409) resuelve de inmediato; AMBIGUO (fallo de
+         transporte, sin respuesta HTTP) → UN único reintento antes de
+         rendirse;
+      4. devuelve el `item_id`.
 
-    Clasificación honesta de fallo ambiguo (§10, último punto): 403 en
-    CUALQUIER paso → `ProfileDocumentPermissionDeniedError` (definitivo,
-    nunca reintentable acá). Cualquier otro fallo de transporte/Graph que
-    no sea 404 (chequeo) o 409 (creación) → `ProfileDocumentGraphSourceError`."""
+    El GET inicial es de solo LECTURA — un fallo de transporte ahí NUNCA
+    es ambiguo sobre "¿se creó algo?" (nada se intentó escribir todavía),
+    así que se clasifica de inmediato como `ProfileDocumentGraphSourceError`,
+    sin retry. La ambigüedad real (§8) vive exclusivamente en el POST de
+    creación, ver `_create_folder_with_retry`."""
     try:
         existing = microsoft365.graph_get_json(_folder_by_path_url(profile_id), access_token)
         return existing["id"]
@@ -222,20 +257,73 @@ def ensure_profile_folder(profile_id: str, access_token: str) -> str:
             raise ProfileDocumentPermissionDeniedError(_PERMISSION_DENIED_MESSAGE) from exc
         if exc.code != 404:
             raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+    except urllib.error.URLError as exc:
+        raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
 
+    return _create_folder_with_retry(profile_id, access_token)
+
+
+def _attempt_create_folder(profile_id: str, access_token: str) -> tuple[str | None, bool]:
+    """UN intento de POST de creación. Devuelve `(item_id, confirmed)`:
+      - `(item_id, True)`: 201 confirmado, carpeta recién creada.
+      - `(None, True)`: 409 CONFIRMADO — otro request ya la creó; el
+        caller re-lee (nunca crea una segunda carpeta con nombre distinto).
+      - `(None, False)`: fallo AMBIGUO — `URLError` sin `HTTPError`
+        (ningún código de respuesta en absoluto). NO prueba que la carpeta
+        no se haya creado (ticket §8) — el caller decide si reintenta.
+
+    Un 403, o cualquier OTRO 4xx/5xx CONFIRMADO (código de respuesta real,
+    distinto de 409), es una clasificación DEFINITIVA — se propaga como
+    excepción de inmediato, nunca participa de la ambigüedad "reintentar
+    o no"."""
     try:
         created = microsoft365.graph_post_json(_cv_root_children_url(), access_token, _folder_create_body(profile_id))
-        return created["id"]
+        return created["id"], True
     except urllib.error.HTTPError as exc:
         if exc.code == 403:
             raise ProfileDocumentPermissionDeniedError(_PERMISSION_DENIED_MESSAGE) from exc
         if exc.code == 409:
-            try:
-                existing = microsoft365.graph_get_json(_folder_by_path_url(profile_id), access_token)
-                return existing["id"]
-            except urllib.error.HTTPError as exc2:
-                raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc2
+            return None, True
         raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+    except urllib.error.URLError:
+        return None, False
+
+
+def _reread_folder_after_conflict(profile_id: str, access_token: str) -> str:
+    """Re-lee tras un 409 CONFIRMADO — en ese punto ya se sabe que la
+    carpeta existe (la creó otro request), así que un fallo de transporte
+    ACÁ es un problema de LECTURA pura, no de "¿se creó algo?" — se
+    clasifica de inmediato (403 → permission denied, cualquier otra cosa →
+    GRAPH_SOURCE_ERROR), sin un tercer intento de creación ni un retry
+    anidado."""
+    try:
+        existing = microsoft365.graph_get_json(_folder_by_path_url(profile_id), access_token)
+        return existing["id"]
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403:
+            raise ProfileDocumentPermissionDeniedError(_PERMISSION_DENIED_MESSAGE) from exc
+        raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+    except urllib.error.URLError as exc:
+        raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+
+
+def _create_folder_with_retry(profile_id: str, access_token: str) -> str:
+    """Contrato de creación con UN único reintento ante ambigüedad (ticket
+    §9) — MISMO `profile_id`/payload/parent en AMBOS intentos, nunca una
+    segunda carpeta con nombre distinto. Ambos intentos ambiguos (ninguna
+    respuesta HTTP confirmada en ninguno) → `ProfileDocumentFolderOutcomeUnknownError`."""
+    item_id, confirmed = _attempt_create_folder(profile_id, access_token)
+    if confirmed:
+        return item_id if item_id is not None else _reread_folder_after_conflict(profile_id, access_token)
+
+    item_id, confirmed = _attempt_create_folder(profile_id, access_token)
+    if confirmed:
+        return item_id if item_id is not None else _reread_folder_after_conflict(profile_id, access_token)
+
+    raise ProfileDocumentFolderOutcomeUnknownError(
+        "No pudimos confirmar si la carpeta de este Profile se creó en SharePoint. "
+        "Podés reintentar la acción — es seguro repetirla."
+    )
 
 
 # ---------------------------------------------------------------------------

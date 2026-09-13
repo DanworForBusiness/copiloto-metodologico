@@ -27,6 +27,7 @@ def _configured_graph(monkeypatch):
     monkeypatch.setattr(config, "HC_SHAREPOINT_SITE_ID", "site-1")
     monkeypatch.setattr(config, "HC_SHAREPOINT_DRIVE_ID", "drive-1")
     monkeypatch.setattr(config, "HC_CV_ROOT_ITEM_ID", "root-1")
+    monkeypatch.setattr(config, "HC_DOCUMENT_WRITE_SCOPE", "https://danwor.sharepoint.com/Sites.Selected")
 
 
 @pytest.fixture(autouse=True)
@@ -151,6 +152,128 @@ def test_ensure_profile_folder_conflict_reread_failure_is_graph_source_error(mon
     monkeypatch.setattr(svc.microsoft365, "graph_post_json", _post)
     with pytest.raises(svc.ProfileDocumentGraphSourceError):
         svc.ensure_profile_folder("profile-1", "tok")
+
+
+# ============================================================================
+# ensure_profile_folder — Fase 4.1.1 corrective (§8-§11): ambigüedad de
+# TRANSPORTE (URLError, sin respuesta HTTP) en el POST de creación NO
+# prueba que la carpeta no se haya creado — requiere un único reintento
+# antes de rendirse, distinto de un 4xx/5xx CONFIRMADO (que nunca reintenta).
+# ============================================================================
+
+def test_ensure_profile_folder_transport_failure_on_create_retries_same_payload(monkeypatch):
+    get_calls = {"n": 0}
+    post_payloads = []
+
+    def _get(url, token):
+        get_calls["n"] += 1
+        raise _http_error(404)
+
+    def _post(url, token, body):
+        post_payloads.append((url, token, body))
+        if len(post_payloads) == 1:
+            raise urllib.error.URLError("connection reset")
+        return {"id": "folder-after-retry"}
+
+    monkeypatch.setattr(svc.microsoft365, "graph_get_json", _get)
+    monkeypatch.setattr(svc.microsoft365, "graph_post_json", _post)
+    item_id = svc.ensure_profile_folder("profile-1", "tok")
+    assert item_id == "folder-after-retry"
+    assert len(post_payloads) == 2
+    assert post_payloads[0] == post_payloads[1]  # MISMO parent/name/payload en ambos intentos
+
+
+def test_ensure_profile_folder_first_transport_fail_then_201_succeeds(monkeypatch):
+    monkeypatch.setattr(svc.microsoft365, "graph_get_json", lambda url, token: (_ for _ in ()).throw(_http_error(404)))
+    calls = {"n": 0}
+
+    def _post(url, token, body):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise urllib.error.URLError("timeout")
+        return {"id": "folder-ok"}
+
+    monkeypatch.setattr(svc.microsoft365, "graph_post_json", _post)
+    item_id = svc.ensure_profile_folder("profile-1", "tok")
+    assert item_id == "folder-ok"
+    assert calls["n"] == 2
+
+
+def test_ensure_profile_folder_first_transport_fail_then_409_reread_found(monkeypatch):
+    get_calls = {"n": 0}
+
+    def _get(url, token):
+        get_calls["n"] += 1
+        if get_calls["n"] == 1:
+            raise _http_error(404)  # chequeo inicial: ausente
+        return {"id": "folder-from-conflict"}  # re-read tras el 409 del reintento
+
+    calls = {"n": 0}
+
+    def _post(url, token, body):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise urllib.error.URLError("timeout")
+        raise _http_error(409)
+
+    monkeypatch.setattr(svc.microsoft365, "graph_get_json", _get)
+    monkeypatch.setattr(svc.microsoft365, "graph_post_json", _post)
+    item_id = svc.ensure_profile_folder("profile-1", "tok")
+    assert item_id == "folder-from-conflict"
+    assert calls["n"] == 2
+
+
+def test_ensure_profile_folder_double_transport_ambiguity_is_outcome_unknown(monkeypatch):
+    monkeypatch.setattr(svc.microsoft365, "graph_get_json", lambda url, token: (_ for _ in ()).throw(_http_error(404)))
+    monkeypatch.setattr(svc.microsoft365, "graph_post_json", lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("timeout")))
+    with pytest.raises(svc.ProfileDocumentFolderOutcomeUnknownError):
+        svc.ensure_profile_folder("profile-1", "tok")
+
+
+def test_ensure_profile_folder_403_on_create_never_retries(monkeypatch):
+    monkeypatch.setattr(svc.microsoft365, "graph_get_json", lambda url, token: (_ for _ in ()).throw(_http_error(404)))
+    calls = {"n": 0}
+
+    def _post(url, token, body):
+        calls["n"] += 1
+        raise _http_error(403)
+
+    monkeypatch.setattr(svc.microsoft365, "graph_post_json", _post)
+    with pytest.raises(svc.ProfileDocumentPermissionDeniedError):
+        svc.ensure_profile_folder("profile-1", "tok")
+    assert calls["n"] == 1
+
+
+def test_ensure_profile_folder_confirmed_4xx_never_retries(monkeypatch):
+    # Un 4xx/5xx CONFIRMADO (código real, no 403/409) es un rechazo
+    # definitivo -- reintentarlo solo amplificaría un error real.
+    monkeypatch.setattr(svc.microsoft365, "graph_get_json", lambda url, token: (_ for _ in ()).throw(_http_error(404)))
+    calls = {"n": 0}
+
+    def _post(url, token, body):
+        calls["n"] += 1
+        raise _http_error(400)
+
+    monkeypatch.setattr(svc.microsoft365, "graph_post_json", _post)
+    with pytest.raises(svc.ProfileDocumentGraphSourceError):
+        svc.ensure_profile_folder("profile-1", "tok")
+    assert calls["n"] == 1
+
+
+def test_ensure_profile_folder_transport_failure_on_initial_lookup_is_source_error_no_retry(monkeypatch):
+    # El chequeo inicial es de solo LECTURA -- nada se intentó escribir
+    # todavía, así que un fallo de transporte ahí es un SOURCE_ERROR
+    # honesto (nunca ambiguo sobre "¿se creó algo?").
+    calls = {"n": 0}
+
+    def _get(url, token):
+        calls["n"] += 1
+        raise urllib.error.URLError("timeout")
+
+    monkeypatch.setattr(svc.microsoft365, "graph_get_json", _get)
+    with pytest.raises(svc.ProfileDocumentGraphSourceError):
+        svc.ensure_profile_folder("profile-1", "tok")
+    assert calls["n"] == 1
 
 
 # ============================================================================

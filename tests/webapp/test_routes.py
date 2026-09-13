@@ -77,7 +77,12 @@ def test_auth_config_returns_azure_ids():
     response = client.get("/api/auth/microsoft/config")
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"enabled", "tenant_id", "client_id"}
+    # `hc_document_write_scope` (Fase 4.1.1 -- Capital Humano Profile
+    # Documents, SharePoint write corrective, §5): el scope Selected
+    # ADICIONAL que la escritura de documentos de Capital Humano pide,
+    # expuesto acá porque un scope string no es un secreto y `hub_auth.js`
+    # (estático, sin backend propio) no puede leer un env var directamente.
+    assert set(body) == {"enabled", "tenant_id", "client_id", "hc_document_write_scope"}
 
 def test_auth_me_authenticated():
     response = client.get("/api/auth/me")

@@ -7,12 +7,16 @@
    SharePoint" (link plano a `web_url`, nunca streameado por el Hub, sin
    ruta de descarga propia).
 
-   Form de upload: multipart, MISMO patrón de graph_token vía
-   `window.dwGraphToken()` (hub_auth.js) que Staffing/Reporting ya usan —
-   un hidden input se completa async ANTES del submit real (un form plano
-   no puede esperar una promesa, así que el primer submit se intercepta,
-   se completa el token, y se re-dispara un segundo submit real que el
-   listener deja pasar).
+   Form de upload: multipart, MISMO patrón de graph_token vía async-antes-
+   del-submit que Staffing/Reporting ya usan — un hidden input se completa
+   ANTES del submit real (un form plano no puede esperar una promesa, así
+   que el primer submit se intercepta, se completa el token, y se
+   re-dispara un segundo submit real que el listener deja pasar). Fase
+   4.1.1 corrective: el token viene de
+   `window.dwHumanCapitalDocumentWriteToken()` (hub_auth.js), NO de
+   `window.dwGraphToken()` — éste último solo pide los scopes de LECTURA
+   del Hub (User.Read/Sites.Read.All), insuficientes para el PUT de
+   escritura a SharePoint que esta acción necesita.
 
    Estados de fallo (§20), cada uno con su propio primitivo visual — MISMO
    idioma que human_capital_profile_edit_form.html (nunca dos estados
@@ -116,7 +120,7 @@
     form.addEventListener("submit", function (event) {
       if (form.dataset.hcTokenReady === "true") return; // segundo submit real, dejar pasar sin interceptar
       event.preventDefault();
-      Promise.resolve(typeof window.dwGraphToken === "function" ? window.dwGraphToken() : "").then(function (token) {
+      Promise.resolve(typeof window.dwHumanCapitalDocumentWriteToken === "function" ? window.dwHumanCapitalDocumentWriteToken() : "").then(function (token) {
         var tokenField = form.querySelector("input[name=graph_token]");
         if (tokenField) tokenField.value = token || "";
         form.dataset.hcTokenReady = "true";

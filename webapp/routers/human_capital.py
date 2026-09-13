@@ -704,6 +704,14 @@ async def human_capital_profile_documents_upload(
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "GRAPH_SOURCE_ERROR", "message": str(exc)},
         )
+    except profile_document_service.ProfileDocumentFolderOutcomeUnknownError as exc:
+        # Fase 4.1.1 corrective: ambigüedad en la CREACIÓN de carpeta, no en
+        # el upload -- sin document_id todavía, así que sin token de
+        # reintento propio. Reintentar es simplemente reenviar la MISMA
+        # acción de upload (ensure_profile_folder es idempotente).
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "REMOTE_OUTCOME_UNKNOWN", "message": str(exc)},
+        )
     except profile_document_service.ProfileDocumentUploadRetryRequired as exc:
         return _render_profile_edit_with_documents(
             request, profile_id, profile,
