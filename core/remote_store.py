@@ -238,7 +238,23 @@ def mirror_up() -> int:
 
 def push_path(local_path: str | Path) -> bool:
     """Sube un archivo puntual (write-through opcional). El archivo debe caer bajo
-    alguno de los directorios persistidos; si no, se ignora. Devuelve True si subió."""
+    alguno de los directorios persistidos; si no, se ignora. Devuelve True si subió.
+
+    CONTRATO (Capital Humano Phase 3.3 — Remote Store Durability Outcome
+    corrective): `True` significa EXACTAMENTE "el PUT remoto quedó
+    establecido exitosamente" — nada más. `False` significa EXACTAMENTE
+    "no se estableció durabilidad remota" (deshabilitado, path fuera de
+    los directorios persistidos, o el PUT en sí falló). El bookkeeping
+    LOCAL posterior al PUT (`_signatures[key] = _sig(path)`, que existe
+    únicamente para que `mirror_up()` no re-suba innecesariamente lo que
+    `push_path()` ya subió) es deliberadamente un try/except SEPARADO,
+    DESPUÉS de que el PUT ya se confirmó: un fallo ahí (p. ej. el archivo
+    local desaparece entre el upload y el `stat()` de la firma) NUNCA
+    puede convertir un upload remoto exitoso en `False` — `_signatures`
+    es una optimización de ancho de banda para `mirror_up()`, no la
+    fuente de verdad; perder una entrada en el peor caso cuesta una
+    resubida redundante del mismo contenido en el próximo ciclo de
+    `mirror_up()`, nunca pérdida de datos (ver su propio docstring)."""
     if not enabled():
         return False
     path = Path(local_path).resolve()
@@ -247,15 +263,25 @@ def push_path(local_path: str | Path) -> bool:
             rel = path.relative_to(local.resolve()).as_posix()
         except ValueError:
             continue
+        key = f"{_key(name)}/{rel}"
         try:
             client = _get_client()
-            key = f"{_key(name)}/{rel}"
             client.upload_file(str(path), config.SPACES_BUCKET, key)
-            _signatures[key] = _sig(path)
-            return True
         except Exception as exc:
             log.warning("remote_store.push_path: fallo subiendo '%s': %s", path, exc)
             return False
+        # El PUT remoto YA está establecido en este punto -- lo que sigue
+        # es bookkeeping local best-effort, nunca debe poder revertir ese
+        # éxito (ver docstring de arriba).
+        try:
+            _signatures[key] = _sig(path)
+        except Exception as exc:  # noqa: BLE001 — best-effort, nunca enmascara el éxito remoto ya confirmado
+            log.warning(
+                "remote_store.push_path: PUT remoto de '%s' confirmado, pero no se pudo "
+                "actualizar la firma local de mirror_up (%s) -- el próximo mirror_up podría "
+                "resubirlo de forma redundante; sin pérdida de datos.", path, exc,
+            )
+        return True
     return False
 
 

@@ -654,9 +654,56 @@ def test_15_route_surface_still_120():
     #     MISMO patrón que /admin/activity/stories//admin/activity/tree-runs
     #     -- pasar de página no toca el resto del dashboard de Actividad. No
     #     toca ninguna ruta de Staffing.
-    # Esta prueba SIGUE cubriendo lo que le importa a Staffing
-    # específicamente (historial/ausencias presentes, vacaciones sin alias
-    # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
+    # A partir de 121 este branch (Capital Humano) y origin/main (Commercial
+    # Strategy) divergieron y sumaron rutas EN PARALELO, sin tocarse entre sí
+    # — el merge de ambos historiales es aditivo puro. Las dos ramas de
+    # conteo quedan documentadas por separado; el total final es la SUMA.
+    #
+    # RAMA A (este branch) -- Capital Humano:
+    #   120 -> 121 (owner ticket "HUB METRICS -- CENTRALIZE ACCESS AND
+    #     ENABLE BY VERTICAL"): +1 GET. `/operaciones/metricas` -- Usage
+    #     Metrics reexpuesto DESDE Operations, autorizado independientemente
+    #     via HUB_METRICS_ALLOWED_USERS (nunca acoplado a
+    #     OPERATIONS_ALLOWED_USERS) -- MISMO reporte que /admin/activity,
+    #     nunca un fork (ver webapp/hub_metrics_access.py). No toca ninguna
+    #     ruta de Staffing.
+    #   121 -> 122 (Capital Humano Phase 1 -- Hub Walking Skeleton, ver
+    #     HANDOFF): +1 GET. `/human-capital` -- shell mínimo del CUARTO
+    #     workspace (ver webapp/routers/human_capital.py), MISMO patrón
+    #     exacto que Commercial Batch 0 (99 -> ver arriba) aplicado a un
+    #     nuevo workspace -- sin dato de negocio, sin Supabase, sin roles.
+    #     No toca ninguna ruta de Staffing/Commercial/Reporting.
+    #   122 -> 124 (Capital Humano Phase 3 -- First Profile Slice, ver
+    #     HANDOFF): +2. `GET/POST /human-capital/profiles` -- Banco de
+    #     Perfiles, primera capability real del cuarto workspace (metadata
+    #     únicamente, sin CV/SharePoint todavía -- ver
+    #     webapp/services/human_capital_service.py/profile_repository.py).
+    #     No toca ninguna ruta de Staffing/Commercial/Reporting.
+    #   124 -> 126 (Capital Humano Phase 3.5 -- Safe Profile Edit): +2.
+    #     `GET/POST /human-capital/profiles/{profile_id}/edit` -- edición
+    #     de un Profile existente con concurrencia optimista (`revision`)
+    #     y compensating overwrite (ver profile_repository.update). No
+    #     toca ninguna ruta de Staffing/Commercial/Reporting.
+    #   126 -> 129 (Capital Humano Phase 3.8 -- Safe Bulk Profile Import):
+    #     +3. `GET /human-capital/profiles/import` +
+    #     `POST .../import/preview` + `POST .../import/confirm` -- carga
+    #     masiva metadata-only vía XLSX, preview + confirm con identidad
+    #     preasignada firmada (ver profile_import_service.py y
+    #     profile_repository.create_with_explicit_id). No toca ninguna
+    #     ruta de Staffing/Commercial/Reporting.
+    #   129 -> 132 (Capital Humano Phase 4.1 -- Profile Documents, primera
+    #     rebanada SharePoint): +3.
+    #     `POST /human-capital/profiles/{profile_id}/documents` -- alta de
+    #     un documento nuevo (folder-ensure + upload con reintento único +
+    #     commit de metadata, ver profile_document_service.py).
+    #     `POST .../documents/retry-upload` -- reintento de upload con
+    #     identidad preasignada (MISMO document_id, token firmado §16).
+    #     `POST .../documents/retry-commit` -- reintento de SOLO
+    #     persistencia, cero PUT nuevo a Graph (token firmado §17). No toca
+    #     ninguna ruta de Staffing/Commercial/Reporting.
+    #   RAMA A final: 132 (121 + 11 rutas de Capital Humano).
+    #
+    # RAMA B (origin/main) -- Commercial Strategy:
     #   121 -> 122 (Commercial Strategy — Phase 1, read-only, ver storage
     #     gate/HANDOFF): +1 GET. `/comercial/estrategia` — segunda capability
     #     top-level de Comercial (junto a CRM), documento seedeado,
@@ -684,11 +731,22 @@ def test_15_route_surface_still_120():
     #     /operaciones/staffing/feedback (mismo store, mismo pipeline de
     #     Activity) — Comercial NO crea almacenamiento propio. No toca
     #     ninguna ruta de Staffing.
+    #   RAMA B final: 127 (121 + 6 rutas de Commercial Strategy).
+    #
+    # MERGE (este commit): 138 = 127 (RAMA B, todo origin/main) + 11 (rutas
+    # de Capital Humano que solo existen en RAMA A — el propio 121 común es
+    # parte de esos 127, así que no se suma dos veces). Verificado por
+    # comparación de conjuntos contra origin/main:tests/route_surface.json
+    # (cero rutas de main ausentes del merge, cero duplicados).
+    #
+    # Esta prueba SIGUE cubriendo lo que le importa a Staffing
+    # específicamente (historial/ausencias presentes, vacaciones sin alias
+    # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
     import json
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 127
+    assert len(snapshot) == 138
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

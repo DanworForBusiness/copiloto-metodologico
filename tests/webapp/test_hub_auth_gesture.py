@@ -94,7 +94,7 @@ def test_only_the_shared_reauthentication_owns_the_interactive_api():
     proyecto, y es dentro de `dwGraphReauthenticate`."""
     code = _js_code(_AUTHORITY.read_text(encoding="utf-8"))
     assert code.count("acquireTokenPopup") == 1, "acquireTokenPopup debe estar en un solo lugar"
-    reauth = _fn_body(code, "window.dwGraphReauthenticate = async function ()")
+    reauth = _fn_body(code, "window.dwGraphReauthenticate = async function (extraScopes)")
     assert "acquireTokenPopup" in reauth
     # `loginPopup` es del login (otra intención, también con gesto detrás).
     assert code.count("loginPopup") == 1
@@ -122,7 +122,7 @@ def test_the_interactive_path_is_serialized_against_popup_storms():
     el botón y ambos clickeados, tienen que producir UN popup. El candado es
     compartido con el login a propósito: son las dos únicas interacciones."""
     code = _js_code(_AUTHORITY.read_text(encoding="utf-8"))
-    reauth = _fn_body(code, "window.dwGraphReauthenticate = async function ()")
+    reauth = _fn_body(code, "window.dwGraphReauthenticate = async function (extraScopes)")
     assert "runInteractive(" in reauth
     # Y el candado se libera siempre, incluso si el popup falla.
     assert "finally" in _fn_body(code, "function runInteractive(fn)")

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Importar Perfiles · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('human-capital')"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+
+  {% include "partials/human_capital_nav.html" %}
+
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero">
+      <p class="eyebrow">Capital Humano</p>
+      <h1>Importar Perfiles</h1>
+      <p><a href="/human-capital/profiles">Volver al Banco de Perfiles</a></p>
+    </section>
+
+    {% if file_error %}<p class="feedback-error">{{ file_error }}</p>{% endif %}
+
+    <form class="hc-profile-form" method="post" action="/human-capital/profiles/import/preview" enctype="multipart/form-data">
+      <div class="feedback-field">
+        <label for="hc-import-file">Archivo XLSX</label>
+        <input id="hc-import-file" name="file" type="file" accept=".xlsx" required>
+      </div>
+      <p>Formato admitido: XLSX únicamente. Límite: {{ max_upload_mb }} MB, {{ max_import_rows }} filas.</p>
+      <p>Columnas esperadas (encabezados en la primera fila): <code>nombre</code>* <code>apellido</code>* <code>email</code> <code>telefono</code> <code>linkedin</code> <code>ubicacion</code> <code>perfil_skills</code> <code>seniority</code> <code>fuente</code> <code>tags</code> <code>notas</code> <code>potencial</code> <code>marca_potencial</code> — (*) requeridas, el resto puede quedar vacío o ausente.</p>
+      <button type="submit" class="btn-primary">Ver vista previa</button>
+    </form>
+  </main>
+</div>
+{% endblock %}

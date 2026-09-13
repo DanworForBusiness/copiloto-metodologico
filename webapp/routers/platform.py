@@ -131,6 +131,23 @@ _WORKSPACE_CARD_COPY = {
             "Indicadores y analítica CRM",
         ],
     },
+    # Capital Humano Phase 3 (First Profile Slice): SOLO se anuncia la
+    # capability que YA existe (Banco de Perfiles) — nunca
+    # Procesos/Entrevistas/Onboarding/Indicadores/CV, que todavía no están
+    # implementados (ver Phase 3 §23, MISMO criterio que el resto de este
+    # dict: presentación pura, nunca una promesa de funcionalidad).
+    "human-capital": {
+        "eyebrow": None,
+        "title": "Capital Humano",
+        "accent": "Selección e Incorporación",
+        "description": (
+            "Gestión integral del ciclo de selección e incorporación, empezando por "
+            "el Banco de Perfiles."
+        ),
+        "features": [
+            "Banco de Perfiles",
+        ],
+    },
 }
 
 

@@ -185,6 +185,13 @@
   // por valor) para que dos consumidores que arranquen a la vez compartan la
   // misma inicialización en vez de crear dos instancias.
   let appPromise = null;
+  // El `cfg` que resolvió `getApp()` -- reusado por
+  // `dwHumanCapitalDocumentWriteToken` para leer `hc_document_write_scope`
+  // sin un segundo fetch (Fase 4.1.1 corrective, §5). `null` hasta que
+  // `getApp()` resuelva al menos una vez; se limpia junto con `appPromise`
+  // si la inicialización falla (mismo criterio: un 503 puntual no debe
+  // quedar memoizado para siempre).
+  let cachedConfig = null;
 
   function getApp() {
     if (appPromise) return appPromise;
@@ -195,6 +202,7 @@
       if (!r.ok || !cfg.enabled || !cfg.tenant_id || !cfg.client_id) {
         throw new Error("Microsoft no está configurado para esta app");
       }
+      cachedConfig = cfg;
       const app = new msal.PublicClientApplication({
         auth: {
           clientId: cfg.client_id,
@@ -211,7 +219,7 @@
     })();
     // Un fallo de inicialización no puede quedar memoizado para siempre: el
     // config puede haber fallado por un 503 puntual.
-    appPromise.catch(() => { appPromise = null; });
+    appPromise.catch(() => { appPromise = null; cachedConfig = null; });
     return appPromise;
   }
 
@@ -311,10 +319,76 @@
   // limitación conocida bajo llamadas concurrentes.
   window.dwLastTokenFailureDiagnostic = function () { return lastTokenDiagnostic; };
 
+  // ── CAPITAL HUMANO: TOKEN DE ESCRITURA DE DOCUMENTOS (Fase 4.1.1
+  // corrective) ───────────────────────────────────────────────────────────
+  // `dwGraphToken` (arriba) sigue pidiendo EXCLUSIVAMENTE `GRAPH_SCOPES`
+  // (User.Read + Sites.Read.All, de solo LECTURA) — los 25+ consumidores
+  // existentes (Staffing/Reporting/Copiloto) NO cambian. Esta función es
+  // capability-específica: pide ADEMÁS el scope Selected de escritura
+  // (`cachedConfig.hc_document_write_scope`, servido por
+  // `/api/auth/microsoft/config` — ver webapp/routers/auth.py) y SOLO la
+  // invoca el submit handler del form de documentos de Capital Humano
+  // (ver human_capital_profile_documents_panel.html) — nunca la
+  // hidratación automática de tabs, nunca ningún otro vertical.
+  //
+  // A diferencia de `dwGraphToken` (NUNCA escala a popup — lo invoca un
+  // loader sin gesto de usuario detrás), esta función SÍ puede llegar a
+  // pedir interacción cuando MSAL la exige (ticket §4: "acquireTokenSilent
+  // → acquireTokenPopup only when MSAL requires interaction"): es seguro
+  // acá porque su ÚNICO caller es el submit handler de un form —siempre
+  // detrás de un click real del usuario ("Subir documento"/"Reintentar")—,
+  // nunca un loader automático. PERO nunca llama `acquireTokenPopup`
+  // directamente — delega ÍNTEGRAMENTE en `dwGraphReauthenticate` (arriba),
+  // que sigue siendo el ÚNICO dueño de esa API en todo el proyecto (GUARD
+  // 5): le pasa el scope de escritura como `extraScopes`, y tras una
+  // reautenticación exitosa el token ya quedó en la cache de MSAL, así que
+  // un segundo `acquireTokenSilent` alcanza para devolverlo.
+  //
+  // Nunca lanza — mismo contrato que `dwGraphToken`: "" y el caller decide
+  // (el router ya trata `graph_token` vacío como falta de autorización).
+  window.dwHumanCapitalDocumentWriteToken = async function () {
+    let app;
+    try { app = await getApp(); } catch (e) { return ""; }
+
+    const writeScope = cachedConfig && cachedConfig.hc_document_write_scope;
+    if (!writeScope) return "";   // CONFIG_INCOMPLETE -- fail closed, sin pedir Graph con un scope vacío.
+    const scopes = GRAPH_SCOPES.concat([writeScope]);
+
+    const account = activeAccount(app);
+    if (!account) return "";      // Sin cuenta: nada silencioso que intentar (mismo criterio que dwGraphToken).
+
+    try {
+      const res = await app.acquireTokenSilent({ scopes, account });
+      return (res && res.accessToken) || "";
+    } catch (e) {
+      if (!(e instanceof msal.InteractionRequiredAuthError)) return "";
+      const reauthenticated = await window.dwGraphReauthenticate([writeScope]);
+      if (!reauthenticated) return "";
+      try {
+        const res2 = await app.acquireTokenSilent({ scopes, account: activeAccount(app) });
+        return (res2 && res2.accessToken) || "";
+      } catch (e2) {
+        return "";
+      }
+    }
+  };
+
   // ── LA ÚNICA PUERTA A LA INTERACCIÓN ──────────────────────────────────
-  // Este es el ÚNICO lugar del proyecto que llama `acquireTokenPopup`. Se
-  // invoca desde un GESTO DEL USUARIO —el botón "Renovar sesión" del cuadro de
-  // la Fase 0—, nunca desde un loader.
+  // Este es el ÚNICO lugar del proyecto que llama `acquireTokenPopup`
+  // (GUARD 5, test_hub_auth_gesture.py — invariante deliberado: cada call
+  // site nuevo de una API interactiva es un lugar más donde un loader
+  // podría, por error, abrir Microsoft sin gesto detrás). Se invoca desde
+  // un GESTO DEL USUARIO —el botón "Renovar sesión" del cuadro de la Fase
+  // 0, o el submit de un form de Capital Humano vía
+  // `dwHumanCapitalDocumentWriteToken` (Fase 4.1.1 corrective, que NUNCA
+  // llama `acquireTokenPopup` directamente — delega ACÁ)—, nunca desde un
+  // loader.
+  //
+  // `extraScopes` (Fase 4.1.1, opcional): scopes ADICIONALES a
+  // `GRAPH_SCOPES` para este popup puntual — p. ej. el scope Selected de
+  // escritura de documentos, para que el consentimiento incremental cubra
+  // ESE scope y no solo lectura. `undefined`/`[]` preserva el
+  // comportamiento exacto de siempre (reautenticación de sólo lectura).
   //
   // Compartido: si el usuario clickea dos veces, o si dos tabs ofrecen el
   // botón y se clickean ambos, se abre UN popup. Sin esto, un doble click es
@@ -322,13 +396,13 @@
   //
   // Devuelve `true` si la reautenticación quedó lista, para que quien la pidió
   // pueda reintentar SU componente. No navega, no recarga, no cierra sesión.
-  window.dwGraphReauthenticate = async function () {
+  window.dwGraphReauthenticate = async function (extraScopes) {
     let app;
     try { app = await getApp(); } catch (e) { return false; }
     return runInteractive(async () => {
       try {
         const account = activeAccount(app);
-        const req = { scopes: GRAPH_SCOPES };
+        const req = { scopes: GRAPH_SCOPES.concat(extraScopes || []) };
         if (account) req.account = account;      // reautenticar AL MISMO usuario
         const res = await app.acquireTokenPopup(req);
         if (res && res.account) app.setActiveAccount(res.account);

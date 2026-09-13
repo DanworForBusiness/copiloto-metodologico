@@ -73,9 +73,22 @@ SPACES_SYNC_INTERVAL = int(_env("SPACES_SYNC_INTERVAL", "120"))  # segundos entr
 # históricos en esta fase (ver reporting_time_logs_durable.py) — Delta de
 # Proyectos/Cliente/Horas/Client Partner, el archivo Time Logs actual y
 # Facturadas quedan explícitamente fuera de alcance.
+# "human-capital" (Capital Humano Phase 3 — Profile metadata slice, ver
+# webapp/services/profile_repository.py): a diferencia de reporting_cache
+# (cache re-descargable, tolera el ciclo periódico de mirror_up), acá vive
+# DATO DE NEGOCIO real (Banco de Perfiles) — por eso cada `create()` además
+# hace write-through inmediato vía `remote_store.push_path()`, sin esperar
+# el próximo ciclo. Este registro en PERSIST_PATHS sigue siendo necesario
+# igual: es lo que hace que `restore()` sepa bajarlo al arrancar un
+# container con filesystem efímero vacío.
+#
+# IMPORTANTE (deployment): si el entorno YA define `SPACES_PERSIST_PATHS`
+# explícito (override de este default), hay que sumar "human-capital" a
+# ese valor real en el entorno también — este default de código NO alcanza
+# solo si la env var está seteada.
 PERSIST_PATHS     = [p.strip() for p in _env(
     "SPACES_PERSIST_PATHS",
-    "catalog_local,case_library,feedback_log,activity_log,reports,reporting_cache,commercial_strategy_runtime"
+    "catalog_local,case_library,feedback_log,activity_log,reports,reporting_cache,human-capital,commercial_strategy_runtime"
 ).split(",") if p.strip()]
 PERSIST_ENABLED   = bool(SPACES_ENDPOINT and SPACES_BUCKET and SPACES_KEY and SPACES_SECRET)
 
@@ -200,6 +213,41 @@ OPERATIONS_ALLOWED_USERS = _env("OPERATIONS_ALLOWED_USERS", "")
 # que exista un mecanismo de entitlement central (Commercial Hub Workspace
 # Foundation, ver HANDOFF).
 COMMERCIAL_ALLOWED_USERS = _env("COMMERCIAL_ALLOWED_USERS", "")
+# Allowlist explícita del workspace Capital Humano (Phase 1 — Hub Walking
+# Skeleton) — MISMO contrato fail-closed que OPERATIONS_ALLOWED_USERS/
+# COMMERCIAL_ALLOWED_USERS arriba: ausente/vacío/"ALL" = NADIE autorizado,
+# nunca un fallback a "abierto". Provisorio hasta que exista un mecanismo
+# de entitlement central (Entra Groups/App Roles) — MISMO criterio que los
+# otros dos workspaces, sin roles internos (hrbp/hiring_manager) todavía:
+# esto es solo la frontera de admisión al workspace, no autorización de
+# capacidad.
+HUMAN_CAPITAL_ALLOWED_USERS = _env("HUMAN_CAPITAL_ALLOWED_USERS", "")
+# Capital Humano Phase 4.1 — Profile Documents (SharePoint, primer slice
+# CV). Identidad ESTABLE de Graph (site_id/drive_id/item_id de la carpeta
+# raíz de CVs) — NUNCA una URL de sharing (esas son solo insumo de
+# discovery/setup, ver webapp/services/profile_document_service.py).
+# Ausente/vacío = CONFIG_INCOMPLETE explícito (mismo contrato fail-closed
+# que el resto de config de integración de este Hub) — nunca un fallback
+# silencioso ni una resolución de path repetida en cada request.
+HC_SHAREPOINT_SITE_ID  = _env("HC_SHAREPOINT_SITE_ID", "")
+HC_SHAREPOINT_DRIVE_ID = _env("HC_SHAREPOINT_DRIVE_ID", "")
+HC_CV_ROOT_ITEM_ID     = _env("HC_CV_ROOT_ITEM_ID", "")
+# Diagnóstico OPCIONAL, nunca usado para resolver rutas en runtime (ticket
+# §11: "no repeated path traversal if stable item identity is
+# available") — solo referencia humana de dónde vive HC_CV_ROOT_ITEM_ID.
+HC_CV_ROOT_PATH         = _env("HC_CV_ROOT_PATH", "")
+# Fase 4.1.1 corrective (§5): el scope Selected de Graph que la acción de
+# escritura de documentos de Capital Humano pide ADEMÁS de
+# BASE_GRAPH_SCOPES (User.Read/Sites.Read.All, sin cambios para el resto
+# del Hub) — tenant-dependiente, nunca hardcodeado (dedicated library ->
+# Lists.SelectedOperations.Selected; shared library + carpeta ->
+# Files.SelectedOperations.Selected u otro scope Selected documentado,
+# decisión de setup del tenant, no de este código). Un string de scope NO
+# es un secreto: se expone tal cual vía `/api/auth/microsoft/config` (ver
+# webapp/routers/auth.py) para que `hub_auth.js` lo consuma sin necesitar
+# un backend env var que el JS estático no puede leer. Ausente = fail
+# closed (CONFIG_INCOMPLETE, ver profile_document_service.require_graph_config).
+HC_DOCUMENT_WRITE_SCOPE = _env("HC_DOCUMENT_WRITE_SCOPE", "")
 # Editor de contenido de Estrategia Comercial (Commercial Strategy — edit
 # authorization): DOS preguntas independientes — "¿puedo VER Estrategia?"
 # (COMMERCIAL_ALLOWED_USERS, arriba) vs "¿puedo EDITARLA?" (acá). Estar en

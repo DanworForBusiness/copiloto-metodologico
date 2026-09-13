@@ -52,7 +52,7 @@ from urllib.parse import urlencode
 from fastapi import Request
 from fastapi.responses import RedirectResponse
 
-from webapp import commercial_access, operations_access
+from webapp import commercial_access, human_capital_access, operations_access
 
 
 @dataclass(frozen=True)
@@ -97,7 +97,19 @@ COMMERCIAL = Workspace(
     is_authorized=commercial_access.is_commercial_authorized_user,
 )
 
-_ALL_WORKSPACES: tuple[Workspace, ...] = (COPILOT, OPERATIONS, COMMERCIAL)
+# Capital Humano (Phase 1 — Hub Walking Skeleton): CUARTO workspace, MISMO
+# contrato exacto que Operations/Commercial (allowlist `HUMAN_CAPITAL_
+# ALLOWED_USERS`, fail-closed, ortogonal a los otros tres). Landing única,
+# sin capabilities todavía — ver `webapp/routers/human_capital.py`.
+HUMAN_CAPITAL = Workspace(
+    key="human-capital",
+    label="Capital Humano",
+    subtitle="Selección e Incorporación",
+    home_url="/human-capital",
+    is_authorized=human_capital_access.is_human_capital_authorized_user,
+)
+
+_ALL_WORKSPACES: tuple[Workspace, ...] = (COPILOT, OPERATIONS, COMMERCIAL, HUMAN_CAPITAL)
 
 
 def available_workspaces(user: dict | None) -> list[Workspace]:

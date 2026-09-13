@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Vista previa de importación · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('human-capital')"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+
+  {% include "partials/human_capital_nav.html" %}
+
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero">
+      <p class="eyebrow">Capital Humano</p>
+      <h1>Vista previa de importación</h1>
+      <p>Todavía no se creó ningún Profile. Revisá cada fila y confirmá cuáles importar — los duplicados quedan sin marcar por defecto.</p>
+    </section>
+
+    {% if not preview_rows %}
+    <div class="dashboard-empty" data-empty-kind="dataset_empty">
+      <span class="dashboard-empty__label">Sin resultados</span>
+      <p>El archivo no tiene filas de datos para importar.</p>
+    </div>
+    {% else %}
+    <form class="hc-profile-form" method="post" action="/human-capital/profiles/import/confirm">
+      <input type="hidden" name="invalid_row_count" value="{{ preview_rows | selectattr('status', 'equalto', 'invalid') | list | length }}">
+      <div class="matrix-scroll">
+        <table class="dashboard-table">
+          <thead>
+            <tr>
+              <th class="row-label-col">Fila</th>
+              <th>Nombre</th>
+              <th>Estado</th>
+              <th>Mensaje</th>
+              <th>Incluir</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in preview_rows %}
+            <tr>
+              <td class="row-label">{{ row.row_number }}</td>
+              <td>{{ row.display_name }}</td>
+              <td data-row-status="{{ row.status }}">
+                {% if row.status == "eligible" %}Listo
+                {% elif row.status == "existing_duplicate" %}Posible duplicado (Perfil existente)
+                {% elif row.status == "within_file_duplicate" %}Posible duplicado (fila {{ row.duplicate_row_number }})
+                {% else %}Inválido{% endif %}
+              </td>
+              <td>{{ row.message }}</td>
+              <td>
+                {% if row.token %}
+                <input type="hidden" name="all_tokens" value="{{ row.token }}">
+                <input type="checkbox" name="include_tokens" value="{{ row.token }}" {% if row.status == "eligible" %}checked{% endif %}>
+                {% else %}
+                —
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <button type="submit" class="btn-primary">Confirmar importación</button>
+    </form>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

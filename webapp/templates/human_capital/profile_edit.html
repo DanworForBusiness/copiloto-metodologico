@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Editar Perfil · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('human-capital')"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+
+  {% include "partials/human_capital_nav.html" %}
+
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero">
+      <p class="eyebrow">Capital Humano</p>
+      <h1>Editar Perfil</h1>
+      <p><a href="/human-capital/profiles">Volver al Banco de Perfiles</a></p>
+    </section>
+
+    {% include "partials/human_capital_profile_edit_form.html" %}
+    {% include "partials/human_capital_profile_documents_panel.html" %}
+  </main>
+</div>
+{% endblock %}

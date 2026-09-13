@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Resultado de importación · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('human-capital')"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+
+  {% include "partials/human_capital_nav.html" %}
+
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero">
+      <p class="eyebrow">Capital Humano</p>
+      <h1>Resultado de la importación</h1>
+      <p><a href="/human-capital/profiles">Ir al Banco de Perfiles</a></p>
+    </section>
+
+    <div class="activity-kpi-grid">
+      <div>Total<br><strong>{{ summary.total_rows }}</strong></div>
+      <div>Creados<br><strong>{{ summary.CREATED }}</strong></div>
+      <div>Ya confirmados<br><strong>{{ summary.ALREADY_COMMITTED }}</strong></div>
+      <div>Duplicados omitidos<br><strong>{{ summary.DUPLICATE_SKIPPED }}</strong></div>
+      <div>Requieren confirmación<br><strong>{{ summary.DUPLICATE_REQUIRES_CONFIRMATION }}</strong></div>
+      <div>Inválidos<br><strong>{{ summary.INVALID }}</strong></div>
+      <div>Errores de origen<br><strong>{{ summary.SOURCE_ERROR }}</strong></div>
+      <div>Estado desconocido<br><strong>{{ summary.REMOTE_OUTCOME_UNKNOWN }}</strong></div>
+      <div>Conflictos<br><strong>{{ summary.PROFILE_ID_CONFLICT }}</strong></div>
+    </div>
+
+    <div class="matrix-scroll">
+      <table class="dashboard-table">
+        <thead>
+          <tr>
+            <th class="row-label-col">Fila</th>
+            <th>Nombre</th>
+            <th>Resultado</th>
+            <th>Mensaje</th>
+            <th>Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in results %}
+          <tr>
+            <td class="row-label">{{ row.row_number if row.row_number >= 0 else "—" }}</td>
+            <td>{{ row.display_name or "—" }}</td>
+            <td data-row-outcome="{{ row.status }}">{{ row.status }}</td>
+            <td>{{ row.message }}</td>
+            <td>
+              {% if row.status == "REMOTE_OUTCOME_UNKNOWN" and row.token %}
+              <form method="post" action="/human-capital/profiles/import/confirm">
+                <input type="hidden" name="all_tokens" value="{{ row.token }}">
+                <input type="hidden" name="include_tokens" value="{{ row.token }}">
+                <input type="hidden" name="invalid_row_count" value="0">
+                <button type="submit" class="btn-secondary">Reintentar esta fila</button>
+              </form>
+              {% elif row.status == "DUPLICATE_REQUIRES_CONFIRMATION" and row.token %}
+              <form method="post" action="/human-capital/profiles/import/confirm">
+                <input type="hidden" name="all_tokens" value="{{ row.token }}">
+                <input type="hidden" name="include_tokens" value="{{ row.token }}">
+                <input type="hidden" name="invalid_row_count" value="0">
+                <button type="submit" class="btn-secondary">Crear de todos modos</button>
+              </form>
+              {% else %}
+              —
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+{% endblock %}

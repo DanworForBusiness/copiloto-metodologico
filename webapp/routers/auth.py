@@ -20,7 +20,7 @@ from webapp.services import auth_service
 from webapp.services.activity_service import log_activity
 from webapp.services.activity_context import SCOPE_PLATFORM, AREA_AUTH
 from config import (
-    AZURE_CLIENT_ID, AZURE_TENANT_ID,
+    AZURE_CLIENT_ID, AZURE_TENANT_ID, HC_DOCUMENT_WRITE_SCOPE,
     SESSION_MAX_AGE, SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE,
 )
 
@@ -37,6 +37,16 @@ def microsoft_config():
         "enabled": auth_service.microsoft_configured(),
         "tenant_id": AZURE_TENANT_ID,
         "client_id": AZURE_CLIENT_ID,
+        # Fase 4.1.1 corrective (Capital Humano — Profile Documents, §5):
+        # el scope Selected ADICIONAL que la acción de escritura de
+        # documentos pide, además de los scopes base (User.Read/
+        # Sites.Read.All) que sigue pidiendo el resto del Hub sin cambios.
+        # Un string de scope NO es un secreto — se expone tal cual para
+        # que `hub_auth.js` (estático, sin backend propio) lo consuma sin
+        # necesitar un env var que no puede leer. `""` si no está
+        # configurado: el cliente falla cerrado (ver
+        # hub_auth.js::dwHumanCapitalDocumentWriteToken).
+        "hc_document_write_scope": HC_DOCUMENT_WRITE_SCOPE,
     }
 
 

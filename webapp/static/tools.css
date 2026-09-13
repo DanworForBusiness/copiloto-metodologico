@@ -571,6 +571,16 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .dashboard-empty p { margin: 0 auto; max-width: 480px; color: #55555c; font-size: .82rem; line-height: 1.55; }
 .content-theme-dark .dashboard-empty p { color: #b2b2bc; }
 
+/* Capital Humano Phase 3.2 — barra de búsqueda/filtros compacta sobre el
+   Banco de Perfiles: layout mínimo (flex-wrap), reusa .feedback-field/
+   .btn-primary/.btn-secondary para los controles en sí -- NUNCA
+   .staffing-filter-bar (acoplada a los controles Alpine x-model
+   client-side de Operations; acá el filtrado es 100% server-side vía GET
+   query params, ver webapp/routers/human_capital.py). */
+.hc-profile-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 18px; }
+.hc-profile-filters .feedback-field { margin-top: 0; min-width: 150px; flex: 1 1 150px; }
+.hc-profile-filters > button, .hc-profile-filters > a.btn-secondary { flex: 0 0 auto; height: 40px; }
+
 .activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; }
 /* `margin-bottom` (owner corrective — "FINAL VISUAL COMPOSITION": Total
    Horas terminaba y la tabla empezaba casi sin transición). Reusa el
