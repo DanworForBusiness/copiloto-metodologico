@@ -5233,7 +5233,22 @@ function renderCapacidadNoAsignadas() {
   // §8bis). El trigger vive en el SHELL (`TAB_HYDRATION_TRIGGERS`, ver
   // `render()`), acá solo el gate.
   if (state.batchBDataStatus !== "ready") return renderBatchBDataState("los datos de Horas No Asignadas");
-  const rows = facetFilteredRows("capacidad");
+  // ZERO-TOTAL EXCLUSION corrective (owner live QA — "Damián Berni", año
+  // 2026, ENE..DIC=0/Total=0: esa fila no debe existir). La vista pretende
+  // mostrar consultores que REGISTRARON horas no productivas — un
+  // consultor con doce meses en 0 para el Año/Consultor activos no
+  // registró nada, así que no es una fila, es ruido. Se evalúa ACÁ,
+  // DESPUÉS de Año (ya proyectado por `capacidadNoAsignadasSelectedRows`)
+  // Y Consultor (`facetFilteredRows`) — nunca antes: filtrar más arriba
+  // (dentro de `capacidadNoAsignadasSelectedRows`, el `baseRows` que
+  // TAMBIÉN alimenta las opciones del `<select>` Consultor vía
+  // `facetSelectField`) haría desaparecer del dropdown a un consultor que
+  // sólo tiene 0 horas en el Año ACTIVO pero sí en otros años — cambiaría
+  // el contrato del filtro, que es ajeno a este corrective. Si el
+  // Consultor seleccionado queda con total 0, `rows` da vacío y el empty
+  // state canónico de más abajo (`reportingEmptyStateHtml`, ya existente)
+  // se muestra solo — cero código nuevo para ese caso.
+  const rows = facetFilteredRows("capacidad").filter(r => r.monthly.reduce((a, b) => a + b, 0) > 0);
   // Row label = Consultor a secas (owner live QA — "(0 hs Asig)" al lado de
   // cada nombre no aporta valor): `hsAsig` es un GAP DOCUMENTADO del backend
   // (ver reporting_service.py::_shape_horas_productivas_no_asignadas —
