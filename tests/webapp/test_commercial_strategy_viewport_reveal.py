@@ -285,4 +285,8 @@ def test_g_copilot_module_page_still_renders_and_wires_reveal(monkeypatch):
 def test_g_full_route_surface_unchanged_by_this_gate():
     import json
     snapshot = json.loads((_ROOT / "tests" / "route_surface.json").read_text(encoding="utf-8"))
-    assert len(snapshot) == 126  # sin cambios de rutas en este gate
+    # 126 -> 127: sin cambios de rutas en ESTE gate (Viewport Reveal) -- el +1
+    # es `POST /comercial/feedback` (Commercial Feedback Corrective,
+    # homologación al Hub), combinado localmente al hacer fast-forward de
+    # este checkout contra origin/main. No toca ninguna ruta de Estrategia.
+    assert len(snapshot) == 127

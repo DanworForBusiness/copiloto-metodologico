@@ -88,6 +88,7 @@
   "POST /comercial/estrategia/sections/{section_id}/feedback",
   "POST /comercial/estrategia/sections/{section_id}/feedback/cancel",
   "POST /comercial/estrategia/sections/{section_id}/feedback/submit",
+  "POST /comercial/feedback",
   "POST /modules/{stem}/assistant/chat",
   "POST /modules/{stem}/diagnostics/orchestrator",
   "POST /modules/{stem}/feedback",
