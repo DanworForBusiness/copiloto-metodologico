@@ -1194,6 +1194,37 @@ class CommercialService:
     # portado 1:1. Sin ninguna de las dos fechas, la oportunidad cae en el
     # bucket "Sin fecha", que se ordena SIEMPRE al final (nunca por orden
     # alfabético, que la pondría entre otros meses).
+    # Clasificación de madurez para Pipeline Forecast — MODELO A / "Pipeline
+    # Maturity Forecast" (owner GO final, ver HANDOFF — semantic audit):
+    # PROSPECTO/ACTIVA es PURA ETAPA, exactamente el MISMO criterio que ya
+    # gobierna los tiles "Prospectos"/"Oportunidades Activas" del Dashboard
+    # (`_stage_partition`, arriba en este mismo archivo) — reusado tal cual
+    # vía `_stage_first_char`, nunca reimplementado. `res.partner`/"Es
+    # Cliente?" NO participa acá: un modelo anterior (revertido, ver git
+    # history) mezclaba etapa y relación de cuenta — dos dimensiones
+    # ortogonales del CRM (auditado con datos reales: "Base Instalada" ≈
+    # 98% Cliente pero "New Name" NO correlaciona con "No" explícito en
+    # absoluto) — y esa mezcla rompía la reconciliación con el Dashboard en
+    # cuanto existiera una cuenta "No" con pipeline fuera de la etapa 0. La
+    # property de cuenta sigue siendo la fuente correcta para Clientes/Ex-
+    # Clientes en OTRAS superficies del CRM (`_partner_ids_by_cliente_value`,
+    # sin tocar) — simplemente no es la dimensión de ESTE forecast.
+    _FORECAST_CLASS_PROSPECTO = "PROSPECTO"
+    _FORECAST_CLASS_ACTIVA = "ACTIVA"
+
+    def _classify_opportunity_maturity(self, opp: dict) -> str:
+        """Etapa "0-..." -> PROSPECTO, cualquier otra etapa del universo
+        0-8 -> ACTIVA. `_stage_first_char` espera un dict con "name" — acá
+        sólo se tiene el nombre de etapa ya resuelto en la propia
+        oportunidad (`stage_id` es `[id, display_name]`), así que se envuelve
+        en un dict de un campo para reusar la MISMA función que
+        `_stage_partition`, en vez de reimplementar el chequeo del primer
+        carácter."""
+        stage_name = opp["stage_id"][1] if opp.get("stage_id") else ""
+        if _stage_first_char({"name": stage_name}) == "0":
+            return self._FORECAST_CLASS_PROSPECTO
+        return self._FORECAST_CLASS_ACTIVA
+
     def _build_forecast(self) -> dict:
         all_stages = self._client.search_read("crm.stage", [], fields=["id", "name"])
         pipeline_ids = [s["id"] for s in all_stages if _stage_first_char(s) in "012345678"]
@@ -1232,6 +1263,7 @@ class CommercialService:
                 bucket["hours"] += hours
                 bucket["weighted_hours"] += prob * hours
                 bucket["revenue"] += revenue
+                classification = self._classify_opportunity_maturity(opp)
                 bucket["opportunities"].append({
                     "opportunity": opp.get("name") or "",
                     "client": opp["partner_id"][1] if opp.get("partner_id") else "",
@@ -1241,6 +1273,7 @@ class CommercialService:
                     "revenue": revenue,
                     "hours": hours,
                     "probability": opp.get("probability"),
+                    "classification": classification,
                 })
 
             def _fmt(key: str, bucket: dict) -> dict:

@@ -318,8 +318,20 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # expansión ni orden porque esa tabla es plana) — MISMO patrón de
     # re-render quirúrgico que ya usa el resto de Comercial, nunca un host
     # nuevo por filtro.
+    # Commercial Pipeline Forecast (ver HANDOFF) agrega UNO más:
+    # `[data-commercial-forecast-ratio]` en el delegado `input` del campo
+    # Ratio prospecto (%) — MISMO patrón que la búsqueda de Creadas arriba
+    # (captura el caret ANTES del re-render quirúrgico del panel, la busca
+    # de nuevo DESPUÉS y restaura foco+cursor): el campo vive dentro de
+    # `[data-commercial-forecast-body]`, que SÍ se regenera en cada
+    # keystroke (cálculo 100% client-side), así que sin esto el `<input>`
+    # perdería el foco después del primer carácter. Owner corrective
+    # (Expandir/Contraer, "al estilo Operaciones → Asignaciones") agrega DOS
+    # más: `body.querySelectorAll("details.dashboard-section")` — una por
+    # botón, cada uno togglea `.open` de TODOS los grupos de etapa YA
+    # renderizados, sin re-render (el disclosure es 100% nativo).
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos sesenta y siete hooks y nada más.
+    # EXACTAMENTE estos setenta hooks y nada más.
     assert queries == [
         '`[data-section-id="${sectionId}"]`',
         '".chart-tooltip"',
@@ -349,6 +361,8 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-creadas-body]"',
         '"[data-commercial-creadas-count]"',
         '`[data-event="${key}"].is-active`',
+        '"details.dashboard-section"',
+        '"details.dashboard-section"',
         '"[data-commercial-prospects-table]"',
         '"[data-commercial-ganadas-results]"',
         '"[data-commercial-perdidas-table]"',
@@ -378,6 +392,7 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-clientes-table]"',
         '"[data-commercial-ex-clientes-table]"',
         '"[data-commercial-lead-conversion-table]"',
+        '"[data-commercial-forecast-ratio]"',
         '"[data-commercial-creadas-search]"',
         '"[data-commercial-opportunities]"',
         '"[data-commercial-prospects-table]"',
@@ -479,15 +494,27 @@ def test_commercial_js_never_reimplements_drag_or_collapse_itself():
     # "Por vencer" en Actividades — la `<details>` ahí es SIEMPRE visible
     # (nunca hidden/toggled por `initEventBreakdown`), así que necesita su
     # propio reset narrow, no puede compartir el de arriba.
-    # Se audita que sean EXACTAMENTE esas dos líneas, no una reimplementación
-    # más amplia coleándose por el mismo hueco.
-    assert _COMMERCIAL_JS.count(".open =") == 2
+    # Commercial Pipeline Forecast (ver HANDOFF) agrega DOS más — Expandir/
+    # Contraer TODO el Forecast por etapa (owner corrective, "al estilo
+    # Operaciones → Asignaciones"): togglean `.open` de TODOS los `<details>`
+    # del panel en un solo gesto explícito (un botón dedicado, nunca un click
+    # en `<summary>`). Sigue sin ser una reimplementación: no hay
+    # `addEventListener` de drag/dragover/drop ni un motor de expand/collapse
+    # paralelo — es exactamente el mismo patrón narrow de arriba (asignación
+    # directa a `.open`, disparada por una acción explícita del usuario),
+    # sólo que en un `.forEach` en vez de una `<details>` puntual.
+    # Se audita que sean EXACTAMENTE esas cuatro líneas, no una
+    # reimplementación más amplia coleándose por el mismo hueco.
+    assert _COMMERCIAL_JS.count(".open =") == 4
     scroll_fn = _COMMERCIAL_JS.split("function commercialMaybeScrollToOpenedAnalysis(", 1)[1].split("\nfunction ", 1)[0]
     assert "section.open = true;" in scroll_fn
     assert "addEventListener" not in scroll_fn
     jump_fn = _COMMERCIAL_JS.split("function commercialActJumpToSection(", 1)[1].split("\nfunction ", 1)[0]
     assert "section.open = true;" in jump_fn
     assert "addEventListener" not in jump_fn
+    assert "closest(\"summary\")" not in _COMMERCIAL_JS, (
+        "sin listener propio de click en <summary>: el toggle nativo del navegador sigue siendo la única vía"
+    )
 
 
 def test_commercial_pipeline_heading_dead_class_is_gone():
