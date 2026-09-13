@@ -289,4 +289,9 @@ def test_g_full_route_surface_unchanged_by_this_gate():
     # es `POST /comercial/feedback` (Commercial Feedback Corrective,
     # homologación al Hub), combinado localmente al hacer fast-forward de
     # este checkout contra origin/main. No toca ninguna ruta de Estrategia.
-    assert len(snapshot) == 127
+    # 127 -> 138 (Capital Humano Phase 4.1/4.1.1 -- Profile Documents +
+    # SharePoint write corrective, merge de origin/main hacia este branch,
+    # ver test_staffing_production_corrective.py para el desglose completo):
+    # +11 rutas de Capital Humano (Profile/Import/Edit/Documents), CERO
+    # rutas de Estrategia tocadas -- este gate sigue sin cambios propios.
+    assert len(snapshot) == 138
