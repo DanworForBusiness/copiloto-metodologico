@@ -47,6 +47,7 @@ case_library/
 reports/*
 !reports/reports_README.txt
 catalog_local/
+commercial_strategy_runtime/
 catalog_inbound/
 .scratch_*
 scratch_preview.html

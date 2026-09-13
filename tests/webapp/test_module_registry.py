@@ -280,7 +280,8 @@ def test_registry_covers_every_currently_discovered_copilot_stem():
 
 
 def test_all_entries_count_matches_approved_inventory():
-    # "+ 2" = OP01 (Operations/Asignaciones) + CM01 (Comercial/CRM, Batch 0)
-    # — las dos únicas entradas sin Markdown backing, fuera de las
-    # colecciones de Copiloto/apéndices.
-    assert len(mr.all_entries()) == len(_COPILOT_MODULE_STEMS) + len(_COPILOT_APPENDIX_STEMS) + 2
+    # "+ 3" = OP01 (Operations/Asignaciones) + CM01 (Comercial/CRM, Batch 0) +
+    # CM02 (Comercial/Estrategia, Commercial Strategy — Phase 1) — las tres
+    # únicas entradas sin Markdown backing, fuera de las colecciones de
+    # Copiloto/apéndices.
+    assert len(mr.all_entries()) == len(_COPILOT_MODULE_STEMS) + len(_COPILOT_APPENDIX_STEMS) + 3

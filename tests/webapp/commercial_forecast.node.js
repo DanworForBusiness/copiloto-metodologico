@@ -76,7 +76,8 @@ const {
   commercialForecastPanelBodyHtml, commercialForecastCountLabel, commercialTooltipShift,
   commercialRenderForecastPanel, commercialMaybeLoadForecast, commercialSetTipo,
   commercialForecastFilterOptions, commercialForecastMode, commercialForecastPeriodLongLabel,
-  commercialForecastPreambleHtml,
+  commercialForecastPreambleHtml, commercialForecastCalc, commercialForecastRowForecastHours,
+  commercialForecastParseRatio,
 } = sandbox;
 const commercialState = vm.runInContext("commercialState", sandbox);
 
@@ -843,6 +844,78 @@ function domDescendants(node) {
   }
 
   sandbox.document.getElementById = restoreGetElementById;
+}
+
+// --- MODELO A: aritmética de Forecast por etapa (owner GO final) ----------
+// `commercialForecastCalc`/`commercialForecastRowForecastHours` son las
+// ÚNICAS piezas que aplican el ratio — nunca reimplementadas por nivel (fila/
+// subtotal/total, ver su propio comentario) — así que probarlas UNA vez acá
+// cubre los tres niveles. PROSPECTO/ACTIVA acá son datos de fixture crudos
+// (el `classification` que el backend ya resolvió), no algo que este test
+// derive — la fuente de la etapa vive en `test_commercial_forecast_
+// classification.py` (Python), éste sólo prueba la ARITMÉTICA sobre esas
+// clasificaciones ya resueltas.
+{
+  const OPPS = [
+    { hours: 17984, classification: "ACTIVA" },
+    { hours: 20314, classification: "PROSPECTO" },
+  ]; // MISMOS números que la reconciliación "Todos" verificada en vivo contra Odoo real.
+
+  // E: Activa + Prospecto == Pipeline Total, con y sin ratio cargado.
+  {
+    const calc = commercialForecastCalc(OPPS, null);
+    assertTrue(calc.activeHours + calc.prospectHours === 17984 + 20314,
+      "activa + prospecto reconcilia con el pipeline total, sea cual sea el ratio");
+    assertTrue(calc.activeHours === 17984 && calc.prospectHours === 20314,
+      "las dos magnitudes de entrada son exactamente las del fixture, sin redondeo espurio");
+  }
+
+  // F: ratio 0% -> Forecast = Activa exacto.
+  {
+    const calc = commercialForecastCalc(OPPS, commercialForecastParseRatio("0"));
+    assertTrue(calc.forecastHours === 17984, `0% -> forecast = horas activas (got ${calc.forecastHours})`);
+    assertTrue(calc.prospectWeighted === 0, "0% -> prospecto ajustado es 0, NUNCA null (0 es un ratio válido)");
+  }
+
+  // G: ratio 100% -> Forecast = Pipeline Total exacto.
+  {
+    const calc = commercialForecastCalc(OPPS, commercialForecastParseRatio("100"));
+    assertTrue(calc.forecastHours === 17984 + 20314, `100% -> forecast = pipeline total (got ${calc.forecastHours})`);
+  }
+
+  // H: ratio 10% -> Activa + Prospecto × 0.10, aritmética exacta (mismos
+  // números que la reconciliación live-verified: 17984 + 2031.4 = 20015.4).
+  {
+    const ratio = commercialForecastParseRatio("10");
+    assertTrue(ratio === 0.10, "10 tipeado -> 0.10 canónico");
+    const calc = commercialForecastCalc(OPPS, ratio);
+    assertTrue(Math.abs(calc.prospectWeighted - 2031.4) < 0.05, `prospecto ajustado = 20314*0.10 (got ${calc.prospectWeighted})`);
+    assertTrue(Math.abs(calc.forecastHours - 20015.4) < 0.05, `forecast = 17984 + 2031.4 (got ${calc.forecastHours})`);
+  }
+
+  // Ratio en blanco/inválido -> forecast en blanco, nunca un default oculto.
+  {
+    const blank = commercialForecastCalc(OPPS, commercialForecastParseRatio(""));
+    assertTrue(blank.forecastHours === null && blank.prospectWeighted === null,
+      "ratio en blanco -> forecast y prospecto ajustado en null, activa/prospecto siguen visibles");
+    assertTrue(blank.activeHours === 17984 && blank.prospectHours === 20314,
+      "las horas crudas NUNCA desaparecen aunque no haya ratio");
+    const invalid = commercialForecastCalc(OPPS, commercialForecastParseRatio("150"));
+    assertTrue(invalid.forecastHours === null, "ratio inválido (>100) se trata igual que blanco, nunca se clampea en silencio");
+  }
+
+  // Por FILA: ACTIVA siempre cuenta al 100% sin importar el ratio (incluso
+  // sin ratio cargado) — PROSPECTO depende del ratio, `null` si no hay.
+  {
+    const activaRow = { hours: 500, classification: "ACTIVA" };
+    const prospectoRow = { hours: 500, classification: "PROSPECTO" };
+    assertTrue(commercialForecastRowForecastHours(activaRow, null) === 500,
+      "fila ACTIVA sin ratio: igual muestra sus horas crudas, nunca null");
+    assertTrue(commercialForecastRowForecastHours(prospectoRow, null) === null,
+      "fila PROSPECTO sin ratio: null, nunca un valor inventado");
+    assertTrue(commercialForecastRowForecastHours(prospectoRow, 0.25) === 125,
+      "fila PROSPECTO con ratio: horas × ratio exacto");
+  }
 }
 
 // --- Ciclo COMPLETO del lazy load (asíncrono, al final para no pisarse con

@@ -641,12 +641,25 @@ def test_15_route_surface_still_120():
     #     endpoint/estado totalmente separados (sub-tab lazy independiente
     #     con historial de oportunidades ganadas/perdidas).
     #     Los tres LAZY, read-only, mismo contrato fail-soft.
-    #   119 -> 120 (Usage Metrics Daily Trend Corrective -- guardrail de
+    #   119 -> 120 (Commercial Feedback Corrective -- Homologacion al Danwor
+    #     Hub, ver HANDOFF): +1 POST. `/comercial/feedback` -- feedback
+    #     transversal "Que te parecio este reporte?" (un control por
+    #     capability), MISMA capacidad compartida que
+    #     /operaciones/reporting/integral/feedback y
+    #     /operaciones/staffing/feedback (mismo store, mismo pipeline de
+    #     Activity) -- Comercial NO crea almacenamiento propio.
+    #   120 -> 121 (Usage Metrics Daily Trend Corrective -- guardrail de
     #     paginación, ver HANDOFF): +1 GET. `/admin/activity/trend` --
     #     fragment liviano de solo "Tendencia diaria" (barras + paginador),
     #     MISMO patrón que /admin/activity/stories//admin/activity/tree-runs
     #     -- pasar de página no toca el resto del dashboard de Actividad. No
     #     toca ninguna ruta de Staffing.
+    # A partir de 121 este branch (Capital Humano) y origin/main (Commercial
+    # Strategy) divergieron y sumaron rutas EN PARALELO, sin tocarse entre sí
+    # — el merge de ambos historiales es aditivo puro. Las dos ramas de
+    # conteo quedan documentadas por separado; el total final es la SUMA.
+    #
+    # RAMA A (este branch) -- Capital Humano:
     #   120 -> 121 (owner ticket "HUB METRICS -- CENTRALIZE ACCESS AND
     #     ENABLE BY VERTICAL"): +1 GET. `/operaciones/metricas` -- Usage
     #     Metrics reexpuesto DESDE Operations, autorizado independientemente
@@ -688,6 +701,44 @@ def test_15_route_surface_still_120():
     #     `POST .../documents/retry-commit` -- reintento de SOLO
     #     persistencia, cero PUT nuevo a Graph (token firmado §17). No toca
     #     ninguna ruta de Staffing/Commercial/Reporting.
+    #   RAMA A final: 132 (121 + 11 rutas de Capital Humano).
+    #
+    # RAMA B (origin/main) -- Commercial Strategy:
+    #   121 -> 122 (Commercial Strategy — Phase 1, read-only, ver storage
+    #     gate/HANDOFF): +1 GET. `/comercial/estrategia` — segunda capability
+    #     top-level de Comercial (junto a CRM), documento seedeado,
+    #     SOLO LECTURA (sin POST/PUT/DELETE en esta fase). No toca ninguna
+    #     ruta de Staffing.
+    #   122 -> 123 (Commercial Strategy edit authorization, pre-PR
+    #     correction — ver HANDOFF): +1 POST. `POST /comercial/estrategia` —
+    #     4 capas de enforcement (sesión, CONTENT_OWNER via
+    #     can_edit_strategy_user, same-origin guard, y HOY un 503 honesto:
+    #     el gate de concurrencia sigue sin confirmar, ver el router) — NUNCA
+    #     devuelve éxito ni persiste. No toca ninguna ruta de Staffing.
+    #   123 -> 126 (Commercial Strategy — Hub Standardization Gate, ver
+    #     HANDOFF): +3 POST. `POST /comercial/estrategia/sections/
+    #     {section_id}/feedback[/submit|/cancel]` — la botonera de feedback
+    #     por sección reusa LITERAL el primitivo transversal de Copilot
+    #     (partials/section_feedback.html + tools.css), gateada por
+    #     can_view_strategy_user (autorización de LECTURA, nunca
+    #     can_edit_strategy_user — feedback no es edición). No toca ninguna
+    #     ruta de Staffing.
+    #   126 -> 127 (Commercial Feedback Corrective — Homologación al Danwor
+    #     Hub, ver HANDOFF): +1 POST. `/comercial/feedback` — feedback
+    #     transversal "¿Qué te pareció este reporte?" (un control por
+    #     capability), MISMA capacidad compartida que
+    #     /operaciones/reporting/integral/feedback y
+    #     /operaciones/staffing/feedback (mismo store, mismo pipeline de
+    #     Activity) — Comercial NO crea almacenamiento propio. No toca
+    #     ninguna ruta de Staffing.
+    #   RAMA B final: 127 (121 + 6 rutas de Commercial Strategy).
+    #
+    # MERGE (este commit): 138 = 127 (RAMA B, todo origin/main) + 11 (rutas
+    # de Capital Humano que solo existen en RAMA A — el propio 121 común es
+    # parte de esos 127, así que no se suma dos veces). Verificado por
+    # comparación de conjuntos contra origin/main:tests/route_surface.json
+    # (cero rutas de main ausentes del merge, cero duplicados).
+    #
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -695,7 +746,7 @@ def test_15_route_surface_still_120():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 132
+    assert len(snapshot) == 138
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

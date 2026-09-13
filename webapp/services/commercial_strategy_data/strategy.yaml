@@ -1,0 +1,1059 @@
+version: 1
+revision: 1
+meta:
+  brand: DANWOR
+  doc_title: Estrategia Comercial 2026
+  doc_subtitle: New Names — Licencias BDC y Servicios
+nav:
+- id: hero
+  label: Portada
+  group: estructura
+- id: p1
+  label: 1 · Objetivos
+  group: pilares
+- id: genda
+  label: 2 · Generación de demanda
+  group: pilares
+- id: p2
+  label: 3 · Dónde jugamos
+  group: pilares
+- id: p3
+  label: 4 · Criterio de foco
+  group: pilares
+- id: p4
+  label: 5 · Capacidad
+  group: pilares
+- id: p5
+  label: 6 · Cadencia de revisión
+  group: pilares
+- id: p6
+  label: 7 · Qué no se hace
+  group: pilares
+- id: proximos
+  label: 8 · Próximos pasos
+  group: pilares
+- id: mapa
+  label: Mapa de contactos SAP
+  group: anexo
+- id: roles
+  label: Roles y responsabilidades
+  group: anexo
+- id: proceso
+  label: Proceso comercial
+  group: anexo
+- id: reglas
+  label: Reglas de oro
+  group: anexo
+hero:
+  kicker: Estrategia comercial · New Names
+  title_prefix: Dónde jugamos,
+  title_accent: y cómo ganamos.
+  lead: 'Seis pilares traducen el objetivo de negocio en decisiones concretas: a quién le vendemos,
+    con qué criterio invertimos tiempo y cómo gobernamos la ejecución. El cierre operativo define
+    los límites y transforma la estrategia en próximos pasos.'
+  bignums:
+  - value: USD 500K
+    label: Licencias BDC — valor computado, New Names + Base Instalada
+  - value: USD 2,0M
+    label: Pipeline a generar — cobertura 4x sobre el objetivo
+  - value: ~15
+    label: Oportunidades calificadas a convertir (win rate 40%)
+  - value: '25.000'
+    label: Horas de servicios, 100% New Names
+objectives:
+  eyebrow: '[01]'
+  title: Objetivos
+  intro: 'Foco 100% en New Names. Hay dos clases de objetivo, y las dos se miden: los **objetivos de resultado**
+    (licencias y servicios cerrados) y los **objetivos de generación** (el pipeline y las oportunidades
+    que hay que producir para llegar a ese resultado). Las licencias se trabajan en New Names y Base Instalada;
+    los servicios son exclusivos de New Names.'
+  result_targets:
+  - label: Licencias BDC
+    value: USD 500.000
+    detail: 'Valor computado: los contratos son a 3 años y se imputa la duración completa al primer año.
+      Split: 50% New Names (USD 250K, desde los Segmentos 2–4) / 50% Base Instalada (USD 250K, desde el
+      Segmento 5 — base propia de Danwor) — supuesto de trabajo, a ajustar con data real de pipeline.'
+  - label: Servicios · New Names
+    value: 25.000 horas
+    detail: 'Los servicios van pegados a la licencia: no se vende una licencia BDC sin servicios de implementación.
+      Las 25.000 horas se alimentan de los mismos deals New Names, no de un motor aparte. Distribución
+      creciente Q1→Q4. Excepción: el Segmento 6 es servicios puros vía partners regionales.'
+  calc_note: 'El objetivo se mide en **valor computado** (ticket anual × 3 años). El ticket mínimo de
+    BDC es USD 20K/año; el promedio, USD 30K/año — cuanto más grande el cliente, más alto el ticket. Un
+    dato a no confundir: los USD 500K son valor computado, no ingreso anual. A ticket promedio, 6 cierres
+    son USD 500K para el objetivo pero **USD 180K de ingreso anual nuevo**.'
+  ticket_table:
+    headers:
+    - Ticket
+    - Anual
+    - Computado (×3)
+    rows:
+    - - Mínimo
+      - USD 20K
+      - USD 60K
+    - - Promedio
+      - USD 30K
+      - USD 90K
+    - - Grande (ej.)
+      - USD 50K
+      - USD 150K
+  funnel:
+  - level: 1
+    label: Pipeline a generar · cobertura 4x
+    value: USD 2,0M
+    sub: ≈ 22 oportunidades cargadas en el funnel
+  - level: 2
+    label: Oportunidades calificadas
+    value: ~14–15 opps
+    sub: con las 5 preguntas respondidas · ~7 New Names + ~7 Base Instalada
+  - level: 3
+    label: Cierres · win rate 40%
+    value: ~6 cierres
+    sub: 3 New Names + 3 Base Instalada
+  - level: 4
+    label: Objetivo de resultado
+    value: USD 500K
+    sub: valor computado de licencias BDC
+  demand_targets:
+  - label: Pipeline a generar
+    value: USD 2,0M
+    detail: Cobertura 4x sobre el objetivo (≈ 22 oportunidades a ticket promedio). Es la meta que la Generación
+      de demanda (Pilar 2) tiene que producir — gobierna el tope del embudo.
+  - label: Oportunidades calificadas
+    value: ~14–15
+    detail: 'Piso de conversión: oportunidades que llegan a etapa Inicial con las 5 preguntas respondidas
+      (~7 New Names + ~7 Base Instalada). Es lo que la cadencia semanal vigila de cerca.'
+  coverage_note: 'Son dos lentes distintos. Si generás 4x de pipeline
+    (~22 opps) y ganás el 40%, cerrás ~9 deals ≈ USD 800K — 160% del objetivo. Ese colchón de ~50–60%
+    por encima del piso de conversión es a propósito: absorbe los deals que caen al año siguiente, los
+    que entran a ticket mínimo en vez de promedio, y los que rinden menos del 40%. El 4x manda sobre la
+    generación de demanda; las ~14–15 oportunidades calificadas, sobre la conversión.'
+  sensitivity_note: El número de oportunidades a manejar depende mucho de dónde caiga el ticket. Cuanto
+    más apuntes a cuentas grandes (C-Field, +USD 50M/año), menos deals hay que correr para el mismo objetivo.
+  sensitivity_table:
+    headers:
+    - Escenario
+    - Cierres p/ 500K
+    - Opps calificadas (÷40%)
+    - Opps en pipeline (4x)
+    rows:
+    - - Todo al mínimo (60K comp.)
+      - ~9
+      - ~22
+      - ~33
+    - - Promedio (90K comp.)
+      - ~6
+      - ~14–15
+      - ~22
+    - - Sesgo a grandes (150K comp.)
+      - ~4
+      - ~10
+      - ~13
+  assumptions_pending:
+  - Split real 50/50 de licencias — reemplazar por dato validado cuando exista visibilidad de pipeline
+  - '% de horas de servicios por trimestre — a definir en función de la maduración de los segmentos del
+    Pilar 3'
+  - Win rate 40% parejo entre New Names y Base Instalada — la base instalada suele convertir más alto;
+    diferenciar cuando haya histórico
+  - Ciclo de venta promedio (¿3 / 6 / 9 meses?) — define cuándo hay que generar el pipeline para que los
+    cierres caigan en 2026, no en 2027
+demand_generation:
+  eyebrow: '[02]'
+  title: Generación de demanda
+  intro: La máquina que llena el funnel. Define qué vendemos, por qué canales generamos conversaciones
+    y con qué eventos abrimos puertas — es lo que alimenta al Semillero de eventos y, a través de él,
+    a todos los segmentos del Pilar 3.
+  demand_target:
+    label: Horas · New Names 2026
+    value: 25.000 horas
+    detail: La demanda se mide en horas y coincide con el objetivo de servicios del Pilar 1. Las licencias
+      (USD 500K) se apalancan sobre la misma máquina — cada oportunidad de servicios trae su licencia.
+      Con win rate 40% y cobertura 4x (Pilar 1).
+  clusters_intro: 'Lo que vendemos, con su ticket en horas, su decisor y el mensaje que abre la
+    conversación. Todo es BDC con distintos enfoques: migración, arquitectura, gobierno y analítica/IA.'
+  clusters:
+  - tag: Cluster 1 · Principal revenue
+    name: Modernización SAP
+    bullets:
+    - '**BW → BDC** (Datasphere · modelar)'
+    - '**BO → BDC** (SAC · explotar)'
+    - '**BPC → BDC** (SAC Planning)'
+    - 'Target: CIO / Arquitectura / CFO. Cierre 6–12 meses.'
+    message: '"El BW no muere hoy, pero ya no escala ni habilita IA."'
+  - tag: Cluster 2 · Estratégico
+    name: Data Platform & Arquitectura
+    bullets:
+    - '**Greenfield BDC** (modelado + explotación + planificación)'
+    - 'Perfil: múltiples fuentes, Excel y reportes manuales.'
+    - 'Target: CTO / CDO. Tickets altos.'
+    message: '"Tenés datos, pero no una plataforma."'
+  - tag: Cluster 3 · Emergente
+    name: Data Governance
+    bullets:
+    - '**Gobierno del dato** end-to-end'
+    - Madurez creciente, altísimo potencial.
+    - 'Target: CIO / Riesgo / Compliance / Data Owners.'
+    message: '"Sin gobierno del dato, no hay IA ni decisiones confiables."'
+  - tag: Cluster 4 · Abre puertas
+    name: Advanced Analytics & IA
+    bullets:
+    - '**BDC + Databricks + IA** sobre datos'
+    - 'Rol: diferenciación y posicionamiento.'
+    - 'Target: CTO / Innovación / Data Science.'
+    message: '"La IA sin datos confiables es solo humo."'
+  channels:
+    inbound:
+      title: Inbound · atraer
+      items:
+      - Estrategia de contenidos (posts, whitepapers, casos de éxito)
+      - Webinars con ASUG y SAP
+      - Email marketing automatizado (nurturing) y newsletter para IT/BI
+      - LinkedIn orgánico
+    outbound:
+      title: Outbound · salir a buscar
+      items:
+      - Prospección a decisores (LinkedIn + mail), cadencia de 4 toques + cierre
+      - Campañas ABM sobre cuentas seleccionadas
+      - LinkedIn Ads
+      - Reuniones de descubrimiento + evaluación técnica gratuita
+      - Eventos propios (CFO Meet Up) y clínicas de arquitectura con SAP
+  events_catalog_intro: Formatos repetibles, con su cadencia anual. La bajada mensual (SAP Now, ASUG
+    Motion, webinars, prospección) está en el calendario Sept–Dic de más abajo.
+  events_catalog:
+    headers:
+    - Evento
+    - Objetivo
+    - Frecuencia
+    rows:
+    - - Reality Data Breakfast
+      - Conversaciones de alto valor con decisores a partir de casos reales (SAP host, Danwor cura)
+      - 5 / año
+    - - Cita a Ciegas con la IA
+      - 'Desmitificar IA predictiva: proyección tradicional vs. modelo SAC + POC Databricks/BDC'
+      - 2 / año (may · oct)
+    - - Clínica Estratégica de Datos
+      - Sesión 1:1 sobre la arquitectura del cliente — roadmap de evolución. Acción post-evento
+      - Recurrente
+    - - CFO Meet Up
+      - Networking de líderes financieros, organizado por Danwor (sin partners)
+      - 1 / año
+    - - Institucionales SAP
+      - SAP House, SAP NOW, ASUG Motion, Transformation Day, PKOM, Partner Forum
+      - Según agenda SAP
+  calendar_intro: La bajada mensual de la ventana de ejecución en curso. Cada evento cierra con una
+    acción de prospección — es donde nace el pipeline.
+  calendar:
+  - month: Septiembre
+    items:
+    - name: 2 · SAP Now AI Tour
+      is_date: true
+      muted: false
+      sub: Prospección post evento · Email MKT
+  - month: Octubre
+    items:
+    - name: 27 · ASUG Motion
+      is_date: true
+      muted: false
+      sub: Invitación ASUG Motion · Webinar ASUG SAP
+    - name: Webinar AUSAPE + Vantures
+      is_date: false
+      muted: false
+      sub: Nuevo — a confirmar fecha
+  - month: Noviembre
+    items:
+    - name: Prospección post ASUG Motion
+      is_date: false
+      muted: true
+      sub: ''
+  - month: Diciembre
+    items:
+    - name: Saludo corporativo
+      is_date: false
+      muted: true
+      sub: Branding — ARG / CH / UY
+  owner_note: 'Julieta Tiddens conduce el marketing y el calendario
+    de contenidos que sostienen los canales inbound. Cada evento debe terminar cargado en el CRM con los
+    contactos y la prospección asociada (Semillero de eventos · Pilar 4) — sin ese cierre, el evento no
+    genera pipeline.'
+segments:
+  eyebrow: '[03]'
+  title: Dónde jugamos
+  intro: Seis segmentos, ordenados por prioridad. El Semillero de eventos es el segmento de mayor prioridad
+    — es la puerta de entrada de contactos. Los Segmentos 2, 3 y 4 persiguen en conjunto los USD 250.000
+    de licencias New Names. El Segmento 5 es la base instalada propia de Danwor (solo licencias, los otros
+    USD 250K). El Segmento 6 es exclusivamente servicios (partners regionales).
+  new_name_note: 'Es todo cliente nuevo para Danwor. En esta estrategia,
+    **todos los segmentos son New Names excepto el Segmento 5** (base propia de Danwor), que es Base Instalada.
+    Un cliente puede ser Base Instalada de SAP y, al mismo tiempo, New Name para Danwor — el Segmento
+    2 (C-Field Base Instalada) es exactamente ese caso. La palabra "New Names" se lee siempre desde la
+    óptica de Danwor, no de SAP.'
+  items:
+  - id: sgen
+    tab_label: 1 · Semillero de eventos
+    title: Semillero de eventos
+    priority:
+      code: p1
+      text: PRIORIDAD 1
+    notes:
+    - 'Consolida los contactos que salen de los eventos ya realizados o agendados: SAP House, webinar
+      ASUG, SAP Now, próximo evento. Es el punto de entrada más prioritario porque de ahí nace el trabajo
+      de los demás segmentos. La máquina que produce estos contactos es el Pilar 2 (Generación de demanda).'
+    access: null
+    strategy:
+    - Registrar en el CRM todas las oportunidades y prospectos con los que se habló en los eventos, y
+      darles seguimiento — primer punto, el más urgente.
+    - Consolidar la base completa de contactos de los eventos.
+    - Mapear cada cuenta por madurez de datos y partner actual — pendiente, aún no está armado.
+    - Recién con ese mapeo hecho, se prioriza y se agenda 1ª/2ª reunión aplicando el Pilar 4.
+    pending:
+      title: Pendiente de definir
+      items:
+      - 'Motor de generación de demanda: dueño del marketing, calendario de eventos/webinars/contenido
+        y presupuesto asociado — hoy la demanda vive de eventos puntuales, falta el mecanismo que la sostenga.'
+    extra_table: null
+    subtabs: null
+  - id: s1
+    tab_label: 2 · C-Field Base Instalada
+    title: C-Field — Base instalada
+    priority:
+      code: p1
+      text: PRIORIDAD 2
+    notes:
+    - Pertenece al segmento Corporate de SAP. Fernando Oriolo es el jefe del segmento.
+    - 'Principio de relacionamiento: se construye mostrando avances y estrategia, sin cadencia fija —
+      Danwor genera negocios y de ahí surge lo que surja. No se espera que ellos traigan oportunidades.'
+    access:
+      kind: table
+      table:
+        headers:
+        - Persona
+        - Rol
+        - Responsable
+        - Estado
+        rows:
+        - - Fernando Oriolo
+          - Jefe del segmento
+          - Gastón
+          - Hecho
+        - - Federico Echenique
+          - AE
+          - Gastón + Mary
+          - En construcción
+        - - Julián Grinstein
+          - AE
+          - Gastón + Mary
+          - En construcción
+        - - Ale Núñez
+          - AE
+          - Gastón + Mary
+          - En construcción
+        - - Verónica Ares
+          - AE
+          - Gastón + Mary
+          - En construcción
+        - - Mariano Andrada
+          - Especialista LoB
+          - Gastón + Mary
+          - En construcción
+    strategy:
+    - 'Prerrequisito: mapeo interno de cuentas por madurez de datos (sin nada / BW / Datasphere) e identificación
+      del partner actual de cada una.'
+    - 'Campaña segmentada por resultado del mapeo: cuentas con BW → modernización; cuentas con Datasphere
+      → migración a BDC.'
+    - Actividad de invitación en conjunto con los AEs — después de la campaña. Formato pendiente de definir.
+    pending:
+      title: Pendiente de definir
+      items:
+      - Formato de la actividad de invitación (por industria u otro criterio)
+    extra_table: null
+    subtabs: null
+  - id: s2
+    tab_label: 3 · C-Field NNN
+    title: C-Field — New Names (NNN)
+    priority:
+      code: p2
+      text: PRIORIDAD 3
+    notes:
+    - NNN = Corporate Net New Names. Pertenece al segmento Corporate → C-Field → New Names. Facturan más
+      de USD 50M/año. Relación con SAP siempre a cargo de Gastón + Mary, mostrando avances, sin cadencia
+      fija.
+    - 'Se divide en 3 estrategias según el tipo de cuenta:'
+    access:
+      kind: table
+      table:
+        headers:
+        - Persona
+        - Rol
+        - Responsable
+        - Estado
+        rows:
+        - - María José "Majo" Amézaga
+          - Responsable C-Field NNN
+          - Gastón + Mary
+          - En construcción
+        - - Bárbara Rodríguez
+          - Vendedora
+          - Gastón + Mary
+          - En construcción
+        - - Joaquín Biagini
+          - Vendedor
+          - Gastón + Mary
+          - En construcción
+    strategy: []
+    pending: null
+    extra_table: null
+    subtabs:
+    - id: s2a
+      tab_label: RISE/GROW aún no en vivo
+      notes: []
+      access:
+        kind: list
+        items:
+        - Equipo de Majo — cuentas en implementación de RISE/GROW que aún no salieron en vivo.
+      strategy:
+      - Reunión previa con Majo y su equipo de vendedoras — paso obligatorio antes de avanzar.
+      - Mapear primero las cuentas de Bárbara para ver cuáles aplican.
+      - Pensar en conjunto con Bárbara la estrategia de abordaje.
+      - Replicar el mismo ejercicio con el resto del equipo de Majo.
+      pending: null
+      extra_table: null
+    - id: s2b
+      tab_label: Business One
+      notes: []
+      access:
+        kind: table
+        table:
+          headers:
+          - Persona / Vía
+          - Tipo
+          - Responsable
+          - Estado
+          rows:
+          - - Cuentas propias C-Field NNN con Business One
+            - Canal SAP
+            - Gastón + Mary
+            - En construcción
+          - - Pragmática (y otros a completar)
+            - Partner implementador, no vende BDC
+            - Gastón
+            - Sin abordaje activo
+          - - Santiago Fregenal
+            - Vendedor independiente
+            - Gastón
+            - Sin abordaje activo
+          - - Ivana Gaudio
+            - Vendedora independiente
+            - Gastón
+            - Sin abordaje activo
+      strategy:
+      - BDC como plataforma de datos + impulso al acceso a la nube.
+      - 'Dos ofertas: (a) a medida; (b) paquete cerrado con algo que Business One hoy no le da al cliente.'
+      - 'Filtro previo obligatorio: presupuesto real para datos.'
+      - 'Conseguir la base de clientes de cada AE y trabajarla para abordarlos en conjunto con los AEs
+        de SAP. Filtro: las empresas más grandes de esa base. Luego pensar una estrategia de generación
+        de demanda conjunta (desayuno, u otro formato).'
+      pending:
+        title: Pendiente de definir
+        items:
+        - Con quién se arma la oferta empaquetada (b)
+        - Completar universo de partners tipo Pragmática
+      extra_table: null
+    - id: s2c
+      tab_label: New Names puros
+      notes: []
+      access:
+        kind: list
+        items:
+        - 'Cuentas de New Names puros de C-Field: sin ERP SAP hoy.'
+      strategy:
+      - Evento de generación de demanda en conjunto con un partner tipo Invenzis y con SAP.
+      - 'Aclarar de antemano: licencias y servicios de BDC son para Danwor; GROW es para SAP — dos contratos
+        separados.'
+      pending: null
+      extra_table: null
+  - id: s3
+    tab_label: 4 · C-Digital NNN
+    title: C-Digital — New Names (NNN)
+    priority:
+      code: p2
+      text: PRIORIDAD 4
+    notes:
+    - Pertenece al segmento Corporate → C-Digital. Facturan menos de USD 50M/año, incluye clientes SAP
+      Business One. Misma relación de acceso que con C-Field, a cargo de Gastón + Mary.
+    - Ya nos pasaron la base de clientes de las vendedoras.
+    - 'Mismas 3 estrategias que C-Field, con una excepción:'
+    access:
+      kind: table
+      table:
+        headers:
+        - Persona
+        - Rol
+        - Responsable
+        - Estado
+        rows:
+        - - Soledad Novas
+          - Responsable C-Digital NNN
+          - Gastón + Mary
+          - En construcción
+        - - Lucila Moglianesi
+          - Vendedora
+          - Gastón + Mary
+          - En construcción
+        - - Milena Giménez
+          - Vendedora
+          - Gastón + Mary
+          - En construcción
+    strategy: []
+    pending: null
+    extra_table: null
+    subtabs:
+    - id: s3a
+      tab_label: RISE/GROW aún no en vivo
+      notes: []
+      access: null
+      strategy: []
+      pending:
+        title: No aplica inicialmente
+        items:
+        - Ya validado que las vendedoras de C-Digital no tienen casos de este tipo.
+      extra_table: null
+    - id: s3b
+      tab_label: Business One
+      notes: []
+      access:
+        kind: list
+        items:
+        - Cuentas propias de C-Digital con SAP Business One — ya nos pasaron el Excel con la base de clientes.
+      strategy:
+      - BDC como plataforma de datos + impulso al acceso a la nube.
+      - 'Dos ofertas: (a) a medida; (b) paquete cerrado con algo que Business One hoy no le da al cliente.'
+      - 'Filtro previo obligatorio: presupuesto real para datos.'
+      - 'Perfilar la base de clientes ya recibida para identificar cuáles abordar — filtro: las empresas
+        más grandes. Luego pensar una estrategia de generación de demanda conjunta (desayuno, u otro formato)
+        con los AEs de SAP.'
+      pending: null
+      extra_table: null
+    - id: s3c
+      tab_label: New Names puros
+      notes: []
+      access:
+        kind: list
+        items:
+        - 'Cuentas de New Names puros de C-Digital: sin ERP SAP hoy.'
+      strategy:
+      - Evento de generación de demanda en conjunto con un partner tipo Invenzis y con SAP.
+      - 'Aclarar de antemano: licencias y servicios de BDC son para Danwor; GROW es para SAP — dos contratos
+        separados.'
+      pending: null
+      extra_table: null
+  - id: s4
+    tab_label: 5 · Base propia Danwor
+    title: Base instalada propia de Danwor
+    priority:
+      code: new
+      text: PRIORIDAD 5 · SOLO LICENCIAS
+    notes:
+    - 'Responsable: Soledad (Client Partner), con apoyo de Mary.'
+    access:
+      kind: list
+      items:
+      - Interno, sin intermediario externo — el Client Partner ayuda a entrar a cada cuenta.
+    strategy:
+    - 'Mapear la cartera propia de Danwor por: segmento (Corporate/Enterprise), AE de la cuenta, partner
+      o venta directa de SAP, si tiene Datasphere, y si está junto con RISE.'
+    - 'Responsable del mapeo: Mary.'
+    pending:
+      title: Pendiente de definir
+      items:
+      - Estrategia de abordaje una vez armado el mapeo — a quién se le ofrece qué, con qué prioridad
+    extra_table: null
+    subtabs: null
+  - id: s5
+    tab_label: 6 · Servicios / Partners
+    title: New Names, solo Servicios (partners regionales)
+    priority:
+      code: p2
+      text: PRIORIDAD 6 · SOLO SERVICIOS
+    notes:
+    - 'Responsable de sostener la relación con todos los partners regionales: Gastón.'
+    access:
+      kind: list
+      items:
+      - 'Locales: Concentrix, Invenzis, BCI (reactivos hasta ahora) · Oshpro (a evaluar).'
+    strategy:
+    - Diagnóstico de madurez analítica (Copiloto) como gancho, para que cada partner lo trabaje con su
+      propia cartera.
+    - Identificar quiénes tienen interés real en avanzar con un webinar conjunto — foco en los "en proceso",
+      no en los stand-by.
+    - Setear expectativas desde el inicio, para no repetir el patrón de partners reactivos sin compromiso.
+    pending: null
+    extra_table:
+      headers:
+      - Partner
+      - País
+      - Responsable
+      - Estado
+      rows:
+      - - Rivercom
+        - Perú
+        - Gastón
+        - Stand-by, no prioridad
+      - - Actualisap
+        - Bolivia
+        - Gastón
+        - Stand-by, no prioridad
+      - - Datec
+        - Bolivia
+        - Gastón
+        - Stand-by, no prioridad
+      - - KSE
+        - Chile
+        - Gastón
+        - Stand-by, no prioridad
+      - - EPI Use
+        - Chile
+        - Gastón
+        - En proceso
+      - - Concentrix
+        - Colombia
+        - Gastón
+        - En proceso
+      - - Vanturees
+        - España
+        - Gastón
+        - En proceso
+      - - Entaech
+        - Guatemala
+        - Gastón
+        - En proceso
+      - - Sofos
+        - México
+        - Gastón
+        - A evaluar
+    subtabs: null
+focus:
+  eyebrow: '[04]'
+  title: Criterio de foco
+  intro: Define cuándo una cuenta recibe tiempo activo del equipo. Las 5 preguntas son obligatorias —
+    se completan en la 1ª o 2ª reunión con el cliente, sin excepción.
+  questions:
+  - n: 1
+    text: ¿Tiene presupuesto?
+  - n: 2
+    text: ¿Quién toma la decisión?
+  - n: 3
+    text: ¿Cuál es el timing (cuándo)?
+  - n: 4
+    text: ¿Qué tiene actualmente (situación / arquitectura)?
+  - n: 5
+    text: ¿Qué prioridad tiene este proyecto dentro de la agenda propia del cliente?
+  rules:
+  - Obligatorio tenerlas completas en la 1ª o 2ª reunión con el cliente — no se sale de esas reuniones
+    sin las 5 respuestas.
+  - Las 5 respuestas determinan la priorización de la oportunidad — no es un corte binario, es el insumo
+    que define qué tan arriba en la prioridad queda esa cuenta.
+  coherence_note: 'Nota de coherencia con el Pilar 3: en el Segmento 2 (C-Field Base Instalada, Ale/Vero),
+    el mapeo de madurez de datos ya cubre gran parte de la pregunta 4 antes de la primera reunión.'
+capacity:
+  eyebrow: '[05]'
+  title: Asignación de capacidad
+  assignments_table:
+    headers:
+    - Tarea
+    - Responsable
+    rows:
+    - - Apertura de primeras reuniones / charlas estratégicas
+      - Gastón
+    - - Propuesta de solución y estimación de tiempos
+      - Juan Manuel
+    - - Ejecución operativa (calificación, seguimiento, cierre)
+      - Mary
+    - - Mapeo de cuentas en general
+      - Mary
+    - - Definición estratégica de oportunidades, temas estratégicos, indicadores
+      - Gastón
+    - - Ejecución del Segmento 5 · Base propia Danwor
+      - Soledad (Client Partner), con apoyo de Mary
+  priority_rules:
+  - 'La prioridad para salir a buscar oportunidades es la definida por el orden de los segmentos: 1 (Semillero
+    de eventos) → 2 (C-Field Base Instalada) → 3 (C-Field NNN) → 4 (C-Digital NNN) → 6 (Servicios / Partners).'
+  - 'Excepción: una oportunidad caliente (con avance real) se prioriza por encima del orden de segmento,
+    sin importar de cuál venga.'
+  - El Segmento 5 (Base propia Danwor) corre como pista separada y en paralelo, a cargo de Soledad con
+    apoyo de Mary — así se puede avanzar en más de un tema a la vez.
+cadence:
+  eyebrow: '[06]'
+  title: Cadencia de revisión
+  intro: El mecanismo que sostiene la estrategia en el tiempo.
+  meetings:
+  - freq: Lunes — Parte 1
+    title: Seguimiento semanal (indicadores + demanda)
+    participants: 'Participantes: Gastón, Mary, Juan Manuel'
+    bullets:
+    - Oportunidades nuevas generadas en la semana, por segmento — aporte a la meta de generación
+    - 'Cobertura de pipeline: valor computado en el funnel vs. meta USD 2,0M (ratio 4x)'
+    - Oportunidades calificadas acumuladas vs. meta ~14–15 (~7 New Names / ~7 Base Instalada)
+    - Cumplimiento de las 5 preguntas en 1ª/2ª reunión
+    - Win rate real vs. supuesto (40%) y ticket promedio real vs. supuesto (USD 90K computado)
+    - Oportunidades enfriadas (+2 semanas sin respuesta)
+    - Distribución por etapa de pipeline (0 a 8)
+    - 'Avance acumulado: USD computado hacia 500K (250K New Names / 250K Base Instalada), horas hacia
+      25.000'
+    - Seguimiento de todas las tareas definidas como pendientes en el Pilar 8 (Próximos pasos)
+  - freq: Lunes — Parte 2 y Jueves
+    title: Definición de oportunidades
+    participants: 'Participantes: Gastón, Mary, Juan Manuel'
+    bullets:
+    - Repaso de todas las oportunidades activas, una por una
+    - 'Definición de estrategia por oportunidad: qué se ofrece, precio, posicionamiento'
+    - Repaso de decisiones pendientes
+    - Próximo paso concreto por oportunidad
+  - freq: Quincenal
+    title: Visión general y estrategia
+    participants: 'Participantes: Gastón, Mary, Juan Manuel, Brian'
+    bullets:
+    - Avance consolidado hacia los objetivos del Pilar 1
+    - Revisión del set completo de indicadores de seguimiento (los del Lunes — Parte 1)
+    - Próximas oportunidades por cerrarse — deals con fecha de decisión cercana
+    - Tema estratégico clave del período
+    - Revisión de si la cadencia semanal se está sosteniendo
+  note: Las decisiones que requieren al socio se toman en la reunión semanal de los lunes, no en la quincenal.
+exclusions:
+  eyebrow: '[07]'
+  title: Qué no se hace
+  items:
+  - text: '**Servicios en Base Instalada** — no se trabajan bajo esta estrategia; el desarrollo de servicios
+      ahí queda para otro equipo, en otro momento.'
+  - text: '**Cuentas del Segmento 2 con Concentrix o BCI** ya instalados — se excluyen explícitamente.'
+  - text: '**Cuentas que no completan las 5 preguntas** en la 1ª/2ª reunión — no reciben foco activo;
+      no se invierte tiempo tratando de calificarlas indefinidamente.'
+  - text: '**Partners sin compromiso real** (patrón Concentrix/Invenzis/BCI reactivos) — se les da la
+      oportunidad del diagnóstico de madurez con expectativas claras; si no responden, no se sigue insistiendo.'
+next_steps:
+  eyebrow: '[08]'
+  title: Próximos pasos
+  intro: Todas las tareas concretas que quedaron definidas en la construcción de esta estrategia, con
+    su segmento de origen, responsable y trimestre. Como el plan se pone en marcha sobre el cierre de
+    2026, el grueso de las tareas se concentra en Q4 —apalancado en el calendario de eventos de demanda
+    de septiembre a diciembre—, y seis tareas quedan con timing a definir.
+  tasks:
+  - id: t01
+    tarea: Mapear cada cuenta por madurez de datos y partner actual
+    origen: Segmento 1 · Semillero de eventos
+    responsable: Mary
+    q: Q4
+  - id: t02
+    tarea: Ejecutar el mapeo de madurez de cuentas (BW / Datasphere / sin nada)
+    origen: Segmento 2 · C-Field Base Instalada
+    responsable: Mary
+    q: Q4
+  - id: t03
+    tarea: Ejecutar la campaña segmentada por resultado del mapeo
+    origen: Segmento 2 · C-Field Base Instalada
+    responsable: Mary
+    q: Q4
+  - id: t04
+    tarea: Mapear las cuentas de Bárbara e identificar aquellas que están implementando RISE o GROW y
+      aún no salieron en vivo
+    origen: Segmento 3 · C-Field NNN
+    responsable: Mary
+    q: Q4
+  - id: t05
+    tarea: Definir el % de horas por trimestre
+    origen: Pilar 1 · Objetivos
+    responsable: Pendiente asignar
+    q: Q4
+  - id: t06
+    tarea: Terminar el diagnosticador de madurez analítica (Copiloto)
+    origen: Segmento 6 · Servicios / Partners
+    responsable: Gastón + José
+    q: Q4
+  - id: t07
+    tarea: Reunión con Majo y su equipo de vendedoras
+    origen: Segmento 3 · C-Field NNN
+    responsable: Gastón + Mary
+    q: Q4
+  - id: t08
+    tarea: Definir con quién se arma la oferta empaquetada (b) de Business One
+    origen: Segmentos 3 y 4
+    responsable: Gastón
+    q: Q4
+  - id: t09
+    tarea: Perfilar la base de clientes ya recibida para identificar cuáles abordar
+    origen: Segmento 4 · C-Digital NNN
+    responsable: Mary
+    q: Q4
+  - id: t10
+    tarea: Mapear la cartera propia de Danwor (segmento, AE, partner, Datasphere/RISE)
+    origen: Segmento 5 · Base propia Danwor
+    responsable: Soledad
+    q: Q4
+  - id: t11
+    tarea: Definir estrategia de abordaje sobre la cartera propia, una vez armado el mapeo
+    origen: Segmento 5 · Base propia Danwor
+    responsable: Gastón + Soledad
+    q: a_definir
+  - id: t12
+    tarea: Validar el split real 50/50 de licencias con datos de pipeline
+    origen: Pilar 1 · Objetivos
+    responsable: Pendiente asignar
+    q: a_definir
+  - id: t13
+    tarea: Definir formato de la actividad de invitación con los AEs
+    origen: Segmento 2 · C-Field Base Instalada
+    responsable: Gastón + Mary
+    q: a_definir
+  - id: t14
+    tarea: Completar universo de partners tipo Pragmática
+    origen: Segmento 3 · C-Field NNN
+    responsable: Gastón
+    q: a_definir
+  - id: t15
+    tarea: Identificar interés real en webinar conjunto con partners "en proceso"
+    origen: Segmento 6 · Servicios / Partners
+    responsable: Gastón
+    q: a_definir
+  - id: t16
+    tarea: Organizar evento de generación de demanda con Invenzis y SAP (New Names puros)
+    origen: Segmentos 3 y 4
+    responsable: Gastón
+    q: a_definir
+  closing_note: El grueso de las tareas cae en Q4 (cierre de 2026); las últimas seis quedan con timing
+    a definir. La asignación se ajusta en la cadencia de revisión a medida que avanza la ejecución.
+annex_map:
+  eyebrow: '[09]'
+  title: Mapa de contactos — Estructura SAP
+  intro: Estructura de ventas SAP (Enterprise y Corporate → C-Field / C-Digital) y la Line of Business
+    de BDC, que es el nexo directo con los Account Executives.
+  sap_tree:
+    root:
+      name: SAP
+      role: Estructura de ventas
+      desc: ''
+      sellers: ''
+      highlight: false
+    branches:
+    - name: Enterprise
+      role: 'Resp: Fernanda Pérez'
+      desc: Las cuentas más grandes de SAP.
+      sellers: Sebastián Ferrante, Agustín Medjekian, Nahuel Frías, Cecilia Casu, Fernanda Llaver, Javier
+        Colomb, y otros por confirmar
+      highlight: false
+      children:
+      - name: Base Instalada
+        role: 'Resp: Víctor Sánchez'
+        desc: ''
+        sellers: Sebastián Ferrante, Agustín Medjekian, Nahuel Frías, Cecilia Casu, Fernanda Llaver, Javier
+          Colomb, y otros por confirmar
+        highlight: false
+    - name: Corporate
+      role: 'Resp: Fernando Costas'
+      desc: Todo el resto de las cuentas.
+      sellers: Verónica Ares, Federico Echenique, Alejandro Núñez, Julián Grinstein
+      highlight: false
+      children:
+      - name: C-Field
+        role: 'Resp: Fernando Oriolo'
+        desc: Facturan +USD 50M/año. Incluye SAP Business One.
+        sellers: Verónica Ares, Federico Echenique, Alejandro Núñez, Julián Grinstein
+        highlight: true
+        children:
+        - name: Base Instalada
+          role: 'Resp: Fernando Oriolo'
+          desc: ''
+          sellers: Verónica Ares, Federico Echenique, Alejandro Núñez, Julián Grinstein
+          highlight: false
+        - name: New Names
+          role: 'Resp: María José Amézaga (Majo)'
+          desc: Facturan +USD 50M/año. Incluye SAP Business One.
+          sellers: Bárbara Rodríguez, Joaquín Biagini
+          highlight: false
+      - name: C-Digital
+        role: 'Resp: Soledad Novas'
+        desc: <USD 50M/año. Incluye SAP Business One.
+        sellers: Lucila Moglianesi, Milena Giménez
+        highlight: true
+  lob_tree:
+    root:
+      name: LoB BDC
+      role: 'Resp: Flavio Corradini'
+      desc: ''
+      sellers: ''
+      highlight: false
+    branches:
+    - name: Soporte a Corporate
+      role: 'Resp: Mariano Andrada'
+      desc: ''
+      sellers: ''
+      highlight: false
+      children: []
+    - name: Soporte a Enterprise
+      role: 'Resp: Martín Lanari'
+      desc: ''
+      sellers: ''
+      highlight: false
+      children: []
+    - name: Soporte a New Names
+      role: 'Resp: Benjamín Faúndez'
+      desc: ''
+      sellers: ''
+      highlight: false
+      children: []
+  lob_intro: Especialistas de producto que dan soporte de venta a los AEs — nexo directo con los Account
+    Executives.
+  notes:
+  - title: Net New Names (NNN)
+    text: Clientes sin ERP SAP hoy, clientes implementando SAP por primera vez que aún no salieron en
+      vivo, y clientes con SAP Business One.
+  - title: Expectativa SAP
+    text: SAP espera que los partners generen y trabajen sus propias oportunidades dentro de Corporate,
+      no solo que cierren deals ya derivados.
+annex_roles:
+  eyebrow: '[10]'
+  title: Mapa de roles y responsabilidades
+  intro: Hoy el rol de Ejecutivo Comercial y el de Gerente Comercial – New Names son ocupados por la misma
+    persona, Mary. Los roles quedan definidos igual, para que la estructura esté clara a medida que el
+    equipo crezca.
+  roles:
+  - name: Ejecutivo Comercial
+    who: 'Hunter / Closer — hoy: Mary'
+    mision: 'Dueño absoluto del cierre en clientes nuevos: transformar oportunidades calificadas en revenue
+      real, cerrar o perder rápido.'
+    responsibilities:
+    - Calificar oportunidades nuevas
+    - Validar presupuesto, timing y decisores
+    - Conducir la relación end-to-end
+    - Liderar negociación y cierre
+    - Mantener el CRM actualizado
+    not_responsible:
+    - Preventa técnica
+    - Diseño de solución
+    - Estimaciones técnicas
+  - name: Gerente de Preventa
+    who: Juan Manuel
+    mision: Maximizar la probabilidad de cierre aportando credibilidad técnica y visión de solución.
+    responsibilities:
+    - Relevar necesidades técnicas
+    - Diseñar la solución y estimar esfuerzo
+    - Respaldar técnicamente la propuesta
+    - Definición estratégica de oportunidades + seguimiento de indicadores
+    not_responsible:
+    - Negociación comercial
+    - Discusión de precio
+    - Cierre
+  - name: Gerente Comercial — New Names
+    who: Rol definido, hoy en Mary
+    mision: Gobierno del pipeline, aceleración de cierres, ejecución directa en deals estratégicos.
+    responsibilities:
+    - Revisión semanal del funnel
+    - Identificar oportunidades en riesgo o estancadas
+    - Priorizar deals de alto impacto
+    - Definir estrategia de cierre con socio
+    not_responsible:
+    - Preventa técnica
+    - Base instalada (servicios)
+    - Marketing operativo
+  - name: Director Estratégico
+    who: Gastón
+    mision: Abrir puertas y sostener las relaciones de alto nivel en los 5 segmentos de New Names.
+    responsibilities:
+    - Apertura de 1ras reuniones en los 5 segmentos
+    - Presidir la reunión semanal de indicadores
+    - Participar en la definición estratégica de oportunidades
+    not_responsible:
+    - Ejecución operativa del día a día
+    - Conducción comercial permanente
+annex_process:
+  eyebrow: '[11]'
+  title: Etapas del pipeline
+  intro: Prevalece la numeración definida en este proyecto (0 a 8) sobre versiones anteriores del proceso.
+  stages:
+  - n: '0'
+    name: Prospecto
+    meta: Posible oportunidad, sin confirmar
+    gate: Pasa a Inicial cuando hay algo concreto para hacer.
+  - n: '1'
+    name: Inicial
+    meta: Ejecutivo Comercial + Preventa
+    gate: Arranca la obligación de completar las 5 preguntas del Pilar 4.
+  - n: '2'
+    name: Relevamiento
+    meta: Preventa
+    gate: Relevamiento técnico, diseño de solución viable.
+  - n: '3'
+    name: Armando orden de magnitud
+    meta: Preventa
+    gate: Estimación de esfuerzo.
+  - n: '4'
+    name: Coordinar presentación
+    meta: Ejecutivo Comercial
+    gate: Se agenda la presentación de la orden de magnitud.
+  - n: '5'
+    name: Orden presentada
+    meta: Ejecutivo Comercial + Preventa
+    gate: Se presenta la solución y se valida si encuentran valor — se busca feedback y espacio para corregir
+      cualquier cosa. Antes de armar la propuesta formal, se busca al decisor para mostrarle 1 a 1 los
+      valores que estamos viendo y tomarle la temperatura. Recién después se pasan esos valores como orden
+      de magnitud al resto de los integrantes.
+  - n: '6'
+    name: Armando propuesta formal
+    meta: Preventa
+    gate: Ajuste de alcance según lo validado en la etapa 5.
+  - n: '7'
+    name: Validación operaciones
+    meta: Operaciones (valida, no decide)
+    gate: SLA de validación — Operaciones no habla con el cliente.
+  - n: '8'
+    name: Propuesta presentada
+    meta: Ejecutivo Comercial
+    gate: Propuesta presentada = fecha de decisión obligatoria en CRM.
+  cooling_note: 'Más de 2 semanas sin respuesta del cliente = primera alerta.
+    La oportunidad se marca como enfriada en el seguimiento semanal.'
+annex_rules:
+  eyebrow: '[12]'
+  title: Reglas de oro
+  intro: Complementan las 5 preguntas de calificación del Pilar 4 — gobiernan el proceso completo, no
+    solo la entrada de una oportunidad.
+  rules:
+  - n: '01'
+    title: Una oportunidad = un dueño
+    detail: 'Toda oportunidad tiene un único responsable del cierre: el Ejecutivo Comercial. Nadie más
+      puede ser dueño final del deal, aunque participe.'
+  - n: '02'
+    title: No hay propuesta sin validación de presupuesto
+    detail: Nunca se presenta una propuesta si el cliente no confirmó previamente que el rango de precio
+      está dentro de su presupuesto.
+  - n: '03'
+    title: Las propuestas se presentan, no se envían
+    detail: Toda propuesta se presenta en vivo (Ejecutivo Comercial + Preventa). Presencial siempre que
+      se pueda. No se envían por mail sin presentación previa.
+  - n: '04'
+    title: Propuesta presentada = fecha de decisión obligatoria
+    detail: Toda propuesta debe tener cargada una fecha de decisión en CRM. Si no hay fecha, no se considera
+      propuesta válida.
+  - n: '05'
+    title: No hay oportunidades en limbo
+    detail: Ninguna oportunidad puede estar más de 30–45 días en etapa "propuesta" o "negociación" sin
+      definición. Si pasa ese tiempo, entra Mary o el socio, o se pierde.
+  - n: '06'
+    title: Toda oportunidad debe tener próximo paso claro
+    detail: 'Ninguna oportunidad puede estar sin "próximo paso" en CRM: acción concreta, responsable y
+      fecha.'
+  - n: '07'
+    title: Los deals siempre son en dupla
+    detail: Ejecutivo Comercial + Gerente de Preventa entran sí o sí juntos.
+  - n: 08
+    title: Las oportunidades perdidas se documentan
+    detail: Toda oportunidad perdida debe tener motivo de pérdida, aprendizaje documentado y feedback
+      cargado en CRM.
+  - n: 09
+    title: El cierre es responsabilidad, no consecuencia
+    detail: No se "espera" que un deal cierre. Se conduce activamente hasta ganar o perder.
+  - n: '10'
+    title: Operaciones valida, no decide cerrar
+    detail: Operaciones no habla con el cliente. SLA de validación de 72 hs máximo. Si dice "no", propone
+      alternativa. Todo deal cerrado tiene OK operativo.
+_import:
+  source_filename: Danwor_Estrategia_Comercial_2026.html
+  imported_at: '2026-09-11T17:56:08.602674+00:00'
+  importer: scripts/import_commercial_strategy.py

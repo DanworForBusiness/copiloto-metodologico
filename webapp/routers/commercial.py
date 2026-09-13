@@ -47,13 +47,14 @@ HTTP↔service, MISMO patrón que `staffing.py`/`reporting.py`.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import commercial_access, workspaces
-from webapp.services import auth_service
+from webapp.services import auth_service, feedback_store
 from webapp.services.activity_context import SCOPE_COMMERCIAL, AREA_CRM, EVENT_MODULE_VIEWED
 from webapp.services.activity_service import log_activity
 from webapp.services.commercial_service import (
@@ -534,3 +535,81 @@ def commercial_data_ex_clients(request: Request, tipo: str = Query("todos")):
     except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
         return _commercial_data_error_response(request, exc, endpoint="ex_clients")
     return JSONResponse({"state": "ok", "ex_clients": clients})
+
+
+# ── Feedback + telemetría de Comercial (Homologación al Danwor Hub, ver
+# HANDOFF) ────────────────────────────────────────────────────────────────
+# Comercial es SPA client-side (commercial.js), no HTMX — MISMO criterio que
+# Reporting (ver reporting.py) y Staffing: reusa las CAPACIDADES compartidas
+# (mismo store de feedback, mismo pipeline de Activity) vía un endpoint
+# JSON propio, en vez de inventar un almacenamiento paralelo. "La
+# homologación al Hub debe ENRIQUECER las iniciativas, no debilitarlas" —
+# CRM PARTICIPA del mismo patrón transversal, no lo copia.
+#
+# Granularidad: UN control por CAPABILITY — misma unidad que ya usa el nav
+# (`COMMERCIAL_CAPABILITIES` en commercial.js) y MISMO criterio que "un
+# control por MAIN TAB" en Reporting. Licencias y Detalle Oportunidades
+# comparten el MISMO loader/dataset (`opportunities-detail`) pero son
+# capabilities DISTINTAS en el nav, así que cada una cierra con su PROPIO
+# feedback — compartir loader no implica compartir feedback, el nav ya las
+# trata como entradas separadas. Clientes/Ex Clientes NO se separan: Ex
+# Clientes es un sub-tab DENTRO de la capability "clientes", nunca su
+# propia entrada de nav — MISMO criterio que Reporting/Cartera, cuyas
+# perspectivas Mantenimiento/Proyecto comparten el feedback de su ÚNICO
+# main tab "cartera" (ver `isActiveReportReady`/`reportingTabRawStatus` en
+# reporting.js) — no se inventa una granularidad de sub-tab que el patrón
+# transversal del Hub no usa en ningún otro lado.
+
+# Títulos canónicos de las 7 capabilities — misma taxonomía que
+# `COMMERCIAL_CAPABILITIES` en commercial.js. `capability` del cliente se
+# valida contra esto (nunca se persiste/loguea una capability arbitraria
+# inyectada) — MISMO criterio que `_REPORT_TABS` en reporting.py.
+_COMMERCIAL_CAPABILITIES: dict[str, str] = {
+    "dashboard": "Dashboard",
+    "actividades": "Actividades",
+    "licencias": "Licencias",
+    "historial-perdidas": "Historial Perdidas",
+    "detalle": "Detalle Oportunidades",
+    "clientes": "Clientes",
+    "leads": "Leads",
+}
+
+
+@router.post("/comercial/feedback", include_in_schema=False)
+def commercial_feedback(request: Request, capability: str = Form(""), rating: str = Form(""),
+                        comment: str = Form("")):
+    """Feedback "¿Qué te pareció este reporte?" al cierre de cada capability.
+    Reusa el store COMPARTIDO (`feedback_store` → `FEEDBACK_LOG_DIR`, mismo
+    formato/analítica que Copilot/Reporting/Staffing) y emite un evento del
+    MISMO pipeline de Activity (`log_activity('commercial.feedback', ...)`).
+    NO crea almacenamiento propio de Comercial. Best-effort: nunca rompe la
+    vista."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    cap = (capability or "").strip()
+    if rating not in {"up", "down"} or cap not in _COMMERCIAL_CAPABILITIES:
+        raise HTTPException(400, "Feedback inválido")
+    user = auth_service.session_user(request) or {}
+    now = datetime.now(timezone.utc)
+    payload = {
+        "type": "commercial_capability",
+        "capability": cap,
+        "capability_title": _COMMERCIAL_CAPABILITIES[cap],
+        "rating": rating,
+        "user": str(user.get("username") or user.get("email") or user.get("sub") or ""),
+        "ts": now.isoformat(),
+    }
+    clean_comment = (comment or "").strip()
+    if clean_comment:
+        payload["comment"] = clean_comment
+    feedback_store.write_feedback_record(payload, prefix="commercial_feedback", stamp=now.strftime("%Y%m%d_%H%M%S"))
+    # Evento del pipeline de Activity del Hub (mismo sink que Copilot/
+    # Reporting/Staffing). Metadata semántica: capability + sentimiento
+    # (nunca valores de negocio).
+    log_activity(
+        "commercial.feedback", user=user, scope=SCOPE_COMMERCIAL, area=AREA_CRM,
+        module=CM01_MODULE_ID, capability=cap,
+        feedback_sentiment=("positive" if rating == "up" else "negative"),
+    )
+    return JSONResponse({"state": "ok"})

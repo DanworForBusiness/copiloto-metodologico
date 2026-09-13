@@ -57,6 +57,10 @@ AREA_CATALOG = "catalog"
 AREA_STAFFING = "staffing"
 AREA_REPORTING = "reporting"
 AREA_CRM = "crm"
+# Estrategia Comercial (Commercial Strategy — Phase 1, read-only): capability
+# separada de CRM (área/dato distinto, ver commercial_strategy.py) — MISMO
+# criterio que CRM tuvo su propia área en vez de reusar "commercial" a secas.
+AREA_STRATEGY = "strategy"
 AREA_UNKNOWN = "unknown"
 
 # Clasificación de eventos HISTÓRICOS (JSONL previos a esta fase, sin scope/area).
@@ -113,6 +117,7 @@ AREA_LABELS: dict[str, str] = {
     AREA_STAFFING: "Staffing",
     AREA_REPORTING: "Reporting",
     AREA_CRM: "CRM",
+    AREA_STRATEGY: "Estrategia",
     AREA_UNKNOWN: "Sin clasificar",
 }
 
@@ -310,6 +315,21 @@ _USAGE_EVENTS: frozenset[str] = frozenset({
     # compartida que Reporting/Copilot), owner: "no aplica solo al tablero
     # integral, sino también a asignaciones".
     "staffing.feedback",
+    # Comercial — Estrategia: un Save exitoso ES la acción con valor
+    # analítico real (adopción real de la edición inline) — MISMO criterio
+    # que "reporting.refresh"/"catalog_regenerate" arriba (una acción
+    # completada, no cada tecla/click de implementación). Cancelar y
+    # fallas de guardado (409/422/503) NO entran acá a propósito: Cancelar
+    # no es una acción de negocio, y las fallas son observabilidad
+    # OPERACIONAL, un diseño separado y deliberadamente diferido (ver
+    # HANDOFF) — no se inventa clasificación para eventos que ese ticket
+    # todavía no emite.
+    "strategy.saved",
+    # Comercial/CRM — feedback transversal (Homologación al Danwor Hub, ver
+    # HANDOFF): MISMA capacidad compartida que Reporting/Staffing, un control
+    # por capability (Dashboard/Actividades/Licencias/Historial Perdidas/
+    # Detalle Oportunidades/Clientes/Leads).
+    "commercial.feedback",
 })
 _DIAGNOSTIC_EVENTS: frozenset[str] = frozenset({
     EVENT_DATA_LOAD_FAILED,
@@ -386,6 +406,8 @@ EVENT_LABELS: dict[str, str] = {
     "reporting.refresh": "Reporting — actualizar",
     "reporting.feedback": "Reporting — feedback de reporte",
     "staffing.feedback": "Asignaciones — feedback de reporte",
+    "strategy.saved": "Estrategia — guardado exitoso",
+    "commercial.feedback": "Comercial — feedback de capability",
     # "commercial.data_error" NO tiene entrada acá a propósito: es un evento
     # de DIAGNÓSTICO (_DIAGNOSTIC_EVENTS), no de uso — mismo criterio que
     # EVENT_DATA_LOAD_FAILED/EVENT_CONFIGURATION_INCOMPLETE, ninguno de los

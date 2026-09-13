@@ -112,9 +112,12 @@ def test_forecast_and_origin_headers_match_their_label_cells():
     assert '<thead><tr><th class="left">Mes</th>' in js, "Forecast: header del rótulo"
     assert '<thead><tr><th class="left">Origen</th>' in js, "Origen: header del rótulo"
     # Y sus celdas siguen marcadas como rótulo (no se cambiaron a `.left`: la
-    # clase semántica se conserva, lo que se arregló es su regla).
-    assert _js_code(js).count(f'<td class="{ROW_LABEL}">') == 3, \
-        "los 3 rótulos de Comercial (Forecast x2, Origen) conservan su clase semántica"
+    # clase semántica se conserva, lo que se arregló es su regla). Commercial
+    # Pipeline Forecast (ver HANDOFF) agrega DOS más — la vista "Forecast de
+    # pipeline" reusa el MISMO primitivo `.row-label-col` para la fila de
+    # oportunidad y la de subtotal de etapa, cero clase nueva.
+    assert _js_code(js).count(f'<td class="{ROW_LABEL}">') == 5, \
+        "los 5 rótulos de Comercial (Forecast x2, Origen, Pipeline Forecast x2) conservan su clase semántica"
 
 
 def test_numeric_columns_keep_their_alignment():

@@ -40,6 +40,15 @@ CONTENT_PACK      = _env("DANWOR_CONTENT_PACK", "datasphere_core")
 CASE_LIBRARY_DIR  = BASE_DIR / "case_library"
 FEEDBACK_LOG_DIR  = BASE_DIR / "feedback_log"
 ACTIVITY_LOG_DIR  = BASE_DIR / "activity_log"
+# Copia RUNTIME MUTABLE del documento de Estrategia Comercial (Commercial
+# Strategy edit persistence) — el YAML seedeado y committed (webapp/services/
+# commercial_strategy_data/) es SOLO el bootstrap inicial; una vez que existe
+# una edición guardada acá, esta ruta es la ÚNICA fuente de verdad en runtime
+# (ver webapp/services/commercial_strategy_repository.py). Registrada en
+# PERSIST_PATHS abajo para que `core/remote_store.py` la respalde/restaure
+# como CUALQUIER otro directorio persistido — mismo mecanismo genérico,
+# ningún código de sync propio.
+COMMERCIAL_STRATEGY_RUNTIME_DIR = BASE_DIR / "commercial_strategy_runtime"
 
 # ── Persistencia en DO Spaces ────────────────────────────────────────────────
 # App Platform corre sobre un FS efímero: en cada deploy/reciclado se borra todo
@@ -78,7 +87,8 @@ SPACES_SYNC_INTERVAL = int(_env("SPACES_SYNC_INTERVAL", "120"))  # segundos entr
 # ese valor real en el entorno también — este default de código NO alcanza
 # solo si la env var está seteada.
 PERSIST_PATHS     = [p.strip() for p in _env(
-    "SPACES_PERSIST_PATHS", "catalog_local,case_library,feedback_log,activity_log,reports,reporting_cache,human-capital"
+    "SPACES_PERSIST_PATHS",
+    "catalog_local,case_library,feedback_log,activity_log,reports,reporting_cache,human-capital,commercial_strategy_runtime"
 ).split(",") if p.strip()]
 PERSIST_ENABLED   = bool(SPACES_ENDPOINT and SPACES_BUCKET and SPACES_KEY and SPACES_SECRET)
 
@@ -238,6 +248,16 @@ HC_CV_ROOT_PATH         = _env("HC_CV_ROOT_PATH", "")
 # un backend env var que el JS estático no puede leer. Ausente = fail
 # closed (CONFIG_INCOMPLETE, ver profile_document_service.require_graph_config).
 HC_DOCUMENT_WRITE_SCOPE = _env("HC_DOCUMENT_WRITE_SCOPE", "")
+# Editor de contenido de Estrategia Comercial (Commercial Strategy — edit
+# authorization): DOS preguntas independientes — "¿puedo VER Estrategia?"
+# (COMMERCIAL_ALLOWED_USERS, arriba) vs "¿puedo EDITARLA?" (acá). Estar en
+# COMMERCIAL_ALLOWED_USERS NUNCA implica poder editar — ver
+# webapp.commercial_access.can_edit_strategy_user. MISMO parser/normalización
+# que COMMERCIAL_ALLOWED_USERS (ver auth_service._csv_users) y MISMO contrato
+# fail-closed: ausente/vacío/"ALL" = NADIE puede editar, nunca un fallback a
+# "todo autorizado de Comercial" ni a APP_OWNER. Ejemplo:
+# CONTENT_OWNER=joconnor,bjawor
+CONTENT_OWNER = _env("CONTENT_OWNER", "")
 # Usage Metrics como capacidad de HUB (owner ticket "HUB METRICS — CENTRALIZE
 # ACCESS AND ENABLE BY VERTICAL"): DOS preguntas independientes — "¿puedo
 # entrar al vertical?" (ALLOWED_USERS/OPERATIONS_ALLOWED_USERS/

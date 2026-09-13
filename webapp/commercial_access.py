@@ -61,3 +61,37 @@ def is_commercial_authorized(request: Request) -> bool:
     autoriza. Frontera de seguridad real de Comercial — cualquier ruta de
     Comercial debe pasar por acá."""
     return is_commercial_authorized_user(auth_service.session_user(request))
+
+
+# ── Estrategia Comercial — VER vs EDITAR (Commercial Strategy edit
+# authorization) ───────────────────────────────────────────────────────────
+# Dos preguntas DELIBERADAMENTE separadas — estar autorizado a Comercial
+# NUNCA implica poder editar Estrategia:
+#
+#   can_view_strategy_user(user) = is_commercial_authorized_user(user)
+#   can_edit_strategy_user(user) = is_commercial_authorized_user(user)
+#                                   AND auth_service.is_content_owner_user(email)
+#
+# FAIL-CLOSED por diseño (MISMO criterio que `is_commercial_authorized_user`
+# arriba): `CONTENT_OWNER` ausente/vacío ⇒ `is_content_owner_user` siempre
+# False ⇒ NADIE puede editar — sin fallback implícito a "todos los
+# autorizados de Comercial" ni a `APP_OWNER` (`webapp/access.py`, ver su
+# docstring — NUNCA se importa/referencia acá, mismo criterio que arriba: si
+# el dueño de la app necesita editar Estrategia, su identidad debe estar
+# explícita en `CONTENT_OWNER` como cualquier otro usuario).
+
+def can_view_strategy_user(user: dict | None) -> bool:
+    """Alias explícito del contrato pedido por el owner — MISMA regla que
+    `is_commercial_authorized_user` (ver ahí), nunca una segunda política."""
+    return is_commercial_authorized_user(user)
+
+
+def can_edit_strategy_user(user: dict | None) -> bool:
+    """True si `user` puede VER Estrategia Y además está en `CONTENT_OWNER`.
+    Predicado PURO (sin `Request`) — usado tanto por el router (para decidir
+    si renderizar el botón "Editar", nunca la única defensa) como por el
+    futuro endpoint de escritura (enforcement server-side, autoritativo)."""
+    if not can_view_strategy_user(user):
+        return False
+    email = str((user or {}).get("sub") or "")
+    return auth_service.is_content_owner_user(email)

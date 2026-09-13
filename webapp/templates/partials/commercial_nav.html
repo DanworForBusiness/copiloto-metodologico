@@ -1,10 +1,11 @@
 {# Nav izquierdo de Comercial — MISMO idioma visual que operations_nav.html
-   (.module-nav/.nav-kicker/.module-link), sin acordeón. Commercial Hub
-   Workspace Foundation (Batch 0): una única área productiva (CRM) — "no
-   inventar todavía múltiples subsecciones" (ver HANDOFF). Cuando exista
-   una segunda capacidad real, se agrega acá como un segundo <a>, MISMO
-   criterio que Operations con Asignaciones/Reporting.
-   `active_page` ("crm") lo pasa el router — mismo criterio que
+   (.module-nav/.nav-kicker/.module-link), sin acordeón. Segunda capacidad
+   real (Commercial Strategy — Phase 1): se agrega acá como un segundo <a>,
+   exactamente como este comentario anticipaba — MISMO criterio que
+   Operations con Asignaciones/Reporting. El nav de Pilares/Anexos del
+   documento de Estrategia NO vive acá: es navegación INTERNA de esa página
+   (ver commercial/strategy.html), nunca un segundo sidebar de la app.
+   `active_page` ("crm"|"estrategia") lo pasa el router — mismo criterio que
    `active_page` en operations_nav.html/`active_stem` en copilot_nav.html,
    nunca un segundo parseo de `request.url.path` acá.
    La bienvenida de sesión reusa el MISMO macro compartido que
@@ -18,6 +19,9 @@
     <p class="nav-kicker sidebar-workspace-kicker">COMERCIAL</p>
     <a href="/comercial" class="module-link {% if active_page == 'crm' %}is-active{% endif %}">
       <span>01</span><strong>CRM</strong>
+    </a>
+    <a href="/comercial/estrategia" class="module-link {% if active_page == 'estrategia' %}is-active{% endif %}">
+      <span>02</span><strong>Estrategia</strong>
     </a>
   </nav>
 </aside>
