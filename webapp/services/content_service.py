@@ -17,6 +17,14 @@ from core.content_registry import (
     iter_content_module_paths,
     resolve_content_path,
 )
+# `_display_heading` es la MISMA normalización que `AssistantRoutingService.
+# _module_url` usa para calcular el fragment de "Ir a la sección"
+# (slugify(_display_heading(heading))) — se importa acá en vez de reimplementar
+# un stripping parcial (`TONE_RE`-only) para que el `id` que este renderer le
+# pone a un heading y el fragment que el router calcula para ESE MISMO heading
+# sean, por construcción, la misma fórmula. `core.routing_scorers` es una hoja
+# de `core/` (no importa nada de `webapp.services`), así que no hay ciclo.
+from core.routing_scorers import _display_heading
 from core.utils import norm_text as _norm, slugify
 
 FRONT_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.S)
@@ -624,6 +632,20 @@ def _build_roadmap(spec, sections: tuple[ModuleSection, ...]) -> tuple[RoadmapSt
     return tuple(stages)
 
 
+def _toc_slugify(value: str, separator: str) -> str:
+    """Slug de un heading NESTED (h3+) dentro de una sección — MISMA fórmula
+    que `AssistantRoutingService._module_url` usa para el fragment de "Ir a la
+    sección" (`slugify(_display_heading(heading))`). Única razón de existir:
+    adaptar la firma que python-markdown's `toc` exige (`value, separator`) a
+    la de `slugify` (un solo argumento, separador `-` fijo — coincide con el
+    `separator` default de `toc`). Sin esto, `render_sections` sólo pone `id`
+    en el wrapper `<section>` de cada `##` (h2) — cualquier heading MÁS
+    profundo (`###`+) queda sin ancla en el DOM aunque el router (que sí trata
+    un h3 con `{{section_meta}}` como sección navegable, ver
+    `extract_section_by_heading(..., level=(2,3))`) le calcule un fragment."""
+    return slugify(_display_heading(value))
+
+
 def render_sections(body: str, pack_name: str = "", stem: str = "", base: int = 0) -> tuple[ModuleSection, ...]:
     """Parsea un markdown en secciones por `## ` y las renderiza con el look de
     contenido del copiloto (content-heading + eyebrow numerado, subtítulo `>`,
@@ -637,7 +659,16 @@ def render_sections(body: str, pack_name: str = "", stem: str = "", base: int = 
         section_body, heading_supports = _extract_heading_supports(body[match.end():end].strip())
         prepared = _prepare(section_body, pack_name, stem)
         has_subtitle = prepared.lstrip().startswith(">")
-        rendered = markdown.markdown(prepared, extensions=["tables", "fenced_code", "sane_lists"])
+        # `toc` sólo ve lo que hay DENTRO de esta sección (el `##` de arriba se
+        # arma a mano más abajo, fuera de este `markdown.markdown()`) — así que
+        # nunca puede pisar/duplicar el id del wrapper h2 (`ModuleSection.slug`,
+        # estampado por module.html en `<section id="...">`). No inserta un TOC
+        # visible: `[TOC]` no aparece en ningún .md del pack, y el marker por
+        # default de la extensión es justamente ese literal.
+        rendered = markdown.markdown(
+            prepared, extensions=["tables", "fenced_code", "sane_lists", "toc"],
+            extension_configs={"toc": {"slugify": _toc_slugify}},
+        )
         rendered = _table_group_rows_html(rendered)
         rendered = _fixed_column_tables_html(rendered)
         rendered = _copyable_code_blocks_html(rendered)
