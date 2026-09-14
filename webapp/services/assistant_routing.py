@@ -773,7 +773,19 @@ class AssistantRoutingService:
         )
         asset = local_asset or cross_asset
         cross_section = None
-        if asset and not local_section:
+        # Un local match DÉBIL no debe tapar un cross-module mucho más fuerte
+        # (forensic: "Configuración de Espacios"=18 por compartir con "conexión"
+        # la familia de variante conect/conex de `_routing_token_variants` — le
+        # ganaba SIEMPRE a "Streaming Read..."=96 en otro módulo porque el
+        # cross-module ni se calculaba). `< 20` reusa el MISMO umbral que
+        # `_should_pair_section_with_asset` ya usa para "score alto = señal
+        # fuerte del propio matcher" (core/routing_scorers.py) — no es una
+        # constante nueva. Un local FUERTE (>=20) sigue sin abrir competencia:
+        # comparar siempre por score le cede la respuesta a apéndices/glosarios
+        # cross-module con vocabulario amplio (ej. una pregunta de Data Product
+        # perdía contra un apéndice que puntuaba 136 por eso, ver PR ticket).
+        local_score = local_section.get("score", 0) if local_section else 0
+        if asset and local_score < 20:
             q_low = norm_text(question)
             conn_query = any(t in q_low for t in ("odbc", "odata", "conexion", "conexión"))
             hint = _reporting_section_hint(question, pack_name)
@@ -791,7 +803,13 @@ class AssistantRoutingService:
         if asset:
             asset_module = str(asset.get("_module") or stem)
             asset_label = str(asset.get("description") or "recurso técnico")
-            section = local_section or cross_section
+            # Mismo scorer para ambos (_score_section_candidate), así que el
+            # score es comparable: si los dos existen, gana el más fuerte; si
+            # sólo uno existe (el caso de siempre), gana ese sin cambios.
+            if local_section and cross_section:
+                section = local_section if local_score >= cross_section.get("score", 0) else cross_section
+            else:
+                section = local_section or cross_section
             if section and not _should_pair_section_with_asset(question, section):
                 section = None
             # Si la sección que lideraría es donde el usuario YA está, no la
