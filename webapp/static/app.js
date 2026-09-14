@@ -14,6 +14,16 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "") 
     // posicione el panel derecho en una pestaña puntual; si no viene, el default.
     toolTab: initialTab || (readonly ? "assistant" : "section"),
     activeSection: "",
+    // Hub Transversal Module Section Navigation (ver HANDOFF): visibilidad
+    // del nav anidado persistente (`.module-subnav`) -- SOLO relevante en
+    // páginas que lo tienen (Estrategia, primer consumidor). Arranca oculto
+    // a propósito: mientras el índice in-page "EN ESTE MÓDULO" está en
+    // viewport, mostrar TAMBIÉN el nav lateral es redundante (owner
+    // feedback tras browser validation) -- fade in recién cuando ese
+    // índice in-page sale por ARRIBA del viewport (scrolleado, no
+    // "todavía no llegamos"), nunca los dos a la vez. Sin efecto en
+    // páginas sin `.module-subnav` (ver init(), gateado por su presencia).
+    subnavVisible: false,
     // Grupos colapsables del nav izquierdo (Core / Apéndices / Danwor Academy).
     // Abrimos el grupo del documento activo y dejamos los otros colapsados. Al
     // scrollear el contenido, syncNavToActive() reabre el activo y cierra el resto.
@@ -157,6 +167,30 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "") 
       requestAnimationFrame(recomputeActive);   // aterrizaje inicial (incluye landing por #anchor)
       setTimeout(recomputeActive, 150);         // reevaluar tras montar embeds / scroll del anchor
       initContentReveals(shell);
+
+      // Hub Transversal Module Section Navigation (ver HANDOFF): el nav
+      // lateral persistente (`.module-subnav`) y el índice in-page "EN
+      // ESTE MÓDULO" nunca deben verse los dos a la vez (owner feedback).
+      // GATEADO por la presencia de AMBOS -- páginas sin `.module-subnav`
+      // (todo módulo que no optó a section-nav) no instancian NINGÚN
+      // observer nuevo, cero costo.
+      const subnav = shell.querySelector(".module-subnav");
+      const inPageIndex = shell.querySelector(".module-content .section-index");
+      if (subnav && inPageIndex && "IntersectionObserver" in window) {
+        const subnavObserver = new IntersectionObserver(entries => {
+          const entry = entries[0];
+          // Visible recién cuando el índice in-page salió por ARRIBA del
+          // viewport (scrolleado de verdad) -- `isIntersecting === false`
+          // solo no alcanza: también es false ANTES de llegar a verlo.
+          this.subnavVisible = !entry.isIntersecting && entry.boundingClientRect.top < 0;
+        }, { root: contentEl, threshold: 0 });
+        subnavObserver.observe(inPageIndex);
+      } else if (subnav) {
+        // `.module-subnav` existe pero no hay índice in-page que observar
+        // (no debería pasar en Estrategia hoy) -- fail-safe: mostrar
+        // directo, nunca ocultar navegación sin una razón real.
+        this.subnavVisible = true;
+      }
     },
     toggleTheme() {
       this.contentTheme = this.contentTheme === "light" ? "dark" : "light";
@@ -306,14 +340,20 @@ function dwBeacon(event, payload = {}, once = false) {
 }
 
 // Interacciones de navegación/consumo (VERBOSE). Un solo listener delegado en
-// captura: continuar al módulo, saltar por el índice/roadmap, y links externos
-// del contenido (qué activo se llevó al usuario fuera del copiloto).
+// captura: continuar al módulo, saltar por el índice/roadmap/nav lateral
+// persistente, y links externos del contenido (qué activo se llevó al
+// usuario fuera del copiloto).
+// `.module-subnav a` (Hub Transversal Module Section Navigation, ver
+// HANDOFF): el nav anidado OPCIONAL que un módulo activo expone en el
+// sidebar del workspace (ver workspace_shell.html::module_section_nav) —
+// generalización del MISMO selector, nunca una segunda implementación de
+// "revelar antes de saltar" + beacon nav_jump.
 document.addEventListener("click", event => {
   const el = event.target;
   if (!el || !el.closest) return;
   const cont = el.closest(".module-continue");
   if (cont) { dwBeacon("module_continue", { via: "click", href: cont.getAttribute("href") || "" }); return; }
-  const nav = el.closest(".section-index a, .module-roadmap__links a");
+  const nav = el.closest(".section-index a, .module-roadmap__links a, .module-subnav a");
   if (nav) {
     dwBeacon("nav_jump", { href: nav.getAttribute("href") || "" });
     // Viewport Experience Standardization gate (ver HANDOFF): un anchor jump

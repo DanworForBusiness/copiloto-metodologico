@@ -598,15 +598,16 @@
         una copia vieja/distinta después de editar el título de una
         sección, exactamente la duplicación que este gate prohíbe.
         Conceptualmente: `cs_nav_map` → familia/código/identidad estable;
-        `strategy.<key>.title` → etiqueta de negocio mutable. #}
-    {% set cs_nav_map = {
-      'p1': ('pilares', '01', 'objectives'), 'genda': ('pilares', '02', 'demand_generation'),
-      'p2': ('pilares', '03', 'segments'), 'p3': ('pilares', '04', 'focus'),
-      'p4': ('pilares', '05', 'capacity'), 'p5': ('pilares', '06', 'cadence'),
-      'p6': ('activacion', 'E01', 'exclusions'), 'proximos': ('activacion', 'E02', 'next_steps'),
-      'mapa': ('anexos', 'A01', 'annex_map'), 'roles': ('anexos', 'A02', 'annex_roles'),
-      'proceso': ('anexos', 'A03', 'annex_process'), 'reglas': ('anexos', 'A04', 'annex_rules'),
-    } %}
+        `strategy.<key>.title` → etiqueta de negocio mutable.
+
+        Hub Transversal Module Section Navigation (ver HANDOFF): esta
+        estructura VIVÍA acá como un dict literal de "set"; ahora es
+        `nav_map` (MISMA forma exacta, sin cambios), resuelta en Python
+        (`commercial_strategy.py::_SECTION_NAV_MAP`) para que el nav
+        lateral persistente del Hub (`commercial_nav.html`) también pueda
+        alcanzarla — ONE canonical structural mapping, nunca un segundo
+        mapa Estrategia-específico solo para el sidebar. #}
+    {% set cs_nav_map = nav_map %}
     {#- Contextual Section Feedback gate (ver HANDOFF): el `subject` OPCIONAL
         del primitivo compartido `section_feedback.html` (ver ese parcial —
         nunca hardcodeado adentro del componente, nunca inferido del DOM/

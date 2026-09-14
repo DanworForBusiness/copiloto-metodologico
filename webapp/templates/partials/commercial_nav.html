@@ -2,17 +2,39 @@
    (.module-nav/.nav-kicker/.module-link), sin acordeón. Segunda capacidad
    real (Commercial Strategy — Phase 1): se agrega acá como un segundo <a>,
    exactamente como este comentario anticipaba — MISMO criterio que
-   Operations con Asignaciones/Reporting. El nav de Pilares/Anexos del
-   documento de Estrategia NO vive acá: es navegación INTERNA de esa página
-   (ver commercial/strategy.html), nunca un segundo sidebar de la app.
+   Operations con Asignaciones/Reporting.
    `active_page` ("crm"|"estrategia") lo pasa el router — mismo criterio que
    `active_page` en operations_nav.html/`active_stem` en copilot_nav.html,
    nunca un segundo parseo de `request.url.path` acá.
    La bienvenida de sesión reusa el MISMO macro compartido que
    copilot_nav.html/operations_nav.html (partials/workspace_shell.html) —
    misma fuente de identidad, nunca una segunda copia del formateo de
-   nombre. #}
-{% from "partials/workspace_shell.html" import nav_welcome %}
+   nombre.
+
+   Hub Transversal Module Section Navigation (ver HANDOFF): el nav de
+   Pilares/Anexos del documento de Estrategia AHORA SÍ vive acá también —
+   owner decision reversa la nota anterior ("nunca un segundo sidebar de
+   la app"): la Directora Comercial pidió recuperar la navegación
+   PERSISTENTE del índice original, sin crear un sidebar Estrategia-
+   específico. `module_section_nav()` (workspace_shell.html) es la
+   capability TRANSVERSAL que resuelve esto — Estrategia es su PRIMER
+   consumidor, nunca su dueño.
+
+   Genericity Gate (ver HANDOFF): el `{% if %}` de abajo chequea SOLO
+   `section_navigation` — nunca `active_page == "estrategia"` (versión
+   anterior de este archivo, corregida). La identidad de Estrategia NO
+   vive en la condición: `section_navigation` ya viene `None`/ausente en
+   CUALQUIER contexto que no sea el GET de Estrategia (ver
+   commercial_strategy.py), así que chequear su presencia alcanza —
+   agregar el nombre del módulo acá era redundante Y acoplaba el
+   primitivo compartido a un módulo puntual. Sigue siendo opt-in por
+   AUSENCIA de variable, nunca un flag booleano aparte — CRM (y cualquier
+   módulo futuro que no la pase) no paga ningún costo. La POSICIÓN del
+   include (después del link de Estrategia) es una decisión de ESTE
+   archivo workspace-específico — aceptable per el ticket ("a
+   workspace-specific call-site is acceptable") — nunca del macro
+   compartido, que no sabe ni le importa qué módulo lo llama. #}
+{% from "partials/workspace_shell.html" import nav_welcome, module_section_nav %}
 <aside class="module-nav" :class="navOpen&&'is-open'">
   {{ nav_welcome(user) }}
   <nav aria-label="Comercial">
@@ -23,5 +45,8 @@
     <a href="/comercial/estrategia" class="module-link {% if active_page == 'estrategia' %}is-active{% endif %}">
       <span>02</span><strong>Estrategia</strong>
     </a>
+    {% if section_navigation %}
+    {{ module_section_nav(section_navigation) }}
+    {% endif %}
   </nav>
 </aside>

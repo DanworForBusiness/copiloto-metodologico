@@ -179,9 +179,11 @@ def test_c_nav_click_handler_reconciles_target_visibility_generically():
     # La reconciliación vive en el MISMO handler delegado que ya dispara
     # nav_jump para `.section-index a, .module-roadmap__links a` --
     # transversal (Copiloto Y Estrategia comparten ese selector), nunca un
-    # segundo listener Strategy-only.
+    # segundo listener Strategy-only. Selector EXTENDIDO con `.module-subnav
+    # a` (Hub Transversal Module Section Navigation, ver HANDOFF) -- MISMO
+    # handler generalizado, nunca uno nuevo.
     m = re.search(
-        r'const nav = el\.closest\("\.section-index a, \.module-roadmap__links a"\);\s*'
+        r'const nav = el\.closest\("\.section-index a, \.module-roadmap__links a, \.module-subnav a"\);\s*'
         r'if \(nav\) \{(?P<body>.*?)\n  \}',
         _APP_JS, re.DOTALL,
     )

@@ -405,29 +405,23 @@ La Tabla Remota es el artefacto de **Ingesta federada**: apunta al origen, con l
 
 > **Alcance**: esto describe el parámetro *Streaming Read* de una tabla remota cuando el **Data Provisioning Option** de la conexión ABAP/S4HANA es **Data Provisioning Agent** (SAP HANA SDI, vía **ABAPAdapter**) — no es una propiedad genérica de "una conexión S/4HANA". Remote Tables vía **Cloud Connector / ABAP SQL Service** son otro stack tecnológico (SDA) y no tienen este parámetro, y tampoco aplica a **Replication Flows**. Que una conexión tenga Cloud Connector configurado para otra capacidad (por ejemplo ABAP SQL Service o Replication Flows) no implica que el ABAPAdapter o su RFC Streaming estén participando: son mecanismos independientes. Regla general: identificar primero el mecanismo técnico efectivo de acceso/provisión, nunca inferirlo por el nombre lógico de la conexión.
 
-{{callout: title="Off no significa sin streaming" tone="warn" icon="🔀"}}
-SAP nombra explícitamente al modo Off: **non-RFC streaming** — no es la ausencia de un mecanismo, es otro mecanismo con nombre propio y comportamiento documentado.
-{{/callout}}
+**Off no significa ausencia de streaming:** SAP denomina este modo *non-RFC streaming*.
 
 | | Streaming Read = Off (non-RFC streaming) | Streaming Read = On (RFC Streaming Read) |
 |---|---|---|
 | **Transferencia** | El recordset objetivo se extrae completo, como un único batch | Transferencia progresiva en paquetes (*Batch Size*, configurable) vía callback RFC hacia el ABAPAdapter/DPA |
 | **Ejecución en el origen** | Corre en modo *dialog* de ABAP/ECC — sujeto a sus límites (por ejemplo, timeout de dialog mode) | Requiere registrar un server RFC (Gateway Host, Gateway Port/Gateway Service, RFC Destination vía SM59) |
 | **Configuración adicional** | Ninguna | Gateway Host/Port, RFC Destination — ver *Prerequisites for ABAP RFC Streaming* |
+| **Memoria en DPA** | Debe sostener el recordset completo — depende de volumen, ancho de registro y concurrencia; SAP publica una referencia orientativa (no una fórmula de sizing) de ~1 GB de RAM por millón de registros | Acotada al paquete en tránsito; SAP documenta una referencia aproximada de ~2× el Batch Size configurado para ese proceso puntual — tampoco es una fórmula de sizing total del DPA |
 
 {{callout_row}}
 {{callout: title="FACT — documentado por SAP" tone="punch" icon="📖"}}
-- **Off**: al traer el recordset completo en un solo batch, se necesita memoria suficiente para ese recordset completo. SAP publica una *regla general orientativa* (no una fórmula de sizing) de alrededor de 1 GB de RAM en el host del DP Agent por cada millón de registros — depende del ancho/tamaño real del registro, y varias sesiones concurrentes suman requerimiento adicional.
-- **On**: al recibir cada batch RFC, el DPA lo copia a una cola para enviarlo al Data Provisioning Server; SAP documenta el requerimiento de memoria de **ese proceso puntual** como aproximadamente **2× el Batch Size** configurado. El Batch Size es configurable — la documentación consultada muestra 50 MB como default, no una constante arquitectónica del ABAPAdapter.
+La diferencia entre extraer el recordset completo con Off y transferirlo por paquetes con On, así como las referencias de memoria de la fila **Memoria en DPA** de arriba, están documentadas por SAP — no son supuestos de arquitectura Danwor.
 {{/callout}}
 {{callout: title="Interpretación arquitectónica Danwor" tone="success" icon="🌿"}}
-RFC Streaming desacopla en gran medida el requerimiento de memoria de una lectura puntual del tamaño total del resultset, al procesarlo en paquetes acotados. Esto NO significa que RFC Streaming elimine los OOM, que "2× Batch Size" sea toda la memoria que consume el proceso del DPA, ni que "1 GB por millón de filas" sea una fórmula exacta aplicable a cualquier tabla.
+RFC Streaming reduce la presión de memoria de una lectura puntual al procesar el resultado en paquetes. Encontrar Streaming Read = Off puede ser consistente con mayor presión de memoria, pero no demuestra que sea la causa de un OOM. Si la carga es pesada, recurrente o altamente concurrente, además de revisar esta configuración conviene cuestionar si debe seguir federada o requiere materialización o un diseño híbrido.
 {{/callout}}
 {{/callout_row}}
-
-{{callout: title="Streaming Read=Off no prueba un OOM" tone="warn" icon="⚠️"}}
-Un escenario de *resultset grande + non-RFC streaming + alta presión de memoria* es **consistente** con el mecanismo documentado arriba — pero sigue siendo una **hipótesis** hasta correlacionar evidencia real del caso: Remote Table/proceso involucrado, Data Provisioning Option de la conexión, tamaño real del resultset, concurrencia, initial loads activos en simultáneo, memoria asignada al host/proceso del DP Agent, `framework.trc`, errores/dumps del lado origen, y el timing de los eventos. Cadena a seguir siempre: hecho observado → mecanismo técnico → hipótesis → evidencia → recomendación.
-{{/callout}}
 
 La documentación actual de Datasphere marca la opción *Data Provisioning Agent* (SDI ABAPAdapter) como **legacy** — sigue soportada, no deprecada ni obsoleta — y para escenarios nuevos orienta hacia **ABAP SQL Service** para federación (cuando esté disponible) y **Replication Flows** para replicación. RFC Streaming Read sigue siendo relevante para landscapes que ya usan DPA/ABAPAdapter; para decisiones nuevas, el mecanismo apropiado se evalúa por federación vs. replicación, capacidades/versión del origen (ODP/CDS/Dictionary), delta, volumen, latencia, operación y restricciones — nunca por el nombre lógico de la conexión.
 

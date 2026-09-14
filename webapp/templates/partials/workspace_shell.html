@@ -28,3 +28,55 @@
    pasa (default False). El macro no decide NADA de autorización: solo
    presenta lo que el caller ya resolvió. #}
 {% macro nav_welcome(user, readonly=False) %}{% if user %}<p class="nav-welcome">Bienvenido <strong>{{ user.name }}!</strong>{% if readonly %} <span class="nav-readonly" title="Tu perfil navega y lee todo el contenido, pero el asistente IA está deshabilitado por ahora.">Modo lectura</span>{% endif %}</p>{% endif %}{% endmacro %}
+
+{# `module_section_nav(nav)` — Hub Transversal Module Section Navigation
+   (ver HANDOFF): nav anidado OPCIONAL que un módulo activo puede exponer
+   debajo de su propio `.module-link` en el sidebar del workspace, para que
+   el usuario tenga navegación PERSISTENTE (visible mientras scrollea) a las
+   secciones internas de esa página — Comercial → 02 · Estrategia es el
+   PRIMER consumidor, nunca el dueño de la forma.
+
+   `nav` es el contrato GENÉRICO `{top: {id,label,href}, groups: [{label,
+   links: [{id,code,label,href}]}]}` — `links`, NUNCA `items` (un dict
+   plano con clave `items` colisiona con el método builtin `dict.items` en
+   Jinja: `getattr` gana sobre `__getitem__`, así que `group.items` devuelve
+   el MÉTODO, no la lista). Quien CONSTRUYE `nav` es el router de cada
+   módulo consumidor (p. ej. `commercial_strategy.py::
+   _build_section_navigation`), nunca este macro ni `module_registry.py`
+   (identidad ESTABLE de módulo, no dueño de contenido de negocio mutable).
+   Cada caller decide showtime: `{% if section_navigation %}{{
+   module_section_nav(section_navigation) }}{% endif %}` en SU
+   `*_nav.html` — un módulo que nunca pasa esta variable no paga NINGÚN
+   costo (nada se renderiza, nada se observa).
+
+   Estado "sección actual" (`activeSection`): NO es estado propio de este
+   macro — reusa el scroll-spy YA COMPARTIDO por TODA la app
+   (`copilotLayout().activeSection`, ver `webapp/static/app.js`), el MISMO
+   que ya alimenta `module.html`'s `.module-roadmap__links a`. Cero
+   IntersectionObserver nuevo, cero listener de scroll nuevo.
+
+   Reintento de anchor seguro + telemetría: los `<a>` de acá abajo NO
+   llevan una clase nueva propia para eso — participan del MISMO selector
+   delegado que ya cubre `.section-index a`/`.module-roadmap__links a` (ver
+   `initContentReveals`/el listener de click de `app.js`, extendido con
+   `.module-subnav a`) — mismo "revelar antes de saltar" + mismo beacon
+   `nav_jump`, nunca una segunda implementación.
+
+   Visibilidad (`subnavVisible`, owner feedback tras browser validation):
+   arranca OCULTO y hace fade in recién cuando el índice in-page "EN ESTE
+   MÓDULO" sale por arriba del viewport — los DOS índices juntos (el de
+   acá y el in-page) son redundantes, nunca se muestran a la vez. El
+   IntersectionObserver que decide esto vive en `copilotLayout().init()`
+   (app.js), gateado por la presencia de `.module-subnav` — páginas sin
+   este macro no pagan ningún costo. #}
+{% macro module_section_nav(nav) %}
+<div class="module-subnav" aria-label="Secciones de la página" x-show="subnavVisible" x-cloak x-transition.opacity>
+  <a href="{{ nav.top.href }}" class="module-subnav__link module-subnav__top" :class="activeSection === '{{ nav.top.id }}' && 'is-current'" :aria-current="activeSection === '{{ nav.top.id }}' ? 'location' : false">{{ nav.top.label }}</a>
+  {% for group in nav.groups %}
+  <p class="module-subnav__group">{{ group.label }}</p>
+  {% for item in group.links %}
+  <a href="{{ item.href }}" class="module-subnav__link" :class="activeSection === '{{ item.id }}' && 'is-current'" :aria-current="activeSection === '{{ item.id }}' ? 'location' : false"><span>{{ item.code }}</span>{{ item.label }}</a>
+  {% endfor %}
+  {% endfor %}
+</div>
+{% endmacro %}
