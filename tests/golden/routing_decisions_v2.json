@@ -233,7 +233,7 @@
       ],
       "explain_heading": "{dw-black}Estrategia de {dw-gold}Extracción",
       "explain_module": "03_Integracion_y_Estrategia_de_Datos",
-      "message": "Tu pregunta parece comparativa; conviene responderla desde **Estrategia de Extracción** antes de abrir un how-to puntual."
+      "message": "Tu pregunta es conceptual; conviene responderla desde **Estrategia de Extracción** antes de abrir un how-to puntual."
     }
   },
   "03_Integracion_y_Estrategia_de_Datos::fallback::cuánto sale una licencia de datasphere en dólares": {
@@ -293,7 +293,7 @@
       ],
       "explain_heading": "Clean Core aplicado a extracción",
       "explain_module": "03_Integracion_y_Estrategia_de_Datos",
-      "message": "Tu pregunta parece comparativa; conviene responderla desde **Clean Core aplicado a extracción** antes de abrir un how-to puntual. También encontré un recurso relacionado: **Template CDS DDIC-based para extracción hacia SAP Datasphere**."
+      "message": "Tu pregunta es conceptual; conviene responderla desde **Clean Core aplicado a extracción** antes de abrir un how-to puntual. También encontré un recurso relacionado: **Template CDS DDIC-based para extracción hacia SAP Datasphere**."
     }
   },
   "03_Integracion_y_Estrategia_de_Datos::support::extractor 0CUSTOMER_ATTR no aparece en ODQMON tras whitelisteo": {

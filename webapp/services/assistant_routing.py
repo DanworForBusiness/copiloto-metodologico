@@ -832,6 +832,19 @@ class AssistantRoutingService:
             ) or (section is not None and not has_intent)
             if asset_is_related:
                 is_comparative = _is_conceptual_or_comparative_query(question)
+                # `is_comparative` sigue decidiendo el ROUTING (agrupa a propósito
+                # comparativas y conceptuales — ambas prefieren la sección
+                # metodológica sobre un how-to, ver comentario arriba) y NO se
+                # toca. Este booleano es SOLO para el COPY: distingue una
+                # comparación real ("diferencia", "vs", "comparar"...) de una
+                # pregunta apenas conceptual ("qué es", "qué significa",
+                # "explicame"), que hoy caían en el mismo "parece comparativa" y
+                # sonaban a mal diagnóstico ante algo que no compara nada.
+                # Reusa `_COMPARATIVE_TERMS` (arriba, antes sólo usado por
+                # `_is_conceptual_asset_question`) — sin vocabulario nuevo.
+                is_genuinely_comparative = any(
+                    term in norm_text(question) for term in _COMPARATIVE_TERMS
+                )
                 if section:
                     section_module = str(section.get("module") or stem)
                     section_heading = str(section.get("heading") or "")
@@ -842,9 +855,14 @@ class AssistantRoutingService:
                     ))
                     explain_module = section_module
                     explain_heading = section_heading
-                    if is_comparative:
+                    if is_comparative and is_genuinely_comparative:
                         message = (
                             f"Tu pregunta parece comparativa; conviene responderla desde "
+                            f"**{section_label}** antes de abrir un how-to puntual."
+                        )
+                    elif is_comparative:
+                        message = (
+                            f"Tu pregunta es conceptual; conviene responderla desde "
                             f"**{section_label}** antes de abrir un how-to puntual."
                         )
                     else:
@@ -854,7 +872,10 @@ class AssistantRoutingService:
                 else:
                     explain_module = stem
                     explain_heading = ""
-                    message = "Tu pregunta parece comparativa; puedo explicarla en contexto metodológico."
+                    if is_genuinely_comparative:
+                        message = "Tu pregunta parece comparativa; puedo explicarla en contexto metodológico."
+                    else:
+                        message = "Tu pregunta es conceptual; puedo explicarla en contexto metodológico."
                 # El recurso "relacionado" solo se adjunta si es un match FUERTE.
                 # Un asset tangencial (score bajo, ~12-15 por compartir una palabra
                 # con la sección, ej. Template CDS ↔ "convención") no debe colgarse
