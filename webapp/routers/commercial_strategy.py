@@ -108,6 +108,87 @@ def feedback_subject_for_section(section_id: str) -> str | None:
     return _FEEDBACK_SUBJECT_BY_SECTION.get(section_id)
 
 
+# Hub Transversal Module Section Navigation (ver HANDOFF) — Estrategia es el
+# PRIMER consumidor, nunca el dueño de la forma. `_SECTION_NAV_MAP` es la
+# ÚNICA fuente estructural (anchor_id -> family/código/content_key) —
+# MOVIDA acá desde el `{% set cs_nav_map = {...} %}` que antes vivía
+# hardcodeado dentro de `strategy.html` (Information Architecture pass, ver
+# ese template) para que sea alcanzable TANTO por el índice in-page/eyebrows
+# de sección COMO por el nav lateral persistente del Hub (`commercial_nav.
+# html`), sin duplicar el mapeo estructural (Sidebar Section Nav Gate:
+# "ONE canonical structural mapping, never a second Strategy section map").
+# Familia/código/orden son metadata ESTRUCTURAL pura — código de template,
+# nunca `strategy.nav[].group` ni ningún otro campo leído del documento
+# (seed o runtime), MISMO principio que ya regía cuando vivía en el template.
+_SECTION_NAV_MAP = {
+    "p1": ("pilares", "01", "objectives"), "genda": ("pilares", "02", "demand_generation"),
+    "p2": ("pilares", "03", "segments"), "p3": ("pilares", "04", "focus"),
+    "p4": ("pilares", "05", "capacity"), "p5": ("pilares", "06", "cadence"),
+    "p6": ("activacion", "E01", "exclusions"), "proximos": ("activacion", "E02", "next_steps"),
+    "mapa": ("anexos", "A01", "annex_map"), "roles": ("anexos", "A02", "annex_roles"),
+    "proceso": ("anexos", "A03", "annex_process"), "reglas": ("anexos", "A04", "annex_rules"),
+}
+
+# Etiquetas de grupo del SIDEBAR -- acortadas a propósito (owner feedback
+# tras validación en browser: la columna angosta del nav lateral hacía
+# envolver "PILARES ESTRATÉGICOS"/"DE LA ESTRATEGIA A LA ACCIÓN" a 2
+# líneas). NUNCA toca las etiquetas del índice in-page "EN ESTE MÓDULO"
+# (esas viven aparte, literales en strategy.html -- tienen 3 columnas
+# anchas ahí, entran en una línea sin problema, mismo criterio "cada
+# consumidor decide su propia presentación sobre el MISMO dato
+# estructural").
+_SECTION_NAV_GROUP_LABELS = {
+    "pilares": "Pilares",
+    "activacion": "Acciones",
+    "anexos": "Anexos",
+}
+
+# Ancla ESTABLE de portada — ya existía (`<section id="hero" class=
+# "module-hero">`, ver strategy.html), ya participa del scroll-spy
+# compartido (`copilotLayout.activeSection`, ver app.js: su selector
+# `.module-hero, .content-section` ya la incluye) — nunca una ancla nueva.
+_SECTION_NAV_TOP_ID = "hero"
+_SECTION_NAV_TOP_LABEL = "Portada"
+
+
+def _build_section_navigation(strategy: dict) -> dict:
+    """Contrato GENÉRICO opcional de navegación de secciones (Hub
+    Transversal Module Section Navigation) — Estrategia es el primer
+    consumidor, nunca el dueño de la forma; cualquier otro módulo futuro
+    que quiera opt-in construye la MISMA forma `{top, groups}` desde su
+    propio contenido, nunca importando nada Estrategia-específico de acá.
+
+    Construido a partir de `_SECTION_NAV_MAP` (estructural: family/código/
+    orden) + `strategy[content_key]["title"]` (negocio, MISMA fuente exacta
+    que ya usa el índice in-page y los eyebrows de sección — nunca una
+    copia). `None` si `strategy` es `None` (documento no disponible,
+    MISMO fail-soft que el resto de esta página) — el caller entonces no
+    agrega `section_navigation` al contexto, y `commercial_nav.html` no
+    renderiza nada nuevo (opt-in por ausencia, nunca un flag booleano
+    aparte)."""
+    groups: dict[str, list[dict]] = {}
+    for anchor_id, (family, code, content_key) in _SECTION_NAV_MAP.items():
+        groups.setdefault(family, []).append({
+            "id": anchor_id,
+            "code": code,
+            "label": strategy[content_key]["title"],
+            "href": f"#{anchor_id}",
+        })
+    return {
+        "top": {"id": _SECTION_NAV_TOP_ID, "label": _SECTION_NAV_TOP_LABEL, "href": f"#{_SECTION_NAV_TOP_ID}"},
+        "groups": [
+            # `links`, NUNCA `items` -- Jinja resuelve `group.items` contra
+            # el método builtin `dict.items` de un dict plano ANTES de caer
+            # a `group['items']` (footgun conocido: getattr gana sobre
+            # __getitem__), lo que rompía el render con "'builtin_function_
+            # or_method' object is not iterable". `links` no colisiona con
+            # ningún método de dict.
+            {"label": _SECTION_NAV_GROUP_LABELS[family], "links": links}
+            for family, links in groups.items()
+        ],
+    }
+
+
 router = APIRouter()
 _logger = logging.getLogger("danwor.commercial_strategy")
 
@@ -163,11 +244,13 @@ def commercial_strategy_page(request: Request):
         strategy = load_strategy()
         error_state = ""
         editable_doc = _editable_doc(strategy)
+        section_navigation = _build_section_navigation(strategy)
     except CommercialStrategyUnavailable as exc:
         _logger.warning("commercial_strategy: documento no disponible: %s", exc)
         strategy = None
         error_state = "unavailable"
         editable_doc = None
+        section_navigation = None
 
     return templates.TemplateResponse(
         request=request, name="commercial/strategy.html",
@@ -186,6 +269,21 @@ def commercial_strategy_page(request: Request):
             "dw_module_id": CM02_MODULE_ID,
             "strategy": strategy,
             "error_state": error_state,
+            # `nav_map` = `_SECTION_NAV_MAP` tal cual (compat): el template
+            # sigue leyendo el MISMO identificador/forma que su antiguo
+            # `{% set cs_nav_map %}` local para el índice in-page + los 12
+            # eyebrows de sección, ahora resuelto en Python (fuente única).
+            "nav_map": _SECTION_NAV_MAP,
+            # `section_navigation`: contrato GENÉRICO transversal (Hub
+            # Transversal Module Section Navigation, ver HANDOFF) — `None`
+            # si el documento no está disponible (fail-soft, MISMO criterio
+            # que `strategy`/`editable_doc` arriba). Genericity Gate:
+            # `commercial_nav.html` renderiza el nav anidado con SOLO
+            # `{% if section_navigation %}` — nunca chequea
+            # `active_page == "estrategia"` (ese acoplamiento se retiró):
+            # opt-in por AUSENCIA de esta variable, nunca un flag booleano
+            # aparte, y la identidad de Estrategia no vive en la condición.
+            "section_navigation": section_navigation,
             # `can_edit`: SOLO gobierna si el botón "Editar" se RENDERIZA —
             # nunca la defensa real (ver POST abajo, que repite el mismo
             # chequeo server-side de forma autoritativa).

@@ -412,6 +412,52 @@
 }
 .nav-welcome strong { color: var(--ink); font-weight: 750; }
 .module-nav > .nav-kicker { margin: 0 0 6px 0; }
+
+/* ── Hub Transversal Module Section Navigation (ver HANDOFF) ──────────────
+   Nav anidado OPCIONAL debajo del `.module-link` de un módulo activo —
+   Comercial → 02 · Estrategia es el primer consumidor. Lenguaje visual
+   DERIVADO de `.module-link`/`.nav-kicker` (nunca clonado del índice
+   standalone original): indentación + tipografía compacta para leerse
+   como hijo natural del ítem de módulo, nunca como un segundo nivel top.
+   `.module-nav` nunca repinta con `.content-theme-light` (solo
+   `.module-content` lo hace, ver layout.css) — este bloque vive
+   enteramente dentro de `.module-nav`, así que es theme-invariant por
+   diseño, sin variantes light/dark propias que mantener. ── */
+.module-subnav {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 14px 14px;
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+}
+.module-subnav__link {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 6px;
+  padding: 6px 8px;
+  color: var(--soft);
+  font: 500 .72rem/1.3 var(--sans);
+}
+.module-subnav__link:hover { color: var(--ink); }
+.module-subnav__link.is-current { color: var(--gold); }
+.module-subnav__link span {
+  color: var(--dim);
+  font: 500 .64rem var(--mono);
+}
+.module-subnav__link.is-current span { color: var(--gold); }
+/* Portada no lleva `<span>` de código -- su único nodo de texto cae en la
+   PRIMERA columna (22px) por auto-placement de grid si no se lo saca de
+   ahí, apretándolo a un ancho absurdo. `grid-column: 1/-1` lo hace ocupar
+   las DOS columnas, igual que si tuviera su propio código. */
+.module-subnav__top { grid-column: 1 / -1; font-weight: 650; }
+.module-subnav__group {
+  margin: 10px 0 2px;
+  padding: 0 8px;
+  color: var(--dim);
+  font: 500 .62rem var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+}
 .logout-btn { text-decoration: none; transition: color .15s ease, border-color .15s ease; }
 .logout-btn:hover { color: #ff8a8a; border-color: rgba(255,138,138,.45); }
 
