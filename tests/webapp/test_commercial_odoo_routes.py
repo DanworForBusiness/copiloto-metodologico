@@ -329,9 +329,15 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # (Expandir/Contraer, "al estilo Operaciones → Asignaciones") agrega DOS
     # más: `body.querySelectorAll("details.dashboard-section")` — una por
     # botón, cada uno togglea `.open` de TODOS los grupos de etapa YA
-    # renderizados, sin re-render (el disclosure es 100% nativo).
+    # renderizados, sin re-render (el disclosure es 100% nativo). Shared
+    # Stage-0 Prospect Ratio (ver HANDOFF) agrega UNO más:
+    # `[data-commercial-prospects-ratio]`, MISMO patrón que el de Forecast
+    # de arriba pero para el host de Prospectos (`[data-commercial-
+    # prospects-body]`), ahora que el campo de ratio manual también vive
+    # ahí — listener SEPARADO, nunca reusa el de Forecast (que buscaría foco
+    # en el host equivocado).
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos setenta hooks y nada más.
+    # EXACTAMENTE estos setenta y uno hooks y nada más.
     assert queries == [
         '`[data-section-id="${sectionId}"]`',
         '".chart-tooltip"',
@@ -393,6 +399,7 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-ex-clientes-table]"',
         '"[data-commercial-lead-conversion-table]"',
         '"[data-commercial-forecast-ratio]"',
+        '"[data-commercial-prospects-ratio]"',
         '"[data-commercial-creadas-search]"',
         '"[data-commercial-opportunities]"',
         '"[data-commercial-prospects-table]"',
