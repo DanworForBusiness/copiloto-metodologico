@@ -1172,13 +1172,28 @@ function commercialForecastViewSwitchHtml() {
 // SEPARADA (`commercialForecastRatioHelperHtml`): metida adentro de
 // `.whatsnew-filters` (que es `display:flex` de una sola fila) rompería ese
 // layout, así que se renderiza aparte, debajo de la fila de filtros.
-function commercialForecastRatioFieldHtml() {
+//
+// Shared Stage-0 Prospect Ratio (ver HANDOFF): el MARKUP se comparte entre
+// Forecast de pipeline Y Prospectos vía este helper parametrizado por
+// `dataAttr` — el ESTADO (`commercialState.forecastProspectRatioRaw`) ya era
+// compartido, pero el ATRIBUTO de cada `<input>` tiene que ser DISTINTO
+// (`data-commercial-forecast-ratio` vs `data-commercial-prospects-ratio`):
+// cada panel tiene su propio listener delegado que re-renderiza SÓLO su
+// propio host (`commercialRenderForecastPanel`/`commercialRenderProspectsPanel`)
+// y restaura foco/caret dentro de su propio `[data-commercial-*-body]` — un
+// atributo único para los dos inputs haría que el listener de Forecast
+// intentara re-renderizar/foco-restaurar sobre Prospectos (o viceversa).
+function commercialProspectRatioFieldHtml(dataAttr) {
   const raw = commercialState.forecastProspectRatioRaw || "";
   return `<label class="whatsnew-filter">
       <span>Ratio prospecto (%)</span>
       <input type="number" min="0" max="100" step="any" placeholder="Ej. 10"
-        value="${commercialEsc(raw)}" data-commercial-forecast-ratio>
+        value="${commercialEsc(raw)}" ${dataAttr}>
     </label>`;
+}
+
+function commercialForecastRatioFieldHtml() {
+  return commercialProspectRatioFieldHtml("data-commercial-forecast-ratio");
 }
 
 // Owner corrective: el aviso de blanco ("Ingresá un ratio...") se retiró —
@@ -1277,17 +1292,25 @@ function commercialForecastStageViewHtml(filteredMonths) {
   const ratioFraction = commercialForecastParseRatio(commercialState.forecastProspectRatioRaw);
   const calc = commercialForecastCalc(opps, ratioFraction);
   const groups = commercialForecastGroupByStage(opps);
-  // MODELO A — cinco tiles primarios (owner GO final): activa/prospecto son
-  // las DOS únicas magnitudes de entrada, ratio/ajustadas/forecast son su
-  // derivación. Sin Ex-cliente/Sin clasificar/Cobertura clasificada — esas
-  // pertenecían al modelo de relación de cuenta ya descartado, y bajo este
-  // modelo no aportan a NINGÚN cálculo (ver HANDOFF, semantic audit).
+  // MODELO A — CUATRO tiles primarios (Shared Stage-0 Prospect Ratio, owner
+  // GO revisado: "the ratio itself should be an editable CONTROL, not
+  // necessarily a fifth KPI tile"). El tile "Ratio aplicado" se retiró: el
+  // `<input>` de arriba (`commercialForecastRatioFieldHtml`) YA es el ratio
+  // visible/editable, así que un tile aparte lo duplicaba sin aportar. Las
+  // etiquetas de los dos tiles derivados se renombraron a la terminología de
+  // negocio ("Prospecto ponderado"/"Forecast total") — MISMOS valores
+  // (`calc.prospectWeighted`/`calc.forecastHours`), cero cambio de fórmula.
+  // Activa/Prospecto siguen siendo las DOS únicas magnitudes de entrada.
+  // Sin Ex-cliente/Sin clasificar/Cobertura clasificada — esas pertenecían
+  // al modelo de relación de cuenta ya descartado, y bajo este modelo no
+  // aportan a NINGÚN cálculo (ver HANDOFF, semantic audit).
+  const ratioSub = ratioFraction === null ? "Etapa 0" : `${commercialFmtPercent(ratioFraction * 100)} de etapa 0`;
   const summaryTiles = [
-    commercialKpi("Horas activas", commercialFmtForecastKpiValue(calc.activeHours)),
-    commercialKpi("Horas prospecto", commercialFmtForecastKpiValue(calc.prospectHours)),
-    commercialKpi("Ratio aplicado", ratioFraction === null ? "—" : commercialFmtPercent(ratioFraction * 100)),
-    commercialKpi("Horas prospecto ajustadas", commercialFmtForecastKpiValue(calc.prospectWeighted)),
-    commercialKpi("Forecast de horas", commercialFmtForecastKpiValue(calc.forecastHours)),
+    commercialRichKpi("Horas activas", commercialFmtForecastKpiValue(calc.activeHours), { sub: "Etapas 1–8" }),
+    commercialRichKpi("Horas prospecto", commercialFmtForecastKpiValue(calc.prospectHours), { sub: "Etapa 0" }),
+    commercialRichKpi("Prospecto ponderado", commercialFmtForecastKpiValue(calc.prospectWeighted), { sub: ratioSub }),
+    commercialRichKpi("Forecast total", commercialFmtForecastKpiValue(calc.forecastHours),
+      { sub: "Activas + prospecto ponderado" }),
   ];
   return commercialForecastStageToolbarHtml()
     + commercialForecastRatioHelperHtml(ratioFraction)
@@ -2385,12 +2408,23 @@ function commercialProspectsTagsHtml(tags) {
   return tags.map(t => `<span class="dashboard-status-badge dashboard-status-badge--grey">${commercialEsc(t)}</span>`).join(" ");
 }
 
-function commercialProspectsTableHtml(prospects) {
+// Shared Stage-0 Prospect Ratio (ver HANDOFF): `ratioFraction` es el MISMO
+// ratio manual que Forecast de pipeline (`commercialState.
+// forecastProspectRatioRaw`, ya parseado por el caller) — NUNCA se
+// recalcula/parsea acá de nuevo. La columna nueva ("Hs prosp. pond.") es
+// una magnitud DISTINTA de la existente "Hs Pond." (renombrada acá a "Hs
+// prob. pond." para que el label no siga siendo ambiguo entre dos
+// ponderaciones distintas, owner GO §12): `o.weighted_hours`/`o.probability`
+// siguen siendo la probabilidad de Odoo, SIN TOCAR — cero cambio de valor
+// ni de fuente, sólo de rótulo. La columna nueva es 100% derivada acá
+// mismo (`o.hours × ratioFraction`), nunca un campo del payload.
+function commercialProspectsTableHtml(prospects, ratioFraction) {
   const rows = (prospects && prospects.opportunities) || [];
   if (!rows.length) {
     return commercialEmptyStateHtml("Sin resultados", "Sin prospectos para este filtro.");
   }
   const sorted = commercialProspectsSorted(rows);
+  const manualWeighted = o => ratioFraction === null ? null : (o.hours || 0) * ratioFraction;
   const th = (key, label, cls = "") => {
     const active = commercialState.prospectsSortKey === key;
     const arrow = active ? (commercialState.prospectsSortDir === 1 ? " ▲" : " ▼") : "";
@@ -2425,6 +2459,7 @@ function commercialProspectsTableHtml(prospects) {
       <td>${lic}</td>
       <td>${commercialFmtInt(o.hours)}</td>
       <td>${commercialFmtInt(o.weighted_hours)}</td>
+      <td>${commercialFmtForecastKpiValue(manualWeighted(o))}</td>
       <td>${commercialFmtPercent(o.probability)}</td>
       <td class="chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(priorityLabel)}">${priorityStars}${commercialChartTooltip(priorityLabel)}</td>
       <td class="left">${nextAction}</td>
@@ -2432,31 +2467,39 @@ function commercialProspectsTableHtml(prospects) {
       <td>${o.days_elapsed != null ? `${commercialFmtInt(o.days_elapsed)}d` : "—"}</td>
     </tr>`;
   }).join("");
-  // Fila de totales — MISMO criterio que Activas: sólo Hs/Hs Pond. suman sin
-  // ambigüedad, el resto queda en blanco en vez de una agregación inventada.
+  // Fila de totales — MISMO criterio que Activas: sólo las columnas de
+  // horas suman sin ambigüedad, el resto queda en blanco en vez de una
+  // agregación inventada. "Hs prosp. pond." total (Shared Stage-0 Prospect
+  // Ratio, ver HANDOFF): `totals.hours × ratioFraction` — MISMA aritmética
+  // que cada fila, nunca una suma de valores ya redondeados por fila (evita
+  // arrastrar el redondeo de `commercialFmtInt` por fila al total).
   const totals = rows.reduce((acc, o) => ({
     hours: acc.hours + (o.hours || 0),
     weighted_hours: acc.weighted_hours + (o.weighted_hours || 0),
   }), { hours: 0, weighted_hours: 0 });
+  const totalManualWeighted = ratioFraction === null ? null : totals.hours * ratioFraction;
   const totalRow = `
     <tr class="is-total">
       <td class="row-label" colspan="5">Total (${rows.length})</td>
       <td>${commercialFmtInt(totals.hours)}</td>
       <td>${commercialFmtInt(totals.weighted_hours)}</td>
+      <td>${commercialFmtForecastKpiValue(totalManualWeighted)}</td>
       <td colspan="5"></td>
     </tr>`;
   // `<colgroup>` en % — MISMO criterio que Activas: ancho real por columna,
-  // nunca un número inventado. Doce columnas (once de Activas + Etiquetas):
-  // Oportunidad/Vendedor/Próx. Acción ceden unos puntos para darle a
-  // Etiquetas un ancho legible sin forzar `.matrix-scroll` de más.
+  // nunca un número inventado. Trece columnas (doce previas + "Hs prosp.
+  // pond."): Oportunidad/Etiquetas/Próx. Acción ceden unos puntos para
+  // darle a la columna nueva un ancho legible sin forzar `.matrix-scroll`
+  // de más.
   return `
     <div class="matrix-scroll">
       <table class="dashboard-table">
         <colgroup>
-          <col style="width:18%"><col style="width:10%"><col style="width:9%">
-          <col style="width:9%"><col style="width:4%"><col style="width:5%">
-          <col style="width:6%"><col style="width:5%"><col style="width:4%">
-          <col style="width:16%"><col style="width:7%"><col style="width:7%">
+          <col style="width:16%"><col style="width:11%"><col style="width:9%">
+          <col style="width:8%"><col style="width:4%"><col style="width:5%">
+          <col style="width:5%"><col style="width:5%"><col style="width:5%">
+          <col style="width:4%"><col style="width:14%"><col style="width:7%">
+          <col style="width:7%">
         </colgroup>
         <thead><tr>
           ${th("opportunity", "Oportunidad", "row-label-col")}
@@ -2465,7 +2508,8 @@ function commercialProspectsTableHtml(prospects) {
           <th class="left">Etiquetas</th>
           <th>Lic.</th>
           ${th("hours", "Hs")}
-          ${th("weighted_hours", "Hs Pond.")}
+          ${th("weighted_hours", "Hs prob. pond.")}
+          <th>Hs prosp. pond.</th>
           ${th("probability", "Prob.")}
           ${th("priority", "Prior.")}
           ${th("next_action", "Próx. Acción", "left")}
@@ -2477,8 +2521,8 @@ function commercialProspectsTableHtml(prospects) {
     </div>`;
 }
 
-function commercialProspectsBlockHtml(rows) {
-  return `${rows.length ? commercialUrgencyLegendHtml() : ""}${commercialProspectsTableHtml({ opportunities: rows })}`;
+function commercialProspectsBlockHtml(rows, ratioFraction) {
+  return `${rows.length ? commercialUrgencyLegendHtml() : ""}${commercialProspectsTableHtml({ opportunities: rows }, ratioFraction)}`;
 }
 
 // Vendedor + Buscar filtran (AND) sobre el dataset YA cargado — cero
@@ -2491,11 +2535,20 @@ function commercialCurrentProspectsRows() {
   return commercialSearchProspects(bySeller, commercialState.prospectsSearchText);
 }
 
-// Barra de filtros LOCAL: Vendedor + Buscar + Limpiar — MISMO primitivo
-// `.whatsnew-filters`/`.whatsnew-filter` que el resto de Comercial. Sin
-// Etapa (universo de una sola etapa, no hay nada que particionar) y sin chip
-// de filtro activo (owner §8: el `<select>`/`<input>` YA representan el
-// estado activo — no hay cascada gráfico → filtro en este panel).
+// Barra de filtros LOCAL: Vendedor + Buscar + Limpiar + Ratio prospecto (%)
+// — MISMO primitivo `.whatsnew-filters`/`.whatsnew-filter` que el resto de
+// Comercial. Sin Etapa (universo de una sola etapa, no hay nada que
+// particionar) y sin chip de filtro activo (owner §8: el `<select>`/
+// `<input>` YA representan el estado activo — no hay cascada gráfico →
+// filtro en este panel).
+//
+// Shared Stage-0 Prospect Ratio (ver HANDOFF): Prospectos es ahora el HOGAR
+// CONCEPTUAL primario del ratio manual (owner GO) — el campo vive acá con
+// el MISMO markup/estado que Forecast de pipeline
+// (`commercialProspectRatioFieldHtml`, `data-commercial-prospects-ratio`
+// para que su propio listener delegado re-renderice SÓLO este panel), en
+// la MISMA fila que Vendedor/Buscar/Limpiar — cero fila nueva, MISMO
+// criterio de layout que ya usa Forecast.
 function commercialProspectsFiltersHtml(sellerOptions) {
   const sellerOpts = sellerOptions.map(s =>
     `<option value="${commercialEsc(s)}"${commercialState.prospectsSellerFilter === s ? " selected" : ""}>${commercialEsc(s)}</option>`).join("");
@@ -2512,6 +2565,7 @@ function commercialProspectsFiltersHtml(sellerOptions) {
         <input type="search" data-commercial-prospects-search aria-label="Buscar prospectos" placeholder="Buscar…" value="${commercialEsc(commercialState.prospectsSearchText)}">
       </label>
       <button type="button" class="whatsnew-filter__clear" data-commercial-prospects-clear>✕ Limpiar</button>
+      ${commercialProspectRatioFieldHtml("data-commercial-prospects-ratio")}
     </div>`;
 }
 
@@ -2519,8 +2573,10 @@ function commercialProspectsAnalysisHtml() {
   const all = (commercialState.prospects && commercialState.prospects.opportunities) || [];
   const rows = commercialCurrentProspectsRows();
   const filtersHtml = all.length ? commercialProspectsFiltersHtml(commercialProspectsSellerOptions(all)) : "";
+  const ratioFraction = commercialForecastParseRatio(commercialState.forecastProspectRatioRaw);
   return `${filtersHtml}
-    <div data-commercial-prospects-table>${commercialProspectsBlockHtml(rows)}</div>`;
+    ${all.length ? commercialForecastRatioHelperHtml(ratioFraction) : ""}
+    <div data-commercial-prospects-table>${commercialProspectsBlockHtml(rows, ratioFraction)}</div>`;
 }
 
 // Cuerpo del panel — MISMO contrato de estados que Forecast (loading/error/
@@ -6822,6 +6878,24 @@ function commercialMaybeRerenderForecastForMode(trigger) {
   commercialRenderForecastPanel();
 }
 
+// Shared Stage-0 Prospect Ratio (ver HANDOFF): MISMO criterio que
+// `commercialMaybeRerenderForecastForMode` de arriba, aplicado a Prospectos.
+// "Cerrar y reabrir NO vuelve a pedir nada" (`commercialMaybeLoadProspects`)
+// significa que reabrir Prospectos, si ya estaba `ready`, deja el DOM tal
+// cual quedó la ÚLTIMA vez que se renderizó — que puede ser un ratio
+// desactualizado si el usuario lo cambió mientras tanto desde Forecast de
+// pipeline (mismo estado compartido, `forecastProspectRatioRaw`, pero cada
+// panel sólo re-renderiza su PROPIO host). Sin este gancho, "Forecast →
+// ajustar ratio → Prospectos" mostraría el ratio VIEJO hasta la próxima
+// interacción local en Prospectos. Client-side puro, cero fetch — MISMO
+// costo que el de Forecast.
+function commercialMaybeRerenderProspectsForRatio(trigger) {
+  if (trigger.dataset.event !== "prospectos") return;
+  if (!trigger.classList.contains("is-active")) return;
+  if (commercialState.prospectsStatus !== "ready") return;
+  commercialRenderProspectsPanel();
+}
+
 // ── Prospectos — lazy load + render quirúrgico (Commercial Tile 5, ver
 // HANDOFF) ───────────────────────────────────────────────────────────────
 // MISMA técnica que Forecast (owner §13 — performance guard): una sola
@@ -8097,6 +8171,7 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialMaybeRerenderForecastForMode(kpiTrigger);
       commercialMaybeLoadCreadas(kpiTrigger);
       commercialMaybeLoadProspects(kpiTrigger);
+      commercialMaybeRerenderProspectsForRatio(kpiTrigger);
       commercialMaybeLoadGanadas(kpiTrigger);
       commercialMaybeLoadPerdidas(kpiTrigger);
       commercialMaybeLoadSuspendidas(kpiTrigger);
@@ -8357,6 +8432,27 @@ document.addEventListener("DOMContentLoaded", () => {
       try { again.setSelectionRange(caret, caret); } catch (e) { /* type=number sin soporte en todos los browsers */ }
     }
   });
+  // Ratio prospecto (%) DESDE Prospectos (Shared Stage-0 Prospect Ratio, ver
+  // HANDOFF): MISMO estado (`commercialState.forecastProspectRatioRaw`) que
+  // el listener de arriba, pero un LISTENER SEPARADO — su propio atributo
+  // (`data-commercial-prospects-ratio`) y su propio host de re-render/foco
+  // (`[data-commercial-prospects-body]` vía `commercialRenderProspectsPanel`)
+  // — nunca reusa el listener de Forecast: ese re-renderiza el panel de
+  // Forecast (que puede estar cerrado/no montado) y buscaría el foco dentro
+  // de `[data-commercial-forecast-body]`, que acá no existe.
+  document.addEventListener("input", event => {
+    const ratioInput = event.target.closest("[data-commercial-prospects-ratio]");
+    if (!ratioInput) return;
+    commercialState.forecastProspectRatioRaw = ratioInput.value;
+    const caret = ratioInput.selectionStart;
+    const panel = ratioInput.closest("[data-commercial-prospects-body]");
+    commercialRenderProspectsPanel();
+    const again = panel && panel.querySelector("[data-commercial-prospects-ratio]");
+    if (again) {
+      again.focus();
+      try { again.setSelectionRange(caret, caret); } catch (e) { /* type=number sin soporte en todos los browsers */ }
+    }
+  });
   // Año del drill de Creadas (Creadas Legacy Parity, ver HANDOFF). El año es
   // la UNICA interaccion del drill que puede hidratar: un año de la ventana
   // caliente responde del cache, uno frio se pide. Lo demas —mes, semana,
@@ -8575,6 +8671,7 @@ document.addEventListener("DOMContentLoaded", () => {
     commercialMaybeRerenderForecastForMode(kpiTrigger);
     commercialMaybeLoadCreadas(kpiTrigger);
     commercialMaybeLoadProspects(kpiTrigger);
+    commercialMaybeRerenderProspectsForRatio(kpiTrigger);
     commercialMaybeLoadGanadas(kpiTrigger);
     commercialMaybeLoadPerdidas(kpiTrigger);
     commercialMaybeLoadSuspendidas(kpiTrigger);
