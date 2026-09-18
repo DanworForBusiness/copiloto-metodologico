@@ -336,12 +336,52 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # prospects-body]`), ahora que el campo de ratio manual también vive
     # ahí — listener SEPARADO, nunca reusa el de Forecast (que buscaría foco
     # en el host equivocado).
+    # Account Licensing Profile (ver HANDOFF — Commercial Licensing) agrega
+    # CUATRO más (owner corrective post-live-QA: el cross-filter dejó de ser
+    # un predicado/chip propio — reusa el filtro "Cliente" existente, MISMA
+    # cascada que Creadas/Ganadas/Perdidas, ver `.dashboard-table-row--
+    # clickable`). "✕ Limpiar" y los `<select>` de Segmento/Partner de
+    # licencia/AE SAP/Tipo de contrato SAP/Vendedor/Vencimiento re-renderizan
+    # SÓLO `[data-commercial-licprofile-table]` (UNO cada uno, pero es el
+    # MISMO host que Buscar ya contaba, cero hooks nuevos ahí). Los CUATRO
+    # reales: `commercialActJumpToSection` (click en fila de Oportunidades
+    # de licenciamiento, UNO) — MISMO primitivo que "Retrasadas"/"Por
+    # vencer" en Actividades — su camino de teclado (Enter/Espacio, UNO), el
+    # orden de columna del Perfil (UNO), y la X de cierre del drilldown
+    # (owner corrective final: `commercialLicensingProfileCloseCrossFilter`
+    # busca la fila de origen para devolverle el foco — MISMO `.panel-close`
+    # visual que el resto de Comercial, comportamiento propio, UNO).
+    # Bidirectional Account Drilldown + Visible-Count Alignment (ver HANDOFF
+    # — Commercial Licensing) agregan CUATRO más: el drilldown Perfil→
+    # Oportunidades (dirección B, nueva) reusa `commercialActJumpToSection`
+    # con un segundo `data-section-id` (`"licensing-opportunities"`, UNO) y
+    # su propio camino de teclado (UNO) — MISMO primitivo que la dirección A
+    # ya existente, nunca uno nuevo. El cierre unificado
+    # (`commercialLicensingCloseDrilldown`, que reemplaza a
+    # `commercialLicensingProfileCloseCrossFilter`) sigue siendo UNO solo
+    # (variable `originSelector`, no una constante — sirve las DOS
+    # direcciones). Y el conteo visible (owner "Visible-Count Alignment")
+    # agrega UNO: los `<select>`/Buscar de AMBAS tablas ahora también tocan
+    # su propio host `[data-commercial-{licencias,licprofile}-count]` — dos
+    # hosts nuevos, pero reusados por los CUATRO listeners que ya tocaban la
+    # tabla (change × 2, input × 2), cero host nuevo por listener.
+    # Explicit Licensing Filter + Profile Scope (ver HANDOFF — Commercial
+    # Licensing) agrega DOS más: `commercialLicensingProfileRefreshIfScoped`
+    # (llamada desde los delegados de Licenciamiento/Etapa/Vendedor/Buscar de
+    # Oportunidades) re-renderiza `[data-commercial-licprofile-table]` +
+    # `[data-commercial-licprofile-count]` cuando el Alcance del Perfil es
+    # "visible-opportunities" — DOS hosts nuevos (no-op si el Alcance es
+    # "all", el default), reusados por los TRES listeners que la invocan
+    # (Etapa/Vendedor, Licenciamiento, Buscar), cero host nuevo por listener.
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos setenta y uno hooks y nada más.
+    # EXACTAMENTE estos ochenta y uno hooks y nada más.
     assert queries == [
         '`[data-section-id="${sectionId}"]`',
         '".chart-tooltip"',
         '\'[data-event="forecast"].is-active\'',
+        '"[data-commercial-licprofile-table]"',
+        '"[data-commercial-licprofile-count]"',
+        'originSelector',
         '`[data-breakdown="${trigger.dataset.event}"]`',
         '`[data-event="${trigger.dataset.event}"]`',
         '"[data-commercial-funnel-area]"',
@@ -374,6 +414,7 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-perdidas-table]"',
         '"[data-commercial-suspendidas-table]"',
         '"[data-commercial-licencias-table]"',
+        '"[data-commercial-licprofile-table]"',
         '"[data-commercial-detalle-table]"',
         '"[data-commercial-historial-table]"',
         '"[data-commercial-leads-table]"',
@@ -393,6 +434,9 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-prospects-table]"',
         '"[data-commercial-suspendidas-table]"',
         '"[data-commercial-licencias-table]"',
+        '"[data-commercial-licencias-count]"',
+        '"[data-commercial-licprofile-table]"',
+        '"[data-commercial-licprofile-count]"',
         '"[data-commercial-detalle-table]"',
         '"[data-commercial-historial-table]"',
         '"[data-commercial-clientes-table]"',
@@ -405,6 +449,9 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
         '"[data-commercial-prospects-table]"',
         '"[data-commercial-lead-conversion-table]"',
         '"[data-commercial-licencias-table]"',
+        '"[data-commercial-licencias-count]"',
+        '"[data-commercial-licprofile-table]"',
+        '"[data-commercial-licprofile-count]"',
         '"[data-commercial-detalle-table]"',
         '"[data-commercial-historial-table]"',
         '"[data-commercial-leads-table]"',

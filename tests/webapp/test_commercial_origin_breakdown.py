@@ -89,7 +89,11 @@ def test_origin_is_frontend_only_over_the_payload_already_in_memory():
     # `/comercial/data/clients`, `/comercial/data/ex-clients` — universos
     # totalmente propios, tres endpoints reales (nunca uno compartido
     # "para no inflar la cuenta" — la fuente real así lo exige).
-    assert code.count("/comercial/data/") == 20  # 4 iniciales + activities + forecast + creadas + creadas-años + prospects + ganadas + perdidas + suspendidas + pipeline-analytics-detail + lead-conversion-detail + retry de analytics (mismo endpoint) + opportunities-detail + lost-history + leads + clients + ex-clients
+    # Account Licensing Profile (ver HANDOFF — Commercial Licensing) agrega
+    # UNO más: `/comercial/data/licensing-profile` — endpoint/universo
+    # PROPIO (grano cuenta, `commercial_partner_id`), independiente de
+    # `opportunities-detail` (owner §7: nunca comparte fetch/cache).
+    assert code.count("/comercial/data/") == 21  # 4 iniciales + activities + forecast + creadas + creadas-años + prospects + ganadas + perdidas + suspendidas + pipeline-analytics-detail + lead-conversion-detail + retry de analytics (mismo endpoint) + opportunities-detail + lost-history + leads + clients + ex-clients + licensing-profile
     # No se usa el endpoint legacy: se mira el CÓDIGO, no la prosa (los
     # comentarios lo nombran a propósito para explicar por qué NO se usa).
     for banned in ("/crm/origen", "/comercial/data/origen", "/comercial/data/origin"):
@@ -178,7 +182,7 @@ def test_origin_lives_inside_the_activas_analysis_with_no_new_breakdown():
     # `[data-commercial-prospects-ratio]`, restaurando foco al MISMO campo
     # de ratio ahora que también vive en Prospectos — su propio host
     # (`[data-commercial-prospects-body]`), nunca el de Forecast.
-    assert len(queries) == 71, queries   # + los 8 de Analítica del Pipeline + los 2 de la atribución de Conversión de Leads + los 2 de la tabla de Tiempo por etapa/Conversión etapa a etapa + 1 de "Retrasadas"/"Por vencer" clickeables en Actividades + 1 de "[data-commercial-analytics-body]" + 1 de "[data-commercial-creadas-summary-tile]" + 9 de Bucket 1 + 9 de Bucket 2 + 1 de Ratio Pipeline Forecast + 2 de Expandir/Contraer + 1 de Ratio Prospectos (ver HANDOFF)
+    assert len(queries) == 81, queries   # + los 8 de Analítica del Pipeline + los 2 de la atribución de Conversión de Leads + los 2 de la tabla de Tiempo por etapa/Conversión etapa a etapa + 1 de "Retrasadas"/"Por vencer" clickeables en Actividades + 1 de "[data-commercial-analytics-body]" + 1 de "[data-commercial-creadas-summary-tile]" + 9 de Bucket 1 + 9 de Bucket 2 + 1 de Ratio Pipeline Forecast + 2 de Expandir/Contraer + 1 de Ratio Prospectos + 4 del Perfil de licenciamiento (ver HANDOFF — Commercial Licensing: cascada + X de cierre del drilldown) + 4 del Bidirectional Account Drilldown + Visible-Count Alignment (dirección B click/keydown, cierre unificado, hosts de conteo) + 2 del Explicit Licensing Filter + Profile Scope (`commercialLicensingProfileRefreshIfScoped`)
     assert '"[data-commercial-funnel-area]"' in queries
     # Un solo lugar arma el contenido de ese host — antes estaba duplicado.
     assert _COMMERCIAL_JS.count("function commercialFunnelAreaHtml(") == 1

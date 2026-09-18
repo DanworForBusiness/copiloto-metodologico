@@ -188,13 +188,50 @@ const commercialState = {
   opportunitiesDetail: null,
   opportunitiesDetailStatus: "idle", // idle | loading | ready | error
   opportunitiesDetailErrorState: "",
-  // Filtros LOCALES de Licencias — client-side sobre `opportunitiesDetail`
-  // ya filtrado a licencias === "Si", nunca un round-trip propio.
+  // Filtros LOCALES de Licencias — client-side sobre `opportunitiesDetail`,
+  // nunca un round-trip propio. `licLicenciamientoFilter` (owner "Explicit
+  // Licensing Filter + Profile Scope" §1/§2): reemplaza el hardcode
+  // `o.licencias === "Si"` por un filtro EXPLÍCITO más, MISMA composición
+  // AND que Etapa/Vendedor/Buscar — "si" default reproduce EXACTO el
+  // comportamiento viejo. Dimensión INDEPENDIENTE del Tipo global
+  // (Todos/New Name/Base instalada, owner §2 — nunca confundir las dos).
   licSearchText: "",
   licStageFilter: "",
   licSellerFilter: "",
+  licLicenciamientoFilter: "si", // "si" | "no" | "todos"
   licSortKey: null,
   licSortDir: 1,
+  // Perfil de licenciamiento por cliente (Account Licensing Profile, ver
+  // HANDOFF) — dataset/endpoint/falla INDEPENDIENTE de `opportunitiesDetail`
+  // (owner §7: universo/grano distintos — cuenta, no oportunidad). LAZY,
+  // se pide sólo al abrir Licencias (nunca Detalle, que no lo usa). A
+  // DIFERENCIA de Clientes (owner audit: esa independencia de Tipo es
+  // deuda de UX preexistente, no replicada acá), SÍ reacciona a Tipo —
+  // ver `commercialSetTipo`.
+  licensingProfile: null,
+  licensingProfileStatus: "idle", // idle | loading | ready | error
+  licensingProfileErrorState: "",
+  licProfileSearchText: "",
+  licProfileSegmentoFilter: "",
+  licProfilePartnerFilter: "",
+  licProfileAeSapFilter: "",
+  licProfileTipoContratoFilter: "",
+  licProfileSellerFilter: "",
+  licProfileVencimientoFilter: "", // "" | "30" | "60" | "90" (días)
+  licProfileSortKey: null,
+  licProfileSortDir: 1,
+  // Drilldown contextual bidireccional por cuenta (owner ticket "Bidirectional
+  // Account Drilldown", ver HANDOFF): UN solo estado sirve ambas direcciones
+  // (owner §8 — nunca `opportunitySelectedClient`+`profileSelectedClient`
+  // paralelos). `licensingDrilldownAccountId` es el id CANÓNICO de cuenta
+  // (`commercial_partner_id`/`account_id` — NUNCA un nombre, owner §2.C: el
+  // join entre Oportunidades [grano oportunidad] y Perfil [grano cuenta] es
+  // SIEMPRE por id). `licensingDrilldownOrigin` dice qué tabla disparó el
+  // drilldown ("opportunities" | "profile" | null): esa es la tabla que
+  // queda con la fila disparadora marcada `.is-active` + la X de cierre —
+  // la tabla OPUESTA es la que queda FILTRADA al account id.
+  licensingDrilldownAccountId: null,
+  licensingDrilldownOrigin: null,
   // Filtros LOCALES de Detalle Oportunidades — client-side sobre el
   // universo COMPLETO de `opportunitiesDetail` (sin el filtro de Licencias).
   detSearchText: "",
@@ -3453,6 +3490,10 @@ const COMMERCIAL_OPP_DETAIL_SORT_KEYS = {
   stage: o => (o.stage || "").toLowerCase(),
   hours: o => (o.hours != null && o.hours !== false) ? Number(o.hours) : -Infinity,
   weighted_hours: o => (o.weighted_hours != null && o.weighted_hours !== false) ? Number(o.weighted_hours) : -Infinity,
+  // Ingreso esperado (ver HANDOFF — Commercial Licensing): sortable SOLO en
+  // Licencias (único caller que pasa `showRevenue`), MISMO null-safe que
+  // Hs/Hs Pond. de arriba.
+  revenue: o => (o.revenue != null && o.revenue !== false) ? Number(o.revenue) : -Infinity,
   probability: o => o.probability ?? -1,
   priority: o => Number(o.priority ?? 0),
   next_action: o => {
@@ -3468,8 +3509,14 @@ function commercialOppDetailSearchableText(o) {
 
 // Fila — MISMAS 13 celdas que `commercialSuspendidasTableHtml` (Lic./Hs/Hs
 // Pond./Prob./Prior.+tooltip/Próx. Acción multi-actividad/Últ. Resp./Días
-// resp., ya auditadas y en producción para esa tab).
-function commercialOppDetailRowHtml(o) {
+// resp., ya auditadas y en producción para esa tab). `showRevenue`
+// (Ingreso esperado, ver HANDOFF — Commercial Licensing): columna 14
+// OPCIONAL, SOLO Licencias la pasa en `true` — Detalle sigue con sus 13
+// celdas de siempre, cero cambio visual ahí. `clickable` (cross-filter,
+// owner §3): SOLO Licencias la pasa — agrega el atributo/clase que dispara
+// el filtro de "Perfil de licenciamiento por cliente" a esta cuenta, nunca
+// en Detalle (que no tiene un table B al que apuntar).
+function commercialOppDetailRowHtml(o, { showRevenue = false, clickable = false } = {}) {
   const acts = o.activities || [];
   const nextAction = acts.length
     ? acts.map(act => {
@@ -3488,8 +3535,24 @@ function commercialOppDetailRowHtml(o) {
   const lic = o.licencias === "Si" ? "✓" : "";
   const priorityStars = commercialEsc(COMMERCIAL_PRIORITY_STARS[o.priority] || "—");
   const priorityLabel = COMMERCIAL_PRIORITY_LABELS[o.priority] || "Sin prioridad";
+  const revenueCell = showRevenue ? `<td>${commercialFmtMoney(o.revenue)}</td>` : "";
+  // `.is-active` (owner corrective post-live-QA / Bidirectional Account
+  // Drilldown): MISMO criterio visual que Ganadas/Perdidas — la fila que
+  // disparó el drilldown HACIA el Perfil queda marcada, hasta que se elija
+  // otra o se cierre. Gateado a `origin === "opportunities"`: si el
+  // drilldown activo vino AL REVÉS (una cuenta del Perfil filtrando ESTA
+  // tabla), ninguna fila de acá es "el origen" — todas son el RESULTADO.
+  const isActiveRow = clickable && o.account_id
+    && commercialState.licensingDrilldownOrigin === "opportunities"
+    && commercialState.licensingDrilldownAccountId === o.account_id;
+  const rowAttrs = clickable && o.account_id
+    ? ` class="dashboard-table-row--clickable${isActiveRow ? " is-active" : ""}"`
+      + ` data-commercial-licensing-account-row="${o.account_id}"`
+      + ` data-commercial-licensing-account-name="${commercialEsc(o.client)}"`
+      + ` tabindex="0" role="button" aria-label="Filtrar el perfil de licenciamiento a ${commercialEsc(o.client)}"`
+    : "";
   return `
-    <tr>
+    <tr${rowAttrs}>
       <td class="row-label">${commercialEsc(o.opportunity)}</td>
       <td class="left">${commercialEsc(o.client)}</td>
       <td class="left">${commercialEsc(o.seller)}</td>
@@ -3498,6 +3561,7 @@ function commercialOppDetailRowHtml(o) {
       <td>${lic}</td>
       <td>${commercialFmtInt(o.hours)}</td>
       <td>${commercialFmtInt(o.weighted_hours)}</td>
+      ${revenueCell}
       <td>${commercialFmtPercent(o.probability)}</td>
       <td class="chart-tooltip-anchor" tabindex="0" aria-label="${commercialEsc(priorityLabel)}">${priorityStars}${commercialChartTooltip(priorityLabel)}</td>
       <td class="left">${nextAction}</td>
@@ -3510,8 +3574,9 @@ function commercialOppDetailRowHtml(o) {
 // y Detalle Oportunidades. `sortKey`/`sortDir` y el atributo de sort
 // (`sortAttr`) vienen del LLAMADOR: cada tab tiene su PROPIO estado de
 // orden (`licSortKey`/`detSortKey`), nunca uno compartido — ordenar
-// Licencias no debe mover el orden de Detalle ni viceversa.
-function commercialOppDetailTableHtml(rows, { sortKey, sortDir, sortAttr, emptyLabel }) {
+// Licencias no debe mover el orden de Detalle ni viceversa. `showRevenue`/
+// `clickable` se propagan tal cual a cada fila (ver comentario de arriba).
+function commercialOppDetailTableHtml(rows, { sortKey, sortDir, sortAttr, emptyLabel, showRevenue = false, clickable = false }) {
   if (!rows.length) return commercialEmptyStateHtml("Sin resultados", emptyLabel);
   const keyFn = sortKey && COMMERCIAL_OPP_DETAIL_SORT_KEYS[sortKey];
   const sorted = keyFn ? [...rows].sort((a, b) => {
@@ -3526,17 +3591,23 @@ function commercialOppDetailTableHtml(rows, { sortKey, sortDir, sortAttr, emptyL
     const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
     return `<th class="${classes}" ${sortAttr}="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
   };
-  const rowsHtml = sorted.map(commercialOppDetailRowHtml).join("");
+  const rowsHtml = sorted.map(o => commercialOppDetailRowHtml(o, { showRevenue, clickable })).join("");
   const totals = rows.reduce((acc, o) => ({
     hours: acc.hours + (o.hours || 0),
     weighted_hours: acc.weighted_hours + (o.weighted_hours || 0),
-  }), { hours: 0, weighted_hours: 0 });
+    revenue: acc.revenue + (o.revenue || 0),
+  }), { hours: 0, weighted_hours: 0, revenue: 0 });
+  const revenueTotalCell = showRevenue ? `<td>${commercialFmtMoney(totals.revenue)}</td>` : "";
+  const revenueCol = showRevenue ? `<col style="width:9%">` : "";
+  const trailingColspan = showRevenue ? 4 : 5;
+  const trailingHeadRevenue = showRevenue ? `${th("revenue", "Ingreso esperado")}` : "";
   const totalRow = `
     <tr class="is-total">
       <td class="row-label" colspan="6">Total (${rows.length})</td>
       <td>${commercialFmtInt(totals.hours)}</td>
       <td>${commercialFmtInt(totals.weighted_hours)}</td>
-      <td colspan="5"></td>
+      ${revenueTotalCell}
+      <td colspan="${trailingColspan}"></td>
     </tr>`;
   return `
     <div class="matrix-scroll">
@@ -3544,7 +3615,7 @@ function commercialOppDetailTableHtml(rows, { sortKey, sortDir, sortAttr, emptyL
         <colgroup>
           <col style="width:16%"><col style="width:9%"><col style="width:8%">
           <col style="width:9%"><col style="width:8%"><col style="width:4%">
-          <col style="width:5%"><col style="width:6%"><col style="width:5%">
+          <col style="width:5%"><col style="width:6%">${revenueCol}<col style="width:5%">
           <col style="width:4%"><col style="width:14%"><col style="width:7%">
           <col style="width:7%">
         </colgroup>
@@ -3557,6 +3628,7 @@ function commercialOppDetailTableHtml(rows, { sortKey, sortDir, sortAttr, emptyL
           <th>Lic.</th>
           ${th("hours", "Hs")}
           ${th("weighted_hours", "Hs Pond.")}
+          ${trailingHeadRevenue}
           ${th("probability", "Prob.")}
           ${th("priority", "Prior.")}
           ${th("next_action", "Próx. Acción", "left")}
@@ -3569,28 +3641,95 @@ function commercialOppDetailTableHtml(rows, { sortKey, sortDir, sortAttr, emptyL
 }
 
 // ── Licencias (ver HANDOFF §4) ───────────────────────────────────────────
-// Universo: `opportunitiesDetail.opportunities` (stages 0-8, active=True)
-// filtrado `licencias === "Si"` — MISMO filtro CLIENT-SIDE que el legacy
-// `loadLicenciasTab` (`.filter(o => o.licencias === "Si")`), nunca un
-// dominio Odoo propio. Buscar es SÓLO por Oportunidad (MISMO alcance que
+// Universo: `opportunitiesDetail.opportunities` (stages 0-8, active=True),
+// SIN filtrar — MISMO universo crudo que Detalle Oportunidades (owner
+// "Explicit Licensing Filter + Profile Scope" §1: el viejo hardcode
+// `o.licencias === "Si"` pasó a ser el filtro EXPLÍCITO "Licenciamiento",
+// ver `commercialLicenciasLocallyFilteredRows`, nunca un predicado ciego
+// acá). Buscar es SÓLO por Oportunidad (MISMO alcance que
 // `filterLicenciasOpps` — nunca Cliente/Vendedor, a diferencia de Detalle).
 function commercialLicenciasAllRows() {
-  const all = (commercialState.opportunitiesDetail && commercialState.opportunitiesDetail.opportunities) || [];
-  return all.filter(o => o.licencias === "Si");
+  return (commercialState.opportunitiesDetail && commercialState.opportunitiesDetail.opportunities) || [];
 }
 function commercialOppDetailFilterOptions(rows, key) {
   return [...new Set(rows.map(o => o[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
 }
-function commercialLicenciasFilteredRows() {
+// Filtros LOCALES de Oportunidades — Licenciamiento/Etapa/Vendedor/Buscar,
+// SIN el foco contextual del drilldown (owner "Explicit Licensing Filter +
+// Profile Scope" §8/§11): esta es la base "steady state" que TAMBIÉN usa el
+// Alcance "Clientes de oportunidades visibles" del Perfil — el drilldown es
+// un foco TEMPORAL de una sola cuenta (owner §11: "different from Profile
+// scope"), nunca parte de la base de la que deriva ese Alcance.
+//
+// `licLicenciamientoFilter` (owner §3, corregido tras validación en vivo —
+// ver HANDOFF): "si" es un match EXACTO (`o.licencias === "Si"`). "no" es
+// el COMPLEMENTO de "si" (`o.licencias !== "Si"`), NUNCA un match exacto
+// contra el string "No". Motivo (dato real de producción): la property
+// "Licencias" en Odoo casi nunca se completa explícitamente en "No" — el
+// uso real es "Sí" cuando aplica, y se deja SIN RESPONDER (normalizado por
+// `_get_prop_label` a "Sin definir", nunca null/undefined técnico) en el
+// resto de los casos. Para el usuario de negocio esas oportunidades SIN
+// responder SON, a los efectos de este filtro, oportunidades sin
+// licenciamiento — un "No" exacto dejaba el filtro prácticamente vacío
+// siempre. "Sin definir" sigue siendo un estado de negocio real (nunca una
+// falla técnica) — sólo que semánticamente cae del lado de "No", no de un
+// tercer balde propio.
+function commercialLicenciasLocallyFilteredRows() {
   const all = commercialLicenciasAllRows();
-  const { licStageFilter: fStage, licSellerFilter: fSeller } = commercialState;
+  const { licStageFilter: fStage, licSellerFilter: fSeller, licLicenciamientoFilter: fLic } = commercialState;
   const search = (commercialState.licSearchText || "").toLowerCase().trim();
   return all.filter(o => {
+    if (fLic === "si" && o.licencias !== "Si") return false;
+    if (fLic === "no" && o.licencias === "Si") return false;
     if (fStage && o.stage !== fStage) return false;
     if (fSeller && o.seller !== fSeller) return false;
     if (search && !(o.opportunity || "").toLowerCase().includes(search)) return false;
     return true;
   });
+}
+// Composición de filtros (owner "Visible-Count Alignment" §5): dataset →
+// filtros locales → foco contextual de cuenta, EN ESE ORDEN, y este MISMO
+// arreglo final alimenta tabla + conteo + empty state — nunca una segunda
+// pasada de filtrado sólo para el número del header (ver `commercialLicenciasCountLabel`).
+function commercialLicenciasFilteredRows() {
+  const base = commercialLicenciasLocallyFilteredRows();
+  // Drilldown Perfil→Oportunidades (owner "Bidirectional Account Drilldown"
+  // §3/§6, owner "Explicit Licensing Filter + Profile Scope" §12): SOLO
+  // cuando el ORIGEN es "profile" esta tabla queda acotada al account_id
+  // elegido — join por id CANÓNICO, nunca por nombre, y SIEMPRE DENTRO de
+  // Licenciamiento/Etapa/Vendedor/Buscar vigentes (nunca los resetea).
+  const drilldownAccountId = commercialState.licensingDrilldownOrigin === "profile"
+    ? commercialState.licensingDrilldownAccountId : null;
+  if (drilldownAccountId == null) return base;
+  return base.filter(o => o.account_id === drilldownAccountId);
+}
+// Cuentas CANÓNICAS distintas representadas en las filas de Oportunidades
+// YA filtradas (owner "Explicit Licensing Filter + Profile Scope" §8) —
+// alimenta el Alcance "Clientes de oportunidades visibles" del Perfil. Por
+// `account_id`, NUNCA por nombre (owner §8: "Do NOT compare/join by display
+// name"). Deriva de `LocallyFilteredRows` (SIN el drilldown — ver arriba),
+// cero fetch adicional: ambos datasets ya están cargados en memoria.
+function commercialLicenciasVisibleAccountIds() {
+  const ids = new Set();
+  for (const o of commercialLicenciasLocallyFilteredRows()) {
+    if (o.account_id != null) ids.add(o.account_id);
+  }
+  return ids;
+}
+// Owner corrective (post "Explicit Licensing Filter + Profile Scope", ver
+// HANDOFF): el Perfil YA NO tiene Alcance seleccionable — SIEMPRE muestra
+// las cuentas de las oportunidades visibles del grupo "Oportunidades de
+// licenciamiento" (nunca cuentas Cliente con cero pipeline; ver "Todos" en
+// Licenciamiento para ampliar esa base). Por eso CUALQUIER cambio a los
+// filtros LOCALES de Oportunidades (Licenciamiento/Etapa/Vendedor/Buscar)
+// recalcula también el set de cuentas visibles — el Perfil necesita su
+// propio re-render quirúrgico ADEMÁS del de Oportunidades.
+function commercialLicensingProfileRefresh(root) {
+  const rows = commercialLicensingProfileFilteredRows();
+  const host = root.querySelector("[data-commercial-licprofile-table]");
+  if (host) host.innerHTML = commercialLicensingProfileTableHtml(rows);
+  const count = root.querySelector("[data-commercial-licprofile-count]");
+  if (count) count.textContent = commercialLicensingProfileCountLabel();
 }
 function commercialToggleLicenciasSort(key) {
   if (commercialState.licSortKey === key) commercialState.licSortDir *= -1;
@@ -3600,6 +3739,19 @@ function commercialLicenciasClearFilters() {
   commercialState.licSearchText = "";
   commercialState.licStageFilter = "";
   commercialState.licSellerFilter = "";
+  // "si" — no "" — reproduce el comportamiento DEFAULT (owner §1: "the
+  // default must reproduce the exact current Licencias behavior"), MISMO
+  // criterio que cualquier otro default de esta tabla.
+  commercialState.licLicenciamientoFilter = "si";
+  // "✕ Limpiar" de Oportunidades es la vía de reversión COMPLETA de ESTA
+  // tabla — si lo que la acota ahora mismo es un drilldown que vino del
+  // Perfil (origin "profile"), también lo suelta. Un drilldown que vino AL
+  // REVÉS (origin "opportunities", que filtra al PERFIL, no a esta tabla)
+  // no es asunto de este botón — ese se cierra desde el Perfil.
+  if (commercialState.licensingDrilldownOrigin === "profile") {
+    commercialState.licensingDrilldownAccountId = null;
+    commercialState.licensingDrilldownOrigin = null;
+  }
   commercialRenderCapability();
 }
 function commercialLicenciasFiltersHtml() {
@@ -3609,6 +3761,7 @@ function commercialLicenciasFiltersHtml() {
     return `<option value=""${current === "" ? " selected" : ""}>${allLabel}</option>` +
       values.map(v => `<option value="${commercialEsc(v)}"${current === v ? " selected" : ""}>${commercialEsc(v)}</option>`).join("");
   };
+  const fLic = commercialState.licLicenciamientoFilter;
   return `<div class="whatsnew-filters" data-commercial-licencias-filters>
       <label class="whatsnew-filter">
         <span>Buscar</span>
@@ -3623,17 +3776,41 @@ function commercialLicenciasFiltersHtml() {
         <span>Vendedor</span>
         <select data-commercial-licencias-seller-filter>${opt("seller", commercialState.licSellerFilter, "Todos")}</select>
       </label>
+      <label class="whatsnew-filter">
+        <span>Licenciamiento</span>
+        <select data-commercial-licencias-licenciamiento-filter>
+          <option value="si"${fLic === "si" ? " selected" : ""}>Sí</option>
+          <option value="no"${fLic === "no" ? " selected" : ""}>No</option>
+          <option value="todos"${fLic === "todos" ? " selected" : ""}>Todos</option>
+        </select>
+      </label>
       <button type="button" class="whatsnew-filter__clear" data-commercial-licencias-clear>✕ Limpiar</button>
     </div>`;
 }
+// `showRevenue`/`clickable` (Account Licensing Profile, ver HANDOFF): SOLO
+// Licencias los pasa — Ingreso esperado y el cross-filter por fila son
+// exclusivos de esta tab, Detalle Oportunidades sigue sin ninguno de los
+// dos (ver `commercialDetalleTableHtml`, sin cambios).
+// `emptyLabel` (owner "Bidirectional Account Drilldown" §5): cero resultados
+// para una cuenta drilldown-eada desde el Perfil es un resultado de NEGOCIO
+// válido ("Sin oportunidades de licenciamiento identificadas"), no una
+// falla — mensaje DISTINTO del genérico "ningún resultado con este filtro".
 function commercialLicenciasTableHtml(rows) {
+  const emptyLabel = commercialState.licensingDrilldownOrigin === "profile"
+    ? "Sin oportunidades de licenciamiento identificadas para esta cuenta."
+    : "Ninguna oportunidad con licencias coincide con este filtro.";
   return commercialOppDetailTableHtml(rows, {
     sortKey: commercialState.licSortKey, sortDir: commercialState.licSortDir,
     sortAttr: "data-commercial-licencias-sort",
-    emptyLabel: "Ninguna oportunidad con licencias coincide con este filtro.",
+    emptyLabel, showRevenue: true, clickable: true,
   });
 }
-function commercialLicenciasHtml() {
+// Cuerpo de "Oportunidades de licenciamiento" (table A) — contenido TAL
+// CUAL el `commercialLicenciasHtml` original, sólo renombrado: ahora vive
+// DENTRO de su propio `<details>` (ver `commercialLicenciasHtml` abajo),
+// nunca modificado en su universo/filtros/comportamiento propio (owner
+// §7: "Table A preserved").
+function commercialLicenciasOpportunitiesHtml() {
   if (commercialState.opportunitiesDetailStatus === "loading") {
     return commercialLoadingHtml("Cargando licencias…");
   }
@@ -3645,16 +3822,352 @@ function commercialLicenciasHtml() {
     return commercialEmptyStateHtml("No disponible", label,
       configIncomplete ? "" : commercialRetryButtonHtml("opportunities-detail", "Reintentar la carga de licencias"));
   }
-  // Owner follow-up (ver HANDOFF): MISMA estructura que Actividades — sin
-  // título propio (`.commercial-bucket1-panel` es lo que le da a
-  // `.whatsnew-filters` su top margin, ver commercial.css), filtros
-  // PRIMERO, leyenda de urgencia después, tabla al final.
   const rows = commercialLicenciasFilteredRows();
   return `<div class="commercial-bucket1-panel">`
     + commercialLicenciasFiltersHtml()
     + commercialUrgencyLegendHtml()
     + `<div data-commercial-licencias-table>${commercialLicenciasTableHtml(rows)}</div>`
     + `</div>`;
+}
+
+// ── Perfil de licenciamiento por cliente (Account Licensing Profile, ver
+// HANDOFF) ───────────────────────────────────────────────────────────────
+// Grano CUENTA (`commercial_partner_id`), universo/endpoint/falla propios
+// (ver `commercialLoadLicensingProfile`). `Es Cliente?` es INTERNO al
+// backend (owner §4) — nunca un filtro/columna acá.
+const COMMERCIAL_LICENSING_PROFILE_SORT_KEYS = {
+  name: a => (a.name || "").toLowerCase(),
+  partner_de_licencia: a => (a.partner_de_licencia || "").toLowerCase(),
+  ae_sap: a => (a.ae_sap || "").toLowerCase(),
+  segmento_cuenta: a => (a.segmento_cuenta || "").toLowerCase(),
+  tipo_contrato_sap: a => (a.tipo_contrato_sap || "").toLowerCase(),
+  seller: a => (a.seller || "").toLowerCase(),
+  arquitectura_actual: a => (a.arquitectura_actual || []).length
+    ? `${a.arquitectura_actual.length}|${[...a.arquitectura_actual].sort().join(",").toLowerCase()}` : "",
+  monto_contrato: a => (a.monto_contrato != null) ? Number(a.monto_contrato) : -Infinity,
+  vencimiento_contrato: a => a.vencimiento_contrato || "9999-99-99",
+};
+
+function commercialLicensingProfileAllRows() {
+  return (commercialState.licensingProfile && commercialState.licensingProfile.accounts) || [];
+}
+
+// Vencimiento próximo: días desde hoy hasta la fecha — MISMO helper que ya
+// usa Próx. Acción (`commercialDaysUntil`), nunca una segunda implementación
+// de "días hasta".
+//
+// Owner "Bidirectional Account Drilldown" §2: el drilldown Oportunidad→Perfil
+// es un predicado por `id` CANÓNICO (`account_id`/`commercial_partner_id`),
+// NUNCA por nombre — un buscador de texto podía sobre-matchear (dos cuentas
+// con nombres parecidos) o no aislar exactamente una. Compone AL FINAL,
+// después de los filtros manuales (owner "Visible-Count Alignment" §5: mismo
+// arreglo final alimenta tabla + conteo + empty state).
+// Alcance (owner "Explicit Licensing Filter + Profile Scope" §6-§10):
+// PRIMER predicado, antes de los filtros manuales de Perfil — el Perfil YA
+// NO tiene un Alcance seleccionable (owner corrective, ver HANDOFF): SIEMPRE
+// se acota a las cuentas CANÓNICAS de las filas de Oportunidades ya
+// filtradas — Licenciamiento=Todos en Oportunidades es ahora la vía para
+// ampliar esa base (con y sin licenciamiento), no un toggle propio acá.
+// Nota de producto (deliberada): esto excluye cuentas Cliente con CERO
+// oportunidades — el caso "whitespace" que el Alcance "Todas las cuentas"
+// cubría quedó fuera de alcance a pedido del owner.
+function commercialLicensingProfileFilteredRows() {
+  const all = commercialLicensingProfileAllRows();
+  const { licProfileSegmentoFilter: fSeg, licProfileVencimientoFilter: fVenc,
+    licProfilePartnerFilter: fPartner, licProfileAeSapFilter: fAeSap,
+    licProfileTipoContratoFilter: fTipo, licProfileSellerFilter: fSeller } = commercialState;
+  const search = (commercialState.licProfileSearchText || "").toLowerCase().trim();
+  const drilldownAccountId = commercialState.licensingDrilldownOrigin === "opportunities"
+    ? commercialState.licensingDrilldownAccountId : null;
+  const visibleIds = commercialLicenciasVisibleAccountIds();
+  return all.filter(a => {
+    if (!visibleIds.has(a.id)) return false;
+    if (fSeg && a.segmento_cuenta !== fSeg) return false;
+    if (fPartner && a.partner_de_licencia !== fPartner) return false;
+    if (fAeSap && a.ae_sap !== fAeSap) return false;
+    if (fTipo && a.tipo_contrato_sap !== fTipo) return false;
+    if (fSeller && a.seller !== fSeller) return false;
+    if (fVenc) {
+      const days = commercialDaysUntil(a.vencimiento_contrato);
+      if (days === null || days < 0 || days > Number(fVenc)) return false;
+    }
+    if (search && !(a.name || "").toLowerCase().includes(search)) return false;
+    if (drilldownAccountId != null && a.id !== drilldownAccountId) return false;
+    return true;
+  });
+}
+function commercialToggleLicensingProfileSort(key) {
+  if (commercialState.licProfileSortKey === key) commercialState.licProfileSortDir *= -1;
+  else { commercialState.licProfileSortKey = key; commercialState.licProfileSortDir = 1; }
+}
+function commercialLicensingProfileClearFilters() {
+  commercialState.licProfileSearchText = "";
+  commercialState.licProfileSegmentoFilter = "";
+  commercialState.licProfileVencimientoFilter = "";
+  commercialState.licProfilePartnerFilter = "";
+  commercialState.licProfileAeSapFilter = "";
+  commercialState.licProfileTipoContratoFilter = "";
+  commercialState.licProfileSellerFilter = "";
+  // "✕ Limpiar" del Perfil es la vía de reversión COMPLETA de ESTA tabla —
+  // si lo que la acota ahora mismo es un drilldown que vino de Oportunidades
+  // (origin "opportunities"), también lo suelta. Un drilldown que vino AL
+  // REVÉS (origin "profile", que filtra a Oportunidades) no es asunto de
+  // este botón — ese se cierra desde Oportunidades.
+  if (commercialState.licensingDrilldownOrigin === "opportunities") {
+    commercialState.licensingDrilldownAccountId = null;
+    commercialState.licensingDrilldownOrigin = null;
+  }
+  commercialRenderCapability();
+}
+// Cierre del drilldown bidireccional (owner "Bidirectional Account
+// Drilldown" §8/§O): UNA función sirve LAS DOS direcciones — nunca dos
+// `close*CrossFilter` paralelas. Sólo limpia el foco contextual
+// (`licensingDrilldownAccountId`/`Origin`), NUNCA los filtros manuales de
+// ninguna tabla — owner §4 (dirección B): "preserve all Profile filters the
+// user used to discover the account" — cerrar Perfil→Oportunidades no debe
+// tocar Segmento/Arquitectura/etc. (eso es lo que hace "✕ Limpiar", una
+// acción EXPLÍCITA y distinta). Devuelve el foco a la fila de ORIGEN en la
+// tabla que disparó el drilldown — el navegador la scrollea sola a la vista
+// al enfocarla (mismo comportamiento nativo que ya aprovecha
+// `commercialActJumpToSection` con `scrollIntoView`, acá con `.focus()`:
+// cero estado nuevo de "scroll recordado"). Si la fila de origen ya no
+// existe (tipo cambió, universo distinto) `querySelector` devuelve `null` y
+// no pasa nada — MISMO criterio fail-soft que el resto de Comercial.
+function commercialLicensingCloseDrilldown(root) {
+  const { licensingDrilldownAccountId: accountId, licensingDrilldownOrigin: origin } = commercialState;
+  commercialState.licensingDrilldownAccountId = null;
+  commercialState.licensingDrilldownOrigin = null;
+  commercialRenderCapability();
+  if (accountId == null || !origin) return;
+  const originSelector = origin === "opportunities"
+    ? `[data-commercial-licensing-account-row="${accountId}"]`
+    : `[data-commercial-licensing-profile-account-row="${accountId}"]`;
+  const originRow = root.querySelector(originSelector);
+  if (originRow) originRow.focus();
+}
+function commercialLicensingProfileFilterOptions(rows, key) {
+  return [...new Set(rows.map(a => a[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+}
+function commercialLicensingProfileFiltersHtml() {
+  const all = commercialLicensingProfileAllRows();
+  const opt = (key, current, allLabel) => {
+    const values = commercialLicensingProfileFilterOptions(all, key);
+    return `<option value=""${current === "" ? " selected" : ""}>${allLabel}</option>` +
+      values.map(v => `<option value="${commercialEsc(v)}"${current === v ? " selected" : ""}>${commercialEsc(v)}</option>`).join("");
+  };
+  return `<div class="whatsnew-filters" data-commercial-licprofile-filters>
+      <label class="whatsnew-filter">
+        <span>Cliente</span>
+        <input type="search" data-commercial-licprofile-search aria-label="Buscar cliente"
+          placeholder="Buscar…" value="${commercialEsc(commercialState.licProfileSearchText)}">
+      </label>
+      <label class="whatsnew-filter">
+        <span>Segmento</span>
+        <select data-commercial-licprofile-segmento-filter>${opt("segmento_cuenta", commercialState.licProfileSegmentoFilter, "Todos")}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Partner de licencia</span>
+        <select data-commercial-licprofile-partner-filter>${opt("partner_de_licencia", commercialState.licProfilePartnerFilter, "Todos")}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>AE SAP</span>
+        <select data-commercial-licprofile-aesap-filter>${opt("ae_sap", commercialState.licProfileAeSapFilter, "Todos")}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Tipo de contrato SAP</span>
+        <select data-commercial-licprofile-tipocontrato-filter>${opt("tipo_contrato_sap", commercialState.licProfileTipoContratoFilter, "Todos")}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Vendedor</span>
+        <select data-commercial-licprofile-seller-filter>${opt("seller", commercialState.licProfileSellerFilter, "Todos")}</select>
+      </label>
+      <label class="whatsnew-filter">
+        <span>Vencimiento</span>
+        <select data-commercial-licprofile-vencimiento-filter>
+          <option value=""${commercialState.licProfileVencimientoFilter === "" ? " selected" : ""}>Cualquiera</option>
+          <option value="30"${commercialState.licProfileVencimientoFilter === "30" ? " selected" : ""}>Próx. 30 días</option>
+          <option value="60"${commercialState.licProfileVencimientoFilter === "60" ? " selected" : ""}>Próx. 60 días</option>
+          <option value="90"${commercialState.licProfileVencimientoFilter === "90" ? " selected" : ""}>Próx. 90 días</option>
+        </select>
+      </label>
+      <button type="button" class="whatsnew-filter__clear" data-commercial-licprofile-clear>✕ Limpiar</button>
+    </div>`;
+}
+// Nueve columnas de negocio (owner §14/§18) — CINCO por defecto en ancho
+// legible (Cliente/Partner de licencia/Segmento/Vencimiento/Vendedor de
+// cuenta), las otras cuatro (AE SAP/Arquitectura actual/Monto contrato/
+// Tipo de contrato SAP) siguen en la MISMA fila, alcanzables por el mismo
+// `.matrix-scroll` horizontal que ya usa cualquier tabla densa de Comercial
+// — sin un toggle de columnas propio (owner §15: "smallest usable
+// layout"). `Es Cliente?` NUNCA aparece acá (owner §4).
+// `data-commercial-licprofile-col` (owner §7, ver HANDOFF): identidad
+// SEMÁNTICA y ESTABLE por celda — el MISMO `key` que ya usa cada `<th>`
+// (`data-commercial-licprofile-sort`, ver `commercialLicensingProfileTableHtml`)
+// y las claves reales del objeto cuenta (`COMMERCIAL_LICENSING_PROFILE_SORT_KEYS`).
+// Puramente markup/contrato — cero comportamiento nuevo, ningún framework
+// de resize/visibilidad genérico: sólo para que una futura primitiva
+// compartida de tablas pueda alinear columna↔celda por CLAVE, nunca por
+// posición (`nth-child`) ni por el label de negocio (que puede cambiar de
+// texto, como "Vendedor" recién hizo, sin que la identidad técnica se mueva).
+// Fila accionable (owner "Bidirectional Account Drilldown" §3/§10): TODA
+// cuenta del Perfil es clickeable — inclusive la que tiene CERO oportunidades
+// de licenciamiento (owner §5: "zero-opportunity account is a valid result",
+// nunca se oculta ni se rechaza el click). MISMA afordancia que ya usan las
+// filas de Oportunidades (`.dashboard-table-row--clickable`/`.is-active`,
+// hover/focus-visible ya definidos en commercial.css — cero CSS nuevo). Un
+// solo target por fila (owner §10: "do not turn every text cell into
+// separate links").
+function commercialLicensingProfileRowHtml(a) {
+  const arquitectura = (a.arquitectura_actual || []).length
+    ? a.arquitectura_actual.map(t => `<span class="dashboard-status-badge dashboard-status-badge--grey">${commercialEsc(t)}</span>`).join(" ")
+    : "—";
+  const monto = a.monto_contrato != null
+    ? `${commercialFmtMoney(a.monto_contrato)}${a.currency ? " " + commercialEsc(a.currency) : ""}`
+    : "—";
+  const isActiveRow = commercialState.licensingDrilldownOrigin === "profile"
+    && commercialState.licensingDrilldownAccountId === a.id;
+  return `
+    <tr class="dashboard-table-row--clickable${isActiveRow ? " is-active" : ""}"
+        data-commercial-licensing-profile-account-row="${a.id}"
+        data-commercial-licensing-profile-account-name="${commercialEsc(a.name)}"
+        tabindex="0" role="button" aria-label="Ver oportunidades de licenciamiento de ${commercialEsc(a.name)}">
+      <td class="row-label" data-commercial-licprofile-col="name">${commercialEsc(a.name)}</td>
+      <td class="left" data-commercial-licprofile-col="partner_de_licencia">${a.partner_de_licencia ? commercialEsc(a.partner_de_licencia) : "—"}</td>
+      <td class="left" data-commercial-licprofile-col="segmento_cuenta">${a.segmento_cuenta ? commercialEsc(a.segmento_cuenta) : "—"}</td>
+      <td data-commercial-licprofile-col="vencimiento_contrato">${a.vencimiento_contrato ? commercialEsc(commercialFmtDate(a.vencimiento_contrato)) : "—"}</td>
+      <td class="left" data-commercial-licprofile-col="seller">${a.seller ? commercialEsc(a.seller) : "—"}</td>
+      <td class="left" data-commercial-licprofile-col="ae_sap">${a.ae_sap ? commercialEsc(a.ae_sap) : "—"}</td>
+      <td class="left" data-commercial-licprofile-col="arquitectura_actual">${arquitectura}</td>
+      <td data-commercial-licprofile-col="monto_contrato">${monto}</td>
+      <td class="left" data-commercial-licprofile-col="tipo_contrato_sap">${a.tipo_contrato_sap ? commercialEsc(a.tipo_contrato_sap) : "—"}</td>
+    </tr>`;
+}
+// Rótulo "Vendedor" (owner corrective post-live-QA), MISMO texto que el
+// resto de Comercial — aunque acá el DATO sigue siendo `res.partner.user_id`
+// (el vendedor de la CUENTA, campo distinto del "Vendedor" agregado de
+// Clientes, ver audit de tipo). La clave interna sigue siendo `seller`, sin
+// ambigüedad en el código — sólo el rótulo visual se simplificó.
+function commercialLicensingProfileTableHtml(rows) {
+  if (!rows.length) {
+    return commercialEmptyStateHtml("Sin resultados",
+      "Ninguna cuenta coincide con este filtro.");
+  }
+  const sortKey = commercialState.licProfileSortKey;
+  const sortDir = commercialState.licProfileSortDir;
+  const keyFn = sortKey && COMMERCIAL_LICENSING_PROFILE_SORT_KEYS[sortKey];
+  const sorted = keyFn ? [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -sortDir;
+    if (av > bv) return sortDir;
+    return 0;
+  }) : rows;
+  const th = (key, label, cls = "") => {
+    const active = sortKey === key;
+    const arrow = active ? (sortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-licprofile-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(commercialLicensingProfileRowHtml).join("");
+  return `
+    <div class="matrix-scroll">
+      <table class="dashboard-table">
+        <colgroup>
+          <col style="width:16%"><col style="width:12%"><col style="width:10%">
+          <col style="width:10%"><col style="width:12%"><col style="width:12%">
+          <col style="width:12%"><col style="width:9%"><col style="width:12%">
+        </colgroup>
+        <thead><tr>
+          ${th("name", "Cliente", "row-label-col")}
+          ${th("partner_de_licencia", "Partner de licencia", "left")}
+          ${th("segmento_cuenta", "Segmento de la cuenta", "left")}
+          ${th("vencimiento_contrato", "Vencimiento contrato")}
+          ${th("seller", "Vendedor", "left")}
+          ${th("ae_sap", "AE SAP", "left")}
+          ${th("arquitectura_actual", "Arquitectura actual", "left")}
+          ${th("monto_contrato", "Monto contrato")}
+          ${th("tipo_contrato_sap", "Tipo de contrato SAP", "left")}
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>`;
+}
+function commercialLicensingProfileHtml() {
+  if (commercialState.licensingProfileStatus === "loading") {
+    return commercialLoadingHtml("Cargando perfil de licenciamiento…");
+  }
+  if (commercialState.licensingProfileStatus === "error") {
+    const configIncomplete = commercialState.licensingProfileErrorState === "config_incomplete";
+    const label = configIncomplete
+      ? "El CRM todavía no está configurado para este espacio."
+      : "No pudimos cargar el perfil de licenciamiento desde el CRM en este momento.";
+    return commercialEmptyStateHtml("No disponible", label,
+      configIncomplete ? "" : commercialRetryButtonHtml("licensing-profile", "Reintentar la carga del perfil"));
+  }
+  const rows = commercialLicensingProfileFilteredRows();
+  return `<div class="commercial-bucket1-panel">`
+    + commercialLicensingProfileFiltersHtml()
+    + `<div data-commercial-licprofile-table>${commercialLicensingProfileTableHtml(rows)}</div>`
+    + `</div>`;
+}
+
+// ── Licencias — contenedor (owner §2/§19, ver HANDOFF) ───────────────────
+// DOS `<details class="dashboard-section" open>` independientes — MISMO
+// primitivo de disclosure que el resto del Hub (Dashboard/módulo.html/
+// Strategy), nunca un acordeón propio de Licencias. Estado ephemeral (no
+// persistido, MISMO criterio que cualquier otro `<details>` del Hub) —
+// cada uno togglea SOLO el suyo, nativo, sin JS.
+function commercialLicenciasHtml() {
+  return `
+    <details class="dashboard-section commercial-licensing-section" data-section-id="licensing-opportunities" open>
+      <summary class="dashboard-section__head">
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Oportunidades de licenciamiento</span>
+        <span class="dashboard-section__count" data-commercial-licencias-count>${commercialEsc(commercialLicenciasCountLabel())}</span>
+        ${commercialLicenciasCloseButtonHtml()}
+      </summary>
+      <div class="dashboard-section__body">${commercialLicenciasOpportunitiesHtml()}</div>
+    </details>
+    <details class="dashboard-section commercial-licensing-section" data-section-id="licensing-profile" open>
+      <summary class="dashboard-section__head">
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Perfil de licenciamiento por cliente</span>
+        <span class="dashboard-section__count" data-commercial-licprofile-count>${commercialEsc(commercialLicensingProfileCountLabel())}</span>
+        ${commercialLicensingProfileCloseButtonHtml()}
+      </summary>
+      <div class="dashboard-section__body">${commercialLicensingProfileHtml()}</div>
+    </details>`;
+}
+// X de cierre del drilldown bidireccional (owner "Bidirectional Account
+// Drilldown" §8/§O — "same standard close primitive serves both
+// directions"): MISMO `.panel-close` que ya cierra Activas/Forecast/Creadas/
+// etc. en LAS DOS direcciones — misma clase, misma posición (después del
+// conteo, en el mismo flex row del `<summary>`), mismo `&times;`, y el MISMO
+// atributo `data-commercial-licensing-close-crossfilter` (un solo handler de
+// click/keydown para ambas — nunca dos mecanismos paralelos). CONTEXTUAL a
+// propósito (owner §3): cada botón sólo existe mientras SU tabla es la que
+// está FILTRADA por el drilldown activo — origin exclusivo, así que nunca
+// aparecen los dos a la vez.
+function commercialLicensingProfileCloseButtonHtml() {
+  if (commercialState.licensingDrilldownOrigin !== "opportunities") return "";
+  return `<button type="button" class="panel-close" data-commercial-licensing-close-crossfilter aria-label="Quitar filtro de cuenta y volver a Oportunidades de licenciamiento">&times;</button>`;
+}
+function commercialLicenciasCloseButtonHtml() {
+  if (commercialState.licensingDrilldownOrigin !== "profile") return "";
+  return `<button type="button" class="panel-close" data-commercial-licensing-close-crossfilter aria-label="Quitar filtro de cuenta y volver a Perfil de licenciamiento por cliente">&times;</button>`;
+}
+// Conteo (owner "Visible-Count Alignment" §2/§3/§4): SIEMPRE el largo del
+// arreglo YA FILTRADO (tipo + filtros locales + drilldown contextual) — el
+// MISMO arreglo que renderiza la tabla, nunca el dataset crudo cargado en
+// memoria. "(es)"/"(s)" es el sufijo literal YA establecido en el resto de
+// Comercial (ver `oportunidad(es)` en Forecast/Creadas/etc.) — no existe un
+// helper de plural real en el Hub, así que no se inventa uno acá.
+function commercialLicenciasCountLabel() {
+  if (commercialState.opportunitiesDetailStatus !== "ready") return "";
+  return `${commercialFmtInt(commercialLicenciasFilteredRows().length)} oportunidad(es)`;
+}
+function commercialLicensingProfileCountLabel() {
+  if (commercialState.licensingProfileStatus !== "ready") return "";
+  return `${commercialFmtInt(commercialLicensingProfileFilteredRows().length)} cuenta(s)`;
 }
 
 // ── Detalle Oportunidades (ver HANDOFF §6) ───────────────────────────────
@@ -6399,7 +6912,12 @@ function commercialFeedbackReady(cap) {
   switch (cap) {
     case "dashboard": return commercialState.status === "ready";
     case "actividades": return commercialState.activitiesStatus === "ready";
-    case "licencias":
+    // Licencias (Account Licensing Profile, ver HANDOFF): ahora presenta
+    // DOS datasets independientes — el feedback espera a que los DOS estén
+    // listos, MISMO criterio "esperar al contenido presente" que ya regía
+    // acá, extendido al segundo dataset nuevo.
+    case "licencias": return commercialState.opportunitiesDetailStatus === "ready"
+      && commercialState.licensingProfileStatus === "ready";
     case "detalle": return commercialState.opportunitiesDetailStatus === "ready";
     case "historial-perdidas": return commercialState.lostHistoryStatus === "ready";
     case "clientes": return (commercialState.clientesSubTab === "ex-clientes"
@@ -6525,12 +7043,18 @@ function commercialSetCapability(capability) {
     commercialLoadActivities();
   } else if (capability === "dashboard" && commercialState.status === "idle") {
     commercialLoadData();
-  } else if ((capability === "licencias" || capability === "detalle")
-             && commercialState.opportunitiesDetailStatus === "idle") {
+  } else if (capability === "licencias" || capability === "detalle") {
     // Bucket 1 (ver HANDOFF): CUALQUIERA de las dos tabs dispara la MISMA
-    // carga — si la otra ya la dejó "ready"/"loading"/"error", este branch
-    // ni se evalúa (el guard de arriba exige "idle").
-    commercialLoadOpportunitiesDetail();
+    // carga de `opportunitiesDetail` — si la otra ya la dejó
+    // "ready"/"loading"/"error", el guard de abajo ni la re-pide.
+    if (commercialState.opportunitiesDetailStatus === "idle") commercialLoadOpportunitiesDetail();
+    // Perfil de licenciamiento (ver HANDOFF): SÓLO Licencias lo pide —
+    // Detalle no lo usa. DOS guards independientes (no un `else if` con el
+    // de arriba): las dos cargas son independientes entre sí y pueden estar
+    // en cualquier combinación de estado al reabrir la tab.
+    if (capability === "licencias" && commercialState.licensingProfileStatus === "idle") {
+      commercialLoadLicensingProfile();
+    }
   } else if (capability === "historial-perdidas" && commercialState.lostHistoryStatus === "idle") {
     commercialLoadLostHistory();
   } else if (capability === "clientes" && commercialState.clientsStatus === "idle") {
@@ -6654,6 +7178,40 @@ async function commercialLoadOpportunitiesDetail() {
     if (commercialState.tipo !== requestedTipo) return; // stale — idem, camino de excepción
     commercialState.opportunitiesDetailStatus = "error";
     commercialState.opportunitiesDetailErrorState = "source_error";
+    HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderCapability();
+}
+
+// ── Perfil de licenciamiento por cliente (Account Licensing Profile, ver
+// HANDOFF) ───────────────────────────────────────────────────────────────
+// Loader/endpoint PROPIO — INDEPENDIENTE de `commercialLoadOpportunitiesDetail`
+// (owner §7: universo/grano distintos, falla propia — nunca comparte
+// fetch/estado con Detalle/Licencias). MISMO criterio de tipo-safety y
+// re-render que el resto de Comercial.
+async function commercialLoadLicensingProfile() {
+  const requestedTipo = commercialState.tipo;
+  commercialState.licensingProfileStatus = "loading";
+  commercialRenderCapability();
+  HubForegroundProgress.begin("commercial", { seedMs: 9000 });
+  try {
+    const qs = `tipo=${encodeURIComponent(requestedTipo)}`;
+    const resp = await fetch(`/comercial/data/licensing-profile?${qs}`).then(r => r.json());
+    if (commercialState.tipo !== requestedTipo) return; // stale — Tipo cambió mientras viajaba
+    if (resp.state === "ok") {
+      commercialState.licensingProfile = resp.licensing_profile;
+      commercialState.licensingProfileStatus = "ready";
+      commercialState.licensingProfileErrorState = "";
+      HubForegroundProgress.complete("commercial");
+    } else {
+      commercialState.licensingProfileStatus = "error";
+      commercialState.licensingProfileErrorState = resp.state === "config_incomplete" ? "config_incomplete" : "source_error";
+      HubForegroundProgress.fail("commercial");
+    }
+  } catch (e) {
+    if (commercialState.tipo !== requestedTipo) return; // stale — idem, camino de excepción
+    commercialState.licensingProfileStatus = "error";
+    commercialState.licensingProfileErrorState = "source_error";
     HubForegroundProgress.fail("commercial");
   }
   commercialRenderCapability();
@@ -7422,6 +7980,30 @@ function commercialSetTipo(tipo) {
   commercialState.licSearchText = "";
   commercialState.licStageFilter = "";
   commercialState.licSellerFilter = "";
+  // "si" — MISMO criterio de reset a DEFAULT que el resto de los filtros de
+  // esta tabla (owner "Explicit Licensing Filter + Profile Scope" §13: "do
+  // not invent inconsistent behavior" — el lifecycle YA establecido de
+  // Licencias es reset-a-default en cada cambio de Tipo).
+  commercialState.licLicenciamientoFilter = "si";
+  // Perfil de licenciamiento (ver HANDOFF): MISMO criterio — invalida y NO
+  // re-pide acá, vuelve a "idle" y lo carga la próxima apertura/reactivación
+  // de Licencias con el tipo nuevo (ver el dispatch al final de esta
+  // función). El drilldown bidireccional se limpia con el resto (owner
+  // "Bidirectional Account Drilldown" §6/test L): una cuenta enfocada bajo
+  // el universo viejo puede no existir, o significar algo distinto, en el
+  // nuevo — nunca sobrevive a un cambio de Tipo.
+  commercialState.licensingProfile = null;
+  commercialState.licensingProfileStatus = "idle";
+  commercialState.licensingProfileErrorState = "";
+  commercialState.licProfileSearchText = "";
+  commercialState.licProfileSegmentoFilter = "";
+  commercialState.licProfilePartnerFilter = "";
+  commercialState.licProfileAeSapFilter = "";
+  commercialState.licProfileTipoContratoFilter = "";
+  commercialState.licProfileSellerFilter = "";
+  commercialState.licProfileVencimientoFilter = "";
+  commercialState.licensingDrilldownAccountId = null;
+  commercialState.licensingDrilldownOrigin = null;
   commercialState.detSearchText = "";
   commercialState.detStageFilter = "";
   commercialState.detSellerFilter = "";
@@ -7558,8 +8140,17 @@ function commercialSetTipo(tipo) {
   // llamado dentro de `commercialLoadData` una vez que el fetch resuelve.
   commercialState.oppSearchText = "";
   commercialRender();
+  // Perfil de licenciamiento (owner §2, ver HANDOFF): "cuando el usuario
+  // cambia el filtro global, LAS DOS tablas deben responder" — con
+  // Licencias activa, un cambio de Tipo tiene que recargar de una, no
+  // quedar en "idle" hasta que el usuario abandone y reabra la tab (ese
+  // sería el mismo gap de UX que Detalle/Clientes/etc. ya tienen hoy —
+  // deliberadamente NO tocado acá, fuera de alcance de este ticket).
   if (commercialState.capability === "actividades") commercialLoadActivities();
-  else commercialLoadData();
+  else if (commercialState.capability === "licencias") {
+    commercialLoadOpportunitiesDetail();
+    commercialLoadLicensingProfile();
+  } else commercialLoadData();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -7984,6 +8575,56 @@ document.addEventListener("DOMContentLoaded", () => {
       if (host) host.innerHTML = commercialLicenciasTableHtml(commercialLicenciasFilteredRows());
       return;
     }
+    // Perfil de licenciamiento (Account Licensing Profile, ver HANDOFF):
+    // MISMO criterio que Licencias/Detalle — "✕ Limpiar" re-renderiza el
+    // panel entero (reconstruye la barra de filtros), orden de columna
+    // re-renderiza SÓLO la tabla.
+    const licProfileClear = event.target.closest("[data-commercial-licprofile-clear]");
+    if (licProfileClear) { commercialLicensingProfileClearFilters(); return; }
+    const licProfileSortTh = event.target.closest("[data-commercial-licprofile-sort]");
+    if (licProfileSortTh) {
+      commercialToggleLicensingProfileSort(licProfileSortTh.dataset.commercialLicprofileSort);
+      const host = root.querySelector("[data-commercial-licprofile-table]");
+      if (host) host.innerHTML = commercialLicensingProfileTableHtml(commercialLicensingProfileFilteredRows());
+      return;
+    }
+    // Drilldown bidireccional por cuenta (owner "Bidirectional Account
+    // Drilldown" §2/§3/§9, ver HANDOFF): la fila clickeada fija el id
+    // CANÓNICO de cuenta + de qué tabla vino (`licensingDrilldownOrigin`) —
+    // NUNCA un texto de búsqueda. Render COMPLETO del panel
+    // (`commercialRenderCapability`, no quirúrgico): necesita actualizar
+    // AMBAS tablas (la de origen, marcada `.is-active`, y la opuesta,
+    // filtrada) — más simple y barato que sincronizar los dos hosts a mano.
+    // Cada handler sólo reacciona a SU propio atributo — un click nunca
+    // dispara la dirección contraria (owner §9: "prevent interaction
+    // loops" — el render que sigue no despacha ningún evento sintético).
+    // Reusa `commercialActJumpToSection` TAL CUAL (mismo primitivo que
+    // "Retrasadas"/"Por vencer" en Actividades) sobre el DOM YA renderizado
+    // — nunca antes, el `<details>` viejo ya no existe.
+    const licensingAccountRow = event.target.closest("[data-commercial-licensing-account-row]");
+    if (licensingAccountRow) {
+      commercialState.licensingDrilldownAccountId = Number(licensingAccountRow.dataset.commercialLicensingAccountRow);
+      commercialState.licensingDrilldownOrigin = "opportunities";
+      commercialRenderCapability();
+      commercialActJumpToSection("licensing-profile", root);
+      return;
+    }
+    // Dirección B (owner §3): fila de cuenta del Perfil → Oportunidades.
+    // MISMO camino que arriba, invertido — nunca dos sistemas de estado.
+    const licensingProfileAccountRow = event.target.closest("[data-commercial-licensing-profile-account-row]");
+    if (licensingProfileAccountRow) {
+      commercialState.licensingDrilldownAccountId = Number(licensingProfileAccountRow.dataset.commercialLicensingProfileAccountRow);
+      commercialState.licensingDrilldownOrigin = "profile";
+      commercialRenderCapability();
+      commercialActJumpToSection("licensing-opportunities", root);
+      return;
+    }
+    // X de cierre del drilldown (owner "Bidirectional Account Drilldown"
+    // §8/§O) — real `<button>`, Enter/Espacio funcionan NATIVOS (sin
+    // entrada propia en el delegado de teclado, a diferencia de las filas
+    // `role="button"` de arriba). UN handler sirve las DOS direcciones.
+    const licensingCloseCrossfilter = event.target.closest("[data-commercial-licensing-close-crossfilter]");
+    if (licensingCloseCrossfilter) { commercialLicensingCloseDrilldown(root); return; }
     const detalleClear = event.target.closest("[data-commercial-detalle-clear]");
     if (detalleClear) { commercialDetalleClearFilters(); return; }
     const detalleSortTh = event.target.closest("[data-commercial-detalle-sort]");
@@ -8324,15 +8965,52 @@ document.addEventListener("DOMContentLoaded", () => {
   // Bucket 1 — Licencias (ver HANDOFF): Etapa/Vendedor son filtros LOCALES,
   // MISMA composición AND que el resto de Comercial. Re-render QUIRÚRGICO
   // de `[data-commercial-licencias-table]`, nunca la barra (los otros
-  // `<select>` perderían el valor recién elegido si se regenerara).
+  // `<select>` perderían el valor recién elegido si se regenerara). El
+  // conteo del header (owner "Visible-Count Alignment" §5) se actualiza acá
+  // TAMBIÉN — mismo arreglo `commercialLicenciasFilteredRows()`, nunca una
+  // segunda cuenta separada.
   document.addEventListener("change", event => {
     const stageSelect = event.target.closest("[data-commercial-licencias-stage-filter]");
     const sellerSelect = event.target.closest("[data-commercial-licencias-seller-filter]");
-    if (!stageSelect && !sellerSelect) return;
+    const licSelect = event.target.closest("[data-commercial-licencias-licenciamiento-filter]");
+    if (!stageSelect && !sellerSelect && !licSelect) return;
     if (stageSelect) commercialState.licStageFilter = stageSelect.value;
     if (sellerSelect) commercialState.licSellerFilter = sellerSelect.value;
+    if (licSelect) commercialState.licLicenciamientoFilter = licSelect.value;
+    const rows = commercialLicenciasFilteredRows();
     const host = root.querySelector("[data-commercial-licencias-table]");
-    if (host) host.innerHTML = commercialLicenciasTableHtml(commercialLicenciasFilteredRows());
+    if (host) host.innerHTML = commercialLicenciasTableHtml(rows);
+    const count = root.querySelector("[data-commercial-licencias-count]");
+    if (count) count.textContent = commercialLicenciasCountLabel();
+    // Owner corrective: Licenciamiento/Etapa/Vendedor recalculan el set de
+    // cuentas visibles del Perfil (que ya no tiene Alcance propio — SIEMPRE
+    // deriva de acá), así que también se refresca acá.
+    commercialLicensingProfileRefresh(root);
+  });
+  // Perfil de licenciamiento (Account Licensing Profile, ver HANDOFF):
+  // Segmento/Partner de licencia/AE SAP/Tipo de contrato SAP/
+  // Vendedor de cuenta/Vencimiento son filtros LOCALES, MISMA composición
+  // AND que el resto de Comercial. Re-render QUIRÚRGICO de la tabla, nunca
+  // la barra. Conteo (owner "Visible-Count Alignment" §5): idem arriba.
+  document.addEventListener("change", event => {
+    const segSelect = event.target.closest("[data-commercial-licprofile-segmento-filter]");
+    const partnerSelect = event.target.closest("[data-commercial-licprofile-partner-filter]");
+    const aeSapSelect = event.target.closest("[data-commercial-licprofile-aesap-filter]");
+    const tipoSelect = event.target.closest("[data-commercial-licprofile-tipocontrato-filter]");
+    const sellerSelect = event.target.closest("[data-commercial-licprofile-seller-filter]");
+    const vencSelect = event.target.closest("[data-commercial-licprofile-vencimiento-filter]");
+    if (!segSelect && !partnerSelect && !aeSapSelect && !tipoSelect && !sellerSelect && !vencSelect) return;
+    if (segSelect) commercialState.licProfileSegmentoFilter = segSelect.value;
+    if (partnerSelect) commercialState.licProfilePartnerFilter = partnerSelect.value;
+    if (aeSapSelect) commercialState.licProfileAeSapFilter = aeSapSelect.value;
+    if (tipoSelect) commercialState.licProfileTipoContratoFilter = tipoSelect.value;
+    if (sellerSelect) commercialState.licProfileSellerFilter = sellerSelect.value;
+    if (vencSelect) commercialState.licProfileVencimientoFilter = vencSelect.value;
+    const rows = commercialLicensingProfileFilteredRows();
+    const host = root.querySelector("[data-commercial-licprofile-table]");
+    if (host) host.innerHTML = commercialLicensingProfileTableHtml(rows);
+    const count = root.querySelector("[data-commercial-licprofile-count]");
+    if (count) count.textContent = commercialLicensingProfileCountLabel();
   });
   // Bucket 1 — Detalle Oportunidades: MISMO criterio que Licencias.
   document.addEventListener("change", event => {
@@ -8566,13 +9244,31 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   // Bucket 1 — Buscar de Licencias/Detalle/Historial Perdidas (ver HANDOFF):
   // `input`, no `change` — MISMO criterio que Prospectos/Conversión de
-  // Leads. SÓLO tocan su propia tabla, nunca la barra de filtros.
+  // Leads. SÓLO tocan su propia tabla + su conteo, nunca la barra de
+  // filtros (owner "Visible-Count Alignment" §5: mismo arreglo filtrado).
   document.addEventListener("input", event => {
     const search = event.target.closest("[data-commercial-licencias-search]");
     if (!search) return;
     commercialState.licSearchText = search.value;
+    const rows = commercialLicenciasFilteredRows();
     const host = root.querySelector("[data-commercial-licencias-table]");
-    if (host) host.innerHTML = commercialLicenciasTableHtml(commercialLicenciasFilteredRows());
+    if (host) host.innerHTML = commercialLicenciasTableHtml(rows);
+    const count = root.querySelector("[data-commercial-licencias-count]");
+    if (count) count.textContent = commercialLicenciasCountLabel();
+    commercialLicensingProfileRefresh(root);
+  });
+  // Perfil de licenciamiento — Buscar (ver HANDOFF): MISMO criterio que
+  // Licencias/Detalle. SÓLO toca su propia tabla + su conteo, nunca la
+  // barra.
+  document.addEventListener("input", event => {
+    const search = event.target.closest("[data-commercial-licprofile-search]");
+    if (!search) return;
+    commercialState.licProfileSearchText = search.value;
+    const rows = commercialLicensingProfileFilteredRows();
+    const host = root.querySelector("[data-commercial-licprofile-table]");
+    if (host) host.innerHTML = commercialLicensingProfileTableHtml(rows);
+    const count = root.querySelector("[data-commercial-licprofile-count]");
+    if (count) count.textContent = commercialLicensingProfileCountLabel();
   });
   document.addEventListener("input", event => {
     const search = event.target.closest("[data-commercial-detalle-search]");
@@ -8662,6 +9358,29 @@ document.addEventListener("DOMContentLoaded", () => {
     if (perdidasMotivoPick) {
       event.preventDefault();
       commercialPerdidasSetMotivo(perdidasMotivoPick.dataset.commercialPerdidasMotivoPick);
+      return;
+    }
+    // Drilldown bidireccional de Licenciamiento (ver HANDOFF) — MISMO
+    // camino de teclado que el resto: las filas son `role="button"`/
+    // `tabindex="0"`, nunca `<button>` nativo (envolverlas rompería el
+    // layout de la tabla).
+    const licensingAccountRowKey = event.target.closest && event.target.closest("[data-commercial-licensing-account-row]");
+    if (licensingAccountRowKey) {
+      event.preventDefault();
+      commercialState.licensingDrilldownAccountId = Number(licensingAccountRowKey.dataset.commercialLicensingAccountRow);
+      commercialState.licensingDrilldownOrigin = "opportunities";
+      commercialRenderCapability();
+      commercialActJumpToSection("licensing-profile", root);
+      return;
+    }
+    // Dirección B por teclado — MISMO criterio, invertido.
+    const licensingProfileAccountRowKey = event.target.closest && event.target.closest("[data-commercial-licensing-profile-account-row]");
+    if (licensingProfileAccountRowKey) {
+      event.preventDefault();
+      commercialState.licensingDrilldownAccountId = Number(licensingProfileAccountRowKey.dataset.commercialLicensingProfileAccountRow);
+      commercialState.licensingDrilldownOrigin = "profile";
+      commercialRenderCapability();
+      commercialActJumpToSection("licensing-opportunities", root);
       return;
     }
     const kpiTrigger = event.target.closest("[data-event]");

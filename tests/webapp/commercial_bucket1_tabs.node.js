@@ -45,7 +45,7 @@ vm.createContext(sandbox);
 vm.runInContext(src, sandbox, { filename: "commercial.js" });
 
 const {
-  commercialLicenciasAllRows, commercialDetalleAllRows, commercialSetCapability,
+  commercialLicenciasAllRows, commercialLicenciasFilteredRows, commercialDetalleAllRows, commercialSetCapability,
   commercialLicenciasHtml, commercialDetalleHtml, commercialLoadOpportunitiesDetail,
 } = sandbox;
 const commercialState = vm.runInContext("commercialState", sandbox);
@@ -88,49 +88,77 @@ function resetState(patch) {
   commercialState.opportunitiesDetailStatus = "idle";
   commercialState.opportunitiesDetailErrorState = "";
   commercialState.licSearchText = ""; commercialState.licStageFilter = ""; commercialState.licSellerFilter = "";
+  commercialState.licLicenciamientoFilter = "si";
+  commercialState.licensingProfile = null;
+  commercialState.licensingProfileStatus = "idle";
+  commercialState.licensingProfileErrorState = "";
+  commercialState.licProfileScope = "all";
+  commercialState.licensingDrilldownAccountId = null;
+  commercialState.licensingDrilldownOrigin = null;
   commercialState.detSearchText = ""; commercialState.detStageFilter = ""; commercialState.detSellerFilter = "";
   Object.assign(commercialState, patch || {});
 }
 
 // ═══ A) Licencias — oráculo del filtro client-side, universo NO degenerado ═
+// Owner "Explicit Licensing Filter + Profile Scope" (ver HANDOFF): el viejo
+// hardcode `licencias === "Si"` en `commercialLicenciasAllRows` pasó a ser
+// el filtro EXPLÍCITO "Licenciamiento" (`commercialLicenciasFilteredRows`),
+// default "si" — reproduce EXACTO el comportamiento viejo. `AllRows` ahora
+// es el universo CRUDO, igual que Detalle.
 {
   resetState({ opportunitiesDetail: OPP_DETAIL_PAYLOAD, opportunitiesDetailStatus: "ready" });
-  const licRows = commercialLicenciasAllRows();
+  const rawRows = commercialLicenciasAllRows();
+  assertTrue(rawRows.length === 5, "AllRows es el universo CRUDO, sin filtrar — igual que Detalle");
+  const licRows = commercialLicenciasFilteredRows();
   const names = licRows.map(r => r.opportunity).sort();
   assertTrue(names.join("|") === ["Ganada Con Licencia", "Prospecto Con Licencia", "Suspendida Con Licencia"].sort().join("|"),
-    `Licencias == licencias==="Si", atravesando prospecto/activa/suspendida/ganada (got ${names.join(",")})`);
-  assertTrue(!names.includes("Activa Sin Licencia"), 'licencias="No" queda afuera');
-  assertTrue(!names.includes("Sin Property Licencias"), '"Sin definir" queda afuera (nunca "Si" laxo)');
+    `Licenciamiento=Sí (default) == licencias==="Si", atravesando prospecto/activa/suspendida/ganada (got ${names.join(",")})`);
+  assertTrue(!names.includes("Activa Sin Licencia"), 'licencias="No" queda afuera del default "si"');
+  assertTrue(!names.includes("Sin Property Licencias"), '"Sin definir" queda afuera del default "si" (nunca "Si" laxo)');
   // Detalle Oportunidades: el universo COMPLETO, sin el filtro de Licencias.
   const detRows = commercialDetalleAllRows();
   assertTrue(detRows.length === 5, "Detalle Oportunidades muestra las 5 filas, sin filtrar por Licencias");
 }
 
-// ═══ B) Carga LAZY compartida: Licencias y Detalle reusan la MISMA request ═
+// ═══ B) Carga LAZY compartida: Licencias y Detalle reusan la MISMA request
+// de `opportunitiesDetail` — el perfil de licenciamiento (Account Licensing
+// Profile, ver HANDOFF) es un SEGUNDO endpoint/estado independiente que
+// SOLO Licencias dispara (nunca Detalle, que no lo usa) ═══
 (async () => {
   await tick(); // drena el bootstrap inicial del DOMContentLoaded de arriba
 
   resetState();
   hosts["[data-commercial-analytics-body]"] = { innerHTML: "" }; // host de otra capability, no debe interferir
   fetchCalls.length = 0;
-  fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "ok", opportunities_detail: OPP_DETAIL_PAYLOAD }) });
+  fetchImpl = url => Promise.resolve({ json: () => Promise.resolve(
+    url.includes("/licensing-profile")
+      ? { state: "ok", licensing_profile: { accounts: [], total: 0 } }
+      : { state: "ok", opportunities_detail: OPP_DETAIL_PAYLOAD }
+  ) });
 
-  // Abrir Licencias PRIMERO dispara la carga.
+  // Abrir Licencias PRIMERO dispara LAS DOS cargas (opportunities-detail +
+  // licensing-profile) — independientes entre sí, nunca una sola request
+  // compartida para el perfil.
   commercialSetCapability("licencias");
-  assertTrue(commercialState.opportunitiesDetailStatus === "loading", "abrir Licencias entra en loading");
+  assertTrue(commercialState.opportunitiesDetailStatus === "loading", "abrir Licencias entra en loading (opportunities-detail)");
+  assertTrue(commercialState.licensingProfileStatus === "loading", "y también el perfil de licenciamiento");
   await tick();
-  assertTrue(fetchCalls.length === 1 && fetchCalls[0] === "/comercial/data/opportunities-detail?tipo=todos",
-    `UNA sola request, al endpoint compartido (got ${fetchCalls.join(",")})`);
-  assertTrue(commercialState.opportunitiesDetailStatus === "ready", "queda ready");
+  assertTrue(fetchCalls.length === 2
+    && fetchCalls.includes("/comercial/data/opportunities-detail?tipo=todos")
+    && fetchCalls.includes("/comercial/data/licensing-profile?tipo=todos"),
+    `DOS requests independientes al abrir Licencias (got ${fetchCalls.join(",")})`);
+  assertTrue(commercialState.opportunitiesDetailStatus === "ready" && commercialState.licensingProfileStatus === "ready",
+    "las dos quedan ready");
 
-  // Abrir Detalle DESPUÉS reusa el MISMO estado — cero request nueva.
+  // Abrir Detalle DESPUÉS reusa el `opportunitiesDetail` ya cargado — cero
+  // request nueva (ni de ese endpoint ni del perfil, que Detalle no usa).
   commercialSetCapability("detalle");
-  assertTrue(fetchCalls.length === 1, "Detalle Oportunidades NO dispara una segunda request — mismo dataset ya cargado");
+  assertTrue(fetchCalls.length === 2, "Detalle Oportunidades NO dispara ninguna request nueva — mismo dataset ya cargado");
   assertTrue(commercialDetalleHtml().includes("Ganada Con Licencia"), "y renderiza con el dataset ya en memoria");
 
-  // Volver a Licencias: tampoco refetch.
+  // Volver a Licencias: tampoco refetch (las dos ya están ready).
   commercialSetCapability("licencias");
-  assertTrue(fetchCalls.length === 1, "volver a Licencias tampoco refetch");
+  assertTrue(fetchCalls.length === 2, "volver a Licencias tampoco refetch");
 
   // ═══ C) Historial Perdidas — endpoint y estado TOTALMENTE separados ═══
   resetState();

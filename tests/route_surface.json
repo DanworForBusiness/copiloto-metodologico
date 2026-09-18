@@ -32,6 +32,7 @@
   "GET /comercial/data/ganadas",
   "GET /comercial/data/lead-conversion-detail",
   "GET /comercial/data/leads",
+  "GET /comercial/data/licensing-profile",
   "GET /comercial/data/lost-history",
   "GET /comercial/data/opportunities",
   "GET /comercial/data/opportunities-detail",

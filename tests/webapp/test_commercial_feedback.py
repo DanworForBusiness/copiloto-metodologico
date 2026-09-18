@@ -162,10 +162,16 @@ def test_feedback_ready_covers_all_seven_capabilities_and_clientes_reads_active_
     for cap in ('"dashboard"', '"actividades"', '"licencias"', '"detalle"',
                '"historial-perdidas"', '"clientes"', '"leads"'):
         assert cap in fn, cap
-    # Licencias/Detalle comparten el MISMO status subyacente — evidencia de
-    # que comparten loader, no de que compartan feedback (siguen siendo dos
-    # `case` distintos en el switch, cada uno con su propia identidad).
-    assert fn.count("opportunitiesDetailStatus") == 1  # un solo return compartido por los dos case
+    # Licencias/Detalle comparten el loader/status de `opportunitiesDetail`
+    # (evidencia de que comparten dataset, no de que compartan feedback —
+    # siguen siendo dos `case` distintos, cada uno con su propia identidad).
+    # Account Licensing Profile (ver HANDOFF) agregó un SEGUNDO dataset que
+    # SOLO Licencias espera — por eso ahora hay DOS apariciones de
+    # `opportunitiesDetailStatus` (una en cada `case`, ya no un solo return
+    # compartido), y Licencias también exige `licensingProfileStatus`.
+    assert fn.count("opportunitiesDetailStatus") == 2
+    assert 'case "licencias": return commercialState.opportunitiesDetailStatus === "ready"' in fn
+    assert "licensingProfileStatus" in fn
     # Clientes lee el sub-tab activo (Ex Clientes vs Clientes), MISMO criterio
     # "perspectiva activa" que Reporting/Cartera — nunca una capability nueva.
     assert 'clientesSubTab === "ex-clientes"' in fn

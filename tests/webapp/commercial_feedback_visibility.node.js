@@ -43,6 +43,7 @@ const DATASETS = {
   opportunities: { state: "ok", opportunities: [], total: 0 },
   activities: { state: "ok", activities: [], total: 0 },
   "opportunities-detail": { state: "ok", opportunities_detail: { opportunities: [], total: 0 } },
+  "licensing-profile": { state: "ok", licensing_profile: { accounts: [], total: 0 } },
   "lost-history": { state: "ok", lost_history: { opportunities: [], total: 0 } },
   clients: { state: "ok", clients: { clients: [], total: 0 } },
   "ex-clients": { state: "ok", ex_clients: { clients: [], total: 0 } },
