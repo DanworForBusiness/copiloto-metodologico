@@ -739,6 +739,11 @@ def test_15_route_surface_still_120():
     # comparación de conjuntos contra origin/main:tests/route_surface.json
     # (cero rutas de main ausentes del merge, cero duplicados).
     #
+    # 138 -> 139 (Account Licensing Profile, ver HANDOFF — Commercial
+    # Licensing): +GET /comercial/data/licensing-profile, endpoint propio
+    # del perfil de licenciamiento por cliente (grano cuenta, independiente
+    # de opportunities-detail) — cero rutas de Staffing tocadas.
+    #
     # Esta prueba SIGUE cubriendo lo que le importa a Staffing
     # específicamente (historial/ausencias presentes, vacaciones sin alias
     # de compatibilidad) — el conteo total ya lo vigila el snapshot exhaustivo.
@@ -746,7 +751,7 @@ def test_15_route_surface_still_120():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 138
+    assert len(snapshot) == 139
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

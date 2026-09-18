@@ -922,6 +922,33 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
    necesidad exacta, nunca una clase por tab). */
 .commercial-bucket1-panel > .whatsnew-filters { margin-top: 10px; }
 
+/* Account Licensing Profile (ver HANDOFF — Commercial Licensing): las DOS
+   secciones de Licencias (`.dashboard-section` nativo, MISMO primitivo que
+   el resto del Hub) van una debajo de la otra con el MISMO espaciado que ya
+   usa cualquier lista de secciones del Dashboard — cero contenedor propio,
+   sólo el margen entre ambas. */
+.commercial-licensing-section + .commercial-licensing-section { margin-top: 14px; }
+
+/* Fila de Oportunidades de licenciamiento clickeable (cross-filter, owner
+   §3, owner corrective post-live-QA) — MISMA cascada que Creadas/Ganadas/
+   Perdidas (ver `.bar-row--clickable`/`.activity-bar-row--clickable` en
+   tools.css: "click en una fila la selecciona en el filtro existente y
+   filtra en cascada" — NUNCA un mecanismo paralelo propio). Reusa el MISMO
+   par hover/active de ese primitivo transversal — la primera vez que se
+   aplica a una FILA DE TABLA (no a un `.bar-row`), así que se declara acá
+   en vez de tools.css hasta que un segundo consumidor justifique
+   promoverlo; los VALORES (rgba, no `var(--bg2)`) son los mismos.
+   `.is-active` marca la fila cuya cuenta está actualmente filtrando el
+   Perfil, MISMO criterio visual que Ganadas/Perdidas. */
+.dashboard-table-row--clickable {
+  cursor: pointer; transition: background .12s ease;
+}
+.dashboard-table-row--clickable:hover { background: rgba(128,128,128,.10); }
+.dashboard-table-row--clickable.is-active { background: rgba(231,176,8,.16); }
+.dashboard-table-row--clickable:focus-visible {
+  outline: 2px solid var(--gold); outline-offset: -2px;
+}
+
 /* Bucket 2 — Leads/Clientes/Ex Clientes (ver HANDOFF): stats con tiles de
    tamaño NORMAL (`.activity-kpi-grid` sin el modificador `.commercial-lc-kpis`
    de Conversión de Leads — owner corrective: esas tres vistas no tienen el

@@ -294,6 +294,26 @@ def commercial_data_opportunities_detail(request: Request, tipo: str = Query("to
     return JSONResponse({"state": "ok", "opportunities_detail": detail})
 
 
+@router.get("/comercial/data/licensing-profile", include_in_schema=False)
+def commercial_data_licensing_profile(request: Request, tipo: str = Query("todos")):
+    """Perfil de licenciamiento por cliente (Account Licensing Profile, ver
+    HANDOFF — Commercial Licensing) — INDEPENDIENTE del endpoint de
+    Licencias/Detalle: universo (grano `commercial_partner_id`) y falla
+    propia, nunca comparte fetch/cache con `opportunities-detail` (owner
+    §7). LAZY: sólo se pide al abrir Licencias. MISMO contrato fail-soft y
+    MISMA gate que el resto de Comercial — read-only."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        profile = CommercialService().get_licensing_profile(_normalize_tipo(tipo))
+    except (CommercialConfigurationError, CommercialDataError) as exc:
+        return _commercial_data_error_response(request, exc, endpoint="licensing_profile")
+    except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
+        return _commercial_data_error_response(request, exc, endpoint="licensing_profile")
+    return JSONResponse({"state": "ok", "licensing_profile": profile})
+
+
 @router.get("/comercial/data/lost-history", include_in_schema=False)
 def commercial_data_lost_history(request: Request, tipo: str = Query("todos")):
     """Historial de Perdidas (Bucket 1, ver HANDOFF) — universo canónico

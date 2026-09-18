@@ -85,6 +85,88 @@ _TIPOS = ("todos", "nn", "bi")
 _PROP_ULTIMA_RESPUESTA = "Fecha de Ultima Respuesta"
 _PROP_CIERRE_AJUSTADO = "Cierre Ajustado"
 
+# ── Account Licensing Profile (ver HANDOFF — Commercial Licensing) ─────────
+# A DIFERENCIA de `_get_prop_label`/`get_property_num` (arriba, resuelven
+# `lead_properties` por LABEL solamente — la convención ya establecida para
+# esas dos), estas SIETE properties viven en `res.partner.properties` y se
+# resuelven por su NOMBRE TÉCNICO — verificado manualmente contra Odoo,
+# nunca por label solo. Motivo del desvío deliberado: estas son properties
+# tipadas (selection/tags/monetary/date) cuyo mal-parseo silencioso sería
+# mucho más caro que el de un label simple de `lead_properties` (un monto o
+# una fecha mal resueltos contaminan decisiones de negocio reales, no solo
+# un rótulo visual) — así que acá el nombre técnico es la clave primaria y
+# el `string`/tipo esperado son un GUARD: si el nombre técnico existe pero
+# su metadata no matchea lo esperado, se trata como ausente (nunca se
+# inventa un valor), ver `_resolve_partner_property`.
+_LICENSING_PROPERTIES = {
+    "partner_de_licencia": ("85e69c44e445398f", "Partner de Licencia", "selection"),
+    "ae_sap": ("e85a4881542a93b0", "AE SAP", "selection"),
+    "arquitectura_actual": ("8bcae38dc5e849eb", "Arquitectura Actual", "tags"),
+    "monto_contrato": ("4495d8705b9b212c", "Monto Contrato", "monetary"),
+    "vencimiento_contrato": ("c084bf66dd492576", "Vencimiento Contrato", "date"),
+    "tipo_contrato_sap": ("148e42f95b7b9dc8", "Tipo de Contrato SAP", "selection"),
+    "segmento_cuenta": ("dd859ad74685c28e", "Segmento de la Cuenta", "selection"),
+}
+
+
+def _find_partner_property(properties, technical_name: str, expected_label: str, expected_type: str):
+    """`None` si la property técnica no existe O si existe pero su
+    `string`/tipo no matchea lo esperado (metadata drift — ver comentario de
+    arriba: fallar observable, nunca interpretar metadata incompatible).
+    Nunca por posición: recorre TODA la lista buscando el `name` exacto."""
+    if not isinstance(properties, list):
+        return None
+    for prop in properties:
+        if not isinstance(prop, dict) or prop.get("name") != technical_name:
+            continue
+        if (prop.get("string") or "").strip() != expected_label:
+            return None
+        if prop.get("type") and prop.get("type") != expected_type:
+            return None
+        return prop
+    return None
+
+
+def _selection_value(properties, technical_name: str, expected_label: str) -> str | None:
+    prop = _find_partner_property(properties, technical_name, expected_label, "selection")
+    if not prop or not prop.get("value"):
+        return None
+    return next((opt[1] for opt in (prop.get("selection") or []) if opt[0] == prop["value"]), None)
+
+
+def _tags_value(properties, technical_name: str, expected_label: str) -> list[str]:
+    prop = _find_partner_property(properties, technical_name, expected_label, "tags")
+    if not prop or not prop.get("value"):
+        return []
+    # `prop["tags"]` en Odoo real viene como `(key, label, color)` —
+    # TRES elementos, no dos (descubierto en vivo contra Odoo real: `dict()`
+    # sobre la lista cruda revienta con "sequence element has length 3").
+    # Se toman sólo los primeros DOS por posición, ignorando cualquier
+    # elemento extra (color u otro) — nunca se asume una longitud fija.
+    tag_map = {entry[0]: entry[1] for entry in (prop.get("tags") or [])}
+    return [tag_map[key] for key in prop["value"] if key in tag_map]
+
+
+def _monetary_value(properties, technical_name: str, expected_label: str) -> float | None:
+    prop = _find_partner_property(properties, technical_name, expected_label, "monetary")
+    if not prop or prop.get("value") in (None, False, ""):
+        return None
+    try:
+        return float(prop["value"])
+    except (ValueError, TypeError):
+        return None
+
+
+def _date_value(properties, technical_name: str, expected_label: str) -> str | None:
+    prop = _find_partner_property(properties, technical_name, expected_label, "date")
+    val = prop.get("value") if prop else None
+    if not val or val is True:
+        return None
+    try:
+        return date.fromisoformat(str(val)[:10]).isoformat()
+    except (ValueError, TypeError):
+        return None
+
 
 class CommercialConfigurationError(Exception):
     """ODOO_URL/DB/USERNAME/API_KEY incompleto — Comercial no puede cargar
@@ -1026,7 +1108,7 @@ class CommercialService:
             "crm.lead",
             domain=[["type", "=", "opportunity"], ["active", "=", True], ["stage_id", "in", stage_ids]],
             fields=["name", "partner_id", "user_id", "stage_id", "tag_ids",
-                     "probability", "priority", "lead_properties"],
+                     "probability", "priority", "lead_properties", "expected_revenue"],
         )
         opp_ids = [o["id"] for o in opps]
         acts_by_opp: dict[int, list] = {}
@@ -1050,6 +1132,23 @@ class CommercialService:
             tags = self._client.search_read("crm.tag", [["id", "in", list(all_tag_ids)]], fields=["id", "name"])
             tag_names = {t["id"]: t["name"] for t in tags}
 
+        # `account_id` (Account Licensing Profile, ver HANDOFF): grano
+        # canónico de cuenta (`commercial_partner_id`) — MISMO colapso
+        # contacto→empresa que Clientes/Ex Clientes, resuelto acá con UN
+        # batch read adicional (nunca N+1). Aditivo: Detalle Oportunidades
+        # sigue mostrando `client` (nombre crudo) tal cual — este campo
+        # nuevo sólo lo consume el cross-filter de Licencias.
+        raw_partner_ids = {o["partner_id"][0] for o in opps if o.get("partner_id")}
+        account_id_by_partner: dict[int, int] = {}
+        if raw_partner_ids:
+            for p in self._client.search_read(
+                "res.partner", domain=[["id", "in", list(raw_partner_ids)]],
+                fields=["id", "commercial_partner_id"],
+            ):
+                account_id_by_partner[p["id"]] = (
+                    p["commercial_partner_id"][0] if p.get("commercial_partner_id") else p["id"]
+                )
+
         today = date.today()
 
         def _row(opp: dict) -> dict:
@@ -1058,15 +1157,23 @@ class CommercialService:
             weighted_hours = round((opp.get("probability", 0) or 0) / 100 * hours_raw, 1)
             last_response = _get_property_date(props, _PROP_ULTIMA_RESPUESTA)
             days_elapsed = (today - date.fromisoformat(last_response)).days if last_response else None
+            raw_pid = opp["partner_id"][0] if opp.get("partner_id") else None
             return {
                 "opportunity": opp.get("name") or "",
                 "client": opp["partner_id"][1] if opp.get("partner_id") else "",
+                "account_id": account_id_by_partner.get(raw_pid) if raw_pid else None,
                 "seller": opp["user_id"][1] if opp.get("user_id") else "",
                 "stage": opp["stage_id"][1] if opp.get("stage_id") else "",
                 "tags": [tag_names[tid] for tid in (opp.get("tag_ids") or []) if tid in tag_names],
                 "licencias": _get_prop_label(props, "Licencias"),
                 "hours": hours_raw,
                 "weighted_hours": weighted_hours,
+                # Ingreso esperado (ver HANDOFF — Commercial Licensing):
+                # trivial ahora que `expected_revenue` ya viaja en el fetch
+                # de arriba — SÓLO Licencias lo muestra (owner decisión),
+                # pero el dato viaja para las dos tabs, MISMO criterio que
+                # `weighted_hours` (calculado siempre, mostrado donde aplica).
+                "revenue": round(opp.get("expected_revenue", 0) or 0, 2),
                 "probability": opp.get("probability"),
                 "priority": opp.get("priority") or "0",
                 "activities": acts_by_opp.get(opp["id"], []),
@@ -2862,6 +2969,128 @@ class CommercialService:
             raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
         try:
             views = _cached("commercial:ex-clients", self._build_ex_clients)
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return views[tipo]
+
+    # ── Account Licensing Profile (ver HANDOFF — Commercial Licensing) ──────
+    # Grain: `commercial_partner_id` (owner-confirmed canonical account
+    # identity, MISMO criterio que Clientes/Ex Clientes — ver
+    # `_expand_partner_ids_with_contacts`). Universo por `tipo` — owner
+    # decision explícita tras el audit de semántica: acá `tipo` SÍ filtra
+    # (a diferencia del camino primario de Clientes, que lo ignora — esa
+    # inconsistencia es deuda de UX preexistente, NO se replica acá):
+    #   - "nn"/"bi": cuentas derivadas de oportunidades con el tag New Name/
+    #     Base Instalada respectivamente (MISMO `_in_tag`/`_nn_bi_tags` que
+    #     el resto de Comercial — nunca `Es Cliente?`, que es una dimensión
+    #     DISTINTA, ver audit).
+    #   - "todos": UNIÓN de (A) toda cuenta con alguna oportunidad activa
+    #     0-8 Y (B) toda cuenta con `Es Cliente? = Sí` aunque no tenga pipeline
+    #     activo hoy — a propósito, para descubrir licenciamiento en cuentas
+    #     dormidas (owner: "supports licensing whitespace discovery").
+    # `Es Cliente?` NO es un filtro visible en v1 (owner decisión) — sólo se
+    # usa acá, internamente, para construir el componente (B) de "todos".
+    def _licensing_account_property_row(self, partner: dict) -> dict:
+        props = partner.get("properties")
+        currency = partner.get("currency_id")
+        row = {"id": partner["id"], "name": partner.get("name") or "",
+               "seller": partner["user_id"][1] if partner.get("user_id") else "",
+               "currency": currency[1] if currency else None}
+        for key, (technical_name, label, kind) in _LICENSING_PROPERTIES.items():
+            if kind == "selection":
+                row[key] = _selection_value(props, technical_name, label)
+            elif kind == "tags":
+                row[key] = _tags_value(props, technical_name, label)
+            elif kind == "monetary":
+                row[key] = _monetary_value(props, technical_name, label)
+            elif kind == "date":
+                row[key] = _date_value(props, technical_name, label)
+        return row
+
+    def _build_licensing_profile(self) -> dict:
+        all_stages = self._client.search_read("crm.stage", [], fields=["id", "name"])
+        stage_ids = [s["id"] for s in all_stages if _stage_first_char(s) in "012345678"]
+        nn_tag, bi_tag = self._nn_bi_tags()
+        nn_id = nn_tag["id"] if nn_tag else None
+        bi_id = bi_tag["id"] if bi_tag else None
+
+        opps = (
+            self._client.search_read(
+                "crm.lead",
+                domain=[["type", "=", "opportunity"], ["active", "=", True], ["stage_id", "in", stage_ids]],
+                fields=["partner_id", "tag_ids"],
+            )
+            if stage_ids else []
+        )
+        raw_pipeline_ids = {o["partner_id"][0] for o in opps if o.get("partner_id")}
+        raw_nn_ids = {o["partner_id"][0] for o in opps if o.get("partner_id") and self._in_tag(o, nn_id)}
+        raw_bi_ids = {o["partner_id"][0] for o in opps if o.get("partner_id") and self._in_tag(o, bi_id)}
+
+        # `Es Cliente? = Sí` — MISMO helper que Clientes, cero segundo parser.
+        # `None` (property no configurada en esta instancia) se trata como
+        # "sin cuentas dormidas para sumar", nunca como el fallback de
+        # Clientes ("todas las oportunidades activas") — ese fallback no
+        # tiene sentido acá: (B) es específicamente sobre cuentas SIN
+        # oportunidad.
+        es_cliente_si_ids = self._partner_ids_by_cliente_value(self._CLIENTE_SI_LABELS) or []
+
+        # UN solo batch read por las dos razones que necesitan `res.partner`
+        # (pipeline + Es Cliente? dormidas) — nunca dos consultas separadas.
+        union_ids = list(raw_pipeline_ids | set(es_cliente_si_ids))
+        partners_by_id: dict[int, dict] = {}
+        if union_ids:
+            for p in self._client.search_read(
+                "res.partner", domain=[["id", "in", union_ids]],
+                fields=["id", "name", "user_id", "commercial_partner_id", "properties", "currency_id"],
+            ):
+                partners_by_id[p["id"]] = p
+
+        def _resolve_account_id(raw_id: int) -> int:
+            p = partners_by_id.get(raw_id)
+            if p and p.get("commercial_partner_id"):
+                return p["commercial_partner_id"][0]
+            return raw_id
+
+        accounts_pipeline = {_resolve_account_id(pid) for pid in raw_pipeline_ids}
+        accounts_nn = {_resolve_account_id(pid) for pid in raw_nn_ids}
+        accounts_bi = {_resolve_account_id(pid) for pid in raw_bi_ids}
+        accounts_es_cliente_si = {_resolve_account_id(pid) for pid in es_cliente_si_ids}
+        accounts_todos = accounts_pipeline | accounts_es_cliente_si
+
+        # Segunda pasada, acotada: cuentas resueltas por `commercial_partner_id`
+        # cuyo PROPIO registro (con sus properties) todavía no está en el
+        # batch de arriba — sólo ocurre si el id crudo de origen era un
+        # CONTACTO cuya empresa no venía en `union_ids`. En el caso común
+        # (Es Cliente?/pipeline ya devuelven ids de empresa) esto no agrega
+        # ninguna consulta.
+        missing_account_ids = [aid for aid in accounts_todos if aid not in partners_by_id]
+        if missing_account_ids:
+            for p in self._client.search_read(
+                "res.partner", domain=[["id", "in", missing_account_ids]],
+                fields=["id", "name", "user_id", "commercial_partner_id", "properties", "currency_id"],
+            ):
+                partners_by_id[p["id"]] = p
+
+        def _row_for(account_id: int) -> dict:
+            partner = partners_by_id.get(account_id, {"id": account_id, "name": "Sin nombre"})
+            row = self._licensing_account_property_row(partner)
+            row["_es_cliente_si"] = account_id in accounts_es_cliente_si
+            row["_has_active_pipeline"] = account_id in accounts_pipeline
+            return row
+
+        def _partition(account_ids: set) -> dict:
+            rows = sorted((_row_for(aid) for aid in account_ids), key=lambda r: r["name"].lower())
+            return {"accounts": rows, "total": len(rows)}
+
+        return {"todos": _partition(accounts_todos), "nn": _partition(accounts_nn), "bi": _partition(accounts_bi)}
+
+    def get_licensing_profile(self, tipo: str = "todos") -> dict:
+        if tipo not in _TIPOS:
+            tipo = "todos"
+        if not self._client.is_configured():
+            raise CommercialConfigurationError("Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        try:
+            views = _cached("commercial:licensing-profile", self._build_licensing_profile)
         except OdooTransportError as exc:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]
