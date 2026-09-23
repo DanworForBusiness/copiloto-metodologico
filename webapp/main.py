@@ -1702,6 +1702,15 @@ def _catalog_flow_keep(nodes: list, show_assoc: bool) -> set:
             if up not in keep:
                 keep.add(up)
                 stack.append(up)
+    # Defensivo (linaje completeness): el OUTPUT declarado del flow —el/los nodo(s)
+    # de la capa más profunda, típicamente el modelo de consumo (cube)— debe estar
+    # SIEMPRE visible, aun si su metadata no trae upstream DIRECTO (el ancla se elige
+    # entre los nodos CON aristas directas, así que un output cuyo único vínculo es
+    # asociación quedaba fuera de su propio diagrama de "linaje del output"). No se
+    # inventan aristas: si no conecta, se dibuja aislado; su asociación real aparece
+    # solo con el toggle "Incluir asociaciones".
+    out_layer = max(n["layer"] for n in nodes)
+    keep |= {n["name"] for n in nodes if n["layer"] == out_layer}
     return keep
 
 
