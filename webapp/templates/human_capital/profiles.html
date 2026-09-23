@@ -24,4 +24,9 @@
     {% include "partials/human_capital_profiles_panel.html" %}
   </main>
 </div>
+
+{# CSS propio de la vertical (ver human_capital.css) — MISMO mecanismo que
+   commercial.css/reporting.css: base.html solo carga los stylesheets del
+   Hub, lo específico de un workspace lo linkea su propia página. #}
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
 {% endblock %}

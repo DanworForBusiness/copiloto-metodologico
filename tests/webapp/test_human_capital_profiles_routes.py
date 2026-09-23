@@ -290,10 +290,26 @@ def test_profiles_surface_has_no_legacy_role_literal():
         assert '"hiring_manager"' not in surface and "'hiring_manager'" not in surface
 
 
-def test_profiles_templates_add_no_own_css_or_js():
+def test_profiles_templates_add_no_own_js():
+    # El contrato original de Phase 3 ("no own CSS or JS") se relajó para el
+    # CSS por el visual corrective (ver HANDOFF): Capital Humano ahora tiene
+    # su propia hoja de estilos, MISMO mecanismo ya establecido por
+    # Comercial/Reporting (`commercial.css`/`reporting.css`, ver
+    # `test_profiles_page_links_its_own_stylesheet_same_pattern_as_commercial`
+    # más abajo) — nunca justificaba mantenerlo sin estilos por consistencia
+    # con un contrato que otros workspaces ya rompieron legítimamente. JS
+    # propio SIGUE sin hacer falta (cero interactividad nueva) — eso no cambió.
     for surface in (_PROFILES_HTML, _PANEL_HTML):
-        assert "<link rel=\"stylesheet\"" not in surface
         assert "<script src=" not in surface
+
+
+def test_profiles_page_links_its_own_stylesheet_same_pattern_as_commercial():
+    assert '<link rel="stylesheet" href="{{ url_for(\'static\', path=\'human_capital.css\') }}' in _PROFILES_HTML
+    # El fragmento HTMX-swapped (_PANEL_HTML) nunca linkea su propia hoja --
+    # eso es responsabilidad EXCLUSIVA de la página completa que lo incluye
+    # (MISMO criterio que commercial.css, linkeado una sola vez en crm.html,
+    # nunca repetido en cada fragmento que HTMX/fetch intercambia).
+    assert "<link rel=\"stylesheet\"" not in _PANEL_HTML
 
 
 def test_landing_now_links_to_profiles():
