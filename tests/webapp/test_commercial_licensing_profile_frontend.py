@@ -119,30 +119,49 @@ def test_licensing_close_drilldown_is_a_single_function_for_both_directions():
     assert "data-commercial-licensing-profile-account-row" in body
 
 
-def test_licenciamiento_filter_replaces_the_old_hardcoded_predicate():
-    # Owner "Explicit Licensing Filter + Profile Scope" §1/§3: el hardcode
-    # `o.licencias === "Si"` en `commercialLicenciasAllRows` desapareció —
-    # ahora es un filtro EXPLÍCITO ("si"/"no"/"todos"), aplicado por
-    # `commercialLicenciasLocallyFilteredRows`, nunca ciego en el universo.
+def test_table_a_uses_a_fixed_licenciamiento_si_predicate_no_selector():
+    # Owner "Final Business Semantics Realignment" §2: el selector
+    # "Licenciamiento" se retiró — restaura el invariante FIJO original.
     all_rows_fn = _COMMERCIAL_JS.split("function commercialLicenciasAllRows(", 1)[1].split("\n}", 1)[0]
-    assert 'licencias === "Si"' not in all_rows_fn
-    filtered_fn = _COMMERCIAL_JS.split("function commercialLicenciasLocallyFilteredRows(", 1)[1].split("\n}", 1)[0]
-    assert 'fLic === "si" && o.licencias !== "Si"' in filtered_fn
-    # "no" es el COMPLEMENTO de "Si" (corregido tras validación en vivo —
-    # ver HANDOFF): la property "Licencias" en Odoo casi nunca se completa
-    # explícitamente en "No", la mayoría queda "Sin definir" (normalizado,
-    # nunca null técnico) — un match EXACTO contra el string "No" dejaba el
-    # filtro prácticamente vacío siempre. NUNCA volver a `!== "No"`.
-    assert 'fLic === "no" && o.licencias === "Si"' in filtered_fn
-    assert 'o.licencias !== "No"' not in filtered_fn
-    assert "licLicenciamientoFilter: \"si\"" in _COMMERCIAL_JS, "default state es \"si\" (reproduce el viejo hardcode)"
+    assert 'o.licencias === "Si"' in all_rows_fn
+    assert "licLicenciamientoFilter" not in _COMMERCIAL_JS
+    assert "data-commercial-licencias-licenciamiento-filter" not in _COMMERCIAL_JS
+    assert "commercialLicenciasVisibleAccountIds" not in _COMMERCIAL_JS
+    assert "commercialLicensingProfileRefresh" not in _COMMERCIAL_JS
+    assert "licProfileScope" not in _COMMERCIAL_JS
+    assert "data-commercial-licprofile-scope-filter" not in _COMMERCIAL_JS
 
 
-def test_profile_scope_derives_accounts_by_id_never_by_name():
-    # Owner §8: "Do NOT compare/join by display name."
-    fn = _COMMERCIAL_JS.split("function commercialLicenciasVisibleAccountIds(", 1)[1].split("\n}", 1)[0]
-    assert "o.account_id" in fn
-    assert ".name" not in fn
+def test_table_b_filtered_rows_never_reference_table_a_account_ids():
+    # Owner §3/§5: el Perfil ya NO deriva su universo de las oportunidades
+    # visibles — `commercialLicensingProfileFilteredRows` no debe leer
+    # ningún estado de Oportunidades salvo el drilldown contextual explícito
+    # (`licensingDrilldownAccountId`/`Origin`, que SÍ es una excepción
+    # legítima y documentada).
+    fn = _COMMERCIAL_JS.split("function commercialLicensingProfileFilteredRows(", 1)[1].split("\n}", 1)[0]
+    assert "commercialLicenciasAllRows" not in fn
+    assert "commercialLicenciasFilteredRows" not in fn
+    assert "licStageFilter" not in fn
+    assert "licSellerFilter" not in fn
+    assert "licSearchText" not in fn
+
+
+def test_global_tipo_change_does_not_alter_profile_local_filter_semantics():
+    # Owner §6: "Table B must NOT change its base universe when the user
+    # switches tipo" — el backend ya devuelve el MISMO resultado sin
+    # importar tipo (ver test_commercial_licensing_profile.py); acá se fija
+    # que el frontend no reintroduzca un mapeo tipo->Es Cliente?.
+    assert "Es Cliente? No" not in _COMMERCIAL_JS
+    assert "Es Cliente? Sí" not in _COMMERCIAL_JS
+
+
+def test_profile_empty_state_distinguishes_non_client_drilldown_from_generic_filter():
+    # Owner §9: cero resultados con drilldown activo desde Oportunidades es
+    # un caso de negocio explícito ("no es cliente"), nunca el mensaje
+    # genérico de "ningún resultado con este filtro".
+    fn = _COMMERCIAL_JS.split("function commercialLicensingProfileTableHtml(", 1)[1].split("\n}", 1)[0]
+    assert "no está marcada como cliente" in fn
+    assert 'licensingDrilldownOrigin === "opportunities"' in fn
 
 
 def test_licensing_profile_route_is_registered_read_only():

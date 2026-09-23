@@ -1,30 +1,29 @@
 """
 test_commercial_licensing_profile.py — Account Licensing Profile (ver
-HANDOFF — Commercial Licensing). `CommercialService.get_licensing_profile`
-vía `FakeOdooClient` — CI NUNCA depende de Odoo real.
+HANDOFF — Commercial Licensing, owner ticket "Final Business Semantics
+Realignment"). `CommercialService.get_licensing_profile` vía
+`FakeOdooClient` — CI NUNCA depende de Odoo real.
 
-Etapas: 1="0 Prospecto" (prospecto), 2="1 Contacto" (activa), 3="4 Propuesta"
-(activa). Tags: 10="New Name" (NN), 11="Base Instalada BI" (BI, requiere
-AMBOS substrings "base"+"instal", ver `_nn_bi_tags`).
+Universo ÚNICO y PERMANENTE (owner §3/§4): toda cuenta canónica con
+`Es Cliente?=Sí` — punto. Ya NO deriva de oportunidades/tags en absoluto,
+así que `_build_licensing_profile` ya NO toca `crm.lead`/`crm.stage`/
+`crm.tag` — el fixture de este archivo por eso no necesita `LEADS`/`STAGES`/
+`TAGS` salvo en los dos tests que prueban explícitamente que la presencia de
+oportunidades/tags NO tiene efecto (§6/§16.Q).
 
-Universo de cuentas del fixture (`_licensing_client`) — una por escenario del
-owner GO §3/§6, nunca reutilizada entre casos para que cada aserción señale
-exactamente la regla que prueba:
+Universo de cuentas del fixture (`_licensing_client`):
 
-  100 Cuenta NN         — 1 opp activa con tag NN, sin Es Cliente?
-  101 Cuenta BI         — 1 opp activa con tag BI, sin Es Cliente?
-  102 Cuenta Both       — 1 opp activa con AMBOS tags
-  103 Cuenta Neither    — 1 opp activa SIN ningún tag
-  104 Cuenta Dormida Si — Es Cliente?=Sí, CERO oportunidades (whitespace)
-  105 Cuenta EsNo ConNN — Es Cliente?=No, 1 opp activa con tag NN
-  106 Cuenta EsSi ConBI — Es Cliente?=Sí, 1 opp activa con tag BI
-  107 Cuenta Ex         — Es Cliente?=Ex, CERO oportunidades
-  108 Cuenta Blank      — sin property Es Cliente? seteada, CERO oportunidades
-  109 Contacto          — persona, commercial_partner_id=100 (colapsa a 100)
-  110 Cuenta Perfil     — 1 opp activa CON tag NN + TODAS las properties de
-                          licenciamiento seteadas (adapter end-to-end)
-  111 Cuenta Metadata Drift — property técnica presente pero con `string`
-                          distinto al esperado (guard de metadata)
+  100 Cuenta Si          — Es Cliente?=Sí, CERO oportunidades
+  101 Cuenta No          — Es Cliente?=No
+  102 Cuenta Ex          — Es Cliente?=Ex
+  103 Cuenta Blank       — sin property Es Cliente? seteada
+  104 Cuenta Si Con NN   — Es Cliente?=Sí + 1 opp activa con tag New Name
+  105 Cuenta Si Con BI   — Es Cliente?=Sí + 1 opp activa con tag Base Instalada
+  106 Contacto           — persona, commercial_partner_id=100 (colapsa a 100)
+  107 Cuenta Perfil      — Es Cliente?=Sí + TODAS las properties de
+                           licenciamiento seteadas (adapter end-to-end)
+  108 Cuenta Metadata Drift — Es Cliente?=Sí + property técnica presente
+                           pero con `string` distinto al esperado (guard)
 """
 from __future__ import annotations
 
@@ -39,7 +38,6 @@ from webapp.services.commercial_service import (
     CommercialDataError,
     CommercialService,
 )
-from webapp.services.odoo_client import OdooTransportError
 
 _COMMERCIAL_SERVICE_PY_SRC = (
     Path(__file__).resolve().parents[2] / "webapp" / "services" / "commercial_service.py"
@@ -48,7 +46,6 @@ _COMMERCIAL_SERVICE_PY_SRC = (
 STAGES = [
     {"id": 1, "name": "0 Prospecto"},
     {"id": 2, "name": "1 Contacto"},
-    {"id": 3, "name": "4 Propuesta"},
 ]
 TAGS = [
     {"id": 10, "name": "New Name"},
@@ -71,19 +68,17 @@ def _es_cliente(value_key: str) -> dict:
 
 
 PARTNERS = [
-    {"id": 100, "name": "Cuenta NN", "properties": []},
-    {"id": 101, "name": "Cuenta BI", "properties": []},
-    {"id": 102, "name": "Cuenta Both", "properties": []},
-    {"id": 103, "name": "Cuenta Neither", "properties": []},
-    {"id": 104, "name": "Cuenta Dormida Si", "properties": [_es_cliente("si_key")]},
-    {"id": 105, "name": "Cuenta EsNo ConNN", "properties": [_es_cliente("no_key")]},
-    {"id": 106, "name": "Cuenta EsSi ConBI", "properties": [_es_cliente("si_key")]},
-    {"id": 107, "name": "Cuenta Ex", "properties": [_es_cliente("ex_key")]},
-    {"id": 108, "name": "Cuenta Blank", "properties": []},
-    {"id": 109, "name": "Contacto", "commercial_partner_id": 100, "properties": []},
-    {"id": 110, "name": "Cuenta Perfil", "user_id": [60, "Juan Manuel Melgarejo"],
+    {"id": 100, "name": "Cuenta Si", "properties": [_es_cliente("si_key")]},
+    {"id": 101, "name": "Cuenta No", "properties": [_es_cliente("no_key")]},
+    {"id": 102, "name": "Cuenta Ex", "properties": [_es_cliente("ex_key")]},
+    {"id": 103, "name": "Cuenta Blank", "properties": []},
+    {"id": 104, "name": "Cuenta Si Con NN", "properties": [_es_cliente("si_key")]},
+    {"id": 105, "name": "Cuenta Si Con BI", "properties": [_es_cliente("si_key")]},
+    {"id": 106, "name": "Contacto", "commercial_partner_id": 100, "properties": [_es_cliente("si_key")]},
+    {"id": 107, "name": "Cuenta Perfil", "user_id": [60, "Juan Manuel Melgarejo"],
      "currency_id": [1, "USD"],
      "properties": [
+         _es_cliente("si_key"),
          {"name": _PARTNER_LIC_PROP, "string": "Partner de Licencia", "type": "selection",
           "value": "sk", "selection": [["sk", "05 - SOFTTEK"]]},
          {"name": _AE_SAP_PROP, "string": "AE SAP", "type": "selection",
@@ -101,35 +96,25 @@ PARTNERS = [
          {"name": _SEGMENTO_PROP, "string": "Segmento de la Cuenta", "type": "selection",
           "value": "corp", "selection": [["corp", "Corporate"]]},
      ]},
-    {"id": 111, "name": "Cuenta Metadata Drift", "properties": [
+    {"id": 108, "name": "Cuenta Metadata Drift", "properties": [
+        _es_cliente("si_key"),
         {"name": _MONTO_PROP, "string": "Monto Contrato (renombrada)", "type": "monetary",
          "value": 999, "currency_field": "currency_id"},
     ]},
 ]
 
+# Sólo usados por los tests que prueban explícitamente que oportunidades/
+# tags NO tienen efecto sobre el universo del Perfil (§16.Q).
 LEADS = [
     {"id": 1, "type": "opportunity", "active": True, "stage_id": 2, "tag_ids": [10],
-     "partner_id": [100, "Cuenta NN"]},
+     "partner_id": [104, "Cuenta Si Con NN"]},
     {"id": 2, "type": "opportunity", "active": True, "stage_id": 2, "tag_ids": [11],
-     "partner_id": [101, "Cuenta BI"]},
-    {"id": 3, "type": "opportunity", "active": True, "stage_id": 3, "tag_ids": [10, 11],
-     "partner_id": [102, "Cuenta Both"]},
-    {"id": 4, "type": "opportunity", "active": True, "stage_id": 1, "tag_ids": [],
-     "partner_id": [103, "Cuenta Neither"]},
-    {"id": 5, "type": "opportunity", "active": True, "stage_id": 2, "tag_ids": [10],
-     "partner_id": [105, "Cuenta EsNo ConNN"]},
-    {"id": 6, "type": "opportunity", "active": True, "stage_id": 3, "tag_ids": [11],
-     "partner_id": [106, "Cuenta EsSi ConBI"]},
-    # Oportunidad de un CONTACTO (109) cuya empresa es 100 — debe colapsar,
-    # nunca aparecer como cuenta propia.
-    {"id": 7, "type": "opportunity", "active": True, "stage_id": 2, "tag_ids": [10],
-     "partner_id": [109, "Contacto"]},
-    {"id": 8, "type": "opportunity", "active": True, "stage_id": 2, "tag_ids": [10],
-     "partner_id": [110, "Cuenta Perfil"]},
-    # Perdida/inactiva — fuera del universo 0-8 activo, nunca debe colar una
-    # cuenta al perfil por sí sola.
-    {"id": 9, "type": "opportunity", "active": False, "stage_id": 2, "tag_ids": [10],
-     "partner_id": [103, "Cuenta Neither"]},
+     "partner_id": [105, "Cuenta Si Con BI"]},
+    # Oportunidad de un CONTACTO (106) cuya empresa es 100 — nunca debe
+    # generar una fila propia, ni siquiera sumar una SEGUNDA fila para 100
+    # (que ya entra por su propia property Es Cliente?=Sí).
+    {"id": 3, "type": "opportunity", "active": True, "stage_id": 2, "tag_ids": [10],
+     "partner_id": [106, "Contacto"]},
 ]
 
 
@@ -144,139 +129,89 @@ def _names(accounts: list[dict]) -> set[str]:
 
 
 # ============================================================================
-# TODOS — unión (A) pipeline activo + (B) Es Cliente?=Sí dormidas
+# Universo — Es Cliente?=Sí, punto. Nunca deriva de oportunidades/tags.
 # ============================================================================
 
-def test_todos_includes_every_account_with_active_pipeline():
+def test_includes_es_cliente_si_account_with_zero_opportunities():
     svc_module.clear_cache()
     profile = CommercialService(_client()).get_licensing_profile("todos")
-    names = _names(profile["accounts"])
-    for expected in ("Cuenta NN", "Cuenta BI", "Cuenta Both", "Cuenta Neither",
-                      "Cuenta EsNo ConNN", "Cuenta EsSi ConBI", "Cuenta Perfil"):
-        assert expected in names, expected
+    assert "Cuenta Si" in _names(profile["accounts"])
     svc_module.clear_cache()
 
 
-def test_todos_includes_dormant_es_cliente_si_account_with_zero_pipeline():
+def test_excludes_es_cliente_no_account():
     svc_module.clear_cache()
     profile = CommercialService(_client()).get_licensing_profile("todos")
-    assert "Cuenta Dormida Si" in _names(profile["accounts"])
+    assert "Cuenta No" not in _names(profile["accounts"])
     svc_module.clear_cache()
 
 
-def test_todos_excludes_dormant_ex_no_pipeline_account():
+def test_excludes_es_cliente_ex_account():
     svc_module.clear_cache()
     profile = CommercialService(_client()).get_licensing_profile("todos")
     assert "Cuenta Ex" not in _names(profile["accounts"])
     svc_module.clear_cache()
 
 
-def test_todos_excludes_dormant_blank_property_account():
+def test_excludes_blank_es_cliente_property_account():
     svc_module.clear_cache()
     profile = CommercialService(_client()).get_licensing_profile("todos")
     assert "Cuenta Blank" not in _names(profile["accounts"])
     svc_module.clear_cache()
 
 
-def test_todos_excludes_accounts_with_only_inactive_opportunities():
-    # La cuenta 103 tiene UNA opp activa (entra por eso) y una INACTIVA
-    # (perdida) — la inactiva sola nunca colaría una cuenta si no fuera por
-    # la activa. `partners=[]` acá aísla el caso: sin ninguna property
-    # "Es Cliente?" en el universo, el ÚNICO camino de entrada a Todos es
-    # pipeline activo — así que este test prueba EXCLUSIVAMENTE la regla de
-    # `active=True` en el dominio de oportunidades, sin que el componente
-    # (B) (dormidas Es Cliente?=Sí) lo contamine.
+def test_es_cliente_si_account_with_new_name_tagged_opportunity_still_included():
+    # Owner §6/§16.Q: la presencia/tag de una oportunidad NO tiene efecto
+    # sobre la elegibilidad — la cuenta entra SOLO por Es Cliente?=Sí.
     svc_module.clear_cache()
-    only_inactive_client = _client(leads=[l for l in LEADS if l["id"] == 9], partners=[])
-    profile = CommercialService(only_inactive_client).get_licensing_profile("todos")
-    assert profile["total"] == 0, "una oportunidad SOLO inactiva no genera ninguna cuenta"
+    profile = CommercialService(_client()).get_licensing_profile("todos")
+    assert "Cuenta Si Con NN" in _names(profile["accounts"])
     svc_module.clear_cache()
 
 
-# ============================================================================
-# NEW NAME — SOLO tag, nunca Es Cliente?
-# ============================================================================
-
-def test_new_name_includes_nn_tagged_account():
+def test_es_cliente_si_account_with_base_instalada_tagged_opportunity_still_included():
     svc_module.clear_cache()
-    nn = CommercialService(_client()).get_licensing_profile("nn")
-    assert "Cuenta NN" in _names(nn["accounts"])
+    profile = CommercialService(_client()).get_licensing_profile("todos")
+    assert "Cuenta Si Con BI" in _names(profile["accounts"])
     svc_module.clear_cache()
 
 
-def test_new_name_excludes_bi_only_account():
+def test_opportunity_licenciamiento_value_has_no_effect_on_profile_universe():
+    # Owner §4: "Licenciamiento is an opportunity-level concept and does not
+    # define the Profile universe" — probado quitando TODAS las
+    # oportunidades del fixture: el universo del Perfil no cambia un ápice.
     svc_module.clear_cache()
-    nn = CommercialService(_client()).get_licensing_profile("nn")
-    assert "Cuenta BI" not in _names(nn["accounts"])
-    svc_module.clear_cache()
-
-
-def test_new_name_excludes_neither_tag_account():
-    svc_module.clear_cache()
-    nn = CommercialService(_client()).get_licensing_profile("nn")
-    assert "Cuenta Neither" not in _names(nn["accounts"])
-    svc_module.clear_cache()
-
-
-def test_new_name_includes_both_tag_account():
-    svc_module.clear_cache()
-    nn = CommercialService(_client()).get_licensing_profile("nn")
-    assert "Cuenta Both" in _names(nn["accounts"])
-    svc_module.clear_cache()
-
-
-def test_es_cliente_no_does_not_prevent_new_name_membership():
-    # Owner §9 — el hallazgo central del audit: Es Cliente?=No NO implica
-    # "no es New Name". La cuenta 105 tiene el tag NN y debe aparecer en NN
-    # pese a que su property de cuenta diga "No".
-    svc_module.clear_cache()
-    nn = CommercialService(_client()).get_licensing_profile("nn")
-    assert "Cuenta EsNo ConNN" in _names(nn["accounts"])
+    with_opps = CommercialService(_client()).get_licensing_profile("todos")
+    without_opps = CommercialService(_client(leads=[])).get_licensing_profile("todos")
+    assert _names(with_opps["accounts"]) == _names(without_opps["accounts"])
     svc_module.clear_cache()
 
 
 # ============================================================================
-# BASE INSTALADA — SOLO tag, nunca Es Cliente?
+# Tipo (Todos/New Name/Base instalada) NO afecta el Perfil (owner §6)
 # ============================================================================
 
-def test_base_instalada_includes_bi_tagged_account():
+def test_todos_nn_bi_return_the_identical_account_set():
     svc_module.clear_cache()
-    bi = CommercialService(_client()).get_licensing_profile("bi")
-    assert "Cuenta BI" in _names(bi["accounts"])
-    svc_module.clear_cache()
-
-
-def test_base_instalada_excludes_nn_only_account():
-    svc_module.clear_cache()
-    bi = CommercialService(_client()).get_licensing_profile("bi")
-    assert "Cuenta NN" not in _names(bi["accounts"])
+    client = _client()
+    todos = CommercialService(client).get_licensing_profile("todos")
+    nn = CommercialService(client).get_licensing_profile("nn")
+    bi = CommercialService(client).get_licensing_profile("bi")
+    assert _names(todos["accounts"]) == _names(nn["accounts"]) == _names(bi["accounts"])
+    assert todos["total"] == nn["total"] == bi["total"]
     svc_module.clear_cache()
 
 
-def test_base_instalada_excludes_neither_tag_account():
+def test_switching_tipo_does_not_change_the_base_profile_account_set():
+    # Mismo test que arriba, desde el ángulo del owner ticket (§16.S): un
+    # cambio de Tipo global NUNCA redefine QUÉ cuentas son elegibles.
     svc_module.clear_cache()
-    bi = CommercialService(_client()).get_licensing_profile("bi")
-    assert "Cuenta Neither" not in _names(bi["accounts"])
-    svc_module.clear_cache()
-
-
-def test_base_instalada_includes_both_tag_account():
-    svc_module.clear_cache()
-    bi = CommercialService(_client()).get_licensing_profile("bi")
-    assert "Cuenta Both" in _names(bi["accounts"])
-    svc_module.clear_cache()
-
-
-def test_es_cliente_si_does_not_imply_base_instalada_membership():
-    # Owner §9, la mitad simétrica: Es Cliente?=Sí NO implica "es Base
-    # Instalada" para una cuenta SIN pipeline (104, dormida) — sólo entra a
-    # Todos (componente B), nunca a BI (que es puramente tag-derivado sobre
-    # oportunidades reales).
-    svc_module.clear_cache()
-    bi = CommercialService(_client()).get_licensing_profile("bi")
-    assert "Cuenta Dormida Si" not in _names(bi["accounts"])
-    # Y la que SÍ tiene el tag BI entra por el tag, no por la property.
-    assert "Cuenta EsSi ConBI" in _names(bi["accounts"])
+    client = _client()
+    for tipo in ("todos", "nn", "bi", "todos"):
+        profile = CommercialService(client).get_licensing_profile(tipo)
+        assert _names(profile["accounts"]) == {
+            "Cuenta Si", "Cuenta Si Con NN", "Cuenta Si Con BI", "Cuenta Perfil", "Cuenta Metadata Drift",
+        }
     svc_module.clear_cache()
 
 
@@ -289,29 +224,25 @@ def test_contact_opportunity_collapses_into_its_company_never_a_standalone_row()
     profile = CommercialService(_client()).get_licensing_profile("todos")
     names = _names(profile["accounts"])
     assert "Contacto" not in names, "un contacto nunca es una fila propia"
-    assert "Cuenta NN" in names
-    ids = [a["id"] for a in profile["accounts"] if a["name"] == "Cuenta NN"]
-    assert ids == [100], "la oportunidad del contacto se resolvió a la empresa 100"
+    assert "Cuenta Si" in names
+    ids = [a["id"] for a in profile["accounts"] if a["name"] == "Cuenta Si"]
+    assert ids == [100], "el contacto (106) colapsó a la empresa 100, sin duplicar la fila"
     svc_module.clear_cache()
 
 
-def test_one_row_per_account_even_with_multiple_opportunities():
-    # `partners=[p for p in PARTNERS if p["id"] == 100]` aísla el caso —
-    # sin las cuentas dormidas Es Cliente?=Sí del fixture general, así que
-    # el único camino a Todos es la MISMA cuenta 100, dos veces.
+def test_one_row_per_account_even_when_es_cliente_si_is_set_on_a_contact():
+    # `partners` acotado a 100 (empresa) + 106 (contacto, Es Cliente?=Sí
+    # propio) — sin las demás cuentas del fixture general, para aislar el
+    # caso: la property "Es Cliente?" en el CONTACTO también debe resolver
+    # a la empresa, nunca duplicar la fila.
     svc_module.clear_cache()
-    two_opps_same_account = _client(
-        leads=[
-            {"id": 1, "type": "opportunity", "active": True, "stage_id": 2, "tag_ids": [10],
-             "partner_id": [100, "Cuenta NN"]},
-            {"id": 2, "type": "opportunity", "active": True, "stage_id": 3, "tag_ids": [10],
-             "partner_id": [100, "Cuenta NN"]},
-        ],
-        partners=[p for p in PARTNERS if p["id"] == 100],
+    contact_only_client = _client(
+        leads=[],
+        partners=[p for p in PARTNERS if p["id"] in (100, 106)],
     )
-    profile = CommercialService(two_opps_same_account).get_licensing_profile("todos")
+    profile = CommercialService(contact_only_client).get_licensing_profile("todos")
     assert profile["total"] == 1
-    assert profile["accounts"][0]["name"] == "Cuenta NN"
+    assert profile["accounts"][0]["name"] == "Cuenta Si"
     svc_module.clear_cache()
 
 
@@ -321,11 +252,11 @@ def test_one_row_per_account_even_with_multiple_opportunities():
 
 def test_property_adapter_resolves_all_seven_typed_fields():
     # `arquitectura_actual` acá viaja con tags de TRES elementos
-    # (key/label/color, ver fixture `PARTNERS[110]`) — MISMA forma que Odoo
+    # (key/label/color, ver fixture `PARTNERS[107]`) — MISMA forma que Odoo
     # real (regresión: encontrado en vivo, `_tags_value` reventaba con pares
     # de 2 asumidos).
     svc_module.clear_cache()
-    profile = CommercialService(_client()).get_licensing_profile("nn")
+    profile = CommercialService(_client()).get_licensing_profile("todos")
     account = next(a for a in profile["accounts"] if a["name"] == "Cuenta Perfil")
     assert account["partner_de_licencia"] == "05 - SOFTTEK"
     assert account["ae_sap"] == "CF - BI - Alejandro Nuñez"
@@ -352,8 +283,8 @@ def test_tags_value_handles_three_element_odoo_tuples_directly():
 
 def test_missing_property_resolves_to_none_not_a_crash():
     svc_module.clear_cache()
-    profile = CommercialService(_client()).get_licensing_profile("nn")
-    account = next(a for a in profile["accounts"] if a["name"] == "Cuenta NN")
+    profile = CommercialService(_client()).get_licensing_profile("todos")
+    account = next(a for a in profile["accounts"] if a["name"] == "Cuenta Si")
     assert account["partner_de_licencia"] is None
     assert account["monto_contrato"] is None
     assert account["arquitectura_actual"] == []
@@ -362,15 +293,10 @@ def test_missing_property_resolves_to_none_not_a_crash():
 
 def test_metadata_drift_is_treated_as_absent_never_misinterpreted():
     # La property técnica EXISTE (mismo `name`) pero su `string` no coincide
-    # con el esperado — owner §10: "fail observably / emit a controlled
-    # degraded state", nunca interpretar metadata incompatible como si
-    # fuera la correcta.
+    # con el esperado — owner: "fail observably", nunca interpretar
+    # metadata incompatible como si fuera la correcta.
     svc_module.clear_cache()
-    drift_client = _client(leads=[
-        {"id": 1, "type": "opportunity", "active": True, "stage_id": 2, "tag_ids": [10],
-         "partner_id": [111, "Cuenta Metadata Drift"]},
-    ])
-    profile = CommercialService(drift_client).get_licensing_profile("nn")
+    profile = CommercialService(_client()).get_licensing_profile("todos")
     account = next(a for a in profile["accounts"] if a["name"] == "Cuenta Metadata Drift")
     assert account["monto_contrato"] is None, "string distinto -> tratado como ausente, nunca 999"
     svc_module.clear_cache()
@@ -383,7 +309,7 @@ def test_property_lookup_is_by_technical_name_not_by_label_alone():
 
 
 # ============================================================================
-# Batching — cero N+1
+# Batching — cero N+1, y ya NO toca crm.lead/crm.stage/crm.tag
 # ============================================================================
 
 def test_licensing_profile_issues_a_bounded_number_of_odoo_calls():
@@ -392,11 +318,24 @@ def test_licensing_profile_issues_a_bounded_number_of_odoo_calls():
     CommercialService(client).get_licensing_profile("todos")
     models_called = [call[0] for call in client.calls]
     partner_calls = [m for m in models_called if m == "res.partner"]
-    # UN read de opciones (stages) + UN read de leads + a lo sumo DOS reads
-    # de res.partner (batch principal + segunda pasada acotada de empresas
-    # huérfanas) — nunca uno por cuenta (13 cuentas en el fixture).
+    # A lo sumo DOS reads de res.partner (batch principal + segunda pasada
+    # acotada de empresas huérfanas) — nunca uno por cuenta.
     assert len(partner_calls) <= 2, f"se esperaban <=2 lecturas de res.partner, hubo {len(partner_calls)}"
-    assert models_called.count("crm.lead") == 1
+    svc_module.clear_cache()
+
+
+def test_licensing_profile_no_longer_reads_opportunities_or_tags():
+    # Owner "Final Business Semantics Realignment" §12: "Do not infer
+    # client status from opportunity tags... presence of opportunities...
+    # Base instalada" — el universo es puramente account-native ahora, así
+    # que `crm.lead`/`crm.stage`/`crm.tag` NUNCA deberían tocarse.
+    svc_module.clear_cache()
+    client = _client()
+    CommercialService(client).get_licensing_profile("todos")
+    models_called = {call[0] for call in client.calls}
+    assert "crm.lead" not in models_called
+    assert "crm.stage" not in models_called
+    assert "crm.tag" not in models_called
     svc_module.clear_cache()
 
 
@@ -421,7 +360,7 @@ def test_get_licensing_profile_requires_configuration():
 def test_get_licensing_profile_wraps_transport_failure():
     svc_module.clear_cache()
     client = _client()
-    client.raise_on("crm.lead", stage="execute")
+    client.raise_on("res.partner", stage="execute")
     with pytest.raises(CommercialDataError):
         CommercialService(client).get_licensing_profile("todos")
     svc_module.clear_cache()
@@ -436,6 +375,15 @@ def test_invalid_tipo_falls_back_to_todos():
     svc_module.clear_cache()
 
 
+def test_empty_es_cliente_universe_returns_zero_accounts_for_all_tipos():
+    svc_module.clear_cache()
+    client = _client(leads=[], partners=[])
+    for tipo in ("todos", "nn", "bi"):
+        profile = CommercialService(client).get_licensing_profile(tipo)
+        assert profile == {"accounts": [], "total": 0}
+    svc_module.clear_cache()
+
+
 def test_licensing_profile_endpoint_is_independent_from_opportunities_detail():
     router_src = (
         Path(__file__).resolve().parents[2] / "webapp" / "routers" / "commercial.py"
@@ -447,14 +395,11 @@ def test_licensing_profile_endpoint_is_independent_from_opportunities_detail():
     assert "get_opportunities_detail" not in endpoint_body
 
 
-def test_licensing_profile_never_writes_and_reads_only_known_models():
+def test_licensing_profile_never_writes_and_reads_only_res_partner():
     block = _COMMERCIAL_SERVICE_PY_SRC.split("def _build_licensing_profile(", 1)[1].split(
         "\n    def get_licensing_profile", 1)[0]
     for banned in (".create(", ".write(", ".unlink(", "execute_kw"):
         assert banned not in block, banned
-    # `crm.tag` se resuelve vía `self._nn_bi_tags()` (llamada, no literal
-    # inline acá) — MISMO criterio que Forecast/Prospectos/Detalle, nunca
-    # una segunda resolución de tags.
-    for model in ('"res.partner"', '"crm.lead"', '"crm.stage"'):
-        assert model in block, model
-    assert "self._nn_bi_tags()" in block
+    assert '"res.partner"' in block
+    for banned_model in ('"crm.lead"', '"crm.stage"', '"crm.tag"'):
+        assert banned_model not in block, banned_model

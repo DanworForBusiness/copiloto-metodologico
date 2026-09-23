@@ -365,22 +365,21 @@ def test_commercial_js_never_touches_the_progress_dom_or_defines_its_own_loader(
     # su propio host `[data-commercial-{licencias,licprofile}-count]` — dos
     # hosts nuevos, pero reusados por los CUATRO listeners que ya tocaban la
     # tabla (change × 2, input × 2), cero host nuevo por listener.
-    # Explicit Licensing Filter + Profile Scope (ver HANDOFF — Commercial
-    # Licensing) agrega DOS más: `commercialLicensingProfileRefreshIfScoped`
-    # (llamada desde los delegados de Licenciamiento/Etapa/Vendedor/Buscar de
-    # Oportunidades) re-renderiza `[data-commercial-licprofile-table]` +
-    # `[data-commercial-licprofile-count]` cuando el Alcance del Perfil es
-    # "visible-opportunities" — DOS hosts nuevos (no-op si el Alcance es
-    # "all", el default), reusados por los TRES listeners que la invocan
-    # (Etapa/Vendedor, Licenciamiento, Buscar), cero host nuevo por listener.
+    # Owner ticket "Final Business Semantics Realignment" (ver HANDOFF —
+    # Commercial Licensing) RESTA dos: se retiraron el selector
+    # "Licenciamiento" (Tabla A vuelve al predicado FIJO
+    # `licencias === "Si"`) y el selector "Alcance" (Tabla B vuelve a su
+    # universo FIJO `Es Cliente?=Sí`, resuelto server-side) — con ellos se
+    # fue `commercialLicensingProfileRefreshIfScoped`/
+    # `commercialLicensingProfileRefresh` (la función que sincronizaba el
+    # Perfil cuando los filtros de Oportunidades cambiaban) COMPLETA, sus
+    # DOS hosts. Las dos tablas vuelven a ser universos 100% independientes.
     # El contrato sigue siendo explícito, no aproximado: se permiten
-    # EXACTAMENTE estos ochenta y uno hooks y nada más.
+    # EXACTAMENTE estos setenta y nueve hooks y nada más.
     assert queries == [
         '`[data-section-id="${sectionId}"]`',
         '".chart-tooltip"',
         '\'[data-event="forecast"].is-active\'',
-        '"[data-commercial-licprofile-table]"',
-        '"[data-commercial-licprofile-count]"',
         'originSelector',
         '`[data-breakdown="${trigger.dataset.event}"]`',
         '`[data-event="${trigger.dataset.event}"]`',

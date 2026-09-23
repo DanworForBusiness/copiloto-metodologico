@@ -2973,23 +2973,23 @@ class CommercialService:
             raise CommercialDataError(str(exc), stage=exc.stage) from exc
         return views[tipo]
 
-    # ── Account Licensing Profile (ver HANDOFF — Commercial Licensing) ──────
-    # Grain: `commercial_partner_id` (owner-confirmed canonical account
-    # identity, MISMO criterio que Clientes/Ex Clientes — ver
-    # `_expand_partner_ids_with_contacts`). Universo por `tipo` — owner
-    # decision explícita tras el audit de semántica: acá `tipo` SÍ filtra
-    # (a diferencia del camino primario de Clientes, que lo ignora — esa
-    # inconsistencia es deuda de UX preexistente, NO se replica acá):
-    #   - "nn"/"bi": cuentas derivadas de oportunidades con el tag New Name/
-    #     Base Instalada respectivamente (MISMO `_in_tag`/`_nn_bi_tags` que
-    #     el resto de Comercial — nunca `Es Cliente?`, que es una dimensión
-    #     DISTINTA, ver audit).
-    #   - "todos": UNIÓN de (A) toda cuenta con alguna oportunidad activa
-    #     0-8 Y (B) toda cuenta con `Es Cliente? = Sí` aunque no tenga pipeline
-    #     activo hoy — a propósito, para descubrir licenciamiento en cuentas
-    #     dormidas (owner: "supports licensing whitespace discovery").
-    # `Es Cliente?` NO es un filtro visible en v1 (owner decisión) — sólo se
-    # usa acá, internamente, para construir el componente (B) de "todos".
+    # ── Account Licensing Profile (ver HANDOFF — Commercial Licensing,
+    # owner ticket "Final Business Semantics Realignment") ──────────────────
+    # Grain: `commercial_partner_id` (canonical account identity, MISMO
+    # criterio que Clientes/Ex Clientes — ver `_expand_partner_ids_with_
+    # contacts`). Universo ÚNICO y PERMANENTE:
+    #
+    #   toda cuenta canónica con `Es Cliente? = Sí`
+    #
+    # — punto. Ya NO deriva de oportunidades/tags en absoluto (owner: "Do
+    # not infer client status from opportunity tags/Licenciamiento/presence
+    # of opportunities/account name/Base instalada"). `tipo` (Todos/New
+    # Name/Base instalada) es una clasificación de OPORTUNIDAD — el Perfil
+    # es explícitamente account-native y NO varía con `tipo` (owner §6:
+    # "This is intentional, not a bug"), MISMO criterio que YA usa
+    # `get_clients` en su camino primario (`_build_clients`, arriba: las
+    # tres vistas devuelven el MISMO `todos_view` — acá replicamos ESE
+    # patrón ya aceptado, en vez de inventar uno nuevo).
     def _licensing_account_property_row(self, partner: dict) -> dict:
         props = partner.get("properties")
         currency = partner.get("currency_id")
@@ -3008,42 +3008,26 @@ class CommercialService:
         return row
 
     def _build_licensing_profile(self) -> dict:
-        all_stages = self._client.search_read("crm.stage", [], fields=["id", "name"])
-        stage_ids = [s["id"] for s in all_stages if _stage_first_char(s) in "012345678"]
-        nn_tag, bi_tag = self._nn_bi_tags()
-        nn_id = nn_tag["id"] if nn_tag else None
-        bi_id = bi_tag["id"] if bi_tag else None
-
-        opps = (
-            self._client.search_read(
-                "crm.lead",
-                domain=[["type", "=", "opportunity"], ["active", "=", True], ["stage_id", "in", stage_ids]],
-                fields=["partner_id", "tag_ids"],
-            )
-            if stage_ids else []
-        )
-        raw_pipeline_ids = {o["partner_id"][0] for o in opps if o.get("partner_id")}
-        raw_nn_ids = {o["partner_id"][0] for o in opps if o.get("partner_id") and self._in_tag(o, nn_id)}
-        raw_bi_ids = {o["partner_id"][0] for o in opps if o.get("partner_id") and self._in_tag(o, bi_id)}
-
-        # `Es Cliente? = Sí` — MISMO helper que Clientes, cero segundo parser.
-        # `None` (property no configurada en esta instancia) se trata como
-        # "sin cuentas dormidas para sumar", nunca como el fallback de
-        # Clientes ("todas las oportunidades activas") — ese fallback no
-        # tiene sentido acá: (B) es específicamente sobre cuentas SIN
-        # oportunidad.
+        # `Es Cliente? = Sí` — MISMO helper que Clientes, cero segundo
+        # parser. `None` (property no configurada en esta instancia) es un
+        # universo vacío acá (a diferencia de Clientes, que cae a "todas las
+        # oportunidades activas" — ese fallback no tiene sentido para un
+        # Perfil explícitamente account-native, sin ninguna noción de
+        # oportunidad de la que caer).
         es_cliente_si_ids = self._partner_ids_by_cliente_value(self._CLIENTE_SI_LABELS) or []
+        if not es_cliente_si_ids:
+            empty = {"accounts": [], "total": 0}
+            return {"todos": empty, "nn": empty, "bi": empty}
 
-        # UN solo batch read por las dos razones que necesitan `res.partner`
-        # (pipeline + Es Cliente? dormidas) — nunca dos consultas separadas.
-        union_ids = list(raw_pipeline_ids | set(es_cliente_si_ids))
+        # UN solo batch read — sin oportunidades/tags de por medio, nunca
+        # N+1 (una única consulta `res.partner`, MISMO patrón que el resto
+        # de Comercial).
         partners_by_id: dict[int, dict] = {}
-        if union_ids:
-            for p in self._client.search_read(
-                "res.partner", domain=[["id", "in", union_ids]],
-                fields=["id", "name", "user_id", "commercial_partner_id", "properties", "currency_id"],
-            ):
-                partners_by_id[p["id"]] = p
+        for p in self._client.search_read(
+            "res.partner", domain=[["id", "in", es_cliente_si_ids]],
+            fields=["id", "name", "user_id", "commercial_partner_id", "properties", "currency_id"],
+        ):
+            partners_by_id[p["id"]] = p
 
         def _resolve_account_id(raw_id: int) -> int:
             p = partners_by_id.get(raw_id)
@@ -3051,19 +3035,14 @@ class CommercialService:
                 return p["commercial_partner_id"][0]
             return raw_id
 
-        accounts_pipeline = {_resolve_account_id(pid) for pid in raw_pipeline_ids}
-        accounts_nn = {_resolve_account_id(pid) for pid in raw_nn_ids}
-        accounts_bi = {_resolve_account_id(pid) for pid in raw_bi_ids}
-        accounts_es_cliente_si = {_resolve_account_id(pid) for pid in es_cliente_si_ids}
-        accounts_todos = accounts_pipeline | accounts_es_cliente_si
+        account_ids = {_resolve_account_id(pid) for pid in es_cliente_si_ids}
 
         # Segunda pasada, acotada: cuentas resueltas por `commercial_partner_id`
-        # cuyo PROPIO registro (con sus properties) todavía no está en el
-        # batch de arriba — sólo ocurre si el id crudo de origen era un
-        # CONTACTO cuya empresa no venía en `union_ids`. En el caso común
-        # (Es Cliente?/pipeline ya devuelven ids de empresa) esto no agrega
+        # cuyo PROPIO registro todavía no está en el batch de arriba — sólo
+        # ocurre si el id crudo de origen era un CONTACTO cuya empresa no
+        # tenía `Es Cliente?` propio. En el caso común esto no agrega
         # ninguna consulta.
-        missing_account_ids = [aid for aid in accounts_todos if aid not in partners_by_id]
+        missing_account_ids = [aid for aid in account_ids if aid not in partners_by_id]
         if missing_account_ids:
             for p in self._client.search_read(
                 "res.partner", domain=[["id", "in", missing_account_ids]],
@@ -3071,18 +3050,13 @@ class CommercialService:
             ):
                 partners_by_id[p["id"]] = p
 
-        def _row_for(account_id: int) -> dict:
-            partner = partners_by_id.get(account_id, {"id": account_id, "name": "Sin nombre"})
-            row = self._licensing_account_property_row(partner)
-            row["_es_cliente_si"] = account_id in accounts_es_cliente_si
-            row["_has_active_pipeline"] = account_id in accounts_pipeline
-            return row
-
-        def _partition(account_ids: set) -> dict:
-            rows = sorted((_row_for(aid) for aid in account_ids), key=lambda r: r["name"].lower())
-            return {"accounts": rows, "total": len(rows)}
-
-        return {"todos": _partition(accounts_todos), "nn": _partition(accounts_nn), "bi": _partition(accounts_bi)}
+        rows = sorted(
+            (self._licensing_account_property_row(partners_by_id.get(aid, {"id": aid, "name": "Sin nombre"}))
+             for aid in account_ids),
+            key=lambda r: r["name"].lower(),
+        )
+        view = {"accounts": rows, "total": len(rows)}
+        return {"todos": view, "nn": view, "bi": view}
 
     def get_licensing_profile(self, tipo: str = "todos") -> dict:
         if tipo not in _TIPOS:

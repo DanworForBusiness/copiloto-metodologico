@@ -45,7 +45,7 @@ vm.createContext(sandbox);
 vm.runInContext(src, sandbox, { filename: "commercial.js" });
 
 const {
-  commercialLicenciasAllRows, commercialLicenciasFilteredRows, commercialDetalleAllRows, commercialSetCapability,
+  commercialLicenciasAllRows, commercialDetalleAllRows, commercialSetCapability,
   commercialLicenciasHtml, commercialDetalleHtml, commercialLoadOpportunitiesDetail,
 } = sandbox;
 const commercialState = vm.runInContext("commercialState", sandbox);
@@ -88,11 +88,9 @@ function resetState(patch) {
   commercialState.opportunitiesDetailStatus = "idle";
   commercialState.opportunitiesDetailErrorState = "";
   commercialState.licSearchText = ""; commercialState.licStageFilter = ""; commercialState.licSellerFilter = "";
-  commercialState.licLicenciamientoFilter = "si";
   commercialState.licensingProfile = null;
   commercialState.licensingProfileStatus = "idle";
   commercialState.licensingProfileErrorState = "";
-  commercialState.licProfileScope = "all";
   commercialState.licensingDrilldownAccountId = null;
   commercialState.licensingDrilldownOrigin = null;
   commercialState.detSearchText = ""; commercialState.detStageFilter = ""; commercialState.detSellerFilter = "";
@@ -100,21 +98,18 @@ function resetState(patch) {
 }
 
 // ═══ A) Licencias — oráculo del filtro client-side, universo NO degenerado ═
-// Owner "Explicit Licensing Filter + Profile Scope" (ver HANDOFF): el viejo
-// hardcode `licencias === "Si"` en `commercialLicenciasAllRows` pasó a ser
-// el filtro EXPLÍCITO "Licenciamiento" (`commercialLicenciasFilteredRows`),
-// default "si" — reproduce EXACTO el comportamiento viejo. `AllRows` ahora
-// es el universo CRUDO, igual que Detalle.
+// Owner "Final Business Semantics Realignment" (ver HANDOFF): el selector
+// "Licenciamiento" se retiró — `commercialLicenciasAllRows` vuelve a
+// aplicar el predicado FIJO `licencias === "Si"`, MISMO invariante
+// original.
 {
   resetState({ opportunitiesDetail: OPP_DETAIL_PAYLOAD, opportunitiesDetailStatus: "ready" });
-  const rawRows = commercialLicenciasAllRows();
-  assertTrue(rawRows.length === 5, "AllRows es el universo CRUDO, sin filtrar — igual que Detalle");
-  const licRows = commercialLicenciasFilteredRows();
+  const licRows = commercialLicenciasAllRows();
   const names = licRows.map(r => r.opportunity).sort();
   assertTrue(names.join("|") === ["Ganada Con Licencia", "Prospecto Con Licencia", "Suspendida Con Licencia"].sort().join("|"),
-    `Licenciamiento=Sí (default) == licencias==="Si", atravesando prospecto/activa/suspendida/ganada (got ${names.join(",")})`);
-  assertTrue(!names.includes("Activa Sin Licencia"), 'licencias="No" queda afuera del default "si"');
-  assertTrue(!names.includes("Sin Property Licencias"), '"Sin definir" queda afuera del default "si" (nunca "Si" laxo)');
+    `Licencias == licencias==="Si", atravesando prospecto/activa/suspendida/ganada (got ${names.join(",")})`);
+  assertTrue(!names.includes("Activa Sin Licencia"), 'licencias="No" queda afuera');
+  assertTrue(!names.includes("Sin Property Licencias"), '"Sin definir" queda afuera (nunca "Si" laxo)');
   // Detalle Oportunidades: el universo COMPLETO, sin el filtro de Licencias.
   const detRows = commercialDetalleAllRows();
   assertTrue(detRows.length === 5, "Detalle Oportunidades muestra las 5 filas, sin filtrar por Licencias");
