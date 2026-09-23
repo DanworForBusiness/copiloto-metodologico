@@ -841,3 +841,59 @@ def human_capital_profile_documents_retry_commit(request: Request, profile_id: s
             request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
         )
     return RedirectResponse(url=f"/human-capital/profiles/{profile_id}/edit", status_code=303)
+
+
+# Delete (Fase 4.1.2, ver HANDOFF): MISMO idioma que upload/retry -- router
+# liviano, nunca conoce Graph/site_id/drive_id/item_id, sólo resuelve
+# Request/valida admisión/traduce excepciones. `document_id` es un segmento
+# de PATH propio (nunca un campo de form) -- la identidad de QUÉ borrar es
+# de la URL, nunca de un valor que el body pudiera falsificar para otro
+# documento. `ProfileDocumentNotFoundError` -> 404 real (nunca un
+# document_state renderizado: no hay nada que reintentar sobre un id que no
+# existe o no es de este Profile).
+@router.post(
+    "/human-capital/profiles/{profile_id}/documents/{document_id}/delete",
+    response_class=HTMLResponse, include_in_schema=False,
+)
+async def human_capital_profile_documents_delete(
+    request: Request, profile_id: str, document_id: str, graph_token: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    profile = _profile_or_404(profile_id)
+    if not graph_token:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile,
+            document_state={
+                "kind": "GRAPH_PERMISSION_DENIED",
+                "message": "No pudimos obtener autorización de Microsoft 365 para borrar el documento. Volvé a iniciar sesión.",
+            },
+        )
+    try:
+        profile_document_service.delete_document(
+            profile_id=profile_id, document_id=document_id, access_token=graph_token,
+        )
+    except profile_document_service.ProfileDocumentNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except profile_document_service.ProfileDocumentConfigIncompleteError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "CONFIG_INCOMPLETE", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentDeletePermissionDeniedError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "GRAPH_PERMISSION_DENIED", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentDeleteGraphSourceError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "GRAPH_SOURCE_ERROR", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentDeletePhysicalOutcomeUnknownError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "DELETE_OUTCOME_UNKNOWN", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentMetadataDeleteOutcomeUnknownError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "DELETE_OUTCOME_UNKNOWN", "message": str(exc)},
+        )
+    return RedirectResponse(url=f"/human-capital/profiles/{profile_id}/edit", status_code=303)

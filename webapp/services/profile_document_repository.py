@@ -107,6 +107,31 @@ class ProfileDocumentIdConflictError(Exception):
     `profile_repository.ProfileIdConflictError`."""
 
 
+class ProfileDocumentDeleteOutcomeUnknownError(Exception):
+    """`delete()` confirmó el borrado remoto ni en el intento inicial ni en
+    un único reintento — MISMO significado semántico que
+    `ProfileDocumentRemoteOutcomeUnknownError` para `create()`, pero en
+    sentido inverso: acá el archivo local todavía NO se tocó (a diferencia
+    de create, que sí escribe y después revierte ante ambigüedad) — ver
+    `delete()` para el orden exacto. El caller (`profile_document_service.
+    delete_document`) debe tratar esto como "la metadata sigue intacta,
+    reintentable" — nunca borra el archivo local sin la confirmación
+    remota primero."""
+
+
+def _document_delete_orphan_cleanup(path: Path) -> None:
+    """Best-effort: intenta limpiar un objeto remoto huérfano (de un
+    `delete()` previo que haya confirmado el borrado remoto pero se haya
+    interrumpido ANTES de borrar el archivo local — no debería poder pasar
+    con el orden actual de `delete()`, pero es gratis cubrirlo). Nunca
+    lanza — `delete()` sobre un `document_id` que ya no existe es SIEMPRE
+    un no-op exitoso."""
+    try:
+        remote_store.delete_path(path)
+    except Exception as exc:  # noqa: BLE001 — best-effort, nunca bloquea el no-op
+        _logger.warning("human_capital.profile_document_delete_orphan_cleanup_failed reason=%s", type(exc).__name__)
+
+
 def _canonical_fields_match(existing: dict, candidate: dict) -> bool:
     return all(existing.get(field) == candidate.get(field) for field in _CANONICAL_FIELDS)
 
@@ -265,3 +290,45 @@ def create_with_explicit_id(document_id: str, document: dict) -> tuple[dict, boo
                 f"El documento {document_id} ya existe con datos distintos a los de este intento."
             )
         return _create_locked(document_id, document), True
+
+
+def delete(document_id: str) -> bool:
+    """Elimina la metadata persistida de un ProfileDocument. IDEMPOTENTE
+    por diseño — invariante no negociable, simétrica a `create_with_
+    explicit_id`: un segundo `delete()` del MISMO `document_id` (o un
+    `delete()` sobre un `document_id` que nunca existió) es SIEMPRE un
+    no-op exitoso, `False`, NUNCA una excepción — a diferencia de create,
+    acá "ya no está" nunca es un conflicto.
+
+    Bajo `_write_lock` (misma sección crítica que create: leer estado
+    actual → mutar disco → confirmar remoto):
+      1. Si el archivo local NO existe: no-op — se intenta igual un borrado
+         remoto best-effort (cubre un objeto huérfano de un `delete()`
+         previo interrumpido tras confirmar lo remoto pero antes de borrar
+         el archivo local) y devuelve `False`.
+      2. Si existe: PRIMERO confirma el borrado remoto (intento + un único
+         reintento, MISMO contrato de durabilidad que `create()` pero
+         INVERTIDO en el orden — remoto antes que local, nunca al revés,
+         así que ante ambigüedad remota el archivo local queda INTACTO,
+         nunca a medio borrar). Si Spaces está deshabilitado no
+         hay nada remoto que confirmar (a diferencia de create, donde
+         deshabilitado bloquea la operación entera vía CONFIG_INCOMPLETE —
+         acá el archivo YA es local-only, borrarlo localmente basta). Sólo
+         tras la confirmación remota (o Spaces deshabilitado) se borra el
+         archivo local, y devuelve `True`."""
+    with _write_lock:
+        path = _document_path(document_id)
+        if not path.exists():
+            _document_delete_orphan_cleanup(path)
+            return False
+        if remote_store.enabled():
+            if not remote_store.delete_path(path):
+                if not remote_store.delete_path(path):
+                    raise ProfileDocumentDeleteOutcomeUnknownError(
+                        "No pudimos confirmar el borrado remoto de este documento. Podés reintentar la eliminación."
+                    )
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise ProfileDocumentStorageError(f"No se pudo borrar el documento: {exc}") from exc
+        return True

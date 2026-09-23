@@ -441,3 +441,211 @@ def test_retry_commit_config_incomplete_reissues_available_state(monkeypatch):
     )
     assert retry_response.status_code == 200
     assert 'data-error-kind="config_incomplete"' in retry_response.text
+
+
+# ============================================================================
+# Delete (Fase 4.1.2)
+# ============================================================================
+
+def _delete(client: TestClient, profile_id: str, document_id: str, *, graph_token="tok"):
+    form = {}
+    if graph_token is not None:
+        form["graph_token"] = graph_token
+    return client.post(
+        f"/human-capital/profiles/{profile_id}/documents/{document_id}/delete", data=form, follow_redirects=False,
+    )
+
+
+def _uploaded_document_id(client: TestClient, profile_id: str) -> str:
+    # Vía el repository directo -- MÁS robusto que scrapear el HTML
+    # (evita depender de cuántas veces aparece "/documents/" en la página).
+    docs = profile_document_repository.list_for_profile(profile_id)
+    assert docs, "no hay ningún documento subido para este profile_id"
+    return docs[0]["document_id"]
+
+
+def test_delete_anonymous_redirects_to_login():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    _upload(client, profile["profile_id"])
+    document_id = _uploaded_document_id(client, profile["profile_id"])
+    anon = TestClient(app)
+    response = _delete(anon, profile["profile_id"], document_id)
+    assert response.status_code in (302, 303)
+
+
+def test_delete_unlisted_user_is_denied_with_403():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    _upload(client, profile["profile_id"])
+    document_id = _uploaded_document_id(client, profile["profile_id"])
+    response = _delete(_client_as("unlisted@danwor.com"), profile["profile_id"], document_id)
+    assert response.status_code == 403
+
+
+def test_delete_missing_document_is_404():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    response = _delete(client, profile["profile_id"], "does-not-exist")
+    assert response.status_code == 404
+
+
+def test_delete_document_belonging_to_a_different_profile_is_404():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile_a = _create_profile(client, first_name="Ana")
+    profile_b = _create_profile(client, first_name="Bea")
+    _upload(client, profile_a["profile_id"])
+    document_id = _uploaded_document_id(client, profile_a["profile_id"])
+    response = _delete(client, profile_b["profile_id"], document_id)
+    assert response.status_code == 404
+
+
+def test_delete_missing_graph_token_shows_permission_denied_state():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    _upload(client, profile["profile_id"])
+    document_id = _uploaded_document_id(client, profile["profile_id"])
+    response = _delete(client, profile["profile_id"], document_id, graph_token=None)
+    assert response.status_code == 200
+    assert 'data-error-kind="graph_permission_denied"' in response.text
+
+
+def test_delete_success_redirects_and_removes_the_document_from_the_list(monkeypatch):
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    _upload(client, profile["profile_id"])
+    document_id = _uploaded_document_id(client, profile["profile_id"])
+    monkeypatch.setattr(profile_document_service.microsoft365, "graph_delete", lambda url, token: None)
+    response = _delete(client, profile["profile_id"], document_id)
+    assert response.status_code == 303
+    edit_page = client.get(f"/human-capital/profiles/{profile['profile_id']}/edit")
+    assert "cv.pdf" not in edit_page.text
+    assert "Todavía no hay documentos" in edit_page.text
+
+
+def test_delete_graph_404_still_succeeds_and_removes_metadata(monkeypatch):
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    _upload(client, profile["profile_id"])
+    document_id = _uploaded_document_id(client, profile["profile_id"])
+
+    def _raise_404(url, token):
+        raise _http_error(404)
+
+    monkeypatch.setattr(profile_document_service.microsoft365, "graph_delete", _raise_404)
+    response = _delete(client, profile["profile_id"], document_id)
+    assert response.status_code == 303
+    edit_page = client.get(f"/human-capital/profiles/{profile['profile_id']}/edit")
+    assert "Todavía no hay documentos" in edit_page.text
+
+
+def test_delete_graph_401_shows_permission_denied_and_keeps_the_document_listed(monkeypatch):
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    _upload(client, profile["profile_id"])
+    document_id = _uploaded_document_id(client, profile["profile_id"])
+
+    def _raise_401(url, token):
+        raise _http_error(401)
+
+    monkeypatch.setattr(profile_document_service.microsoft365, "graph_delete", _raise_401)
+    response = _delete(client, profile["profile_id"], document_id)
+    assert response.status_code == 200
+    assert 'data-error-kind="graph_permission_denied"' in response.text
+    edit_page = client.get(f"/human-capital/profiles/{profile['profile_id']}/edit")
+    assert "cv.pdf" in edit_page.text
+
+
+def test_delete_graph_403_shows_permission_denied_and_keeps_the_document_listed(monkeypatch):
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    _upload(client, profile["profile_id"])
+    document_id = _uploaded_document_id(client, profile["profile_id"])
+
+    def _raise_403(url, token):
+        raise _http_error(403)
+
+    monkeypatch.setattr(profile_document_service.microsoft365, "graph_delete", _raise_403)
+    response = _delete(client, profile["profile_id"], document_id)
+    assert response.status_code == 200
+    assert 'data-error-kind="graph_permission_denied"' in response.text
+    edit_page = client.get(f"/human-capital/profiles/{profile['profile_id']}/edit")
+    assert "cv.pdf" in edit_page.text
+
+
+def test_delete_graph_source_error_shows_no_disponible_and_keeps_the_document_listed(monkeypatch):
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    _upload(client, profile["profile_id"])
+    document_id = _uploaded_document_id(client, profile["profile_id"])
+
+    def _raise_500(url, token):
+        raise _http_error(500)
+
+    monkeypatch.setattr(profile_document_service.microsoft365, "graph_delete", _raise_500)
+    response = _delete(client, profile["profile_id"], document_id)
+    assert response.status_code == 200
+    assert 'data-error-kind="source_error"' in response.text
+    edit_page = client.get(f"/human-capital/profiles/{profile['profile_id']}/edit")
+    assert "cv.pdf" in edit_page.text
+
+
+def test_delete_transport_ambiguity_shows_outcome_unknown_and_keeps_the_document_listed(monkeypatch):
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    _upload(client, profile["profile_id"])
+    document_id = _uploaded_document_id(client, profile["profile_id"])
+
+    def _raise_transport(url, token):
+        raise urllib.error.URLError("network blip")
+
+    monkeypatch.setattr(profile_document_service.microsoft365, "graph_delete", _raise_transport)
+    response = _delete(client, profile["profile_id"], document_id)
+    assert response.status_code == 200
+    assert 'data-document-error-kind="DELETE_OUTCOME_UNKNOWN"' in response.text
+    edit_page = client.get(f"/human-capital/profiles/{profile['profile_id']}/edit")
+    assert "cv.pdf" in edit_page.text
+
+
+def test_delete_retry_after_transport_ambiguity_succeeds(monkeypatch):
+    # Idempotencia end-to-end: reintentar la MISMA acción "Eliminar" tras
+    # una ambigüedad de transporte termina borrando el documento igual --
+    # sin token propio, el usuario simplemente reenvía el mismo form.
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    _upload(client, profile["profile_id"])
+    document_id = _uploaded_document_id(client, profile["profile_id"])
+
+    def _raise_transport(url, token):
+        raise urllib.error.URLError("network blip")
+
+    monkeypatch.setattr(profile_document_service.microsoft365, "graph_delete", _raise_transport)
+    _delete(client, profile["profile_id"], document_id)
+
+    monkeypatch.setattr(profile_document_service.microsoft365, "graph_delete", lambda url, token: None)
+    response = _delete(client, profile["profile_id"], document_id)
+    assert response.status_code == 303
+    edit_page = client.get(f"/human-capital/profiles/{profile['profile_id']}/edit")
+    assert "Todavía no hay documentos" in edit_page.text
+
+
+def test_delete_config_incomplete_shows_no_disponible(monkeypatch):
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    _upload(client, profile["profile_id"])
+    document_id = _uploaded_document_id(client, profile["profile_id"])
+    monkeypatch.setattr(config, "HC_SHAREPOINT_SITE_ID", "")
+    response = _delete(client, profile["profile_id"], document_id)
+    assert response.status_code == 200
+    assert 'data-error-kind="config_incomplete"' in response.text
+
+
+def test_edit_page_lists_document_size_and_a_delete_button():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    _upload(client, profile["profile_id"])
+    response = client.get(f"/human-capital/profiles/{profile['profile_id']}/edit")
+    assert response.status_code == 200
+    assert "data-hc-document-delete-form" in response.text
+    # `_PDF_BYTES` tiene menos de 1 KiB -- filesizeformat lo expresa en Bytes.
+    assert "Bytes" in response.text

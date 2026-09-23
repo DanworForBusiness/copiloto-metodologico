@@ -162,6 +162,129 @@ class RetryTokenError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# Delete (Fase 4.1.2, ver HANDOFF): borrado end-to-end de UN ProfileDocument.
+# Orden ESTRICTO, no negociable (ticket): físico primero, metadata después.
+# Nunca al revés — borrar la metadata antes de confirmar el físico dejaría
+# un archivo huérfano en SharePoint sin registro, invisible para el Hub
+# pero consumiendo espacio/permaneciendo accesible por `web_url` si alguien
+# lo guardó. IDENTIDAD del documento a borrar: SIEMPRE `profile_id` +
+# `document_id` (nunca filename/URL) — y el `site_id`/`drive_id`/`item_id`
+# usados para el DELETE físico salen de la metadata YA PERSISTIDA de ESE
+# documento, nunca de `config.HC_*` vigente (que podría haber rotado desde
+# que el documento se creó — la identidad canónica de un documento es la
+# que quedó fijada en el momento de su propio commit, ver
+# `_commit_uploaded_document`). Sin retry token propio (a diferencia de
+# upload/commit): `delete_document` es naturalmente idempotente por
+# `document_id` — un DELETE de Graph sobre un item ya borrado responde 404,
+# que este mismo código ya trata como éxito, así que un reintento EXTERNO
+# (el usuario repitiendo la acción "Eliminar") es siempre seguro sin
+# necesitar un token firmado que preserve estado entre requests.
+# ---------------------------------------------------------------------------
+
+
+class ProfileDocumentNotFoundError(Exception):
+    """`document_id` no existe, o existe pero pertenece a otro `profile_id`
+    — 404 desde la perspectiva del router. Nunca revela la existencia de un
+    documento de OTRO Profile (least-privilege, MISMO criterio que
+    `_profile_or_404` en el router: un id ajeno se ve exactamente igual que
+    un id inexistente)."""
+
+
+class ProfileDocumentDeletePermissionDeniedError(Exception):
+    """401/403 de Graph al intentar el DELETE físico — clasificación
+    DEFINITIVA (necesita consentimiento de administrador, no un
+    reintento), metadata SIEMPRE intacta: nunca se borra si Graph rechazó
+    por autenticación/autorización."""
+
+
+class ProfileDocumentDeleteGraphSourceError(Exception):
+    """Fallo CONFIRMADO de Graph (código de respuesta real, distinto de
+    401/403/404) al intentar el DELETE físico — metadata SIEMPRE intacta."""
+
+
+class ProfileDocumentDeletePhysicalOutcomeUnknownError(Exception):
+    """Fallo de TRANSPORTE (`URLError` sin `HTTPError` — ningún código de
+    respuesta confirmado) al intentar el DELETE físico — NO prueba que el
+    archivo se haya borrado o no del lado de Graph. Metadata SIEMPRE
+    intacta: nunca se borra ante ambigüedad. El usuario puede reintentar la
+    MISMA acción "Eliminar" — idempotente por diseño (ver arriba)."""
+
+
+class ProfileDocumentMetadataDeleteOutcomeUnknownError(Exception):
+    """El físico SÍ se confirmó borrado (204 o 404) pero
+    `profile_document_repository.delete()` no pudo confirmar el borrado
+    remoto de la metadata en Spaces — el documento podría seguir apareciendo
+    listado. El usuario puede reintentar la MISMA acción "Eliminar": el
+    físico ya está borrado (un segundo DELETE a Graph sobre el mismo
+    `item_id` responde 404, que este código ya trata como éxito), así que
+    un reintento completo de `delete_document()` termina llamando de nuevo
+    a `profile_document_repository.delete()` — que es en sí mismo
+    idempotente — hasta confirmar."""
+
+
+def _document_item_url(site_id: str, drive_id: str, item_id: str) -> str:
+    return f"{GRAPH_BASE}/sites/{site_id}/drives/{drive_id}/items/{item_id}"
+
+
+def _delete_physical_document(*, site_id: str, drive_id: str, item_id: str, access_token: str) -> None:
+    """UN intento de DELETE físico — 204 y 404 son AMBOS éxito (404 = ya
+    ausente, ticket explícito). 401/403 → permission denied. Cualquier otro
+    código CONFIRMADO → GraphSourceError. Fallo de transporte (sin código)
+    → PhysicalOutcomeUnknown. Sin reintento interno (a diferencia de
+    `upload_document_content`) — ver comentario de sección arriba: un
+    reintento de TODA la acción "Eliminar" ya es seguro porque un segundo
+    DELETE sobre un item ausente es 404, que este mismo código trata como
+    éxito, así que duplicar el reintento acá sería redundante."""
+    url = _document_item_url(site_id, drive_id, item_id)
+    try:
+        microsoft365.graph_delete(url, access_token)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return
+        if exc.code in (401, 403):
+            raise ProfileDocumentDeletePermissionDeniedError(_PERMISSION_DENIED_MESSAGE) from exc
+        raise ProfileDocumentDeleteGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+    except urllib.error.URLError as exc:
+        raise ProfileDocumentDeletePhysicalOutcomeUnknownError(
+            "No pudimos confirmar si el archivo se borró de SharePoint. Podés reintentar la eliminación."
+        ) from exc
+
+
+def delete_document(*, profile_id: str, document_id: str, access_token: str) -> None:
+    """Camino de borrado de UN ProfileDocument. Orden ESTRICTO (ver
+    comentario de sección):
+      1. resuelve la metadata por `profile_id`+`document_id` — NUNCA
+         filename/URL; ausente o de OTRO Profile → `ProfileDocumentNotFoundError`;
+      2. DELETE físico PRIMERO, con `site_id`/`drive_id`/`item_id` de ESA
+         metadata (nunca de `config.HC_*` vigente);
+      3. sólo si el físico se confirma ausente (204 o 404) se borra la
+         metadata (`profile_document_repository.delete`, en sí mismo
+         idempotente);
+      4. 401/403 o ambigüedad de transporte del físico → excepción propia,
+         CERO llamada a `profile_document_repository.delete` — la metadata
+         nunca se toca si el físico no se confirmó ausente.
+
+    `require_graph_config()` primero (MISMO gate fail-closed que
+    `upload_document` — el mismo scope de escritura que subió el archivo
+    hace falta para borrarlo)."""
+    require_graph_config()
+    document = profile_document_repository.get(document_id)
+    if document is None or document.get("profile_id") != profile_id:
+        raise ProfileDocumentNotFoundError(f"El documento {document_id} no existe para este Profile.")
+    _delete_physical_document(
+        site_id=document["site_id"], drive_id=document["drive_id"], item_id=document["item_id"],
+        access_token=access_token,
+    )
+    try:
+        profile_document_repository.delete(document_id)
+    except profile_document_repository.ProfileDocumentDeleteOutcomeUnknownError as exc:
+        raise ProfileDocumentMetadataDeleteOutcomeUnknownError(
+            "El archivo se borró de SharePoint pero no pudimos confirmar el borrado del registro. "
+            "Podés reintentar la eliminación."
+        ) from exc
+
+
+# ---------------------------------------------------------------------------
 # URLs de Graph (identidad ESTABLE vía config, nunca una URL de sharing).
 # ---------------------------------------------------------------------------
 

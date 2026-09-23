@@ -3,9 +3,12 @@
    human_capital/profile_edit.html, DEBAJO del form de edición de campos
    (ticket §19: reusa el GET de edición existente, sin página nueva).
 
-   Listado (§18): filename / uploaded_at / uploaded_by / "Abrir en
-   SharePoint" (link plano a `web_url`, nunca streameado por el Hub, sin
-   ruta de descarga propia).
+   Listado (§18, Fase 4.1.2 agregó tamaño + Eliminar): filename / tamaño
+   (`size_bytes` vía el filtro estándar de Jinja `filesizeformat`, sin
+   helper propio) / uploaded_at / uploaded_by / "Abrir en SharePoint" (link
+   plano a `web_url`, nunca streameado por el Hub, sin ruta de descarga
+   propia) / "Eliminar" (form propio, MISMO patrón graph_token-vía-JS que
+   el form de upload — ver el script al final del archivo).
 
    Form de upload: multipart, MISMO patrón de graph_token vía async-antes-
    del-submit que Staffing/Reporting ya usan — un hidden input se completa
@@ -30,7 +33,12 @@
        `.callout callout--warn` con su propio form de reintento (con
        archivo re-adjuntado para upload-retry; sin archivo para
        commit-retry, §17: "ZERO Graph PUT").
-     - RETRY_FILE_MISMATCH / DOCUMENT_ID_CONFLICT -> `.feedback-error`. #}
+     - RETRY_FILE_MISMATCH / DOCUMENT_ID_CONFLICT -> `.feedback-error`.
+     - DELETE_OUTCOME_UNKNOWN (Fase 4.1.2) -> `.callout callout--warn`,
+       SIN form de reintento propio: reintentar es simplemente volver a
+       enviar el MISMO form "Eliminar" de la fila (delete es idempotente
+       por `document_id`, ver `profile_document_service.delete_document`)
+       — nunca un token firmado como upload/commit. #}
 <section class="hc-profile-documents" data-hc-documents-panel>
   <h2>Documentos</h2>
 
@@ -39,8 +47,10 @@
     <thead>
       <tr>
         <th class="left">Archivo</th>
+        <th class="left">Tamaño</th>
         <th class="left">Subido</th>
         <th class="left">Subido por</th>
+        <th></th>
         <th></th>
       </tr>
     </thead>
@@ -48,12 +58,19 @@
       {% for doc in documents %}
       <tr>
         <td class="left">{{ doc.filename }}</td>
+        <td class="left">{{ doc.size_bytes | filesizeformat }}</td>
         <td class="left">{{ doc.uploaded_at }}</td>
         <td class="left">{{ doc.uploaded_by }}</td>
         <td>
           {% if doc.web_url %}
           <a href="{{ doc.web_url }}" target="_blank" rel="noopener noreferrer">Abrir en SharePoint</a>
           {% endif %}
+        </td>
+        <td>
+          <form method="post" action="/human-capital/profiles/{{ profile_id }}/documents/{{ doc.document_id }}/delete" data-hc-document-delete-form>
+            <input type="hidden" name="graph_token" value="">
+            <button type="submit" class="btn-secondary" data-hc-document-delete-button>Eliminar</button>
+          </form>
         </td>
       </tr>
       {% endfor %}
@@ -102,6 +119,16 @@
         {% endif %}
       </div>
     </div>
+    {% elif document_state.kind == "DELETE_OUTCOME_UNKNOWN" %}
+    <div class="callout callout--warn" data-document-error-kind="{{ document_state.kind }}">
+      <div class="callout__head">
+        <span class="callout__icon">⚠️</span>
+        <span class="callout__title">Estado desconocido</span>
+      </div>
+      <div class="callout__body">
+        <p>{{ document_state.message }}</p>
+      </div>
+    </div>
     {% endif %}
   {% endif %}
 
@@ -120,6 +147,23 @@
     form.addEventListener("submit", function (event) {
       if (form.dataset.hcTokenReady === "true") return; // segundo submit real, dejar pasar sin interceptar
       event.preventDefault();
+      Promise.resolve(typeof window.dwHumanCapitalDocumentWriteToken === "function" ? window.dwHumanCapitalDocumentWriteToken() : "").then(function (token) {
+        var tokenField = form.querySelector("input[name=graph_token]");
+        if (tokenField) tokenField.value = token || "";
+        form.dataset.hcTokenReady = "true";
+        form.submit();
+      });
+    });
+  });
+  // Eliminar (Fase 4.1.2): MISMO patrón graph_token-vía-JS que upload,
+  // MÁS una confirmación explícita antes de interceptar el submit -- es una
+  // acción irreversible desde la perspectiva del usuario (el archivo físico
+  // se borra de SharePoint), nunca se dispara sólo por un click accidental.
+  document.querySelectorAll("[data-hc-document-delete-form]").forEach(function (form) {
+    form.addEventListener("submit", function (event) {
+      if (form.dataset.hcTokenReady === "true") return; // segundo submit real, dejar pasar sin interceptar
+      event.preventDefault();
+      if (!window.confirm("¿Eliminar este documento? Esta acción no se puede deshacer.")) return;
       Promise.resolve(typeof window.dwHumanCapitalDocumentWriteToken === "function" ? window.dwHumanCapitalDocumentWriteToken() : "").then(function (token) {
         var tokenField = form.querySelector("input[name=graph_token]");
         if (tokenField) tokenField.value = token || "";
