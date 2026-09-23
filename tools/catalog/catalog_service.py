@@ -59,6 +59,12 @@ def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
 
+def _slug(text: str) -> str:
+    """Identificador URL-safe [a-z0-9-], estable y reproducible. Reusa _norm
+    (minúsculas, sin acentos, no-alfanumérico → espacio) y colapsa a guiones."""
+    return re.sub(r"\s+", "-", _norm(text)).strip("-")
+
+
 def _tokens(text: str) -> set[str]:
     base = {t for t in _norm(text).split() if len(t) >= 3 and t not in _STOPWORDS}
     # expandir con sinónimos de dominio
@@ -76,6 +82,11 @@ class CatalogEntry:
     dominio: str
     veredicto: str
     apto: str
+    # Identidad estable del registro (URL-safe, única en el catálogo, reproducible
+    # e independiente del orden de carga). Un mismo (cliente, dominio) puede tener
+    # varios flujos legítimos (distinto modelo de consumo), así que (cliente,
+    # dominio) NO alcanza como identidad de ruta — ver find_flow_by_id.
+    entry_id: str = ""
     artefactos: list = field(default_factory=list)
     intents: list = field(default_factory=list)
     hallazgos: list = field(default_factory=list)
@@ -89,6 +100,28 @@ class CatalogEntry:
     @property
     def icon(self) -> str:
         return _VERDICT_ICON.get(self.veredicto, "⚪")
+
+    @property
+    def consumo(self) -> list[str]:
+        """Modelo(s) de consumo del flujo — el discriminador funcional entre dos
+        flujos del mismo cliente/dominio. Se toma de los artefactos de capa
+        Consumo (4AM/AM), sin el prefijo técnico. Ej: 4AM_SND_PRODUCTSALESDELIVERY
+        → PRODUCTSALESDELIVERY."""
+        out: list[str] = []
+        seen: set[str] = set()
+        for artefacto in self.artefactos:
+            if _capa_of_name(str(artefacto)) != "Consumo":
+                continue
+            tail = str(artefacto)
+            for prefix in ("4AM_SND_", "4AM_", "AM_"):
+                if tail.startswith(prefix):
+                    tail = tail[len(prefix):]
+                    break
+            key = tail.lower()
+            if tail and key not in seen:
+                seen.add(key)
+                out.append(tail)
+        return out
 
 
 @dataclass
@@ -245,7 +278,7 @@ except Exception:  # noqa: BLE001 — fallback si tools/ no está como paquete e
 
 
 # ── Carga (fuente local; SharePoint se enchufa acá) ───────────────────────
-def _parse_md(text: str, path: str) -> CatalogEntry | None:
+def _parse_md(text: str, path: str, source_key: str = "") -> CatalogEntry | None:
     m = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.S)
     if not m:
         return None
@@ -273,6 +306,12 @@ def _parse_md(text: str, path: str) -> CatalogEntry | None:
     else:
         _veredicto = str(comp.get("mirada_danwor") or "?")
         _apto = str(comp.get("apto_para") or "")
+    # Identidad estable: derivada del source_key RELATIVO al root del catálogo
+    # (mismo flujo bajo dos roots físicos → mismo entry_id), o del nombre de
+    # archivo como fallback. _slug la vuelve URL-safe. Se le quita la extensión
+    # .md para que el id no arrastre "-md".
+    _identity = (source_key or Path(path).name).replace("\\", "/")
+    _identity = re.sub(r"\.md$", "", _identity, flags=re.IGNORECASE)
     entry = CatalogEntry(
         path=path,
         cliente=str(manual.get("cliente") or ""),
@@ -281,6 +320,7 @@ def _parse_md(text: str, path: str) -> CatalogEntry | None:
         dominio=str(manual.get("dominio") or auto.get("dominio") or ""),
         veredicto=_veredicto,
         apto=_apto,
+        entry_id=_slug(_identity),
         artefactos=list(auto.get("artefactos") or []),
         intents=list(manual.get("intent_negocio") and [manual["intent_negocio"]] or []),
         hallazgos=[{"severidad": h.get("severidad", ""), "titulo": h.get("titulo", ""),
@@ -910,9 +950,16 @@ def find_data_product(entries: list[CatalogDataProductEntry], product_id: str) -
 
 def load_catalog(root: str | Path) -> list[CatalogEntry]:
     """Carga todos los flujo_*.md bajo `root` (recursivo)."""
+    root_path = Path(root)
     entries: list[CatalogEntry] = []
-    for p in sorted(Path(root).rglob("flujo_*.md")):
-        entry = _parse_md(p.read_text(encoding="utf-8"), str(p))
+    for p in sorted(root_path.rglob("flujo_*.md")):
+        # source_key RELATIVO al root (independiente de BASE_DIR / ruta física),
+        # separadores en "/", sin extensión → identidad reproducible por flujo.
+        try:
+            source_key = p.relative_to(root_path).with_suffix("").as_posix()
+        except ValueError:
+            source_key = p.stem
+        entry = _parse_md(p.read_text(encoding="utf-8"), str(p), source_key=source_key)
         if entry:
             entries.append(entry)
     return entries
@@ -1009,7 +1056,7 @@ def fetch_catalog_from_sharepoint(token: str, *, force_refresh: bool = False) ->
         for name, durl in _walk_md(_SP_SITE_ID, _SP_FOLDER, token):
             if not durl:
                 continue
-            entry = _parse_md(_download_text(durl), name)
+            entry = _parse_md(_download_text(durl), name, source_key=name)
             if entry:
                 entries.append(entry)
     except (urllib.error.URLError, Exception):
@@ -1072,9 +1119,29 @@ def flows_for_domain(entries: list[CatalogEntry], dominio: str) -> list[CatalogE
 
 
 def find_flow(entries: list[CatalogEntry], cliente: str, dominio: str) -> CatalogEntry | None:
-    """Un flujo puntual por cliente+dominio (para el detalle en el panel central)."""
+    """Un flujo puntual por cliente+dominio (para el detalle en el panel central).
+
+    Ojo: (cliente, dominio) NO es identidad única — puede haber varios flujos por
+    ese par. Devuelve el primero por compatibilidad legacy; para routing exacto usá
+    find_flow_by_id / flows_for_client_domain."""
     c, d = (cliente or "").strip().lower(), (dominio or "").strip().lower()
     return next((e for e in entries if e.cliente.lower() == c and e.dominio.lower() == d), None)
+
+
+def find_flow_by_id(entries: list[CatalogEntry], entry_id: str) -> CatalogEntry | None:
+    """Resuelve un flujo por su identidad estable (entry_id). Clave de routing/
+    lookup exacta cuando la ruta trae flow=<entry_id>."""
+    wanted = (entry_id or "").strip().lower()
+    if not wanted:
+        return None
+    return next((e for e in entries if e.entry_id.lower() == wanted), None)
+
+
+def flows_for_client_domain(entries: list[CatalogEntry], cliente: str, dominio: str) -> list[CatalogEntry]:
+    """Todos los flujos de un (cliente, dominio). Para desambiguar cuando la ruta
+    llega sin flow= y ese par tiene más de un registro."""
+    c, d = (cliente or "").strip().lower(), (dominio or "").strip().lower()
+    return [e for e in entries if e.cliente.lower() == c and e.dominio.lower() == d]
 
 
 def group_by_client(matches: list[CatalogEntry]) -> dict:

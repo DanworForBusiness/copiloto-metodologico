@@ -1967,13 +1967,15 @@ def _catalog_cds_link(origen: str) -> str:
     return ""
 
 
-def _catalog_cds_button_html(cds: str, pack: str = "", cliente: str = "", dominio: str = "") -> str:
+def _catalog_cds_button_html(cds: str, pack: str = "", cliente: str = "", dominio: str = "", flow: str = "") -> str:
     """Bloque HTML del botón "Abrir CDS View" (carga el código del extractor en el slot
     central por HTMX). COMPARTIDO por el detalle de flujo (Dominios) y de Data Product,
     para no duplicar markup/URL/target/estilos. `cliente`/`dominio` van vacíos cuando no
-    hay flujo de retorno (Data Products) → el CDS usa su "Volver" genérico. Va marcado
-    `heading-supports` para que el pipeline de contenido lo suba al header de la sección."""
-    qs = urlencode({"name": cds, "cliente": cliente, "dominio": dominio, "pack": pack or DEFAULT_PACK})
+    hay flujo de retorno (Data Products) → el CDS usa su "Volver" genérico. `flow` es la
+    identidad estable del flujo de origen, para que "Volver" reabra ESE flujo (y no el
+    primero de un cliente/dominio con varios). Va marcado `heading-supports` para que el
+    pipeline de contenido lo suba al header de la sección."""
+    qs = urlencode({"name": cds, "cliente": cliente, "dominio": dominio, "flow": flow, "pack": pack or DEFAULT_PACK})
     return (f'\n\n<div class="support-links heading-supports catalog-cds-launch">'
             f'<a class="support-link catalog-cds-link" href="#" role="button" '
             f'hx-get="/catalog/cds?{qs}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" '
@@ -2321,7 +2323,7 @@ def _catalog_flow_view(entry, show_assoc: bool = False, pack: str = ""):
         # lo levanta al header por venir marcado como heading-supports). Al volver del código se re-abre este mismo flujo.
         cds = _catalog_cds_link(autos[name].get("origen_remoto") or "")
         if cds:
-            btn = _catalog_cds_button_html(cds, pack, entry.cliente, entry.dominio)
+            btn = _catalog_cds_button_html(cds, pack, entry.cliente, entry.dominio, entry.entry_id)
             vbody = re.sub(r"(?m)^##\s+.*$", lambda m: m.group(0) + btn, vbody, count=1)
         parts.append(vbody)
     # Sección de cumplimiento: reutiliza el bloque "## Hallazgos…" del flujo_*.md.
@@ -2353,9 +2355,9 @@ def _catalog_flow_view(entry, show_assoc: bool = False, pack: str = ""):
 
 
 @app.get("/catalog/flow", response_class=HTMLResponse, include_in_schema=False)
-def catalog_flow(request: Request, cliente: str = "", dominio: str = "",
+def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: str = "",
                  pack: str = Query(DEFAULT_PACK), assoc: int = 0, frag: str = ""):
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="flow", ref=f"{cliente}/{dominio}", assoc=bool(assoc))
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="flow", ref=(flow or f"{cliente}/{dominio}"), assoc=bool(assoc))
     """Detalle de un flujo del catálogo, renderizado en el panel central con el
     MISMO pipeline de contenido de los módulos (hero + diagrama de linaje +
     artículo .methodology). El contenido vive en los .md del catálogo. `assoc=1`
@@ -2366,13 +2368,31 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "",
         return _login_redirect(request, _pack(pack))
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
     mod, entries = _catalog_entries()
-    entry = mod.find_flow(entries, cliente, dominio) if mod else None
+    # Routing por identidad estable: con flow=<entry_id> resolvemos EXACTAMENTE ese
+    # registro. (cliente, dominio) NO es único — un mismo par puede tener varios
+    # flujos legítimos (distinto modelo de consumo). Sin flow (links legacy):
+    # 1 match → compatibilidad; >1 → NO devolver el primero silenciosamente, se
+    # muestran las opciones para elegir.
+    entry = None
+    if mod and flow:
+        entry = mod.find_flow_by_id(entries, flow)
+    elif mod:
+        matches = mod.flows_for_client_domain(entries, cliente, dominio)
+        if len(matches) == 1:
+            entry = matches[0]
+        elif len(matches) > 1:
+            return templates.TemplateResponse(
+                request=request, name="partials/catalog_ambiguous.html",
+                context={"flows": matches, "cliente": cliente, "dominio": dominio,
+                         "foco": None, "pack": selected},
+            )
     if entry is None:
         raise HTTPException(404, "Flujo no encontrado en el catálogo")
     show_assoc = bool(assoc)
     sections, lineage_svg = _catalog_flow_view(entry, show_assoc, selected)
     lineage_ctx = {"lineage_svg": lineage_svg, "show_assoc": show_assoc,
-                   "cliente": entry.cliente, "dominio": entry.dominio, "pack": selected}
+                   "cliente": entry.cliente, "dominio": entry.dominio,
+                   "entry_id": entry.entry_id, "pack": selected}
     if frag == "lineage":   # solo el bloque del diagrama (toggle Asociaciones)
         return templates.TemplateResponse(request=request, name="partials/catalog_lineage.html",
                                           context=lineage_ctx)
@@ -2453,7 +2473,7 @@ def catalog_data_product(request: Request, product_id: str = "", pack: str = Que
 
 @app.get("/catalog/cds", response_class=HTMLResponse, include_in_schema=False)
 def catalog_cds(request: Request, name: str = "", cliente: str = "", dominio: str = "",
-                pack: str = Query(DEFAULT_PACK)):
+                flow: str = "", pack: str = Query(DEFAULT_PACK)):
     log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="cds", ref=name)
     """Código de una CDS view (extractor corporativo), renderizado en el panel
     central con el mismo pipeline de contenido. Se abre desde el botón "Abrir CDS
@@ -2470,7 +2490,7 @@ def catalog_cds(request: Request, name: str = "", cliente: str = "", dominio: st
         "cds_name": name, "cds_title": title, "cds_intro": intro,
         "tabla_base": str(meta.get("tabla_base") or ""),
         "extraccion": str(meta.get("extraccion") or ""),
-        "sections": sections, "cliente": cliente, "dominio": dominio, "pack": selected,
+        "sections": sections, "cliente": cliente, "dominio": dominio, "flow": flow, "pack": selected,
         "catalog_kind": "cds",
         "catalog_ref": name,
     }
