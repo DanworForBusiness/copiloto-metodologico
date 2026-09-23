@@ -189,16 +189,13 @@ const commercialState = {
   opportunitiesDetailStatus: "idle", // idle | loading | ready | error
   opportunitiesDetailErrorState: "",
   // Filtros LOCALES de Licencias — client-side sobre `opportunitiesDetail`,
-  // nunca un round-trip propio. `licLicenciamientoFilter` (owner "Explicit
-  // Licensing Filter + Profile Scope" §1/§2): reemplaza el hardcode
-  // `o.licencias === "Si"` por un filtro EXPLÍCITO más, MISMA composición
-  // AND que Etapa/Vendedor/Buscar — "si" default reproduce EXACTO el
-  // comportamiento viejo. Dimensión INDEPENDIENTE del Tipo global
-  // (Todos/New Name/Base instalada, owner §2 — nunca confundir las dos).
+  // nunca un round-trip propio. Owner "Final Business Semantics
+  // Realignment": el universo de esta tabla es SIEMPRE Licenciamiento=Sí
+  // (predicado fijo, ver `commercialLicenciasAllRows`) — sin selector
+  // propio, Etapa/Vendedor/Buscar son los ÚNICOS filtros locales.
   licSearchText: "",
   licStageFilter: "",
   licSellerFilter: "",
-  licLicenciamientoFilter: "si", // "si" | "no" | "todos"
   licSortKey: null,
   licSortDir: 1,
   // Perfil de licenciamiento por cliente (Account Licensing Profile, ver
@@ -3640,96 +3637,49 @@ function commercialOppDetailTableHtml(rows, { sortKey, sortDir, sortAttr, emptyL
     </div>`;
 }
 
-// ── Licencias (ver HANDOFF §4) ───────────────────────────────────────────
-// Universo: `opportunitiesDetail.opportunities` (stages 0-8, active=True),
-// SIN filtrar — MISMO universo crudo que Detalle Oportunidades (owner
-// "Explicit Licensing Filter + Profile Scope" §1: el viejo hardcode
-// `o.licencias === "Si"` pasó a ser el filtro EXPLÍCITO "Licenciamiento",
-// ver `commercialLicenciasLocallyFilteredRows`, nunca un predicado ciego
-// acá). Buscar es SÓLO por Oportunidad (MISMO alcance que
-// `filterLicenciasOpps` — nunca Cliente/Vendedor, a diferencia de Detalle).
+// ── Licencias (ver HANDOFF §4, owner ticket "Final Business Semantics
+// Realignment") ──────────────────────────────────────────────────────────
+// Universo: `opportunitiesDetail.opportunities` (stages 0-8, active=True)
+// filtrado `licencias === "Si"` — predicado de NEGOCIO FIJO, MISMO criterio
+// original del legacy `loadLicenciasTab` (`.filter(o => o.licencias ===
+// "Si")`), NUNCA seleccionable (owner §2: el selector "Licenciamiento" se
+// retiró — restaura el invariante original). Buscar es SÓLO por
+// Oportunidad (MISMO alcance que `filterLicenciasOpps` — nunca Cliente/
+// Vendedor, a diferencia de Detalle).
 function commercialLicenciasAllRows() {
-  return (commercialState.opportunitiesDetail && commercialState.opportunitiesDetail.opportunities) || [];
+  const all = (commercialState.opportunitiesDetail && commercialState.opportunitiesDetail.opportunities) || [];
+  return all.filter(o => o.licencias === "Si");
 }
 function commercialOppDetailFilterOptions(rows, key) {
   return [...new Set(rows.map(o => o[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
 }
-// Filtros LOCALES de Oportunidades — Licenciamiento/Etapa/Vendedor/Buscar,
-// SIN el foco contextual del drilldown (owner "Explicit Licensing Filter +
-// Profile Scope" §8/§11): esta es la base "steady state" que TAMBIÉN usa el
-// Alcance "Clientes de oportunidades visibles" del Perfil — el drilldown es
-// un foco TEMPORAL de una sola cuenta (owner §11: "different from Profile
-// scope"), nunca parte de la base de la que deriva ese Alcance.
-//
-// `licLicenciamientoFilter` (owner §3, corregido tras validación en vivo —
-// ver HANDOFF): "si" es un match EXACTO (`o.licencias === "Si"`). "no" es
-// el COMPLEMENTO de "si" (`o.licencias !== "Si"`), NUNCA un match exacto
-// contra el string "No". Motivo (dato real de producción): la property
-// "Licencias" en Odoo casi nunca se completa explícitamente en "No" — el
-// uso real es "Sí" cuando aplica, y se deja SIN RESPONDER (normalizado por
-// `_get_prop_label` a "Sin definir", nunca null/undefined técnico) en el
-// resto de los casos. Para el usuario de negocio esas oportunidades SIN
-// responder SON, a los efectos de este filtro, oportunidades sin
-// licenciamiento — un "No" exacto dejaba el filtro prácticamente vacío
-// siempre. "Sin definir" sigue siendo un estado de negocio real (nunca una
-// falla técnica) — sólo que semánticamente cae del lado de "No", no de un
-// tercer balde propio.
-function commercialLicenciasLocallyFilteredRows() {
+// Composición de filtros: universo fijo (Licenciamiento=Sí) → Etapa/
+// Vendedor/Buscar → foco contextual de cuenta, EN ESE ORDEN, y este MISMO
+// arreglo final alimenta tabla + conteo + empty state — nunca una segunda
+// pasada de filtrado sólo para el número del header (ver
+// `commercialLicenciasCountLabel`). Owner "Final Business Semantics
+// Realignment" §7: este conteo es INDEPENDIENTE del Perfil — cambiar un
+// filtro acá nunca toca `[data-commercial-licprofile-*]`.
+function commercialLicenciasFilteredRows() {
   const all = commercialLicenciasAllRows();
-  const { licStageFilter: fStage, licSellerFilter: fSeller, licLicenciamientoFilter: fLic } = commercialState;
+  const { licStageFilter: fStage, licSellerFilter: fSeller } = commercialState;
   const search = (commercialState.licSearchText || "").toLowerCase().trim();
+  // Drilldown Perfil→Oportunidades (owner "Bidirectional Account Drilldown"
+  // §3/§6): SOLO cuando el ORIGEN es "profile" esta tabla queda acotada al
+  // account_id elegido — join por id CANÓNICO, nunca por nombre, y SIEMPRE
+  // DENTRO del universo fijo Licenciamiento=Sí + Etapa/Vendedor/Buscar
+  // vigentes (nunca los resetea). Owner §10: si la cuenta clickeada no
+  // tiene ninguna oportunidad Licenciamiento=Sí, el resultado es
+  // legítimamente vacío — NUNCA se amplía a No/Todos "para encontrar algo".
+  const drilldownAccountId = commercialState.licensingDrilldownOrigin === "profile"
+    ? commercialState.licensingDrilldownAccountId : null;
   return all.filter(o => {
-    if (fLic === "si" && o.licencias !== "Si") return false;
-    if (fLic === "no" && o.licencias === "Si") return false;
     if (fStage && o.stage !== fStage) return false;
     if (fSeller && o.seller !== fSeller) return false;
     if (search && !(o.opportunity || "").toLowerCase().includes(search)) return false;
+    if (drilldownAccountId != null && o.account_id !== drilldownAccountId) return false;
     return true;
   });
-}
-// Composición de filtros (owner "Visible-Count Alignment" §5): dataset →
-// filtros locales → foco contextual de cuenta, EN ESE ORDEN, y este MISMO
-// arreglo final alimenta tabla + conteo + empty state — nunca una segunda
-// pasada de filtrado sólo para el número del header (ver `commercialLicenciasCountLabel`).
-function commercialLicenciasFilteredRows() {
-  const base = commercialLicenciasLocallyFilteredRows();
-  // Drilldown Perfil→Oportunidades (owner "Bidirectional Account Drilldown"
-  // §3/§6, owner "Explicit Licensing Filter + Profile Scope" §12): SOLO
-  // cuando el ORIGEN es "profile" esta tabla queda acotada al account_id
-  // elegido — join por id CANÓNICO, nunca por nombre, y SIEMPRE DENTRO de
-  // Licenciamiento/Etapa/Vendedor/Buscar vigentes (nunca los resetea).
-  const drilldownAccountId = commercialState.licensingDrilldownOrigin === "profile"
-    ? commercialState.licensingDrilldownAccountId : null;
-  if (drilldownAccountId == null) return base;
-  return base.filter(o => o.account_id === drilldownAccountId);
-}
-// Cuentas CANÓNICAS distintas representadas en las filas de Oportunidades
-// YA filtradas (owner "Explicit Licensing Filter + Profile Scope" §8) —
-// alimenta el Alcance "Clientes de oportunidades visibles" del Perfil. Por
-// `account_id`, NUNCA por nombre (owner §8: "Do NOT compare/join by display
-// name"). Deriva de `LocallyFilteredRows` (SIN el drilldown — ver arriba),
-// cero fetch adicional: ambos datasets ya están cargados en memoria.
-function commercialLicenciasVisibleAccountIds() {
-  const ids = new Set();
-  for (const o of commercialLicenciasLocallyFilteredRows()) {
-    if (o.account_id != null) ids.add(o.account_id);
-  }
-  return ids;
-}
-// Owner corrective (post "Explicit Licensing Filter + Profile Scope", ver
-// HANDOFF): el Perfil YA NO tiene Alcance seleccionable — SIEMPRE muestra
-// las cuentas de las oportunidades visibles del grupo "Oportunidades de
-// licenciamiento" (nunca cuentas Cliente con cero pipeline; ver "Todos" en
-// Licenciamiento para ampliar esa base). Por eso CUALQUIER cambio a los
-// filtros LOCALES de Oportunidades (Licenciamiento/Etapa/Vendedor/Buscar)
-// recalcula también el set de cuentas visibles — el Perfil necesita su
-// propio re-render quirúrgico ADEMÁS del de Oportunidades.
-function commercialLicensingProfileRefresh(root) {
-  const rows = commercialLicensingProfileFilteredRows();
-  const host = root.querySelector("[data-commercial-licprofile-table]");
-  if (host) host.innerHTML = commercialLicensingProfileTableHtml(rows);
-  const count = root.querySelector("[data-commercial-licprofile-count]");
-  if (count) count.textContent = commercialLicensingProfileCountLabel();
 }
 function commercialToggleLicenciasSort(key) {
   if (commercialState.licSortKey === key) commercialState.licSortDir *= -1;
@@ -3739,10 +3689,6 @@ function commercialLicenciasClearFilters() {
   commercialState.licSearchText = "";
   commercialState.licStageFilter = "";
   commercialState.licSellerFilter = "";
-  // "si" — no "" — reproduce el comportamiento DEFAULT (owner §1: "the
-  // default must reproduce the exact current Licencias behavior"), MISMO
-  // criterio que cualquier otro default de esta tabla.
-  commercialState.licLicenciamientoFilter = "si";
   // "✕ Limpiar" de Oportunidades es la vía de reversión COMPLETA de ESTA
   // tabla — si lo que la acota ahora mismo es un drilldown que vino del
   // Perfil (origin "profile"), también lo suelta. Un drilldown que vino AL
@@ -3761,7 +3707,6 @@ function commercialLicenciasFiltersHtml() {
     return `<option value=""${current === "" ? " selected" : ""}>${allLabel}</option>` +
       values.map(v => `<option value="${commercialEsc(v)}"${current === v ? " selected" : ""}>${commercialEsc(v)}</option>`).join("");
   };
-  const fLic = commercialState.licLicenciamientoFilter;
   return `<div class="whatsnew-filters" data-commercial-licencias-filters>
       <label class="whatsnew-filter">
         <span>Buscar</span>
@@ -3775,14 +3720,6 @@ function commercialLicenciasFiltersHtml() {
       <label class="whatsnew-filter">
         <span>Vendedor</span>
         <select data-commercial-licencias-seller-filter>${opt("seller", commercialState.licSellerFilter, "Todos")}</select>
-      </label>
-      <label class="whatsnew-filter">
-        <span>Licenciamiento</span>
-        <select data-commercial-licencias-licenciamiento-filter>
-          <option value="si"${fLic === "si" ? " selected" : ""}>Sí</option>
-          <option value="no"${fLic === "no" ? " selected" : ""}>No</option>
-          <option value="todos"${fLic === "todos" ? " selected" : ""}>Todos</option>
-        </select>
       </label>
       <button type="button" class="whatsnew-filter__clear" data-commercial-licencias-clear>✕ Limpiar</button>
     </div>`;
@@ -3856,21 +3793,17 @@ function commercialLicensingProfileAllRows() {
 // usa Próx. Acción (`commercialDaysUntil`), nunca una segunda implementación
 // de "días hasta".
 //
-// Owner "Bidirectional Account Drilldown" §2: el drilldown Oportunidad→Perfil
-// es un predicado por `id` CANÓNICO (`account_id`/`commercial_partner_id`),
-// NUNCA por nombre — un buscador de texto podía sobre-matchear (dos cuentas
-// con nombres parecidos) o no aislar exactamente una. Compone AL FINAL,
-// después de los filtros manuales (owner "Visible-Count Alignment" §5: mismo
-// arreglo final alimenta tabla + conteo + empty state).
-// Alcance (owner "Explicit Licensing Filter + Profile Scope" §6-§10):
-// PRIMER predicado, antes de los filtros manuales de Perfil — el Perfil YA
-// NO tiene un Alcance seleccionable (owner corrective, ver HANDOFF): SIEMPRE
-// se acota a las cuentas CANÓNICAS de las filas de Oportunidades ya
-// filtradas — Licenciamiento=Todos en Oportunidades es ahora la vía para
-// ampliar esa base (con y sin licenciamiento), no un toggle propio acá.
-// Nota de producto (deliberada): esto excluye cuentas Cliente con CERO
-// oportunidades — el caso "whitespace" que el Alcance "Todas las cuentas"
-// cubría quedó fuera de alcance a pedido del owner.
+// Owner "Bidirectional Account Drilldown" §2 / "Final Business Semantics
+// Realignment" §3-§4: el drilldown Oportunidad→Perfil es un predicado por
+// `id` CANÓNICO (`account_id`/`commercial_partner_id`), NUNCA por nombre.
+// Compone AL FINAL, después de los filtros manuales de Perfil (mismo
+// arreglo final alimenta tabla + conteo + empty state). El universo BASE
+// (`commercialLicensingProfileAllRows()`) es AHORA el ÚNICO canónico del
+// Perfil — TODA cuenta con `Es Cliente?=Sí`, ya resuelto server-side (ver
+// `commercial_service.py::_build_licensing_profile`) — jamás derivado de
+// las oportunidades visibles de Table A (esa acoplamiento, junto con el
+// Alcance seleccionable que lo exponía, se retiró — owner §5: "no longer
+// aligned with the clarified business model").
 function commercialLicensingProfileFilteredRows() {
   const all = commercialLicensingProfileAllRows();
   const { licProfileSegmentoFilter: fSeg, licProfileVencimientoFilter: fVenc,
@@ -3879,9 +3812,7 @@ function commercialLicensingProfileFilteredRows() {
   const search = (commercialState.licProfileSearchText || "").toLowerCase().trim();
   const drilldownAccountId = commercialState.licensingDrilldownOrigin === "opportunities"
     ? commercialState.licensingDrilldownAccountId : null;
-  const visibleIds = commercialLicenciasVisibleAccountIds();
   return all.filter(a => {
-    if (!visibleIds.has(a.id)) return false;
     if (fSeg && a.segmento_cuenta !== fSeg) return false;
     if (fPartner && a.partner_de_licencia !== fPartner) return false;
     if (fAeSap && a.ae_sap !== fAeSap) return false;
@@ -4047,10 +3978,18 @@ function commercialLicensingProfileRowHtml(a) {
 // (el vendedor de la CUENTA, campo distinto del "Vendedor" agregado de
 // Clientes, ver audit de tipo). La clave interna sigue siendo `seller`, sin
 // ambigüedad en el código — sólo el rótulo visual se simplificó.
+// `emptyLabel` (owner "Final Business Semantics Realignment" §9): cero
+// resultados con un drilldown activo desde Oportunidades es un caso de
+// NEGOCIO válido y esperado — la cuenta de esa oportunidad puede no estar
+// marcada `Es Cliente?=Sí` (el Perfil nunca la inyecta temporalmente para
+// "encontrar algo", eso violaría su guardrail permanente) — mensaje
+// DISTINTO del genérico "ningún resultado con este filtro".
 function commercialLicensingProfileTableHtml(rows) {
   if (!rows.length) {
-    return commercialEmptyStateHtml("Sin resultados",
-      "Ninguna cuenta coincide con este filtro.");
+    const emptyLabel = commercialState.licensingDrilldownOrigin === "opportunities"
+      ? "Esta cuenta no está incluida en el Perfil de licenciamiento porque no está marcada como cliente."
+      : "Ninguna cuenta coincide con este filtro.";
+    return commercialEmptyStateHtml("Sin resultados", emptyLabel);
   }
   const sortKey = commercialState.licProfileSortKey;
   const sortDir = commercialState.licProfileSortDir;
@@ -7980,18 +7919,17 @@ function commercialSetTipo(tipo) {
   commercialState.licSearchText = "";
   commercialState.licStageFilter = "";
   commercialState.licSellerFilter = "";
-  // "si" — MISMO criterio de reset a DEFAULT que el resto de los filtros de
-  // esta tabla (owner "Explicit Licensing Filter + Profile Scope" §13: "do
-  // not invent inconsistent behavior" — el lifecycle YA establecido de
-  // Licencias es reset-a-default en cada cambio de Tipo).
-  commercialState.licLicenciamientoFilter = "si";
   // Perfil de licenciamiento (ver HANDOFF): MISMO criterio — invalida y NO
   // re-pide acá, vuelve a "idle" y lo carga la próxima apertura/reactivación
   // de Licencias con el tipo nuevo (ver el dispatch al final de esta
-  // función). El drilldown bidireccional se limpia con el resto (owner
-  // "Bidirectional Account Drilldown" §6/test L): una cuenta enfocada bajo
-  // el universo viejo puede no existir, o significar algo distinto, en el
-  // nuevo — nunca sobrevive a un cambio de Tipo.
+  // función). Owner "Final Business Semantics Realignment" §6: el universo
+  // BASE del Perfil (Es Cliente?=Sí) es tipo-independiente — el backend
+  // devuelve el MISMO resultado sin importar `tipo` (MISMO patrón que
+  // `get_clients`, ver commercial_service.py) — este refetch es inocuo,
+  // nunca cambia lo que el usuario ve. El drilldown bidireccional se limpia
+  // con el resto (owner "Bidirectional Account Drilldown" §6/test L): una
+  // cuenta enfocada bajo el universo viejo puede no existir, o significar
+  // algo distinto, en el nuevo — nunca sobrevive a un cambio de Tipo.
   commercialState.licensingProfile = null;
   commercialState.licensingProfileStatus = "idle";
   commercialState.licensingProfileErrorState = "";
@@ -8968,24 +8906,20 @@ document.addEventListener("DOMContentLoaded", () => {
   // `<select>` perderían el valor recién elegido si se regenerara). El
   // conteo del header (owner "Visible-Count Alignment" §5) se actualiza acá
   // TAMBIÉN — mismo arreglo `commercialLicenciasFilteredRows()`, nunca una
-  // segunda cuenta separada.
+  // segunda cuenta separada. Owner "Final Business Semantics Realignment"
+  // §7: esto NUNCA toca el Perfil — las dos tablas son universos
+  // independientes, ver `commercialLicensingProfileFilteredRows`.
   document.addEventListener("change", event => {
     const stageSelect = event.target.closest("[data-commercial-licencias-stage-filter]");
     const sellerSelect = event.target.closest("[data-commercial-licencias-seller-filter]");
-    const licSelect = event.target.closest("[data-commercial-licencias-licenciamiento-filter]");
-    if (!stageSelect && !sellerSelect && !licSelect) return;
+    if (!stageSelect && !sellerSelect) return;
     if (stageSelect) commercialState.licStageFilter = stageSelect.value;
     if (sellerSelect) commercialState.licSellerFilter = sellerSelect.value;
-    if (licSelect) commercialState.licLicenciamientoFilter = licSelect.value;
     const rows = commercialLicenciasFilteredRows();
     const host = root.querySelector("[data-commercial-licencias-table]");
     if (host) host.innerHTML = commercialLicenciasTableHtml(rows);
     const count = root.querySelector("[data-commercial-licencias-count]");
     if (count) count.textContent = commercialLicenciasCountLabel();
-    // Owner corrective: Licenciamiento/Etapa/Vendedor recalculan el set de
-    // cuentas visibles del Perfil (que ya no tiene Alcance propio — SIEMPRE
-    // deriva de acá), así que también se refresca acá.
-    commercialLicensingProfileRefresh(root);
   });
   // Perfil de licenciamiento (Account Licensing Profile, ver HANDOFF):
   // Segmento/Partner de licencia/AE SAP/Tipo de contrato SAP/
@@ -9255,7 +9189,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (host) host.innerHTML = commercialLicenciasTableHtml(rows);
     const count = root.querySelector("[data-commercial-licencias-count]");
     if (count) count.textContent = commercialLicenciasCountLabel();
-    commercialLicensingProfileRefresh(root);
   });
   // Perfil de licenciamiento — Buscar (ver HANDOFF): MISMO criterio que
   // Licencias/Detalle. SÓLO toca su propia tabla + su conteo, nunca la

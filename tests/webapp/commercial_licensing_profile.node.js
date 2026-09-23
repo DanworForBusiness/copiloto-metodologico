@@ -1,17 +1,18 @@
 // commercial_licensing_profile.node.js — invocado por
 // test_commercial_licensing_profile_frontend.py.
 //
-// Account Licensing Profile (ver HANDOFF — Commercial Licensing): la
-// arquitectura de dos contenedores dentro de Licencias (A. Oportunidades de
-// licenciamiento / B. Perfil de licenciamiento por cliente), su lazy load
-// INDEPENDIENTE, la reactividad de LAS DOS a Todos/New Name/Base Instalada,
-// el drilldown BIDIRECCIONAL por cuenta (id canónico, nunca nombre), el
-// conteo visible (siempre el arreglo YA filtrado, nunca el dataset crudo),
-// el filtro explícito "Licenciamiento" (reemplaza el viejo hardcode
-// `licencias === "Si"`) y el Perfil SIEMPRE acotado a las cuentas de las
-// oportunidades visibles del grupo A (owner corrective, ver HANDOFF: el
-// Alcance seleccionable se retiró — "Todas las cuentas" ya no existe, el
-// Perfil nunca muestra una cuenta sin al menos una oportunidad visible).
+// Account Licensing Profile (ver HANDOFF — Commercial Licensing, owner
+// ticket "Final Business Semantics Realignment"): DOS superficies
+// analíticas INDEPENDIENTES dentro de Licencias.
+//
+// Tabla A — Oportunidades de licenciamiento: universo FIJO
+// `licencias === "Si"` (sin selector, restaurado), + Etapa/Vendedor/Buscar,
+// + drilldown contextual opcional. Tabla B — Perfil de licenciamiento por
+// cliente: universo FIJO `Es Cliente?=Sí` (resuelto server-side, el
+// frontend nunca lo re-deriva), + filtros locales propios, + drilldown
+// contextual opcional. NINGÚN filtro normal de una tabla afecta a la otra
+// — sólo el drilldown explícito (bidireccional, ya aprobado) las conecta,
+// de forma TEMPORAL y reversible.
 //
 // Ejecuta el MOTOR REAL de commercial.js contra fixtures y un `document`
 // mínimo — MISMA técnica que el resto de los harnesses de Comercial.
@@ -53,7 +54,7 @@ const {
   commercialLicenciasHtml, commercialLicensingProfileFilteredRows, commercialLicensingProfileAllRows,
   commercialSetTipo, commercialSetCapability, commercialLoadLicensingProfile, commercialLoadOpportunitiesDetail,
   commercialDetalleTableHtml, commercialDetalleAllRows, commercialLicenciasTableHtml, commercialLicenciasAllRows,
-  commercialLicenciasFilteredRows, commercialLicenciasVisibleAccountIds, commercialLicenciasFiltersHtml,
+  commercialLicenciasFilteredRows, commercialLicenciasFiltersHtml,
   commercialLicensingProfileClearFilters, commercialLicenciasClearFilters, commercialLicensingProfileFiltersHtml,
   commercialLicensingCloseDrilldown, commercialLicensingProfileTableHtml,
   commercialLicenciasCountLabel, commercialLicensingProfileCountLabel,
@@ -75,6 +76,8 @@ const OPP_ROW = (over) => ({
   revenue: 5000, probability: 40, priority: "0", activities: [], last_response: null, days_elapsed: null,
   ...over,
 });
+// Ya no lleva ningún indicio de "Es Cliente?" — el backend sólo devuelve
+// cuentas YA elegibles (Es Cliente?=Sí), el frontend nunca re-evalúa eso.
 const PROFILE_ACCOUNT = (over) => ({
   id: 900, name: "Cuenta Uno", partner_de_licencia: "05 - SOFTTEK", ae_sap: "AE Uno",
   arquitectura_actual: ["SAC"], monto_contrato: 1000, currency: "USD",
@@ -90,7 +93,6 @@ function resetState(patch) {
   commercialState.opportunitiesDetailStatus = "idle";
   commercialState.opportunitiesDetailErrorState = "";
   commercialState.licSearchText = ""; commercialState.licStageFilter = ""; commercialState.licSellerFilter = "";
-  commercialState.licLicenciamientoFilter = "si";
   commercialState.licensingProfile = null;
   commercialState.licensingProfileStatus = "idle";
   commercialState.licensingProfileErrorState = "";
@@ -114,17 +116,16 @@ function resetState(patch) {
     "dos <details> independientes");
   assertTrue(count(html, "<details[^>]* open>") === 2, "ambos abiertos por default");
   assertTrue(html.includes('data-section-id="licensing-opportunities"'),
-    "Oportunidades también lleva su id de scroll-jump (dirección B)");
+    "Oportunidades lleva su id de scroll-jump (dirección B)");
   assertTrue(html.includes('data-section-id="licensing-profile"'),
-    "la sección del Perfil lleva su id de scroll-jump");
+    "el Perfil lleva su id de scroll-jump");
   assertTrue(html.includes('data-commercial-licencias-count'), "conteo de Oportunidades con host propio");
   assertTrue(html.includes('data-commercial-licprofile-count'), "conteo de Perfil con host propio");
   assertTrue(html.includes("Oportunidades de licenciamiento"), "título de la sección A");
   assertTrue(html.includes("Perfil de licenciamiento por cliente"), "título de la sección B");
-  assertTrue(html.indexOf("Oportunidades de licenciamiento") < html.indexOf("Perfil de licenciamiento por cliente"),
-    "A antes que B en el DOM");
-  assertTrue(!html.includes("Alcance") && !html.includes("data-commercial-licprofile-scope-filter"),
-    "owner corrective: el Perfil ya NO tiene un control de Alcance seleccionable");
+  assertTrue(!html.includes("Licenciamiento") || !html.includes("<select"),
+    "owner Final Business Semantics Realignment: sin selector Licenciamiento en Oportunidades");
+  assertTrue(!html.includes("Alcance"), "y sin selector Alcance en el Perfil");
 }
 
 // --- Ingreso esperado: SOLO Licencias, nunca Detalle -----------------------
@@ -141,206 +142,184 @@ function resetState(patch) {
   assertTrue(!detHtml.includes("Ingreso esperado"), "Detalle Oportunidades NUNCA muestra Ingreso esperado");
 }
 
-// --- Licenciamiento: reemplaza el hardcode `licencias === "Si"` -----------
-// (owner "Explicit Licensing Filter + Profile Scope" §1-§4).
+// --- Tabla A: universo FIJO Licenciamiento=Sí, sin selector ---------------
+// (owner "Final Business Semantics Realignment" §2, tests A-D/I/J)
 {
   resetState({
     opportunitiesDetailStatus: "ready",
     opportunitiesDetail: { opportunities: [
-      OPP_ROW({ opportunity: "Opp Si", licencias: "Si", stage: "1 Contacto", seller: "Vendedor Uno" }),
-      OPP_ROW({ opportunity: "Opp No", licencias: "No", stage: "2 Propuesta", seller: "Vendedor Dos" }),
-      OPP_ROW({ opportunity: "Opp Blank", licencias: "Sin definir", stage: "1 Contacto", seller: "Vendedor Uno" }),
+      OPP_ROW({ opportunity: "Opp Si", licencias: "Si", stage: "1 Contacto", seller: "Vendedor Uno", account_id: 900 }),
+      OPP_ROW({ opportunity: "Opp No", licencias: "No", stage: "2 Propuesta", seller: "Vendedor Dos", account_id: 901 }),
+      OPP_ROW({ opportunity: "Opp Blank", licencias: "Sin definir", stage: "1 Contacto", seller: "Vendedor Uno", account_id: 902 }),
     ], total: 3 },
   });
-  // Default "si" reproduce EXACTO el hardcode viejo.
-  assertTrue(commercialState.licLicenciamientoFilter === "si", "default es Sí");
-  const defaultRows = commercialLicenciasFilteredRows();
-  assertTrue(defaultRows.length === 1 && defaultRows[0].opportunity === "Opp Si",
-    "el default reproduce EXACTO el viejo `licencias === \"Si\"` — nunca incluye No/Sin definir");
+  const rows = commercialLicenciasFilteredRows();
+  assertTrue(rows.length === 1 && rows[0].opportunity === "Opp Si",
+    "A/B/C: SOLO Licenciamiento=Sí se renderiza — No y Sin definir quedan afuera, siempre, sin selector");
+  assertTrue(!commercialLicenciasFiltersHtml().includes("Licenciamiento"),
+    "D: no existe ningún control Licenciamiento en la barra de Oportunidades");
 
-  // "no" es el COMPLEMENTO de "Si" (`!== "Si"`), corregido tras validación
-  // en vivo: la property "Licencias" en Odoo casi nunca se completa
-  // explícitamente en "No" — el uso real deja la mayoría SIN responder
-  // ("Sin definir", normalizado, nunca null técnico). Un match EXACTO
-  // contra el string "No" dejaba el filtro prácticamente vacío siempre —
-  // "Sin definir" cae del lado de "No", no de un tercer balde.
-  commercialState.licLicenciamientoFilter = "no";
-  const noRows = commercialLicenciasFilteredRows();
-  assertTrue(noRows.length === 2 && noRows.every(o => o.opportunity !== "Opp Si"),
-    "Licenciamiento=No muestra TODO lo que no es \"Si\" — incluye \"No\" Y \"Sin definir\"");
-  assertTrue(noRows.some(o => o.licencias === "No") && noRows.some(o => o.licencias === "Sin definir"),
-    "\"Sin definir\" (estado de negocio real, nunca null técnico) SÍ cae dentro de No — es el complemento de Sí");
-
-  // "todos" quita el predicado por completo.
-  commercialState.licLicenciamientoFilter = "todos";
-  assertTrue(commercialLicenciasFilteredRows().length === 3, "Todos quita el predicado de Licenciamiento");
-
-  // Combina AND con Etapa/Vendedor/Buscar.
-  commercialState.licLicenciamientoFilter = "si";
+  // H — combina con Etapa/Vendedor/Buscar sobre el universo YA fijo.
   commercialState.licStageFilter = "1 Contacto";
-  assertTrue(commercialLicenciasFilteredRows().length === 1, "combina AND con Etapa");
+  assertTrue(commercialLicenciasFilteredRows().length === 1, "H: Etapa sigue componiendo AND sobre el universo fijo");
   commercialState.licStageFilter = "";
   commercialState.licSellerFilter = "Vendedor Dos";
   assertTrue(commercialLicenciasFilteredRows().length === 0,
-    "combina AND con Vendedor (Opp Si es de Vendedor Uno)");
+    "H: Vendedor también — Opp Si es de Vendedor Uno, Vendedor Dos filtra a 0");
   commercialState.licSellerFilter = "";
 
-  // El conteo del header sigue el arreglo YA filtrado.
-  assertTrue(commercialLicenciasCountLabel().startsWith("1 "), "el conteo sigue las filas filtradas por Licenciamiento");
-
-  // Control de filtro presente, con las tres opciones.
-  const filtersHtml = commercialLicenciasFiltersHtml();
-  assertTrue(filtersHtml.includes("data-commercial-licencias-licenciamiento-filter"), "control Licenciamiento presente");
-  for (const label of ["Sí", "No", "Todos"]) {
-    assertTrue(filtersHtml.includes(`>${label}<`), `opción ${label} presente`);
-  }
+  // I/J — Es Cliente? NUNCA determina inclusión en Tabla A (no hay ningún
+  // campo/predicado de ese tipo en absoluto en el pipeline de Oportunidades
+  // — se prueba en test_commercial_licensing_profile_frontend.py vía grep
+  // estructural; acá sólo se confirma que ningún campo "es_cliente" viaja
+  // en las filas ni afecta el conteo).
+  assertTrue(!("es_cliente" in rows[0]), "I: ninguna fila de Oportunidades lleva un campo Es Cliente?");
+  assertTrue(commercialLicenciasCountLabel().startsWith("1 "), "el conteo refleja el universo fijo + filtros locales");
 }
 
-// --- El Perfil SIEMPRE deriva de las oportunidades visibles del grupo A ---
-// (owner corrective, ver HANDOFF: el Alcance seleccionable se retiró — esto
-// es ahora el ÚNICO comportamiento, no un modo entre varios).
+// --- Tabla A: Todos/New Name/Base instalada siguen vía tags de -----------
+// oportunidad (owner §2 "The global tipo selector continues to use the
+// existing opportunity-tag semantics" — tests E/F/G, a nivel de contrato:
+// el universo de `opportunitiesDetail` ya llega segmentado por tipo desde
+// el backend, el frontend sólo filtra Licenciamiento=Sí sobre lo que
+// recibe — ver test_commercial_service.py para la semántica de tags). -----
+{
+  resetState({
+    tipo: "nn",
+    opportunitiesDetailStatus: "ready",
+    opportunitiesDetail: { opportunities: [OPP_ROW({ licencias: "Si" })], total: 1 },
+  });
+  assertTrue(commercialLicenciasFilteredRows().length === 1,
+    "E/F/G: Tabla A sigue funcionando bajo cualquier tipo — el universo por tag ya viene resuelto del backend");
+}
+
+// --- Tabla B: universo FIJO Es Cliente?=Sí, sin Alcance, SIN acoplar -----
+// con Oportunidades (owner §3-§5, tests K-R) --------------------------------
 {
   resetState({
     opportunitiesDetailStatus: "ready",
-    opportunitiesDetail: { opportunities: [
-      OPP_ROW({ opportunity: "Opp A1", account_id: 900, licencias: "Si", stage: "1 Contacto" }),
-      OPP_ROW({ opportunity: "Opp A2", account_id: 900, licencias: "Si", stage: "2 Propuesta" }),
-      OPP_ROW({ opportunity: "Opp B1", account_id: 901, licencias: "Si", stage: "1 Contacto" }),
-    ], total: 3 },
+    // Deliberadamente SIN ninguna oportunidad para la cuenta 901 — prueba
+    // O/P: un cliente sin pipeline y sin Licenciamiento=Sí igual aparece.
+    opportunitiesDetail: { opportunities: [OPP_ROW({ account_id: 900, licencias: "Si" })], total: 1 },
     licensingProfileStatus: "ready",
     licensingProfile: { accounts: [
-      PROFILE_ACCOUNT({ id: 900, name: "Cuenta Uno" }),
-      PROFILE_ACCOUNT({ id: 901, name: "Cuenta Dos" }),
-      PROFILE_ACCOUNT({ id: 902, name: "Cuenta Sin Pipeline" }),
-    ], total: 3 },
+      PROFILE_ACCOUNT({ id: 900, name: "Cuenta Con Pipeline" }),
+      PROFILE_ACCOUNT({ id: 901, name: "Cuenta Sin Pipeline" }),
+    ], total: 2 },
   });
-  // Deriva DISTINCT commercial_partner_id de las filas visibles — 3
-  // oportunidades (2 de la cuenta 900, 1 de la 901) → 2 cuentas distintas.
-  // La 902 (sin ninguna oportunidad visible) queda EXCLUIDA.
-  const scoped = commercialLicensingProfileFilteredRows();
-  assertTrue(scoped.length === 2 && scoped.every(a => [900, 901].includes(a.id)),
-    "deriva cuentas DISTINTAS por account_id — 3 oportunidades, 2 cuentas, la sin-pipeline afuera");
-  assertTrue(commercialLicenciasFilteredRows().length === 3 && scoped.length === 2,
-    "3 oportunidades visibles / 2 cuentas — los conteos NO tienen por qué coincidir (grano distinto)");
-  const scopedHtml = commercialLicensingProfileTableHtml(scoped);
-  assertTrue(!scopedHtml.includes("Cuenta Sin Pipeline"), "y la cuenta sin oportunidades no aparece en la tabla");
+  const rows = commercialLicensingProfileFilteredRows();
+  assertTrue(rows.length === 2, "K-Q: TODAS las cuentas que el backend envía se muestran — ninguna se filtra por pipeline/Licenciamiento");
+  assertTrue(rows.some(a => a.name === "Cuenta Sin Pipeline"),
+    "O/P: la cuenta SIN ninguna oportunidad (ni Licenciamiento=Sí) sigue incluida");
+  assertTrue(!commercialLicensingProfileFiltersHtml().includes("Alcance"),
+    "R: no existe ningún control Alcance en la barra del Perfil");
 
-  // Un filtro de Oportunidades recalcula el set derivado.
-  commercialState.licStageFilter = "1 Contacto";
-  const scopedAfterStage = commercialLicensingProfileFilteredRows();
-  assertTrue(scopedAfterStage.length === 2, "Etapa=1 Contacto dejó 2 oportunidades (900,901), 2 cuentas");
-  commercialState.licStageFilter = "2 Propuesta";
-  const scopedAfterStage2 = commercialLicensingProfileFilteredRows();
-  assertTrue(scopedAfterStage2.length === 1 && scopedAfterStage2[0].id === 900,
-    "Etapa=2 Propuesta deja SÓLO la oportunidad de la cuenta 900 — el Perfil recalcula a 1 cuenta");
+  // Cambiar filtros de Oportunidades (Etapa/Vendedor/Buscar) NUNCA debe
+  // tocar el Perfil (owner §7: "Changing opportunity filters must not
+  // silently change the normal Profile count").
+  commercialState.licStageFilter = "8 Propuesta formal Presentada"; // deja 0 oportunidades visibles
+  assertTrue(commercialLicenciasFilteredRows().length === 0, "precondición: 0 oportunidades visibles");
+  assertTrue(commercialLicensingProfileFilteredRows().length === 2,
+    "§7: el Perfil sigue mostrando sus 2 cuentas — INDEPENDIENTE de qué oportunidades están visibles");
   commercialState.licStageFilter = "";
+}
 
-  // Cero oportunidades visibles → cero cuentas. Ya NO existe un modo
-  // "Todas las cuentas" que mantenga el universo completo.
-  commercialState.licLicenciamientoFilter = "no"; // ninguna opp tiene licencias==="No"/"Sin definir" en esta fixture
-  assertTrue(commercialLicenciasFilteredRows().length === 0, "precondición: cero oportunidades visibles");
-  assertTrue(commercialLicensingProfileFilteredRows().length === 0,
-    "cero oportunidades visibles → cero cuentas, sin universo alternativo al que caer");
-  commercialState.licLicenciamientoFilter = "si";
+// --- Filtros adicionales del Perfil (owner corrective post-live-QA) -------
+{
+  resetState({
+    licensingProfileStatus: "ready",
+    licensingProfile: { accounts: [
+      PROFILE_ACCOUNT({ id: 900, partner_de_licencia: "05 - SOFTTEK", ae_sap: "AE Uno", tipo_contrato_sap: "Contrato Individual", seller: "Vendedor Uno" }),
+      PROFILE_ACCOUNT({ id: 901, name: "Cuenta Otra", partner_de_licencia: "01 - SAP", ae_sap: "AE Dos", tipo_contrato_sap: "Asociado Rise", seller: "Vendedor Dos" }),
+    ], total: 2 },
+  });
+  assertTrue(commercialLicensingProfileFilteredRows().length === 2, "T: sin filtros, las dos cuentas");
+  commercialState.licProfilePartnerFilter = "05 - SOFTTEK";
+  assertTrue(commercialLicensingProfileFilteredRows().length === 1 && commercialLicensingProfileFilteredRows()[0].id === 900,
+    "T: filtro Partner de licencia funciona");
+  commercialState.licProfilePartnerFilter = "";
+  commercialState.licProfileAeSapFilter = "AE Dos";
+  assertTrue(commercialLicensingProfileFilteredRows()[0].id === 901, "T: filtro AE SAP funciona");
+  commercialState.licProfileAeSapFilter = "";
+  commercialState.licProfileTipoContratoFilter = "Asociado Rise";
+  assertTrue(commercialLicensingProfileFilteredRows()[0].id === 901, "T: filtro Tipo de contrato SAP funciona");
+  commercialState.licProfileTipoContratoFilter = "";
+  commercialState.licProfileSellerFilter = "Vendedor Uno";
+  assertTrue(commercialLicensingProfileFilteredRows()[0].id === 900, "T: filtro Vendedor funciona");
+  commercialState.licProfileSellerFilter = "";
+  // U — el conteo del header sigue el arreglo YA filtrado, nunca el crudo.
+  commercialState.licProfileSellerFilter = "Vendedor Uno";
+  assertTrue(commercialLicensingProfileCountLabel() === "1 cuenta(s)", "U: conteo sigue las filas filtradas");
+  commercialState.licProfileSellerFilter = "";
 }
 
 // --- Drilldown bidireccional por cuenta (id canónico, nunca nombre) -------
+// (owner "Bidirectional Account Drilldown", preservado — tests V-AC) -------
 {
   resetState({
     opportunitiesDetailStatus: "ready",
     opportunitiesDetail: { opportunities: [
-      OPP_ROW({ account_id: 900, client: "Cuenta Uno" }),
-      OPP_ROW({ opportunity: "Opp Dos", account_id: 901, client: "Cuenta Dos" }),
+      OPP_ROW({ account_id: 900, client: "Cuenta Uno", licencias: "Si" }),
+      OPP_ROW({ opportunity: "Opp Dos", account_id: 901, client: "Cuenta Dos", licencias: "Si" }),
     ], total: 2 },
     licensingProfileStatus: "ready",
     licensingProfile: { accounts: [
       PROFILE_ACCOUNT({ id: 900, name: "Cuenta Uno" }),
       PROFILE_ACCOUNT({ id: 901, name: "Cuenta Dos" }),
-      PROFILE_ACCOUNT({ id: 902, name: "Cuenta Sin Oportunidades" }), // sin fila de Oportunidad — nunca visible en el Perfil
+      // Cliente elegible SIN ninguna oportunidad Licenciamiento=Sí — caso Z.
+      PROFILE_ACCOUNT({ id: 902, name: "Cuenta Sin Licenciamiento" }),
     ], total: 3 },
   });
-  // Dirección A: fila de Oportunidades lleva el account_id como data-attr,
-  // accesible, sin marca por default.
-  const licHtml = commercialLicenciasTableHtml(commercialLicenciasFilteredRows());
-  assertTrue(licHtml.includes('data-commercial-licensing-account-row="900"'), "fila de A lleva el account_id");
-  assertTrue(licHtml.includes('role="button"') && licHtml.includes('tabindex="0"'), "accesible por teclado");
-  assertTrue(!licHtml.includes(' is-active"'), "sin drilldown, ninguna fila está marcada");
-  assertTrue(commercialLicensingProfileFilteredRows().length === 2,
-    "sin drilldown, B muestra las DOS cuentas con oportunidad visible (902 queda afuera)");
 
-  // Simula lo que hace el delegado real: setea id CANÓNICO + origen — NUNCA
-  // un texto de búsqueda.
+  // V — Oportunidad → Perfil, cuenta elegible: aparece.
   commercialState.licensingDrilldownAccountId = 900;
   commercialState.licensingDrilldownOrigin = "opportunities";
   const filtered = commercialLicensingProfileFilteredRows();
-  assertTrue(filtered.length === 1 && filtered[0].id === 900, "Oportunidad→Perfil filtra a ESA cuenta, por id");
+  assertTrue(filtered.length === 1 && filtered[0].id === 900, "V: Oportunidad→Perfil filtra a ESA cuenta, por id");
   assertTrue(commercialLicensingProfileCountLabel() === "1 cuenta(s)", "y el conteo del header dice 1");
-  const activeHtml = commercialLicenciasTableHtml(commercialLicenciasFilteredRows());
-  assertTrue(activeHtml.includes('class="dashboard-table-row--clickable is-active"'), "la fila de origen queda marcada .is-active");
-  const profileHtmlActive = commercialLicensingProfileTableHtml(filtered);
-  assertTrue(!profileHtmlActive.includes(' is-active"'), "en el Perfil ninguna fila es \"origen\" — todas son RESULTADO");
 
-  // Cierre: unifica las dos direcciones, restaura el universo vigente, vuelve
-  // el foco al origen.
+  // X — cierre restaura el universo COMPLETO del Perfil (las 3 cuentas).
   hosts['[data-commercial-licensing-account-row="900"]'] = { focused: false, focus() { this.focused = true; } };
   commercialLicensingCloseDrilldown(root);
-  assertTrue(commercialState.licensingDrilldownAccountId === null && commercialState.licensingDrilldownOrigin === null,
-    "cierra -> limpia el foco contextual");
-  assertTrue(commercialLicensingProfileFilteredRows().length === 2, "y las DOS cuentas vuelven a estar visibles");
+  assertTrue(commercialLicensingProfileFilteredRows().length === 3, "X: cierre restaura el universo COMPLETO del Perfil");
   assertTrue(hosts['[data-commercial-licensing-account-row="900"]'].focused === true,
-    "el foco vuelve a la fila de origen — el navegador la scrollea a la vista sola");
+    "y el foco vuelve a la fila de origen");
 
-  // Dirección B: fila de Perfil clickeable, lleva su propio account_id.
-  // Sólo las cuentas CON oportunidad visible llegan a tener fila.
-  const profileHtml = commercialLicensingProfileTableHtml(commercialLicensingProfileFilteredRows());
-  assertTrue(profileHtml.includes('data-commercial-licensing-profile-account-row="900"'), "fila de cuenta con account_id propio");
-  assertTrue(!profileHtml.includes('data-commercial-licensing-profile-account-row="902"'),
-    "la cuenta sin ninguna oportunidad visible NUNCA llega a tener fila (owner corrective)");
-  assertTrue(count(profileHtml, 'role="button"') === 2, "las DOS filas de cuenta visibles son clickeables");
+  // W — Oportunidad cuya cuenta NO es cliente (no está en el Perfil en
+  // absoluto): resultado contextual = 0, empty state de negocio explícito,
+  // NUNCA se inyecta la cuenta temporalmente al Perfil.
+  commercialState.licensingDrilldownAccountId = 999; // no existe en licensingProfile.accounts
+  commercialState.licensingDrilldownOrigin = "opportunities";
+  const nonClientResult = commercialLicensingProfileFilteredRows();
+  assertTrue(nonClientResult.length === 0, "W: cuenta no-cliente -> 0 resultados, nunca inyectada");
+  const nonClientHtml = commercialLicensingProfileTableHtml(nonClientResult);
+  assertTrue(nonClientHtml.includes("no está marcada como cliente"),
+    "W: empty state de NEGOCIO explícito, distinto del genérico \"ningún resultado\"");
+  commercialLicensingCloseDrilldown(root);
 
+  // Y/Z/AA — Perfil → Oportunidades, incluso para una cuenta SIN ninguna
+  // oportunidad Licenciamiento=Sí (owner §10: "Do NOT broaden Table A to
+  // Licenciamiento=No/Todos just to find something").
   commercialState.licensingDrilldownAccountId = 900;
   commercialState.licensingDrilldownOrigin = "profile";
   const oppFiltered = commercialLicenciasFilteredRows();
-  assertTrue(oppFiltered.length === 1 && oppFiltered[0].account_id === 900, "Perfil→Oportunidades filtra a ESA cuenta, por id");
-  const profileHtmlB = commercialLicensingProfileTableHtml(commercialLicensingProfileFilteredRows());
-  assertTrue(profileHtmlB.includes('class="dashboard-table-row--clickable is-active"'), "la fila de cuenta de origen queda marcada");
+  assertTrue(oppFiltered.length === 1 && oppFiltered[0].account_id === 900, "Y: Perfil→Oportunidades filtra a ESA cuenta, por id");
+
+  commercialState.licensingDrilldownAccountId = 902; // sin ninguna oportunidad Licenciamiento=Sí
+  const zeroOppResult = commercialLicenciasFilteredRows();
+  assertTrue(zeroOppResult.length === 0, "Z: cuenta elegible sin oportunidades Licenciamiento=Sí -> 0, resultado válido");
+  const zeroOppHtml = commercialLicenciasTableHtml(zeroOppResult);
+  assertTrue(zeroOppHtml.includes("Sin oportunidades de licenciamiento identificadas para esta cuenta"),
+    "Z: empty state de negocio, NUNCA se amplía a No/Todos para encontrar algo");
+
+  // AA — cierre restaura el universo COMPLETO de Oportunidades (2 filas).
+  hosts['[data-commercial-licensing-profile-account-row="902"]'] = { focused: false, focus() { this.focused = true; } };
   commercialLicensingCloseDrilldown(root);
+  assertTrue(commercialLicenciasFilteredRows().length === 2, "AA: cierre restaura el universo COMPLETO de Oportunidades");
+  assertTrue(hosts['[data-commercial-licensing-profile-account-row="902"]'].focused === true, "y el foco vuelve al origen");
 }
 
-// --- Cierre preserva filtros de la tabla OPUESTA (owner §4/§12) -----------
-{
-  resetState({
-    opportunitiesDetailStatus: "ready",
-    opportunitiesDetail: { opportunities: [
-      OPP_ROW({ account_id: 900, licencias: "No", stage: "3 Negociación" }),
-      OPP_ROW({ opportunity: "Opp Dos", account_id: 900, licencias: "No", stage: "3 Negociación" }),
-    ], total: 2 },
-    licensingProfileStatus: "ready",
-    licensingProfile: { accounts: [PROFILE_ACCOUNT({ id: 900 }), PROFILE_ACCOUNT({ id: 901, name: "Cuenta Otra" })], total: 2 },
-    licLicenciamientoFilter: "no", licStageFilter: "3 Negociación",
-    licProfileSegmentoFilter: "Corporate",
-  });
-  // Dirección A: cerrar el drilldown Oportunidad→Perfil NO debe tocar los
-  // filtros manuales del Perfil (Segmento sigue "Corporate").
-  commercialState.licensingDrilldownAccountId = 900;
-  commercialState.licensingDrilldownOrigin = "opportunities";
-  commercialLicensingCloseDrilldown(root);
-  assertTrue(commercialState.licProfileSegmentoFilter === "Corporate",
-    "cerrar Oportunidad→Perfil preserva los filtros manuales del Perfil (owner §4)");
-
-  // Dirección B: cerrar Perfil→Oportunidades NO debe resetear
-  // Licenciamiento/Etapa/Vendedor/Buscar de Oportunidades.
-  commercialState.licensingDrilldownAccountId = 900;
-  commercialState.licensingDrilldownOrigin = "profile";
-  const duringDrilldown = commercialLicenciasFilteredRows();
-  assertTrue(duringDrilldown.length === 2, "el drilldown compone DENTRO de Licenciamiento=No + Etapa=3 Negociación");
-  commercialLicensingCloseDrilldown(root);
-  assertTrue(commercialState.licLicenciamientoFilter === "no" && commercialState.licStageFilter === "3 Negociación",
-    "cerrar Perfil→Oportunidades preserva Licenciamiento/Etapa (owner §12)");
-  assertTrue(commercialLicenciasFilteredRows().length === 2, "y el universo filtrado previo vuelve completo");
-}
-
-// --- Cambio de Tipo limpia drilldown + resetea Licenciamiento a su default
+// --- F: cambio de Tipo limpia el drilldown, aunque esté activo ------------
 {
   resetState({ capability: "licencias" });
   fetchImpl = () => Promise.resolve({ json: () => Promise.resolve({ state: "config_incomplete" }) });
@@ -348,19 +327,14 @@ function resetState(patch) {
   commercialState.licensingProfileStatus = "ready";
   commercialState.licensingDrilldownAccountId = 900;
   commercialState.licensingDrilldownOrigin = "opportunities";
-  commercialState.licLicenciamientoFilter = "no";
   commercialSetTipo("bi");
   assertTrue(commercialState.licensingDrilldownAccountId === null && commercialState.licensingDrilldownOrigin === null,
     "el drilldown por cuenta se limpia al cambiar Tipo");
-  assertTrue(commercialState.licLicenciamientoFilter === "si",
-    "Licenciamiento vuelve a su default \"si\" — MISMO lifecycle que el resto de filtros de Licencias");
 }
 
 // --- Identidad semántica ESTABLE por columna, nunca posicional -----------
 {
   resetState({
-    opportunitiesDetailStatus: "ready",
-    opportunitiesDetail: { opportunities: [OPP_ROW()], total: 1 },
     licensingProfileStatus: "ready",
     licensingProfile: { accounts: [PROFILE_ACCOUNT()], total: 1 },
   });
@@ -380,37 +354,10 @@ function resetState(patch) {
   }
 }
 
-// --- Filtros adicionales del Perfil (owner corrective post-live-QA) -------
-{
-  resetState({
-    opportunitiesDetailStatus: "ready",
-    opportunitiesDetail: { opportunities: [
-      OPP_ROW({ opportunity: "Opp Uno", account_id: 900 }),
-      OPP_ROW({ opportunity: "Opp Dos", account_id: 901 }),
-    ], total: 2 },
-    licensingProfileStatus: "ready",
-    licensingProfile: { accounts: [
-      PROFILE_ACCOUNT({ id: 900, partner_de_licencia: "05 - SOFTTEK", ae_sap: "AE Uno", tipo_contrato_sap: "Contrato Individual", seller: "Vendedor Uno" }),
-      PROFILE_ACCOUNT({ id: 901, name: "Cuenta Otra", partner_de_licencia: "01 - SAP", ae_sap: "AE Dos", tipo_contrato_sap: "Asociado Rise", seller: "Vendedor Dos" }),
-    ], total: 2 },
-  });
-  assertTrue(commercialLicensingProfileFilteredRows().length === 2, "sin filtros, las dos cuentas");
-  commercialState.licProfilePartnerFilter = "05 - SOFTTEK";
-  assertTrue(commercialLicensingProfileFilteredRows().length === 1 && commercialLicensingProfileFilteredRows()[0].id === 900,
-    "filtro Partner de licencia funciona");
-  commercialState.licProfilePartnerFilter = "";
-  commercialState.licProfileAeSapFilter = "AE Dos";
-  assertTrue(commercialLicensingProfileFilteredRows()[0].id === 901, "filtro AE SAP funciona");
-  commercialState.licProfileAeSapFilter = "";
-  commercialState.licProfileTipoContratoFilter = "Asociado Rise";
-  assertTrue(commercialLicensingProfileFilteredRows()[0].id === 901, "filtro Tipo de contrato SAP funciona");
-  commercialState.licProfileTipoContratoFilter = "";
-  commercialState.licProfileSellerFilter = "Vendedor Uno";
-  assertTrue(commercialLicensingProfileFilteredRows()[0].id === 900, "filtro Vendedor funciona");
-  commercialState.licProfileSellerFilter = "";
-}
-
-// --- Reactividad global a Tipo: LAS DOS tablas se recargan (owner §2) -----
+// --- Reactividad global a Tipo: LAS DOS tablas se recargan (owner §2 -----
+// original de Bidirectional Account Drilldown — el REFETCH persiste, el
+// backend ahora devuelve el MISMO resultado sin importar tipo, ver
+// test_commercial_licensing_profile.py) ------------------------------------
 {
   resetState({ capability: "licencias" });
   fetchImpl = url => Promise.resolve({ json: () => Promise.resolve(
@@ -428,26 +375,23 @@ function resetState(patch) {
   assertTrue(commercialState.opportunitiesDetailStatus === "loading",
     "cambiar Tipo con Licencias activa recarga A de inmediato (nunca se queda en idle)");
   assertTrue(commercialState.licensingProfileStatus === "loading",
-    "y TAMBIÉN recarga B de inmediato — owner §2, las dos deben responder");
+    "y TAMBIÉN recarga B de inmediato — S: aunque el resultado no cambie, la recarga es inocua");
   assertTrue(commercialState.licensingDrilldownAccountId === null,
     "el drilldown se limpia al cambiar Tipo — nunca sobrevive a un universo nuevo");
 }
 
 // --- Owner corrective (post-live-QA): el click es una intención de VER el
-// resultado — foco/scroll deben seguir al resultado, en LAS DOS direcciones,
-// MISMA mecánica que "Retrasadas"/"Por vencer" (`commercialActJumpToSection`).
-// Se ejercitan los delegados REALES (click Y keydown), nunca una llamada
-// directa a la función. También prueba que un click NUNCA dispara la
-// dirección contraria (owner §9: "prevent interaction loops"). -----------
+// resultado — foco/scroll deben seguir al resultado, en LAS DOS direcciones.
+// Se ejercitan los delegados REALES (click Y keydown). AB: nunca dispara la
+// dirección contraria. AC: teclado funciona igual. -------------------------
 {
   resetState({
     capability: "licencias",
-    opportunitiesDetailStatus: "ready", opportunitiesDetail: { opportunities: [OPP_ROW()], total: 1 },
+    opportunitiesDetailStatus: "ready", opportunitiesDetail: { opportunities: [OPP_ROW({ licencias: "Si" })], total: 1 },
     licensingProfileStatus: "ready", licensingProfile: { accounts: [PROFILE_ACCOUNT()], total: 1 },
   });
   (listeners.DOMContentLoaded || []).forEach(cb => cb());
 
-  // Dirección A → salta a "licensing-profile".
   const profileTarget = { open: false, scrolled: 0, scrollIntoView() { this.scrolled++; } };
   hosts['[data-section-id="licensing-profile"]'] = profileTarget;
   const oppTarget = { open: false, scrolled: 0, scrollIntoView() { this.scrolled++; } };
@@ -459,23 +403,21 @@ function resetState(patch) {
   }));
   assertTrue(profileTarget.open === true && profileTarget.scrolled === 1,
     "click en fila de Oportunidad abre y scrollea al Perfil");
-  assertTrue(oppTarget.scrolled === 0, "y NUNCA dispara además la dirección contraria (Oportunidades no scrollea)");
+  assertTrue(oppTarget.scrolled === 0, "AB: y NUNCA dispara además la dirección contraria");
   assertTrue(commercialState.licensingDrilldownOrigin === "opportunities", "origen correcto");
 
   commercialLicensingCloseDrilldown(root);
   profileTarget.scrolled = 0; profileTarget.open = false; oppTarget.scrolled = 0;
 
-  // Dirección B → salta a "licensing-opportunities".
   const fakeProfileRow = { dataset: { commercialLicensingProfileAccountRow: "900" } };
   (listeners.click || []).forEach(cb => cb({
     target: { closest: sel => (sel === "[data-commercial-licensing-profile-account-row]" ? fakeProfileRow : null) },
   }));
   assertTrue(oppTarget.open === true && oppTarget.scrolled === 1,
     "click en fila de cuenta del Perfil abre y scrollea a Oportunidades");
-  assertTrue(profileTarget.scrolled === 0, "y NUNCA dispara la dirección contraria (Perfil no vuelve a scrollear)");
+  assertTrue(profileTarget.scrolled === 0, "AB: y NUNCA dispara la dirección contraria");
   assertTrue(commercialState.licensingDrilldownOrigin === "profile", "origen correcto");
 
-  // Teclado — mismo camino, las dos direcciones.
   commercialLicensingCloseDrilldown(root);
   oppTarget.scrolled = 0; oppTarget.open = false; profileTarget.scrolled = 0; profileTarget.open = false;
   (listeners.keydown || []).forEach(cb => cb({
@@ -483,7 +425,7 @@ function resetState(patch) {
     target: { closest: sel => (sel === "[data-commercial-licensing-account-row]" ? fakeOppRow : null) },
     preventDefault() {},
   }));
-  assertTrue(profileTarget.open === true && profileTarget.scrolled === 1, "Enter sobre la fila de Oportunidad hace lo mismo");
+  assertTrue(profileTarget.open === true && profileTarget.scrolled === 1, "AC: Enter sobre la fila de Oportunidad hace lo mismo");
   commercialLicensingCloseDrilldown(root);
   profileTarget.scrolled = 0; profileTarget.open = false;
   (listeners.keydown || []).forEach(cb => cb({
@@ -491,14 +433,14 @@ function resetState(patch) {
     target: { closest: sel => (sel === "[data-commercial-licensing-profile-account-row]" ? fakeProfileRow : null) },
     preventDefault() {},
   }));
-  assertTrue(oppTarget.open === true && oppTarget.scrolled === 1, "Enter sobre la fila de cuenta hace lo mismo");
+  assertTrue(oppTarget.open === true && oppTarget.scrolled === 1, "AC: Enter sobre la fila de cuenta hace lo mismo");
 }
 
 // --- Sin stale rows: tras el cambio de tipo, el perfil viejo no sobrevive -
 (async () => {
   resetState({ capability: "licencias" });
   commercialState.opportunitiesDetailStatus = "ready";
-  commercialState.opportunitiesDetail = { opportunities: [OPP_ROW()], total: 1 };
+  commercialState.opportunitiesDetail = { opportunities: [OPP_ROW({ licencias: "Si" })], total: 1 };
   commercialState.licensingProfileStatus = "ready";
   commercialState.licensingProfile = { accounts: [PROFILE_ACCOUNT({ name: "Cuenta Vieja" })], total: 1 };
   hosts["[data-commercial-licprofile-table]"] = { innerHTML: "" };
