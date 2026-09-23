@@ -18,8 +18,9 @@
     </p>
     {# Discriminador funcional: distingue dos flujos del mismo cliente/dominio por
        su modelo de consumo (ver CatalogEntry.consumo). Sin él, dos tiles legítimas
-       se veían idénticas salvo el conteo de artefactos. #}
-    {% if e.consumo %}<p class="catalog-card__consumo"><strong>Consumo:</strong> {{ e.consumo|join(", ") }}</p>{% endif %}
+       se veían idénticas salvo el conteo de artefactos. Compacto (sublínea mono,
+       tipografía secundaria) para no engordar la altura del tile. #}
+    {% if e.consumo %}<p class="catalog-card__consumo">Consumo: <span>{{ e.consumo|join(", ") }}</span></p>{% endif %}
     <p class="catalog-card__apto">{{ e.apto }}</p>
     {# "XX artefactos" va ARRIBA para que los dos desplegables "+ VER FUENTES" y
        "+ VER NOTAS" queden juntos (antes el conteo se colaba entre ambos). #}

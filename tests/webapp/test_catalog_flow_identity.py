@@ -122,6 +122,21 @@ def test_flows_partial_emits_distinct_hrefs_per_entry():
     assert all("flow=" in h for h in tile_hrefs), "cada href lleva flow=<entry_id>"
 
 
+def test_consumo_discriminator_is_compact_single_line():
+    # Presentación: el discriminador de consumo sigue visible pero compacto —
+    # sublínea única, sin el <strong>Consumo:</strong> pesado que engordaba el tile.
+    from webapp.main import templates
+    a = cs.CatalogEntry(path="p/a", cliente="Kensing", dominio="Ventas",
+                        veredicto="buena", apto="x",
+                        artefactos=["4AM_SND_PRODUCTSALESDELIVERY"],
+                        entry_id="kensing-ventas-a")
+    html = templates.get_template("partials/catalog_flows.html").render(
+        flows=[a], dominio="Ventas", pack="datasphere_core", foco=None)
+    assert 'class="catalog-card__consumo"' in html
+    assert "PRODUCTSALESDELIVERY" in html            # discriminador visible
+    assert "<strong>Consumo" not in html             # sin el rótulo pesado (compacto)
+
+
 def test_lineage_toggle_preserves_flow():
     # El toggle de asociaciones re-pide /catalog/flow; debe conservar flow=<entry_id>
     # para no colapsar a otro flujo del mismo cliente/dominio.
