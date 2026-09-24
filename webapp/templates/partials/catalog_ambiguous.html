@@ -1,0 +1,6 @@
+{# Desambiguación: se llegó a /catalog/flow por (cliente, dominio) sin flow=, y ese
+   par tiene MÁS DE UN flujo legítimo. No elegimos el primero arbitrariamente —
+   mostramos las opciones (cada tile ya lleva su flow=<entry_id>) para que se elija
+   una. Ocurre solo con links legacy: las tiles del catálogo ya enrutan por identidad. #}
+<p class="empty-panel">Hay {{ flows|length }} flujos para <strong>{{ cliente }} · {{ dominio }}</strong> — elegí uno:</p>
+{% include "partials/catalog_flows.html" %}

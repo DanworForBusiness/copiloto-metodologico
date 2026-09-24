@@ -610,7 +610,8 @@ class AssistantRoutingService:
             if cat_entry is not None:
                 label = f"{cat_entry.cliente} · {cat_entry.dominio}".strip(" ··")
                 url = (f"/catalog/flow?cliente={quote(cat_entry.cliente)}"
-                       f"&dominio={quote(cat_entry.dominio)}&pack={quote(pack_name)}")
+                       f"&dominio={quote(cat_entry.dominio)}&flow={quote(cat_entry.entry_id)}"
+                       f"&pack={quote(pack_name)}")
                 return AssistantRoute(
                     f"Sí — ya tenemos esto implementado: **{label}** "
                     f"({cat_entry.icon} mirada Danwor {cat_entry.veredicto}). Miralo en el catálogo.",
@@ -679,7 +680,8 @@ class AssistantRoutingService:
                     AssistantRouteAction(
                         f"{e.cliente} · {e.dominio}",
                         (f"/catalog/flow?cliente={quote(e.cliente)}"
-                         f"&dominio={quote(e.dominio)}&pack={quote(pack_name)}"),
+                         f"&dominio={quote(e.dominio)}&flow={quote(e.entry_id)}"
+                         f"&pack={quote(pack_name)}"),
                         embed=True,
                     )
                     for e in items[:12]
@@ -728,7 +730,8 @@ class AssistantRoutingService:
                     AssistantRouteAction(
                         f"{e.cliente} · {e.dominio}",
                         (f"/catalog/flow?cliente={quote(e.cliente)}"
-                         f"&dominio={quote(e.dominio)}&pack={quote(pack_name)}"),
+                         f"&dominio={quote(e.dominio)}&flow={quote(e.entry_id)}"
+                         f"&pack={quote(pack_name)}"),
                         embed=True,
                     )
                     for e in v_matches[:12]

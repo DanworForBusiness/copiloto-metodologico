@@ -6,7 +6,7 @@
   {% if lineage_svg %}
   <label class="lineage-toggle" title="Las asociaciones (dimensiones y textos) son relaciones indirectas; el linaje directo es lo que consume el SQL (FROM/JOIN). Afecta el diagrama y el detalle de abajo.">
     <input type="checkbox" {% if show_assoc %}checked{% endif %}
-           hx-get="/catalog/flow?cliente={{ cliente|urlencode }}&dominio={{ dominio|urlencode }}&pack={{ pack|default('datasphere_core') }}&assoc={{ 0 if show_assoc else 1 }}"
+           hx-get="/catalog/flow?cliente={{ cliente|urlencode }}&dominio={{ dominio|urlencode }}{% if entry_id %}&flow={{ entry_id|urlencode }}{% endif %}&pack={{ pack|default('datasphere_core') }}&assoc={{ 0 if show_assoc else 1 }}"
            hx-target="#catalog-detail-slot" hx-swap="innerHTML">
     <span>Incluir asociaciones <em>(dimensiones y textos, indirectas)</em></span>
   </label>
