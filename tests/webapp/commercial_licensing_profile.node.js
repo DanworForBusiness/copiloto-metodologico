@@ -45,6 +45,8 @@ const sandbox = {
   HubForegroundProgress: { begin() {}, complete() {}, fail() {} },
   initDashboardSections() {},
   initEventBreakdown() {},
+  initDraggableColumns() {},
+  readStoredColumnOrder() { return null; },
   console,
 };
 vm.createContext(sandbox);
@@ -114,7 +116,10 @@ function resetState(patch) {
   const html = commercialLicenciasHtml();
   assertTrue(count(html, 'class="dashboard-section commercial-licensing-section"') === 2,
     "dos <details> independientes");
-  assertTrue(count(html, "<details[^>]* open>") === 2, "ambos abiertos por default");
+  // TRES (no dos) desde Director §5/§6 (ver HANDOFF): "Sin prioridad" es
+  // un TERCER `<details ... open>` anidado dentro de la sección del
+  // Perfil — main + secondary del Perfil, más Oportunidades.
+  assertTrue(count(html, "<details[^>]* open>") === 3, "las tres secciones abiertas por default (Oportunidades + Perfil + Sin prioridad)");
   assertTrue(html.includes('data-section-id="licensing-opportunities"'),
     "Oportunidades lleva su id de scroll-jump (dirección B)");
   assertTrue(html.includes('data-section-id="licensing-profile"'),
@@ -418,15 +423,17 @@ function resetState(patch) {
   assertTrue(profileTarget.scrolled === 0, "AB: y NUNCA dispara la dirección contraria");
   assertTrue(commercialState.licensingDrilldownOrigin === "profile", "origen correcto");
 
+  // "AC: Enter sobre la fila de Oportunidad hace lo mismo" — YA NO aplica
+  // como estaba (Director §1/§3, ver HANDOFF): `data-commercial-licensing-
+  // account-row` ahora vive en el botón NATIVO "Ver detalle de licencias"
+  // (antes vivía en la fila entera `role="button"`) — un `<button>` real
+  // maneja Enter/Espacio SOLO, vía el browser, nunca por este delegado de
+  // `keydown` (MISMO criterio ya documentado para la X de cierre). El
+  // camino de click de arriba (líneas 402-409) YA cubre su activación: la
+  // activación por teclado de un `<button>` nativo se reduce SIEMPRE a un
+  // evento `click`, el mismo que ese bloque ya simula y confirma.
   commercialLicensingCloseDrilldown(root);
   oppTarget.scrolled = 0; oppTarget.open = false; profileTarget.scrolled = 0; profileTarget.open = false;
-  (listeners.keydown || []).forEach(cb => cb({
-    key: "Enter",
-    target: { closest: sel => (sel === "[data-commercial-licensing-account-row]" ? fakeOppRow : null) },
-    preventDefault() {},
-  }));
-  assertTrue(profileTarget.open === true && profileTarget.scrolled === 1, "AC: Enter sobre la fila de Oportunidad hace lo mismo");
-  commercialLicensingCloseDrilldown(root);
   profileTarget.scrolled = 0; profileTarget.open = false;
   (listeners.keydown || []).forEach(cb => cb({
     key: "Enter",

@@ -72,26 +72,40 @@ def test_es_cliente_is_never_a_visible_filter_or_column():
 
 
 def test_licensing_profile_columns_are_account_grain_only():
-    row_fn = _COMMERCIAL_JS.split("function commercialLicensingProfileRowHtml(", 1)[1].split("\n}", 1)[0]
+    # Director §9/§10 (ver HANDOFF): las celdas ahora son data-driven —
+    # cada campo vive en su propio `cell(a)` DENTRO de
+    # `COMMERCIAL_LICENSING_PROFILE_COLUMNS` (para poder reordenarse),
+    # nunca hardcodeado inline en `commercialLicensingProfileRowHtml` como
+    # antes de esta fase. La aserción se mueve a esa definición.
+    columns_block = _COMMERCIAL_JS.split(
+        "const COMMERCIAL_LICENSING_PROFILE_COLUMNS = [", 1)[1].split("\n];", 1)[0]
     for field in ("a.name", "a.partner_de_licencia", "a.ae_sap", "a.arquitectura_actual",
                   "a.monto_contrato", "a.vencimiento_contrato", "a.tipo_contrato_sap", "a.segmento_cuenta",
                   "a.seller"):
-        assert field in row_fn, field
-    # Nunca un campo derivado de OPORTUNIDAD colándose en la fila de cuenta.
+        assert field in columns_block, field
+    # Nunca un campo derivado de OPORTUNIDAD colándose en la fila de cuenta
+    # — ni en la definición de columnas ni en el renderer de fila en sí.
+    row_fn = _COMMERCIAL_JS.split("function commercialLicensingProfileRowHtml(", 1)[1].split("\n}", 1)[0]
     for banned in ("a.opportunity", "a.hours", "a.probability", "a.stage"):
+        assert banned not in columns_block, banned
         assert banned not in row_fn, banned
 
 
-def test_licencias_opportunities_table_uses_the_shared_row_renderer_unmodified_for_detalle():
-    # Ingreso esperado/clickable son OPCIONALES (`showRevenue`/`clickable`),
-    # default `false` — Detalle sigue llamando `commercialOppDetailTableHtml`
-    # SIN pasarlos, cero cambio de comportamiento ahí.
+def test_licencias_opportunities_table_never_calls_the_shared_opp_detail_renderer():
+    # Director §1 (ver HANDOFF): Table A pasa a ser una tabla COMPACTA
+    # PROPIA (`commercialLicenciasCompactTableHtml`) — ya NO llama a
+    # `commercialOppDetailTableHtml` en absoluto (antes lo hacía con
+    # `showRevenue`/`clickable` en `true`). Garantía MÁS fuerte que antes:
+    # Licencias no puede volver a afectar accidentalmente a Detalle ni
+    # siquiera a través de esos flags compartidos, porque ya no comparten
+    # función. Detalle sigue exactamente igual (13 columnas, sin cambios).
     detalle_call = _COMMERCIAL_JS.split("function commercialDetalleTableHtml(", 1)[1].split("\n}", 1)[0]
+    assert "commercialOppDetailTableHtml" in detalle_call
     assert "showRevenue" not in detalle_call
     assert "clickable" not in detalle_call
     licencias_call = _COMMERCIAL_JS.split("function commercialLicenciasTableHtml(", 1)[1].split("\n}", 1)[0]
-    assert "showRevenue: true" in licencias_call
-    assert "clickable: true" in licencias_call
+    assert "commercialOppDetailTableHtml" not in licencias_call
+    assert "commercialLicenciasCompactTableHtml" in licencias_call
 
 
 def test_bidirectional_drilldown_state_is_one_shape_never_persisted():

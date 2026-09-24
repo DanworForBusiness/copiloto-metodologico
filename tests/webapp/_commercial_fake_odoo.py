@@ -18,7 +18,7 @@ from webapp.services.odoo_client import OdooTransportError
 
 class FakeOdooClient:
     def __init__(self, *, stages, tags, leads, lost_reasons=None, activities=None,
-                 messages=None, tracking=None, configured=True, partners=None):
+                 messages=None, tracking=None, configured=True, partners=None, countries=None):
         self.stages = stages
         self.tags = tags
         self.leads = leads
@@ -30,6 +30,11 @@ class FakeOdooClient:
         # — `commercial_partner_id` ausente/None = es su propia empresa
         # (no es un contacto hijo de otro partner).
         self.partners = partners or []
+        # `res.country` (Commercial Licensing — Director Requests §4, ver
+        # HANDOFF): default trae "AR" (Argentina) para que la mayoría de los
+        # fixtures no necesite pasarlo explícito — un test puede overridear
+        # con `countries=[]` para simular que "AR" no existe en la instancia.
+        self.countries = countries if countries is not None else [{"id": 9, "code": "AR", "name": "Argentina"}]
         # Historial de cambios de campo (`mail.message` + `mail.tracking.value`):
         # es lo que Odoo usa para saber CUÁNDO una oportunidad cambió de
         # etapa o dejó de ser lead. Sin esto no se pueden probar tiempo por
@@ -83,6 +88,18 @@ class FakeOdooClient:
         if model == "res.partner":
             matched = [p for p in self.partners if self._matches_partner(p, domain)]
             return [self._project_partner(p, fields) for p in matched]
+        if model == "res.country":
+            # Commercial Licensing — Director Requests §4 (ver HANDOFF):
+            # `_argentina_country_id` resuelve "AR" acá — fixture MÍNIMA,
+            # sólo lo que ese único lookup necesita (`domain=[["code","=","AR"]]`,
+            # `fields=["id"]`). Si algún test necesita otro país, agregarlo acá
+            # explícitamente en vez de adivinar un id.
+            wanted_code = None
+            for cond in domain:
+                if cond[0] == "code" and cond[1] == "=":
+                    wanted_code = cond[2]
+            matched_countries = [c for c in self.countries if wanted_code is None or c["code"] == wanted_code]
+            return [{k: v for k, v in c.items() if not fields or k in fields} for c in matched_countries]
         if model == "mail.message":
             matched = []
             for msg in self.messages:

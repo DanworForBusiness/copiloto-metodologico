@@ -95,6 +95,7 @@ const sandbox = {
   },
   HubForegroundProgress: { begin() { }, complete() { }, fail() { }, settle() { } },
   initDashboardSections() { }, initEventBreakdown() { },
+  initDraggableColumns() { }, readStoredColumnOrder() { return null; },
   setInterval() { return 0 }, clearInterval() { }, setTimeout, Promise, Object, JSON, Date, Error,
   URLSearchParams, console,
 };

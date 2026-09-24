@@ -39,6 +39,8 @@ const sandbox = {
   HubForegroundProgress: { begin() {}, complete() {}, fail() {} },
   initDashboardSections() {},
   initEventBreakdown() {},
+  initDraggableColumns() {},
+  readStoredColumnOrder() { return null; },
   console,
 };
 vm.createContext(sandbox);
@@ -126,34 +128,40 @@ function resetState(patch) {
   hosts["[data-commercial-analytics-body]"] = { innerHTML: "" }; // host de otra capability, no debe interferir
   fetchCalls.length = 0;
   fetchImpl = url => Promise.resolve({ json: () => Promise.resolve(
-    url.includes("/licensing-profile")
+    url.includes("/licensing-priority")
+      ? { state: "ok", deferred_account_ids: [] }
+      : url.includes("/licensing-profile")
       ? { state: "ok", licensing_profile: { accounts: [], total: 0 } }
       : { state: "ok", opportunities_detail: OPP_DETAIL_PAYLOAD }
   ) });
 
-  // Abrir Licencias PRIMERO dispara LAS DOS cargas (opportunities-detail +
-  // licensing-profile) — independientes entre sí, nunca una sola request
-  // compartida para el perfil.
+  // Abrir Licencias PRIMERO dispara LAS TRES cargas (opportunities-detail +
+  // licensing-profile + licensing-priority, Director §5-§8, ver HANDOFF) —
+  // independientes entre sí, nunca una sola request compartida.
   commercialSetCapability("licencias");
   assertTrue(commercialState.opportunitiesDetailStatus === "loading", "abrir Licencias entra en loading (opportunities-detail)");
   assertTrue(commercialState.licensingProfileStatus === "loading", "y también el perfil de licenciamiento");
+  assertTrue(commercialState.licensingPriorityStatus === "loading", "y también la clasificación de prioridad");
   await tick();
-  assertTrue(fetchCalls.length === 2
+  assertTrue(fetchCalls.length === 3
     && fetchCalls.includes("/comercial/data/opportunities-detail?tipo=todos")
-    && fetchCalls.includes("/comercial/data/licensing-profile?tipo=todos"),
-    `DOS requests independientes al abrir Licencias (got ${fetchCalls.join(",")})`);
-  assertTrue(commercialState.opportunitiesDetailStatus === "ready" && commercialState.licensingProfileStatus === "ready",
-    "las dos quedan ready");
+    && fetchCalls.includes("/comercial/data/licensing-profile?tipo=todos")
+    && fetchCalls.includes("/comercial/data/licensing-priority"),
+    `TRES requests independientes al abrir Licencias (got ${fetchCalls.join(",")})`);
+  assertTrue(commercialState.opportunitiesDetailStatus === "ready" && commercialState.licensingProfileStatus === "ready"
+    && commercialState.licensingPriorityStatus === "ready",
+    "las tres quedan ready");
 
   // Abrir Detalle DESPUÉS reusa el `opportunitiesDetail` ya cargado — cero
-  // request nueva (ni de ese endpoint ni del perfil, que Detalle no usa).
+  // request nueva (ni de ese endpoint ni del perfil/prioridad, que Detalle
+  // no usa).
   commercialSetCapability("detalle");
-  assertTrue(fetchCalls.length === 2, "Detalle Oportunidades NO dispara ninguna request nueva — mismo dataset ya cargado");
+  assertTrue(fetchCalls.length === 3, "Detalle Oportunidades NO dispara ninguna request nueva — mismo dataset ya cargado");
   assertTrue(commercialDetalleHtml().includes("Ganada Con Licencia"), "y renderiza con el dataset ya en memoria");
 
-  // Volver a Licencias: tampoco refetch (las dos ya están ready).
+  // Volver a Licencias: tampoco refetch (las tres ya están ready).
   commercialSetCapability("licencias");
-  assertTrue(fetchCalls.length === 2, "volver a Licencias tampoco refetch");
+  assertTrue(fetchCalls.length === 3, "volver a Licencias tampoco refetch");
 
   // ═══ C) Historial Perdidas — endpoint y estado TOTALMENTE separados ═══
   resetState();

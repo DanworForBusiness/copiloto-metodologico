@@ -67,16 +67,25 @@ def _es_cliente(value_key: str) -> dict:
             "selection": [["si_key", "Sí"], ["no_key", "No"], ["ex_key", "Ex"]]}
 
 
+
+# `country_id` (Commercial Licensing — Director Requests §4, ver HANDOFF):
+# universo base ahora es Es Cliente?=Sí AND País=Argentina — TODAS las
+# cuentas Es Cliente?=Sí de este fixture pre-existente llevan Argentina
+# para que los tests que ya existían (sobre OTRAS dimensiones, no país)
+# sigan pasando sin cambios de intención. `test_commercial_licensing_
+# profile_argentina.py` trae su PROPIO fixture acotado para las
+# aserciones específicas de país (J-O del contrato de tests).
+_AR = [9, "Argentina"]
 PARTNERS = [
-    {"id": 100, "name": "Cuenta Si", "properties": [_es_cliente("si_key")]},
+    {"id": 100, "name": "Cuenta Si", "country_id": _AR, "properties": [_es_cliente("si_key")]},
     {"id": 101, "name": "Cuenta No", "properties": [_es_cliente("no_key")]},
     {"id": 102, "name": "Cuenta Ex", "properties": [_es_cliente("ex_key")]},
     {"id": 103, "name": "Cuenta Blank", "properties": []},
-    {"id": 104, "name": "Cuenta Si Con NN", "properties": [_es_cliente("si_key")]},
-    {"id": 105, "name": "Cuenta Si Con BI", "properties": [_es_cliente("si_key")]},
+    {"id": 104, "name": "Cuenta Si Con NN", "country_id": _AR, "properties": [_es_cliente("si_key")]},
+    {"id": 105, "name": "Cuenta Si Con BI", "country_id": _AR, "properties": [_es_cliente("si_key")]},
     {"id": 106, "name": "Contacto", "commercial_partner_id": 100, "properties": [_es_cliente("si_key")]},
     {"id": 107, "name": "Cuenta Perfil", "user_id": [60, "Juan Manuel Melgarejo"],
-     "currency_id": [1, "USD"],
+     "currency_id": [1, "USD"], "country_id": _AR,
      "properties": [
          _es_cliente("si_key"),
          {"name": _PARTNER_LIC_PROP, "string": "Partner de Licencia", "type": "selection",
@@ -96,7 +105,7 @@ PARTNERS = [
          {"name": _SEGMENTO_PROP, "string": "Segmento de la Cuenta", "type": "selection",
           "value": "corp", "selection": [["corp", "Corporate"]]},
      ]},
-    {"id": 108, "name": "Cuenta Metadata Drift", "properties": [
+    {"id": 108, "name": "Cuenta Metadata Drift", "country_id": _AR, "properties": [
         _es_cliente("si_key"),
         {"name": _MONTO_PROP, "string": "Monto Contrato (renombrada)", "type": "monetary",
          "value": 999, "currency_field": "currency_id"},

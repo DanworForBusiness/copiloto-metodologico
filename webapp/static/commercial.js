@@ -234,6 +234,21 @@ const commercialState = {
   detSearchText: "",
   detStageFilter: "",
   detSellerFilter: "",
+  // Director §2 (ver HANDOFF): filtro contextual por id de OPORTUNIDAD que
+  // llega desde Table A de Licencias — DISTINTO de `licensingDrilldown*`
+  // de arriba (ese es por CUENTA, entre Licencias↔Perfil, DENTRO de la
+  // misma capability; éste es por OPORTUNIDAD, cross-capability hacia
+  // Detalle). Dos conceptos, dos claves de estado, nunca reusadas entre sí.
+  detalleFilterOpportunityId: null,
+  // Director §5-§8 (ver HANDOFF): clasificación de prioridad del Perfil —
+  // fetch/estado PROPIO, independiente de `licensingProfile` (mismo
+  // criterio de independencia que YA separa Licencias/Perfil entre sí).
+  // `licensingPriorityDeferredIds` es un Set de account_id EN la tabla
+  // secundaria — ausencia = tabla principal (default). Server-side/shared
+  // (owner §7, explícito) — nunca localStorage/sessionStorage para esto.
+  licensingPriorityStatus: "idle",
+  licensingPriorityDeferredIds: new Set(),
+  licensingPriorityActionError: "",
   detSortKey: null,
   detSortDir: 1,
   // Bucket 1 — Historial de Perdidas (ver HANDOFF): universo propio
@@ -3724,23 +3739,101 @@ function commercialLicenciasFiltersHtml() {
       <button type="button" class="whatsnew-filter__clear" data-commercial-licencias-clear>✕ Limpiar</button>
     </div>`;
 }
-// `showRevenue`/`clickable` (Account Licensing Profile, ver HANDOFF): SOLO
-// Licencias los pasa — Ingreso esperado y el cross-filter por fila son
-// exclusivos de esta tab, Detalle Oportunidades sigue sin ninguno de los
-// dos (ver `commercialDetalleTableHtml`, sin cambios).
 // `emptyLabel` (owner "Bidirectional Account Drilldown" §5): cero resultados
 // para una cuenta drilldown-eada desde el Perfil es un resultado de NEGOCIO
 // válido ("Sin oportunidades de licenciamiento identificadas"), no una
 // falla — mensaje DISTINTO del genérico "ningún resultado con este filtro".
+//
+// Director requests §1 (ver HANDOFF): Table A pasa a ser una tabla COMPACTA
+// propia (`commercialLicenciasCompactTableHtml`, nunca
+// `commercialOppDetailTableHtml`) — ese renderer compartido sigue
+// SIN TOCAR, así que Detalle Oportunidades (`commercialDetalleTableHtml`)
+// mantiene sus 13 columnas de siempre byte-a-byte. Reusa SÓLO lo que ya
+// existía y sigue aplicando acá: `COMMERCIAL_OPP_DETAIL_SORT_KEYS`
+// (opportunity/client/seller/stage/revenue ya estaban), `commercialFmtMoney`,
+// `commercialProspectsTagsHtml`, `commercialEsc`.
 function commercialLicenciasTableHtml(rows) {
   const emptyLabel = commercialState.licensingDrilldownOrigin === "profile"
     ? "Sin oportunidades de licenciamiento identificadas para esta cuenta."
     : "Ninguna oportunidad con licencias coincide con este filtro.";
-  return commercialOppDetailTableHtml(rows, {
-    sortKey: commercialState.licSortKey, sortDir: commercialState.licSortDir,
-    sortAttr: "data-commercial-licencias-sort",
-    emptyLabel, showRevenue: true, clickable: true,
+  return commercialLicenciasCompactTableHtml(rows, {
+    sortKey: commercialState.licSortKey, sortDir: commercialState.licSortDir, emptyLabel,
   });
+}
+// Fila compacta (Director §1/§2/§3, ver HANDOFF): SEIS columnas de negocio +
+// una acción — nunca las 13/14 de `commercialOppDetailRowHtml`. Dos target
+// de click DISTINTOS y NUNCA superpuestos (Director §12 — "action buttons
+// must stop row-click propagation"):
+//   - la FILA misma (`data-commercial-licencias-opportunity-row`, id de
+//     OPORTUNIDAD) → Detalle Oportunidades filtrado a esa oportunidad
+//     (§2) — reemplaza lo que ANTES hacía la fila entera (ir al Perfil).
+//   - el botón "Ver detalle de licencias" (`data-commercial-licensing-
+//     account-row`, MISMO atributo/handler que YA existía para el
+//     drilldown hacia el Perfil, sólo que antes vivía en la fila entera y
+//     ahora vive en este botón — cero reimplementación de ESE camino, ver
+//     el delegado de click) → Perfil de licenciamiento filtrado a la
+//     CUENTA (§3). `event.stopPropagation()` inline evita que el click del
+//     botón dispare TAMBIÉN el de la fila.
+function commercialLicenciasCompactRowHtml(o) {
+  const hasAccount = o.account_id != null;
+  const actionBtn = hasAccount
+    ? `<button type="button" class="btn-secondary" data-commercial-licensing-account-row="${o.account_id}" data-commercial-licensing-account-name="${commercialEsc(o.client)}" onclick="event.stopPropagation()">Ver detalle de licencias</button>`
+    : `<button type="button" class="btn-secondary" disabled title="Esta oportunidad no tiene una cuenta comercial asociada">Ver detalle de licencias</button>`;
+  return `
+    <tr class="dashboard-table-row--clickable" data-commercial-licencias-opportunity-row="${o.id}"
+        tabindex="0" role="button" aria-label="Ver el detalle de la oportunidad ${commercialEsc(o.opportunity)}">
+      <td class="row-label">${commercialEsc(o.opportunity)}</td>
+      <td class="left">${commercialEsc(o.client)}</td>
+      <td class="left">${commercialEsc(o.seller)}</td>
+      <td class="left">${commercialEsc(o.stage)}</td>
+      <td class="left">${commercialProspectsTagsHtml(o.tags)}</td>
+      <td>${commercialFmtMoney(o.revenue)}</td>
+      <td>${actionBtn}</td>
+    </tr>`;
+}
+function commercialLicenciasCompactTableHtml(rows, { sortKey, sortDir, emptyLabel }) {
+  if (!rows.length) return commercialEmptyStateHtml("Sin resultados", emptyLabel);
+  const keyFn = sortKey && COMMERCIAL_OPP_DETAIL_SORT_KEYS[sortKey];
+  const sorted = keyFn ? [...rows].sort((a, b) => {
+    const av = keyFn(a), bv = keyFn(b);
+    if (av < bv) return -sortDir;
+    if (av > bv) return sortDir;
+    return 0;
+  }) : rows;
+  const th = (key, label, cls = "") => {
+    const active = sortKey === key;
+    const arrow = active ? (sortDir === 1 ? " ▲" : " ▼") : "";
+    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
+    return `<th class="${classes}" data-commercial-licencias-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+  };
+  const rowsHtml = sorted.map(commercialLicenciasCompactRowHtml).join("");
+  const totalRevenue = rows.reduce((acc, o) => acc + (o.revenue || 0), 0);
+  const totalRow = `
+    <tr class="is-total">
+      <td class="row-label" colspan="5">Total (${rows.length})</td>
+      <td>${commercialFmtMoney(totalRevenue)}</td>
+      <td></td>
+    </tr>`;
+  return `
+    <div class="matrix-scroll">
+      <table class="dashboard-table">
+        <colgroup>
+          <col style="width:22%"><col style="width:16%"><col style="width:14%">
+          <col style="width:12%"><col style="width:14%"><col style="width:12%">
+          <col style="width:10%">
+        </colgroup>
+        <thead><tr>
+          ${th("opportunity", "Oportunidad", "row-label-col")}
+          ${th("client", "Cliente", "left")}
+          ${th("seller", "Vendedor", "left")}
+          ${th("stage", "Etapa", "left")}
+          <th class="left">Etiqueta</th>
+          ${th("revenue", "Ingreso esperado")}
+          <th></th>
+        </tr></thead>
+        <tbody>${rowsHtml}${totalRow}</tbody>
+      </table>
+    </div>`;
 }
 // Cuerpo de "Oportunidades de licenciamiento" (table A) — contenido TAL
 // CUAL el `commercialLicenciasHtml` original, sólo renombrado: ahora vive
@@ -3948,47 +4041,96 @@ function commercialLicensingProfileFiltersHtml() {
 // hover/focus-visible ya definidos en commercial.css — cero CSS nuevo). Un
 // solo target por fila (owner §10: "do not turn every text cell into
 // separate links").
-function commercialLicensingProfileRowHtml(a) {
-  const arquitectura = (a.arquitectura_actual || []).length
-    ? a.arquitectura_actual.map(t => `<span class="dashboard-status-badge dashboard-status-badge--grey">${commercialEsc(t)}</span>`).join(" ")
-    : "—";
-  const monto = a.monto_contrato != null
-    ? `${commercialFmtMoney(a.monto_contrato)}${a.currency ? " " + commercialEsc(a.currency) : ""}`
-    : "—";
-  const isActiveRow = commercialState.licensingDrilldownOrigin === "profile"
-    && commercialState.licensingDrilldownAccountId === a.id;
-  return `
-    <tr class="dashboard-table-row--clickable${isActiveRow ? " is-active" : ""}"
-        data-commercial-licensing-profile-account-row="${a.id}"
-        data-commercial-licensing-profile-account-name="${commercialEsc(a.name)}"
-        tabindex="0" role="button" aria-label="Ver oportunidades de licenciamiento de ${commercialEsc(a.name)}">
-      <td class="row-label" data-commercial-licprofile-col="name">${commercialEsc(a.name)}</td>
-      <td class="left" data-commercial-licprofile-col="partner_de_licencia">${a.partner_de_licencia ? commercialEsc(a.partner_de_licencia) : "—"}</td>
-      <td class="left" data-commercial-licprofile-col="segmento_cuenta">${a.segmento_cuenta ? commercialEsc(a.segmento_cuenta) : "—"}</td>
-      <td data-commercial-licprofile-col="vencimiento_contrato">${a.vencimiento_contrato ? commercialEsc(commercialFmtDate(a.vencimiento_contrato)) : "—"}</td>
-      <td class="left" data-commercial-licprofile-col="seller">${a.seller ? commercialEsc(a.seller) : "—"}</td>
-      <td class="left" data-commercial-licprofile-col="ae_sap">${a.ae_sap ? commercialEsc(a.ae_sap) : "—"}</td>
-      <td class="left" data-commercial-licprofile-col="arquitectura_actual">${arquitectura}</td>
-      <td data-commercial-licprofile-col="monto_contrato">${monto}</td>
-      <td class="left" data-commercial-licprofile-col="tipo_contrato_sap">${a.tipo_contrato_sap ? commercialEsc(a.tipo_contrato_sap) : "—"}</td>
-    </tr>`;
-}
+// Director §9/§10 (ver HANDOFF): definición de columnas reordenable — id
+// técnico ESTABLE (`key`) + label + ancho + `cell(a)` (getter del HTML de
+// la celda, nunca por posición), nunca `nth-child`. El orden de
+// renderizado sale de `commercialLicensingProfileColumnOrder()`
+// (preferencia persistida, ver esa función) — esta CONST es sólo el
+// catálogo/definición, nunca el orden efectivo.
+//
 // Rótulo "Vendedor" (owner corrective post-live-QA), MISMO texto que el
 // resto de Comercial — aunque acá el DATO sigue siendo `res.partner.user_id`
 // (el vendedor de la CUENTA, campo distinto del "Vendedor" agregado de
 // Clientes, ver audit de tipo). La clave interna sigue siendo `seller`, sin
 // ambigüedad en el código — sólo el rótulo visual se simplificó.
+const COMMERCIAL_LICENSING_PROFILE_COLUMNS = [
+  { key: "name", label: "Cliente", cls: "row-label-col", tdCls: "row-label", width: "16%", sortable: true,
+    cell: a => commercialEsc(a.name) },
+  { key: "partner_de_licencia", label: "Partner de licencia", cls: "left", width: "12%", sortable: true,
+    cell: a => a.partner_de_licencia ? commercialEsc(a.partner_de_licencia) : "—" },
+  { key: "segmento_cuenta", label: "Segmento de la cuenta", cls: "left", width: "10%", sortable: true,
+    cell: a => a.segmento_cuenta ? commercialEsc(a.segmento_cuenta) : "—" },
+  { key: "vencimiento_contrato", label: "Vencimiento contrato", cls: "", width: "10%", sortable: true,
+    cell: a => a.vencimiento_contrato ? commercialEsc(commercialFmtDate(a.vencimiento_contrato)) : "—" },
+  { key: "seller", label: "Vendedor", cls: "left", width: "12%", sortable: true,
+    cell: a => a.seller ? commercialEsc(a.seller) : "—" },
+  { key: "ae_sap", label: "AE SAP", cls: "left", width: "12%", sortable: true,
+    cell: a => a.ae_sap ? commercialEsc(a.ae_sap) : "—" },
+  { key: "arquitectura_actual", label: "Arquitectura actual", cls: "left", width: "12%", sortable: true,
+    cell: a => (a.arquitectura_actual || []).length
+      ? a.arquitectura_actual.map(t => `<span class="dashboard-status-badge dashboard-status-badge--grey">${commercialEsc(t)}</span>`).join(" ")
+      : "—" },
+  // Director §11 (ver HANDOFF): Monto Contrato es una property de Studio
+  // INDEPENDIENTE del `currency_id` genérico de `res.partner` (confirmado
+  // en el audit — no es la misma semántica) — el Director definió esta
+  // unidad de negocio como USD explícitamente, se renderiza como tal SIN
+  // leer/anexar `a.currency` (que describe la moneda GENÉRICA de la
+  // cuenta, no la de esta property puntual).
+  { key: "monto_contrato", label: "Monto contrato", cls: "", width: "9%", sortable: true,
+    cell: a => a.monto_contrato != null ? `USD ${commercialFmtMoney(a.monto_contrato)}` : "—" },
+  { key: "tipo_contrato_sap", label: "Tipo de contrato SAP", cls: "left", width: "12%", sortable: true,
+    cell: a => a.tipo_contrato_sap ? commercialEsc(a.tipo_contrato_sap) : "—" },
+];
+const COMMERCIAL_LICENSING_PROFILE_COLUMN_KEYS = COMMERCIAL_LICENSING_PROFILE_COLUMNS.map(c => c.key);
+
+// `mode` (Director §5/§6, ver HANDOFF): "main" agrega el botón "Mover a
+// sin prioridad", "secondary" agrega "Restaurar" — MISMA fila/columnas de
+// negocio en los dos casos, sólo cambia la ÚLTIMA celda de acción (SIEMPRE
+// última, nunca reordenable — Director §9/§10: "row actions unaffected").
+// Botón con `onclick="event.stopPropagation()"` inline (MISMO criterio que
+// "Ver detalle de licencias" en Table A, Director §12) para no disparar
+// TAMBIÉN el click de la fila (que sigue yendo a Table A por cuenta, sin
+// cambios). `order` (array de `key`s, ver `commercialLicensingProfileColumnOrder`)
+// determina QUÉ columnas de negocio se renderizan y en qué secuencia —
+// mismo array que ya usó `commercialLicensingProfileTableHtml` para el
+// `<thead>`, nunca una segunda fuente de orden.
+function commercialLicensingProfileRowHtml(a, mode = "main", order = COMMERCIAL_LICENSING_PROFILE_COLUMN_KEYS) {
+  const isActiveRow = commercialState.licensingDrilldownOrigin === "profile"
+    && commercialState.licensingDrilldownAccountId === a.id;
+  const actionCell = mode === "secondary"
+    ? `<button type="button" class="btn-secondary" data-commercial-licprofile-restore="${a.id}" onclick="event.stopPropagation()">Restaurar</button>`
+    : `<button type="button" class="btn-secondary" data-commercial-licprofile-defer="${a.id}" onclick="event.stopPropagation()">Mover a sin prioridad</button>`;
+  const cellsHtml = order.map(key => {
+    const col = COMMERCIAL_LICENSING_PROFILE_COLUMNS.find(c => c.key === key);
+    if (!col) return "";
+    return `<td class="${col.tdCls || col.cls}" data-commercial-licprofile-col="${col.key}">${col.cell(a)}</td>`;
+  }).join("");
+  return `
+    <tr class="dashboard-table-row--clickable${isActiveRow ? " is-active" : ""}"
+        data-commercial-licensing-profile-account-row="${a.id}"
+        data-commercial-licensing-profile-account-name="${commercialEsc(a.name)}"
+        tabindex="0" role="button" aria-label="Ver oportunidades de licenciamiento de ${commercialEsc(a.name)}">
+      ${cellsHtml}
+      <td data-commercial-licprofile-col="_action">${actionCell}</td>
+    </tr>`;
+}
 // `emptyLabel` (owner "Final Business Semantics Realignment" §9): cero
 // resultados con un drilldown activo desde Oportunidades es un caso de
 // NEGOCIO válido y esperado — la cuenta de esa oportunidad puede no estar
 // marcada `Es Cliente?=Sí` (el Perfil nunca la inyecta temporalmente para
 // "encontrar algo", eso violaría su guardrail permanente) — mensaje
 // DISTINTO del genérico "ningún resultado con este filtro".
-function commercialLicensingProfileTableHtml(rows) {
+
+// `mode` ("main"|"secondary", Director §5/§6): mismos datos/orden/columnas
+// reordenables, sólo cambia el mensaje de vacío y qué acción trae cada
+// fila (ver `commercialLicensingProfileRowHtml`).
+function commercialLicensingProfileTableHtml(rows, mode = "main") {
   if (!rows.length) {
-    const emptyLabel = commercialState.licensingDrilldownOrigin === "opportunities"
-      ? "Esta cuenta no está incluida en el Perfil de licenciamiento porque no está marcada como cliente."
-      : "Ninguna cuenta coincide con este filtro.";
+    const emptyLabel = mode === "secondary"
+      ? "Ningún cliente está actualmente sin prioridad."
+      : commercialState.licensingDrilldownOrigin === "opportunities"
+        ? "Esta cuenta no está incluida en el Perfil de licenciamiento porque no está marcada como cliente."
+        : "Ninguna cuenta coincide con este filtro.";
     return commercialEmptyStateHtml("Sin resultados", emptyLabel);
   }
   const sortKey = commercialState.licProfileSortKey;
@@ -4000,36 +4142,62 @@ function commercialLicensingProfileTableHtml(rows) {
     if (av > bv) return sortDir;
     return 0;
   }) : rows;
-  const th = (key, label, cls = "") => {
-    const active = sortKey === key;
+  const th = (col) => {
+    if (!col.sortable) return `<th class="${col.cls}">${commercialEsc(col.label)}</th>`;
+    const active = sortKey === col.key;
     const arrow = active ? (sortDir === 1 ? " ▲" : " ▼") : "";
-    const classes = ["dashboard-table-th--sortable", cls].filter(Boolean).join(" ");
-    return `<th class="${classes}" data-commercial-licprofile-sort="${key}">${commercialEsc(label)}${commercialEsc(arrow)}</th>`;
+    const classes = ["dashboard-table-th--sortable", "commercial-licprofile-th--draggable", col.cls].filter(Boolean).join(" ");
+    // `data-column-key` (no `data-commercial-licprofile-*`, a propósito):
+    // es el atributo que el primitivo COMPARTIDO `initDraggableColumns`
+    // (app.js) espera — MISMA convención que `data-commercial-licprofile-sort`
+    // sigue siendo propia de ESTA tabla (el sort sí es lógica de negocio de
+    // Comercial), pero el drag en sí no lo es.
+    return `<th class="${classes}" data-commercial-licprofile-sort="${col.key}" data-column-key="${col.key}"
+        draggable="true">${commercialEsc(col.label)}${commercialEsc(arrow)}</th>`;
   };
-  const rowsHtml = sorted.map(commercialLicensingProfileRowHtml).join("");
+  const order = commercialLicensingProfileColumnOrder();
+  const orderedCols = order.map(key => COMMERCIAL_LICENSING_PROFILE_COLUMNS.find(c => c.key === key)).filter(Boolean);
+  const rowsHtml = sorted.map(a => commercialLicensingProfileRowHtml(a, mode, order)).join("");
+  const colgroupCells = orderedCols.map(c => `<col style="width:${c.width}">`).join("") + `<col style="width:9%">`;
+  const theadCells = orderedCols.map(th).join("") + `<th></th>`;
+  // `data-draggable-columns-key` (MISMA key en "main" Y "secondary" — un
+  // solo orden compartido para las dos tablas del Perfil, nunca dos
+  // preferencias independientes que podrían divergir visualmente):
+  // dispara `initDraggableColumns` (app.js) sobre ESTE contenedor.
   return `
-    <div class="matrix-scroll">
-      <table class="dashboard-table">
-        <colgroup>
-          <col style="width:16%"><col style="width:12%"><col style="width:10%">
-          <col style="width:10%"><col style="width:12%"><col style="width:12%">
-          <col style="width:12%"><col style="width:9%"><col style="width:12%">
-        </colgroup>
-        <thead><tr>
-          ${th("name", "Cliente", "row-label-col")}
-          ${th("partner_de_licencia", "Partner de licencia", "left")}
-          ${th("segmento_cuenta", "Segmento de la cuenta", "left")}
-          ${th("vencimiento_contrato", "Vencimiento contrato")}
-          ${th("seller", "Vendedor", "left")}
-          ${th("ae_sap", "AE SAP", "left")}
-          ${th("arquitectura_actual", "Arquitectura actual", "left")}
-          ${th("monto_contrato", "Monto contrato")}
-          ${th("tipo_contrato_sap", "Tipo de contrato SAP", "left")}
-        </tr></thead>
+    <div class="matrix-scroll" data-draggable-columns-key="commercial-licprofile">
+      <table class="dashboard-table" data-commercial-licprofile-table-el="${mode}">
+        <colgroup>${colgroupCells}</colgroup>
+        <thead><tr>${theadCells}</tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
     </div>`;
 }
+// Director §9/§10 (ver HANDOFF): preferencia de orden de columnas — "local
+// browser persistence is acceptable for COLUMN ORDER ONLY" (owner,
+// explícito — NUNCA para el estado de prioridad, ver la sección
+// siguiente). El drag/persist EN SÍ vive en `initDraggableColumns`/
+// `readStoredColumnOrder` (app.js) — MISMO primitivo compartido que
+// `initDashboardSections` ya establece para Details verticales, nunca una
+// reimplementación propia acá (guard existente: Comercial no puede definir
+// su propio `dragstart`/`dragover`/`drop`, ver
+// test_commercial_js_never_reimplements_drag_or_collapse_itself). Esta
+// función es sólo el wrapper con el catálogo/key/default de ESTA tabla.
+function commercialLicensingProfileColumnOrder() {
+  return readStoredColumnOrder("commercial-licprofile", COMMERCIAL_LICENSING_PROFILE_COLUMN_KEYS)
+    || COMMERCIAL_LICENSING_PROFILE_COLUMN_KEYS;
+}
+
+// Director §5/§6/§8 (ver HANDOFF): universo elegible (Es Cliente?=Sí +
+// Argentina, ya resuelto server-side en `licensingProfile`) partido en DOS
+// conjuntos por la clasificación de prioridad del Director —
+// `licensingPriorityDeferredIds` (fetch propio, ver
+// `commercialLoadLicensingPriority`). Los filtros manuales (Buscar/orden)
+// se aplican UNA vez sobre el universo completo
+// (`commercialLicensingProfileFilteredRows`) y DESPUÉS se particiona — así
+// que "Buscar"/ordenar se comportan de forma predecible e IDÉNTICA en las
+// dos tablas (owner §8, explícito), nunca dos pasadas de filtro
+// independientes que podrían divergir.
 function commercialLicensingProfileHtml() {
   if (commercialState.licensingProfileStatus === "loading") {
     return commercialLoadingHtml("Cargando perfil de licenciamiento…");
@@ -4042,10 +4210,40 @@ function commercialLicensingProfileHtml() {
     return commercialEmptyStateHtml("No disponible", label,
       configIncomplete ? "" : commercialRetryButtonHtml("licensing-profile", "Reintentar la carga del perfil"));
   }
-  const rows = commercialLicensingProfileFilteredRows();
+  const allRows = commercialLicensingProfileFilteredRows();
+  const priorityReady = commercialState.licensingPriorityStatus === "ready";
+  const deferredIds = priorityReady ? commercialState.licensingPriorityDeferredIds : new Set();
+  const mainRows = allRows.filter(a => !deferredIds.has(a.id));
+  const secondaryRows = allRows.filter(a => deferredIds.has(a.id));
+  const errorNotice = commercialState.licensingPriorityActionError
+    ? `<p class="feedback-error">${commercialEsc(commercialState.licensingPriorityActionError)}</p>` : "";
+  let secondaryBody;
+  // `"idle"` (todavía no se disparó el fetch — ventana transitoria, un solo
+  // tick síncrono en el uso real, ver `commercialSetCapability`) se trata
+  // IGUAL que `"loading"`, nunca como `"ready"` con cero cuentas — mostrar
+  // "Ningún cliente sin prioridad" antes de siquiera haber preguntado
+  // afirmaría algo que todavía no se sabe.
+  if (commercialState.licensingPriorityStatus === "loading" || commercialState.licensingPriorityStatus === "idle") {
+    secondaryBody = commercialLoadingHtml("Cargando clasificación de prioridad…");
+  } else if (commercialState.licensingPriorityStatus === "error") {
+    secondaryBody = commercialEmptyStateHtml("No disponible",
+      "No pudimos cargar la clasificación de prioridad en este momento.",
+      commercialRetryButtonHtml("licensing-priority", "Reintentar"));
+  } else {
+    secondaryBody = `<div data-commercial-licprofile-secondary-table>${commercialLicensingProfileTableHtml(secondaryRows, "secondary")}</div>`;
+  }
   return `<div class="commercial-bucket1-panel">`
     + commercialLicensingProfileFiltersHtml()
-    + `<div data-commercial-licprofile-table>${commercialLicensingProfileTableHtml(rows)}</div>`
+    + errorNotice
+    + `<div data-commercial-licprofile-table>${commercialLicensingProfileTableHtml(mainRows, "main")}</div>`
+    + `<details class="dashboard-section commercial-licensing-secondary" open>
+        <summary class="dashboard-section__head">
+          <span class="dashboard-section__caret"></span>
+          <span class="dashboard-section__title">Sin prioridad</span>
+          <span class="dashboard-section__count">${commercialFmtInt(secondaryRows.length)} cuenta(s)</span>
+        </summary>
+        <div class="dashboard-section__body">${secondaryBody}</div>
+      </details>`
     + `</div>`;
 }
 
@@ -4104,9 +4302,17 @@ function commercialLicenciasCountLabel() {
   if (commercialState.opportunitiesDetailStatus !== "ready") return "";
   return `${commercialFmtInt(commercialLicenciasFilteredRows().length)} oportunidad(es)`;
 }
+// Director §8 (ver HANDOFF): "Counts must reflect visible rows in each
+// respective table" — este conteo (header de la sección "Perfil de
+// licenciamiento por cliente") ahora refleja SÓLO la tabla principal;
+// "Sin prioridad" trae su propio conteo independiente (ver
+// `commercialLicensingProfileHtml`).
 function commercialLicensingProfileCountLabel() {
   if (commercialState.licensingProfileStatus !== "ready") return "";
-  return `${commercialFmtInt(commercialLicensingProfileFilteredRows().length)} cuenta(s)`;
+  const deferredIds = commercialState.licensingPriorityStatus === "ready"
+    ? commercialState.licensingPriorityDeferredIds : new Set();
+  const mainCount = commercialLicensingProfileFilteredRows().filter(a => !deferredIds.has(a.id)).length;
+  return `${commercialFmtInt(mainCount)} cuenta(s)`;
 }
 
 // ── Detalle Oportunidades (ver HANDOFF §6) ───────────────────────────────
@@ -4116,11 +4322,17 @@ function commercialLicensingProfileCountLabel() {
 function commercialDetalleAllRows() {
   return (commercialState.opportunitiesDetail && commercialState.opportunitiesDetail.opportunities) || [];
 }
+// Director §2 (ver HANDOFF): filtro contextual por OPORTUNIDAD (id
+// CANÓNICO, nunca nombre) que llega desde Table A de Licencias — MISMO
+// criterio de composición que `commercialLicenciasFilteredRows` con su
+// `drilldownAccountId` (ANDed con los filtros manuales vigentes, nunca los
+// resetea, nunca los reemplaza).
 function commercialDetalleFilteredRows() {
   const all = commercialDetalleAllRows();
-  const { detStageFilter: fStage, detSellerFilter: fSeller } = commercialState;
+  const { detStageFilter: fStage, detSellerFilter: fSeller, detalleFilterOpportunityId } = commercialState;
   const search = (commercialState.detSearchText || "").toLowerCase().trim();
   return all.filter(o => {
+    if (detalleFilterOpportunityId != null && o.id !== detalleFilterOpportunityId) return false;
     if (fStage && o.stage !== fStage) return false;
     if (fSeller && o.seller !== fSeller) return false;
     if (search && !commercialOppDetailSearchableText(o).includes(search)) return false;
@@ -4135,7 +4347,25 @@ function commercialDetalleClearFilters() {
   commercialState.detSearchText = "";
   commercialState.detStageFilter = "";
   commercialState.detSellerFilter = "";
+  // "✕ Limpiar" es la reversión COMPLETA de esta tabla (MISMO criterio que
+  // `commercialLicenciasClearFilters`) — también suelta el filtro
+  // contextual de oportunidad si estaba activo.
+  commercialState.detalleFilterOpportunityId = null;
   commercialRenderCapability();
+}
+// Director §2 (ver HANDOFF): badge+X que expone el filtro contextual
+// activo — MISMO primitivo visual que `commercialLicensingProfileCloseButtonHtml`/
+// `commercialLicenciasCloseButtonHtml` (`.panel-close`), nunca uno nuevo.
+// Sólo se renderiza cuando el filtro está activo; busca la oportunidad en
+// el universo YA cargado para mostrar su nombre (nunca un id pelado).
+function commercialDetalleOpportunityFilterBadgeHtml() {
+  if (commercialState.detalleFilterOpportunityId == null) return "";
+  const opp = commercialDetalleAllRows().find(o => o.id === commercialState.detalleFilterOpportunityId);
+  const label = opp ? commercialEsc(opp.opportunity) : "esta oportunidad";
+  return `<div class="commercial-crossfilter-badge">
+      <span>Mostrando sólo: <strong>${label}</strong></span>
+      <button type="button" class="panel-close" data-commercial-detalle-close-opportunity-filter aria-label="Quitar filtro de oportunidad y volver a Detalle Oportunidades">&times;</button>
+    </div>`;
 }
 function commercialDetalleFiltersHtml() {
   const all = commercialDetalleAllRows();
@@ -4181,9 +4411,15 @@ function commercialDetalleHtml() {
       configIncomplete ? "" : commercialRetryButtonHtml("opportunities-detail", "Reintentar la carga del detalle de oportunidades"));
   }
   // MISMA estructura que Licencias/Actividades (ver HANDOFF): sin título,
-  // filtros primero, leyenda después.
+  // filtros primero, leyenda después. Director §2: el badge del filtro
+  // contextual va PRIMERO — Detalle no tiene `<summary>` propio (a
+  // diferencia de Licencias/Perfil, que son `<details>` anidados DENTRO de
+  // una misma capability) así que no hay un header existente donde colgar
+  // el `.panel-close` de siempre; se expone arriba de los filtros en su
+  // lugar, mismo criterio de "contextual, sólo mientras aplica".
   const rows = commercialDetalleFilteredRows();
   return `<div class="commercial-bucket1-panel">`
+    + commercialDetalleOpportunityFilterBadgeHtml()
     + commercialDetalleFiltersHtml()
     + commercialUrgencyLegendHtml()
     + `<div data-commercial-detalle-table>${commercialDetalleTableHtml(rows)}</div>`
@@ -6957,6 +7193,11 @@ function commercialCapabilityHtml() {
 // de cada render porque el subárbol es nuevo: nodos frescos, sin listeners
 // duplicados.
 function commercialWireCapability() {
+  // Director §9/§10 (ver HANDOFF): drag de columnas del Perfil — primitivo
+  // COMPARTIDO `initDraggableColumns` (app.js, MISMO que reordena
+  // `<details>` en `initDashboardSections`), nunca uno propio de Comercial
+  // — SOLO Licencias lo necesita (es donde vive la tabla).
+  if (commercialState.capability === "licencias") initDraggableColumns(document);
   if (commercialState.capability !== "dashboard") return;
   initDashboardSections(document);
   initEventBreakdown(document, { openFirst: false });
@@ -6993,6 +7234,12 @@ function commercialSetCapability(capability) {
     // en cualquier combinación de estado al reabrir la tab.
     if (capability === "licencias" && commercialState.licensingProfileStatus === "idle") {
       commercialLoadLicensingProfile();
+    }
+    // Director §5-§8: TERCER guard independiente — la clasificación de
+    // prioridad tiene su propio ciclo de vida, nunca acoplado al éxito/
+    // falla de `licensingProfile` en sí.
+    if (capability === "licencias" && commercialState.licensingPriorityStatus === "idle") {
+      commercialLoadLicensingPriority();
     }
   } else if (capability === "historial-perdidas" && commercialState.lostHistoryStatus === "idle") {
     commercialLoadLostHistory();
@@ -7152,6 +7399,57 @@ async function commercialLoadLicensingProfile() {
     commercialState.licensingProfileStatus = "error";
     commercialState.licensingProfileErrorState = "source_error";
     HubForegroundProgress.fail("commercial");
+  }
+  commercialRenderCapability();
+}
+
+// Director §5-§8 (ver HANDOFF): clasificación de prioridad — fetch propio,
+// SIN `tipo` (el universo del Perfil ya es tipo-independiente por regla de
+// negocio establecida, la clasificación hereda ese mismo criterio: no hay
+// nada que re-pedir cuando cambia Todos/NN/BI). Sin `HubForegroundProgress`
+// a propósito — es una carga secundaria/pequeña, nunca bloquea la
+// experiencia principal de la tab (el Perfil ya renderiza con las cuentas
+// SIN partir mientras esto sigue en vuelo, ver `commercialLicensingProfileHtml`).
+async function commercialLoadLicensingPriority() {
+  commercialState.licensingPriorityStatus = "loading";
+  commercialRenderCapability();
+  try {
+    const resp = await fetch("/comercial/data/licensing-priority").then(r => r.json());
+    if (resp.state === "ok") {
+      commercialState.licensingPriorityDeferredIds = new Set(resp.deferred_account_ids || []);
+      commercialState.licensingPriorityStatus = "ready";
+    } else {
+      commercialState.licensingPriorityStatus = "error";
+    }
+  } catch (e) {
+    commercialState.licensingPriorityStatus = "error";
+  }
+  commercialRenderCapability();
+}
+
+// Director §5/§6: mueve/restaura UNA cuenta y refleja el resultado en
+// `licensingPriorityDeferredIds` recién DESPUÉS de la confirmación del
+// server (nunca optimista) — server-side/shared es la fuente de verdad
+// (owner §7), así que el estado visible siempre refleja lo que el server
+// efectivamente confirmó, nunca una suposición local que podría divergir
+// si el request falla.
+async function commercialLicensingProfileSetPriority(accountId, action) {
+  commercialState.licensingPriorityActionError = "";
+  commercialRenderCapability();
+  try {
+    const resp = await fetch(`/comercial/licensing/priority/${action}`, {
+      method: "POST", body: new URLSearchParams({ account_id: String(accountId) }),
+    }).then(r => r.json());
+    if (resp.state === "ok") {
+      const next = new Set(commercialState.licensingPriorityDeferredIds);
+      if (action === "defer") next.add(accountId); else next.delete(accountId);
+      commercialState.licensingPriorityDeferredIds = next;
+    } else {
+      commercialState.licensingPriorityActionError = resp.message
+        || "No pudimos guardar el cambio de prioridad. Probá de nuevo.";
+    }
+  } catch (e) {
+    commercialState.licensingPriorityActionError = "No pudimos guardar el cambio de prioridad. Probá de nuevo.";
   }
   commercialRenderCapability();
 }
@@ -8094,6 +8392,19 @@ function commercialSetTipo(tipo) {
 document.addEventListener("DOMContentLoaded", () => {
   const root = document.getElementById("commercial-main-content");
   if (!root) return; // otra página del Hub — este script no aplica.
+  // Director §9/§10 (ver HANDOFF): "dw:columns-reordered" lo dispara el
+  // primitivo COMPARTIDO `initDraggableColumns` (app.js) sobre CUALQUIER
+  // contenedor `[data-draggable-columns-key]` — wireado UNA sola vez acá
+  // (nunca dentro de `commercialWireCapability`, que corre en cada
+  // render, para no acumular listeners duplicados). El primitivo YA
+  // persistió el nuevo orden antes de disparar el evento — acá sólo hace
+  // falta re-renderizar para que la tabla (y su `<tbody>`) reflejen el
+  // orden nuevo.
+  document.addEventListener("dw:columns-reordered", event => {
+    if (event.detail && event.target.closest("[data-commercial-licprofile-table-el], .commercial-licensing-section, .commercial-licensing-secondary")) {
+      commercialRenderCapability();
+    }
+  });
   // La delegación cuelga de `document`, no de `root`: desde este batch el
   // filtro global vive en el hero, fuera de `#commercial-main-content`.
   document.addEventListener("click", event => {
@@ -8214,6 +8525,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (commercialState.clientsStatus !== "loading") commercialLoadClients();
       } else if (retryBtn.dataset.commercialRetry === "ex-clients") {
         if (commercialState.exClientsStatus !== "loading") commercialLoadExClients();
+      } else if (retryBtn.dataset.commercialRetry === "licensing-priority") {
+        if (commercialState.licensingPriorityStatus !== "loading") commercialLoadLicensingPriority();
       } else if (commercialState.status !== "loading") {
         commercialLoadData();
       }
@@ -8545,6 +8858,42 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialState.licensingDrilldownOrigin = "opportunities";
       commercialRenderCapability();
       commercialActJumpToSection("licensing-profile", root);
+      return;
+    }
+    // Director §2 (ver HANDOFF): click en la FILA de Table A (id de
+    // OPORTUNIDAD, nunca de cuenta ni de nombre) → tab Detalle
+    // Oportunidades, filtrado a esa oportunidad exacta. `commercialSetCapability`
+    // YA maneja el lazy-load de `opportunitiesDetail` (idle-guard, §L.6986) —
+    // acá siempre está `ready` porque Licencias la pidió primero.
+    const licenciasOpportunityRow = event.target.closest("[data-commercial-licencias-opportunity-row]");
+    if (licenciasOpportunityRow) {
+      commercialState.detalleFilterOpportunityId = Number(licenciasOpportunityRow.dataset.commercialLicenciasOpportunityRow);
+      commercialSetCapability("detalle");
+      return;
+    }
+    // Director §2 (ver HANDOFF): X que limpia SÓLO el filtro contextual de
+    // oportunidad — se queda en Detalle Oportunidades (nunca vuelve a
+    // Licencias), MISMO criterio de "cerrar sin perder el contexto" que
+    // `commercialLicensingCloseDrilldown`, pero acotado a este único filtro.
+    const detalleCloseOpportunityFilter = event.target.closest("[data-commercial-detalle-close-opportunity-filter]");
+    if (detalleCloseOpportunityFilter) {
+      commercialState.detalleFilterOpportunityId = null;
+      commercialRenderCapability();
+      return;
+    }
+    // Director §5/§6 (ver HANDOFF): "Mover a sin prioridad"/"Restaurar" —
+    // botones NATIVOS con `onclick="event.stopPropagation()"` inline (ver
+    // `commercialLicensingProfileRowHtml`), este handler sólo hace la
+    // llamada async — el stopPropagation ya evitó que el click de fila
+    // (drilldown a Table A) se disparase también.
+    const licprofileDefer = event.target.closest("[data-commercial-licprofile-defer]");
+    if (licprofileDefer) {
+      commercialLicensingProfileSetPriority(Number(licprofileDefer.dataset.commercialLicprofileDefer), "defer");
+      return;
+    }
+    const licprofileRestore = event.target.closest("[data-commercial-licprofile-restore]");
+    if (licprofileRestore) {
+      commercialLicensingProfileSetPriority(Number(licprofileRestore.dataset.commercialLicprofileRestore), "restore");
       return;
     }
     // Dirección B (owner §3): fila de cuenta del Perfil → Oportunidades.
@@ -9293,17 +9642,22 @@ document.addEventListener("DOMContentLoaded", () => {
       commercialPerdidasSetMotivo(perdidasMotivoPick.dataset.commercialPerdidasMotivoPick);
       return;
     }
-    // Drilldown bidireccional de Licenciamiento (ver HANDOFF) — MISMO
-    // camino de teclado que el resto: las filas son `role="button"`/
-    // `tabindex="0"`, nunca `<button>` nativo (envolverlas rompería el
-    // layout de la tabla).
-    const licensingAccountRowKey = event.target.closest && event.target.closest("[data-commercial-licensing-account-row]");
-    if (licensingAccountRowKey) {
+    // Director §1/§3 (ver HANDOFF): "Ver detalle de licencias" es ahora un
+    // `<button>` NATIVO (antes `data-commercial-licensing-account-row` vivía
+    // en la FILA `role="button"`) — Enter/Espacio los maneja el browser
+    // solo, MISMO criterio que la X de cierre (ver comentario de esa
+    // sección). Sin entrada propia acá a propósito: agregar una
+    // duplicaría el disparo (click nativo del botón + este delegado).
+    //
+    // Director §2 (ver HANDOFF): click de FILA en Table A por teclado — SÍ
+    // necesita entrada acá, es `role="button"`/`tabindex="0"` sobre un
+    // `<tr>`, no un `<button>` nativo (envolver la fila rompería el layout
+    // de la tabla, MISMO motivo que el resto de este bloque).
+    const licenciasOpportunityRowKey = event.target.closest && event.target.closest("[data-commercial-licencias-opportunity-row]");
+    if (licenciasOpportunityRowKey) {
       event.preventDefault();
-      commercialState.licensingDrilldownAccountId = Number(licensingAccountRowKey.dataset.commercialLicensingAccountRow);
-      commercialState.licensingDrilldownOrigin = "opportunities";
-      commercialRenderCapability();
-      commercialActJumpToSection("licensing-profile", root);
+      commercialState.detalleFilterOpportunityId = Number(licenciasOpportunityRowKey.dataset.commercialLicenciasOpportunityRow);
+      commercialSetCapability("detalle");
       return;
     }
     // Dirección B por teclado — MISMO criterio, invertido.

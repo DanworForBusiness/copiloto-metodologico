@@ -54,7 +54,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import commercial_access, workspaces
-from webapp.services import auth_service, feedback_store
+from webapp.services import auth_service, commercial_licensing_priority_repository, feedback_store
 from webapp.services.activity_context import SCOPE_COMMERCIAL, AREA_CRM, EVENT_MODULE_VIEWED
 from webapp.services.activity_service import log_activity
 from webapp.services.commercial_service import (
@@ -312,6 +312,52 @@ def commercial_data_licensing_profile(request: Request, tipo: str = Query("todos
     except Exception as exc:  # noqa: BLE001 — inesperada, ver _commercial_data_error_response
         return _commercial_data_error_response(request, exc, endpoint="licensing_profile")
     return JSONResponse({"state": "ok", "licensing_profile": profile})
+
+
+@router.get("/comercial/data/licensing-priority", include_in_schema=False)
+def commercial_data_licensing_priority(request: Request):
+    """Director §5-§8 (ver HANDOFF): sólo las EXCEPCIONES — account_ids
+    actualmente en la tabla secundaria ("sin prioridad"). Ausencia de un
+    account_id acá = tabla principal (default). LAZY: se pide junto con
+    `licensing-profile` (mismo caller en commercial.js), nunca antes."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    deferred = sorted(commercial_licensing_priority_repository.list_deferred_account_ids())
+    return JSONResponse({"state": "ok", "deferred_account_ids": deferred})
+
+
+@router.post("/comercial/licensing/priority/defer", include_in_schema=False)
+def commercial_licensing_priority_defer(request: Request, account_id: int = Form(...)):
+    """Director §5/§6: "Mover a sin prioridad" — mueve `account_id` (id
+    CANÓNICO de cuenta, ver Perfil de licenciamiento) de la tabla principal
+    a la secundaria. Comercial SHARED state, server-side (owner §7,
+    explícito) — nunca sólo en el browser."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request) or {}
+    identity = str(user.get("username") or user.get("email") or user.get("sub") or "")
+    try:
+        commercial_licensing_priority_repository.defer(account_id, by=identity)
+    except commercial_licensing_priority_repository.CommercialLicensingPriorityStorageError as exc:
+        return JSONResponse({"state": "source_error", "message": str(exc)}, status_code=200)
+    return JSONResponse({"state": "ok"})
+
+
+@router.post("/comercial/licensing/priority/restore", include_in_schema=False)
+def commercial_licensing_priority_restore(request: Request, account_id: int = Form(...)):
+    """Director §5/§6: "Restaurar" — devuelve `account_id` a la tabla
+    principal. Idempotente: restaurar una cuenta ya en la tabla principal
+    es un éxito no-op, nunca un error."""
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        commercial_licensing_priority_repository.restore(account_id)
+    except commercial_licensing_priority_repository.CommercialLicensingPriorityStorageError as exc:
+        return JSONResponse({"state": "source_error", "message": str(exc)}, status_code=200)
+    return JSONResponse({"state": "ok"})
 
 
 @router.get("/comercial/data/lost-history", include_in_schema=False)

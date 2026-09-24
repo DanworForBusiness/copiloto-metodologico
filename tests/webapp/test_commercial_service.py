@@ -3118,6 +3118,21 @@ def test_opportunities_detail_universe_is_stages_0_8_active_only():
     svc_module.clear_cache()
 
 
+def test_opportunities_detail_row_carries_the_canonical_opportunity_id():
+    # Commercial Licensing — Director Requests §2 (ver HANDOFF): el
+    # drilldown Licencias→Detalle Oportunidades necesita el id CANÓNICO de
+    # la oportunidad, nunca su nombre — este campo antes no viajaba en el
+    # payload (sólo se usaba internamente para `acts_by_opp`).
+    svc_module.clear_cache()
+    rows = CommercialService(_opp_detail_client()).get_opportunities_detail("todos")["opportunities"]
+    svc_module.clear_cache()
+    assert rows, "el fixture debe traer al menos una fila para esta aserción"
+    for row in rows:
+        assert isinstance(row["id"], int)
+    # Únicos -- nunca dos filas distintas comparten un id de oportunidad.
+    assert len({r["id"] for r in rows}) == len(rows)
+
+
 def test_opportunities_detail_never_includes_lost_regardless_of_licencias():
     # La hipótesis del owner ("Licencias puede incluir Perdidas") NO se
     # sostiene contra el legacy alcanzable: `active=True` es incondicional.

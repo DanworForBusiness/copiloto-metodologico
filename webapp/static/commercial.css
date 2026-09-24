@@ -965,3 +965,33 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
    detalle y no como una tabla hermana. */
 .commercial-leads-inner { font-size: .82em; }
 .commercial-leads-inner th, .commercial-leads-inner td { padding-top: 4px; padding-bottom: 4px; }
+
+/* Commercial Licensing — Director Requests (ver HANDOFF).
+   §2: badge del filtro contextual de Detalle Oportunidades — Detalle no
+   tiene `<summary>` propio a diferencia de Licencias/Perfil (son
+   `<details>` anidados, ESTE es un top-level capability sin ese wrapper),
+   así que no hay dónde colgar el `.panel-close` de siempre; se expone como
+   una línea propia arriba de los filtros. Reusa tokens ya existentes
+   (`--line`/`--soft`/`--gold`), nunca una paleta nueva. */
+.commercial-crossfilter-badge {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-bottom: 14px; padding: 10px 14px; border: 1px solid var(--line);
+  border-radius: 8px; background: rgba(231,176,8,.06); font-size: .82rem; color: var(--soft);
+}
+.commercial-crossfilter-badge strong { color: inherit; }
+
+/* §5/§6: tabla secundaria "Sin prioridad" — MISMO `.dashboard-section`
+   que el resto del Hub, sin estilos propios más allá de un margen para
+   separarla visualmente de la tabla principal que la precede. */
+.commercial-licensing-secondary { margin-top: 18px; }
+
+/* §9/§10: drag horizontal de headers del Perfil — MISMOS valores visuales
+   que `.dashboard-section.is-dragging`/`.is-drop-target` (tools.css),
+   aplicados acá a `<th>` en vez de a `<details>` (consumidor nuevo, mismo
+   lenguaje). `cursor: grab` en el estado de reposo señaliza que el header
+   es arrastrable sin necesitar un ícono propio. */
+.commercial-licprofile-th--draggable { cursor: grab; user-select: none; }
+.commercial-licprofile-th--draggable.is-dragging { opacity: .45; cursor: grabbing; }
+.commercial-licprofile-th--draggable.is-drop-target {
+  box-shadow: inset 2px 0 0 var(--gold), inset -2px 0 0 var(--gold);
+}
