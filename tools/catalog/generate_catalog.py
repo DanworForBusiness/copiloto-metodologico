@@ -233,6 +233,57 @@ def _extract_query_sources(defn: dict) -> list:
     return _from_sources(q)
 
 
+def _from_source_id(ref) -> str:
+    """id real de una fuente FROM: `ref: ["NAME"]` → NAME; fuente parametrizada
+    `ref: [{"id":"NAME","args":{...}}]` → NAME. "" si no hay id."""
+    if isinstance(ref, list) and ref:
+        first = ref[0]
+        if isinstance(first, str):
+            return first
+        if isinstance(first, dict):
+            return str(first.get("id") or "")
+    return ""
+
+
+def _from_aliases(defn: dict) -> dict[str, str]:
+    """Mapa `alias -> id real` declarado en el FROM del query (incluye joins/unions
+    y fuentes parametrizadas). Sólo metadata CSN, sin heurística por nombre. El
+    problema genérico es que `from.as` puede diferir del id real de la fuente (p. ej.
+    Datasphere trunca el alias de una entidad parametrizada); esto lo resuelve para
+    CUALQUIER FROM con alias, tenga `args` o no."""
+    out: dict[str, str] = {}
+
+    def _from_node(fr) -> None:
+        if isinstance(fr, list):
+            for x in fr:
+                _from_node(x)
+            return
+        if not isinstance(fr, dict):
+            return
+        rid = _from_source_id(fr.get("ref"))
+        alias = fr.get("as")
+        if alias and rid:
+            out[str(alias)] = rid
+        for x in (fr.get("args") or []):   # árbol de joins
+            _from_node(x)
+
+    def _walk(node) -> None:
+        if not isinstance(node, dict):
+            return
+        sel = node.get("SELECT")
+        if isinstance(sel, dict):
+            _from_node(sel.get("from"))
+        st = node.get("SET")
+        if isinstance(st, dict):
+            for arg in st.get("args") or []:
+                _walk(arg)
+
+    q = defn.get("query")
+    if isinstance(q, dict):
+        _walk(q)
+    return out
+
+
 def _type_length(e: dict) -> tuple[str, str]:
     """Tipo de dato (sin prefijo cds.) y longitud legible (length; o precision,scale
     para decimales)."""
@@ -396,6 +447,7 @@ def load_folder(folder: Path) -> tuple[dict, dict]:
     df_membership: dict[str, dict] = {}   # DF file → {targets, sources}
     raw_elems: dict[str, dict] = {}       # entidad → dict crudo de elements (para heredar tipos)
     col_refs: dict[str, dict] = {}        # entidad → {alias: ref} de query.SELECT.columns
+    from_alias: dict[str, dict] = {}      # entidad → {alias FROM: id real} (resuelve as != id)
     col_expr: dict[str, dict] = {}        # entidad → {alias: {derived, cast}} (columnas calculadas)
     i18n_map: dict[str, str] = {}         # clave i18n → texto (para resolver labels placeholder)
 
@@ -439,6 +491,9 @@ def load_folder(folder: Path) -> tuple[dict, dict]:
             ent.has_query = ent.has_query or ("query" in defn)
             _extract_elements(defn, ent)
             ent._raw_refs = getattr(ent, "_raw_refs", []) + _extract_query_sources(defn)  # type: ignore
+            _fa = _from_aliases(defn)
+            if _fa:
+                from_alias.setdefault(name, {}).update(_fa)
             # Guardar elements crudos + mapa alias→ref de las columnas del query, para
             # heredar tipo/longitud en artefactos que proyectan columnas sin cast inline
             # (p. ej. un Analytic Model cuyo cubo referencia las medidas del hecho).
@@ -502,7 +557,11 @@ def load_folder(folder: Path) -> tuple[dict, dict]:
                 return _type_length(e)
         ref = (col_refs.get(ent_name) or {}).get(field)
         if ref and len(ref) >= 2:
-            return _inherit_typelen(ref[0], ref[-1], depth + 1)
+            # El token fuente del ref (ref[0]) es el ALIAS declarado en el FROM, que
+            # puede diferir del id real de la entidad (as != id). Se traduce vía el
+            # mapa alias→id del propio artefacto antes de seguir la cadena.
+            src = (from_alias.get(ent_name) or {}).get(ref[0], ref[0])
+            return _inherit_typelen(src, ref[-1], depth + 1)
         return None
 
     for name, ent in entities.items():
