@@ -1735,6 +1735,21 @@ def _catalog_should_default_associations(nodes: list) -> bool:
     return False
 
 
+def _wrap_label(label: str, max_chars: int = 20) -> list[str]:
+    """Parte un nombre técnico en ≤2 líneas para que el nodo no fuerce ancho excesivo
+    (overflow horizontal). Preserva el nombre COMPLETO (no trunca): corta en el '_'
+    más cercano al medio; sin '_', corta al medio."""
+    label = str(label)
+    if len(label) <= max_chars:
+        return [label]
+    mid = len(label) // 2
+    unders = [i for i, c in enumerate(label) if c == "_"]
+    if unders:
+        cut = min(unders, key=lambda i: abs(i - mid))
+        return [label[:cut + 1], label[cut + 1:]]
+    return [label[:mid], label[mid:]]
+
+
 def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
     """Diagrama SVG del linaje del OUTPUT del flujo (solo los nodos en `keep`).
     Aristas DIRECTAS (FROM/JOIN) siempre; por ASOCIACIÓN (dimensiones/textos) solo con
@@ -1780,28 +1795,34 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
     for n in shown:
         by_col[maxlevel - tosink_cache[n["name"]]].append(n)   # columna = distancia al sink invertida
     cols = sorted(by_col)
-    H, VGAP, COLGAP, HEAD = (46 if any(n.get("subtext") for n in shown) else 40), 16, 44, 6
+    # H mayor en flujos normales para alojar labels de ≤2 líneas (nombres largos se
+    # envuelven en vez de forzar ancho → evita overflow horizontal). COLGAP más chico
+    # comprime el grafo. Los diagramas de Data Product (con subtext) conservan su H.
+    H, VGAP, COLGAP, HEAD = (46 if any(n.get("subtext") for n in shown) else 44), 16, 30, 6
     # Ancho POR CONTENIDO: cada caja se ajusta a su texto (no ancho fijo), para no
     # desperdiciar espacio; el ancho de columna = el del nodo más ancho de la columna.
     NUM_W, CHAR, PAD_R, WMIN, WMAX = 30, 6.3, 14, 92, 260
 
     def _node_dims(n):
-        disp = (n["label"][:33] + "…") if len(n["label"]) > 34 else n["label"]
-        w_label = NUM_W + len(disp) * CHAR + PAD_R
-        # El subtexto (.ln-node-subtext ≈ 9px) arranca en x+32; también debe caber → el
-        # ancho toma el MAYOR de nombre y subtexto (SUB_CHAR levemente sobreestimado para
-        # no cortar "DELTA CAPABLE · COMPARTIDO").
         sub = str(n.get("subtext") or "")
-        w_sub = (32 + len(sub) * 5.2 + PAD_R) if sub else 0
-        w = max(WMIN, min(WMAX, int(max(w_label, w_sub))))
-        return w, disp
+        if sub:
+            # Data Product: comportamiento actual (1 línea + subtext); el ancho toma el
+            # MAYOR de nombre y subtexto (SUB_CHAR levemente sobreestimado).
+            disp = (n["label"][:33] + "…") if len(n["label"]) > 34 else n["label"]
+            w = max(WMIN, min(WMAX, int(max(NUM_W + len(disp) * CHAR + PAD_R,
+                                            32 + len(sub) * 5.2 + PAD_R))))
+            return w, [disp]
+        # Flujo normal: nombre COMPLETO envuelto en ≤2 líneas; ancho = la línea más larga.
+        lines = _wrap_label(n["label"])
+        w = max(WMIN, min(WMAX, int(NUM_W + max(len(ln) for ln in lines) * CHAR + PAD_R)))
+        return w, lines
 
     node_w, node_disp, col_width = {}, {}, {}
     for d in cols:
         wmax = 0
         for n in by_col[d]:
-            w, disp = _node_dims(n)
-            node_w[n["name"]], node_disp[n["name"]] = w, disp
+            w, lines = _node_dims(n)
+            node_w[n["name"]], node_disp[n["name"]] = w, lines
             wmax = max(wmax, w)
         col_width[d] = wmax
     col_x, acc = {}, 0
@@ -1955,17 +1976,33 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
             _edge(up, tgt, "ln-edge ln-edge--assoc")
     for n in shown:
         x, y = pos[n["name"]]
-        w, short = node_w[n["name"]], node_disp[n["name"]]
+        w, lines = node_w[n["name"]], node_disp[n["name"]]
         subtext = str(n.get("subtext") or "").strip()
-        main_y = y + 18 if subtext else y + H / 2 + 4
-        sub_html = (f'<text class="ln-node-subtext" x="{x+32}" y="{y+32:.0f}">{html.escape(subtext)}</text>' if subtext else '')
         lineage_key = lineage_key_by_name.get(n["name"], "")
         lineage_key_class = f" ln-k-{lineage_key}" if lineage_key in duplicate_lineage_keys else ""
+        if subtext:
+            main_y = y + 18
+            num_y = main_y
+            label_svg = f'<text class="ln-node-text" x="{x+32}" y="{main_y:.0f}">{html.escape(lines[0])}</text>'
+            sub_html = f'<text class="ln-node-subtext" x="{x+32}" y="{y+32:.0f}">{html.escape(subtext)}</text>'
+        elif len(lines) == 1:
+            main_y = y + H / 2 + 4
+            num_y = main_y
+            label_svg = f'<text class="ln-node-text" x="{x+32}" y="{main_y:.0f}">{html.escape(lines[0])}</text>'
+            sub_html = ''
+        else:
+            # Label en 2 líneas (nombre completo): tspans; el número se centra vertical.
+            num_y = y + H / 2 + 3
+            y0 = y + H / 2 - 5
+            label_svg = (f'<text class="ln-node-text" x="{x+32}" y="{y0:.0f}">'
+                         f'<tspan x="{x+32}" dy="0">{html.escape(lines[0])}</tspan>'
+                         f'<tspan x="{x+32}" dy="12">{html.escape(lines[1])}</tspan></text>')
+            sub_html = ''
         p.append(
             f'<a href="#{n["slug"]}" class="ln-node-a{lineage_key_class}"><title>{html.escape(n["title"])}</title>'
             f'<rect class="ln-node ln-layer-{n["layer"]}" x="{x}" y="{y}" width="{w}" height="{H}" rx="8"/>'
-            f'<text class="ln-num" x="{x+11}" y="{main_y:.0f}">{n["num"]:02d}</text>'
-            f'<text class="ln-node-text" x="{x+32}" y="{main_y:.0f}">{html.escape(short)}</text>{sub_html}</a>')
+            f'<text class="ln-num" x="{x+11}" y="{num_y:.0f}">{n["num"]:02d}</text>'
+            f'{label_svg}{sub_html}</a>')
     p.append("</svg>")
     return '<div class="catalog-lineage__scroll">' + "".join(p) + "</div>"
 
