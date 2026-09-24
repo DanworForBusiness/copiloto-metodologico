@@ -193,12 +193,23 @@ class Entity:
 
 
 def _collect_refs(node) -> list:
-    """Junta todos los ref[0] de un subárbol (from/SET/join). Filtramos luego."""
+    """Junta todos los ref[0] de un subárbol (from/SET/join). Filtramos luego.
+
+    La fuente de un ref puede venir como nombre plano (`ref: ["NAME"]`) o como
+    entidad PARAMETRIZADA (`ref: [{"id":"NAME","args":{...}}]`); en ambos casos la
+    dependencia es NAME. En el caso parametrizado NO se recursa dentro de `args`:
+    esos refs son parámetros (P_*), no upstreams."""
     out = []
     if isinstance(node, dict):
         for k, v in node.items():
-            if k == "ref" and isinstance(v, list) and v and isinstance(v[0], str):
-                out.append(v[0])
+            if k == "ref" and isinstance(v, list) and v:
+                first = v[0]
+                if isinstance(first, str):
+                    out.append(first)
+                elif isinstance(first, dict) and first.get("id"):
+                    out.append(str(first["id"]))   # FROM parametrizado: source = id, no los args
+                else:
+                    out.extend(_collect_refs(v))
             else:
                 out.extend(_collect_refs(v))
     elif isinstance(node, list):
