@@ -987,8 +987,13 @@ def test_cartera_failure_is_localized_fail_soft():
     mant_block = _REPORTING_JS[_REPORTING_JS.index("async function loadCarteraMantenimiento"):_REPORTING_JS.index("async function loadCarteraProyecto")]
     assert 'state.carteraMantenimientoStatus = "error"' in mant_block
     assert "catch (e)" in mant_block
-    # El estado de error de Cartera NO menciona otras experiencias como rotas.
-    assert "siguen disponibles" in _REPORTING_JS
+    # El estado de error de Cartera es NEUTRO: no menciona otras experiencias
+    # (ni como rotas ni como disponibles) ni afirma una causa que el cliente no
+    # puede conocer (autorización / temporalidad) — ver graph_auth_state.py.
+    err = _REPORTING_JS.split("function reportingSourceErrorHtml(", 1)[1].split("\n}", 1)[0]
+    assert "No pudimos cargar" in err
+    for w in ("siguen disponibles", "demás vistas", "autoriz", "temporal", "en este momento"):
+        assert w not in err
 
 
 def test_filter_bar_hidden_until_first_hydration_only():

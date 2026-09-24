@@ -26,6 +26,7 @@ import pytest
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "webapp" / "static"
 _HARNESS = Path(__file__).resolve().parent / "reporting_empty_states.node.js"
+_HARNESS_UNAVAILABLE = Path(__file__).resolve().parent / "reporting_unavailable_state.node.js"
 _REPORTING_JS = (_STATIC / "reporting.js").read_text(encoding="utf-8")
 _TOOLS_CSS = (_STATIC / "tools.css").read_text(encoding="utf-8")
 _REPORTING_CSS = (_STATIC / "reporting.css").read_text(encoding="utf-8")
@@ -46,6 +47,17 @@ def test_reporting_empty_states_invariants_hold():
     result = subprocess.run(["node", str(_HARNESS)], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, f"Reporting empty states failed:\n{result.stdout}\n{result.stderr}"
     assert "ALL REPORTING EMPTY STATE INVARIANTS PASSED" in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no disponible en este entorno")
+def test_reporting_unavailable_state_invariants_hold():
+    """El estado NO DISPONIBLE comparte el primitivo del Hub, el eyebrow lo
+    distingue de cero-filas, y el 'Reintentar' acotado sólo aparece donde
+    reintentar puede ayudar (ni config incompleta, ni `auth_required`, ni las
+    fallas incrementales por año). Ejecuta las funciones reales de reporting.js."""
+    result = subprocess.run(["node", str(_HARNESS_UNAVAILABLE)], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, f"Reporting unavailable state failed:\n{result.stdout}\n{result.stderr}"
+    assert "ALL REPORTING UNAVAILABLE STATE INVARIANTS PASSED" in result.stdout
 
 
 # --- 1: el fallback de texto plano ya no existe en Rentabilidad -----------
@@ -176,18 +188,61 @@ def test_every_valid_empty_reporting_path_uses_the_shared_primitive():
         assert "empty-note" not in body, fn
 
 
-def test_error_states_never_borrow_the_empty_state_treatment():
-    # CONTRATO SEMÁNTICO: un fallo de fuente/carga/cálculo NUNCA se disfraza de
-    # "Sin resultados". `reportingSourceErrorHtml` conserva su propio markup y
-    # su propia copy, y no emite el primitivo de vacío.
+def test_error_states_use_the_shared_primitive_with_their_own_eyebrow():
+    # CONTRATO SEMÁNTICO (owner increment "consistent unavailable state"): un
+    # fallo de fuente/carga/cálculo COMPARTE el primitivo `.dashboard-empty` con
+    # el estado de cero-filas — Reporting era el único vertical que se lo
+    # salteaba, con un `<p class="empty-panel">` suelto — y se distingue SOLO
+    # por el eyebrow: "No disponible" (falla) vs "Sin resultados" (cero filas
+    # legítimas). Nunca al revés.
     code = _js_code(_REPORTING_JS)
     err = code.split("function reportingSourceErrorHtml(", 1)[1].split("\n}", 1)[0]
-    assert "dashboard-empty" not in err
+    assert 'class="dashboard-empty"' in err
+    assert 'dashboard-empty__label">No disponible' in err
     assert "Sin resultados" not in err
     assert "No pudimos cargar" in err
-    # Y el helper de vacío no conoce el vocabulario de error.
+    assert "empty-panel" not in err
+    # NEUTRO EN CAUSA: el cliente no puede saber POR QUÉ falló (un 403 de Graph
+    # puede ser ACL del usuario o un recurso restringido para todos; el Hub no
+    # deriva autorización del status HTTP — ver graph_auth_state.py). El copy no
+    # promete autorización ni temporalidad.
+    for banned in ("autoriz", "permiso", "no tenés", "temporal", "en este momento"):
+        assert banned not in err.lower(), banned
+    # El helper de cero-filas tampoco pide prestado el vocabulario de error.
     empty = code.split("function reportingEmptyStateHtml(", 1)[1].split("\n}", 1)[0]
     assert "No pudimos" not in empty and "No disponible" not in empty
-    # Los caminos de error (incluidos los parciales por año) siguen siendo
-    # ramas separadas, no la de cero filas.
+    # Los caminos de error (incluidos los parciales por año) siguen pasando por
+    # el helper.
     assert code.count("reportingSourceErrorHtml(") >= 12
+
+
+def test_unavailable_state_offers_retry_only_when_the_failure_is_retryable():
+    # "Reintentar" reusa el primitivo del botón de reauth
+    # (`.dashboard-subhead__reset`) y la maquinaria acotada `reportingRetryTab`
+    # (datasets del tab → "idle" → trigger → render), NO un framework nuevo. Se
+    # OFRECE en una falla de fuente reintentable y se OCULTA cuando reintentar
+    # no puede ayudar: configuración incompleta (id sin setear) y las fallas
+    # incrementales por año (maquinaria de recuperación propia, fuera de este
+    # helper). `auth_required` nunca llega acá — `reportingAuthGateHtml` lo
+    # intercepta antes, con su propia acción.
+    code = _js_code(_REPORTING_JS)
+    err = code.split("function reportingSourceErrorHtml(", 1)[1].split("\n}", 1)[0]
+    assert 'class="dashboard-subhead__reset"' in err            # primitivo reusado
+    assert "onclick=\"reportingRetryTab()\"" in err
+    assert "Reintentar" in err
+    assert "state.reportingConfigIncomplete" in err             # gate de config
+    # `reportingRetryTab` es el gemelo de `reportingReauthenticate`: mismo
+    # cuerpo (datasets del tab activo → idle → trigger → render), sin logout ni
+    # reload.
+    retry = code.split("function reportingRetryTab(", 1)[1].split("\n}", 1)[0]
+    assert "REPORTING_TAB_DATASETS[expId]" in retry
+    assert "TAB_HYDRATION_TRIGGERS[expId]" in retry
+    assert "render()" in retry
+    assert "reload" not in retry and "Logout" not in retry and "logout" not in retry
+    # `config_incomplete` deja de colapsar mudo en "error": el clasificador
+    # preserva la señal (mismo criterio que `graphAuthRequired`).
+    classify = code.split("function reportingClassifyState(", 1)[1].split("\n}", 1)[0]
+    assert 's === "config_incomplete"' in classify
+    assert "state.reportingConfigIncomplete = true" in classify
+    # Las fallas por año no ofrecen retry.
+    assert code.count("{ retry: false }") == 5

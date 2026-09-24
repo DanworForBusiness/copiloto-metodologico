@@ -168,7 +168,7 @@ render();  // arranca loading -> begin()
 assertEqual(callsFor("horasvendidas", "begin").length, 1, "E setup: begin() para horasvendidas");
 state.horasVendidasDataStatus = "error";
 render();
-assertTrue(mainEl.innerHTML.includes("empty-panel"), "E: el fail-soft existente (estado de error) sigue intacto");
+assertTrue(mainEl.innerHTML.includes("No disponible"), "E: el fail-soft existente (estado de error compartido) sigue intacto");
 assertEqual(callsFor("horasvendidas", "fail").length, 1, "E: fail() se notifica exactamente una vez");
 assertFalse(_reportingForegroundExpIds().has("horasvendidas"), "E: el tracking interno se libera también en error");
 

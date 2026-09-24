@@ -177,14 +177,25 @@ TABS.forEach(([fnName, arrName, statusKey]) => {
     `E: ${fnName} conserva su mensaje de negocio`);
 });
 
-// --- F: el error NUNCA se disfraza de "Sin resultados" -------------------
+// --- F: el error COMPARTE el primitivo, distinto SOLO por el eyebrow -----
+// Owner increment ("consistent unavailable state"): el fallo de fuente ya no
+// emite un `<p class="empty-panel">` suelto — usa `.dashboard-empty` igual que
+// el estado de cero-filas, y se distingue por el eyebrow: "No disponible"
+// (falla de carga) vs "Sin resultados" (cero filas legitimas).
 const errHtml = vm.runInContext("reportingSourceErrorHtml", sandbox)("los datos de Cartera");
-assertTrue(!errHtml.includes("dashboard-empty"),
-  "F: el estado de error no usa el primitivo de vacio");
+assertTrue(errHtml.includes('<div class="dashboard-empty">'),
+  "F: el estado de error usa el primitivo COMPARTIDO del Hub");
+assertTrue(errHtml.includes('class="dashboard-empty__label">No disponible<'),
+  "F: y lo distingue con el eyebrow 'No disponible'");
 assertTrue(!errHtml.includes("Sin resultados"),
-  "F: el estado de error no dice 'Sin resultados'");
+  "F: nunca se disfraza de cero-filas");
 assertTrue(errHtml.includes("No pudimos cargar"),
-  "F: el estado de error conserva su propia copy");
+  "F: conserva el hecho observable");
+// Mensaje NEUTRO EN CAUSA: no afirma autorizacion ni temporalidad — el cliente
+// no tiene con que saberlo (ver graph_auth_state.py).
+["autoriz", "permiso", "temporal", "en este momento"].forEach(w =>
+  assertTrue(!errHtml.toLowerCase().includes(w),
+    `F: no afirma una causa que el cliente no puede saber ('${w}')`));
 
 if (failures > 0) {
   console.log(`${failures} Reporting empty state invariant(s) FAILED`);

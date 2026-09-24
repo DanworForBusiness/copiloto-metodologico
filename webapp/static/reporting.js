@@ -929,6 +929,12 @@ const state = {
   // comparten UN token, así que si venció, venció para todas. Se prende
   // desde `reportingClassifyState` y lo lee `reportingAuthGateHtml`.
   graphAuthRequired: false,
+  // CONFIGURACIÓN INCOMPLETA de un origen (SHAREPOINT_*_ID sin setear): también
+  // es del HUB, no de una experiencia — la config es global, igual que el
+  // token. Se prende desde `reportingClassifyState` (mismo lugar y criterio que
+  // `graphAuthRequired`) y lo lee `reportingSourceErrorHtml` para NO ofrecer
+  // "Reintentar": reintentar no arregla un id de sitio/lista sin configurar.
+  reportingConfigIncomplete: false,
   carteraMantenimientoStatus: "idle",
   carteraProyectoStatus: "idle",
   // HOT WINDOW / COLD HISTORY corrective (ver HANDOFF): metadata de años
@@ -1359,6 +1365,25 @@ async function reportingReauthenticate() {
   return true;
 }
 
+// RETRY ACOTADO de una falla de FUENTE — gemelo de `reportingReauthenticate`,
+// que hace exactamente esto tras renovar la autorización. Reintenta SÓLO el tab
+// activo: vuelve a "idle" los datasets del tab que el usuario está mirando —los
+// que NO cargaron bien— y su trigger de hidratación, que es idempotente y sólo
+// dispara sobre "idle", hace el resto. NO fuerza logout, NO recarga el Hub, NO
+// toca experiencia/filtros/perspectiva/scroll (mismo contrato que el reauth).
+// Lo dispara el botón "Reintentar" de `reportingSourceErrorHtml`, que sólo
+// aparece cuando la falla es reintentable (ni `config_incomplete` ni
+// `auth_required`, que tienen su propio camino).
+function reportingRetryTab() {
+  const expId = state.experience;
+  (REPORTING_TAB_DATASETS[expId] || []).forEach((key) => {
+    if (state[key] !== "ready") state[key] = "idle";
+  });
+  const trigger = TAB_HYDRATION_TRIGGERS[expId];
+  if (trigger) trigger();
+  render();
+}
+
 function reportingAuthRequiredHtml() {
   // La acción ES la reautenticación, no el logout. Antes este botón cerraba la
   // sesión del Hub para forzar un login nuevo: funcionaba, pero cobraba de más
@@ -1385,6 +1410,12 @@ function reportingClassifyState(data) {
     state.graphAuthRequired = true;
     return s;                        // los dos se distinguen en el estado…
   }
+  // `config_incomplete` comparte el tratamiento visual de `source_error` (la
+  // misma caja "No disponible") pero NO es reintentable: un SHAREPOINT_*_ID sin
+  // configurar no se arregla volviendo a pedir. El flag es del Hub, no de la
+  // experiencia —la config es global, igual que el token—, así que vive en
+  // `state` y no por tab, mismo criterio que `graphAuthRequired`.
+  if (s === "config_incomplete") state.reportingConfigIncomplete = true;
   return "error";                     // …y comparten tratamiento visual: misma acción
 }
 
@@ -1396,9 +1427,35 @@ function reportingAuthGateHtml(status) {
   }
   return "";
 }
-function reportingSourceErrorHtml(label) {
-  return `<p class="empty-panel">No pudimos cargar ${esc(label)} desde SharePoint en este momento. `
-    + `Las demás vistas de Reporting siguen disponibles.</p>`;
+// Estado NO DISPONIBLE Hub-consistente. Reusa el MISMO primitivo compartido
+// que `reportingEmptyStateHtml` (`.dashboard-empty`/`.dashboard-empty__label`,
+// tools.css) — Reporting era el único vertical que emitía un `<p
+// class="empty-panel">` suelto para esto. Se distingue del estado de CERO
+// FILAS por el EYEBROW, no por otro markup: "No disponible" (falla de
+// carga/cálculo) vs "Sin resultados" (cero filas legítimas), exactamente el
+// mismo criterio que `commercialEmptyStateHtml("No disponible", …)` en CRM.
+//
+// El mensaje es NEUTRO EN CAUSA a propósito. Con la información que hoy llega
+// al cliente NO se puede afirmar por qué falló: un 403 de Graph puede ser ACL
+// del usuario o un bloqueo de recurso para todos, y el Hub deliberadamente NO
+// deriva semántica de autorización del status HTTP crudo (ver
+// graph_auth_state.py). Así que no se dice "no tenés autorización", ni "es
+// temporal", ni "en este momento" — sólo el hecho observable: no se pudo
+// cargar.
+//
+// "Reintentar" reusa el primitivo del botón de reauth
+// (`.dashboard-subhead__reset`) y la maquinaria de recuperación acotada de
+// `reportingReauthenticate` (`reportingRetryTab`: datasets del tab → "idle" →
+// trigger → render). Se OCULTA cuando la causa es de configuración
+// (`state.reportingConfigIncomplete`) — reintentar no arregla un id sin setear.
+// `auth_required` nunca llega acá: `reportingAuthGateHtml` lo intercepta antes,
+// con su propia acción ("Renovar sesión").
+function reportingSourceErrorHtml(label, { retry = true } = {}) {
+  const action = (retry && !state.reportingConfigIncomplete)
+    ? ` <button type="button" class="dashboard-subhead__reset" onclick="reportingRetryTab()">Reintentar</button>`
+    : "";
+  return `<div class="dashboard-empty"><span class="dashboard-empty__label">No disponible</span>`
+    + `<p>No pudimos cargar ${esc(label)}.${action}</p></div>`;
 }
 
 // Estado VACÍO Hub-consistente. Reusa `.dashboard-empty`/`.dashboard-empty__label`
@@ -1414,9 +1471,9 @@ function reportingSourceErrorHtml(label) {
 // partes, igual que el resto del archivo.
 //
 // El eyebrow es "Sin resultados" — el vocabulario que el Hub ya usa para CERO
-// FILAS LEGÍTIMAS, distinto de "No disponible", reservado a fallas de
-// carga/cálculo (ver `reportingSourceErrorHtml`, abajo, que conserva su propio
-// tratamiento). No se inventa un eyebrow por experiencia.
+// FILAS LEGÍTIMAS, distinto de "No disponible", el eyebrow que
+// `reportingSourceErrorHtml` (abajo) usa sobre el MISMO primitivo para una
+// falla de carga/cálculo. No se inventa un eyebrow por experiencia.
 function reportingEmptyStateHtml(message, eyebrow = "Sin resultados") {
   return `<div class="dashboard-empty"><span class="dashboard-empty__label">${esc(eyebrow)}</span>`
     + `<p>${esc(message)}</p></div>`;
@@ -2570,7 +2627,10 @@ function renderCarteraDataState() {
   if (persp === "Mantenimiento") {
     const erroredChecked = [...state.carteraAnios].filter(y => state.carteraMantenimientoYearErrors.has(y));
     if (erroredChecked.length) {
-      return reportingSourceErrorHtml(`los datos de Cartera del año ${erroredChecked.join(", ")}`);
+      // Falla INCREMENTAL de un año frío dentro de un tab que ya cargó: sin
+      // "Reintentar" — `reportingRetryTab` reintenta los datasets del tab, no
+      // el lazy-load por año (maquinaria propia, fuera de este hotfix).
+      return reportingSourceErrorHtml(`los datos de Cartera del año ${erroredChecked.join(", ")}`, { retry: false });
     }
     const loadedYears = carteraMantenimientoLoadedYears();
     const pendientes = [...state.carteraAnios].filter(y => !loadedYears.has(y));
@@ -2725,7 +2785,8 @@ function renderRentabilidadDataState() {
   // vuelo/fallar a la vez, se listan todos los que efectivamente fallaron.
   const erroredChecked = [...state.rentabilidadAnios].filter(y => state.rentabilidadYearErrors.has(y));
   if (erroredChecked.length) {
-    return reportingSourceErrorHtml(`los datos de Rentabilidad del año ${erroredChecked.join(", ")}`);
+    // Falla incremental por año (ver Cartera): sin "Reintentar".
+    return reportingSourceErrorHtml(`los datos de Rentabilidad del año ${erroredChecked.join(", ")}`, { retry: false });
   }
   const loadedYears = rentabilidadLoadedYears();
   const pendientes = [...state.rentabilidadAnios].filter(y => !loadedYears.has(y));
@@ -2912,7 +2973,8 @@ function renderHorasVendidasDataState() {
   // renderCarteraDataState/renderRentabilidadDataState.
   const erroredChecked = [...state.horasVendidasAnios].filter(y => state.horasVendidasYearErrors.has(y));
   if (erroredChecked.length) {
-    return reportingSourceErrorHtml(`los datos de Horas Vendidas del año ${erroredChecked.join(", ")}`);
+    // Falla incremental por año (ver Cartera): sin "Reintentar".
+    return reportingSourceErrorHtml(`los datos de Horas Vendidas del año ${erroredChecked.join(", ")}`, { retry: false });
   }
   const loadedYears = horasVendidasLoadedYears();
   const pendientes = [...state.horasVendidasAnios].filter(y => !loadedYears.has(y));
@@ -3058,7 +3120,8 @@ function renderParticipacionDataState() {
   }
   const erroredChecked = [...state.comercialParticipacionAnios].filter(y => state.comercialParticipacionYearErrors.has(y));
   if (erroredChecked.length) {
-    return reportingSourceErrorHtml(`los datos de Participación del año ${erroredChecked.join(", ")}`);
+    // Falla incremental por año (ver Cartera): sin "Reintentar".
+    return reportingSourceErrorHtml(`los datos de Participación del año ${erroredChecked.join(", ")}`, { retry: false });
   }
   return reportingLoadingHtml("Cargando datos de Participación…");
 }
@@ -5339,7 +5402,8 @@ function renderCapacidad() {
     const erroredChecked = aniosActivos.filter(y => y && state.capacidadYearErrors.has(y));
     if (erroredChecked.length) {
       return dashboardSections("reporting-capacidad",
-        reportingSourceErrorHtml(`los datos de Horas Productivas del año ${erroredChecked.join(", ")}`));
+        // Falla incremental por año (ver Cartera): sin "Reintentar".
+        reportingSourceErrorHtml(`los datos de Horas Productivas del año ${erroredChecked.join(", ")}`, { retry: false }));
     }
     const loadedYears = capacidadLoadedYears();
     const pendientes = [...new Set(aniosActivos.filter(y => y && !loadedYears.has(y)))];
