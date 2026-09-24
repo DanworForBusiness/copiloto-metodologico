@@ -49,7 +49,7 @@ nodes:
     question: "¿Cuál es la fuente?"
     options: ["SAP/ABAP", "Datasphere", "Otra"]
     next:
-      "ERP SAP": q2_b
+      "SAP/ABAP": q2_b
       "Datasphere": leaf_transformation_flow_delta
       "Otra": q2c_conector
 
