@@ -116,13 +116,32 @@ CAPA_RE = re.compile(r"^([1-4])([A-Z])([A-Z]+)_(.+)$")
 NOCAPA_RE = re.compile(r"^([A-Z])([A-Z]+)_(.+)$")
 
 
+def _typed_artifact(name: str) -> tuple[str | None, str | None]:
+    """(clave OTROS, dígito de capa indebido) si `name` es un artefacto tipado —con o
+    SIN prefijo de capa— o (None, None) si no lo es. Un artefacto tipado (AM/DF/RF/…)
+    se nombra §29 SIN número de capa: un dígito adelante (p. ej. `4AM`) es el desvío
+    real, no una tokenización 4|A|M. Genérico para todos los OTROS."""
+    pref = str(name).split("_", 1)[0]
+    if pref in OTROS:
+        return pref, None
+    if len(pref) >= 2 and pref[0] in "1234" and pref[1:] in OTROS:
+        return pref[1:], pref[0]
+    return None, None
+
+
 def parse_name(name: str) -> dict:
     """Descompone el nombre contra §28. Marca solo desvíos reales (uso/artefacto
     no homologado, o tabla/vista sin prefijo de capa). LoB/sufijos son opcionales."""
-    pref = name.split("_", 1)[0]
-    if pref in OTROS:
+    tk, dig = _typed_artifact(name)
+    if tk and not dig:
         return {"canonical": True, "tipo": "otro", "capa": None,
-                "capa_nombre": OTROS[pref], "issues": []}
+                "capa_nombre": OTROS[tk], "issues": []}
+    if tk and dig:
+        # Artefacto tipado con prefijo de capa indebido (§29). La capa se conserva
+        # SOLO como evidencia del error; un único finding, sin tokenizar el nombre.
+        return {"canonical": False, "tipo": "otro", "capa": dig, "capa_nombre": OTROS[tk],
+                "issues": [f"artefacto tipado '{tk}' no debe llevar prefijo de capa '{dig}' "
+                           f"(§29: los artefactos tipados se nombran sin número de capa)"]}
     m = CAPA_RE.match(name)
     if m:
         capa, arte, uso, _libre = m.groups()
@@ -804,7 +823,9 @@ def artifact_metadata_rows(
     catálogos, sin replicar a mano. Cada consumidor pasa sus valores ya formateados;
     lo específico de cada mundo (p. ej. capa HDLF/Object Store o el origen vía
     Replication Flow en Data Products) entra como override de esos mismos campos."""
-    rows: list[tuple[str, str]] = [("Capa", capa), ("Artefacto", artefacto)]
+    # "Capa" solo cuando aplica: un artefacto tipado (AM/DF/…) NO tiene capa (§29), así
+    # que el consumidor pasa capa vacía y la fila se omite (no se muestra "Capa: Consumo").
+    rows: list[tuple[str, str]] = ([("Capa", capa)] if capa else []) + [("Artefacto", artefacto)]
     if uso:
         rows.append(("Uso semántico", uso))
     if origen:
@@ -827,15 +848,16 @@ def render_vista(ent: Entity, cliente: str, proyecto: str, manual_override: dict
     is_sapi = _is_sapi_remote(ent.remote_entity)
     uso = "N/A" if is_sapi else pn.get("uso")   # solo presente en nombres §28 canónicos <Capa><Artefacto><Uso>_
     pref = ent.name.split("_", 1)[0]
+    typed_key, _typed_layer = _typed_artifact(ent.name)   # AM/DF/… con o sin prefijo de capa
     # Capa = responsabilidad metodológica declarada por convención §28.
     # Si una vista/tabla no declara capa y no es fuente remota, no inferimos la capa
     # desde dataCategory/modelingPattern: DIMENSION/FACT/CUBE describen semántica
     # técnica, no necesariamente responsabilidad Danwor.
     if is_sapi:
         capa_nombre = "Ingesta"
-    elif pn.get("capa"):
+    elif pn.get("capa") and not typed_key:
         capa_nombre = CAPA.get(pn["capa"], "Sin definir")
-    elif pref in OTROS:
+    elif typed_key:
         capa_nombre = CAPA.get(_capa_of(ent), "Sin definir")
     elif ent.remote_entity:
         capa_nombre = "Ingesta"
@@ -844,7 +866,7 @@ def render_vista(ent: Entity, cliente: str, proyecto: str, manual_override: dict
     # Artefacto = tipo §28 real: "Analytic Model"/"Data Flow"/… para Otros Artefactos,
     # o el tipo técnico (Vista/Tabla/Origen remoto) para T/V. El patrón crudo del
     # JSON (p. ej. ANALYTICAL_CUBE) queda en la fila "Patrón de modelado".
-    artefacto = "Extractor ODP-SAPI" if is_sapi else OTROS.get(pref, ent.kind_label)
+    artefacto = "Extractor ODP-SAPI" if is_sapi else OTROS.get(typed_key, ent.kind_label)
     auto = {
         "tipo": "vista", "artefacto_tecnico": artefacto, "nombre": ent.name,
         "label": ent.label, "capa": capa_nombre,
@@ -865,7 +887,10 @@ def render_vista(ent: Entity, cliente: str, proyecto: str, manual_override: dict
     # Cuerpo = dos tablas (el copiloto las renderiza con el estilo de contenido de
     # cualquier módulo): (1) resumen de la entidad, (2) campos con tipo/longitud/clave.
     rows = artifact_metadata_rows(
-        capa=capa_nombre,
+        # Artefacto tipado (AM/DF/…) no tiene capa metodológica (§29): se omite la fila
+        # en el render (el finding ya explica el prefijo indebido). `auto.capa` interno
+        # se conserva para el linaje.
+        capa="" if typed_key else capa_nombre,
         artefacto=artefacto,
         uso=uso or None,
         origen=(f"`{ent.remote_entity}` · conexión `{ent.remote_connection}`"
