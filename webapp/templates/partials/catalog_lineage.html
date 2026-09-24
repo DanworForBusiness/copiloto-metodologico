@@ -10,6 +10,9 @@
            hx-target="#catalog-detail-slot" hx-swap="innerHTML">
     <span>Incluir asociaciones <em>(dimensiones y textos, indirectas)</em></span>
   </label>
+  {% if show_assoc and assoc_context %}
+  <p class="lineage-hint lineage-hint--note">Linaje directo incompleto: se muestran asociaciones para dar contexto al modelo de consumo.</p>
+  {% endif %}
   {{ lineage_svg|safe }}
   {% with slug="diagrama-linaje", fb_prompt="¿Te resultó útil este diagrama?" %}{% include "partials/catalog_section_feedback.html" %}{% endwith %}
   {% else %}

@@ -162,9 +162,12 @@ def _authed_client(monkeypatch, entries):
     monkeypatch.setattr(main, "_catalog_entries", lambda: (cs, entries))
     # Aísla la aserción de routing del pipeline de render del detalle: el marcador
     # deja ver qué entry resolvió la ruta.
+    # _catalog_flow_view devuelve (sections, lineage_svg, show_assoc, assoc_context)
+    # tras integrar el fix de lineage — el stub replica esa aridad.
     monkeypatch.setattr(
         main, "_catalog_flow_view",
-        lambda entry, show_assoc=False, pack="": ([{"slug": "m", "html": f"ENTRY:{entry.entry_id}"}], ""),
+        lambda entry, show_assoc=None, pack="": (
+            [{"slug": "m", "html": f"ENTRY:{entry.entry_id}"}], "", bool(show_assoc), False),
     )
     session = auth_service.create_session(
         {"email": "t@d.com", "name": "T", "first_name": "T", "family_name": "U"})
