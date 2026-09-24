@@ -1933,7 +1933,7 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .catalog-lineage .section-feedback { margin-top: 12px; }
 .catalog-lineage__empty { color: var(--soft); font-size: .82rem; }
 .ln-edge--assoc { stroke-dasharray: 4 4; opacity: .55; }
-.lineage-svg { display: block; }
+.lineage-svg { display: block; max-width: 100%; height: auto; }
 .ln-col-label { font: 700 .62rem var(--mono); letter-spacing: .12em; text-transform: uppercase; fill: var(--gold); }
 .ln-node { fill: #fff; stroke: #d9d9d3; stroke-width: 1; transition: stroke .12s; }
 .content-theme-dark .ln-node { fill: #181819; stroke: #2c2c30; }
