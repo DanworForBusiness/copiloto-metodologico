@@ -1,13 +1,23 @@
 {# Nav izquierdo de Capital Humano — MISMO idioma visual que
    commercial_nav.html/operations_nav.html (.module-nav/.nav-kicker/
    .module-link), sin acordeón. Capital Humano Phase 3 (First Profile
-   Slice): SEGUNDA entrada real ("Perfiles" -> Banco de Perfiles) — "no
+   Slice): SEGUNDA entrada real ("Candidatos" -> Base de CVs) — "no
    anticipar Búsquedas/Entrevistas/Onboarding/Avisos/Indicadores/
-   Administración" sigue vigente (ver Phase 1/Phase 3 output): solo se
+   Configuración" sigue vigente (ver Phase 1/Phase 3 output): solo se
    agrega la capability que YA existe, MISMO criterio que Commercial con
-   CRM/Operations con Asignaciones.
+   CRM/Operations con Asignaciones. La etiqueta "Candidatos" y el resto de
+   la terminología visible de este workspace (Base de CVs, Cargar CV al
+   banco, etc.) vienen de la app de referencia (app-seleccion) — ver ticket
+   de paridad funcional: el aggregate interno sigue llamándose `Profile`,
+   pero la UI nunca debe mostrar ese nombre técnico.
+   Carga masiva (antes un ítem de nav propio "Importar") ahora se alcanza
+   como acción secundaria DESDE Candidatos (`/cchh/candidatos/importar`
+   sigue siendo su URL), MISMO patrón que la referencia: la carga masiva
+   nunca fue un destino de nav de primer nivel ahí, es un botón secundario
+   en la página de Candidatos.
    `active_page` ("inicio"/"perfiles") lo pasa el router — mismo criterio
-   que `active_page` en commercial_nav.html/operations_nav.html.
+   que `active_page` en commercial_nav.html/operations_nav.html (el valor
+   interno "perfiles" no cambió: solo la etiqueta visible es "Candidatos").
    La bienvenida de sesión reusa el MISMO macro compartido que
    copilot_nav.html/operations_nav.html/commercial_nav.html
    (partials/workspace_shell.html) — misma fuente de identidad, nunca una
@@ -17,14 +27,11 @@
   {{ nav_welcome(user) }}
   <nav aria-label="Capital Humano">
     <p class="nav-kicker sidebar-workspace-kicker">CAPITAL HUMANO</p>
-    <a href="/human-capital" class="module-link {% if active_page == 'inicio' %}is-active{% endif %}">
+    <a href="/cchh" class="module-link {% if active_page == 'inicio' %}is-active{% endif %}">
       <span>01</span><strong>Inicio</strong>
     </a>
-    <a href="/human-capital/profiles" class="module-link {% if active_page == 'perfiles' %}is-active{% endif %}">
-      <span>02</span><strong>Perfiles</strong>
-    </a>
-    <a href="/human-capital/profiles/import" class="module-link {% if active_page == 'importar' %}is-active{% endif %}">
-      <span>03</span><strong>Importar</strong>
+    <a href="/cchh/candidatos" class="module-link {% if active_page == 'perfiles' %}is-active{% endif %}">
+      <span>02</span><strong>Candidatos</strong>
     </a>
   </nav>
 </aside>

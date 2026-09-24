@@ -2,7 +2,7 @@
    Profile Edit): fragmento del form de edición de UN Profile existente,
    incluido por human_capital/profile_edit.html. Form PLANO (sin hx-post,
    a diferencia del alta): esta página vive en su propia URL
-   (`/human-capital/profiles/{profile_id}/edit`), no embebida en el
+   (`/cchh/candidatos/{profile_id}/editar`), no embebida en el
    listado, así que un POST-redirect-GET estándar del browser alcanza sin
    necesitar HTMX (§16 del ticket: "No custom JS required" — un form
    plano es la opción MÁS simple que ya lo satisface, no hace falta
@@ -24,7 +24,7 @@
        `data-error-kind="remote_outcome_unknown"` y un eyebrow PROPIO
        ("Estado desconocido"), nunca "No disponible" (Phase 3.5 §10:
        "Do not silently flatten this into source_error"). #}
-<form class="hc-profile-form" method="post" action="/human-capital/profiles/{{ profile_id }}/edit">
+<form class="hc-profile-form" method="post" action="/cchh/candidatos/{{ profile_id }}/editar">
   <input type="hidden" name="expected_revision" value="{{ expected_revision }}">
 
   {% if error %}<p class="feedback-error">{{ error }}</p>{% endif %}
@@ -43,15 +43,15 @@
   </div>
   <div class="feedback-field">
     <label for="hc-edit-phone">Teléfono</label>
-    <input id="hc-edit-phone" name="phone" type="text" value="{{ form_values.phone or '' }}">
+    <input id="hc-edit-phone" name="phone" type="text" value="{{ form_values.phone or '' }}" placeholder="+54 9 11 xxxx-xxxx">
   </div>
   <div class="feedback-field">
     <label for="hc-edit-linkedin">LinkedIn</label>
-    <input id="hc-edit-linkedin" name="linkedin_url" type="text" value="{{ form_values.linkedin_url or '' }}">
+    <input id="hc-edit-linkedin" name="linkedin_url" type="text" value="{{ form_values.linkedin_url or '' }}" placeholder="https://linkedin.com/in/…">
   </div>
   <div class="feedback-field">
     <label for="hc-edit-location">Ubicación</label>
-    <input id="hc-edit-location" name="location" type="text" value="{{ form_values.location or '' }}">
+    <input id="hc-edit-location" name="location" type="text" value="{{ form_values.location or '' }}" placeholder="Ciudad, país">
   </div>
   <div class="feedback-field">
     <label for="hc-edit-skills">Perfil / Skills</label>
@@ -72,7 +72,7 @@
   </div>
   <div class="feedback-field">
     <label for="hc-edit-tags">Tags</label>
-    <input id="hc-edit-tags" name="tags" type="text" value="{{ form_values.tags or '' }}">
+    <input id="hc-edit-tags" name="tags" type="text" value="{{ form_values.tags or '' }}" placeholder="separados por coma">
   </div>
   <div class="feedback-field">
     <label for="hc-edit-notes">Notas</label>
@@ -91,12 +91,12 @@
   <div class="callout callout--punch" data-advisory-kind="possible_duplicate">
     <div class="callout__head">
       <span class="callout__icon">⚠️</span>
-      <span class="callout__title">Posible perfil duplicado</span>
+      <span class="callout__title">Posible candidato duplicado</span>
     </div>
     <div class="callout__body">
-      <p>Ya existe un perfil posiblemente duplicado: <strong>{{ duplicate_advisory.first_name }} {{ duplicate_advisory.last_name }}</strong>{% if duplicate_advisory.email %} — {{ duplicate_advisory.email }}{% endif %}. Podés cancelar o guardarlo de todos modos.</p>
+      <p>Ya existe un candidato posiblemente duplicado: <strong>{{ duplicate_advisory.first_name }} {{ duplicate_advisory.last_name }}</strong>{% if duplicate_advisory.email %} — {{ duplicate_advisory.email }}{% endif %}. Podés cancelar o guardarlo de todos modos.</p>
       <div class="feedback-form-actions">
-        <a href="/human-capital/profiles" class="btn-secondary">Cancelar</a>
+        <a href="/cchh/candidatos" class="btn-secondary">Cancelar</a>
         <button type="submit" name="duplicate_confirmed" value="true" class="btn-primary">Guardar de todos modos</button>
       </div>
     </div>
@@ -107,12 +107,12 @@
   <div class="callout callout--warn" data-advisory-kind="concurrent_modification">
     <div class="callout__head">
       <span class="callout__icon">⚠️</span>
-      <span class="callout__title">Este Profile cambió</span>
+      <span class="callout__title">Este candidato cambió</span>
     </div>
     <div class="callout__body">
-      <p>Alguien más guardó un cambio en este Profile desde que abriste este formulario. Tu edición NO se guardó, para no perder el cambio ajeno. Volvé al listado para ver la versión actual y editar de nuevo si hace falta.</p>
+      <p>Alguien más guardó un cambio en este candidato desde que abriste este formulario. Tu edición NO se guardó, para no perder el cambio ajeno. Volvé al listado para ver la versión actual y editar de nuevo si hace falta.</p>
       <div class="feedback-form-actions">
-        <a href="/human-capital/profiles" class="btn-secondary">Volver al listado</a>
+        <a href="/cchh/candidatos" class="btn-secondary">Volver al listado</a>
       </div>
     </div>
   </div>

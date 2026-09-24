@@ -105,7 +105,7 @@ HUMAN_CAPITAL = Workspace(
     key="human-capital",
     label="Capital Humano",
     subtitle="Selección e Incorporación",
-    home_url="/human-capital",
+    home_url="/cchh",
     is_authorized=human_capital_access.is_human_capital_authorized_user,
 )
 

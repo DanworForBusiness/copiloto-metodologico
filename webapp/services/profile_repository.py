@@ -440,13 +440,13 @@ def _create_locked(profile_id: str, profile: dict) -> dict:
     if not remote_store.enabled():
         _cleanup_failed_write(path)
         raise ProfileConfigIncompleteError(
-            "El Banco de Perfiles todavía no está configurado para este entorno."
+            "La Base de CVs todavía no está configurada para este entorno."
         )
     if remote_store.push_path(path):
         return payload
     _cleanup_failed_write(path)
     raise ProfileRemoteOutcomeUnknownError(
-        "No pudimos confirmar si este Profile se guardó. Antes de reintentar, "
+        "No pudimos confirmar si este candidato se guardó. Antes de reintentar, "
         "revisá el listado — si ya aparece, no lo vuelvas a cargar."
     )
 
@@ -503,7 +503,7 @@ def create_with_explicit_id(profile_id: str, profile: dict) -> tuple[dict, bool]
             if _business_fields_match(existing, profile):
                 return existing, False
             raise ProfileIdConflictError(
-                f"El Profile {profile_id} ya existe con datos distintos a los de este intento de importación."
+                f"El candidato {profile_id} ya existe con datos distintos a los de este intento de importación."
             )
         return _create_locked(profile_id, profile), True
 
@@ -622,7 +622,7 @@ def update(profile_id: str, expected_revision: int, fields: dict) -> dict:
         current_revision = current.get("revision", 1)
         if current_revision != expected_revision:
             raise ProfileConcurrentModificationError(
-                "Este Profile cambió desde que abriste el formulario de edición."
+                "Este candidato cambió desde que abriste el formulario de edición."
             )
         path = _profile_path(profile_id)
         candidate = {
@@ -644,7 +644,7 @@ def update(profile_id: str, expected_revision: int, fields: dict) -> dict:
             # sin intentar un segundo push que ya se sabe inútil.
             _write_atomic(path, current)
             raise ProfileConfigIncompleteError(
-                "El Banco de Perfiles todavía no está configurado para este entorno."
+                "La Base de CVs todavía no está configurada para este entorno."
             )
         # Compensating overwrite -- Spaces SÍ está configurado, así que la
         # compensación puede genuinamente confirmar o no. El local queda
@@ -653,9 +653,9 @@ def update(profile_id: str, expected_revision: int, fields: dict) -> dict:
         _write_atomic(path, current)
         if remote_store.push_path(path):
             raise ProfileStorageError(
-                "No pudimos confirmar el respaldo del cambio; se mantuvo la versión anterior del Profile."
+                "No pudimos confirmar el respaldo del cambio; se mantuvo la versión anterior del candidato."
             )
         raise ProfileRemoteOutcomeUnknownError(
-            "No pudimos confirmar el estado remoto de este Profile tras un fallo de guardado. "
+            "No pudimos confirmar el estado remoto de este candidato tras un fallo de guardado. "
             "La versión local se mantuvo en el último estado conocido."
         )

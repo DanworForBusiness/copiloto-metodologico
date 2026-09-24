@@ -142,10 +142,10 @@ _WORKSPACE_CARD_COPY = {
         "accent": "Selección e Incorporación",
         "description": (
             "Gestión integral del ciclo de selección e incorporación, empezando por "
-            "el Banco de Perfiles."
+            "el banco de CVs."
         ),
         "features": [
-            "Banco de Perfiles",
+            "Base de CVs",
         ],
     },
 }

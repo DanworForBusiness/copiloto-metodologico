@@ -1,9 +1,9 @@
 """
 test_human_capital_profile_import_routes.py — Capital Humano Phase 3.8
 (Safe Bulk Profile Import): contrato HTTP/UI de
-`GET /human-capital/profiles/import` +
-`POST /human-capital/profiles/import/preview` +
-`POST /human-capital/profiles/import/confirm`. MISMO patrón de
+`GET /cchh/candidatos/importar` +
+`POST /cchh/candidatos/importar/preview` +
+`POST /cchh/candidatos/importar/confirm`. MISMO patrón de
 autorización/aislamiento que los demás archivos de test de este router."""
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def _xlsx_bytes(rows: list[list], headers: list[str] = _ALL_HEADERS) -> bytes:
 
 def _upload(client: TestClient, data: bytes, filename: str = "perfiles.xlsx"):
     return client.post(
-        "/human-capital/profiles/import/preview",
+        "/cchh/candidatos/importar/preview",
         files={"file": (filename, data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
 
@@ -71,27 +71,27 @@ def _upload(client: TestClient, data: bytes, filename: str = "perfiles.xlsx"):
 
 def test_get_import_anonymous_redirects_to_login():
     anon = TestClient(app)
-    response = anon.get("/human-capital/profiles/import", follow_redirects=False)
+    response = anon.get("/cchh/candidatos/importar", follow_redirects=False)
     assert response.status_code == 303
 
 
 def test_get_import_unlisted_user_is_denied_with_403():
-    response = _client_as("unlisted@danwor.com").get("/human-capital/profiles/import")
+    response = _client_as("unlisted@danwor.com").get("/cchh/candidatos/importar")
     assert response.status_code == 403
 
 
 def test_preview_unlisted_user_is_denied_with_403():
-    response = _client_as("unlisted@danwor.com").post("/human-capital/profiles/import/preview")
+    response = _client_as("unlisted@danwor.com").post("/cchh/candidatos/importar/preview")
     assert response.status_code == 403
 
 
 def test_confirm_unlisted_user_is_denied_with_403():
-    response = _client_as("unlisted@danwor.com").post("/human-capital/profiles/import/confirm")
+    response = _client_as("unlisted@danwor.com").post("/cchh/candidatos/importar/confirm")
     assert response.status_code == 403
 
 
 def test_get_import_authorized_returns_200():
-    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital/profiles/import")
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos/importar")
     assert response.status_code == 200
     assert "XLSX" in response.text
 
@@ -101,7 +101,7 @@ def test_get_import_authorized_returns_200():
 # ============================================================================
 
 def test_missing_file_shows_error():
-    response = _client_as(_AUTHORIZED_EMAIL).post("/human-capital/profiles/import/preview")
+    response = _client_as(_AUTHORIZED_EMAIL).post("/cchh/candidatos/importar/preview")
     assert response.status_code == 200
     assert "Elegí un archivo" in response.text
 
@@ -160,7 +160,7 @@ def test_preview_does_not_create_any_profile():
 
 def test_preview_shows_existing_duplicate_advisory():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Perez", "email": "juan@x.com"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Juan", "last_name": "Perez", "email": "juan@x.com"})
     data = _xlsx_bytes([_row(email="juan@x.com")])
     response = _upload(client, data)
     assert 'data-row-status="existing_duplicate"' in response.text
@@ -193,7 +193,7 @@ def test_confirm_with_valid_token_creates_profile():
     tokens = _extract_all_tokens(preview_html)
     assert len(tokens) == 1
     response = client.post(
-        "/human-capital/profiles/import/confirm",
+        "/cchh/candidatos/importar/confirm",
         data={"all_tokens": tokens, "include_tokens": tokens, "invalid_row_count": "0"},
     )
     assert response.status_code == 200
@@ -207,7 +207,7 @@ def test_confirm_tampered_token_rejected():
     token = _extract_all_tokens(preview_html)[0]
     tampered = token[:-4] + ("zzzz" if token[-4:] != "zzzz" else "yyyy")
     response = client.post(
-        "/human-capital/profiles/import/confirm",
+        "/cchh/candidatos/importar/confirm",
         data={"all_tokens": [tampered], "include_tokens": [tampered], "invalid_row_count": "0"},
     )
     assert response.status_code == 200
@@ -227,7 +227,7 @@ def test_confirm_swapped_profile_id_rejected():
         "attacker-guessed-wrong-secret", algorithm="HS256",
     )
     response = client.post(
-        "/human-capital/profiles/import/confirm",
+        "/cchh/candidatos/importar/confirm",
         data={"all_tokens": [forged], "include_tokens": [forged], "invalid_row_count": "0"},
     )
     assert "INVALID" in response.text
@@ -241,7 +241,7 @@ def test_duplicate_row_not_included_is_skipped_without_creating():
     assert len(tokens) == 2
     # Confirma SOLO el primero (elegible) -- deja el dup sin marcar.
     response = client.post(
-        "/human-capital/profiles/import/confirm",
+        "/cchh/candidatos/importar/confirm",
         data={"all_tokens": tokens, "include_tokens": [tokens[0]], "invalid_row_count": "0"},
     )
     assert "DUPLICATE_SKIPPED" in response.text
@@ -252,8 +252,8 @@ def test_same_confirm_retried_is_already_committed():
     client = _client_as(_AUTHORIZED_EMAIL)
     preview_html = _upload(client, _xlsx_bytes([_row()])).text
     tokens = _extract_all_tokens(preview_html)
-    client.post("/human-capital/profiles/import/confirm", data={"all_tokens": tokens, "include_tokens": tokens, "invalid_row_count": "0"})
-    response2 = client.post("/human-capital/profiles/import/confirm", data={"all_tokens": tokens, "include_tokens": tokens, "invalid_row_count": "0"})
+    client.post("/cchh/candidatos/importar/confirm", data={"all_tokens": tokens, "include_tokens": tokens, "invalid_row_count": "0"})
+    response2 = client.post("/cchh/candidatos/importar/confirm", data={"all_tokens": tokens, "include_tokens": tokens, "invalid_row_count": "0"})
     assert "ALREADY_COMMITTED" in response2.text
     assert len(profile_repository.list()) == 1
 
@@ -264,7 +264,7 @@ def test_unknown_outcome_shows_retry_action(monkeypatch):
     tokens = _extract_all_tokens(preview_html)
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
-    response = client.post("/human-capital/profiles/import/confirm", data={"all_tokens": tokens, "include_tokens": tokens, "invalid_row_count": "0"})
+    response = client.post("/cchh/candidatos/importar/confirm", data={"all_tokens": tokens, "include_tokens": tokens, "invalid_row_count": "0"})
     assert "REMOTE_OUTCOME_UNKNOWN" in response.text
     assert "Reintentar esta fila" in response.text
 
@@ -274,7 +274,7 @@ def test_result_summary_shows_expected_counts():
     preview_html = _upload(client, _xlsx_bytes([_row(), _row(nombre="")])).text
     tokens = _extract_all_tokens(preview_html)
     response = client.post(
-        "/human-capital/profiles/import/confirm",
+        "/cchh/candidatos/importar/confirm",
         data={"all_tokens": tokens, "include_tokens": tokens, "invalid_row_count": "1"},
     )
     assert response.status_code == 200
@@ -306,6 +306,6 @@ def test_import_surface_has_no_cv_or_sharepoint():
 
 def test_manual_create_route_unaffected_by_import_capability():
     client = _client_as(_AUTHORIZED_EMAIL)
-    response = client.post("/human-capital/profiles", data={"first_name": "Manual", "last_name": "Alta"})
+    response = client.post("/cchh/candidatos/nuevo", data={"first_name": "Manual", "last_name": "Alta"})
     assert response.status_code == 200
     assert len(profile_repository.list()) == 1

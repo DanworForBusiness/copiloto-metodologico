@@ -1,0 +1,161 @@
+/* human_capital.css — Capital Humano / Banco de Perfiles, visual corrective
+   (ver HANDOFF). Cargado SOLO por las páginas de este workspace
+   (webapp/templates/human_capital/*.html) — MISMO patrón de scoping por
+   archivo que commercial.css/reporting.css: nada acá se aplica a otro
+   workspace, así que ninguna regla necesita un prefijo de clase propio (la
+   inclusión del <link> ya es el scope).
+
+   ROOT CAUSE del bug de contraste reportado ("near-white labels/text on
+   white background"): `.feedback-field label` (tools.css) fija
+   `color: var(--ink)` sin excepción — un token pensado EXCLUSIVAMENTE para
+   el panel lateral `.copilot-panel`/el wizard de diagnóstico, que son
+   theme-invariant (siempre oscuros, ver comentario de `.module-nav` en
+   tools.css). Capital Humano es el PRIMER consumidor que coloca
+   `.feedback-field` dentro de `.module-content`, que SÍ cambia de tema
+   (`.content-theme-light`/`.content-theme-dark`) — de ahí el texto
+   invisible en tema claro. Fix real del token en tools.css (una sola
+   regla, beneficia a cualquier consumidor futuro); acá sólo se agrega lo
+   que es GENUINAMENTE nuevo: densidad/composición de un form CRUD denso,
+   que no tiene precedente en el resto del Hub (los forms existentes son o
+   un campo de feedback o una toolbar de filtros de una fila).
+
+   Reuso deliberado, no bespoke: el look de input/select (borde
+   rgba(128,128,128,.35), radio 8px, fondo transparente, color light-first
+   con override en .content-theme-dark) es EXACTAMENTE el de
+   `.whatsnew-filter` (Comercial/What's New, tools.css) — nunca una paleta
+   nueva. */
+
+/* Cabecera compacta — Capital Humano es multi-página (no una SPA de tabs
+   como Comercial, que paga el hero UNA sola vez); repetirlo a tamaño
+   completo en cada navegación (Banco de Perfiles/Editar/Importar/...) es
+   proporcionalmente más costoso acá. Reducido SOLO en este archivo — la
+   regla compartida en app.css sigue intacta para el resto del Hub. */
+.module-hero { padding-bottom: 24px; }
+.module-hero h1 { margin: 8px 0 10px; font-size: clamp(1.7rem, 2.6vw, 2.3rem); letter-spacing: -.02em; }
+.module-hero p:not(.eyebrow) a { color: var(--gold); }
+
+/* Separación clara entre toolbar de filtros / form de alta / resultados /
+   documentos — antes eran bloques crudos apilados sin margen ni límite
+   visual. */
+#hc-profiles-panel > * + *,
+#content > .hc-profile-form,
+#content > .hc-profile-documents { margin-top: 26px; }
+
+/* Toolbar de filtros (Buscar/Seniority/Fuente/Ubicación/Marca de potencial):
+   el layout de flex-wrap ya existía (tools.css `.hc-profile-filters`) — acá
+   sólo se completa lo que faltaba, el look de los controles mismos. */
+.hc-profile-filters input[type="text"],
+.hc-profile-filters select {
+  min-width: 150px; padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
+  border-radius: 8px; background: transparent; color: #1f1f24; font: .8rem var(--sans);
+}
+.content-theme-dark .hc-profile-filters input[type="text"],
+.content-theme-dark .hc-profile-filters select { color: #e4e4ec; }
+.hc-profile-filters input:focus, .hc-profile-filters select:focus {
+  outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(231,176,8,.18);
+}
+.hc-profile-filters .btn-primary, .hc-profile-filters .btn-secondary {
+  height: 38px; padding: 0 16px; border-radius: 8px;
+}
+
+/* Resultados: tarjeta propia (MISMO borde redondeado que .dashboard-section,
+   sin reimplementarlo) alrededor de la tabla ya compartida
+   (.dashboard-table/.matrix-scroll, tools.css — sin cambios ahí). */
+#hc-profiles-panel .matrix-scroll {
+  padding: 6px; border: 1px solid rgba(128,128,128,.24); border-radius: 12px;
+}
+#hc-profiles-panel .dashboard-empty { margin: 0; }
+
+/* Cabecera de Base de CVs (h1+subtítulo a la izquierda, "Carga masiva" +
+   "+ Cargar CV" a la derecha): MISMO layout que la app de referencia
+   (app-seleccion, /banco-cvs — flex justify-between con los dos CTA
+   juntos). "+ Cargar CV" navega a su propia página (/profiles/new),
+   nunca un form embebido acá — ver profile_new.html. */
+.hc-profiles-hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px; }
+.hc-profiles-hero-text { flex: 1 1 320px; }
+.hc-profiles-hero-actions { display: flex; flex-wrap: wrap; gap: 10px; flex: 0 0 auto; }
+.hc-profiles-hero-actions .btn-primary, .hc-profiles-hero-actions .btn-secondary {
+  height: 38px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center;
+}
+
+/* Form de alta/edición de Profile (create + edit comparten `.hc-profile-form`)
+   y el form de importación (mismo contenedor, un solo campo): grilla
+   responsive de columnas — CSS genuinamente nuevo, sin precedente
+   compartido (el resto del Hub no tiene un form CRUD de esta densidad),
+   pero con el MISMO lenguaje de campo que la toolbar de arriba. */
+.hc-profile-form {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0 20px; padding: 22px; border: 1px solid rgba(128,128,128,.24); border-radius: 12px;
+  align-items: start;
+}
+/* `align-items: start` (arriba) -- sin esto, una celda más alta que sus
+   vecinas de fila (p.ej. CV: label + input + hint de dos líneas) estira
+   TODA la fila por `stretch` (default de CSS Grid) y empuja los inputs
+   vecinos hacia abajo de su label, en vez de simplemente dejar espacio
+   libre debajo de la celda más baja. */
+/* `:not([type=hidden|checkbox|radio|file])` — el mismo `.hc-profile-form`
+   también envuelve la tabla de vista previa de importación
+   (profile_import_preview.html), con checkboxes por fila que NUNCA deben
+   heredar el look de campo de texto. `type=file` tiene su propio look más
+   abajo (junto con los forms de documentos). */
+.hc-profile-form input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.hc-profile-form select,
+.hc-profile-form textarea {
+  width: 100%; padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
+  border-radius: 8px; background: transparent; color: #1f1f24; font: .82rem var(--sans);
+}
+.content-theme-dark .hc-profile-form input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.content-theme-dark .hc-profile-form select,
+.content-theme-dark .hc-profile-form textarea { color: #e4e4ec; }
+.hc-profile-form input:focus, .hc-profile-form select:focus, .hc-profile-form textarea:focus {
+  outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(231,176,8,.18);
+}
+.hc-profile-form input[type="file"] {
+  width: 100%; max-width: 100%; padding: 7px 10px; border: 1px solid rgba(128,128,128,.35); border-radius: 8px;
+  background: transparent; color: #1f1f24; font: .8rem var(--sans);
+}
+.content-theme-dark .hc-profile-form input[type="file"] { color: #e4e4ec; }
+/* Bug visual reportado en vivo: sin `width:100%` el input[type=file] nativo
+   toma su ancho intrínseco (botón + texto "Sin archivo seleccionado"), que
+   en una celda angosta de la grilla desborda y se superpone a la columna
+   vecina. */
+.hc-profile-form textarea { resize: vertical; min-height: 60px; }
+/* Elementos que deben ocupar el ancho completo de la grilla, nunca una
+   celda de campo: mensajes/callouts/estados, la tabla de vista previa de
+   importación (`.matrix-scroll`, ver profile_import_preview.html — el
+   MISMO `.hc-profile-form` también envuelve esa tabla, no sólo campos) y
+   el botón de submit. */
+.hc-profile-form > .feedback-error,
+.hc-profile-form > .callout,
+.hc-profile-form > .dashboard-empty,
+.hc-profile-form > .matrix-scroll,
+.hc-profile-form > p,
+.hc-profile-form > .hc-profile-form-notes,
+.hc-profile-form > button[type="submit"] { grid-column: 1 / -1; }
+.hc-profile-form > button[type="submit"] { justify-self: start; margin-top: 8px; }
+/* Notas: mismo rol que en la referencia (BancoCvForm.tsx) -- un bloque
+   propio, no una celda más de la grilla densa. Separador sutil arriba
+   para que se lea como su propia sección, pegado al submit. */
+.hc-profile-form-notes { margin-top: 10px; padding-top: 18px; border-top: 1px solid rgba(128,128,128,.24); }
+.hc-profile-form-notes textarea { min-height: 90px; }
+
+/* Documentos del Profile (partials/human_capital_profile_documents_panel.html):
+   MISMA tarjeta que Resultados, y el MISMO look de input/botón que el resto
+   de esta hoja para el form de upload/reintento. */
+.hc-profile-documents { padding: 22px; border: 1px solid rgba(128,128,128,.24); border-radius: 12px; }
+.hc-profile-documents h2 { margin: 0 0 16px; font-size: 1.05rem; }
+.hc-profile-documents .hc-documents-table { margin-bottom: 20px; }
+.hc-document-upload-form,
+.hc-document-retry-form {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin-top: 14px;
+}
+.hc-document-upload-form .feedback-field,
+.hc-document-retry-form .feedback-field { margin-top: 0; }
+.hc-document-upload-form input[type="file"],
+.hc-document-retry-form input[type="file"] {
+  padding: 7px 10px; border: 1px solid rgba(128,128,128,.35); border-radius: 8px;
+  background: transparent; color: #1f1f24; font: .8rem var(--sans);
+}
+.content-theme-dark .hc-document-upload-form input[type="file"],
+.content-theme-dark .hc-document-retry-form input[type="file"] { color: #e4e4ec; }
+.hc-document-upload-form button, .hc-document-retry-form button { height: 38px; padding: 0 16px; border-radius: 8px; }

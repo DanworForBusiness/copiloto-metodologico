@@ -591,3 +591,291 @@ def test_list_documents_for_profile_delegates_to_repository(monkeypatch):
     monkeypatch.setattr(profile_document_repository, "list_for_profile", lambda profile_id: [{"document_id": "x", "profile_id": profile_id}])
     docs = svc.list_documents_for_profile("profile-1")
     assert docs == [{"document_id": "x", "profile_id": "profile-1"}]
+
+
+# ============================================================================
+# filename sanitization (§8) — cobertura dedicada, ticket delta explícito
+# ============================================================================
+
+def test_sanitize_filename_keeps_alphanumerics_dots_dashes_underscores():
+    assert svc._sanitize_filename("CV_final-v2.pdf") == "CV_final-v2.pdf"
+
+
+def test_sanitize_filename_replaces_spaces_and_special_chars_with_dash():
+    assert svc._sanitize_filename("My CV (final)!.pdf") == "My-CV-final-.pdf"
+
+
+def test_sanitize_filename_collapses_repeated_dashes():
+    assert svc._sanitize_filename("a   b***c.pdf") == "a-b-c.pdf"
+
+
+def test_sanitize_filename_strips_leading_and_trailing_dashes():
+    assert svc._sanitize_filename("***weird***.pdf").startswith("weird")
+    assert not svc._sanitize_filename("***weird***.pdf").startswith("-")
+    assert not svc._sanitize_filename("***weird***.pdf").endswith("-")
+
+
+def test_sanitize_filename_handles_unicode_by_replacing_it():
+    result = svc._sanitize_filename("currículum-vitae.pdf")
+    assert "í" not in result
+    assert result.endswith(".pdf")
+
+
+def test_sanitize_filename_neutralizes_path_traversal_attempts():
+    # "/" y ".." no son alfanuméricos/./-/_ -- se reemplazan por "-", nunca
+    # sobreviven como separador de path en el nombre remoto resultante.
+    result = svc._sanitize_filename("../../etc/passwd")
+    assert "/" not in result
+    assert "\\" not in result
+
+
+def test_sanitize_filename_truncates_very_long_names():
+    result = svc._sanitize_filename("a" * 500 + ".pdf")
+    assert len(result) <= 150
+
+
+def test_sanitize_filename_empty_after_stripping_falls_back_to_documento():
+    assert svc._sanitize_filename("***") == "documento"
+
+
+def test_build_remote_filename_never_uses_the_original_name_alone():
+    # Dos uploads del mismo nombre de archivo nunca colisionan de path en
+    # la misma carpeta (§8) -- el document_id SIEMPRE prefija.
+    a = svc.build_remote_filename("doc-1", "CV.pdf")
+    b = svc.build_remote_filename("doc-2", "CV.pdf")
+    assert a != b
+    assert a.startswith("doc-1__")
+    assert b.startswith("doc-2__")
+
+
+# ============================================================================
+# boundary estructural: toda escritura ancla a HC_CV_ROOT_ITEM_ID / a la
+# identidad canónica del documento — nunca un root arbitrario (ticket:
+# "en unit tests sólo fijar que el código no permite elegir/arbitrar otro
+# root"; la prueba negativa REAL contra Graph queda para el gate live).
+# ============================================================================
+
+def test_folder_url_is_always_anchored_under_the_configured_cv_root():
+    url = svc._folder_by_path_url("profile-1")
+    assert url.endswith(f"/items/{config.HC_CV_ROOT_ITEM_ID}:/profile-1")
+    assert config.HC_SHAREPOINT_SITE_ID in url
+    assert config.HC_SHAREPOINT_DRIVE_ID in url
+
+
+def test_cv_root_children_url_is_always_anchored_under_the_configured_cv_root():
+    url = svc._cv_root_children_url()
+    assert url.endswith(f"/items/{config.HC_CV_ROOT_ITEM_ID}/children")
+
+
+def test_ensure_profile_folder_never_accepts_a_caller_supplied_root_or_parent_id():
+    # `ensure_profile_folder` sólo recibe `profile_id`/`access_token` -- no
+    # existe ningún parámetro por el que un caller pueda pasar un root/
+    # parent_id propio; el ÚNICO root posible es `config.HC_CV_ROOT_ITEM_ID`.
+    import inspect
+
+    params = list(inspect.signature(svc.ensure_profile_folder).parameters)
+    assert params == ["profile_id", "access_token"]
+
+
+def test_delete_document_signature_never_accepts_a_caller_supplied_site_or_drive_id():
+    # MISMO criterio: `delete_document` sólo recibe profile_id/document_id/
+    # access_token -- site_id/drive_id/item_id SIEMPRE salen de la metadata
+    # ya persistida de ESE documento, nunca de un parámetro que el router
+    # (y por lo tanto un request) pudiera controlar.
+    import inspect
+
+    params = list(inspect.signature(svc.delete_document).parameters)
+    assert params == ["profile_id", "document_id", "access_token"]
+
+
+def test_delete_physical_document_url_is_built_purely_from_its_arguments():
+    # `_delete_physical_document` nunca lee `config.HC_*` -- la identidad
+    # física de un documento YA COMMITTED es la que quedó fijada en su
+    # propia metadata, aunque la config vigente del Hub haya rotado desde
+    # entonces (ver comentario de sección en profile_document_service.py).
+    url = svc._document_item_url("site-X", "drive-Y", "item-Z")
+    assert url == "https://graph.microsoft.com/v1.0/sites/site-X/drives/drive-Y/items/item-Z"
+
+
+# ============================================================================
+# delete_document (Fase 4.1.2) — orden estricto físico→metadata, 404=éxito,
+# 401/403=metadata intacta, ambigüedad=metadata intacta, idempotencia.
+# ============================================================================
+
+def _seed_document(document_id: str = "doc-1", profile_id: str = "profile-1", **overrides) -> dict:
+    fields = {
+        "profile_id": profile_id, "provider": "sharepoint", "site_id": "site-1",
+        "drive_id": "drive-1", "item_id": "item-1", "web_url": "https://danwor.sharepoint.com/x",
+        "filename": "CV.pdf", "content_type": "application/pdf", "size_bytes": 1234,
+        "uploaded_at": "2026-09-14T10:00:00+00:00", "uploaded_by": "juan@danwor.com",
+    }
+    fields.update(overrides)
+    document, _created = profile_document_repository.create_with_explicit_id(document_id, fields)
+    return document
+
+
+def test_delete_document_not_found_raises_and_never_calls_graph(monkeypatch):
+    called = {"n": 0}
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", lambda *a, **k: called.__setitem__("n", called["n"] + 1))
+    with pytest.raises(svc.ProfileDocumentNotFoundError):
+        svc.delete_document(profile_id="profile-1", document_id="never-existed", access_token="tok")
+    assert called["n"] == 0
+
+
+def test_delete_document_belonging_to_another_profile_is_not_found(monkeypatch):
+    # Least-privilege (§ router): un document_id real de OTRO profile_id se
+    # ve exactamente igual que uno inexistente -- nunca revela que existe.
+    _seed_document(document_id="doc-1", profile_id="profile-OTHER")
+    called = {"n": 0}
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", lambda *a, **k: called.__setitem__("n", called["n"] + 1))
+    with pytest.raises(svc.ProfileDocumentNotFoundError):
+        svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    assert called["n"] == 0
+
+
+def test_delete_document_missing_config_never_calls_graph(monkeypatch):
+    monkeypatch.setattr(config, "HC_SHAREPOINT_SITE_ID", "")
+    _seed_document()
+    called = {"n": 0}
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", lambda *a, **k: called.__setitem__("n", called["n"] + 1))
+    with pytest.raises(svc.ProfileDocumentConfigIncompleteError):
+        svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    assert called["n"] == 0
+
+
+def test_delete_document_uses_the_documents_own_site_drive_item_id_never_current_config(monkeypatch):
+    # El documento fue creado bajo site/drive distintos de la config VIGENTE
+    # (simula una rotación de config desde el momento del commit) -- el
+    # DELETE físico tiene que usar SIEMPRE la identidad de la metadata.
+    _seed_document(site_id="site-OLD", drive_id="drive-OLD", item_id="item-OLD")
+    seen = {}
+
+    def _delete(url, token):
+        seen["url"] = url
+
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", _delete)
+    svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    assert "site-OLD" in seen["url"]
+    assert "drive-OLD" in seen["url"]
+    assert "item-OLD" in seen["url"]
+    assert config.HC_SHAREPOINT_SITE_ID not in seen["url"]
+
+
+def test_delete_document_204_deletes_the_physical_item_then_the_metadata(monkeypatch):
+    _seed_document()
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", lambda url, token: None)
+    svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    assert profile_document_repository.get("doc-1") is None
+
+
+def test_delete_document_404_on_physical_is_treated_as_success_and_still_deletes_metadata(monkeypatch):
+    # "Graph 404 = físico ya ausente -> continuar cleanup de metadata."
+    _seed_document()
+
+    def _delete(url, token):
+        raise _http_error(404)
+
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", _delete)
+    svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    assert profile_document_repository.get("doc-1") is None
+
+
+def test_delete_document_401_on_physical_raises_permission_denied_and_preserves_metadata(monkeypatch):
+    _seed_document()
+
+    def _delete(url, token):
+        raise _http_error(401)
+
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", _delete)
+    with pytest.raises(svc.ProfileDocumentDeletePermissionDeniedError):
+        svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    assert profile_document_repository.get("doc-1") is not None
+
+
+def test_delete_document_403_on_physical_raises_permission_denied_and_preserves_metadata(monkeypatch):
+    _seed_document()
+
+    def _delete(url, token):
+        raise _http_error(403)
+
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", _delete)
+    with pytest.raises(svc.ProfileDocumentDeletePermissionDeniedError):
+        svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    assert profile_document_repository.get("doc-1") is not None
+
+
+def test_delete_document_confirmed_5xx_on_physical_raises_graph_source_error_and_preserves_metadata(monkeypatch):
+    _seed_document()
+
+    def _delete(url, token):
+        raise _http_error(500)
+
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", _delete)
+    with pytest.raises(svc.ProfileDocumentDeleteGraphSourceError):
+        svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    assert profile_document_repository.get("doc-1") is not None
+
+
+def test_delete_document_confirmed_409_on_physical_raises_graph_source_error_and_preserves_metadata(monkeypatch):
+    _seed_document()
+
+    def _delete(url, token):
+        raise _http_error(409)
+
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", _delete)
+    with pytest.raises(svc.ProfileDocumentDeleteGraphSourceError):
+        svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    assert profile_document_repository.get("doc-1") is not None
+
+
+def test_delete_document_transport_failure_on_physical_preserves_metadata_and_is_retryable(monkeypatch):
+    # "transporte/5xx ambiguo = preservar metadata y permitir retry."
+    _seed_document()
+
+    def _delete(url, token):
+        raise urllib.error.URLError("network blip")
+
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", _delete)
+    with pytest.raises(svc.ProfileDocumentDeletePhysicalOutcomeUnknownError):
+        svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    assert profile_document_repository.get("doc-1") is not None
+    # Retry idempotente: la segunda llamada, con Graph ahora confirmando
+    # 404 (ya ausente -- coherente con "no sabemos si el primer intento
+    # había llegado a borrarlo"), termina limpiando la metadata igual.
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", lambda url, token: (_ for _ in ()).throw(_http_error(404)))
+    svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    assert profile_document_repository.get("doc-1") is None
+
+
+def test_delete_document_metadata_outcome_unknown_when_repository_delete_is_ambiguous(monkeypatch):
+    _seed_document()
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", lambda url, token: None)
+    monkeypatch.setattr(profile_document_repository.remote_store, "enabled", lambda: True)
+    monkeypatch.setattr(profile_document_repository.remote_store, "delete_path", lambda path: False)
+    with pytest.raises(svc.ProfileDocumentMetadataDeleteOutcomeUnknownError):
+        svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    # El físico YA se confirmó ausente -- la metadata podría seguir
+    # LISTADA (borrado remoto sin confirmar), nunca perdida silenciosamente.
+    assert profile_document_repository.get("doc-1") is not None
+
+
+def test_delete_document_is_idempotent_calling_it_twice_both_succeed(monkeypatch):
+    _seed_document()
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", lambda url, token: None)
+    svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    assert profile_document_repository.get("doc-1") is None
+    # Segunda vez: ya no hay metadata (ProfileDocumentNotFoundError es el
+    # comportamiento correcto y esperado -- "ya no existe", nunca un error
+    # de servidor) -- el router lo traduce a 404 real, no a un
+    # document_state renderizado (ver test de rutas).
+    with pytest.raises(svc.ProfileDocumentNotFoundError):
+        svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+
+
+def test_delete_document_never_deletes_a_different_documents_metadata(monkeypatch):
+    _seed_document(document_id="doc-1", item_id="item-1")
+    _seed_document(document_id="doc-2", item_id="item-2")
+    monkeypatch.setattr(svc.microsoft365, "graph_delete", lambda url, token: None)
+    svc.delete_document(profile_id="profile-1", document_id="doc-1", access_token="tok")
+    assert profile_document_repository.get("doc-1") is None
+    assert profile_document_repository.get("doc-2") is not None

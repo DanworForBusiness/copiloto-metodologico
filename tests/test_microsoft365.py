@@ -124,3 +124,48 @@ def test_catalog_service_delegates_to_shared_microsoft365(monkeypatch):
 
     monkeypatch.setattr(microsoft365.urllib.request, "urlopen", fake_urlopen)
     assert catalog_service._graph_get_json("https://graph.microsoft.com/v1.0/x", "tok") == {"ok": True}
+
+
+class _FakeEmptyResponse:
+    """Respuesta 204-shaped -- `.read()` devuelve bytes vacíos, MISMO
+    contrato que Graph para un DELETE de driveItem confirmado."""
+
+    def read(self):
+        return b""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+def test_graph_delete_calls_urlopen_with_delete_method_and_expected_headers(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        captured["method"] = request.get_method()
+        captured["headers"] = dict(request.headers)
+        captured["timeout"] = timeout
+        return _FakeEmptyResponse()
+
+    monkeypatch.setattr(microsoft365.urllib.request, "urlopen", fake_urlopen)
+
+    result = microsoft365.graph_delete("https://graph.microsoft.com/v1.0/sites/x/drives/y/items/z", "tok-abc")
+
+    assert result is None
+    assert captured["method"] == "DELETE"
+    assert captured["url"] == "https://graph.microsoft.com/v1.0/sites/x/drives/y/items/z"
+    assert captured["headers"] == {"Authorization": "Bearer tok-abc", "Accept": "application/json"}
+    assert captured["timeout"] == microsoft365.DEFAULT_TIMEOUT
+
+
+def test_graph_delete_propagates_urllib_errors_without_normalizing(monkeypatch):
+    def fake_urlopen(request, timeout=None):
+        raise urllib.error.HTTPError("https://graph.microsoft.com/v1.0/x", 404, "not found", None, None)
+
+    monkeypatch.setattr(microsoft365.urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        microsoft365.graph_delete("https://graph.microsoft.com/v1.0/x", "tok")
+    assert exc_info.value.code == 404

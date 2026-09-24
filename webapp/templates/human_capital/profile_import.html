@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
-{% block title %}Importar Perfiles · Capital Humano · Danwor{% endblock %}
+{% block title %}Carga masiva de CVs · Capital Humano · Danwor{% endblock %}
 {% block body %}
 <div
   x-data="copilotLayout('human-capital')"
@@ -16,15 +16,19 @@
   {{ sidebar_resize_handle() }}
 
   <main id="content" class="module-content">
+    {# "← Volver": primitivo transversal del Hub, MISMO exacto que
+       whats_new.html/catalog_guide_slides.html (`.catalog-back`,
+       tools.css) — nunca CSS/JS propio de Capital Humano. #}
+    <a class="catalog-back" href="/cchh/candidatos">← Volver a Candidatos</a>
     <section class="module-hero">
       <p class="eyebrow">Capital Humano</p>
-      <h1>Importar Perfiles</h1>
-      <p><a href="/human-capital/profiles">Volver al Banco de Perfiles</a></p>
+      <h1>Carga masiva de CVs</h1>
+      <p>Subí un Excel con varios candidatos para cargarlos al banco de CVs de una sola vez.</p>
     </section>
 
     {% if file_error %}<p class="feedback-error">{{ file_error }}</p>{% endif %}
 
-    <form class="hc-profile-form" method="post" action="/human-capital/profiles/import/preview" enctype="multipart/form-data">
+    <form class="hc-profile-form" method="post" action="/cchh/candidatos/importar/preview" enctype="multipart/form-data">
       <div class="feedback-field">
         <label for="hc-import-file">Archivo XLSX</label>
         <input id="hc-import-file" name="file" type="file" accept=".xlsx" required>
@@ -35,4 +39,6 @@
     </form>
   </main>
 </div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
 {% endblock %}

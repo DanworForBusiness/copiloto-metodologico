@@ -1,6 +1,6 @@
 """
 test_human_capital_profiles_routes.py — Capital Humano Phase 3 (First
-Profile Slice): contrato HTTP/UI de `GET/POST /human-capital/profiles`.
+Profile Slice): contrato HTTP/UI de `GET/POST /cchh/candidatos`.
 MISMO patrón de autorización/aislamiento que
 test_human_capital_hub_foundation.py (fixture `autouse` con `monkeypatch`,
 nunca una asignación de módulo sin revertir — ver ese archivo para el
@@ -53,25 +53,25 @@ def _client_as(email: str) -> TestClient:
 
 def test_get_anonymous_redirects_to_login():
     anon = TestClient(app)
-    response = anon.get("/human-capital/profiles", follow_redirects=False)
+    response = anon.get("/cchh/candidatos", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/platform?next=%2Fhuman-capital%2Fprofiles"
+    assert response.headers["location"] == "/platform?next=%2Fcchh%2Fcandidatos"
 
 
 def test_get_unlisted_user_is_denied_with_403():
-    response = _client_as("unlisted@danwor.com").get("/human-capital/profiles")
+    response = _client_as("unlisted@danwor.com").get("/cchh/candidatos")
     assert response.status_code == 403
 
 
 def test_post_unlisted_user_is_denied_with_403():
     response = _client_as("unlisted@danwor.com").post(
-        "/human-capital/profiles", data={"first_name": "A", "last_name": "B"}
+        "/cchh/candidatos/nuevo", data={"first_name": "A", "last_name": "B"}
     )
     assert response.status_code == 403
 
 
 def test_get_authorized_returns_200():
-    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital/profiles")
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos")
     assert response.status_code == 200
 
 
@@ -80,25 +80,25 @@ def test_get_authorized_returns_200():
 # ============================================================================
 
 def test_get_with_zero_profiles_shows_sin_resultados():
-    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital/profiles")
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos")
     assert 'dashboard-empty__label">Sin resultados' in response.text
 
 
 def test_created_profile_is_rendered_in_the_list():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Ana", "last_name": "Pérez"})
-    response = client.get("/human-capital/profiles")
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Ana", "last_name": "Pérez"})
+    response = client.get("/cchh/candidatos")
     assert "Ana Pérez" in response.text
     assert 'dashboard-empty__label">Sin resultados' not in response.text
 
 
 def test_list_shows_the_minimum_required_columns():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={
+    client.post("/cchh/candidatos/nuevo", data={
         "first_name": "Ana", "last_name": "Pérez", "profile_skills": "SAP BI",
         "seniority": "Senior", "location": "Buenos Aires", "source": "LinkedIn",
     })
-    text = client.get("/human-capital/profiles").text
+    text = client.get("/cchh/candidatos").text
     assert "SAP BI" in text
     assert "Senior" in text
     assert "Buenos Aires" in text
@@ -111,21 +111,30 @@ def test_list_shows_the_minimum_required_columns():
 
 def test_valid_post_persists_and_returns_the_updated_panel():
     response = _client_as(_AUTHORIZED_EMAIL).post(
-        "/human-capital/profiles", data={"first_name": "Carla", "last_name": "Ruiz"}
+        "/cchh/candidatos/nuevo", data={"first_name": "Carla", "last_name": "Ruiz"}
     )
     assert response.status_code == 200
     assert "Carla Ruiz" in response.text
     assert 'id="hc-profiles-panel"' in response.text
 
 
-def test_valid_post_clears_the_form_on_success():
-    response = _client_as(_AUTHORIZED_EMAIL).post(
-        "/human-capital/profiles", data={"first_name": "Carla", "last_name": "Ruiz"}
+def test_valid_post_redirects_to_the_list_and_a_fresh_new_form_stays_empty():
+    # Fase de paridad funcional UX: el alta ya NO re-muestra el mismo form
+    # "limpio" en la misma superficie (HTMX-swap) -- ahora redirige al
+    # listado, MISMO criterio exacto que una edición exitosa (ver
+    # human_capital_profile_edit_submit). El equivalente real de "el form
+    # no arrastra el alta anterior" es que una carga fresca de /new nunca
+    # tiene estado global/sesión que filtre valores tipeados previamente.
+    client = _client_as(_AUTHORIZED_EMAIL)
+    response = client.post(
+        "/cchh/candidatos/nuevo", data={"first_name": "Carla", "last_name": "Ruiz"}
     )
-    # El <input name="first_name"> del form vuelve a estar vacío tras un
-    # alta exitosa -- no debe seguir mostrando "Carla" como value del campo
-    # (solo debe aparecer como fila de la tabla).
-    assert 'name="first_name" type="text" value=""' in response.text
+    assert response.status_code == 200
+    assert len(response.history) == 1
+    assert response.history[0].status_code == 303
+    assert response.history[0].headers["location"] == "/cchh/candidatos"
+    fresh = client.get("/cchh/candidatos/nuevo")
+    assert 'name="first_name" type="text" value=""' in fresh.text
 
 
 # ============================================================================
@@ -134,7 +143,7 @@ def test_valid_post_clears_the_form_on_success():
 
 def test_post_missing_required_fields_shows_validation_error_not_source_error():
     response = _client_as(_AUTHORIZED_EMAIL).post(
-        "/human-capital/profiles", data={"first_name": "", "last_name": ""}
+        "/cchh/candidatos/nuevo", data={"first_name": "", "last_name": ""}
     )
     assert response.status_code == 200
     assert 'class="feedback-error"' in response.text
@@ -143,7 +152,7 @@ def test_post_missing_required_fields_shows_validation_error_not_source_error():
 
 def test_post_invalid_source_shows_validation_error():
     response = _client_as(_AUTHORIZED_EMAIL).post(
-        "/human-capital/profiles",
+        "/cchh/candidatos/nuevo",
         data={"first_name": "A", "last_name": "B", "source": "Portal de empleo"},
     )
     assert 'class="feedback-error"' in response.text
@@ -151,14 +160,14 @@ def test_post_invalid_source_shows_validation_error():
 
 def test_post_validation_failure_preserves_typed_values():
     response = _client_as(_AUTHORIZED_EMAIL).post(
-        "/human-capital/profiles", data={"first_name": "", "last_name": "Gómez", "location": "Rosario"}
+        "/cchh/candidatos/nuevo", data={"first_name": "", "last_name": "Gómez", "location": "Rosario"}
     )
     assert 'value="Rosario"' in response.text
 
 
 def test_post_validation_failure_does_not_persist_anything():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "", "last_name": "Gómez"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "", "last_name": "Gómez"})
     assert profile_repository.list() == []
 
 
@@ -169,7 +178,7 @@ def test_post_validation_failure_does_not_persist_anything():
 def test_post_push_path_failure_shows_source_error_not_validation_error(monkeypatch):
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     response = _client_as(_AUTHORIZED_EMAIL).post(
-        "/human-capital/profiles", data={"first_name": "A", "last_name": "B"}
+        "/cchh/candidatos/nuevo", data={"first_name": "A", "last_name": "B"}
     )
     assert response.status_code == 200
     assert 'dashboard-empty__label">No disponible' in response.text
@@ -179,7 +188,7 @@ def test_post_push_path_failure_shows_source_error_not_validation_error(monkeypa
 def test_post_push_path_failure_preserves_typed_values(monkeypatch):
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     response = _client_as(_AUTHORIZED_EMAIL).post(
-        "/human-capital/profiles", data={"first_name": "A", "last_name": "B", "location": "Córdoba"}
+        "/cchh/candidatos/nuevo", data={"first_name": "A", "last_name": "B", "location": "Córdoba"}
     )
     assert 'value="Córdoba"' in response.text
 
@@ -188,7 +197,7 @@ def test_get_list_failure_shows_source_error_never_sin_resultados(monkeypatch):
     def _boom():
         raise profile_repository.ProfileStorageError("boom")
     monkeypatch.setattr(profile_repository, "list", _boom)
-    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital/profiles")
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos")
     assert response.status_code == 200
     assert 'dashboard-empty__label">No disponible' in response.text
     assert 'dashboard-empty__label">Sin resultados' not in response.text
@@ -204,7 +213,7 @@ def test_spaces_disabled_post_is_classified_as_config_incomplete(monkeypatch):
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
     response = _client_as(_AUTHORIZED_EMAIL).post(
-        "/human-capital/profiles", data={"first_name": "A", "last_name": "B"}
+        "/cchh/candidatos/nuevo", data={"first_name": "A", "last_name": "B"}
     )
     assert response.status_code == 200
     assert 'data-error-kind="config_incomplete"' in response.text
@@ -219,7 +228,7 @@ def test_enabled_but_push_failure_after_retry_post_is_classified_as_remote_outco
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
     response = _client_as(_AUTHORIZED_EMAIL).post(
-        "/human-capital/profiles", data={"first_name": "A", "last_name": "B"}
+        "/cchh/candidatos/nuevo", data={"first_name": "A", "last_name": "B"}
     )
     assert response.status_code == 200
     assert 'data-error-kind="remote_outcome_unknown"' in response.text
@@ -230,7 +239,7 @@ def test_remote_outcome_unknown_never_reuses_no_disponible_text(monkeypatch):
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
     response = _client_as(_AUTHORIZED_EMAIL).post(
-        "/human-capital/profiles", data={"first_name": "A", "last_name": "B"}
+        "/cchh/candidatos/nuevo", data={"first_name": "A", "last_name": "B"}
     )
     assert 'dashboard-empty__label">No disponible' not in response.text
     assert 'dashboard-empty__label">Estado desconocido' in response.text
@@ -240,8 +249,8 @@ def test_unresolved_create_never_reappears_on_a_subsequent_get(monkeypatch):
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Fantasma", "last_name": "Dos"})
-    response = client.get("/human-capital/profiles")
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Fantasma", "last_name": "Dos"})
+    response = client.get("/cchh/candidatos")
     assert "Fantasma Dos" not in response.text
     assert 'dashboard-empty__label">Sin resultados' in response.text
 
@@ -251,8 +260,8 @@ def test_failed_create_never_reappears_on_a_subsequent_get(monkeypatch):
     # default -- forzamos el fallo explícitamente para este POST.
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Fantasma", "last_name": "Uno"})
-    response = client.get("/human-capital/profiles")
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Fantasma", "last_name": "Uno"})
+    response = client.get("/cchh/candidatos")
     assert "Fantasma Uno" not in response.text
     assert 'dashboard-empty__label">Sin resultados' in response.text
 
@@ -260,10 +269,10 @@ def test_failed_create_never_reappears_on_a_subsequent_get(monkeypatch):
 def test_failed_create_then_retry_produces_exactly_one_profile(monkeypatch):
     client = _client_as(_AUTHORIZED_EMAIL)
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
-    client.post("/human-capital/profiles", data={"first_name": "Reintento", "last_name": "Uno"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Reintento", "last_name": "Uno"})
 
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
-    client.post("/human-capital/profiles", data={"first_name": "Reintento", "last_name": "Uno"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Reintento", "last_name": "Uno"})
 
     assert len(profile_repository.list()) == 1
 
@@ -290,14 +299,30 @@ def test_profiles_surface_has_no_legacy_role_literal():
         assert '"hiring_manager"' not in surface and "'hiring_manager'" not in surface
 
 
-def test_profiles_templates_add_no_own_css_or_js():
+def test_profiles_templates_add_no_own_js():
+    # El contrato original de Phase 3 ("no own CSS or JS") se relajó para el
+    # CSS por el visual corrective (ver HANDOFF): Capital Humano ahora tiene
+    # su propia hoja de estilos, MISMO mecanismo ya establecido por
+    # Comercial/Reporting (`commercial.css`/`reporting.css`, ver
+    # `test_profiles_page_links_its_own_stylesheet_same_pattern_as_commercial`
+    # más abajo) — nunca justificaba mantenerlo sin estilos por consistencia
+    # con un contrato que otros workspaces ya rompieron legítimamente. JS
+    # propio SIGUE sin hacer falta (cero interactividad nueva) — eso no cambió.
     for surface in (_PROFILES_HTML, _PANEL_HTML):
-        assert "<link rel=\"stylesheet\"" not in surface
         assert "<script src=" not in surface
 
 
+def test_profiles_page_links_its_own_stylesheet_same_pattern_as_commercial():
+    assert '<link rel="stylesheet" href="{{ url_for(\'static\', path=\'human_capital.css\') }}' in _PROFILES_HTML
+    # El fragmento HTMX-swapped (_PANEL_HTML) nunca linkea su propia hoja --
+    # eso es responsabilidad EXCLUSIVA de la página completa que lo incluye
+    # (MISMO criterio que commercial.css, linkeado una sola vez en crm.html,
+    # nunca repetido en cada fragmento que HTMX/fetch intercambia).
+    assert "<link rel=\"stylesheet\"" not in _PANEL_HTML
+
+
 def test_landing_now_links_to_profiles():
-    assert "/human-capital/profiles" in _LANDING_HTML
+    assert "/cchh/candidatos" in _LANDING_HTML
 
 
 # ============================================================================
@@ -316,40 +341,40 @@ def test_operaciones_and_comercial_namespaces_unaffected():
 
 def test_search_q_filters_the_list():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Gómez"})
-    client.post("/human-capital/profiles", data={"first_name": "Ana", "last_name": "Ruiz"})
-    response = client.get("/human-capital/profiles", params={"q": "juan"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Juan", "last_name": "Gómez"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Ana", "last_name": "Ruiz"})
+    response = client.get("/cchh/candidatos", params={"q": "juan"})
     assert "Juan Gómez" in response.text
     assert "Ana Ruiz" not in response.text
 
 
 def test_search_q_no_match_shows_sin_resultados_never_no_disponible():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Gómez"})
-    response = client.get("/human-capital/profiles", params={"q": "nadie-coincide"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Juan", "last_name": "Gómez"})
+    response = client.get("/cchh/candidatos", params={"q": "nadie-coincide"})
     assert 'data-empty-kind="no_matches"' in response.text
     assert 'dashboard-empty__label">No disponible' not in response.text
 
 
 def test_zero_profiles_dataset_shows_dataset_empty_kind_not_no_matches():
-    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital/profiles", params={"q": "cualquier-cosa"})
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos", params={"q": "cualquier-cosa"})
     assert 'data-empty-kind="dataset_empty"' in response.text
 
 
 def test_combined_q_and_structured_filter():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Gómez", "seniority": "Senior"})
-    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Ruiz", "seniority": "Junior"})
-    response = client.get("/human-capital/profiles", params={"q": "juan", "seniority": "Senior"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Juan", "last_name": "Gómez", "seniority": "Senior"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Juan", "last_name": "Ruiz", "seniority": "Junior"})
+    response = client.get("/cchh/candidatos", params={"q": "juan", "seniority": "Senior"})
     assert "Juan Gómez" in response.text
     assert "Juan Ruiz" not in response.text
 
 
 def test_clear_filters_link_present_only_when_a_filter_is_active():
     client = _client_as(_AUTHORIZED_EMAIL)
-    plain = client.get("/human-capital/profiles")
+    plain = client.get("/cchh/candidatos")
     assert "Limpiar filtros" not in plain.text
-    filtered = client.get("/human-capital/profiles", params={"q": "juan"})
+    filtered = client.get("/cchh/candidatos", params={"q": "juan"})
     assert "Limpiar filtros" in filtered.text
 
 
@@ -359,55 +384,55 @@ def test_clear_filters_link_present_only_when_a_filter_is_active():
 
 def test_filter_by_seniority():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Uno", "last_name": "A", "seniority": "Senior"})
-    client.post("/human-capital/profiles", data={"first_name": "Dos", "last_name": "B", "seniority": "Junior"})
-    response = client.get("/human-capital/profiles", params={"seniority": "Senior"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Uno", "last_name": "A", "seniority": "Senior"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Dos", "last_name": "B", "seniority": "Junior"})
+    response = client.get("/cchh/candidatos", params={"seniority": "Senior"})
     assert "Uno A" in response.text
     assert "Dos B" not in response.text
 
 
 def test_filter_by_source():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Uno", "last_name": "A", "source": "LinkedIn"})
-    client.post("/human-capital/profiles", data={"first_name": "Dos", "last_name": "B", "source": "Referido"})
-    response = client.get("/human-capital/profiles", params={"source": "LinkedIn"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Uno", "last_name": "A", "source": "LinkedIn"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Dos", "last_name": "B", "source": "Referido"})
+    response = client.get("/cchh/candidatos", params={"source": "LinkedIn"})
     assert "Uno A" in response.text
     assert "Dos B" not in response.text
 
 
 def test_filter_by_location_contains():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Uno", "last_name": "A", "location": "Buenos Aires, Argentina"})
-    response = client.get("/human-capital/profiles", params={"location": "buenos aires"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Uno", "last_name": "A", "location": "Buenos Aires, Argentina"})
+    response = client.get("/cchh/candidatos", params={"location": "buenos aires"})
     assert "Uno A" in response.text
 
 
 def test_filter_by_potential_mark():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Uno", "last_name": "A", "potential_mark": "Alto"})
-    client.post("/human-capital/profiles", data={"first_name": "Dos", "last_name": "B", "potential_mark": "Medio"})
-    response = client.get("/human-capital/profiles", params={"potential_mark": "Alto"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Uno", "last_name": "A", "potential_mark": "Alto"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Dos", "last_name": "B", "potential_mark": "Medio"})
+    response = client.get("/cchh/candidatos", params={"potential_mark": "Alto"})
     assert "Uno A" in response.text
     assert "Dos B" not in response.text
 
 
 def test_multiple_filters_use_and_semantics():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={
+    client.post("/cchh/candidatos/nuevo", data={
         "first_name": "Uno", "last_name": "A", "seniority": "Senior", "source": "LinkedIn",
     })
-    client.post("/human-capital/profiles", data={
+    client.post("/cchh/candidatos/nuevo", data={
         "first_name": "Dos", "last_name": "B", "seniority": "Senior", "source": "Referido",
     })
-    response = client.get("/human-capital/profiles", params={"seniority": "Senior", "source": "LinkedIn"})
+    response = client.get("/cchh/candidatos", params={"seniority": "Senior", "source": "LinkedIn"})
     assert "Uno A" in response.text
     assert "Dos B" not in response.text
 
 
 def test_unknown_filter_value_shows_no_matches_not_an_error():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Uno", "last_name": "A", "seniority": "Senior"})
-    response = client.get("/human-capital/profiles", params={"seniority": "NoExiste"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Uno", "last_name": "A", "seniority": "Senior"})
+    response = client.get("/cchh/candidatos", params={"seniority": "NoExiste"})
     assert response.status_code == 200
     assert 'data-empty-kind="no_matches"' in response.text
 
@@ -418,9 +443,9 @@ def test_unknown_filter_value_shows_no_matches_not_an_error():
 
 def test_duplicate_advisory_is_shown_on_matching_email():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez", "email": "juan@example.com"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Juan", "last_name": "Pérez", "email": "juan@example.com"})
     response = client.post(
-        "/human-capital/profiles", data={"first_name": "Otro", "last_name": "Nombre", "email": "juan@example.com"}
+        "/cchh/candidatos/nuevo", data={"first_name": "Otro", "last_name": "Nombre", "email": "juan@example.com"}
     )
     assert response.status_code == 200
     assert 'data-advisory-kind="possible_duplicate"' in response.text
@@ -429,25 +454,25 @@ def test_duplicate_advisory_is_shown_on_matching_email():
 
 def test_duplicate_advisory_never_reuses_no_disponible_surface():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})
-    response = client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Juan", "last_name": "Pérez"})
+    response = client.post("/cchh/candidatos/nuevo", data={"first_name": "Juan", "last_name": "Pérez"})
     assert 'dashboard-empty__label">No disponible' not in response.text
     assert 'class="feedback-error"' not in response.text
 
 
 def test_duplicate_advisory_does_not_create_the_profile():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})
-    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Juan", "last_name": "Pérez"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Juan", "last_name": "Pérez"})
     assert len(profile_repository.list()) == 1
 
 
 def test_duplicate_confirmed_creates_exactly_one_additional_profile():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})
-    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})  # advisory, no crea
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Juan", "last_name": "Pérez"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Juan", "last_name": "Pérez"})  # advisory, no crea
     response = client.post(
-        "/human-capital/profiles",
+        "/cchh/candidatos/nuevo",
         data={"first_name": "Juan", "last_name": "Pérez", "duplicate_confirmed": "true"},
     )
     assert response.status_code == 200
@@ -456,7 +481,7 @@ def test_duplicate_confirmed_creates_exactly_one_additional_profile():
 
 def test_different_person_does_not_trigger_advisory_over_http():
     client = _client_as(_AUTHORIZED_EMAIL)
-    client.post("/human-capital/profiles", data={"first_name": "Juan", "last_name": "Pérez"})
-    response = client.post("/human-capital/profiles", data={"first_name": "Ana", "last_name": "Gómez"})
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Juan", "last_name": "Pérez"})
+    response = client.post("/cchh/candidatos/nuevo", data={"first_name": "Ana", "last_name": "Gómez"})
     assert 'data-advisory-kind="possible_duplicate"' not in response.text
     assert "Ana Gómez" in response.text

@@ -20,11 +20,11 @@ siendo responsabilidad de cada repositorio/consumidor
 (`core/sharepoint_cases.py`, `webapp/services/catalog_reads.py`).
 
 Capital Humano Phase 4.1 (Profile Documents) agregó `graph_post_json`/
-`graph_put_bytes` — MISMOS primitivos de transporte, MISMA filosofía (sin
-retry/backoff, sin jerarquía de errores propia, `HTTPError`/`URLError` se
-propagan tal cual). Siguen sin existir PATCH/DELETE genéricos — cada
-capability nueva declara explícitamente qué verbos necesita, nunca una
-abstracción de cliente HTTP arbitraria.
+`graph_put_bytes`; Phase 4.1.2 (delete) agregó `graph_delete` — MISMOS
+primitivos de transporte, MISMA filosofía (sin retry/backoff, sin
+jerarquía de errores propia, `HTTPError`/`URLError` se propagan tal cual).
+Sigue sin existir PATCH genérico ni un cliente HTTP arbitrario — cada
+capability nueva declara explícitamente qué verbos necesita.
 
 NO importa `webapp` ni `webapp.main` (evita crear una dependencia
 `tools`/`core` → `webapp`). NO contiene lógica de negocio, rutas, templates
@@ -91,7 +91,8 @@ def graph_post_json(
     ÚNICA operación de escritura mínima que necesita (crear la carpeta de
     un Profile bajo la raíz de CVs, ver
     `webapp/services/profile_document_service.py::ensure_profile_folder`).
-    NO agrega PATCH/DELETE — fuera de alcance (ver ticket §9)."""
+    NO agrega PATCH (fuera de alcance) — DELETE vive en `graph_delete`, ver
+    ese docstring."""
     payload = json.dumps(body).encode("utf-8")
     headers = graph_headers(access_token)
     headers["Content-Type"] = "application/json"
@@ -117,6 +118,21 @@ def graph_put_bytes(
     request = urllib.request.Request(url, data=data, headers=headers, method="PUT")
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def graph_delete(
+    url: str, access_token: str, *, timeout: int = DEFAULT_TIMEOUT,
+) -> None:
+    """DELETE a Graph -- no devuelve nada (Graph responde 204 sin body para
+    un `driveItem` eliminado). MISMO idioma que el resto (urllib crudo, sin
+    retry/backoff, `HTTPError`/`URLError` se propagan tal cual). Agregado
+    para Capital Humano Phase 4.1.2 (Profile Documents delete): la ÚNICA
+    operación DELETE que el Hub necesita hoy (borrar el `driveItem` físico
+    de un ProfileDocument, ver
+    `webapp/services/profile_document_service.py::delete_document`)."""
+    request = urllib.request.Request(url, headers=graph_headers(access_token), method="DELETE")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        response.read()
 
 
 def graph_get_paged_values(

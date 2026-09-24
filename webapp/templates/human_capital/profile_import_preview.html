@@ -19,7 +19,7 @@
     <section class="module-hero">
       <p class="eyebrow">Capital Humano</p>
       <h1>Vista previa de importación</h1>
-      <p>Todavía no se creó ningún Profile. Revisá cada fila y confirmá cuáles importar — los duplicados quedan sin marcar por defecto.</p>
+      <p>Todavía no se creó ningún candidato. Revisá cada fila y confirmá cuáles importar — los duplicados quedan sin marcar por defecto.</p>
     </section>
 
     {% if not preview_rows %}
@@ -28,7 +28,7 @@
       <p>El archivo no tiene filas de datos para importar.</p>
     </div>
     {% else %}
-    <form class="hc-profile-form" method="post" action="/human-capital/profiles/import/confirm">
+    <form class="hc-profile-form" method="post" action="/cchh/candidatos/importar/confirm">
       <input type="hidden" name="invalid_row_count" value="{{ preview_rows | selectattr('status', 'equalto', 'invalid') | list | length }}">
       <div class="matrix-scroll">
         <table class="dashboard-table">
@@ -48,7 +48,7 @@
               <td>{{ row.display_name }}</td>
               <td data-row-status="{{ row.status }}">
                 {% if row.status == "eligible" %}Listo
-                {% elif row.status == "existing_duplicate" %}Posible duplicado (Perfil existente)
+                {% elif row.status == "existing_duplicate" %}Posible duplicado (Candidato existente)
                 {% elif row.status == "within_file_duplicate" %}Posible duplicado (fila {{ row.duplicate_row_number }})
                 {% else %}Inválido{% endif %}
               </td>
@@ -71,4 +71,6 @@
     {% endif %}
   </main>
 </div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
 {% endblock %}

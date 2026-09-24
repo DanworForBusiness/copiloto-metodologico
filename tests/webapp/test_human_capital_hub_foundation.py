@@ -1,7 +1,7 @@
 """
 test_human_capital_hub_foundation.py — Capital Humano Phase 1 (Hub Walking
 Skeleton): contrato HTTP + de plantillas del CUARTO workspace del Danwor
-Hub (`/human-capital`). Alcance de esta fase: VERTICAL BOUNDARY únicamente
+Hub (`/cchh`). Alcance de esta fase: VERTICAL BOUNDARY únicamente
 — sin dato de negocio, sin Supabase, sin lógica legacy, sin roles
 (hrbp/hiring_manager), sin endpoints de datos (ver
 webapp/routers/human_capital.py). MISMO patrón exacto que
@@ -76,18 +76,18 @@ def _client_as(email: str) -> TestClient:
 
 
 # ============================================================================
-# 1/2 — Namespace canónico /human-capital, sin sesión -> redirect
+# 1/2 — Namespace canónico /cchh, sin sesión -> redirect
 # ============================================================================
 
 def test_get_anonymous_redirects_to_login_preserving_canonical_next():
     anon = TestClient(app)
-    response = anon.get("/human-capital", follow_redirects=False)
+    response = anon.get("/cchh", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/platform?next=%2Fhuman-capital"
+    assert response.headers["location"] == "/platform?next=%2Fcchh"
 
 
 def test_get_authorized_returns_200_at_canonical_namespace():
-    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital")
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh")
     assert response.status_code == 200
 
 
@@ -97,13 +97,13 @@ def test_get_authorized_returns_200_at_canonical_namespace():
 # ============================================================================
 
 def test_authenticated_but_unlisted_user_is_denied_with_403():
-    response = _client_as("unlisted@danwor.com").get("/human-capital")
+    response = _client_as("unlisted@danwor.com").get("/cchh")
     assert response.status_code == 403
 
 
 def test_human_capital_allowed_users_blank_denies_the_previously_authorized_user(monkeypatch):
     monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", "")
-    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital")
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh")
     assert response.status_code == 403
 
 
@@ -111,7 +111,7 @@ def test_operations_or_commercial_listing_alone_never_grants_human_capital_acces
     monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", "")
     monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", _AUTHORIZED_EMAIL)
     monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", _AUTHORIZED_EMAIL)
-    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital")
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh")
     assert response.status_code == 403
 
 
@@ -120,7 +120,7 @@ def test_operations_or_commercial_listing_alone_never_grants_human_capital_acces
 # ============================================================================
 
 def test_shell_reuses_the_canonical_app_shell_and_topbar_macro():
-    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital")
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh")
     text = response.text
     assert 'class="app-shell no-copilot"' in text
     assert '<header class="topbar">' in text
@@ -129,7 +129,7 @@ def test_shell_reuses_the_canonical_app_shell_and_topbar_macro():
 
 
 def test_shell_reuses_the_exact_same_canonical_progress_dom():
-    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital")
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh")
     assert response.text.count(
         '<div class="read-progress" aria-hidden="true"><span class="read-progress__fill"></span></div>'
     ) == 1
@@ -143,14 +143,14 @@ def test_landing_template_never_embeds_its_own_progress_markup():
 def test_shell_shows_workspace_switcher_when_multiple_workspaces_available():
     # human-capital-test@danwor.com está admitido a Copiloto Y Capital
     # Humano (fixture autouse) -- el switcher debe aparecer (>1 workspace).
-    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital")
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh")
     assert '<details class="workspace-switch">' in response.text
 
 
 def test_human_capital_nav_highlights_the_single_inicio_link():
-    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital")
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh")
     text = response.text
-    assert 'href="/human-capital"' in text
+    assert 'href="/cchh"' in text
     assert "Inicio" in text
 
 
@@ -165,7 +165,7 @@ def test_landing_has_no_own_css_or_js_asset_link():
 
 
 def test_content_shows_expected_eyebrow_title_without_banned_words():
-    response = _client_as(_AUTHORIZED_EMAIL).get("/human-capital")
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh")
     text = response.text
     assert '<p class="eyebrow">Capital Humano</p>' in text
     assert "<h1>Gestión integral del ciclo de selección e incorporación</h1>" in text
@@ -176,10 +176,16 @@ def test_content_shows_expected_eyebrow_title_without_banned_words():
 def test_content_never_lists_functional_capabilities_as_if_available():
     # Phase 1 explícito: "NO listar funcionalidades todavía como si
     # estuvieran disponibles" -- ninguna de las capabilities legacy debe
-    # aparecer como link/feature en la landing todavía.
-    text = _client_as(_AUTHORIZED_EMAIL).get("/human-capital").text
+    # aparecer como link/feature en la landing todavía. "Candidatos" salió
+    # de esta lista (ticket de paridad funcional / UX corrective): dejó de
+    # ser una capability legacy hipotética para ser la etiqueta REAL del
+    # nav de la capability que YA existe (antes "Perfiles") -- que aparezca
+    # en cada página del workspace, incluida la landing, es correcto, no
+    # una promesa de funcionalidad todavía no construida.
+    text = _client_as(_AUTHORIZED_EMAIL).get("/cchh").text
+    assert "<strong>Candidatos</strong>" in text  # nav real, no un placeholder
     for capability in (
-        "Candidatos", "Búsquedas", "Entrevistas", "Onboarding", "Avisos",
+        "Búsquedas", "Entrevistas", "Onboarding", "Avisos",
         "Indicadores", "Administración", "Banco de CVs", "Procesos",
     ):
         assert capability not in text

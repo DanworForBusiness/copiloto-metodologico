@@ -1,48 +1,30 @@
 {# human_capital_profiles_panel.html — fragmento compartido por
-   GET /human-capital/profiles (embebido en la página completa) y
-   POST /human-capital/profiles (fragmento solo, swap de HTMX) — MISMO
-   patrón que partials/tree_feedback_form.html (`hx-target` apunta a este
-   MISMO `id`, `hx-swap="outerHTML"`, el POST devuelve este fragmento
-   entero re-renderizado).
+   GET /cchh/candidatos (embebido en la página completa) y el
+   propio GET al buscar/filtrar (fragmento solo, swap de HTMX vía
+   `hx-get`/`hx-target` sobre esta MISMA superficie) — MISMO patrón que
+   partials/tree_feedback_form.html.
 
-   Contrato de error (Capital Humano Phase 3 §16, refinado por Phase 3.1
-   §5/§11, ampliado por Phase 3.2 §7/§22 y Phase 3.6 §12/§13): SEIS
-   estados, nunca la misma superficie para dos de ellos.
-     - `source_error` + `config_incomplete=True` (Spaces sin configurar)
-       -> "No disponible", primitivo `.dashboard-empty` (MISMO eyebrow que
-       SOURCE_ERROR abajo -- MISMO criterio ya usado por
-       commercialForecastPanelBodyHtml/commercialActividadesHtml en
-       commercial.js: un solo primitivo visual, el texto/la clasificación
-       en tests es lo que distingue CONFIG_INCOMPLETE de SOURCE_ERROR,
-       nunca un componente nuevo) -- el form NO se limpia, MISMO valor de
-       `form_values` de lo que el usuario ya había tipeado.
-     - `source_error` + `config_incomplete=False` (persistencia/Spaces
-       caída) -> "No disponible", MISMO primitivo -- MISMA preservación
-       de `form_values`.
-     - `error` (validación) -> `.feedback-error` (ya compartido en
-       tools.css, ver partials/tree_feedback_form.html) al lado del form,
-       valores tipeados preservados vía `form_values`.
+   Fase de paridad funcional UX: el alta ("Cargar CV al banco") YA NO
+   vive acá — se mudó a su propia página/ruta,
+   `GET/POST /cchh/candidatos/nuevo` (ver
+   partials/human_capital_profile_new_form.html), MISMO criterio que la
+   app de referencia (`/banco-cvs` = listado, `/banco-cvs/nuevo` = alta,
+   nunca la misma superficie — el comportamiento ya existente en la
+   referencia era: con CVs ya cargados, el listado NO muestra un form de
+   alta embebido, sólo el CTA "+ Cargar CV" que navega a otra pantalla).
+   Este fragmento quedó con SÓLO tres estados, nunca la misma superficie
+   para dos de ellos:
+     - `source_error` (Spaces caído al leer el listado) -> "No
+       disponible", primitivo `.dashboard-empty`.
      - dataset vacío (ningún Profile existe) -> "Sin resultados",
        `.dashboard-empty` con el copy original.
      - dataset con datos pero el filtro/búsqueda actual no matchea nada
        (Phase 3.2 §7) -> MISMO "Sin resultados" (mismo eyebrow, NUNCA
        "No disponible" -- cero matches es un resultado saludable, no una
        falla), copy distinto aclarando que es por los filtros --
-       distinguibles en tests vía `data-empty-kind`.
-     - `duplicate_advisory` (Phase 3.2 §9/§22) -> `.callout` (primitivo YA
-       compartido, ver tools.css -- reusado tal cual, nunca
-       `.dashboard-empty`/`.feedback-error`: no es un error ni un estado
-       vacío, es una pausa deliberada a mitad del alta).
-     - `remote_outcome_unknown` (Phase 3.6 §7/§12/§13): el push inicial Y
-       un reintento explícito al MISMO profile_id TAMPOCO confirmaron --
-       NUNCA se aplana a `source_error`/"No disponible" (afirmaría una
-       certeza de fallo que no existe). MISMO primitivo `.dashboard-empty`
-       pero con un eyebrow PROPIO ("Estado desconocido") y copy que
-       desalienta explícitamente un reintento ciego (a diferencia de un
-       fallo confirmado, reintentar acá podría mintear un Profile
-       duplicado si el intento original en realidad sí llegó al remoto). #}
+       distinguibles en tests vía `data-empty-kind`. #}
 <div id="hc-profiles-panel">
-  <form class="hc-profile-filters" hx-get="/human-capital/profiles" hx-target="#hc-profiles-panel" hx-swap="outerHTML">
+  <form class="hc-profile-filters" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML">
     <div class="feedback-field">
       <label for="hc-search-q">Buscar</label>
       <input id="hc-search-q" name="q" type="text" value="{{ query.q or '' }}" placeholder="Nombre, email, skills, ubicación...">
@@ -70,94 +52,9 @@
     </div>
     <button type="submit" class="btn-primary">Buscar</button>
     {% if query.q or query.seniority or query.source or query.location or query.potential_mark %}
-    <a href="/human-capital/profiles" class="btn-secondary" hx-get="/human-capital/profiles" hx-target="#hc-profiles-panel" hx-swap="outerHTML">Limpiar filtros</a>
+    <a href="/cchh/candidatos" class="btn-secondary" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML">Limpiar filtros</a>
     {% endif %}
   </form>
-
-  <form id="hc-profile-form" class="hc-profile-form" hx-post="/human-capital/profiles" hx-target="#hc-profiles-panel" hx-swap="outerHTML">
-    {% if error %}<p class="feedback-error">{{ error }}</p>{% endif %}
-    <div class="feedback-field">
-      <label for="hc-first-name">Nombre</label>
-      <input id="hc-first-name" name="first_name" type="text" value="{{ form_values.first_name or '' }}" required>
-    </div>
-    <div class="feedback-field">
-      <label for="hc-last-name">Apellido</label>
-      <input id="hc-last-name" name="last_name" type="text" value="{{ form_values.last_name or '' }}" required>
-    </div>
-    <div class="feedback-field">
-      <label for="hc-email">Email</label>
-      <input id="hc-email" name="email" type="email" value="{{ form_values.email or '' }}">
-    </div>
-    <div class="feedback-field">
-      <label for="hc-phone">Teléfono</label>
-      <input id="hc-phone" name="phone" type="text" value="{{ form_values.phone or '' }}">
-    </div>
-    <div class="feedback-field">
-      <label for="hc-linkedin">LinkedIn</label>
-      <input id="hc-linkedin" name="linkedin_url" type="text" value="{{ form_values.linkedin_url or '' }}">
-    </div>
-    <div class="feedback-field">
-      <label for="hc-location">Ubicación</label>
-      <input id="hc-location" name="location" type="text" value="{{ form_values.location or '' }}">
-    </div>
-    <div class="feedback-field">
-      <label for="hc-skills">Perfil / Skills</label>
-      <input id="hc-skills" name="profile_skills" type="text" value="{{ form_values.profile_skills or '' }}">
-    </div>
-    <div class="feedback-field">
-      <label for="hc-seniority">Seniority</label>
-      <input id="hc-seniority" name="seniority" type="text" value="{{ form_values.seniority or '' }}">
-    </div>
-    <div class="feedback-field">
-      <label for="hc-source">Fuente</label>
-      <select id="hc-source" name="source">
-        <option value="" {% if not form_values.source %}selected{% endif %}>Sin especificar</option>
-        {% for opt in valid_sources %}
-        <option value="{{ opt }}" {% if form_values.source == opt %}selected{% endif %}>{{ opt }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="feedback-field">
-      <label for="hc-tags">Tags</label>
-      <input id="hc-tags" name="tags" type="text" value="{{ form_values.tags or '' }}">
-    </div>
-    <div class="feedback-field">
-      <label for="hc-notes">Notas</label>
-      <textarea id="hc-notes" name="notes" rows="2">{{ form_values.notes or '' }}</textarea>
-    </div>
-    <div class="feedback-field">
-      <label for="hc-potential-rating">Potencial (1-5)</label>
-      <input id="hc-potential-rating" name="potential_rating" type="text" value="{{ form_values.potential_rating or '' }}">
-    </div>
-    <div class="feedback-field">
-      <label for="hc-potential-mark">Marca de potencial</label>
-      <input id="hc-potential-mark" name="potential_mark" type="text" value="{{ form_values.potential_mark or '' }}">
-    </div>
-    <button type="submit" class="btn-primary">Agregar al Banco de Perfiles</button>
-  </form>
-
-  {% if duplicate_advisory %}
-  <div class="callout callout--punch" data-advisory-kind="possible_duplicate">
-    <div class="callout__head">
-      <span class="callout__icon">⚠️</span>
-      <span class="callout__title">Posible perfil duplicado</span>
-    </div>
-    <div class="callout__body">
-      <p>Ya existe un perfil posiblemente duplicado: <strong>{{ duplicate_advisory.first_name }} {{ duplicate_advisory.last_name }}</strong>{% if duplicate_advisory.email %} — {{ duplicate_advisory.email }}{% endif %}. Podés cancelar o crearlo de todos modos.</p>
-      <div class="feedback-form-actions">
-        <a href="/human-capital/profiles" class="btn-secondary" hx-get="/human-capital/profiles" hx-target="#hc-profiles-panel" hx-swap="outerHTML">Cancelar</a>
-        <button type="submit" form="hc-profile-form" name="duplicate_confirmed" value="true" class="btn-primary">Crear de todos modos</button>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
-  {% if remote_outcome_unknown %}
-  <div class="dashboard-empty" data-error-kind="remote_outcome_unknown">
-    <span class="dashboard-empty__label">Estado desconocido</span>
-    <p>{{ remote_outcome_unknown }}</p>
-  </div>
-  {% endif %}
 
   {% if source_error %}
   <div class="dashboard-empty" data-error-kind="{{ 'config_incomplete' if config_incomplete else 'source_error' }}">
@@ -167,19 +64,19 @@
   {% elif not dataset_has_any_profiles %}
   <div class="dashboard-empty" data-empty-kind="dataset_empty">
     <span class="dashboard-empty__label">Sin resultados</span>
-    <p>Todavía no hay perfiles cargados en el Banco de Perfiles.</p>
+    <p>Todavía no hay CVs cargados en el banco. Cargá uno nuevo o hacé una carga masiva desde Excel.</p>
   </div>
   {% elif not profiles %}
   <div class="dashboard-empty" data-empty-kind="no_matches">
     <span class="dashboard-empty__label">Sin resultados</span>
-    <p>No se encontraron perfiles para los filtros seleccionados.</p>
+    <p>No se encontraron candidatos para los filtros seleccionados.</p>
   </div>
   {% else %}
   <div class="matrix-scroll">
     <table class="dashboard-table">
       <thead>
         <tr>
-          <th class="row-label-col">Nombre</th>
+          <th class="row-label-col">Nombre completo</th>
           <th>Perfil / Skills</th>
           <th>Seniority</th>
           <th>Ubicación</th>
@@ -195,7 +92,7 @@
           <td>{{ profile.seniority or "—" }}</td>
           <td>{{ profile.location or "—" }}</td>
           <td>{{ profile.source or "—" }}</td>
-          <td><a href="/human-capital/profiles/{{ profile.profile_id }}/edit">Editar</a></td>
+          <td><a href="/cchh/candidatos/{{ profile.profile_id }}/editar">Editar</a></td>
         </tr>
         {% endfor %}
       </tbody>

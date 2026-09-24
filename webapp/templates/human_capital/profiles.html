@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
-{% block title %}Banco de Perfiles · Capital Humano · Danwor{% endblock %}
+{% block title %}Base de CVs · Capital Humano · Danwor{% endblock %}
 {% block body %}
 <div
   x-data="copilotLayout('human-capital')"
@@ -16,12 +16,24 @@
   {{ sidebar_resize_handle() }}
 
   <main id="content" class="module-content">
-    <section class="module-hero">
-      <p class="eyebrow">Capital Humano</p>
-      <h1>Banco de Perfiles</h1>
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano</p>
+        <h1>Base de CVs</h1>
+        <p>Repositorio general de CVs, no necesariamente ligados a un proceso.</p>
+      </div>
+      <div class="hc-profiles-hero-actions">
+        <a href="/cchh/candidatos/importar" class="btn-secondary">Carga masiva</a>
+        <a href="/cchh/candidatos/nuevo" class="btn-primary">+ Cargar CV</a>
+      </div>
     </section>
 
     {% include "partials/human_capital_profiles_panel.html" %}
   </main>
 </div>
+
+{# CSS propio de la vertical (ver human_capital.css) — MISMO mecanismo que
+   commercial.css/reporting.css: base.html solo carga los stylesheets del
+   Hub, lo específico de un workspace lo linkea su propia página. #}
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
 {% endblock %}

@@ -1,7 +1,7 @@
 """
 test_human_capital_profile_edit_routes.py — Capital Humano Phase 3.5 (Safe
 Profile Edit — Revision + Compensating Overwrite): contrato HTTP/UI de
-`GET/POST /human-capital/profiles/{profile_id}/edit`. MISMO patrón de
+`GET/POST /cchh/candidatos/{profile_id}/editar`. MISMO patrón de
 autorización/aislamiento que test_human_capital_profiles_routes.py (fixture
 `autouse` con `monkeypatch`, nunca una asignación de módulo sin revertir)."""
 from __future__ import annotations
@@ -38,33 +38,33 @@ def _client_as(email: str) -> TestClient:
 
 def _create(client: TestClient, **overrides) -> dict:
     data = {"first_name": "Juan", "last_name": "Gómez", **overrides}
-    client.post("/human-capital/profiles", data=data)
+    client.post("/cchh/candidatos/nuevo", data=data)
     matches = [p for p in profile_repository.list() if p["first_name"] == data["first_name"]]
     return matches[0]
 
 
 # ============================================================================
-# Authorization — MISMO contrato ya probado para /human-capital/profiles
+# Authorization — MISMO contrato ya probado para /cchh/candidatos
 # ============================================================================
 
 def test_get_edit_anonymous_redirects_to_login():
     client = _create(_client_as(_AUTHORIZED_EMAIL))
     anon = TestClient(app)
-    response = anon.get(f"/human-capital/profiles/{client['profile_id']}/edit", follow_redirects=False)
+    response = anon.get(f"/cchh/candidatos/{client['profile_id']}/editar", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == f"/platform?next=%2Fhuman-capital%2Fprofiles%2F{client['profile_id']}%2Fedit"
+    assert response.headers["location"] == f"/platform?next=%2Fcchh%2Fcandidatos%2F{client['profile_id']}%2Feditar"
 
 
 def test_get_edit_unlisted_user_is_denied_with_403():
     saved = _create(_client_as(_AUTHORIZED_EMAIL))
-    response = _client_as("unlisted@danwor.com").get(f"/human-capital/profiles/{saved['profile_id']}/edit")
+    response = _client_as("unlisted@danwor.com").get(f"/cchh/candidatos/{saved['profile_id']}/editar")
     assert response.status_code == 403
 
 
 def test_post_edit_unlisted_user_is_denied_with_403():
     saved = _create(_client_as(_AUTHORIZED_EMAIL))
     response = _client_as("unlisted@danwor.com").post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={"first_name": "A", "last_name": "B", "expected_revision": "1"},
     )
     assert response.status_code == 403
@@ -77,7 +77,7 @@ def test_post_edit_unlisted_user_is_denied_with_403():
 def test_authorized_get_edit_returns_200_with_populated_form():
     client = _client_as(_AUTHORIZED_EMAIL)
     saved = _create(client, first_name="Juan", last_name="Gómez", location="Rosario")
-    response = client.get(f"/human-capital/profiles/{saved['profile_id']}/edit")
+    response = client.get(f"/cchh/candidatos/{saved['profile_id']}/editar")
     assert response.status_code == 200
     assert 'value="Juan"' in response.text
     assert 'value="Gómez"' in response.text
@@ -87,14 +87,14 @@ def test_authorized_get_edit_returns_200_with_populated_form():
 
 def test_get_edit_missing_profile_is_404():
     client = _client_as(_AUTHORIZED_EMAIL)
-    response = client.get("/human-capital/profiles/does-not-exist/edit")
+    response = client.get("/cchh/candidatos/does-not-exist/editar")
     assert response.status_code == 404
 
 
 def test_post_edit_missing_profile_is_404():
     client = _client_as(_AUTHORIZED_EMAIL)
     response = client.post(
-        "/human-capital/profiles/does-not-exist/edit",
+        "/cchh/candidatos/does-not-exist/editar",
         data={"first_name": "A", "last_name": "B", "expected_revision": "1"},
     )
     assert response.status_code == 404
@@ -108,19 +108,19 @@ def test_valid_edit_redirects_to_the_profiles_list():
     client = _client_as(_AUTHORIZED_EMAIL)
     saved = _create(client)
     response = client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={"first_name": "Juan", "last_name": "Ruiz", "expected_revision": "1"},
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/human-capital/profiles"
+    assert response.headers["location"] == "/cchh/candidatos"
 
 
 def test_valid_edit_persists_the_change():
     client = _client_as(_AUTHORIZED_EMAIL)
     saved = _create(client)
     client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={"first_name": "Juan", "last_name": "Ruiz", "expected_revision": "1"},
     )
     updated = profile_repository.get(saved["profile_id"])
@@ -132,10 +132,10 @@ def test_valid_edit_reflected_on_the_list_page():
     client = _client_as(_AUTHORIZED_EMAIL)
     saved = _create(client)
     client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={"first_name": "Juan", "last_name": "Ruiz", "expected_revision": "1"},
     )
-    response = client.get("/human-capital/profiles")
+    response = client.get("/cchh/candidatos")
     assert "Juan Ruiz" in response.text
     assert "Juan Gómez" not in response.text
 
@@ -148,7 +148,7 @@ def test_edit_validation_error_shows_feedback_error_and_preserves_values():
     client = _client_as(_AUTHORIZED_EMAIL)
     saved = _create(client)
     response = client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={"first_name": "", "last_name": "Gómez", "location": "Rosario", "expected_revision": "1"},
     )
     assert response.status_code == 200
@@ -160,7 +160,7 @@ def test_edit_validation_error_does_not_change_the_stored_profile():
     client = _client_as(_AUTHORIZED_EMAIL)
     saved = _create(client)
     client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={"first_name": "", "last_name": "Gómez", "expected_revision": "1"},
     )
     current = profile_repository.get(saved["profile_id"])
@@ -177,12 +177,12 @@ def test_stale_expected_revision_shows_concurrent_modification_state():
     saved = _create(client)
     # "user 2" edita primero -> revision pasa a 2.
     client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={"first_name": "Juan", "last_name": "Uno", "expected_revision": "1"},
     )
     # "user 1" todavía tenía el form abierto con expected_revision=1.
     response = client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={"first_name": "Juan", "last_name": "Dos", "expected_revision": "1"},
     )
     assert response.status_code == 200
@@ -195,11 +195,11 @@ def test_concurrent_modification_does_not_overwrite_the_winning_edit():
     client = _client_as(_AUTHORIZED_EMAIL)
     saved = _create(client)
     client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={"first_name": "Juan", "last_name": "Uno", "expected_revision": "1"},
     )
     client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={"first_name": "Juan", "last_name": "Dos", "expected_revision": "1"},
     )
     current = profile_repository.get(saved["profile_id"])
@@ -216,7 +216,7 @@ def test_edit_that_would_create_a_duplicate_shows_advisory():
     other = _create(client, first_name="Otro", last_name="Perfil", email="otro@example.com")
     saved = _create(client, first_name="Juan", last_name="Gómez")
     response = client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={
             "first_name": "Juan", "last_name": "Gómez", "email": "otro@example.com",
             "expected_revision": "1",
@@ -232,7 +232,7 @@ def test_edit_does_not_flag_itself_as_duplicate():
     client = _client_as(_AUTHORIZED_EMAIL)
     saved = _create(client, first_name="Juan", last_name="Gómez", email="juan@example.com")
     response = client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={
             "first_name": "Juan", "last_name": "Gómez", "email": "juan@example.com",
             "location": "Rosario", "expected_revision": "1",
@@ -247,7 +247,7 @@ def test_edit_duplicate_confirmed_saves_anyway():
     _create(client, first_name="Otro", last_name="Perfil", email="otro@example.com")
     saved = _create(client, first_name="Juan", last_name="Gómez")
     response = client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={
             "first_name": "Juan", "last_name": "Gómez", "email": "otro@example.com",
             "expected_revision": "1", "duplicate_confirmed": "true",
@@ -274,7 +274,7 @@ def test_source_failure_keeps_a_visible_and_shows_no_disponible(monkeypatch):
     monkeypatch.setattr(profile_repository.remote_store, "push_path", _push)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
     response = client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={"first_name": "Juan", "last_name": "Ruiz", "expected_revision": "1"},
     )
     assert response.status_code == 200
@@ -292,7 +292,7 @@ def test_config_incomplete_edit_shows_distinct_error_kind(monkeypatch):
     # con `enabled()` en False (ya el default), para ejercitar CONFIG_INCOMPLETE.
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     response = client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={"first_name": "Juan", "last_name": "Ruiz", "expected_revision": "1"},
     )
     assert response.status_code == 200
@@ -309,7 +309,7 @@ def test_remote_outcome_unknown_shows_its_own_distinct_state(monkeypatch):
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
     response = client.post(
-        f"/human-capital/profiles/{saved['profile_id']}/edit",
+        f"/cchh/candidatos/{saved['profile_id']}/editar",
         data={"first_name": "Juan", "last_name": "Ruiz", "expected_revision": "1"},
     )
     assert response.status_code == 200
