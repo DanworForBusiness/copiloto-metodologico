@@ -13,7 +13,11 @@ asociaciones siguen siendo opcionales (toggle "Incluir asociaciones").
 
 Fixtures sintéticas — no dependen de catalog_local ni del generador.
 """
-from webapp.main import _catalog_flow_keep, _catalog_lineage_svg
+from webapp.main import (
+    _catalog_flow_keep,
+    _catalog_lineage_svg,
+    _catalog_should_default_associations,
+)
 
 
 def _node(name, layer, upstreams=(), assoc=(), is_factcube=False):
@@ -78,6 +82,66 @@ def test_branching_chain_unchanged():
     ]
     keep = _catalog_flow_keep(nodes, show_assoc=False)
     assert keep == {"A", "B", "DIM", "FACT", "OUT"}
+
+
+def test_should_default_associations_only_when_output_disconnected_but_associated():
+    # Fallback contextual: output sin dependencia directa hacia el flow pero con una
+    # asociación que lo vincula → asociaciones por defecto ON.
+    disconnected = [
+        _node("A", 0),
+        _node("B", 1, upstreams=["A"]),
+        _node("C", 2, upstreams=["B"]),
+        _node("OUT", 3, assoc=["C"], is_factcube=True),
+    ]
+    assert _catalog_should_default_associations(disconnected) is True
+
+    # Control A: output conectado directo → default OFF.
+    connected = [
+        _node("A", 0),
+        _node("B", 1, upstreams=["A"]),
+        _node("OUT", 3, upstreams=["B"], is_factcube=True),
+    ]
+    assert _catalog_should_default_associations(connected) is False
+
+    # Control B: output aislado SIN asociación → default OFF (visible por eb22057).
+    isolated = [
+        _node("A", 0),
+        _node("B", 1, upstreams=["A"]),
+        _node("OUT", 3, is_factcube=True),
+    ]
+    assert _catalog_should_default_associations(isolated) is False
+
+    # Control C: asociación lateral de texto pero output conectado directo → default OFF.
+    lateral_text = [
+        _node("A", 0),
+        _node("TXT", 0),
+        _node("DIM", 1, upstreams=["A"], assoc=["TXT"]),
+        _node("OUT", 3, upstreams=["DIM"], is_factcube=True),
+    ]
+    assert _catalog_should_default_associations(lateral_text) is False
+
+
+def test_disconnected_output_renders_association_edge_only_when_shown():
+    nodes = [
+        _node("A", 0),
+        _node("B", 1, upstreams=["A"]),
+        _node("C", 2, upstreams=["B"]),
+        _node("OUT", 3, assoc=["C"], is_factcube=True),
+    ]
+    # Con asociaciones (el default contextual de este flow): OUT conectado por
+    # asociación (arista punteada), NO como dependencia directa.
+    keep_on = _catalog_flow_keep(nodes, show_assoc=True)
+    svg_on = _catalog_lineage_svg(nodes, show_assoc=True, keep=keep_on)
+    assert "OUT" in svg_on
+    assert "ln-edge--assoc" in svg_on          # arista de asociación presente
+    # Sin asociaciones: OUT sigue visible pero aislado (sin arista C→OUT).
+    keep_off = _catalog_flow_keep(nodes, show_assoc=False)
+    svg_off = _catalog_lineage_svg(nodes, show_assoc=False, keep=keep_off)
+    assert "OUT" in svg_off
+    assert "ln-edge--assoc" not in svg_off
+    # Nunca se fabrica una arista directa hacia el output.
+    out = next(n for n in nodes if n["name"] == "OUT")
+    assert out["upstreams"] == []
 
 
 def test_incomplete_output_connects_via_association_when_toggled_on():

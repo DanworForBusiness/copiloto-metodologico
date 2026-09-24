@@ -1714,6 +1714,27 @@ def _catalog_flow_keep(nodes: list, show_assoc: bool) -> set:
     return keep
 
 
+def _catalog_should_default_associations(nodes: list) -> bool:
+    """Fallback contextual: ¿conviene mostrar asociaciones POR DEFECTO en este flow?
+
+    True solo cuando el OUTPUT declarado (nodo/s de la capa más profunda) NO tiene
+    dependencia DIRECTA hacia el resto del flow pero SÍ una asociación que lo vincula
+    con algún nodo del flow. En ese caso el linaje directo dejaría el output suelto y
+    las asociaciones dan contexto al modelo de consumo. NO cambia el default global:
+    un flow con output conectado directo (o sin ninguna asociación) sigue con
+    asociaciones OFF por defecto. No se infiere por nombres — solo por el modelo."""
+    if not nodes:
+        return False
+    names = {n["name"] for n in nodes}
+    out_layer = max(n["layer"] for n in nodes)
+    for out in (n for n in nodes if n["layer"] == out_layer):
+        direct = [u for u in out["upstreams"] if u in names]
+        assoc = [u for u in out["assoc_upstreams"] if u in names]
+        if not direct and assoc:
+            return True
+    return False
+
+
 def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
     """Diagrama SVG del linaje del OUTPUT del flujo (solo los nodos en `keep`).
     Aristas DIRECTAS (FROM/JOIN) siempre; por ASOCIACIÓN (dimensiones/textos) solo con
@@ -2236,7 +2257,7 @@ def _catalog_clean_label(raw, fallback: str) -> str:
     return s
 
 
-def _catalog_flow_view(entry, show_assoc: bool = False, pack: str = ""):
+def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = ""):
     """Arma el detalle de un flujo: (a) un diagrama SVG de linaje por capas y (b)
     las secciones estilo-módulo (una por artefacto, con sus tablas), renderizadas
     con el MISMO pipeline que los módulos (content_service.render_sections) para
@@ -2315,6 +2336,12 @@ def _catalog_flow_view(entry, show_assoc: bool = False, pack: str = ""):
     # keep = artefactos visibles según el toggle. Las secciones del detalle y el SVG
     # se filtran y NUMERAN por el mismo orden visible (shown_order) → los números del
     # nodo y de su sección coinciden y se adaptan dinámicamente al toggle.
+    # Default contextual de asociaciones: si no vino una preferencia explícita
+    # (show_assoc None), se prenden solo cuando el output quedaría desconectado del
+    # linaje directo pero tiene asociación (ver _catalog_should_default_associations).
+    assoc_context = _catalog_should_default_associations(nodes)
+    if show_assoc is None:
+        show_assoc = assoc_context
     keep = _catalog_flow_keep(nodes, show_assoc)
     shown_order = [name for name in order if name in keep] or order
     num_of = {name: i + 1 for i, name in enumerate(shown_order)}
@@ -2360,12 +2387,12 @@ def _catalog_flow_view(entry, show_assoc: bool = False, pack: str = ""):
         lambda m: (f"[{m.group(1)}](#{slug_of[m.group(1)]})" if m.group(1) in shown_set else m.group(0)),
         composed,
     )
-    return render_sections(composed, pack_name="", stem="", base=0), lineage_svg
+    return render_sections(composed, pack_name="", stem="", base=0), lineage_svg, show_assoc, assoc_context
 
 
 @app.get("/catalog/flow", response_class=HTMLResponse, include_in_schema=False)
 def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: str = "",
-                 pack: str = Query(DEFAULT_PACK), assoc: int = 0, frag: str = ""):
+                 pack: str = Query(DEFAULT_PACK), assoc: int | None = None, frag: str = ""):
     log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="flow", ref=(flow or f"{cliente}/{dominio}"), assoc=bool(assoc))
     """Detalle de un flujo del catálogo, renderizado en el panel central con el
     MISMO pipeline de contenido de los módulos (hero + diagrama de linaje +
@@ -2397,9 +2424,12 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
             )
     if entry is None:
         raise HTTPException(404, "Flujo no encontrado en el catálogo")
-    show_assoc = bool(assoc)
-    sections, lineage_svg = _catalog_flow_view(entry, show_assoc, selected)
+    # assoc no especificado (apertura del flow) → el view decide el default contextual;
+    # assoc=0/1 (toggle del usuario) → respeta la preferencia explícita.
+    req_assoc = None if assoc is None else bool(assoc)
+    sections, lineage_svg, show_assoc, assoc_context = _catalog_flow_view(entry, req_assoc, selected)
     lineage_ctx = {"lineage_svg": lineage_svg, "show_assoc": show_assoc,
+                   "assoc_context": assoc_context,
                    "cliente": entry.cliente, "dominio": entry.dominio,
                    "entry_id": entry.entry_id, "pack": selected}
     if frag == "lineage":   # solo el bloque del diagrama (toggle Asociaciones)
