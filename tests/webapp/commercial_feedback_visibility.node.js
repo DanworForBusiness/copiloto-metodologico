@@ -83,6 +83,8 @@ const sandbox = {
   HubForegroundProgress: { begin() {}, complete() {}, fail() {} },
   initDashboardSections() {},
   initEventBreakdown() {},
+  initDraggableColumns() {},
+  readStoredColumnOrder() { return null; },
   // `URLSearchParams` NO es un global de V8/vm — hay que pasarlo explícito
   // (MISMO gap que ya resolvió reporting_feedback_visibility.node.js).
   URLSearchParams,

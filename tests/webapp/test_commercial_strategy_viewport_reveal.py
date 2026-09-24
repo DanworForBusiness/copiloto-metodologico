@@ -299,4 +299,8 @@ def test_g_full_route_surface_unchanged_by_this_gate():
     # 138 -> 139 (Account Licensing Profile, ver HANDOFF -- Commercial
     # Licensing): +1 ruta, `GET /comercial/data/licensing-profile` -- CERO
     # rutas de Estrategia tocadas, este gate sigue sin cambios propios.
-    assert len(snapshot) == 139
+    # 139 -> 142 (Commercial Licensing Director Priorities, ver HANDOFF):
+    # +3 rutas -- GET /comercial/data/licensing-priority, POST
+    # /comercial/licensing/priority/defer, POST .../restore -- CERO rutas de
+    # Estrategia tocadas, este gate sigue sin cambios propios.
+    assert len(snapshot) == 142

@@ -1159,6 +1159,12 @@ class CommercialService:
             days_elapsed = (today - date.fromisoformat(last_response)).days if last_response else None
             raw_pid = opp["partner_id"][0] if opp.get("partner_id") else None
             return {
+                # `id` (Commercial Licensing — Director requests): id CANÓNICO
+                # de la oportunidad, nunca usado antes en este payload aunque
+                # `opp["id"]` ya viajaba internamente (ver `acts_by_opp` abajo)
+                # — necesario para el drilldown Licencias→Detalle por id
+                # ESTABLE, nunca por nombre (ídem `account_id`, mismo criterio).
+                "id": opp["id"],
                 "opportunity": opp.get("name") or "",
                 "client": opp["partner_id"][1] if opp.get("partner_id") else "",
                 "account_id": account_id_by_partner.get(raw_pid) if raw_pid else None,
@@ -3021,11 +3027,12 @@ class CommercialService:
 
         # UN solo batch read — sin oportunidades/tags de por medio, nunca
         # N+1 (una única consulta `res.partner`, MISMO patrón que el resto
-        # de Comercial).
+        # de Comercial). `country_id` (Director §4, ver HANDOFF) viaja en
+        # el MISMO batch — no agrega ninguna consulta nueva por fila.
         partners_by_id: dict[int, dict] = {}
         for p in self._client.search_read(
             "res.partner", domain=[["id", "in", es_cliente_si_ids]],
-            fields=["id", "name", "user_id", "commercial_partner_id", "properties", "currency_id"],
+            fields=["id", "name", "user_id", "commercial_partner_id", "properties", "currency_id", "country_id"],
         ):
             partners_by_id[p["id"]] = p
 
@@ -3046,9 +3053,28 @@ class CommercialService:
         if missing_account_ids:
             for p in self._client.search_read(
                 "res.partner", domain=[["id", "in", missing_account_ids]],
-                fields=["id", "name", "user_id", "commercial_partner_id", "properties", "currency_id"],
+                fields=["id", "name", "user_id", "commercial_partner_id", "properties", "currency_id", "country_id"],
             ):
                 partners_by_id[p["id"]] = p
+
+        # Director §4 (ver HANDOFF): universo base ahora es
+        # `Es Cliente? = Sí AND País = Argentina` — canónico
+        # `res.partner.country_id` → `res.country.code = "AR"`, LEÍDO de la
+        # cuenta CANÓNICA (`partners_by_id[account_id]`, ya resuelta por
+        # `commercial_partner_id` arriba), NUNCA de un contacto hijo
+        # arbitrario. UNA sola consulta extra a `res.country` para resolver
+        # el id de "AR" — no por fila, no N+1 (misma clase que la segunda
+        # pasada de `res.partner` de arriba). Cuenta sin `country_id`
+        # (blank) → excluida, nunca incluida "por default".
+        ar_country_id = self._argentina_country_id()
+        account_ids = {
+            aid for aid in account_ids
+            if (partner := partners_by_id.get(aid)) and partner.get("country_id")
+            and partner["country_id"][0] == ar_country_id
+        }
+        if not account_ids:
+            empty = {"accounts": [], "total": 0}
+            return {"todos": empty, "nn": empty, "bi": empty}
 
         rows = sorted(
             (self._licensing_account_property_row(partners_by_id.get(aid, {"id": aid, "name": "Sin nombre"}))
@@ -3057,6 +3083,19 @@ class CommercialService:
         )
         view = {"accounts": rows, "total": len(rows)}
         return {"todos": view, "nn": view, "bi": view}
+
+    # Director §4 (ver HANDOFF): resuelve el id CANÓNICO de Argentina en
+    # `res.country` por `code` (nunca por `name`/matching de texto libre —
+    # owner explícito: "Do NOT use free-text UI matching if a canonical
+    # country id/code exists"). Cacheado en el MISMO nivel que
+    # `_build_licensing_profile` (`_cached`, ver `get_licensing_profile`) —
+    # esta función nunca se llama fuera de ese contexto, así que no
+    # necesita su propio cache independiente.
+    def _argentina_country_id(self) -> int | None:
+        rows = self._client.search_read(
+            "res.country", domain=[["code", "=", "AR"]], fields=["id"], limit=1,
+        )
+        return rows[0]["id"] if rows else None
 
     def get_licensing_profile(self, tipo: str = "todos") -> dict:
         if tipo not in _TIPOS:

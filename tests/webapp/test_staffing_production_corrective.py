@@ -751,7 +751,11 @@ def test_15_route_surface_still_120():
     snapshot = json.loads(
         (Path(__file__).resolve().parents[2] / "tests" / "route_surface.json").read_text(encoding="utf-8")
     )
-    assert len(snapshot) == 139
+    #   139 -> 142 (Commercial Licensing Director Priorities, ver HANDOFF):
+    #     +3 rutas del feature Commercial (GET /comercial/data/licensing-
+    #     priority, POST /comercial/licensing/priority/defer, POST
+    #     .../restore) -- ninguna ruta de Staffing tocada.
+    assert len(snapshot) == 142
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

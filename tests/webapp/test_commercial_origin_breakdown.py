@@ -93,7 +93,16 @@ def test_origin_is_frontend_only_over_the_payload_already_in_memory():
     # UNO más: `/comercial/data/licensing-profile` — endpoint/universo
     # PROPIO (grano cuenta, `commercial_partner_id`), independiente de
     # `opportunities-detail` (owner §7: nunca comparte fetch/cache).
-    assert code.count("/comercial/data/") == 21  # 4 iniciales + activities + forecast + creadas + creadas-años + prospects + ganadas + perdidas + suspendidas + pipeline-analytics-detail + lead-conversion-detail + retry de analytics (mismo endpoint) + opportunities-detail + lost-history + leads + clients + ex-clients + licensing-profile
+    # Commercial Licensing — Director Requests §5-§8 (ver HANDOFF) agrega
+    # UNO más: `/comercial/data/licensing-priority` — fetch propio de la
+    # clasificación de prioridad (main/secondary), independiente de
+    # `licensing-profile` (dos guards independientes en `commercialSetCapability`,
+    # ver esa función). Los DOS endpoints de escritura
+    # (`/comercial/licensing/priority/defer`/`restore`) NO empiezan con
+    # `/comercial/data/` (son mutaciones, no lecturas — MISMO criterio que
+    # `/comercial/feedback`, tampoco contado acá), así que no suman a este
+    # conteo.
+    assert code.count("/comercial/data/") == 22  # 4 iniciales + activities + forecast + creadas + creadas-años + prospects + ganadas + perdidas + suspendidas + pipeline-analytics-detail + lead-conversion-detail + retry de analytics (mismo endpoint) + opportunities-detail + lost-history + leads + clients + ex-clients + licensing-profile + licensing-priority
     # No se usa el endpoint legacy: se mira el CÓDIGO, no la prosa (los
     # comentarios lo nombran a propósito para explicar por qué NO se usa).
     for banned in ("/crm/origen", "/comercial/data/origen", "/comercial/data/origin"):

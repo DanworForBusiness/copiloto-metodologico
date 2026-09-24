@@ -755,6 +755,80 @@ function saveSectionOrder(container, storageKey) {
 }
 document.body.addEventListener("htmx:load", () => initDashboardSections(document));
 
+// Reordenamiento drag-and-drop HORIZONTAL de columnas de tabla — MISMO
+// idioma exacto que initDashboardSections (arriba: dragstart/dragenter/
+// dragover/drop/dragend + resaltado is-dragging/is-drop-target), aplicado
+// a <th> en vez de <details>. Genérico: cualquier tabla que envuelva su
+// <thead>/<tbody> en [data-draggable-columns-key="algo"] con
+// <th draggable="true" data-column-key="..."> headers queda reordenable
+// gratis. A propósito NO re-renderiza nada por sí mismo — persiste el
+// nuevo orden en localStorage (`dw-col-order:<key>`, preferencia LOCAL de
+// UI/columna, nunca dato de negocio) y dispara "dw:columns-reordered"
+// (bubbles) en el contenedor con `detail.order`; el caller (que conoce su
+// propio esquema de columnas/celdas) decide cómo repintar. El orden
+// "actual" para calcular el nuevo se lee del DOM ya renderizado
+// (`[data-column-key]` en orden), nunca de un catálogo hardcodeado acá —
+// este primitivo no sabe nada de negocio, sólo mueve/persiste/avisa.
+function initDraggableColumns(scope) {
+  scope.querySelectorAll("[data-draggable-columns-key]").forEach(container => {
+    if (container.dataset.dragColsWired) return;
+    container.dataset.dragColsWired = "1";
+    const storageKey = `dw-col-order:${container.dataset.draggableColumnsKey}`;
+    let draggingKey = null;
+    container.addEventListener("dragstart", event => {
+      const th = event.target.closest("[data-column-key]");
+      if (!th) { event.preventDefault(); return; }
+      draggingKey = th.dataset.columnKey;
+      th.classList.add("is-dragging");
+      event.dataTransfer.effectAllowed = "move";
+    });
+    container.addEventListener("dragend", () => {
+      container.querySelectorAll(".is-dragging, .is-drop-target").forEach(el => el.classList.remove("is-dragging", "is-drop-target"));
+      draggingKey = null;
+    });
+    container.addEventListener("dragenter", event => { if (draggingKey) event.preventDefault(); });
+    container.addEventListener("dragover", event => {
+      if (!draggingKey) return;
+      event.preventDefault();
+      const target = event.target.closest("[data-column-key]");
+      container.querySelectorAll(".is-drop-target").forEach(el => el.classList.remove("is-drop-target"));
+      if (target && target.dataset.columnKey !== draggingKey) target.classList.add("is-drop-target");
+    });
+    container.addEventListener("drop", event => {
+      event.preventDefault();
+      const target = event.target.closest("[data-column-key]");
+      container.querySelectorAll(".is-drop-target").forEach(el => el.classList.remove("is-drop-target"));
+      const dragged = draggingKey;
+      draggingKey = null;
+      if (!dragged || !target || target.dataset.columnKey === dragged) return;
+      const order = [...container.querySelectorAll("[data-column-key]")].map(th => th.dataset.columnKey);
+      const fromIdx = order.indexOf(dragged);
+      if (fromIdx === -1) return;
+      order.splice(fromIdx, 1);
+      order.splice(order.indexOf(target.dataset.columnKey), 0, dragged);
+      try { window.localStorage.setItem(storageKey, JSON.stringify(order)); } catch (e) { /* privado/cuota: no persiste, no rompe */ }
+      container.dispatchEvent(new CustomEvent("dw:columns-reordered", { detail: { order }, bubbles: true }));
+    });
+  });
+}
+// Lectura fail-closed de la preferencia guardada: `validKeys` es el
+// catálogo COMPLETO que el caller espera — cualquier drift (falta una key,
+// sobra una, duplicados) descarta la preferencia entera y vuelve a
+// `null` (el caller decide su propio default, este helper no lo conoce).
+function readStoredColumnOrder(key, validKeys) {
+  try {
+    const raw = window.localStorage.getItem(`dw-col-order:${key}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const valid = parsed.filter(k => validKeys.includes(k));
+    if (valid.length !== validKeys.length || new Set(valid).size !== valid.length) return null;
+    return valid;
+  } catch (e) {
+    return null;
+  }
+}
+
 // Panel interactivo de "Eventos y catálogo": clic en un evento de la izquierda →
 // muestra su desglose (precalculado en summary.event_breakdowns) a la derecha.
 // Sin request extra; el swap de htmx recrea el grupo, por eso se re-cablea en

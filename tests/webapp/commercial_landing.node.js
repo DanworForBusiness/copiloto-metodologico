@@ -29,6 +29,8 @@ const sandbox = {
   HubForegroundProgress: { begin() {}, complete() {}, fail() {} },
   initDashboardSections() {},
   initEventBreakdown() {},
+  initDraggableColumns() {},
+  readStoredColumnOrder() { return null; },
   console,
 };
 vm.createContext(sandbox);
