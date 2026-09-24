@@ -1,14 +1,14 @@
 """
 human_capital.py — Capital Humano HTTP.
 
-Capital Humano Phase 1 — Hub Walking Skeleton: `GET /human-capital` — shell
+Capital Humano Phase 1 — Hub Walking Skeleton: `GET /cchh` — shell
 autenticado, sin dato de negocio, sin Supabase, sin lógica legacy, sin
 roles internos (hrbp/hiring_manager, NO implementados) — la MISMA
 arquitectura Hub que ya demostraron Operations y Commercial (auth/sesión,
 topbar, switcher, sidebar, theme, CSS/JS compartido, loader canónico,
 permissions pattern), aplicada a un CUARTO workspace.
 
-Capital Humano Phase 3 — First Profile Slice: `GET/POST /human-capital/
+Capital Humano Phase 3 — First Profile Slice: `GET/POST /cchh/
 profiles` — Banco de Perfiles (metadata únicamente, SIN CV/SharePoint,
 ver `webapp/services/human_capital_service.py`/
 `webapp/services/profile_repository.py`). Router liviano por diseño (§14
@@ -39,7 +39,7 @@ Capital Humano Phase 3.5 — Safe Profile Edit (Revision + Compensating
 Overwrite): DOS rutas nuevas, MISMO estilo `{recurso}/{id}/acción` ya
 establecido en el Hub (`wizard.py`'s `/wizards/{run_id}/answer`,
 `assistant.py`'s `/assistant/responses/{reply_id}/feedback`) —
-`GET/POST /human-capital/profiles/{profile_id}/edit`. Router liviano
+`GET/POST /cchh/candidatos/{profile_id}/editar`. Router liviano
 otra vez (§13 del ticket): NUNCA compara `revision`, NUNCA loquea, NUNCA
 decide rollback — solo pasa `expected_revision` (un campo hidden
 server-issued del form) tal cual a `human_capital_service.update_profile`,
@@ -63,7 +63,7 @@ tiene una key existente sobre la cual reintentar desde la UI). Delta de
 superficie: 0 rutas nuevas — mismo POST existente.
 
 Capital Humano Phase 3.8 — Safe Bulk Profile Import (Preview + Confirm):
-TRES rutas nuevas, `GET /human-capital/profiles/import` +
+TRES rutas nuevas, `GET /cchh/candidatos/importar` +
 `POST .../import/preview` + `POST .../import/confirm`. Router liviano
 otra vez: parsea el upload (acotado en bytes ANTES de leerlo entero, ver
 `profile_import_service.MAX_UPLOAD_BYTES`), delega TODO el parseo/
@@ -133,7 +133,7 @@ def _require_human_capital_session(request: Request, *, next_path: str | None = 
     return None
 
 
-@router.get("/human-capital", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/cchh", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_page(request: Request):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
@@ -154,68 +154,34 @@ def human_capital_page(request: Request):
     )
 
 
-def _profiles_panel_context(
-    request: Request, *, error: str | None = None, form_values: dict | None = None,
-    create_error: str | None = None, create_error_config_incomplete: bool = False,
-    duplicate_advisory: dict | None = None, query: dict | None = None,
-    remote_outcome_unknown: str | None = None,
-) -> dict:
-    """Contexto compartido del fragmento `human_capital_profiles_panel.html`
-    — usado TANTO por el GET (embebido en la página completa) COMO por el
-    POST (fragmento solo, para el swap de HTMX) — nunca dos plantillas con
-    la misma estructura mantenidas por separado.
-
-    `error`: mensaje de VALIDACIÓN (ValueError) para re-mostrar junto al
-    form con los valores ya tipeados preservados — NUNCA se usa para un
-    fallo de persistencia (eso es `create_error`/`source_error`, distinto).
-
-    `list_profiles()` SIEMPRE se intenta acá, incluso cuando el caller ya
-    tiene un `create_error` propio — son dos fuentes de fallo
-    INDEPENDIENTES (un `create()` fallido no implica que `list()` también
-    vaya a fallar: `list()`/`get()` solo leen filesystem local, nunca
-    dependen de Spaces, ver profile_repository.py) — así el listado sigue
-    reflejando el estado real cuando puede. `create_error`, si viene
-    dado, tiene prioridad de DISPLAY sobre un eventual fallo propio de
-    `list_profiles()` (un solo banner "No disponible" a la vez, nunca dos
-    superpuestos).
-
-    `config_incomplete` (Phase 3.1 §5/§11): SOLO puede venir `True` desde
-    un `create_error` (`ProfileConfigIncompleteError`, ver el POST
-    handler) — un fallo de `list_profiles()` en sí SIEMPRE es SOURCE_ERROR,
-    nunca CONFIG_INCOMPLETE. Ambas clasificaciones comparten el MISMO
-    eyebrow "No disponible" (MISMO criterio ya usado por
-    `commercialForecastPanelBodyHtml`/`commercialActividadesHtml` — un
-    solo primitivo visual, el texto/la clasificación en tests es lo que
-    distingue, nunca un componente nuevo) pero NUNCA se confunden con
-    `Sin resultados` (Phase 3 §16).
+def _profiles_panel_context(*, query: dict | None = None) -> dict:
+    """Contexto del fragmento `human_capital_profiles_panel.html` —
+    listado + filtros ÚNICAMENTE (Fase de paridad funcional: el alta se
+    mudó a su propia página/ruta, `GET/POST /cchh/candidatos/nuevo`,
+    MISMO criterio que la app de referencia — `/banco-cvs` es listado,
+    `/banco-cvs/nuevo` es alta, nunca la misma superficie). Este contexto
+    ya no conoce `error`/`form_values`/`duplicate_advisory`/
+    `remote_outcome_unknown`: esas son responsabilidad exclusiva de
+    `_new_page_context` ahora.
 
     `query` (Phase 3.2 §6): dict semántico `{q, seniority, source,
     location, potential_mark}` armado por el caller a partir de los
-    `Query(...)` del GET (nunca por el POST, que no tiene concepto de
-    filtro propio) — se filtra en memoria vía
+    `Query(...)` del GET — se filtra en memoria vía
     `human_capital_service.filter_profiles`, SOBRE el mismo resultado de
-    `list_profiles()` de arriba, nunca con una lectura de disco aparte
-    (Phase 3.2 §14, sin índice/cache). `dataset_has_any_profiles`
-    distingue "no hay NINGÚN Profile" (§7, `Sin resultados` con el copy
-    original) de "hay Profiles pero ninguno matchea el filtro actual"
-    (`Sin resultados` con copy distinto, NUNCA `No disponible`) — la
-    plantilla decide cuál mostrar según cuál de las dos listas está vacía.
+    `list_profiles()`, nunca con una lectura de disco aparte (Phase 3.2
+    §14, sin índice/cache). `dataset_has_any_profiles` distingue "no hay
+    NINGÚN Profile" (§7, `Sin resultados` con el copy original) de "hay
+    Profiles pero ninguno matchea el filtro actual" (`Sin resultados` con
+    copy distinto, NUNCA `No disponible`) — la plantilla decide cuál
+    mostrar según cuál de las dos listas está vacía.
 
-    `duplicate_advisory` (Phase 3.2 §9/§22): el Profile YA existente que
-    matcheó como posible duplicado — CUARTA situación semántica, propia,
-    nunca superpuesta con `source_error`/`config_incomplete`/`error`
-    (un `create()` que dispara advisory nunca llegó a intentar
-    persistencia, así que `source_error` queda en lo que sea que
-    `list_profiles()` haya dado, independiente).
-
-    `remote_outcome_unknown` (Phase 3.6 §12/§13): el push inicial Y un
-    reintento explícito al MISMO `profile_id` tampoco confirmaron —
-    QUINTA situación semántica, propia, NUNCA aplanada a `source_error`
-    (`ProfileRemoteOutcomeUnknownError` no es un `ProfileStorageError`,
-    ver profile_repository.py). El copy debe desalentar explícitamente un
-    reintento ciego del form (§13): a diferencia de `update()`, un
-    reintento acá mintearía un `profile_id` NUEVO, así que "reintentá" es
-    la instrucción INCORRECTA."""
+    `config_incomplete` queda SIEMPRE False acá: esa clasificación sólo
+    puede originarse en un intento de alta fallido (`ProfileConfigIncompleteError`,
+    ver `_new_page_context`/el POST de `/new`) — un fallo de
+    `list_profiles()` en sí SIEMPRE es SOURCE_ERROR, nunca CONFIG_INCOMPLETE
+    (esto ya era cierto antes de esta fase, ver Phase 3.1 §5/§11 — acá
+    sólo se vuelve explícito porque ya no hay un `create_error` que
+    pudiera sobreescribirlo)."""
     source_error: str | None = None
     all_profiles: list[dict] = []
     try:
@@ -223,25 +189,17 @@ def _profiles_panel_context(
     except ProfileStorageError as exc:
         source_error = str(exc)
     profiles = human_capital_service.filter_profiles(all_profiles, query) if query else all_profiles
-    config_incomplete = False
-    if create_error is not None:
-        source_error = create_error
-        config_incomplete = create_error_config_incomplete
     return {
         "profiles": profiles,
         "dataset_has_any_profiles": bool(all_profiles),
         "source_error": source_error,
-        "config_incomplete": config_incomplete,
-        "duplicate_advisory": duplicate_advisory,
-        "remote_outcome_unknown": remote_outcome_unknown,
-        "error": error,
-        "form_values": form_values or {},
+        "config_incomplete": False,
         "valid_sources": human_capital_service.VALID_SOURCES,
         "query": query or {},
     }
 
 
-@router.get("/human-capital/profiles", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/cchh/candidatos", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_profiles_page(
     request: Request,
     q: str = Query(""), seniority: str = Query(""), source: str = Query(""),
@@ -263,23 +221,72 @@ def human_capital_profiles_page(
             "pack": DEFAULT_PACK,
             "user": user,
             "active_page": "perfiles",
-            **_profiles_panel_context(request, query=query),
+            **_profiles_panel_context(query=query),
         },
     )
 
 
+def _new_page_context(
+    *, form_values: dict, error: str | None = None,
+    create_error: str | None = None, create_error_config_incomplete: bool = False,
+    duplicate_advisory: dict | None = None, remote_outcome_unknown: str | None = None,
+) -> dict:
+    """Contexto de `human_capital/profile_new.html` (alta, página propia)
+    — MISMO idioma de seis fronteras de error que ya usaba el panel
+    combinado (Phase 3/3.1/3.2/3.6), sólo que ahora vive en su propia
+    plantilla en vez de un fragmento HTMX-swapped: `error` (validación),
+    `duplicate_advisory`, `source_error`+`config_incomplete` (Spaces sin
+    configurar), `source_error` sin `config_incomplete` (push falló),
+    `remote_outcome_unknown` (ni el push inicial ni un reintento explícito
+    confirmaron). Nunca dos de estos superpuestos en el mismo render —
+    MISMO contrato exacto, ver el POST handler de abajo."""
+    return {
+        "form_values": form_values,
+        "error": error,
+        "source_error": create_error,
+        "config_incomplete": create_error_config_incomplete,
+        "duplicate_advisory": duplicate_advisory,
+        "remote_outcome_unknown": remote_outcome_unknown,
+        "valid_sources": human_capital_service.VALID_SOURCES,
+    }
+
+
+@router.get("/cchh/candidatos/nuevo", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profile_new_page(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    return templates.TemplateResponse(
+        request=request, name="human_capital/profile_new.html",
+        context={
+            "current_workspace": workspaces.HUMAN_CAPITAL,
+            "available_workspaces": workspaces.available_workspaces(user),
+            "pack": DEFAULT_PACK,
+            "user": user,
+            "active_page": "perfiles",
+            **_new_page_context(form_values={}),
+        },
+    )
+
+
+@router.post("/cchh/candidatos/nuevo", response_class=HTMLResponse, include_in_schema=False)
+# Legacy compat (superficie /human-capital/*): alias al MISMO handler, no
+# redirect -- preserva método/form/uploads/path params/response semantics.
 @router.post("/human-capital/profiles", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_profiles_create(
+async def human_capital_profile_new_submit(
     request: Request,
     first_name: str = Form(""), last_name: str = Form(""), email: str = Form(""),
     phone: str = Form(""), linkedin_url: str = Form(""), location: str = Form(""),
     profile_skills: str = Form(""), seniority: str = Form(""), source: str = Form(""),
     tags: str = Form(""), notes: str = Form(""), potential_rating: str = Form(""),
     potential_mark: str = Form(""), duplicate_confirmed: str = Form(""),
+    file: UploadFile | None = File(None), graph_token: str = Form(""),
 ):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    user = auth_service.session_user(request)
     form_values = {
         "first_name": first_name, "last_name": last_name, "email": email, "phone": phone,
         "linkedin_url": linkedin_url, "location": location, "profile_skills": profile_skills,
@@ -287,31 +294,54 @@ def human_capital_profiles_create(
         "potential_rating": potential_rating, "potential_mark": potential_mark,
     }
     # Override explícito, server-side, sin estado global/sesión (Phase
-    # 3.2 §11) — el propio botón "Crear de todos modos" del panel envía
-    # este campo con valor literal "true"; cualquier otro valor (ausente,
-    # "false", basura) se trata como NO confirmado.
+    # 3.2 §11) — el propio botón "Cargar de todos modos" de la página
+    # envía este campo con valor literal "true"; cualquier otro valor
+    # (ausente, "false", basura) se trata como NO confirmado.
     confirmed = duplicate_confirmed.strip().lower() == "true"
+
+    def _render(**context_kwargs):
+        return templates.TemplateResponse(
+            request=request, name="human_capital/profile_new.html",
+            context={
+                "current_workspace": workspaces.HUMAN_CAPITAL,
+                "available_workspaces": workspaces.available_workspaces(user),
+                "pack": DEFAULT_PACK,
+                "user": user,
+                "active_page": "perfiles",
+                **_new_page_context(form_values=form_values, **context_kwargs),
+            },
+        )
+
+    # Fase de paridad funcional CV-en-alta (ticket "CvUploader"): validar
+    # el ARCHIVO antes de cualquier escritura, cuando sea posible (§1 del
+    # ticket) — MISMA función pura que `profile_document_service.
+    # upload_document` usa como primer paso (`profile_document_validation.
+    # validate_upload`), invocada acá TEMPRANO para poder rechazar un
+    # archivo inválido sin haber creado el Profile todavía. Confirmado en
+    # la app de referencia (BancoCvForm.tsx/lib/actions/banco-cvs.ts:
+    # `cv_url: cv_url || null`, sin `required`) que el CV es OPCIONAL en
+    # el alta -- nunca se asume, se lee el código fuente.
+    file_bytes = b""
+    if file is not None and file.filename:
+        file_bytes = await file.read(profile_document_validation.MAX_CV_UPLOAD_BYTES + 1)
+        try:
+            profile_document_validation.validate_upload(file.filename, file_bytes)
+        except profile_document_validation.ProfileDocumentValidationError as exc:
+            return _render(error=str(exc))
+
     try:
-        human_capital_service.create_profile(form_values, duplicate_confirmed=confirmed)
+        profile = human_capital_service.create_profile(form_values, duplicate_confirmed=confirmed)
     except ValueError as exc:
-        # Validación: re-muestra el panel con el error y los valores ya
+        # Validación: re-muestra la página con el error y los valores ya
         # tipeados preservados — MISMO patrón exacto que
         # wizard.py::tree_feedback_submit con `store.submit_feedback`.
-        return templates.TemplateResponse(
-            request=request, name="partials/human_capital_profiles_panel.html",
-            context=_profiles_panel_context(request, error=str(exc), form_values=form_values),
-        )
+        return _render(error=str(exc))
     except ProfileDuplicateAdvisory as exc:
         # Posible duplicado (Phase 3.2 §9/§22): CUARTA frontera de error,
         # nunca "No disponible"/"feedback-error" — la creación no ocurrió
         # todavía, el form queda con los valores tipeados intactos para
-        # que "Crear de todos modos" pueda reenviarlos tal cual.
-        return templates.TemplateResponse(
-            request=request, name="partials/human_capital_profiles_panel.html",
-            context=_profiles_panel_context(
-                request, form_values=form_values, duplicate_advisory=exc.matched_profile,
-            ),
-        )
+        # que "Cargar de todos modos" pueda reenviarlos tal cual.
+        return _render(duplicate_advisory=exc.matched_profile)
     except ProfileConfigIncompleteError as exc:
         # CONFIG_INCOMPLETE (Phase 3.1 §5A): Spaces sin configurar — NUNCA
         # se trata como un fallo transitorio/reintentable. El repository
@@ -319,12 +349,7 @@ def human_capital_profiles_create(
         # (ver profile_repository._cleanup_failed_write) — el form NO se
         # limpia, para no perder lo tipeado, pero el Profile en sí nunca
         # llegó a existir de forma observable.
-        return templates.TemplateResponse(
-            request=request, name="partials/human_capital_profiles_panel.html",
-            context=_profiles_panel_context(
-                request, form_values=form_values, create_error=str(exc), create_error_config_incomplete=True,
-            ),
-        )
+        return _render(create_error=str(exc), create_error_config_incomplete=True)
     except ProfileRemoteOutcomeUnknownError as exc:
         # Phase 3.6 §7/§12/§13: el push inicial Y un reintento explícito
         # al MISMO profile_id tampoco confirmaron -- QUINTA frontera de
@@ -332,25 +357,97 @@ def human_capital_profiles_create(
         # una certeza de fallo que no existe). El copy debe desalentar un
         # reintento ciego: a diferencia de update(), reintentar acá
         # mintearía un profile_id NUEVO.
-        return templates.TemplateResponse(
-            request=request, name="partials/human_capital_profiles_panel.html",
-            context=_profiles_panel_context(request, form_values=form_values, remote_outcome_unknown=str(exc)),
-        )
+        return _render(remote_outcome_unknown=str(exc))
     except ProfileStorageError as exc:
         # SOURCE_ERROR (Phase 3.1 §5B): Spaces configurado pero el push
         # falló — fallo externo/transitorio. MISMA garantía de limpieza
         # que el caso de arriba (ver profile_repository._cleanup_failed_write).
-        return templates.TemplateResponse(
-            request=request, name="partials/human_capital_profiles_panel.html",
-            context=_profiles_panel_context(request, form_values=form_values, create_error=str(exc)),
+        return _render(create_error=str(exc))
+
+    if not file_bytes:
+        # Sin CV seleccionado: MISMO éxito de siempre, vuelve al listado.
+        return RedirectResponse(url="/cchh/candidatos", status_code=303)
+
+    # El Profile YA existe de acá en más -- nunca se "deshace" por un
+    # fallo del upload (ticket, explícito: "do not delete metadata
+    # blindly as compensation"). Cero atomicidad fake entre Spaces y
+    # SharePoint: si el documento falla, el estado observable pasa a ser
+    # EXACTAMENTE el mismo que si el usuario hubiese subido el archivo
+    # desde el panel de Documentos de la página de edición y hubiese
+    # fallado ahí -- reuso DIRECTO de `_render_profile_edit_with_documents`
+    # (el MISMO helper que usan todas las rutas de documentos), nunca una
+    # segunda implementación de upload/estado. El reintento del usuario
+    # es, literalmente, el form de Documentos que esa página ya
+    # renderiza -- "allow retry using the existing document-upload/
+    # reconciliation contract" del ticket, tal cual.
+    if not graph_token:
+        return _render_profile_edit_with_documents(
+            request, profile["profile_id"], profile,
+            document_state={
+                "kind": "GRAPH_PERMISSION_DENIED",
+                "message": "El candidato se guardó, pero no pudimos obtener autorización de Microsoft 365 para subir el CV. Volvé a iniciar sesión y subilo desde acá.",
+            },
         )
-    # Éxito confirmado (push_path() ya devolvió True) — vuelve al listado
-    # con el form limpio (MISMO patrón que devolver el fragmento sin
-    # `form_values`, así el <input> vacío queda como default del template).
-    return templates.TemplateResponse(
-        request=request, name="partials/human_capital_profiles_panel.html",
-        context=_profiles_panel_context(request),
-    )
+    uploaded_by = _document_uploader_identity(request)
+    try:
+        profile_document_service.upload_document(
+            profile_id=profile["profile_id"], filename=file.filename, data=file_bytes,
+            access_token=graph_token, uploaded_by=uploaded_by,
+        )
+    except profile_document_validation.ProfileDocumentValidationError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile["profile_id"], profile,
+            document_state={"kind": "VALIDATION_ERROR", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentConfigIncompleteError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile["profile_id"], profile,
+            document_state={"kind": "CONFIG_INCOMPLETE", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentPermissionDeniedError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile["profile_id"], profile,
+            document_state={"kind": "GRAPH_PERMISSION_DENIED", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentGraphSourceError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile["profile_id"], profile,
+            document_state={"kind": "GRAPH_SOURCE_ERROR", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentFolderOutcomeUnknownError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile["profile_id"], profile,
+            document_state={"kind": "REMOTE_OUTCOME_UNKNOWN", "message": str(exc)},
+        )
+    except profile_document_service.ProfileDocumentUploadRetryRequired as exc:
+        return _render_profile_edit_with_documents(
+            request, profile["profile_id"], profile,
+            document_state={
+                "kind": "REMOTE_OUTCOME_UNKNOWN", "message": str(exc),
+                "retry_token": exc.retry_token, "retry_kind": "upload",
+            },
+        )
+    except profile_document_service.ProfileDocumentCommitRetryRequired as exc:
+        return _render_profile_edit_with_documents(
+            request, profile["profile_id"], profile,
+            document_state={
+                "kind": "DOCUMENT_METADATA_PERSISTENCE_ERROR", "message": str(exc),
+                "retry_token": exc.retry_token, "retry_kind": "commit",
+            },
+        )
+    except profile_document_repository.ProfileDocumentConfigIncompleteError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile["profile_id"], profile,
+            document_state={"kind": "CONFIG_INCOMPLETE", "message": str(exc)},
+        )
+    except profile_document_repository.ProfileDocumentIdConflictError as exc:
+        return _render_profile_edit_with_documents(
+            request, profile["profile_id"], profile,
+            document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
+        )
+    # Éxito confirmado: Profile Y ProfileDocument ambos persistidos.
+    # MISMO criterio que el alta sin CV — vuelve al listado.
+    return RedirectResponse(url="/cchh/candidatos", status_code=303)
 
 
 def _edit_page_context(
@@ -394,14 +491,14 @@ def _edit_page_context(
     }
 
 
-@router.get("/human-capital/profiles/{profile_id}/edit", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/cchh/candidatos/{profile_id}/editar", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_profile_edit_page(request: Request, profile_id: str):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
     profile = human_capital_service.get_profile(profile_id)
     if profile is None:
-        raise HTTPException(404, "Profile no encontrado")
+        raise HTTPException(404, "Candidato no encontrado")
     user = auth_service.session_user(request)
     return templates.TemplateResponse(
         request=request, name="human_capital/profile_edit.html",
@@ -418,7 +515,8 @@ def human_capital_profile_edit_page(request: Request, profile_id: str):
     )
 
 
-@router.post("/human-capital/profiles/{profile_id}/edit", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/cchh/candidatos/{profile_id}/editar", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/human-capital/profiles/{profile_id}/edit", response_class=HTMLResponse, include_in_schema=False)  # legacy compat alias
 def human_capital_profile_edit_submit(
     request: Request,
     profile_id: str,
@@ -468,7 +566,7 @@ def human_capital_profile_edit_submit(
             profile_id, expected_revision_int, form_values, duplicate_confirmed=confirmed,
         )
     except ProfileNotFoundError:
-        raise HTTPException(404, "Profile no encontrado") from None
+        raise HTTPException(404, "Candidato no encontrado") from None
     except ValueError as exc:
         return _render(error=str(exc))
     except ProfileDuplicateAdvisory as exc:
@@ -491,7 +589,7 @@ def human_capital_profile_edit_submit(
     # Éxito: vuelve al listado -- "guardar" implica "terminé de editar
     # esto", MISMO criterio que un alta exitosa vuelve al panel con el
     # form limpio, pero acá la edición vive en su propia página.
-    return RedirectResponse(url="/human-capital/profiles", status_code=303)
+    return RedirectResponse(url="/cchh/candidatos", status_code=303)
 
 
 def _import_page_context(**kwargs) -> dict:
@@ -502,7 +600,7 @@ def _import_page_context(**kwargs) -> dict:
     }
 
 
-@router.get("/human-capital/profiles/import", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/cchh/candidatos/importar", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_profiles_import_page(request: Request):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
@@ -521,7 +619,8 @@ def human_capital_profiles_import_page(request: Request):
     )
 
 
-@router.post("/human-capital/profiles/import/preview", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/cchh/candidatos/importar/preview", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/human-capital/profiles/import/preview", response_class=HTMLResponse, include_in_schema=False)  # legacy compat alias
 async def human_capital_profiles_import_preview(request: Request, file: UploadFile | None = File(None)):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
@@ -570,7 +669,8 @@ async def human_capital_profiles_import_preview(request: Request, file: UploadFi
     )
 
 
-@router.post("/human-capital/profiles/import/confirm", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/cchh/candidatos/importar/confirm", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/human-capital/profiles/import/confirm", response_class=HTMLResponse, include_in_schema=False)  # legacy compat alias
 def human_capital_profiles_import_confirm(
     request: Request,
     all_tokens: list[str] = Form(default=[]),
@@ -655,11 +755,12 @@ def _document_uploader_identity(request: Request) -> str:
 def _profile_or_404(profile_id: str) -> dict:
     profile = human_capital_service.get_profile(profile_id)
     if profile is None:
-        raise HTTPException(404, "Profile no encontrado")
+        raise HTTPException(404, "Candidato no encontrado")
     return profile
 
 
-@router.post("/human-capital/profiles/{profile_id}/documents", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/cchh/candidatos/{profile_id}/documentos", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/human-capital/profiles/{profile_id}/documents", response_class=HTMLResponse, include_in_schema=False)  # legacy compat alias
 async def human_capital_profile_documents_upload(
     request: Request, profile_id: str,
     file: UploadFile | None = File(None), graph_token: str = Form(""),
@@ -736,10 +837,11 @@ async def human_capital_profile_documents_upload(
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
         )
-    return RedirectResponse(url=f"/human-capital/profiles/{profile_id}/edit", status_code=303)
+    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
 
 
-@router.post("/human-capital/profiles/{profile_id}/documents/retry-upload", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/cchh/candidatos/{profile_id}/documentos/retry-upload", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/human-capital/profiles/{profile_id}/documents/retry-upload", response_class=HTMLResponse, include_in_schema=False)  # legacy compat alias
 async def human_capital_profile_documents_retry_upload(
     request: Request, profile_id: str,
     token: str = Form(""), file: UploadFile | None = File(None), graph_token: str = Form(""),
@@ -808,10 +910,11 @@ async def human_capital_profile_documents_retry_upload(
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
         )
-    return RedirectResponse(url=f"/human-capital/profiles/{profile_id}/edit", status_code=303)
+    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
 
 
-@router.post("/human-capital/profiles/{profile_id}/documents/retry-commit", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/cchh/candidatos/{profile_id}/documentos/retry-commit", response_class=HTMLResponse, include_in_schema=False)
+@router.post("/human-capital/profiles/{profile_id}/documents/retry-commit", response_class=HTMLResponse, include_in_schema=False)  # legacy compat alias
 def human_capital_profile_documents_retry_commit(request: Request, profile_id: str, token: str = Form("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
@@ -840,7 +943,7 @@ def human_capital_profile_documents_retry_commit(request: Request, profile_id: s
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
         )
-    return RedirectResponse(url=f"/human-capital/profiles/{profile_id}/edit", status_code=303)
+    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
 
 
 # Delete (Fase 4.1.2, ver HANDOFF): MISMO idioma que upload/retry -- router
@@ -852,7 +955,7 @@ def human_capital_profile_documents_retry_commit(request: Request, profile_id: s
 # document_state renderizado: no hay nada que reintentar sobre un id que no
 # existe o no es de este Profile).
 @router.post(
-    "/human-capital/profiles/{profile_id}/documents/{document_id}/delete",
+    "/cchh/candidatos/{profile_id}/documentos/{document_id}/delete",
     response_class=HTMLResponse, include_in_schema=False,
 )
 async def human_capital_profile_documents_delete(
@@ -896,4 +999,35 @@ async def human_capital_profile_documents_delete(
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DELETE_OUTCOME_UNKNOWN", "message": str(exc)},
         )
-    return RedirectResponse(url=f"/human-capital/profiles/{profile_id}/edit", status_code=303)
+    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Compatibilidad legacy /human-capital/* -> superficie canónica /cchh/*
+# ---------------------------------------------------------------------------
+# La superficie canónica del workspace es /cchh (ver workspaces.py home_url).
+# Estas rutas existen SOLO como compatibility surface para deep-links,
+# bookmarks e integraciones que todavía apuntan a /human-capital/*. Los POST
+# son aliases al MISMO handler (arriba, segundo decorador). Los GET son
+# redirects 308 permanentes al equivalente /cchh, preservando path params.
+# Nada interno debe apuntar a estas URLs: son solo puente hacia afuera.
+
+
+@router.get("/human-capital", include_in_schema=False)
+def human_capital_legacy_landing_redirect() -> RedirectResponse:
+    return RedirectResponse(url="/cchh", status_code=308)
+
+
+@router.get("/human-capital/profiles", include_in_schema=False)
+def human_capital_legacy_profiles_redirect() -> RedirectResponse:
+    return RedirectResponse(url="/cchh/candidatos", status_code=308)
+
+
+@router.get("/human-capital/profiles/import", include_in_schema=False)
+def human_capital_legacy_import_redirect() -> RedirectResponse:
+    return RedirectResponse(url="/cchh/candidatos/importar", status_code=308)
+
+
+@router.get("/human-capital/profiles/{profile_id}/edit", include_in_schema=False)
+def human_capital_legacy_edit_redirect(profile_id: str) -> RedirectResponse:
+    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=308)

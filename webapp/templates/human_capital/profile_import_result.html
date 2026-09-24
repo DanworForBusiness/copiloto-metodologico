@@ -19,7 +19,7 @@
     <section class="module-hero">
       <p class="eyebrow">Capital Humano</p>
       <h1>Resultado de la importación</h1>
-      <p><a href="/human-capital/profiles">Ir al Banco de Perfiles</a></p>
+      <p><a href="/cchh/candidatos">Ir a Candidatos</a></p>
     </section>
 
     <div class="activity-kpi-grid">
@@ -54,14 +54,14 @@
             <td>{{ row.message }}</td>
             <td>
               {% if row.status == "REMOTE_OUTCOME_UNKNOWN" and row.token %}
-              <form method="post" action="/human-capital/profiles/import/confirm">
+              <form method="post" action="/cchh/candidatos/importar/confirm">
                 <input type="hidden" name="all_tokens" value="{{ row.token }}">
                 <input type="hidden" name="include_tokens" value="{{ row.token }}">
                 <input type="hidden" name="invalid_row_count" value="0">
                 <button type="submit" class="btn-secondary">Reintentar esta fila</button>
               </form>
               {% elif row.status == "DUPLICATE_REQUIRES_CONFIRMATION" and row.token %}
-              <form method="post" action="/human-capital/profiles/import/confirm">
+              <form method="post" action="/cchh/candidatos/importar/confirm">
                 <input type="hidden" name="all_tokens" value="{{ row.token }}">
                 <input type="hidden" name="include_tokens" value="{{ row.token }}">
                 <input type="hidden" name="invalid_row_count" value="0">

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
-{% block title %}Editar Perfil · Capital Humano · Danwor{% endblock %}
+{% block title %}{{ form_values.first_name }} {{ form_values.last_name }} · Capital Humano · Danwor{% endblock %}
 {% block body %}
 <div
   x-data="copilotLayout('human-capital')"
@@ -16,10 +16,16 @@
   {{ sidebar_resize_handle() }}
 
   <main id="content" class="module-content">
+    {# "← Volver": primitivo transversal del Hub, MISMO exacto que
+       whats_new.html/catalog_guide_slides.html (`.catalog-back`,
+       tools.css) — nunca CSS/JS propio de Capital Humano. Esta página
+       concatena form de edición + panel de documentos (potencialmente
+       larga): el sticky de `.catalog-back` es lo que mantiene el
+       "Volver" visible durante ese scroll, sin reimplementar nada. #}
+    <a class="catalog-back" href="/cchh/candidatos">← Volver al listado</a>
     <section class="module-hero">
       <p class="eyebrow">Capital Humano</p>
-      <h1>Editar Perfil</h1>
-      <p><a href="/human-capital/profiles">Volver al Banco de Perfiles</a></p>
+      <h1>{{ form_values.first_name }} {{ form_values.last_name }}</h1>
     </section>
 
     {% include "partials/human_capital_profile_edit_form.html" %}

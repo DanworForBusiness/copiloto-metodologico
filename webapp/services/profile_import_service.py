@@ -374,7 +374,7 @@ def build_preview(rows: list[dict]) -> list[PreviewRow]:
 
         if existing_match is not None:
             status = "existing_duplicate"
-            message = "Ya existe un perfil posiblemente duplicado."
+            message = "Ya existe un candidato posiblemente duplicado."
             dup_row_number, dup_display_name = None, f"{existing_match.get('first_name', '')} {existing_match.get('last_name', '')}".strip()
         elif within_file_match is not None:
             status = "within_file_duplicate"
@@ -465,7 +465,7 @@ def confirm_rows(all_tokens: list[str], included_tokens: list[str]) -> list[RowR
                 )
                 results.append(RowResult(
                     row_number, display_name, "DUPLICATE_REQUIRES_CONFIRMATION",
-                    "Apareció un Profile posiblemente duplicado desde la vista previa. Confirmalo de nuevo si querés crearlo igual.",
+                    "Apareció un candidato posiblemente duplicado desde la vista previa. Confirmalo de nuevo si querés crearlo igual.",
                     token=refreshed,
                 ))
                 continue

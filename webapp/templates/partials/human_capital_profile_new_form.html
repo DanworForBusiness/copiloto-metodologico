@@ -1,0 +1,171 @@
+{# human_capital_profile_new_form.html — Fase de paridad funcional UX:
+   fragmento del form de alta, incluido por human_capital/profile_new.html.
+   Form PLANO (sin hx-post), MISMO criterio exacto que
+   partials/human_capital_profile_edit_form.html: esta página vive en su
+   propia URL (`/cchh/candidatos/nuevo`), no embebida en el listado,
+   así que un POST-redirect-GET estándar del browser alcanza sin
+   necesitar HTMX. Reemplaza el alta que antes vivía inline dentro de
+   partials/human_capital_profiles_panel.html (HTMX-swapped) — MISMA
+   llamada de servicio (`human_capital_service.create_profile`), sólo
+   cambió la superficie HTTP/template que la envuelve (ver
+   webapp/routers/human_capital.py `_new_page_context`/el POST de `/new`).
+
+   Cuatro fronteras de error, nunca superpuestas (MISMO idioma que el
+   form de edición, menos `concurrent_modification` — concepto exclusivo
+   de update(), un alta no tiene una fila previa con la que pueda
+   chocar):
+     - `error` (validación) -> `.feedback-error`.
+     - `duplicate_advisory` -> `.callout callout--punch`.
+     - `source_error` + `config_incomplete` -> `.dashboard-empty`
+       "No disponible".
+     - `remote_outcome_unknown` -> `.dashboard-empty` con
+       `data-error-kind="remote_outcome_unknown"` y eyebrow PROPIO
+       ("Estado desconocido"), nunca "No disponible".
+
+   Placeholders (Teléfono/Ubicación/LinkedIn/Tags): calcados de la app de
+   referencia (BancoCvForm.tsx) — el hint explicando el botón de WhatsApp
+   en Teléfono NO se copia: esa función (mensaje directo al candidato)
+   nunca se migró a este Hub, así que el hint no describiría nada real.
+
+   Campo CV (ticket "CvUploader"): OPCIONAL — confirmado leyendo la fuente
+   de la referencia (BancoCvForm.tsx no marca `required` en el input, y
+   `lib/actions/banco-cvs.ts` persiste `cv_url: cv_url || null`; la carga
+   masiva además crea candidatos sin ningún CV) — nunca asumido. Reusa
+   `profile_document_service.upload_document` DESPUÉS de crear el
+   Profile (ver el POST handler: el path de SharePoint es
+   `<raíz>/<profile_id>`, así que el upload no puede empezar antes de que
+   el profile_id exista — a diferencia de la referencia, que sube el
+   archivo a un storage plano ANTES de guardar el form, acá no es
+   arquitectónicamente posible). MISMO token graph_token-vía-JS que el
+   form de Documentos (partials/human_capital_profile_documents_panel.html)
+   — MISMO helper `window.dwHumanCapitalDocumentWriteToken()`, nunca una
+   segunda implementación — sólo se pide el token si el usuario realmente
+   eligió un archivo (evita el round-trip de auth de Graph en el alta más
+   común, sin CV). #}
+<form id="hc-profile-form" class="hc-profile-form" method="post" action="/cchh/candidatos/nuevo" enctype="multipart/form-data" data-hc-profile-new-form>
+  <input type="hidden" name="graph_token" value="">
+  {% if error %}<p class="feedback-error">{{ error }}</p>{% endif %}
+  <div class="feedback-field">
+    <label for="hc-first-name">Nombre</label>
+    <input id="hc-first-name" name="first_name" type="text" value="{{ form_values.first_name or '' }}" required>
+  </div>
+  <div class="feedback-field">
+    <label for="hc-last-name">Apellido</label>
+    <input id="hc-last-name" name="last_name" type="text" value="{{ form_values.last_name or '' }}" required>
+  </div>
+  <div class="feedback-field">
+    <label for="hc-email">Email</label>
+    <input id="hc-email" name="email" type="email" value="{{ form_values.email or '' }}">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-phone">Teléfono</label>
+    <input id="hc-phone" name="phone" type="text" value="{{ form_values.phone or '' }}" placeholder="+54 9 11 xxxx-xxxx">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-linkedin">LinkedIn</label>
+    <input id="hc-linkedin" name="linkedin_url" type="text" value="{{ form_values.linkedin_url or '' }}" placeholder="https://linkedin.com/in/…">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-location">Ubicación</label>
+    <input id="hc-location" name="location" type="text" value="{{ form_values.location or '' }}" placeholder="Ciudad, país">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-new-cv-file">CV</label>
+    <input id="hc-new-cv-file" name="file" type="file" accept=".pdf,.doc,.docx">
+    <p class="dashboard-empty__hint">Adjuntar archivo — PDF, DOC o DOCX, máx. 10 MB.</p>
+  </div>
+  <div class="feedback-field">
+    <label for="hc-skills">Perfil / Skills</label>
+    <input id="hc-skills" name="profile_skills" type="text" value="{{ form_values.profile_skills or '' }}">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-seniority">Seniority</label>
+    <input id="hc-seniority" name="seniority" type="text" value="{{ form_values.seniority or '' }}">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-source">Fuente</label>
+    <select id="hc-source" name="source">
+      <option value="" {% if not form_values.source %}selected{% endif %}>Sin especificar</option>
+      {% for opt in valid_sources %}
+      <option value="{{ opt }}" {% if form_values.source == opt %}selected{% endif %}>{{ opt }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="feedback-field">
+    <label for="hc-tags">Tags</label>
+    <input id="hc-tags" name="tags" type="text" value="{{ form_values.tags or '' }}" placeholder="separados por coma">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-potential-rating">Potencial (1-5)</label>
+    <input id="hc-potential-rating" name="potential_rating" type="text" value="{{ form_values.potential_rating or '' }}">
+  </div>
+  <div class="feedback-field">
+    <label for="hc-potential-mark">Marca de potencial</label>
+    <input id="hc-potential-mark" name="potential_mark" type="text" value="{{ form_values.potential_mark or '' }}">
+  </div>
+  {# Notas: bloque propio de ancho completo justo antes del submit --
+     MISMO rol/posición que la referencia (BancoCvForm.tsx: fuera de la
+     grilla de 2/3 columnas de arriba, un textarea de ancho completo
+     pegado al botón), nunca una celda más de la grilla densa. #}
+  <div class="feedback-field hc-profile-form-notes">
+    <label for="hc-notes">Notas</label>
+    <textarea id="hc-notes" name="notes" rows="3">{{ form_values.notes or '' }}</textarea>
+  </div>
+
+  {% if duplicate_advisory %}
+  <div class="callout callout--punch" data-advisory-kind="possible_duplicate">
+    <div class="callout__head">
+      <span class="callout__icon">⚠️</span>
+      <span class="callout__title">Posible candidato duplicado</span>
+    </div>
+    <div class="callout__body">
+      <p>Ya existe un candidato posiblemente duplicado: <strong>{{ duplicate_advisory.first_name }} {{ duplicate_advisory.last_name }}</strong>{% if duplicate_advisory.email %} — {{ duplicate_advisory.email }}{% endif %}. Podés cancelar o cargarlo de todos modos.</p>
+      <div class="feedback-form-actions">
+        <a href="/cchh/candidatos" class="btn-secondary">Cancelar</a>
+        <button type="submit" form="hc-profile-form" name="duplicate_confirmed" value="true" class="btn-primary">Cargar de todos modos</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if remote_outcome_unknown %}
+  <div class="dashboard-empty" data-error-kind="remote_outcome_unknown">
+    <span class="dashboard-empty__label">Estado desconocido</span>
+    <p>{{ remote_outcome_unknown }}</p>
+  </div>
+  {% endif %}
+
+  {% if source_error %}
+  <div class="dashboard-empty" data-error-kind="{{ 'config_incomplete' if config_incomplete else 'source_error' }}">
+    <span class="dashboard-empty__label">No disponible</span>
+    <p>{{ source_error }}</p>
+  </div>
+  {% endif %}
+
+  <button type="submit" class="btn-primary">Cargar CV</button>
+</form>
+<script>
+(function () {
+  // MISMO patrón exacto que el form de upload de Documentos (ver
+  // partials/human_capital_profile_documents_panel.html) -- el primer
+  // submit se intercepta SOLO si hay un archivo elegido, se completa el
+  // token, y se re-dispara un segundo submit real que el listener deja
+  // pasar. Sin archivo: el submit va directo, sin pedir token (el alta
+  // sin CV es el camino más común, no tiene sentido un round-trip de
+  // auth de Graph para eso).
+  document.querySelectorAll("[data-hc-profile-new-form]").forEach(function (form) {
+    form.addEventListener("submit", function (event) {
+      if (form.dataset.hcTokenReady === "true") return; // segundo submit real, dejar pasar sin interceptar
+      var fileInput = form.querySelector('input[type="file"]');
+      if (!fileInput || !fileInput.files || fileInput.files.length === 0) return; // sin CV: submit normal
+      event.preventDefault();
+      Promise.resolve(typeof window.dwHumanCapitalDocumentWriteToken === "function" ? window.dwHumanCapitalDocumentWriteToken() : "").then(function (token) {
+        var tokenField = form.querySelector('input[name="graph_token"]');
+        if (tokenField) tokenField.value = token || "";
+        form.dataset.hcTokenReady = "true";
+        form.submit();
+      });
+    });
+  });
+})();
+</script>

@@ -755,7 +755,11 @@ def test_15_route_surface_still_120():
     #     +3 rutas del feature Commercial (GET /comercial/data/licensing-
     #     priority, POST /comercial/licensing/priority/defer, POST
     #     .../restore) -- ninguna ruta de Staffing tocada.
-    assert len(snapshot) == 142
+    #   142 -> 155 (HC Candidate Profiles cchh migration, ver HANDOFF): +13
+    #     rutas canónicas /cchh/candidatos/* (las 11 legacy /human-capital/*
+    #     se preservan como compatibility surface, 0 missing) -- ninguna ruta
+    #     de Staffing tocada.
+    assert len(snapshot) == 155
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

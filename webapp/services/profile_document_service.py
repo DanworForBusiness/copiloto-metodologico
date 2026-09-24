@@ -444,7 +444,7 @@ def _create_folder_with_retry(profile_id: str, access_token: str) -> str:
         return item_id if item_id is not None else _reread_folder_after_conflict(profile_id, access_token)
 
     raise ProfileDocumentFolderOutcomeUnknownError(
-        "No pudimos confirmar si la carpeta de este Profile se creó en SharePoint. "
+        "No pudimos confirmar si la carpeta de este candidato se creó en SharePoint. "
         "Podés reintentar la acción — es seguro repetirla."
     )
 

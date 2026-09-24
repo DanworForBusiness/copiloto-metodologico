@@ -625,6 +625,14 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .dashboard-empty__label { display: block; margin-bottom: 8px; color: var(--gold); font: 600 .64rem var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 .dashboard-empty p { margin: 0 auto; max-width: 480px; color: #55555c; font-size: .82rem; line-height: 1.55; }
 .content-theme-dark .dashboard-empty p { color: #b2b2bc; }
+/* `.dashboard-empty__hint` — MISMO color/tamaño que `.dashboard-empty p`
+   (arriba), pero como clase standalone: sus dos consumidores (el estado
+   "sin documentos" de Capital Humano y el hint del campo CV del alta) son
+   un <p> suelto, no anidado dentro de un `.dashboard-empty`, así que la
+   regla `.dashboard-empty p` (selector descendiente) nunca los alcanzaba —
+   quedaban con la tipografía default del browser sin que nadie lo notara. */
+.dashboard-empty__hint { margin: 4px 0 0; color: #55555c; font-size: .78rem; line-height: 1.5; }
+.content-theme-dark .dashboard-empty__hint { color: #b2b2bc; }
 
 /* Capital Humano Phase 3.2 — barra de búsqueda/filtros compacta sobre el
    Banco de Perfiles: layout mínimo (flex-wrap), reusa .feedback-field/

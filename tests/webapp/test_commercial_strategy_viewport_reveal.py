@@ -303,4 +303,8 @@ def test_g_full_route_surface_unchanged_by_this_gate():
     # +3 rutas -- GET /comercial/data/licensing-priority, POST
     # /comercial/licensing/priority/defer, POST .../restore -- CERO rutas de
     # Estrategia tocadas, este gate sigue sin cambios propios.
-    assert len(snapshot) == 142
+    # 142 -> 155 (HC Candidate Profiles cchh migration, ver HANDOFF): +13
+    # rutas canónicas /cchh/candidatos/* -- las 11 legacy /human-capital/*
+    # se preservan como compatibility surface (0 missing) -- CERO rutas de
+    # Estrategia tocadas, este gate sigue sin cambios propios.
+    assert len(snapshot) == 155

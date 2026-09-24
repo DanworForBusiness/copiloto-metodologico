@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Cargar CV al banco · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('human-capital')"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+
+  {% include "partials/human_capital_nav.html" %}
+
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    {# "← Volver": primitivo transversal del Hub, MISMO exacto que
+       whats_new.html/catalog_guide_slides.html (`.catalog-back`, tools.css)
+       — nunca CSS/JS propio de Capital Humano. Reemplaza el "Volver al
+       listado"/"Volver a Candidatos" inline que vivía dentro del
+       module-hero: la ubicación (primer hijo de #content, ANTES del
+       module-hero) y el sticky/theme quedan idénticos a cada otro
+       consumidor de esta clase. #}
+    <a class="catalog-back" href="/cchh/candidatos">← Volver a Candidatos</a>
+    <section class="module-hero">
+      <p class="eyebrow">Capital Humano</p>
+      <h1>Cargar CV al banco</h1>
+      <p>Este CV queda disponible en el repositorio general, sin ligarse a ningún proceso todavía.</p>
+    </section>
+
+    {% include "partials/human_capital_profile_new_form.html" %}
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{% endblock %}
