@@ -46,7 +46,9 @@ const sandbox = {
   initDashboardSections() {},
   initEventBreakdown() {},
   initDraggableColumns() {},
+  initResizableColumns() {},
   readStoredColumnOrder() { return null; },
+  readStoredColumnWidths() { return null; },
   console,
 };
 vm.createContext(sandbox);
@@ -293,13 +295,27 @@ function resetState(patch) {
   // W — Oportunidad cuya cuenta NO es cliente (no está en el Perfil en
   // absoluto): resultado contextual = 0, empty state de negocio explícito,
   // NUNCA se inyecta la cuenta temporalmente al Perfil.
+  // CONTRATO NUEVO (Director, "Ver detalle de licencias"): una cuenta fuera
+  // del universo gobernado YA NO termina en un empty state — se inspecciona
+  // igual. Lo que sigue intacto es el guardrail de la COLECCIÓN: la cuenta
+  // NUNCA se inyecta en `licensingProfile.accounts`; la fila viene aparte, de
+  // `licensingDetailAccount`.
   commercialState.licensingDrilldownAccountId = 999; // no existe en licensingProfile.accounts
   commercialState.licensingDrilldownOrigin = "opportunities";
-  const nonClientResult = commercialLicensingProfileFilteredRows();
-  assertTrue(nonClientResult.length === 0, "W: cuenta no-cliente -> 0 resultados, nunca inyectada");
-  const nonClientHtml = commercialLicensingProfileTableHtml(nonClientResult);
-  assertTrue(nonClientHtml.includes("no está marcada como cliente"),
-    "W: empty state de NEGOCIO explícito, distinto del genérico \"ningún resultado\"");
+  commercialState.licensingDetailAccount = null;
+  assertTrue(commercialLicensingProfileFilteredRows().length === 0,
+    "W: sin la cuenta traída todavía, cero filas — nunca una inyectada al universo");
+  assertTrue(commercialLicensingProfileAllRows().every(a => a.id !== 999),
+    "W: y el universo gobernado sigue sin conocerla");
+  commercialState.licensingDetailAccount = { id: 999, name: "Cuenta Ajena" };
+  const detalle = commercialLicensingProfileFilteredRows();
+  assertTrue(detalle.length === 1 && detalle[0].id === 999,
+    "W: con la cuenta traída, se muestra ESA cuenta — 1 fila, no un empty state");
+  const detalleHtml = commercialLicensingProfileTableHtml(detalle, "detail");
+  assertTrue(detalleHtml.includes("Cuenta Ajena"), "W: y su nombre se renderiza");
+  assertTrue(!detalleHtml.includes("Mover a sin prioridad"),
+    "W: sin acción de prioridad — la clasificación es del universo gobernado");
+  commercialState.licensingDetailAccount = null;
   commercialLicensingCloseDrilldown(root);
 
   // Y/Z/AA — Perfil → Oportunidades, incluso para una cuenta SIN ninguna

@@ -48,6 +48,10 @@ reports/*
 !reports/reports_README.txt
 catalog_local/
 commercial_strategy_runtime/
+# Clasificación de prioridad del Perfil de licenciamiento: DATO DE NEGOCIO
+# real, no cache — vive en Spaces (PERSIST_PATHS) y se materializa acá sólo
+# como staging local. Un `git add -A` tras usar la feature lo commitearía.
+commercial-licensing-priority/
 catalog_inbound/
 .scratch_*
 scratch_preview.html

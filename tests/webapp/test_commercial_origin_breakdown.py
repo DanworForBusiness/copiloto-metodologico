@@ -102,7 +102,11 @@ def test_origin_is_frontend_only_over_the_payload_already_in_memory():
     # `/comercial/data/` (son mutaciones, no lecturas — MISMO criterio que
     # `/comercial/feedback`, tampoco contado acá), así que no suman a este
     # conteo.
-    assert code.count("/comercial/data/") == 22  # 4 iniciales + activities + forecast + creadas + creadas-años + prospects + ganadas + perdidas + suspendidas + pipeline-analytics-detail + lead-conversion-detail + retry de analytics (mismo endpoint) + opportunities-detail + lost-history + leads + clients + ex-clients + licensing-profile + licensing-priority
+    # 22 -> 23: `licensing-account` (Director, "Ver detalle de licencias") es
+    # una CONSULTA por id, separada a propósito de la COLECCIÓN
+    # `licensing-profile` — mezclarlas obligaría a re-pedir el universo entero
+    # para mirar una cuenta, y tentaría a relajar el filtro de la colección.
+    assert code.count("/comercial/data/") == 23  # 4 iniciales + activities + forecast + creadas + creadas-años + prospects + ganadas + perdidas + suspendidas + pipeline-analytics-detail + lead-conversion-detail + retry de analytics (mismo endpoint) + opportunities-detail + lost-history + leads + clients + ex-clients + licensing-profile + licensing-priority + licensing-account
     # No se usa el endpoint legacy: se mira el CÓDIGO, no la prosa (los
     # comentarios lo nombran a propósito para explicar por qué NO se usa).
     for banned in ("/crm/origen", "/comercial/data/origen", "/comercial/data/origin"):
