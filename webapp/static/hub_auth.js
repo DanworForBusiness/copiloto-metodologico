@@ -346,7 +346,16 @@
   //
   // Nunca lanza — mismo contrato que `dwGraphToken`: "" y el caller decide
   // (el router ya trata `graph_token` vacío como falta de autorización).
-  window.dwHumanCapitalDocumentWriteToken = async function () {
+  window.dwHumanCapitalDocumentWriteToken = async function (opts) {
+    // `interactive` (default true, contrato sin cambios para los consumidores
+    // existentes -- form de Documentos y su retry): cuando MSAL exige
+    // interacción, escala a popup vía `dwGraphReauthenticate`. El alta con CV
+    // (create-with-CV) lo llama con `{interactive:false}`: NUNCA escala a popup
+    // desde el submit del alta -- ese popup, invocado tras cruzar un `await`
+    // (gesto ya perdido), es la fuente del `Promise` pendiente que dejaba el
+    // clic inerte; en silent-only devuelve "" y el alta cae al partial-success
+    // (persistir el Profile + subir el CV luego desde Documentos, con gesto real).
+    const interactive = !(opts && opts.interactive === false);
     let app;
     try { app = await getApp(); } catch (e) { return ""; }
 
@@ -362,6 +371,7 @@
       return (res && res.accessToken) || "";
     } catch (e) {
       if (!(e instanceof msal.InteractionRequiredAuthError)) return "";
+      if (!interactive) return "";  // silent-only (create-with-CV): sin popup, cae a partial-success.
       const reauthenticated = await window.dwGraphReauthenticate([writeScope]);
       if (!reauthenticated) return "";
       try {

@@ -146,25 +146,45 @@
 </form>
 <script>
 (function () {
-  // MISMO patrón exacto que el form de upload de Documentos (ver
-  // partials/human_capital_profile_documents_panel.html) -- el primer
-  // submit se intercepta SOLO si hay un archivo elegido, se completa el
-  // token, y se re-dispara un segundo submit real que el listener deja
-  // pasar. Sin archivo: el submit va directo, sin pedir token (el alta
-  // sin CV es el camino más común, no tiene sentido un round-trip de
-  // auth de Graph para eso).
+  // CONTRATO de outcome terminal ACOTADO (owner, CCHH create-with-CV): el
+  // primer submit se intercepta SOLO si hay un archivo elegido; sin archivo el
+  // submit va directo (el alta sin CV es lo común, sin round-trip de Graph).
+  // Con archivo: se adquiere el write-token en modo SILENT-ONLY
+  // (`{interactive:false}` -> NUNCA abre popup desde el submit del alta; el
+  // popup post-`await` con el gesto perdido era la fuente del Promise
+  // pendiente que dejaba el clic inerte). Un BOUND garantiza que el flujo
+  // SIEMPRE termina en EXACTAMENTE un `form.submit()`: si el token no se
+  // asienta a tiempo (o rechaza), se submitea con "" y el backend rendea el
+  // partial-success (Profile creado + CV pendiente/retry desde Documentos,
+  // que sí escala interactivo con gesto real). Una resolución tardía del
+  // token tras el bound NO puede causar un segundo submit.
   document.querySelectorAll("[data-hc-profile-new-form]").forEach(function (form) {
     form.addEventListener("submit", function (event) {
-      if (form.dataset.hcTokenReady === "true") return; // segundo submit real, dejar pasar sin interceptar
+      if (form.dataset.hcTokenReady === "true") return; // segundo submit real, dejar pasar
       var fileInput = form.querySelector('input[type="file"]');
       if (!fileInput || !fileInput.files || fileInput.files.length === 0) return; // sin CV: submit normal
       event.preventDefault();
-      Promise.resolve(typeof window.dwHumanCapitalDocumentWriteToken === "function" ? window.dwHumanCapitalDocumentWriteToken() : "").then(function (token) {
+      var submitted = false;
+      function submitOnce(token) {
+        if (submitted) return;   // exactly-one: bound + resolución tardía no duplican el submit
+        submitted = true;
         var tokenField = form.querySelector('input[name="graph_token"]');
         if (tokenField) tokenField.value = token || "";
         form.dataset.hcTokenReady = "true";
         form.submit();
-      });
+      }
+      var boundMs = parseInt(form.getAttribute("data-hc-token-bound-ms"), 10) || 8000;
+      var tokenPromise = (typeof window.dwHumanCapitalDocumentWriteToken === "function")
+        ? Promise.resolve(window.dwHumanCapitalDocumentWriteToken({ interactive: false }))
+        : Promise.resolve("");
+      var boundPromise = new Promise(function (resolve) { setTimeout(function () { resolve(""); }, boundMs); });
+      // Un solo bound (Promise.race): el primero que se asiente —token o
+      // timeout— dispara el ÚNICO submit; el otro camino queda neutralizado
+      // por el guard `submitted`.
+      Promise.race([
+        tokenPromise.then(function (t) { return t || ""; }, function () { return ""; }),
+        boundPromise
+      ]).then(function (token) { submitOnce(token || ""); });
     });
   });
 })();
