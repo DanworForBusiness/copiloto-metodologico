@@ -2545,4 +2545,30 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .chart-tooltip-anchor:hover .chart-tooltip,
 .chart-tooltip-anchor:focus .chart-tooltip,
 .chart-tooltip-anchor:focus-within .chart-tooltip { opacity: 1; visibility: visible; }
+
+/* TABLE ACTION BUTTON — primitivo compartido, opt-in (owner "Iconographic
+   Table Actions", ver HANDOFF): ícono compacto en vez de texto para una
+   acción de fila, con nombre accesible (`aria-label`) y tooltip visible en
+   hover/foco vía el `.chart-tooltip-anchor` de arriba — se combinan las dos
+   clases en el propio `<button>`, sin envoltorio nuevo. MISMO tamaño y
+   tratamiento de interacción que `.panel-close` (commercial.css) — que ya
+   resolvió "botón ícono compacto, hover sutil, foco dorado" para el × de
+   cerrar panel — generalizado acá porque cualquier tabla del Hub puede
+   necesitar una acción de fila compacta, no sólo Comercial. Optar es
+   agregar esta clase; el delegado de click de cada vertical sigue siendo
+   dueño de qué hace el data-attribute que el botón lleve — este primitivo
+   es sólo presentación, nunca wiring. */
+.table-action-btn {
+  width: 28px; height: 28px; flex-shrink: 0; display: inline-grid; place-items: center;
+  border: 0; border-radius: 6px; background: transparent; color: #7a7a82; cursor: pointer;
+}
+.content-theme-dark .table-action-btn { color: #9a9aa2; }
+.table-action-btn:hover { color: inherit; background: rgba(128,128,128,.16); }
+.table-action-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.table-action-btn:disabled { opacity: .35; cursor: not-allowed; }
+.table-action-btn:disabled:hover { background: transparent; }
+/* Mismo lenguaje de trazo que el único otro ícono SVG del Hub
+   (`.activity-kpi__info svg`, reporting.js): sin relleno, currentColor,
+   trazo redondeado — para no inventar un segundo estilo visual de ícono. */
+.table-action-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .content-theme-dark .ln-edge-legend { fill: #9a9aa2; }

@@ -3830,14 +3830,64 @@ function commercialColumnWidthsFor(storageKey, columns) {
   const stored = readStoredColumnWidths(storageKey) || {};
   return Object.fromEntries(columns.map(c => [c.key, stored[c.key] || c.width]));
 }
+
+// Íconos de acción de tabla (owner "Iconographic Table Actions", ver
+// HANDOFF): trazo sin relleno, MISMO lenguaje visual que el único otro ícono
+// SVG del Hub (`.activity-kpi__info svg`, reporting.js) — no se inventa un
+// segundo estilo. Semántica elegida sobre glifos ya establecidos en UI, no
+// ambiguos: ojo = ver/inspeccionar, caja de archivo = archivar/despriorizar,
+// flecha antihoraria = deshacer/restaurar.
+const COMMERCIAL_TABLE_ACTION_ICONS = {
+  detail: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>',
+  archive: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 13h4"/></svg>',
+  restore: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>',
+};
+// Botón de acción de tabla COMPACTO — wrapper de ESTE vertical sobre el
+// primitivo compartido `.table-action-btn`/`.chart-tooltip-anchor`
+// (tools.css): ícono visible + `aria-label` (nombre accesible real, no sólo
+// `title=""`) + tooltip visible en hover/foco (`.chart-tooltip`, hermano
+// reusado como HIJO acá porque el disparador ES el propio botón — mismo
+// mecanismo `:hover`/`:focus`/`:focus-within` de siempre, cero CSS nuevo
+// para el tooltip en sí).
+//
+// `dataAttributes` es un string ya armado (este archivo compone HTML por
+// concatenación en todos lados, nunca un framework de props) con los MISMOS
+// `data-*` que el botón de texto ya llevaba — el delegado ÚNICO de `document`
+// (ver abajo) sigue siendo el dueño de qué hace cada uno; este helper es
+// PURA presentación, nunca le agrega ni le saca alcance.
+//
+// NUNCA `onclick` inline acá — a diferencia de `renderKpiInfoHtml`
+// (reporting.js), que sí necesita `stopPropagation` porque su ícono vive
+// dentro de un tile con listeners DIRECTOS propios: Comercial depende del
+// delegado único en bubble sobre `document`, y un guard inline lo dejaría
+// inalcanzable — exactamente la regresión que el ticket anterior corrigió.
+function commercialTableActionButtonHtml({ icon, label, dataAttributes = "", disabled = false }) {
+  const disabledAttr = disabled ? " disabled" : "";
+  const attrs = dataAttributes ? ` ${dataAttributes}` : "";
+  return `<button type="button" class="table-action-btn chart-tooltip-anchor"${disabledAttr} aria-label="${commercialEsc(label)}"${attrs}>`
+    + `${icon}<span class="chart-tooltip" aria-hidden="true"><p>${commercialEsc(label)}</p></span></button>`;
+}
 // El botón "Ver detalle de licencias" es la última celda SIEMPRE — nunca
 // entra a `order` (mismo criterio que la celda `_action` del Perfil): una
 // acción fija no es una columna de negocio reordenable.
 function commercialLicenciasCompactRowHtml(o, order = COMMERCIAL_LICENCIAS_COMPACT_COLUMN_KEYS) {
   const hasAccount = o.account_id != null;
+  // Ícono compacto (owner "Iconographic Table Actions", ver HANDOFF) — MISMOS
+  // data-attributes de siempre, sólo cambia la presentación. El estado
+  // deshabilitado conserva su mensaje PROPIO y más específico (por qué no hay
+  // acción), en vez de repetir la etiqueta de la acción — mismo criterio que
+  // el `title` que reemplaza.
   const actionBtn = hasAccount
-    ? `<button type="button" class="btn-secondary" data-commercial-licensing-account-row="${o.account_id}" data-commercial-licensing-account-name="${commercialEsc(o.client)}">Ver detalle de licencias</button>`
-    : `<button type="button" class="btn-secondary" disabled title="Esta oportunidad no tiene una cuenta comercial asociada">Ver detalle de licencias</button>`;
+    ? commercialTableActionButtonHtml({
+        icon: COMMERCIAL_TABLE_ACTION_ICONS.detail,
+        label: "Ver detalle de licencias",
+        dataAttributes: `data-commercial-licensing-account-row="${o.account_id}" data-commercial-licensing-account-name="${commercialEsc(o.client)}"`,
+      })
+    : commercialTableActionButtonHtml({
+        icon: COMMERCIAL_TABLE_ACTION_ICONS.detail,
+        label: "Esta oportunidad no tiene una cuenta comercial asociada",
+        disabled: true,
+      });
   const cellsHtml = order.map(key => {
     const col = COMMERCIAL_LICENCIAS_COMPACT_COLUMNS.find(c => c.key === key);
     if (!col) return "";
@@ -3891,8 +3941,12 @@ function commercialLicenciasCompactTableHtml(rows, { sortKey, sortDir, emptyLabe
     return `<td></td>`;
   }).join("");
   const totalRow = `<tr class="is-total">${totalCells}<td></td></tr>`;
+  // Ancho FIJO en px, no % (owner "Iconographic Table Actions" §8): la
+  // columna de acción dejó de necesitar espacio para texto, así que un %
+  // relativo al ancho total de la tabla ya no tiene sentido — el botón
+  // ícono (28px + padding) es estable sea cual sea el ancho de viewport.
   const colgroupCells = orderedCols.map(c => `<col data-column-key="${c.key}" style="width:${widths[c.key]}">`).join("")
-    + `<col style="width:10%">`;
+    + `<col style="width:48px">`;
   return `
     <div class="matrix-scroll" data-draggable-columns-key="commercial-oportunidades-licencias"
         data-resizable-columns-key="commercial-oportunidades-licencias">
@@ -4199,11 +4253,19 @@ function commercialLicensingProfileRowHtml(a, mode = "main", order = COMMERCIAL_
   // gobernado. La prioridad (principal/sin prioridad) clasifica ESE universo,
   // así que una cuenta ajena no entra al flujo por la puerta de atrás — la
   // vista es de sólo lectura.
+  // Íconos compactos (owner "Iconographic Table Actions", ver HANDOFF) —
+  // MISMOS data-attributes de siempre, sólo cambia la presentación.
   const actionCell = mode === "detail"
     ? `<span class="dashboard-table-muted">—</span>`
     : mode === "secondary"
-      ? `<button type="button" class="btn-secondary" data-commercial-licprofile-restore="${a.id}">Restaurar</button>`
-      : `<button type="button" class="btn-secondary" data-commercial-licprofile-defer="${a.id}">Mover a sin prioridad</button>`;
+      ? commercialTableActionButtonHtml({
+          icon: COMMERCIAL_TABLE_ACTION_ICONS.restore, label: "Restaurar",
+          dataAttributes: `data-commercial-licprofile-restore="${a.id}"`,
+        })
+      : commercialTableActionButtonHtml({
+          icon: COMMERCIAL_TABLE_ACTION_ICONS.archive, label: "Mover a sin prioridad",
+          dataAttributes: `data-commercial-licprofile-defer="${a.id}"`,
+        });
   const cellsHtml = order.map(key => {
     const col = COMMERCIAL_LICENSING_PROFILE_COLUMNS.find(c => c.key === key);
     if (!col) return "";
@@ -4273,8 +4335,10 @@ function commercialLicensingProfileTableHtml(rows, mode = "main") {
   const orderedCols = order.map(key => COMMERCIAL_LICENSING_PROFILE_COLUMNS.find(c => c.key === key)).filter(Boolean);
   const widths = commercialColumnWidthsFor("commercial-licprofile", COMMERCIAL_LICENSING_PROFILE_COLUMNS);
   const rowsHtml = sorted.map(a => commercialLicensingProfileRowHtml(a, mode, order)).join("");
+  // Ancho FIJO en px, no % (owner "Iconographic Table Actions" §8) — MISMO
+  // criterio que la columna de acción de Oportunidades.
   const colgroupCells = orderedCols.map(c => `<col data-column-key="${c.key}" style="width:${widths[c.key]}">`).join("")
-    + `<col style="width:9%">`;
+    + `<col style="width:48px">`;
   const theadCells = orderedCols.map(th).join("") + `<th></th>`;
   // `data-draggable-columns-key`/`data-resizable-columns-key` (MISMA key en
   // "main" Y "secondary" — un solo orden/ancho compartido para las dos
