@@ -84,6 +84,40 @@ def _write_atomic(path: Path, payload: dict) -> None:
                 pass
 
 
+def _rollback(path: Path, contenido_previo: bytes | None) -> None:
+    """Deja el disco local como estaba antes de la operación.
+
+    `contenido_previo is None` = el archivo NO existía, así que revertir es
+    borrarlo. Si existía, se repone su contenido EXACTO — una cuenta que ya
+    estaba diferida sigue diferida aunque este intento haya fallado.
+
+    Nunca levanta: se invoca mientras ya se está por reportar un error, y
+    tapar ese error con otro haría desaparecer la causa real. Si el rollback
+    falla, queda logueado y el error original sigue su camino.
+    """
+    try:
+        if contenido_previo is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".rb-", suffix=".json")
+            with os.fdopen(fd, "wb") as f:
+                f.write(contenido_previo)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+    except OSError:
+        _logger.warning(
+            "commercial_licensing_priority: rollback local falló para %s", path, exc_info=True)
+
+
+def _leer_previo(path: Path) -> bytes | None:
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
 def list_deferred_account_ids() -> set[int]:
     """Todas las cuentas ACTUALMENTE en la tabla secundaria — lectura
     directa de disco, sin cache propio (el volumen es chico, mismo criterio
@@ -107,13 +141,25 @@ def list_deferred_account_ids() -> set[int]:
 
 def defer(account_id: int, *, by: str) -> None:
     """Mueve `account_id` a la tabla secundaria (Director §5/§6:
-    "Mover a sin prioridad"). Idempotente — reintentar/mover una cuenta ya
-    diferida simplemente sobreescribe el mismo registro (nunca duplica,
-    nunca falla)."""
+    "Mover a sin prioridad").
+
+    TRANSACCIONAL DE CARA AL USUARIO: si la durabilidad compartida no se
+    confirma, el disco local vuelve a como estaba. Antes no: el archivo local
+    se escribía primero y sobrevivía al fallo, así que la acción mostraba un
+    error y —como `list_deferred_account_ids()` lee disco local— al refrescar
+    la cuenta aparecía diferida igual. Fallaba de cara al usuario y sucedía
+    por detrás.
+
+    Idempotente: re-diferir una cuenta ya diferida reescribe el mismo
+    registro. Y si ESE intento falla, el registro previo se repone — una
+    cuenta ya diferida no se "des-difiere" por un fallo de red.
+    """
     path = _record_path(account_id)
+    previo = _leer_previo(path)
     payload = {"account_id": account_id, "deferred_at": _now_iso(), "deferred_by": by}
     _write_atomic(path, payload)
     if not remote_store.push_path(path):
+        _rollback(path, previo)
         if not remote_store.enabled():
             raise CommercialLicensingPriorityStorageError(
                 "La clasificación de prioridad todavía no está configurada para este entorno."
@@ -125,22 +171,24 @@ def defer(account_id: int, *, by: str) -> None:
 
 def restore(account_id: int) -> None:
     """Devuelve `account_id` a la tabla principal (Director §5/§6:
-    "Restaurar") — borra el registro de excepción. Idempotente — restaurar
-    una cuenta que YA está en la tabla principal (sin registro) es un
-    no-op exitoso, nunca un error.
+    "Restaurar") — borra el registro de excepción.
 
-    `remote_store.delete_path()` es BEST-EFFORT a propósito (a diferencia
-    del `push_path()` estricto de `defer()`): el estado LOCAL ya es
-    correcto apenas se borra el archivo (`list_deferred_account_ids()` lee
-    de disco local, nunca de Spaces directamente), así que un fallo acá no
-    deja a la cuenta en un estado ambiguo desde la perspectiva del usuario
-    — en el peor caso, un `restore()` de Spaces post-reinicio del
-    container podría resucitar el registro viejo, corregible con un
-    segundo click en "Restaurar"; nunca pérdida de datos ni estado
-    inconsistente observable."""
+    EL ESTADO DURABLE ES AUTORITATIVO. El borrado remoto dejó de ser
+    best-effort: si no se confirma, el registro local se REPONE y la cuenta
+    sigue diferida para toda la aplicación. Antes el local se borraba igual,
+    así que la UI daba la cuenta por restaurada mientras el marcador
+    compartido seguía vivo — y un restore de Spaces tras reiniciar el
+    contenedor la resucitaba. Para un estado de estrategia COMPARTIDO entre
+    usuarios, "se ve restaurada acá pero sigue diferida allá" es peor que un
+    error honesto y reintentable.
+
+    Idempotente: restaurar una cuenta que YA está en la principal (sin
+    registro) es un no-op exitoso, nunca un error — y nunca toca la red.
+    """
     path = _record_path(account_id)
     if not path.exists():
         return
+    previo = _leer_previo(path)
     try:
         path.unlink()
     except OSError as exc:
@@ -148,4 +196,13 @@ def restore(account_id: int) -> None:
             f"No se pudo borrar la clasificación de prioridad en disco: {exc}"
         ) from exc
     if not remote_store.delete_path(path):
-        _logger.warning("commercial_licensing_priority: delete_path remoto no confirmado para account_id=%s", account_id)
+        # La cuenta vuelve a estar diferida: es lo que sigue siendo cierto en
+        # el estado compartido.
+        _rollback(path, previo)
+        if not remote_store.enabled():
+            raise CommercialLicensingPriorityStorageError(
+                "La clasificación de prioridad todavía no está configurada para este entorno."
+            )
+        raise CommercialLicensingPriorityStorageError(
+            "No pudimos confirmar el cambio de la clasificación de prioridad. Probá de nuevo."
+        )

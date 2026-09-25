@@ -85,6 +85,8 @@ const sandbox = {
   initEventBreakdown() {},
   initDraggableColumns() {},
   readStoredColumnOrder() { return null; },
+  readStoredColumnWidths() { return null; },
+  initResizableColumns() {},
   // `URLSearchParams` NO es un global de V8/vm — hay que pasarlo explícito
   // (MISMO gap que ya resolvió reporting_feedback_visibility.node.js).
   URLSearchParams,

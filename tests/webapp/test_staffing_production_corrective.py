@@ -512,7 +512,7 @@ def test_successful_filter_reports_filter_used_true_fallback_false(monkeypatch):
 # PART 15 — route surface unchanged
 # ============================================================================
 
-def test_15_route_surface_still_120():
+def test_15_route_surface_still_156():
     # CI GATE CORRECTIVE (reconciliación de contratos stale, ver HANDOFF):
     # este test se había quedado pinneado en 84 mientras el snapshot real
     # (tests/route_surface.json, la fuente de verdad exhaustiva — ver
@@ -759,7 +759,14 @@ def test_15_route_surface_still_120():
     #     rutas canónicas /cchh/candidatos/* (las 11 legacy /human-capital/*
     #     se preservan como compatibility surface, 0 missing) -- ninguna ruta
     #     de Staffing tocada.
-    assert len(snapshot) == 155
+    #   155 -> 156 (Commercial Licensing — inspección contextual de una
+    #     cuenta, ver HANDOFF): +GET /comercial/data/licensing-account. Es una
+    #     CONSULTA por id, separada a propósito de la COLECCIÓN
+    #     `licensing-profile`: "Ver detalle de licencias" tiene que poder
+    #     mirar la cuenta de una oportunidad aunque NO pertenezca al universo
+    #     gobernado (`Es Cliente? = Sí AND Argentina`), y ese guardrail de la
+    #     colección no se toca. Ninguna ruta de Staffing tocada.
+    assert len(snapshot) == 156
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

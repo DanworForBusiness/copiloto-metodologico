@@ -169,13 +169,18 @@ def test_global_tipo_change_does_not_alter_profile_local_filter_semantics():
     assert "Es Cliente? Sí" not in _COMMERCIAL_JS
 
 
-def test_profile_empty_state_distinguishes_non_client_drilldown_from_generic_filter():
-    # Owner §9: cero resultados con drilldown activo desde Oportunidades es
-    # un caso de negocio explícito ("no es cliente"), nunca el mensaje
-    # genérico de "ningún resultado con este filtro".
+def test_profile_empty_state_no_longer_means_not_profile_eligible():
+    # CONTRATO NUEVO (Director, "Ver detalle de licencias"): "no es elegible
+    # para el Perfil" dejó de ser un resultado terminal — esa cuenta se
+    # inspecciona igual. El vacío queda reservado para lo que de verdad es un
+    # vacío: no poder resolver la cuenta.
+    #
+    # Lo cubre end-to-end test_commercial_licensing_contextual_detail.py; acá
+    # sólo se fija que el mensaje viejo no vuelva.
     fn = _COMMERCIAL_JS.split("function commercialLicensingProfileTableHtml(", 1)[1].split("\n}", 1)[0]
-    assert "no está marcada como cliente" in fn
-    assert 'licensingDrilldownOrigin === "opportunities"' in fn
+    assert "no está marcada como cliente" not in fn
+    assert 'mode === "detail"' in fn
+    assert "No pudimos resolver la cuenta" in fn
 
 
 def test_licensing_profile_route_is_registered_read_only():

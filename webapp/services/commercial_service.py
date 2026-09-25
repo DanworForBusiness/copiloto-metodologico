@@ -3097,6 +3097,58 @@ class CommercialService:
         )
         return rows[0]["id"] if rows else None
 
+    # ── INSPECCIÓN CONTEXTUAL DE UNA CUENTA (Director, "Ver detalle de
+    #    licencias") ──────────────────────────────────────────────────────
+    # El Perfil es una COLECCIÓN GOBERNADA (`Es Cliente? = Sí AND Argentina`)
+    # y ese guardrail no se toca. Pero "Ver detalle de licencias" es otra
+    # cosa: una consulta PUNTUAL, lanzada a mano desde una oportunidad de
+    # licenciamiento, sobre la cuenta de ESA oportunidad. Pertenecer a la
+    # colección gobernada no puede ser requisito para poder MIRAR una cuenta
+    # — son dos conceptos distintos, y confundirlos es lo que hacía que la
+    # acción terminara en "0 cuentas / no está marcada como cliente".
+    #
+    # Una cuenta consultada así puede tener `Es Cliente?` vacío, "No" o "Ex",
+    # o no ser de Argentina, y se muestra igual. Lo que NUNCA hace es entrar
+    # a la colección: este método devuelve la fila suelta, y el Perfil sigue
+    # construyéndose sólo desde `_build_licensing_profile`.
+    def get_licensing_account_detail(self, account_id: int) -> dict | None:
+        """Fila de licenciamiento de UNA cuenta canónica, o `None` si no se
+        puede resolver.
+
+        Reusa `_licensing_account_property_row` TAL CUAL — el mismo adaptador
+        de properties que arma las filas del Perfil, así que los campos y su
+        formato son idénticos y no hay un segundo modelo de licenciamiento
+        que mantener sincronizado.
+
+        UNA consulta en el caso común; una segunda SÓLO si el id recibido era
+        un contacto cuya empresa es otra cuenta (`commercial_partner_id`) —
+        la misma clase de segunda pasada acotada que ya hace el Perfil, nunca
+        una por fila.
+        """
+        if not self._client.is_configured():
+            raise CommercialConfigurationError(
+                "Odoo no está configurado (ODOO_URL/ODOO_DB/ODOO_USERNAME/ODOO_API_KEY)")
+        campos = ["id", "name", "user_id", "commercial_partner_id", "properties",
+                  "currency_id", "country_id"]
+        try:
+            rows = self._client.search_read(
+                "res.partner", domain=[["id", "in", [int(account_id)]]], fields=campos, limit=1)
+            if not rows:
+                return None
+            partner = rows[0]
+            # Identidad CANÓNICA, igual que el Perfil: si lo que llegó es un
+            # contacto, la cuenta comercial es su `commercial_partner_id`.
+            canonico = partner.get("commercial_partner_id")
+            if canonico and canonico[0] != partner["id"]:
+                propias = self._client.search_read(
+                    "res.partner", domain=[["id", "in", [canonico[0]]]], fields=campos, limit=1)
+                if propias:
+                    partner = propias[0]
+        except OdooTransportError as exc:
+            raise CommercialDataError(str(exc), stage=exc.stage) from exc
+        return self._licensing_account_property_row(partner)
+
+
     def get_licensing_profile(self, tipo: str = "todos") -> dict:
         if tipo not in _TIPOS:
             tipo = "todos"

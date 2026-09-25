@@ -327,6 +327,33 @@ def commercial_data_licensing_priority(request: Request):
     return JSONResponse({"state": "ok", "deferred_account_ids": deferred})
 
 
+@router.get("/comercial/data/licensing-account", include_in_schema=False)
+def commercial_data_licensing_account(request: Request, account_id: int = Query(...)):
+    """Director ("Ver detalle de licencias"): inspección PUNTUAL de UNA cuenta.
+
+    Endpoint propio y no un parámetro del Perfil a propósito: el Perfil es una
+    COLECCIÓN gobernada (`Es Cliente? = Sí AND Argentina`) y esto es una
+    CONSULTA por id. Mezclarlos obligaría a re-pedir el universo entero para
+    mirar una sola cuenta, y tentaría a relajar el filtro de la colección —
+    que es justamente el guardrail que no se toca.
+
+    Devuelve la fila con el MISMO adaptador de properties que el Perfil.
+    `account` en `null` = la cuenta no se pudo resolver (no existe), que es
+    distinto de "no es elegible para el Perfil": una cuenta inelegible SÍ se
+    devuelve y SÍ se muestra.
+    """
+    redirect = _require_commercial_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        account = CommercialService().get_licensing_account_detail(account_id)
+    except CommercialConfigurationError:
+        return JSONResponse({"state": "config_incomplete"})
+    except CommercialDataError as exc:
+        return JSONResponse({"state": "source_error", "stage": exc.stage})
+    return JSONResponse({"state": "ok", "account": account})
+
+
 @router.post("/comercial/licensing/priority/defer", include_in_schema=False)
 def commercial_licensing_priority_defer(request: Request, account_id: int = Form(...)):
     """Director §5/§6: "Mover a sin prioridad" — mueve `account_id` (id

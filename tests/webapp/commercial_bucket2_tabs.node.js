@@ -42,6 +42,8 @@ const sandbox = {
   initEventBreakdown() {},
   initDraggableColumns() {},
   readStoredColumnOrder() { return null; },
+  readStoredColumnWidths() { return null; },
+  initResizableColumns() {},
   console,
 };
 vm.createContext(sandbox);

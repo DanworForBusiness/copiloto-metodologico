@@ -801,7 +801,13 @@ function initDraggableColumns(scope) {
       const dragged = draggingKey;
       draggingKey = null;
       if (!dragged || !target || target.dataset.columnKey === dragged) return;
-      const order = [...container.querySelectorAll("[data-column-key]")].map(th => th.dataset.columnKey);
+      // `th[data-column-key]` (no el genérico `[data-column-key]`): el
+      // primitivo de resize (initResizableColumns, abajo) marca el <col> de
+      // cada columna con la MISMA key para poder ubicarlo por identidad, no
+      // por posición — sin este filtro, un contenedor con resize habilitado
+      // reconstruiría el orden contando CADA columna dos veces (el <th> del
+      // header y su <col> en <colgroup>).
+      const order = [...container.querySelectorAll("th[data-column-key]")].map(th => th.dataset.columnKey);
       const fromIdx = order.indexOf(dragged);
       if (fromIdx === -1) return;
       order.splice(fromIdx, 1);
@@ -824,6 +830,104 @@ function readStoredColumnOrder(key, validKeys) {
     const valid = parsed.filter(k => validKeys.includes(k));
     if (valid.length !== validKeys.length || new Set(valid).size !== valid.length) return null;
     return valid;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Redimensionado horizontal de columnas — MISMO idioma/alcance que
+// initDraggableColumns (arriba): genérico, opt-in por atributo, no sabe nada
+// de negocio. Cualquier contenedor [data-resizable-columns-key="algo"] con
+// headers <th data-column-key="..."> adentro queda redimensionable gratis —
+// el PRIMITIVO inyecta el handle (nunca el consumidor): el opt-in es un solo
+// atributo en el contenedor, sin markup extra por columna. Puede convivir en
+// el MISMO contenedor que data-draggable-columns-key (drag y resize son dos
+// capabilities independientes, cada tabla decide cuáles habilita) o vivir
+// solo.
+//
+// A propósito NO dispara un evento de "repintar" como el reorder: el ancho
+// se aplica en vivo directo sobre el <col> de esa columna (identificado por
+// `data-column-key`, nunca por posición/nth-child — evita que un reorder
+// previo deje el resize apuntando al <col> equivocado) — no hay <tbody> que
+// reconstruir para un cambio de ancho. Sólo persiste
+// (`dw-col-widths:<key>`, mismo namespace que dw-col-order) para que el
+// PRÓXIMO render completo —el caller arma su propio <colgroup>— lo lea con
+// `readStoredColumnWidths` y lo aplique como default.
+function initResizableColumns(scope) {
+  scope.querySelectorAll("[data-resizable-columns-key]").forEach(container => {
+    if (container.dataset.resizeColsWired) return;
+    container.dataset.resizeColsWired = "1";
+    const storageKey = `dw-col-widths:${container.dataset.resizableColumnsKey}`;
+    // `th[data-column-key]`: el handle es una decoración de HEADER, nunca de
+    // su <col> asociado en <colgroup> (que también lleva `data-column-key`,
+    // para que el resize lo ubique por identidad — ver el pointerdown de
+    // abajo). Un <col> ni siquiera puede recibir hijos de forma útil en un
+    // browser real; MISMO criterio que el filtro agregado en
+    // initDraggableColumns.
+    [...container.querySelectorAll("th[data-column-key]")].forEach(th => {
+      if (th.querySelector(":scope > .col-resize-handle")) return;
+      const handle = document.createElement("span");
+      handle.className = "col-resize-handle";
+      handle.setAttribute("aria-hidden", "true");
+      // `draggable="false"` explícito: el <th> ancestro puede tener
+      // draggable="true" (reorder, ver initDraggableColumns arriba) — sin
+      // esto, empezar a arrastrar DESDE el handle dispararía el dragstart
+      // nativo del <th> y arrancaría un reorder en vez de un resize. Esto
+      // es lo que hace que el browser NUNCA emita dragstart para un gesto
+      // iniciado acá — no una convención nuestra a mantener a mano.
+      handle.draggable = false;
+      // Frontera EXPLÍCITA (no un timing hack): un click que se origine en
+      // el handle nunca debe llegar al header (que puede tener su propio
+      // sort-on-click delegado en document) ni a ningún delegado de
+      // fila/acción más arriba.
+      handle.addEventListener("click", event => event.stopPropagation());
+      th.appendChild(handle);
+    });
+    let resizing = null;
+    container.addEventListener("pointerdown", event => {
+      const handle = event.target.closest(".col-resize-handle");
+      if (!handle || !container.contains(handle)) return;
+      const th = handle.closest("[data-column-key]");
+      if (!th) return;
+      const col = container.querySelector(`table > colgroup > col[data-column-key="${CSS.escape(th.dataset.columnKey)}"]`);
+      if (!col) return;
+      event.preventDefault();
+      event.stopPropagation();
+      resizing = { key: th.dataset.columnKey, startX: event.clientX, startWidth: th.getBoundingClientRect().width, col, handle };
+      handle.classList.add("is-resizing");
+      try { handle.setPointerCapture(event.pointerId); } catch (e) { /* browsers viejos: el drag sigue andando sin capture */ }
+    });
+    container.addEventListener("pointermove", event => {
+      if (!resizing) return;
+      const next = Math.max(60, Math.round(resizing.startWidth + (event.clientX - resizing.startX)));
+      resizing.col.style.width = `${next}px`;
+    });
+    const finish = () => {
+      if (!resizing) return;
+      const { key, col, handle } = resizing;
+      handle.classList.remove("is-resizing");
+      const stored = readStoredColumnWidths(container.dataset.resizableColumnsKey) || {};
+      stored[key] = col.style.width;
+      try { window.localStorage.setItem(storageKey, JSON.stringify(stored)); } catch (e) { /* privado/cuota: no persiste, no rompe */ }
+      container.dispatchEvent(new CustomEvent("dw:columns-resized", { detail: { key, width: col.style.width }, bubbles: true }));
+      resizing = null;
+    };
+    container.addEventListener("pointerup", finish);
+    container.addEventListener("pointercancel", finish);
+  });
+}
+// Lectura fail-closed de anchos guardados. A diferencia de
+// readStoredColumnOrder no hay un "catálogo completo" que exigir completo —
+// un ancho ausente para una key simplemente deja el default declarativo de
+// esa columna (ver caller); sólo se descarta la preferencia entera si el
+// storage está corrupto (no es un objeto plano).
+function readStoredColumnWidths(key) {
+  try {
+    const raw = window.localStorage.getItem(`dw-col-widths:${key}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed;
   } catch (e) {
     return null;
   }
