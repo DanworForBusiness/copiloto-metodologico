@@ -1061,13 +1061,29 @@ def test_commercial_local_css_does_not_duplicate_shared_hub_primitives():
 
 def test_commercial_charts_introduce_no_library_canvas_or_external_dependency():
     # Active Opportunities Phase 2 / C3/C5a (restore legacy funnel
-    # representation + 3-series simultáneas): el chart es 100% DOM puro
-    # (grouped bars, tres `<div>` por etapa) — cero SVG, cero canvas, cero
-    # librería. La versión anterior ("A'", barra + línea con puntos) usaba
-    # un SVG inline; se retiró junto con el resto de esa representación, no
-    # queda ningún SVG en el archivo.
-    for banned in ("<canvas", "<svg", "<polyline", "new Chart(", "Chart.js", "chart.js", "d3.", "import ", "require("):
+    # representation + 3-series simultáneas): el chart (commercialDistribucionHtml,
+    # grouped bars, tres `<div>` por etapa) es 100% DOM puro — cero SVG, cero
+    # canvas, cero librería. La versión anterior ("A'", barra + línea con
+    # puntos) usaba un SVG inline; se retiró junto con el resto de esa
+    # representación.
+    #
+    # `<canvas>`/dependencias de librería (`new Chart(`/`Chart.js`/`d3.`/
+    # `import `/`require(`) siguen prohibidas en TODO el archivo — Comercial
+    # no tiene ninguna dependencia de charting real y eso no cambia acá.
+    #
+    # `<svg`/`<polyline` se acotan al chart mismo (antes prohibidos en TODO
+    # el archivo porque en ese momento no había NINGÚN SVG — "no queda
+    # ninguno" describía el estado, no era la regla). Owner "Iconographic
+    # Table Actions" (ver HANDOFF) introdujo íconos SVG chicos, sin
+    # dependencia, para los botones de acción de Licencias — no son un chart
+    # ni una librería; el guardrail real que importa (nunca un SVG DENTRO del
+    # chart de Distribución por Etapa) se mantiene intacto.
+    for banned in ("<canvas", "new Chart(", "Chart.js", "chart.js", "d3.", "import ", "require("):
         assert banned not in _COMMERCIAL_JS, banned
+    chart_fn = _COMMERCIAL_JS.split("function commercialDistribucionHtml(", 1)[1] \
+        .split("\nfunction commercialForecastPeriodLabel(", 1)[0]
+    for banned in ("<svg", "<polyline"):
+        assert banned not in chart_fn, banned
 
 
 def test_grouped_bar_columns_are_the_sole_accessible_surface():

@@ -151,7 +151,12 @@ function montarFila(opp) {
   const html = commercialLicenciasCompactRowHtml(opp);
   const fila = nodo(atributosDe(html, "data-commercial-licencias-opportunity-row"), root);
   const celda = nodo({}, fila);              // una <td> cualquiera de la fila
-  const attrsBtn = atributosDe(html, "Ver detalle de licencias");
+  // Localizador por CLASE (owner "Iconographic Table Actions", ver HANDOFF):
+  // el botón ahora es un ícono, no texto — su `aria-label` cambia según el
+  // estado (habilitado dice "Ver detalle de licencias"; sin cuenta explica
+  // POR QUÉ está deshabilitado, un mensaje distinto y más útil, ver abajo).
+  // `table-action-btn` es la MARCA ESTABLE presente en las dos variantes.
+  const attrsBtn = atributosDe(html, "table-action-btn");
   const boton = nodo(attrsBtn, fila);
   return { html, fila, celda, boton };
 }
@@ -195,6 +200,8 @@ ok("disabled" in sinCuenta.boton.attrs,
    "F: sin cuenta comercial asociada el control queda deshabilitado");
 ok(!("data-commercial-licensing-account-row" in sinCuenta.boton.attrs),
    "F: y no se inyecta ninguna cuenta");
+ok(sinCuenta.boton.attrs["aria-label"] === "Esta oportunidad no tiene una cuenta comercial asociada",
+   "F: y su nombre accesible explica POR QUÉ, en vez de repetir la acción");
 commercialState.licensingDrilldownAccountId = null;
 click(sinCuenta.boton);
 eq(commercialState.licensingDrilldownAccountId, null, "F: clickearlo no abre ningún Perfil");
