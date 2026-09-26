@@ -40,6 +40,44 @@
 #hc-profiles-panel > * + *,
 #content > .hc-profile-form,
 #content > .hc-profile-documents { margin-top: 26px; }
+/* Encontrado en aceptación manual (UX homologation, margen superior):
+   `.hc-profile-form`/`.hc-profile-documents` YA tenían este margen (26px,
+   arriba) contra el divisor de `.module-hero` -- pero `#hc-profiles-panel`
+   (el listado) nunca lo tuvo: la regla de arriba sólo cubre gaps DENTRO
+   de `#hc-profiles-panel` (`> * + *`), nunca el gap ANTES de su primer
+   hijo. El resultado visible: labels "Buscar/Seniority/..." pegados
+   directo contra la línea divisoria, sin el mismo respiro que alta/
+   edición ya tenían. Mismo valor (24px, EXACTO al padding-bottom del
+   propio .module-hero de arriba) para simetría real arriba/abajo del
+   divisor en las tres pantallas -- listado, alta y edición ahora
+   consistentes entre sí. */
+.module-hero + #hc-profiles-panel { margin-top: 24px; }
+
+/* /cchh/catalogos: MISMO criterio de respiro post-divisor que arriba (24px)
+   -- acá el hero puede ir seguido de un callout de resultado, un
+   dashboard-empty de error/estado-vacío, o directo el form de refresh según
+   qué haya para mostrar; cubre las tres adyacencias posibles. `.callout`
+   YA trae `margin: 18px 0` propio (tools.css) -- sólo se pisa el top acá
+   para igualar el mismo respiro que el resto del Hub contra el divisor. */
+.module-hero + .callout { margin-top: 24px; }
+.module-hero + .dashboard-empty,
+.dashboard-empty + .catalog-refresh-form { margin-top: 24px; }
+.module-hero + .catalog-refresh-form { margin-top: 24px; }
+.catalog-refresh-form { margin-top: 20px; }
+/* Lista de errores de validación del refresh, DENTRO del dashboard-empty
+   centrado -- mismo registro tipográfico que `.dashboard-empty__hint`
+   (texto de apoyo, nunca el cuerpo principal), pero alineada a la
+   izquierda porque es una lista de items, no prosa centrada. */
+.catalog-validation-errors {
+  margin: 10px auto 0;
+  max-width: 480px;
+  padding-left: 20px;
+  text-align: left;
+  color: #55555c;
+  font-size: .78rem;
+  line-height: 1.6;
+}
+.content-theme-dark .catalog-validation-errors { color: #b2b2bc; }
 
 /* Toolbar de filtros (Buscar/Seniority/Fuente/Ubicación/Marca de potencial):
    el layout de flex-wrap ya existía (tools.css `.hc-profile-filters`) — acá
@@ -65,6 +103,15 @@
   padding: 6px; border: 1px solid rgba(128,128,128,.24); border-radius: 12px;
 }
 #hc-profiles-panel .dashboard-empty { margin: 0; }
+/* Encontrado en aceptación manual (UX homologation, scroll horizontal por
+   default): `table.dashboard-table th.row-label-col { width: 340px; }`
+   (tools.css) es un default pensado para tablas más anchas -- en el
+   contenido MÁS angosto de Capital Humano (con sidebar), 340px superaba
+   ampliamente el `<col style="width:22%">` real de esta tabla, y el
+   choque entre ambos anchos forzaba overflow horizontal aun con
+   table-layout:fixed. Reset scoped SOLO a esta tabla -- nunca tocar el
+   default compartido, que sigue sirviendo a otras tablas más anchas. */
+#hc-candidatos-table th.row-label-col { width: auto; }
 
 /* Cabecera de Base de CVs (h1+subtítulo a la izquierda, "Carga masiva" +
    "+ Cargar CV" a la derecha): MISMO layout que la app de referencia
@@ -130,14 +177,47 @@
 .hc-profile-form > .dashboard-empty,
 .hc-profile-form > .matrix-scroll,
 .hc-profile-form > p,
-.hc-profile-form > .hc-profile-form-notes,
+.hc-profile-form > .hc-profile-section,
 .hc-profile-form > button[type="submit"] { grid-column: 1 / -1; }
 .hc-profile-form > button[type="submit"] { justify-self: start; margin-top: 8px; }
-/* Notas: mismo rol que en la referencia (BancoCvForm.tsx) -- un bloque
-   propio, no una celda más de la grilla densa. Separador sutil arriba
-   para que se lea como su propia sección, pegado al submit. */
-.hc-profile-form-notes { margin-top: 10px; padding-top: 18px; border-top: 1px solid rgba(128,128,128,.24); }
+/* Notas: reusa `.hc-profile-form-notes` sólo para el tamaño del textarea --
+   el separador/bloque propio ahora lo da `.hc-profile-section` (ver abajo),
+   MISMA sección semántica que Datos del candidato/Clasificación/Potencial. */
 .hc-profile-form-notes textarea { min-height: 90px; }
+
+/* Secciones semánticas compartidas Alta/Edición (owner post-#104 acceptance:
+   "Datos del candidato / Clasificación / Notas / Potencial", MISMA
+   estructura que la app de referencia/legado) -- ver
+   partials/human_capital_profile_fields.html. `.hc-profile-form` sigue
+   siendo la MISMA grilla densa de siempre (también la reusa el form de
+   importación, sin secciones -- por eso esto no le cambia el display), cada
+   `.hc-profile-section` sólo ocupa el ancho completo de esa grilla (mismo
+   criterio que los demás elementos full-width de arriba) y arma su PROPIA
+   sub-grilla adentro para sus campos. */
+.hc-profile-section + .hc-profile-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid rgba(128,128,128,.24); }
+/* MISMO tamaño/peso que `.hc-profile-documents h2` (ver abajo) -- un solo
+   tamaño de heading de sección dentro de una tarjeta de Capital Humano,
+   nunca una escala nueva. */
+.hc-profile-section h2 { margin: 0 0 14px; font-size: 1.05rem; }
+.hc-profile-section__grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0 20px; align-items: start;
+}
+
+/* `.field-hint`/`.field-hint--warn` -- usadas por los forms de alta/edición
+   desde el merge de Seniority (CCHH Catalog Foundation) pero NUNCA
+   definidas: el párrafo del legacy marker rendeaba con el tamaño/color
+   default del navegador (encontrado en aceptación manual -- texto grande,
+   oscuro, ninguna jerarquía visual de "aclaración secundaria"). MISMO
+   tamaño/line-height que `.dashboard-empty__hint` (tools.css), nunca una
+   escala nueva -- `--warn` reusa el gold del Hub para algo que pide
+   atención (valor legacy fuera de catálogo / catálogo no disponible), sin
+   la carga semántica roja de un error real. */
+.field-hint { margin: 4px 0 0; color: #55555c; font-size: .78rem; line-height: 1.5; }
+.content-theme-dark .field-hint { color: #b2b2bc; }
+.field-hint--warn { color: #8a6300; }
+.content-theme-dark .field-hint--warn { color: #e7b008; }
+.field-hint a { color: inherit; text-decoration: underline; }
 
 /* Documentos del Profile (partials/human_capital_profile_documents_panel.html):
    MISMA tarjeta que Resultados, y el MISMO look de input/botón que el resto

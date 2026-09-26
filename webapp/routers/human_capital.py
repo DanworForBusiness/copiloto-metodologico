@@ -99,6 +99,8 @@ tal como estaba antes de esta fase (ver Phase 1 forensic, "no forzar un
 module ID solo por crear el workspace")."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -1032,25 +1034,50 @@ async def human_capital_profile_documents_delete(
 # ---------------------------------------------------------------------------
 # Catálogos gobernados CCHH (read-model materializado + refresh token-carrying)
 # ---------------------------------------------------------------------------
+_MESES_ES = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
+
+
+def _friendly_refreshed_at(iso_value: str | None) -> str | None:
+    """`meta.refreshed_at` es un ISO 8601 UTC crudo (`datetime.isoformat()`,
+    ver human_capital_catalog_repository.build_snapshot) -- owner post-#104
+    acceptance (item D: "friendly timestamp", "no raw schema v1 as primary
+    user information"): formateado acá, en el límite de presentación, nunca
+    en el repositorio (que sigue devolviendo el valor preciso/parseable)."""
+    if not iso_value:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso_value)
+    except ValueError:
+        return iso_value
+    return f"{dt.day} {_MESES_ES[dt.month - 1]} {dt.year}, {dt.strftime('%H:%M')} UTC"
+
+
+def _catalogos_context(request: Request, *, refresh_result: dict | None, refresh_error: dict | None) -> dict:
+    user = auth_service.session_user(request)
+    meta = human_capital_catalog_repository.snapshot_meta()
+    if meta:
+        meta = {**meta, "refreshed_at": _friendly_refreshed_at(meta.get("refreshed_at"))}
+    return {
+        "current_workspace": workspaces.HUMAN_CAPITAL,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack": DEFAULT_PACK,
+        "user": user,
+        "active_page": "catalogos",
+        "meta": meta,
+        "governed_catalog_labels": human_capital_catalog_repository.governed_catalog_labels(),
+        "refresh_result": refresh_result,
+        "refresh_error": refresh_error,
+    }
+
+
 @router.get("/cchh/catalogos", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_catalogos_page(request: Request):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    user = auth_service.session_user(request)
     return templates.TemplateResponse(
         request=request, name="human_capital/catalogos.html",
-        context={
-            "current_workspace": workspaces.HUMAN_CAPITAL,
-            "available_workspaces": workspaces.available_workspaces(user),
-            "pack": DEFAULT_PACK,
-            "user": user,
-            "active_page": "catalogos",
-            "meta": human_capital_catalog_repository.snapshot_meta(),
-            "governed_catalogs": human_capital_catalog_repository.GOVERNED_CATALOGS,
-            "refresh_result": None,
-            "refresh_error": None,
-        },
+        context=_catalogos_context(request, refresh_result=None, refresh_error=None),
     )
 
 
@@ -1062,31 +1089,45 @@ def human_capital_catalogos_refresh(request: Request, graph_token: str = Form(""
     user = auth_service.session_user(request)
     result = None
     error = None
-    try:
-        result = human_capital_catalog_repository.refresh_catalogs(
-            graph_token, refreshed_by=(user or {}).get("email", "") if isinstance(user, dict) else "",
-        )
-    except human_capital_catalog_repository.CatalogWorkbookError as exc:
-        error = {"kind": "validation", "message": "El workbook no pasó la validación.", "errors": exc.errors}
-    except human_capital_catalog_repository.CatalogConfigIncompleteError as exc:
-        error = {"kind": "config_incomplete", "message": str(exc), "errors": []}
-    except human_capital_catalog_repository.CatalogFetchError as exc:
-        error = {"kind": "fetch", "message": str(exc), "errors": []}
-    except human_capital_catalog_repository.CatalogRemoteOutcomeUnknownError as exc:
-        error = {"kind": "remote_outcome_unknown", "message": str(exc), "errors": []}
+    # Owner post-#104 acceptance (item E, taxonomía de Graph auth): un token
+    # vacío NUNCA debe intentar la llamada a Graph -- es la MISMA acción que
+    # un 401 (autorizar y reintentar), pero detectable sin round-trip.
+    if not graph_token:
+        error = {"kind": "auth_required", "message": "Necesitamos que autorices el acceso a Microsoft para leer el catálogo.", "errors": []}
+    else:
+        try:
+            result = human_capital_catalog_repository.refresh_catalogs(
+                graph_token, refreshed_by=(user or {}).get("email", "") if isinstance(user, dict) else "",
+            )
+            # Owner post-#104 acceptance (item D): "counts/status presented
+            # structurally" -- las keys de `counts` son identificadores
+            # internos (`GOVERNED_CATALOGS`, snake_case); acá se relabelan a
+            # negocio ANTES de llegar al template, MISMO criterio que
+            # `governed_catalog_labels`.
+            result = {
+                **result,
+                "counts": {
+                    human_capital_catalog_repository.CATALOG_LABELS.get(cat, cat): n
+                    for cat, n in result["counts"].items()
+                },
+            }
+        except human_capital_catalog_repository.CatalogWorkbookError as exc:
+            error = {"kind": "validation", "message": "El workbook no pasó la validación.", "errors": exc.errors}
+        except human_capital_catalog_repository.CatalogConfigIncompleteError as exc:
+            error = {"kind": "config_incomplete", "message": str(exc), "errors": []}
+        except human_capital_catalog_repository.CatalogAuthRequiredError as exc:
+            error = {"kind": "auth_required", "message": str(exc), "errors": []}
+        except human_capital_catalog_repository.CatalogForbiddenError as exc:
+            error = {"kind": "forbidden", "message": str(exc), "errors": []}
+        except human_capital_catalog_repository.CatalogNotFoundError as exc:
+            error = {"kind": "not_found", "message": str(exc), "errors": []}
+        except human_capital_catalog_repository.CatalogFetchError as exc:
+            error = {"kind": "fetch", "message": str(exc), "errors": []}
+        except human_capital_catalog_repository.CatalogRemoteOutcomeUnknownError as exc:
+            error = {"kind": "remote_outcome_unknown", "message": str(exc), "errors": []}
     return templates.TemplateResponse(
         request=request, name="human_capital/catalogos.html",
-        context={
-            "current_workspace": workspaces.HUMAN_CAPITAL,
-            "available_workspaces": workspaces.available_workspaces(user),
-            "pack": DEFAULT_PACK,
-            "user": user,
-            "active_page": "catalogos",
-            "meta": human_capital_catalog_repository.snapshot_meta(),
-            "governed_catalogs": human_capital_catalog_repository.GOVERNED_CATALOGS,
-            "refresh_result": result,
-            "refresh_error": error,
-        },
+        context=_catalogos_context(request, refresh_result=result, refresh_error=error),
     )
 
 
