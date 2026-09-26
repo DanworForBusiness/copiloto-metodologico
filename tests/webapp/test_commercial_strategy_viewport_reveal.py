@@ -311,4 +311,7 @@ def test_g_full_route_surface_unchanged_by_this_gate():
     # ver HANDOFF): +GET /comercial/data/licensing-account, consulta por id
     # del detalle de licenciamiento -- CERO rutas de Estrategia tocadas, este
     # gate sigue sin cambios propios.
-    assert len(snapshot) == 156
+    # 156 -> 158 (CCHH Catalog Foundation): +2 rutas gobernadas de catálogos
+    # (GET /cchh/catalogos, POST /cchh/catalogos/refresh) -- CERO rutas de
+    # Estrategia tocadas, este gate sigue sin cambios propios.
+    assert len(snapshot) == 158

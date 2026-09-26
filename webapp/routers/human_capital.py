@@ -105,7 +105,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
 from webapp.services import (
-    auth_service, human_capital_service, profile_document_repository, profile_document_service,
+    auth_service, human_capital_catalog_repository, human_capital_service,
+    profile_document_repository, profile_document_service,
     profile_document_validation, profile_import_service,
 )
 from webapp.services.human_capital_service import (
@@ -248,6 +249,9 @@ def _new_page_context(
         "duplicate_advisory": duplicate_advisory,
         "remote_outcome_unknown": remote_outcome_unknown,
         "valid_sources": human_capital_service.VALID_SOURCES,
+        # Alta: SOLO valores del catálogo activo, sin fallback a texto libre
+        # (CCHH Catalog Foundation §6).
+        "valid_seniority": human_capital_catalog_repository.catalog_values("seniority"),
     }
 
 
@@ -488,7 +492,28 @@ def _edit_page_context(
         "concurrent_modification": concurrent_modification,
         "remote_outcome_unknown": remote_outcome_unknown,
         "valid_sources": human_capital_service.VALID_SOURCES,
+        # Edición migration-safe (§6): el catálogo activo + si el valor actual
+        # quedó FUERA del catálogo (legacy), se preserva marcado y no se
+        # agrega al catálogo automáticamente.
+        "valid_seniority": _seniority_edit_options(form_values.get("seniority")),
+        "seniority_is_legacy": _is_legacy_seniority(form_values.get("seniority")),
     }
+
+
+def _is_legacy_seniority(value: str | None) -> bool:
+    v = (value or "").strip()
+    return bool(v) and v not in human_capital_catalog_repository.catalog_values("seniority")
+
+
+def _seniority_edit_options(value: str | None) -> list[str]:
+    """Catálogo activo, más el valor legacy actual (si está fuera de catálogo)
+    al frente, para que una edición no relacionada pueda re-seleccionarlo. NUNCA
+    se persiste esa inclusión en el catálogo — es solo la opción del <select>."""
+    active = human_capital_catalog_repository.catalog_values("seniority")
+    v = (value or "").strip()
+    if v and v not in active:
+        return [v, *active]
+    return active
 
 
 @router.get("/cchh/candidatos/{profile_id}/editar", response_class=HTMLResponse, include_in_schema=False)
@@ -1000,6 +1025,67 @@ async def human_capital_profile_documents_delete(
             request, profile_id, profile, document_state={"kind": "DELETE_OUTCOME_UNKNOWN", "message": str(exc)},
         )
     return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Catálogos gobernados CCHH (read-model materializado + refresh token-carrying)
+# ---------------------------------------------------------------------------
+@router.get("/cchh/catalogos", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_catalogos_page(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    return templates.TemplateResponse(
+        request=request, name="human_capital/catalogos.html",
+        context={
+            "current_workspace": workspaces.HUMAN_CAPITAL,
+            "available_workspaces": workspaces.available_workspaces(user),
+            "pack": DEFAULT_PACK,
+            "user": user,
+            "active_page": "catalogos",
+            "meta": human_capital_catalog_repository.snapshot_meta(),
+            "governed_catalogs": human_capital_catalog_repository.GOVERNED_CATALOGS,
+            "refresh_result": None,
+            "refresh_error": None,
+        },
+    )
+
+
+@router.post("/cchh/catalogos/refresh", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_catalogos_refresh(request: Request, graph_token: str = Form("")):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    result = None
+    error = None
+    try:
+        result = human_capital_catalog_repository.refresh_catalogs(
+            graph_token, refreshed_by=(user or {}).get("email", "") if isinstance(user, dict) else "",
+        )
+    except human_capital_catalog_repository.CatalogWorkbookError as exc:
+        error = {"kind": "validation", "message": "El workbook no pasó la validación.", "errors": exc.errors}
+    except human_capital_catalog_repository.CatalogConfigIncompleteError as exc:
+        error = {"kind": "config_incomplete", "message": str(exc), "errors": []}
+    except human_capital_catalog_repository.CatalogFetchError as exc:
+        error = {"kind": "fetch", "message": str(exc), "errors": []}
+    except human_capital_catalog_repository.CatalogRemoteOutcomeUnknownError as exc:
+        error = {"kind": "remote_outcome_unknown", "message": str(exc), "errors": []}
+    return templates.TemplateResponse(
+        request=request, name="human_capital/catalogos.html",
+        context={
+            "current_workspace": workspaces.HUMAN_CAPITAL,
+            "available_workspaces": workspaces.available_workspaces(user),
+            "pack": DEFAULT_PACK,
+            "user": user,
+            "active_page": "catalogos",
+            "meta": human_capital_catalog_repository.snapshot_meta(),
+            "governed_catalogs": human_capital_catalog_repository.GOVERNED_CATALOGS,
+            "refresh_result": result,
+            "refresh_error": error,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

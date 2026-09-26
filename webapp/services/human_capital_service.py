@@ -44,6 +44,7 @@ memoria la lista YA leída por el caller — nunca vuelve a tocar disco, y
 duplicados (nunca si `duplicate_confirmed=True`, ver abajo)."""
 from __future__ import annotations
 
+from webapp.services import human_capital_catalog_repository as catalog_repo
 from webapp.services import profile_repository
 from webapp.services.profile_repository import (  # re-exportados para el router
     ProfileConcurrentModificationError,
@@ -301,6 +302,33 @@ def validate_and_shape_fields(fields: dict) -> dict:
     }
 
 
+def _validate_seniority_governed(new_value: str | None, *, existing_value: str | None) -> None:
+    """Enforcement server-side del catálogo GOBERNADO de Seniority
+    (migration-safe, CCHH Catalog Foundation §6):
+      - CREATE (`existing_value is None`): `new_value` vacío es válido
+        (campo opcional); cualquier valor NO vacío DEBE pertenecer al
+        catálogo ACTIVO — sin fallback a texto libre aunque el snapshot no
+        esté disponible (en ese caso el único valor aceptable es vacío).
+      - EDIT (`existing_value` provisto): si `new_value == existing_value`
+        el valor legacy fuera-de-catálogo se PRESERVA (una edición no
+        relacionada sigue siendo posible); si CAMBIA, el nuevo valor debe
+        pertenecer al catálogo activo (o ser vacío).
+    Nunca agrega el valor legacy al catálogo automáticamente."""
+    if new_value is None:
+        return
+    if existing_value is not None and new_value == existing_value:
+        return  # legacy preservado (edición no relacionada)
+    active = catalog_repo.catalog_values("seniority")
+    if new_value in active:
+        return
+    if active:
+        raise ValueError(f"Seniority inválido. Elegí uno del catálogo vigente: {', '.join(active)}.")
+    raise ValueError(
+        "El catálogo de Seniority todavía no está disponible. Dejá el campo vacío "
+        "o refrescá el catálogo antes de asignar un valor."
+    )
+
+
 def create_profile(fields: dict, *, duplicate_confirmed: bool = False) -> dict:
     """Validación SIEMPRE corre primero — un chequeo de duplicados sobre un
     Profile todavía inválido no tendría sentido (Phase 3.2).
@@ -318,6 +346,7 @@ def create_profile(fields: dict, *, duplicate_confirmed: bool = False) -> dict:
     Devuelve el Profile YA persistido (incluye `profile_id`/`schema_version`/
     `revision`/`created_at`/`updated_at`, agregados por el repository)."""
     profile = validate_and_shape_fields(fields)
+    _validate_seniority_governed(profile.get("seniority"), existing_value=None)
     if not duplicate_confirmed:
         duplicate = find_duplicate(profile, profile_repository.list())
         if duplicate is not None:
@@ -353,6 +382,15 @@ def update_profile(
     propagar sin reinterpretar, MISMO criterio que `create_profile` con
     las suyas."""
     profile = validate_and_shape_fields(fields)
+    _existing = profile_repository.get(profile_id)
+    if _existing is not None:
+        # Si no existe, se deja que profile_repository.update levante NotFound
+        # (no enmascararlo con un error de seniority). El `or ""` normaliza el
+        # legacy ausente a "" para comparar contra el nuevo valor shapeado.
+        _validate_seniority_governed(
+            profile.get("seniority"),
+            existing_value=(_existing.get("seniority") or None),
+        )
     if not duplicate_confirmed:
         duplicate = find_duplicate(profile, profile_repository.list(), exclude_profile_id=profile_id)
         if duplicate is not None:
