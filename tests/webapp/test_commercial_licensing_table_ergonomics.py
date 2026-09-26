@@ -27,3 +27,26 @@ def test_commercial_licensing_table_ergonomics_invariants_hold():
     result = subprocess.run(["node", str(_HARNESS)], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, f"Commercial licensing table ergonomics failed:\n{result.stdout}\n{result.stderr}"
     assert "ALL COMMERCIAL LICENSING TABLE ERGONOMICS INVARIANTS PASSED" in result.stdout
+
+
+# ============================================================================
+# CCHH UX homologation -- shared drag-state CSS contract (tools.css), never
+# duplicated per vertical/table again. Text-level checks: no CSS engine
+# available in the node mini-sandbox above (see section I there for the
+# structural half of this same proof).
+# ============================================================================
+_TOOLS_CSS = Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css"
+_COMMERCIAL_CSS = Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css"
+
+
+def test_shared_drag_state_selector_lives_in_tools_css():
+    css = _TOOLS_CSS.read_text(encoding="utf-8")
+    assert '[data-draggable-columns-key] th[data-column-key][draggable="true"] {' in css
+    assert '[data-draggable-columns-key] th[data-column-key][draggable="true"].is-dragging {' in css
+    assert '[data-draggable-columns-key] th[data-column-key][draggable="true"].is-drop-target {' in css
+
+
+def test_commercial_css_no_longer_declares_the_superseded_vertical_rule():
+    css = _COMMERCIAL_CSS.read_text(encoding="utf-8")
+    assert "commercial-licprofile-th--draggable" not in css
+    assert "commercial-licencias-th--draggable" not in css

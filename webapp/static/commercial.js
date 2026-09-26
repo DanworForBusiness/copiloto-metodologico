@@ -3918,7 +3918,10 @@ function commercialLicenciasCompactTableHtml(rows, { sortKey, sortDir, emptyLabe
     const active = col.sortable && sortKey === col.key;
     const arrow = active ? (sortDir === 1 ? " ▲" : " ▼") : "";
     const sortAttr = col.sortable ? ` data-commercial-licencias-sort="${col.key}"` : "";
-    const classes = [col.sortable ? "dashboard-table-th--sortable" : "", "commercial-licencias-th--draggable", col.cls]
+    // Drag affordance/state (cursor/opacity/drop-target): generalizada a
+    // tools.css (CCHH UX homologation) por atributo estructural, ya no por
+    // una clase propia de esta tabla -- ver el comentario de esa regla.
+    const classes = [col.sortable ? "dashboard-table-th--sortable" : "", col.cls]
       .filter(Boolean).join(" ");
     return `<th class="${classes}" data-column-key="${col.key}" draggable="true"${sortAttr}>${commercialEsc(col.label)}${commercialEsc(arrow)}</th>`;
   };
@@ -4327,7 +4330,10 @@ function commercialLicensingProfileTableHtml(rows, mode = "main") {
     // (app.js) espera — MISMA convención que `data-commercial-licprofile-sort`
     // sigue siendo propia de ESTA tabla (el sort sí es lógica de negocio de
     // Comercial), pero el drag en sí no lo es.
-    const classes = [col.sortable ? "dashboard-table-th--sortable" : "", "commercial-licprofile-th--draggable", col.cls]
+    // Drag affordance/state (cursor/opacity/drop-target): generalizada a
+    // tools.css (CCHH UX homologation) por atributo estructural, ya no por
+    // una clase propia de esta tabla -- ver el comentario de esa regla.
+    const classes = [col.sortable ? "dashboard-table-th--sortable" : "", col.cls]
       .filter(Boolean).join(" ");
     return `<th class="${classes}" data-column-key="${col.key}" draggable="true"${sortAttr}>${commercialEsc(col.label)}${commercialEsc(arrow)}</th>`;
   };
