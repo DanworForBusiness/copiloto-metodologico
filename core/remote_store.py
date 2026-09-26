@@ -49,6 +49,16 @@ _restore_done = threading.Event()
 _restore_elapsed_ms: float | None = None
 
 
+class RemoteReadError(Exception):
+    """`read_object_bytes()` no pudo DETERMINAR el contenido remoto de una key
+    (cliente no inicializable, persistencia deshabilitada, o el GET falló por
+    un motivo que NO es "el objeto no existe"). Es el estado *irresoluble* de
+    la verificación por bytes: el llamador (p. ej. la máquina de estados del
+    refresh de catálogos CCHH) NO puede concluir si el objeto remoto es A, B
+    o ausente, y debe tratarlo como durabilidad no confirmada. Distinto de un
+    `None` de retorno, que significa EXACTAMENTE "el objeto no existe"."""
+
+
 def enabled() -> bool:
     return bool(config.PERSIST_ENABLED)
 
@@ -283,6 +293,61 @@ def push_path(local_path: str | Path) -> bool:
             )
         return True
     return False
+
+
+def read_object_bytes(local_path: str | Path) -> bytes | None:
+    """Lee del bucket los bytes EXACTOS del objeto correspondiente a `local_path`
+    (MISMO mapeo local→key que `push_path`). Es el primitivo de verificación
+    por contenido que la máquina de estados del refresh de catálogos CCHH usa
+    para desambiguar un `push_path()` que devolvió `False`.
+
+    Contrato de retorno (tres resultados, deliberadamente distintos):
+      - `bytes`         → el objeto EXISTE; se devuelven sus bytes tal cual (el
+                          llamador compara por igualdad de bytes EXACTA, nunca
+                          por ETag/tamaño — esos no son identidad de contenido).
+      - `None`          → el objeto NO existe (404 / NoSuchKey): ausencia
+                          confirmada, no un error.
+      - raise `RemoteReadError` → NO se pudo determinar (persistencia
+                          deshabilitada, path fuera de los directorios
+                          persistidos, cliente no inicializable, o un GET que
+                          falló por algo que no es "no existe"). Irresoluble.
+
+    Nunca escribe en disco ni toca el estado local (a diferencia de `restore()`);
+    es una lectura pura para verificación."""
+    if not enabled():
+        raise RemoteReadError("remote_store deshabilitado: no se puede leer el objeto remoto")
+    path = Path(local_path).resolve()
+    key: str | None = None
+    for name, local in _persist_dirs():
+        try:
+            rel = path.relative_to(local.resolve()).as_posix()
+        except ValueError:
+            continue
+        key = f"{_key(name)}/{rel}"
+        break
+    if key is None:
+        raise RemoteReadError(f"'{path}' no cae bajo ningún directorio persistido")
+    try:
+        client = _get_client()
+    except Exception as exc:  # noqa: BLE001 — cliente no inicializable = irresoluble
+        raise RemoteReadError(f"no se pudo inicializar el cliente S3: {exc}") from exc
+    try:
+        resp = client.get_object(Bucket=config.SPACES_BUCKET, Key=key)
+        return resp["Body"].read()
+    except Exception as exc:  # noqa: BLE001
+        # "No existe" es un resultado (None), no un error. Cualquier otra cosa
+        # es irresoluble. boto3/botocore no comparten una jerarquía común acá,
+        # así que se inspecciona el shape del error de forma defensiva.
+        code = ""
+        resp_meta = getattr(exc, "response", None)
+        if isinstance(resp_meta, dict):
+            code = str(resp_meta.get("Error", {}).get("Code", ""))
+        status = ""
+        if isinstance(resp_meta, dict):
+            status = str(resp_meta.get("ResponseMetadata", {}).get("HTTPStatusCode", ""))
+        if code in {"NoSuchKey", "404", "NotFound"} or status == "404" or exc.__class__.__name__ == "NoSuchKey":
+            return None
+        raise RemoteReadError(f"GET remoto de '{key}' falló de forma irresoluble: {exc}") from exc
 
 
 def delete_path(local_path: str | Path) -> bool:

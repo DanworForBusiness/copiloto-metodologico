@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 import config
 from webapp.main import app
 from webapp.services import auth_service, profile_repository
+from webapp.services import human_capital_catalog_repository as catalog_repo
 
 _TEMPLATES = Path(__file__).resolve().parents[2] / "webapp" / "templates"
 _ROUTERS = Path(__file__).resolve().parents[2] / "webapp" / "routers"
@@ -35,6 +36,19 @@ def _authorized_and_isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
+    # Este archivo predata el catálogo GOBERNADO de Seniority (CCHH Catalog
+    # Foundation §6): el alta ahora exige que el valor pertenezca al
+    # catálogo ACTIVO, sin fallback a texto libre. Se sembra acá (nivel
+    # fixture, una sola vez) el catálogo con los ÚNICOS valores que este
+    # archivo usa para CREAR perfiles -- "NoExiste" nunca se usa para crear,
+    # solo como filtro, así que no necesita estar en el catálogo.
+    snap = catalog_repo.build_snapshot(
+        {"seniority": [{"valor": "Junior", "orden": 1}, {"valor": "Senior", "orden": 2}]},
+        refreshed_by="test", source={"drive_id": "d", "item_id": "i"},
+    )
+    snapshot_path = catalog_repo.snapshot_path()
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot_path.write_bytes(catalog_repo._serialize(snap))
 
 
 def _client_as(email: str) -> TestClient:

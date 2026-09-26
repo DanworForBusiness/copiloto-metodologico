@@ -80,7 +80,15 @@
   </div>
   <div class="feedback-field">
     <label for="hc-seniority">Seniority</label>
-    <input id="hc-seniority" name="seniority" type="text" value="{{ form_values.seniority or '' }}">
+    {# Catálogo GOBERNADO (§6): en el alta SOLO valores del catálogo activo,
+       sin fallback a texto libre. Si el catálogo no está disponible todavía,
+       el <select> queda sin opciones y el campo se deja vacío. #}
+    <select id="hc-seniority" name="seniority">
+      <option value="" {% if not form_values.seniority %}selected{% endif %}>Sin especificar</option>
+      {% for opt in valid_seniority %}
+      <option value="{{ opt }}" {% if form_values.seniority == opt %}selected{% endif %}>{{ opt }}</option>
+      {% endfor %}
+    </select>
   </div>
   <div class="feedback-field">
     <label for="hc-source">Fuente</label>
