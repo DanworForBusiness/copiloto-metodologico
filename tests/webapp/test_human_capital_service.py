@@ -11,7 +11,13 @@ from __future__ import annotations
 import pytest
 
 from webapp.services import human_capital_service, profile_repository
+from webapp.services import human_capital_catalog_repository as catalog_repo
 from webapp.services.human_capital_service import ProfileDuplicateAdvisory
+
+# Fuente migró de VALID_SOURCES (hardcode) al catálogo GOBERNADO `fuente`
+# (CCHH Catalog Foundation §6) -- MISMOS 5 valores de siempre, ahora
+# sembrados como el catálogo activo en vez de una tupla fija en código.
+_VALID_SOURCES = ("LinkedIn", "Referido", "Hunting", "Flyer", "Otro")
 
 
 @pytest.fixture(autouse=True)
@@ -20,6 +26,13 @@ def _isolated_base_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
+    snap = catalog_repo.build_snapshot(
+        {"fuente": [{"valor": v, "orden": i + 1} for i, v in enumerate(_VALID_SOURCES)]},
+        refreshed_by="test", source={"drive_id": "d", "item_id": "i"},
+    )
+    p = catalog_repo.snapshot_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(catalog_repo._serialize(snap))
 
 
 # --- Delegación al repository -----------------------------------------------
@@ -69,7 +82,7 @@ def test_email_is_optional_and_not_used_as_identity():
 # --- source: mismo enum consistente en validación/persistencia (nunca el
 # mismatch legacy UI-acepta/DB-rechaza "Flyer") -----------------------------
 
-@pytest.mark.parametrize("source", human_capital_service.VALID_SOURCES)
+@pytest.mark.parametrize("source", _VALID_SOURCES)
 def test_every_valid_source_is_accepted_including_flyer(source):
     saved = human_capital_service.create_profile({"first_name": "A", "last_name": "B", "source": source})
     assert saved["source"] == source

@@ -36,14 +36,18 @@ def _authorized_and_isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
-    # Este archivo predata el catálogo GOBERNADO de Seniority (CCHH Catalog
-    # Foundation §6): el alta ahora exige que el valor pertenezca al
-    # catálogo ACTIVO, sin fallback a texto libre. Se sembra acá (nivel
-    # fixture, una sola vez) el catálogo con los ÚNICOS valores que este
-    # archivo usa para CREAR perfiles -- "NoExiste" nunca se usa para crear,
-    # solo como filtro, así que no necesita estar en el catálogo.
+    # Este archivo predata los catálogos GOBERNADOS de Seniority y Fuente
+    # (CCHH Catalog Foundation §6): el alta ahora exige que ambos valores
+    # pertenezcan al catálogo ACTIVO, sin fallback a texto libre. Se sembra
+    # acá (nivel fixture, una sola vez) con los ÚNICOS valores que este
+    # archivo usa para CREAR perfiles -- "NoExiste"/"Portal de empleo" nunca
+    # se usan para crear con éxito (son los casos de rechazo), solo para
+    # filtrar o probar el ValueError, así que no necesitan estar en catálogo.
     snap = catalog_repo.build_snapshot(
-        {"seniority": [{"valor": "Junior", "orden": 1}, {"valor": "Senior", "orden": 2}]},
+        {
+            "seniority": [{"valor": "Junior", "orden": 1}, {"valor": "Senior", "orden": 2}],
+            "fuente": [{"valor": "LinkedIn", "orden": 1}, {"valor": "Referido", "orden": 2}],
+        },
         refreshed_by="test", source={"drive_id": "d", "item_id": "i"},
     )
     snapshot_path = catalog_repo.snapshot_path()

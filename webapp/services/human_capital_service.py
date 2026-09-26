@@ -53,15 +53,15 @@ from webapp.services.profile_repository import (  # re-exportados para el router
     ProfileNotFoundError,
     ProfileRemoteOutcomeUnknownError,
     ProfileStorageError,
-    VALID_SOURCES,
 )
 
 __all__ = [
     "ProfileConcurrentModificationError", "ProfileConfigIncompleteError",
     "ProfileDuplicateAdvisory", "ProfileIdConflictError", "ProfileNotFoundError",
-    "ProfileRemoteOutcomeUnknownError", "ProfileStorageError", "VALID_SOURCES",
+    "ProfileRemoteOutcomeUnknownError", "ProfileStorageError",
     "list_profiles", "get_profile", "create_profile", "update_profile", "filter_profiles",
     "validate_and_shape_fields", "find_duplicate", "create_profile_for_import",
+    "validate_source_for_import",
 ]
 
 _REQUIRED_FIELDS = ("first_name", "last_name")
@@ -145,11 +145,11 @@ def _matches_structured_filters(profile: dict, query: dict) -> bool:
     en `query` no restringe nada (passthrough para ese campo).
 
     `seniority`/`source`/`potential_mark`: EXACT match normalizado — son
-    filtros de faceta/categoría (§5). `source` ya tiene un enum
-    server-side (`VALID_SOURCES`); `seniority`/`potential_mark` no lo
-    tienen todavía, pero interpretamos "filtro estructurado" igual de
-    literal para los tres, exact match sobre lo que sea que esté
-    guardado.
+    filtros de faceta/categoría (§5). `seniority`/`source` ya tienen un
+    catálogo GOBERNADO server-side (CCHH Catalog Foundation §6);
+    `potential_mark` no lo tiene todavía, pero interpretamos "filtro
+    estructurado" igual de literal para los tres, exact match sobre lo
+    que sea que esté guardado.
 
     `location` es la ÚNICA excepción: CONTAINS, no exact match (Phase 3.2
     §5, decisión explícita) — es texto libre real, tipeado a mano sin
@@ -258,10 +258,15 @@ def validate_and_shape_fields(fields: dict) -> dict:
       - falta `first_name`/`last_name` (§3, únicos campos requeridos —
         `email` sigue siendo opcional, nunca se usa como identidad, ver
         Phase 2 §5/§8);
-      - `source` viene con un valor fuera de `VALID_SOURCES` (nunca el
-        mismatch UI-acepta/persistencia-rechaza del legacy — Phase 2 §5/§6);
       - `potential_rating` no es un entero 1-5 (MISMO rango que el CHECK
         legacy `banco_cvs.potencial_estrellas`, ver Phase 2 §5).
+
+    `seniority`/`source` NO se validan acá (CCHH Catalog Foundation §6):
+    son catálogos GOBERNADOS con contrato migration-safe CREATE/EDIT
+    distinto (ver `_validate_seniority_governed`/`_validate_source_governed`,
+    llamadas solo desde `create_profile`/`update_profile`, nunca desde acá
+    -- esta función también la usa el import masivo, que deliberadamente
+    NO gobierna ninguno de los dos, mismo criterio para ambos campos).
 
     Devuelve el dict de campos de NEGOCIO ya shapeado (sin `profile_id`/
     `schema_version`/`revision`/timestamps — esos son responsabilidad
@@ -272,8 +277,6 @@ def validate_and_shape_fields(fields: dict) -> dict:
         raise ValueError("Completá nombre y apellido.")
 
     source = (fields.get("source") or "").strip() or None
-    if source is not None and source not in profile_repository.VALID_SOURCES:
-        raise ValueError(f"Fuente inválida. Elegí una de: {', '.join(profile_repository.VALID_SOURCES)}.")
 
     potential_rating_raw = (fields.get("potential_rating") or "").strip()
     potential_rating: int | None = None
@@ -302,9 +305,11 @@ def validate_and_shape_fields(fields: dict) -> dict:
     }
 
 
-def _validate_seniority_governed(new_value: str | None, *, existing_value: str | None) -> None:
-    """Enforcement server-side del catálogo GOBERNADO de Seniority
-    (migration-safe, CCHH Catalog Foundation §6):
+def _is_governed_value_allowed(catalog_name: str, new_value: str | None, *, existing_value: str | None) -> bool:
+    """Lógica COMPARTIDA migration-safe (CCHH Catalog Foundation §6) detrás
+    de todo catálogo gobernado -- Seniority y Fuente aplican EXACTAMENTE el
+    mismo contrato, sólo cambia el catálogo consultado y el mensaje que cada
+    caller arma con el resultado:
       - CREATE (`existing_value is None`): `new_value` vacío es válido
         (campo opcional); cualquier valor NO vacío DEBE pertenecer al
         catálogo ACTIVO — sin fallback a texto libre aunque el snapshot no
@@ -315,18 +320,51 @@ def _validate_seniority_governed(new_value: str | None, *, existing_value: str |
         pertenecer al catálogo activo (o ser vacío).
     Nunca agrega el valor legacy al catálogo automáticamente."""
     if new_value is None:
-        return
+        return True
     if existing_value is not None and new_value == existing_value:
-        return  # legacy preservado (edición no relacionada)
-    active = catalog_repo.catalog_values("seniority")
-    if new_value in active:
+        return True  # legacy preservado (edición no relacionada)
+    return new_value in catalog_repo.catalog_values(catalog_name)
+
+
+def _validate_seniority_governed(new_value: str | None, *, existing_value: str | None) -> None:
+    if _is_governed_value_allowed("seniority", new_value, existing_value=existing_value):
         return
+    active = catalog_repo.catalog_values("seniority")
     if active:
         raise ValueError(f"Seniority inválido. Elegí uno del catálogo vigente: {', '.join(active)}.")
     raise ValueError(
         "El catálogo de Seniority todavía no está disponible. Dejá el campo vacío "
         "o refrescá el catálogo antes de asignar un valor."
     )
+
+
+def _validate_source_governed(new_value: str | None, *, existing_value: str | None) -> None:
+    if _is_governed_value_allowed("fuente", new_value, existing_value=existing_value):
+        return
+    active = catalog_repo.catalog_values("fuente")
+    if active:
+        raise ValueError(f"Fuente inválida. Elegí una del catálogo vigente: {', '.join(active)}.")
+    raise ValueError(
+        "El catálogo de Fuente todavía no está disponible. Dejá el campo vacío "
+        "o refrescá el catálogo antes de asignar un valor."
+    )
+
+
+def validate_source_for_import(source: str | None) -> None:
+    """Import masivo (Phase 3.8 §8: "sin validador bulk paralelo", ver
+    `profile_import_service.py`, único caller) NO pasa por `create_profile`
+    y por lo tanto nunca corre `_validate_source_governed` -- pero ANTES de
+    este catálogo, `validate_and_shape_fields` (compartida con import) SÍ
+    rechazaba una fuente fuera de `VALID_SOURCES` (Legacy Profile Contract,
+    Phase 2 §5/§6). Preservar ese comportamiento (CCHH Catalog Foundation,
+    residual decision de Fuente: "no cambiar semántica todavía" del import)
+    exige la MISMA regla que CREATE -- nunca la escapatoria migration-safe
+    de EDIT, que no aplica acá: una fila de import es SIEMPRE un alta
+    nueva, nunca tiene un valor legacy previo que preservar. MISMA
+    autoridad que create/edit (el catálogo `fuente`), nunca una lista
+    propia -- por eso esto delega en `_validate_source_governed` en vez de
+    reimplementar la regla."""
+    _validate_source_governed(source, existing_value=None)
 
 
 def create_profile(fields: dict, *, duplicate_confirmed: bool = False) -> dict:
@@ -347,6 +385,7 @@ def create_profile(fields: dict, *, duplicate_confirmed: bool = False) -> dict:
     `revision`/`created_at`/`updated_at`, agregados por el repository)."""
     profile = validate_and_shape_fields(fields)
     _validate_seniority_governed(profile.get("seniority"), existing_value=None)
+    _validate_source_governed(profile.get("source"), existing_value=None)
     if not duplicate_confirmed:
         duplicate = find_duplicate(profile, profile_repository.list())
         if duplicate is not None:
@@ -385,11 +424,15 @@ def update_profile(
     _existing = profile_repository.get(profile_id)
     if _existing is not None:
         # Si no existe, se deja que profile_repository.update levante NotFound
-        # (no enmascararlo con un error de seniority). El `or ""` normaliza el
+        # (no enmascararlo con un error de catálogo). El `or ""` normaliza el
         # legacy ausente a "" para comparar contra el nuevo valor shapeado.
         _validate_seniority_governed(
             profile.get("seniority"),
             existing_value=(_existing.get("seniority") or None),
+        )
+        _validate_source_governed(
+            profile.get("source"),
+            existing_value=(_existing.get("source") or None),
         )
     if not duplicate_confirmed:
         duplicate = find_duplicate(profile, profile_repository.list(), exclude_profile_id=profile_id)
