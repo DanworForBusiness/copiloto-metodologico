@@ -14,8 +14,10 @@ Arquitectura (aprobada por el owner — "Architecture C"):
   - Las páginas SSR leen SOLO el snapshot (tokenless). Spaces/local es
     materialización técnica, nunca el SoR.
 
-Identidad canónica del workbook = `drive_id` + `item_id` (el path es solo
-discovery/configuración descriptiva).
+Identidad canónica del workbook = `HC_SHAREPOINT_DRIVE_ID` (MISMO drive que
+el resto de Capital Humano, ver config.py -- nunca una segunda variable de
+drive redundante) + `HC_CATALOG_ITEM_ID`. `CATALOG_WORKBOOK_PATH` (abajo)
+es solo discovery/documentación humana, nunca identidad de runtime.
 
 Durabilidad del refresh (máquina de estados aprobada — reusa el idioma de
 `profile_repository`: A en memoria, escritura atómica de B, `push_path`, y
@@ -64,6 +66,10 @@ GOVERNED_CATALOGS: tuple[str, ...] = (
 )
 
 # --- Contrato del workbook --------------------------------------------------
+# Discovery/documentación humana de dónde vive el archivo -- NUNCA usada
+# para resolver rutas en runtime (MISMO criterio que HC_CV_ROOT_PATH en
+# config.py). La identidad real es HC_SHAREPOINT_DRIVE_ID+HC_CATALOG_ITEM_ID.
+CATALOG_WORKBOOK_PATH = "CCHH HUB/Configuracion/Catalogos_CCHH.xlsx"
 TABLE_NAME = "tblCatalogosCCHH"
 HEADERS: tuple[str, ...] = ("catalogo", "valor", "activo", "orden")
 _ACTIVO_TRUE = {"si", "sí", "true", "1", "x", "yes", "verdadero"}
@@ -95,7 +101,7 @@ class CatalogRemoteOutcomeUnknownError(Exception):
 
 
 class CatalogConfigIncompleteError(Exception):
-    """La identidad del workbook (`HC_CATALOG_DRIVE_ID`+`HC_CATALOG_ITEM_ID`)
+    """La identidad del workbook (`HC_SHAREPOINT_DRIVE_ID`+`HC_CATALOG_ITEM_ID`)
     no está configurada en este entorno — no se puede hacer el refresh."""
 
 
@@ -379,14 +385,17 @@ def self_compensate(final: Path, previous: bytes | None) -> str:
 
 
 def workbook_source() -> dict:
-    """Identidad canónica del workbook (drive_id+item_id); el path es solo
-    diagnóstico. Levanta `CatalogConfigIncompleteError` si falta la identidad."""
-    drive_id = (config.HC_CATALOG_DRIVE_ID or "").strip()
+    """Identidad canónica del workbook (drive_id+item_id) -- reusa
+    `HC_SHAREPOINT_DRIVE_ID` (MISMO drive que el resto de Capital Humano,
+    ver config.py), nunca una segunda variable de drive redundante.
+    `CATALOG_WORKBOOK_PATH` es solo diagnóstico/discovery, nunca identidad.
+    Levanta `CatalogConfigIncompleteError` si falta la identidad."""
+    drive_id = (config.HC_SHAREPOINT_DRIVE_ID or "").strip()
     item_id = (config.HC_CATALOG_ITEM_ID or "").strip()
     if not (drive_id and item_id):
         raise CatalogConfigIncompleteError(
             "El catálogo de CCHH no está configurado en este entorno "
-            "(faltan HC_CATALOG_DRIVE_ID / HC_CATALOG_ITEM_ID)."
+            "(faltan HC_SHAREPOINT_DRIVE_ID / HC_CATALOG_ITEM_ID)."
         )
     return {"drive_id": drive_id, "item_id": item_id}
 

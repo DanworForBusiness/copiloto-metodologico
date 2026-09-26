@@ -248,14 +248,19 @@ HC_CV_ROOT_ITEM_ID     = _env("HC_CV_ROOT_ITEM_ID", "")
 # available") — solo referencia humana de dónde vive HC_CV_ROOT_ITEM_ID.
 HC_CV_ROOT_PATH         = _env("HC_CV_ROOT_PATH", "")
 # CCHH Catalog Foundation: identidad del workbook de catálogos gobernados
-# (`Catalogos_CCHH.xlsx`). La IDENTIDAD canónica es `drive_id`+`item_id`
-# (estables), NUNCA el path — que es solo discovery/diagnóstico humano de
-# dónde vive el archivo. El refresh es un READ de Graph: usa el token de
-# LECTURA del Hub (User.Read/Sites.Read.All), nunca el scope de escritura
-# documental (HC_DOCUMENT_WRITE_SCOPE).
-HC_CATALOG_DRIVE_ID     = _env("HC_CATALOG_DRIVE_ID", "")
+# (`Catalogos_CCHH.xlsx`). Vive en el MISMO site/drive que el resto de
+# Capital Humano (`HC_SHAREPOINT_SITE_ID`/`HC_SHAREPOINT_DRIVE_ID`, arriba)
+# -- gobernanza de config corrective: NUNCA declarar una segunda variable
+# de drive redundante para un recurso que ya vive en un drive conocido. La
+# IDENTIDAD canónica del workbook es `HC_SHAREPOINT_DRIVE_ID`+
+# `HC_CATALOG_ITEM_ID` (estables), NUNCA un path -- la ruta humana
+# (`CCHH HUB/Configuracion/Catalogos_CCHH.xlsx`) es una constante de
+# discovery/documentación (`CATALOG_WORKBOOK_PATH`, ver
+# human_capital_catalog_repository.py), nunca config de runtime. El
+# refresh es un READ de Graph: usa el token de LECTURA del Hub
+# (User.Read/Sites.Read.All), nunca el scope de escritura documental
+# (HC_DOCUMENT_WRITE_SCOPE).
 HC_CATALOG_ITEM_ID      = _env("HC_CATALOG_ITEM_ID", "")
-HC_CATALOG_PATH         = _env("HC_CATALOG_PATH", "")  # diagnóstico, no identidad
 # Fase 4.1.1 corrective (§5): el scope Selected de Graph que la acción de
 # escritura de documentos de Capital Humano pide ADEMÁS de
 # BASE_GRAPH_SCOPES (User.Read/Sites.Read.All, sin cambios para el resto
