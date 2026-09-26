@@ -52,12 +52,18 @@
 <form id="hc-profile-form" class="hc-profile-form" method="post" action="/cchh/candidatos/nuevo" enctype="multipart/form-data" data-hc-profile-new-form>
   <input type="hidden" name="graph_token" value="">
   {% if error %}<p class="feedback-error">{{ error }}</p>{% endif %}
-  <div class="feedback-field">
-    <label for="hc-new-cv-file">CV</label>
-    <input id="hc-new-cv-file" name="file" type="file" accept=".pdf,.doc,.docx">
-    <p class="dashboard-empty__hint">Adjuntar archivo — PDF, DOC o DOCX, máx. 10 MB.</p>
-  </div>
-  {{ profile_fields("hc", form_values, valid_seniority, valid_sources) }}
+  {#- CV (sólo alta): se inyecta DENTRO de "Datos del candidato" vía la macro
+     (owner post-#105). El markup vive acá —el <form> es su dueño—, la macro
+     sólo decide la ubicación. Reusa el estilo existente `.hc-profile-form
+     input[type="file"]`; sin primitivo visual nuevo. -#}
+  {% set cv_html %}
+      <div class="feedback-field">
+        <label for="hc-new-cv-file">CV</label>
+        <input id="hc-new-cv-file" name="file" type="file" accept=".pdf,.doc,.docx">
+        <p class="dashboard-empty__hint">Adjuntar archivo — PDF, DOC o DOCX, máx. 10 MB.</p>
+      </div>
+  {% endset %}
+  {{ profile_fields("hc", form_values, valid_seniority, valid_sources, cv_html=cv_html) }}
   {% if duplicate_advisory %}
   <div class="callout callout--punch" data-advisory-kind="possible_duplicate">
     <div class="callout__head">

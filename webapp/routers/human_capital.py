@@ -198,6 +198,11 @@ def _profiles_panel_context(*, query: dict | None = None) -> dict:
         "source_error": source_error,
         "config_incomplete": False,
         "valid_sources": human_capital_catalog_repository.catalog_values("fuente"),
+        # Filtro de Seniority gobernado (owner UX parity slice 2, B3): mismas
+        # opciones activas del catálogo que ofrece el alta. El template preserva
+        # un valor de query fuera de catálogo (legacy) como opción seleccionada
+        # para que el filtro siga round-tripeando.
+        "valid_seniority": human_capital_catalog_repository.catalog_values("seniority"),
         "query": query or {},
     }
 

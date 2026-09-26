@@ -19,7 +19,12 @@
      - ids: alta pasa `id_prefix="hc"`, edición `id_prefix="hc-edit"` --
        evita colisión de ids si alguna vez ambos formularios coexistieran
        en el mismo documento (hoy no coexisten, pero es gratis preservarlo). #}
-{% macro profile_fields(id_prefix, form_values, valid_seniority, valid_sources, seniority_is_legacy=false, source_is_legacy=false) %}
+{% macro profile_fields(id_prefix, form_values, valid_seniority, valid_sources, seniority_is_legacy=false, source_is_legacy=false, cv_html="") %}
+  {#- `cv_html` (sólo alta): markup del campo CV que el caller inyecta DENTRO
+     de "Datos del candidato" (owner post-#105: el CV va dentro de esa sección,
+     no en un bloque suelto arriba). Edición lo omite -> "" -> Documentos sigue
+     en su panel propio, NUNCA acá. El markup lo sigue armando el <form> del
+     alta (id/name/accept/hint), la macro sólo define DÓNDE se ubica. -#}
   <section class="hc-profile-section">
     <h2>Datos del candidato</h2>
     <div class="hc-profile-section__grid">
@@ -47,6 +52,7 @@
         <label for="{{ id_prefix }}-location">Ubicación</label>
         <input id="{{ id_prefix }}-location" name="location" type="text" value="{{ form_values.location or '' }}" placeholder="Ciudad, país">
       </div>
+      {{ cv_html | safe }}
     </div>
   </section>
 
