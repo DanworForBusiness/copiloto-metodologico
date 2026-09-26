@@ -72,27 +72,48 @@
     <p>No se encontraron candidatos para los filtros seleccionados.</p>
   </div>
   {% else %}
-  <div class="matrix-scroll">
-    <table class="dashboard-table">
+  {# Reorder + resize (CCHH UX homologation): MISMO primitivo compartido que
+     Comercial (initDraggableColumns/initResizableColumns, app.js) -- esta
+     tabla es SSR/estática (Jinja puro, sin renderer cliente), así que a
+     diferencia de Comercial (que reconstruye el <thead>/<tbody> completo
+     desde un array cuando el orden cambia) el "adapter" de abajo sólo
+     MUEVE los nodos DOM ya renderizados a la posición guardada -- nunca
+     un render function nuevo que mire commercial.js. `cchh-candidatos` es
+     un namespace propio: independiente de cualquier key de Comercial. #}
+  <div class="matrix-scroll" data-draggable-columns-key="cchh-candidatos" data-resizable-columns-key="cchh-candidatos">
+    <table class="dashboard-table" id="hc-candidatos-table">
+      <colgroup>
+        <col data-column-key="nombre">
+        <col data-column-key="skills">
+        <col data-column-key="seniority">
+        <col data-column-key="ubicacion">
+        <col data-column-key="fuente">
+        <col>
+      </colgroup>
       <thead>
         <tr>
-          <th class="row-label-col">Nombre completo</th>
-          <th>Perfil / Skills</th>
-          <th>Seniority</th>
-          <th>Ubicación</th>
-          <th>Fuente</th>
+          <th class="row-label-col" data-column-key="nombre" draggable="true">Nombre completo</th>
+          <th data-column-key="skills" draggable="true">Perfil / Skills</th>
+          <th data-column-key="seniority" draggable="true">Seniority</th>
+          <th data-column-key="ubicacion" draggable="true">Ubicación</th>
+          <th data-column-key="fuente" draggable="true">Fuente</th>
           <th>Acciones</th>
         </tr>
       </thead>
       <tbody>
         {% for profile in profiles %}
         <tr>
-          <td class="row-label">{{ profile.first_name }} {{ profile.last_name }}</td>
-          <td>{{ profile.profile_skills or "—" }}</td>
-          <td>{{ profile.seniority or "—" }}</td>
-          <td>{{ profile.location or "—" }}</td>
-          <td>{{ profile.source or "—" }}</td>
-          <td><a href="/cchh/candidatos/{{ profile.profile_id }}/editar">Editar</a></td>
+          <td class="row-label" data-column-key="nombre">{{ profile.first_name }} {{ profile.last_name }}</td>
+          <td data-column-key="skills">{{ profile.profile_skills or "—" }}</td>
+          <td data-column-key="seniority">{{ profile.seniority or "—" }}</td>
+          <td data-column-key="ubicacion">{{ profile.location or "—" }}</td>
+          <td data-column-key="fuente">{{ profile.source or "—" }}</td>
+          <td>
+            <a href="/cchh/candidatos/{{ profile.profile_id }}/editar" class="table-action-btn chart-tooltip-anchor" aria-label="Editar candidato">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              <span class="chart-tooltip" aria-hidden="true"><p>Editar candidato</p></span>
+            </a>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -100,3 +121,74 @@
   </div>
   {% endif %}
 </div>
+<script>
+(function () {
+  // Adapter CCHH (ver comentario arriba del <div class="matrix-scroll">):
+  // aplica el orden/anchos YA guardados sobre el DOM ya renderizado por el
+  // server -- nunca reconstruye filas desde un modelo de datos. Se corre
+  // en la carga inicial Y después de cada swap de HTMX de este mismo panel
+  // (el filtro/búsqueda reemplaza #hc-profiles-panel entero, así que este
+  // <script> -incluido en el fragmento- vuelve a ejecutar cada vez).
+  function applyStoredColumnOrder(container) {
+    if (typeof readStoredColumnOrder !== "function") return;
+    const orderKey = container.dataset.draggableColumnsKey;
+    if (!orderKey) return;
+    const headerRow = container.querySelector("table > thead > tr");
+    if (!headerRow) return;
+    const validKeys = [...headerRow.querySelectorAll("th[data-column-key]")].map(th => th.dataset.columnKey);
+    if (!validKeys.length) return;
+    const order = readStoredColumnOrder(orderKey, validKeys);
+    if (!order) return; // sin preferencia (o inválida) -> el orden default del SSR queda tal cual
+    container.querySelectorAll("tr").forEach(function (row) {
+      // 1) mueve cada celda reordenable a la posición guardada, en secuencia.
+      order.forEach(function (key) {
+        const cell = row.querySelector('[data-column-key="' + key + '"]');
+        if (cell) row.appendChild(cell);
+      });
+      // 2) "Acciones" (y cualquier otra celda sin data-column-key) NUNCA
+      //    entra al array reordenable -- se re-empuja al final SIEMPRE,
+      //    mismo criterio que la celda de acción fija de Comercial. Sin
+      //    este segundo paso, el paso 1 la dejaría PRIMERA (nunca se la
+      //    tocó, así que quedó relativamente antes que las que sí se
+      //    movieron al fondo).
+      [...row.children].filter(function (cell) { return !cell.dataset.columnKey; })
+        .forEach(function (cell) { row.appendChild(cell); });
+    });
+  }
+  function applyStoredColumnWidths(container) {
+    if (typeof readStoredColumnWidths !== "function") return;
+    const widthsKey = container.dataset.resizableColumnsKey;
+    if (!widthsKey) return;
+    const stored = readStoredColumnWidths(widthsKey);
+    if (!stored) return;
+    container.querySelectorAll("table > colgroup > col[data-column-key]").forEach(function (col) {
+      const width = stored[col.dataset.columnKey];
+      if (width) col.style.width = width;
+    });
+  }
+  // Seam de test (MISMO criterio que window.dwGraphToken/etc en hub_auth.js:
+  // expuesto para observabilidad real de runtime, no para uso productivo
+  // desde otro script) -- human_capital_candidates_table_ergonomics.node.js
+  // ejecuta este <script> contra un mini-DOM y llama estas dos funciones
+  // directamente para probar el adapter sin simular drag/pointer events.
+  window.__cchhCandidatesTableAdapter = { applyStoredColumnOrder: applyStoredColumnOrder, applyStoredColumnWidths: applyStoredColumnWidths };
+  function wire() {
+    document.querySelectorAll("[data-draggable-columns-key='cchh-candidatos']").forEach(function (container) {
+      applyStoredColumnOrder(container);
+      applyStoredColumnWidths(container);
+      if (typeof initDraggableColumns === "function") initDraggableColumns(container);
+      if (typeof initResizableColumns === "function") initResizableColumns(container);
+      if (container.dataset.cchhReorderListenerWired) return;
+      container.dataset.cchhReorderListenerWired = "1";
+      // Un reorder ya persistió (initDraggableColumns lo hace) -- este
+      // listener sólo aplica el nuevo orden al DOM que YA existe, nunca
+      // reconstruye nada.
+      container.addEventListener("dw:columns-reordered", function () { applyStoredColumnOrder(container); });
+    });
+  }
+  wire();
+  document.body.addEventListener("htmx:afterSwap", function (event) {
+    if (event.detail.target && event.detail.target.id === "hc-profiles-panel") wire();
+  });
+})();
+</script>

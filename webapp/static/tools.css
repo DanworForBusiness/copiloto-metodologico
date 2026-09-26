@@ -1379,6 +1379,25 @@ table.dashboard-table tr.depth-2 td.row-label { font-weight: 400; color: #55555c
 [data-column-key] { position: relative; }
 .col-resize-handle { position: absolute; top: 0; right: -4px; bottom: 0; width: 8px; cursor: col-resize; touch-action: none; z-index: 1; }
 .col-resize-handle:hover, .col-resize-handle.is-resizing { background: var(--gold); opacity: .4; }
+
+/* Reorder — MISMO primitivo compartido (initDraggableColumns, app.js),
+   opt-in vía [data-draggable-columns-key]. Selector DELIBERADAMENTE
+   acotado a la forma exacta que el primitivo espera (nunca un
+   `[data-column-key]` bare, que también matchea <col> -- ver el comentario
+   de initDraggableColumns sobre por qué el reorder sólo opera sobre
+   `th[data-column-key]`) -- CCHH UX homologation, config governance
+   corrective: esto vivía DUPLICADO por vertical/tabla
+   (`.commercial-licprofile-th--draggable`, commercial.css), con la tabla
+   de Oportunidades usando su propia clase (`commercial-licencias-th--
+   draggable`) SIN ningún CSS propio -- arrastrable pero sin ningún
+   affordance visual. Generalizado acá una sola vez, gratis para
+   cualquier tabla (Comercial u otro vertical) que ya declare estos
+   atributos estructurales -- nunca una clase nueva por consumidor. */
+[data-draggable-columns-key] th[data-column-key][draggable="true"] { cursor: grab; user-select: none; }
+[data-draggable-columns-key] th[data-column-key][draggable="true"].is-dragging { opacity: .45; cursor: grabbing; }
+[data-draggable-columns-key] th[data-column-key][draggable="true"].is-drop-target {
+  box-shadow: inset 2px 0 0 var(--gold), inset -2px 0 0 var(--gold);
+}
 /* Toggle/indent de expansión — SIEMPRE dentro de la columna descriptiva
    (nunca desplaza columnas numéricas); ancho de indent por profundidad se
    fija inline por JS (`style="width:${depth*20}px"`), el primitivo solo

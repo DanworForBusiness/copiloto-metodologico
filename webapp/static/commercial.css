@@ -985,13 +985,9 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
    separarla visualmente de la tabla principal que la precede. */
 .commercial-licensing-secondary { margin-top: 18px; }
 
-/* §9/§10: drag horizontal de headers del Perfil — MISMOS valores visuales
-   que `.dashboard-section.is-dragging`/`.is-drop-target` (tools.css),
-   aplicados acá a `<th>` en vez de a `<details>` (consumidor nuevo, mismo
-   lenguaje). `cursor: grab` en el estado de reposo señaliza que el header
-   es arrastrable sin necesitar un ícono propio. */
-.commercial-licprofile-th--draggable { cursor: grab; user-select: none; }
-.commercial-licprofile-th--draggable.is-dragging { opacity: .45; cursor: grabbing; }
-.commercial-licprofile-th--draggable.is-drop-target {
-  box-shadow: inset 2px 0 0 var(--gold), inset -2px 0 0 var(--gold);
-}
+/* §9/§10: drag horizontal de headers del Perfil -- el estado visual
+   (cursor/opacity/drop-target) se generalizó a tools.css (CCHH UX
+   homologation, ver ese archivo) como `[data-draggable-columns-key]
+   th[data-column-key][draggable="true"]` -- MISMOS elementos exactos
+   que esta clase marcaba, sin necesitar un nombre por vertical/tabla.
+   Nada que declarar acá. */

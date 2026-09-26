@@ -193,6 +193,43 @@ function resetPrefs() { storedOrder = null; storedWidths = null; }
   ok(!html.includes('data-commercial-licencias-sort="tags"'), "H: 'Etiqueta' sigue sin atributo de sort (reorder != sortable)");
 }
 
+// ── I: AMBAS tablas quedan estructuralmente alcanzadas por el contrato de
+//     CSS compartido de drag-state (CCHH UX homologation) -- el selector
+//     genérico en tools.css es
+//     `[data-draggable-columns-key] th[data-column-key][draggable="true"]`.
+//     Nunca se puede ejecutar CSS real acá (mini-sandbox sin motor de
+//     estilos), así que la prueba es estructural: el contenedor declara
+//     `data-draggable-columns-key` Y cada `<th>` reordenable declara
+//     `data-column-key` + `draggable="true"` -- exactamente lo que ese
+//     selector matchea. Antes de este ticket, Oportunidades usaba su
+//     propia clase (`commercial-licencias-th--draggable`) SIN ningún CSS
+//     propio -- arrastrable pero sin affordance visual. Ahora ninguna de
+//     las dos tablas depende de una clase por vertical para el estado
+//     visual: se confirma acá que esas clases quedaron REMOVIDAS del
+//     markup (código muerto que ya no hacía falta mantener).
+{
+  resetPrefs();
+  const html = commercialLicensingProfileTableHtml([PROFILE_ACCOUNT()]);
+  ok(html.includes('data-draggable-columns-key="commercial-licprofile"'),
+    "I (Perfil): el contenedor declara data-draggable-columns-key");
+  COMMERCIAL_LICENSING_PROFILE_COLUMN_KEYS.forEach(key => {
+    ok(html.includes(`data-column-key="${key}" draggable="true"`),
+      `I (Perfil): th[data-column-key="${key}"][draggable="true"] -- matcheado por el selector compartido`);
+  });
+  ok(!html.includes("commercial-licprofile-th--draggable"),
+    "I (Perfil): la clase vertical-específica ya removida, el estado visual es 100% del selector compartido");
+
+  const htmlOpp = commercialLicenciasTableHtml([OPP_ROW()], { sortKey: "", sortDir: 1, emptyLabel: "" });
+  ok(htmlOpp.includes('data-draggable-columns-key="commercial-oportunidades-licencias"'),
+    "I (Oportunidades): el contenedor declara data-draggable-columns-key");
+  COMMERCIAL_LICENCIAS_COMPACT_COLUMN_KEYS.forEach(key => {
+    ok(htmlOpp.includes(`data-column-key="${key}" draggable="true"`),
+      `I (Oportunidades): th[data-column-key="${key}"][draggable="true"] -- matcheado por el selector compartido`);
+  });
+  ok(!htmlOpp.includes("commercial-licencias-th--draggable"),
+    "I (Oportunidades): la clase vertical-específica (que nunca tuvo CSS propio) también removida");
+}
+
 if (failures > 0) {
   console.log(`${failures} Commercial licensing table ergonomics invariant(s) FAILED`);
   process.exit(1);
