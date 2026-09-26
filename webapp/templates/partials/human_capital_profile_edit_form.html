@@ -63,7 +63,7 @@
        actual quedó FUERA del catálogo (legacy), se preserva como opción
        marcada — una edición no relacionada puede re-seleccionarlo, pero
        cambiarlo exige un valor del catálogo. Nunca se agrega al catálogo. #}
-    <select id="hc-edit-seniority" name="seniority">
+    <select id="hc-edit-seniority" name="seniority" {% if seniority_catalog_unavailable %}disabled{% endif %}>
       <option value="" {% if not form_values.seniority %}selected{% endif %}>Sin especificar</option>
       {% for opt in valid_seniority %}
       <option value="{{ opt }}" {% if form_values.seniority == opt %}selected{% endif %}>
@@ -73,6 +73,8 @@
     </select>
     {% if seniority_is_legacy %}
     <p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>
+    {% elif seniority_catalog_unavailable %}
+    <p class="field-hint field-hint--warn">Catálogo no disponible todavía. Actualizalo desde <a href="/cchh/catalogos">Catálogos</a> antes de asignar un valor.</p>
     {% endif %}
   </div>
   <div class="feedback-field">
@@ -81,7 +83,7 @@
        actual quedó FUERA del catálogo (legacy), se preserva como opción
        marcada — una edición no relacionada puede re-seleccionarlo, pero
        cambiarlo exige un valor del catálogo. Nunca se agrega al catálogo. #}
-    <select id="hc-edit-source" name="source">
+    <select id="hc-edit-source" name="source" {% if source_catalog_unavailable %}disabled{% endif %}>
       <option value="" {% if not form_values.source %}selected{% endif %}>Sin especificar</option>
       {% for opt in valid_sources %}
       <option value="{{ opt }}" {% if form_values.source == opt %}selected{% endif %}>
@@ -91,6 +93,8 @@
     </select>
     {% if source_is_legacy %}
     <p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>
+    {% elif source_catalog_unavailable %}
+    <p class="field-hint field-hint--warn">Catálogo no disponible todavía. Actualizalo desde <a href="/cchh/catalogos">Catálogos</a> antes de asignar un valor.</p>
     {% endif %}
   </div>
   <div class="feedback-field">

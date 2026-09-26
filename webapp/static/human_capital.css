@@ -58,6 +58,19 @@
   height: 38px; padding: 0 16px; border-radius: 8px;
 }
 
+/* `.field-hint`/`.field-hint--warn` -- referenciadas por los forms de alta/
+   edición desde el merge original de Seniority (CCHH Catalog Foundation)
+   pero NUNCA definidas: el párrafo del legacy marker rendeaba sin estilo
+   propio. MISMO tamaño/line-height que `.dashboard-empty__hint` (tools.css),
+   nunca una escala nueva -- `--warn` reusa el gold del Hub para algo que
+   pide atención (valor legacy fuera de catálogo / catálogo no disponible),
+   sin la carga semántica roja de un error real. */
+.field-hint { margin: 4px 0 0; color: #55555c; font-size: .78rem; line-height: 1.5; }
+.content-theme-dark .field-hint { color: #b2b2bc; }
+.field-hint--warn { color: #8a6300; }
+.content-theme-dark .field-hint--warn { color: #e7b008; }
+.field-hint a { color: inherit; text-decoration: underline; }
+
 /* Resultados: tarjeta propia (MISMO borde redondeado que .dashboard-section,
    sin reimplementarlo) alrededor de la tabla ya compartida
    (.dashboard-table/.matrix-scroll, tools.css — sin cambios ahí). */

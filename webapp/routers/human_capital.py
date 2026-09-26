@@ -241,6 +241,8 @@ def _new_page_context(
     `remote_outcome_unknown` (ni el push inicial ni un reintento explícito
     confirmaron). Nunca dos de estos superpuestos en el mismo render —
     MISMO contrato exacto, ver el POST handler de abajo."""
+    valid_sources = human_capital_catalog_repository.catalog_values("fuente")
+    valid_seniority = human_capital_catalog_repository.catalog_values("seniority")
     return {
         "form_values": form_values,
         "error": error,
@@ -250,8 +252,16 @@ def _new_page_context(
         "remote_outcome_unknown": remote_outcome_unknown,
         # Alta: SOLO valores del catálogo activo, sin fallback a texto libre
         # (CCHH Catalog Foundation §6) -- MISMO criterio para ambos campos.
-        "valid_sources": human_capital_catalog_repository.catalog_values("fuente"),
-        "valid_seniority": human_capital_catalog_repository.catalog_values("seniority"),
+        "valid_sources": valid_sources,
+        "valid_seniority": valid_seniority,
+        # Owner corrective (manual acceptance, "Seniority sin valores
+        # reales"): sin esto, un catálogo sin snapshot materializado (o con
+        # cero valores active) rendea un <select> indistinguible de uno
+        # funcionando pero vacío -- nunca asumir que "sin opciones" implica
+        # "sin candidatos con ese valor". Un `<select disabled>` + mensaje
+        # explícito hacen la distinción visible.
+        "source_catalog_unavailable": not valid_sources,
+        "seniority_catalog_unavailable": not valid_seniority,
     }
 
 
@@ -498,6 +508,13 @@ def _edit_page_context(
         "seniority_is_legacy": _is_legacy_governed_value("seniority", form_values.get("seniority")),
         "valid_sources": _governed_edit_options("fuente", form_values.get("source")),
         "source_is_legacy": _is_legacy_governed_value("fuente", form_values.get("source")),
+        # "No disponible" explícito (owner corrective) SOLO cuando no hay
+        # NADA para ofrecer -- ni catálogo activo ni un legacy pinneado. Si
+        # hay un legacy preservado, el <select> sigue habilitado con ESA
+        # única opción (nunca deshabilitado: el contrato migration-safe
+        # exige poder guardar sin tocar ese campo).
+        "seniority_catalog_unavailable": not _governed_edit_options("seniority", form_values.get("seniority")),
+        "source_catalog_unavailable": not _governed_edit_options("fuente", form_values.get("source")),
     }
 
 
