@@ -31,7 +31,18 @@
     </div>
     <div class="feedback-field">
       <label for="hc-filter-seniority">Seniority</label>
-      <input id="hc-filter-seniority" name="seniority" type="text" value="{{ query.seniority or '' }}">
+      {# Filtro gobernado por catálogo (B3): opciones activas + "Todas". Si el
+         filtro guardado quedó con un valor legacy fuera de catálogo, se
+         preserva como opción seleccionada para que el filtro siga funcionando. #}
+      <select id="hc-filter-seniority" name="seniority">
+        <option value="" {% if not query.seniority %}selected{% endif %}>Todas</option>
+        {% if query.seniority and query.seniority not in valid_seniority %}
+        <option value="{{ query.seniority }}" selected>{{ query.seniority }} (fuera de catálogo)</option>
+        {% endif %}
+        {% for opt in valid_seniority %}
+        <option value="{{ opt }}" {% if query.seniority == opt %}selected{% endif %}>{{ opt }}</option>
+        {% endfor %}
+      </select>
     </div>
     <div class="feedback-field">
       <label for="hc-filter-source">Fuente</label>
@@ -72,6 +83,10 @@
     <p>No se encontraron candidatos para los filtros seleccionados.</p>
   </div>
   {% else %}
+  {# Result count (owner UX parity slice 2, B2): dato de dominio ya disponible
+     (`profiles | length`), MISMO registro que la app de referencia (Base de
+     CVs muestra el conteo). Sólo cuando hay resultados. #}
+  <p class="hc-results-count">{{ profiles | length }} candidato{{ '' if profiles | length == 1 else 's' }}</p>
   {# Reorder + resize (CCHH UX homologation): MISMO primitivo compartido que
      Comercial (initDraggableColumns/initResizableColumns, app.js) -- esta
      tabla es SSR/estática (Jinja puro, sin renderer cliente), así que a
@@ -102,22 +117,22 @@
       <thead>
         <tr>
           <th class="row-label-col" data-column-key="nombre" draggable="true">Nombre completo</th>
-          <th data-column-key="skills" draggable="true">Perfil / Skills</th>
-          <th data-column-key="seniority" draggable="true">Seniority</th>
-          <th data-column-key="ubicacion" draggable="true">Ubicación</th>
-          <th data-column-key="fuente" draggable="true">Fuente</th>
-          <th>Acciones</th>
+          <th class="left" data-column-key="skills" draggable="true">Perfil / Skills</th>
+          <th class="left" data-column-key="seniority" draggable="true">Seniority</th>
+          <th class="left" data-column-key="ubicacion" draggable="true">Ubicación</th>
+          <th class="left" data-column-key="fuente" draggable="true">Fuente</th>
+          <th class="center">Acciones</th>
         </tr>
       </thead>
       <tbody>
         {% for profile in profiles %}
         <tr>
-          <td class="row-label" data-column-key="nombre">{{ profile.first_name }} {{ profile.last_name }}</td>
-          <td data-column-key="skills">{{ profile.profile_skills or "—" }}</td>
-          <td data-column-key="seniority">{{ profile.seniority or "—" }}</td>
-          <td data-column-key="ubicacion">{{ profile.location or "—" }}</td>
-          <td data-column-key="fuente">{{ profile.source or "—" }}</td>
-          <td>
+          <td class="row-label" data-column-key="nombre">{{ profile.first_name }} {{ profile.last_name }}{% if profile.potential_mark %} <span class="status-badge status-badge--potential" title="Marca de potencial">{{ profile.potential_mark }}</span>{% endif %}</td>
+          <td class="left" data-column-key="skills">{{ profile.profile_skills or "—" }}</td>
+          <td class="left" data-column-key="seniority">{{ profile.seniority or "—" }}</td>
+          <td class="left" data-column-key="ubicacion">{{ profile.location or "—" }}</td>
+          <td class="left" data-column-key="fuente">{{ profile.source or "—" }}</td>
+          <td class="center">
             <a href="/cchh/candidatos/{{ profile.profile_id }}/editar" class="table-action-btn chart-tooltip-anchor" aria-label="Editar candidato">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
               <span class="chart-tooltip" aria-hidden="true"><p>Editar candidato</p></span>

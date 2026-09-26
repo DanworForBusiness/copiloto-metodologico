@@ -1354,6 +1354,12 @@ table.dashboard-table td.row-label-col {
    88px — el badge necesita más espacio que un número de 3-4 dígitos). */
 table.dashboard-table th.dashboard-table-col--status { text-align: right; width: 112px; }
 table.dashboard-table td.dashboard-table-cell--status { text-align: right; }
+/* Alineación SEMÁNTICA `center` para columnas de acción (íconos), completando
+   el contrato del primitivo (default=right numérico, `.left`=texto,
+   `.center`=acciones). Por CLASE, nunca por posición: una tabla reordenable
+   (CCHH Candidatos) mueve los <td>/<th> con su clase, así que la alineación
+   viaja con la columna y un reorder nunca la altera. */
+table.dashboard-table th.center, table.dashboard-table td.center { text-align: center; }
 /* Columna categórica COMPACTA (Q1, owner live QA — Rentabilidad/Certificadas
    vs Ejecutadas, Detalle por proyecto): Tipo y Proyecto son ambas `.left`
    (texto), pero sin distinción de rol se reparten el espacio remanente EN

@@ -113,6 +113,26 @@
    default compartido, que sigue sirviendo a otras tablas más anchas. */
 #hc-candidatos-table th.row-label-col { width: auto; }
 
+/* Badge de Marca de potencial JUNTO a la identidad del candidato (owner UX
+   parity slice 2, B4): reusa el primitivo compartido `.status-badge`
+   (tools.css) con el tono NEUTRAL existente (gris, mismo que `--otro`/
+   `--inactivo`). `marca_potencial` es texto libre sin validación y puede
+   contener semánticas OPUESTAS (p. ej. "Terna futura" favorable vs "No
+   reconsiderar" desfavorable), así que NO se codifica con un color positivo:
+   el coloreo semántico se DIFIERE (owner). No es star-rating ni columna
+   nueva; sólo muestra el `marca_potencial` YA existente al lado del nombre.
+   `text-transform:none` para que el texto libre se lea tal cual se cargó. */
+.status-badge--potential {
+  margin-left: 6px; color: #7a7a82; border-color: rgba(128,128,128,.32);
+  text-transform: none; letter-spacing: 0;
+}
+.content-theme-dark .status-badge--potential { color: #9a9aa2; }
+
+/* Conteo de resultados de Base de CVs (B2): línea de apoyo discreta sobre la
+   tabla, mismo registro tipográfico que el resto de texto secundario. */
+.hc-results-count { margin: 0 0 8px; color: #7a7a82; font: 600 .7rem var(--mono); }
+.content-theme-dark .hc-results-count { color: #9a9aa2; }
+
 /* Cabecera de Base de CVs (h1+subtítulo a la izquierda, "Carga masiva" +
    "+ Cargar CV" a la derecha): MISMO layout que la app de referencia
    (app-seleccion, /banco-cvs — flex justify-between con los dos CTA
