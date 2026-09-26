@@ -24,7 +24,7 @@
        falla), copy distinto aclarando que es por los filtros --
        distinguibles en tests vía `data-empty-kind`. #}
 <div id="hc-profiles-panel">
-  <form class="hc-profile-filters" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML">
+  <form class="hc-profile-filters filter-toolbar-card" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML">
     <div class="feedback-field">
       <label for="hc-search-q">Buscar</label>
       <input id="hc-search-q" name="q" type="text" value="{{ query.q or '' }}" placeholder="Nombre, email, skills, ubicación...">
@@ -82,13 +82,22 @@
      un namespace propio: independiente de cualquier key de Comercial. #}
   <div class="matrix-scroll" data-draggable-columns-key="cchh-candidatos" data-resizable-columns-key="cchh-candidatos">
     <table class="dashboard-table" id="hc-candidatos-table">
+      {# Anchos default explícitos por columna (MISMO criterio que Comercial:
+         `%` para las columnas de negocio, `px` fijo para Acciones) -- sin
+         esto, `table-layout:fixed` (ya activo en .dashboard-table) no tiene
+         ninguna pista de ancho por columna y termina distribuyendo mal
+         (encontrado en aceptación manual: Acciones sola pedía 121px por
+         una sola línea de ícono, forzando scroll horizontal en desktop
+         normal). readStoredColumnWidths pisa esto EN VIVO si hay una
+         preferencia guardada -- este es sólo el default de la primera
+         carga, nunca un tope. #}
       <colgroup>
-        <col data-column-key="nombre">
-        <col data-column-key="skills">
-        <col data-column-key="seniority">
-        <col data-column-key="ubicacion">
-        <col data-column-key="fuente">
-        <col>
+        <col data-column-key="nombre" style="width:22%">
+        <col data-column-key="skills" style="width:28%">
+        <col data-column-key="seniority" style="width:12%">
+        <col data-column-key="ubicacion" style="width:18%">
+        <col data-column-key="fuente" style="width:14%">
+        <col style="width:48px">
       </colgroup>
       <thead>
         <tr>
@@ -176,8 +185,16 @@
     document.querySelectorAll("[data-draggable-columns-key='cchh-candidatos']").forEach(function (container) {
       applyStoredColumnOrder(container);
       applyStoredColumnWidths(container);
-      if (typeof initDraggableColumns === "function") initDraggableColumns(container);
-      if (typeof initResizableColumns === "function") initResizableColumns(container);
+      // BUG real encontrado en aceptación manual: `initDraggableColumns`/
+      // `initResizableColumns` buscan `[data-draggable-columns-key]` como
+      // DESCENDIENTE del scope que reciben (`scope.querySelectorAll(...)`)
+      // -- nunca matchean el propio scope. Pasarles `container` (que ES el
+      // elemento con el atributo, no un ancestro) hacía que no encontraran
+      // nada y quedaran sin cablear, sin ningún error visible. MISMO
+      // criterio que Comercial (`initDraggableColumns(document)` en
+      // commercial.js) -- pasar `document` acá también.
+      if (typeof initDraggableColumns === "function") initDraggableColumns(document);
+      if (typeof initResizableColumns === "function") initResizableColumns(document);
       if (container.dataset.cchhReorderListenerWired) return;
       container.dataset.cchhReorderListenerWired = "1";
       // Un reorder ya persistió (initDraggableColumns lo hace) -- este
@@ -186,7 +203,23 @@
       container.addEventListener("dw:columns-reordered", function () { applyStoredColumnOrder(container); });
     });
   }
-  wire();
+  // BUG real encontrado en aceptación manual: `app.js` (dueño de
+  // initDraggableColumns/initResizableColumns) se carga vía <script src>
+  // plano al FINAL de <body> (ver base.html) -- este <script> inline, en
+  // cambio, vive DENTRO del contenido de <main> y corre en cuanto el parser
+  // lo alcanza, ANTES de que app.js exista todavía. `wire()` llamado acá
+  // directo silenciosamente nunca llamaba a initDraggableColumns/
+  // initResizableColumns (typeof-check simplemente los veía "undefined",
+  // sin error visible) -- reorder/resize quedaban con el listener nunca
+  // cableado. Fix: esperar a que el documento (y por lo tanto TODOS los
+  // <script> síncronos que lo preceden, incluido app.js) termine de
+  // cargar antes del primer wire() -- MISMO check de guardia por si este
+  // script se inyectara después de que el evento ya disparó.
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", wire);
+  } else {
+    wire();
+  }
   document.body.addEventListener("htmx:afterSwap", function (event) {
     if (event.detail.target && event.detail.target.id === "hc-profiles-panel") wire();
   });

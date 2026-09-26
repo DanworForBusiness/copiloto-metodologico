@@ -46,6 +46,7 @@ import logging
 import os
 import tempfile
 import threading
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -106,7 +107,48 @@ class CatalogConfigIncompleteError(Exception):
 
 
 class CatalogFetchError(Exception):
-    """El READ de Graph del workbook falló (token/permiso/red/archivo)."""
+    """El READ de Graph del workbook falló por transporte/causa no
+    clasificada (nunca 401/403/404 -- esos tienen su propia excepción,
+    abajo, porque cada uno pide una UX distinta)."""
+
+
+# Taxonomía de fallas de Graph (owner post-#104 acceptance, item E): 401 y
+# 403 NUNCA colapsan al mismo estado -- un 401 lo resuelve reautenticar
+# (`dwGraphReauthenticate()`, MISMO patrón que Reporting), un 403 NO (la
+# cuenta ya está autenticada pero sin permiso sobre el ítem de SharePoint;
+# ofrecer "reintentar autenticación" ahí sería un callejón sin salida). Un
+# token VACÍO (nunca se llegó a llamar a Graph) usa el MISMO kind que 401
+# porque para el usuario es la MISMA acción -- autorizar y reintentar.
+class CatalogAuthRequiredError(Exception):
+    """Token vacío o Graph devolvió 401 -- reautenticar resolvería esto."""
+
+
+class CatalogForbiddenError(Exception):
+    """Graph devolvió 403 -- autenticado, pero sin permiso sobre el
+    workbook. Reautenticar NO lo arregla; hace falta que alguien con acceso
+    conceda permiso sobre el ítem en SharePoint."""
+
+
+class CatalogNotFoundError(Exception):
+    """Graph devolvió 404 -- el workbook no existe en la ubicación
+    (`HC_SHAREPOINT_DRIVE_ID`+`HC_CATALOG_ITEM_ID`) configurada."""
+
+
+# Etiquetas de negocio para los 5 catálogos gobernados (owner post-#104
+# acceptance, item D: "business labels rather than identifiers") -- SOLO
+# presentación; `GOVERNED_CATALOGS` (arriba) sigue siendo la identidad real
+# usada para leer/validar/persistir, esto nunca se usa como key de nada.
+CATALOG_LABELS: dict[str, str] = {
+    "seniority": "Seniority",
+    "fuente": "Fuente",
+    "canal_publicacion": "Canal de publicación",
+    "area_consultora": "Área consultora",
+    "modalidad_contratacion": "Modalidad de contratación",
+}
+
+
+def governed_catalog_labels() -> list[str]:
+    return [CATALOG_LABELS.get(key, key) for key in GOVERNED_CATALOGS]
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +445,15 @@ def workbook_source() -> dict:
 def fetch_workbook_bytes(graph_token: str) -> bytes:
     """READ de Graph del workbook por identidad estable (drive_id+item_id) —
     usa el token de LECTURA del Hub (User.Read/Sites.Read.All), NUNCA el scope
-    de escritura documental. Devuelve los bytes crudos del .xlsx."""
+    de escritura documental. Devuelve los bytes crudos del .xlsx.
+
+    Owner post-#104 acceptance (item E): un `HTTPError` de Graph se clasifica
+    por `.code` ANTES de normalizar -- 401/403/404 tienen cada uno su propia
+    excepción/UX (ver arriba), nunca colapsados al `CatalogFetchError`
+    genérico de antes (que descartaba el código y sólo mostraba
+    `type(exc).__name__`, indistinguible de un token vencido a un 500 de
+    Graph). El cuerpo crudo de la respuesta NUNCA se expone al usuario -- ni
+    acá ni en el caller."""
     src = workbook_source()
     url = (
         f"https://graph.microsoft.com/v1.0/drives/{src['drive_id']}"
@@ -411,7 +461,19 @@ def fetch_workbook_bytes(graph_token: str) -> bytes:
     )
     try:
         return microsoft365.graph_get_bytes(url, graph_token)
-    except Exception as exc:  # noqa: BLE001 — normalizar el error de urllib para el caller
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            raise CatalogAuthRequiredError("Tu sesión de datos con Microsoft venció.") from exc
+        if exc.code == 403:
+            raise CatalogForbiddenError(
+                "Tu cuenta no tiene permiso para leer el catálogo de CCHH en SharePoint."
+            ) from exc
+        if exc.code == 404:
+            raise CatalogNotFoundError(
+                "No encontramos el workbook de catálogos en la ubicación configurada."
+            ) from exc
+        raise CatalogFetchError(f"No pudimos leer el workbook de catálogos (HTTP {exc.code}).") from exc
+    except Exception as exc:  # noqa: BLE001 — transporte/lo que sea, normalizado para el caller
         raise CatalogFetchError(f"No pudimos leer el workbook de catálogos: {type(exc).__name__}.") from exc
 
 
@@ -419,6 +481,7 @@ def refresh_catalogs(graph_token: str, *, refreshed_by: str) -> dict:
     """Flujo de refresh end-to-end (trigger token-carrying): resuelve identidad
     → READ de Graph → parse+validación FAIL-CLOSED → snapshot → persistencia
     durable. Propaga `CatalogConfigIncompleteError`/`CatalogFetchError`/
+    `CatalogAuthRequiredError`/`CatalogForbiddenError`/`CatalogNotFoundError`/
     `CatalogWorkbookError`/`CatalogRemoteOutcomeUnknownError`."""
     source = workbook_source()
     xlsx = fetch_workbook_bytes(graph_token)

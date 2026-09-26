@@ -634,13 +634,34 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .dashboard-empty__hint { margin: 4px 0 0; color: #55555c; font-size: .78rem; line-height: 1.5; }
 .content-theme-dark .dashboard-empty__hint { color: #b2b2bc; }
 
+/* HUB FILTER TOOLBAR CARD — primitivo genérico promovido (owner post-#104
+   acceptance, item C: "no depender de una clase con semántica de otro
+   vertical, o promover la regla mínima generalizable"). Ningún color/
+   comportamiento de negocio -- sólo la forma (borde, radio, padding
+   simétrico) que un toolbar de filtros necesita para leerse como una
+   tarjeta del Hub en vez de campos sueltos contra el divisor. Sin
+   `background` a propósito -- MISMO criterio que `.dashboard-empty`
+   (arriba): `--card` es un token GLOBAL fijo-oscuro (`:root`, app.css),
+   sólo re-tematizado dentro de `.copilot-panel`, así que usarlo acá
+   pintaría un rectángulo oscuro encima del `.module-content` claro en
+   tema claro (bug real, encontrado al implementar esto). Sin fill, el
+   fondo ya correcto de `.module-content` (tools.css, tematizado de
+   verdad) se ve a través, en ambos temas. Cualquier vertical puede
+   adoptarlo envolviendo su propia barra de filtros; no asume Alpine,
+   HTMX, ni ningún modelo de datos particular. */
+.filter-toolbar-card { border: 1px solid rgba(128,128,128,.24); border-radius: 12px; padding: 20px 22px; }
+
 /* Capital Humano Phase 3.2 — barra de búsqueda/filtros compacta sobre el
    Banco de Perfiles: layout mínimo (flex-wrap), reusa .feedback-field/
    .btn-primary/.btn-secondary para los controles en sí -- NUNCA
    .staffing-filter-bar (acoplada a los controles Alpine x-model
    client-side de Operations; acá el filtrado es 100% server-side vía GET
-   query params, ver webapp/routers/human_capital.py). */
-.hc-profile-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 18px; }
+   query params, ver webapp/routers/human_capital.py). Owner post-#104
+   acceptance (item C, "no labels pegados a la línea"): la barra ahora
+   ADEMÁS lleva `.filter-toolbar-card` (arriba) para el padding simétrico
+   top/bottom -- este archivo sigue dando SÓLO el layout flex de los
+   campos, nunca la forma de tarjeta. */
+.hc-profile-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .hc-profile-filters .feedback-field { margin-top: 0; min-width: 150px; flex: 1 1 150px; }
 .hc-profile-filters > button, .hc-profile-filters > a.btn-secondary { flex: 0 0 auto; height: 40px; }
 
@@ -2590,4 +2611,28 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    (`.activity-kpi__info svg`, reporting.js): sin relleno, currentColor,
    trazo redondeado — para no inventar un segundo estilo visual de ícono. */
 .table-action-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* Encontrado en aceptación manual (CCHH UX homologation, scroll horizontal
+   por default): `.chart-tooltip`'s `min-width: 200px` (pensado para el
+   texto más largo de un KPI info, su consumidor original) es MUCHO más
+   ancho que la etiqueta de una acción de fila ("Editar candidato",
+   "Restaurar", etc.) -- y `position:absolute` + `visibility:hidden` (NO
+   `display:none`) significa que ese ancho invisible SIGUE contando para
+   `scrollWidth` de cualquier ancestro con overflow-x:auto, incluso oculto.
+   En una tabla lo bastante angosta (contenido con sidebar, como Capital
+   Humano) esto por sí solo empujaba scroll horizontal que de otro modo no
+   haría falta -- Comercial tiene la MISMA característica latente, sólo
+   que sus tablas son anchas y nunca lo expusieron. Achicado SOLO acá
+   (nunca en `.chart-tooltip` genérico, que sigue sirviendo texto más largo
+   en otros consumidores como el KPI info) -- ancho al contenido real de
+   una etiqueta de acción, nunca forzado a 200px. */
+.table-action-btn .chart-tooltip { min-width: 0; width: max-content; max-width: 180px; }
+/* El botón de acción es SIEMPRE la última columna (Comercial y CCHH
+   coinciden en esto) -- centrado (`left:50%; transform:translateX(-50%)`,
+   .chart-tooltip base) hace que la MITAD del tooltip se proyecte a la
+   derecha del botón, más allá del borde derecho de la tabla, exactamente
+   lo que quedaba empujando el scroll horizontal residual. Ancla a la
+   derecha (extiende SOLO hacia la izquierda, nunca fuera de la tabla) --
+   mismo criterio en Comercial, que tiene la MISMA columna de acción al
+   final y se beneficia igual aunque nunca lo haya expuesto visiblemente. */
+.table-action-btn .chart-tooltip { left: auto; right: 0; transform: none; }
 .content-theme-dark .ln-edge-legend { fill: #9a9aa2; }

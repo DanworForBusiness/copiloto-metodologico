@@ -21,45 +21,88 @@
       <p class="eyebrow">Capital Humano</p>
       <h1>Catálogos gobernados</h1>
       <p>Los valores de estos catálogos los mantiene CCHH en <code>Catalogos_CCHH.xlsx</code> (SharePoint). El refresh los lee y materializa acá para las pantallas.</p>
+      {# hero-meta: MISMO primitivo que catalog_cds_content.html/whats_new.html
+         para metadata de snapshot bajo un hero -- reemplaza el `.catalog-meta`
+         de texto suelto (sin CSS propia) que había acá antes. Owner post-#104
+         acceptance (item D): `refreshed_at` ya llega formateado en friendly
+         desde el router (nunca ISO crudo); `schema_version` NO se muestra acá
+         -- es un detalle interno de migración, nunca información primaria
+         para quien mira esta pantalla; los catálogos gobernados se listan
+         por su etiqueta de negocio (`governed_catalog_labels`), nunca por
+         su identificador interno en snake_case. #}
+      <div class="hero-meta">
+        {% if meta %}
+        <span>Actualizado {{ meta.refreshed_at }}</span>
+        <span>por {{ meta.refreshed_by or '—' }}</span>
+        {% else %}
+        <span>Sin catálogo materializado todavía</span>
+        {% endif %}
+        <span>Catálogos gobernados: {{ governed_catalog_labels | join(', ') }}</span>
+      </div>
     </section>
 
-    {# Resultado del último refresh disparado en esta pantalla #}
+    {# Resultado del último refresh disparado en esta pantalla -- MISMA
+       estructura __head/__icon/__title/__body que duplicate_advisory/
+       concurrent_modification en el form de edición; `--success` (verde),
+       nunca `--ok` (modificador inexistente, sin CSS -- por eso este bloque
+       se veía sin look & feel de callout antes). #}
     {% if refresh_result %}
-    <div class="callout callout--ok" data-refresh-outcome="{{ refresh_result.outcome }}">
-      <p><strong>Refresh {{ 'OK' if refresh_result.outcome == 'success' else refresh_result.outcome }}.</strong>
-        {% for cat, n in refresh_result.counts.items() %}{{ cat }}: {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+    <div class="callout callout--success" data-refresh-outcome="{{ refresh_result.outcome }}">
+      <div class="callout__head">
+        <span class="callout__icon">✓</span>
+        <span class="callout__title">Refresh {{ 'OK' if refresh_result.outcome == 'success' else refresh_result.outcome }}</span>
+      </div>
+      <div class="callout__body">
+        <p>{% for cat, n in refresh_result.counts.items() %}{{ cat }}: {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+      </div>
     </div>
     {% endif %}
+    {# Taxonomía de fallas de Graph (owner post-#104 acceptance, item E): 401
+       (o token vacío, MISMO kind) y 403 NUNCA comparten tratamiento -- sólo
+       `auth_required` ofrece "Autorizar Microsoft y reintentar"
+       (`dwGraphReauthenticate()`, MISMO patrón que Reporting/reporting.js);
+       un 403 ya está autenticado pero sin permiso, así que reautenticar no
+       arregla nada y NUNCA se le ofrece ese botón. Ninguna rama expone el
+       cuerpo crudo de la respuesta de Graph -- `refresh_error.message` ya
+       viene armado en el repositorio, nunca el `exc` original. #}
     {% if refresh_error %}
-    <div class="dashboard-empty" data-error-kind="{{ refresh_error.kind }}">
-      <span class="dashboard-empty__label">No se actualizó</span>
-      <p>{{ refresh_error.message }}</p>
-      {% if refresh_error.errors %}
-      <ul class="catalog-validation-errors">
-        {% for e in refresh_error.errors %}<li>{{ e }}</li>{% endfor %}
-      </ul>
+      {% if refresh_error.kind == 'auth_required' %}
+      <div class="dashboard-empty" data-error-kind="auth_required">
+        <span class="dashboard-empty__label">Sesión de datos</span>
+        <p>{{ refresh_error.message }} <button type="button" class="dashboard-subhead__reset" data-hc-catalog-reauth>Autorizar Microsoft y reintentar</button></p>
+      </div>
+      {% elif refresh_error.kind == 'forbidden' %}
+      <div class="dashboard-empty" data-error-kind="forbidden">
+        <span class="dashboard-empty__label">Sin permiso</span>
+        <p>{{ refresh_error.message }} Pedile a quien administra el sitio de SharePoint que te dé acceso al archivo -- volver a autorizar no alcanza acá.</p>
+      </div>
+      {% else %}
+      <div class="dashboard-empty" data-error-kind="{{ refresh_error.kind }}">
+        <span class="dashboard-empty__label">No se actualizó</span>
+        <p>{{ refresh_error.message }}</p>
+        {% if refresh_error.errors %}
+        <ul class="catalog-validation-errors">
+          {% for e in refresh_error.errors %}<li>{{ e }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+      </div>
       {% endif %}
+    {% endif %}
+    {% if not meta and not refresh_result and not refresh_error %}
+    <div class="dashboard-empty">
+      <span class="dashboard-empty__label">Sin catálogo</span>
+      <p>Todavía no hay un catálogo materializado. Ejecutá un refresh para traerlo desde SharePoint.</p>
     </div>
     {% endif %}
-
-    {# Estado del read-model materializado #}
-    <section class="catalog-meta">
-      {% if meta %}
-      <p>Última actualización: <strong>{{ meta.refreshed_at }}</strong> por {{ meta.refreshed_by or '—' }} (schema v{{ meta.schema_version }}).</p>
-      {% else %}
-      <p>Todavía no hay un catálogo materializado. Ejecutá un refresh para traerlo desde SharePoint.</p>
-      {% endif %}
-      <p class="catalog-meta__list">Catálogos gobernados: {{ governed_catalogs | join(', ') }}.</p>
-    </section>
 
     {# Refresh: acción token-carrying con el token de LECTURA del Hub (NUNCA
        el HC document write token) -- MISMO patrón graph_token-vía-JS que el
        form de upload/delete de documentos (ver
        human_capital_profile_documents_panel.html), pero llamando a
        `dwGraphToken()` en vez de `dwHumanCapitalDocumentWriteToken()`. #}
-    <form method="post" action="/cchh/catalogos/refresh" data-hc-graph-read-form>
+    <form method="post" action="/cchh/catalogos/refresh" class="catalog-refresh-form" data-hc-graph-read-form>
       <input type="hidden" name="graph_token" value="">
-      <button type="submit" class="btn btn--primary">Actualizar catálogos</button>
+      <button type="submit" class="btn-primary">Actualizar catálogos</button>
     </form>
   </main>
 </div>
@@ -67,15 +110,34 @@
 <link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
 <script>
 (function () {
+  function submitWithToken(form) {
+    Promise.resolve(typeof window.dwGraphToken === "function" ? window.dwGraphToken() : "").then(function (token) {
+      var tokenField = form.querySelector("input[name=graph_token]");
+      if (tokenField) tokenField.value = token || "";
+      form.dataset.hcTokenReady = "true";
+      form.submit();
+    });
+  }
   document.querySelectorAll("[data-hc-graph-read-form]").forEach(function (form) {
     form.addEventListener("submit", function (event) {
       if (form.dataset.hcTokenReady === "true") return; // segundo submit real, dejar pasar sin interceptar
       event.preventDefault();
-      Promise.resolve(typeof window.dwGraphToken === "function" ? window.dwGraphToken() : "").then(function (token) {
-        var tokenField = form.querySelector("input[name=graph_token]");
-        if (tokenField) tokenField.value = token || "";
-        form.dataset.hcTokenReady = "true";
-        form.submit();
+      submitWithToken(form);
+    });
+  });
+  // Botón de reautenticación del estado auth_required (ver arriba):
+  // interacción REAL detrás de un click -- puede escalar a popup, a
+  // diferencia de dwGraphToken() (silencioso, nunca abre nada). Reusa
+  // submitWithToken para el reintento: tras reautenticar, un dwGraphToken()
+  // silencioso ya alcanza (MSAL dejó el token fresco en su cache).
+  document.querySelectorAll("[data-hc-catalog-reauth]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      if (typeof window.dwGraphReauthenticate !== "function") return;
+      btn.disabled = true;
+      window.dwGraphReauthenticate().then(function (ok) {
+        if (!ok) { btn.disabled = false; return; } // canceló: el botón sigue ofreciendo la acción
+        var form = document.querySelector("[data-hc-graph-read-form]");
+        if (form) submitWithToken(form);
       });
     });
   });
