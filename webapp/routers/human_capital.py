@@ -195,7 +195,7 @@ def _profiles_panel_context(*, query: dict | None = None) -> dict:
         "dataset_has_any_profiles": bool(all_profiles),
         "source_error": source_error,
         "config_incomplete": False,
-        "valid_sources": human_capital_service.VALID_SOURCES,
+        "valid_sources": human_capital_catalog_repository.catalog_values("fuente"),
         "query": query or {},
     }
 
@@ -248,9 +248,9 @@ def _new_page_context(
         "config_incomplete": create_error_config_incomplete,
         "duplicate_advisory": duplicate_advisory,
         "remote_outcome_unknown": remote_outcome_unknown,
-        "valid_sources": human_capital_service.VALID_SOURCES,
         # Alta: SOLO valores del catálogo activo, sin fallback a texto libre
-        # (CCHH Catalog Foundation §6).
+        # (CCHH Catalog Foundation §6) -- MISMO criterio para ambos campos.
+        "valid_sources": human_capital_catalog_repository.catalog_values("fuente"),
         "valid_seniority": human_capital_catalog_repository.catalog_values("seniority"),
     }
 
@@ -491,25 +491,27 @@ def _edit_page_context(
         "duplicate_advisory": duplicate_advisory,
         "concurrent_modification": concurrent_modification,
         "remote_outcome_unknown": remote_outcome_unknown,
-        "valid_sources": human_capital_service.VALID_SOURCES,
         # Edición migration-safe (§6): el catálogo activo + si el valor actual
         # quedó FUERA del catálogo (legacy), se preserva marcado y no se
-        # agrega al catálogo automáticamente.
-        "valid_seniority": _seniority_edit_options(form_values.get("seniority")),
-        "seniority_is_legacy": _is_legacy_seniority(form_values.get("seniority")),
+        # agrega al catálogo automáticamente -- MISMO criterio para ambos campos.
+        "valid_seniority": _governed_edit_options("seniority", form_values.get("seniority")),
+        "seniority_is_legacy": _is_legacy_governed_value("seniority", form_values.get("seniority")),
+        "valid_sources": _governed_edit_options("fuente", form_values.get("source")),
+        "source_is_legacy": _is_legacy_governed_value("fuente", form_values.get("source")),
     }
 
 
-def _is_legacy_seniority(value: str | None) -> bool:
+def _is_legacy_governed_value(catalog_name: str, value: str | None) -> bool:
     v = (value or "").strip()
-    return bool(v) and v not in human_capital_catalog_repository.catalog_values("seniority")
+    return bool(v) and v not in human_capital_catalog_repository.catalog_values(catalog_name)
 
 
-def _seniority_edit_options(value: str | None) -> list[str]:
+def _governed_edit_options(catalog_name: str, value: str | None) -> list[str]:
     """Catálogo activo, más el valor legacy actual (si está fuera de catálogo)
     al frente, para que una edición no relacionada pueda re-seleccionarlo. NUNCA
-    se persiste esa inclusión en el catálogo — es solo la opción del <select>."""
-    active = human_capital_catalog_repository.catalog_values("seniority")
+    se persiste esa inclusión en el catálogo — es solo la opción del <select>.
+    MISMA función para cualquier catálogo gobernado (Seniority, Fuente)."""
+    active = human_capital_catalog_repository.catalog_values(catalog_name)
     v = (value or "").strip()
     if v and v not in active:
         return [v, *active]

@@ -15,6 +15,7 @@ from jose import jwt
 
 import config
 from webapp.services import human_capital_service, profile_repository, profile_import_service as pis
+from webapp.services import human_capital_catalog_repository as catalog_repo
 
 
 @pytest.fixture(autouse=True)
@@ -22,6 +23,18 @@ def _isolated_base_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
+    # Fuente migró a catálogo GOBERNADO (CCHH Catalog Foundation) -- import
+    # sigue rechazando lo que no está en catálogo ("no cambiar semántica
+    # todavía", ver validate_source_for_import), así que este archivo
+    # necesita sembrar el ÚNICO valor no-vacío que usa para una fila
+    # eligible ("Portal de empleo" es el caso de rechazo deliberado).
+    snap = catalog_repo.build_snapshot(
+        {"fuente": [{"valor": "Flyer", "orden": 1}]},
+        refreshed_by="test", source={"drive_id": "d", "item_id": "i"},
+    )
+    p = catalog_repo.snapshot_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(catalog_repo._serialize(snap))
 
 
 def _workbook_bytes(headers: list[str], rows: list[list]) -> bytes:

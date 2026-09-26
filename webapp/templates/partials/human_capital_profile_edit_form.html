@@ -77,12 +77,21 @@
   </div>
   <div class="feedback-field">
     <label for="hc-edit-source">Fuente</label>
+    {# Catálogo GOBERNADO migration-safe (§6): el catálogo activo; si el valor
+       actual quedó FUERA del catálogo (legacy), se preserva como opción
+       marcada — una edición no relacionada puede re-seleccionarlo, pero
+       cambiarlo exige un valor del catálogo. Nunca se agrega al catálogo. #}
     <select id="hc-edit-source" name="source">
       <option value="" {% if not form_values.source %}selected{% endif %}>Sin especificar</option>
       {% for opt in valid_sources %}
-      <option value="{{ opt }}" {% if form_values.source == opt %}selected{% endif %}>{{ opt }}</option>
+      <option value="{{ opt }}" {% if form_values.source == opt %}selected{% endif %}>
+        {{ opt }}{% if source_is_legacy and form_values.source == opt %} (fuera de catálogo){% endif %}
+      </option>
       {% endfor %}
     </select>
+    {% if source_is_legacy %}
+    <p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>
+    {% endif %}
   </div>
   <div class="feedback-field">
     <label for="hc-edit-tags">Tags</label>

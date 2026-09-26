@@ -211,11 +211,11 @@ _RESTORE_WAIT_TIMEOUT_S = 15.0
 # todavía. Nunca se libera entre el chequeo y el resultado final.
 _write_lock = threading.Lock()
 
-# Únicos valores válidos de `source` (Legacy Profile Contract, Phase 2 §5 —
-# "Flyer" SÍ es válido acá: el bug legacy fue que el CHECK de la base lo
-# rechazaba pese a que el tipo/UI lo permitían — nunca reproducir ese
-# mismatch, así que el mismo conjunto gobierna UI + validación + tests).
-VALID_SOURCES = ("LinkedIn", "Referido", "Hunting", "Flyer", "Otro")
+# `VALID_SOURCES` (Legacy Profile Contract, Phase 2 §5 -- ("LinkedIn",
+# "Referido", "Hunting", "Flyer", "Otro")) migró al catálogo GOBERNADO
+# `fuente` de `human_capital_catalog_repository` (CCHH Catalog Foundation
+# §6, MISMO contrato migration-safe que Seniority) -- ya no vive acá para
+# no duplicar autoridad. Ver `human_capital_service._validate_source_governed`.
 
 
 class ProfileStorageError(Exception):

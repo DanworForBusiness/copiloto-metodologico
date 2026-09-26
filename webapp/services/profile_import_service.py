@@ -354,6 +354,14 @@ def build_preview(rows: list[dict]) -> list[PreviewRow]:
         mapped = {field_name: _cell_to_str(raw_row.get(header)) for header, field_name in _HEADER_TO_FIELD.items()}
         try:
             shaped = human_capital_service.validate_and_shape_fields(mapped)
+            # `source` migró al catálogo GOBERNADO `fuente` (CCHH Catalog
+            # Foundation) -- `validate_and_shape_fields` ya no lo valida
+            # (esa lógica ahora vive en `create_profile`/`update_profile`,
+            # migration-safe). Import NUNCA tiene un valor legacy previo
+            # que preservar, así que corre la MISMA regla que CREATE acá,
+            # explícitamente, para preservar el rechazo que este import ya
+            # tenía ("no cambiar semántica todavía") sin reimplementarla.
+            human_capital_service.validate_source_for_import(shaped.get("source"))
         except ValueError as exc:
             display_name = f"{mapped.get('first_name', '')} {mapped.get('last_name', '')}".strip() or "(sin nombre)"
             preview_rows.append(PreviewRow(
