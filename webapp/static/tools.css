@@ -1933,6 +1933,15 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
   border-color: rgba(226,232,245,.14);
   color: var(--ink);
 }
+/* Tema claro: color explícito (no var(--ink)) -- este primitive nunca vive
+   dentro de .copilot-panel (el único scope que re-tematiza --ink a claro),
+   así que fuera de ahí --ink cae al valor GLOBAL oscuro de app.css:root
+   (#e4e4ec) sobre este fondo claro (#f7f7f4) -> texto prácticamente
+   invisible. Mismo valor ya usado como "light-theme ink" en
+   .content-theme-light .copilot-panel (arriba) y en feedback.css. */
+.content-theme-light .section-feedback__form textarea {
+  color: #202124;
+}
 
 /* ── Pestaña Catálogo (índice determinístico de flujos CDS) ──────────────── */
 .catalog-flows-list { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
