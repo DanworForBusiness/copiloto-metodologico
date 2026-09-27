@@ -437,6 +437,133 @@ def test_explain_route_appends_only_the_assistant_answer(monkeypatch):
     ).count(("user", "tenemos algun template CDS?")) == 1
 
 
+def test_no_local_evidence_answer_offers_explicame_vos_instead_of_dead_end(monkeypatch):
+    # Forensic (Case A, TERMINAL_BRANCH_BUG): una consulta sin match local en
+    # ningún módulo (route() -> None) llegaba a una respuesta grounded del LLM
+    # sin NINGÚN affordance posterior -- ni siquiera se renderizaba el bloque
+    # de acciones (gateado antes por `{% if route %}`, y route es None acá).
+    conversation = copilot_runtime.assistant_store.start(
+        "01_Arquitectura_y_Conectividad", "datasphere_core"
+    )
+    from webapp.routers import assistant as assistant_router
+    monkeypatch.setattr(
+        assistant_router.assistant_chat_service,
+        "ask",
+        lambda *args, **kwargs: (
+            "No está cubierto en el contexto de este módulo.",
+            "<p>No está cubierto en el contexto de este módulo.</p>",
+        ),
+    )
+
+    response = client.post(
+        "/modules/01_Arquitectura_y_Conectividad/assistant/chat",
+        data={
+            "pack": "datasphere_core",
+            "conversation_id": conversation.id,
+            "question": "mejores practicas para variables MTD",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "No está cubierto en el contexto de este módulo." in response.text
+    assert "Explicame vos" in response.text
+
+
+def test_explicame_vos_after_no_local_evidence_requests_general_mode(monkeypatch):
+    # El "Explicame vos" del caso anterior debe pedir una respuesta GENERAL
+    # (sin el scope restrictivo del módulo activo) -- a diferencia del
+    # "Explicame vos" de un lead de catálogo, que sí reancla a un módulo cuyo
+    # scope cubre el tema. Ver AssistantChatService.ask(general=True).
+    conversation = copilot_runtime.assistant_store.start(
+        "01_Arquitectura_y_Conectividad", "datasphere_core"
+    )
+    captured = {}
+
+    def _capture_ask(*args, **kwargs):
+        captured["general"] = kwargs.get("general")
+        captured["directive"] = kwargs.get("directive")
+        return "Respuesta general del LLM.", "<p>Respuesta general del LLM.</p>"
+
+    from webapp.routers import assistant as assistant_router
+    monkeypatch.setattr(assistant_router.assistant_chat_service, "ask", _capture_ask)
+
+    response = client.post(
+        "/modules/01_Arquitectura_y_Conectividad/assistant/chat",
+        data={
+            "pack": "datasphere_core",
+            "conversation_id": conversation.id,
+            "question": "mejores practicas para variables MTD",
+            "routing_bypass": "true",
+            "route_module": "01_Arquitectura_y_Conectividad",
+            "route_general": "true",
+            "explain_prompt": "explicá en general",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Respuesta general del LLM." in response.text
+    assert captured["general"] is True
+    assert captured["directive"] == "explicá en general"
+
+
+def test_no_local_evidence_answer_does_not_chain_a_second_explicame_vos(monkeypatch):
+    # Al hacer clic en "Explicame vos" (routing_bypass=true), la respuesta
+    # general resultante NO debe volver a ofrecer otro "Explicame vos" (evita
+    # un loop de UX).
+    conversation = copilot_runtime.assistant_store.start(
+        "01_Arquitectura_y_Conectividad", "datasphere_core"
+    )
+    from webapp.routers import assistant as assistant_router
+    monkeypatch.setattr(
+        assistant_router.assistant_chat_service,
+        "ask",
+        lambda *args, **kwargs: ("Respuesta general.", "<p>Respuesta general.</p>"),
+    )
+
+    response = client.post(
+        "/modules/01_Arquitectura_y_Conectividad/assistant/chat",
+        data={
+            "pack": "datasphere_core",
+            "conversation_id": conversation.id,
+            "question": "mejores practicas para variables MTD",
+            "routing_bypass": "true",
+            "route_module": "01_Arquitectura_y_Conectividad",
+            "route_general": "true",
+            "explain_prompt": "explicá en general",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Explicame vos" not in response.text
+
+
+def test_readonly_profile_does_not_offer_explicame_vos_without_local_evidence(monkeypatch):
+    # El perfil solo-lectura ya bloquea la salida LLM sin ruta curada (ver
+    # test_readonly_assistant_router_works_but_llm_output_is_blocked); debe
+    # seguir sin ofrecer el nuevo affordance tampoco (no tiene sentido pedir
+    # una respuesta general si el perfil no puede consumir IA).
+    ro = _readonly_client(monkeypatch)
+    from webapp.routers import assistant as assistant_router
+    monkeypatch.setattr(
+        assistant_router.assistant_chat_service, "ask",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no debe consumir OpenAI en solo-lectura")),
+    )
+    conv = copilot_runtime.assistant_store.start("01_Arquitectura_y_Conectividad", "datasphere_core")
+
+    response = ro.post(
+        "/modules/01_Arquitectura_y_Conectividad/assistant/chat",
+        data={
+            "pack": "datasphere_core",
+            "conversation_id": conv.id,
+            "question": "mejores practicas para variables MTD",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "IA no disponible para Danwor Academy" in response.text
+    assert "Explicame vos" not in response.text
+
+
 def test_pack_selector_only_in_diagnostic_mode():
     # Fuera de diagnóstico no hay selector y el marco se fuerza al productivo.
     standard = client.get("/modules/01_Arquitectura_y_Conectividad?pack=bdc_next")
