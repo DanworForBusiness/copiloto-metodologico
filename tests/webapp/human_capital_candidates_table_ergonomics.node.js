@@ -171,7 +171,7 @@ function orderOf(row) {
 // ── Sandbox A: adapter solo (initDraggableColumns/initResizableColumns
 //    stubbeados) -- para los tests A-D, que prueban EXCLUSIVAMENTE la lógica
 //    de aplicar preferencias ya guardadas, independiente del wiring real. ──
-function loadAdapter({ storedOrder, storedWidths } = {}) {
+function loadAdapter({ storedOrder, storedWidths, onRestore } = {}) {
   const sandbox = {
     document: { querySelectorAll() { return []; }, body: { addEventListener() {} } },
     window: {},
@@ -183,6 +183,10 @@ function loadAdapter({ storedOrder, storedWidths } = {}) {
     readStoredColumnWidths(key) {
       return (storedWidths && key === "cchh-candidatos") ? storedWidths() : null;
     },
+    // El ALGORITMO de reconstrucción vive en el primitivo compartido (app.js,
+    // probado en app_table_ergonomics.node.js::D5). Acá se stubbea para verificar
+    // sólo la INTEGRACIÓN: que el adapter CCHH DELEGA en él con su container.
+    restorePersistedColumnWidths(container) { if (onRestore) onRestore(container); return true; },
     console,
   };
   vm.createContext(sandbox);
@@ -274,17 +278,17 @@ function buildRealSandbox(readyState) {
     "B: la fila 2 del body también, independiente de la fila 1");
 }
 
-// ── C: anchos guardados se aplican SOLO a las columnas con override; una key
-//     ausente en el storage no toca el <col> (default declarativo intacto) ─
+// ── C: INTEGRACIÓN — el adapter CCHH DELEGA la reconstrucción de anchos en el
+//     algoritmo COMPARTIDO `restorePersistedColumnWidths` (app.js), con su
+//     propio container. El algoritmo en sí (overrides + freeze + total
+//     explícito) se prueba en app_table_ergonomics.node.js::D5, NO acá. ─
 {
-  const adapter = loadAdapter({ storedWidths: () => ({ nombre: "260px" }) });
+  const restoreCalls = [];
+  const adapter = loadAdapter({ storedWidths: () => ({ nombre: "260px" }), onRestore: (c) => restoreCalls.push(c) });
   const container = buildContainer([{ nombre: "Ana", skills: "SAP", seniority: "Senior", ubicacion: "BA", fuente: "LinkedIn" }]);
   adapter.applyStoredColumnWidths(container);
-  const cols = container.querySelectorAll("table > colgroup > col[data-column-key]");
-  const nombreCol = cols.find(c => c.dataset.columnKey === "nombre");
-  const skillsCol = cols.find(c => c.dataset.columnKey === "skills");
-  ok(nombreCol.style.width === "260px", "C: 'nombre' con override guardado toma ese ancho");
-  ok(!skillsCol.style.width, "C: 'skills' sin override en el storage queda sin tocar");
+  ok(restoreCalls.length === 1, "C: el adapter delega EXACTAMENTE una vez en restorePersistedColumnWidths");
+  ok(restoreCalls[0] === container, "C: delega con su propio container (integración, no copia del algoritmo)");
 }
 
 // ── D: namespace independiente -- una preferencia bajo OTRA key (simulando

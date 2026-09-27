@@ -128,10 +128,11 @@
 }
 .content-theme-dark .status-badge--potential { color: #9a9aa2; }
 
-/* Conteo de resultados de Base de CVs (B2): línea de apoyo discreta sobre la
-   tabla, mismo registro tipográfico que el resto de texto secundario. */
-.hc-results-count { margin: 0 0 8px; color: #7a7a82; font: 600 .7rem var(--mono); }
-.content-theme-dark .hc-results-count { color: #9a9aa2; }
+/* Conteo de candidatos en el HEADER del panel (T2): arriba-derecha dentro del
+   `.dashboard-section__head` compartido (`margin-left:auto` lo empuja al
+   extremo, después del título). Registro tipográfico discreto (mono/soft). */
+.dashboard-section__count { margin-left: auto; color: #7a7a82; font: 600 .7rem var(--mono); }
+.content-theme-dark .dashboard-section__count { color: #9a9aa2; }
 
 /* Cabecera de Base de CVs (h1+subtítulo a la izquierda, "Carga masiva" +
    "+ Cargar CV" a la derecha): MISMO layout que la app de referencia

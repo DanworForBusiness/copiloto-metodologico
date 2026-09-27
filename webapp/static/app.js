@@ -696,8 +696,26 @@ function initDashboardSections(scope) {
   scope.querySelectorAll("[data-dashboard-key]").forEach(container => {
     const storageKey = `dw-dash-order:${container.dataset.dashboardKey}`;
     applyStoredSectionOrder(container, storageKey);
+    // Persistencia de COLAPSO opt-in (`data-persist-collapse`): sólo la piden
+    // los consumidores que RE-RENDERIZAN el panel server-side (HTMX swap, p. ej.
+    // CCHH Candidatos al filtrar) y necesitan que el estado colapsado/expandido
+    // sobreviva ese swap. Los demás verticales (filtran client-side, sin swap)
+    // NO llevan el atributo y conservan el comportamiento nativo exacto de
+    // siempre -- cero cambio para ellos. Se re-aplica en CADA htmx:load (antes
+    // del guard), igual que el orden.
+    const collapseKey = `dw-dash-collapse:${container.dataset.dashboardKey}`;
+    const persistCollapse = container.dataset.persistCollapse != null;
+    if (persistCollapse) applyStoredSectionCollapse(container, collapseKey);
     if (container.dataset.dashWired) return;
     container.dataset.dashWired = "1";
+    if (persistCollapse) {
+      // `toggle` NO burbujea -> captura en el contenedor. Persiste el estado
+      // open/colapsado de cada sección al abrir/cerrar.
+      container.addEventListener("toggle", event => {
+        const s = event.target;
+        if (s && s.classList && s.classList.contains("dashboard-section")) saveSectionCollapse(container, collapseKey);
+      }, true);
+    }
     let dragging = null;
     // Línea de inserción: marca el punto EXACTO donde caería la sección (antes/después
     // del tile sobre el que estás), además del resaltado del tile en sí — el resaltado
@@ -752,6 +770,23 @@ function applyStoredSectionOrder(container, storageKey) {
 function saveSectionOrder(container, storageKey) {
   const order = [...container.querySelectorAll(":scope > .dashboard-section")].map(el => el.dataset.sectionId);
   try { sessionStorage.setItem(storageKey, JSON.stringify(order)); } catch (e) { /* storage lleno/deshabilitado: no rompe nada */ }
+}
+
+// Colapso persistido (opt-in, ver initDashboardSections): sessionStorage igual
+// que el orden -> sobrevive HTMX swaps y reloads dentro de la sesión.
+function applyStoredSectionCollapse(container, storageKey) {
+  let state;
+  try { state = JSON.parse(sessionStorage.getItem(storageKey) || "null"); } catch (e) { state = null; }
+  if (!state || typeof state !== "object") return;
+  container.querySelectorAll(":scope > .dashboard-section").forEach(el => {
+    const id = el.dataset.sectionId;
+    if (id in state) { if (state[id]) el.setAttribute("open", ""); else el.removeAttribute("open"); }
+  });
+}
+function saveSectionCollapse(container, storageKey) {
+  const state = {};
+  container.querySelectorAll(":scope > .dashboard-section").forEach(el => { state[el.dataset.sectionId] = el.hasAttribute("open"); });
+  try { sessionStorage.setItem(storageKey, JSON.stringify(state)); } catch (e) { /* storage lleno/deshabilitado: no rompe nada */ }
 }
 document.body.addEventListener("htmx:load", () => initDashboardSections(document));
 
@@ -889,11 +924,37 @@ function initResizableColumns(scope) {
       if (!handle || !container.contains(handle)) return;
       const th = handle.closest("[data-column-key]");
       if (!th) return;
-      const col = container.querySelector(`table > colgroup > col[data-column-key="${CSS.escape(th.dataset.columnKey)}"]`);
-      if (!col) return;
+      const table = container.querySelector("table");
+      const col = table && table.querySelector(`colgroup > col[data-column-key="${CSS.escape(th.dataset.columnKey)}"]`);
+      if (!col || !table) return;
       event.preventDefault();
       event.stopPropagation();
-      resizing = { key: th.dataset.columnKey, startX: event.clientX, startWidth: th.getBoundingClientRect().width, col, handle };
+      // FREEZE al inicio del resize (owner T1): la tabla es `width:100%;
+      // table-layout:fixed`, así que agrandar UNA columna hacía que el browser
+      // REDISTRIBUYERA el ancho entre las demás -- incluidas las < N. Fix:
+      // congelar TODAS las columnas a su ancho EFECTIVO actual en px (leer TODO
+      // antes de escribir, para no medir un layout ya mutado) y gestionar el
+      // ancho TOTAL de la tabla EXPLÍCITAMENTE en px (nunca `max-content`
+      // global ni cambiar el default `width:100%` de fresh-load: esto es
+      // inline y sólo existe DURANTE/DESPUÉS de un resize; un fresh render no
+      // lo tiene). Con eso, mover SOLO la columna N: las < N quedan fijas (px
+      // congelado), N cambia por el delta, las > N conservan su px (se corren
+      // porque la tabla crece), y el total += delta (desborda vía .matrix-scroll).
+      const cols = [...table.querySelectorAll("colgroup > col[data-column-key]")];
+      const widths = cols.map(c => {
+        const cth = container.querySelector(`th[data-column-key="${CSS.escape(c.dataset.columnKey)}"]`);
+        return Math.round((cth || c).getBoundingClientRect().width);
+      });
+      cols.forEach((c, i) => { c.style.width = `${widths[i]}px`; });
+      // Total = suma de TODAS las columnas (keyed congeladas + no-keyed como
+      // Acciones, por su ancho efectivo actual). La tabla pasa a ese px exacto.
+      const baseTotal = [...table.querySelectorAll("colgroup > col")].reduce((sum, c) => {
+        const idx = cols.indexOf(c);
+        return sum + (idx >= 0 ? widths[idx] : Math.round(c.getBoundingClientRect().width));
+      }, 0);
+      table.style.width = `${baseTotal}px`;
+      const startWidth = widths[cols.indexOf(col)] || Math.round(th.getBoundingClientRect().width);
+      resizing = { key: th.dataset.columnKey, startX: event.clientX, startWidth, col, table, baseTotal, handle };
       handle.classList.add("is-resizing");
       try { handle.setPointerCapture(event.pointerId); } catch (e) { /* browsers viejos: el drag sigue andando sin capture */ }
     });
@@ -901,6 +962,9 @@ function initResizableColumns(scope) {
       if (!resizing) return;
       const next = Math.max(60, Math.round(resizing.startWidth + (event.clientX - resizing.startX)));
       resizing.col.style.width = `${next}px`;
+      // El total crece/decrece EXACTAMENTE por el delta de la columna N; las
+      // demás columnas conservan su px congelado (nunca se redistribuyen).
+      resizing.table.style.width = `${resizing.baseTotal + (next - resizing.startWidth)}px`;
     });
     const finish = () => {
       if (!resizing) return;
@@ -931,6 +995,40 @@ function readStoredColumnWidths(key) {
   } catch (e) {
     return null;
   }
+}
+
+// Reconstrucción COHERENTE de anchos persistidos tras reload (contrato T1
+// COMPARTIDO — vive acá, en la capa del primitivo de tablas, NO en un consumidor
+// puntual). Cualquier consumidor de `initResizableColumns` que restaure anchos
+// EN CLIENTE debe usar esto (CCHH lo hace vía su adapter; otros que arman el
+// <colgroup> server-side pueden llamarlo igual si quieren el total explícito).
+// Si hay overrides guardados: aplica cada override a su columna, congela las
+// demás a su ancho efectivo actual en px (medido en el <th> por identidad;
+// columnas sin key —p. ej. Acciones— por su propio <col>), y fija el TOTAL
+// EXPLÍCITO de la tabla = suma. Reconstruye EXACTAMENTE el estado post-resize
+// (mismo contrato que el resize en vivo), nunca el `width:100%` que
+// redistribuye. Lee TODOS los anchos antes de mutar (no medir un layout ya
+// movido). Devuelve true si aplicó algo. `container` = el elemento con
+// `data-resizable-columns-key` (el mismo scope que usa initResizableColumns).
+function restorePersistedColumnWidths(container) {
+  if (!container || typeof readStoredColumnWidths !== "function") return false;
+  const key = container.dataset ? container.dataset.resizableColumnsKey : null;
+  if (!key) return false;
+  const stored = readStoredColumnWidths(key);
+  if (!stored || !Object.keys(stored).length) return false;
+  const table = container.querySelector("table");
+  if (!table) return false;
+  const cols = [].slice.call(table.querySelectorAll("colgroup > col"));
+  const targets = cols.map(function (col) {
+    const ck = col.getAttribute("data-column-key");
+    if (ck && stored[ck]) return stored[ck];
+    const measured = ck ? container.querySelector('th[data-column-key="' + ck + '"]') : col;
+    return Math.round((measured || col).getBoundingClientRect().width) + "px";
+  });
+  let total = 0;
+  cols.forEach(function (col, i) { col.style.width = targets[i]; total += parseInt(targets[i], 10) || 0; });
+  table.style.width = total + "px";
+  return true;
 }
 
 // Panel interactivo de "Eventos y catálogo": clic en un evento de la izquierda →

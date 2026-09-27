@@ -166,7 +166,7 @@ const sandbox = {
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox, { filename: "app.js" });
-const { initDraggableColumns, initResizableColumns, readStoredColumnOrder, readStoredColumnWidths } = sandbox;
+const { initDraggableColumns, initResizableColumns, readStoredColumnOrder, readStoredColumnWidths, restorePersistedColumnWidths } = sandbox;
 
 // ── Helper: arma una tabla sintética SIN relación con Comercial ────────────
 // (Director §36/§27: "table-agnostic" — si esto funciona igual que el Perfil
@@ -231,7 +231,7 @@ function buildSyntheticTable(tableKey, opts = {}) {
 // ── D: resize en vivo — pointerdown+move+up cambia el <col> por data-column-key,
 //     NUNCA por posición (mismo test correría igual si se reordenara el DOM) ─
 {
-  const { root, container, ths, colgroup } = buildSyntheticTable("ergon-d");
+  const { root, container, table, ths, colgroup } = buildSyntheticTable("ergon-d");
   initResizableColumns(root);
   const betaHandle = ths[1].children[0];
   dispatchOn(container, "pointerdown", { target: betaHandle, clientX: 300, pointerId: 1, preventDefault(){}, stopPropagation(){} });
@@ -240,7 +240,82 @@ function buildSyntheticTable(tableKey, opts = {}) {
   const betaCol = colgroup.children.find(c => c.dataset.columnKey === "beta");
   const alphaCol = colgroup.children.find(c => c.dataset.columnKey === "alpha");
   eq(betaCol.style.width, "160px", "D: el <col> de la columna arrastrada (identificada por key) cambia de ancho en vivo");
-  ok(alphaCol.style.width === undefined, "D: ninguna OTRA columna se toca");
+  // Contrato T1 (owner): las columnas < N NO se redistribuyen -- quedan FIJAS
+  // en su ancho efectivo, ahora congelado a px explícito (antes quedaba
+  // `undefined` y el browser las reescalaba dentro del 100%). Y la tabla crece
+  // a max-content (desborda) en vez de clavarse al ancho del contenedor.
+  eq(alphaCol.style.width, "120px", "D: la columna < N queda fija en su ancho efectivo (px congelado, sin redistribuir)");
+  // Total EXPLÍCITO en px (no max-content): 3 cols × 120 = 360, +40 del resize = 400.
+  eq(table.style.width, "400px", "D: la tabla crece exactamente por el delta (px explícito), no se clava al 100%");
+}
+
+// ── D2 (T1): resize de la columna DEL MEDIO — < N fijas, N cambia por el
+//     delta, > N fijas (se corren por el crecimiento de la tabla), overflow ──
+{
+  const { root, container, table, ths, colgroup } = buildSyntheticTable("ergon-t1", { columns: ["a", "b", "c", "d"] });
+  initResizableColumns(root);
+  const bHandle = ths[1].children[0]; // N = "b" (segunda de cuatro)
+  dispatchOn(container, "pointerdown", { target: bHandle, clientX: 200, pointerId: 1, preventDefault(){}, stopPropagation(){} });
+  dispatchOn(container, "pointermove", { clientX: 250 }); // delta +50
+  dispatchOn(container, "pointerup", {});
+  const col = k => colgroup.children.find(c => c.dataset.columnKey === k);
+  eq(col("a").style.width, "120px", "T1: columna < N (a) sin cambio");
+  eq(col("b").style.width, "170px", "T1: columna N (b) cambia por el delta (120+50)");
+  eq(col("c").style.width, "120px", "T1: columna > N (c) conserva su ancho (se corre por overflow, no se encoge)");
+  eq(col("d").style.width, "120px", "T1: columna > N (d) conserva su ancho");
+  // Total EXPLÍCITO: 4 cols × 120 = 480, +50 del resize = 530 (crece exactamente por el delta).
+  eq(table.style.width, "530px", "T1: total de la tabla += delta (px explícito, overflow permitido)");
+}
+
+// ── D3 (T1): delta NEGATIVO — N se achica por el delta, < N/> N fijas, total -= delta ──
+{
+  const { root, container, table, ths, colgroup } = buildSyntheticTable("ergon-t1neg", { columns: ["a", "b", "c"] });
+  initResizableColumns(root);
+  dispatchOn(container, "pointerdown", { target: ths[1].children[0], clientX: 200, pointerId: 1, preventDefault(){}, stopPropagation(){} });
+  dispatchOn(container, "pointermove", { clientX: 170 }); // delta -30
+  dispatchOn(container, "pointerup", {});
+  const col = k => colgroup.children.find(c => c.dataset.columnKey === k);
+  eq(col("a").style.width, "120px", "T1(-): < N sin cambio");
+  eq(col("b").style.width, "90px", "T1(-): N se achica por el delta (120-30)");
+  eq(col("c").style.width, "120px", "T1(-): > N sin cambio");
+  eq(table.style.width, "330px", "T1(-): total -= delta (360-30)");
+}
+
+// ── D4 (T1): min-width clamp — arrastrar N muy por debajo del mínimo lo clampa a 60 ──
+{
+  const { root, container, table, ths, colgroup } = buildSyntheticTable("ergon-t1clamp", { columns: ["a", "b", "c"] });
+  initResizableColumns(root);
+  dispatchOn(container, "pointerdown", { target: ths[1].children[0], clientX: 200, pointerId: 1, preventDefault(){}, stopPropagation(){} });
+  dispatchOn(container, "pointermove", { clientX: 50 }); // delta -150 -> 120-150 = -30 -> clamp 60
+  dispatchOn(container, "pointerup", {});
+  const col = k => colgroup.children.find(c => c.dataset.columnKey === k);
+  eq(col("b").style.width, "60px", "T1(clamp): N nunca baja de 60px");
+  eq(col("a").style.width, "120px", "T1(clamp): < N sin cambio");
+  eq(table.style.width, "300px", "T1(clamp): total refleja el ancho clampeado (a120 + b60 + c120)");
+}
+
+// ── D5 (T1 reload): restorePersistedColumnWidths es el algoritmo COMPARTIDO —
+//     aplica overrides guardados, congela el resto a px y fija el TOTAL
+//     explícito (= suma). Vive en el primitivo, no en un consumidor. ──
+{
+  ok(typeof restorePersistedColumnWidths === "function", "D5: app.js expone restorePersistedColumnWidths (algoritmo compartido)");
+  const { root, container, table, colgroup } = buildSyntheticTable("ergon-restore", { columns: ["a", "b", "c"] });
+  store["dw-col-widths:ergon-restore"] = JSON.stringify({ b: "200px" }); // override persistido de una columna
+  const applied = restorePersistedColumnWidths(container);
+  const col = k => colgroup.children.find(c => c.dataset.columnKey === k);
+  ok(applied === true, "D5: aplica cuando hay overrides guardados");
+  eq(col("b").style.width, "200px", "D5: la columna con override toma su px");
+  eq(col("a").style.width, "120px", "D5: las demás se congelan a su ancho efectivo (px), no quedan sin setear");
+  eq(col("c").style.width, "120px", "D5: idem la otra columna");
+  eq(table.style.width, "440px", "D5: total EXPLÍCITO = suma (120+200+120), nunca 100% que redistribuye");
+}
+
+// ── D6 (T1 reload): sin overrides guardados NO reconstruye (fresh-load intacto) ──
+{
+  const { root, container, table } = buildSyntheticTable("ergon-norestore", { columns: ["a", "b"] });
+  const applied = restorePersistedColumnWidths(container);
+  ok(applied === false, "D6: sin overrides guardados devuelve false (no toca la tabla; fresh-load queda width:100%)");
+  ok(!table.style.width, "D6: la tabla no recibe ancho inline si no hay nada persistido");
 }
 
 // ── E: persistencia — el ancho queda en localStorage bajo dw-col-widths:<key>,
