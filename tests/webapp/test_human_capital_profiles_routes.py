@@ -94,6 +94,49 @@ def test_get_authorized_returns_200():
 
 
 # ============================================================================
+# HTMX vs navegación directa (owner post-#107 Visual QA Harness audit):
+# BUG real encontrado con un click REAL en "Buscar" desde una sesión limpia,
+# sin ningún estado previo -- este GET nunca distinguía HTMX de navegación
+# directa, así que el filtro (`hx-get="/cchh/candidatos"
+# hx-target="#hc-profiles-panel" hx-swap="outerHTML"`) recibía SIEMPRE la
+# página completa (con topbar/nav/hero) de vuelta, y HTMX la insertaba
+# entera dentro del fragmento -- el shell del Hub anidado dentro de sí
+# mismo. MISMO patrón ya establecido en el resto del Hub
+# (`request.headers.get("HX-Request")`, ver p.ej. catalog_flow/catalog_cds
+# en webapp/main.py) -- nunca un mecanismo nuevo.
+# ============================================================================
+
+def test_get_plain_request_returns_the_full_shell():
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos")
+    assert response.status_code == 200
+    assert "<!doctype html" in response.text.lower()
+    assert "workspace-switch" in response.text
+    assert "Base de CVs" in response.text
+
+
+def test_get_htmx_request_returns_only_the_panel_fragment():
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos", headers={"HX-Request": "true"})
+    assert response.status_code == 200
+    assert 'id="hc-profiles-panel"' in response.text
+    # Nada del shell del Hub -- ni el documento, ni el switcher de
+    # workspace, ni el <h1> de la hero de esta página (vive en
+    # profiles.html, fuera del partial incluido).
+    assert "<!doctype html" not in response.text.lower()
+    assert "workspace-switch" not in response.text
+    assert "Base de CVs" not in response.text
+
+
+def test_get_htmx_request_preserves_filters_and_results():
+    # El fragmento HTMX sigue siendo el MISMO contrato de filtrado/listado
+    # que la página completa -- sólo cambia el envoltorio, nunca los datos.
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Ana", "last_name": "Li", "seniority": "Junior"})
+    response = client.get("/cchh/candidatos", params={"seniority": "Junior"}, headers={"HX-Request": "true"})
+    assert response.status_code == 200
+    assert "Ana Li" in response.text
+
+
+# ============================================================================
 # GET — empty / listado
 # ============================================================================
 
@@ -389,11 +432,15 @@ def test_combined_q_and_structured_filter():
 
 
 def test_clear_filters_link_present_only_when_a_filter_is_active():
+    # Owner standardization (post-#107 QA): reusa el patrón compartido Hub
+    # `.whatsnew-filter__clear` / "✕ Limpiar" (mismo que Staffing/What's
+    # New/Admin Activity), no un control "Limpiar filtros" propio de CCHH.
     client = _client_as(_AUTHORIZED_EMAIL)
     plain = client.get("/cchh/candidatos")
-    assert "Limpiar filtros" not in plain.text
+    assert "whatsnew-filter__clear" not in plain.text
     filtered = client.get("/cchh/candidatos", params={"q": "juan"})
-    assert "Limpiar filtros" in filtered.text
+    assert "whatsnew-filter__clear" in filtered.text
+    assert "✕ Limpiar" in filtered.text
 
 
 # ============================================================================

@@ -473,15 +473,26 @@ def test_app_owner_alone_does_not_bypass_content_owner(monkeypatch):
     assert response.status_code == 403
 
 
-def test_commercial_access_never_references_app_owner():
-    # `APP_OWNER` aparece en la PROSA de los docstrings (explicando por qué NO
-    # se usa, herencia de Phase 1) — lo que este test protege es que nunca se
-    # IMPORTE ni se LLAME como código real.
+def test_commercial_access_uses_the_single_shared_owner_predicate():
+    # HISTÓRICO (hasta el corrective post-#107): este test protegía lo
+    # CONTRARIO -- que `commercial_access.py` NUNCA importara/llamara
+    # `webapp.access`, porque la política de ESE momento prohibía
+    # explícitamente un bypass de APP_OWNER acá. El owner revirtió esa
+    # política a propósito (ver `webapp/access.py::is_owner_user`,
+    # `tests/webapp/test_app_owner_workspace_superuser.py` para el
+    # comportamiento completo) -- lo que este test protege AHORA es que la
+    # excepción se consuma desde el ÚNICO predicado compartido
+    # (`access.is_owner_user`), nunca reimplementada acá comparando contra
+    # `APP_OWNER`/`config` directo (que sería una segunda política
+    # duplicada, exactamente lo que el corrective evita).
     access_py = (Path(__file__).resolve().parents[2] / "webapp" / "commercial_access.py").read_text(encoding="utf-8")
-    assert "import access" not in access_py
-    assert "from webapp import access" not in access_py
-    assert "access.is_owner(" not in access_py
+    assert "from webapp import access" in access_py
+    assert "access.is_owner_user(" in access_py
+    # Nunca reimplementa la comparación contra APP_OWNER por su cuenta --
+    # ni importándolo de `config` ni llamando el viejo `access.is_owner(`
+    # (that tomaba un Request; la excepción ahora es el predicado PURO).
     assert "from config import APP_OWNER" not in access_py
+    assert "access.is_owner(" not in access_py
 
 
 # ============================================================================

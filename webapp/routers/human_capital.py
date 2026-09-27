@@ -221,16 +221,30 @@ def human_capital_profiles_page(
     # sabe interpretar — el router no decide qué campos son buscables ni
     # cómo se comparan, eso vive en human_capital_service.filter_profiles.
     query = {"q": q, "seniority": seniority, "source": source, "location": location, "potential_mark": potential_mark}
+    context = {
+        "current_workspace": workspaces.HUMAN_CAPITAL,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack": DEFAULT_PACK,
+        "user": user,
+        "active_page": "perfiles",
+        **_profiles_panel_context(query=query),
+    }
+    # BUG real encontrado con el Visual QA Harness (owner post-#107 audit):
+    # este GET nunca distinguía HTMX de navegación directa -- el filtro
+    # (`hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel"
+    # hx-swap="outerHTML"`) recibía SIEMPRE la página completa (con
+    # topbar/nav/hero) de vuelta, y HTMX la insertaba entera dentro del
+    # fragmento, anidando el shell del Hub dentro de sí mismo -- 100%
+    # reproducible con un click real en "Buscar" desde cero, sin ningún
+    # estado previo. MISMO patrón ya establecido en el resto del Hub
+    # (`request.headers.get("HX-Request")`, ver p.ej. catalog_flow/
+    # catalog_cds en webapp/main.py) -- nunca un mecanismo nuevo.
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_profiles_panel.html", context=context,
+        )
     return templates.TemplateResponse(
-        request=request, name="human_capital/profiles.html",
-        context={
-            "current_workspace": workspaces.HUMAN_CAPITAL,
-            "available_workspaces": workspaces.available_workspaces(user),
-            "pack": DEFAULT_PACK,
-            "user": user,
-            "active_page": "perfiles",
-            **_profiles_panel_context(query=query),
-        },
+        request=request, name="human_capital/profiles.html", context=context,
     )
 
 

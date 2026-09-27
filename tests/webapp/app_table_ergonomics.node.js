@@ -77,6 +77,14 @@ function makeNode(tag, attrs) {
     get() { return [...node.classList._set].join(" "); },
     set(value) { node.classList._set = new Set(String(value).split(/\s+/).filter(Boolean)); },
   });
+  // `clientWidth` (T1 compatibility corrective): MISMO `data-test-width` que
+  // `getBoundingClientRect().width` ya usa arriba -- un getter vivo, no un
+  // valor congelado al crear el nodo, porque los tests de compatibilidad
+  // (ver D5/D7/D8) necesitan simular el contenedor midiendo un ancho
+  // DISTINTO en el restore que el que tenía al guardar.
+  Object.defineProperty(node, "clientWidth", {
+    get() { return Number(node.attrs["data-test-width"] || 100); },
+  });
   return node;
 }
 function camelToKebab(s) { return s.replace(/[A-Z]/g, m => "-" + m.toLowerCase()); }
@@ -296,14 +304,17 @@ function buildSyntheticTable(tableKey, opts = {}) {
 
 // ── D5 (T1 reload): restorePersistedColumnWidths es el algoritmo COMPARTIDO —
 //     aplica overrides guardados, congela el resto a px y fija el TOTAL
-//     explícito (= suma). Vive en el primitivo, no en un consumidor. ──
+//     explícito (= suma). Vive en el primitivo, no en un consumidor. El
+//     envelope v1 (owner post-#107 acceptance) exige `containerWidth`
+//     COMPATIBLE con el contenedor actual (acá, ambos 100 -- el default de
+//     `clientWidth` del mini-DOM cuando no se setea `data-test-width`). ──
 {
   ok(typeof restorePersistedColumnWidths === "function", "D5: app.js expone restorePersistedColumnWidths (algoritmo compartido)");
   const { root, container, table, colgroup } = buildSyntheticTable("ergon-restore", { columns: ["a", "b", "c"] });
-  store["dw-col-widths:ergon-restore"] = JSON.stringify({ b: "200px" }); // override persistido de una columna
+  store["dw-col-widths:ergon-restore"] = JSON.stringify({ schemaVersion: 1, containerWidth: container.clientWidth, widths: { b: "200px" } });
   const applied = restorePersistedColumnWidths(container);
   const col = k => colgroup.children.find(c => c.dataset.columnKey === k);
-  ok(applied === true, "D5: aplica cuando hay overrides guardados");
+  ok(applied === true, "D5: aplica cuando hay overrides guardados y el contenedor es compatible");
   eq(col("b").style.width, "200px", "D5: la columna con override toma su px");
   eq(col("a").style.width, "120px", "D5: las demás se congelan a su ancho efectivo (px), no quedan sin setear");
   eq(col("c").style.width, "120px", "D5: idem la otra columna");
@@ -316,6 +327,48 @@ function buildSyntheticTable(tableKey, opts = {}) {
   const applied = restorePersistedColumnWidths(container);
   ok(applied === false, "D6: sin overrides guardados devuelve false (no toca la tabla; fresh-load queda width:100%)");
   ok(!table.style.width, "D6: la tabla no recibe ancho inline si no hay nada persistido");
+}
+
+// ── D7 (T1 persistence compatibility corrective, owner post-#107 acceptance):
+//     ancho de contenedor MATERIALMENTE distinto al guardado -> se descarta
+//     la preferencia ENTERA, la tabla queda responsive (nunca un total
+//     congelado calculado sobre un layout que ya no existe). ESTE es el bug
+//     de producción real: un resize hecho en una ventana angosta dejaba la
+//     tabla congelada/comprimida en una ventana ancha (o con overflow
+//     evitable en una más angosta), porque antes NUNCA se comparaba el
+//     ancho de contenedor guardado contra el actual. ──
+{
+  const { container, table } = buildSyntheticTable("ergon-incompatible", { columns: ["a", "b"] });
+  container.attrs["data-test-width"] = "1000"; // contenedor ACTUAL: 1000px
+  // Guardado cuando el contenedor medía 400px -- fuera de la tolerancia del 8%.
+  store["dw-col-widths:ergon-incompatible"] = JSON.stringify({ schemaVersion: 1, containerWidth: 400, widths: { a: "200px" } });
+  const applied = restorePersistedColumnWidths(container);
+  ok(applied === false, "D7: ancho de contenedor materialmente distinto -> se descarta, no se aplica nada");
+  ok(!table.style.width, "D7: la tabla queda sin ancho inline -- responsive (width:100% declarativo), nunca un total viejo");
+}
+
+// ── D8 (T1 persistence compatibility corrective): estado PRE-CONTRATO (el
+//     shape plano `{colKey:"Npx"}` de antes de este corrective, sin
+//     schemaVersion/containerWidth) se trata como INCOMPATIBLE -- fail-safe
+//     a responsive, NUNCA se re-interpreta/migra en caliente. ──
+{
+  const { container, table } = buildSyntheticTable("ergon-legacy-shape", { columns: ["a", "b"] });
+  store["dw-col-widths:ergon-legacy-shape"] = JSON.stringify({ a: "200px" }); // shape viejo, sin envelope
+  const applied = restorePersistedColumnWidths(container);
+  ok(applied === false, "D8: shape plano pre-contrato -> incompatible, se descarta (fail-safe a responsive)");
+  ok(!table.style.width, "D8: la tabla queda sin ancho inline");
+  eq(readStoredColumnWidths("ergon-legacy-shape"), null, "D8: readStoredColumnWidths (contrato público) también trata el shape viejo como ausente");
+}
+
+// ── D9: ancho de contenedor DENTRO de tolerancia (7% de diferencia, bajo el
+//     8% documentado) SÍ se restaura -- la tolerancia no es "exact match". ──
+{
+  const { container, colgroup } = buildSyntheticTable("ergon-tolerance", { columns: ["a", "b"] });
+  container.attrs["data-test-width"] = "1070"; // guardado a 1000, actual 1070 -> 7% de diferencia
+  store["dw-col-widths:ergon-tolerance"] = JSON.stringify({ schemaVersion: 1, containerWidth: 1000, widths: { a: "300px" } });
+  const applied = restorePersistedColumnWidths(container);
+  ok(applied === true, "D9: 7% de diferencia (bajo la tolerancia del 8%) sigue considerándose compatible");
+  eq(colgroup.children.find(c => c.dataset.columnKey === "a").style.width, "300px", "D9: el override se aplica igual dentro de tolerancia");
 }
 
 // ── E: persistencia — el ancho queda en localStorage bajo dw-col-widths:<key>,
@@ -331,7 +384,13 @@ function buildSyntheticTable(tableKey, opts = {}) {
   ok(localStorage.getItem("dw-col-widths:ergon-e1") !== null, "E: persiste bajo la key de la tabla 1");
   ok(localStorage.getItem("dw-col-widths:ergon-e2") === null, "E: la tabla 2 (key distinta) no se contamina");
   const saved = JSON.parse(localStorage.getItem("dw-col-widths:ergon-e1"));
-  ok(typeof saved === "object" && !Array.isArray(saved), "E: se persiste como objeto plano {key: width}");
+  // Envelope v1 (T1 persistence compatibility corrective), nunca el mapa
+  // plano crudo -- `containerWidth` es lo que restorePersistedColumnWidths
+  // necesita comparar contra el contenedor ACTUAL en un restore futuro.
+  ok(typeof saved === "object" && !Array.isArray(saved), "E: se persiste como objeto (envelope), nunca un array");
+  eq(saved.schemaVersion, 1, "E: el envelope declara su schemaVersion");
+  ok(typeof saved.containerWidth === "number", "E: el envelope graba el ancho de contenedor vigente al guardar");
+  ok(typeof saved.widths === "object" && !Array.isArray(saved.widths), "E: los anchos en sí viven en widths, como mapa plano {key: width}");
 }
 
 // ── F: evento dw:columns-resized se dispara con key/width, bubbles ─────────
@@ -377,16 +436,25 @@ function buildSyntheticTable(tableKey, opts = {}) {
 }
 
 // ── I: readStoredColumnWidths — fail-open ante storage corrupto/con forma
-//     inválida (mismo criterio que readStoredColumnOrder para el orden) ────
+//     inválida (mismo criterio que readStoredColumnOrder para el orden).
+//     Owner post-#107 acceptance (T1 persistence compatibility corrective):
+//     el shape plano `{colKey:"Npx"}` de ANTES de este corrective es AHORA
+//     una forma inválida más -- sin `schemaVersion`/`containerWidth` no hay
+//     forma de validar para qué ancho de contenedor son esos px, así que se
+//     trata igual que JSON corrupto (null, fail-open), nunca se reinterpreta. ──
 {
   localStorage.setItem("dw-col-widths:ergon-i-bad-json", "{not json");
   localStorage.setItem("dw-col-widths:ergon-i-array", "[1,2,3]");
   localStorage.setItem("dw-col-widths:ergon-i-null", "null");
-  localStorage.setItem("dw-col-widths:ergon-i-ok", JSON.stringify({ alpha: "140px" }));
+  localStorage.setItem("dw-col-widths:ergon-i-legacy-flat", JSON.stringify({ alpha: "140px" }));
+  localStorage.setItem("dw-col-widths:ergon-i-ok", JSON.stringify({ schemaVersion: 1, containerWidth: 500, widths: { alpha: "140px" } }));
+  localStorage.setItem("dw-col-widths:ergon-i-wrong-version", JSON.stringify({ schemaVersion: 2, containerWidth: 500, widths: { alpha: "140px" } }));
   eq(readStoredColumnWidths("ergon-i-bad-json"), null, "I: JSON corrupto -> null (fail-open)");
   eq(readStoredColumnWidths("ergon-i-array"), null, "I: un array (no un objeto plano) -> null");
   eq(readStoredColumnWidths("ergon-i-null"), null, "I: `null` guardado -> null");
-  eq(readStoredColumnWidths("ergon-i-ok"), { alpha: "140px" }, "I: forma válida se lee tal cual");
+  eq(readStoredColumnWidths("ergon-i-legacy-flat"), null, "I: shape plano pre-contrato -> null (incompatible, ver D8)");
+  eq(readStoredColumnWidths("ergon-i-wrong-version"), null, "I: schemaVersion distinto -> null (nunca migrado en caliente)");
+  eq(readStoredColumnWidths("ergon-i-ok"), { alpha: "140px" }, "I: envelope v1 válido -> devuelve el mapa plano de widths");
   eq(readStoredColumnWidths("ergon-i-missing"), null, "I: key nunca usada -> null");
 }
 

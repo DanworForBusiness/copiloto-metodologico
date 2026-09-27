@@ -83,8 +83,10 @@ def test_b2_count_singular():
 def test_b3_seniority_filter_is_governed_select():
     _seed_seniority("Junior", "Senior")
     html = _client().get("/cchh/candidatos").text
-    # Es un <select name="seniority"> con las opciones del catálogo (no un input text).
-    assert '<select id="hc-filter-seniority" name="seniority">' in html
+    # Es un <select name="seniority"> con las opciones del catálogo (no un
+    # input text) -- id/name, nunca el resto de los atributos (el filtro
+    # reactivo, owner CRM parity, agrega hx-trigger="change" ahí mismo).
+    assert '<select id="hc-filter-seniority" name="seniority"' in html
     assert ">Junior<" in html and ">Senior<" in html
 
 

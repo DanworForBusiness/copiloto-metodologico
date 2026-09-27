@@ -24,30 +24,56 @@
        falla), copy distinto aclarando que es por los filtros --
        distinguibles en tests vía `data-empty-kind`. #}
 <div id="hc-profiles-panel">
-  {# T2 (owner): el listado vive en el primitivo compartido de paneles
-     (`initDashboardSections` / `<details class="dashboard-section">`) — mismo
-     que Reporting/Staffing/Comercial: colapsable, reordenable, con
-     persistencia compartida (`data-dashboard-key`). El conteo va en el HEADER
-     del panel (arriba-derecha), NUNCA como línea suelta sobre la tabla. #}
-  <div class="dashboard-sections" data-dashboard-key="cchh-candidatos-list" data-persist-collapse>
-    <details class="dashboard-section" data-section-id="candidatos" open>
-      <summary class="dashboard-section__head" draggable="true">
-        <span class="dashboard-section__caret"></span>
-        <span class="dashboard-section__title">Candidatos</span>
-        {% if not source_error %}<span class="dashboard-section__count">{{ profiles | length }} candidato{{ '' if profiles | length == 1 else 's' }}</span>{% endif %}
-      </summary>
-      <div class="dashboard-section__body">
+  {# Owner UX correction (post-#107 QA): los filtros de Candidatos son
+     PÁGINA/GLOBALES (aplican a la lista entera, no a "una parte" del
+     panel) -- MISMA regla de composición que el resto del Hub (Staffing:
+     `.staffing-filter-bar` vive ANTES de `.dashboard-sections`, nunca
+     dentro de un `.dashboard-section` -- ver staffing_dashboard.html).
+     Reusa el MISMO primitivo `.filter-toolbar-card` (tools.css, genérico,
+     promovido -- nunca `.staffing-filter-bar` en sí, que es semántica de
+     Operations) que ya usaba acá antes, sólo reubicado. #}
+  {# Owner UX correction (CRM parity): reactivo, sin botón "Buscar" --
+     AUDITADO primero (comercial.js/crm.html, reporting.js, staffing.js,
+     admin_activity_content.html): no existe ningún patrón de debounce
+     HTMX/JS ya establecido en TODO el Hub (ni en Comercial/CRM) para
+     reusar -- `admin_activity_content.html` es lo más cercano
+     (`hx-trigger="submit, change from:..."`) pero sigue atado a un
+     submit explícito, nunca texto con debounce. Ante la ausencia de un
+     precedente local, se usa el idioma ESTÁNDAR de HTMX para esto (su
+     propio ejemplo oficial "Active Search": `keyup changed delay:500ms`)
+     -- nunca un mecanismo propio de CCHH.
+
+     Verificado en vivo (owner post-#107 QA): en htmx 2.0.4 un `hx-trigger`
+     en un campo hijo NO alcanza por sí solo -- sin su PROPIO `hx-get` ese
+     campo nunca dispara nada (el `hx-get` del `<form>` ancestro NO se
+     "hereda" para un trigger ad-hoc en un descendiente). Por eso CADA
+     campo reactivo lleva acá su PROPIO `hx-get`/`hx-target`/`hx-swap`.
+
+     SEGUNDO hallazgo en vivo, igual de real: un elemento con SU PROPIO
+     `hx-get` NO hereda automáticamente los valores del resto del `<form>`
+     que lo contiene -- eso SÍ pasa cuando el disparador es el `<form>`
+     mismo (submit), pero NO para un trigger ad-hoc en un descendiente; sin
+     nada más, cada campo mandaba SÓLO su propio valor y pisaba/perdía los
+     demás filtros ya aplicados. Fix: `hx-include="closest form"` explícito
+     en cada campo reactivo -- el mecanismo documentado de htmx para
+     exactamente este caso, nunca un `hx-vals`/JS propio. Confirmado en
+     vivo: con esto, cambiar UN campo manda los CINCO valores actuales.
+
+     El `<form>` conserva su propio hx-get/target/swap como fallback: Enter
+     en un campo de texto sigue disparando un "submit" nativo que htmx
+     intercepta igual (MISMO target/swap que ya evitaba el shell anidado,
+     ver corrección HX-Request de este router). #}
   <form class="hc-profile-filters filter-toolbar-card" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML">
     <div class="feedback-field">
       <label for="hc-search-q">Buscar</label>
-      <input id="hc-search-q" name="q" type="text" value="{{ query.q or '' }}" placeholder="Nombre, email, skills, ubicación...">
+      <input id="hc-search-q" name="q" type="text" value="{{ query.q or '' }}" placeholder="Nombre, email, skills, ubicación..." hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
     </div>
     <div class="feedback-field">
       <label for="hc-filter-seniority">Seniority</label>
       {# Filtro gobernado por catálogo (B3): opciones activas + "Todas". Si el
          filtro guardado quedó con un valor legacy fuera de catálogo, se
          preserva como opción seleccionada para que el filtro siga funcionando. #}
-      <select id="hc-filter-seniority" name="seniority">
+      <select id="hc-filter-seniority" name="seniority" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
         <option value="" {% if not query.seniority %}selected{% endif %}>Todas</option>
         {% if query.seniority and query.seniority not in valid_seniority %}
         <option value="{{ query.seniority }}" selected>{{ query.seniority }} (fuera de catálogo)</option>
@@ -59,7 +85,7 @@
     </div>
     <div class="feedback-field">
       <label for="hc-filter-source">Fuente</label>
-      <select id="hc-filter-source" name="source">
+      <select id="hc-filter-source" name="source" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
         <option value="" {% if not query.source %}selected{% endif %}>Todas</option>
         {% for opt in valid_sources %}
         <option value="{{ opt }}" {% if query.source == opt %}selected{% endif %}>{{ opt }}</option>
@@ -68,18 +94,37 @@
     </div>
     <div class="feedback-field">
       <label for="hc-filter-location">Ubicación</label>
-      <input id="hc-filter-location" name="location" type="text" value="{{ query.location or '' }}">
+      <input id="hc-filter-location" name="location" type="text" value="{{ query.location or '' }}" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
     </div>
     <div class="feedback-field">
       <label for="hc-filter-potential-mark">Marca de potencial</label>
-      <input id="hc-filter-potential-mark" name="potential_mark" type="text" value="{{ query.potential_mark or '' }}">
+      <input id="hc-filter-potential-mark" name="potential_mark" type="text" value="{{ query.potential_mark or '' }}" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
     </div>
-    <button type="submit" class="btn-primary">Buscar</button>
     {% if query.q or query.seniority or query.source or query.location or query.potential_mark %}
-    <a href="/cchh/candidatos" class="btn-secondary" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML">Limpiar filtros</a>
+    {# Patrón compartido Hub (Staffing/What's New/Admin Activity, `.whatsnew-filter__clear`):
+       MISMO botón/copy/estilo -- acá con el mecanismo HTMX de Admin Activity
+       (server-side, como CCHH), no el `@click` de Alpine de Staffing/What's New. #}
+    <button type="button" class="whatsnew-filter__clear" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML">✕ Limpiar</button>
     {% endif %}
   </form>
 
+  {# El listado en sí (filtros EXCLUIDOS, ver arriba) sigue viviendo en el
+     primitivo compartido de paneles (`initDashboardSections` /
+     `<details class="dashboard-section">`) -- colapsable/reordenable, con
+     persistencia compartida (`data-dashboard-key`). Los tres estados de
+     este panel (No disponible / Sin resultados por dataset vacío / Sin
+     resultados por filtro) siguen viviendo DENTRO del body, sin cambios de
+     esta corrección -- sólo los filtros de arriba salieron. El conteo va
+     en el HEADER del panel (arriba-derecha), NUNCA como línea suelta
+     sobre la tabla. #}
+  <div class="dashboard-sections" data-dashboard-key="cchh-candidatos-list" data-persist-collapse>
+    <details class="dashboard-section" data-section-id="candidatos" open>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Candidatos</span>
+        {% if not source_error %}<span class="dashboard-section__count">{{ profiles | length }} candidato{{ '' if profiles | length == 1 else 's' }}</span>{% endif %}
+      </summary>
+      <div class="dashboard-section__body">
   {% if source_error %}
   <div class="dashboard-empty" data-error-kind="{{ 'config_incomplete' if config_incomplete else 'source_error' }}">
     <span class="dashboard-empty__label">No disponible</span>

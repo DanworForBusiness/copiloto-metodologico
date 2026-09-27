@@ -970,9 +970,20 @@ function initResizableColumns(scope) {
       if (!resizing) return;
       const { key, col, handle } = resizing;
       handle.classList.remove("is-resizing");
-      const stored = readStoredColumnWidths(container.dataset.resizableColumnsKey) || {};
-      stored[key] = col.style.width;
-      try { window.localStorage.setItem(storageKey, JSON.stringify(stored)); } catch (e) { /* privado/cuota: no persiste, no rompe */ }
+      const widths = Object.assign({}, readStoredColumnWidths(container.dataset.resizableColumnsKey) || {});
+      widths[key] = col.style.width;
+      // Contrato de compatibilidad de persistencia (owner post-#107 acceptance,
+      // corrective T1): CADA escritura graba el ancho de CONTENEDOR vigente en
+      // este momento junto con los anchos -- ver readStoredColumnWidthsEnvelope/
+      // restorePersistedColumnWidths, abajo, para el porqué completo. Medido
+      // ACÁ (al terminar un resize real), nunca en el restore -- es la única
+      // fuente de verdad de "para qué ancho de contenedor son válidos estos px".
+      const envelope = {
+        schemaVersion: COLUMN_WIDTHS_SCHEMA_VERSION,
+        containerWidth: container.clientWidth,
+        widths,
+      };
+      try { window.localStorage.setItem(storageKey, JSON.stringify(envelope)); } catch (e) { /* privado/cuota: no persiste, no rompe */ }
       container.dispatchEvent(new CustomEvent("dw:columns-resized", { detail: { key, width: col.style.width }, bubbles: true }));
       resizing = null;
     };
@@ -980,21 +991,60 @@ function initResizableColumns(scope) {
     container.addEventListener("pointercancel", finish);
   });
 }
-// Lectura fail-closed de anchos guardados. A diferencia de
-// readStoredColumnOrder no hay un "catálogo completo" que exigir completo —
-// un ancho ausente para una key simplemente deja el default declarativo de
-// esa columna (ver caller); sólo se descarta la preferencia entera si el
-// storage está corrupto (no es un objeto plano).
-function readStoredColumnWidths(key) {
+// Contrato de compatibilidad de persistencia de anchos (owner post-#107
+// acceptance, corrective T1: "persisted widths metadata: schema/version,
+// container width at save"). ROOT CAUSE que este corrective cierra: un
+// ancho persistido es un valor en PX -- válido sólo para el ancho de
+// CONTENEDOR bajo el que se midió. `restorePersistedColumnWidths` (abajo)
+// los re-aplicaba ciegamente sin importar el ancho ACTUAL del contenedor,
+// así que un resize hecho en una ventana angosta podía "congelar" una
+// tabla visiblemente angosta/con overflow evitable en una ventana ancha, y
+// viceversa -- el reporte de producción de tabla "rota/comprimida".
+// `COLUMN_WIDTHS_SCHEMA_VERSION` (único, acá) es el candado: cualquier
+// valor sin este envelope exacto (el shape plano `{colKey:"Npx"}` de antes
+// de este corrective, o cualquier versión futura distinta) se trata como
+// INCOMPATIBLE y se descarta -- nunca se "adivina"/migra en caliente, la
+// tabla cae a su layout responsive normal (`width:100%`, ver el fresh-load
+// de siempre) en vez de arriesgar un total congelado potencialmente erróneo.
+const COLUMN_WIDTHS_SCHEMA_VERSION = 1;
+// Tolerancia de "mismo ancho de contenedor", RELATIVA (no un px fijo: un
+// layout angosto y uno ancho no deberían compartir el mismo margen
+// absoluto) -- ÚNICO lugar que la define, documentada acá, nunca repetida
+// ni resuelta con CSS. 8% cubre diferencias triviales de renderizado
+// (scrollbar apareciendo/desapareciendo, redondeo) sin tolerar un cambio
+// real de layout (sidebar colapsado/expandido, viewport distinto).
+const COLUMN_WIDTHS_TOLERANCE_RATIO = 0.08;
+// Lectura de BAJO NIVEL del envelope completo (schemaVersion+containerWidth+
+// widths) -- uso EXCLUSIVO de `restorePersistedColumnWidths` (necesita
+// `containerWidth` para el chequeo de compatibilidad) y del `finish()` de
+// arriba (necesita los `widths` previos para mergear el override nuevo).
+// Cualquier shape que NO matchee el contrato exacto (incluido el plano
+// `{colKey:"Npx"}` pre-corrective) es tratado como ausente -- null, nunca
+// una migración implícita.
+function readStoredColumnWidthsEnvelope(key) {
   try {
     const raw = window.localStorage.getItem(`dw-col-widths:${key}`);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    if (parsed.schemaVersion !== COLUMN_WIDTHS_SCHEMA_VERSION) return null;
+    if (typeof parsed.containerWidth !== "number" || !(parsed.containerWidth > 0)) return null;
+    if (!parsed.widths || typeof parsed.widths !== "object" || Array.isArray(parsed.widths)) return null;
     return parsed;
   } catch (e) {
     return null;
   }
+}
+// Lectura PÚBLICA, MISMO contrato de siempre para los consumidores
+// existentes (Comercial vía `commercialColumnWidthsFor`, y cualquier test):
+// devuelve el mapa plano `{colKey:"Npx"}`, o `null` si no hay preferencia
+// compatible -- nunca expone `containerWidth`/`schemaVersion` acá, eso es
+// un detalle del contrato de restore de TABLAS QUE CONGELAN UN TOTAL
+// EXPLÍCITO (ver arriba), irrelevante para un consumidor que resuelve cada
+// columna de forma independiente contra su propio default declarativo.
+function readStoredColumnWidths(key) {
+  const envelope = readStoredColumnWidthsEnvelope(key);
+  return envelope ? envelope.widths : null;
 }
 
 // Reconstrucción COHERENTE de anchos persistidos tras reload (contrato T1
@@ -1002,20 +1052,38 @@ function readStoredColumnWidths(key) {
 // puntual). Cualquier consumidor de `initResizableColumns` que restaure anchos
 // EN CLIENTE debe usar esto (CCHH lo hace vía su adapter; otros que arman el
 // <colgroup> server-side pueden llamarlo igual si quieren el total explícito).
-// Si hay overrides guardados: aplica cada override a su columna, congela las
-// demás a su ancho efectivo actual en px (medido en el <th> por identidad;
-// columnas sin key —p. ej. Acciones— por su propio <col>), y fija el TOTAL
-// EXPLÍCITO de la tabla = suma. Reconstruye EXACTAMENTE el estado post-resize
-// (mismo contrato que el resize en vivo), nunca el `width:100%` que
-// redistribuye. Lee TODOS los anchos antes de mutar (no medir un layout ya
-// movido). Devuelve true si aplicó algo. `container` = el elemento con
-// `data-resizable-columns-key` (el mismo scope que usa initResizableColumns).
+// Si hay overrides COMPATIBLES guardados (ver readStoredColumnWidthsEnvelope):
+// aplica cada override a su columna, congela las demás a su ancho efectivo
+// actual en px (medido en el <th> por identidad; columnas sin key —p. ej.
+// Acciones— por su propio <col>), y fija el TOTAL EXPLÍCITO de la tabla =
+// suma. Reconstruye EXACTAMENTE el estado post-resize (mismo contrato que
+// el resize en vivo), nunca el `width:100%` que redistribuye. Lee TODOS
+// los anchos antes de mutar (no medir un layout ya movido). Devuelve true
+// si aplicó algo. `container` = el elemento con `data-resizable-columns-key`
+// (el mismo scope que usa initResizableColumns).
+//
+// Chequeo de compatibilidad (owner post-#107 acceptance, corrective T1):
+// ANTES de aplicar nada, compara el ancho de contenedor ACTUAL contra el
+// que quedó grabado junto a los anchos. Fuera de tolerancia (ver
+// COLUMN_WIDTHS_TOLERANCE_RATIO) = contenedor MATERIALMENTE distinto del
+// que produjo esos px -- se descarta la preferencia completa (nunca se
+// re-escala/adivina) y la función devuelve false sin tocar el DOM, dejando
+// el layout responsive normal (`width:100%` declarativo de SSR) intacto.
+// Esto es lo que hace que un resize hecho en una ventana angosta no deje
+// una tabla congelada/comprimida en una ventana ancha (o viceversa) --
+// el reporte de producción que este corrective cierra.
 function restorePersistedColumnWidths(container) {
-  if (!container || typeof readStoredColumnWidths !== "function") return false;
+  if (!container || typeof readStoredColumnWidthsEnvelope !== "function") return false;
   const key = container.dataset ? container.dataset.resizableColumnsKey : null;
   if (!key) return false;
-  const stored = readStoredColumnWidths(key);
-  if (!stored || !Object.keys(stored).length) return false;
+  const envelope = readStoredColumnWidthsEnvelope(key);
+  if (!envelope || !Object.keys(envelope.widths).length) return false;
+  const currentWidth = container.clientWidth;
+  const savedWidth = envelope.containerWidth;
+  if (Math.abs(currentWidth - savedWidth) > savedWidth * COLUMN_WIDTHS_TOLERANCE_RATIO) {
+    return false;
+  }
+  const stored = envelope.widths;
   const table = container.querySelector("table");
   if (!table) return false;
   const cols = [].slice.call(table.querySelectorAll("colgroup > col"));

@@ -129,23 +129,34 @@ def test_fail_closed_never_falls_back_to_allowed_users_or_academy_users(monkeypa
     assert commercial_access.is_commercial_authorized_user(user) is False  # Comercial: NO
 
 
-# --- APP_OWNER — sin bypass implícito, NUNCA hardcodeado como default ------
+# --- APP_OWNER — superusuario de workspace (owner decision, corrective
+#     post-#107: REEMPLAZA la política anterior de esta sección, que
+#     probaba lo contrario -- "sin bypass implícito". Ver
+#     `webapp/access.py::is_owner_user` y
+#     `tests/webapp/test_app_owner_workspace_superuser.py` para el
+#     contrato completo/centralizado; acá sólo se confirma que ESTE
+#     vertical lo consume correctamente. -----------------------------------
 
-def test_app_owner_not_explicitly_listed_has_no_commercial_bypass(monkeypatch):
-    import config
+def test_app_owner_has_commercial_access_even_when_not_explicitly_listed(monkeypatch):
+    from webapp import access
+    monkeypatch.setattr(access, "APP_OWNER", "owner-com-test")
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", "ALL")
     monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "")
 
-    owner_email = f"{config.APP_OWNER}@danwor.com"
-    assert commercial_access.is_commercial_authorized_user(_user(owner_email)) is False
+    owner_email = "owner-com-test@danwor.com"
+    assert commercial_access.is_commercial_authorized_user(_user(owner_email)) is True
 
 
-def test_app_owner_gains_access_only_if_explicitly_listed(monkeypatch):
-    import config
+def test_app_owner_explicitly_listed_is_still_authorized_redundant_with_owner_bypass(monkeypatch):
+    # El owner explícitamente listado en COMMERCIAL_ALLOWED_USERS sigue
+    # entrando -- ya no es el ÚNICO camino (ver test de arriba), pero la
+    # excepción del owner es aditiva: nunca RESTA autorización que ya existía.
+    from webapp import access
+    monkeypatch.setattr(access, "APP_OWNER", "owner-com-test")
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", "ALL")
-    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", config.APP_OWNER)
+    monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "owner-com-test")
 
-    owner_email = f"{config.APP_OWNER}@danwor.com"
+    owner_email = "owner-com-test@danwor.com"
     assert commercial_access.is_commercial_authorized_user(_user(owner_email)) is True
 
 
