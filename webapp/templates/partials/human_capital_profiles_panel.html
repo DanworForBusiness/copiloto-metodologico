@@ -24,6 +24,19 @@
        falla), copy distinto aclarando que es por los filtros --
        distinguibles en tests vía `data-empty-kind`. #}
 <div id="hc-profiles-panel">
+  {# T2 (owner): el listado vive en el primitivo compartido de paneles
+     (`initDashboardSections` / `<details class="dashboard-section">`) — mismo
+     que Reporting/Staffing/Comercial: colapsable, reordenable, con
+     persistencia compartida (`data-dashboard-key`). El conteo va en el HEADER
+     del panel (arriba-derecha), NUNCA como línea suelta sobre la tabla. #}
+  <div class="dashboard-sections" data-dashboard-key="cchh-candidatos-list" data-persist-collapse>
+    <details class="dashboard-section" data-section-id="candidatos" open>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Candidatos</span>
+        {% if not source_error %}<span class="dashboard-section__count">{{ profiles | length }} candidato{{ '' if profiles | length == 1 else 's' }}</span>{% endif %}
+      </summary>
+      <div class="dashboard-section__body">
   <form class="hc-profile-filters filter-toolbar-card" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML">
     <div class="feedback-field">
       <label for="hc-search-q">Buscar</label>
@@ -83,10 +96,6 @@
     <p>No se encontraron candidatos para los filtros seleccionados.</p>
   </div>
   {% else %}
-  {# Result count (owner UX parity slice 2, B2): dato de dominio ya disponible
-     (`profiles | length`), MISMO registro que la app de referencia (Base de
-     CVs muestra el conteo). Sólo cuando hay resultados. #}
-  <p class="hc-results-count">{{ profiles | length }} candidato{{ '' if profiles | length == 1 else 's' }}</p>
   {# Reorder + resize (CCHH UX homologation): MISMO primitivo compartido que
      Comercial (initDraggableColumns/initResizableColumns, app.js) -- esta
      tabla es SSR/estática (Jinja puro, sin renderer cliente), así que a
@@ -144,6 +153,9 @@
     </table>
   </div>
   {% endif %}
+      </div>
+    </details>
+  </div>
 </div>
 <script>
 (function () {
@@ -180,15 +192,11 @@
     });
   }
   function applyStoredColumnWidths(container) {
-    if (typeof readStoredColumnWidths !== "function") return;
-    const widthsKey = container.dataset.resizableColumnsKey;
-    if (!widthsKey) return;
-    const stored = readStoredColumnWidths(widthsKey);
-    if (!stored) return;
-    container.querySelectorAll("table > colgroup > col[data-column-key]").forEach(function (col) {
-      const width = stored[col.dataset.columnKey];
-      if (width) col.style.width = width;
-    });
+    // Integración CCHH: delega el ALGORITMO genérico de reconstrucción (contrato
+    // T1 compartido) al primitivo `restorePersistedColumnWidths` (app.js). CCHH
+    // sólo aporta CUÁNDO llamarlo (carga inicial + cada HTMX swap, ver wire()) y
+    // el key del contenedor -- nunca una copia del algoritmo.
+    if (typeof restorePersistedColumnWidths === "function") restorePersistedColumnWidths(container);
   }
   // Seam de test (MISMO criterio que window.dwGraphToken/etc en hub_auth.js:
   // expuesto para observabilidad real de runtime, no para uso productivo
