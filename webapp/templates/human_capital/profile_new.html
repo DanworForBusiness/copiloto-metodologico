@@ -24,10 +24,21 @@
        module-hero) y el sticky/theme quedan idénticos a cada otro
        consumidor de esta clase. #}
     <a class="catalog-back" href="/cchh/candidatos">← Volver a Candidatos</a>
-    <section class="module-hero">
-      <p class="eyebrow">Capital Humano</p>
-      <h1>Cargar CV al banco</h1>
-      <p>Este CV queda disponible en el repositorio general, sin ligarse a ningún proceso todavía.</p>
+    {# `.hc-profiles-hero`/`.hc-profiles-hero-text`/`.hc-profiles-hero-actions`
+       (MISMO primitivo que profile_edit.html, owner post-#107: "misma
+       composición estructural" también para el hero) -- Expandir/Contraer
+       acá apunta a un solo grupo (`cchh-candidate-new`), Alta no tiene un
+       segundo bloque tipo Documentos. #}
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano</p>
+        <h1>Cargar CV al banco</h1>
+        <p>Este CV queda disponible en el repositorio general, sin ligarse a ningún proceso todavía.</p>
+      </div>
+      <div class="hc-profiles-hero-actions">
+        <button type="button" class="btn-secondary" data-dashboard-expand-all data-dashboard-target="cchh-candidate-new">Expandir</button>
+        <button type="button" class="btn-secondary" data-dashboard-collapse-all data-dashboard-target="cchh-candidate-new">Contraer</button>
+      </div>
     </section>
 
     {% include "partials/human_capital_profile_new_form.html" %}

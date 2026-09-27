@@ -104,6 +104,7 @@ from datetime import datetime
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+import config
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
 from webapp.services import (
@@ -644,6 +645,7 @@ def _import_page_context(**kwargs) -> dict:
     return {
         "max_upload_mb": profile_import_service.MAX_UPLOAD_BYTES // (1024 * 1024),
         "max_import_rows": profile_import_service.MAX_IMPORT_ROWS,
+        "bulk_import_template_url": config.HC_BULK_IMPORT_TEMPLATE_URL,
         **kwargs,
     }
 

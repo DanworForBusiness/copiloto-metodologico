@@ -160,11 +160,18 @@ def test_app_owner_explicitly_listed_is_still_authorized_redundant_with_owner_by
     assert commercial_access.is_commercial_authorized_user(_user(owner_email)) is True
 
 
-def test_default_config_value_is_empty_string_not_a_hardcoded_user():
+def test_default_config_value_is_empty_string_not_a_hardcoded_user(monkeypatch):
     # El default productivo de COMMERCIAL_ALLOWED_USERS debe ser "" (fail-
     # closed) — nunca un email hardcodeado (ni joconnor ni ningún otro).
+    # `config.COMMERCIAL_ALLOWED_USERS` YA está resuelto al valor real del
+    # `.env` del proceso (ej. el propio owner corriendo localmente con un
+    # valor real cargado) -- no es el default, es "el default salvo que el
+    # entorno lo pise". Control explícito: se saca el env var del proceso y
+    # se ejercita la MISMA función (`config._env`) que construye esa
+    # constante, en vez de leer el atributo ya resuelto.
+    monkeypatch.delenv("COMMERCIAL_ALLOWED_USERS", raising=False)
     import config
-    assert config.COMMERCIAL_ALLOWED_USERS == ""
+    assert config._env("COMMERCIAL_ALLOWED_USERS", "") == ""
 
 
 # --- Ortogonalidad al tier de Copiloto Y a Operations -----------------------

@@ -18,15 +18,37 @@
        llamadas simplemente omiten estos kwargs (default False).
      - ids: alta pasa `id_prefix="hc"`, edición `id_prefix="hc-edit"` --
        evita colisión de ids si alguna vez ambos formularios coexistieran
-       en el mismo documento (hoy no coexisten, pero es gratis preservarlo). #}
-{% macro profile_fields(id_prefix, form_values, valid_seniority, valid_sources, seniority_is_legacy=false, source_is_legacy=false, cv_html="") %}
+       en el mismo documento (hoy no coexisten, pero es gratis preservarlo).
+     - `as_dashboard_sections` (composición estructural compartida Alta+
+       Edición, owner post-#107: "misma composición estructural"): envuelve
+       cada bloque en el primitivo compartido `dashboard-section`
+       (colapsable/reordenable/persistente, MISMO que ya usa el listado de
+       Candidatos, `initDashboardSections`/`app.js`) en vez del `<section>`
+       plano de siempre. Alta y Edición pasan `true` por igual hoy -- el
+       `<section>` plano (default `false`) queda como fallback del macro,
+       sin caller activo, no se borra por si algún consumidor futuro lo
+       necesita. El `<h2>` de cada bloque se OMITE en el modo
+       dashboard-section: `.dashboard-section__title` en el `<summary>` ya
+       es el título visible, un `<h2>` interno lo duplicaría (mismo
+       criterio que "Candidatos" en human_capital_profiles_panel.html, que
+       tampoco repite su propio título dentro del body). #}
+{% macro profile_fields(id_prefix, form_values, valid_seniority, valid_sources, seniority_is_legacy=false, source_is_legacy=false, cv_html="", as_dashboard_sections=false) %}
   {#- `cv_html` (sólo alta): markup del campo CV que el caller inyecta DENTRO
      de "Datos del candidato" (owner post-#105: el CV va dentro de esa sección,
      no en un bloque suelto arriba). Edición lo omite -> "" -> Documentos sigue
      en su panel propio, NUNCA acá. El markup lo sigue armando el <form> del
      alta (id/name/accept/hint), la macro sólo define DÓNDE se ubica. -#}
+  {% if as_dashboard_sections %}
+  <details class="dashboard-section" data-section-id="datos-candidato" open>
+    <summary class="dashboard-section__head" draggable="true">
+      <span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title">Datos del candidato</span>
+    </summary>
+    <div class="dashboard-section__body">
+  {% else %}
   <section class="hc-profile-section">
     <h2>Datos del candidato</h2>
+  {% endif %}
     <div class="hc-profile-section__grid">
       <div class="feedback-field">
         <label for="{{ id_prefix }}-first-name">Nombre</label>
@@ -54,10 +76,24 @@
       </div>
       {{ cv_html | safe }}
     </div>
+  {% if as_dashboard_sections %}
+    </div>
+  </details>
+  {% else %}
   </section>
+  {% endif %}
 
+  {% if as_dashboard_sections %}
+  <details class="dashboard-section" data-section-id="clasificacion" open>
+    <summary class="dashboard-section__head" draggable="true">
+      <span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title">Clasificación</span>
+    </summary>
+    <div class="dashboard-section__body">
+  {% else %}
   <section class="hc-profile-section">
     <h2>Clasificación</h2>
+  {% endif %}
     <div class="hc-profile-section__grid">
       <div class="feedback-field">
         <label for="{{ id_prefix }}-skills">Perfil / Skills</label>
@@ -100,23 +136,52 @@
         <input id="{{ id_prefix }}-tags" name="tags" type="text" value="{{ form_values.tags or '' }}" placeholder="separados por coma">
       </div>
     </div>
+  {% if as_dashboard_sections %}
+    </div>
+  </details>
+  {% else %}
   </section>
+  {% endif %}
 
   {# Notas: sección propia de ancho completo -- MISMO rol que la referencia
      (BancoCvForm.tsx: un textarea fuera de la grilla de columnas), owner
      post-#104: alineada estructuralmente entre alta y edición (antes
      edición la tenía como celda angosta a mitad de la grilla). Sin <label>
      visible separado -- `aria-label` evita duplicar "Notas" (ya lo dice el
-     <h2>) sin perder la asociación accesible del campo. #}
+     <h2>/`.dashboard-section__title`) sin perder la asociación accesible
+     del campo. #}
+  {% if as_dashboard_sections %}
+  <details class="dashboard-section" data-section-id="notas" open>
+    <summary class="dashboard-section__head" draggable="true">
+      <span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title">Notas</span>
+    </summary>
+    <div class="dashboard-section__body">
+  {% else %}
   <section class="hc-profile-section">
     <h2>Notas</h2>
+  {% endif %}
     <div class="feedback-field hc-profile-form-notes">
       <textarea id="{{ id_prefix }}-notes" name="notes" aria-label="Notas" rows="3">{{ form_values.notes or '' }}</textarea>
     </div>
+  {% if as_dashboard_sections %}
+    </div>
+  </details>
+  {% else %}
   </section>
+  {% endif %}
 
+  {% if as_dashboard_sections %}
+  <details class="dashboard-section" data-section-id="potencial" open>
+    <summary class="dashboard-section__head" draggable="true">
+      <span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title">Potencial a futuro</span>
+    </summary>
+    <div class="dashboard-section__body">
+  {% else %}
   <section class="hc-profile-section">
     <h2>Potencial</h2>
+  {% endif %}
     {# No shared Hub star-rating primitive exists today (owner audit,
        2026-09-26) -- se mantiene el control 1-5 + marca actuales tal
        cual, sólo homologando estructura/posición. #}
@@ -130,5 +195,10 @@
         <input id="{{ id_prefix }}-potential-mark" name="potential_mark" type="text" value="{{ form_values.potential_mark or '' }}">
       </div>
     </div>
+  {% if as_dashboard_sections %}
+    </div>
+  </details>
+  {% else %}
   </section>
+  {% endif %}
 {% endmacro %}

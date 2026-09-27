@@ -25,12 +25,49 @@
        ("Estado desconocido"), nunca "No disponible" (Phase 3.5 §10:
        "Do not silently flatten this into source_error"). #}
 {% from "partials/human_capital_profile_fields.html" import profile_fields %}
-<form class="hc-profile-form" method="post" action="/cchh/candidatos/{{ profile_id }}/editar">
+{# `hc-profile-form--plain` (owner QA rejection: "card wrapping cards"):
+   `.hc-profile-form` es un card compartido con Alta (borde/fondo/padding,
+   ver human_capital.css) -- correcto ahí (una sola grilla plana de
+   campos), pero en Edición envolvía visualmente los 5 `dashboard-section`
+   (que YA son sus propios cards) en un card MÁS grande, duplicando el
+   borde. El modifier neutraliza SÓLO el chrome de card de `.hc-profile-
+   form` -- nunca toca la clase base, así que Alta (que no lo lleva) queda
+   exactamente igual. #}
+<form class="hc-profile-form hc-profile-form--plain" method="post" action="/cchh/candidatos/{{ profile_id }}/editar">
   <input type="hidden" name="expected_revision" value="{{ expected_revision }}">
 
   {% if error %}<p class="feedback-error">{{ error }}</p>{% endif %}
 
-  {{ profile_fields("hc-edit", form_values, valid_seniority, valid_sources, seniority_is_legacy, source_is_legacy) }}
+  {# Composición estructural de Edición (HANDOFF §14.7, MANDATORY): los 5
+     bloques -- 4 del form compartido (`profile_fields`, `as_dashboard_
+     sections=true`, ver ese archivo) + "Historial del proceso" (propio de
+     Edición, sin campos: no hay modelo real de historial en el Hub hoy) --
+     como `dashboard-section` colapsables/reordenables, MISMO primitivo
+     compartido que ya usa el listado de Candidatos
+     (`human_capital_profiles_panel.html`: `initDashboardSections`, orden y
+     colapso persistidos vía `data-dashboard-key`/`data-persist-collapse`).
+     Namespace propio (`cchh-candidate-edit`), independiente del listado
+     (`cchh-candidatos-list`) y de cualquier key de Comercial. Composición
+     PURA: no se inventa Nivel/Proceso/Estado/contenido de Historial (ver
+     HANDOFF §14.9) -- sólo se reubican los campos YA existentes. #}
+  <div class="dashboard-sections" data-dashboard-key="cchh-candidate-edit" data-persist-collapse>
+    {{ profile_fields("hc-edit", form_values, valid_seniority, valid_sources, seniority_is_legacy, source_is_legacy, as_dashboard_sections=true) }}
+    <details class="dashboard-section" data-section-id="historial" open>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Historial del proceso</span>
+      </summary>
+      <div class="dashboard-section__body">
+        {# Empty-state neutral compartido (MISMO primitivo `.dashboard-empty`
+           que el listado/alta) -- nunca datos fabricados (fases, scoring,
+           entrevistas, decisiones): el Hub no tiene ese modelo hoy. #}
+        <div class="dashboard-empty" data-empty-kind="no_model">
+          <span class="dashboard-empty__label">Sin datos</span>
+          <p>Sin historial de proceso disponible en el modelo actual del Hub.</p>
+        </div>
+      </div>
+    </details>
+  </div>
 
   {% if duplicate_advisory %}
   <div class="callout callout--punch" data-advisory-kind="possible_duplicate">

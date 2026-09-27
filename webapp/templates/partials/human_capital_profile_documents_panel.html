@@ -39,8 +39,23 @@
        enviar el MISMO form "Eliminar" de la fila (delete es idempotente
        por `document_id`, ver `profile_document_service.delete_document`)
        — nunca un token firmado como upload/commit. #}
-<section class="hc-profile-documents" data-hc-documents-panel>
-  <h2>Documentos</h2>
+{# Alineación visual con el lenguaje compartido (owner UX correction:
+   Candidate Edit container hierarchy) -- MISMO `dashboard-section`
+   colapsable que los 5 bloques de campos, pero en su PROPIO namespace de
+   persistencia (`cchh-candidate-documents`, separado de `cchh-candidate-
+   edit`): frontera funcional real -- Documentos son operaciones de
+   SharePoint (upload/delete/Graph), no metadata del candidato -- así que
+   NUNCA comparte grupo de reorder/colapso con esos 5, aunque visualmente
+   se vea igual. `data-hc-documents-panel` se preserva TAL CUAL en el
+   `<details>` (nunca renombrado): es el hook que ya usan los tests/JS de
+   esta feature, ver el resto del archivo. #}
+<div class="dashboard-sections" data-dashboard-key="cchh-candidate-documents" data-persist-collapse>
+<details class="dashboard-section" data-section-id="documentos" data-hc-documents-panel open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__caret"></span>
+    <span class="dashboard-section__title">Documentos</span>
+  </summary>
+  <div class="dashboard-section__body">
 
   {% if documents %}
   <table class="dashboard-table hc-documents-table">
@@ -140,7 +155,9 @@
     </div>
     <button type="submit" class="btn-primary">Subir documento</button>
   </form>
-</section>
+  </div>
+</details>
+</div>
 <script>
 (function () {
   document.querySelectorAll("[data-hc-document-upload-form]").forEach(function (form) {

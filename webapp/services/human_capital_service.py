@@ -78,10 +78,11 @@ _OPTIONAL_FIELDS = (
 # busca dentro de un CV — no existe CV en esta fase (§3, explícito).
 _SEARCH_TEXT_FIELDS = ("first_name", "last_name", "email", "profile_skills", "location", "tags", "notes")
 
-# Filtros estructurados con match EXACTO (normalizado) — faceta/categoría,
-# no texto libre (Phase 3.2 §5). `location` NO está acá a propósito: ver
-# `_matches_structured_filters`.
-_EXACT_MATCH_FILTER_FIELDS = ("seniority", "source", "potential_mark")
+# Filtros estructurados con match EXACTO (normalizado) — faceta/categoría
+# con catálogo GOBERNADO server-side real (Phase 3.2 §5 / CCHH Catalog
+# Foundation §6). `location`/`potential_mark` NO están acá a propósito: ver
+# `_matches_structured_filters` — CONTAINS, no exact match.
+_EXACT_MATCH_FILTER_FIELDS = ("seniority", "source")
 
 
 class ProfileDuplicateAdvisory(Exception):
@@ -144,26 +145,32 @@ def _matches_structured_filters(profile: dict, query: dict) -> bool:
     contrato lo pida, y acá no lo pide). Un filtro con valor vacío/ausente
     en `query` no restringe nada (passthrough para ese campo).
 
-    `seniority`/`source`/`potential_mark`: EXACT match normalizado — son
-    filtros de faceta/categoría (§5). `seniority`/`source` ya tienen un
-    catálogo GOBERNADO server-side (CCHH Catalog Foundation §6);
-    `potential_mark` no lo tiene todavía, pero interpretamos "filtro
-    estructurado" igual de literal para los tres, exact match sobre lo
-    que sea que esté guardado.
+    `seniority`/`source`: EXACT match normalizado — faceta/categoría con
+    catálogo GOBERNADO server-side real (§5 / CCHH Catalog Foundation §6):
+    el UI los ofrece como `<select>` de opciones fijas, así que un exact
+    match tiene sentido (el usuario elige un valor del catálogo, nunca
+    tipea uno parcial).
 
-    `location` es la ÚNICA excepción: CONTAINS, no exact match (Phase 3.2
-    §5, decisión explícita) — es texto libre real, tipeado a mano sin
-    lista fija ni en el legacy ni acá ("Buenos Aires" / "CABA" / "Bs As"
-    nunca matchean entre sí con exact match, lo que volvería el filtro
-    casi inútil sobre datos reales) — MISMO tratamiento que ya le da la
-    búsqueda textual libre (`q`) a este campo."""
+    `location`/`potential_mark`: CONTAINS, no exact match — owner bug
+    report (ver HANDOFF): `potential_mark` vivía en `_EXACT_MATCH_FILTER_
+    FIELDS` pese a ser un `<input type="text">` libre (no un `<select>` de
+    catálogo, a diferencia de seniority/source) — tipear "recons" nunca
+    matcheaba el valor real guardado ("No reconsiderar"), porque exact
+    match exige el string COMPLETO idéntico. Mismo criterio que `location`
+    ya tenía (Phase 3.2 §5, decisión explícita): texto libre real, tipeado
+    a mano sin lista fija — un exact match sobre texto libre vuelve el
+    filtro casi inútil sobre datos reales ("Buenos Aires"/"CABA"/"Bs As" no
+    matchean entre sí, "No reconsiderar"/"Reconsiderar" tampoco). MISMO
+    tratamiento que ya le da la búsqueda textual libre (`q`) a estos
+    campos."""
     for field in _EXACT_MATCH_FILTER_FIELDS:
         wanted = _normalize_text(query.get(field))
         if wanted and _normalize_text(profile.get(field)) != wanted:
             return False
-    location_wanted = _normalize_text(query.get("location"))
-    if location_wanted and location_wanted not in _normalize_text(profile.get("location")):
-        return False
+    for field in ("location", "potential_mark"):
+        wanted = _normalize_text(query.get(field))
+        if wanted and wanted not in _normalize_text(profile.get(field)):
+            return False
     return True
 
 

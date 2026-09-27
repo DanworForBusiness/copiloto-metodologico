@@ -431,13 +431,19 @@ def test_combined_q_and_structured_filter():
     assert "Juan Ruiz" not in response.text
 
 
-def test_clear_filters_link_present_only_when_a_filter_is_active():
-    # Owner standardization (post-#107 QA): reusa el patrón compartido Hub
-    # `.whatsnew-filter__clear` / "✕ Limpiar" (mismo que Staffing/What's
-    # New/Admin Activity), no un control "Limpiar filtros" propio de CCHH.
+def test_clear_filters_link_is_always_present_matching_crm_parity():
+    # Owner corrective (CRM/Comercial parity, ver HANDOFF §14.4): auditado
+    # `commercialAnalysisFiltersHtml` (commercial.js, el referente de
+    # interacción explícito para esta vista) -- ahí "✕ Limpiar" es SIEMPRE
+    # visible, nunca condicionado a que haya un filtro activo (togglearlo
+    # forzaría un re-render en cada tecla del buscador, arriesgando el
+    # foco). Se iguala ese comportamiento acá -- ya NO se oculta sin
+    # filtros: con nada seleccionado es un no-op inofensivo, no una
+    # promesa falsa.
     client = _client_as(_AUTHORIZED_EMAIL)
     plain = client.get("/cchh/candidatos")
-    assert "whatsnew-filter__clear" not in plain.text
+    assert "whatsnew-filter__clear" in plain.text
+    assert "✕ Limpiar" in plain.text
     filtered = client.get("/cchh/candidatos", params={"q": "juan"})
     assert "whatsnew-filter__clear" in filtered.text
     assert "✕ Limpiar" in filtered.text
@@ -479,6 +485,17 @@ def test_filter_by_potential_mark():
     response = client.get("/cchh/candidatos", params={"potential_mark": "Alto"})
     assert "Uno A" in response.text
     assert "Dos B" not in response.text
+
+
+def test_filter_by_potential_mark_contains_substring():
+    # Owner bug report, end-to-end vía la ruta real: tipear "recons" (por
+    # "No reconsiderar") no filtraba nada -- ver
+    # test_human_capital_service.py::test_filter_by_potential_mark_is_contains_not_exact
+    # para el caso unitario.
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Tres", "last_name": "C", "potential_mark": "No reconsiderar"})
+    response = client.get("/cchh/candidatos", params={"potential_mark": "recons"})
+    assert "Tres C" in response.text
 
 
 def test_multiple_filters_use_and_semantics():

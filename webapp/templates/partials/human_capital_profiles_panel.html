@@ -100,12 +100,18 @@
       <label for="hc-filter-potential-mark">Marca de potencial</label>
       <input id="hc-filter-potential-mark" name="potential_mark" type="text" value="{{ query.potential_mark or '' }}" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
     </div>
-    {% if query.q or query.seniority or query.source or query.location or query.potential_mark %}
-    {# Patrón compartido Hub (Staffing/What's New/Admin Activity, `.whatsnew-filter__clear`):
-       MISMO botón/copy/estilo -- acá con el mecanismo HTMX de Admin Activity
-       (server-side, como CCHH), no el `@click` de Alpine de Staffing/What's New. #}
+    {# Patrón compartido Hub (`.whatsnew-filter__clear`, "✕ Limpiar"): Staffing/
+       What's New/Admin Activity ya lo usan -- y CRM/Comercial, el referente de
+       interacción explícito para esta vista (owner), también: ver
+       `commercialAnalysisFiltersHtml` (commercial.js), que documenta por qué
+       ahí es SIEMPRE visible, nunca condicionado a que haya un filtro activo:
+       togglear su visibilidad obligaría a re-renderizar la barra en cada tecla
+       del buscador, arriesgando el foco del campo. Se saca acá el `{% if %}`
+       por el MISMO motivo -- paridad de comportamiento con CRM, no sólo de
+       clase/copy -- aunque en CCHH (HTMX) el foco no se pierde por sí solo
+       (htmx re-enfoca por id tras el swap): con nada seleccionado, "Limpiar"
+       es un no-op inofensivo, no una promesa falsa. #}
     <button type="button" class="whatsnew-filter__clear" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML">✕ Limpiar</button>
-    {% endif %}
   </form>
 
   {# El listado en sí (filtros EXCLUIDOS, ver arriba) sigue viviendo en el
@@ -181,7 +187,7 @@
       <tbody>
         {% for profile in profiles %}
         <tr>
-          <td class="row-label" data-column-key="nombre">{{ profile.first_name }} {{ profile.last_name }}{% if profile.potential_mark %} <span class="status-badge status-badge--potential" title="Marca de potencial">{{ profile.potential_mark }}</span>{% endif %}</td>
+          <td class="row-label" data-column-key="nombre"><span class="hc-candidate-name">{{ profile.first_name }} {{ profile.last_name }}</span>{% if profile.potential_mark %} <span class="status-badge status-badge--potential" title="Marca de potencial">{{ profile.potential_mark }}</span>{% endif %}</td>
           <td class="left" data-column-key="skills">{{ profile.profile_skills or "—" }}</td>
           <td class="left" data-column-key="seniority">{{ profile.seniority or "—" }}</td>
           <td class="left" data-column-key="ubicacion">{{ profile.location or "—" }}</td>

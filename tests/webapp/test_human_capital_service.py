@@ -252,10 +252,19 @@ def test_filter_by_location_is_contains_not_exact():
     assert human_capital_service.filter_profiles(profiles, {"location": "buenos aires"}) == profiles
 
 
-def test_filter_by_potential_mark_exact_match():
-    profiles = [_make(first_name="A", potential_mark="Alto"), _make(first_name="B", potential_mark="Medio")]
-    result = human_capital_service.filter_profiles(profiles, {"potential_mark": "Alto"})
+def test_filter_by_potential_mark_is_contains_not_exact():
+    # Owner bug report: tipear "recons" (por "No reconsiderar") no filtraba
+    # nada. Causa real: `potential_mark` vivía en `_EXACT_MATCH_FILTER_
+    # FIELDS` pese a ser un `<input type="text">` libre (nunca un
+    # `<select>` de catálogo, a diferencia de seniority/source) -- MISMO
+    # criterio que `location` ya tenía (ver test de arriba): CONTAINS.
+    profiles = [_make(first_name="A", potential_mark="No reconsiderar"), _make(first_name="B", potential_mark="Tema futura")]
+    result = human_capital_service.filter_profiles(profiles, {"potential_mark": "recons"})
     assert [p["first_name"] for p in result] == ["A"]
+    # Un valor completo sigue matcheando (contains de sí mismo), y sigue
+    # discriminando entre marcas distintas -- no se volvió un OR ciego.
+    exact = human_capital_service.filter_profiles(profiles, {"potential_mark": "Tema futura"})
+    assert [p["first_name"] for p in exact] == ["B"]
 
 
 def test_multiple_structured_filters_use_and_semantics():

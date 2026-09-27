@@ -788,6 +788,48 @@ function saveSectionCollapse(container, storageKey) {
   container.querySelectorAll(":scope > .dashboard-section").forEach(el => { state[el.dataset.sectionId] = el.hasAttribute("open"); });
   try { sessionStorage.setItem(storageKey, JSON.stringify(state)); } catch (e) { /* storage lleno/deshabilitado: no rompe nada */ }
 }
+// Expandir/Contraer TODOS los `dashboard-section` de uno o más grupos a la
+// vez (owner request, Candidate Edit — CCHH, ver HANDOFF): extensión del
+// primitivo COMPARTIDO, nunca un mecanismo bespoke por vertical (otro
+// consumidor ya había resuelto esto puntualmente de forma bespoke propia
+// para uno de sus paneles, pero con un segundo consumidor real corresponde
+// promoverlo acá en vez de duplicar la lógica una vez más; ese consumidor
+// previo queda intacto, fuera de alcance de este cambio — app.js sigue sin
+// saber nada de ninguna vertical puntual). `keys`: array de
+// `data-dashboard-key` a afectar — soporta MÚLTIPLES
+// grupos de persistencia independientes con una sola acción (p.ej.
+// Candidate Edit: los 5 bloques de campos + Documentos, dos namespaces
+// distintos, una sola botonera). Persiste el colapso resultante
+// EXACTAMENTE igual que un toggle individual (mismo `saveSectionCollapse`)
+// — sólo para los grupos que YA declaran `data-persist-collapse`, nunca
+// uno nuevo silencioso. No reordena nada (el orden vive en una key
+// sessionStorage totalmente independiente, `saveSectionOrder` — esta
+// función nunca la toca).
+function setDashboardGroupsCollapse(keys, open) {
+  keys.forEach(key => {
+    const container = document.querySelector(`[data-dashboard-key="${CSS.escape(key)}"]`);
+    if (!container) return;
+    container.querySelectorAll(":scope > .dashboard-section").forEach(section => {
+      if (open) section.setAttribute("open", ""); else section.removeAttribute("open");
+    });
+    if (container.dataset.persistCollapse != null) {
+      saveSectionCollapse(container, `dw-dash-collapse:${container.dataset.dashboardKey}`);
+    }
+  });
+}
+// Delegado sobre `document` (MISMO criterio que el resto del archivo):
+// un botón con `data-dashboard-expand-all`/`data-dashboard-collapse-all` +
+// `data-dashboard-target="key1 key2 ..."` (IDs separados por espacio,
+// MISMO valor que `data-dashboard-key` de cada grupo objetivo) dispara
+// `setDashboardGroupsCollapse`. Cero JS específico por vertical: cualquier
+// consumidor de `dashboard-section` puede optar a esto con sólo marcado.
+document.addEventListener("click", event => {
+  const button = event.target.closest("[data-dashboard-expand-all], [data-dashboard-collapse-all]");
+  if (!button) return;
+  const open = button.hasAttribute("data-dashboard-expand-all");
+  const keys = (button.dataset.dashboardTarget || "").split(/\s+/).filter(Boolean);
+  setDashboardGroupsCollapse(keys, open);
+});
 document.body.addEventListener("htmx:load", () => initDashboardSections(document));
 
 // Reordenamiento drag-and-drop HORIZONTAL de columnas de tabla — MISMO
