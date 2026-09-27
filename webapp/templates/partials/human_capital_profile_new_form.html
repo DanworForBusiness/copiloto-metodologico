@@ -74,7 +74,7 @@
       </div>
   {% endset %}
   <div class="dashboard-sections" data-dashboard-key="cchh-candidate-new" data-persist-collapse>
-    {{ profile_fields("hc", form_values, valid_seniority, valid_sources, cv_html=cv_html, as_dashboard_sections=true) }}
+    {{ profile_fields("hc", form_values, valid_seniority, valid_sources, cv_html=cv_html, as_dashboard_sections=true, valid_potencial=valid_potencial) }}
   </div>
   {% if duplicate_advisory %}
   <div class="callout callout--punch" data-advisory-kind="possible_duplicate">

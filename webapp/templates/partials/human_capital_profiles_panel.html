@@ -64,11 +64,11 @@
      intercepta igual (MISMO target/swap que ya evitaba el shell anidado,
      ver corrección HX-Request de este router). #}
   <form class="hc-profile-filters filter-toolbar-card" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML">
-    <div class="feedback-field">
+    <div class="feedback-field feedback-field--wide">
       <label for="hc-search-q">Buscar</label>
       <input id="hc-search-q" name="q" type="text" value="{{ query.q or '' }}" placeholder="Nombre, email, skills, ubicación..." hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
     </div>
-    <div class="feedback-field">
+    <div class="feedback-field feedback-field--compact">
       <label for="hc-filter-seniority">Seniority</label>
       {# Filtro gobernado por catálogo (B3): opciones activas + "Todas". Si el
          filtro guardado quedó con un valor legacy fuera de catálogo, se
@@ -83,7 +83,7 @@
         {% endfor %}
       </select>
     </div>
-    <div class="feedback-field">
+    <div class="feedback-field feedback-field--compact">
       <label for="hc-filter-source">Fuente</label>
       <select id="hc-filter-source" name="source" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
         <option value="" {% if not query.source %}selected{% endif %}>Todas</option>
@@ -92,13 +92,25 @@
         {% endfor %}
       </select>
     </div>
-    <div class="feedback-field">
+    <div class="feedback-field feedback-field--medium">
       <label for="hc-filter-location">Ubicación</label>
       <input id="hc-filter-location" name="location" type="text" value="{{ query.location or '' }}" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
     </div>
-    <div class="feedback-field">
+    <div class="feedback-field feedback-field--compact">
       <label for="hc-filter-potential-mark">Marca de potencial</label>
-      <input id="hc-filter-potential-mark" name="potential_mark" type="text" value="{{ query.potential_mark or '' }}" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
+      {# Filtro gobernado por catálogo (P2, MISMO criterio que Seniority
+         arriba): opciones activas + "Todas". Si el filtro guardado quedó
+         con un valor legacy fuera de catálogo, se preserva como opción
+         seleccionada para que el filtro siga funcionando. #}
+      <select id="hc-filter-potential-mark" name="potential_mark" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
+        <option value="" {% if not query.potential_mark %}selected{% endif %}>Todas</option>
+        {% if query.potential_mark and query.potential_mark not in valid_potencial %}
+        <option value="{{ query.potential_mark }}" selected>{{ query.potential_mark }} (fuera de catálogo)</option>
+        {% endif %}
+        {% for opt in valid_potencial %}
+        <option value="{{ opt }}" {% if query.potential_mark == opt %}selected{% endif %}>{{ opt }}</option>
+        {% endfor %}
+      </select>
     </div>
     {# Patrón compartido Hub (`.whatsnew-filter__clear`, "✕ Limpiar"): Staffing/
        What's New/Admin Activity ya lo usan -- y CRM/Comercial, el referente de
@@ -112,6 +124,36 @@
        (htmx re-enfoca por id tras el swap): con nada seleccionado, "Limpiar"
        es un no-op inofensivo, no una promesa falsa. #}
     <button type="button" class="whatsnew-filter__clear" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML">✕ Limpiar</button>
+    {# "Indicadores" (owner: reducir semáforo visual permanente, mover metadata
+       contextual a un toggle opt-in; owner corrective: MISMA fila que el
+       resto de los filtros, no un bloque suelto debajo) -- vive DENTRO del
+       `<form>` para heredar el mismo flex-row de `.hc-profile-filters`, pero
+       es un mecanismo DISTINTO a propósito: esto NUNCA filtra -- sin `name=`
+       en los checkboxes, así que ni el submit nativo ni ningún
+       `hx-include="closest form"` de los campos vecinos los manda como query
+       param. Es una preferencia de PRESENTACIÓN pura, 100% cliente
+       (`initIndicatorToggles`, app.js, primitivo Hub-wide nuevo -- ver ese
+       archivo), MISMO primitivo visual que Ámbito/Área en
+       admin_activity_content.html (`.whatsnew-filter.whatsnew-filter--compact`
+       + `.dashboard-checkbox-group` + `.dashboard-checkbox-option`,
+       tools.css, cero CSS nuevo). Persiste en localStorage (sobrevive
+       reload, a diferencia del sessionStorage de colapso/orden de
+       dashboard-section) bajo el namespace propio `cchh-candidatos-list`.
+       Sólo "Marca de potencial" hoy -- es el ÚNICO indicador con un badge
+       real ya renderizado (`data-indicator="potencial"` en la celda de
+       Nombre, abajo); NO se inventan Tags/Scoring todavía (Scoring no
+       existe como dato real en el Hub) -- el mecanismo es genérico por
+       diseño (`data-indicator-toggle`), así que agregar un indicador futuro
+       es un checkbox + un `data-indicator` más, cero JS nuevo. #}
+    <div class="whatsnew-filter whatsnew-filter--compact" data-indicator-toggles data-indicator-storage-key="cchh-candidatos-list">
+      <span>Indicadores</span>
+      <div class="dashboard-checkbox-group">
+        <label class="dashboard-checkbox-option">
+          <input type="checkbox" data-indicator-toggle="potencial" checked>
+          <span>Marca potencial</span>
+        </label>
+      </div>
+    </div>
   </form>
 
   {# El listado en sí (filtros EXCLUIDOS, ver arriba) sigue viviendo en el
@@ -155,7 +197,7 @@
      MUEVE los nodos DOM ya renderizados a la posición guardada -- nunca
      un render function nuevo que mire commercial.js. `cchh-candidatos` es
      un namespace propio: independiente de cualquier key de Comercial. #}
-  <div class="matrix-scroll" data-draggable-columns-key="cchh-candidatos" data-resizable-columns-key="cchh-candidatos">
+  <div class="matrix-scroll" data-draggable-columns-key="cchh-candidatos" data-resizable-columns-key="cchh-candidatos" data-indicator-scope="cchh-candidatos-list">
     <table class="dashboard-table" id="hc-candidatos-table">
       {# Anchos default explícitos por columna (MISMO criterio que Comercial:
          `%` para las columnas de negocio, `px` fijo para Acciones) -- sin
@@ -187,7 +229,7 @@
       <tbody>
         {% for profile in profiles %}
         <tr>
-          <td class="row-label" data-column-key="nombre"><span class="hc-candidate-name">{{ profile.first_name }} {{ profile.last_name }}</span>{% if profile.potential_mark %} <span class="status-badge status-badge--potential" title="Marca de potencial">{{ profile.potential_mark }}</span>{% endif %}</td>
+          <td class="row-label" data-column-key="nombre"><span class="hc-candidate-name">{{ profile.first_name }} {{ profile.last_name }}</span>{% if profile.potential_mark %} <span class="status-badge status-badge--potential" title="Marca de potencial" data-indicator="potencial">{{ profile.potential_mark }}</span>{% endif %}</td>
           <td class="left" data-column-key="skills">{{ profile.profile_skills or "—" }}</td>
           <td class="left" data-column-key="seniority">{{ profile.seniority or "—" }}</td>
           <td class="left" data-column-key="ubicacion">{{ profile.location or "—" }}</td>

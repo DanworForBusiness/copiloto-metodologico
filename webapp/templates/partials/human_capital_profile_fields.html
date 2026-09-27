@@ -32,7 +32,7 @@
        es el título visible, un `<h2>` interno lo duplicaría (mismo
        criterio que "Candidatos" en human_capital_profiles_panel.html, que
        tampoco repite su propio título dentro del body). #}
-{% macro profile_fields(id_prefix, form_values, valid_seniority, valid_sources, seniority_is_legacy=false, source_is_legacy=false, cv_html="", as_dashboard_sections=false) %}
+{% macro profile_fields(id_prefix, form_values, valid_seniority, valid_sources, seniority_is_legacy=false, source_is_legacy=false, cv_html="", as_dashboard_sections=false, valid_potencial=[], potencial_is_legacy=false) %}
   {#- `cv_html` (sólo alta): markup del campo CV que el caller inyecta DENTRO
      de "Datos del candidato" (owner post-#105: el CV va dentro de esa sección,
      no en un bloque suelto arriba). Edición lo omite -> "" -> Documentos sigue
@@ -183,8 +183,12 @@
     <h2>Potencial</h2>
   {% endif %}
     {# No shared Hub star-rating primitive exists today (owner audit,
-       2026-09-26) -- se mantiene el control 1-5 + marca actuales tal
-       cual, sólo homologando estructura/posición. #}
+       2026-09-26) -- se mantiene el control 1-5 numérico tal cual, sólo
+       homologando estructura/posición (P3/estrellas: pendiente, ver
+       HANDOFF). `potential_mark` SÍ pasó a catálogo gobernado (P2, owner:
+       workbook `Catalogos_CCHH.xlsx` catalogo=potencial) -- MISMO
+       criterio migration-safe que Seniority/Fuente arriba, nunca valores
+       de negocio hardcodeados acá. #}
     <div class="hc-profile-section__grid">
       <div class="feedback-field">
         <label for="{{ id_prefix }}-potential-rating">Potencial (1-5)</label>
@@ -192,7 +196,17 @@
       </div>
       <div class="feedback-field">
         <label for="{{ id_prefix }}-potential-mark">Marca de potencial</label>
-        <input id="{{ id_prefix }}-potential-mark" name="potential_mark" type="text" value="{{ form_values.potential_mark or '' }}">
+        <select id="{{ id_prefix }}-potential-mark" name="potential_mark">
+          <option value="" {% if not form_values.potential_mark %}selected{% endif %}>Sin especificar</option>
+          {% for opt in valid_potencial %}
+          <option value="{{ opt }}" {% if form_values.potential_mark == opt %}selected{% endif %}>
+            {{ opt }}{% if potencial_is_legacy and form_values.potential_mark == opt %} (fuera de catálogo){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        {% if potencial_is_legacy %}
+        <p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>
+        {% endif %}
       </div>
     </div>
   {% if as_dashboard_sections %}

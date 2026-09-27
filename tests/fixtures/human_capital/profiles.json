@@ -93,7 +93,7 @@
     "tags": "tech-lead, sin-espacios-largo",
     "notes": "Token único muy largo sin espacios para tensionar el wrap/overflow de una manera distinta al texto largo con espacios.",
     "potential_rating": 4,
-    "potential_mark": "Terna futura"
+    "potential_mark": "Alto (valor legacy fuera de catálogo, fixture QA P2)"
   },
   {
     "profile_id": "11111111-1111-1111-1111-111111111107",

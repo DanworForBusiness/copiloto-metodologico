@@ -98,6 +98,13 @@ def test_b3_seniority_filter_preserves_legacy_value():
 
 # --- B4: badge de marca_potencial junto a la identidad ----------------------
 def test_b4_potential_badge_near_identity():
+    # `potential_mark` pasó a ser un catálogo gobernado (P2) -- sembrar
+    # "Alto" antes de crear, MISMO criterio que `_seed_seniority` arriba.
+    snap = catalog_repo.build_snapshot(
+        {"potencial": [{"valor": "Alto", "orden": 1}]},
+        refreshed_by="test", source={"drive_id": "d", "item_id": "i"})
+    p = catalog_repo.snapshot_path(); p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(catalog_repo._serialize(snap))
     human_capital_service.create_profile(
         {"first_name": "Ana", "last_name": "Perez", "potential_mark": "Alto"})
     html = _client().get("/cchh/candidatos").text

@@ -832,6 +832,56 @@ document.addEventListener("click", event => {
 });
 document.body.addEventListener("htmx:load", () => initDashboardSections(document));
 
+// Indicator visibility toggles (primitivo Hub-wide nuevo, primer consumidor:
+// CCHH Candidatos, "Indicadores"): un grupo de checkboxes que controla
+// SOLO presentación (qué metadata contextual se ve al lado de la identidad
+// de cada fila), nunca filtrado/query ni persistencia de negocio — por eso
+// vive 100% en cliente, sin `name=` en los checkboxes (así ni un submit
+// nativo ni un `hx-include="closest form"` ajeno los confunde con un
+// filtro real). Contrato puramente por atributos, sin saber nada de
+// ninguna vertical puntual:
+//   [data-indicator-toggles][data-indicator-storage-key="<key>"]  -- el grupo
+//     [data-indicator-toggle="<name>"]                            -- cada checkbox
+//   [data-indicator-scope="<key>"]                                -- contenedor de destino
+//     [data-indicator="<name>"]                                   -- elemento que se oculta/muestra
+// Persiste en localStorage (sobrevive reload, a diferencia del
+// sessionStorage de colapso/orden de dashboard-section arriba — esto es
+// preferencia de usuario de más largo aliento, no estado de sesión) bajo
+// `dw-indicators:<key>`. Se reaplica en cada `htmx:load` (carga inicial +
+// cualquier swap que reemplace el scope), MISMO criterio que
+// initDashboardSections.
+function initIndicatorToggles(scope) {
+  scope.querySelectorAll("[data-indicator-toggles]").forEach(group => {
+    const key = group.dataset.indicatorStorageKey;
+    const storageKey = `dw-indicators:${key}`;
+    const target = document.querySelector(`[data-indicator-scope="${CSS.escape(key)}"]`);
+    let prefs;
+    try { prefs = JSON.parse(localStorage.getItem(storageKey) || "null"); } catch (e) { prefs = null; }
+    if (!prefs || typeof prefs !== "object") prefs = {};
+    function apply() {
+      group.querySelectorAll("[data-indicator-toggle]").forEach(input => {
+        const name = input.dataset.indicatorToggle;
+        if (Object.prototype.hasOwnProperty.call(prefs, name)) input.checked = prefs[name];
+        if (!target) return;
+        target.querySelectorAll(`[data-indicator="${CSS.escape(name)}"]`).forEach(el => {
+          el.hidden = !input.checked;
+        });
+      });
+    }
+    apply();
+    if (group.dataset.indicatorWired) return;
+    group.dataset.indicatorWired = "1";
+    group.addEventListener("change", event => {
+      const input = event.target.closest("[data-indicator-toggle]");
+      if (!input) return;
+      prefs[input.dataset.indicatorToggle] = input.checked;
+      try { localStorage.setItem(storageKey, JSON.stringify(prefs)); } catch (e) { /* privado/cuota: no persiste, no rompe */ }
+      apply();
+    });
+  });
+}
+document.body.addEventListener("htmx:load", () => initIndicatorToggles(document));
+
 // Reordenamiento drag-and-drop HORIZONTAL de columnas de tabla — MISMO
 // idioma exacto que initDashboardSections (arriba: dragstart/dragenter/
 // dragover/drop/dragend + resaltado is-dragging/is-drop-target), aplicado

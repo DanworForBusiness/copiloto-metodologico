@@ -204,6 +204,10 @@ def _profiles_panel_context(*, query: dict | None = None) -> dict:
         # un valor de query fuera de catálogo (legacy) como opción seleccionada
         # para que el filtro siga round-tripeando.
         "valid_seniority": human_capital_catalog_repository.catalog_values("seniority"),
+        # Filtro de Marca de potencial gobernado (P2): MISMO criterio que
+        # Seniority arriba -- el catálogo `potencial` reemplaza el input de
+        # texto libre que tenía antes.
+        "valid_potencial": human_capital_catalog_repository.catalog_values("potencial"),
         "query": query or {},
     }
 
@@ -271,9 +275,10 @@ def _new_page_context(
         "duplicate_advisory": duplicate_advisory,
         "remote_outcome_unknown": remote_outcome_unknown,
         # Alta: SOLO valores del catálogo activo, sin fallback a texto libre
-        # (CCHH Catalog Foundation §6) -- MISMO criterio para ambos campos.
+        # (CCHH Catalog Foundation §6 / P2) -- MISMO criterio para los tres campos.
         "valid_sources": human_capital_catalog_repository.catalog_values("fuente"),
         "valid_seniority": human_capital_catalog_repository.catalog_values("seniority"),
+        "valid_potencial": human_capital_catalog_repository.catalog_values("potencial"),
     }
 
 
@@ -513,13 +518,16 @@ def _edit_page_context(
         "duplicate_advisory": duplicate_advisory,
         "concurrent_modification": concurrent_modification,
         "remote_outcome_unknown": remote_outcome_unknown,
-        # Edición migration-safe (§6): el catálogo activo + si el valor actual
-        # quedó FUERA del catálogo (legacy), se preserva marcado y no se
-        # agrega al catálogo automáticamente -- MISMO criterio para ambos campos.
+        # Edición migration-safe (§6 / P2): el catálogo activo + si el valor
+        # actual quedó FUERA del catálogo (legacy), se preserva marcado y no
+        # se agrega al catálogo automáticamente -- MISMO criterio para los
+        # tres campos.
         "valid_seniority": _governed_edit_options("seniority", form_values.get("seniority")),
         "seniority_is_legacy": _is_legacy_governed_value("seniority", form_values.get("seniority")),
         "valid_sources": _governed_edit_options("fuente", form_values.get("source")),
         "source_is_legacy": _is_legacy_governed_value("fuente", form_values.get("source")),
+        "valid_potencial": _governed_edit_options("potencial", form_values.get("potential_mark")),
+        "potencial_is_legacy": _is_legacy_governed_value("potencial", form_values.get("potential_mark")),
     }
 
 

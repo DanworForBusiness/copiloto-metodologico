@@ -664,6 +664,37 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .hc-profile-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .hc-profile-filters .feedback-field { margin-top: 0; min-width: 150px; flex: 1 1 150px; }
 .hc-profile-filters > button, .hc-profile-filters > a.btn-secondary { flex: 0 0 auto; height: 40px; }
+/* ROOT CAUSE del solape visual reportado por el owner (real, no un artefacto
+   de captura): `.feedback-field` es un grid container (`display:grid`,
+   tools.css) -- por default sus hijos (el propio `<select>`/`<input>`)
+   ESTIRAN a la celda, PERO un `<select>` nativo trae su propio automatic
+   minimum size = el ancho de su OPTION más largo ("No reconsiderar", acá) --
+   exactamente igual que el automatic minimum de un flex item. Sin
+   `min-width:0` explícito, esa opción larga fuerza al `<select>` a
+   desbordar la celda hacia la derecha (nunca lo encoge), aunque el
+   `.feedback-field` padre (el flex item) sí respete el ancho compacto --
+   visualmente se ve como el control de al lado (acá, "✕ Limpiar")
+   solapado, sin que sea realmente un problema de gap/spacing. */
+.hc-profile-filters select, .hc-profile-filters input { width: 100%; min-width: 0; }
+/* Compactación (owner: "los dropdowns ocupan mucho más ancho que su
+   contenido") -- modificadores EXPLÍCITOS por campo (nunca `nth-child`,
+   que se rompería si el orden de campos cambia) en vez de la regla base
+   de arriba (`flex:1 1 150px` para TODOS por igual, que es justamente lo
+   que generaba selects angostos con espacio vacío sobrante). Buscar sigue
+   siendo el campo dominante (crece más); Seniority/Fuente/Marca de
+   potencial son `<select>` de catálogo (contenido corto, conocido de
+   antemano) -- compactos; Ubicación es texto libre sin catálogo, ancho
+   intermedio. */
+.hc-profile-filters .feedback-field--wide { flex: 0 1 190px; min-width: 150px; }
+.hc-profile-filters .feedback-field--compact { flex: 0 1 100px; min-width: 85px; }
+.hc-profile-filters .feedback-field--medium { flex: 0 1 130px; min-width: 110px; }
+/* `.whatsnew-filter` (Indicadores, MISMA fila que los filtros -- owner
+   corrective: "no lo quiero abajo, al lado del último dropdown") -- sin
+   esto, su ancho de contenido natural (columna label+checkbox) compite por
+   espacio en la decisión de wrap del flex-row igual que cualquier otro
+   campo; `flex-shrink` explícito evita que por sí solo empuje el resto a
+   una segunda línea en el primer breakpoint angosto. */
+.hc-profile-filters > .whatsnew-filter--compact { flex: 0 1 auto; }
 
 .activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; }
 /* `margin-bottom` (owner corrective — "FINAL VISUAL COMPOSITION": Total

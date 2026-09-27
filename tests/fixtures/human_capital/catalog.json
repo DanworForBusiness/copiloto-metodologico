@@ -29,5 +29,9 @@
     {"valor": "Relación de dependencia", "orden": 1},
     {"valor": "Freelance", "orden": 2},
     {"valor": "Consultora tercera", "orden": 3}
+  ],
+  "potencial": [
+    {"valor": "Terna futura", "orden": 1},
+    {"valor": "No reconsiderar", "orden": 2}
   ]
 }
