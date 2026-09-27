@@ -50,6 +50,13 @@ class AssistantRoute:
     # producto SAP Datasphere (si no, el LLM parrotea el "no" del catálogo). "" = sin
     # directiva (comportamiento normal, p. ej. explain de una sección con su contexto).
     explain_prompt: str = ""
+    # True sólo para el affordance de "sin evidencia local en ningún módulo"
+    # (ver AssistantRoutingService.no_local_evidence_explain): le pide a
+    # AssistantChatService.ask() una respuesta SIN el scope restrictivo del
+    # módulo activo (ver ask(general=True)), en vez de reusar explain_module
+    # como "ese módulo, con directiva" -- acá no hay ningún módulo correcto
+    # al que anclarse.
+    explain_general: bool = False
 
 
 def _module_url(stem: str, pack_name: str, heading: str = "") -> str:
@@ -445,6 +452,24 @@ _GENERAL_EXPLAIN = (
     "nivel producto SAP Datasphere / BDC: qué es la capacidad consultada y qué tipos de "
     "conexión, adaptadores o artefactos la soportan en general. NO te limites a nuestro "
     "inventario ni repitas el 'no tenemos' del catálogo — eso ya lo vio."
+)
+
+# Directiva análoga a _GENERAL_EXPLAIN pero para cuando NO hubo ningún match
+# local en absoluto (route() -> None, ver AssistantRoutingService.
+# no_local_evidence_explain): el usuario ya vio la respuesta grounded al
+# módulo activo indicando que el contenido interno no cubre el tema, y ahora
+# pidió una respuesta general. A diferencia de _GENERAL_EXPLAIN (que reancla
+# a un módulo cuyo scope SÍ cubre el tema, solo que el catálogo no tenía
+# inventario), acá no existe ningún módulo correcto al que anclarse -- por
+# eso el caller pasa general=True a AssistantChatService.ask(), que omite
+# el scope block del módulo activo en vez de confiar en esta directiva sola.
+_NO_LOCAL_COVERAGE_EXPLAIN = (
+    "El usuario preguntó algo que el contenido interno de Danwor no cubre — ni en "
+    "el módulo activo ni en el resto del marco — y ya vio una respuesta grounded "
+    "indicándolo. Ahora pidió una respuesta GENERAL: respondé con tu conocimiento "
+    "general de SAP Datasphere / Business Data Cloud (BDC) sobre el tema, sin "
+    "simular que es contenido curado por Danwor ni inventar una postura "
+    "metodológica Danwor que no existe para este tema."
 )
 
 
@@ -965,3 +990,23 @@ class AssistantRoutingService:
                 tuple(actions), question, stem, heading,
             )
         return None
+
+    def no_local_evidence_explain(self, stem: str, active_section: str, question: str) -> AssistantRoute:
+        """Affordance de "Explicame vos" para cuando route() no encontró NINGÚN
+        match local (route() -> None): la respuesta grounded al módulo activo
+        ya se mostró (ver webapp.routers.assistant.assistant_chat), esto sólo
+        habilita pedir una respuesta GENERAL. Reusa el mismo mecanismo/forma
+        (AssistantRoute.explain_module/explain_heading/explain_prompt) que ya
+        consumen los filtros de catálogo con _GENERAL_EXPLAIN — no es un
+        fallback paralelo — pero marca explain_general=True porque, a
+        diferencia de esos filtros, no hay ningún módulo cuyo scope cubra el
+        tema al que anclarse (ver AssistantChatService.ask(general=True))."""
+        return AssistantRoute(
+            message="",
+            actions=(),
+            original_question=question,
+            explain_module=stem,
+            explain_heading=active_section,
+            explain_prompt=_NO_LOCAL_COVERAGE_EXPLAIN,
+            explain_general=True,
+        )

@@ -173,6 +173,7 @@ def assistant_chat(
     route_module: str = Form(""),
     route_heading: str = Form(""),
     explain_prompt: str = Form(""),
+    route_general: bool = Form(False),
 ):
     # Perfil solo-lectura: el asistente SÍ funciona (el router interno es determinista
     # y no consume OpenAI), pero cualquier salida que dispararía la API de OpenAI
@@ -184,6 +185,7 @@ def assistant_chat(
     if not first_name:
         first_name = str(user.get("name") or "Tú").strip().split()[0]
     ia_blocked = False
+    explain = None
     try:
         document = load_module(stem, selected)
         history = assistant_store.history(conversation_id, stem, selected)
@@ -217,8 +219,19 @@ def assistant_chat(
         else:
             answer, answer_html = assistant_chat_service.ask(
                 answer_document, question, selected, history, context=answer_context,
-                directive=explain_prompt,
+                directive=explain_prompt, general=route_general,
             )
+            # route() no encontró NINGÚN match local (ni catálogo, ni asset, ni
+            # sección) -- la respuesta de arriba es grounded al módulo activo,
+            # que puede legítimamente decir "esto no está cubierto acá". En vez
+            # de dejar esa respuesta como punto muerto (ver forensic: caso MTD),
+            # ofrecemos el mismo affordance "Explicame vos" que ya existe para
+            # los leads de catálogo sin inventario. No en un "Explicame vos" en
+            # curso (routing_bypass) para no encadenar una segunda oferta.
+            if not routing_bypass:
+                explain = assistant_routing_service.no_local_evidence_explain(
+                    stem, active_section, question,
+                )
         reply = assistant_store.append(
             conversation_id, stem, selected, question.strip(), answer, answer_html,
             topic=route_heading or "Pregunta libre",
@@ -229,6 +242,7 @@ def assistant_chat(
     except (FileNotFoundError, KeyError, SectionAnalysisError, LLMServiceError) as exc:
         reply = None
         route = None
+        explain = None
         answer_html = ""
         if isinstance(exc, LLMServiceError):
             error = exc.public_message
@@ -279,6 +293,7 @@ def assistant_chat(
             "diagnostic_mode": access.is_diagnostic(request),
             "user_first_name": first_name,
             "route": route,
+            "explain": explain,
             "stem": stem,
             "pack": selected,
             "show_user_message": not routing_bypass,

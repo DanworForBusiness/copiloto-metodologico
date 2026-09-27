@@ -175,6 +175,8 @@ class AssistantChatService:
         history: tuple[tuple[str, str], ...],
         context: str | None = None,
         directive: str = "",
+        *,
+        general: bool = False,
     ) -> tuple[str, str]:
         question = (question or "").strip()
         if not question:
@@ -195,8 +197,13 @@ class AssistantChatService:
         api_key = (os.getenv("OPENAI_API_KEY") or "").strip() or _legacy_api_key()
         if not api_key:
             raise SectionAnalysisError("Falta configurar OPENAI_API_KEY para usar el asistente.")
+        # general=True (ver "Explicame vos" sobre una respuesta sin evidencia local
+        # en ningún módulo, AssistantRoutingService.no_local_evidence_explain): un
+        # module_stem=None no inyecta el scope block del módulo activo (ver
+        # core.prompts.build_system_prompt) -- forzar el scope de un módulo que
+        # justamente NO cubre el tema volvería a bloquear la respuesta general.
         system_prompt = build_system_prompt(
-            document.summary.stem, pack_name=pack_name, user_context={},
+            None if general else document.summary.stem, pack_name=pack_name, user_context={},
         )
         conversation = "\n".join(
             f"{'Usuario' if role == 'user' else 'Arquitecto Danwor'}: {text}"
@@ -210,11 +217,19 @@ class AssistantChatService:
         directive_block = (
             f"DIRECTIVA (prioritaria)\n{'-' * 40}\n{directive}\n\n" if directive else ""
         )
+        # general=True: no inyectamos el módulo activo como "fuente de verdad" --
+        # es justamente el módulo cuyo contenido NO cubre el tema (por eso no hubo
+        # match local); forzarlo como contexto ancla otra vez el "no" en vez de
+        # dejar que el LLM responda con conocimiento general del producto.
+        context_block = (
+            "" if general else
+            f"CONTEXTO (Marco Danwor)\n{'-' * 40}\n{context or document.source}\n\n"
+        )
         user_prompt = (
             directive_block
             + (f"{catalog_block}\n\n" if catalog_block else "")
-            + f"CONTEXTO (Marco Danwor)\n{'-' * 40}\n{context or document.source}\n\n"
-            f"CONVERSACION PREVIA\n{'-' * 40}\n{conversation or '(sin mensajes previos)'}\n\n"
+            + context_block
+            + f"CONVERSACION PREVIA\n{'-' * 40}\n{conversation or '(sin mensajes previos)'}\n\n"
             f"NUEVA CONSULTA\n{'-' * 40}\n{question}\n\n"
             "FORMATO DE RESPUESTA\n"
             f"{'-' * 40}\n"
