@@ -882,6 +882,140 @@ function initIndicatorToggles(scope) {
 }
 document.body.addEventListener("htmx:load", () => initIndicatorToggles(document));
 
+// ── Rating de estrellas 1..N (primitivo COMPARTIDO Hub) ───────────────────
+// Cablea los controles editables `[data-star-rating]` (NO los readonly, que
+// son puro display server-rendered). Contrato de UI (owner):
+//   - hover sobre la estrella i -> preview acumulativo (se llenan 1..i);
+//   - mouseleave del grupo -> vuelve al valor COMMITEADO;
+//   - click en la estrella i -> commitea i (actualiza el <input> hidden);
+//   - teclado: ←/↓ baja, →/↑ sube, 1..N fija, Enter/Espacio commitea la que
+//     tiene foco; ←/↓ desde 1 llega a 0 (sin rating, campo opcional).
+// El valor posteado es un entero (o "" = sin rating). Semántica de negocio
+// intacta: esto sólo reemplaza el <input> numérico por el control visual.
+function initStarRatings(scope) {
+  scope.querySelectorAll("[data-star-rating]:not([data-star-readonly])").forEach(group => {
+    if (group.dataset.starWired) return;
+    group.dataset.starWired = "1";
+    const input = group.querySelector("[data-star-input]");
+    const stars = Array.prototype.slice.call(group.querySelectorAll("[data-star-index]"));
+    const max = stars.length;
+    let committed = parseInt(group.dataset.starValue, 10) || 0;
+    function paint(fill) {
+      stars.forEach(s => {
+        const idx = parseInt(s.dataset.starIndex, 10);
+        s.classList.toggle("is-filled", idx <= fill);
+      });
+    }
+    function commit(val) {
+      committed = val;
+      if (input) input.value = val ? String(val) : "";
+      group.dataset.starValue = String(val);
+      stars.forEach(s => {
+        const idx = parseInt(s.dataset.starIndex, 10);
+        s.setAttribute("aria-checked", idx === val ? "true" : "false");
+        s.tabIndex = (idx === val || (val === 0 && idx === 1)) ? 0 : -1;
+      });
+      paint(val);
+    }
+    stars.forEach(s => {
+      const idx = parseInt(s.dataset.starIndex, 10);
+      s.addEventListener("mouseenter", () => paint(idx));
+      s.addEventListener("click", () => { commit(idx); s.focus(); });
+      s.addEventListener("keydown", ev => {
+        let next = null;
+        if (ev.key === "ArrowRight" || ev.key === "ArrowUp") next = Math.min(max, committed + 1);
+        else if (ev.key === "ArrowLeft" || ev.key === "ArrowDown") next = Math.max(0, committed - 1);
+        else if (/^[1-9]$/.test(ev.key)) next = Math.min(max, parseInt(ev.key, 10));
+        else if (ev.key === " " || ev.key === "Enter") next = idx;
+        if (next === null) return;
+        ev.preventDefault();
+        commit(next);
+        const focusIdx = next > 0 ? next : 1;
+        const target = stars.find(x => parseInt(x.dataset.starIndex, 10) === focusIdx);
+        if (target) target.focus();
+      });
+    });
+    group.addEventListener("mouseleave", () => paint(committed));
+    paint(committed);
+  });
+}
+document.body.addEventListener("htmx:load", () => initStarRatings(document));
+
+// ── Confirmación destructiva COMPARTIDA (primitivo <dialog> nativo) ────────
+// UNA sola UX de confirmación para todo el Hub (owner: "one confirmation
+// pattern"). `dwConfirm({title,message,confirmLabel,cancelLabel}) -> Promise
+// <boolean>`. El <dialog> (base.html) aporta focus-trap/Escape/backdrop
+// nativos; enfoca "Cancelar" por default (seguro para acciones destructivas).
+function dwConfirm(opts) {
+  opts = opts || {};
+  const dlg = document.getElementById("dwConfirm");
+  if (!dlg || typeof dlg.showModal !== "function") {
+    // Fallback (navegador sin <dialog>): confirm nativo, nunca omitir el paso.
+    const txt = (opts.title ? opts.title + "\n\n" : "") + (opts.message || "¿Confirmar?");
+    return Promise.resolve(window.confirm(txt));
+  }
+  dlg.querySelector(".dw-confirm__title").textContent = opts.title || "Confirmar";
+  dlg.querySelector("[data-dw-confirm-msg]").textContent = opts.message || "";
+  const cancelBtn = dlg.querySelector("[data-dw-confirm-cancel]");
+  const okBtn = dlg.querySelector("[data-dw-confirm-ok]");
+  cancelBtn.textContent = opts.cancelLabel || "Cancelar";
+  okBtn.textContent = opts.confirmLabel || "Eliminar";
+  return new Promise(resolve => {
+    function onClose() { dlg.removeEventListener("close", onClose); resolve(dlg.returnValue === "confirm"); }
+    dlg.addEventListener("close", onClose);
+    dlg.returnValue = "";
+    dlg.showModal();
+    cancelBtn.focus();
+  });
+}
+function _dwConfirmOptsFrom(el) {
+  return {
+    title: el.getAttribute("data-dw-confirm-title") || "Confirmar",
+    message: el.getAttribute("data-dw-confirm-message") || "",
+    confirmLabel: el.getAttribute("data-dw-confirm-ok") || "Eliminar",
+  };
+}
+// (a) Elementos HTMX con [data-dw-confirm]: el elemento se dispara con
+// `hx-trigger="confirmed"` (NO con click), así un click normal NO emite el
+// request. Interceptamos el click, mostramos el diálogo compartido y sólo al
+// confirmar disparamos el trigger `confirmed` con `htmx.trigger`, que emite el
+// request htmx (con su hx-include/hx-target/hx-swap). Se evita a propósito el
+// patrón `htmx:confirm` + `issueRequest` diferido (poco fiable tras un diálogo
+// asíncrono). Cubre el borrado desde el listado.
+document.body.addEventListener("click", function (ev) {
+  const el = ev.target.closest && ev.target.closest("[data-dw-confirm]");
+  if (!el) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  dwConfirm(_dwConfirmOptsFrom(el)).then(function (ok) {
+    if (!ok) return;
+    if (window.htmx && window.htmx.trigger) window.htmx.trigger(el, "confirmed");
+    else el.dispatchEvent(new CustomEvent("confirmed"));
+  });
+}, true);
+// (b) Forms NO-htmx con [data-dw-confirm-form]: se intercepta el submit, se
+// confirma y recién ahí se re-envía. Cubre el borrado full-page desde Editar.
+function initConfirmForms(scope) {
+  scope.querySelectorAll("form[data-dw-confirm-form]").forEach(function (form) {
+    if (form.dataset.dwConfirmWired) return;
+    form.dataset.dwConfirmWired = "1";
+    form.addEventListener("submit", function (ev) {
+      if (form.dataset.dwConfirmed === "1") { form.dataset.dwConfirmed = ""; return; }
+      ev.preventDefault();
+      dwConfirm({
+        title: form.getAttribute("data-dw-confirm-title") || "Confirmar",
+        message: form.getAttribute("data-dw-confirm-message") || "",
+        confirmLabel: form.getAttribute("data-dw-confirm-ok") || "Eliminar",
+      }).then(function (ok) {
+        if (!ok) return;
+        form.dataset.dwConfirmed = "1";
+        if (form.requestSubmit) form.requestSubmit(); else form.submit();
+      });
+    });
+  });
+}
+document.body.addEventListener("htmx:load", function () { initConfirmForms(document); });
+
 // Reordenamiento drag-and-drop HORIZONTAL de columnas de tabla — MISMO
 // idioma exacto que initDashboardSections (arriba: dragstart/dragenter/
 // dragover/drop/dragend + resaltado is-dragging/is-drop-target), aplicado

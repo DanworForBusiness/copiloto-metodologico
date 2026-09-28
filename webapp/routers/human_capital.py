@@ -554,7 +554,9 @@ def human_capital_profile_edit_page(request: Request, profile_id: str):
     if redirect is not None:
         return redirect
     profile = human_capital_service.get_profile(profile_id)
-    if profile is None:
+    if profile is None or profile.get("deleted_at"):
+        # Un candidato borrado (lógico) no es editable: se comporta como
+        # inexistente (no aparece en listados, no se puede abrir su edición).
         raise HTTPException(404, "Candidato no encontrado")
     user = auth_service.session_user(request)
     return templates.TemplateResponse(
@@ -646,6 +648,69 @@ def human_capital_profile_edit_submit(
     # Éxito: vuelve al listado -- "guardar" implica "terminé de editar
     # esto", MISMO criterio que un alta exitosa vuelve al panel con el
     # form limpio, pero acá la edición vive en su propia página.
+    return RedirectResponse(url="/cchh/candidatos", status_code=303)
+
+
+@router.post("/cchh/candidatos/{profile_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profile_delete(
+    request: Request,
+    profile_id: str,
+    # Filtros vigentes (hx-include del form de filtros desde el listado): se
+    # re-aplican al re-render para que el borrado NO pierda la búsqueda activa.
+    q: str = Form(""), seniority: str = Form(""), source: str = Form(""),
+    location: str = Form(""), potential_mark: str = Form(""),
+):
+    """Borrado LÓGICO del candidato — UNA sola operación de servicio
+    (`soft_delete_profile`), compartida por los dos puntos de entrada de UI
+    (ícono en el listado vía HTMX, botón en Editar vía POST full-page).
+    Documentos preservados. Autorización: MISMA frontera que el resto de
+    Capital Humano (`_require_human_capital_session`); APP_OWNER entra por el
+    contrato global ya aprobado."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    actor = (user or {}).get("sub") or ""
+    delete_error: str | None = None
+    try:
+        human_capital_service.soft_delete_profile(profile_id, actor)
+    except ProfileNotFoundError:
+        # Ya no existe (doble submit / borrado concurrente): idempotente, se
+        # sigue al listado actualizado sin error -- no es una falla real.
+        pass
+    except (ProfileConfigIncompleteError, ProfileRemoteOutcomeUnknownError,
+            ProfileStorageError, ProfileConcurrentModificationError) as exc:
+        delete_error = str(exc)
+
+    if request.headers.get("HX-Request"):
+        # Desde el listado: re-render del panel filtrado -> el candidato
+        # borrado desaparece, el conteo se recalcula, los filtros se conservan.
+        # Si falló, el candidato SIGUE presente (no hay remoción parcial) y se
+        # muestra el error.
+        query = {"q": q, "seniority": seniority, "source": source, "location": location, "potential_mark": potential_mark}
+        context = {"request": request, **_profiles_panel_context(query=query)}
+        if delete_error:
+            context["delete_error"] = delete_error
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_profiles_panel.html", context=context,
+        )
+
+    # Desde Editar (full-page). Éxito -> vuelve al listado. Falla -> re-render
+    # de la página de edición con el error, el candidato intacto.
+    if delete_error:
+        profile = human_capital_service.get_profile(profile_id)
+        if profile is not None:
+            return templates.TemplateResponse(
+                request=request, name="human_capital/profile_edit.html",
+                context={
+                    "current_workspace": workspaces.HUMAN_CAPITAL,
+                    "available_workspaces": workspaces.available_workspaces(user),
+                    "pack": DEFAULT_PACK, "user": user, "active_page": "perfiles",
+                    **_edit_page_context(profile_id, form_values=profile, expected_revision=profile.get("revision", 1), create_error=delete_error),
+                    "documents": profile_document_service.list_documents_for_profile(profile_id),
+                    "document_state": None,
+                },
+            )
     return RedirectResponse(url="/cchh/candidatos", status_code=303)
 
 

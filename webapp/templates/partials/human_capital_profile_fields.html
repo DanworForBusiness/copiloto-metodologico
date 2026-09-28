@@ -32,6 +32,7 @@
        es el título visible, un `<h2>` interno lo duplicaría (mismo
        criterio que "Candidatos" en human_capital_profiles_panel.html, que
        tampoco repite su propio título dentro del body). #}
+{% from "partials/star_rating.html" import star_rating %}
 {% macro profile_fields(id_prefix, form_values, valid_seniority, valid_sources, seniority_is_legacy=false, source_is_legacy=false, cv_html="", as_dashboard_sections=false, valid_potencial=[], potencial_is_legacy=false) %}
   {#- `cv_html` (sólo alta): markup del campo CV que el caller inyecta DENTRO
      de "Datos del candidato" (owner post-#105: el CV va dentro de esa sección,
@@ -182,17 +183,16 @@
   <section class="hc-profile-section">
     <h2>Potencial</h2>
   {% endif %}
-    {# No shared Hub star-rating primitive exists today (owner audit,
-       2026-09-26) -- se mantiene el control 1-5 numérico tal cual, sólo
-       homologando estructura/posición (P3/estrellas: pendiente, ver
-       HANDOFF). `potential_mark` SÍ pasó a catálogo gobernado (P2, owner:
-       workbook `Catalogos_CCHH.xlsx` catalogo=potencial) -- MISMO
-       criterio migration-safe que Seniority/Fuente arriba, nunca valores
-       de negocio hardcodeados acá. #}
+    {# Potencial (1-5): control COMPARTIDO de estrellas SVG (owner, P3:
+       reemplaza el input numérico libre por el rating visual). El valor
+       posteado sigue siendo un entero 1-5 (o vacío) -> `potential_rating`,
+       misma validación en human_capital_service, cero cambio de modelo.
+       `potential_mark` es OTRA cosa (catálogo gobernado, workbook
+       `Catalogos_CCHH.xlsx` catalogo=potencial), migration-safe abajo. #}
     <div class="hc-profile-section__grid">
       <div class="feedback-field">
-        <label for="{{ id_prefix }}-potential-rating">Potencial (1-5)</label>
-        <input id="{{ id_prefix }}-potential-rating" name="potential_rating" type="text" value="{{ form_values.potential_rating or '' }}">
+        <label>Potencial (1-5)</label>
+        {{ star_rating(name="potential_rating", value=(form_values.potential_rating or ''), label="Potencial a futuro, 1 a 5 estrellas", input_id=id_prefix ~ "-potential-rating") }}
       </div>
       <div class="feedback-field">
         <label for="{{ id_prefix }}-potential-mark">Marca de potencial</label>

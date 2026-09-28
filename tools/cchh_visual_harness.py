@@ -188,6 +188,15 @@ def _seed_runtime(keep: bool) -> Path:
         shutil.rmtree(RUNTIME_DIR)
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     config.BASE_DIR = RUNTIME_DIR
+    # Durabilidad LOCAL para el harness: no hay Spaces (SPACES_* ausentes a
+    # propósito), pero el directorio de runtime scratch SÍ persiste entre
+    # requests de este proceso. Se trata el write local como durabilidad
+    # confirmada patcheando SÓLO `remote_store.push_path` (nunca `enabled()`,
+    # para no gatillar ningún otro camino que espere Spaces real) -> así el
+    # camino de ESCRITURA (Alta / Edición / Borrado lógico) se puede ejercitar
+    # visualmente en el harness, no sólo la lectura de fixtures sembrados.
+    from core import remote_store as _remote_store
+    _remote_store.push_path = lambda _path: True
     # NOTA para quien lea esto: `config.CONTENT_PACKS_DIR`/`CASE_LIBRARY_DIR`/
     # etc. YA se calcularon en el import de arriba usando el `BASE_DIR`
     # ORIGINAL (son constantes de módulo, no relecturas) -- siguen apuntando

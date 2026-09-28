@@ -66,6 +66,21 @@
       <div class="hc-profiles-hero-actions">
         <button type="button" class="btn-secondary" data-dashboard-expand-all data-dashboard-target="cchh-candidate-edit cchh-candidate-documents">Expandir</button>
         <button type="button" class="btn-secondary" data-dashboard-collapse-all data-dashboard-target="cchh-candidate-edit cchh-candidate-documents">Contraer</button>
+        {# Acción destructiva (owner closure): MISMO borrado lógico que el ícono
+           del listado -> `POST /cchh/candidatos/<id>/eliminar` (una sola
+           operación de servicio). Full-page: éxito redirige al listado.
+           `.btn-danger` (pastel rojo compartido, nunca gold). Confirmación vía
+           el diálogo compartido (data-dw-confirm-form -> submit intercept).
+           `display:contents` (`.dw-inline-form`) para que el botón participe de
+           la MISMA botonera flex, sin romper la fila. #}
+        <form method="post" action="/cchh/candidatos/{{ form_values.profile_id }}/eliminar" class="dw-inline-form"
+              data-dw-confirm-form data-dw-confirm-title="Eliminar candidato"
+              data-dw-confirm-message="¿Querés eliminar a {{ form_values.first_name }} {{ form_values.last_name }}?&#10;Esta acción puede afectar la información asociada al candidato.">
+          <button type="submit" class="btn-danger">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+            Eliminar
+          </button>
+        </form>
       </div>
     </section>
 

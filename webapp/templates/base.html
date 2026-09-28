@@ -11,6 +11,22 @@
 <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='content.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='layout.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='tools.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='feedback.css') }}?v={{ static_version }}">
 <script>/* Aplica los anchos guardados de las columnas ANTES del primer paint (evita el salto al restaurarlos por JS tras cada navegación SSR). Inyecta un <style> DESPUÉS de los CSS para ganar la cascada sobre .app-shell. */(function(){try{var n=Number(localStorage.getItem('dw-nav-width')),p=Number(localStorage.getItem('dw-panel-width')),r='';if(n)r+='--nav-width:'+n+'px;';if(p)r+='--panel-width:'+p+'px;';if(r){var s=document.createElement('style');s.textContent='.app-shell{'+r+'}';document.head.appendChild(s);}}catch(e){}})();</script></head>
 <body class="min-h-full bg-[#0c0c0d] text-[#e4e4ec] antialiased"><a class="skip-link" href="#content">Ir al contenido</a>{% block body %}{% endblock %}
+{# Diálogo de confirmación compartido (primitivo `<dialog>` nativo). Una sola
+   instancia por documento; `dwConfirm()` en app.js lo puebla y lo abre. Lo usa
+   hoy el borrado de candidatos (listado + edición), reusable por cualquier
+   acción destructiva del Hub. #}
+<dialog class="dw-confirm" id="dwConfirm" aria-labelledby="dwConfirmTitle">
+  <form method="dialog">
+    <div class="dw-confirm__body">
+      <h2 class="dw-confirm__title" id="dwConfirmTitle">Confirmar</h2>
+      <p class="dw-confirm__msg" data-dw-confirm-msg></p>
+    </div>
+    <div class="dw-confirm__actions">
+      <button type="submit" value="cancel" class="btn-secondary" data-dw-confirm-cancel>Cancelar</button>
+      <button type="submit" value="confirm" class="btn-danger" data-dw-confirm-ok>Eliminar</button>
+    </div>
+  </form>
+</dialog>
 {% if invite_src %}
 {# Invitación al Desafío: dialog sobre el copiloto, disparado por la cookie
    dw-desafio que arma /desafio. Reinvocable: cada visita al link vuelve a

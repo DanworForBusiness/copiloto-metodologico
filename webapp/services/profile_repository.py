@@ -659,3 +659,25 @@ def update(profile_id: str, expected_revision: int, fields: dict) -> dict:
             "No pudimos confirmar el estado remoto de este candidato tras un fallo de guardado. "
             "La versión local se mantuvo en el último estado conocido."
         )
+
+
+def soft_delete(profile_id: str, actor: str | None = None) -> dict:
+    """Borrado LÓGICO (owner closure: soft delete, documentos preservados).
+    Marca el Profile con `deleted_at`/`deleted_by` en vez de borrar el
+    archivo — el registro y sus ProfileDocuments quedan intactos. Reusa
+    `update()` (MISMO camino de durabilidad remota + compensating overwrite,
+    nunca `delete_path()`), así que hereda todo su contrato de fallo. Un
+    Profile ya borrado es un no-op idempotente (no re-escribe ni bump de
+    revision). El caller de servicio decide la autorización; acá sólo se
+    persiste el marcado."""
+    _ensure_restored()
+    current = get(profile_id)
+    if current is None:
+        raise ProfileNotFoundError(f"El Profile {profile_id} no existe.")
+    if current.get("deleted_at"):
+        return current
+    return update(
+        profile_id,
+        current.get("revision", 1),
+        {"deleted_at": _now_iso(), "deleted_by": actor or ""},
+    )

@@ -675,26 +675,52 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    `.feedback-field` padre (el flex item) sí respete el ancho compacto --
    visualmente se ve como el control de al lado (acá, "✕ Limpiar")
    solapado, sin que sea realmente un problema de gap/spacing. */
-.hc-profile-filters select, .hc-profile-filters input { width: 100%; min-width: 0; }
-/* Compactación (owner: "los dropdowns ocupan mucho más ancho que su
-   contenido") -- modificadores EXPLÍCITOS por campo (nunca `nth-child`,
-   que se rompería si el orden de campos cambia) en vez de la regla base
-   de arriba (`flex:1 1 150px` para TODOS por igual, que es justamente lo
-   que generaba selects angostos con espacio vacío sobrante). Buscar sigue
-   siendo el campo dominante (crece más); Seniority/Fuente/Marca de
-   potencial son `<select>` de catálogo (contenido corto, conocido de
-   antemano) -- compactos; Ubicación es texto libre sin catálogo, ancho
-   intermedio. */
-.hc-profile-filters .feedback-field--wide { flex: 0 1 190px; min-width: 150px; }
-.hc-profile-filters .feedback-field--compact { flex: 0 1 100px; min-width: 85px; }
-.hc-profile-filters .feedback-field--medium { flex: 0 1 130px; min-width: 110px; }
-/* `.whatsnew-filter` (Indicadores, MISMA fila que los filtros -- owner
-   corrective: "no lo quiero abajo, al lado del último dropdown") -- sin
-   esto, su ancho de contenido natural (columna label+checkbox) compite por
-   espacio en la decisión de wrap del flex-row igual que cualquier otro
-   campo; `flex-shrink` explícito evita que por sí solo empuje el resto a
-   una segunda línea en el primer breakpoint angosto. */
-.hc-profile-filters > .whatsnew-filter--compact { flex: 0 1 auto; }
+/* GRID-TRACK fix (owner-reported solape real, verificado con geometría en
+   localhost 2026-09-27): `.feedback-field` es `display:grid` con UNA sola
+   pista implícita `auto`. Esa pista se dimensiona al max-content del control
+   (el `<select>`/`<input>` mide su ancho natural, ~150px) y DESBORDA su propio
+   flex item compacto (100px) -- por eso el `width:100%` de abajo resolvía
+   contra 150px y el control se comía el campo de al lado, aunque el flex item
+   sí respetaba su ancho. `minmax(0, 1fr)` fuerza la pista a min 0 / max = el
+   ancho del grid container (= el flex item), así el control encoge con él.
+   Scope acotado al toolbar de filtros (no al primitive global `.feedback-field`
+   de los formularios de Alta/Edit). */
+.hc-profile-filters .feedback-field { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.hc-profile-filters select, .hc-profile-filters input { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
+/* Reparto FLUIDO -- MISMA estrategia responsive del primitive transversal
+   `.whatsnew-filter--fill` (tools.css, "control fijo + control flexible":
+   `flex-grow` + `min-width:0`, usado por What's New / Commercial / Staffing).
+   Owner corrective 2026-09-27: los campos NO deben quedar a ancho de
+   contenido dejando una zona muerta a la derecha; deben CONSUMIR y repartir
+   el espacio disponible conservando proporciones. Por eso `flex-grow`
+   proporcional con `flex-basis:0` (el ancho es puro ratio del grow, no el
+   contenido) en vez del viejo `flex:0 1 Npx` (grow:0 = no crecía). Los
+   `min-width` son sólo pisos de legibilidad para el wrap en angosto, nunca
+   anchos fijos. Ratio = Buscar 3 (más ancho) : Ubicación 2 (medio/ancho) :
+   Seniority/Fuente/Marca 1.4 (medio). `✕ Limpiar` e Indicadores quedan a
+   ancho natural (acciones), como en el primitive compartido. */
+.hc-profile-filters .feedback-field--wide { flex: 3 1 0; min-width: 180px; }
+.hc-profile-filters .feedback-field--medium { flex: 2 1 0; min-width: 135px; }
+.hc-profile-filters .feedback-field--compact { flex: 1.4 1 0; min-width: 108px; }
+/* "Indicadores" -- MISMA estructura de campo que el resto (owner: modelar
+   como los demás toolbar items, `field label` + `control area`, reusando el
+   primitivo `.feedback-field` para que el rótulo y el área de control caigan
+   en la MISMA Y que Buscar/Seniority/.../Marca de potencial, sin `top`/
+   transforms/márgenes arbitrarios). Su "control area" es una pila vertical de
+   casillas (`.dashboard-checkbox-group`) en lugar de un input/select. Ancho
+   natural (no fluido): no crece ni se encoge, MISMO trato que "✕ Limpiar". */
+.hc-profile-filters .feedback-field--indicators { flex: 0 0 auto; }
+/* El rótulo del campo es `.feedback-field label` (mismo estilo que "Ubicación"
+   etc.). PERO ese selector es descendiente, así que también alcanzaría a las
+   `<label>` internas de las casillas: se re-afirma su tipografía propia del
+   primitivo `.dashboard-checkbox-option` (no es un nudge, es resolver la
+   interacción entre dos primitivos compartidos que se componen acá). */
+.hc-profile-filters .feedback-field--indicators .dashboard-checkbox-option {
+  font: 600 .66rem var(--mono); color: #55555c; font-weight: 600;
+}
+.content-theme-dark .hc-profile-filters .feedback-field--indicators .dashboard-checkbox-option { color: #b2b2bc; }
+.hc-profile-filters .feedback-field--indicators .dashboard-checkbox-option:has(input:checked) { color: #1f1f24; }
+.content-theme-dark .hc-profile-filters .feedback-field--indicators .dashboard-checkbox-option:has(input:checked) { color: #e4e4ec; }
 
 .activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; }
 /* `margin-bottom` (owner corrective — "FINAL VISUAL COMPOSITION": Total
@@ -1065,6 +1091,75 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    Ámbito no haga "saltar" el resto de las opciones de Área. */
 .dashboard-checkbox-option--disabled { cursor: not-allowed; opacity: .38; }
 .dashboard-checkbox-option--disabled input { cursor: not-allowed; }
+
+/* Rating de estrellas 1..N — primitivo COMPARTIDO Hub (ver
+   partials/star_rating.html + initStarRatings en app.js). Editable
+   (radiogroup de <button>) y readonly (<span> con SVGs). El relleno se
+   controla con `.is-filled` (JS en editable, server en readonly), nunca con
+   width/clip: cada estrella es un `currentColor` fill completo. Light/dark:
+   `--gold` para la estrella llena en ambos temas; el hueco usa un gris
+   neutro que se aclara en dark. */
+.star-rating { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; }
+.star-rating__star {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; border: 0; background: transparent; line-height: 0;
+  color: rgba(128,128,128,.42);
+}
+button.star-rating__star { cursor: pointer; }
+.star-rating--readonly .star-rating__star { cursor: default; }
+.content-theme-dark .star-rating__star { color: rgba(210,210,220,.30); }
+.star-rating__star.is-filled,
+.content-theme-dark .star-rating__star.is-filled { color: var(--gold); }
+.star-rating__icon { width: 20px; height: 20px; fill: currentColor; display: block; }
+.star-rating--sm .star-rating__icon { width: 14px; height: 14px; }
+.star-rating--sm { gap: 1px; }
+button.star-rating__star:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 3px; }
+
+/* Celda de IDENTIDAD con contenido contextual opcional (nombre + badge de
+   marca + estrellas de scoring). El contenido se CONTIENE dentro del ancho fijo
+   de la columna (owner: nunca ensanchar la tabla ni scrollear por indicadores):
+   fila flex que ENVUELVE (los indicadores bajan a otra línea si no entran) y el
+   NOMBRE se trunca con ellipsis si por sí solo excede la celda. Los indicadores
+   (`__meta`) van compactos, a ancho natural, y nunca fuerzan crecimiento. */
+.dw-idcell { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
+.dw-idcell__name { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw-idcell__meta { flex: 0 0 auto; }
+
+/* Botón destructivo COMPARTIDO (pastel/suave, NUNCA el gold del Hub). Reusa
+   el vocabulario de rojo ya presente en el Hub (rgba(192,57,43,…), el mismo de
+   `.dashboard-status-badge--red`) en vez de un color one-off; tokens propios
+   para light/dark. Mismo box que `.btn-secondary` para alinear en la botonera. */
+.btn-danger {
+  min-height: 42px; padding: 10px 16px; border-radius: 8px; font-weight: 650;
+  font-size: .76rem; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid rgba(192,57,43,.38); background: rgba(192,57,43,.10); color: #b23328;
+}
+.btn-danger:hover { background: rgba(192,57,43,.16); border-color: rgba(192,57,43,.6); }
+.btn-danger:focus-visible { outline: 2px solid #c0392b; outline-offset: 2px; }
+.content-theme-dark .btn-danger { color: #e5897e; border-color: rgba(224,121,110,.4); background: rgba(224,121,110,.13); }
+.content-theme-dark .btn-danger:hover { background: rgba(224,121,110,.2); border-color: rgba(224,121,110,.6); }
+/* Ícono de acción destructiva en tablas: MISMO primitivo `.table-action-btn`
+   que Editar; el tinte rojo aparece SÓLO en hover/focus (restraint). */
+.table-action-btn--danger:hover, .table-action-btn--danger:focus-visible { color: #c0392b; }
+.content-theme-dark .table-action-btn--danger:hover, .content-theme-dark .table-action-btn--danger:focus-visible { color: #e5897e; }
+
+/* Diálogo de confirmación COMPARTIDO (primitivo `<dialog>` nativo: focus-trap,
+   Escape y backdrop del navegador, cero JS de accesibilidad propio). Una sola
+   instancia en base.html, manejada por `dwConfirm()` en app.js. */
+.dw-confirm { border: 0; border-radius: 14px; padding: 0; max-width: 440px; width: calc(100% - 32px);
+  background: #fff; color: #1f1f24; box-shadow: 0 24px 70px rgba(0,0,0,.4); }
+.content-theme-dark .dw-confirm { background: #181819; color: #e4e4ec; }
+.dw-confirm::backdrop { background: rgba(0,0,0,.5); }
+.dw-confirm__body { padding: 22px 24px 6px; }
+.dw-confirm__title { margin: 0 0 10px; font-size: 1.05rem; font-weight: 700; }
+.dw-confirm__msg { margin: 0; font-size: .85rem; line-height: 1.55; color: #55555c; white-space: pre-line; }
+.content-theme-dark .dw-confirm__msg { color: #b2b2bc; }
+.dw-confirm__actions { display: flex; justify-content: flex-end; gap: 10px; padding: 18px 24px 22px; }
+/* Acciones de fila (Editar + Eliminar) lado a lado, centradas en su celda. */
+.dw-row-actions { display: inline-flex; align-items: center; gap: 4px; }
+/* Form envoltura de una acción destructiva dentro de una botonera flex: el
+   <form> desaparece del layout y su botón participa directo de la fila. */
+.dw-inline-form { display: contents; }
 
 /* Badge de estado — misma forma que .catalog-card__verdict (borde +
    padding chico + mayúsculas), colores propios y restringidos a 3 (verde/

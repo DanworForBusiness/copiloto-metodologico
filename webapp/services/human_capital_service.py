@@ -59,7 +59,7 @@ __all__ = [
     "ProfileConcurrentModificationError", "ProfileConfigIncompleteError",
     "ProfileDuplicateAdvisory", "ProfileIdConflictError", "ProfileNotFoundError",
     "ProfileRemoteOutcomeUnknownError", "ProfileStorageError",
-    "list_profiles", "get_profile", "create_profile", "update_profile", "filter_profiles",
+    "list_profiles", "get_profile", "create_profile", "update_profile", "soft_delete_profile", "filter_profiles",
     "validate_and_shape_fields", "find_duplicate", "create_profile_for_import",
     "validate_source_for_import",
 ]
@@ -242,7 +242,19 @@ def find_duplicate(profile: dict, existing: list[dict], *, exclude_profile_id: s
 
 
 def list_profiles() -> list[dict]:
-    return profile_repository.list()
+    # Excluye los borrados lógicos (owner closure: un candidato soft-deleted
+    # NO aparece en listados/búsquedas normales). El dedup de create/update
+    # sigue mirando `profile_repository.list()` crudo a propósito (un borrado
+    # no debería habilitar re-crear un duplicado silenciosamente).
+    return [p for p in profile_repository.list() if not p.get("deleted_at")]
+
+
+def soft_delete_profile(profile_id: str, actor: str | None = None) -> dict:
+    """Borrado LÓGICO del candidato (owner closure). Una sola operación de
+    servicio, compartida por los dos puntos de entrada de UI (listado y
+    edición). Documentos preservados. Delega en `profile_repository.soft_delete`
+    (durabilidad remota + idempotencia)."""
+    return profile_repository.soft_delete(profile_id, actor)
 
 
 def get_profile(profile_id: str) -> dict | None:

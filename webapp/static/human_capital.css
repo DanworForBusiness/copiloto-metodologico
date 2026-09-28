@@ -81,10 +81,17 @@
 
 /* Toolbar de filtros (Buscar/Seniority/Fuente/Ubicación/Marca de potencial):
    el layout de flex-wrap ya existía (tools.css `.hc-profile-filters`) — acá
-   sólo se completa lo que faltaba, el look de los controles mismos. */
+   sólo se define el LOOK de los controles mismos (padding/borde/tipografía).
+   El ANCHO lo gobierna tools.css: el flex item `.feedback-field`(--wide/
+   --compact/--medium) + la pista `minmax(0,1fr)` + `width:100%` del control.
+   El `min-width:150px` que vivía acá era un piso de ancho sobre el <select>
+   con especificidad mayor (el atributo `input[type="text"]`) que pisaba el
+   `min-width:0` de tools.css: forzaba al control a 150px y lo hacía desbordar
+   su celda compacta (100px) sobre el campo de al lado (solape reportado por
+   el owner). El ancho NO es responsabilidad de esta regla de apariencia. */
 .hc-profile-filters input[type="text"],
 .hc-profile-filters select {
-  min-width: 150px; padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
+  padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
   border-radius: 8px; background: transparent; color: #1f1f24; font: .8rem var(--sans);
 }
 .content-theme-dark .hc-profile-filters input[type="text"],
