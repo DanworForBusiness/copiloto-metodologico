@@ -8,6 +8,64 @@
 
 ---
 
+# CCHH · CANDIDATOS / BASE DE CVs — **CLOSED** (2026-09-28)
+
+> Experiencia de gestión de candidatos **cerrada** y validada por el owner en
+> localhost (harness de QA visual, puerto dedicado). Este bloque es el estado
+> ACTUAL de Candidatos; ignorar notas intermedias de iteraciones previas.
+
+**Git**
+- Rama de cierre: `work/cchh-owner-superuser-and-filter-ux`, integrada con
+  `origin/main` (merge limpio; full suite verde en el árbol integrado).
+- Commit de cierre CCHH: `2e404fd` (feat: close candidate management experience);
+  merge de main: `db7c22d`; + fixes de contratos de ruta (guards 158→159).
+- PR contra `main`: **pendiente de abrir/mergear por el owner** (este entorno no
+  tiene `gh`; el owner abre/mergea PRs). Al mergear a `main`, DigitalOcean
+  App Platform (Procfile) auto-deploya ese SHA — la `deployment` branch está
+  stale (648 detrás) y NO es el mecanismo vigente.
+- DO deploy + smoke de producción: pendientes del merge; el smoke de producción
+  requiere login MSAL real (acción del owner, no de este agente).
+
+**Capacidades completadas (todas verificadas en código + localhost)**
+- APP_OWNER con acceso global a workspaces; allowlists por-vertical fail-closed.
+- Práctica de **Visual QA harness** local (`tools/cchh_visual_harness.py`),
+  ahora con durabilidad LOCAL para ejercitar el camino de escritura.
+- Filtros globales fuera del panel, **reactivos**, toolbar **fluido** (reusa
+  `.whatsnew-filter--fill`); `✕ Limpiar` último; bloque **Indicadores**
+  (`.feedback-field`) con casillas **Marca potencial** + **Scoring**.
+- Catálogo gobernado `potencial`; filtro Marca de potencial como select; badge
+  de marca (indicador `potencial`).
+- **Distinción Marca de potencial (texto gobernado) vs Scoring (entero 1–5)**.
+- **Primitivo compartido de estrellas SVG 1–5** (`partials/star_rating.html` +
+  `initStarRatings`): hover acumulativo, mouseleave restaura, click/teclado,
+  input hidden entero, light/dark; editable en Alta/Edición, read-only en lista.
+- Indicadores (visibilidad opt-in, localStorage) — primitivo `initIndicatorToggles`.
+- **Tabla UNA sola** coherente: se removió el tratamiento `row-label/row-label-col`
+  de la primera columna (fix final del "split de dos tablas"); identidad =
+  `<td class=left>` + wrapper `.dw-idcell` (nombre elipsa, indicadores compactos),
+  sin scroll horizontal no deseado; reorder/resize intactos.
+- Alta/Edición con lenguaje `dashboard-section` compartido; hero de Edición
+  `<Perfil / Skills> · <Seniority>`; Expandir/Contraer compartido.
+- Carga masiva: `Descargar modelo` → referencia SharePoint estable en código
+  (sin env var nueva, sin XLSX versionado).
+- **Eliminar candidato — soft delete, documentos preservados**: una sola
+  operación de servicio (`soft_delete_profile`) desde dos entradas (ícono en
+  listado vía HTMX / botón `.btn-danger` en Edición full-page), confirmación por
+  `<dialog>` compartido (`dwConfirm`); borrado excluido de listados/búsquedas;
+  editar un borrado → 404.
+- Estándar de ingeniería: **validación en localhost antes de push**; fix
+  compartido en el primitivo compartido, no parche vertical.
+
+**HOLD de dominio genuinos (sin resolver)**
+- `Nivel` vs `Seniority`; `Proceso`; `Estado`; historial real del proceso —
+  no inferir del modelo actual; la app desplegada de referencia
+  (`app-seleccion.vercel.app`) sigue siendo la spec funcional.
+
+**Próxima sección CCHH sugerida:** Candidate `Historial del proceso` real
+(modelo de proceso/estado), una vez definida la semántica de dominio arriba.
+
+---
+
 # ARCHITECTURE MODERNIZATION / INTERNAL APPS INITIATIVE
 
 > **⭐ Esta es la iniciativa ACTIVA.** El handoff del *Dashboard de Actividad*
