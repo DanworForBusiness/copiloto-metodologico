@@ -174,10 +174,16 @@ def _asset_covers_query_object(question: str, asset: dict) -> bool:
     ESE objeto — por token especifico (keywords/desc) o por eje de plataforma
     explicito (SAC, BW, PowerBI...). No alcanza con compartir el VERBO generico
     ('configurar' <-> 'configure'): eso es lo que hacia que "como configurar
-    PostgreSQL" devolviera confiadamente "SAC: Configure Workspaces". Si la consulta
-    no tiene objeto especifico, el guardrail no aplica (devuelve True)."""
+    PostgreSQL" devolviera confiadamente "SAC: Configure Workspaces". Si la
+    consulta no tiene objeto especifico PERO tampoco tiene NINGÚN token
+    significativo (pregunta vacia/pura stopwords), el guardrail no aplica
+    (devuelve True) por no haber nada que evaluar. Si en cambio la consulta
+    ES contenido -- pero puramente el verbo/termino generico a secas, ej.
+    "configurar" sin más -- no hay ninguna señal que justifique UN recurso
+    puntual por sobre otro: el guardrail bloquea (ver forensic MTD/SLT,
+    "configurar" a secas no debe resolver confiadamente ningún how-to)."""
     if not _query_object_tokens(question):
-        return True
+        return not _significant_tokens(question)
     if _asset_candidate_specific_hits(question, asset):
         return True
     candidate_text = " ".join([
@@ -213,6 +219,13 @@ def _shared_action_roots(question: str, candidate_text: str) -> set[str]:
     }
 
 
+# Umbral de match "fuerte" para una sección cross-module: evidencia por sí
+# sola (sin exact-keyword) suficiente para tratar el match como confiable.
+# Compartido por _should_pair_section_with_asset y _section_is_concrete_enough
+# para no duplicar el número mágico en dos heurísticas relacionadas.
+_STRONG_SECTION_MATCH_SCORE = 20
+
+
 def _should_pair_section_with_asset(question: str, section_match: dict | None) -> bool:
     """Decide si una seccion merece acompanar a un how-to concreto.
 
@@ -232,7 +245,7 @@ def _should_pair_section_with_asset(question: str, section_match: dict | None) -
     # ceder ante el Template de Seguridad (14). Se excluye cuando la pregunta
     # busca un recurso (how-to): ahi el asset lidera y permanece anclado a su
     # modulo, sin desviar el contexto a una seccion cross-module.
-    if section_match.get("score", 0) >= 20 and not _is_asset_seeking_query(question):
+    if section_match.get("score", 0) >= _STRONG_SECTION_MATCH_SCORE and not _is_asset_seeking_query(question):
         return True
 
     q_norm = _norm(question)
@@ -279,6 +292,43 @@ def _has_exact_multiword_keyword(question: str, keywords: list[str] | tuple[str,
         if len(kw_norm.split()) > 1 and kw_norm in q_norm:
             return True
     return False
+
+
+def _section_is_concrete_enough(question: str, section_match: dict) -> bool:
+    """Guardrail de objeto para _find_cross_module_section.
+
+    Mismo principio que _asset_covers_query_object (no alcanza con compartir
+    el VERBO generico -- "configurar" -- con una sección amplia; hace falta
+    evidencia que resuelva el OBJETO real de la consulta), pero sin su
+    default permisivo para consultas sin objeto: una sección-colección
+    (ej. "Colección How-To", un listado de ~20 guías distintas) puede juntar
+    score por acumulación de keywords "configurar X"/"instalar Y" sin que
+    NINGUNA cubra lo preguntado. Ahí es exactamente donde hace falta negar
+    el match por default, no asumirlo válido.
+
+    Evidencia aceptada -- deliberadamente SIN gate de score: una sección
+    puntualmente correcta puede rankear apenas debajo de
+    _STRONG_SECTION_MATCH_SCORE (ej. "Artefactos y uso Semántico"=19 para
+    "capa de consumption") y no por eso es menos concreta; lo que importa es
+    si el objeto REAL de la consulta aparece en el contenido propio de la
+    sección, no el acumulado de señales difusas que compone el score:
+    - una keyword curada MULTI-PALABRA exacta (señal fuerte, igual que el
+      desempate ya usado en _find_cross_module_section), o
+    - el objeto especifico de la consulta (o un eje de plataforma explícito
+      -- SAC, BW, PowerBI...) aparece en el propio texto de la sección
+      (heading/keywords/cuerpo). Sin objeto especifico en la consulta, no
+      hay nada que verificar -- se rechaza (ver "configurar" a secas).
+    """
+    keywords = section_match.get("keywords") or []
+    if _has_exact_multiword_keyword(question, keywords):
+        return True
+    query_objects = _query_object_tokens(question)
+    if not query_objects:
+        return False
+    candidate_text = _section_candidate_text(section_match)
+    if query_objects & _significant_tokens(candidate_text):
+        return True
+    return bool(_asset_platform_axes(question) & _asset_platform_axes(candidate_text))
 
 
 def _score_section_candidate(question: str, heading: str, keywords: list[str], section_md: str, module_scope: str = "") -> int:
@@ -409,6 +459,8 @@ def _find_cross_module_section(
         second_exact = _has_exact_multiword_keyword(question, candidates[1][1].get("keywords") or [])
         if not (best_exact and not second_exact):
             return None
+    if not _section_is_concrete_enough(question, best):
+        return None
     return best
 
 

@@ -1,5 +1,10 @@
+{# route: match curado (asset/sección/catálogo). explain: affordance de
+   "Explicame vos" sobre una respuesta grounded sin match local (ver
+   AssistantRoutingService.no_local_evidence_explain) -- no tiene actions
+   propias, sólo el form de abajo. Nunca coexisten (ver assistant.py). #}
+{% set r = route or explain %}
 <div class="assistant-route-actions" aria-label="Opciones sugeridas">
-  {% for action in route.actions %}
+  {% for action in r.actions %}
   {% if action.embed %}
   {# Detalle de catálogo: cargar en el slot por HTMX (como un card manual) para que
      Volver y "Abrir CDS View" funcionen. href queda de fallback (abrir en pestaña). #}
@@ -9,7 +14,7 @@
   <a class="assistant-route-action" href="{{ action.url }}"{% if action.external %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ action.label }}</a>
   {% endif %}
   {% endfor %}
-  {% if route.explain_module %}
+  {% if r.explain_module %}
   <form
     class="assistant-route-explain"
     hx-post="/modules/{{ stem }}/assistant/chat"
@@ -22,11 +27,12 @@
   >
     <input type="hidden" name="pack" value="{{ pack }}">
     <input type="hidden" name="conversation_id" value="{{ reply.conversation_id }}">
-    <input type="hidden" name="question" value="{{ route.original_question }}">
+    <input type="hidden" name="question" value="{{ r.original_question }}">
     <input type="hidden" name="routing_bypass" value="true">
-    <input type="hidden" name="route_module" value="{{ route.explain_module }}">
-    <input type="hidden" name="route_heading" value="{{ route.explain_heading }}">
-    <input type="hidden" name="explain_prompt" value="{{ route.explain_prompt }}">
+    <input type="hidden" name="route_module" value="{{ r.explain_module }}">
+    <input type="hidden" name="route_heading" value="{{ r.explain_heading }}">
+    <input type="hidden" name="explain_prompt" value="{{ r.explain_prompt }}">
+    <input type="hidden" name="route_general" value="{{ 'true' if r.explain_general else '' }}">
     <button type="submit" class="assistant-route-action assistant-route-action--secondary">Explicame vos</button>
   </form>
   {% endif %}

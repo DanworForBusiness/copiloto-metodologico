@@ -18,7 +18,7 @@
     {% if diagnostic_mode and result %}<details class="analysis-prompt"><summary>Ver prompt de diagnóstico</summary><pre>{{ result.prompt }}</pre></details>{% endif %}
   </div>
   {% include "partials/assistant_feedback.html" %}
-  {% if route %}
+  {% if route or explain %}
   {% include "partials/assistant_route_actions.html" %}
   {% endif %}
   {% endif %}
