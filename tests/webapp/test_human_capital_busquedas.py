@@ -134,16 +134,28 @@ def test_close_finalizes_pending_and_sets_cerrado():
     assert b["candidatos"][0]["resultado_final"] == "Rechazado"
 
 
-def test_availability_derives_from_active_applications():
+def _avail_ids(busqueda_id):
+    b = human_capital_service.get_busqueda(busqueda_id)
+    return {p["profile_id"] for p in human_capital_service.profiles_available_for_busqueda(b)}
+
+
+def test_availability_is_per_search_not_global_single_active():
+    # Contrato N:M aprobado: un candidato en la búsqueda activa A SIGUE
+    # disponible para la búsqueda activa B; sólo deja de estar disponible para
+    # A (mientras su postulación en A no esté finalizada). Participar en otra
+    # búsqueda activa NUNCA lo excluye.
     pid = _profile()
-    b = human_capital_service.create_busqueda({"nombre_puesto": "Dev", "fecha_apertura": "2026-09-01"})
-    assert any(p["profile_id"] == pid for p in human_capital_service.profiles_available_for_busqueda())
-    human_capital_service.add_candidate_to_busqueda(b["busqueda_id"], pid)
-    # ahora tiene una postulación activa -> ya no está disponible
-    assert not any(p["profile_id"] == pid for p in human_capital_service.profiles_available_for_busqueda())
-    # cerrar la búsqueda lo libera (la búsqueda ya no es activa)
-    human_capital_service.close_busqueda(b["busqueda_id"], [])
-    assert any(p["profile_id"] == pid for p in human_capital_service.profiles_available_for_busqueda())
+    a = human_capital_service.create_busqueda({"nombre_puesto": "A", "fecha_apertura": "2026-09-01"})
+    b = human_capital_service.create_busqueda({"nombre_puesto": "B", "fecha_apertura": "2026-09-01"})
+    assert pid in _avail_ids(a["busqueda_id"])
+    assert pid in _avail_ids(b["busqueda_id"])
+    human_capital_service.add_candidate_to_busqueda(a["busqueda_id"], pid)  # queda en A (activa)
+    assert pid not in _avail_ids(a["busqueda_id"])   # ya no disponible para A
+    assert pid in _avail_ids(b["busqueda_id"])       # SIGUE disponible para B (activa)
+    # tras finalizar su postulación en A, vuelve a estar disponible para A
+    app_id = human_capital_service.get_busqueda(a["busqueda_id"])["candidatos"][0]["application_id"]
+    human_capital_service.move_application_stage(a["busqueda_id"], app_id, "Finalizado", "Rechazado")
+    assert pid in _avail_ids(a["busqueda_id"])
 
 
 def test_remove_candidate_does_not_delete_profile():

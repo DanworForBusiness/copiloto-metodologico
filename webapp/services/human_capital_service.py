@@ -588,14 +588,22 @@ def move_application_stage(busqueda_id: str, application_id: str, etapa: str,
     return busqueda_repository.move_stage(busqueda_id, application_id, etapa, resultado)
 
 
-def profiles_available_for_busqueda() -> list[dict]:
-    """Profiles del Banco ASIGNABLES a una búsqueda: los que NO tienen una
-    postulación ACTIVA en curso (estado del candidato DERIVADO de las relaciones
-    con búsquedas, nunca almacenado en el Profile). Excluye borrados."""
-    return [
-        p for p in list_profiles()
-        if not busqueda_repository.has_active_application(p["profile_id"])
-    ]
+def profiles_available_for_busqueda(busqueda: dict) -> list[dict]:
+    """Profiles del Banco ASIGNABLES a ESTA búsqueda (contrato N:M aprobado por
+    el owner: un Profile puede participar en 0..N búsquedas, incluidas varias
+    activas a la vez). Se excluye ÚNICAMENTE a quien ya tiene una postulación
+    NO finalizada en ESTA misma búsqueda — nunca por participar en otra. Un
+    "En proceso" derivado de otra búsqueda NO es una restricción de
+    exclusividad. Excluye borrados (via `list_profiles`).
+
+    (La app de referencia SÍ enforcea membership única global — banco_cvs.estado
+    'Nuevo' como único asignable, ver AgregarDesdeBancoModal.tsx:111/143-145 —
+    pero el contrato de dominio aprobado para el Hub es N:M, y prevalece.)"""
+    in_this_search = {
+        app.get("profile_id") for app in busqueda.get("candidatos", [])
+        if app.get("etapa") != busqueda_repository.ETAPA_FINAL
+    }
+    return [p for p in list_profiles() if p["profile_id"] not in in_this_search]
 
 
 def busqueda_candidates_view(busqueda: dict) -> list[dict]:

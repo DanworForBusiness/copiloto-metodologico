@@ -292,22 +292,6 @@ def _find_app(doc: dict, application_id: str) -> dict:
     raise ApplicationNotFoundError(f"La postulación {application_id} no existe en esta búsqueda.")
 
 
-def has_active_application(profile_id: str) -> bool:
-    """True si el `profile_id` participa de alguna búsqueda ACTIVA en una etapa
-    NO finalizada (o finalizada con Ingreso) — o sea, no está "disponible" para
-    asignarse a una nueva búsqueda. Estado del candidato DERIVADO de las
-    relaciones, nunca almacenado en el Profile (decisión del owner)."""
-    for b in list():
-        if b.get("estado") != "activo":
-            continue
-        for app in b.get("candidatos", []):
-            if app.get("profile_id") != profile_id:
-                continue
-            if app.get("etapa") != ETAPA_FINAL or app.get("resultado_final") == "Ingreso":
-                return True
-    return False
-
-
 def add_candidate(busqueda_id: str, profile_id: str) -> dict:
     """Asocia un Profile del Banco a la búsqueda (nueva postulación en
     Preselección, con su primera fila de historial). Idempotente-ish: si el

@@ -1179,7 +1179,7 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
         "resultados": busqueda_repository.RESULTADOS_FINALES,
         "etapa_final": busqueda_repository.ETAPA_FINAL,
         "total_candidatos": len(view),
-        "available_profiles": human_capital_service.profiles_available_for_busqueda(),
+        "available_profiles": human_capital_service.profiles_available_for_busqueda(busqueda),
     }
 
 
