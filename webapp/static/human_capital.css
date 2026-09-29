@@ -165,6 +165,9 @@
 .hc-profiles-hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px; }
 .hc-profiles-hero-text { flex: 1 1 320px; }
 .hc-profiles-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; flex: 0 0 auto; }
+/* Contenedor del feedback del refresh de catálogos (fragmento HTMX inyectado
+   desde el botón del hero): sólo separa cuando tiene contenido. */
+.hc-catalog-refresh-feedback:not(:empty) { margin: 0 0 18px; }
 .hc-profiles-hero-actions .btn-primary, .hc-profiles-hero-actions .btn-secondary {
   height: 38px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center;
 }
