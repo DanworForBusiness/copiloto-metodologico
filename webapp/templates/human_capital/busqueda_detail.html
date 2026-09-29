@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}{{ busqueda.nombre_puesto }} · Búsquedas · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow"><a href="/cchh/busquedas">← Volver a Búsquedas</a></p>
+        <h1>{{ busqueda.nombre_puesto }}</h1>
+        {% set _meta = [] %}
+        {% if busqueda.area_departamento %}{% set _ = _meta.append(busqueda.area_departamento) %}{% endif %}
+        {% if busqueda.modalidad %}{% set _ = _meta.append(busqueda.modalidad) %}{% endif %}
+        {% if busqueda.area_consultora %}{% set _ = _meta.append(busqueda.area_consultora) %}{% endif %}
+        {% if _meta %}<div class="hero-meta">{% for p in _meta %}<span>{{ p }}</span>{% endfor %}</div>{% endif %}
+        {% if busqueda.descripcion %}<p>{{ busqueda.descripcion }}</p>{% endif %}
+      </div>
+      <div class="hc-profiles-hero-actions">
+        <span class="busqueda-estado busqueda-estado--{{ 'activa' if busqueda.estado == 'activo' else 'cerrada' }}">{{ 'Activa' if busqueda.estado == 'activo' else 'Cerrada' }}</span>
+        {% if busqueda.estado == 'activo' %}
+        <button type="button" class="btn-secondary" data-dialog-open="busqueda-add-dialog">+ Agregar candidato</button>
+        {% endif %}
+        <a href="/cchh/busquedas/{{ busqueda.busqueda_id }}/editar" class="btn-secondary">Editar</a>
+        {% if busqueda.estado == 'activo' %}
+        <button type="button" class="btn-danger" data-dialog-open="busqueda-close-dialog">Cerrar búsqueda</button>
+        {% endif %}
+      </div>
+    </section>
+
+    {# Cuerpo (pipeline + modales de agregar/cerrar): se re-renderiza vía HTMX
+       tras cada mutación de pipeline para mantener board y disponibilidad en
+       sincronía. #}
+    <div id="busqueda-detail-body">
+      {% include "partials/human_capital_busqueda_detail_body.html" %}
+    </div>
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{% endblock %}

@@ -45,6 +45,7 @@ duplicados (nunca si `duplicate_confirmed=True`, ver abajo)."""
 from __future__ import annotations
 
 from webapp.services import human_capital_catalog_repository as catalog_repo
+from webapp.services import busqueda_repository
 from webapp.services import profile_repository
 from webapp.services.profile_repository import (  # re-exportados para el router
     ProfileConcurrentModificationError,
@@ -61,6 +62,9 @@ __all__ = [
     "ProfileRemoteOutcomeUnknownError", "ProfileStorageError",
     "list_profiles", "get_profile", "create_profile", "update_profile", "soft_delete_profile", "filter_profiles",
     "validate_and_shape_fields", "find_duplicate", "create_profile_for_import",
+    "list_busquedas", "get_busqueda", "create_busqueda", "update_busqueda",
+    "add_candidate_to_busqueda", "move_application_stage", "remove_application", "close_busqueda",
+    "profiles_available_for_busqueda", "busqueda_candidates_view",
     "validate_source_for_import",
 ]
 
@@ -501,3 +505,105 @@ def create_profile_for_import(profile_id: str, fields: dict) -> tuple[dict, bool
     `ProfileRemoteOutcomeUnknownError` se dejan propagar sin
     reinterpretar, MISMO criterio que el resto de este service."""
     return profile_repository.create_with_explicit_id(profile_id, fields)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BÚSQUEDAS (procesos de selección) — validación/shaping + delegación al
+# `busqueda_repository`. MISMA división que Profile: el service es DUEÑO de las
+# reglas de negocio (campos requeridos, enums de dominio, estado derivado del
+# candidato); el repository sólo persiste/lista/actualiza lo ya shapeado y es
+# dueño de revision/lock/rollback. La relación con candidatos usa `profile_id`.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def list_busquedas() -> list[dict]:
+    return busqueda_repository.list()
+
+
+def get_busqueda(busqueda_id: str) -> dict | None:
+    return busqueda_repository.get(busqueda_id)
+
+
+def _shape_busqueda_fields(fields: dict) -> dict:
+    """Valida y shapea los campos de una búsqueda (alta/edición). `nombre_puesto`
+    y `fecha_apertura` son obligatorios (MISMO contrato que la referencia);
+    modalidad/área de la consultora deben pertenecer a su enum si vienen."""
+    nombre = (fields.get("nombre_puesto") or "").strip()
+    if not nombre:
+        raise ValueError("Completá el nombre del puesto.")
+    fecha = (fields.get("fecha_apertura") or "").strip()
+    if not fecha:
+        raise ValueError("Completá la fecha de apertura.")
+    modalidad = (fields.get("modalidad") or "").strip() or None
+    if modalidad is not None and modalidad not in busqueda_repository.MODALIDADES:
+        raise ValueError("Modalidad inválida.")
+    area_cons = (fields.get("area_consultora") or "").strip() or None
+    if area_cons is not None and area_cons not in busqueda_repository.AREAS_CONSULTORA:
+        raise ValueError("Área de la consultora inválida.")
+    return {
+        "nombre_puesto": nombre,
+        "fecha_apertura": fecha,
+        "descripcion": (fields.get("descripcion") or "").strip() or None,
+        "area_departamento": (fields.get("area_departamento") or "").strip() or None,
+        "modalidad": modalidad,
+        "area_consultora": area_cons,
+        "pedido_formal_recibido": bool(fields.get("pedido_formal_recibido")),
+        "jd_texto": (fields.get("jd_texto") or "").strip() or None,
+        "palabras_clave": (fields.get("palabras_clave") or "").strip() or None,
+    }
+
+
+def create_busqueda(fields: dict) -> dict:
+    return busqueda_repository.create(_shape_busqueda_fields(fields))
+
+
+def update_busqueda(busqueda_id: str, expected_revision: int, fields: dict) -> dict:
+    return busqueda_repository.update(busqueda_id, expected_revision, _shape_busqueda_fields(fields))
+
+
+def close_busqueda(busqueda_id: str, finalize_application_ids: list[str] | None = None) -> dict:
+    return busqueda_repository.close(busqueda_id, finalize_application_ids)
+
+
+def add_candidate_to_busqueda(busqueda_id: str, profile_id: str) -> dict:
+    profile = profile_repository.get(profile_id)
+    if profile is None or profile.get("deleted_at"):
+        raise ValueError("El candidato no existe o fue eliminado del Banco de CVs.")
+    return busqueda_repository.add_candidate(busqueda_id, profile_id)
+
+
+def remove_application(busqueda_id: str, application_id: str) -> dict:
+    return busqueda_repository.remove_candidate(busqueda_id, application_id)
+
+
+def move_application_stage(busqueda_id: str, application_id: str, etapa: str,
+                           resultado_final: str | None) -> dict:
+    if etapa not in busqueda_repository.ETAPAS:
+        raise ValueError("Etapa inválida.")
+    resultado = (resultado_final or "").strip() or None
+    if etapa == busqueda_repository.ETAPA_FINAL:
+        if resultado is not None and resultado not in busqueda_repository.RESULTADOS_FINALES:
+            raise ValueError("Resultado final inválido.")
+    else:
+        resultado = None  # el repo también lo fuerza; se valida acá el contrato
+    return busqueda_repository.move_stage(busqueda_id, application_id, etapa, resultado)
+
+
+def profiles_available_for_busqueda() -> list[dict]:
+    """Profiles del Banco ASIGNABLES a una búsqueda: los que NO tienen una
+    postulación ACTIVA en curso (estado del candidato DERIVADO de las relaciones
+    con búsquedas, nunca almacenado en el Profile). Excluye borrados."""
+    return [
+        p for p in list_profiles()
+        if not busqueda_repository.has_active_application(p["profile_id"])
+    ]
+
+
+def busqueda_candidates_view(busqueda: dict) -> list[dict]:
+    """Enriquece cada postulación embebida con los datos del Profile del Banco
+    (join por `profile_id`) para presentarlos — el Banco sigue siendo el maestro
+    de los datos personales, acá no se copian, se leen en vivo. `profile` puede
+    ser None si el candidato fue borrado del Banco."""
+    out = []
+    for app in busqueda.get("candidatos", []):
+        out.append({**app, "profile": profile_repository.get(app.get("profile_id"))})
+    return out

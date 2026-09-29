@@ -1,0 +1,134 @@
+{# Cuerpo del detalle de una búsqueda: barra de conteos + board de pipeline
+   (5 columnas = etapas) + modales de "Agregar candidato" (desde el Banco) y
+   "Cerrar búsqueda". Se re-renderiza como fragmento HTMX (target
+   #busqueda-detail-body) tras cada mutación, así board + disponibilidad quedan
+   siempre en sincronía. La relación es por `profile_id`: los datos personales
+   se leen en vivo del Banco (app.profile), nunca se copian acá. #}
+{% set bid = busqueda.busqueda_id %}
+
+<div class="busqueda-pipeline-bar">
+  <span class="busqueda-pipeline-bar__total">{{ total_candidatos }} candidato{{ '' if total_candidatos == 1 else 's' }}</span>
+  {% for etapa in etapas %}<span class="busqueda-pipeline-bar__stage">{{ 'Finalizados' if etapa == etapa_final else etapa }}: <strong>{{ board[etapa] | length }}</strong></span>{% endfor %}
+</div>
+
+{% if total_candidatos == 0 %}
+<div class="dashboard-empty"><span class="dashboard-empty__label">Sin candidatos</span><p>Todavía no hay candidatos en esta búsqueda.{% if busqueda.estado == 'activo' %} Sumá desde el Banco de CVs con “+ Agregar candidato”.{% endif %}</p></div>
+{% endif %}
+
+<div class="busqueda-board matrix-scroll">
+  {% for etapa in etapas %}
+  <div class="busqueda-col">
+    <div class="busqueda-col__head"><span>{{ 'Finalizados' if etapa == etapa_final else etapa }}</span><span class="busqueda-col__count">{{ board[etapa] | length }}</span></div>
+    <div class="busqueda-col__body">
+      {% for app in board[etapa] %}
+      <div class="busqueda-cand">
+        <div class="busqueda-cand__id">
+          {% if app.profile %}
+          <a class="busqueda-cand__name" href="/cchh/candidatos/{{ app.profile.profile_id }}/editar">{{ app.profile.first_name }} {{ app.profile.last_name }}</a>
+          <span class="busqueda-cand__meta">{% if app.profile.profile_skills %}{{ app.profile.profile_skills }}{% endif %}{% if app.profile.seniority %} · {{ app.profile.seniority }}{% endif %}</span>
+          {% else %}
+          <span class="busqueda-cand__name busqueda-cand__name--gone">Candidato eliminado del Banco</span>
+          {% endif %}
+          {% if app.resultado_final %}<span class="status-badge busqueda-cand__result busqueda-cand__result--{{ app.resultado_final|lower }}">{{ app.resultado_final }}</span>{% endif %}
+        </div>
+        {% if busqueda.estado == 'activo' %}
+        <div class="busqueda-cand__actions busqueda-move">
+          <select name="etapa" aria-label="Etapa"
+                  hx-post="/cchh/busquedas/{{ bid }}/candidatos/{{ app.application_id }}/etapa"
+                  hx-target="#busqueda-detail-body" hx-swap="innerHTML"
+                  hx-include="closest .busqueda-move" hx-trigger="change">
+            {% for e in etapas %}<option value="{{ e }}" {% if e == app.etapa %}selected{% endif %}>{{ e }}</option>{% endfor %}
+          </select>
+          {% if app.etapa == etapa_final %}
+          <select name="resultado_final" aria-label="Resultado final"
+                  hx-post="/cchh/busquedas/{{ bid }}/candidatos/{{ app.application_id }}/etapa"
+                  hx-target="#busqueda-detail-body" hx-swap="innerHTML"
+                  hx-include="closest .busqueda-move" hx-trigger="change">
+            <option value="" {% if not app.resultado_final %}selected{% endif %}>Resultado…</option>
+            {% for r in resultados %}<option value="{{ r }}" {% if r == app.resultado_final %}selected{% endif %}>{{ r }}</option>{% endfor %}
+          </select>
+          {% endif %}
+          <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Quitar de la búsqueda"
+                  hx-post="/cchh/busquedas/{{ bid }}/candidatos/{{ app.application_id }}/eliminar"
+                  hx-target="#busqueda-detail-body" hx-swap="innerHTML"
+                  data-dw-confirm data-dw-confirm-title="Quitar candidato" data-dw-confirm-message="¿Quitar a este candidato de la búsqueda? El CV del Banco no se elimina." data-dw-confirm-ok="Quitar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+            <span class="chart-tooltip" aria-hidden="true"><p>Quitar de la búsqueda</p></span>
+          </button>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if busqueda.estado == 'activo' %}
+{# Modal: Agregar candidato desde el Banco de CVs (sólo disponibles = sin
+   postulación activa en curso). "Asociar" = crear la postulación en Preselección. #}
+<dialog class="dw-confirm busqueda-dialog" id="busqueda-add-dialog" aria-labelledby="busqueda-add-title">
+  <div class="dw-confirm__body">
+    <h2 class="dw-confirm__title" id="busqueda-add-title">Agregar candidato desde el Banco</h2>
+    <p class="dw-confirm__msg">Sólo aparecen los candidatos disponibles (sin una postulación activa en curso).</p>
+  </div>
+  <div class="busqueda-picker">
+    {% if available_profiles %}
+    <table class="dashboard-table">
+      <colgroup><col class="left"><col class="left"><col style="width:96px"></colgroup>
+      <thead><tr><th class="left">Nombre</th><th class="left">Perfil · Nivel</th><th class="center">Acción</th></tr></thead>
+      <tbody>
+        {% for p in available_profiles %}
+        <tr>
+          <td class="left"><div class="dw-idcell"><span class="dw-idcell__name">{{ p.first_name }} {{ p.last_name }}</span></div></td>
+          <td class="left">{{ p.profile_skills or '—' }}{% if p.seniority %} · {{ p.seniority }}{% endif %}</td>
+          <td class="center">
+            <button type="button" class="btn-secondary busqueda-picker__add"
+                    hx-post="/cchh/busquedas/{{ bid }}/candidatos" hx-vals='{"profile_id": "{{ p.profile_id }}"}'
+                    hx-target="#busqueda-detail-body" hx-swap="innerHTML">Asociar</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="field-hint">No hay candidatos disponibles en el Banco. Todos están en una búsqueda activa o el Banco está vacío.</p>
+    {% endif %}
+  </div>
+  <div class="dw-confirm__actions">
+    <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>
+  </div>
+</dialog>
+
+{# Modal: Cerrar búsqueda. Las postulaciones NO finalizadas tildadas pasan a
+   Finalizado · Rechazado; la búsqueda queda cerrada. POST full-page (recarga). #}
+<dialog class="dw-confirm busqueda-dialog" id="busqueda-close-dialog" aria-labelledby="busqueda-close-title">
+  <form method="post" action="/cchh/busquedas/{{ bid }}/cerrar">
+    <div class="dw-confirm__body">
+      <h2 class="dw-confirm__title" id="busqueda-close-title">Cerrar búsqueda</h2>
+      <p class="dw-confirm__msg">Las postulaciones que dejes tildadas se marcan como <strong>Finalizado · Rechazado</strong>. La búsqueda queda cerrada (no se reabre).</p>
+    </div>
+    {% set pendientes = [] %}
+    {% for etapa in etapas %}{% if etapa != etapa_final %}{% for app in board[etapa] %}{% set _ = pendientes.append(app) %}{% endfor %}{% endif %}{% endfor %}
+    <div class="busqueda-picker">
+      {% if pendientes %}
+      <div class="dashboard-checkbox-group">
+        {% for app in pendientes %}
+        <label class="dashboard-checkbox-option">
+          {# En Decisión Final arrancan destildados (podrían ser el elegido). #}
+          <input type="checkbox" name="finalize_application_id" value="{{ app.application_id }}" {% if app.etapa != 'Decisión Final' %}checked{% endif %}>
+          <span>{% if app.profile %}{{ app.profile.first_name }} {{ app.profile.last_name }}{% else %}Candidato{% endif %} — {{ app.etapa }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="field-hint">No hay postulaciones pendientes; todas ya están finalizadas.</p>
+      {% endif %}
+    </div>
+    <div class="dw-confirm__actions">
+      <button type="submit" formmethod="dialog" class="btn-secondary" value="cancel">Cancelar</button>
+      <button type="submit" class="btn-danger">Cerrar búsqueda</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}

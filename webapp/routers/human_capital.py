@@ -108,7 +108,7 @@ import config
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
 from webapp.services import (
-    auth_service, human_capital_catalog_repository, human_capital_service,
+    auth_service, busqueda_repository, human_capital_catalog_repository, human_capital_service,
     profile_document_repository, profile_document_service,
     profile_document_validation, profile_import_service,
 )
@@ -1123,6 +1123,292 @@ async def human_capital_profile_documents_delete(
             request, profile_id, profile, document_state={"kind": "DELETE_OUTCOME_UNKNOWN", "message": str(exc)},
         )
     return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Búsquedas (procesos de selección) — listado / alta / edición / detalle /
+# pipeline. Router liviano (MISMO criterio que Candidatos): la validación y el
+# shaping viven en human_capital_service; la relación con candidatos es por
+# `profile_id` (el Banco de CVs sigue siendo el maestro de la persona).
+# ---------------------------------------------------------------------------
+_BUSQUEDA_SHELL_ERRORS = (
+    busqueda_repository.BusquedaConfigIncompleteError,
+    busqueda_repository.BusquedaRemoteOutcomeUnknownError,
+    busqueda_repository.BusquedaStorageError,
+)
+
+
+def _busquedas_list_context() -> dict:
+    all_b: list[dict] = []
+    source_error: str | None = None
+    try:
+        all_b = human_capital_service.list_busquedas()
+    except busqueda_repository.BusquedaStorageError as exc:
+        source_error = str(exc)
+    def _sort(bs):
+        return sorted(bs, key=lambda b: (b.get("fecha_apertura") or ""), reverse=True)
+    return {
+        "activas": _sort([b for b in all_b if b.get("estado") == "activo"]),
+        "cerradas": _sort([b for b in all_b if b.get("estado") == "cerrado"]),
+        "total_busquedas": len(all_b),
+        "source_error": source_error,
+    }
+
+
+def _busqueda_form_context(*, form_values, is_edit, error=None, concurrent_modification=False) -> dict:
+    return {
+        "form_values": form_values,
+        "is_edit": is_edit,
+        "form_error": error,
+        "concurrent_modification": concurrent_modification,
+        "modalidades": busqueda_repository.MODALIDADES,
+        "areas_consultora": busqueda_repository.AREAS_CONSULTORA,
+        "areas_departamento": busqueda_repository.AREAS_DEPARTAMENTO,
+    }
+
+
+def _busqueda_detail_context(busqueda: dict) -> dict:
+    view = human_capital_service.busqueda_candidates_view(busqueda)
+    board = {etapa: [] for etapa in busqueda_repository.ETAPAS}
+    for app in view:
+        board.setdefault(app.get("etapa"), []).append(app)
+    return {
+        "busqueda": busqueda,
+        "board": board,
+        "etapas": busqueda_repository.ETAPAS,
+        "resultados": busqueda_repository.RESULTADOS_FINALES,
+        "etapa_final": busqueda_repository.ETAPA_FINAL,
+        "total_candidatos": len(view),
+        "available_profiles": human_capital_service.profiles_available_for_busqueda(),
+    }
+
+
+def _busqueda_shell(request, extra: dict) -> dict:
+    user = auth_service.session_user(request)
+    return {
+        "current_workspace": workspaces.HUMAN_CAPITAL,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack": DEFAULT_PACK, "user": user, "active_page": "busquedas",
+        **extra,
+    }
+
+
+def _busqueda_form_values(**kw) -> dict:
+    return {k: v for k, v in kw.items()}
+
+
+@router.get("/cchh/busquedas", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busquedas_page(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    return templates.TemplateResponse(
+        request=request, name="human_capital/busquedas.html",
+        context=_busqueda_shell(request, _busquedas_list_context()),
+    )
+
+
+@router.get("/cchh/busquedas/nueva", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_new_page(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    today = datetime.now().date().isoformat()
+    return templates.TemplateResponse(
+        request=request, name="human_capital/busqueda_form.html",
+        context=_busqueda_shell(request, _busqueda_form_context(
+            form_values={"fecha_apertura": today, "pedido_formal_recibido": False}, is_edit=False)),
+    )
+
+
+def _busqueda_form_from_request(nombre_puesto, fecha_apertura, descripcion, area_departamento,
+                                modalidad, area_consultora, jd_texto, palabras_clave,
+                                pedido_formal_recibido) -> dict:
+    return {
+        "nombre_puesto": nombre_puesto, "fecha_apertura": fecha_apertura,
+        "descripcion": descripcion, "area_departamento": area_departamento,
+        "modalidad": modalidad, "area_consultora": area_consultora,
+        "jd_texto": jd_texto, "palabras_clave": palabras_clave,
+        "pedido_formal_recibido": pedido_formal_recibido.strip().lower() == "on",
+    }
+
+
+@router.post("/cchh/busquedas/nueva", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_new_submit(
+    request: Request,
+    nombre_puesto: str = Form(""), fecha_apertura: str = Form(""), descripcion: str = Form(""),
+    area_departamento: str = Form(""), modalidad: str = Form(""), area_consultora: str = Form(""),
+    jd_texto: str = Form(""), palabras_clave: str = Form(""), pedido_formal_recibido: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form_values = _busqueda_form_from_request(
+        nombre_puesto, fecha_apertura, descripcion, area_departamento, modalidad,
+        area_consultora, jd_texto, palabras_clave, pedido_formal_recibido)
+    try:
+        busqueda = human_capital_service.create_busqueda(form_values)
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request=request, name="human_capital/busqueda_form.html",
+            context=_busqueda_shell(request, _busqueda_form_context(
+                form_values=form_values, is_edit=False, error=str(exc))))
+    except _BUSQUEDA_SHELL_ERRORS as exc:
+        return templates.TemplateResponse(
+            request=request, name="human_capital/busqueda_form.html",
+            context=_busqueda_shell(request, _busqueda_form_context(
+                form_values=form_values, is_edit=False, error=str(exc))))
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda['busqueda_id']}", status_code=303)
+
+
+@router.get("/cchh/busquedas/{busqueda_id}/editar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_edit_page(request: Request, busqueda_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    busqueda = human_capital_service.get_busqueda(busqueda_id)
+    if busqueda is None:
+        raise HTTPException(404, "Búsqueda no encontrada")
+    form_values = dict(busqueda)
+    form_values["expected_revision"] = busqueda.get("revision", 1)
+    return templates.TemplateResponse(
+        request=request, name="human_capital/busqueda_form.html",
+        context=_busqueda_shell(request, _busqueda_form_context(form_values=form_values, is_edit=True)),
+    )
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/editar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_edit_submit(
+    request: Request, busqueda_id: str,
+    nombre_puesto: str = Form(""), fecha_apertura: str = Form(""), descripcion: str = Form(""),
+    area_departamento: str = Form(""), modalidad: str = Form(""), area_consultora: str = Form(""),
+    jd_texto: str = Form(""), palabras_clave: str = Form(""), pedido_formal_recibido: str = Form(""),
+    expected_revision: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form_values = _busqueda_form_from_request(
+        nombre_puesto, fecha_apertura, descripcion, area_departamento, modalidad,
+        area_consultora, jd_texto, palabras_clave, pedido_formal_recibido)
+    try:
+        revision_int = int(expected_revision)
+    except ValueError:
+        raise HTTPException(400, "expected_revision inválido") from None
+
+    def _render(**extra):
+        fv = dict(form_values); fv["expected_revision"] = revision_int
+        return templates.TemplateResponse(
+            request=request, name="human_capital/busqueda_form.html",
+            context=_busqueda_shell(request, _busqueda_form_context(
+                form_values=fv, is_edit=True, **extra)))
+
+    try:
+        human_capital_service.update_busqueda(busqueda_id, revision_int, form_values)
+    except busqueda_repository.BusquedaNotFoundError:
+        raise HTTPException(404, "Búsqueda no encontrada") from None
+    except ValueError as exc:
+        return _render(error=str(exc))
+    except busqueda_repository.BusquedaConcurrentModificationError:
+        return _render(concurrent_modification=True)
+    except _BUSQUEDA_SHELL_ERRORS as exc:
+        return _render(error=str(exc))
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
+
+
+@router.get("/cchh/busquedas/{busqueda_id}", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_detail_page(request: Request, busqueda_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    busqueda = human_capital_service.get_busqueda(busqueda_id)
+    if busqueda is None:
+        raise HTTPException(404, "Búsqueda no encontrada")
+    return templates.TemplateResponse(
+        request=request, name="human_capital/busqueda_detail.html",
+        context=_busqueda_shell(request, _busqueda_detail_context(busqueda)),
+    )
+
+
+def _busqueda_detail_body(request, busqueda_id: str):
+    """Fragmento del cuerpo del detalle (pipeline + agregar candidato), usado
+    para el swap HTMX tras cada mutación de pipeline."""
+    busqueda = human_capital_service.get_busqueda(busqueda_id)
+    if busqueda is None:
+        raise HTTPException(404, "Búsqueda no encontrada")
+    return templates.TemplateResponse(
+        request=request, name="partials/human_capital_busqueda_detail_body.html",
+        context={"request": request, **_busqueda_detail_context(busqueda)},
+    )
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/candidatos", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_add_candidate(request: Request, busqueda_id: str, profile_id: str = Form("")):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        human_capital_service.add_candidate_to_busqueda(busqueda_id, profile_id)
+    except busqueda_repository.BusquedaNotFoundError:
+        raise HTTPException(404, "Búsqueda no encontrada") from None
+    except (ValueError, *_BUSQUEDA_SHELL_ERRORS):
+        pass  # el body se re-renderiza igual; un fallo de durabilidad no rompe la vista
+    if request.headers.get("HX-Request"):
+        return _busqueda_detail_body(request, busqueda_id)
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/etapa",
+             response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_move_stage(
+    request: Request, busqueda_id: str, application_id: str,
+    etapa: str = Form(""), resultado_final: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        human_capital_service.move_application_stage(busqueda_id, application_id, etapa, resultado_final)
+    except (busqueda_repository.BusquedaNotFoundError, busqueda_repository.ApplicationNotFoundError):
+        raise HTTPException(404, "No encontrado") from None
+    except (ValueError, *_BUSQUEDA_SHELL_ERRORS):
+        pass
+    if request.headers.get("HX-Request"):
+        return _busqueda_detail_body(request, busqueda_id)
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/eliminar",
+             response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_remove_candidate(request: Request, busqueda_id: str, application_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        human_capital_service.remove_application(busqueda_id, application_id)
+    except (busqueda_repository.BusquedaNotFoundError, busqueda_repository.ApplicationNotFoundError):
+        pass
+    except _BUSQUEDA_SHELL_ERRORS:
+        pass
+    if request.headers.get("HX-Request"):
+        return _busqueda_detail_body(request, busqueda_id)
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/cerrar", response_class=HTMLResponse, include_in_schema=False)
+async def human_capital_busqueda_close(request: Request, busqueda_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form = await request.form()
+    finalize_ids = form.getlist("finalize_application_id")
+    try:
+        human_capital_service.close_busqueda(busqueda_id, finalize_ids)
+    except busqueda_repository.BusquedaNotFoundError:
+        raise HTTPException(404, "Búsqueda no encontrada") from None
+    except _BUSQUEDA_SHELL_ERRORS:
+        pass
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
 
 
 # ---------------------------------------------------------------------------

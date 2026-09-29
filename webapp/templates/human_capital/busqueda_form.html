@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}{{ 'Editar búsqueda' if is_edit else 'Nueva búsqueda' }} · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow"><a href="{{ '/cchh/busquedas/' ~ form_values.busqueda_id if is_edit else '/cchh/busquedas' }}">← {{ 'Volver a la búsqueda' if is_edit else 'Volver a Búsquedas' }}</a></p>
+        <h1>{{ 'Editar búsqueda' if is_edit else 'Nueva búsqueda' }}</h1>
+        <p>{{ 'Actualizá los datos de este proceso de selección.' if is_edit else 'Definí el puesto a cubrir; después sumás candidatos al pipeline.' }}</p>
+      </div>
+    </section>
+
+    {% if concurrent_modification %}
+    <div class="callout callout--warn"><div class="callout__body"><p>Esta búsqueda cambió desde que abriste el formulario. Volvé a abrirla para no pisar el cambio.</p></div></div>
+    {% elif form_error %}
+    <div class="dashboard-empty" data-error-kind="validation"><span class="dashboard-empty__label">No se guardó</span><p>{{ form_error }}</p></div>
+    {% endif %}
+
+    <form method="post" action="{{ '/cchh/busquedas/' ~ form_values.busqueda_id ~ '/editar' if is_edit else '/cchh/busquedas/nueva' }}" class="hc-profile-form">
+      {% if is_edit %}<input type="hidden" name="expected_revision" value="{{ form_values.expected_revision }}">{% endif %}
+
+      <section class="hc-profile-section">
+        <h2>Datos de la búsqueda</h2>
+        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+          <div class="feedback-field feedback-field--wide">
+            <label for="b-nombre">Nombre del puesto</label>
+            <input id="b-nombre" name="nombre_puesto" type="text" value="{{ form_values.nombre_puesto or '' }}" required>
+          </div>
+          <div class="feedback-field feedback-field--compact">
+            <label for="b-fecha">Fecha de apertura</label>
+            <input id="b-fecha" name="fecha_apertura" type="date" value="{{ form_values.fecha_apertura or '' }}" required>
+          </div>
+          <div class="feedback-field feedback-field--compact">
+            <label for="b-area-dep">Área / Departamento</label>
+            <input id="b-area-dep" name="area_departamento" type="text" list="b-areas-dep" value="{{ form_values.area_departamento or '' }}" autocomplete="off">
+            <datalist id="b-areas-dep">{% for a in areas_departamento %}<option value="{{ a }}">{% endfor %}</datalist>
+          </div>
+          <div class="feedback-field feedback-field--compact">
+            <label for="b-modalidad">Modalidad</label>
+            <select id="b-modalidad" name="modalidad">
+              <option value="" {% if not form_values.modalidad %}selected{% endif %}>Sin especificar</option>
+              {% for m in modalidades %}<option value="{{ m }}" {% if form_values.modalidad == m %}selected{% endif %}>{{ m }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="feedback-field feedback-field--compact">
+            <label for="b-area-cons">Área de la consultora</label>
+            <select id="b-area-cons" name="area_consultora">
+              <option value="" {% if not form_values.area_consultora %}selected{% endif %}>Sin especificar</option>
+              {% for a in areas_consultora %}<option value="{{ a }}" {% if form_values.area_consultora == a %}selected{% endif %}>{{ a }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+        <label class="dashboard-checkbox-option hc-busqueda-formal">
+          <input type="checkbox" name="pedido_formal_recibido" {% if form_values.pedido_formal_recibido %}checked{% endif %}>
+          <span>Requerimiento formal recibido</span>
+        </label>
+      </section>
+
+      <section class="hc-profile-section">
+        <h2>Descripción y JD</h2>
+        <div class="feedback-field">
+          <label for="b-desc">Descripción (resumen)</label>
+          <input id="b-desc" name="descripcion" type="text" value="{{ form_values.descripcion or '' }}">
+        </div>
+        <div class="feedback-field">
+          <label for="b-jd">Job Description (JD)</label>
+          <textarea id="b-jd" name="jd_texto" rows="6">{{ form_values.jd_texto or '' }}</textarea>
+        </div>
+        <div class="feedback-field">
+          <label for="b-keywords">Palabras clave / tecnologías <span>separadas por coma</span></label>
+          <input id="b-keywords" name="palabras_clave" type="text" value="{{ form_values.palabras_clave or '' }}">
+        </div>
+      </section>
+
+      <div class="hc-profile-form__actions">
+        <button type="submit" class="btn-primary">{{ 'Guardar cambios' if is_edit else 'Crear búsqueda' }}</button>
+        <a href="{{ '/cchh/busquedas/' ~ form_values.busqueda_id if is_edit else '/cchh/busquedas' }}" class="btn-secondary">Cancelar</a>
+      </div>
+    </form>
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{% endblock %}

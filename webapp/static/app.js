@@ -968,6 +968,17 @@ function dwConfirm(opts) {
     cancelBtn.focus();
   });
 }
+// Abridor de <dialog> COMPARTIDO: `[data-dialog-open="<id>"]` abre por
+// showModal() el <dialog> con ese id. Reusable por cualquier modal no-confirm
+// del Hub (p.ej. "Agregar candidato"/"Cerrar búsqueda" en Búsquedas). El cierre
+// lo maneja el propio <dialog> (Escape/backdrop nativo o un form method="dialog").
+document.body.addEventListener("click", function (ev) {
+  const opener = ev.target.closest && ev.target.closest("[data-dialog-open]");
+  if (!opener) return;
+  const dlg = document.getElementById(opener.getAttribute("data-dialog-open"));
+  if (dlg && typeof dlg.showModal === "function") { ev.preventDefault(); dlg.showModal(); }
+}, false);
+
 function _dwConfirmOptsFrom(el) {
   return {
     title: el.getAttribute("data-dw-confirm-title") || "Confirmar",

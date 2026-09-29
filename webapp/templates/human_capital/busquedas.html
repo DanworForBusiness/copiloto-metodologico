@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Búsquedas · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano</p>
+        <h1>Búsquedas</h1>
+        <p>Procesos de selección abiertos y cerrados, con su pipeline de candidatos.</p>
+      </div>
+      <div class="hc-profiles-hero-actions">
+        <a href="/cchh/busquedas/nueva" class="btn-primary">+ Nueva búsqueda</a>
+      </div>
+    </section>
+
+    {% if source_error %}
+    <div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>{{ source_error }}</p></div>
+    {% elif total_busquedas == 0 %}
+    <div class="dashboard-empty"><span class="dashboard-empty__label">Sin búsquedas</span><p>Todavía no hay búsquedas. Creá la primera con “+ Nueva búsqueda”.</p></div>
+    {% else %}
+    {% macro busqueda_card(b) %}
+    <a class="busqueda-card" href="/cchh/busquedas/{{ b.busqueda_id }}">
+      <div class="busqueda-card__head">
+        <span class="busqueda-card__title">{{ b.nombre_puesto }}</span>
+        <span class="busqueda-estado busqueda-estado--{{ 'activa' if b.estado == 'activo' else 'cerrada' }}">{{ 'Activa' if b.estado == 'activo' else 'Cerrada' }}</span>
+      </div>
+      {% if b.descripcion %}<p class="busqueda-card__desc">{{ b.descripcion }}</p>{% endif %}
+      <div class="busqueda-card__meta">
+        {% if b.area_departamento %}<span>{{ b.area_departamento }}</span>{% endif %}
+        {% if b.modalidad %}<span>{{ b.modalidad }}</span>{% endif %}
+        <span>Desde {{ b.fecha_apertura }}{% if b.fecha_cierre %} · Cierre {{ b.fecha_cierre }}{% endif %}</span>
+      </div>
+      <div class="busqueda-card__badges">
+        <span class="busqueda-card__count">{{ b.candidatos | length }} candidato{{ '' if (b.candidatos | length) == 1 else 's' }}</span>
+        {% if not b.pedido_formal_recibido %}<span class="busqueda-card__warn">Sin requerimiento formal</span>{% endif %}
+      </div>
+    </a>
+    {% endmacro %}
+
+    <div data-dashboard-key="cchh-busquedas">
+      <details class="dashboard-section" data-section-id="busquedas-activas" data-persist-collapse open>
+        <summary class="dashboard-section__head" draggable="true">
+          <span class="dashboard-section__caret"></span>
+          <span class="dashboard-section__title">Activas</span>
+          <span class="dashboard-section__count">{{ activas | length }}</span>
+        </summary>
+        <div class="dashboard-section__body">
+          {% if activas %}
+          <div class="busqueda-grid">{% for b in activas %}{{ busqueda_card(b) }}{% endfor %}</div>
+          {% else %}<p class="field-hint">No hay búsquedas activas.</p>{% endif %}
+        </div>
+      </details>
+      <details class="dashboard-section" data-section-id="busquedas-cerradas" data-persist-collapse{% if not activas %} open{% endif %}>
+        <summary class="dashboard-section__head" draggable="true">
+          <span class="dashboard-section__caret"></span>
+          <span class="dashboard-section__title">Cerradas</span>
+          <span class="dashboard-section__count">{{ cerradas | length }}</span>
+        </summary>
+        <div class="dashboard-section__body">
+          {% if cerradas %}
+          <div class="busqueda-grid">{% for b in cerradas %}{{ busqueda_card(b) }}{% endfor %}</div>
+          {% else %}<p class="field-hint">No hay búsquedas cerradas.</p>{% endif %}
+        </div>
+      </details>
+    </div>
+    {% endif %}
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{% endblock %}

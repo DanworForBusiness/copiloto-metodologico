@@ -33,5 +33,11 @@
     <a href="/cchh/candidatos" class="module-link {% if active_page == 'perfiles' %}is-active{% endif %}">
       <span>02</span><strong>Candidatos</strong>
     </a>
+    {# Búsquedas (procesos de selección) — TERCERA capability real del
+       workspace, tomada de la app de referencia (tab "Búsquedas" -> /dashboard).
+       `active_page == 'busquedas'` lo pasa el router. #}
+    <a href="/cchh/busquedas" class="module-link {% if active_page == 'busquedas' %}is-active{% endif %}">
+      <span>03</span><strong>Búsquedas</strong>
+    </a>
   </nav>
 </aside>
