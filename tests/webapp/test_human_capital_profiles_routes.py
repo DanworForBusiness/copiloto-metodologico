@@ -47,6 +47,13 @@ def _authorized_and_isolated(tmp_path, monkeypatch):
         {
             "seniority": [{"valor": "Junior", "orden": 1}, {"valor": "Senior", "orden": 2}],
             "fuente": [{"valor": "LinkedIn", "orden": 1}, {"valor": "Referido", "orden": 2}],
+            # P2: `potential_mark` pasó a ser catálogo gobernado -- "Alto"/
+            # "Medio"/"No reconsiderar" son los ÚNICOS valores que este
+            # archivo usa para crear con éxito (MISMO criterio que arriba).
+            "potencial": [
+                {"valor": "Alto", "orden": 1}, {"valor": "Medio", "orden": 2},
+                {"valor": "No reconsiderar", "orden": 3},
+            ],
         },
         refreshed_by="test", source={"drive_id": "d", "item_id": "i"},
     )
@@ -91,6 +98,49 @@ def test_post_unlisted_user_is_denied_with_403():
 def test_get_authorized_returns_200():
     response = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos")
     assert response.status_code == 200
+
+
+# ============================================================================
+# HTMX vs navegación directa (owner post-#107 Visual QA Harness audit):
+# BUG real encontrado con un click REAL en "Buscar" desde una sesión limpia,
+# sin ningún estado previo -- este GET nunca distinguía HTMX de navegación
+# directa, así que el filtro (`hx-get="/cchh/candidatos"
+# hx-target="#hc-profiles-panel" hx-swap="outerHTML"`) recibía SIEMPRE la
+# página completa (con topbar/nav/hero) de vuelta, y HTMX la insertaba
+# entera dentro del fragmento -- el shell del Hub anidado dentro de sí
+# mismo. MISMO patrón ya establecido en el resto del Hub
+# (`request.headers.get("HX-Request")`, ver p.ej. catalog_flow/catalog_cds
+# en webapp/main.py) -- nunca un mecanismo nuevo.
+# ============================================================================
+
+def test_get_plain_request_returns_the_full_shell():
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos")
+    assert response.status_code == 200
+    assert "<!doctype html" in response.text.lower()
+    assert "workspace-switch" in response.text
+    assert "Base de CVs" in response.text
+
+
+def test_get_htmx_request_returns_only_the_panel_fragment():
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos", headers={"HX-Request": "true"})
+    assert response.status_code == 200
+    assert 'id="hc-profiles-panel"' in response.text
+    # Nada del shell del Hub -- ni el documento, ni el switcher de
+    # workspace, ni el <h1> de la hero de esta página (vive en
+    # profiles.html, fuera del partial incluido).
+    assert "<!doctype html" not in response.text.lower()
+    assert "workspace-switch" not in response.text
+    assert "Base de CVs" not in response.text
+
+
+def test_get_htmx_request_preserves_filters_and_results():
+    # El fragmento HTMX sigue siendo el MISMO contrato de filtrado/listado
+    # que la página completa -- sólo cambia el envoltorio, nunca los datos.
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Ana", "last_name": "Li", "seniority": "Junior"})
+    response = client.get("/cchh/candidatos", params={"seniority": "Junior"}, headers={"HX-Request": "true"})
+    assert response.status_code == 200
+    assert "Ana Li" in response.text
 
 
 # ============================================================================
@@ -388,12 +438,22 @@ def test_combined_q_and_structured_filter():
     assert "Juan Ruiz" not in response.text
 
 
-def test_clear_filters_link_present_only_when_a_filter_is_active():
+def test_clear_filters_link_is_always_present_matching_crm_parity():
+    # Owner corrective (CRM/Comercial parity, ver HANDOFF §14.4): auditado
+    # `commercialAnalysisFiltersHtml` (commercial.js, el referente de
+    # interacción explícito para esta vista) -- ahí "✕ Limpiar" es SIEMPRE
+    # visible, nunca condicionado a que haya un filtro activo (togglearlo
+    # forzaría un re-render en cada tecla del buscador, arriesgando el
+    # foco). Se iguala ese comportamiento acá -- ya NO se oculta sin
+    # filtros: con nada seleccionado es un no-op inofensivo, no una
+    # promesa falsa.
     client = _client_as(_AUTHORIZED_EMAIL)
     plain = client.get("/cchh/candidatos")
-    assert "Limpiar filtros" not in plain.text
+    assert "whatsnew-filter__clear" in plain.text
+    assert "✕ Limpiar" in plain.text
     filtered = client.get("/cchh/candidatos", params={"q": "juan"})
-    assert "Limpiar filtros" in filtered.text
+    assert "whatsnew-filter__clear" in filtered.text
+    assert "✕ Limpiar" in filtered.text
 
 
 # ============================================================================
@@ -432,6 +492,37 @@ def test_filter_by_potential_mark():
     response = client.get("/cchh/candidatos", params={"potential_mark": "Alto"})
     assert "Uno A" in response.text
     assert "Dos B" not in response.text
+
+
+def test_filter_by_potential_mark_is_exact_match_end_to_end():
+    # P2 corrective, end-to-end vía la ruta real: `potential_mark` pasó de
+    # `<input type="text">` libre a `<select>` gobernado -- un substring YA
+    # NO matchea (a diferencia del corrective anterior, cuando el bug era
+    # que CONTAINS no funcionaba sobre texto libre). Ver
+    # test_human_capital_service.py::test_filter_by_potential_mark_is_exact_match_governed_select
+    # para el caso unitario.
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Tres", "last_name": "C", "potential_mark": "No reconsiderar"})
+    partial = client.get("/cchh/candidatos", params={"potential_mark": "recons"})
+    assert "Tres C" not in partial.text
+    exact = client.get("/cchh/candidatos", params={"potential_mark": "No reconsiderar"})
+    assert "Tres C" in exact.text
+
+
+def test_indicadores_toggle_markup_and_scope_present():
+    # "Indicadores" (owner, presentación pura -- NUNCA filtro): el checkbox
+    # de "Marca potencial" no debe llevar `name=` (así ni un submit nativo
+    # ni `hx-include="closest form"` de los campos vecinos lo confunden con
+    # un filtro real) y el scope de destino debe envolver la tabla donde
+    # vive el badge real (`data-indicator="potencial"`).
+    client = _client_as(_AUTHORIZED_EMAIL)
+    client.post("/cchh/candidatos/nuevo", data={"first_name": "Cuatro", "last_name": "D", "potential_mark": "No reconsiderar"})
+    response = client.get("/cchh/candidatos")
+    assert 'data-indicator-toggles' in response.text
+    assert 'data-indicator-storage-key="cchh-candidatos-list"' in response.text
+    assert 'data-indicator-scope="cchh-candidatos-list"' in response.text
+    assert '<input type="checkbox" data-indicator-toggle="potencial" checked>' in response.text
+    assert 'data-indicator="potencial"' in response.text
 
 
 def test_multiple_filters_use_and_semantics():

@@ -1,0 +1,44 @@
+{# star_rating.html — primitivo COMPARTIDO Hub de rating 1..N con estrellas SVG.
+   Un solo control reusable en dos modos:
+     - editable (default): radiogroup accesible (role=radiogroup + role=radio),
+       hover acumulativo (preview), click commitea, mouseleave restaura el valor
+       commiteado, teclado (flechas / 1..N / Enter/Espacio). Postea un entero en
+       un <input type=hidden> (vacío = sin rating). La interactividad la cablea
+       `initStarRatings(scope)` (app.js, se corre en cada htmx:load).
+     - readonly: sólo muestra las estrellas llenas hasta el valor (para la lista
+       de candidatos, como indicador `scoring`). Sin input, sin foco, sin JS.
+   Semántica de negocio intacta: el valor sigue siendo un entero 1..N
+   (validado 1..5 en human_capital_service). Esto es SÓLO el control de UI.
+
+   Params:
+     name      -> name del <input type=hidden> (sólo editable)
+     value     -> valor actual (int|str|None); None/0 = sin rating
+     max       -> cantidad de estrellas (default 5)
+     readonly  -> modo sólo-lectura (default false)
+     label     -> aria-label del control
+     input_id  -> id opcional del <input> (para asociar un <label> visible)
+     size      -> 'sm' para estrellas chicas (lista); '' = tamaño normal (form)
+#}
+{% macro _star_icon() -%}
+<svg class="star-rating__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27 6.18 20.5l1.11-6.5-4.72-4.6 6.53-.95L12 2.5l2.9 5.95 6.53.95-4.72 4.6 1.11 6.5z"/></svg>
+{%- endmacro %}
+
+{% macro star_rating(name='', value=0, max=5, readonly=false, label='', input_id='', size='') -%}
+{#- `default(0, true)` tolera Undefined/None/'' (p.ej. alta sin rating, o
+    `form_values` sin la clave) antes de `int`, que sobre Undefined explota. -#}
+{%- set v = (value | default(0, true) | int(0)) -%}
+{%- if readonly -%}
+<span class="star-rating star-rating--readonly{% if size %} star-rating--{{ size }}{% endif %}" data-star-rating data-star-readonly data-star-value="{{ v }}" data-star-max="{{ max }}" role="img" aria-label="{{ label or 'Scoring' }}: {{ v }} de {{ max }}">
+  {%- for i in range(1, max + 1) -%}
+  <span class="star-rating__star{% if i <= v %} is-filled{% endif %}" aria-hidden="true">{{ _star_icon() }}</span>
+  {%- endfor -%}
+</span>
+{%- else -%}
+<div class="star-rating{% if size %} star-rating--{{ size }}{% endif %}" data-star-rating data-star-value="{{ v }}" data-star-max="{{ max }}" role="radiogroup"{% if label %} aria-label="{{ label }}"{% endif %}>
+  <input type="hidden" name="{{ name }}"{% if input_id %} id="{{ input_id }}"{% endif %} value="{{ v if v else '' }}" data-star-input>
+  {%- for i in range(1, max + 1) -%}
+  <button type="button" class="star-rating__star{% if i <= v %} is-filled{% endif %}" data-star-index="{{ i }}" role="radio" aria-checked="{{ 'true' if i == v else 'false' }}" aria-label="{{ i }}" tabindex="{{ 0 if (i == v) or (v == 0 and i == 1) else -1 }}">{{ _star_icon() }}</button>
+  {%- endfor -%}
+</div>
+{%- endif -%}
+{%- endmacro %}

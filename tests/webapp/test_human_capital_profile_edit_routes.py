@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 import config
 from webapp.main import app
 from webapp.services import auth_service, profile_repository
+from webapp.services import human_capital_catalog_repository as catalog_repo
 
 _AUTHORIZED_EMAIL = "human-capital-edit-test@danwor.com"
 
@@ -25,6 +26,22 @@ def _authorized_and_isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
+    # MISMO seed que test_human_capital_profiles_routes.py: el alta exige que
+    # Seniority pertenezca al catálogo GOBERNADO activo (CCHH Catalog
+    # Foundation §6) -- sin esto, cualquier `_create(..., seniority="Junior")`
+    # falla con ValueError silencioso (el POST responde 200 con `error`, no
+    # crea el Profile). Sólo "Junior" (usado por los tests de `.hero-meta`)
+    # necesita estar en catálogo acá.
+    snap = catalog_repo.build_snapshot(
+        {
+            "seniority": [{"valor": "Junior", "orden": 1}, {"valor": "Senior", "orden": 2}],
+            "fuente": [{"valor": "LinkedIn", "orden": 1}],
+        },
+        refreshed_by="test", source={"drive_id": "d", "item_id": "i"},
+    )
+    snapshot_path = catalog_repo.snapshot_path()
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot_path.write_bytes(catalog_repo._serialize(snap))
 
 
 def _client_as(email: str) -> TestClient:
@@ -83,6 +100,40 @@ def test_authorized_get_edit_returns_200_with_populated_form():
     assert 'value="Gómez"' in response.text
     assert 'value="Rosario"' in response.text
     assert 'name="expected_revision" value="1"' in response.text
+
+
+# ============================================================================
+# GET — contexto `.hero-meta` (Perfil/Skills · Seniority) bajo el header
+# ============================================================================
+
+def test_get_edit_hero_meta_shows_both_skills_and_seniority_joined():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    saved = _create(client, profile_skills="SAP BI", seniority="Junior")
+    response = client.get(f"/cchh/candidatos/{saved['profile_id']}/editar")
+    assert response.status_code == 200
+    assert '<div class="hero-meta"><span>SAP BI</span><span>Junior</span></div>' in response.text
+
+
+def test_get_edit_hero_meta_shows_only_skills_when_seniority_is_empty():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    saved = _create(client, profile_skills="SAP BI", seniority="")
+    response = client.get(f"/cchh/candidatos/{saved['profile_id']}/editar")
+    assert '<div class="hero-meta"><span>SAP BI</span></div>' in response.text
+    assert "Sin especificar" not in response.text.split('<div class="hero-meta">')[1].split("</div>")[0]
+
+
+def test_get_edit_hero_meta_shows_only_seniority_when_skills_is_empty():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    saved = _create(client, profile_skills="", seniority="Junior")
+    response = client.get(f"/cchh/candidatos/{saved['profile_id']}/editar")
+    assert '<div class="hero-meta"><span>Junior</span></div>' in response.text
+
+
+def test_get_edit_hero_meta_is_absent_when_both_skills_and_seniority_are_empty():
+    client = _client_as(_AUTHORIZED_EMAIL)
+    saved = _create(client, profile_skills="", seniority="")
+    response = client.get(f"/cchh/candidatos/{saved['profile_id']}/editar")
+    assert 'class="hero-meta"' not in response.text
 
 
 def test_get_edit_missing_profile_is_404():

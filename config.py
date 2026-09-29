@@ -273,6 +273,16 @@ HC_CATALOG_ITEM_ID      = _env("HC_CATALOG_ITEM_ID", "")
 # un backend env var que el JS estático no puede leer. Ausente = fail
 # closed (CONFIG_INCOMPLETE, ver profile_document_service.require_graph_config).
 HC_DOCUMENT_WRITE_SCOPE = _env("HC_DOCUMENT_WRITE_SCOPE", "")
+# Carga masiva de CVs — Excel modelo descargable (owner, paridad con la app
+# vigente). A diferencia de HC_SHAREPOINT_SITE_ID/DRIVE_ID/HC_CV_ROOT_ITEM_ID
+# arriba, esto NO es identidad Graph (site_id/drive_id/item_id) -- es
+# deliberadamente el link de sharing compartido de SharePoint, tal cual
+# (owner: "el link compartido ya funciona directamente para usuarios
+# autorizados", sin agregar una dependencia Graph nueva para esto). Constante
+# ESTÁTICA de código, no env var (owner: "no proliferar env vars para assets
+# funcionales estables") -- el archivo en sí NUNCA se duplica/regenera en
+# este repo, sólo se enlaza.
+HC_BULK_IMPORT_TEMPLATE_URL = "https://danwor.sharepoint.com/:x:/s/Comunicaciones/IQD3fDpMJOn2TZJeHT5hz0BfAfIuEVQGL0aeoQx8MZA7jCI?e=aoYIt3"
 # Editor de contenido de Estrategia Comercial (Commercial Strategy — edit
 # authorization): DOS preguntas independientes — "¿puedo VER Estrategia?"
 # (COMMERCIAL_ALLOWED_USERS, arriba) vs "¿puedo EDITARLA?" (acá). Estar en

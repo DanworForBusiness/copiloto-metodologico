@@ -45,11 +45,21 @@
 
    Campos compartidos con Edición (Datos del candidato/Clasificación/Notas/
    Potencial) viven en partials/human_capital_profile_fields.html -- esa
-   macro es la ÚNICA fuente de ese layout (owner post-#104 acceptance). CV
-   queda acá, template-owned: Documentos vive en su propio panel para un
-   Profile ya existente, así que Edición nunca lo necesita. #}
+   macro es la ÚNICA fuente de ese layout (owner post-#104 acceptance).
+   Composición estructural (owner post-#107, "Alta y Edit deben compartir
+   la misma composición estructural"): mismos 4 bloques como
+   `dashboard-section` (`as_dashboard_sections=true`), namespace propio
+   `cchh-candidate-new` -- Alta NO lleva "Historial del proceso" (Edición
+   únicamente, un Profile todavía no existe) ni panel "Documentos" propio
+   (Edición únicamente, Documentos vive atado a un Profile ya persistido).
+   `hc-profile-form--plain` (MISMO modifier que Edición, human_capital.css):
+   sin él, `.hc-profile-form` (card/borde/padding) envolvería visualmente
+   los `dashboard-section` -- que ya son sus propios cards -- duplicando el
+   borde, el mismo "card wrapping cards" que motivó el modifier en
+   Edición. CV queda acá, template-owned: Documentos vive en su propio
+   panel para un Profile ya existente, así que Edición nunca lo necesita. #}
 {% from "partials/human_capital_profile_fields.html" import profile_fields %}
-<form id="hc-profile-form" class="hc-profile-form" method="post" action="/cchh/candidatos/nuevo" enctype="multipart/form-data" data-hc-profile-new-form>
+<form id="hc-profile-form" class="hc-profile-form hc-profile-form--plain" method="post" action="/cchh/candidatos/nuevo" enctype="multipart/form-data" data-hc-profile-new-form>
   <input type="hidden" name="graph_token" value="">
   {% if error %}<p class="feedback-error">{{ error }}</p>{% endif %}
   {#- CV (sólo alta): se inyecta DENTRO de "Datos del candidato" vía la macro
@@ -63,7 +73,9 @@
         <p class="dashboard-empty__hint">Adjuntar archivo — PDF, DOC o DOCX, máx. 10 MB.</p>
       </div>
   {% endset %}
-  {{ profile_fields("hc", form_values, valid_seniority, valid_sources, cv_html=cv_html) }}
+  <div class="dashboard-sections" data-dashboard-key="cchh-candidate-new" data-persist-collapse>
+    {{ profile_fields("hc", form_values, valid_seniority, valid_sources, cv_html=cv_html, as_dashboard_sections=true, valid_potencial=valid_potencial) }}
+  </div>
   {% if duplicate_advisory %}
   <div class="callout callout--punch" data-advisory-kind="possible_duplicate">
     <div class="callout__head">

@@ -104,6 +104,7 @@ from datetime import datetime
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+import config
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
 from webapp.services import (
@@ -203,6 +204,10 @@ def _profiles_panel_context(*, query: dict | None = None) -> dict:
         # un valor de query fuera de catálogo (legacy) como opción seleccionada
         # para que el filtro siga round-tripeando.
         "valid_seniority": human_capital_catalog_repository.catalog_values("seniority"),
+        # Filtro de Marca de potencial gobernado (P2): MISMO criterio que
+        # Seniority arriba -- el catálogo `potencial` reemplaza el input de
+        # texto libre que tenía antes.
+        "valid_potencial": human_capital_catalog_repository.catalog_values("potencial"),
         "query": query or {},
     }
 
@@ -221,16 +226,30 @@ def human_capital_profiles_page(
     # sabe interpretar — el router no decide qué campos son buscables ni
     # cómo se comparan, eso vive en human_capital_service.filter_profiles.
     query = {"q": q, "seniority": seniority, "source": source, "location": location, "potential_mark": potential_mark}
+    context = {
+        "current_workspace": workspaces.HUMAN_CAPITAL,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack": DEFAULT_PACK,
+        "user": user,
+        "active_page": "perfiles",
+        **_profiles_panel_context(query=query),
+    }
+    # BUG real encontrado con el Visual QA Harness (owner post-#107 audit):
+    # este GET nunca distinguía HTMX de navegación directa -- el filtro
+    # (`hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel"
+    # hx-swap="outerHTML"`) recibía SIEMPRE la página completa (con
+    # topbar/nav/hero) de vuelta, y HTMX la insertaba entera dentro del
+    # fragmento, anidando el shell del Hub dentro de sí mismo -- 100%
+    # reproducible con un click real en "Buscar" desde cero, sin ningún
+    # estado previo. MISMO patrón ya establecido en el resto del Hub
+    # (`request.headers.get("HX-Request")`, ver p.ej. catalog_flow/
+    # catalog_cds en webapp/main.py) -- nunca un mecanismo nuevo.
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_profiles_panel.html", context=context,
+        )
     return templates.TemplateResponse(
-        request=request, name="human_capital/profiles.html",
-        context={
-            "current_workspace": workspaces.HUMAN_CAPITAL,
-            "available_workspaces": workspaces.available_workspaces(user),
-            "pack": DEFAULT_PACK,
-            "user": user,
-            "active_page": "perfiles",
-            **_profiles_panel_context(query=query),
-        },
+        request=request, name="human_capital/profiles.html", context=context,
     )
 
 
@@ -256,9 +275,10 @@ def _new_page_context(
         "duplicate_advisory": duplicate_advisory,
         "remote_outcome_unknown": remote_outcome_unknown,
         # Alta: SOLO valores del catálogo activo, sin fallback a texto libre
-        # (CCHH Catalog Foundation §6) -- MISMO criterio para ambos campos.
+        # (CCHH Catalog Foundation §6 / P2) -- MISMO criterio para los tres campos.
         "valid_sources": human_capital_catalog_repository.catalog_values("fuente"),
         "valid_seniority": human_capital_catalog_repository.catalog_values("seniority"),
+        "valid_potencial": human_capital_catalog_repository.catalog_values("potencial"),
     }
 
 
@@ -498,13 +518,16 @@ def _edit_page_context(
         "duplicate_advisory": duplicate_advisory,
         "concurrent_modification": concurrent_modification,
         "remote_outcome_unknown": remote_outcome_unknown,
-        # Edición migration-safe (§6): el catálogo activo + si el valor actual
-        # quedó FUERA del catálogo (legacy), se preserva marcado y no se
-        # agrega al catálogo automáticamente -- MISMO criterio para ambos campos.
+        # Edición migration-safe (§6 / P2): el catálogo activo + si el valor
+        # actual quedó FUERA del catálogo (legacy), se preserva marcado y no
+        # se agrega al catálogo automáticamente -- MISMO criterio para los
+        # tres campos.
         "valid_seniority": _governed_edit_options("seniority", form_values.get("seniority")),
         "seniority_is_legacy": _is_legacy_governed_value("seniority", form_values.get("seniority")),
         "valid_sources": _governed_edit_options("fuente", form_values.get("source")),
         "source_is_legacy": _is_legacy_governed_value("fuente", form_values.get("source")),
+        "valid_potencial": _governed_edit_options("potencial", form_values.get("potential_mark")),
+        "potencial_is_legacy": _is_legacy_governed_value("potencial", form_values.get("potential_mark")),
     }
 
 
@@ -531,7 +554,9 @@ def human_capital_profile_edit_page(request: Request, profile_id: str):
     if redirect is not None:
         return redirect
     profile = human_capital_service.get_profile(profile_id)
-    if profile is None:
+    if profile is None or profile.get("deleted_at"):
+        # Un candidato borrado (lógico) no es editable: se comporta como
+        # inexistente (no aparece en listados, no se puede abrir su edición).
         raise HTTPException(404, "Candidato no encontrado")
     user = auth_service.session_user(request)
     return templates.TemplateResponse(
@@ -626,10 +651,74 @@ def human_capital_profile_edit_submit(
     return RedirectResponse(url="/cchh/candidatos", status_code=303)
 
 
+@router.post("/cchh/candidatos/{profile_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profile_delete(
+    request: Request,
+    profile_id: str,
+    # Filtros vigentes (hx-include del form de filtros desde el listado): se
+    # re-aplican al re-render para que el borrado NO pierda la búsqueda activa.
+    q: str = Form(""), seniority: str = Form(""), source: str = Form(""),
+    location: str = Form(""), potential_mark: str = Form(""),
+):
+    """Borrado LÓGICO del candidato — UNA sola operación de servicio
+    (`soft_delete_profile`), compartida por los dos puntos de entrada de UI
+    (ícono en el listado vía HTMX, botón en Editar vía POST full-page).
+    Documentos preservados. Autorización: MISMA frontera que el resto de
+    Capital Humano (`_require_human_capital_session`); APP_OWNER entra por el
+    contrato global ya aprobado."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    actor = (user or {}).get("sub") or ""
+    delete_error: str | None = None
+    try:
+        human_capital_service.soft_delete_profile(profile_id, actor)
+    except ProfileNotFoundError:
+        # Ya no existe (doble submit / borrado concurrente): idempotente, se
+        # sigue al listado actualizado sin error -- no es una falla real.
+        pass
+    except (ProfileConfigIncompleteError, ProfileRemoteOutcomeUnknownError,
+            ProfileStorageError, ProfileConcurrentModificationError) as exc:
+        delete_error = str(exc)
+
+    if request.headers.get("HX-Request"):
+        # Desde el listado: re-render del panel filtrado -> el candidato
+        # borrado desaparece, el conteo se recalcula, los filtros se conservan.
+        # Si falló, el candidato SIGUE presente (no hay remoción parcial) y se
+        # muestra el error.
+        query = {"q": q, "seniority": seniority, "source": source, "location": location, "potential_mark": potential_mark}
+        context = {"request": request, **_profiles_panel_context(query=query)}
+        if delete_error:
+            context["delete_error"] = delete_error
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_profiles_panel.html", context=context,
+        )
+
+    # Desde Editar (full-page). Éxito -> vuelve al listado. Falla -> re-render
+    # de la página de edición con el error, el candidato intacto.
+    if delete_error:
+        profile = human_capital_service.get_profile(profile_id)
+        if profile is not None:
+            return templates.TemplateResponse(
+                request=request, name="human_capital/profile_edit.html",
+                context={
+                    "current_workspace": workspaces.HUMAN_CAPITAL,
+                    "available_workspaces": workspaces.available_workspaces(user),
+                    "pack": DEFAULT_PACK, "user": user, "active_page": "perfiles",
+                    **_edit_page_context(profile_id, form_values=profile, expected_revision=profile.get("revision", 1), create_error=delete_error),
+                    "documents": profile_document_service.list_documents_for_profile(profile_id),
+                    "document_state": None,
+                },
+            )
+    return RedirectResponse(url="/cchh/candidatos", status_code=303)
+
+
 def _import_page_context(**kwargs) -> dict:
     return {
         "max_upload_mb": profile_import_service.MAX_UPLOAD_BYTES // (1024 * 1024),
         "max_import_rows": profile_import_service.MAX_IMPORT_ROWS,
+        "bulk_import_template_url": config.HC_BULK_IMPORT_TEMPLATE_URL,
         **kwargs,
     }
 

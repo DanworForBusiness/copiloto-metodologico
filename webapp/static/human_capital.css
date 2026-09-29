@@ -39,7 +39,7 @@
    visual. */
 #hc-profiles-panel > * + *,
 #content > .hc-profile-form,
-#content > .hc-profile-documents { margin-top: 26px; }
+#content > [data-dashboard-key="cchh-candidate-documents"] { margin-top: 26px; }
 /* Encontrado en aceptación manual (UX homologation, margen superior):
    `.hc-profile-form`/`.hc-profile-documents` YA tenían este margen (26px,
    arriba) contra el divisor de `.module-hero` -- pero `#hc-profiles-panel`
@@ -81,10 +81,17 @@
 
 /* Toolbar de filtros (Buscar/Seniority/Fuente/Ubicación/Marca de potencial):
    el layout de flex-wrap ya existía (tools.css `.hc-profile-filters`) — acá
-   sólo se completa lo que faltaba, el look de los controles mismos. */
+   sólo se define el LOOK de los controles mismos (padding/borde/tipografía).
+   El ANCHO lo gobierna tools.css: el flex item `.feedback-field`(--wide/
+   --compact/--medium) + la pista `minmax(0,1fr)` + `width:100%` del control.
+   El `min-width:150px` que vivía acá era un piso de ancho sobre el <select>
+   con especificidad mayor (el atributo `input[type="text"]`) que pisaba el
+   `min-width:0` de tools.css: forzaba al control a 150px y lo hacía desbordar
+   su celda compacta (100px) sobre el campo de al lado (solape reportado por
+   el owner). El ancho NO es responsabilidad de esta regla de apariencia. */
 .hc-profile-filters input[type="text"],
 .hc-profile-filters select {
-  min-width: 150px; padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
+  padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
   border-radius: 8px; background: transparent; color: #1f1f24; font: .8rem var(--sans);
 }
 .content-theme-dark .hc-profile-filters input[type="text"],
@@ -124,9 +131,25 @@
    `text-transform:none` para que el texto libre se lea tal cual se cargó. */
 .status-badge--potential {
   margin-left: 6px; color: #7a7a82; border-color: rgba(128,128,128,.32);
-  text-transform: none; letter-spacing: 0;
+  text-transform: none; letter-spacing: 0; flex-shrink: 0;
 }
 .content-theme-dark .status-badge--potential { color: #9a9aa2; }
+/* Owner bug report: con un nombre largo, el ellipsis COMPARTIDO de
+   `td.row-label` (tools.css: `white-space:nowrap; overflow:hidden;
+   text-overflow:ellipsis` sobre la celda ENTERA) recortaba el texto Y el
+   badge juntos como una sola unidad -- el badge de Marca de potencial
+   desaparecía sin aviso en vez de quedar siempre visible. Fix SCOPEADO a
+   esta tabla puntual (nunca tocar la regla compartida, que sirve texto
+   plano en el resto del Hub sin este problema): la celda pasa a flex y
+   SÓLO el nombre (`.hc-candidate-name`) trunca con ellipsis -- el badge,
+   con `flex-shrink:0` (arriba), nunca se achica ni se corta. */
+#hc-candidatos-table td.row-label {
+  display: flex; align-items: baseline;
+  white-space: normal; overflow: visible; text-overflow: clip;
+}
+#hc-candidatos-table td.row-label .hc-candidate-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
 
 /* Conteo de candidatos en el HEADER del panel (T2): arriba-derecha dentro del
    `.dashboard-section__head` compartido (`margin-left:auto` lo empuja al
@@ -145,6 +168,25 @@
 .hc-profiles-hero-actions .btn-primary, .hc-profiles-hero-actions .btn-secondary {
   height: 38px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center;
 }
+/* `.btn-secondary` trae `border-color: var(--line)` (app.css) — un token
+   pensado para el fondo OSCURO de `--bg` (9% de opacidad, casi invisible
+   sobre la superficie CLARA de las cards de Capital Humano, ver owner
+   feedback en vivo). MISMO gris ya usado para bordes visibles en esta
+   hoja (`.hc-profile-form`/inputs, arriba) -- nunca un color nuevo,
+   nunca tocar `--line` global (rompería el resto del Hub, que SÍ vive
+   sobre fondo oscuro). */
+.hc-profiles-hero-actions .btn-secondary,
+.hc-import-actions .btn-secondary { border-color: rgba(128,128,128,.35); }
+.content-theme-dark .hc-profiles-hero-actions .btn-secondary,
+.content-theme-dark .hc-import-actions .btn-secondary { border-color: rgba(128,128,128,.4); }
+/* `.hc-import-actions .btn-secondary` (Carga masiva, "Descargar modelo"):
+   MISMO fix de borde visible que arriba -- es un `<a>`, no un `<button>`,
+   así que necesita además el tamaño/alineación inline-flex que `.btn-
+   primary`/`.btn-secondary` (app.css) sólo define para `<button>`. */
+.hc-import-actions .btn-secondary {
+  height: 38px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center;
+  text-decoration: none; white-space: nowrap;
+}
 
 /* Form de alta/edición de Profile (create + edit comparten `.hc-profile-form`)
    y el form de importación (mismo contenedor, un solo campo): grilla
@@ -156,6 +198,16 @@
   gap: 0 20px; padding: 22px; border: 1px solid rgba(128,128,128,.24); border-radius: 12px;
   align-items: start;
 }
+/* `--plain` (Candidate Edit, owner QA rejection: "card wrapping cards"):
+   Edición envuelve 5 `dashboard-section` -- que YA son sus propios cards
+   (borde+radio, tools.css) -- dentro de este mismo card, duplicando el
+   borde visualmente. El modifier apaga SÓLO el chrome de card (borde/
+   fondo/padding/radio) -- la grilla en sí queda intacta (inerte de
+   cualquier forma: el único hijo directo relevante es `.dashboard-
+   sections`, que ya ocupa el ancho completo vía `grid-column:1/-1`, ver
+   abajo). Alta NUNCA lleva este modifier -- su card sigue exactamente
+   igual. */
+.hc-profile-form--plain { padding: 0; border: 0; border-radius: 0; background: transparent; }
 /* `align-items: start` (arriba) -- sin esto, una celda más alta que sus
    vecinas de fila (p.ej. CV: label + input + hint de dos líneas) estira
    TODA la fila por `stretch` (default de CSS Grid) y empuja los inputs
@@ -199,7 +251,21 @@
 .hc-profile-form > .matrix-scroll,
 .hc-profile-form > p,
 .hc-profile-form > .hc-profile-section,
+.hc-profile-form > .dashboard-sections,
+.hc-profile-form > .hc-import-actions,
 .hc-profile-form > button[type="submit"] { grid-column: 1 / -1; }
+/* `.hc-import-actions` (Carga masiva, owner: "Descargar modelo" inmediatamente
+   antes del picker de archivo, misma fila) -- flex en vez de otra celda de
+   grilla: sólo dos elementos, ninguno repite el patrón de campo con label. */
+.hc-import-actions { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.hc-import-actions .feedback-field { flex: 1 1 260px; margin: 0; }
+/* `.dashboard-sections` (Candidate Edit, composición estructural, ver
+   HANDOFF §14.7): MISMO criterio que `.hc-profile-section` arriba -- ocupa
+   el ancho completo de la grilla densa de `.hc-profile-form`, nunca una
+   celda de campo. Scopeado a `.hc-profile-form > `, igual que el resto de
+   esta lista: `.dashboard-sections` es un primitivo Hub-wide (Candidatos,
+   Comercial, Reporting) que NUNCA es hijo directo de `.hc-profile-form` en
+   ningún otro lugar -- cero riesgo de afectar esos otros consumidores. */
 .hc-profile-form > button[type="submit"] { justify-self: start; margin-top: 8px; }
 /* Notas: reusa `.hc-profile-form-notes` sólo para el tamaño del textarea --
    el separador/bloque propio ahora lo da `.hc-profile-section` (ver abajo),
@@ -216,9 +282,6 @@
    criterio que los demás elementos full-width de arriba) y arma su PROPIA
    sub-grilla adentro para sus campos. */
 .hc-profile-section + .hc-profile-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid rgba(128,128,128,.24); }
-/* MISMO tamaño/peso que `.hc-profile-documents h2` (ver abajo) -- un solo
-   tamaño de heading de sección dentro de una tarjeta de Capital Humano,
-   nunca una escala nueva. */
 .hc-profile-section h2 { margin: 0 0 14px; font-size: 1.05rem; }
 .hc-profile-section__grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -241,11 +304,17 @@
 .field-hint a { color: inherit; text-decoration: underline; }
 
 /* Documentos del Profile (partials/human_capital_profile_documents_panel.html):
-   MISMA tarjeta que Resultados, y el MISMO look de input/botón que el resto
-   de esta hoja para el form de upload/reintento. */
-.hc-profile-documents { padding: 22px; border: 1px solid rgba(128,128,128,.24); border-radius: 12px; }
-.hc-profile-documents h2 { margin: 0 0 16px; font-size: 1.05rem; }
-.hc-profile-documents .hc-documents-table { margin-bottom: 20px; }
+   owner UX correction (Candidate Edit container hierarchy) -- pasó de un
+   card propio (`.hc-profile-documents`, borde/padding a mano) a un
+   `dashboard-section` más, para alinearse visualmente con los 5 bloques de
+   campos de Edición (mismo lenguaje de card/header/caret compartido) —
+   pero en su PROPIO namespace de persistencia (`cchh-candidate-documents`,
+   ver el template), nunca mezclado con el reorder/colapso de esos 5:
+   Documentos es una frontera funcional distinta (operaciones de
+   SharePoint), no metadata del candidato. El MISMO look de input/botón
+   que el resto de esta hoja sigue aplicando para el form de
+   upload/reintento (selectores sin cambios, abajo). */
+[data-dashboard-key="cchh-candidate-documents"] .hc-documents-table { margin-bottom: 20px; }
 .hc-document-upload-form,
 .hc-document-retry-form {
   display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin-top: 14px;

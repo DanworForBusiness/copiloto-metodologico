@@ -766,10 +766,13 @@ def test_15_route_surface_still_156():
     #     mirar la cuenta de una oportunidad aunque NO pertenezca al universo
     #     gobernado (`Es Cliente? = Sí AND Argentina`), y ese guardrail de la
     #     colección no se toca. Ninguna ruta de Staffing tocada.
+    #   158 -> 159 (CCHH Candidatos closure): +1 ruta `POST /cchh/candidatos/
+    #     {profile_id}/eliminar` (borrado lógico del candidato) — CERO rutas de
+    #     Staffing tocadas, este gate sigue sin cambios propios.
     #   156 -> 158 (CCHH Catalog Foundation): +2 rutas gobernadas de catálogos
     #     (GET /cchh/catalogos, POST /cchh/catalogos/refresh) -- ninguna ruta
     #     de Staffing tocada.
-    assert len(snapshot) == 158
+    assert len(snapshot) == 159
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

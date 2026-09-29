@@ -252,10 +252,18 @@ def test_filter_by_location_is_contains_not_exact():
     assert human_capital_service.filter_profiles(profiles, {"location": "buenos aires"}) == profiles
 
 
-def test_filter_by_potential_mark_exact_match():
-    profiles = [_make(first_name="A", potential_mark="Alto"), _make(first_name="B", potential_mark="Medio")]
-    result = human_capital_service.filter_profiles(profiles, {"potential_mark": "Alto"})
-    assert [p["first_name"] for p in result] == ["A"]
+def test_filter_by_potential_mark_is_exact_match_governed_select():
+    # P2 corrective: `potential_mark` pasó de `<input type="text">` libre a
+    # `<select>` gobernado por el catálogo `potencial` -- volvió a
+    # `_EXACT_MATCH_FILTER_FIELDS`, MISMO criterio que seniority/source (el
+    # usuario elige un valor del catálogo, nunca tipea uno parcial). Un
+    # substring YA NO matchea (a diferencia del corrective anterior, cuando
+    # todavía era texto libre).
+    profiles = [_make(first_name="A", potential_mark="No reconsiderar"), _make(first_name="B", potential_mark="Terna futura")]
+    partial = human_capital_service.filter_profiles(profiles, {"potential_mark": "recons"})
+    assert partial == []
+    exact = human_capital_service.filter_profiles(profiles, {"potential_mark": "Terna futura"})
+    assert [p["first_name"] for p in exact] == ["B"]
 
 
 def test_multiple_structured_filters_use_and_semantics():

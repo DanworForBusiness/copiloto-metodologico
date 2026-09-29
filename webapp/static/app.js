@@ -788,7 +788,233 @@ function saveSectionCollapse(container, storageKey) {
   container.querySelectorAll(":scope > .dashboard-section").forEach(el => { state[el.dataset.sectionId] = el.hasAttribute("open"); });
   try { sessionStorage.setItem(storageKey, JSON.stringify(state)); } catch (e) { /* storage lleno/deshabilitado: no rompe nada */ }
 }
+// Expandir/Contraer TODOS los `dashboard-section` de uno o más grupos a la
+// vez (owner request, Candidate Edit — CCHH, ver HANDOFF): extensión del
+// primitivo COMPARTIDO, nunca un mecanismo bespoke por vertical (otro
+// consumidor ya había resuelto esto puntualmente de forma bespoke propia
+// para uno de sus paneles, pero con un segundo consumidor real corresponde
+// promoverlo acá en vez de duplicar la lógica una vez más; ese consumidor
+// previo queda intacto, fuera de alcance de este cambio — app.js sigue sin
+// saber nada de ninguna vertical puntual). `keys`: array de
+// `data-dashboard-key` a afectar — soporta MÚLTIPLES
+// grupos de persistencia independientes con una sola acción (p.ej.
+// Candidate Edit: los 5 bloques de campos + Documentos, dos namespaces
+// distintos, una sola botonera). Persiste el colapso resultante
+// EXACTAMENTE igual que un toggle individual (mismo `saveSectionCollapse`)
+// — sólo para los grupos que YA declaran `data-persist-collapse`, nunca
+// uno nuevo silencioso. No reordena nada (el orden vive en una key
+// sessionStorage totalmente independiente, `saveSectionOrder` — esta
+// función nunca la toca).
+function setDashboardGroupsCollapse(keys, open) {
+  keys.forEach(key => {
+    const container = document.querySelector(`[data-dashboard-key="${CSS.escape(key)}"]`);
+    if (!container) return;
+    container.querySelectorAll(":scope > .dashboard-section").forEach(section => {
+      if (open) section.setAttribute("open", ""); else section.removeAttribute("open");
+    });
+    if (container.dataset.persistCollapse != null) {
+      saveSectionCollapse(container, `dw-dash-collapse:${container.dataset.dashboardKey}`);
+    }
+  });
+}
+// Delegado sobre `document` (MISMO criterio que el resto del archivo):
+// un botón con `data-dashboard-expand-all`/`data-dashboard-collapse-all` +
+// `data-dashboard-target="key1 key2 ..."` (IDs separados por espacio,
+// MISMO valor que `data-dashboard-key` de cada grupo objetivo) dispara
+// `setDashboardGroupsCollapse`. Cero JS específico por vertical: cualquier
+// consumidor de `dashboard-section` puede optar a esto con sólo marcado.
+document.addEventListener("click", event => {
+  const button = event.target.closest("[data-dashboard-expand-all], [data-dashboard-collapse-all]");
+  if (!button) return;
+  const open = button.hasAttribute("data-dashboard-expand-all");
+  const keys = (button.dataset.dashboardTarget || "").split(/\s+/).filter(Boolean);
+  setDashboardGroupsCollapse(keys, open);
+});
 document.body.addEventListener("htmx:load", () => initDashboardSections(document));
+
+// Indicator visibility toggles (primitivo Hub-wide nuevo, primer consumidor:
+// CCHH Candidatos, "Indicadores"): un grupo de checkboxes que controla
+// SOLO presentación (qué metadata contextual se ve al lado de la identidad
+// de cada fila), nunca filtrado/query ni persistencia de negocio — por eso
+// vive 100% en cliente, sin `name=` en los checkboxes (así ni un submit
+// nativo ni un `hx-include="closest form"` ajeno los confunde con un
+// filtro real). Contrato puramente por atributos, sin saber nada de
+// ninguna vertical puntual:
+//   [data-indicator-toggles][data-indicator-storage-key="<key>"]  -- el grupo
+//     [data-indicator-toggle="<name>"]                            -- cada checkbox
+//   [data-indicator-scope="<key>"]                                -- contenedor de destino
+//     [data-indicator="<name>"]                                   -- elemento que se oculta/muestra
+// Persiste en localStorage (sobrevive reload, a diferencia del
+// sessionStorage de colapso/orden de dashboard-section arriba — esto es
+// preferencia de usuario de más largo aliento, no estado de sesión) bajo
+// `dw-indicators:<key>`. Se reaplica en cada `htmx:load` (carga inicial +
+// cualquier swap que reemplace el scope), MISMO criterio que
+// initDashboardSections.
+function initIndicatorToggles(scope) {
+  scope.querySelectorAll("[data-indicator-toggles]").forEach(group => {
+    const key = group.dataset.indicatorStorageKey;
+    const storageKey = `dw-indicators:${key}`;
+    const target = document.querySelector(`[data-indicator-scope="${CSS.escape(key)}"]`);
+    let prefs;
+    try { prefs = JSON.parse(localStorage.getItem(storageKey) || "null"); } catch (e) { prefs = null; }
+    if (!prefs || typeof prefs !== "object") prefs = {};
+    function apply() {
+      group.querySelectorAll("[data-indicator-toggle]").forEach(input => {
+        const name = input.dataset.indicatorToggle;
+        if (Object.prototype.hasOwnProperty.call(prefs, name)) input.checked = prefs[name];
+        if (!target) return;
+        target.querySelectorAll(`[data-indicator="${CSS.escape(name)}"]`).forEach(el => {
+          el.hidden = !input.checked;
+        });
+      });
+    }
+    apply();
+    if (group.dataset.indicatorWired) return;
+    group.dataset.indicatorWired = "1";
+    group.addEventListener("change", event => {
+      const input = event.target.closest("[data-indicator-toggle]");
+      if (!input) return;
+      prefs[input.dataset.indicatorToggle] = input.checked;
+      try { localStorage.setItem(storageKey, JSON.stringify(prefs)); } catch (e) { /* privado/cuota: no persiste, no rompe */ }
+      apply();
+    });
+  });
+}
+document.body.addEventListener("htmx:load", () => initIndicatorToggles(document));
+
+// ── Rating de estrellas 1..N (primitivo COMPARTIDO Hub) ───────────────────
+// Cablea los controles editables `[data-star-rating]` (NO los readonly, que
+// son puro display server-rendered). Contrato de UI (owner):
+//   - hover sobre la estrella i -> preview acumulativo (se llenan 1..i);
+//   - mouseleave del grupo -> vuelve al valor COMMITEADO;
+//   - click en la estrella i -> commitea i (actualiza el <input> hidden);
+//   - teclado: ←/↓ baja, →/↑ sube, 1..N fija, Enter/Espacio commitea la que
+//     tiene foco; ←/↓ desde 1 llega a 0 (sin rating, campo opcional).
+// El valor posteado es un entero (o "" = sin rating). Semántica de negocio
+// intacta: esto sólo reemplaza el <input> numérico por el control visual.
+function initStarRatings(scope) {
+  scope.querySelectorAll("[data-star-rating]:not([data-star-readonly])").forEach(group => {
+    if (group.dataset.starWired) return;
+    group.dataset.starWired = "1";
+    const input = group.querySelector("[data-star-input]");
+    const stars = Array.prototype.slice.call(group.querySelectorAll("[data-star-index]"));
+    const max = stars.length;
+    let committed = parseInt(group.dataset.starValue, 10) || 0;
+    function paint(fill) {
+      stars.forEach(s => {
+        const idx = parseInt(s.dataset.starIndex, 10);
+        s.classList.toggle("is-filled", idx <= fill);
+      });
+    }
+    function commit(val) {
+      committed = val;
+      if (input) input.value = val ? String(val) : "";
+      group.dataset.starValue = String(val);
+      stars.forEach(s => {
+        const idx = parseInt(s.dataset.starIndex, 10);
+        s.setAttribute("aria-checked", idx === val ? "true" : "false");
+        s.tabIndex = (idx === val || (val === 0 && idx === 1)) ? 0 : -1;
+      });
+      paint(val);
+    }
+    stars.forEach(s => {
+      const idx = parseInt(s.dataset.starIndex, 10);
+      s.addEventListener("mouseenter", () => paint(idx));
+      s.addEventListener("click", () => { commit(idx); s.focus(); });
+      s.addEventListener("keydown", ev => {
+        let next = null;
+        if (ev.key === "ArrowRight" || ev.key === "ArrowUp") next = Math.min(max, committed + 1);
+        else if (ev.key === "ArrowLeft" || ev.key === "ArrowDown") next = Math.max(0, committed - 1);
+        else if (/^[1-9]$/.test(ev.key)) next = Math.min(max, parseInt(ev.key, 10));
+        else if (ev.key === " " || ev.key === "Enter") next = idx;
+        if (next === null) return;
+        ev.preventDefault();
+        commit(next);
+        const focusIdx = next > 0 ? next : 1;
+        const target = stars.find(x => parseInt(x.dataset.starIndex, 10) === focusIdx);
+        if (target) target.focus();
+      });
+    });
+    group.addEventListener("mouseleave", () => paint(committed));
+    paint(committed);
+  });
+}
+document.body.addEventListener("htmx:load", () => initStarRatings(document));
+
+// ── Confirmación destructiva COMPARTIDA (primitivo <dialog> nativo) ────────
+// UNA sola UX de confirmación para todo el Hub (owner: "one confirmation
+// pattern"). `dwConfirm({title,message,confirmLabel,cancelLabel}) -> Promise
+// <boolean>`. El <dialog> (base.html) aporta focus-trap/Escape/backdrop
+// nativos; enfoca "Cancelar" por default (seguro para acciones destructivas).
+function dwConfirm(opts) {
+  opts = opts || {};
+  const dlg = document.getElementById("dwConfirm");
+  if (!dlg || typeof dlg.showModal !== "function") {
+    // Fallback (navegador sin <dialog>): confirm nativo, nunca omitir el paso.
+    const txt = (opts.title ? opts.title + "\n\n" : "") + (opts.message || "¿Confirmar?");
+    return Promise.resolve(window.confirm(txt));
+  }
+  dlg.querySelector(".dw-confirm__title").textContent = opts.title || "Confirmar";
+  dlg.querySelector("[data-dw-confirm-msg]").textContent = opts.message || "";
+  const cancelBtn = dlg.querySelector("[data-dw-confirm-cancel]");
+  const okBtn = dlg.querySelector("[data-dw-confirm-ok]");
+  cancelBtn.textContent = opts.cancelLabel || "Cancelar";
+  okBtn.textContent = opts.confirmLabel || "Eliminar";
+  return new Promise(resolve => {
+    function onClose() { dlg.removeEventListener("close", onClose); resolve(dlg.returnValue === "confirm"); }
+    dlg.addEventListener("close", onClose);
+    dlg.returnValue = "";
+    dlg.showModal();
+    cancelBtn.focus();
+  });
+}
+function _dwConfirmOptsFrom(el) {
+  return {
+    title: el.getAttribute("data-dw-confirm-title") || "Confirmar",
+    message: el.getAttribute("data-dw-confirm-message") || "",
+    confirmLabel: el.getAttribute("data-dw-confirm-ok") || "Eliminar",
+  };
+}
+// (a) Elementos HTMX con [data-dw-confirm]: el elemento se dispara con
+// `hx-trigger="confirmed"` (NO con click), así un click normal NO emite el
+// request. Interceptamos el click, mostramos el diálogo compartido y sólo al
+// confirmar disparamos el trigger `confirmed` con `htmx.trigger`, que emite el
+// request htmx (con su hx-include/hx-target/hx-swap). Se evita a propósito el
+// patrón `htmx:confirm` + `issueRequest` diferido (poco fiable tras un diálogo
+// asíncrono). Cubre el borrado desde el listado.
+document.body.addEventListener("click", function (ev) {
+  const el = ev.target.closest && ev.target.closest("[data-dw-confirm]");
+  if (!el) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  dwConfirm(_dwConfirmOptsFrom(el)).then(function (ok) {
+    if (!ok) return;
+    if (window.htmx && window.htmx.trigger) window.htmx.trigger(el, "confirmed");
+    else el.dispatchEvent(new CustomEvent("confirmed"));
+  });
+}, true);
+// (b) Forms NO-htmx con [data-dw-confirm-form]: se intercepta el submit, se
+// confirma y recién ahí se re-envía. Cubre el borrado full-page desde Editar.
+function initConfirmForms(scope) {
+  scope.querySelectorAll("form[data-dw-confirm-form]").forEach(function (form) {
+    if (form.dataset.dwConfirmWired) return;
+    form.dataset.dwConfirmWired = "1";
+    form.addEventListener("submit", function (ev) {
+      if (form.dataset.dwConfirmed === "1") { form.dataset.dwConfirmed = ""; return; }
+      ev.preventDefault();
+      dwConfirm({
+        title: form.getAttribute("data-dw-confirm-title") || "Confirmar",
+        message: form.getAttribute("data-dw-confirm-message") || "",
+        confirmLabel: form.getAttribute("data-dw-confirm-ok") || "Eliminar",
+      }).then(function (ok) {
+        if (!ok) return;
+        form.dataset.dwConfirmed = "1";
+        if (form.requestSubmit) form.requestSubmit(); else form.submit();
+      });
+    });
+  });
+}
+document.body.addEventListener("htmx:load", function () { initConfirmForms(document); });
 
 // Reordenamiento drag-and-drop HORIZONTAL de columnas de tabla — MISMO
 // idioma exacto que initDashboardSections (arriba: dragstart/dragenter/
@@ -970,9 +1196,20 @@ function initResizableColumns(scope) {
       if (!resizing) return;
       const { key, col, handle } = resizing;
       handle.classList.remove("is-resizing");
-      const stored = readStoredColumnWidths(container.dataset.resizableColumnsKey) || {};
-      stored[key] = col.style.width;
-      try { window.localStorage.setItem(storageKey, JSON.stringify(stored)); } catch (e) { /* privado/cuota: no persiste, no rompe */ }
+      const widths = Object.assign({}, readStoredColumnWidths(container.dataset.resizableColumnsKey) || {});
+      widths[key] = col.style.width;
+      // Contrato de compatibilidad de persistencia (owner post-#107 acceptance,
+      // corrective T1): CADA escritura graba el ancho de CONTENEDOR vigente en
+      // este momento junto con los anchos -- ver readStoredColumnWidthsEnvelope/
+      // restorePersistedColumnWidths, abajo, para el porqué completo. Medido
+      // ACÁ (al terminar un resize real), nunca en el restore -- es la única
+      // fuente de verdad de "para qué ancho de contenedor son válidos estos px".
+      const envelope = {
+        schemaVersion: COLUMN_WIDTHS_SCHEMA_VERSION,
+        containerWidth: container.clientWidth,
+        widths,
+      };
+      try { window.localStorage.setItem(storageKey, JSON.stringify(envelope)); } catch (e) { /* privado/cuota: no persiste, no rompe */ }
       container.dispatchEvent(new CustomEvent("dw:columns-resized", { detail: { key, width: col.style.width }, bubbles: true }));
       resizing = null;
     };
@@ -980,21 +1217,60 @@ function initResizableColumns(scope) {
     container.addEventListener("pointercancel", finish);
   });
 }
-// Lectura fail-closed de anchos guardados. A diferencia de
-// readStoredColumnOrder no hay un "catálogo completo" que exigir completo —
-// un ancho ausente para una key simplemente deja el default declarativo de
-// esa columna (ver caller); sólo se descarta la preferencia entera si el
-// storage está corrupto (no es un objeto plano).
-function readStoredColumnWidths(key) {
+// Contrato de compatibilidad de persistencia de anchos (owner post-#107
+// acceptance, corrective T1: "persisted widths metadata: schema/version,
+// container width at save"). ROOT CAUSE que este corrective cierra: un
+// ancho persistido es un valor en PX -- válido sólo para el ancho de
+// CONTENEDOR bajo el que se midió. `restorePersistedColumnWidths` (abajo)
+// los re-aplicaba ciegamente sin importar el ancho ACTUAL del contenedor,
+// así que un resize hecho en una ventana angosta podía "congelar" una
+// tabla visiblemente angosta/con overflow evitable en una ventana ancha, y
+// viceversa -- el reporte de producción de tabla "rota/comprimida".
+// `COLUMN_WIDTHS_SCHEMA_VERSION` (único, acá) es el candado: cualquier
+// valor sin este envelope exacto (el shape plano `{colKey:"Npx"}` de antes
+// de este corrective, o cualquier versión futura distinta) se trata como
+// INCOMPATIBLE y se descarta -- nunca se "adivina"/migra en caliente, la
+// tabla cae a su layout responsive normal (`width:100%`, ver el fresh-load
+// de siempre) en vez de arriesgar un total congelado potencialmente erróneo.
+const COLUMN_WIDTHS_SCHEMA_VERSION = 1;
+// Tolerancia de "mismo ancho de contenedor", RELATIVA (no un px fijo: un
+// layout angosto y uno ancho no deberían compartir el mismo margen
+// absoluto) -- ÚNICO lugar que la define, documentada acá, nunca repetida
+// ni resuelta con CSS. 8% cubre diferencias triviales de renderizado
+// (scrollbar apareciendo/desapareciendo, redondeo) sin tolerar un cambio
+// real de layout (sidebar colapsado/expandido, viewport distinto).
+const COLUMN_WIDTHS_TOLERANCE_RATIO = 0.08;
+// Lectura de BAJO NIVEL del envelope completo (schemaVersion+containerWidth+
+// widths) -- uso EXCLUSIVO de `restorePersistedColumnWidths` (necesita
+// `containerWidth` para el chequeo de compatibilidad) y del `finish()` de
+// arriba (necesita los `widths` previos para mergear el override nuevo).
+// Cualquier shape que NO matchee el contrato exacto (incluido el plano
+// `{colKey:"Npx"}` pre-corrective) es tratado como ausente -- null, nunca
+// una migración implícita.
+function readStoredColumnWidthsEnvelope(key) {
   try {
     const raw = window.localStorage.getItem(`dw-col-widths:${key}`);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    if (parsed.schemaVersion !== COLUMN_WIDTHS_SCHEMA_VERSION) return null;
+    if (typeof parsed.containerWidth !== "number" || !(parsed.containerWidth > 0)) return null;
+    if (!parsed.widths || typeof parsed.widths !== "object" || Array.isArray(parsed.widths)) return null;
     return parsed;
   } catch (e) {
     return null;
   }
+}
+// Lectura PÚBLICA, MISMO contrato de siempre para los consumidores
+// existentes (Comercial vía `commercialColumnWidthsFor`, y cualquier test):
+// devuelve el mapa plano `{colKey:"Npx"}`, o `null` si no hay preferencia
+// compatible -- nunca expone `containerWidth`/`schemaVersion` acá, eso es
+// un detalle del contrato de restore de TABLAS QUE CONGELAN UN TOTAL
+// EXPLÍCITO (ver arriba), irrelevante para un consumidor que resuelve cada
+// columna de forma independiente contra su propio default declarativo.
+function readStoredColumnWidths(key) {
+  const envelope = readStoredColumnWidthsEnvelope(key);
+  return envelope ? envelope.widths : null;
 }
 
 // Reconstrucción COHERENTE de anchos persistidos tras reload (contrato T1
@@ -1002,20 +1278,38 @@ function readStoredColumnWidths(key) {
 // puntual). Cualquier consumidor de `initResizableColumns` que restaure anchos
 // EN CLIENTE debe usar esto (CCHH lo hace vía su adapter; otros que arman el
 // <colgroup> server-side pueden llamarlo igual si quieren el total explícito).
-// Si hay overrides guardados: aplica cada override a su columna, congela las
-// demás a su ancho efectivo actual en px (medido en el <th> por identidad;
-// columnas sin key —p. ej. Acciones— por su propio <col>), y fija el TOTAL
-// EXPLÍCITO de la tabla = suma. Reconstruye EXACTAMENTE el estado post-resize
-// (mismo contrato que el resize en vivo), nunca el `width:100%` que
-// redistribuye. Lee TODOS los anchos antes de mutar (no medir un layout ya
-// movido). Devuelve true si aplicó algo. `container` = el elemento con
-// `data-resizable-columns-key` (el mismo scope que usa initResizableColumns).
+// Si hay overrides COMPATIBLES guardados (ver readStoredColumnWidthsEnvelope):
+// aplica cada override a su columna, congela las demás a su ancho efectivo
+// actual en px (medido en el <th> por identidad; columnas sin key —p. ej.
+// Acciones— por su propio <col>), y fija el TOTAL EXPLÍCITO de la tabla =
+// suma. Reconstruye EXACTAMENTE el estado post-resize (mismo contrato que
+// el resize en vivo), nunca el `width:100%` que redistribuye. Lee TODOS
+// los anchos antes de mutar (no medir un layout ya movido). Devuelve true
+// si aplicó algo. `container` = el elemento con `data-resizable-columns-key`
+// (el mismo scope que usa initResizableColumns).
+//
+// Chequeo de compatibilidad (owner post-#107 acceptance, corrective T1):
+// ANTES de aplicar nada, compara el ancho de contenedor ACTUAL contra el
+// que quedó grabado junto a los anchos. Fuera de tolerancia (ver
+// COLUMN_WIDTHS_TOLERANCE_RATIO) = contenedor MATERIALMENTE distinto del
+// que produjo esos px -- se descarta la preferencia completa (nunca se
+// re-escala/adivina) y la función devuelve false sin tocar el DOM, dejando
+// el layout responsive normal (`width:100%` declarativo de SSR) intacto.
+// Esto es lo que hace que un resize hecho en una ventana angosta no deje
+// una tabla congelada/comprimida en una ventana ancha (o viceversa) --
+// el reporte de producción que este corrective cierra.
 function restorePersistedColumnWidths(container) {
-  if (!container || typeof readStoredColumnWidths !== "function") return false;
+  if (!container || typeof readStoredColumnWidthsEnvelope !== "function") return false;
   const key = container.dataset ? container.dataset.resizableColumnsKey : null;
   if (!key) return false;
-  const stored = readStoredColumnWidths(key);
-  if (!stored || !Object.keys(stored).length) return false;
+  const envelope = readStoredColumnWidthsEnvelope(key);
+  if (!envelope || !Object.keys(envelope.widths).length) return false;
+  const currentWidth = container.clientWidth;
+  const savedWidth = envelope.containerWidth;
+  if (Math.abs(currentWidth - savedWidth) > savedWidth * COLUMN_WIDTHS_TOLERANCE_RATIO) {
+    return false;
+  }
+  const stored = envelope.widths;
   const table = container.querySelector("table");
   if (!table) return false;
   const cols = [].slice.call(table.querySelectorAll("colgroup > col"));

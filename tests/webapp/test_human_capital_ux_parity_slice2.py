@@ -83,8 +83,10 @@ def test_b2_count_singular():
 def test_b3_seniority_filter_is_governed_select():
     _seed_seniority("Junior", "Senior")
     html = _client().get("/cchh/candidatos").text
-    # Es un <select name="seniority"> con las opciones del catálogo (no un input text).
-    assert '<select id="hc-filter-seniority" name="seniority">' in html
+    # Es un <select name="seniority"> con las opciones del catálogo (no un
+    # input text) -- id/name, nunca el resto de los atributos (el filtro
+    # reactivo, owner CRM parity, agrega hx-trigger="change" ahí mismo).
+    assert '<select id="hc-filter-seniority" name="seniority"' in html
     assert ">Junior<" in html and ">Senior<" in html
 
 
@@ -96,10 +98,20 @@ def test_b3_seniority_filter_preserves_legacy_value():
 
 # --- B4: badge de marca_potencial junto a la identidad ----------------------
 def test_b4_potential_badge_near_identity():
+    # `potential_mark` pasó a ser un catálogo gobernado (P2) -- sembrar
+    # "Alto" antes de crear, MISMO criterio que `_seed_seniority` arriba.
+    snap = catalog_repo.build_snapshot(
+        {"potencial": [{"valor": "Alto", "orden": 1}]},
+        refreshed_by="test", source={"drive_id": "d", "item_id": "i"})
+    p = catalog_repo.snapshot_path(); p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(catalog_repo._serialize(snap))
     human_capital_service.create_profile(
         {"first_name": "Ana", "last_name": "Perez", "potential_mark": "Alto"})
     html = _client().get("/cchh/candidatos").text
-    assert 'class="status-badge status-badge--potential"' in html
+    # El badge conserva sus clases de estado + `.dw-idcell__meta` (queda dentro
+    # del wrapper de identidad como indicador compacto) -- se matchea sin exigir
+    # la comilla de cierre para no acoplar el test al orden exacto de clases.
+    assert "status-badge status-badge--potential" in html
     assert "Alto" in html
 
 
@@ -125,8 +137,12 @@ def test_d2_text_columns_left_actions_center_by_class():
     for key in ("skills", "seniority", "ubicacion", "fuente"):
         assert f'<th class="left" data-column-key="{key}"' in html, f"th {key} debe ser left por clase"
         assert f'<td class="left" data-column-key="{key}"' in html, f"td {key} debe ser left por clase"
-    # Nombre = row-label (left, rótulo de fila); Acciones = center
-    assert 'class="row-label-col" data-column-key="nombre"' in html
+    # Nombre = columna de texto normal `.left` (owner closure: se sacó el
+    # tratamiento especial `row-label`/`row-label-col` de la primera columna
+    # -- ése fue el fix final del "split de dos tablas"; la identidad es una
+    # celda de tabla común, con un wrapper interno `.dw-idcell`). Acciones = center.
+    assert '<th class="left" data-column-key="nombre"' in html
+    assert '<td class="left" data-column-key="nombre"' in html
     assert '<th class="center">Acciones</th>' in html
     assert '<td class="center">' in html
 

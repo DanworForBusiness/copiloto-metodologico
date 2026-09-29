@@ -1,0 +1,37 @@
+{
+  "seniority": [
+    {"valor": "Junior", "orden": 1},
+    {"valor": "Semi Senior", "orden": 2},
+    {"valor": "Senior", "orden": 3},
+    {"valor": "Tech Lead", "orden": 4},
+    {"valor": "Manager", "orden": 5}
+  ],
+  "fuente": [
+    {"valor": "LinkedIn", "orden": 1},
+    {"valor": "Referido", "orden": 2},
+    {"valor": "Hunting", "orden": 3},
+    {"valor": "Portal de empleo", "orden": 4},
+    {"valor": "Networking event", "orden": 5}
+  ],
+  "canal_publicacion": [
+    {"valor": "LinkedIn Jobs", "orden": 1},
+    {"valor": "Bumeran", "orden": 2},
+    {"valor": "Computrabajo", "orden": 3},
+    {"valor": "Sitio propio", "orden": 4}
+  ],
+  "area_consultora": [
+    {"valor": "SAP", "orden": 1},
+    {"valor": "Datos & Analytics", "orden": 2},
+    {"valor": "Cloud & Infraestructura", "orden": 3},
+    {"valor": "Desarrollo", "orden": 4}
+  ],
+  "modalidad_contratacion": [
+    {"valor": "Relación de dependencia", "orden": 1},
+    {"valor": "Freelance", "orden": 2},
+    {"valor": "Consultora tercera", "orden": 3}
+  ],
+  "potencial": [
+    {"valor": "Terna futura", "orden": 1},
+    {"valor": "No reconsiderar", "orden": 2}
+  ]
+}

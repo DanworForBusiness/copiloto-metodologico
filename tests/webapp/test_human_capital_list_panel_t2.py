@@ -57,14 +57,21 @@ def test_count_singular_in_header():
     assert '<span class="dashboard-section__count">1 candidato</span>' in html
 
 
-def test_filters_and_table_inside_section_body():
+def test_filters_are_page_level_outside_the_section_table_is_inside():
+    # Owner UX correction (post-#107 QA): REEMPLAZA la política anterior de
+    # este test, que exigía filtros DENTRO del body del panel. Regla de
+    # composición Hub-wide (MISMO patrón que Staffing:
+    # `.staffing-filter-bar` vive ANTES de `.dashboard-sections`): los
+    # filtros de Candidatos son PÁGINA/GLOBALES (aplican a la lista
+    # entera), nunca "de este panel" -- sólo la tabla/resultados en sí
+    # sigue siendo contenido colapsable/reordenable del panel.
     human_capital_service.create_profile({"first_name": "Ana", "last_name": "Perez"})
     html = _client().get("/cchh/candidatos").text
-    i_body = html.find('class="dashboard-section__body"')
     i_filters = html.find('class="hc-profile-filters')
+    i_body = html.find('class="dashboard-section__body"')
     i_table = html.find('id="hc-candidatos-table"')
-    assert i_body != -1 and i_filters != -1 and i_table != -1
-    assert i_body < i_filters < i_table, "filtros y tabla deben vivir DENTRO del body del panel"
+    assert i_filters != -1 and i_body != -1 and i_table != -1
+    assert i_filters < i_body < i_table, "filtros ANTES del panel; tabla DENTRO del body del panel"
 
 
 def test_count_updates_after_filtering():

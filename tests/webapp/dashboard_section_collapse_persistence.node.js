@@ -63,7 +63,7 @@ const sandbox = {
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
-const { applyStoredSectionCollapse, saveSectionCollapse, saveSectionOrder, initDashboardSections } = sandbox;
+const { applyStoredSectionCollapse, saveSectionCollapse, saveSectionOrder, initDashboardSections, setDashboardGroupsCollapse } = sandbox;
 
 ok(typeof saveSectionCollapse === "function", "app.js expone saveSectionCollapse");
 ok(typeof applyStoredSectionCollapse === "function", "app.js expone applyStoredSectionCollapse");
@@ -127,6 +127,73 @@ ok(typeof applyStoredSectionCollapse === "function", "app.js expone applyStoredS
   initDashboardSections(scope);  // segunda pasada (simula otro htmx:load)
   eq(listenerCounts["toggle"], 1, "toggle listener se cablea UNA sola vez (idempotente)");
   eq(listenerCounts["dragstart"], 1, "drag listeners se cablean UNA sola vez (guard dashWired)");
+}
+
+// ── Expandir/Contraer TODOS (owner request, Candidate Edit — CCHH): un solo
+//    grupo, con persistencia opt-in ────────────────────────────────────────
+{
+  const key = "dw-dash-collapse:grupo-a";
+  const s1 = makeSection("x", false), s2 = makeSection("y", false); // ambas colapsadas
+  const containerA = makeContainer("grupo-a", [s1, s2], true); // data-persist-collapse
+  sandbox.document.querySelector = (sel) => (sel === '[data-dashboard-key="grupo-a"]' ? containerA : null);
+  setDashboardGroupsCollapse(["grupo-a"], true);
+  ok(s1.hasAttribute("open") && s2.hasAttribute("open"), "expandir-todos abre TODAS las secciones del grupo");
+  eq(JSON.parse(store[key]), { x: true, y: true }, "persiste el estado resultante, MISMO mecanismo que un toggle individual (data-persist-collapse)");
+
+  setDashboardGroupsCollapse(["grupo-a"], false);
+  ok(!s1.hasAttribute("open") && !s2.hasAttribute("open"), "contraer-todos cierra TODAS las secciones del grupo");
+  eq(JSON.parse(store[key]), { x: false, y: false }, "persiste el nuevo estado colapsado");
+}
+
+// ── MÚLTIPLES grupos con una sola acción (Candidate Edit: 5 bloques +
+//    Documentos, dos namespaces de persistencia independientes) ───────────
+{
+  const sEdit = makeSection("datos-candidato", false);
+  const sDocs = makeSection("documentos", false);
+  const containerEdit = makeContainer("cchh-candidate-edit", [sEdit], true);
+  const containerDocs = makeContainer("cchh-candidate-documents", [sDocs], true);
+  sandbox.document.querySelector = (sel) => {
+    if (sel === '[data-dashboard-key="cchh-candidate-edit"]') return containerEdit;
+    if (sel === '[data-dashboard-key="cchh-candidate-documents"]') return containerDocs;
+    return null;
+  };
+  setDashboardGroupsCollapse(["cchh-candidate-edit", "cchh-candidate-documents"], true);
+  ok(sEdit.hasAttribute("open"), "grupo 1 (edición) se expande");
+  ok(sDocs.hasAttribute("open"), "grupo 2 (documentos) se expande EN LA MISMA acción");
+  eq(JSON.parse(store["dw-dash-collapse:cchh-candidate-edit"]), { "datos-candidato": true }, "cada grupo persiste en SU PROPIA key, sin pisarse");
+  eq(JSON.parse(store["dw-dash-collapse:cchh-candidate-documents"]), { documentos: true }, "namespace de Documentos independiente del de edición");
+}
+
+// ── Sin `data-persist-collapse`: expandir/contraer-todos sigue funcionando
+//    (toca el DOM) pero NO escribe en sessionStorage (no-regresión, MISMO
+//    criterio que un toggle individual) ────────────────────────────────────
+{
+  delete store["dw-dash-collapse:grupo-sin-persistencia"];
+  const s = makeSection("z", true);
+  const container = makeContainer("grupo-sin-persistencia", [s], false); // SIN persist
+  sandbox.document.querySelector = (sel) => (sel === '[data-dashboard-key="grupo-sin-persistencia"]' ? container : null);
+  setDashboardGroupsCollapse(["grupo-sin-persistencia"], false);
+  ok(!s.hasAttribute("open"), "el DOM sí se afecta aunque el grupo no persista");
+  ok(!("dw-dash-collapse:grupo-sin-persistencia" in store), "sin data-persist-collapse, no se escribe nada en sessionStorage");
+}
+
+// ── Grupo inexistente: no rompe (defensivo) ─────────────────────────────────
+{
+  sandbox.document.querySelector = () => null;
+  let threw = false;
+  try { setDashboardGroupsCollapse(["no-existe"], true); } catch (e) { threw = true; }
+  ok(!threw, "un key sin contenedor real en el DOM no rompe (no-op silencioso)");
+}
+
+// ── Expandir/Contraer-todos NUNCA toca el orden persistido (keys totalmente
+//    independientes) ────────────────────────────────────────────────────────
+{
+  const s = makeSection("candidatos", true);
+  const container = makeContainer("cchh-orden-intacto", [s], true);
+  saveSectionOrder(container, "dw-dash-order:cchh-orden-intacto");
+  sandbox.document.querySelector = (sel) => (sel === '[data-dashboard-key="cchh-orden-intacto"]' ? container : null);
+  setDashboardGroupsCollapse(["cchh-orden-intacto"], false);
+  eq(JSON.parse(store["dw-dash-order:cchh-orden-intacto"]), ["candidatos"], "el orden persistido queda intocado por expandir/contraer-todos");
 }
 
 if (failures === 0) { console.log("ALL DASHBOARD SECTION COLLAPSE PERSISTENCE INVARIANTS PASSED"); process.exit(0); }

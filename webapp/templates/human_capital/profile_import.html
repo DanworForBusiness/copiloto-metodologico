@@ -29,12 +29,30 @@
     {% if file_error %}<p class="feedback-error">{{ file_error }}</p>{% endif %}
 
     <form class="hc-profile-form" method="post" action="/cchh/candidatos/importar/preview" enctype="multipart/form-data">
-      <div class="feedback-field">
-        <label for="hc-import-file">Archivo XLSX</label>
-        <input id="hc-import-file" name="file" type="file" accept=".xlsx" required>
+      {# "Descargar modelo" (owner, paridad con la app vigente): asset
+         oficial de SharePoint (config.HC_BULK_IMPORT_TEMPLATE_URL), link de
+         sharing tal cual -- nunca duplicado/regenerado en este repo, nunca
+         una dependencia Graph nueva (el link compartido ya resuelve directo
+         para usuarios autorizados). `.hc-import-actions` (human_capital.css)
+         ubica la acción secundaria en la MISMA fila que el picker de
+         archivo -- `.btn-secondary` es el primitivo estándar del Hub, sin
+         estilo propio. Orden visual (owner feedback en vivo, post-#107):
+         picker a la izquierda, "Descargar modelo" a la derecha -- "queda
+         raro" con el orden inverso (el picker de archivo es la acción
+         primaria del flujo). #}
+      <div class="hc-import-actions">
+        <div class="feedback-field">
+          <label for="hc-import-file">Archivo XLSX</label>
+          <input id="hc-import-file" name="file" type="file" accept=".xlsx" required>
+        </div>
+        <a class="btn-secondary" href="{{ bulk_import_template_url }}" target="_blank" rel="noopener noreferrer">Descargar modelo</a>
       </div>
-      <p>Formato admitido: XLSX únicamente. Límite: {{ max_upload_mb }} MB, {{ max_import_rows }} filas.</p>
-      <p>Columnas esperadas (encabezados en la primera fila): <code>nombre</code>* <code>apellido</code>* <code>email</code> <code>telefono</code> <code>linkedin</code> <code>ubicacion</code> <code>perfil_skills</code> <code>seniority</code> <code>fuente</code> <code>tags</code> <code>notas</code> <code>potencial</code> <code>marca_potencial</code> — (*) requeridas, el resto puede quedar vacío o ausente.</p>
+      {# `.field-hint` (human_capital.css) -- MISMO registro tipográfico gris/
+         chico que ya usan los forms de alta/edición de esta vertical, nunca
+         texto plano a color de cuerpo (owner feedback: look and feel del Hub,
+         más sutil que el copy principal). #}
+      <p class="field-hint">Formato admitido: XLSX únicamente. Límite: {{ max_upload_mb }} MB, {{ max_import_rows }} filas.</p>
+      <p class="field-hint">Columnas esperadas (encabezados en la primera fila): <code>nombre</code>* <code>apellido</code>* <code>email</code> <code>telefono</code> <code>linkedin</code> <code>ubicacion</code> <code>perfil_skills</code> <code>seniority</code> <code>fuente</code> <code>tags</code> <code>notas</code> <code>potencial</code> <code>marca_potencial</code> — (*) requeridas, el resto puede quedar vacío o ausente.</p>
       <button type="submit" class="btn-primary">Ver vista previa</button>
     </form>
   </main>

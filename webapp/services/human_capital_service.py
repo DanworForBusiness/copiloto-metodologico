@@ -59,7 +59,7 @@ __all__ = [
     "ProfileConcurrentModificationError", "ProfileConfigIncompleteError",
     "ProfileDuplicateAdvisory", "ProfileIdConflictError", "ProfileNotFoundError",
     "ProfileRemoteOutcomeUnknownError", "ProfileStorageError",
-    "list_profiles", "get_profile", "create_profile", "update_profile", "filter_profiles",
+    "list_profiles", "get_profile", "create_profile", "update_profile", "soft_delete_profile", "filter_profiles",
     "validate_and_shape_fields", "find_duplicate", "create_profile_for_import",
     "validate_source_for_import",
 ]
@@ -78,9 +78,14 @@ _OPTIONAL_FIELDS = (
 # busca dentro de un CV — no existe CV en esta fase (§3, explícito).
 _SEARCH_TEXT_FIELDS = ("first_name", "last_name", "email", "profile_skills", "location", "tags", "notes")
 
-# Filtros estructurados con match EXACTO (normalizado) — faceta/categoría,
-# no texto libre (Phase 3.2 §5). `location` NO está acá a propósito: ver
-# `_matches_structured_filters`.
+# Filtros estructurados con match EXACTO (normalizado) — faceta/categoría
+# con catálogo GOBERNADO server-side real (Phase 3.2 §5 / CCHH Catalog
+# Foundation §6). `potential_mark` se sumó acá cuando pasó a ser un
+# catálogo gobernado (`potencial`, ver P2/HANDOFF) -- el UI ahora lo ofrece
+# como `<select>` de opciones fijas, MISMO criterio que seniority/source
+# (antes vivía en el grupo CONTAINS de abajo, cuando todavía era un
+# `<input type="text">` libre). `location` sigue siendo el único texto
+# libre real acá.
 _EXACT_MATCH_FILTER_FIELDS = ("seniority", "source", "potential_mark")
 
 
@@ -144,25 +149,27 @@ def _matches_structured_filters(profile: dict, query: dict) -> bool:
     contrato lo pida, y acá no lo pide). Un filtro con valor vacío/ausente
     en `query` no restringe nada (passthrough para ese campo).
 
-    `seniority`/`source`/`potential_mark`: EXACT match normalizado — son
-    filtros de faceta/categoría (§5). `seniority`/`source` ya tienen un
-    catálogo GOBERNADO server-side (CCHH Catalog Foundation §6);
-    `potential_mark` no lo tiene todavía, pero interpretamos "filtro
-    estructurado" igual de literal para los tres, exact match sobre lo
-    que sea que esté guardado.
+    `seniority`/`source`/`potential_mark`: EXACT match normalizado —
+    faceta/categoría con catálogo GOBERNADO server-side real (§5 / CCHH
+    Catalog Foundation §6 / P2 owner corrective para `potencial`): el UI
+    los ofrece como `<select>` de opciones fijas, así que un exact match
+    tiene sentido (el usuario elige un valor del catálogo, nunca tipea uno
+    parcial). `potential_mark` pasó de CONTAINS a EXACT en este corrective
+    -- mientras fue `<input type="text">` libre, CONTAINS era lo correcto
+    (ver historial de este archivo); ahora que es un `<select>` gobernado,
+    EXACT es lo consistente con seniority/source, MISMO criterio.
 
-    `location` es la ÚNICA excepción: CONTAINS, no exact match (Phase 3.2
-    §5, decisión explícita) — es texto libre real, tipeado a mano sin
-    lista fija ni en el legacy ni acá ("Buenos Aires" / "CABA" / "Bs As"
-    nunca matchean entre sí con exact match, lo que volvería el filtro
-    casi inútil sobre datos reales) — MISMO tratamiento que ya le da la
-    búsqueda textual libre (`q`) a este campo."""
+    `location`: CONTAINS, no exact match (Phase 3.2 §5, decisión
+    explícita) — el único filtro de texto libre real que queda, tipeado a
+    mano sin lista fija (un exact match sobre texto libre lo volvería casi
+    inútil: "Buenos Aires"/"CABA"/"Bs As" no matchean entre sí). MISMO
+    tratamiento que ya le da la búsqueda textual libre (`q`)."""
     for field in _EXACT_MATCH_FILTER_FIELDS:
         wanted = _normalize_text(query.get(field))
         if wanted and _normalize_text(profile.get(field)) != wanted:
             return False
-    location_wanted = _normalize_text(query.get("location"))
-    if location_wanted and location_wanted not in _normalize_text(profile.get("location")):
+    wanted_location = _normalize_text(query.get("location"))
+    if wanted_location and wanted_location not in _normalize_text(profile.get("location")):
         return False
     return True
 
@@ -235,7 +242,19 @@ def find_duplicate(profile: dict, existing: list[dict], *, exclude_profile_id: s
 
 
 def list_profiles() -> list[dict]:
-    return profile_repository.list()
+    # Excluye los borrados lógicos (owner closure: un candidato soft-deleted
+    # NO aparece en listados/búsquedas normales). El dedup de create/update
+    # sigue mirando `profile_repository.list()` crudo a propósito (un borrado
+    # no debería habilitar re-crear un duplicado silenciosamente).
+    return [p for p in profile_repository.list() if not p.get("deleted_at")]
+
+
+def soft_delete_profile(profile_id: str, actor: str | None = None) -> dict:
+    """Borrado LÓGICO del candidato (owner closure). Una sola operación de
+    servicio, compartida por los dos puntos de entrada de UI (listado y
+    edición). Documentos preservados. Delega en `profile_repository.soft_delete`
+    (durabilidad remota + idempotencia)."""
+    return profile_repository.soft_delete(profile_id, actor)
 
 
 def get_profile(profile_id: str) -> dict | None:
@@ -261,12 +280,14 @@ def validate_and_shape_fields(fields: dict) -> dict:
       - `potential_rating` no es un entero 1-5 (MISMO rango que el CHECK
         legacy `banco_cvs.potencial_estrellas`, ver Phase 2 §5).
 
-    `seniority`/`source` NO se validan acá (CCHH Catalog Foundation §6):
-    son catálogos GOBERNADOS con contrato migration-safe CREATE/EDIT
-    distinto (ver `_validate_seniority_governed`/`_validate_source_governed`,
-    llamadas solo desde `create_profile`/`update_profile`, nunca desde acá
-    -- esta función también la usa el import masivo, que deliberadamente
-    NO gobierna ninguno de los dos, mismo criterio para ambos campos).
+    `seniority`/`source`/`potential_mark` NO se validan acá (CCHH Catalog
+    Foundation §6 / P2): son catálogos GOBERNADOS con contrato
+    migration-safe CREATE/EDIT distinto (ver
+    `_validate_seniority_governed`/`_validate_source_governed`/
+    `_validate_potencial_governed`, llamadas solo desde
+    `create_profile`/`update_profile`, nunca desde acá -- esta función
+    también la usa el import masivo, que deliberadamente NO gobierna
+    ninguno de los tres, mismo criterio para los tres campos).
 
     Devuelve el dict de campos de NEGOCIO ya shapeado (sin `profile_id`/
     `schema_version`/`revision`/timestamps — esos son responsabilidad
@@ -350,6 +371,18 @@ def _validate_source_governed(new_value: str | None, *, existing_value: str | No
     )
 
 
+def _validate_potencial_governed(new_value: str | None, *, existing_value: str | None) -> None:
+    if _is_governed_value_allowed("potencial", new_value, existing_value=existing_value):
+        return
+    active = catalog_repo.catalog_values("potencial")
+    if active:
+        raise ValueError(f"Marca de potencial inválida. Elegí una del catálogo vigente: {', '.join(active)}.")
+    raise ValueError(
+        "El catálogo de Marca de potencial todavía no está disponible. Dejá el campo vacío "
+        "o refrescá el catálogo antes de asignar un valor."
+    )
+
+
 def validate_source_for_import(source: str | None) -> None:
     """Import masivo (Phase 3.8 §8: "sin validador bulk paralelo", ver
     `profile_import_service.py`, único caller) NO pasa por `create_profile`
@@ -386,6 +419,7 @@ def create_profile(fields: dict, *, duplicate_confirmed: bool = False) -> dict:
     profile = validate_and_shape_fields(fields)
     _validate_seniority_governed(profile.get("seniority"), existing_value=None)
     _validate_source_governed(profile.get("source"), existing_value=None)
+    _validate_potencial_governed(profile.get("potential_mark"), existing_value=None)
     if not duplicate_confirmed:
         duplicate = find_duplicate(profile, profile_repository.list())
         if duplicate is not None:
@@ -433,6 +467,10 @@ def update_profile(
         _validate_source_governed(
             profile.get("source"),
             existing_value=(_existing.get("source") or None),
+        )
+        _validate_potencial_governed(
+            profile.get("potential_mark"),
+            existing_value=(_existing.get("potential_mark") or None),
         )
     if not duplicate_confirmed:
         duplicate = find_duplicate(profile, profile_repository.list(), exclude_profile_id=profile_id)

@@ -96,6 +96,27 @@ def test_get_import_authorized_returns_200():
     assert "XLSX" in response.text
 
 
+def test_get_import_shows_descargar_modelo_link_to_official_sharepoint_asset():
+    # Owner parity request: acción "Descargar modelo" -- constante ESTÁTICA
+    # de código (config.HC_BULK_IMPORT_TEMPLATE_URL), nunca un asset
+    # duplicado/generado en este repo. target=_blank (asset externo, MISMO
+    # criterio que otros links de SharePoint del Hub).
+    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos/importar")
+    assert response.status_code == 200
+    assert "Descargar modelo" in response.text
+    assert f'href="{config.HC_BULK_IMPORT_TEMPLATE_URL}"' in response.text
+    assert 'target="_blank"' in response.text
+
+
+def test_missing_file_shows_error_still_shows_descargar_modelo_link():
+    # `_import_page_context` (compartido GET + re-renders de error) debe
+    # seguir incluyendo el link en CUALQUIER re-render de este template, no
+    # sólo el GET inicial -- MISMO criterio que max_upload_mb/max_import_rows.
+    response = _client_as(_AUTHORIZED_EMAIL).post("/cchh/candidatos/importar/preview")
+    assert response.status_code == 200
+    assert f'href="{config.HC_BULK_IMPORT_TEMPLATE_URL}"' in response.text
+
+
 # ============================================================================
 # Upload / preview
 # ============================================================================

@@ -56,14 +56,18 @@ from core import microsoft365, remote_store
 _logger = logging.getLogger("danwor.hc_catalog")
 
 # --- Contrato de gobierno ---------------------------------------------------
-# Los 5 catálogos gobernados (modelo del audit legacy probado). `marca_potencial`
-# NO es catálogo gobernado (enum fijo de producto); `potential_rating` es fijo 1-5.
+# Los 6 catálogos gobernados (modelo del audit legacy probado). `potencial`
+# gobierna los valores de negocio de `potential_mark` (owner, workbook
+# actualizado: "Terna futura"/"No reconsiderar"/etc, NUNCA hardcodeados en
+# template/Python) -- `potential_rating` sigue siendo fijo 1-5, sin catálogo
+# (ver P3/estrellas, profile_fields.html).
 GOVERNED_CATALOGS: tuple[str, ...] = (
     "seniority",
     "fuente",
     "canal_publicacion",
     "area_consultora",
     "modalidad_contratacion",
+    "potencial",
 )
 
 # --- Contrato del workbook --------------------------------------------------
@@ -134,7 +138,7 @@ class CatalogNotFoundError(Exception):
     (`HC_SHAREPOINT_DRIVE_ID`+`HC_CATALOG_ITEM_ID`) configurada."""
 
 
-# Etiquetas de negocio para los 5 catálogos gobernados (owner post-#104
+# Etiquetas de negocio para los catálogos gobernados (owner post-#104
 # acceptance, item D: "business labels rather than identifiers") -- SOLO
 # presentación; `GOVERNED_CATALOGS` (arriba) sigue siendo la identidad real
 # usada para leer/validar/persistir, esto nunca se usa como key de nada.
@@ -144,6 +148,7 @@ CATALOG_LABELS: dict[str, str] = {
     "canal_publicacion": "Canal de publicación",
     "area_consultora": "Área consultora",
     "modalidad_contratacion": "Modalidad de contratación",
+    "potencial": "Marca de potencial",
 }
 
 

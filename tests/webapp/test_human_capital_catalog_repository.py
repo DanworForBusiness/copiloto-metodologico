@@ -91,6 +91,20 @@ def test_parse_fail_closed_collects_all_row_errors():
     assert "activo inválido" in joined and "orden inválido" in joined
 
 
+def test_parse_accepts_potencial_as_a_governed_catalog():
+    # `potencial` (P1, owner: valores de negocio de Marca de potencial vía
+    # workbook, ej. "Terna futura"/"No reconsiderar") es un catálogo
+    # gobernado más, MISMO contrato que seniority/fuente -- nunca
+    # hardcodeado en template/Python.
+    data = _make_workbook([
+        ["potencial", "Terna futura", "Sí", 2],
+        ["potencial", "No reconsiderar", "Sí", 1],
+        ["potencial", "Retirado", "No", 3],  # inactiva -> excluida
+    ])
+    out = repo.parse_and_validate_workbook(data)
+    assert [r["valor"] for r in out["potencial"]] == ["No reconsiderar", "Terna futura"]
+
+
 def test_parse_rejects_duplicate_normalized_key():
     data = _make_workbook([
         ["seniority", "Senior", "Sí", 1],
@@ -113,7 +127,7 @@ def test_build_snapshot_shape():
     assert snap["schema_version"] == repo.SCHEMA_VERSION
     assert snap["refreshed_by"] == "innovacion@danwor.com"
     assert snap["source"] == {"drive_id": "b!D", "item_id": "01I", "etag": "\"e,1\""}
-    assert set(snap["catalogs"]) == set(repo.GOVERNED_CATALOGS)  # los 5 siempre presentes
+    assert set(snap["catalogs"]) == set(repo.GOVERNED_CATALOGS)  # los 6 siempre presentes
     assert snap["catalogs"]["seniority"] == [{"valor": "Senior", "orden": 1}]
     assert snap["catalogs"]["fuente"] == []
 

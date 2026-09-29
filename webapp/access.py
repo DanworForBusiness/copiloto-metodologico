@@ -20,6 +20,20 @@ admin. NO importa ``webapp.main``.
 Seam de tests: ``APP_OWNER`` se enlaza acá desde config y las funciones leen el
 global del módulo, así que los tests reasignan ``webapp.access.APP_OWNER`` (mismo
 patrón que ``auth_service.ALLOWED_USERS``/``ACADEMY_USERS``).
+
+CONTRATO DE PRODUCTO (owner decision, corrective post-#107): `APP_OWNER` pasa a
+ser superusuario de TODOS los workspaces registrados del Hub (Copiloto/
+Operations/Commercial/Capital Humano), no sólo del diagnóstico del Copiloto y
+del fallback histórico de Hub Metrics. Esto REEMPLAZA la política anterior
+(documentada hasta este corrective en `human_capital_access.py`/
+`operations_access.py`/`commercial_access.py`: "APP_OWNER NUNCA se referencia
+acá, sin bypass implícito, el dueño debe estar explícito en cada allowlist como
+cualquier otro usuario") — decisión consciente del owner, no un bug. `is_owner_user`
+(abajo) es el ÚNICO lugar que implementa la excepción; cada predicado de
+workspace la consume vía `or`, nunca la reimplementa. CRÍTICO: esto SOLO
+afecta AUTORIZACIÓN post-autenticación — `APP_OWNER` nunca crea ni valida una
+sesión por sí solo; un `APP_OWNER` sin sesión válida sigue sin acceso a nada
+(ver `is_owner_user`, que exige `user` no-None primero).
 """
 from __future__ import annotations
 
@@ -41,13 +55,29 @@ def owner_emails() -> set[str]:
     return owners
 
 
-def is_owner(request: Request) -> bool:
-    """True si el usuario logueado es el dueño de la app (config APP_OWNER)."""
+def is_owner_user(user: dict | None) -> bool:
+    """Predicado PURO (sin `Request`) — True si `user` (claims de sesión, o
+    None) es el dueño de la app (config APP_OWNER). ÚNICO lugar que decide
+    esto; `is_owner(request)` (abajo) y los predicados de autorización de
+    Operations/Commercial/Capital Humano delegan acá, nunca reimplementan la
+    comparación contra `owner_emails()`. Exige `user` no-None PRIMERO —
+    `APP_OWNER` nunca es un atajo de autenticación, sólo de autorización
+    posterior a una sesión ya válida."""
+    if not user:
+        return False
     owners = owner_emails()
     if not owners:
         return False
-    user = auth_service.session_user(request)
-    return bool(user) and (str(user.get("sub") or "").strip().lower() in owners)
+    return str(user.get("sub") or "").strip().lower() in owners
+
+
+def is_owner(request: Request) -> bool:
+    """True si el usuario logueado es el dueño de la app (config APP_OWNER).
+    Wrapper HTTP sin cambio de comportamiento — delega en el predicado puro
+    `is_owner_user`, MISMO criterio pure/wrapper que el resto de los
+    predicados de workspace (`human_capital_access`/`operations_access`/
+    `commercial_access`)."""
+    return is_owner_user(auth_service.session_user(request))
 
 
 def is_readonly(request: Request) -> bool:

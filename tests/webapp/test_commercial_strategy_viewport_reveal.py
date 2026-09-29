@@ -314,4 +314,4 @@ def test_g_full_route_surface_unchanged_by_this_gate():
     # 156 -> 158 (CCHH Catalog Foundation): +2 rutas gobernadas de catálogos
     # (GET /cchh/catalogos, POST /cchh/catalogos/refresh) -- CERO rutas de
     # Estrategia tocadas, este gate sigue sin cambios propios.
-    assert len(snapshot) == 158
+    assert len(snapshot) == 159
