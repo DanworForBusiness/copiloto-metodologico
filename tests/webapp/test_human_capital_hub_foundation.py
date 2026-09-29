@@ -181,11 +181,15 @@ def test_content_never_lists_functional_capabilities_as_if_available():
     # ser una capability legacy hipotética para ser la etiqueta REAL del
     # nav de la capability que YA existe (antes "Perfiles") -- que aparezca
     # en cada página del workspace, incluida la landing, es correcto, no
-    # una promesa de funcionalidad todavía no construida.
+    # una promesa de funcionalidad todavía no construida. "Búsquedas" salió
+    # por la MISMA razón: dejó de ser hipotética y es la etiqueta real del
+    # nav (tab "03 Búsquedas", procesos de selección) de una capability que
+    # YA existe end-to-end (listado/alta/detalle/pipeline/cierre).
     text = _client_as(_AUTHORIZED_EMAIL).get("/cchh").text
     assert "<strong>Candidatos</strong>" in text  # nav real, no un placeholder
+    assert "<strong>Búsquedas</strong>" in text   # nav real, no un placeholder
     for capability in (
-        "Búsquedas", "Entrevistas", "Onboarding", "Avisos",
+        "Entrevistas", "Onboarding", "Avisos",
         "Indicadores", "Administración", "Banco de CVs", "Procesos",
     ):
         assert capability not in text

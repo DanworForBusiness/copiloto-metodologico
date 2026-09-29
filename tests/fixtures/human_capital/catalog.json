@@ -25,6 +25,16 @@
     {"valor": "Cloud & Infraestructura", "orden": 3},
     {"valor": "Desarrollo", "orden": 4}
   ],
+  "area": [
+    {"valor": "Datos & BI", "orden": 1},
+    {"valor": "IT / Desarrollo", "orden": 2},
+    {"valor": "SAP", "orden": 3},
+    {"valor": "RRHH", "orden": 4},
+    {"valor": "Comercial", "orden": 5},
+    {"valor": "Finanzas", "orden": 6},
+    {"valor": "Consultoría", "orden": 7},
+    {"valor": "Administración", "orden": 8}
+  ],
   "modalidad_contratacion": [
     {"valor": "Relación de dependencia", "orden": 1},
     {"valor": "Freelance", "orden": 2},

@@ -55,12 +55,10 @@ ETAPA_INICIAL = "Preselección"
 ETAPA_FINAL = "Finalizado"
 RESULTADOS_FINALES = ("Ingreso", "Rechazado", "Desistió")
 MODALIDADES = ("Híbrido", "Remoto")
-AREAS_CONSULTORA = ("OPERACIONES", "ADMINISTRACION/CCHH", "COMERCIAL")
-# Sugerencias de área/departamento (texto libre, datalist) — verbatim de la
-# referencia (`AREAS_DEPARTAMENTO_SUGERENCIAS`, lib/types.ts). No es un enum.
-AREAS_DEPARTAMENTO = (
-    "Datos/BI", "IT", "SAP", "RRHH", "Comercial", "Finanzas", "Consultoría", "Administración",
-)
+# `area_departamento` y `area_consultora` NO son enums de este repositorio: son
+# catálogos GOBERNADOS (`area` y `area_consultora`, human_capital_catalog_
+# repository) — la validación migration-safe vive en el service, MISMO criterio
+# que Seniority/Fuente. Por eso acá no hay tuplas de áreas.
 
 # Campos EDITABLES de una búsqueda (los que el form de alta/edición maneja).
 # `estado`/`fecha_cierre`/`candidatos` NUNCA se tocan por esta vía — tienen sus

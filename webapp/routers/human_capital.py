@@ -1156,14 +1156,22 @@ def _busquedas_list_context() -> dict:
 
 
 def _busqueda_form_context(*, form_values, is_edit, error=None, concurrent_modification=False) -> dict:
+    # Área/Departamento y Área de la consultora son GOBERNADAS por catálogo
+    # (mismo contrato migration-safe que Seniority/Fuente en el alta de
+    # candidatos): el <select> ofrece el catálogo activo, más el valor legacy
+    # actual al frente si quedó fuera de catálogo, para que una edición no
+    # relacionada siga round-tripeando. `modalidad` NO es catálogo: es un enum
+    # de dominio fijo (Híbrido/Remoto), igual que en la app de referencia.
     return {
         "form_values": form_values,
         "is_edit": is_edit,
         "form_error": error,
         "concurrent_modification": concurrent_modification,
         "modalidades": busqueda_repository.MODALIDADES,
-        "areas_consultora": busqueda_repository.AREAS_CONSULTORA,
-        "areas_departamento": busqueda_repository.AREAS_DEPARTAMENTO,
+        "areas_consultora": _governed_edit_options("area_consultora", form_values.get("area_consultora")),
+        "areas_departamento": _governed_edit_options("area", form_values.get("area_departamento")),
+        "area_is_legacy": _is_legacy_governed_value("area", form_values.get("area_departamento")),
+        "area_consultora_is_legacy": _is_legacy_governed_value("area_consultora", form_values.get("area_consultora")),
     }
 
 

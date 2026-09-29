@@ -68,6 +68,10 @@ GOVERNED_CATALOGS: tuple[str, ...] = (
     "area_consultora",
     "modalidad_contratacion",
     "potencial",
+    # Área / Departamento de una Búsqueda (proceso). En la app de referencia
+    # las áreas salen de Configuración (catálogo), no hardcodeadas -- MISMO
+    # criterio migration-safe que Seniority/Fuente.
+    "area",
 )
 
 # --- Contrato del workbook --------------------------------------------------
@@ -149,6 +153,7 @@ CATALOG_LABELS: dict[str, str] = {
     "area_consultora": "Área consultora",
     "modalidad_contratacion": "Modalidad de contratación",
     "potencial": "Marca de potencial",
+    "area": "Área / Departamento",
 }
 
 

@@ -18,30 +18,37 @@
         <p>Procesos de selección abiertos y cerrados, con su pipeline de candidatos.</p>
       </div>
       <div class="hc-profiles-hero-actions">
-        <a href="/cchh/busquedas/nueva" class="btn-primary">+ Nueva búsqueda</a>
+        {# Dos acciones, MISMA composición/orden que el dashboard de la app de
+           referencia: "+ Nuevo proceso" (acá, una búsqueda) como secundaria y
+           "+ Nuevo candidato" como primaria (deriva al Banco de CVs, maestro). #}
+        <a href="/cchh/busquedas/nueva" class="btn-secondary">+ Nueva búsqueda</a>
+        <a href="/cchh/candidatos/nuevo" class="btn-primary">+ Nuevo candidato</a>
       </div>
     </section>
 
     {% if source_error %}
     <div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>{{ source_error }}</p></div>
     {% elif total_busquedas == 0 %}
-    <div class="dashboard-empty"><span class="dashboard-empty__label">Sin búsquedas</span><p>Todavía no hay búsquedas. Creá la primera con “+ Nueva búsqueda”.</p></div>
+    <div class="dashboard-empty"><span class="dashboard-empty__label">Sin búsquedas</span><p>Todavía no hay búsquedas cargadas por el momento. Creá una nueva para empezar a sumar candidatos.</p></div>
     {% else %}
     {% macro busqueda_card(b) %}
+    {# Composición espejo de GridProcesos (app de referencia): columna izquierda
+       apilada (título → descripción → área → aviso) + pill de estado arriba a la
+       derecha; fila inferior anclada al fondo con "Desde {fecha}" a la izquierda
+       y el pill de cantidad (amarillo Danwor) a la derecha. #}
     <a class="busqueda-card" href="/cchh/busquedas/{{ b.busqueda_id }}">
       <div class="busqueda-card__head">
-        <span class="busqueda-card__title">{{ b.nombre_puesto }}</span>
+        <div class="busqueda-card__headtext">
+          <span class="busqueda-card__title">{{ b.nombre_puesto }}</span>
+          {% if b.descripcion %}<p class="busqueda-card__desc">{{ b.descripcion }}</p>{% endif %}
+          {% if b.area_departamento %}<span class="busqueda-card__area">{{ b.area_departamento }}</span>{% endif %}
+          {% if not b.pedido_formal_recibido %}<span class="busqueda-card__warn">Sin requerimiento formal</span>{% endif %}
+        </div>
         <span class="busqueda-estado busqueda-estado--{{ 'activa' if b.estado == 'activo' else 'cerrada' }}">{{ 'Activa' if b.estado == 'activo' else 'Cerrada' }}</span>
       </div>
-      {% if b.descripcion %}<p class="busqueda-card__desc">{{ b.descripcion }}</p>{% endif %}
-      <div class="busqueda-card__meta">
-        {% if b.area_departamento %}<span>{{ b.area_departamento }}</span>{% endif %}
-        {% if b.modalidad %}<span>{{ b.modalidad }}</span>{% endif %}
-        <span>Desde {{ b.fecha_apertura }}{% if b.fecha_cierre %} · Cierre {{ b.fecha_cierre }}{% endif %}</span>
-      </div>
-      <div class="busqueda-card__badges">
+      <div class="busqueda-card__foot">
+        <span class="busqueda-card__desde">Desde {{ b.fecha_apertura }}{% if b.fecha_cierre %} · Cierre {{ b.fecha_cierre }}{% endif %}</span>
         <span class="busqueda-card__count">{{ b.candidatos | length }} candidato{{ '' if (b.candidatos | length) == 1 else 's' }}</span>
-        {% if not b.pedido_formal_recibido %}<span class="busqueda-card__warn">Sin requerimiento formal</span>{% endif %}
       </div>
     </a>
     {% endmacro %}
@@ -51,7 +58,10 @@
         <summary class="dashboard-section__head" draggable="true">
           <span class="dashboard-section__caret"></span>
           <span class="dashboard-section__title">Activas</span>
-          <span class="dashboard-section__count">{{ activas | length }}</span>
+          {# Conteo como frase completa (owner): nunca un número suelto. El
+             primitivo compartido `.dashboard-section__count` lo alinea al
+             margen superior derecho (`margin-left:auto`). #}
+          <span class="dashboard-section__count">{{ activas | length }} proceso{{ '' if activas | length == 1 else 's' }} activo{{ '' if activas | length == 1 else 's' }}</span>
         </summary>
         <div class="dashboard-section__body">
           {% if activas %}
@@ -63,7 +73,7 @@
         <summary class="dashboard-section__head" draggable="true">
           <span class="dashboard-section__caret"></span>
           <span class="dashboard-section__title">Cerradas</span>
-          <span class="dashboard-section__count">{{ cerradas | length }}</span>
+          <span class="dashboard-section__count">{{ cerradas | length }} proceso{{ '' if cerradas | length == 1 else 's' }} cerrado{{ '' if cerradas | length == 1 else 's' }}</span>
         </summary>
         <div class="dashboard-section__body">
           {% if cerradas %}

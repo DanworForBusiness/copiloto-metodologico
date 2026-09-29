@@ -387,6 +387,36 @@ def _validate_potencial_governed(new_value: str | None, *, existing_value: str |
     )
 
 
+def _validate_area_governed(new_value: str | None, *, existing_value: str | None) -> None:
+    """Área / Departamento de una Búsqueda: gobernada por el catálogo `area`
+    (en la app de referencia el select sale de Configuración, no de una lista
+    hardcodeada). MISMO contrato migration-safe que Seniority/Fuente."""
+    if _is_governed_value_allowed("area", new_value, existing_value=existing_value):
+        return
+    active = catalog_repo.catalog_values("area")
+    if active:
+        raise ValueError(f"Área / Departamento inválida. Elegí una del catálogo vigente: {', '.join(active)}.")
+    raise ValueError(
+        "El catálogo de Áreas todavía no está disponible. Dejá el campo vacío "
+        "o refrescá el catálogo antes de asignar un valor."
+    )
+
+
+def _validate_area_consultora_governed(new_value: str | None, *, existing_value: str | None) -> None:
+    """Área de la consultora responsable de la Búsqueda: gobernada por el
+    catálogo `area_consultora` (mismo catálogo que usa el Banco). MISMO
+    contrato migration-safe que Seniority/Fuente."""
+    if _is_governed_value_allowed("area_consultora", new_value, existing_value=existing_value):
+        return
+    active = catalog_repo.catalog_values("area_consultora")
+    if active:
+        raise ValueError(f"Área de la consultora inválida. Elegí una del catálogo vigente: {', '.join(active)}.")
+    raise ValueError(
+        "El catálogo de Áreas de la consultora todavía no está disponible. Dejá el campo vacío "
+        "o refrescá el catálogo antes de asignar un valor."
+    )
+
+
 def validate_source_for_import(source: str | None) -> None:
     """Import masivo (Phase 3.8 §8: "sin validador bulk paralelo", ver
     `profile_import_service.py`, único caller) NO pasa por `create_profile`
@@ -523,10 +553,13 @@ def get_busqueda(busqueda_id: str) -> dict | None:
     return busqueda_repository.get(busqueda_id)
 
 
-def _shape_busqueda_fields(fields: dict) -> dict:
+def _shape_busqueda_fields(fields: dict, *, existing: dict | None = None) -> dict:
     """Valida y shapea los campos de una búsqueda (alta/edición). `nombre_puesto`
-    y `fecha_apertura` son obligatorios (MISMO contrato que la referencia);
-    modalidad/área de la consultora deben pertenecer a su enum si vienen."""
+    y `fecha_apertura` son obligatorios (MISMO contrato que la referencia).
+    `modalidad` es un enum de dominio fijo (Híbrido/Remoto, no es catálogo).
+    `area_departamento` y `area_consultora` son GOBERNADAS por catálogo (`area`
+    y `area_consultora`) con el mismo contrato migration-safe que Seniority: en
+    edición, un valor legacy fuera-de-catálogo se preserva si no cambia."""
     nombre = (fields.get("nombre_puesto") or "").strip()
     if not nombre:
         raise ValueError("Completá el nombre del puesto.")
@@ -536,14 +569,15 @@ def _shape_busqueda_fields(fields: dict) -> dict:
     modalidad = (fields.get("modalidad") or "").strip() or None
     if modalidad is not None and modalidad not in busqueda_repository.MODALIDADES:
         raise ValueError("Modalidad inválida.")
+    area_dep = (fields.get("area_departamento") or "").strip() or None
+    _validate_area_governed(area_dep, existing_value=(existing or {}).get("area_departamento"))
     area_cons = (fields.get("area_consultora") or "").strip() or None
-    if area_cons is not None and area_cons not in busqueda_repository.AREAS_CONSULTORA:
-        raise ValueError("Área de la consultora inválida.")
+    _validate_area_consultora_governed(area_cons, existing_value=(existing or {}).get("area_consultora"))
     return {
         "nombre_puesto": nombre,
         "fecha_apertura": fecha,
         "descripcion": (fields.get("descripcion") or "").strip() or None,
-        "area_departamento": (fields.get("area_departamento") or "").strip() or None,
+        "area_departamento": area_dep,
         "modalidad": modalidad,
         "area_consultora": area_cons,
         "pedido_formal_recibido": bool(fields.get("pedido_formal_recibido")),
@@ -557,7 +591,9 @@ def create_busqueda(fields: dict) -> dict:
 
 
 def update_busqueda(busqueda_id: str, expected_revision: int, fields: dict) -> dict:
-    return busqueda_repository.update(busqueda_id, expected_revision, _shape_busqueda_fields(fields))
+    existing = busqueda_repository.get(busqueda_id)
+    return busqueda_repository.update(
+        busqueda_id, expected_revision, _shape_busqueda_fields(fields, existing=existing))
 
 
 def close_busqueda(busqueda_id: str, finalize_application_ids: list[str] | None = None) -> dict:

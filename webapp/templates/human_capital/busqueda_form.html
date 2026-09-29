@@ -10,9 +10,13 @@
   {{ sidebar_resize_handle() }}
 
   <main id="content" class="module-content">
+    {# "← Volver": primitivo transversal del Hub (`.catalog-back`, tools.css) —
+       MISMO exacto que profile_edit.html / catalogos.html, nunca un eyebrow
+       gold propio de CCHH. #}
+    <a class="catalog-back" href="{{ '/cchh/busquedas/' ~ form_values.busqueda_id if is_edit else '/cchh/busquedas' }}">← {{ 'Volver a la búsqueda' if is_edit else 'Volver a Búsquedas' }}</a>
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
-        <p class="eyebrow"><a href="{{ '/cchh/busquedas/' ~ form_values.busqueda_id if is_edit else '/cchh/busquedas' }}">← {{ 'Volver a la búsqueda' if is_edit else 'Volver a Búsquedas' }}</a></p>
+        <p class="eyebrow">Capital Humano</p>
         <h1>{{ 'Editar búsqueda' if is_edit else 'Nueva búsqueda' }}</h1>
         <p>{{ 'Actualizá los datos de este proceso de selección.' if is_edit else 'Definí el puesto a cubrir; después sumás candidatos al pipeline.' }}</p>
       </div>
@@ -24,60 +28,79 @@
     <div class="dashboard-empty" data-error-kind="validation"><span class="dashboard-empty__label">No se guardó</span><p>{{ form_error }}</p></div>
     {% endif %}
 
+    {# Layout apilado (una sola columna), MISMO orden de campos que el
+       ProcesoForm de la app de referencia: identidad → descripción → JD →
+       palabras clave → (Área/Departamento + Modalidad en 2 columnas) → Área de
+       la consultora → fecha → requerimiento formal. Área/Departamento y Área de
+       la consultora son <select> GOBERNADOS por catálogo (mismo primitive que
+       Seniority/Fuente en el alta de candidatos): sólo ofrecen el catálogo
+       activo; un valor legacy fuera-de-catálogo se preserva como opción marcada
+       (nunca se agrega al catálogo). `modalidad` es enum de dominio fijo. #}
     <form method="post" action="{{ '/cchh/busquedas/' ~ form_values.busqueda_id ~ '/editar' if is_edit else '/cchh/busquedas/nueva' }}" class="hc-profile-form">
       {% if is_edit %}<input type="hidden" name="expected_revision" value="{{ form_values.expected_revision }}">{% endif %}
 
-      <section class="hc-profile-section">
+      <section class="hc-profile-section hc-busqueda-form">
         <h2>Datos de la búsqueda</h2>
-        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-          <div class="feedback-field feedback-field--wide">
-            <label for="b-nombre">Nombre del puesto</label>
-            <input id="b-nombre" name="nombre_puesto" type="text" value="{{ form_values.nombre_puesto or '' }}" required>
-          </div>
-          <div class="feedback-field feedback-field--compact">
-            <label for="b-fecha">Fecha de apertura</label>
-            <input id="b-fecha" name="fecha_apertura" type="date" value="{{ form_values.fecha_apertura or '' }}" required>
-          </div>
-          <div class="feedback-field feedback-field--compact">
+        <div class="feedback-field">
+          <label for="b-nombre">Nombre del puesto</label>
+          <input id="b-nombre" name="nombre_puesto" type="text" value="{{ form_values.nombre_puesto or '' }}" required>
+        </div>
+        <div class="feedback-field">
+          <label for="b-desc">Descripción</label>
+          <textarea id="b-desc" name="descripcion" rows="2" placeholder="Breve descripción del puesto o la búsqueda…">{{ form_values.descripcion or '' }}</textarea>
+        </div>
+        <div class="feedback-field">
+          <label for="b-jd">Job Description <span>opcional</span></label>
+          <textarea id="b-jd" name="jd_texto" rows="8" placeholder="Pegá la JD completa: responsabilidades, requisitos excluyentes, deseables y competencias.">{{ form_values.jd_texto or '' }}</textarea>
+        </div>
+        <div class="feedback-field">
+          <label for="b-keywords">Palabras clave / tecnologías <span>separadas por coma</span></label>
+          <input id="b-keywords" name="palabras_clave" type="text" value="{{ form_values.palabras_clave or '' }}">
+        </div>
+
+        <div class="hc-busqueda-form__pair">
+          <div class="feedback-field">
             <label for="b-area-dep">Área / Departamento</label>
-            <input id="b-area-dep" name="area_departamento" type="text" list="b-areas-dep" value="{{ form_values.area_departamento or '' }}" autocomplete="off">
-            <datalist id="b-areas-dep">{% for a in areas_departamento %}<option value="{{ a }}">{% endfor %}</datalist>
+            <select id="b-area-dep" name="area_departamento">
+              <option value="" {% if not form_values.area_departamento %}selected{% endif %}>Sin especificar</option>
+              {% for a in areas_departamento %}
+              <option value="{{ a }}" {% if form_values.area_departamento == a %}selected{% endif %}>{{ a }}{% if area_is_legacy and form_values.area_departamento == a %} (fuera de catálogo){% endif %}</option>
+              {% endfor %}
+            </select>
+            {% if area_is_legacy %}<p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>{% endif %}
           </div>
-          <div class="feedback-field feedback-field--compact">
+          <div class="feedback-field">
             <label for="b-modalidad">Modalidad</label>
             <select id="b-modalidad" name="modalidad">
               <option value="" {% if not form_values.modalidad %}selected{% endif %}>Sin especificar</option>
               {% for m in modalidades %}<option value="{{ m }}" {% if form_values.modalidad == m %}selected{% endif %}>{{ m }}</option>{% endfor %}
             </select>
           </div>
-          <div class="feedback-field feedback-field--compact">
-            <label for="b-area-cons">Área de la consultora</label>
-            <select id="b-area-cons" name="area_consultora">
-              <option value="" {% if not form_values.area_consultora %}selected{% endif %}>Sin especificar</option>
-              {% for a in areas_consultora %}<option value="{{ a }}" {% if form_values.area_consultora == a %}selected{% endif %}>{{ a }}</option>{% endfor %}
-            </select>
-          </div>
         </div>
+
+        <div class="feedback-field">
+          <label for="b-area-cons">Área de la consultora <span>a la que ingresa</span></label>
+          <select id="b-area-cons" name="area_consultora">
+            <option value="" {% if not form_values.area_consultora %}selected{% endif %}>Sin especificar</option>
+            {% for a in areas_consultora %}
+            <option value="{{ a }}" {% if form_values.area_consultora == a %}selected{% endif %}>{{ a }}{% if area_consultora_is_legacy and form_values.area_consultora == a %} (fuera de catálogo){% endif %}</option>
+            {% endfor %}
+          </select>
+          {% if area_consultora_is_legacy %}<p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>{% endif %}
+        </div>
+
+        <div class="feedback-field">
+          <label for="b-fecha">Fecha de apertura</label>
+          <input id="b-fecha" name="fecha_apertura" type="date" value="{{ form_values.fecha_apertura or '' }}" required>
+        </div>
+
         <label class="dashboard-checkbox-option hc-busqueda-formal">
           <input type="checkbox" name="pedido_formal_recibido" {% if form_values.pedido_formal_recibido %}checked{% endif %}>
-          <span>Requerimiento formal recibido</span>
+          <span>
+            <strong>Requerimiento formal recibido de Operaciones</strong>
+            <span class="field-hint">Tildalo si Operaciones ya formalizó el requerimiento. Si todavía no llegó, podés crear la búsqueda igual y tildarlo después.</span>
+          </span>
         </label>
-      </section>
-
-      <section class="hc-profile-section">
-        <h2>Descripción y JD</h2>
-        <div class="feedback-field">
-          <label for="b-desc">Descripción (resumen)</label>
-          <input id="b-desc" name="descripcion" type="text" value="{{ form_values.descripcion or '' }}">
-        </div>
-        <div class="feedback-field">
-          <label for="b-jd">Job Description (JD)</label>
-          <textarea id="b-jd" name="jd_texto" rows="6">{{ form_values.jd_texto or '' }}</textarea>
-        </div>
-        <div class="feedback-field">
-          <label for="b-keywords">Palabras clave / tecnologías <span>separadas por coma</span></label>
-          <input id="b-keywords" name="palabras_clave" type="text" value="{{ form_values.palabras_clave or '' }}">
-        </div>
       </section>
 
       <div class="hc-profile-form__actions">

@@ -164,7 +164,13 @@
    nunca un form embebido acá — ver profile_new.html. */
 .hc-profiles-hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px; }
 .hc-profiles-hero-text { flex: 1 1 320px; }
-.hc-profiles-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; flex: 0 0 auto; }
+/* `max-width:100%`: sin esto, `flex:0 0 auto` mantiene la botonera en su ancho
+   de max-content (una sola línea) aunque quede sola bajo el título en viewports
+   angostos, desbordando la página horizontalmente (visto en vivo: el detalle de
+   Búsqueda con 3 acciones a 375px). Con el tope, su propio `flex-wrap` envuelve
+   los botones a una segunda línea en vez de desbordar. Inocuo para consumidores
+   con menos acciones (Candidatos ya entraba holgado). */
+.hc-profiles-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; flex: 0 0 auto; max-width: 100%; }
 /* Contenedor del feedback del refresh de catálogos (fragmento HTMX inyectado
    desde el botón del hero): sólo separa cuando tiene contenido. */
 .hc-catalog-refresh-feedback:not(:empty) { margin: 0 0 18px; }
@@ -345,28 +351,47 @@
 .hc-document-upload-form button, .hc-document-retry-form button { height: 38px; padding: 0 16px; border-radius: 8px; }
 
 /* ═══ Búsquedas (procesos de selección) ═══════════════════════════════════ */
-.dashboard-section__count { margin-left: 8px; color: #7a7a82; font: 600 .7rem var(--mono); }
+/* NOTA: el conteo de los `.dashboard-section` de Búsquedas usa el primitivo
+   compartido `.dashboard-section__count` TAL CUAL (arriba, `margin-left:auto`
+   lo empuja al margen superior derecho) — no hay override propio acá (un
+   override anterior con `margin-left:8px` rompía la alineación de TODO CCHH,
+   Candidatos incluido; eliminado). El texto del conteo lo arma el template
+   como frase completa ("N procesos activos"), nunca un número suelto. */
 
+/* Tarjeta de búsqueda: composición espejo de GridProcesos (referencia) —
+   columna de texto (título → descripción → área → aviso) + pill de estado
+   arriba a la derecha, y una fila inferior anclada al fondo. */
 .busqueda-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
-.busqueda-card { display: block; padding: 16px 18px; border: 1px solid rgba(128,128,128,.24); border-radius: 12px; color: inherit; text-decoration: none; }
-.busqueda-card:hover { border-color: var(--gold); }
-.busqueda-card__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.busqueda-card { display: flex; flex-direction: column; min-height: 148px; padding: 16px 18px; border: 1px solid rgba(128,128,128,.24); border-radius: 12px; color: inherit; text-decoration: none; }
+.busqueda-card:hover { border-color: var(--gold); box-shadow: 0 1px 6px rgba(0,0,0,.06); }
+.busqueda-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.busqueda-card__headtext { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .busqueda-card__title { font-weight: 700; font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.busqueda-card__desc { margin: 8px 0 0; color: #55555c; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.busqueda-card__desc { margin: 0; color: #55555c; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .content-theme-dark .busqueda-card__desc { color: #b2b2bc; }
-.busqueda-card__meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 10px; color: #7a7a82; font: 500 .68rem var(--mono); }
-.busqueda-card__badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.busqueda-card__count { font: 600 .66rem var(--mono); color: #1f1f24; background: rgba(231,176,8,.16); padding: 3px 8px; border-radius: 6px; }
-.content-theme-dark .busqueda-card__count { color: #e4e4ec; }
-.busqueda-card__warn { font: 600 .66rem var(--mono); color: #8a6300; background: rgba(231,176,8,.12); padding: 3px 8px; border-radius: 6px; }
+.busqueda-card__area { color: #7a7a82; font: 600 .68rem var(--mono); }
+.busqueda-card__warn { align-self: flex-start; font: 600 .64rem var(--mono); color: #8a6300; background: rgba(231,176,8,.16); padding: 3px 8px; border-radius: 999px; }
 .content-theme-dark .busqueda-card__warn { color: #e7b008; }
+.busqueda-card__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 12px; }
+.busqueda-card__desde { color: #7a7a82; font: 500 .72rem var(--mono); }
+.busqueda-card__count { font: 600 .66rem var(--mono); color: #1f1f24; background: var(--gold); padding: 4px 9px; border-radius: 999px; white-space: nowrap; }
 
 /* Badge de estado de la búsqueda (Activa/Cerrada) */
-.busqueda-estado { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px; font: 600 .64rem var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+.busqueda-estado { flex: none; display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px; font: 600 .64rem var(--mono); text-transform: uppercase; letter-spacing: .04em; }
 .busqueda-estado--activa { background: rgba(0,176,80,.14); color: #1a7a43; }
 .content-theme-dark .busqueda-estado--activa { color: #4fc17e; }
 .busqueda-estado--cerrada { background: rgba(128,128,128,.16); color: #55555c; }
 .content-theme-dark .busqueda-estado--cerrada { color: #b2b2bc; }
+
+/* Fila de estado del detalle (bajo el título): pill de estado + área de la
+   consultora + aviso de requerimiento, MISMA composición que la referencia. */
+.busqueda-status-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.busqueda-status-row__area { color: #55555c; font: 600 .68rem var(--mono); background: rgba(128,128,128,.12); padding: 3px 9px; border-radius: 999px; }
+.content-theme-dark .busqueda-status-row__area { color: #b2b2bc; }
+
+/* Barra de vistas del detalle: usa el primitivo compartido
+   `.dashboard-view-switch` (tools.css); acá sólo su ubicación/scroll. */
+.busqueda-views { margin: 4px 0 16px; max-width: 100%; overflow-x: auto; }
 
 .busqueda-pipeline-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 4px 0 14px; color: #55555c; font: 500 .72rem var(--mono); }
 .content-theme-dark .busqueda-pipeline-bar { color: #b2b2bc; }
@@ -393,4 +418,13 @@
 .busqueda-picker { max-height: 52vh; overflow: auto; padding: 0 24px; }
 .busqueda-picker .dashboard-table { font-size: .78rem; }
 .busqueda-picker .dashboard-checkbox-group { gap: 6px; }
-.hc-busqueda-formal { margin-top: 12px; }
+
+/* Formulario de búsqueda: layout APILADO (una columna), MISMO orden de campos
+   que el ProcesoForm de la referencia. Sólo (Área/Departamento + Modalidad)
+   comparten una fila de 2 columnas que colapsa a 1 en viewports angostos. */
+.hc-busqueda-form { display: flex; flex-direction: column; gap: 16px; }
+.hc-busqueda-form__pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 640px) { .hc-busqueda-form__pair { grid-template-columns: 1fr; } }
+.hc-busqueda-formal { margin-top: 4px; align-items: flex-start; }
+.hc-busqueda-formal strong { display: block; }
+.hc-busqueda-formal .field-hint { margin: 2px 0 0; }
