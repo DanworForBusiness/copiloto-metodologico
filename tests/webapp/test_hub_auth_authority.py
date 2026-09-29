@@ -259,11 +259,31 @@ def test_htmx_defers_the_request_until_the_authority_answers():
 
 
 def test_the_marker_is_declarative_and_carries_no_credential():
-    """Los 4 sitios declaran la necesidad; el valor lo pone el hook."""
-    sites = 0
+    """Cada sitio DECLARA que el request necesita Graph; el valor lo inyecta el
+    hook (hub_auth.js), nunca viaja en el markup. Se enumeran los sitios
+    APROBADOS por archivo (no un número mágico suelto) para que sumar/quitar un
+    consumidor sea una decisión explícita, no un conteo silencioso:
+      - operations/staffing.html    -> asignaciones (1)
+      - partials/admin_panel.html   -> diagnóstico/refresh (3)
+      - human_capital/profiles.html -> "Actualizar catálogos" en un click (1),
+        aceptado por el owner: reusa el MISMO hook, sin poseer la credencial.
+    """
+    approved = {
+        "operations/staffing.html": 1,
+        "partials/admin_panel.html": 3,
+        "human_capital/profiles.html": 1,
+    }
+    found = {}
     for path in sorted(_TEMPLATES.glob("**/*.html")):
-        sites += path.read_text(encoding="utf-8").count(MARKER)
-    assert sites == 4, sites
+        n = path.read_text(encoding="utf-8").count(MARKER)
+        if n:
+            found[path.relative_to(_TEMPLATES).as_posix()] = n
+    assert found == approved, found
+    # El marcador es SIEMPRE un atributo booleano declarativo: NUNCA lleva un
+    # valor (no existe `data-dw-graph-token="<credencial>"`) -- el valor lo pone
+    # el hook, nunca el template.
+    for path in sorted(_TEMPLATES.glob("**/*.html")):
+        assert MARKER + "=" not in path.read_text(encoding="utf-8"), path
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node no disponible en este entorno")

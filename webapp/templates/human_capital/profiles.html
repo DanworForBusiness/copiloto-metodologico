@@ -26,7 +26,8 @@
         {# "Actualizar catálogos" en UN click desde el landing (owner): POST real
            al MISMO endpoint `/cchh/catalogos/refresh`, con el token Graph
            auto-inyectado por el hook COMPARTIDO de hub_auth.js (marcador
-           `data-dw-graph-token`) -- cero duplicación de auth/token. El feedback
+           declarativo compartido en el botón de abajo) -- cero duplicación de
+           auth/token. El feedback
            (éxito/error) vuelve como fragmento HTMX al contenedor de abajo, sin
            salir de /cchh/candidatos. Ícono+tooltip = primitivo compartido
            `.table-action-btn` + `.chart-tooltip`. #}
