@@ -1,0 +1,49 @@
+{# human_capital_catalog_refresh_feedback.html — feedback COMPARTIDO del
+   refresh de catálogos (éxito/error). Lo usan DOS superficies con el MISMO
+   look: la página de catálogos (`catalogos.html`, full-page) y el botón
+   icon-only del landing de Base de CVs (fragmento HTMX que se inyecta en
+   `/cchh/candidatos` sin navegar). Estructura de callout idéntica a la que ya
+   tenía catalogos.html inline (no se inventa nada).
+
+   `reauth_href` (opcional): en el landing NO existe el handler JS de
+   reautenticación (`data-hc-catalog-reauth`, inline en catalogos.html), así que
+   el caso `auth_required` ofrece un LINK a esa página en vez del botón inerte.
+   Sin `reauth_href` (catalogos.html) se conserva el botón de reautenticación. #}
+{% if refresh_result %}
+<div class="callout callout--success" data-refresh-outcome="{{ refresh_result.outcome }}">
+  <div class="callout__head">
+    <span class="callout__icon">✓</span>
+    <span class="callout__title">Refresh {{ 'OK' if refresh_result.outcome == 'success' else refresh_result.outcome }}</span>
+  </div>
+  <div class="callout__body">
+    <p>{% for cat, n in refresh_result.counts.items() %}{{ cat }}: {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  </div>
+</div>
+{% endif %}
+{% if refresh_error %}
+  {% if refresh_error.kind == 'auth_required' %}
+  <div class="dashboard-empty" data-error-kind="auth_required">
+    <span class="dashboard-empty__label">Sesión de datos</span>
+    {% if reauth_href %}
+    <p>{{ refresh_error.message }} <a href="{{ reauth_href }}">Autorizar Microsoft desde Catálogos</a></p>
+    {% else %}
+    <p>{{ refresh_error.message }} <button type="button" class="dashboard-subhead__reset" data-hc-catalog-reauth>Autorizar Microsoft y reintentar</button></p>
+    {% endif %}
+  </div>
+  {% elif refresh_error.kind == 'forbidden' %}
+  <div class="dashboard-empty" data-error-kind="forbidden">
+    <span class="dashboard-empty__label">Sin permiso</span>
+    <p>{{ refresh_error.message }} Pedile a quien administra el sitio de SharePoint que te dé acceso al archivo -- volver a autorizar no alcanza acá.</p>
+  </div>
+  {% else %}
+  <div class="dashboard-empty" data-error-kind="{{ refresh_error.kind }}">
+    <span class="dashboard-empty__label">No se actualizó</span>
+    <p>{{ refresh_error.message }}</p>
+    {% if refresh_error.errors %}
+    <ul class="catalog-validation-errors">
+      {% for e in refresh_error.errors %}<li>{{ e }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endif %}
+{% endif %}

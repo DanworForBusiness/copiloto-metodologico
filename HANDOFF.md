@@ -56,6 +56,14 @@
 - Estándar de ingeniería: **validación en localhost antes de push**; fix
   compartido en el primitivo compartido, no parche vertical.
 
+**Pulido post-cierre (2026-09-29):** Clasificación con reparto fluido (Perfil/
+Skills + Tags crecen, Seniority/Fuente compactos, reusa el idioma del toolbar);
+botón icon-only "Actualizar catálogos" en el landing (→ `/cchh/catalogos`,
+primitivo `.table-action-btn`+`.chart-tooltip`); switcher de workspace del
+topbar anclado a la derecha (`.workspace-switch-menu`, Hub-wide) para no
+recortarse en verticales sin panel derecho; `.hc-profiles-hero-actions` centra
+verticalmente sus acciones.
+
 **HOLD de dominio genuinos (sin resolver)**
 - `Nivel` vs `Seniority`; `Proceso`; `Estado`; historial real del proceso —
   no inferir del modelo actual; la app desplegada de referencia

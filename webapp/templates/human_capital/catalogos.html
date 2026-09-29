@@ -46,48 +46,10 @@
        concurrent_modification en el form de edición; `--success` (verde),
        nunca `--ok` (modificador inexistente, sin CSS -- por eso este bloque
        se veía sin look & feel de callout antes). #}
-    {% if refresh_result %}
-    <div class="callout callout--success" data-refresh-outcome="{{ refresh_result.outcome }}">
-      <div class="callout__head">
-        <span class="callout__icon">✓</span>
-        <span class="callout__title">Refresh {{ 'OK' if refresh_result.outcome == 'success' else refresh_result.outcome }}</span>
-      </div>
-      <div class="callout__body">
-        <p>{% for cat, n in refresh_result.counts.items() %}{{ cat }}: {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
-      </div>
-    </div>
-    {% endif %}
-    {# Taxonomía de fallas de Graph (owner post-#104 acceptance, item E): 401
-       (o token vacío, MISMO kind) y 403 NUNCA comparten tratamiento -- sólo
-       `auth_required` ofrece "Autorizar Microsoft y reintentar"
-       (`dwGraphReauthenticate()`, MISMO patrón que Reporting/reporting.js);
-       un 403 ya está autenticado pero sin permiso, así que reautenticar no
-       arregla nada y NUNCA se le ofrece ese botón. Ninguna rama expone el
-       cuerpo crudo de la respuesta de Graph -- `refresh_error.message` ya
-       viene armado en el repositorio, nunca el `exc` original. #}
-    {% if refresh_error %}
-      {% if refresh_error.kind == 'auth_required' %}
-      <div class="dashboard-empty" data-error-kind="auth_required">
-        <span class="dashboard-empty__label">Sesión de datos</span>
-        <p>{{ refresh_error.message }} <button type="button" class="dashboard-subhead__reset" data-hc-catalog-reauth>Autorizar Microsoft y reintentar</button></p>
-      </div>
-      {% elif refresh_error.kind == 'forbidden' %}
-      <div class="dashboard-empty" data-error-kind="forbidden">
-        <span class="dashboard-empty__label">Sin permiso</span>
-        <p>{{ refresh_error.message }} Pedile a quien administra el sitio de SharePoint que te dé acceso al archivo -- volver a autorizar no alcanza acá.</p>
-      </div>
-      {% else %}
-      <div class="dashboard-empty" data-error-kind="{{ refresh_error.kind }}">
-        <span class="dashboard-empty__label">No se actualizó</span>
-        <p>{{ refresh_error.message }}</p>
-        {% if refresh_error.errors %}
-        <ul class="catalog-validation-errors">
-          {% for e in refresh_error.errors %}<li>{{ e }}</li>{% endfor %}
-        </ul>
-        {% endif %}
-      </div>
-      {% endif %}
-    {% endif %}
+    {# Feedback del refresh (éxito/error) -- primitivo COMPARTIDO con el botón
+       del landing de Base de CVs. Acá SIN `reauth_href`: conserva el botón de
+       reautenticación (`data-hc-catalog-reauth`, handler inline abajo). #}
+    {% include "partials/human_capital_catalog_refresh_feedback.html" %}
     {% if not meta and not refresh_result and not refresh_error %}
     <div class="dashboard-empty">
       <span class="dashboard-empty__label">Sin catálogo</span>

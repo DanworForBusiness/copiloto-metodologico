@@ -76,7 +76,12 @@
 .workspace-switch > summary.theme-toggle::-webkit-details-marker { display: none; }
 .workspace-switch > summary.theme-toggle:hover { opacity: .88; }
 .workspace-switch-menu {
-  position: absolute; top: calc(100% + 8px); left: 0; z-index: 30;
+  /* Anclado a la DERECHA del trigger (owner: en verticales sin panel derecho
+     -- p.ej. Capital Humano -- el switcher queda pegado al borde derecho, y un
+     menú `left:0` se salía de la pantalla y se veía cortado). `right:0` abre
+     hacia la izquierda desde el ícono, así NUNCA desborda el viewport, en
+     cualquier vertical. */
+  position: absolute; top: calc(100% + 8px); right: 0; left: auto; z-index: 30;
   display: flex; flex-direction: column; min-width: 190px;
   padding: 6px; border: 1px solid var(--line); background: var(--card);
   box-shadow: 0 12px 30px rgba(0,0,0,.35);

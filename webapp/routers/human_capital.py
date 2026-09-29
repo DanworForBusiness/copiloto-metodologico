@@ -1219,6 +1219,17 @@ def human_capital_catalogos_refresh(request: Request, graph_token: str = Form(""
             error = {"kind": "fetch", "message": str(exc), "errors": []}
         except human_capital_catalog_repository.CatalogRemoteOutcomeUnknownError as exc:
             error = {"kind": "remote_outcome_unknown", "message": str(exc), "errors": []}
+    # Un click desde el landing de Base de CVs (botón icon-only, HTMX + token
+    # auto-inyectado por el hook de hub_auth.js): NO navega -- devuelve SÓLO el
+    # fragmento de feedback (MISMO partial que catalogos.html), que se inyecta
+    # en /cchh/candidatos. `reauth_href` porque el landing no tiene el handler
+    # de reautenticación inline. La página completa de catálogos sigue siendo
+    # la respuesta para el submit full-page de catalogos.html.
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_catalog_refresh_feedback.html",
+            context={"refresh_result": result, "refresh_error": error, "reauth_href": "/cchh/catalogos"},
+        )
     return templates.TemplateResponse(
         request=request, name="human_capital/catalogos.html",
         context=_catalogos_context(request, refresh_result=result, refresh_error=error),
