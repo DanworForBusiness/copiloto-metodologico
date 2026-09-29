@@ -23,6 +23,16 @@
         <p>Repositorio general de CVs, no necesariamente ligados a un proceso.</p>
       </div>
       <div class="hc-profiles-hero-actions">
+        {# Acceso auxiliar a la gestión de catálogos (owner): icon-only con el
+           primitivo COMPARTIDO de ícono+tooltip del Hub (`.table-action-btn` +
+           `.chart-tooltip-anchor`/`.chart-tooltip`, el mismo de las acciones de
+           fila). Lleva a `/cchh/catalogos` -- la superficie que YA tiene el
+           botón "Actualizar catálogos" con su manejo de token Graph; el POST
+           `/cchh/catalogos/refresh` no es navegable por GET (requiere token). #}
+        <a href="/cchh/catalogos" class="table-action-btn chart-tooltip-anchor" aria-label="Actualizar catálogos">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          <span class="chart-tooltip" aria-hidden="true"><p>Actualizar catálogos</p></span>
+        </a>
         <a href="/cchh/candidatos/importar" class="btn-secondary">Carga masiva</a>
         <a href="/cchh/candidatos/nuevo" class="btn-primary">+ Cargar CV</a>
       </div>

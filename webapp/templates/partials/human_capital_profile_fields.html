@@ -95,12 +95,16 @@
   <section class="hc-profile-section">
     <h2>Clasificación</h2>
   {% endif %}
-    <div class="hc-profile-section__grid">
-      <div class="feedback-field">
+    {# Reparto FLUIDO (owner UX, mismo idioma que el toolbar de filtros
+       `.hc-profile-filters`): los campos de texto libre (Perfil/Skills, Tags)
+       crecen para aprovechar el ancho; los gobernados cortos (Seniority,
+       Fuente) quedan compactos. Wrapea ordenado en pantallas chicas. #}
+    <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+      <div class="feedback-field feedback-field--wide">
         <label for="{{ id_prefix }}-skills">Perfil / Skills</label>
         <input id="{{ id_prefix }}-skills" name="profile_skills" type="text" value="{{ form_values.profile_skills or '' }}">
       </div>
-      <div class="feedback-field">
+      <div class="feedback-field feedback-field--compact">
         {# Catálogo GOBERNADO migration-safe (§6): el catálogo activo; si el
            valor actual quedó FUERA del catálogo (legacy, sólo edición), se
            preserva como opción marcada -- cambiarlo exige un valor del
@@ -118,7 +122,7 @@
         <p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>
         {% endif %}
       </div>
-      <div class="feedback-field">
+      <div class="feedback-field feedback-field--compact">
         <label for="{{ id_prefix }}-source">Fuente</label>
         <select id="{{ id_prefix }}-source" name="source">
           <option value="" {% if not form_values.source %}selected{% endif %}>Sin especificar</option>
@@ -132,7 +136,7 @@
         <p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>
         {% endif %}
       </div>
-      <div class="feedback-field">
+      <div class="feedback-field feedback-field--wide">
         <label for="{{ id_prefix }}-tags">Tags</label>
         <input id="{{ id_prefix }}-tags" name="tags" type="text" value="{{ form_values.tags or '' }}" placeholder="separados por coma">
       </div>

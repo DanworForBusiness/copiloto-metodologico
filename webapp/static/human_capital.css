@@ -164,7 +164,7 @@
    nunca un form embebido acá — ver profile_new.html. */
 .hc-profiles-hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px; }
 .hc-profiles-hero-text { flex: 1 1 320px; }
-.hc-profiles-hero-actions { display: flex; flex-wrap: wrap; gap: 10px; flex: 0 0 auto; }
+.hc-profiles-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; flex: 0 0 auto; }
 .hc-profiles-hero-actions .btn-primary, .hc-profiles-hero-actions .btn-secondary {
   height: 38px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center;
 }
@@ -287,6 +287,17 @@
   display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 0 20px; align-items: start;
 }
+/* Variante FLUIDA (owner UX, Clasificación): MISMO idioma que el toolbar de
+   filtros (`.hc-profile-filters`, flex-grow proporcional + min-width + wrap).
+   Los campos de texto libre (`--wide`: Perfil/Skills, Tags) crecen para
+   aprovechar el ancho sobrante; los gobernados cortos (`--compact`: Seniority,
+   Fuente) quedan acotados. En pantallas chicas wrapea ordenado (nunca solapa).
+   Se re-declara el `margin-top` de `.feedback-field` a 0 porque acá el espaciado
+   vertical entre filas lo da el `row-gap` del flex, no el margen del campo. */
+.hc-profile-section__grid--fluid { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: start; }
+.hc-profile-section__grid--fluid > .feedback-field { margin-top: 0; flex: 1 1 200px; min-width: 0; }
+.hc-profile-section__grid--fluid > .feedback-field--wide { flex: 2.4 1 260px; }
+.hc-profile-section__grid--fluid > .feedback-field--compact { flex: 1 1 150px; }
 
 /* `.field-hint`/`.field-hint--warn` -- usadas por los forms de alta/edición
    desde el merge de Seniority (CCHH Catalog Foundation) pero NUNCA
