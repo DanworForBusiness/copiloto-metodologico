@@ -8,6 +8,131 @@
 
 ---
 
+# CCHH · BÚSQUEDAS — WIP / OWNER VISUAL REVIEW (2026-09-29)
+
+> **Estado ACTUAL de Búsquedas (procesos de selección).** NO reempezar la
+> sección, NO rehacer el mapping, NO reabrir Candidatos (CLOSED). Partir de esta
+> branch preservada: leer este bloque → comparar referencia → auditar primitives
+> Hub → implementar la tanda de owner feedback pendiente (§F abajo) → localhost →
+> única revisión owner → correcciones → tests → PR.
+
+## Git
+- **branch:** `work/cchh-busquedas-core`
+- **HEAD final:** el commit de este HANDOFF (ver `git log -1`); el checkpoint de
+  código de la fidelity pass es **`194dac1`** (feat: Búsquedas fidelity pass —
+  Volver Hub, catálogos gobernados, vistas, contadores), sobre `c99871c`
+  (N:M availability) y `05062e8` (Búsquedas core).
+- **remote SHA:** `origin/work/cchh-busquedas-core` == HEAD local tras el push de
+  este handoff (verificado; ver §7 de la respuesta final).
+- **dirty/clean:** clean tras el push.
+- **main base:** `origin/main` = `9c4ebc6` (Búsquedas NO está en main todavía).
+- **PR: NO abierto** (este entorno no tiene `gh`; el owner abre/mergea PRs). Al
+  mergear a `main`, DigitalOcean auto-deploya (Procfile); `deployment` branch stale.
+
+## Localhost
+- Último harness válido: **http://127.0.0.1:8093/cchh/busquedas**
+- Lanzado con: `.venv/Scripts/python.exe tools/cchh_visual_harness.py --port 8093`
+  (server process **PID 24544** en esta sesión; log en `/tmp/harness_8093.log`).
+- branch/SHA que refleja: `work/cchh-busquedas-core` @ `194dac1`.
+- **requires restart:** el proceso vigente se reinició DESPUÉS de los cambios de
+  Python (service/router/repository), así que ya refleja el código commiteado;
+  templates/CSS se leen en vivo. Un agente nuevo levanta su propio harness.
+- Auth: el harness imprime dos líneas `document.cookie = "dw_session=..."`
+  (usuario sintético de fixtures / owner local) para pegar en devtools; cookies de
+  127.0.0.1 no se aíslan por puerto (usar ventana privada o limpiar cookies).
+- IDs de fixtures (busquedas.json): `22222222-...-2222222220{1..4}`
+  (201 activa con candidatos, 202 activa nombre largo, 203 cerrada, 204 1-cand).
+
+## Dominio mapeado desde `E:\Joe\Metodologia\Refactorizacion\cchh\app-seleccion`
+- **Búsqueda = proceso.** Estado proceso: `activo` | `cerrado`. **NO existe
+  reabrir** en la referencia (sólo `reabrirGrilla` de scoring, fuera de scope).
+- **Etapas:** Preselección → Entrevista CCHH → Entrevista Líder → Decisión Final
+  → Finalizado.
+- **Resultado final** (sólo en Finalizado): Ingreso | Rechazado | Desistió.
+- **CandidateApplication:** relación explícita `process_id`(=`busqueda_id`) +
+  `profile_id`, `etapa`, fechas, `historial`/transiciones. Embebida en el
+  documento de la búsqueda (`candidatos[]`).
+- **Profile sigue siendo maestro** y NO recibe `proceso_asignado_id`.
+
+### DIVERGENCIA DELIBERADA (NO revertir copiando la referencia)
+- La app original restringe a UNA búsqueda activa por candidato
+  (`AgregarDesdeBancoModal.tsx`: `disponible = cv.estado === "Nuevo"`).
+- El Hub DELIBERADAMENTE **NO** replica eso. Contrato aprobado: `Profile 1 → 0..N
+  CandidateApplications`; un candidato puede estar en múltiples procesos activos.
+  Para proceso X se excluye SÓLO a quien ya tiene postulación NO finalizada en X;
+  activo en A sigue disponible para B. "En proceso" es estado derivado, no
+  exclusividad. **Test que lo fija:**
+  `test_human_capital_busquedas.py::test_availability_is_per_search_not_global_single_active`.
+
+## Implementado hoy (verificado en código + localhost)
+- Listado con secciones activas/cerradas; alta; edición (revision/optimistic
+  concurrency); detalle; pipeline 5 etapas; agregar candidato desde Banco;
+  movimiento entre etapas (HTMX, re-render de fragmento); historial de transición;
+  resultado final sólo en Finalizado; quitar candidato (no borra el Profile);
+  cierre one-way con finalización selectiva de pendientes.
+- **Fidelity pass (194dac1)** contra la referencia con primitives Hub:
+  - Volver → `.catalog-back` compartido (form + detalle).
+  - Área/Departamento (catálogo **`area`**, nuevo en GOVERNED_CATALOGS) y Área de
+    la consultora (`area_consultora`) = `<select>` gobernado migration-safe (mismo
+    contrato que Seniority/Fuente; legacy preservado como "(fuera de catálogo)").
+    Enums hardcodeados eliminados de `busqueda_repository`.
+  - Landing: dos acciones ("+ Nueva búsqueda" secundaria + "+ Nuevo candidato"
+    primaria).
+  - Detalle: barra de vistas con `.dashboard-view-switch` (Pipeline activa; resto
+    disabled/pending). Hero meta-arriba-del-título + fila de estado.
+  - Contadores: eliminado el override `.dashboard-section__count{margin-left:8px}`
+    que rompía la alineación derecha de TODO CCHH; frases completas por sección.
+  - Fix responsive `.hc-profiles-hero-actions{max-width:100%}` (desborde a 375px).
+- **Capas:** `webapp/services/busqueda_repository.py` (persistencia/lock/revision),
+  `human_capital_service.py` (reglas/validación/shaping + N:M availability),
+  `webapp/routers/human_capital.py` (8 rutas + context builders),
+  templates `human_capital/busquedas.html`, `busqueda_form.html`,
+  `busqueda_detail.html`, `partials/human_capital_busqueda_detail_body.html`.
+- **Fixtures:** `tests/fixtures/human_capital/busquedas.json` (4) + catálogo `area`.
+- **Tests:** `tests/webapp/test_human_capital_busquedas.py` (17). Última corrida:
+  toda la suite CCHH + guards de route-surface (169) en **verde** (491 passed en
+  el sweep filtrado; 60 passed en el gate de checkpoint). `route_surface.json`=169.
+
+## Diferido funcionalmente (NO implementado; existe visualmente si aplica)
+- Vista evaluación · Scoring (JD) · Sugeridos del banco · Reportes (botonera
+  presente pero disabled/pending en el detalle).
+- Entrevistas avanzadas · onboarding · terna · métricas/alertas ·
+  publicaciones/avisos · mensajes · lector automático de JD.
+- `CierreMasivoModal` = **código muerto** en la referencia → NO reimplementar sin
+  nueva evidencia.
+
+## OWNER FEEDBACK PENDIENTE — PRÓXIMO TRABAJO OBLIGATORIO
+> Parte de esto ya se abordó en `194dac1` (A Volver, B catálogos, C dos acciones,
+> D botonera de vistas, E contadores en frase completa alineados a la derecha,
+> fix responsive). Lo que SIGUE pendiente/refinado por el owner:
+- **C (terminología):** unificar a "**Proceso**" en acciones/entidades internas —
+  "Nuevo proceso" (hoy "+ Nueva búsqueda"), y secciones "**Procesos activos**"/
+  "**Procesos cerrados**" (hoy "Activas"/"Cerradas"). La página puede seguir
+  llamándose "Búsquedas". Pluralización 0/1/N ("0 procesos activos", "1 proceso
+  activo", "N procesos activos"; idem cerrados).
+- **E (dashboard-section):** confirmar contrato `[Título izq] … [contador der]`
+  con las etiquetas nuevas de C; reusar el primitive compartido, sin CSS CCHH.
+- **F (cards responsive):** las tiles deben ocupar el ancho fluidamente (grid
+  primitive del Hub) — desktop 3 por fila, luego 2, luego 1; sin scroll horizontal
+  ni columnas hardcodeadas. (Hoy `busqueda-grid` usa `auto-fill minmax(280px,1fr)`;
+  auditar si hay un grid primitive Hub que reusar antes de tocarlo.)
+- **G (fechas):** presentar `DD-MM-YYYY` (ej. `10-09-2026`) en TODA fecha textual
+  visible de Búsquedas; persistencia/inputs `type=date` siguen ISO. Usar
+  formatter/helper compartido (auditar si ya existe uno en el Hub).
+- **H (detalle/pipeline holístico):** revisar en UNA pasada coherente hero/título/
+  meta/status/acciones/contador/selector de vistas/pipeline/cards de candidatos/
+  spacing/estado vacío/proceso cerrado — sin microparches aislados.
+- **A/B/D (verificación fina):** confirmar que Volver, catálogos y botonera de
+  vistas cumplen exactamente el estándar (incl. si la botonera aparece también en
+  proceso cerrado en la referencia).
+
+## Regla para el nuevo agente
+Referencia = spec funcional/visual; Hub = primitives/layout compartidos. No
+reinventar componentes si ya existe patrón Hub. No hardcodear catálogos. No cerrar
+con sólo tests: revisión real en localhost.
+
+---
+
 # CCHH · CANDIDATOS / BASE DE CVs — **CLOSED** (2026-09-28)
 
 > Experiencia de gestión de candidatos **cerrada** y validada por el owner en
