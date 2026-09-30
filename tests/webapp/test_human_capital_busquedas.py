@@ -13,7 +13,9 @@ from fastapi.testclient import TestClient
 
 import config
 from webapp.main import app
+from webapp.routers.human_capital import _fecha_dmy
 from webapp.services import auth_service, busqueda_repository, human_capital_service, profile_repository
+from webapp.services import human_capital_catalog_repository as catalog_repo
 
 _AUTHORIZED_EMAIL = "hc-busquedas-test@danwor.com"
 
@@ -223,3 +225,100 @@ def test_routes_require_authorization():
     c = TestClient(app)
     c.cookies.set(auth_service.COOKIE_NAME, session)
     assert c.get("/cchh/busquedas").status_code == 403
+
+
+# ── owner visual/UX pass: fechas · terminología/contadores · vistas · catálogos ──
+
+def test_fecha_dmy_presents_iso_as_ddmmyyyy():
+    # SÓLO presentación: la persistencia sigue en ISO. Fecha pura, datetime ISO,
+    # vacío y basura (passthrough sin romper el render).
+    assert _fecha_dmy("2026-09-10") == "10-09-2026"
+    assert _fecha_dmy("2026-09-10T14:30:00") == "10-09-2026"
+    assert _fecha_dmy("") == ""
+    assert _fecha_dmy(None) == ""
+    assert _fecha_dmy("no es fecha") == "no es fecha"
+
+
+def test_list_uses_proceso_terminology_full_counts_and_ddmmyyyy_dates():
+    c = _client()
+    human_capital_service.create_busqueda({"nombre_puesto": "P1", "fecha_apertura": "2026-09-10"})
+    html = c.get("/cchh/busquedas").text
+    # Terminología "proceso" en acciones y headers (owner): nunca "Nueva búsqueda"
+    # ni títulos de sección "Activas"/"Cerradas".
+    assert "+ Nuevo proceso" in html and "+ Nuevo candidato" in html
+    assert "Nueva búsqueda" not in html
+    assert ">Procesos activos<" in html and ">Procesos cerrados<" in html
+    assert ">Activas<" not in html and ">Cerradas<" not in html
+    # CTA primario de ESTA sección = "+ Nuevo proceso" (owner): botón gold/primario.
+    assert 'class="btn-primary">+ Nuevo proceso' in html
+    assert 'class="btn-secondary">+ Nuevo candidato' in html
+    # Contador = "N procesos" (el título ya dice activos/cerrados; no se repite).
+    assert "1 proceso</span>" in html
+    assert "1 proceso activo" not in html
+    # Fecha visible en DD-MM-YYYY, nunca ISO crudo.
+    assert "10-09-2026" in html and "Desde 2026-09-10" not in html
+
+
+def test_detail_view_switch_has_pipeline_default_and_pending_disabled():
+    c = _client()
+    b = human_capital_service.create_busqueda({"nombre_puesto": "P", "fecha_apertura": "2026-09-01"})
+    html = c.get(f"/cchh/busquedas/{b['busqueda_id']}").text
+    # Botonera de vistas con el primitivo compartido; Pipeline activa por defecto.
+    assert "dashboard-view-switch" in html
+    assert "Vista pipeline" in html and "is-active" in html
+    # Las diferidas EXISTEN visualmente pero deshabilitadas (no ausentes).
+    for pending in ("Vista evaluación", "Scoring (JD)", "Sugeridos del banco", "Reportes"):
+        assert pending in html
+    assert "disabled" in html
+
+
+def test_pipeline_empty_columns_render_stage_empty_state():
+    c = _client()
+    b = human_capital_service.create_busqueda({"nombre_puesto": "P", "fecha_apertura": "2026-09-01"})
+    html = c.get(f"/cchh/busquedas/{b['busqueda_id']}").text
+    # Cada etapa vacía muestra su empty-state propio DENTRO de la columna.
+    assert "busqueda-col__empty" in html
+    assert "entrevistas de líder realizadas ni programadas" in html
+    assert "candidatos finalizados" in html
+
+
+def _seed_catalog(**cats):
+    """Escribe un snapshot de catálogo (MISMO patrón que las suites de gobernanza
+    de Seniority/Fuente) para probar el enforcement de área/área-consultora."""
+    snap = catalog_repo.build_snapshot(
+        {name: [{"valor": v, "orden": i + 1} for i, v in enumerate(vals)] for name, vals in cats.items()},
+        refreshed_by="test", source={"drive_id": "d", "item_id": "i"},
+    )
+    p = catalog_repo.snapshot_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(catalog_repo._serialize(snap))
+
+
+def test_area_and_area_consultora_are_catalog_governed():
+    _seed_catalog(area=["Datos & BI", "IT"], area_consultora=["SAP", "Cloud"])
+    # Valores del catálogo activo -> aceptados.
+    b = human_capital_service.create_busqueda({
+        "nombre_puesto": "D", "fecha_apertura": "2026-09-01",
+        "area_departamento": "Datos & BI", "area_consultora": "SAP"})
+    assert b["area_departamento"] == "Datos & BI" and b["area_consultora"] == "SAP"
+    # Fuera del catálogo -> rechazado (sin fallback a texto libre).
+    with pytest.raises(ValueError):
+        human_capital_service.create_busqueda({
+            "nombre_puesto": "D", "fecha_apertura": "2026-09-01", "area_departamento": "Marketing"})
+    with pytest.raises(ValueError):
+        human_capital_service.create_busqueda({
+            "nombre_puesto": "D", "fecha_apertura": "2026-09-01", "area_consultora": "Fantasía"})
+
+
+def test_area_edit_preserves_legacy_value_out_of_catalog():
+    # Alta con catálogo amplio, luego el catálogo se "achica" y el valor queda
+    # legacy: una edición NO relacionada debe poder guardarse conservándolo.
+    _seed_catalog(area=["Datos & BI", "Legacy Área"], area_consultora=["SAP"])
+    b = human_capital_service.create_busqueda({
+        "nombre_puesto": "D", "fecha_apertura": "2026-09-01", "area_departamento": "Legacy Área"})
+    _seed_catalog(area=["Datos & BI"], area_consultora=["SAP"])  # "Legacy Área" ya no está
+    updated = human_capital_service.update_busqueda(
+        b["busqueda_id"], b["revision"],
+        {"nombre_puesto": "D2", "fecha_apertura": "2026-09-01", "area_departamento": "Legacy Área"})
+    assert updated["nombre_puesto"] == "D2"
+    assert updated["area_departamento"] == "Legacy Área"  # legacy preservado

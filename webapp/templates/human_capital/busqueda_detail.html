@@ -27,7 +27,7 @@
         <h1>{{ busqueda.nombre_puesto }}</h1>
         {% if busqueda.descripcion %}<p>{{ busqueda.descripcion }}</p>{% endif %}
         <div class="busqueda-status-row">
-          <span class="busqueda-estado busqueda-estado--{{ 'activa' if busqueda.estado == 'activo' else 'cerrada' }}">{{ 'Activa' if busqueda.estado == 'activo' else 'Cerrada' }}</span>
+          <span class="busqueda-estado busqueda-estado--{{ 'activa' if busqueda.estado == 'activo' else 'cerrada' }}">{{ 'Activo' if busqueda.estado == 'activo' else 'Cerrado' }}</span>
           {% if busqueda.area_consultora %}<span class="busqueda-status-row__area">{{ busqueda.area_consultora }}</span>{% endif %}
           {% if not busqueda.pedido_formal_recibido %}<span class="busqueda-card__warn">Sin requerimiento formal</span>{% endif %}
         </div>
@@ -38,7 +38,7 @@
         {% endif %}
         <a href="/cchh/busquedas/{{ busqueda.busqueda_id }}/editar" class="btn-secondary">Editar</a>
         {% if busqueda.estado == 'activo' %}
-        <button type="button" class="btn-danger" data-dialog-open="busqueda-close-dialog">Cerrar búsqueda</button>
+        <button type="button" class="btn-danger" data-dialog-open="busqueda-close-dialog">Cerrar proceso</button>
         {% endif %}
       </div>
     </section>
@@ -50,7 +50,7 @@
        Evaluación / Scoring (JD) / Sugeridos del banco / Reportes existen
        visualmente y quedan marcadas como pendientes (title="Próximamente"),
        nunca ausentes. #}
-    <div class="dashboard-view-switch busqueda-views" role="group" aria-label="Vistas de la búsqueda">
+    <div class="dashboard-view-switch busqueda-views" role="group" aria-label="Vistas del proceso">
       <button type="button" class="is-active" aria-pressed="true">Vista pipeline</button>
       <button type="button" disabled title="Próximamente">Vista evaluación</button>
       <button type="button" disabled title="Próximamente">Scoring (JD)</button>

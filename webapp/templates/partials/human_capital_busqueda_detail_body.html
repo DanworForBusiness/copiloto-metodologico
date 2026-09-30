@@ -12,14 +12,27 @@
 </div>
 
 {% if total_candidatos == 0 %}
-<div class="dashboard-empty"><span class="dashboard-empty__label">Sin candidatos</span><p>Todavía no hay candidatos en esta búsqueda.{% if busqueda.estado == 'activo' %} Sumá desde el Banco de CVs con “+ Agregar candidato”.{% endif %}</p></div>
+<div class="dashboard-empty busqueda-empty"><span class="dashboard-empty__label">Sin candidatos</span><p>Todavía no hay candidatos en este proceso.{% if busqueda.estado == 'activo' %} Sumá desde el Banco de CVs con “+ Agregar candidato”.{% endif %}</p></div>
 {% endif %}
 
+{# Copy de estado vacío por etapa (owner): cada columna sin candidatos muestra
+   su propio empty-state DENTRO de la caja, así el pipeline se ve equilibrado aun
+   con etapas vacías (todas las columnas comparten altura vía align-items:stretch). #}
+{% set _empty_copy = {
+  "Preselección": "Todavía no hay candidatos en preselección.",
+  "Entrevista CCHH": "Todavía no hay entrevistas de CCHH realizadas ni programadas.",
+  "Entrevista Líder": "Todavía no hay entrevistas de líder realizadas ni programadas.",
+  "Decisión Final": "Todavía no hay candidatos en decisión final.",
+  "Finalizado": "Todavía no hay candidatos finalizados.",
+} %}
 <div class="busqueda-board matrix-scroll">
   {% for etapa in etapas %}
   <div class="busqueda-col">
     <div class="busqueda-col__head"><span>{{ 'Finalizados' if etapa == etapa_final else etapa }}</span><span class="busqueda-col__count">{{ board[etapa] | length }}</span></div>
     <div class="busqueda-col__body">
+      {% if not board[etapa] %}
+      <p class="busqueda-col__empty">{{ _empty_copy.get(etapa, 'Todavía no hay candidatos en esta etapa.') }}</p>
+      {% endif %}
       {% for app in board[etapa] %}
       <div class="busqueda-cand">
         <div class="busqueda-cand__id">
@@ -48,12 +61,12 @@
             {% for r in resultados %}<option value="{{ r }}" {% if r == app.resultado_final %}selected{% endif %}>{{ r }}</option>{% endfor %}
           </select>
           {% endif %}
-          <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Quitar de la búsqueda"
+          <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Quitar del proceso"
                   hx-post="/cchh/busquedas/{{ bid }}/candidatos/{{ app.application_id }}/eliminar"
                   hx-target="#busqueda-detail-body" hx-swap="innerHTML"
-                  data-dw-confirm data-dw-confirm-title="Quitar candidato" data-dw-confirm-message="¿Quitar a este candidato de la búsqueda? El CV del Banco no se elimina." data-dw-confirm-ok="Quitar">
+                  data-dw-confirm data-dw-confirm-title="Quitar candidato" data-dw-confirm-message="¿Quitar a este candidato del proceso? El CV del Banco no se elimina." data-dw-confirm-ok="Quitar">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-            <span class="chart-tooltip" aria-hidden="true"><p>Quitar de la búsqueda</p></span>
+            <span class="chart-tooltip" aria-hidden="true"><p>Quitar del proceso</p></span>
           </button>
         </div>
         {% endif %}
@@ -92,7 +105,7 @@
       </tbody>
     </table>
     {% else %}
-    <p class="field-hint">No hay candidatos disponibles en el Banco. Todos están en una búsqueda activa o el Banco está vacío.</p>
+    <p class="field-hint">No hay candidatos disponibles en el Banco. Todos ya están en este proceso o el Banco está vacío.</p>
     {% endif %}
   </div>
   <div class="dw-confirm__actions">
@@ -105,8 +118,8 @@
 <dialog class="dw-confirm busqueda-dialog" id="busqueda-close-dialog" aria-labelledby="busqueda-close-title">
   <form method="post" action="/cchh/busquedas/{{ bid }}/cerrar">
     <div class="dw-confirm__body">
-      <h2 class="dw-confirm__title" id="busqueda-close-title">Cerrar búsqueda</h2>
-      <p class="dw-confirm__msg">Las postulaciones que dejes tildadas se marcan como <strong>Finalizado · Rechazado</strong>. La búsqueda queda cerrada (no se reabre).</p>
+      <h2 class="dw-confirm__title" id="busqueda-close-title">Cerrar proceso</h2>
+      <p class="dw-confirm__msg">Las postulaciones que dejes tildadas se marcan como <strong>Finalizado · Rechazado</strong>. El proceso queda cerrado (no se reabre).</p>
     </div>
     {% set pendientes = [] %}
     {% for etapa in etapas %}{% if etapa != etapa_final %}{% for app in board[etapa] %}{% set _ = pendientes.append(app) %}{% endfor %}{% endif %}{% endfor %}
@@ -127,7 +140,7 @@
     </div>
     <div class="dw-confirm__actions">
       <button type="submit" formmethod="dialog" class="btn-secondary" value="cancel">Cancelar</button>
-      <button type="submit" class="btn-danger">Cerrar búsqueda</button>
+      <button type="submit" class="btn-danger">Cerrar proceso</button>
     </div>
   </form>
 </dialog>

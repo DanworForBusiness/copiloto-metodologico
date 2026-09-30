@@ -356,24 +356,32 @@
    lo empuja al margen superior derecho) — no hay override propio acá (un
    override anterior con `margin-left:8px` rompía la alineación de TODO CCHH,
    Candidatos incluido; eliminado). El texto del conteo lo arma el template
-   como frase completa ("N procesos activos"), nunca un número suelto. */
+   como "N procesos" (el título ya aporta activos/cerrados), nunca un número
+   suelto ni la palabra repetida. */
 
-/* Tarjeta de búsqueda: composición espejo de GridProcesos (referencia) —
-   columna de texto (título → descripción → área → aviso) + pill de estado
-   arriba a la derecha, y una fila inferior anclada al fondo. */
-.busqueda-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+/* Tarjeta de proceso: el texto (título → descripción → área → aviso) ocupa TODO
+   el ancho superior para máxima legibilidad; los badges (estado + candidatos)
+   viven en la fila inferior derecha (owner). */
+/* `auto-fit` (no `auto-fill`): las tiles se ESTIRAN para repartir todo el ancho
+   del contenedor en vez de dejar tracks vacíos a la derecha (owner: sin espacio
+   muerto). MISMO idioma fluido que los grids de tiles del Hub (workspace-tiles,
+   cs-role-grid): desktop reparte 3, luego 2, luego 1, sin columnas fijas ni
+   scroll horizontal. */
+.busqueda-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
 .busqueda-card { display: flex; flex-direction: column; min-height: 148px; padding: 16px 18px; border: 1px solid rgba(128,128,128,.24); border-radius: 12px; color: inherit; text-decoration: none; }
 .busqueda-card:hover { border-color: var(--gold); box-shadow: 0 1px 6px rgba(0,0,0,.06); }
-.busqueda-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .busqueda-card__headtext { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.busqueda-card__title { font-weight: 700; font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Título a 2 líneas (line-clamp) en vez de una sola con ellipsis: ahora que
+   ocupa el ancho completo, gana legibilidad sin romper la altura del tile. */
+.busqueda-card__title { font-weight: 700; font-size: .95rem; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 .busqueda-card__desc { margin: 0; color: #55555c; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .content-theme-dark .busqueda-card__desc { color: #b2b2bc; }
 .busqueda-card__area { color: #7a7a82; font: 600 .68rem var(--mono); }
 .busqueda-card__warn { align-self: flex-start; font: 600 .64rem var(--mono); color: #8a6300; background: rgba(231,176,8,.16); padding: 3px 8px; border-radius: 999px; }
 .content-theme-dark .busqueda-card__warn { color: #e7b008; }
-.busqueda-card__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 12px; }
+.busqueda-card__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; margin-top: auto; padding-top: 12px; }
 .busqueda-card__desde { color: #7a7a82; font: 500 .72rem var(--mono); }
+.busqueda-card__badges { display: flex; align-items: center; gap: 8px; flex: none; }
 .busqueda-card__count { font: 600 .66rem var(--mono); color: #1f1f24; background: var(--gold); padding: 4px 9px; border-radius: 999px; white-space: nowrap; }
 
 /* Badge de estado de la búsqueda (Activa/Cerrada) */
@@ -393,16 +401,28 @@
    `.dashboard-view-switch` (tools.css); acá sólo su ubicación/scroll. */
 .busqueda-views { margin: 4px 0 16px; max-width: 100%; overflow-x: auto; }
 
+/* Estado vacío del proceso (sin candidatos): separación explícita del board
+   vacío que lo sigue, con tokens/spacing compartidos (no microparche pixel). */
+.busqueda-empty { margin: 4px 0 16px; }
+
 .busqueda-pipeline-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 4px 0 14px; color: #55555c; font: 500 .72rem var(--mono); }
 .content-theme-dark .busqueda-pipeline-bar { color: #b2b2bc; }
 .busqueda-pipeline-bar__total { color: #1f1f24; font-weight: 700; }
 .content-theme-dark .busqueda-pipeline-bar__total { color: #e4e4ec; }
 
+/* `align-items: start`: cada columna conserva su ALTURA NATURAL según su propio
+   contenido — nunca se igualan todas a la más alta. Una columna con más tarjetas
+   sobresale naturalmente; la vacía NO estira a sus vecinas (owner). */
 .busqueda-board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(210px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 6px; align-items: start; }
 .busqueda-col { border: 1px solid rgba(128,128,128,.24); border-radius: 12px; background: rgba(128,128,128,.04); display: flex; flex-direction: column; min-width: 0; }
 .busqueda-col__head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 10px 12px; border-bottom: 1px solid rgba(128,128,128,.2); font: 600 .68rem var(--mono); text-transform: uppercase; letter-spacing: .03em; }
 .busqueda-col__count { color: var(--gold); }
-.busqueda-col__body { display: flex; flex-direction: column; gap: 8px; padding: 10px; min-height: 44px; }
+.busqueda-col__body { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+/* Empty-state DENTRO de la columna: SÓLO acá va la `min-height` (≈ una columna
+   con una tarjeta), para que la vacía no quede demasiado chica — sin estirar la
+   columna entera ni forzar equal-height entre siblings. Caja punteada sobria. */
+.busqueda-col__empty { min-height: 110px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 14px 10px; border: 1px dashed rgba(128,128,128,.32); border-radius: 8px; color: #7a7a82; font-size: .72rem; line-height: 1.35; }
+.content-theme-dark .busqueda-col__empty { color: #8b8b96; border-color: rgba(180,180,190,.28); }
 .busqueda-cand { border: 1px solid rgba(128,128,128,.24); border-radius: 10px; padding: 10px; background: #fff; }
 .content-theme-dark .busqueda-cand { background: #181819; }
 .busqueda-cand__id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -425,6 +445,9 @@
 .hc-busqueda-form { display: flex; flex-direction: column; gap: 16px; }
 .hc-busqueda-form__pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 640px) { .hc-busqueda-form__pair { grid-template-columns: 1fr; } }
-.hc-busqueda-formal { margin-top: 4px; align-items: flex-start; }
-.hc-busqueda-formal strong { display: block; }
-.hc-busqueda-formal .field-hint { margin: 2px 0 0; }
+.hc-busqueda-formal { margin-top: 4px; align-items: center; }
+.hc-busqueda-formal__text { display: inline-flex; align-items: center; gap: 6px; }
+/* Ícono (i) del tooltip: sólo color/alineación — la caja flotante y el reveal
+   los aporta el primitivo compartido `.chart-tooltip-anchor`/`.chart-tooltip`. */
+.hc-busqueda-formal__info { display: inline-flex; align-items: center; color: #7a7a82; cursor: help; }
+.content-theme-dark .hc-busqueda-formal__info { color: #8b8b96; }

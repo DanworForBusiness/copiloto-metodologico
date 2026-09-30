@@ -1440,6 +1440,31 @@ def _friendly_refreshed_at(iso_value: str | None) -> str | None:
     return f"{dt.day} {_MESES_ES[dt.month - 1]} {dt.year}, {dt.strftime('%H:%M')} UTC"
 
 
+def _fecha_dmy(value: str | None) -> str:
+    """Presentación DD-MM-YYYY de una fecha almacenada en ISO (`YYYY-MM-DD`, o un
+    datetime ISO del cual se toma la fecha) -- SÓLO presentación, en el límite de
+    la vista: la persistencia y los `<input type=date>` siguen en ISO. Registrado
+    como filtro Jinja compartido (`| fecha_dmy`) para toda fecha textual visible
+    de Búsquedas (apertura/cierre/etc.). Si no parsea, devuelve el valor tal cual
+    (nunca rompe el render por un dato inesperado)."""
+    if not value:
+        return ""
+    raw = str(value).strip()
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        # `YYYY-MM-DD` puro también lo parsea fromisoformat; este fallback cubre
+        # sufijos raros (p.ej. 'Z') sin inventar formato.
+        try:
+            dt = datetime.fromisoformat(raw[:10])
+        except ValueError:
+            return raw
+    return dt.strftime("%d-%m-%Y")
+
+
+templates.env.filters["fecha_dmy"] = _fecha_dmy
+
+
 def _catalogos_context(request: Request, *, refresh_result: dict | None, refresh_error: dict | None) -> dict:
     user = auth_service.session_user(request)
     meta = human_capital_catalog_repository.snapshot_meta()
