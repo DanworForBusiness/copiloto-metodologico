@@ -832,6 +832,98 @@ document.addEventListener("click", event => {
 });
 document.body.addEventListener("htmx:load", () => initDashboardSections(document));
 
+// Catálogo de Seguridad de Datos (DAC) — filtro realtime + agrupación
+// (Scoring/Clientes), 100% client-side sobre las mismas <li> ya renderizadas
+// por el servidor (nunca se clonan/duplican, nunca se vuelve a pedir nada:
+// FILTER primero, GROUP después, sobre la MISMA colección). Reusa
+// `.whatsnew-filters`/`.whatsnew-filter` (buscador) y `.dashboard-view-switch`
+// + `.dashboard-section` (selector/agrupación) — primitives Hub-wide ya
+// existentes, ningún CSS/JS-framework nuevo. Alcance: sólo la familia "data"
+// (`data-security-dac-wrapper` no se renderiza para "roles" — ver
+// catalog_security.html), así que nunca toca el catálogo de roles.
+const SECURITY_DAC_VERDICT_ORDER = ["plena", "buena", "parcial"];
+const SECURITY_DAC_VERDICT_LABEL = { plena: "PLENA", buena: "BUENA", parcial: "PARCIAL" };
+function initSecurityDacBrowse(scope) {
+  scope.querySelectorAll("[data-security-dac-wrapper]").forEach(wrapper => {
+    if (wrapper.dataset.dacBrowseWired) return;
+    wrapper.dataset.dacBrowseWired = "1";
+    const source = wrapper.querySelector("[data-security-dac-source]");
+    const groupsHost = wrapper.querySelector("[data-security-dac-groups]");
+    const searchInput = wrapper.querySelector("[data-security-dac-search]");
+    const groupButtons = Array.from(wrapper.querySelectorAll("[data-group-by]"));
+    if (!source || !groupsHost) return;
+    // Referencias VIVAS a los <li> ya renderizados -- moverlas de contenedor
+    // (appendChild) preserva su estado interno (p. ej. <details open> de VER
+    // DETALLE/VER CRITERIOS) porque nunca se destruyen ni se clonan.
+    const allCards = Array.from(source.children);
+    let groupBy = "scoring";
+    let query = "";
+    function render() {
+      const q = query.trim().toLowerCase();
+      const visible = allCards.filter(li => !q || (li.dataset.search || "").includes(q));
+      groupsHost.innerHTML = "";
+      if (!visible.length) {
+        const empty = document.createElement("p");
+        empty.className = "empty-panel";
+        empty.textContent = "No se encontraron DAC que coincidan con la búsqueda.";
+        groupsHost.appendChild(empty);
+        return;
+      }
+      const groups = new Map();
+      for (const li of visible) {
+        const key = groupBy === "scoring" ? (li.dataset.verdict || "sin-dictamen") : (li.dataset.cliente || "");
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(li);
+      }
+      let keys;
+      if (groupBy === "scoring") {
+        const known = SECURITY_DAC_VERDICT_ORDER.filter(k => groups.has(k));
+        const rest = [...groups.keys()].filter(k => !SECURITY_DAC_VERDICT_ORDER.includes(k)).sort();
+        keys = known.concat(rest);
+      } else {
+        keys = [...groups.keys()].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+      }
+      for (const key of keys) {
+        const cards = groups.get(key);
+        const label = groupBy === "scoring" ? (SECURITY_DAC_VERDICT_LABEL[key] || key.toUpperCase()) : key;
+        const details = document.createElement("details");
+        details.className = "dashboard-section";
+        details.open = true;
+        const summary = document.createElement("summary");
+        summary.className = "dashboard-section__head";
+        const caret = document.createElement("span");
+        caret.className = "dashboard-section__caret";
+        const title = document.createElement("span");
+        title.className = "dashboard-section__title";
+        title.textContent = label;
+        const count = document.createElement("span");
+        count.className = "dashboard-section__count";
+        count.textContent = String(cards.length);
+        summary.append(caret, title, count);
+        const body = document.createElement("div");
+        body.className = "dashboard-section__body";
+        const ul = document.createElement("ul");
+        ul.className = "catalog-flows-list catalog-security-list";
+        cards.forEach(li => ul.appendChild(li));
+        body.appendChild(ul);
+        details.append(summary, body);
+        groupsHost.appendChild(details);
+      }
+    }
+    searchInput?.addEventListener("input", () => { query = searchInput.value; render(); });
+    groupButtons.forEach(btn => btn.addEventListener("click", () => {
+      if (btn.classList.contains("is-active")) return;
+      groupButtons.forEach(b => { b.classList.remove("is-active"); b.setAttribute("aria-pressed", "false"); });
+      btn.classList.add("is-active");
+      btn.setAttribute("aria-pressed", "true");
+      groupBy = btn.dataset.groupBy;
+      render();
+    }));
+    render();
+  });
+}
+document.body.addEventListener("htmx:load", () => initSecurityDacBrowse(document));
+
 // Indicator visibility toggles (primitivo Hub-wide nuevo, primer consumidor:
 // CCHH Candidatos, "Indicadores"): un grupo de checkboxes que controla
 // SOLO presentación (qué metadata contextual se ve al lado de la identidad
