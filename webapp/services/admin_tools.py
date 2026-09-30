@@ -328,6 +328,7 @@ def run_catalog_generation(graph_token: str = "") -> str:
     import os
     import shutil
     import tempfile
+    import traceback
     from config import (
         BASE_DIR,
         SHAREPOINT_CATALOG_CSN_URL,
