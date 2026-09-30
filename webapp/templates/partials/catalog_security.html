@@ -19,7 +19,6 @@
     {% else %}
     <p class="catalog-card__meta">{{ e.dac }} · {{ e.consumers }} vista{{ "s" if e.consumers != 1 }} consumidora{{ "s" if e.consumers != 1 }}</p>
     {% endif %}
-    {% if e.summary %}<p class="catalog-card__summary">{{ e.summary }}</p>{% endif %}
     {% if e.family == "roles" %}
     <div class="catalog-connection-badges">
       <span class="catalog-pill catalog-pill--ok">Roles globales: {{ e.global_role_count }}</span>
@@ -30,6 +29,12 @@
       <span class="catalog-pill catalog-pill--ok">Identificador: {{ e.principal_element }}</span>
       <span class="catalog-pill catalog-pill--{{ 'ok' if e.source_entity else 'muted' }}">Entidad de Permisos: {{ e.source_entity or 'No detectado' }}</span>
     </div>
+    {% endif %}
+    {% if e.summary %}
+    <details class="catalog-card__notes catalog-security-detail-toggle" onclick="event.stopPropagation()">
+      <summary>VER DETALLE</summary>
+      <p class="catalog-card__summary">{{ e.summary }}</p>
+    </details>
     {% endif %}
     {% if e.governed_fields or e.spaces %}
     <details class="catalog-card__notes catalog-security-criteria" onclick="event.stopPropagation()">

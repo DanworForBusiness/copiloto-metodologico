@@ -669,6 +669,16 @@ def render_security(art: SecurityArtifact, manual: dict[str, Any]) -> str:
         '',
         f'## {{dw-black}}Definición DAC · {{dw-gold}}{art.dac_name}',
         '',
+    ]
+    if summary:
+        # Subtítulo de sección (primera línea = blockquote): `render_sections`
+        # (webapp/services/content_service.py) lo detecta como `has_subtitle` y
+        # lo estiliza como `.section-subtitle` (línea vertical gold, sin fondo)
+        # — MISMA fuente que el tile (`SecurityArtifact.summary`/`e.summary` en
+        # `catalog_security.html`), nunca un segundo campo/valor.
+        lines.append(f'> {summary}')
+        lines.append('')
+    lines.extend([
         '| Propiedad | Valor |',
         '|---|---|',
         '| {{table_group: Identificación}} | |',
@@ -685,7 +695,7 @@ def render_security(art: SecurityArtifact, manual: dict[str, Any]) -> str:
         '',
         '| Campo | Tipo | Longitud | Clave | Obligatorio |',
         '|---|---|---|---|---|',
-    ]
+    ])
     for f in art.control_fields:
         lines.append(
             f'| {_md_value(f["name"], True)} | {_md_value(f["type"])} | {_md_value(f["length"])} | '
