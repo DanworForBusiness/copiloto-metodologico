@@ -1,12 +1,26 @@
 """
 Generador del catálogo de Seguridad/DAC Datasphere.
 
-Entrada esperada, por cliente:
-  <Cliente>/Seguridad/*.json  (definición DAC, tabla control, o ambos)
-  <Cliente>/Seguridad/*.csv   (linaje/uso exportado desde HANA Cockpit)
+Entrada esperada, por cliente (pool unificado, mismo criterio que el
+catálogo de dominios — ver `generate_catalog.py`, Ticket A):
+  <Cliente>/Seguridad/*.json          (legacy)
+  <Cliente>/seguridad/*.json          (legacy, cualquier casing)
+  <Cliente>/data-access-controls/*.json  (export CLI de Datasphere — carpeta
+      FÍSICA de tipo, no un dominio; mismo tratamiento que las otras 9
+      carpetas-tipo del generador de dominios)
+  <Cliente>/<cualquiera de las anteriores>/*.csv  (linaje/uso HANA Cockpit)
 
-También tolera que --all apunte directamente a la carpeta Seguridad.
-Emite markdown bajo catalog_local/seguridad/<cliente>/*.md y conserva manual:.
+El matching de nombre de carpeta es EXPLÍCITAMENTE case-insensitive (no
+depende de que el filesystem lo sea — portable a Linux). Si un cliente
+tiene AMBAS (legacy + CLI), se unen en un solo pool lógico: se deduplica
+por identidad de DAC (nombre técnico) si el contenido coincide, y se
+reporta `SecurityCollisionError` si el mismo nombre técnico difiere entre
+carpetas físicas — nunca se elige uno en silencio (mismo contrato que
+`CatalogCollisionError` del catálogo de dominios).
+
+También tolera que --all apunte directamente a una carpeta Seguridad o
+data-access-controls. Emite markdown bajo catalog_local/seguridad/<cliente>/*.md
+y conserva manual:.
 """
 from __future__ import annotations
 
@@ -27,6 +41,29 @@ import yaml
 CATALOG_MANIFEST = '.catalog_manifest.json'
 SECURITY_DIR = 'seguridad'
 SECURITY_SOURCE_EXTENSIONS = {'.json', '.csv', '.xlsx'}
+
+# Carpetas de entrada reconocidas para seguridad/DAC, normalizadas (lowercase,
+# "-"/"_" a espacio) para matching EXPLÍCITAMENTE case-insensitive y portable
+# a Linux (nunca depender de que el filesystem resuelva paths sin distinguir
+# mayúsculas, como NTFS) — mismo criterio que `generate_catalog._catalog_dir_kind`.
+_SECURITY_INPUT_DIR_NAMES = {'seguridad', 'data access controls'}
+
+
+def _security_dir_kind(name: str) -> str:
+    return re.sub(r'[-_]+', ' ', str(name or '').strip().lower())
+
+
+def _is_security_input_dir(path: Path) -> bool:
+    return path.is_dir() and _security_dir_kind(path.name) in _SECURITY_INPUT_DIR_NAMES
+
+
+class SecurityCollisionError(Exception):
+    """Mixed-mode: el MISMO nombre técnico de DAC aparece en dos carpetas
+    físicas de entrada distintas (p. ej. `Seguridad/` legacy y
+    `data-access-controls/` CLI) con contenido DISTINTO. Se reporta de forma
+    determinística — nunca se elige una copia en silencio (mismo contrato
+    que `generate_catalog.CatalogCollisionError`). Dos copias con contenido
+    idéntico se deduplican sin error."""
 
 
 def _is_office_temp_file(path: Path) -> bool:
@@ -199,23 +236,25 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
     return [{str(k or '').strip(): str(v or '').strip() for k, v in row.items()} for row in reader]
 
 
-def _read_lineage_sources(seg_dir: Path) -> list[tuple[str, list[dict[str, str]]]]:
-    """[(stem, rows)] de cada archivo de linaje (csv, o json con `rows`). NO mezcla
+def _read_lineage_sources(dirs: list[Path]) -> list[tuple[str, list[dict[str, str]]]]:
+    """[(stem, rows)] de cada archivo de linaje (csv, o json con `rows`), pooled
+    a través de TODAS las carpetas físicas de entrada del cliente. NO mezcla
     todo: el linaje se asocia luego a un DAC por el nombre del archivo (ver
     `_lineage_belongs_to`), para que `lineage_<DAC>.csv` aplique solo a ese DAC."""
     out: list[tuple[str, list[dict[str, str]]]] = []
-    for path in sorted(seg_dir.glob('*.json')):
-        try:
-            payload = _load_json(path)
-        except Exception:
-            continue
-        if isinstance(payload, dict) and isinstance(payload.get('rows'), list):
-            rows = [{str(k): str(v or '') for k, v in row.items()}
-                    for row in payload.get('rows') or [] if isinstance(row, dict)]
-            if rows:
-                out.append((path.stem, rows))
-    for path in sorted(seg_dir.glob('*.csv')):
-        out.append((path.stem, _read_csv(path)))
+    for seg_dir in dirs:
+        for path in sorted(seg_dir.glob('*.json')):
+            try:
+                payload = _load_json(path)
+            except Exception:
+                continue
+            if isinstance(payload, dict) and isinstance(payload.get('rows'), list):
+                rows = [{str(k): str(v or '') for k, v in row.items()}
+                        for row in payload.get('rows') or [] if isinstance(row, dict)]
+                if rows:
+                    out.append((path.stem, rows))
+        for path in sorted(seg_dir.glob('*.csv')):
+            out.append((path.stem, _read_csv(path)))
     return out
 
 
@@ -282,44 +321,58 @@ def _lineage_views(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     return out
 
 
-def _discover_client_roots(inbound_root: Path) -> list[tuple[str, Path]]:
+def _discover_client_roots(inbound_root: Path) -> list[tuple[str, list[Path]]]:
+    """[(cliente, [carpetas físicas de entrada])] — el pool de un cliente puede
+    tener MÁS DE UNA carpeta física (legacy `Seguridad/` + CLI
+    `data-access-controls/` coexistiendo, mixed-mode) — se unen en un solo
+    pool lógico, nunca se pierde ninguna. Matching explícitamente case-
+    insensitive vía `_is_security_input_dir` (ver arriba)."""
     inbound_root = Path(inbound_root)
-    if inbound_root.name.lower() == 'seguridad':
-        return [(inbound_root.parent.name.replace('_', ' '), inbound_root)]
-    if (inbound_root / 'Seguridad').is_dir():
-        return [(inbound_root.name.replace('_', ' '), inbound_root / 'Seguridad')]
+    if _security_dir_kind(inbound_root.name) in _SECURITY_INPUT_DIR_NAMES:
+        return [(inbound_root.parent.name.replace('_', ' '), [inbound_root])]
+    direct = sorted(p for p in inbound_root.iterdir() if _is_security_input_dir(p)) \
+        if inbound_root.exists() else []
+    if direct:
+        return [(inbound_root.name.replace('_', ' '), direct)]
     roots = []
     for child in sorted(inbound_root.iterdir() if inbound_root.exists() else []):
-        if child.is_dir() and (child / 'Seguridad').is_dir():
-            roots.append((child.name.replace('_', ' '), child / 'Seguridad'))
+        if not child.is_dir():
+            continue
+        dirs = sorted(p for p in child.iterdir() if _is_security_input_dir(p))
+        if dirs:
+            roots.append((child.name.replace('_', ' '), dirs))
     return roots
 
 
-def _source_signature(root: Path, inbound_root: Path) -> dict[str, Any]:
+def _source_signature(dirs: list[Path], inbound_root: Path) -> dict[str, Any]:
     files = []
-    for path in sorted(p for p in root.rglob('*') if p.is_file()):
-        if _is_office_temp_file(path) or path.suffix.lower() not in SECURITY_SOURCE_EXTENSIONS:
-            continue
-        stat = path.stat()
+    for root in dirs:
+        for path in sorted(p for p in root.rglob('*') if p.is_file()):
+            if _is_office_temp_file(path) or path.suffix.lower() not in SECURITY_SOURCE_EXTENSIONS:
+                continue
+            stat = path.stat()
+            try:
+                rel = path.relative_to(inbound_root).as_posix()
+            except ValueError:
+                rel = path.as_posix()
+            # Sin mtime: la descarga de SharePoint usa un temp nuevo cada vez → el mtime
+            # siempre cambia. Identidad estable = sha256 (contenido) + ruta relativa.
+            files.append({
+                'path': rel,
+                'size': stat.st_size,
+                'sha256': _sha256(path),
+            })
+    return {'files': sorted(files, key=lambda f: f['path'])}
+
+
+def _client_key(dirs: list[Path], inbound_root: Path, cliente: str) -> str:
+    rels = []
+    for root in dirs:
         try:
-            rel = path.relative_to(inbound_root).as_posix()
+            rels.append(root.relative_to(inbound_root).as_posix())
         except ValueError:
-            rel = path.as_posix()
-        # Sin mtime: la descarga de SharePoint usa un temp nuevo cada vez → el mtime
-        # siempre cambia. Identidad estable = sha256 (contenido) + ruta relativa.
-        files.append({
-            'path': rel,
-            'size': stat.st_size,
-            'sha256': _sha256(path),
-        })
-    return {'files': files}
-
-
-def _client_key(root: Path, inbound_root: Path, cliente: str) -> str:
-    try:
-        rel = root.relative_to(inbound_root).as_posix()
-    except ValueError:
-        rel = ''
+            rels.append(root.as_posix())
+    rel = '|'.join(sorted(rels))
     return rel if rel and rel != '.' else cliente.replace(' ', '_')
 
 
@@ -433,57 +486,83 @@ def _role_permissions_from_sheet(rows: list[list[str]]) -> list[dict[str, Any]]:
     return out
 
 
-def load_role_matrix(seg_dir: Path, cliente: str) -> list[SecurityRoleMatrix]:
+def load_role_matrix(dirs: list[Path], cliente: str) -> list[SecurityRoleMatrix]:
     matrices: list[SecurityRoleMatrix] = []
-    for path in sorted(seg_dir.glob('*.xlsx')):
-        if _is_office_temp_file(path):
-            continue
-        try:
-            sheets = _xlsx_sheet_names(path)
-            cover_rows = _xlsx_rows(path, 'Cover')
-        except Exception:
-            continue
-        if not cover_rows:
-            continue
-        headers = [str(h or '').strip() for h in cover_rows[0]]
-        roles: list[dict[str, Any]] = []
-        for row in cover_rows[1:]:
-            if not row or not str(row[0] if len(row) else '').strip():
+    for seg_dir in dirs:
+        for path in sorted(seg_dir.glob('*.xlsx')):
+            if _is_office_temp_file(path):
                 continue
-            item = {headers[i]: row[i] if i < len(row) else '' for i in range(len(headers)) if headers[i]}
-            role_id = str(item.get('Role ID') or '').strip()
-            if not role_id:
+            try:
+                sheets = _xlsx_sheet_names(path)
+                cover_rows = _xlsx_rows(path, 'Cover')
+            except Exception:
                 continue
-            item['role_id'] = role_id
-            item['category'] = 'scope' if role_id.upper().startswith('SRC_') else 'global'
-            if role_id in sheets:
-                item['permissions'] = _role_permissions_from_sheet(_xlsx_rows(path, role_id))
-            else:
-                item['permissions'] = []
-            roles.append(item)
-        matrices.append(SecurityRoleMatrix(
-            cliente=cliente,
-            source_file=path.name,
-            roles=roles,
-            global_roles=[r for r in roles if r.get('category') == 'global'],
-            scoped_roles=[r for r in roles if r.get('category') == 'scope'],
-            permission_rows=[{'role_id': r.get('role_id'), **perm} for r in roles for perm in r.get('permissions', [])],
-        ))
+            if not cover_rows:
+                continue
+            headers = [str(h or '').strip() for h in cover_rows[0]]
+            roles: list[dict[str, Any]] = []
+            for row in cover_rows[1:]:
+                if not row or not str(row[0] if len(row) else '').strip():
+                    continue
+                item = {headers[i]: row[i] if i < len(row) else '' for i in range(len(headers)) if headers[i]}
+                role_id = str(item.get('Role ID') or '').strip()
+                if not role_id:
+                    continue
+                item['role_id'] = role_id
+                item['category'] = 'scope' if role_id.upper().startswith('SRC_') else 'global'
+                if role_id in sheets:
+                    item['permissions'] = _role_permissions_from_sheet(_xlsx_rows(path, role_id))
+                else:
+                    item['permissions'] = []
+                roles.append(item)
+            matrices.append(SecurityRoleMatrix(
+                cliente=cliente,
+                source_file=path.name,
+                roles=roles,
+                global_roles=[r for r in roles if r.get('category') == 'global'],
+                scoped_roles=[r for r in roles if r.get('category') == 'scope'],
+                permission_rows=[{'role_id': r.get('role_id'), **perm} for r in roles for perm in r.get('permissions', [])],
+            ))
     return matrices
-def load_security(seg_dir: Path, cliente: str) -> list[SecurityArtifact]:
+def load_security(dirs: list[Path], cliente: str) -> list[SecurityArtifact]:
     definitions: dict[str, dict[str, Any]] = {}
     payloads: list[tuple[Path, dict[str, Any]]] = []
-    for path in sorted(seg_dir.glob('*.json')):
-        try:
-            payload = _load_json(path)
-        except Exception:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        payloads.append((path, payload))
-        if isinstance(payload.get('definitions'), dict):
-            definitions.update(payload.get('definitions') or {})
-    lineage_sources = _read_lineage_sources(seg_dir)
+    # Identidad SEMÁNTICA + colisión cross-folder (mismo contrato que
+    # `generate_catalog.load_folder`, Ticket A/§5): la firma canónica del
+    # `definition` detecta contenido divergente; sólo es colisión si además
+    # viene de OTRA carpeta física (legacy `Seguridad/` vs CLI
+    # `data-access-controls/`) — el merge intra-carpeta queda igual que antes.
+    _defn_origin: dict[str, tuple[str, Path]] = {}
+    _collisions: list[str] = []
+    for seg_dir in dirs:
+        for path in sorted(seg_dir.glob('*.json')):
+            try:
+                payload = _load_json(path)
+            except Exception:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            payloads.append((path, payload))
+            defs = payload.get('definitions')
+            if not isinstance(defs, dict):
+                continue
+            for name, defn in defs.items():
+                if not isinstance(defn, dict):
+                    continue
+                sig = json.dumps(defn, sort_keys=True, ensure_ascii=False, default=str)
+                prev = _defn_origin.get(name)
+                if prev is None:
+                    _defn_origin[name] = (sig, seg_dir)
+                elif prev[1] != seg_dir and prev[0] != sig:
+                    _collisions.append(
+                        f"'{name}' definido distinto en {prev[1].name}/ y {seg_dir.name}/")
+                definitions[name] = defn
+    if _collisions:
+        raise SecurityCollisionError(
+            f"Colisión de identidad mixed-mode en seguridad/DAC de {cliente} "
+            "(misma entidad, contenido distinto en carpetas físicas diferentes): "
+            + "; ".join(sorted(set(_collisions))))
+    lineage_sources = _read_lineage_sources(dirs)
     artifacts: list[SecurityArtifact] = []
     for name, defn in sorted(definitions.items(), key=lambda kv: kv[0]):
         dac_def = defn.get('@DataWarehouse.dataAccessControl.definition') if isinstance(defn, dict) else None
@@ -940,12 +1019,12 @@ def generate_all(inbound_root, out_root) -> str:
     generated = 0
     skipped = 0
     next_entries = {}
-    for cliente, root in sorted(roots, key=lambda item: item[0].lower()):
-        key = _client_key(root, inbound_root, cliente)
-        signature = _source_signature(root, inbound_root)
+    for cliente, dirs in sorted(roots, key=lambda item: item[0].lower()):
+        key = _client_key(dirs, inbound_root, cliente)
+        signature = _source_signature(dirs, inbound_root)
         previous = entries.get(key, {})
-        artifacts = load_security(root, cliente)
-        role_matrices = load_role_matrix(root, cliente)
+        artifacts = load_security(dirs, cliente)
+        role_matrices = load_role_matrix(dirs, cliente)
         total_count = len(artifacts) + len(role_matrices)
         if (not force_all and previous.get('signature') == signature and previous.get('count') == total_count):
             skipped += 1
