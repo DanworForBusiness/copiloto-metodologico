@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}{{ 'Editar entrevista' if is_edit else 'Nueva entrevista' }} · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    {# Sin vista de detalle: Editar vuelve directo al listado, MISMO primitivo
+       compartido `.catalog-back` que Búsquedas/Candidatos -- nunca un eyebrow
+       gold propio. #}
+    <a class="catalog-back" href="/cchh/entrevistas">← Volver a Entrevistas</a>
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano</p>
+        <h1>{{ 'Editar entrevista' if is_edit else 'Nueva entrevista' }}</h1>
+        {% if is_edit and entrevista %}<p>{% if entrevista.profile %}{{ entrevista.profile.first_name }} {{ entrevista.profile.last_name }}{% endif %}</p>{% else %}<p>Para un candidato del Banco de CVs que todavía no está en ninguna Búsqueda.</p>{% endif %}
+      </div>
+    </section>
+
+    {% if concurrent_modification %}
+    <div class="callout callout--warn"><div class="callout__body"><p>Esta entrevista cambió desde que abriste el formulario. Volvé a abrirlo para no pisar el cambio.</p></div></div>
+    {% elif form_error %}
+    <div class="dashboard-empty" data-error-kind="validation"><span class="dashboard-empty__label">No se guardó</span><p>{{ form_error }}</p></div>
+    {% endif %}
+
+    <form method="post" action="{{ '/cchh/entrevistas/' ~ form_values.entrevista_id ~ '/editar' if is_edit else '/cchh/entrevistas/nueva' }}" class="hc-profile-form">
+      {% if is_edit %}<input type="hidden" name="expected_revision" value="{{ form_values.expected_revision }}">{% endif %}
+
+      <section class="hc-profile-section">
+        <h2>
+          Datos de la entrevista
+          {% if is_edit and entrevista and entrevista.busqueda_id %}
+          {# Primitivo compartido del Hub para info contextual (MISMO exacto
+             que "Requerimiento formal recibido" en busqueda_form.html): botón
+             `.activity-kpi__info` (ícono (i), look/reveal/light-dark ya
+             resueltos) + `.chart-tooltip` como hermano, envueltos en
+             `.chart-tooltip-anchor`. Copy en `aria-label` (accesible en hover
+             y foco de teclado). Cero SVG/CSS propio de Entrevistas. #}
+          {% set _pipeline_help = "El candidato, el puesto y el origen se completan desde el Pipeline de la Búsqueda. La fecha corresponde al día en que pasó a Entrevista CCHH y puede corregirse si la entrevista ocurrió otro día." %}
+          <span class="chart-tooltip-anchor">
+            <button type="button" class="activity-kpi__info" aria-label="{{ _pipeline_help }}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
+            </button>
+            <span class="chart-tooltip"><p>{{ _pipeline_help }}</p></span>
+          </span>
+          {% endif %}
+        </h2>
+
+        {% if not is_edit %}
+        <div class="feedback-field">
+          <label for="ent-profile">Candidato <span>del Banco de CVs</span></label>
+          <select id="ent-profile" name="profile_id" required>
+            <option value="">Elegí un candidato…</option>
+            {% for p in profiles %}
+            <option value="{{ p.profile_id }}">{{ p.first_name }} {{ p.last_name }}{% if p.source %} · {{ p.source }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+
+        <div class="feedback-field">
+          <label for="ent-fecha">Fecha de entrevista</label>
+          <input id="ent-fecha" name="fecha_entrevista" type="date" value="{{ form_values.fecha_entrevista or '' }}">
+          <p class="field-hint">Si queda vacía, se toma el día en que el candidato pasó a Entrevista CCHH (cuando la entrevista viene de una Búsqueda).</p>
+        </div>
+
+        {% if is_edit and entrevista and entrevista.busqueda_id %}
+        <div class="feedback-field">
+          <label>Puesto (de la Búsqueda)</label>
+          <p>{{ entrevista.puesto_mostrado or "—" }}</p>
+        </div>
+        {% else %}
+        <div class="feedback-field">
+          <label for="ent-puesto">Puesto evaluado</label>
+          <input id="ent-puesto" name="puesto_evaluado" type="text" value="{{ form_values.puesto_evaluado or '' }}">
+        </div>
+        {% endif %}
+
+        <div class="hc-busqueda-form__pair">
+          <div class="feedback-field">
+            <label for="ent-modalidad">Modalidad de contratación</label>
+            <select id="ent-modalidad" name="modalidad_contratacion">
+              <option value="" {% if not form_values.modalidad_contratacion %}selected{% endif %}>Sin especificar</option>
+              {% for m in modalidades_contratacion %}
+              <option value="{{ m }}" {% if form_values.modalidad_contratacion == m %}selected{% endif %}>{{ m }}{% if modalidad_contratacion_is_legacy and form_values.modalidad_contratacion == m %} (fuera de catálogo){% endif %}</option>
+              {% endfor %}
+            </select>
+            {% if modalidad_contratacion_is_legacy %}<p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>{% endif %}
+          </div>
+          <div class="feedback-field">
+            <label for="ent-area">Área</label>
+            <select id="ent-area" name="area">
+              <option value="" {% if not form_values.area %}selected{% endif %}>Sin especificar</option>
+              {% for a in areas_consultora %}
+              <option value="{{ a }}" {% if form_values.area == a %}selected{% endif %}>{{ a }}{% if area_is_legacy and form_values.area == a %} (fuera de catálogo){% endif %}</option>
+              {% endfor %}
+            </select>
+            {% if area_is_legacy %}<p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>{% endif %}
+            {% if is_edit and entrevista and entrevista.busqueda_id %}<p class="field-hint">Si el candidato ya ingresó, se actualiza sola en Onboarding.</p>{% endif %}
+          </div>
+        </div>
+
+        <div class="feedback-field">
+          <label for="ent-remuneracion">Remuneración pretendida</label>
+          <input id="ent-remuneracion" name="remuneracion_pretendida" type="text" value="{{ form_values.remuneracion_pretendida or '' }}">
+        </div>
+
+        <div class="feedback-field">
+          <label for="ent-obs">Observaciones</label>
+          <textarea id="ent-obs" name="observaciones" rows="3">{{ form_values.observaciones or '' }}</textarea>
+        </div>
+
+        <div class="feedback-field">
+          <label for="ent-resumen">Resumen de la entrevista técnica</label>
+          <textarea id="ent-resumen" name="resumen_entrevista_tecnica" rows="3" placeholder="Lo que carga el entrevistador técnico sobre esta persona…">{{ form_values.resumen_entrevista_tecnica or '' }}</textarea>
+        </div>
+      </section>
+
+      {# Homologado contra los forms owner-approved del Hub (auditoría UX pass
+         1): Candidatos (alta Y edición, human_capital_profile_new_form.html /
+         _edit_form.html) usa sólo la acción primaria, sin Cancelar -- salir
+         sin guardar es "Volver" (arriba). Búsquedas sí tiene Cancelar en
+         AMBOS modos hoy (busqueda_form.html) -- eso queda tal cual, no se
+         toca acá. Para Entrevistas el owner fija el criterio explícito:
+         EDIT = sólo Guardar (mismo que Candidatos edit, evita dos mecanismos
+         equivalentes con "Volver"); CREATE = mantiene Cancelar (razonable
+         para descartar un alta todavía no persistida, MISMO patrón que
+         Búsquedas create). #}
+      <div class="hc-profile-form__actions">
+        {% if is_edit and entrevista and entrevista.concretada %}
+        <button type="submit" formaction="/cchh/entrevistas/{{ form_values.entrevista_id }}/no-concretada" formnovalidate class="btn-danger">No se concretó</button>
+        {% endif %}
+        <button type="submit" class="btn-primary">{{ 'Guardar cambios' if is_edit else 'Crear entrevista' }}</button>
+        {% if not is_edit %}
+        <a href="/cchh/entrevistas" class="btn-secondary">Cancelar</a>
+        {% endif %}
+      </div>
+    </form>
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{% endblock %}

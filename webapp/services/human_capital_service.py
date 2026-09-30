@@ -44,10 +44,12 @@ memoria la lista YA leída por el caller — nunca vuelve a tocar disco, y
 duplicados (nunca si `duplicate_confirmed=True`, ver abajo)."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from webapp.services import human_capital_catalog_repository as catalog_repo
 from webapp.services import busqueda_repository
+from webapp.services import entrevista_repository
 from webapp.services import profile_repository
 from webapp.services.profile_repository import (  # re-exportados para el router
     ProfileConcurrentModificationError,
@@ -68,7 +70,11 @@ __all__ = [
     "add_candidate_to_busqueda", "move_application_stage", "remove_application", "close_busqueda",
     "profiles_available_for_busqueda", "busqueda_candidates_view",
     "validate_source_for_import",
+    "list_entrevistas", "get_entrevista", "create_entrevista_manual", "update_entrevista",
+    "marcar_entrevista_no_concretada", "delete_entrevista", "entrevista_view", "list_entrevistas_view",
 ]
+
+_logger = logging.getLogger("danwor.human_capital")
 
 _REQUIRED_FIELDS = ("first_name", "last_name")
 _OPTIONAL_FIELDS = (
@@ -419,6 +425,23 @@ def _validate_area_consultora_governed(new_value: str | None, *, existing_value:
     )
 
 
+def _validate_modalidad_contratacion_governed(new_value: str | None, *, existing_value: str | None) -> None:
+    """Modalidad de contratación de una Entrevista (Full time/Part time en la
+    referencia): gobernada por el catálogo `modalidad_contratacion` -- MISMO
+    contrato migration-safe que Seniority/Fuente/Área. Catálogo ya existía
+    (`GOVERNED_CATALOGS`) pero no tenía consumidor todavía; Entrevistas es el
+    primero."""
+    if _is_governed_value_allowed("modalidad_contratacion", new_value, existing_value=existing_value):
+        return
+    active = catalog_repo.catalog_values("modalidad_contratacion")
+    if active:
+        raise ValueError(f"Modalidad de contratación inválida. Elegí una del catálogo vigente: {', '.join(active)}.")
+    raise ValueError(
+        "El catálogo de Modalidad de contratación todavía no está disponible. Dejá el campo vacío "
+        "o refrescá el catálogo antes de asignar un valor."
+    )
+
+
 def validate_source_for_import(source: str | None) -> None:
     """Import masivo (Phase 3.8 §8: "sin validador bulk paralelo", ver
     `profile_import_service.py`, único caller) NO pasa por `create_profile`
@@ -613,6 +636,14 @@ def remove_application(busqueda_id: str, application_id: str) -> dict:
     return busqueda_repository.remove_candidate(busqueda_id, application_id)
 
 
+# Etapas que implican que "hubo entrevista" -- MISMO gate que
+# actualizarEtapaPipeline en la referencia (lib/actions/candidatos.ts):
+# "cualquier etapa posterior a la preselección implica que hubo entrevista
+# CCHH: si todavía no está registrada (por ejemplo, se pasó directo a
+# Entrevista Líder), se crea igual". Verbatim, sin inventar.
+_ETAPAS_QUE_DISPARAN_ENTREVISTA = ("Entrevista CCHH", "Entrevista Líder", "Decisión Final")
+
+
 def move_application_stage(busqueda_id: str, application_id: str, etapa: str,
                            resultado_final: str | None) -> dict:
     if etapa not in busqueda_repository.ETAPAS:
@@ -623,7 +654,12 @@ def move_application_stage(busqueda_id: str, application_id: str, etapa: str,
             raise ValueError("Resultado final inválido.")
     else:
         resultado = None  # el repo también lo fuerza; se valida acá el contrato
-    return busqueda_repository.move_stage(busqueda_id, application_id, etapa, resultado)
+    busqueda = busqueda_repository.move_stage(busqueda_id, application_id, etapa, resultado)
+    if etapa in _ETAPAS_QUE_DISPARAN_ENTREVISTA:
+        app = next((a for a in busqueda.get("candidatos", []) if a.get("application_id") == application_id), None)
+        if app is not None:
+            crear_entrevista_automatica_si_no_existe(app["profile_id"], busqueda_id, application_id)
+    return busqueda
 
 
 def profiles_available_for_busqueda(busqueda: dict) -> list[dict]:
@@ -709,3 +745,117 @@ def busqueda_attention(busqueda: dict) -> dict:
 def busqueda_with_attention(busqueda: dict) -> dict:
     """Copia del proceso con `attention` embebido (nunca se persiste)."""
     return {**busqueda, "attention": busqueda_attention(busqueda)}
+
+
+# ── ENTREVISTAS ───────────────────────────────────────────────────────────────
+# Dominio verbatim de la referencia (ver entrevista_repository.py, module
+# docstring, para las citas exactas de schema.sql/lib/entrevistaAutomatica.ts).
+
+def list_entrevistas() -> list[dict]:
+    return entrevista_repository.list()
+
+
+def get_entrevista(entrevista_id: str) -> dict | None:
+    return entrevista_repository.get(entrevista_id)
+
+
+def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None) -> dict:
+    """Ningún campo de Entrevista es obligatorio (MISMO contrato que la
+    referencia: EntrevistaFormInput es enteramente opcional salvo elegir un
+    candidato al CREAR, que se valida aparte con profile_id). `area` y
+    `modalidad_contratacion` son GOBERNADOS por catálogo, MISMO contrato
+    migration-safe que Búsquedas/Candidatos."""
+    area = (fields.get("area") or "").strip() or None
+    _validate_area_consultora_governed(area, existing_value=(existing or {}).get("area"))
+    modalidad = (fields.get("modalidad_contratacion") or "").strip() or None
+    _validate_modalidad_contratacion_governed(
+        modalidad, existing_value=(existing or {}).get("modalidad_contratacion"))
+    return {
+        "fecha_entrevista": (fields.get("fecha_entrevista") or "").strip() or None,
+        "puesto_evaluado": (fields.get("puesto_evaluado") or "").strip() or None,
+        "area": area,
+        "modalidad_contratacion": modalidad,
+        "remuneracion_pretendida": (fields.get("remuneracion_pretendida") or "").strip() or None,
+        "observaciones": (fields.get("observaciones") or "").strip() or None,
+        "resumen_entrevista_tecnica": (fields.get("resumen_entrevista_tecnica") or "").strip() or None,
+    }
+
+
+def create_entrevista_manual(profile_id: str, fields: dict) -> dict:
+    """Alta manual (candidato del Banco todavía sin ninguna Búsqueda) -- MISMO
+    caso que `crearEntrevistaManual` en la referencia (banco_cv_id, sin
+    proceso_id/candidato_id)."""
+    profile = profile_repository.get(profile_id)
+    if profile is None or profile.get("deleted_at"):
+        raise ValueError("Elegí un candidato del Banco de CVs.")
+    return entrevista_repository.create(
+        _shape_entrevista_fields(fields), profile_id=profile_id, busqueda_id=None, application_id=None)
+
+
+def update_entrevista(entrevista_id: str, expected_revision: int, fields: dict) -> dict:
+    existing = entrevista_repository.get(entrevista_id)
+    return entrevista_repository.update(
+        entrevista_id, expected_revision, _shape_entrevista_fields(fields, existing=existing))
+
+
+def marcar_entrevista_no_concretada(entrevista_id: str, expected_revision: int) -> dict:
+    return entrevista_repository.marcar_no_concretada(entrevista_id, expected_revision)
+
+
+def delete_entrevista(entrevista_id: str) -> None:
+    entrevista_repository.delete(entrevista_id)
+
+
+def crear_entrevista_automatica_si_no_existe(profile_id: str, busqueda_id: str, application_id: str) -> None:
+    """Al entrar a una etapa de entrevista se crea una única fila para ese
+    (profile_id, busqueda_id) si todavía no existe -- MISMO gate/dedup que
+    `crearEntrevistaAutomaticaSiNoExiste` en la referencia (unique index
+    candidato_id+proceso_id). Autocompleta puesto (de la Búsqueda) y área (de
+    la Búsqueda, MISMA taxonomía que `area_consultora` -- ver migración de
+    referencia 2026-09-24-fase2.sql); el origen NO se autocompleta como campo
+    propio porque se deriva siempre del Profile (`entrevista_view`). Todo
+    corregible después desde Entrevistas. Best-effort: un fallo de
+    persistencia acá NUNCA debe romper el movimiento de etapa que lo disparó
+    (mismo criterio que `add_candidate_to_busqueda`/`remove_application` en
+    los call sites del router: la mutación de pipeline ya se confirmó)."""
+    if entrevista_repository.find_by_profile_and_busqueda(profile_id, busqueda_id) is not None:
+        return
+    busqueda = busqueda_repository.get(busqueda_id)
+    fields = {
+        "puesto_evaluado": (busqueda or {}).get("nombre_puesto"),
+        "area": (busqueda or {}).get("area_consultora"),
+    }
+    try:
+        entrevista_repository.create(
+            _shape_entrevista_fields(fields), profile_id=profile_id,
+            busqueda_id=busqueda_id, application_id=application_id,
+        )
+    except (ValueError, entrevista_repository.EntrevistaStorageError):
+        # No debe bloquear el movimiento de etapa (ya confirmado) por un
+        # problema de creación de la entrevista automática; queda para
+        # cargarse manualmente desde Entrevistas.
+        _logger.warning("human_capital.entrevista_automatica_fallo profile_id=%s busqueda_id=%s",
+                         profile_id, busqueda_id)
+
+
+def entrevista_view(entrevista: dict) -> dict:
+    """Enriquece una entrevista con Profile (maestro de datos personales +
+    `source`, del que se deriva SIEMPRE el origen mostrado -- MISMA prioridad
+    que `origenDeEntrevista` de la referencia, pero sin duplicar el campo) y
+    Búsqueda (de la que se deriva el puesto evaluado mientras haya
+    `busqueda_id`, MISMA prioridad que `puestoDeEntrevista`)."""
+    profile = profile_repository.get(entrevista.get("profile_id"))
+    busqueda = busqueda_repository.get(entrevista["busqueda_id"]) if entrevista.get("busqueda_id") else None
+    puesto = (busqueda or {}).get("nombre_puesto") or entrevista.get("puesto_evaluado")
+    return {
+        **entrevista,
+        "profile": profile,
+        "busqueda": busqueda,
+        "origen": (profile or {}).get("source"),
+        "puesto_mostrado": puesto,
+        "puesto_es_derivado": bool(busqueda),
+    }
+
+
+def list_entrevistas_view() -> list[dict]:
+    return [entrevista_view(e) for e in list_entrevistas()]

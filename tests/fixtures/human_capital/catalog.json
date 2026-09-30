@@ -36,9 +36,8 @@
     {"valor": "Administración", "orden": 8}
   ],
   "modalidad_contratacion": [
-    {"valor": "Relación de dependencia", "orden": 1},
-    {"valor": "Freelance", "orden": 2},
-    {"valor": "Consultora tercera", "orden": 3}
+    {"valor": "Full time", "orden": 1},
+    {"valor": "Part time", "orden": 2}
   ],
   "potencial": [
     {"valor": "Terna futura", "orden": 1},
