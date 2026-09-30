@@ -18,16 +18,16 @@
 
 ## Git
 - **branch:** `work/cchh-busquedas-core`
-- **HEAD final:** el commit de este HANDOFF (ver `git log -1`); el checkpoint de
-  código de la fidelity pass es **`194dac1`** (feat: Búsquedas fidelity pass —
-  Volver Hub, catálogos gobernados, vistas, contadores), sobre `c99871c`
-  (N:M availability) y `05062e8` (Búsquedas core).
-- **remote SHA:** `origin/work/cchh-busquedas-core` == HEAD local tras el push de
-  este handoff (verificado; ver §7 de la respuesta final).
+- **HEAD final:** el commit de este HANDOFF (ver `git log -1`). Cadena de código:
+  `05062e8` (core) → `c99871c` (N:M availability) → `194dac1` (fidelity pass 1:
+  Volver Hub, catálogos gobernados, vistas, contadores) → **`9977fc8`** (UX pass 2:
+  terminología Proceso, fechas DD-MM-YYYY, tiles, tooltip, pipeline orgánico).
+- **remote SHA:** `origin/work/cchh-busquedas-core` == HEAD local tras el push.
 - **dirty/clean:** clean tras el push.
 - **main base:** `origin/main` = `9c4ebc6` (Búsquedas NO está en main todavía).
-- **PR: NO abierto** (este entorno no tiene `gh`; el owner abre/mergea PRs). Al
-  mergear a `main`, DigitalOcean auto-deploya (Procfile); `deployment` branch stale.
+- **PR: pendiente de abrir por el owner** (este entorno no tiene `gh`; branch
+  pusheada). Al mergear a `main`, DigitalOcean auto-deploya (Procfile);
+  `deployment` branch stale.
 
 ## Localhost
 - Último harness válido: **http://127.0.0.1:8093/cchh/busquedas**
@@ -101,30 +101,33 @@
 - `CierreMasivoModal` = **código muerto** en la referencia → NO reimplementar sin
   nueva evidencia.
 
-## OWNER FEEDBACK PENDIENTE — PRÓXIMO TRABAJO OBLIGATORIO
-> Parte de esto ya se abordó en `194dac1` (A Volver, B catálogos, C dos acciones,
-> D botonera de vistas, E contadores en frase completa alineados a la derecha,
-> fix responsive). Lo que SIGUE pendiente/refinado por el owner:
-- **C (terminología):** unificar a "**Proceso**" en acciones/entidades internas —
-  "Nuevo proceso" (hoy "+ Nueva búsqueda"), y secciones "**Procesos activos**"/
-  "**Procesos cerrados**" (hoy "Activas"/"Cerradas"). La página puede seguir
-  llamándose "Búsquedas". Pluralización 0/1/N ("0 procesos activos", "1 proceso
-  activo", "N procesos activos"; idem cerrados).
-- **E (dashboard-section):** confirmar contrato `[Título izq] … [contador der]`
-  con las etiquetas nuevas de C; reusar el primitive compartido, sin CSS CCHH.
-- **F (cards responsive):** las tiles deben ocupar el ancho fluidamente (grid
-  primitive del Hub) — desktop 3 por fila, luego 2, luego 1; sin scroll horizontal
-  ni columnas hardcodeadas. (Hoy `busqueda-grid` usa `auto-fill minmax(280px,1fr)`;
-  auditar si hay un grid primitive Hub que reusar antes de tocarlo.)
-- **G (fechas):** presentar `DD-MM-YYYY` (ej. `10-09-2026`) en TODA fecha textual
-  visible de Búsquedas; persistencia/inputs `type=date` siguen ISO. Usar
-  formatter/helper compartido (auditar si ya existe uno en el Hub).
-- **H (detalle/pipeline holístico):** revisar en UNA pasada coherente hero/título/
-  meta/status/acciones/contador/selector de vistas/pipeline/cards de candidatos/
-  spacing/estado vacío/proceso cerrado — sin microparches aislados.
-- **A/B/D (verificación fina):** confirmar que Volver, catálogos y botonera de
-  vistas cumplen exactamente el estándar (incl. si la botonera aparece también en
-  proceso cerrado en la referencia).
+## OWNER FEEDBACK — RESUELTO en pass 1 (`194dac1`) + pass 2 (`9977fc8`)
+Toda la tanda de owner feedback quedó implementada y validada en localhost:
+- **A Volver:** `.catalog-back` compartido (form + detalle).
+- **B/catálogos:** Área/Departamento (catálogo `area`) y Área de la consultora
+  (`area_consultora`) = select gobernado migration-safe, alimentado desde el
+  workbook de catálogos (la tabla declara `catalogo` por fila; fail-closed).
+  Modalidad = enum de dominio fijo (Híbrido/Remoto), como la referencia.
+- **C terminología:** dominio "Proceso" en toda la UI ("Procesos activos/cerrados",
+  "Activo/Cerrado", "Crear/Editar/Cerrar/Nuevo/Quitar del proceso"); página sigue
+  "Búsquedas". CTA primario landing = "+ Nuevo proceso" (secundario "+ Nuevo
+  candidato") — jerarquía DECIDIDA por el owner (difiere de la app original).
+- **E dashboard-section:** `[Título izq] … [contador der]` con el primitivo
+  compartido; contador = "N procesos" (sin repetir activos/cerrados).
+- **F cards responsive:** `busqueda-grid` = `auto-fit minmax(260px,1fr)` (idioma
+  Hub workspace-tiles): 3→2→1, sin dead space ni scroll horizontal. Tiles con
+  título/desc a ancho completo (título 2 líneas) y badges (estado+candidatos) abajo.
+- **G fechas:** filtro Jinja compartido `fecha_dmy` → DD-MM-YYYY en toda fecha
+  visible; persistencia e `<input type=date>` siguen ISO.
+- **D/H detalle+pipeline:** botonera de vistas `.dashboard-view-switch` (Pipeline
+  activa; resto disabled) presente también en proceso cerrado. Requerimiento formal
+  = tooltip (i) con `.chart-tooltip`. Pipeline con columnas de altura NATURAL
+  (align-items:start, sin equal-height); columna vacía = empty-state por etapa en
+  caja dashed con `min-height:110px` (ni estirada a la más alta ni muy chica); la
+  columna con más tarjetas sobresale.
+
+Ningún ítem de esta tanda queda pendiente. (Diferidos FUNCIONALES = las vistas
+Evaluación/Scoring/Sugeridos/Reportes y el resto de la lista de arriba.)
 
 ## Regla para el nuevo agente
 Referencia = spec funcional/visual; Hub = primitives/layout compartidos. No
