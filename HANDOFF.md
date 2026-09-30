@@ -8,6 +8,201 @@
 
 ---
 
+# CCHH · APP DE REFERENCIA (`app-seleccion`) — CHECKOUT LOCAL AUTORITATIVO
+
+> **Para cualquier agente nuevo, antes de mapear dominio de CUALQUIER bloque
+> CCHH** (Entrevistas, Onboarding, Vista evaluación, Scoring, etc.): el
+> código fuente completo de la app de referencia funcional/semántica
+> (`app-seleccion`, Next.js + Supabase, la misma que corre en
+> `https://app-seleccion.vercel.app/`) vive **localmente** en:
+>
+>     E:\Joe\Metodologia\Refactorizacion\cchh\app-seleccion
+>
+> Confirmado con `ls`: `app/`, `components/`, `lib/`, `supabase/`, más
+> `AGENTS.md`/`CLAUDE.md`/`LEEME.md`/`README.md` propios de ese proyecto.
+> **Leer ESTE checkout, nunca navegar el sitio desplegado** (pide login,
+> ningún agente tiene credenciales) ni inferir dominio sólo de screenshots.
+> `app-seleccion` = fuente funcional/semántica (dominio, flujo, campos,
+> acciones); `ArquitectoDanwor` (este repo, el Hub) = fuente de
+> primitives/layout — nunca al revés.
+
+---
+
+# CCHH · ENTREVISTAS — OWNER REVIEW / WIP PRESERVED (2026-09-30)
+
+> **Branch**: `work/cchh-entrevistas-core`, creada desde `main @ b89f31d`
+> (== `origin/main` al momento de escribir esto). **Sin commitear todavía**
+> — todo el trabajo de este bloque está en el working tree. No mergear, no
+> tocar `main`.
+
+## 0. Fuente de referencia — MISMA regla que el resto de CCHH
+
+Ver la sección "CCHH · APP DE REFERENCIA" arriba del todo de este archivo.
+Repetido acá porque es el error más caro de repetir: **antes de remapear
+dominio de Entrevistas, leer el checkout local**, nunca asumir que sólo
+existe el sitio desplegado:
+
+    E:\Joe\Metodologia\Refactorizacion\cchh\app-seleccion
+
+No bloquearse por falta de login en `app-seleccion.vercel.app` sin revisar
+primero ese path. No volver a "descubrir" que existe — ya está confirmado.
+
+## 1. Dominio confirmado (frozen, no redebatir)
+
+- **Entidad propia** `Entrevista`, única por `(profile_id, busqueda_id)`
+  cuando viene de un proceso — pasar de etapa "Entrevista CCHH" a
+  "Entrevista Líder" (o a "Decisión Final") **reutiliza la misma fila**,
+  nunca crea una segunda. Evidencia: índice único
+  `entrevistas_candidato_proceso_unique_idx` + comentario explícito en
+  `supabase/schema.sql` de la referencia.
+- **Estado**: el único campo de estado propio es `concretada: bool`. NO
+  existe una máquina de estados con "reprogramada"/"cancelada"/"realizada"
+  como valores separados en la referencia — no inventarla acá.
+- **Pipeline**: el historial de movimientos de etapa vive en
+  `CandidateApplication` (ya existente); `Entrevista` no duplica ese
+  historial.
+- **Auto-creación**: al mover una `CandidateApplication` a una de las 3
+  etapas gate (`Entrevista CCHH`, `Entrevista Líder`, `Decisión Final`) se
+  crea la Entrevista automáticamente si no existe — idempotente
+  (`crear_entrevista_automatica_si_no_existe`), nunca duplica.
+- **Origen**: `origen = Profile.source` (derivado, sin override propio en
+  esta pasada). Motivo: el Hub siempre exige `profile_id` vinculado; la
+  referencia sólo mantiene un fallback propio para el caso sin Profile
+  vinculado, que hoy no existe en el Hub. Revisable únicamente si aparece
+  un caso real que necesite un snapshot histórico distinto al Profile
+  actual.
+- **Delete = HARD DELETE**, confirmado con evidencia, no por inferencia:
+  `lib/actions/entrevistas.ts::eliminarEntrevista` hace
+  `.from("entrevistas").delete().eq("id", id)` incondicional, sin
+  precondición. `EliminarEntrevistaButton.tsx` sólo pide confirmación
+  genérica. `entrevista_documentos` cascadea (`ON DELETE CASCADE`).
+  `feedback_tecnico` ni siquiera tiene FK a `entrevistas`. El Hub replica
+  este mismo contrato. **No reabrir soft-vs-hard delete.**
+
+## 2. Catálogos gobernados
+
+- `area` / `area_consultora`: ya existentes, sin cambios en este bloque.
+- `modalidad_contratacion`: catálogo gobernado que existía en el Hub SIN
+  ningún consumidor real hasta ahora. Valores reales confirmados desde la
+  referencia (`lib/types.ts`: `type ModalidadContratacion = "Full time" |
+  "Part time"`; `supabase/schema.sql`: `CHECK modalidad_contratacion IN
+  ('Full time','Part time')`, sin ninguna migración posterior que la
+  toque):
+
+  ```
+  catalogo               | valor      | activo | orden
+  modalidad_contratacion | Full time  | TRUE   | 10
+  modalidad_contratacion | Part time  | TRUE   | 20
+  ```
+
+  **PRODUCTION CATALOG LOAD = PENDING OWNER CONFIRMATION** — no hay
+  fallback hardcodeado en código; si el owner todavía no cargó estas dos
+  filas en `tblCatalogosCCHH` en producción, hacerlo antes de considerar
+  el catálogo productivo-completo. Las fixtures de test YA usan estos
+  valores reales (`tests/fixtures/human_capital/catalog.json`).
+  Contrato de migración (igual que el resto de catálogos gobernados):
+  CREATE = sólo valores activos; EDIT = legacy-safe (se preserva un valor
+  fuera de catálogo si no se toca; si se cambia, la nueva selección debe
+  ser activa).
+
+## 3. UX implementada (pasada owner review #1)
+
+- **Listado** (`/cchh/entrevistas`): tabla plana dentro de un
+  `dashboard-section` (contador de entrevistas a la derecha del título,
+  primitive estándar). Columnas con **drag-to-reorder** y **resize**
+  usando el MISMO mecanismo compartido que Candidatos
+  (`initDraggableColumns`/`initResizableColumns`/
+  `restorePersistedColumnWidths`/`readStoredColumnOrder` de `app.js`), con
+  persistencia en `localStorage` bajo el namespace `cchh-entrevistas`.
+  Verificado en vivo: reorder + persistencia entre reloads + resize handle
+  presente en las 7 columnas. Acciones por fila: **sólo Editar y
+  Eliminar** (ícono SVG + tooltip compartidos, mismo patrón que
+  Candidatos). **NO hay acción "Ver".**
+- **Detail route eliminada por completo**: `GET /cchh/entrevistas/{id}` ya
+  NO existe (404 confirmado en vivo). El flujo es Listado → Editar
+  directamente; no quedó ninguna pantalla de sólo-lectura redundante.
+- **Alta** (`/cchh/entrevistas/nueva`): página completa con primitives del
+  Hub, selección de candidato del Banco de CVs, catálogos gobernados.
+  Acciones: `[Crear entrevista] [Cancelar]` (mismo contrato que Búsquedas
+  create).
+- **Edit** (`/cchh/entrevistas/{id}/editar`): acción única
+  `[Guardar cambios]`, **sin Cancelar** (mismo contrato que Candidatos
+  edit — salir sin guardar es "← Volver a Entrevistas", MISMO primitive
+  `.catalog-back` que el resto del Hub). Botón `[No se concretó]` presente
+  sólo cuando `concretada=true`, guarda todos los campos del form Y marca
+  `concretada=false` en el mismo submit (replica el comportamiento de la
+  referencia). El disclaimer sobre campos derivados del Pipeline (sólo
+  visible cuando la entrevista viene de una Búsqueda) usa el primitive
+  transversal `(i)` del Hub (`.activity-kpi__info` +
+  `.chart-tooltip-anchor` + `.chart-tooltip`) — el mismo que
+  "Requerimiento formal recibido" en `busqueda_form.html`. **NO se creó
+  ningún SVG/CSS de tooltip propio de CCHH.** Verificado en vivo: tooltip
+  renderiza y expone el copy vía `aria-label`, en claro y oscuro.
+- **Delete**: mismo dialog de confirmación compartido
+  (`data-dw-confirm-form`) que el resto del Hub. Verificado en vivo:
+  Cancelar en el dialog = no-op (la tabla no cambia); Confirmar = hard
+  delete real, la fila desaparece y el contador pasa de 7 a 6 entrevistas.
+
+## 4. Deferred (NO implementado, no asumir que falta por error)
+
+Documentos adjuntos de Entrevista, Feedback técnico, Scoring (JD),
+integración avanzada con Vista evaluación, sincronización con Onboarding,
+exportar a Excel, mensajería, automatizaciones — nada de esto existe en
+este bloque porque está fuera del scope acordado, no porque quedó a medio
+hacer. La sección funcional siguiente después de Entrevistas **no debe
+asumirse automáticamente** — consultar este HANDOFF/al owner antes de
+arrancarla.
+
+## 5. Tests
+
+- Foco Entrevistas (`tests/webapp/test_human_capital_entrevistas.py`, 31
+  tests): repository/service/routes, auto-creación idempotente sobre las
+  3 etapas gate, catálogos gobernados (incl. `modalidad_contratacion`),
+  `no-concretada`, delete + delete-de-inexistente, contrato UX (tabla con
+  primitive compartido, sólo Editar/Eliminar, tooltip compartido en vez de
+  banner bespoke, Guardar-solo en edit, Crear+Cancelar en create, mismo
+  primitive de "Volver").
+- Set focused CCHH completo corrido junto (Entrevistas + Búsquedas +
+  hub_foundation + legacy_compat + access + route_contract + los 3
+  archivos de ergonomía de tabla compartida —
+  `test_human_capital_candidates_table_ergonomics.py`,
+  `test_app_table_ergonomics.py`,
+  `test_commercial_licensing_table_ergonomics.py`, para confirmar que
+  adoptar el mecanismo compartido en Entrevistas no rompió Candidatos ni
+  Comercial): **118 passed**.
+- `tests/route_surface.json` regenerado (`UPDATE_ROUTE_SURFACE=1`) para
+  reflejar la baja de la detail route — el snapshot actual ya NO incluye
+  `GET /cchh/entrevistas/{entrevista_id}`.
+- **Full suite = PENDING FOR CLOSURE** (no corrida en esta pasada, por
+  instrucción explícita del owner de no correrla todavía).
+
+## 6. Localhost
+
+Visual QA harness (`tools/cchh_visual_harness.py`), puerto **8097**
+(default del script — una nota de una sesión anterior mencionaba 8098,
+era un proceso viejo de otra sesión, ya terminado). Sesión inyectada vía
+cookie `dw_session` del owner local (`joconnor@danwor.com`). Runtime
+fixtures bajo `%TEMP%\danwor_cchh_visual_harness_runtime`, se resiembran
+en cada arranque desde `tests/fixtures/human_capital/entrevistas.json` (7
+entradas — el delete probado en vivo bajó una a 6 en el runtime del
+harness, no en la fixture del repo). Si el harness quedó corriendo desde
+antes de un cambio de template/CSS/rutas, **reiniciarlo** (no hace
+reload en caliente de Jinja/CSS/rutas).
+
+## 7. Pending para el próximo agente
+
+- Confirmar con el owner si ya cargó las 2 filas de
+  `modalidad_contratacion` en `tblCatalogosCCHH` en producción.
+- Correr la full suite antes de abrir PR.
+- Commit + push de este bloque (repository/service/routes/templates/CSS/
+  fixtures/tests/route_surface/HANDOFF) — branch `work/cchh-entrevistas-core`.
+- Abrir PR sólo después de que el owner dé el visto bueno final sobre esta
+  pasada de UX.
+- No asumir la siguiente sección funcional de CCHH sin confirmarlo con el
+  owner primero.
+
+---
+
 # CCHH · BÚSQUEDAS — OWNER QA PASS / WIP PRESERVED (2026-09-30)
 
 > **Owner visual QA = PASS** para esta pasada. Estado ACTUAL (no la historia de
