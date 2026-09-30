@@ -27,17 +27,16 @@
   {{ nav_welcome(user) }}
   <nav aria-label="Capital Humano">
     <p class="nav-kicker sidebar-workspace-kicker">CAPITAL HUMANO</p>
-    <a href="/cchh" class="module-link {% if active_page == 'inicio' %}is-active{% endif %}">
-      <span>01</span><strong>Inicio</strong>
-    </a>
+    {# Landing "Inicio" retirado por ahora (owner): el workspace arranca en
+       Candidatos, que pasa a ser la primera entrada (01). #}
     <a href="/cchh/candidatos" class="module-link {% if active_page == 'perfiles' %}is-active{% endif %}">
-      <span>02</span><strong>Candidatos</strong>
+      <span>01</span><strong>Candidatos</strong>
     </a>
-    {# Búsquedas (procesos de selección) — TERCERA capability real del
-       workspace, tomada de la app de referencia (tab "Búsquedas" -> /dashboard).
+    {# Búsquedas (procesos de selección) — capability real del workspace, tomada
+       de la app de referencia (tab "Búsquedas" -> /dashboard).
        `active_page == 'busquedas'` lo pasa el router. #}
     <a href="/cchh/busquedas" class="module-link {% if active_page == 'busquedas' %}is-active{% endif %}">
-      <span>03</span><strong>Búsquedas</strong>
+      <span>02</span><strong>Búsquedas</strong>
     </a>
   </nav>
 </aside>

@@ -51,7 +51,18 @@
    propio .module-hero de arriba) para simetría real arriba/abajo del
    divisor en las tres pantallas -- listado, alta y edición ahora
    consistentes entre sí. */
-.module-hero + #hc-profiles-panel { margin-top: 24px; }
+/* El `#hc-catalog-refresh-feedback` (vacío hasta que se refresca un catálogo)
+   se coló ENTRE el hero y `#hc-profiles-panel` cuando se agregó el refresh
+   one-click, rompiendo la adyacencia `.module-hero + #hc-profiles-panel` y
+   dejando el listado pegado al divisor otra vez (owner: "falta margen en Base
+   de CVs"). Se cubre la adyacencia real actual (después del feedback) con el
+   MISMO respiro de 24px. */
+.module-hero + #hc-profiles-panel,
+.hc-catalog-refresh-feedback + #hc-profiles-panel { margin-top: 24px; }
+/* MISMO respiro post-divisor en Búsquedas (`.busquedas-list`) que en Base de CVs
+   (`#hc-profiles-panel`): 24px estandarizados en las dos pantallas — el listado
+   de procesos ya no queda más pegado al divisor que Candidatos (owner). */
+.module-hero + .busquedas-list { margin-top: 24px; }
 
 /* /cchh/catalogos: MISMO criterio de respiro post-divisor que arriba (24px)
    -- acá el hero puede ir seguido de un callout de resultado, un
@@ -276,6 +287,14 @@
    Comercial, Reporting) que NUNCA es hijo directo de `.hc-profile-form` en
    ningún otro lugar -- cero riesgo de afectar esos otros consumidores. */
 .hc-profile-form > button[type="submit"] { justify-self: start; margin-top: 8px; }
+/* Botonera de acciones del form de Búsquedas (`<div>` con Crear/Cancelar):
+   ocupa el ancho completo de la grilla y se separa del último campo con el MISMO
+   separador que entre secciones (margin+padding+borde-top) — sin esto quedaba
+   pegada al checkbox porque la grilla usa `row-gap:0` (owner: "falta margen"). */
+.hc-profile-form > .hc-profile-form__actions {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  margin-top: 22px; padding-top: 20px; border-top: 1px solid rgba(128,128,128,.24);
+}
 /* Notas: reusa `.hc-profile-form-notes` sólo para el tamaño del textarea --
    el separador/bloque propio ahora lo da `.hc-profile-section` (ver abajo),
    MISMA sección semántica que Datos del candidato/Clasificación/Potencial. */
@@ -382,10 +401,25 @@
 .busqueda-card__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; margin-top: auto; padding-top: 12px; }
 .busqueda-card__desde { color: #7a7a82; font: 500 .72rem var(--mono); }
 .busqueda-card__badges { display: flex; align-items: center; gap: 8px; flex: none; }
-.busqueda-card__count { font: 600 .66rem var(--mono); color: #1f1f24; background: var(--gold); padding: 4px 9px; border-radius: 999px; white-space: nowrap; }
+/* Estado y cantidad comparten métricas EXACTAS (padding/font/line-height) para
+   que los dos pills del pie queden a la MISMA altura (owner). */
+.busqueda-card__count { display: inline-flex; align-items: center; font: 600 .64rem var(--mono); line-height: 1; color: #1f1f24; background: var(--gold); padding: 4px 9px; border-radius: 999px; white-space: nowrap; }
+
+/* Señales derivadas de atención dentro del tile (estancada / sin requerimiento):
+   badges compactos y consistentes, nunca duplican el proceso en otro bloque. */
+.busqueda-card__signals { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.busqueda-signal { font: 600 .62rem var(--mono); padding: 3px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; }
+.busqueda-signal--estancada { color: #a3341f; background: rgba(200,80,50,.14); }
+.content-theme-dark .busqueda-signal--estancada { color: #e88b72; }
+.busqueda-signal--warn { color: #8a6300; background: rgba(231,176,8,.16); }
+.content-theme-dark .busqueda-signal--warn { color: #e7b008; }
+
+/* Barra de filtros de atención: usa el primitivo compartido `.dashboard-view-switch`;
+   acá sólo su ubicación (separación de la grilla) y scroll en viewports angostos. */
+.busqueda-atencion { margin: 0 0 14px; max-width: 100%; overflow-x: auto; }
 
 /* Badge de estado de la búsqueda (Activa/Cerrada) */
-.busqueda-estado { flex: none; display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px; font: 600 .64rem var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+.busqueda-estado { flex: none; display: inline-flex; align-items: center; padding: 4px 9px; border-radius: 999px; font: 600 .64rem var(--mono); line-height: 1; text-transform: uppercase; letter-spacing: .04em; }
 .busqueda-estado--activa { background: rgba(0,176,80,.14); color: #1a7a43; }
 .content-theme-dark .busqueda-estado--activa { color: #4fc17e; }
 .busqueda-estado--cerrada { background: rgba(128,128,128,.16); color: #55555c; }
@@ -418,11 +452,19 @@
 .busqueda-col__head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 10px 12px; border-bottom: 1px solid rgba(128,128,128,.2); font: 600 .68rem var(--mono); text-transform: uppercase; letter-spacing: .03em; }
 .busqueda-col__count { color: var(--gold); }
 .busqueda-col__body { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
-/* Empty-state DENTRO de la columna: SÓLO acá va la `min-height` (≈ una columna
-   con una tarjeta), para que la vacía no quede demasiado chica — sin estirar la
-   columna entera ni forzar equal-height entre siblings. Caja punteada sobria. */
-.busqueda-col__empty { min-height: 110px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 14px 10px; border: 1px dashed rgba(128,128,128,.32); border-radius: 8px; color: #7a7a82; font-size: .72rem; line-height: 1.35; }
+/* Empty-state DENTRO de la columna: `min-height` calcada de la altura EXACTA de
+   una tarjeta (96px, box-sizing:border-box para que el padding no la agrande) —
+   así la columna vacía queda a la MISMA altura que una con una tarjeta, sin
+   estirar la columna entera ni forzar equal-height entre siblings. Sobria. */
+.busqueda-col__empty { box-sizing: border-box; min-height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 10px; border: 1px dashed rgba(128,128,128,.32); border-radius: 8px; color: #7a7a82; font-size: .72rem; line-height: 1.35; }
 .content-theme-dark .busqueda-col__empty { color: #8b8b96; border-color: rgba(180,180,190,.28); }
+.busqueda-col__empty p { margin: 0; }
+/* "+" contextual del empty-state de Preselección: el ícono usa el primitivo
+   compartido `.table-action-btn`; acá sólo un realce sutil (borde) para que se
+   lea como acción, no como un ícono decorativo. */
+.busqueda-col__empty-add { border: 1px solid rgba(128,128,128,.32); color: #55555c; }
+.busqueda-col__empty-add:hover { border-color: var(--gold); color: var(--gold); }
+.content-theme-dark .busqueda-col__empty-add { color: #b2b2bc; }
 .busqueda-cand { border: 1px solid rgba(128,128,128,.24); border-radius: 10px; padding: 10px; background: #fff; }
 .content-theme-dark .busqueda-cand { background: #181819; }
 .busqueda-cand__id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -447,7 +489,7 @@
 @media (max-width: 640px) { .hc-busqueda-form__pair { grid-template-columns: 1fr; } }
 .hc-busqueda-formal { margin-top: 4px; align-items: center; }
 .hc-busqueda-formal__text { display: inline-flex; align-items: center; gap: 6px; }
-/* Ícono (i) del tooltip: sólo color/alineación — la caja flotante y el reveal
-   los aporta el primitivo compartido `.chart-tooltip-anchor`/`.chart-tooltip`. */
-.hc-busqueda-formal__info { display: inline-flex; align-items: center; color: #7a7a82; cursor: help; }
-.content-theme-dark .hc-busqueda-formal__info { color: #8b8b96; }
+/* Sólo alineación inline del anchor: el look del (i), el reveal y el theme
+   light/dark los aporta el primitivo compartido (.activity-kpi__info +
+   .chart-tooltip + .chart-tooltip-anchor). Cero estilo de ícono propio. */
+.hc-busqueda-formal__info { display: inline-flex; align-items: center; }

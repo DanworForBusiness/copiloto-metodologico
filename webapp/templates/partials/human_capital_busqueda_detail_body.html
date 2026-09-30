@@ -16,8 +16,8 @@
 {% endif %}
 
 {# Copy de estado vacío por etapa (owner): cada columna sin candidatos muestra
-   su propio empty-state DENTRO de la caja, así el pipeline se ve equilibrado aun
-   con etapas vacías (todas las columnas comparten altura vía align-items:stretch). #}
+   su propio empty-state DENTRO de la caja (altura natural ≈ una tarjeta, ver
+   `.busqueda-col__empty`), así la etapa vacía no queda ni muy chica ni estirada. #}
 {% set _empty_copy = {
   "Preselección": "Todavía no hay candidatos en preselección.",
   "Entrevista CCHH": "Todavía no hay entrevistas de CCHH realizadas ni programadas.",
@@ -31,7 +31,21 @@
     <div class="busqueda-col__head"><span>{{ 'Finalizados' if etapa == etapa_final else etapa }}</span><span class="busqueda-col__count">{{ board[etapa] | length }}</span></div>
     <div class="busqueda-col__body">
       {% if not board[etapa] %}
-      <p class="busqueda-col__empty">{{ _empty_copy.get(etapa, 'Todavía no hay candidatos en esta etapa.') }}</p>
+      <div class="busqueda-col__empty">
+        <p>{{ _empty_copy.get(etapa, 'Todavía no hay candidatos en esta etapa.') }}</p>
+        {# Acción contextual SÓLO en la etapa inicial (Preselección) de un proceso
+           ACTIVO: abre EL MISMO diálogo "Agregar candidato" que el botón del hero
+           (`data-dialog-open="busqueda-add-dialog"`) — sin segundo modal/handler/
+           endpoint. Reusa el primitivo de ícono compartido `.table-action-btn`
+           + tooltip `.chart-tooltip`. En etapas posteriores y en procesos cerrados
+           el empty-state queda sólo informativo. #}
+        {% if busqueda.estado == 'activo' and loop.first %}
+        <button type="button" class="table-action-btn chart-tooltip-anchor busqueda-col__empty-add" data-dialog-open="busqueda-add-dialog" aria-label="Agregar candidato">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          <span class="chart-tooltip" aria-hidden="true"><p>Agregar candidato</p></span>
+        </button>
+        {% endif %}
+      </div>
       {% endif %}
       {% for app in board[etapa] %}
       <div class="busqueda-cand">
@@ -61,9 +75,15 @@
             {% for r in resultados %}<option value="{{ r }}" {% if r == app.resultado_final %}selected{% endif %}>{{ r }}</option>{% endfor %}
           </select>
           {% endif %}
+          {# `hx-trigger="confirmed"` es OBLIGATORIO con `data-dw-confirm`: el
+             delegado compartido (app.js) hace preventDefault en el click y sólo
+             re-dispara el request emitiendo el evento `confirmed` al confirmar
+             el diálogo. Sin este trigger, confirmar no hacía NADA (bug: el
+             candidato quedaba en el proceso) — MISMO patrón que el borrado del
+             listado de Candidatos. #}
           <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Quitar del proceso"
                   hx-post="/cchh/busquedas/{{ bid }}/candidatos/{{ app.application_id }}/eliminar"
-                  hx-target="#busqueda-detail-body" hx-swap="innerHTML"
+                  hx-trigger="confirmed" hx-target="#busqueda-detail-body" hx-swap="innerHTML"
                   data-dw-confirm data-dw-confirm-title="Quitar candidato" data-dw-confirm-message="¿Quitar a este candidato del proceso? El CV del Banco no se elimina." data-dw-confirm-ok="Quitar">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
             <span class="chart-tooltip" aria-hidden="true"><p>Quitar del proceso</p></span>

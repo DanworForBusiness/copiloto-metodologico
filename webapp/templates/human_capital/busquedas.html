@@ -32,29 +32,10 @@
     {% elif total_busquedas == 0 %}
     <div class="dashboard-empty"><span class="dashboard-empty__label">Sin procesos</span><p>Todavía no hay procesos cargados por el momento. Creá uno nuevo para empezar a sumar candidatos.</p></div>
     {% else %}
-    {% macro busqueda_card(b) %}
-    {# El título/descripción ocupan TODO el ancho superior del tile (owner: mejor
-       legibilidad arriba); los badges — estado + cantidad de candidatos — bajan a
-       la fila inferior derecha, junto a "Desde {fecha}". Misma composición para
-       procesos abiertos y cerrados. #}
-    <a class="busqueda-card" href="/cchh/busquedas/{{ b.busqueda_id }}">
-      <div class="busqueda-card__headtext">
-        <span class="busqueda-card__title">{{ b.nombre_puesto }}</span>
-        {% if b.descripcion %}<p class="busqueda-card__desc">{{ b.descripcion }}</p>{% endif %}
-        {% if b.area_departamento %}<span class="busqueda-card__area">{{ b.area_departamento }}</span>{% endif %}
-        {% if not b.pedido_formal_recibido %}<span class="busqueda-card__warn">Sin requerimiento formal</span>{% endif %}
-      </div>
-      <div class="busqueda-card__foot">
-        <span class="busqueda-card__desde">Desde {{ b.fecha_apertura | fecha_dmy }}{% if b.fecha_cierre %} · Cierre {{ b.fecha_cierre | fecha_dmy }}{% endif %}</span>
-        <div class="busqueda-card__badges">
-          <span class="busqueda-estado busqueda-estado--{{ 'activa' if b.estado == 'activo' else 'cerrada' }}">{{ 'Activo' if b.estado == 'activo' else 'Cerrado' }}</span>
-          <span class="busqueda-card__count">{{ b.candidatos | length }} candidato{{ '' if (b.candidatos | length) == 1 else 's' }}</span>
-        </div>
-      </div>
-    </a>
-    {% endmacro %}
-
-    <div data-dashboard-key="cchh-busquedas">
+    {% from "partials/human_capital_busqueda_card.html" import busqueda_card %}
+    {# `.busquedas-list`: MISMO respiro post-divisor (24px) que `#hc-profiles-panel`
+       en Base de CVs — headers de contenedor estandarizados entre ambas pantallas. #}
+    <div class="busquedas-list" data-dashboard-key="cchh-busquedas">
       <details class="dashboard-section" data-section-id="busquedas-activas" data-persist-collapse open>
         <summary class="dashboard-section__head" draggable="true">
           <span class="dashboard-section__caret"></span>
@@ -62,13 +43,15 @@
           {# Conteo: sólo "N procesos" — el título ya aporta activos/cerrados, no
              se repite (owner). El primitivo compartido `.dashboard-section__count`
              lo alinea al margen superior derecho (`margin-left:auto`), MISMO patrón
-             que el header de "Candidatos" en Base de CVs. #}
-          <span class="dashboard-section__count">{{ activas | length }} proceso{{ '' if activas | length == 1 else 's' }}</span>
+             que el header de "Candidatos" en Base de CVs. El total es el de TODOS
+             los activos, independiente del filtro de atención de abajo. #}
+          <span class="dashboard-section__count">{{ total_activas }} proceso{{ '' if total_activas == 1 else 's' }}</span>
         </summary>
+        {# Sólo el cuerpo interno (filtros + grilla) es el target HTMX del filtro
+           de atención — el `<details>` y su estado colapsable/reordenable no se
+           tocan al filtrar. #}
         <div class="dashboard-section__body">
-          {% if activas %}
-          <div class="busqueda-grid">{% for b in activas %}{{ busqueda_card(b) }}{% endfor %}</div>
-          {% else %}<p class="field-hint">No hay procesos activos.</p>{% endif %}
+          {% include "partials/human_capital_busquedas_activas_panel.html" %}
         </div>
       </details>
       <details class="dashboard-section" data-section-id="busquedas-cerradas" data-persist-collapse{% if not activas %} open{% endif %}>

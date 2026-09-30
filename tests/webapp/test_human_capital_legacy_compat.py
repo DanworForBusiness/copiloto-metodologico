@@ -129,9 +129,12 @@ def test_post_legacy_alias_enforces_same_auth_gate():
 
 
 # --------------------------------------------------------------------------
-# Control: la superficie canónica /cchh sigue operativa.
+# Control: la superficie canónica /cchh sigue operativa (con la landing "01
+# Inicio" retirada por ahora, /cchh redirige a la entrada real, Candidatos).
 # --------------------------------------------------------------------------
-def test_canonical_cchh_landing_still_serves_content():
+def test_canonical_cchh_root_redirects_to_candidatos_entry():
     client = _client_as()
     resp = client.get("/cchh", follow_redirects=False)
-    assert resp.status_code == 200
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "/cchh/candidatos"
+    assert client.get("/cchh/candidatos").status_code == 200

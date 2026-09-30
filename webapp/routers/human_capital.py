@@ -139,23 +139,15 @@ def _require_human_capital_session(request: Request, *, next_path: str | None = 
 
 @router.get("/cchh", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_page(request: Request):
+    # Landing "01 Inicio" retirado POR AHORA (owner): el workspace arranca
+    # directamente en Candidatos (Base de CVs). La comprobación de acceso corre
+    # ANTES del redirect — un usuario no admitido sigue recibiendo 403 (mismo
+    # contrato fail-closed que Commercial/Operations), nunca un redirect que
+    # esconda la denegación. `landing.html` se conserva para reactivarlo luego.
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    user = auth_service.session_user(request)
-    return templates.TemplateResponse(
-        request=request, name="human_capital/landing.html",
-        context={
-            "current_workspace": workspaces.HUMAN_CAPITAL,
-            "available_workspaces": workspaces.available_workspaces(user),
-            # Capital Humano no tiene concepto de "pack" propio — MISMO
-            # criterio que Commercial/Operations: la identidad animada
-            # compartida se resuelve contra el pack por defecto.
-            "pack": DEFAULT_PACK,
-            "user": user,
-            "active_page": "inicio",
-        },
-    )
+    return RedirectResponse(url="/cchh/candidatos", status_code=307)
 
 
 def _profiles_panel_context(*, query: dict | None = None) -> dict:
@@ -1138,19 +1130,47 @@ _BUSQUEDA_SHELL_ERRORS = (
 )
 
 
-def _busquedas_list_context() -> dict:
+_BUSQUEDA_ATENCION_FILTERS = ("todas", "estancadas", "sin_requerimiento")
+
+
+def _busquedas_list_context(atencion: str = "todas") -> dict:
     all_b: list[dict] = []
     source_error: str | None = None
     try:
         all_b = human_capital_service.list_busquedas()
     except busqueda_repository.BusquedaStorageError as exc:
         source_error = str(exc)
+    if atencion not in _BUSQUEDA_ATENCION_FILTERS:
+        atencion = "todas"
+
     def _sort(bs):
         return sorted(bs, key=lambda b: (b.get("fecha_apertura") or ""), reverse=True)
+
+    # Cada proceso se enriquece UNA vez con sus señales derivadas (attention) —
+    # nunca se duplica en otro contenedor. Activos: se cuentan las señales para
+    # los chips y se filtra la grilla por la señal elegida. Cerrados: se enriquecen
+    # igual (para el badge "sin requerimiento") pero no llevan filtro de atención.
+    activas = [human_capital_service.busqueda_with_attention(b)
+               for b in all_b if b.get("estado") == "activo"]
+    cerradas = [human_capital_service.busqueda_with_attention(b)
+                for b in all_b if b.get("estado") == "cerrado"]
+    estancadas_n = sum(1 for b in activas if b["attention"]["estancada"])
+    sin_req_n = sum(1 for b in activas if b["attention"]["sin_requerimiento"])
+
+    if atencion == "estancadas":
+        activas_view = [b for b in activas if b["attention"]["estancada"]]
+    elif atencion == "sin_requerimiento":
+        activas_view = [b for b in activas if b["attention"]["sin_requerimiento"]]
+    else:
+        activas_view = activas
+
     return {
-        "activas": _sort([b for b in all_b if b.get("estado") == "activo"]),
-        "cerradas": _sort([b for b in all_b if b.get("estado") == "cerrado"]),
+        "activas": _sort(activas_view),
+        "cerradas": _sort(cerradas),
         "total_busquedas": len(all_b),
+        "total_activas": len(activas),
+        "atencion": atencion,
+        "atencion_counts": {"todas": len(activas), "estancadas": estancadas_n, "sin_requerimiento": sin_req_n},
         "source_error": source_error,
     }
 
@@ -1206,13 +1226,22 @@ def _busqueda_form_values(**kw) -> dict:
 
 
 @router.get("/cchh/busquedas", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_busquedas_page(request: Request):
+def human_capital_busquedas_page(request: Request, atencion: str = Query("todas")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    ctx = _busquedas_list_context(atencion)
+    # Filtro de atención reactivo (HTMX): sólo se re-renderiza el panel interno de
+    # Procesos activos (`#busquedas-activas-panel`), no la página entera — MISMO
+    # criterio de fragmento que el listado de Candidatos.
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_busquedas_activas_panel.html",
+            context={"request": request, **ctx},
+        )
     return templates.TemplateResponse(
         request=request, name="human_capital/busquedas.html",
-        context=_busqueda_shell(request, _busquedas_list_context()),
+        context=_busqueda_shell(request, ctx),
     )
 
 

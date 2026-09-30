@@ -147,11 +147,15 @@ def test_shell_shows_workspace_switcher_when_multiple_workspaces_available():
     assert '<details class="workspace-switch">' in response.text
 
 
-def test_human_capital_nav_highlights_the_single_inicio_link():
-    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh")
-    text = response.text
-    assert 'href="/cchh"' in text
-    assert "Inicio" in text
+def test_cchh_root_redirects_to_candidatos_entry():
+    # Landing "01 Inicio" retirado por ahora (owner): /cchh arranca en Candidatos.
+    r = _client_as(_AUTHORIZED_EMAIL).get("/cchh", follow_redirects=False)
+    assert r.status_code == 307
+    assert r.headers["location"] == "/cchh/candidatos"
+    # El nav ya no ofrece "Inicio"; Candidatos es la primera entrada, activa.
+    text = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos").text
+    assert "<strong>Inicio</strong>" not in text
+    assert '<a href="/cchh/candidatos" class="module-link is-active">' in text
 
 
 def test_landing_has_no_own_css_or_js_asset_link():
@@ -165,34 +169,30 @@ def test_landing_has_no_own_css_or_js_asset_link():
 
 
 def test_content_shows_expected_eyebrow_title_without_banned_words():
-    response = _client_as(_AUTHORIZED_EMAIL).get("/cchh")
-    text = response.text
+    # Con la landing retirada, la entrada del workspace es Candidatos (Base de
+    # CVs) — sigue con el eyebrow "Capital Humano" y sin palabras prohibidas.
+    text = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos").text
     assert '<p class="eyebrow">Capital Humano</p>' in text
-    assert "<h1>Gestión integral del ciclo de selección e incorporación</h1>" in text
+    assert "<h1>Base de CVs</h1>" in text
     for banned in ("Preview", "PoC", "Prototype", "Coming Soon", "preview", "coming soon"):
         assert banned not in text
 
 
 def test_content_never_lists_functional_capabilities_as_if_available():
-    # Phase 1 explícito: "NO listar funcionalidades todavía como si
-    # estuvieran disponibles" -- ninguna de las capabilities legacy debe
-    # aparecer como link/feature en la landing todavía. "Candidatos" salió
-    # de esta lista (ticket de paridad funcional / UX corrective): dejó de
-    # ser una capability legacy hipotética para ser la etiqueta REAL del
-    # nav de la capability que YA existe (antes "Perfiles") -- que aparezca
-    # en cada página del workspace, incluida la landing, es correcto, no
-    # una promesa de funcionalidad todavía no construida. "Búsquedas" salió
-    # por la MISMA razón: dejó de ser hipotética y es la etiqueta real del
-    # nav (tab "03 Búsquedas", procesos de selección) de una capability que
-    # YA existe end-to-end (listado/alta/detalle/pipeline/cierre).
-    text = _client_as(_AUTHORIZED_EMAIL).get("/cchh").text
+    # "NO listar funcionalidades todavía como si estuvieran disponibles":
+    # ninguna capability hipotética debe aparecer como TAB de nav. Se testea
+    # sobre la entrada real del workspace (Candidatos), y contra el FORMATO de
+    # link de nav (`<strong>…</strong>`) -- así "Indicadores" (rótulo de un
+    # filtro real) o "Procesos" (dominio de Búsquedas) no dan falsos positivos:
+    # lo que se prohíbe es que exista un TAB para una capability no construida.
+    text = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos").text
     assert "<strong>Candidatos</strong>" in text  # nav real, no un placeholder
     assert "<strong>Búsquedas</strong>" in text   # nav real, no un placeholder
     for capability in (
         "Entrevistas", "Onboarding", "Avisos",
-        "Indicadores", "Administración", "Banco de CVs", "Procesos",
+        "Indicadores", "Administración", "Inicio", "Perfiles",
     ):
-        assert capability not in text
+        assert f"<strong>{capability}</strong>" not in text
 
 
 # ============================================================================

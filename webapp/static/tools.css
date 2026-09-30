@@ -812,11 +812,16 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    contrato prohibe. De ahi `.activity-kpi .activity-kpi__info` (dos clases):
    gana sin importar el orden. No alcanza con "ponerlo despues": el anchor
    compartido puede moverse de lugar en cualquier refactor futuro. */
-.activity-kpi .activity-kpi__info {
-  position: absolute; right: 8px; bottom: 8px; padding: 0; border: 0; background: none;
-  line-height: 0; color: #9a9aa2; cursor: pointer; opacity: .7;
-  transition: opacity .12s ease, color .12s ease;
+/* Reset/look del botón-ícono (i) — PROMOVIDO a single-class para que sea un
+   primitivo compartido reutilizable fuera de las KPI tiles (owner: CCHH
+   "Requerimiento formal" reusa EXACTAMENTE este (i), sin dibujar otro). Sólo la
+   UBICACIÓN en esquina absoluta sigue scopeada a `.activity-kpi` (abajo), porque
+   es propia del tile; cualquier otro consumidor lo coloca en su flujo normal. */
+.activity-kpi__info {
+  padding: 0; border: 0; background: none; line-height: 0; color: #9a9aa2;
+  cursor: pointer; opacity: .7; transition: opacity .12s ease, color .12s ease;
 }
+.activity-kpi .activity-kpi__info { position: absolute; right: 8px; bottom: 8px; }
 .activity-kpi__info:hover, .activity-kpi__info:focus-visible { opacity: 1; color: var(--kpi-accent, var(--gold)); }
 .activity-kpi__info:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 50%; }
 /* MISMA convencion de icono que el resto del chrome del Hub (ver

@@ -44,6 +44,8 @@ memoria la lista YA leída por el caller — nunca vuelve a tocar disco, y
 duplicados (nunca si `duplicate_confirmed=True`, ver abajo)."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from webapp.services import human_capital_catalog_repository as catalog_repo
 from webapp.services import busqueda_repository
 from webapp.services import profile_repository
@@ -651,3 +653,59 @@ def busqueda_candidates_view(busqueda: dict) -> list[dict]:
     for app in busqueda.get("candidatos", []):
         out.append({**app, "profile": profile_repository.get(app.get("profile_id"))})
     return out
+
+
+# ── Señales derivadas de atención (NO son estados estructurales) ──────────────
+# Un proceso vive UNA sola vez en su contenedor de lifecycle (activo/cerrado).
+# "Estancada" / "sin requerimiento" son CONDICIONES DERIVADAS que se expresan con
+# badges en el tile + filtros — NUNCA duplicando el proceso en otro bloque (mejora
+# deliberada sobre la app de referencia, que sí lo duplicaba). La regla de
+# "estancada" es la MISMA de la referencia (lib/metricas.busquedasEstancadas):
+# 30+ días sin que NINGÚN candidato cambie de etapa.
+BUSQUEDA_UMBRAL_ESTANCADA_DIAS = 30
+
+
+def _parse_iso_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    s = str(value).strip().replace("Z", "")
+    for cut in (19, 10):
+        try:
+            return datetime.fromisoformat(s[:cut])
+        except ValueError:
+            continue
+    return None
+
+
+def busqueda_dias_sin_movimiento(busqueda: dict) -> int | None:
+    """Días desde el ÚLTIMO movimiento del proceso = el más reciente entre los
+    `fecha_cambio_etapa` (o `created_at`) de sus candidatos; sin candidatos, la
+    `fecha_apertura`. MISMO cálculo que la referencia. None si no hay fecha
+    parseable (nunca se asume estancada por falta de dato)."""
+    fechas = []
+    for c in busqueda.get("candidatos", []):
+        dt = _parse_iso_dt(c.get("fecha_cambio_etapa") or c.get("created_at"))
+        if dt:
+            fechas.append(dt)
+    ultimo = max(fechas) if fechas else _parse_iso_dt(busqueda.get("fecha_apertura"))
+    if ultimo is None:
+        return None
+    return max((datetime.now() - ultimo).days, 0)
+
+
+def busqueda_attention(busqueda: dict) -> dict:
+    """Señales derivadas de atención de un proceso, para badges + filtros. Sólo
+    presentación/UX — no muta el documento ni cambia su lifecycle. `estancada`
+    aplica ÚNICAMENTE a procesos activos (igual que la referencia)."""
+    dias = busqueda_dias_sin_movimiento(busqueda)
+    activo = busqueda.get("estado") == "activo"
+    return {
+        "dias_sin_movimiento": dias,
+        "estancada": bool(activo and dias is not None and dias >= BUSQUEDA_UMBRAL_ESTANCADA_DIAS),
+        "sin_requerimiento": not busqueda.get("pedido_formal_recibido"),
+    }
+
+
+def busqueda_with_attention(busqueda: dict) -> dict:
+    """Copia del proceso con `attention` embebido (nunca se persiste)."""
+    return {**busqueda, "attention": busqueda_attention(busqueda)}

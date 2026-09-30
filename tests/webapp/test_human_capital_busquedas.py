@@ -6,6 +6,7 @@ Finalizado; historial de transiciones) es la de la app de referencia. MISMO
 patrón de aislamiento/durabilidad-en-test que el resto de CCHH."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -280,6 +281,79 @@ def test_pipeline_empty_columns_render_stage_empty_state():
     assert "busqueda-col__empty" in html
     assert "entrevistas de líder realizadas ni programadas" in html
     assert "candidatos finalizados" in html
+
+
+def test_route_remove_candidate_end_to_end_keeps_profile_and_nm_contract():
+    # Contrato de "Quitar" (owner): quita la CandidateApplication de ESTE proceso,
+    # NO borra el Profile, NO afecta otras aplicaciones del mismo Profile, y el
+    # candidato vuelve a estar disponible para volver a agregarlo acá.
+    c = _client()
+    pid = _profile()
+    a = human_capital_service.create_busqueda({"nombre_puesto": "A", "fecha_apertura": "2026-09-01"})
+    b = human_capital_service.create_busqueda({"nombre_puesto": "B", "fecha_apertura": "2026-09-01"})
+    human_capital_service.add_candidate_to_busqueda(a["busqueda_id"], pid)
+    human_capital_service.add_candidate_to_busqueda(b["busqueda_id"], pid)  # también en B (N:M)
+    aid = human_capital_service.get_busqueda(a["busqueda_id"])["candidatos"][0]["application_id"]
+    # Aparece en Preselección de A antes de quitar.
+    assert human_capital_service.get_busqueda(a["busqueda_id"])["candidatos"][0]["etapa"] == "Preselección"
+    # Quitar vía la ruta real (fragmento HX), MISMO endpoint que el botón trash.
+    r = c.post(f"/cchh/busquedas/{a['busqueda_id']}/candidatos/{aid}/eliminar", headers={"HX-Request": "true"})
+    assert r.status_code == 200
+    a2 = human_capital_service.get_busqueda(a["busqueda_id"])
+    assert a2["candidatos"] == []                                   # fuera de A (contador baja)
+    assert profile_repository.get(pid) is not None                  # Profile intacto en el Banco
+    assert len(human_capital_service.get_busqueda(b["busqueda_id"])["candidatos"]) == 1  # B intacto
+    # Vuelve a estar disponible para agregarlo de nuevo a A.
+    assert pid in {p["profile_id"] for p in human_capital_service.profiles_available_for_busqueda(a2)}
+
+
+def test_detail_remove_button_declares_confirmed_trigger():
+    # El bug era el botón trash SIN `hx-trigger="confirmed"`: con `data-dw-confirm`,
+    # el delegado hace preventDefault y sólo re-dispara vía el evento `confirmed`.
+    c = _client()
+    pid = _profile()
+    b = human_capital_service.create_busqueda({"nombre_puesto": "D", "fecha_apertura": "2026-09-01"})
+    human_capital_service.add_candidate_to_busqueda(b["busqueda_id"], pid)
+    html = c.get(f"/cchh/busquedas/{b['busqueda_id']}").text
+    assert '/eliminar' in html and 'hx-trigger="confirmed"' in html and 'data-dw-confirm' in html
+
+
+def test_empty_preseleccion_shows_add_action_only_when_active():
+    # "+ Agregar candidato" contextual SÓLO en la etapa inicial (Preselección) de
+    # un proceso activo; ni en otras etapas ni en un proceso cerrado.
+    c = _client()
+    b = human_capital_service.create_busqueda({"nombre_puesto": "D", "fecha_apertura": "2026-09-01"})
+    html = c.get(f"/cchh/busquedas/{b['busqueda_id']}").text
+    assert html.count("busqueda-col__empty-add") == 1  # sólo Preselección
+    human_capital_service.close_busqueda(b["busqueda_id"])
+    html2 = c.get(f"/cchh/busquedas/{b['busqueda_id']}").text
+    assert "busqueda-col__empty-add" not in html2       # cerrado: sin acción de alta
+
+
+def test_busqueda_attention_estancada_and_sin_requerimiento():
+    old = (datetime.now() - timedelta(days=40)).date().isoformat()
+    recent = datetime.now().date().isoformat()
+    b_old = human_capital_service.create_busqueda({"nombre_puesto": "Old", "fecha_apertura": old})
+    att = human_capital_service.busqueda_attention(human_capital_service.get_busqueda(b_old["busqueda_id"]))
+    assert att["estancada"] is True and att["dias_sin_movimiento"] >= 40
+    assert att["sin_requerimiento"] is True  # pedido_formal_recibido default False
+    b_new = human_capital_service.create_busqueda(
+        {"nombre_puesto": "New", "fecha_apertura": recent, "pedido_formal_recibido": "on"})
+    att2 = human_capital_service.busqueda_attention(human_capital_service.get_busqueda(b_new["busqueda_id"]))
+    assert att2["estancada"] is False and att2["sin_requerimiento"] is False
+
+
+def test_route_atencion_filter_returns_active_panel_fragment():
+    c = _client()
+    old = (datetime.now() - timedelta(days=40)).date().isoformat()
+    human_capital_service.create_busqueda({"nombre_puesto": "Estanc", "fecha_apertura": old})
+    human_capital_service.create_busqueda(
+        {"nombre_puesto": "Fresh", "fecha_apertura": datetime.now().date().isoformat(), "pedido_formal_recibido": "on"})
+    r = c.get("/cchh/busquedas?atencion=estancadas", headers={"HX-Request": "true"})
+    assert r.status_code == 200
+    assert "busquedas-activas-panel" in r.text
+    assert "Estanc" in r.text and "Fresh" not in r.text
+    assert "app-shell" not in r.text  # fragmento, no la página completa
 
 
 def _seed_catalog(**cats):
