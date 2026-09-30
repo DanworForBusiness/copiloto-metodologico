@@ -19,6 +19,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import re
@@ -478,6 +479,29 @@ class CatalogCollisionError(Exception):
     sólo el contenido divergente es una colisión."""
 
 
+def _semantic_definition_signature(definition: dict) -> str:
+    """Firma canónica de una entidad para dedup/colisión mixed-mode.
+
+    Ignora ÚNICAMENTE `_meta.dependencies.folderAssignment` — bookkeeping
+    interno de SAP Datasphere (en qué carpeta visual del Data Builder está
+    filed el objeto), nunca leído por este generador. Forense de producción
+    2026-09-30 (`_handoffs/catalog-cli-production-regeneration-regression.md`,
+    CASE B): 28/28 colisiones reales mixed-mode de un cliente real resultaron
+    ser únicamente este campo — el export legacy lo escribe, el export CLI
+    no, sin ninguna otra divergencia de definición. Cualquier otra diferencia
+    (incluida cualquier otra clave bajo `_meta`) sigue formando parte de la
+    firma sin cambios — nunca se afloja el criterio general de colisión."""
+    normalized = copy.deepcopy(definition)
+    deps = (normalized.get("_meta") or {}).get("dependencies")
+    if isinstance(deps, dict) and "folderAssignment" in deps:
+        del deps["folderAssignment"]
+        if not deps:
+            del normalized["_meta"]["dependencies"]
+        if not normalized["_meta"]:
+            del normalized["_meta"]
+    return json.dumps(normalized, sort_keys=True, ensure_ascii=False, default=str)
+
+
 def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None) -> tuple[dict, dict]:
     """Devuelve (entities_by_name, sql_by_name).
 
@@ -539,7 +563,7 @@ def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None) 
             # considera colisión si además proviene de OTRA carpeta física (el
             # merge intra-carpeta legacy queda idéntico — dos archivos de la misma
             # carpeta que aportan a una entidad no cambian de comportamiento).
-            _sig = json.dumps(defn, sort_keys=True, ensure_ascii=False, default=str)
+            _sig = _semantic_definition_signature(defn)
             _prev = _defn_origin.get(name)
             if _prev is None:
                 _defn_origin[name] = (_sig, jf.parent)

@@ -9,6 +9,7 @@ determinística en mixed-mode); las carpetas-tipo nunca se infieren como dominio
 una carpeta desconocida sigue siendo un dominio."""
 from __future__ import annotations
 
+import copy as copy_module
 import json
 import sys
 from pathlib import Path
@@ -115,6 +116,86 @@ def test_mixed_mode_divergent_content_raises_deterministic_collision(tmp_path):
     jsons = sorted(tmp_path.rglob("*.json"))
     with pytest.raises(G.CatalogCollisionError):
         G.load_folder(json_files=jsons, txt_files=[])
+
+
+# ── firma semántica: ignora _meta.dependencies.folderAssignment ───────────────
+# Forense producción 2026-09-30 (ver _handoffs/catalog-cli-production-
+# regeneration-regression.md, CASE B): 28/28 colisiones reales mixed-mode de un
+# cliente real resultaron ser ÚNICAMENTE este campo (bookkeeping de "carpeta del
+# Data Builder" de SAP Datasphere, nunca leído por este generador) — el legacy
+# export lo escribe, el export CLI no. Cero drift real de definición en los 28.
+
+def _with_folder_assignment(defn_payload, name, folder_id):
+    payload = copy_module.deepcopy(defn_payload)
+    payload["definitions"][name]["_meta"] = {"dependencies": {"folderAssignment": folder_id}}
+    return payload
+
+
+def test_folder_assignment_present_vs_absent_dedups_no_collision(tmp_path):
+    # Caso 1 (forense): legacy trae folderAssignment, CLI no lo trae, resto
+    # idéntico → misma firma semántica, dedup silencioso, SIN colisión.
+    _write(tmp_path / "ClienteX" / "TABLE.json",
+           _with_folder_assignment(_table("TABLE"), "TABLE", "Folder_ABC"))
+    _write(tmp_path / "ClienteX" / "local-tables" / "TABLE.json", _table("TABLE"))
+    jsons = sorted(tmp_path.rglob("*.json"))
+    entities, _ = G.load_folder(json_files=jsons, txt_files=[])
+    assert list(entities) == ["TABLE"]
+
+
+def test_folder_assignment_differing_value_still_dedups(tmp_path):
+    # Caso 2 (forense): folderAssignment presente en AMBOS lados pero con un
+    # valor DISTINTO (dos IDs de carpeta distintos) → sigue siendo equivalente,
+    # SIN colisión — el valor de este campo puntual nunca importa.
+    _write(tmp_path / "ClienteX" / "TABLE.json",
+           _with_folder_assignment(_table("TABLE"), "TABLE", "Folder_ABC"))
+    _write(tmp_path / "ClienteX" / "local-tables" / "TABLE.json",
+           _with_folder_assignment(_table("TABLE"), "TABLE", "Folder_XYZ"))
+    jsons = sorted(tmp_path.rglob("*.json"))
+    entities, _ = G.load_folder(json_files=jsons, txt_files=[])
+    assert list(entities) == ["TABLE"]
+
+
+def test_other_meta_field_difference_still_raises_collision(tmp_path):
+    # Caso 3: NO se ignora `_meta` entero, sólo `dependencies.folderAssignment`.
+    # Una diferencia en CUALQUIER OTRA clave de `_meta` debe seguir colisionando.
+    legacy = _table("TABLE")
+    legacy["definitions"]["TABLE"]["_meta"] = {"someOtherField": "x"}
+    nested = _table("TABLE")
+    nested["definitions"]["TABLE"]["_meta"] = {"someOtherField": "y"}
+    _write(tmp_path / "ClienteX" / "TABLE.json", legacy)
+    _write(tmp_path / "ClienteX" / "local-tables" / "TABLE.json", nested)
+    jsons = sorted(tmp_path.rglob("*.json"))
+    with pytest.raises(G.CatalogCollisionError):
+        G.load_folder(json_files=jsons, txt_files=[])
+
+
+def test_real_definition_difference_still_raises_collision_with_folder_assignment(tmp_path):
+    # Caso 4: una divergencia REAL (columna distinta) sigue disparando
+    # CatalogCollisionError normalmente, aun con folderAssignment de por medio
+    # (no alcanza con que folderAssignment sea la única excusa para no comparar).
+    legacy = _with_folder_assignment(_table("TABLE"), "TABLE", "Folder_ABC")
+    nested = _table("TABLE")
+    nested["definitions"]["TABLE"]["elements"]["y"] = {"type": "cds.Integer"}
+    _write(tmp_path / "ClienteX" / "TABLE.json", legacy)
+    _write(tmp_path / "ClienteX" / "local-tables" / "TABLE.json", nested)
+    jsons = sorted(tmp_path.rglob("*.json"))
+    with pytest.raises(G.CatalogCollisionError):
+        G.load_folder(json_files=jsons, txt_files=[])
+
+
+def test_whitespace_and_key_order_remain_equivalent_with_folder_assignment(tmp_path):
+    # Caso 5: la canonicalización ya ignoraba key-order/whitespace (sort_keys +
+    # JSON parseado) — confirmar que sigue así DESPUÉS del cambio, combinado con
+    # folderAssignment presente de un solo lado.
+    legacy = _with_folder_assignment(_table("TABLE"), "TABLE", "Folder_ABC")
+    (tmp_path / "ClienteX").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "ClienteX" / "TABLE.json").write_text(
+        json.dumps(legacy, indent=4, sort_keys=False), encoding="utf-8")
+    nested = _table("TABLE")
+    _write(tmp_path / "ClienteX" / "local-tables" / "TABLE.json", nested)
+    jsons = sorted(tmp_path.rglob("*.json"))
+    entities, _ = G.load_folder(json_files=jsons, txt_files=[])
+    assert list(entities) == ["TABLE"]
 
 
 def test_same_folder_multiple_files_never_a_collision(tmp_path):
