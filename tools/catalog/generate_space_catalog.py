@@ -458,13 +458,28 @@ def _connection_gateway(detail: dict[str, Any]) -> dict[str, Any]:
     return gateway if isinstance(gateway, dict) else {}
 
 
+def _find_subdir(root: Path, name: str) -> Path | None:
+    """Subcarpeta hija que matchea `name` SIN distinguir mayúsculas — soporta el
+    export CLI en minúscula (`espacios/`/`conexiones/`) además del layout
+    SharePoint capitalizado (`Espacios/`/`Conexiones/`). Contrato owner §3
+    (folder-name recognition robusto a casing, sin casos especiales por variante)."""
+    target = str(name).strip().lower()
+    try:
+        for child in root.iterdir():
+            if child.is_dir() and child.name.strip().lower() == target:
+                return child
+    except (OSError, ValueError):
+        return None
+    return None
+
+
 def _discover_client_roots(inbound_root: Path) -> list[tuple[str, Path]]:
     inbound_root = Path(inbound_root)
-    if (inbound_root / "Espacios").is_dir() or (inbound_root / "Conexiones").is_dir():
+    if _find_subdir(inbound_root, "Espacios") or _find_subdir(inbound_root, "Conexiones"):
         return [(inbound_root.name.replace("_", " "), inbound_root)]
     roots = []
     for child in sorted(p for p in inbound_root.iterdir() if p.is_dir()):
-        if (child / "Espacios").is_dir() or (child / "Conexiones").is_dir():
+        if _find_subdir(child, "Espacios") or _find_subdir(child, "Conexiones"):
             roots.append((child.name.replace("_", " "), child))
     return roots
 
@@ -473,17 +488,17 @@ def load_spaces_and_connections(inbound_root: Path) -> dict[str, ClientCatalog]:
     catalogs: dict[str, ClientCatalog] = {}
     for cliente, root in _discover_client_roots(Path(inbound_root)):
         catalog = ClientCatalog(cliente=cliente)
-        spaces_dir = root / "Espacios"
-        conn_dir = root / "Conexiones"
+        spaces_dir = _find_subdir(root, "Espacios")
+        conn_dir = _find_subdir(root, "Conexiones")
 
-        if spaces_dir.is_dir():
+        if spaces_dir is not None and spaces_dir.is_dir():
             for path in sorted(spaces_dir.glob("*.json")):
                 rec = _space_from_file(cliente, path)
                 catalog.spaces[rec.name] = rec
 
         details: dict[tuple[str, str], ConnectionRecord] = {}
         summaries: dict[str, list[ConnectionRecord]] = {}
-        if conn_dir.is_dir():
+        if conn_dir is not None and conn_dir.is_dir():
             for path in sorted(conn_dir.glob("conn_space_*.json")):
                 try:
                     payload = _load_json(path)

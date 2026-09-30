@@ -470,8 +470,25 @@ def _extract_elements(defn: dict, ent: Entity) -> None:
             seen.add(ename)
 
 
-def load_folder(folder: Path) -> tuple[dict, dict]:
-    """Devuelve (entities_by_name, sql_by_name)."""
+class CatalogCollisionError(Exception):
+    """Mixed-mode: la MISMA identidad lógica (nombre de entidad) aparece en dos
+    archivos de carpetas FÍSICAS distintas del mismo pool (cliente/dominio) con
+    contenido DISTINTO. Se reporta de forma determinística — nunca last-write-wins
+    (contrato owner §5). Dos representaciones idénticas se deduplican en silencio;
+    sólo el contenido divergente es una colisión."""
+
+
+def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None) -> tuple[dict, dict]:
+    """Devuelve (entities_by_name, sql_by_name).
+
+    Legacy: `load_folder(folder)` recorre PLANO `folder.glob("*.json"/"*.txt")`.
+    Pool unificado (export CLI, contrato owner §4): `load_folder(json_files=[...],
+    txt_files=[...])` carga TODAS las carpetas-tipo de un (cliente, dominio) en UN
+    solo pool, así el linaje resuelve upstreams cross-folder (una view en views/
+    encuentra su tabla en local-tables/). La identidad es SEMÁNTICA (nombre de
+    entidad), nunca el path: dos archivos que definen la misma entidad se
+    deduplican si su contenido canónico coincide, y levantan `CatalogCollisionError`
+    si difieren Y vienen de carpetas físicas distintas (mixed-mode)."""
     entities: dict[str, Entity] = {}
     sql_by_name: dict[str, str] = {}
     df_membership: dict[str, dict] = {}   # DF file → {targets, sources}
@@ -480,12 +497,19 @@ def load_folder(folder: Path) -> tuple[dict, dict]:
     from_alias: dict[str, dict] = {}      # entidad → {alias FROM: id real} (resuelve as != id)
     col_expr: dict[str, dict] = {}        # entidad → {alias: {derived, cast}} (columnas calculadas)
     i18n_map: dict[str, str] = {}         # clave i18n → texto (para resolver labels placeholder)
+    # Detección de colisión cross-folder: por nombre de entidad, (sig canónica del
+    # definition, carpeta física de origen) del PRIMER archivo que la definió.
+    _defn_origin: dict[str, tuple[str, Path]] = {}
+    _collisions: list[str] = []
+
+    _txts = list(txt_files) if txt_files is not None else sorted((folder or Path()).glob("*.txt"))
+    _jsons = list(json_files) if json_files is not None else sorted((folder or Path()).glob("*.json"))
 
     # SQL preview de vistas gráficas: <nombre>.txt
-    for txt in folder.glob("*.txt"):
+    for txt in _txts:
         sql_by_name[txt.stem] = txt.read_text(encoding="utf-8", errors="ignore")
 
-    for jf in sorted(folder.glob("*.json")):
+    for jf in _jsons:
         try:
             data = json.loads(jf.read_text(encoding="utf-8"))
         except Exception as exc:  # noqa: BLE001
@@ -510,6 +534,18 @@ def load_folder(folder: Path) -> tuple[dict, dict]:
         for name, defn in defs.items():
             if not isinstance(defn, dict):
                 continue
+            # Identidad SEMÁNTICA + colisión cross-folder (contrato owner §5). La
+            # firma canónica del definition detecta contenido divergente; sólo se
+            # considera colisión si además proviene de OTRA carpeta física (el
+            # merge intra-carpeta legacy queda idéntico — dos archivos de la misma
+            # carpeta que aportan a una entidad no cambian de comportamiento).
+            _sig = json.dumps(defn, sort_keys=True, ensure_ascii=False, default=str)
+            _prev = _defn_origin.get(name)
+            if _prev is None:
+                _defn_origin[name] = (_sig, jf.parent)
+            elif _prev[1] != jf.parent and _prev[0] != _sig:
+                _collisions.append(
+                    f"'{name}' definido distinto en {_prev[1].name}/ y {jf.parent.name}/ ({jf.name})")
             ent = entities.get(name) or Entity(name=name, file=jf.name)
             ent.label = str(defn.get("@EndUserText.label") or ent.label or name)
             ent.kind = defn.get("kind", ent.kind)
@@ -663,6 +699,10 @@ def load_folder(folder: Path) -> tuple[dict, dict]:
                 srcs = {s for s in slot["sources"] if s != tname}
                 t.upstreams = sorted(srcs)
 
+    if _collisions:
+        raise CatalogCollisionError(
+            "Colisión de identidad mixed-mode (misma entidad, contenido distinto en "
+            "carpetas físicas diferentes): " + "; ".join(sorted(set(_collisions))))
     return entities, sql_by_name
 
 
@@ -1070,11 +1110,16 @@ def _write_flow(out_dir: Path, cliente: str, dom: str, sub: dict, folder: str) -
 
 
 def process_folder(src: Path, out_root: Path, cliente: str | None = None,
-                   dominio: str | None = None) -> str:
+                   dominio: str | None = None, *, json_files=None, txt_files=None) -> str:
     """Procesa una carpeta de artefactos → escribe flujo + vistas, preservando
     el bloque `manual:` de los .md existentes (no pisa la curaduría del senior).
     cliente/dominio se pueden pasar explícitos (los calcula generate_all según la
     profundidad real); si no, se infieren de la ruta (<Cliente>/<Dominio>).
+
+    Pool unificado (export CLI): si se pasan `json_files`/`txt_files`, el pool se
+    arma sobre TODAS las carpetas-tipo del (cliente, dominio) — no sobre un solo
+    folder — así el linaje resuelve upstreams cross-folder. `src` queda como
+    referencia de mensajes; cliente/dominio SIEMPRE vienen explícitos en ese modo.
 
     SEGMENTACIÓN: si la carpeta es 1-nivel (dominio 'General') y tiene ≥2 modelos
     analíticos (cubos), se emite UN dominio por cubo (Stock, Despachos…), cada uno con
@@ -1085,7 +1130,10 @@ def process_folder(src: Path, out_root: Path, cliente: str | None = None,
         cliente = src.parent.name.replace("_", " ")
     if dominio is None:
         dominio = src.name
-    entities, _ = load_folder(src)
+    if json_files is not None:
+        entities, _ = load_folder(json_files=json_files, txt_files=txt_files or [])
+    else:
+        entities, _ = load_folder(src)
     if not entities:
         return f"[skip] {src.name}: sin entidades"
     cli_dir = out_root / cliente.replace(" ", "_")
@@ -1315,6 +1363,41 @@ def _catalog_dir_kind(name: str) -> str:
     return clean.replace("-", " ").replace("_", " ")
 
 
+# Carpetas de TIPO de artefacto del export CLI de Datasphere: FÍSICAS (provenance),
+# NUNCA dominios (contrato owner §1/§2). Se reconocen por ALLOWLIST (normalizadas
+# con `_catalog_dir_kind` — que ya pasa "-"/"_" a espacio y lowercasea) y se
+# ELIMINAN del camino al resolver (cliente, dominio). Una carpeta desconocida NO
+# se reinterpreta como tipo (y por lo tanto no se aplana): sigue siendo un nivel de
+# dominio como hoy — nunca se ingiere con `rglob` irrestricto (§6).
+CATALOG_ARTIFACT_TYPE_DIRS = {
+    "data access controls", "task chains", "transformation flows", "data flows",
+    "remote tables", "analytic models", "local tables", "replication flows", "views",
+}
+
+
+def _is_artifact_type_dir(name: str) -> bool:
+    return _catalog_dir_kind(name) in CATALOG_ARTIFACT_TYPE_DIRS
+
+
+def _client_domain_for(rel_parts) -> tuple[str, str] | None:
+    """(cliente, dominio) de un `.json` relativo a `inbound_root`, QUITANDO un
+    segmento FINAL de carpeta-tipo (físico, no semántico). `None` si el `.json` no
+    cuelga de un cliente. Contrato owner §2:
+      <cli>/A.json              → (cli, "General")
+      <cli>/views/A.json        → (cli, "General")   (carpeta-tipo eliminada)
+      <cli>/<dom>/A.json        → (cli, <dom>)
+      <cli>/<dom>/views/A.json  → (cli, <dom>)        (carpeta-tipo eliminada)
+    Nunca infiere `views`/`local-tables`/… como nombre de dominio."""
+    dirs = list(rel_parts[:-1])
+    if dirs and _is_artifact_type_dir(dirs[-1]):
+        dirs = dirs[:-1]
+    if not dirs:
+        return None
+    cliente = dirs[0]
+    dominio = dirs[1] if len(dirs) >= 2 else "General"
+    return cliente, dominio
+
+
 def _catalog_sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -1353,6 +1436,24 @@ def _save_catalog_manifest(out_root: Path, manifest: dict) -> None:
 
 def _catalog_leaf_key(leaf: Path, inbound_root: Path) -> str:
     return leaf.relative_to(inbound_root).as_posix()
+
+
+def _files_signature(files, inbound_root: Path) -> dict:
+    """Firma (sha256 + tamaño + ruta) de una LISTA explícita de archivos — la
+    identidad estable de un grupo (cliente, dominio) del pool unificado, que puede
+    abarcar varias carpetas-tipo. MISMO criterio que `_catalog_leaf_signature` (sin
+    mtime: la descarga va a un temp nuevo cada vez)."""
+    out = []
+    for path in sorted(f for f in files if f.is_file()):
+        if path.suffix.lower() not in CATALOG_SOURCE_EXTENSIONS:
+            continue
+        stat = path.stat()
+        out.append({
+            "path": path.relative_to(inbound_root).as_posix(),
+            "size": stat.st_size,
+            "sha256": _catalog_sha256(path),
+        })
+    return {"files": out}
 
 
 def _catalog_leaf_signature(leaf: Path, inbound_root: Path) -> dict:
@@ -1445,14 +1546,35 @@ def generate_all(inbound_root, out_root) -> str:
     """
     inbound_root = Path(inbound_root)
     out_root = Path(out_root)
-    leaves = sorted({
-        p.parent for p in inbound_root.rglob("*.json")
-        if (
-            not any(_catalog_dir_kind(part) in CATALOG_IGNORED_DIRS for part in p.relative_to(inbound_root).parts[:-1])
-            and not (p.relative_to(inbound_root).parts and p.relative_to(inbound_root).parts[0].upper().startswith("DP_"))
-        )
-    })
-    if not leaves:
+    # Agrupar los .json por (cliente, dominio) tras QUITAR las carpetas-tipo del
+    # export CLI (contrato owner §4: pool unificado a nivel cliente/dominio).
+    # Legacy (<cli>/*.json, <cli>/<dom>/*.json) produce EXACTAMENTE los mismos
+    # grupos que antes; el CLI junta las carpetas-tipo de un mismo dominio en UN
+    # solo pool para que el linaje resuelva upstreams cross-folder. Sólo se
+    # ingieren carpetas legacy + carpetas-tipo de la allowlist: una carpeta
+    # DESCONOCIDA no se aplana (sigue siendo un nivel de dominio, como hoy) y las
+    # especiales (espacios/conexiones/…) siguen excluidas por CATALOG_IGNORED_DIRS.
+    def _eligible(rel_parts) -> bool:
+        return (not any(_catalog_dir_kind(part) in CATALOG_IGNORED_DIRS for part in rel_parts[:-1])
+                and not (rel_parts and rel_parts[0].upper().startswith("DP_")))
+
+    groups: dict[tuple[str, str], dict] = {}
+    for p in inbound_root.rglob("*.json"):
+        parts = p.relative_to(inbound_root).parts
+        if not _eligible(parts):
+            continue
+        cd = _client_domain_for(parts)
+        if cd is None:
+            continue
+        groups.setdefault(cd, {"jsons": [], "txts": []})["jsons"].append(p)
+    for p in inbound_root.rglob("*.txt"):
+        parts = p.relative_to(inbound_root).parts
+        if not _eligible(parts):
+            continue
+        cd = _client_domain_for(parts)
+        if cd is not None and cd in groups:
+            groups[cd]["txts"].append(p)
+    if not groups:
         return f"Sin .json bajo {inbound_root}. Nada que generar."
 
     generator_sig = _catalog_generator_signature()
@@ -1469,19 +1591,17 @@ def generate_all(inbound_root, out_root) -> str:
     explicit_client_dirs: set[str] = set()
     current_client_dirs: set[str] = set()
 
-    for leaf in leaves:
-        parts = leaf.relative_to(inbound_root).parts
-        # Estructura esperada <Cliente>/<Dominio>; si viene de un solo nivel
-        # (<Cliente>/*.json, sin subcarpeta de dominio), dominio = "General".
-        cliente = (parts[0] if parts else leaf.name).replace("_", " ")
-        dominio = parts[1].replace("_", " ") if len(parts) >= 2 else "General"
+    for (cliente_dir, dominio_dir) in sorted(groups):
+        g = groups[(cliente_dir, dominio_dir)]
+        cliente = cliente_dir.replace("_", " ")
+        dominio = dominio_dir.replace("_", " ")
         client_dir_key = cliente.replace(" ", "_")
         current_client_dirs.add(client_dir_key)
-        if len(parts) >= 2:
+        if dominio != "General":
             explicit_client_dirs.add(client_dir_key)
             expected_dirs.add((client_dir_key, dominio.replace(" ", "_")))
-        key = _catalog_leaf_key(leaf, inbound_root)
-        signature = _catalog_leaf_signature(leaf, inbound_root)
+        key = f"{cliente_dir}/{dominio_dir}"
+        signature = _files_signature(g["jsons"] + g["txts"], inbound_root)
         previous = entries.get(key, {})
 
         if (not force_all
@@ -1491,7 +1611,11 @@ def generate_all(inbound_root, out_root) -> str:
             next_entries[key] = previous
             continue
 
-        lines.append(process_folder(leaf, out_root, cliente, dominio))
+        # `src` es sólo referencia de mensajes; cliente/dominio van explícitos y el
+        # pool se arma con la lista de archivos del grupo (todas sus carpetas-tipo).
+        src = inbound_root / cliente_dir / dominio_dir
+        lines.append(process_folder(src, out_root, cliente, dominio,
+                                    json_files=sorted(g["jsons"]), txt_files=sorted(g["txts"])))
         generated += 1
         next_entries[key] = {
             "cliente": cliente,
