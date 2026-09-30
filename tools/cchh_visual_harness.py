@@ -244,6 +244,17 @@ def _seed_runtime(keep: bool) -> Path:
         }
         profile_repository._write_atomic(profile_repository._profile_path(profile_id), payload)
     print(f"[harness] {len(profiles_raw)} perfiles sembrados bajo {RUNTIME_DIR / 'human-capital' / 'profiles'}")
+
+    # Búsquedas (procesos de selección) — MISMO criterio que los perfiles:
+    # se siembran vía los internals reales del repositorio (`_write_atomic`/
+    # `_busqueda_path`), nunca JSON adivinado. El documento ya trae candidatos
+    # embebidos + historial (ver tests/fixtures/human_capital/busquedas.json).
+    from webapp.services import busqueda_repository
+    busquedas_raw = _json.loads((FIXTURES_DIR / "busquedas.json").read_text(encoding="utf-8"))
+    for entry in busquedas_raw:
+        payload = {"schema_version": busqueda_repository._SCHEMA_VERSION, "revision": 1, **entry}
+        busqueda_repository._write_atomic(busqueda_repository._busqueda_path(entry["busqueda_id"]), payload)
+    print(f"[harness] {len(busquedas_raw)} búsquedas sembradas bajo {RUNTIME_DIR / 'human-capital' / 'busquedas'}")
     return RUNTIME_DIR
 
 

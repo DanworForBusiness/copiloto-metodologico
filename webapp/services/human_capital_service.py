@@ -44,7 +44,10 @@ memoria la lista YA leída por el caller — nunca vuelve a tocar disco, y
 duplicados (nunca si `duplicate_confirmed=True`, ver abajo)."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from webapp.services import human_capital_catalog_repository as catalog_repo
+from webapp.services import busqueda_repository
 from webapp.services import profile_repository
 from webapp.services.profile_repository import (  # re-exportados para el router
     ProfileConcurrentModificationError,
@@ -61,6 +64,9 @@ __all__ = [
     "ProfileRemoteOutcomeUnknownError", "ProfileStorageError",
     "list_profiles", "get_profile", "create_profile", "update_profile", "soft_delete_profile", "filter_profiles",
     "validate_and_shape_fields", "find_duplicate", "create_profile_for_import",
+    "list_busquedas", "get_busqueda", "create_busqueda", "update_busqueda",
+    "add_candidate_to_busqueda", "move_application_stage", "remove_application", "close_busqueda",
+    "profiles_available_for_busqueda", "busqueda_candidates_view",
     "validate_source_for_import",
 ]
 
@@ -383,6 +389,36 @@ def _validate_potencial_governed(new_value: str | None, *, existing_value: str |
     )
 
 
+def _validate_area_governed(new_value: str | None, *, existing_value: str | None) -> None:
+    """Área / Departamento de una Búsqueda: gobernada por el catálogo `area`
+    (en la app de referencia el select sale de Configuración, no de una lista
+    hardcodeada). MISMO contrato migration-safe que Seniority/Fuente."""
+    if _is_governed_value_allowed("area", new_value, existing_value=existing_value):
+        return
+    active = catalog_repo.catalog_values("area")
+    if active:
+        raise ValueError(f"Área / Departamento inválida. Elegí una del catálogo vigente: {', '.join(active)}.")
+    raise ValueError(
+        "El catálogo de Áreas todavía no está disponible. Dejá el campo vacío "
+        "o refrescá el catálogo antes de asignar un valor."
+    )
+
+
+def _validate_area_consultora_governed(new_value: str | None, *, existing_value: str | None) -> None:
+    """Área de la consultora responsable de la Búsqueda: gobernada por el
+    catálogo `area_consultora` (mismo catálogo que usa el Banco). MISMO
+    contrato migration-safe que Seniority/Fuente."""
+    if _is_governed_value_allowed("area_consultora", new_value, existing_value=existing_value):
+        return
+    active = catalog_repo.catalog_values("area_consultora")
+    if active:
+        raise ValueError(f"Área de la consultora inválida. Elegí una del catálogo vigente: {', '.join(active)}.")
+    raise ValueError(
+        "El catálogo de Áreas de la consultora todavía no está disponible. Dejá el campo vacío "
+        "o refrescá el catálogo antes de asignar un valor."
+    )
+
+
 def validate_source_for_import(source: str | None) -> None:
     """Import masivo (Phase 3.8 §8: "sin validador bulk paralelo", ver
     `profile_import_service.py`, único caller) NO pasa por `create_profile`
@@ -501,3 +537,175 @@ def create_profile_for_import(profile_id: str, fields: dict) -> tuple[dict, bool
     `ProfileRemoteOutcomeUnknownError` se dejan propagar sin
     reinterpretar, MISMO criterio que el resto de este service."""
     return profile_repository.create_with_explicit_id(profile_id, fields)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BÚSQUEDAS (procesos de selección) — validación/shaping + delegación al
+# `busqueda_repository`. MISMA división que Profile: el service es DUEÑO de las
+# reglas de negocio (campos requeridos, enums de dominio, estado derivado del
+# candidato); el repository sólo persiste/lista/actualiza lo ya shapeado y es
+# dueño de revision/lock/rollback. La relación con candidatos usa `profile_id`.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def list_busquedas() -> list[dict]:
+    return busqueda_repository.list()
+
+
+def get_busqueda(busqueda_id: str) -> dict | None:
+    return busqueda_repository.get(busqueda_id)
+
+
+def _shape_busqueda_fields(fields: dict, *, existing: dict | None = None) -> dict:
+    """Valida y shapea los campos de una búsqueda (alta/edición). `nombre_puesto`
+    y `fecha_apertura` son obligatorios (MISMO contrato que la referencia).
+    `modalidad` es un enum de dominio fijo (Híbrido/Remoto, no es catálogo).
+    `area_departamento` y `area_consultora` son GOBERNADAS por catálogo (`area`
+    y `area_consultora`) con el mismo contrato migration-safe que Seniority: en
+    edición, un valor legacy fuera-de-catálogo se preserva si no cambia."""
+    nombre = (fields.get("nombre_puesto") or "").strip()
+    if not nombre:
+        raise ValueError("Completá el nombre del puesto.")
+    fecha = (fields.get("fecha_apertura") or "").strip()
+    if not fecha:
+        raise ValueError("Completá la fecha de apertura.")
+    modalidad = (fields.get("modalidad") or "").strip() or None
+    if modalidad is not None and modalidad not in busqueda_repository.MODALIDADES:
+        raise ValueError("Modalidad inválida.")
+    area_dep = (fields.get("area_departamento") or "").strip() or None
+    _validate_area_governed(area_dep, existing_value=(existing or {}).get("area_departamento"))
+    area_cons = (fields.get("area_consultora") or "").strip() or None
+    _validate_area_consultora_governed(area_cons, existing_value=(existing or {}).get("area_consultora"))
+    return {
+        "nombre_puesto": nombre,
+        "fecha_apertura": fecha,
+        "descripcion": (fields.get("descripcion") or "").strip() or None,
+        "area_departamento": area_dep,
+        "modalidad": modalidad,
+        "area_consultora": area_cons,
+        "pedido_formal_recibido": bool(fields.get("pedido_formal_recibido")),
+        "jd_texto": (fields.get("jd_texto") or "").strip() or None,
+        "palabras_clave": (fields.get("palabras_clave") or "").strip() or None,
+    }
+
+
+def create_busqueda(fields: dict) -> dict:
+    return busqueda_repository.create(_shape_busqueda_fields(fields))
+
+
+def update_busqueda(busqueda_id: str, expected_revision: int, fields: dict) -> dict:
+    existing = busqueda_repository.get(busqueda_id)
+    return busqueda_repository.update(
+        busqueda_id, expected_revision, _shape_busqueda_fields(fields, existing=existing))
+
+
+def close_busqueda(busqueda_id: str, finalize_application_ids: list[str] | None = None) -> dict:
+    return busqueda_repository.close(busqueda_id, finalize_application_ids)
+
+
+def add_candidate_to_busqueda(busqueda_id: str, profile_id: str) -> dict:
+    profile = profile_repository.get(profile_id)
+    if profile is None or profile.get("deleted_at"):
+        raise ValueError("El candidato no existe o fue eliminado del Banco de CVs.")
+    return busqueda_repository.add_candidate(busqueda_id, profile_id)
+
+
+def remove_application(busqueda_id: str, application_id: str) -> dict:
+    return busqueda_repository.remove_candidate(busqueda_id, application_id)
+
+
+def move_application_stage(busqueda_id: str, application_id: str, etapa: str,
+                           resultado_final: str | None) -> dict:
+    if etapa not in busqueda_repository.ETAPAS:
+        raise ValueError("Etapa inválida.")
+    resultado = (resultado_final or "").strip() or None
+    if etapa == busqueda_repository.ETAPA_FINAL:
+        if resultado is not None and resultado not in busqueda_repository.RESULTADOS_FINALES:
+            raise ValueError("Resultado final inválido.")
+    else:
+        resultado = None  # el repo también lo fuerza; se valida acá el contrato
+    return busqueda_repository.move_stage(busqueda_id, application_id, etapa, resultado)
+
+
+def profiles_available_for_busqueda(busqueda: dict) -> list[dict]:
+    """Profiles del Banco ASIGNABLES a ESTA búsqueda (contrato N:M aprobado por
+    el owner: un Profile puede participar en 0..N búsquedas, incluidas varias
+    activas a la vez). Se excluye ÚNICAMENTE a quien ya tiene una postulación
+    NO finalizada en ESTA misma búsqueda — nunca por participar en otra. Un
+    "En proceso" derivado de otra búsqueda NO es una restricción de
+    exclusividad. Excluye borrados (via `list_profiles`).
+
+    (La app de referencia SÍ enforcea membership única global — banco_cvs.estado
+    'Nuevo' como único asignable, ver AgregarDesdeBancoModal.tsx:111/143-145 —
+    pero el contrato de dominio aprobado para el Hub es N:M, y prevalece.)"""
+    in_this_search = {
+        app.get("profile_id") for app in busqueda.get("candidatos", [])
+        if app.get("etapa") != busqueda_repository.ETAPA_FINAL
+    }
+    return [p for p in list_profiles() if p["profile_id"] not in in_this_search]
+
+
+def busqueda_candidates_view(busqueda: dict) -> list[dict]:
+    """Enriquece cada postulación embebida con los datos del Profile del Banco
+    (join por `profile_id`) para presentarlos — el Banco sigue siendo el maestro
+    de los datos personales, acá no se copian, se leen en vivo. `profile` puede
+    ser None si el candidato fue borrado del Banco."""
+    out = []
+    for app in busqueda.get("candidatos", []):
+        out.append({**app, "profile": profile_repository.get(app.get("profile_id"))})
+    return out
+
+
+# ── Señales derivadas de atención (NO son estados estructurales) ──────────────
+# Un proceso vive UNA sola vez en su contenedor de lifecycle (activo/cerrado).
+# "Estancada" / "sin requerimiento" son CONDICIONES DERIVADAS que se expresan con
+# badges en el tile + filtros — NUNCA duplicando el proceso en otro bloque (mejora
+# deliberada sobre la app de referencia, que sí lo duplicaba). La regla de
+# "estancada" es la MISMA de la referencia (lib/metricas.busquedasEstancadas):
+# 30+ días sin que NINGÚN candidato cambie de etapa.
+BUSQUEDA_UMBRAL_ESTANCADA_DIAS = 30
+
+
+def _parse_iso_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    s = str(value).strip().replace("Z", "")
+    for cut in (19, 10):
+        try:
+            return datetime.fromisoformat(s[:cut])
+        except ValueError:
+            continue
+    return None
+
+
+def busqueda_dias_sin_movimiento(busqueda: dict) -> int | None:
+    """Días desde el ÚLTIMO movimiento del proceso = el más reciente entre los
+    `fecha_cambio_etapa` (o `created_at`) de sus candidatos; sin candidatos, la
+    `fecha_apertura`. MISMO cálculo que la referencia. None si no hay fecha
+    parseable (nunca se asume estancada por falta de dato)."""
+    fechas = []
+    for c in busqueda.get("candidatos", []):
+        dt = _parse_iso_dt(c.get("fecha_cambio_etapa") or c.get("created_at"))
+        if dt:
+            fechas.append(dt)
+    ultimo = max(fechas) if fechas else _parse_iso_dt(busqueda.get("fecha_apertura"))
+    if ultimo is None:
+        return None
+    return max((datetime.now() - ultimo).days, 0)
+
+
+def busqueda_attention(busqueda: dict) -> dict:
+    """Señales derivadas de atención de un proceso, para badges + filtros. Sólo
+    presentación/UX — no muta el documento ni cambia su lifecycle. `estancada`
+    aplica ÚNICAMENTE a procesos activos (igual que la referencia)."""
+    dias = busqueda_dias_sin_movimiento(busqueda)
+    activo = busqueda.get("estado") == "activo"
+    return {
+        "dias_sin_movimiento": dias,
+        "estancada": bool(activo and dias is not None and dias >= BUSQUEDA_UMBRAL_ESTANCADA_DIAS),
+        "sin_requerimiento": not busqueda.get("pedido_formal_recibido"),
+    }
+
+
+def busqueda_with_attention(busqueda: dict) -> dict:
+    """Copia del proceso con `attention` embebido (nunca se persiste)."""
+    return {**busqueda, "attention": busqueda_attention(busqueda)}

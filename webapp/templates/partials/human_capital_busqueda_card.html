@@ -1,0 +1,27 @@
+{# Tile de un proceso (activo o cerrado). Las CONDICIONES DERIVADAS de atención
+   (estancada / sin requerimiento) se muestran como badges DENTRO del tile —
+   nunca duplicando el proceso en otro contenedor. `b.attention` lo arma el
+   service (busqueda_with_attention); estancada sólo es True en procesos activos. #}
+{% macro busqueda_card(b) %}
+{% set sig = b.attention %}
+<a class="busqueda-card" href="/cchh/busquedas/{{ b.busqueda_id }}">
+  <div class="busqueda-card__headtext">
+    <span class="busqueda-card__title">{{ b.nombre_puesto }}</span>
+    {% if b.descripcion %}<p class="busqueda-card__desc">{{ b.descripcion }}</p>{% endif %}
+    {% if b.area_departamento %}<span class="busqueda-card__area">{{ b.area_departamento }}</span>{% endif %}
+    {% if sig and (sig.estancada or sig.sin_requerimiento) %}
+    <div class="busqueda-card__signals">
+      {% if sig.estancada %}<span class="busqueda-signal busqueda-signal--estancada">Estancada · {{ sig.dias_sin_movimiento }} días</span>{% endif %}
+      {% if sig.sin_requerimiento %}<span class="busqueda-signal busqueda-signal--warn">Sin requerimiento formal</span>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  <div class="busqueda-card__foot">
+    <span class="busqueda-card__desde">Desde {{ b.fecha_apertura | fecha_dmy }}{% if b.fecha_cierre %} · Cierre {{ b.fecha_cierre | fecha_dmy }}{% endif %}</span>
+    <div class="busqueda-card__badges">
+      <span class="busqueda-estado busqueda-estado--{{ 'activa' if b.estado == 'activo' else 'cerrada' }}">{{ 'Activo' if b.estado == 'activo' else 'Cerrado' }}</span>
+      <span class="busqueda-card__count">{{ b.candidatos | length }} candidato{{ '' if (b.candidatos | length) == 1 else 's' }}</span>
+    </div>
+  </div>
+</a>
+{% endmacro %}

@@ -8,6 +8,152 @@
 
 ---
 
+# CCHH · BÚSQUEDAS — OWNER QA PASS / WIP PRESERVED (2026-09-30)
+
+> **Owner visual QA = PASS** para esta pasada. Estado ACTUAL (no la historia de
+> iteraciones). Un agente nuevo: leer este bloque y continuar desde **Pending /
+> Deferred** — NO remapear Búsquedas ni reabrir decisiones aprobadas.
+
+## Git
+- **branch:** `work/cchh-busquedas-core`
+- **HEAD final:** **`8a51fa9`** (punto de recuperación autoritativo; ya NO `1136e8d`).
+  Cadena de código: `05062e8` core → `c99871c` N:M → `194dac1` fidelity 1 →
+  `9977fc8` UX 2 → `9e1eca5` handoff 2 → `d17cc65` UX 3 (fix quitar, atención, "+",
+  entrada Candidatos) → `1136e8d` handoff 3 → **`8a51fa9`** CI fix (test tile-info)
+  → este handoff.
+- **remote HEAD:** `origin/work/cchh-busquedas-core` == HEAD local tras el push.
+- **base main:** `origin/main` = `9c4ebc6` (Búsquedas NO está en main).
+- **working tree:** clean tras el push.
+- **PR: NO abierto** (sin `gh`; el owner lo abre). Al mergear a `main`, DigitalOcean
+  auto-deploya (Procfile); `deployment` branch stale.
+
+### CI fix de cierre (`8a51fa9`) — sin cambios de producto
+- **Root cause:** test stale tras el refactor del primitivo compartido tile-info
+  (`test_the_affordance_cannot_change_tile_geometry`), NO una regresión de geometría.
+- El comportamiento de producto quedó igual. Reparto de responsabilidad del (i):
+  - `.activity-kpi .activity-kpi__info` (scopeado al tile) **posee la geometría**
+    (`position:absolute; right; bottom`, fuera del flujo);
+  - `.activity-kpi__info` (base, single-class) posee el **look/reset reutilizable**
+    (para consumirlo fuera de las tiles, p.ej. CCHH "Requerimiento formal").
+- **tile-info tests: 10 passed.**
+- **Full local suite: 3806 passed, 1 skipped, 1 failed** — el único failed es el
+  flake conocido de timing de remote_store
+  (`test_mirror_up_retries_a_rollback_restored_profile_after_unconfirmed_compensation`,
+  colisión mtime_ns bajo full-suite); **pasa en aislamiento** (ajeno a este cambio).
+- **Owner QA sigue = PASS. Branch clean. local == remote.**
+
+## Dominio confirmado
+Búsquedas = **Procesos de selección**. Estados: `activo` / `cerrado`; **cierre
+one-way** (la referencia NO tiene reabrir). Etapas: Preselección → Entrevista CCHH
+→ Entrevista Líder → Decisión Final → Finalizado. Resultado final (sólo en
+Finalizado): Ingreso / Rechazado / Desistió. **CandidateApplication** explícita:
+process_id(=busqueda_id) + profile_id + etapa + fechas + historial/transiciones,
+embebida en el doc. **Profile sigue siendo maestro** (no recibe proceso_asignado_id).
+
+### DIVERGENCIA DELIBERADA (no revertir copiando la referencia)
+La app original restringe un candidato a un único proceso activo
+(`AgregarDesdeBancoModal.tsx`: `disponible = cv.estado === "Nuevo"`). El Hub **NO**:
+`Profile 1 → 0..N CandidateApplications`; puede participar en varios procesos
+activos. Para el proceso X se excluye SÓLO a quien ya tiene postulación no finalizada
+en X; activo en A sigue disponible para B; "En proceso" es derivado, no exclusividad.
+**Test que lo fija:** `test_availability_is_per_search_not_global_single_active`
+(+ `test_route_remove_candidate_end_to_end_keeps_profile_and_nm_contract`).
+
+## Implementado y OWNER-APPROVED
+Landing Búsquedas; Procesos activos / cerrados; Nuevo proceso; Nuevo candidato
+(reusa el alta de Candidatos, sin duplicar); alta/edición de proceso; detalle;
+pipeline 5 etapas; agregar candidato desde el Banco; **"+" desde Preselección
+vacía** (mismo modal/acción, sólo etapa inicial y proceso activo); mover entre
+etapas; resultado final; **quitar candidato del proceso con confirmación
+funcionando end-to-end** (fix: faltaba `hx-trigger="confirmed"` en el botón trash);
+el Profile NO se elimina al quitar y el candidato vuelve a estar disponible; cierre
+de proceso; proceso cerrado read-only donde corresponde; historial de transiciones;
+fixtures determinísticos; responsive; light/dark; fechas **DD-MM-YYYY** en
+presentación (filtro `fecha_dmy`; persistencia/inputs siguen ISO).
+
+## UX / estándares aprobados
+- **Hub:** "Volver" = `.catalog-back`; dashboard-section título izq / KPI derecha;
+  Base de CVs homologada; tiles fluidos (`auto-fit minmax`); tooltip (i) reusa el
+  primitivo transversal `.activity-kpi__info` + `.chart-tooltip` (Tablero Integral),
+  promovido mínimamente a shared; sin duplicar primitives vertical-specific.
+  Márgenes hero→contenido estandarizados a 24px en Base de CVs y Búsquedas.
+- **Landing:** botón secundario "+ Nuevo candidato", primario gold "+ Nuevo
+  proceso"; contadores "N procesos" (activos y cerrados).
+- **Tiles:** badge de estado movido al pie junto al contador (mismas alturas);
+  más espacio para título (2 líneas)/descripción; señales derivadas como
+  badges/filtros, sin duplicar procesos.
+- **Pipeline:** altura orgánica por columna (NO equal-height); columnas vacías con
+  min-height ≈ una tarjeta; columnas con más cards crecen solas; empty-state
+  informativo por etapa; Preselección vacía con acción "+"; demás etapas sólo
+  informativas.
+- **Selector de vistas:** Vista pipeline (funcional/default) + Vista evaluación /
+  Scoring (JD) / Sugeridos del banco / Reportes (visibles, disabled/pending);
+  aparece también en proceso cerrado.
+
+## Catálogos (gobernanza real, no "parece dinámico")
+Fuente = el workbook de catálogos existente (`Catalogos_CCHH.xlsx` en SharePoint,
+mecanismo `human_capital_catalog_repository`: una Excel Table donde CADA fila
+declara su `catalogo`; el refresh vía Graph la parsea y sólo acepta filas cuyo
+`catalogo` está en `GOVERNED_CATALOGS`). Selectores gobernados en Búsquedas:
+- **Área / Departamento** → catálogo `area` (agregado a GOVERNED_CATALOGS + fixture).
+- **Área de la consultora** → catálogo `area_consultora` (ya existía).
+Ambos con contrato migration-safe (sólo catálogo activo; valor legacy fuera de
+catálogo se preserva en edición; fail-closed si el catálogo está vacío). Enums
+hardcodeados eliminados de `busqueda_repository`.
+**Dominio fijo (NO catálogo), a propósito:** `modalidad` (Híbrido/Remoto) — en la
+referencia es un enum fijo (lib/types.ts `MODALIDADES`), no una hoja de Configuración;
+verificado que el workbook no tiene hoja de modalidad. Estados/etapas/resultados
+también son dominio fijo.
+
+## Alertas / condiciones derivadas (decisión UX)
+NO se duplica un proceso en bloques "pendientes"/"estancadas"/"activos". La
+agrupación primaria es Procesos activos / cerrados. Las condiciones (estancada,
+sin requerimiento formal, días sin movimiento, onboarding pendiente) son señales
+derivadas sobre el proceso ÚNICO. **Implementado:** badge "Estancada · N días"
+(regla de la referencia: 30+ días sin que ningún candidato cambie de etapa),
+badge "Sin requerimiento formal", y barra de filtros reactiva (HTMX) Todas /
+Estancadas / Sin requerimiento con contadores (sólo re-renderiza el panel interno
+de activos). **Pendiente:** "Onboarding pendiente" — la referencia lo modela como
+entidad separada (tabla `onboarding`, lifecycle/ownership propios) sin equivalente
+en el Hub; NO se convirtió en badge/filtro (por defecto no duplicar procesos);
+requiere decisión de entidad antes de implementarlo.
+
+## Pending / Deferred (próximo trabajo)
+- **Onboarding pendiente** como señal (decidir entidad primero; ver arriba).
+- Vistas funcionales del selector: Vista evaluación, Scoring (JD), Sugeridos del
+  banco, Reportes.
+- Entrevistas avanzadas · onboarding completo · terna · métricas/alertas
+  adicionales · publicaciones/avisos · mensajería · lector automático de JD.
+- `CierreMasivoModal` = código muerto en la referencia; NO reimplementar sin
+  nueva evidencia.
+
+## Tests (resultado real)
+- **Focused Búsquedas** (`test_human_capital_busquedas.py`): 30 passed (incluye
+  quitar end-to-end N:M, trigger `confirmed` declarado, "+" sólo en Preselección
+  activa, atención/estancada, fragmento del filtro, gobernanza área/área-consultora).
+- **CCHH + guards** (human_capital* + route_surface + staffing/commercial guards):
+  502 passed, 0 failed. `route_surface.json` = 169 (sin cambios).
+- **Full suite (corrida en el CI fix `8a51fa9`): 3806 passed, 1 skipped, 1 failed**
+  — el único failed es el flake conocido de timing de remote_store (pasa en
+  aislamiento; ajeno a este trabajo). 0 failed atribuibles a Búsquedas.
+
+## Localhost
+- URL: **http://127.0.0.1:8093/cchh/busquedas** (`.venv/Scripts/python.exe
+  tools/cchh_visual_harness.py --port 8093`; imprime cookies de auth para devtools).
+- El proceso vigente se levantó desde código dirty (previo al commit final
+  `d17cc65`), pero todo lo dirty ya está commiteado sin cambios adicionales, y
+  templates/CSS se leen en vivo. **requires restart: no** (para revisar el commit
+  final basta con el proceso actual; un agente nuevo levanta el suyo). IDs de
+  fixtures: `22222222-…-2222222220{1..4}` (el runtime del harness puede tener
+  candidatos ya quitados por la QA — reseedear reiniciando sin `--keep`).
+
+## Regla para el nuevo agente
+Leer este bloque y arrancar por **Pending / Deferred**. Referencia = spec
+funcional/visual; Hub = primitives/layout compartidos. No reinventar componentes
+si ya existe patrón Hub, no hardcodear catálogos, no cerrar sólo con tests.
+
+---
+
 # CCHH · CANDIDATOS / BASE DE CVs — **CLOSED** (2026-09-28)
 
 > Experiencia de gestión de candidatos **cerrada** y validada por el owner en

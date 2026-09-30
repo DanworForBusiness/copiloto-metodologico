@@ -94,17 +94,32 @@ def test_the_affordance_lives_in_shared_css_so_the_primitive_is_hub_reusable():
 
 def test_the_affordance_cannot_change_tile_geometry():
     rules = _css_rules(_TOOLS_CSS)
-    block = rules.split(".activity-kpi__info {", 1)[1].split("}", 1)[0]
-    # Absolutamente posicionada abajo a la derecha: fuera del flex column del
-    # card, así que un tile con info mide lo mismo que uno sin info.
-    assert "position: absolute" in block
-    assert "right:" in block and "bottom:" in block
+    # El contrato es "el (i) no cambia la geometría del tile", NO "un selector
+    # histórico concreto contiene position:absolute". La responsabilidad
+    # GEOMÉTRICA vive en el selector scopeado al tile
+    # (`.activity-kpi .activity-kpi__info`): absolutamente posicionada abajo a la
+    # derecha, fuera del flex column del card, así que un tile con info mide lo
+    # mismo que uno sin info. (El reset/look base `.activity-kpi__info {}` se
+    # promovió a single-class para reusar el MISMO ícono fuera de las tiles —p.ej.
+    # CCHH "Requerimiento formal"—; ahí lo posiciona su propio wrapper, y por eso
+    # la geometría de tile ya no vive en el bloque base sino en el scopeado.)
+    geom = rules.split(".activity-kpi .activity-kpi__info {", 1)[1].split("}", 1)[0]
+    assert "position: absolute" in geom            # fuera del flujo, explícito
+    assert "right:" in geom and "bottom:" in geom  # anclado a la esquina del card
     # El card es el contenedor de posicionamiento.
     base = rules.split(".activity-kpi {", 1)[1].split("}", 1)[0]
     assert "position: relative" in base
-    # Nada de footer ni de cambio de grilla para alojar el icono.
+    # El reset/look base del ícono NO puede introducir dimensiones, márgenes ni
+    # posicionamiento que agranden/muevan un tile (el trigger es sólo un ícono,
+    # nunca ocupa caja propia; posicionarlo es responsabilidad del selector
+    # scopeado). Se parsea por NOMBRE de propiedad para no confundir `line-height`.
+    reset = rules.split(".activity-kpi__info {", 1)[1].split("}", 1)[0]
+    reset_props = {p.split(":", 1)[0].strip() for p in reset.split(";") if ":" in p}
+    for banned in ("width", "height", "min-height", "max-height", "margin", "position"):
+        assert banned not in reset_props, (banned, reset_props)
+    # Ni footer ni cambio de grilla para alojar el icono.
     for banned in ("activity-kpi__footer", "grid-template-columns", "min-height"):
-        assert banned not in block, banned
+        assert banned not in geom, banned
     # La grilla de tiles queda igual.
     assert ".activity-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));" in rules
 

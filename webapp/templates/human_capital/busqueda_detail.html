@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}{{ busqueda.nombre_puesto }} · Búsquedas · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    {# "← Volver": primitivo transversal del Hub (`.catalog-back`, tools.css),
+       MISMO exacto que profile_edit.html — nunca un eyebrow gold propio. #}
+    <a class="catalog-back" href="/cchh/busquedas">← Volver a Búsquedas</a>
+    {# Composición espejo del detalle de proceso (app de referencia): meta gris
+       ARRIBA del título (`.hero-meta`, primitivo compartido — separador "·" lo
+       pone el CSS), luego el título, la descripción, y una fila de estado
+       (pill de estado + área de la consultora + aviso de requerimiento). Las
+       acciones van a la derecha, EN LA MISMA fila del hero. #}
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        {% set _meta = [] %}
+        {% if busqueda.area_departamento %}{% set _ = _meta.append(busqueda.area_departamento) %}{% endif %}
+        {% if busqueda.modalidad %}{% set _ = _meta.append(busqueda.modalidad) %}{% endif %}
+        {% if _meta %}<div class="hero-meta">{% for p in _meta %}<span>{{ p }}</span>{% endfor %}</div>{% endif %}
+        <h1>{{ busqueda.nombre_puesto }}</h1>
+        {% if busqueda.descripcion %}<p>{{ busqueda.descripcion }}</p>{% endif %}
+        <div class="busqueda-status-row">
+          <span class="busqueda-estado busqueda-estado--{{ 'activa' if busqueda.estado == 'activo' else 'cerrada' }}">{{ 'Activo' if busqueda.estado == 'activo' else 'Cerrado' }}</span>
+          {% if busqueda.area_consultora %}<span class="busqueda-status-row__area">{{ busqueda.area_consultora }}</span>{% endif %}
+          {% if not busqueda.pedido_formal_recibido %}<span class="busqueda-card__warn">Sin requerimiento formal</span>{% endif %}
+        </div>
+      </div>
+      <div class="hc-profiles-hero-actions">
+        {% if busqueda.estado == 'activo' %}
+        <button type="button" class="btn-secondary" data-dialog-open="busqueda-add-dialog">+ Agregar candidato</button>
+        {% endif %}
+        <a href="/cchh/busquedas/{{ busqueda.busqueda_id }}/editar" class="btn-secondary">Editar</a>
+        {% if busqueda.estado == 'activo' %}
+        <button type="button" class="btn-danger" data-dialog-open="busqueda-close-dialog">Cerrar proceso</button>
+        {% endif %}
+      </div>
+    </section>
+
+    {# Barra de vistas del proceso (espejo de ProcesoVistas de la referencia),
+       resuelta con el primitivo compartido `.dashboard-view-switch` (tools.css)
+       — `.is-active` (gold) para la activa, `:disabled` (atenuado) para las que
+       todavía no están implementadas. En este slice sólo Pipeline es funcional;
+       Evaluación / Scoring (JD) / Sugeridos del banco / Reportes existen
+       visualmente y quedan marcadas como pendientes (title="Próximamente"),
+       nunca ausentes. #}
+    <div class="dashboard-view-switch busqueda-views" role="group" aria-label="Vistas del proceso">
+      <button type="button" class="is-active" aria-pressed="true">Vista pipeline</button>
+      <button type="button" disabled title="Próximamente">Vista evaluación</button>
+      <button type="button" disabled title="Próximamente">Scoring (JD)</button>
+      <button type="button" disabled title="Próximamente">Sugeridos del banco</button>
+      <button type="button" disabled title="Próximamente">Reportes</button>
+    </div>
+
+    {# Cuerpo (pipeline + modales de agregar/cerrar): se re-renderiza vía HTMX
+       tras cada mutación de pipeline para mantener board y disponibilidad en
+       sincronía. #}
+    <div id="busqueda-detail-body">
+      {% include "partials/human_capital_busqueda_detail_body.html" %}
+    </div>
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{% endblock %}

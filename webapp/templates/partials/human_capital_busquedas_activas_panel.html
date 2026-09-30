@@ -1,0 +1,36 @@
+{# Panel interno de Procesos activos: barra de filtros de ATENCIÓN (señales
+   derivadas, no estados estructurales) + grilla de tiles. Es el ÚNICO target
+   HTMX del filtro (`#busquedas-activas-panel`), así el `<details>` contenedor y
+   su estado colapsable/reordenable quedan intactos. Un proceso aparece UNA sola
+   vez — las condiciones (estancada / sin requerimiento) se ven como badges en el
+   tile y se navegan con estos filtros, nunca duplicando el proceso. #}
+{% from "partials/human_capital_busqueda_card.html" import busqueda_card %}
+<div id="busquedas-activas-panel">
+  {# Filtros reactivos con el primitivo compartido `.dashboard-view-switch`
+     (mismo que la botonera de vistas del detalle). Chips deshabilitados cuando
+     su condición no tiene procesos (salvo el activo). #}
+  <div class="dashboard-view-switch busqueda-atencion" role="group" aria-label="Filtrar procesos activos por atención">
+    <button type="button" class="{{ 'is-active' if atencion == 'todas' else '' }}"
+            hx-get="/cchh/busquedas?atencion=todas" hx-target="#busquedas-activas-panel" hx-swap="outerHTML">
+      Todas · {{ atencion_counts.todas }}
+    </button>
+    <button type="button" class="{{ 'is-active' if atencion == 'estancadas' else '' }}"
+            {% if atencion_counts.estancadas == 0 and atencion != 'estancadas' %}disabled{% endif %}
+            hx-get="/cchh/busquedas?atencion=estancadas" hx-target="#busquedas-activas-panel" hx-swap="outerHTML">
+      Estancadas · {{ atencion_counts.estancadas }}
+    </button>
+    <button type="button" class="{{ 'is-active' if atencion == 'sin_requerimiento' else '' }}"
+            {% if atencion_counts.sin_requerimiento == 0 and atencion != 'sin_requerimiento' %}disabled{% endif %}
+            hx-get="/cchh/busquedas?atencion=sin_requerimiento" hx-target="#busquedas-activas-panel" hx-swap="outerHTML">
+      Sin requerimiento · {{ atencion_counts.sin_requerimiento }}
+    </button>
+  </div>
+
+  {% if activas %}
+  <div class="busqueda-grid">{% for b in activas %}{{ busqueda_card(b) }}{% endfor %}</div>
+  {% elif atencion == 'todas' %}
+  <p class="field-hint">No hay procesos activos.</p>
+  {% else %}
+  <p class="field-hint">Ningún proceso activo coincide con este filtro.</p>
+  {% endif %}
+</div>

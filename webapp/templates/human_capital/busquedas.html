@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Búsquedas · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano</p>
+        <h1>Búsquedas</h1>
+        <p>Procesos de selección abiertos y cerrados, con su pipeline de candidatos.</p>
+      </div>
+      <div class="hc-profiles-hero-actions">
+        {# Dos acciones. Jerarquía DECIDIDA por el owner para ESTA sección (difiere
+           de la app original a propósito): el CTA primario es "+ Nuevo proceso"
+           (la acción propia de Búsquedas), y "+ Nuevo candidato" queda secundario
+           (deriva al alta del Banco de CVs, maestro — sin duplicar su lógica). #}
+        <a href="/cchh/candidatos/nuevo" class="btn-secondary">+ Nuevo candidato</a>
+        <a href="/cchh/busquedas/nueva" class="btn-primary">+ Nuevo proceso</a>
+      </div>
+    </section>
+
+    {% if source_error %}
+    <div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>{{ source_error }}</p></div>
+    {% elif total_busquedas == 0 %}
+    <div class="dashboard-empty"><span class="dashboard-empty__label">Sin procesos</span><p>Todavía no hay procesos cargados por el momento. Creá uno nuevo para empezar a sumar candidatos.</p></div>
+    {% else %}
+    {% from "partials/human_capital_busqueda_card.html" import busqueda_card %}
+    {# `.busquedas-list`: MISMO respiro post-divisor (24px) que `#hc-profiles-panel`
+       en Base de CVs — headers de contenedor estandarizados entre ambas pantallas. #}
+    <div class="busquedas-list" data-dashboard-key="cchh-busquedas">
+      <details class="dashboard-section" data-section-id="busquedas-activas" data-persist-collapse open>
+        <summary class="dashboard-section__head" draggable="true">
+          <span class="dashboard-section__caret"></span>
+          <span class="dashboard-section__title">Procesos activos</span>
+          {# Conteo: sólo "N procesos" — el título ya aporta activos/cerrados, no
+             se repite (owner). El primitivo compartido `.dashboard-section__count`
+             lo alinea al margen superior derecho (`margin-left:auto`), MISMO patrón
+             que el header de "Candidatos" en Base de CVs. El total es el de TODOS
+             los activos, independiente del filtro de atención de abajo. #}
+          <span class="dashboard-section__count">{{ total_activas }} proceso{{ '' if total_activas == 1 else 's' }}</span>
+        </summary>
+        {# Sólo el cuerpo interno (filtros + grilla) es el target HTMX del filtro
+           de atención — el `<details>` y su estado colapsable/reordenable no se
+           tocan al filtrar. #}
+        <div class="dashboard-section__body">
+          {% include "partials/human_capital_busquedas_activas_panel.html" %}
+        </div>
+      </details>
+      <details class="dashboard-section" data-section-id="busquedas-cerradas" data-persist-collapse{% if not activas %} open{% endif %}>
+        <summary class="dashboard-section__head" draggable="true">
+          <span class="dashboard-section__caret"></span>
+          <span class="dashboard-section__title">Procesos cerrados</span>
+          <span class="dashboard-section__count">{{ cerradas | length }} proceso{{ '' if cerradas | length == 1 else 's' }}</span>
+        </summary>
+        <div class="dashboard-section__body">
+          {% if cerradas %}
+          <div class="busqueda-grid">{% for b in cerradas %}{{ busqueda_card(b) }}{% endfor %}</div>
+          {% else %}<p class="field-hint">No hay procesos cerrados.</p>{% endif %}
+        </div>
+      </details>
+    </div>
+    {% endif %}
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{% endblock %}

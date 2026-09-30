@@ -1,0 +1,81 @@
+[
+  {
+    "busqueda_id": "22222222-2222-2222-2222-222222222201",
+    "nombre_puesto": "Analista de Datos / BI Semi-Senior",
+    "estado": "activo",
+    "fecha_apertura": "2026-08-18",
+    "fecha_cierre": null,
+    "descripcion": "Reporting y modelado con SAP Datasphere para un cliente del sector energético.",
+    "area_departamento": "Datos/BI",
+    "modalidad": "Híbrido",
+    "area_consultora": "OPERACIONES",
+    "pedido_formal_recibido": true,
+    "jd_texto": "Buscamos un analista con experiencia en SAP Datasphere, BW/4HANA y modelado dimensional.",
+    "palabras_clave": "SAP Datasphere, BW/4HANA, SQL, Power BI",
+    "candidatos": [
+      {"application_id": "aaaa0001-0000-0000-0000-000000000001", "profile_id": "11111111-1111-1111-1111-111111111101", "etapa": "Preselección", "resultado_final": null, "fecha_cambio_etapa": "2026-08-19T10:00:00+00:00", "historial": [{"etapa": "Preselección", "fecha": "2026-08-19T10:00:00+00:00"}], "created_at": "2026-08-19T10:00:00+00:00"},
+      {"application_id": "aaaa0001-0000-0000-0000-000000000002", "profile_id": "11111111-1111-1111-1111-111111111105", "etapa": "Entrevista CCHH", "resultado_final": null, "fecha_cambio_etapa": "2026-08-22T14:00:00+00:00", "historial": [{"etapa": "Preselección", "fecha": "2026-08-19T10:05:00+00:00"}, {"etapa": "Entrevista CCHH", "fecha": "2026-08-22T14:00:00+00:00"}], "created_at": "2026-08-19T10:05:00+00:00"},
+      {"application_id": "aaaa0001-0000-0000-0000-000000000003", "profile_id": "11111111-1111-1111-1111-111111111104", "etapa": "Decisión Final", "resultado_final": null, "fecha_cambio_etapa": "2026-08-28T11:00:00+00:00", "historial": [{"etapa": "Preselección", "fecha": "2026-08-19T10:10:00+00:00"}, {"etapa": "Entrevista CCHH", "fecha": "2026-08-23T09:00:00+00:00"}, {"etapa": "Entrevista Líder", "fecha": "2026-08-26T09:00:00+00:00"}, {"etapa": "Decisión Final", "fecha": "2026-08-28T11:00:00+00:00"}], "created_at": "2026-08-19T10:10:00+00:00"},
+      {"application_id": "aaaa0001-0000-0000-0000-000000000004", "profile_id": "11111111-1111-1111-1111-111111111108", "etapa": "Finalizado", "resultado_final": "Ingreso", "fecha_cambio_etapa": "2026-08-30T16:00:00+00:00", "historial": [{"etapa": "Preselección", "fecha": "2026-08-19T10:15:00+00:00"}, {"etapa": "Entrevista CCHH", "fecha": "2026-08-23T10:00:00+00:00"}, {"etapa": "Decisión Final", "fecha": "2026-08-29T10:00:00+00:00"}, {"etapa": "Finalizado", "fecha": "2026-08-30T16:00:00+00:00"}], "created_at": "2026-08-19T10:15:00+00:00"},
+      {"application_id": "aaaa0001-0000-0000-0000-000000000005", "profile_id": "11111111-1111-1111-1111-111111111107", "etapa": "Finalizado", "resultado_final": "Rechazado", "fecha_cambio_etapa": "2026-08-27T16:00:00+00:00", "historial": [{"etapa": "Preselección", "fecha": "2026-08-19T10:20:00+00:00"}, {"etapa": "Finalizado", "fecha": "2026-08-27T16:00:00+00:00"}], "created_at": "2026-08-19T10:20:00+00:00"}
+    ],
+    "created_at": "2026-08-18T09:00:00+00:00",
+    "updated_at": "2026-08-30T16:00:00+00:00"
+  },
+  {
+    "busqueda_id": "22222222-2222-2222-2222-222222222202",
+    "nombre_puesto": "Consultor SAP FICO Senior — Proyecto de implementación regional multi-país con foco en integración continua",
+    "estado": "activo",
+    "fecha_apertura": "2026-09-10",
+    "fecha_cierre": null,
+    "descripcion": "Búsqueda recién abierta, todavía sin candidatos cargados en el pipeline.",
+    "area_departamento": "SAP",
+    "modalidad": "Remoto",
+    "area_consultora": "COMERCIAL",
+    "pedido_formal_recibido": false,
+    "jd_texto": null,
+    "palabras_clave": "SAP FICO, S/4HANA",
+    "candidatos": [],
+    "created_at": "2026-09-10T09:00:00+00:00",
+    "updated_at": "2026-09-10T09:00:00+00:00"
+  },
+  {
+    "busqueda_id": "22222222-2222-2222-2222-222222222203",
+    "nombre_puesto": "Desarrollador Full-Stack",
+    "estado": "cerrado",
+    "fecha_apertura": "2026-07-05",
+    "fecha_cierre": "2026-08-01",
+    "descripcion": "Búsqueda cerrada con un ingreso confirmado.",
+    "area_departamento": "IT",
+    "modalidad": "Híbrido",
+    "area_consultora": "ADMINISTRACION/CCHH",
+    "pedido_formal_recibido": true,
+    "jd_texto": null,
+    "palabras_clave": "Node, React, Postgres",
+    "candidatos": [
+      {"application_id": "aaaa0003-0000-0000-0000-000000000001", "profile_id": "11111111-1111-1111-1111-111111111109", "etapa": "Finalizado", "resultado_final": "Ingreso", "fecha_cambio_etapa": "2026-08-01T12:00:00+00:00", "historial": [{"etapa": "Preselección", "fecha": "2026-07-06T10:00:00+00:00"}, {"etapa": "Finalizado", "fecha": "2026-08-01T12:00:00+00:00"}], "created_at": "2026-07-06T10:00:00+00:00"},
+      {"application_id": "aaaa0003-0000-0000-0000-000000000002", "profile_id": "11111111-1111-1111-1111-111111111110", "etapa": "Finalizado", "resultado_final": "Rechazado", "fecha_cambio_etapa": "2026-08-01T12:00:00+00:00", "historial": [{"etapa": "Preselección", "fecha": "2026-07-06T10:05:00+00:00"}, {"etapa": "Finalizado", "fecha": "2026-08-01T12:00:00+00:00"}], "created_at": "2026-07-06T10:05:00+00:00"}
+    ],
+    "created_at": "2026-07-05T09:00:00+00:00",
+    "updated_at": "2026-08-01T12:00:00+00:00"
+  },
+  {
+    "busqueda_id": "22222222-2222-2222-2222-222222222204",
+    "nombre_puesto": "Líder Técnico de Datos",
+    "estado": "activo",
+    "fecha_apertura": "2026-09-01",
+    "fecha_cierre": null,
+    "descripcion": null,
+    "area_departamento": "Datos/BI",
+    "modalidad": null,
+    "area_consultora": "OPERACIONES",
+    "pedido_formal_recibido": true,
+    "jd_texto": null,
+    "palabras_clave": null,
+    "candidatos": [
+      {"application_id": "aaaa0004-0000-0000-0000-000000000001", "profile_id": "11111111-1111-1111-1111-111111111106", "etapa": "Entrevista Líder", "resultado_final": null, "fecha_cambio_etapa": "2026-09-08T15:00:00+00:00", "historial": [{"etapa": "Preselección", "fecha": "2026-09-02T10:00:00+00:00"}, {"etapa": "Entrevista CCHH", "fecha": "2026-09-05T10:00:00+00:00"}, {"etapa": "Entrevista Líder", "fecha": "2026-09-08T15:00:00+00:00"}], "created_at": "2026-09-02T10:00:00+00:00"}
+    ],
+    "created_at": "2026-09-01T09:00:00+00:00",
+    "updated_at": "2026-09-08T15:00:00+00:00"
+  }
+]
