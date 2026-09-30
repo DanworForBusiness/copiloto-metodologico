@@ -16,15 +16,31 @@
 
 ## Git
 - **branch:** `work/cchh-busquedas-core`
-- **HEAD final:** el commit de este HANDOFF (`git log -1`). Cadena de código:
-  `05062e8` core → `c99871c` N:M → `194dac1` fidelity 1 → `9977fc8` UX 2 →
-  `9e1eca5` handoff 2 → **`d17cc65`** UX 3 (fix quitar, atención, "+", entrada
-  Candidatos) → este handoff.
+- **HEAD final:** **`8a51fa9`** (punto de recuperación autoritativo; ya NO `1136e8d`).
+  Cadena de código: `05062e8` core → `c99871c` N:M → `194dac1` fidelity 1 →
+  `9977fc8` UX 2 → `9e1eca5` handoff 2 → `d17cc65` UX 3 (fix quitar, atención, "+",
+  entrada Candidatos) → `1136e8d` handoff 3 → **`8a51fa9`** CI fix (test tile-info)
+  → este handoff.
 - **remote HEAD:** `origin/work/cchh-busquedas-core` == HEAD local tras el push.
 - **base main:** `origin/main` = `9c4ebc6` (Búsquedas NO está en main).
 - **working tree:** clean tras el push.
 - **PR: NO abierto** (sin `gh`; el owner lo abre). Al mergear a `main`, DigitalOcean
   auto-deploya (Procfile); `deployment` branch stale.
+
+### CI fix de cierre (`8a51fa9`) — sin cambios de producto
+- **Root cause:** test stale tras el refactor del primitivo compartido tile-info
+  (`test_the_affordance_cannot_change_tile_geometry`), NO una regresión de geometría.
+- El comportamiento de producto quedó igual. Reparto de responsabilidad del (i):
+  - `.activity-kpi .activity-kpi__info` (scopeado al tile) **posee la geometría**
+    (`position:absolute; right; bottom`, fuera del flujo);
+  - `.activity-kpi__info` (base, single-class) posee el **look/reset reutilizable**
+    (para consumirlo fuera de las tiles, p.ej. CCHH "Requerimiento formal").
+- **tile-info tests: 10 passed.**
+- **Full local suite: 3806 passed, 1 skipped, 1 failed** — el único failed es el
+  flake conocido de timing de remote_store
+  (`test_mirror_up_retries_a_rollback_restored_profile_after_unconfirmed_compensation`,
+  colisión mtime_ns bajo full-suite); **pasa en aislamiento** (ajeno a este cambio).
+- **Owner QA sigue = PASS. Branch clean. local == remote.**
 
 ## Dominio confirmado
 Búsquedas = **Procesos de selección**. Estados: `activo` / `cerrado`; **cierre
@@ -117,8 +133,9 @@ requiere decisión de entidad antes de implementarlo.
   activa, atención/estancada, fragmento del filtro, gobernanza área/área-consultora).
 - **CCHH + guards** (human_capital* + route_surface + staffing/commercial guards):
   502 passed, 0 failed. `route_surface.json` = 169 (sin cambios).
-- **Full suite: PENDING FOR CLOSURE** (última corrida completa verde fue en la
-  pasada 2 con 3802 passed; NO se re-corrió completa en esta pasada 3).
+- **Full suite (corrida en el CI fix `8a51fa9`): 3806 passed, 1 skipped, 1 failed**
+  — el único failed es el flake conocido de timing de remote_store (pasa en
+  aislamiento; ajeno a este trabajo). 0 failed atribuibles a Búsquedas.
 
 ## Localhost
 - URL: **http://127.0.0.1:8093/cchh/busquedas** (`.venv/Scripts/python.exe
