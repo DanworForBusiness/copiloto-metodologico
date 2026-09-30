@@ -173,7 +173,11 @@ leaves:
       mode: llm_value_add
 
   leaf_api_corp_contrato:
-    decision: "API Corporativa: El contrato se define en SAP mediante una API Corporativa apoyada en API funcionales (CDS, ODP). Cuando no es posible, el contrato se define en Datasphere"
+    decision: "API Estándar"
+    # `detail`: cuerpo explicativo con mini-markup seguro (ver filtro `leaf_markup`
+    # en wizard.py). El único link permitido es `[label](https://…)` — acá el
+    # texto visible "I_DataExtractionEnabledView" queda clickeable hacia SAP Help.
+    detail: "El contrato se define en SAP mediante una API estándar. Si fuera un extractor SAPI-ODP, se consume directamente; si fuera una CDS View estándar, debe estar habilitada para extracción en [I_DataExtractionEnabledView](https://help.sap.com/docs/SAP_S4HANA_CLOUD/c0c54048d35849128be8e872df5bea6d/870d66c6bfc44d6c9f128c888f0c7957.html?locale=en-US) o, de lo contrario, crear una API Corporativa apoyada en la API funcional. Cuando no es posible, el contrato se define en Datasphere."
     post_actions:
       mode: llm_value_add
 
