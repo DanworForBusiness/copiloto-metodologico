@@ -161,6 +161,27 @@
     <div class="dw-confirm__actions">
       <button type="submit" formmethod="dialog" class="btn-secondary" value="cancel">Cancelar</button>
       <button type="submit" class="btn-danger">Cerrar proceso</button>
+      {% if busqueda_is_deletable %}
+      {# "Eliminar" (owner request: "para que ni aparezca como cerrado") --
+         SÓLO visible para una búsqueda placeholder/dummy (sin postulaciones
+         ni Entrevistas vinculadas, ver `human_capital_service.
+         busqueda_is_placeholder` -- MISMA regla que valida el server-side,
+         única fuente de verdad). `formaction`/`formnovalidate` reusan este
+         MISMO form (nunca un segundo `<dialog>`/`<form>` propio) apuntando a
+         una ruta distinta -- MISMO patrón que "No se concretó" en
+         entrevista_form.html. `btn-danger btn-danger--strong` (base +
+         modifier, tools.css -- el modifier SOLO pisa color/fondo, la caja
+         del botón -- min-height/padding/gap/display -- la da la clase base,
+         MISMO criterio que `.feedback-field--compact` sobre `.feedback-field`)
+         diferencia esta acción MÁS severa (hard delete) de "Cerrar proceso"
+         (soft, reversible-ish) en el mismo diálogo. Ícono = EL MISMO trash
+         SVG exacto que "Eliminar candidato" en
+         partials/human_capital_profiles_panel.html -- nunca uno nuevo. #}
+      <button type="submit" formaction="/cchh/busquedas/{{ bid }}/eliminar" formnovalidate class="btn-danger btn-danger--strong">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+        Eliminar
+      </button>
+      {% endif %}
     </div>
   </form>
 </dialog>

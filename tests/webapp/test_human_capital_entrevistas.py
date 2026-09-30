@@ -119,6 +119,33 @@ def test_modalidad_contratacion_governed_rejects_invalid_value():
     assert e["modalidad_contratacion"] == "Full time"
 
 
+def test_modalidad_dropdown_reflects_the_governed_catalog_verbatim_no_hardcoding():
+    # Owner audit: cargó "Part-Time" (con guion, mayúscula) en el Excel para
+    # validar que el dropdown lo refleje EXACTO -- ningún hardcodeo ni
+    # normalización silenciosa ("Part-Time" -> "Part time"). Auditoría de
+    # código (grep en webapp/): no existe ninguna tupla/lista fija de
+    # "Full time"/"Part time" fuera de comentarios/docstrings -- el único
+    # origen real de las opciones es `catalog_repo.catalog_values(
+    # "modalidad_contratacion")`, MISMO catálogo gobernado que Seniority/
+    # Fuente/Área.
+    _seed_modalidad_contratacion("Part-Time", "Full-Time")
+    profile = _profile()
+    e = human_capital_service.create_entrevista_manual(
+        profile["profile_id"], {"modalidad_contratacion": "Part-Time"})
+    html = _client().get(f"/cchh/entrevistas/{e['entrevista_id']}/editar").text
+    # Verbatim: el guion/mayúscula sobreviven tal cual, nunca normalizados.
+    assert '<option value="Part-Time" selected>Part-Time</option>' in html
+    assert '<option value="Full-Time" >Full-Time</option>' in html
+    assert "Part time" not in html and "Full time" not in html
+    assert "fuera de catálogo" not in html
+    # El catálogo cambia (refresh real): "Part-Time" deja de existir -- el
+    # valor guardado se preserva Y se marca legacy (MISMO contrato que
+    # Seniority/Fuente/Área), nunca se pierde silenciosamente ni se traba.
+    _seed_modalidad_contratacion("Full-Time", "Híbrido-Time")
+    legacy_html = _client().get(f"/cchh/entrevistas/{e['entrevista_id']}/editar").text
+    assert "Part-Time (fuera de catálogo)" in legacy_html
+
+
 def test_marcar_no_concretada_flips_the_only_state_field():
     profile = _profile()
     e = human_capital_service.create_entrevista_manual(profile["profile_id"], {})
@@ -354,10 +381,32 @@ def test_edit_disclaimer_uses_the_shared_info_tooltip_not_a_bespoke_banner():
     assert 'class="chart-tooltip"' in html
     assert "callout" not in html
     assert "Pipeline de la Búsqueda" in html
-    # Una entrevista manual (sin busqueda_id) no necesita el disclaimer.
+    # Una entrevista manual (sin busqueda_id) no necesita el disclaimer de
+    # Pipeline (Fecha SÍ sigue teniendo su propio tooltip `(i)` -- MISMA
+    # clase compartida, dos consumidores distintos -- por eso se verifica el
+    # COPY específico del disclaimer, no la clase genérica del primitivo).
     manual = human_capital_service.create_entrevista_manual(profile["profile_id"], {})
     manual_html = _client().get(f"/cchh/entrevistas/{manual['entrevista_id']}/editar").text
-    assert 'class="activity-kpi__info"' not in manual_html
+    assert "Pipeline de la Búsqueda" not in manual_html
+
+
+def test_fecha_help_is_a_shared_info_tooltip_not_an_inline_helper():
+    # Owner corrective: el texto de ayuda bajo Fecha rompía la fila fluida y
+    # ocupaba espacio de más -- se reemplaza por el MISMO primitivo (i)
+    # compartido que ya usa el disclaimer de Pipeline (arriba), nunca un
+    # tooltip/CSS propio de Entrevistas. El copy exacto vive en `aria-label`
+    # (accesible) Y en el cuerpo del tooltip, nunca como `<p>` inline suelto.
+    profile = _profile()
+    e = human_capital_service.create_entrevista_manual(profile["profile_id"], {})
+    html = _client().get(f"/cchh/entrevistas/{e['entrevista_id']}/editar").text
+    fecha_help = "Si queda vacía, se toma el día en que el candidato pasó a Entrevista CCHH (cuando la entrevista viene de una Búsqueda)."
+    assert f'aria-label="{fecha_help}"' in html
+    assert f'<span class="chart-tooltip"><p>{fecha_help}</p></span>' in html
+    assert f'<p class="field-hint">{fecha_help}</p>' not in html
+    # Sigue siendo el MISMO primitivo, no una copia -- ambos usos de
+    # `.activity-kpi__info` en esta página (Pipeline + Fecha) reusan
+    # `.chart-tooltip-anchor`, cero SVG/CSS nuevo por consumidor.
+    assert html.count('class="activity-kpi__info"') == 1  # sólo Fecha acá (entrevista manual, sin disclaimer de Pipeline)
 
 
 def test_edit_form_has_only_guardar_no_cancelar():
@@ -369,6 +418,52 @@ def test_edit_form_has_only_guardar_no_cancelar():
     # (data-dw-confirm-cancel, ajeno al form de edición): lo que se prohíbe
     # es el link `.btn-secondary` de "cancelar edición" que existía antes.
     assert '<a href="/cchh/entrevistas" class="btn-secondary">Cancelar</a>' not in html
+
+
+def test_edit_area_dropdown_options_and_legacy_check_use_the_same_catalog():
+    # Owner audit (observación B): el `<select name="area">` ofrecía las
+    # opciones del catálogo `area_consultora`, pero el chequeo de "(fuera de
+    # catálogo)" leía el catálogo `area` -- DOS catálogos DISTINTOS para el
+    # MISMO campo, propio de Búsquedas (`area_departamento`), nunca de
+    # Entrevistas. Consecuencia real: un valor vigente de `area_consultora`
+    # podía no figurar en las opciones o quedar mal marcado. Ambas mitades
+    # deben leer `area_consultora`, MISMO catálogo que ya valida
+    # `human_capital_service._validate_area_consultora_governed` (ver
+    # test_update_preserves_legacy_area_and_rejects_new_out_of_catalog_value).
+    _seed_area_consultora("Consultoria", "RRHH")
+    profile = _profile()
+    e = human_capital_service.create_entrevista_manual(profile["profile_id"], {"area": "Consultoria"})
+    html = _client().get(f"/cchh/entrevistas/{e['entrevista_id']}/editar").text
+    assert '<option value="Consultoria" selected>Consultoria</option>' in html
+    assert '<option value="RRHH" >RRHH</option>' in html
+    assert "fuera de catálogo" not in html
+    # Legacy real: el catálogo cambia y ya no incluye "Consultoria" -- el
+    # valor se preserva Y se marca "(fuera de catálogo)" (nunca desaparece
+    # silenciosamente de las opciones).
+    _seed_area_consultora("RRHH", "Finanzas")
+    legacy_html = _client().get(f"/cchh/entrevistas/{e['entrevista_id']}/editar").text
+    assert "Consultoria (fuera de catálogo)" in legacy_html
+    assert "Valor legacy fuera del catálogo vigente" in legacy_html
+
+
+def test_form_layout_reuses_the_shared_fluid_grid_not_a_bespoke_pair_wrapper():
+    # Owner audit (observación C): el form estiraba campos cortos (Fecha,
+    # Remuneración) al 100% del ancho -- MISMO primitivo compartido que
+    # Candidatos/Clasificación (`.hc-profile-section__grid--fluid` +
+    # `--compact`/`--medium`, human_capital.css), nunca una grilla nueva de
+    # Entrevistas ni pixels hardcodeados. `.hc-busqueda-form__pair` (el
+    # wrapper ad-hoc de 2 columnas que usaba antes) sigue viviendo en
+    # busqueda_form.html sin cambios -- acá se deja de USAR, la clase en sí
+    # no se toca.
+    profile = _profile()
+    e = human_capital_service.create_entrevista_manual(profile["profile_id"], {})
+    html = _client().get(f"/cchh/entrevistas/{e['entrevista_id']}/editar").text
+    assert 'class="hc-profile-section__grid hc-profile-section__grid--fluid"' in html
+    assert "hc-busqueda-form__pair" not in html
+    assert 'feedback-field feedback-field--compact' in html
+    assert 'feedback-field feedback-field--medium' in html
+    # Observaciones/Resumen quedan full-width, fuera de la grilla fluida.
+    assert '<div class="feedback-field">\n          <label for="ent-obs">' in html
 
 
 def test_create_form_has_crear_and_cancelar():

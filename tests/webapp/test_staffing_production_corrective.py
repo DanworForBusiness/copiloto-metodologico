@@ -775,7 +775,16 @@ def test_15_route_surface_still_156():
     #   156 -> 158 (CCHH Catalog Foundation): +2 rutas gobernadas de catálogos
     #     (GET /cchh/catalogos, POST /cchh/catalogos/refresh) -- ninguna ruta
     #     de Staffing tocada.
-    assert len(snapshot) == 169
+    #   169 -> 176 (CCHH Entrevistas — nueva sección, ver HANDOFF): +7
+    #     method+path de `/cchh/entrevistas/*` (listado GET, alta GET/POST,
+    #     edición GET/POST, no-concretada POST, eliminar POST) -- CERO rutas
+    #     de Staffing tocadas.
+    #   176 -> 177 (CCHH Búsquedas — "Eliminar" en el diálogo Cerrar proceso,
+    #     ver HANDOFF): +1 ruta `POST /cchh/busquedas/{busqueda_id}/eliminar`
+    #     (hard delete, sólo permitido para una búsqueda placeholder sin
+    #     postulaciones ni Entrevistas vinculadas) -- CERO rutas de Staffing
+    #     tocadas.
+    assert len(snapshot) == 177
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

@@ -314,4 +314,14 @@ def test_g_full_route_surface_unchanged_by_this_gate():
     # 156 -> 158 (CCHH Catalog Foundation): +2 rutas gobernadas de catálogos
     # (GET /cchh/catalogos, POST /cchh/catalogos/refresh) -- CERO rutas de
     # Estrategia tocadas, este gate sigue sin cambios propios.
-    assert len(snapshot) == 169
+    # 158 -> 169 (CCHH Búsquedas -- nueva sección, ver
+    # test_staffing_production_corrective.py para el desglose completo): +11
+    # rutas de `/cchh/busquedas/*` + `/cchh/candidatos/{profile_id}/eliminar`
+    # -- CERO rutas de Estrategia tocadas, este gate sigue sin cambios propios.
+    # 169 -> 176 (CCHH Entrevistas -- nueva sección, ver HANDOFF): +7
+    # method+path de `/cchh/entrevistas/*` -- CERO rutas de Estrategia
+    # tocadas, este gate sigue sin cambios propios.
+    # 176 -> 177 (CCHH Búsquedas -- "Eliminar" en el diálogo Cerrar proceso,
+    # ver HANDOFF): +1 ruta `POST /cchh/busquedas/{busqueda_id}/eliminar` --
+    # CERO rutas de Estrategia tocadas, este gate sigue sin cambios propios.
+    assert len(snapshot) == 177

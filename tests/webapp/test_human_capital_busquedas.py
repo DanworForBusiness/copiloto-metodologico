@@ -29,6 +29,7 @@ def _authorized_and_isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "")
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     monkeypatch.setattr(busqueda_repository.remote_store, "push_path", lambda path: True)
+    monkeypatch.setattr(busqueda_repository.remote_store, "delete_path", lambda path: True)
     monkeypatch.setattr(busqueda_repository.remote_store, "enabled", lambda: False)
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
@@ -137,6 +138,47 @@ def test_close_finalizes_pending_and_sets_cerrado():
     assert b["candidatos"][0]["resultado_final"] == "Rechazado"
 
 
+def test_delete_busqueda_succeeds_for_a_placeholder_with_no_data():
+    b = human_capital_service.create_busqueda({"nombre_puesto": "Dev", "fecha_apertura": "2026-09-01"})
+    assert human_capital_service.busqueda_is_placeholder(b) is True
+    human_capital_service.delete_busqueda(b["busqueda_id"])
+    assert human_capital_service.get_busqueda(b["busqueda_id"]) is None
+
+
+def test_delete_busqueda_rejects_a_started_process_with_candidatos():
+    pid = _profile()
+    b = human_capital_service.create_busqueda({"nombre_puesto": "Dev", "fecha_apertura": "2026-09-01"})
+    b = human_capital_service.add_candidate_to_busqueda(b["busqueda_id"], pid)
+    assert human_capital_service.busqueda_is_placeholder(b) is False
+    with pytest.raises(ValueError):
+        human_capital_service.delete_busqueda(b["busqueda_id"])
+    assert human_capital_service.get_busqueda(b["busqueda_id"]) is not None  # sigue existiendo
+
+
+def test_delete_busqueda_rejects_when_an_entrevista_still_references_it_even_without_candidatos():
+    # Un candidato puede haber sido QUITADO del pipeline (`remove_application`)
+    # después de que ya se autocreó una Entrevista para él -- `candidatos`
+    # queda vacío, pero la Entrevista sigue existiendo y referenciando esta
+    # búsqueda. `busqueda_is_placeholder` debe mirar AMBAS cosas, nunca sólo
+    # `candidatos`.
+    pid = _profile()
+    b = human_capital_service.create_busqueda({"nombre_puesto": "Dev", "fecha_apertura": "2026-09-01"})
+    b = human_capital_service.add_candidate_to_busqueda(b["busqueda_id"], pid)
+    aid = b["candidatos"][0]["application_id"]
+    human_capital_service.move_application_stage(b["busqueda_id"], aid, "Entrevista CCHH", None)
+    human_capital_service.remove_application(b["busqueda_id"], aid)
+    b = human_capital_service.get_busqueda(b["busqueda_id"])
+    assert b["candidatos"] == []
+    assert human_capital_service.busqueda_is_placeholder(b) is False
+    with pytest.raises(ValueError):
+        human_capital_service.delete_busqueda(b["busqueda_id"])
+
+
+def test_delete_busqueda_missing_raises_not_found():
+    with pytest.raises(busqueda_repository.BusquedaNotFoundError):
+        human_capital_service.delete_busqueda("no-existe")
+
+
 def _avail_ids(busqueda_id):
     b = human_capital_service.get_busqueda(busqueda_id)
     return {p["profile_id"] for p in human_capital_service.profiles_available_for_busqueda(b)}
@@ -215,6 +257,48 @@ def test_route_add_candidate_and_close():
     r = c.post(f"/cchh/busquedas/{bid}/cerrar", follow_redirects=False)
     assert r.status_code == 303
     assert human_capital_service.get_busqueda(bid)["estado"] == "cerrado"
+
+
+def test_detail_shows_eliminar_button_only_for_a_placeholder_busqueda():
+    c = _client()
+    b = human_capital_service.create_busqueda({"nombre_puesto": "Dev", "fecha_apertura": "2026-09-01"})
+    bid = b["busqueda_id"]
+    html = c.get(f"/cchh/busquedas/{bid}").text
+    assert f'formaction="/cchh/busquedas/{bid}/eliminar"' in html
+    assert 'class="btn-danger btn-danger--strong"' in html
+    pid = _profile()
+    human_capital_service.add_candidate_to_busqueda(bid, pid)
+    html = c.get(f"/cchh/busquedas/{bid}").text
+    assert f'formaction="/cchh/busquedas/{bid}/eliminar"' not in html
+
+
+def test_route_eliminar_deletes_a_placeholder_and_redirects_to_list():
+    c = _client()
+    b = human_capital_service.create_busqueda({"nombre_puesto": "Dev", "fecha_apertura": "2026-09-01"})
+    bid = b["busqueda_id"]
+    r = c.post(f"/cchh/busquedas/{bid}/eliminar", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/cchh/busquedas"
+    assert human_capital_service.get_busqueda(bid) is None
+
+
+def test_route_eliminar_is_a_no_op_for_a_started_process():
+    # Carrera/bypass del botón oculto: el server SIGUE validando -- nunca
+    # confía sólo en que el template no muestre el botón.
+    c = _client()
+    pid = _profile()
+    b = human_capital_service.create_busqueda({"nombre_puesto": "Dev", "fecha_apertura": "2026-09-01"})
+    bid = b["busqueda_id"]
+    human_capital_service.add_candidate_to_busqueda(bid, pid)
+    r = c.post(f"/cchh/busquedas/{bid}/eliminar", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/cchh/busquedas/{bid}"
+    assert human_capital_service.get_busqueda(bid) is not None  # NO se borró
+
+
+def test_route_eliminar_404_for_unknown():
+    r = _client().post("/cchh/busquedas/does-not-exist/eliminar")
+    assert r.status_code == 404
 
 
 def test_detail_404_for_unknown():

@@ -110,6 +110,7 @@
   "POST /cchh/busquedas/{busqueda_id}/candidatos/{application_id}/etapa",
   "POST /cchh/busquedas/{busqueda_id}/cerrar",
   "POST /cchh/busquedas/{busqueda_id}/editar",
+  "POST /cchh/busquedas/{busqueda_id}/eliminar",
   "POST /cchh/candidatos/importar/confirm",
   "POST /cchh/candidatos/importar/preview",
   "POST /cchh/candidatos/nuevo",

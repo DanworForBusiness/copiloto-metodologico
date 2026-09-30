@@ -68,6 +68,7 @@ __all__ = [
     "validate_and_shape_fields", "find_duplicate", "create_profile_for_import",
     "list_busquedas", "get_busqueda", "create_busqueda", "update_busqueda",
     "add_candidate_to_busqueda", "move_application_stage", "remove_application", "close_busqueda",
+    "busqueda_is_placeholder", "delete_busqueda",
     "profiles_available_for_busqueda", "busqueda_candidates_view",
     "validate_source_for_import",
     "list_entrevistas", "get_entrevista", "create_entrevista_manual", "update_entrevista",
@@ -623,6 +624,44 @@ def update_busqueda(busqueda_id: str, expected_revision: int, fields: dict) -> d
 
 def close_busqueda(busqueda_id: str, finalize_application_ids: list[str] | None = None) -> dict:
     return busqueda_repository.close(busqueda_id, finalize_application_ids)
+
+
+def busqueda_is_placeholder(busqueda: dict) -> bool:
+    """`True` sii esta búsqueda es un placeholder/dummy sin ningún dato real
+    vinculado todavía -- owner request explícito (diálogo "Cerrar proceso"):
+    "sólo es posible eliminar si fue un placeholder/dummy sin datos
+    vinculados. Un proceso iniciado no puede eliminarse". Dos condiciones,
+    AMBAS deben cumplirse:
+      - cero postulaciones embebidas (`candidatos`) -- nadie fue agregado
+        todavía al pipeline;
+      - cero Entrevistas que referencien este `busqueda_id` -- una entrevista
+        puede existir aunque la postulación que la generó ya no esté en
+        `candidatos` (ver `remove_application`, que NUNCA borra la
+        Entrevista ya creada), así que no alcanza con mirar sólo
+        `candidatos`.
+    Única fuente de verdad para esto -- el router la usa para decidir si
+    renderiza el botón "Eliminar", y `delete_busqueda` (abajo) la vuelve a
+    exigir server-side (defensa en profundidad: nunca confiar sólo en que
+    el botón esté oculto)."""
+    if busqueda.get("candidatos"):
+        return False
+    return not any(e.get("busqueda_id") == busqueda["busqueda_id"] for e in entrevista_repository.list())
+
+
+def delete_busqueda(busqueda_id: str) -> None:
+    """Hard delete -- SOLO si `busqueda_is_placeholder` (owner: "un proceso
+    iniciado no puede eliminarse", únicamente Cerrar en ese caso). Releva
+    `BusquedaNotFoundError` tal cual (nunca oculta un 404 real detrás de la
+    validación de negocio)."""
+    busqueda = busqueda_repository.get(busqueda_id)
+    if busqueda is None:
+        raise busqueda_repository.BusquedaNotFoundError(f"La búsqueda {busqueda_id} no existe.")
+    if not busqueda_is_placeholder(busqueda):
+        raise ValueError(
+            "Esta búsqueda ya tiene candidatos o entrevistas registradas -- no se puede eliminar. "
+            "Usá Cerrar proceso en su lugar."
+        )
+    busqueda_repository.delete(busqueda_id)
 
 
 def add_candidate_to_busqueda(busqueda_id: str, profile_id: str) -> dict:

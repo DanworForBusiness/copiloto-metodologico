@@ -1208,6 +1208,11 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
         "etapa_final": busqueda_repository.ETAPA_FINAL,
         "total_candidatos": len(view),
         "available_profiles": human_capital_service.profiles_available_for_busqueda(busqueda),
+        # "Eliminar" (owner request, diálogo Cerrar proceso): sólo visible para
+        # una búsqueda placeholder/dummy -- MISMA regla que valida
+        # `delete_busqueda` server-side (única fuente de verdad, ver
+        # `busqueda_is_placeholder`), acá sólo decide si el botón se muestra.
+        "busqueda_is_deletable": human_capital_service.busqueda_is_placeholder(busqueda),
     }
 
 
@@ -1448,6 +1453,28 @@ async def human_capital_busqueda_close(request: Request, busqueda_id: str):
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
 
 
+@router.post("/cchh/busquedas/{busqueda_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_delete(request: Request, busqueda_id: str):
+    # Hard delete (owner request, diálogo "Cerrar proceso": "para que ni
+    # aparezca como cerrado") -- SÓLO permitido para una búsqueda placeholder
+    # (`human_capital_service.busqueda_is_placeholder`, defensa en profundidad:
+    # el template ya oculta este botón si no aplica). Un `ValueError` acá es
+    # el caso de carrera (alguien agregó un candidato/entrevista entre que se
+    # abrió el diálogo y este submit) -- se ignora igual que el resto de
+    # fallos de esta ruta (`remove_candidate`, arriba): la búsqueda
+    # simplemente sigue existiendo, nunca un 500.
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        human_capital_service.delete_busqueda(busqueda_id)
+    except busqueda_repository.BusquedaNotFoundError:
+        raise HTTPException(404, "Búsqueda no encontrada") from None
+    except (ValueError, *_BUSQUEDA_SHELL_ERRORS):
+        return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
+    return RedirectResponse(url="/cchh/busquedas", status_code=303)
+
+
 # ---------------------------------------------------------------------------
 # Entrevistas — listado / alta manual / edición / detalle / "no se concretó" /
 # eliminar. Dominio verbatim de la referencia (app-seleccion,
@@ -1496,14 +1523,32 @@ def _entrevista_form_context(*, form_values, is_edit, entrevista=None, error=Non
     # `area`/`modalidad_contratacion` son GOBERNADOS por catálogo — MISMO
     # contrato migration-safe que Búsquedas/Candidatos (valor legacy fuera de
     # catálogo se preserva como opción marcada, nunca se agrega al catálogo).
+    # BUG corregido (owner audit, observación B): el campo `area` de
+    # Entrevista se valida contra el catálogo `area_consultora`
+    # (`human_capital_service._validate_area_consultora_governed`, MISMO
+    # criterio que ya prueba test_human_capital_entrevistas.py vía
+    # `_seed_area_consultora` -- "qué área consultora del candidato
+    # ingresaría", DERIVADO de `Busqueda.area_consultora` cuando la
+    # entrevista viene de un proceso, ver
+    # test_area_of_auto_created_entrevista_derives_from_busqueda_area_consultora).
+    # El chequeo de legacy leía por error el catálogo `area` (8 valores,
+    # de "área departamento" -- un campo/catálogo TOTALMENTE DISTINTO,
+    # propio de Búsquedas: `area_departamento`) en vez de
+    # `area_consultora` -- la mezcla podía marcar "(fuera de catálogo)" a
+    # un valor de `area_consultora` genuinamente vigente (o al revés,
+    # dejar pasar como "no-legacy" algo que sí estaba fuera de catálogo),
+    # sin relación con las opciones reales que ofrece el `<select>`.
+    # Ambas líneas usan `area_consultora` ahora, MISMO catálogo para
+    # options + legacy-check -- consistente con la validación real del
+    # service.
     return {
         "form_values": form_values,
         "is_edit": is_edit,
         "entrevista": entrevista,
         "form_error": error,
         "concurrent_modification": concurrent_modification,
-        "areas_consultora": _governed_edit_options("area_consultora", form_values.get("area")),
-        "area_is_legacy": _is_legacy_governed_value("area", form_values.get("area")),
+        "areas": _governed_edit_options("area_consultora", form_values.get("area")),
+        "area_is_legacy": _is_legacy_governed_value("area_consultora", form_values.get("area")),
         "modalidades_contratacion": _governed_edit_options(
             "modalidad_contratacion", form_values.get("modalidad_contratacion")),
         "modalidad_contratacion_is_legacy": _is_legacy_governed_value(

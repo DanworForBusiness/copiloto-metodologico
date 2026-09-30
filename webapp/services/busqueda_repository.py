@@ -336,6 +336,38 @@ def remove_candidate(busqueda_id: str, application_id: str) -> dict:
     return _mutate(busqueda_id, _apply)
 
 
+def delete(busqueda_id: str) -> None:
+    """Hard delete -- MISMO patrón/contrato de durabilidad exacto que
+    `entrevista_repository.delete` (sin precedente en la referencia: `procesos`
+    no tiene una acción de borrado ahí, esto es una capacidad propia del Hub,
+    owner request explícito). El service (`human_capital_service.delete_busqueda`)
+    es quien decide SI se puede borrar (sólo "placeholder": sin postulaciones y
+    sin Entrevistas vinculadas) -- este repositorio, como el resto, NUNCA valida
+    negocio, sólo persiste. Si el borrado remoto no se confirma, ROLLBACK del
+    borrado local (se reescribe el contenido previo) para que local/remoto
+    nunca diverjan."""
+    path = _busqueda_path(busqueda_id)
+    previous = get(busqueda_id)
+    if previous is None:
+        raise BusquedaNotFoundError(f"La búsqueda {busqueda_id} no existe.")
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        raise BusquedaNotFoundError(f"La búsqueda {busqueda_id} no existe.") from None
+    except OSError as exc:
+        raise BusquedaStorageError(f"No se pudo eliminar la búsqueda: {exc}") from exc
+    if remote_store.delete_path(path):
+        return
+    if not remote_store.enabled():
+        raise BusquedaConfigIncompleteError(
+            "La sección de Búsquedas todavía no está configurada para este entorno."
+        )
+    _write_atomic(path, previous)  # rollback: local vuelve a existir
+    raise BusquedaRemoteOutcomeUnknownError(
+        "No pudimos confirmar si el borrado se sincronizó. Revisá el listado antes de reintentar."
+    )
+
+
 def close(busqueda_id: str, finalize_application_ids: list[str] | None = None) -> dict:
     """Cierra la búsqueda: las postulaciones pendientes indicadas pasan a
     Finalizado · Rechazado, y la búsqueda queda `estado='cerrado'` con
