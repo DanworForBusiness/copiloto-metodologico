@@ -33,18 +33,29 @@ from uuid import uuid4
 import yaml
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
+from markupsafe import Markup
 
 from config import FEEDBACK_LOG_DIR
 from core.content_registry import DEFAULT_PACK, resolve_pack
 from webapp import access
 from webapp.copilot_runtime import store
-from webapp.services import auth_service
+from webapp.services import auth_service, commercial_strategy_markup
 from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.activity_context import SCOPE_COPILOT, AREA_METHODOLOGY
 from webapp.services.content_service import load_module
 from webapp.templating import templates
 
 router = APIRouter()
+
+# Texto explicativo enriquecido OPCIONAL de un leaf (`leaf.detail`): reusa el
+# ÚNICO renderer seguro de mini-markup del Hub (`commercial_strategy_markup.render`
+# — escapa el texto crudo PRIMERO y sólo después sustituye `[label](https?://…)`,
+# `**negrita**`, `*cursiva*` y `\n`; nunca un tag/atributo arbitrario ni una URL
+# `javascript:`/`data:`). NO se duplica ni se agrega otro markdown, y NO se toca el
+# render de `decision` (h3), que sigue escapado y byte-idéntico para todo leaf. Se
+# envuelve en `Markup` para que el template no necesite `| safe` sobre contenido ya
+# saneado. Genérico: cualquier leaf futuro puede declarar `detail`.
+templates.env.filters["leaf_markup"] = lambda raw: Markup(commercial_strategy_markup.render(raw))
 
 
 # ── "¿Falta un árbol?" — sugerencia de nuevo árbol de decisión (recuperada) ──

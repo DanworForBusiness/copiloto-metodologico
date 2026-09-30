@@ -8,6 +8,11 @@
   {% set assessment = orchestration if orchestration else (run.assessment_score if run.is_assessment else none) %}
   <div class="decision-result">
     <span class="result-label">{% if orchestration %}Resultado del diagn&oacute;stico completo{% elif run.is_assessment %}Resultado del diagn&oacute;stico{% else %}Decisi&oacute;n recomendada{% endif %}</span><h3>{% if orchestration %}Diagn&oacute;stico transversal consolidado{% else %}{{ leaf.decision }}{% endif %}</h3>
+    {# Cuerpo explicativo enriquecido OPCIONAL (`leaf.detail`): sólo aparece si el
+       leaf lo declara; los leaves sin `detail` renderizan idéntico a antes. El
+       filtro `leaf_markup` (wizard.py) reusa el renderer seguro compartido: escapa
+       el texto y sólo materializa `<a>` desde `[label](https://…)`. #}
+    {% if not orchestration and leaf.detail %}<p class="decision-detail">{{ leaf.detail | leaf_markup }}</p>{% endif %}
     {% if assessment %}
     <div class="assessment-score-card">
       <div class="assessment-score-main">
