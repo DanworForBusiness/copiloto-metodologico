@@ -108,8 +108,8 @@ import config
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
 from webapp.services import (
-    auth_service, busqueda_repository, human_capital_catalog_repository, human_capital_service,
-    profile_document_repository, profile_document_service,
+    auth_service, busqueda_repository, entrevista_repository, human_capital_catalog_repository,
+    human_capital_service, profile_document_repository, profile_document_service,
     profile_document_validation, profile_import_service,
 )
 from webapp.services.human_capital_service import (
@@ -1208,6 +1208,11 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
         "etapa_final": busqueda_repository.ETAPA_FINAL,
         "total_candidatos": len(view),
         "available_profiles": human_capital_service.profiles_available_for_busqueda(busqueda),
+        # "Eliminar" (owner request, diálogo Cerrar proceso): sólo visible para
+        # una búsqueda placeholder/dummy -- MISMA regla que valida
+        # `delete_busqueda` server-side (única fuente de verdad, ver
+        # `busqueda_is_placeholder`), acá sólo decide si el botón se muestra.
+        "busqueda_is_deletable": human_capital_service.busqueda_is_placeholder(busqueda),
     }
 
 
@@ -1446,6 +1451,286 @@ async def human_capital_busqueda_close(request: Request, busqueda_id: str):
     except _BUSQUEDA_SHELL_ERRORS:
         pass
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_delete(request: Request, busqueda_id: str):
+    # Hard delete (owner request, diálogo "Cerrar proceso": "para que ni
+    # aparezca como cerrado") -- SÓLO permitido para una búsqueda placeholder
+    # (`human_capital_service.busqueda_is_placeholder`, defensa en profundidad:
+    # el template ya oculta este botón si no aplica). Un `ValueError` acá es
+    # el caso de carrera (alguien agregó un candidato/entrevista entre que se
+    # abrió el diálogo y este submit) -- se ignora igual que el resto de
+    # fallos de esta ruta (`remove_candidate`, arriba): la búsqueda
+    # simplemente sigue existiendo, nunca un 500.
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        human_capital_service.delete_busqueda(busqueda_id)
+    except busqueda_repository.BusquedaNotFoundError:
+        raise HTTPException(404, "Búsqueda no encontrada") from None
+    except (ValueError, *_BUSQUEDA_SHELL_ERRORS):
+        return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
+    return RedirectResponse(url="/cchh/busquedas", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Entrevistas — listado / alta manual / edición / detalle / "no se concretó" /
+# eliminar. Dominio verbatim de la referencia (app-seleccion,
+# supabase/schema.sql tabla `entrevistas` + lib/entrevistaAutomatica.ts — ver
+# entrevista_repository.py para las citas exactas): registro FLAT (no un
+# lifecycle con múltiples estados), se autocompleta al mover una postulación
+# de Búsquedas a una etapa de entrevista (ver
+# human_capital_service.move_application_stage), o se carga manualmente para
+# un candidato del Banco que todavía no está en ninguna Búsqueda. Router
+# liviano, MISMO criterio que Búsquedas: sin filesystem/Spaces/UUID/JSON acá.
+# ---------------------------------------------------------------------------
+_ENTREVISTA_SHELL_ERRORS = (
+    entrevista_repository.EntrevistaConfigIncompleteError,
+    entrevista_repository.EntrevistaRemoteOutcomeUnknownError,
+    entrevista_repository.EntrevistaStorageError,
+)
+
+
+def _entrevistas_shell(request, extra: dict) -> dict:
+    user = auth_service.session_user(request)
+    return {
+        "current_workspace": workspaces.HUMAN_CAPITAL,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack": DEFAULT_PACK, "user": user, "active_page": "entrevistas",
+        **extra,
+    }
+
+
+def _entrevistas_list_context() -> dict:
+    entrevistas: list[dict] = []
+    source_error: str | None = None
+    try:
+        entrevistas = human_capital_service.list_entrevistas_view()
+    except entrevista_repository.EntrevistaStorageError as exc:
+        source_error = str(exc)
+    entrevistas.sort(key=lambda e: e.get("created_at") or "", reverse=True)
+    return {
+        "entrevistas": entrevistas,
+        "total_entrevistas": len(entrevistas),
+        "source_error": source_error,
+    }
+
+
+def _entrevista_form_context(*, form_values, is_edit, entrevista=None, error=None,
+                              concurrent_modification=False) -> dict:
+    # `area`/`modalidad_contratacion` son GOBERNADOS por catálogo — MISMO
+    # contrato migration-safe que Búsquedas/Candidatos (valor legacy fuera de
+    # catálogo se preserva como opción marcada, nunca se agrega al catálogo).
+    # BUG corregido (owner audit, observación B): el campo `area` de
+    # Entrevista se valida contra el catálogo `area_consultora`
+    # (`human_capital_service._validate_area_consultora_governed`, MISMO
+    # criterio que ya prueba test_human_capital_entrevistas.py vía
+    # `_seed_area_consultora` -- "qué área consultora del candidato
+    # ingresaría", DERIVADO de `Busqueda.area_consultora` cuando la
+    # entrevista viene de un proceso, ver
+    # test_area_of_auto_created_entrevista_derives_from_busqueda_area_consultora).
+    # El chequeo de legacy leía por error el catálogo `area` (8 valores,
+    # de "área departamento" -- un campo/catálogo TOTALMENTE DISTINTO,
+    # propio de Búsquedas: `area_departamento`) en vez de
+    # `area_consultora` -- la mezcla podía marcar "(fuera de catálogo)" a
+    # un valor de `area_consultora` genuinamente vigente (o al revés,
+    # dejar pasar como "no-legacy" algo que sí estaba fuera de catálogo),
+    # sin relación con las opciones reales que ofrece el `<select>`.
+    # Ambas líneas usan `area_consultora` ahora, MISMO catálogo para
+    # options + legacy-check -- consistente con la validación real del
+    # service.
+    return {
+        "form_values": form_values,
+        "is_edit": is_edit,
+        "entrevista": entrevista,
+        "form_error": error,
+        "concurrent_modification": concurrent_modification,
+        "areas": _governed_edit_options("area_consultora", form_values.get("area")),
+        "area_is_legacy": _is_legacy_governed_value("area_consultora", form_values.get("area")),
+        "modalidades_contratacion": _governed_edit_options(
+            "modalidad_contratacion", form_values.get("modalidad_contratacion")),
+        "modalidad_contratacion_is_legacy": _is_legacy_governed_value(
+            "modalidad_contratacion", form_values.get("modalidad_contratacion")),
+        "profiles": human_capital_service.list_profiles() if not is_edit else [],
+    }
+
+
+def _entrevista_form_from_request(fecha_entrevista, puesto_evaluado, area, modalidad_contratacion,
+                                   remuneracion_pretendida, observaciones, resumen_entrevista_tecnica) -> dict:
+    return {
+        "fecha_entrevista": fecha_entrevista, "puesto_evaluado": puesto_evaluado, "area": area,
+        "modalidad_contratacion": modalidad_contratacion,
+        "remuneracion_pretendida": remuneracion_pretendida, "observaciones": observaciones,
+        "resumen_entrevista_tecnica": resumen_entrevista_tecnica,
+    }
+
+
+@router.get("/cchh/entrevistas", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_entrevistas_page(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    return templates.TemplateResponse(
+        request=request, name="human_capital/entrevistas.html",
+        context=_entrevistas_shell(request, _entrevistas_list_context()),
+    )
+
+
+@router.get("/cchh/entrevistas/nueva", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_entrevista_new_page(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    return templates.TemplateResponse(
+        request=request, name="human_capital/entrevista_form.html",
+        context=_entrevistas_shell(request, _entrevista_form_context(form_values={}, is_edit=False)),
+    )
+
+
+@router.post("/cchh/entrevistas/nueva", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_entrevista_new_submit(
+    request: Request, profile_id: str = Form(""),
+    fecha_entrevista: str = Form(""), puesto_evaluado: str = Form(""), area: str = Form(""),
+    modalidad_contratacion: str = Form(""), remuneracion_pretendida: str = Form(""),
+    observaciones: str = Form(""), resumen_entrevista_tecnica: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form_values = _entrevista_form_from_request(
+        fecha_entrevista, puesto_evaluado, area, modalidad_contratacion,
+        remuneracion_pretendida, observaciones, resumen_entrevista_tecnica)
+    try:
+        entrevista = human_capital_service.create_entrevista_manual(profile_id, form_values)
+    except (ValueError, *_ENTREVISTA_SHELL_ERRORS) as exc:
+        return templates.TemplateResponse(
+            request=request, name="human_capital/entrevista_form.html",
+            context=_entrevistas_shell(request, _entrevista_form_context(
+                form_values=form_values, is_edit=False, error=str(exc))))
+    # Sin vista de detalle standalone (owner UX pass 1: "la experiencia de
+    # producto no la necesita" -- ver Editar mismo, que ya muestra todos los
+    # campos): después de crear, se sigue editando directo.
+    return RedirectResponse(url=f"/cchh/entrevistas/{entrevista['entrevista_id']}/editar", status_code=303)
+
+
+@router.get("/cchh/entrevistas/{entrevista_id}/editar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_entrevista_edit_page(request: Request, entrevista_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    entrevista = human_capital_service.get_entrevista(entrevista_id)
+    if entrevista is None:
+        raise HTTPException(404, "Entrevista no encontrada")
+    view = human_capital_service.entrevista_view(entrevista)
+    form_values = dict(entrevista)
+    form_values["expected_revision"] = entrevista.get("revision", 1)
+    return templates.TemplateResponse(
+        request=request, name="human_capital/entrevista_form.html",
+        context=_entrevistas_shell(request, _entrevista_form_context(
+            form_values=form_values, is_edit=True, entrevista=view)),
+    )
+
+
+@router.post("/cchh/entrevistas/{entrevista_id}/editar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_entrevista_edit_submit(
+    request: Request, entrevista_id: str,
+    fecha_entrevista: str = Form(""), puesto_evaluado: str = Form(""), area: str = Form(""),
+    modalidad_contratacion: str = Form(""), remuneracion_pretendida: str = Form(""),
+    observaciones: str = Form(""), resumen_entrevista_tecnica: str = Form(""),
+    expected_revision: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form_values = _entrevista_form_from_request(
+        fecha_entrevista, puesto_evaluado, area, modalidad_contratacion,
+        remuneracion_pretendida, observaciones, resumen_entrevista_tecnica)
+    try:
+        revision_int = int(expected_revision)
+    except ValueError:
+        raise HTTPException(400, "expected_revision inválido") from None
+
+    def _render(**extra):
+        fv = dict(form_values); fv["expected_revision"] = revision_int
+        entrevista = human_capital_service.get_entrevista(entrevista_id)
+        view = human_capital_service.entrevista_view(entrevista) if entrevista else None
+        return templates.TemplateResponse(
+            request=request, name="human_capital/entrevista_form.html",
+            context=_entrevistas_shell(request, _entrevista_form_context(
+                form_values=fv, is_edit=True, entrevista=view, **extra)))
+
+    try:
+        human_capital_service.update_entrevista(entrevista_id, revision_int, form_values)
+    except entrevista_repository.EntrevistaNotFoundError:
+        raise HTTPException(404, "Entrevista no encontrada") from None
+    except ValueError as exc:
+        return _render(error=str(exc))
+    except entrevista_repository.EntrevistaConcurrentModificationError:
+        return _render(concurrent_modification=True)
+    except _ENTREVISTA_SHELL_ERRORS as exc:
+        return _render(error=str(exc))
+    return RedirectResponse(url="/cchh/entrevistas", status_code=303)
+
+
+@router.post("/cchh/entrevistas/{entrevista_id}/no-concretada", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_entrevista_no_concretada(
+    request: Request, entrevista_id: str,
+    fecha_entrevista: str = Form(""), puesto_evaluado: str = Form(""), area: str = Form(""),
+    modalidad_contratacion: str = Form(""), remuneracion_pretendida: str = Form(""),
+    observaciones: str = Form(""), resumen_entrevista_tecnica: str = Form(""),
+    expected_revision: str = Form(""),
+):
+    # MISMO botón que la referencia (EntrevistaModal.tsx "No se concretó"):
+    # guarda lo que esté cargado en el form Y marca concretada=False en la
+    # misma acción, en vez de descartar ediciones pendientes.
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form_values = _entrevista_form_from_request(
+        fecha_entrevista, puesto_evaluado, area, modalidad_contratacion,
+        remuneracion_pretendida, observaciones, resumen_entrevista_tecnica)
+    try:
+        revision_int = int(expected_revision)
+    except ValueError:
+        raise HTTPException(400, "expected_revision inválido") from None
+
+    def _render(**extra):
+        fv = dict(form_values); fv["expected_revision"] = revision_int
+        entrevista = human_capital_service.get_entrevista(entrevista_id)
+        view = human_capital_service.entrevista_view(entrevista) if entrevista else None
+        return templates.TemplateResponse(
+            request=request, name="human_capital/entrevista_form.html",
+            context=_entrevistas_shell(request, _entrevista_form_context(
+                form_values=fv, is_edit=True, entrevista=view, **extra)))
+
+    try:
+        updated = human_capital_service.update_entrevista(entrevista_id, revision_int, form_values)
+        human_capital_service.marcar_entrevista_no_concretada(entrevista_id, updated["revision"])
+    except entrevista_repository.EntrevistaNotFoundError:
+        raise HTTPException(404, "Entrevista no encontrada") from None
+    except ValueError as exc:
+        return _render(error=str(exc))
+    except entrevista_repository.EntrevistaConcurrentModificationError:
+        return _render(concurrent_modification=True)
+    except _ENTREVISTA_SHELL_ERRORS as exc:
+        return _render(error=str(exc))
+    return RedirectResponse(url="/cchh/entrevistas", status_code=303)
+
+
+@router.post("/cchh/entrevistas/{entrevista_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_entrevista_delete(request: Request, entrevista_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        human_capital_service.delete_entrevista(entrevista_id)
+    except entrevista_repository.EntrevistaNotFoundError:
+        pass
+    except _ENTREVISTA_SHELL_ERRORS:
+        pass
+    return RedirectResponse(url="/cchh/entrevistas", status_code=303)
 
 
 # ---------------------------------------------------------------------------

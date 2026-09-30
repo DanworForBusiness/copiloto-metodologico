@@ -882,6 +882,36 @@ function initIndicatorToggles(scope) {
 }
 document.body.addEventListener("htmx:load", () => initIndicatorToggles(document));
 
+// Feedback transitorio auto-dismissible (primitivo Hub-wide, primer
+// consumidor: refresh de catálogos CCHH desde el topbar): un contenedor
+// `[data-dw-auto-dismiss]` que HTMX rellena (`hx-swap="innerHTML"`) se vacía
+// solo -- por timeout O por click afuera de él, lo que pase primero -- nunca
+// se queda tapando otros controles indefinidamente (owner QA en producción:
+// el dropdown de refresh de catálogos no se cerraba solo). El timeout NUNCA
+// corre si el contenido es un estado de error con una acción real adentro
+// (`.dashboard-empty`, p.ej. reautenticar Microsoft) -- cortar esa lectura a
+// los pocos segundos sería peor que no auto-cerrar; ahí sólo queda el click
+// afuera. Genérico por atributos, sin saber nada de "catálogos"/CCHH.
+function initAutoDismissFeedback(scope) {
+  scope.querySelectorAll("[data-dw-auto-dismiss]").forEach(el => {
+    if (el.dataset.dwAutoDismissWired) return;
+    el.dataset.dwAutoDismissWired = "1";
+    let hideTimer = null;
+    function hide() { clearTimeout(hideTimer); hideTimer = null; el.innerHTML = ""; }
+    function scheduleIfDismissable() {
+      clearTimeout(hideTimer);
+      if (!el.textContent.trim() || el.querySelector(".dashboard-empty")) return; // vacío, o error con acción -> sin timeout
+      const ms = parseInt(el.dataset.dwAutoDismiss, 10) || 6000;
+      hideTimer = setTimeout(hide, ms);
+    }
+    new MutationObserver(scheduleIfDismissable).observe(el, { childList: true });
+    document.addEventListener("click", event => {
+      if (el.textContent.trim() && !el.contains(event.target)) hide();
+    });
+  });
+}
+document.body.addEventListener("htmx:load", () => initAutoDismissFeedback(document));
+
 // ── Rating de estrellas 1..N (primitivo COMPARTIDO Hub) ───────────────────
 // Cablea los controles editables `[data-star-rating]` (NO los readonly, que
 // son puro display server-rendered). Contrato de UI (owner):

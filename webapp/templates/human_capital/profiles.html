@@ -9,7 +9,7 @@
   class="app-shell no-copilot"
 >
   {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
-  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% include "partials/human_capital_catalog_refresh_topbar.html" %}{% endcall %}
 
   {% include "partials/human_capital_nav.html" %}
 
@@ -23,29 +23,10 @@
         <p>Repositorio general de CVs, no necesariamente ligados a un proceso.</p>
       </div>
       <div class="hc-profiles-hero-actions">
-        {# "Actualizar catálogos" en UN click desde el landing (owner): POST real
-           al MISMO endpoint `/cchh/catalogos/refresh`, con el token Graph
-           auto-inyectado por el hook COMPARTIDO de hub_auth.js (marcador
-           declarativo compartido en el botón de abajo) -- cero duplicación de
-           auth/token. El feedback
-           (éxito/error) vuelve como fragmento HTMX al contenedor de abajo, sin
-           salir de /cchh/candidatos. Ícono+tooltip = primitivo compartido
-           `.table-action-btn` + `.chart-tooltip`. #}
-        <button type="button" class="table-action-btn chart-tooltip-anchor" aria-label="Actualizar catálogos"
-                hx-post="/cchh/catalogos/refresh" data-dw-graph-token
-                hx-target="#hc-catalog-refresh-feedback" hx-swap="innerHTML">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
-          <span class="chart-tooltip" aria-hidden="true"><p>Actualizar catálogos</p></span>
-        </button>
         <a href="/cchh/candidatos/importar" class="btn-secondary">Carga masiva</a>
         <a href="/cchh/candidatos/nuevo" class="btn-primary">+ Cargar CV</a>
       </div>
     </section>
-
-    {# Feedback del refresh de catálogos disparado desde el botón del hero
-       (fragmento HTMX; ver `human_capital_catalog_refresh_feedback.html`).
-       Vacío hasta que se ejecuta un refresh -- el usuario NO sale del listado. #}
-    <div id="hc-catalog-refresh-feedback" class="hc-catalog-refresh-feedback" aria-live="polite"></div>
 
     {% include "partials/human_capital_profiles_panel.html" %}
   </main>

@@ -1,0 +1,43 @@
+{# human_capital_catalog_refresh_topbar.html — "Actualizar catálogos" promovido
+   al margen superior derecho (owner corrective: antes vivía SOLO en el hero de
+   Base de CVs; ahora vive en el slot `caller()` COMPARTIDO de
+   `platform_topbar.html` -- ver ese macro, línea `{{ caller() }}`, MISMO slot
+   donde Copiloto/Operaciones ya cuelgan su selector interno -- así que
+   incluir este partial adentro de CUALQUIER `{% call platform_topbar(...) %}`
+   de una página de Capital Humano lo pone en la MISMA posición/estilo en
+   TODAS ellas (Candidatos, Búsquedas, Entrevistas...), un solo lugar para
+   agregar el próximo consumidor. `catalogos.html` (la página dedicada de
+   administración de catálogos) NO lo incluye -- ya tiene su propio form
+   full-page con el mismo refresh, un segundo botón ahí sería redundante.
+
+   Reusa el MISMO endpoint (`POST /cchh/catalogos/refresh`), el MISMO hook de
+   token compartido (marcador declarativo de htmx, ver hub_auth.js) y el
+   MISMO partial de feedback (`human_capital_catalog_refresh_feedback.html`)
+   que ya existían -- cero lógica nueva, sólo nueva UBICACIÓN. El ícono
+   ahora es `.theme-toggle` (la MISMA caja visual que theme/logout de este
+   topbar, ver platform_topbar.html) en vez de `.table-action-btn` (pensado
+   para filas de tabla, no para el topbar).
+
+   Tooltip (owner corrective, doble tooltip solapado/roto): SIN
+   `.chart-tooltip-anchor`/`.chart-tooltip` propio -- theme/logout, los
+   otros dos íconos de este MISMO topbar, sólo usan el tooltip NATIVO del
+   navegador (`title=`), nunca el primitivo `.chart-tooltip`. `title=`
+   alcanza y es consistente con sus vecinos inmediatos.
+
+   Feedback (owner QA en producción real, segunda vuelta): NO es un
+   dropdown anclado al ícono -- eso tapaba los botones de al lado y no se
+   cerraba solo. Es un TOAST centrado arriba de la pantalla
+   (`position:fixed`, human_capital.css), independiente de dónde esté el
+   ícono. `data-dw-auto-dismiss` (primitivo Hub-wide, app.js
+   `initAutoDismissFeedback`) lo cierra solo por timeout o al click afuera
+   -- nunca ambos, lo que pase primero; un error con acción real adentro
+   (reautenticar) NUNCA se auto-cierra, sólo el click afuera aplica ahí. #}
+<span class="hc-catalog-refresh-topbar">
+  <button type="button" class="theme-toggle" aria-label="Actualizar catálogos" title="Actualizar catálogos"
+          hx-post="/cchh/catalogos/refresh" data-dw-graph-token
+          hx-target="#hc-catalog-refresh-feedback" hx-swap="innerHTML">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+  </button>
+  <div id="hc-catalog-refresh-feedback" class="hc-catalog-refresh-feedback hc-catalog-refresh-feedback--topbar"
+       aria-live="polite" data-dw-auto-dismiss="6000"></div>
+</span>

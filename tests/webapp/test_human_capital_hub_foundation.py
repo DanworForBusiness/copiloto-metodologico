@@ -188,8 +188,9 @@ def test_content_never_lists_functional_capabilities_as_if_available():
     text = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos").text
     assert "<strong>Candidatos</strong>" in text  # nav real, no un placeholder
     assert "<strong>Búsquedas</strong>" in text   # nav real, no un placeholder
+    assert "<strong>Entrevistas</strong>" in text  # nav real, no un placeholder (ver test_human_capital_entrevistas.py)
     for capability in (
-        "Entrevistas", "Onboarding", "Avisos",
+        "Onboarding", "Avisos",
         "Indicadores", "Administración", "Inicio", "Perfiles",
     ):
         assert f"<strong>{capability}</strong>" not in text

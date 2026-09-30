@@ -255,6 +255,18 @@ def _seed_runtime(keep: bool) -> Path:
         payload = {"schema_version": busqueda_repository._SCHEMA_VERSION, "revision": 1, **entry}
         busqueda_repository._write_atomic(busqueda_repository._busqueda_path(entry["busqueda_id"]), payload)
     print(f"[harness] {len(busquedas_raw)} búsquedas sembradas bajo {RUNTIME_DIR / 'human-capital' / 'busquedas'}")
+
+    # Entrevistas — MISMO criterio (internals reales del repositorio, nunca
+    # JSON adivinado). Ver tests/fixtures/human_capital/entrevistas.json:
+    # cubre generadas-desde-pipeline (busqueda_id+application_id) y manuales
+    # (sin Búsqueda), concretada/no concretada, con/sin feedback técnico, un
+    # mismo Profile con más de una entrevista, y textos largos.
+    from webapp.services import entrevista_repository
+    entrevistas_raw = _json.loads((FIXTURES_DIR / "entrevistas.json").read_text(encoding="utf-8"))
+    for entry in entrevistas_raw:
+        payload = {"schema_version": entrevista_repository._SCHEMA_VERSION, "revision": 1, **entry}
+        entrevista_repository._write_atomic(entrevista_repository._entrevista_path(entry["entrevista_id"]), payload)
+    print(f"[harness] {len(entrevistas_raw)} entrevistas sembradas bajo {RUNTIME_DIR / 'human-capital' / 'entrevistas'}")
     return RUNTIME_DIR
 
 

@@ -265,13 +265,17 @@ def test_the_marker_is_declarative_and_carries_no_credential():
     consumidor sea una decisión explícita, no un conteo silencioso:
       - operations/staffing.html    -> asignaciones (1)
       - partials/admin_panel.html   -> diagnóstico/refresh (3)
-      - human_capital/profiles.html -> "Actualizar catálogos" en un click (1),
-        aceptado por el owner: reusa el MISMO hook, sin poseer la credencial.
+      - partials/human_capital_catalog_refresh_topbar.html -> "Actualizar
+        catálogos" en un click (1), promovido al topbar compartido de
+        Capital Humano (owner corrective: antes vivía sólo en
+        human_capital/profiles.html; ahora un único partial incluido desde
+        el slot `caller()` de CUALQUIER página CCHH, MISMO hook, sin poseer
+        la credencial).
     """
     approved = {
         "operations/staffing.html": 1,
         "partials/admin_panel.html": 3,
-        "human_capital/profiles.html": 1,
+        "partials/human_capital_catalog_refresh_topbar.html": 1,
     }
     found = {}
     for path in sorted(_TEMPLATES.glob("**/*.html")):

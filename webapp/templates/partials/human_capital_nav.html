@@ -38,5 +38,14 @@
     <a href="/cchh/busquedas" class="module-link {% if active_page == 'busquedas' %}is-active{% endif %}">
       <span>02</span><strong>Búsquedas</strong>
     </a>
+    {# Entrevistas — capability real del workspace, tomada de la app de
+       referencia (tab "Entrevistas" -> /entrevistas). Registro flat generado
+       desde el pipeline de Búsquedas o cargado manualmente para un candidato
+       del Banco que todavía no está en ningún proceso (ver
+       entrevista_repository.py). `active_page == 'entrevistas'` lo pasa el
+       router. #}
+    <a href="/cchh/entrevistas" class="module-link {% if active_page == 'entrevistas' %}is-active{% endif %}">
+      <span>03</span><strong>Entrevistas</strong>
+    </a>
   </nav>
 </aside>

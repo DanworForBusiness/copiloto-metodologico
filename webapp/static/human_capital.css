@@ -51,14 +51,7 @@
    propio .module-hero de arriba) para simetría real arriba/abajo del
    divisor en las tres pantallas -- listado, alta y edición ahora
    consistentes entre sí. */
-/* El `#hc-catalog-refresh-feedback` (vacío hasta que se refresca un catálogo)
-   se coló ENTRE el hero y `#hc-profiles-panel` cuando se agregó el refresh
-   one-click, rompiendo la adyacencia `.module-hero + #hc-profiles-panel` y
-   dejando el listado pegado al divisor otra vez (owner: "falta margen en Base
-   de CVs"). Se cubre la adyacencia real actual (después del feedback) con el
-   MISMO respiro de 24px. */
-.module-hero + #hc-profiles-panel,
-.hc-catalog-refresh-feedback + #hc-profiles-panel { margin-top: 24px; }
+.module-hero + #hc-profiles-panel { margin-top: 24px; }
 /* MISMO respiro post-divisor en Búsquedas (`.busquedas-list`) que en Base de CVs
    (`#hc-profiles-panel`): 24px estandarizados en las dos pantallas — el listado
    de procesos ya no queda más pegado al divisor que Candidatos (owner). */
@@ -182,9 +175,38 @@
    los botones a una segunda línea en vez de desbordar. Inocuo para consumidores
    con menos acciones (Candidatos ya entraba holgado). */
 .hc-profiles-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; flex: 0 0 auto; max-width: 100%; }
-/* Contenedor del feedback del refresh de catálogos (fragmento HTMX inyectado
-   desde el botón del hero): sólo separa cuando tiene contenido. */
-.hc-catalog-refresh-feedback:not(:empty) { margin: 0 0 18px; }
+/* "Actualizar catálogos" promovido al topbar (owner corrective: "mover el
+   refresh al margen superior derecho... que aparezca en todas las
+   secciones") -- vive DENTRO de `.header-tools` (platform_topbar.html,
+   `{{ caller() }}`). Vacío hasta que se refresca un catálogo
+   (`.dashboard-empty`/`.callout`, partial compartido, aporta su propio
+   fondo/borde -- esta regla sólo la posiciona).
+
+   Segunda vuelta (owner QA en producción real, screenshot): el dropdown
+   anclado bajo el ícono (idioma de `.workspace-switch-menu`) quedaba
+   angosto/alto y tapaba los botones de al lado sin poder cerrarse. Ahora es
+   un TOAST centrado arriba de la pantalla (`position:fixed`, ancho fijo
+   generoso -> MENOS alto porque el texto ya no wrapea tan angosto),
+   independiente de dónde esté el ícono que lo disparó -- nunca superpone
+   otro control. Se cierra solo (`initAutoDismissFeedback`, app.js,
+   `data-dw-auto-dismiss` en el partial) O clickeando afuera -- lo que
+   pase primero, nunca ambos a la vez bloqueando. `z-index:100`: por
+   encima de contenido de página/tooltips (`.chart-tooltip` usa 30), por
+   debajo del lightbox/`<dialog>` nativo (9999 / top-layer) -- un modal
+   real SIEMPRE gana sobre este aviso transitorio. */
+.hc-catalog-refresh-feedback--topbar:not(:empty) {
+  position: fixed; top: 84px; left: 50%; transform: translateX(-50%); z-index: 100;
+  width: min(650px, calc(100vw - 32px));
+}
+/* Tipografía compacta (owner: "la font size del detalle es más grande que
+   el estándar del hub") -- `.callout__body p` no trae font-size propio
+   (hereda el body de página, 1rem/16px), correcto para un callout DENTRO
+   del contenido, pero se ve sobredimensionado en un aviso chico/transitorio
+   como este. Sólo escopeado acá -- `.callout` en el resto del Hub queda
+   intacto. */
+.hc-catalog-refresh-feedback--topbar .callout__title { font-size: .85rem; }
+.hc-catalog-refresh-feedback--topbar .callout__body,
+.hc-catalog-refresh-feedback--topbar .dashboard-empty p { font-size: .78rem; line-height: 1.5; }
 .hc-profiles-hero-actions .btn-primary, .hc-profiles-hero-actions .btn-secondary {
   height: 38px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center;
 }
@@ -321,11 +343,25 @@
    aprovechar el ancho sobrante; los gobernados cortos (`--compact`: Seniority,
    Fuente) quedan acotados. En pantallas chicas wrapea ordenado (nunca solapa).
    Se re-declara el `margin-top` de `.feedback-field` a 0 porque acá el espaciado
-   vertical entre filas lo da el `row-gap` del flex, no el margen del campo. */
-.hc-profile-section__grid--fluid { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: start; }
+   vertical entre filas lo da el `row-gap` del flex, no el margen del campo.
+   El CONTENEDOR en sí SÍ necesita su propio `margin-top` (owner corrective,
+   Entrevistas "Nueva entrevista": la fila quedaba pegada contra "Candidato"
+   arriba, 0px de aire) -- exactamente el mismo 14px que ya usa CUALQUIER
+   `.feedback-field` normal para separarse del campo anterior, MISMO ritmo
+   vertical del Hub, sólo que acá vive en el contenedor (sus hijos perdieron
+   el propio al resetearse arriba). Colapsa correctamente con el
+   margin-bottom de un `<h2>` precedente (ambos 14px), sin doble espacio. */
+.hc-profile-section__grid--fluid { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: start; margin-top: 14px; }
 .hc-profile-section__grid--fluid > .feedback-field { margin-top: 0; flex: 1 1 200px; min-width: 0; }
 .hc-profile-section__grid--fluid > .feedback-field--wide { flex: 2.4 1 260px; }
 .hc-profile-section__grid--fluid > .feedback-field--compact { flex: 1 1 150px; }
+/* `--medium` (Entrevistas, owner audit observación C): tercer escalón entre
+   `--compact` (Fecha/Remuneración, campos cortos) y `--wide` (texto libre
+   que aprovecha el ancho sobrante) -- Modalidad/Área/Puesto son selects/
+   texto de catálogo con contenido más largo que Seniority/Fuente pero sin
+   necesitar el ancho dominante de `--wide`. MISMO primitivo `--fluid`, sin
+   inventar una grilla nueva para Entrevistas. */
+.hc-profile-section__grid--fluid > .feedback-field--medium { flex: 1.6 1 200px; }
 
 /* `.field-hint`/`.field-hint--warn` -- usadas por los forms de alta/edición
    desde el merge de Seniority (CCHH Catalog Foundation) pero NUNCA

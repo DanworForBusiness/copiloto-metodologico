@@ -385,7 +385,19 @@
 .feedback-form-header p { margin: 3px 0 0; color: var(--soft); font-size: .74rem; line-height: 1.45; }
 .feedback-field { display: grid; gap: 6px; margin-top: 14px; }
 .feedback-field label { color: var(--ink); font-size: .74rem; font-weight: 650; line-height: 1.35; letter-spacing: 0; text-transform: none; }
-.feedback-field label span { margin-left: 5px; color: var(--soft); font-size: .62rem; font-family: var(--mono); font-weight: 500; text-transform: uppercase; letter-spacing: .04em; }
+/* `:not(.chart-tooltip):not(.chart-tooltip-anchor)` (owner corrective, CCHH
+   Entrevistas "Fecha de entrevista" (i)): el tooltip transversal del Hub
+   (`.chart-tooltip-anchor`/`.chart-tooltip`, MISMO primitivo que el resto
+   del Hub) es un `<span>` -- sin esta exclusión, anidarlo dentro de un
+   `<label>` de `.feedback-field` (para poner el ícono (i) junto al texto
+   del label, en vez de junto a un `<h2>` como los consumidores previos)
+   heredaba SIN QUERER esta regla (pensada para la anotación chica tipo
+   "DEL BANCO DE CVS"), reventando la caja del tooltip en mono/uppercase/
+   negro en vez del look real de `.chart-tooltip` (tools.css, más abajo).
+   Arreglo en el primitivo compartido, no un parche local de Entrevistas --
+   cualquier consumidor futuro que anide este tooltip en un label queda
+   cubierto igual. */
+.feedback-field label span:not(.chart-tooltip):not(.chart-tooltip-anchor) { margin-left: 5px; color: var(--soft); font-size: .62rem; font-family: var(--mono); font-weight: 500; text-transform: uppercase; letter-spacing: .04em; }
 /* `--ink`/`--soft` (arriba) están pensados para el panel lateral/wizard,
    siempre oscuro (theme-invariant, ver comentario de `.module-nav`) — el
    ÚNICO consumidor histórico de `.feedback-field`. Capital Humano (Banco de
@@ -394,7 +406,7 @@
    texto queda casi invisible en tema claro (label claro sobre fondo claro).
    Fix del token en el primitivo compartido, no un escape hatch local. */
 .content-theme-light .feedback-field label { color: #1f1f24; }
-.content-theme-light .feedback-field label span { color: #6b6b74; }
+.content-theme-light .feedback-field label span:not(.chart-tooltip):not(.chart-tooltip-anchor) { color: #6b6b74; }
 .tree-feedback-form select,
 .tree-feedback-form textarea,
 .tree-feedback-form input[type="text"] {
@@ -1139,10 +1151,30 @@ button.star-rating__star:focus-visible { outline: 2px solid var(--gold); outline
   font-size: .76rem; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
   border: 1px solid rgba(192,57,43,.38); background: rgba(192,57,43,.10); color: #b23328;
 }
+/* Ícono opcional DENTRO de un `.btn-danger` etiquetado (owner: "Eliminar" en
+   el diálogo de Cerrar proceso de Búsquedas necesita el MISMO trash SVG que
+   ya usa "Eliminar candidato") -- MISMO stroke/tamaño que `.table-action-btn
+   svg` (icon-only), acá conviviendo con texto en vez de reemplazarlo. */
+.btn-danger svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 .btn-danger:hover { background: rgba(192,57,43,.16); border-color: rgba(192,57,43,.6); }
 .btn-danger:focus-visible { outline: 2px solid #c0392b; outline-offset: 2px; }
 .content-theme-dark .btn-danger { color: #e5897e; border-color: rgba(224,121,110,.4); background: rgba(224,121,110,.13); }
 .content-theme-dark .btn-danger:hover { background: rgba(224,121,110,.2); border-color: rgba(224,121,110,.6); }
+/* `--strong` (owner request, diálogo "Cerrar proceso" de Búsquedas: agregar
+   "Eliminar" al lado de "Cerrar proceso" y diferenciarlo "en un tono más
+   oscuro de alarma"): el ÚNICO botón destructivo del Hub hasta ahora era
+   este mismo `.btn-danger` pastel -- reusarlo tal cual para dos acciones de
+   severidad distinta EN EL MISMO diálogo las volvía indistinguibles. Sólido
+   en vez de pastel (mismo rojo `#c0392b` ya usado arriba, MISMO vocabulario
+   de color, nunca uno nuevo) -- reservado para una acción MÁS severa que la
+   `.btn-danger` normal que convive al lado (acá: hard delete vs. cerrar un
+   proceso, que sigue siendo reversible-ish en el sentido de que el registro
+   sigue existiendo). Modifier aditivo, nunca reemplaza `.btn-danger`. */
+.btn-danger--strong { background: #c0392b; border-color: #c0392b; color: #fff; }
+.btn-danger--strong:hover { background: #a5311f; border-color: #a5311f; }
+.btn-danger--strong:focus-visible { outline: 2px solid #c0392b; outline-offset: 2px; }
+.content-theme-dark .btn-danger--strong { background: #c0392b; border-color: #c0392b; color: #fff; }
+.content-theme-dark .btn-danger--strong:hover { background: #a5311f; border-color: #a5311f; }
 /* Ícono de acción destructiva en tablas: MISMO primitivo `.table-action-btn`
    que Editar; el tinte rojo aparece SÓLO en hover/focus (restraint). */
 .table-action-btn--danger:hover, .table-action-btn--danger:focus-visible { color: #c0392b; }
