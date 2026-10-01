@@ -4,14 +4,12 @@
 {% else %}
 <div{% if family != "roles" %} data-security-dac-wrapper{% endif %}>
   {% if family != "roles" %}
-  <div class="whatsnew-filters" data-security-dac-controls>
+  <div class="whatsnew-filters whatsnew-filters--inline" data-security-dac-controls>
     <label class="whatsnew-filter whatsnew-filter--fill">
-      <span>Buscar</span>
       <input type="search" data-security-dac-search aria-label="Buscar DAC" placeholder="Buscar DAC...">
     </label>
     <div class="whatsnew-filter">
-      <span>Agrupar por</span>
-      <div class="dashboard-view-switch dashboard-view-switch--compact" role="group" aria-label="Agrupar por" data-security-dac-group-switch>
+      <div class="dashboard-view-switch dashboard-view-switch--compact" role="group" aria-label="Agrupar DAC por" data-security-dac-group-switch>
         <button type="button" class="is-active" aria-pressed="true" data-group-by="scoring">Scoring</button>
         <button type="button" aria-pressed="false" data-group-by="cliente">Clientes</button>
       </div>

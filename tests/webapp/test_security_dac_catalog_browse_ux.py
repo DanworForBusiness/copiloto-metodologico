@@ -185,3 +185,27 @@ def test_backend_already_orders_entries_by_canonical_verdict_rank(security_fixtu
     veredictos = [h.veredicto for h in hits]
     # plena antes que parcial, sin importar orden de inserción/alfabético de cliente
     assert veredictos.index("plena") < veredictos.index("parcial")
+
+
+# ── Ajuste visual: controles sin label visible, accessible name preservado ──
+# (iteración chica sobre el mismo ticket -- ver handoff, punto 4)
+
+def test_controls_have_no_visible_label_text_but_keep_accessible_names(security_fixture):
+    _seed_mixed(security_fixture)
+    html = client.get("/catalog/security", params={"family": "data"}).text
+    # Nombre accesible conservado en ambos controles.
+    assert 'aria-label="Buscar DAC"' in html
+    assert 'aria-label="Agrupar DAC por"' in html
+    # Pero ya no hay <span> de rótulo visible envolviendo los controles nuevos
+    # (el texto plano "Buscar"/"Agrupar por" como label separado desapareció).
+    controls_start = html.index("data-security-dac-controls")
+    controls_end = html.index("data-security-dac-source")
+    controls_html = html[controls_start:controls_end]
+    assert "<span>Buscar</span>" not in controls_html
+    assert "<span>Agrupar por</span>" not in controls_html
+
+
+def test_controls_wrapper_uses_inline_alignment_modifier(security_fixture):
+    _seed_mixed(security_fixture)
+    html = client.get("/catalog/security", params={"family": "data"}).text
+    assert 'class="whatsnew-filters whatsnew-filters--inline"' in html

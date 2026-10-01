@@ -2242,6 +2242,14 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    Colores explícitos por tema (no --ink, ilegible en claro); grises con alfa en bordes. */
 .whatsnew-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin: 4px 0 18px; }
 .whatsnew-filter { display: flex; flex-direction: column; gap: 5px; }
+/* Variante SIN label visible (ver Catálogo de Seguridad de Datos): cuando
+   ninguna `.whatsnew-filter` de la fila trae su `<span>` de rótulo (nombre
+   accesible vía `aria-label` en el control en su lugar), el `align-items:
+   flex-end` de arriba deja de tener sentido (ya no hay una columna label+
+   control más alta que otra) — alinea al centro para que el input y el
+   selector compartan la misma línea visual. Alcance acotado a esta variante;
+   `.whatsnew-filters` base (con labels) no cambia para sus demás consumidores. */
+.whatsnew-filters--inline { align-items: center; }
 /* AÑO/MES MULTI-SELECT corrective (DECISIÓN VISUAL OWNER, ver HANDOFF):
    Año/Mes van en su PROPIA fila, debajo de Client Partner/Proyecto/
    Cliente/Estado — `flex-basis:100%` dentro del MISMO contenedor

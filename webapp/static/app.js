@@ -843,6 +843,13 @@ document.body.addEventListener("htmx:load", () => initDashboardSections(document
 // catalog_security.html), así que nunca toca el catálogo de roles.
 const SECURITY_DAC_VERDICT_ORDER = ["plena", "buena", "parcial"];
 const SECURITY_DAC_VERDICT_LABEL = { plena: "PLENA", buena: "BUENA", parcial: "PARCIAL" };
+// Default de apertura SOLO para la PRIMERA vez que se ve cada grupo (nunca
+// pisa un toggle manual posterior -- ver `openState` en initSecurityDacBrowse):
+// PLENA abierto, BUENA/PARCIAL colapsados; agrupación por Cliente sigue
+// abierta por defecto (comportamiento histórico, sin cambios).
+function securityDacDefaultOpen(groupBy, key) {
+  return groupBy === "scoring" ? key === "plena" : true;
+}
 function initSecurityDacBrowse(scope) {
   scope.querySelectorAll("[data-security-dac-wrapper]").forEach(wrapper => {
     if (wrapper.dataset.dacBrowseWired) return;
@@ -858,14 +865,25 @@ function initSecurityDacBrowse(scope) {
     const allCards = Array.from(source.children);
     let groupBy = "scoring";
     let query = "";
+    // Estado abierto/cerrado por (dimensión, key) -- sólo se puebla cuando el
+    // usuario interactúa a mano; si una key no está acá, se usa el default.
+    // Cada `render()` reconstruye los <details> desde cero (mismo <li>, nuevo
+    // wrapper), así que sin esto un toggle manual se perdería en el próximo
+    // keystroke/cambio de agrupación.
+    const openState = { scoring: {}, cliente: {} };
     function render() {
       const q = query.trim().toLowerCase();
       const visible = allCards.filter(li => !q || (li.dataset.search || "").includes(q));
       groupsHost.innerHTML = "";
       if (!visible.length) {
-        const empty = document.createElement("p");
-        empty.className = "empty-panel";
-        empty.textContent = "No se encontraron DAC que coincidan con la búsqueda.";
+        const empty = document.createElement("div");
+        empty.className = "dashboard-empty";
+        const label = document.createElement("span");
+        label.className = "dashboard-empty__label";
+        label.textContent = "Sin resultados";
+        const body = document.createElement("p");
+        body.textContent = "No se encontraron DAC que coincidan con la búsqueda.";
+        empty.append(label, body);
         groupsHost.appendChild(empty);
         return;
       }
@@ -883,23 +901,34 @@ function initSecurityDacBrowse(scope) {
       } else {
         keys = [...groups.keys()].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
       }
+      const states = openState[groupBy];
       for (const key of keys) {
         const cards = groups.get(key);
         const label = groupBy === "scoring" ? (SECURITY_DAC_VERDICT_LABEL[key] || key.toUpperCase()) : key;
         const details = document.createElement("details");
         details.className = "dashboard-section";
-        details.open = true;
+        details.dataset.groupKey = key;
+        details.open = key in states ? states[key] : securityDacDefaultOpen(groupBy, key);
         const summary = document.createElement("summary");
         summary.className = "dashboard-section__head";
         const caret = document.createElement("span");
         caret.className = "dashboard-section__caret";
+        summary.appendChild(caret);
+        if (groupBy === "scoring") {
+          // Mismo indicador de color que ya usa cada card (`.catalog-meta-dot`,
+          // tools.css) -- nunca un nuevo esquema de color paralelo.
+          const dot = document.createElement("span");
+          dot.className = `catalog-meta-dot catalog-meta-dot--${key}`;
+          dot.setAttribute("aria-hidden", "true");
+          summary.appendChild(dot);
+        }
         const title = document.createElement("span");
         title.className = "dashboard-section__title";
         title.textContent = label;
         const count = document.createElement("span");
         count.className = "dashboard-section__count";
         count.textContent = String(cards.length);
-        summary.append(caret, title, count);
+        summary.append(title, count);
         const body = document.createElement("div");
         body.className = "dashboard-section__body";
         const ul = document.createElement("ul");
@@ -910,6 +939,14 @@ function initSecurityDacBrowse(scope) {
         groupsHost.appendChild(details);
       }
     }
+    // `toggle` no burbujea -> se captura en el contenedor (mismo patrón que
+    // `initDashboardSections`). Registra el estado manual del usuario para que
+    // sobreviva al próximo `render()` (keystroke de búsqueda incluido).
+    groupsHost.addEventListener("toggle", event => {
+      const details = event.target;
+      if (!details.classList || !details.classList.contains("dashboard-section")) return;
+      openState[groupBy][details.dataset.groupKey] = details.open;
+    }, true);
     searchInput?.addEventListener("input", () => { query = searchInput.value; render(); });
     groupButtons.forEach(btn => btn.addEventListener("click", () => {
       if (btn.classList.contains("is-active")) return;
