@@ -832,6 +832,135 @@ document.addEventListener("click", event => {
 });
 document.body.addEventListener("htmx:load", () => initDashboardSections(document));
 
+// Catálogo de Seguridad de Datos (DAC) — filtro realtime + agrupación
+// (Scoring/Clientes), 100% client-side sobre las mismas <li> ya renderizadas
+// por el servidor (nunca se clonan/duplican, nunca se vuelve a pedir nada:
+// FILTER primero, GROUP después, sobre la MISMA colección). Reusa
+// `.whatsnew-filters`/`.whatsnew-filter` (buscador) y `.dashboard-view-switch`
+// + `.dashboard-section` (selector/agrupación) — primitives Hub-wide ya
+// existentes, ningún CSS/JS-framework nuevo. Alcance: sólo la familia "data"
+// (`data-security-dac-wrapper` no se renderiza para "roles" — ver
+// catalog_security.html), así que nunca toca el catálogo de roles.
+const SECURITY_DAC_VERDICT_ORDER = ["plena", "buena", "parcial"];
+const SECURITY_DAC_VERDICT_LABEL = { plena: "PLENA", buena: "BUENA", parcial: "PARCIAL" };
+// Default de apertura SOLO para la PRIMERA vez que se ve cada grupo (nunca
+// pisa un toggle manual posterior -- ver `openState` en initSecurityDacBrowse):
+// PLENA abierto, BUENA/PARCIAL colapsados; agrupación por Cliente sigue
+// abierta por defecto (comportamiento histórico, sin cambios).
+function securityDacDefaultOpen(groupBy, key) {
+  return groupBy === "scoring" ? key === "plena" : true;
+}
+function initSecurityDacBrowse(scope) {
+  scope.querySelectorAll("[data-security-dac-wrapper]").forEach(wrapper => {
+    if (wrapper.dataset.dacBrowseWired) return;
+    wrapper.dataset.dacBrowseWired = "1";
+    const source = wrapper.querySelector("[data-security-dac-source]");
+    const groupsHost = wrapper.querySelector("[data-security-dac-groups]");
+    const searchInput = wrapper.querySelector("[data-security-dac-search]");
+    const groupButtons = Array.from(wrapper.querySelectorAll("[data-group-by]"));
+    if (!source || !groupsHost) return;
+    // Referencias VIVAS a los <li> ya renderizados -- moverlas de contenedor
+    // (appendChild) preserva su estado interno (p. ej. <details open> de VER
+    // DETALLE/VER CRITERIOS) porque nunca se destruyen ni se clonan.
+    const allCards = Array.from(source.children);
+    let groupBy = "scoring";
+    let query = "";
+    // Estado abierto/cerrado por (dimensión, key) -- sólo se puebla cuando el
+    // usuario interactúa a mano; si una key no está acá, se usa el default.
+    // Cada `render()` reconstruye los <details> desde cero (mismo <li>, nuevo
+    // wrapper), así que sin esto un toggle manual se perdería en el próximo
+    // keystroke/cambio de agrupación.
+    const openState = { scoring: {}, cliente: {} };
+    function render() {
+      const q = query.trim().toLowerCase();
+      const visible = allCards.filter(li => !q || (li.dataset.search || "").includes(q));
+      groupsHost.innerHTML = "";
+      if (!visible.length) {
+        const empty = document.createElement("div");
+        empty.className = "dashboard-empty";
+        const label = document.createElement("span");
+        label.className = "dashboard-empty__label";
+        label.textContent = "Sin resultados";
+        const body = document.createElement("p");
+        body.textContent = "No se encontraron DAC que coincidan con la búsqueda.";
+        empty.append(label, body);
+        groupsHost.appendChild(empty);
+        return;
+      }
+      const groups = new Map();
+      for (const li of visible) {
+        const key = groupBy === "scoring" ? (li.dataset.verdict || "sin-dictamen") : (li.dataset.cliente || "");
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(li);
+      }
+      let keys;
+      if (groupBy === "scoring") {
+        const known = SECURITY_DAC_VERDICT_ORDER.filter(k => groups.has(k));
+        const rest = [...groups.keys()].filter(k => !SECURITY_DAC_VERDICT_ORDER.includes(k)).sort();
+        keys = known.concat(rest);
+      } else {
+        keys = [...groups.keys()].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+      }
+      const states = openState[groupBy];
+      for (const key of keys) {
+        const cards = groups.get(key);
+        const label = groupBy === "scoring" ? (SECURITY_DAC_VERDICT_LABEL[key] || key.toUpperCase()) : key;
+        const details = document.createElement("details");
+        details.className = "dashboard-section";
+        details.dataset.groupKey = key;
+        details.open = key in states ? states[key] : securityDacDefaultOpen(groupBy, key);
+        const summary = document.createElement("summary");
+        summary.className = "dashboard-section__head";
+        const caret = document.createElement("span");
+        caret.className = "dashboard-section__caret";
+        summary.appendChild(caret);
+        if (groupBy === "scoring") {
+          // Mismo indicador de color que ya usa cada card (`.catalog-meta-dot`,
+          // tools.css) -- nunca un nuevo esquema de color paralelo.
+          const dot = document.createElement("span");
+          dot.className = `catalog-meta-dot catalog-meta-dot--${key}`;
+          dot.setAttribute("aria-hidden", "true");
+          summary.appendChild(dot);
+        }
+        const title = document.createElement("span");
+        title.className = "dashboard-section__title";
+        title.textContent = label;
+        const count = document.createElement("span");
+        count.className = "dashboard-section__count";
+        count.textContent = String(cards.length);
+        summary.append(title, count);
+        const body = document.createElement("div");
+        body.className = "dashboard-section__body";
+        const ul = document.createElement("ul");
+        ul.className = "catalog-flows-list catalog-security-list";
+        cards.forEach(li => ul.appendChild(li));
+        body.appendChild(ul);
+        details.append(summary, body);
+        groupsHost.appendChild(details);
+      }
+    }
+    // `toggle` no burbujea -> se captura en el contenedor (mismo patrón que
+    // `initDashboardSections`). Registra el estado manual del usuario para que
+    // sobreviva al próximo `render()` (keystroke de búsqueda incluido).
+    groupsHost.addEventListener("toggle", event => {
+      const details = event.target;
+      if (!details.classList || !details.classList.contains("dashboard-section")) return;
+      openState[groupBy][details.dataset.groupKey] = details.open;
+    }, true);
+    searchInput?.addEventListener("input", () => { query = searchInput.value; render(); });
+    groupButtons.forEach(btn => btn.addEventListener("click", () => {
+      if (btn.classList.contains("is-active")) return;
+      groupButtons.forEach(b => { b.classList.remove("is-active"); b.setAttribute("aria-pressed", "false"); });
+      btn.classList.add("is-active");
+      btn.setAttribute("aria-pressed", "true");
+      groupBy = btn.dataset.groupBy;
+      render();
+    }));
+    render();
+  });
+}
+document.body.addEventListener("htmx:load", () => initSecurityDacBrowse(document));
+
 // Indicator visibility toggles (primitivo Hub-wide nuevo, primer consumidor:
 // CCHH Candidatos, "Indicadores"): un grupo de checkboxes que controla
 // SOLO presentación (qué metadata contextual se ve al lado de la identidad

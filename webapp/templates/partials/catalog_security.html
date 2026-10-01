@@ -2,54 +2,73 @@
 {% if not items %}
 <p class="empty-panel">{% if family_label %}Sin artefactos detectados para {{ family_label }}.{% else %}Elegí una opción.{% endif %}</p>
 {% else %}
-<ul class="catalog-flows-list catalog-security-list">
-  {% for e in items %}
-  <li class="catalog-card catalog-security-card catalog-card--{{ e.veredicto|catalog_verdict_class }}"
-      role="link" tabindex="0" title="Ver detalle de seguridad"
-      hx-get="/catalog/security/detail?cliente={{ e.cliente|urlencode }}&criterio={{ e.criterio|urlencode }}&dac={{ e.dac|urlencode }}&pack={{ pack|default('datasphere_core') }}"
-      hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, keyup[key=='Enter']">
-    <p class="catalog-card__head">
-      <span class="catalog-meta-dot catalog-meta-dot--{{ e.veredicto|catalog_verdict_class }}" aria-hidden="true"></span>
-      <strong>{{ e.cliente }}</strong>
-      <span class="catalog-card__verdict catalog-card__verdict--{{ e.veredicto|catalog_verdict_class }}">{{ e.veredicto|catalog_verdict_label }}</span>
-    </p>
-    <p class="catalog-card__apto">{{ e.apto }}</p>
-    {% if e.family == "roles" %}
-    <p class="catalog-card__meta">{{ e.role_count }} roles · {{ e.permission_count }} privilegios asignados</p>
-    {% else %}
-    <p class="catalog-card__meta">{{ e.dac }} · {{ e.consumers }} vista{{ "s" if e.consumers != 1 }} consumidora{{ "s" if e.consumers != 1 }}</p>
-    {% endif %}
-    {% if e.family == "roles" %}
-    <div class="catalog-connection-badges">
-      <span class="catalog-pill catalog-pill--ok">Roles globales: {{ e.global_role_count }}</span>
-      <span class="catalog-pill catalog-pill--ok">Roles de alcance: {{ e.scoped_role_count }}</span>
+<div{% if family != "roles" %} data-security-dac-wrapper{% endif %}>
+  {% if family != "roles" %}
+  <div class="whatsnew-filters whatsnew-filters--inline" data-security-dac-controls>
+    <label class="whatsnew-filter whatsnew-filter--fill">
+      <input type="search" data-security-dac-search aria-label="Buscar DAC" placeholder="Buscar DAC...">
+    </label>
+    <div class="whatsnew-filter">
+      <div class="dashboard-view-switch dashboard-view-switch--compact" role="group" aria-label="Agrupar DAC por" data-security-dac-group-switch>
+        <button type="button" class="is-active" aria-pressed="true" data-group-by="scoring">Scoring</button>
+        <button type="button" aria-pressed="false" data-group-by="cliente">Clientes</button>
+      </div>
     </div>
-    {% else %}
-    <div class="catalog-connection-badges">
-      <span class="catalog-pill catalog-pill--ok">Identificador: {{ e.principal_element }}</span>
-      <span class="catalog-pill catalog-pill--{{ 'ok' if e.source_entity else 'muted' }}">Entidad de Permisos: {{ e.source_entity or 'No detectado' }}</span>
-    </div>
-    {% endif %}
-    {% if e.summary %}
-    <details class="catalog-card__notes catalog-security-detail-toggle" onclick="event.stopPropagation()">
-      <summary>VER DETALLE</summary>
-      <p class="catalog-card__summary">{{ e.summary }}</p>
-    </details>
-    {% endif %}
-    {% if e.governed_fields or e.spaces %}
-    <details class="catalog-card__notes catalog-security-criteria" onclick="event.stopPropagation()">
-      <summary>VER CRITERIOS{% if e.governed_fields %} ({{ e.governed_fields|length }}){% endif %}</summary>
-      {% if e.governed_fields %}
-      <ul>
-        {% for field in e.governed_fields %}<li><code>{{ field }}</code></li>{% endfor %}
-      </ul>
+  </div>
+  {% endif %}
+  <ul class="catalog-flows-list catalog-security-list"{% if family != "roles" %} data-security-dac-source hidden{% endif %}>
+    {% for e in items %}
+    <li class="catalog-card catalog-security-card catalog-card--{{ e.veredicto|catalog_verdict_class }}"
+        role="link" tabindex="0" title="Ver detalle de seguridad"
+        {% if family != "roles" %}data-search="{{ (e._search or "")|lower }}" data-cliente="{{ e.cliente }}" data-verdict="{{ e.veredicto|catalog_verdict_class }}"{% endif %}
+        hx-get="/catalog/security/detail?cliente={{ e.cliente|urlencode }}&criterio={{ e.criterio|urlencode }}&dac={{ e.dac|urlencode }}&pack={{ pack|default('datasphere_core') }}"
+        hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, keyup[key=='Enter']">
+      <p class="catalog-card__head">
+        <span class="catalog-meta-dot catalog-meta-dot--{{ e.veredicto|catalog_verdict_class }}" aria-hidden="true"></span>
+        <strong>{{ e.cliente }}</strong>
+        <span class="catalog-card__verdict catalog-card__verdict--{{ e.veredicto|catalog_verdict_class }}">{{ e.veredicto|catalog_verdict_label }}</span>
+      </p>
+      <p class="catalog-card__apto">{{ e.apto }}</p>
+      {% if e.family == "roles" %}
+      <p class="catalog-card__meta">{{ e.role_count }} roles · {{ e.permission_count }} privilegios asignados</p>
+      {% else %}
+      <p class="catalog-card__meta">{{ e.dac }} · {{ e.consumers }} vista{{ "s" if e.consumers != 1 }} consumidora{{ "s" if e.consumers != 1 }}</p>
       {% endif %}
-      {% if e.spaces %}
-      <p class="catalog-card__foco catalog-card__foco--inline"><strong>{{ "Espacio" if e.spaces|length == 1 else "Espacios" }}:</strong> {{ e.spaces|join(" · ") }}</p>
+      {% if e.family == "roles" %}
+      <div class="catalog-connection-badges">
+        <span class="catalog-pill catalog-pill--ok">Roles globales: {{ e.global_role_count }}</span>
+        <span class="catalog-pill catalog-pill--ok">Roles de alcance: {{ e.scoped_role_count }}</span>
+      </div>
+      {% else %}
+      <div class="catalog-connection-badges">
+        <span class="catalog-pill catalog-pill--ok">Identificador: {{ e.principal_element }}</span>
+        <span class="catalog-pill catalog-pill--{{ 'ok' if e.source_entity else 'muted' }}">Entidad de Permisos: {{ e.source_entity or 'No detectado' }}</span>
+      </div>
       {% endif %}
-    </details>
-    {% endif %}
-  </li>
-  {% endfor %}
-</ul>
+      {% if e.summary %}
+      <details class="catalog-card__notes catalog-security-detail-toggle" onclick="event.stopPropagation()">
+        <summary>VER DETALLE</summary>
+        <p class="catalog-card__summary">{{ e.summary }}</p>
+      </details>
+      {% endif %}
+      {% if e.governed_fields or e.spaces %}
+      <details class="catalog-card__notes catalog-security-criteria" onclick="event.stopPropagation()">
+        <summary>VER CRITERIOS{% if e.governed_fields %} ({{ e.governed_fields|length }}){% endif %}</summary>
+        {% if e.governed_fields %}
+        <ul>
+          {% for field in e.governed_fields %}<li><code>{{ field }}</code></li>{% endfor %}
+        </ul>
+        {% endif %}
+        {% if e.spaces %}
+        <p class="catalog-card__foco catalog-card__foco--inline"><strong>{{ "Espacio" if e.spaces|length == 1 else "Espacios" }}:</strong> {{ e.spaces|join(" · ") }}</p>
+        {% endif %}
+      </details>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% if family != "roles" %}
+  <div data-security-dac-groups></div>
+  {% endif %}
+</div>
 {% endif %}

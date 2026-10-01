@@ -91,7 +91,16 @@ def test_ver_detalle_expander_contains_exactly_the_purpose(security_fixture):
         '<details class="catalog-card__notes catalog-security-detail-toggle" onclick="event.stopPropagation()">'
         in html
     )
-    assert f'<summary>VER DETALLE</summary>\n      <p class="catalog-card__summary">{PURPOSE}</p>' in html
+    # Whitespace/indentación no es parte del contrato (puede variar según el
+    # nesting del wrapper que lo contenga) -- lo que importa es que el <p>
+    # con el propósito sea el CONTENIDO del <summary>VER DETALLE</summary>,
+    # sin nada más en el medio.
+    import re
+    assert re.search(
+        r'<summary>VER DETALLE</summary>\s*<p class="catalog-card__summary">'
+        + re.escape(PURPOSE) + r'</p>',
+        html,
+    )
 
 
 def test_ver_detalle_is_above_ver_criterios(security_fixture):
