@@ -185,10 +185,7 @@
     },
     "ConfidenceDriverName": {
       "enum": [
-        "STRICT_COVERAGE",
-        "EVIDENCE_MIX",
-        "CROSS_PLANE_EVIDENCE",
-        "OPEN_CONTEXT_ITEMS"
+        "EPISTEMIC_RELIABILITY"
       ],
       "type": "string"
     },

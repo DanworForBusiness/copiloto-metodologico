@@ -188,11 +188,11 @@ def test_package_layout_is_the_approved_one():
     m3 = {"contract.py", "facts_am.py", "facts_propagation.py", "facts_harmonization.py"}
     m4 = {"naming_rules.py", "facts_naming.py"}
     m5 = {"signals.py"}
+    m6 = {"assessability.py"}
     present = {p.name for p in PKG_DIR.iterdir() if p.is_file()}
-    assert m0 <= present and m1 <= present and m2 <= present and m3 <= present and m4 <= present and m5 <= present
-    # Hito actual = M5: NO se adelantan milestones posteriores (M6 assessability,
-    # M7 profile/shadow/CLI/Markdown).
-    later = {"assessability.py", "profile.py", "shadow.py", "render_md.py", "__main__.py"}
+    assert m0 <= present and m1 <= present and m2 <= present and m3 <= present and m4 <= present and m5 <= present and m6 <= present
+    # Hito actual = M6: NO se adelantan milestones posteriores (M7 profile/shadow/CLI/Markdown).
+    later = {"profile.py", "shadow.py", "render_md.py", "__main__.py"}
     assert not (present & later), sorted(present & later)
 
 

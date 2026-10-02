@@ -181,10 +181,9 @@ class ConfidenceLevel(str, Enum):
 
 
 class ConfidenceDriverName(str, Enum):
-    STRICT_COVERAGE = "STRICT_COVERAGE"
-    EVIDENCE_MIX = "EVIDENCE_MIX"
-    CROSS_PLANE_EVIDENCE = "CROSS_PLANE_EVIDENCE"
-    OPEN_CONTEXT_ITEMS = "OPEN_CONTEXT_ITEMS"
+    """La confianza agregada es SOLO fiabilidad epistemica de la evidencia evaluada (decision del owner, M6): cobertura, contexto abierto y
+    evidencia de otro plano NO son drivers de confianza y por eso no existen como valores."""
+    EPISTEMIC_RELIABILITY = "EPISTEMIC_RELIABILITY"
 
 
 # --------------------------------------------------------------------------

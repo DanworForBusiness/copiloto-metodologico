@@ -53,7 +53,7 @@ def _profile(cards=None, observations=(), reviews=()):
         m.ProfileScope(_app(), "AM_X", 2, ("AM_X", "VF_X"), "sha256:abc"),
         cards, tuple(observations), tuple(reviews), cov,
         m.Confidence(m.ConfidenceLevel.MEDIUM, (
-            m.ConfidenceDriver(m.ConfidenceDriverName.STRICT_COVERAGE, m.ConfidenceLevel.LOW, "1/6"),)))
+            m.ConfidenceDriver(m.ConfidenceDriverName.EPISTEMIC_RELIABILITY, m.ConfidenceLevel.LOW, "resolved provenance 0.5"),)))
 
 
 def _sample_profile():
