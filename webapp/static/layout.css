@@ -49,7 +49,12 @@
 
 .animated-brand {
   align-self: stretch;
-  width: 450px;
+  /* 480px = ancho del documento interno (745px, lo que ocupan titulo + subtitulo) x escala .64.
+     `--brand-scale` es la escala base por breakpoint; el script de `partials/platform_topbar.html`
+     publica `--brand-fit` (escala que hace entrar TODO el contenido en el ancho real del contenedor,
+     que puede achicarse por flex-shrink). Sin JS rige el valor base. */
+  --brand-scale: .64;
+  width: 480px;
   overflow: hidden;
   pointer-events: auto;
 }
@@ -59,7 +64,7 @@
   height: 100px;
   border: 0;
   pointer-events: none;
-  transform: translateY(-13px) scale(.64);
+  transform: translateY(-13px) scale(var(--brand-fit, var(--brand-scale)));
   transform-origin: left center;
 }
 .header-tools { margin-left: auto; display: flex; align-items: center; gap: 10px; }
@@ -261,16 +266,16 @@
 @media (max-width: 1100px) {
   .app-shell { --nav-width: 210px; --panel-width: 330px; }
   .pack-selector label { display: none; }
-  .animated-brand { width: 340px; }
-  .animated-brand iframe { width: 680px; transform: translateY(-13px) scale(.5); }
+  .animated-brand { --brand-scale: .5; width: 340px; }
+  .animated-brand iframe { width: 680px; }
 }
 
 @media (max-width: 900px) {
   .app-shell { display: block; }
   .resize-handle { display: none; }
   .topbar { height: 66px; padding-inline: 14px; }
-  .animated-brand { width: 260px; }
-  .animated-brand iframe { width: 650px; transform: translateY(-17px) scale(.4); }
+  .animated-brand { --brand-scale: .4; width: 260px; }
+  .animated-brand iframe { width: 650px; transform: translateY(-17px) scale(var(--brand-fit, var(--brand-scale))); }
   .module-nav { display: none; position: fixed; inset: 66px 0 0; z-index: 30; height: auto; }
   .module-nav.is-open { display: block; }
   .module-content { padding: 38px 20px 70px; }
@@ -281,8 +286,8 @@
 
 @media (max-width: 640px) {
   .module-pager { display: none; }
-  .animated-brand { width: 175px; }
-  .animated-brand iframe { width: 620px; transform: translateY(-20px) scale(.28); }
+  .animated-brand { --brand-scale: .28; width: 175px; }
+  .animated-brand iframe { width: 620px; transform: translateY(-20px) scale(var(--brand-fit, var(--brand-scale))); }
   .pack-selector select { width: 112px; min-width: 0; }
 }
 /* Module hero metric separators */
