@@ -324,4 +324,8 @@ def test_g_full_route_surface_unchanged_by_this_gate():
     # 176 -> 177 (CCHH Búsquedas -- "Eliminar" en el diálogo Cerrar proceso,
     # ver HANDOFF): +1 ruta `POST /cchh/busquedas/{busqueda_id}/eliminar` --
     # CERO rutas de Estrategia tocadas, este gate sigue sin cambios propios.
-    assert len(snapshot) == 177
+    # 177 -> 181 (Catalog Assessment Report V1): +4 method+path del
+    # assessment de modelado en el Catálogo (GET/POST /catalog/flow/assessment,
+    # GET .../assessment.json y .../assessment.md) -- CERO rutas de Estrategia tocadas,
+    # este gate sigue sin cambios propios.
+    assert len(snapshot) == 181

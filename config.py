@@ -49,6 +49,15 @@ ACTIVITY_LOG_DIR  = BASE_DIR / "activity_log"
 # como CUALQUIER otro directorio persistido — mismo mecanismo genérico,
 # ningún código de sync propio.
 COMMERCIAL_STRATEGY_RUNTIME_DIR = BASE_DIR / "commercial_strategy_runtime"
+# Caché OPERATIVA del Assessment de modelado del Catálogo (JSON canónico validado
+# + metadatos de vigencia; ver webapp/services/assessment_service.py). NO es un
+# artefacto gobernado: es derivable de forma determinista del pool CSN, así que se
+# puede perder en un deploy/reinicio (el estado vuelve a "Sin assessment" y el
+# usuario regenera). Por eso NUNCA debe figurar en PERSIST_PATHS ni colgar de
+# `catalog_local`: `core.remote_store.mirror_up()` sube recursivamente todo lo
+# persistido. El servicio rechaza (fail-closed) escribir bajo un directorio
+# persistido, aunque el entorno cambie SPACES_PERSIST_PATHS.
+ASSESSMENT_CACHE_DIR = Path(_env("DANWOR_ASSESSMENT_CACHE_DIR", "") or str(BASE_DIR / "assessment_cache"))
 
 # ── Persistencia en DO Spaces ────────────────────────────────────────────────
 # App Platform corre sobre un FS efímero: en cada deploy/reciclado se borra todo

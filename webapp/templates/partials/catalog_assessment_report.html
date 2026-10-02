@@ -1,0 +1,228 @@
+{# Informe del Assessment de modelado — render ESTRUCTURADO desde el JSON canónico (v = assessment_presenter.report_view).
+   Jamás se inserta HTML derivado del Markdown ni se marca |safe contenido del assessment: todo texto pasa por el
+   autoescape de Jinja. El assessment no tiene puntaje ni nivel global: no se inventa ninguno aquí. #}
+{% macro lineage_link(url) %}{% if url %}<a class="asr-lineage" href="#" role="button" hx-get="{{ url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Ver en linaje</a>{% endif %}{% endmacro %}
+{% macro action_button(v) %}{% if v.action %}
+<button type="button" class="asm-btn asm-btn--{{ v.action.key }}" hx-post="{{ v.report_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-disabled-elt="this" hx-indicator="#asr-busy">{{ v.action.label }}</button>
+<span class="htmx-indicator asm-busy" id="asr-busy" role="status">Generando…</span>{% endif %}{% endmacro %}
+{% macro group(g, level) %}
+<article class="asr-group asr-group--{{ g.kind|lower }}" id="{{ g.dom_id }}">
+  <header class="asr-group__head">
+    <h{{ level }}>{{ g.title }} <span class="asr-count">{{ g.occurrence_count }} ocurrencia{{ "s" if g.occurrence_count != 1 }}</span></h{{ level }}>
+    <p class="asr-group__tags"><span class="asr-tag">{{ g.kind_text }}</span><span class="asr-tag">{{ g.area_title }}</span><code>{{ g.id }}</code></p>
+  </header>
+  <p>{{ g.explanation }}</p>
+  <dl class="asr-dl">
+    <dt>Por qué se muestra</dt><dd>{{ g.why_shown }}</dd>
+    {% if g.question %}<dt>Pregunta para el proyecto</dt><dd>{{ g.question }} <em class="asr-note">Estado: abierto — requiere contexto, no se emite juicio.</em></dd>{% endif %}
+    {% if g.legitimate_reasons %}<dt>Razones legítimas que lo explicarían</dt><dd>{{ g.legitimate_reasons|join("; ") }}</dd>{% endif %}
+    {% if g.interpretation_limits %}<dt>Cómo NO leerlo</dt><dd>{{ g.interpretation_limits|join("; ") }}</dd>{% endif %}
+    {% if g.evidence_limit %}<dt>Límite de evidencia</dt><dd>{{ g.evidence_limit }}</dd>{% endif %}
+    <dt>Unidad de cada ocurrencia</dt><dd>{{ g.occurrence_unit }}</dd>
+    <dt>Artefactos involucrados ({{ g.artifacts|length }})</dt>
+    <dd>{% for a in g.artifacts[:12] %}<code class="asr-art">{{ a }}</code>{% endfor %}{% if g.artifacts|length > 12 %} … (+{{ g.artifacts|length - 12 }}){% endif %}
+        {{ lineage_link(g.lineage_url) }}</dd>
+  </dl>
+  <details class="asr-occ" {% if g.occurrences|length <= 3 %}open{% endif %}>
+    <summary>Ocurrencias ({{ g.occurrences|length }})</summary>
+    <ul>
+      {% for o in g.occurrences %}
+      <li><span class="asr-occ__text">{{ o.text }}</span> {{ lineage_link(o.lineage_url) }}</li>
+      {% endfor %}
+    </ul>
+  </details>
+</article>
+{% endmacro %}
+
+<a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>
+<section class="module-hero asr-hero">
+  <p class="eyebrow">Assessment de modelado · {{ v.client }}</p>
+  <h1>{{ v.terminal_am or v.dominio }}</h1>
+  <div class="hero-meta">
+    <span class="asm-tile__state asm-tile__state--{{ v.state|lower }}">{{ v.state_label }}</span>
+    {% if v.generated_at %}<span>Generado {{ v.generated_at.replace("T", " ").replace("+00:00", " UTC") }}</span>{% endif %}
+    {% if v.has_profile %}<span>{{ v.scope_text }}</span>{% endif %}
+  </div>
+  {% if v.has_profile %}
+  <p class="asr-meta">Estado del assessment: <strong>{{ v.execution_text }}</strong> · Esquema <code>{{ v.schema_version }}</code>
+    {% for label, value in v.versions %} · {{ label }} <code>{{ value }}</code>{% endfor %}</p>
+  {% endif %}
+  <p class="asr-nav">
+    <a href="#" role="button" hx-get="{{ v.flow_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Ver flujo en el catálogo</a>
+    {% if v.has_profile %}
+    <a href="{{ v.md_url }}" download>Exportar Markdown</a>
+    <a href="{{ v.json_url }}" download>Exportar JSON</a>
+    {% endif %}
+  </p>
+  <p class="asr-disclaimer">Perfil de evidencia, cobertura y confianza. Describe qué se observó, qué requiere revisión y qué no pudo evaluarse; los hallazgos son observaciones para revisión humana, no conclusiones sobre la calidad del modelo. Es una evaluación independiente del veredicto del catálogo.</p>
+</section>
+
+{# ── estados sin informe ── #}
+{% if v.state == "NOT_YET_ASSESSED" %}
+<section class="asr-state asr-state--empty">
+  <h2>Este modelo todavía no tiene assessment</h2>
+  <p>El informe se genera a pedido a partir del conjunto de artefactos del cliente. Abrir esta pantalla no ejecuta nada.</p>
+  <p>{{ action_button(v) }}</p>
+</section>
+{% elif v.state == "NOT_APPLICABLE" %}
+<section class="asr-state asr-state--na">
+  <h2>No aplica</h2>
+  <p>{{ v.reason }}</p>
+</section>
+{% elif v.state == "INCOMPATIBLE_SCHEMA" %}
+<section class="asr-state asr-state--warn">
+  <h2>Informe no compatible</h2>
+  <p>{{ v.reason }} No se muestra para evitar una lectura incorrecta.</p>
+  <p>{{ action_button(v) }}</p>
+</section>
+{% endif %}
+
+{% if v.state == "FAILED" %}
+<section class="asr-state asr-state--error" role="alert">
+  <h2>No se pudo generar el assessment</h2>
+  <p>{{ v.reason }}</p>
+  {% if v.previous_profile_retained %}<p>Se muestra la última evaluación disponible; puede estar desactualizada.</p>{% endif %}
+  <p>{{ action_button(v) }}</p>
+</section>
+{% elif v.state == "STALE" %}
+<section class="asr-state asr-state--warn" role="status">
+  <h2>Assessment desactualizado — {{ v.state_note }}</h2>
+  <p>Se muestra el informe anterior. Regenerarlo calcula el assessment contra el modelo actual.</p>
+  <p>{{ action_button(v) }}</p>
+</section>
+{% endif %}
+
+{% if v.has_profile and v.state in ("CURRENT", "STALE", "FAILED") %}
+{% set s = v.summary %}
+<nav class="asr-index" aria-label="Secciones del informe">
+  <a href="#asr-resumen">Resumen</a><a href="#asr-areas">Áreas</a><a href="#asr-observaciones">Observaciones</a>
+  <a href="#asr-revision">Revisión requerida</a><a href="#asr-limitaciones">No evaluado / Limitaciones</a><a href="#asr-evidencia">Evidencia técnica</a>
+</nav>
+
+<section class="asr-section" id="asr-resumen">
+  <h2>Resumen</h2>
+  <p class="asr-sub">Cobertura, confianza y contexto requerido son tres medidas separadas.</p>
+  <div class="asr-measures">
+    <div class="asr-measure">
+      <h3>Cobertura</h3>
+      <p class="asr-measure__v">Estricta {{ s.coverage_strict }}</p>
+      <p class="asr-measure__s">Inclusiva {{ s.coverage_inclusive }}</p>
+      <p class="asr-note">{{ s.coverage_meaning }}</p>
+      <p class="asr-note">Superficies requeridas: {{ s.surfaces }}.</p>
+    </div>
+    <div class="asr-measure">
+      <h3>Confianza</h3>
+      <p class="asr-measure__v">{{ s.confidence }}</p>
+      {% if s.confidence_limitation %}<p class="asr-measure__s">Limitación principal: {{ s.confidence_limitation }}</p>{% endif %}
+      <p class="asr-note">{{ s.confidence_meaning }}</p>
+    </div>
+    <div class="asr-measure">
+      <h3>Contexto requerido</h3>
+      <p class="asr-measure__v">{{ s.context_open }}</p>
+      <p class="asr-note">Hallazgos: {{ s.observation_groups }} grupo{{ "s" if s.observation_groups != 1 }} de observación ({{ s.observation_occurrences }} ocurrencia{{ "s" if s.observation_occurrences != 1 }}), {{ s.review_groups }} de revisión ({{ s.review_occurrences }} ocurrencia{{ "s" if s.review_occurrences != 1 }}).</p>
+    </div>
+  </div>
+  {% for d in s.no_evidence_dimensions %}<p class="asr-callout">Dimensión {{ d }}: sin evidencia evaluada — ninguna evidencia requerida pudo evaluarse.</p>{% endfor %}
+  {% if s.context_questions %}
+  <h3>Preguntas que solo el proyecto puede responder</h3>
+  <ul class="asr-list">{% for q in s.context_questions %}<li>{{ q.text }}{% if q.occurrences %} <span class="asr-count">{{ q.occurrences }} ocurrencia{{ "s" if q.occurrences != 1 }}</span>{% endif %}</li>{% endfor %}</ul>
+  {% endif %}
+</section>
+
+<section class="asr-section" id="asr-areas">
+  <h2>Áreas</h2>
+  <div class="asr-areas">
+    {% for a in v.areas %}
+    <details class="asr-area" id="{{ a.dom_id }}" {% if a.findings or a.state != "ASSESSED" %}open{% endif %}>
+      <summary><strong>{{ a.title }}</strong> <span class="asr-tag asr-tag--{{ a.state|lower }}">{{ a.state_text }}</span> <span class="asr-sub">{{ a.macro }}</span></summary>
+      <p class="asr-note">Superficies de evidencia requeridas: {{ a.surfaces }}.{% if a.reason %} {{ a.reason }}.{% endif %}</p>
+      {% if a.highlights %}
+      <p class="asr-label">Qué se observó (hechos descriptivos, sin juicio)</p>
+      <ul class="asr-list">{% for h in a.highlights %}<li>{{ h.label }}: {{ h.text }}{% if h.breakdown %}<ul>{% for b in h.breakdown %}<li>{{ b.name }}: {{ b.count }}</li>{% endfor %}</ul>{% endif %}</li>{% endfor %}</ul>
+      {% endif %}
+      {% if a.findings %}
+      <p class="asr-label">Hallazgos en esta área</p>
+      <ul class="asr-list">{% for f in a.findings %}<li><a href="#{{ f.dom_id }}">{{ f.title }}</a> — {{ f.count }} ocurrencia{{ "s" if f.count != 1 }} ({{ f.kind_text }})</li>{% endfor %}</ul>
+      {% endif %}
+      {% if a.rules %}
+      <p class="asr-label">Evaluación de reglas</p>
+      <ul class="asr-list">{% for r in a.rules %}<li>{{ r.title }}: {{ r.result_text }}{% if r.reason %} ({{ r.reason }}){% endif %}</li>{% endfor %}</ul>
+      {% endif %}
+      {% if a.limitations_not_observable %}<p class="asr-note">Parte de la evidencia de esta área no es observable en la exportación estándar de Modelado; no reduce la cobertura, pero limita lo que puede concluirse.</p>{% endif %}
+    </details>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="asr-section" id="asr-observaciones">
+  <h2>Observaciones</h2>
+  {% for g in v.observations %}{{ group(g, 3) }}{% else %}
+  <p class="asr-empty">No se detectaron patrones de nivel observación en la evidencia que pudo evaluarse (ver “No evaluado / Limitaciones” para lo que no se evaluó).</p>
+  {% endfor %}
+  {% if v.descriptive %}
+  <h3>Señales descriptivas (no implican revisión)</h3>
+  {% for g in v.descriptive %}{{ group(g, 4) }}{% endfor %}
+  {% endif %}
+</section>
+
+<section class="asr-section" id="asr-revision">
+  <h2>Revisión requerida</h2>
+  {% for g in v.review_required %}{{ group(g, 3) }}{% else %}
+  <p class="asr-empty">Las reglas que pudieron evaluarse no levantaron elementos de revisión (ver “No evaluado / Limitaciones” para lo que no se evaluó).</p>
+  {% endfor %}
+</section>
+
+<section class="asr-section" id="asr-limitaciones">
+  <h2>No evaluado / Limitaciones de evidencia</h2>
+  <p class="asr-sub">Las evidencias que cuentan para la cobertura se marcan “cuenta”; las demás se muestran por transparencia y no modifican la cobertura.</p>
+  {% if v.limitations %}
+  <div class="asr-table-wrap"><table class="asr-table">
+    <thead><tr><th>Evidencia</th><th>Área</th><th>Estado</th><th>Motivo</th><th>¿Cuenta?</th></tr></thead>
+    <tbody>{% for l in v.limitations %}
+      <tr><td>{{ l.title }}<br><code>{{ l.surface_id }}</code></td><td>{{ l.area }}</td><td>{{ l.state }}</td>
+          <td>{{ l.reason }} <code>{{ l.reason_code }}</code>{% if l.units %}<br><span class="asr-note">Unidades: {{ l.units[:8]|join(", ") }}{% if l.units|length > 8 %}, … (+{{ l.units|length - 8 }}){% endif %}</span>{% endif %}</td>
+          <td>{{ "cuenta" if l.counts else "no cuenta" }}</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="asr-empty">Toda la evidencia aplicable en alcance fue evaluada.</p>{% endif %}
+  {% if v.absence_not_established %}
+  <p class="asr-label">Para estas reglas la ausencia de hallazgos NO está establecida, porque sus insumos estaban incompletos:</p>
+  <ul class="asr-list">{% for t in v.absence_not_established %}<li>{{ t }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if v.confidence_components %}
+  <p class="asr-label">Componentes de confianza</p>
+  <ul class="asr-list">{% for c in v.confidence_components %}<li>{{ c.label }}: {{ c.value }} — {{ c.level }}</li>{% endfor %}</ul>
+  <p class="asr-note">Los componentes se combinan tomando el nivel más bajo. Los puntos de corte son provisionales y están pendientes de validación. La cobertura, las preguntas de contexto abiertas y la evidencia del plano de Procesamiento no son insumos de la confianza.</p>
+  {% endif %}
+</section>
+
+<section class="asr-section" id="asr-evidencia">
+  <h2>Evidencia / Detalle técnico</h2>
+  <details class="asr-tech">
+    <summary>Mostrar detalle técnico (trazabilidad)</summary>
+    <ul class="asr-list">
+      <li>Firma del conjunto de artefactos: {% if v.technical.pool_signature %}<code>{{ v.technical.pool_signature }}</code>{% else %}no registrada{% endif %}</li>
+      <li>Familias de hechos emitidas: {{ v.technical.fact_families }} · instancias de hechos: {{ v.technical.fact_instances }}</li>
+      <li>Versiones: {% for k, val in v.technical.versions_all %}{{ k }} <code>{{ val }}</code>{% if not loop.last %} · {% endif %}{% endfor %}</li>
+    </ul>
+    {% if v.not_applicable %}
+    <p class="asr-label">Evidencia que no aplica (trazabilidad; no son limitaciones de evidencia)</p>
+    <div class="asr-table-wrap"><table class="asr-table"><thead><tr><th>Evidencia</th><th>Área</th><th>Motivo</th></tr></thead><tbody>
+      {% for n in v.not_applicable %}<tr><td>{{ n.title }}<br><code>{{ n.surface_id }}</code></td><td>{{ n.area }}</td><td>{{ n.reason }} <code>{{ n.reason_code }}</code></td></tr>{% endfor %}
+    </tbody></table></div>
+    {% endif %}
+    {% if v.deduplicated_questions %}
+    <p class="asr-label">Preguntas de contexto no repetidas (ya formuladas por un hallazgo)</p>
+    <ul class="asr-list">{% for q in v.deduplicated_questions %}<li><code>{{ q.id }}</code> → ya la formula el grupo <code>{{ q.covered_by }}</code></li>{% endfor %}</ul>
+    {% endif %}
+    <p class="asr-label">Resultados por regla</p>
+    <div class="asr-table-wrap"><table class="asr-table"><thead><tr><th>Regla</th><th>Resultado</th><th>Hallazgos</th></tr></thead><tbody>
+      {% for r in v.rule_results %}<tr><td>{{ r.title }}<br><code>{{ r.rule }}</code></td><td>{{ r.result_text }}</td><td>{{ r.count }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    <p class="asr-label">Cobertura por área (superficies requeridas)</p>
+    <div class="asr-table-wrap"><table class="asr-table"><thead><tr><th>Área</th><th>Evaluadas</th><th>Parciales</th><th>No evaluadas</th><th>No aplican</th></tr></thead><tbody>
+      {% for c in v.area_coverage %}<tr><td>{{ c.title }}</td><td>{{ c.assessed }}</td><td>{{ c.partially_assessed }}</td><td>{{ c.not_assessed }}</td><td>{{ c.not_applicable }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </details>
+</section>
+{% endif %}

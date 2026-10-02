@@ -25,6 +25,8 @@
     {# "XX artefactos" va ARRIBA para que los dos desplegables "+ VER FUENTES" y
        "+ VER NOTAS" queden juntos (antes el conteo se colaba entre ambos). #}
     <p class="catalog-card__meta">{{ e.artefactos|length }} artefacto{{ "s" if e.artefactos|length != 1 }}</p>
+    {# Assessment de modelado: bloque compacto y SEPARADO del veredicto legacy de arriba. #}
+    {% if assessment_tiles and assessment_tiles.get(e.entry_id) %}{% with t=assessment_tiles[e.entry_id] %}{% include "partials/catalog_assessment_tile.html" %}{% endwith %}{% endif %}
     {% if foco == "capas" and e.capas %}<p class="catalog-card__foco"><strong>Capas:</strong> {{ e.capas|join(" · ") }}</p>{% endif %}
     {% if foco == "fuentes" and e.origenes %}
     <details class="catalog-card__notes" onclick="event.stopPropagation()">

@@ -54,10 +54,20 @@ def _imports(tree: ast.AST):
 
 
 # ── R-I2: el legacy nunca importa el paquete nuevo ──────────────────────────
+# Catalog Assessment Report V1: la UNICA integración autorizada del paquete es la capa web delgada que consume su API
+# Python (servicio + presenter). El legacy (tools/catalog/*, core, el resto de webapp) sigue sin poder importarlo.
+SANCTIONED_WEB_INTEGRATION = {
+    Path("webapp/services/assessment_service.py"),
+    Path("webapp/services/assessment_presenter.py"),
+}
+
+
 def test_ri2_legacy_never_imports_new_package():
     offenders = []
     for p in _py_files(REPO):
         if PKG_DIR in p.parents or "tests" in p.relative_to(REPO).parts:
+            continue
+        if p.relative_to(REPO) in SANCTIONED_WEB_INTEGRATION:
             continue
         try:
             with warnings.catch_warnings():
@@ -69,6 +79,145 @@ def test_ri2_legacy_never_imports_new_package():
             if "modeling_assessment" in mod or any("modeling_assessment" in n for n in names):
                 offenders.append(str(p.relative_to(REPO)))
     assert offenders == [], f"codigo fuera del paquete importa modeling_assessment: {offenders}"
+
+
+def test_ri2_only_the_sanctioned_web_integration_imports_the_package_outside_it():
+    importers = set()
+    for p in _py_files(REPO):
+        if PKG_DIR in p.parents or "tests" in p.relative_to(REPO).parts:
+            continue
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(p.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        if any("modeling_assessment" in mod or any("modeling_assessment" in n for n in names) for _l, mod, names in _imports(tree)):
+            importers.add(p.relative_to(REPO))
+    assert importers == SANCTIONED_WEB_INTEGRATION, importers        # ni más (legacy aislado) ni menos (la integración existe)
+
+
+# ── R-I2b: la integración web usa SOLO la superficie pública del paquete ─────
+# Superficie soportada para consumidores externos: módulos públicos y, dentro de ellos, nombres sin guion bajo. El vocabulario
+# y el formato humano compartidos con el Markdown se consumen por `presentation` (API pública), jamás por privados de `render_md`.
+SUPPORTED_INTEGRATION_MODULES = {"presentation", "profile", "shadow", "scope", "paths", "render_md"}
+
+
+def _private_package_accesses(tree: ast.AST) -> list[str]:
+    """Accesos a símbolos/módulos con guion bajo del paquete desde CÓDIGO EXTERNO: `from pkg.m import _x`, `import pkg._m`,
+    `alias._x` (alias de un import del paquete), la cadena completa `pkg.m._x` y `getattr(alias, "_x")`."""
+    out: list[str] = []
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name == PKG_NAME or a.name.startswith(PKG_NAME + "."):
+                    aliases.add(a.asname or a.name)
+                    if any(part.startswith("_") for part in a.name.split(".")):
+                        out.append(f"import {a.name}")
+        elif isinstance(node, ast.ImportFrom) and not node.level and (node.module == PKG_NAME or (node.module or "").startswith(PKG_NAME + ".")):
+            if any(part.startswith("_") for part in node.module.split(".")):
+                out.append(f"from {node.module}")
+            for a in node.names:
+                aliases.add(a.asname or a.name)
+                if a.name.startswith("_"):
+                    out.append(f"from {node.module} import {a.name}")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr.startswith("_") and not node.attr.startswith("__"):
+            base = node.value
+            chain = []
+            while isinstance(base, ast.Attribute):
+                chain.append(base.attr)
+                base = base.value
+            root = base.id if isinstance(base, ast.Name) else None
+            dotted = ".".join([root, *reversed(chain)]) if root else ""
+            if root in aliases or dotted == PKG_NAME or dotted.startswith(PKG_NAME + "."):
+                out.append(f"{dotted}.{node.attr}")
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr" and len(node.args) >= 2
+              and isinstance(node.args[0], ast.Name) and node.args[0].id in aliases
+              and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str) and node.args[1].value.startswith("_")):
+            out.append(f"getattr({node.args[0].id}, {node.args[1].value!r})")
+    return out
+
+
+def _package_surface_violations(tree: ast.AST) -> list[str]:
+    """Imports del paquete fuera de `SUPPORTED_INTEGRATION_MODULES`."""
+    out = []
+    for level, mod, names in _imports(tree):
+        if level or not (mod == PKG_NAME or mod.startswith(PKG_NAME + ".")):
+            continue
+        if mod == PKG_NAME:
+            out += [f"{PKG_NAME}.{n}" for n in names if n not in SUPPORTED_INTEGRATION_MODULES]
+        else:
+            top = mod[len(PKG_NAME) + 1:].split(".")[0]
+            if top not in SUPPORTED_INTEGRATION_MODULES:
+                out.append(mod)
+    return out
+
+
+def _external_package_consumers() -> dict[Path, ast.AST]:
+    found = {}
+    for p in _py_files(REPO):
+        if PKG_DIR in p.parents or "tests" in p.relative_to(REPO).parts:
+            continue
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(p.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        if any("modeling_assessment" in mod or any("modeling_assessment" in n for n in names) for _l, mod, names in _imports(tree)):
+            found[p.relative_to(REPO)] = tree
+    return found
+
+
+def test_ri2b_external_code_never_touches_private_package_symbols():
+    consumers = _external_package_consumers()
+    assert set(consumers) == SANCTIONED_WEB_INTEGRATION                          # no se amplía la superficie permitida
+    offenders = {str(p): _private_package_accesses(t) for p, t in consumers.items() if _private_package_accesses(t)}
+    assert offenders == {}, f"código externo usa símbolos PRIVADOS (con guion bajo) del paquete: {offenders}"
+
+
+def test_ri2b_integration_imports_only_the_supported_public_modules():
+    for p, tree in _external_package_consumers().items():
+        assert _package_surface_violations(tree) == [], str(p)
+
+
+def test_ri2b_presenter_gets_shared_wording_only_through_the_public_presentation_api():
+    tree = ast.parse((REPO / "webapp/services/assessment_presenter.py").read_text(encoding="utf-8"))
+    mods = {mod + "." + n if mod == PKG_NAME else mod for _l, mod, names in _imports(tree) for n in names if PKG_NAME in mod}
+    assert mods == {f"{PKG_NAME}.presentation"}, mods                             # ni render_md ni nada más
+
+
+# CONTROL NEGATIVO PERMANENTE del detector: cada forma de acceso privado DEBE ser detectada; las públicas, no.
+@pytest.mark.parametrize("src", [
+    "from tools.catalog.modeling_assessment.render_md import _AREA_TITLE\n",
+    "from tools.catalog.modeling_assessment import render_md as R\nx = R._occurrence_line\n",
+    "from tools.catalog.modeling_assessment import render_md\nx = render_md._pct(1)\n",
+    "import tools.catalog.modeling_assessment.render_md as R\nR._plural(1, 'a')\n",
+    "import tools.catalog.modeling_assessment.paths\ntools.catalog.modeling_assessment.paths._is_within(1, 2)\n",
+    "from tools.catalog.modeling_assessment import paths as ma_paths\nma_paths._is_within(1, 2)\n",
+    "from tools.catalog.modeling_assessment import render_md as R\ngetattr(R, '_LEVEL_TEXT')\n",
+    "from tools.catalog.modeling_assessment._internal import thing\n",
+])
+def test_ri2b_detector_flags_every_form_of_private_access(src):
+    assert _private_package_accesses(ast.parse(src)), src
+
+
+@pytest.mark.parametrize("src", [
+    "from tools.catalog.modeling_assessment import presentation as P\nP.area_title('X')\n",
+    "from tools.catalog.modeling_assessment.render_md import render_markdown\nrender_markdown({})\n",
+    "from tools.catalog.modeling_assessment import shadow\nshadow.assess\nshadow.__name__\n",
+    "x = self._private\n",                                                        # atributos privados propios no son del paquete
+])
+def test_ri2b_detector_does_not_flag_public_or_unrelated_access(src):
+    assert _private_package_accesses(ast.parse(src)) == [], src
+
+
+def test_ri2b_surface_detector_flags_modules_outside_the_supported_set():
+    assert _package_surface_violations(ast.parse("from tools.catalog.modeling_assessment import signals\n"))
+    assert _package_surface_violations(ast.parse("from tools.catalog.modeling_assessment.legacy_bridge import x\n"))
+    assert not _package_surface_violations(ast.parse("from tools.catalog.modeling_assessment.presentation import area_title\n"))
 
 
 @pytest.mark.parametrize("legacy_file", [
@@ -190,8 +339,9 @@ def test_package_layout_is_the_approved_one():
     m5 = {"signals.py"}
     m6 = {"assessability.py"}
     m7 = {"profile.py", "render_md.py", "shadow.py", "__main__.py"}
+    public_api = {"presentation.py"}        # Catalog Assessment Report V1: API pública de presentación para consumidores externos
     present = {p.name for p in PKG_DIR.iterdir() if p.is_file()}
-    approved = m0 | m1 | m2 | m3 | m4 | m5 | m6 | m7
+    approved = m0 | m1 | m2 | m3 | m4 | m5 | m6 | m7 | public_api
     assert approved <= present, sorted(approved - present)
     # Hito actual = M7: NO se adelantan milestones posteriores (M8: informe de validacion shadow contra el legacy) ni aparecen archivos no aprobados.
     assert present == approved, sorted(present - approved)

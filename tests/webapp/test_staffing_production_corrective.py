@@ -784,7 +784,11 @@ def test_15_route_surface_still_156():
     #     (hard delete, sólo permitido para una búsqueda placeholder sin
     #     postulaciones ni Entrevistas vinculadas) -- CERO rutas de Staffing
     #     tocadas.
-    assert len(snapshot) == 177
+    #   177 -> 181 (Catalog Assessment Report V1): +4 method+path del
+    #     assessment de modelado en el Catálogo (GET/POST /catalog/flow/assessment,
+    #     GET .../assessment.json y .../assessment.md) -- CERO rutas de Staffing tocadas,
+    #     este gate sigue sin cambios propios.
+    assert len(snapshot) == 181
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot
