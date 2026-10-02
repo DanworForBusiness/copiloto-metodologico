@@ -68,6 +68,8 @@ class DatasphereCli:
         self.client_secret = client_secret
         self.token_url = token_url
         self.work_dir = work_dir
+        # Script lives in tools/catalog/, so repo root is two levels above.
+        self.project_root = Path(__file__).resolve().parents[2]
         self.env = os.environ.copy()
 
         # Isolate CLI state per execution so simultaneous tenants/jobs do not share secrets.
@@ -76,10 +78,12 @@ class DatasphereCli:
         self.env["HOME"] = str(self.home_dir)
 
     def _run(self, args: list[str], *, expect_json: bool = False) -> Any:
-        cmd = ["npx", "datasphere", *args]
+        # Use the Datasphere CLI already installed in this application's node_modules.
+        # --no-install prevents npx from trying to download a package from npm.
+        cmd = ["npx", "--no-install", "datasphere", *args]
         proc = subprocess.run(
             cmd,
-            cwd=self.work_dir,
+            cwd=self.project_root,
             env=self.env,
             capture_output=True,
             text=True,
