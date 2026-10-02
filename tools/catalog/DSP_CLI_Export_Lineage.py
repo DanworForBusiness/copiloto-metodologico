@@ -547,19 +547,15 @@ class LineageExporter:
 
     def write_outputs(self) -> Path:
         """
-        Preserve the output contract of the original PowerShell automation:
-          Datasphere_RAW_<SPACE>/<object-type>.json
-          Datasphere_DEFINITIONS_<SPACE>/<object-type>/<technicalName>.json
+        Persist the selected lineage into the canonical catalog CSN pool:
 
-        The only difference is that inventories/definitions are filtered to the
-        lineage of the selected Analytic Model.
+            catalog_local/.csn_cache/<CLIENT>/<object-type>/<technicalName>.json
+
+        No inventory JSON and no diagnostic manifest are written inside .csn_cache,
+        because generate_catalog.py treats every .json under that tree as CSN input.
         """
-        base_dir = self.output_dir
-        inventory_dir = base_dir / f"Datasphere_RAW_{self.space}"
-        definitions_dir = base_dir / f"Datasphere_DEFINITIONS_{self.space}"
-
-        inventory_dir.mkdir(parents=True, exist_ok=True)
-        definitions_dir.mkdir(parents=True, exist_ok=True)
+        client_cache_dir = self.output_dir
+        client_cache_dir.mkdir(parents=True, exist_ok=True)
 
         selected_by_type: dict[str, set[str]] = {
             object_type: set() for object_type in OBJECT_TYPES
@@ -569,39 +565,21 @@ class LineageExporter:
                 selected_by_type[node.object_type].add(node.technical_name)
 
         print("\n==========================================")
-        print("GENERANDO INVENTARIOS COMPATIBLES")
+        print("EXPORTANDO CSN AL POOL DEL CATALOGO")
         print("==========================================")
+        print(f"Destino cliente: {client_cache_dir}")
 
-        for object_type in OBJECT_TYPES:
-            selected = selected_by_type.get(object_type, set())
-            source_rows = self.inventory_rows.get(object_type, [])
-            filtered_rows = [
-                row
-                for row in source_rows
-                if isinstance(row, dict)
-                and row.get("technicalName") in selected
-            ]
-
-            inventory_file = inventory_dir / f"{object_type}.json"
-            inventory_file.write_text(
-                json.dumps(filtered_rows, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            print(f"{object_type}: {len(filtered_rows)} -> {inventory_file}")
-
-        print("\n==========================================")
-        print("EXPORTANDO DEFINICIONES")
-        print("==========================================")
+        exported = 0
+        errors = 0
 
         for object_type in OBJECT_TYPES:
             names = sorted(selected_by_type.get(object_type, set()))
-            target_dir = definitions_dir / object_type
+            target_dir = client_cache_dir / object_type
             target_dir.mkdir(parents=True, exist_ok=True)
 
             print("")
             print("==========================================")
             print(f"Procesando: {object_type}")
-            print(f"Inventario: {inventory_dir / (object_type + '.json')}")
             print(f"Destino:    {target_dir}")
             print("==========================================")
             print("")
@@ -612,8 +590,7 @@ class LineageExporter:
                 continue
 
             ok = 0
-            skipped = 0
-            errors = 0
+            failed = 0
 
             for i, technical_name in enumerate(names, start=1):
                 output_file = target_dir / f"{self._safe_filename(technical_name)}.json"
@@ -621,14 +598,10 @@ class LineageExporter:
                 print("")
                 print(f"[{i}/{len(names)}] {technical_name}")
 
-                if output_file.exists():
-                    print("SKIP - ya existe")
-                    skipped += 1
-                    continue
-
                 data = self.safe_read(object_type, technical_name)
                 if data is None:
                     print("ERROR")
+                    failed += 1
                     errors += 1
                     continue
 
@@ -638,57 +611,28 @@ class LineageExporter:
                 )
                 print("OK")
                 ok += 1
+                exported += 1
 
             print("")
             print("------------------------------------------")
             print(f"{object_type} terminado")
-            print(f"OK:       {ok}")
-            print(f"Existian: {skipped}")
-            print(f"Errores:  {errors}")
-            print(f"Total:    {len(names)}")
+            print(f"OK:      {ok}")
+            print(f"Errores: {failed}")
+            print(f"Total:   {len(names)}")
             print("------------------------------------------")
-
-        # Optional diagnostic manifest kept OUTSIDE the legacy RAW/DEFINITIONS trees
-        # so existing consumers that expect those exact structures are unaffected.
-        manifest = {
-            "space": self.space,
-            "analyticModel": self.analytic_model,
-            "objects": [
-                asdict(n)
-                for n in sorted(
-                    self.nodes.values(),
-                    key=lambda n: (n.object_type, n.technical_name),
-                )
-            ],
-            "edges": [
-                asdict(e)
-                for e in sorted(
-                    self.edges,
-                    key=lambda e: (
-                        e.source_type,
-                        e.source_name,
-                        e.relation,
-                        e.target_type,
-                        e.target_name,
-                    ),
-                )
-            ],
-            "externalSources": sorted(self.external_sources),
-        }
-        manifest_path = base_dir / "lineage-manifest.json"
-        manifest_path.write_text(
-            json.dumps(manifest, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
 
         print("")
         print("==========================================")
-        print("EXPORT DE DEFINICIONES FINALIZADO")
-        print("Destino:")
-        print(definitions_dir)
+        print("EXPORT CSN FINALIZADO")
+        print(f"Archivos exportados: {exported}")
+        print(f"Errores:             {errors}")
+        print(f"Pool cliente:        {client_cache_dir}")
         print("==========================================")
 
-        return manifest_path
+        # Return the client cache directory; diagnostics are written later outside
+        # .csn_cache so they never become catalog source JSON.
+        return client_cache_dir
+
     def run(self) -> Path:
         self.build_inventory()
         self.walk_model_graph()
@@ -699,7 +643,7 @@ class LineageExporter:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Export SAP Datasphere lineage for an Analytic Model using the Datasphere CLI."
+        description="Export SAP Datasphere lineage for an Analytic Model into the Danwor catalog CSN pool."
     )
     parser.add_argument("--host", required=True)
     parser.add_argument("--client-id", required=True)
@@ -708,9 +652,37 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--space", required=True)
     parser.add_argument("--analytic-model", required=True)
     parser.add_argument(
-        "--output-dir",
+        "--client",
+        required=True,
+        help="Cliente de catálogo (ej. Pampa). Se usa como carpeta bajo .csn_cache.",
+    )
+    parser.add_argument(
+        "--catalog-root",
         default=None,
-        help="Optional base output directory. Legacy-compatible RAW/DEFINITIONS folders are created inside it.",
+        help=(
+            "Raíz catalog_local. Default: DANWOR_CATALOG_DIR o <repo>/catalog_local."
+        ),
+    )
+    parser.add_argument(
+        "--csn-cache-dir",
+        default=None,
+        help=(
+            "Pool CSN persistido. Default: DANWOR_CATALOG_CSN_CACHE "
+            "o <catalog-root>/.csn_cache."
+        ),
+    )
+    parser.add_argument(
+        "--no-generate-catalog",
+        action="store_true",
+        help="Sólo exporta CSN; no ejecuta generate_catalog.generate_all().",
+    )
+    parser.add_argument(
+        "--mirror-up",
+        action="store_true",
+        help=(
+            "Al finalizar, invoca core.remote_store.mirror_up() para persistencia "
+            "inmediata. Sin este flag se usa el sync loop normal de la app."
+        ),
     )
     return parser.parse_args()
 
@@ -722,11 +694,35 @@ def main() -> int:
         print("ERROR: npx not found in PATH", file=sys.stderr)
         return 2
 
-    output_dir = (
-        Path(args.output_dir)
-        if args.output_dir
-        else Path.cwd() / f"Datasphere_LINEAGE_{args.space}_{args.analytic_model}"
-    )
+    project_root = Path(__file__).resolve().parents[2]
+
+    catalog_root = Path(
+        args.catalog_root
+        or os.getenv("DANWOR_CATALOG_DIR")
+        or (project_root / "catalog_local")
+    ).resolve()
+
+    csn_cache_root = Path(
+        args.csn_cache_dir
+        or os.getenv("DANWOR_CATALOG_CSN_CACHE")
+        or (catalog_root / ".csn_cache")
+    ).resolve()
+
+    # Client is intentionally a runtime parameter. Keep path-safe while preserving
+    # the visible business name as much as possible.
+    client_dir_name = re.sub(r'[\\/:*?"<>|]', "_", args.client.strip()).replace(" ", "_")
+    if not client_dir_name:
+        print("ERROR: --client cannot be empty", file=sys.stderr)
+        return 2
+
+    client_cache_dir = csn_cache_root / client_dir_name
+    diagnostics_dir = catalog_root / ".lineage_runs" / client_dir_name / args.analytic_model
+
+    print("Catalog integration:")
+    print(f"  Client:       {args.client}")
+    print(f"  Catalog root: {catalog_root}")
+    print(f"  CSN cache:    {csn_cache_root}")
+    print(f"  Client pool:  {client_cache_dir}")
 
     # Work area is ephemeral and isolated from the final export.
     with tempfile.TemporaryDirectory(prefix="dsp-lineage-") as tmp:
@@ -739,7 +735,7 @@ def main() -> int:
             work_dir=work_dir,
         )
         try:
-            print("Logging in to SAP Datasphere...")
+            print("\nLogging in to SAP Datasphere...")
             cli.login()
             print("Login OK")
 
@@ -747,21 +743,96 @@ def main() -> int:
                 cli=cli,
                 space=args.space,
                 analytic_model=args.analytic_model,
-                output_dir=output_dir,
+                output_dir=client_cache_dir,
             )
-            manifest_path = exporter.run()
+            exported_pool = exporter.run()
         except DatasphereCliError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
 
+    # Diagnostic manifest OUTSIDE .csn_cache. This is persisted with catalog_local
+    # but is never scanned as CSN input by generate_catalog.py.
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "client": args.client,
+        "space": args.space,
+        "analyticModel": args.analytic_model,
+        "objects": [
+            asdict(n)
+            for n in sorted(
+                exporter.nodes.values(),
+                key=lambda n: (n.object_type, n.technical_name),
+            )
+        ],
+        "edges": [
+            asdict(e)
+            for e in sorted(
+                exporter.edges,
+                key=lambda e: (
+                    e.source_type,
+                    e.source_name,
+                    e.relation,
+                    e.target_type,
+                    e.target_name,
+                ),
+            )
+        ],
+        "externalSources": sorted(exporter.external_sources),
+    }
+    manifest_path = diagnostics_dir / "lineage-manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    if not args.no_generate_catalog:
+        print("\n==========================================")
+        print("REGENERANDO CATALOGO EXISTENTE")
+        print("==========================================")
+        try:
+            if str(project_root) not in sys.path:
+                sys.path.insert(0, str(project_root))
+            from tools.catalog.generate_catalog import generate_all
+
+            summary = generate_all(csn_cache_root, catalog_root)
+            print(summary)
+        except Exception as exc:
+            print(f"ERROR generating catalog: {exc}", file=sys.stderr)
+            return 1
+
+    if args.mirror_up:
+        print("\n==========================================")
+        print("PERSISTIENDO EN DIGITALOCEAN SPACES")
+        print("==========================================")
+        try:
+            if str(project_root) not in sys.path:
+                sys.path.insert(0, str(project_root))
+            from core import remote_store
+
+            if remote_store.enabled():
+                remote_store.mirror_up()
+                print("mirror_up OK")
+            else:
+                print("WARN: remote_store is disabled; local catalog was generated but not mirrored.")
+        except Exception as exc:
+            print(f"ERROR mirror_up: {exc}", file=sys.stderr)
+            return 1
+    else:
+        print(
+            "\nPersistencia Spaces: se usará el sync loop normal de remote_store "
+            "(use --mirror-up para forzarla ahora)."
+        )
+
     print("\nEXPORT DE LINAJE FINALIZADO")
+    print(f"Cliente: {args.client}")
     print(f"Space: {args.space}")
     print(f"Analytic Model: {args.analytic_model}")
     print(f"Objetos incluidos: {len(exporter.nodes)}")
     print(f"Relaciones: {len(exporter.edges)}")
     print(f"Fuentes externas: {len(exporter.external_sources)}")
-    print(f"Manifest: {manifest_path}")
-    print(f"Destino: {output_dir}")
+    print(f"Pool CSN: {exported_pool}")
+    print(f"Manifest diagnóstico: {manifest_path}")
+    print(f"Catálogo: {catalog_root}")
     return 0
 
 
