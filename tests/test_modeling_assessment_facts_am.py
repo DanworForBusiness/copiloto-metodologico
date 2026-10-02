@@ -22,7 +22,7 @@ def _by(facts, fid, subject=None):
 def test_all_am_facts_are_analytic_model_modeling_plane_and_assessed():
     _, facts = _facts()
     assert {f.fact_id for f in facts} == {"am.contract_inventory", "am.association_targets", "am.contract_delta",
-                                          "am.numeric_attributes_not_declared_as_measures"}
+                                          "am.numeric_attributes_not_declared_as_measures", "am.closure_composition"}
     assert {f.area for f in facts} == {m.Area.ANALYTIC_MODEL} and {f.plane for f in facts} == {m.Plane.MODELING}
     assert {f.assessability for f in facts} == {m.Assessability.ASSESSED}
 
@@ -124,3 +124,15 @@ def test_scoring_like_artifact_and_field_names_do_not_break_fact_construction():
     view = ent("SCORE_VIEW", has_query=True, fields=[fld("weight", measure=True), fld("penalty")], measures=[{"campo": "weight", "agg": "SUM"}])
     _, facts = _facts(pool(am, view), "AM_S")
     assert _by(facts, "am.contract_delta", "SCORE_VIEW->AM_S").value["fields"]["removed"] == ["penalty"]
+
+
+def test_closure_composition_is_a_descriptive_partition_of_the_semantic_closure():
+    ents, facts = _facts()
+    f = _by(facts, "am.closure_composition")[0]
+    u = AssessmentUniverse.from_entities(ents)
+    closure, lineage = set(u.closure_of(f.subject)), set(u.lineage_closure_of(f.subject))
+    v = f.value
+    assert v["semantic_closure_size"] == len(closure) == v["strict_lineage_size"] + v["association_mediated_size"]
+    assert set(v["strict_lineage_artifacts"]) == lineage and set(v["association_mediated_artifacts"]) == closure - lineage
+    assert not set(v["strict_lineage_artifacts"]) & set(v["association_mediated_artifacts"]) and f.subject in v["strict_lineage_artifacts"]
+    assert f.evidence_class is m.EvidenceClass.B and not [k for k in v if m.find_forbidden_tokens(k)]       # contexto de arquitectura: sin vocabulario de calidad

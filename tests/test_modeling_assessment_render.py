@@ -419,3 +419,98 @@ def test_closure_level_units_are_shown_in_spanish_not_as_the_internal_id(docs):
                 line = next(ln for ln in md.splitlines() if ln.startswith(f"- {lim['title']}: "))
                 assert "cierre semántico completo" in line and "`closure`" not in line
     assert seen
+
+
+# ═══ M8 calibracion 1: contratos de presentacion de las decisiones del owner ═══
+def test_the_top_level_state_describes_execution_not_evidence_assessability(docs):
+    for _am, doc in docs:
+        md = R.render_markdown(doc)
+        header = md[:md.index("## Resumen")]
+        assert "- **Estado del assessment:** Ejecutado" in header and "Estado de la evaluación" not in header      # el encabezado ya no sugiere evidencia completa
+        assert "**Estado de la evaluación:** " in md                                                              # la evaluabilidad sigue siendo POR AREA
+    md = R.render_markdown(build(_local_chain(), "AM_C")[0])                         # la Fuente NO se pudo evaluar, pero la ejecucion fue completa
+    assert "- **Estado del assessment:** Ejecutado" in md and "| Fuente / Extracción | Fuente / Extracción | No evaluado |" in md
+    assert "- **Estado del assessment:** No aplica" in R.render_markdown(_no_terminal_scope_doc())
+    indet = P.build_indeterminate_assessment(client="Clash", requested_model="4AM_X", message="colisión", pool_signature="abc")
+    assert "- **Estado del assessment:** Indeterminado" in R.render_markdown(indet)
+    assert R._EXECUTION_TEXT == {"ASSESSED": "Ejecutado", "NOT_APPLICABLE": "No aplica", "INDETERMINATE": "Indeterminado"}
+
+
+def test_not_applicable_rows_are_absent_from_the_limitations_section_and_listed_in_the_technical_detail(docs):
+    seen = 0
+    for _am, doc in docs:
+        md = R.render_markdown(doc)
+        lim = md[md.index("## No evaluado / Limitaciones de evidencia"):md.index("## Evidencia / Detalle técnico")]
+        assert "| No aplica |" not in lim and "no aplica" not in lim.lower().replace("¿cuenta para la cobertura?", "")
+        assert all(R._STATE_TEXT[x["assessability"]] in ("No evaluado", "Parcialmente evaluado", "Indeterminado") for x in doc["evidence_limitations"])
+        tech = md[md.index("## Evidencia / Detalle técnico"):]
+        if doc["not_applicable"]:
+            seen += 1
+            assert "### Evidencia que no aplica (trazabilidad; no son limitaciones de evidencia)" in tech
+            for s in doc["not_applicable"]:
+                assert f"| {R._cell(s['title'])} (`{s['surface_id']}`) |" in tech
+        else:
+            assert "### Evidencia que no aplica" not in tech
+    assert seen
+
+
+def test_context_questions_deduplicated_by_semantic_key_appear_once_and_are_traceable(docs):
+    seen = 0
+    for _am, doc in docs:
+        md = R.render_markdown(doc)
+        ctx = doc["summary"]["context_required"]
+        for d in ctx["deduplicated_questions"]:
+            seen += 1
+            assert P.CONTEXT_QUESTION_TEXT[d["id"]] not in md                                  # no se repite la pregunta generica
+            assert f"- `{d['id']}` → ya la formula el grupo `{d['covered_by']}`" in md          # trazabilidad en el detalle tecnico
+            assert next(g for g in _groups(doc) if g["id"] == d["covered_by"])["context_required"]["question"] in md
+        for q in ctx["questions"]:
+            assert md.count(q["question"]) >= 1
+        if ctx["deduplicated_questions"]:
+            assert "### Preguntas de contexto no repetidas (ya formuladas por un hallazgo)" in md
+        else:
+            assert "### Preguntas de contexto no repetidas" not in md
+    assert seen
+
+
+def test_findings_are_rendered_in_the_document_priority_order(docs):
+    for _am, doc in docs:
+        md = R.render_markdown(doc)
+        for kind, section_start, section_end in (("review_required", "## Revisión requerida", "## No evaluado / Limitaciones de evidencia"),
+                                                 ("observations", "## Observaciones", "## Revisión requerida")):
+            sec = md[md.index(section_start):md.index(section_end)]
+            headings = re.findall(r"^### (.+?) — \d+ ocurrencias?$", sec, re.M)
+            expected = [_title(g) for g in doc[kind]]
+            assert headings == expected, (kind, headings, expected)
+
+
+def test_direct_raw_lines_show_distance_and_dependents_when_available_and_say_so_when_not(docs):
+    seen_defined = 0
+    for _am, doc in docs:
+        md = R.render_markdown(doc)
+        g = next((x for x in doc["observations"] if x["id"] == "DIRECT_RAW_TABLE_ACCESS"), None)
+        for o in (g["occurrences"][:R.MAX_OCCURRENCES_SHOWN] if g else []):
+            line = R._occurrence_line("DIRECT_RAW_TABLE_ACCESS", o)
+            v = o["values"]
+            assert f"artefactos dependientes aguas abajo: {v['transitive_lineage_dependents']}" in line and f"  - {line}" in md
+            if v["lineage_distance"] is not None:
+                seen_defined += 1
+                assert f"distancia al modelo analítico: {v['lineage_distance']}" in line
+            assert "severidad" not in line.lower() and "prioridad" not in line.lower()
+    doc = copy.deepcopy(next(d for _a, d in docs if any(x["id"] == "DIRECT_RAW_TABLE_ACCESS" for x in d["observations"])))
+    g = next(x for x in doc["observations"] if x["id"] == "DIRECT_RAW_TABLE_ACCESS")
+    g["occurrences"][0]["values"]["lineage_distance"] = None                                  # fuente que no alcanza al AM por linaje estricto: distancia no definida
+    line = R._occurrence_line("DIRECT_RAW_TABLE_ACCESS", g["occurrences"][0])
+    assert "distancia al modelo analítico: no definida" in line and f"  - {line}" in R.render_markdown(doc)
+    assert seen_defined
+
+
+def test_closure_composition_and_numeric_non_measure_evidence_are_rendered_in_the_analytic_model_section(docs):
+    for _am, doc in docs:
+        md = R.render_markdown(doc)
+        am_sec = md[md.index("### Modelo analítico"):md.index("### Propagación")]
+        assert "- Cierre semántico del modelo analítico (artefactos): " in am_sec
+        row = next(h for a in doc["areas"] if a["id"] == "ANALYTIC_MODEL" for h in a["highlights"] if h["id"] == "semantic_closure")
+        for b in row["breakdown"]:
+            assert f"  - {b['name']}: {b['count']}" in am_sec
+        assert "- Atributos numéricos expuestos que no están declarados como medida: " in am_sec

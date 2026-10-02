@@ -38,7 +38,7 @@ from .model import (
     Area, Assessability, Fact, Observation, ObservationId, ReviewId, ReviewItem, Signal, SignalKind, _ensure_jsonable,
 )
 
-SIGNALS_RULESET = "signal-rules/v1"
+SIGNALS_RULESET = "signal-rules/v2"                       # v2 (M8, parche 1): PASS_THROUGH_REVIEW solo evalua aristas internas modelado->modelado
 
 _USABLE = (Assessability.ASSESSED, Assessability.PARTIALLY_ASSESSED)
 
@@ -150,7 +150,9 @@ def _rule_source_filter_present(idx: FactIndex) -> list[Finding]:
 
 def _rule_pass_through(idx: FactIndex) -> list[Finding]:
     out = []
-    for f in [*idx.usable("propagation.contract_delta"), *idx.usable("am.contract_delta")]:
+    # POBLACION ELEGIBLE (decision del owner, M8): transformaciones INTERNAS modelado->modelado = `propagation.contract_delta`.
+    # NO elegibles: fuente/frontera -> primer consumidor (`ingestion.field_retention`) y ultimo proveedor -> AM terminal (`am.contract_delta`).
+    for f in idx.usable("propagation.contract_delta"):
         v = f.value
         d = v["descriptors"]
         if (v["consumer_lineage_provider_count"] == 1                          # un consumidor que COMBINA varios proveedores no es pass-through
@@ -378,12 +380,12 @@ SIGNAL_REGISTRY: tuple[SignalSpec, ...] = (
         _rule_source_filter_present),
     SignalSpec(
         ReviewId.PASS_THROUGH_REVIEW.value, SignalKind.REVIEW, Area.PROPAGATION, ("non_dimension_consumer",),
-        ("propagation.contract_delta", "am.contract_delta"),
-        "a lineage edge whose consumer has exactly one lineage provider, is not a declared dimension, exposes a visible derivation flag and "
+        ("propagation.contract_delta",),
+        "an INTERNAL modeled transformation edge (modeled artifact -> modeled artifact; never source -> first consumer, never final provider -> terminal model) whose consumer has exactly one lineage provider, is not a declared dimension, exposes a visible derivation flag and "
         "has identical schema + no introduced derived field / association / measure -> review item for that edge",
         ("pass-through is not low maturity", "a near-pure pass-through can be methodologically acceptable (CASE 1 is the counterexample)",
          "the reading depends on the functional role of the layer",
-         "no signal does NOT mean the pattern is absent: leaf to first-consumer edges and artifacts without a visible query or descriptors are not evaluable"),
+         "no signal does NOT mean the pattern is absent: internal edges without a visible query or descriptors are not evaluable; source-to-first-consumer and final-provider-to-terminal-model edges are outside this rule's population"),
         _rule_pass_through,
         legitimate_reasons=("serving boundary", "product boundary", "stable semantic contract", "technical decomposition", "compatibility layer"),
         missing_context="Functional role of the consuming layer (serving or product boundary, stable contract, technical decomposition, compatibility)."),

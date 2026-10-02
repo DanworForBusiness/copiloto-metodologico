@@ -176,28 +176,60 @@ def _pt(**tweaks):
     return ents
 
 
-def test_a_schema_identical_edge_with_nothing_introduced_is_a_pass_through_review_without_judgment():
-    facts, ev = run(_pt(), "AM_PT")
-    r = [i for i in ev.review_items if i.review_id is m.ReviewId.PASS_THROUGH_REVIEW]
-    assert [i.subjects for i in r] == [("VF_PT", "AM_PT")] and r[0].no_automatic_quality_judgment is True
-    assert r[0].fact_refs == ("am.contract_delta@VF_PT->AM_PT",) and "role" in r[0].missing_context.lower()
+def _pt_internal(**tweaks):
+    """AM_PT <- VF_PT <- VR_PT <- VX_PT <- SRC_PT. Elegibles (transformaciones INTERNAS modelado->modelado): VX->VR y VR->VF (esquema identico).
+    NO elegibles: SRC->VX (desde la fuente) y VF->AM (hacia el AM terminal)."""
+    flds = lambda *n: [f4(x, x.title()) for x in n]                  # noqa: E731
+    am = ent("AM_PT", up=["VF_PT"], cube=True, has_query=True, fields=flds("A", "B"))
+    vf = ent("VF_PT", up=["VR_PT"], pattern="ANALYTICAL_FACT", has_query=True, fields=flds("A", "B"))
+    vr = ent("VR_PT", up=["VX_PT"], has_query=True, fields=flds("A", "B"))
+    vx = ent("VX_PT", up=["SRC_PT"], has_query=True, fields=flds("A", "B"))
+    src = ent("SRC_PT", remote_entity="ABAP_CDS.SRC", remote_connection="C1", fields=flds("A", "B"))
+    ents = pool(am, vf, vr, vx, src)
+    for fn in tweaks.values():
+        fn(ents)
+    return ents
+
+
+def _pass_through(ev):
+    return sorted((i for i in ev.review_items if i.review_id is m.ReviewId.PASS_THROUGH_REVIEW), key=lambda i: i.subjects)
+
+
+def test_an_internal_schema_identical_edge_with_nothing_introduced_is_a_pass_through_review_without_judgment():
+    facts, ev = run(_pt_internal(), "AM_PT")
+    r = _pass_through(ev)
+    assert [i.subjects for i in r] == [("VR_PT", "VF_PT"), ("VX_PT", "VR_PT")] and all(i.no_automatic_quality_judgment is True for i in r)
+    assert r[0].fact_refs == ("propagation.contract_delta@VR_PT->VF_PT",) and "role" in r[0].missing_context.lower()
     assert "pass-through is not low maturity" in next(s for s in ev.signals if s.signal_id == "PASS_THROUGH_REVIEW").interpretation_limits
 
 
 @pytest.mark.parametrize("name,tweak", [
-    ("extra_field", lambda e: e["AM_PT"].fields.append(f4("C", "C"))),
-    ("introduces_derived", lambda e: e["AM_PT"].fields.__setitem__(0, f4("A", "A", derived=True))),
-    ("introduces_association", lambda e: with_assocs(e["AM_PT"], [("_x", "SRC_PT")])),
-    ("introduces_measure", lambda e: e["AM_PT"].measures.append({"campo": "A", "agg": "SUM"})),
-    ("consumer_is_declared_dimension", lambda e: setattr(e["AM_PT"], "modeling_pattern", "ANALYTICAL_CUBE DIMENSION")),
+    ("extra_field", lambda e: e["VF_PT"].fields.append(f4("C", "C"))),
+    ("introduces_derived", lambda e: e["VF_PT"].fields.__setitem__(0, f4("A", "A", derived=True))),
+    ("introduces_association", lambda e: with_assocs(e["VF_PT"], [("_x", "SRC_PT")])),
+    ("introduces_measure", lambda e: e["VF_PT"].measures.append({"campo": "A", "agg": "SUM"})),
+    ("consumer_is_declared_dimension", lambda e: setattr(e["VF_PT"], "modeling_pattern", "ANALYTICAL_CUBE DIMENSION")),
     ("combines_several_providers", lambda e: (e.update({"SRC2": ent("SRC2", remote_entity="ABAP_CDS.S2", remote_connection="C1",
                                                                      fields=[f4("A", "A"), f4("B", "B")])}),
-                                                e["AM_PT"].upstreams.append("SRC2"))),
-    ("derivation_flag_not_visible", lambda e: setattr(e["AM_PT"], "has_query", False)),
+                                                e["VF_PT"].upstreams.append("SRC2"))),
+    ("derivation_flag_not_visible", lambda e: setattr(e["VF_PT"], "has_query", False)),
 ])
 def test_pass_through_is_not_flagged_when_anything_is_introduced_or_the_evidence_is_ambiguous(name, tweak):
-    _, ev = run(_pt(t=tweak), "AM_PT")
-    assert not [i for i in ev.review_items if i.review_id is m.ReviewId.PASS_THROUGH_REVIEW and i.subjects == ("VF_PT", "AM_PT")], name
+    _, ev = run(_pt_internal(t=tweak), "AM_PT")
+    assert not [i for i in _pass_through(ev) if i.subjects == ("VR_PT", "VF_PT")], name
+
+
+def test_the_terminal_model_edge_and_the_source_edge_are_not_pass_through_candidates():
+    """Decision del owner (M8): ultimo proveedor -> AM terminal y fuente/frontera -> primer consumidor NO pertenecen a la poblacion de la regla."""
+    facts, ev = run(_pt(), "AM_PT")                                              # SRC->VF (desde la fuente) y VF->AM (al AM terminal), ambas de esquema identico
+    assert _pass_through(ev) == []
+    assert any(f.fact_id == "am.contract_delta" and f.subject == "VF_PT->AM_PT" for f in facts)       # el hecho existe (trazabilidad) pero no es insumo de la regla
+    facts, ev = run(_pt_internal(), "AM_PT")
+    subjects = {i.subjects for i in _pass_through(ev)}
+    assert ("VF_PT", "AM_PT") not in subjects and ("SRC_PT", "VX_PT") not in subjects
+    spec = next(x for x in S.SIGNAL_REGISTRY if x.signal_id == "PASS_THROUGH_REVIEW")
+    assert spec.required_fact_ids == ("propagation.contract_delta",)
+    assert "outside this rule's population" in " ".join(spec.interpretation_limits)
 
 
 # ── CROSS_LAYER_REDERIVATION ─────────────────────────────────────────────────
@@ -464,7 +496,7 @@ def test_missing_or_not_applicable_facts_produce_nothing_and_never_crash():
 def test_no_signal_object_or_finding_carries_scoring_vocabulary_or_a_quality_judgment():
     for ents, am in ((m4_entities(), "AM_X"), (m3_entities(), "AM_M"), (_rl(), "4AM_RL")):
         _, ev = run(ents, am)
-        assert ev.ruleset_version == S.SIGNALS_RULESET == "signal-rules/v1"
+        assert ev.ruleset_version == S.SIGNALS_RULESET == "signal-rules/v2"
         for s in ev.signals:
             assert s.ruleset_version == S.SIGNALS_RULESET and not m.find_forbidden_tokens(s.signal_id)
         for f in ev.findings:

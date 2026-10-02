@@ -572,3 +572,143 @@ def test_representative_surface_titles_are_pinned_in_spanish():
     assert P.SURFACE_TITLES["propagation.derivation_semantics"] == "Semántica exacta de las fórmulas de derivación"
     assert P.SURFACE_TITLES["naming.convention_context"] == "Contexto de la convención de nombres"
     assert P.SURFACE_TITLES["ingestion.boundary_artifacts"] == "Artefactos de frontera"
+
+
+# ═══ M8 calibracion 1: contratos de las decisiones del owner ═══════════════════
+def test_not_applicable_surfaces_are_never_evidence_limitations_and_are_published_separately(scenarios):
+    seen_na = 0
+    for _a, doc, comp, _f in scenarios:
+        assert all(lim["assessability"] in ("NOT_ASSESSED", "PARTIALLY_ASSESSED", "INDETERMINATE") for lim in doc["evidence_limitations"])
+        assert all(lim["counts_toward_coverage"] is (lim["role"] == "REQUIRED") for lim in doc["evidence_limitations"])
+        expected = {s.surface_id for s in comp.surfaces if s.assessability is m.Assessability.NOT_APPLICABLE and s.role is not A.SurfaceRole.DERIVED_VIEW}
+        assert {x["surface_id"] for x in doc["not_applicable"]} == expected
+        assert not ({x["surface_id"] for x in doc["not_applicable"]} & {x["surface_id"] for x in doc["evidence_limitations"]})      # no se mezclan
+        for x in doc["not_applicable"]:
+            assert x["reason"]["reason_code"] in P.PUBLIC_REASONS and x["title"]
+        seen_na += len(expected)
+    assert seen_na
+
+
+def test_pass_through_edges_outside_the_rule_population_get_a_public_reason():
+    out = P.public_reason(m.Assessability.NOT_APPLICABLE, None, "EDGE_OUTSIDE_RULE_POPULATION")
+    assert out["reason_code"] == "EDGE_OUTSIDE_RULE_POPULATION" and out["reason_summary"].startswith("Esta arista no pertenece a la población de la regla")
+
+
+def _convention_keys(facts):
+    return {k for f in facts if f.fact_id == "naming.convention_context" and f.value for k in f.value["open_context_questions"]}
+
+
+def test_context_questions_are_deduplicated_by_an_explicit_semantic_registry(scenarios):
+    assert set(P.CONTEXT_QUESTION_COVERED_BY) == set(P.CONTEXT_QUESTION_TEXT)
+    real = {s.signal_id for s in S.SIGNAL_REGISTRY if s.kind is not m.SignalKind.DESCRIPTIVE}
+    assert all(set(v) <= real for v in P.CONTEXT_QUESTION_COVERED_BY.values())                       # solo senales que realmente formulan una pregunta
+    assert P.CONTEXT_QUESTION_COVERED_BY["local_convention_for_section_28_deviations"] == ()         # pregunta independiente: nunca se deduplica
+    deduped_somewhere = shown_somewhere = False
+    for _a, doc, _c, facts in scenarios:
+        keys = _convention_keys(facts)
+        ctx = doc["summary"]["context_required"]
+        active = {g["id"] for g in (*doc["observations"], *doc["review_required"])}
+        expected = {k for k in keys if set(P.CONTEXT_QUESTION_COVERED_BY[k]) & active}
+        assert {d["id"] for d in ctx["deduplicated_questions"]} == expected
+        assert all(d["covered_by"] in active and d["covered_by"] in P.CONTEXT_QUESTION_COVERED_BY[d["id"]] for d in ctx["deduplicated_questions"])
+        shown = {q["id"] for q in ctx["questions"] if q["origin"] == "CONTEXT_ONLY"}
+        assert shown == keys - expected and "local_convention_for_section_28_deviations" in shown  # cada pregunta semantica aparece UNA sola vez
+        assert ctx["open_questions"] == len(ctx["questions"]) == len([g for g in (*doc["observations"], *doc["review_required"])]) + len(shown)
+        deduped_somewhere |= bool(expected)
+        shown_somewhere |= bool(shown - {"local_convention_for_section_28_deviations"})
+    assert deduped_somewhere and shown_somewhere
+
+
+def test_presentation_priority_is_one_explicit_versioned_registry_independent_of_results(scenarios):
+    assert P.PRESENTATION_ORDER_VERSION == "presentation-order/v1" and set(P.PRESENTATION_PRIORITY) == set(P.DISPLAY)
+    pr = P.PRESENTATION_PRIORITY
+    assert pr["DIRECT_RAW_TABLE_ACCESS"] < min(v for k, v in pr.items() if k not in ("DIRECT_RAW_TABLE_ACCESS",))        # observaciones primero
+    arch = ["CROSS_LAYER_REDERIVATION", "FLAT_CENTRAL_ASSEMBLY_REVIEW", "DUPLICATED_REMOTE_IMPORT", "ROLE_LAYER_DIVERGENCE", "LAYER_BOUNDARY_REVIEW",
+            "PASS_THROUGH_REVIEW", "AM_SEMANTIC_UNDERUSE_REVIEW"]
+    naming = ["FIELD_VOCABULARY_MIX", "OPAQUE_FIELD_NAME", "LABEL_NOT_ENRICHING"]
+    assert max(pr[k] for k in arch) < min(pr[k] for k in naming) and max(pr[k] for k in naming) < pr["SOURCE_FILTER_PRESENT"]
+    order = {s.signal_id: i for i, s in enumerate(S.SIGNAL_REGISTRY)}
+    for _a, doc, _c, _f in scenarios:
+        assert doc["versions"]["presentation_order"] == P.PRESENTATION_ORDER_VERSION
+        for kind in ("observations", "review_required", "descriptive_signals"):
+            groups = doc[kind]
+            assert [g["presentation_priority"] for g in groups] == sorted(g["presentation_priority"] for g in groups)
+            assert all(g["presentation_priority"] == pr[g["id"]] for g in groups)                      # no depende de ocurrencias ni de resultados del cliente
+            keys = [(g["presentation_priority"], order[g["id"]]) for g in groups]
+            assert keys == sorted(keys)
+        for area in doc["areas"]:
+            pri = [pr[i] for i in area["finding_groups"]]
+            assert pri == sorted(pri)
+    ids = {g["id"]: g["occurrence_count"] for _a, doc, _c, _f in scenarios for g in _groups(doc)}
+    assert len(ids) == len(set(P.PRESENTATION_PRIORITY) & set(ids))                                    # prioridad por senal: el mismo orden con cualquier conteo
+
+
+def test_closure_composition_is_published_as_descriptive_architecture_context(scenarios):
+    seen_assoc = False
+    for _a, doc, comp, facts in scenarios:
+        am = doc["scope"]["terminal_analytic_model"]
+        row = next(h for a in doc["areas"] if a["id"] == "ANALYTIC_MODEL" for h in a["highlights"] if h["id"] == "semantic_closure")
+        assert row["value"] == doc["scope"]["closure_size"] == sum(b["count"] for b in row["breakdown"])           # el cierre concilia con sus dos partes
+        fact = next(f for f in facts if f.fact_id == "am.closure_composition" and f.subject == am)
+        assert [b["count"] for b in row["breakdown"]] == [fact.value["strict_lineage_size"], fact.value["association_mediated_size"]]
+        assert "linaje estricto" in row["breakdown"][0]["name"] and "asociación" in row["breakdown"][1]["name"]
+        seen_assoc |= fact.value["association_mediated_size"] > 0
+        assert not any(w in json.dumps(row, ensure_ascii=False).lower() for w in ("bueno", "malo", "defecto", "calidad"))   # contexto, nunca un juicio
+    assert seen_assoc
+
+
+def test_numeric_non_measure_attributes_are_published_descriptively(scenarios):
+    seen = 0
+    for _a, doc, _c, facts in scenarios:
+        am = doc["scope"]["terminal_analytic_model"]
+        fact = next(f for f in facts if f.fact_id == "am.numeric_attributes_not_declared_as_measures" and f.subject == am)
+        hs = {h["id"]: h for a in doc["areas"] if a["id"] == "ANALYTIC_MODEL" for h in a["highlights"]}
+        n = len(fact.value["fields"])
+        assert hs["numeric_non_measure_attributes"]["value"] == n
+        if n:
+            sample = hs["numeric_non_measure_fields"]["value"]
+            assert len(sample) == min(n, 10) + (1 if n > 10 else 0) and sample[0].startswith(fact.value["fields"][0]["field"])
+            seen += 1
+        else:
+            assert "numeric_non_measure_fields" not in hs
+        assert not [g for g in _groups(doc) if "NUMERIC" in g["id"]]                                  # NO es una senal ni una revision automatica
+        assert all(not any(m.find_forbidden_tokens(k) for k in h) for h in hs.values())
+    assert seen
+
+
+def test_direct_raw_evidence_keeps_distance_and_dependents_without_any_severity(scenarios):
+    seen = 0
+    for _a, doc, _c, _f in scenarios:
+        g = next((x for x in doc["observations"] if x["id"] == "DIRECT_RAW_TABLE_ACCESS"), None)
+        if not g:
+            continue
+        for o in g["occurrences"]:
+            seen += 1
+            v = o["values"]
+            assert {"remote_entity", "remote_connection", "source_filter", "identity_provenance", "reaches_terminal_by_strict_lineage", "lineage_distance",
+                    "transitive_lineage_dependents"} <= set(v)
+            assert not [k for k in v if "sever" in k or "rank" in k or "priority" in k]
+        assert not [k for k in g if "sever" in k]
+    assert seen
+
+
+def test_presentation_text_has_no_remaining_known_anglicisms():
+    texts = [*(t for ts in P.LEGITIMATE_REASONS.values() for t in ts), *(t for ts in P.INTERPRETATION_LIMITS.values() for t in ts), *P.WHY_SHOWN.values(),
+             *(t for pair in P.DISPLAY.values() for t in pair), *P.SIGNAL_QUESTIONS.values(), *P.CONTEXT_NEEDED.values(), *P.PUBLIC_REASONS.values()]
+    assert not [t for t in texts if re.search(r"\b(staging|reporting)\b", t, re.I)]
+    assert "objeto intermedio materializado" in " ".join(P.LEGITIMATE_REASONS["ROLE_LAYER_DIVERGENCE"])
+
+
+def test_numeric_non_measure_sample_is_bounded_and_states_how_many_more_exist():
+    from tests._modeling_assessment_m3_fixtures import m3_entities
+    ents = m3_entities()
+    base = len(next(f for f in all_facts(ents, "AM_M") if f.fact_id == "am.numeric_attributes_not_declared_as_measures").value["fields"])
+    for i in range(12):
+        ents["AM_M"].fields.append({"campo": f"NUM{i:02d}", "label": "", "tipo": "Decimal", "longitud": "13,3", "key": False, "medida": False, "assoc": "",
+                                    "derived": False, "cast": ""})
+    doc, _comp, _facts = build(ents, "AM_M")
+    hs = {h["id"]: h for a in doc["areas"] if a["id"] == "ANALYTIC_MODEL" for h in a["highlights"]}
+    total = base + 12
+    assert hs["numeric_non_measure_attributes"]["value"] == total and total > 10
+    sample = hs["numeric_non_measure_fields"]["value"]
+    assert len(sample) == 11 and sample[-1] == f"… (+{total - 10})" and all("(" in x for x in sample[:10])         # 10 elementos + cuantos mas existen

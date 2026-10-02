@@ -15,7 +15,7 @@ from tests._modeling_assessment_m2_fixtures import WHERE_LANG, _remote_table, m2
 from tests._modeling_assessment_m3_fixtures import m3_entities
 from tests._modeling_assessment_m4_fixtures import m4_entities
 from tests._modeling_assessment_m4_fixtures import f4
-from tests.test_modeling_assessment_signals import _flat, _lb, _opaque, _pt, _redo, _rl
+from tests.test_modeling_assessment_signals import _flat, _lb, _opaque, _pt, _pt_internal, _redo, _rl
 
 
 def _view(name, source, columns, *, pattern=None, category=None, measures=()):
@@ -60,7 +60,7 @@ _OPAQUE_FIELDS = [f4("ZED_VETNOSIS", "EBIT"), f4("ZED_NIVEL_1", "Id Nivel 1"), f
 def scenario_pools(tmp_path: Path):
     """[(entidades, am, evidencia_suplementaria|None)] cuya union dispara todas las senales del registro."""
     ev = SupplementaryEvidence_from(tmp_path)
-    return [(m2_entities(), "AM_P", ev), (m3_entities(), "AM_M", None), (m4_entities(), "AM_X", None), (_pt(), "AM_PT", None),
+    return [(m2_entities(), "AM_P", ev), (m3_entities(), "AM_M", None), (m4_entities(), "AM_X", None), (_pt(), "AM_PT", None), (_pt_internal(), "AM_PT", None),
             (_rl(), "4AM_RL", None), (_lb(), "AM_LB", None), (_flat(4), "AM_FL", None), (_redo(), "AM_RD", None),
             (_opaque({"AM_OP": _OPAQUE_FIELDS, "VF_OP": _OPAQUE_FIELDS, "SRC_OP": _OPAQUE_FIELDS}), "AM_OP", None)]
 

@@ -257,6 +257,8 @@ _FACT_SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec("am.association_targets", _AM, F, REQ, "association targets of the analytic model", ("am.association_targets",), per_unit=False),
     SurfaceSpec("am.contract_delta", _AM, F, REQ, "what the analytic model adds/removes vs each direct lineage provider", ("am.contract_delta",)),
     SurfaceSpec("am.numeric_attributes_not_declared_as_measures", _AM, F, REQ, "numeric attributes not declared as measures", ("am.numeric_attributes_not_declared_as_measures",), per_unit=False),
+    SurfaceSpec("am.closure_composition", _AM, F, VIEW, "descriptive composition of the semantic closure (strict lineage vs association): graph structure, not a required evidence surface",
+                ("am.closure_composition",), per_unit=False),
     # PROPAGATION
     SurfaceSpec("propagation.derived_fields", _PRO, F, REQ, "derived fields per non-leaf artifact (needs a visible query)", ("propagation.derived_fields",)),
     SurfaceSpec("propagation.contract_delta", _PRO, F, REQ, "contract delta per lineage edge", ("propagation.contract_delta",)),
@@ -322,8 +324,14 @@ def _units_duplicates(ctx: Ctx):
     return _source_units(ctx, ("ingestion.duplicate_remote_imports",))
 
 
+EDGE_OUTSIDE_RULE_POPULATION = "EDGE_OUTSIDE_RULE_POPULATION"
+
+
 def _units_pass_through(ctx: Ctx):
-    deltas = [*ctx.idx.all("propagation.contract_delta"), *ctx.idx.all("am.contract_delta")]
+    """Poblacion de PASS_THROUGH_REVIEW = transformaciones INTERNAS modelado->modelado (`propagation.contract_delta`). Las aristas fuente->primer
+    consumidor (`ingestion.field_retention`) y ultimo proveedor->AM terminal (`am.contract_delta`) NO son elegibles: NOT_APPLICABLE a esta regla
+    (no bajan la cobertura ni hacen parcial la superficie; se conservan solo como unidades para trazabilidad)."""
+    deltas = ctx.idx.all("propagation.contract_delta")
     if not deltas and not (ctx.area_present[Area.PROPAGATION] or ctx.area_present[Area.ANALYTIC_MODEL]):
         return None
     out = []
@@ -336,8 +344,9 @@ def _units_pass_through(ctx: Ctx):
             out.append(Unit(f.subject, Assessability.NOT_ASSESSED, Cause.NOT_OBSERVABLE_IN_STANDARD_EXPORT, None, EvidenceClass.C2))
         else:
             out.append(Unit(f.subject, Assessability.ASSESSED))
-    for f in ctx.idx.all("ingestion.field_retention"):                     # el descriptor derivado/asociacion/medida no existe en estas aristas
-        out.append(Unit(f.subject, Assessability.NOT_ASSESSED, Cause.CLASSIFIER_RULE_GAP, None, EvidenceClass.C1))
+    for fid in ("ingestion.field_retention", "am.contract_delta"):          # aristas fuera de la poblacion de la regla
+        for f in ctx.idx.all(fid):
+            out.append(Unit(f.subject, Assessability.NOT_APPLICABLE, None, EDGE_OUTSIDE_RULE_POPULATION))
     return out
 
 

@@ -15,6 +15,8 @@ from typing import Any, Callable
 MAX_OCCURRENCES_SHOWN = 8
 
 # ═══════════════════════════ presentacion (mapeo centralizado ES) ═══════════════════════════
+# Estado de EJECUCION del assessment (documento): separado de la evaluabilidad de la evidencia (estados por area).
+_EXECUTION_TEXT = {"ASSESSED": "Ejecutado", "NOT_APPLICABLE": "No aplica", "INDETERMINATE": "Indeterminado"}
 _STATE_TEXT = {"ASSESSED": "Evaluado", "PARTIALLY_ASSESSED": "Parcialmente evaluado", "NOT_ASSESSED": "No evaluado", "NOT_APPLICABLE": "No aplica",
                "INDETERMINATE": "Indeterminado"}
 _STATE_PLURAL_TEXT = {"ASSESSED": "evaluados", "PARTIALLY_ASSESSED": "parcialmente evaluados", "NOT_ASSESSED": "no evaluados", "NOT_APPLICABLE": "no aplicables",
@@ -92,7 +94,9 @@ def _fmt_direct_raw(o: dict) -> str:
     v = o["values"]
     return (f"{_code(o['affected_artifacts'][0])} ← tabla remota {_code(v.get('remote_entity'))} (conexión {_code(v.get('remote_connection'))}); "
             f"alcanza el modelo analítico por linaje estricto: {_yn(v.get('reaches_terminal_by_strict_lineage'))}; "
-            f"filtro de origen: {_FILTER_TEXT.get(v.get('source_filter'), v.get('source_filter'))}; identidad: {v.get('identity_provenance')}")
+            f"filtro de origen: {_FILTER_TEXT.get(v.get('source_filter'), v.get('source_filter'))}; identidad: {v.get('identity_provenance')}; "
+            f"distancia al modelo analítico: {v['lineage_distance'] if v.get('lineage_distance') is not None else 'no definida'}; "
+            f"artefactos dependientes aguas abajo: {v.get('transitive_lineage_dependents') if v.get('transitive_lineage_dependents') is not None else 'desconocido'}")
 
 
 def _fmt_filter(o: dict) -> str:
@@ -275,7 +279,7 @@ def render_markdown(doc: dict) -> str:
           f"- **Modelo analítico terminal:** {scope['terminal_analytic_model'] or '—'}",
           "- **Alcance de la evaluación:** " + (f"{_plural(scope['closure_size'], 'artefacto')} en el cierre semántico del modelo analítico terminal"
                                                 if scope["applicability"] == "APPLICABLE" else "no aplica"),
-          f"- **Estado de la evaluación:** {_STATE_TEXT.get(doc['assessment_state'], doc['assessment_state'].title())}",
+          f"- **Estado del assessment:** {_EXECUTION_TEXT[doc['assessment_state']]}",
           f"- **Esquema:** `{doc['schema_version']}` · señales `{doc['versions']['signals']}` · evaluabilidad `{doc['versions']['assessability']}` · "
           f"confianza `{doc['versions']['confidence']}`", ""]
     L += ["> Perfil de evidencia, cobertura y confianza — Fase 1 / validación en paralelo. Describe QUÉ se observó, QUÉ requiere revisión y QUÉ no pudo "
@@ -377,7 +381,7 @@ def render_markdown(doc: dict) -> str:
                 L.append(f"- {s['title']}: {_units(s['affected_units'], 8)}")
             L.append("")
     else:
-        L += ["Toda la evidencia en alcance fue evaluada.", ""]
+        L += ["Toda la evidencia aplicable en alcance fue evaluada.", ""]
     nae = [r for r in doc["rule_results"] if r["result"] == "ABSENCE_NOT_ESTABLISHED"]
     if nae:
         L += ["Para estas reglas la ausencia de hallazgos NO está establecida, porque sus insumos estaban incompletos:", ""]
@@ -395,6 +399,17 @@ def render_markdown(doc: dict) -> str:
     L += [f"- Firma del conjunto de artefactos: `{scope['pool_signature']}`" if scope.get("pool_signature") else "- Firma del conjunto de artefactos: no registrada",
           f"- Familias de hechos emitidas: {len({f['fact'].split('@')[0] for f in doc['fact_index']})} · instancias de hechos: {len(doc['fact_index'])}",
           "- Cada ocurrencia anterior lleva en el documento JSON sus ids de hechos de evidencia y sus valores normalizados (`observations`, `review_required`, `fact_index`).", ""]
+    if doc["not_applicable"]:
+        L += ["### Evidencia que no aplica (trazabilidad; no son limitaciones de evidencia)", "", "| Evidencia | Área | Motivo |", "|---|---|---|"]
+        for s in doc["not_applicable"]:
+            L.append(f"| {_cell(s['title'])} (`{s['surface_id']}`) | {_AREA_TITLE.get(s['area'], s['area'])} | "
+                     f"{_cell(s['reason']['reason_summary'])} (`{s['reason']['reason_code']}`) |")
+        L.append("")
+    if ctx["deduplicated_questions"]:
+        L += ["### Preguntas de contexto no repetidas (ya formuladas por un hallazgo)", ""]
+        for q in ctx["deduplicated_questions"]:
+            L.append(f"- `{q['id']}` → ya la formula el grupo `{q['covered_by']}`")
+        L.append("")
     L += ["### Resultados por regla", "", "| Regla | Resultado | Hallazgos |", "|---|---|---|"]
     for r in doc["rule_results"]:
         L.append(f"| {r['title']} (`{r['rule']}`) | {_RULE_RESULT_TEXT[r['result']]} | {r['finding_count']} |")

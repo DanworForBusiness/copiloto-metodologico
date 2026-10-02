@@ -46,6 +46,7 @@ PUBLIC_REASONS: dict[str, str] = {
     "SYSTEM_PROVIDED_ARTIFACT": "Los artefactos provistos por la plataforma (sistema) quedan fuera del gobierno de nombres y de fuentes del proyecto.",
     "CONSUMER_IS_DECLARED_DIMENSION": "El artefacto consumidor se declara dimensión; el patrón de capa de paso no aplica a las dimensiones.",
     "NAME_DOES_NOT_ENCODE_LAYER": "El nombre del artefacto no codifica una capa, por lo que no puede evaluarse la divergencia entre nombre y posición.",
+    "EDGE_OUTSIDE_RULE_POPULATION": "Esta arista no pertenece a la población de la regla: solo se evalúan transformaciones internas entre artefactos modelados.",
     "NO_PEER_ANALYTIC_MODEL": "No hay otro modelo analítico terminal en el universo con el cual comparar el reúso.",
     "INTERNAL_STATIC_OBJECT": "Objeto interno o estático conocido que no es un contrato de extracción externo.",
     # NOT_ASSESSED / PARTIALLY_ASSESSED (por causa)
@@ -83,6 +84,7 @@ _NA_CODE: dict[str, str] = {
     "SYSTEM_ARTIFACT": "SYSTEM_PROVIDED_ARTIFACT",
     "CONSUMER_IS_DECLARED_DIMENSION": "CONSUMER_IS_DECLARED_DIMENSION",
     "NAME_DOES_NOT_ENCODE_LAYER": "NAME_DOES_NOT_ENCODE_LAYER",
+    "EDGE_OUTSIDE_RULE_POPULATION": "EDGE_OUTSIDE_RULE_POPULATION",
     "DECLARED_DIMENSION": "DECLARED_DIMENSION_ARTIFACT",
     "NO_OTHER_TERMINAL_ANALYTIC_MODEL": "NO_PEER_ANALYTIC_MODEL",
     "INTERNAL_STATIC_OBJECT": "INTERNAL_STATIC_OBJECT",
@@ -175,7 +177,7 @@ def normalize_finding_values(signal_id: str, detail: dict) -> dict:
 DISPLAY: dict[str, tuple[str, str]] = {
     "DIRECT_RAW_TABLE_ACCESS": ("Acceso directo a tabla física", "Una tabla física remota se importa directamente en el alcance evaluado."),
     "SOURCE_FILTER_PRESENT": ("Filtro de origen presente", "La definición de la fuente remota lleva un filtro (descriptivo; no es una virtud ni un defecto)."),
-    "PASS_THROUGH_REVIEW": ("Capa de paso", "Un paso del linaje expone exactamente el esquema de su único proveedor y no introduce nada."),
+    "PASS_THROUGH_REVIEW": ("Capa de paso", "Una transformación interna modelada expone exactamente el esquema de su único proveedor y no introduce nada."),
     "CROSS_LAYER_REDERIVATION": ("Campo derivado de nuevo en otra capa", "El mismo campo se deriva en un artefacto y otra vez en un ancestro del linaje."),
     "ROLE_LAYER_DIVERGENCE": ("La capa del nombre difiere de la posición estructural o del rol declarado",
                               "La capa codificada en el nombre del artefacto no coincide con el lugar que ocupa ni con lo que declara."),
@@ -189,6 +191,26 @@ DISPLAY: dict[str, tuple[str, str]] = {
                           "Un nombre técnico de espacio de nombres propio tiene una etiqueta que no comparte ninguna palabra con él."),
     "LABEL_NOT_ENRICHING": ("Etiquetas que repiten los nombres técnicos", "Todos los campos expuestos del artefacto tienen una etiqueta idéntica a su nombre técnico."),
     "AM_SEMANTIC_UNDERUSE_REVIEW": ("Modelo analítico sin asociaciones", "El modelo analítico terminal no declara asociaciones."),
+}
+
+# Orden de PRESENTACION (versionado; NO es puntaje, severidad ni penalidad: solo ordena el informe). Menor numero = antes. Registro unico, sin resultados de cliente:
+# observaciones automaticas primero; luego revisiones de arquitectura/ingesta; luego revisiones de nombres/contexto; las senales descriptivas al final.
+PRESENTATION_ORDER_VERSION = "presentation-order/v1"
+PRESENTATION_PRIORITY: dict[str, int] = {
+    "DIRECT_RAW_TABLE_ACCESS": 10,
+    "CROSS_LAYER_REDERIVATION": 20, "FLAT_CENTRAL_ASSEMBLY_REVIEW": 30, "DUPLICATED_REMOTE_IMPORT": 40, "ROLE_LAYER_DIVERGENCE": 50,
+    "LAYER_BOUNDARY_REVIEW": 60, "PASS_THROUGH_REVIEW": 70, "AM_SEMANTIC_UNDERUSE_REVIEW": 80,
+    "FIELD_VOCABULARY_MIX": 110, "OPAQUE_FIELD_NAME": 120, "LABEL_NOT_ENRICHING": 130,
+    "SOURCE_FILTER_PRESENT": 200,
+}
+
+# Deduplicacion SEMANTICA de preguntas de contexto: una pregunta generica de convencion NO se muestra si un grupo de hallazgos activo ya la formula
+# (mapeo explicito clave -> senales; nunca por similitud de texto). Una clave sin senales es una pregunta independiente.
+CONTEXT_QUESTION_COVERED_BY: dict[str, tuple[str, ...]] = {
+    "local_convention_for_section_28_deviations": (),
+    "business_vocabulary_expected_by_project": ("FIELD_VOCABULARY_MIX", "OPAQUE_FIELD_NAME"),
+    "label_name_mismatch_intent": ("OPAQUE_FIELD_NAME",),
+    "coexisting_name_vocabularies_decision": ("FIELD_VOCABULARY_MIX",),
 }
 
 # Que representa UNA ocurrencia de cada senal (la cantidad de ocurrencias y la de artefactos involucrados NO tienen por que coincidir).
@@ -210,7 +232,7 @@ OCCURRENCE_UNIT: dict[str, str] = {
 WHY_SHOWN: dict[str, str] = {
     "DIRECT_RAW_TABLE_ACCESS": "Se muestra por cada tabla física remota importada directamente en el alcance evaluado, sea cual sea su alcance o filtro: el proyecto debe indicar si cada una es una excepción deliberada.",
     "SOURCE_FILTER_PRESENT": "Se muestra como contexto porque la definición de la fuente remota lleva un filtro; no implica revisión.",
-    "PASS_THROUGH_REVIEW": "Se muestra porque un paso del linaje tiene un único proveedor, no es una dimensión declarada y expone exactamente el esquema de su proveedor sin introducir campos derivados, asociaciones ni medidas.",
+    "PASS_THROUGH_REVIEW": "Se muestra porque una transformación interna modelada (de un artefacto modelado a otro) tiene un único proveedor, no es una dimensión declarada y expone exactamente el esquema de su proveedor sin introducir campos derivados, asociaciones ni medidas.",
     "CROSS_LAYER_REDERIVATION": "Se muestra porque el mismo campo se deriva en un artefacto y otra vez en un ancestro del linaje.",
     "ROLE_LAYER_DIVERGENCE": "Se muestra porque la capa codificada en el nombre del artefacto difiere de su posición estructural o de la capa de su rol declarado.",
     "DUPLICATED_REMOTE_IMPORT": "Se muestra porque una entidad remota se importa bajo más de una identidad local y al menos una de ellas está dentro del alcance evaluado.",
@@ -263,7 +285,7 @@ INTERPRETATION_LIMITS: dict[str, tuple[str, ...]] = {
         "una capa de paso no es un defecto por sí sola",
         "una capa de paso casi pura puede ser metodológicamente aceptable",
         "la lectura depende del rol funcional de la capa",
-        "la ausencia de hallazgo NO significa que el patrón esté ausente: las aristas de la hoja al primer consumidor y los artefactos sin consulta visible o sin descriptores no son evaluables"),
+        "la ausencia de hallazgo NO significa que el patrón esté ausente: las transformaciones internas sin consulta visible o sin descriptores no son evaluables; las aristas desde la fuente hacia el primer consumidor y del último proveedor hacia el modelo analítico terminal quedan fuera de la población de esta regla"),
     "CROSS_LAYER_REDERIVATION": (
         "no es un defecto automático (es una revisión de estabilidad del contrato)",
         "no indica cuál de las derivaciones es la correcta",
@@ -312,7 +334,7 @@ LEGITIMATE_REASONS: dict[str, tuple[str, ...]] = {
         "una conversión de unidad, moneda o tipo reaplicada deliberadamente", "un nivel de agregación distinto por capa",
         "un recálculo requerido por una unión o filtro posterior", "un endurecimiento intencional del contrato en una frontera"),
     "ROLE_LAYER_DIVERGENCE": (
-        "objeto de staging materializado con el nombre de una capa posterior", "el dígito de capa responde a una convención del proyecto",
+        "objeto intermedio materializado con el nombre de una capa posterior", "el dígito de capa responde a una convención del proyecto",
         "el patrón declarado refleja valores por defecto de la herramienta"),
     "DUPLICATED_REMOTE_IMPORT": (
         "fuentes ECC y S/4 en paralelo durante una migración", "filtros o proyecciones distintos por consumidor",
@@ -325,9 +347,9 @@ LEGITIMATE_REASONS: dict[str, tuple[str, ...]] = {
         "vocabularios de origen distintos conservados tal como se entregan", "una etiqueta genérica reutilizada para conceptos distintos",
         "unificación de vocabulario planificada aguas abajo"),
     "OPAQUE_FIELD_NAME": ("nombre heredado del sistema de origen", "sigla interna establecida", "la etiqueta es el término de negocio gobernado"),
-    "LABEL_NOT_ENRICHING": ("estructura técnica de staging no expuesta a consumidores", "etiquetas diferidas intencionalmente a la capa consumidora"),
+    "LABEL_NOT_ENRICHING": ("estructura técnica intermedia no expuesta a consumidores", "etiquetas diferidas intencionalmente a la capa consumidora"),
     "AM_SEMANTIC_UNDERUSE_REVIEW": (
-        "consumido por una herramienta que aporta sus propias dimensiones", "extracto plano de reporting por diseño", "semántica modelada en una capa posterior"),
+        "consumido por una herramienta que aporta sus propias dimensiones", "extracto plano para reportes por diseño", "semántica modelada en una capa posterior"),
 }
 
 CONTEXT_QUESTION_TEXT: dict[str, str] = {
@@ -349,6 +371,7 @@ SURFACE_TITLES: dict[str, str] = {
     "ingestion.inferred_layer_vs_lineage_depth": "Capa inferida frente a profundidad de linaje",
     "ingestion.dataflow_boundary": "Referencias del plano de Procesamiento (frontera)", "ingestion.processing_context_inventory": "Inventario de contexto de Procesamiento",
     "ingestion.processing_reference": "Referencias a flujos de Procesamiento", "am.contract_inventory": "Contrato declarado del modelo analítico",
+    "am.closure_composition": "Composición del cierre semántico (linaje estricto frente a asociación)",
     "am.association_targets": "Destinos de asociación del modelo analítico", "am.contract_delta": "Diferencias del modelo analítico frente a sus proveedores",
     "am.numeric_attributes_not_declared_as_measures": "Atributos numéricos no declarados como medidas", "propagation.derived_fields": "Campos derivados por artefacto",
     "propagation.contract_delta": "Diferencias de contrato por paso de linaje", "propagation.contract_occurrences": "Ocurrencias del contrato del modelo a lo largo del cierre",
@@ -426,7 +449,7 @@ def _finding_groups(comp: AssessmentComposition) -> list[dict]:
                                 "values": normalize_finding_values(sid, f.detail)})
         surf = surfaces.get(rule_by_signal.get(sid, ""))
         g = {"id": sid, "kind": spec.kind.value, "area": spec.area.value, "title": title, "explanation": expl, "why_shown": WHY_SHOWN[sid],
-             "occurrence_unit": OCCURRENCE_UNIT[sid], "occurrence_count": len(occurrences),
+             "presentation_priority": PRESENTATION_PRIORITY[sid], "occurrence_unit": OCCURRENCE_UNIT[sid], "occurrence_count": len(occurrences),
              "affected_artifacts": sorted({a for o in occurrences for a in o["affected_artifacts"]}),
              "interpretation_limits": public_limits(spec), "occurrences": occurrences}
         if spec.kind is SignalKind.OBSERVATION:
@@ -438,7 +461,7 @@ def _finding_groups(comp: AssessmentComposition) -> list[dict]:
             g["evidence_state"] = {"assessability": surf.assessability.value, "reason": public_reason(surf.assessability, surf.cause, surf.not_applicable_reason)}
         groups.append(g)
     order = {s.signal_id: i for i, s in enumerate(SIGNAL_REGISTRY)}
-    groups.sort(key=lambda g: order[g["id"]])
+    groups.sort(key=lambda g: (g["presentation_priority"], order[g["id"]]))
     return groups
 
 
@@ -507,14 +530,20 @@ def _context_required(comp: AssessmentComposition, groups: list[dict], idx: Fact
     for g in groups:
         if "context_required" in g:
             questions.append({"id": g["id"], "origin": g["kind"], "question": g["context_required"]["question"], "occurrence_count": g["occurrence_count"]})
+    active = {g["id"] for g in groups if "context_required" in g}
+    deduplicated = []
     conv = idx.get("naming.convention_context", "closure")
     if conv is not None and conv.value:
         for key in conv.value["open_context_questions"]:
-            questions.append({"id": key, "origin": "CONTEXT_ONLY", "question": CONTEXT_QUESTION_TEXT[key], "occurrence_count": None})
+            covered = [sid for sid in CONTEXT_QUESTION_COVERED_BY[key] if sid in active]
+            if covered:
+                deduplicated.append({"id": key, "covered_by": covered[0]})              # ya la formula un grupo de hallazgos activo
+            else:
+                questions.append({"id": key, "origin": "CONTEXT_ONLY", "question": CONTEXT_QUESTION_TEXT[key], "occurrence_count": None})
     # UNIDADES DISTINTAS: preguntas abiertas (tipos de pregunta) != ocurrencias de hallazgos que respaldan a algunas de ellas.
     backed = sum(1 for q in questions if q["occurrence_count"] is not None)
     return {"open_questions": len(questions), "questions_backed_by_findings": backed, "questions_without_findings": len(questions) - backed,
-            "occurrences": len(comp.observations) + len(comp.review_required), "questions": questions}
+            "occurrences": len(comp.observations) + len(comp.review_required), "questions": questions, "deduplicated_questions": deduplicated}
 
 
 def _kv(rows: Iterable[dict], key: str = "key", count: str = "count") -> list[dict]:
@@ -556,6 +585,19 @@ def _highlights(idx: FactIndex, comp: AssessmentComposition, area: M.Area) -> li
         t = idx.usable_get("am.association_targets", am_name or "")
         if t is not None:
             add("association_targets", "Destinos de asociación", sorted({a["target"] for a in t.value["associations"] if a["target"]}))
+        cc = idx.usable_get("am.closure_composition", am_name or "")
+        if cc is not None:                                                                    # contexto de arquitectura: ni bueno ni malo
+            v = cc.value
+            add("semantic_closure", "Cierre semántico del modelo analítico (artefactos)", v["semantic_closure_size"],
+                [{"name": "alcanzables por linaje estricto desde el modelo terminal (incluido el propio modelo)", "count": v["strict_lineage_size"]},
+                 {"name": "mediados por asociación (fuera del linaje estricto)", "count": v["association_mediated_size"]}])
+        nn = idx.usable_get("am.numeric_attributes_not_declared_as_measures", am_name or "")
+        if nn is not None:                                                                    # evidencia descriptiva; no es defecto ni revision
+            fields = nn.value["fields"]
+            add("numeric_non_measure_attributes", "Atributos numéricos expuestos que no están declarados como medida", len(fields))
+            if fields:
+                sample = [f"{x['field']} ({x['type']}{' ' + x['length'] if x.get('length') else ''})" for x in fields[:10]]
+                add("numeric_non_measure_fields", "Campos numéricos no declarados como medida (muestra)", sample + ([f"… (+{len(fields) - 10})"] if len(fields) > 10 else []))
     elif area is M.Area.PROPAGATION:
         add("lineage_steps_evaluated", "Pasos de linaje con delta de contrato", len(idx.usable("propagation.contract_delta")) + len(idx.usable("am.contract_delta")))
         add("artifacts_with_derived_fields", "Artefactos con campos derivados", sum(1 for f in idx.usable("propagation.derived_fields") if f.value["n_derived"] > 0))
@@ -637,11 +679,23 @@ def _areas_json(comp: AssessmentComposition, groups: list[dict], idx: FactIndex)
     return out
 
 
+def _surface_title(surface_id: str) -> str:
+    rule_signal = {sp.surface_id: sp.signal_id for sp in SURFACE_REGISTRY if sp.signal_id}
+    return f"Regla: {DISPLAY[rule_signal[surface_id]][0]}" if surface_id in rule_signal else SURFACE_TITLES[surface_id]
+
+
+def _not_applicable_json(comp: AssessmentComposition) -> list[dict]:
+    """Superficies que NO APLICAN (trazabilidad). No son evidencia faltante: no se mezclan con las limitaciones."""
+    return [{"surface_id": s.surface_id, "title": _surface_title(s.surface_id), "area": s.area.value, "role": s.role.value,
+             "reason": public_reason(s.assessability, s.cause, s.not_applicable_reason)}
+            for s in comp.surfaces if s.assessability is Assessability.NOT_APPLICABLE and s.role is not SurfaceRole.DERIVED_VIEW]
+
+
 def _limitations_json(comp: AssessmentComposition) -> list[dict]:
     rule_signal = {sp.surface_id: sp.signal_id for sp in SURFACE_REGISTRY if sp.signal_id}
     out = []
     for s in comp.surfaces:
-        if s.assessability is Assessability.ASSESSED:
+        if s.assessability in (Assessability.ASSESSED, Assessability.NOT_APPLICABLE):
             continue
         if s.role in (SurfaceRole.DERIVED_VIEW,):
             continue
@@ -650,7 +704,7 @@ def _limitations_json(comp: AssessmentComposition) -> list[dict]:
         affected = sorted(u.subject for u in s.units if u.assessability not in (Assessability.ASSESSED, Assessability.NOT_APPLICABLE))
         title = f"Regla: {DISPLAY[rule_signal[s.surface_id]][0]}" if s.surface_id in rule_signal else SURFACE_TITLES[s.surface_id]
         out.append({"surface_id": s.surface_id, "title": title, "affected_units": affected, "area": s.area.value, "role": s.role.value, "kind": s.kind.value, "assessability": s.assessability.value,
-                    "counts_toward_coverage": s.role is SurfaceRole.REQUIRED and s.assessability is not Assessability.NOT_APPLICABLE,
+                    "counts_toward_coverage": s.role is SurfaceRole.REQUIRED,
                     "reason": r, "units_not_assessed": counts.not_assessed + counts.indeterminate, "units_assessed": counts.assessed})
     return out
 
@@ -666,7 +720,7 @@ def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, clie
         "schema_version": ASSESSMENT_SCHEMA_VERSION,
         "assessment_state": "ASSESSED" if applicable else "NOT_APPLICABLE",
         "versions": {"signals": SIGNALS_RULESET, "assessability": ASSESSABILITY_RULESET, "confidence": CONFIDENCE_RULESET, "reason_codes": REASON_REGISTRY_VERSION,
-                     "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION},
+                     "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION, "presentation_order": PRESENTATION_ORDER_VERSION},
         "scope": {"client": client, "terminal_analytic_model": scope.terminal_am, "applicability": scope.applicability.state.value,
                   "reason": None if applicable else public_reason(Assessability.NOT_APPLICABLE, None,
                                                                     scope.applicability.reason.value if scope.applicability.reason else None),
@@ -681,7 +735,7 @@ def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, clie
             "level": comp.confidence.level.value, "driver": comp.confidence.drivers[0].name.value, "meaning": NOT_APPLICABLE_CONFIDENCE_MEANING,
             "main_limitation": None, "components": [], "provisional_cuts": {"reliable_share_high_medium": list(CONFIDENCE_CUTS["reliable_share"]),
                                                                            "status": "PROVISIONAL_VALIDATE_IN_M8"}, "excluded_from_confidence": []},
-        "context_required": _context_required(comp, groups, idx) if applicable else {"open_questions": 0, "questions_backed_by_findings": 0, "questions_without_findings": 0, "occurrences": 0, "questions": []},
+        "context_required": _context_required(comp, groups, idx) if applicable else {"open_questions": 0, "questions_backed_by_findings": 0, "questions_without_findings": 0, "occurrences": 0, "questions": [], "deduplicated_questions": []},
         "macro_dimensions": [{"id": x.macro_dimension.value, "state": x.state.value} for x in comp.coverage.macro_dimensions]}
     doc["areas"] = _areas_json(comp, groups, idx)
     doc["observations"] = [g for g in groups if g["kind"] == "OBSERVATION"]
@@ -689,6 +743,7 @@ def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, clie
     doc["descriptive_signals"] = [g for g in groups if g["kind"] == "DESCRIPTIVE"]
     doc["rule_results"] = _rule_results(comp)
     doc["evidence_limitations"] = _limitations_json(comp)
+    doc["not_applicable"] = _not_applicable_json(comp)
     doc["surfaces"] = [_surface_json(s) for s in comp.surfaces]
     doc["fact_index"] = [{"fact": f.key, "area": f.area.value, "evidence_class": f.evidence_class.value, "plane": f.plane.value,
                           "assessability": f.assessability.value} for f in sorted(facts, key=lambda f: (f.area.value, f.fact_id, f.subject))]
@@ -700,17 +755,17 @@ def build_indeterminate_assessment(*, client: str, requested_model: str | None, 
     r = public_reason(Assessability.INDETERMINATE, Cause.COLLISION_OR_LOAD_ERROR, None)
     return {"schema_version": ASSESSMENT_SCHEMA_VERSION, "assessment_state": "INDETERMINATE",
             "versions": {"signals": SIGNALS_RULESET, "assessability": ASSESSABILITY_RULESET, "confidence": CONFIDENCE_RULESET, "reason_codes": REASON_REGISTRY_VERSION,
-                         "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION},
+                         "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION, "presentation_order": PRESENTATION_ORDER_VERSION},
             "scope": {"client": client, "terminal_analytic_model": requested_model, "applicability": "INDETERMINATE", "reason": r, "closure_size": 0,
                       "closure_artifacts": [], "pool_signature": pool_signature},
             "summary": {"coverage": None, "confidence": None, "context_required": None, "macro_dimensions": [], "error": message},
             "areas": [], "observations": [], "review_required": [], "descriptive_signals": [], "rule_results": [], "evidence_limitations": [],
-            "surfaces": [], "fact_index": []}
+            "surfaces": [], "fact_index": [], "not_applicable": []}
 
 
 # ═══════════════════════════ validacion del contrato y serializacion ═══════════════════════════
 REQUIRED_TOP_LEVEL_KEYS = ("schema_version", "assessment_state", "versions", "scope", "summary", "areas", "observations", "review_required",
-                           "descriptive_signals", "rule_results", "evidence_limitations", "surfaces", "fact_index")
+                           "descriptive_signals", "rule_results", "evidence_limitations", "not_applicable", "surfaces", "fact_index")
 
 
 def _walk_keys(v: Any, out: list[str]) -> None:

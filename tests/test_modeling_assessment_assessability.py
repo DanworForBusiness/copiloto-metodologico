@@ -11,7 +11,7 @@ from tests._modeling_assessment_m2_fixtures import m2_entities, write_pool_files
 from tests._modeling_assessment_m3_fixtures import m3_entities, with_assocs
 from tests._modeling_assessment_m4_fixtures import f4, m4_entities
 from tests.test_modeling_assessment_graph import ent, pool
-from tests.test_modeling_assessment_signals import _flat, _lb, _pt, _redo, _rl, all_facts
+from tests.test_modeling_assessment_signals import _flat, _lb, _pt, _pt_internal, _redo, _rl, all_facts
 from tools.catalog.modeling_assessment import assessability as A
 from tools.catalog.modeling_assessment import model as m
 from tools.catalog.modeling_assessment import signals as S
@@ -173,23 +173,39 @@ def test_the_same_zero_findings_can_mean_full_or_null_assessability_and_they_are
 
 
 def test_a_found_pattern_reports_pattern_found_even_when_the_surface_is_only_partially_assessed():
-    comp = compose(_pt(), "AM_PT")
-    pt = surface(comp, "rule.pass_through_review")
+    ents = _pt_internal(t=lambda e: setattr(e["VR_PT"], "has_query", False))             # la transformacion VX->VR no expone el flag `derived`
+    pt = surface(compose(ents, "AM_PT"), "rule.pass_through_review")
     assert pt.finding_count == 1 and pt.result is A.RuleResult.PATTERN_FOUND
-    assert pt.assessability is PA and pt.cause is m.Cause.CLASSIFIER_RULE_GAP           # las aristas hoja -> primer consumidor no se evaluan
-    assert any(u.cause is m.Cause.CLASSIFIER_RULE_GAP for u in pt.units)
+    assert pt.assessability is PA and pt.cause is m.Cause.NOT_OBSERVABLE_IN_STANDARD_EXPORT      # parcial por una arista ELEGIBLE sin descriptores
+    assert sorted(u.assessability.value for u in pt.units if u.assessability is not NAP) == ["ASSESSED", "NOT_ASSESSED"]
 
 
-def test_pass_through_absence_is_not_established_while_leaf_edges_and_invisible_queries_are_not_evaluable():
-    ents = _pt()
-    ents["AM_PT"].fields.append(f4("C", "C"))                                           # ya no es pass-through
-    comp = compose(ents, "AM_PT")
+def test_pass_through_absence_is_assessed_for_eligible_edges_and_not_established_when_the_derivation_flag_is_invisible():
+    def not_pass_through(e):
+        e["VR_PT"].fields.append(f4("C", "C"))                                           # VX->VR agrega C
+        e["VF_PT"].fields.extend([f4("C", "C"), f4("D", "D")])                           # VR->VF agrega D
+    comp = compose(_pt_internal(t=not_pass_through), "AM_PT")
     pt = surface(comp, "rule.pass_through_review")
-    assert pt.finding_count == 0 and pt.result is A.RuleResult.ABSENCE_NOT_ESTABLISHED and pt.assessability is PA
-    ents2 = _pt()
-    ents2["AM_PT"].has_query = False                                                     # el flag `derived` no existe sin query visible
-    unit = next(u for u in surface(compose(ents2, "AM_PT"), "rule.pass_through_review").units if u.subject == "VF_PT->AM_PT")
-    assert unit.assessability is NA_ and unit.cause is m.Cause.NOT_OBSERVABLE_IN_STANDARD_EXPORT
+    assert pt.finding_count == 0 and pt.result is A.RuleResult.ASSESSED_ABSENCE and pt.assessability is AS    # ausencia EVALUADA: todas las elegibles se evaluaron
+
+    def invisible(e):
+        not_pass_through(e)
+        e["VR_PT"].has_query = False
+        e["VF_PT"].has_query = False                                                      # el flag `derived` no existe sin query visible
+    pt2 = surface(compose(_pt_internal(t=invisible), "AM_PT"), "rule.pass_through_review")
+    assert pt2.finding_count == 0 and pt2.result is A.RuleResult.ABSENCE_NOT_ESTABLISHED and pt2.assessability is NA_
+    assert {u.cause for u in pt2.units if u.assessability is NA_} == {m.Cause.NOT_OBSERVABLE_IN_STANDARD_EXPORT}
+
+
+def test_ineligible_edges_are_not_applicable_to_the_pass_through_rule_and_never_lower_its_assessability():
+    pt = surface(compose(_pt_internal(), "AM_PT"), "rule.pass_through_review")
+    na = {u.subject: u.not_applicable_reason for u in pt.units if u.assessability is NAP}
+    assert na == {"SRC_PT->VX_PT": "EDGE_OUTSIDE_RULE_POPULATION", "VF_PT->AM_PT": "EDGE_OUTSIDE_RULE_POPULATION"}
+    assert pt.assessability is AS and pt.cause is None and pt.open_gap_classes == ()
+    assert (pt.counts.assessed, pt.counts.partially_assessed, pt.counts.not_assessed, pt.counts.not_applicable) == (2, 0, 0, 2)
+    only = surface(compose(_pt(), "AM_PT"), "rule.pass_through_review")                   # SRC->VF y VF->AM: no hay NINGUNA transformacion interna
+    assert only.assessability is NAP and only.not_applicable_reason == "EDGE_OUTSIDE_RULE_POPULATION" and only.result is A.RuleResult.NOT_APPLICABLE
+    assert only.counts.applicable == 0                                                    # sale del denominador de cobertura
 
 
 def test_rederivation_needs_a_visible_query_in_every_artifact():
@@ -233,11 +249,12 @@ def test_layer_boundary_needs_the_first_consumers_of_each_remote_leaf():
 
 
 def test_a_declared_dimension_consumer_is_not_applicable_for_the_pass_through_rule():
-    ents = _pt()
-    ents["AM_PT"].modeling_pattern = "ANALYTICAL_CUBE DIMENSION"
-    pt = surface(compose(ents, "AM_PT"), "rule.pass_through_review")
-    assert next(u for u in pt.units if u.subject == "VF_PT->AM_PT").not_applicable_reason == "CONSUMER_IS_DECLARED_DIMENSION"
-    assert pt.finding_count == 0
+    ents = _pt_internal()
+    ents["VF_PT"].modeling_pattern = "ANALYTICAL_CUBE DIMENSION"
+    comp = compose(ents, "AM_PT")
+    pt = surface(comp, "rule.pass_through_review")
+    assert next(u for u in pt.units if u.subject == "VR_PT->VF_PT").not_applicable_reason == "CONSUMER_IS_DECLARED_DIMENSION"
+    assert not [f for f in comp.findings if f.signal_id == "PASS_THROUGH_REVIEW" and f.subjects == ("VR_PT", "VF_PT")]
 
 
 def test_every_core_area_of_a_fully_extracted_closure_is_assessed_and_context_only_never_degrades_an_area():
@@ -293,12 +310,12 @@ def test_roles_context_derived_views_processing_and_optional_evidence_are_exclud
     assert {k for k, v in role.items() if v is A.SurfaceRole.OPTIONAL_DEEPER_EVIDENCE} == {"propagation.derivation_semantics"}
     assert {k for k, v in role.items() if v is A.SurfaceRole.DERIVED_VIEW} == {
         "source.family_distribution", "naming.artifact_name_populations", "naming.field_vocabulary_summary",
-        "naming.same_normalized_label_multiple_technical_names"}
+        "naming.same_normalized_label_multiple_technical_names", "am.closure_composition"}
     # C2 NO es automaticamente "evidencia requerida faltante": las dos brechas C2 permanentes ya no son superficies REQUERIDAS
     assert role["propagation.derivation_semantics"] is not A.SurfaceRole.REQUIRED and role["source.replication_mode"] is not A.SurfaceRole.REQUIRED
     from collections import Counter
     assert Counter((s.kind.value, s.role.value) for s in A.SURFACE_REGISTRY) == {
-        ("FACT_EVIDENCE", "REQUIRED"): 29, ("RULE_EVALUATION", "REQUIRED"): 11, ("FACT_EVIDENCE", "DERIVED_VIEW"): 4,
+        ("FACT_EVIDENCE", "REQUIRED"): 29, ("RULE_EVALUATION", "REQUIRED"): 11, ("FACT_EVIDENCE", "DERIVED_VIEW"): 5,
         ("FACT_EVIDENCE", "CROSS_PLANE_COMPLEMENT"): 4, ("FACT_EVIDENCE", "CONTEXT_ONLY"): 2, ("FACT_EVIDENCE", "OPTIONAL_DEEPER_EVIDENCE"): 1}
 
 

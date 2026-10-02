@@ -11,6 +11,8 @@ Hechos (subject = AM terminal, salvo indicacion):
                                                  destino, asociaciones propias del destino, campos FK que la usan
   am.contract_delta   (subject "prov->AM")    B  que agrega/quita/hereda el AM respecto de CADA proveedor directo de linaje
   am.numeric_attributes_not_declared_as_measures  B  campos de tipo numerico DECLARADO que no son medida/clave/FK
+  am.closure_composition                      B  composicion DESCRIPTIVA del cierre semantico: artefactos alcanzables por linaje estricto desde el AM
+                                                 (incluido el propio AM) y artefactos mediados solo por asociacion (contexto de arquitectura, no senal)
 
 No se usa ningun conteo (medidas, asociaciones, campos, derivados) como proxy de calidad: son contexto de rol.
 """
@@ -94,5 +96,15 @@ def am_facts(
                     for r in C.numeric_non_measure_fields(e)],
          "numeric_declared_types": sorted(C.NUMERIC_DECLARED_TYPES)},
         EvidenceClass.B, refs=entity_refs(e, ["fields"])))
+
+    # ---- composicion del cierre semantico: linaje estricto vs asociacion (B; descriptivo, sin juicio) ------------
+    lineage_set = set(universe.lineage_closure_of(am))
+    association_only = sorted(closure_set - lineage_set)
+    facts.append(make_fact(
+        "am.closure_composition", AM_, am,
+        {"semantic_closure_size": len(closure_set), "strict_lineage_size": len(lineage_set), "association_mediated_size": len(association_only),
+         "strict_lineage_artifacts": sorted(lineage_set), "association_mediated_artifacts": association_only,
+         "definition": "semantic closure = lineage + association; strict lineage = reachable from the terminal AM by lineage edges only (AM included)"},
+        EvidenceClass.B, refs=entity_refs(e, ["associations"])))
 
     return sort_facts(facts)
