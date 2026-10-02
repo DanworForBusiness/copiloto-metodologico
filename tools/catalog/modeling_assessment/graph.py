@@ -326,6 +326,36 @@ class DependencyGraph:
         self._require(terminal)
         return source != terminal and source in self._closure(terminal, frozenset({EdgeKind.LINEAGE}))
 
+    def distances(self, root: str, kinds: Iterable[EdgeKind] | None = None) -> Mapping[str, int]:
+        """Distancia minima (numero de aristas) desde `root` hacia cada artefacto alcanzable, siguiendo
+        dependencias (consumer -> provider) de los `kinds` indicados. `root` = 0. Hecho estructural, sin juicio."""
+        self._require(root)
+        ks = self._kinds(kinds)
+        dist = {root: 0}
+        queue = deque([root])
+        while queue:
+            cur = queue.popleft()
+            for nxt in _sorted_unique(p for k in ks for p in self._providers[cur][k]):
+                if nxt not in dist:
+                    dist[nxt] = dist[cur] + 1
+                    queue.append(nxt)
+        return MappingProxyType(dist)
+
+    def transitive_consumers(self, node: str, kinds: Iterable[EdgeKind] | None = None) -> tuple[str, ...]:
+        """Todos los artefactos que dependen (directa o transitivamente) de `node` por los `kinds` indicados;
+        excluye a `node`. Hecho estructural, sin juicio."""
+        self._require(node)
+        ks = self._kinds(kinds)
+        seen = {node}
+        queue = deque([node])
+        while queue:
+            cur = queue.popleft()
+            for nxt in _sorted_unique(c for k in ks for c in self._consumers[cur][k]):
+                if nxt not in seen:
+                    seen.add(nxt)
+                    queue.append(nxt)
+        return tuple(sorted(seen - {node}))
+
     def cycles(self, kinds: Iterable[EdgeKind] | None = None) -> tuple[tuple[str, ...], ...]:
         """Componentes fuertemente conexas de >1 nodo (Tarjan iterativo), ordenadas y deterministas."""
         ks = self._kinds(kinds)

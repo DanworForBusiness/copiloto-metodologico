@@ -339,3 +339,36 @@ def test_query_text_identifiers_are_unverified_not_asserted_missing():
     assert {u.reason for u in g.unresolved} == {UnresolvedReason.UNVERIFIED_QUERY_REFERENCE}
     assert {u.target for u in g.unresolved} == {"Calculated Columns 1", "Union 1", "$projection", "X_Delta"}
     assert g.nodes == ("V",) and g.edges == ()
+
+
+# ── M2: consultas aditivas (distancias y dependientes transitivos) ─────────
+def test_distances_are_minimum_hops_per_traversal_mode():
+    g = DependencyGraph.from_entities(_product())
+    assert dict(g.distances("AM", [L])) == {"AM": 0, "VF": 1, "VR": 2, "SRC": 3}
+    sem = dict(g.distances("AM"))
+    assert sem == {"AM": 0, "DIM": 1, "VF": 1, "VR": 2, "DSRC": 2, "SRC": 3}
+    assert "DIM" not in g.distances("AM", [L])                    # la asociacion no es camino de linaje
+
+
+def test_distances_take_the_shortest_path_and_survive_cycles():
+    ents = pool(ent("A", up=["B", "C"]), ent("B", up=["C"]), ent("C", up=["A", "D"]), ent("D"))
+    d = g = DependencyGraph.from_entities(ents).distances("A")
+    assert dict(d) == {"A": 0, "B": 1, "C": 1, "D": 2}
+
+
+def test_transitive_consumers_by_kind_exclude_the_node_and_are_sorted():
+    g = DependencyGraph.from_entities(_product())
+    assert g.transitive_consumers("SRC") == ("AM", "VF", "VR")
+    assert g.transitive_consumers("SRC", [L]) == ("AM", "VF", "VR")
+    assert g.transitive_consumers("DSRC") == ("AM", "DIM")
+    assert g.transitive_consumers("DSRC", [L]) == ("DIM",)        # AM solo llega por asociacion
+    assert g.transitive_consumers("AM") == ()
+
+
+def test_new_queries_are_cycle_safe_and_reject_unknown_nodes():
+    ents = pool(ent("A", up=["B"]), ent("B", up=["A"]))
+    g = DependencyGraph.from_entities(ents)
+    assert g.transitive_consumers("A") == ("B",) and dict(g.distances("A")) == {"A": 0, "B": 1}
+    for call in (lambda: g.distances("NOPE"), lambda: g.transitive_consumers("NOPE")):
+        with pytest.raises(UnknownNodeError):
+            call()
