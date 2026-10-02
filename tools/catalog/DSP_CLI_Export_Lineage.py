@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -9,10 +10,25 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Iterable
+
+
+# Streaming console contract: every print() must be immediately consumable by
+# the caller (e.g. the web app) even when stdout/stderr are piped.
+try:
+    sys.stdout.reconfigure(line_buffering=True, write_through=True)
+except Exception:
+    pass
+
+try:
+    sys.stderr.reconfigure(line_buffering=True, write_through=True)
+except Exception:
+    pass
 
 
 OBJECT_TYPES = [
@@ -106,6 +122,99 @@ class DatasphereCli:
                     f"Expected JSON but could not parse CLI output for: {' '.join(cmd)}"
                 ) from exc
         return proc.stdout
+
+    def oauth_preflight(self) -> None:
+        """Validate OAuth client_credentials before any Datasphere CLI work."""
+        print("Preflight OAuth: validando client_credentials...")
+
+        raw = f"{self.client_id}:{self.client_secret}".encode("utf-8")
+        basic = base64.b64encode(raw).decode("ascii")
+        request = urllib.request.Request(
+            self.token_url,
+            data=b"grant_type=client_credentials",
+            method="POST",
+            headers={
+                "Authorization": f"Basic {basic}",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                status = int(getattr(response, "status", 0) or response.getcode() or 0)
+                payload = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            status = int(exc.code)
+            payload = exc.read().decode("utf-8", errors="replace")
+        except urllib.error.URLError as exc:
+            raise DatasphereCliError(
+                "PRECHECK_OAUTH_NETWORK_ERROR - No se pudo contactar el endpoint OAuth. "
+                f"Revisá Token URL, DNS/conectividad y disponibilidad del tenant. Detalle: {exc.reason}"
+            ) from exc
+        except Exception as exc:
+            raise DatasphereCliError(
+                f"PRECHECK_OAUTH_ERROR - Error inesperado validando OAuth: {exc}"
+            ) from exc
+
+        if status == 200:
+            try:
+                token_data = json.loads(payload)
+            except Exception:
+                token_data = {}
+            if not isinstance(token_data, dict) or not token_data.get("access_token"):
+                raise DatasphereCliError(
+                    "PRECHECK_OAUTH_INVALID_RESPONSE - OAuth devolvió HTTP 200 pero no incluyó access_token."
+                )
+            print("Preflight OAuth: OK (HTTP 200)")
+            return
+
+        if status == 401:
+            raise DatasphereCliError(
+                "PRECHECK_OAUTH_401 - OAuth rechazó las credenciales (HTTP 401). "
+                "Revisá Client ID, Client Secret, Token URL y que el OAuth/Technical User siga vigente."
+            )
+
+        raise DatasphereCliError(
+            f"PRECHECK_OAUTH_HTTP_{status} - OAuth devolvió HTTP {status}. "
+            "Revisá la configuración del OAuth Technical User y el endpoint de token."
+        )
+
+    def authorization_preflight(self, space: str) -> None:
+        """Validate minimal Datasphere authorization after successful OAuth/login."""
+        print(f"Preflight autorización: validando acceso al Space {space}...")
+
+        try:
+            self._run(
+                [
+                    "objects",
+                    "analytic-models",
+                    "list",
+                    "--space",
+                    space,
+                    "--top",
+                    "1",
+                ],
+                expect_json=True,
+            )
+        except DatasphereCliError as exc:
+            msg = str(exc)
+            if "403" in msg:
+                raise DatasphereCliError(
+                    "PRECHECK_AUTH_403 - OAuth válido, pero el Technical User no tiene "
+                    f"permisos suficientes sobre el Space '{space}'. Revisá los scoped roles "
+                    "y autorizaciones asignadas al Technical User."
+                ) from exc
+            if "401" in msg:
+                raise DatasphereCliError(
+                    "PRECHECK_AUTH_401 - El token fue emitido, pero Datasphere rechazó la sesión "
+                    "al consultar objetos. Revisá la configuración del OAuth Technical User."
+                ) from exc
+            raise DatasphereCliError(
+                f"PRECHECK_AUTH_ERROR - No se pudo validar acceso al Space '{space}'. Detalle: {msg}"
+            ) from exc
+
+        print(f"Preflight autorización: OK - acceso al Space {space}")
 
     def login(self) -> None:
         self._run(
@@ -870,9 +979,18 @@ def main() -> int:
             work_dir=work_dir,
         )
         try:
+            print("\n==========================================")
+            print("PRECHECK DE CONEXION Y AUTORIZACION")
+            print("==========================================")
+            cli.oauth_preflight()
+
             print("\nLogging in to SAP Datasphere...")
             cli.login()
             print("Login OK")
+
+            cli.authorization_preflight(args.space)
+
+            print("\nPrechecks OK. Iniciando export de linaje...")
 
             exporter = LineageExporter(
                 cli=cli,
@@ -882,7 +1000,7 @@ def main() -> int:
             )
             exported_pool = exporter.run()
         except DatasphereCliError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
+            print(f"ERROR: {exc}")
             return 1
 
     # Ownership cleanup happens AFTER the current export but BEFORE generate_catalog:
@@ -1004,6 +1122,7 @@ def main() -> int:
     print(f"Pool CSN: {exported_pool}")
     print(f"Manifest diagnóstico: {manifest_path}")
     print(f"Catálogo: {catalog_root}")
+    print("STATUS: SUCCESS")
     return 0
 
 
