@@ -687,6 +687,124 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _manifest_object_keys(manifest: dict) -> set[tuple[str, str]]:
+    """Return {(object_type, technical_name)} from one lineage manifest."""
+    out: set[tuple[str, str]] = set()
+    for obj in manifest.get("objects") or []:
+        if not isinstance(obj, dict):
+            continue
+        object_type = str(obj.get("object_type") or "").strip()
+        technical_name = str(obj.get("technical_name") or "").strip()
+        if object_type and technical_name:
+            out.add((object_type, technical_name))
+    return out
+
+
+def _load_json_file(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _other_manifest_ownership(
+    client_runs_root: Path,
+    current_manifest_path: Path,
+) -> set[tuple[str, str]]:
+    """
+    Aggregate objects owned by every OTHER lineage manifest for this client.
+    This prevents deletion of shared artifacts used by another Analytic Model.
+    """
+    owned: set[tuple[str, str]] = set()
+    if not client_runs_root.exists():
+        return owned
+
+    current_resolved = current_manifest_path.resolve()
+    for path in client_runs_root.rglob("lineage-manifest.json"):
+        try:
+            if path.resolve() == current_resolved:
+                continue
+        except OSError:
+            pass
+        owned |= _manifest_object_keys(_load_json_file(path))
+    return owned
+
+
+def _cleanup_stale_owned_objects(
+    *,
+    client_cache_dir: Path,
+    previous_manifest: dict,
+    current_objects: set[tuple[str, str]],
+    other_owned_objects: set[tuple[str, str]],
+) -> tuple[int, int]:
+    """
+    Remove objects that belonged to the previous run of THIS model but no longer
+    belong to its current lineage, only when no other model manifest owns them.
+
+    Returns (deleted, retained_shared).
+    """
+    previous_objects = _manifest_object_keys(previous_manifest)
+    stale = previous_objects - current_objects
+    deleted = 0
+    retained_shared = 0
+
+    if not stale:
+        print("\nLimpieza incremental: sin objetos obsoletos.")
+        return deleted, retained_shared
+
+    print("\n==========================================")
+    print("LIMPIEZA INCREMENTAL DEL POOL")
+    print("==========================================")
+    print(f"Objetos previos:    {len(previous_objects)}")
+    print(f"Objetos actuales:   {len(current_objects)}")
+    print(f"Candidatos obsoletos: {len(stale)}")
+
+    for object_type, technical_name in sorted(stale):
+        if (object_type, technical_name) in other_owned_objects:
+            retained_shared += 1
+            print(f"KEEP shared - {object_type}/{technical_name}")
+            continue
+
+        path = client_cache_dir / object_type / f"{LineageExporter._safe_filename(technical_name)}.json"
+        if not path.exists():
+            print(f"SKIP missing - {object_type}/{technical_name}")
+            continue
+
+        try:
+            path.unlink()
+            deleted += 1
+            print(f"DELETE - {object_type}/{technical_name}")
+        except OSError as exc:
+            print(f"WARN no se pudo borrar {path}: {exc}")
+
+    # Remove only empty technical-type directories. Never remove client_cache_dir.
+    for child in sorted(client_cache_dir.iterdir()) if client_cache_dir.exists() else []:
+        if child.is_dir():
+            try:
+                child.rmdir()
+            except OSError:
+                pass
+
+    print("------------------------------------------")
+    print(f"Eliminados:          {deleted}")
+    print(f"Retenidos compartidos: {retained_shared}")
+    print("------------------------------------------")
+    return deleted, retained_shared
+
+
+def _canonical_run_dir(catalog_root: Path, client_dir_name: str, space: str, analytic_model: str) -> Path:
+    safe_space = re.sub(r'[\\/:*?"<>|]', "_", space.strip())
+    safe_model = re.sub(r'[\\/:*?"<>|]', "_", analytic_model.strip())
+    return catalog_root / ".lineage_runs" / client_dir_name / safe_space / safe_model
+
+
+def _legacy_run_manifest(catalog_root: Path, client_dir_name: str, analytic_model: str) -> Path:
+    """Compatibility with the first version, which did not include SPACE in the path."""
+    safe_model = re.sub(r'[\\/:*?"<>|]', "_", analytic_model.strip())
+    return catalog_root / ".lineage_runs" / client_dir_name / safe_model / "lineage-manifest.json"
+
+
 def main() -> int:
     args = parse_args()
 
@@ -716,13 +834,30 @@ def main() -> int:
         return 2
 
     client_cache_dir = csn_cache_root / client_dir_name
-    diagnostics_dir = catalog_root / ".lineage_runs" / client_dir_name / args.analytic_model
+    diagnostics_dir = _canonical_run_dir(catalog_root, client_dir_name, args.space, args.analytic_model)
 
     print("Catalog integration:")
     print(f"  Client:       {args.client}")
     print(f"  Catalog root: {catalog_root}")
     print(f"  CSN cache:    {csn_cache_root}")
     print(f"  Client pool:  {client_cache_dir}")
+
+    manifest_path = diagnostics_dir / "lineage-manifest.json"
+    previous_manifest = _load_json_file(manifest_path)
+    legacy_manifest_path = _legacy_run_manifest(catalog_root, client_dir_name, args.analytic_model)
+    using_legacy_manifest = False
+
+    # Migration from the first implementation: reuse its previous ownership only
+    # when its embedded identity matches this exact space/model.
+    if not previous_manifest and legacy_manifest_path.exists():
+        candidate = _load_json_file(legacy_manifest_path)
+        if (
+            str(candidate.get("space") or "") == args.space
+            and str(candidate.get("analyticModel") or "") == args.analytic_model
+        ):
+            previous_manifest = candidate
+            using_legacy_manifest = True
+            print(f"  Previous ownership: legacy manifest {legacy_manifest_path}")
 
     # Work area is ephemeral and isolated from the final export.
     with tempfile.TemporaryDirectory(prefix="dsp-lineage-") as tmp:
@@ -750,8 +885,26 @@ def main() -> int:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
 
-    # Diagnostic manifest OUTSIDE .csn_cache. This is persisted with catalog_local
-    # but is never scanned as CSN input by generate_catalog.py.
+    # Ownership cleanup happens AFTER the current export but BEFORE generate_catalog:
+    # current files have already been refreshed, while stale files can still be
+    # removed before the catalog projection is rebuilt.
+    current_objects = {
+        (node.object_type, node.technical_name)
+        for node in exporter.nodes.values()
+        if node.object_type in OBJECT_TYPES
+    }
+    client_runs_root = catalog_root / ".lineage_runs" / client_dir_name
+    other_owned_objects = _other_manifest_ownership(client_runs_root, manifest_path)
+
+    deleted_stale, retained_shared = _cleanup_stale_owned_objects(
+        client_cache_dir=client_cache_dir,
+        previous_manifest=previous_manifest,
+        current_objects=current_objects,
+        other_owned_objects=other_owned_objects,
+    )
+
+    # Diagnostic + ownership manifest OUTSIDE .csn_cache. This is persisted with
+    # catalog_local but is never scanned as CSN input by generate_catalog.py.
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
         "client": args.client,
@@ -778,12 +931,28 @@ def main() -> int:
             )
         ],
         "externalSources": sorted(exporter.external_sources),
+        "cleanup": {
+            "deletedStaleObjects": deleted_stale,
+            "retainedSharedObjects": retained_shared,
+        },
     }
-    manifest_path = diagnostics_dir / "lineage-manifest.json"
     manifest_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+
+    # Once the canonical space-aware manifest exists, remove only the old manifest
+    # file used for migration. Leave its directory untouched unless it becomes empty.
+    if using_legacy_manifest and legacy_manifest_path != manifest_path:
+        try:
+            legacy_manifest_path.unlink()
+            try:
+                legacy_manifest_path.parent.rmdir()
+            except OSError:
+                pass
+            print(f"Manifest legacy migrado: {legacy_manifest_path}")
+        except OSError as exc:
+            print(f"WARN no se pudo retirar manifest legacy: {exc}")
 
     if not args.no_generate_catalog:
         print("\n==========================================")
@@ -830,6 +999,8 @@ def main() -> int:
     print(f"Objetos incluidos: {len(exporter.nodes)}")
     print(f"Relaciones: {len(exporter.edges)}")
     print(f"Fuentes externas: {len(exporter.external_sources)}")
+    print(f"Obsoletos eliminados: {deleted_stale}")
+    print(f"Compartidos retenidos: {retained_shared}")
     print(f"Pool CSN: {exported_pool}")
     print(f"Manifest diagnóstico: {manifest_path}")
     print(f"Catálogo: {catalog_root}")
