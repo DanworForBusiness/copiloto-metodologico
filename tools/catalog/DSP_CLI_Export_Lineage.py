@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Iterable
@@ -145,15 +146,13 @@ class DatasphereCli:
                 ],
                 expect_json=True,
             )
-
             if not isinstance(data, list):
-                return rows
+                break
 
             rows.extend(row for row in data if isinstance(row, dict))
 
             if len(data) < page_size:
                 break
-
             skip += page_size
 
         return rows
@@ -192,6 +191,7 @@ class LineageExporter:
         self.output_dir = output_dir
 
         self.inventory: dict[str, set[str]] = {}
+        self.inventory_rows: dict[str, list[dict[str, Any]]] = {}
         self.nodes: dict[tuple[str, str], Node] = {}
         self.edges: set[Edge] = set()
         self.external_sources: set[str] = set()
@@ -205,6 +205,7 @@ class LineageExporter:
                 print(f"WARN inventory {object_type}: {exc}", file=sys.stderr)
                 self.inventory[object_type] = set()
                 continue
+            self.inventory_rows[object_type] = rows
             names = {
                 row.get("technicalName")
                 for row in rows
@@ -346,8 +347,14 @@ class LineageExporter:
         return False
 
     def walk_model_graph(self) -> None:
+        print("\n==========================================")
+        print("RESOLVIENDO LINAJE DE MODELOS")
+        print("==========================================")
+        started = time.perf_counter()
+
         queue: list[Node] = [Node("analytic-models", self.analytic_model)]
         processed: set[tuple[str, str]] = set()
+        i = 0
 
         if self.analytic_model not in self.inventory.get("analytic-models", set()):
             raise DatasphereCliError(
@@ -359,11 +366,15 @@ class LineageExporter:
             key = (node.object_type, node.technical_name)
             if key in processed:
                 continue
+
             processed.add(key)
+            i += 1
+            print(f"\n[{i}] {node.object_type} / {node.technical_name}")
             self.add_node(node.object_type, node.technical_name)
 
             data = self.safe_read(node.object_type, node.technical_name)
             if data is None:
+                print("ERROR - no se pudo leer")
                 continue
 
             deps: set[str] = set()
@@ -372,12 +383,19 @@ class LineageExporter:
             elif node.object_type == "views":
                 deps = self.parse_view_dependencies(data, node.technical_name)
 
+            if not deps:
+                print("OK - sin dependencias descendentes")
+                continue
+
+            print(f"Dependencias: {len(deps)}")
             for dep_name in sorted(deps):
                 dep_type = self.resolve_type(dep_name)
                 if not dep_type:
-                    # Keep unknown refs visible but do not invent their object type.
+                    print(f"  EXTERNAL/UNKNOWN: {dep_name}")
                     self.external_sources.add(dep_name)
                     continue
+
+                print(f"  -> {dep_type}: {dep_name}")
                 self.add_edge(
                     node.object_type,
                     node.technical_name,
@@ -387,21 +405,39 @@ class LineageExporter:
                 )
                 queue.append(Node(dep_type, dep_name))
 
+        print("\n------------------------------------------")
+        print(f"LINAJE DE MODELOS terminado en {time.perf_counter() - started:.1f}s")
+        print(f"Nodos actuales: {len(self.nodes)}")
+        print("------------------------------------------")
     def discover_producers(self) -> None:
-        # Replication Flows: proven structure, so inspect targets explicitly.
+        print("\n==========================================")
+        print("BUSCANDO PRODUCTORES")
+        print("==========================================")
+        started = time.perf_counter()
+
         local_tables = [
             n.technical_name for n in self.nodes.values() if n.object_type == "local-tables"
         ]
-        for rf_name in sorted(self.inventory.get("replication-flows", set())):
+
+        rf_names = sorted(self.inventory.get("replication-flows", set()))
+        rf_ok = 0
+        for i, rf_name in enumerate(rf_names, start=1):
+            print(f"\n[RF {i}/{len(rf_names)}] {rf_name}")
             data = self.safe_read("replication-flows", rf_name)
             if data is None:
+                print("ERROR")
                 continue
+
             info = self.parse_replication_flow(data, rf_name)
             matched_targets = sorted(set(local_tables) & info["targets"])
             if not matched_targets:
+                print("SKIP - sin target del linaje")
                 continue
 
+            rf_ok += 1
+            print(f"OK - target(s): {', '.join(matched_targets)}")
             self.add_node("replication-flows", rf_name)
+
             for target in matched_targets:
                 self.add_edge(
                     "replication-flows",
@@ -410,8 +446,10 @@ class LineageExporter:
                     "local-tables",
                     target,
                 )
+
             for src in sorted(info["sources"]):
                 self.external_sources.add(src)
+                print(f"  SOURCE: {src}")
                 self.add_edge(
                     "external-source",
                     src,
@@ -419,7 +457,9 @@ class LineageExporter:
                     "replication-flows",
                     rf_name,
                 )
+
             for connection in sorted(info["connections"]):
+                print(f"  CONNECTION: {connection}")
                 self.add_edge(
                     "connection",
                     connection,
@@ -428,69 +468,227 @@ class LineageExporter:
                     rf_name,
                 )
 
-        # For Data/Transformation Flows we have not yet validated the payload schema.
-        # Use exact-reference fallback only, avoiding broad substring matches.
+        print(f"\nReplication Flows relacionados: {rf_ok}/{len(rf_names)}")
+
         known_names = {n.technical_name for n in self.nodes.values()}
         for object_type in ("data-flows", "transformation-flows"):
-            for flow_name in sorted(self.inventory.get(object_type, set())):
+            flow_names = sorted(self.inventory.get(object_type, set()))
+            matches = 0
+            for i, flow_name in enumerate(flow_names, start=1):
+                print(f"\n[{object_type} {i}/{len(flow_names)}] {flow_name}")
                 data = self.safe_read(object_type, flow_name)
                 if data is None:
+                    print("ERROR")
                     continue
+
                 refs = [name for name in known_names if self._contains_exact_string(data, name)]
                 if not refs:
+                    print("SKIP - sin referencia al linaje")
                     continue
+
+                matches += 1
+                print(f"OK - referencias: {len(refs)}")
                 self.add_node(object_type, flow_name)
                 for ref in refs:
                     ref_type = self.resolve_type(ref) or "unknown"
+                    print(f"  -> {ref_type}: {ref}")
                     self.add_edge(object_type, flow_name, "REFERENCES", ref_type, ref)
 
+            print(f"\n{object_type} relacionados: {matches}/{len(flow_names)}")
+
+        print("\n------------------------------------------")
+        print(f"PRODUCTORES terminados en {time.perf_counter() - started:.1f}s")
+        print("------------------------------------------")
     def discover_task_chains(self) -> None:
+        print("\n==========================================")
+        print("BUSCANDO TASK CHAINS")
+        print("==========================================")
+        started = time.perf_counter()
+
         operational_names = {
             n.technical_name
             for n in self.nodes.values()
             if n.object_type in PRODUCER_TYPES
         }
         if not operational_names:
+            print("SKIP - no hay productores operativos en el linaje")
             return
-        for tc_name in sorted(self.inventory.get("task-chains", set())):
+
+        tc_names = sorted(self.inventory.get("task-chains", set()))
+        matches = 0
+
+        for i, tc_name in enumerate(tc_names, start=1):
+            print(f"\n[TC {i}/{len(tc_names)}] {tc_name}")
             data = self.safe_read("task-chains", tc_name)
             if data is None:
+                print("ERROR")
                 continue
+
             refs = [name for name in operational_names if self._contains_exact_string(data, name)]
             if not refs:
+                print("SKIP - sin referencia al linaje")
                 continue
+
+            matches += 1
+            print(f"OK - referencias: {len(refs)}")
             self.add_node("task-chains", tc_name)
             for ref in refs:
                 ref_type = self.resolve_type(ref) or "unknown"
+                print(f"  -> {ref_type}: {ref}")
                 self.add_edge("task-chains", tc_name, "ORCHESTRATES", ref_type, ref)
 
+        print("\n------------------------------------------")
+        print(f"Task Chains relacionadas: {matches}/{len(tc_names)}")
+        print(f"TASK CHAINS terminadas en {time.perf_counter() - started:.1f}s")
+        print("------------------------------------------")
+    @staticmethod
+    def _safe_filename(technical_name: str) -> str:
+        return re.sub(r'[\\/:*?"<>|]', "_", technical_name)
+
     def write_outputs(self) -> Path:
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        """
+        Preserve the output contract of the original PowerShell automation:
+          Datasphere_RAW_<SPACE>/<object-type>.json
+          Datasphere_DEFINITIONS_<SPACE>/<object-type>/<technicalName>.json
 
-        # Persist all definitions for lineage nodes.
-        for node in sorted(self.nodes.values(), key=lambda n: (n.object_type, n.technical_name)):
-            if node.object_type in ("external-source", "connection"):
-                continue
-            data = self.safe_read(node.object_type, node.technical_name)
-            if data is None:
-                continue
-            target_dir = self.output_dir / node.object_type
-            target_dir.mkdir(parents=True, exist_ok=True)
-            (target_dir / f"{node.technical_name}.json").write_text(
-                json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        The only difference is that inventories/definitions are filtered to the
+        lineage of the selected Analytic Model.
+        """
+        base_dir = self.output_dir
+        inventory_dir = base_dir / f"Datasphere_RAW_{self.space}"
+        definitions_dir = base_dir / f"Datasphere_DEFINITIONS_{self.space}"
+
+        inventory_dir.mkdir(parents=True, exist_ok=True)
+        definitions_dir.mkdir(parents=True, exist_ok=True)
+
+        selected_by_type: dict[str, set[str]] = {
+            object_type: set() for object_type in OBJECT_TYPES
+        }
+        for node in self.nodes.values():
+            if node.object_type in selected_by_type:
+                selected_by_type[node.object_type].add(node.technical_name)
+
+        print("\n==========================================")
+        print("GENERANDO INVENTARIOS COMPATIBLES")
+        print("==========================================")
+
+        for object_type in OBJECT_TYPES:
+            selected = selected_by_type.get(object_type, set())
+            source_rows = self.inventory_rows.get(object_type, [])
+            filtered_rows = [
+                row
+                for row in source_rows
+                if isinstance(row, dict)
+                and row.get("technicalName") in selected
+            ]
+
+            inventory_file = inventory_dir / f"{object_type}.json"
+            inventory_file.write_text(
+                json.dumps(filtered_rows, indent=2, ensure_ascii=False),
+                encoding="utf-8",
             )
+            print(f"{object_type}: {len(filtered_rows)} -> {inventory_file}")
 
+        print("\n==========================================")
+        print("EXPORTANDO DEFINICIONES")
+        print("==========================================")
+
+        for object_type in OBJECT_TYPES:
+            names = sorted(selected_by_type.get(object_type, set()))
+            target_dir = definitions_dir / object_type
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            print("")
+            print("==========================================")
+            print(f"Procesando: {object_type}")
+            print(f"Inventario: {inventory_dir / (object_type + '.json')}")
+            print(f"Destino:    {target_dir}")
+            print("==========================================")
+            print("")
+            print(f"Objetos encontrados: {len(names)}")
+
+            if not names:
+                print("SKIP - Sin objetos")
+                continue
+
+            ok = 0
+            skipped = 0
+            errors = 0
+
+            for i, technical_name in enumerate(names, start=1):
+                output_file = target_dir / f"{self._safe_filename(technical_name)}.json"
+
+                print("")
+                print(f"[{i}/{len(names)}] {technical_name}")
+
+                if output_file.exists():
+                    print("SKIP - ya existe")
+                    skipped += 1
+                    continue
+
+                data = self.safe_read(object_type, technical_name)
+                if data is None:
+                    print("ERROR")
+                    errors += 1
+                    continue
+
+                output_file.write_text(
+                    json.dumps(data, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                print("OK")
+                ok += 1
+
+            print("")
+            print("------------------------------------------")
+            print(f"{object_type} terminado")
+            print(f"OK:       {ok}")
+            print(f"Existian: {skipped}")
+            print(f"Errores:  {errors}")
+            print(f"Total:    {len(names)}")
+            print("------------------------------------------")
+
+        # Optional diagnostic manifest kept OUTSIDE the legacy RAW/DEFINITIONS trees
+        # so existing consumers that expect those exact structures are unaffected.
         manifest = {
             "space": self.space,
             "analyticModel": self.analytic_model,
-            "objects": [asdict(n) for n in sorted(self.nodes.values(), key=lambda n: (n.object_type, n.technical_name))],
-            "edges": [asdict(e) for e in sorted(self.edges, key=lambda e: (e.source_type, e.source_name, e.relation, e.target_type, e.target_name))],
+            "objects": [
+                asdict(n)
+                for n in sorted(
+                    self.nodes.values(),
+                    key=lambda n: (n.object_type, n.technical_name),
+                )
+            ],
+            "edges": [
+                asdict(e)
+                for e in sorted(
+                    self.edges,
+                    key=lambda e: (
+                        e.source_type,
+                        e.source_name,
+                        e.relation,
+                        e.target_type,
+                        e.target_name,
+                    ),
+                )
+            ],
             "externalSources": sorted(self.external_sources),
         }
-        manifest_path = self.output_dir / "lineage-manifest.json"
-        manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
-        return manifest_path
+        manifest_path = base_dir / "lineage-manifest.json"
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
+        print("")
+        print("==========================================")
+        print("EXPORT DE DEFINICIONES FINALIZADO")
+        print("Destino:")
+        print(definitions_dir)
+        print("==========================================")
+
+        return manifest_path
     def run(self) -> Path:
         self.build_inventory()
         self.walk_model_graph()
@@ -512,7 +710,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         default=None,
-        help="Optional output directory. Defaults to ./Datasphere_LINEAGE_<SPACE>/<ANALYTIC_MODEL>",
+        help="Optional base output directory. Legacy-compatible RAW/DEFINITIONS folders are created inside it.",
     )
     return parser.parse_args()
 
@@ -527,7 +725,7 @@ def main() -> int:
     output_dir = (
         Path(args.output_dir)
         if args.output_dir
-        else Path.cwd() / f"Datasphere_LINEAGE_{args.space}" / args.analytic_model
+        else Path.cwd() / f"Datasphere_LINEAGE_{args.space}_{args.analytic_model}"
     )
 
     # Work area is ephemeral and isolated from the final export.
