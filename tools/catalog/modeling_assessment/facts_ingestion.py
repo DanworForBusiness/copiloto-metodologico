@@ -6,7 +6,7 @@ hitos posteriores. Aqui se RETIENE lo necesario para que la senal posterior pued
 Hechos de clausura (subject = "closure"):
   ingestion.boundary_artifacts          B  hojas del grafo semantico con su implementacion e identidad (M1)
   ingestion.duplicate_remote_imports    B  mismo `remote_entity` bajo >1 identidad local (clausura y universo)
-  ingestion.name_derived_layer_vs_lineage_depth B  capa derivada del NOMBRE vs profundidad real por linaje/semantica
+  ingestion.inferred_layer_vs_lineage_depth B  capa INFERIDA (criterio compuesto) + su base vs profundidad real por linaje/semantica
   ingestion.processing_context_inventory  PROCESSING  que se leyo de RF/DF (evidencia cross-plane complementaria)
   ingestion.dataflow_boundary           PROCESSING  referencias de Modeling a targets de Data Flow (M1)
 Hechos por hoja (subject = hoja):
@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from . import legacy_bridge as bridge
+from . import contract as C
 from .facts_support import make_fact, sort_facts
 from .graph import EdgeKind, modeling_population
 from .identity import IdentityClassification, classify
@@ -34,11 +34,6 @@ from .scope import AssessmentUniverse
 
 L, ASSOC = EdgeKind.LINEAGE, EdgeKind.ASSOCIATION
 I_ = Area.INGESTION
-
-
-def _name_derived_layer(entity: Any) -> str:
-    """Capa DERIVADA DEL NOMBRE (criterio unico del legacy: `_capa_of`); NO es rol funcional ni responsabilidad probada; "9" = no clasificable."""
-    return str(bridge.capa_of(entity))
 
 
 def _field_names(entity: Any) -> list[str]:
@@ -74,7 +69,7 @@ def ingestion_facts(
 
     def consumer_record(consumer: str, leaf: str, kind: EdgeKind) -> dict:
         c = ident[consumer]
-        return {"consumer": consumer, "name_derived_layer": _name_derived_layer(entities[consumer]),
+        return {"consumer": consumer, **C.layer_inference(entities[consumer]),
                 "implementation": c.implementation.value, "edge_origin": origin[(consumer, leaf, kind)]}
 
     # ---- hojas / frontera ------------------------------------------------------------------------
@@ -84,7 +79,7 @@ def ingestion_facts(
          "artifacts": [{"artifact": n, "implementation": ident[n].implementation.value,
                         "identity": ident[n].identity.value,
                         "has_remote_entity": bool(getattr(entities[n], "remote_entity", "")),
-                        "name_derived_layer": _name_derived_layer(entities[n])} for n in leaves]},
+                        **C.layer_inference(entities[n])} for n in leaves]},
         EvidenceClass.B, refs=clo_ref))
 
     for leaf in leaves:
@@ -131,8 +126,8 @@ def ingestion_facts(
 
     # ---- capa por nombre vs profundidad real ---------------------------------------------------------
     facts.append(make_fact(
-        "ingestion.name_derived_layer_vs_lineage_depth", I_, "closure",
-        {"artifacts": [{"artifact": n, "name_derived_layer": _name_derived_layer(entities[n]),
+        "ingestion.inferred_layer_vs_lineage_depth", I_, "closure",
+        {"artifacts": [{"artifact": n, **C.layer_inference(entities[n]),
                         "lineage_depth": lineage_dist.get(n), "semantic_depth": semantic_dist.get(n),
                         "implementation": ident[n].implementation.value} for n in closure]},
         EvidenceClass.B, refs=clo_ref))

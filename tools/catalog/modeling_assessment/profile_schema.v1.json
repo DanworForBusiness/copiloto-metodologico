@@ -34,7 +34,8 @@
       "enum": [
         "SYSTEM_ARTIFACT",
         "INTERNAL_STATIC_OBJECT",
-        "NO_TERMINAL_ANALYTIC_MODEL"
+        "NO_TERMINAL_ANALYTIC_MODEL",
+        "NO_OTHER_TERMINAL_ANALYTIC_MODEL"
       ],
       "type": "string"
     },

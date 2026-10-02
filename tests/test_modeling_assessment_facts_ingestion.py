@@ -34,10 +34,12 @@ def _evidence(tmp_path, **kw):
 def test_boundary_artifacts_are_the_leaves_of_the_semantic_graph_with_m1_provenance():
     _, facts = _facts()
     v = _by(facts, "ingestion.boundary_artifacts", "closure").value
-    got = {r["artifact"]: (r["implementation"], r["identity"], r["has_remote_entity"], r["name_derived_layer"]) for r in v["artifacts"]}
+    got = {r["artifact"]: (r["implementation"], r["identity"], r["has_remote_entity"], r["inferred_layer"]) for r in v["artifacts"]}
+    basis = {r["artifact"]: r["inferred_layer_basis"] for r in v["artifacts"]}
     assert v["count"] == len(got) == 8
     assert got["RAW_T"] == ("REMOTE_IMPORTED", "UNKNOWN", True, "1")
     assert got["SAP.TIME.X"][0:2] == ("STRUCTURE_ONLY", "SYSTEM") or got["SAP.TIME.X"][0:2] == ("SYSTEM_PROVIDED", "SYSTEM")
+    assert basis["RAW_T"] == "REMOTE_ENTITY"                      # la capa inferida viaja con su base
     assert got["LOCAL_T"][0] == "STRUCTURE_ONLY" and got["LOCAL_T"][2] is False
     assert set(got) == {"RAW_T", "RAW_T2", "CDS_A", "CDS_A2", "DIM_SRC", "LOCAL_T", "LOCAL_U", "SAP.TIME.X"}
 
@@ -45,22 +47,22 @@ def test_boundary_artifacts_are_the_leaves_of_the_semantic_graph_with_m1_provena
 def test_first_consumers_separate_lineage_from_association_with_edge_origin():
     _, facts = _facts()
     raw = _by(facts, "ingestion.first_consumers", "RAW_T").value
-    assert raw["lineage_consumers"] == [{"consumer": "VR_P", "name_derived_layer": "3", "implementation": "QUERY_DEFINED",
+    assert raw["lineage_consumers"] == [{"consumer": "VR_P", "inferred_layer": "3", "inferred_layer_basis": "NAME_PREFIX", "implementation": "QUERY_DEFINED",
                                          "edge_origin": "UPSTREAM_FIELD"}]
     assert raw["association_consumers"] == []
     dim = _by(facts, "ingestion.first_consumers", "DIM_SRC").value
     # la fuente de la dimension era un FROM/JOIN que el loader degrado a asociacion: se recupera como linaje
-    assert dim["lineage_consumers"] == [{"consumer": "DIM_P", "name_derived_layer": "2", "implementation": "QUERY_DEFINED",
+    assert dim["lineage_consumers"] == [{"consumer": "DIM_P", "inferred_layer": "2", "inferred_layer_basis": "DECLARED_ROLE", "implementation": "QUERY_DEFINED",
                                          "edge_origin": "QUERY_SOURCE_RECOVERED"}]
     assert dim["association_consumers"] == []
 
 
-def test_name_derived_layer_is_retained_so_a_later_signal_can_compare_it_with_the_real_path():
+def test_inferred_layer_and_its_basis_are_retained_so_a_later_signal_can_compare_them_with_the_real_path():
     _, facts = _facts()
-    table = {r["artifact"]: r for r in _by(facts, "ingestion.name_derived_layer_vs_lineage_depth", "closure").value["artifacts"]}
+    table = {r["artifact"]: r for r in _by(facts, "ingestion.inferred_layer_vs_lineage_depth", "closure").value["artifacts"]}
     assert (table["AM_P"]["lineage_depth"], table["AM_P"]["semantic_depth"]) == (0, 0)
-    assert (table["VR_P"]["name_derived_layer"], table["VR_P"]["lineage_depth"]) == ("3", 2)
-    assert (table["RAW_T"]["name_derived_layer"], table["RAW_T"]["lineage_depth"]) == ("1", 3)
+    assert (table["VR_P"]["inferred_layer"], table["VR_P"]["inferred_layer_basis"], table["VR_P"]["lineage_depth"]) == ("3", "NAME_PREFIX", 2)
+    assert (table["RAW_T"]["inferred_layer"], table["RAW_T"]["inferred_layer_basis"], table["RAW_T"]["lineage_depth"]) == ("1", "REMOTE_ENTITY", 3)
     # DIM_SRC solo es alcanzable por asociacion desde el AM: profundidad de linaje ausente (None), semantica 2
     assert (table["DIM_SRC"]["lineage_depth"], table["DIM_SRC"]["semantic_depth"]) == (None, 2)
     assert set(table) == set(AssessmentUniverse.from_entities(m2_entities()).closure_of("AM_P"))

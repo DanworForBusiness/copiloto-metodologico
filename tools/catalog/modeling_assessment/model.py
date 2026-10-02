@@ -122,6 +122,7 @@ class ApplicabilityReason(str, Enum):
     SYSTEM_ARTIFACT = "SYSTEM_ARTIFACT"                 # p.ej. SAP.* — fuera del concepto de Source/Extraction
     INTERNAL_STATIC_OBJECT = "INTERNAL_STATIC_OBJECT"   # objeto interno/estatico/local CONOCIDO (no es contrato de extraccion)
     NO_TERMINAL_ANALYTIC_MODEL = "NO_TERMINAL_ANALYTIC_MODEL"                   # sin Modelo Analitico terminal => sin unidad de assessment
+    NO_OTHER_TERMINAL_ANALYTIC_MODEL = "NO_OTHER_TERMINAL_ANALYTIC_MODEL"       # universo de 1 AM: no hay AM par con quien reusar (CROSS_AM_REUSE)
 
 
 class Assessability(str, Enum):
