@@ -1,0 +1,10 @@
+{
+  "name": "copiloto-metodologico",
+  "private": true,
+  "dependencies": {
+    "@sap/datasphere-cli": "latest"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}
