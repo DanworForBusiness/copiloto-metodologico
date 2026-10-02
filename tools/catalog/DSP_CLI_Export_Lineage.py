@@ -125,11 +125,38 @@ class DatasphereCli:
         )
 
     def list_objects(self, space: str, object_type: str) -> list[dict[str, Any]]:
-        data = self._run(
-            ["objects", object_type, "list", "--space", space],
-            expect_json=True,
-        )
-        return data if isinstance(data, list) else []
+        """Return the complete inventory for an object type using CLI pagination."""
+        page_size = 200
+        skip = 0
+        rows: list[dict[str, Any]] = []
+
+        while True:
+            data = self._run(
+                [
+                    "objects",
+                    object_type,
+                    "list",
+                    "--space",
+                    space,
+                    "--top",
+                    str(page_size),
+                    "--skip",
+                    str(skip),
+                ],
+                expect_json=True,
+            )
+
+            if not isinstance(data, list):
+                return rows
+
+            rows.extend(row for row in data if isinstance(row, dict))
+
+            if len(data) < page_size:
+                break
+
+            skip += page_size
+
+        return rows
 
     def read_object(self, space: str, object_type: str, technical_name: str) -> dict[str, Any]:
         data = self._run(
