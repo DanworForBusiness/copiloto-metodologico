@@ -182,12 +182,16 @@ def test_phase1_no_scoring_vocabulary_in_any_identifier():
 
 # ── No hay hook en generate_all ni escritura fuera del subdirectorio propio ─
 def test_package_layout_is_the_approved_one():
-    expected = {"__init__.py", "model.py", "schema.py", "paths.py", "legacy_bridge.py", "profile_schema.v1.json"}
+    m0 = {"__init__.py", "model.py", "schema.py", "paths.py", "legacy_bridge.py", "profile_schema.v1.json"}
+    m1 = {"scope.py", "graph.py", "identity.py"}
     present = {p.name for p in PKG_DIR.iterdir() if p.is_file()}
-    assert expected <= present
-    # M0 NO adelanta milestones posteriores (M1+: scope/graph/identity/facts/signals/...)
-    assert not (present & {"scope.py", "graph.py", "identity.py", "signals.py", "assessability.py",
-                           "profile.py", "shadow.py", "readers.py", "render_md.py", "__main__.py"})
+    assert m0 <= present and m1 <= present
+    # Hito actual = M1: NO se adelantan milestones posteriores (M2+: facts_*/readers, M5 signals,
+    # M6 assessability, M7 profile/shadow/CLI/Markdown).
+    later = {"signals.py", "assessability.py", "profile.py", "shadow.py", "readers.py", "render_md.py",
+             "__main__.py", "facts_source.py", "facts_ingestion.py", "facts_harmonization.py",
+             "facts_propagation.py", "facts_am.py", "facts_naming.py"}
+    assert not (present & later), sorted(present & later)
 
 
 # ── R-I6 (corregido en M0): salida LOCAL-ONLY, sin default dentro de catalog_local ─
