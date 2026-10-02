@@ -121,7 +121,7 @@ class Applicability(str, Enum):
 class ApplicabilityReason(str, Enum):
     SYSTEM_ARTIFACT = "SYSTEM_ARTIFACT"                 # p.ej. SAP.* — fuera del concepto de Source/Extraction
     INTERNAL_STATIC_OBJECT = "INTERNAL_STATIC_OBJECT"   # objeto interno/estatico/local CONOCIDO (no es contrato de extraccion)
-    NO_TERMINAL_AM = "NO_TERMINAL_AM"                   # sin Modelo Analitico terminal => sin unidad de assessment
+    NO_TERMINAL_ANALYTIC_MODEL = "NO_TERMINAL_ANALYTIC_MODEL"                   # sin Modelo Analitico terminal => sin unidad de assessment
 
 
 class Assessability(str, Enum):
@@ -436,8 +436,8 @@ class ProfileScope:
 
     def __post_init__(self) -> None:
         if self.applicability.state is Applicability.NOT_APPLICABLE:
-            if self.applicability.reason is not ApplicabilityReason.NO_TERMINAL_AM:
-                raise ValueError("el scope solo es NOT_APPLICABLE por NO_TERMINAL_AM")
+            if self.applicability.reason is not ApplicabilityReason.NO_TERMINAL_ANALYTIC_MODEL:
+                raise ValueError("el scope solo es NOT_APPLICABLE por NO_TERMINAL_ANALYTIC_MODEL")
             if self.terminal_am is not None or self.closure_size != 0 or self.closure_names:
                 raise ValueError("scope NOT_APPLICABLE no admite AM ni clausura")
         else:

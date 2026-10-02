@@ -101,7 +101,7 @@ def test_client_without_terminal_am_is_not_applicable():
     u = AssessmentUniverse.from_entities(pool(ent("T1"), ent("V1", up=["T1"])))
     assert u.terminal_ams == ()
     s = u.scope_for(None)
-    assert s.applicability == m.ApplicabilityDecision(m.Applicability.NOT_APPLICABLE, m.ApplicabilityReason.NO_TERMINAL_AM)
+    assert s.applicability == m.ApplicabilityDecision(m.Applicability.NOT_APPLICABLE, m.ApplicabilityReason.NO_TERMINAL_ANALYTIC_MODEL)
     assert s.terminal_am is None and s.closure_size == 0
     with pytest.raises(UnknownTerminalAmError):
         u.scope_for("V1")

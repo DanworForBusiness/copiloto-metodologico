@@ -245,7 +245,7 @@ def test_missing_remote_entity_is_never_not_applicable_by_itself():
     interno estatico CONOCIDO). El contrato las separa por construccion."""
     unobservable = _fact(assess=A.NOT_ASSESSED, cause=m.Cause.PROVENANCE_UNKNOWN)
     assert unobservable.applicability.state is N.APPLICABLE
-    assert {r.value for r in m.ApplicabilityReason} == {"SYSTEM_ARTIFACT", "INTERNAL_STATIC_OBJECT", "NO_TERMINAL_AM"}
+    assert {r.value for r in m.ApplicabilityReason} == {"SYSTEM_ARTIFACT", "INTERNAL_STATIC_OBJECT", "NO_TERMINAL_ANALYTIC_MODEL"}
     assert "NO_REMOTE_ENTITY" not in {r.value for r in m.ApplicabilityReason}
 
 
@@ -269,12 +269,12 @@ def test_observations_are_always_open_in_phase1():
 
 # ── scope y perfil ─────────────────────────────────────────────────────────
 def test_scope_not_applicable_only_for_no_terminal_am():
-    ok = m.ProfileScope(_app(m.ApplicabilityReason.NO_TERMINAL_AM), None, 0, ())
+    ok = m.ProfileScope(_app(m.ApplicabilityReason.NO_TERMINAL_ANALYTIC_MODEL), None, 0, ())
     assert ok.closure_size == 0
     with pytest.raises(ValueError):
         m.ProfileScope(_app(m.ApplicabilityReason.SYSTEM_ARTIFACT), None, 0, ())
     with pytest.raises(ValueError):
-        m.ProfileScope(_app(m.ApplicabilityReason.NO_TERMINAL_AM), "AM_X", 1, ("AM_X",))
+        m.ProfileScope(_app(m.ApplicabilityReason.NO_TERMINAL_ANALYTIC_MODEL), "AM_X", 1, ("AM_X",))
     with pytest.raises(ValueError):
         m.ProfileScope(_app(), None, 0, ())
     with pytest.raises(ValueError):

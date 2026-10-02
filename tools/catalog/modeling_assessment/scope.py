@@ -138,7 +138,7 @@ class AssessmentUniverse:
     def scope_for(self, am: str | None, *, pool_signature: str | None = None) -> ProfileScope:
         """`ProfileScope` (contrato M0) de UN AM terminal.
 
-        * sin AM terminales y sin seleccion -> scope NOT_APPLICABLE (`NO_TERMINAL_AM`);
+        * sin AM terminales y sin seleccion -> scope NOT_APPLICABLE (`NO_TERMINAL_ANALYTIC_MODEL`);
         * con AM terminales y sin seleccion  -> `TerminalAmSelectionRequired` (no se asume el cliente);
         * AM inexistente / no terminal       -> `UnknownTerminalAmError`.
         """
@@ -147,7 +147,7 @@ class AssessmentUniverse:
                 raise TerminalAmSelectionRequired(
                     f"el universo tiene {len(self._terminal)} AM terminales {list(self._terminal)}: elegir uno")
             return ProfileScope(
-                ApplicabilityDecision(Applicability.NOT_APPLICABLE, ApplicabilityReason.NO_TERMINAL_AM),
+                ApplicabilityDecision(Applicability.NOT_APPLICABLE, ApplicabilityReason.NO_TERMINAL_ANALYTIC_MODEL),
                 None, 0, (), pool_signature)
         self._require_terminal(am)
         closure = self._closures[am]
