@@ -186,11 +186,12 @@ def test_package_layout_is_the_approved_one():
     m1 = {"scope.py", "graph.py", "identity.py"}
     m2 = {"readers.py", "facts_support.py", "facts_source.py", "facts_ingestion.py"}
     m3 = {"contract.py", "facts_am.py", "facts_propagation.py", "facts_harmonization.py"}
+    m4 = {"naming_rules.py", "facts_naming.py"}
     present = {p.name for p in PKG_DIR.iterdir() if p.is_file()}
-    assert m0 <= present and m1 <= present and m2 <= present and m3 <= present
-    # Hito actual = M3: NO se adelantan milestones posteriores (M4 facts_naming, M5 signals, M6 assessability,
+    assert m0 <= present and m1 <= present and m2 <= present and m3 <= present and m4 <= present
+    # Hito actual = M4: NO se adelantan milestones posteriores (M5 signals, M6 assessability,
     # M7 profile/shadow/CLI/Markdown).
-    later = {"signals.py", "assessability.py", "profile.py", "shadow.py", "render_md.py", "__main__.py", "facts_naming.py"}
+    later = {"signals.py", "assessability.py", "profile.py", "shadow.py", "render_md.py", "__main__.py"}
     assert not (present & later), sorted(present & later)
 
 
