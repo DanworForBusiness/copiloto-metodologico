@@ -189,11 +189,12 @@ def test_package_layout_is_the_approved_one():
     m4 = {"naming_rules.py", "facts_naming.py"}
     m5 = {"signals.py"}
     m6 = {"assessability.py"}
+    m7 = {"profile.py", "render_md.py", "shadow.py", "__main__.py"}
     present = {p.name for p in PKG_DIR.iterdir() if p.is_file()}
-    assert m0 <= present and m1 <= present and m2 <= present and m3 <= present and m4 <= present and m5 <= present and m6 <= present
-    # Hito actual = M6: NO se adelantan milestones posteriores (M7 profile/shadow/CLI/Markdown).
-    later = {"profile.py", "shadow.py", "render_md.py", "__main__.py"}
-    assert not (present & later), sorted(present & later)
+    approved = m0 | m1 | m2 | m3 | m4 | m5 | m6 | m7
+    assert approved <= present, sorted(approved - present)
+    # Hito actual = M7: NO se adelantan milestones posteriores (M8: informe de validacion shadow contra el legacy) ni aparecen archivos no aprobados.
+    assert present == approved, sorted(present - approved)
 
 
 # ── R-I6 (corregido en M0): salida LOCAL-ONLY, sin default dentro de catalog_local ─
