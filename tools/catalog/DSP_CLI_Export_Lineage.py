@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import contextvars
+import contextlib
 import base64
 import json
 import os
@@ -67,7 +68,7 @@ class capture_output:
     def __exit__(self, *exc: Any) -> None:
         _SINK.reset(self._token)
 
-EXTRACTOR_VERSION = "2.1"
+EXTRACTOR_VERSION = "2.2"
 
 OBJECT_TYPES = [
     "analytic-models",
@@ -98,6 +99,15 @@ ROOT_TYPE_TO_OBJECT_TYPE = {
     "local-table": "local-tables",
     "remote-table": "remote-tables",
 }
+SUPPORTED_ROOT_TYPES = frozenset(ROOT_TYPE_TO_OBJECT_TYPE)
+DIAGNOSTIC_PHASES = (
+    "PRECHECK",
+    "ROOT / INVENTORY",
+    "LINEAGE",
+    "PRODUCER DISCOVERY",
+    "TASK CHAINS",
+    "WRITE / EXPORT",
+)
 OBJECT_TYPE_TO_ROOT_TYPE = {v: k for k, v in ROOT_TYPE_TO_OBJECT_TYPE.items()}
 FEATURE_TO_OBJECT_TYPES = {
     "analytic-models": ("analytic-models",),
@@ -144,13 +154,139 @@ class DatasphereCliError(RuntimeError):
     pass
 
 
+class RootTypeConstraintError(DatasphereCliError):
+    pass
+
+
+class ExtractionDiagnostics:
+    """Opt-in, in-memory forensic counters. Never persists credentials/tokens."""
+
+    def __init__(self, enabled: bool = False) -> None:
+        self.enabled = bool(enabled)
+        self.current_phase = "PRECHECK"
+        self.total_cli_process_launches = 0
+        self.total_network_bearing_commands = 0
+        self.family: dict[str, dict[str, float | int]] = {}
+        self.phase_stats: dict[str, dict[str, float | int]] = {}
+        self._logical_seen: set[tuple[str, str]] = set()
+        self._physical_seen: set[tuple[str, str]] = set()
+
+    def _bucket(self, mapping: dict[str, dict[str, float | int]], key: str) -> dict[str, float | int]:
+        return mapping.setdefault(key, {})
+
+    @staticmethod
+    def _inc(bucket: dict[str, float | int], key: str, amount: float | int = 1) -> None:
+        bucket[key] = bucket.get(key, 0) + amount
+
+    @contextlib.contextmanager
+    def phase(self, name: str):
+        if not self.enabled:
+            yield
+            return
+        previous = self.current_phase
+        self.current_phase = name
+        started = time.perf_counter()
+        try:
+            yield
+        finally:
+            elapsed_ms = (time.perf_counter() - started) * 1000.0
+            self._inc(self._bucket(self.phase_stats, name), "elapsed_ms", elapsed_ms)
+            self.current_phase = previous
+
+    def record_inventory_request(self, family: str, *, cache_hit: bool = False) -> None:
+        if not self.enabled:
+            return
+        bucket = self._bucket(self.family, family)
+        self._inc(bucket, "inventory_requests")
+        if cache_hit:
+            self._inc(bucket, "inventory_cache_hits")
+
+    def record_logical_read(self, family: str, technical_name: str, *, cache_hit: bool, reused: bool) -> None:
+        if not self.enabled:
+            return
+        bucket = self._bucket(self.family, family)
+        self._inc(bucket, "logical_reads")
+        key = (family, technical_name)
+        if key in self._logical_seen:
+            self._inc(bucket, "duplicate_logical_reads")
+        else:
+            self._logical_seen.add(key)
+        if cache_hit:
+            self._inc(bucket, "cache_hits")
+        if reused:
+            self._inc(bucket, "reused_parsed_objects")
+
+    def record_cli_call(
+        self,
+        *,
+        family: str | None,
+        operation: str,
+        technical_name: str | None,
+        elapsed_ms: float,
+        parse_ms: float = 0.0,
+        network_bearing: bool = True,
+    ) -> None:
+        if not self.enabled:
+            return
+        self.total_cli_process_launches += 1
+        if network_bearing:
+            self.total_network_bearing_commands += 1
+        phase = self._bucket(self.phase_stats, self.current_phase)
+        self._inc(phase, "cli_process_launches")
+        if network_bearing:
+            self._inc(phase, "network_bearing_commands")
+        self._inc(phase, "cli_elapsed_ms", elapsed_ms)
+        self._inc(phase, "local_parse_ms", parse_ms)
+        if family:
+            bucket = self._bucket(self.family, family)
+            self._inc(bucket, "cli_process_launches")
+            self._inc(bucket, "cli_elapsed_ms", elapsed_ms)
+            self._inc(bucket, "local_parse_ms", parse_ms)
+            if operation == "list":
+                self._inc(bucket, "inventory_cli_calls")
+            elif operation == "read":
+                self._inc(bucket, "physical_reads")
+                key = (family, technical_name or "")
+                if key in self._physical_seen:
+                    self._inc(bucket, "duplicate_physical_reads")
+                else:
+                    self._physical_seen.add(key)
+
+    def record_local_work(self, elapsed_ms: float) -> None:
+        if not self.enabled:
+            return
+        self._inc(self._bucket(self.phase_stats, self.current_phase), "local_work_ms", elapsed_ms)
+
+    def snapshot(self) -> dict[str, Any]:
+        def clean(mapping: dict[str, dict[str, float | int]]) -> dict[str, dict[str, float | int]]:
+            out: dict[str, dict[str, float | int]] = {}
+            for key, values in mapping.items():
+                out[key] = {
+                    k: round(v, 3) if isinstance(v, float) else v
+                    for k, v in values.items()
+                }
+            return out
+
+        return {
+            "enabled": self.enabled,
+            "total_cli_process_launches": self.total_cli_process_launches,
+            "total_network_bearing_commands": self.total_network_bearing_commands,
+            "by_family": clean(self.family),
+            "by_phase": clean(self.phase_stats),
+        }
+
+
 class DatasphereCli:
-    def __init__(self, host: str, client_id: str, client_secret: str, token_url: str, work_dir: Path) -> None:
+    def __init__(
+        self, host: str, client_id: str, client_secret: str, token_url: str, work_dir: Path,
+        diagnostics: ExtractionDiagnostics | None = None,
+    ) -> None:
         self.host = host.rstrip("/") + "/"
         self.client_id = client_id
         self.client_secret = client_secret
         self.token_url = token_url
         self.work_dir = work_dir
+        self.diagnostics = diagnostics or ExtractionDiagnostics(False)
         self.project_root = Path(__file__).resolve().parents[2]
         self.env = os.environ.copy()
         self.home_dir = self.work_dir / "home"
@@ -159,6 +295,18 @@ class DatasphereCli:
 
     def _run(self, args: list[str], *, expect_json: bool = False) -> Any:
         cmd = ["npx", "--no-install", "datasphere", *args]
+        family: str | None = None
+        operation = args[0] if args else "unknown"
+        technical_name: str | None = None
+        if len(args) >= 3 and args[0] == "objects":
+            family = args[1]
+            operation = args[2]
+            if operation == "read" and "--technical-name" in args:
+                idx = args.index("--technical-name")
+                if idx + 1 < len(args):
+                    technical_name = args[idx + 1]
+
+        started = time.perf_counter()
         proc = subprocess.run(
             cmd,
             cwd=self.project_root,
@@ -166,18 +314,41 @@ class DatasphereCli:
             capture_output=True,
             text=True,
         )
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        parse_ms = 0.0
+        parsed: Any = None
+        if proc.returncode == 0 and expect_json:
+            raw = proc.stdout.strip()
+            if not raw:
+                self.diagnostics.record_cli_call(
+                    family=family, operation=operation, technical_name=technical_name,
+                    elapsed_ms=elapsed_ms, network_bearing=True,
+                )
+                raise DatasphereCliError(f"Command returned empty output: {' '.join(cmd)}")
+            parse_started = time.perf_counter()
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                parse_ms = (time.perf_counter() - parse_started) * 1000.0
+                self.diagnostics.record_cli_call(
+                    family=family, operation=operation, technical_name=technical_name,
+                    elapsed_ms=elapsed_ms, parse_ms=parse_ms, network_bearing=True,
+                )
+                raise DatasphereCliError(
+                    f"Expected JSON but could not parse CLI output for: {' '.join(cmd)}"
+                ) from exc
+            parse_ms = (time.perf_counter() - parse_started) * 1000.0
+
+        self.diagnostics.record_cli_call(
+            family=family, operation=operation, technical_name=technical_name,
+            elapsed_ms=elapsed_ms, parse_ms=parse_ms, network_bearing=True,
+        )
         if proc.returncode != 0:
             stderr = proc.stderr.strip()
             stdout = proc.stdout.strip()
             raise DatasphereCliError(stderr or stdout or f"datasphere CLI failed with exit code {proc.returncode}")
         if expect_json:
-            raw = proc.stdout.strip()
-            if not raw:
-                raise DatasphereCliError(f"Command returned empty output: {' '.join(cmd)}")
-            try:
-                return json.loads(raw)
-            except json.JSONDecodeError as exc:
-                raise DatasphereCliError(f"Expected JSON but could not parse CLI output for: {' '.join(cmd)}") from exc
+            return parsed
         return proc.stdout
 
     def oauth_preflight(self) -> None:
@@ -313,6 +484,26 @@ def _parse_features(raw: str | Iterable[str] | None) -> set[str]:
     return set(values)
 
 
+def _parse_allowed_root_types(raw: str | Iterable[str] | None) -> frozenset[str] | None:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        values = [part.strip() for part in raw.split(",") if part.strip()]
+    else:
+        values = [str(part).strip() for part in raw if str(part).strip()]
+    normalized = frozenset(values)
+    unknown = sorted(normalized - SUPPORTED_ROOT_TYPES)
+    if unknown:
+        raise DatasphereCliError(
+            "INVALID_ROOT_TYPE_CONSTRAINT - Tipos de raíz no reconocidos: " + ", ".join(unknown)
+        )
+    if not normalized:
+        raise DatasphereCliError(
+            "INVALID_ROOT_TYPE_CONSTRAINT - allowed_root_types no puede estar vacío; use None para no restringir."
+        )
+    return normalized
+
+
 def _resolve_effective_features(requested: set[str], root_type: str) -> set[str]:
     effective = set(requested)
     flow_features = set(PRODUCER_TYPES)
@@ -363,6 +554,8 @@ class LineageExporter:
         requested_features: str | Iterable[str] | None = None,
         root_type: str | None = None,
         mode: str = "assessment",
+        allowed_root_types: str | Iterable[str] | None = None,
+        diagnostics: ExtractionDiagnostics | None = None,
     ) -> None:
         if analytic_model and root_object:
             raise DatasphereCliError("ROOT_ARGUMENT_CONFLICT - Use analytic_model o root_object, no ambos.")
@@ -385,7 +578,9 @@ class LineageExporter:
         self.root_type: str | None = root_type
         self.mode = mode
         self.requested_features = _parse_features(requested_features)
+        self.allowed_root_types = _parse_allowed_root_types(allowed_root_types)
         self.effective_features: set[str] = set()
+        self.diagnostics = diagnostics or getattr(cli, "diagnostics", ExtractionDiagnostics(False))
 
         self.inventory: dict[str, set[str]] = {}
         self.inventory_rows: dict[str, list[dict[str, Any]]] = {}
@@ -396,7 +591,9 @@ class LineageExporter:
 
     def ensure_inventory(self, object_type: str) -> set[str]:
         if object_type in self.inventory:
+            self.diagnostics.record_inventory_request(object_type, cache_hit=True)
             return self.inventory[object_type]
+        self.diagnostics.record_inventory_request(object_type, cache_hit=False)
         try:
             rows = self.cli.list_objects(self.space, object_type)
         except DatasphereCliError as exc:
@@ -460,6 +657,19 @@ class LineageExporter:
             raise DatasphereCliError("ROOT_TYPE_NOT_RESOLVED - No se resolvió el tipo de raíz.")
         self.effective_features = _resolve_effective_features(self.requested_features, self.root_type)
 
+    def validate_root_constraint(self) -> None:
+        if self.allowed_root_types is None:
+            return
+        if not self.root_type:
+            raise DatasphereCliError("ROOT_TYPE_NOT_RESOLVED - No se resolvió el tipo de raíz.")
+        if self.root_type not in self.allowed_root_types:
+            allowed = ", ".join(sorted(self.allowed_root_types))
+            raise RootTypeConstraintError(
+                "ROOT_TYPE_CONSTRAINT_FAILED - "
+                f"Detected root type '{self.root_type}' is not allowed by this caller constraint "
+                f"(allowed: {allowed})."
+            )
+
     def print_scope(self) -> None:
         assert self.root_type
         _say("\n==========================================")
@@ -497,7 +707,14 @@ class LineageExporter:
     def safe_read(self, object_type: str, technical_name: str) -> dict[str, Any] | None:
         key = (object_type, technical_name)
         if key in self.read_cache:
-            return self.read_cache[key]
+            cached = self.read_cache[key]
+            self.diagnostics.record_logical_read(
+                object_type, technical_name, cache_hit=True, reused=cached is not None
+            )
+            return cached
+        self.diagnostics.record_logical_read(
+            object_type, technical_name, cache_hit=False, reused=False
+        )
         try:
             data = self.cli.read_object(self.space, object_type, technical_name)
         except DatasphereCliError as exc:
@@ -793,7 +1010,9 @@ class LineageExporter:
                     errors += 1
                     continue
                 output_file = target_dir / f"{self._safe_filename(technical_name)}.json"
+                local_started = time.perf_counter()
                 output_file.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+                self.diagnostics.record_local_work((time.perf_counter() - local_started) * 1000.0)
                 _say("OK")
                 exported += 1
         _say("\n==========================================")
@@ -805,15 +1024,23 @@ class LineageExporter:
         return client_cache_dir
 
     def run(self) -> Path:
-        self.detect_root_type()
-        self.normalize_scope()
-        self.print_scope()
+        with self.diagnostics.phase("ROOT / INVENTORY"):
+            self.detect_root_type()
+            self.normalize_scope()
+            # Caller constraint is deliberately enforced after root resolution and
+            # before any recursive traversal, producer/orchestrator discovery or export.
+            self.validate_root_constraint()
+            self.print_scope()
         # Root inventories are already acquired by detect_root_type; all expensive
         # families remain lazy and are only acquired by producer/orchestrator phases.
-        self.walk_model_graph()
-        self.discover_producers()
-        self.discover_task_chains()
-        return self.write_outputs()
+        with self.diagnostics.phase("LINEAGE"):
+            self.walk_model_graph()
+        with self.diagnostics.phase("PRODUCER DISCOVERY"):
+            self.discover_producers()
+        with self.diagnostics.phase("TASK CHAINS"):
+            self.discover_task_chains()
+        with self.diagnostics.phase("WRITE / EXPORT"):
+            return self.write_outputs()
 
 
 def _manifest_object_keys(manifest: dict[str, Any]) -> set[tuple[str, str]]:
@@ -1052,6 +1279,8 @@ class ExportRequest:
     root_type: str | None = None
     features_requested: str | Iterable[str] | None = None
     mode: str = "assessment"
+    allowed_root_types: str | Iterable[str] | None = None
+    diagnostics: bool = False
 
 
 @dataclass
@@ -1081,6 +1310,7 @@ class ExportResult:
     catalog_generated: bool = False
     storage_enabled: bool = False
     mirrored_files: int | None = None
+    diagnostics: dict[str, Any] | None = None
     exit_code: int = 0
 
 
@@ -1097,6 +1327,8 @@ _PRECHECK_CODES = (
     ("AMBIGUOUS_ROOT_OBJECT_TYPE", "AMBIGUOUS_ROOT_OBJECT_TYPE"),
     ("INVALID_FEATURE_SCOPE", "INVALID_FEATURE_SCOPE"),
     ("ROOT_ARGUMENT_CONFLICT", "ROOT_ARGUMENT_CONFLICT"),
+    ("ROOT_TYPE_CONSTRAINT_FAILED", "ROOT_TYPE_CONSTRAINT_FAILED"),
+    ("INVALID_ROOT_TYPE_CONSTRAINT", "INVALID_ROOT_TYPE_CONSTRAINT"),
 )
 
 
@@ -1192,10 +1424,12 @@ def run_export(req: ExportRequest) -> ExportResult:
         base.exit_code = 2
         return finish(base)
 
+    diagnostics = ExtractionDiagnostics(req.diagnostics)
+
     with tempfile.TemporaryDirectory(prefix="dsp-lineage-") as tmp:
         cli = DatasphereCli(
             host=req.host, client_id=req.client_id, client_secret=req.client_secret,
-            token_url=req.token_url, work_dir=Path(tmp),
+            token_url=req.token_url, work_dir=Path(tmp), diagnostics=diagnostics,
         )
         try:
             _say("\n==========================================")
@@ -1217,13 +1451,29 @@ def run_export(req: ExportRequest) -> ExportResult:
                 requested_features=requested_features,
                 root_type=req.root_type or ("analytic-model" if legacy_root else None),
                 mode=req.mode,
+                allowed_root_types=req.allowed_root_types,
+                diagnostics=diagnostics,
             )
             exported_pool = exporter.run()
+        except RootTypeConstraintError as exc:
+            _say(f"ERROR: {exc}")
+            base.error_code = "ROOT_TYPE_CONSTRAINT_FAILED"
+            base.message = str(exc)
+            base.exit_code = 1
+            if 'exporter' in locals():
+                base.root_type = exporter.root_type
+                base.requested_features = sorted(exporter.requested_features)
+                base.effective_features = sorted(exporter.effective_features)
+            if diagnostics.enabled:
+                base.diagnostics = diagnostics.snapshot()
+            return finish(base)
         except DatasphereCliError as exc:
             _say(f"ERROR: {exc}")
             base.error_code = classify_error(str(exc))
             base.message = str(exc)
             base.exit_code = 1
+            if diagnostics.enabled:
+                base.diagnostics = diagnostics.snapshot()
             return finish(base)
 
     assert exporter.root_type
@@ -1298,6 +1548,7 @@ def run_export(req: ExportRequest) -> ExportResult:
         files_by_type={k: v for k, v in files_by_type.items() if v},
         deleted_stale=deleted_stale, retained_shared=retained_shared,
         pool_dir=exported_pool, manifest_path=manifest_path,
+        diagnostics=diagnostics.snapshot() if diagnostics.enabled else None,
     )
 
     if req.generate_catalog:
