@@ -276,10 +276,51 @@ class ExtractionDiagnostics:
         }
 
 
+@dataclass(frozen=True)
+class DatasphereCliLauncher:
+    command: tuple[str, ...]
+    mode: str
+    fallback_command: tuple[str, ...] | None = None
+
+
+def resolve_datasphere_cli_launcher(project_root: Path) -> DatasphereCliLauncher:
+    """Resolve the local Datasphere CLI once, preferring direct Node execution."""
+    project_root = Path(project_root).resolve()
+    node = shutil.which("node")
+    local_entrypoint = (
+        project_root / "node_modules" / "@sap" / "datasphere-cli" / "terminal.js"
+    )
+    npx_fallback = (
+        ("npx", "--no-install", "datasphere")
+        if shutil.which("npx") is not None
+        else None
+    )
+
+    if node and local_entrypoint.is_file():
+        return DatasphereCliLauncher(
+            command=(node, str(local_entrypoint)),
+            mode="direct",
+            fallback_command=npx_fallback,
+        )
+
+    if npx_fallback is not None:
+        return DatasphereCliLauncher(
+            command=npx_fallback,
+            mode="npx",
+            fallback_command=None,
+        )
+
+    raise DatasphereCliError(
+        "DATASPHERE_CLI_UNAVAILABLE - No se encontró el CLI local de Datasphere "
+        "ni npx disponible como fallback."
+    )
+
+
 class DatasphereCli:
     def __init__(
         self, host: str, client_id: str, client_secret: str, token_url: str, work_dir: Path,
         diagnostics: ExtractionDiagnostics | None = None,
+        launcher: DatasphereCliLauncher | None = None,
     ) -> None:
         self.host = host.rstrip("/") + "/"
         self.client_id = client_id
@@ -292,9 +333,43 @@ class DatasphereCli:
         self.home_dir = self.work_dir / "home"
         self.home_dir.mkdir(parents=True, exist_ok=True)
         self.env["HOME"] = str(self.home_dir)
+        self.launcher = launcher or resolve_datasphere_cli_launcher(self.project_root)
+
+    def _invoke_cli(self, args: list[str]) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+        cmd = [*self.launcher.command, *args]
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=self.project_root,
+                env=self.env,
+                capture_output=True,
+                text=True,
+            )
+            return proc, cmd
+        except OSError as exc:
+            fallback = self.launcher.fallback_command
+            if self.launcher.mode != "direct" or fallback is None:
+                raise DatasphereCliError(
+                    f"DATASPHERE_CLI_UNAVAILABLE - No se pudo iniciar el launcher de Datasphere: {exc}"
+                ) from exc
+
+            fallback_cmd = [*fallback, *args]
+            try:
+                proc = subprocess.run(
+                    fallback_cmd,
+                    cwd=self.project_root,
+                    env=self.env,
+                    capture_output=True,
+                    text=True,
+                )
+                return proc, fallback_cmd
+            except OSError as fallback_exc:
+                raise DatasphereCliError(
+                    "DATASPHERE_CLI_UNAVAILABLE - No se pudo iniciar el CLI local "
+                    f"ni el fallback npx: {fallback_exc}"
+                ) from fallback_exc
 
     def _run(self, args: list[str], *, expect_json: bool = False) -> Any:
-        cmd = ["npx", "--no-install", "datasphere", *args]
         family: str | None = None
         operation = args[0] if args else "unknown"
         technical_name: str | None = None
@@ -307,13 +382,7 @@ class DatasphereCli:
                     technical_name = args[idx + 1]
 
         started = time.perf_counter()
-        proc = subprocess.run(
-            cmd,
-            cwd=self.project_root,
-            env=self.env,
-            capture_output=True,
-            text=True,
-        )
+        proc, cmd = self._invoke_cli(args)
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         parse_ms = 0.0
         parsed: Any = None
@@ -1384,14 +1453,15 @@ def run_export(req: ExportRequest) -> ExportResult:
         mode=req.mode,
     )
 
-    if shutil.which("npx") is None:
-        _say("ERROR: npx not found in PATH", file=sys.stderr)
+    project_root = Path(__file__).resolve().parents[2]
+    try:
+        launcher = resolve_datasphere_cli_launcher(project_root)
+    except DatasphereCliError as exc:
+        _say(f"ERROR: {exc}", file=sys.stderr)
         base.error_code = "DATASPHERE_CLI_UNAVAILABLE"
-        base.message = "npx not found in PATH"
+        base.message = str(exc)
         base.exit_code = 2
         return finish(base)
-
-    project_root = Path(__file__).resolve().parents[2]
     catalog_root = Path(
         req.catalog_root or os.getenv("DANWOR_CATALOG_DIR") or (project_root / "catalog_local")
     ).resolve()
@@ -1430,6 +1500,7 @@ def run_export(req: ExportRequest) -> ExportResult:
         cli = DatasphereCli(
             host=req.host, client_id=req.client_id, client_secret=req.client_secret,
             token_url=req.token_url, work_dir=Path(tmp), diagnostics=diagnostics,
+            launcher=launcher,
         )
         try:
             _say("\n==========================================")
