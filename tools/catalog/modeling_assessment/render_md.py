@@ -277,6 +277,7 @@ def render_markdown(doc: dict) -> str:
     L: list[str] = ["# Autoevaluación de Modelado", ""]
     L += [f"- **Cliente:** {scope['client']}",
           f"- **Modelo analítico terminal:** {scope['terminal_analytic_model'] or '—'}",
+          *([f"- **Descripción:** {scope['terminal_analytic_model_label']}"] if scope.get("terminal_analytic_model_label") else []),
           "- **Alcance de la evaluación:** " + (f"{_plural(scope['closure_size'], 'artefacto')} en el cierre semántico del modelo analítico terminal"
                                                 if scope["applicability"] == "APPLICABLE" else "no aplica"),
           f"- **Estado del assessment:** {_EXECUTION_TEXT[doc['assessment_state']]}",

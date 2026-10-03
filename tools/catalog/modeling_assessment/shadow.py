@@ -126,6 +126,16 @@ def list_terminal_models(inbound: Path, client: str, domain: str | None = None) 
     return AssessmentUniverse.from_entities(load_pool(group)).terminal_ams
 
 
+def _business_label(entities, terminal_am: str | None) -> str | None:
+    """Nombre de negocio del AM terminal segun la EVIDENCIA (@EndUserText.label ya resuelto por el loader, incl. i18n). El loader cae al
+    nombre tecnico cuando la evidencia no declara etiqueta: eso NO es un nombre de negocio (no se deriva un titulo del nombre tecnico)."""
+    if not terminal_am:
+        return None
+    ent = entities.get(terminal_am)
+    label = str(getattr(ent, "label", "") or "").strip()
+    return label if label and label != terminal_am else None
+
+
 def assess(inbound: Path, client: str, am: str | None, domain: str | None = None) -> tuple[dict, dict]:
     """(documento publico, metadatos de pool para el manifiesto). Lanza ClientNotFoundError/AmbiguousClientDomainError/UnknownTerminalAmError/
     TerminalAmSelectionRequired; un fallo de carga NO lanza: devuelve el documento INDETERMINATE."""
@@ -142,7 +152,7 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
     scope = universe.scope_for(am, pool_signature=signature)               # puede lanzar UnknownTerminalAmError / TerminalAmSelectionRequired
     facts = [] if scope.terminal_am is None else collect_facts(universe, entities, scope.terminal_am, SupplementaryEvidence.from_files(group["jsons"], root=inbound))
     comp = compose_assessment(scope, facts)
-    doc = build_assessment(comp, facts, client=key[0])
+    doc = build_assessment(comp, facts, client=key[0], terminal_label=_business_label(entities, scope.terminal_am))
     validate_assessment(doc)
     meta["terminal_analytic_models_in_pool"] = len(universe.terminal_ams)
     return doc, meta

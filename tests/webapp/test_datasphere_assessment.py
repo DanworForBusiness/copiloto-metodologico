@@ -937,3 +937,34 @@ def test_password_field_contract_type_password_autocomplete_off_no_server_value(
     sec = _input(_page(owner), "dsa-client_secret")
     assert 'type="password"' in sec and 'autocomplete="off"' in sec and "new-password" not in sec and "value=" not in sec
     assert 'autocapitalize="none"' in sec and 'spellcheck="false"' in sec
+
+
+# ── nombre de negocio del AM en el assessment ad-hoc (evidencia -> perfil canónico -> JSON/MD/HTML) ──
+def _label_the_evidence(fake_export, label):
+    path = fake_export["evidence"] / "Acme" / "analytic-models" / "4AM_ACME.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["definitions"]["4AM_ACME"]["@EndUserText.label"] = label
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_adhoc_assessment_carries_the_business_name_into_json_markdown_and_html(owner, fake_export):
+    label = "Modelo analítico trazabilidad de Pagos - Factura - Compra"
+    _label_the_evidence(fake_export, label)
+    rid = _rid(_post(owner))
+    rec = svc.load_result(rid)
+    assert rec["profile"]["scope"]["terminal_analytic_model_label"] == label
+    j = owner.get(_results_url(rid, "/export.json")).text
+    m = owner.get(_results_url(rid, "/export.md")).text
+    page = owner.get(_results_url(rid) + "?pack=datasphere_core").text
+    assert f'"terminal_analytic_model_label": "{label}"' in j and f"- **Descripción:** {label}" in m and "- **Modelo analítico terminal:** 4AM_ACME" in m
+    assert label in page and "4AM_ACME" in page and page.index(label) < page.index("4AM_ACME", page.index(label) - 200)
+    assert "None" not in page.split("<main")[1].split("Indicadores")[0]
+
+
+def test_adhoc_assessment_without_a_business_label_keeps_the_technical_title_only(owner, fake_export):
+    rid = _rid(_post(owner))
+    assert svc.load_result(rid)["profile"]["scope"]["terminal_analytic_model_label"] is None
+    page = owner.get(_results_url(rid) + "?pack=datasphere_core").text
+    assert "Descripción" not in owner.get(_results_url(rid, "/export.md")).text
+    head = page.split("<main")[1].split("Indicadores")[0]
+    assert "4AM_ACME" in head and "None" not in head and "—" not in head

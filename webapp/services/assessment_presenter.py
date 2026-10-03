@@ -188,6 +188,13 @@ def _report_title(entry: Any, am: str | None) -> tuple[str | None, str | None]:
     return (stripped or desc), name
 
 
+def _canonical_label(doc: dict | None) -> str | None:
+    """Nombre de negocio del AM terminal en el perfil canónico (``scope.terminal_analytic_model_label``); None en perfiles que no lo traen
+    (p. ej. cacheados antes de este campo). Mismo tratamiento de prefijo genérico que el título del Catálogo."""
+    raw = str(((doc or {}).get("scope") or {}).get("terminal_analytic_model_label") or "").strip()
+    return (_TITLE_PREFIX.sub("", raw).strip() or raw) or None
+
+
 def _column_title(key: str) -> str:
     return {"name": "Nombre", "count": "Cantidad"}.get(key) or P.row_key_text(key).capitalize()
 
@@ -321,7 +328,11 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         "has_profile": doc is not None,
         "adhoc": adhoc is not None,
     }
-    view["title_desc"], view["title_id"] = (None, status.terminal_am) if adhoc else _report_title(entry, status.terminal_am)
+    canonical = _canonical_label(doc)
+    if canonical and status.terminal_am:                              # nombre de negocio del perfil canónico (respaldado por la evidencia)
+        view["title_desc"], view["title_id"] = canonical, status.terminal_am
+    else:                                                             # sin etiqueta canónica: metadato del Catálogo (si lo hay) o nombre técnico
+        view["title_desc"], view["title_id"] = (None, status.terminal_am) if adhoc else _report_title(entry, status.terminal_am)
     view["module_label"] = MODULE_LABEL
     if doc is None:
         return view
