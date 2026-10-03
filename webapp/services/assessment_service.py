@@ -462,6 +462,31 @@ def _engine_assess(root: Path, client_dir: str, am: str, domain_dir: str) -> tup
     return ma_shadow.assess(root, client_dir, am, domain_dir)
 
 
+def assess_evidence_root(root: Path, client_dir: str, am: str, domain: str = "General") -> tuple[dict | None, str | None]:
+    """Evalúa EXACTAMENTE ``am`` sobre una raíz de evidencia ARBITRARIA (p. ej. el workspace de un assessment ad-hoc) con el MISMO
+    motor. Devuelve (perfil canónico validado, None) o (None, código de falla estable). No lee ni escribe la caché del Catálogo."""
+    try:
+        doc, meta = _engine_assess(root, client_dir, am, domain)
+        state = doc.get("assessment_state")
+        if state == "ASSESSED":
+            ma_profile.validate_assessment(doc)
+            return doc, None
+        if state == "NOT_APPLICABLE":
+            return None, "AM_NOT_TERMINAL"
+        log.warning("assessment: INDETERMINATE (ad-hoc) para %s/%s: %s", client_dir, am, (meta or {}).get("errors"))
+        return None, "POOL_LOAD_ERROR"
+    except UnknownTerminalAmError:
+        return None, "AM_NOT_TERMINAL"
+    except ma_shadow.ClientNotFoundError:
+        return None, "POOL_UNAVAILABLE"
+    except ValueError:
+        log.exception("assessment: perfil inválido (ad-hoc) para %s/%s", client_dir, am)
+        return None, "INVALID_PROFILE"
+    except Exception:                                   # noqa: BLE001 — traza SOLO al log del servidor
+        log.exception("assessment: fallo de generación (ad-hoc) para %s/%s", client_dir, am)
+        return None, "GENERATION_ERROR"
+
+
 class _Flight:
     def __init__(self) -> None:
         self.event = threading.Event()

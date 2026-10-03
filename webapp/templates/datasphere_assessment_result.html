@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% block title %}{{ v.terminal_am }} · Assessment de tu modelo{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('{{ active_group }}', {{ 'true' if readonly else 'false' }})"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.APP_TITLE | urlencode }}&subtitle={{ config.APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, "/?pack=" ~ pack, _identity_html, "Módulos") %}{% endcall %}
+
+  {% include "partials/copilot_nav.html" %}
+
+  <main id="content" class="module-content">
+    {% include "partials/catalog_assessment_report.html" %}
+  </main>
+</div>
+{% endblock %}
