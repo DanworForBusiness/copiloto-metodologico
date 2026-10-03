@@ -37,6 +37,21 @@
       <span class="admin-result-title">Alcance</span>
       {{ field("space", "Space ID", "text", "PRODUCCION", first=True, value=dsa.form.get("space", "")) }}
       {{ field("root_object", "Artefacto / Objeto", "text", "AM_Compras", field_name="datasphere_root_object", value=dsa.form.get("root_object", "")) }}
+      {# Alcance de evidencia: OPCIONAL y colapsado. Reusa el disclosure del Hub (`details.admin-tool`) y las casillas del Hub (`.dashboard-checkbox-*`).
+         Solo familias opcionales con sus identificadores canónicos; las estructurales (modelos, vistas, tablas) las pide siempre el servidor.
+         El marcador `datasphere_features_submitted` distingue "todas destildadas" de "campo no enviado" (= todas, como hoy). #}
+      <details class="admin-tool catalog-picker--secondary" data-dsa-scope>
+        <summary class="admin-tool__summary">Alcance de evidencia</summary>
+        <div class="admin-tool__body">
+          <p class="admin-help">Seleccioná qué tipos de evidencia incluir en la extracción. Excluirlos puede reducir el tiempo de procesamiento, pero limita el alcance de evidencia disponible para el assessment.</p>
+          <input type="hidden" name="datasphere_features_submitted" value="1">
+          <div class="dashboard-checkbox-group">
+            {% for o in dsa.feature_options %}
+            <label class="dashboard-checkbox-option"><input type="checkbox" name="datasphere_features" value="{{ o.value }}"{% if o.checked %} checked{% endif %}><span>{{ o.label }}</span></label>
+            {% endfor %}
+          </div>
+        </div>
+      </details>
     </div>
     {# último grupo SIN `.tree-picker`: no lleva la línea separadora previa al botón (los labels reusan `.tool-label`, mismo estilo) #}
     <div class="catalog-picker--secondary">

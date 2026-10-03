@@ -135,16 +135,24 @@ def ingestion_facts(
     # ---- plano PROCESSING (evidencia complementaria cross-plane) ---------------------------------
     pc = universe.processing_context
     boundary = [b for b in pc.boundary_references if b.consumer in closure_set]
-    facts.append(make_fact(
-        "ingestion.dataflow_boundary", I_, "closure",
-        {"dataflow_targets_referenced": sorted({b.target for b in boundary}),
-         "references": [{"consumer": b.consumer, "target": b.target, "edge_kind": b.kind.value,
-                         "evidence_source": b.evidence_source} for b in boundary]},
-        EvidenceClass.B, plane=Plane.PROCESSING, refs=clo_ref))
-
-    if not ev.available:
+    if ev.data_flows_acquired:
         facts.append(make_fact(
-            "ingestion.processing_context_inventory", I_, "closure", {"replication_flows_read": 0, "data_flows_read": 0},
+            "ingestion.dataflow_boundary", I_, "closure",
+            {"dataflow_targets_referenced": sorted({b.target for b in boundary}),
+             "references": [{"consumer": b.consumer, "target": b.target, "edge_kind": b.kind.value,
+                             "evidence_source": b.evidence_source} for b in boundary]},
+            EvidenceClass.B, plane=Plane.PROCESSING, refs=clo_ref))
+    else:                                                               # Data Flows NO adquiridos: "sin referencias" no es una conclusion
+        facts.append(make_fact(
+            "ingestion.dataflow_boundary", I_, "closure", {"dataflow_targets_referenced": [], "references": []},
+            EvidenceClass.B, plane=Plane.PROCESSING, refs=clo_ref,
+            assessability=Assessability.NOT_ASSESSED, cause=Cause.NOT_IN_SNAPSHOT))
+
+    if not ev.available or not ev.acquired_flow_families:
+        facts.append(make_fact(
+            "ingestion.processing_context_inventory", I_, "closure",
+            {"replication_flows_read": 0, "data_flows_read": 0} if not ev.available and ev.flows_conclusive
+            else {"replication_flows_read": None, "data_flows_read": None},        # familias NO adquiridas: sin dato (no cero)
             EvidenceClass.A, plane=Plane.PROCESSING, refs=clo_ref,
             assessability=Assessability.NOT_ASSESSED, cause=Cause.NOT_IN_SNAPSHOT))
     else:
@@ -165,10 +173,11 @@ def ingestion_facts(
                 refs=[EvidenceRef(name, "flow_reference", fl.source_file, Plane.PROCESSING) for fl, _r in touched]))
         facts.append(make_fact(
             "ingestion.processing_context_inventory", I_, "closure",
-            {"replication_flows_read": sum(1 for f in ev.flows if f.kind == REPLICATION_FLOW),
-             "data_flows_read": sum(1 for f in ev.flows if f.kind == DATA_FLOW),
+            {"replication_flows_read": sum(1 for f in ev.flows if f.kind == REPLICATION_FLOW) if "replication-flows" in ev.acquired_flow_families else None,
+             "data_flows_read": sum(1 for f in ev.flows if f.kind == DATA_FLOW) if "data-flows" in ev.acquired_flow_families else None,
              "closure_artifacts_referenced": referenced,
              "read_issues": [{"source_file": i.source_file, "reason": i.reason} for i in ev.issues]},
-            EvidenceClass.A, plane=Plane.PROCESSING, refs=clo_ref))
+            EvidenceClass.A, plane=Plane.PROCESSING, refs=clo_ref,
+            **({} if ev.flows_conclusive else {"assessability": Assessability.PARTIALLY_ASSESSED, "cause": Cause.NOT_IN_SNAPSHOT})))
 
     return sort_facts(facts)

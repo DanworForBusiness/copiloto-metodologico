@@ -457,16 +457,19 @@ def status_for_entry(entry: Any) -> AssessmentStatus:
 
 
 # ═══════════════════════════ generación (POST) ═══════════════════════════
-def _engine_assess(root: Path, client_dir: str, am: str, domain_dir: str) -> tuple[dict, dict]:
+def _engine_assess(root: Path, client_dir: str, am: str, domain_dir: str, evidence_scope: dict | None = None) -> tuple[dict, dict]:
     """Único punto de contacto con el motor (API Python existente; sin shell-out). Seam de tests."""
+    if evidence_scope:
+        return ma_shadow.assess(root, client_dir, am, domain_dir, evidence_scope=evidence_scope)
     return ma_shadow.assess(root, client_dir, am, domain_dir)
 
 
-def assess_evidence_root(root: Path, client_dir: str, am: str, domain: str = "General") -> tuple[dict | None, str | None]:
+def assess_evidence_root(root: Path, client_dir: str, am: str, domain: str = "General", *,
+                        evidence_scope: dict | None = None) -> tuple[dict | None, str | None]:
     """Evalúa EXACTAMENTE ``am`` sobre una raíz de evidencia ARBITRARIA (p. ej. el workspace de un assessment ad-hoc) con el MISMO
     motor. Devuelve (perfil canónico validado, None) o (None, código de falla estable). No lee ni escribe la caché del Catálogo."""
     try:
-        doc, meta = _engine_assess(root, client_dir, am, domain)
+        doc, meta = _engine_assess(root, client_dir, am, domain, **({"evidence_scope": evidence_scope} if evidence_scope else {}))
         state = doc.get("assessment_state")
         if state == "ASSESSED":
             ma_profile.validate_assessment(doc)

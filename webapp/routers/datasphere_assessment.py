@@ -74,6 +74,7 @@ def run_assessment(
     host: str = Form(""), token_url: str = Form(""),
     client_id: str = Form("", alias="datasphere_client_id"), client_secret: str = Form("", alias="datasphere_client_secret"),
     space: str = Form(""), root_object: str = Form("", alias="datasphere_root_object"), client: str = Form(""),
+    features: list[str] = Form([], alias="datasphere_features"), features_submitted: str = Form("", alias="datasphere_features_submitted"),
 ):
     """Ejecuta y emite el avance EN TIEMPO REAL como NDJSON (una línea JSON por evento):
         {"t":"start"}                              apenas arranca
@@ -85,7 +86,8 @@ def run_assessment(
     user = _authorize(request, stem)
     selected = resolve_pack(pack)
     values = svc.FormValues.from_mapping({"host": host, "token_url": token_url, "client_id": client_id, "space": space,
-                                          "root_object": root_object, "client": client})
+                                          "root_object": root_object, "client": client,
+                                          "features": list(features) if features_submitted else None})
     svc.save_form_context(svc.session_key(request), values)        # contexto no sensible de la sesión (el secreto jamás entra a FormValues)
     secret = client_secret
     del client_secret

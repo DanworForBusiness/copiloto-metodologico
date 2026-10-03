@@ -271,6 +271,21 @@ def _area_block(area: dict, groups_by_id: dict[str, dict], rule_by_area: dict[st
     return out
 
 
+_FAMILY_TEXT = {"analytic-models": "Modelos Analíticos", "views": "Vistas", "tables": "Tablas", "replication-flows": "Replication Flows",
+                "data-flows": "Data Flows", "transformation-flows": "Transformation Flows", "task-chains": "Task Chains"}
+
+
+def _evidence_scope_lines(scope: dict | None) -> list[str]:
+    """Solo cuando se conoce el alcance de la extraccion y quedaron familias SIN adquirir: lo no adquirido NO es ausencia evaluada."""
+    if not scope:
+        return []
+    effective = set(scope.get("effective_features") or ())
+    missing = [t for k, t in _FAMILY_TEXT.items() if k not in effective]
+    if not missing:
+        return []
+    return [f"- **Evidencia no adquirida:** {', '.join(missing)} (no se extrajo; su ausencia en el assessment no implica que no existan)"]
+
+
 def render_markdown(doc: dict) -> str:
     """Markdown determinista (espanol) a partir del documento publico."""
     scope, summary = doc["scope"], doc["summary"]
@@ -278,6 +293,7 @@ def render_markdown(doc: dict) -> str:
     L += [f"- **Cliente:** {scope['client']}",
           f"- **Modelo analítico terminal:** {scope['terminal_analytic_model'] or '—'}",
           *([f"- **Descripción:** {scope['terminal_analytic_model_label']}"] if scope.get("terminal_analytic_model_label") else []),
+          *_evidence_scope_lines(scope.get("evidence_scope")),
           "- **Alcance de la evaluación:** " + (f"{_plural(scope['closure_size'], 'artefacto')} en el cierre semántico del modelo analítico terminal"
                                                 if scope["applicability"] == "APPLICABLE" else "no aplica"),
           f"- **Estado del assessment:** {_EXECUTION_TEXT[doc['assessment_state']]}",

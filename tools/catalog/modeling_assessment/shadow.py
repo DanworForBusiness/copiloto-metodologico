@@ -136,7 +136,15 @@ def _business_label(entities, terminal_am: str | None) -> str | None:
     return label if label and label != terminal_am else None
 
 
-def assess(inbound: Path, client: str, am: str | None, domain: str | None = None) -> tuple[dict, dict]:
+def _acquired_flow_families(evidence_scope: dict | None):
+    """Familias de flows adquiridas segun el alcance EFECTIVO de la extraccion (None => alcance desconocido => comportamiento previo)."""
+    if not evidence_scope:
+        return None
+    effective = set(evidence_scope.get("effective_features") or ())
+    return {"replication-flows", "data-flows"} & effective
+
+
+def assess(inbound: Path, client: str, am: str | None, domain: str | None = None, *, evidence_scope: dict | None = None) -> tuple[dict, dict]:
     """(documento publico, metadatos de pool para el manifiesto). Lanza ClientNotFoundError/AmbiguousClientDomainError/UnknownTerminalAmError/
     TerminalAmSelectionRequired; un fallo de carga NO lanza: devuelve el documento INDETERMINATE."""
     key, group = select_pool(inbound, client, domain)
@@ -150,9 +158,9 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
         return build_indeterminate_assessment(client=key[0], requested_model=am, message=str(exc), pool_signature=signature), meta
     universe = AssessmentUniverse.from_entities(entities)
     scope = universe.scope_for(am, pool_signature=signature)               # puede lanzar UnknownTerminalAmError / TerminalAmSelectionRequired
-    facts = [] if scope.terminal_am is None else collect_facts(universe, entities, scope.terminal_am, SupplementaryEvidence.from_files(group["jsons"], root=inbound))
+    facts = [] if scope.terminal_am is None else collect_facts(universe, entities, scope.terminal_am, SupplementaryEvidence.from_files(group["jsons"], root=inbound, acquired_flow_families=_acquired_flow_families(evidence_scope)))
     comp = compose_assessment(scope, facts)
-    doc = build_assessment(comp, facts, client=key[0], terminal_label=_business_label(entities, scope.terminal_am))
+    doc = build_assessment(comp, facts, client=key[0], terminal_label=_business_label(entities, scope.terminal_am), evidence_scope=evidence_scope)
     validate_assessment(doc)
     meta["terminal_analytic_models_in_pool"] = len(universe.terminal_ams)
     return doc, meta
