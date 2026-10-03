@@ -63,24 +63,28 @@ ERROR_MESSAGES = {
     "INSUFFICIENT_DATASPHERE_PRIVILEGES": "Las credenciales son válidas, pero el usuario técnico no tiene permisos suficientes sobre el Space. Revisá los scoped roles asignados.",
     "SPACE_ACCESS_FAILED": "No se pudo validar el acceso al Space indicado. Revisá el nombre del Space y los permisos del usuario técnico.",
     "DATASPHERE_CLI_UNAVAILABLE": "El Datasphere CLI no está disponible en este servidor.",
-    "EXTRACTION_FAILED": "La extracción desde Datasphere falló. Revisá el nombre del Analytic Model y el detalle técnico.",
+    "EXTRACTION_FAILED": "La extracción desde Datasphere falló. Revisá el objeto indicado y el detalle técnico.",
     "CATALOG_GENERATION_FAILED": "La extracción terminó, pero falló la regeneración del catálogo.",
     "STORAGE_UPLOAD_FAILED": "La extracción terminó, pero falló la sincronización con el almacenamiento (Spaces).",
-    "OPERATION_ALREADY_RUNNING": "Ya hay una extracción en curso para este cliente, Space y modelo. Esperá a que termine.",
+    "OPERATION_ALREADY_RUNNING": "Ya hay una extracción en curso para este cliente, Space y objeto. Esperá a que termine.",
     "NOT_AUTHORIZED": "No tenés permiso para ejecutar esta operación.",
     "ADHOC_STORAGE_UNSAFE": "El almacenamiento temporal del assessment no es seguro en este entorno (cae bajo un directorio persistido). No se ejecutó nada.",
-    "AM_NOT_TERMINAL": "La evidencia se adquirió correctamente, pero el modelo indicado no es un Analytic Model terminal en esa evidencia. Revisá el nombre del Analytic Model.",
-    "ASSESSMENT_FAILED": "La evidencia se adquirió correctamente, pero no se pudo generar el assessment.",
-    "POOL_LOAD_ERROR": "La evidencia se adquirió correctamente, pero no se pudo generar el assessment.",
-    "POOL_UNAVAILABLE": "La evidencia se adquirió correctamente, pero no se pudo generar el assessment.",
-    "INVALID_PROFILE": "La evidencia se adquirió correctamente, pero no se pudo generar el assessment.",
-    "GENERATION_ERROR": "La evidencia se adquirió correctamente, pero no se pudo generar el assessment.",
+    "AM_NOT_TERMINAL": "La evidencia se adquirió correctamente, pero el artefacto indicado no puede evaluarse con el alcance actual. Revisá el objeto seleccionado.",
+    "ASSESSMENT_FAILED": "La evidencia se adquirió correctamente, pero ocurrió un error al generar el informe.",
+    "POOL_LOAD_ERROR": "La evidencia se adquirió correctamente, pero ocurrió un error al generar el informe.",
+    "POOL_UNAVAILABLE": "La evidencia se adquirió correctamente, pero ocurrió un error al generar el informe.",
+    "INVALID_PROFILE": "La evidencia se adquirió correctamente, pero ocurrió un error al generar el informe.",
+    "GENERATION_ERROR": "La evidencia se adquirió correctamente, pero ocurrió un error al generar el informe.",
 }
 
 TITLE_EXTRACTION = "No se pudo completar la extracción"
 TITLE_ASSESSMENT = "No se pudo generar el assessment"
-PHASE_ASSESSING = "Evidencia adquirida. Generando assessment..."
-PHASE_DONE = "Assessment generado."
+# Ciclo de vida SEMÁNTICO de la operación (el backend es autoritativo sobre QUÉ fase ocurre; cómo se dibuja es del frontend).
+# "extracting" es la fase inicial: arranca con el POST y no emite evento propio.
+PHASE_ACQUIRED = "evidence_acquired"
+PHASE_ASSESSING = "assessing"
+PHASE_DONE = "assessment_ready"
+PHASE_COPY = {PHASE_ACQUIRED: "Evidencia adquirida", PHASE_ASSESSING: "Generando assessment...", PHASE_DONE: "Assessment generado"}
 
 FIELD_LABELS = {
     "host": "URL del tenant de Datasphere", "token_url": "Token URL (OAuth)", "client_id": "Client ID", "client_secret": "Client Secret",
@@ -322,7 +326,7 @@ def result_status(record: dict) -> asvc.AssessmentStatus:
 def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line=None, on_phase=None) -> Outcome:
     """Valida y encadena: extracción (MISMA función que el CLI) → assessment (MISMO motor) → resultado ad-hoc. El secreto no se
     almacena ni se devuelve y el assessment recibe SOLO rutas de evidencia.
-    ``on_line`` recibe, EN TIEMPO REAL y en orden, cada línea del extractor (saneada); ``on_phase`` recibe los hitos veraces."""
+    ``on_line`` recibe, EN TIEMPO REAL y en orden, cada línea del extractor (saneada); ``on_phase(fase)`` recibe los hitos semánticos veraces (``PHASE_*``)."""
     op_id = uuid.uuid4().hex[:10]
     errors = validate(values, client_secret)
     if errors:
@@ -377,6 +381,7 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
 
         # ── Evidencia adquirida → assessment automático (solo rutas de evidencia; las credenciales ya no existen para esta etapa) ──
         if on_phase is not None:
+            on_phase(PHASE_ACQUIRED)
             on_phase(PHASE_ASSESSING)
         client_dir = result.pool_dir.name if result.pool_dir is not None else values.client
         profile, code = asvc.assess_evidence_root(workspace / "pool", client_dir, values.analytic_model, "General")

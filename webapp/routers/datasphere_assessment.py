@@ -77,7 +77,8 @@ def run_assessment(
     """Ejecuta y emite el avance EN TIEMPO REAL como NDJSON (una línea JSON por evento):
         {"t":"start"}                              apenas arranca
         {"t":"line","v":"<línea del extractor>"}   cada línea de salida del extractor, en orden y sin reinterpretar
-        {"t":"phase","v":"<hito>"}                 hitos veraces del backend (evidencia adquirida / assessment generado)
+        {"t":"phase","phase":"<id>","v":"<texto>"}  hito semántico del backend (evidence_acquired | assessing | assessment_ready) + su texto;
+                                                   cómo se dibuja (spinner) lo decide el frontend
         {"t":"done","state":…,"error_code":…,"message":…,"title":…,"errors":{…},"result_url":…}   resultado final
     Todo texto del extractor viaja saneado (sin secretos/tokens/rutas internas). La UI lo inserta con textContent."""
     user = _authorize(request, stem)
@@ -93,7 +94,7 @@ def run_assessment(
         try:
             outcome = svc.run(values, secret, user_email=str(user.get("email") or ""),
                               on_line=lambda line: events.put({"t": "line", "v": line}),
-                              on_phase=lambda text: events.put({"t": "phase", "v": text}))
+                              on_phase=lambda phase: events.put({"t": "phase", "phase": phase, "v": svc.PHASE_COPY[phase]}))
         finally:
             secret = ""                                                    # el secreto no sobrevive a la ejecución
         log_activity("datasphere_assessment_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,

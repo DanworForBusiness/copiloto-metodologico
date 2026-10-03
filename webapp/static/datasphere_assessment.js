@@ -12,6 +12,9 @@
 (function () {
   "use strict";
 
+  // Fases semánticas del backend en las que hay trabajo en curso ("extracting" es la fase inicial, antes de cualquier evento).
+  const WORKING = new Set(["extracting", "assessing"]);
+
   function el(root, sel) { return root.querySelector(sel); }
 
   function setHidden(node, hidden) { if (node) node.hidden = !!hidden; }
@@ -20,6 +23,7 @@
     const panel = form.closest("#dsa-panel");
     const progress = el(panel, "[data-dsa-progress]");
     const status = el(panel, "[data-dsa-status]");
+    const spinner = el(panel, "[data-dsa-spinner]");
     const submit = el(form, "[data-dsa-submit]");
     const log = el(panel, "[data-dsa-log]");
     const detail = el(panel, "[data-dsa-detail]");
@@ -38,6 +42,7 @@
     submit.setAttribute("aria-busy", "true");
     setHidden(progress, false);
     status.textContent = status.dataset.runningText;
+    setHidden(spinner, false);                                 // extracción en curso: misma fila de procesamiento, spinner visible
 
     let done = null;
     try {
@@ -66,6 +71,7 @@
             log.scrollTop = log.scrollHeight;
           } else if (event.t === "phase") {
             status.textContent = event.v;                      // hito veraz emitido por el backend (sin porcentajes)
+            setHidden(spinner, !WORKING.has(event.phase));   // presentación: el spinner solo gira en fases con trabajo en curso
           } else if (event.t === "done") {
             done = event;
           }
@@ -83,6 +89,7 @@
     submit.disabled = false;
     submit.removeAttribute("aria-busy");
     status.textContent = "";
+    setHidden(spinner, true);                                  // la falla detiene el estado de procesamiento
     if (!done) return;
 
     if (done.state === "INVALID") {
@@ -94,7 +101,7 @@
     } else {
       el(panel, "[data-dsa-title]").textContent = done.title || "";
       el(panel, "[data-dsa-message]").textContent = done.message || "";
-      el(panel, "[data-dsa-code]").textContent = done.error_code || "";
+      if (done.error_code) log.textContent += "[" + done.error_code + "]" + String.fromCharCode(10);   // el código técnico vive en "Detalle técnico"
       setHidden(el(panel, "[data-dsa-failed]"), false);
     }
   }

@@ -378,7 +378,7 @@ def test_progress_phases_are_truthful_and_stdout_streams_in_order(owner, fake_ex
     wanted = ["Preflight OAuth: OK (HTTP 200)", "Preflight autorización: OK - acceso al Space ACME_SPACE", "Inventory analytic-models: 11", "[RF 12/38] RF_MD_REGUH"]
     positions = [lines.index(w) for w in wanted]
     assert positions == sorted(positions)
-    assert _phases(r) == ["Evidencia adquirida. Generando assessment...", "Assessment generado."]
+    assert _phases(r) == ["Evidencia adquirida", "Generando assessment...", "Assessment generado"]
     kinds = [e["t"] for e in events]
     assert kinds.index("phase") > max(i for i, k in enumerate(kinds) if k == "line" and events[i]["v"] in wanted)    # la fase llega DESPUÉS de la extracción
     assert not re.search(r"\d+\s*%", r.text.replace("100%", ""))
@@ -422,14 +422,41 @@ def test_assessment_failure_is_not_labeled_as_extraction_and_keeps_the_log(owner
     d = _done(r)
     assert d["state"] == "FAILED" and d["title"] == "No se pudo generar el assessment" and d["error_code"] == "GENERATION_ERROR"
     assert d["message"].startswith("La evidencia se adquirió correctamente") and "boom" not in d["message"] and SECRET not in r.text
-    assert _phases(r) == ["Evidencia adquirida. Generando assessment..."] and _lines(r)                   # el detalle técnico sigue disponible
+    assert _phases(r) == ["Evidencia adquirida", "Generando assessment..."] and _lines(r)                   # el detalle técnico sigue disponible
     assert d["result_url"] is None and not list((fake_export["cache"] / "adhoc" / "results").glob("*.json"))
 
 
-def test_unknown_or_non_terminal_am_reports_an_assessment_stage_failure(owner, fake_export):
-    d = _done(_post(owner, dict(VALID, analytic_model="NO_EXISTE_AM")))
+def test_unknown_or_non_terminal_am_reports_an_assessment_stage_failure_with_future_safe_copy(owner, fake_export):
+    r = _post(owner, dict(VALID, analytic_model="NO_EXISTE_AM"))
+    d = _done(r)
     assert d["state"] == "FAILED" and d["error_code"] == "AM_NOT_TERMINAL" and d["title"] == "No se pudo generar el assessment"
-    assert "no es un Analytic Model terminal" in d["message"]
+    assert d["message"] == ("La evidencia se adquirió correctamente, pero el artefacto indicado no puede evaluarse con el alcance actual. "
+                            "Revisá el objeto seleccionado.")
+
+
+def test_no_visible_failure_copy_hardcodes_analytic_model_or_terminal_language():
+    for code, message in svc.ERROR_MESSAGES.items():
+        assert not re.search(r"Analytic Model|terminal|scoring", message, re.I), code
+    js = (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")
+    assert not re.search(r"Analytic Model|terminal", js)
+
+
+def test_phase_events_carry_spinner_semantics_one_row_four_phases(owner, fake_export):
+    events = [e for e in _events(_post(owner)) if e["t"] == "phase"]
+    assert [(e["phase"], e["v"]) for e in events] == [("evidence_acquired", "Evidencia adquirida"), ("assessing", "Generando assessment..."), ("assessment_ready", "Assessment generado")]
+    assert all("spin" not in e for e in events)                                                   # la presentación no vive en el backend
+    tpl = (REPO / "webapp/templates/partials/datasphere_assessment_tool.html").read_text(encoding="utf-8")
+    js = (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")
+    assert tpl.count("section-analysis-loading-copy") == 1 and tpl.count("section-analysis-spinner") == 1       # UNA sola fila para las 4 fases
+    assert "setHidden(spinner, false);" in js and "setHidden(spinner, !WORKING.has(event.phase))" in js and "setHidden(spinner, true)" in js
+    assert 'new Set(["extracting", "assessing"])' in js and "spin" not in (REPO / "webapp/routers/datasphere_assessment.py").read_text(encoding="utf-8").replace("spinner", "")
+    assert 'data-running-text="Ejecutando extracción..."' in tpl
+
+
+def test_error_code_is_only_in_technical_detail_not_in_visible_status(owner, fake_export):
+    tpl = (REPO / "webapp/templates/partials/datasphere_assessment_tool.html").read_text(encoding="utf-8")
+    js = (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")
+    assert "log.textContent += " in js and "done.error_code" in js and "data-dsa-code" not in tpl + js
 
 
 def test_duplicate_execution_for_the_same_operation_is_rejected_truthfully(fake_export, monkeypatch):
@@ -553,8 +580,14 @@ def test_progress_panel_is_local_has_no_global_loader_and_no_actualizar_catalogo
     tpl = (REPO / "webapp/templates/partials/datasphere_assessment_tool.html").read_text(encoding="utf-8")
     js = (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")
     run_form = tpl[tpl.index('<form id="dsa-form"'):tpl.index("</form>", tpl.index('<form id="dsa-form"'))]
-    assert not re.search(r"section-analysis-form|assistant-chat-form|assistant-route-explain|assistant-request-loading|section-analysis-loading|htmx-indicator|hx-indicator", run_form)
+    assert not re.search(r"section-analysis-form|assistant-chat-form|assistant-route-explain|assistant-request-loading|htmx-indicator|hx-indicator", run_form)
     assert "Obteniendo la mejor respuesta" not in tpl + js and not re.search(r"htmx|assistant|section-analysis|is-loading", js)
+    # primitivo visual transversal reutilizado (solo markup/clases; sin CSS nuevo ni wiring del asistente)
+    assert re.search(r'<div class="section-analysis-loading" role="status">\s*<span class="section-analysis-spinner" data-dsa-spinner hidden></span><span class="section-analysis-loading-copy" data-dsa-status', tpl)
+    assert not re.search(r"assistant-request-loading|htmx-indicator|assistant-chat-loading", tpl)
+    assert 'class="feedback-error" role="alert" data-dsa-failed' in tpl and "callout" not in tpl and "style=" not in tpl and "data-dsa-code" not in tpl+js
+    assert not re.search(r"Esto cubre solo|Extracción completada|adquisición de la evidencia", tpl + js)
+    assert "Obteniendo la mejor respuesta" not in tpl
     app_js = (REPO / "webapp/static/app.js").read_text(encoding="utf-8")
     assert "data-dsa" not in app_js and "#dsa-" not in app_js and "datasphere_assessment" not in app_js
     assert 'data-running-text="Ejecutando extracción..."' in tpl and "data-dsa-progress" in tpl and "data-dsa-log" in tpl
@@ -636,3 +669,12 @@ def test_capture_output_streams_per_line_and_does_not_touch_global_stdout(capsys
     dsp._say("fuera")
     out = capsys.readouterr().out
     assert cap.lines == ["hola", "a b"] and seen == ["hola", "a b"] and "fuera" in out and "hola" not in out
+
+
+def test_tool_javascript_is_syntactically_valid():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node no disponible")
+    import subprocess
+    r = subprocess.run([node, "--check", str(REPO / "webapp/static/datasphere_assessment.js")], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
