@@ -9,6 +9,7 @@ Rutas (SOLO el POST ejecuta; los GET son de lectura):
   POST /modules/{stem}/datasphere-assessment/run                       valida + ejecuta y transmite el avance en tiempo real
                                                                        (NDJSON, vía fetch); termina con la URL del informe
   GET  /modules/{stem}/datasphere-assessment/result/{result_id}        informe ad-hoc (MISMA plantilla/presenter que el del Catálogo)
+  GET  /modules/{stem}/datasphere-assessment/result/{result_id}/log          detalle de ejecución (log saneado, vence con el resultado)
   GET  /modules/{stem}/datasphere-assessment/result/{result_id}/export.json   perfil canónico guardado
   GET  /modules/{stem}/datasphere-assessment/result/{result_id}/export.md     render_markdown del mismo perfil
   POST /modules/{stem}/datasphere-assessment/refresh-catalog           capacidad existente (futuro "Catálogo → Agregar"); ya no se
@@ -85,6 +86,7 @@ def run_assessment(
     selected = resolve_pack(pack)
     values = svc.FormValues.from_mapping({"host": host, "token_url": token_url, "client_id": client_id, "space": space,
                                           "root_object": root_object, "client": client})
+    svc.save_form_context(svc.session_key(request), values)        # contexto no sensible de la sesión (el secreto jamás entra a FormValues)
     secret = client_secret
     del client_secret
     events: queue.Queue = queue.Queue()
@@ -92,7 +94,7 @@ def run_assessment(
     def worker() -> None:
         nonlocal secret
         try:
-            outcome = svc.run(values, secret, user_email=str(user.get("email") or ""),
+            outcome = svc.run(values, secret, user_email=svc.owner_email(request),
                               on_line=lambda line: events.put({"t": "line", "v": line}),
                               on_phase=lambda phase: events.put({"t": "phase", "phase": phase, "v": svc.PHASE_COPY[phase]}))
         finally:
@@ -121,9 +123,11 @@ def run_assessment(
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no", "X-Content-Type-Options": "nosniff"})
 
 
-def _record_or_404(result_id: str) -> dict:
+def _record_or_404(request: Request, result_id: str) -> dict:
+    """El resultado debe existir, estar vigente y pertenecer al usuario autenticado: el de otro usuario es indistinguible de uno inexistente
+    (el ``result_id`` no autoriza ni permite enumerar)."""
     record = svc.load_result(result_id)
-    if record is None:
+    if record is None or str(record.get("owner") or "") != svc.owner_email(request):
         raise HTTPException(404, "El resultado no existe o venció (los assessments ad-hoc duran 24 horas).")
     return record
 
@@ -133,7 +137,7 @@ def adhoc_report(request: Request, stem: str, result_id: str, pack: str = Query(
     """Informe ad-hoc: el MISMO informe del Catálogo, con el contexto de un resultado guardado (sin flujo, sin regenerar, sin linaje)."""
     user = _authorize_read(request, stem)
     selected = resolve_pack(pack)
-    record = _record_or_404(result_id)
+    record = _record_or_404(request, result_id)
     _report, json_url, md_url, back_url = _result_urls(stem, result_id, selected)
     view = presenter.report_view(svc.result_status(record), None, selected, adhoc=presenter.AdhocReport(back_url, json_url, md_url))
     academy = [a for a in list_academy(selected) if not a.nav_hidden]
@@ -146,9 +150,29 @@ def adhoc_report(request: Request, stem: str, result_id: str, pack: str = Query(
                  "available_workspaces": workspaces.available_workspaces(user)})
 
 
+@router.get("/modules/{stem}/datasphere-assessment/result/{result_id}/log", response_class=HTMLResponse, include_in_schema=False)
+def adhoc_execution_log(request: Request, stem: str, result_id: str, pack: str = Query(DEFAULT_PACK)):
+    """Detalle de ejecución: el log YA saneado de la corrida que produjo el resultado. Vive y vence con el resultado; no forma parte del
+    JSON/Markdown canónico."""
+    user = _authorize_read(request, stem)
+    selected = resolve_pack(pack)
+    record = _record_or_404(request, result_id)
+    report_url, _json, _md, _back = _result_urls(stem, result_id, selected)
+    academy = [a for a in list_academy(selected) if not a.nav_hidden]
+    return templates.TemplateResponse(
+        request=request, name="datasphere_assessment_log.html",
+        context={"log_lines": [str(line) for line in record.get("execution_log") or []], "terminal_am": record.get("terminal_am", ""),
+                 "client_display": record.get("client_display", ""), "report_url": report_url,
+                 "modules": list_modules(selected), "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
+                 "academy": academy, "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
+                 "active_group": "core", "active_stem": stem, "readonly": False, "pack": selected,
+                 "pack_label": content_pack_short_label(selected), "user": user, "current_workspace": workspaces.COPILOT,
+                 "available_workspaces": workspaces.available_workspaces(user)})
+
+
 def _export(request: Request, stem: str, result_id: str, ext: str) -> Response:
     _authorize_read(request, stem)
-    record = _record_or_404(result_id)
+    record = _record_or_404(request, result_id)
     status = svc.result_status(record)
     body, media = (asvc.export_json(status), "application/json; charset=utf-8") if ext == "json" else \
                   (asvc.export_markdown(status), "text/markdown; charset=utf-8")
@@ -171,7 +195,7 @@ def adhoc_export_markdown(request: Request, stem: str, result_id: str):
 def refresh_catalog(request: Request, stem: str, pack: str = Form(DEFAULT_PACK)):
     """Capacidad existente de regenerar el catálogo desde el pool CSN (futuro "Catálogo → Agregar"). NO se expone desde esta herramienta."""
     user = _authorize(request, stem)
-    outcome = svc.refresh_catalog(user_email=str(user.get("email") or ""))
+    outcome = svc.refresh_catalog(user_email=svc.owner_email(request))
     log_activity("datasphere_assessment_refresh_catalog", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
                  state=outcome.state, error_code=outcome.error_code, duration_s=outcome.duration_s, operation_id=outcome.operation_id)
     return templates.TemplateResponse(request=request, name="partials/datasphere_assessment_refresh.html", context={"outcome": outcome})

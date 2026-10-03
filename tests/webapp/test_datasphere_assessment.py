@@ -171,7 +171,7 @@ def test_form_credentials_contract_reduces_browser_password_save_prompts(owner):
     for needle in ('type="text"', 'name="datasphere_client_id"', 'autocomplete="off"', 'autocapitalize="none"', 'spellcheck="false"'):
         assert needle in cid, needle
     sec = re.search(r'<input id="dsa-client_secret"[^>]*>', form).group(0)
-    for needle in ('type="password"', 'name="datasphere_client_secret"', 'autocomplete="new-password"', 'autocapitalize="none"', 'spellcheck="false"'):
+    for needle in ('type="password"', 'name="datasphere_client_secret"', 'autocomplete="off"', 'autocapitalize="none"', 'spellcheck="false"'):
         assert needle in sec, needle
     assert "value=" not in sec and "value=" not in cid and 'name="pack"' in form
 
@@ -798,3 +798,173 @@ def test_analytic_model_path_is_unchanged_and_other_errors_keep_their_presentati
     d3 = _done(_post(owner))
     assert d3["error_code"] == "ROOT_OBJECT_NOT_FOUND" and d3["title"] == "No se pudo completar la extracción"
     assert "ROOT_OBJECT_NOT_FOUND" not in d3["message"]
+
+
+# ── continuidad: contexto de formulario, assessments recientes, log de ejecución ──
+def _page(c):
+    return c.get(f"/modules/{STEM}?pack=datasphere_core").text
+
+
+def _input(html, ident):
+    return re.search(rf'<input id="{ident}"[^>]*>', html).group(0)
+
+
+def _results_url(rid, suffix=""):
+    return f"/modules/{STEM}/datasphere-assessment/result/{rid}{suffix}"
+
+
+@pytest.fixture()
+def two_owners(monkeypatch):
+    monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com,second@danwor.com")
+    svc._RUNNING.clear()
+    return _client("owner@danwor.com"), _client("second@danwor.com")
+
+
+def test_form_retains_non_sensitive_values_but_never_the_client_secret(owner, fake_export):
+    import base64 as _b64
+    assert "value=" not in _input(_page(owner), "dsa-host")                              # primera vez: vacío
+    assert _done(_post(owner))["state"] == "SUCCESS"
+    html = _page(owner)                                                                  # "Volver": la página del módulo se vuelve a pedir
+    for ident, value in (("dsa-host", VALID["host"]), ("dsa-token_url", VALID["token_url"]), ("dsa-client_id", VALID["datasphere_client_id"]),
+                         ("dsa-space", VALID["space"]), ("dsa-root_object", VALID["datasphere_root_object"]), ("dsa-client", VALID["client"])):
+        assert f'value="{value}"' in _input(html, ident), ident
+    sec = _input(html, "dsa-client_secret")
+    assert "value=" not in sec and 'type="password"' in sec and SECRET not in html
+    stored = "".join(p.read_text(encoding="utf-8") for p in (fake_export["cache"] / "adhoc").rglob("*") if p.is_file())
+    assert SECRET not in stored and _b64.b64encode(SECRET.encode()).decode() not in stored   # el secreto no está en NINGÚN almacén ad-hoc
+
+
+def test_form_context_is_session_scoped_ttl_bound_and_ignores_client_supplied_state(owner, fake_export, monkeypatch):
+    import time as _t
+    real = _t.time
+    _post(owner)
+    assert 'value="ACME_SPACE"' in _input(_page(owner), "dsa-space")
+    other_session = _client("owner@danwor.com")
+    other_session.cookies.set(auth_service.COOKIE_NAME, auth_service.create_session({"email": "owner@danwor.com", "name": "T2", "first_name": "T", "family_name": "U"}))
+    assert "value=" not in _input(_page(other_session), "dsa-space")                     # otro login => otra cookie => contexto vacío
+    forged = owner.get(f"/modules/{STEM}?pack=datasphere_core&datasphere_client_secret={SECRET}&dsa-client_secret={SECRET}").text
+    assert SECRET not in forged and "value=" not in _input(forged, "dsa-client_secret")  # estado del cliente no recupera ni inyecta un secreto
+    monkeypatch.setattr(svc.time, "time", lambda: real() + svc.RESULT_TTL_S + 5)
+    assert "value=" not in _input(_page(owner), "dsa-space")                             # el contexto vence con el TTL
+
+
+def test_context_is_saved_even_when_the_run_fails_but_still_without_the_secret(owner, fake_export, monkeypatch):
+    monkeypatch.setattr(dsp.DatasphereCli, "authorization_preflight", lambda self, space: (_ for _ in ()).throw(dsp.DatasphereCliError("PRECHECK_AUTH_403 - x")))
+    assert _done(_post(owner))["state"] == "FAILED"
+    html = _page(owner)
+    assert 'value="Acme"' in _input(html, "dsa-client") and SECRET not in html
+
+
+def test_recent_section_absent_without_results_and_present_with_live_ones_ordered_newest_first(owner, fake_export, monkeypatch):
+    import time as _t
+    real = _t.time
+    assert "Assessments recientes" not in _page(owner) and "Historial" not in _page(owner)
+    clock = {"d": 0}
+    monkeypatch.setattr(svc.time, "time", lambda: real() + clock["d"])
+    first = _rid(_post(owner))
+    clock["d"] = 60
+    second = _rid(_post(owner, dict(VALID, client="Acme2")))
+    html = _page(owner)
+    assert "Assessments recientes" in html and "Historial" not in html
+    assert html.index(second) < html.index(first)                                        # más reciente primero
+    assert html.count("Abrir assessment") == 2 and html.count("Ver ejecución") == 2
+    assert f'href="{_results_url(first)}?pack=datasphere_core"' in html and str(fake_export["cache"]) not in html   # sin rutas del sistema
+    assert owner.get(_results_url(second) + "?pack=datasphere_core").status_code == 200   # abrir = el informe existente
+
+
+def test_expired_and_runtime_lost_results_disappear_from_the_list_and_fail_safely(owner, fake_export, monkeypatch):
+    import time as _t
+    real = _t.time
+    rid = _rid(_post(owner))
+    assert "Assessments recientes" in _page(owner)
+    monkeypatch.setattr(svc.time, "time", lambda: real() + svc.RESULT_TTL_S + 5)
+    assert "Assessments recientes" not in _page(owner)                                   # todos vencidos => desaparece la sección entera
+    assert owner.get(_results_url(rid)).status_code == 404 and owner.get(_results_url(rid, "/log")).status_code == 404
+    monkeypatch.setattr(svc.time, "time", real)
+    rid2 = _rid(_post(owner))
+    svc.reset_boot_state()                                                               # reemplazo de proceso/runtime
+    assert "Assessments recientes" not in _page(owner)
+    assert owner.get(_results_url(rid2)).status_code == 404
+
+
+def test_recent_results_and_their_log_are_isolated_per_authenticated_owner(two_owners, fake_export):
+    first, second = two_owners
+    rid = _rid(_post(first))
+    assert "Assessments recientes" in _page(first) and "Assessments recientes" not in _page(second)
+    assert rid not in _page(second)
+    for suffix in ("", "/export.json", "/export.md", "/log"):                            # el result_id no autoriza: indistinguible de inexistente
+        assert second.get(_results_url(rid, suffix)).status_code == 404
+        assert first.get(_results_url(rid, suffix)).status_code == 200
+    assert TestClient(main.app).get(_results_url(rid, "/log")).status_code == 401
+
+
+def test_execution_log_reopens_with_the_result_and_has_no_credentials(owner, fake_export):
+    import base64 as _b64
+    import urllib.parse as _up
+    basic = _b64.b64encode(f"{VALID['datasphere_client_id']}:{SECRET}".encode()).decode()
+    fake_export["extra_lines"] = [f"eco {SECRET}", f"Authorization: Basic {basic}", f"id:secret en base64 {basic}", f"urlenc {_up.quote(SECRET, safe='')}",
+                                  "Authorization: Bearer abcdefghijklmnop", '{"access_token": "tok-123456789"}', "linea normal del extractor"]
+    rid = _rid(_post(owner))
+    page = owner.get(_results_url(rid, "/log") + "?pack=datasphere_core")
+    assert page.status_code == 200 and "Detalle de ejecución" in page.text and "Detalle técnico" in page.text and "linea normal del extractor" in page.text
+    assert 'class="admin-tool"' in page.text and "admin-result-output" in page.text         # reusa el primitivo existente
+    stored = svc.load_result(rid)
+    blob = page.text + json.dumps(stored["execution_log"])
+    for forbidden in (SECRET, basic, _up.quote(SECRET, safe=""), "abcdefghijklmnop", "tok-123456789"):
+        assert forbidden not in blob, forbidden
+    assert stored["execution_log"] and "[REDACTED]" in " ".join(stored["execution_log"])
+
+
+def test_execution_log_is_not_part_of_the_canonical_exports_and_exports_are_unchanged(owner, fake_export):
+    from tools.catalog.modeling_assessment import profile as ma_profile
+    from tools.catalog.modeling_assessment.render_md import render_markdown
+    rid = _rid(_post(owner))
+    rec = svc.load_result(rid)
+    j, m = owner.get(_results_url(rid, "/export.json")), owner.get(_results_url(rid, "/export.md"))
+    assert j.text == ma_profile.canonical_assessment_json(rec["profile"]) and m.text == render_markdown(rec["profile"])
+    assert "Preflight OAuth" not in j.text + m.text and "execution_log" not in j.text
+
+
+def test_log_disappears_with_the_result(owner, fake_export):
+    rid = _rid(_post(owner))
+    assert owner.get(_results_url(rid, "/log")).status_code == 200
+    (fake_export["cache"] / "adhoc" / "results" / f"{rid}.json").unlink()
+    assert owner.get(_results_url(rid, "/log")).status_code == 404 and "Assessments recientes" not in _page(owner)
+
+
+def test_password_field_contract_type_password_autocomplete_off_no_server_value(owner, fake_export):
+    _post(owner)
+    sec = _input(_page(owner), "dsa-client_secret")
+    assert 'type="password"' in sec and 'autocomplete="off"' in sec and "new-password" not in sec and "value=" not in sec
+    assert 'autocapitalize="none"' in sec and 'spellcheck="false"' in sec
+
+
+# ── nombre de negocio del AM en el assessment ad-hoc (evidencia -> perfil canónico -> JSON/MD/HTML) ──
+def _label_the_evidence(fake_export, label):
+    path = fake_export["evidence"] / "Acme" / "analytic-models" / "4AM_ACME.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["definitions"]["4AM_ACME"]["@EndUserText.label"] = label
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_adhoc_assessment_carries_the_business_name_into_json_markdown_and_html(owner, fake_export):
+    label = "Modelo analítico trazabilidad de Pagos - Factura - Compra"
+    _label_the_evidence(fake_export, label)
+    rid = _rid(_post(owner))
+    rec = svc.load_result(rid)
+    assert rec["profile"]["scope"]["terminal_analytic_model_label"] == label
+    j = owner.get(_results_url(rid, "/export.json")).text
+    m = owner.get(_results_url(rid, "/export.md")).text
+    page = owner.get(_results_url(rid) + "?pack=datasphere_core").text
+    assert f'"terminal_analytic_model_label": "{label}"' in j and f"- **Descripción:** {label}" in m and "- **Modelo analítico terminal:** 4AM_ACME" in m
+    assert label in page and "4AM_ACME" in page and page.index(label) < page.index("4AM_ACME", page.index(label) - 200)
+    assert "None" not in page.split("<main")[1].split("Indicadores")[0]
+
+
+def test_adhoc_assessment_without_a_business_label_keeps_the_technical_title_only(owner, fake_export):
+    rid = _rid(_post(owner))
+    assert svc.load_result(rid)["profile"]["scope"]["terminal_analytic_model_label"] is None
+    page = owner.get(_results_url(rid) + "?pack=datasphere_core").text
+    assert "Descripción" not in owner.get(_results_url(rid, "/export.md")).text
+    head = page.split("<main")[1].split("Indicadores")[0]
+    assert "4AM_ACME" in head and "None" not in head and "—" not in head

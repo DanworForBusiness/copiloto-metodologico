@@ -709,8 +709,10 @@ def _limitations_json(comp: AssessmentComposition) -> list[dict]:
     return out
 
 
-def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, client: str) -> dict:
-    """Documento publico del assessment, derivado SOLO de la composicion de M6 (+ el indice de hechos para los highlights)."""
+def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, client: str, terminal_label: str | None = None) -> dict:
+    """Documento publico del assessment, derivado SOLO de la composicion de M6 (+ el indice de hechos para los highlights).
+    ``terminal_label``: nombre de negocio del modelo analitico terminal TAL COMO lo declara la evidencia (@EndUserText.label ya resuelto);
+    es identidad descriptiva (None si la evidencia no lo declara): ninguna regla, hecho ni medida lo consume."""
     idx = FactIndex(facts)
     scope = comp.scope
     applicable = scope.applicability.state is Applicability.APPLICABLE
@@ -721,7 +723,8 @@ def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, clie
         "assessment_state": "ASSESSED" if applicable else "NOT_APPLICABLE",
         "versions": {"signals": SIGNALS_RULESET, "assessability": ASSESSABILITY_RULESET, "confidence": CONFIDENCE_RULESET, "reason_codes": REASON_REGISTRY_VERSION,
                      "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION, "presentation_order": PRESENTATION_ORDER_VERSION},
-        "scope": {"client": client, "terminal_analytic_model": scope.terminal_am, "applicability": scope.applicability.state.value,
+        "scope": {"client": client, "terminal_analytic_model": scope.terminal_am,
+                  "terminal_analytic_model_label": terminal_label if applicable else None, "applicability": scope.applicability.state.value,
                   "reason": None if applicable else public_reason(Assessability.NOT_APPLICABLE, None,
                                                                     scope.applicability.reason.value if scope.applicability.reason else None),
                   "closure_size": scope.closure_size, "closure_artifacts": list(scope.closure_names), "pool_signature": scope.pool_signature},
@@ -756,7 +759,8 @@ def build_indeterminate_assessment(*, client: str, requested_model: str | None, 
     return {"schema_version": ASSESSMENT_SCHEMA_VERSION, "assessment_state": "INDETERMINATE",
             "versions": {"signals": SIGNALS_RULESET, "assessability": ASSESSABILITY_RULESET, "confidence": CONFIDENCE_RULESET, "reason_codes": REASON_REGISTRY_VERSION,
                          "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION, "presentation_order": PRESENTATION_ORDER_VERSION},
-            "scope": {"client": client, "terminal_analytic_model": requested_model, "applicability": "INDETERMINATE", "reason": r, "closure_size": 0,
+            "scope": {"client": client, "terminal_analytic_model": requested_model, "terminal_analytic_model_label": None,
+                      "applicability": "INDETERMINATE", "reason": r, "closure_size": 0,
                       "closure_artifacts": [], "pool_signature": pool_signature},
             "summary": {"coverage": None, "confidence": None, "context_required": None, "macro_dimensions": [], "error": message},
             "areas": [], "observations": [], "review_required": [], "descriptive_signals": [], "rule_results": [], "evidence_limitations": [],
