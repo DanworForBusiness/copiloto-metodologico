@@ -26,6 +26,8 @@ JSON, activity log) ni se devuelve; la etapa de assessment recibe SOLO rutas de 
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import logging
 import os
@@ -34,6 +36,7 @@ import shutil
 import tempfile
 import threading
 import time
+import urllib.parse
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -149,8 +152,16 @@ def can_execute(request) -> bool:
 
 
 def tool_context(request, stem: str) -> dict:
-    """Contexto mínimo para la plantilla del panel. Sin secretos; los defaults del formulario son vacíos (no hay nada derivable)."""
-    return {"enabled": tool_enabled(stem), "can_execute": bool(tool_enabled(stem) and can_execute(request)), "stem": stem}
+    """Contexto para la plantilla del panel. Sin secretos: ``form`` son SOLO los campos no sensibles de la última ejecución de ESTA
+    sesión (el Client Secret no existe en ningún almacén) y ``recent`` los assessments ad-hoc vivos del propio usuario."""
+    enabled = tool_enabled(stem)
+    can = bool(enabled and can_execute(request))
+    values: dict[str, str] = {}
+    recent: list[dict] = []
+    if can:
+        values = load_form_context(session_key(request))
+        recent = list_results(owner_email(request))
+    return {"enabled": enabled, "can_execute": can, "stem": stem, "form": values, "recent": recent}
 
 
 def cli_available() -> bool:
@@ -227,7 +238,7 @@ def sanitize(text: str, secrets: tuple[str, ...] = (), roots: dict[str, str] | N
     return out
 
 
-def _trace(lines: list[str], secrets: tuple[str, ...], roots: dict[str, str], limit: int = 150) -> list[str]:
+def _trace(lines: list[str], secrets: tuple[str, ...], roots: dict[str, str], limit: int = 2000) -> list[str]:
     clean = [sanitize(line, secrets, roots)[:300] for line in lines if str(line).strip()]
     return clean[-limit:]
 
@@ -264,10 +275,12 @@ def _dirs() -> tuple[Path, Path]:
         if not _boot_done:
             shutil.rmtree(base / "work", ignore_errors=True)
             shutil.rmtree(base / "results", ignore_errors=True)
+            shutil.rmtree(base / "context", ignore_errors=True)
             _boot_done = True
     work, results = base / "work", base / "results"
     work.mkdir(parents=True, exist_ok=True)
     results.mkdir(parents=True, exist_ok=True)
+    (base / "context").mkdir(parents=True, exist_ok=True)
     return work, results
 
 
@@ -290,16 +303,27 @@ def purge_expired_results(*, now: float | None = None) -> int:
         if now - created > RESULT_TTL_S:
             path.unlink(missing_ok=True)
             removed += 1
+    for path in (results.parent / "context").glob("*.json"):
+        try:
+            created = float(json.loads(path.read_text(encoding="utf-8")).get("created_at", 0))
+        except Exception:                                                       # noqa: BLE001
+            created = 0.0
+        if now - created > RESULT_TTL_S:
+            path.unlink(missing_ok=True)
     return removed
 
 
-def save_result(profile: dict, *, client_display: str, client_dir: str, terminal_am: str) -> str:
-    """Guarda el perfil canónico y el contexto mínimo de presentación (sin credenciales) bajo un ``result_id`` opaco."""
+def save_result(profile: dict, *, client_display: str, client_dir: str, terminal_am: str, owner: str = "",
+                execution_log: list[str] | None = None) -> str:
+    """Guarda el perfil canónico y el contexto mínimo de presentación (sin credenciales) bajo un ``result_id`` opaco.
+    ``owner`` (email, minúsculas) acota quién puede ver/listar el resultado. ``execution_log`` es el log YA saneado de la corrida: metadato
+    auxiliar efímero (vive y vence con el resultado) que NUNCA entra al JSON/Markdown canónico."""
     _work, results = _dirs()
     purge_expired_results()
     result_id = uuid.uuid4().hex
     record = {"result_id": result_id, "created_at": time.time(), "client_display": client_display, "client_dir": client_dir,
-              "terminal_am": terminal_am, "profile": profile}
+              "terminal_am": terminal_am, "owner": (owner or "").strip().lower(), "execution_log": list(execution_log or []),
+              "profile": profile}
     fd, tmp = tempfile.mkstemp(dir=str(results), prefix=".tmp-", suffix=".json")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -336,6 +360,87 @@ def result_status(record: dict) -> asvc.AssessmentStatus:
                                  generated_at=created, profile=record["profile"])
 
 
+def owner_email(request) -> str:
+    from webapp.services import auth_service
+    user = auth_service.session_user(request) or {}
+    return str(user.get("sub") or user.get("email") or "").strip().lower()
+
+
+def list_results(owner: str) -> list[dict]:
+    """Assessments ad-hoc VIVOS de ``owner`` (más recientes primero). Sin rutas del sistema de archivos; los vencidos o ilegibles no
+    aparecen. Un resultado de otro usuario (o sin dueño) nunca se lista."""
+    owner = (owner or "").strip().lower()
+    if not owner:
+        return []
+    try:
+        _work, results = _dirs()
+    except AdhocStorageError:
+        return []
+    purge_expired_results()
+    out: list[dict] = []
+    for path in results.glob("*.json"):
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:                                                       # noqa: BLE001
+            continue
+        if str(rec.get("owner") or "") != owner or not _RESULT_ID_RE.match(str(rec.get("result_id") or "")):
+            continue
+        created = float(rec.get("created_at", 0))
+        out.append({"id": rec["result_id"], "root_object": rec.get("terminal_am", ""), "client": rec.get("client_display", ""),
+                    "created_at": created, "generated": datetime.fromtimestamp(created, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+                    "has_log": bool(rec.get("execution_log"))})
+    out.sort(key=lambda r: r["created_at"], reverse=True)
+    return out
+
+
+# ── Contexto de formulario (SOLO campos no sensibles), por sesión, efímero ──
+def session_key(request) -> str:
+    """Clave opaca de la sesión actual: hash de la cookie de sesión. Un logout/login emite otro token => otro contexto."""
+    from webapp.services import auth_service
+    token = request.cookies.get(auth_service.COOKIE_NAME) or ""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:32] if token else ""
+
+
+def _context_path(key: str) -> Path | None:
+    if not re.fullmatch(r"[0-9a-f]{32}", key or ""):
+        return None
+    _work, results = _dirs()
+    return results.parent / "context" / f"{key}.json"
+
+
+def save_form_context(key: str, values: FormValues) -> None:
+    """Guarda los valores NO sensibles (``NON_SECRET_FIELDS``) de la última ejecución de esta sesión. FormValues no tiene campo de
+    secreto: no hay manera de que el Client Secret llegue acá."""
+    try:
+        path = _context_path(key)
+    except AdhocStorageError:
+        return
+    if path is None:
+        return
+    data = {name: getattr(values, name) for name in NON_SECRET_FIELDS}
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"created_at": time.time(), "values": data}, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def load_form_context(key: str) -> dict[str, str]:
+    try:
+        path = _context_path(key)
+    except AdhocStorageError:
+        return {}
+    if path is None or not path.is_file():
+        return {}
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:                                                           # noqa: BLE001
+        return {}
+    if time.time() - float(rec.get("created_at", 0)) > RESULT_TTL_S:
+        path.unlink(missing_ok=True)
+        return {}
+    values = rec.get("values") or {}
+    return {name: str(values.get(name) or "") for name in NON_SECRET_FIELDS}
+
+
 # ───────────────────────────── ejecución ─────────────────────────────
 def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line=None, on_phase=None) -> Outcome:
     """Valida y encadena: extracción (MISMA función que el CLI) → assessment (MISMO motor) → resultado ad-hoc. El secreto no se
@@ -353,7 +458,11 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
     if not lock.acquire(blocking=False):
         return Outcome("FAILED", "OPERATION_ALREADY_RUNNING", ERROR_MESSAGES["OPERATION_ALREADY_RUNNING"], operation_id=op_id,
                        stage="extraction", title=TITLE_EXTRACTION)
-    secrets = (client_secret,)
+    # Formas derivadas del secreto que podrían aparecer en una línea de log (Basic = base64(id:secret), urlencoded): también se redactan.
+    secrets = tuple(dict.fromkeys(s for s in (
+        client_secret,
+        base64.b64encode(f"{values.client_id}:{client_secret}".encode("utf-8")).decode("ascii"),
+        urllib.parse.quote(client_secret, safe=""), urllib.parse.quote_plus(client_secret)) if s))
     workspace: Path | None = None
     try:
         try:
@@ -417,7 +526,8 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
                         op_id, user_email, values.client, values.space, values.root_object, code)
             return Outcome("FAILED", code, ERROR_MESSAGES.get(code, ERROR_MESSAGES["ASSESSMENT_FAILED"]), trace=trace, operation_id=op_id,
                            duration_s=result.duration_s, stage="assessment", title=TITLE_ASSESSMENT)
-        result_id = save_result(profile, client_display=values.client, client_dir=client_dir, terminal_am=values.root_object)
+        result_id = save_result(profile, client_display=values.client, client_dir=client_dir, terminal_am=values.root_object,
+                                owner=user_email, execution_log=trace)
         if on_phase is not None:
             on_phase(PHASE_DONE)
         log.info("datasphere_assessment op=%s user=%s client=%s space=%s model=%s status=SUCCESS duration=%.1fs files=%s",

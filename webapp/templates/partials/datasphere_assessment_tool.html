@@ -4,7 +4,7 @@
    La ejecución NO usa HTMX ni el loader del asistente: `datasphere_assessment.js` hace un fetch POST y pinta, con textContent, las
    líneas que el extractor emite en tiempo real. Estado propio: Ejecutando extracción… → Generando assessment… → el informe se abre solo.
    Sin porcentajes. Evaluar != publicar: esta herramienta no toca el Catálogo.
-   Contexto: dsa = {enabled, can_execute, stem}.
+   Contexto: dsa = {enabled, can_execute, stem, form (campos NO sensibles de la sesión), recent (assessments ad-hoc vivos del usuario)}.
    SECRETOS: el Client Secret es `type="password"`, viaja solo en el cuerpo del POST, se limpia del campo al enviar y NO se
    renderiza de vuelta. Sin JS el form hace POST (nunca GET con el secreto en la URL). #}
 <div id="dsa-panel" class="dsa-panel">
@@ -16,32 +16,32 @@
 {% else %}
   <form id="dsa-form" data-dsa-form method="post" action="/modules/{{ dsa.stem }}/datasphere-assessment/run" autocomplete="off">
     <input type="hidden" name="pack" value="{{ pack }}">
-    {% macro field(name, label, kind="text", placeholder="", first=False, field_name="") %}
+    {% macro field(name, label, kind="text", placeholder="", first=False, field_name="", value="") %}
     <div{% if not first %} class="catalog-picker--secondary"{% endif %}>{# separación entre campos: margen estándar del picker secundario #}
     <label class="tool-label" for="dsa-{{ name }}">{{ label }}</label>
     <div class="tree-picker-row">
-      <input id="dsa-{{ name }}" name="{{ field_name or name }}" type="{{ kind }}" placeholder="{{ placeholder }}"
-             required autocomplete="{{ 'new-password' if kind == 'password' else 'off' }}" autocapitalize="none" spellcheck="false">
+      <input id="dsa-{{ name }}" name="{{ field_name or name }}" type="{{ kind }}" placeholder="{{ placeholder }}"{% if value and kind != "password" %} value="{{ value }}"{% endif %}
+             required autocomplete="off" autocapitalize="none" spellcheck="false">
       <p class="feedback-error" data-dsa-error="{{ name }}" hidden></p>
     </div>
     </div>
     {% endmacro %}
     <div class="tree-picker catalog-picker--secondary">
       <span class="admin-result-title">Conexión Datasphere</span>
-      {{ field("host", "URL del tenant", "url", "https://mi-tenant.eu10.hcs.cloud.sap", first=True) }}
-      {{ field("token_url", "Token URL (OAuth)", "url", "https://mi-tenant.authentication.eu10.hana.ondemand.com/oauth/token") }}
-      {{ field("client_id", "Client ID", "text", "sb-5d74c5f-XXXX", field_name="datasphere_client_id") }}
+      {{ field("host", "URL del tenant", "url", "https://mi-tenant.eu10.hcs.cloud.sap", first=True, value=dsa.form.get("host", "")) }}
+      {{ field("token_url", "Token URL (OAuth)", "url", "https://mi-tenant.authentication.eu10.hana.ondemand.com/oauth/token", value=dsa.form.get("token_url", "")) }}
+      {{ field("client_id", "Client ID", "text", "sb-5d74c5f-XXXX", field_name="datasphere_client_id", value=dsa.form.get("client_id", "")) }}
       {{ field("client_secret", "Client Secret", "password", "5ff624c2-XXXX", field_name="datasphere_client_secret") }}
     </div>
     <div class="tree-picker catalog-picker--secondary">
       <span class="admin-result-title">Alcance</span>
-      {{ field("space", "Space ID", "text", "PRODUCCION", first=True) }}
-      {{ field("root_object", "Artefacto / Objeto", "text", "AM_Compras", field_name="datasphere_root_object") }}
+      {{ field("space", "Space ID", "text", "PRODUCCION", first=True, value=dsa.form.get("space", "")) }}
+      {{ field("root_object", "Artefacto / Objeto", "text", "AM_Compras", field_name="datasphere_root_object", value=dsa.form.get("root_object", "")) }}
     </div>
     {# último grupo SIN `.tree-picker`: no lleva la línea separadora previa al botón (los labels reusan `.tool-label`, mismo estilo) #}
     <div class="catalog-picker--secondary">
       <span class="admin-result-title">Destino</span>
-      {{ field("client", "Nombre de Cliente", "text", "Pampa", first=True) }}
+      {{ field("client", "Nombre de Cliente", "text", "Pampa", first=True, value=dsa.form.get("client", "")) }}
     </div>
     <div class="admin-actions">
       <button type="submit" class="btn-primary tool-primary" data-dsa-submit>Ejecutar assessment</button>
@@ -64,5 +64,21 @@
       <div class="admin-tool__body"><pre class="admin-result-output" data-dsa-log></pre></div>
     </details>
   </div>
+
+  {# Assessments recientes: resultados ad-hoc TEMPORALES (24 h / vida del proceso) del propio usuario. No es un historial: desaparecen al vencer. #}
+  {% if dsa.recent %}
+  <div class="catalog-picker--secondary" data-dsa-recent>
+    <span class="admin-result-title">Assessments recientes</span>
+    {% for r in dsa.recent %}
+    <div class="catalog-picker--secondary">
+      <p class="admin-help"><strong>{{ r.root_object }}</strong><br>{% if r.client %}{{ r.client }} · {% endif %}Generado {{ r.generated }}</p>
+      <div class="admin-actions">
+        <a class="btn-secondary" href="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}?pack={{ pack | urlencode }}">Abrir assessment</a>
+        {% if r.has_log %}<a class="btn-secondary" href="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}/log?pack={{ pack | urlencode }}">Ver ejecución</a>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
 {% endif %}
 </div>

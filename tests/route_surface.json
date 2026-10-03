@@ -76,6 +76,7 @@
   "GET /modules/{stem}/datasphere-assessment/result/{result_id}",
   "GET /modules/{stem}/datasphere-assessment/result/{result_id}/export.json",
   "GET /modules/{stem}/datasphere-assessment/result/{result_id}/export.md",
+  "GET /modules/{stem}/datasphere-assessment/result/{result_id}/log",
   "GET /onedanwor",
   "GET /operaciones/metricas",
   "GET /operaciones/reporting/integral",

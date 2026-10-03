@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% block title %}{{ terminal_am }} · Detalle de ejecución{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('{{ active_group }}', {{ 'true' if readonly else 'false' }})"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.APP_TITLE | urlencode }}&subtitle={{ config.APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, "/?pack=" ~ pack, _identity_html, "Módulos") %}{% endcall %}
+
+  {% include "partials/copilot_nav.html" %}
+
+  <main id="content" class="module-content">
+    {# Detalle de ejecución del assessment ad-hoc: reusa el primitivo de "Detalle técnico" (`details.admin-tool` + `.admin-result-output`).
+       El log ya viene saneado (sin secretos/tokens/rutas internas) y se imprime como texto (autoescape). #}
+    <a class="catalog-back" href="{{ report_url }}">← Volver al assessment</a>
+    <span class="admin-result-title">Detalle de ejecución · {{ terminal_am }}{% if client_display %} · {{ client_display }}{% endif %}</span>
+    <details class="admin-tool" open>
+      <summary class="admin-tool__summary">Detalle técnico</summary>
+      <div class="admin-tool__body"><pre class="admin-result-output">{% for line in log_lines %}{{ line }}
+{% else %}Sin detalle de ejecución disponible.{% endfor %}</pre></div>
+    </details>
+  </main>
+</div>
+{% endblock %}
