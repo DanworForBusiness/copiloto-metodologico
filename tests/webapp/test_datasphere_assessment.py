@@ -105,9 +105,10 @@ def fake_export(monkeypatch, tmp_path):
         calls["out_dirs"].append(self.output_dir)
         for line in calls["extra_lines"]:
             dsp._say(line)
-        shutil.copytree(evidence / "Acme", self.output_dir, dirs_exist_ok=True)
-        self.root_type = "analytic-model"                                                  # lo deriva el extractor (no la web)
+        self.root_type = calls.get("root_type", "analytic-model")                           # lo deriva el extractor (no la web)
         self.effective_features = set(self.requested_features)
+        self.validate_root_constraint()                                                    # compuerta REAL del extractor (antes de la evidencia profunda)
+        shutil.copytree(evidence / "Acme", self.output_dir, dirs_exist_ok=True)
         self.nodes = {("analytic-models", "4AM_ACME"): dsp.Node("analytic-models", "4AM_ACME"), ("views", "3VF_P"): dsp.Node("views", "3VF_P")}
         self.edges = {dsp.Edge("analytic-models", "4AM_ACME", "reads", "views", "3VF_P")}
         self.external_sources = {"SAPI.X"}
@@ -733,3 +734,67 @@ def test_assessment_applicability_visible_copy_has_no_engine_code_but_code_is_in
     d = _done(_post(owner, dict(VALID, datasphere_root_object="NO_EXISTE_AM")))
     assert d["error_code"] == "AM_NOT_TERMINAL" and "AM_NOT_TERMINAL" not in d["title"] + d["message"]
     assert "done.error_code" in (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")   # JS lo agrega a "Detalle técnico"
+
+
+# ── compuerta temprana por tipo de raíz (capacidad actual del assessment) ──────
+def _form_html_for(c):
+    html = c.get(f"/modules/{STEM}?pack=datasphere_core").text
+    start = html.index('<form id="dsa-form"')
+    return html[start:html.index("</form>", start)]
+
+
+def test_server_side_request_declares_allowed_root_types_analytic_model_only(owner, fake_export):
+    assert _done(_post(owner))["state"] == "SUCCESS"
+    req = fake_export["requests"][0]
+    assert set(req.allowed_root_types) == {"analytic-model"} and req.mode == "assessment" and req.root_object == "4AM_ACME"
+
+
+def test_browser_cannot_override_the_root_type_policy(owner, fake_export):
+    r = _post(owner, dict(VALID, allowed_root_types="view,local-table,remote-table,analytic-model", root_type="view", mode="publish",
+                          analytic_model="OTRO", features="views", generate_catalog="1", datasphere_allowed_root_types="view"))
+    assert _done(r)["state"] == "SUCCESS"
+    req = fake_export["requests"][0]
+    assert set(req.allowed_root_types) == {"analytic-model"} and req.root_type is None and req.mode == "assessment"
+    assert not req.analytic_model and not req.features_requested and req.generate_catalog is False
+    assert not re.search(r"allowed_root_types|root_type|name=.mode.|name=.features", _form_html_for(owner))
+
+
+@pytest.mark.parametrize("root_type,label", [("view", "una Vista"), ("local-table", "una Tabla local"), ("remote-table", "una Tabla remota")])
+def test_root_type_constraint_is_a_functional_applicability_message_without_acquiring_evidence(owner, fake_export, monkeypatch, root_type, label):
+    from tools.catalog.modeling_assessment import shadow as ma_shadow
+    fake_export["root_type"] = root_type
+    engine_calls = []
+    monkeypatch.setattr(asvc, "_engine_assess", lambda *a, **k: engine_calls.append(1))
+    monkeypatch.setattr(ma_shadow, "assess", lambda *a, **k: engine_calls.append(1))
+    r = _post(owner, dict(VALID, datasphere_root_object="3VF_PUR_PagoFacturaCompra"))
+    d = _done(r)
+    visible = d["title"] + " " + d["message"]
+    assert d["state"] == "FAILED" and d["error_code"] == "ROOT_TYPE_CONSTRAINT_FAILED" and d["title"] == "No se pudo generar el assessment"
+    assert d["message"] == ("El Assessment de tu modelo actualmente evalúa Modelos Analíticos terminales. "
+                            f"El objeto seleccionado fue identificado como {label}.")
+    assert "ROOT_TYPE_CONSTRAINT_FAILED" not in visible and "evidencia" not in visible.lower() and d["result_url"] is None
+    assert any("ROOT_TYPE_CONSTRAINT_FAILED" in line for line in _lines(r))                 # el identificador SÍ está en el detalle técnico
+    assert "done.error_code" in (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")
+    assert _phases(r) == []                                                                # ni "Evidencia adquirida" ni "Generando assessment..."
+    assert engine_calls == []                                                              # el motor de assessment no se invoca
+    assert not list((fake_export["cache"] / "adhoc" / "results").glob("*.json"))
+    assert list((fake_export["cache"] / "adhoc" / "work").iterdir()) == []
+
+
+def test_constraint_gate_stops_before_any_evidence_is_written(owner, fake_export):
+    fake_export["root_type"] = "view"
+    _post(owner)
+    pool = fake_export["out_dirs"][0]
+    assert not pool.exists() or not any(pool.rglob("*.json"))
+
+
+def test_analytic_model_path_is_unchanged_and_other_errors_keep_their_presentation(owner, fake_export, monkeypatch):
+    d = _done(_post(owner))
+    assert d["state"] == "SUCCESS" and d["result_url"]
+    d2 = _done(_post(owner, dict(VALID, datasphere_root_object="NO_EXISTE_AM")))
+    assert d2["error_code"] == "AM_NOT_TERMINAL" and d2["title"] == "No se pudo generar el assessment" and "evidencia se adquirió" in d2["message"]
+    monkeypatch.setattr(dsp.DatasphereCli, "authorization_preflight",
+                        lambda self, space: (_ for _ in ()).throw(dsp.DatasphereCliError("ROOT_OBJECT_NOT_FOUND - No se encontró 'X' en el Space 'S'.")))
+    d3 = _done(_post(owner))
+    assert d3["error_code"] == "ROOT_OBJECT_NOT_FOUND" and d3["title"] == "No se pudo completar la extracción"
+    assert "ROOT_OBJECT_NOT_FOUND" not in d3["message"]
