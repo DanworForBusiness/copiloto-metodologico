@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextvars
 import base64
 import json
 import os
@@ -13,7 +14,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -27,7 +28,46 @@ try:
 except Exception:
     pass
 
-EXTRACTOR_VERSION = "2.0"
+
+# Routable console output. CLI writes exactly as print(); programmatic callers
+# can capture/stream each line without redirecting global stdout.
+_SINK: contextvars.ContextVar = contextvars.ContextVar("dsp_export_sink", default=None)
+
+
+def _say(*args: Any, file: Any = None, **kwargs: Any) -> None:
+    sink = _SINK.get()
+    if sink is None:
+        print(*args, file=file, **kwargs)
+        return
+    sink.append(" ".join(str(a) for a in args))
+
+
+class _LineSink(list):
+    def __init__(self, on_line: Any = None) -> None:
+        super().__init__()
+        self._on_line = on_line
+
+    def append(self, line: str) -> None:
+        super().append(line)
+        if self._on_line is not None:
+            self._on_line(line)
+
+
+class capture_output:
+    """Capture export console lines per context, optionally streaming each one."""
+
+    def __init__(self, on_line: Any = None) -> None:
+        self.lines = _LineSink(on_line)
+        self._token = None
+
+    def __enter__(self) -> "capture_output":
+        self._token = _SINK.set(self.lines)
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        _SINK.reset(self._token)
+
+EXTRACTOR_VERSION = "2.1"
 
 OBJECT_TYPES = [
     "analytic-models",
@@ -141,7 +181,7 @@ class DatasphereCli:
         return proc.stdout
 
     def oauth_preflight(self) -> None:
-        print("Preflight OAuth: validando client_credentials...")
+        _say("Preflight OAuth: validando client_credentials...")
         raw = f"{self.client_id}:{self.client_secret}".encode("utf-8")
         basic = base64.b64encode(raw).decode("ascii")
         request = urllib.request.Request(
@@ -178,7 +218,7 @@ class DatasphereCli:
                 raise DatasphereCliError(
                     "PRECHECK_OAUTH_INVALID_RESPONSE - OAuth devolvió HTTP 200 pero no incluyó access_token."
                 )
-            print("Preflight OAuth: OK (HTTP 200)")
+            _say("Preflight OAuth: OK (HTTP 200)")
             return
         if status == 401:
             raise DatasphereCliError(
@@ -191,7 +231,7 @@ class DatasphereCli:
         )
 
     def authorization_preflight(self, space: str) -> None:
-        print(f"Preflight autorización: validando acceso al Space {space}...")
+        _say(f"Preflight autorización: validando acceso al Space {space}...")
         try:
             self._run(
                 ["objects", "analytic-models", "list", "--space", space, "--top", "1"],
@@ -213,7 +253,7 @@ class DatasphereCli:
             raise DatasphereCliError(
                 f"PRECHECK_AUTH_ERROR - No se pudo validar acceso al Space '{space}'. Detalle: {msg}"
             ) from exc
-        print(f"Preflight autorización: OK - acceso al Space {space}")
+        _say(f"Preflight autorización: OK - acceso al Space {space}")
 
     def login(self) -> None:
         self._run(
@@ -360,7 +400,7 @@ class LineageExporter:
         try:
             rows = self.cli.list_objects(self.space, object_type)
         except DatasphereCliError as exc:
-            print(f"WARN inventory {object_type}: {exc}", file=sys.stderr)
+            _say(f"WARN inventory {object_type}: {exc}", file=sys.stderr)
             rows = []
         self.inventory_rows[object_type] = rows
         names = {
@@ -369,7 +409,7 @@ class LineageExporter:
             if isinstance(row, dict) and isinstance(row.get("technicalName"), str)
         }
         self.inventory[object_type] = {str(n) for n in names if n}
-        print(f"Inventory {object_type}: {len(self.inventory[object_type])}")
+        _say(f"Inventory {object_type}: {len(self.inventory[object_type])}")
         return self.inventory[object_type]
 
     def build_inventory(self) -> None:
@@ -422,19 +462,19 @@ class LineageExporter:
 
     def print_scope(self) -> None:
         assert self.root_type
-        print("\n==========================================")
-        print("CONTEXTO DE EXTRACCION")
-        print("==========================================")
-        print(f"Objeto raíz: {self.root_object}")
-        print(f"Tipo detectado: {ROOT_LABELS[self.root_type]}")
-        print(f"Modo: {self.mode.upper()}")
-        print("\nAlcance efectivo:")
+        _say("\n==========================================")
+        _say("CONTEXTO DE EXTRACCION")
+        _say("==========================================")
+        _say(f"Objeto raíz: {self.root_object}")
+        _say(f"Tipo detectado: {ROOT_LABELS[self.root_type]}")
+        _say(f"Modo: {self.mode.upper()}")
+        _say("\nAlcance efectivo:")
         for feature in FEATURES:
-            print(f"  {FEATURE_LABELS[feature]:24} {'SI' if feature in self.effective_features else 'NO'}")
+            _say(f"  {FEATURE_LABELS[feature]:24} {'SI' if feature in self.effective_features else 'NO'}")
         if self.requested_features != self.effective_features:
             added = sorted(self.effective_features - self.requested_features)
             if added:
-                print("Dependencias agregadas por backend: " + ", ".join(added))
+                _say("Dependencias agregadas por backend: " + ", ".join(added))
 
     def resolve_type(self, technical_name: str) -> str | None:
         # Dependency resolution is intentionally limited to model families, not
@@ -446,7 +486,7 @@ class LineageExporter:
         if not candidates:
             return None
         if len(candidates) > 1:
-            print(
+            _say(
                 f"WARN dependencia ambigua '{technical_name}' encontrada en: {', '.join(candidates)}; "
                 "se omite para evitar precedencia silenciosa.",
                 file=sys.stderr,
@@ -461,7 +501,7 @@ class LineageExporter:
         try:
             data = self.cli.read_object(self.space, object_type, technical_name)
         except DatasphereCliError as exc:
-            print(f"WARN read {object_type}/{technical_name}: {exc}", file=sys.stderr)
+            _say(f"WARN read {object_type}/{technical_name}: {exc}", file=sys.stderr)
             self.read_cache[key] = None
             return None
         self.read_cache[key] = data
@@ -557,9 +597,9 @@ class LineageExporter:
     def walk_model_graph(self) -> None:
         assert self.root_type
         root_object_type = ROOT_TYPE_TO_OBJECT_TYPE[self.root_type]
-        print("\n==========================================")
-        print("RESOLVIENDO LINAJE UPSTREAM")
-        print("==========================================")
+        _say("\n==========================================")
+        _say("RESOLVIENDO LINAJE UPSTREAM")
+        _say("==========================================")
         started = time.perf_counter()
         queue: list[Node] = [Node(root_object_type, self.root_object)]
         processed: set[tuple[str, str]] = set()
@@ -572,12 +612,12 @@ class LineageExporter:
                 continue
             processed.add(key)
             i += 1
-            print(f"\n[{i}] {node.object_type} / {node.technical_name}")
+            _say(f"\n[{i}] {node.object_type} / {node.technical_name}")
             self.add_node(node.object_type, node.technical_name)
 
             data = self.safe_read(node.object_type, node.technical_name)
             if data is None:
-                print("ERROR - no se pudo leer")
+                _say("ERROR - no se pudo leer")
                 continue
 
             deps: set[str] = set()
@@ -590,38 +630,38 @@ class LineageExporter:
                     deps = self.parse_view_dependencies(data, node.technical_name)
 
             if not deps:
-                print("OK - sin dependencias upstream dentro del alcance")
+                _say("OK - sin dependencias upstream dentro del alcance")
                 continue
 
             accepted = 0
             for dep_name in sorted(deps):
                 dep_type = self.resolve_type(dep_name)
                 if not dep_type:
-                    print(f"  EXTERNAL/UNKNOWN: {dep_name}")
+                    _say(f"  EXTERNAL/UNKNOWN: {dep_name}")
                     self.external_sources.add(dep_name)
                     continue
                 if not self._dependency_allowed(dep_type):
-                    print(f"  SKIP scope - {dep_type}: {dep_name}")
+                    _say(f"  SKIP scope - {dep_type}: {dep_name}")
                     continue
                 accepted += 1
-                print(f"  -> {dep_type}: {dep_name}")
+                _say(f"  -> {dep_type}: {dep_name}")
                 self.add_edge(node.object_type, node.technical_name, "DEPENDS_ON", dep_type, dep_name)
                 queue.append(Node(dep_type, dep_name))
-            print(f"Dependencias incluidas: {accepted}/{len(deps)}")
+            _say(f"Dependencias incluidas: {accepted}/{len(deps)}")
 
-        print("\n------------------------------------------")
-        print(f"LINAJE UPSTREAM terminado en {time.perf_counter() - started:.1f}s")
-        print(f"Nodos actuales: {len(self.nodes)}")
-        print("------------------------------------------")
+        _say("\n------------------------------------------")
+        _say(f"LINAJE UPSTREAM terminado en {time.perf_counter() - started:.1f}s")
+        _say(f"Nodos actuales: {len(self.nodes)}")
+        _say("------------------------------------------")
 
     def discover_producers(self) -> None:
         enabled = [feature for feature in PRODUCER_TYPES if feature in self.effective_features]
         if not enabled:
-            print("\nProductores: SKIP - ninguna familia de flows habilitada.")
+            _say("\nProductores: SKIP - ninguna familia de flows habilitada.")
             return
-        print("\n==========================================")
-        print("BUSCANDO PRODUCTORES")
-        print("==========================================")
+        _say("\n==========================================")
+        _say("BUSCANDO PRODUCTORES")
+        _say("==========================================")
         started = time.perf_counter()
         local_tables = [n.technical_name for n in self.nodes.values() if n.object_type == "local-tables"]
         known_names = {n.technical_name for n in self.nodes.values()}
@@ -630,29 +670,29 @@ class LineageExporter:
             rf_names = sorted(self.ensure_inventory("replication-flows"))
             rf_ok = 0
             for i, rf_name in enumerate(rf_names, start=1):
-                print(f"\n[RF {i}/{len(rf_names)}] {rf_name}")
+                _say(f"\n[RF {i}/{len(rf_names)}] {rf_name}")
                 data = self.safe_read("replication-flows", rf_name)
                 if data is None:
-                    print("ERROR")
+                    _say("ERROR")
                     continue
                 info = self.parse_replication_flow(data, rf_name)
                 matched_targets = sorted(set(local_tables) & info["targets"])
                 if not matched_targets:
-                    print("SKIP - sin target del linaje")
+                    _say("SKIP - sin target del linaje")
                     continue
                 rf_ok += 1
-                print(f"OK - target(s): {', '.join(matched_targets)}")
+                _say(f"OK - target(s): {', '.join(matched_targets)}")
                 self.add_node("replication-flows", rf_name)
                 for target in matched_targets:
                     self.add_edge("replication-flows", rf_name, "PRODUCES", "local-tables", target)
                 for src in sorted(info["sources"]):
                     self.external_sources.add(src)
-                    print(f"  SOURCE: {src}")
+                    _say(f"  SOURCE: {src}")
                     self.add_edge("external-source", src, "REPLICATED_BY", "replication-flows", rf_name)
                 for connection in sorted(info["connections"]):
-                    print(f"  CONNECTION: {connection}")
+                    _say(f"  CONNECTION: {connection}")
                     self.add_edge("connection", connection, "USED_BY", "replication-flows", rf_name)
-            print(f"\nReplication Flows relacionados: {rf_ok}/{len(rf_names)}")
+            _say(f"\nReplication Flows relacionados: {rf_ok}/{len(rf_names)}")
 
         for object_type in ("data-flows", "transformation-flows"):
             if object_type not in self.effective_features:
@@ -660,65 +700,65 @@ class LineageExporter:
             flow_names = sorted(self.ensure_inventory(object_type))
             matches = 0
             for i, flow_name in enumerate(flow_names, start=1):
-                print(f"\n[{object_type} {i}/{len(flow_names)}] {flow_name}")
+                _say(f"\n[{object_type} {i}/{len(flow_names)}] {flow_name}")
                 data = self.safe_read(object_type, flow_name)
                 if data is None:
-                    print("ERROR")
+                    _say("ERROR")
                     continue
                 refs = [name for name in known_names if self._contains_exact_string(data, name)]
                 if not refs:
-                    print("SKIP - sin referencia al linaje")
+                    _say("SKIP - sin referencia al linaje")
                     continue
                 matches += 1
-                print(f"OK - referencias: {len(refs)}")
+                _say(f"OK - referencias: {len(refs)}")
                 self.add_node(object_type, flow_name)
                 for ref in refs:
                     ref_type = self.resolve_type(ref) or "unknown"
-                    print(f"  -> {ref_type}: {ref}")
+                    _say(f"  -> {ref_type}: {ref}")
                     self.add_edge(object_type, flow_name, "REFERENCES", ref_type, ref)
-            print(f"\n{object_type} relacionados: {matches}/{len(flow_names)}")
+            _say(f"\n{object_type} relacionados: {matches}/{len(flow_names)}")
 
-        print("\n------------------------------------------")
-        print(f"PRODUCTORES terminados en {time.perf_counter() - started:.1f}s")
-        print("------------------------------------------")
+        _say("\n------------------------------------------")
+        _say(f"PRODUCTORES terminados en {time.perf_counter() - started:.1f}s")
+        _say("------------------------------------------")
 
     def discover_task_chains(self) -> None:
         if "task-chains" not in self.effective_features:
-            print("\nTask Chains: SKIP - feature deshabilitada.")
+            _say("\nTask Chains: SKIP - feature deshabilitada.")
             return
-        print("\n==========================================")
-        print("BUSCANDO TASK CHAINS")
-        print("==========================================")
+        _say("\n==========================================")
+        _say("BUSCANDO TASK CHAINS")
+        _say("==========================================")
         started = time.perf_counter()
         operational_names = {
             n.technical_name for n in self.nodes.values() if n.object_type in PRODUCER_TYPES
         }
         if not operational_names:
-            print("SKIP - no hay productores operativos en el linaje")
+            _say("SKIP - no hay productores operativos en el linaje")
             return
         tc_names = sorted(self.ensure_inventory("task-chains"))
         matches = 0
         for i, tc_name in enumerate(tc_names, start=1):
-            print(f"\n[TC {i}/{len(tc_names)}] {tc_name}")
+            _say(f"\n[TC {i}/{len(tc_names)}] {tc_name}")
             data = self.safe_read("task-chains", tc_name)
             if data is None:
-                print("ERROR")
+                _say("ERROR")
                 continue
             refs = [name for name in operational_names if self._contains_exact_string(data, name)]
             if not refs:
-                print("SKIP - sin referencia al linaje")
+                _say("SKIP - sin referencia al linaje")
                 continue
             matches += 1
-            print(f"OK - referencias: {len(refs)}")
+            _say(f"OK - referencias: {len(refs)}")
             self.add_node("task-chains", tc_name)
             for ref in refs:
                 ref_type = next((t for t in PRODUCER_TYPES if (t, ref) in self.nodes), "unknown")
-                print(f"  -> {ref_type}: {ref}")
+                _say(f"  -> {ref_type}: {ref}")
                 self.add_edge("task-chains", tc_name, "ORCHESTRATES", ref_type, ref)
-        print("\n------------------------------------------")
-        print(f"Task Chains relacionadas: {matches}/{len(tc_names)}")
-        print(f"TASK CHAINS terminadas en {time.perf_counter() - started:.1f}s")
-        print("------------------------------------------")
+        _say("\n------------------------------------------")
+        _say(f"Task Chains relacionadas: {matches}/{len(tc_names)}")
+        _say(f"TASK CHAINS terminadas en {time.perf_counter() - started:.1f}s")
+        _say("------------------------------------------")
 
     @staticmethod
     def _safe_filename(technical_name: str) -> str:
@@ -732,10 +772,10 @@ class LineageExporter:
             if node.object_type in selected_by_type:
                 selected_by_type[node.object_type].add(node.technical_name)
 
-        print("\n==========================================")
-        print("EXPORTANDO CSN AL POOL DE EVIDENCIA")
-        print("==========================================")
-        print(f"Destino: {client_cache_dir}")
+        _say("\n==========================================")
+        _say("EXPORTANDO CSN AL POOL DE EVIDENCIA")
+        _say("==========================================")
+        _say(f"Destino: {client_cache_dir}")
         exported = 0
         errors = 0
         for object_type in OBJECT_TYPES:
@@ -744,24 +784,24 @@ class LineageExporter:
                 continue
             target_dir = client_cache_dir / object_type
             target_dir.mkdir(parents=True, exist_ok=True)
-            print(f"\nProcesando: {object_type} ({len(names)})")
+            _say(f"\nProcesando: {object_type} ({len(names)})")
             for i, technical_name in enumerate(names, start=1):
-                print(f"[{i}/{len(names)}] {technical_name}")
+                _say(f"[{i}/{len(names)}] {technical_name}")
                 data = self.safe_read(object_type, technical_name)
                 if data is None:
-                    print("ERROR")
+                    _say("ERROR")
                     errors += 1
                     continue
                 output_file = target_dir / f"{self._safe_filename(technical_name)}.json"
                 output_file.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-                print("OK")
+                _say("OK")
                 exported += 1
-        print("\n==========================================")
-        print("EXPORT CSN FINALIZADO")
-        print(f"Archivos exportados: {exported}")
-        print(f"Errores:             {errors}")
-        print(f"Pool:                {client_cache_dir}")
-        print("==========================================")
+        _say("\n==========================================")
+        _say("EXPORT CSN FINALIZADO")
+        _say(f"Archivos exportados: {exported}")
+        _say(f"Errores:             {errors}")
+        _say(f"Pool:                {client_cache_dir}")
+        _say("==========================================")
         return client_cache_dir
 
     def run(self) -> Path:
@@ -832,39 +872,39 @@ def _cleanup_stale_owned_objects(
     deleted = 0
     retained_shared = 0
     if not stale:
-        print("\nLimpieza incremental: sin objetos obsoletos.")
+        _say("\nLimpieza incremental: sin objetos obsoletos.")
         return deleted, retained_shared
-    print("\n==========================================")
-    print("LIMPIEZA INCREMENTAL DEL POOL")
-    print("==========================================")
-    print(f"Objetos previos:       {len(previous_objects)}")
-    print(f"Objetos actuales:      {len(current_objects)}")
-    print(f"Candidatos obsoletos:  {len(stale)}")
+    _say("\n==========================================")
+    _say("LIMPIEZA INCREMENTAL DEL POOL")
+    _say("==========================================")
+    _say(f"Objetos previos:       {len(previous_objects)}")
+    _say(f"Objetos actuales:      {len(current_objects)}")
+    _say(f"Candidatos obsoletos:  {len(stale)}")
     for object_type, technical_name in sorted(stale):
         if (object_type, technical_name) in other_owned_objects:
             retained_shared += 1
-            print(f"KEEP shared - {object_type}/{technical_name}")
+            _say(f"KEEP shared - {object_type}/{technical_name}")
             continue
         path = client_cache_dir / object_type / f"{LineageExporter._safe_filename(technical_name)}.json"
         if not path.exists():
-            print(f"SKIP missing - {object_type}/{technical_name}")
+            _say(f"SKIP missing - {object_type}/{technical_name}")
             continue
         try:
             path.unlink()
             deleted += 1
-            print(f"DELETE - {object_type}/{technical_name}")
+            _say(f"DELETE - {object_type}/{technical_name}")
         except OSError as exc:
-            print(f"WARN no se pudo borrar {path}: {exc}")
+            _say(f"WARN no se pudo borrar {path}: {exc}")
     for child in sorted(client_cache_dir.iterdir()) if client_cache_dir.exists() else []:
         if child.is_dir():
             try:
                 child.rmdir()
             except OSError:
                 pass
-    print("------------------------------------------")
-    print(f"Eliminados:             {deleted}")
-    print(f"Retenidos compartidos:  {retained_shared}")
-    print("------------------------------------------")
+    _say("------------------------------------------")
+    _say(f"Eliminados:             {deleted}")
+    _say(f"Retenidos compartidos:  {retained_shared}")
+    _say("------------------------------------------")
     return deleted, retained_shared
 
 
@@ -936,7 +976,7 @@ def _load_previous_manifest_with_migration_candidates(
             str(candidate.get("space") or "") == space
             and str(candidate.get("analyticModel") or candidate.get("rootObject") or "") == root_object
         ):
-            print(f"  Previous ownership: V1 manifest {candidate_path}")
+            _say(f"  Previous ownership: V1 manifest {candidate_path}")
             return candidate, candidate_path
     return {}, None
 
@@ -986,6 +1026,343 @@ def _write_manifest_v2(
         manifest["analyticModel"] = exporter.root_object
     path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
+
+
+@dataclass
+class ExportRequest:
+    """Programmatic extraction contract used by CLI and web orchestration.
+
+    ``analytic_model`` remains as a deprecated compatibility input. New callers
+    should use ``root_object`` and optionally ``root_type``. Output/persistence
+    policy is supplied by the orchestrator, not inferred by traversal logic.
+    """
+
+    host: str
+    client_id: str
+    client_secret: str = field(repr=False)
+    token_url: str = ""
+    space: str = ""
+    analytic_model: str = ""
+    client: str = ""
+    catalog_root: Path | None = None
+    csn_cache_dir: Path | None = None
+    generate_catalog: bool = True
+    mirror_up: bool = False
+    root_object: str = ""
+    root_type: str | None = None
+    features_requested: str | Iterable[str] | None = None
+    mode: str = "assessment"
+
+
+@dataclass
+class ExportResult:
+    ok: bool
+    error_code: str | None = None
+    message: str = ""
+    client: str = ""
+    space: str = ""
+    analytic_model: str = ""
+    root_object: str = ""
+    root_type: str | None = None
+    mode: str = "assessment"
+    requested_features: list[str] = field(default_factory=list)
+    effective_features: list[str] = field(default_factory=list)
+    duration_s: float = 0.0
+    objects: int = 0
+    edges: int = 0
+    external_sources: int = 0
+    exported_files: int = 0
+    export_errors: int = 0
+    files_by_type: dict[str, int] = field(default_factory=dict)
+    deleted_stale: int = 0
+    retained_shared: int = 0
+    pool_dir: Path | None = None
+    manifest_path: Path | None = None
+    catalog_generated: bool = False
+    storage_enabled: bool = False
+    mirrored_files: int | None = None
+    exit_code: int = 0
+
+
+_PRECHECK_CODES = (
+    ("PRECHECK_OAUTH_NETWORK_ERROR", "OAUTH_ENDPOINT_UNREACHABLE"),
+    ("PRECHECK_OAUTH_ERROR", "OAUTH_ENDPOINT_UNREACHABLE"),
+    ("PRECHECK_OAUTH_401", "AUTHENTICATION_FAILED"),
+    ("PRECHECK_OAUTH_INVALID_RESPONSE", "AUTHENTICATION_FAILED"),
+    ("PRECHECK_OAUTH_HTTP_", "AUTHENTICATION_FAILED"),
+    ("PRECHECK_AUTH_403", "INSUFFICIENT_DATASPHERE_PRIVILEGES"),
+    ("PRECHECK_AUTH_401", "AUTHENTICATION_FAILED"),
+    ("PRECHECK_AUTH_ERROR", "SPACE_ACCESS_FAILED"),
+    ("ROOT_OBJECT_NOT_FOUND", "ROOT_OBJECT_NOT_FOUND"),
+    ("AMBIGUOUS_ROOT_OBJECT_TYPE", "AMBIGUOUS_ROOT_OBJECT_TYPE"),
+    ("INVALID_FEATURE_SCOPE", "INVALID_FEATURE_SCOPE"),
+    ("ROOT_ARGUMENT_CONFLICT", "ROOT_ARGUMENT_CONFLICT"),
+)
+
+
+def classify_error(message: str) -> str:
+    for prefix, code in _PRECHECK_CODES:
+        if str(message).startswith(prefix):
+            return code
+    return "EXTRACTION_FAILED"
+
+
+def regenerate_catalog_from_pool(csn_cache_root: Path, catalog_root: Path) -> str:
+    project_root = Path(__file__).resolve().parents[2]
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from tools.catalog.generate_catalog import generate_all
+
+    return str(generate_all(csn_cache_root, catalog_root))
+
+
+def run_export(req: ExportRequest) -> ExportResult:
+    """Run one extraction without reading argv or exiting the process.
+
+    The caller owns business orchestration. In particular, alternate output roots
+    can be used for ephemeral assessments, while canonical roots can be used for
+    governed publication. ``generate_catalog`` and ``mirror_up`` are explicit
+    orchestration decisions and are not inferred by lineage traversal.
+    """
+    started_at = time.perf_counter()
+
+    def finish(result: ExportResult) -> ExportResult:
+        result.duration_s = round(time.perf_counter() - started_at, 1)
+        return result
+
+    root_object = (req.root_object or req.analytic_model or "").strip()
+    if req.root_object and req.analytic_model:
+        msg = "ROOT_ARGUMENT_CONFLICT - Use root_object o analytic_model, no ambos."
+        _say(f"ERROR: {msg}")
+        return finish(ExportResult(ok=False, error_code="ROOT_ARGUMENT_CONFLICT", message=msg, client=req.client, space=req.space, exit_code=2))
+    if not root_object:
+        msg = "ROOT_OBJECT_REQUIRED - Debe informarse root_object/analytic_model."
+        _say(f"ERROR: {msg}")
+        return finish(ExportResult(ok=False, error_code="INVALID_PARAMETER", message=msg, client=req.client, space=req.space, exit_code=2))
+    if req.mode not in {"assessment", "publish"}:
+        msg = f"INVALID_MODE - Modo no soportado: {req.mode}"
+        _say(f"ERROR: {msg}")
+        return finish(ExportResult(ok=False, error_code="INVALID_PARAMETER", message=msg, client=req.client, space=req.space, exit_code=2))
+
+    legacy_root = bool(req.analytic_model)
+    base = ExportResult(
+        ok=False, client=req.client, space=req.space,
+        analytic_model=req.analytic_model, root_object=root_object,
+        root_type=req.root_type or ("analytic-model" if legacy_root else None),
+        mode=req.mode,
+    )
+
+    if shutil.which("npx") is None:
+        _say("ERROR: npx not found in PATH", file=sys.stderr)
+        base.error_code = "DATASPHERE_CLI_UNAVAILABLE"
+        base.message = "npx not found in PATH"
+        base.exit_code = 2
+        return finish(base)
+
+    project_root = Path(__file__).resolve().parents[2]
+    catalog_root = Path(
+        req.catalog_root or os.getenv("DANWOR_CATALOG_DIR") or (project_root / "catalog_local")
+    ).resolve()
+    csn_cache_root = Path(
+        req.csn_cache_dir or os.getenv("DANWOR_CATALOG_CSN_CACHE") or (catalog_root / ".csn_cache")
+    ).resolve()
+
+    client_dir_name = _safe_path_component(req.client)
+    if not client_dir_name:
+        _say("ERROR: --client cannot be empty", file=sys.stderr)
+        base.error_code = "INVALID_PARAMETER"
+        base.message = "client cannot be empty"
+        base.exit_code = 2
+        return finish(base)
+
+    client_cache_dir = csn_cache_root / client_dir_name
+    _say("Extraction integration:")
+    _say(f"  Client:       {req.client}")
+    _say(f"  Mode:         {req.mode.upper()}")
+    _say(f"  Catalog root: {catalog_root}")
+    _say(f"  CSN cache:    {csn_cache_root}")
+    _say(f"  Client pool:  {client_cache_dir}")
+
+    try:
+        requested_features = _parse_features(req.features_requested)
+    except DatasphereCliError as exc:
+        _say(f"ERROR: {exc}")
+        base.error_code = classify_error(str(exc))
+        base.message = str(exc)
+        base.exit_code = 2
+        return finish(base)
+
+    with tempfile.TemporaryDirectory(prefix="dsp-lineage-") as tmp:
+        cli = DatasphereCli(
+            host=req.host, client_id=req.client_id, client_secret=req.client_secret,
+            token_url=req.token_url, work_dir=Path(tmp),
+        )
+        try:
+            _say("\n==========================================")
+            _say("PRECHECK DE CONEXION Y AUTORIZACION")
+            _say("==========================================")
+            cli.oauth_preflight()
+            _say("\nLogging in to SAP Datasphere...")
+            cli.login()
+            _say("Login OK")
+            cli.authorization_preflight(req.space)
+            _say("\nPrechecks OK. Iniciando export de linaje...")
+
+            exporter = LineageExporter(
+                cli=cli,
+                space=req.space,
+                analytic_model=root_object if legacy_root else None,
+                root_object=None if legacy_root else root_object,
+                output_dir=client_cache_dir,
+                requested_features=requested_features,
+                root_type=req.root_type or ("analytic-model" if legacy_root else None),
+                mode=req.mode,
+            )
+            exported_pool = exporter.run()
+        except DatasphereCliError as exc:
+            _say(f"ERROR: {exc}")
+            base.error_code = classify_error(str(exc))
+            base.message = str(exc)
+            base.exit_code = 1
+            return finish(base)
+
+    assert exporter.root_type
+    base.root_type = exporter.root_type
+    base.requested_features = sorted(exporter.requested_features)
+    base.effective_features = sorted(exporter.effective_features)
+
+    diagnostics_dir = _canonical_run_dir(
+        catalog_root, client_dir_name, req.space, exporter.root_type, exporter.root_object
+    )
+    manifest_path = diagnostics_dir / "lineage-manifest.json"
+    previous_manifest, migrated_from = _load_previous_manifest_with_migration_candidates(
+        catalog_root=catalog_root,
+        client_dir_name=client_dir_name,
+        space=req.space,
+        root_type=exporter.root_type,
+        root_object=exporter.root_object,
+        canonical_manifest_path=manifest_path,
+    )
+
+    current_objects = {
+        (node.object_type, node.technical_name)
+        for node in exporter.nodes.values()
+        if node.object_type in OBJECT_TYPES
+    }
+    client_runs_root = catalog_root / ".lineage_runs" / client_dir_name
+    excluded = [manifest_path]
+    if migrated_from:
+        excluded.append(migrated_from)
+    other_owned_objects = _other_manifest_ownership(client_runs_root, excluded)
+    deleted_stale, retained_shared = _cleanup_stale_owned_objects(
+        client_cache_dir=client_cache_dir,
+        previous_manifest=previous_manifest,
+        current_objects=current_objects,
+        other_owned_objects=other_owned_objects,
+    )
+
+    _write_manifest_v2(
+        path=manifest_path,
+        client=req.client,
+        space=req.space,
+        exporter=exporter,
+        mode=req.mode,
+        deleted_stale=deleted_stale,
+        retained_shared=retained_shared,
+    )
+
+    if migrated_from and migrated_from != manifest_path:
+        try:
+            migrated_from.unlink()
+            try:
+                migrated_from.parent.rmdir()
+            except OSError:
+                pass
+            _say(f"Manifest V1 migrado: {migrated_from}")
+        except OSError as exc:
+            _say(f"WARN no se pudo retirar manifest V1: {exc}")
+
+    files_by_type = {
+        t: sum(1 for _ in (client_cache_dir / t).glob("*.json"))
+        if (client_cache_dir / t).is_dir() else 0
+        for t in OBJECT_TYPES
+    }
+    result = ExportResult(
+        ok=True, client=req.client, space=req.space, analytic_model=req.analytic_model,
+        root_object=exporter.root_object, root_type=exporter.root_type, mode=req.mode,
+        requested_features=sorted(exporter.requested_features),
+        effective_features=sorted(exporter.effective_features),
+        objects=len(exporter.nodes), edges=len(exporter.edges),
+        external_sources=len(exporter.external_sources),
+        exported_files=sum(files_by_type.values()),
+        files_by_type={k: v for k, v in files_by_type.items() if v},
+        deleted_stale=deleted_stale, retained_shared=retained_shared,
+        pool_dir=exported_pool, manifest_path=manifest_path,
+    )
+
+    if req.generate_catalog:
+        _say("\n==========================================")
+        _say("REGENERANDO CATALOGO EXISTENTE")
+        _say("==========================================")
+        try:
+            summary = regenerate_catalog_from_pool(csn_cache_root, catalog_root)
+            _say(summary)
+            result.catalog_generated = True
+        except Exception as exc:
+            _say(f"ERROR: CATALOG_GENERATION_FAILED - {exc}", file=sys.stderr)
+            result.ok = False
+            result.error_code = "CATALOG_GENERATION_FAILED"
+            result.message = f"{type(exc).__name__}: {exc}"
+            result.exit_code = 1
+            return finish(result)
+    elif req.mode == "assessment":
+        _say("\nCatálogo: SKIP - modo ASSESSMENT.")
+    else:
+        _say("\nCatálogo: SKIP - deshabilitado por el orquestador.")
+
+    if req.mirror_up:
+        _say("\n==========================================")
+        _say("PERSISTIENDO EN DIGITALOCEAN SPACES")
+        _say("==========================================")
+        try:
+            if str(project_root) not in sys.path:
+                sys.path.insert(0, str(project_root))
+            from core import remote_store
+
+            result.storage_enabled = bool(remote_store.enabled())
+            if result.storage_enabled:
+                result.mirrored_files = int(remote_store.mirror_up() or 0)
+                _say("mirror_up OK")
+            else:
+                _say("WARN: remote_store is disabled; no se confirmó persistencia remota.")
+        except Exception as exc:
+            _say(f"ERROR: PERSISTENCE_FAILED - {exc}", file=sys.stderr)
+            result.ok = False
+            result.error_code = "STORAGE_UPLOAD_FAILED"
+            result.message = f"{type(exc).__name__}: {exc}"
+            result.exit_code = 1
+            return finish(result)
+
+    _say("\nEXTRACCION DE LINAJE FINALIZADA")
+    _say(f"Cliente: {req.client}")
+    _say(f"Space: {req.space}")
+    _say(f"Objeto raíz: {exporter.root_object}")
+    _say(f"Tipo raíz: {exporter.root_type}")
+    _say(f"Objetos incluidos: {len(exporter.nodes)}")
+    _say(f"Relaciones: {len(exporter.edges)}")
+    _say(f"Fuentes externas: {len(exporter.external_sources)}")
+    _say(f"Obsoletos eliminados: {deleted_stale}")
+    _say(f"Compartidos retenidos: {retained_shared}")
+    _say(f"Pool CSN: {exported_pool}")
+    _say(f"Manifest diagnóstico: {manifest_path}")
+    if req.mode == "publish":
+        _say(f"Catálogo materializado: {'SI' if result.catalog_generated else 'NO'}")
+        if req.mirror_up:
+            _say(f"Persistencia canónica: {'OK' if result.storage_enabled else 'NO CONFIRMADA'}")
+    else:
+        _say("Publicación en catálogo: NO")
+    _say("STATUS: SUCCESS")
+    return finish(result)
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -1049,186 +1426,36 @@ def _resolve_cli_paths(args: argparse.Namespace, project_root: Path) -> tuple[Pa
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI adapter over the same run_export() contract used by the web app."""
     args = parse_args(argv)
-    if shutil.which("npx") is None:
-        print("ERROR: npx not found in PATH", file=sys.stderr)
-        return 2
-
     root_object = (args.root_object or args.analytic_model or "").strip()
     legacy_root = bool(args.analytic_model)
-    requested_features = _parse_features(args.features)
     project_root = Path(__file__).resolve().parents[2]
     catalog_root, csn_cache_root, ephemeral_destination = _resolve_cli_paths(args, project_root)
 
-    client_dir_name = _safe_path_component(args.client)
-    if not client_dir_name:
-        print("ERROR: --client cannot be empty", file=sys.stderr)
-        return 2
-    client_cache_dir = csn_cache_root / client_dir_name
-
     if legacy_root:
-        print("WARN: --analytic-model está deprecated; use --root-object en nuevas integraciones.")
+        _say("WARN: --analytic-model está deprecated; use --root-object en nuevas integraciones.")
+    _say(f"Destination policy: {'EPHEMERAL' if ephemeral_destination else 'CANONICAL'}")
+    if args.mode == "assessment" and args.mirror_up:
+        _say("WARN: --mirror-up ignorado en modo ASSESSMENT.")
 
-    print("Extraction integration:")
-    print(f"  Client:       {args.client}")
-    print(f"  Mode:         {args.mode.upper()}")
-    print(f"  Destination:  {'EPHEMERAL' if ephemeral_destination else 'CANONICAL'}")
-    print(f"  Catalog root: {catalog_root}")
-    print(f"  CSN cache:    {csn_cache_root}")
-    print(f"  Client pool:  {client_cache_dir}")
-
-    with tempfile.TemporaryDirectory(prefix="dsp-lineage-") as tmp:
-        cli = DatasphereCli(
-            host=args.host,
-            client_id=args.client_id,
-            client_secret=args.client_secret,
-            token_url=args.token_url,
-            work_dir=Path(tmp),
-        )
-        try:
-            print("\n==========================================")
-            print("PRECHECK DE CONEXION Y AUTORIZACION")
-            print("==========================================")
-            cli.oauth_preflight()
-            print("\nLogging in to SAP Datasphere...")
-            cli.login()
-            print("Login OK")
-            cli.authorization_preflight(args.space)
-            print("\nPrechecks OK. Iniciando export de linaje...")
-
-            exporter = LineageExporter(
-                cli=cli,
-                space=args.space,
-                analytic_model=root_object if legacy_root else None,
-                root_object=None if legacy_root else root_object,
-                output_dir=client_cache_dir,
-                requested_features=requested_features,
-                root_type="analytic-model" if legacy_root else None,
-                mode=args.mode,
-            )
-            exported_pool = exporter.run()
-        except DatasphereCliError as exc:
-            print(f"ERROR: {exc}")
-            return 1
-
-    assert exporter.root_type
-    diagnostics_dir = _canonical_run_dir(
-        catalog_root, client_dir_name, args.space, exporter.root_type, exporter.root_object
-    )
-    manifest_path = diagnostics_dir / "lineage-manifest.json"
-    previous_manifest, migrated_from = _load_previous_manifest_with_migration_candidates(
-        catalog_root=catalog_root,
-        client_dir_name=client_dir_name,
+    result = run_export(ExportRequest(
+        host=args.host,
+        client_id=args.client_id,
+        client_secret=args.client_secret,
+        token_url=args.token_url,
         space=args.space,
-        root_type=exporter.root_type,
-        root_object=exporter.root_object,
-        canonical_manifest_path=manifest_path,
-    )
-
-    current_objects = {
-        (node.object_type, node.technical_name)
-        for node in exporter.nodes.values()
-        if node.object_type in OBJECT_TYPES
-    }
-    client_runs_root = catalog_root / ".lineage_runs" / client_dir_name
-    excluded = [manifest_path]
-    if migrated_from:
-        excluded.append(migrated_from)
-    other_owned_objects = _other_manifest_ownership(client_runs_root, excluded)
-    deleted_stale, retained_shared = _cleanup_stale_owned_objects(
-        client_cache_dir=client_cache_dir,
-        previous_manifest=previous_manifest,
-        current_objects=current_objects,
-        other_owned_objects=other_owned_objects,
-    )
-
-    _write_manifest_v2(
-        path=manifest_path,
+        analytic_model=root_object if legacy_root else "",
+        root_object="" if legacy_root else root_object,
         client=args.client,
-        space=args.space,
-        exporter=exporter,
+        catalog_root=catalog_root,
+        csn_cache_dir=csn_cache_root,
+        generate_catalog=(args.mode == "publish" and not args.no_generate_catalog),
+        mirror_up=bool(args.mirror_up and args.mode == "publish"),
+        features_requested=args.features,
         mode=args.mode,
-        deleted_stale=deleted_stale,
-        retained_shared=retained_shared,
-    )
-
-    if migrated_from and migrated_from != manifest_path:
-        try:
-            migrated_from.unlink()
-            try:
-                migrated_from.parent.rmdir()
-            except OSError:
-                pass
-            print(f"Manifest V1 migrado: {migrated_from}")
-        except OSError as exc:
-            print(f"WARN no se pudo retirar manifest V1: {exc}")
-
-    generate_catalog = args.mode == "publish" and not args.no_generate_catalog
-    catalog_materialized = False
-    if generate_catalog:
-        print("\n==========================================")
-        print("REGENERANDO CATALOGO EXISTENTE")
-        print("==========================================")
-        try:
-            if str(project_root) not in sys.path:
-                sys.path.insert(0, str(project_root))
-            from tools.catalog.generate_catalog import generate_all
-            summary = generate_all(csn_cache_root, catalog_root)
-            print(summary)
-            catalog_materialized = True
-        except Exception as exc:
-            print(f"ERROR: CATALOG_GENERATION_FAILED - {exc}")
-            return 1
-    elif args.mode == "assessment":
-        print("\nCatálogo: SKIP - modo ASSESSMENT.")
-    else:
-        print("\nCatálogo: SKIP - --no-generate-catalog activo.")
-
-    persistence_state = "NO"
-    if args.mirror_up:
-        if args.mode != "publish":
-            print("WARN: --mirror-up ignorado en modo ASSESSMENT.")
-        else:
-            print("\n==========================================")
-            print("PERSISTIENDO EN DIGITALOCEAN SPACES")
-            print("==========================================")
-            try:
-                if str(project_root) not in sys.path:
-                    sys.path.insert(0, str(project_root))
-                from core import remote_store
-                if remote_store.enabled():
-                    remote_store.mirror_up()
-                    print("mirror_up OK")
-                    persistence_state = "OK"
-                else:
-                    print("WARN: remote_store is disabled; no se confirmó persistencia remota.")
-                    persistence_state = "NO CONFIRMADA"
-            except Exception as exc:
-                print(f"ERROR: PERSISTENCE_FAILED - {exc}")
-                return 1
-    elif args.mode == "publish":
-        print("\nPersistencia canónica: se usará el sync loop normal de remote_store.")
-        persistence_state = "PROGRAMADA"
-
-    print("\nEXTRACCION DE LINAJE FINALIZADA")
-    print(f"Cliente: {args.client}")
-    print(f"Space: {args.space}")
-    print(f"Objeto raíz: {exporter.root_object}")
-    print(f"Tipo raíz: {exporter.root_type}")
-    print(f"Objetos incluidos: {len(exporter.nodes)}")
-    print(f"Relaciones: {len(exporter.edges)}")
-    print(f"Fuentes externas: {len(exporter.external_sources)}")
-    print(f"Obsoletos eliminados: {deleted_stale}")
-    print(f"Compartidos retenidos: {retained_shared}")
-    print(f"Pool CSN: {exported_pool}")
-    print(f"Manifest diagnóstico: {manifest_path}")
-    if args.mode == "publish":
-        print(f"Catálogo materializado: {'SI' if catalog_materialized else 'NO'}")
-        print(f"Persistencia canónica: {persistence_state}")
-    else:
-        print("Publicación en catálogo: NO")
-    print("STATUS: SUCCESS")
-    return 0
+    ))
+    return 0 if result.ok else (result.exit_code or 1)
 
 
 if __name__ == "__main__":
