@@ -20,8 +20,9 @@
 .tool-tabs button.is-active { color: var(--gold); border-bottom-color: var(--gold); }
 .tool-tab-panel { padding-top: 24px; }
 .tool-label, .tree-picker label { display: block; margin: 16px 0 7px; color: var(--soft); font: 500 .64rem var(--mono); text-transform: uppercase; letter-spacing: .08em; }
-.tool-tab-panel select, .tool-tab-panel textarea, .diagnostic-group select { width: 100%; border: 1px solid var(--line); border-radius: 0; background: var(--card); color: var(--ink); font: 500 .78rem var(--sans); }
+.tool-tab-panel select, .tool-tab-panel textarea, .diagnostic-group select, .diagnostic-group input:is([type="text"], [type="url"], [type="password"]) { width: 100%; border: 1px solid var(--line); border-radius: 0; background: var(--card); color: var(--ink); font: 500 .78rem var(--sans); }
 .tool-tab-panel select, .diagnostic-group select { height: 42px; padding: 0 32px 0 10px; }
+.diagnostic-group input:is([type="text"], [type="url"], [type="password"]) { height: 42px; padding: 0 10px; }
 .tool-tab-panel textarea { padding: 12px; resize: vertical; }
 .tool-hint, .assistant-intro p, .tool-empty p { color: var(--soft); font-size: .76rem; }
 .tool-primary { width: 100%; margin-top: 14px; }
@@ -2822,3 +2823,37 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    final y se beneficia igual aunque nunca lo haya expuesto visiblemente. */
 .table-action-btn .chart-tooltip { left: auto; right: 0; transform: none; }
 .content-theme-dark .ln-edge-legend { fill: #9a9aa2; }
+
+/* ═══ Assessment de modelado en el Catálogo (cabecera del flujo + informe + foco de linaje) ═══
+   El informe participa del sistema visual transversal del Hub: `.module-hero`/`.hero-meta`, `.methodology`, `.content-section`
+   + `.content-heading`, `.section-subtitle`, `.section-index`, `.callout`(+`-row`), `.content-collapsible`, tablas/listas/links
+   nativos de `.methodology`, `.support-links`/`.support-link`, `.htmx-indicator` y el badge `.catalog-card__verdict`.
+   Acá queda SOLO lo que no existe en ese sistema (ver cada regla). Sin score ni banda de madurez. */
+/* El hero del Hub no tiene slot de acciones arriba a la derecha (`.heading-supports` solo existe en el header de sección). */
+.asm-hero-has-support { position: relative; }
+.asm-hero-has-support > .asm-hero-support { position: absolute; top: 0; right: 0; margin: 0; }
+@media (max-width: 640px) { .asm-hero-has-support > .asm-hero-support { position: static; margin: 0 0 12px; } }
+/* Fila de estado del assessment bajo el título (concepto nuevo): pegada al título, 6px más arriba por pedido del owner. */
+.asm-hero-meta { margin-top: -4px; }
+/* La fila de metadata legacy (veredicto · artefactos) hereda `.hero-meta{margin-top:22px}` del Hub: pegada a la del assessment forman un solo bloque. */
+.asm-hero-meta + .hero-meta { margin-top: 6px; }
+/* Hechos descriptivos: el acento por posición de `.activity-kpi` (azul/verde/ámbar…) es un código de color sin significado acá; todos usan el acento base del tile (--gold). */
+.asm-facts > .activity-kpi { --kpi-accent: var(--gold); }
+/* El badge de vigencia como enlace conserva su aspecto de badge (el reset de enlace del Hub subraya). */
+.catalog-verdict-line a.asm-badge-link { text-decoration: none; cursor: pointer; }
+/* `.support-links` no envuelve: la fila de acciones del informe tiene hasta 3 enlaces. */
+.asr-actions { flex-wrap: wrap; }
+/* IDs técnicos largos (AM_…) sin cortes naturales: a la escala del h1 del Hub (hasta 4.5rem) no caben ni parten bien. */
+.asr-title { font-size: clamp(1.5rem, 3vw, 2.4rem); line-height: 1.1; letter-spacing: -.03em; overflow-wrap: anywhere; }
+
+/* Foco de linaje (server-side, ?focus=A,B): solo estilo sobre nodos existentes; no altera el grafo. */
+.ln-node-focus .ln-node { stroke: var(--gold); stroke-width: 2.6; }
+.ln-node-focus .ln-num { fill: var(--gold); }
+.lineage-focus { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 12px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--gold) 35%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--gold) 7%, transparent); font-size: .76rem; }
+.lineage-focus__label { color: var(--soft); font: 650 .62rem var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+.lineage-focus__chip { padding: 1px 8px; border: 1px solid var(--gold); border-radius: 4px; color: var(--gold); font: 600 .68rem var(--mono); text-decoration: none; }
+.lineage-focus__chip:hover { background: color-mix(in srgb, var(--gold) 15%, transparent); }
+.lineage-focus__missing { color: var(--soft); }
+.lineage-focus__actions { margin-left: auto; display: inline-flex; gap: 12px; }
+.lineage-focus__actions a { color: var(--gold); font: 600 .7rem var(--mono); text-decoration: none; cursor: pointer; }
+.lineage-focus__actions a:hover { text-decoration: underline; }

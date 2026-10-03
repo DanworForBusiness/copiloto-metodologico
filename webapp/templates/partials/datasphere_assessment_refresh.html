@@ -1,0 +1,12 @@
+{# Resultado de "Actualizar catálogo" (paso explícito, desde el pool CSN). Solo texto saneado; sin secretos. #}
+{% if outcome.state == "SUCCESS" %}
+<aside class="callout callout--success" role="status">
+  <div class="callout__head"><strong class="callout__title">Catálogo actualizado</strong></div>
+  <div class="callout__body"><p>El catálogo se regeneró desde el pool CSN en {{ outcome.duration_s }} s. Los flujos nuevos ya pueden abrirse en el Catálogo y mostrar su assessment.</p></div>
+</aside>
+{% else %}
+<aside class="callout callout--warn" role="alert" data-error-code="{{ outcome.error_code }}">
+  <div class="callout__head"><strong class="callout__title">No se pudo actualizar el catálogo</strong></div>
+  <div class="callout__body"><p>{{ outcome.message }}</p><p><code>{{ outcome.error_code }}</code></p></div>
+</aside>
+{% endif %}

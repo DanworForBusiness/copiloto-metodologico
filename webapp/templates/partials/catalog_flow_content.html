@@ -4,10 +4,41 @@
    secciones ES el linaje: cada artefacto es una sección con su tabla. Se usa en
    la página completa (catalog_flow.html) y en el swap HTMX que actualiza SOLO el
    panel central (#content) sin salir del módulo ni perder el panel derecho. #}
-<a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>
-<section class="module-hero">
+{% if focus_csv and assessment_url %}{# llegó desde el informe: "Volver" regresa a quien lo invocó #}
+<a class="catalog-back" href="#" role="button" hx-get="{{ assessment_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>
+{% else %}<a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>{% endif %}
+{# Assessment de modelado (contextual al flujo abierto; NO vive en el tile del listado). `assessment_header` =
+   assessment_presenter.header_for(...): badge de vigencia (misma forma que el badge del veredicto legacy) + métricas
+   mínimas del MISMO perfil canónico que el informe, y la acción como `.support-link` (patrón `.support-links
+   .heading-supports` del pipeline de contenido) arriba a la derecha. Sin score ni banda de madurez. #}
+{% set ah = assessment_header %}
+<section class="module-hero{% if ah and ah.action %} asm-hero-has-support{% endif %}">
+  {% if ah and ah.action %}
+  <div class="support-links heading-supports asm-hero-support">
+    {% if ah.action.method == "get" %}
+    <a class="support-link" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ ah.action.label }}<span>↗</span></a>
+    {% else %}
+    <a class="support-link" href="#" role="button" hx-post="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML"
+       hx-indicator="#asm-busy" @click.prevent>{{ ah.action.label }}<span>↗</span></a>
+    <span class="htmx-indicator" id="asm-busy" role="status">Generando…</span>
+    {% endif %}
+  </div>
+  {% endif %}
   <p class="eyebrow">Catálogo Danwor · {{ cliente }}</p>
   <h1>{{ dominio }}</h1>
+  {% if ah %}
+  <div class="hero-meta asm-hero-meta">
+    <span class="catalog-verdict-line">
+      <span class="catalog-meta-dot{% if ah.tone %} catalog-meta-dot--{{ ah.tone }}{% endif %}" aria-hidden="true"></span>
+      {# El badge es un enlace real al MISMO destino/acción que el support-link (sin JS propio); "No aplica" no es accionable. #}
+      {% if ah.action %}<a class="catalog-card__verdict{% if ah.tone %} catalog-card__verdict--{{ ah.tone }}{% endif %} asm-badge-link" href="#" role="button" title="{{ ah.action.label }}" aria-label="{{ ah.label }}: {{ ah.action.label }}"
+         {% if ah.action.method == "get" %}hx-get="{{ ah.url }}"{% else %}hx-post="{{ ah.url }}" hx-indicator="#asm-busy"{% endif %} hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ ah.label }}</a>
+      {% else %}<span class="catalog-card__verdict{% if ah.tone %} catalog-card__verdict--{{ ah.tone }}{% endif %}">{{ ah.label }}</span>{% endif %}
+      {% if ah.coverage %}<span>Cobertura {{ ah.coverage }} · Confianza {{ ah.confidence }} · <span title="{{ ah.reviews_title }}">{{ ah.reviews }}</span></span>
+      {% elif ah.reason %}<span>{{ ah.reason }}</span>{% endif %}
+    </span>
+  </div>
+  {% endif %}
   <div class="hero-meta">
     <span class="catalog-verdict-line">
       <span class="catalog-meta-dot catalog-meta-dot--{{ veredicto|catalog_verdict_class }}" aria-hidden="true"></span>

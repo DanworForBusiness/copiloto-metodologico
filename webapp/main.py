@@ -58,6 +58,10 @@ from webapp.routers import staffing as staffing_router
 from webapp.routers import platform as platform_router
 from webapp.routers import commercial as commercial_router
 from webapp.routers import human_capital as human_capital_router
+from webapp.routers import catalog_assessment as catalog_assessment_router
+from webapp.routers import datasphere_assessment as datasphere_assessment_router
+from webapp.services import assessment_presenter
+from webapp.services import assessment_service
 from webapp.routers import commercial_strategy as commercial_strategy_router
 
 WEB_DIR = Path(__file__).parent
@@ -232,6 +236,8 @@ app.include_router(platform_router.router)
 app.include_router(commercial_router.router)
 app.include_router(human_capital_router.router)
 app.include_router(commercial_strategy_router.router)
+app.include_router(catalog_assessment_router.router)
+app.include_router(datasphere_assessment_router.router)
 
 
 # Aliases a las capacidades ya extraídas (gate distribuido pre-2D). Los handlers
@@ -602,6 +608,7 @@ def _invalidate_catalog_cache() -> None:
     _catalog_architecture_connections.cache_clear()
     _catalog_data_products_entries.cache_clear()
     _catalog_security_entries.cache_clear()
+    assessment_service.invalidate_pool_index()   # la vigencia del assessment se recalcula contra el pool regenerado
 
 
 def _catalog_data_product_artifact_name(name: str) -> str:
@@ -1750,13 +1757,16 @@ def _wrap_label(label: str, max_chars: int = 20) -> list[str]:
     return [label[:mid], label[mid:]]
 
 
-def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
+def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None) -> str:
     """Diagrama SVG del linaje del OUTPUT del flujo (solo los nodos en `keep`).
     Aristas DIRECTAS (FROM/JOIN) siempre; por ASOCIACIÓN (dimensiones/textos) solo con
     `show_assoc` (punteadas). Cada nodo es un ancla a su sección; el `num` del nodo ya
     viene alineado con el nº de sección (posición en el orden visible). `nodes`:
-    [{name,label,title,layer,upstreams,assoc_upstreams,slug,num,is_factcube}]."""
+    [{name,label,title,layer,upstreams,assoc_upstreams,slug,num,is_factcube}].
+    `focus` (opcional): nombres técnicos a RESALTAR (clase `ln-node-focus` en el ancla;
+    p. ej. desde el informe de assessment). Solo estilo: no altera nodos, aristas ni layout."""
     from collections import defaultdict
+    focus_names = frozenset(focus or ())
     names = {n["name"] for n in nodes if n["name"] in keep}
     direct_edges = [(up, n["name"]) for n in nodes if n["name"] in keep
                     for up in n["upstreams"] if up in names]
@@ -1980,6 +1990,8 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set) -> str:
         subtext = str(n.get("subtext") or "").strip()
         lineage_key = lineage_key_by_name.get(n["name"], "")
         lineage_key_class = f" ln-k-{lineage_key}" if lineage_key in duplicate_lineage_keys else ""
+        if n["name"] in focus_names:
+            lineage_key_class += " ln-node-focus"
         if subtext:
             main_y = y + 18
             num_y = main_y
@@ -2280,21 +2292,10 @@ def _catalog_portability_section_md(port: dict, asset_type: str, acks: list | No
     return f"## Portabilidad BDC\n\n{intro}\n\n{body}{ack_note}\n"
 
 
-def _catalog_clean_label(raw, fallback: str) -> str:
-    """Runtime twin de `_clean_label` del generador: descarta un label que en realidad
-    es un placeholder i18n sin resolver (p. ej. '{i18n>Remote.X@ENDUSERTEXT.LABEL}')
-    y cae al fallback (nombre técnico). Cubre .md viejos sin regenerar."""
-    s = str(raw or "").strip()
-    if not s:
-        return fallback
-    low = s.lower()
-    if ("{i18n" in low or "@enduserext.label" in low
-            or (s.startswith("{") and s.endswith("}") and "@" in s)):
-        return fallback
-    return s
+_catalog_clean_label = catalog_reads.catalog_clean_label   # helper compartido con el informe de assessment (mismo título de artefacto)
 
 
-def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = ""):
+def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", focus=None, focus_out: dict | None = None):
     """Arma el detalle de un flujo: (a) un diagrama SVG de linaje por capas y (b)
     las secciones estilo-módulo (una por artefacto, con sus tablas), renderizadas
     con el MISMO pipeline que los módulos (content_service.render_sections) para
@@ -2304,7 +2305,11 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = ""):
     el nombre si no hay descripción. Cierra con una sección de cumplimiento (los
     hallazgos del flujo_*.md). Las referencias entre artefactos y los nodos del
     diagrama linkean al ancla de la sección (mismo slug que el título mostrado).
-    Devuelve (sections, lineage_svg)."""
+    Devuelve (sections, lineage_svg, show_assoc, assoc_context).
+    `focus` (nombres técnicos) resalta nodos del diagrama; `focus_out` (dict opcional) recibe
+    {"present": [{name, slug}], "missing": [name]} — presente = nodo visible en el diagrama actual. Si
+    la apertura es fresca (show_assoc None) y un nodo enfocado solo existe como asociación,
+    se activan las asociaciones para poder mostrarlo."""
     from webapp.services.content_service import render_sections, split_front_matter
     from core.utils import slugify
 
@@ -2313,7 +2318,7 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = ""):
         consistente en dos partes `A · B` (A en negro, B en dorado): con descripción
         → `{dw-black}Descripción · {dw-gold}NOMBRE`; sin descripción → se repite el
         nombre técnico `{dw-black}NOMBRE · {dw-gold}NOMBRE` (misma estructura visual)."""
-        desc = label if (label and label != name) else name
+        desc = catalog_reads.catalog_display_title(name, label)
         return f"{{dw-black}}{desc} · {{dw-gold}}{name}", f"{desc} · {name}"
 
     vistas_dir = Path(entry.path).parent / "vistas"
@@ -2377,14 +2382,24 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = ""):
     # (show_assoc None), se prenden solo cuando el output quedaría desconectado del
     # linaje directo pero tiene asociación (ver _catalog_should_default_associations).
     assoc_context = _catalog_should_default_associations(nodes)
+    explicit_assoc = show_assoc is not None
     if show_assoc is None:
         show_assoc = assoc_context
+    focus_list = list(dict.fromkeys(str(f) for f in (focus or ())))
+    if focus_list and not explicit_assoc and not show_assoc:
+        direct_keep = _catalog_flow_keep(nodes, False)
+        if any(n["name"] in focus_list and n["name"] not in direct_keep for n in nodes):
+            show_assoc = True
     keep = _catalog_flow_keep(nodes, show_assoc)
     shown_order = [name for name in order if name in keep] or order
     num_of = {name: i + 1 for i, name in enumerate(shown_order)}
     for n in nodes:
         n["num"] = num_of.get(n["name"], 0)
-    lineage_svg = _catalog_lineage_svg(nodes, show_assoc, keep)
+    lineage_svg = _catalog_lineage_svg(nodes, show_assoc, keep, focus=focus_list)
+    if focus_out is not None:
+        visible = {n["name"]: n["slug"] for n in nodes if n["name"] in keep} if lineage_svg else {}
+        focus_out["present"] = [{"name": f, "slug": visible[f]} for f in focus_list if f in visible]
+        focus_out["missing"] = [f for f in focus_list if f not in visible]
     parts = []
     for name in shown_order:
         # H1 → H2 (lambda: la descripción con tonos puede traer caracteres que re
@@ -2429,13 +2444,17 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = ""):
 
 @app.get("/catalog/flow", response_class=HTMLResponse, include_in_schema=False)
 def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: str = "",
-                 pack: str = Query(DEFAULT_PACK), assoc: int | None = None, frag: str = ""):
+                 pack: str = Query(DEFAULT_PACK), assoc: int | None = None, frag: str = "",
+                 focus: str = ""):
     log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="flow", ref=(flow or f"{cliente}/{dominio}"), assoc=bool(assoc))
     """Detalle de un flujo del catálogo, renderizado en el panel central con el
     MISMO pipeline de contenido de los módulos (hero + diagrama de linaje +
     artículo .methodology). El contenido vive en los .md del catálogo. `assoc=1`
     incluye las aristas por asociación (indirectas) en el diagrama; `frag=lineage`
-    devuelve solo el bloque del diagrama (para el toggle vía HTMX)."""
+    devuelve solo el bloque del diagrama (para el toggle vía HTMX). `focus=A,B`
+    (nombres técnicos de artefacto) resalta esos nodos del linaje, p. ej. al llegar
+    desde "Ver en linaje" del informe de assessment; un nombre ausente del diagrama
+    actual no es un error (se informa como "No visible")."""
     user = auth_service.session_user(request)
     if not user:
         return _login_redirect(request, _pack(pack))
@@ -2464,11 +2483,20 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
     # assoc no especificado (apertura del flow) → el view decide el default contextual;
     # assoc=0/1 (toggle del usuario) → respeta la preferencia explícita.
     req_assoc = None if assoc is None else bool(assoc)
-    sections, lineage_svg, show_assoc, assoc_context = _catalog_flow_view(entry, req_assoc, selected)
+    focus_names = assessment_presenter.parse_focus(focus)
+    focus_state: dict = {}
+    # Los kwargs de foco solo viajan cuando hay foco: la apertura normal queda idéntica a la previa.
+    view_kwargs = {"focus": focus_names, "focus_out": focus_state} if focus_names else {}
+    sections, lineage_svg, show_assoc, assoc_context = _catalog_flow_view(entry, req_assoc, selected, **view_kwargs)
     lineage_ctx = {"lineage_svg": lineage_svg, "show_assoc": show_assoc,
                    "assoc_context": assoc_context,
                    "cliente": entry.cliente, "dominio": entry.dominio,
-                   "entry_id": entry.entry_id, "pack": selected}
+                   "entry_id": entry.entry_id, "pack": selected,
+                   "focus_csv": ",".join(focus_names),
+                   "focus_present": focus_state.get("present", []),
+                   "focus_missing": focus_state.get("missing", focus_names),
+                   "assessment_url": assessment_presenter.assessment_url(entry, selected),
+                   "clear_focus_url": assessment_presenter.flow_url(entry, selected)}
     if frag == "lineage":   # solo el bloque del diagrama (toggle Asociaciones)
         return templates.TemplateResponse(request=request, name="partials/catalog_lineage.html",
                                           context=lineage_ctx)
@@ -2491,6 +2519,7 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
             "cliente": entry.cliente, "dominio": entry.dominio, "icon": entry.icon,
             "veredicto": entry.veredicto, "apto": entry.apto,
             "n_art": len(entry.artefactos), "sections": sections,
+            "assessment_header": assessment_presenter.header_for(entry, selected),
             "catalog_kind": "domain",
             "catalog_ref": f"{entry.cliente} · {entry.dominio}",
             **lineage_ctx,

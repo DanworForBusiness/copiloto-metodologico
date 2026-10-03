@@ -48,6 +48,8 @@ reports/*
 !reports/reports_README.txt
 catalog_local/
 commercial_strategy_runtime/
+# Caché operativa del Assessment de modelado (derivable, NO persistida; ver config.ASSESSMENT_CACHE_DIR).
+assessment_cache/
 # Clasificación de prioridad del Perfil de licenciamiento: DATO DE NEGOCIO
 # real, no cache — vive en Spaces (PERSIST_PATHS) y se materializa acá sólo
 # como staging local. Un `git add -A` tras usar la feature lo commitearía.

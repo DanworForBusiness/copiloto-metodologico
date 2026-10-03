@@ -3,10 +3,23 @@
    asociaciones OFF no se muestra el detalle de artefactos fuera del core. #}
 <figure class="catalog-lineage" id="catalog-lineage-wrap">
   <figcaption>Linaje del flujo <span class="lineage-hint">— trazabilidad por dependencia (fuente → consumo)</span></figcaption>
+  {% if focus_csv %}
+  {# Foco desde el informe de assessment (server-side): los nodos enfocados llevan .ln-node-focus en el SVG.
+     Los chips reusan el scroll por ancla (#slug) de la sección del artefacto; los ausentes NO son un error. #}
+  <div class="lineage-focus" role="status">
+    <span class="lineage-focus__label">Enfoque desde el informe de assessment</span>
+    {% for f in focus_present %}<a class="lineage-focus__chip" href="#{{ f.slug }}" title="Ir al detalle del artefacto">{{ f.name }}</a>{% endfor %}
+    {% if focus_missing %}<span class="lineage-focus__missing">No visible en el diagrama actual: {% for n in focus_missing %}<code>{{ n }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}
+    <span class="lineage-focus__actions">
+      {% if assessment_url %}<a href="#" role="button" hx-get="{{ assessment_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver al informe</a>{% endif %}
+      {% if clear_focus_url %}<a href="#" role="button" hx-get="{{ clear_focus_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Quitar enfoque</a>{% endif %}
+    </span>
+  </div>
+  {% endif %}
   {% if lineage_svg %}
   <label class="lineage-toggle" title="Las asociaciones (dimensiones y textos) son relaciones indirectas; el linaje directo es lo que consume el SQL (FROM/JOIN). Afecta el diagrama y el detalle de abajo.">
     <input type="checkbox" {% if show_assoc %}checked{% endif %}
-           hx-get="/catalog/flow?cliente={{ cliente|urlencode }}&dominio={{ dominio|urlencode }}{% if entry_id %}&flow={{ entry_id|urlencode }}{% endif %}&pack={{ pack|default('datasphere_core') }}&assoc={{ 0 if show_assoc else 1 }}"
+           hx-get="/catalog/flow?cliente={{ cliente|urlencode }}&dominio={{ dominio|urlencode }}{% if entry_id %}&flow={{ entry_id|urlencode }}{% endif %}&pack={{ pack|default('datasphere_core') }}&assoc={{ 0 if show_assoc else 1 }}{% if focus_csv %}&focus={{ focus_csv|urlencode }}{% endif %}"
            hx-target="#catalog-detail-slot" hx-swap="innerHTML">
     <span>Incluir asociaciones <em>(dimensiones y textos, indirectas)</em></span>
   </label>

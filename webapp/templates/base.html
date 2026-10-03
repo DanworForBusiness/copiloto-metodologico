@@ -57,4 +57,4 @@
   document.addEventListener('keydown',onKey);
 })();</script>
 {% endif %}
-<script src="{{ url_for('static', path='vendor/msal-browser-4.30.0.min.js') }}?v={{ static_version }}"></script><script src="{{ url_for('static', path='hub_auth.js') }}?v={{ static_version }}"></script><script src="{{ url_for('static', path='app.js') }}?v={{ static_version }}"></script></body></html>
+<script src="{{ url_for('static', path='vendor/msal-browser-4.30.0.min.js') }}?v={{ static_version }}"></script><script src="{{ url_for('static', path='hub_auth.js') }}?v={{ static_version }}"></script><script src="{{ url_for('static', path='app.js') }}?v={{ static_version }}"></script><script defer src="{{ url_for('static', path='datasphere_assessment.js') }}?v={{ static_version }}"></script></body></html>

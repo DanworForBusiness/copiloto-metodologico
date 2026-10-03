@@ -13,12 +13,13 @@ import tempfile
 import urllib.error
 import urllib.request
 import time
-from dataclasses import dataclass, asdict
+import contextvars
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any, Iterable
 
 
-# Streaming console contract: every print() must be immediately consumable by
+# Streaming console contract: every _say() must be immediately consumable by
 # the caller (e.g. the web app) even when stdout/stderr are piped.
 try:
     sys.stdout.reconfigure(line_buffering=True, write_through=True)
@@ -29,6 +30,46 @@ try:
     sys.stderr.reconfigure(line_buffering=True, write_through=True)
 except Exception:
     pass
+
+
+# Salida de consola enrutable. Por defecto (CLI) escribe EXACTAMENTE como print(); un llamador programático (la UI web)
+# fija un sumidero por contexto con `capture_output()` para recoger la traza sin redirigir el stdout GLOBAL del proceso.
+_SINK: contextvars.ContextVar = contextvars.ContextVar("dsp_export_sink", default=None)
+
+
+def _say(*args: Any, file: Any = None, **kwargs: Any) -> None:
+    sink = _SINK.get()
+    if sink is None:
+        print(*args, file=file, **kwargs)
+        return
+    sink.append(" ".join(str(a) for a in args))
+
+
+class _LineSink(list):
+    """Lista de líneas que además avisa cada una al llegar (streaming en tiempo real hacia la UI web)."""
+    def __init__(self, on_line: Any = None) -> None:
+        super().__init__()
+        self._on_line = on_line
+
+    def append(self, line: str) -> None:
+        super().append(line)
+        if self._on_line is not None:
+            self._on_line(line)
+
+
+class capture_output:
+    """Context manager: recoge en ``lines`` lo que el export "imprime" mientras dura el bloque (por contexto/hilo).
+    ``on_line`` (opcional) se invoca con cada línea en el momento en que se emite, en el mismo orden y con el mismo texto."""
+    def __init__(self, on_line: Any = None) -> None:
+        self.lines = _LineSink(on_line)
+        self._token = None
+
+    def __enter__(self) -> "capture_output":
+        self._token = _SINK.set(self.lines)
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        _SINK.reset(self._token)
 
 
 OBJECT_TYPES = [
@@ -125,7 +166,7 @@ class DatasphereCli:
 
     def oauth_preflight(self) -> None:
         """Validate OAuth client_credentials before any Datasphere CLI work."""
-        print("Preflight OAuth: validando client_credentials...")
+        _say("Preflight OAuth: validando client_credentials...")
 
         raw = f"{self.client_id}:{self.client_secret}".encode("utf-8")
         basic = base64.b64encode(raw).decode("ascii")
@@ -166,7 +207,7 @@ class DatasphereCli:
                 raise DatasphereCliError(
                     "PRECHECK_OAUTH_INVALID_RESPONSE - OAuth devolvió HTTP 200 pero no incluyó access_token."
                 )
-            print("Preflight OAuth: OK (HTTP 200)")
+            _say("Preflight OAuth: OK (HTTP 200)")
             return
 
         if status == 401:
@@ -182,7 +223,7 @@ class DatasphereCli:
 
     def authorization_preflight(self, space: str) -> None:
         """Validate minimal Datasphere authorization after successful OAuth/login."""
-        print(f"Preflight autorización: validando acceso al Space {space}...")
+        _say(f"Preflight autorización: validando acceso al Space {space}...")
 
         try:
             self._run(
@@ -214,7 +255,7 @@ class DatasphereCli:
                 f"PRECHECK_AUTH_ERROR - No se pudo validar acceso al Space '{space}'. Detalle: {msg}"
             ) from exc
 
-        print(f"Preflight autorización: OK - acceso al Space {space}")
+        _say(f"Preflight autorización: OK - acceso al Space {space}")
 
     def login(self) -> None:
         self._run(
@@ -311,7 +352,7 @@ class LineageExporter:
             try:
                 rows = self.cli.list_objects(self.space, object_type)
             except DatasphereCliError as exc:
-                print(f"WARN inventory {object_type}: {exc}", file=sys.stderr)
+                _say(f"WARN inventory {object_type}: {exc}", file=sys.stderr)
                 self.inventory[object_type] = set()
                 continue
             self.inventory_rows[object_type] = rows
@@ -321,7 +362,7 @@ class LineageExporter:
                 if isinstance(row, dict) and row.get("technicalName")
             }
             self.inventory[object_type] = {n for n in names if isinstance(n, str)}
-            print(f"Inventory {object_type}: {len(self.inventory[object_type])}")
+            _say(f"Inventory {object_type}: {len(self.inventory[object_type])}")
 
     def resolve_type(self, technical_name: str) -> str | None:
         # Prefer model/view/table types over operational artefacts when names collide.
@@ -348,7 +389,7 @@ class LineageExporter:
         try:
             data = self.cli.read_object(self.space, object_type, technical_name)
         except DatasphereCliError as exc:
-            print(f"WARN read {object_type}/{technical_name}: {exc}", file=sys.stderr)
+            _say(f"WARN read {object_type}/{technical_name}: {exc}", file=sys.stderr)
             self.read_cache[key] = None
             return None
         self.read_cache[key] = data
@@ -456,9 +497,9 @@ class LineageExporter:
         return False
 
     def walk_model_graph(self) -> None:
-        print("\n==========================================")
-        print("RESOLVIENDO LINAJE DE MODELOS")
-        print("==========================================")
+        _say("\n==========================================")
+        _say("RESOLVIENDO LINAJE DE MODELOS")
+        _say("==========================================")
         started = time.perf_counter()
 
         queue: list[Node] = [Node("analytic-models", self.analytic_model)]
@@ -478,12 +519,12 @@ class LineageExporter:
 
             processed.add(key)
             i += 1
-            print(f"\n[{i}] {node.object_type} / {node.technical_name}")
+            _say(f"\n[{i}] {node.object_type} / {node.technical_name}")
             self.add_node(node.object_type, node.technical_name)
 
             data = self.safe_read(node.object_type, node.technical_name)
             if data is None:
-                print("ERROR - no se pudo leer")
+                _say("ERROR - no se pudo leer")
                 continue
 
             deps: set[str] = set()
@@ -493,18 +534,18 @@ class LineageExporter:
                 deps = self.parse_view_dependencies(data, node.technical_name)
 
             if not deps:
-                print("OK - sin dependencias descendentes")
+                _say("OK - sin dependencias descendentes")
                 continue
 
-            print(f"Dependencias: {len(deps)}")
+            _say(f"Dependencias: {len(deps)}")
             for dep_name in sorted(deps):
                 dep_type = self.resolve_type(dep_name)
                 if not dep_type:
-                    print(f"  EXTERNAL/UNKNOWN: {dep_name}")
+                    _say(f"  EXTERNAL/UNKNOWN: {dep_name}")
                     self.external_sources.add(dep_name)
                     continue
 
-                print(f"  -> {dep_type}: {dep_name}")
+                _say(f"  -> {dep_type}: {dep_name}")
                 self.add_edge(
                     node.object_type,
                     node.technical_name,
@@ -514,14 +555,14 @@ class LineageExporter:
                 )
                 queue.append(Node(dep_type, dep_name))
 
-        print("\n------------------------------------------")
-        print(f"LINAJE DE MODELOS terminado en {time.perf_counter() - started:.1f}s")
-        print(f"Nodos actuales: {len(self.nodes)}")
-        print("------------------------------------------")
+        _say("\n------------------------------------------")
+        _say(f"LINAJE DE MODELOS terminado en {time.perf_counter() - started:.1f}s")
+        _say(f"Nodos actuales: {len(self.nodes)}")
+        _say("------------------------------------------")
     def discover_producers(self) -> None:
-        print("\n==========================================")
-        print("BUSCANDO PRODUCTORES")
-        print("==========================================")
+        _say("\n==========================================")
+        _say("BUSCANDO PRODUCTORES")
+        _say("==========================================")
         started = time.perf_counter()
 
         local_tables = [
@@ -531,20 +572,20 @@ class LineageExporter:
         rf_names = sorted(self.inventory.get("replication-flows", set()))
         rf_ok = 0
         for i, rf_name in enumerate(rf_names, start=1):
-            print(f"\n[RF {i}/{len(rf_names)}] {rf_name}")
+            _say(f"\n[RF {i}/{len(rf_names)}] {rf_name}")
             data = self.safe_read("replication-flows", rf_name)
             if data is None:
-                print("ERROR")
+                _say("ERROR")
                 continue
 
             info = self.parse_replication_flow(data, rf_name)
             matched_targets = sorted(set(local_tables) & info["targets"])
             if not matched_targets:
-                print("SKIP - sin target del linaje")
+                _say("SKIP - sin target del linaje")
                 continue
 
             rf_ok += 1
-            print(f"OK - target(s): {', '.join(matched_targets)}")
+            _say(f"OK - target(s): {', '.join(matched_targets)}")
             self.add_node("replication-flows", rf_name)
 
             for target in matched_targets:
@@ -558,7 +599,7 @@ class LineageExporter:
 
             for src in sorted(info["sources"]):
                 self.external_sources.add(src)
-                print(f"  SOURCE: {src}")
+                _say(f"  SOURCE: {src}")
                 self.add_edge(
                     "external-source",
                     src,
@@ -568,7 +609,7 @@ class LineageExporter:
                 )
 
             for connection in sorted(info["connections"]):
-                print(f"  CONNECTION: {connection}")
+                _say(f"  CONNECTION: {connection}")
                 self.add_edge(
                     "connection",
                     connection,
@@ -577,41 +618,41 @@ class LineageExporter:
                     rf_name,
                 )
 
-        print(f"\nReplication Flows relacionados: {rf_ok}/{len(rf_names)}")
+        _say(f"\nReplication Flows relacionados: {rf_ok}/{len(rf_names)}")
 
         known_names = {n.technical_name for n in self.nodes.values()}
         for object_type in ("data-flows", "transformation-flows"):
             flow_names = sorted(self.inventory.get(object_type, set()))
             matches = 0
             for i, flow_name in enumerate(flow_names, start=1):
-                print(f"\n[{object_type} {i}/{len(flow_names)}] {flow_name}")
+                _say(f"\n[{object_type} {i}/{len(flow_names)}] {flow_name}")
                 data = self.safe_read(object_type, flow_name)
                 if data is None:
-                    print("ERROR")
+                    _say("ERROR")
                     continue
 
                 refs = [name for name in known_names if self._contains_exact_string(data, name)]
                 if not refs:
-                    print("SKIP - sin referencia al linaje")
+                    _say("SKIP - sin referencia al linaje")
                     continue
 
                 matches += 1
-                print(f"OK - referencias: {len(refs)}")
+                _say(f"OK - referencias: {len(refs)}")
                 self.add_node(object_type, flow_name)
                 for ref in refs:
                     ref_type = self.resolve_type(ref) or "unknown"
-                    print(f"  -> {ref_type}: {ref}")
+                    _say(f"  -> {ref_type}: {ref}")
                     self.add_edge(object_type, flow_name, "REFERENCES", ref_type, ref)
 
-            print(f"\n{object_type} relacionados: {matches}/{len(flow_names)}")
+            _say(f"\n{object_type} relacionados: {matches}/{len(flow_names)}")
 
-        print("\n------------------------------------------")
-        print(f"PRODUCTORES terminados en {time.perf_counter() - started:.1f}s")
-        print("------------------------------------------")
+        _say("\n------------------------------------------")
+        _say(f"PRODUCTORES terminados en {time.perf_counter() - started:.1f}s")
+        _say("------------------------------------------")
     def discover_task_chains(self) -> None:
-        print("\n==========================================")
-        print("BUSCANDO TASK CHAINS")
-        print("==========================================")
+        _say("\n==========================================")
+        _say("BUSCANDO TASK CHAINS")
+        _say("==========================================")
         started = time.perf_counter()
 
         operational_names = {
@@ -620,36 +661,36 @@ class LineageExporter:
             if n.object_type in PRODUCER_TYPES
         }
         if not operational_names:
-            print("SKIP - no hay productores operativos en el linaje")
+            _say("SKIP - no hay productores operativos en el linaje")
             return
 
         tc_names = sorted(self.inventory.get("task-chains", set()))
         matches = 0
 
         for i, tc_name in enumerate(tc_names, start=1):
-            print(f"\n[TC {i}/{len(tc_names)}] {tc_name}")
+            _say(f"\n[TC {i}/{len(tc_names)}] {tc_name}")
             data = self.safe_read("task-chains", tc_name)
             if data is None:
-                print("ERROR")
+                _say("ERROR")
                 continue
 
             refs = [name for name in operational_names if self._contains_exact_string(data, name)]
             if not refs:
-                print("SKIP - sin referencia al linaje")
+                _say("SKIP - sin referencia al linaje")
                 continue
 
             matches += 1
-            print(f"OK - referencias: {len(refs)}")
+            _say(f"OK - referencias: {len(refs)}")
             self.add_node("task-chains", tc_name)
             for ref in refs:
                 ref_type = self.resolve_type(ref) or "unknown"
-                print(f"  -> {ref_type}: {ref}")
+                _say(f"  -> {ref_type}: {ref}")
                 self.add_edge("task-chains", tc_name, "ORCHESTRATES", ref_type, ref)
 
-        print("\n------------------------------------------")
-        print(f"Task Chains relacionadas: {matches}/{len(tc_names)}")
-        print(f"TASK CHAINS terminadas en {time.perf_counter() - started:.1f}s")
-        print("------------------------------------------")
+        _say("\n------------------------------------------")
+        _say(f"Task Chains relacionadas: {matches}/{len(tc_names)}")
+        _say(f"TASK CHAINS terminadas en {time.perf_counter() - started:.1f}s")
+        _say("------------------------------------------")
     @staticmethod
     def _safe_filename(technical_name: str) -> str:
         return re.sub(r'[\\/:*?"<>|]', "_", technical_name)
@@ -673,10 +714,10 @@ class LineageExporter:
             if node.object_type in selected_by_type:
                 selected_by_type[node.object_type].add(node.technical_name)
 
-        print("\n==========================================")
-        print("EXPORTANDO CSN AL POOL DEL CATALOGO")
-        print("==========================================")
-        print(f"Destino cliente: {client_cache_dir}")
+        _say("\n==========================================")
+        _say("EXPORTANDO CSN AL POOL DEL CATALOGO")
+        _say("==========================================")
+        _say(f"Destino cliente: {client_cache_dir}")
 
         exported = 0
         errors = 0
@@ -686,16 +727,16 @@ class LineageExporter:
             target_dir = client_cache_dir / object_type
             target_dir.mkdir(parents=True, exist_ok=True)
 
-            print("")
-            print("==========================================")
-            print(f"Procesando: {object_type}")
-            print(f"Destino:    {target_dir}")
-            print("==========================================")
-            print("")
-            print(f"Objetos encontrados: {len(names)}")
+            _say("")
+            _say("==========================================")
+            _say(f"Procesando: {object_type}")
+            _say(f"Destino:    {target_dir}")
+            _say("==========================================")
+            _say("")
+            _say(f"Objetos encontrados: {len(names)}")
 
             if not names:
-                print("SKIP - Sin objetos")
+                _say("SKIP - Sin objetos")
                 continue
 
             ok = 0
@@ -704,12 +745,12 @@ class LineageExporter:
             for i, technical_name in enumerate(names, start=1):
                 output_file = target_dir / f"{self._safe_filename(technical_name)}.json"
 
-                print("")
-                print(f"[{i}/{len(names)}] {technical_name}")
+                _say("")
+                _say(f"[{i}/{len(names)}] {technical_name}")
 
                 data = self.safe_read(object_type, technical_name)
                 if data is None:
-                    print("ERROR")
+                    _say("ERROR")
                     failed += 1
                     errors += 1
                     continue
@@ -718,25 +759,25 @@ class LineageExporter:
                     json.dumps(data, indent=2, ensure_ascii=False),
                     encoding="utf-8",
                 )
-                print("OK")
+                _say("OK")
                 ok += 1
                 exported += 1
 
-            print("")
-            print("------------------------------------------")
-            print(f"{object_type} terminado")
-            print(f"OK:      {ok}")
-            print(f"Errores: {failed}")
-            print(f"Total:   {len(names)}")
-            print("------------------------------------------")
+            _say("")
+            _say("------------------------------------------")
+            _say(f"{object_type} terminado")
+            _say(f"OK:      {ok}")
+            _say(f"Errores: {failed}")
+            _say(f"Total:   {len(names)}")
+            _say("------------------------------------------")
 
-        print("")
-        print("==========================================")
-        print("EXPORT CSN FINALIZADO")
-        print(f"Archivos exportados: {exported}")
-        print(f"Errores:             {errors}")
-        print(f"Pool cliente:        {client_cache_dir}")
-        print("==========================================")
+        _say("")
+        _say("==========================================")
+        _say("EXPORT CSN FINALIZADO")
+        _say(f"Archivos exportados: {exported}")
+        _say(f"Errores:             {errors}")
+        _say(f"Pool cliente:        {client_cache_dir}")
+        _say("==========================================")
 
         # Return the client cache directory; diagnostics are written later outside
         # .csn_cache so they never become catalog source JSON.
@@ -859,33 +900,33 @@ def _cleanup_stale_owned_objects(
     retained_shared = 0
 
     if not stale:
-        print("\nLimpieza incremental: sin objetos obsoletos.")
+        _say("\nLimpieza incremental: sin objetos obsoletos.")
         return deleted, retained_shared
 
-    print("\n==========================================")
-    print("LIMPIEZA INCREMENTAL DEL POOL")
-    print("==========================================")
-    print(f"Objetos previos:    {len(previous_objects)}")
-    print(f"Objetos actuales:   {len(current_objects)}")
-    print(f"Candidatos obsoletos: {len(stale)}")
+    _say("\n==========================================")
+    _say("LIMPIEZA INCREMENTAL DEL POOL")
+    _say("==========================================")
+    _say(f"Objetos previos:    {len(previous_objects)}")
+    _say(f"Objetos actuales:   {len(current_objects)}")
+    _say(f"Candidatos obsoletos: {len(stale)}")
 
     for object_type, technical_name in sorted(stale):
         if (object_type, technical_name) in other_owned_objects:
             retained_shared += 1
-            print(f"KEEP shared - {object_type}/{technical_name}")
+            _say(f"KEEP shared - {object_type}/{technical_name}")
             continue
 
         path = client_cache_dir / object_type / f"{LineageExporter._safe_filename(technical_name)}.json"
         if not path.exists():
-            print(f"SKIP missing - {object_type}/{technical_name}")
+            _say(f"SKIP missing - {object_type}/{technical_name}")
             continue
 
         try:
             path.unlink()
             deleted += 1
-            print(f"DELETE - {object_type}/{technical_name}")
+            _say(f"DELETE - {object_type}/{technical_name}")
         except OSError as exc:
-            print(f"WARN no se pudo borrar {path}: {exc}")
+            _say(f"WARN no se pudo borrar {path}: {exc}")
 
     # Remove only empty technical-type directories. Never remove client_cache_dir.
     for child in sorted(client_cache_dir.iterdir()) if client_cache_dir.exists() else []:
@@ -895,10 +936,10 @@ def _cleanup_stale_owned_objects(
             except OSError:
                 pass
 
-    print("------------------------------------------")
-    print(f"Eliminados:          {deleted}")
-    print(f"Retenidos compartidos: {retained_shared}")
-    print("------------------------------------------")
+    _say("------------------------------------------")
+    _say(f"Eliminados:          {deleted}")
+    _say(f"Retenidos compartidos: {retained_shared}")
+    _say("------------------------------------------")
     return deleted, retained_shared
 
 
@@ -914,46 +955,126 @@ def _legacy_run_manifest(catalog_root: Path, client_dir_name: str, analytic_mode
     return catalog_root / ".lineage_runs" / client_dir_name / safe_model / "lineage-manifest.json"
 
 
-def main() -> int:
-    args = parse_args()
+@dataclass
+class ExportRequest:
+    """Parámetros de una exportación. Es el contrato único que consumen los DOS adaptadores (CLI y UI web)."""
+    host: str
+    client_id: str
+    client_secret: str = field(repr=False)
+    token_url: str = ""
+    space: str = ""
+    analytic_model: str = ""
+    client: str = ""
+    catalog_root: Path | None = None
+    csn_cache_dir: Path | None = None
+    generate_catalog: bool = True
+    mirror_up: bool = False
+
+
+@dataclass
+class ExportResult:
+    ok: bool
+    error_code: str | None = None
+    message: str = ""
+    client: str = ""
+    space: str = ""
+    analytic_model: str = ""
+    duration_s: float = 0.0
+    objects: int = 0
+    edges: int = 0
+    external_sources: int = 0
+    exported_files: int = 0
+    export_errors: int = 0
+    files_by_type: dict[str, int] = field(default_factory=dict)
+    deleted_stale: int = 0
+    retained_shared: int = 0
+    pool_dir: Path | None = None
+    manifest_path: Path | None = None
+    catalog_generated: bool = False
+    storage_enabled: bool = False
+    mirrored_files: int | None = None       # None = no se pidió subir; N = archivos sincronizados a Spaces por mirror_up()
+    exit_code: int = 0
+
+
+_PRECHECK_CODES = (
+    ("PRECHECK_OAUTH_NETWORK_ERROR", "OAUTH_ENDPOINT_UNREACHABLE"),
+    ("PRECHECK_OAUTH_ERROR", "OAUTH_ENDPOINT_UNREACHABLE"),
+    ("PRECHECK_OAUTH_401", "AUTHENTICATION_FAILED"),
+    ("PRECHECK_OAUTH_INVALID_RESPONSE", "AUTHENTICATION_FAILED"),
+    ("PRECHECK_OAUTH_HTTP_", "AUTHENTICATION_FAILED"),
+    ("PRECHECK_AUTH_403", "INSUFFICIENT_DATASPHERE_PRIVILEGES"),
+    ("PRECHECK_AUTH_401", "AUTHENTICATION_FAILED"),
+    ("PRECHECK_AUTH_ERROR", "SPACE_ACCESS_FAILED"),
+)
+
+
+def classify_error(message: str) -> str:
+    """Código estable a partir del prefijo `PRECHECK_*` de los errores del CLI (los demás son fallas de extracción)."""
+    for prefix, code in _PRECHECK_CODES:
+        if str(message).startswith(prefix):
+            return code
+    return "EXTRACTION_FAILED"
+
+
+def regenerate_catalog_from_pool(csn_cache_root: Path, catalog_root: Path) -> str:
+    """Regenera la proyección del catálogo desde el pool CSN (``generate_all``). Paso ÚNICO compartido: lo usa ``run_export`` cuando
+    ``generate_catalog=True`` y la acción explícita "Actualizar catálogo" de la UI web; no existe otra copia de esta llamada."""
+    project_root = Path(__file__).resolve().parents[2]
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from tools.catalog.generate_catalog import generate_all
+
+    return str(generate_all(csn_cache_root, catalog_root))
+
+
+def run_export(req: ExportRequest) -> ExportResult:
+    """Exporta el linaje de un Analytic Model al pool CSN del catálogo. ÚNICA implementación: el CLI (`main`) y la UI web
+    (`webapp/services/datasphere_assessment_service.py`) son adaptadores sobre esta función. No lee argv ni llama a sys.exit."""
+    started_at = time.perf_counter()
+
+    def finish(result: ExportResult) -> ExportResult:
+        result.duration_s = round(time.perf_counter() - started_at, 1)
+        return result
+
+    base = ExportResult(ok=False, client=req.client, space=req.space, analytic_model=req.analytic_model)
 
     if shutil.which("npx") is None:
-        print("ERROR: npx not found in PATH", file=sys.stderr)
-        return 2
+        _say("ERROR: npx not found in PATH", file=sys.stderr)
+        return finish(ExportResult(**{**base.__dict__, "error_code": "DATASPHERE_CLI_UNAVAILABLE", "message": "npx not found in PATH", "exit_code": 2}))
 
     project_root = Path(__file__).resolve().parents[2]
 
     catalog_root = Path(
-        args.catalog_root
+        req.catalog_root
         or os.getenv("DANWOR_CATALOG_DIR")
         or (project_root / "catalog_local")
     ).resolve()
 
     csn_cache_root = Path(
-        args.csn_cache_dir
+        req.csn_cache_dir
         or os.getenv("DANWOR_CATALOG_CSN_CACHE")
         or (catalog_root / ".csn_cache")
     ).resolve()
 
     # Client is intentionally a runtime parameter. Keep path-safe while preserving
     # the visible business name as much as possible.
-    client_dir_name = re.sub(r'[\\/:*?"<>|]', "_", args.client.strip()).replace(" ", "_")
+    client_dir_name = re.sub(r'[\\/:*?"<>|]', "_", req.client.strip()).replace(" ", "_")
     if not client_dir_name:
-        print("ERROR: --client cannot be empty", file=sys.stderr)
-        return 2
+        _say("ERROR: --client cannot be empty", file=sys.stderr)
+        return finish(ExportResult(**{**base.__dict__, "error_code": "INVALID_PARAMETER", "message": "client cannot be empty", "exit_code": 2}))
 
     client_cache_dir = csn_cache_root / client_dir_name
-    diagnostics_dir = _canonical_run_dir(catalog_root, client_dir_name, args.space, args.analytic_model)
+    diagnostics_dir = _canonical_run_dir(catalog_root, client_dir_name, req.space, req.analytic_model)
 
-    print("Catalog integration:")
-    print(f"  Client:       {args.client}")
-    print(f"  Catalog root: {catalog_root}")
-    print(f"  CSN cache:    {csn_cache_root}")
-    print(f"  Client pool:  {client_cache_dir}")
+    _say("Catalog integration:")
+    _say(f"  Client:       {req.client}")
+    _say(f"  Catalog root: {catalog_root}")
+    _say(f"  CSN cache:    {csn_cache_root}")
+    _say(f"  Client pool:  {client_cache_dir}")
 
     manifest_path = diagnostics_dir / "lineage-manifest.json"
     previous_manifest = _load_json_file(manifest_path)
-    legacy_manifest_path = _legacy_run_manifest(catalog_root, client_dir_name, args.analytic_model)
+    legacy_manifest_path = _legacy_run_manifest(catalog_root, client_dir_name, req.analytic_model)
     using_legacy_manifest = False
 
     # Migration from the first implementation: reuse its previous ownership only
@@ -961,47 +1082,47 @@ def main() -> int:
     if not previous_manifest and legacy_manifest_path.exists():
         candidate = _load_json_file(legacy_manifest_path)
         if (
-            str(candidate.get("space") or "") == args.space
-            and str(candidate.get("analyticModel") or "") == args.analytic_model
+            str(candidate.get("space") or "") == req.space
+            and str(candidate.get("analyticModel") or "") == req.analytic_model
         ):
             previous_manifest = candidate
             using_legacy_manifest = True
-            print(f"  Previous ownership: legacy manifest {legacy_manifest_path}")
+            _say(f"  Previous ownership: legacy manifest {legacy_manifest_path}")
 
     # Work area is ephemeral and isolated from the final export.
     with tempfile.TemporaryDirectory(prefix="dsp-lineage-") as tmp:
         work_dir = Path(tmp)
         cli = DatasphereCli(
-            host=args.host,
-            client_id=args.client_id,
-            client_secret=args.client_secret,
-            token_url=args.token_url,
+            host=req.host,
+            client_id=req.client_id,
+            client_secret=req.client_secret,
+            token_url=req.token_url,
             work_dir=work_dir,
         )
         try:
-            print("\n==========================================")
-            print("PRECHECK DE CONEXION Y AUTORIZACION")
-            print("==========================================")
+            _say("\n==========================================")
+            _say("PRECHECK DE CONEXION Y AUTORIZACION")
+            _say("==========================================")
             cli.oauth_preflight()
 
-            print("\nLogging in to SAP Datasphere...")
+            _say("\nLogging in to SAP Datasphere...")
             cli.login()
-            print("Login OK")
+            _say("Login OK")
 
-            cli.authorization_preflight(args.space)
+            cli.authorization_preflight(req.space)
 
-            print("\nPrechecks OK. Iniciando export de linaje...")
+            _say("\nPrechecks OK. Iniciando export de linaje...")
 
             exporter = LineageExporter(
                 cli=cli,
-                space=args.space,
-                analytic_model=args.analytic_model,
+                space=req.space,
+                analytic_model=req.analytic_model,
                 output_dir=client_cache_dir,
             )
             exported_pool = exporter.run()
         except DatasphereCliError as exc:
-            print(f"ERROR: {exc}")
-            return 1
+            _say(f"ERROR: {exc}")
+            return finish(ExportResult(**{**base.__dict__, "error_code": classify_error(str(exc)), "message": str(exc), "exit_code": 1}))
 
     # Ownership cleanup happens AFTER the current export but BEFORE generate_catalog:
     # current files have already been refreshed, while stale files can still be
@@ -1025,9 +1146,9 @@ def main() -> int:
     # catalog_local but is never scanned as CSN input by generate_catalog.py.
     diagnostics_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
-        "client": args.client,
-        "space": args.space,
-        "analyticModel": args.analytic_model,
+        "client": req.client,
+        "space": req.space,
+        "analyticModel": req.analytic_model,
         "objects": [
             asdict(n)
             for n in sorted(
@@ -1068,62 +1189,85 @@ def main() -> int:
                 legacy_manifest_path.parent.rmdir()
             except OSError:
                 pass
-            print(f"Manifest legacy migrado: {legacy_manifest_path}")
+            _say(f"Manifest legacy migrado: {legacy_manifest_path}")
         except OSError as exc:
-            print(f"WARN no se pudo retirar manifest legacy: {exc}")
+            _say(f"WARN no se pudo retirar manifest legacy: {exc}")
 
-    if not args.no_generate_catalog:
-        print("\n==========================================")
-        print("REGENERANDO CATALOGO EXISTENTE")
-        print("==========================================")
+    files_by_type = {
+        t: sum(1 for _ in (client_cache_dir / t).glob("*.json")) if (client_cache_dir / t).is_dir() else 0 for t in OBJECT_TYPES
+    }
+    result = ExportResult(**{
+        **base.__dict__, "ok": True, "objects": len(exporter.nodes), "edges": len(exporter.edges),
+        "external_sources": len(exporter.external_sources), "exported_files": sum(files_by_type.values()),
+        "files_by_type": {k: v for k, v in files_by_type.items() if v}, "deleted_stale": deleted_stale,
+        "retained_shared": retained_shared, "pool_dir": exported_pool, "manifest_path": manifest_path,
+    })
+
+    if req.generate_catalog:
+        _say("\n==========================================")
+        _say("REGENERANDO CATALOGO EXISTENTE")
+        _say("==========================================")
         try:
-            if str(project_root) not in sys.path:
-                sys.path.insert(0, str(project_root))
-            from tools.catalog.generate_catalog import generate_all
-
-            summary = generate_all(csn_cache_root, catalog_root)
-            print(summary)
+            summary = regenerate_catalog_from_pool(csn_cache_root, catalog_root)
+            _say(summary)
+            result.catalog_generated = True
         except Exception as exc:
-            print(f"ERROR generating catalog: {exc}", file=sys.stderr)
-            return 1
+            _say(f"ERROR generating catalog: {exc}", file=sys.stderr)
+            result.ok, result.error_code, result.message, result.exit_code = False, "CATALOG_GENERATION_FAILED", f"{type(exc).__name__}", 1
+            return finish(result)
 
-    if args.mirror_up:
-        print("\n==========================================")
-        print("PERSISTIENDO EN DIGITALOCEAN SPACES")
-        print("==========================================")
+    if req.mirror_up:
+        _say("\n==========================================")
+        _say("PERSISTIENDO EN DIGITALOCEAN SPACES")
+        _say("==========================================")
         try:
             if str(project_root) not in sys.path:
                 sys.path.insert(0, str(project_root))
             from core import remote_store
 
-            if remote_store.enabled():
-                remote_store.mirror_up()
-                print("mirror_up OK")
+            result.storage_enabled = bool(remote_store.enabled())
+            if result.storage_enabled:
+                result.mirrored_files = int(remote_store.mirror_up() or 0)
+                _say("mirror_up OK")
             else:
-                print("WARN: remote_store is disabled; local catalog was generated but not mirrored.")
+                _say("WARN: remote_store is disabled; local catalog was generated but not mirrored.")
         except Exception as exc:
-            print(f"ERROR mirror_up: {exc}", file=sys.stderr)
-            return 1
+            _say(f"ERROR mirror_up: {exc}", file=sys.stderr)
+            result.ok, result.error_code, result.message, result.exit_code = False, "STORAGE_UPLOAD_FAILED", f"{type(exc).__name__}", 1
+            return finish(result)
     else:
-        print(
+        _say(
             "\nPersistencia Spaces: se usará el sync loop normal de remote_store "
             "(use --mirror-up para forzarla ahora)."
         )
 
-    print("\nEXPORT DE LINAJE FINALIZADO")
-    print(f"Cliente: {args.client}")
-    print(f"Space: {args.space}")
-    print(f"Analytic Model: {args.analytic_model}")
-    print(f"Objetos incluidos: {len(exporter.nodes)}")
-    print(f"Relaciones: {len(exporter.edges)}")
-    print(f"Fuentes externas: {len(exporter.external_sources)}")
-    print(f"Obsoletos eliminados: {deleted_stale}")
-    print(f"Compartidos retenidos: {retained_shared}")
-    print(f"Pool CSN: {exported_pool}")
-    print(f"Manifest diagnóstico: {manifest_path}")
-    print(f"Catálogo: {catalog_root}")
-    print("STATUS: SUCCESS")
-    return 0
+    _say("\nEXPORT DE LINAJE FINALIZADO")
+    _say(f"Cliente: {req.client}")
+    _say(f"Space: {req.space}")
+    _say(f"Analytic Model: {req.analytic_model}")
+    _say(f"Objetos incluidos: {len(exporter.nodes)}")
+    _say(f"Relaciones: {len(exporter.edges)}")
+    _say(f"Fuentes externas: {len(exporter.external_sources)}")
+    _say(f"Obsoletos eliminados: {deleted_stale}")
+    _say(f"Compartidos retenidos: {retained_shared}")
+    _say(f"Pool CSN: {exported_pool}")
+    _say(f"Manifest diagnóstico: {manifest_path}")
+    _say(f"Catálogo: {catalog_root}")
+    _say("STATUS: SUCCESS")
+    return finish(result)
+
+
+def main() -> int:
+    """Adaptador CLI: argv → ExportRequest → run_export (misma lógica que usa la UI web)."""
+    args = parse_args()
+    result = run_export(ExportRequest(
+        host=args.host, client_id=args.client_id, client_secret=args.client_secret, token_url=args.token_url,
+        space=args.space, analytic_model=args.analytic_model, client=args.client,
+        catalog_root=Path(args.catalog_root) if args.catalog_root else None,
+        csn_cache_dir=Path(args.csn_cache_dir) if args.csn_cache_dir else None,
+        generate_catalog=not args.no_generate_catalog, mirror_up=bool(args.mirror_up),
+    ))
+    return 0 if result.ok else (result.exit_code or 1)
 
 
 if __name__ == "__main__":

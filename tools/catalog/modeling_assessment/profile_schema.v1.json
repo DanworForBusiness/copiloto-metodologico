@@ -1,0 +1,672 @@
+{
+  "$defs": {
+    "Applicability": {
+      "enum": [
+        "APPLICABLE",
+        "NOT_APPLICABLE"
+      ],
+      "type": "string"
+    },
+    "ApplicabilityDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApplicabilityReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/Applicability"
+        }
+      },
+      "required": [
+        "reason",
+        "state"
+      ],
+      "type": "object"
+    },
+    "ApplicabilityReason": {
+      "enum": [
+        "SYSTEM_ARTIFACT",
+        "INTERNAL_STATIC_OBJECT",
+        "NO_TERMINAL_ANALYTIC_MODEL",
+        "NO_OTHER_TERMINAL_ANALYTIC_MODEL"
+      ],
+      "type": "string"
+    },
+    "Area": {
+      "enum": [
+        "SCOPE",
+        "ANALYTIC_MODEL",
+        "PROPAGATION",
+        "HARMONIZATION",
+        "INGESTION",
+        "NAMING",
+        "SOURCE_EXTRACTION"
+      ],
+      "type": "string"
+    },
+    "AreaCard": {
+      "additionalProperties": false,
+      "properties": {
+        "applicability": {
+          "$ref": "#/$defs/ApplicabilityDecision"
+        },
+        "area": {
+          "$ref": "#/$defs/Area"
+        },
+        "assessability": {
+          "$ref": "#/$defs/Assessability"
+        },
+        "cause": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cause"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "facts": {
+          "items": {
+            "$ref": "#/$defs/Fact"
+          },
+          "type": "array"
+        },
+        "not_observable": {
+          "items": {
+            "$ref": "#/$defs/Cause"
+          },
+          "type": "array"
+        },
+        "signals": {
+          "items": {
+            "$ref": "#/$defs/Signal"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "applicability",
+        "area",
+        "assessability",
+        "cause",
+        "facts",
+        "not_observable",
+        "signals"
+      ],
+      "type": "object"
+    },
+    "AreaCoverage": {
+      "additionalProperties": false,
+      "properties": {
+        "area": {
+          "$ref": "#/$defs/Area"
+        },
+        "counts": {
+          "$ref": "#/$defs/CoverageCounts"
+        }
+      },
+      "required": [
+        "area",
+        "counts"
+      ],
+      "type": "object"
+    },
+    "Assessability": {
+      "enum": [
+        "ASSESSED",
+        "PARTIALLY_ASSESSED",
+        "NOT_ASSESSED",
+        "NOT_APPLICABLE",
+        "INDETERMINATE"
+      ],
+      "type": "string"
+    },
+    "Cause": {
+      "enum": [
+        "NOT_OBSERVABLE_IN_STANDARD_EXPORT",
+        "NOT_IN_SNAPSHOT",
+        "CLASSIFIER_RULE_GAP",
+        "PLANE_BOUNDARY",
+        "C1_NOT_YET_PARSED",
+        "C2_EXPERT_ONLY",
+        "CONTEXT_REQUIRED",
+        "PROVENANCE_UNKNOWN",
+        "COLLISION_OR_LOAD_ERROR",
+        "CONTRADICTORY_EVIDENCE"
+      ],
+      "type": "string"
+    },
+    "Confidence": {
+      "additionalProperties": false,
+      "properties": {
+        "drivers": {
+          "items": {
+            "$ref": "#/$defs/ConfidenceDriver"
+          },
+          "type": "array"
+        },
+        "level": {
+          "$ref": "#/$defs/ConfidenceLevel"
+        }
+      },
+      "required": [
+        "drivers",
+        "level"
+      ],
+      "type": "object"
+    },
+    "ConfidenceDriver": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "type": "string"
+        },
+        "level": {
+          "$ref": "#/$defs/ConfidenceLevel"
+        },
+        "name": {
+          "$ref": "#/$defs/ConfidenceDriverName"
+        }
+      },
+      "required": [
+        "detail",
+        "level",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ConfidenceDriverName": {
+      "enum": [
+        "EPISTEMIC_RELIABILITY"
+      ],
+      "type": "string"
+    },
+    "ConfidenceLevel": {
+      "enum": [
+        "HIGH",
+        "MEDIUM",
+        "LOW"
+      ],
+      "type": "string"
+    },
+    "CoverageCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "applicable": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "assessed": {
+          "type": "integer"
+        },
+        "indeterminate": {
+          "type": "integer"
+        },
+        "not_applicable": {
+          "type": "integer"
+        },
+        "not_assessed": {
+          "type": "integer"
+        },
+        "partially_assessed": {
+          "type": "integer"
+        },
+        "ratio_inclusive": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "ratio_strict": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "applicable",
+        "assessed",
+        "indeterminate",
+        "not_applicable",
+        "not_assessed",
+        "partially_assessed",
+        "ratio_inclusive",
+        "ratio_strict"
+      ],
+      "type": "object"
+    },
+    "CoverageReport": {
+      "additionalProperties": false,
+      "properties": {
+        "by_area": {
+          "items": {
+            "$ref": "#/$defs/AreaCoverage"
+          },
+          "type": "array"
+        },
+        "macro_dimensions": {
+          "items": {
+            "$ref": "#/$defs/MacroDimensionStatus"
+          },
+          "type": "array"
+        },
+        "overall": {
+          "$ref": "#/$defs/CoverageCounts"
+        }
+      },
+      "required": [
+        "by_area",
+        "macro_dimensions",
+        "overall"
+      ],
+      "type": "object"
+    },
+    "EvidenceClass": {
+      "enum": [
+        "A",
+        "B",
+        "C1",
+        "C2",
+        "D"
+      ],
+      "type": "string"
+    },
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "attr_path": {
+          "type": "string"
+        },
+        "entity": {
+          "type": "string"
+        },
+        "plane": {
+          "$ref": "#/$defs/Plane"
+        },
+        "source_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "attr_path",
+        "entity",
+        "plane",
+        "source_file"
+      ],
+      "type": "object"
+    },
+    "Fact": {
+      "additionalProperties": false,
+      "properties": {
+        "applicability": {
+          "$ref": "#/$defs/ApplicabilityDecision"
+        },
+        "area": {
+          "$ref": "#/$defs/Area"
+        },
+        "assessability": {
+          "$ref": "#/$defs/Assessability"
+        },
+        "cause": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cause"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_class": {
+          "$ref": "#/$defs/EvidenceClass"
+        },
+        "fact_id": {
+          "type": "string"
+        },
+        "plane": {
+          "$ref": "#/$defs/Plane"
+        },
+        "refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "type": "array"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "value": {}
+      },
+      "required": [
+        "applicability",
+        "area",
+        "assessability",
+        "cause",
+        "evidence_class",
+        "fact_id",
+        "plane",
+        "refs",
+        "subject",
+        "value"
+      ],
+      "type": "object"
+    },
+    "MacroDimension": {
+      "enum": [
+        "ARCHITECTURE_MODELING",
+        "NAMING",
+        "SOURCE_EXTRACTION"
+      ],
+      "type": "string"
+    },
+    "MacroDimensionState": {
+      "enum": [
+        "HAS_ASSESSED_EVIDENCE",
+        "COMPLETELY_NOT_ASSESSED",
+        "NOT_APPLICABLE"
+      ],
+      "type": "string"
+    },
+    "MacroDimensionStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "macro_dimension": {
+          "$ref": "#/$defs/MacroDimension"
+        },
+        "state": {
+          "$ref": "#/$defs/MacroDimensionState"
+        }
+      },
+      "required": [
+        "macro_dimension",
+        "state"
+      ],
+      "type": "object"
+    },
+    "Observation": {
+      "additionalProperties": false,
+      "properties": {
+        "area": {
+          "$ref": "#/$defs/Area"
+        },
+        "context_question_key": {
+          "type": "string"
+        },
+        "fact_refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observation_id": {
+          "$ref": "#/$defs/ObservationId"
+        },
+        "resolution": {
+          "$ref": "#/$defs/Resolution"
+        },
+        "subjects": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "area",
+        "context_question_key",
+        "fact_refs",
+        "observation_id",
+        "resolution",
+        "subjects"
+      ],
+      "type": "object"
+    },
+    "ObservationId": {
+      "enum": [
+        "DIRECT_RAW_TABLE_ACCESS"
+      ],
+      "type": "string"
+    },
+    "Plane": {
+      "enum": [
+        "MODELING",
+        "PROCESSING"
+      ],
+      "type": "string"
+    },
+    "ProfileScope": {
+      "additionalProperties": false,
+      "properties": {
+        "applicability": {
+          "$ref": "#/$defs/ApplicabilityDecision"
+        },
+        "closure_names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "closure_size": {
+          "type": "integer"
+        },
+        "pool_signature": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "terminal_am": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "applicability",
+        "closure_names",
+        "closure_size",
+        "pool_signature",
+        "terminal_am"
+      ],
+      "type": "object"
+    },
+    "Resolution": {
+      "enum": [
+        "OPEN_CONTEXT_REQUIRED"
+      ],
+      "type": "string"
+    },
+    "ReviewId": {
+      "enum": [
+        "PASS_THROUGH_REVIEW",
+        "CROSS_LAYER_REDERIVATION",
+        "ROLE_LAYER_DIVERGENCE",
+        "DUPLICATED_REMOTE_IMPORT",
+        "LAYER_BOUNDARY_REVIEW",
+        "FLAT_CENTRAL_ASSEMBLY_REVIEW",
+        "FIELD_VOCABULARY_MIX",
+        "OPAQUE_FIELD_NAME",
+        "LABEL_NOT_ENRICHING",
+        "AM_SEMANTIC_UNDERUSE_REVIEW"
+      ],
+      "type": "string"
+    },
+    "ReviewItem": {
+      "additionalProperties": false,
+      "properties": {
+        "area": {
+          "$ref": "#/$defs/Area"
+        },
+        "fact_refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "legitimate_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "missing_context": {
+          "type": "string"
+        },
+        "no_automatic_quality_judgment": {
+          "type": "boolean"
+        },
+        "review_id": {
+          "$ref": "#/$defs/ReviewId"
+        },
+        "subjects": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "area",
+        "fact_refs",
+        "legitimate_reasons",
+        "missing_context",
+        "no_automatic_quality_judgment",
+        "review_id",
+        "subjects"
+      ],
+      "type": "object"
+    },
+    "Signal": {
+      "additionalProperties": false,
+      "properties": {
+        "area": {
+          "$ref": "#/$defs/Area"
+        },
+        "fact_refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "interpretation_limits": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/SignalKind"
+        },
+        "role_scope": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ruleset_version": {
+          "type": "string"
+        },
+        "signal_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "area",
+        "fact_refs",
+        "interpretation_limits",
+        "kind",
+        "role_scope",
+        "ruleset_version",
+        "signal_id"
+      ],
+      "type": "object"
+    },
+    "SignalKind": {
+      "enum": [
+        "DESCRIPTIVE",
+        "REVIEW",
+        "OBSERVATION"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "modeling_assessment.profile/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "areas": {
+      "items": {
+        "$ref": "#/$defs/AreaCard"
+      },
+      "type": "array"
+    },
+    "confidence": {
+      "$ref": "#/$defs/Confidence"
+    },
+    "coverage": {
+      "$ref": "#/$defs/CoverageReport"
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/Observation"
+      },
+      "type": "array"
+    },
+    "review_required": {
+      "items": {
+        "$ref": "#/$defs/ReviewItem"
+      },
+      "type": "array"
+    },
+    "ruleset_version": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "#/$defs/ProfileScope"
+    }
+  },
+  "required": [
+    "areas",
+    "confidence",
+    "coverage",
+    "observations",
+    "review_required",
+    "ruleset_version",
+    "schema_version",
+    "scope"
+  ],
+  "title": "Modeling Self-Assessment — perfil (Fase 1: sin scores ni bandas)",
+  "type": "object"
+}

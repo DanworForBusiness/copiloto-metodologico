@@ -1,0 +1,76 @@
+{# Herramienta "Assessment de tu modelo": formulario que dispara la exportación directa desde SAP Datasphere + panel LOCAL de avance.
+   Reusa los primitivos del Hub del panel de herramientas: `.tree-picker`, `.btn-primary`, `.callout`, `.tool-empty`, `.feedback-error`,
+   `.admin-tool` (Detalle técnico), `.admin-result-output` (log), `.admin-table`.
+   La ejecución NO usa HTMX ni el loader del asistente: `datasphere_assessment.js` hace un fetch POST y pinta, con textContent, las
+   líneas que el extractor emite en tiempo real. Estado propio: Ejecutando extracción… → éxito / falla. Sin porcentajes.
+   Contexto: dsa = {enabled, can_execute, stem}.
+   SECRETOS: el Client Secret es `type="password"`, viaja solo en el cuerpo del POST, se limpia del campo al enviar y NO se
+   renderiza de vuelta. Sin JS el form hace POST (nunca GET con el secreto en la URL). #}
+<div id="dsa-panel" class="dsa-panel">
+{% if not dsa.can_execute %}
+  <div class="tool-empty">
+    <span>Acceso restringido</span>
+    <p>Esta herramienta ejecuta una extracción real contra SAP Datasphere y solo puede ejecutarla el dueño de la aplicación.</p>
+  </div>
+{% else %}
+  <form id="dsa-form" data-dsa-form method="post" action="/modules/{{ dsa.stem }}/datasphere-assessment/run" autocomplete="off">
+    {% macro field(name, label, kind="text", placeholder="", first=False, field_name="") %}
+    <div{% if not first %} class="catalog-picker--secondary"{% endif %}>{# separación entre campos: margen estándar del picker secundario #}
+    <label class="tool-label" for="dsa-{{ name }}">{{ label }}</label>
+    <div class="tree-picker-row">
+      <input id="dsa-{{ name }}" name="{{ field_name or name }}" type="{{ kind }}" placeholder="{{ placeholder }}"
+             required autocomplete="{{ 'new-password' if kind == 'password' else 'off' }}" autocapitalize="none" spellcheck="false">
+      <p class="feedback-error" data-dsa-error="{{ name }}" hidden></p>
+    </div>
+    </div>
+    {% endmacro %}
+    <div class="tree-picker catalog-picker--secondary">
+      <span class="admin-result-title">Conexión Datasphere</span>
+      {{ field("host", "URL del tenant", "url", "https://mi-tenant.eu10.hcs.cloud.sap", first=True) }}
+      {{ field("token_url", "Token URL (OAuth)", "url", "https://mi-tenant.authentication.eu10.hana.ondemand.com/oauth/token") }}
+      {{ field("client_id", "Client ID", "text", "sb-5d74c5f-XXXX", field_name="datasphere_client_id") }}
+      {{ field("client_secret", "Client Secret", "password", "5ff624c2-XXXX", field_name="datasphere_client_secret") }}
+    </div>
+    <div class="tree-picker catalog-picker--secondary">
+      <span class="admin-result-title">Alcance</span>
+      {{ field("space", "Space ID", "text", "PRODUCCION", first=True) }}
+      {{ field("analytic_model", "Modelo Analítico", "text", "AM_Compras") }}
+    </div>
+    {# último grupo SIN `.tree-picker`: no lleva la línea separadora previa al botón (los labels reusan `.tool-label`, mismo estilo) #}
+    <div class="catalog-picker--secondary">
+      <span class="admin-result-title">Destino</span>
+      {{ field("client", "Nombre de Cliente", "text", "Pampa", first=True) }}
+    </div>
+    <div class="admin-actions">
+      <button type="submit" class="btn-primary tool-primary" data-dsa-submit>Ejecutar assessment</button>
+    </div>
+  </form>
+
+  {# Panel local de avance: oculto hasta ejecutar. Todo el contenido dinámico entra con textContent (nunca innerHTML). #}
+  <div data-dsa-progress hidden>
+    <p class="admin-help" role="status" data-dsa-status data-running-text="Ejecutando extracción..."></p>
+    <aside class="callout callout--success" role="status" data-dsa-success hidden>
+      <div class="callout__head"><strong class="callout__title">Extracción completada</strong></div>
+      <div class="callout__body">
+        <p>Esto cubre solo la <strong>adquisición de la evidencia</strong>: no se regeneró el catálogo ni se ejecutó el assessment. Para que el flujo aparezca en el Catálogo (y en su informe de assessment) usá <em>Actualizar catálogo</em>.</p>
+      </div>
+    </aside>
+    <aside class="callout callout--warn" role="alert" data-dsa-failed hidden>
+      <div class="callout__head"><strong class="callout__title">No se pudo completar la extracción</strong></div>
+      <div class="callout__body"><p data-dsa-message></p><p><code data-dsa-code></code></p></div>
+    </aside>
+    <table class="admin-table" data-dsa-summary hidden><tbody></tbody></table>
+    <details class="admin-tool" data-dsa-detail open>
+      <summary class="admin-tool__summary">Detalle técnico</summary>
+      <div class="admin-tool__body"><pre class="admin-result-output" data-dsa-log></pre></div>
+    </details>
+    <div class="admin-actions" data-dsa-refresh hidden>
+      <form hx-post="/modules/{{ dsa.stem }}/datasphere-assessment/refresh-catalog" hx-target="#dsa-regen" hx-swap="innerHTML" hx-indicator="#dsa-regen-busy" hx-disabled-elt="find button">
+        <button type="submit" class="btn-secondary">Actualizar catálogo</button>
+        <span id="dsa-regen-busy" class="admin-indicator htmx-indicator">actualizando…</span>
+      </form>
+    </div>
+    <div id="dsa-regen" class="admin-result"></div>
+  </div>
+{% endif %}
+</div>
