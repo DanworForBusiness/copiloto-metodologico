@@ -1644,8 +1644,7 @@ def catalog_domain(request: Request, dominio: str = "", modulo: str = "", pack: 
     foco = {"03": "fuentes"}.get((modulo or "").strip())
     return templates.TemplateResponse(
         request=request, name="partials/catalog_flows.html",
-        context={"flows": flows, "dominio": dominio, "foco": foco, "pack": _pack(pack),
-                 "assessment_tiles": assessment_presenter.tiles_for(flows, _pack(pack))},
+        context={"flows": flows, "dominio": dominio, "foco": foco, "pack": _pack(pack)},
     )
 
 
@@ -2291,18 +2290,7 @@ def _catalog_portability_section_md(port: dict, asset_type: str, acks: list | No
     return f"## Portabilidad BDC\n\n{intro}\n\n{body}{ack_note}\n"
 
 
-def _catalog_clean_label(raw, fallback: str) -> str:
-    """Runtime twin de `_clean_label` del generador: descarta un label que en realidad
-    es un placeholder i18n sin resolver (p. ej. '{i18n>Remote.X@ENDUSERTEXT.LABEL}')
-    y cae al fallback (nombre técnico). Cubre .md viejos sin regenerar."""
-    s = str(raw or "").strip()
-    if not s:
-        return fallback
-    low = s.lower()
-    if ("{i18n" in low or "@enduserext.label" in low
-            or (s.startswith("{") and s.endswith("}") and "@" in s)):
-        return fallback
-    return s
+_catalog_clean_label = catalog_reads.catalog_clean_label   # helper compartido con el informe de assessment (mismo título de artefacto)
 
 
 def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", focus=None, focus_out: dict | None = None):
@@ -2328,7 +2316,7 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
         consistente en dos partes `A · B` (A en negro, B en dorado): con descripción
         → `{dw-black}Descripción · {dw-gold}NOMBRE`; sin descripción → se repite el
         nombre técnico `{dw-black}NOMBRE · {dw-gold}NOMBRE` (misma estructura visual)."""
-        desc = label if (label and label != name) else name
+        desc = catalog_reads.catalog_display_title(name, label)
         return f"{{dw-black}}{desc} · {{dw-gold}}{name}", f"{desc} · {name}"
 
     vistas_dir = Path(entry.path).parent / "vistas"
@@ -2486,8 +2474,7 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
             return templates.TemplateResponse(
                 request=request, name="partials/catalog_ambiguous.html",
                 context={"flows": matches, "cliente": cliente, "dominio": dominio,
-                         "foco": None, "pack": selected,
-                         "assessment_tiles": assessment_presenter.tiles_for(matches, selected)},
+                         "foco": None, "pack": selected},
             )
     if entry is None:
         raise HTTPException(404, "Flujo no encontrado en el catálogo")
@@ -2530,6 +2517,7 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
             "cliente": entry.cliente, "dominio": entry.dominio, "icon": entry.icon,
             "veredicto": entry.veredicto, "apto": entry.apto,
             "n_art": len(entry.artefactos), "sections": sections,
+            "assessment_header": assessment_presenter.header_for(entry, selected),
             "catalog_kind": "domain",
             "catalog_ref": f"{entry.cliente} · {entry.dominio}",
             **lineage_ctx,

@@ -111,11 +111,11 @@ class AssessmentStatus:
 
     @property
     def summary(self) -> dict | None:
-        return tile_summary(self.profile) if self.profile is not None and self.state in (CURRENT, STALE) else None
+        return headline_summary(self.profile) if self.profile is not None and self.state in (CURRENT, STALE) else None
 
 
-def tile_summary(profile: dict | None) -> dict | None:
-    """Datos MÍNIMOS del tile, leídos del JSON canónico (sin reinterpretar nada)."""
+def headline_summary(profile: dict | None) -> dict | None:
+    """Datos MÍNIMOS de la cabecera del flujo, leídos del JSON canónico (sin reinterpretar nada)."""
     if not profile or profile.get("assessment_state") != "ASSESSED":
         return None
     s = profile["summary"]
@@ -445,7 +445,7 @@ def _valid_profile(env: dict) -> bool:
 
 
 def statuses_for_entries(entries: Iterable[Any]) -> dict[str, AssessmentStatus]:
-    """Estados para un lote (tiles). NUNCA ejecuta el motor ni escribe la caché."""
+    """Estados para un lote de entradas. NUNCA ejecuta el motor ni escribe la caché."""
     entries = list(entries)
     versions = current_assessment_versions()
     resolutions = resolve_entries(entries)

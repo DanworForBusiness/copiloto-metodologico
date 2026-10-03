@@ -213,7 +213,7 @@ def test_failed_generation_is_stable_has_no_traceback_and_retry_recovers(env, mo
     assert st.state == svc.FAILED and st.error_code == "GENERATION_ERROR" and st.profile is None
     assert "secreto" not in (st.reason or "") and "Traceback" not in (st.reason or "") and "RuntimeError" not in (st.reason or "")
     assert any("secreto" in (r.exc_text or "") for r in caplog.records)          # detalle SOLO en el log del servidor
-    assert svc.status_for_entry(e).state == svc.FAILED                           # persistente (tile: "No se pudo generar")
+    assert svc.status_for_entry(e).state == svc.FAILED                           # persistente (cabecera: "Assessment no disponible")
     monkeypatch.setattr(svc, "_engine_assess", real)
     assert svc.generate(e).state == svc.CURRENT                                  # reintentar
 

@@ -4,7 +4,6 @@ catalog_assessment.py — Assessment de modelado dentro del Catálogo.
 Rutas (todas exigen sesión, igual que el detalle del Catálogo; sin rol nuevo):
 
   GET  /catalog/flow/assessment        informe o estado, SOLO desde la caché. NUNCA genera ni escribe.
-                                       ``frag=tile`` devuelve solo el bloque del tile (refresco HTMX).
   POST /catalog/flow/assessment        generar / regenerar / reintentar; devuelve el informe estructurado.
   GET  /catalog/flow/assessment.json   el perfil canónico validado exacto que usa el UI.
   GET  /catalog/flow/assessment.md     ``render_markdown(perfil)`` del MISMO perfil.
@@ -20,8 +19,6 @@ Regla de dependencia: NO importa ``webapp.main`` (main incluye este router). La 
 ``catalog_reads._catalog_entries`` (la misma fuente del Catálogo).
 """
 from __future__ import annotations
-
-import json
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -57,14 +54,14 @@ def _pack(request: Request, pack: str) -> str:
     return resolve_pack(pack) if access.is_diagnostic(request) else DEFAULT_PACK
 
 
-def _report_response(request: Request, status: svc.AssessmentStatus, entry, pack: str, *, headers: dict | None = None) -> HTMLResponse:
+def _report_response(request: Request, status: svc.AssessmentStatus, entry, pack: str) -> HTMLResponse:
     return templates.TemplateResponse(
         request=request, name="partials/catalog_assessment_report.html",
-        context={"v": presenter.report_view(status, entry, pack), "pack": pack}, headers=headers)
+        context={"v": presenter.report_view(status, entry, pack), "pack": pack})
 
 
 @router.get("/catalog/flow/assessment", response_class=HTMLResponse, include_in_schema=False)
-def assessment_get(request: Request, flow: str = "", pack: str = Query(DEFAULT_PACK), frag: str = ""):
+def assessment_get(request: Request, flow: str = "", pack: str = Query(DEFAULT_PACK)):
     """Estado/informe desde la caché. Un miss de caché es ``NOT_YET_ASSESSED``: este GET JAMÁS ejecuta el motor."""
     user = auth_service.session_user(request)
     if not user:
@@ -75,10 +72,6 @@ def assessment_get(request: Request, flow: str = "", pack: str = Query(DEFAULT_P
     entry = _entry_or_404(flow)
     log_verbose("catalog_view", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="assessment", ref=entry.entry_id)
     status = svc.status_for_entry(entry)
-    if frag == "tile":
-        return templates.TemplateResponse(
-            request=request, name="partials/catalog_assessment_tile.html",
-            context={"t": presenter.tile_view(status, entry, selected)})
     if not request.headers.get("HX-Request"):          # el informe es un fragmento del panel; navegación directa → detalle del flujo
         return RedirectResponse(presenter.flow_url(entry, selected), status_code=303)
     return _report_response(request, status, entry, selected)
@@ -96,8 +89,7 @@ def assessment_generate(request: Request, flow: str = "", pack: str = Query(DEFA
     status = svc.generate(entry)
     log_activity("catalog_assessment_generate", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
                  flow=entry.entry_id, state=status.state, error_code=status.error_code)
-    trigger = json.dumps({"assessment-changed": {"flow": entry.entry_id}})
-    return _report_response(request, status, entry, selected, headers={"HX-Trigger": trigger})
+    return _report_response(request, status, entry, selected)
 
 
 def _export(request: Request, flow: str, ext: str) -> Response:
