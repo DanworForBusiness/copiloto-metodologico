@@ -10,6 +10,7 @@ Rutas (SOLO el POST ejecuta; los GET son de lectura):
                                                                        (NDJSON, vía fetch); termina con la URL del informe
   GET  /modules/{stem}/datasphere-assessment/result/{result_id}        informe ad-hoc (MISMA plantilla/presenter que el del Catálogo)
   GET  /modules/{stem}/datasphere-assessment/result/{result_id}/log          detalle de ejecución (log saneado, vence con el resultado)
+  POST /modules/{stem}/datasphere-assessment/result/{result_id}/delete       elimina ESE resultado temporal (y su log); solo su dueño
   GET  /modules/{stem}/datasphere-assessment/result/{result_id}/export.json   perfil canónico guardado
   GET  /modules/{stem}/datasphere-assessment/result/{result_id}/export.md     render_markdown del mismo perfil
   POST /modules/{stem}/datasphere-assessment/refresh-catalog           capacidad existente (futuro "Catálogo → Agregar"); ya no se
@@ -27,7 +28,7 @@ import threading
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from core.content_registry import DEFAULT_PACK, content_pack_short_label, resolve_pack
 from webapp import same_origin_guard, workspaces
@@ -150,6 +151,18 @@ def adhoc_report(request: Request, stem: str, result_id: str, pack: str = Query(
                  "active_group": "core", "active_stem": stem, "readonly": False, "pack": selected,
                  "pack_label": content_pack_short_label(selected), "user": user, "current_workspace": workspaces.COPILOT,
                  "available_workspaces": workspaces.available_workspaces(user)})
+
+
+@router.post("/modules/{stem}/datasphere-assessment/result/{result_id}/delete", include_in_schema=False)
+def adhoc_delete(request: Request, stem: str, result_id: str, pack: str = Form(DEFAULT_PACK)):
+    """Elimina un assessment ad-hoc TEMPORAL del propio usuario. POST (nunca GET), mismo origen, sesión y dueño; un ``result_id`` ajeno o
+    inexistente es indistinguible (404). Con ``Accept: application/json`` (fetch de la herramienta) devuelve JSON; sin JS, redirige al módulo."""
+    _authorize(request, stem)
+    if not svc.delete_result(result_id, svc.owner_email(request)):
+        raise HTTPException(404, "El resultado no existe o venció (los assessments ad-hoc duran 24 horas).")
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"ok": True, "remaining": len(svc.list_results(svc.owner_email(request)))}, headers={"Cache-Control": "no-store"})
+    return RedirectResponse(f"/modules/{stem}?" + urlencode({"pack": resolve_pack(pack)}), status_code=303)
 
 
 @router.get("/modules/{stem}/datasphere-assessment/result/{result_id}/log", response_class=HTMLResponse, include_in_schema=False)

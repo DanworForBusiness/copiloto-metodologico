@@ -1198,6 +1198,8 @@ button.star-rating__star:focus-visible { outline: 2px solid var(--gold); outline
 /* Form envoltura de una acción destructiva dentro de una botonera flex: el
    <form> desaparece del layout y su botón participa directo de la fila. */
 .dw-inline-form { display: contents; }
+/* Acción que se alinea a la DERECHA dentro de una botonera `.admin-actions` (p. ej. "Eliminar" de Assessments recientes). */
+.admin-actions__end { margin-left: auto; }
 
 /* Badge de estado — misma forma que .catalog-card__verdict (borde +
    padding chico + mayúsculas), colores propios y restringidos a 3 (verde/

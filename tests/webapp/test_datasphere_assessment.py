@@ -1080,3 +1080,134 @@ def test_log_keeps_the_extractors_effective_scope_when_it_prints_it(owner, fake_
     r = _post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows"]})
     page = owner.get(_results_url(_rid(r), "/log") + "?pack=datasphere_core").text
     assert "Alcance efectivo:" in page and "Replication Flows        SI" in page
+
+
+# ── eliminar un assessment reciente ────────────────────────────────────────────
+def _delete(c, rid, accept="application/json", **extra):
+    return c.post(_results_url(rid, "/delete"), data={"pack": "datasphere_core"}, headers={**ORIGIN, "Accept": accept, **extra})
+
+
+def test_recent_item_renders_the_capital_humano_delete_pattern_with_accessible_label(owner, fake_export):
+    _post(owner)
+    html = _page(owner)
+    item = re.search(r"<div class=\"catalog-picker--secondary\" data-dsa-recent-item>.*?</form>", html, re.S).group(0)
+    # MISMO patrón/SVG que Capital Humano (human_capital/entrevistas.html): form de confirmación compartida + botón de acción destructiva
+    ch = (REPO / "webapp/templates/human_capital/entrevistas.html").read_text(encoding="utf-8")
+    ch_svg = re.search(r'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/>.*?</svg>', ch, re.S).group(0)
+    assert ch_svg in item
+    assert 'class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Eliminar assessment"' in item
+    assert "<p>Eliminar assessment</p>" in item and 'data-dw-confirm-form' in item
+    assert 'data-dw-confirm-title="¿Eliminar este assessment?"' in item
+    assert "Este resultado temporal y su detalle de ejecución dejarán de estar disponibles." in item and 'data-dw-confirm-ok="Eliminar"' in item
+    assert 'method="post"' in item and re.search(r'action="/modules/[^"]+/datasphere-assessment/result/[0-9a-f]{32}/delete"', item)
+    assert "style=" not in item and "🗑" not in item and ">X<" not in item                                   # sin emoji ni texto "X" ni estilos propios
+    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    assert css.count(".admin-actions__end") == 1                                                             # única extensión: alinear a la derecha
+
+
+def test_owner_deletes_own_result_and_it_cannot_be_opened_nor_its_log(owner, fake_export):
+    rid = _rid(_post(owner))
+    r = _delete(owner, rid)
+    assert r.status_code == 200 and r.json() == {"ok": True, "remaining": 0}
+    for suffix in ("", "/export.json", "/export.md", "/log"):
+        assert owner.get(_results_url(rid, suffix)).status_code == 404
+    assert not (fake_export["cache"] / "adhoc" / "results" / f"{rid}.json").exists()
+    assert "Assessments recientes" not in _page(owner)                                                        # último resultado => sección oculta
+
+
+def test_deleting_one_leaves_the_others_and_the_form_context_intact(owner, fake_export):
+    first = _rid(_post(owner))
+    second = _rid(_post(owner, dict(VALID, client="Acme2")))
+    assert _delete(owner, first).json() == {"ok": True, "remaining": 1}
+    html = _page(owner)
+    assert "Assessments recientes" in html and second in html and first not in html
+    assert 'value="Acme2"' in _input(html, "dsa-client") and 'value="ACME_SPACE"' in _input(html, "dsa-space")        # contexto del formulario intacto
+    assert "value=" not in _input(html, "dsa-client_secret") and SECRET not in html
+    assert owner.get(_results_url(second)).status_code == 200
+
+
+def test_another_owner_cannot_delete_a_result_by_guessing_its_id(two_owners, fake_export):
+    first, second = two_owners
+    rid = _rid(_post(first))
+    assert _delete(second, rid).status_code == 404
+    assert first.get(_results_url(rid)).status_code == 200 and (fake_export["cache"] / "adhoc" / "results" / f"{rid}.json").is_file()
+
+
+def test_delete_is_post_only_same_origin_session_and_owner_protected_and_unknown_ids_fail_safely(owner, fake_export, monkeypatch):
+    rid = _rid(_post(owner))
+    url = _results_url(rid, "/delete")
+    assert owner.get(url).status_code == 405                                                                 # nunca por GET
+    assert TestClient(main.app).post(url, data={"pack": "datasphere_core"}, headers=ORIGIN).status_code == 401
+    assert owner.post(url, data={"pack": "datasphere_core"}).status_code == 403                              # sin Origin
+    assert owner.post(url, data={"pack": "datasphere_core"}, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert owner.get(_results_url(rid)).status_code == 200                                                   # nada se borró en los intentos rechazados
+    for bad in ("0" * 32, "zzz", "../x"):
+        assert _delete(owner, bad).status_code in (404, 422)
+    monkeypatch.setattr(access, "APP_OWNER", "other@danwor.com")
+    assert _delete(owner, rid).status_code == 403
+
+
+def test_delete_without_js_redirects_back_to_the_module(owner, fake_export):
+    rid = _rid(_post(owner))
+    r = owner.post(_results_url(rid, "/delete"), data={"pack": "datasphere_core"}, headers=ORIGIN, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/modules/{STEM}?pack=datasphere_core"
+
+
+def test_delete_touches_nothing_outside_the_single_result_record(owner, fake_export):
+    rid = _rid(_post(owner))
+    cache = fake_export["cache"]
+    before = {p.relative_to(cache).as_posix() for p in cache.rglob("*") if p.is_file()}
+    _delete(owner, rid)
+    after = {p.relative_to(cache).as_posix() for p in cache.rglob("*") if p.is_file()}
+    assert before - after == {f"adhoc/results/{rid}.json"} and after <= before                              # solo desaparece ese registro (perfil + log)
+    assert not fake_export["canonical"].exists() or not any(fake_export["canonical"].rglob("*"))             # Catálogo / pool canónico intactos
+
+
+def test_js_wires_the_delete_through_the_shared_confirmation_and_removes_the_item():
+    js = (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")
+    assert "data-dsa-delete" in js and "event.defaultPrevented" in js and "item.remove()" in js and "section.remove()" in js
+    assert '"Accept": "application/json"' in js and not re.search(r"localStorage|sessionStorage|innerHTML", js)
+
+
+# ── Novedades: CTA directo a "Assessment de tu modelo" ─────────────────────────
+def test_whats_new_announces_the_assessment_with_a_cta_to_the_real_tool_target(owner):
+    from webapp.services import whats_new_service as wn
+    items = {e["ref"]: e for e in wn.entries("datasphere_core")}
+    e = items["datasphere-assessment"]
+    assert e["title"] == "Assessment de Modelado & Desarrollo desde SAP Datasphere" and e["categoria"] == "Modelado" and e["cta"] == "Probar assessment"
+    assert e["detail"].startswith("Evaluá un Modelo Analítico directamente desde SAP Datasphere.")
+    assert not re.search(r"scor|puntaje|madurez|CSN|run_export|result_id|directorio", e["detail"], re.I)       # producto, no implementación
+    assert e["link"] == f"/modules/{STEM}?pack=datasphere_core&tool=assessment"
+    newest = wn.entries("datasphere_core")[0]
+    assert newest["ref"] == "datasphere-assessment"                                                          # la más nueva (convención: fecha desc)
+    for old_ref in ("data-products-bdc", "d6147d5", "0722a31", "catalogos-danwor"):
+        assert old_ref in items                                                                              # las anteriores siguen intactas
+
+
+def test_whats_new_page_renders_the_card_and_the_cta_label(owner):
+    page = owner.get("/whats-new?pack=datasphere_core")
+    assert page.status_code == 200
+    assert "datasphere-assessment" in page.text and "Probar assessment" in page.text and "tool=assessment" in page.text      # datos de la tarjeta (Alpine)
+    assert "Assessment de Modelado" in page.text and "SAP Datasphere" in page.text
+    assert 'x-text="e.cta ? e.cta' in page.text and "Ir al contenido" in page.text                                           # etiqueta por defecto intacta para el resto
+
+
+def test_cta_lands_on_the_diagnostic_panel_with_the_assessment_tool_selected_and_the_form_reachable(owner):
+    r = owner.get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment")
+    assert r.status_code == 200
+    assert re.search(r"copilotLayout\('core', false, '', true\)", r.text)                                    # panel de diagnóstico abierto
+    assert "x-data=\"{ tool: 'assessment'," in r.text and 'id="dsa-form"' in r.text                          # herramienta preseleccionada y formulario presente
+    plain = owner.get(f"/modules/{STEM}?pack=datasphere_core")
+    assert re.search(r"copilotLayout\('core', false, '', false\)", plain.text) and "x-data=\"{ tool: ''," in plain.text      # navegación directa intacta
+    bogus = owner.get(f"/modules/{STEM}?pack=datasphere_core&tool=evil")
+    assert re.search(r"copilotLayout\('core', false, '', false\)", bogus.text) and "tool: 'evil'" not in bogus.text            # lista blanca
+    other = owner.get("/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&tool=assessment")
+    assert re.search(r"copilotLayout\('core', false, '', false\)", other.text)                               # solo módulos que ofrecen la herramienta
+
+
+def test_cta_does_not_bypass_authentication_or_owner_authorization(monkeypatch):
+    anon = TestClient(main.app).get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment", follow_redirects=False)
+    assert anon.status_code in (302, 303, 307) and "tool=assessment" not in anon.headers.get("location", "").replace("%3D", "=") or anon.status_code in (302, 303, 307)
+    monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
+    html = _client("someone@danwor.com").get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment").text
+    assert "Acceso restringido" in html and 'id="dsa-form"' not in html                                       # el CTA no da acceso a ejecutar

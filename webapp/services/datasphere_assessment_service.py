@@ -382,6 +382,17 @@ def load_result(result_id: str) -> dict | None:
         return None
 
 
+def delete_result(result_id: str, owner: str) -> bool:
+    """Elimina SOLO el resultado ad-hoc ``result_id`` (perfil + log + metadatos viven en ese único registro) si pertenece a ``owner``.
+    No toca el contexto del formulario, otros resultados, el Catálogo, Spaces ni ningún pool. False si no existe/venció/es de otro usuario."""
+    record = load_result(result_id)
+    if record is None or str(record.get("owner") or "") != (owner or "").strip().lower():
+        return False
+    _work, results = _dirs()
+    (results / f"{result_id}.json").unlink(missing_ok=True)
+    return True
+
+
 def result_status(record: dict) -> asvc.AssessmentStatus:
     """El estado CURRENT del resultado (misma estructura que usa el informe del Catálogo, sin flujo ni caché del Catálogo)."""
     created = datetime.fromtimestamp(float(record["created_at"]), tz=timezone.utc).isoformat(timespec="seconds")

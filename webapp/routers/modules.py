@@ -74,7 +74,7 @@ _MODULE_TABS = {"section", "tree", "catalogo", "assistant"}
 
 
 @router.get("/modules/{stem}", response_class=HTMLResponse)
-def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), tab: str = ""):
+def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), tab: str = "", tool: str = ""):
     diagnostic = access.is_diagnostic(request)
     # Fuera de modo diagnóstico, el marco es siempre el productivo (Datasphere).
     selected = resolve_pack(pack) if diagnostic else DEFAULT_PACK
@@ -106,6 +106,11 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             initial_tab = ""
     elif initial_tab == "section" and access.is_readonly(request):
         initial_tab = ""
+    # Herramienta inicial del panel "Herramientas de diagnóstico" vía URL (?tool=assessment): abre el panel ya posicionado en esa herramienta
+    # (mismo espíritu que ?tab=). Lista blanca; solo aplica a módulos que la ofrecen. NO salta ninguna regla de acceso (el formulario sigue
+    # mostrando "Acceso restringido" a quien no es dueño).
+    from webapp.services import datasphere_assessment_service as _dsa
+    initial_tool = "assessment" if (tool or "").strip().lower() == "assessment" and _dsa.tool_enabled(document.summary.stem) else ""
     # `module_viewed` (nombre canónico transversal — ver activity_context /
     # ACTIVITY corrective): reemplaza al histórico `module_selected`, mismo
     # disparador (una vista de módulo). MODULE IDENTIFIER CONVENTION V2 —
@@ -236,6 +241,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             "catalog_security_families": catalog_reads._catalog_security_families(),
             "catalog_data_products": catalog_reads._catalog_data_products_list(),
             "initial_tab": initial_tab,
+            "initial_tool": initial_tool,
             "whatsnew_unseen": whatsnew.is_unseen(request, selected),
         },
     )

@@ -85,11 +85,21 @@
   <div class="catalog-picker--secondary" data-dsa-recent>
     <span class="admin-result-title">Assessments recientes</span>
     {% for r in dsa.recent %}
-    <div class="catalog-picker--secondary">
+    <div class="catalog-picker--secondary" data-dsa-recent-item>
       <p class="admin-help"><strong>{{ r.root_object }}</strong><br>{% if r.client %}{{ r.client }} · {% endif %}Generado {{ r.generated }}</p>
       <div class="admin-actions">
         <a class="btn-secondary" href="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}?pack={{ pack | urlencode }}">Abrir assessment</a>
         {% if r.has_log %}<a class="btn-secondary" href="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}/log?pack={{ pack | urlencode }}">Ver ejecución</a>{% endif %}
+        {# Eliminar: MISMO patrón que Capital Humano (form[data-dw-confirm-form] + `.table-action-btn--danger` + SVG de papelera + tooltip). #}
+        <form method="post" action="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}/delete" class="admin-actions__end"
+              data-dsa-delete data-dw-confirm-form data-dw-confirm-title="¿Eliminar este assessment?"
+              data-dw-confirm-message="Este resultado temporal y su detalle de ejecución dejarán de estar disponibles." data-dw-confirm-ok="Eliminar">
+          <input type="hidden" name="pack" value="{{ pack }}">
+          <button type="submit" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Eliminar assessment">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            <span class="chart-tooltip" aria-hidden="true"><p>Eliminar assessment</p></span>
+          </button>
+        </form>
       </div>
     </div>
     {% endfor %}

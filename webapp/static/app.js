@@ -1,11 +1,11 @@
-function copilotLayout(activeGroup = "core", readonly = false, initialTab = "") {
+function copilotLayout(activeGroup = "core", readonly = false, initialTab = "", initialDiagnostic = false) {
   // Retrocompat: antes recibía un booleano isAppendix.
   if (activeGroup === true) activeGroup = "appendix";
   else if (activeGroup === false) activeGroup = "core";
   return {
     navOpen: false,
     panelOpen: true,
-    diagnosticOpen: false,
+    diagnosticOpen: !!initialDiagnostic,      // ?tool=… (p. ej. link de Novedades) abre "Herramientas de diagnóstico" ya posicionado
     gestionOpen: false,
     // En perfil de solo lectura la pestaña Sección (análisis IA) se oculta; arrancamos
     // en Asistente (router determinista que sirve contenido curado; la salida LLM se

@@ -60,7 +60,7 @@
                 <p class="whatsnew-item__detail" x-show="e.detail" x-text="e.detail"></p>
                 <a class="whatsnew-item__link" x-show="e.link" :href="e.link"
                    :target="e.link && e.link.indexOf('http') === 0 ? '_blank' : '_self'"
-                   rel="noopener">Ir al contenido →</a>
+                   rel="noopener" x-text="e.cta ? e.cta + ' →' : 'Ir al contenido →'">Ir al contenido →</a>
                 <p class="whatsnew-item__meta">
                   <span class="whatsnew-item__badge" x-text="e.ref"></span>
                   <span class="whatsnew-item__badge" x-text="e.categoria"></span>

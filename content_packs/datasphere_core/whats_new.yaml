@@ -17,6 +17,7 @@
 #   categoria: para el filtro (p. ej. Arquitectura, Conectividad, Seguridad, Integración,
 #              Modelado, Reporting, Gobernanza, General). Libre; el filtro se arma solo.
 #   detalle:   resumen breve (subtítulo `>`). Opcional.
+#   cta:       texto del acceso directo (opcional; por defecto "Ir al contenido").
 #   link:      acceso directo al material/contenido (opcional). Interno (/modules/...)
 #              abre en la misma vista; externo (http...) en pestaña nueva. Se puede
 #              sumar `&tab=catalogo` (o tree/section/assistant) para abrir el módulo
@@ -24,6 +25,14 @@
 #
 # `ref` tiene que ser único y estable: es lo que la cookie `dw-whatsnew-seen`
 # recuerda como "último anuncio visto". Cambiarlo re-dispara el banner.
+
+- ref: datasphere-assessment
+  fecha: "2026-10-03"
+  titulo: "Assessment de Modelado & Desarrollo desde SAP Datasphere"
+  categoria: "Modelado"
+  detalle: "Evaluá un Modelo Analítico directamente desde SAP Datasphere. El Copiloto reconstruye su evidencia y linaje, genera un assessment explicable y permite revisar cobertura, confianza, observaciones y puntos que requieren revisión."
+  cta: "Probar assessment"
+  link: "/modules/04_Modelado_y_Desarrollo?pack=datasphere_core&tool=assessment"
 
 - ref: data-products-bdc
   fecha: "2026-07-31"
