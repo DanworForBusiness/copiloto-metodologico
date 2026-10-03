@@ -71,6 +71,41 @@
 {% macro platform_topbar(current_workspace, available_workspaces, identity_href, identity_html, mobile_menu_label, pager_previous=None, pager_next=None) %}
 <header class="topbar">
   <a href="{{ identity_href }}" class="animated-brand" aria-label="Danwor · Inicio">{{ identity_html | safe }}</a>
+  {# Ajuste por CONTENIDO del banner animado: el documento del iframe es de ancho fijo y
+     `.animated-brand` recorta (overflow hidden), así que un título/subtítulo más ancho que el
+     documento — o un contenedor que se achica por flex-shrink — se cortaba ("Metodológico" →
+     "Método"). Se mide lo que realmente ocupa el texto y se publica `--brand-fit` (escala) y, si
+     hace falta, un ancho de documento mayor. Sin JS rige el CSS base de `layout.css`. #}
+  <script>
+  (function () {
+    var brand = document.currentScript.previousElementSibling;
+    var frame = brand && brand.querySelector("iframe");
+    if (!frame) return;
+    function needed(d) {
+      var t = d.getElementById("titleLine"), s = d.getElementById("subtitleLine"), p = d.getElementById("panelRight");
+      if (!t || !s || !p) return 0;
+      return Math.ceil(p.getBoundingClientRect().left + Math.max(t.scrollWidth, s.scrollWidth) + 24);
+    }
+    function fit() {
+      var d; try { d = frame.contentDocument; } catch (e) { return; }
+      if (!d || !d.getElementById("titleLine")) return;
+      frame.style.width = "";
+      var css = frame.offsetWidth, need = needed(d), doc = Math.max(css, need);
+      if (need > css) frame.style.width = need + "px";
+      var base = parseFloat(getComputedStyle(brand).getPropertyValue("--brand-scale")) || 0.64;
+      brand.style.setProperty("--brand-fit", Math.min(base, brand.clientWidth / doc).toFixed(4));
+    }
+    function onLoad() {
+      fit();
+      var d = frame.contentDocument;
+      if (d && d.fonts && d.fonts.ready) d.fonts.ready.then(fit);
+      setTimeout(fit, 700);
+    }
+    frame.addEventListener("load", onLoad);
+    if (frame.contentDocument && frame.contentDocument.readyState === "complete") onLoad();
+    if (window.ResizeObserver) new ResizeObserver(fit).observe(brand); else window.addEventListener("resize", fit);
+  })();
+  </script>
   <div class="header-tools">
     <div class="module-pager" aria-label="Navegación">
       {% if pager_previous %}<a href="{{ pager_previous.href }}" aria-label="{{ pager_previous.label }}" title="{{ pager_previous.label }}">&larr;</a>{% else %}<span aria-hidden="true">&larr;</span>{% endif %}
