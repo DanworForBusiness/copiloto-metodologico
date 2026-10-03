@@ -90,11 +90,13 @@
 {# Estado vacío estándar del Hub (`.dashboard-empty`): "No detectado" = se evaluó y no apareció el patrón (≠ No disponible ≠ No aplica). #}
 {% macro not_detected(text) %}<div class="dashboard-empty"><span class="dashboard-empty__label">No detectado</span><p>{{ text }}</p></div>{% endmacro %}
 
-<a class="catalog-back" href="#" role="button" hx-get="{{ v.flow_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>
+{% if v.adhoc %}{# assessment ad-hoc (página propia): "Volver" regresa a la herramienta, sin HTMX ni flujo del Catálogo #}
+<a class="catalog-back" href="{{ v.flow_url }}">← Volver</a>
+{% else %}<a class="catalog-back" href="#" role="button" hx-get="{{ v.flow_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>{% endif %}
 <section class="module-hero">
   <p class="eyebrow">Assessment de {{ v.module_label }} · {{ v.client }}</p>
   {# Mismo formato `Descripción · NOMBRE_TÉCNICO` (negro · dorado) que el heading del modelo en el detalle del flujo. #}
-  <h1 class="asr-title">{% if v.title_id %}<span class="tone-black">{{ v.title_desc }} · </span><span class="tone-gold">{{ v.title_id }}</span>{% else %}{{ v.dominio }}{% endif %}</h1>
+  <h1 class="asr-title">{% if v.title_id and v.title_desc %}<span class="tone-black">{{ v.title_desc }} · </span><span class="tone-gold">{{ v.title_id }}</span>{% elif v.title_id %}<span class="tone-gold">{{ v.title_id }}</span>{% else %}{{ v.dominio }}{% endif %}</h1>
   <div class="hero-meta">
     <span class="catalog-verdict-line">
       <span class="catalog-meta-dot{% if v.state_tone %} catalog-meta-dot--{{ v.state_tone }}{% endif %}" aria-hidden="true"></span>

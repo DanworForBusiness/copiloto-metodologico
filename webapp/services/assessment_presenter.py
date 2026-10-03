@@ -17,6 +17,7 @@ marcado como seguro.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -136,7 +137,17 @@ def header_for(entry: Any, pack: str) -> dict | None:
 
 
 # ═══════════════════════════ informe ═══════════════════════════
+@dataclass(frozen=True)
+class AdhocReport:
+    """Contexto de navegación de un informe AD-HOC (sin flujo del Catálogo): a dónde vuelve y dónde se exporta. Sin linaje ni regenerar."""
+    back_url: str
+    json_url: str
+    md_url: str
+
+
 def _focus_link(entry: Any, pack: str, names: list[str]) -> str | None:
+    if entry is None:                                   # informe ad-hoc: sin flujo del Catálogo → sin "Ver en linaje"
+        return None
     names = [n for n in dict.fromkeys(names) if n and P.is_artifact_name(n)]
     return flow_url(entry, pack, names) if names else None
 
@@ -292,22 +303,25 @@ def _context_questions(ctx: dict, groups_by_id: dict[str, dict]) -> dict:
             "context_backed_n": sum(len(b["rows"]) for b in backed), "context_independent_n": len(independent)}
 
 
-def report_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
-    """View-model del informe. ``status.profile`` es el JSON canónico validado; nada se deriva de otra fuente."""
+def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: AdhocReport | None = None) -> dict:
+    """View-model del informe. ``status.profile`` es el JSON canónico validado; nada se deriva de otra fuente.
+    ``adhoc`` (opcional) reemplaza el contexto del Catálogo (flujo/URLs/linaje) por el de un assessment ad-hoc; el contenido es el mismo."""
     doc = status.profile
+    link_entry = None if adhoc else entry
     view: dict[str, Any] = {
         "state": status.state, "state_label": STATE_LABELS[status.state], "state_tone": STATE_TONES.get(status.state, ""), "state_note": STATE_NOTES.get(status.state),
         "reason": status.reason, "error_code": status.error_code,
-        "client": status.client, "entry_id": entry.entry_id, "dominio": entry.dominio,
+        "client": status.client, "entry_id": status.entry_id if adhoc else entry.entry_id, "dominio": "" if adhoc else entry.dominio,
         "terminal_am": status.terminal_am, "title_desc": None, "title_id": None, "generated_at": status.generated_at,
         "action": ({"key": REPORT_ACTIONS[status.state][0], "label": REPORT_ACTIONS[status.state][1]} if status.state in REPORT_ACTIONS else None),
         "previous_profile_retained": status.previous_profile_retained,
-        "report_url": assessment_url(entry, pack), "flow_url": flow_url(entry, pack),
-        "json_url": "/catalog/flow/assessment.json?" + urlencode({"flow": entry.entry_id}),
-        "md_url": "/catalog/flow/assessment.md?" + urlencode({"flow": entry.entry_id}),
+        "report_url": None if adhoc else assessment_url(entry, pack), "flow_url": adhoc.back_url if adhoc else flow_url(entry, pack),
+        "json_url": adhoc.json_url if adhoc else "/catalog/flow/assessment.json?" + urlencode({"flow": entry.entry_id}),
+        "md_url": adhoc.md_url if adhoc else "/catalog/flow/assessment.md?" + urlencode({"flow": entry.entry_id}),
         "has_profile": doc is not None,
+        "adhoc": adhoc is not None,
     }
-    view["title_desc"], view["title_id"] = _report_title(entry, status.terminal_am)
+    view["title_desc"], view["title_id"] = (None, status.terminal_am) if adhoc else _report_title(entry, status.terminal_am)
     view["module_label"] = MODULE_LABEL
     if doc is None:
         return view
@@ -347,9 +361,9 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
             {"label": "Revisiones requeridas", "value": sum(g["occurrence_count"] for g in doc["review_required"])},
             {"label": "Contexto abierto", "value": ctx["open_questions"]},
         ],
-        "observations": [_group_view(g, entry, pack) for g in doc["observations"]],
-        "review_required": [_group_view(g, entry, pack) for g in doc["review_required"]],
-        "descriptive": [_group_view(g, entry, pack) for g in doc["descriptive_signals"]],
+        "observations": [_group_view(g, link_entry, pack) for g in doc["observations"]],
+        "review_required": [_group_view(g, link_entry, pack) for g in doc["review_required"]],
+        "descriptive": [_group_view(g, link_entry, pack) for g in doc["descriptive_signals"]],
         "limitations": [{"title": s["title"], "surface_id": s["surface_id"], "area": P.area_title(s["area"]),
                          "state": P.assessability_text(s["assessability"]), "reason": s["reason"]["reason_summary"] if s["reason"] else "",
                          "reason_code": s["reason"]["reason_code"] if s["reason"] else "",

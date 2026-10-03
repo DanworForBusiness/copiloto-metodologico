@@ -1,12 +1,14 @@
-// "Assessment de tu modelo" — ejecución de la exportación desde SAP Datasphere con avance LOCAL en tiempo real.
+// "Assessment de tu modelo" — ejecución desde SAP Datasphere con avance LOCAL en tiempo real y apertura automática del informe.
 //
-// Por qué NO usa HTMX: la extracción es una ejecución técnica determinista, no una respuesta de IA. Tiene su propio panel y su
-// propio estado y no comparte ningún indicador ni evento global con las demás interacciones del panel lateral.
+// Por qué NO usa HTMX: la ejecución es técnica y determinista, no una respuesta de IA. Tiene su propio panel y su propio estado y no
+// comparte ningún indicador ni evento global con las demás interacciones del panel lateral.
 //
 // Contrato (ver webapp/routers/datasphere_assessment.py): POST (cuerpo urlencoded, jamás query string) → respuesta NDJSON:
-//   {"t":"start"} · {"t":"line","v":"<línea del extractor>"}* · {"t":"done","state","error_code","message","errors","rows"}
+//   {"t":"start"} · {"t":"line","v":"<línea del extractor>"}* · {"t":"phase","v":"<hito>"}* ·
+//   {"t":"done","state","error_code","message","title","errors","result_url"}
 // Todo texto externo entra con textContent (nunca como HTML). El navegador no interpreta ni re-diagnostica: muestra lo que el
 // backend emite. El Client Secret se lee del formulario, se limpia del campo ANTES de enviar y no se guarda en ningún lado.
+// Éxito = el backend entrega `result_url` y el navegador abre el informe automáticamente.
 (function () {
   "use strict";
 
@@ -20,17 +22,11 @@
     const status = el(panel, "[data-dsa-status]");
     const submit = el(form, "[data-dsa-submit]");
     const log = el(panel, "[data-dsa-log]");
-    const summary = el(panel, "[data-dsa-summary]");
     const detail = el(panel, "[data-dsa-detail]");
 
     // Estado inicial limpio de la corrida
     form.querySelectorAll("[data-dsa-error]").forEach((p) => { p.textContent = ""; p.hidden = true; });
-    setHidden(el(panel, "[data-dsa-success]"), true);
     setHidden(el(panel, "[data-dsa-failed]"), true);
-    setHidden(el(panel, "[data-dsa-refresh]"), true);
-    setHidden(summary, true);
-    summary.querySelector("tbody").replaceChildren();
-    el(panel, "#dsa-regen").replaceChildren();
     log.textContent = "";
     detail.open = true;
 
@@ -68,13 +64,20 @@
           if (event.t === "line") {
             log.textContent += event.v + "\n";
             log.scrollTop = log.scrollHeight;
+          } else if (event.t === "phase") {
+            status.textContent = event.v;                      // hito veraz emitido por el backend (sin porcentajes)
           } else if (event.t === "done") {
             done = event;
           }
         }
       }
     } catch (error) {
-      done = { state: "FAILED", error_code: "CONNECTION_INTERRUPTED", message: "Se interrumpió la conexión con el servidor. Revisá el detalle técnico e intentá nuevamente.", errors: {}, rows: [] };
+      done = { state: "FAILED", error_code: "CONNECTION_INTERRUPTED", title: "No se pudo completar la extracción", message: "Se interrumpió la conexión con el servidor. Revisá el detalle técnico e intentá nuevamente.", errors: {} };
+    }
+
+    if (done && done.state === "SUCCESS" && done.result_url) {
+      window.location.assign(done.result_url);                // el informe se abre solo; el botón queda deshabilitado hasta salir
+      return;
     }
 
     submit.disabled = false;
@@ -82,24 +85,14 @@
     status.textContent = "";
     if (!done) return;
 
-    if (done.state === "SUCCESS") {
-      setHidden(el(panel, "[data-dsa-success]"), false);
-      const tbody = summary.querySelector("tbody");
-      done.rows.forEach((row) => {
-        const tr = document.createElement("tr");
-        row.forEach((cell) => { const td = document.createElement("td"); td.textContent = cell; tr.appendChild(td); });
-        tbody.appendChild(tr);
-      });
-      setHidden(summary, false);
-      setHidden(el(panel, "[data-dsa-refresh]"), false);
-      detail.open = false;
-    } else if (done.state === "INVALID") {
+    if (done.state === "INVALID") {
       Object.entries(done.errors || {}).forEach(([field, message]) => {
         const target = form.querySelector('[data-dsa-error="' + field + '"]');
         if (target) { target.textContent = message; target.hidden = false; }
       });
       setHidden(progress, true);
     } else {
+      el(panel, "[data-dsa-title]").textContent = done.title || "";
       el(panel, "[data-dsa-message]").textContent = done.message || "";
       el(panel, "[data-dsa-code]").textContent = done.error_code || "";
       setHidden(el(panel, "[data-dsa-failed]"), false);
