@@ -21,7 +21,7 @@ from . import render_md as _md
 __all__ = [
     "area_title", "macro_dimension_title", "assessability_text", "assessability_plural_text", "execution_state_text",
     "confidence_level_text", "finding_kind_text", "rule_result_text", "unit_label", "is_artifact_name",
-    "percent_text", "plural", "value_text", "occurrence_text",
+    "percent_text", "plural", "value_text", "occurrence_text", "row_key_text",
 ]
 
 
@@ -99,3 +99,8 @@ def occurrence_text(group_id: str, occurrence: dict, *, plain: bool = False) -> 
     que usa el Markdown. ``plain=True`` elimina los delimitadores de código inline (texto plano para escapar en HTML)."""
     line = _md._occurrence_line(group_id, occurrence)
     return line.replace("`", "") if plain else line
+
+
+def row_key_text(key: str) -> str:
+    """Texto en español de una clave de fila de un hecho descriptivo (``compliant`` → "cumplen"); desconocida → con espacios."""
+    return _md._ROW_KEY_TEXT.get(key, key.replace("_", " "))

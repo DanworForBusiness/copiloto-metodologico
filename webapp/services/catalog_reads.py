@@ -19,6 +19,38 @@ import os
 from functools import lru_cache
 
 
+def catalog_clean_label(raw, fallback: str) -> str:
+    """Descarta un label que en realidad es un placeholder i18n sin resolver (p. ej. '{i18n>Remote.X@ENDUSERTEXT.LABEL}')
+    y cae al fallback (nombre técnico). Cubre .md viejos sin regenerar."""
+    s = str(raw or "").strip()
+    if not s:
+        return fallback
+    low = s.lower()
+    if ("{i18n" in low or "@enduserext.label" in low
+            or (s.startswith("{") and s.endswith("}") and "@" in s)):
+        return fallback
+    return s
+
+
+def catalog_display_title(name: str, label: str) -> str:
+    """Parte "descripción" del título `Descripción · NOMBRE` de un artefacto: la descripción, o el nombre técnico si no hay."""
+    return label if (label and label != name) else name
+
+
+def artifact_title(entry, name: str) -> tuple[str, str]:
+    """(descripción, nombre técnico) de un artefacto del flujo, leída del MISMO `auto.label` de su vista que usa el detalle del
+    flujo para su heading. Fail-soft: sin vista o sin label devuelve el nombre técnico en ambas partes."""
+    try:
+        from pathlib import Path
+        from webapp.services.content_service import split_front_matter
+        vpath = Path(entry.path).parent / "vistas" / f"{name}.md"
+        meta, _body = split_front_matter(vpath.read_text(encoding="utf-8"))
+        label = catalog_clean_label(((meta or {}).get("auto") or {}).get("label"), name)
+    except Exception:                                   # noqa: BLE001 — el título nunca debe romper el informe
+        label = name
+    return catalog_display_title(name, label), name
+
+
 @lru_cache(maxsize=1)
 def _catalog_entries():
     """Carga el catálogo local (catalog_local) vía el servicio del piloto.

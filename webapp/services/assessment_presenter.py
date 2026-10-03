@@ -2,7 +2,7 @@
 assessment_presenter.py — vista estructurada (view-model) del assessment para Jinja.
 
 Toma el JSON CANÓNICO del assessment (``modeling_assessment.assessment/v1``) y arma los datos que
-consume ``partials/catalog_assessment_report.html`` / ``catalog_assessment_tile.html``. NO emite HTML,
+consume ``partials/catalog_assessment_report.html`` y la cabecera del detalle del flujo (``catalog_flow_content.html``). NO emite HTML,
 NO relee ni reinterpreta hechos, NO decide reglas: solo ordena el documento en secciones y traduce
 ENUMS a español con la API PÚBLICA de presentación del paquete (``modeling_assessment.presentation``), la
 misma fuente de vocabulario y formato que usa el Markdown, de modo que UI y exportación no puedan divergir.
@@ -16,12 +16,14 @@ marcado como seguro.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 from urllib.parse import quote, urlencode
 
 from tools.catalog.modeling_assessment import presentation as P
 
 from webapp.services import assessment_service as svc
+from webapp.services import catalog_reads
 
 # ── etiquetas de ESTADO DE VIGENCIA (producto del Catálogo, no del motor) ──
 STATE_LABELS = {
@@ -29,17 +31,22 @@ STATE_LABELS = {
     svc.STALE: "Assessment desactualizado",
     svc.NOT_YET_ASSESSED: "Sin assessment",
     svc.NOT_APPLICABLE: "No aplica",
-    svc.FAILED: "No se pudo generar",
+    svc.FAILED: "Assessment no disponible",
     svc.INCOMPATIBLE_SCHEMA: "Informe no compatible",
 }
 STATE_NOTES = {
     svc.STALE: "El modelo cambió desde la última evaluación.",
 }
-# Acción de la TARJETA (tile) por estado: (clave, método, rótulo). En STALE la tarjeta ofrece "Ver informe";
-# la acción de regenerar vive dentro del informe (REPORT_ACTIONS).
+# Tono del badge de vigencia: reusa las variantes del badge del veredicto legacy (`catalog-card__verdict--*`) para no
+# inventar un segundo lenguaje visual. Sin tono = badge neutro (sin assessment / no aplica).
+STATE_TONES = {
+    svc.CURRENT: "plena", svc.STALE: "buena", svc.FAILED: "parcial", svc.INCOMPATIBLE_SCHEMA: "parcial",
+}
+# Acción de la CABECERA del detalle del flujo por estado: (clave, método, rótulo). En STALE ofrece "Ver informe";
+# la acción de regenerar vive dentro del informe (REPORT_ACTIONS). NOT_APPLICABLE no ofrece ninguna.
 ACTIONS = {
-    svc.CURRENT: ("view", "get", "Ver informe"),
-    svc.STALE: ("view", "get", "Ver informe"),
+    svc.CURRENT: ("view", "get", "Ver Assessment"),
+    svc.STALE: ("view", "get", "Ver Assessment"),
     svc.NOT_YET_ASSESSED: ("generate", "post", "Generar informe"),
     svc.FAILED: ("retry", "post", "Reintentar"),
     svc.INCOMPATIBLE_SCHEMA: ("regenerate", "post", "Regenerar assessment"),
@@ -52,6 +59,13 @@ REPORT_ACTIONS = {
     svc.INCOMPATIBLE_SCHEMA: ("regenerate", "Regenerar assessment"),
 }
 MAX_FOCUS_NAMES = 200
+# Vertical del Hub al que pertenece el Catálogo de modelado (eyebrow del informe).
+MODULE_LABEL = "Modelado & Desarrollo"
+# Títulos de las secciones de primer nivel del informe (macro-dimensiones). Misma jerarquía que los `## …` del Markdown gobernado
+# (Arquitectura / Modelado, Convención de nombres, Fuente / Extracción), con el rotulado de la UI.
+SECTION_TITLES = {"ARCHITECTURE_MODELING": "Arquitectura & Modelado", "NAMING": "Convención de nombres", "SOURCE_EXTRACTION": "Fuente & Extracción"}
+# El informe ya establece qué es el objeto: el prefijo genérico del label de la vista se omite SOLO en el título del informe.
+_TITLE_PREFIX = re.compile(r"^\s*Modelo anal[ií]tico\s*[-–—:]\s*", re.I)
 
 
 def _plural(n: int, singular: str, plural: str | None = None) -> str:
@@ -83,19 +97,21 @@ def parse_focus(raw: str) -> list[str]:
     return out
 
 
-# ═══════════════════════════ tile ═══════════════════════════
-def tile_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
+# ═══════════════════════════ cabecera del detalle del flujo ═══════════════════════════
+def header_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
+    """Estado + métricas mínimas + acción para la cabecera del detalle. Las métricas salen de ``status.summary``,
+    que lee el MISMO perfil canónico validado que el informe y los exports (sin recalcular nada)."""
     action = ACTIONS.get(status.state)
     summary = status.summary
     view: dict[str, Any] = {
         "state": status.state,
         "label": STATE_LABELS[status.state],
+        "tone": STATE_TONES.get(status.state, ""),
         "reason": status.reason if status.state in (svc.NOT_APPLICABLE, svc.FAILED, svc.INCOMPATIBLE_SCHEMA) else None,
         "url": assessment_url(entry, pack),
-        "tile_url": assessment_url(entry, pack, frag="tile"),
         "entry_id": entry.entry_id,
         "action": None,
-        "coverage": None, "confidence": None, "reviews": None, "reviews_title": None, "observations": None,
+        "coverage": None, "confidence": None, "reviews": None, "reviews_title": None,
     }
     if action:
         view["action"] = {"key": action[0], "method": action[1], "label": action[2]}
@@ -106,20 +122,17 @@ def tile_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
         view["reviews"] = _plural(n, "revisión", "revisiones") if n else "Sin revisiones"
         view["reviews_title"] = (f"{_plural(n, 'ocurrencia')} en {_plural(summary['review_groups'], 'grupo')} de revisión requerida"
                                  if n else "Ningún grupo de revisión requerida")
-        if summary["observation_occurrences"]:
-            view["observations"] = _plural(summary["observation_occurrences"], "observación", "observaciones")
     return view
 
 
-def tiles_for(entries: list[Any], pack: str) -> dict[str, dict]:
-    """``entry_id`` → vista del tile. Fail-soft: si el assessment falla, el Catálogo sigue mostrando sus tiles
-    (sin el bloque); jamás rompe el listado legacy."""
+def header_for(entry: Any, pack: str) -> dict | None:
+    """Vista de la cabecera del flujo. Fail-soft: si el assessment falla, el detalle del Catálogo se abre igual
+    (sin la línea de assessment); jamás rompe el detalle legacy. Nunca genera ni escribe la caché."""
     try:
-        statuses = svc.statuses_for_entries(entries)
-    except Exception:                                   # noqa: BLE001 — el listado del Catálogo no debe depender del assessment
-        svc.log.exception("assessment: no se pudo calcular el estado de los tiles")
-        return {}
-    return {e.entry_id: tile_view(statuses[e.entry_id], e, pack) for e in entries if e.entry_id in statuses}
+        return header_view(svc.status_for_entry(entry), entry, pack)
+    except Exception:                                   # noqa: BLE001 — el detalle del Catálogo no debe depender del assessment
+        svc.log.exception("assessment: no se pudo calcular el estado de la cabecera")
+        return None
 
 
 # ═══════════════════════════ informe ═══════════════════════════
@@ -154,19 +167,105 @@ def _group_view(g: dict, entry: Any, pack: str) -> dict:
     }
 
 
+def _report_title(entry: Any, am: str | None) -> tuple[str | None, str | None]:
+    """(descripción, nombre técnico) del título del informe: misma lógica compartida que el heading del detalle del flujo,
+    sin el prefijo genérico "Modelo analítico - ". Sin etiqueta confiable la descripción es el nombre técnico."""
+    if not am:
+        return None, None
+    desc, name = catalog_reads.artifact_title(entry, am)
+    stripped = _TITLE_PREFIX.sub("", desc).strip()
+    return (stripped or desc), name
+
+
+def _column_title(key: str) -> str:
+    return {"name": "Nombre", "count": "Cantidad"}.get(key) or P.row_key_text(key).capitalize()
+
+
+# Jerarquía de lectura de los hechos descriptivos de cada área (SOLO presentación; no se quita ni se recalcula ningún hecho):
+#   `headline` = pocos hechos de síntesis (máx. 3–4) que orientan en un vistazo → tiles KPI compartidos;
+#   `groups`   = evidencia de apoyo agrupada por tema → tablas compactas. Los ids son los de los hechos canónicos del JSON.
+# Un hecho no listado cae en "Otros hechos" (nunca se pierde); un área sin layout usa sus 3 primeros números como titulares.
+FACT_LAYOUT: dict[str, dict] = {
+    "ANALYTIC_MODEL": {"headline": ["fields", "measures", "associations"],
+                       "groups": [("Composición del modelo", ["derived_fields", "keys", "labelled_fields", "numeric_non_measure_attributes", "numeric_non_measure_fields"]),
+                                  ("Cierre semántico", ["semantic_closure"]),
+                                  ("Linaje y asociaciones", ["direct_lineage_providers", "association_targets"])]},
+    "PROPAGATION": {"headline": ["lineage_steps_evaluated", "artifacts_with_derived_fields", "rederived_field_occurrences"], "groups": []},
+    "HARMONIZATION": {"headline": ["declared_dimensions", "composition_artifacts", "cross_model_reuse_artifacts"],
+                      "groups": [("Reutilización y asociaciones", ["dimensions_with_own_associations", "most_reused_across_models"])]},
+    "INGESTION": {"headline": ["boundary_artifacts", "duplicated_remote_entities_in_closure"], "groups": [("Artefactos de frontera", ["boundary_artifacts"])]},
+    "NAMING": {"headline": ["section_28_applicable", "section_28_compliant", "section_28_non_compliant"],
+               "groups": [("Familias de incumplimiento", ["violation_families"]),
+                          ("Procedencia del nombre", ["by_provenance"]),
+                          ("Vocabulario de campos", ["field_occurrences", "fields_with_label", "fields_with_label_equal_to_name", "shared_label_groups", "shared_label_numbered_series"]),
+                          ("Anclas del nombre en el modelo terminal", ["terminal_model_name_anchors", "terminal_model_remote_source_anchor"])]},
+    "SOURCE_EXTRACTION": {"headline": ["remote_artifacts", "connections", "sources_with_filter"], "groups": [("Por estado de la fuente", ["by_source_state"])]},
+}
+
+
+def _is_number(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _fact_into(group: dict, h: dict) -> None:
+    """Coloca un hecho en su grupo de evidencia según el TIPO de valor: escalares y listas de nombres → tabla de propiedades
+    (Hecho | Valor); composiciones, distribuciones y mapas → tabla propia."""
+    v, label, bd = h["value"], h["label"], h.get("breakdown") or []
+    if _is_number(v) and bd:
+        group["tables"].append({"title": label, "columns": ["Concepto", "Cantidad"], "rows": [["Total", v]] + [[b["name"], b["count"]] for b in bd]})
+    elif _is_number(v):
+        group["properties"].append({"label": label, "value": v, "names": None})
+    elif isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
+        keys = sorted(dict.fromkeys(k for r in v for k in r), key=lambda k: k != "name")
+        group["tables"].append({"title": label, "columns": [_column_title(k) for k in keys], "rows": [[r.get(k, "") for k in keys] for r in v]})
+    elif isinstance(v, dict):
+        group["tables"].append({"title": label, "columns": ["Concepto", "Valor"], "rows": [[P.row_key_text(k).capitalize(), x] for k, x in v.items()]})
+    elif isinstance(v, list):
+        group["properties"].append({"label": label, "value": None, "names": [str(x) for x in v]})
+    else:
+        group["properties"].append({"label": label, "value": None, "names": [P.value_text(v)]})
+
+
+def _facts_view(area_id: str, highlights: list[dict]) -> dict:
+    """Hechos descriptivos de un área en dos niveles de lectura: ``headline`` (tiles KPI de síntesis) y ``groups`` (evidencia de apoyo)."""
+    by_id = {h["id"]: h for h in highlights}
+    layout = FACT_LAYOUT.get(area_id)
+    if layout is None:
+        numbers = [h for h in highlights if _is_number(h["value"]) and not h.get("breakdown")]
+        layout = {"headline": [h["id"] for h in numbers[:3]], "groups": [("Hechos de apoyo", [h["id"] for h in highlights])]}
+    head_ids = [i for i in layout["headline"] if i in by_id and _is_number(by_id[i]["value"])]
+    headline = [{"label": by_id[i]["label"], "value": by_id[i]["value"]} for i in head_ids]
+    shown = {i for i in head_ids if not by_id[i].get("breakdown")}                        # con composición: tile + su tabla en el grupo
+    groups = []
+    for title, ids in layout["groups"]:
+        g = {"title": title, "properties": [], "tables": []}
+        for i in ids:
+            if i in by_id and i not in shown:
+                _fact_into(g, by_id[i])
+                shown.add(i)
+        groups.append(g)
+    rest = {"title": "Otros hechos", "properties": [], "tables": []}
+    for h in highlights:                                                                  # nada se pierde: lo no mapeado también se muestra
+        if h["id"] not in shown:
+            _fact_into(rest, h)
+    if rest["properties"] or rest["tables"]:
+        groups.append(rest)
+    groups = [g for g in groups if g["properties"] or g["tables"]]
+    for g in groups:                                                                      # grupo de una sola tabla: el título de la tabla ES el del grupo
+        if not g["properties"] and len(g["tables"]) == 1:
+            g["title"] = g["tables"][0]["title"]
+    return {"headline": headline, "groups": groups}
+
+
 def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, list[dict]]) -> dict:
     rs = a["required_surfaces"]
-    highlights = []
-    for h in a["highlights"]:
-        highlights.append({"label": h["label"], "text": P.value_text(h["value"]),
-                           "breakdown": [{"name": b["name"], "count": b["count"]} for b in (h.get("breakdown") or [])]})
     return {
         "id": a["id"], "dom_id": f"asr-a-{a['id']}", "title": P.area_title(a["id"]), "macro": P.macro_dimension_title(a["macro_dimension"]),
         "state": a["assessability"], "state_text": P.assessability_text(a["assessability"]),
         "reason": (f"{a['reason']['reason_summary']} ({a['reason']['reason_code']})" if a["reason"] else None),
         "surfaces": (f"{_plural(rs['assessed'], 'evaluada')}, {_plural(rs['partially_assessed'], 'parcialmente evaluada')}, "
                      f"{_plural(rs['not_assessed'], 'no evaluada')}, {rs['not_applicable']} no aplican"),
-        "highlights": highlights,
+        "facts": _facts_view(a["id"], a["highlights"]), "macro_id": a["macro_dimension"],
         "findings": [{"title": groups_by_id[gid]["title"], "dom_id": f"asr-g-{gid}", "count": groups_by_id[gid]["occurrence_count"],
                       "kind_text": P.finding_kind_text(groups_by_id[gid]["kind"])} for gid in a["finding_groups"]],
         "rules": [{"title": r["title"], "result": r["result"], "result_text": P.rule_result_text(r["result"]),
@@ -175,14 +274,32 @@ def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, 
     }
 
 
+def _context_questions(ctx: dict, groups_by_id: dict[str, dict]) -> dict:
+    """Preguntas de contexto abiertas, separadas por su respaldo: (a) respaldadas por un hallazgo, agrupadas por tipo de hallazgo
+    (cada tabla lleva el tipo en su encabezado, sin repetirlo por fila) y (b) preguntas del proyecto SIN hallazgo. Es solo
+    presentación del mismo bloque canónico: ``backed + independent == open_questions``."""
+    by_kind: dict[str, list[dict]] = {}
+    independent: list[dict] = []
+    for q in ctx["questions"]:
+        g = groups_by_id.get(q["id"])
+        if q["occurrence_count"] is None or g is None:
+            independent.append({"text": q["question"]})
+            continue
+        by_kind.setdefault(q["origin"], []).append({"text": q["question"], "occurrences": q["occurrence_count"],
+                                                    "finding_title": g["title"], "finding_dom_id": f"asr-g-{q['id']}"})
+    backed = [{"heading": P.finding_kind_text(kind).capitalize(), "rows": rows} for kind, rows in by_kind.items()]
+    return {"context_backed": backed, "context_independent": independent,
+            "context_backed_n": sum(len(b["rows"]) for b in backed), "context_independent_n": len(independent)}
+
+
 def report_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
     """View-model del informe. ``status.profile`` es el JSON canónico validado; nada se deriva de otra fuente."""
     doc = status.profile
     view: dict[str, Any] = {
-        "state": status.state, "state_label": STATE_LABELS[status.state], "state_note": STATE_NOTES.get(status.state),
+        "state": status.state, "state_label": STATE_LABELS[status.state], "state_tone": STATE_TONES.get(status.state, ""), "state_note": STATE_NOTES.get(status.state),
         "reason": status.reason, "error_code": status.error_code,
         "client": status.client, "entry_id": entry.entry_id, "dominio": entry.dominio,
-        "terminal_am": status.terminal_am, "generated_at": status.generated_at,
+        "terminal_am": status.terminal_am, "title_desc": None, "title_id": None, "generated_at": status.generated_at,
         "action": ({"key": REPORT_ACTIONS[status.state][0], "label": REPORT_ACTIONS[status.state][1]} if status.state in REPORT_ACTIONS else None),
         "previous_profile_retained": status.previous_profile_retained,
         "report_url": assessment_url(entry, pack), "flow_url": flow_url(entry, pack),
@@ -190,6 +307,8 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
         "md_url": "/catalog/flow/assessment.md?" + urlencode({"flow": entry.entry_id}),
         "has_profile": doc is not None,
     }
+    view["title_desc"], view["title_id"] = _report_title(entry, status.terminal_am)
+    view["module_label"] = MODULE_LABEL
     if doc is None:
         return view
     scope, summary = doc["scope"], doc["summary"]
@@ -214,13 +333,20 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
             "confidence": P.confidence_level_text(conf["level"]), "confidence_level": conf["level"], "confidence_meaning": conf["meaning"],
             "confidence_limitation": lim["summary"] if lim else None,
             "context_open": _plural(ctx["open_questions"], "pregunta de contexto abierta", "preguntas de contexto abiertas"),
-            "context_questions": [{"text": q["question"], "occurrences": q["occurrence_count"]} for q in ctx["questions"]],
+            "context_open_n": ctx["open_questions"],
+            **_context_questions(ctx, groups_by_id),
             "no_evidence_dimensions": [P.macro_dimension_title(m["id"]) for m in summary["macro_dimensions"] if m["state"] == "COMPLETELY_NOT_ASSESSED"],
             "observation_groups": len(doc["observations"]), "review_groups": len(doc["review_required"]),
             "observation_occurrences": sum(g["occurrence_count"] for g in doc["observations"]),
             "review_occurrences": sum(g["occurrence_count"] for g in doc["review_required"]),
         },
         "areas": [_area_view(a, groups_by_id, rules_by_area) for a in doc["areas"]],
+        "kpis": [
+            {"label": "Cobertura estricta", "value": P.percent_text(cov["strict"])},
+            {"label": "Confianza", "value": P.confidence_level_text(conf["level"])},
+            {"label": "Revisiones requeridas", "value": sum(g["occurrence_count"] for g in doc["review_required"])},
+            {"label": "Contexto abierto", "value": ctx["open_questions"]},
+        ],
         "observations": [_group_view(g, entry, pack) for g in doc["observations"]],
         "review_required": [_group_view(g, entry, pack) for g in doc["review_required"]],
         "descriptive": [_group_view(g, entry, pack) for g in doc["descriptive_signals"]],
@@ -241,4 +367,8 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
                       "fact_families": len({f["fact"].split("@")[0] for f in doc["fact_index"]}), "fact_instances": len(doc["fact_index"]),
                       "versions_all": sorted(doc["versions"].items())},
     })
+    groups: dict[str, dict] = {}
+    for a in view["areas"]:
+        groups.setdefault(a["macro_id"], {"id": a["macro_id"], "title": SECTION_TITLES.get(a["macro_id"], a["macro"]), "areas": []})["areas"].append(a)
+    view["macro_groups"] = list(groups.values())
     return view

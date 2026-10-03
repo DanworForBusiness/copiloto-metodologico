@@ -114,3 +114,9 @@ def test_api_never_mutates_the_document_nor_the_markdown(docs):
             PR.occurrence_text(g["id"], o)
             PR.occurrence_text(g["id"], o, plain=True)
     assert d == before and R.render_markdown(d) == md
+
+
+def test_row_key_text_uses_the_markdown_vocabulary_and_never_raises():
+    assert PR.row_key_text("compliant") == "cumplen" and PR.row_key_text("non_compliant") == "no cumplen"
+    assert PR.row_key_text("some_new_key") == "some new key"                      # desconocida: con espacios, sin lanzar
+    assert "row_key_text" in PR.__all__
