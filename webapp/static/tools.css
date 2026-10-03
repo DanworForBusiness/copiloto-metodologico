@@ -20,8 +20,9 @@
 .tool-tabs button.is-active { color: var(--gold); border-bottom-color: var(--gold); }
 .tool-tab-panel { padding-top: 24px; }
 .tool-label, .tree-picker label { display: block; margin: 16px 0 7px; color: var(--soft); font: 500 .64rem var(--mono); text-transform: uppercase; letter-spacing: .08em; }
-.tool-tab-panel select, .tool-tab-panel textarea, .diagnostic-group select { width: 100%; border: 1px solid var(--line); border-radius: 0; background: var(--card); color: var(--ink); font: 500 .78rem var(--sans); }
+.tool-tab-panel select, .tool-tab-panel textarea, .diagnostic-group select, .diagnostic-group input:is([type="text"], [type="url"], [type="password"]) { width: 100%; border: 1px solid var(--line); border-radius: 0; background: var(--card); color: var(--ink); font: 500 .78rem var(--sans); }
 .tool-tab-panel select, .diagnostic-group select { height: 42px; padding: 0 32px 0 10px; }
+.diagnostic-group input:is([type="text"], [type="url"], [type="password"]) { height: 42px; padding: 0 10px; }
 .tool-tab-panel textarea { padding: 12px; resize: vertical; }
 .tool-hint, .assistant-intro p, .tool-empty p { color: var(--soft); font-size: .76rem; }
 .tool-primary { width: 100%; margin-top: 14px; }

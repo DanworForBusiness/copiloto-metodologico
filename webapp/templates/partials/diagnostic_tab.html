@@ -1,8 +1,28 @@
-<div id="diagnostic-tab-panel" class="diagnostic-tab-panel">
+{# Selector de HERRAMIENTA del panel "Herramientas de diagnóstico": en los módulos que la tienen (hoy 04) ofrece "Assessment de tu modelo"
+   y "Diagnóstico conceptual". El diagnóstico conceptual es el árbol YAML de siempre, SIN cambios (mismas rutas/contenido); en el resto
+   de los módulos el panel se renderiza exactamente como antes. #}
+{% set dsa = dsa_tool(request, document.summary.stem) if document is defined and document else {"enabled": False} %}
+{% set assessment_trees = trees | selectattr("kind", "equalto", "assessment") | list %}
+<div id="diagnostic-tab-panel" class="diagnostic-tab-panel"{% if dsa.enabled %} x-data="{ tool: '{{ 'conceptual' if (run or selected_tree_id) else '' }}', autostart: {{ 'true' if (dsa.enabled and assessment_trees|length == 1 and not (run and run.tree.kind == 'assessment')) else 'false' }} }"{% endif %}>
+  {% if dsa.enabled %}
+  <div class="tree-picker diagnostic-picker">
+    <label for="diagnostic-tool-selector">Herramienta</label>
+    <div class="tree-picker-row">
+      <select id="diagnostic-tool-selector" x-model="tool" @change="if (tool === 'conceptual' && autostart) { autostart = false; $nextTick(() => $refs.conceptualForm.requestSubmit()); }">
+        <option value="">Elegí una herramienta...</option>
+        <option value="assessment">Assessment de tu modelo</option>
+        <option value="conceptual">Diagnóstico conceptual</option>
+      </select>
+    </div>
+  </div>
+  <div x-cloak x-show="tool === 'assessment'">{% include "partials/datasphere_assessment_tool.html" %}</div>
+  <div{% if dsa.enabled %} x-cloak x-show="tool === 'conceptual'"{% endif %}>
+  {% endif %}
   {% set assessment_trees = trees | selectattr("kind", "equalto", "assessment") | list %}
   {% if assessment_trees %}
   <form
-    class="tree-picker diagnostic-picker"
+    class="tree-picker diagnostic-picker{% if dsa.enabled %} catalog-picker--secondary{% endif %}"
+    {% if dsa.enabled %}x-ref="conceptualForm"{% endif %}
     hx-post="/modules/{{ document.summary.stem }}/trees/start"
     hx-target="#diagnostic-tab-panel"
     hx-swap="outerHTML"
@@ -14,7 +34,7 @@
       <select id="diagnostic-selector" name="tree_id" required onchange="if(this.value) this.form.requestSubmit()">
         <option value="">Elegí un diagnóstico...</option>
         {% for tree in assessment_trees %}
-        <option value="{{ tree.id }}" {% if tree.id == selected_tree_id %}selected{% endif %}>{{ tree.title|diagnostic_title }}</option>
+        <option value="{{ tree.id }}" {% if tree.id == selected_tree_id or (dsa.enabled and assessment_trees|length == 1) %}selected{% endif %}>{{ tree.title|diagnostic_title }}</option>
         {% endfor %}
       </select>
     </div>
@@ -30,4 +50,6 @@
   {% else %}
   <div class="tool-empty"><p>No hay diagnósticos asociados a este módulo.</p></div>
   {% endif %}
+  {% if dsa.enabled %}</div>{% endif %}
 </div>
+

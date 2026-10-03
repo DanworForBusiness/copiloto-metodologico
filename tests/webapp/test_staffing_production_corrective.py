@@ -788,7 +788,7 @@ def test_15_route_surface_still_156():
     #     assessment de modelado en el Catálogo (GET/POST /catalog/flow/assessment,
     #     GET .../assessment.json y .../assessment.md) -- CERO rutas de Staffing tocadas,
     #     este gate sigue sin cambios propios.
-    assert len(snapshot) == 181
+    assert len(snapshot) == 183   # +2 (Datasphere Direct Assessment UI): POST .../datasphere-assessment/run y /refresh-catalog
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

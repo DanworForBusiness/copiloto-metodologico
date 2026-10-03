@@ -59,6 +59,7 @@ from webapp.routers import platform as platform_router
 from webapp.routers import commercial as commercial_router
 from webapp.routers import human_capital as human_capital_router
 from webapp.routers import catalog_assessment as catalog_assessment_router
+from webapp.routers import datasphere_assessment as datasphere_assessment_router
 from webapp.services import assessment_presenter
 from webapp.services import assessment_service
 from webapp.routers import commercial_strategy as commercial_strategy_router
@@ -236,6 +237,7 @@ app.include_router(commercial_router.router)
 app.include_router(human_capital_router.router)
 app.include_router(commercial_strategy_router.router)
 app.include_router(catalog_assessment_router.router)
+app.include_router(datasphere_assessment_router.router)
 
 
 # Aliases a las capacidades ya extraídas (gate distribuido pre-2D). Los handlers

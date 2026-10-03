@@ -55,3 +55,12 @@ class _StaticVersion:
 templates.env.globals["static_version"] = _StaticVersion()
 templates.env.globals["verbose_telemetry"] = is_verbose()
 templates.env.globals["config"] = config
+
+
+def _dsa_tool(request, stem: str) -> dict:
+    """Contexto de la herramienta "Assessment de tu modelo" para el panel de diagnóstico (ver datasphere_assessment_service)."""
+    from webapp.services import datasphere_assessment_service as _dsa
+    return _dsa.tool_context(request, stem)
+
+
+templates.env.globals["dsa_tool"] = _dsa_tool
