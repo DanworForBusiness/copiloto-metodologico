@@ -21,8 +21,13 @@ from . import render_md as _md
 __all__ = [
     "area_title", "macro_dimension_title", "assessability_text", "assessability_plural_text", "execution_state_text",
     "confidence_level_text", "finding_kind_text", "rule_result_text", "unit_label", "is_artifact_name",
-    "percent_text", "plural", "value_text", "occurrence_text", "row_key_text",
+    "percent_text", "plural", "value_text", "occurrence_text", "row_key_text", "evidence_not_acquired",
 ]
+
+
+def evidence_not_acquired(scope: dict | None) -> list[str]:
+    """Familias de evidencia NO adquiridas (etiquetas humanas) según ``scope.evidence_scope`` del documento; [] si se desconoce o fue completo."""
+    return _md.evidence_not_acquired(scope)
 
 
 def _lookup(table: dict[str, str], key: str) -> str:

@@ -1211,3 +1211,66 @@ def test_cta_does_not_bypass_authentication_or_owner_authorization(monkeypatch):
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
     html = _client("someone@danwor.com").get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment").text
     assert "Acceso restringido" in html and 'id="dsa-form"' not in html                                       # el CTA no da acceso a ejecutar
+
+
+# ── evidencia NO adquirida visible en el informe HTML ──────────────────────────
+_ALL_OPTIONAL = ["replication-flows", "data-flows", "transformation-flows", "task-chains"]
+
+
+def _report_html(c, rid):
+    return c.get(_results_url(rid) + "?pack=datasphere_core").text
+
+
+def _limitations_section(html):
+    return re.search(r'<section class="content-section" id="asr-limitaciones">.*?</section>', html, re.S).group(0)
+
+
+def test_complete_or_default_scope_renders_nothing_new_in_the_report(owner, fake_export):
+    default = _rid(_post(owner))                                                               # sin campos: alcance completo (como hoy)
+    explicit = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": _ALL_OPTIONAL}))
+    for rid in (default, explicit):
+        assert "Evidencia no adquirida" not in _report_html(owner, rid)
+
+
+def test_limited_scope_shows_the_human_readable_omitted_families_inside_the_limitations_section(owner, fake_export):
+    rid = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows"]}))
+    html = _report_html(owner, rid)
+    section = _limitations_section(html)
+    assert "<strong>Evidencia no adquirida:</strong> Data Flows, Transformation Flows, Task Chains." in section
+    assert "su ausencia en este assessment no implica que no exista" in section
+    assert html.count("Evidencia no adquirida") == 1                                           # un único lugar; sin banner superior
+    paragraph = re.search(r"<strong>Evidencia no adquirida:</strong>[^<]*", section).group(0)
+    assert not re.search(r"data-flows|transformation-flows|task-chains|replication-flows", paragraph)     # sin identificadores técnicos
+    kpis = html.split("Indicadores del assessment")[1].split("</section>")[0] if "Indicadores del assessment" in html else ""
+    assert "Evidencia no adquirida" not in kpis                                                 # no compite con los KPI de cabecera
+
+
+def test_old_profile_without_evidence_scope_renders_exactly_as_before(owner, fake_export):
+    rid = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows"]}))
+    path = fake_export["cache"] / "adhoc" / "results" / f"{rid}.json"
+    rec = json.loads(path.read_text(encoding="utf-8"))
+    rec["profile"]["scope"].pop("evidence_scope")                                              # perfil anterior al campo
+    path.write_text(json.dumps(rec), encoding="utf-8")
+    html = _report_html(owner, rid)
+    assert "Evidencia no adquirida" not in html                                                # alcance desconocido NO es alcance reducido
+    rec["profile"]["scope"]["evidence_scope"] = None
+    path.write_text(json.dumps(rec), encoding="utf-8")
+    assert _report_html(owner, rid) == html
+
+
+def test_reopened_result_shows_its_own_stored_scope_not_the_current_form_state(owner, fake_export):
+    limited = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows"]}))
+    complete = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": _ALL_OPTIONAL}))
+    block = re.search(r'data-dsa-scope>.*?</details>', _page(owner), re.S).group(0)
+    assert block.count(" checked>") == 4                                                       # el formulario AHORA está completo...
+    assert "Evidencia no adquirida" in _report_html(owner, limited)                            # ...pero el resultado histórico conserva SU alcance
+    assert "Evidencia no adquirida" not in _report_html(owner, complete)
+
+
+def test_json_markdown_and_html_agree_on_the_omitted_families(owner, fake_export):
+    rid = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows", "task-chains"]}))
+    effective = set(json.loads(owner.get(_results_url(rid, "/export.json")).text)["scope"]["evidence_scope"]["effective_features"])
+    md = re.search(r"\*\*Evidencia no adquirida:\*\* ([^(]+) \(", owner.get(_results_url(rid, "/export.md")).text).group(1).strip()
+    html = re.search(r"<strong>Evidencia no adquirida:</strong> ([^.]+)\.", _report_html(owner, rid)).group(1).strip()
+    assert md == html == "Data Flows, Transformation Flows"
+    assert "data-flows" not in effective and "transformation-flows" not in effective and "task-chains" in effective      # JSON coherente

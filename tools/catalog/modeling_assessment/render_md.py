@@ -275,12 +275,18 @@ _FAMILY_TEXT = {"analytic-models": "Modelos Analíticos", "views": "Vistas", "ta
                 "data-flows": "Data Flows", "transformation-flows": "Transformation Flows", "task-chains": "Task Chains"}
 
 
-def _evidence_scope_lines(scope: dict | None) -> list[str]:
-    """Solo cuando se conoce el alcance de la extraccion y quedaron familias SIN adquirir: lo no adquirido NO es ausencia evaluada."""
+def evidence_not_acquired(scope: dict | None) -> list[str]:
+    """Etiquetas humanas de las familias de evidencia NO adquiridas por la extracción. Vacío si el alcance se desconoce (Catálogo, perfiles
+    anteriores al campo) o si fue completo: solo un alcance CONOCIDO y limitado produce una lista."""
     if not scope:
         return []
     effective = set(scope.get("effective_features") or ())
-    missing = [t for k, t in _FAMILY_TEXT.items() if k not in effective]
+    return [t for k, t in _FAMILY_TEXT.items() if k not in effective]
+
+
+def _evidence_scope_lines(scope: dict | None) -> list[str]:
+    """Solo cuando se conoce el alcance de la extraccion y quedaron familias SIN adquirir: lo no adquirido NO es ausencia evaluada."""
+    missing = evidence_not_acquired(scope)
     if not missing:
         return []
     return [f"- **Evidencia no adquirida:** {', '.join(missing)} (no se extrajo; su ausencia en el assessment no implica que no existan)"]

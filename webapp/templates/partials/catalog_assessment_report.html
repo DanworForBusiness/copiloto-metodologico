@@ -217,6 +217,7 @@
 
 <section class="content-section" id="asr-limitaciones">
   {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "No evaluado / Limitaciones de evidencia", "Las evidencias que cuentan para la cobertura se marcan “cuenta”; las demás se muestran por transparencia y no modifican la cobertura.") }}
+  {% if v.evidence_not_acquired %}<p><strong>Evidencia no adquirida:</strong> {{ v.evidence_not_acquired|join(", ") }}. No se extrajo; su ausencia en este assessment no implica que no exista.</p>{% endif %}
   {% if v.limitations %}
   <table>
     <thead><tr><th>Evidencia</th><th>Área</th><th>Estado</th><th>Motivo</th><th>¿Cuenta?</th></tr></thead>
