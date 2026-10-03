@@ -77,6 +77,13 @@ ERROR_MESSAGES = {
     "GENERATION_ERROR": "La evidencia se adquirió correctamente, pero ocurrió un error al generar el informe.",
 }
 
+# El extractor antepone un identificador técnico ("PRECHECK_OAUTH_401 - ..."): el texto humano se muestra, el identificador queda solo
+# en "Detalle técnico" (el stdout ya trae la línea completa "ERROR: <código> - <mensaje>").
+_CODE_PREFIX_RE = re.compile(r"^[A-Z][A-Z0-9_]{3,} - ")
+
+# Códigos del extractor cuyo mensaje ya está redactado en español para el usuario (objeto no encontrado, tipo ambiguo): se muestra tal cual.
+BACKEND_WORDED_CODES = frozenset({"ROOT_OBJECT_NOT_FOUND", "AMBIGUOUS_ROOT_OBJECT_TYPE"})
+
 TITLE_EXTRACTION = "No se pudo completar la extracción"
 TITLE_ASSESSMENT = "No se pudo generar el assessment"
 # Ciclo de vida SEMÁNTICO de la operación (el backend es autoritativo sobre QUÉ fase ocurre; cómo se dibuja es del frontend).
@@ -88,9 +95,9 @@ PHASE_COPY = {PHASE_ACQUIRED: "Evidencia adquirida", PHASE_ASSESSING: "Generando
 
 FIELD_LABELS = {
     "host": "URL del tenant de Datasphere", "token_url": "Token URL (OAuth)", "client_id": "Client ID", "client_secret": "Client Secret",
-    "space": "Space", "analytic_model": "Analytic Model", "client": "Cliente del catálogo",
+    "space": "Space", "root_object": "Artefacto / Objeto", "client": "Cliente del catálogo",
 }
-NON_SECRET_FIELDS = ("host", "token_url", "client_id", "space", "analytic_model", "client")
+NON_SECRET_FIELDS = ("host", "token_url", "client_id", "space", "root_object", "client")
 
 
 @dataclass
@@ -100,7 +107,7 @@ class FormValues:
     token_url: str = ""
     client_id: str = ""
     space: str = ""
-    analytic_model: str = ""
+    root_object: str = ""
     client: str = ""
 
     @classmethod
@@ -175,9 +182,10 @@ def validate(values: FormValues, client_secret: str) -> dict[str, str]:
         errors["client_id"] = "Ingresá el Client ID (sin espacios)."
     if not client_secret or len(client_secret) > 1000:
         errors["client_secret"] = "Ingresá el Client Secret."
-    for key, label in (("space", "Space"), ("analytic_model", "Analytic Model")):
-        if not _NAME_RE.match(getattr(values, key)):
-            errors[key] = f"Ingresá el nombre técnico del {label} (letras, números, _ . -)."
+    if not _NAME_RE.match(values.space):
+        errors["space"] = "Ingresá el nombre técnico del Space (letras, números, _ . -)."
+    if not _NAME_RE.match(values.root_object):
+        errors["root_object"] = "Ingresá un artefacto u objeto válido (letras, números, _ . -)."
     if not _CLIENT_RE.match(values.client):
         errors["client"] = "Ingresá el cliente del catálogo (letras, números, espacios, _ . -)."
     return errors
@@ -189,7 +197,7 @@ _RUNNING: dict[tuple[str, str, str], threading.Lock] = {}
 
 
 def _lock_for(values: FormValues) -> threading.Lock:
-    key = (values.client.lower(), values.space.lower(), values.analytic_model.lower())
+    key = (values.client.lower(), values.space.lower(), values.root_object.lower())
     with _LOCKS_GUARD:
         return _RUNNING.setdefault(key, threading.Lock())
 
@@ -356,9 +364,10 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
         roots = {str(workspace.resolve()): "<adhoc>", str(config.BASE_DIR): "<app>"}
         request = dsp.ExportRequest(
             host=values.host, client_id=values.client_id, client_secret=client_secret, token_url=values.token_url,
-            space=values.space, analytic_model=values.analytic_model, client=values.client,
+            space=values.space, root_object=values.root_object, client=values.client,
             catalog_root=workspace / "catalog", csn_cache_dir=workspace / "pool",     # raíces del workspace: NADA canónico se toca
             generate_catalog=False, mirror_up=False,                                   # evaluar != publicar: sin Catálogo ni Spaces
+            mode="assessment",                                                         # forzado en el servidor: la UI no elige el modo
         )
 
         def live(line: str) -> None:
@@ -371,11 +380,11 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
         if not result.ok:
             code = result.error_code or "EXTRACTION_FAILED"
             log.warning("datasphere_assessment op=%s user=%s client=%s space=%s model=%s status=FAILED stage=extraction code=%s duration=%.1fs",
-                        op_id, user_email, values.client, values.space, values.analytic_model, code, result.duration_s)
+                        op_id, user_email, values.client, values.space, values.root_object, code, result.duration_s)
             # El mensaje humano de los prechecks (PRECHECK_OAUTH_401, PRECHECK_AUTH_403…) lo redacta el extractor: se muestra TAL CUAL
             # (saneado), sin re-diagnosticar. Para el resto, el texto estable por código (el detalle crudo queda en el detalle técnico).
-            backend = sanitize(result.message, secrets, roots)[:500]
-            message = backend if str(result.message).startswith("PRECHECK_") else ERROR_MESSAGES.get(code, ERROR_MESSAGES["EXTRACTION_FAILED"])
+            backend = _CODE_PREFIX_RE.sub("", sanitize(result.message, secrets, roots)[:500], count=1)   # el identificador técnico NO es visible
+            message = backend if (str(result.message).startswith("PRECHECK_") or code in BACKEND_WORDED_CODES) else ERROR_MESSAGES.get(code, ERROR_MESSAGES["EXTRACTION_FAILED"])
             return Outcome("FAILED", code, message, trace=trace, operation_id=op_id, duration_s=result.duration_s,
                            stage="extraction", title=TITLE_EXTRACTION)
 
@@ -384,20 +393,20 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
             on_phase(PHASE_ACQUIRED)
             on_phase(PHASE_ASSESSING)
         client_dir = result.pool_dir.name if result.pool_dir is not None else values.client
-        profile, code = asvc.assess_evidence_root(workspace / "pool", client_dir, values.analytic_model, "General")
+        profile, code = asvc.assess_evidence_root(workspace / "pool", client_dir, values.root_object, "General")
         if code is not None or profile is None:
             code = code or "GENERATION_ERROR"
             log.warning("datasphere_assessment op=%s user=%s client=%s space=%s model=%s status=FAILED stage=assessment code=%s",
-                        op_id, user_email, values.client, values.space, values.analytic_model, code)
+                        op_id, user_email, values.client, values.space, values.root_object, code)
             return Outcome("FAILED", code, ERROR_MESSAGES.get(code, ERROR_MESSAGES["ASSESSMENT_FAILED"]), trace=trace, operation_id=op_id,
                            duration_s=result.duration_s, stage="assessment", title=TITLE_ASSESSMENT)
-        result_id = save_result(profile, client_display=values.client, client_dir=client_dir, terminal_am=values.analytic_model)
+        result_id = save_result(profile, client_display=values.client, client_dir=client_dir, terminal_am=values.root_object)
         if on_phase is not None:
             on_phase(PHASE_DONE)
         log.info("datasphere_assessment op=%s user=%s client=%s space=%s model=%s status=SUCCESS duration=%.1fs files=%s",
-                 op_id, user_email, values.client, values.space, values.analytic_model, result.duration_s, result.exported_files)
+                 op_id, user_email, values.client, values.space, values.root_object, result.duration_s, result.exported_files)
         return Outcome("SUCCESS", trace=trace, operation_id=op_id, duration_s=result.duration_s, stage="assessment",
-                       result_id=result_id, terminal_am=values.analytic_model)
+                       result_id=result_id, terminal_am=values.root_object)
     except Exception as exc:                                                    # noqa: BLE001 — jamás se muestra el texto crudo de la excepción
         log.warning("datasphere_assessment op=%s status=FAILED code=EXTRACTION_FAILED exc=%s", op_id, type(exc).__name__)
         return Outcome("FAILED", "EXTRACTION_FAILED", ERROR_MESSAGES["EXTRACTION_FAILED"], trace=[f"{type(exc).__name__}"],

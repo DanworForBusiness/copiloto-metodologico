@@ -36,7 +36,7 @@
     <div class="tree-picker catalog-picker--secondary">
       <span class="admin-result-title">Alcance</span>
       {{ field("space", "Space ID", "text", "PRODUCCION", first=True) }}
-      {{ field("analytic_model", "Modelo Analítico", "text", "AM_Compras") }}
+      {{ field("root_object", "Artefacto / Objeto", "text", "AM_Compras", field_name="datasphere_root_object") }}
     </div>
     {# último grupo SIN `.tree-picker`: no lleva la línea separadora previa al botón (los labels reusan `.tool-label`, mismo estilo) #}
     <div class="catalog-picker--secondary">

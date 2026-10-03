@@ -43,7 +43,7 @@ HX = {"HX-Request": "true"}
 VALID = {"pack": "datasphere_core", "host": "https://acme.eu10.hcs.cloud.sap",
          "token_url": "https://acme.authentication.eu10.hana.ondemand.com/oauth/token",
          "datasphere_client_id": "sb-client-id", "datasphere_client_secret": SECRET, "space": "ACME_SPACE",
-         "analytic_model": "4AM_ACME", "client": "Acme"}
+         "datasphere_root_object": "4AM_ACME", "client": "Acme"}
 
 
 def _client(email="owner@danwor.com"):
@@ -106,6 +106,8 @@ def fake_export(monkeypatch, tmp_path):
         for line in calls["extra_lines"]:
             dsp._say(line)
         shutil.copytree(evidence / "Acme", self.output_dir, dirs_exist_ok=True)
+        self.root_type = "analytic-model"                                                  # lo deriva el extractor (no la web)
+        self.effective_features = set(self.requested_features)
         self.nodes = {("analytic-models", "4AM_ACME"): dsp.Node("analytic-models", "4AM_ACME"), ("views", "3VF_P"): dsp.Node("views", "3VF_P")}
         self.edges = {dsp.Edge("analytic-models", "4AM_ACME", "reads", "views", "3VF_P")}
         self.external_sources = {"SAPI.X"}
@@ -185,9 +187,9 @@ def test_form_fields_labels_placeholders_and_margins(owner):
     form = _form_html(owner)
     names = re.findall(r'<input id="dsa-[a-z_]+" name="([a-z_]+)" type="([a-z]+)"', form)
     assert names == [("host", "url"), ("token_url", "url"), ("datasphere_client_id", "text"), ("datasphere_client_secret", "password"),
-                     ("space", "text"), ("analytic_model", "text"), ("client", "text")]
+                     ("space", "text"), ("datasphere_root_object", "text"), ("client", "text")]
     labels = re.findall(r'<label class="tool-label" for="dsa-([a-z_]+)">([^<]+)</label>', form)
-    assert [t for _n, t in labels] == ["URL del tenant", "Token URL (OAuth)", "Client ID", "Client Secret", "Space ID", "Modelo Analítico", "Nombre de Cliente"]
+    assert [t for _n, t in labels] == ["URL del tenant", "Token URL (OAuth)", "Client ID", "Client Secret", "Space ID", "Artefacto / Objeto", "Nombre de Cliente"]
     assert "admin-help" not in form and "style=" not in form
     assert form.count('class="tree-picker catalog-picker--secondary"') == 2
 
@@ -286,10 +288,10 @@ def test_real_oauth_preflight_401_stops_before_any_cli_work_and_200_continues(mo
         monkeypatch.setattr(dsp.DatasphereCli, "_run", lambda self, args, expect_json=False: runs.append(args[0]) or ([] if expect_json else ""))
         monkeypatch.setattr(dsp.LineageExporter, "run", lambda self: (self.output_dir.mkdir(parents=True, exist_ok=True), self.output_dir)[1])
         url = f"http://127.0.0.1:{srv.server_port}/oauth/token"
-        vals = svc.FormValues(host=url.rsplit("/oauth", 1)[0], token_url=url, client_id="id", space="S", analytic_model="4AM_ACME", client="Acme")
+        vals = svc.FormValues(host=url.rsplit("/oauth", 1)[0], token_url=url, client_id="id", space="S", root_object="4AM_ACME", client="Acme")
         out = svc.run(vals, SECRET)
         assert out.state == "FAILED" and out.error_code == "AUTHENTICATION_FAILED" and out.stage == "extraction" and runs == []
-        assert out.message.startswith("PRECHECK_OAUTH_401") and SECRET not in " ".join(out.trace)
+        assert out.message.startswith("OAuth rechazó las credenciales") and "PRECHECK_" not in out.message and SECRET not in " ".join(out.trace)
         status["code"] = 200
         out2 = svc.run(vals, SECRET)
         assert runs and runs[0] == "login" and out2.stage in ("assessment", "extraction")                 # 200 continúa con login + autorización
@@ -395,7 +397,7 @@ def test_lines_are_delivered_while_the_extraction_is_still_running(fake_export, 
         assert gate.wait(5)
         return orig(self)
     monkeypatch.setattr(dsp.LineageExporter, "run", slow)
-    vals = svc.FormValues(host=VALID["host"], token_url=VALID["token_url"], client_id="id", space="S", analytic_model="4AM_ACME", client="Acme")
+    vals = svc.FormValues(host=VALID["host"], token_url=VALID["token_url"], client_id="id", space="S", root_object="4AM_ACME", client="Acme")
     box = {}
     t = threading.Thread(target=lambda: box.setdefault("out", svc.run(vals, SECRET, on_line=got.append)))
     t.start()
@@ -412,7 +414,7 @@ def test_extraction_failure_creates_no_result_and_is_labeled_as_extraction(owner
     r = _post(owner)
     d = _done(r)
     assert d["state"] == "FAILED" and d["error_code"] == "INSUFFICIENT_DATASPHERE_PRIVILEGES" and d["title"] == "No se pudo completar la extracción"
-    assert d["message"].startswith("PRECHECK_AUTH_403") and d["result_url"] is None and _phases(r) == []
+    assert d["message"].startswith("OAuth válido, pero sin permisos") and "PRECHECK_" not in d["message"] and d["result_url"] is None and _phases(r) == []
     assert not list((fake_export["cache"] / "adhoc" / "results").glob("*.json"))
 
 
@@ -427,7 +429,7 @@ def test_assessment_failure_is_not_labeled_as_extraction_and_keeps_the_log(owner
 
 
 def test_unknown_or_non_terminal_am_reports_an_assessment_stage_failure_with_future_safe_copy(owner, fake_export):
-    r = _post(owner, dict(VALID, analytic_model="NO_EXISTE_AM"))
+    r = _post(owner, dict(VALID, datasphere_root_object="NO_EXISTE_AM"))
     d = _done(r)
     assert d["state"] == "FAILED" and d["error_code"] == "AM_NOT_TERMINAL" and d["title"] == "No se pudo generar el assessment"
     assert d["message"] == ("La evidencia se adquirió correctamente, pero el artefacto indicado no puede evaluarse con el alcance actual. "
@@ -469,7 +471,7 @@ def test_duplicate_execution_for_the_same_operation_is_rejected_truthfully(fake_
         gate.wait(5)
         return orig(self)
     monkeypatch.setattr(dsp.LineageExporter, "run", slow)
-    vals = svc.FormValues(host=VALID["host"], token_url=VALID["token_url"], client_id="id", space="S", analytic_model="4AM_ACME", client="Acme")
+    vals = svc.FormValues(host=VALID["host"], token_url=VALID["token_url"], client_id="id", space="S", root_object="4AM_ACME", client="Acme")
     box = {}
     t = threading.Thread(target=lambda: box.setdefault("first", svc.run(vals, SECRET)))
     t.start()
@@ -617,7 +619,7 @@ def test_backend_messages_are_preserved_and_failures_are_normalized(owner, fake_
     r = _post(owner)
     d = _done(r)
     assert d["state"] == "FAILED" and d["error_code"] == code and fake_export["exports"] == 0
-    assert d["message"] == (message if message.startswith("PRECHECK_") else svc.ERROR_MESSAGES[code])
+    assert d["message"] == (message.split(" - ", 1)[1] if message.startswith("PRECHECK_") else svc.ERROR_MESSAGES[code])
     assert any(message in line for line in _lines(r)) and "Traceback" not in r.text and SECRET not in r.text
     assert not re.search(r"PRECHECK_|401|403", (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8"))
 
@@ -678,3 +680,56 @@ def test_tool_javascript_is_syntactically_valid():
     import subprocess
     r = subprocess.run([node, "--check", str(REPO / "webapp/static/datasphere_assessment.js")], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+# ── contrato root_object ───────────────────────────────────────────────────
+def test_form_uses_root_object_contract_and_no_legacy_analytic_model_field(owner):
+    form = _form_html(owner)
+    assert 'name="datasphere_root_object"' in form and 'id="dsa-root_object"' in form and ">Artefacto / Objeto</label>" in form
+    assert not re.search(r"analytic_model|Modelo Anal|Analytic Model|root_type|name=\"mode\"|name=\"features|datasphere_analytic", form)
+    assert "analytic_model" not in (REPO / "webapp/services/datasphere_assessment_service.py").read_text(encoding="utf-8")
+    assert "analytic_model" not in (REPO / "webapp/routers/datasphere_assessment.py").read_text(encoding="utf-8")
+
+
+def test_service_passes_root_object_and_forces_assessment_mode_server_side(owner, fake_export):
+    r = _post(owner, dict(VALID, mode="publish", root_type="view", features="views", analytic_model="OTRO", generate_catalog="1"))   # intento de manipulación
+    assert _done(r)["state"] == "SUCCESS"
+    req = fake_export["requests"][0]
+    assert req.root_object == "4AM_ACME" and not req.analytic_model                      # sin traducción root_object -> analytic_model
+    assert req.mode == "assessment" and req.generate_catalog is False and req.mirror_up is False
+    assert req.root_type is None and not req.features_requested                          # root_type lo deriva el extractor; features fuera de este patch
+
+
+def test_root_object_validation_copy_is_generic(owner, fake_export):
+    d = _done(_post(owner, dict(VALID, datasphere_root_object="a b!")))
+    assert d["state"] == "INVALID" and d["errors"]["root_object"] == "Ingresá un artefacto u objeto válido (letras, números, _ . -)."
+    assert not re.search(r"Analytic Model|terminal", json.dumps(d["errors"]))
+    assert fake_export["exports"] == 0
+
+
+def test_extractor_failure_for_missing_root_keeps_backend_wording(owner, fake_export, monkeypatch):
+    monkeypatch.setattr(dsp.DatasphereCli, "authorization_preflight", lambda self, space: (_ for _ in ()).throw(dsp.DatasphereCliError("ROOT_OBJECT_NOT_FOUND - No se encontró 'X' en el Space 'S'.")))
+    d = _done(_post(owner))
+    assert d["state"] == "FAILED" and d["error_code"] == "ROOT_OBJECT_NOT_FOUND" and d["title"] == "No se pudo completar la extracción"
+    assert d["message"].startswith("No se encontró 'X'") and "ROOT_OBJECT_NOT_FOUND" not in d["message"]   # texto del extractor; el código va al detalle
+
+
+@pytest.mark.parametrize("raised,code", [
+    ("PRECHECK_OAUTH_401 - OAuth rechazó las credenciales (HTTP 401). Revisá Client ID.", "AUTHENTICATION_FAILED"),
+    ("PRECHECK_AUTH_403 - OAuth válido, pero sin permisos.", "INSUFFICIENT_DATASPHERE_PRIVILEGES"),
+    ("ROOT_OBJECT_NOT_FOUND - No se encontró 'X' en el Space 'S'.", "ROOT_OBJECT_NOT_FOUND"),
+    ("AMBIGUOUS_ROOT_OBJECT_TYPE - El technical name 'X' existe en múltiples tipos: view, local-table.", "AMBIGUOUS_ROOT_OBJECT_TYPE")])
+def test_visible_error_has_no_technical_identifiers_which_live_only_in_technical_detail(owner, fake_export, monkeypatch, raised, code):
+    monkeypatch.setattr(dsp.DatasphereCli, "authorization_preflight", lambda self, space: (_ for _ in ()).throw(dsp.DatasphereCliError(raised)))
+    r = _post(owner)
+    d = _done(r)
+    visible = d["title"] + " " + d["message"]
+    assert d["state"] == "FAILED" and d["error_code"] == code and d["title"] == "No se pudo completar la extracción"
+    assert not re.search(r"PRECHECK_|AUTHENTICATION_FAILED|INSUFFICIENT_|ROOT_OBJECT_NOT_FOUND|AMBIGUOUS_ROOT_OBJECT_TYPE|AM_NOT_TERMINAL", visible)
+    assert any(raised.split(" - ")[0] in line for line in _lines(r))                      # el identificador sí está en el detalle técnico (stdout)
+
+
+def test_assessment_applicability_visible_copy_has_no_engine_code_but_code_is_in_detail_channel(owner, fake_export):
+    d = _done(_post(owner, dict(VALID, datasphere_root_object="NO_EXISTE_AM")))
+    assert d["error_code"] == "AM_NOT_TERMINAL" and "AM_NOT_TERMINAL" not in d["title"] + d["message"]
+    assert "done.error_code" in (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")   # JS lo agrega a "Detalle técnico"

@@ -72,7 +72,7 @@ def run_assessment(
     request: Request, stem: str, pack: str = Form(DEFAULT_PACK),
     host: str = Form(""), token_url: str = Form(""),
     client_id: str = Form("", alias="datasphere_client_id"), client_secret: str = Form("", alias="datasphere_client_secret"),
-    space: str = Form(""), analytic_model: str = Form(""), client: str = Form(""),
+    space: str = Form(""), root_object: str = Form("", alias="datasphere_root_object"), client: str = Form(""),
 ):
     """Ejecuta y emite el avance EN TIEMPO REAL como NDJSON (una línea JSON por evento):
         {"t":"start"}                              apenas arranca
@@ -84,7 +84,7 @@ def run_assessment(
     user = _authorize(request, stem)
     selected = resolve_pack(pack)
     values = svc.FormValues.from_mapping({"host": host, "token_url": token_url, "client_id": client_id, "space": space,
-                                          "analytic_model": analytic_model, "client": client})
+                                          "root_object": root_object, "client": client})
     secret = client_secret
     del client_secret
     events: queue.Queue = queue.Queue()
@@ -98,7 +98,7 @@ def run_assessment(
         finally:
             secret = ""                                                    # el secreto no sobrevive a la ejecución
         log_activity("datasphere_assessment_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
-                     client=values.client, space=values.space, analytic_model=values.analytic_model,
+                     client=values.client, space=values.space, root_object=values.root_object,
                      state=outcome.state, error_code=outcome.error_code, stage=outcome.stage, duration_s=outcome.duration_s,
                      operation_id=outcome.operation_id)
         result_url = _result_urls(stem, outcome.result_id, selected)[0] if outcome.result_id else None
