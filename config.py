@@ -49,15 +49,28 @@ ACTIVITY_LOG_DIR  = BASE_DIR / "activity_log"
 # como CUALQUIER otro directorio persistido — mismo mecanismo genérico,
 # ningún código de sync propio.
 COMMERCIAL_STRATEGY_RUNTIME_DIR = BASE_DIR / "commercial_strategy_runtime"
-# Caché OPERATIVA del Assessment de modelado del Catálogo (JSON canónico validado
-# + metadatos de vigencia; ver webapp/services/assessment_service.py). NO es un
-# artefacto gobernado: es derivable de forma determinista del pool CSN, así que se
-# puede perder en un deploy/reinicio (el estado vuelve a "Sin assessment" y el
-# usuario regenera). Por eso NUNCA debe figurar en PERSIST_PATHS ni colgar de
-# `catalog_local`: `core.remote_store.mirror_up()` sube recursivamente todo lo
-# persistido. El servicio rechaza (fail-closed) escribir bajo un directorio
-# persistido, aunque el entorno cambie SPACES_PERSIST_PATHS.
+# Caché OPERATIVA del Assessment AD-HOC (resultados efímeros con TTL; ver
+# webapp/services/datasphere_assessment_service.py, subdirectorio `adhoc`). NO es un
+# artefacto gobernado y se puede perder en un deploy/reinicio. Por eso NUNCA debe
+# figurar en PERSIST_PATHS ni colgar de `catalog_local`: `core.remote_store.mirror_up()`
+# sube recursivamente todo lo persistido. El servicio rechaza (fail-closed) escribir bajo
+# un directorio persistido, aunque el entorno cambie SPACES_PERSIST_PATHS.
 ASSESSMENT_CACHE_DIR = Path(_env("DANWOR_ASSESSMENT_CACHE_DIR", "") or str(BASE_DIR / "assessment_cache"))
+
+# Assessment GOBERNADO del Catálogo (el sobre canónico validado + metadatos de vigencia que produce
+# `assessment_service.generate`: Publicar → Assessment y "Generar informe"): DURABLE. Vive bajo este directorio, registrado en
+# PERSIST_PATHS, así que `core/remote_store.py` lo respalda (write-through vía `push_path` + `mirror_up`) y lo restaura al arrancar —
+# ningún código de sync propio. DEPLOYMENT: si el entorno YA define `SPACES_PERSIST_PATHS` explícito, hay que sumar
+# "governed-assessments" a ese valor real (este default de código no alcanza solo si la env var está seteada); sin eso el assessment
+# queda local (no durable en el bucket) y el servicio lo informa. El directorio se resuelve en cada llamada (como `remote_store`):
+# DANWOR_GOVERNED_ASSESSMENTS_DIR si está definido, si no BASE_DIR/governed-assessments.
+GOVERNED_ASSESSMENTS_NAME = "governed-assessments"
+
+
+def governed_assessments_dir() -> Path:
+    override = _env("DANWOR_GOVERNED_ASSESSMENTS_DIR", "").strip()
+    return Path(override) if override else Path(BASE_DIR) / GOVERNED_ASSESSMENTS_NAME
+
 
 # ── Persistencia en DO Spaces ────────────────────────────────────────────────
 # App Platform corre sobre un FS efímero: en cada deploy/reciclado se borra todo
@@ -108,7 +121,7 @@ SPACES_SYNC_INTERVAL = int(_env("SPACES_SYNC_INTERVAL", "120"))  # segundos entr
 PERSIST_PATHS     = [p.strip() for p in _env(
     "SPACES_PERSIST_PATHS",
     "catalog_local,case_library,feedback_log,activity_log,reports,reporting_cache,human-capital,"
-    "commercial_strategy_runtime,commercial-licensing-priority"
+    "commercial_strategy_runtime,commercial-licensing-priority,governed-assessments"
 ).split(",") if p.strip()]
 PERSIST_ENABLED   = bool(SPACES_ENDPOINT and SPACES_BUCKET and SPACES_KEY and SPACES_SECRET)
 

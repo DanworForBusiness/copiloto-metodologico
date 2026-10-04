@@ -495,9 +495,11 @@ def test_two_runs_for_the_same_client_and_am_get_distinct_opaque_ids_and_do_not_
     assert a != b and re.fullmatch(r"[0-9a-f]{32}", a) and re.fullmatch(r"[0-9a-f]{32}", b)
     results = fake_export["cache"] / "adhoc" / "results"
     assert sorted(p.stem for p in results.glob("*.json")) == sorted([a, b])
-    # espacio de claves del Catálogo: ni memoria ni sobres (cliente, AM) en la caché del Catálogo
+    # espacio de claves del Catálogo: ni memoria ni sobres (cliente, AM) en el almacén durable del assessment GOBERNADO (el ad-hoc es efímero)
     assert asvc._memory == {} and not list(fake_export["cache"].glob("*.envelope.json"))
-    assert asvc._env_path("Acme", "4AM_ACME").parent == fake_export["cache"] and asvc._env_path("Acme", "4AM_ACME").parent != results
+    gov = asvc.governed_path("Acme", "4AM_ACME")
+    assert not gov.exists() and not list(asvc.governed_dir().rglob("*.json"))
+    assert asvc.governed_dir().resolve() not in results.resolve().parents
 
 
 def test_results_live_24_hours_expired_ones_are_removed_and_a_process_replacement_clears_them(owner, fake_export, monkeypatch):

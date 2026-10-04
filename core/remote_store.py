@@ -104,6 +104,8 @@ def _persist_dirs() -> list[tuple[str, Path]]:
     for name in config.PERSIST_PATHS:
         if name == "catalog_local":
             local = Path(os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(base / "catalog_local"))
+        elif name == config.GOVERNED_ASSESSMENTS_NAME:
+            local = config.governed_assessments_dir()          # DANWOR_GOVERNED_ASSESSMENTS_DIR si está definido
         else:
             local = base / name
         dirs.append((name, local))

@@ -4,14 +4,18 @@ Existe solo porque el Assessment se introdujo DESPUÉS de que ya hubiera entrada
 Publicar → Assessment y figuran "Sin assessment". Es una acción de migración/bootstrap, NO comportamiento de request: ningún GET
 (detalle del flujo, Portfolio) la invoca ni genera assessments.
 
+Persistencia: ``generate`` escribe el sobre canónico en el almacén DURABLE del assessment gobernado (``governed-assessments``, registrado en
+``PERSIST_PATHS``): se corre UNA vez y los assessments sobreviven a reinicios y deploys. Un assessment generado que solo quedó en memoria
+(``durable == "memory"``) se informa como FALLA, no como éxito. ``durability`` cuenta remote / local / memory de lo generado.
+
 Garantías (cubiertas por tests):
   * usa SOLO la evidencia local ya presente (el pool CSN del Catálogo): cero conexión a Datasphere, cero credenciales, cero extracción
     de linaje. Genera con ``assessment_service.generate`` (la misma API canónica del POST del informe);
   * omite lo que no está en ``NOT_YET_ASSESSED`` (ya vigente, desactualizado, no aplica, etc.: no se pisa ni se regenera);
   * una falla individual no corta el lote; se informa ``generated / skipped / failed`` con el motivo de cada uno.
 
-Uso (con el MISMO ``DANWOR_CATALOG_DIR`` / ``DANWOR_ASSESSMENT_CACHE_DIR`` del servidor que se quiere poblar; la caché de assessments es
-operativa y NO se espeja):
+Uso (con el MISMO ``DANWOR_CATALOG_DIR`` / ``DANWOR_GOVERNED_ASSESSMENTS_DIR`` y las credenciales Spaces del servidor que se quiere
+poblar; sin Spaces queda en el disco local):
     python -m webapp.services.assessment_backfill [--client "Biogenesis"] [--dry-run]
 """
 from __future__ import annotations
@@ -45,9 +49,16 @@ def backfill(entries: Iterable[Any], *, dry_run: bool = False,
             out["failed"].append({**ref, "state": svc.FAILED, "reason": f"{type(exc).__name__}: {exc}"})
             continue
         row = {**ref, "state": result.state, "reason": result.reason}
+        durable = getattr(result, "durable", None)
+        row["durable"] = durable
+        if result.state == svc.CURRENT and durable == svc.DURABLE_MEMORY:      # generado pero NO persistido: no se informa como éxito
+            out["failed"].append({**row, "state": svc.FAILED, "reason": "generado pero no persistido (solo memoria)"})
+            continue
         bucket = "generated" if result.state == svc.CURRENT else "skipped" if result.state == svc.NOT_APPLICABLE else "failed"
         out[bucket].append(row)
     out["counts"] = {k: len(out[k]) for k in ("generated", "skipped", "failed")}
+    out["durability"] = {k: sum(1 for r in out["generated"] if r.get("durable") == k)
+                         for k in (svc.DURABLE_REMOTE, svc.DURABLE_LOCAL, svc.DURABLE_MEMORY)}
     return out
 
 
