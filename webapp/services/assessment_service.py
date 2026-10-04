@@ -248,6 +248,16 @@ def resolve_entries(entries: Iterable[Any]) -> dict[str, Resolution]:
     return out
 
 
+def pool_json_files(client: str, domain_label: str = "") -> tuple[Path, list[Path]] | None:
+    """(raíz del pool, archivos .json elegibles del cliente) con la MISMA resolución cliente/dominio que el Assessment; None si no hay pool o el
+    cliente no figura / es ambiguo. Solo LECTURA."""
+    root = pool_root()
+    if root is None:
+        return None
+    tag, payload = _select(root, client, domain_label)
+    return (root, list(payload[1]["jsons"])) if tag == "OK" else None
+
+
 def _select(root: Path, client: str, domain_label: str):
     try:
         return "OK", ma_shadow.select_pool(root, client)

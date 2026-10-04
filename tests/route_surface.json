@@ -27,6 +27,7 @@
   "GET /catalog/guide/{slug}",
   "GET /catalog/security",
   "GET /catalog/security/detail",
+  "GET /catalog/sql",
   "GET /cchh",
   "GET /cchh/busquedas",
   "GET /cchh/busquedas/nueva",

@@ -32,6 +32,17 @@ BASIS_STORED = "STORED"
 BASIS_DERIVED = "DERIVED"
 
 
+def _definition_of(data: Any, technical_name: str) -> dict | None:
+    """La definición del artefacto (por nombre técnico; si no, la primera): ÚNICO lugar que la localiza (clasificación y consulta SQL)."""
+    definitions = data.get("definitions", {}) if isinstance(data, dict) else {}
+    if not isinstance(definitions, dict):
+        return None
+    definition = definitions.get(technical_name)
+    if not isinstance(definition, dict):
+        definition = next((v for v in definitions.values() if isinstance(v, dict)), None)
+    return definition if isinstance(definition, dict) else None
+
+
 def classify_view_type(data: dict[str, Any], technical_name: str) -> str:
     editor_settings = data.get("editorSettings", {}) if isinstance(data, dict) else {}
     if isinstance(editor_settings, dict):
@@ -41,18 +52,18 @@ def classify_view_type(data: dict[str, Any], technical_name: str) -> str:
             if isinstance(editor, dict) and editor.get("default") == GRAPHICAL_EDITOR:
                 return GRAPHICAL
 
-    definitions = data.get("definitions", {}) if isinstance(data, dict) else {}
-    if not isinstance(definitions, dict):
-        return UNKNOWN
-
-    definition = definitions.get(technical_name)
-    if not isinstance(definition, dict):
-        definition = next((v for v in definitions.values() if isinstance(v, dict)), None)
-
-    if isinstance(definition, dict) and SQL_QUERY_KEY in definition:
+    definition = _definition_of(data, technical_name)
+    if definition is not None and SQL_QUERY_KEY in definition:
         return SQL
 
     return UNKNOWN
+
+
+def sql_query_of(data: Any, technical_name: str) -> str | None:
+    """La consulta SQL EXACTA (``@DataWarehouse.sqlEditor.query``) tal como se exportó, o None si no hay texto. No la ejecuta ni la transforma."""
+    definition = _definition_of(data, technical_name)
+    query = definition.get(SQL_QUERY_KEY) if definition is not None else None
+    return query if isinstance(query, str) and query.strip() else None
 
 
 def view_type_of_export(data: dict[str, Any], technical_name: str) -> tuple[str, str]:

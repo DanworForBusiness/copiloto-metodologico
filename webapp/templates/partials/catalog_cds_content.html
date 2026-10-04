@@ -12,7 +12,7 @@
 <a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>
 {% endif %}
 <section class="module-hero">
-  <p class="eyebrow">Catálogo Danwor · API corporativa{% if cliente %} · {{ cliente }}{% endif %}</p>
+  <p class="eyebrow">Catálogo Danwor · {{ source_label or "API corporativa" }}{% if cliente %} · {{ cliente }}{% endif %}</p>
   <h1>{{ cds_title }}</h1>
   {% if cds_intro %}<p class="hero-lead">{{ cds_intro }}</p>{% endif %}
   <div class="hero-meta">
