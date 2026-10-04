@@ -17,7 +17,7 @@
 {% else %}
   <form id="dsp-form" data-dsp-form method="post" action="/modules/{{ pub.stem }}/datasphere-publication/run" autocomplete="off">
     <input type="hidden" name="pack" value="{{ pack }}">
-    {{ datasphere_form_fields("dsp", pub.form, pub.feature_options, "Seleccioná qué tipos de evidencia incluir en la extracción. Excluirlos puede reducir el tiempo de procesamiento, pero limita el alcance publicado.") }}
+    {{ datasphere_form_fields("dsp", pub.form, pub.feature_options, "Seleccioná qué tipos de evidencia incluir en la extracción. Excluirlos puede reducir el tiempo de procesamiento, pero limita el alcance publicado.", pub.owner_profiles_url) }}
     <div class="admin-actions">
       <button type="submit" class="btn-primary tool-primary" data-dsp-submit>Publicar modelo</button>
     </div>

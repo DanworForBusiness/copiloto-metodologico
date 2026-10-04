@@ -406,6 +406,11 @@ SHAREPOINT_SECURITY_ROLE_MATRIX_URL = _env(
 )
 SHAREPOINT_SECURITY_ROLE_MATRIX_CLIENT = _env("SHAREPOINT_SECURITY_ROLE_MATRIX_CLIENT", "Danone")
 
+# SharePoint / Graph — libro Excel PRIVADO con los perfiles de conexión Datasphere por cliente (link de compartir). SOLO lo usa el selector
+# "Cliente" del dueño de la app en Assessment ad-hoc y Publicar modelo (webapp/services/datasphere_profiles.py). Sin valor por defecto: si falta,
+# el selector no se muestra y el formulario manual sigue igual. Contiene secretos: nunca se expone ni se registra.
+SHAREPOINT_DSP_OAUTH_URL = _env("SHAREPOINT_DSP_OAUTH_URL", "")
+
 # SharePoint / Graph — Staffing (Operations, Batch 2 de aceleración post-Fase 2).
 # Sitio "Gestión": Asignaciones por proyecto / Proyectos / Colaboradores.
 # El site ID NO está establecido en este repo/HANDOFF — a diferencia de
