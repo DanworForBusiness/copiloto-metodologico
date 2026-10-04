@@ -5,8 +5,10 @@
    `p` = prefijo de los hooks de JS/ids ("dsa" | "dsp"): `id="<p>-<campo>"`, `data-<p>-error`, `data-<p>-scope`.
    `form` = campos NO sensibles de la sesión (nunca el secreto). `feature_options` = familias opcionales de evidencia.
    `scope_help` = copy del disclosure "Alcance de evidencia" (la única diferencia semántica entre ambas herramientas).
+   `profiles_url` = endpoint de perfiles de clientes; el SERVIDOR lo pasa SOLO si el usuario es APP_OWNER y la fuente SharePoint está
+   configurada (si no, el selector no existe en el HTML). El selector es de SOLO metadatos seguros: el Client Secret nunca llega al navegador.
    SECRETO: el Client Secret es `type="password"`, no se renderiza de vuelta. #}
-{% macro datasphere_form_fields(p, form, feature_options, scope_help) %}
+{% macro datasphere_form_fields(p, form, feature_options, scope_help, profiles_url="") %}
 {% macro field(name, label, kind="text", placeholder="", first=False, field_name="", value="") %}
 <div{% if not first %} class="catalog-picker--secondary"{% endif %}>{# separación entre campos: margen estándar del picker secundario #}
 <label class="tool-label" for="{{ p }}-{{ name }}">{{ label }}</label>
@@ -17,6 +19,19 @@
 </div>
 </div>
 {% endmacro %}
+{% if profiles_url %}
+{# Selector "Cliente" (solo dueño): MISMOS primitivos del selector del Catálogo (`.tree-picker` + `.tool-label` + `.tree-picker-row` + select; el
+   `.tree-picker` aporta el divisor gris de cierre). Sin `name`: no se envía; solo `profile_id` (opaco) viaja con el POST. #}
+<div class="tree-picker" data-dw-owner-profile data-profiles-url="{{ profiles_url }}">
+  <label class="tool-label" for="{{ p }}-profile">Cliente</label>
+  <div class="tree-picker-row">
+    <select id="{{ p }}-profile" data-dw-profile-select><option value="">Elegí un cliente...</option></select>
+    <p class="feedback-error" data-dw-profile-warning role="status" hidden></p>
+  </div>
+  <input type="hidden" name="profile_id" value="" data-dw-profile-id>
+  <input type="hidden" name="graph_token" value="" data-dw-graph-field>
+</div>
+{% endif %}
 <div class="tree-picker catalog-picker--secondary">
   <span class="admin-result-title">Conexión Datasphere</span>
   {{ field("host", "URL del tenant", "url", "https://mi-tenant.eu10.hcs.cloud.sap", first=True, value=form.get("host", "")) }}

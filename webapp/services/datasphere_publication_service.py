@@ -72,7 +72,9 @@ def tool_context(request, stem: str) -> dict:
     selected = values.get("features")
     checked = list(asd.OPTIONAL_FEATURES) if selected is None else [f for f in asd.OPTIONAL_FEATURES if f in selected.split(",")]
     options = [{"value": f, "label": asd.FEATURE_LABELS[f], "checked": f in checked} for f in asd.OPTIONAL_FEATURES]
-    return {"enabled": enabled, "can_execute": can, "stem": stem, "form": values, "feature_options": options}
+    from webapp.services import datasphere_profiles
+    return {"enabled": enabled, "can_execute": can, "stem": stem, "form": values, "feature_options": options,
+            "owner_profiles_url": datasphere_profiles.selector_url(stem, can)}
 
 
 # ───────────────────────────── single-flight (espacio de claves propio) ─────────────────────────────

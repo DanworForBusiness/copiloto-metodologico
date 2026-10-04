@@ -330,4 +330,4 @@ def test_g_full_route_surface_unchanged_by_this_gate():
     # este gate sigue sin cambios propios.
     # 188 -> 189 (Catalog Publication front): +1 ruta `POST /modules/{stem}/datasphere-publication/run`
     # (herramienta "Publicar modelo") -- CERO rutas de Estrategia tocadas, este gate sigue sin cambios propios.
-    assert len(snapshot) == 192   # +2 (Datasphere UI: POST run, refresh-catalog) +5 (ad-hoc: GET result, export.json, export.md, log, POST delete) +1 (Datasphere publicación: POST .../datasphere-publication/run) +3 (Assessment del cliente: GET /catalog/client/assessment, .json, .md)
+    assert len(snapshot) == 193   # +2 (Datasphere UI: POST run, refresh-catalog) +5 (ad-hoc: GET result, export.json, export.md, log, POST delete) +1 (Datasphere publicación: POST .../datasphere-publication/run) +3 (Assessment del cliente: GET /catalog/client/assessment, .json, .md) +1 (Perfiles de clientes del dueño: POST /modules/{stem}/datasphere-profiles)

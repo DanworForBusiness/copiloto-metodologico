@@ -21,7 +21,7 @@
   <p class="tool-suggest__link"><a href="/catalog/guide/como-assessment-modelado?pack={{ pack }}"><strong>¿Querés saber cómo funciona?</strong> Click aca →</a></p>
   <form id="dsa-form" data-dsa-form method="post" action="/modules/{{ dsa.stem }}/datasphere-assessment/run" autocomplete="off">
     <input type="hidden" name="pack" value="{{ pack }}">
-    {{ datasphere_form_fields("dsa", dsa.form, dsa.feature_options, "Seleccioná qué tipos de evidencia incluir en la extracción. Excluirlos puede reducir el tiempo de procesamiento, pero limita el alcance de evidencia disponible para el assessment.") }}
+    {{ datasphere_form_fields("dsa", dsa.form, dsa.feature_options, "Seleccioná qué tipos de evidencia incluir en la extracción. Excluirlos puede reducir el tiempo de procesamiento, pero limita el alcance de evidencia disponible para el assessment.", dsa.owner_profiles_url) }}
     <div class="admin-actions">
       <button type="submit" class="btn-primary tool-primary" data-dsa-submit>Ejecutar assessment</button>
     </div>

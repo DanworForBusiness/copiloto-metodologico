@@ -13,6 +13,9 @@ Rutas (SOLO el POST ejecuta; los GET son de lectura):
   POST /modules/{stem}/datasphere-assessment/result/{result_id}/delete       elimina ESE resultado temporal (y su log); solo su dueño
   GET  /modules/{stem}/datasphere-assessment/result/{result_id}/export.json   perfil canónico guardado
   GET  /modules/{stem}/datasphere-assessment/result/{result_id}/export.md     render_markdown del mismo perfil
+  POST /modules/{stem}/datasphere-profiles                             (dueño) lista SEGURA de perfiles de clientes desde SharePoint, para el
+                                                                       selector "Cliente" de Assessment Y Publicar (sin secretos; ver
+                                                                       ``datasphere_profiles``); cualquier otro usuario recibe 403 sin tocar SharePoint
   POST /modules/{stem}/datasphere-assessment/refresh-catalog           capacidad existente (futuro "Catálogo → Agregar"); ya no se
                                                                        expone desde esta herramienta
 
@@ -35,6 +38,7 @@ from webapp import same_origin_guard, workspaces
 from webapp.services import assessment_presenter as presenter
 from webapp.services import assessment_service as asvc
 from webapp.services import auth_service
+from webapp.services import datasphere_profiles as profiles
 from webapp.services import datasphere_assessment_service as svc
 from webapp.services.activity_context import AREA_CATALOG, SCOPE_COPILOT
 from webapp.services.activity_service import log_activity
@@ -78,6 +82,7 @@ def run_assessment(
     client_id: str = Form("", alias="datasphere_client_id"), client_secret: str = Form("", alias="datasphere_client_secret"),
     space: str = Form(""), root_object: str = Form("", alias="datasphere_root_object"), client: str = Form(""),
     features: list[str] = Form([], alias="datasphere_features"), features_submitted: str = Form("", alias="datasphere_features_submitted"),
+    profile_id: str = Form(""), graph_token: str = Form(""),
 ):
     """Ejecuta y emite el avance EN TIEMPO REAL como NDJSON (una línea JSON por evento):
         {"t":"start"}                              apenas arranca
@@ -94,6 +99,14 @@ def run_assessment(
     svc.save_form_context(svc.session_key(request), values)        # contexto no sensible de la sesión (el secreto jamás entra a FormValues)
     secret = client_secret
     del client_secret
+    if profile_id.strip():                                              # perfil del dueño: el secreto se resuelve en el SERVIDOR (jamás viene del navegador)
+        profile = profiles.resolve(profile_id, graph_token)
+        del graph_token
+        if profile is None:
+            return StreamingResponse(iter([profiles.failed_run_events()]), media_type="application/x-ndjson",
+                                     headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+        secret = profile.secret
+        del profile
     events: queue.Queue = queue.Queue()
 
     def worker() -> None:
@@ -126,6 +139,15 @@ def run_assessment(
 
     return StreamingResponse(stream(), media_type="application/x-ndjson",
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no", "X-Content-Type-Options": "nosniff"})
+
+
+@router.post("/modules/{stem}/datasphere-profiles", include_in_schema=False)
+def datasphere_client_profiles(request: Request, stem: str, graph_token: str = Form("")):
+    """Perfiles de clientes (SOLO metadatos seguros) para el selector del dueño. ``_authorize`` exige sesión + mismo origen + herramienta
+    habilitada + ser APP_OWNER ANTES de cualquier lectura de SharePoint. Estado no disponible → ``{"ok": false, "reason", "message"}``
+    (200): el formulario manual sigue funcionando."""
+    _authorize(request, stem)
+    return JSONResponse(profiles.list_public(graph_token), headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
 
 def _record_or_404(request: Request, result_id: str) -> dict:

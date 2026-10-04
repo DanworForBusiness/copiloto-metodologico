@@ -154,6 +154,7 @@
   "POST /modules/{stem}/datasphere-assessment/refresh-catalog",
   "POST /modules/{stem}/datasphere-assessment/result/{result_id}/delete",
   "POST /modules/{stem}/datasphere-assessment/run",
+  "POST /modules/{stem}/datasphere-profiles",
   "POST /modules/{stem}/datasphere-publication/run",
   "POST /modules/{stem}/diagnostics/orchestrator",
   "POST /modules/{stem}/feedback",
