@@ -173,23 +173,25 @@ def test_json_exposes_the_composition_as_objective_facts(doc):
 def test_markdown_and_html_view_show_the_same_metrics(doc):
     md = render_md.render_markdown(doc)
     sentence = "El cierre semántico contiene 3 vistas: 1 gráfica, 1 SQL y 1 sin clasificación."
-    assert sentence in md and "Vistas de Datasphere en el cierre (únicas): 3" in md and "  - gráficas: 1" in md
-    assert "gráficas: count 1, proporción 33.3%, tipo GRAPHICAL" in md                            # misma proporción formateada que la UI
+    assert md.count(sentence) == 1                                                                 # UN solo hogar: el resumen transversal de la sección (no el área)
+    assert "Vistas de Datasphere en el cierre (únicas)" not in md and "gráficas: count 1, proporción" not in md   # los totales no se repiten bajo Modelo analítico
+    assert md.index(sentence) < md.index("### Modelo analítico")                                    # ...y van ANTES de la primera área
     from webapp.services import assessment_presenter as presenter
     from webapp.services import assessment_service as svc
     entry = type("E", (), {"entry_id": "e", "cliente": "Acme", "dominio": "General", "artefactos": ["4AM_T"]})()
     status = svc.AssessmentStatus(svc.CURRENT, "e", "Acme", "4AM_T", generated_at="2026-10-04T00:00:00+00:00", profile=doc)
     view = presenter.report_view(status, entry, "datasphere_core")
     area = next(a for mg in view["macro_groups"] for a in mg["areas"] if a["id"] == "ANALYTIC_MODEL")
-    assert area["facts"]["notes"] == [sentence]                                                  # misma frase que el Markdown
+    assert area["facts"]["notes"] == []                                                           # el área ya no repite la composición del cierre
     tables = {t["title"]: t for g in area["facts"]["groups"] for t in g["tables"]}
-    assert tables["Vistas de Datasphere en el cierre (únicas)"]["rows"][0] == ["Total", 3]
-    dist = tables["Distribución por tipo de vista"]
-    assert dist["columns"] == ["Nombre", "Cantidad", "Proporción", "Tipo"] and [r[2] for r in dist["rows"]] == ["33.3%", "33.3%", "33.3%"]
+    assert "Vistas de Datasphere en el cierre (únicas)" not in tables and "Distribución por tipo de vista" not in tables
+    assert area["facts"]["closure_views"] == {"total": 3, "graphical": 1, "sql": 1, "unknown": 1, "structural": False}   # lo consume el resumen de la sección
+    group = next(mg for mg in view["macro_groups"] if any(a["id"] == "ANALYTIC_MODEL" for a in mg["areas"]))
+    assert [t["label"] for t in group["view_overview"]["tiles"]] == ["Total de vistas", "Vistas gráficas", "Vistas SQL", "Sin clasificar"]
+    assert [t["value"] for t in group["view_overview"]["tiles"]] == [3, 1, 1, 1]
     from webapp.main import templates
     html = templates.get_template("partials/catalog_assessment_report.html").render(v=view)
-    for token in (sentence, "Distribución por tipo de vista", "33.3%", "3VF_SQL", "GRAPHICAL"):
-        assert token in html, token
+    assert 'data-block="view-overview"' in html and "3VF_SQL" in html and "GRAPHICAL" in html                 # el detalle por artefacto se conserva
 
 
 # ── 18. perfiles anteriores (sin el hecho) siguen legibles ──────────────────
@@ -207,7 +209,8 @@ def test_legacy_profiles_without_the_fact_stay_readable_and_show_nothing_invente
     status = svc.AssessmentStatus(svc.CURRENT, "e", "Acme", "4AM_T", generated_at="2026-10-04T00:00:00+00:00", profile=legacy)
     view = presenter.report_view(status, entry, "datasphere_core")
     area = next(a for mg in view["macro_groups"] for a in mg["areas"] if a["id"] == "ANALYTIC_MODEL")
-    assert area["facts"]["notes"] == [] and "Composición del cierre por tipo de vista" not in [g["title"] for g in area["facts"]["groups"]]   # ausente ≠ cero vistas
+    assert area["facts"]["notes"] == [] and area["facts"]["closure_views"] is None and "Vistas del cierre (nombre técnico y tipo)" not in [g["title"] for g in area["facts"]["groups"]]   # ausente ≠ cero vistas
+    assert all(mg["view_overview"] is None for mg in view["macro_groups"])
 
 
 # ── 19-20. sin juicio, sin puntaje, sin tocar versiones/cobertura/veredicto legacy ──────────────────
@@ -248,7 +251,7 @@ def test_flat_pool_wording_does_not_claim_zero_unknown_as_exhaustive(tmp_path):
     assert h["views_in_closure"]["value"] == 2 and {r["membership_basis"] for r in h["view_artifacts"]["value"]} == {"STRUCTURAL_MARKER"}   # hechos intactos
     assert {b["name"]: b["count"] for b in h["views_in_closure"]["breakdown"]}["sin clasificar"] == 0                                         # el JSON sigue siendo factual
     md = render_md.render_markdown(d)
-    assert "Se identificaron 2 vistas en el cierre semántico: 1 gráfica y 1 SQL." in md
+    assert "Se identificaron 2 vistas en el cierre semántico: 1 gráfica y 1 SQL." in md and md.count("Se identificaron 2 vistas") == 1
     assert "sin clasificación" not in md.split("Se identificaron")[1].split("\n")[0]                  # no se afirma "0 sin clasificación"
     assert "solo se reconocen por su marcador gráfico o SQL" in md
     from webapp.services import assessment_presenter as presenter
@@ -256,7 +259,10 @@ def test_flat_pool_wording_does_not_claim_zero_unknown_as_exhaustive(tmp_path):
     entry = type("E", (), {"entry_id": "e", "cliente": "Flat", "dominio": "General", "artefactos": ["4AM_T"]})()
     status = svc.AssessmentStatus(svc.CURRENT, "e", "Flat", "4AM_T", generated_at="2026-10-04T00:00:00+00:00", profile=d)
     area = next(a for mg in presenter.report_view(status, entry, "datasphere_core")["macro_groups"] for a in mg["areas"] if a["id"] == "ANALYTIC_MODEL")
-    assert len(area["facts"]["notes"]) == 1 and area["facts"]["notes"][0].startswith("Se identificaron 2 vistas") and "0 sin clasificación" not in area["facts"]["notes"][0]
+    group = next(mg for mg in presenter.report_view(status, entry, "datasphere_core")["macro_groups"] if any(a["id"] == "ANALYTIC_MODEL" for a in mg["areas"]))
+    ov = group["view_overview"]
+    assert [t["label"] for t in ov["tiles"]] == ["Total de vistas", "Vistas gráficas", "Vistas SQL"]            # sin tile de "Sin clasificar" en 0
+    assert ov["caveat"] == render_md.STRUCTURAL_VIEWS_CAVEAT and "no informa carpetas por tipo" in ov["caveat"]    # pool plano: salvedad breve, jamás un "0 sin clasificar"
 
 
 def test_wording_by_membership_basis_authoritative_structural_and_mixed():

@@ -211,16 +211,24 @@ def highlight_label(h: dict) -> str:
     return _HIGHLIGHT_LABELS.get(h["id"], h["label"])
 
 
-def view_scope_text(total: int, breakdown: list[dict]) -> str:
-    """"Vistas consideradas: 16 · 13 gráficas · 3 SQL[ · 1 sin clasificar]": vistas ÚNICAS que participan en la evidencia evaluada en la sección. Es contexto
-    factual (no pertenencia exclusiva a una capa ni juicio): una misma vista puede participar en Armonización y en Propagación."""
-    if not total:
-        return "Vistas consideradas: 0"
-    n = {b["name"]: b["count"] for b in breakdown}
-    parts = [str(total), _plural(n.get("gráficas", 0), "gráfica"), f"{n.get('SQL', 0)} SQL"]
-    if n.get("sin clasificar", 0):
-        parts.append(f"{n['sin clasificar']} sin clasificar")
-    return "Vistas consideradas: " + " · ".join(parts)
+# Títulos públicos que cambiaron de redacción: un perfil persistido antes del cambio conserva el texto viejo en su JSON; la lectura usa SIEMPRE el vigente.
+# Los ids / enums técnicos (p. ej. CROSS_LAYER_REDERIVATION) no cambian. El algoritmo NO compara capas: compara artefactos distintos aguas arriba.
+_TITLE_COMPAT = {"CROSS_LAYER_REDERIVATION": ("Campo derivado de nuevo en otra capa", "Derivación repetida en el linaje")}
+
+
+def display_title(item_id: str, title: str) -> str:
+    """Título visible vigente de un hallazgo / regla (el persistido puede traer la redacción anterior)."""
+    old, new = _TITLE_COMPAT.get(item_id, (None, None))
+    return new if title == old else title
+
+
+def display_doc(doc: dict) -> dict:
+    """Copia superficial del documento con los títulos públicos vigentes (hallazgos y reglas). No toca ids, enums ni cálculos."""
+    out = dict(doc)
+    for key, id_key in (("observations", "id"), ("review_required", "id"), ("descriptive_signals", "id"), ("rule_results", "rule")):
+        if key in doc:
+            out[key] = [{**g, "title": display_title(g[id_key], g["title"])} if g.get(id_key) in _TITLE_COMPAT else g for g in doc[key]]
+    return out
 
 
 def review_required_text(n_occurrences: int, n_groups: int) -> tuple[str, str]:
@@ -248,6 +256,9 @@ def context_open_text(ctx: dict) -> tuple[str, str]:
     return head, detail
 
 
+STRUCTURAL_VIEWS_CAVEAT = "El pool no informa carpetas por tipo en todos los casos: las vistas sin carpeta solo se reconocen por su marcador gráfico o SQL."
+
+
 def view_composition_text(total: int, breakdown: list[dict], *, structural: bool = False) -> str:
     """Lectura objetiva de la composición del cierre por tipo de vista, SIN juicio. La comparten el Markdown y la UI estructurada.
     ``structural`` = al menos una vista se reconoció solo por su marcador estructural (pools planos, sin carpeta-tipo): ahí una vista sin
@@ -263,7 +274,10 @@ def view_composition_text(total: int, breakdown: list[dict], *, structural: bool
         items.append(f"{u} sin clasificación (entre las identificadas por carpeta)")
     listed = ", ".join(items[:-1]) + " y " + items[-1]
     return (f"Se identificaron {_plural(total, 'vista')} en el cierre semántico: {listed}. "
-            "El pool no informa carpetas por tipo en todos los casos: las vistas sin carpeta solo se reconocen por su marcador gráfico o SQL.")
+            f"{STRUCTURAL_VIEWS_CAVEAT}")
+
+
+_CLOSURE_VIEW_TOTALS = ("views_in_closure", "view_type_distribution")      # totales de la composición del cierre: los muestra el resumen de la sección, no el área
 
 
 def has_structural_membership(highlights: list[dict]) -> bool:
@@ -330,21 +344,17 @@ def _area_block(area: dict, groups_by_id: dict[str, dict], rule_by_area: dict[st
     rs = area["required_surfaces"]
     out.append(f"**Superficies de evidencia requeridas:** {_plural(rs['assessed'], 'evaluada')}, {_plural(rs['partially_assessed'], 'parcialmente evaluada')}, "
                f"{_plural(rs['not_assessed'], 'no evaluada')}, {rs['not_applicable']} no aplican")
-    scope = next((h for h in area["highlights"] if h["id"] == "views_considered"), None)
-    if scope is not None:
-        out.append(view_scope_text(scope["value"], scope.get("breakdown") or []))
     out.append("")
-    if [h for h in area["highlights"] if h["id"] != "views_considered"]:
+    # La composición del cierre por tipo de vista tiene UN solo hogar: el resumen transversal de la sección Arquitectura / Modelado (ver `render_markdown`);
+    # acá solo queda el detalle por artefacto (`view_artifacts`).
+    shown = [h for h in area["highlights"] if not (area["id"] == "ANALYTIC_MODEL" and h["id"] in _CLOSURE_VIEW_TOTALS)]
+    if shown:
         out.append("Qué se observó (hechos descriptivos, sin juicio):")
         out.append("")
-        for h in area["highlights"]:
-            if h["id"] == "views_considered":
-                continue
+        for h in shown:
             out.append(f"- {highlight_label(h)}: {_value_text(h['value'])}")
             for b in h.get("breakdown") or []:
                 out.append(f"  - {b['name']}: {b['count']}")
-            if h["id"] == "views_in_closure":
-                out.append(f"  - {view_composition_text(h['value'], h.get('breakdown') or [], structural=has_structural_membership(area['highlights']))}")
         out.append("")
     gids = area["finding_groups"]
     if gids:
@@ -408,6 +418,7 @@ def _evidence_scope_lines(scope: dict | None) -> list[str]:
 
 def render_markdown(doc: dict) -> str:
     """Markdown determinista (espanol) a partir del documento publico."""
+    doc = display_doc(doc)                                      # títulos públicos vigentes aun con perfiles anteriores
     scope, summary = doc["scope"], doc["summary"]
     L: list[str] = ["# Autoevaluación de Modelado", ""]
     L += [f"- **Cliente:** {scope['client']}",
@@ -478,6 +489,10 @@ def render_markdown(doc: dict) -> str:
         rule_by_area.setdefault(r["area"], []).append(r)
 
     L += ["## Arquitectura / Modelado", ""]
+    closure_views = next((h for h in areas["ANALYTIC_MODEL"]["highlights"] if h["id"] == "views_in_closure"), None)
+    if closure_views is not None:                                                  # perfiles anteriores sin el hecho: no se muestra nada (ausente ≠ cero)
+        L += [view_composition_text(closure_views["value"], closure_views.get("breakdown") or [],
+                                    structural=has_structural_membership(areas["ANALYTIC_MODEL"]["highlights"])), ""]
     for aid in _ARCH_AREAS:
         L += _area_block(areas[aid], groups_by_id, rule_by_area, "###")
     L += ["## Convención de nombres", ""] + _area_block(areas["NAMING"], groups_by_id, rule_by_area, "###")[2:]

@@ -28,7 +28,8 @@ def test_a_kpi_with_help_renders_the_shared_hub_info_affordance():
     assert html.startswith('<div class="activity-kpi"><span class="activity-kpi__value">90.0%</span><span class="activity-kpi__label">Cobertura estricta</span>')
     assert '<button type="button" class="activity-kpi__info" aria-label="Información sobre Cobertura estricta: Línea uno. Línea dos.">' in html
     assert '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>' in html     # mismo ícono del Hub
-    assert '</button><span class="chart-tooltip"><p>Línea uno.</p><p>Línea dos.</p></span></div>' in html                                   # caja hermana del botón
+    assert '</button><span class="chart-tooltip">Línea uno.<br>Línea dos.</span></div>' in html                                              # caja hermana del botón; sin <p>
+    assert "<p>" not in html                                                                                                                  # `.methodology p` pisaría el color/tamaño del tooltip del Hub
     reference = (REPO / "webapp" / "static" / "reporting.js").read_text(encoding="utf-8")
     assert 'class="activity-kpi__info"' in reference and '<circle cx="12" cy="12" r="9"/>' in reference and 'class="chart-tooltip"' in reference   # es el del Tablero
 
@@ -91,7 +92,7 @@ def test_the_canonical_json_and_markdown_are_unchanged_by_the_help(_doc):
 def test_the_rendered_individual_report_shows_four_info_icons_and_the_portfolio_is_untouched(_report_view):
     html = templates.get_template("partials/catalog_assessment_report.html").render(v=_report_view)
     top = html[:html.index('id="asr-resumen"')]                                                    # los 4 indicadores superiores (las áreas tienen los suyos)
-    assert top.count('class="activity-kpi__info"') == 4 and top.count('<span class="chart-tooltip"><p>') == 4
+    assert top.count('class="activity-kpi__info"') == 4 and top.count('<span class="chart-tooltip">') == 4 and "<p>" not in "".join(re.findall(r'<span class="chart-tooltip">.*?</span>', top))
     for k in _report_view["kpis"]:
         assert f'<span class="activity-kpi__label">{k["label"]}</span>' in html
     portfolio = (REPO / "webapp" / "templates" / "partials" / "client_assessment_report.html").read_text(encoding="utf-8")

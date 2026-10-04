@@ -1,15 +1,15 @@
-"""test_assessment_area_scope.py — indicadores de Propagación / Armonización (etiquetas fieles + ayuda (i)) y "Vistas consideradas" por área.
+"""test_assessment_area_scope.py — arquitectura de la información de "Arquitectura & Modelado": cada nivel dice lo suyo.
 
-Contrato:
-  * etiquetas visibles fieles a lo que se mide ("Pasos de linaje evaluados": aristas proveedor→consumidor evaluadas, también las de contrato idéntico;
-    "Derivaciones repetidas": OCURRENCIAS (campo, consumidor, ancestro); "Artefactos con reuso": solo entre candidatos evaluados); ningún cálculo cambia;
-  * "Vistas consideradas" = vistas ÚNICAS que participan en la evidencia de la sección (poblaciones SOLAPADAS, sin mapa artefacto→área ni capa numérica),
-    tipadas por el clasificador único; se deriva UNA vez en el perfil (no en la plantilla); los perfiles anteriores siguen legibles sin la línea;
-  * ayuda (i) con el primitivo del Hub, sin CSS/JS nuevo; sin señales, puntajes ni umbrales.
+  SECCIÓN [02]  → resumen TRANSVERSAL: composición del cierre por tipo de vista (hecho canónico `am.view_type_composition`), UNA sola vez;
+  CONTENEDOR DE ÁREA → solo su evidencia: indicadores propios (etiquetas fieles + ayuda (i) con el mismo componente que los KPI superiores), reglas y hallazgos.
+
+Las poblaciones de vistas por área (rechazadas: se solapan y sugerían pertenencia exclusiva) NO existen en el perfil ni en la presentación.
+Sin cálculos nuevos, sin señales ni puntajes, sin CSS/JS nuevo.
 """
 from __future__ import annotations
 
 import copy
+import inspect
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,9 +28,11 @@ from webapp.services import assessment_service as svc
 
 REPO = Path(__file__).resolve().parents[2]
 TEMPLATE = "partials/catalog_assessment_report.html"
+TEMPLATE_PATH = REPO / "webapp/templates/partials/catalog_assessment_report.html"
 OLD_LABELS = ("Pasos de linaje con delta de contrato", "Artefactos con campos derivados", "Campos derivados de nuevo en un ancestro del linaje",
               "Dimensiones declaradas en el cierre", "Artefactos de composición (dos o más proveedores de linaje)",
               "Artefactos contenidos también en otros modelos analíticos")
+OLD_RULE_TITLE, NEW_RULE_TITLE = "Campo derivado de nuevo en otra capa", "Derivación repetida en el linaje"
 
 
 @pytest.fixture()
@@ -51,39 +53,6 @@ def _html(view):
     return templates.get_template(TEMPLATE).render(v=view)
 
 
-def _hl(doc, area, hid):
-    return next((h for a in doc["areas"] if a["id"] == area for h in a["highlights"] if h["id"] == hid), None)
-
-
-# ── etiquetas ───────────────────────────────────────────────────────────────
-def test_the_visible_labels_are_the_agreed_ones_in_profile_html_and_markdown(doc):
-    expected = {"lineage_steps_evaluated": "Pasos de linaje evaluados", "artifacts_with_derived_fields": "Artefactos con derivaciones",
-                "rederived_field_occurrences": "Derivaciones repetidas", "declared_dimensions": "Dimensiones declaradas",
-                "composition_artifacts": "Artefactos de composición", "cross_model_reuse_artifacts": "Artefactos con reuso"}
-    assert render_md._HIGHLIGHT_LABELS == expected                                                      # una sola fuente visible
-    for area in ("PROPAGATION", "HARMONIZATION"):
-        for h in next(a for a in doc["areas"] if a["id"] == area)["highlights"]:
-            if h["id"] in expected:
-                assert h["label"] == expected[h["id"]]                                                  # el perfil nuevo ya trae la etiqueta vigente
-    html, md = _html(_view(doc)), render_md.render_markdown(doc)
-    for text in (html, md):
-        for old in OLD_LABELS:
-            assert old not in text, old
-    assert "Pasos de linaje evaluados" in html and "Pasos de linaje evaluados" in md
-
-
-def test_the_numeric_values_are_unchanged_and_an_identical_edge_still_counts(doc):
-    # fixture sintético: la regla es `usables(contract_delta) + usables(am.contract_delta)`; una arista de contrato idéntico es un hecho usable más
-    ident = make_fact("propagation.contract_delta", Area.PROPAGATION, "A->B", {"descriptors": {"schema_identical": True}}, EvidenceClass.B)
-    changed = make_fact("propagation.contract_delta", Area.PROPAGATION, "B->C", {"descriptors": {"schema_identical": False}}, EvidenceClass.B)
-    final = make_fact("am.contract_delta", Area.ANALYTIC_MODEL, "C->AM", {"descriptors": {"schema_identical": False}}, EvidenceClass.B)
-    out = {h["id"]: h for h in ma_profile._highlights(FactIndex([ident, changed, final]), _comp(), M.Area.PROPAGATION)}
-    assert out["lineage_steps_evaluated"]["value"] == 3                                                 # cuenta TODAS las aristas evaluadas, también la idéntica
-    assert out["lineage_steps_evaluated"]["label"] == "Pasos de linaje evaluados"
-    real = _hl(doc, "PROPAGATION", "lineage_steps_evaluated")
-    assert real is not None and isinstance(real["value"], int)
-
-
 def _comp(root="AM"):
     return SimpleNamespace(scope=SimpleNamespace(root=root, root_type="analytic-model"), findings=[])
 
@@ -92,10 +61,34 @@ def _derived(subject, n):
     return make_fact("propagation.derived_fields", Area.PROPAGATION, subject, {"n_derived": n, "derived_fields": [{"field": f"F{i}"} for i in range(n)]}, EvidenceClass.A)
 
 
+# ── etiquetas fieles (sin cambiar cálculos) ─────────────────────────────────
+def test_the_visible_labels_are_the_agreed_ones_in_profile_html_and_markdown(doc):
+    expected = {"lineage_steps_evaluated": "Pasos de linaje evaluados", "artifacts_with_derived_fields": "Artefactos con derivaciones",
+                "rederived_field_occurrences": "Derivaciones repetidas", "declared_dimensions": "Dimensiones declaradas",
+                "composition_artifacts": "Artefactos de composición", "cross_model_reuse_artifacts": "Artefactos con reuso"}
+    assert render_md._HIGHLIGHT_LABELS == expected
+    for area in ("PROPAGATION", "HARMONIZATION"):
+        for h in next(a for a in doc["areas"] if a["id"] == area)["highlights"]:
+            if h["id"] in expected:
+                assert h["label"] == expected[h["id"]]
+    html, md = _html(_view(doc)), render_md.render_markdown(doc)
+    for text in (html, md):
+        for old in OLD_LABELS:
+            assert old not in text, old
+    assert "Pasos de linaje evaluados" in html and "Pasos de linaje evaluados" in md
+
+
+def test_the_numeric_values_are_unchanged_and_an_identical_edge_still_counts():
+    ident = make_fact("propagation.contract_delta", Area.PROPAGATION, "A->B", {"descriptors": {"schema_identical": True}}, EvidenceClass.B)
+    changed = make_fact("propagation.contract_delta", Area.PROPAGATION, "B->C", {"descriptors": {"schema_identical": False}}, EvidenceClass.B)
+    final = make_fact("am.contract_delta", Area.ANALYTIC_MODEL, "C->AM", {"descriptors": {"schema_identical": False}}, EvidenceClass.B)
+    out = {h["id"]: h for h in ma_profile._highlights(FactIndex([ident, changed, final]), _comp(), M.Area.PROPAGATION)}
+    assert out["lineage_steps_evaluated"]["value"] == 3 and out["lineage_steps_evaluated"]["label"] == "Pasos de linaje evaluados"   # también la arista idéntica
+
+
 def test_artifacts_with_derivations_counts_each_artifact_once_regardless_of_its_fields():
-    facts = [_derived("V1", 3), _derived("V2", 1), _derived("V3", 0)]
-    out = {h["id"]: h for h in ma_profile._highlights(FactIndex(facts), _comp(), M.Area.PROPAGATION)}
-    assert out["artifacts_with_derived_fields"]["value"] == 2                                          # V1 (3 campos) y V2 (1): un artefacto = 1
+    out = {h["id"]: h for h in ma_profile._highlights(FactIndex([_derived("V1", 3), _derived("V2", 1), _derived("V3", 0)]), _comp(), M.Area.PROPAGATION)}
+    assert out["artifacts_with_derived_fields"]["value"] == 2
 
 
 def test_repeated_derivations_count_occurrences_not_unique_fields():
@@ -104,18 +97,7 @@ def test_repeated_derivations_count_occurrences_not_unique_fields():
            {"field": "Y", "consumer": "C", "provider": "P1", "lineage_distance": 1, "adjacent": True}]
     red = make_fact("propagation.rederivation", Area.PROPAGATION, "closure", {"occurrences": occ, "adjacent_count": 2}, EvidenceClass.B)
     out = {h["id"]: h for h in ma_profile._highlights(FactIndex([red]), _comp(), M.Area.PROPAGATION)}
-    assert out["rederived_field_occurrences"]["value"] == 3 and len({o["field"] for o in occ}) == 2   # 3 ocurrencias aunque solo haya 2 campos únicos
-
-
-def test_no_visible_wording_claims_a_comparison_between_layers(doc):
-    # etiquetas, ayudas y líneas de alcance de los indicadores (el título de la regla CROSS_LAYER_REDERIVATION es un contrato canónico aparte)
-    view = _view(doc)
-    texts = [" ".join(lines) for lines in presenter.AREA_KPI_HELP.values()] + [" ".join(presenter.VIEW_SCOPE_HELP)] + list(render_md._HIGHLIGHT_LABELS.values())
-    for a in view["areas"]:
-        texts += [m["label"] for m in a["facts"]["headline"]] + [x for m in a["facts"]["headline"] for x in m.get("help", [])] + [a["facts"]["scope_line"] or ""]
-    for t in texts:
-        assert not re.search(r"otra capa|otras capas", t, re.I), t
-    assert "aguas arriba" in presenter.AREA_KPI_HELP["rederived_field_occurrences"][0]                   # la ayuda explica el "ancestro" sin exponerlo en la etiqueta
+    assert out["rederived_field_occurrences"]["value"] == 3 and len({o["field"] for o in occ}) == 2
 
 
 def test_harmonization_labels_stay_faithful_to_the_evaluated_candidate_population():
@@ -124,134 +106,168 @@ def test_harmonization_labels_stay_faithful_to_the_evaluated_candidate_populatio
     assert "No representa todos los artefactos del cierre" in help_["cross_model_reuse_artifacts"][0]
     assert "No se infieren por nombre ni por capa" in help_["declared_dimensions"][0]
     assert "no implica por sí solo una desviación metodológica" in help_["composition_artifacts"][0]
-    assert "Artefactos contenidos también" not in render_md._HIGHLIGHT_LABELS.values()
 
 
 def test_help_copy_is_canonical_concise_and_never_reads_as_a_score_or_a_human_reviewer():
     banned = re.compile(r"\b(score|scoring|puntaje|puntuaci[oó]n|madurez|banda|ranking|rating|human[oa]s?|persona)\b", re.I)
     assert "pasos de linaje, no artefactos" in presenter.AREA_KPI_HELP["lineage_steps_evaluated"][0] and "idéntica" in presenter.AREA_KPI_HELP["lineage_steps_evaluated"][0]
     assert "un cero no garantiza ausencia" in presenter.AREA_KPI_HELP["artifacts_with_derived_fields"][1]
-    assert "El consultor determina" in presenter.AREA_KPI_HELP["rederived_field_occurrences"][0]
-    for lines in (*presenter.AREA_KPI_HELP.values(), presenter.VIEW_SCOPE_HELP):
+    assert "El consultor determina" in presenter.AREA_KPI_HELP["rederived_field_occurrences"][0] and "aguas arriba" in presenter.AREA_KPI_HELP["rederived_field_occurrences"][0]
+    for lines in presenter.AREA_KPI_HELP.values():
         assert 1 <= len(lines) <= 2 and all(len(x) < 260 for x in lines)
         assert not banned.search(" ".join(lines))
+        assert not re.search(r"otra capa|otras capas", " ".join(lines), re.I)                                # la implementación NO compara capas
 
 
-def test_area_help_uses_the_existing_hub_primitive_and_no_css_or_js_was_added(doc):
-    html = _html(_view(doc))
-    body = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-observaciones"')]
-    tiles = re.findall(r'<div class="activity-kpi"><span class="activity-kpi__value">[^<]*</span><span class="activity-kpi__label">([^<]*)</span>'
-                       r'(<button type="button" class="activity-kpi__info" aria-label="[^"]*"><svg viewBox="0 0 24 24" aria-hidden="true">.*?</svg></button><span class="chart-tooltip"><p>.*?</span>)?</div>', body)
-    helped = {label for label, info in tiles if info}
-    assert {"Pasos de linaje evaluados", "Artefactos con derivaciones", "Dimensiones declaradas", "Artefactos de composición"} & helped
-    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
-    js = (REPO / "webapp/static/app.js").read_text(encoding="utf-8")
-    assert not re.search(r"view-scope|vistas-consideradas|asr-scope", css + js)
-    line = re.search(r'<p data-block="view-scope">.*?</p>', body, re.S).group(0)
-    assert 'class="chart-tooltip"' in line and "<p>" not in line.replace('<p data-block="view-scope">', "")      # el tooltip vive DENTRO del párrafo (un <p> anidado lo partiría)
-    assert set(" ".join(re.findall(r'class="([^"]+)"', line)).split()) <= {"chart-tooltip-anchor", "activity-kpi__info", "chart-tooltip"}   # solo primitivos existentes (precedente CCHH)
+# ── regla: redacción pública, ids internos intactos ─────────────────────────
+def test_the_repeated_derivation_rule_is_named_the_same_everywhere_and_the_internal_id_is_unchanged(doc):
+    assert ma_profile.DISPLAY["CROSS_LAYER_REDERIVATION"][0] == NEW_RULE_TITLE
+    groups = [g for g in doc["review_required"] if g["id"] == "CROSS_LAYER_REDERIVATION"]
+    rules = [r for r in doc["rule_results"] if r["rule"] == "CROSS_LAYER_REDERIVATION"]
+    assert rules and all(r["title"] == NEW_RULE_TITLE for r in rules) and all(g["title"] == NEW_RULE_TITLE for g in groups)
+    assert "CROSS_LAYER_REDERIVATION" in {getattr(s, "signal_id", s) for s in SIGNAL_REGISTRY}                  # id/enum técnico estable
+    view, md = _view(doc), render_md.render_markdown(doc)
+    html = re.sub(r"<[^>]+>", " ", _html(view))
+    for text in (html, md):
+        assert OLD_RULE_TITLE not in text
+    assert NEW_RULE_TITLE in html and NEW_RULE_TITLE in md
 
 
-# ── Vistas consideradas ─────────────────────────────────────────────────────
-def _vt_fact(views):
-    return make_fact("am.view_type_composition", Area.ANALYTIC_MODEL, "AM", {"views": [{"technical_name": n, "view_type": t} for n, t in views]}, EvidenceClass.A)
+def test_profiles_persisted_with_the_old_rule_title_read_with_the_current_one(doc):
+    legacy = copy.deepcopy(doc)
+    for key in ("review_required", "rule_results"):
+        for item in legacy[key]:
+            if item.get("id") == "CROSS_LAYER_REDERIVATION" or item.get("rule") == "CROSS_LAYER_REDERIVATION":
+                item["title"] = OLD_RULE_TITLE
+    view, md = _view(legacy), render_md.render_markdown(legacy)
+    for text in (re.sub(r"<[^>]+>", " ", _html(view)), md):
+        assert OLD_RULE_TITLE not in text
+    assert render_md.display_title("CROSS_LAYER_REDERIVATION", OLD_RULE_TITLE) == NEW_RULE_TITLE
+    assert render_md.display_title("OTHER", "Otro título") == "Otro título"                                    # solo cambia el título conocido
 
 
-def _scope(facts, area, root="AM"):
-    return {h["id"]: h for h in ma_profile._highlights(FactIndex(facts), _comp(root), area)}.get("views_considered")
-
-
-VIEWS = [("V1", "GRAPHICAL"), ("V2", "SQL"), ("V3", "UNKNOWN"), ("V4", "GRAPHICAL"), ("V5", "SQL")]
-
-
-def test_the_area_view_scope_is_the_unique_union_of_its_evidence_population_typed_by_the_canonical_classifier():
-    facts = [_vt_fact(VIEWS), _derived("V1", 1), _derived("V1", 2), _derived("V2", 0), _derived("V3", 1),                  # V1 aparece dos veces: cuenta una
-             make_fact("propagation.contract_delta", Area.PROPAGATION, "V1->V2", {"x": 1}, EvidenceClass.B),
-             make_fact("am.contract_delta", Area.ANALYTIC_MODEL, "V2->AM", {"x": 1}, EvidenceClass.B)]
-    h = _scope(facts, M.Area.PROPAGATION)
-    assert h["value"] == 3                                                                                  # V1, V2, V3 (el AM raíz y V4/V5 no participan)
-    assert {b["name"]: b["count"] for b in h["breakdown"]} == {"gráficas": 1, "SQL": 1, "sin clasificar": 1}
-    assert sum(b["count"] for b in h["breakdown"]) == h["value"]                                            # G + S + U == vistas identificadas
-    import inspect
-    src = inspect.getsource(ma_profile._views_considered)
-    assert "GRAPHICALVIEWBUILDER" not in src and "sqlEditor" not in src                                     # sin segundo clasificador: lee el tipo del hecho canónico
-
-
-def test_the_same_view_can_belong_to_both_areas_without_error_or_partition():
-    dim = make_fact("harmonization.dimension_artifacts", Area.HARMONIZATION, "closure",
-                    {"count": 1, "with_own_associations": 0, "artifacts": [{"artifact": "V1"}]}, EvidenceClass.A)
-    comp = make_fact("harmonization.composition_artifacts", Area.HARMONIZATION, "closure", {"count": 1, "artifacts": [{"artifact": "V4"}]}, EvidenceClass.B)
-    cand = make_fact("harmonization.local_chain_reuse", Area.HARMONIZATION, "V2", {"x": 1}, EvidenceClass.B)
-    facts = [_vt_fact(VIEWS), dim, comp, cand, _derived("V1", 1), _derived("V4", 0), _derived("V5", 1)]
-    h = _scope(facts, M.Area.HARMONIZATION)
-    p = _scope(facts, M.Area.PROPAGATION)
-    assert h["value"] == 3 and p["value"] == 3                                                              # H = {V1, V4, V2}; P = {V1, V4, V5}
-    assert h["value"] + p["value"] != len(VIEWS)                                                            # NO es una partición del cierre: se solapan (V1, V4)
-
-
-def test_no_scope_without_view_evidence_or_without_an_evidence_population():
-    assert _scope([_derived("V1", 1)], M.Area.PROPAGATION) is None                                         # sin `am.view_type_composition` no se inventa un cero
-    assert _scope([_vt_fact(VIEWS)], M.Area.PROPAGATION) is None                                           # sin población de evidencia tampoco
-
-
-def test_the_scope_line_comes_from_the_profile_and_the_template_does_not_calculate_it(doc):
-    tpl = (REPO / "webapp/templates/partials" / "catalog_assessment_report.html").read_text(encoding="utf-8")
-    assert "a.facts.scope_line" in tpl and "views_considered" not in tpl and "breakdown" not in tpl.split("{% macro area_body")[1].split("{% endmacro %}")[0]
+# ── una sola implementación de tile con ayuda (la de los KPI superiores) ────
+def test_area_help_uses_the_same_shared_tile_renderer_as_the_top_kpis(doc):
     view = _view(doc)
     html = _html(view)
-    for a in view["areas"]:
-        h = _hl(doc, a["id"], "views_considered")
-        if h is None:
-            assert a["facts"]["scope_line"] is None
-            continue
-        assert a["facts"]["scope_line"] == render_md.view_scope_text(h["value"], h["breakdown"])
-        assert a["facts"]["scope_line"] in html
-    assert render_md.view_scope_text(16, [{"name": "gráficas", "count": 13}, {"name": "SQL", "count": 3}, {"name": "sin clasificar", "count": 0}]) == "Vistas consideradas: 16 · 13 gráficas · 3 SQL"
-    assert render_md.view_scope_text(16, [{"name": "gráficas", "count": 12}, {"name": "SQL", "count": 3}, {"name": "sin clasificar", "count": 1}]) == \
-        "Vistas consideradas: 16 · 12 gráficas · 3 SQL · 1 sin clasificar"
-
-
-def test_the_scope_line_sits_between_the_evidence_sentence_and_the_kpi_tiles_with_the_overlap_help(doc):
-    html = _html(_view(doc))
+    tpl = TEMPLATE_PATH.read_text(encoding="utf-8")
+    body = tpl[tpl.index("{% macro area_body"):tpl.index("{% endmacro %}", tpl.index("{% macro area_body"))]
+    assert "kpi_tile(m)" in body and "activity-kpi__info" not in body and "chart-tooltip" not in body        # el área NO tiene markup de tile propio
+    macros = (REPO / "webapp/templates/partials/assessment_report_macros.html").read_text(encoding="utf-8")
+    assert macros.count('class="activity-kpi__info"') == 1 and "inline_help" not in macros and "chart-tooltip-anchor" not in macros   # un solo renderer del (i)
+    top = html[:html.index('id="asr-resumen"')]
+    first_top = re.search(r'<div class="activity-kpi">.*?</div>', top, re.S).group(0)
     sec = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-observaciones"')]
-    i_sup, i_scope, i_tiles = sec.index("Superficies de evidencia requeridas", sec.index("Propagación")), sec.index('data-block="view-scope"'), sec.index("asm-facts")
-    assert i_sup < i_scope
-    assert "Una misma vista puede participar en Armonización y Propagación" in sec and "no representa pertenencia exclusiva a una capa" in sec
-    assert "Vistas de Armonización" not in html and "Vistas de Propagación" not in html                       # jamás se afirma pertenencia por área
-    assert i_scope < sec.index("asm-facts", i_scope)
+    first_area = re.search(r'<div class="activity-kpi"><span class="activity-kpi__value">[^<]*</span><span class="activity-kpi__label">Pasos de linaje evaluados</span>.*?</div>', sec, re.S).group(0)
+
+    def shape(s):
+        return re.sub(r'>[^<]*<', '><', re.sub(r'aria-label="[^"]*"', 'aria-label=""', s)).replace('<br>', '')
+    assert shape(first_top) == shape(first_area)                                                              # misma estructura de tile + (i) + tooltip
+    helped = set(re.findall(r'<span class="activity-kpi__label">([^<]*)</span><button type="button" class="activity-kpi__info"', sec))
+    assert {"Pasos de linaje evaluados", "Artefactos con derivaciones", "Derivaciones repetidas"} <= helped
+    assert {"Dimensiones declaradas", "Artefactos de composición"} <= helped
+    assert ("Artefactos con reuso" in helped) == ("Artefactos con reuso" in sec)                                # el tile de reuso solo existe si hay otros modelos con los que comparar
 
 
-def test_markdown_carries_the_same_line_and_terminology(doc):
-    md = render_md.render_markdown(doc)
+def test_tooltip_lines_are_not_paragraphs_so_the_report_typography_cannot_override_the_hub_tooltip(doc):
+    html = _html(_view(doc))
+    tips = re.findall(r'<span class="chart-tooltip">(.*?)</span>', html, re.S)
+    assert len(tips) >= 8 and all("<p>" not in t for t in tips)                                              # `.methodology p` (gris, 14px) pisaba el tooltip dentro del informe
+
+
+def test_no_clipping_workaround_css_or_js_was_added():
+    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8") + (REPO / "webapp/static/layout.css").read_text(encoding="utf-8")
+    js = (REPO / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert not re.search(r"view-overview|asr-kpi|asm-facts[^{]*chart-tooltip|asr[^{]*chart-tooltip|methodology[^{]*chart-tooltip|view-scope", css + js)
+    tpl = TEMPLATE_PATH.read_text(encoding="utf-8")
+    assert "overflow" not in tpl and "style=" not in tpl
+
+
+# ── resumen transversal [02] ────────────────────────────────────────────────
+def _vt_closure(doc):
+    return next(h for a in doc["areas"] if a["id"] == "ANALYTIC_MODEL" for h in a["highlights"] if h["id"] == "views_in_closure")
+
+
+def test_section_overview_renders_the_canonical_closure_composition_once_before_the_first_area(doc):
     view = _view(doc)
+    h = _vt_closure(doc)
+    n = {b["name"]: b["count"] for b in h["breakdown"]}
+    group = next(mg for mg in view["macro_groups"] if mg["id"] == "ARCHITECTURE_MODELING")
+    tiles = {t["label"]: t["value"] for t in group["view_overview"]["tiles"]}
+    assert tiles["Total de vistas"] == h["value"] and tiles["Vistas gráficas"] == n["gráficas"] and tiles["Vistas SQL"] == n["SQL"]   # valores del hecho, sin recalcular
+    html = _html(view)
+    sec = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-observaciones"')]
+    assert sec.count('data-block="view-overview"') == 1
+    assert sec.index('data-block="view-overview"') < sec.index("Modelo analítico")                            # tras el encabezado [02] y antes de la 1ª área
+    assert html.count("Total de vistas") == 1 and "<h3>Vistas del cierre semántico</h3>" in sec
+    overview = sec[sec.index('data-block="view-overview"'):sec.index("Modelo analítico")]
+    assert "activity-kpi__info" not in overview and "chart-tooltip" not in overview                            # etiquetas autoexplicativas: sin (i)
+
+
+def test_the_unknown_tile_is_conditional_and_the_canonical_fact_keeps_the_zero(doc):
+    cv = {"total": 16, "graphical": 13, "sql": 3, "unknown": 0, "structural": False}
+    assert [t["label"] for t in presenter._view_overview(cv)["tiles"]] == ["Total de vistas", "Vistas gráficas", "Vistas SQL"]    # sin tile dominante en 0
+    assert [t["label"] for t in presenter._view_overview({**cv, "graphical": 12, "unknown": 1})["tiles"]][-1] == "Sin clasificar"
+    assert [t["label"] for t in presenter._view_overview({"total": 0, "graphical": 0, "sql": 0, "unknown": 0, "structural": False})["tiles"]] == ["Total de vistas"]
+    assert "sin clasificar" in {b["name"] for b in _vt_closure(doc)["breakdown"]}                              # el JSON canónico conserva UNKNOWN (incluso 0)
+    assert any(x["fact"].startswith("am.view_type_composition@") for x in doc["fact_index"])                    # el hecho subyacente NO cambia ni se retira
+
+
+def test_areas_do_not_repeat_the_view_composition_and_modelo_analitico_keeps_only_its_artifact_detail(doc):
+    view = _view(doc)
+    html = _html(view)
+    for forbidden in ("Vistas consideradas", "Vistas de Armonización", "Vistas de Propagación", "El cierre semántico contiene", "Distribución por tipo de vista",
+                      "Composición del cierre por tipo de vista"):
+        assert forbidden not in html, forbidden
     for a in view["areas"]:
-        if a["facts"]["scope_line"]:
-            assert a["facts"]["scope_line"] in md
-    assert "Vistas consideradas" in md and "Pasos de linaje evaluados" in md
+        assert a["facts"]["notes"] == []
+        assert "Distribución por tipo de vista" not in [g["title"] for g in a["facts"]["groups"]]
+    am = next(a for a in view["areas"] if a["id"] == "ANALYTIC_MODEL")
+    assert "Vistas del cierre (nombre técnico y tipo)" in [g["title"] for g in am["facts"]["groups"]]           # detalle por artefacto (distinto de los totales): se conserva
+    md = render_md.render_markdown(doc)
+    assert "Vistas consideradas" not in md and "Distribución por tipo de vista" not in md
 
 
-def test_legacy_profiles_without_the_scope_and_with_the_old_labels_remain_readable(doc):
+def test_the_rejected_area_level_views_considered_contract_was_removed():
+    for mod in (ma_profile, render_md, presenter):
+        assert "views_considered" not in inspect.getsource(mod)
+    assert "views_considered" not in TEMPLATE_PATH.read_text(encoding="utf-8")
+    assert not hasattr(render_md, "view_scope_text") and not hasattr(presenter, "VIEW_SCOPE_HELP")
+    facts = [make_fact("am.view_type_composition", Area.ANALYTIC_MODEL, "AM", {"views": [{"technical_name": "V1", "view_type": "SQL"}]}, EvidenceClass.A),
+             _derived("V1", 1)]
+    for area in (M.Area.PROPAGATION, M.Area.HARMONIZATION):
+        assert all(h["id"] != "views_considered" for h in ma_profile._highlights(FactIndex(facts), _comp(), area))
+
+
+def test_legacy_profiles_without_the_closure_fact_or_with_old_labels_remain_readable(doc):
     legacy = copy.deepcopy(doc)
     old_by_id = {"lineage_steps_evaluated": OLD_LABELS[0], "artifacts_with_derived_fields": OLD_LABELS[1], "rederived_field_occurrences": OLD_LABELS[2],
                  "declared_dimensions": OLD_LABELS[3], "composition_artifacts": OLD_LABELS[4], "cross_model_reuse_artifacts": OLD_LABELS[5]}
     for a in legacy["areas"]:
-        a["highlights"] = [h for h in a["highlights"] if h["id"] != "views_considered"]
+        a["highlights"] = [h for h in a["highlights"] if h["id"] not in ("views_in_closure", "view_type_distribution", "view_artifacts")]
         for h in a["highlights"]:
             if h["id"] in old_by_id:
                 h["label"] = old_by_id[h["id"]]
     view = _view(legacy)
     html, md = _html(view), render_md.render_markdown(legacy)
-    assert "Vistas consideradas" not in html and "Vistas consideradas" not in md and 'data-block="view-scope"' not in html     # sin línea (no se inventa un 0)
-    assert all(a["facts"]["scope_line"] is None for a in view["areas"])
+    assert 'data-block="view-overview"' not in html and all(mg["view_overview"] is None for mg in view["macro_groups"])      # sin hecho: no se inventa un 0
     for text in (html, md):
         for old in OLD_LABELS:
-            assert old not in text, old                                                                    # la lectura usa la redacción vigente aun con el JSON viejo
+            assert old not in text, old
+
+
+# ── Markdown alineado, sin señales ni puntajes ──────────────────────────────
+def test_markdown_states_the_closure_composition_once_at_section_level_and_uses_the_same_terminology(doc):
+    md = render_md.render_markdown(doc)
+    h = _vt_closure(doc)
+    sentence = render_md.view_composition_text(h["value"], h["breakdown"])
+    assert md.count(sentence) == 1
+    section = md[md.index("## Arquitectura / Modelado"):]
+    assert section.index(sentence) < section.index("### Modelo analítico")
+    assert "Pasos de linaje evaluados" in md and NEW_RULE_TITLE in md
 
 
 def test_no_signal_threshold_or_scoring_was_introduced(doc):
     ids = {str(getattr(s, "signal_id", s)) for s in SIGNAL_REGISTRY}
     assert not any(re.search(r"VIEW_?TYPE|GRAPHICAL|SQL_VIEW|VIEW_SCOPE|CONSIDERED", i) for i in ids)
     assert "score" not in doc and "versions" in doc
-    assert {h["id"] for a in doc["areas"] for h in a["highlights"] if h["id"] == "views_considered"} <= {"views_considered"}
-    for a in doc["areas"]:
-        assert a["assessability"] in ("ASSESSED", "PARTIALLY_ASSESSED", "NOT_ASSESSED", "NOT_APPLICABLE")

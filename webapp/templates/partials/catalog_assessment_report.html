@@ -15,7 +15,7 @@
   <a class="support-link" href="#" role="button" hx-post="{{ v.report_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-indicator="#asr-busy" @click.prevent>{{ v.action.label }}<span>↗</span></a>
   <span class="htmx-indicator" id="asr-busy" role="status">Generando…</span>
 </div>{% endif %}{% endmacro %}
-{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, inline_help %}
+{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
 {% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}
 {# Hallazgo: encabezado semántico + "por qué aparece" siempre visibles; el detalle, bajo demanda (disclosure del CRM) y como TABLAS:
@@ -57,7 +57,6 @@
    → evaluación de reglas (tabla) → hallazgos. `lvl`: nivel de los rótulos (h3 en sección propia, h4 dentro de un disclosure). #}
 {% macro area_body(a, lvl) %}
   <p>Superficies de evidencia requeridas: {{ a.surfaces }}.{% if a.reason %} {{ a.reason }}.{% endif %}</p>
-  {% if a.facts.scope_line %}<p data-block="view-scope">{{ a.facts.scope_line }} {{ inline_help("Vistas consideradas", a.facts.scope_help) }}</p>{% endif %}
   {% if a.facts.headline %}
   <div class="activity-kpi-grid asm-facts">
     {% for m in a.facts.headline %}{{ kpi_tile(m) }}{% endfor %}
@@ -177,6 +176,12 @@
 {% for mg in v.macro_groups %}
 <section class="content-section" id="asr-m-{{ mg.id|lower }}">
   {% set ns.n = ns.n + 1 %}{{ heading(ns.n, mg.title) }}
+  {% if mg.view_overview %}
+  {# Resumen TRANSVERSAL de la sección: la composición del cierre por tipo de vista tiene un solo hogar (hecho `am.view_type_composition`); las áreas no la repiten. #}
+  <h3>{{ mg.view_overview.title }}</h3>
+  <div class="activity-kpi-grid asm-facts" data-block="view-overview">{% for k in mg.view_overview.tiles %}{{ kpi_tile(k) }}{% endfor %}</div>
+  {% if mg.view_overview.caveat %}<p>{{ mg.view_overview.caveat }}</p>{% endif %}
+  {% endif %}
   {% if mg.areas|length > 1 %}
   {# Grupo con subáreas reales (Arquitectura & Modelado): un disclosure del CRM por subárea. #}
   {% for a in mg.areas %}

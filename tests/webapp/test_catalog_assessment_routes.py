@@ -627,8 +627,9 @@ def test_facts_have_a_reading_hierarchy_headline_kpis_then_supporting_tables_and
         shown = {m["label"] for m in v["headline"]}
         for g in v["groups"]:
             shown |= {p["label"] for p in g["properties"]} | {t["title"] for t in g["tables"]} | {g["title"]}
-        assert all(h["label"] in shown for h in a["highlights"] if h["id"] != "views_considered"), a["id"]   # ningún hecho se pierde
-        assert (v["scope_line"] is not None) == any(h["id"] == "views_considered" for h in a["highlights"])   # la población de vistas va como línea de alcance, no como KPI
+        moved = {"views_in_closure", "view_type_distribution"} if a["id"] == "ANALYTIC_MODEL" else set()           # la composición del cierre vive en el resumen de la sección
+        assert all(h["label"] in shown for h in a["highlights"] if h["id"] not in moved), a["id"]                # ningún otro hecho se pierde
+        assert (v["closure_views"] is not None) == (a["id"] == "ANALYTIC_MODEL" and any(h["id"] == "views_in_closure" for h in a["highlights"]))
         # los valores numéricos escalares siguen presentes (titular o tabla de propiedades)
         for h in a["highlights"]:
             if isinstance(h["value"], int) and not h.get("breakdown"):
@@ -637,7 +638,7 @@ def test_facts_have_a_reading_hierarchy_headline_kpis_then_supporting_tables_and
     am = presenter._facts_view("ANALYTIC_MODEL", next(a for a in prof["areas"] if a["id"] == "ANALYTIC_MODEL")["highlights"])
     assert [m["label"] for m in am["headline"]] == ["Campos expuestos", "Medidas", "Asociaciones declaradas"]
     assert [g["title"] for g in am["groups"]] == ["Composición del modelo", "Cierre semántico del modelo analítico (artefactos)", "Linaje y asociaciones",
-                                                          "Composición del cierre por tipo de vista"]
+                                                          "Vistas del cierre (nombre técnico y tipo)"]
     sec = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-observaciones"')]
     assert 'class="activity-kpi-grid asm-facts"' in sec and "<th>Hecho</th><th>Valor</th>" in sec
     assert not re.search(r"<li>[^<]*: \d+</li>", sec)                                                  # sin pared de bullets "Hecho: n"

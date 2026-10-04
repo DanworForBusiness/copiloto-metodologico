@@ -236,7 +236,7 @@ FACT_LAYOUT: dict[str, dict] = {
                        "groups": [("Composición del modelo", ["derived_fields", "keys", "labelled_fields", "numeric_non_measure_attributes", "numeric_non_measure_fields"]),
                                   ("Cierre semántico", ["semantic_closure"]),
                                   ("Linaje y asociaciones", ["direct_lineage_providers", "association_targets"]),
-                                  ("Composición del cierre por tipo de vista", ["views_in_closure", "view_type_distribution", "view_artifacts"])]},
+                                  ("Vistas del cierre (nombre técnico y tipo)", ["view_artifacts"])]},
     "PROPAGATION": {"headline": ["lineage_steps_evaluated", "artifacts_with_derived_fields", "rederived_field_occurrences"], "groups": []},
     "HARMONIZATION": {"headline": ["declared_dimensions", "composition_artifacts", "cross_model_reuse_artifacts"],
                       "groups": [("Reutilización y asociaciones", ["dimensions_with_own_associations", "most_reused_across_models"])]},
@@ -288,9 +288,6 @@ AREA_KPI_HELP: dict[str, tuple[str, ...]] = {
         "Entre las dimensiones y destinos de asociación evaluados, cuenta los artefactos que también aparecen en otros modelos analíticos del cliente. "
         "No representa todos los artefactos del cierre.",),
 }
-VIEW_SCOPE_HELP: tuple[str, ...] = (
-    "Distribución de las vistas que participan en la evidencia evaluada en esta sección. Una misma vista puede participar en Armonización y Propagación; "
-    "no representa pertenencia exclusiva a una capa.",)
 
 
 def _kpi(key: str, label: str, value: Any) -> dict:
@@ -323,9 +320,12 @@ def _fact_into(group: dict, h: dict) -> None:
 
 def _facts_view(area_id: str, highlights: list[dict]) -> dict:
     """Hechos descriptivos de un área en dos niveles de lectura: ``headline`` (tiles KPI de síntesis) y ``groups`` (evidencia de apoyo). La población de vistas
-    del área (``views_considered``) NO es un KPI ni un hecho de apoyo: se separa y se presenta como línea de alcance (``scope_line``)."""
-    scope = next((h for h in highlights if h["id"] == "views_considered"), None)
-    highlights = [{**h, "label": P.highlight_label(h)} for h in highlights if h["id"] != "views_considered"]      # etiqueta vigente aun en perfiles anteriores
+    de vistas del cierre (``views_in_closure`` / ``view_type_distribution``) NO se muestra en el área: es transversal y vive en el resumen de la sección
+    (``closure_views``); en el área solo queda el detalle por artefacto (``view_artifacts``)."""
+    closure = next((h for h in highlights if h["id"] == "views_in_closure"), None) if area_id == "ANALYTIC_MODEL" else None
+    structural = P.has_structural_membership(highlights)
+    highlights = [{**h, "label": P.highlight_label(h)} for h in highlights
+                  if not (area_id == "ANALYTIC_MODEL" and h["id"] in ("views_in_closure", "view_type_distribution"))]   # etiqueta vigente aun en perfiles anteriores
     by_id = {h["id"]: h for h in highlights}
     layout = FACT_LAYOUT.get(area_id)
     if layout is None:
@@ -350,14 +350,25 @@ def _facts_view(area_id: str, highlights: list[dict]) -> dict:
         groups.append(rest)
     groups = [g for g in groups if g["properties"] or g["tables"]]
     notes = []
-    views = by_id.get("views_in_closure")
-    if area_id == "ANALYTIC_MODEL" and views is not None:                                  # misma frase que el Markdown (función del paquete), sin juicio
-        notes.append(P.view_composition_text(views["value"], views.get("breakdown") or [], structural=P.has_structural_membership(highlights)))
     for g in groups:                                                                      # grupo de una sola tabla: el título de la tabla ES el del grupo
         if not g["properties"] and len(g["tables"]) == 1:
             g["title"] = g["tables"][0]["title"]
-    return {"headline": headline, "groups": groups, "notes": notes,
-            "scope_line": P.view_scope_text(scope["value"], scope.get("breakdown") or []) if scope is not None else None, "scope_help": list(VIEW_SCOPE_HELP)}
+    closure_views = None
+    if closure is not None:
+        n = {b["name"]: b["count"] for b in closure.get("breakdown") or []}
+        closure_views = {"total": closure["value"], "graphical": n.get("gráficas", 0), "sql": n.get("SQL", 0), "unknown": n.get("sin clasificar", 0), "structural": structural}
+    return {"headline": headline, "groups": groups, "notes": notes, "closure_views": closure_views}
+
+
+def _view_overview(cv: dict) -> dict:
+    """Tiles del resumen transversal de vistas del cierre (valores del hecho canónico `am.view_type_composition`, sin recalcular). "Sin clasificar" solo si > 0;
+    en pools sin carpetas por tipo se agrega la salvedad breve (una vista sin marcador no es detectable)."""
+    tiles = [{"label": "Total de vistas", "value": cv["total"]}]
+    if cv["total"]:
+        tiles += [{"label": "Vistas gráficas", "value": cv["graphical"]}, {"label": "Vistas SQL", "value": cv["sql"]}]
+        if cv["unknown"]:
+            tiles.append({"label": "Sin clasificar", "value": cv["unknown"]})
+    return {"title": "Vistas del cierre semántico", "tiles": tiles, "caveat": P.structural_views_caveat() if cv["structural"] and cv["total"] else None}
 
 
 def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, list[dict]]) -> dict:
@@ -407,7 +418,7 @@ def _context_questions(ctx: dict, groups_by_id: dict[str, dict]) -> dict:
 def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: AdhocReport | None = None) -> dict:
     """View-model del informe. ``status.profile`` es el JSON canónico validado; nada se deriva de otra fuente.
     ``adhoc`` (opcional) reemplaza el contexto del Catálogo (flujo/URLs/linaje) por el de un assessment ad-hoc; el contenido es el mismo."""
-    doc = status.profile
+    doc = P.display_doc(status.profile) if status.profile is not None else None      # títulos públicos vigentes aun en perfiles persistidos anteriores
     link_entry = None if adhoc else entry
     view: dict[str, Any] = {
         "state": status.state, "state_label": STATE_LABELS[status.state], "state_tone": STATE_TONES.get(status.state, ""), "state_note": STATE_NOTES.get(status.state),
@@ -497,5 +508,8 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     groups: dict[str, dict] = {}
     for a in view["areas"]:
         groups.setdefault(a["macro_id"], {"id": a["macro_id"], "title": SECTION_TITLES.get(a["macro_id"], a["macro"]), "areas": []})["areas"].append(a)
+    for g in groups.values():                                                                   # resumen transversal de la sección: composición del cierre por tipo de vista
+        cv = next((a["facts"]["closure_views"] for a in g["areas"] if a["facts"].get("closure_views")), None)
+        g["view_overview"] = _view_overview(cv) if cv else None
     view["macro_groups"] = list(groups.values())
     return view

@@ -22,7 +22,7 @@ __all__ = [
     "area_title", "macro_dimension_title", "assessability_text", "assessability_plural_text", "execution_state_text",
     "confidence_level_text", "finding_kind_text", "rule_result_text", "unit_label", "is_artifact_name",
     "percent_text", "plural", "value_text", "occurrence_text", "row_key_text", "evidence_not_acquired", "view_composition_text",
-    "has_structural_membership", "review_required_text", "context_open_text", "summary_relation_text", "reason_text", "highlight_label", "view_scope_text",
+    "has_structural_membership", "review_required_text", "context_open_text", "summary_relation_text", "reason_text", "highlight_label", "display_doc", "display_title", "structural_views_caveat",
 ]
 
 
@@ -96,9 +96,19 @@ def highlight_label(h: dict) -> str:
     return _md.highlight_label(h)
 
 
-def view_scope_text(total: int, breakdown: list[dict]) -> str:
-    """Línea "Vistas consideradas: …" de Armonización / Propagación (la misma del Markdown)."""
-    return _md.view_scope_text(total, breakdown)
+def display_doc(doc: dict) -> dict:
+    """Documento con los títulos públicos vigentes (la misma normalización que usa el Markdown)."""
+    return _md.display_doc(doc)
+
+
+def display_title(item_id: str, title: str) -> str:
+    """Título visible vigente de un hallazgo o regla (el persistido puede traer la redacción anterior)."""
+    return _md.display_title(item_id, title)
+
+
+def structural_views_caveat() -> str:
+    """Salvedad breve para pools sin carpetas por tipo: las vistas sin marcador gráfico o SQL no son detectables (misma frase del Markdown)."""
+    return _md.STRUCTURAL_VIEWS_CAVEAT
 
 
 def reason_text(reason: dict) -> str:
