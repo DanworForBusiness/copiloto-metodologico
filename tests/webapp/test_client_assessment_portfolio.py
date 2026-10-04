@@ -25,8 +25,8 @@ PACK = "datasphere_core"
 HX = {"HX-Request": "true"}
 
 
-def _entry(eid, cliente, am, dominio="Compras"):
-    return types.SimpleNamespace(entry_id=eid, cliente=cliente, dominio=dominio, artefactos=[am], path=f"/x/{eid}.md")
+def _entry(eid, cliente, am, dominio="Compras", veredicto="buena"):
+    return types.SimpleNamespace(entry_id=eid, cliente=cliente, dominio=dominio, veredicto=veredicto, artefactos=[am], path=f"/x/{eid}.md")
 
 
 def _group(gid, title, n=1):
@@ -117,7 +117,7 @@ def test_only_current_contributes_to_coverage_and_the_denominator_is_explicit(wo
     cov = s["summary"]["coverage"]
     assert cov["over_current_assessments"] == 3 and cov["average_strict"] == pytest.approx((0.9 + 0.7 + 0.8) / 3)
     kpis = {k["label"]: k["value"] for k in pf.report_view(s)["kpis"]}
-    assert kpis["Activos del catálogo"] == "6" and kpis["Assessments vigentes · de 6"] == "3 / 6"
+    assert kpis["Artefactos del catálogo"] == "6" and kpis["Assessments vigentes · de 6"] == "3 / 6"
     assert any(label.startswith("Cobertura promedio") and "3 assessments vigentes" in label for label in kpis)
     assert any(label.startswith("Requieren revisión") and value == "3" for label, value in kpis.items())
 
@@ -311,3 +311,133 @@ def test_portfolio_reuses_the_individual_report_structure_not_a_copy(world):
 def test_no_portfolio_specific_visual_css_exists():
     css = (REPO / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
     assert not re.search(r"\.(asm|asr)-client|\.portfolio|\.client-assessment|\.cli-", css)
+
+
+# ───────────────────────── pulido V1: terminología, identidad, badges, veredicto del catálogo, divisor ─────────────────────────
+def test_report_says_artefacto_not_activo_in_html_json_and_markdown(world):
+    c = _client()
+    html = c.get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
+    md = c.get("/catalog/client/assessment.md?flow=a").text
+    txt = re.sub(r"<[^>]+>", " ", html)
+    for surface in (txt, md):
+        assert "Artefactos del catálogo" in surface and "Artefacto" in surface
+        assert not re.search(r"\bactivos?\b", surface, re.I), re.findall(r".{20}\bactivos?\b.{20}", surface, re.I)
+    assert [k["label"] for k in pf.report_view(_snap(world))["kpis"]][0] == "Artefactos del catálogo"
+
+
+def test_artifact_identity_is_one_label_without_duplicated_description():
+    assert pf._identity("Despachos", "AM_DESPACHOS", "Despachos") == ("Despachos · AM_DESPACHOS", None)
+    assert pf._identity(None, "AM_RESERVA_MP", "AM_RESERVA_MP") == ("AM_RESERVA_MP", None)
+    assert pf._identity("Ventas", "AM_V", "Comercial") == ("Ventas · AM_V", "Comercial")        # un concepto distinto NO se descarta en silencio
+    assert pf._identity(None, None, "Compras") == ("Compras", None)
+
+
+def test_every_surface_describes_the_artifact_row_the_same_way(world):
+    c = _client()
+    snap = c.get("/catalog/client/assessment.json?flow=a").json()
+    html = c.get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
+    md = c.get("/catalog/client/assessment.md?flow=a").text
+    table = html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]
+    for r in snap["assets"]:
+        assert r["artifact_label"] in html and r["artifact_label"] in md
+        assert table.count(f"<code>{r['artifact_label']}</code>") == 1                                # una sola vez por fila (sin segunda línea repetida)
+
+
+def test_all_states_use_the_same_badge_and_neutral_states_get_the_gray_variant(world):
+    html = _client().get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
+    summary = html[html.index('id="cli-resumen"'): html.index('id="cli-artefactos"')]
+    rows = re.findall(r'<tr data-state="(\w+)"><td><span class="([^"]+)">', summary)
+    assert [s for s, _ in rows] == list(svc.STATES)
+    assert all(cls.startswith("catalog-card__verdict ") for _, cls in rows)                             # el MISMO primitivo para todos
+    tone = {s: cls.rsplit("--", 1)[1] for s, cls in rows}
+    assert tone[svc.NOT_YET_ASSESSED] == tone[svc.NOT_APPLICABLE] == "neutra"
+    assert tone[svc.CURRENT] == "plena" and tone[svc.STALE] == "buena" and tone[svc.FAILED] == "parcial"   # semántica de estados sin cambios
+    css = (REPO / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert ".catalog-card__verdict--neutra {" in css and "padding" not in css.split(".catalog-card__verdict--neutra {")[1].split("}")[0]
+
+
+def test_catalog_verdict_is_a_labeled_secondary_column_and_never_a_score(world):
+    c = _client()
+    html = c.get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
+    assert "<th>Veredicto del catálogo</th>" in html and "scoring" not in html.lower()
+    snap = c.get("/catalog/client/assessment.json?flow=a").json()
+    assert {r["catalog_verdict"] for r in snap["assets"]} == {"buena"}                              # CatalogEntry.veredicto tal cual
+    kpis = " ".join(k["label"] for k in pf.report_view(snap)["kpis"])
+    assert not re.search(r"plena|buena|parcial", kpis, re.I)                                           # nunca un KPI de veredicto
+    # el veredicto del catálogo NO se deriva de cobertura/confianza: cambia la cobertura, no cambia el veredicto
+    world.statuses["a"].profile["summary"]["coverage"]["strict"] = 0.05
+    again = pf.build_snapshot(world.entries["a"], PACK)
+    assert {r["entry_id"]: r["catalog_verdict"] for r in again["assets"]} == {r["entry_id"]: r["catalog_verdict"] for r in snap["assets"]}
+
+
+def test_catalog_detail_labels_the_legacy_verdict_explicitly():
+    tpl = (REPO / "webapp" / "templates" / "partials" / "catalog_flow_content.html").read_text(encoding="utf-8")
+    line = tpl[tpl.index("Veredicto LEGACY del catálogo"):]
+    assert line.index("Veredicto del catálogo") < line.index("catalog_verdict_label") < line.index("{{ apto }}")   # etiqueta · BUENA · texto canónico
+
+
+def test_report_hero_divider_rhythm_is_symmetric_and_shared_by_both_reports():
+    css = (REPO / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    pad = re.search(r"\.module-hero\.asr-hero \{ padding-bottom: (\d+)px; \}", css).group(1)
+    gap = re.search(r"\.module-hero\.asr-hero \+ \* \{ margin-top: (\d+)px; \}", css).group(1)
+    assert pad == gap                                                                                    # mismo aire arriba y abajo del divisor
+    assert ".module-hero.asr-hero > :last-child { margin-bottom: 0; }" in css
+    for name in ("client_assessment_report.html", "catalog_assessment_report.html"):
+        assert '<section class="module-hero asr-hero">' in _tpl(name), name
+
+
+# ───────────────────────── backfill histórico (offline) ─────────────────────────
+def test_backfill_generates_only_not_yet_assessed_and_skips_the_rest(world):
+    from webapp.services import assessment_backfill as bf
+    generated = []
+
+    def fake_generate(entry):
+        generated.append(entry.entry_id)
+        return _status(entry, svc.CURRENT, _profile(0.8, "HIGH"))
+    out = bf.backfill(list(world.entries.values()), status_for=lambda e: world.statuses[e.entry_id], generate=fake_generate)
+    assert generated == ["e"] and [x["entry_id"] for x in out["generated"]] == ["e"]
+    assert {x["entry_id"]: x["state"] for x in out["skipped"]} == {"a": svc.CURRENT, "b": svc.CURRENT, "c": svc.CURRENT, "d": svc.STALE, "f": svc.FAILED}
+    assert out["counts"] == {"generated": 1, "skipped": 5, "failed": 0}
+
+
+def test_backfill_continues_after_an_individual_failure_and_reports_it(world):
+    from webapp.services import assessment_backfill as bf
+    entries = [_entry("x1", "Acme", "AM_X1"), _entry("x2", "Acme", "AM_X2"), _entry("x3", "Acme", "AM_X3")]
+
+    def generate(entry):
+        if entry.entry_id == "x2":
+            raise RuntimeError("pool roto")
+        return _status(entry, svc.CURRENT, _profile())
+    out = bf.backfill(entries, status_for=lambda e: _status(e, svc.NOT_YET_ASSESSED), generate=generate)
+    assert out["counts"] == {"generated": 2, "skipped": 0, "failed": 1} and "pool roto" in out["failed"][0]["reason"]
+
+
+def test_backfill_dry_run_generates_nothing(world):
+    from webapp.services import assessment_backfill as bf
+    out = bf.backfill(world.entries.values(), dry_run=True, status_for=lambda e: world.statuses[e.entry_id],
+                      generate=lambda e: pytest.fail("dry-run no genera"))
+    assert out["counts"]["generated"] == 0 and out["dry_run"] is True
+
+
+def test_backfill_uses_only_the_local_pool_no_datasphere_no_credentials(world, monkeypatch):
+    import inspect
+    from webapp.services import assessment_backfill as bf
+    from tools.catalog import DSP_CLI_Export_Lineage as dsp
+    from webapp.services import datasphere_assessment_service as asd
+    src = inspect.getsource(bf)
+    for forbidden in ("run_export", "ExportRequest", "client_secret", "datasphere_publication", "datasphere_assessment_service", "requests", "httpx"):
+        assert forbidden not in src, forbidden
+    monkeypatch.setattr(dsp, "run_export", lambda *a, **k: pytest.fail("el backfill no extrae de Datasphere"))
+    monkeypatch.setattr(asd, "run", lambda *a, **k: pytest.fail("no ejecuta el assessment ad-hoc"))
+    monkeypatch.setattr(svc, "generate", lambda e: _status(e, svc.CURRENT, _profile()))
+    out = bf.backfill([world.entries["e"]], status_for=lambda e: world.statuses[e.entry_id], generate=svc.generate)
+    assert out["counts"]["generated"] == 1
+
+
+def test_opening_the_portfolio_never_runs_the_backfill_or_generates(world, monkeypatch):
+    from webapp.services import assessment_backfill as bf
+    monkeypatch.setattr(bf, "backfill", lambda *a, **k: pytest.fail("un GET jamás ejecuta el backfill"))
+    monkeypatch.setattr(svc, "generate", lambda *a, **k: pytest.fail("un GET jamás genera assessments"))
+    assert _client().get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).status_code == 200
+    routers = (REPO / "webapp" / "routers" / "catalog_assessment.py").read_text(encoding="utf-8")
+    assert "assessment_backfill" not in routers and "assessment_backfill" not in (REPO / "webapp" / "main.py").read_text(encoding="utf-8")

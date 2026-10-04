@@ -2124,6 +2124,8 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .catalog-card__verdict--plena { color: #2e9e5b; border-color: rgba(46,158,91,.42); background: rgba(46,158,91,.08); }
 .catalog-card__verdict--buena { color: #c89100; border-color: rgba(200,145,0,.42); background: rgba(200,145,0,.08); }
 .catalog-card__verdict--parcial { color: #d06f1f; border-color: rgba(208,111,31,.42); background: rgba(208,111,31,.08); }
+/* Estados neutros del Assessment (sin assessment / no aplica): mismo badge, gris claro y texto gris oscuro; sin semántica de puntaje. */
+.catalog-card__verdict--neutra { color: #55555d; border-color: rgba(85,85,93,.28); background: rgba(85,85,93,.07); }
 .catalog-card__apto { margin: 0 0 4px; color: var(--soft); font-size: .8rem; }
 .catalog-card__consumo { margin: 0 0 4px; color: var(--dim); font: 500 .66rem var(--mono); line-height: 1.3; }
 .catalog-card__consumo span { color: var(--soft); }
@@ -2861,6 +2863,11 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .catalog-verdict-line a.asm-badge-link { text-decoration: none; cursor: pointer; }
 /* `.support-links` no envuelve: la fila de acciones del informe tiene hasta 3 enlaces. */
 .asr-actions { flex-wrap: wrap; }
+/* Divisor del hero de los informes de Assessment (borde inferior de `.module-hero`): mismo aire arriba (padding) y abajo (margen del bloque que sigue).
+   Medido en el informe individual y en el de cliente: 59px arriba (padding 44 + margen 14 del último hijo) vs 12px abajo. Solo la familia `.asr-hero`. */
+.module-hero.asr-hero { padding-bottom: 32px; }
+.module-hero.asr-hero > :last-child { margin-bottom: 0; }
+.module-hero.asr-hero + * { margin-top: 32px; }
 /* IDs técnicos largos (AM_…) sin cortes naturales: a la escala del h1 del Hub (hasta 4.5rem) no caben ni parten bien. */
 .asr-title { font-size: clamp(1.5rem, 3vw, 2.4rem); line-height: 1.1; letter-spacing: -.03em; overflow-wrap: anywhere; }
 

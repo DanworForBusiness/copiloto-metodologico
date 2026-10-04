@@ -2,7 +2,7 @@
 client_assessment_portfolio.py — "Assessment del cliente" (consolidado V1): MODELO DE LECTURA DERIVADO, solo lectura.
 
 Unidad = ENTRADA del Catálogo gobernado (``CatalogEntry``: un flujo/consumo del cliente). NO se afirma que una entrada sea una raíz
-publicada ni un modelo: por eso el consolidado habla de "activos del catálogo".
+publicada ni un modelo: por eso el consolidado habla de "artefactos del catálogo".
 
     entradas del Catálogo del cliente  +  estado canónico de cada una (``assessment_service.statuses_for_entries``)
       → snapshot (esta función) → HTML / JSON / Markdown, los tres del MISMO snapshot
@@ -41,7 +41,7 @@ def client_entries(client: str) -> list:
 
 def _failed(entry: Any) -> svc.AssessmentStatus:
     return svc.AssessmentStatus(svc.FAILED, getattr(entry, "entry_id", ""), str(getattr(entry, "cliente", "")), None,
-                                reason="No se pudo leer el assessment de este activo.", error_code="READ_ERROR")
+                                reason="No se pudo leer el assessment de este artefacto.", error_code="READ_ERROR")
 
 
 def _statuses(entries: list) -> dict[str, svc.AssessmentStatus]:
@@ -69,6 +69,14 @@ def _metrics(status: svc.AssessmentStatus) -> dict:
             "observation_occurrences": summary["observation_occurrences"], "review_occurrences": summary["review_occurrences"]}
 
 
+def _identity(title: str | None, am: str | None, domain: str) -> tuple[str, str | None]:
+    """Una sola descripción del artefacto para HTML / JSON / Markdown: ``Descripción · ID``. El dominio solo se agrega si es un concepto
+    distinto (no repite la descripción ni el id)."""
+    label = f"{title} · {am}" if title and am else (am or title or domain)
+    scope = domain if domain and domain not in (title, am, label) else None
+    return label, scope
+
+
 def _row(entry: Any, status: svc.AssessmentStatus, pack: str) -> dict:
     m = _metrics(status)
     am = status.terminal_am
@@ -77,8 +85,12 @@ def _row(entry: Any, status: svc.AssessmentStatus, pack: str) -> dict:
     except Exception:                                                   # noqa: BLE001
         desc = None
     cov, conf, review_n = m["coverage_strict"], m["confidence"], m["review_occurrences"]
+    title = desc if desc and desc != am else None
+    label, scope = _identity(title, am, str(entry.dominio))
     return {
-        "entry_id": entry.entry_id, "domain": str(entry.dominio), "asset_id": am, "asset_title": desc if desc and desc != am else None,
+        "entry_id": entry.entry_id, "domain": str(entry.dominio), "asset_id": am, "asset_title": title,
+        "artifact_label": label, "artifact_scope": scope,
+        "catalog_verdict": str(getattr(entry, "veredicto", "") or "").strip().lower() or None,       # veredicto LEGACY del catálogo, tal cual (no es un score del Assessment)
         "state": status.state, "state_label": presenter.STATE_LABELS[status.state],
         "coverage_strict": cov, "coverage_text": presenter.percent(cov) if cov is not None else DASH,
         "confidence": conf, "confidence_text": presenter.confidence_label(conf) if conf else DASH,
@@ -154,7 +166,7 @@ def report_view(snap: dict) -> dict:
         "snapshot": snap,
         "generated_text": snap["generated_at"].replace("T", " ").replace("+00:00", " UTC"),
         "kpis": [
-            {"label": "Activos del catálogo", "value": str(n)},
+            {"label": "Artefactos del catálogo", "value": str(n)},
             {"label": f"Assessments vigentes · de {n}", "value": f"{cur} / {n}"},
             {"label": f"Requieren revisión · sobre {cur} vigentes", "value": str(s["requires_review"])},
             {"label": f"Cobertura promedio · sobre {presenter.plural(cov['over_current_assessments'], 'assessment vigente', 'assessments vigentes')}",
@@ -179,20 +191,20 @@ def to_markdown(snap: dict) -> str:
     v = report_view(snap)
     s = snap["summary"]
     lines = [f"# Assessment del cliente — {snap['client']}", "",
-             f"_Generado {v['generated_text']}. Derivado de los assessments canónicos ya generados de los activos del catálogo; "
+             f"_Generado {v['generated_text']}. Derivado de los assessments canónicos ya generados de los artefactos del catálogo; "
              "no se conectó a Datasphere ni se ejecutó ninguna evaluación._", "", "## Resumen", ""]
     lines += [f"- **{k['label']}:** {k['value']}" for k in v["kpis"]]
-    lines += ["", "## Estado de los activos del catálogo", ""] + [f"- {r['label']}: {r['count']}" for r in v["state_rows"]]
+    lines += ["", "## Estado de los artefactos del catálogo", ""] + [f"- {r['label']}: {r['count']}" for r in v["state_rows"]]
     lines += ["", f"## Confianza (sobre {s['current_assessments']} assessments vigentes)", ""]
     lines += [f"- {r['label']}: {r['count']}" for r in v["confidence_rows"]]
-    lines += ["", "## Activos", "", "| Activo | Estado | Cobertura | Confianza | Observaciones | Revisión requerida |", "|---|---|---|---|---|---|"]
+    lines += ["", "## Artefactos", "", "| Artefacto | Estado | Cobertura | Confianza | Observaciones | Revisión requerida | Veredicto del catálogo |", "|---|---|---|---|---|---|---|"]
     for r in snap["assets"]:
         lines.append("| " + " | ".join(_cell(x) for x in (
-            r["asset_id"] or r["domain"], r["state_label"], r["coverage_text"] if r["coverage_strict"] is not None else None,
-            r["confidence_text"] if r["confidence"] else None, r["observation_occurrences"], r["review_occurrences"])) + " |")
+            r["artifact_label"] + (f" ({r['artifact_scope']})" if r["artifact_scope"] else ""), r["state_label"], r["coverage_text"] if r["coverage_strict"] is not None else None,
+            r["confidence_text"] if r["confidence"] else None, r["observation_occurrences"], r["review_occurrences"], (r["catalog_verdict"] or "").upper() or None)) + " |")
     lines += ["", "## Hallazgos recurrentes", ""]
     if snap["recurring_findings"]:
-        lines += [f"- **{f['title']}** ({f['id']}): {presenter.plural(f['entries'], 'activo')}" for f in snap["recurring_findings"]]
+        lines += [f"- **{f['title']}** ({f['id']}): {presenter.plural(f['entries'], 'artefacto')}" for f in snap["recurring_findings"]]
     else:
         lines.append("Sin hallazgos recurrentes en los assessments vigentes.")
     return "\n".join(lines) + "\n"

@@ -8,9 +8,10 @@
    Unidad = entrada/flujo del Catálogo. #}
 {% from "partials/assessment_report_macros.html" import heading %}
 {% set snap = v.snapshot %}
-{% macro badge(state) %}<span class="catalog-card__verdict{% if v.state_tones.get(state) %} catalog-card__verdict--{{ v.state_tones[state] }}{% endif %}">{{ v.state_labels[state] }}</span>{% endmacro %}
+{# Mismo badge `.catalog-card__verdict` para TODOS los estados; los neutros (sin assessment / no aplica) usan su variante gris, sin semántica de puntaje. #}
+{% macro badge(state) %}<span class="catalog-card__verdict catalog-card__verdict--{{ v.state_tones.get(state) or "neutra" }}">{{ v.state_labels[state] }}</span>{% endmacro %}
 <a class="catalog-back" href="#" role="button" hx-get="{{ back_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>
-<section class="module-hero">
+<section class="module-hero asr-hero">
   <p class="eyebrow">Assessment del cliente</p>
   <h1 class="asr-title">{{ snap.client }}</h1>
   <div class="hero-meta">
@@ -36,31 +37,32 @@
 
 <article class="methodology catalog-detail">
   <section class="content-section" id="cli-resumen">
-    {{ heading(1, "Resumen", "Derivado de los assessments ya generados de los activos del catálogo de este cliente. Abrirlo no se conecta a Datasphere ni ejecuta evaluaciones: un activo sin assessment vigente se genera desde su detalle. No es un puntaje de madurez.") }}
+    {{ heading(1, "Resumen", "Derivado de los assessments ya generados de los artefactos del catálogo de este cliente. Abrirlo no se conecta a Datasphere ni ejecuta evaluaciones: un artefacto sin assessment vigente se genera desde su detalle. No es un puntaje de madurez.") }}
     <table>
-      <thead><tr><th>Estado del assessment</th><th>Activos</th></tr></thead>
+      <thead><tr><th>Estado del assessment</th><th>Artefactos</th></tr></thead>
       <tbody>{% for r in v.state_rows %}<tr data-state="{{ r.state }}"><td>{{ badge(r.state) }}</td><td>{{ r.count }}</td></tr>{% endfor %}</tbody>
     </table>
-    <p>Confianza de los {{ snap.summary.current_assessments }} assessments vigentes (confiabilidad de la evidencia, no calidad del activo; se muestra como distribución).</p>
+    <p>Confianza de los {{ snap.summary.current_assessments }} assessments vigentes (confiabilidad de la evidencia, no calidad del artefacto; se muestra como distribución).</p>
     <table>
       <thead><tr><th>Confianza</th><th>Assessments</th></tr></thead>
       <tbody>{% for r in v.confidence_rows %}<tr data-confidence="{{ r.level }}"><td>{{ r.label }}</td><td>{{ r.count }}</td></tr>{% endfor %}</tbody>
     </table>
   </section>
 
-  <section class="content-section" id="cli-activos">
-    {{ heading(2, "Activos", "Solo los assessments vigentes aportan métricas; “—” significa no disponible, no cero. Cada activo abre su detalle en el Catálogo, donde vive el informe individual.") }}
+  <section class="content-section" id="cli-artefactos">
+    {{ heading(2, "Artefactos", "Solo los assessments vigentes aportan métricas; “—” significa no disponible, no cero. El veredicto del catálogo es el histórico (higiene de extracción), distinto del Assessment. Cada artefacto abre su detalle en el Catálogo, donde vive el informe individual.") }}
     <table>
-      <thead><tr><th>Activo</th><th>Estado</th><th>Cobertura</th><th>Confianza</th><th>Observaciones</th><th>Revisión requerida</th></tr></thead>
+      <thead><tr><th>Artefacto</th><th>Estado</th><th>Cobertura</th><th>Confianza</th><th>Observaciones</th><th>Revisión requerida</th><th>Veredicto del catálogo</th></tr></thead>
       <tbody>
         {% for r in snap.assets %}
         <tr data-entry="{{ r.entry_id }}" data-state="{{ r.state }}">
-          <td>{% if r.asset_title %}{{ r.asset_title }} · {% endif %}<a href="#" role="button" hx-get="{{ r.detail_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent><code>{{ r.asset_id or r.domain }}</code></a>{% if r.asset_id and r.domain != r.asset_id %}<br>{{ r.domain }}{% endif %}</td>
+          <td><a href="#" role="button" hx-get="{{ r.detail_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent><code>{{ r.artifact_label }}</code></a>{% if r.artifact_scope %}<br>{{ r.artifact_scope }}{% endif %}</td>
           <td>{{ badge(r.state) }}{% if r.reason %}<br>{{ r.reason }}{% endif %}</td>
           <td>{{ r.coverage_text }}</td>
           <td>{{ r.confidence_text }}</td>
           <td>{{ r.observation_occurrences if r.observation_occurrences is not none else "—" }}</td>
           <td>{{ r.review_occurrences if r.review_occurrences is not none else "—" }}</td>
+          <td>{% if r.catalog_verdict %}<span class="catalog-card__verdict catalog-card__verdict--{{ r.catalog_verdict|catalog_verdict_class }}">{{ r.catalog_verdict|catalog_verdict_label }}</span>{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -68,10 +70,10 @@
   </section>
 
   <section class="content-section" id="cli-hallazgos">
-    {{ heading(3, "Hallazgos recurrentes", "Cada activo cuenta una vez por hallazgo. Solo assessments vigentes; sin pesos ni severidad.") }}
+    {{ heading(3, "Hallazgos recurrentes", "Cada artefacto cuenta una vez por hallazgo. Solo assessments vigentes; sin pesos ni severidad.") }}
     {% if snap.recurring_findings %}
     <table>
-      <thead><tr><th>Hallazgo</th><th>Tipo</th><th>Activos</th></tr></thead>
+      <thead><tr><th>Hallazgo</th><th>Tipo</th><th>Artefactos</th></tr></thead>
       <tbody>
         {% for f in snap.recurring_findings %}
         <tr data-finding="{{ f.id }}"><td>{{ f.title }}<br>{% for a in f.asset_ids %}<code>{{ a }}</code> {% endfor %}</td><td>{{ f.kind_label }}</td><td>{{ f.entries }}</td></tr>

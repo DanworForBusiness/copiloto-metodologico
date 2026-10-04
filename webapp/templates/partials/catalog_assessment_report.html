@@ -93,7 +93,7 @@
 {% if v.adhoc %}{# assessment ad-hoc (página propia): "Volver" regresa a la herramienta, sin HTMX ni flujo del Catálogo #}
 <a class="catalog-back" href="{{ v.flow_url }}">← Volver</a>
 {% else %}<a class="catalog-back" href="#" role="button" hx-get="{{ v.flow_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>{% endif %}
-<section class="module-hero">
+<section class="module-hero asr-hero">
   <p class="eyebrow">Assessment de {{ v.module_label }} · {{ v.client }}</p>
   {# Mismo formato `Descripción · NOMBRE_TÉCNICO` (negro · dorado) que el heading del modelo en el detalle del flujo. #}
   <h1 class="asr-title">{% if v.title_id and v.title_desc %}<span class="tone-black">{{ v.title_desc }} · </span><span class="tone-gold">{{ v.title_id }}</span>{% elif v.title_id %}<span class="tone-gold">{{ v.title_id }}</span>{% else %}{{ v.dominio }}{% endif %}</h1>
