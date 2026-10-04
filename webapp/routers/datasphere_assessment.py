@@ -66,7 +66,9 @@ def _authorize(request: Request, stem: str) -> dict:
 
 def _result_urls(stem: str, result_id: str, pack: str) -> tuple[str, str, str, str]:
     base = f"/modules/{stem}/datasphere-assessment/result/{result_id}"
-    return base + "?" + urlencode({"pack": pack}), base + "/export.json", base + "/export.md", f"/modules/{stem}?" + urlencode({"pack": pack})
+    # "Volver" regresa a SU herramienta: el contrato canónico `?tool=assessment` abre solo "Herramientas de diagnóstico" con Assessment seleccionado.
+    return (base + "?" + urlencode({"pack": pack}), base + "/export.json", base + "/export.md",
+            f"/modules/{stem}?" + urlencode({"pack": pack, "tool": "assessment"}))
 
 
 @router.post("/modules/{stem}/datasphere-assessment/run", include_in_schema=False)

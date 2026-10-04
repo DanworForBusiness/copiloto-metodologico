@@ -539,7 +539,7 @@ def test_adhoc_report_is_the_same_template_and_presenter_without_lineage_or_cata
         assert needle in t, needle
     assert "4AM_ACME" in t and "Assessment de Modelado &amp; Desarrollo · Acme" in t
     assert "Ver en linaje" not in t and "/catalog/flow" not in t and "Actualizar catálogo" not in t                  # sin linaje, sin flujo, sin Catálogo
-    assert re.search(r'<a class="catalog-back" href="/modules/04_Modelado_y_Desarrollo\?pack=datasphere_core">← Volver</a>', t)
+    assert re.search(r'<a class="catalog-back" href="/modules/04_Modelado_y_Desarrollo\?pack=datasphere_core&amp;tool=assessment">← Volver</a>', t)
     assert f"/datasphere-assessment/result/{rid}/export.json" in t and f"/datasphere-assessment/result/{rid}/export.md" in t
     assert "Regenerar" not in t and "Generar informe" not in t                                                      # sin acciones de generación
     # misma plantilla: no existe una segunda plantilla de informe
@@ -1387,3 +1387,59 @@ def test_scope_checkboxes_reuse_the_shared_primitive_and_restore_its_spacing_wit
     css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
     assert re.search(r"\.dashboard-checkbox-option \{[^}]*gap: 5px", css)                                    # el espaciado es el gap del primitivo
     assert css.count(".tree-picker .dashboard-checkbox-option { display: inline-flex; margin: 0; }") == 1   # restituye el layout que `.tree-picker label` pisaba
+
+
+# ── pulido post-merge: Total Runtime + "Volver" a su herramienta ───────────────
+@pytest.mark.parametrize("seconds,expected", [
+    (0, "0.0s"), (47.2, "47.2s"), (59.94, "59.9s"), (59.96, "01m 00s (60.0 s)"), (60, "01m 00s (60.0 s)"), (72.4, "01m 12s (72.4 s)"),
+    (412.3, "06m 52s (412.3 s)"), (119.96, "02m 00s (120.0 s)"), (3725.5, "62m 05s (3725.5 s)"), (-3, "0.0s")])
+def test_runtime_formatter_contract(seconds, expected):
+    assert dsp.format_runtime(seconds) == expected
+
+
+def test_final_extraction_summary_has_total_runtime_right_before_status_measured_by_the_backend(real_extraction):
+    lines: list[str] = []
+    out = svc.run(svc.FormValues(host=VALID["host"], token_url=VALID["token_url"], client_id="id", space="S", root_object="3VF_P", client="Acme"), SECRET,
+                  on_line=lines.append)
+    assert out.state == "SUCCESS"
+    i = next(k for k, l in enumerate(lines) if l.startswith("Total Runtime:"))
+    assert lines[i + 1] == "STATUS: SUCCESS" and lines[i - 1].startswith("Publicación en catálogo")        # inmediatamente antes de STATUS
+    assert re.fullmatch(r"Total Runtime: (\d+\.\ds|\d{2,}m \d{2}s \(\d+\.\d s\))", lines[i])
+    assert next(k for k, l in enumerate(lines) if "EXTRACCION DE LINAJE FINALIZADA" in l) < i
+    res = real_extraction["results"][0]
+    shown = float(re.search(r"(\d+\.\d)s?\)?$", lines[i]).group(1))
+    assert abs(shown - res.duration_s) < 1.0                                                                # la misma medición del extractor (ExportResult.duration_s)
+
+
+def test_runtime_is_a_backend_log_line_only_not_js_and_not_part_of_the_assessment(real_extraction):
+    js = (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")
+    assert "Total Runtime" not in js and "performance.now" not in js and "Date.now" not in js
+    out = svc.run(svc.FormValues(host=VALID["host"], token_url=VALID["token_url"], client_id="id", space="S", root_object="4AM_ACME", client="Acme"), SECRET)
+    rec = svc.load_result(out.result_id)
+    assert "Total Runtime" not in json.dumps(rec["profile"]) and any(l.startswith("Total Runtime:") for l in rec["execution_log"])   # solo en el log
+
+
+def test_volver_returns_to_the_assessment_tool_with_the_canonical_tool_param(owner, fake_export):
+    rid = _rid(_post(owner))
+    report = owner.get(_results_url(rid) + "?pack=datasphere_core").text
+    href = re.search(r'<a class="catalog-back" href="([^"]+)">← Volver</a>', report).group(1).replace("&amp;", "&")
+    assert href == f"/modules/{STEM}?pack=datasphere_core&tool=assessment"
+    page = owner.get(href).text
+    assert re.search(r"copilotLayout\('core', false, '', 'assessment'\)", page)                              # grupo de diagnóstico abierto
+    js = (REPO / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert 'panelOpen: toolGroup ? toolGroup === "decision" : true' in js and 'gestionOpen: toolGroup === "gestion"' in js   # decisión/gestión colapsadas
+    assert "x-data=\"{ tool: 'assessment'," in page and 'id="dsa-form"' in page                              # herramienta seleccionada y visible
+    assert 'value="ACME_SPACE"' in _input(page, "dsa-space") and 'value="Acme"' in _input(page, "dsa-client")  # contexto retenido
+    assert "value=" not in _input(page, "dsa-client_secret") and SECRET not in page                           # el secreto sigue ausente
+
+
+def test_other_report_navigation_is_unchanged(owner, fake_export):
+    from webapp.services import assessment_presenter as presenter
+    adhoc = presenter.AdhocReport("/b", "/j", "/m")
+    status = asvc.AssessmentStatus(asvc.CURRENT, "x", "Acme", "4AM_ACME", generated_at="2026-10-03T00:00:00+00:00", profile=None)
+    view = presenter.report_view(status, None, "datasphere_core", adhoc=adhoc)
+    assert view["flow_url"] == "/b"                                                                           # el ad-hoc usa SU back
+    router_src = (REPO / "webapp/routers/datasphere_assessment.py").read_text(encoding="utf-8")
+    assert router_src.count('"tool": "assessment"') == 1                                                      # un único cambio: el back del informe ad-hoc
+    cat = (REPO / "webapp/templates/partials/catalog_assessment_report.html").read_text(encoding="utf-8")
+    assert "hx-get" in cat and "tool=assessment" not in cat                                                   # el Volver del Catálogo no se tocó
