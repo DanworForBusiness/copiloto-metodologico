@@ -76,6 +76,17 @@ class FlowEvidence:
     source_systems: tuple[FlowSourceSystem, ...]      # solo Replication Flows
 
 
+@dataclass(frozen=True)
+class ViewTypeEvidence:
+    """Tipo de vista de una definición del pool (GRAPHICAL | SQL | UNKNOWN) y su procedencia. NO decide qué es una vista: eso lo decide quien
+    arma el hecho con ``family`` (carpeta-tipo normalizada del archivo, o None en pools planos)."""
+    entity: str
+    source_file: str
+    family: str | None
+    view_type: str
+    view_type_basis: str                              # STORED (el JSON traía `viewType`) | DERIVED (se derivó de la metadata cruda)
+
+
 def _rel(path: Path, root: Path | None) -> str:
     if root is not None:
         try:
@@ -167,7 +178,9 @@ class SupplementaryEvidence:
         issues: Iterable[ReadIssue],
         files_read: int,
         acquired_flow_families: Iterable[str] | None = None,
+        view_types: Mapping[str, ViewTypeEvidence] | None = None,
     ) -> None:
+        self._view_types = dict(sorted((view_types or {}).items()))
         self.acquired_flow_families = FLOW_FAMILIES if acquired_flow_families is None else frozenset(acquired_flow_families) & FLOW_FAMILIES
         self._remote = dict(sorted(remote_tables.items()))
         self._flows = tuple(sorted(flows, key=lambda f: (f.kind, f.name, f.source_file)))
@@ -177,10 +190,13 @@ class SupplementaryEvidence:
 
     @classmethod
     def from_files(cls, json_files: Iterable[str | Path], root: str | Path | None = None,
-                   acquired_flow_families: Iterable[str] | None = None) -> "SupplementaryEvidence":
+                   acquired_flow_families: Iterable[str] | None = None, *, view_type_of=None, family_of_dir=None) -> "SupplementaryEvidence":
+        """``view_type_of(data, nombre) -> (tipo, base)`` y ``family_of_dir(carpeta) -> familia|None`` los inyecta quien lee (el shadow, vía
+        ``legacy_bridge``): este módulo permanece puro. Sin ellos no se recoge evidencia de tipo de vista (comportamiento previo)."""
         rootp = Path(root) if root is not None else None
         remote: dict[str, RemoteTableEvidence] = {}
         flows: list[FlowEvidence] = []
+        view_cands: dict[str, list[ViewTypeEvidence]] = {}
         files: dict[str, list[str]] = {}
         issues: list[ReadIssue] = []
         n = 0
@@ -199,6 +215,11 @@ class SupplementaryEvidence:
                 if not isinstance(defn, dict):
                     continue
                 files.setdefault(name, []).append(rel)
+                if view_type_of is not None:
+                    family = family_of_dir(Path(rel).parent.name) if family_of_dir is not None and Path(rel).parent.name else None
+                    vtype, basis = view_type_of(data, name)
+                    if family is not None or vtype != "UNKNOWN":      # en pools planos solo interesa lo que tiene marcador
+                        view_cands.setdefault(name, []).append(ViewTypeEvidence(name, rel, family, vtype, basis))
                 ev = _read_remote_table(name, defn, rel)
                 if ev is not None and name not in remote:
                     remote[name] = ev
@@ -208,7 +229,9 @@ class SupplementaryEvidence:
             for name, body in (data.get("dataflows") or {}).items():
                 if isinstance(body, dict):
                     flows.append(_read_data_flow(name, body, rel))
-        return cls(remote, flows, {k: tuple(sorted(set(v))) for k, v in files.items()}, issues, n, acquired_flow_families)
+        # Un nombre definido en varios archivos: se prefiere el de la familia `views`, luego el de ruta menor (determinista).
+        view_types = {name: min(c, key=lambda e: (e.family != "views", e.source_file)) for name, c in view_cands.items()}
+        return cls(remote, flows, {k: tuple(sorted(set(v))) for k, v in files.items()}, issues, n, acquired_flow_families, view_types)
 
     @classmethod
     def empty(cls) -> "SupplementaryEvidence":
@@ -226,6 +249,10 @@ class SupplementaryEvidence:
     @property
     def issues(self) -> tuple[ReadIssue, ...]:
         return self._issues
+
+    def view_type_evidence(self, entity: str) -> ViewTypeEvidence | None:
+        """Tipo de vista de la entidad según el JSON del pool (None si el pool no lo define o no se recogió evidencia de tipo)."""
+        return self._view_types.get(entity)
 
     def files_defining(self, entity: str) -> tuple[str, ...]:
         """Todos los archivos del pool que definen la entidad (L6); vacio si ninguno la define."""

@@ -120,9 +120,9 @@ def header_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
         view["coverage"] = P.percent_text(summary["strict"])
         view["confidence"] = P.confidence_level_text(summary["confidence"]).capitalize()
         n = summary["review_occurrences"]
-        view["reviews"] = _plural(n, "revisión", "revisiones") if n else "Sin revisiones"
-        view["reviews_title"] = (f"{_plural(n, 'ocurrencia')} en {_plural(summary['review_groups'], 'grupo')} de revisión requerida"
-                                 if n else "Ningún grupo de revisión requerida")
+        view["reviews"] = _plural(n, "caso a revisar", "casos a revisar") if n else "Sin casos a revisar"
+        view["reviews_title"] = (f"{_plural(n, 'caso')} en {_plural(summary['review_groups'], 'tipo de revisión', 'tipos de revisión')}"
+                                 if n else "Ningún caso a revisar")
     return view
 
 
@@ -165,7 +165,7 @@ def _group_view(g: dict, entry: Any, pack: str) -> dict:
     evidence_limit = None
     if state and state["assessability"] != "ASSESSED":
         evidence_limit = (f"los insumos de la regla están {P.assessability_plural_text(state['assessability'])} "
-                          f"({state['reason']['reason_summary']}); pueden existir más ocurrencias fuera de la evidencia que pudo evaluarse.")
+                          f"({P.reason_text(state['reason'])}); pueden existir más ocurrencias fuera de la evidencia que pudo evaluarse.")
     return {
         "dom_id": f"asr-g-{g['id']}", "id": g["id"], "title": g["title"], "kind": g["kind"], "kind_text": P.finding_kind_text(g["kind"]),
         "area_title": P.area_title(g["area"]), "explanation": g["explanation"], "why_shown": g["why_shown"],
@@ -235,7 +235,8 @@ FACT_LAYOUT: dict[str, dict] = {
     "ANALYTIC_MODEL": {"headline": ["fields", "measures", "associations"],
                        "groups": [("Composición del modelo", ["derived_fields", "keys", "labelled_fields", "numeric_non_measure_attributes", "numeric_non_measure_fields"]),
                                   ("Cierre semántico", ["semantic_closure"]),
-                                  ("Linaje y asociaciones", ["direct_lineage_providers", "association_targets"])]},
+                                  ("Linaje y asociaciones", ["direct_lineage_providers", "association_targets"]),
+                                  ("Vistas del cierre (nombre técnico y tipo)", ["view_artifacts"])]},
     "PROPAGATION": {"headline": ["lineage_steps_evaluated", "artifacts_with_derived_fields", "rederived_field_occurrences"], "groups": []},
     "HARMONIZATION": {"headline": ["declared_dimensions", "composition_artifacts", "cross_model_reuse_artifacts"],
                       "groups": [("Reutilización y asociaciones", ["dimensions_with_own_associations", "most_reused_across_models"])]},
@@ -247,6 +248,50 @@ FACT_LAYOUT: dict[str, dict] = {
                           ("Anclas del nombre en el modelo terminal", ["terminal_model_name_anchors", "terminal_model_remote_source_anchor"])]},
     "SOURCE_EXTRACTION": {"headline": ["remote_artifacts", "connections", "sources_with_filter"], "groups": [("Por estado de la fuente", ["by_source_state"])]},
 }
+
+
+# Ayuda OPCIONAL de los KPI del informe individual (tooltip (i) del Hub; ver `kpi_tile` en assessment_report_macros.html). El significado sale de los
+# contratos canónicos del paquete (`profile.COVERAGE_MEANING`, `profile.CONFIDENCE_MEANING`, `summary.context_required`, el estado "abierto — requiere
+# contexto" de las revisiones); acá solo se redacta para lectura humana. Cada KPI sin entrada se muestra exactamente como siempre. Nunca un puntaje.
+KPI_HELP: dict[str, tuple[str, ...]] = {
+    "coverage_strict": (
+        "Qué parte de la evidencia metodológica requerida y aplicable pudo evaluarse por completo con la información disponible; la evaluada solo en parte no suma.",
+        "No mide la calidad del modelo."),
+    "confidence": (
+        "Qué tan fiable es la evidencia que sí se evaluó (alta, media o baja); manda el componente más débil.",
+        "No mide la calidad del modelo y es independiente de la cobertura y de las preguntas aún abiertas."),
+    "review_required": (
+        "Casos concretos detectados por el análisis que requieren criterio técnico del consultor antes de poder cerrarse. No implican defectos confirmados.",
+        "Cuenta ocurrencias y no mide la calidad del modelo."),
+    "context_open": (
+        "Información que aún debe aportar el equipo del proyecto para completar o interpretar el análisis. Una misma pregunta puede estar relacionada con varios hallazgos.",
+        "Cuenta tipos de pregunta, no ocurrencias, y no mide la calidad ni la confianza."),
+}
+
+
+# Ayuda (i) de los indicadores de Propagación y Armonización, por id de hecho (mismo primitivo del Hub que los KPI superiores). Redacción alineada con el
+# cálculo canónico: unidades y límites exactos; sin juicio de calidad.
+AREA_KPI_HELP: dict[str, tuple[str, ...]] = {
+    "lineage_steps_evaluated": (
+        "Relaciones proveedor→consumidor cuyo contrato pudo compararse. Cuenta pasos de linaje, no artefactos; una relación puede resultar idéntica o mostrar cambios.",),
+    "artifacts_with_derived_fields": (
+        "Artefactos intermedios con al menos un campo calculado mediante una expresión visible. Cada artefacto cuenta una vez, aunque derive varios campos.",
+        "Sin query visible la superficie puede quedar parcialmente evaluada: un cero no garantiza ausencia."),
+    "rederived_field_occurrences": (
+        "Ocurrencias donde un campo derivado vuelve a calcularse, con el mismo nombre técnico, en otro artefacto aguas arriba. Un mismo campo puede generar más de "
+        "una ocurrencia. El consultor determina si la repetición es intencional.",),
+    "declared_dimensions": (
+        "Artefactos del cierre declarados como dimensión por los metadatos del modelo. No se infieren por nombre ni por capa.",),
+    "composition_artifacts": (
+        "Artefactos que combinan dos o más proveedores directos de linaje. Describe su estructura y no implica por sí solo una desviación metodológica.",),
+    "cross_model_reuse_artifacts": (
+        "Entre las dimensiones y destinos de asociación evaluados, cuenta los artefactos que también aparecen en otros modelos analíticos del cliente. "
+        "No representa todos los artefactos del cierre.",),
+}
+
+
+def _kpi(key: str, label: str, value: Any) -> dict:
+    return {"label": label, "value": value, "help": list(KPI_HELP[key])}
 
 
 def _is_number(v: Any) -> bool:
@@ -263,7 +308,8 @@ def _fact_into(group: dict, h: dict) -> None:
         group["properties"].append({"label": label, "value": v, "names": None})
     elif isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
         keys = sorted(dict.fromkeys(k for r in v for k in r), key=lambda k: k != "name")
-        group["tables"].append({"title": label, "columns": [_column_title(k) for k in keys], "rows": [[r.get(k, "") for k in keys] for r in v]})
+        group["tables"].append({"title": label, "columns": [_column_title(k) for k in keys],
+                                "rows": [[(P.percent_text(r[k]) if k == "share" and k in r else r.get(k, "")) for k in keys] for r in v]})   # `share` = proporción 0–1
     elif isinstance(v, dict):
         group["tables"].append({"title": label, "columns": ["Concepto", "Valor"], "rows": [[P.row_key_text(k).capitalize(), x] for k, x in v.items()]})
     elif isinstance(v, list):
@@ -273,14 +319,20 @@ def _fact_into(group: dict, h: dict) -> None:
 
 
 def _facts_view(area_id: str, highlights: list[dict]) -> dict:
-    """Hechos descriptivos de un área en dos niveles de lectura: ``headline`` (tiles KPI de síntesis) y ``groups`` (evidencia de apoyo)."""
+    """Hechos descriptivos de un área en dos niveles de lectura: ``headline`` (tiles KPI de síntesis) y ``groups`` (evidencia de apoyo). La población de vistas
+    de vistas del cierre (``views_in_closure`` / ``view_type_distribution``) NO se muestra en el área: es transversal y vive en el resumen de la sección
+    (``closure_views``); en el área solo queda el detalle por artefacto (``view_artifacts``)."""
+    closure = next((h for h in highlights if h["id"] == "views_in_closure"), None) if area_id == "ANALYTIC_MODEL" else None
+    structural = P.has_structural_membership(highlights)
+    highlights = [{**h, "label": P.highlight_label(h)} for h in highlights
+                  if not (area_id == "ANALYTIC_MODEL" and h["id"] in ("views_in_closure", "view_type_distribution"))]   # etiqueta vigente aun en perfiles anteriores
     by_id = {h["id"]: h for h in highlights}
     layout = FACT_LAYOUT.get(area_id)
     if layout is None:
         numbers = [h for h in highlights if _is_number(h["value"]) and not h.get("breakdown")]
         layout = {"headline": [h["id"] for h in numbers[:3]], "groups": [("Hechos de apoyo", [h["id"] for h in highlights])]}
     head_ids = [i for i in layout["headline"] if i in by_id and _is_number(by_id[i]["value"])]
-    headline = [{"label": by_id[i]["label"], "value": by_id[i]["value"]} for i in head_ids]
+    headline = [{"label": by_id[i]["label"], "value": by_id[i]["value"], **({"help": list(AREA_KPI_HELP[i])} if i in AREA_KPI_HELP else {})} for i in head_ids]
     shown = {i for i in head_ids if not by_id[i].get("breakdown")}                        # con composición: tile + su tabla en el grupo
     groups = []
     for title, ids in layout["groups"]:
@@ -297,10 +349,26 @@ def _facts_view(area_id: str, highlights: list[dict]) -> dict:
     if rest["properties"] or rest["tables"]:
         groups.append(rest)
     groups = [g for g in groups if g["properties"] or g["tables"]]
+    notes = []
     for g in groups:                                                                      # grupo de una sola tabla: el título de la tabla ES el del grupo
         if not g["properties"] and len(g["tables"]) == 1:
             g["title"] = g["tables"][0]["title"]
-    return {"headline": headline, "groups": groups}
+    closure_views = None
+    if closure is not None:
+        n = {b["name"]: b["count"] for b in closure.get("breakdown") or []}
+        closure_views = {"total": closure["value"], "graphical": n.get("gráficas", 0), "sql": n.get("SQL", 0), "unknown": n.get("sin clasificar", 0), "structural": structural}
+    return {"headline": headline, "groups": groups, "notes": notes, "closure_views": closure_views}
+
+
+def _view_overview(cv: dict) -> dict:
+    """Tiles del resumen transversal de vistas del cierre (valores del hecho canónico `am.view_type_composition`, sin recalcular). "Sin clasificar" solo si > 0;
+    en pools sin carpetas por tipo se agrega la salvedad breve (una vista sin marcador no es detectable)."""
+    tiles = [{"label": "Total de vistas", "value": cv["total"]}]
+    if cv["total"]:
+        tiles += [{"label": "Vistas gráficas", "value": cv["graphical"]}, {"label": "Vistas SQL", "value": cv["sql"]}]
+        if cv["unknown"]:
+            tiles.append({"label": "Sin clasificar", "value": cv["unknown"]})
+    return {"title": "Vistas del cierre semántico", "tiles": tiles, "caveat": P.structural_views_caveat() if cv["structural"] and cv["total"] else None}
 
 
 def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, list[dict]]) -> dict:
@@ -308,40 +376,49 @@ def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, 
     return {
         "id": a["id"], "dom_id": f"asr-a-{a['id']}", "title": P.area_title(a["id"]), "macro": P.macro_dimension_title(a["macro_dimension"]),
         "state": a["assessability"], "state_text": P.assessability_text(a["assessability"]),
-        "reason": (f"{a['reason']['reason_summary']} ({a['reason']['reason_code']})" if a["reason"] else None),
+        "reason": (f"{P.reason_text(a['reason'])} ({a['reason']['reason_code']})" if a["reason"] else None),
         "surfaces": (f"{_plural(rs['assessed'], 'evaluada')}, {_plural(rs['partially_assessed'], 'parcialmente evaluada')}, "
                      f"{_plural(rs['not_assessed'], 'no evaluada')}, {rs['not_applicable']} no aplican"),
         "facts": _facts_view(a["id"], a["highlights"]), "macro_id": a["macro_dimension"],
         "findings": [{"title": groups_by_id[gid]["title"], "dom_id": f"asr-g-{gid}", "count": groups_by_id[gid]["occurrence_count"],
                       "kind_text": P.finding_kind_text(groups_by_id[gid]["kind"])} for gid in a["finding_groups"]],
         "rules": [{"title": r["title"], "result": r["result"], "result_text": P.rule_result_text(r["result"]),
-                   "reason": r["reason"]["reason_summary"] if r["reason"] else None} for r in rules_by_area.get(a["id"], [])],
+                   "reason": P.reason_text(r["reason"]) if r["reason"] else None} for r in rules_by_area.get(a["id"], [])],
         "limitations_not_observable": bool(a["limitations_not_observable"]),
     }
 
 
+# Por qué existe una pregunta abierta (solo vocabulario visible; los enums canónicos OBSERVATION / REVIEW no cambian).
+QUESTION_LINK_LABELS = {"OBSERVATION": "Observación", "REVIEW": "Caso a revisar"}
+QUESTION_LINK_PROJECT = "Contexto del proyecto"
+_NA = "—"                                                                              # concepto no aplicable (jamás un 0 artificial)
+
+
 def _context_questions(ctx: dict, groups_by_id: dict[str, dict]) -> dict:
-    """Preguntas de contexto abiertas, separadas por su respaldo: (a) respaldadas por un hallazgo, agrupadas por tipo de hallazgo
-    (cada tabla lleva el tipo en su encabezado, sin repetirlo por fila) y (b) preguntas del proyecto SIN hallazgo. Es solo
-    presentación del mismo bloque canónico: ``backed + independent == open_questions``."""
-    by_kind: dict[str, list[dict]] = {}
-    independent: list[dict] = []
-    for q in ctx["questions"]:
+    """Preguntas abiertas en UNA tabla: cada fila dice a qué está vinculada (Observación / Caso a revisar / Contexto del proyecto). Es solo
+    presentación del mismo bloque canónico ``summary.context_required``: ``backed + independent == open_questions``. El resumen compacto usa los
+    conteos canónicos (no los recalcula la plantilla)."""
+    rank = {"OBSERVATION": 0, "REVIEW": 1}
+    rows: list[dict] = []
+    for i, q in enumerate(ctx["questions"]):
         g = groups_by_id.get(q["id"])
         if q["occurrence_count"] is None or g is None:
-            independent.append({"text": q["question"]})
+            rows.append({"order": (2, i), "text": q["question"], "linked_to": QUESTION_LINK_PROJECT, "finding_title": None, "finding_dom_id": None,
+                         "occurrences": _NA, "has_finding": False})
             continue
-        by_kind.setdefault(q["origin"], []).append({"text": q["question"], "occurrences": q["occurrence_count"],
-                                                    "finding_title": g["title"], "finding_dom_id": f"asr-g-{q['id']}"})
-    backed = [{"heading": P.finding_kind_text(kind).capitalize(), "rows": rows} for kind, rows in by_kind.items()]
-    return {"context_backed": backed, "context_independent": independent,
-            "context_backed_n": sum(len(b["rows"]) for b in backed), "context_independent_n": len(independent)}
+        rows.append({"order": (rank.get(q["origin"], 1), i), "text": q["question"], "linked_to": QUESTION_LINK_LABELS.get(q["origin"], "Caso a revisar"),
+                     "finding_title": g["title"], "finding_dom_id": f"asr-g-{q['id']}", "occurrences": q["occurrence_count"], "has_finding": True})
+    rows.sort(key=lambda r: r["order"])
+    n, backed, independent = ctx["open_questions"], ctx["questions_backed_by_findings"], ctx["questions_without_findings"]
+    return {"context_rows": rows, "context_open_total": n,
+            "context_summary": f"{n} {'abierta' if n == 1 else 'abiertas'} · {backed} con hallazgo · {independent} contexto de proyecto",
+            "context_backed_n": sum(1 for r in rows if r["has_finding"]), "context_independent_n": sum(1 for r in rows if not r["has_finding"])}
 
 
 def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: AdhocReport | None = None) -> dict:
     """View-model del informe. ``status.profile`` es el JSON canónico validado; nada se deriva de otra fuente.
     ``adhoc`` (opcional) reemplaza el contexto del Catálogo (flujo/URLs/linaje) por el de un assessment ad-hoc; el contenido es el mismo."""
-    doc = status.profile
+    doc = P.display_doc(status.profile) if status.profile is not None else None      # títulos públicos vigentes aun en perfiles persistidos anteriores
     link_entry = None if adhoc else entry
     view: dict[str, Any] = {
         "state": status.state, "state_label": STATE_LABELS[status.state], "state_tone": STATE_TONES.get(status.state, ""), "state_note": STATE_NOTES.get(status.state),
@@ -372,6 +449,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     for r in doc["rule_results"]:
         rules_by_area.setdefault(r["area"], []).append(r)
     lim = conf["main_limitation"]
+    _rev_head, _rev_detail = P.review_required_text(sum(g["occurrence_count"] for g in doc["review_required"]), len(doc["review_required"]))
     view.update({
         "execution_text": P.execution_state_text(doc["assessment_state"]),
         "scope_text": (f"{_plural(scope['closure_size'], 'artefacto')} en el cierre semántico del modelo analítico terminal"
@@ -388,8 +466,11 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
                          f"({rs['not_applicable']} que no aplican quedan excluidas)"),
             "confidence": P.confidence_level_text(conf["level"]), "confidence_level": conf["level"], "confidence_meaning": conf["meaning"],
             "confidence_limitation": lim["summary"] if lim else None,
-            "context_open": _plural(ctx["open_questions"], "pregunta de contexto abierta", "preguntas de contexto abiertas"),
+            "context_open": P.context_open_text(ctx)[0],
+            "review_open": _rev_head, "relation_text": P.summary_relation_text(),
             "context_open_n": ctx["open_questions"],
+            "review_reading": _rev_detail.replace("*", ""),                                   # el Markdown usa *cursiva*; el HTML no la interpreta
+            "context_reading": P.context_open_text(ctx)[1],
             **_context_questions(ctx, groups_by_id),
             "no_evidence_dimensions": [P.macro_dimension_title(m["id"]) for m in summary["macro_dimensions"] if m["state"] == "COMPLETELY_NOT_ASSESSED"],
             "observation_groups": len(doc["observations"]), "review_groups": len(doc["review_required"]),
@@ -398,16 +479,16 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         },
         "areas": [_area_view(a, groups_by_id, rules_by_area) for a in doc["areas"]],
         "kpis": [
-            {"label": "Cobertura estricta", "value": P.percent_text(cov["strict"])},
-            {"label": "Confianza", "value": P.confidence_level_text(conf["level"])},
-            {"label": "Revisiones requeridas", "value": sum(g["occurrence_count"] for g in doc["review_required"])},
-            {"label": "Contexto abierto", "value": ctx["open_questions"]},
+            _kpi("coverage_strict", "Cobertura estricta", P.percent_text(cov["strict"])),
+            _kpi("confidence", "Confianza", P.confidence_level_text(conf["level"])),
+            _kpi("review_required", "Casos a revisar", sum(g["occurrence_count"] for g in doc["review_required"])),
+            _kpi("context_open", "Preguntas abiertas", ctx["open_questions"]),
         ],
         "observations": [_group_view(g, link_entry, pack) for g in doc["observations"]],
         "review_required": [_group_view(g, link_entry, pack) for g in doc["review_required"]],
         "descriptive": [_group_view(g, link_entry, pack) for g in doc["descriptive_signals"]],
         "limitations": [{"title": s["title"], "surface_id": s["surface_id"], "area": P.area_title(s["area"]),
-                         "state": P.assessability_text(s["assessability"]), "reason": s["reason"]["reason_summary"] if s["reason"] else "",
+                         "state": P.assessability_text(s["assessability"]), "reason": P.reason_text(s["reason"]) if s["reason"] else "",
                          "reason_code": s["reason"]["reason_code"] if s["reason"] else "",
                          "counts": s["counts_toward_coverage"],
                          "units": [P.unit_label(u) for u in s["affected_units"]]} for s in doc["evidence_limitations"]],
@@ -415,7 +496,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         "absence_not_established": [r["title"] for r in doc["rule_results"] if r["result"] == "ABSENCE_NOT_ESTABLISHED"],
         "confidence_components": [{"label": c["label"], "value": c["value"], "level": P.confidence_level_text(c["level"])} for c in conf["components"]],
         "not_applicable": [{"title": s["title"], "surface_id": s["surface_id"], "area": P.area_title(s["area"]),
-                            "reason": s["reason"]["reason_summary"], "reason_code": s["reason"]["reason_code"]} for s in doc["not_applicable"]],
+                            "reason": P.reason_text(s["reason"]), "reason_code": s["reason"]["reason_code"]} for s in doc["not_applicable"]],
         "deduplicated_questions": [{"id": q["id"], "covered_by": q["covered_by"]} for q in ctx["deduplicated_questions"]],
         "rule_results": [{"title": r["title"], "rule": r["rule"], "result_text": P.rule_result_text(r["result"]), "count": r["finding_count"]}
                          for r in doc["rule_results"]],
@@ -427,5 +508,8 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     groups: dict[str, dict] = {}
     for a in view["areas"]:
         groups.setdefault(a["macro_id"], {"id": a["macro_id"], "title": SECTION_TITLES.get(a["macro_id"], a["macro"]), "areas": []})["areas"].append(a)
+    for g in groups.values():                                                                   # resumen transversal de la sección: composición del cierre por tipo de vista
+        cv = next((a["facts"]["closure_views"] for a in g["areas"] if a["facts"].get("closure_views")), None)
+        g["view_overview"] = _view_overview(cv) if cv else None
     view["macro_groups"] = list(groups.values())
     return view

@@ -15,7 +15,7 @@
   <a class="support-link" href="#" role="button" hx-post="{{ v.report_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-indicator="#asr-busy" @click.prevent>{{ v.action.label }}<span>↗</span></a>
   <span class="htmx-indicator" id="asr-busy" role="status">Generando…</span>
 </div>{% endif %}{% endmacro %}
-{% from "partials/assessment_report_macros.html" import heading, callout %}
+{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
 {% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}
 {# Hallazgo: encabezado semántico + "por qué aparece" siempre visibles; el detalle, bajo demanda (disclosure del CRM) y como TABLAS:
@@ -59,9 +59,10 @@
   <p>Superficies de evidencia requeridas: {{ a.surfaces }}.{% if a.reason %} {{ a.reason }}.{% endif %}</p>
   {% if a.facts.headline %}
   <div class="activity-kpi-grid asm-facts">
-    {% for m in a.facts.headline %}<div class="activity-kpi"><span class="activity-kpi__value">{{ m.value }}</span><span class="activity-kpi__label">{{ m.label }}</span></div>{% endfor %}
+    {% for m in a.facts.headline %}{{ kpi_tile(m) }}{% endfor %}
   </div>
   {% endif %}
+  {% for n in a.facts.notes %}<p>{{ n }}</p>{% endfor %}
   {% for g in a.facts.groups %}
   <h{{ lvl }}>{{ g.title }}</h{{ lvl }}>
   {% if g.properties %}
@@ -134,7 +135,7 @@
   <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Indicadores del assessment</span></summary>
   <div class="dashboard-section__body">
     <div class="activity-kpi-grid">
-      {% for k in v.kpis %}<div class="activity-kpi"><span class="activity-kpi__value">{{ k.value }}</span><span class="activity-kpi__label">{{ k.label }}</span></div>{% endfor %}
+      {% for k in v.kpis %}{{ kpi_tile(k) }}{% endfor %}
     </div>
   </div>
 </details>
@@ -142,46 +143,49 @@
 <article class="methodology catalog-detail">
 {% set ns = namespace(n=1) %}
 <section class="content-section" id="asr-resumen">
-  {{ heading(ns.n, "Resumen", "Perfil de evidencia, cobertura y confianza. Describe qué se observó, qué requiere revisión y qué no pudo evaluarse; los hallazgos son observaciones para revisión humana, no conclusiones sobre la calidad del modelo. Es una evaluación independiente del veredicto del catálogo.") }}
+  {{ heading(ns.n, "Resumen", "Perfil de evidencia, cobertura y confianza. Describe qué se observó, qué requiere revisión y qué no pudo evaluarse; los hallazgos son observaciones para revisión técnica de nuestros consultores, no conclusiones sobre la calidad del modelo. " ~ s.relation_text ~ " Es una evaluación independiente del veredicto del catálogo.") }}
   <table>
     <thead><tr><th>Medida</th><th>Valor</th><th>Cómo leerla</th></tr></thead>
     <tbody>
       <tr><td>Cobertura estricta</td><td>{{ s.coverage_strict }}</td><td>{{ s.coverage_meaning }} Superficies requeridas: {{ s.surfaces }}.</td></tr>
       <tr><td>Cobertura inclusiva</td><td>{{ s.coverage_inclusive }}</td><td>Incluye la evidencia parcialmente evaluada.</td></tr>
       <tr><td>Confianza</td><td>{{ s.confidence }}</td><td>{{ s.confidence_meaning }}{% if s.confidence_limitation %} Limitación principal: {{ s.confidence_limitation }}{% endif %}</td></tr>
-      <tr><td>Contexto requerido</td><td>{{ s.context_open }}</td><td>Hallazgos: {{ s.observation_groups }} grupo{{ "s" if s.observation_groups != 1 }} de observación ({{ n_occ(s.observation_occurrences) }}), {{ s.review_groups }} de revisión ({{ n_occ(s.review_occurrences) }}).</td></tr>
+      <tr><td>Casos a revisar</td><td>{{ s.review_open }}</td><td>{{ s.review_reading }}</td></tr>
+      <tr><td>Preguntas abiertas</td><td>{{ s.context_open }}</td><td>{{ s.context_reading }}</td></tr>
+      <tr><td>Observaciones</td><td>{{ s.observation_occurrences }}</td><td>{{ s.observation_groups }} grupo{{ "s" if s.observation_groups != 1 }} de observación: patrones descriptivos para revisión técnica del consultor, sin juicio (detalle en Observaciones).</td></tr>
     </tbody>
   </table>
   {% for d in s.no_evidence_dimensions %}{% call callout("punch", "Dimensión " ~ d) %}<p>Sin evidencia evaluada — ninguna evidencia requerida pudo evaluarse.</p>{% endcall %}{% endfor %}
-  {% if v.summary.context_backed %}
-  <h3>Preguntas que solo el proyecto puede responder</h3>
-  {% for grp in v.summary.context_backed %}
-  <table>
-    <thead><tr><th>Pregunta</th><th>{{ grp.heading }}</th><th>Ocurrencias</th></tr></thead>
-    <tbody>
-      {% for q in grp.rows %}<tr><td>{{ q.text }}</td><td><a href="#{{ q.finding_dom_id }}"><code>{{ q.finding_title }}</code></a></td><td>{{ q.occurrences }}</td></tr>{% endfor %}
-    </tbody>
-  </table>
-  {% endfor %}
-  {% endif %}
-  {% if v.summary.context_independent %}
-  <details class="dashboard-section">
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Contexto adicional del proyecto</span><span class="dashboard-section__count">{{ v.summary.context_independent_n }}</span></summary>
+  {% if s.context_rows %}
+  {# Mismo contenedor que los bloques agrupados del informe (disclosure del CRM, p. ej. Modelo analítico): el título es su cabecera. #}
+  <details class="dashboard-section" id="asr-preguntas" open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Preguntas que solo el proyecto puede responder</span><span class="dashboard-section__count">{{ s.context_summary }}</span></summary>
     <div class="dashboard-section__body">
-      {% call callout("punch", "Preguntas sin hallazgo asociado", icon="💡") %}<p>Preguntas abiertas que no están respaldadas por un hallazgo: solo el proyecto puede responderlas.</p>{% endcall %}
-      <ul>{% for q in v.summary.context_independent %}<li>{{ q.text }}</li>{% endfor %}</ul>
+      <table data-block="open-questions">
+        <thead><tr><th>Pregunta</th><th>Vinculada a</th><th>Hallazgo</th><th>Ocurrencias</th></tr></thead>
+        <tbody>
+          {% for q in s.context_rows %}<tr><td>{{ q.text }}</td><td>{{ q.linked_to }}</td><td>{% if q.finding_dom_id %}<a href="#{{ q.finding_dom_id }}"><code>{{ q.finding_title }}</code></a>{% else %}—{% endif %}</td><td>{{ q.occurrences }}</td></tr>{% endfor %}
+        </tbody>
+      </table>
     </div>
   </details>
+  {% call callout("punch", "Para qué sirven estas preguntas", icon="💡") %}<p>Estas preguntas no son conclusiones sobre la calidad del modelo. Identifican información que el proyecto debe aportar para que nuestros consultores puedan cerrar o interpretar correctamente los hallazgos del assessment.</p>{% endcall %}
   {% endif %}
 </section>
 
 {% for mg in v.macro_groups %}
 <section class="content-section" id="asr-m-{{ mg.id|lower }}">
   {% set ns.n = ns.n + 1 %}{{ heading(ns.n, mg.title) }}
+  {% if mg.view_overview %}
+  {# Resumen TRANSVERSAL de la sección: la composición del cierre por tipo de vista tiene un solo hogar (hecho `am.view_type_composition`); las áreas no la repiten. #}
+  <h3>{{ mg.view_overview.title }}</h3>
+  <div class="activity-kpi-grid asm-facts" data-block="view-overview">{% for k in mg.view_overview.tiles %}{{ kpi_tile(k) }}{% endfor %}</div>
+  {% if mg.view_overview.caveat %}<p>{{ mg.view_overview.caveat }}</p>{% endif %}
+  {% endif %}
   {% if mg.areas|length > 1 %}
-  {# Grupo con subáreas reales (Arquitectura & Modelado): un disclosure del CRM por subárea. #}
+  {# Grupo con subáreas reales (Arquitectura & Modelado): un disclosure del CRM por subárea, TODOS colapsados al cargar (cada uno se abre por separado). #}
   {% for a in mg.areas %}
-  <details class="dashboard-section" id="{{ a.dom_id }}" {% if a.findings or a.state != "ASSESSED" %}open{% endif %}>
+  <details class="dashboard-section" id="{{ a.dom_id }}">
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ a.title }}</span> {{ state_badge(a) }}{% if a.findings %}<span class="dashboard-section__count">{{ a.findings|length }} hallazgo{{ "s" if a.findings|length != 1 }}</span>{% endif %}</summary>
     <div class="dashboard-section__body">{{ area_body(a, 4) }}</div>
   </details>
@@ -202,15 +206,15 @@
   {{ not_detected("No se detectaron patrones de nivel observación en la evidencia que pudo evaluarse. Ver “No evaluado / Limitaciones” para la evidencia que no pudo evaluarse.") }}
   {% endfor %}
   {% if v.descriptive %}
-  <h3>Señales descriptivas (no implican revisión)</h3>
+  <h3>Señales descriptivas (no son casos a revisar)</h3>
   {% for g in v.descriptive %}{{ group(g, 4) }}{% endfor %}
   {% endif %}
 </section>
 
 <section class="content-section" id="asr-revision">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Revisión requerida") }}
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Casos a revisar") }}
   {% for g in v.review_required %}{{ group(g, 3) }}{% else %}
-  {{ not_detected("Las reglas que pudieron evaluarse no levantaron elementos de revisión. Ver “No evaluado / Limitaciones” para la evidencia que no pudo evaluarse.") }}
+  {{ not_detected("Las reglas que pudieron evaluarse no levantaron casos a revisar. Ver “No evaluado / Limitaciones” para la evidencia que no pudo evaluarse.") }}
   {% endfor %}
 </section>
 

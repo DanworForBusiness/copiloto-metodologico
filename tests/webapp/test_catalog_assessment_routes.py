@@ -129,7 +129,7 @@ def test_post_generates_validated_json_and_returns_the_structured_report(world):
     r = _post(client_for())
     assert r.status_code == 200
     assert "HX-Trigger" not in r.headers                                  # nada escuchaba el evento del tile: se retiró
-    for needle in ("Assessment vigente", "Resumen", "Observaciones", "Revisión requerida", "No evaluado / Limitaciones de evidencia",
+    for needle in ("Assessment vigente", "Resumen", "Observaciones", "Casos a revisar", "No evaluado / Limitaciones de evidencia",
                    "Evidencia / Detalle técnico", "Arquitectura &amp; Modelado", "Convención de nombres", "Fuente &amp; Extracción", "Cobertura estricta", "Cobertura inclusiva", "Exportar Markdown", "Exportar JSON", "4AM_ACME"):
         assert needle in r.text, needle
     ma_profile.validate_assessment(svc.status_for_entry(world.entries[0]).profile)
@@ -234,7 +234,7 @@ def test_detail_header_states_follow_the_contract(world, monkeypatch):
     assert _post(c).status_code == 200
     h = hdr()                                                                  # CURRENT
     assert "Assessment vigente" in h and "Ver Assessment" in h and "Ver informe" not in h and "hx-get" in h and "hx-post" not in h and re.search(r"Cobertura \d+\.\d%", h)
-    assert re.search(r"Confianza (Alta|Media|Baja)", h) and re.search(r"(\d+ revisi(ón|ones)|Sin revisiones)", h)
+    assert re.search(r"Confianza (Alta|Media|Baja)", h) and re.search(r"(\d+ casos? a revisar|Sin casos a revisar)", h)
     for absent in ("Inclusiva", "inclusive", "signal-rules", "assessment-rules", "confidence-cuts", "UTC", "2026", "preguntas de contexto", "Generado"):
         assert absent not in h, absent
     f = world.inbound / "Acme/views/1VR_RAW.json"
@@ -280,7 +280,7 @@ def test_header_values_come_from_the_same_cached_profile_as_report_and_exports(w
     assert hv["coverage"] == expected == rv["summary"]["coverage_strict"]
     n = sum(g["occurrence_count"] for g in status.profile["review_required"])
     assert hv["confidence"].upper() == rv["summary"]["confidence"].upper() and rv["summary"]["review_occurrences"] == n
-    assert hv["reviews"] == ("Sin revisiones" if n == 0 else f"{n} revisión" if n == 1 else f"{n} revisiones")
+    assert hv["reviews"] == ("Sin casos a revisar" if n == 0 else f"{n} caso a revisar" if n == 1 else f"{n} casos a revisar")
     assert json.loads(c.get("/catalog/flow/assessment.json?flow=acme-4am").text)["summary"]["coverage"]["strict"] == 0.4321
     assert svc.export_markdown(status) == render_markdown(status.profile)
 
@@ -569,7 +569,7 @@ def test_report_sections_follow_the_governed_markdown_hierarchy_without_a_generi
     html = _post(c).text
     heads = re.findall(r'<span class="section-eyebrow">\[(\d+)\]</span><h2>([^<]+)</h2>', html)
     assert [t for _n, t in heads] == ["Resumen", "Arquitectura &amp; Modelado", "Convención de nombres", "Fuente &amp; Extracción", "Observaciones",
-                                      "Revisión requerida", "No evaluado / Limitaciones de evidencia", "Evidencia / Detalle técnico"]
+                                      "Casos a revisar", "No evaluado / Limitaciones de evidencia", "Evidencia / Detalle técnico"]
     assert [n for n, _t in heads] == [f"{i:02d}" for i in range(1, 9)]                       # numeración continua generada por la plantilla
     assert 'id="asr-areas"' not in html and "<h2>Áreas</h2>" not in html
     arch = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-m-naming"')]
@@ -597,12 +597,12 @@ def test_report_leads_with_kpis_in_the_crm_disclosure_and_hero_text_is_simplifie
     assert first.index("Indicadores del assessment") < first.index("activity-kpi-grid") < first.index('id="asr-resumen"')
     assert html.index('<details class="dashboard-section" open>') < html.index('id="asr-resumen"')       # KPIs = primer contenido bajo el hero
     kpis = re.findall(r'<span class="activity-kpi__value">([^<]*)</span><span class="activity-kpi__label">([^<]*)</span>', first.split('id="asr-resumen"')[0])
-    assert [l for _v, l in kpis] == ["Cobertura estricta", "Confianza", "Revisiones requeridas", "Contexto abierto"]
+    assert [l for _v, l in kpis] == ["Cobertura estricta", "Confianza", "Casos a revisar", "Preguntas abiertas"]
     prof = svc.status_for_entry(world.entries[0]).profile
     vals = dict((l, v) for v, l in kpis)
     assert vals["Cobertura estricta"] == presenter.P.percent_text(prof["summary"]["coverage"]["strict"])
-    assert vals["Revisiones requeridas"] == str(sum(g["occurrence_count"] for g in prof["review_required"]))
-    assert vals["Contexto abierto"] == str(prof["summary"]["context_required"]["open_questions"])
+    assert vals["Casos a revisar"] == str(sum(g["occurrence_count"] for g in prof["review_required"]))
+    assert vals["Preguntas abiertas"] == str(prof["summary"]["context_required"]["open_questions"])
     assert "Perfil de evidencia, cobertura y confianza" in first.split("</blockquote>")[0]                # la nota metodológica vive en el subtítulo de Resumen
     assert html.count("Perfil de evidencia, cobertura y confianza") == 1
 
@@ -627,7 +627,9 @@ def test_facts_have_a_reading_hierarchy_headline_kpis_then_supporting_tables_and
         shown = {m["label"] for m in v["headline"]}
         for g in v["groups"]:
             shown |= {p["label"] for p in g["properties"]} | {t["title"] for t in g["tables"]} | {g["title"]}
-        assert all(h["label"] in shown for h in a["highlights"]), a["id"]                              # ningún hecho se pierde
+        moved = {"views_in_closure", "view_type_distribution"} if a["id"] == "ANALYTIC_MODEL" else set()           # la composición del cierre vive en el resumen de la sección
+        assert all(h["label"] in shown for h in a["highlights"] if h["id"] not in moved), a["id"]                # ningún otro hecho se pierde
+        assert (v["closure_views"] is not None) == (a["id"] == "ANALYTIC_MODEL" and any(h["id"] == "views_in_closure" for h in a["highlights"]))
         # los valores numéricos escalares siguen presentes (titular o tabla de propiedades)
         for h in a["highlights"]:
             if isinstance(h["value"], int) and not h.get("breakdown"):
@@ -635,7 +637,8 @@ def test_facts_have_a_reading_hierarchy_headline_kpis_then_supporting_tables_and
                        any(p["label"] == h["label"] and p["value"] == h["value"] for g in v["groups"] for p in g["properties"])
     am = presenter._facts_view("ANALYTIC_MODEL", next(a for a in prof["areas"] if a["id"] == "ANALYTIC_MODEL")["highlights"])
     assert [m["label"] for m in am["headline"]] == ["Campos expuestos", "Medidas", "Asociaciones declaradas"]
-    assert [g["title"] for g in am["groups"]] == ["Composición del modelo", "Cierre semántico del modelo analítico (artefactos)", "Linaje y asociaciones"]
+    assert [g["title"] for g in am["groups"]] == ["Composición del modelo", "Cierre semántico del modelo analítico (artefactos)", "Linaje y asociaciones",
+                                                          "Vistas del cierre (nombre técnico y tipo)"]
     sec = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-observaciones"')]
     assert 'class="activity-kpi-grid asm-facts"' in sec and "<th>Hecho</th><th>Valor</th>" in sec
     assert not re.search(r"<li>[^<]*: \d+</li>", sec)                                                  # sin pared de bullets "Hecho: n"
@@ -660,12 +663,8 @@ def test_rule_evaluation_is_a_table_not_bullets(world):
     assert not re.search(r"<li>[^<]*(ausencia|patrón|evaluad)[^<]*</li>", sec.split("Hallazgos en esta área")[0])
 
 
-def test_contexto_adicional_uses_the_shared_punch_markup_and_question_links_use_the_hub_content_link(world):
+def test_question_links_use_the_hub_content_link(world):
     html = _post(client_for()).text
-    det = re.search(r'<details class="dashboard-section">\s*<summary[^>]*>.*?Contexto adicional del proyecto.*?</details>', html, re.S)
-    if det:                                                                                          # solo si hay preguntas independientes
-        assert re.search(r'<aside class="callout callout--punch"><div class="callout__head"><span class="callout__icon">[^<]+</span><strong class="callout__title">[^<]+</strong></div><div class="callout__body"><p>Preguntas abiertas que no están respaldadas por un hallazgo', det.group(0))
-        assert det.group(0).index("callout--punch") < det.group(0).index("<ul>")
     sec = html[html.index("Preguntas que solo el proyecto puede responder"):html.index('id="asr-m-architecture_modeling"')]
     links = re.findall(r'<td><a ([^>]*)><code>', sec)
     assert links and all("class=" not in l and 'href="#asr-g-' in l for l in links)                       # mismo enlace de contenido del Hub, sin clase propia
@@ -673,29 +672,20 @@ def test_contexto_adicional_uses_the_shared_punch_markup_and_question_links_use_
     assert "sap-note-link" not in css[css.index("Assessment de modelado en el Catálogo"):]                  # sin color de enlace propio
 
 
-def test_context_questions_are_split_between_finding_backed_table_and_independent_disclosure_and_reconcile(world):
+def test_open_questions_are_one_table_and_reconcile_with_the_kpi(world):
     c = client_for()
     html = _post(c).text
     prof = svc.status_for_entry(world.entries[0]).profile
     ctx = prof["summary"]["context_required"]
     sec = html[html.index("Preguntas que solo el proyecto puede responder"):html.index('id="asr-m-architecture_modeling"')]
-    tables = re.findall(r"<table>.*?</table>", sec, re.S)
-    assert tables
-    backed_rows = 0
-    for t in tables:
-        assert re.search(r"<th>Pregunta</th><th>(Revisión requerida|Observación)</th><th>Ocurrencias</th>", t)
-        assert 'class="catalog-card__verdict' not in t and "—" not in t                           # sin badge repetido por fila ni guiones de relleno
-        rows = re.findall(r"<tr><td>.*?</td><td><a href=\"#asr-g-[^\"]+\"><code>[^<]+</code></a></td><td>\d+</td></tr>", t, re.S)
-        assert len(rows) == t.count("<tr><td>")
-        backed_rows += len(rows)
-    detail = re.search(r'<details class="dashboard-section">\s*<summary[^>]*>.*?Contexto adicional del proyecto.*?</details>', sec, re.S)
-    n_independent = sum(1 for q in ctx["questions"] if q["occurrence_count"] is None)
-    if n_independent:
-        assert detail and detail.group(0).count("<li>") == n_independent and "<table" not in detail.group(0)
-    else:
-        assert not detail
-    # reconciliación: KPI "Contexto abierto" = preguntas con hallazgo + preguntas independientes del proyecto
-    kpi = int(re.search(r'<span class="activity-kpi__value">(\d+)</span><span class="activity-kpi__label">Contexto abierto', html).group(1))
+    tables = re.findall(r"<table[^>]*>.*?</table>", sec, re.S)
+    assert len(tables) == 1 and 'data-block="open-questions"' in tables[0]                         # UNA sola tabla (antes: una por tipo de hallazgo)
+    assert "<th>Pregunta</th><th>Vinculada a</th><th>Hallazgo</th><th>Ocurrencias</th>" in tables[0]
+    rows = re.findall(r"<tr><td>.*?</td></tr>", tables[0], re.S)
+    assert len(rows) == ctx["open_questions"]                                                       # cada pregunta canónica aparece exactamente una vez
+    backed_rows = len(rows) - ctx["questions_without_findings"]
+    n_independent = ctx["questions_without_findings"]
+    kpi = int(re.search(r'<span class="activity-kpi__value">(\d+)</span><span class="activity-kpi__label">Preguntas abiertas', html).group(1))
     assert kpi == ctx["open_questions"] == backed_rows + n_independent == ctx["questions_backed_by_findings"] + ctx["questions_without_findings"]
     view = presenter.report_view(svc.status_for_entry(world.entries[0]), world.entries[0], "datasphere_core")["summary"]
     assert view["context_backed_n"] + view["context_independent_n"] == view["context_open_n"] == kpi

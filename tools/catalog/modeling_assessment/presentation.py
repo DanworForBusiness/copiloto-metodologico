@@ -21,7 +21,8 @@ from . import render_md as _md
 __all__ = [
     "area_title", "macro_dimension_title", "assessability_text", "assessability_plural_text", "execution_state_text",
     "confidence_level_text", "finding_kind_text", "rule_result_text", "unit_label", "is_artifact_name",
-    "percent_text", "plural", "value_text", "occurrence_text", "row_key_text", "evidence_not_acquired",
+    "percent_text", "plural", "value_text", "occurrence_text", "row_key_text", "evidence_not_acquired", "view_composition_text",
+    "has_structural_membership", "review_required_text", "context_open_text", "summary_relation_text", "reason_text", "highlight_label", "display_doc", "display_title", "structural_views_caveat",
 ]
 
 
@@ -82,6 +83,57 @@ def unit_label(unit: str) -> str:
 def is_artifact_name(unit: str) -> bool:
     """True si la unidad es un nombre técnico de artefacto (y no una unidad de evaluación como el cierre semántico)."""
     return unit not in _md._UNIT_TEXT
+
+
+def view_composition_text(total: int, breakdown: list[dict], *, structural: bool = False) -> str:
+    """Lectura objetiva de la composición del cierre por tipo de vista (misma función que el Markdown; sin juicio). Con ``structural`` no
+    afirma "0 sin clasificación" (en pools planos UNKNOWN no es exhaustivamente observable)."""
+    return _md.view_composition_text(total, breakdown, structural=structural)
+
+
+def highlight_label(h: dict) -> str:
+    """Etiqueta visible vigente de un hecho descriptivo (la misma del Markdown)."""
+    return _md.highlight_label(h)
+
+
+def display_doc(doc: dict) -> dict:
+    """Documento con los títulos públicos vigentes (la misma normalización que usa el Markdown)."""
+    return _md.display_doc(doc)
+
+
+def display_title(item_id: str, title: str) -> str:
+    """Título visible vigente de un hallazgo o regla (el persistido puede traer la redacción anterior)."""
+    return _md.display_title(item_id, title)
+
+
+def structural_views_caveat() -> str:
+    """Salvedad breve para pools sin carpetas por tipo: las vistas sin marcador gráfico o SQL no son detectables (misma frase del Markdown)."""
+    return _md.STRUCTURAL_VIEWS_CAVEAT
+
+
+def reason_text(reason: dict) -> str:
+    """Texto visible de una razón pública con la redacción vigente (la misma del Markdown)."""
+    return _md.reason_text(reason)
+
+
+def summary_relation_text() -> str:
+    """Frase única que relaciona casos a revisar y preguntas abiertas en el Resumen (la misma del Markdown)."""
+    return _md.SUMMARY_RELATION_TEXT
+
+
+def review_required_text(n_occurrences: int, n_groups: int) -> tuple[str, str]:
+    """(titular, lectura) de "Casos a revisar" (ocurrencias de los grupos de revisión); misma función que el Markdown."""
+    return _md.review_required_text(n_occurrences, n_groups)
+
+
+def context_open_text(ctx: dict) -> tuple[str, str]:
+    """(titular, lectura) de "Preguntas abiertas" (tipos de pregunta distintos); misma función que el Markdown. ``ctx`` = ``summary.context_required``."""
+    return _md.context_open_text(ctx)
+
+
+def has_structural_membership(highlights: list[dict]) -> bool:
+    """True si alguna vista del cierre se reconoció solo por marcador estructural (pool plano)."""
+    return _md.has_structural_membership(highlights)
 
 
 def percent_text(value: float | None) -> str:

@@ -180,7 +180,7 @@ def test_html_json_and_markdown_derive_from_one_snapshot(world):
     md = c.get("/catalog/client/assessment.md?flow=a")
     assert html.status_code == j.status_code == md.status_code == 200
     snap = j.json()
-    assert set(snap) == {"schema_version", "generated_at", "client", "catalog_assets", "states", "summary", "assets", "recurring_findings"}
+    assert set(snap) == {"schema_version", "generated_at", "client", "catalog_assets", "states", "summary", "assets", "recurring_findings", "modeling_composition"}   # + composición del modelado (aditiva)
     fresh = pf.build_snapshot(world.entries["a"], PACK)
     fresh["generated_at"] = snap["generated_at"]
     assert snap == fresh and md.text == pf.to_markdown(snap)                                                    # JSON = snapshot; MD = f(snapshot)
@@ -307,7 +307,7 @@ def test_portfolio_reuses_the_individual_report_structure_not_a_copy(world):
     vocabulary = set(re.findall(r"[A-Za-z][\w-]+", single + macros))                          # incluye clases armadas con Jinja (`catalog-meta-dot{% if … %}`)
     own = {c for c in used - vocabulary if not c.startswith(("catalog-card__verdict--", "callout--"))}           # los tonos del badge son los del informe individual
     assert not own, own
-    assert re.findall(r'<span class="section-eyebrow">\[(\d\d)\]</span>', html) == ["01", "02", "03"]      # encabezado de sección compartido
+    assert re.findall(r'<span class="section-eyebrow">\[(\d\d)\]</span>', html) == ["01", "02", "03", "04"]      # encabezado de sección compartido (la 04 es la Composición del modelado, aditiva)
     for own in ("tone-gold", "admin-help", "asm-client", "asr-client", "portfolio"):
         assert own not in html, own                                                                  # sin título dorado propio ni textos/estilos ad hoc
 
@@ -455,9 +455,10 @@ SHORT = {svc.CURRENT: "Vigente", svc.STALE: "Desactualizado", svc.NOT_YET_ASSESS
 def test_kpi_tiles_are_simple_without_denominators(world):
     html = _client().get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
     tiles = re.findall(r'<span class="activity-kpi__value">([^<]*)</span><span class="activity-kpi__label">([^<]*)</span>', html)
-    assert [lbl for _, lbl in tiles] == ["Total de Artefactos", "Assessments vigentes", "Requieren revisión", "Cobertura promedio"]
+    assert [lbl for _, lbl in tiles][:4] == ["Total de Artefactos", "Assessments vigentes", "Requieren revisión", "Cobertura promedio"]   # fila ejecutiva intacta
     assert [v for v, _ in tiles][:3] == ["6", "3", "3"]
-    assert " / " not in "".join(v for v, _ in tiles) and not re.search(r"\bde \d|sobre \d", "".join(l for _, l in tiles))
+    executive = tiles[:4]
+    assert " / " not in "".join(v for v, _ in executive) and not re.search(r"\bde \d|sobre \d", "".join(l for _, l in executive))
 
 
 def test_state_badges_use_one_short_label_mapping_in_summary_and_artifacts(world):

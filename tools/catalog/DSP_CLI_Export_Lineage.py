@@ -830,35 +830,13 @@ class LineageExporter:
 
     @staticmethod
     def classify_view_type(data: dict[str, Any], technical_name: str) -> str:
-        editor_settings = data.get("editorSettings", {})
-        if isinstance(editor_settings, dict):
-            settings = editor_settings.get(technical_name)
-            if isinstance(settings, dict):
-                editor = settings.get("editor", {})
-                if (
-                    isinstance(editor, dict)
-                    and editor.get("default") == "GRAPHICALVIEWBUILDER"
-                ):
-                    return "GRAPHICAL"
-
-        definitions = data.get("definitions", {})
-        if not isinstance(definitions, dict):
-            return "UNKNOWN"
-
-        definition = definitions.get(technical_name)
-        if not isinstance(definition, dict):
-            definition = next(
-                (v for v in definitions.values() if isinstance(v, dict)),
-                None,
-            )
-
-        if (
-            isinstance(definition, dict)
-            and "@DataWarehouse.sqlEditor.query" in definition
-        ):
-            return "SQL"
-
-        return "UNKNOWN"
+        """Tipo de vista (GRAPHICAL | SQL | UNKNOWN). FUENTE ÚNICA: ``tools/catalog/dsp_view_type.py`` (la misma función que consume el
+        Modeling Assessment); acá solo se delega, sin segunda implementación."""
+        project_root = Path(__file__).resolve().parents[2]
+        if str(project_root) not in sys.path:                     # el exportador puede correr como script
+            sys.path.insert(0, str(project_root))
+        from tools.catalog.dsp_view_type import classify_view_type
+        return classify_view_type(data, technical_name)
 
     def parse_view_dependencies(self, data: dict[str, Any], technical_name: str) -> set[str]:
         definitions = data.get("definitions", {})

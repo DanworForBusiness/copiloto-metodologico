@@ -59,7 +59,7 @@ PUBLIC_REASONS: dict[str, str] = {
     "RULE_DOES_NOT_EVALUATE_UNIT": "La regla actual no evalúa este tipo de unidad.",
     "EVIDENCE_NOT_YET_PARSED": "La evidencia existe en la exportación, pero el proceso actual todavía no la interpreta.",
     "EXPERT_ONLY_EVIDENCE": "Esta evidencia solo puede aportarse mediante revisión manual o experta.",
-    "CONTEXT_REQUIRED": "Se requiere una respuesta humana, de negocio o de arquitectura.",
+    "CONTEXT_REQUIRED": "Se requiere una respuesta del equipo del proyecto (negocio o arquitectura).",
     "POOL_LOAD_ERROR": "No se pudo cargar el conjunto de artefactos (colisión o error de carga).",
     "CONTRADICTORY_EVIDENCE": "La evidencia disponible es contradictoria o ambigua.",
 }
@@ -180,7 +180,7 @@ DISPLAY: dict[str, tuple[str, str]] = {
     "DIRECT_RAW_TABLE_ACCESS": ("Acceso directo a tabla física", "Una tabla física remota se importa directamente en el alcance evaluado."),
     "SOURCE_FILTER_PRESENT": ("Filtro de origen presente", "La definición de la fuente remota lleva un filtro (descriptivo; no es una virtud ni un defecto)."),
     "PASS_THROUGH_REVIEW": ("Capa de paso", "Una transformación interna modelada expone exactamente el esquema de su único proveedor y no introduce nada."),
-    "CROSS_LAYER_REDERIVATION": ("Campo derivado de nuevo en otra capa", "El mismo campo se deriva en un artefacto y otra vez en un ancestro del linaje."),
+    "CROSS_LAYER_REDERIVATION": ("Derivación repetida en el linaje", "El mismo campo se deriva en un artefacto y otra vez en un ancestro del linaje."),
     "ROLE_LAYER_DIVERGENCE": ("La capa del nombre difiere de la posición estructural o del rol declarado",
                               "La capa codificada en el nombre del artefacto no coincide con el lugar que ocupa ni con lo que declara."),
     "DUPLICATED_REMOTE_IMPORT": ("Entidad remota importada más de una vez", "La misma entidad remota existe bajo varias identidades locales."),
@@ -374,6 +374,7 @@ SURFACE_TITLES: dict[str, str] = {
     "ingestion.dataflow_boundary": "Referencias del plano de Procesamiento (frontera)", "ingestion.processing_context_inventory": "Inventario de contexto de Procesamiento",
     "ingestion.processing_reference": "Referencias a flujos de Procesamiento", "am.contract_inventory": "Contrato declarado del modelo analítico",
     "am.closure_composition": "Composición del cierre semántico (linaje estricto frente a asociación)",
+    "am.view_type_composition": "Composición del cierre por tipo de vista (gráfica, SQL, sin clasificar)",
     "am.association_targets": "Destinos de asociación del modelo analítico", "am.contract_delta": "Diferencias del modelo analítico frente a sus proveedores",
     "am.numeric_attributes_not_declared_as_measures": "Atributos numéricos no declarados como medidas", "propagation.derived_fields": "Campos derivados por artefacto",
     "propagation.contract_delta": "Diferencias de contrato por paso de linaje", "propagation.contract_occurrences": "Ocurrencias del contrato del modelo a lo largo del cierre",
@@ -596,6 +597,20 @@ def _highlights(idx: FactIndex, comp: AssessmentComposition, area: M.Area) -> li
                 [{"name": ("alcanzables por linaje estricto desde el objeto raíz (incluido el propio objeto)" if non_am_root
                            else "alcanzables por linaje estricto desde el modelo terminal (incluido el propio modelo)"), "count": v["strict_lineage_size"]},
                  {"name": "mediados por asociación (fuera del linaje estricto)", "count": v["association_mediated_size"]}])
+        vt = idx.usable_get("am.view_type_composition", am_name or "")
+        if vt is not None:                                                                    # evidencia objetiva de composición: ni buena ni mala
+            v = vt.value
+            add("views_in_closure", "Vistas de Datasphere en el cierre (únicas)", v["total_views"],
+                [{"name": "gráficas", "count": v["graphical_views"]}, {"name": "SQL", "count": v["sql_views"]},
+                 {"name": "sin clasificar", "count": v["unknown_views"]}])
+            if v["total_views"]:
+                add("view_type_distribution", "Distribución por tipo de vista",
+                    [{"count": v["graphical_views"], "name": "gráficas", "share": v["graphical_view_pct"], "view_type": "GRAPHICAL"},    # claves en orden
+                     {"count": v["sql_views"], "name": "SQL", "share": v["sql_view_pct"], "view_type": "SQL"},                         # canónico (JSON ⇄ MD)
+                     {"count": v["unknown_views"], "name": "sin clasificar", "share": v["unknown_view_pct"], "view_type": "UNKNOWN"}])
+                add("view_artifacts", "Vistas del cierre (nombre técnico y tipo)",
+                    [{"membership_basis": r["membership_basis"], "name": r["technical_name"], "view_type": r["view_type"],
+                      "view_type_basis": r["view_type_basis"]} for r in v["views"]])
         nn = idx.usable_get("am.numeric_attributes_not_declared_as_measures", am_name or "")
         if nn is not None:                                                                    # evidencia descriptiva; no es defecto ni revision
             fields = nn.value["fields"]
@@ -604,22 +619,22 @@ def _highlights(idx: FactIndex, comp: AssessmentComposition, area: M.Area) -> li
                 sample = [f"{x['field']} ({x['type']}{' ' + x['length'] if x.get('length') else ''})" for x in fields[:10]]
                 add("numeric_non_measure_fields", "Campos numéricos no declarados como medida (muestra)", sample + ([f"… (+{len(fields) - 10})"] if len(fields) > 10 else []))
     elif area is M.Area.PROPAGATION:
-        add("lineage_steps_evaluated", "Pasos de linaje con delta de contrato", len(idx.usable("propagation.contract_delta")) + len(idx.usable("am.contract_delta")))
-        add("artifacts_with_derived_fields", "Artefactos con campos derivados", sum(1 for f in idx.usable("propagation.derived_fields") if f.value["n_derived"] > 0))
+        add("lineage_steps_evaluated", "Pasos de linaje evaluados", len(idx.usable("propagation.contract_delta")) + len(idx.usable("am.contract_delta")))
+        add("artifacts_with_derived_fields", "Artefactos con derivaciones", sum(1 for f in idx.usable("propagation.derived_fields") if f.value["n_derived"] > 0))
         r = idx.usable_get("propagation.rederivation", "closure")
         if r is not None:
-            add("rederived_field_occurrences", "Campos derivados de nuevo en un ancestro del linaje", len(r.value["occurrences"]))
+            add("rederived_field_occurrences", "Derivaciones repetidas", len(r.value["occurrences"]))
     elif area is M.Area.HARMONIZATION:
         d = idx.usable_get("harmonization.dimension_artifacts", "closure")
         if d is not None:
-            add("declared_dimensions", "Dimensiones declaradas en el cierre", d.value["count"])
+            add("declared_dimensions", "Dimensiones declaradas", d.value["count"])
             add("dimensions_with_own_associations", "Dimensiones con asociaciones propias", d.value["with_own_associations"])
         c = idx.usable_get("harmonization.composition_artifacts", "closure")
         if c is not None:
-            add("composition_artifacts", "Artefactos de composición (dos o más proveedores de linaje)", c.value["count"])
+            add("composition_artifacts", "Artefactos de composición", c.value["count"])
         cross = [(f.subject, f.value["cross_am_reuse_count"]) for f in idx.usable("harmonization.cross_am_reuse")]
         if cross:
-            add("cross_model_reuse_artifacts", "Artefactos contenidos también en otros modelos analíticos", sum(1 for _, n in cross if n > 0))
+            add("cross_model_reuse_artifacts", "Artefactos con reuso", sum(1 for _, n in cross if n > 0))
             add("most_reused_across_models", "Más reutilizados en otros modelos analíticos",
                 [{"name": a, "count": n} for a, n in sorted(cross, key=lambda x: (-x[1], x[0]))[:5] if n > 0])
     elif area is M.Area.INGESTION:

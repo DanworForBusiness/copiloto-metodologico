@@ -63,6 +63,7 @@ from webapp.routers import datasphere_assessment as datasphere_assessment_router
 from webapp.routers import datasphere_publication as datasphere_publication_router
 from webapp.services import assessment_presenter
 from webapp.services import assessment_service
+from webapp.services import catalog_view_source
 from webapp.routers import commercial_strategy as commercial_strategy_router
 
 WEB_DIR = Path(__file__).parent
@@ -2048,6 +2049,16 @@ def _catalog_cds_link(origen: str) -> str:
     return ""
 
 
+def _catalog_source_button_html(path: str, label: str, css: str, **params) -> str:
+    """Botón de apoyo que carga el CÓDIGO FUENTE de un artefacto en el slot central por HTMX (``.support-link`` dentro de `heading-supports`,
+    que el pipeline de contenido sube al header de la sección). Lo comparten "Abrir CDS View" y "Abrir SQL": un solo markup/target/estilo."""
+    qs = urlencode({**params, "pack": params.get("pack") or DEFAULT_PACK})
+    return (f'\n\n<div class="support-links heading-supports {css}-launch">'
+            f'<a class="support-link {css}-link" href="#" role="button" '
+            f'hx-get="{path}?{qs}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" '
+            f'@click.prevent>{label} <span>&#8249;/&#8250;</span></a></div>\n\n')
+
+
 def _catalog_cds_button_html(cds: str, pack: str = "", cliente: str = "", dominio: str = "", flow: str = "") -> str:
     """Bloque HTML del botón "Abrir CDS View" (carga el código del extractor en el slot
     central por HTMX). COMPARTIDO por el detalle de flujo (Dominios) y de Data Product,
@@ -2056,11 +2067,14 @@ def _catalog_cds_button_html(cds: str, pack: str = "", cliente: str = "", domini
     identidad estable del flujo de origen, para que "Volver" reabra ESE flujo (y no el
     primero de un cliente/dominio con varios). Va marcado `heading-supports` para que el
     pipeline de contenido lo suba al header de la sección."""
-    qs = urlencode({"name": cds, "cliente": cliente, "dominio": dominio, "flow": flow, "pack": pack or DEFAULT_PACK})
-    return (f'\n\n<div class="support-links heading-supports catalog-cds-launch">'
-            f'<a class="support-link catalog-cds-link" href="#" role="button" '
-            f'hx-get="/catalog/cds?{qs}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" '
-            f'@click.prevent>Abrir CDS View <span>&#8249;/&#8250;</span></a></div>\n\n')
+    return _catalog_source_button_html("/catalog/cds", "Abrir CDS View", "catalog-cds",
+                                       name=cds, cliente=cliente, dominio=dominio, flow=flow, pack=pack)
+
+
+def _catalog_sql_button_html(name: str, pack: str, cliente: str, dominio: str, flow: str) -> str:
+    """Botón "Abrir SQL" de una vista SQL de Datasphere con consulta (misma familia visual y de navegación que "Abrir CDS View")."""
+    return _catalog_source_button_html("/catalog/sql", "Abrir SQL", "catalog-sql",
+                                       name=name, cliente=cliente, dominio=dominio, flow=flow, pack=pack)
 
 
 def _catalog_dp_inject_cds_buttons(body: str, lineage_nodes: list, pack: str) -> str:
@@ -2402,6 +2416,7 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
         visible = {n["name"]: n["slug"] for n in nodes if n["name"] in keep} if lineage_svg else {}
         focus_out["present"] = [{"name": f, "slug": visible[f]} for f in focus_list if f in visible]
         focus_out["missing"] = [f for f in focus_list if f not in visible]
+    sql_views = catalog_view_source.sql_view_names(entry.cliente, entry.dominio)     # vistas SQL CON consulta (índice por huella del pool; sin texto SQL)
     parts = []
     for name in shown_order:
         # H1 → H2 (lambda: la descripción con tonos puede traer caracteres que re
@@ -2415,6 +2430,10 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
         if cds:
             btn = _catalog_cds_button_html(cds, pack, entry.cliente, entry.dominio, entry.entry_id)
             vbody = re.sub(r"(?m)^##\s+.*$", lambda m: m.group(0) + btn, vbody, count=1)
+        # Botón "Abrir SQL": SOLO si la vista es SQL y su JSON trae `@DataWarehouse.sqlEditor.query` (GRAPHICAL / UNKNOWN / SQL sin consulta: nada).
+        if name in sql_views:
+            sql_btn = _catalog_sql_button_html(name, pack, entry.cliente, entry.dominio, entry.entry_id)
+            vbody = re.sub(r"(?m)^##\s+.*$", lambda m: m.group(0) + sql_btn, vbody, count=1)
         parts.append(vbody)
     # Sección de cumplimiento: reutiliza el bloque "## Hallazgos…" del flujo_*.md.
     mh = re.search(r"##\s*Hallazgos[^\n]*\n(.*)$", entry.body or "", re.S)
@@ -2604,6 +2623,53 @@ def catalog_cds(request: Request, name: str = "", cliente: str = "", dominio: st
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(request=request,
                                           name="partials/catalog_cds_content.html", context=ctx)
+    academy = [a for a in list_academy(selected) if not a.nav_hidden]
+    return templates.TemplateResponse(
+        request=request, name="catalog_cds.html",
+        context={
+            "modules": list_modules(selected),
+            "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
+            "academy": academy,
+            "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
+            "active_group": "", "active_stem": "",
+            "readonly": _readonly(request),
+            "pack_label": content_pack_short_label(selected), "user": user,
+            "current_workspace": workspaces.COPILOT,
+            "available_workspaces": workspaces.available_workspaces(user),
+            **ctx,
+        },
+    )
+
+
+@app.get("/catalog/sql", response_class=HTMLResponse, include_in_schema=False)
+def catalog_sql(request: Request, name: str = "", cliente: str = "", dominio: str = "",
+                flow: str = "", pack: str = Query(DEFAULT_PACK)):
+    """Fuente SQL de una vista de Datasphere (`@DataWarehouse.sqlEditor.query` del JSON del pool), renderizada como CÓDIGO en el MISMO panel y con
+    la MISMA plantilla que "Abrir CDS View". Mismo acceso que el Catálogo (sesión obligatoria); 404 si la vista no es SQL con consulta.
+    "Volver" re-abre el flujo de origen. No ejecuta, reescribe ni infiere SQL; el texto no se registra en logs."""
+    user = auth_service.session_user(request)
+    log_verbose("catalog_view", user=(user or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="sql", ref=name)
+    if not user:
+        return _login_redirect(request, _pack(pack))
+    selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
+    src = catalog_view_source.read_view_sql(cliente, dominio, name)
+    if src is None:
+        raise HTTPException(404, "Vista SQL no encontrada en el catálogo")
+    from webapp.services.content_service import render_sections
+    longest = max((len(r) for r in re.findall(r"`+", src.sql)), default=0)
+    fence = "`" * max(3, longest + 1)          # un SQL con ``` no puede cerrar el bloque: la valla es más larga que cualquier racha de comillas
+    sections = render_sections(f"## Código SQL\n\n{fence}sql\n{src.sql}\n{fence}\n", pack_name="", stem="", base=0)
+    identity = catalog_view_source.artifact_identity(name, cliente, dominio, flow)      # nombre de negocio + capa + uso semántico (misma metadata del Catálogo)
+    ctx = {
+        "cds_name": name, "cds_title": identity.business_name,
+        "cds_intro": "Código SQL de la vista en Datasphere",
+        "meta_prefix": identity.meta_segments(name)[:-1],
+        "source_label": "Vista SQL", "tabla_base": "", "extraccion": "",
+        "sections": sections, "cliente": cliente, "dominio": dominio, "flow": flow, "pack": selected,
+        "catalog_kind": "sql", "catalog_ref": name,
+    }
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(request=request, name="partials/catalog_cds_content.html", context=ctx)
     academy = [a for a in list_academy(selected) if not a.nav_hidden]
     return templates.TemplateResponse(
         request=request, name="catalog_cds.html",

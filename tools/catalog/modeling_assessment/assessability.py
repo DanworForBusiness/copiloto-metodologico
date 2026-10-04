@@ -266,6 +266,8 @@ _FACT_SURFACES: tuple[SurfaceSpec, ...] = (
                 na_when=_not_am_root),
     SurfaceSpec("am.closure_composition", _AM, F, VIEW, "descriptive composition of the semantic closure (strict lineage vs association): graph structure, not a required evidence surface",
                 ("am.closure_composition",), per_unit=False),
+    SurfaceSpec("am.view_type_composition", _AM, F, VIEW, "descriptive composition of the closure by Datasphere view type (GRAPHICAL/SQL/UNKNOWN): objective evidence, no judgment, not a required surface",
+                ("am.view_type_composition",), per_unit=False),
     # PROPAGATION
     SurfaceSpec("propagation.derived_fields", _PRO, F, REQ, "derived fields per non-leaf artifact (needs a visible query)", ("propagation.derived_fields",)),
     SurfaceSpec("propagation.contract_delta", _PRO, F, REQ, "contract delta per lineage edge", ("propagation.contract_delta",)),

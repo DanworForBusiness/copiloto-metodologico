@@ -11,6 +11,13 @@ Abrirlo JAMÁS conecta a Datasphere, no pide credenciales, no ejecuta el motor d
 el pool y la caché pero no ejecuta ni escribe. STALE sigue STALE y NOT_YET_ASSESSED sigue visible. Los assessments ad-hoc quedan fuera
 (no son entradas del Catálogo). Solo los assessments VIGENTES (CURRENT) aportan métricas; el resto muestra "—", nunca 0.
 Sin score, banda, peso ni penalidad: vigencia, cobertura, confianza (distribución), observaciones, revisiones y hallazgos recurrentes.
+
+COMPOSICIÓN DEL MODELADO (aditiva, descriptiva; sin juicio de calidad): dos lecturas que NO se suman ni se mezclan.
+  * ``inventory`` — inventario técnico disponible: artefactos ÚNICOS del pool de crudos del cliente (`client_modeling_inventory`); no es el tenant.
+  * ``current_assessment_scope`` — vistas únicas que participan en los Assessments VIGENTES: unión por nombre técnico de ``views_in_closure /
+    view_artifacts`` de los perfiles CURRENT. Solo se muestra como completa si TODOS los CURRENT traen el hecho `am.view_type_composition`; si solo
+    X de Y lo traen, la unión parcial NO se presenta como valor del cliente (``available`` False y las métricas en None). Nunca se suman los
+    `total_views` de cada Assessment: ``view_occurrences`` (suma) es un dato interno de procedencia, no un conteo de objetos únicos.
 """
 from __future__ import annotations
 
@@ -22,6 +29,7 @@ from typing import Any
 from webapp.services import assessment_presenter as presenter
 from webapp.services import assessment_service as svc
 from webapp.services import catalog_reads
+from webapp.services import client_modeling_inventory as inventory
 
 log = logging.getLogger("danwor.client_assessment")
 
@@ -112,7 +120,7 @@ def _recurring_findings(rows: list[dict], statuses: dict[str, svc.AssessmentStat
         prof = statuses[r["entry_id"]].profile or {}
         for key, kind in (("observations", "OBSERVATION"), ("review_required", "REVIEW_REQUIRED")):
             for g in prof.get(key, []) or []:
-                item = acc.setdefault(g["id"], {"id": g["id"], "title": g.get("title") or g["id"], "kind": kind,
+                item = acc.setdefault(g["id"], {"id": g["id"], "title": presenter.P.display_title(g["id"], g.get("title") or g["id"]), "kind": kind,
                                                 "kind_label": FINDING_KIND_LABELS[kind], "_entries": {}})
                 item["_entries"][r["entry_id"]] = r["asset_id"] or r["domain"]
     out = []
@@ -120,6 +128,41 @@ def _recurring_findings(rows: list[dict], statuses: dict[str, svc.AssessmentStat
         entries = item.pop("_entries")
         out.append({**item, "entries": len(entries), "asset_ids": sorted(entries.values(), key=str.lower)})
     return sorted(out, key=lambda f: (-f["entries"], f["id"]))
+
+
+def _view_composition_of(profile: dict | None) -> tuple[int, list[dict]] | None:
+    """(vistas del cierre, [vistas {name, view_type, ...}]) del hecho `am.view_type_composition` de UN perfil, o None si el perfil no lo trae
+    (perfiles anteriores al hecho: siguen siendo legibles, simplemente no aportan)."""
+    for area in (profile or {}).get("areas") or []:
+        highlights = {h.get("id"): h for h in area.get("highlights") or [] if isinstance(h, dict)}
+        if "views_in_closure" in highlights:
+            total = highlights["views_in_closure"].get("value")
+            arts = (highlights.get("view_artifacts") or {}).get("value") or []
+            return (int(total or 0), [a for a in arts if isinstance(a, dict) and a.get("name")])
+    return None
+
+
+def _assessment_scope(rows: list[dict], statuses: dict[str, svc.AssessmentStatus]) -> dict:
+    """Participación en los Assessments VIGENTES (CURRENT): unión ÚNICA por nombre técnico, solo si TODOS los CURRENT traen el hecho."""
+    current = [r for r in rows if r["state"] == svc.CURRENT]
+    union: dict[str, str] = {}
+    occurrences = enriched = 0
+    for r in current:
+        comp = _view_composition_of(statuses[r["entry_id"]].profile)
+        if comp is None:
+            continue
+        enriched += 1
+        occurrences += comp[0]
+        for a in comp[1]:
+            union.setdefault(str(a["name"]), str(a.get("view_type") or "UNKNOWN"))
+    complete = bool(current) and enriched == len(current)
+    out = {"available": complete, "enriched_assessments": enriched, "total_current_assessments": len(current),
+           "unique_views": None, "graphical": None, "sql": None, "unknown": None, "view_occurrences": None}
+    if complete:
+        out.update({"unique_views": len(union), "graphical": sum(1 for t in union.values() if t == "GRAPHICAL"),
+                    "sql": sum(1 for t in union.values() if t == "SQL"), "unknown": sum(1 for t in union.values() if t not in ("GRAPHICAL", "SQL")),
+                    "view_occurrences": occurrences})
+    return out
 
 
 def build_snapshot(entry: Any, pack: str, *, now: datetime | None = None) -> dict:
@@ -154,6 +197,7 @@ def build_snapshot(entry: Any, pack: str, *, now: datetime | None = None) -> dic
         },
         "assets": rows,
         "recurring_findings": _recurring_findings(rows, statuses),
+        "modeling_composition": {"inventory": inventory.inventory_for(client), "current_assessment_scope": _assessment_scope(rows, statuses)},
     }
 
 
@@ -209,12 +253,90 @@ def catalog_verdict_story(verdicts: list) -> str | None:
     return ("El catálogo presenta un panorama mixto de reutilización, con distintos niveles de reserva entre los artefactos evaluados.")
 
 
+ND = "No disponible"
+UNKNOWN_PARTIAL_CAVEAT = ("La identificación de vistas sin clasificar es parcial porque este inventario no informa la familia de todos los artefactos.")
+
+
+def _n(v: Any) -> str:
+    """Número del snapshot para presentación: None = no disponible (jamás se muestra como 0)."""
+    return ND if v is None else str(v)
+
+
+def _pct(part: Any, total: Any) -> str:
+    return ND if part is None or not total else presenter.percent(part / total, 0)
+
+
+def _majority(g: int, sql: int, total: int) -> str | None:
+    if total <= 0:
+        return None
+    if g * 2 > total:
+        return "mayoritariamente gráfica"
+    if sql * 2 > total:
+        return "mayoritariamente SQL"
+    return "mixta, sin un tipo mayoritario"
+
+
+def _distribution_rows(g: Any, sql: Any, unknown: Any, total: Any) -> list[dict]:
+    return [{"label": lbl, "count": _n(c), "share": _pct(c, total)} for lbl, c in (("Vistas gráficas", g), ("Vistas SQL", sql), ("Sin clasificar", unknown))]
+
+
+def composition_view(snap: dict) -> dict:
+    """Presentación de la Composición del modelado: SOLO formatea el snapshot (no recalcula ni infiere). HTML y Markdown usan esto."""
+    mc = snap["modeling_composition"]
+    inv, scope = mc["inventory"], mc["current_assessment_scope"]
+    v = inv["views"]
+    exhaustive = v["unknown_detection"] == inventory.EXHAUSTIVE
+    inv_story = None
+    if v["total"]:
+        shape = _majority(v["graphical"], v["sql"], v["total"])
+        if exhaustive:
+            inv_story = f"El inventario técnico disponible presenta una composición {shape}."
+        else:
+            inv_story = f"Entre las vistas identificadas en el inventario técnico disponible, la composición es {shape}."
+    flows = [{"key": k, "label": FLOW_LABELS[k], "value": _n(inv[k]), "evidence": inv["flow_evidence"][k]} for k in inventory.FLOW_ORDER]
+    if scope["available"]:
+        cur, cat = scope["total_current_assessments"], snap["catalog_assets"]
+        scope_note = (f"Calculado sobre {cur} {'assessment vigente' if cur == 1 else 'assessments vigentes'} de {cat} "
+                      f"{'artefacto' if cat == 1 else 'artefactos'} del catálogo; las vistas compartidas entre cierres cuentan una sola vez.")
+        if cur < cat:
+            scope_note += (f" Los {cat - cur} restantes no tienen un assessment vigente y no participan: "
+                           "esta lectura no representa a todos los artefactos del catálogo." if cat - cur != 1 else
+                           " El restante no tiene un assessment vigente y no participa: esta lectura no representa a todos los artefactos del catálogo.")
+    elif scope["total_current_assessments"] == 0:
+        scope_note = "No hay assessments vigentes."
+    else:
+        scope_note = (f"No disponible: solo {scope['enriched_assessments']} de {scope['total_current_assessments']} assessments vigentes "
+                      "incluyen la composición por tipo de vista; los restantes son anteriores a este dato y se actualizan al regenerarlos.")
+    return {
+        "inventory": {
+            "available": inv["available"], "show_tiles": v["total"] is not None,
+            "note": None if v["total"] is not None else "No disponible: no hay evidencia técnica de vistas en el pool de este cliente.",
+            "kpis": [{"label": "Vistas", "value": _n(v["total"])}, {"label": "Vistas gráficas", "value": _n(v["graphical"])},
+                     {"label": "Vistas SQL", "value": _n(v["sql"])}, {"label": "Sin clasificar", "value": _n(v["unknown"])}],
+            "distribution": _distribution_rows(v["graphical"], v["sql"], v["unknown"], v["total"]),
+            "flows": flows, "story": inv_story, "limited_unknown": bool(v["total"]) and not exhaustive,
+            "unknown_caveat": UNKNOWN_PARTIAL_CAVEAT if v["unknown_detection"] == inventory.PARTIAL else None,
+        },
+        "scope": {
+            "available": scope["available"], "note": scope_note,
+            "kpis": [{"label": "Vistas únicas", "value": _n(scope["unique_views"])}, {"label": "Vistas gráficas", "value": _n(scope["graphical"])},
+                     {"label": "Vistas SQL", "value": _n(scope["sql"])}, {"label": "Sin clasificar", "value": _n(scope["unknown"])}],
+            "distribution": _distribution_rows(scope["graphical"], scope["sql"], scope["unknown"], scope["unique_views"]),
+        },
+    }
+
+
+FLOW_LABELS = {"replication_flows": "Replication Flows", "data_flows": "Data Flows",
+               "transformation_flows": "Transformation Flows", "task_chains": "Task Chains"}
+
+
 def report_view(snap: dict) -> dict:
     s, n = snap["summary"], snap["catalog_assets"]
     cov = s["coverage"]
     cur = s["current_assessments"]
     return {
         "snapshot": snap,
+        "composition": composition_view(snap),
         "generated_text": snap["generated_at"].replace("T", " ").replace("+00:00", " UTC"),
         "kpis": [
             {"label": "Total de Artefactos", "value": str(n)},
@@ -265,6 +387,18 @@ def to_markdown(snap: dict) -> str:
         lines += [f"- **{f['title']}** ({f['id']}): {presenter.plural(f['entries'], 'artefacto')}" for f in snap["recurring_findings"]]
     else:
         lines.append("Sin hallazgos recurrentes en los assessments vigentes.")
+    c = v["composition"]
+    lines += ["", "## Composición del modelado", "",
+              "_Dos lecturas distintas que no se suman. Descriptivo: no es un juicio de calidad._", "", "### Inventario técnico disponible", "",
+              "_Artefactos únicos de la evidencia disponible para el Copiloto (no es el total del tenant de Datasphere)._", ""]
+    lines += [f"- **{k['label']}:** {k['value']}" for k in c["inventory"]["kpis"]]
+    lines += [f"- **{f['label']}:** {f['value']}" for f in c["inventory"]["flows"]]
+    if c["inventory"]["unknown_caveat"]:
+        lines += ["", f"_{c['inventory']['unknown_caveat']}_"]
+    if c["inventory"]["story"]:
+        lines += ["", f"> {c['inventory']['story']}"]
+    lines += ["", "### Participación en Assessments vigentes", "", f"_{c['scope']['note']}_", ""]
+    lines += [f"- **{k['label']}:** {k['value']}" for k in c["scope"]["kpis"]]
     return "\n".join(lines) + "\n"
 
 
