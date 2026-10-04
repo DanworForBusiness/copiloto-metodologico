@@ -250,6 +250,29 @@ FACT_LAYOUT: dict[str, dict] = {
 }
 
 
+# Ayuda OPCIONAL de los KPI del informe individual (tooltip (i) del Hub; ver `kpi_tile` en assessment_report_macros.html). El significado sale de los
+# contratos canónicos del paquete (`profile.COVERAGE_MEANING`, `profile.CONFIDENCE_MEANING`, `summary.context_required`, el estado "abierto — requiere
+# contexto" de las revisiones); acá solo se redacta para lectura humana. Cada KPI sin entrada se muestra exactamente como siempre. Nunca un puntaje.
+KPI_HELP: dict[str, tuple[str, ...]] = {
+    "coverage_strict": (
+        "Qué parte de la evidencia metodológica requerida y aplicable pudo evaluarse por completo con la información disponible; la evaluada solo en parte no suma.",
+        "No mide la calidad del modelo."),
+    "confidence": (
+        "Qué tan fiable es la evidencia que sí se evaluó (alta, media o baja); manda el componente más débil.",
+        "No mide la calidad del modelo y es independiente de la cobertura y del contexto aún abierto."),
+    "review_required": (
+        "Cantidad de ocurrencias que el análisis automático no puede cerrar solo con la evidencia disponible y que requieren la revisión de una persona.",
+        "No son defectos confirmados."),
+    "context_open": (
+        "Cantidad de preguntas distintas que solo el equipo del proyecto puede responder y que el análisis dejó abiertas.",
+        "Cuenta tipos de pregunta, no ocurrencias, y no mide la calidad ni la confianza."),
+}
+
+
+def _kpi(key: str, label: str, value: Any) -> dict:
+    return {"label": label, "value": value, "help": list(KPI_HELP[key])}
+
+
 def _is_number(v: Any) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
@@ -404,10 +427,10 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         },
         "areas": [_area_view(a, groups_by_id, rules_by_area) for a in doc["areas"]],
         "kpis": [
-            {"label": "Cobertura estricta", "value": P.percent_text(cov["strict"])},
-            {"label": "Confianza", "value": P.confidence_level_text(conf["level"])},
-            {"label": "Revisiones requeridas", "value": sum(g["occurrence_count"] for g in doc["review_required"])},
-            {"label": "Contexto abierto", "value": ctx["open_questions"]},
+            _kpi("coverage_strict", "Cobertura estricta", P.percent_text(cov["strict"])),
+            _kpi("confidence", "Confianza", P.confidence_level_text(conf["level"])),
+            _kpi("review_required", "Revisiones requeridas", sum(g["occurrence_count"] for g in doc["review_required"])),
+            _kpi("context_open", "Contexto abierto", ctx["open_questions"]),
         ],
         "observations": [_group_view(g, link_entry, pack) for g in doc["observations"]],
         "review_required": [_group_view(g, link_entry, pack) for g in doc["review_required"]],

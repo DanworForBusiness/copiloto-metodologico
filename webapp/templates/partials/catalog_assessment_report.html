@@ -15,7 +15,7 @@
   <a class="support-link" href="#" role="button" hx-post="{{ v.report_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-indicator="#asr-busy" @click.prevent>{{ v.action.label }}<span>↗</span></a>
   <span class="htmx-indicator" id="asr-busy" role="status">Generando…</span>
 </div>{% endif %}{% endmacro %}
-{% from "partials/assessment_report_macros.html" import heading, callout %}
+{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
 {% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}
 {# Hallazgo: encabezado semántico + "por qué aparece" siempre visibles; el detalle, bajo demanda (disclosure del CRM) y como TABLAS:
@@ -135,7 +135,7 @@
   <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Indicadores del assessment</span></summary>
   <div class="dashboard-section__body">
     <div class="activity-kpi-grid">
-      {% for k in v.kpis %}<div class="activity-kpi"><span class="activity-kpi__value">{{ k.value }}</span><span class="activity-kpi__label">{{ k.label }}</span></div>{% endfor %}
+      {% for k in v.kpis %}{{ kpi_tile(k) }}{% endfor %}
     </div>
   </div>
 </details>
