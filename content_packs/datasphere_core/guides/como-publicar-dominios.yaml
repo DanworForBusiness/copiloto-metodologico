@@ -86,7 +86,8 @@ steps:
       Ahora sólo tenés que abrir las herramientas de decisión, pegar tus credenciales y URL tokens, y ejecutar el proceso. 
       En minutos habrás incorporado todo el modelo al copiloto, con un informe completo de linaje reconstruido.
     link:
-      tool: publicar            # navegación IN-APP (misma pestaña): la ruta resuelve
-      label: "Abrir alta de dominio"   # /modules/<04>?pack=…&tool=publicar (herramienta "Publicar modelo")
+      tool: catalogo            # navegación IN-APP (misma pestaña): la ruta resuelve
+      action: publish           # /modules/<04>?pack=…&tab=catalogo&catalog_action=publish (Catálogo, estado de alta)
+      label: "Abrir alta de dominio"
     shots:
       - img: "05-Run.png"

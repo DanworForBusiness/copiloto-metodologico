@@ -2676,7 +2676,12 @@ def catalog_guide(request: Request, slug: str, pack: str = Query(DEFAULT_PACK),
         _num = (_ln.get("module") or back_num).zfill(2)
         _mod = next((m for m in list_modules(selected)
                      if str(m.number).zfill(2) == _num or m.stem.startswith(f"{_num}_")), None)
-        _ln["url"] = (f"/modules/{_mod.stem}?pack={selected}&tool={_ln['tool']}" if _mod else "")
+        # `tool: catalogo` es la PESTAÑA Catálogo (no una herramienta): `?tab=catalogo[&catalog_action=<action>]`; el resto, `?tool=<id>`.
+        if _ln["tool"] == "catalogo":
+            _q = "tab=catalogo" + (f"&catalog_action={_ln['action']}" if _ln.get("action") else "")
+        else:
+            _q = f"tool={_ln['tool']}"
+        _ln["url"] = (f"/modules/{_mod.stem}?pack={selected}&{_q}" if _mod else "")
         if not _ln["url"]:
             _st["link"] = None
 

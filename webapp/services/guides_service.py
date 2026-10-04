@@ -72,12 +72,17 @@ def _link(raw) -> dict | None:
         if not _TOOL_RE.match(tool):
             return None
         module = re.sub(r"[^0-9]", "", str(raw.get("module") or ""))[:2]
+        # `action` (opcional): subestado de la herramienta/pestaña destino (p. ej. `tool: catalogo` + `action: publish` abre el Catálogo
+        # en su estado de alta). Slug seguro; la ruta decide cómo se traduce a URL.
+        action = str(raw.get("action") or "").strip().lower()
+        if action and not _TOOL_RE.match(action):
+            return None
         # `url` lo completa la ruta (necesita list_modules para resolver el stem).
-        return {"internal": True, "tool": tool, "module": module, "url": "", "label": label}
+        return {"internal": True, "tool": tool, "action": action, "module": module, "url": "", "label": label}
     url = str(raw.get("url") or "").strip()
     if not url.startswith(("http://", "https://")):
         return None
-    return {"internal": False, "tool": "", "module": "", "url": url, "label": label}
+    return {"internal": False, "tool": "", "action": "", "module": "", "url": url, "label": label}
 
 
 def load(pack: str, slug: str) -> dict | None:

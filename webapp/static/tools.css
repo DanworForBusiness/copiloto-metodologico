@@ -20,9 +20,9 @@
 .tool-tabs button.is-active { color: var(--gold); border-bottom-color: var(--gold); }
 .tool-tab-panel { padding-top: 24px; }
 .tool-label, .tree-picker label { display: block; margin: 16px 0 7px; color: var(--soft); font: 500 .64rem var(--mono); text-transform: uppercase; letter-spacing: .08em; }
-.tool-tab-panel select, .tool-tab-panel textarea, .diagnostic-group select, .diagnostic-group input:is([type="text"], [type="url"], [type="password"]) { width: 100%; border: 1px solid var(--line); border-radius: 0; background: var(--card); color: var(--ink); font: 500 .78rem var(--sans); }
+.tool-tab-panel select, .tool-tab-panel textarea, .diagnostic-group select, .diagnostic-group input:is([type="text"], [type="url"], [type="password"]), .dsa-panel input:is([type="text"], [type="url"], [type="password"]) { width: 100%; border: 1px solid var(--line); border-radius: 0; background: var(--card); color: var(--ink); font: 500 .78rem var(--sans); }
 .tool-tab-panel select, .diagnostic-group select { height: 42px; padding: 0 32px 0 10px; }
-.diagnostic-group input:is([type="text"], [type="url"], [type="password"]) { height: 42px; padding: 0 10px; }
+.diagnostic-group input:is([type="text"], [type="url"], [type="password"]), .dsa-panel input:is([type="text"], [type="url"], [type="password"]) { height: 42px; padding: 0 10px; }
 .tool-tab-panel textarea { padding: 12px; resize: vertical; }
 .tool-hint, .assistant-intro p, .tool-empty p { color: var(--soft); font-size: .76rem; }
 .tool-primary { width: 100%; margin-top: 14px; }
@@ -2301,12 +2301,8 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 
 /* "¿Falta un árbol/catálogo?" — cierre de la caja punteada del tab (form árbol / link catálogo). */
 .tool-suggest { margin-top: 14px; }
-/* Encabezado del catálogo de datos con el "+" de alta (Publicar modelo): la etiqueta y el botón en una fila. */
+/* Encabezado del catálogo de datos con el "+" de alta (Publicar modelo): la etiqueta y el ícono neutro (`.table-action-btn`, sin caja ni dorado) en una fila. */
 .catalog-kind-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.catalog-add-btn { flex: none; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--gold); border-radius: 6px; background: transparent; color: var(--gold); font: 700 1rem/1 var(--sans);
-  cursor: pointer; padding: 0; transition: background .15s, color .15s; }
-.catalog-add-btn:hover { background: var(--gold); color: #0c0c0d; }
 .tool-suggest__link { margin: 14px 0 0; font-size: .78rem; }
 .tool-suggest__link a { color: var(--gold); font-weight: 400; }
 .tool-suggest__link a strong { font-weight: 700; }

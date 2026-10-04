@@ -4,7 +4,7 @@
 {% block title %}{{ document.summary.title }} · Copiloto Danwor{% endblock %}
 {% block body %}
 <div
-  x-data="copilotLayout('{{ active_group }}', {{ 'true' if readonly else 'false' }}, '{{ initial_tab }}', '{{ initial_tool }}')"
+  x-data="copilotLayout('{{ active_group }}', {{ 'true' if readonly else 'false' }}, '{{ initial_tab }}', '{{ initial_tool }}'{% if initial_catalog_action %}, '{{ initial_catalog_action }}'{% endif %})"
   x-init="init()"
   @section-analysis-complete.window="toolTab='assistant'; requestAnimationFrame(() => { const chat = document.getElementById('assistant-conversation'); if (chat) chat.scrollTop = chat.scrollHeight })"
   class="app-shell{% if not show_panel %} no-copilot{% endif %}"
@@ -44,8 +44,11 @@
     {% set diagnostic_trees = trees | selectattr("kind", "equalto", "assessment") | list %}
     {# La pestaña Catálogo se muestra cuando hay catálogo generado, EXCEPTO en el
        módulo 05 (Reporting y Consumo): hoy resolvería "Dominio", que no aplica ahí.
-       Se oculta hasta armar su catálogo propio. #}
-    {% set show_catalog = catalog_domains and document.summary.number|string != "05" and not document.summary.stem.startswith("05_") %}
+       Se oculta hasta armar su catálogo propio. El dueño la ve también con el Catálogo VACÍO (en los módulos que ofrecen publicación):
+       la publicación vive DENTRO del Catálogo (estado "publicar", ver catalog_tab.html), así que sin esa pestaña no habría cómo
+       publicar el primer dominio. #}
+    {% set _pub_ctx = dsp_pub_tool(request, document.summary.stem) %}
+    {% set show_catalog = (catalog_domains or _pub_ctx.can_execute) and document.summary.number|string != "05" and not document.summary.stem.startswith("05_") %}
     <section id="__module__" class="module-hero">
       <p class="eyebrow">{% if is_appendix %}Apéndice {{ document.summary.stem.split('_')[0] }}{% else %}Módulo {{ document.summary.number }}{% endif %}</p>
       <h1>{{ document.summary.title }}</h1>
@@ -118,14 +121,10 @@
     {% if ia_enabled or readonly %}
     <button class="panel-toggle" @click="panelOpen=!panelOpen"><span>Herramientas de decisión</span><span x-text="panelOpen?'−':'+'"></span></button>
     <div x-show="panelOpen" x-transition.opacity>
-      {# Herramienta "Publicar modelo" (alta del Catálogo): pestaña del grupo decisión, SOLO para el dueño (`pub.can_execute`) y en
-         los módulos que la ofrecen. Independiente de `show_catalog`: se puede publicar el PRIMER dominio con el Catálogo vacío. #}
-      {% set pub = dsp_pub_tool(request, document.summary.stem) if (document is defined and document) else {"enabled": False, "can_execute": False} %}
       <nav class="tool-tabs" role="tablist" aria-label="Herramientas del módulo">
         {% if not readonly %}<button type="button" role="tab" @click="toolTab='section'" :class="toolTab==='section'&&'is-active'" :aria-selected="toolTab==='section'">Sección</button>{% endif %}
         <button type="button" role="tab" @click="toolTab='tree'" :class="toolTab==='tree'&&'is-active'" :aria-selected="toolTab==='tree'">Árbol</button>
         {% if show_catalog %}<button type="button" role="tab" @click="toolTab='catalogo'" :class="toolTab==='catalogo'&&'is-active'" :aria-selected="toolTab==='catalogo'">Catálogo</button>{% endif %}
-        {% if pub.can_execute %}<button type="button" role="tab" @click="toolTab='publicar'" :class="toolTab==='publicar'&&'is-active'" :aria-selected="toolTab==='publicar'">Publicar</button>{% endif %}
         <button type="button" role="tab" @click="toolTab='assistant'" :class="toolTab==='assistant'&&'is-active'" :aria-selected="toolTab==='assistant'">Asistente</button>
       </nav>
 
@@ -205,11 +204,6 @@
       </section>
       {% endif %}
 
-      {% if pub.can_execute %}
-      <section class="tool-tab-panel" x-cloak x-show="toolTab==='publicar'" role="tabpanel">
-        {% include "partials/datasphere_publication_tool.html" %}
-      </section>
-      {% endif %}
     </div>
     {% endif %}
 

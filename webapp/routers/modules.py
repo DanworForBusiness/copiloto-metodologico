@@ -74,7 +74,7 @@ _MODULE_TABS = {"section", "tree", "catalogo", "assistant"}
 
 
 @router.get("/modules/{stem}", response_class=HTMLResponse)
-def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), tab: str = "", tool: str = ""):
+def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), tab: str = "", tool: str = "", catalog_action: str = ""):
     diagnostic = access.is_diagnostic(request)
     # Fuera de modo diagnóstico, el marco es siempre el productivo (Datasphere).
     selected = resolve_pack(pack) if diagnostic else DEFAULT_PACK
@@ -97,27 +97,36 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
     # Pestaña inicial del panel derecho vía URL (?tab=…). Permite que un link (p. ej. de
     # Novedades) abra el módulo YA posicionado en Catálogo/Árbol/etc. Se valida: si la
     # pestaña no aplica a este módulo, se ignora (el default de copilotLayout gana).
+    from webapp.services import datasphere_assessment_service as _dsa
+    from webapp.services import datasphere_publication_service as _dsp_pub
     initial_tab = (tab or "").strip().lower()
     if initial_tab not in _MODULE_TABS:
         initial_tab = ""
     elif initial_tab == "catalogo":
         _num = str(document.summary.number)
-        if not (catalog_reads._catalog_domains() and _num != "05" and not document.summary.stem.startswith("05_")):
+        # Con el Catálogo vacío la pestaña igual existe para el dueño en los módulos con publicación (alta del primer dominio).
+        _can_publish = _dsp_pub.tool_enabled(document.summary.stem) and _dsp_pub.can_execute(request)
+        if not ((catalog_reads._catalog_domains() or _can_publish) and _num != "05" and not document.summary.stem.startswith("05_")):
             initial_tab = ""
     elif initial_tab == "section" and access.is_readonly(request):
         initial_tab = ""
     # Herramienta inicial del panel derecho vía URL: abre el panel ya posicionado en esa herramienta (mismo espíritu que ?tab=). Lista
     # blanca; solo aplica a módulos que la ofrecen. NO salta ninguna regla de acceso (el formulario sigue mostrando "Acceso restringido"
-    # a quien no es dueño). `assessment` → grupo "diagnóstico"; `publicar` → grupo "decisión" (alta del Catálogo, ver app.js TOOL_GROUP).
-    from webapp.services import datasphere_assessment_service as _dsa
-    from webapp.services import datasphere_publication_service as _dsp_pub
+    # a quien no es dueño). `assessment` → grupo "diagnóstico" (ver app.js TOOL_GROUP). La publicación NO es una herramienta: es un subestado del Catálogo (abajo).
     _tool = (tool or "").strip().lower()
     if _tool == "assessment" and _dsa.tool_enabled(document.summary.stem):
         initial_tool = "assessment"
-    elif _tool == "publicar" and _dsp_pub.tool_enabled(document.summary.stem):
-        initial_tool = "publicar"
     else:
         initial_tool = ""
+    # Subestado del Catálogo vía URL (?tab=catalogo&catalog_action=publish): lista blanca de UN valor, solo si la pestaña Catálogo
+    # aplica y la publicación está disponible para este usuario (dueño + módulo que la ofrece). Si no, se muestra el Catálogo normal.
+    # NO es el modo del extractor: la ruta de publicación sigue fijando `mode="publish"` en el servidor.
+    initial_catalog_action = (
+        "publish"
+        if (catalog_action or "").strip().lower() == "publish" and initial_tab == "catalogo"
+        and _dsp_pub.tool_enabled(document.summary.stem) and _dsp_pub.can_execute(request)
+        else ""
+    )
     # `module_viewed` (nombre canónico transversal — ver activity_context /
     # ACTIVITY corrective): reemplaza al histórico `module_selected`, mismo
     # disparador (una vista de módulo). MODULE IDENTIFIER CONVENTION V2 —
@@ -249,6 +258,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             "catalog_data_products": catalog_reads._catalog_data_products_list(),
             "initial_tab": initial_tab,
             "initial_tool": initial_tool,
+            "initial_catalog_action": initial_catalog_action,
             "whatsnew_unseen": whatsnew.is_unseen(request, selected),
         },
     )

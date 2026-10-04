@@ -1,7 +1,10 @@
 // Grupos de herramientas del panel derecho: decisión (`panelOpen`), diagnóstico (`diagnosticOpen`) y gestión (`gestionOpen`). Un `?tool=` válido
 // (p. ej. link de Novedades) es AUTORITATIVO: abre SOLO el grupo de esa herramienta y colapsa los demás (no se apila sobre el default).
-const TOOL_GROUP = { assessment: "diagnostic", publicar: "decision" };
-function copilotLayout(activeGroup = "core", readonly = false, initialTab = "", initialTool = "") {
+const TOOL_GROUP = { assessment: "diagnostic" };
+// La publicación NO es una herramienta/pestaña propia: es un ESTADO del Catálogo (`catalogView`: "browse" | "publish"). Se pide con
+// `?tab=catalogo&catalog_action=publish` (el servidor ya validó dueño + módulo). El navegador solo decide qué mostrar; la publicación
+// la ejecuta una ruta propia con `mode="publish"` forzado por el servidor.
+function copilotLayout(activeGroup = "core", readonly = false, initialTab = "", initialTool = "", initialCatalogAction = "") {
   const toolGroup = TOOL_GROUP[initialTool] || "";
   // Retrocompat: antes recibía un booleano isAppendix.
   if (activeGroup === true) activeGroup = "appendix";
@@ -16,10 +19,9 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "", 
     // reemplaza por un aviso, ver assistant_chat).
     // `initialTab` permite que una URL (p. ej. un link de Novedades → ?tab=catalogo)
     // posicione el panel derecho en una pestaña puntual; si no viene, el default.
-    // Una herramienta del grupo "decisión" (p. ej. ?tool=publicar) se muestra como pestaña
-    // de ESE grupo: su id ES el nombre de la pestaña (`toolTab`), así el deep-link abre el
-    // formulario directo sin depender de que ya exista contenido en el Catálogo.
-    toolTab: initialTab || (toolGroup === "decision" && initialTool ? initialTool : (readonly ? "assistant" : "section")),
+    toolTab: initialTab || (readonly ? "assistant" : "section"),
+    // Estado de presentación del Catálogo: explorar vs. alta (publicación embebida). Ver catalog_tab.html.
+    catalogView: initialCatalogAction === "publish" ? "publish" : "browse",
     activeSection: "",
     // Hub Transversal Module Section Navigation (ver HANDOFF): visibilidad
     // del nav anidado persistente (`.module-subnav`) -- SOLO relevante en

@@ -1,0 +1,52 @@
+{# Campos COMPARTIDOS de los formularios Datasphere: "Assessment de tu modelo" (EVALÚA) y "Publicar modelo" (PUBLICA en el Catálogo).
+   Son dos acciones de negocio distintas con rutas/servicios distintos, pero hermanas visuales: MISMOS grupos, etiquetas, primitivos
+   del Hub (`.tree-picker`, `.tool-label`, `.admin-tool`, `.dashboard-checkbox-*`) y mismo orden. Esta macro es la ÚNICA fuente de ese
+   marcado; lo que cambia entre ambas (título/copy, botón, ruta, resultado) vive en cada herramienta.
+   `p` = prefijo de los hooks de JS/ids ("dsa" | "dsp"): `id="<p>-<campo>"`, `data-<p>-error`, `data-<p>-scope`.
+   `form` = campos NO sensibles de la sesión (nunca el secreto). `feature_options` = familias opcionales de evidencia.
+   `scope_help` = copy del disclosure "Alcance de evidencia" (la única diferencia semántica entre ambas herramientas).
+   SECRETO: el Client Secret es `type="password"`, no se renderiza de vuelta. #}
+{% macro datasphere_form_fields(p, form, feature_options, scope_help) %}
+{% macro field(name, label, kind="text", placeholder="", first=False, field_name="", value="") %}
+<div{% if not first %} class="catalog-picker--secondary"{% endif %}>{# separación entre campos: margen estándar del picker secundario #}
+<label class="tool-label" for="{{ p }}-{{ name }}">{{ label }}</label>
+<div class="tree-picker-row">
+  <input id="{{ p }}-{{ name }}" name="{{ field_name or name }}" type="{{ kind }}" placeholder="{{ placeholder }}"{% if value and kind != "password" %} value="{{ value }}"{% endif %}
+         required autocomplete="off" autocapitalize="none" spellcheck="false">
+  <p class="feedback-error" data-{{ p }}-error="{{ name }}" hidden></p>
+</div>
+</div>
+{% endmacro %}
+<div class="tree-picker catalog-picker--secondary">
+  <span class="admin-result-title">Conexión Datasphere</span>
+  {{ field("host", "URL del tenant", "url", "https://mi-tenant.eu10.hcs.cloud.sap", first=True, value=form.get("host", "")) }}
+  {{ field("token_url", "Token URL (OAuth)", "url", "https://mi-tenant.authentication.eu10.hana.ondemand.com/oauth/token", value=form.get("token_url", "")) }}
+  {{ field("client_id", "Client ID", "text", "sb-5d74c5f-XXXX", field_name="datasphere_client_id", value=form.get("client_id", "")) }}
+  {{ field("client_secret", "Client Secret", "password", "5ff624c2-XXXX", field_name="datasphere_client_secret") }}
+</div>
+<div class="tree-picker catalog-picker--secondary">
+  <span class="admin-result-title">Alcance</span>
+  {{ field("space", "Space ID", "text", "PRODUCCION", first=True, value=form.get("space", "")) }}
+  {{ field("root_object", "Artefacto / Objeto", "text", "AM_Compras", field_name="datasphere_root_object", value=form.get("root_object", "")) }}
+  {# Alcance de evidencia: OPCIONAL y colapsado. Reusa el disclosure del Hub (`details.admin-tool`) y las casillas del Hub (`.dashboard-checkbox-*`).
+     Solo familias opcionales con sus identificadores canónicos; las estructurales (modelos, vistas, tablas) las pide siempre el servidor.
+     El marcador `datasphere_features_submitted` distingue "todas destildadas" de "campo no enviado" (= todas, como hoy). #}
+  <details class="admin-tool catalog-picker--secondary" data-{{ p }}-scope>
+    <summary class="admin-tool__summary">Alcance de evidencia</summary>
+    <div class="admin-tool__body">
+      <p class="admin-help">{{ scope_help }}</p>
+      <input type="hidden" name="datasphere_features_submitted" value="1">
+      <div class="dashboard-checkbox-group">
+        {% for o in feature_options %}
+        <label class="dashboard-checkbox-option"><input type="checkbox" name="datasphere_features" value="{{ o.value }}"{% if o.checked %} checked{% endif %}><span>{{ o.label }}</span></label>
+        {% endfor %}
+      </div>
+    </div>
+  </details>
+</div>
+{# último grupo SIN `.tree-picker`: no lleva la línea separadora previa al botón (los labels reusan `.tool-label`, mismo estilo) #}
+<div class="catalog-picker--secondary">
+  <span class="admin-result-title">Destino</span>
+  {{ field("client", "Nombre de Cliente", "text", "Pampa", first=True, value=form.get("client", "")) }}
+</div>
+{% endmacro %}

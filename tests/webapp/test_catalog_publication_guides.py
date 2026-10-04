@@ -102,14 +102,15 @@ def test_assessment_step5_internal_cta_same_tab(owner):
     assert re.search(r'href="/modules/[^"]+\?pack=datasphere_core&(amp;)?tool=assessment"', anchor)
 
 
-def test_publicar_step5_internal_cta_same_tab_to_publicacion(owner):
+def test_publicar_step5_internal_cta_same_tab_to_catalog_publication_state(owner):
     html = owner.get(PUBLICAR_EMBED).text
-    anchor = _anchor_with(html, "tool=publicar")
-    assert anchor, "falta el CTA interno del paso 5 (tool=publicar)"
+    anchor = _anchor_with(html, "catalog_action=publish")
+    assert anchor, "falta el CTA interno del paso 5 (Catálogo, estado de alta)"
     assert 'target="_parent"' in anchor
     assert 'target="_blank"' not in anchor
-    assert "tool=assessment" not in anchor        # §4: NO debe apuntar al assessment
-    assert re.search(r'href="/modules/[^"]+\?pack=datasphere_core&(amp;)?tool=publicar"', anchor)
+    assert "tool=assessment" not in anchor        # NO debe apuntar al assessment
+    assert "tool=publicar" not in anchor          # ni a una pestaña/herramienta "Publicar" aparte
+    assert re.search(r'href="/modules/[^"]+\?pack=datasphere_core&(amp;)?tab=catalogo&(amp;)?catalog_action=publish"', anchor)
 
 
 def test_external_guide_links_keep_new_tab(owner):
@@ -164,4 +165,4 @@ def test_internal_cta_url_is_absent_in_raw_yaml():
     for slug in ("como-assessment-modelado", "como-publicar-dominios"):
         raw = (guides / f"{slug}.yaml").read_text(encoding="utf-8")
         assert "ondigitalocean" not in raw, slug
-        assert re.search(r"\btool:\s*(assessment|publicar)\b", raw), slug
+        assert re.search(r"\btool:\s*(assessment|catalogo)\b", raw), slug

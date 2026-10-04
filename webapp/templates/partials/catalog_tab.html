@@ -40,16 +40,32 @@
 </div>
 <p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-seguridad?pack={{ pack }}"><strong>¿Falta un Objeto?</strong> Cómo podés publicarlo →</a></p>
 {% else %}
-{# Entrypoint "+" (alta del Catálogo): SEGUNDA puerta a la herramienta "Publicar modelo" — la misma a la que llega el paso 5 de la
-   guía (?tool=publicar). Solo para el dueño (`pub.can_execute`); si no, no se muestra. Es un atajo in-app (misma pestaña): cambia a la
-   pestaña "Publicar" del grupo decisión. Nota: esta es la puerta "dentro de un Catálogo ya existente"; la guía y el deep-link funcionan
-   también con el Catálogo vacío. #}
+{# El Catálogo tiene DOS estados de presentación en la MISMA pestaña ("Herramientas de decisión → Catálogo"), controlados por
+   `catalogView` (estado de `copilotLayout`, app.js): "browse" (explorar dominios / Data Products) y "publish" (alta: formulario
+   embebido de publicación Datasphere). Un solo estado de publicación, DOS puertas: el "+" de este encabezado y el paso 5 de la guía
+   (`?tab=catalogo&catalog_action=publish`). El navegador solo pide MOSTRAR el formulario; la publicación la decide el servidor (ruta
+   propia con `mode="publish"` forzado, solo dueño). Sin pestaña "Publicar" aparte. #}
 {% set pub = dsp_pub_tool(request, document.summary.stem) if (document is defined and document) else {"can_execute": False} %}
 <div x-data="{ catalogKind: '' }">
+  {% if pub.can_execute %}
+  <div x-show="catalogView === 'publish'" x-cloak id="catalog-publish-state">
+    <div class="tree-picker catalog-picker--kind">
+      <div class="catalog-kind-head">
+        <label>Catálogo de datos</label>
+      </div>
+    </div>
+    <p class="tool-suggest__link"><a href="#" @click.prevent="catalogView = 'browse'">← Volver al catálogo</a></p>
+    {% include "partials/datasphere_publication_tool.html" %}
+  </div>
+  {% endif %}
+  <div x-show="catalogView !== 'publish'" x-cloak>
   <div class="tree-picker catalog-picker--kind">
     <div class="catalog-kind-head">
       <label for="catalog-kind">Catálogo de datos</label>
-      {% if pub.can_execute %}<button type="button" class="catalog-add-btn" @click="toolTab='publicar'" title="Publicar un modelo al catálogo" aria-label="Publicar un modelo al catálogo">+</button>{% endif %}
+      {% if pub.can_execute %}<button type="button" class="table-action-btn chart-tooltip-anchor" @click="catalogView = 'publish'" aria-label="Publicar en el catálogo">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        <span class="chart-tooltip" aria-hidden="true"><p>Publicar en el catálogo</p></span>
+      </button>{% endif %}
     </div>
     <div class="tree-picker-row">
       <select id="catalog-kind" x-model="catalogKind">
@@ -135,5 +151,6 @@
   <p class="tool-suggest__link" x-show="catalogKind === 'domains'" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Dominio?</strong> Cómo podés publicarlo →</a></p>
   <p class="tool-suggest__link" x-show="catalogKind === 'data_products'" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Data Product?</strong> Cómo podés publicarlo →</a></p>
   {% endif %}
+  </div>
 </div>
 {% endif %}
