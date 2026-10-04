@@ -162,7 +162,6 @@
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Preguntas que solo el proyecto puede responder</span><span class="dashboard-section__count">{{ s.context_open_total }}</span></summary>
     <div class="dashboard-section__body">
       <p>{{ s.context_summary }}</p>
-      <p>Estas preguntas representan información que el análisis no puede obtener automáticamente del modelo. Algunas surgen de hallazgos concretos y otras corresponden al contexto general del proyecto.</p>
       <table data-block="open-questions">
         <thead><tr><th>Pregunta</th><th>Vinculada a</th><th>Hallazgo</th><th>Ocurrencias</th></tr></thead>
         <tbody>
@@ -171,6 +170,7 @@
       </table>
     </div>
   </details>
+  {% call callout("punch", "Para qué sirven estas preguntas", icon="💡") %}<p>Estas preguntas no son conclusiones sobre la calidad del modelo. Identifican información que el proyecto debe aportar para que nuestros consultores puedan cerrar o interpretar correctamente los hallazgos del assessment.</p>{% endcall %}
   {% endif %}
 </section>
 

@@ -95,7 +95,7 @@ def test_the_compact_summary_uses_the_canonical_counts_not_the_template(rows):
 
 def _render_block(rows):
     summary = {**rows}
-    tpl = templates.env.from_string('{% set s = summary %}' + _extract_block_source())
+    tpl = templates.env.from_string('{% from "partials/assessment_report_macros.html" import callout %}{% set s = summary %}' + _extract_block_source())
     return tpl.render(summary=summary)
 
 
@@ -135,13 +135,23 @@ def test_the_existing_report_container_is_reused_with_no_new_css(doc):
     assert not re.search(r"asr-pregunt|open-questions|asr-oq", css)                                   # sin CSS propio para esta sección
 
 
-def test_the_block_explains_the_relationship_in_one_sentence(doc):
+def test_the_canonical_punch_callout_closes_the_questions_container_exactly_once(doc):
     ctx = doc["summary"]["context_required"]
     if not ctx["open_questions"]:
         pytest.skip("el fixture no abre preguntas")
-    block = _block(_html(_view(doc)))
-    assert "Estas preguntas representan información que el análisis no puede obtener automáticamente del modelo." in block
-    assert "Algunas surgen de hallazgos concretos y otras corresponden al contexto general del proyecto." in block
+    html = _html(_view(doc))
+    start = html.index('id="asr-preguntas"')
+    container_end = html.index("</details>", start) + len("</details>")
+    inside, after = html[start:container_end], html[container_end:]
+    assert "callout" not in inside                                                                    # el punch NO va dentro del contenedor
+    punch = '<aside class="callout callout--punch">'
+    assert html.count(punch + '<div class="callout__head"><span class="callout__icon">💡</span><strong class="callout__title">Para qué sirven estas preguntas</strong>') == 1
+    assert after.lstrip().startswith(punch) and after.index(punch) < after.index('id="asr-m-architecture_modeling"')   # justo después del contenedor y antes de la sección siguiente
+    assert ("Estas preguntas no son conclusiones sobre la calidad del modelo. Identifican información que el proyecto debe aportar para que nuestros "
+            "consultores puedan cerrar o interpretar correctamente los hallazgos del assessment.") in after
+    assert "Estas preguntas representan información que el análisis no puede obtener" not in html      # la frase previa ya no se duplica arriba de la tabla
+    assert not re.search(r"revisión humana|validación humana|intervención humana", html, re.I)
+    assert all(c in ("callout", "callout--punch") or c.startswith("callout__") for c in re.findall(r'class="(callout[^"]*)"', after.split("</aside>")[0]) for c in c.split())   # primitivo canónico, sin variantes
 
 
 def test_the_visible_block_keeps_the_vocabulary_guard(doc):
