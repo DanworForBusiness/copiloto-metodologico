@@ -40,9 +40,17 @@
 </div>
 <p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-seguridad?pack={{ pack }}"><strong>¿Falta un Objeto?</strong> Cómo podés publicarlo →</a></p>
 {% else %}
+{# Entrypoint "+" (alta del Catálogo): SEGUNDA puerta a la herramienta "Publicar modelo" — la misma a la que llega el paso 5 de la
+   guía (?tool=publicar). Solo para el dueño (`pub.can_execute`); si no, no se muestra. Es un atajo in-app (misma pestaña): cambia a la
+   pestaña "Publicar" del grupo decisión. Nota: esta es la puerta "dentro de un Catálogo ya existente"; la guía y el deep-link funcionan
+   también con el Catálogo vacío. #}
+{% set pub = dsp_pub_tool(request, document.summary.stem) if (document is defined and document) else {"can_execute": False} %}
 <div x-data="{ catalogKind: '' }">
   <div class="tree-picker catalog-picker--kind">
-    <label for="catalog-kind">Catálogo de datos</label>
+    <div class="catalog-kind-head">
+      <label for="catalog-kind">Catálogo de datos</label>
+      {% if pub.can_execute %}<button type="button" class="catalog-add-btn" @click="toolTab='publicar'" title="Publicar un modelo al catálogo" aria-label="Publicar un modelo al catálogo">+</button>{% endif %}
+    </div>
     <div class="tree-picker-row">
       <select id="catalog-kind" x-model="catalogKind">
         <option value="">Elegí un catálogo...</option>

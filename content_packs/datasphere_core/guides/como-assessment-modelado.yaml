@@ -1,0 +1,96 @@
+# How-to "Cómo realizar un assessment metodologico de modelado" — contenido del pack (el copiloto solo LEE).
+#
+# Se renderiza como slides estilo Danwor Academy. Vive acá, NO en el código, por la
+# misma filosofía que el resto del contenido (módulos .md, novedades .yaml, academy
+# .html): editable sin tocar el webapp ni reiniciar, pack-scoped y escalable a N
+# how-tos (cada uno es un guides/<slug>.yaml nuevo). Ver webapp/services/guides_service.py.
+#
+# Schema:
+#   eyebrow:    texto del ojillo (mono, dorado) del landing.           [opcional]
+#   title:      título del landing.                                    [requerido]
+#   accent:     parte del título resaltada en dorado (va como <em>).   [opcional]
+#   lead:       bajada del landing; el token {n} = cantidad de pasos.  [opcional]
+#   assets_dir: subcarpeta de assets/ donde viven las capturas.        [opcional; default: guias/<slug>]
+#   steps:                                                             [requerido]
+#     - title:    título del paso.                                     [requerido]
+#       body:     descripción del paso (subtítulo).                    [opcional]
+#       code:     bloque de comando/terminal (CLI/PowerShell). Usá      [opcional]
+#                 YAML literal `code: |` para preservar los saltos de
+#                 línea; se renderiza monospace. NO es <em> (dorado).
+#                 Código INLINE en prosa/sub-pasos: usá backticks `…` — escapan
+#                 solos < > \ | y variables tipo <campo_id> (o <code>…</code>).
+#       substeps: checklist numerada (secuencia dentro del paso).      [opcional]
+#       link:     CTA del paso. [opcional] Dos variantes:
+#                 EXTERNO  → `link: "https://…"` o `link: {url, label}` (pestaña nueva).
+#                 INTERNO  → `link: {tool: "<id>", label, module?}` : navegación in-app
+#                            (MISMA pestaña). El YAML declara la herramienta; la ruta
+#                            resuelve /modules/<module|back_module>?pack=…&tool=<id>.
+#       action:   acción ejecutable como botón. Hoy: "regenerate"       [opcional]
+#                 (regenera el catálogo con tu propio acceso a SharePoint).
+#       note:     bloque de cierre (separador + texto + botón). Campos:   [opcional]
+#                 text, label, y template (archivo del pack en assets_dir,
+#                 servido por /pack-assets — NO lo escanea el generador) o url.
+#       shots:                                                         [opcional]
+#         - img:     nombre del archivo dentro de assets_dir.
+#           caption: epígrafe de la captura.                           [opcional]
+
+eyebrow: "METODOLOGIA DANWOR · AUTOMATIZACION"
+title: "Cómo realizar un"
+accent: "Assessment metodológico"
+lead: >-
+  En {n} pasos, conectamos cualquier modelo de SAP Datasphere y obtenemos, en minutos, un assessment metodológico explicable: 
+  reconstruye linaje y evidencia, identifica desvíos y puntos de revisión, mide cobertura y confianza, y muestra exactamente qué pudo evaluarse, qué no y por qué.
+assets_dir: guia-catalogo/Assessment
+back_module: "04"   # módulo al que vuelve el "← Volver"
+back_tool: assessment   # "← Volver" abre la herramienta Assessment (?tool=assessment): diagnóstico expandido, Assessment seleccionado
+
+# En `title` podés resaltar parte en dorado con <em>…</em> (lo pinta dw-academy:
+# .topic-title em). `short` es la etiqueta corta de la botonera del landing (si falta,
+# usa el título sin tags).
+steps:
+  - title: "Agregá el cliente <em>OAuth</em>"
+    short: "Agregá OAuth"
+    body: >-
+      Para esta automatización, el copiloto necesita acceso remoto al Tenant. Agregá un cliente OAuth siguiendo los siguientes pasos:
+    substeps:
+      - "Ingresá a Datasphere"
+      - "Navegá a (i) System → Administration"
+      - "Abrí «App Integration»"
+      - "Hacé click en «add new OAuth»."
+    shots:
+      - img: "01-AddOAuth.png"
+        caption: "(i) System → Administration → App Integration → add new OAuth"
+
+  - title: "Configurá el <em>Technical User</em>"
+    short: "Technical User"
+    body: >-
+      Indicá el nombre para tu cliente, seleccioná «Technical User» y otorgale al menos rol de alcance de modelador. Cuando estés listo, hacé click en «Guardar». 
+    shots:
+      - img: "02-TechUser.png"
+        caption: "De acuerdo con nuestra metodologia, SRC_DWC_Modeler es el rol de alcance con privilegios de Modelador."
+
+  - title: "Guardá tus <em>Credenciales</em>"
+    short: "Credenciales"
+    body: >-
+      Esta es tu única oportunidad de guardar el <em>Secret</em>, si no lo hacés ahora, deberás generar un nuevo cliente OAuth. Copiálo junto con el Client ID en un lugar seguro.
+    shots:
+      - img: "03-Details.png"
+        caption: "Guardá el Client ID y Secret en un lugar seguro."
+
+  - title: "Tomá nota de los <em>URL Tokens</em>"
+    short: "URL Tokens"
+    body: >-
+      La autorización OAuth y servicios de token del tenant se apoyan en los URL de host y token. Anotálos para el próximo paso.
+    shots:
+      - img: "04-URLs.png"
+
+  - title: "Todo <em>Listo!</em>🚀"
+    short: "Listo"
+    body: >-
+      Ahora sólo tenés que abrir las herramientas de dignóstico, pegar tus credenciales y URL tokens, y ejecutar el assessment. 
+      En minutos tendrás un informe completo con linaje reconstruido, evidencia de calidad.
+    link:
+      tool: assessment          # navegación IN-APP (misma pestaña): la ruta resuelve
+      label: "Abrir assessment de modelado"   # /modules/<04>?pack=…&tool=assessment
+    shots:
+      - img: "05-Run.png"

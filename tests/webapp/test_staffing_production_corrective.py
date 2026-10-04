@@ -788,7 +788,9 @@ def test_15_route_surface_still_156():
     #     assessment de modelado en el Catálogo (GET/POST /catalog/flow/assessment,
     #     GET .../assessment.json y .../assessment.md) -- CERO rutas de Staffing tocadas,
     #     este gate sigue sin cambios propios.
-    assert len(snapshot) == 188   # +2 (Datasphere UI: POST run, refresh-catalog) +5 (ad-hoc: GET result, export.json, export.md, log, POST delete)
+    #   188 -> 189 (Catalog Publication front): +1 ruta `POST /modules/{stem}/datasphere-publication/run`
+    #     (herramienta "Publicar modelo", alta gobernada del Catálogo) -- CERO rutas de Staffing tocadas.
+    assert len(snapshot) == 189   # +2 (Datasphere UI: POST run, refresh-catalog) +5 (ad-hoc: GET result, export.json, export.md, log, POST delete) +1 (Datasphere publicación: POST .../datasphere-publication/run)
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

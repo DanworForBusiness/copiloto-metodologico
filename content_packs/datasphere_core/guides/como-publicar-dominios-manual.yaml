@@ -1,0 +1,104 @@
+# How-to "Cómo publicar un catálogo" — contenido del pack (el copiloto solo LEE).
+#
+# Se renderiza como slides estilo Danwor Academy. Vive acá, NO en el código, por la
+# misma filosofía que el resto del contenido (módulos .md, novedades .yaml, academy
+# .html): editable sin tocar el webapp ni reiniciar, pack-scoped y escalable a N
+# how-tos (cada uno es un guides/<slug>.yaml nuevo). Ver webapp/services/guides_service.py.
+#
+# Schema:
+#   eyebrow:    texto del ojillo (mono, dorado) del landing.           [opcional]
+#   title:      título del landing.                                    [requerido]
+#   accent:     parte del título resaltada en dorado (va como <em>).   [opcional]
+#   lead:       bajada del landing; el token {n} = cantidad de pasos.  [opcional]
+#   assets_dir: subcarpeta de assets/ donde viven las capturas.        [opcional; default: guias/<slug>]
+#   steps:                                                             [requerido]
+#     - title:    título del paso.                                     [requerido]
+#       body:     descripción del paso (subtítulo).                    [opcional]
+#       code:     bloque de comando/terminal (CLI/PowerShell). Usá      [opcional]
+#                 YAML literal `code: |` para preservar los saltos de
+#                 línea; se renderiza monospace. NO es <em> (dorado).
+#                 Código INLINE en prosa/sub-pasos: usá backticks `…` — escapan
+#                 solos < > \ | y variables tipo <campo_id> (o <code>…</code>).
+#       substeps: checklist numerada (secuencia dentro del paso).      [opcional]
+#       link:     CTA a un recurso externo. `link: "https://…"` o      [opcional]
+#                 `link: {url: "https://…", label: "Abrir…"}`. Abre en pestaña nueva.
+#       action:   acción ejecutable como botón. Hoy: "regenerate"       [opcional]
+#                 (regenera el catálogo con tu propio acceso a SharePoint).
+#       note:     bloque de cierre (separador + texto + botón). Campos:   [opcional]
+#                 text, label, y template (archivo del pack en assets_dir,
+#                 servido por /pack-assets — NO lo escanea el generador) o url.
+#       shots:                                                         [opcional]
+#         - img:     nombre del archivo dentro de assets_dir.
+#           caption: epígrafe de la captura.                           [opcional]
+
+eyebrow: "DOMINIOS DANWOR · SELF-SERVICE"
+title: "Cómo publicar"
+accent: "un catálogo"
+lead: >-
+  En {n} pasos, convertimos metadata Datasphere en activo técnico interno que nutre
+  nuestro catálogo de dominios Danwor. Dejás los archivos en SharePoint y el copiloto
+  genera todo automáticamente: diagrama interactivo de linaje, catálogo técnico,
+  gobierno y semáforos de cumplimiento.
+assets_dir: guia-catalogo/Dominios
+back_module: "04"   # módulo al que vuelve el "← Volver" (catálogo de dominios)
+
+# En `title` podés resaltar parte en dorado con <em>…</em> (lo pinta dw-academy:
+# .topic-title em). `short` es la etiqueta corta de la botonera del landing (si falta,
+# usa el título sin tags).
+steps:
+  - title: "Exportá el <em>linaje</em>"
+    short: "Exportá"
+    body: >-
+      El catálogo de Dominios se arma con el Core Schema Notation (CSN/JSON) de todos los artefactos del flujo. Ingresá a Datasphere → Data Builder y seguí los siguientes pasos:
+    substeps:
+      - "Abrí la última capa: el modelo analítico o la vista de consumo."
+      - "Exportála vía Tools → «Export to CSN/JSON File»."
+      - "Abrí «Impact and Lineage Analysis» para ver el linaje del objeto."
+      - "Posicionate en la capa anterior y «abrir en pantalla nueva»."
+      - "Repetí desde el paso 2 en cada artefacto, hasta cubrirlos todos."
+    note:
+      text: >-
+        Las Vistas CDS de extracción (API Corporativas) no generan CSN: en su lugar,
+        documentá su código fuente en un markdown usando este template.
+      template: "template-api-cds.md"
+      label: "Template Markdown (.md)"
+    shots:
+      - img: "01a-exportar.png"
+        caption: "Tools → Export to CSN/JSON File"
+      - img: "01b-linaje.png"
+        caption: "Recorré el linaje del modelo hacia atrás y repetí la exportación en cada artefacto"
+
+  - title: "Reconciliá los <em>archivos</em> con los artefactos"
+    short: "Archivos"
+    body: >-
+      Verificá que hayas descargado tantos archivos CSN (.json) como artefactos del flujo, y que estén completos. En este ejemplo, se generaron 20 archivos para 20 artefactos (modelos, vistas, tablas, etc.).
+    shots:
+      - img: "02-archivos.png"
+
+  - title: "Subilos a <em>SharePoint</em>"
+    short: "SharePoint"
+    body: >-
+      Utilizando el link debajo, accedé a nuestro sitio de Práctica, y agregá los archivos a la carpeta del cliente. Si no hubiera contenido para tu cliente, aseguráte de crear la carpeta. APIs corporativas (extractores, vistas CDS) no deben agruparse contra clientes, sino en la carpeta <em>/APIs</em>.
+    link:
+      url: "https://danwor.sharepoint.com/:f:/s/PrcticaAnalytics/IgDMABujBXLDSIAVxSj6GI9LAdb4FvQjQckGYhQvuc-tIIg?e=rhoxaG"
+      label: "Abrir la carpeta CSN en SharePoint"
+    shots:
+      - img: "03-sharepoint.png"
+
+  - title: "Regenerá el <em>catálogo</em>"
+    short: "Regenerá"
+    body: >-
+      Con los archivos ya en SharePoint, regenerá el catálogo desde las herramientas de gestión. Si no tenés acceso, podés hacerlo con el botón aquí debajo. El copiloto leerá 
+      SharePoint con tu propio acceso, descargará solo lo que cambió y generará el contenido
+      automáticamente.
+    action: regenerate
+    shots:
+      - img: "04-regenerar.png"
+
+  - title: "Todo <em>Listo!</em>🚀"
+    short: "Listo"
+    body: >-
+      Si todo salió bien, deberías ver el nuevo dominio en la tab "Catálogo" del módulo, con diagrama de linaje, campos
+      y semáforo de cumplimiento — navegable como cualquier contenido.
+    shots:
+      - img: "05-resultado.png"

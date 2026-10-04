@@ -14,6 +14,10 @@
     <p>Esta herramienta ejecuta una extracción real contra SAP Datasphere y solo puede ejecutarla el dueño de la aplicación.</p>
   </div>
 {% else %}
+  {# How-to contextual ANTES del separador del form: reusa EXACTO el primitivo del
+     Catálogo (`.tool-suggest__link` + `/catalog/guide/<slug>`) — cero CSS propio.
+     Abre la guía `como-assessment-modelado` por el mecanismo de guías existente. #}
+  <p class="tool-suggest__link"><a href="/catalog/guide/como-assessment-modelado?pack={{ pack }}"><strong>¿Querés saber cómo funciona?</strong> Click aca →</a></p>
   <form id="dsa-form" data-dsa-form method="post" action="/modules/{{ dsa.stem }}/datasphere-assessment/run" autocomplete="off">
     <input type="hidden" name="pack" value="{{ pack }}">
     {% macro field(name, label, kind="text", placeholder="", first=False, field_name="", value="") %}

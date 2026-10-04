@@ -35,70 +35,58 @@ eyebrow: "DOMINIOS DANWOR · SELF-SERVICE"
 title: "Cómo publicar"
 accent: "un catálogo"
 lead: >-
-  En {n} pasos, convertimos metadata Datasphere en activo técnico interno que nutre
-  nuestro catálogo de dominios Danwor. Dejás los archivos en SharePoint y el copiloto
-  genera todo automáticamente: diagrama interactivo de linaje, catálogo técnico,
-  gobierno y semáforos de cumplimiento.
-assets_dir: guia-catalogo/Dominios
+  En {n} pasos, convertimos metadata Datasphere en activo técnico interno que nutre nuestro catálogo de dominios Danwor. En minutos, obtenemos un assessment metodológico explicable: 
+  reconstruye linaje y evidencia, identifica desvíos y puntos de revisión, mide cobertura y confianza, y muestra exactamente qué pudo evaluarse, qué no y por qué.  
+assets_dir: guia-catalogo/Assessment
 back_module: "04"   # módulo al que vuelve el "← Volver" (catálogo de dominios)
 
 # En `title` podés resaltar parte en dorado con <em>…</em> (lo pinta dw-academy:
 # .topic-title em). `short` es la etiqueta corta de la botonera del landing (si falta,
 # usa el título sin tags).
 steps:
-  - title: "Exportá el <em>linaje</em>"
-    short: "Exportá"
+  - title: "Agregá el cliente <em>OAuth</em>"
+    short: "Agregá OAuth"
     body: >-
-      El catálogo de Dominios se arma con el Core Schema Notation (CSN/JSON) de todos los artefactos del flujo. Ingresá a Datasphere → Data Builder y seguí los siguientes pasos:
+      Para esta automatización, el copiloto necesita acceso remoto al Tenant. Agregá un cliente OAuth siguiendo los siguientes pasos:
     substeps:
-      - "Abrí la última capa: el modelo analítico o la vista de consumo."
-      - "Exportála vía Tools → «Export to CSN/JSON File»."
-      - "Abrí «Impact and Lineage Analysis» para ver el linaje del objeto."
-      - "Posicionate en la capa anterior y «abrir en pantalla nueva»."
-      - "Repetí desde el paso 2 en cada artefacto, hasta cubrirlos todos."
-    note:
-      text: >-
-        Las Vistas CDS de extracción (API Corporativas) no generan CSN: en su lugar,
-        documentá su código fuente en un markdown usando este template.
-      template: "template-api-cds.md"
-      label: "Template Markdown (.md)"
+      - "Ingresá a Datasphere"
+      - "Navegá a (i) System → Administration"
+      - "Abrí «App Integration»"
+      - "Hacé click en «add new OAuth»."
     shots:
-      - img: "01a-exportar.png"
-        caption: "Tools → Export to CSN/JSON File"
-      - img: "01b-linaje.png"
-        caption: "Recorré el linaje del modelo hacia atrás y repetí la exportación en cada artefacto"
+      - img: "01-AddOAuth.png"
+        caption: "(i) System → Administration → App Integration → add new OAuth"
 
-  - title: "Reconciliá los <em>archivos</em> con los artefactos"
-    short: "Archivos"
+  - title: "Configurá el <em>Technical User</em>"
+    short: "Technical User"
     body: >-
-      Verificá que hayas descargado tantos archivos CSN (.json) como artefactos del flujo, y que estén completos. En este ejemplo, se generaron 20 archivos para 20 artefactos (modelos, vistas, tablas, etc.).
+      Indicá el nombre para tu cliente, seleccioná «Technical User» y otorgale al menos rol de alcance de modelador. Cuando estés listo, hacé click en «Guardar». 
     shots:
-      - img: "02-archivos.png"
+      - img: "02-TechUser.png"
+        caption: "De acuerdo con nuestra metodologia, SRC_DWC_Modeler es el rol de alcance con privilegios de Modelador."
 
-  - title: "Subilos a <em>SharePoint</em>"
-    short: "SharePoint"
+  - title: "Guardá tus <em>Credenciales</em>"
+    short: "Credenciales"
     body: >-
-      Utilizando el link debajo, accedé a nuestro sitio de Práctica, y agregá los archivos a la carpeta del cliente. Si no hubiera contenido para tu cliente, aseguráte de crear la carpeta. APIs corporativas (extractores, vistas CDS) no deben agruparse contra clientes, sino en la carpeta <em>/APIs</em>.
+      Esta es tu única oportunidad de guardar el <em>Secret</em>, si no lo hacés ahora, deberás generar un nuevo cliente OAuth. Copiálo junto con el Client ID en un lugar seguro.
+    shots:
+      - img: "03-Details.png"
+        caption: "Guardá el Client ID y Secret en un lugar seguro."
+
+  - title: "Tomá nota de los <em>URL Tokens</em>"
+    short: "URL Tokens"
+    body: >-
+      La autorización OAuth y servicios de token del tenant se apoyan en los URL de host y token. Anotálos para el próximo paso.
+    shots:
+      - img: "04-URLs.png"
+
+  - title: "Cargá tu <em>Dominio!</em>🚀"
+    short: "Cargá dominio"
+    body: >-
+      Ahora sólo tenés que abrir las herramientas de decisión, pegar tus credenciales y URL tokens, y ejecutar el proceso. 
+      En minutos habrás incorporado todo el modelo al copiloto, con un informe completo de linaje reconstruido.
     link:
-      url: "https://danwor.sharepoint.com/:f:/s/PrcticaAnalytics/IgDMABujBXLDSIAVxSj6GI9LAdb4FvQjQckGYhQvuc-tIIg?e=rhoxaG"
-      label: "Abrir la carpeta CSN en SharePoint"
+      tool: publicar            # navegación IN-APP (misma pestaña): la ruta resuelve
+      label: "Abrir alta de dominio"   # /modules/<04>?pack=…&tool=publicar (herramienta "Publicar modelo")
     shots:
-      - img: "03-sharepoint.png"
-
-  - title: "Regenerá el <em>catálogo</em>"
-    short: "Regenerá"
-    body: >-
-      Con los archivos ya en SharePoint, regenerá el catálogo desde las herramientas de gestión. Si no tenés acceso, podés hacerlo con el botón aquí debajo. El copiloto leerá 
-      SharePoint con tu propio acceso, descargará solo lo que cambió y generará el contenido
-      automáticamente.
-    action: regenerate
-    shots:
-      - img: "04-regenerar.png"
-
-  - title: "Todo <em>Listo!</em>🚀"
-    short: "Listo"
-    body: >-
-      Si todo salió bien, deberías ver el nuevo dominio en la tab "Catálogo" del módulo, con diagrama de linaje, campos
-      y semáforo de cumplimiento — navegable como cualquier contenido.
-    shots:
-      - img: "05-resultado.png"
+      - img: "05-Run.png"

@@ -1,6 +1,6 @@
 // Grupos de herramientas del panel derecho: decisión (`panelOpen`), diagnóstico (`diagnosticOpen`) y gestión (`gestionOpen`). Un `?tool=` válido
 // (p. ej. link de Novedades) es AUTORITATIVO: abre SOLO el grupo de esa herramienta y colapsa los demás (no se apila sobre el default).
-const TOOL_GROUP = { assessment: "diagnostic" };
+const TOOL_GROUP = { assessment: "diagnostic", publicar: "decision" };
 function copilotLayout(activeGroup = "core", readonly = false, initialTab = "", initialTool = "") {
   const toolGroup = TOOL_GROUP[initialTool] || "";
   // Retrocompat: antes recibía un booleano isAppendix.
@@ -16,7 +16,10 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "", 
     // reemplaza por un aviso, ver assistant_chat).
     // `initialTab` permite que una URL (p. ej. un link de Novedades → ?tab=catalogo)
     // posicione el panel derecho en una pestaña puntual; si no viene, el default.
-    toolTab: initialTab || (readonly ? "assistant" : "section"),
+    // Una herramienta del grupo "decisión" (p. ej. ?tool=publicar) se muestra como pestaña
+    // de ESE grupo: su id ES el nombre de la pestaña (`toolTab`), así el deep-link abre el
+    // formulario directo sin depender de que ya exista contenido en el Catálogo.
+    toolTab: initialTab || (toolGroup === "decision" && initialTool ? initialTool : (readonly ? "assistant" : "section")),
     activeSection: "",
     // Hub Transversal Module Section Navigation (ver HANDOFF): visibilidad
     // del nav anidado persistente (`.module-subnav`) -- SOLO relevante en

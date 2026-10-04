@@ -106,11 +106,18 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             initial_tab = ""
     elif initial_tab == "section" and access.is_readonly(request):
         initial_tab = ""
-    # Herramienta inicial del panel "Herramientas de diagnóstico" vía URL (?tool=assessment): abre el panel ya posicionado en esa herramienta
-    # (mismo espíritu que ?tab=). Lista blanca; solo aplica a módulos que la ofrecen. NO salta ninguna regla de acceso (el formulario sigue
-    # mostrando "Acceso restringido" a quien no es dueño).
+    # Herramienta inicial del panel derecho vía URL: abre el panel ya posicionado en esa herramienta (mismo espíritu que ?tab=). Lista
+    # blanca; solo aplica a módulos que la ofrecen. NO salta ninguna regla de acceso (el formulario sigue mostrando "Acceso restringido"
+    # a quien no es dueño). `assessment` → grupo "diagnóstico"; `publicar` → grupo "decisión" (alta del Catálogo, ver app.js TOOL_GROUP).
     from webapp.services import datasphere_assessment_service as _dsa
-    initial_tool = "assessment" if (tool or "").strip().lower() == "assessment" and _dsa.tool_enabled(document.summary.stem) else ""
+    from webapp.services import datasphere_publication_service as _dsp_pub
+    _tool = (tool or "").strip().lower()
+    if _tool == "assessment" and _dsa.tool_enabled(document.summary.stem):
+        initial_tool = "assessment"
+    elif _tool == "publicar" and _dsp_pub.tool_enabled(document.summary.stem):
+        initial_tool = "publicar"
+    else:
+        initial_tool = ""
     # `module_viewed` (nombre canónico transversal — ver activity_context /
     # ACTIVITY corrective): reemplaza al histórico `module_selected`, mismo
     # disparador (una vista de módulo). MODULE IDENTIFIER CONVENTION V2 —

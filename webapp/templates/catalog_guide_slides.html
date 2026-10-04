@@ -75,8 +75,9 @@
   .shot-empty span{font-family:var(--mono); font-size:.72rem;}
   .shot-empty code{font-family:var(--mono); font-size:.68rem; color:var(--ink-soft);}
 
-  /* CTA opcional del paso (link a recurso externo, p. ej. la carpeta SharePoint).
-     Abre en pestaña nueva; pill dorado sobrio, coherente con el resto. */
+  /* CTA opcional del paso. Pill dorado sobrio, coherente con el resto. Dos usos con
+     el MISMO estilo: externo (recurso http/s, p. ej. SharePoint → pestaña nueva) e
+     interno (navegación in-app a una herramienta → misma pestaña, vía target=_parent). */
   .guide-link{display:inline-flex; align-items:center; gap:.4rem; margin-top:1.4rem;
     padding:.6rem 1rem; border:1px solid var(--line-2); border-radius:10px;
     font:600 .82rem var(--sans); color:var(--gold); text-decoration:none;
@@ -169,7 +170,15 @@
           <ol class="substeps reveal reveal-d1">{% for ss in s.substeps %}<li>{{ ss|safe }}</li>{% endfor %}</ol>
           {% endif %}
           {% if s.link %}
+          {% if s.link.internal %}
+          {# CTA INTERNO (navegación in-app): misma pestaña. Reemplaza la página del
+             copiloto (navega el frame padre, igual que el "← Volver"). Flecha → (no ↗)
+             y SIN target="_blank": no es un recurso externo. #}
+          <a class="guide-link reveal reveal-d1" href="{{ s.link.url }}" target="_parent">{{ s.link.label }} <span aria-hidden="true">→</span></a>
+          {% else %}
+          {# CTA EXTERNO (recurso http/s, p. ej. SharePoint): pestaña nueva (se conserva). #}
           <a class="guide-link reveal reveal-d1" href="{{ s.link.url }}" target="_blank" rel="noopener noreferrer">{{ s.link.label }} <span aria-hidden="true">↗</span></a>
+          {% endif %}
           {% endif %}
           {% if s.action == "regenerate" %}
           <div class="guide-action reveal reveal-d1">

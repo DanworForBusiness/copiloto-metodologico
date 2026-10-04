@@ -1,0 +1,85 @@
+{# Herramienta "Publicar modelo": HERMANA visual del Assessment (mismos primitivos del Hub: `.tree-picker`, `.btn-primary`,
+   `.tool-empty`, `.feedback-error`, `.admin-tool`, `.admin-result-output`, `.dashboard-checkbox-*`, `.tool-suggest__link`), pero con
+   la acción de negocio OPUESTA: PUBLICA el modelo en el Catálogo gobernado. Vive en el grupo "Herramientas de decisión" (es un alta
+   del Catálogo), no en diagnóstico.
+   La ejecución NO usa HTMX ni el loader del asistente: `datasphere_publication.js` hace un fetch POST a su PROPIA ruta y pinta, con
+   textContent, las líneas que el extractor emite en tiempo real. Al terminar, abre la pestaña "Catálogo".
+   Contexto: pub = {enabled, can_execute, stem, form (campos NO sensibles de la sesión), feature_options}.
+   SECRETOS: el Client Secret es `type="password"`, viaja solo en el cuerpo del POST, se limpia del campo al enviar y NO se
+   renderiza de vuelta. Sin JS el form hace POST (nunca GET con el secreto en la URL). #}
+<div id="dsp-panel" class="dsa-panel">
+{% if not pub.can_execute %}
+  <div class="tool-empty">
+    <span>Acceso restringido</span>
+    <p>Esta herramienta publica un modelo real en el Catálogo gobernado y solo puede ejecutarla el dueño de la aplicación.</p>
+  </div>
+{% else %}
+  {# How-to contextual ANTES del separador del form: reusa EXACTO el primitivo del Catálogo (`.tool-suggest__link` +
+     `/catalog/guide/<slug>`) — cero CSS propio. Abre la guía `como-publicar-dominios` por el mecanismo de guías existente. #}
+  <p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Querés saber cómo funciona?</strong> Click aca →</a></p>
+  <form id="dsp-form" data-dsp-form method="post" action="/modules/{{ pub.stem }}/datasphere-publication/run" autocomplete="off">
+    <input type="hidden" name="pack" value="{{ pack }}">
+    {% macro field(name, label, kind="text", placeholder="", first=False, field_name="", value="") %}
+    <div{% if not first %} class="catalog-picker--secondary"{% endif %}>{# separación entre campos: margen estándar del picker secundario #}
+    <label class="tool-label" for="dsp-{{ name }}">{{ label }}</label>
+    <div class="tree-picker-row">
+      <input id="dsp-{{ name }}" name="{{ field_name or name }}" type="{{ kind }}" placeholder="{{ placeholder }}"{% if value and kind != "password" %} value="{{ value }}"{% endif %}
+             required autocomplete="off" autocapitalize="none" spellcheck="false">
+      <p class="feedback-error" data-dsp-error="{{ name }}" hidden></p>
+    </div>
+    </div>
+    {% endmacro %}
+    <div class="tree-picker catalog-picker--secondary">
+      <span class="admin-result-title">Conexión Datasphere</span>
+      {{ field("host", "URL del tenant", "url", "https://mi-tenant.eu10.hcs.cloud.sap", first=True, value=pub.form.get("host", "")) }}
+      {{ field("token_url", "Token URL (OAuth)", "url", "https://mi-tenant.authentication.eu10.hana.ondemand.com/oauth/token", value=pub.form.get("token_url", "")) }}
+      {{ field("client_id", "Client ID", "text", "sb-5d74c5f-XXXX", field_name="datasphere_client_id", value=pub.form.get("client_id", "")) }}
+      {{ field("client_secret", "Client Secret", "password", "5ff624c2-XXXX", field_name="datasphere_client_secret") }}
+    </div>
+    <div class="tree-picker catalog-picker--secondary">
+      <span class="admin-result-title">Alcance</span>
+      {{ field("space", "Space ID", "text", "PRODUCCION", first=True, value=pub.form.get("space", "")) }}
+      {{ field("root_object", "Artefacto / Objeto", "text", "AM_Compras", field_name="datasphere_root_object", value=pub.form.get("root_object", "")) }}
+      {# Alcance de evidencia: OPCIONAL y colapsado. Reusa el disclosure del Hub (`details.admin-tool`) y las casillas del Hub (`.dashboard-checkbox-*`).
+         Solo familias opcionales con sus identificadores canónicos; las estructurales (modelos, vistas, tablas) las pide siempre el servidor. #}
+      <details class="admin-tool catalog-picker--secondary" data-dsp-scope>
+        <summary class="admin-tool__summary">Alcance de evidencia</summary>
+        <div class="admin-tool__body">
+          <p class="admin-help">Seleccioná qué tipos de evidencia incluir en la extracción. Excluirlos puede reducir el tiempo de procesamiento, pero limita el alcance publicado.</p>
+          <input type="hidden" name="datasphere_features_submitted" value="1">
+          <div class="dashboard-checkbox-group">
+            {% for o in pub.feature_options %}
+            <label class="dashboard-checkbox-option"><input type="checkbox" name="datasphere_features" value="{{ o.value }}"{% if o.checked %} checked{% endif %}><span>{{ o.label }}</span></label>
+            {% endfor %}
+          </div>
+        </div>
+      </details>
+    </div>
+    {# último grupo SIN `.tree-picker`: no lleva la línea separadora previa al botón (los labels reusan `.tool-label`, mismo estilo) #}
+    <div class="catalog-picker--secondary">
+      <span class="admin-result-title">Destino</span>
+      {{ field("client", "Nombre de Cliente", "text", "Pampa", first=True, value=pub.form.get("client", "")) }}
+    </div>
+    <div class="admin-actions">
+      <button type="submit" class="btn-primary tool-primary" data-dsp-submit>Publicar modelo</button>
+    </div>
+  </form>
+
+  {# Panel local de avance: oculto hasta ejecutar. Todo el contenido dinámico entra con textContent (nunca innerHTML). #}
+  <div data-dsp-progress hidden>
+    {# Estado local: reusa el primitivo visual transversal del Hub de "procesando" (.section-analysis-loading + spinner + copy). SOLO el
+       visual: sin las clases de estado/indicador del asistente, por lo que su loader global no interviene. #}
+    <div class="section-analysis-loading" role="status">
+      <span class="section-analysis-spinner" data-dsp-spinner hidden></span><span class="section-analysis-loading-copy" data-dsp-status data-running-text="Publicando modelo..."></span>
+    </div>
+    <div class="feedback-error" role="alert" data-dsp-failed hidden>
+      <strong data-dsp-title></strong>
+      <span data-dsp-message></span>
+    </div>
+    <details class="admin-tool" data-dsp-detail open>
+      <summary class="admin-tool__summary">Detalle técnico</summary>
+      <div class="admin-tool__body"><pre class="admin-result-output" data-dsp-log></pre></div>
+    </details>
+  </div>
+{% endif %}
+</div>

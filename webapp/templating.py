@@ -64,3 +64,12 @@ def _dsa_tool(request, stem: str) -> dict:
 
 
 templates.env.globals["dsa_tool"] = _dsa_tool
+
+
+def _dsp_pub_tool(request, stem: str) -> dict:
+    """Contexto de la herramienta "Publicar modelo" para el grupo "Herramientas de decisión" (ver datasphere_publication_service)."""
+    from webapp.services import datasphere_publication_service as _pub
+    return _pub.tool_context(request, stem)
+
+
+templates.env.globals["dsp_pub_tool"] = _dsp_pub_tool

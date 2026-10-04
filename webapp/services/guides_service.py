@@ -45,17 +45,39 @@ def _safe_slug(slug: str) -> str:
     return s if _SLUG_RE.match(s) else ""
 
 
+_TOOL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
 def _link(raw) -> dict | None:
-    """CTA opcional de un paso. Acepta `link: "https://…"` o
-    `link: {url, label}`. Solo http(s) (se abre en pestaña nueva). None si no aplica."""
+    """CTA opcional de un paso. Dos variantes:
+
+    EXTERNO — `link: "https://…"` o `link: {url, label}`: recurso http(s); el
+    template lo abre en PESTAÑA NUEVA (SharePoint, docs, etc.). `internal: False`.
+
+    INTERNO — `link: {tool: "<id>", label, module: "04"}`: navegación IN-APP a una
+    herramienta del copiloto; el template navega la MISMA pestaña (target="_parent",
+    igual que el "← Volver"). El YAML NO expresa una ruta: declara un `tool` (slug
+    seguro) y, opcionalmente, el `module` destino (nº, p. ej. "04"); la RUTA resuelve
+    la URL real del módulo (`/modules/<stem>?...&tool=<id>`). Así el YAML no conoce
+    hostnames ni paths arbitrarios. `internal: True`, `url` se completa en la ruta.
+
+    None si no aplica."""
     if isinstance(raw, str):
         raw = {"url": raw}
     if not isinstance(raw, dict):
         return None
+    label = str(raw.get("label") or "").strip() or "Abrir enlace"
+    tool = str(raw.get("tool") or "").strip().lower()
+    if tool:
+        if not _TOOL_RE.match(tool):
+            return None
+        module = re.sub(r"[^0-9]", "", str(raw.get("module") or ""))[:2]
+        # `url` lo completa la ruta (necesita list_modules para resolver el stem).
+        return {"internal": True, "tool": tool, "module": module, "url": "", "label": label}
     url = str(raw.get("url") or "").strip()
     if not url.startswith(("http://", "https://")):
         return None
-    return {"url": url, "label": str(raw.get("label") or "").strip() or "Abrir enlace"}
+    return {"internal": False, "tool": "", "module": "", "url": url, "label": label}
 
 
 def load(pack: str, slug: str) -> dict | None:
@@ -147,6 +169,11 @@ def load(pack: str, slug: str) -> dict | None:
     # `back_module`: número de módulo (ej. "01", "04") al que vuelve el "← Volver".
     # Lo decide el CONTENIDO (cada guía sabe de qué catálogo salió), no la ruta.
     back_module = re.sub(r"[^0-9]", "", str(data.get("back_module") or ""))[:2]
+    # `back_tool` (opcional): herramienta a la que vuelve el "← Volver", usando el MISMO
+    # contrato canónico `?tool=<id>` del panel (abre ese grupo y colapsa los demás). Si no
+    # se declara, el "← Volver" cae al comportamiento histórico (pestaña Catálogo del módulo).
+    _bt = str(data.get("back_tool") or "").strip().lower()
+    back_tool = _bt if _TOOL_RE.match(_bt) else ""
     return {
         "eyebrow": str(data.get("eyebrow") or "").strip(),
         "title": str(data.get("title") or "").strip(),
@@ -154,4 +181,5 @@ def load(pack: str, slug: str) -> dict | None:
         "lead": lead,
         "steps": steps,
         "back_module": back_module,
+        "back_tool": back_tool,
     }

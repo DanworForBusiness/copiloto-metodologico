@@ -2301,6 +2301,12 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 
 /* "¿Falta un árbol/catálogo?" — cierre de la caja punteada del tab (form árbol / link catálogo). */
 .tool-suggest { margin-top: 14px; }
+/* Encabezado del catálogo de datos con el "+" de alta (Publicar modelo): la etiqueta y el botón en una fila. */
+.catalog-kind-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.catalog-add-btn { flex: none; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--gold); border-radius: 6px; background: transparent; color: var(--gold); font: 700 1rem/1 var(--sans);
+  cursor: pointer; padding: 0; transition: background .15s, color .15s; }
+.catalog-add-btn:hover { background: var(--gold); color: #0c0c0d; }
 .tool-suggest__link { margin: 14px 0 0; font-size: .78rem; }
 .tool-suggest__link a { color: var(--gold); font-weight: 400; }
 .tool-suggest__link a strong { font-weight: 700; }

@@ -60,6 +60,7 @@ from webapp.routers import commercial as commercial_router
 from webapp.routers import human_capital as human_capital_router
 from webapp.routers import catalog_assessment as catalog_assessment_router
 from webapp.routers import datasphere_assessment as datasphere_assessment_router
+from webapp.routers import datasphere_publication as datasphere_publication_router
 from webapp.services import assessment_presenter
 from webapp.services import assessment_service
 from webapp.routers import commercial_strategy as commercial_strategy_router
@@ -238,6 +239,7 @@ app.include_router(human_capital_router.router)
 app.include_router(commercial_strategy_router.router)
 app.include_router(catalog_assessment_router.router)
 app.include_router(datasphere_assessment_router.router)
+app.include_router(datasphere_publication_router.router)
 
 
 # Aliases a las capacidades ya extraídas (gate distribuido pre-2D). Los handlers
@@ -2650,8 +2652,33 @@ def catalog_guide(request: Request, slug: str, pack: str = Query(DEFAULT_PACK),
     back_mod = next((m for m in list_modules(selected)
                      if str(m.number).zfill(2) == back_num
                      or m.stem.startswith(f"{back_num}_")), None)
-    back_url = (f"/modules/{back_mod.stem}?pack={selected}&tab=catalogo" if back_mod
-                else f"/?pack={selected}")
+    # Destino del "← Volver": si la guía declara `back_tool`, volvemos a ESA herramienta con el
+    # contrato canónico `?tool=<id>` (abre su grupo y colapsa los demás — mismo estado que el
+    # informe de assessment). Si no, al comportamiento histórico (pestaña Catálogo del módulo).
+    back_tool = guide.get("back_tool") or ""
+    if back_mod and back_tool:
+        back_url = f"/modules/{back_mod.stem}?pack={selected}&tool={back_tool}"
+    elif back_mod:
+        back_url = f"/modules/{back_mod.stem}?pack={selected}&tab=catalogo"
+    else:
+        back_url = f"/?pack={selected}"
+
+    # CTAs INTERNOS de los pasos: el YAML declara `link: {tool: "<id>", module?}`
+    # (sin hostname ni path); acá resolvemos la URL REAL de la herramienta, porque
+    # necesitamos list_modules para mapear el nº de módulo → stem. El template navega
+    # esos links en la MISMA pestaña (target="_parent"). Destino por defecto: el módulo
+    # de la propia guía (back_module). Si el módulo no resuelve, el CTA se omite (no se
+    # inventa una ruta). Los externos (http/s) quedan igual (pestaña nueva).
+    for _st in guide["steps"]:
+        _ln = _st.get("link")
+        if not (_ln and _ln.get("internal")):
+            continue
+        _num = (_ln.get("module") or back_num).zfill(2)
+        _mod = next((m for m in list_modules(selected)
+                     if str(m.number).zfill(2) == _num or m.stem.startswith(f"{_num}_")), None)
+        _ln["url"] = (f"/modules/{_mod.stem}?pack={selected}&tool={_ln['tool']}" if _mod else "")
+        if not _ln["url"]:
+            _st["link"] = None
 
     # embed=1 → contenido de las slides (lo monta el iframe del wrapper).
     if embed:

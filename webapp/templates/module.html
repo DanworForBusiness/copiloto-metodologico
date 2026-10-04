@@ -118,10 +118,14 @@
     {% if ia_enabled or readonly %}
     <button class="panel-toggle" @click="panelOpen=!panelOpen"><span>Herramientas de decisión</span><span x-text="panelOpen?'−':'+'"></span></button>
     <div x-show="panelOpen" x-transition.opacity>
+      {# Herramienta "Publicar modelo" (alta del Catálogo): pestaña del grupo decisión, SOLO para el dueño (`pub.can_execute`) y en
+         los módulos que la ofrecen. Independiente de `show_catalog`: se puede publicar el PRIMER dominio con el Catálogo vacío. #}
+      {% set pub = dsp_pub_tool(request, document.summary.stem) if (document is defined and document) else {"enabled": False, "can_execute": False} %}
       <nav class="tool-tabs" role="tablist" aria-label="Herramientas del módulo">
         {% if not readonly %}<button type="button" role="tab" @click="toolTab='section'" :class="toolTab==='section'&&'is-active'" :aria-selected="toolTab==='section'">Sección</button>{% endif %}
         <button type="button" role="tab" @click="toolTab='tree'" :class="toolTab==='tree'&&'is-active'" :aria-selected="toolTab==='tree'">Árbol</button>
         {% if show_catalog %}<button type="button" role="tab" @click="toolTab='catalogo'" :class="toolTab==='catalogo'&&'is-active'" :aria-selected="toolTab==='catalogo'">Catálogo</button>{% endif %}
+        {% if pub.can_execute %}<button type="button" role="tab" @click="toolTab='publicar'" :class="toolTab==='publicar'&&'is-active'" :aria-selected="toolTab==='publicar'">Publicar</button>{% endif %}
         <button type="button" role="tab" @click="toolTab='assistant'" :class="toolTab==='assistant'&&'is-active'" :aria-selected="toolTab==='assistant'">Asistente</button>
       </nav>
 
@@ -198,6 +202,12 @@
       {% if show_catalog %}
       <section class="tool-tab-panel" x-cloak x-show="toolTab==='catalogo'" role="tabpanel">
         {% include "partials/catalog_tab.html" %}
+      </section>
+      {% endif %}
+
+      {% if pub.can_execute %}
+      <section class="tool-tab-panel" x-cloak x-show="toolTab==='publicar'" role="tabpanel">
+        {% include "partials/datasphere_publication_tool.html" %}
       </section>
       {% endif %}
     </div>

@@ -1359,7 +1359,7 @@ def test_valid_tool_param_is_authoritative_closing_the_other_tool_groups(owner):
     r = owner.get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment")
     assert re.search(r"copilotLayout\('core', false, '', 'assessment'\)", r.text)
     js = (REPO / "webapp/static/app.js").read_text(encoding="utf-8")
-    assert 'const TOOL_GROUP = { assessment: "diagnostic" };' in js
+    assert 'assessment: "diagnostic"' in js                                                               # mapping Assessment→grupo diagnóstico (otras herramientas pueden sumarse)
     assert 'panelOpen: toolGroup ? toolGroup === "decision" : true' in js                                  # decisión se cierra cuando hay una herramienta pedida
     assert 'diagnosticOpen: toolGroup === "diagnostic"' in js and 'gestionOpen: toolGroup === "gestion"' in js
     assert "x-data=\"{ tool: 'assessment'," in r.text and 'id="dsa-form"' in r.text                          # Assessment de tu modelo seleccionado y visible
