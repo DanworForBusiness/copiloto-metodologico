@@ -60,8 +60,8 @@ def test_the_copy_follows_the_canonical_contract_and_never_reads_as_a_score():
     h = presenter.KPI_HELP
     assert "requerida y aplicable" in h["coverage_strict"][0] and "solo en parte no suma" in h["coverage_strict"][0]      # estricta = solo lo evaluado por completo
     assert "evidencia que sí se evaluó" in h["confidence"][0] and "independiente de la cobertura" in h["confidence"][1]
-    assert "ocurrencias" in h["review_required"][0] and "validación humana" in h["review_required"][0]                       # suma de ocurrencias, requiere humano
-    assert "no implica defectos confirmados" in h["review_required"][0]
+    assert "ocurrencias" in " ".join(h["review_required"]) and "criterio técnico del consultor" in h["review_required"][0]      # ocurrencias; requiere criterio del consultor
+    assert "No implican defectos confirmados" in h["review_required"][0]
     assert "equipo del proyecto" in h["context_open"][0] and "varios hallazgos" in h["context_open"][0]                     # la misma pregunta puede asociarse a varios hallazgos
     assert "tipos de pregunta, no ocurrencias" in h["context_open"][1]                                                      # unidad: tipos de pregunta
     banned = re.compile(r"\b(score|scoring|puntaje|puntuaci[oó]n|nota|madurez|banda|ranking|rating)\b", re.I)

@@ -37,7 +37,7 @@ _MACRO_TEXT = {"ARCHITECTURE_MODELING": "Arquitectura / Modelado", "NAMING": "Co
 _MACRO_STATE_TEXT = {"HAS_ASSESSED_EVIDENCE": "con evidencia evaluada",
                      "COMPLETELY_NOT_ASSESSED": "SIN EVIDENCIA EVALUADA — ninguna evidencia requerida pudo evaluarse", "NOT_APPLICABLE": "no aplica"}
 _LEVEL_TEXT = {"HIGH": "ALTA", "MEDIUM": "MEDIA", "LOW": "BAJA"}
-_KIND_TEXT = {"OBSERVATION": "observación", "REVIEW": "revisión requerida", "DESCRIPTIVE": "descriptivo"}
+_KIND_TEXT = {"OBSERVATION": "observación", "REVIEW": "caso a revisar", "DESCRIPTIVE": "descriptivo"}
 _FILTER_TEXT = {"PRESENT": "presente", "ABSENT": "ausente", "NOT_ASSESSED": "no evaluado"}
 _ROW_KEY_TEXT = {"share": "proporción", "view_type": "tipo", "view_type_basis": "origen del tipo", "membership_basis": "criterio de vista", "applicable": "aplican", "compliant": "cumplen", "non_compliant": "no cumplen", "observed": "observadas", "unavailable": "no disponibles"}
 _DIVERGENCE_TEXT = {
@@ -181,8 +181,17 @@ def _row_text(r: dict) -> str:
     return f"{r['name']}: " + ", ".join(f"{_ROW_KEY_TEXT.get(k, k.replace('_', '-'))} {_pct(v) if k == 'share' else v}" for k, v in rest)   # `share` = proporción 0–1
 
 
-SUMMARY_RELATION_TEXT = ("Los casos a revisar son hallazgos concretos que requieren validación; las preguntas abiertas representan información pendiente "
-                         "del proyecto y pueden ayudar a resolver uno o varios hallazgos.")
+# Perfiles persistidos ANTES de un ajuste de redacción conservan el texto viejo de la razón: se muestra con la redacción vigente (solo copy).
+_REASON_COMPAT = {"Se requiere una respuesta humana, de negocio o de arquitectura.": "Se requiere una respuesta del equipo del proyecto (negocio o arquitectura)."}
+
+
+def reason_text(reason: dict) -> str:
+    """Texto visible de una razón pública (``reason_summary``) con la redacción vigente, aun si el perfil persistido trae la anterior."""
+    return _REASON_COMPAT.get(reason["reason_summary"], reason["reason_summary"])
+
+
+SUMMARY_RELATION_TEXT = ("Los casos a revisar son hallazgos concretos que requieren la validación del equipo consultor; las preguntas abiertas representan "
+                         "información pendiente del proyecto y pueden ayudar a resolver uno o varios hallazgos.")
 
 
 def review_required_text(n_occurrences: int, n_groups: int) -> tuple[str, str]:
@@ -190,10 +199,10 @@ def review_required_text(n_occurrences: int, n_groups: int) -> tuple[str, str]:
     Solo vocabulario visible: el contrato interno sigue siendo `review_required` / `occurrence_count`."""
     head = _plural(n_occurrences, "caso")
     if not n_occurrences:
-        return head, "El análisis no identificó casos concretos que requieran validación humana."
+        return head, "El análisis no identificó casos concretos que requieran criterio técnico del consultor."
     detail = (f"El análisis identificó {_plural(n_occurrences, 'caso concreto', 'casos concretos')} que {'requiere' if n_occurrences == 1 else 'requieren'} "
-              f"validación humana, agrupados en {_plural(n_groups, 'tipo de revisión', 'tipos de revisión')}. "
-              f"{'No es un defecto confirmado y no mide' if n_occurrences == 1 else 'No son defectos confirmados y no miden'} la calidad del modelo (detalle en *Revisión requerida*).")
+              f"el criterio técnico del consultor, agrupados en {_plural(n_groups, 'tipo de revisión', 'tipos de revisión')}. "
+              f"{'No es un defecto confirmado y no mide' if n_occurrences == 1 else 'No son defectos confirmados y no miden'} la calidad del modelo (detalle en *Casos a revisar*).")
     return head, detail
 
 
@@ -267,7 +276,7 @@ def _group_block(g: dict, level: str) -> list[str]:
     state = g.get("evidence_state")
     if state and state["assessability"] != "ASSESSED":
         out.append(f"- **Límite de evidencia:** los insumos de la regla están {_STATE_PLURAL_TEXT[state['assessability']]} "
-                   f"({state['reason']['reason_summary']}); pueden existir más ocurrencias fuera de la evidencia que pudo evaluarse.")
+                   f"({reason_text(state['reason'])}); pueden existir más ocurrencias fuera de la evidencia que pudo evaluarse.")
     out.append("")
     shown = g["occurrences"][:MAX_OCCURRENCES_SHOWN]
     for o in shown:
@@ -285,7 +294,7 @@ def _area_block(area: dict, groups_by_id: dict[str, dict], rule_by_area: dict[st
     st = area["assessability"]
     line = f"**Estado de la evaluación:** {_STATE_TEXT[st]}"
     if area["reason"]:
-        line += f" — {area['reason']['reason_summary']} (`{area['reason']['reason_code']}`)"
+        line += f" — {reason_text(area['reason'])} (`{area['reason']['reason_code']}`)"
         if st != "NOT_APPLICABLE":
             line += "; ver *No evaluado / Limitaciones de evidencia*"
     out.append(line)
@@ -305,7 +314,7 @@ def _area_block(area: dict, groups_by_id: dict[str, dict], rule_by_area: dict[st
         out.append("")
     gids = area["finding_groups"]
     if gids:
-        out.append("Hallazgos en esta área (detalle en *Observaciones* y *Revisión requerida*):")
+        out.append("Hallazgos en esta área (detalle en *Observaciones* y *Casos a revisar*):")
         out.append("")
         for gid in gids:
             g = groups_by_id[gid]
@@ -316,7 +325,7 @@ def _area_block(area: dict, groups_by_id: dict[str, dict], rule_by_area: dict[st
         out.append("Evaluación de reglas en esta área:")
         out.append("")
         for r in rules:
-            suffix = f" ({r['reason']['reason_summary']})" if r["reason"] else ""
+            suffix = f" ({reason_text(r['reason'])})" if r["reason"] else ""
             out.append(f"- {r['title']}: {_RULE_RESULT_TEXT[r['result']]}{suffix}")
         out.append("")
     if area["limitations_not_observable"]:
@@ -377,13 +386,13 @@ def render_markdown(doc: dict) -> str:
           f"- **Esquema:** `{doc['schema_version']}` · señales `{doc['versions']['signals']}` · evaluabilidad `{doc['versions']['assessability']}` · "
           f"confianza `{doc['versions']['confidence']}`", ""]
     L += ["> Perfil de evidencia, cobertura y confianza — Fase 1 / validación en paralelo. Describe QUÉ se observó, QUÉ requiere revisión y QUÉ no pudo "
-          "evaluarse; los hallazgos son observaciones para revisión humana, no conclusiones sobre la calidad del modelo. Cobertura, confianza y "
+          "evaluarse; los hallazgos son observaciones para revisión técnica de nuestros consultores, no conclusiones sobre la calidad del modelo. Cobertura, confianza y "
           "contexto requerido son tres medidas separadas.", ""]
 
     if doc["assessment_state"] != "ASSESSED":
         r = scope["reason"]
         L += ["## Resumen", ""]
-        L.append(f"**Este cliente no tiene evaluación** — {r['reason_summary']} (`{r['reason_code']}`)." if r else "**No se produjo una evaluación.**")
+        L.append(f"**Este cliente no tiene evaluación** — {reason_text(r)} (`{r['reason_code']}`)." if r else "**No se produjo una evaluación.**")
         if summary.get("error"):
             L += ["", f"Detalle: {summary['error']}"]
         L += ["", "No se informan cobertura, confianza ni hallazgos porque no hay nada evaluado que calificar.", ""]
@@ -447,16 +456,16 @@ def render_markdown(doc: dict) -> str:
     else:
         L += ["No se detectaron patrones de nivel observación en la evidencia que pudo evaluarse (ver *No evaluado / Limitaciones de evidencia* para lo que no se evaluó).", ""]
     if doc["descriptive_signals"]:
-        L += ["### Señales descriptivas (no implican revisión)", ""]
+        L += ["### Señales descriptivas (no son casos a revisar)", ""]
         for g in doc["descriptive_signals"]:
             L += _group_block(g, "####")
 
-    L += ["## Revisión requerida", ""]
+    L += ["## Casos a revisar", ""]
     if doc["review_required"]:
         for g in doc["review_required"]:
             L += _group_block(g, "###")
     else:
-        L += ["Las reglas que pudieron evaluarse no levantaron elementos de revisión (ver *No evaluado / Limitaciones de evidencia*).", ""]
+        L += ["Las reglas que pudieron evaluarse no levantaron casos a revisar (ver *No evaluado / Limitaciones de evidencia*).", ""]
 
     L += ["## No evaluado / Limitaciones de evidencia", "",
           "Las evidencias que cuentan para la cobertura se marcan *cuenta*; las demás se muestran por transparencia y no modifican la cobertura.", ""]
@@ -465,7 +474,7 @@ def render_markdown(doc: dict) -> str:
         L += ["| Evidencia | Área | Estado | Motivo | ¿Cuenta para la cobertura? |", "|---|---|---|---|---|"]
         for s in lims:
             L.append(f"| {_cell(s['title'])} (`{s['surface_id']}`) | {_AREA_TITLE.get(s['area'], s['area'])} | {_STATE_TEXT[s['assessability']]} | "
-                     f"{_cell(s['reason']['reason_summary'])} (`{s['reason']['reason_code']}`) | {'cuenta' if s['counts_toward_coverage'] else 'no cuenta'} |")
+                     f"{_cell(reason_text(s['reason']))} (`{s['reason']['reason_code']}`) | {'cuenta' if s['counts_toward_coverage'] else 'no cuenta'} |")
         L.append("")
         with_units = [s for s in lims if s["affected_units"]]
         if with_units:
@@ -496,7 +505,7 @@ def render_markdown(doc: dict) -> str:
         L += ["### Evidencia que no aplica (trazabilidad; no son limitaciones de evidencia)", "", "| Evidencia | Área | Motivo |", "|---|---|---|"]
         for s in doc["not_applicable"]:
             L.append(f"| {_cell(s['title'])} (`{s['surface_id']}`) | {_AREA_TITLE.get(s['area'], s['area'])} | "
-                     f"{_cell(s['reason']['reason_summary'])} (`{s['reason']['reason_code']}`) |")
+                     f"{_cell(reason_text(s['reason']))} (`{s['reason']['reason_code']}`) |")
         L.append("")
     if ctx["deduplicated_questions"]:
         L += ["### Preguntas de contexto no repetidas (ya formuladas por un hallazgo)", ""]

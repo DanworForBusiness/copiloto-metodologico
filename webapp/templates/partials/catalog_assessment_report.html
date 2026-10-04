@@ -143,7 +143,7 @@
 <article class="methodology catalog-detail">
 {% set ns = namespace(n=1) %}
 <section class="content-section" id="asr-resumen">
-  {{ heading(ns.n, "Resumen", "Perfil de evidencia, cobertura y confianza. Describe qué se observó, qué requiere revisión y qué no pudo evaluarse; los hallazgos son observaciones para revisión humana, no conclusiones sobre la calidad del modelo. " ~ s.relation_text ~ " Es una evaluación independiente del veredicto del catálogo.") }}
+  {{ heading(ns.n, "Resumen", "Perfil de evidencia, cobertura y confianza. Describe qué se observó, qué requiere revisión y qué no pudo evaluarse; los hallazgos son observaciones para revisión técnica de nuestros consultores, no conclusiones sobre la calidad del modelo. " ~ s.relation_text ~ " Es una evaluación independiente del veredicto del catálogo.") }}
   <table>
     <thead><tr><th>Medida</th><th>Valor</th><th>Cómo leerla</th></tr></thead>
     <tbody>
@@ -152,7 +152,7 @@
       <tr><td>Confianza</td><td>{{ s.confidence }}</td><td>{{ s.confidence_meaning }}{% if s.confidence_limitation %} Limitación principal: {{ s.confidence_limitation }}{% endif %}</td></tr>
       <tr><td>Casos a revisar</td><td>{{ s.review_open }}</td><td>{{ s.review_reading }}</td></tr>
       <tr><td>Preguntas abiertas</td><td>{{ s.context_open }}</td><td>{{ s.context_reading }}</td></tr>
-      <tr><td>Observaciones</td><td>{{ s.observation_occurrences }}</td><td>{{ s.observation_groups }} grupo{{ "s" if s.observation_groups != 1 }} de observación: patrones descriptivos para revisión humana, sin juicio (detalle en Observaciones).</td></tr>
+      <tr><td>Observaciones</td><td>{{ s.observation_occurrences }}</td><td>{{ s.observation_groups }} grupo{{ "s" if s.observation_groups != 1 }} de observación: patrones descriptivos para revisión técnica del consultor, sin juicio (detalle en Observaciones).</td></tr>
     </tbody>
   </table>
   {% for d in s.no_evidence_dimensions %}{% call callout("punch", "Dimensión " ~ d) %}<p>Sin evidencia evaluada — ninguna evidencia requerida pudo evaluarse.</p>{% endcall %}{% endfor %}
@@ -201,15 +201,15 @@
   {{ not_detected("No se detectaron patrones de nivel observación en la evidencia que pudo evaluarse. Ver “No evaluado / Limitaciones” para la evidencia que no pudo evaluarse.") }}
   {% endfor %}
   {% if v.descriptive %}
-  <h3>Señales descriptivas (no implican revisión)</h3>
+  <h3>Señales descriptivas (no son casos a revisar)</h3>
   {% for g in v.descriptive %}{{ group(g, 4) }}{% endfor %}
   {% endif %}
 </section>
 
 <section class="content-section" id="asr-revision">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Revisión requerida") }}
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Casos a revisar") }}
   {% for g in v.review_required %}{{ group(g, 3) }}{% else %}
-  {{ not_detected("Las reglas que pudieron evaluarse no levantaron elementos de revisión. Ver “No evaluado / Limitaciones” para la evidencia que no pudo evaluarse.") }}
+  {{ not_detected("Las reglas que pudieron evaluarse no levantaron casos a revisar. Ver “No evaluado / Limitaciones” para la evidencia que no pudo evaluarse.") }}
   {% endfor %}
 </section>
 

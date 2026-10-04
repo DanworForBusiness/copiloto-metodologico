@@ -120,9 +120,9 @@ def header_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
         view["coverage"] = P.percent_text(summary["strict"])
         view["confidence"] = P.confidence_level_text(summary["confidence"]).capitalize()
         n = summary["review_occurrences"]
-        view["reviews"] = _plural(n, "revisión", "revisiones") if n else "Sin revisiones"
-        view["reviews_title"] = (f"{_plural(n, 'ocurrencia')} en {_plural(summary['review_groups'], 'grupo')} de revisión requerida"
-                                 if n else "Ningún grupo de revisión requerida")
+        view["reviews"] = _plural(n, "caso a revisar", "casos a revisar") if n else "Sin casos a revisar"
+        view["reviews_title"] = (f"{_plural(n, 'caso')} en {_plural(summary['review_groups'], 'tipo de revisión', 'tipos de revisión')}"
+                                 if n else "Ningún caso a revisar")
     return view
 
 
@@ -165,7 +165,7 @@ def _group_view(g: dict, entry: Any, pack: str) -> dict:
     evidence_limit = None
     if state and state["assessability"] != "ASSESSED":
         evidence_limit = (f"los insumos de la regla están {P.assessability_plural_text(state['assessability'])} "
-                          f"({state['reason']['reason_summary']}); pueden existir más ocurrencias fuera de la evidencia que pudo evaluarse.")
+                          f"({P.reason_text(state['reason'])}); pueden existir más ocurrencias fuera de la evidencia que pudo evaluarse.")
     return {
         "dom_id": f"asr-g-{g['id']}", "id": g["id"], "title": g["title"], "kind": g["kind"], "kind_text": P.finding_kind_text(g["kind"]),
         "area_title": P.area_title(g["area"]), "explanation": g["explanation"], "why_shown": g["why_shown"],
@@ -261,8 +261,8 @@ KPI_HELP: dict[str, tuple[str, ...]] = {
         "Qué tan fiable es la evidencia que sí se evaluó (alta, media o baja); manda el componente más débil.",
         "No mide la calidad del modelo y es independiente de la cobertura y de las preguntas aún abiertas."),
     "review_required": (
-        "Casos concretos detectados por el análisis que necesitan validación humana antes de poder cerrarse. Cuenta ocurrencias y no implica defectos confirmados.",
-        "No mide la calidad del modelo."),
+        "Casos concretos detectados por el análisis que requieren criterio técnico del consultor antes de poder cerrarse. No implican defectos confirmados.",
+        "Cuenta ocurrencias y no mide la calidad del modelo."),
     "context_open": (
         "Información que aún debe aportar el equipo del proyecto para completar o interpretar el análisis. Una misma pregunta puede estar relacionada con varios hallazgos.",
         "Cuenta tipos de pregunta, no ocurrencias, y no mide la calidad ni la confianza."),
@@ -337,14 +337,14 @@ def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, 
     return {
         "id": a["id"], "dom_id": f"asr-a-{a['id']}", "title": P.area_title(a["id"]), "macro": P.macro_dimension_title(a["macro_dimension"]),
         "state": a["assessability"], "state_text": P.assessability_text(a["assessability"]),
-        "reason": (f"{a['reason']['reason_summary']} ({a['reason']['reason_code']})" if a["reason"] else None),
+        "reason": (f"{P.reason_text(a['reason'])} ({a['reason']['reason_code']})" if a["reason"] else None),
         "surfaces": (f"{_plural(rs['assessed'], 'evaluada')}, {_plural(rs['partially_assessed'], 'parcialmente evaluada')}, "
                      f"{_plural(rs['not_assessed'], 'no evaluada')}, {rs['not_applicable']} no aplican"),
         "facts": _facts_view(a["id"], a["highlights"]), "macro_id": a["macro_dimension"],
         "findings": [{"title": groups_by_id[gid]["title"], "dom_id": f"asr-g-{gid}", "count": groups_by_id[gid]["occurrence_count"],
                       "kind_text": P.finding_kind_text(groups_by_id[gid]["kind"])} for gid in a["finding_groups"]],
         "rules": [{"title": r["title"], "result": r["result"], "result_text": P.rule_result_text(r["result"]),
-                   "reason": r["reason"]["reason_summary"] if r["reason"] else None} for r in rules_by_area.get(a["id"], [])],
+                   "reason": P.reason_text(r["reason"]) if r["reason"] else None} for r in rules_by_area.get(a["id"], [])],
         "limitations_not_observable": bool(a["limitations_not_observable"]),
     }
 
@@ -451,7 +451,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         "review_required": [_group_view(g, link_entry, pack) for g in doc["review_required"]],
         "descriptive": [_group_view(g, link_entry, pack) for g in doc["descriptive_signals"]],
         "limitations": [{"title": s["title"], "surface_id": s["surface_id"], "area": P.area_title(s["area"]),
-                         "state": P.assessability_text(s["assessability"]), "reason": s["reason"]["reason_summary"] if s["reason"] else "",
+                         "state": P.assessability_text(s["assessability"]), "reason": P.reason_text(s["reason"]) if s["reason"] else "",
                          "reason_code": s["reason"]["reason_code"] if s["reason"] else "",
                          "counts": s["counts_toward_coverage"],
                          "units": [P.unit_label(u) for u in s["affected_units"]]} for s in doc["evidence_limitations"]],
@@ -459,7 +459,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         "absence_not_established": [r["title"] for r in doc["rule_results"] if r["result"] == "ABSENCE_NOT_ESTABLISHED"],
         "confidence_components": [{"label": c["label"], "value": c["value"], "level": P.confidence_level_text(c["level"])} for c in conf["components"]],
         "not_applicable": [{"title": s["title"], "surface_id": s["surface_id"], "area": P.area_title(s["area"]),
-                            "reason": s["reason"]["reason_summary"], "reason_code": s["reason"]["reason_code"]} for s in doc["not_applicable"]],
+                            "reason": P.reason_text(s["reason"]), "reason_code": s["reason"]["reason_code"]} for s in doc["not_applicable"]],
         "deduplicated_questions": [{"id": q["id"], "covered_by": q["covered_by"]} for q in ctx["deduplicated_questions"]],
         "rule_results": [{"title": r["title"], "rule": r["rule"], "result_text": P.rule_result_text(r["result"]), "count": r["finding_count"]}
                          for r in doc["rule_results"]],

@@ -38,7 +38,7 @@ def _title(g):
 
 def test_markdown_is_deterministic_and_has_the_approved_spanish_structure(docs):
     expected = ["# Autoevaluación de Modelado", "## Resumen", "## Arquitectura / Modelado", "## Convención de nombres", "## Fuente / Extracción",
-                "## Observaciones", "## Revisión requerida", "## No evaluado / Limitaciones de evidencia", "## Evidencia / Detalle técnico"]
+                "## Observaciones", "## Casos a revisar", "## No evaluado / Limitaciones de evidencia", "## Evidencia / Detalle técnico"]
     for am, doc in docs:
         a, b = R.render_markdown(doc), R.render_markdown(copy.deepcopy(doc))
         assert a == b and a.endswith("\n") and not a.endswith("\n\n")
@@ -256,7 +256,7 @@ def test_empty_observation_and_review_sections_do_not_claim_absence_of_issues():
     doc = build(_local_chain(), "AM_C")[0]
     assert not doc["observations"]
     md = R.render_markdown(doc)
-    sec = md[md.index("## Observaciones"):md.index("## Revisión requerida")]
+    sec = md[md.index("## Observaciones"):md.index("## Casos a revisar")]
     assert "evidencia que pudo evaluarse" in sec and "*No evaluado / Limitaciones de evidencia*" in sec and "sin problema" not in sec.lower()
 
 
@@ -386,7 +386,7 @@ def test_status_labels_come_from_one_centralised_spanish_mapping():
 def test_not_applicable_markdown_says_there_is_no_assessment_and_reports_nothing_else():
     md = R.render_markdown(_no_terminal_scope_doc())
     assert "**Este cliente no tiene evaluación**" in md and "`NO_TERMINAL_ANALYTIC_MODEL`" in md
-    for forbidden in ("**Cobertura:**", "**Confianza:**", "## Observaciones", "## Revisión requerida"):
+    for forbidden in ("**Cobertura:**", "**Confianza:**", "## Observaciones", "## Casos a revisar"):
         assert forbidden not in md
     assert "- **Modelo analítico terminal:** —" in md and "no aplica" in md
     assert "El cliente no tiene un modelo analítico terminal" in md
@@ -487,8 +487,8 @@ def test_context_questions_deduplicated_by_semantic_key_appear_once_and_are_trac
 def test_findings_are_rendered_in_the_document_priority_order(docs):
     for _am, doc in docs:
         md = R.render_markdown(doc)
-        for kind, section_start, section_end in (("review_required", "## Revisión requerida", "## No evaluado / Limitaciones de evidencia"),
-                                                 ("observations", "## Observaciones", "## Revisión requerida")):
+        for kind, section_start, section_end in (("review_required", "## Casos a revisar", "## No evaluado / Limitaciones de evidencia"),
+                                                 ("observations", "## Observaciones", "## Casos a revisar")):
             sec = md[md.index(section_start):md.index(section_end)]
             headings = re.findall(r"^### (.+?) — \d+ ocurrencias?$", sec, re.M)
             expected = [_title(g) for g in doc[kind]]

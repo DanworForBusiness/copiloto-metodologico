@@ -59,7 +59,7 @@ PUBLIC_REASONS: dict[str, str] = {
     "RULE_DOES_NOT_EVALUATE_UNIT": "La regla actual no evalúa este tipo de unidad.",
     "EVIDENCE_NOT_YET_PARSED": "La evidencia existe en la exportación, pero el proceso actual todavía no la interpreta.",
     "EXPERT_ONLY_EVIDENCE": "Esta evidencia solo puede aportarse mediante revisión manual o experta.",
-    "CONTEXT_REQUIRED": "Se requiere una respuesta humana, de negocio o de arquitectura.",
+    "CONTEXT_REQUIRED": "Se requiere una respuesta del equipo del proyecto (negocio o arquitectura).",
     "POOL_LOAD_ERROR": "No se pudo cargar el conjunto de artefactos (colisión o error de carga).",
     "CONTRADICTORY_EVIDENCE": "La evidencia disponible es contradictoria o ambigua.",
 }

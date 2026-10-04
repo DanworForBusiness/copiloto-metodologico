@@ -52,7 +52,7 @@ def test_casos_and_preguntas_use_their_own_units_and_copy(doc, view):
     assert rev[1] == presenter._plural(review_occ, "caso")                                            # unidad: OCURRENCIAS de revisión
     assert ctxrow[1] == presenter._plural(ctx["open_questions"], "pregunta")                          # unidad: tipos de pregunta
     n_groups = len(doc["review_required"])
-    assert f"identificó {presenter._plural(review_occ, 'caso concreto', 'casos concretos')}" in rev[2] and "validación humana" in rev[2]
+    assert f"identificó {presenter._plural(review_occ, 'caso concreto', 'casos concretos')}" in rev[2] and "criterio técnico del consultor" in rev[2]
     assert f"agrupados en {presenter._plural(n_groups, 'tipo de revisión', 'tipos de revisión')}" in rev[2]
     assert "defectos confirmados" in rev[2] or "defecto confirmado" in rev[2]
     for forbidden in ("grupo de observación", "grupos de observación", "Hallazgos", "grupo de revisión"):
@@ -66,7 +66,7 @@ def test_casos_and_preguntas_use_their_own_units_and_copy(doc, view):
 def test_the_summary_states_the_relationship_once_and_concisely(doc, view):
     html = templates.get_template("partials/catalog_assessment_report.html").render(v=view)
     from tools.catalog.modeling_assessment import render_md
-    assert html.count("Los casos a revisar son hallazgos concretos que requieren validación") == 1
+    assert html.count("Los casos a revisar son hallazgos concretos que requieren la validación del equipo consultor") == 1
     assert render_md.SUMMARY_RELATION_TEXT in html or "Los casos a revisar son hallazgos concretos" in html
     assert view["summary"]["relation_text"] == render_md.SUMMARY_RELATION_TEXT and len(render_md.SUMMARY_RELATION_TEXT) < 260
 
@@ -96,7 +96,7 @@ def test_the_summary_and_the_markdown_share_the_same_definitions(doc, view):
     chead, cdetail = render_md.context_open_text(doc["summary"]["context_required"])
     assert f"- **Preguntas abiertas:** {chead}" in md and f"  - {cdetail}" in md
     assert view["summary"]["context_reading"] == cdetail and view["summary"]["review_reading"] == detail.replace("*", "")
-    assert "*" not in view["summary"]["review_reading"] and "(detalle en Revisión requerida)" in view["summary"]["review_reading"]   # sin marcas de Markdown en el HTML
+    assert "*" not in view["summary"]["review_reading"] and "(detalle en Casos a revisar)" in view["summary"]["review_reading"]   # sin marcas de Markdown en el HTML
     assert view["summary"]["review_open"] == head and view["summary"]["context_open"] == chead
 
 
@@ -105,3 +105,48 @@ def test_the_visible_report_keeps_the_vocabulary_guard(view, doc):
     html = re.sub(r"<[^>]+>", " ", templates.get_template("partials/catalog_assessment_report.html").render(v=view))
     assert not BANNED.search(html), BANNED.search(html).group(0)
     assert not BANNED.search(render_md.render_markdown(doc)), BANNED.search(render_md.render_markdown(doc)).group(0)
+
+
+# ── cierre: sección detallada "Casos a revisar" y vocabulario de actor (consultor vs equipo del proyecto) ──
+def test_the_detailed_section_is_titled_casos_a_revisar_with_the_stable_technical_anchor(doc, view):
+    from tools.catalog.modeling_assessment import render_md
+    html = templates.get_template("partials/catalog_assessment_report.html").render(v=view)
+    sec = html[html.index('id="asr-revision"'):]
+    assert 'id="asr-revision"' in html                                                              # el ancla técnica NO cambia
+    assert "Casos a revisar" in sec[:600]                                                           # el título visible de la sección
+    assert "Revisión requerida" not in re.sub(r"<[^>]+>", " ", html)                                # ningún rótulo visible viejo
+    md = render_md.render_markdown(doc)
+    assert "## Casos a revisar" in md and "## Revisión requerida" not in md and "(detalle en *Casos a revisar*)" in md
+    assert "review_required" in doc and all(g["kind"] == "REVIEW" for g in doc["review_required"])   # contratos internos intactos
+
+
+def test_visible_copy_names_the_consultant_for_findings_and_the_project_team_for_questions(doc, view):
+    from tools.catalog.modeling_assessment import render_md
+    html = re.sub(r"<[^>]+>", " ", templates.get_template("partials/catalog_assessment_report.html").render(v=view))
+    md = render_md.render_markdown(doc)
+    for text in (html, md):
+        assert not re.search(r"(revisión humana|validación humana|intervención humana|una persona|humanos?|humanas?)", text, re.I), re.search(r"(revisión humana|validación humana|intervención humana|una persona|humanos?|humanas?)", text, re.I).group(0)
+        assert "revisión técnica de nuestros consultores" in text
+    assert "equipo del proyecto" in view["summary"]["context_reading"]                               # las preguntas siguen siendo del PROYECTO
+    assert "consultor" in view["summary"]["review_reading"] and "consultor" not in view["summary"]["context_reading"]
+    assert all("consultor" not in line for line in presenter.KPI_HELP["context_open"])
+    assert "consultor" in presenter.KPI_HELP["review_required"][0] and "No implican defectos confirmados" in presenter.KPI_HELP["review_required"][0]
+
+
+def test_profiles_persisted_with_the_previous_reason_wording_show_the_current_copy(doc):
+    """Un perfil generado antes del ajuste de redacción conserva "respuesta humana" en su JSON persistido; la lectura (HTML y Markdown) usa el texto vigente."""
+    import copy
+    from tools.catalog.modeling_assessment import render_md
+    old = "Se requiere una respuesta humana, de negocio o de arquitectura."
+    legacy = copy.deepcopy(doc)
+    patched = 0
+    for s in legacy.get("evidence_limitations", []) or []:
+        if s.get("reason") and s["reason"]["reason_code"] == "CONTEXT_REQUIRED":
+            s["reason"]["reason_summary"] = old
+            patched += 1
+    md = render_md.render_markdown(legacy)
+    assert "respuesta humana" not in md
+    if patched:
+        assert "Se requiere una respuesta del equipo del proyecto (negocio o arquitectura)." in md
+    assert render_md.reason_text({"reason_code": "CONTEXT_REQUIRED", "reason_summary": old}) == "Se requiere una respuesta del equipo del proyecto (negocio o arquitectura)."
+    assert render_md.reason_text({"reason_code": "X", "reason_summary": "otro"}) == "otro"

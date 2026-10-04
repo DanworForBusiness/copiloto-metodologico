@@ -129,7 +129,7 @@ def test_post_generates_validated_json_and_returns_the_structured_report(world):
     r = _post(client_for())
     assert r.status_code == 200
     assert "HX-Trigger" not in r.headers                                  # nada escuchaba el evento del tile: se retiró
-    for needle in ("Assessment vigente", "Resumen", "Observaciones", "Revisión requerida", "No evaluado / Limitaciones de evidencia",
+    for needle in ("Assessment vigente", "Resumen", "Observaciones", "Casos a revisar", "No evaluado / Limitaciones de evidencia",
                    "Evidencia / Detalle técnico", "Arquitectura &amp; Modelado", "Convención de nombres", "Fuente &amp; Extracción", "Cobertura estricta", "Cobertura inclusiva", "Exportar Markdown", "Exportar JSON", "4AM_ACME"):
         assert needle in r.text, needle
     ma_profile.validate_assessment(svc.status_for_entry(world.entries[0]).profile)
@@ -234,7 +234,7 @@ def test_detail_header_states_follow_the_contract(world, monkeypatch):
     assert _post(c).status_code == 200
     h = hdr()                                                                  # CURRENT
     assert "Assessment vigente" in h and "Ver Assessment" in h and "Ver informe" not in h and "hx-get" in h and "hx-post" not in h and re.search(r"Cobertura \d+\.\d%", h)
-    assert re.search(r"Confianza (Alta|Media|Baja)", h) and re.search(r"(\d+ revisi(ón|ones)|Sin revisiones)", h)
+    assert re.search(r"Confianza (Alta|Media|Baja)", h) and re.search(r"(\d+ casos? a revisar|Sin casos a revisar)", h)
     for absent in ("Inclusiva", "inclusive", "signal-rules", "assessment-rules", "confidence-cuts", "UTC", "2026", "preguntas de contexto", "Generado"):
         assert absent not in h, absent
     f = world.inbound / "Acme/views/1VR_RAW.json"
@@ -280,7 +280,7 @@ def test_header_values_come_from_the_same_cached_profile_as_report_and_exports(w
     assert hv["coverage"] == expected == rv["summary"]["coverage_strict"]
     n = sum(g["occurrence_count"] for g in status.profile["review_required"])
     assert hv["confidence"].upper() == rv["summary"]["confidence"].upper() and rv["summary"]["review_occurrences"] == n
-    assert hv["reviews"] == ("Sin revisiones" if n == 0 else f"{n} revisión" if n == 1 else f"{n} revisiones")
+    assert hv["reviews"] == ("Sin casos a revisar" if n == 0 else f"{n} caso a revisar" if n == 1 else f"{n} casos a revisar")
     assert json.loads(c.get("/catalog/flow/assessment.json?flow=acme-4am").text)["summary"]["coverage"]["strict"] == 0.4321
     assert svc.export_markdown(status) == render_markdown(status.profile)
 
@@ -569,7 +569,7 @@ def test_report_sections_follow_the_governed_markdown_hierarchy_without_a_generi
     html = _post(c).text
     heads = re.findall(r'<span class="section-eyebrow">\[(\d+)\]</span><h2>([^<]+)</h2>', html)
     assert [t for _n, t in heads] == ["Resumen", "Arquitectura &amp; Modelado", "Convención de nombres", "Fuente &amp; Extracción", "Observaciones",
-                                      "Revisión requerida", "No evaluado / Limitaciones de evidencia", "Evidencia / Detalle técnico"]
+                                      "Casos a revisar", "No evaluado / Limitaciones de evidencia", "Evidencia / Detalle técnico"]
     assert [n for n, _t in heads] == [f"{i:02d}" for i in range(1, 9)]                       # numeración continua generada por la plantilla
     assert 'id="asr-areas"' not in html and "<h2>Áreas</h2>" not in html
     arch = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-m-naming"')]
