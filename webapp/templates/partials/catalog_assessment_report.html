@@ -15,7 +15,7 @@
   <a class="support-link" href="#" role="button" hx-post="{{ v.report_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-indicator="#asr-busy" @click.prevent>{{ v.action.label }}<span>↗</span></a>
   <span class="htmx-indicator" id="asr-busy" role="status">Generando…</span>
 </div>{% endif %}{% endmacro %}
-{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile %}
+{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, inline_help %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
 {% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}
 {# Hallazgo: encabezado semántico + "por qué aparece" siempre visibles; el detalle, bajo demanda (disclosure del CRM) y como TABLAS:
@@ -57,9 +57,10 @@
    → evaluación de reglas (tabla) → hallazgos. `lvl`: nivel de los rótulos (h3 en sección propia, h4 dentro de un disclosure). #}
 {% macro area_body(a, lvl) %}
   <p>Superficies de evidencia requeridas: {{ a.surfaces }}.{% if a.reason %} {{ a.reason }}.{% endif %}</p>
+  {% if a.facts.scope_line %}<p data-block="view-scope">{{ a.facts.scope_line }} {{ inline_help("Vistas consideradas", a.facts.scope_help) }}</p>{% endif %}
   {% if a.facts.headline %}
   <div class="activity-kpi-grid asm-facts">
-    {% for m in a.facts.headline %}<div class="activity-kpi"><span class="activity-kpi__value">{{ m.value }}</span><span class="activity-kpi__label">{{ m.label }}</span></div>{% endfor %}
+    {% for m in a.facts.headline %}{{ kpi_tile(m) }}{% endfor %}
   </div>
   {% endif %}
   {% for n in a.facts.notes %}<p>{{ n }}</p>{% endfor %}
@@ -159,9 +160,8 @@
   {% if s.context_rows %}
   {# Mismo contenedor que los bloques agrupados del informe (disclosure del CRM, p. ej. Modelo analítico): el título es su cabecera. #}
   <details class="dashboard-section" id="asr-preguntas" open>
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Preguntas que solo el proyecto puede responder</span><span class="dashboard-section__count">{{ s.context_open_total }}</span></summary>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Preguntas que solo el proyecto puede responder</span><span class="dashboard-section__count">{{ s.context_summary }}</span></summary>
     <div class="dashboard-section__body">
-      <p>{{ s.context_summary }}</p>
       <table data-block="open-questions">
         <thead><tr><th>Pregunta</th><th>Vinculada a</th><th>Hallazgo</th><th>Ocurrencias</th></tr></thead>
         <tbody>

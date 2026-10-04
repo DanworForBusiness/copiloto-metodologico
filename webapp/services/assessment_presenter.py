@@ -269,6 +269,30 @@ KPI_HELP: dict[str, tuple[str, ...]] = {
 }
 
 
+# Ayuda (i) de los indicadores de Propagación y Armonización, por id de hecho (mismo primitivo del Hub que los KPI superiores). Redacción alineada con el
+# cálculo canónico: unidades y límites exactos; sin juicio de calidad.
+AREA_KPI_HELP: dict[str, tuple[str, ...]] = {
+    "lineage_steps_evaluated": (
+        "Relaciones proveedor→consumidor cuyo contrato pudo compararse. Cuenta pasos de linaje, no artefactos; una relación puede resultar idéntica o mostrar cambios.",),
+    "artifacts_with_derived_fields": (
+        "Artefactos intermedios con al menos un campo calculado mediante una expresión visible. Cada artefacto cuenta una vez, aunque derive varios campos.",
+        "Sin query visible la superficie puede quedar parcialmente evaluada: un cero no garantiza ausencia."),
+    "rederived_field_occurrences": (
+        "Ocurrencias donde un campo derivado vuelve a calcularse, con el mismo nombre técnico, en otro artefacto aguas arriba. Un mismo campo puede generar más de "
+        "una ocurrencia. El consultor determina si la repetición es intencional.",),
+    "declared_dimensions": (
+        "Artefactos del cierre declarados como dimensión por los metadatos del modelo. No se infieren por nombre ni por capa.",),
+    "composition_artifacts": (
+        "Artefactos que combinan dos o más proveedores directos de linaje. Describe su estructura y no implica por sí solo una desviación metodológica.",),
+    "cross_model_reuse_artifacts": (
+        "Entre las dimensiones y destinos de asociación evaluados, cuenta los artefactos que también aparecen en otros modelos analíticos del cliente. "
+        "No representa todos los artefactos del cierre.",),
+}
+VIEW_SCOPE_HELP: tuple[str, ...] = (
+    "Distribución de las vistas que participan en la evidencia evaluada en esta sección. Una misma vista puede participar en Armonización y Propagación; "
+    "no representa pertenencia exclusiva a una capa.",)
+
+
 def _kpi(key: str, label: str, value: Any) -> dict:
     return {"label": label, "value": value, "help": list(KPI_HELP[key])}
 
@@ -298,14 +322,17 @@ def _fact_into(group: dict, h: dict) -> None:
 
 
 def _facts_view(area_id: str, highlights: list[dict]) -> dict:
-    """Hechos descriptivos de un área en dos niveles de lectura: ``headline`` (tiles KPI de síntesis) y ``groups`` (evidencia de apoyo)."""
+    """Hechos descriptivos de un área en dos niveles de lectura: ``headline`` (tiles KPI de síntesis) y ``groups`` (evidencia de apoyo). La población de vistas
+    del área (``views_considered``) NO es un KPI ni un hecho de apoyo: se separa y se presenta como línea de alcance (``scope_line``)."""
+    scope = next((h for h in highlights if h["id"] == "views_considered"), None)
+    highlights = [{**h, "label": P.highlight_label(h)} for h in highlights if h["id"] != "views_considered"]      # etiqueta vigente aun en perfiles anteriores
     by_id = {h["id"]: h for h in highlights}
     layout = FACT_LAYOUT.get(area_id)
     if layout is None:
         numbers = [h for h in highlights if _is_number(h["value"]) and not h.get("breakdown")]
         layout = {"headline": [h["id"] for h in numbers[:3]], "groups": [("Hechos de apoyo", [h["id"] for h in highlights])]}
     head_ids = [i for i in layout["headline"] if i in by_id and _is_number(by_id[i]["value"])]
-    headline = [{"label": by_id[i]["label"], "value": by_id[i]["value"]} for i in head_ids]
+    headline = [{"label": by_id[i]["label"], "value": by_id[i]["value"], **({"help": list(AREA_KPI_HELP[i])} if i in AREA_KPI_HELP else {})} for i in head_ids]
     shown = {i for i in head_ids if not by_id[i].get("breakdown")}                        # con composición: tile + su tabla en el grupo
     groups = []
     for title, ids in layout["groups"]:
@@ -329,7 +356,8 @@ def _facts_view(area_id: str, highlights: list[dict]) -> dict:
     for g in groups:                                                                      # grupo de una sola tabla: el título de la tabla ES el del grupo
         if not g["properties"] and len(g["tables"]) == 1:
             g["title"] = g["tables"][0]["title"]
-    return {"headline": headline, "groups": groups, "notes": notes}
+    return {"headline": headline, "groups": groups, "notes": notes,
+            "scope_line": P.view_scope_text(scope["value"], scope.get("breakdown") or []) if scope is not None else None, "scope_help": list(VIEW_SCOPE_HELP)}
 
 
 def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, list[dict]]) -> dict:
@@ -372,9 +400,7 @@ def _context_questions(ctx: dict, groups_by_id: dict[str, dict]) -> dict:
     rows.sort(key=lambda r: r["order"])
     n, backed, independent = ctx["open_questions"], ctx["questions_backed_by_findings"], ctx["questions_without_findings"]
     return {"context_rows": rows, "context_open_total": n,
-            "context_summary": (f"{_plural(n, 'pregunta abierta', 'preguntas abiertas')} · "
-                                f"{backed} {'vinculada' if backed == 1 else 'vinculadas'} a hallazgos · "
-                                f"{independent} de contexto del proyecto"),
+            "context_summary": f"{n} {'abierta' if n == 1 else 'abiertas'} · {backed} con hallazgo · {independent} contexto de proyecto",
             "context_backed_n": sum(1 for r in rows if r["has_finding"]), "context_independent_n": sum(1 for r in rows if not r["has_finding"])}
 
 

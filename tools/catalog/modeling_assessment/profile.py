@@ -562,6 +562,19 @@ def _boundary_breakdown(artifacts: list[dict]) -> list[dict]:
             {"name": "provistos por la plataforma (sistema)", "count": system}]
 
 
+def _views_considered(idx: FactIndex, root: str | None, population: set[str]) -> tuple[int, list[dict]] | None:
+    """Vistas ÚNICAS que participan en la evidencia de un área: la intersección de su POBLACIÓN de evidencia (sujetos/participantes de los hechos del área) con
+    las vistas del cierre (`am.view_type_composition`, clasificador único `dsp_view_type`). No hay mapa artefacto→área ni se usa la capa numérica: dos áreas
+    pueden compartir vistas (poblaciones SOLAPADAS, no una partición del cierre). None si no hay evidencia de vistas o la población está vacía."""
+    vt = idx.usable_get("am.view_type_composition", root or "")
+    if vt is None or not population:
+        return None
+    types = {v["technical_name"]: v["view_type"] for v in vt.value["views"]}
+    mine = [t for n, t in types.items() if n in population]
+    return len(mine), [{"name": "gráficas", "count": sum(1 for t in mine if t == "GRAPHICAL")}, {"name": "SQL", "count": sum(1 for t in mine if t == "SQL")},
+                       {"name": "sin clasificar", "count": sum(1 for t in mine if t == "UNKNOWN")}]
+
+
 def _highlights(idx: FactIndex, comp: AssessmentComposition, area: M.Area) -> list[dict]:
     """Datos normalizados y legibles por area: SOLO claves/valores elegidos explicitamente (no hechos crudos)."""
     out: list[dict] = []
@@ -619,22 +632,35 @@ def _highlights(idx: FactIndex, comp: AssessmentComposition, area: M.Area) -> li
                 sample = [f"{x['field']} ({x['type']}{' ' + x['length'] if x.get('length') else ''})" for x in fields[:10]]
                 add("numeric_non_measure_fields", "Campos numéricos no declarados como medida (muestra)", sample + ([f"… (+{len(fields) - 10})"] if len(fields) > 10 else []))
     elif area is M.Area.PROPAGATION:
-        add("lineage_steps_evaluated", "Pasos de linaje con delta de contrato", len(idx.usable("propagation.contract_delta")) + len(idx.usable("am.contract_delta")))
-        add("artifacts_with_derived_fields", "Artefactos con campos derivados", sum(1 for f in idx.usable("propagation.derived_fields") if f.value["n_derived"] > 0))
+        step_facts = [*idx.usable("propagation.contract_delta"), *idx.usable("am.contract_delta")]
+        population = {f.subject for f in idx.usable("propagation.derived_fields")} | {x for f in step_facts for x in f.subject.split("->")}
+        scope = _views_considered(idx, am_name, population)
+        if scope is not None:
+            add("views_considered", "Vistas consideradas", scope[0], scope[1])
+        add("lineage_steps_evaluated", "Pasos de linaje evaluados", len(idx.usable("propagation.contract_delta")) + len(idx.usable("am.contract_delta")))
+        add("artifacts_with_derived_fields", "Artefactos con derivaciones", sum(1 for f in idx.usable("propagation.derived_fields") if f.value["n_derived"] > 0))
         r = idx.usable_get("propagation.rederivation", "closure")
         if r is not None:
-            add("rederived_field_occurrences", "Campos derivados de nuevo en un ancestro del linaje", len(r.value["occurrences"]))
+            add("rederived_field_occurrences", "Derivaciones repetidas", len(r.value["occurrences"]))
     elif area is M.Area.HARMONIZATION:
+        dims_f = idx.usable_get("harmonization.dimension_artifacts", "closure")
+        comp_f = idx.usable_get("harmonization.composition_artifacts", "closure")
+        population = ({a["artifact"] for a in dims_f.value["artifacts"]} if dims_f is not None else set()) \
+            | ({a["artifact"] for a in comp_f.value["artifacts"]} if comp_f is not None else set()) \
+            | {f.subject for f in idx.usable("harmonization.local_chain_reuse")}                    # candidatos de reuso entre modelos (destinos de asociación + dimensiones)
+        scope = _views_considered(idx, am_name, population)
+        if scope is not None:
+            add("views_considered", "Vistas consideradas", scope[0], scope[1])
         d = idx.usable_get("harmonization.dimension_artifacts", "closure")
         if d is not None:
-            add("declared_dimensions", "Dimensiones declaradas en el cierre", d.value["count"])
+            add("declared_dimensions", "Dimensiones declaradas", d.value["count"])
             add("dimensions_with_own_associations", "Dimensiones con asociaciones propias", d.value["with_own_associations"])
         c = idx.usable_get("harmonization.composition_artifacts", "closure")
         if c is not None:
-            add("composition_artifacts", "Artefactos de composición (dos o más proveedores de linaje)", c.value["count"])
+            add("composition_artifacts", "Artefactos de composición", c.value["count"])
         cross = [(f.subject, f.value["cross_am_reuse_count"]) for f in idx.usable("harmonization.cross_am_reuse")]
         if cross:
-            add("cross_model_reuse_artifacts", "Artefactos contenidos también en otros modelos analíticos", sum(1 for _, n in cross if n > 0))
+            add("cross_model_reuse_artifacts", "Artefactos con reuso", sum(1 for _, n in cross if n > 0))
             add("most_reused_across_models", "Más reutilizados en otros modelos analíticos",
                 [{"name": a, "count": n} for a, n in sorted(cross, key=lambda x: (-x[1], x[0]))[:5] if n > 0])
     elif area is M.Area.INGESTION:

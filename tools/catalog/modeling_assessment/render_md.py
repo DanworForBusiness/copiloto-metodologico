@@ -194,6 +194,35 @@ SUMMARY_RELATION_TEXT = ("Los casos a revisar son hallazgos concretos que requie
                          "información pendiente del proyecto y pueden ayudar a resolver uno o varios hallazgos.")
 
 
+# Etiquetas visibles de los indicadores de Propagación / Armonización, por id (una sola fuente para Markdown y HTML). Los perfiles persistidos antes del
+# ajuste conservan el texto viejo en su JSON: la lectura usa SIEMPRE esta redacción. No cambia ningún cálculo ni id.
+_HIGHLIGHT_LABELS = {
+    "lineage_steps_evaluated": "Pasos de linaje evaluados",                 # cuenta aristas proveedor→consumidor evaluadas (también las de contrato idéntico)
+    "artifacts_with_derived_fields": "Artefactos con derivaciones",
+    "rederived_field_occurrences": "Derivaciones repetidas",                # ocurrencias (campo, consumidor, ancestro), no campos únicos
+    "declared_dimensions": "Dimensiones declaradas",
+    "composition_artifacts": "Artefactos de composición",
+    "cross_model_reuse_artifacts": "Artefactos con reuso",                  # solo entre las dimensiones y destinos de asociación evaluados
+}
+
+
+def highlight_label(h: dict) -> str:
+    """Etiqueta visible de un hecho descriptivo (la vigente aun si el perfil persistido trae la anterior)."""
+    return _HIGHLIGHT_LABELS.get(h["id"], h["label"])
+
+
+def view_scope_text(total: int, breakdown: list[dict]) -> str:
+    """"Vistas consideradas: 16 · 13 gráficas · 3 SQL[ · 1 sin clasificar]": vistas ÚNICAS que participan en la evidencia evaluada en la sección. Es contexto
+    factual (no pertenencia exclusiva a una capa ni juicio): una misma vista puede participar en Armonización y en Propagación."""
+    if not total:
+        return "Vistas consideradas: 0"
+    n = {b["name"]: b["count"] for b in breakdown}
+    parts = [str(total), _plural(n.get("gráficas", 0), "gráfica"), f"{n.get('SQL', 0)} SQL"]
+    if n.get("sin clasificar", 0):
+        parts.append(f"{n['sin clasificar']} sin clasificar")
+    return "Vistas consideradas: " + " · ".join(parts)
+
+
 def review_required_text(n_occurrences: int, n_groups: int) -> tuple[str, str]:
     """(titular, lectura) de "Casos a revisar": OCURRENCIAS de los grupos de revisión (no grupos ni preguntas). La comparten Markdown y HTML.
     Solo vocabulario visible: el contrato interno sigue siendo `review_required` / `occurrence_count`."""
@@ -301,12 +330,17 @@ def _area_block(area: dict, groups_by_id: dict[str, dict], rule_by_area: dict[st
     rs = area["required_surfaces"]
     out.append(f"**Superficies de evidencia requeridas:** {_plural(rs['assessed'], 'evaluada')}, {_plural(rs['partially_assessed'], 'parcialmente evaluada')}, "
                f"{_plural(rs['not_assessed'], 'no evaluada')}, {rs['not_applicable']} no aplican")
+    scope = next((h for h in area["highlights"] if h["id"] == "views_considered"), None)
+    if scope is not None:
+        out.append(view_scope_text(scope["value"], scope.get("breakdown") or []))
     out.append("")
-    if area["highlights"]:
+    if [h for h in area["highlights"] if h["id"] != "views_considered"]:
         out.append("Qué se observó (hechos descriptivos, sin juicio):")
         out.append("")
         for h in area["highlights"]:
-            out.append(f"- {h['label']}: {_value_text(h['value'])}")
+            if h["id"] == "views_considered":
+                continue
+            out.append(f"- {highlight_label(h)}: {_value_text(h['value'])}")
             for b in h.get("breakdown") or []:
                 out.append(f"  - {b['name']}: {b['count']}")
             if h["id"] == "views_in_closure":

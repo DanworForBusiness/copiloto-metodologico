@@ -85,10 +85,10 @@ def test_every_canonical_question_appears_exactly_once_in_a_stable_order(rows):
 
 
 def test_the_compact_summary_uses_the_canonical_counts_not_the_template(rows):
-    assert rows["context_summary"] == "5 preguntas abiertas · 3 vinculadas a hallazgos · 2 de contexto del proyecto"
+    assert rows["context_summary"] == "5 abiertas · 3 con hallazgo · 2 contexto de proyecto"
     one = presenter._context_questions({**CTX, "open_questions": 1, "questions_backed_by_findings": 1, "questions_without_findings": 0,
                                         "questions": CTX["questions"][:1]}, GROUPS)
-    assert one["context_summary"] == "1 pregunta abierta · 1 vinculada a hallazgos · 0 de contexto del proyecto"
+    assert one["context_summary"] == "1 abierta · 1 con hallazgo · 0 contexto de proyecto"
     tpl = (REPO / "webapp/templates/partials" / "catalog_assessment_report.html").read_text(encoding="utf-8")
     assert "context_summary" in tpl and "questions_backed" not in tpl                                  # la plantilla solo imprime; no cuenta
 
@@ -123,8 +123,11 @@ def test_the_existing_report_container_is_reused_with_no_new_css(doc):
     html = _html(_view(doc))
     block = _block(html)
     head = re.search(r'<details class="dashboard-section" id="asr-preguntas" open>\s*<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span>'
-                     r'<span class="dashboard-section__title">Preguntas que solo el proyecto puede responder</span><span class="dashboard-section__count">(\d+)</span></summary>', html)
-    assert head and int(head.group(1)) == _view(doc)["summary"]["context_open_n"]                     # título = cabecera del contenedor, con el conteo canónico
+                     r'<span class="dashboard-section__title">Preguntas que solo el proyecto puede responder</span><span class="dashboard-section__count">([^<]+)</span></summary>', html)
+    assert head and head.group(1) == _view(doc)["summary"]["context_summary"]                          # título = cabecera del contenedor; a la derecha, el resumen canónico
+    assert re.fullmatch(r"\d+ abiertas? · \d+ con hallazgo · \d+ contexto de proyecto", head.group(1))
+    assert html.count(head.group(1)) == 1 and "vinculadas a hallazgos" not in html                    # el resumen aparece UNA vez: la línea redundante bajo el título se eliminó
+    assert not re.search(r'<div class="dashboard-section__body">\s*<p>', block)                       # la tabla empieza directo tras la cabecera
     assert '<div class="dashboard-section__body">' in block
     area = re.search(r'<details class="dashboard-section" id="asr-a-[^"]*"|<details class="dashboard-section" id="[^"]+" (?:open)?>', html)
     assert area                                                                                       # el mismo primitivo que ya usan los bloques de área

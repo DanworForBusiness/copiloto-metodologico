@@ -90,7 +90,8 @@ def test_the_canonical_json_and_markdown_are_unchanged_by_the_help(_doc):
 
 def test_the_rendered_individual_report_shows_four_info_icons_and_the_portfolio_is_untouched(_report_view):
     html = templates.get_template("partials/catalog_assessment_report.html").render(v=_report_view)
-    assert html.count('class="activity-kpi__info"') == 4 and html.count('<span class="chart-tooltip"><p>') >= 4
+    top = html[:html.index('id="asr-resumen"')]                                                    # los 4 indicadores superiores (las áreas tienen los suyos)
+    assert top.count('class="activity-kpi__info"') == 4 and top.count('<span class="chart-tooltip"><p>') == 4
     for k in _report_view["kpis"]:
         assert f'<span class="activity-kpi__label">{k["label"]}</span>' in html
     portfolio = (REPO / "webapp" / "templates" / "partials" / "client_assessment_report.html").read_text(encoding="utf-8")

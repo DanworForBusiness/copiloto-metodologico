@@ -627,7 +627,8 @@ def test_facts_have_a_reading_hierarchy_headline_kpis_then_supporting_tables_and
         shown = {m["label"] for m in v["headline"]}
         for g in v["groups"]:
             shown |= {p["label"] for p in g["properties"]} | {t["title"] for t in g["tables"]} | {g["title"]}
-        assert all(h["label"] in shown for h in a["highlights"]), a["id"]                              # ningún hecho se pierde
+        assert all(h["label"] in shown for h in a["highlights"] if h["id"] != "views_considered"), a["id"]   # ningún hecho se pierde
+        assert (v["scope_line"] is not None) == any(h["id"] == "views_considered" for h in a["highlights"])   # la población de vistas va como línea de alcance, no como KPI
         # los valores numéricos escalares siguen presentes (titular o tabla de propiedades)
         for h in a["highlights"]:
             if isinstance(h["value"], int) and not h.get("breakdown"):
