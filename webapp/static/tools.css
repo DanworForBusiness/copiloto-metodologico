@@ -2847,9 +2847,10 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    nativos de `.methodology`, `.support-links`/`.support-link`, `.htmx-indicator` y el badge `.catalog-card__verdict`.
    Acá queda SOLO lo que no existe en ese sistema (ver cada regla). Sin score ni banda de madurez. */
 /* El hero del Hub no tiene slot de acciones arriba a la derecha (`.heading-supports` solo existe en el header de sección). */
-.asm-hero-has-support { position: relative; }
+.asm-hero-has-support { position: relative; container-type: inline-size; }
 .asm-hero-has-support > .asm-hero-support { position: absolute; top: 0; right: 0; margin: 0; }
-@media (max-width: 640px) { .asm-hero-has-support > .asm-hero-support { position: static; margin: 0 0 12px; } }
+/* Dos botones (Ver Assessment + Ver Informe de Cliente) no caben sobre el eyebrow en un panel angosto: el ancho que importa es el del hero, no el del viewport. */
+@container (max-width: 640px) { .asm-hero-has-support > .asm-hero-support { position: static; margin: 0 0 12px; } }
 /* Fila de estado del assessment bajo el título (concepto nuevo): pegada al título, 6px más arriba por pedido del owner. */
 .asm-hero-meta { margin-top: -4px; }
 /* La fila de metadata legacy (veredicto · artefactos) hereda `.hero-meta{margin-top:22px}` del Hub: pegada a la del assessment forman un solo bloque. */

@@ -188,6 +188,25 @@ def _report_title(entry: Any, am: str | None) -> tuple[str | None, str | None]:
     return (stripped or desc), name
 
 
+def report_title(entry: Any, am: str | None) -> tuple[str | None, str | None]:
+    """Título (descripción, nombre técnico) de un activo: misma lógica que el informe individual (API pública para el consolidado)."""
+    return _report_title(entry, am)
+
+
+def percent(value: float | None) -> str:
+    """Proporción [0,1] como porcentaje (mismo formato que el informe y el Markdown); None → "n/d"."""
+    return P.percent_text(value)
+
+
+def confidence_label(level: str) -> str:
+    """Nivel de confianza en español con mayúscula inicial ("Alta", "Media", "Baja"), igual que la cabecera del flujo."""
+    return P.confidence_level_text(level).capitalize()
+
+
+def plural(n: int, singular: str, plural_form: str | None = None) -> str:
+    return P.plural(n, singular, plural_form)
+
+
 ROOT_TYPE_TEXT = {"analytic-model": "Modelo analítico", "view": "Vista", "local-table": "Tabla local", "remote-table": "Tabla remota"}
 
 

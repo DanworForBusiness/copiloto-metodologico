@@ -430,7 +430,7 @@ def test_publication_state_header_is_compact_without_the_selector_gap(owner, mon
         main._invalidate_catalog_cache()
 
 
-def test_decision_tabs_are_exactly_the_approved_four_and_no_client_portfolio_surface_exists(owner, monkeypatch, tmp_path):
+def test_decision_tabs_are_exactly_the_approved_four_and_no_client_portfolio_tab_exists(owner, monkeypatch, tmp_path):
     _demo_catalog(monkeypatch, tmp_path)
     try:
         html = owner.get(MODULE_URL).text
@@ -439,8 +439,9 @@ def test_decision_tabs_are_exactly_the_approved_four_and_no_client_portfolio_sur
         assert "tool-tabs--many" not in html and "Assessment del cliente" not in html and "assessment-cliente" not in html
         for path in ("/catalog/client-assessment", "/catalog/client-assessment.json", "/catalog/client-assessment.md"):
             assert owner.get(f"{path}?client=ClienteDemo&pack={PACK}").status_code == 404           # ninguna ruta de consolidado registrada
-        for rel in ("webapp/services/client_assessment_portfolio.py", "webapp/routers/client_assessment.py",
-                    "webapp/templates/client_assessment_report.html", "webapp/templates/partials/client_assessment_tab.html"):
+        # el consolidado V1 es contextual al detalle del flujo (`/catalog/client/assessment`, fragmento del slot): jamás una tab ni páginas propias
+        for rel in ("webapp/routers/client_assessment.py", "webapp/templates/client_assessment_report.html",
+                    "webapp/templates/partials/client_assessment_tab.html"):
             assert not (REPO / rel).exists(), rel
         css = (REPO / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
         assert "tool-tabs--many" not in css

@@ -12,9 +12,9 @@
    mínimas del MISMO perfil canónico que el informe, y la acción como `.support-link` (patrón `.support-links
    .heading-supports` del pipeline de contenido) arriba a la derecha. Sin score ni banda de madurez. #}
 {% set ah = assessment_header %}
-<section class="module-hero{% if ah and ah.action %} asm-hero-has-support{% endif %}">
-  {% if ah and ah.action %}
+<section class="module-hero asm-hero-has-support">
   <div class="support-links heading-supports asm-hero-support">
+    {% if ah and ah.action %}
     {% if ah.action.method == "get" %}
     <a class="support-link" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ ah.action.label }}<span>↗</span></a>
     {% else %}
@@ -22,8 +22,10 @@
        hx-indicator="#asm-busy" @click.prevent>{{ ah.action.label }}<span>↗</span></a>
     <span class="htmx-indicator" id="asm-busy" role="status">Generando…</span>
     {% endif %}
+    {% endif %}
+    {# Informe de Cliente (consolidado V1): `.support-link` hermano del assessment del flujo; carga en el MISMO slot y su "← Volver" regresa a este flujo. #}
+    <a class="support-link" href="#" role="button" hx-get="/catalog/client/assessment?flow={{ entry_id|urlencode }}&pack={{ pack|urlencode }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Ver Informe de Cliente<span>↗</span></a>
   </div>
-  {% endif %}
   <p class="eyebrow">Catálogo Danwor · {{ cliente }}</p>
   <h1>{{ dominio }}</h1>
   {% if ah %}

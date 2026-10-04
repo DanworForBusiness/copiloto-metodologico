@@ -1,0 +1,78 @@
+{# Assessment del cliente (consolidado V1): fragmento del slot de detalle del Catálogo (#catalog-detail-slot). Solo lectura derivada de los
+   assessments canónicos ya generados: abrirlo no conecta a Datasphere ni ejecuta evaluaciones. Reusa el sistema visual del informe individual
+   (`.catalog-back`, `.module-hero`, `.activity-kpi-grid`, `.dashboard-section`, `.methodology`). Unidad = entrada/flujo del Catálogo. #}
+{% set snap = v.snapshot %}
+<a class="catalog-back" href="#" role="button" hx-get="{{ back_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>
+<section class="module-hero">
+  <p class="eyebrow">Assessment del cliente</p>
+  <h1 class="asr-title"><span class="tone-gold">{{ snap.client }}</span></h1>
+  <div class="hero-meta">
+    <span class="catalog-verdict-line"><span>Generado {{ v.generated_text }}</span></span>
+  </div>
+  <div class="support-links asr-actions">
+    <a class="support-link" href="{{ md_url }}" download>Exportar Markdown<span>↗</span></a>
+    <a class="support-link" href="{{ json_url }}" download>Exportar JSON<span>↗</span></a>
+  </div>
+</section>
+<p class="admin-help">Resumen derivado de los assessments ya generados de los activos del catálogo de este cliente. Abrirlo no se conecta a Datasphere ni ejecuta evaluaciones: un activo sin assessment vigente se genera desde su detalle. No es un puntaje de madurez.</p>
+
+<details class="dashboard-section" open>
+  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Resumen</span></summary>
+  <div class="dashboard-section__body">
+    <div class="activity-kpi-grid">
+      {% for k in v.kpis %}<div class="activity-kpi"><span class="activity-kpi__value">{{ k.value }}</span><span class="activity-kpi__label">{{ k.label }}</span></div>{% endfor %}
+    </div>
+  </div>
+</details>
+
+<article class="methodology catalog-detail">
+  <section class="content-section" id="cli-estado">
+    <div class="content-heading"><span>01</span><h2>Estado y confianza</h2></div>
+    <table>
+      <thead><tr><th>Estado del assessment</th><th>Activos</th></tr></thead>
+      <tbody>{% for r in v.state_rows %}<tr data-state="{{ r.state }}"><td>{{ r.label }}</td><td>{{ r.count }}</td></tr>{% endfor %}</tbody>
+    </table>
+    <p>Confianza de los {{ snap.summary.current_assessments }} assessments vigentes (confiabilidad de la evidencia, no calidad del activo; se muestra como distribución).</p>
+    <table>
+      <thead><tr><th>Confianza</th><th>Assessments</th></tr></thead>
+      <tbody>{% for r in v.confidence_rows %}<tr data-confidence="{{ r.level }}"><td>{{ r.label }}</td><td>{{ r.count }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </section>
+
+  <section class="content-section" id="cli-activos">
+    <div class="content-heading"><span>02</span><h2>Activos</h2></div>
+    <table>
+      <thead><tr><th>Activo</th><th>Estado</th><th>Cobertura</th><th>Confianza</th><th>Observaciones</th><th>Revisión requerida</th></tr></thead>
+      <tbody>
+        {% for r in snap.assets %}
+        <tr data-entry="{{ r.entry_id }}" data-state="{{ r.state }}">
+          <td>{% if r.asset_title %}<span class="tone-black">{{ r.asset_title }} · </span>{% endif %}<a href="#" role="button" hx-get="{{ r.detail_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent><strong class="tone-gold">{{ r.asset_id or r.domain }}</strong></a>{% if r.asset_id and r.domain != r.asset_id %}<br><span class="admin-help">{{ r.domain }}</span>{% endif %}</td>
+          <td>{{ r.state_label }}{% if r.reason %}<br><span class="admin-help">{{ r.reason }}</span>{% endif %}</td>
+          <td>{{ r.coverage_text }}</td>
+          <td>{{ r.confidence_text }}</td>
+          <td>{{ r.observation_occurrences if r.observation_occurrences is not none else "—" }}</td>
+          <td>{{ r.review_occurrences if r.review_occurrences is not none else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="admin-help">Solo los assessments vigentes aportan métricas; "—" significa no disponible, no cero. Cada activo abre su detalle en el Catálogo, donde vive el informe individual.</p>
+  </section>
+
+  <section class="content-section" id="cli-hallazgos">
+    <div class="content-heading"><span>03</span><h2>Hallazgos recurrentes</h2></div>
+    {% if snap.recurring_findings %}
+    <table>
+      <thead><tr><th>Hallazgo</th><th>Tipo</th><th>Activos</th></tr></thead>
+      <tbody>
+        {% for f in snap.recurring_findings %}
+        <tr data-finding="{{ f.id }}"><td><strong>{{ f.title }}</strong><br><span class="admin-help">{{ f.asset_ids|join(", ") }}</span></td><td>{{ f.kind_label }}</td><td>{{ f.entries }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="admin-help">Cada activo cuenta una vez por hallazgo. Solo assessments vigentes; sin pesos ni severidad.</p>
+    {% else %}
+    <div class="dashboard-empty"><span class="dashboard-empty__label">Sin hallazgos recurrentes</span><p>No hay observaciones ni revisiones requeridas en los assessments vigentes.</p></div>
+    {% endif %}
+  </section>
+</article>

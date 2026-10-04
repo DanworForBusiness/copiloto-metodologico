@@ -246,7 +246,8 @@ def test_detail_header_states_follow_the_contract(world, monkeypatch):
     h = hdr()                                                                  # FAILED (conserva el último informe, pero la cabecera pide reintentar)
     assert "Assessment no disponible" in h and "Reintentar" in h and "Cobertura" not in h and "interno" not in h and "RuntimeError" not in h
     na = _detail(c, monkeypatch, "solo-na")                                    # NOT_APPLICABLE
-    assert "No aplica" in na and "no contiene un modelo analítico terminal" in na and "support-link" not in na and "<button" not in na
+    assert "No aplica" in na and "no contiene un modelo analítico terminal" in na and "Ver Assessment" not in na and "<button" not in na
+    assert na.count('class="support-link"') == 1 and "Ver Informe de Cliente" in na      # único botón: el consolidado del cliente (no hay acción de assessment)
 
 
 def test_detail_header_sits_right_below_the_title_with_the_action_in_the_support_link_slot(world, monkeypatch):
