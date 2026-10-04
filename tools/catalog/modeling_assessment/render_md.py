@@ -181,14 +181,28 @@ def _row_text(r: dict) -> str:
     return f"{r['name']}: " + ", ".join(f"{_ROW_KEY_TEXT.get(k, k.replace('_', '-'))} {_pct(v) if k == 'share' else v}" for k, v in rest)   # `share` = proporción 0–1
 
 
-def view_composition_text(total: int, breakdown: list[dict]) -> str:
-    """Lectura objetiva de la composición ("El cierre semántico contiene 17 vistas: 12 gráficas, 4 SQL y 1 sin clasificación."), SIN juicio.
-    La comparten el Markdown y la UI estructurada (misma función, mismo texto)."""
+def view_composition_text(total: int, breakdown: list[dict], *, structural: bool = False) -> str:
+    """Lectura objetiva de la composición del cierre por tipo de vista, SIN juicio. La comparten el Markdown y la UI estructurada.
+    ``structural`` = al menos una vista se reconoció solo por su marcador estructural (pools planos, sin carpeta-tipo): ahí una vista sin
+    marcador no es detectable, así que NO se afirma "0 sin clasificación" como si UNKNOWN fuera exhaustivamente observable (el hecho no cambia)."""
     if not total:
         return "El cierre semántico no contiene vistas de Datasphere."
     n = {b["name"]: b["count"] for b in breakdown}
     g, s, u = n.get("gráficas", 0), n.get("SQL", 0), n.get("sin clasificar", 0)
-    return (f"El cierre semántico contiene {_plural(total, 'vista')}: {_plural(g, 'gráfica')}, {s} SQL y {u} sin clasificación.")
+    if not structural:                                       # pertenencia autoritativa (carpeta `views`): UNKNOWN es observable
+        return f"El cierre semántico contiene {_plural(total, 'vista')}: {_plural(g, 'gráfica')}, {s} SQL y {u} sin clasificación."
+    items = [_plural(g, "gráfica"), f"{s} SQL"]
+    if u:                                                    # mixto: UNKNOWN solo puede provenir de vistas identificadas por carpeta
+        items.append(f"{u} sin clasificación (entre las identificadas por carpeta)")
+    listed = ", ".join(items[:-1]) + " y " + items[-1]
+    return (f"Se identificaron {_plural(total, 'vista')} en el cierre semántico: {listed}. "
+            "El pool no informa carpetas por tipo en todos los casos: las vistas sin carpeta solo se reconocen por su marcador gráfico o SQL.")
+
+
+def has_structural_membership(highlights: list[dict]) -> bool:
+    """True si alguna vista del cierre se reconoció solo por marcador estructural (``membership_basis == STRUCTURAL_MARKER``)."""
+    arts = next((h for h in highlights if h.get("id") == "view_artifacts"), None)
+    return bool(arts) and any(r.get("membership_basis") == "STRUCTURAL_MARKER" for r in arts["value"])
 
 
 def _value_text(v: Any) -> str:
@@ -258,7 +272,7 @@ def _area_block(area: dict, groups_by_id: dict[str, dict], rule_by_area: dict[st
             for b in h.get("breakdown") or []:
                 out.append(f"  - {b['name']}: {b['count']}")
             if h["id"] == "views_in_closure":
-                out.append(f"  - {view_composition_text(h['value'], h.get('breakdown') or [])}")
+                out.append(f"  - {view_composition_text(h['value'], h.get('breakdown') or [], structural=has_structural_membership(area['highlights']))}")
         out.append("")
     gids = area["finding_groups"]
     if gids:

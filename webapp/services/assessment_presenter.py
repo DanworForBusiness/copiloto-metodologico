@@ -325,7 +325,7 @@ def _facts_view(area_id: str, highlights: list[dict]) -> dict:
     notes = []
     views = by_id.get("views_in_closure")
     if area_id == "ANALYTIC_MODEL" and views is not None:                                  # misma frase que el Markdown (función del paquete), sin juicio
-        notes.append(P.view_composition_text(views["value"], views.get("breakdown") or []))
+        notes.append(P.view_composition_text(views["value"], views.get("breakdown") or [], structural=P.has_structural_membership(highlights)))
     for g in groups:                                                                      # grupo de una sola tabla: el título de la tabla ES el del grupo
         if not g["properties"] and len(g["tables"]) == 1:
             g["title"] = g["tables"][0]["title"]

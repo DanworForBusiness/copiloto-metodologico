@@ -22,6 +22,7 @@ __all__ = [
     "area_title", "macro_dimension_title", "assessability_text", "assessability_plural_text", "execution_state_text",
     "confidence_level_text", "finding_kind_text", "rule_result_text", "unit_label", "is_artifact_name",
     "percent_text", "plural", "value_text", "occurrence_text", "row_key_text", "evidence_not_acquired", "view_composition_text",
+    "has_structural_membership",
 ]
 
 
@@ -84,9 +85,15 @@ def is_artifact_name(unit: str) -> bool:
     return unit not in _md._UNIT_TEXT
 
 
-def view_composition_text(total: int, breakdown: list[dict]) -> str:
-    """Lectura objetiva de la composición del cierre por tipo de vista (misma función que el Markdown; sin juicio)."""
-    return _md.view_composition_text(total, breakdown)
+def view_composition_text(total: int, breakdown: list[dict], *, structural: bool = False) -> str:
+    """Lectura objetiva de la composición del cierre por tipo de vista (misma función que el Markdown; sin juicio). Con ``structural`` no
+    afirma "0 sin clasificación" (en pools planos UNKNOWN no es exhaustivamente observable)."""
+    return _md.view_composition_text(total, breakdown, structural=structural)
+
+
+def has_structural_membership(highlights: list[dict]) -> bool:
+    """True si alguna vista del cierre se reconoció solo por marcador estructural (pool plano)."""
+    return _md.has_structural_membership(highlights)
 
 
 def percent_text(value: float | None) -> str:

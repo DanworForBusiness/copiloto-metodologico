@@ -227,3 +227,44 @@ def test_the_fact_is_descriptive_only_and_does_not_move_coverage_signals_or_vers
 def test_pool_without_view_evidence_collection_keeps_previous_behavior(tmp_path):
     ev = SupplementaryEvidence.from_files([_write(tmp_path, "views/X.json", _body("X", SQL_MARK))], root=tmp_path)
     assert ev.view_type_evidence("X") is None                                                    # sin clasificador inyectado no se recoge evidencia
+
+
+# ── redacción en pools PLANOS: UNKNOWN no es exhaustivamente observable ─────
+def _flat_inbound(root: Path) -> Path:
+    _write(root, "Flat/RAW_T.json", {"definitions": {"RAW_T": {"kind": "entity", "@DataWarehouse.remote.connection": "S4",
+                                                              "@DataWarehouse.remote.entity": "ABAPTABLES.T1", "elements": {"A": {"type": "cds.String"}}}}})
+    _write(root, "Flat/1VR_PLAIN.json", _view("1VR_PLAIN", "RAW_T", ("A",)))                                # vista SIN marcador: en un pool plano no es detectable
+    gra = _view("2VG_GR", "1VR_PLAIN", ("A",)); gra["editorSettings"] = {"2VG_GR": {"editor": {"default": "GRAPHICALVIEWBUILDER"}}}
+    sql = _view("3VF_SQL", "2VG_GR", ("A",), pattern="ANALYTICAL_FACT"); sql["definitions"]["3VF_SQL"]["@DataWarehouse.sqlEditor.query"] = "SELECT 1"
+    _write(root, "Flat/2VG_GR.json", gra)
+    _write(root, "Flat/3VF_SQL.json", sql)
+    _write(root, "Flat/4AM_T.json", _view("4AM_T", "3VF_SQL", ("A",), pattern="ANALYTICAL_CUBE", category="CUBE"))
+    return root
+
+
+def test_flat_pool_wording_does_not_claim_zero_unknown_as_exhaustive(tmp_path):
+    d, _meta = shadow.assess(_flat_inbound(tmp_path / "pool"), "Flat", "4AM_T")
+    h = _am_highlights(d)
+    assert h["views_in_closure"]["value"] == 2 and {r["membership_basis"] for r in h["view_artifacts"]["value"]} == {"STRUCTURAL_MARKER"}   # hechos intactos
+    assert {b["name"]: b["count"] for b in h["views_in_closure"]["breakdown"]}["sin clasificar"] == 0                                         # el JSON sigue siendo factual
+    md = render_md.render_markdown(d)
+    assert "Se identificaron 2 vistas en el cierre semántico: 1 gráfica y 1 SQL." in md
+    assert "sin clasificación" not in md.split("Se identificaron")[1].split("\n")[0]                  # no se afirma "0 sin clasificación"
+    assert "solo se reconocen por su marcador gráfico o SQL" in md
+    from webapp.services import assessment_presenter as presenter
+    from webapp.services import assessment_service as svc
+    entry = type("E", (), {"entry_id": "e", "cliente": "Flat", "dominio": "General", "artefactos": ["4AM_T"]})()
+    status = svc.AssessmentStatus(svc.CURRENT, "e", "Flat", "4AM_T", generated_at="2026-10-04T00:00:00+00:00", profile=d)
+    area = next(a for mg in presenter.report_view(status, entry, "datasphere_core")["macro_groups"] for a in mg["areas"] if a["id"] == "ANALYTIC_MODEL")
+    assert len(area["facts"]["notes"]) == 1 and area["facts"]["notes"][0].startswith("Se identificaron 2 vistas") and "0 sin clasificación" not in area["facts"]["notes"][0]
+
+
+def test_wording_by_membership_basis_authoritative_structural_and_mixed():
+    bd = [{"name": "gráficas", "count": 13}, {"name": "SQL", "count": 3}, {"name": "sin clasificar", "count": 0}]
+    assert render_md.view_composition_text(16, bd) == "El cierre semántico contiene 16 vistas: 13 gráficas, 3 SQL y 0 sin clasificación."       # familia: sin cambios
+    structural = render_md.view_composition_text(61, [{"name": "gráficas", "count": 31}, {"name": "SQL", "count": 30}, {"name": "sin clasificar", "count": 0}], structural=True)
+    assert structural.startswith("Se identificaron 61 vistas en el cierre semántico: 31 gráficas y 30 SQL.") and "0 sin clasificación" not in structural
+    mixed = render_md.view_composition_text(5, [{"name": "gráficas", "count": 2}, {"name": "SQL", "count": 2}, {"name": "sin clasificar", "count": 1}], structural=True)
+    assert "2 gráficas, 2 SQL y 1 sin clasificación (entre las identificadas por carpeta)" in mixed       # prudente: UNKNOWN solo viene de las identificadas por carpeta
+    assert render_md.has_structural_membership([{"id": "view_artifacts", "value": [{"membership_basis": "FAMILY_DIRECTORY"}, {"membership_basis": "STRUCTURAL_MARKER"}]}])
+    assert not render_md.has_structural_membership([{"id": "view_artifacts", "value": [{"membership_basis": "FAMILY_DIRECTORY"}]}]) and not render_md.has_structural_membership([])
