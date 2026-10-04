@@ -41,6 +41,10 @@ def am_facts(
     graph = universe.graph
     closure = universe.closure_of(am)
     closure_set = set(closure)
+    if universe.root_type_of(am) != "analytic-model":
+        # Raiz que NO es Modelo Analitico (vista / tabla): los hechos de contrato/asociaciones/delta del "modelo analitico" no aplican (sus
+        # superficies quedan NOT_APPLICABLE); solo se describe la composicion del cierre, que es estructura de grafo valida para cualquier raiz.
+        return sort_facts([_closure_composition_fact(universe, entities, am, closure_set)])
     ident = identity or {n: classify(entities[n]) for n in closure}
     e = entities[am]
     lin_providers = [p for p in graph.providers(am, [L]) if p in closure_set]
@@ -98,13 +102,17 @@ def am_facts(
         EvidenceClass.B, refs=entity_refs(e, ["fields"])))
 
     # ---- composicion del cierre semantico: linaje estricto vs asociacion (B; descriptivo, sin juicio) ------------
+    facts.append(_closure_composition_fact(universe, entities, am, closure_set))
+
+    return sort_facts(facts)
+
+
+def _closure_composition_fact(universe: AssessmentUniverse, entities: Mapping[str, Any], am: str, closure_set: set[str]) -> Fact:
     lineage_set = set(universe.lineage_closure_of(am))
     association_only = sorted(closure_set - lineage_set)
-    facts.append(make_fact(
+    return make_fact(
         "am.closure_composition", AM_, am,
         {"semantic_closure_size": len(closure_set), "strict_lineage_size": len(lineage_set), "association_mediated_size": len(association_only),
          "strict_lineage_artifacts": sorted(lineage_set), "association_mediated_artifacts": association_only,
-         "definition": "semantic closure = lineage + association; strict lineage = reachable from the terminal AM by lineage edges only (AM included)"},
-        EvidenceClass.B, refs=entity_refs(e, ["associations"])))
-
-    return sort_facts(facts)
+         "definition": "semantic closure = lineage + association; strict lineage = reachable from the root object by lineage edges only (root included)"},
+        EvidenceClass.B, refs=entity_refs(entities[am], ["associations"]))

@@ -23,11 +23,17 @@ from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from .graph import DependencyGraph, ProcessingContext, UnresolvedReference
-from .model import Applicability, ApplicabilityDecision, ApplicabilityReason, ProfileScope
+from .model import (
+    Applicability, ApplicabilityDecision, ApplicabilityReason, ProfileScope, ROOT_TYPE_ANALYTIC_MODEL, ROOT_TYPES,
+)
 
 
 class UnknownTerminalAmError(ValueError):
     """El AM pedido no es un Modelo Analitico terminal del universo."""
+
+
+class UnknownRootObjectError(UnknownTerminalAmError):
+    """El objeto raiz pedido (modo generico) no existe como artefacto del grafo de Modeling de este pool."""
 
 
 class TerminalAmSelectionRequired(ValueError):
@@ -50,7 +56,11 @@ class AssessmentUniverse:
         terminal_ams: tuple[str, ...],
         closures: Mapping[str, tuple[str, ...]],
         lineage_closures: Mapping[str, tuple[str, ...]],
+        extra_roots: Mapping[str, tuple[str, tuple[str, ...], tuple[str, ...]]] | None = None,
     ) -> None:
+        # extra_roots: raices que NO son AM terminal (vista / tabla): nombre -> (root_type, clausura semantica, clausura de linaje). No entran en
+        # `terminal_ams` ni en el indice de contencion cross-AM (el reuso entre AM es un concepto de AM).
+        self._extra = MappingProxyType({r: (t, tuple(c), tuple(l)) for r, (t, c, l) in (extra_roots or {}).items()})
         self._graph = graph
         self._terminal = tuple(sorted(terminal_ams))
         self._closures = MappingProxyType({am: tuple(closures[am]) for am in self._terminal})
@@ -92,15 +102,24 @@ class AssessmentUniverse:
         if am not in self._closures:
             raise UnknownTerminalAmError(f"{am!r} no es un Modelo Analitico terminal de este universo")
 
+    def _require_root(self, root: str) -> None:
+        if root not in self._closures and root not in self._extra:
+            raise UnknownTerminalAmError(f"{root!r} no es una raiz de assessment de este universo")
+
+    def root_type_of(self, root: str) -> str:
+        """``analytic-model`` para un AM terminal; el tipo registrado para una raiz generica (vista / tabla)."""
+        self._require_root(root)
+        return ROOT_TYPE_ANALYTIC_MODEL if root in self._closures else self._extra[root][0]
+
     def closure_of(self, am: str) -> tuple[str, ...]:
-        """Clausura SEMANTICA recursiva (lineage + association) del AM, incluido el AM."""
-        self._require_terminal(am)
-        return self._closures[am]
+        """Clausura SEMANTICA recursiva (lineage + association) de la raiz, incluida la raiz."""
+        self._require_root(am)
+        return self._closures[am] if am in self._closures else self._extra[am][1]
 
     def lineage_closure_of(self, am: str) -> tuple[str, ...]:
-        """Subconjunto alcanzable SOLO por LINEAGE (espina de composicion), incluido el AM."""
-        self._require_terminal(am)
-        return self._lineage[am]
+        """Subconjunto alcanzable SOLO por LINEAGE (espina de composicion), incluida la raiz."""
+        self._require_root(am)
+        return self._lineage[am] if am in self._lineage else self._extra[am][2]
 
     def association_only_closure_of(self, am: str) -> tuple[str, ...]:
         """Artefactos del scope alcanzables SOLO por asociacion (no por linaje). Hecho estructural, sin juicio."""
@@ -109,7 +128,7 @@ class AssessmentUniverse:
 
     def feeds(self, source: str, am: str) -> bool:
         """¿`source` alimenta a `am` por linaje estructural? (las asociaciones no cuentan)."""
-        self._require_terminal(am)
+        self._require_root(am)
         return self._graph.feeds(source, am)
 
     def evidence_for(self, am: str) -> ClosureEvidence:
@@ -133,6 +152,35 @@ class AssessmentUniverse:
         aqui es solo el hecho: no se calcula senal, bonus ni juicio."""
         self._require_terminal(excluding)
         return tuple(am for am in self._containing.get(artifact, ()) if am != excluding)
+
+    # ── raiz generica (vista / tabla / AM) ─────────────────────────────────
+    def resolve_root(self, entities: Mapping[str, Any], root: str, hint: str | None = None, *,
+                     pool_signature: str | None = None) -> "tuple[AssessmentUniverse, ProfileScope]":
+        """Universo + scope de CUALQUIER objeto raiz soportado: su clausura semantica UPSTREAM (la raiz siempre incluida; sin analisis downstream).
+        Un AM terminal sigue el camino de siempre. Una raiz que no es AM terminal se registra como raiz generica; su tipo es el que informa el
+        extractor (``hint``, p. ej. ``view``) o, sin hint, el inferido de la evidencia. Si el objeto no existe en el grafo: UnknownRootObjectError."""
+        if root in self._closures:
+            return self, self.scope_for(root, pool_signature=pool_signature)
+        if not self._graph.has_node(root) or root not in entities:
+            raise UnknownRootObjectError(f"{root!r} no existe como artefacto de Modeling en este pool")
+        root_type = hint if hint in ROOT_TYPES else self._infer_root_type(entities[root], root)
+        if root_type == ROOT_TYPE_ANALYTIC_MODEL:                       # el extractor lo declara AM aunque la evidencia no lo marque como cubo
+            closure, lineage = self._graph.semantic_closure(root), self._graph.lineage_closure(root)
+            extra = {**self._extra, root: (root_type, closure, lineage)}
+            return self._with_extra(extra), ProfileScope(ApplicabilityDecision(Applicability.APPLICABLE), root, len(closure), closure,
+                                                         pool_signature, root_type)
+        closure, lineage = self._graph.semantic_closure(root), self._graph.lineage_closure(root)
+        extra = {**self._extra, root: (root_type, closure, lineage)}
+        return self._with_extra(extra), ProfileScope(ApplicabilityDecision(Applicability.APPLICABLE), None, len(closure), closure,
+                                                     pool_signature, root_type, root)
+
+    def _with_extra(self, extra: Mapping[str, tuple[str, tuple[str, ...], tuple[str, ...]]]) -> "AssessmentUniverse":
+        return AssessmentUniverse(self._graph, self._terminal, self._closures, self._lineage, extra)
+
+    def _infer_root_type(self, entity: Any, root: str) -> str:
+        if getattr(entity, "remote_entity", ""):
+            return "remote-table"
+        return "view" if self._graph.providers(root) else "local-table"
 
     # ── scope del assessment ───────────────────────────────────────────────
     def scope_for(self, am: str | None, *, pool_signature: str | None = None) -> ProfileScope:

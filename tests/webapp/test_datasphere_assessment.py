@@ -431,12 +431,12 @@ def test_assessment_failure_is_not_labeled_as_extraction_and_keeps_the_log(owner
     assert d["result_url"] is None and not list((fake_export["cache"] / "adhoc" / "results").glob("*.json"))
 
 
-def test_unknown_or_non_terminal_am_reports_an_assessment_stage_failure_with_future_safe_copy(owner, fake_export):
+def test_object_missing_from_the_evidence_is_an_assessment_stage_failure_with_its_own_code(owner, fake_export):
     r = _post(owner, dict(VALID, datasphere_root_object="NO_EXISTE_AM"))
     d = _done(r)
-    assert d["state"] == "FAILED" and d["error_code"] == "AM_NOT_TERMINAL" and d["title"] == "No se pudo generar el assessment"
-    assert d["message"] == ("La evidencia se adquirió correctamente, pero el artefacto indicado no puede evaluarse con el alcance actual. "
-                            "Revisá el objeto seleccionado.")
+    assert d["state"] == "FAILED" and d["error_code"] == "ROOT_NOT_IN_EVIDENCE" and d["title"] == "No se pudo generar el assessment"
+    assert d["message"] == "La evidencia se adquirió correctamente, pero el objeto indicado no figura en ella. Revisá el objeto seleccionado."
+    assert "AM_NOT_TERMINAL" not in d["message"] and d["error_code"] != "AM_NOT_TERMINAL"           # un objeto que no es AM ya NO es un "AM no terminal"
 
 
 def test_no_visible_failure_copy_hardcodes_analytic_model_or_terminal_language():
@@ -732,69 +732,54 @@ def test_visible_error_has_no_technical_identifiers_which_live_only_in_technical
     assert any(raised.split(" - ")[0] in line for line in _lines(r))                      # el identificador sí está en el detalle técnico (stdout)
 
 
-def test_assessment_applicability_visible_copy_has_no_engine_code_but_code_is_in_detail_channel(owner, fake_export):
+def test_assessment_failure_visible_copy_has_no_engine_code_but_code_is_in_detail_channel(owner, fake_export):
     d = _done(_post(owner, dict(VALID, datasphere_root_object="NO_EXISTE_AM")))
-    assert d["error_code"] == "AM_NOT_TERMINAL" and "AM_NOT_TERMINAL" not in d["title"] + d["message"]
+    assert d["error_code"] == "ROOT_NOT_IN_EVIDENCE" and "ROOT_NOT_IN_EVIDENCE" not in d["title"] + d["message"]
     assert "done.error_code" in (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")   # JS lo agrega a "Detalle técnico"
 
 
-# ── compuerta temprana por tipo de raíz (capacidad actual del assessment) ──────
+# ── raíz genérica: el assessment ya NO restringe el tipo de objeto raíz ──────
 def _form_html_for(c):
     html = c.get(f"/modules/{STEM}?pack=datasphere_core").text
     start = html.index('<form id="dsa-form"')
     return html[start:html.index("</form>", start)]
 
 
-def test_server_side_request_declares_allowed_root_types_analytic_model_only(owner, fake_export):
+def test_server_side_request_no_longer_restricts_root_types(owner, fake_export):
     assert _done(_post(owner))["state"] == "SUCCESS"
     req = fake_export["requests"][0]
-    assert set(req.allowed_root_types) == {"analytic-model"} and req.mode == "assessment" and req.root_object == "4AM_ACME"
+    assert req.allowed_root_types is None and req.mode == "assessment" and req.root_object == "4AM_ACME"      # sin compuerta de tipo
 
 
-def test_browser_cannot_override_the_root_type_policy(owner, fake_export):
+def test_browser_cannot_inject_root_policy_or_publication_controls(owner, fake_export):
     r = _post(owner, dict(VALID, allowed_root_types="view,local-table,remote-table,analytic-model", root_type="view", mode="publish",
                           analytic_model="OTRO", features="views", generate_catalog="1", datasphere_allowed_root_types="view"))
     assert _done(r)["state"] == "SUCCESS"
     req = fake_export["requests"][0]
-    assert set(req.allowed_root_types) == {"analytic-model"} and req.root_type is None and req.mode == "assessment"
+    assert req.allowed_root_types is None and req.root_type is None and req.mode == "assessment"                 # el navegador no inyecta tipo ni restricciones
     assert not req.analytic_model and not req.features_requested and req.generate_catalog is False
     assert not re.search(r"allowed_root_types|root_type|name=.mode.|name=.features", _form_html_for(owner))
 
 
-@pytest.mark.parametrize("root_type,label", [("view", "una Vista"), ("local-table", "una Tabla local"), ("remote-table", "una Tabla remota")])
-def test_root_type_constraint_is_a_functional_applicability_message_without_acquiring_evidence(owner, fake_export, monkeypatch, root_type, label):
-    from tools.catalog.modeling_assessment import shadow as ma_shadow
+@pytest.mark.parametrize("root,root_type", [("3VF_P", "view"), ("1VR_RAW", "view"), ("RAW_T", "remote-table")])
+def test_non_am_roots_reach_a_valid_assessment_and_report_instead_of_a_root_gate_failure(owner, fake_export, root, root_type):
     fake_export["root_type"] = root_type
-    engine_calls = []
-    monkeypatch.setattr(asvc, "_engine_assess", lambda *a, **k: engine_calls.append(1))
-    monkeypatch.setattr(ma_shadow, "assess", lambda *a, **k: engine_calls.append(1))
-    r = _post(owner, dict(VALID, datasphere_root_object="3VF_PUR_PagoFacturaCompra"))
+    r = _post(owner, dict(VALID, datasphere_root_object=root))
     d = _done(r)
-    visible = d["title"] + " " + d["message"]
-    assert d["state"] == "FAILED" and d["error_code"] == "ROOT_TYPE_CONSTRAINT_FAILED" and d["title"] == "No se pudo generar el assessment"
-    assert d["message"] == ("El Assessment de tu modelo actualmente evalúa Modelos Analíticos terminales. "
-                            f"El objeto seleccionado fue identificado como {label}.")
-    assert "ROOT_TYPE_CONSTRAINT_FAILED" not in visible and "evidencia" not in visible.lower() and d["result_url"] is None
-    assert any("ROOT_TYPE_CONSTRAINT_FAILED" in line for line in _lines(r))                 # el identificador SÍ está en el detalle técnico
-    assert "done.error_code" in (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")
-    assert _phases(r) == []                                                                # ni "Evidencia adquirida" ni "Generando assessment..."
-    assert engine_calls == []                                                              # el motor de assessment no se invoca
-    assert not list((fake_export["cache"] / "adhoc" / "results").glob("*.json"))
-    assert list((fake_export["cache"] / "adhoc" / "work").iterdir()) == []
-
-
-def test_constraint_gate_stops_before_any_evidence_is_written(owner, fake_export):
-    fake_export["root_type"] = "view"
-    _post(owner)
-    pool = fake_export["out_dirs"][0]
-    assert not pool.exists() or not any(pool.rglob("*.json"))
+    assert d["state"] == "SUCCESS" and d["result_url"], d
+    assert d["error_code"] is None and "ROOT_TYPE_CONSTRAINT_FAILED" not in r.text and "AM_NOT_TERMINAL" not in r.text
+    rec = svc.load_result(_rid(r))
+    scope = rec["profile"]["scope"]
+    assert scope["root_object"] == root and scope["root_type"] == root_type and scope["terminal_analytic_model"] is None      # sin AM fabricado
+    page = _report_html(owner, _rid(r))
+    assert page.count(root) >= 1 and "Modelo analítico terminal:" not in page
 
 
 def test_analytic_model_path_is_unchanged_and_other_errors_keep_their_presentation(owner, fake_export, monkeypatch):
     d = _done(_post(owner))
     assert d["state"] == "SUCCESS" and d["result_url"]
     d2 = _done(_post(owner, dict(VALID, datasphere_root_object="NO_EXISTE_AM")))
-    assert d2["error_code"] == "AM_NOT_TERMINAL" and d2["title"] == "No se pudo generar el assessment" and "evidencia se adquirió" in d2["message"]
+    assert d2["error_code"] == "ROOT_NOT_IN_EVIDENCE" and d2["title"] == "No se pudo generar el assessment" and "evidencia se adquirió" in d2["message"]
     monkeypatch.setattr(dsp.DatasphereCli, "authorization_preflight",
                         lambda self, space: (_ for _ in ()).throw(dsp.DatasphereCliError("ROOT_OBJECT_NOT_FOUND - No se encontró 'X' en el Space 'S'.")))
     d3 = _done(_post(owner))
@@ -1030,7 +1015,7 @@ def test_manipulated_features_are_whitelisted_and_server_policy_is_untouched(own
     assert _done(r)["state"] == "SUCCESS"
     req = fake_export["requests"][0]
     assert req.features_requested == ["analytic-models", "views", "tables", "data-flows"]          # solo la lista blanca canónica
-    assert set(req.allowed_root_types) == {"analytic-model"} and req.mode == "assessment"
+    assert req.allowed_root_types is None and req.mode == "assessment"
     assert req.generate_catalog is False and req.mirror_up is False and req.root_type is None
 
 
@@ -1069,10 +1054,12 @@ def test_historical_results_keep_their_own_scope_when_the_form_changes(owner, fa
     assert "Evidencia no adquirida" not in owner.get(_results_url(second, "/export.md")).text
 
 
-def test_root_type_gate_still_exits_early_regardless_of_feature_selection(owner, fake_export):
+def test_view_root_with_a_feature_selection_still_generates_the_assessment_with_its_scope(owner, fake_export):
     fake_export["root_type"] = "view"
-    d = _done(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows", "data-flows"]}))
-    assert d["error_code"] == "ROOT_TYPE_CONSTRAINT_FAILED" and d["title"] == "No se pudo generar el assessment"
+    r = _post(owner, {**VALID, "datasphere_root_object": "3VF_P", "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows"]})
+    assert _done(r)["state"] == "SUCCESS"
+    es = svc.load_result(_rid(r))["profile"]["scope"]["evidence_scope"]
+    assert "replication-flows" in es["effective_features"] and "data-flows" not in es["effective_features"]
 
 
 def test_log_keeps_the_extractors_effective_scope_when_it_prints_it(owner, fake_export):
@@ -1174,7 +1161,7 @@ def test_whats_new_announces_the_assessment_with_a_cta_to_the_real_tool_target(o
     from webapp.services import whats_new_service as wn
     items = {e["ref"]: e for e in wn.entries("datasphere_core")}
     e = items["datasphere-assessment"]
-    assert e["title"] == "Assessment metodologico para Modelado & Desarrollo" and e["categoria"] == "Modelado" and e["cta"] == "Probar assessment"
+    assert e["title"] == "Assessment metodológico para Modelado & Desarrollo" and e["categoria"] == "Modelado" and e["cta"] == "Probar assessment"
     assert e["detail"].startswith("Conectáte a tus modelos de datos")
     assert not re.search(r"scor|puntaje|madurez|CSN|run_export|result_id|directorio", e["detail"], re.I)       # producto, no implementación
     assert e["link"] == f"/modules/{STEM}?pack=datasphere_core&tool=assessment"
@@ -1188,7 +1175,7 @@ def test_whats_new_page_renders_the_card_and_the_cta_label(owner):
     page = owner.get("/whats-new?pack=datasphere_core")
     assert page.status_code == 200
     assert "datasphere-assessment" in page.text and "Probar assessment" in page.text and "tool=assessment" in page.text      # datos de la tarjeta (Alpine)
-    assert "Assessment metodologico para Modelado" in page.text
+    assert "Assessment metodol" in page.text and "para Modelado" in page.text                                                  # (la tilde viaja escapada en el JSON de Alpine)
     assert 'x-text="e.cta ? e.cta' in page.text and "Ir al contenido" in page.text                                           # etiqueta por defecto intacta para el resto
 
 
@@ -1339,14 +1326,16 @@ def test_evidence_scope_never_changes_terminal_am_closure_or_applicability_on_th
 
 
 @pytest.mark.parametrize("features", [None, ("replication-flows", "data-flows", "transformation-flows", "task-chains"), ("replication-flows",)])
-def test_view_root_exits_through_the_root_type_gate_without_running_the_engine(real_extraction, features):
+def test_view_root_runs_the_extraction_and_the_engine_and_produces_a_valid_assessment(real_extraction, features):
     out = _real_run("3VF_P", features)
-    assert out.state == "FAILED" and out.error_code == "ROOT_TYPE_CONSTRAINT_FAILED" and out.title == "No se pudo generar el assessment"
-    assert out.message == ("El Assessment de tu modelo actualmente evalúa Modelos Analíticos terminales. El objeto seleccionado fue identificado como una Vista.")
-    assert "evidencia se adquirió" not in out.message and "ROOT_TYPE_CONSTRAINT_FAILED" not in out.message
+    assert out.state == "SUCCESS" and out.result_id, (out.error_code, out.message)
     res = real_extraction["results"][0]
-    assert res.root_type == "view" and not res.ok and res.pool_dir is None                              # sin evidencia profunda
-    assert real_extraction["assess"] == []                                                              # el motor de assessment NO corrió
+    assert res.ok and res.root_type == "view" and real_extraction["assess"]                             # extracción real OK y el motor SÍ corrió
+    doc = svc.load_result(out.result_id)["profile"]
+    assert doc["assessment_state"] == "ASSESSED" and doc["scope"]["root_type"] == "view" and doc["scope"]["root_object"] == "3VF_P"
+    assert doc["scope"]["terminal_analytic_model"] is None and doc["scope"]["applicability"] == "APPLICABLE"
+    na = {n["surface_id"] for n in doc["not_applicable"]}
+    assert {"am.contract_inventory", "am.association_targets", "am.contract_delta", "rule.am_semantic_underuse_review"} <= na      # solo-AM => N/A
 
 
 def test_unknown_object_is_reported_as_extraction_not_found_never_as_assessment_applicability(real_extraction):
@@ -1359,9 +1348,9 @@ def test_unknown_object_is_reported_as_extraction_not_found_never_as_assessment_
 def test_whats_new_final_title_and_body_are_exact(owner):
     from webapp.services import whats_new_service as wn
     e = {x["ref"]: x for x in wn.entries("datasphere_core")}["datasphere-assessment"]
-    assert e["title"] == "Assessment metodologico para Modelado & Desarrollo"
+    assert e["title"] == "Assessment metodológico para Modelado & Desarrollo"
     assert e["detail"] == ("Conectáte a tus modelos de datos en cualquiera de nuestros clientes directamente. El Copiloto reconstruye su evidencia y linaje, "
-                           "genera un assessment metodologico explicable y permite revisar cobertura, confianza, observaciones y puntos que requieren revisión.")
+                           "genera un assessment metodológico explicable y permite revisar cobertura, confianza, observaciones y puntos que requieren revisión.")
     assert e["cta"] == "Probar assessment" and e["link"] == f"/modules/{STEM}?pack=datasphere_core&tool=assessment"
 
 

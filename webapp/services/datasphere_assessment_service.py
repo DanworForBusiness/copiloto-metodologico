@@ -73,6 +73,7 @@ ERROR_MESSAGES = {
     "NOT_AUTHORIZED": "No tenés permiso para ejecutar esta operación.",
     "ADHOC_STORAGE_UNSAFE": "El almacenamiento temporal del assessment no es seguro en este entorno (cae bajo un directorio persistido). No se ejecutó nada.",
     "AM_NOT_TERMINAL": "La evidencia se adquirió correctamente, pero el artefacto indicado no puede evaluarse con el alcance actual. Revisá el objeto seleccionado.",
+    "ROOT_NOT_IN_EVIDENCE": "La evidencia se adquirió correctamente, pero el objeto indicado no figura en ella. Revisá el objeto seleccionado.",
     "ASSESSMENT_FAILED": "La evidencia se adquirió correctamente, pero ocurrió un error al generar el informe.",
     "POOL_LOAD_ERROR": "La evidencia se adquirió correctamente, pero ocurrió un error al generar el informe.",
     "POOL_UNAVAILABLE": "La evidencia se adquirió correctamente, pero ocurrió un error al generar el informe.",
@@ -86,12 +87,6 @@ _CODE_PREFIX_RE = re.compile(r"^[A-Z][A-Z0-9_]{3,} - ")
 
 # Códigos del extractor cuyo mensaje ya está redactado en español para el usuario (objeto no encontrado, tipo ambiguo): se muestra tal cual.
 BACKEND_WORDED_CODES = frozenset({"ROOT_OBJECT_NOT_FOUND", "AMBIGUOUS_ROOT_OBJECT_TYPE", "INVALID_FEATURE_SCOPE"})
-
-# Capacidad ACTUAL del producto "Assessment de tu modelo": el Modeling Assessment evalúa Modelos Analíticos terminales. Es una decisión
-# del consumidor (SERVER-SIDE, nunca del navegador): el extractor sigue siendo genérico (vista, tabla local/remota, AM).
-ASSESSABLE_ROOT_TYPES = frozenset({"analytic-model"})
-ROOT_TYPE_CONSTRAINT_CODE = "ROOT_TYPE_CONSTRAINT_FAILED"
-ROOT_TYPE_LABELS = {"view": "una Vista", "local-table": "una Tabla local", "remote-table": "una Tabla remota"}
 
 TITLE_EXTRACTION = "No se pudo completar la extracción"
 TITLE_ASSESSMENT = "No se pudo generar el assessment"
@@ -528,7 +523,6 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
             catalog_root=workspace / "catalog", csn_cache_dir=workspace / "pool",     # raíces del workspace: NADA canónico se toca
             generate_catalog=False, mirror_up=False,                                   # evaluar != publicar: sin Catálogo ni Spaces
             mode="assessment",                                                         # forzado en el servidor: la UI no elige el modo
-            allowed_root_types=ASSESSABLE_ROOT_TYPES,                                  # capacidad actual del assessment (compuerta temprana)
             features_requested=requested_features(values),                             # SOLO lo pedido: las dependencias las resuelve el extractor
         )
 
@@ -539,16 +533,6 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
         with dsp.capture_output(on_line=live) as cap:
             result = dsp.run_export(request)
         trace = _trace(cap.lines, secrets, roots)
-        if not result.ok and result.error_code == ROOT_TYPE_CONSTRAINT_CODE:
-            # Compuerta temprana: el objeto existe y fue clasificado, pero su tipo está fuera de la capacidad actual del assessment. NO hay
-            # evidencia adquirida ni se invoca el motor: la interpretación funcional es de la web (el extractor solo informa el tipo).
-            kind = ROOT_TYPE_LABELS.get(result.root_type or "", "un objeto de otro tipo")
-            log.info("datasphere_assessment op=%s user=%s client=%s space=%s status=FAILED stage=applicability code=%s root_type=%s",
-                     op_id, user_email, values.client, values.space, ROOT_TYPE_CONSTRAINT_CODE, result.root_type)
-            message = ("El Assessment de tu modelo actualmente evalúa Modelos Analíticos terminales. "
-                       f"El objeto seleccionado fue identificado como {kind}.")
-            return Outcome("FAILED", ROOT_TYPE_CONSTRAINT_CODE, message, trace=trace, operation_id=op_id, duration_s=result.duration_s,
-                           stage="applicability", title=TITLE_ASSESSMENT)
         if not result.ok:
             code = result.error_code or "EXTRACTION_FAILED"
             log.warning("datasphere_assessment op=%s user=%s client=%s space=%s model=%s status=FAILED stage=extraction code=%s duration=%.1fs",
@@ -568,7 +552,8 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
         # Alcance de evidencia REAL de la extracción (pedido y efectivo, tal como los informa el extractor): el documento lo conserva para
         # distinguir "adquirido y ausente" de "no adquirido". Sin metadato propio de la web.
         scope = {"requested_features": list(result.requested_features or ()), "effective_features": list(result.effective_features or ())}
-        profile, code = asvc.assess_evidence_root(workspace / "pool", client_dir, values.root_object, "General", evidence_scope=scope)
+        profile, code = asvc.assess_evidence_root(workspace / "pool", client_dir, values.root_object, "General", evidence_scope=scope,
+                                                  root_type=result.root_type)
         if code is not None or profile is None:
             code = code or "GENERATION_ERROR"
             log.warning("datasphere_assessment op=%s user=%s client=%s space=%s model=%s status=FAILED stage=assessment code=%s",

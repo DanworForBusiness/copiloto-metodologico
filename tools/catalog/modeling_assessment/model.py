@@ -123,6 +123,7 @@ class ApplicabilityReason(str, Enum):
     INTERNAL_STATIC_OBJECT = "INTERNAL_STATIC_OBJECT"   # objeto interno/estatico/local CONOCIDO (no es contrato de extraccion)
     NO_TERMINAL_ANALYTIC_MODEL = "NO_TERMINAL_ANALYTIC_MODEL"                   # sin Modelo Analitico terminal => sin unidad de assessment
     NO_OTHER_TERMINAL_ANALYTIC_MODEL = "NO_OTHER_TERMINAL_ANALYTIC_MODEL"       # universo de 1 AM: no hay AM par con quien reusar (CROSS_AM_REUSE)
+    ROOT_NOT_ANALYTIC_MODEL = "ROOT_NOT_ANALYTIC_MODEL"                         # evidencia/regla ESPECIFICA de Modelo Analitico y la raiz evaluada es de otro tipo
 
 
 class Assessability(str, Enum):
@@ -426,23 +427,42 @@ class Confidence:
     drivers: tuple[ConfidenceDriver, ...]
 
 
+ROOT_TYPE_ANALYTIC_MODEL = "analytic-model"
+ROOT_TYPES = ("analytic-model", "view", "local-table", "remote-table")          # tipos de raiz soportados (identificadores del extractor)
+
+
 @dataclass(frozen=True)
 class ProfileScope:
+    """Unidad de assessment: un OBJETO RAIZ y su clausura semantica upstream. ``terminal_am`` es el nombre del AM SOLO si la raiz es un Modelo
+    Analitico (None para vista/tabla: nunca se fabrica un AM). ``root_object`` identifica una raiz que NO es AM; ``root`` es la identidad
+    generica (aditivo y retrocompatible: un scope de AM sigue siendo ``ProfileScope(..., terminal_am=am, ...)``)."""
     applicability: ApplicabilityDecision
     terminal_am: str | None
     closure_size: int
     closure_names: tuple[str, ...]
     pool_signature: str | None = None
+    root_type: str = ROOT_TYPE_ANALYTIC_MODEL
+    root_object: str | None = None
+
+    @property
+    def root(self) -> str | None:
+        return self.root_object or self.terminal_am
 
     def __post_init__(self) -> None:
+        if self.root_type not in ROOT_TYPES:
+            raise ValueError(f"root_type {self.root_type!r} no soportado")
+        if self.root_object and self.root_type == ROOT_TYPE_ANALYTIC_MODEL:
+            raise ValueError("una raiz que es Modelo Analitico se identifica con terminal_am")
+        if self.root_type != ROOT_TYPE_ANALYTIC_MODEL and self.terminal_am is not None:
+            raise ValueError("terminal_am solo existe cuando la raiz es un Modelo Analitico (no se fabrica un AM para vista/tabla)")
         if self.applicability.state is Applicability.NOT_APPLICABLE:
             if self.applicability.reason is not ApplicabilityReason.NO_TERMINAL_ANALYTIC_MODEL:
                 raise ValueError("el scope solo es NOT_APPLICABLE por NO_TERMINAL_ANALYTIC_MODEL")
             if self.terminal_am is not None or self.closure_size != 0 or self.closure_names:
                 raise ValueError("scope NOT_APPLICABLE no admite AM ni clausura")
         else:
-            if not self.terminal_am:
-                raise ValueError("scope aplicable exige terminal_am")
+            if not self.root:
+                raise ValueError("scope aplicable exige un objeto raiz (terminal_am o root_object)")
             if self.closure_size != len(self.closure_names):
                 raise ValueError("closure_size debe igualar len(closure_names)")
 

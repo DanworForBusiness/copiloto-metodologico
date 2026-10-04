@@ -246,7 +246,7 @@ def test_missing_remote_entity_is_never_not_applicable_by_itself():
     unobservable = _fact(assess=A.NOT_ASSESSED, cause=m.Cause.PROVENANCE_UNKNOWN)
     assert unobservable.applicability.state is N.APPLICABLE
     assert {r.value for r in m.ApplicabilityReason} == {"SYSTEM_ARTIFACT", "INTERNAL_STATIC_OBJECT", "NO_TERMINAL_ANALYTIC_MODEL",
-                                                                         "NO_OTHER_TERMINAL_ANALYTIC_MODEL"}
+                                                                         "NO_OTHER_TERMINAL_ANALYTIC_MODEL", "ROOT_NOT_ANALYTIC_MODEL"}   # + raiz generica (vista/tabla)
     assert "NO_REMOTE_ENTITY" not in {r.value for r in m.ApplicabilityReason}
 
 

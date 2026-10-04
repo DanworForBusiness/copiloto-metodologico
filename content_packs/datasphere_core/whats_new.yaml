@@ -28,9 +28,9 @@
 
 - ref: datasphere-assessment
   fecha: "2026-10-03"
-  titulo: "Assessment metodologico para Modelado & Desarrollo"
+  titulo: "Assessment metodológico para Modelado & Desarrollo"
   categoria: "Modelado"
-  detalle: "Conectáte a tus modelos de datos en cualquiera de nuestros clientes directamente. El Copiloto reconstruye su evidencia y linaje, genera un assessment metodologico explicable y permite revisar cobertura, confianza, observaciones y puntos que requieren revisión."
+  detalle: "Conectáte a tus modelos de datos en cualquiera de nuestros clientes directamente. El Copiloto reconstruye su evidencia y linaje, genera un assessment metodológico explicable y permite revisar cobertura, confianza, observaciones y puntos que requieren revisión."
   cta: "Probar assessment"
   link: "/modules/04_Modelado_y_Desarrollo?pack=datasphere_core&tool=assessment"
 

@@ -457,19 +457,26 @@ def status_for_entry(entry: Any) -> AssessmentStatus:
 
 
 # ═══════════════════════════ generación (POST) ═══════════════════════════
-def _engine_assess(root: Path, client_dir: str, am: str, domain_dir: str, evidence_scope: dict | None = None) -> tuple[dict, dict]:
-    """Único punto de contacto con el motor (API Python existente; sin shell-out). Seam de tests."""
+def _engine_assess(root: Path, client_dir: str, am: str, domain_dir: str, evidence_scope: dict | None = None,
+                   generic_root: bool = False, root_type: str | None = None) -> tuple[dict, dict]:
+    """Único punto de contacto con el motor (API Python existente; sin shell-out). Seam de tests. Sin argumentos opcionales es la llamada de
+    siempre (Catálogo: solo un AM terminal es unidad válida)."""
+    kw: dict = {}
     if evidence_scope:
-        return ma_shadow.assess(root, client_dir, am, domain_dir, evidence_scope=evidence_scope)
-    return ma_shadow.assess(root, client_dir, am, domain_dir)
+        kw["evidence_scope"] = evidence_scope
+    if generic_root:
+        kw["generic_root"] = True
+        if root_type:
+            kw["root_type"] = root_type
+    return ma_shadow.assess(root, client_dir, am, domain_dir, **kw)
 
 
 def assess_evidence_root(root: Path, client_dir: str, am: str, domain: str = "General", *,
-                        evidence_scope: dict | None = None) -> tuple[dict | None, str | None]:
-    """Evalúa EXACTAMENTE ``am`` sobre una raíz de evidencia ARBITRARIA (p. ej. el workspace de un assessment ad-hoc) con el MISMO
-    motor. Devuelve (perfil canónico validado, None) o (None, código de falla estable). No lee ni escribe la caché del Catálogo."""
+                        evidence_scope: dict | None = None, root_type: str | None = None) -> tuple[dict | None, str | None]:
+    """Evalúa EXACTAMENTE el objeto raíz ``am`` (modelo analítico, vista o tabla; ``root_type`` es el que informó el extractor) sobre una raíz
+    de evidencia ARBITRARIA (p. ej. el workspace de un assessment ad-hoc) con el MISMO motor. Devuelve (perfil canónico validado, None) o (None, código de falla estable). No lee ni escribe la caché del Catálogo."""
     try:
-        doc, meta = _engine_assess(root, client_dir, am, domain, **({"evidence_scope": evidence_scope} if evidence_scope else {}))
+        doc, meta = _engine_assess(root, client_dir, am, domain, evidence_scope=evidence_scope, generic_root=True, root_type=root_type)
         state = doc.get("assessment_state")
         if state == "ASSESSED":
             ma_profile.validate_assessment(doc)
@@ -478,6 +485,8 @@ def assess_evidence_root(root: Path, client_dir: str, am: str, domain: str = "Ge
             return None, "AM_NOT_TERMINAL"
         log.warning("assessment: INDETERMINATE (ad-hoc) para %s/%s: %s", client_dir, am, (meta or {}).get("errors"))
         return None, "POOL_LOAD_ERROR"
+    except ma_shadow.UnknownRootObjectError:            # el objeto no figura en la evidencia (NO es un fallo de "AM terminal")
+        return None, "ROOT_NOT_IN_EVIDENCE"
     except UnknownTerminalAmError:
         return None, "AM_NOT_TERMINAL"
     except ma_shadow.ClientNotFoundError:

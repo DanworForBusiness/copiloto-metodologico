@@ -115,11 +115,12 @@ def harmonization_facts(
         EvidenceClass.B, refs=clo_ref))
 
     # ---- contexto de reuso (B) ---------------------------------------------------------------------
+    is_am = universe.root_type_of(am) == "analytic-model"
     pair = [am, *inside(graph.providers(am, [L]))]
-    others = [a for a in universe.terminal_ams if a != am]
+    others = [a for a in universe.terminal_ams if a != am] if is_am else []      # "AM par" solo tiene sentido cuando la raiz es un AM
     facts.append(make_fact(
         "harmonization.reuse_context", H_, "closure",
-        {"terminal_am": am, "local_chain_members": pair,
+        {"terminal_am": am if is_am else None, "root_object": am, "root_type": universe.root_type_of(am), "local_chain_members": pair,
          "universe_terminal_am_count": len(universe.terminal_ams), "other_terminal_am_count": len(others),
          "other_terminal_ams": others,
          "local_chain_definition": "direct consumers of the artifact among the terminal analytic model and its direct lineage providers",
@@ -137,7 +138,7 @@ def harmonization_facts(
         lin_cons = inside(graph.consumers(d, [L]))
         direct = sorted(set(assoc_cons) | set(lin_cons))
         local = [c for c in direct if c in pair_set]
-        cross = list(universe.other_terminal_ams_containing(d, excluding=am))
+        cross = list(universe.other_terminal_ams_containing(d, excluding=am)) if is_am else []
         e = entities[d]
         ref = [EvidenceRef(d, "dependency_graph", None, Plane.MODELING)]
         facts.append(make_fact(
@@ -157,7 +158,8 @@ def harmonization_facts(
             {"cross_am_reuse_count": len(cross), "other_terminal_am_count": len(others),
              "terminal_ams_containing_artifact": cross},
             EvidenceClass.B, refs=ref,
-            applicability=not_applicable(ApplicabilityReason.NO_OTHER_TERMINAL_ANALYTIC_MODEL) if no_peer else APPLICABLE,
+            applicability=(not_applicable(ApplicabilityReason.ROOT_NOT_ANALYTIC_MODEL if not is_am else ApplicabilityReason.NO_OTHER_TERMINAL_ANALYTIC_MODEL)
+                           if no_peer else APPLICABLE),
             assessability=Assessability.NOT_APPLICABLE if no_peer else Assessability.ASSESSED))
 
     return sort_facts(facts)
