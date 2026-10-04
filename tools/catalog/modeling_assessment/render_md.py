@@ -181,20 +181,32 @@ def _row_text(r: dict) -> str:
     return f"{r['name']}: " + ", ".join(f"{_ROW_KEY_TEXT.get(k, k.replace('_', '-'))} {_pct(v) if k == 'share' else v}" for k, v in rest)   # `share` = proporción 0–1
 
 
+SUMMARY_RELATION_TEXT = ("Los casos a revisar son hallazgos concretos que requieren validación; las preguntas abiertas representan información pendiente "
+                         "del proyecto y pueden ayudar a resolver uno o varios hallazgos.")
+
+
 def review_required_text(n_occurrences: int, n_groups: int) -> tuple[str, str]:
-    """(titular, lectura) de "Revisiones requeridas": OCURRENCIAS de los grupos de revisión (no grupos ni preguntas). La comparten Markdown y HTML."""
-    head = f"{_occ(n_occurrences)} en {_plural(n_groups, 'grupo de revisión', 'grupos de revisión')}"
-    detail = ("Puntos que el análisis automático no puede cerrar solo con la evidencia disponible y que requieren la revisión de una persona; "
-              "no son defectos confirmados y no miden la calidad del modelo (detalle en *Revisión requerida*).")
+    """(titular, lectura) de "Casos a revisar": OCURRENCIAS de los grupos de revisión (no grupos ni preguntas). La comparten Markdown y HTML.
+    Solo vocabulario visible: el contrato interno sigue siendo `review_required` / `occurrence_count`."""
+    head = _plural(n_occurrences, "caso")
+    if not n_occurrences:
+        return head, "El análisis no identificó casos concretos que requieran validación humana."
+    detail = (f"El análisis identificó {_plural(n_occurrences, 'caso concreto', 'casos concretos')} que {'requiere' if n_occurrences == 1 else 'requieren'} "
+              f"validación humana, agrupados en {_plural(n_groups, 'tipo de revisión', 'tipos de revisión')}. "
+              f"{'No es un defecto confirmado y no mide' if n_occurrences == 1 else 'No son defectos confirmados y no miden'} la calidad del modelo (detalle en *Revisión requerida*).")
     return head, detail
 
 
 def context_open_text(ctx: dict) -> tuple[str, str]:
-    """(titular, lectura) de "Contexto abierto": TIPOS de pregunta distintos que solo el proyecto puede responder (no ocurrencias de hallazgos)."""
-    n, k = ctx["open_questions"], ctx["questions_backed_by_findings"]
-    head = _plural(n, "pregunta de contexto abierta", "preguntas de contexto abiertas")
-    detail = (f"{k} de ellas {'está respaldada' if k == 1 else 'están respaldadas'} por {_occ(ctx['occurrences'])} de hallazgos "
-              f"y {ctx['questions_without_findings']} corresponden a contexto del proyecto sin hallazgo asociado. Cuenta tipos de pregunta, no ocurrencias.")
+    """(titular, lectura) de "Preguntas abiertas": TIPOS de pregunta distintos que requieren información del equipo del proyecto (no ocurrencias).
+    Solo vocabulario visible: el contrato interno sigue siendo `open_questions`."""
+    n, k, w = ctx["open_questions"], ctx["questions_backed_by_findings"], ctx["questions_without_findings"]
+    head = _plural(n, "pregunta")
+    if not n:
+        return head, "No quedan preguntas abiertas para el equipo del proyecto."
+    detail = (f"{'Queda' if n == 1 else 'Quedan'} {_plural(n, 'pregunta distinta', 'preguntas distintas')} que {'requiere' if n == 1 else 'requieren'} información del "
+              f"equipo del proyecto. {k} {'está relacionada' if k == 1 else 'están relacionadas'} con hallazgos detectados y {w} "
+              f"{'corresponde' if w == 1 else 'corresponden'} a contexto del proyecto sin hallazgo asociado. Una pregunta puede estar vinculada a varias ocurrencias.")
     return head, detail
 
 
@@ -382,7 +394,7 @@ def render_markdown(doc: dict) -> str:
     rs = cov["required_surfaces"]
     obs_n = sum(g["occurrence_count"] for g in doc["observations"])
     rev_n = sum(g["occurrence_count"] for g in doc["review_required"])
-    L += ["## Resumen", ""]
+    L += ["## Resumen", "", f"_{SUMMARY_RELATION_TEXT}_", ""]
     L += [f"- **Cobertura:** estricta {_pct(cov['strict'])} · inclusiva {_pct(cov['inclusive'])}",
           f"  - {cov['meaning']}",
           f"  - Superficies de evidencia requeridas: {rs['applicable']} aplicables — {_plural(rs['assessed'], 'evaluada')}, "
@@ -395,8 +407,8 @@ def render_markdown(doc: dict) -> str:
     L.append(f"  - {conf['meaning']}")
     rev_head, rev_detail = review_required_text(rev_n, len(doc["review_required"]))
     ctx_head, ctx_detail = context_open_text(ctx)
-    L += [f"- **Revisiones requeridas:** {rev_head}", f"  - {rev_detail}",
-          f"- **Contexto abierto:** {ctx_head}; {ctx_detail}",
+    L += [f"- **Casos a revisar:** {rev_head}", f"  - {rev_detail}",
+          f"- **Preguntas abiertas:** {ctx_head}", f"  - {ctx_detail}",
           f"- **Observaciones:** {_plural(len(doc['observations']), 'grupo de observación', 'grupos de observación')} ({_occ(obs_n)})", ""]
     areas = {a["id"]: a for a in doc["areas"]}
     L += ["| Dimensión | Área | Estado | Superficies requeridas (evaluadas / parciales / no evaluadas) |", "|---|---|---|---|"]

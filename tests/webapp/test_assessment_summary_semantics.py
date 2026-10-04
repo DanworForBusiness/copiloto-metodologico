@@ -1,8 +1,8 @@
 """test_assessment_summary_semantics.py — el "Resumen" del informe individual describe, por separado, los mismos conceptos que los KPI (Gate 2.1.1).
 
-Cobertura estricta · Cobertura inclusiva · Confianza · Revisiones requeridas (= ocurrencias de los grupos de revisión) · Contexto abierto
-(= tipos de pregunta distintos que solo el proyecto puede responder). Antes la fila "Contexto requerido" describía hallazgos/grupos de revisión y no
-había fila de revisiones. Sin cambiar cálculos; Markdown y HTML usan las mismas funciones; sin vocabulario de puntaje.
+Cobertura estricta · Cobertura inclusiva · Confianza · Casos a revisar (= ocurrencias de los grupos de revisión) · Preguntas abiertas
+(= tipos de pregunta distintos que requieren información del proyecto). Solo vocabulario visible: los contratos internos (`review_required`,
+`occurrence_count`, `open_questions`) no cambian. Antes se decía "Revisiones requeridas" / "Contexto abierto", fáciles de confundir. Sin cambiar cálculos; Markdown y HTML usan las mismas funciones; sin vocabulario de puntaje.
 """
 from __future__ import annotations
 
@@ -40,23 +40,44 @@ def _summary_table(html: str):
 
 def test_resumen_rows_are_the_separate_canonical_concepts(view):
     rows = _summary_table(templates.get_template("partials/catalog_assessment_report.html").render(v=view))
-    assert [r[0] for r in rows] == ["Cobertura estricta", "Cobertura inclusiva", "Confianza", "Revisiones requeridas", "Contexto abierto", "Observaciones"]
-    assert "Contexto requerido" not in str(rows)                                                      # un solo término: "Contexto abierto"
+    assert [r[0] for r in rows] == ["Cobertura estricta", "Cobertura inclusiva", "Confianza", "Casos a revisar", "Preguntas abiertas", "Observaciones"]
+    assert "Contexto requerido" not in str(rows) and "Contexto abierto" not in str(rows) and "Revisiones requeridas" not in str(rows)   # un solo vocabulario
 
 
-def test_revisiones_and_contexto_use_their_own_units_and_copy(doc, view):
+def test_casos_and_preguntas_use_their_own_units_and_copy(doc, view):
     rows = {r[0]: r for r in _summary_table(templates.get_template("partials/catalog_assessment_report.html").render(v=view))}
     review_occ = sum(g["occurrence_count"] for g in doc["review_required"])
     ctx = doc["summary"]["context_required"]
-    rev, ctxrow = rows["Revisiones requeridas"], rows["Contexto abierto"]
-    assert rev[1] == str(review_occ)                                                                  # unidad: OCURRENCIAS de revisión
-    assert ctxrow[1] == presenter._plural(ctx["open_questions"], "pregunta de contexto abierta", "preguntas de contexto abiertas")   # unidad: tipos de pregunta
-    assert "ocurrencia" in rev[2] and "grupo" in rev[2] and "revisión de una persona" in rev[2]
-    for forbidden in ("grupo de observación", "grupos de observación", "grupo de revisión", "grupos de revisión", "Hallazgos"):
-        assert forbidden not in ctxrow[2], forbidden                                                  # "Contexto abierto" ya no describe hallazgos/revisiones
-    assert "Cuenta tipos de pregunta, no ocurrencias" in ctxrow[2] and f"{ctx['questions_without_findings']} corresponden" in ctxrow[2]
-    for banned_text in ("pregunta de contexto", "tipos de pregunta"):
-        assert banned_text not in rev[2]                                                              # y revisiones no habla de preguntas
+    rev, ctxrow = rows["Casos a revisar"], rows["Preguntas abiertas"]
+    assert rev[1] == presenter._plural(review_occ, "caso")                                            # unidad: OCURRENCIAS de revisión
+    assert ctxrow[1] == presenter._plural(ctx["open_questions"], "pregunta")                          # unidad: tipos de pregunta
+    n_groups = len(doc["review_required"])
+    assert f"identificó {presenter._plural(review_occ, 'caso concreto', 'casos concretos')}" in rev[2] and "validación humana" in rev[2]
+    assert f"agrupados en {presenter._plural(n_groups, 'tipo de revisión', 'tipos de revisión')}" in rev[2]
+    assert "defectos confirmados" in rev[2] or "defecto confirmado" in rev[2]
+    for forbidden in ("grupo de observación", "grupos de observación", "Hallazgos", "grupo de revisión"):
+        assert forbidden not in ctxrow[2], forbidden                                                  # las preguntas no describen revisiones
+    assert f"{ctx['questions_backed_by_findings']} " in ctxrow[2] and "con hallazgos detectados" in ctxrow[2]
+    assert f"{ctx['questions_without_findings']} " in ctxrow[2] and "sin hallazgo asociado" in ctxrow[2]
+    assert "vinculada a varias ocurrencias" in ctxrow[2]                                              # una pregunta puede abarcar varias ocurrencias
+    assert "pregunta" not in rev[2].lower() and "tipos de pregunta" not in rev[2]                     # y los casos no hablan de preguntas
+
+
+def test_the_summary_states_the_relationship_once_and_concisely(doc, view):
+    html = templates.get_template("partials/catalog_assessment_report.html").render(v=view)
+    from tools.catalog.modeling_assessment import render_md
+    assert html.count("Los casos a revisar son hallazgos concretos que requieren validación") == 1
+    assert render_md.SUMMARY_RELATION_TEXT in html or "Los casos a revisar son hallazgos concretos" in html
+    assert view["summary"]["relation_text"] == render_md.SUMMARY_RELATION_TEXT and len(render_md.SUMMARY_RELATION_TEXT) < 260
+
+
+def test_the_visible_labels_are_the_same_in_kpis_summary_and_markdown(doc, view):
+    from tools.catalog.modeling_assessment import render_md
+    md = render_md.render_markdown(doc)
+    assert [k["label"] for k in view["kpis"]][2:] == ["Casos a revisar", "Preguntas abiertas"]
+    assert "- **Casos a revisar:**" in md and "- **Preguntas abiertas:**" in md
+    assert "Revisiones requeridas" not in md and "Contexto abierto" not in md and "Contexto requerido" not in md
+    assert "review_required" in doc and "open_questions" in doc["summary"]["context_required"]
 
 
 def test_coverage_and_confidence_values_are_unchanged(doc, view):
@@ -71,10 +92,12 @@ def test_the_summary_and_the_markdown_share_the_same_definitions(doc, view):
     from tools.catalog.modeling_assessment import render_md
     md = render_md.render_markdown(doc)
     head, detail = render_md.review_required_text(sum(g["occurrence_count"] for g in doc["review_required"]), len(doc["review_required"]))
-    assert f"- **Revisiones requeridas:** {head}" in md and f"  - {detail}" in md
+    assert f"- **Casos a revisar:** {head}" in md and f"  - {detail}" in md
     chead, cdetail = render_md.context_open_text(doc["summary"]["context_required"])
-    assert f"- **Contexto abierto:** {chead}; {cdetail}" in md
-    assert view["summary"]["context_reading"] == cdetail and view["summary"]["review_reading"] == f"{head}. {detail}"
+    assert f"- **Preguntas abiertas:** {chead}" in md and f"  - {cdetail}" in md
+    assert view["summary"]["context_reading"] == cdetail and view["summary"]["review_reading"] == detail.replace("*", "")
+    assert "*" not in view["summary"]["review_reading"] and "(detalle en Revisión requerida)" in view["summary"]["review_reading"]   # sin marcas de Markdown en el HTML
+    assert view["summary"]["review_open"] == head and view["summary"]["context_open"] == chead
 
 
 def test_the_visible_report_keeps_the_vocabulary_guard(view, doc):

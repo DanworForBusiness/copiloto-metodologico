@@ -182,7 +182,8 @@ def test_flat_pools_use_structural_markers_with_the_accepted_epistemic_limit(env
     assert out["replication_flows"] is None                                                           # en un pool plano la familia no se distingue
     env.add("Flat", 1, lambda i: _profile([]))
     story = pf.report_view(pf.build_snapshot(env.entries[-1], PACK))["composition"]["inventory"]
-    assert story["limited_unknown"] and "no es detectable" in story["story"] and "0 sin clasificación" not in story["story"]
+    assert story["limited_unknown"] and "0 sin clasificación" not in story["story"]
+    assert story["unknown_caveat"] == pf.UNKNOWN_PARTIAL_CAVEAT                                         # la salvedad es explícita y breve
 
 
 def test_unavailable_pool_is_not_zero(env):
@@ -356,3 +357,53 @@ def test_the_inventory_is_read_only_and_memoized_by_pool_fingerprint(env):
     assert inv.inventory_for("Acme") == a and sorted(p.as_posix() for p in env.pool.rglob("*")) == before   # no escribe ni crea nada
     _write(env.pool, "Acme/views/V_NEW.json", _s("V_NEW"))
     assert inv.inventory_for("Acme")["views"]["total"] == a["views"]["total"] + 1                           # la huella invalida el memo
+
+
+# ── claridad final: denominador explícito y salvedad de pools planos ────────
+def test_participation_states_its_assessment_and_catalog_denominators(env):
+    first = env.add("Acme", 1, lambda i: _profile([("V_G1", "GRAPHICAL")]))
+    extra = _entry("acme-pending", "Acme", "AM_PENDING")                                              # un artefacto del catálogo SIN assessment vigente
+    env.entries.append(extra)
+    env.statuses["acme-pending"] = _status(extra, None, svc.NOT_YET_ASSESSED)
+    snap = pf.build_snapshot(first, PACK)
+    note = pf.report_view(snap)["composition"]["scope"]["note"]
+    assert note.startswith("Calculado sobre 1 assessment vigente de 2 artefactos del catálogo")
+    assert "El restante no tiene un assessment vigente y no participa" in note and "no representa a todos los artefactos" in note
+    html, md = _client_html(env, first), pf.to_markdown(snap)
+    assert "Calculado sobre 1 assessment vigente de 2 artefactos del catálogo" in html and "Calculado sobre 1 assessment vigente de 2 artefactos del catálogo" in md
+
+
+def test_the_denominator_distinguishes_all_current_enriched_from_all_catalog_covered(env):
+    first = env.add("Acme", 3, lambda i: _profile([("V_G1", "GRAPHICAL")]))                            # los 3 del catálogo, los 3 vigentes y enriquecidos
+    note = pf.report_view(pf.build_snapshot(first, PACK))["composition"]["scope"]["note"]
+    assert note.startswith("Calculado sobre 3 assessments vigentes de 3 artefactos del catálogo") and "restantes" not in note and "no participa" not in note
+
+
+def test_stale_and_missing_artifacts_are_not_called_assessments(env):
+    first = env.add("Acme", 1, lambda i: _profile([("V_G1", "GRAPHICAL")]))
+    for eid, state in (("s", svc.STALE), ("n", svc.NOT_YET_ASSESSED), ("f", svc.FAILED)):
+        e = _entry(eid, "Acme", f"AM_{eid.upper()}")
+        env.entries.append(e)
+        env.statuses[eid] = _status(e, _profile([("V_X", "SQL")]) if state == svc.STALE else None, state)
+    note = pf.report_view(pf.build_snapshot(first, PACK))["composition"]["scope"]["note"]
+    assert "Calculado sobre 1 assessment vigente de 4 artefactos del catálogo" in note and "Los 3 restantes no tienen un assessment vigente" in note
+
+
+def test_partial_enrichment_keeps_not_available_with_the_x_of_y_explanation(env):
+    first = env.add("Acme", 4, lambda i: _profile([("V_G1", "GRAPHICAL")]) if i < 3 else _profile(None))
+    html = _client_html(env, first)
+    assert "No disponible: solo 3 de 4 assessments vigentes incluyen la composición por tipo de vista" in html
+    assert "Calculado sobre" not in html
+
+
+def test_the_partial_unknown_detection_caveat_shows_only_for_partial_inventories(env):
+    caveat = "La identificación de vistas sin clasificar es parcial porque este inventario no informa la familia de todos los artefactos."
+    flat = env.add("Flat", 1, lambda i: _profile([]))
+    snap = pf.build_snapshot(flat, PACK)
+    assert snap["modeling_composition"]["inventory"]["views"]["unknown_detection"] == "PARTIAL"
+    assert caveat in _client_html(env, flat) and caveat in pf.to_markdown(snap)
+    assert snap["modeling_composition"]["inventory"]["views"]["unknown"] == 0                         # el conteo no se toca ni se inventan UNKNOWN
+    acme = env.add("Acme", 1, lambda i: _profile([("V_G1", "GRAPHICAL")]))
+    asnap = pf.build_snapshot(acme, PACK)
+    assert asnap["modeling_composition"]["inventory"]["views"]["unknown_detection"] == "EXHAUSTIVE"
+    assert "es parcial porque" not in _client_html(env, acme) and "es parcial porque" not in pf.to_markdown(asnap)

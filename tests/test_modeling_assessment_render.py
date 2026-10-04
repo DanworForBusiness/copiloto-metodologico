@@ -119,13 +119,15 @@ def test_summary_parity_with_the_json_document(docs):
         assert f"**Confianza:** {R._LEVEL_TEXT[s['confidence']['level']]}" in md
         ctx = s["context_required"]
         n, k = ctx["open_questions"], ctx["questions_backed_by_findings"]
-        assert f"**Contexto abierto:** {n} pregunta{'s' if n != 1 else ''} de contexto abierta{'s' if n != 1 else ''}; {k} de ellas" in md
-        assert f"por {_occ(ctx['occurrences'])} de hallazgos y {ctx['questions_without_findings']} corresponden a contexto del proyecto sin hallazgo asociado" in md
+        assert f"**Preguntas abiertas:** {n} pregunta{'s' if n != 1 else ''}" in md
+        assert f"{k} {'está relacionada' if k == 1 else 'están relacionadas'} con hallazgos detectados y {ctx['questions_without_findings']} " in md
+        assert "sin hallazgo asociado. Una pregunta puede estar vinculada a varias ocurrencias." in md
         for q in ctx["questions"]:
             assert q["question"] in md
         og, rg = len(doc["observations"]), len(doc["review_required"])
         on, rn = sum(g["occurrence_count"] for g in doc["observations"]), sum(g["occurrence_count"] for g in doc["review_required"])
-        assert f"- **Revisiones requeridas:** {_occ(rn)} en {rg} grupo{'s' if rg != 1 else ''} de revisión" in md                       # unidad: OCURRENCIAS de revisión
+        assert f"- **Casos a revisar:** {rn} caso{'s' if rn != 1 else ''}" in md                                                           # unidad: OCURRENCIAS de revisión
+        assert f"agrupados en {rg} tipo{'s' if rg != 1 else ''} de revisión" in md or rn == 0
         assert f"- **Observaciones:** {og} grupo{'s' if og != 1 else ''} de observación ({_occ(on)})" in md
         for a in doc["areas"]:
             c = a["required_surfaces"]
@@ -143,8 +145,11 @@ def test_context_units_are_stated_without_mixing_questions_and_occurrences(docs)
         assert ctx["questions_backed_by_findings"] == len(backed) and ctx["questions_without_findings"] == ctx["open_questions"] - len(backed)
         assert ctx["occurrences"] == sum(g["occurrence_count"] for g in (*doc["observations"], *doc["review_required"]))
     md = R.render_markdown(docs[0][1])
-    line = next(ln for ln in md.splitlines() if ln.startswith("- **Contexto abierto:**"))
-    assert "preguntas de contexto abiertas" in line and "ocurrencias de hallazgos" in line and " de ellas " in line
+    head = next(ln for ln in md.splitlines() if ln.startswith("- **Preguntas abiertas:**"))
+    detail = md.splitlines()[md.splitlines().index(head) + 1]
+    assert "pregunta" in head and "ocurrencia" not in head                                                    # el titular cuenta TIPOS de pregunta
+    assert "relacionadas con hallazgos detectados" in detail or "relacionada con hallazgos detectados" in detail
+    assert "vinculada a varias ocurrencias" in detail
 
 
 def test_each_area_shows_its_real_composed_state_not_a_generic_one(docs):
@@ -179,10 +184,10 @@ def test_findings_summary_line_pluralises_correctly_for_zero_one_and_many(docs):
     for area in doc["areas"]:
         area["finding_groups"] = [x for x in area["finding_groups"] if x == g["id"]]
     md0 = R.render_markdown(doc)
-    assert "- **Observaciones:** 0 grupos de observación (0 ocurrencias)" in md0 and "- **Revisiones requeridas:** 1 ocurrencia en 1 grupo de revisión" in md0
+    assert "- **Observaciones:** 0 grupos de observación (0 ocurrencias)" in md0 and "- **Casos a revisar:** 1 caso" in md0 and "agrupados en 1 tipo de revisión" in md0
     doc["observations"] = [copy.deepcopy(g)]
     md1 = R.render_markdown(doc)
-    assert "- **Observaciones:** 1 grupo de observación (1 ocurrencia)" in md1 and "- **Revisiones requeridas:** 1 ocurrencia en 1 grupo de revisión" in md1
+    assert "- **Observaciones:** 1 grupo de observación (1 ocurrencia)" in md1 and "- **Casos a revisar:** 1 caso" in md1
 
 
 def test_renderer_is_a_pure_function_of_the_document():
@@ -204,12 +209,12 @@ def test_coverage_confidence_and_context_appear_as_separate_summary_items(docs):
     for _am, doc in docs:
         summary = R.render_markdown(doc).split("## Arquitectura / Modelado")[0]
         labels = [b.split(":**")[0] for b in summary.splitlines() if b.startswith("- **")]
-        axes = ("- **Cobertura", "- **Confianza", "- **Revisiones requeridas", "- **Contexto abierto")
+        axes = ("- **Cobertura", "- **Confianza", "- **Casos a revisar", "- **Preguntas abiertas")
         assert [x for x in labels if x in axes] == list(axes)                                            # cuatro ejes separados, cada uno con su unidad
         cov_block = summary[summary.index("- **Cobertura"):summary.index("- **Confianza")]
-        conf_block = summary[summary.index("- **Confianza"):summary.index("- **Revisiones requeridas")]
-        review_block = summary[summary.index("- **Revisiones requeridas"):summary.index("- **Contexto abierto")]
-        assert "pregunta" not in review_block.lower() and "ocurrencia" in review_block                   # revisiones: ocurrencias, no preguntas de contexto
+        conf_block = summary[summary.index("- **Confianza"):summary.index("- **Casos a revisar")]
+        review_block = summary[summary.index("- **Casos a revisar"):summary.index("- **Preguntas abiertas")]
+        assert "pregunta" not in review_block.lower() and "caso" in review_block                          # casos: ocurrencias de revisión, no preguntas
         assert "pregunta" not in cov_block.lower()
         assert "contexto" not in conf_block.lower().replace("preguntas de contexto aún abiertas", "")
         assert "estricta" not in conf_block and "%" not in conf_block                  # nada de matematica de cortes provisorios en el resumen
@@ -359,7 +364,7 @@ def test_public_markdown_is_spanish_and_has_no_known_english_presentation_terms(
         stale = [t for t in ENGLISH_PRESENTATION_TERMS if t in prose]
         assert stale == [], stale
     md = R.render_markdown(docs[0][1])
-    for expected in ("Autoevaluación de Modelado", "**Cobertura:**", "**Confianza:**", "**Contexto abierto:**", "Qué se observó", "**Por qué se muestra:**",
+    for expected in ("Autoevaluación de Modelado", "**Cobertura:**", "**Confianza:**", "**Preguntas abiertas:**", "Qué se observó", "**Por qué se muestra:**",
                      "**Cómo NO leerlo:**", "**Pregunta para el proyecto:**", "Parcialmente evaluado", "Componentes de confianza", "Cobertura por área"):
         assert expected in md, expected
 

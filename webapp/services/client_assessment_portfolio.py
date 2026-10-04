@@ -254,6 +254,7 @@ def catalog_verdict_story(verdicts: list) -> str | None:
 
 
 ND = "No disponible"
+UNKNOWN_PARTIAL_CAVEAT = ("La identificación de vistas sin clasificar es parcial porque este inventario no informa la familia de todos los artefactos.")
 
 
 def _n(v: Any) -> str:
@@ -291,13 +292,16 @@ def composition_view(snap: dict) -> dict:
         if exhaustive:
             inv_story = f"El inventario técnico disponible presenta una composición {shape}."
         else:
-            inv_story = (f"Entre las vistas identificadas en el inventario técnico disponible, la composición es {shape}. "
-                         "El pool no informa carpetas por tipo en todos los casos: una vista sin marcador gráfico o SQL no es detectable, "
-                         "por lo que el conteo de vistas sin clasificar puede estar incompleto.")
+            inv_story = f"Entre las vistas identificadas en el inventario técnico disponible, la composición es {shape}."
     flows = [{"key": k, "label": FLOW_LABELS[k], "value": _n(inv[k]), "evidence": inv["flow_evidence"][k]} for k in inventory.FLOW_ORDER]
     if scope["available"]:
-        scope_note = (f"Disponible: calculado sobre los {scope['total_current_assessments']} assessments vigentes "
-                      f"({snap['catalog_assets']} artefactos en el catálogo); las vistas compartidas entre cierres cuentan una sola vez.")
+        cur, cat = scope["total_current_assessments"], snap["catalog_assets"]
+        scope_note = (f"Calculado sobre {cur} {'assessment vigente' if cur == 1 else 'assessments vigentes'} de {cat} "
+                      f"{'artefacto' if cat == 1 else 'artefactos'} del catálogo; las vistas compartidas entre cierres cuentan una sola vez.")
+        if cur < cat:
+            scope_note += (f" Los {cat - cur} restantes no tienen un assessment vigente y no participan: "
+                           "esta lectura no representa a todos los artefactos del catálogo." if cat - cur != 1 else
+                           " El restante no tiene un assessment vigente y no participa: esta lectura no representa a todos los artefactos del catálogo.")
     elif scope["total_current_assessments"] == 0:
         scope_note = "No hay assessments vigentes."
     else:
@@ -311,6 +315,7 @@ def composition_view(snap: dict) -> dict:
                      {"label": "Vistas SQL", "value": _n(v["sql"])}, {"label": "Sin clasificar", "value": _n(v["unknown"])}],
             "distribution": _distribution_rows(v["graphical"], v["sql"], v["unknown"], v["total"]),
             "flows": flows, "story": inv_story, "limited_unknown": bool(v["total"]) and not exhaustive,
+            "unknown_caveat": UNKNOWN_PARTIAL_CAVEAT if v["unknown_detection"] == inventory.PARTIAL else None,
         },
         "scope": {
             "available": scope["available"], "note": scope_note,
@@ -388,6 +393,8 @@ def to_markdown(snap: dict) -> str:
               "_Artefactos únicos de la evidencia disponible para el Copiloto (no es el total del tenant de Datasphere)._", ""]
     lines += [f"- **{k['label']}:** {k['value']}" for k in c["inventory"]["kpis"]]
     lines += [f"- **{f['label']}:** {f['value']}" for f in c["inventory"]["flows"]]
+    if c["inventory"]["unknown_caveat"]:
+        lines += ["", f"_{c['inventory']['unknown_caveat']}_"]
     if c["inventory"]["story"]:
         lines += ["", f"> {c['inventory']['story']}"]
     lines += ["", "### Participación en Assessments vigentes", "", f"_{c['scope']['note']}_", ""]

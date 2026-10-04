@@ -143,36 +143,32 @@
 <article class="methodology catalog-detail">
 {% set ns = namespace(n=1) %}
 <section class="content-section" id="asr-resumen">
-  {{ heading(ns.n, "Resumen", "Perfil de evidencia, cobertura y confianza. Describe qué se observó, qué requiere revisión y qué no pudo evaluarse; los hallazgos son observaciones para revisión humana, no conclusiones sobre la calidad del modelo. Es una evaluación independiente del veredicto del catálogo.") }}
+  {{ heading(ns.n, "Resumen", "Perfil de evidencia, cobertura y confianza. Describe qué se observó, qué requiere revisión y qué no pudo evaluarse; los hallazgos son observaciones para revisión humana, no conclusiones sobre la calidad del modelo. " ~ s.relation_text ~ " Es una evaluación independiente del veredicto del catálogo.") }}
   <table>
     <thead><tr><th>Medida</th><th>Valor</th><th>Cómo leerla</th></tr></thead>
     <tbody>
       <tr><td>Cobertura estricta</td><td>{{ s.coverage_strict }}</td><td>{{ s.coverage_meaning }} Superficies requeridas: {{ s.surfaces }}.</td></tr>
       <tr><td>Cobertura inclusiva</td><td>{{ s.coverage_inclusive }}</td><td>Incluye la evidencia parcialmente evaluada.</td></tr>
       <tr><td>Confianza</td><td>{{ s.confidence }}</td><td>{{ s.confidence_meaning }}{% if s.confidence_limitation %} Limitación principal: {{ s.confidence_limitation }}{% endif %}</td></tr>
-      <tr><td>Revisiones requeridas</td><td>{{ s.review_occurrences }}</td><td>{{ s.review_reading }}</td></tr>
-      <tr><td>Contexto abierto</td><td>{{ s.context_open }}</td><td>{{ s.context_reading }}</td></tr>
+      <tr><td>Casos a revisar</td><td>{{ s.review_open }}</td><td>{{ s.review_reading }}</td></tr>
+      <tr><td>Preguntas abiertas</td><td>{{ s.context_open }}</td><td>{{ s.context_reading }}</td></tr>
       <tr><td>Observaciones</td><td>{{ s.observation_occurrences }}</td><td>{{ s.observation_groups }} grupo{{ "s" if s.observation_groups != 1 }} de observación: patrones descriptivos para revisión humana, sin juicio (detalle en Observaciones).</td></tr>
     </tbody>
   </table>
   {% for d in s.no_evidence_dimensions %}{% call callout("punch", "Dimensión " ~ d) %}<p>Sin evidencia evaluada — ninguna evidencia requerida pudo evaluarse.</p>{% endcall %}{% endfor %}
-  {% if v.summary.context_backed %}
-  <h3>Preguntas que solo el proyecto puede responder</h3>
-  {% for grp in v.summary.context_backed %}
-  <table>
-    <thead><tr><th>Pregunta</th><th>{{ grp.heading }}</th><th>Ocurrencias</th></tr></thead>
-    <tbody>
-      {% for q in grp.rows %}<tr><td>{{ q.text }}</td><td><a href="#{{ q.finding_dom_id }}"><code>{{ q.finding_title }}</code></a></td><td>{{ q.occurrences }}</td></tr>{% endfor %}
-    </tbody>
-  </table>
-  {% endfor %}
-  {% endif %}
-  {% if v.summary.context_independent %}
-  <details class="dashboard-section">
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Contexto adicional del proyecto</span><span class="dashboard-section__count">{{ v.summary.context_independent_n }}</span></summary>
+  {% if s.context_rows %}
+  {# Mismo contenedor que los bloques agrupados del informe (disclosure del CRM, p. ej. Modelo analítico): el título es su cabecera. #}
+  <details class="dashboard-section" id="asr-preguntas" open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Preguntas que solo el proyecto puede responder</span><span class="dashboard-section__count">{{ s.context_open_total }}</span></summary>
     <div class="dashboard-section__body">
-      {% call callout("punch", "Preguntas sin hallazgo asociado", icon="💡") %}<p>Preguntas abiertas que no están respaldadas por un hallazgo: solo el proyecto puede responderlas.</p>{% endcall %}
-      <ul>{% for q in v.summary.context_independent %}<li>{{ q.text }}</li>{% endfor %}</ul>
+      <p>{{ s.context_summary }}</p>
+      <p>Estas preguntas representan información que el análisis no puede obtener automáticamente del modelo. Algunas surgen de hallazgos concretos y otras corresponden al contexto general del proyecto.</p>
+      <table data-block="open-questions">
+        <thead><tr><th>Pregunta</th><th>Vinculada a</th><th>Hallazgo</th><th>Ocurrencias</th></tr></thead>
+        <tbody>
+          {% for q in s.context_rows %}<tr><td>{{ q.text }}</td><td>{{ q.linked_to }}</td><td>{% if q.finding_dom_id %}<a href="#{{ q.finding_dom_id }}"><code>{{ q.finding_title }}</code></a>{% else %}—{% endif %}</td><td>{{ q.occurrences }}</td></tr>{% endfor %}
+        </tbody>
+      </table>
     </div>
   </details>
   {% endif %}

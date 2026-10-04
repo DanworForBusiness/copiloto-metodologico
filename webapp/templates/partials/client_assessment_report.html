@@ -107,6 +107,7 @@
           <tbody>{% for f in comp.inventory.flows %}<tr data-family="{{ f.key }}" data-evidence="{{ f.evidence }}"><td>{{ f.label }}</td><td>{{ f.value }}</td></tr>{% endfor %}</tbody>
         </table>
         <p>«No disponible» indica que el pool no permite saber si la familia se extrajo: no equivale a cero.</p>
+        {% if comp.inventory.unknown_caveat %}<p data-caveat="unknown-detection">{{ comp.inventory.unknown_caveat }}</p>{% endif %}
         {% if comp.inventory.story %}{% call callout("punch", "Lectura de la composición", icon="💡") %}<p>{{ comp.inventory.story }}</p>{% endcall %}{% endif %}
       </div>
     </details>

@@ -597,12 +597,12 @@ def test_report_leads_with_kpis_in_the_crm_disclosure_and_hero_text_is_simplifie
     assert first.index("Indicadores del assessment") < first.index("activity-kpi-grid") < first.index('id="asr-resumen"')
     assert html.index('<details class="dashboard-section" open>') < html.index('id="asr-resumen"')       # KPIs = primer contenido bajo el hero
     kpis = re.findall(r'<span class="activity-kpi__value">([^<]*)</span><span class="activity-kpi__label">([^<]*)</span>', first.split('id="asr-resumen"')[0])
-    assert [l for _v, l in kpis] == ["Cobertura estricta", "Confianza", "Revisiones requeridas", "Contexto abierto"]
+    assert [l for _v, l in kpis] == ["Cobertura estricta", "Confianza", "Casos a revisar", "Preguntas abiertas"]
     prof = svc.status_for_entry(world.entries[0]).profile
     vals = dict((l, v) for v, l in kpis)
     assert vals["Cobertura estricta"] == presenter.P.percent_text(prof["summary"]["coverage"]["strict"])
-    assert vals["Revisiones requeridas"] == str(sum(g["occurrence_count"] for g in prof["review_required"]))
-    assert vals["Contexto abierto"] == str(prof["summary"]["context_required"]["open_questions"])
+    assert vals["Casos a revisar"] == str(sum(g["occurrence_count"] for g in prof["review_required"]))
+    assert vals["Preguntas abiertas"] == str(prof["summary"]["context_required"]["open_questions"])
     assert "Perfil de evidencia, cobertura y confianza" in first.split("</blockquote>")[0]                # la nota metodológica vive en el subtítulo de Resumen
     assert html.count("Perfil de evidencia, cobertura y confianza") == 1
 
@@ -661,12 +661,8 @@ def test_rule_evaluation_is_a_table_not_bullets(world):
     assert not re.search(r"<li>[^<]*(ausencia|patrón|evaluad)[^<]*</li>", sec.split("Hallazgos en esta área")[0])
 
 
-def test_contexto_adicional_uses_the_shared_punch_markup_and_question_links_use_the_hub_content_link(world):
+def test_question_links_use_the_hub_content_link(world):
     html = _post(client_for()).text
-    det = re.search(r'<details class="dashboard-section">\s*<summary[^>]*>.*?Contexto adicional del proyecto.*?</details>', html, re.S)
-    if det:                                                                                          # solo si hay preguntas independientes
-        assert re.search(r'<aside class="callout callout--punch"><div class="callout__head"><span class="callout__icon">[^<]+</span><strong class="callout__title">[^<]+</strong></div><div class="callout__body"><p>Preguntas abiertas que no están respaldadas por un hallazgo', det.group(0))
-        assert det.group(0).index("callout--punch") < det.group(0).index("<ul>")
     sec = html[html.index("Preguntas que solo el proyecto puede responder"):html.index('id="asr-m-architecture_modeling"')]
     links = re.findall(r'<td><a ([^>]*)><code>', sec)
     assert links and all("class=" not in l and 'href="#asr-g-' in l for l in links)                       # mismo enlace de contenido del Hub, sin clase propia
@@ -674,29 +670,20 @@ def test_contexto_adicional_uses_the_shared_punch_markup_and_question_links_use_
     assert "sap-note-link" not in css[css.index("Assessment de modelado en el Catálogo"):]                  # sin color de enlace propio
 
 
-def test_context_questions_are_split_between_finding_backed_table_and_independent_disclosure_and_reconcile(world):
+def test_open_questions_are_one_table_and_reconcile_with_the_kpi(world):
     c = client_for()
     html = _post(c).text
     prof = svc.status_for_entry(world.entries[0]).profile
     ctx = prof["summary"]["context_required"]
     sec = html[html.index("Preguntas que solo el proyecto puede responder"):html.index('id="asr-m-architecture_modeling"')]
-    tables = re.findall(r"<table>.*?</table>", sec, re.S)
-    assert tables
-    backed_rows = 0
-    for t in tables:
-        assert re.search(r"<th>Pregunta</th><th>(Revisión requerida|Observación)</th><th>Ocurrencias</th>", t)
-        assert 'class="catalog-card__verdict' not in t and "—" not in t                           # sin badge repetido por fila ni guiones de relleno
-        rows = re.findall(r"<tr><td>.*?</td><td><a href=\"#asr-g-[^\"]+\"><code>[^<]+</code></a></td><td>\d+</td></tr>", t, re.S)
-        assert len(rows) == t.count("<tr><td>")
-        backed_rows += len(rows)
-    detail = re.search(r'<details class="dashboard-section">\s*<summary[^>]*>.*?Contexto adicional del proyecto.*?</details>', sec, re.S)
-    n_independent = sum(1 for q in ctx["questions"] if q["occurrence_count"] is None)
-    if n_independent:
-        assert detail and detail.group(0).count("<li>") == n_independent and "<table" not in detail.group(0)
-    else:
-        assert not detail
-    # reconciliación: KPI "Contexto abierto" = preguntas con hallazgo + preguntas independientes del proyecto
-    kpi = int(re.search(r'<span class="activity-kpi__value">(\d+)</span><span class="activity-kpi__label">Contexto abierto', html).group(1))
+    tables = re.findall(r"<table[^>]*>.*?</table>", sec, re.S)
+    assert len(tables) == 1 and 'data-block="open-questions"' in tables[0]                         # UNA sola tabla (antes: una por tipo de hallazgo)
+    assert "<th>Pregunta</th><th>Vinculada a</th><th>Hallazgo</th><th>Ocurrencias</th>" in tables[0]
+    rows = re.findall(r"<tr><td>.*?</td></tr>", tables[0], re.S)
+    assert len(rows) == ctx["open_questions"]                                                       # cada pregunta canónica aparece exactamente una vez
+    backed_rows = len(rows) - ctx["questions_without_findings"]
+    n_independent = ctx["questions_without_findings"]
+    kpi = int(re.search(r'<span class="activity-kpi__value">(\d+)</span><span class="activity-kpi__label">Preguntas abiertas', html).group(1))
     assert kpi == ctx["open_questions"] == backed_rows + n_independent == ctx["questions_backed_by_findings"] + ctx["questions_without_findings"]
     view = presenter.report_view(svc.status_for_entry(world.entries[0]), world.entries[0], "datasphere_core")["summary"]
     assert view["context_backed_n"] + view["context_independent_n"] == view["context_open_n"] == kpi

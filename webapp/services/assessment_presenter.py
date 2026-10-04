@@ -259,12 +259,12 @@ KPI_HELP: dict[str, tuple[str, ...]] = {
         "No mide la calidad del modelo."),
     "confidence": (
         "Qué tan fiable es la evidencia que sí se evaluó (alta, media o baja); manda el componente más débil.",
-        "No mide la calidad del modelo y es independiente de la cobertura y del contexto aún abierto."),
+        "No mide la calidad del modelo y es independiente de la cobertura y de las preguntas aún abiertas."),
     "review_required": (
-        "Cantidad de ocurrencias que el análisis automático no puede cerrar solo con la evidencia disponible y que requieren la revisión de una persona.",
-        "No son defectos confirmados."),
+        "Casos concretos detectados por el análisis que necesitan validación humana antes de poder cerrarse. Cuenta ocurrencias y no implica defectos confirmados.",
+        "No mide la calidad del modelo."),
     "context_open": (
-        "Cantidad de preguntas distintas que solo el equipo del proyecto puede responder y que el análisis dejó abiertas.",
+        "Información que aún debe aportar el equipo del proyecto para completar o interpretar el análisis. Una misma pregunta puede estar relacionada con varios hallazgos.",
         "Cuenta tipos de pregunta, no ocurrencias, y no mide la calidad ni la confianza."),
 }
 
@@ -349,22 +349,33 @@ def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, 
     }
 
 
+# Por qué existe una pregunta abierta (solo vocabulario visible; los enums canónicos OBSERVATION / REVIEW no cambian).
+QUESTION_LINK_LABELS = {"OBSERVATION": "Observación", "REVIEW": "Caso a revisar"}
+QUESTION_LINK_PROJECT = "Contexto del proyecto"
+_NA = "—"                                                                              # concepto no aplicable (jamás un 0 artificial)
+
+
 def _context_questions(ctx: dict, groups_by_id: dict[str, dict]) -> dict:
-    """Preguntas de contexto abiertas, separadas por su respaldo: (a) respaldadas por un hallazgo, agrupadas por tipo de hallazgo
-    (cada tabla lleva el tipo en su encabezado, sin repetirlo por fila) y (b) preguntas del proyecto SIN hallazgo. Es solo
-    presentación del mismo bloque canónico: ``backed + independent == open_questions``."""
-    by_kind: dict[str, list[dict]] = {}
-    independent: list[dict] = []
-    for q in ctx["questions"]:
+    """Preguntas abiertas en UNA tabla: cada fila dice a qué está vinculada (Observación / Caso a revisar / Contexto del proyecto). Es solo
+    presentación del mismo bloque canónico ``summary.context_required``: ``backed + independent == open_questions``. El resumen compacto usa los
+    conteos canónicos (no los recalcula la plantilla)."""
+    rank = {"OBSERVATION": 0, "REVIEW": 1}
+    rows: list[dict] = []
+    for i, q in enumerate(ctx["questions"]):
         g = groups_by_id.get(q["id"])
         if q["occurrence_count"] is None or g is None:
-            independent.append({"text": q["question"]})
+            rows.append({"order": (2, i), "text": q["question"], "linked_to": QUESTION_LINK_PROJECT, "finding_title": None, "finding_dom_id": None,
+                         "occurrences": _NA, "has_finding": False})
             continue
-        by_kind.setdefault(q["origin"], []).append({"text": q["question"], "occurrences": q["occurrence_count"],
-                                                    "finding_title": g["title"], "finding_dom_id": f"asr-g-{q['id']}"})
-    backed = [{"heading": P.finding_kind_text(kind).capitalize(), "rows": rows} for kind, rows in by_kind.items()]
-    return {"context_backed": backed, "context_independent": independent,
-            "context_backed_n": sum(len(b["rows"]) for b in backed), "context_independent_n": len(independent)}
+        rows.append({"order": (rank.get(q["origin"], 1), i), "text": q["question"], "linked_to": QUESTION_LINK_LABELS.get(q["origin"], "Caso a revisar"),
+                     "finding_title": g["title"], "finding_dom_id": f"asr-g-{q['id']}", "occurrences": q["occurrence_count"], "has_finding": True})
+    rows.sort(key=lambda r: r["order"])
+    n, backed, independent = ctx["open_questions"], ctx["questions_backed_by_findings"], ctx["questions_without_findings"]
+    return {"context_rows": rows, "context_open_total": n,
+            "context_summary": (f"{_plural(n, 'pregunta abierta', 'preguntas abiertas')} · "
+                                f"{backed} {'vinculada' if backed == 1 else 'vinculadas'} a hallazgos · "
+                                f"{independent} de contexto del proyecto"),
+            "context_backed_n": sum(1 for r in rows if r["has_finding"]), "context_independent_n": sum(1 for r in rows if not r["has_finding"])}
 
 
 def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: AdhocReport | None = None) -> dict:
@@ -418,9 +429,10 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
                          f"({rs['not_applicable']} que no aplican quedan excluidas)"),
             "confidence": P.confidence_level_text(conf["level"]), "confidence_level": conf["level"], "confidence_meaning": conf["meaning"],
             "confidence_limitation": lim["summary"] if lim else None,
-            "context_open": _plural(ctx["open_questions"], "pregunta de contexto abierta", "preguntas de contexto abiertas"),
+            "context_open": P.context_open_text(ctx)[0],
+            "review_open": _rev_head, "relation_text": P.summary_relation_text(),
             "context_open_n": ctx["open_questions"],
-            "review_reading": f"{_rev_head}. {_rev_detail}",
+            "review_reading": _rev_detail.replace("*", ""),                                   # el Markdown usa *cursiva*; el HTML no la interpreta
             "context_reading": P.context_open_text(ctx)[1],
             **_context_questions(ctx, groups_by_id),
             "no_evidence_dimensions": [P.macro_dimension_title(m["id"]) for m in summary["macro_dimensions"] if m["state"] == "COMPLETELY_NOT_ASSESSED"],
@@ -432,8 +444,8 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         "kpis": [
             _kpi("coverage_strict", "Cobertura estricta", P.percent_text(cov["strict"])),
             _kpi("confidence", "Confianza", P.confidence_level_text(conf["level"])),
-            _kpi("review_required", "Revisiones requeridas", sum(g["occurrence_count"] for g in doc["review_required"])),
-            _kpi("context_open", "Contexto abierto", ctx["open_questions"]),
+            _kpi("review_required", "Casos a revisar", sum(g["occurrence_count"] for g in doc["review_required"])),
+            _kpi("context_open", "Preguntas abiertas", ctx["open_questions"]),
         ],
         "observations": [_group_view(g, link_entry, pack) for g in doc["observations"]],
         "review_required": [_group_view(g, link_entry, pack) for g in doc["review_required"]],

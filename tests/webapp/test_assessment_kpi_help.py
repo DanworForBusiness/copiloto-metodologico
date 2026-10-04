@@ -40,7 +40,7 @@ def test_a_kpi_without_help_is_byte_identical_to_the_previous_markup():
 
 def test_the_four_report_kpis_keep_labels_and_values_and_gain_help_from_the_presenter(_report_view):
     kpis = _report_view["kpis"]
-    assert [k["label"] for k in kpis] == ["Cobertura estricta", "Confianza", "Revisiones requeridas", "Contexto abierto"]
+    assert [k["label"] for k in kpis] == ["Cobertura estricta", "Confianza", "Casos a revisar", "Preguntas abiertas"]
     s = _report_view["summary"]
     assert [k["value"] for k in kpis] == [s["coverage_strict"], s["confidence"], s["review_occurrences"], s["context_open_n"]]       # valores sin cambios
     assert [k["help"] for k in kpis] == [list(presenter.KPI_HELP[key]) for key in ("coverage_strict", "confidence", "review_required", "context_open")]
@@ -60,7 +60,9 @@ def test_the_copy_follows_the_canonical_contract_and_never_reads_as_a_score():
     h = presenter.KPI_HELP
     assert "requerida y aplicable" in h["coverage_strict"][0] and "solo en parte no suma" in h["coverage_strict"][0]      # estricta = solo lo evaluado por completo
     assert "evidencia que sí se evaluó" in h["confidence"][0] and "independiente de la cobertura" in h["confidence"][1]
-    assert "ocurrencias" in h["review_required"][0] and "revisión de una persona" in h["review_required"][0]               # suma de ocurrencias, requiere humano
+    assert "ocurrencias" in h["review_required"][0] and "validación humana" in h["review_required"][0]                       # suma de ocurrencias, requiere humano
+    assert "no implica defectos confirmados" in h["review_required"][0]
+    assert "equipo del proyecto" in h["context_open"][0] and "varios hallazgos" in h["context_open"][0]                     # la misma pregunta puede asociarse a varios hallazgos
     assert "tipos de pregunta, no ocurrencias" in h["context_open"][1]                                                      # unidad: tipos de pregunta
     banned = re.compile(r"\b(score|scoring|puntaje|puntuaci[oó]n|nota|madurez|banda|ranking|rating)\b", re.I)
     for key, lines in h.items():
