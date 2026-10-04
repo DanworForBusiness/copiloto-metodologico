@@ -650,6 +650,108 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict) -> AssessmentS
     return replace(_status_from(entry, res, versions), durable=durable)
 
 
+# ═══════════════════════════ enriquecimiento controlado de assessments gobernados CURRENT ═══════════════════════════
+# OPERACIÓN EXPLÍCITA del dueño (``assessment_backfill --enrich-current-missing``): NO es comportamiento de request ni de arranque. Regenera el
+# assessment COMPLETO con el motor vigente sobre la evidencia local ya presente (sin Datasphere, sin credenciales) y, solo si TODO valida,
+# reemplaza el registro gobernado de la MISMA llave. Distinto de ``generate``: nunca escribe un sobre FAILED sobre un registro bueno.
+class EnrichmentError(Exception):
+    """Fallo ANTES de escribir: el registro previo (memoria, disco y remoto) queda intacto. ``code`` es estable; sin trazas ni rutas."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+@dataclass(frozen=True)
+class RegeneratedAssessment:
+    """Resultado de regenerar en MEMORIA (nada escrito todavía): el perfil nuevo, su sobre candidato y la llave del registro que reemplazaría."""
+    client: str
+    terminal_am: str
+    profile: dict
+    envelope: dict
+
+
+def facts_present(profile: dict | None) -> set[str]:
+    """Ids de hechos (sin el sufijo ``@sujeto``) que figuran en el ``fact_index`` del perfil canónico."""
+    return {str(x.get("fact", "")).split("@", 1)[0] for x in (profile or {}).get("fact_index") or [] if isinstance(x, dict)}
+
+
+def missing_facts(profile: dict | None, required: Iterable[str]) -> list[str]:
+    """Hechos requeridos que el perfil NO trae (la elegibilidad del enriquecimiento sale del CONTENIDO canónico, no de fechas ni versiones)."""
+    present = facts_present(profile)
+    return [f for f in required if f not in present]
+
+
+def _envelope_resolves_current(env: dict, res: Resolution, versions: dict) -> bool:
+    """Espejo de la regla de ``_status_from`` (misma firma del pool + mismo bloque de versiones + esquema válido): ¿el sobre candidato leería CURRENT?"""
+    return (env.get("status") == "OK" and env.get("assessment_schema_version") == ma_profile.ASSESSMENT_SCHEMA_VERSION and _valid_profile(env)
+            and env.get("input_pool_signature") == res.pool_signature and env.get("assessment_versions") == versions)
+
+
+def regenerate_in_memory(entry: Any, required_facts: Iterable[str]) -> RegeneratedAssessment:
+    """Corre el motor canónico sobre la evidencia local actual y VALIDA el resultado, sin escribir nada. Lanza ``EnrichmentError`` (código estable)
+    si el registro gobernado actual no es un CURRENT legible, si el motor o la validación fallan, si la firma del pool regenerada difiere de la del
+    pool local, si el hecho requerido no aparece o si el registro nuevo no leería CURRENT."""
+    required = tuple(required_facts)
+    res = resolve_entry(entry)
+    versions = current_assessment_versions()
+    if res.kind != "OK":
+        raise EnrichmentError(res.kind if res.kind in ERROR_MESSAGES else "POOL_UNAVAILABLE")
+    client, am = res.client, res.terminal_am
+    previous = _load_envelope(client, am)
+    if (previous is None or previous.get("status") != "OK" or not _valid_profile(previous)
+            or previous.get("assessment_schema_version") != ma_profile.ASSESSMENT_SCHEMA_VERSION
+            or previous.get("input_pool_signature") != res.pool_signature or previous.get("assessment_versions") != versions):
+        raise EnrichmentError("PREVIOUS_NOT_CURRENT")
+    try:
+        doc, meta = _engine_assess(res.pool_root, res.client_dir, am, res.domain_dir)
+        if doc.get("assessment_state") != "ASSESSED":
+            log.warning("assessment: enriquecimiento %s/%s: el motor no produjo un assessment (%s)", client, am, (meta or {}).get("errors"))
+            raise EnrichmentError("ENGINE_NOT_ASSESSED")
+        ma_profile.validate_assessment(doc)
+    except EnrichmentError:
+        raise
+    except ValueError:
+        log.exception("assessment: enriquecimiento %s/%s: perfil inválido", client, am)
+        raise EnrichmentError("INVALID_PROFILE") from None
+    except Exception:                                   # noqa: BLE001 — traza SOLO al log del servidor
+        log.exception("assessment: enriquecimiento %s/%s: fallo del motor", client, am)
+        raise EnrichmentError("GENERATION_ERROR") from None
+    sig = (doc.get("scope") or {}).get("pool_signature") or (meta or {}).get("pool_signature")
+    if sig != res.pool_signature:
+        raise EnrichmentError("POOL_SIGNATURE_MISMATCH")
+    if missing_facts(doc, required):
+        raise EnrichmentError("ENRICHMENT_MISSING")
+    env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]))
+    if not _envelope_resolves_current(env, res, versions):
+        raise EnrichmentError("WOULD_NOT_BE_CURRENT")
+    return RegeneratedAssessment(client, am, doc, env)
+
+
+def commit_regenerated(candidate: RegeneratedAssessment) -> str:
+    """Reemplaza el registro gobernado de la MISMA llave por el candidato ya validado, por el camino canónico ``_store_envelope`` (archivo atómico +
+    write-through a Spaces). Devuelve ``remote`` | ``local`` | ``memory``. Si queda solo en memoria (disco no escribible) el registro previo sigue siendo
+    el vigente y la copia en memoria se RESTAURA: no queda un perfil nuevo que nadie podría persistir."""
+    key = _key(candidate.client, candidate.terminal_am)
+    with _cache_lock:
+        previous = _memory.get(key)
+    durable = _store_envelope(candidate.envelope)
+    if durable == DURABLE_MEMORY:
+        with _cache_lock:
+            if previous is not None:
+                _memory[key] = previous
+            else:
+                _memory.pop(key, None)
+    return durable
+
+
+def retry_remote_persistence(client: str, am: str) -> bool:
+    """Reintento EXPLÍCITO del PUT remoto del registro gobernado (``remote_store.push_path``, la misma API del write-through). True solo si el PUT
+    quedó confirmado. No borra ni toca nada remoto si falla."""
+    path = governed_path(client, am)
+    return bool(path is not None and path.is_file() and remote_store.enabled() and remote_store.push_path(path))
+
+
 # ═══════════════════════════ exportaciones ═══════════════════════════
 def export_json(status: AssessmentStatus) -> str:
     """El perfil canónico validado exacto que usa el UI."""
