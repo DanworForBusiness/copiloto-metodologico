@@ -1417,6 +1417,15 @@ def regenerate_catalog_from_pool(csn_cache_root: Path, catalog_root: Path) -> st
     return str(generate_all(csn_cache_root, catalog_root))
 
 
+def format_runtime(seconds: float) -> str:
+    """Duración legible: < 60 s => ``47.2s``; >= 60 s => ``06m 52s (412.3 s)`` (minutos y segundos + los segundos exactos con un decimal)."""
+    total = round(max(0.0, float(seconds)), 1)
+    if total < 60:
+        return f"{total:.1f}s"
+    minutes = int(total // 60)
+    return f"{minutes:02d}m {int(total - 60 * minutes):02d}s ({total:.1f} s)"
+
+
 def run_export(req: ExportRequest) -> ExportResult:
     """Run one extraction without reading argv or exiting the process.
 
@@ -1683,6 +1692,7 @@ def run_export(req: ExportRequest) -> ExportResult:
             _say(f"Persistencia canónica: {'OK' if result.storage_enabled else 'NO CONFIRMADA'}")
     else:
         _say("Publicación en catálogo: NO")
+    _say(f"Total Runtime: {format_runtime(time.perf_counter() - started_at)}")      # duración MEDIDA por el backend (reloj monotónico), solo la extracción
     _say("STATUS: SUCCESS")
     return finish(result)
 
