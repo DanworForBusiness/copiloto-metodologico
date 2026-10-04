@@ -6,6 +6,7 @@ Hermano de ``datasphere_assessment_service`` pero con el contrato OPUESTO: PUBLI
     adquirir evidencia (CSN) en el pool CANÓNICO (``catalog_local/.csn_cache``)
       → regenerar el Catálogo desde ese pool (``generate_catalog=True``)
       → invalidar la caché del Catálogo → el nuevo dominio queda disponible en la pestaña "Catálogo"
+      → registrar el assessment CANÓNICO del modelo desde ESA MISMA evidencia (``register_assessment``: sin reconectar ni re-extraer)
 
 Se apoya en la MISMA función que el CLI (``tools/catalog/DSP_CLI_Export_Lineage.py::run_export``), con el modo forzado por el
 SERVIDOR (``mode="publish"``): la UI nunca elige el modo, y esta herramienta NO comparte su ruta POST con el Assessment (evaluar y
@@ -41,8 +42,10 @@ PUBLICATION_MODULES = frozenset({"04_Modelado_y_Desarrollo"})
 TITLE_PUBLISH = "No se pudo publicar el modelo"
 # Fase semántica única: "extracting" es la inicial (sin evento); al terminar la extracción se regenera el Catálogo.
 PHASE_PUBLISHING = "publishing"
+PHASE_REGISTERING = "registering"
 PHASE_PUBLISHED = "published"
-PHASE_COPY = {PHASE_PUBLISHING: "Publicando en el catálogo...", PHASE_PUBLISHED: "Catálogo actualizado"}
+PHASE_COPY = {PHASE_PUBLISHING: "Publicando en el catálogo...", PHASE_REGISTERING: "Registrando el assessment del modelo...",
+              PHASE_PUBLISHED: "Catálogo actualizado"}
 
 
 # ───────────────────────────── disponibilidad / autorización ─────────────────────────────
@@ -95,6 +98,28 @@ def _canonical_roots() -> tuple[Path, Path]:
     catalog_root = Path(os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(config.BASE_DIR / "catalog_local")).resolve()
     csn_cache = Path(os.getenv("DANWOR_CATALOG_CSN_CACHE", "").strip() or str(catalog_root / ".csn_cache")).resolve()
     return catalog_root, csn_cache
+
+
+# ───────────────────────────── puente PUBLICAR → assessment canónico ─────────────────────────────
+def register_assessment(values: asd.FormValues) -> list[tuple[str, str]]:
+    """Registra el assessment CANÓNICO del modelo recién publicado. UNA adquisición, dos registros: la evidencia (CSN) que la
+    extracción ya dejó en el pool canónico alimenta el catálogo Y este assessment; NO reconecta a Datasphere ni vuelve a extraer.
+
+    Reusa SIN cambios la integración del Catálogo (``assessment_service.generate``: misma resolución entrada → AM terminal, misma
+    llave de vigencia, mismo motor y misma caché operativa ``(cliente, AM)``). Es determinista y sin LLM. NUNCA lanza ni hace fallar la
+    publicación: si algo falla, el modelo queda publicado y su assessment en el estado estable que corresponda (p. ej. FAILED →
+    reintentable desde el Catálogo). Devuelve ``[(entry_id, estado)]`` de las entradas del Catálogo que contienen el modelo."""
+    out: list[tuple[str, str]] = []
+    try:
+        from webapp.services import assessment_service as assess, catalog_reads
+        _mod, entries = catalog_reads._catalog_entries()
+        client, root = values.client.strip().lower(), values.root_object.strip()
+        for entry in entries:
+            if str(entry.cliente).strip().lower() == client and root in {str(a) for a in (entry.artefactos or [])}:
+                out.append((entry.entry_id, assess.generate(entry).state))
+    except Exception:                                                   # noqa: BLE001 — registrar el assessment jamás rompe la publicación
+        log.exception("datasphere_publication: no se pudo registrar el assessment del modelo publicado")
+    return out
 
 
 # ───────────────────────────── ejecución (PUBLICAR) ─────────────────────────────
@@ -160,6 +185,13 @@ def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_
             hub_main._invalidate_catalog_cache()
         except Exception:                                               # noqa: BLE001
             log.warning("datasphere_publication op=%s no se pudo invalidar el caché del catálogo", op_id)
+        # Mismo pool, sin reconectar: el assessment canónico del modelo publicado queda registrado junto con el Catálogo.
+        if on_phase is not None:
+            on_phase(PHASE_REGISTERING)
+        registered = register_assessment(values)
+        if on_line is not None:
+            for _eid, state in registered:
+                on_line(f"Assessment del modelo registrado: {state}")
         if on_phase is not None:
             on_phase(PHASE_PUBLISHED)
         duration = round((datetime.now(timezone.utc) - started).total_seconds(), 1)

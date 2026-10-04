@@ -11,7 +11,7 @@
   "use strict";
 
   // Fases semánticas del backend en las que hay trabajo en curso ("extracting" es la inicial, antes de cualquier evento).
-  const WORKING = new Set(["extracting", "publishing"]);
+  const WORKING = new Set(["extracting", "publishing", "registering"]);
 
   function el(root, sel) { return root.querySelector(sel); }
 
