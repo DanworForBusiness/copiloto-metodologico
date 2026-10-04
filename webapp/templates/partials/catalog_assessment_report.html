@@ -15,8 +15,7 @@
   <a class="support-link" href="#" role="button" hx-post="{{ v.report_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-indicator="#asr-busy" @click.prevent>{{ v.action.label }}<span>↗</span></a>
   <span class="htmx-indicator" id="asr-busy" role="status">Generando…</span>
 </div>{% endif %}{% endmacro %}
-{% macro callout(tone, title, role="", icon="") %}<aside class="callout callout--{{ tone }}"{% if role %} role="{{ role }}"{% endif %}><div class="callout__head">{% if icon %}<span class="callout__icon">{{ icon }}</span>{% endif %}<strong class="callout__title">{{ title }}</strong></div><div class="callout__body">{{ caller() }}</div></aside>{% endmacro %}
-{% from "partials/assessment_report_macros.html" import heading %}
+{% from "partials/assessment_report_macros.html" import heading, callout %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
 {% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}
 {# Hallazgo: encabezado semántico + "por qué aparece" siempre visibles; el detalle, bajo demanda (disclosure del CRM) y como TABLAS:

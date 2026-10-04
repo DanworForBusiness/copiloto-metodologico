@@ -6,7 +6,7 @@
      · secciones ....... `article.methodology.catalog-detail` > `section.content-section` + macro compartida `heading` ([NN] + h2 + subtítulo)
      · tablas/enlaces .. tablas nativas de `.methodology`; enlaces de contenido `<a><code>…</code></a>`; etiquetas `.catalog-card__verdict`
    Unidad = entrada/flujo del Catálogo. #}
-{% from "partials/assessment_report_macros.html" import heading %}
+{% from "partials/assessment_report_macros.html" import heading, callout %}
 {% set snap = v.snapshot %}
 {# Mismo badge `.catalog-card__verdict` para TODOS los estados; los neutros (sin assessment / no aplica) usan su variante gris, sin semántica de puntaje. #}
 {% macro badge(state) %}<span class="catalog-card__verdict catalog-card__verdict--{{ v.state_tones.get(state) or "neutra" }}">{{ v.state_labels[state] }}</span>{% endmacro %}
@@ -47,6 +47,7 @@
       <thead><tr><th>Confianza</th><th>Assessments</th></tr></thead>
       <tbody>{% for r in v.confidence_rows %}<tr data-confidence="{{ r.level }}"><td>{{ r.label }}</td><td>{{ r.count }}</td></tr>{% endfor %}</tbody>
     </table>
+    {% if v.confidence_story %}{% call callout("punch", "Lectura de la confianza", icon="💡") %}<p>{{ v.confidence_story }}</p>{% endcall %}{% endif %}
   </section>
 
   <section class="content-section" id="cli-artefactos">
@@ -67,6 +68,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if v.catalog_verdict_story %}{% call callout("punch", "Lectura del veredicto del catálogo", icon="💡") %}<p>{{ v.catalog_verdict_story }}</p>{% endcall %}{% endif %}
   </section>
 
   <section class="content-section" id="cli-hallazgos">

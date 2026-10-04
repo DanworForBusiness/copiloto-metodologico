@@ -305,7 +305,7 @@ def test_portfolio_reuses_the_individual_report_structure_not_a_copy(world):
     assert shared <= used
     # todas las clases del consolidado existen en el informe individual o en el macro compartido (ninguna clase propia del Portfolio)
     vocabulary = set(re.findall(r"[A-Za-z][\w-]+", single + macros))                          # incluye clases armadas con Jinja (`catalog-meta-dot{% if … %}`)
-    own = {c for c in used - vocabulary if not c.startswith("catalog-card__verdict--")}           # los tonos del badge son los del informe individual
+    own = {c for c in used - vocabulary if not c.startswith(("catalog-card__verdict--", "callout--"))}           # los tonos del badge son los del informe individual
     assert not own, own
     assert re.findall(r'<span class="section-eyebrow">\[(\d\d)\]</span>', html) == ["01", "02", "03"]      # encabezado de sección compartido
     for own in ("tone-gold", "admin-help", "asm-client", "asr-client", "portfolio"):
@@ -497,4 +497,74 @@ def test_artifact_section_subtitle_is_the_approved_text_in_the_shared_primitive(
     assert sub == ("Solo los assessments vigentes aportan métricas; los valores representados con guiones significan no disponible. "
                    "El veredicto del catálogo es el histórico (higiene de extracción), distinto del Assessment. "
                    "Cada artefacto abre su detalle en el Catálogo, donde vive el informe individual.")
-    assert "admin-help" not in arts and "callout" not in arts
+    head = arts[: arts.index("<table")]
+    assert "admin-help" not in arts and "callout" not in head                                        # el subtítulo no es un callout (el cierre va después de la tabla)
+
+
+# ───────────────────────── cierres narrativos (callout `punch` estándar) ─────────────────────────
+def test_confidence_story_follows_the_actual_distribution_with_few_qualitative_branches():
+    s = pf.confidence_story
+    assert s({"HIGH": 0, "MEDIUM": 0, "LOW": 0}) is None                                            # sin vigentes: no se inventa una conclusión
+    solid = s({"HIGH": 9, "MEDIUM": 2, "LOW": 0})
+    consistent = s({"HIGH": 11, "MEDIUM": 14, "LOW": 0})
+    reasonable = s({"HIGH": 1, "MEDIUM": 20, "LOW": 0})
+    cautious = s({"HIGH": 3, "MEDIUM": 3, "LOW": 3})
+    assert len({solid, consistent, reasonable, cautious}) == 4                                       # cambiar la distribución cambia la rama
+    assert "base sólida" in solid and "predominio de assessments de confianza alta" in solid
+    assert "base consistente" in consistent and "confianza media" in consistent and "sin señales significativas de confianza baja" in consistent
+    assert "mayor cautela" in cautious and "confianza baja" in cautious
+    assert s({"HIGH": 5, "MEDIUM": 5, "LOW": 1}) != cautious and "mayor cautela" in s({"HIGH": 3, "MEDIUM": 4, "LOW": 3})   # baja material (≥ 25%)
+
+
+def test_catalog_verdict_story_follows_the_historical_verdict_distribution_only():
+    s = pf.catalog_verdict_story
+    assert s([]) is None and s([None, "?", ""]) is None                                              # sin veredictos usables: se omite
+    plena, buena = s(["plena"] * 6 + ["buena"] * 2 + ["parcial"]), s(["buena"] * 6 + ["plena"] * 2 + ["parcial"])
+    attention, mixed = s(["plena"] * 3 + ["parcial"] * 3), s(["plena"] * 4 + ["buena"] * 4 + ["parcial"])
+    assert len({plena, buena, attention, mixed}) == 4
+    assert "sólido" in plena and "Plena" in plena and "mayormente reutilizable" in buena and "veredicto histórico del catálogo" in buena
+    assert "requiere atención" in attention and "panorama mixto" in mixed
+
+
+def test_stories_never_present_the_catalog_verdict_as_an_assessment_score_nor_create_a_number(world):
+    texts = [pf.confidence_story({"HIGH": h, "MEDIUM": m, "LOW": b}) for h, m, b in ((9, 1, 0), (1, 9, 0), (1, 1, 5), (3, 3, 0))]
+    texts += [pf.catalog_verdict_story(v) for v in (["plena"] * 5, ["buena"] * 5, ["parcial"] * 5, ["plena", "buena"])]
+    for t in texts:
+        assert not re.search(r"score|scoring|puntaje|\d", t, re.I), t                                # sin número sintético ni lenguaje de puntaje
+    snap = _snap(world)
+    assert "story" not in " ".join(snap) and not any("story" in k for r in snap["assets"] for k in r)  # el snapshot/JSON no gana campos de puntaje ni de relato
+
+
+def test_zero_current_assessments_render_no_confidence_callout(world, monkeypatch):
+    for st in world.statuses.values():
+        if st.state == svc.CURRENT:
+            world.statuses[st.entry_id] = _status(world.entries.get(st.entry_id, _entry(st.entry_id, "Acme", "AM_X")), svc.NOT_YET_ASSESSED)
+    html = _client().get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
+    resumen = html[html.index('id="cli-resumen"'): html.index('id="cli-artefactos"')]
+    assert "callout" not in resumen                                                                  # sin vigentes no hay conclusión inventada
+    assert "callout" in html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]    # el veredicto del catálogo es independiente del Assessment
+
+
+def test_both_closures_use_the_standard_punch_callout_primitive(world):
+    c = _client()
+    html = c.get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
+    resumen = html[html.index('id="cli-resumen"'): html.index('id="cli-artefactos"')]
+    arts = html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]
+    for block, story in ((resumen, pf.report_view(_snap(world))["confidence_story"]), (arts, pf.report_view(_snap(world))["catalog_verdict_story"])):
+        assert block.count('<aside class="callout callout--punch">') == 1 and story in block
+    assert resumen.index("</table>") < resumen.index("<aside") and arts.rindex("</table>") < arts.index("<aside")   # después de las tablas
+    client, macros, single = _tpl("client_assessment_report.html"), _tpl("assessment_report_macros.html"), _tpl("catalog_assessment_report.html")
+    assert macros.count("macro callout") == 1 and "macro callout" not in client and "macro callout" not in single   # un solo primitivo, importado
+    assert "<aside" not in client and "import heading, callout" in client and "import heading, callout" in single
+    css = (REPO / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    selectors = re.findall(r"(?m)^\s*([^{}/*\n]*\.callout[^{}\n]*)\{", css)
+    assert selectors and not [s for s in selectors if re.search(r"asm|asr|cli-|portfolio|client", s)]      # sin CSS de callout propio (solo el canónico)
+
+
+def test_markdown_uses_the_same_narrative_source_as_the_html(world):
+    c = _client()
+    md = c.get("/catalog/client/assessment.md?flow=a").text
+    v = pf.report_view(_snap(world))
+    assert f"> {v['confidence_story']}" in md and f"> {v['catalog_verdict_story']}" in md
+    html = c.get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
+    assert v["confidence_story"] in html and v["catalog_verdict_story"] in html
