@@ -49,10 +49,12 @@ def env(tmp_path, monkeypatch):
     cache = tmp_path / "runtime-cache"
     monkeypatch.setenv("DANWOR_CATALOG_CSN_CACHE", str(inbound))
     monkeypatch.setenv("DANWOR_CATALOG_DIR", str(tmp_path / "catalog"))
+    governed = tmp_path / "governed-assessments"
     monkeypatch.setattr(config, "ASSESSMENT_CACHE_DIR", cache)
+    monkeypatch.setenv("DANWOR_GOVERNED_ASSESSMENTS_DIR", str(governed))
     svc.reset_memory_cache()
     svc.invalidate_pool_index()
-    yield SimpleNamespace(inbound=inbound, cache=cache, tmp=tmp_path)
+    yield SimpleNamespace(inbound=inbound, cache=cache, governed=governed, tmp=tmp_path)
     svc.reset_memory_cache()
     svc.invalidate_pool_index()
 
@@ -77,6 +79,10 @@ def _no_engine(monkeypatch):
 
 def _cache_files(env):
     return sorted(p.name for p in env.cache.rglob("*") if p.is_file()) if env.cache.exists() else []
+
+
+def _governed_files(env):
+    return sorted(env.governed.rglob("*.json")) if env.governed.exists() else []
 
 
 # ── 1. entrada → AM terminal ────────────────────────────────────────────────
@@ -135,7 +141,7 @@ def test_status_read_never_runs_the_engine_nor_writes_the_cache(env, monkeypatch
         st = svc.status_for_entry(e)
         assert st.state == svc.NOT_YET_ASSESSED and st.profile is None and st.can_generate
     assert svc.statuses_for_entries([e, entry("Solo", ["1VR_ONLY"])])[e.entry_id].state == svc.NOT_YET_ASSESSED
-    assert not env.cache.exists() and not _cache_files(env)
+    assert not env.cache.exists() and not _cache_files(env) and not _governed_files(env)
 
 
 # ── 3/4. POST: generar, validar, cachear, CURRENT idempotente ───────────────
@@ -146,9 +152,9 @@ def test_generate_runs_engine_once_validates_and_caches_a_separate_envelope(env,
     ma_profile.validate_assessment(st.profile)
     # el documento canónico NO lleva metadatos de caché/UI
     assert "envelope_version" not in st.profile and "generated_at" not in st.profile
-    files = _cache_files(env)
-    assert len(files) == 1 and files[0].endswith(".envelope.json")
-    envelope = json.loads(next(env.cache.glob("*.envelope.json")).read_text(encoding="utf-8"))
+    files = _governed_files(env)
+    assert len(files) == 1 and files[0].relative_to(env.governed).parts[:2] == ("v1", "Acme") and not _cache_files(env)   # almacén DURABLE, no la caché efímera
+    envelope = json.loads(files[0].read_text(encoding="utf-8"))
     for k in ("client", "terminal_am", "generated_at", "assessment_schema_version", "assessment_versions", "input_pool_signature",
               "assessment_artifact_signature", "status", "profile_json", "error_code"):
         assert k in envelope
@@ -264,22 +270,34 @@ def test_cache_under_the_pool_is_refused(env, monkeypatch):
     assert svc.cache_dir() is None
 
 
-# ── 10. pérdida de caché ────────────────────────────────────────────────────
-def test_cache_loss_becomes_not_yet_assessed(env):
+# ── 10. almacén durable del assessment gobernado ────────────────────────────
+def test_governed_assessment_survives_restart_and_is_not_marked_current_blindly(env, monkeypatch):
     e = entry("Acme", ACME)
     svc.generate(e)
-    svc.reset_memory_cache()                                    # reinicio del proceso
-    assert svc.status_for_entry(e).state == svc.CURRENT         # sobrevive en disco dentro del deployment
-    for p in env.cache.glob("*"):
+    svc.reset_memory_cache()                                    # reinicio del proceso: se pierde la RAM
+    _no_engine(monkeypatch)
+    st = svc.status_for_entry(e)
+    assert st.state == svc.CURRENT and st.profile is not None   # restaurado del almacén durable (sin motor)
+    # la vigencia se sigue evaluando contra la firma del pool: si el pool cambió, es STALE (jamás CURRENT a ciegas)
+    f = env.inbound / "Acme/views/1VR_RAW.json"
+    f.write_text(f.read_text(encoding="utf-8").replace('"A"', '"A9"', 1), encoding="utf-8")
+    svc.reset_memory_cache()
+    assert svc.status_for_entry(e).state == svc.STALE
+
+
+def test_losing_the_durable_store_itself_becomes_not_yet_assessed(env):
+    e = entry("Acme", ACME)
+    svc.generate(e)
+    for p in _governed_files(env):
         p.unlink()
-    svc.reset_memory_cache()                                    # deploy sobre FS efímero: se pierde todo
+    svc.reset_memory_cache()                                    # sin RAM y sin almacén durable (p. ej. bucket vacío) = sin assessment
     assert svc.status_for_entry(e).state == svc.NOT_YET_ASSESSED
 
 
-def test_corrupt_or_foreign_cache_file_is_treated_as_a_miss(env):
+def test_corrupt_or_foreign_durable_file_fails_closed(env):
     e = entry("Acme", ACME)
     svc.generate(e)
-    path = next(env.cache.glob("*.envelope.json"))
+    path = _governed_files(env)[0]
     for junk in ("no es json {", json.dumps({"otra": "cosa"}), json.dumps([1, 2])):
         path.write_text(junk, encoding="utf-8")
         svc.reset_memory_cache()
@@ -289,7 +307,7 @@ def test_corrupt_or_foreign_cache_file_is_treated_as_a_miss(env):
 def test_artifact_signature_mismatch_on_disk_is_a_miss(env):
     e = entry("Acme", ACME)
     svc.generate(e)
-    path = next(env.cache.glob("*.envelope.json"))
+    path = _governed_files(env)[0]
     data = json.loads(path.read_text(encoding="utf-8"))
     data["profile_json"]["summary"]["coverage"]["strict"] = 0.0123       # alteración fuera de banda
     path.write_text(json.dumps(data), encoding="utf-8")

@@ -21,11 +21,12 @@ ejecutan el motor ni escriben la caché. Solo leen el pool (huella de tamaños y
 mtimes, más un hash de contenido memoizado por huella) y la caché. Un miss de
 caché es ``NOT_YET_ASSESSED``.
 
-CACHÉ — sobre separado del esquema canónico (``assessment-cache/v1``): el
-documento del assessment NO se toca para el UI. Vive FUERA de los directorios
-persistidos/espejados (``config.ASSESSMENT_CACHE_DIR``; fail-closed contra
-``PERSIST_PATHS``/``catalog_local``): es una caché operativa, no un artefacto
-gobernado; perderla (deploy/reinicio) solo devuelve el estado a "Sin assessment".
+ALMACÉN DURABLE — sobre separado del esquema canónico (``assessment-cache/v1``): el documento del assessment NO se toca para el UI.
+El assessment GOBERNADO del Catálogo (lo que produce ``generate``: Publicar → Assessment y "Generar informe", MISMA función) se
+persiste bajo ``config.governed_assessments_dir()`` (``governed-assessments/v1/<cliente>/<AM>__<tag>.json``), directorio registrado en
+``PERSIST_PATHS``: ``core.remote_store`` lo restaura al arrancar y lo sube (write-through ``push_path`` + ``mirror_up``), sin cliente
+Spaces propio. Sobrevive a reinicio y deploy; la vigencia se sigue evaluando contra la firma del pool y las versiones (jamás se asume
+CURRENT). El Assessment AD-HOC NO pasa por acá: sigue efímero con TTL en ``ASSESSMENT_CACHE_DIR/adhoc`` (nunca espejado a Spaces).
 
 VIGENCIA (V1): ``input_pool_signature`` + bloque COMPLETO de ``versions``. La
 firma del pool es de TODO el cliente: si cambia cualquier modelo del cliente, todos
@@ -44,12 +45,13 @@ import os
 import re
 import tempfile
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 import config
+from core import remote_store
 from tools.catalog.modeling_assessment import paths as ma_paths
 from tools.catalog.modeling_assessment import profile as ma_profile
 from tools.catalog.modeling_assessment import shadow as ma_shadow
@@ -100,6 +102,7 @@ class AssessmentStatus:
     generated_at: str | None = None
     profile: dict | None = None          # perfil canónico validado (CURRENT / STALE / FAILED con último perfil previo)
     previous_profile_retained: bool = False
+    durable: str | None = field(default=None, compare=False)   # solo tras ``generate``: "remote" | "local" | "memory" (ver ``_store_envelope``)
 
     @property
     def viewable(self) -> bool:
@@ -294,10 +297,13 @@ def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_s
     }
 
 
-# ═══════════════════════════ caché: memoria + disco operativo ═══════════════════════════
+# ═══════════════════════════ almacén: memoria + disco DURABLE (gobernado) ═══════════════════════════
 _cache_lock = threading.RLock()
 _memory: dict[tuple[str, str], dict] = {}
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
+GOVERNED_LAYOUT_VERSION = "v1"
+DURABLE_REMOTE, DURABLE_LOCAL, DURABLE_MEMORY = "remote", "local", "memory"
+_RESTORE_WAIT_S = 5.0                   # tope de espera, UNA vez por lote de lectura, a que `remote_store.restore()` termine de bajar el estado
 
 
 def reset_memory_cache() -> None:
@@ -319,8 +325,8 @@ def _is_within(child: Path, parent: Path) -> bool:
 
 
 def cache_dir() -> Path | None:
-    """Directorio de la caché de disco, o None (solo memoria) si cae bajo un directorio persistido/espejado, bajo
-    ``catalog_local`` o bajo el pool. FAIL-CLOSED: no se escribe jamás donde ``mirror_up()`` pueda subirlo."""
+    """Directorio de la caché EFÍMERA (la usa el assessment AD-HOC, subdirectorio ``adhoc``), o None (solo memoria) si cae bajo un
+    directorio persistido/espejado, bajo ``catalog_local`` o bajo el pool. FAIL-CLOSED: no se escribe jamás donde ``mirror_up()`` pueda subirlo."""
     d = Path(config.ASSESSMENT_CACHE_DIR)
     forbidden = [catalog_dir(), *( [pool_root()] if pool_root() else [] )]
     try:
@@ -339,12 +345,43 @@ def cache_dir() -> Path | None:
     return d
 
 
-def _env_path(client: str, am: str) -> Path | None:
-    d = cache_dir()
+def governed_dir() -> Path | None:
+    """Raíz del almacén durable del assessment gobernado, o None (solo memoria) si cayera bajo el catálogo o el pool: ese directorio es
+    otra fuente gobernada y no debe mezclarse ni espejarse dos veces."""
+    d = config.governed_assessments_dir()
+    for f in [catalog_dir(), *([pool_root()] if pool_root() else [])]:
+        if _is_within(d, f):
+            log.error("assessment: el almacén gobernado %s cae bajo %s: persistencia durable DESACTIVADA", d, f)
+            return None
+    return d
+
+
+def governed_path(client: str, am: str) -> Path | None:
+    """``<raíz>/v1/<cliente>/<AM>__<tag>.json``. Clave determinística del Catálogo (cliente en minúsculas + AM); el nombre se sanea
+    (sin etiquetas de display ni segmentos de ruta) y el tag evita colisiones entre nombres que saneados coinciden."""
+    d = governed_dir()
     if d is None:
         return None
     tag = hashlib.sha1(f"{client.lower()}\0{am}".encode("utf-8")).hexdigest()[:10]
-    return d / f"{_SAFE.sub('_', client)}__{_SAFE.sub('_', am)}__{tag}.envelope.json"
+    client_dir = _SAFE.sub("_", client).strip(".") or "_"
+    return d / GOVERNED_LAYOUT_VERSION / client_dir / f"{_SAFE.sub('_', am).strip('.') or '_'}__{tag}.json"
+
+
+def _read_governed(path: Path, client: str, am: str) -> dict | None:
+    """Sobre durable validado, o None. FAIL-CLOSED: archivo ilegible/ajeno/alterado o de otra identidad = no evaluado (nunca CURRENT a ciegas)."""
+    try:
+        env = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(env, dict) or env.get("envelope_version") != ENVELOPE_VERSION:
+            raise ValueError("sobre desconocido")
+        if str(env.get("client", "")).lower() != client.lower() or env.get("terminal_am") != am:
+            raise ValueError("identidad del sobre distinta de la llave")
+        prof = env.get("profile_json")
+        if prof is not None and env.get("assessment_artifact_signature") != _artifact_signature(prof):
+            raise ValueError("firma del artefacto no coincide")
+    except Exception:                                   # noqa: BLE001 — archivo corrupto/ajeno/alterado = no evaluado
+        log.warning("assessment: sobre durable ilegible (%s); se trata como no evaluado", path, exc_info=True)
+        return None
+    return env
 
 
 def _load_envelope(client: str, am: str) -> dict | None:
@@ -352,30 +389,27 @@ def _load_envelope(client: str, am: str) -> dict | None:
         mem = _memory.get(_key(client, am))
     if mem is not None:
         return mem
-    path = _env_path(client, am)
+    path = governed_path(client, am)
     if path is None or not path.is_file():
         return None
-    try:
-        env = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(env, dict) or env.get("envelope_version") != ENVELOPE_VERSION:
-            raise ValueError("sobre desconocido")
-        prof = env.get("profile_json")
-        if prof is not None and env.get("assessment_artifact_signature") != _artifact_signature(prof):
-            raise ValueError("firma del artefacto no coincide")
-    except Exception:                                   # noqa: BLE001 — archivo corrupto/ajeno = pérdida de caché
-        log.warning("assessment: sobre de caché ilegible (%s); se trata como no evaluado", path, exc_info=True)
+    env = _read_governed(path, client, am)
+    if env is None:
         return None
     with _cache_lock:
         _memory[_key(client, am)] = env
     return env
 
 
-def _store_envelope(env: dict) -> None:
+def _store_envelope(env: dict) -> str:
+    """Persiste el sobre canónico: memoria + archivo atómico local + write-through a Spaces (``remote_store.push_path``; el ciclo
+    ``mirror_up`` reintenta si falla). Devuelve el nivel de durabilidad REALMENTE logrado: ``remote`` (PUT remoto confirmado),
+    ``local`` (escrito en disco; sin Spaces configurado o con el PUT pendiente) o ``memory`` (no se pudo escribir). Un fallo nunca
+    corrompe un sobre bueno previo (tmp + os.replace) ni se informa como éxito."""
     with _cache_lock:
         _memory[_key(env["client"], env["terminal_am"])] = env
-    path = _env_path(env["client"], env["terminal_am"])
+    path = governed_path(env["client"], env["terminal_am"])
     if path is None:
-        return
+        return DURABLE_MEMORY
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".json")
@@ -387,7 +421,15 @@ def _store_envelope(env: dict) -> None:
             Path(tmp).unlink(missing_ok=True)
             raise
     except OSError:
-        log.warning("assessment: no se pudo escribir la caché de disco (%s); queda en memoria", path, exc_info=True)
+        log.error("assessment: no se pudo escribir el almacén durable (%s); queda SOLO en memoria", path, exc_info=True)
+        return DURABLE_MEMORY
+    if not remote_store.enabled():
+        return DURABLE_LOCAL
+    if remote_store.push_path(path):
+        return DURABLE_REMOTE
+    log.warning("assessment: escrito en disco pero NO confirmado en Spaces (%s): queda local; mirror_up reintenta "
+                "(si el directorio no figura en SPACES_PERSIST_PATHS, sumá 'governed-assessments')", path)
+    return DURABLE_LOCAL
 
 
 # ═══════════════════════════ estado (solo lectura) ═══════════════════════════
@@ -445,8 +487,10 @@ def _valid_profile(env: dict) -> bool:
 
 
 def statuses_for_entries(entries: Iterable[Any]) -> dict[str, AssessmentStatus]:
-    """Estados para un lote de entradas. NUNCA ejecuta el motor ni escribe la caché."""
+    """Estados para un lote de entradas. NUNCA ejecuta el motor ni escribe el almacén."""
     entries = list(entries)
+    if remote_store.restore_status() == "in_progress":  # tras un deploy: no concluir "Sin assessment" mientras Spaces aún baja el estado
+        remote_store.await_restore(_RESTORE_WAIT_S)
     versions = current_assessment_versions()
     resolutions = resolve_entries(entries)
     return {e.entry_id: _status_from(e, resolutions[e.entry_id], versions) for e in entries}
@@ -556,8 +600,8 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict) -> AssessmentS
         if state == "ASSESSED":
             ma_profile.validate_assessment(doc)
             sig = (doc.get("scope") or {}).get("pool_signature") or meta.get("pool_signature")
-            _store_envelope(_envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"])))
-            return _status_from(entry, res, versions)
+            durable = _store_envelope(_envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"])))
+            return replace(_status_from(entry, res, versions), durable=durable)
         if state == "NOT_APPLICABLE":
             return AssessmentStatus(NOT_APPLICABLE, entry.entry_id, client, None, reason=NA_REASONS["NO_TERMINAL_AM"])
         code = "POOL_LOAD_ERROR"                        # INDETERMINATE: el pool no pudo cargarse
@@ -574,12 +618,12 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict) -> AssessmentS
     except Exception:                                   # noqa: BLE001 — traza SOLO al log del servidor
         code = "GENERATION_ERROR"
         log.exception("assessment: fallo de generación para %s/%s", client, am)
-    _store_envelope(_envelope(
+    durable = _store_envelope(_envelope(
         client, am, status="FAILED", profile=retained["profile_json"] if retained else None,
         pool_signature=retained.get("input_pool_signature") if retained else None,
         versions=retained.get("assessment_versions") if retained else None,
         error_code=code, generated_at=retained.get("generated_at") if retained else None))
-    return _status_from(entry, res, versions)
+    return replace(_status_from(entry, res, versions), durable=durable)
 
 
 # ═══════════════════════════ exportaciones ═══════════════════════════
