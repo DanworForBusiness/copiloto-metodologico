@@ -15,9 +15,6 @@
     <p>Esta herramienta publica un modelo real en el Catálogo gobernado y solo puede ejecutarla el dueño de la aplicación.</p>
   </div>
 {% else %}
-  {# How-to contextual ANTES del separador del form: reusa EXACTO el primitivo del Catálogo (`.tool-suggest__link` +
-     `/catalog/guide/<slug>`) — cero CSS propio. Abre la guía `como-publicar-dominios` por el mecanismo de guías existente. #}
-  <p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Querés saber cómo funciona?</strong> Click aca →</a></p>
   <form id="dsp-form" data-dsp-form method="post" action="/modules/{{ pub.stem }}/datasphere-publication/run" autocomplete="off">
     <input type="hidden" name="pack" value="{{ pack }}">
     {{ datasphere_form_fields("dsp", pub.form, pub.feature_options, "Seleccioná qué tipos de evidencia incluir en la extracción. Excluirlos puede reducir el tiempo de procesamiento, pero limita el alcance publicado.") }}

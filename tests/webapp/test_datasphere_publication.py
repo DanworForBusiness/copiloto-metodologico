@@ -177,9 +177,9 @@ def test_catalog_has_two_states_and_the_form_lives_inside_the_catalog_tab(owner,
         assert 'id="catalog-publish-state"' in cat and "catalogView === 'publish'" in cat          # estado B (alta)
         assert "catalogView !== 'publish'" in cat                                                  # estado A (explorar)
         assert cat.count('id="dsp-form"') == 1                                                     # UN solo formulario
-        assert "Volver al catálogo" in cat and "catalogView = 'browse'" in cat                     # salida natural
-        # el dropdown de catálogo queda en el estado A, NO apilado debajo del formulario
-        assert cat.index('id="catalog-publish-state"') < cat.index('id="catalog-kind"')
+        assert "← Volver" in cat and "catalogView = 'browse'" in cat                               # salida natural (compacta)
+        # el dropdown de catálogo vive SOLO en el estado A (su fila se oculta en el estado de publicación), no apilado con el formulario
+        assert re.search(r'<div class="tree-picker-row" x-show="catalogView !== \'publish\'">\s*<select id="catalog-kind"', cat)
         assert "copilotLayout('core', false, '', '')" in html                                      # por defecto: explorar
     finally:
         main._invalidate_catalog_cache()
@@ -343,3 +343,75 @@ def test_publication_js_is_loaded_and_distinct():
     base = (REPO / "webapp" / "templates" / "base.html").read_text(encoding="utf-8")
     assert "datasphere_publication.js" in base and "datasphere_assessment.js" in base
     assert (REPO / "webapp" / "static" / "datasphere_publication.js").exists()
+
+
+# ───────────────────────── encabezado del Catálogo: simetría browse ↔ publish ─────────────────────────
+def _catalog_html(owner, url=MODULE_URL):
+    html = owner.get(url).text
+    return html[html.index("toolTab==='catalogo'"):]
+
+
+def _publish_block(cat):
+    start = cat.index('id="catalog-publish-state"')
+    return cat[start: cat.index("catalogView !== 'publish'\" x-cloak>", start)]
+
+
+def _browse_block(cat):
+    return cat[cat.index("catalogView !== 'publish'\" x-cloak>", cat.index('id="catalog-publish-state"')):]
+
+
+def test_howto_link_is_only_in_browse_state_never_in_publication_state(owner, monkeypatch, tmp_path):
+    _demo_catalog(monkeypatch, tmp_path)
+    try:
+        cat = _catalog_html(owner)
+        browse, publish = _browse_block(cat), _publish_block(cat)
+        assert "Cómo podés publicarlo" in browse and "como-publicar-dominios" in browse             # browse: el how-to se ve
+        assert "Cómo podés publicarlo" not in publish and "Falta un" not in publish                 # publish: oculto del todo
+        assert "como-publicar-dominios" not in publish and "Querés saber cómo funciona" not in publish   # ni duplicado dentro del formulario
+    finally:
+        main._invalidate_catalog_cache()
+
+
+def test_header_row_swaps_the_right_action_with_the_catalog_state(owner, monkeypatch, tmp_path):
+    _demo_catalog(monkeypatch, tmp_path)
+    try:
+        cat = _catalog_html(owner)
+        head = cat[cat.index('class="catalog-kind-head"'):]
+        head = head[: head.index('<div class="tree-picker-row"')]
+        assert head.count('class="catalog-kind-head"') == 1 and "Catálogo de datos" in head      # UN solo encabezado para ambos estados
+        plus = head[head.index('aria-label="Publicar en el catálogo"') - 200: head.index('aria-label="Publicar en el catálogo"')]
+        assert "catalogView !== 'publish'" in plus                                                  # "+" solo en browse
+        assert 'id="catalog-publish-back"' in head and "← Volver" in head
+        back = head[head.index("table-action-btn table-action-btn--text"):]
+        assert "catalogView === 'publish'" in back and "catalogView = 'browse'" in back             # "← Volver" solo en publish y vuelve a browse
+        # ambas acciones reusan el MISMO primitivo neutro (sin CSS de botón nuevo, sin caja ni dorado)
+        assert head.count("table-action-btn") >= 2 and "catalog-add-btn" not in cat and "btn-primary" not in head
+        css = (REPO / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+        text_rule = css.split(".table-action-btn.table-action-btn--text {")[1].split("}")[0]
+        assert "border" not in text_rule and "background" not in text_rule and "gold" not in text_rule
+    finally:
+        main._invalidate_catalog_cache()
+
+
+def test_no_large_standalone_volver_row_remains(owner, monkeypatch, tmp_path):
+    _demo_catalog(monkeypatch, tmp_path)
+    try:
+        cat = _catalog_html(owner)
+        assert "Volver al catálogo" not in cat
+        assert '<p class="tool-suggest__link"><a href="#"' not in cat                                # sin la fila vieja
+        assert ">Publicar</button>" not in cat and "toolTab='publicar'" not in cat                  # y sigue sin pestaña "Publicar"
+    finally:
+        main._invalidate_catalog_cache()
+
+
+def test_plus_and_guide_step5_land_in_the_same_state_with_the_same_header(owner, monkeypatch, tmp_path):
+    _demo_catalog(monkeypatch, tmp_path)
+    try:
+        # el "+" no navega: cambia catalogView; el paso 5 de la guía abre la URL con catalog_action=publish → mismo estado
+        assert "catalogView = 'publish'" in _catalog_html(owner)
+        via_guide = owner.get(CATALOG_PUBLISH_URL).text
+        assert "copilotLayout('core', false, 'catalogo', '', 'publish')" in via_guide
+        cat = via_guide[via_guide.index("toolTab==='catalogo'"):]
+        assert 'id="catalog-publish-back"' in cat and cat.count('class="catalog-kind-head"') == 1   # el mismo encabezado, sin "volver a la guía"
+    finally:
+        main._invalidate_catalog_cache()

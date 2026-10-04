@@ -2303,6 +2303,8 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .tool-suggest { margin-top: 14px; }
 /* Encabezado del catálogo de datos con el "+" de alta (Publicar modelo): la etiqueta y el ícono neutro (`.table-action-btn`, sin caja ni dorado) en una fila. */
 .catalog-kind-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* Variante con texto del primitivo neutro `.table-action-btn` (p. ej. "← Volver" del estado de publicación): sin caja, ancho por contenido. */
+.table-action-btn.table-action-btn--text { width: auto; padding: 0 8px; white-space: nowrap; font: 600 .72rem var(--sans); letter-spacing: .02em; }
 .tool-suggest__link { margin: 14px 0 0; font-size: .78rem; }
 .tool-suggest__link a { color: var(--gold); font-weight: 400; }
 .tool-suggest__link a strong { font-weight: 700; }

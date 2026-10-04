@@ -47,27 +47,20 @@
    propia con `mode="publish"` forzado, solo dueño). Sin pestaña "Publicar" aparte. #}
 {% set pub = dsp_pub_tool(request, document.summary.stem) if (document is defined and document) else {"can_execute": False} %}
 <div x-data="{ catalogKind: '' }">
-  {% if pub.can_execute %}
-  <div x-show="catalogView === 'publish'" x-cloak id="catalog-publish-state">
-    <div class="tree-picker catalog-picker--kind">
-      <div class="catalog-kind-head">
-        <label>Catálogo de datos</label>
-      </div>
-    </div>
-    <p class="tool-suggest__link"><a href="#" @click.prevent="catalogView = 'browse'">← Volver al catálogo</a></p>
-    {% include "partials/datasphere_publication_tool.html" %}
-  </div>
-  {% endif %}
-  <div x-show="catalogView !== 'publish'" x-cloak>
+  {# UN solo encabezado para los dos estados (mismo primitivo de fila): título a la izquierda y, a la derecha, la acción propia del estado
+     — browse: "+" (publicar) · publish: "← Volver" (a browse). Ambas son acciones neutras (`.table-action-btn`), sin caja ni dorado. #}
   <div class="tree-picker catalog-picker--kind">
     <div class="catalog-kind-head">
       <label for="catalog-kind">Catálogo de datos</label>
-      {% if pub.can_execute %}<button type="button" class="table-action-btn chart-tooltip-anchor" @click="catalogView = 'publish'" aria-label="Publicar en el catálogo">
+      {% if pub.can_execute %}
+      <button type="button" class="table-action-btn chart-tooltip-anchor" x-show="catalogView !== 'publish'" @click="catalogView = 'publish'" aria-label="Publicar en el catálogo">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
         <span class="chart-tooltip" aria-hidden="true"><p>Publicar en el catálogo</p></span>
-      </button>{% endif %}
+      </button>
+      <button type="button" class="table-action-btn table-action-btn--text" x-show="catalogView === 'publish'" x-cloak @click="catalogView = 'browse'" id="catalog-publish-back">← Volver</button>
+      {% endif %}
     </div>
-    <div class="tree-picker-row">
+    <div class="tree-picker-row" x-show="catalogView !== 'publish'">
       <select id="catalog-kind" x-model="catalogKind">
         <option value="">Elegí un catálogo...</option>
         <option value="domains">Dominios</option>
@@ -76,6 +69,13 @@
     </div>
   </div>
 
+  {% if pub.can_execute %}
+  <div x-show="catalogView === 'publish'" x-cloak id="catalog-publish-state">
+    {% include "partials/datasphere_publication_tool.html" %}
+  </div>
+  {% endif %}
+
+  <div x-show="catalogView !== 'publish'" x-cloak>
   <div x-show="!catalogKind" x-cloak id="catalog-flows-empty" class="catalog-flows">
     <div class="tool-empty">
       <span>2 catálogos disponibles</span>
