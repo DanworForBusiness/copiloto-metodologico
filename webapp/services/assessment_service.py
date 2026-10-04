@@ -258,6 +258,20 @@ def pool_json_files(client: str, domain_label: str = "") -> tuple[Path, list[Pat
     return (root, list(payload[1]["jsons"])) if tag == "OK" else None
 
 
+def pool_client_files(client: str) -> tuple[Path, list[Path]] | None:
+    """(raíz del pool, TODOS los .json elegibles del cliente — de todos sus dominios) o None si no hay pool o el cliente no figura. Solo LECTURA.
+    Es el inventario técnico disponible del cliente (no la resolución de un Assessment concreto)."""
+    root = pool_root()
+    if root is None:
+        return None
+    wanted = (client or "").strip().lower()
+    files: list[Path] = []
+    for (cli, _dom), group in sorted(ma_shadow.bridge.legacy_pool_groups(root).items()):
+        if wanted and cli.lower() == wanted:
+            files.extend(group["jsons"])
+    return (root, sorted(set(files))) if files else None
+
+
 def _select(root: Path, client: str, domain_label: str):
     try:
         return "OK", ma_shadow.select_pool(root, client)

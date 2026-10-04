@@ -92,7 +92,8 @@ def test_the_rendered_individual_report_shows_four_info_icons_and_the_portfolio_
     for k in _report_view["kpis"]:
         assert f'<span class="activity-kpi__label">{k["label"]}</span>' in html
     portfolio = (REPO / "webapp" / "templates" / "partials" / "client_assessment_report.html").read_text(encoding="utf-8")
-    assert "kpi_tile" not in portfolio and "activity-kpi__info" not in portfolio                                              # el Portfolio no cambia
+    # el Portfolio no gana ayuda (i): puede reusar el macro de tile (Gate 4), pero jamás le pasa `help` ni trae el primitivo del (i)
+    assert "activity-kpi__info" not in portfolio and "help" not in re.sub(r"\{#.*?#\}", "", portfolio, flags=re.S)
 
 
 # ── fixtures ────────────────────────────────────────────────────────────────

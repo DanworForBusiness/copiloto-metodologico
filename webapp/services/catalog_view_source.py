@@ -40,7 +40,7 @@ _lock = threading.RLock()
 _memo: dict[tuple[str, str], tuple[tuple, dict[str, str]]] = {}
 
 
-def _family_of_dir(dir_name: str) -> str | None:
+def family_of_dir(dir_name: str) -> str | None:
     """Familia normalizada de una carpeta-tipo del export CLI (contrato de carpetas del legado), o None en pools planos."""
     from tools.catalog import generate_catalog as gc
     kind = gc._catalog_dir_kind(dir_name)
@@ -58,7 +58,7 @@ def _is_non_view_definition(defn: dict) -> bool:
     return str(pattern or "").upper() == "ANALYTICAL_CUBE"
 
 
-def _load(path: Path) -> dict | None:
+def load_json(path: Path) -> dict | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError):
@@ -66,22 +66,33 @@ def _load(path: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def sql_view_of(data: dict, name: str, family: str | None) -> tuple[str, str, str] | None:
-    """(tipo, base, sql) si ``name`` es una vista SQL con consulta en ``data``; si no, None. Misma pertenencia que el Assessment."""
+MEMBERSHIP_FAMILY = "FAMILY_DIRECTORY"        # la vista cuelga de la carpeta-tipo `views` (el pool informa familias)
+MEMBERSHIP_STRUCTURAL = "STRUCTURAL_MARKER"   # pool plano: solo se reconoce por el marcador del exportador (GRAPHICAL / SQL)
+
+
+def view_record(data: dict, name: str, family: str | None) -> tuple[str, str, str] | None:
+    """(tipo, procedencia del tipo, base de pertenencia) si ``name`` es una VISTA de Datasphere en ``data``; si no, None. Misma pertenencia que el
+    Assessment (`facts_view_type.view_membership`): carpeta `views` cuando el pool informa familias; en pools planos solo el marcador del exportador
+    (GRAPHICAL / SQL), excluyendo tablas remotas/locales y modelos analíticos. El tipo sale del clasificador ÚNICO."""
     definitions = data.get("definitions")
     defn = definitions.get(name) if isinstance(definitions, dict) else None
     if not isinstance(defn, dict):
         return None
-    if family is not None:                                    # el pool informa la familia: solo `views`
-        if family != "views":
-            return None
-    elif _is_non_view_definition(defn):                       # pool plano: solo marcador estructural, sin tablas ni cubos
-        return None
     view_type, basis = vt.view_type_of_export(data, name)
-    if view_type != vt.SQL:
+    if family is not None:                                    # el pool informa la familia: solo `views`
+        return (view_type, basis, MEMBERSHIP_FAMILY) if family == "views" else None
+    if view_type == vt.UNKNOWN or _is_non_view_definition(defn):   # pool plano: solo marcador estructural, sin tablas ni cubos
+        return None
+    return view_type, basis, MEMBERSHIP_STRUCTURAL
+
+
+def sql_view_of(data: dict, name: str, family: str | None) -> tuple[str, str, str] | None:
+    """(tipo, base, sql) si ``name`` es una vista SQL con consulta en ``data``; si no, None. Misma pertenencia que el Assessment."""
+    rec = view_record(data, name, family)
+    if rec is None or rec[0] != vt.SQL:
         return None
     query = vt.sql_query_of(data, name)
-    return (view_type, basis, query) if query else None
+    return (rec[0], rec[1], query) if query else None
 
 
 def _index(client: str, domain: str) -> tuple[Path, dict[str, str]]:
@@ -97,11 +108,11 @@ def _index(client: str, domain: str) -> tuple[Path, dict[str, str]]:
             return root, cached[1]
     index: dict[str, str] = {}
     for path in sorted(files):
-        data = _load(path)
+        data = load_json(path)
         if data is None:
             continue
         rel = path.resolve().relative_to(root.resolve()).as_posix()
-        family = _family_of_dir(path.parent.name) if path.parent != root else None
+        family = family_of_dir(path.parent.name) if path.parent != root else None
         for name in (data.get("definitions") or {}):
             if name not in index and sql_view_of(data, name, family) is not None:
                 index[name] = rel
@@ -132,8 +143,8 @@ def read_view_sql(client: str, domain: str, name: str) -> ViewSql | None:
     if rel is None:
         return None
     path = (root / rel)
-    data = _load(path)
-    family = _family_of_dir(path.parent.name) if path.parent != root else None
+    data = load_json(path)
+    family = family_of_dir(path.parent.name) if path.parent != root else None
     hit = sql_view_of(data, name, family) if data is not None else None
     if hit is None:
         return None

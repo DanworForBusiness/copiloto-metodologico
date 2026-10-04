@@ -6,7 +6,7 @@
      · secciones ....... `article.methodology.catalog-detail` > `section.content-section` + macro compartida `heading` ([NN] + h2 + subtítulo)
      · tablas/enlaces .. tablas nativas de `.methodology`; enlaces de contenido `<a><code>…</code></a>`; etiquetas `.catalog-card__verdict`
    Unidad = entrada/flujo del Catálogo. #}
-{% from "partials/assessment_report_macros.html" import heading, callout %}
+{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile %}
 {% set snap = v.snapshot %}
 {# Mismo badge `.catalog-card__verdict` para TODOS los estados; los neutros (sin assessment / no aplica) usan su variante gris, sin semántica de puntaje. #}
 {% macro badge(state) %}<span class="catalog-card__verdict catalog-card__verdict--{{ v.state_tones.get(state) or "neutra" }}">{{ v.state_labels[state] }}</span>{% endmacro %}
@@ -85,5 +85,44 @@
     {% else %}
     <div class="dashboard-empty"><span class="dashboard-empty__label">Sin hallazgos recurrentes</span><p>No hay observaciones ni revisiones requeridas en los assessments vigentes.</p></div>
     {% endif %}
+  </section>
+
+  {% set comp = v.composition %}
+  <section class="content-section" id="cli-composicion">
+    {{ heading(4, "Composición del modelado", "Dos lecturas distintas que no se suman: qué artefactos técnicos hay en la evidencia disponible para el Copiloto y cuáles vistas participan en los assessments vigentes. Descriptivo: no es un juicio de calidad.") }}
+
+    <details class="dashboard-section" id="cli-inventario" open>
+      <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Inventario técnico disponible</span></summary>
+      <div class="dashboard-section__body">
+        <p>Artefactos únicos de la evidencia disponible para el Copiloto (no es el total del tenant de Datasphere).</p>
+        {% if comp.inventory.show_tiles %}
+        <div class="activity-kpi-grid">{% for k in comp.inventory.kpis %}{{ kpi_tile(k) }}{% endfor %}</div>
+        <table data-block="inventory-distribution">
+          <thead><tr><th>Tipo de vista</th><th>Vistas</th><th>Participación</th></tr></thead>
+          <tbody>{% for d in comp.inventory.distribution %}<tr><td>{{ d.label }}</td><td>{{ d.count }}</td><td>{{ d.share }}</td></tr>{% endfor %}</tbody>
+        </table>
+        {% else %}<p>{{ comp.inventory.note }}</p>{% endif %}
+        <table data-block="inventory-flows">
+          <thead><tr><th>Flujos y orquestación</th><th>Artefactos únicos</th></tr></thead>
+          <tbody>{% for f in comp.inventory.flows %}<tr data-family="{{ f.key }}" data-evidence="{{ f.evidence }}"><td>{{ f.label }}</td><td>{{ f.value }}</td></tr>{% endfor %}</tbody>
+        </table>
+        <p>«No disponible» indica que el pool no permite saber si la familia se extrajo: no equivale a cero.</p>
+        {% if comp.inventory.story %}{% call callout("punch", "Lectura de la composición", icon="💡") %}<p>{{ comp.inventory.story }}</p>{% endcall %}{% endif %}
+      </div>
+    </details>
+
+    <details class="dashboard-section" id="cli-participacion" open>
+      <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Participación en Assessments vigentes</span></summary>
+      <div class="dashboard-section__body">
+        <p>{{ comp.scope.note }}</p>
+        {% if comp.scope.available %}
+        <div class="activity-kpi-grid">{% for k in comp.scope.kpis %}{{ kpi_tile(k) }}{% endfor %}</div>
+        <table data-block="scope-distribution">
+          <thead><tr><th>Tipo de vista</th><th>Vistas únicas</th><th>Participación</th></tr></thead>
+          <tbody>{% for d in comp.scope.distribution %}<tr><td>{{ d.label }}</td><td>{{ d.count }}</td><td>{{ d.share }}</td></tr>{% endfor %}</tbody>
+        </table>
+        {% endif %}
+      </div>
+    </details>
   </section>
 </article>
