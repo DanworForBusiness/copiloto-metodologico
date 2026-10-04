@@ -120,9 +120,8 @@
   background: repeating-linear-gradient(90deg, var(--gold) 0 5px, transparent 5px 10px);
 }
 /* El marcador envuelve SOLO el círculo del número (no toda la celda de la grilla): así el tooltip
-   (posicionado con left/right sobre el marcador) se ancla al círculo y no al borde de la columna.
-   Sin esto, el último paso (right:-4px) quedaba pegado al borde derecho del contenido, desprendido
-   del número; ahora abre hacia adentro desde el propio círculo, consistente con los demás pasos. */
+   (posicionado con left sobre el marcador) se ancla al círculo y no al borde de la columna.
+   Sin esto, el tooltip del último paso quedaba anclado al borde de la columna, desprendido del número. */
 .module-roadmap__marker { position: relative; z-index: 1; margin-bottom: 14px; width: max-content; }
 .module-roadmap__num {
   display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
@@ -150,9 +149,8 @@
 }
 .module-roadmap__marker[data-tip]:hover::after, .module-roadmap__marker[data-tip]:focus-visible::after { opacity: 1; transform: none; }
 .module-roadmap__marker[data-tip]:hover::before, .module-roadmap__marker[data-tip]:focus-visible::before { opacity: 1; }
-/* Última columna: el tooltip abre hacia la izquierda para no desbordar el panel. */
-.module-roadmap__stage:last-child .module-roadmap__marker[data-tip]::after { left: auto; right: -4px; }
-.module-roadmap__stage:last-child .module-roadmap__marker[data-tip]::before { left: auto; right: 9px; }
+/* Posicionamiento HOMOGÉNEO: todos los pasos (incluido el último) usan la misma regla relativa al círculo — arranca apenas a la
+   izquierda y se extiende a la derecha. No hay variante direccional por "último paso". */
 .module-roadmap__links { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--idx-row-gap); }
 .module-roadmap__links a {
   display: grid; grid-template-columns: var(--idx-num-col) 1fr; gap: var(--idx-num-gap); align-items: baseline;
