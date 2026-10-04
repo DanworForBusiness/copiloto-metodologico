@@ -160,6 +160,7 @@ def report_view(snap: dict) -> dict:
             {"label": f"Cobertura promedio · sobre {presenter.plural(cov['over_current_assessments'], 'assessment vigente', 'assessments vigentes')}",
              "value": presenter.percent(cov["average_strict"]) if cov["average_strict"] is not None else DASH},
         ],
+        "state_labels": dict(presenter.STATE_LABELS), "state_tones": dict(presenter.STATE_TONES),
         "state_rows": [{"state": st, "label": presenter.STATE_LABELS[st], "count": snap["states"][st]} for st in svc.STATES],
         "confidence_rows": [{"level": lvl, "label": presenter.confidence_label(lvl), "count": s["confidence_distribution"][lvl]}
                             for lvl in CONFIDENCE_ORDER],

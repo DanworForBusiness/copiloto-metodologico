@@ -275,3 +275,39 @@ def test_no_new_top_level_decision_tab():
     assert re.findall(r">([^<]+)</button>", nav) == ["Sección", "Árbol", "Catálogo", "Asistente"] and "Assessment del cliente" not in nav
     routes = (REPO / "webapp" / "routers" / "modules.py").read_text(encoding="utf-8")
     assert '_MODULE_TABS = {"section", "tree", "catalogo", "assistant"}' in routes
+
+
+# ───────────────────────── reuso del contrato visual de la familia de informes ─────────────────────────
+def _tpl(name):
+    return (REPO / "webapp" / "templates" / "partials" / name).read_text(encoding="utf-8")
+
+
+def _classes(html):
+    return {c for m in re.findall(r'class="([^"]+)"', html) for c in m.split()}
+
+
+def test_portfolio_reuses_the_individual_report_structure_not_a_copy(world):
+    """El consolidado es OTRO informe de la familia del informe individual: mismo wrapper/hero/export/KPIs/secciones, mismo macro de
+    encabezado de sección (importado, no copiado) y ningún estilo propio de aspecto."""
+    client, single = _tpl("client_assessment_report.html"), _tpl("catalog_assessment_report.html")
+    macros = _tpl("assessment_report_macros.html")
+    assert 'import heading' in client and 'import heading' in single and "macro heading" in macros
+    assert "macro heading" not in client and "macro heading" not in single                       # una sola definición del encabezado de sección
+    html = _client().get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
+    shared = {"catalog-back", "module-hero", "eyebrow", "asr-title", "hero-meta", "catalog-verdict-line", "support-links", "asr-actions",
+              "support-link", "dashboard-section", "activity-kpi-grid", "activity-kpi", "methodology", "catalog-detail", "content-section",
+              "content-heading", "content-heading-copy", "section-eyebrow", "section-subtitle"}
+    used = _classes(html)
+    assert shared <= used
+    # todas las clases del consolidado existen en el informe individual o en el macro compartido (ninguna clase propia del Portfolio)
+    vocabulary = set(re.findall(r"[A-Za-z][\w-]+", single + macros))                          # incluye clases armadas con Jinja (`catalog-meta-dot{% if … %}`)
+    own = {c for c in used - vocabulary if not c.startswith("catalog-card__verdict--")}           # los tonos del badge son los del informe individual
+    assert not own, own
+    assert re.findall(r'<span class="section-eyebrow">\[(\d\d)\]</span>', html) == ["01", "02", "03"]      # encabezado de sección compartido
+    for own in ("tone-gold", "admin-help", "asm-client", "asr-client", "portfolio"):
+        assert own not in html, own                                                                  # sin título dorado propio ni textos/estilos ad hoc
+
+
+def test_no_portfolio_specific_visual_css_exists():
+    css = (REPO / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert not re.search(r"\.(asm|asr)-client|\.portfolio|\.client-assessment|\.cli-", css)

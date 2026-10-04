@@ -1,0 +1,3 @@
+{# Primitivos compartidos por la familia de informes de Assessment del Catálogo (informe individual `catalog_assessment_report.html` y
+   consolidado del cliente `client_assessment_report.html`): un solo encabezado de sección (`[NN]` + h2 + subtítulo opcional), sin copias. #}
+{% macro heading(num, title, subtitle="") %}<header class="content-heading{% if subtitle %} has-subtitle{% endif %}"><div class="content-heading-copy"><span class="section-eyebrow">[{{ "%02d"|format(num) }}]</span><h2>{{ title }}</h2></div></header>{% if subtitle %}<blockquote class="section-subtitle"><p>{{ subtitle }}</p></blockquote>{% endif %}{% endmacro %}
