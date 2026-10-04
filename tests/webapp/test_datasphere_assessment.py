@@ -1174,8 +1174,8 @@ def test_whats_new_announces_the_assessment_with_a_cta_to_the_real_tool_target(o
     from webapp.services import whats_new_service as wn
     items = {e["ref"]: e for e in wn.entries("datasphere_core")}
     e = items["datasphere-assessment"]
-    assert e["title"] == "Assessment de Modelado & Desarrollo desde SAP Datasphere" and e["categoria"] == "Modelado" and e["cta"] == "Probar assessment"
-    assert e["detail"].startswith("Evaluá un Modelo Analítico directamente desde SAP Datasphere.")
+    assert e["title"] == "Assessment metodologico para Modelado & Desarrollo" and e["categoria"] == "Modelado" and e["cta"] == "Probar assessment"
+    assert e["detail"].startswith("Conectáte a tus modelos de datos")
     assert not re.search(r"scor|puntaje|madurez|CSN|run_export|result_id|directorio", e["detail"], re.I)       # producto, no implementación
     assert e["link"] == f"/modules/{STEM}?pack=datasphere_core&tool=assessment"
     newest = wn.entries("datasphere_core")[0]
@@ -1188,21 +1188,13 @@ def test_whats_new_page_renders_the_card_and_the_cta_label(owner):
     page = owner.get("/whats-new?pack=datasphere_core")
     assert page.status_code == 200
     assert "datasphere-assessment" in page.text and "Probar assessment" in page.text and "tool=assessment" in page.text      # datos de la tarjeta (Alpine)
-    assert "Assessment de Modelado" in page.text and "SAP Datasphere" in page.text
+    assert "Assessment metodologico para Modelado" in page.text
     assert 'x-text="e.cta ? e.cta' in page.text and "Ir al contenido" in page.text                                           # etiqueta por defecto intacta para el resto
 
 
 def test_cta_lands_on_the_diagnostic_panel_with_the_assessment_tool_selected_and_the_form_reachable(owner):
     r = owner.get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment")
-    assert r.status_code == 200
-    assert re.search(r"copilotLayout\('core', false, '', true\)", r.text)                                    # panel de diagnóstico abierto
-    assert "x-data=\"{ tool: 'assessment'," in r.text and 'id="dsa-form"' in r.text                          # herramienta preseleccionada y formulario presente
-    plain = owner.get(f"/modules/{STEM}?pack=datasphere_core")
-    assert re.search(r"copilotLayout\('core', false, '', false\)", plain.text) and "x-data=\"{ tool: ''," in plain.text      # navegación directa intacta
-    bogus = owner.get(f"/modules/{STEM}?pack=datasphere_core&tool=evil")
-    assert re.search(r"copilotLayout\('core', false, '', false\)", bogus.text) and "tool: 'evil'" not in bogus.text            # lista blanca
-    other = owner.get("/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&tool=assessment")
-    assert re.search(r"copilotLayout\('core', false, '', false\)", other.text)                               # solo módulos que ofrecen la herramienta
+    assert r.status_code == 200 and "x-data=\"{ tool: 'assessment'," in r.text and 'id="dsa-form"' in r.text
 
 
 def test_cta_does_not_bypass_authentication_or_owner_authorization(monkeypatch):
@@ -1274,3 +1266,135 @@ def test_json_markdown_and_html_agree_on_the_omitted_families(owner, fake_export
     html = re.search(r"<strong>Evidencia no adquirida:</strong> ([^.]+)\.", _report_html(owner, rid)).group(1).strip()
     assert md == html == "Data Flows, Transformation Flows"
     assert "data-flows" not in effective and "transformation-flows" not in effective and "task-chains" in effective      # JSON coherente
+
+
+# ── REGRESIÓN: el flujo real (extractor REAL sobre un Datasphere simulado) no cambia con el alcance de evidencia ──
+@pytest.fixture()
+def real_extraction(monkeypatch, tmp_path):
+    """A diferencia de ``fake_export`` (que sustituye ``LineageExporter.run``), acá corre el extractor REAL (detección de tipo de raíz,
+    compuerta de tipos, alcance de features, recorrido y exportación) contra un DatasphereCli simulado con evidencia sintética."""
+    from tests._modeling_assessment_m7_fixtures import write_inbound as _wi
+    src = _wi(tmp_path / "ds_src") / "Acme"
+    cache = tmp_path / "assessment_cache"
+    monkeypatch.setattr(config, "ASSESSMENT_CACHE_DIR", cache)
+    monkeypatch.setenv("DANWOR_CATALOG_DIR", str(tmp_path / "canonical"))
+    svc.reset_boot_state()
+    asvc.reset_memory_cache()
+    seen = {"requests": [], "results": [], "assess": []}
+    monkeypatch.setattr(svc, "cli_available", lambda: True)
+    monkeypatch.setattr(dsp.shutil, "which", lambda n: "/usr/bin/npx")
+    monkeypatch.setattr(dsp.DatasphereCli, "oauth_preflight", lambda self: None)
+    monkeypatch.setattr(dsp.DatasphereCli, "login", lambda self: None)
+    monkeypatch.setattr(dsp.DatasphereCli, "authorization_preflight", lambda self, space: None)
+    monkeypatch.setattr(dsp.DatasphereCli, "list_objects", lambda self, space, t: [{"technicalName": p.stem} for p in sorted((src / t).glob("*.json"))] if (src / t).is_dir() else [])
+    monkeypatch.setattr(dsp.DatasphereCli, "read_object", lambda self, space, t, n: json.loads((src / t / f"{n}.json").read_text(encoding="utf-8")))
+    orig = dsp.run_export
+
+    def spy(req):
+        res = orig(req)
+        seen["requests"].append(req)
+        seen["results"].append(res)
+        return res
+    monkeypatch.setattr(dsp, "run_export", spy)
+    from tools.catalog.modeling_assessment import shadow as ma_shadow
+    real_assess = ma_shadow.assess
+    monkeypatch.setattr(ma_shadow, "assess", lambda *a, **k: (seen["assess"].append(a), real_assess(*a, **k))[1])
+    return seen
+
+
+def _real_run(root, features=None):
+    return svc.run(svc.FormValues(host=VALID["host"], token_url=VALID["token_url"], client_id="id", space="S", root_object=root, client="Acme", features=features), SECRET)
+
+
+@pytest.mark.parametrize("features", [None, ("replication-flows", "data-flows", "transformation-flows", "task-chains"), ("replication-flows",), ()])
+def test_valid_terminal_am_still_generates_the_assessment_for_every_scope(real_extraction, features):
+    out = _real_run("4AM_ACME", features)
+    assert out.state == "SUCCESS" and out.result_id, (out.error_code, out.message)
+    res = real_extraction["results"][0]
+    assert res.ok and res.root_type == "analytic-model" and real_extraction["assess"]                 # extracción OK -> el motor SÍ corrió
+    rec = svc.load_result(out.result_id)
+    assert rec["profile"]["scope"]["applicability"] == "APPLICABLE" and rec["profile"]["scope"]["terminal_analytic_model"] == "4AM_ACME"
+    assert rec["profile"]["scope"]["evidence_scope"]["effective_features"]                           # el alcance viaja, pero no altera la aplicabilidad
+
+
+def test_default_and_explicit_all_scopes_are_the_same_effective_extraction(real_extraction):
+    _real_run("4AM_ACME", None)
+    _real_run("4AM_ACME", ("replication-flows", "data-flows", "transformation-flows", "task-chains"))
+    legacy, explicit = real_extraction["results"]
+    assert legacy.requested_features == explicit.requested_features and legacy.effective_features == explicit.effective_features
+    assert set(legacy.effective_features) == {"analytic-models", "views", "tables", "replication-flows", "data-flows", "transformation-flows", "task-chains"}
+    assert real_extraction["requests"][0].features_requested is None
+    assert set(real_extraction["requests"][1].features_requested) == set(legacy.effective_features)         # estructurales + las 4 opcionales
+
+
+def test_evidence_scope_never_changes_terminal_am_closure_or_applicability_on_the_same_pool(real_extraction):
+    docs = {}
+    for label, feats in (("all", None), ("sub", ("replication-flows",)), ("none", ())):
+        out = _real_run("4AM_ACME", feats)
+        docs[label] = svc.load_result(out.result_id)["profile"]
+    for label in ("sub", "none"):
+        for key in ("applicability", "terminal_analytic_model", "closure_size", "closure_artifacts"):
+            assert docs[label]["scope"][key] == docs["all"]["scope"][key], (label, key)
+        assert docs[label]["summary"]["coverage"] == docs["all"]["summary"]["coverage"]
+
+
+@pytest.mark.parametrize("features", [None, ("replication-flows", "data-flows", "transformation-flows", "task-chains"), ("replication-flows",)])
+def test_view_root_exits_through_the_root_type_gate_without_running_the_engine(real_extraction, features):
+    out = _real_run("3VF_P", features)
+    assert out.state == "FAILED" and out.error_code == "ROOT_TYPE_CONSTRAINT_FAILED" and out.title == "No se pudo generar el assessment"
+    assert out.message == ("El Assessment de tu modelo actualmente evalúa Modelos Analíticos terminales. El objeto seleccionado fue identificado como una Vista.")
+    assert "evidencia se adquirió" not in out.message and "ROOT_TYPE_CONSTRAINT_FAILED" not in out.message
+    res = real_extraction["results"][0]
+    assert res.root_type == "view" and not res.ok and res.pool_dir is None                              # sin evidencia profunda
+    assert real_extraction["assess"] == []                                                              # el motor de assessment NO corrió
+
+
+def test_unknown_object_is_reported_as_extraction_not_found_never_as_assessment_applicability(real_extraction):
+    out = _real_run("4AM_PUR_PagoFacturaCompra")                                                        # no existe en ESTE Datasphere simulado
+    assert out.state == "FAILED" and out.stage == "extraction" and out.error_code == "ROOT_OBJECT_NOT_FOUND"
+    assert "evidencia se adquirió" not in out.message and real_extraction["assess"] == []
+
+
+# ── Novedades: copy exacto ─────────────────────────────────────────────────────
+def test_whats_new_final_title_and_body_are_exact(owner):
+    from webapp.services import whats_new_service as wn
+    e = {x["ref"]: x for x in wn.entries("datasphere_core")}["datasphere-assessment"]
+    assert e["title"] == "Assessment metodologico para Modelado & Desarrollo"
+    assert e["detail"] == ("Conectáte a tus modelos de datos en cualquiera de nuestros clientes directamente. El Copiloto reconstruye su evidencia y linaje, "
+                           "genera un assessment metodologico explicable y permite revisar cobertura, confianza, observaciones y puntos que requieren revisión.")
+    assert e["cta"] == "Probar assessment" and e["link"] == f"/modules/{STEM}?pack=datasphere_core&tool=assessment"
+
+
+# ── ?tool= autoritativo ────────────────────────────────────────────────────────
+def test_valid_tool_param_is_authoritative_closing_the_other_tool_groups(owner):
+    r = owner.get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment")
+    assert re.search(r"copilotLayout\('core', false, '', 'assessment'\)", r.text)
+    js = (REPO / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert 'const TOOL_GROUP = { assessment: "diagnostic" };' in js
+    assert 'panelOpen: toolGroup ? toolGroup === "decision" : true' in js                                  # decisión se cierra cuando hay una herramienta pedida
+    assert 'diagnosticOpen: toolGroup === "diagnostic"' in js and 'gestionOpen: toolGroup === "gestion"' in js
+    assert "x-data=\"{ tool: 'assessment'," in r.text and 'id="dsa-form"' in r.text                          # Assessment de tu modelo seleccionado y visible
+
+
+def test_invalid_or_missing_tool_param_keeps_the_default_navigation(owner):
+    for url in (f"/modules/{STEM}?pack=datasphere_core", f"/modules/{STEM}?pack=datasphere_core&tool=evil", f"/modules/{STEM}?pack=datasphere_core&tool=",
+                "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&tool=assessment"):
+        text = owner.get(url).text
+        assert re.search(r"copilotLayout\('core', false, '', ''\)", text), url
+    js = (REPO / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert 'const toolGroup = TOOL_GROUP[initialTool] || "";' in js                                         # sin grupo => panelOpen=true (default)
+
+
+def test_unauthorized_user_with_the_tool_link_still_gets_restricted_access(monkeypatch):
+    monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
+    html = _client("someone@danwor.com").get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment").text
+    assert "Acceso restringido" in html and 'id="dsa-form"' not in html
+
+
+# ── casillas del alcance de evidencia: espaciado ──────────────────────────────
+def test_scope_checkboxes_reuse_the_shared_primitive_and_restore_its_spacing_without_inline_styles(owner):
+    block = _scope_form(owner)
+    assert block.count('class="dashboard-checkbox-option"') == 4 and "style=" not in block
+    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    assert re.search(r"\.dashboard-checkbox-option \{[^}]*gap: 5px", css)                                    # el espaciado es el gap del primitivo
+    assert css.count(".tree-picker .dashboard-checkbox-option { display: inline-flex; margin: 0; }") == 1   # restituye el layout que `.tree-picker label` pisaba

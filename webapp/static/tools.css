@@ -1100,6 +1100,9 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
   cursor: pointer; color: #55555c; font: 600 .66rem var(--mono); user-select: none;
 }
 .content-theme-dark .dashboard-checkbox-option { color: #b2b2bc; }
+/* Dentro de un `.tree-picker` la regla `.tree-picker label` (display:block) pisaba el `inline-flex` del primitivo y anulaba su `gap`:
+   la casilla quedaba pegada al texto. Se restituye el layout del primitivo (el espaciado casilla–texto es el `gap` del propio primitivo). */
+.tree-picker .dashboard-checkbox-option { display: inline-flex; margin: 0; }
 .dashboard-checkbox-option input { accent-color: var(--gold); margin: 0; width: 13px; height: 13px; }
 .dashboard-checkbox-option:has(input:checked) { color: #1f1f24; font-weight: 700; }
 .content-theme-dark .dashboard-checkbox-option:has(input:checked) { color: #e4e4ec; }
