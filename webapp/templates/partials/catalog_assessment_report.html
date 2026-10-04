@@ -150,7 +150,9 @@
       <tr><td>Cobertura estricta</td><td>{{ s.coverage_strict }}</td><td>{{ s.coverage_meaning }} Superficies requeridas: {{ s.surfaces }}.</td></tr>
       <tr><td>Cobertura inclusiva</td><td>{{ s.coverage_inclusive }}</td><td>Incluye la evidencia parcialmente evaluada.</td></tr>
       <tr><td>Confianza</td><td>{{ s.confidence }}</td><td>{{ s.confidence_meaning }}{% if s.confidence_limitation %} Limitación principal: {{ s.confidence_limitation }}{% endif %}</td></tr>
-      <tr><td>Contexto requerido</td><td>{{ s.context_open }}</td><td>Hallazgos: {{ s.observation_groups }} grupo{{ "s" if s.observation_groups != 1 }} de observación ({{ n_occ(s.observation_occurrences) }}), {{ s.review_groups }} de revisión ({{ n_occ(s.review_occurrences) }}).</td></tr>
+      <tr><td>Revisiones requeridas</td><td>{{ s.review_occurrences }}</td><td>{{ s.review_reading }}</td></tr>
+      <tr><td>Contexto abierto</td><td>{{ s.context_open }}</td><td>{{ s.context_reading }}</td></tr>
+      <tr><td>Observaciones</td><td>{{ s.observation_occurrences }}</td><td>{{ s.observation_groups }} grupo{{ "s" if s.observation_groups != 1 }} de observación: patrones descriptivos para revisión humana, sin juicio (detalle en Observaciones).</td></tr>
     </tbody>
   </table>
   {% for d in s.no_evidence_dimensions %}{% call callout("punch", "Dimensión " ~ d) %}<p>Sin evidencia evaluada — ninguna evidencia requerida pudo evaluarse.</p>{% endcall %}{% endfor %}

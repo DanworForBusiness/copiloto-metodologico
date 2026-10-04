@@ -181,6 +181,23 @@ def _row_text(r: dict) -> str:
     return f"{r['name']}: " + ", ".join(f"{_ROW_KEY_TEXT.get(k, k.replace('_', '-'))} {_pct(v) if k == 'share' else v}" for k, v in rest)   # `share` = proporción 0–1
 
 
+def review_required_text(n_occurrences: int, n_groups: int) -> tuple[str, str]:
+    """(titular, lectura) de "Revisiones requeridas": OCURRENCIAS de los grupos de revisión (no grupos ni preguntas). La comparten Markdown y HTML."""
+    head = f"{_occ(n_occurrences)} en {_plural(n_groups, 'grupo de revisión', 'grupos de revisión')}"
+    detail = ("Puntos que el análisis automático no puede cerrar solo con la evidencia disponible y que requieren la revisión de una persona; "
+              "no son defectos confirmados y no miden la calidad del modelo (detalle en *Revisión requerida*).")
+    return head, detail
+
+
+def context_open_text(ctx: dict) -> tuple[str, str]:
+    """(titular, lectura) de "Contexto abierto": TIPOS de pregunta distintos que solo el proyecto puede responder (no ocurrencias de hallazgos)."""
+    n, k = ctx["open_questions"], ctx["questions_backed_by_findings"]
+    head = _plural(n, "pregunta de contexto abierta", "preguntas de contexto abiertas")
+    detail = (f"{k} de ellas {'está respaldada' if k == 1 else 'están respaldadas'} por {_occ(ctx['occurrences'])} de hallazgos "
+              f"y {ctx['questions_without_findings']} corresponden a contexto del proyecto sin hallazgo asociado. Cuenta tipos de pregunta, no ocurrencias.")
+    return head, detail
+
+
 def view_composition_text(total: int, breakdown: list[dict], *, structural: bool = False) -> str:
     """Lectura objetiva de la composición del cierre por tipo de vista, SIN juicio. La comparten el Markdown y la UI estructurada.
     ``structural`` = al menos una vista se reconoció solo por su marcador estructural (pools planos, sin carpeta-tipo): ahí una vista sin
@@ -376,12 +393,11 @@ def render_markdown(doc: dict) -> str:
     if lim:
         L.append(f"  - Limitación principal: {lim['summary']}")
     L.append(f"  - {conf['meaning']}")
-    n, k = ctx["open_questions"], ctx["questions_backed_by_findings"]
-    L += [f"- **Contexto requerido:** {_plural(n, 'pregunta de contexto abierta', 'preguntas de contexto abiertas')}; "
-          f"{k} de ellas {'está respaldada' if k == 1 else 'están respaldadas'} por {_occ(ctx['occurrences'])} de hallazgos "
-          f"y {ctx['questions_without_findings']} corresponden a contexto del proyecto sin hallazgo asociado",
-          f"- **Hallazgos:** {_plural(len(doc['observations']), 'grupo de observación', 'grupos de observación')} ({_occ(obs_n)}), "
-          f"{_plural(len(doc['review_required']), 'grupo de revisión', 'grupos de revisión')} ({_occ(rev_n)})", ""]
+    rev_head, rev_detail = review_required_text(rev_n, len(doc["review_required"]))
+    ctx_head, ctx_detail = context_open_text(ctx)
+    L += [f"- **Revisiones requeridas:** {rev_head}", f"  - {rev_detail}",
+          f"- **Contexto abierto:** {ctx_head}; {ctx_detail}",
+          f"- **Observaciones:** {_plural(len(doc['observations']), 'grupo de observación', 'grupos de observación')} ({_occ(obs_n)})", ""]
     areas = {a["id"]: a for a in doc["areas"]}
     L += ["| Dimensión | Área | Estado | Superficies requeridas (evaluadas / parciales / no evaluadas) |", "|---|---|---|---|"]
     for a in doc["areas"]:

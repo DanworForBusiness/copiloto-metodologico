@@ -22,7 +22,7 @@ __all__ = [
     "area_title", "macro_dimension_title", "assessability_text", "assessability_plural_text", "execution_state_text",
     "confidence_level_text", "finding_kind_text", "rule_result_text", "unit_label", "is_artifact_name",
     "percent_text", "plural", "value_text", "occurrence_text", "row_key_text", "evidence_not_acquired", "view_composition_text",
-    "has_structural_membership",
+    "has_structural_membership", "review_required_text", "context_open_text",
 ]
 
 
@@ -89,6 +89,16 @@ def view_composition_text(total: int, breakdown: list[dict], *, structural: bool
     """Lectura objetiva de la composición del cierre por tipo de vista (misma función que el Markdown; sin juicio). Con ``structural`` no
     afirma "0 sin clasificación" (en pools planos UNKNOWN no es exhaustivamente observable)."""
     return _md.view_composition_text(total, breakdown, structural=structural)
+
+
+def review_required_text(n_occurrences: int, n_groups: int) -> tuple[str, str]:
+    """(titular, lectura) de "Revisiones requeridas" (ocurrencias de los grupos de revisión); misma función que el Markdown."""
+    return _md.review_required_text(n_occurrences, n_groups)
+
+
+def context_open_text(ctx: dict) -> tuple[str, str]:
+    """(titular, lectura) de "Contexto abierto" (tipos de pregunta distintos); misma función que el Markdown. ``ctx`` = ``summary.context_required``."""
+    return _md.context_open_text(ctx)
 
 
 def has_structural_membership(highlights: list[dict]) -> bool:

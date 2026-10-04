@@ -401,6 +401,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     for r in doc["rule_results"]:
         rules_by_area.setdefault(r["area"], []).append(r)
     lim = conf["main_limitation"]
+    _rev_head, _rev_detail = P.review_required_text(sum(g["occurrence_count"] for g in doc["review_required"]), len(doc["review_required"]))
     view.update({
         "execution_text": P.execution_state_text(doc["assessment_state"]),
         "scope_text": (f"{_plural(scope['closure_size'], 'artefacto')} en el cierre semántico del modelo analítico terminal"
@@ -419,6 +420,8 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
             "confidence_limitation": lim["summary"] if lim else None,
             "context_open": _plural(ctx["open_questions"], "pregunta de contexto abierta", "preguntas de contexto abiertas"),
             "context_open_n": ctx["open_questions"],
+            "review_reading": f"{_rev_head}. {_rev_detail}",
+            "context_reading": P.context_open_text(ctx)[1],
             **_context_questions(ctx, groups_by_id),
             "no_evidence_dimensions": [P.macro_dimension_title(m["id"]) for m in summary["macro_dimensions"] if m["state"] == "COMPLETELY_NOT_ASSESSED"],
             "observation_groups": len(doc["observations"]), "review_groups": len(doc["review_required"]),
