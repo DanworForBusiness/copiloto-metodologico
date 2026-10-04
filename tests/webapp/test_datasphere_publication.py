@@ -365,8 +365,8 @@ def test_howto_link_is_only_in_browse_state_never_in_publication_state(owner, mo
     try:
         cat = _catalog_html(owner)
         browse, publish = _browse_block(cat), _publish_block(cat)
-        assert "Cómo podés publicarlo" in browse and "como-publicar-dominios" in browse             # browse: el how-to se ve
-        assert "Cómo podés publicarlo" not in publish and "Falta un" not in publish                 # publish: oculto del todo
+        assert "Cómo publicarlo →" in browse and "como-publicar-dominios" in browse             # browse: el how-to se ve
+        assert "Cómo publicarlo" not in publish and "Falta un" not in publish                 # publish: oculto del todo
         assert "como-publicar-dominios" not in publish and "Querés saber cómo funciona" not in publish   # ni duplicado dentro del formulario
     finally:
         main._invalidate_catalog_cache()

@@ -72,7 +72,7 @@ def test_catalog_howto_link_still_targets_publicar_guide():
     html = tpl.read_text(encoding="utf-8")
     assert "/catalog/guide/como-publicar-dominios?pack=" in html
     assert "¿Falta un Catálogo de Datos?" in html
-    assert "Cómo publicarlo →" in html and "¿Falta un Catálogo de Datos?</strong> Cómo podés publicarlo" not in html
+    assert "Cómo publicarlo →" in html
 
 
 # ───────────────────────── carga / render de las guías ─────────────────────────
@@ -167,3 +167,16 @@ def test_internal_cta_url_is_absent_in_raw_yaml():
         raw = (guides / f"{slug}.yaml").read_text(encoding="utf-8")
         assert "ondigitalocean" not in raw, slug
         assert re.search(r"\btool:\s*(assessment|catalogo)\b", raw), slug
+
+
+def test_every_catalog_how_to_publish_link_uses_the_same_copy():
+    """Transversal: el link "¿Falta un X? Cómo publicarlo →" se lee IGUAL en todos los catálogos de todos los módulos (orígenes, objetos
+    de seguridad, catálogo de datos, dominios y data products)."""
+    import re
+    from pathlib import Path
+    tpl = Path(__file__).resolve().parents[2] / "webapp" / "templates" / "partials" / "catalog_tab.html"
+    html = tpl.read_text(encoding="utf-8")
+    links = re.findall(r"<strong>(¿Falta [^<]+\?)</strong>([^<]*)</a>", html)
+    assert [q for q, _ in links] == ["¿Falta un Origen?", "¿Falta un Objeto?", "¿Falta un Catálogo de Datos?", "¿Falta un Dominio?", "¿Falta un Data Product?"]
+    assert {tail for _, tail in links} == {" Cómo publicarlo →"}
+    assert "Cómo podés" not in html

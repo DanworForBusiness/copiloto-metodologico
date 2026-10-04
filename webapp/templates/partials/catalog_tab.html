@@ -20,7 +20,7 @@
     <p>{% if catalog_connection_types %}Elegí un tipo de conexión para ver qué clientes lo usan y con qué capacidades operativas.{% else %}No se detectaron conexiones generadas para el catálogo de arquitectura.{% endif %}</p>
   </div>
 </div>
-<p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-origenes?pack={{ pack }}"><strong>¿Falta un Origen?</strong> Cómo podés publicarlo →</a></p>
+<p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-origenes?pack={{ pack }}"><strong>¿Falta un Origen?</strong> Cómo publicarlo →</a></p>
 {% elif is_security_catalog %}
 <div class="tree-picker catalog-picker--security">
   <label for="catalog-security-family">Catálogo de seguridad</label>
@@ -38,7 +38,7 @@
     <p>{% if catalog_security_families %}Elegí Seguridad de Roles para revisar la matriz de permisos o Seguridad de Datos para ver los artefactos DAC disponibles.{% else %}No se detectaron artefactos generados para el catálogo de seguridad.{% endif %}</p>
   </div>
 </div>
-<p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-seguridad?pack={{ pack }}"><strong>¿Falta un Objeto?</strong> Cómo podés publicarlo →</a></p>
+<p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-seguridad?pack={{ pack }}"><strong>¿Falta un Objeto?</strong> Cómo publicarlo →</a></p>
 {% else %}
 {# El Catálogo tiene DOS estados de presentación en la MISMA pestaña ("Herramientas de decisión → Catálogo"), controlados por
    `catalogView` (estado de `copilotLayout`, app.js): "browse" (explorar dominios / Data Products) y "publish" (alta: formulario
@@ -148,8 +148,8 @@
 
   {% if module_number == "03" or module_number == "04" %}
   <p class="tool-suggest__link" x-show="!catalogKind" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Catálogo de Datos?</strong> Cómo publicarlo →</a></p>
-  <p class="tool-suggest__link" x-show="catalogKind === 'domains'" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Dominio?</strong> Cómo podés publicarlo →</a></p>
-  <p class="tool-suggest__link" x-show="catalogKind === 'data_products'" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Data Product?</strong> Cómo podés publicarlo →</a></p>
+  <p class="tool-suggest__link" x-show="catalogKind === 'domains'" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Dominio?</strong> Cómo publicarlo →</a></p>
+  <p class="tool-suggest__link" x-show="catalogKind === 'data_products'" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Data Product?</strong> Cómo publicarlo →</a></p>
   {% endif %}
   </div>
 </div>
