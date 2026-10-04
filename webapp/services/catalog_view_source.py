@@ -20,6 +20,7 @@ from pathlib import Path
 
 from tools.catalog import dsp_view_type as vt
 from webapp.services import assessment_service as asvc
+from webapp.services import catalog_reads
 
 log = logging.getLogger("danwor.catalog_view_source")
 
@@ -34,6 +35,60 @@ class ViewSql:
     view_type: str
     view_type_basis: str
     sql: str
+
+
+@dataclass(frozen=True)
+class ArtifactIdentity:
+    """Identidad visible de un artefacto en su página de código: nombre de negocio (o el técnico si no hay) + capa y uso semántico canónicos del Catálogo."""
+    business_name: str
+    layer: str | None
+    semantic_use: str | None
+
+    def meta_segments(self, technical_name: str) -> list[str]:
+        """``[capa, uso semántico, nombre técnico]`` sin los segmentos no disponibles; el nombre técnico siempre es el último."""
+        return [*(s for s in (self.layer, self.semantic_use) if s), technical_name]
+
+
+# Valores de la metadata del Catálogo que significan "no hay dato" (la propia generación los usa): se omiten, no se muestran como identidad.
+_NO_VALUE = {"", "sin definir", "n/a", "none", "null"}
+
+
+def _meta_value(raw) -> str | None:
+    s = str(raw or "").strip()
+    return None if s.lower() in _NO_VALUE else s
+
+
+def _entry_for(name: str, cliente: str, dominio: str, flow: str):
+    """La entrada del Catálogo desde la que se abrió el SQL: por identidad estable (`flow`); si falta, la que lista al artefacto para (cliente, dominio)."""
+    mod, entries = catalog_reads._catalog_entries()
+    if not mod:
+        return None
+    if flow:
+        found = mod.find_flow_by_id(entries, flow)
+        if found is not None:
+            return found
+    wanted = (cliente or "").strip().lower()
+    for e in entries or []:
+        if str(getattr(e, "cliente", "")).strip().lower() == wanted and name in (getattr(e, "artefactos", None) or [])                 and (not dominio or str(getattr(e, "dominio", "")).strip().lower() == dominio.strip().lower()):
+            return e
+    return None
+
+
+def artifact_identity(name: str, cliente: str, dominio: str, flow: str) -> ArtifactIdentity:
+    """Nombre de negocio, capa y uso semántico del artefacto, leídos de la MISMA metadata del Catálogo que usa el detalle del flujo
+    (`vistas/<nombre>.md` → `auto`: label / capa / uso_semantico). Nada se infiere del nombre técnico ni del tipo de vista; sin dato, el nombre
+    técnico hace de título y se omiten capa/uso."""
+    from webapp.services.content_service import split_front_matter
+    auto: dict = {}
+    try:
+        entry = _entry_for(name, cliente, dominio, flow)
+        path = Path(entry.path).parent / "vistas" / f"{name}.md" if entry is not None else None
+        if path is not None and path.is_file():
+            meta, _body = split_front_matter(path.read_text(encoding="utf-8", errors="ignore"))
+            auto = (meta or {}).get("auto") or {}
+    except Exception:                                         # noqa: BLE001 — la identidad es presentación: jamás rompe el visor
+        log.exception("catalog_view_source: no se pudo leer la metadata de %s", name)
+    return ArtifactIdentity(catalog_reads.catalog_clean_label(auto.get("label"), name), _meta_value(auto.get("capa")), _meta_value(auto.get("uso_semantico")))
 
 
 _lock = threading.RLock()

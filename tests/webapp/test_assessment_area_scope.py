@@ -271,3 +271,43 @@ def test_no_signal_threshold_or_scoring_was_introduced(doc):
     ids = {str(getattr(s, "signal_id", s)) for s in SIGNAL_REGISTRY}
     assert not any(re.search(r"VIEW_?TYPE|GRAPHICAL|SQL_VIEW|VIEW_SCOPE|CONSIDERED", i) for i in ids)
     assert "score" not in doc and "versions" in doc
+
+
+# ── los cuatro contenedores de área de [02] cargan colapsados ───────────────
+AREA_IDS = ("ANALYTIC_MODEL", "HARMONIZATION", "PROPAGATION", "INGESTION")
+
+
+def _architecture_section(doc):
+    html = _html(_view(doc))
+    return html, html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-observaciones"')]
+
+
+def test_the_four_area_containers_load_collapsed_and_keep_their_order(doc):
+    _html_full, sec = _architecture_section(doc)
+    tags = re.findall(r'<details class="dashboard-section" id="asr-a-([A-Z_]+)"([^>]*)>', sec)
+    assert [t[0] for t in tags] == ["ANALYTIC_MODEL", "PROPAGATION", "HARMONIZATION", "INGESTION"]               # mismo orden que antes
+    for area_id, attrs in tags:
+        assert "open" not in attrs.split(), area_id                                                           # colapsado por defecto (Modelo analítico, Armonización, Propagación, Ingesta)
+    assert set(AREA_IDS) <= {t[0] for t in tags}
+
+
+def test_collapsed_areas_keep_their_content_badges_and_the_overview_stays_visible(doc):
+    html, sec = _architecture_section(doc)
+    assert sec.count('data-block="view-overview"') == 1
+    details_spans = [(m.start(), m.end()) for m in re.finditer(r'<details class="dashboard-section" id="asr-a-[A-Z_]+".*?</details>', sec, re.S)]
+    ov = sec.index('data-block="view-overview"')
+    assert not any(a < ov < b for a, b in details_spans)                                                      # el resumen transversal queda FUERA de los contenedores
+    for _a, _b in details_spans:
+        block = sec[_a:_b]
+        assert "dashboard-section__head" in block and re.search(r"catalog-card__verdict[^>]*>\s*Evaluado", block)   # su badge de estado se conserva
+        assert "dashboard-section__body" in block and "Superficies de evidencia requeridas" in block            # el contenido sigue en el HTML (accesible al expandir)
+    assert "Pasos de linaje evaluados" in sec and "Evaluación de reglas" in sec
+
+
+def test_other_sections_keep_their_own_default_state_and_no_accordion_or_js_was_added(doc):
+    html, sec = _architecture_section(doc)
+    assert re.search(r'<details class="dashboard-section" open>\s*<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Indicadores del assessment', html)
+    assert "<details class=\"dashboard-section\" id=\"asr-preguntas\" open>" in html or "asr-preguntas" not in html
+    tpl = TEMPLATE_PATH.read_text(encoding="utf-8")
+    area_loop = tpl[tpl.index("{% for a in mg.areas %}\n  <details"):tpl.index("{% endfor %}", tpl.index("{% for a in mg.areas %}\n  <details"))]
+    assert "<script" not in area_loop and "x-data" not in area_loop and "@click" not in area_loop and "name=" not in area_loop    # sin JS ni acordeón (`name` agruparía los <details>)

@@ -2659,9 +2659,11 @@ def catalog_sql(request: Request, name: str = "", cliente: str = "", dominio: st
     longest = max((len(r) for r in re.findall(r"`+", src.sql)), default=0)
     fence = "`" * max(3, longest + 1)          # un SQL con ``` no puede cerrar el bloque: la valla es más larga que cualquier racha de comillas
     sections = render_sections(f"## Código SQL\n\n{fence}sql\n{src.sql}\n{fence}\n", pack_name="", stem="", base=0)
+    identity = catalog_view_source.artifact_identity(name, cliente, dominio, flow)      # nombre de negocio + capa + uso semántico (misma metadata del Catálogo)
     ctx = {
-        "cds_name": name, "cds_title": name,
-        "cds_intro": "Consulta SQL de la vista tal como se exportó de SAP Datasphere (solo lectura; no se ejecuta).",
+        "cds_name": name, "cds_title": identity.business_name,
+        "cds_intro": "Código SQL de la vista en Datasphere",
+        "meta_prefix": identity.meta_segments(name)[:-1],
         "source_label": "Vista SQL", "tabla_base": "", "extraccion": "",
         "sections": sections, "cliente": cliente, "dominio": dominio, "flow": flow, "pack": selected,
         "catalog_kind": "sql", "catalog_ref": name,

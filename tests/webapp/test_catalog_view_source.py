@@ -10,6 +10,7 @@ Contrato:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -183,3 +184,90 @@ def test_the_full_page_variant_renders_with_the_shell(world):
 def test_the_cds_panel_label_is_unchanged_for_cds_views():
     tpl = (Path(__file__).resolve().parents[2] / "webapp/templates/partials/catalog_cds_content.html").read_text(encoding="utf-8")
     assert '{{ source_label or "API corporativa" }}' in tpl
+
+
+# ── identidad del encabezado de la página SQL (nombre de negocio · capa · uso semántico · nombre técnico) ──
+VISTA_MD = "---\nauto:\n  tipo: vista\n  nombre: 3VF_SQL\n  label: {label}\n  capa: {capa}\n  uso_semantico: {uso}\n---\n# 3VF_SQL\n\nCuerpo.\n"
+
+
+def _with_identity(monkeypatch, tmp_path, *, label="Vista relacional - Despachos", capa="Armonización", uso="Relacional", write=True):
+    from webapp.services import catalog_reads
+    catalog = tmp_path / "catalog"
+    (catalog / "vistas").mkdir(parents=True, exist_ok=True)
+    if write:
+        (catalog / "vistas" / "3VF_SQL.md").write_text(VISTA_MD.format(label=label, capa=capa, uso=uso), encoding="utf-8")
+    else:
+        (catalog / "vistas" / "3VF_SQL.md").unlink(missing_ok=True)
+    entry = cs.CatalogEntry(path=str(catalog / "flujo_x.md"), cliente="Acme", dominio="Dom", veredicto="plena", apto="Referencia reutilizable",
+                            entry_id="acme-x", artefactos=["3VF_SQL"])
+    monkeypatch.setattr(catalog_reads, "_catalog_entries", lambda: (cs, [entry]))
+    return entry
+
+
+def _page(name="3VF_SQL"):
+    r = client_for().get(f"/catalog/sql?name={name}&cliente=Acme&dominio=Dom&flow=acme-x&pack=datasphere_core", headers=HX)
+    assert r.status_code == 200
+    return r.text
+
+
+def _hero(html):
+    return html[html.index('<section class="module-hero">'):html.index("</section>", html.index('<section class="module-hero">'))]
+
+
+def test_the_hero_leads_with_the_business_name_and_keeps_the_technical_name_in_the_meta_line(world, tmp_path, monkeypatch):
+    _with_identity(monkeypatch, tmp_path)
+    hero = _hero(_page())
+    assert "<h1>Vista relacional - Despachos</h1>" in hero
+    assert '<span>Armonización · Relacional · <code>3VF_SQL</code></span>' in hero                              # capa · uso semántico · nombre técnico (siempre último)
+    assert '<p class="hero-lead">Código SQL de la vista en Datasphere</p>' in hero                              # descripción exacta
+    for gone in ("Consulta SQL de la vista tal como se exportó", "solo lectura", "no se ejecuta"):
+        assert gone not in hero
+    assert "<h1>3VF_SQL</h1>" not in hero and "Código SQL" in _page()                                          # la sección [01] "Código SQL" no cambia
+
+
+def test_missing_or_unresolved_business_name_falls_back_to_the_technical_name(world, tmp_path, monkeypatch):
+    for label in ('""', "null", "'{i18n>Remote.X@ENDUSERTEXT.LABEL}'"):
+        _with_identity(monkeypatch, tmp_path, label=label)
+        hero = _hero(_page())
+        assert "<h1>3VF_SQL</h1>" in hero and "<code>3VF_SQL</code>" in hero, label                             # sin nombre canónico: jamás se inventa uno
+
+
+def test_missing_optional_metadata_omits_the_segment_without_malformed_separators(world, tmp_path, monkeypatch):
+    cases = {("Armonización", "null"): "Armonización · <code>3VF_SQL</code>", ("Sin definir", "Relacional"): "Relacional · <code>3VF_SQL</code>",
+             ("Sin definir", "N/A"): "<code>3VF_SQL</code>", ("null", "null"): "<code>3VF_SQL</code>"}
+    for (capa, uso), expected in cases.items():
+        _with_identity(monkeypatch, tmp_path, capa=capa, uso=uso)
+        hero = _hero(_page())
+        assert f"<span>{expected}</span>" in hero, (capa, uso)
+        assert not re.search(r"·\s*·|<span>\s*·|·\s*</span>", hero)
+    _with_identity(monkeypatch, tmp_path, write=False)                                                          # sin metadata del Catálogo: solo el nombre técnico
+    hero = _hero(_page())
+    assert "<h1>3VF_SQL</h1>" in hero and "<span><code>3VF_SQL</code></span>" in hero
+
+
+def test_identity_is_read_from_the_catalog_metadata_and_nothing_is_inferred(world, tmp_path, monkeypatch):
+    _with_identity(monkeypatch, tmp_path, label="Vista X", capa="Consumo", uso="Fact")
+    ident = catalog_view_source.artifact_identity("3VF_SQL", "Acme", "Dom", "acme-x")
+    assert (ident.business_name, ident.layer, ident.semantic_use) == ("Vista X", "Consumo", "Fact") and ident.meta_segments("3VF_SQL") == ["Consumo", "Fact", "3VF_SQL"]
+    by_domain = catalog_view_source.artifact_identity("3VF_SQL", "Acme", "Dom", "")                              # sin `flow`: la entrada que lista al artefacto
+    assert by_domain.business_name == "Vista X"
+    other = catalog_view_source.artifact_identity("3VF_SQL", "Otro", "Dom", "")                                  # ningún cliente: sin inferir capa/uso del prefijo "3VF_"
+    assert (other.business_name, other.layer, other.semantic_use) == ("3VF_SQL", None, None)
+
+
+def test_the_source_route_auth_and_copy_behaviour_are_unchanged_by_the_hero_polish(world, tmp_path, monkeypatch):
+    _with_identity(monkeypatch, tmp_path)
+    html = _page()
+    assert "&lt;script&gt;" in html and "<script>alert(1)</script>" not in html and "no cierres el bloque" in html     # mismo SQL, mismo escapado
+    assert "Volver al flujo" in html and "/catalog/flow?cliente=Acme&dominio=Dom&flow=acme-x" in html
+    r = TestClient(main.app).get("/catalog/sql?name=3VF_SQL&cliente=Acme&pack=datasphere_core", follow_redirects=False)
+    assert r.status_code in (302, 303, 307)
+    assert client_for().get("/catalog/sql?name=2VG_GR&cliente=Acme&pack=datasphere_core", headers=HX).status_code == 404
+
+
+def test_no_css_or_js_was_added_for_the_sql_hero():
+    root = Path(__file__).resolve().parents[2]
+    css = (root / "webapp/static/tools.css").read_text(encoding="utf-8")
+    assert not re.search(r"meta_prefix|catalog-sql-(hero|meta)|sql-hero", css)
+    tpl = (root / "webapp/templates/partials/catalog_cds_content.html").read_text(encoding="utf-8")
+    assert "<script" not in tpl and "style=" not in tpl.replace('style="border-top:1px solid rgba(128,128,128,.32)"', "")

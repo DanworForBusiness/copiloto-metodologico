@@ -183,9 +183,9 @@
   {% if mg.view_overview.caveat %}<p>{{ mg.view_overview.caveat }}</p>{% endif %}
   {% endif %}
   {% if mg.areas|length > 1 %}
-  {# Grupo con subáreas reales (Arquitectura & Modelado): un disclosure del CRM por subárea. #}
+  {# Grupo con subáreas reales (Arquitectura & Modelado): un disclosure del CRM por subárea, TODOS colapsados al cargar (cada uno se abre por separado). #}
   {% for a in mg.areas %}
-  <details class="dashboard-section" id="{{ a.dom_id }}" {% if a.findings or a.state != "ASSESSED" %}open{% endif %}>
+  <details class="dashboard-section" id="{{ a.dom_id }}">
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ a.title }}</span> {{ state_badge(a) }}{% if a.findings %}<span class="dashboard-section__count">{{ a.findings|length }} hallazgo{{ "s" if a.findings|length != 1 }}</span>{% endif %}</summary>
     <div class="dashboard-section__body">{{ area_body(a, 4) }}</div>
   </details>
