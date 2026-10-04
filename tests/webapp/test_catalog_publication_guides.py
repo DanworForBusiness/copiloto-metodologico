@@ -72,6 +72,7 @@ def test_catalog_howto_link_still_targets_publicar_guide():
     html = tpl.read_text(encoding="utf-8")
     assert "/catalog/guide/como-publicar-dominios?pack=" in html
     assert "¿Falta un Catálogo de Datos?" in html
+    assert "Cómo publicarlo →" in html and "¿Falta un Catálogo de Datos?</strong> Cómo podés publicarlo" not in html
 
 
 # ───────────────────────── carga / render de las guías ─────────────────────────
