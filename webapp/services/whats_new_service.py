@@ -76,7 +76,7 @@ def _manual_entries(pack: str) -> list[dict]:
         out.append({"ref": ref, "date": _d, "ts": (_d + "T00:00:00") if _d else "",
                     "title": titulo, "detail": str(it.get("detalle") or it.get("detail") or "").strip(),
                     "categoria": str(it.get("categoria") or it.get("category") or "General").strip() or "General",
-                    "link": str(it.get("link") or "").strip(),
+                    "link": str(it.get("link") or "").strip(), "cta": str(it.get("cta") or "").strip(),
                     "source": "manual"})
     return out
 

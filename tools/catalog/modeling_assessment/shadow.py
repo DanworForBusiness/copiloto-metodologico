@@ -38,7 +38,7 @@ from .profile import (
 )
 from .readers import SupplementaryEvidence
 from .render_md import render_markdown
-from .scope import AssessmentUniverse, TerminalAmSelectionRequired, UnknownTerminalAmError
+from .scope import AssessmentUniverse, TerminalAmSelectionRequired, UnknownRootObjectError, UnknownTerminalAmError
 
 MANIFEST_NAME = "run_manifest.json"
 MANIFEST_VERSION = "run-manifest/v1"
@@ -136,9 +136,21 @@ def _business_label(entities, terminal_am: str | None) -> str | None:
     return label if label and label != terminal_am else None
 
 
-def assess(inbound: Path, client: str, am: str | None, domain: str | None = None) -> tuple[dict, dict]:
+def _acquired_flow_families(evidence_scope: dict | None):
+    """Familias de flows adquiridas segun el alcance EFECTIVO de la extraccion (None => alcance desconocido => comportamiento previo)."""
+    if not evidence_scope:
+        return None
+    effective = set(evidence_scope.get("effective_features") or ())
+    return {"replication-flows", "data-flows"} & effective
+
+
+def assess(inbound: Path, client: str, am: str | None, domain: str | None = None, *, evidence_scope: dict | None = None,
+           generic_root: bool = False, root_type: str | None = None) -> tuple[dict, dict]:
     """(documento publico, metadatos de pool para el manifiesto). Lanza ClientNotFoundError/AmbiguousClientDomainError/UnknownTerminalAmError/
-    TerminalAmSelectionRequired; un fallo de carga NO lanza: devuelve el documento INDETERMINATE."""
+    TerminalAmSelectionRequired; un fallo de carga NO lanza: devuelve el documento INDETERMINATE.
+    ``generic_root=True`` (producto "Assessment de tu modelo"): ``am`` es el OBJETO RAIZ y puede ser un AM, una vista o una tabla; se evalua su
+    clausura semantica upstream (``root_type`` = tipo informado por el extractor). Sin ``generic_root`` (Catalogo) el comportamiento es el de siempre:
+    solo un AM terminal es una unidad valida."""
     key, group = select_pool(inbound, client, domain)
     files = [*group["jsons"], *group["txts"]]
     signature = pool_signature(inbound, files)
@@ -149,10 +161,13 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
         meta["errors"].append(str(exc))
         return build_indeterminate_assessment(client=key[0], requested_model=am, message=str(exc), pool_signature=signature), meta
     universe = AssessmentUniverse.from_entities(entities)
-    scope = universe.scope_for(am, pool_signature=signature)               # puede lanzar UnknownTerminalAmError / TerminalAmSelectionRequired
-    facts = [] if scope.terminal_am is None else collect_facts(universe, entities, scope.terminal_am, SupplementaryEvidence.from_files(group["jsons"], root=inbound))
+    if generic_root and am is not None:
+        universe, scope = universe.resolve_root(entities, am, root_type, pool_signature=signature)   # puede lanzar UnknownRootObjectError
+    else:
+        scope = universe.scope_for(am, pool_signature=signature)           # puede lanzar UnknownTerminalAmError / TerminalAmSelectionRequired
+    facts = [] if scope.root is None else collect_facts(universe, entities, scope.root, SupplementaryEvidence.from_files(group["jsons"], root=inbound, acquired_flow_families=_acquired_flow_families(evidence_scope)))
     comp = compose_assessment(scope, facts)
-    doc = build_assessment(comp, facts, client=key[0], terminal_label=_business_label(entities, scope.terminal_am))
+    doc = build_assessment(comp, facts, client=key[0], terminal_label=_business_label(entities, scope.root), evidence_scope=evidence_scope)
     validate_assessment(doc)
     meta["terminal_analytic_models_in_pool"] = len(universe.terminal_ams)
     return doc, meta
@@ -222,4 +237,4 @@ def run(*, inbound: str | Path, client: str, am: str | None, out: str | Path | N
 
 
 __all__ = ["AmbiguousClientDomainError", "AssessmentPoolLoadError", "ClientNotFoundError", "RunResult", "TerminalAmSelectionRequired",
-           "UnknownTerminalAmError", "assess", "collect_facts", "list_terminal_models", "pool_signature", "run", "select_pool", "write_outputs"]
+           "UnknownTerminalAmError", "UnknownRootObjectError", "assess", "collect_facts", "list_terminal_models", "pool_signature", "run", "select_pool", "write_outputs"]

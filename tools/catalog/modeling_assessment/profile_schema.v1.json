@@ -35,7 +35,8 @@
         "SYSTEM_ARTIFACT",
         "INTERNAL_STATIC_OBJECT",
         "NO_TERMINAL_ANALYTIC_MODEL",
-        "NO_OTHER_TERMINAL_ANALYTIC_MODEL"
+        "NO_OTHER_TERMINAL_ANALYTIC_MODEL",
+        "ROOT_NOT_ANALYTIC_MODEL"
       ],
       "type": "string"
     },
@@ -479,6 +480,19 @@
             }
           ]
         },
+        "root_object": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "root_type": {
+          "type": "string"
+        },
         "terminal_am": {
           "anyOf": [
             {
@@ -495,6 +509,8 @@
         "closure_names",
         "closure_size",
         "pool_signature",
+        "root_object",
+        "root_type",
         "terminal_am"
       ],
       "type": "object"

@@ -3,7 +3,7 @@
    de los módulos el panel se renderiza exactamente como antes. #}
 {% set dsa = dsa_tool(request, document.summary.stem) if document is defined and document else {"enabled": False} %}
 {% set assessment_trees = trees | selectattr("kind", "equalto", "assessment") | list %}
-<div id="diagnostic-tab-panel" class="diagnostic-tab-panel"{% if dsa.enabled %} x-data="{ tool: '{{ 'conceptual' if (run or selected_tree_id) else '' }}', autostart: {{ 'true' if (dsa.enabled and assessment_trees|length == 1 and not (run and run.tree.kind == 'assessment')) else 'false' }} }"{% endif %}>
+<div id="diagnostic-tab-panel" class="diagnostic-tab-panel"{% if dsa.enabled %} x-data="{ tool: '{{ 'conceptual' if (run or selected_tree_id) else (initial_tool | default('')) }}', autostart: {{ 'true' if (dsa.enabled and assessment_trees|length == 1 and not (run and run.tree.kind == 'assessment')) else 'false' }} }"{% endif %}>
   {% if dsa.enabled %}
   <div class="tree-picker diagnostic-picker">
     <label for="diagnostic-tool-selector">Herramienta</label>

@@ -186,7 +186,8 @@ def _class_of_cause(cause: Cause | None) -> EvidenceClass | None:
 
 
 class Ctx:
-    def __init__(self, facts: list[Fact], evaluation: SignalEvaluation) -> None:
+    def __init__(self, facts: list[Fact], evaluation: SignalEvaluation, root_type: str = "analytic-model") -> None:
+        self.root_type = root_type
         self.facts = facts
         self.idx = FactIndex(facts)
         self.evaluation = evaluation
@@ -218,6 +219,11 @@ class SurfaceSpec:
     na_when: Callable[[Ctx], str | None] | None = None      # razon de NOT_APPLICABLE de toda la superficie
     units: Callable[[Ctx], list[Unit] | None] | None = None  # RULE: unidades; None => poblacion no determinable
     signal_id: str | None = None
+
+
+def _not_am_root(ctx: Ctx) -> str | None:
+    """Evidencia/regla ESPECIFICA de Modelo Analitico: NOT_APPLICABLE (no reduce la cobertura) cuando la raiz evaluada es vista o tabla."""
+    return "ROOT_NOT_ANALYTIC_MODEL" if ctx.root_type != "analytic-model" else None
 
 
 def _no_remote(ctx: Ctx) -> str | None:
@@ -253,10 +259,11 @@ _FACT_SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec("ingestion.processing_context_inventory", _ING, F, XPL, "Processing-plane inventory", ("ingestion.processing_context_inventory",), per_unit=False),
     SurfaceSpec("ingestion.processing_reference", _ING, F, XPL, "Processing-plane flow references", ("ingestion.processing_reference",)),
     # ANALYTIC MODEL
-    SurfaceSpec("am.contract_inventory", _AM, F, REQ, "declared contract of the terminal analytic model", ("am.contract_inventory",), per_unit=False),
-    SurfaceSpec("am.association_targets", _AM, F, REQ, "association targets of the analytic model", ("am.association_targets",), per_unit=False),
-    SurfaceSpec("am.contract_delta", _AM, F, REQ, "what the analytic model adds/removes vs each direct lineage provider", ("am.contract_delta",)),
-    SurfaceSpec("am.numeric_attributes_not_declared_as_measures", _AM, F, REQ, "numeric attributes not declared as measures", ("am.numeric_attributes_not_declared_as_measures",), per_unit=False),
+    SurfaceSpec("am.contract_inventory", _AM, F, REQ, "declared contract of the terminal analytic model", ("am.contract_inventory",), per_unit=False, na_when=_not_am_root),
+    SurfaceSpec("am.association_targets", _AM, F, REQ, "association targets of the analytic model", ("am.association_targets",), per_unit=False, na_when=_not_am_root),
+    SurfaceSpec("am.contract_delta", _AM, F, REQ, "what the analytic model adds/removes vs each direct lineage provider", ("am.contract_delta",), na_when=_not_am_root),
+    SurfaceSpec("am.numeric_attributes_not_declared_as_measures", _AM, F, REQ, "numeric attributes not declared as measures", ("am.numeric_attributes_not_declared_as_measures",), per_unit=False,
+                na_when=_not_am_root),
     SurfaceSpec("am.closure_composition", _AM, F, VIEW, "descriptive composition of the semantic closure (strict lineage vs association): graph structure, not a required evidence surface",
                 ("am.closure_composition",), per_unit=False),
     # PROPAGATION
@@ -271,7 +278,8 @@ _FACT_SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec("harmonization.composition_artifacts", _HAR, F, REQ, "composition artifacts (fan-in >= 2)", ("harmonization.composition_artifacts",), per_unit=False),
     SurfaceSpec("harmonization.reuse_context", _HAR, F, CTX, "definitions of the two reuse scopes: context to read the reuse facts", ("harmonization.reuse_context",), per_unit=False),
     SurfaceSpec("harmonization.local_chain_reuse", _HAR, F, REQ, "LOCAL_CHAIN_REUSE per dimension/association target", ("harmonization.local_chain_reuse",)),
-    SurfaceSpec("harmonization.cross_am_reuse", _HAR, F, REQ, "CROSS_AM_REUSE per artifact (NOT_APPLICABLE when no peer analytic model exists)", ("harmonization.cross_am_reuse",)),
+    SurfaceSpec("harmonization.cross_am_reuse", _HAR, F, REQ, "CROSS_AM_REUSE per artifact (NOT_APPLICABLE when no peer analytic model exists or the root is not an analytic model)",
+                ("harmonization.cross_am_reuse",), na_when=_not_am_root),
     # NAMING
     SurfaceSpec("naming.artifact_name_contract", _NAM, F, REQ, "section 28 compliance and provenance per artifact", ("naming.artifact_name_contract",)),
     SurfaceSpec("naming.field_name_contract", _NAM, F, REQ, "labels per field", ("naming.field_name_contract",)),
@@ -445,7 +453,7 @@ _RULE_SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec("rule.flat_central_assembly_review", _HAR, R, REQ, "FLAT_CENTRAL_ASSEMBLY_REVIEW over the composition artifacts of the closure",
                 units=_units_flat_central, signal_id="FLAT_CENTRAL_ASSEMBLY_REVIEW"),
     SurfaceSpec("rule.am_semantic_underuse_review", _AM, R, REQ, "AM_SEMANTIC_UNDERUSE_REVIEW over the terminal analytic model",
-                units=_units_am_underuse, signal_id="AM_SEMANTIC_UNDERUSE_REVIEW"),
+                units=_units_am_underuse, signal_id="AM_SEMANTIC_UNDERUSE_REVIEW", na_when=_not_am_root),
     SurfaceSpec("rule.field_vocabulary_mix", _NAM, R, REQ, "FIELD_VOCABULARY_MIX needs exposed fields and the shared-label evidence",
                 units=_units_vocab_mix, signal_id="FIELD_VOCABULARY_MIX"),
     SurfaceSpec("rule.opaque_field_name", _NAM, R, REQ, "OPAQUE_FIELD_NAME needs exposed fields with forms and labels",
@@ -471,11 +479,11 @@ def _gap_classes(units: list[Unit]) -> tuple[EvidenceClass, ...]:
 
 def _surface_units(spec: SurfaceSpec, ctx: Ctx) -> tuple[list[Unit], str | None, bool]:
     """(unidades, razon NA de toda la superficie, poblacion_determinable)."""
+    if spec.na_when is not None:                              # N/A de TODA la superficie (hechos o regla)
+        reason = spec.na_when(ctx)
+        if reason:
+            return [], reason, True
     if spec.kind is F:
-        if spec.na_when is not None:
-            reason = spec.na_when(ctx)
-            if reason:
-                return [], reason, True
         fs = [f for fid in spec.fact_ids for f in ctx.idx.all(fid)]
         if not ctx.area_present[spec.area]:
             return [], None, False
@@ -613,7 +621,7 @@ def compose_assessment(scope: ProfileScope, facts: Iterable[Fact], evaluation: S
     """Compone assessability + cobertura + confianza. Pura y determinista; recibe SOLO hechos, senales y scope."""
     fl = sorted(facts, key=lambda f: (f.area.value, f.fact_id, f.subject))
     ev = evaluation if evaluation is not None else evaluate_signals(fl)
-    ctx = Ctx(fl, ev)
+    ctx = Ctx(fl, ev, scope.root_type)
     applicable_scope = scope.applicability.state is Applicability.APPLICABLE
     surfaces = [assess_surface(spec, ctx) for spec in SURFACE_REGISTRY] if applicable_scope else []
 

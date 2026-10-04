@@ -106,8 +106,32 @@
     }
   }
 
+  // Eliminar un assessment reciente (form[data-dsa-delete], confirmado por el diálogo compartido del Hub: la primera vez el submit llega con
+  // defaultPrevented y se ignora; tras confirmar se reenvía y entra acá). Quita el ítem sin recargar; sin ítems, desaparece la sección.
+  async function remove(form) {
+    const item = form.closest("[data-dsa-recent-item]");
+    const section = form.closest("[data-dsa-recent]");
+    try {
+      const response = await fetch(form.getAttribute("action"), {
+        method: "POST", body: new URLSearchParams(new FormData(form)), credentials: "same-origin", cache: "no-store",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+      });
+      if (!response.ok) return;
+    } catch (error) {
+      return;
+    }
+    if (item) item.remove();
+    if (section && !section.querySelector("[data-dsa-recent-item]")) section.remove();
+  }
+
   document.addEventListener("submit", (event) => {
     const form = event.target;
+    if (form instanceof HTMLFormElement && form.hasAttribute("data-dsa-delete")) {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      remove(form);
+      return;
+    }
     if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-dsa-form")) return;
     event.preventDefault();                                   // jamás navegación de formulario clásica
     const submit = form.querySelector("[data-dsa-submit]");

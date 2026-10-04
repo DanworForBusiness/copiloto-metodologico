@@ -1,12 +1,16 @@
-function copilotLayout(activeGroup = "core", readonly = false, initialTab = "") {
+// Grupos de herramientas del panel derecho: decisión (`panelOpen`), diagnóstico (`diagnosticOpen`) y gestión (`gestionOpen`). Un `?tool=` válido
+// (p. ej. link de Novedades) es AUTORITATIVO: abre SOLO el grupo de esa herramienta y colapsa los demás (no se apila sobre el default).
+const TOOL_GROUP = { assessment: "diagnostic" };
+function copilotLayout(activeGroup = "core", readonly = false, initialTab = "", initialTool = "") {
+  const toolGroup = TOOL_GROUP[initialTool] || "";
   // Retrocompat: antes recibía un booleano isAppendix.
   if (activeGroup === true) activeGroup = "appendix";
   else if (activeGroup === false) activeGroup = "core";
   return {
     navOpen: false,
-    panelOpen: true,
-    diagnosticOpen: false,
-    gestionOpen: false,
+    panelOpen: toolGroup ? toolGroup === "decision" : true,
+    diagnosticOpen: toolGroup === "diagnostic",
+    gestionOpen: toolGroup === "gestion",
     // En perfil de solo lectura la pestaña Sección (análisis IA) se oculta; arrancamos
     // en Asistente (router determinista que sirve contenido curado; la salida LLM se
     // reemplaza por un aviso, ver assistant_chat).

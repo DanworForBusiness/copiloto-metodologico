@@ -4,7 +4,7 @@
 {% block title %}{{ document.summary.title }} · Copiloto Danwor{% endblock %}
 {% block body %}
 <div
-  x-data="copilotLayout('{{ active_group }}', {{ 'true' if readonly else 'false' }}, '{{ initial_tab }}')"
+  x-data="copilotLayout('{{ active_group }}', {{ 'true' if readonly else 'false' }}, '{{ initial_tab }}', '{{ initial_tool }}')"
   x-init="init()"
   @section-analysis-complete.window="toolTab='assistant'; requestAnimationFrame(() => { const chat = document.getElementById('assistant-conversation'); if (chat) chat.scrollTop = chat.scrollHeight })"
   class="app-shell{% if not show_panel %} no-copilot{% endif %}"

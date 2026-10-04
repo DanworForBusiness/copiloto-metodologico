@@ -172,4 +172,7 @@ def test_el_ultimo_anuncio_no_cambio(monkeypatch):
     """La cookie `dw-whatsnew-seen` guarda el ref del último visto. Si el
     backfill hubiera quedado arriba, el banner se re-dispararía para todos —
     un cambio de PROPIEDAD no debería reabrirle el cartel a nadie."""
-    assert wn.latest_ref() == "data-products-bdc"
+    # 2026-10-03: se publicó EDITORIALMENTE "Assessment desde SAP Datasphere" (a propósito, dispara el banner). Lo que este test protege sigue
+    # valiendo: un cambio de PROPIEDAD no reordena ni reabre nada; el anuncio anterior queda inmediatamente debajo del nuevo.
+    assert wn.latest_ref() == "datasphere-assessment"
+    assert [e["ref"] for e in wn.entries()[:2]] == ["datasphere-assessment", "data-products-bdc"]

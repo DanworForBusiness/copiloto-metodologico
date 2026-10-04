@@ -48,6 +48,7 @@ PUBLIC_REASONS: dict[str, str] = {
     "NAME_DOES_NOT_ENCODE_LAYER": "El nombre del artefacto no codifica una capa, por lo que no puede evaluarse la divergencia entre nombre y posición.",
     "EDGE_OUTSIDE_RULE_POPULATION": "Esta arista no pertenece a la población de la regla: solo se evalúan transformaciones internas entre artefactos modelados.",
     "NO_PEER_ANALYTIC_MODEL": "No hay otro modelo analítico terminal en el universo con el cual comparar el reúso.",
+    "ROOT_NOT_ANALYTIC_MODEL": "Esta evidencia es específica de un Modelo Analítico y el objeto raíz evaluado es de otro tipo.",
     "INTERNAL_STATIC_OBJECT": "Objeto interno o estático conocido que no es un contrato de extracción externo.",
     # NOT_ASSESSED / PARTIALLY_ASSESSED (por causa)
     "REQUIRED_EVIDENCE_UNAVAILABLE": "La evidencia requerida para evaluar esto no está disponible.",
@@ -87,6 +88,7 @@ _NA_CODE: dict[str, str] = {
     "EDGE_OUTSIDE_RULE_POPULATION": "EDGE_OUTSIDE_RULE_POPULATION",
     "DECLARED_DIMENSION": "DECLARED_DIMENSION_ARTIFACT",
     "NO_OTHER_TERMINAL_ANALYTIC_MODEL": "NO_PEER_ANALYTIC_MODEL",
+    "ROOT_NOT_ANALYTIC_MODEL": "ROOT_NOT_ANALYTIC_MODEL",
     "INTERNAL_STATIC_OBJECT": "INTERNAL_STATIC_OBJECT",
 }
 
@@ -570,7 +572,8 @@ def _highlights(idx: FactIndex, comp: AssessmentComposition, area: M.Area) -> li
                 row["breakdown"] = breakdown
             out.append(row)
 
-    am_name = comp.scope.terminal_am
+    am_name = comp.scope.root                                  # identidad generica de la raiz (AM: su nombre; vista/tabla: root_object)
+    non_am_root = comp.scope.root_type != M.ROOT_TYPE_ANALYTIC_MODEL
     if area is M.Area.ANALYTIC_MODEL:
         f = idx.usable_get("am.contract_inventory", am_name or "")
         if f is not None:
@@ -588,8 +591,10 @@ def _highlights(idx: FactIndex, comp: AssessmentComposition, area: M.Area) -> li
         cc = idx.usable_get("am.closure_composition", am_name or "")
         if cc is not None:                                                                    # contexto de arquitectura: ni bueno ni malo
             v = cc.value
-            add("semantic_closure", "Cierre semántico del modelo analítico (artefactos)", v["semantic_closure_size"],
-                [{"name": "alcanzables por linaje estricto desde el modelo terminal (incluido el propio modelo)", "count": v["strict_lineage_size"]},
+            add("semantic_closure", "Cierre semántico del objeto raíz (artefactos)" if non_am_root else "Cierre semántico del modelo analítico (artefactos)",
+                v["semantic_closure_size"],
+                [{"name": ("alcanzables por linaje estricto desde el objeto raíz (incluido el propio objeto)" if non_am_root
+                           else "alcanzables por linaje estricto desde el modelo terminal (incluido el propio modelo)"), "count": v["strict_lineage_size"]},
                  {"name": "mediados por asociación (fuera del linaje estricto)", "count": v["association_mediated_size"]}])
         nn = idx.usable_get("am.numeric_attributes_not_declared_as_measures", am_name or "")
         if nn is not None:                                                                    # evidencia descriptiva; no es defecto ni revision
@@ -641,9 +646,11 @@ def _highlights(idx: FactIndex, comp: AssessmentComposition, area: M.Area) -> li
             add("fields_with_label", "Ocurrencias de campo con etiqueta de negocio", v.value["label_present"])
             add("fields_with_label_equal_to_name", "Ocurrencias de campo cuya etiqueta es igual al nombre técnico", v.value["label_equals_field"])
             am_block = v.value["terminal_am"]
-            add("terminal_model_name_anchors", "Campos del modelo terminal según su ancla de nombre observable",
+            add("terminal_model_name_anchors", ("Campos del objeto raíz según su ancla de nombre observable" if non_am_root
+                                                else "Campos del modelo terminal según su ancla de nombre observable"),
                 _kv([r for r in am_block["name_anchor_counts"] if r["count"]], "anchor"))
-            add("terminal_model_remote_source_anchor", "Campos del modelo terminal con ancla de origen remoto observada", am_block["remote_source_anchor_counts"])
+            add("terminal_model_remote_source_anchor", ("Campos del objeto raíz con ancla de origen remoto observada" if non_am_root
+                                                        else "Campos del modelo terminal con ancla de origen remoto observada"), am_block["remote_source_anchor_counts"])
         same = idx.usable_get("naming.same_normalized_label_multiple_technical_names", "closure")
         if same is not None:
             add("shared_label_groups", "Etiquetas de negocio compartidas por varios nombres técnicos", same.value["group_count"])
@@ -709,7 +716,16 @@ def _limitations_json(comp: AssessmentComposition) -> list[dict]:
     return out
 
 
-def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, client: str, terminal_label: str | None = None) -> dict:
+def _public_evidence_scope(scope: dict | None) -> dict | None:
+    """Alcance de evidencia de la EXTRACCION (pedido vs efectivo, tal como los informa el extractor); None si se desconoce (Catalogo/pools
+    historicos). Es metadato de procedencia: sin el no se distingue "adquirido y ausente" de "no adquirido"."""
+    if not scope:
+        return None
+    return {"requested_features": sorted(scope.get("requested_features") or ()), "effective_features": sorted(scope.get("effective_features") or ())}
+
+
+def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, client: str, terminal_label: str | None = None,
+                     evidence_scope: dict | None = None) -> dict:
     """Documento publico del assessment, derivado SOLO de la composicion de M6 (+ el indice de hechos para los highlights).
     ``terminal_label``: nombre de negocio del modelo analitico terminal TAL COMO lo declara la evidencia (@EndUserText.label ya resuelto);
     es identidad descriptiva (None si la evidencia no lo declara): ninguna regla, hecho ni medida lo consume."""
@@ -724,10 +740,15 @@ def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, clie
         "versions": {"signals": SIGNALS_RULESET, "assessability": ASSESSABILITY_RULESET, "confidence": CONFIDENCE_RULESET, "reason_codes": REASON_REGISTRY_VERSION,
                      "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION, "presentation_order": PRESENTATION_ORDER_VERSION},
         "scope": {"client": client, "terminal_analytic_model": scope.terminal_am,
-                  "terminal_analytic_model_label": terminal_label if applicable else None, "applicability": scope.applicability.state.value,
+                  # Identidad GENERICA de la raiz evaluada (aditivo): para un AM coexiste con `terminal_analytic_model`; para vista/tabla ese campo es
+                  # null (no se fabrica un AM) y la identidad es `root_object` + `root_type`.
+                  "root_object": scope.root if applicable else None, "root_type": scope.root_type if applicable else None,
+                  "root_label": terminal_label if applicable else None,
+                  "terminal_analytic_model_label": terminal_label if (applicable and scope.terminal_am) else None, "applicability": scope.applicability.state.value,
                   "reason": None if applicable else public_reason(Assessability.NOT_APPLICABLE, None,
                                                                     scope.applicability.reason.value if scope.applicability.reason else None),
-                  "closure_size": scope.closure_size, "closure_artifacts": list(scope.closure_names), "pool_signature": scope.pool_signature},
+                  "closure_size": scope.closure_size, "closure_artifacts": list(scope.closure_names), "pool_signature": scope.pool_signature,
+                  "evidence_scope": _public_evidence_scope(evidence_scope)},
     }
     doc["summary"] = {
         "coverage": {"meaning": COVERAGE_MEANING,
@@ -760,8 +781,9 @@ def build_indeterminate_assessment(*, client: str, requested_model: str | None, 
             "versions": {"signals": SIGNALS_RULESET, "assessability": ASSESSABILITY_RULESET, "confidence": CONFIDENCE_RULESET, "reason_codes": REASON_REGISTRY_VERSION,
                          "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION, "presentation_order": PRESENTATION_ORDER_VERSION},
             "scope": {"client": client, "terminal_analytic_model": requested_model, "terminal_analytic_model_label": None,
+                      "root_object": requested_model, "root_type": None, "root_label": None,
                       "applicability": "INDETERMINATE", "reason": r, "closure_size": 0,
-                      "closure_artifacts": [], "pool_signature": pool_signature},
+                      "closure_artifacts": [], "pool_signature": pool_signature, "evidence_scope": None},
             "summary": {"coverage": None, "confidence": None, "context_required": None, "macro_dimensions": [], "error": message},
             "areas": [], "observations": [], "review_required": [], "descriptive_signals": [], "rule_results": [], "evidence_limitations": [],
             "surfaces": [], "fact_index": [], "not_applicable": []}

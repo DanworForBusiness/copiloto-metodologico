@@ -188,10 +188,14 @@ def _report_title(entry: Any, am: str | None) -> tuple[str | None, str | None]:
     return (stripped or desc), name
 
 
+ROOT_TYPE_TEXT = {"analytic-model": "Modelo analítico", "view": "Vista", "local-table": "Tabla local", "remote-table": "Tabla remota"}
+
+
 def _canonical_label(doc: dict | None) -> str | None:
     """Nombre de negocio del AM terminal en el perfil canónico (``scope.terminal_analytic_model_label``); None en perfiles que no lo traen
     (p. ej. cacheados antes de este campo). Mismo tratamiento de prefijo genérico que el título del Catálogo."""
-    raw = str(((doc or {}).get("scope") or {}).get("terminal_analytic_model_label") or "").strip()
+    sc = (doc or {}).get("scope") or {}
+    raw = str(sc.get("root_label") or sc.get("terminal_analytic_model_label") or "").strip()    # root_label (genérico) con respaldo en el campo de AM
     return (_TITLE_PREFIX.sub("", raw).strip() or raw) or None
 
 
@@ -346,7 +350,10 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     lim = conf["main_limitation"]
     view.update({
         "execution_text": P.execution_state_text(doc["assessment_state"]),
-        "scope_text": f"{_plural(scope['closure_size'], 'artefacto')} en el cierre semántico del modelo analítico terminal",
+        "scope_text": (f"{_plural(scope['closure_size'], 'artefacto')} en el cierre semántico del modelo analítico terminal"
+                       if scope.get("root_type") in (None, "analytic-model") else
+                       f"{ROOT_TYPE_TEXT.get(scope['root_type'], 'Objeto')} · {_plural(scope['closure_size'], 'artefacto')} en el cierre semántico del objeto raíz"),
+        "root_type": scope.get("root_type"),
         "schema_version": doc["schema_version"],
         "versions": [("Señales", doc["versions"]["signals"]), ("Evaluabilidad", doc["versions"]["assessability"]),
                      ("Confianza", doc["versions"]["confidence"])],
@@ -380,6 +387,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
                          "reason_code": s["reason"]["reason_code"] if s["reason"] else "",
                          "counts": s["counts_toward_coverage"],
                          "units": [P.unit_label(u) for u in s["affected_units"]]} for s in doc["evidence_limitations"]],
+        "evidence_not_acquired": P.evidence_not_acquired(scope.get("evidence_scope")),     # solo alcance CONOCIDO y limitado; del documento, no del formulario
         "absence_not_established": [r["title"] for r in doc["rule_results"] if r["result"] == "ABSENCE_NOT_ESTABLISHED"],
         "confidence_components": [{"label": c["label"], "value": c["value"], "level": P.confidence_level_text(c["level"])} for c in conf["components"]],
         "not_applicable": [{"title": s["title"], "surface_id": s["surface_id"], "area": P.area_title(s["area"]),

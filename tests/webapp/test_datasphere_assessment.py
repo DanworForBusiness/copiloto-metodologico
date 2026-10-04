@@ -85,7 +85,7 @@ def fake_export(monkeypatch, tmp_path):
     """Sustituye SOLO la extracción real (CLI de Node): copia evidencia sintética REAL al directorio de salida que pide el extractor.
     `run_export`, el motor de assessment y el almacén ad-hoc son los reales."""
     from core import remote_store
-    calls = {"exports": 0, "cli": [], "extra_lines": [], "requests": [], "out_dirs": []}
+    calls = {"exports": 0, "cli": [], "extra_lines": [], "requests": [], "out_dirs": [], "effective": []}
     cache = tmp_path / "assessment_cache"
     canonical = tmp_path / "canonical_catalog"
     monkeypatch.setattr(config, "ASSESSMENT_CACHE_DIR", cache)
@@ -106,7 +106,8 @@ def fake_export(monkeypatch, tmp_path):
         for line in calls["extra_lines"]:
             dsp._say(line)
         self.root_type = calls.get("root_type", "analytic-model")                           # lo deriva el extractor (no la web)
-        self.effective_features = set(self.requested_features)
+        self.normalize_scope()                                                             # dependencias REALES del extractor (requested -> effective)
+        calls["effective"].append(set(self.effective_features))
         self.validate_root_constraint()                                                    # compuerta REAL del extractor (antes de la evidencia profunda)
         shutil.copytree(evidence / "Acme", self.output_dir, dirs_exist_ok=True)
         self.nodes = {("analytic-models", "4AM_ACME"): dsp.Node("analytic-models", "4AM_ACME"), ("views", "3VF_P"): dsp.Node("views", "3VF_P")}
@@ -191,7 +192,8 @@ def test_form_fields_labels_placeholders_and_margins(owner):
                      ("space", "text"), ("datasphere_root_object", "text"), ("client", "text")]
     labels = re.findall(r'<label class="tool-label" for="dsa-([a-z_]+)">([^<]+)</label>', form)
     assert [t for _n, t in labels] == ["URL del tenant", "Token URL (OAuth)", "Client ID", "Client Secret", "Space ID", "Artefacto / Objeto", "Nombre de Cliente"]
-    assert "admin-help" not in form and "style=" not in form
+    outside_scope = re.sub(r"<details class=\"admin-tool catalog-picker--secondary\" data-dsa-scope>.*?</details>", "", form, flags=re.S)
+    assert "admin-help" not in outside_scope and "style=" not in form      # sin helpers en el formulario salvo la explicación DENTRO del alcance de evidencia
     assert form.count('class="tree-picker catalog-picker--secondary"') == 2
 
 
@@ -359,7 +361,7 @@ def test_extraction_success_automatically_runs_the_same_engine_for_exactly_the_r
     from tools.catalog.modeling_assessment import shadow as ma_shadow
     seen = []
     real = ma_shadow.assess
-    monkeypatch.setattr(ma_shadow, "assess", lambda inbound, client, am, domain=None: (seen.append((Path(inbound), client, am, domain)), real(inbound, client, am, domain))[1])
+    monkeypatch.setattr(ma_shadow, "assess", lambda inbound, client, am, domain=None, **kw: (seen.append((Path(inbound), client, am, domain)), real(inbound, client, am, domain, **kw))[1])
     r = _post(owner)
     d = _done(r)
     assert d["state"] == "SUCCESS" and d["result_url"] and fake_export["exports"] == 1
@@ -429,12 +431,12 @@ def test_assessment_failure_is_not_labeled_as_extraction_and_keeps_the_log(owner
     assert d["result_url"] is None and not list((fake_export["cache"] / "adhoc" / "results").glob("*.json"))
 
 
-def test_unknown_or_non_terminal_am_reports_an_assessment_stage_failure_with_future_safe_copy(owner, fake_export):
+def test_object_missing_from_the_evidence_is_an_assessment_stage_failure_with_its_own_code(owner, fake_export):
     r = _post(owner, dict(VALID, datasphere_root_object="NO_EXISTE_AM"))
     d = _done(r)
-    assert d["state"] == "FAILED" and d["error_code"] == "AM_NOT_TERMINAL" and d["title"] == "No se pudo generar el assessment"
-    assert d["message"] == ("La evidencia se adquirió correctamente, pero el artefacto indicado no puede evaluarse con el alcance actual. "
-                            "Revisá el objeto seleccionado.")
+    assert d["state"] == "FAILED" and d["error_code"] == "ROOT_NOT_IN_EVIDENCE" and d["title"] == "No se pudo generar el assessment"
+    assert d["message"] == "La evidencia se adquirió correctamente, pero el objeto indicado no figura en ella. Revisá el objeto seleccionado."
+    assert "AM_NOT_TERMINAL" not in d["message"] and d["error_code"] != "AM_NOT_TERMINAL"           # un objeto que no es AM ya NO es un "AM no terminal"
 
 
 def test_no_visible_failure_copy_hardcodes_analytic_model_or_terminal_language():
@@ -730,69 +732,54 @@ def test_visible_error_has_no_technical_identifiers_which_live_only_in_technical
     assert any(raised.split(" - ")[0] in line for line in _lines(r))                      # el identificador sí está en el detalle técnico (stdout)
 
 
-def test_assessment_applicability_visible_copy_has_no_engine_code_but_code_is_in_detail_channel(owner, fake_export):
+def test_assessment_failure_visible_copy_has_no_engine_code_but_code_is_in_detail_channel(owner, fake_export):
     d = _done(_post(owner, dict(VALID, datasphere_root_object="NO_EXISTE_AM")))
-    assert d["error_code"] == "AM_NOT_TERMINAL" and "AM_NOT_TERMINAL" not in d["title"] + d["message"]
+    assert d["error_code"] == "ROOT_NOT_IN_EVIDENCE" and "ROOT_NOT_IN_EVIDENCE" not in d["title"] + d["message"]
     assert "done.error_code" in (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")   # JS lo agrega a "Detalle técnico"
 
 
-# ── compuerta temprana por tipo de raíz (capacidad actual del assessment) ──────
+# ── raíz genérica: el assessment ya NO restringe el tipo de objeto raíz ──────
 def _form_html_for(c):
     html = c.get(f"/modules/{STEM}?pack=datasphere_core").text
     start = html.index('<form id="dsa-form"')
     return html[start:html.index("</form>", start)]
 
 
-def test_server_side_request_declares_allowed_root_types_analytic_model_only(owner, fake_export):
+def test_server_side_request_no_longer_restricts_root_types(owner, fake_export):
     assert _done(_post(owner))["state"] == "SUCCESS"
     req = fake_export["requests"][0]
-    assert set(req.allowed_root_types) == {"analytic-model"} and req.mode == "assessment" and req.root_object == "4AM_ACME"
+    assert req.allowed_root_types is None and req.mode == "assessment" and req.root_object == "4AM_ACME"      # sin compuerta de tipo
 
 
-def test_browser_cannot_override_the_root_type_policy(owner, fake_export):
+def test_browser_cannot_inject_root_policy_or_publication_controls(owner, fake_export):
     r = _post(owner, dict(VALID, allowed_root_types="view,local-table,remote-table,analytic-model", root_type="view", mode="publish",
                           analytic_model="OTRO", features="views", generate_catalog="1", datasphere_allowed_root_types="view"))
     assert _done(r)["state"] == "SUCCESS"
     req = fake_export["requests"][0]
-    assert set(req.allowed_root_types) == {"analytic-model"} and req.root_type is None and req.mode == "assessment"
+    assert req.allowed_root_types is None and req.root_type is None and req.mode == "assessment"                 # el navegador no inyecta tipo ni restricciones
     assert not req.analytic_model and not req.features_requested and req.generate_catalog is False
     assert not re.search(r"allowed_root_types|root_type|name=.mode.|name=.features", _form_html_for(owner))
 
 
-@pytest.mark.parametrize("root_type,label", [("view", "una Vista"), ("local-table", "una Tabla local"), ("remote-table", "una Tabla remota")])
-def test_root_type_constraint_is_a_functional_applicability_message_without_acquiring_evidence(owner, fake_export, monkeypatch, root_type, label):
-    from tools.catalog.modeling_assessment import shadow as ma_shadow
+@pytest.mark.parametrize("root,root_type", [("3VF_P", "view"), ("1VR_RAW", "view"), ("RAW_T", "remote-table")])
+def test_non_am_roots_reach_a_valid_assessment_and_report_instead_of_a_root_gate_failure(owner, fake_export, root, root_type):
     fake_export["root_type"] = root_type
-    engine_calls = []
-    monkeypatch.setattr(asvc, "_engine_assess", lambda *a, **k: engine_calls.append(1))
-    monkeypatch.setattr(ma_shadow, "assess", lambda *a, **k: engine_calls.append(1))
-    r = _post(owner, dict(VALID, datasphere_root_object="3VF_PUR_PagoFacturaCompra"))
+    r = _post(owner, dict(VALID, datasphere_root_object=root))
     d = _done(r)
-    visible = d["title"] + " " + d["message"]
-    assert d["state"] == "FAILED" and d["error_code"] == "ROOT_TYPE_CONSTRAINT_FAILED" and d["title"] == "No se pudo generar el assessment"
-    assert d["message"] == ("El Assessment de tu modelo actualmente evalúa Modelos Analíticos terminales. "
-                            f"El objeto seleccionado fue identificado como {label}.")
-    assert "ROOT_TYPE_CONSTRAINT_FAILED" not in visible and "evidencia" not in visible.lower() and d["result_url"] is None
-    assert any("ROOT_TYPE_CONSTRAINT_FAILED" in line for line in _lines(r))                 # el identificador SÍ está en el detalle técnico
-    assert "done.error_code" in (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")
-    assert _phases(r) == []                                                                # ni "Evidencia adquirida" ni "Generando assessment..."
-    assert engine_calls == []                                                              # el motor de assessment no se invoca
-    assert not list((fake_export["cache"] / "adhoc" / "results").glob("*.json"))
-    assert list((fake_export["cache"] / "adhoc" / "work").iterdir()) == []
-
-
-def test_constraint_gate_stops_before_any_evidence_is_written(owner, fake_export):
-    fake_export["root_type"] = "view"
-    _post(owner)
-    pool = fake_export["out_dirs"][0]
-    assert not pool.exists() or not any(pool.rglob("*.json"))
+    assert d["state"] == "SUCCESS" and d["result_url"], d
+    assert d["error_code"] is None and "ROOT_TYPE_CONSTRAINT_FAILED" not in r.text and "AM_NOT_TERMINAL" not in r.text
+    rec = svc.load_result(_rid(r))
+    scope = rec["profile"]["scope"]
+    assert scope["root_object"] == root and scope["root_type"] == root_type and scope["terminal_analytic_model"] is None      # sin AM fabricado
+    page = _report_html(owner, _rid(r))
+    assert page.count(root) >= 1 and "Modelo analítico terminal:" not in page
 
 
 def test_analytic_model_path_is_unchanged_and_other_errors_keep_their_presentation(owner, fake_export, monkeypatch):
     d = _done(_post(owner))
     assert d["state"] == "SUCCESS" and d["result_url"]
     d2 = _done(_post(owner, dict(VALID, datasphere_root_object="NO_EXISTE_AM")))
-    assert d2["error_code"] == "AM_NOT_TERMINAL" and d2["title"] == "No se pudo generar el assessment" and "evidencia se adquirió" in d2["message"]
+    assert d2["error_code"] == "ROOT_NOT_IN_EVIDENCE" and d2["title"] == "No se pudo generar el assessment" and "evidencia se adquirió" in d2["message"]
     monkeypatch.setattr(dsp.DatasphereCli, "authorization_preflight",
                         lambda self, space: (_ for _ in ()).throw(dsp.DatasphereCliError("ROOT_OBJECT_NOT_FOUND - No se encontró 'X' en el Space 'S'.")))
     d3 = _done(_post(owner))
@@ -968,3 +955,435 @@ def test_adhoc_assessment_without_a_business_label_keeps_the_technical_title_onl
     assert "Descripción" not in owner.get(_results_url(rid, "/export.md")).text
     head = page.split("<main")[1].split("Indicadores")[0]
     assert "4AM_ACME" in head and "None" not in head and "—" not in head
+
+
+# ── alcance de evidencia (familias opcionales) ─────────────────────────────────
+CANON_ALL = ["analytic-models", "views", "tables", "replication-flows", "data-flows", "transformation-flows", "task-chains"]
+
+
+def _scope_form(owner):
+    return re.search(r'<details class="admin-tool catalog-picker--secondary" data-dsa-scope>.*?</details>', _form_html_for(owner), re.S).group(0)
+
+
+def test_scope_disclosure_is_collapsed_by_default_directly_below_the_object_field_with_default_all_selected(owner):
+    form = _form_html_for(owner)
+    block = _scope_form(owner)
+    assert " open" not in block.split(">", 1)[0] and ">Alcance de evidencia</summary>" in block
+    assert form.index('id="dsa-root_object"') < form.index("data-dsa-scope") < form.index('id="dsa-client"')      # justo debajo de Artefacto / Objeto
+    boxes = re.findall(r'<input type="checkbox" name="datasphere_features" value="([^"]+)"( checked)?>', block)
+    assert [(v, bool(c)) for v, c in boxes] == [("replication-flows", True), ("data-flows", True), ("transformation-flows", True), ("task-chains", True)]
+    assert re.findall(r"<span>([^<]+)</span></label>", block) == ["Replication Flows", "Data Flows", "Transformation Flows", "Task Chains"]
+    assert "Seleccioná qué tipos de evidencia incluir en la extracción." in block and "limita el alcance de evidencia" in block
+    assert 'name="datasphere_features_submitted" value="1"' in block
+    assert "dashboard-checkbox-group" in block and "dashboard-checkbox-option" in block and "style=" not in block      # primitivos del Hub, sin CSS propio
+    assert not re.search(r"analytic-models|name=.views.|value=.tables.|datasphere_mode|root_type|allowed_root_types|name=.mode.", form)   # estructurales NO elegibles
+
+
+def test_not_submitted_features_keep_todays_default_all_extraction(owner, fake_export):
+    _post(owner)                                                                         # sin campos de alcance (cliente viejo / POST directo)
+    req = fake_export["requests"][0]
+    assert req.features_requested is None                                                # default del extractor = todas
+    assert fake_export["effective"][0] == set(CANON_ALL)
+
+
+def test_all_selected_is_equivalent_to_the_default_extraction(owner, fake_export):
+    _post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows", "data-flows", "transformation-flows", "task-chains"]})
+    assert set(fake_export["requests"][0].features_requested) == set(CANON_ALL) and fake_export["effective"][0] == set(CANON_ALL)
+
+
+def test_selected_features_reach_the_public_facade_as_features_requested(owner, fake_export):
+    r = _post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows"]})
+    assert _done(r)["state"] == "SUCCESS"
+    req = fake_export["requests"][0]
+    assert req.features_requested == ["analytic-models", "views", "tables", "replication-flows"]      # estructurales siempre + lo elegido
+    assert not hasattr(req, "requested_features")                                        # la web habla con la fachada pública, no con LineageExporter
+    rec = svc.load_result(_rid(r))
+    es = rec["profile"]["scope"]["evidence_scope"]
+    assert es == {"requested_features": sorted(req.features_requested), "effective_features": sorted(fake_export["effective"][0])}
+    assert "Evidencia no adquirida" in owner.get(_results_url(_rid(r), "/export.md")).text
+
+
+def test_unchecking_everything_requests_only_the_structural_families(owner, fake_export):
+    assert _done(_post(owner, {**VALID, "datasphere_features_submitted": "1"}))["state"] == "SUCCESS"
+    assert fake_export["requests"][0].features_requested == ["analytic-models", "views", "tables"]
+
+
+def test_manipulated_features_are_whitelisted_and_server_policy_is_untouched(owner, fake_export):
+    r = _post(owner, {**VALID, "datasphere_features_submitted": "1",
+                      "datasphere_features": ["data-flows", "evil-family", "views", "tables", "../etc", "analytic-models,task-chains"],
+                      "mode": "publish", "root_type": "view", "allowed_root_types": "view", "generate_catalog": "1", "mirror_up": "1"})
+    assert _done(r)["state"] == "SUCCESS"
+    req = fake_export["requests"][0]
+    assert req.features_requested == ["analytic-models", "views", "tables", "data-flows"]          # solo la lista blanca canónica
+    assert req.allowed_root_types is None and req.mode == "assessment"
+    assert req.generate_catalog is False and req.mirror_up is False and req.root_type is None
+
+
+def test_task_chains_without_any_flow_family_gets_the_extractors_backend_validation(owner, fake_export):
+    r = _post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["task-chains"]})
+    d = _done(r)
+    assert d["state"] == "FAILED" and d["error_code"] == "INVALID_FEATURE_SCOPE" and d["title"] == "No se pudo completar la extracción"
+    assert d["message"].startswith("Task Chains requiere al menos una familia de flows") and "INVALID_FEATURE_SCOPE" not in d["message"]
+    assert any("INVALID_FEATURE_SCOPE" in line for line in _lines(r)) and d["result_url"] is None
+
+
+def test_scope_selection_survives_report_and_back_but_client_secret_does_not(owner, fake_export):
+    _post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows", "task-chains"]})
+    html = _page(owner)
+    block = re.search(r'data-dsa-scope>.*?</details>', html, re.S).group(0)
+    checked = dict(re.findall(r'name="datasphere_features" value="([^"]+)"( checked)?>', block))
+    assert {k: bool(v) for k, v in checked.items()} == {"replication-flows": True, "data-flows": False, "transformation-flows": False, "task-chains": True}
+    assert "value=" not in _input(html, "dsa-client_secret") and SECRET not in html
+    stored = "".join(p.read_text(encoding="utf-8") for p in (fake_export["cache"] / "adhoc").rglob("*") if p.is_file())
+    assert SECRET not in stored
+
+
+def test_unsubmitted_form_context_defaults_to_all_checked_again_after_a_run_without_scope(owner, fake_export):
+    _post(owner)                                                                         # sin alcance enviado => el contexto no guarda alcance
+    block = re.search(r'data-dsa-scope>.*?</details>', _page(owner), re.S).group(0)
+    assert block.count(" checked>") == 4
+
+
+def test_historical_results_keep_their_own_scope_when_the_form_changes(owner, fake_export):
+    first = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows"]}))
+    second = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows", "data-flows", "transformation-flows", "task-chains"]}))
+    s1 = svc.load_result(first)["profile"]["scope"]["evidence_scope"]["effective_features"]
+    s2 = svc.load_result(second)["profile"]["scope"]["evidence_scope"]["effective_features"]
+    assert "data-flows" not in s1 and "data-flows" in s2                                   # cada resultado conserva el alcance de SU corrida
+    assert "Evidencia no adquirida" in owner.get(_results_url(first, "/export.md")).text
+    assert "Evidencia no adquirida" not in owner.get(_results_url(second, "/export.md")).text
+
+
+def test_view_root_with_a_feature_selection_still_generates_the_assessment_with_its_scope(owner, fake_export):
+    fake_export["root_type"] = "view"
+    r = _post(owner, {**VALID, "datasphere_root_object": "3VF_P", "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows"]})
+    assert _done(r)["state"] == "SUCCESS"
+    es = svc.load_result(_rid(r))["profile"]["scope"]["evidence_scope"]
+    assert "replication-flows" in es["effective_features"] and "data-flows" not in es["effective_features"]
+
+
+def test_log_keeps_the_extractors_effective_scope_when_it_prints_it(owner, fake_export):
+    fake_export["extra_lines"] = ["Alcance efectivo:", "  Replication Flows        SI"]
+    r = _post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows"]})
+    page = owner.get(_results_url(_rid(r), "/log") + "?pack=datasphere_core").text
+    assert "Alcance efectivo:" in page and "Replication Flows        SI" in page
+
+
+# ── eliminar un assessment reciente ────────────────────────────────────────────
+def _delete(c, rid, accept="application/json", **extra):
+    return c.post(_results_url(rid, "/delete"), data={"pack": "datasphere_core"}, headers={**ORIGIN, "Accept": accept, **extra})
+
+
+def test_recent_item_renders_the_capital_humano_delete_pattern_with_accessible_label(owner, fake_export):
+    _post(owner)
+    html = _page(owner)
+    item = re.search(r"<div class=\"catalog-picker--secondary\" data-dsa-recent-item>.*?</form>", html, re.S).group(0)
+    # MISMO patrón/SVG que Capital Humano (human_capital/entrevistas.html): form de confirmación compartida + botón de acción destructiva
+    ch = (REPO / "webapp/templates/human_capital/entrevistas.html").read_text(encoding="utf-8")
+    ch_svg = re.search(r'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/>.*?</svg>', ch, re.S).group(0)
+    assert ch_svg in item
+    assert 'class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Eliminar assessment"' in item
+    assert "<p>Eliminar assessment</p>" in item and 'data-dw-confirm-form' in item
+    assert 'data-dw-confirm-title="¿Eliminar este assessment?"' in item
+    assert "Este resultado temporal y su detalle de ejecución dejarán de estar disponibles." in item and 'data-dw-confirm-ok="Eliminar"' in item
+    assert 'method="post"' in item and re.search(r'action="/modules/[^"]+/datasphere-assessment/result/[0-9a-f]{32}/delete"', item)
+    assert "style=" not in item and "🗑" not in item and ">X<" not in item                                   # sin emoji ni texto "X" ni estilos propios
+    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    assert css.count(".admin-actions__end") == 1                                                             # única extensión: alinear a la derecha
+
+
+def test_owner_deletes_own_result_and_it_cannot_be_opened_nor_its_log(owner, fake_export):
+    rid = _rid(_post(owner))
+    r = _delete(owner, rid)
+    assert r.status_code == 200 and r.json() == {"ok": True, "remaining": 0}
+    for suffix in ("", "/export.json", "/export.md", "/log"):
+        assert owner.get(_results_url(rid, suffix)).status_code == 404
+    assert not (fake_export["cache"] / "adhoc" / "results" / f"{rid}.json").exists()
+    assert "Assessments recientes" not in _page(owner)                                                        # último resultado => sección oculta
+
+
+def test_deleting_one_leaves_the_others_and_the_form_context_intact(owner, fake_export):
+    first = _rid(_post(owner))
+    second = _rid(_post(owner, dict(VALID, client="Acme2")))
+    assert _delete(owner, first).json() == {"ok": True, "remaining": 1}
+    html = _page(owner)
+    assert "Assessments recientes" in html and second in html and first not in html
+    assert 'value="Acme2"' in _input(html, "dsa-client") and 'value="ACME_SPACE"' in _input(html, "dsa-space")        # contexto del formulario intacto
+    assert "value=" not in _input(html, "dsa-client_secret") and SECRET not in html
+    assert owner.get(_results_url(second)).status_code == 200
+
+
+def test_another_owner_cannot_delete_a_result_by_guessing_its_id(two_owners, fake_export):
+    first, second = two_owners
+    rid = _rid(_post(first))
+    assert _delete(second, rid).status_code == 404
+    assert first.get(_results_url(rid)).status_code == 200 and (fake_export["cache"] / "adhoc" / "results" / f"{rid}.json").is_file()
+
+
+def test_delete_is_post_only_same_origin_session_and_owner_protected_and_unknown_ids_fail_safely(owner, fake_export, monkeypatch):
+    rid = _rid(_post(owner))
+    url = _results_url(rid, "/delete")
+    assert owner.get(url).status_code == 405                                                                 # nunca por GET
+    assert TestClient(main.app).post(url, data={"pack": "datasphere_core"}, headers=ORIGIN).status_code == 401
+    assert owner.post(url, data={"pack": "datasphere_core"}).status_code == 403                              # sin Origin
+    assert owner.post(url, data={"pack": "datasphere_core"}, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert owner.get(_results_url(rid)).status_code == 200                                                   # nada se borró en los intentos rechazados
+    for bad in ("0" * 32, "zzz", "../x"):
+        assert _delete(owner, bad).status_code in (404, 422)
+    monkeypatch.setattr(access, "APP_OWNER", "other@danwor.com")
+    assert _delete(owner, rid).status_code == 403
+
+
+def test_delete_without_js_redirects_back_to_the_module(owner, fake_export):
+    rid = _rid(_post(owner))
+    r = owner.post(_results_url(rid, "/delete"), data={"pack": "datasphere_core"}, headers=ORIGIN, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/modules/{STEM}?pack=datasphere_core"
+
+
+def test_delete_touches_nothing_outside_the_single_result_record(owner, fake_export):
+    rid = _rid(_post(owner))
+    cache = fake_export["cache"]
+    before = {p.relative_to(cache).as_posix() for p in cache.rglob("*") if p.is_file()}
+    _delete(owner, rid)
+    after = {p.relative_to(cache).as_posix() for p in cache.rglob("*") if p.is_file()}
+    assert before - after == {f"adhoc/results/{rid}.json"} and after <= before                              # solo desaparece ese registro (perfil + log)
+    assert not fake_export["canonical"].exists() or not any(fake_export["canonical"].rglob("*"))             # Catálogo / pool canónico intactos
+
+
+def test_js_wires_the_delete_through_the_shared_confirmation_and_removes_the_item():
+    js = (REPO / "webapp/static/datasphere_assessment.js").read_text(encoding="utf-8")
+    assert "data-dsa-delete" in js and "event.defaultPrevented" in js and "item.remove()" in js and "section.remove()" in js
+    assert '"Accept": "application/json"' in js and not re.search(r"localStorage|sessionStorage|innerHTML", js)
+
+
+# ── Novedades: CTA directo a "Assessment de tu modelo" ─────────────────────────
+def test_whats_new_announces_the_assessment_with_a_cta_to_the_real_tool_target(owner):
+    from webapp.services import whats_new_service as wn
+    items = {e["ref"]: e for e in wn.entries("datasphere_core")}
+    e = items["datasphere-assessment"]
+    assert e["title"] == "Assessment metodológico para Modelado & Desarrollo" and e["categoria"] == "Modelado" and e["cta"] == "Probar assessment"
+    assert e["detail"].startswith("Conectáte a tus modelos de datos")
+    assert not re.search(r"scor|puntaje|madurez|CSN|run_export|result_id|directorio", e["detail"], re.I)       # producto, no implementación
+    assert e["link"] == f"/modules/{STEM}?pack=datasphere_core&tool=assessment"
+    newest = wn.entries("datasphere_core")[0]
+    assert newest["ref"] == "datasphere-assessment"                                                          # la más nueva (convención: fecha desc)
+    for old_ref in ("data-products-bdc", "d6147d5", "0722a31", "catalogos-danwor"):
+        assert old_ref in items                                                                              # las anteriores siguen intactas
+
+
+def test_whats_new_page_renders_the_card_and_the_cta_label(owner):
+    page = owner.get("/whats-new?pack=datasphere_core")
+    assert page.status_code == 200
+    assert "datasphere-assessment" in page.text and "Probar assessment" in page.text and "tool=assessment" in page.text      # datos de la tarjeta (Alpine)
+    assert "Assessment metodol" in page.text and "para Modelado" in page.text                                                  # (la tilde viaja escapada en el JSON de Alpine)
+    assert 'x-text="e.cta ? e.cta' in page.text and "Ir al contenido" in page.text                                           # etiqueta por defecto intacta para el resto
+
+
+def test_cta_lands_on_the_diagnostic_panel_with_the_assessment_tool_selected_and_the_form_reachable(owner):
+    r = owner.get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment")
+    assert r.status_code == 200 and "x-data=\"{ tool: 'assessment'," in r.text and 'id="dsa-form"' in r.text
+
+
+def test_cta_does_not_bypass_authentication_or_owner_authorization(monkeypatch):
+    anon = TestClient(main.app).get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment", follow_redirects=False)
+    assert anon.status_code in (302, 303, 307) and "tool=assessment" not in anon.headers.get("location", "").replace("%3D", "=") or anon.status_code in (302, 303, 307)
+    monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
+    html = _client("someone@danwor.com").get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment").text
+    assert "Acceso restringido" in html and 'id="dsa-form"' not in html                                       # el CTA no da acceso a ejecutar
+
+
+# ── evidencia NO adquirida visible en el informe HTML ──────────────────────────
+_ALL_OPTIONAL = ["replication-flows", "data-flows", "transformation-flows", "task-chains"]
+
+
+def _report_html(c, rid):
+    return c.get(_results_url(rid) + "?pack=datasphere_core").text
+
+
+def _limitations_section(html):
+    return re.search(r'<section class="content-section" id="asr-limitaciones">.*?</section>', html, re.S).group(0)
+
+
+def test_complete_or_default_scope_renders_nothing_new_in_the_report(owner, fake_export):
+    default = _rid(_post(owner))                                                               # sin campos: alcance completo (como hoy)
+    explicit = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": _ALL_OPTIONAL}))
+    for rid in (default, explicit):
+        assert "Evidencia no adquirida" not in _report_html(owner, rid)
+
+
+def test_limited_scope_shows_the_human_readable_omitted_families_inside_the_limitations_section(owner, fake_export):
+    rid = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows"]}))
+    html = _report_html(owner, rid)
+    section = _limitations_section(html)
+    assert "<strong>Evidencia no adquirida:</strong> Data Flows, Transformation Flows, Task Chains." in section
+    assert "su ausencia en este assessment no implica que no exista" in section
+    assert html.count("Evidencia no adquirida") == 1                                           # un único lugar; sin banner superior
+    paragraph = re.search(r"<strong>Evidencia no adquirida:</strong>[^<]*", section).group(0)
+    assert not re.search(r"data-flows|transformation-flows|task-chains|replication-flows", paragraph)     # sin identificadores técnicos
+    kpis = html.split("Indicadores del assessment")[1].split("</section>")[0] if "Indicadores del assessment" in html else ""
+    assert "Evidencia no adquirida" not in kpis                                                 # no compite con los KPI de cabecera
+
+
+def test_old_profile_without_evidence_scope_renders_exactly_as_before(owner, fake_export):
+    rid = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows"]}))
+    path = fake_export["cache"] / "adhoc" / "results" / f"{rid}.json"
+    rec = json.loads(path.read_text(encoding="utf-8"))
+    rec["profile"]["scope"].pop("evidence_scope")                                              # perfil anterior al campo
+    path.write_text(json.dumps(rec), encoding="utf-8")
+    html = _report_html(owner, rid)
+    assert "Evidencia no adquirida" not in html                                                # alcance desconocido NO es alcance reducido
+    rec["profile"]["scope"]["evidence_scope"] = None
+    path.write_text(json.dumps(rec), encoding="utf-8")
+    assert _report_html(owner, rid) == html
+
+
+def test_reopened_result_shows_its_own_stored_scope_not_the_current_form_state(owner, fake_export):
+    limited = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows"]}))
+    complete = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": _ALL_OPTIONAL}))
+    block = re.search(r'data-dsa-scope>.*?</details>', _page(owner), re.S).group(0)
+    assert block.count(" checked>") == 4                                                       # el formulario AHORA está completo...
+    assert "Evidencia no adquirida" in _report_html(owner, limited)                            # ...pero el resultado histórico conserva SU alcance
+    assert "Evidencia no adquirida" not in _report_html(owner, complete)
+
+
+def test_json_markdown_and_html_agree_on_the_omitted_families(owner, fake_export):
+    rid = _rid(_post(owner, {**VALID, "datasphere_features_submitted": "1", "datasphere_features": ["replication-flows", "task-chains"]}))
+    effective = set(json.loads(owner.get(_results_url(rid, "/export.json")).text)["scope"]["evidence_scope"]["effective_features"])
+    md = re.search(r"\*\*Evidencia no adquirida:\*\* ([^(]+) \(", owner.get(_results_url(rid, "/export.md")).text).group(1).strip()
+    html = re.search(r"<strong>Evidencia no adquirida:</strong> ([^.]+)\.", _report_html(owner, rid)).group(1).strip()
+    assert md == html == "Data Flows, Transformation Flows"
+    assert "data-flows" not in effective and "transformation-flows" not in effective and "task-chains" in effective      # JSON coherente
+
+
+# ── REGRESIÓN: el flujo real (extractor REAL sobre un Datasphere simulado) no cambia con el alcance de evidencia ──
+@pytest.fixture()
+def real_extraction(monkeypatch, tmp_path):
+    """A diferencia de ``fake_export`` (que sustituye ``LineageExporter.run``), acá corre el extractor REAL (detección de tipo de raíz,
+    compuerta de tipos, alcance de features, recorrido y exportación) contra un DatasphereCli simulado con evidencia sintética."""
+    from tests._modeling_assessment_m7_fixtures import write_inbound as _wi
+    src = _wi(tmp_path / "ds_src") / "Acme"
+    cache = tmp_path / "assessment_cache"
+    monkeypatch.setattr(config, "ASSESSMENT_CACHE_DIR", cache)
+    monkeypatch.setenv("DANWOR_CATALOG_DIR", str(tmp_path / "canonical"))
+    svc.reset_boot_state()
+    asvc.reset_memory_cache()
+    seen = {"requests": [], "results": [], "assess": []}
+    monkeypatch.setattr(svc, "cli_available", lambda: True)
+    monkeypatch.setattr(dsp.shutil, "which", lambda n: "/usr/bin/npx")
+    monkeypatch.setattr(dsp.DatasphereCli, "oauth_preflight", lambda self: None)
+    monkeypatch.setattr(dsp.DatasphereCli, "login", lambda self: None)
+    monkeypatch.setattr(dsp.DatasphereCli, "authorization_preflight", lambda self, space: None)
+    monkeypatch.setattr(dsp.DatasphereCli, "list_objects", lambda self, space, t: [{"technicalName": p.stem} for p in sorted((src / t).glob("*.json"))] if (src / t).is_dir() else [])
+    monkeypatch.setattr(dsp.DatasphereCli, "read_object", lambda self, space, t, n: json.loads((src / t / f"{n}.json").read_text(encoding="utf-8")))
+    orig = dsp.run_export
+
+    def spy(req):
+        res = orig(req)
+        seen["requests"].append(req)
+        seen["results"].append(res)
+        return res
+    monkeypatch.setattr(dsp, "run_export", spy)
+    from tools.catalog.modeling_assessment import shadow as ma_shadow
+    real_assess = ma_shadow.assess
+    monkeypatch.setattr(ma_shadow, "assess", lambda *a, **k: (seen["assess"].append(a), real_assess(*a, **k))[1])
+    return seen
+
+
+def _real_run(root, features=None):
+    return svc.run(svc.FormValues(host=VALID["host"], token_url=VALID["token_url"], client_id="id", space="S", root_object=root, client="Acme", features=features), SECRET)
+
+
+@pytest.mark.parametrize("features", [None, ("replication-flows", "data-flows", "transformation-flows", "task-chains"), ("replication-flows",), ()])
+def test_valid_terminal_am_still_generates_the_assessment_for_every_scope(real_extraction, features):
+    out = _real_run("4AM_ACME", features)
+    assert out.state == "SUCCESS" and out.result_id, (out.error_code, out.message)
+    res = real_extraction["results"][0]
+    assert res.ok and res.root_type == "analytic-model" and real_extraction["assess"]                 # extracción OK -> el motor SÍ corrió
+    rec = svc.load_result(out.result_id)
+    assert rec["profile"]["scope"]["applicability"] == "APPLICABLE" and rec["profile"]["scope"]["terminal_analytic_model"] == "4AM_ACME"
+    assert rec["profile"]["scope"]["evidence_scope"]["effective_features"]                           # el alcance viaja, pero no altera la aplicabilidad
+
+
+def test_default_and_explicit_all_scopes_are_the_same_effective_extraction(real_extraction):
+    _real_run("4AM_ACME", None)
+    _real_run("4AM_ACME", ("replication-flows", "data-flows", "transformation-flows", "task-chains"))
+    legacy, explicit = real_extraction["results"]
+    assert legacy.requested_features == explicit.requested_features and legacy.effective_features == explicit.effective_features
+    assert set(legacy.effective_features) == {"analytic-models", "views", "tables", "replication-flows", "data-flows", "transformation-flows", "task-chains"}
+    assert real_extraction["requests"][0].features_requested is None
+    assert set(real_extraction["requests"][1].features_requested) == set(legacy.effective_features)         # estructurales + las 4 opcionales
+
+
+def test_evidence_scope_never_changes_terminal_am_closure_or_applicability_on_the_same_pool(real_extraction):
+    docs = {}
+    for label, feats in (("all", None), ("sub", ("replication-flows",)), ("none", ())):
+        out = _real_run("4AM_ACME", feats)
+        docs[label] = svc.load_result(out.result_id)["profile"]
+    for label in ("sub", "none"):
+        for key in ("applicability", "terminal_analytic_model", "closure_size", "closure_artifacts"):
+            assert docs[label]["scope"][key] == docs["all"]["scope"][key], (label, key)
+        assert docs[label]["summary"]["coverage"] == docs["all"]["summary"]["coverage"]
+
+
+@pytest.mark.parametrize("features", [None, ("replication-flows", "data-flows", "transformation-flows", "task-chains"), ("replication-flows",)])
+def test_view_root_runs_the_extraction_and_the_engine_and_produces_a_valid_assessment(real_extraction, features):
+    out = _real_run("3VF_P", features)
+    assert out.state == "SUCCESS" and out.result_id, (out.error_code, out.message)
+    res = real_extraction["results"][0]
+    assert res.ok and res.root_type == "view" and real_extraction["assess"]                             # extracción real OK y el motor SÍ corrió
+    doc = svc.load_result(out.result_id)["profile"]
+    assert doc["assessment_state"] == "ASSESSED" and doc["scope"]["root_type"] == "view" and doc["scope"]["root_object"] == "3VF_P"
+    assert doc["scope"]["terminal_analytic_model"] is None and doc["scope"]["applicability"] == "APPLICABLE"
+    na = {n["surface_id"] for n in doc["not_applicable"]}
+    assert {"am.contract_inventory", "am.association_targets", "am.contract_delta", "rule.am_semantic_underuse_review"} <= na      # solo-AM => N/A
+
+
+def test_unknown_object_is_reported_as_extraction_not_found_never_as_assessment_applicability(real_extraction):
+    out = _real_run("4AM_PUR_PagoFacturaCompra")                                                        # no existe en ESTE Datasphere simulado
+    assert out.state == "FAILED" and out.stage == "extraction" and out.error_code == "ROOT_OBJECT_NOT_FOUND"
+    assert "evidencia se adquirió" not in out.message and real_extraction["assess"] == []
+
+
+# ── Novedades: copy exacto ─────────────────────────────────────────────────────
+def test_whats_new_final_title_and_body_are_exact(owner):
+    from webapp.services import whats_new_service as wn
+    e = {x["ref"]: x for x in wn.entries("datasphere_core")}["datasphere-assessment"]
+    assert e["title"] == "Assessment metodológico para Modelado & Desarrollo"
+    assert e["detail"] == ("Conectáte a tus modelos de datos en cualquiera de nuestros clientes directamente. El Copiloto reconstruye su evidencia y linaje, "
+                           "genera un assessment metodológico explicable y permite revisar cobertura, confianza, observaciones y puntos que requieren revisión.")
+    assert e["cta"] == "Probar assessment" and e["link"] == f"/modules/{STEM}?pack=datasphere_core&tool=assessment"
+
+
+# ── ?tool= autoritativo ────────────────────────────────────────────────────────
+def test_valid_tool_param_is_authoritative_closing_the_other_tool_groups(owner):
+    r = owner.get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment")
+    assert re.search(r"copilotLayout\('core', false, '', 'assessment'\)", r.text)
+    js = (REPO / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert 'const TOOL_GROUP = { assessment: "diagnostic" };' in js
+    assert 'panelOpen: toolGroup ? toolGroup === "decision" : true' in js                                  # decisión se cierra cuando hay una herramienta pedida
+    assert 'diagnosticOpen: toolGroup === "diagnostic"' in js and 'gestionOpen: toolGroup === "gestion"' in js
+    assert "x-data=\"{ tool: 'assessment'," in r.text and 'id="dsa-form"' in r.text                          # Assessment de tu modelo seleccionado y visible
+
+
+def test_invalid_or_missing_tool_param_keeps_the_default_navigation(owner):
+    for url in (f"/modules/{STEM}?pack=datasphere_core", f"/modules/{STEM}?pack=datasphere_core&tool=evil", f"/modules/{STEM}?pack=datasphere_core&tool=",
+                "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&tool=assessment"):
+        text = owner.get(url).text
+        assert re.search(r"copilotLayout\('core', false, '', ''\)", text), url
+    js = (REPO / "webapp/static/app.js").read_text(encoding="utf-8")
+    assert 'const toolGroup = TOOL_GROUP[initialTool] || "";' in js                                         # sin grupo => panelOpen=true (default)
+
+
+def test_unauthorized_user_with_the_tool_link_still_gets_restricted_access(monkeypatch):
+    monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
+    html = _client("someone@danwor.com").get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment").text
+    assert "Acceso restringido" in html and 'id="dsa-form"' not in html
+
+
+# ── casillas del alcance de evidencia: espaciado ──────────────────────────────
+def test_scope_checkboxes_reuse_the_shared_primitive_and_restore_its_spacing_without_inline_styles(owner):
+    block = _scope_form(owner)
+    assert block.count('class="dashboard-checkbox-option"') == 4 and "style=" not in block
+    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    assert re.search(r"\.dashboard-checkbox-option \{[^}]*gap: 5px", css)                                    # el espaciado es el gap del primitivo
+    assert css.count(".tree-picker .dashboard-checkbox-option { display: inline-flex; margin: 0; }") == 1   # restituye el layout que `.tree-picker label` pisaba

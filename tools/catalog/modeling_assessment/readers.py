@@ -145,8 +145,19 @@ def _read_data_flow(name: str, body: dict, rel: str) -> FlowEvidence:
     return FlowEvidence(DATA_FLOW, name, rel, tuple(sorted(srcs)), tuple(sorted(tgts)), ())
 
 
+# Familias del extractor que alimentan la evidencia de flows del plano PROCESSING (identificadores canonicos del extractor).
+# Task Chains y Transformation Flows NO se leen aqui (ver tests/test_modeling_assessment_evidence_scope.py: auditoria de uso).
+FLOW_FAMILY_REPLICATION = "replication-flows"
+FLOW_FAMILY_DATA = "data-flows"
+FLOW_FAMILIES = frozenset({FLOW_FAMILY_REPLICATION, FLOW_FAMILY_DATA})
+
+
 class SupplementaryEvidence:
-    """Evidencia cruda leida del pool. Inmutable tras la construccion."""
+    """Evidencia cruda leida del pool. Inmutable tras la construccion.
+
+    ``acquired_flow_families``: que familias de flows FUERON adquiridas por la extraccion. Por defecto (alcance desconocido: Catalogo, CLI,
+    pools historicos) se asumen ambas: comportamiento previo. Si una NO fue adquirida, su ausencia en el pool NO es "ausencia evaluada":
+    ``flows_conclusive`` es False y los hechos de plano PROCESSING lo declaran (no se afirma "ningun flow referencia X")."""
 
     def __init__(
         self,
@@ -155,7 +166,9 @@ class SupplementaryEvidence:
         entity_files: Mapping[str, tuple[str, ...]],
         issues: Iterable[ReadIssue],
         files_read: int,
+        acquired_flow_families: Iterable[str] | None = None,
     ) -> None:
+        self.acquired_flow_families = FLOW_FAMILIES if acquired_flow_families is None else frozenset(acquired_flow_families) & FLOW_FAMILIES
         self._remote = dict(sorted(remote_tables.items()))
         self._flows = tuple(sorted(flows, key=lambda f: (f.kind, f.name, f.source_file)))
         self._files = {k: tuple(v) for k, v in sorted(entity_files.items())}
@@ -163,7 +176,8 @@ class SupplementaryEvidence:
         self.files_read = files_read
 
     @classmethod
-    def from_files(cls, json_files: Iterable[str | Path], root: str | Path | None = None) -> "SupplementaryEvidence":
+    def from_files(cls, json_files: Iterable[str | Path], root: str | Path | None = None,
+                   acquired_flow_families: Iterable[str] | None = None) -> "SupplementaryEvidence":
         rootp = Path(root) if root is not None else None
         remote: dict[str, RemoteTableEvidence] = {}
         flows: list[FlowEvidence] = []
@@ -194,7 +208,7 @@ class SupplementaryEvidence:
             for name, body in (data.get("dataflows") or {}).items():
                 if isinstance(body, dict):
                     flows.append(_read_data_flow(name, body, rel))
-        return cls(remote, flows, {k: tuple(sorted(set(v))) for k, v in files.items()}, issues, n)
+        return cls(remote, flows, {k: tuple(sorted(set(v))) for k, v in files.items()}, issues, n, acquired_flow_families)
 
     @classmethod
     def empty(cls) -> "SupplementaryEvidence":
@@ -235,6 +249,15 @@ class SupplementaryEvidence:
             if entity in fl.target_entities or f"{entity}{DELTA_SHADOW_SUFFIX}" in fl.target_entities:
                 out.append((fl, "target"))
         return tuple(out)
+
+    @property
+    def flows_conclusive(self) -> bool:
+        """¿Se adquirieron TODAS las familias de flows que este lector interpreta? Solo entonces "ningun flow referencia X" es una conclusion."""
+        return self.acquired_flow_families >= FLOW_FAMILIES
+
+    @property
+    def data_flows_acquired(self) -> bool:
+        return FLOW_FAMILY_DATA in self.acquired_flow_families
 
     @property
     def available(self) -> bool:

@@ -99,6 +99,7 @@ def test_label_is_descriptive_only_all_assessment_content_is_unchanged(tmp_path)
     def strip(doc):
         d = copy.deepcopy(doc)
         d["scope"].pop("terminal_analytic_model_label")
+        d["scope"].pop("root_label")
         d["scope"].pop("pool_signature")                       # la firma del pool cambia con los BYTES del CSN, no con la semántica
         return d
     assert strip(with_label) == strip(without)                 # hechos, señales, cobertura, confianza, reglas: idénticos
@@ -117,6 +118,7 @@ def test_profiles_without_the_optional_field_remain_valid_and_schema_version_is_
     doc = _doc(_pool(tmp_path, label=LABEL))
     old = copy.deepcopy(doc)
     old["scope"].pop("terminal_analytic_model_label")                                         # perfil cacheado antes del campo
+    old["scope"].pop("root_label")
     ma_profile.validate_assessment(old)
     ma_profile.validate_assessment(doc)
     assert doc["schema_version"] == ma_profile.ASSESSMENT_SCHEMA_VERSION == "modeling_assessment.assessment/v1"

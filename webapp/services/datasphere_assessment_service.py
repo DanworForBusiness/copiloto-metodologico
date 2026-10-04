@@ -73,6 +73,7 @@ ERROR_MESSAGES = {
     "NOT_AUTHORIZED": "No tenés permiso para ejecutar esta operación.",
     "ADHOC_STORAGE_UNSAFE": "El almacenamiento temporal del assessment no es seguro en este entorno (cae bajo un directorio persistido). No se ejecutó nada.",
     "AM_NOT_TERMINAL": "La evidencia se adquirió correctamente, pero el artefacto indicado no puede evaluarse con el alcance actual. Revisá el objeto seleccionado.",
+    "ROOT_NOT_IN_EVIDENCE": "La evidencia se adquirió correctamente, pero el objeto indicado no figura en ella. Revisá el objeto seleccionado.",
     "ASSESSMENT_FAILED": "La evidencia se adquirió correctamente, pero ocurrió un error al generar el informe.",
     "POOL_LOAD_ERROR": "La evidencia se adquirió correctamente, pero ocurrió un error al generar el informe.",
     "POOL_UNAVAILABLE": "La evidencia se adquirió correctamente, pero ocurrió un error al generar el informe.",
@@ -85,13 +86,7 @@ ERROR_MESSAGES = {
 _CODE_PREFIX_RE = re.compile(r"^[A-Z][A-Z0-9_]{3,} - ")
 
 # Códigos del extractor cuyo mensaje ya está redactado en español para el usuario (objeto no encontrado, tipo ambiguo): se muestra tal cual.
-BACKEND_WORDED_CODES = frozenset({"ROOT_OBJECT_NOT_FOUND", "AMBIGUOUS_ROOT_OBJECT_TYPE"})
-
-# Capacidad ACTUAL del producto "Assessment de tu modelo": el Modeling Assessment evalúa Modelos Analíticos terminales. Es una decisión
-# del consumidor (SERVER-SIDE, nunca del navegador): el extractor sigue siendo genérico (vista, tabla local/remota, AM).
-ASSESSABLE_ROOT_TYPES = frozenset({"analytic-model"})
-ROOT_TYPE_CONSTRAINT_CODE = "ROOT_TYPE_CONSTRAINT_FAILED"
-ROOT_TYPE_LABELS = {"view": "una Vista", "local-table": "una Tabla local", "remote-table": "una Tabla remota"}
+BACKEND_WORDED_CODES = frozenset({"ROOT_OBJECT_NOT_FOUND", "AMBIGUOUS_ROOT_OBJECT_TYPE", "INVALID_FEATURE_SCOPE"})
 
 TITLE_EXTRACTION = "No se pudo completar la extracción"
 TITLE_ASSESSMENT = "No se pudo generar el assessment"
@@ -108,6 +103,15 @@ FIELD_LABELS = {
 }
 NON_SECRET_FIELDS = ("host", "token_url", "client_id", "space", "root_object", "client")
 
+# Alcance de evidencia. Las familias ESTRUCTURALES (modelos analíticos, vistas, tablas) son requeridas por este assessment (el cierre
+# semántico depende de ellas) y NO son elegibles: el servidor siempre las pide. El usuario elige solo las familias opcionales, con los
+# identificadores canónicos del extractor (sin alias). El servidor valida contra esta lista blanca; las dependencias las normaliza el extractor.
+STRUCTURAL_FEATURES = ("analytic-models", "views", "tables")
+OPTIONAL_FEATURES = ("replication-flows", "data-flows", "transformation-flows", "task-chains")
+FEATURE_LABELS = {"replication-flows": "Replication Flows", "data-flows": "Data Flows",
+                  "transformation-flows": "Transformation Flows", "task-chains": "Task Chains"}
+
+
 
 @dataclass
 class FormValues:
@@ -118,10 +122,27 @@ class FormValues:
     space: str = ""
     root_object: str = ""
     client: str = ""
+    features: tuple[str, ...] | None = None      # familias OPCIONALES elegidas; None = no enviado => todas (comportamiento actual)
 
     @classmethod
     def from_mapping(cls, data) -> "FormValues":
-        return cls(**{k: str(data.get(k) or "").strip() for k in NON_SECRET_FIELDS})
+        raw = data.get("features")
+        return cls(**{k: str(data.get(k) or "").strip() for k in NON_SECRET_FIELDS},
+                   features=None if raw is None else parse_features(raw))
+
+
+def parse_features(raw) -> tuple[str, ...]:
+    """Familias opcionales válidas (lista blanca canónica, orden canónico, sin duplicados). Valores desconocidos se ignoran sin error."""
+    wanted = {str(v).strip() for v in (raw if isinstance(raw, (list, tuple, set, frozenset)) else str(raw).split(","))}
+    return tuple(f for f in OPTIONAL_FEATURES if f in wanted)
+
+
+def requested_features(values: "FormValues") -> list[str] | None:
+    """``ExportRequest.features_requested``: estructurales (siempre) + opcionales elegidas. ``None`` (no enviado) = el default del extractor
+    (todas), idéntico a la extracción de hoy."""
+    if values.features is None:
+        return None
+    return [*STRUCTURAL_FEATURES, *values.features]
 
 
 @dataclass
@@ -161,7 +182,10 @@ def tool_context(request, stem: str) -> dict:
     if can:
         values = load_form_context(session_key(request))
         recent = list_results(owner_email(request))
-    return {"enabled": enabled, "can_execute": can, "stem": stem, "form": values, "recent": recent}
+    selected = values.get("features")
+    checked = list(OPTIONAL_FEATURES) if selected is None else [f for f in OPTIONAL_FEATURES if f in selected.split(",")]
+    options = [{"value": f, "label": FEATURE_LABELS[f], "checked": f in checked} for f in OPTIONAL_FEATURES]
+    return {"enabled": enabled, "can_execute": can, "stem": stem, "form": values, "recent": recent, "feature_options": options}
 
 
 def cli_available() -> bool:
@@ -353,6 +377,17 @@ def load_result(result_id: str) -> dict | None:
         return None
 
 
+def delete_result(result_id: str, owner: str) -> bool:
+    """Elimina SOLO el resultado ad-hoc ``result_id`` (perfil + log + metadatos viven en ese único registro) si pertenece a ``owner``.
+    No toca el contexto del formulario, otros resultados, el Catálogo, Spaces ni ningún pool. False si no existe/venció/es de otro usuario."""
+    record = load_result(result_id)
+    if record is None or str(record.get("owner") or "") != (owner or "").strip().lower():
+        return False
+    _work, results = _dirs()
+    (results / f"{result_id}.json").unlink(missing_ok=True)
+    return True
+
+
 def result_status(record: dict) -> asvc.AssessmentStatus:
     """El estado CURRENT del resultado (misma estructura que usa el informe del Catálogo, sin flujo ni caché del Catálogo)."""
     created = datetime.fromtimestamp(float(record["created_at"]), tz=timezone.utc).isoformat(timespec="seconds")
@@ -418,6 +453,8 @@ def save_form_context(key: str, values: FormValues) -> None:
     if path is None:
         return
     data = {name: getattr(values, name) for name in NON_SECRET_FIELDS}
+    if values.features is not None:
+        data["features"] = ",".join(values.features)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps({"created_at": time.time(), "values": data}, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, path)
@@ -438,7 +475,10 @@ def load_form_context(key: str) -> dict[str, str]:
         path.unlink(missing_ok=True)
         return {}
     values = rec.get("values") or {}
-    return {name: str(values.get(name) or "") for name in NON_SECRET_FIELDS}
+    out = {name: str(values.get(name) or "") for name in NON_SECRET_FIELDS}
+    if "features" in values:
+        out["features"] = ",".join(parse_features(str(values.get("features") or "")))
+    return out
 
 
 # ───────────────────────────── ejecución ─────────────────────────────
@@ -483,7 +523,7 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
             catalog_root=workspace / "catalog", csn_cache_dir=workspace / "pool",     # raíces del workspace: NADA canónico se toca
             generate_catalog=False, mirror_up=False,                                   # evaluar != publicar: sin Catálogo ni Spaces
             mode="assessment",                                                         # forzado en el servidor: la UI no elige el modo
-            allowed_root_types=ASSESSABLE_ROOT_TYPES,                                  # capacidad actual del assessment (compuerta temprana)
+            features_requested=requested_features(values),                             # SOLO lo pedido: las dependencias las resuelve el extractor
         )
 
         def live(line: str) -> None:
@@ -493,16 +533,6 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
         with dsp.capture_output(on_line=live) as cap:
             result = dsp.run_export(request)
         trace = _trace(cap.lines, secrets, roots)
-        if not result.ok and result.error_code == ROOT_TYPE_CONSTRAINT_CODE:
-            # Compuerta temprana: el objeto existe y fue clasificado, pero su tipo está fuera de la capacidad actual del assessment. NO hay
-            # evidencia adquirida ni se invoca el motor: la interpretación funcional es de la web (el extractor solo informa el tipo).
-            kind = ROOT_TYPE_LABELS.get(result.root_type or "", "un objeto de otro tipo")
-            log.info("datasphere_assessment op=%s user=%s client=%s space=%s status=FAILED stage=applicability code=%s root_type=%s",
-                     op_id, user_email, values.client, values.space, ROOT_TYPE_CONSTRAINT_CODE, result.root_type)
-            message = ("El Assessment de tu modelo actualmente evalúa Modelos Analíticos terminales. "
-                       f"El objeto seleccionado fue identificado como {kind}.")
-            return Outcome("FAILED", ROOT_TYPE_CONSTRAINT_CODE, message, trace=trace, operation_id=op_id, duration_s=result.duration_s,
-                           stage="applicability", title=TITLE_ASSESSMENT)
         if not result.ok:
             code = result.error_code or "EXTRACTION_FAILED"
             log.warning("datasphere_assessment op=%s user=%s client=%s space=%s model=%s status=FAILED stage=extraction code=%s duration=%.1fs",
@@ -519,7 +549,11 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
             on_phase(PHASE_ACQUIRED)
             on_phase(PHASE_ASSESSING)
         client_dir = result.pool_dir.name if result.pool_dir is not None else values.client
-        profile, code = asvc.assess_evidence_root(workspace / "pool", client_dir, values.root_object, "General")
+        # Alcance de evidencia REAL de la extracción (pedido y efectivo, tal como los informa el extractor): el documento lo conserva para
+        # distinguir "adquirido y ausente" de "no adquirido". Sin metadato propio de la web.
+        scope = {"requested_features": list(result.requested_features or ()), "effective_features": list(result.effective_features or ())}
+        profile, code = asvc.assess_evidence_root(workspace / "pool", client_dir, values.root_object, "General", evidence_scope=scope,
+                                                  root_type=result.root_type)
         if code is not None or profile is None:
             code = code or "GENERATION_ERROR"
             log.warning("datasphere_assessment op=%s user=%s client=%s space=%s model=%s status=FAILED stage=assessment code=%s",

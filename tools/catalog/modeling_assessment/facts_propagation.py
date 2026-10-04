@@ -53,6 +53,7 @@ def propagation_facts(
     closure = universe.closure_of(am)
     closure_set = set(closure)
     ident = identity or {n: classify(entities[n]) for n in closure}
+    is_am = universe.root_type_of(am) == "analytic-model"       # si la raiz NO es AM, sus derivados y su arista final no viven en `am.*` (N/A)
     non_leaf = [n for n in closure if graph.providers(n)]
     non_leaf_set = set(non_leaf)
     lin_dist = graph.distances(am, [L])
@@ -63,7 +64,7 @@ def propagation_facts(
 
     # ---- campos derivados por artefacto (A) --------------------------------------------------------
     for n in non_leaf:
-        if n == am:
+        if n == am and is_am:
             continue                                  # los derivados del AM viven en `am.contract_inventory`
         e = entities[n]
         if _is_system(ident, n):
@@ -86,8 +87,8 @@ def propagation_facts(
 
     # ---- delta de contrato por eslabon de linaje (B) -----------------------------------------------
     for consumer in closure:
-        if consumer == am:
-            continue
+        if consumer == am and is_am:
+            continue                                  # la arista final proveedor->AM vive en `am.contract_delta`
         provs = lin_providers(consumer)
         for provider in provs:
             if provider not in non_leaf_set:

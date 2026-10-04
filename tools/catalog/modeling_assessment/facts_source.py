@@ -240,10 +240,11 @@ def source_facts(
                                    assessability=Assessability.NOT_APPLICABLE))
             continue
         touched = ev.flows_touching(name)
-        value["processing_reference_present"] = bool(touched)
+        inconclusive = not touched and not ev.flows_conclusive          # una familia de flows NO se adquirio: no se puede afirmar ausencia
+        value["processing_reference_present"] = None if inconclusive else bool(touched)
         facts.append(make_fact(
-            "source.leaf_contract_status", A_, name, value, EvidenceClass.D, refs=refs,
+            "source.leaf_contract_status", A_, name, value, EvidenceClass.C1 if inconclusive else EvidenceClass.D, refs=refs,
             assessability=Assessability.NOT_ASSESSED,
-            cause=Cause.PLANE_BOUNDARY if touched else Cause.PROVENANCE_UNKNOWN))
+            cause=Cause.PLANE_BOUNDARY if touched else (Cause.NOT_IN_SNAPSHOT if inconclusive else Cause.PROVENANCE_UNKNOWN)))
 
     return sort_facts(facts)

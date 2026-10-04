@@ -271,14 +271,52 @@ def _area_block(area: dict, groups_by_id: dict[str, dict], rule_by_area: dict[st
     return out
 
 
+_FAMILY_TEXT = {"analytic-models": "Modelos Analíticos", "views": "Vistas", "tables": "Tablas", "replication-flows": "Replication Flows",
+                "data-flows": "Data Flows", "transformation-flows": "Transformation Flows", "task-chains": "Task Chains"}
+
+
+_ROOT_TYPE_TEXT = {"view": "Vista", "local-table": "Tabla local", "remote-table": "Tabla remota"}
+
+
+def _is_am_root(scope: dict) -> bool:
+    return scope.get("root_type") in (None, "analytic-model")          # perfiles anteriores al campo: siempre AM
+
+
+def _root_identity_lines(scope: dict) -> list[str]:
+    """Identidad de la raíz evaluada. AM: líneas de siempre. Vista/tabla: objeto raíz + tipo (nunca se rotula "Modelo analítico terminal")."""
+    if _is_am_root(scope):
+        label = scope.get("root_label") or scope.get("terminal_analytic_model_label")
+        return [f"- **Modelo analítico terminal:** {scope['terminal_analytic_model'] or '—'}", *([f"- **Descripción:** {label}"] if label else [])]
+    return [f"- **Objeto raíz:** {scope.get('root_object') or '—'}", f"- **Tipo de objeto:** {_ROOT_TYPE_TEXT.get(scope['root_type'], scope['root_type'])}",
+            *([f"- **Descripción:** {scope['root_label']}"] if scope.get("root_label") else [])]
+
+
+def evidence_not_acquired(scope: dict | None) -> list[str]:
+    """Etiquetas humanas de las familias de evidencia NO adquiridas por la extracción. Vacío si el alcance se desconoce (Catálogo, perfiles
+    anteriores al campo) o si fue completo: solo un alcance CONOCIDO y limitado produce una lista."""
+    if not scope:
+        return []
+    effective = set(scope.get("effective_features") or ())
+    return [t for k, t in _FAMILY_TEXT.items() if k not in effective]
+
+
+def _evidence_scope_lines(scope: dict | None) -> list[str]:
+    """Solo cuando se conoce el alcance de la extraccion y quedaron familias SIN adquirir: lo no adquirido NO es ausencia evaluada."""
+    missing = evidence_not_acquired(scope)
+    if not missing:
+        return []
+    return [f"- **Evidencia no adquirida:** {', '.join(missing)} (no se extrajo; su ausencia en el assessment no implica que no existan)"]
+
+
 def render_markdown(doc: dict) -> str:
     """Markdown determinista (espanol) a partir del documento publico."""
     scope, summary = doc["scope"], doc["summary"]
     L: list[str] = ["# Autoevaluación de Modelado", ""]
     L += [f"- **Cliente:** {scope['client']}",
-          f"- **Modelo analítico terminal:** {scope['terminal_analytic_model'] or '—'}",
-          *([f"- **Descripción:** {scope['terminal_analytic_model_label']}"] if scope.get("terminal_analytic_model_label") else []),
-          "- **Alcance de la evaluación:** " + (f"{_plural(scope['closure_size'], 'artefacto')} en el cierre semántico del modelo analítico terminal"
+          *_root_identity_lines(scope),
+          *_evidence_scope_lines(scope.get("evidence_scope")),
+          "- **Alcance de la evaluación:** " + (f"{_plural(scope['closure_size'], 'artefacto')} en el cierre semántico del "
+                                                + ("modelo analítico terminal" if _is_am_root(scope) else "objeto raíz")
                                                 if scope["applicability"] == "APPLICABLE" else "no aplica"),
           f"- **Estado del assessment:** {_EXECUTION_TEXT[doc['assessment_state']]}",
           f"- **Esquema:** `{doc['schema_version']}` · señales `{doc['versions']['signals']}` · evaluabilidad `{doc['versions']['assessability']}` · "
