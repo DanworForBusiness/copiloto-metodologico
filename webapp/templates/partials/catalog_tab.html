@@ -50,14 +50,14 @@
   {# UN solo encabezado para los dos estados (mismo primitivo de fila): título a la izquierda y, a la derecha, la acción propia del estado
      — browse: "+" (publicar) · publish: "← Volver" (a browse). Ambas son acciones neutras (`.table-action-btn`), sin caja ni dorado. #}
   <div class="tree-picker catalog-picker--kind" :class="catalogView === 'publish' && 'catalog-picker--bare'">
-    <div class="catalog-kind-head">
+    <div class="tree-picker-head">
       <label for="catalog-kind">Catálogo de datos</label>
       {% if pub.can_execute %}
-      <button type="button" class="table-action-btn chart-tooltip-anchor" x-show="catalogView !== 'publish'" @click="catalogView = 'publish'" aria-label="Publicar en el catálogo">
+      <button type="button" class="table-action-btn chart-tooltip-anchor tree-picker-head__action" x-show="catalogView !== 'publish'" @click="catalogView = 'publish'" aria-label="Publicar en el catálogo">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
         <span class="chart-tooltip" aria-hidden="true"><p>Publicar en el catálogo</p></span>
       </button>
-      <button type="button" class="table-action-btn table-action-btn--text" x-show="catalogView === 'publish'" x-cloak @click="catalogView = 'browse'" id="catalog-publish-back">← Volver</button>
+      <button type="button" class="table-action-btn table-action-btn--text tree-picker-head__action" x-show="catalogView === 'publish'" x-cloak @click="catalogView = 'browse'" id="catalog-publish-back">← Volver</button>
       {% endif %}
     </div>
     <div class="tree-picker-row" x-show="catalogView !== 'publish'">

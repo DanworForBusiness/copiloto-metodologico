@@ -376,9 +376,9 @@ def test_header_row_swaps_the_right_action_with_the_catalog_state(owner, monkeyp
     _demo_catalog(monkeypatch, tmp_path)
     try:
         cat = _catalog_html(owner)
-        head = cat[cat.index('class="catalog-kind-head"'):]
+        head = cat[cat.index('class="tree-picker-head"'):]
         head = head[: head.index('<div class="tree-picker-row"')]
-        assert head.count('class="catalog-kind-head"') == 1 and "Catálogo de datos" in head      # UN solo encabezado para ambos estados
+        assert head.count('class="tree-picker-head"') == 1 and "Catálogo de datos" in head      # UN solo encabezado para ambos estados
         plus = head[head.index('aria-label="Publicar en el catálogo"') - 200: head.index('aria-label="Publicar en el catálogo"')]
         assert "catalogView !== 'publish'" in plus                                                  # "+" solo en browse
         assert 'id="catalog-publish-back"' in head and "← Volver" in head
@@ -412,7 +412,7 @@ def test_plus_and_guide_step5_land_in_the_same_state_with_the_same_header(owner,
         via_guide = owner.get(CATALOG_PUBLISH_URL).text
         assert "copilotLayout('core', false, 'catalogo', '', 'publish')" in via_guide
         cat = via_guide[via_guide.index("toolTab==='catalogo'"):]
-        assert 'id="catalog-publish-back"' in cat and cat.count('class="catalog-kind-head"') == 1   # el mismo encabezado, sin "volver a la guía"
+        assert 'id="catalog-publish-back"' in cat and cat.count('class="tree-picker-head"') == 1   # el mismo encabezado, sin "volver a la guía"
     finally:
         main._invalidate_catalog_cache()
 
@@ -445,5 +445,43 @@ def test_decision_tabs_are_exactly_the_approved_four_and_no_client_portfolio_sur
         css = (REPO / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
         assert "tool-tabs--many" not in css
         assert "client-assessment" not in (REPO / "tests" / "route_surface.json").read_text(encoding="utf-8")
+    finally:
+        main._invalidate_catalog_cache()
+
+
+def test_tree_and_catalog_share_the_same_picker_section_geometry(owner, monkeypatch, tmp_path):
+    """Árbol y Catálogo son hermanos: mismo `.tree-picker` + título (`<label>`) + `.tree-picker-row`. La acción del Catálogo ("+" / "← Volver")
+    sale del flujo, así la fila de título mide lo mismo que el label de Árbol y el selector arranca en la misma posición vertical."""
+    _demo_catalog(monkeypatch, tmp_path)
+    try:
+        tree = (REPO / "webapp" / "templates" / "partials" / "tree_tab.html").read_text(encoding="utf-8")
+        cat_tpl = (REPO / "webapp" / "templates" / "partials" / "catalog_tab.html").read_text(encoding="utf-8")
+        assert 'class="tree-picker"' in tree and '<label for="tree-selector">' in tree and 'class="tree-picker-row"' in tree
+        assert 'class="tree-picker catalog-picker--kind"' in cat_tpl and 'class="tree-picker-row"' in cat_tpl
+        css = (REPO / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+        # el primitivo compartido de la fila de título: la acción es absoluta (no aporta altura) y está centrada en el título
+        rule = css.split(".tree-picker-head .tree-picker-head__action {")[1].split("}")[0]
+        assert "position: absolute" in rule and "top: 50%" in rule and "translateY(-50%)" in rule and "right: 0" in rule
+        assert "display: flex" not in css.split(".tree-picker-head {")[1].split("}")[0]                 # la fila no es un flex que crezca con el botón
+        # el "+" y "← Volver" viven DENTRO de la fila de título compartida y reusan el primitivo de acción
+        html = owner.get(MODULE_URL).text
+        cat = html[html.index("toolTab==='catalogo'"):]
+        start = cat.index('class="tree-picker-head"')
+        head = cat[start: cat.index('<div class="tree-picker-row"', start)]
+        assert head.count("tree-picker-head__action") == 2 and "Catálogo de datos" in head
+    finally:
+        main._invalidate_catalog_cache()
+
+
+def test_publication_only_compact_modifier_never_applies_in_browse_state(owner, monkeypatch, tmp_path):
+    _demo_catalog(monkeypatch, tmp_path)
+    try:
+        cat = _catalog_html(owner)
+        # el modificador compacto solo se enlaza (Alpine) al estado de publicación; la clase estática del encabezado no lo lleva
+        assert 'class="tree-picker catalog-picker--kind"' in cat and 'class="tree-picker catalog-picker--kind catalog-picker--bare' not in cat
+        assert ":class=\"catalogView === 'publish' && 'catalog-picker--bare'\"" in cat
+        assert cat.count("catalog-picker--bare") == 1
+        css = (REPO / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+        assert ".catalog-picker--bare { padding-bottom: 6px; }" in css                                  # y el estado de publicación sigue compacto
     finally:
         main._invalidate_catalog_cache()

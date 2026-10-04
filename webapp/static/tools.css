@@ -2301,10 +2301,14 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 
 /* "¿Falta un árbol/catálogo?" — cierre de la caja punteada del tab (form árbol / link catálogo). */
 .tool-suggest { margin-top: 14px; }
-/* Encabezado del catálogo de datos con el "+" de alta (Publicar modelo): la etiqueta y el ícono neutro (`.table-action-btn`, sin caja ni dorado) en una fila. */
-.catalog-kind-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-/* Estado de publicación: el encabezado queda SOLO con el título (sin el selector debajo), así que el espacio hasta la línea separadora y hasta el
-   primer grupo del formulario se compacta (el margen estándar del selector no aplica). */
+/* Fila de TÍTULO de un `.tree-picker` con una acción a la derecha (Catálogo: "+" / "← Volver"). La acción sale del flujo (absoluta, centrada
+   sobre la línea del título): la fila mide EXACTAMENTE lo que un `<label>` suelto, así el título y el selector arrancan en la misma posición
+   vertical que el resto de los pickers de las herramientas de decisión (p. ej. "Árbol de decisión"). Con la acción en el flujo, su caja de 28px
+   hacía la fila más alta y desplazaba título y selector. */
+.tree-picker-head { position: relative; }
+.tree-picker-head .tree-picker-head__action { position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
+/* Estado de PUBLICACIÓN (solo: la clase se aplica únicamente con catalogView === 'publish'): el encabezado queda SOLO con el título (sin el selector
+   debajo), así que el espacio hasta la línea separadora y hasta el primer grupo del formulario se compacta. El estado de exploración no la usa. */
 .catalog-picker--bare { padding-bottom: 6px; }
 .catalog-picker--bare + #catalog-publish-state form > input[type="hidden"] + .tree-picker { margin-top: 14px; }
 /* Variante con texto del primitivo neutro `.table-action-btn` (p. ej. "← Volver" del estado de publicación): sin caja, ancho por contenido. */
