@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import json
+
 import pytest
 
 from tools.catalog import DSP_CLI_Export_Lineage as dsp
@@ -177,3 +179,82 @@ def test_capture_output_streaming():
 def test_export_result_has_diagnostics_contract():
     result = dsp.ExportResult(ok=True, diagnostics={"enabled": True})
     assert result.diagnostics == {"enabled": True}
+
+
+def test_classify_view_type_sql():
+    data = {
+        "definitions": {
+            "V_SQL": {
+                "kind": "entity",
+                "@DataWarehouse.sqlEditor.query": 'SELECT * FROM "T"',
+            }
+        }
+    }
+    assert dsp.LineageExporter.classify_view_type(data, "V_SQL") == "SQL"
+
+
+def test_classify_view_type_graphical_has_precedence():
+    data = {
+        "definitions": {
+            "V_GRAPH": {
+                "kind": "entity",
+                "@DataWarehouse.sqlEditor.query": 'SELECT * FROM "T"',
+            }
+        },
+        "editorSettings": {
+            "V_GRAPH": {
+                "editor": {
+                    "default": "GRAPHICALVIEWBUILDER",
+                }
+            }
+        },
+    }
+    assert dsp.LineageExporter.classify_view_type(data, "V_GRAPH") == "GRAPHICAL"
+
+
+def test_classify_view_type_unknown():
+    data = {
+        "definitions": {
+            "V_UNKNOWN": {
+                "kind": "entity",
+            }
+        }
+    }
+    assert dsp.LineageExporter.classify_view_type(data, "V_UNKNOWN") == "UNKNOWN"
+
+
+def test_write_outputs_enriches_view_type_without_mutating_payload(tmp_path):
+    payload = {
+        "definitions": {
+            "V_SQL": {
+                "kind": "entity",
+                "@DataWarehouse.sqlEditor.query": 'SELECT * FROM "T"',
+            }
+        }
+    }
+    cli = FakeCli(
+        root_inventory("view", "V_SQL"),
+        {("views", "V_SQL"): payload},
+    )
+    exporter = dsp.LineageExporter(
+        cli,
+        "S",
+        output_dir=tmp_path,
+        root_object="V_SQL",
+        requested_features={"views"},
+        root_type="view",
+    )
+    exporter.nodes[("views", "V_SQL")] = dsp.Node("views", "V_SQL")
+
+    exporter.write_outputs()
+
+    exported = json.loads(
+        (tmp_path / "views" / "V_SQL.json").read_text(encoding="utf-8")
+    )
+
+    assert exported["viewType"] == "SQL"
+    assert "viewType" not in payload
+    assert (
+        exported["definitions"]["V_SQL"]["@DataWarehouse.sqlEditor.query"]
+        == 'SELECT * FROM "T"'
+    )

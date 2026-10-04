@@ -828,6 +828,38 @@ class LineageExporter:
     def _extract_sql_dependencies(sql: str) -> set[str]:
         return set(re.findall(r'(?:FROM|JOIN)\s+"([^"]+)"', sql, flags=re.IGNORECASE))
 
+    @staticmethod
+    def classify_view_type(data: dict[str, Any], technical_name: str) -> str:
+        editor_settings = data.get("editorSettings", {})
+        if isinstance(editor_settings, dict):
+            settings = editor_settings.get(technical_name)
+            if isinstance(settings, dict):
+                editor = settings.get("editor", {})
+                if (
+                    isinstance(editor, dict)
+                    and editor.get("default") == "GRAPHICALVIEWBUILDER"
+                ):
+                    return "GRAPHICAL"
+
+        definitions = data.get("definitions", {})
+        if not isinstance(definitions, dict):
+            return "UNKNOWN"
+
+        definition = definitions.get(technical_name)
+        if not isinstance(definition, dict):
+            definition = next(
+                (v for v in definitions.values() if isinstance(v, dict)),
+                None,
+            )
+
+        if (
+            isinstance(definition, dict)
+            and "@DataWarehouse.sqlEditor.query" in definition
+        ):
+            return "SQL"
+
+        return "UNKNOWN"
+
     def parse_view_dependencies(self, data: dict[str, Any], technical_name: str) -> set[str]:
         definitions = data.get("definitions", {})
         if not isinstance(definitions, dict):
@@ -1080,7 +1112,17 @@ class LineageExporter:
                     continue
                 output_file = target_dir / f"{self._safe_filename(technical_name)}.json"
                 local_started = time.perf_counter()
-                output_file.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+                output_data = data
+                if object_type == "views":
+                    output_data = dict(data)
+                    output_data["viewType"] = self.classify_view_type(
+                        data,
+                        technical_name,
+                    )
+                output_file.write_text(
+                    json.dumps(output_data, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
                 self.diagnostics.record_local_work((time.perf_counter() - local_started) * 1000.0)
                 _say("OK")
                 exported += 1
