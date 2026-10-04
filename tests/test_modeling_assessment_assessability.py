@@ -310,12 +310,12 @@ def test_roles_context_derived_views_processing_and_optional_evidence_are_exclud
     assert {k for k, v in role.items() if v is A.SurfaceRole.OPTIONAL_DEEPER_EVIDENCE} == {"propagation.derivation_semantics"}
     assert {k for k, v in role.items() if v is A.SurfaceRole.DERIVED_VIEW} == {
         "source.family_distribution", "naming.artifact_name_populations", "naming.field_vocabulary_summary",
-        "naming.same_normalized_label_multiple_technical_names", "am.closure_composition"}
+        "naming.same_normalized_label_multiple_technical_names", "am.closure_composition", "am.view_type_composition"}
     # C2 NO es automaticamente "evidencia requerida faltante": las dos brechas C2 permanentes ya no son superficies REQUERIDAS
     assert role["propagation.derivation_semantics"] is not A.SurfaceRole.REQUIRED and role["source.replication_mode"] is not A.SurfaceRole.REQUIRED
     from collections import Counter
     assert Counter((s.kind.value, s.role.value) for s in A.SURFACE_REGISTRY) == {
-        ("FACT_EVIDENCE", "REQUIRED"): 29, ("RULE_EVALUATION", "REQUIRED"): 11, ("FACT_EVIDENCE", "DERIVED_VIEW"): 5,
+        ("FACT_EVIDENCE", "REQUIRED"): 29, ("RULE_EVALUATION", "REQUIRED"): 11, ("FACT_EVIDENCE", "DERIVED_VIEW"): 6,
         ("FACT_EVIDENCE", "CROSS_PLANE_COMPLEMENT"): 4, ("FACT_EVIDENCE", "CONTEXT_ONLY"): 2, ("FACT_EVIDENCE", "OPTIONAL_DEEPER_EVIDENCE"): 1}
 
 

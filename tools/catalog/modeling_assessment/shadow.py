@@ -28,6 +28,7 @@ from .assessability import compose_assessment
 from .facts_am import am_facts
 from .facts_harmonization import harmonization_facts
 from .facts_ingestion import ingestion_facts
+from .facts_view_type import view_type_facts
 from .facts_naming import naming_facts
 from .facts_propagation import propagation_facts
 from .facts_source import source_facts
@@ -116,6 +117,7 @@ def collect_facts(universe: AssessmentUniverse, entities, am: str, evidence: Sup
     return [*source_facts(universe, entities, am, evidence=evidence, identity=identity),
             *ingestion_facts(universe, entities, am, evidence=evidence, identity=identity),
             *am_facts(universe, entities, am, identity=identity),
+            *view_type_facts(universe, entities, am, evidence=evidence),
             *propagation_facts(universe, entities, am, identity=identity),
             *harmonization_facts(universe, entities, am, identity=identity),
             *naming_facts(universe, entities, am, identity=identity)]
@@ -165,7 +167,8 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
         universe, scope = universe.resolve_root(entities, am, root_type, pool_signature=signature)   # puede lanzar UnknownRootObjectError
     else:
         scope = universe.scope_for(am, pool_signature=signature)           # puede lanzar UnknownTerminalAmError / TerminalAmSelectionRequired
-    facts = [] if scope.root is None else collect_facts(universe, entities, scope.root, SupplementaryEvidence.from_files(group["jsons"], root=inbound, acquired_flow_families=_acquired_flow_families(evidence_scope)))
+    facts = [] if scope.root is None else collect_facts(universe, entities, scope.root, SupplementaryEvidence.from_files(group["jsons"], root=inbound, acquired_flow_families=_acquired_flow_families(evidence_scope),
+                                                                                                  view_type_of=bridge.view_type_of_export, family_of_dir=bridge.artifact_family_of_dir))
     comp = compose_assessment(scope, facts)
     doc = build_assessment(comp, facts, client=key[0], terminal_label=_business_label(entities, scope.root), evidence_scope=evidence_scope)
     validate_assessment(doc)

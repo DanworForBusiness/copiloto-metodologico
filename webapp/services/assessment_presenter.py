@@ -235,7 +235,8 @@ FACT_LAYOUT: dict[str, dict] = {
     "ANALYTIC_MODEL": {"headline": ["fields", "measures", "associations"],
                        "groups": [("Composición del modelo", ["derived_fields", "keys", "labelled_fields", "numeric_non_measure_attributes", "numeric_non_measure_fields"]),
                                   ("Cierre semántico", ["semantic_closure"]),
-                                  ("Linaje y asociaciones", ["direct_lineage_providers", "association_targets"])]},
+                                  ("Linaje y asociaciones", ["direct_lineage_providers", "association_targets"]),
+                                  ("Composición del cierre por tipo de vista", ["views_in_closure", "view_type_distribution", "view_artifacts"])]},
     "PROPAGATION": {"headline": ["lineage_steps_evaluated", "artifacts_with_derived_fields", "rederived_field_occurrences"], "groups": []},
     "HARMONIZATION": {"headline": ["declared_dimensions", "composition_artifacts", "cross_model_reuse_artifacts"],
                       "groups": [("Reutilización y asociaciones", ["dimensions_with_own_associations", "most_reused_across_models"])]},
@@ -263,7 +264,8 @@ def _fact_into(group: dict, h: dict) -> None:
         group["properties"].append({"label": label, "value": v, "names": None})
     elif isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
         keys = sorted(dict.fromkeys(k for r in v for k in r), key=lambda k: k != "name")
-        group["tables"].append({"title": label, "columns": [_column_title(k) for k in keys], "rows": [[r.get(k, "") for k in keys] for r in v]})
+        group["tables"].append({"title": label, "columns": [_column_title(k) for k in keys],
+                                "rows": [[(P.percent_text(r[k]) if k == "share" and k in r else r.get(k, "")) for k in keys] for r in v]})   # `share` = proporción 0–1
     elif isinstance(v, dict):
         group["tables"].append({"title": label, "columns": ["Concepto", "Valor"], "rows": [[P.row_key_text(k).capitalize(), x] for k, x in v.items()]})
     elif isinstance(v, list):
@@ -297,10 +299,14 @@ def _facts_view(area_id: str, highlights: list[dict]) -> dict:
     if rest["properties"] or rest["tables"]:
         groups.append(rest)
     groups = [g for g in groups if g["properties"] or g["tables"]]
+    notes = []
+    views = by_id.get("views_in_closure")
+    if area_id == "ANALYTIC_MODEL" and views is not None:                                  # misma frase que el Markdown (función del paquete), sin juicio
+        notes.append(P.view_composition_text(views["value"], views.get("breakdown") or []))
     for g in groups:                                                                      # grupo de una sola tabla: el título de la tabla ES el del grupo
         if not g["properties"] and len(g["tables"]) == 1:
             g["title"] = g["tables"][0]["title"]
-    return {"headline": headline, "groups": groups}
+    return {"headline": headline, "groups": groups, "notes": notes}
 
 
 def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, list[dict]]) -> dict:

@@ -635,7 +635,8 @@ def test_facts_have_a_reading_hierarchy_headline_kpis_then_supporting_tables_and
                        any(p["label"] == h["label"] and p["value"] == h["value"] for g in v["groups"] for p in g["properties"])
     am = presenter._facts_view("ANALYTIC_MODEL", next(a for a in prof["areas"] if a["id"] == "ANALYTIC_MODEL")["highlights"])
     assert [m["label"] for m in am["headline"]] == ["Campos expuestos", "Medidas", "Asociaciones declaradas"]
-    assert [g["title"] for g in am["groups"]] == ["Composición del modelo", "Cierre semántico del modelo analítico (artefactos)", "Linaje y asociaciones"]
+    assert [g["title"] for g in am["groups"]] == ["Composición del modelo", "Cierre semántico del modelo analítico (artefactos)", "Linaje y asociaciones",
+                                                          "Composición del cierre por tipo de vista"]
     sec = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-observaciones"')]
     assert 'class="activity-kpi-grid asm-facts"' in sec and "<th>Hecho</th><th>Valor</th>" in sec
     assert not re.search(r"<li>[^<]*: \d+</li>", sec)                                                  # sin pared de bullets "Hecho: n"

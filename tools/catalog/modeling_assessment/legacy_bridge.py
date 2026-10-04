@@ -20,6 +20,9 @@ from pathlib import Path
 
 from tools.catalog import generate_catalog as _gc
 from tools.catalog.compliance_criteria import classify_extraction
+from tools.catalog.dsp_view_type import (  # noqa: F401 — fuente ÚNICA del tipo de vista (la misma función del exportador)
+    BASIS_DERIVED, BASIS_STORED, GRAPHICAL, SQL, UNKNOWN, VIEW_TYPES, classify_view_type, view_type_of_export,
+)
 
 # ── Loader y modelo de entidad ─────────────────────────────────────────────
 load_folder = _gc.load_folder
@@ -41,6 +44,14 @@ client_domain_for = _gc._client_domain_for
 is_artifact_type_dir = _gc._is_artifact_type_dir
 catalog_dir_kind = _gc._catalog_dir_kind
 CATALOG_IGNORED_DIRS = _gc.CATALOG_IGNORED_DIRS
+ARTIFACT_TYPE_DIRS = _gc.CATALOG_ARTIFACT_TYPE_DIRS
+
+
+def artifact_family_of_dir(dir_name: str) -> str | None:
+    """Familia NORMALIZADA (``views``, ``analytic models``, ``local tables``…) de una carpeta-tipo del export CLI, o None si la carpeta NO
+    es una carpeta-tipo (pool plano / dominio). Reusa el contrato de carpetas del legado (`_catalog_dir_kind` + allowlist)."""
+    kind = catalog_dir_kind(dir_name)
+    return kind if kind in ARTIFACT_TYPE_DIRS else None
 CATALOG_SOURCE_EXTENSIONS = _gc.CATALOG_SOURCE_EXTENSIONS
 file_sha256 = _gc._catalog_sha256
 

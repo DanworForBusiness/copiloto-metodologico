@@ -39,7 +39,7 @@ _MACRO_STATE_TEXT = {"HAS_ASSESSED_EVIDENCE": "con evidencia evaluada",
 _LEVEL_TEXT = {"HIGH": "ALTA", "MEDIUM": "MEDIA", "LOW": "BAJA"}
 _KIND_TEXT = {"OBSERVATION": "observación", "REVIEW": "revisión requerida", "DESCRIPTIVE": "descriptivo"}
 _FILTER_TEXT = {"PRESENT": "presente", "ABSENT": "ausente", "NOT_ASSESSED": "no evaluado"}
-_ROW_KEY_TEXT = {"applicable": "aplican", "compliant": "cumplen", "non_compliant": "no cumplen", "observed": "observadas", "unavailable": "no disponibles"}
+_ROW_KEY_TEXT = {"share": "proporción", "view_type": "tipo", "view_type_basis": "origen del tipo", "membership_basis": "criterio de vista", "applicable": "aplican", "compliant": "cumplen", "non_compliant": "no cumplen", "observed": "observadas", "unavailable": "no disponibles"}
 _DIVERGENCE_TEXT = {
     "NAME_LAYER_ABOVE_BOUNDARY_POSITION": "la capa del nombre está por encima de su posición de frontera",
     "NAME_LAYER_INGESTION_BUT_NOT_A_BOUNDARY": "el nombre indica capa 1 pero el artefacto tiene proveedores",
@@ -178,7 +178,17 @@ def _row_text(r: dict) -> str:
     rest = [(k, v) for k, v in r.items() if k != "name" and v is not None]
     if len(rest) == 1 and rest[0][0] == "count":
         return f"{r['name']} ({rest[0][1]})"
-    return f"{r['name']}: " + ", ".join(f"{_ROW_KEY_TEXT.get(k, k.replace('_', '-'))} {v}" for k, v in rest)
+    return f"{r['name']}: " + ", ".join(f"{_ROW_KEY_TEXT.get(k, k.replace('_', '-'))} {_pct(v) if k == 'share' else v}" for k, v in rest)   # `share` = proporción 0–1
+
+
+def view_composition_text(total: int, breakdown: list[dict]) -> str:
+    """Lectura objetiva de la composición ("El cierre semántico contiene 17 vistas: 12 gráficas, 4 SQL y 1 sin clasificación."), SIN juicio.
+    La comparten el Markdown y la UI estructurada (misma función, mismo texto)."""
+    if not total:
+        return "El cierre semántico no contiene vistas de Datasphere."
+    n = {b["name"]: b["count"] for b in breakdown}
+    g, s, u = n.get("gráficas", 0), n.get("SQL", 0), n.get("sin clasificar", 0)
+    return (f"El cierre semántico contiene {_plural(total, 'vista')}: {_plural(g, 'gráfica')}, {s} SQL y {u} sin clasificación.")
 
 
 def _value_text(v: Any) -> str:
@@ -247,6 +257,8 @@ def _area_block(area: dict, groups_by_id: dict[str, dict], rule_by_area: dict[st
             out.append(f"- {h['label']}: {_value_text(h['value'])}")
             for b in h.get("breakdown") or []:
                 out.append(f"  - {b['name']}: {b['count']}")
+            if h["id"] == "views_in_closure":
+                out.append(f"  - {view_composition_text(h['value'], h.get('breakdown') or [])}")
         out.append("")
     gids = area["finding_groups"]
     if gids:

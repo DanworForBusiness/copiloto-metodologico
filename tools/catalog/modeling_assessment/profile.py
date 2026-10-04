@@ -374,6 +374,7 @@ SURFACE_TITLES: dict[str, str] = {
     "ingestion.dataflow_boundary": "Referencias del plano de Procesamiento (frontera)", "ingestion.processing_context_inventory": "Inventario de contexto de Procesamiento",
     "ingestion.processing_reference": "Referencias a flujos de Procesamiento", "am.contract_inventory": "Contrato declarado del modelo analítico",
     "am.closure_composition": "Composición del cierre semántico (linaje estricto frente a asociación)",
+    "am.view_type_composition": "Composición del cierre por tipo de vista (gráfica, SQL, sin clasificar)",
     "am.association_targets": "Destinos de asociación del modelo analítico", "am.contract_delta": "Diferencias del modelo analítico frente a sus proveedores",
     "am.numeric_attributes_not_declared_as_measures": "Atributos numéricos no declarados como medidas", "propagation.derived_fields": "Campos derivados por artefacto",
     "propagation.contract_delta": "Diferencias de contrato por paso de linaje", "propagation.contract_occurrences": "Ocurrencias del contrato del modelo a lo largo del cierre",
@@ -596,6 +597,20 @@ def _highlights(idx: FactIndex, comp: AssessmentComposition, area: M.Area) -> li
                 [{"name": ("alcanzables por linaje estricto desde el objeto raíz (incluido el propio objeto)" if non_am_root
                            else "alcanzables por linaje estricto desde el modelo terminal (incluido el propio modelo)"), "count": v["strict_lineage_size"]},
                  {"name": "mediados por asociación (fuera del linaje estricto)", "count": v["association_mediated_size"]}])
+        vt = idx.usable_get("am.view_type_composition", am_name or "")
+        if vt is not None:                                                                    # evidencia objetiva de composición: ni buena ni mala
+            v = vt.value
+            add("views_in_closure", "Vistas de Datasphere en el cierre (únicas)", v["total_views"],
+                [{"name": "gráficas", "count": v["graphical_views"]}, {"name": "SQL", "count": v["sql_views"]},
+                 {"name": "sin clasificar", "count": v["unknown_views"]}])
+            if v["total_views"]:
+                add("view_type_distribution", "Distribución por tipo de vista",
+                    [{"count": v["graphical_views"], "name": "gráficas", "share": v["graphical_view_pct"], "view_type": "GRAPHICAL"},    # claves en orden
+                     {"count": v["sql_views"], "name": "SQL", "share": v["sql_view_pct"], "view_type": "SQL"},                         # canónico (JSON ⇄ MD)
+                     {"count": v["unknown_views"], "name": "sin clasificar", "share": v["unknown_view_pct"], "view_type": "UNKNOWN"}])
+                add("view_artifacts", "Vistas del cierre (nombre técnico y tipo)",
+                    [{"membership_basis": r["membership_basis"], "name": r["technical_name"], "view_type": r["view_type"],
+                      "view_type_basis": r["view_type_basis"]} for r in v["views"]])
         nn = idx.usable_get("am.numeric_attributes_not_declared_as_measures", am_name or "")
         if nn is not None:                                                                    # evidencia descriptiva; no es defecto ni revision
             fields = nn.value["fields"]

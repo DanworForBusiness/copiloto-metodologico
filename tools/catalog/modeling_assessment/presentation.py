@@ -21,7 +21,7 @@ from . import render_md as _md
 __all__ = [
     "area_title", "macro_dimension_title", "assessability_text", "assessability_plural_text", "execution_state_text",
     "confidence_level_text", "finding_kind_text", "rule_result_text", "unit_label", "is_artifact_name",
-    "percent_text", "plural", "value_text", "occurrence_text", "row_key_text", "evidence_not_acquired",
+    "percent_text", "plural", "value_text", "occurrence_text", "row_key_text", "evidence_not_acquired", "view_composition_text",
 ]
 
 
@@ -82,6 +82,11 @@ def unit_label(unit: str) -> str:
 def is_artifact_name(unit: str) -> bool:
     """True si la unidad es un nombre técnico de artefacto (y no una unidad de evaluación como el cierre semántico)."""
     return unit not in _md._UNIT_TEXT
+
+
+def view_composition_text(total: int, breakdown: list[dict]) -> str:
+    """Lectura objetiva de la composición del cierre por tipo de vista (misma función que el Markdown; sin juicio)."""
+    return _md.view_composition_text(total, breakdown)
 
 
 def percent_text(value: float | None) -> str:
