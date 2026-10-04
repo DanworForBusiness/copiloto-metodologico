@@ -122,6 +122,7 @@ def enrich_current(entries: Iterable[Any], enrichment: str, *, apply: bool = Fal
                    regenerate: Callable[[Any, Iterable[str]], Any] = svc.regenerate_in_memory,
                    commit: Callable[[Any], str] = svc.commit_regenerated,
                    retry_remote: Callable[[str, str], bool] = svc.retry_remote_persistence,
+                   verify_remote: Callable[[str, str], str] = svc.verify_remote_durability,
                    governed_state_present: Callable[[], bool] = _governed_state_present,
                    remote_enabled: Callable[[], bool] = lambda: svc.remote_store.enabled()) -> dict:
     """Preview (``apply=False``: corre el motor en memoria y NO escribe) o aplicación (``apply=True``) del enriquecimiento ``enrichment`` sobre los
@@ -192,6 +193,25 @@ def enrich_current(entries: Iterable[Any], enrichment: str, *, apply: bool = Fal
                         rec["remote_retry"] = "NOT_CONFIRMED"
                 except Exception:                                                 # noqa: BLE001
                     rec["remote_retry"] = "NOT_CONFIRMED"
+    # ── durabilidad de lo YA enriquecido: un registro local-pero-no-remoto de una corrida anterior NO deja de bloquear el reinicio por omitirse acá.
+    #    Se verifica por bytes contra Spaces (lectura pura); en apply, lo pendiente recibe el mismo reintento explícito (push_path) y se re-verifica.
+    for rec in out["records"]:
+        if rec["reason"] != SKIPPED_ALREADY_ENRICHED:
+            continue
+        try:
+            state = verify_remote(rec["client"], rec["root"])
+        except Exception:                                                         # noqa: BLE001
+            state = svc.REMOTE_UNVERIFIABLE
+        if apply and state == svc.REMOTE_PENDING:
+            try:
+                if retry_remote(rec["client"], rec["root"]):
+                    state = verify_remote(rec["client"], rec["root"])
+                    rec["remote_retry"] = "CONFIRMED" if state == svc.REMOTE_CONFIRMED else "NOT_CONFIRMED"
+                else:
+                    rec["remote_retry"] = "NOT_CONFIRMED"
+            except Exception:                                                     # noqa: BLE001
+                rec["remote_retry"] = "NOT_CONFIRMED"
+        rec["remote_state"] = state
     for rec in out["records"]:
         rec.pop("_candidate", None)
     recs = out["records"]
@@ -205,6 +225,9 @@ def enrich_current(entries: Iterable[Any], enrichment: str, *, apply: bool = Fal
         SKIPPED_NON_CURRENT: count(lambda r: r["reason"] == SKIPPED_NON_CURRENT),
         SKIPPED_NOT_YET_ASSESSED: count(lambda r: r["reason"] == SKIPPED_NOT_YET_ASSESSED),
         "failed": count(lambda r: r["action"] == FAILED_ACTION),
+        "already_enriched_remote_confirmed": count(lambda r: r.get("remote_state") == svc.REMOTE_CONFIRMED),
+        "pending_remote": count(lambda r: (r["action"] == REGENERATED and r["durable"] != svc.DURABLE_REMOTE)
+                                or (r["reason"] == SKIPPED_ALREADY_ENRICHED and r.get("remote_state") != svc.REMOTE_CONFIRMED)),
     }
     # ── entorno: este modo NO restaura nada; si el estado gobernado parece ausente, no se finge que no hay nada que hacer ──
     if not entries:
@@ -217,18 +240,19 @@ def enrich_current(entries: Iterable[Any], enrichment: str, *, apply: bool = Fal
     if apply and not remote_enabled():
         out["environment_warnings"].append("REMOTE_STORE_DISABLED: sin credenciales de Spaces nada puede quedar en remote; el reinicio queda bloqueado")
     # ── regla de reinicio: SOLO si todo lo regenerado está confirmado en remote ──
-    if not apply:
-        out["restart"] = RESTART_DRY_RUN
-    elif out["counts"]["regenerated_local"]:
+    #    Se mira TODO lo enriquecido del alcance (regenerado ahora O ya enriquecido antes), no solo lo regenerado en esta corrida.
+    counts = out["counts"]
+    confirmed_any = counts["regenerated_remote"] + counts["already_enriched_remote_confirmed"] > 0
+    if counts["pending_remote"] or (apply and counts["regenerated_remote"] and not remote_enabled()):
         out["restart"] = RESTART_BLOCKED
-    elif out["counts"]["regenerated_remote"] and remote_enabled():
+    elif not apply and counts["would_regenerate"]:
+        out["restart"] = RESTART_DRY_RUN                                         # aún hay algo por regenerar: hablar de reinicio sería prematuro
+    elif confirmed_any:
         out["restart"] = RESTART_SAFE
-    elif out["counts"]["regenerated_remote"]:
-        out["restart"] = RESTART_BLOCKED
     else:
-        out["restart"] = RESTART_NOT_NEEDED
+        out["restart"] = RESTART_DRY_RUN if not apply else RESTART_NOT_NEEDED
     out["restart_safe"] = out["restart"] == RESTART_SAFE
-    out["complete"] = apply and out["counts"]["failed"] == 0 and out["counts"]["regenerated_local"] == 0
+    out["complete"] = apply and counts["failed"] == 0 and counts["pending_remote"] == 0
     return out
 
 

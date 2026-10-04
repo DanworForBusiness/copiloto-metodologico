@@ -76,6 +76,7 @@ class Fakes:
 
     def run(self, entries, apply=False, **kw):
         kw.setdefault("remote_enabled", ALWAYS)
+        kw.setdefault("verify_remote", lambda client, am: svc.REMOTE_CONFIRMED)
         return bf.enrich_current(entries, "view_type", apply=apply, status_for=self.status_for, regenerate=self.regenerate, commit=self.commit,
                                  retry_remote=self.retry, governed_state_present=ALWAYS, **kw)
 
@@ -133,7 +134,8 @@ def test_eligibility_is_by_content_current_and_missing_fact_only():
     assert by["e6"]["reason"] == bf.SKIPPED_NOT_YET_ASSESSED                                                  # NOT_YET_ASSESSED: lo genera el backfill normal
     assert f.regenerated == ["e0"]                                                                           # el motor solo corre para el elegible
     assert out["counts"] == {"eligible": 1, "would_regenerate": 1, "regenerated_remote": 0, "regenerated_local": 0, bf.SKIPPED_ALREADY_ENRICHED: 1,
-                             bf.SKIPPED_NON_CURRENT: 4, bf.SKIPPED_NOT_YET_ASSESSED: 1, "failed": 0}
+                             bf.SKIPPED_NON_CURRENT: 4, bf.SKIPPED_NOT_YET_ASSESSED: 1, "failed": 0,
+                             "already_enriched_remote_confirmed": 1, "pending_remote": 0}
 
 
 def test_entries_pointing_to_the_same_governed_assessment_are_handled_once():
@@ -413,3 +415,78 @@ def test_client_scope_applies_only_to_the_requested_client(world):
     out = bf.enrich_current([solo], "view_type", governed_state_present=ALWAYS)
     assert out["counts"]["eligible"] == 0 and all(r["client"] == "Solo" for r in out["records"])
     assert len(files(world)) == 1
+
+
+# ═══════════════ durabilidad ENTRE invocaciones: local-pero-no-remoto sigue bloqueando el reinicio ═══════════════
+@pytest.fixture()
+def spaces_rw(spaces, monkeypatch):
+    """El Spaces falso + lectura de objetos (``get_object``), para la verificación por bytes de ``remote_store.read_object_bytes``."""
+    class NoSuchKey(Exception):
+        response = {"Error": {"Code": "NoSuchKey"}, "ResponseMetadata": {"HTTPStatusCode": 404}}
+
+    def get_object(self, Bucket, Key):
+        if Key not in self.objects:
+            raise NoSuchKey()
+        return {"Body": SimpleNamespace(read=lambda: self.objects[Key])}
+    monkeypatch.setattr(FakeBucket, "get_object", get_object, raising=False)
+    return spaces
+
+
+def _remote_key(spaces, path):
+    return next(k for k in spaces.objects if k.endswith(path.name))
+
+
+def test_a_local_but_unconfirmed_enriched_profile_keeps_blocking_the_restart_across_cli_invocations(world, spaces_rw, monkeypatch):
+    spaces = spaces_rw
+    path = _make_historical(world)
+    assert remote_store.push_path(path)                                                                            # el viejo está en Spaces Y en disco
+    key = _remote_key(spaces, path)
+    old_remote = spaces.objects[key]
+    # 1) apply: el local se escribe, el PUT remoto falla ⇒ durabilidad local ⇒ reinicio BLOQUEADO
+    spaces.fail_uploads = True
+    first = _run(world, apply=True)
+    assert first["records"][0]["durable"] == svc.DURABLE_LOCAL and first["restart"] == bf.RESTART_BLOCKED and spaces.objects[key] == old_remote
+    # 2) el proceso termina; la SIGUIENTE invocación (RAM vacía) ve el perfil ya enriquecido en disco y omite la regeneración…
+    restart()
+    engine = []
+    real = svc._engine_assess
+    monkeypatch.setattr(svc, "_engine_assess", lambda *a, **k: engine.append(1) or real(*a, **k))
+    for apply in (False, True):                                                                                    # dry-run y apply: ninguno puede declarar seguro el reinicio
+        again = _run(world, apply=apply)
+        rec = again["records"][0]
+        assert rec["reason"] == bf.SKIPPED_ALREADY_ENRICHED and rec["remote_state"] == svc.REMOTE_PENDING          # …pero SABE que el remoto sigue siendo el viejo
+        assert again["restart"] == bf.RESTART_BLOCKED and not again["restart_safe"] and again["counts"]["pending_remote"] == 1
+        assert again["restart"] != bf.RESTART_NOT_NEEDED and not again.get("complete")
+    assert engine == [] and spaces.objects[key] == old_remote                                                      # sin regenerar; el remoto viejo intacto
+    # 3) el remoto se recupera: la siguiente invocación empuja el MISMO archivo local (reintento explícito) y recién ahí es seguro reiniciar
+    spaces.fail_uploads = False
+    dry = _run(world, apply=False)
+    assert dry["records"][0]["remote_state"] == svc.REMOTE_PENDING and dry["restart"] == bf.RESTART_BLOCKED       # el dry-run es solo lectura: NO sube nada
+    assert spaces.objects[key] == old_remote
+    done = _run(world, apply=True)
+    assert done["records"][0]["remote_state"] == svc.REMOTE_CONFIRMED and done["records"][0]["remote_retry"] == "CONFIRMED"
+    assert done["restart"] == bf.RESTART_SAFE and done["restart_safe"] and done["complete"] and done["counts"]["pending_remote"] == 0
+    assert spaces.objects[key] == path.read_bytes() and engine == []                                               # el remoto ES el enriquecido; nunca se re-regeneró
+    assert _run(world, apply=False)["restart"] == bf.RESTART_SAFE                                                  # y queda confirmado en invocaciones posteriores
+
+
+def test_an_unverifiable_remote_never_counts_as_confirmed(world, spaces_rw, monkeypatch):
+    path = _make_historical(world)
+    _run(world, apply=True)                                                                                        # quedará enriquecido (confirmado o no, da igual acá)
+    restart()
+    monkeypatch.setattr(remote_store, "read_object_bytes", lambda p: (_ for _ in ()).throw(remote_store.RemoteReadError("GET irresoluble")))
+    out = _run(world, apply=False)
+    assert out["records"][0]["remote_state"] == svc.REMOTE_UNVERIFIABLE and out["restart"] == bf.RESTART_BLOCKED and out["counts"]["pending_remote"] == 1
+    assert svc.verify_remote_durability("Acme", "4AM_ACME") == svc.REMOTE_UNVERIFIABLE and path.exists()
+
+
+def test_remote_verification_is_a_pure_read_by_exact_bytes(world, spaces_rw):
+    path = _make_historical(world)
+    assert svc.verify_remote_durability("Acme", "4AM_ACME") == svc.REMOTE_PENDING                                   # remoto ausente
+    assert remote_store.push_path(path) and svc.verify_remote_durability("Acme", "4AM_ACME") == svc.REMOTE_CONFIRMED  # idéntico
+    key = _remote_key(spaces_rw, path)
+    spaces_rw.objects[key] = b"otra version"
+    assert svc.verify_remote_durability("Acme", "4AM_ACME") == svc.REMOTE_PENDING                                   # distinto ⇒ no confirmado
+    assert spaces_rw.objects[key] == b"otra version"                                                              # verificar NO escribe
+    src = inspect.getsource(svc.verify_remote_durability)
+    assert "push_path" not in src and "restore" not in src and "upload" not in src

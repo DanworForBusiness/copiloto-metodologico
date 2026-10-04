@@ -752,6 +752,27 @@ def retry_remote_persistence(client: str, am: str) -> bool:
     return bool(path is not None and path.is_file() and remote_store.enabled() and remote_store.push_path(path))
 
 
+REMOTE_CONFIRMED, REMOTE_PENDING, REMOTE_UNVERIFIABLE = "confirmed", "pending", "unverifiable"
+
+
+def verify_remote_durability(client: str, am: str) -> str:
+    """¿El registro gobernado local YA es el objeto remoto? Verificación por BYTES EXACTOS (``remote_store.read_object_bytes``, lectura pura: no escribe
+    ni restaura nada). ``confirmed`` = el objeto remoto es idéntico al archivo local; ``pending`` = ausente o distinto (el local aún no se subió);
+    ``unverifiable`` = no se pudo determinar (Spaces deshabilitado, GET irresoluble o archivo local ausente): se trata como NO confirmado.
+    Es lo que permite que la seguridad del reinicio sobreviva entre invocaciones del CLI: un perfil local-pero-no-remoto sigue bloqueando."""
+    path = governed_path(client, am)
+    if path is None or not path.is_file():
+        return REMOTE_UNVERIFIABLE
+    try:
+        remote = remote_store.read_object_bytes(path)
+        local = path.read_bytes()
+    except (remote_store.RemoteReadError, OSError):
+        return REMOTE_UNVERIFIABLE
+    if remote is None:
+        return REMOTE_PENDING
+    return REMOTE_CONFIRMED if remote == local else REMOTE_PENDING
+
+
 # ═══════════════════════════ exportaciones ═══════════════════════════
 def export_json(status: AssessmentStatus) -> str:
     """El perfil canónico validado exacto que usa el UI."""
