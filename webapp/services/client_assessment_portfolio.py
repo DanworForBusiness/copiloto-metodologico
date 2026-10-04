@@ -158,6 +158,57 @@ def build_snapshot(entry: Any, pack: str, *, now: datetime | None = None) -> dic
 
 
 # ───────────────────── presentación / exportaciones (del MISMO snapshot) ─────────────────────
+# Rótulos CORTOS de estado para el HTML del consolidado (la columna ya se titula "Estado del Assessment"). UNA sola fuente para Resumen y Artefactos;
+# los enums, el JSON (`state_label`) y el Markdown conservan los rótulos canónicos del presenter.
+STATE_DISPLAY_LABELS = {
+    svc.CURRENT: "Vigente", svc.STALE: "Desactualizado", svc.NOT_YET_ASSESSED: "Sin Iniciar",
+    svc.NOT_APPLICABLE: "No Aplica", svc.FAILED: "No Disponible", svc.INCOMPATIBLE_SCHEMA: "No Compatible",
+}
+
+
+def confidence_story(dist: dict) -> str | None:
+    """Lectura ejecutiva de la DISTRIBUCIÓN de confianza de los assessments vigentes (no es otra métrica ni un puntaje).
+    Reglas (pocas ramas cualitativas): sin vigentes → nada; baja material (≥ 25%) → cautela; si no, predomina alta o media."""
+    alta, media, baja = (int(dist.get(k) or 0) for k in CONFIDENCE_ORDER)
+    n = alta + media + baja
+    if n == 0:
+        return None
+    if baja * 4 >= n:
+        return ("La evidencia muestra un panorama más heterogéneo y conviene interpretar los resultados con mayor cautela, "
+                "dado el peso de assessments con confianza baja.")
+    if alta >= media:
+        return ("La evidencia presenta una base sólida, con predominio de assessments de confianza alta y una presencia "
+                "acotada de niveles inferiores.")
+    if alta * 4 >= n:
+        return ("La evidencia presenta una base consistente: predominan los assessments de confianza media, acompañados por una "
+                "proporción relevante de confianza alta y sin señales significativas de confianza baja.")
+    return ("La evidencia presenta una base razonable: predominan los assessments de confianza media, "
+            "con poca presencia de confianza alta y sin señales significativas de confianza baja.")
+
+
+VERDICT_ORDER = ("plena", "buena", "parcial")
+
+
+def catalog_verdict_story(verdicts: list) -> str | None:
+    """Lectura cualitativa del veredicto HISTÓRICO del catálogo (higiene de extracción; NO es un puntaje del Assessment ni uno nuevo).
+    Reglas: sin veredictos usables → nada; parcial material (≥ 25%) → atención; plena > 50% → sólido; buena > 50% → mayormente
+    reutilizable; si no, mixto."""
+    counts = {v: sum(1 for x in verdicts if x == v) for v in VERDICT_ORDER}
+    n = sum(counts.values())
+    if n == 0:
+        return None
+    if counts["parcial"] * 4 >= n:
+        return ("El panorama de reutilización requiere atención: una proporción relevante de artefactos mantiene reservas que "
+                "conviene revisar antes de promover su reutilización más amplia.")
+    if counts["plena"] * 2 > n:
+        return ("El catálogo presenta un perfil de reutilización sólido, con predominio de artefactos clasificados como Plena y "
+                "reservas concentradas en una porción menor del universo.")
+    if counts["buena"] * 2 > n:
+        return ("El catálogo muestra un panorama mayormente reutilizable, aunque una parte relevante de los artefactos conserva "
+                "reservas puntuales según el veredicto histórico del catálogo.")
+    return ("El catálogo presenta un panorama mixto de reutilización, con distintos niveles de reserva entre los artefactos evaluados.")
+
+
 def report_view(snap: dict) -> dict:
     s, n = snap["summary"], snap["catalog_assets"]
     cov = s["coverage"]
@@ -166,13 +217,16 @@ def report_view(snap: dict) -> dict:
         "snapshot": snap,
         "generated_text": snap["generated_at"].replace("T", " ").replace("+00:00", " UTC"),
         "kpis": [
-            {"label": "Artefactos del catálogo", "value": str(n)},
-            {"label": f"Assessments vigentes · de {n}", "value": f"{cur} / {n}"},
-            {"label": f"Requieren revisión · sobre {cur} vigentes", "value": str(s["requires_review"])},
-            {"label": f"Cobertura promedio · sobre {presenter.plural(cov['over_current_assessments'], 'assessment vigente', 'assessments vigentes')}",
-             "value": presenter.percent(cov["average_strict"]) if cov["average_strict"] is not None else DASH},
+            {"label": "Total de Artefactos", "value": str(n)},
+            {"label": "Assessments vigentes", "value": str(cur)},
+            {"label": "Requieren revisión", "value": str(s["requires_review"])},
+            {"label": "Cobertura promedio", "value": presenter.percent(cov["average_strict"]) if cov["average_strict"] is not None else DASH},
         ],
-        "state_labels": dict(presenter.STATE_LABELS), "state_tones": dict(presenter.STATE_TONES),
+        "state_labels": dict(STATE_DISPLAY_LABELS), "state_tones": dict(presenter.STATE_TONES),
+        "coverage_whole": {r["entry_id"]: (presenter.percent(r["coverage_strict"], 0) if r["coverage_strict"] is not None else DASH)
+                           for r in snap["assets"]},                  # solo presentación de la tabla HTML; el snapshot/JSON conserva el valor y su precisión
+        "confidence_story": confidence_story(s["confidence_distribution"]),
+        "catalog_verdict_story": catalog_verdict_story([r["catalog_verdict"] for r in snap["assets"]]),
         "state_rows": [{"state": st, "label": presenter.STATE_LABELS[st], "count": snap["states"][st]} for st in svc.STATES],
         "confidence_rows": [{"level": lvl, "label": presenter.confidence_label(lvl), "count": s["confidence_distribution"][lvl]}
                             for lvl in CONFIDENCE_ORDER],
@@ -197,11 +251,15 @@ def to_markdown(snap: dict) -> str:
     lines += ["", "## Estado de los artefactos del catálogo", ""] + [f"- {r['label']}: {r['count']}" for r in v["state_rows"]]
     lines += ["", f"## Confianza (sobre {s['current_assessments']} assessments vigentes)", ""]
     lines += [f"- {r['label']}: {r['count']}" for r in v["confidence_rows"]]
+    if v["confidence_story"]:
+        lines += ["", f"> {v['confidence_story']}"]
     lines += ["", "## Artefactos", "", "| Artefacto | Estado | Cobertura | Confianza | Observaciones | Revisión requerida | Veredicto del catálogo |", "|---|---|---|---|---|---|---|"]
     for r in snap["assets"]:
         lines.append("| " + " | ".join(_cell(x) for x in (
             r["artifact_label"] + (f" ({r['artifact_scope']})" if r["artifact_scope"] else ""), r["state_label"], r["coverage_text"] if r["coverage_strict"] is not None else None,
             r["confidence_text"] if r["confidence"] else None, r["observation_occurrences"], r["review_occurrences"], (r["catalog_verdict"] or "").upper() or None)) + " |")
+    if v["catalog_verdict_story"]:
+        lines += ["", f"> {v['catalog_verdict_story']}"]
     lines += ["", "## Hallazgos recurrentes", ""]
     if snap["recurring_findings"]:
         lines += [f"- **{f['title']}** ({f['id']}): {presenter.plural(f['entries'], 'artefacto')}" for f in snap["recurring_findings"]]
