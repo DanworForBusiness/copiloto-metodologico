@@ -49,7 +49,7 @@
 <div x-data="{ catalogKind: '' }">
   {# UN solo encabezado para los dos estados (mismo primitivo de fila): título a la izquierda y, a la derecha, la acción propia del estado
      — browse: "+" (publicar) · publish: "← Volver" (a browse). Ambas son acciones neutras (`.table-action-btn`), sin caja ni dorado. #}
-  <div class="tree-picker catalog-picker--kind">
+  <div class="tree-picker catalog-picker--kind" :class="catalogView === 'publish' && 'catalog-picker--bare'">
     <div class="catalog-kind-head">
       <label for="catalog-kind">Catálogo de datos</label>
       {% if pub.can_execute %}

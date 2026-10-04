@@ -2303,6 +2303,10 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .tool-suggest { margin-top: 14px; }
 /* Encabezado del catálogo de datos con el "+" de alta (Publicar modelo): la etiqueta y el ícono neutro (`.table-action-btn`, sin caja ni dorado) en una fila. */
 .catalog-kind-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* Estado de publicación: el encabezado queda SOLO con el título (sin el selector debajo), así que el espacio hasta la línea separadora y hasta el
+   primer grupo del formulario se compacta (el margen estándar del selector no aplica). */
+.catalog-picker--bare { padding-bottom: 6px; }
+.catalog-picker--bare + #catalog-publish-state form > input[type="hidden"] + .tree-picker { margin-top: 14px; }
 /* Variante con texto del primitivo neutro `.table-action-btn` (p. ej. "← Volver" del estado de publicación): sin caja, ancho por contenido. */
 .table-action-btn.table-action-btn--text { width: auto; padding: 0 8px; white-space: nowrap; font: 600 .72rem var(--sans); letter-spacing: .02em; }
 .tool-suggest__link { margin: 14px 0 0; font-size: .78rem; }

@@ -415,3 +415,35 @@ def test_plus_and_guide_step5_land_in_the_same_state_with_the_same_header(owner,
         assert 'id="catalog-publish-back"' in cat and cat.count('class="catalog-kind-head"') == 1   # el mismo encabezado, sin "volver a la guía"
     finally:
         main._invalidate_catalog_cache()
+
+
+def test_publication_state_header_is_compact_without_the_selector_gap(owner, monkeypatch, tmp_path):
+    # Sin el selector debajo del título, el encabezado se compacta (no queda el margen expandido hasta la línea separadora).
+    _demo_catalog(monkeypatch, tmp_path)
+    try:
+        cat = _catalog_html(owner)
+        assert ":class=\"catalogView === 'publish' && 'catalog-picker--bare'\"" in cat
+        css = (REPO / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+        assert ".catalog-picker--bare { padding-bottom: 6px; }" in css
+        assert ".catalog-picker--bare + #catalog-publish-state form" in css
+    finally:
+        main._invalidate_catalog_cache()
+
+
+def test_decision_tabs_are_exactly_the_approved_four_and_no_client_portfolio_surface_exists(owner, monkeypatch, tmp_path):
+    _demo_catalog(monkeypatch, tmp_path)
+    try:
+        html = owner.get(MODULE_URL).text
+        nav = html[html.index('<nav class="tool-tabs'): html.index("</nav>", html.index('<nav class="tool-tabs'))]
+        assert re.findall(r">([^<]+)</button>", nav) == ["Sección", "Árbol", "Catálogo", "Asistente"]
+        assert "tool-tabs--many" not in html and "Assessment del cliente" not in html and "assessment-cliente" not in html
+        for path in ("/catalog/client-assessment", "/catalog/client-assessment.json", "/catalog/client-assessment.md"):
+            assert owner.get(f"{path}?client=ClienteDemo&pack={PACK}").status_code == 404           # ninguna ruta de consolidado registrada
+        for rel in ("webapp/services/client_assessment_portfolio.py", "webapp/routers/client_assessment.py",
+                    "webapp/templates/client_assessment_report.html", "webapp/templates/partials/client_assessment_tab.html"):
+            assert not (REPO / rel).exists(), rel
+        css = (REPO / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+        assert "tool-tabs--many" not in css
+        assert "client-assessment" not in (REPO / "tests" / "route_surface.json").read_text(encoding="utf-8")
+    finally:
+        main._invalidate_catalog_cache()
