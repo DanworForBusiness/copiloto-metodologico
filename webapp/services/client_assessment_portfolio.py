@@ -158,6 +158,14 @@ def build_snapshot(entry: Any, pack: str, *, now: datetime | None = None) -> dic
 
 
 # ───────────────────── presentación / exportaciones (del MISMO snapshot) ─────────────────────
+# Rótulos CORTOS de estado para el HTML del consolidado (la columna ya se titula "Estado del Assessment"). UNA sola fuente para Resumen y Artefactos;
+# los enums, el JSON (`state_label`) y el Markdown conservan los rótulos canónicos del presenter.
+STATE_DISPLAY_LABELS = {
+    svc.CURRENT: "Vigente", svc.STALE: "Desactualizado", svc.NOT_YET_ASSESSED: "Sin Iniciar",
+    svc.NOT_APPLICABLE: "No Aplica", svc.FAILED: "No Disponible", svc.INCOMPATIBLE_SCHEMA: "No Compatible",
+}
+
+
 def report_view(snap: dict) -> dict:
     s, n = snap["summary"], snap["catalog_assets"]
     cov = s["coverage"]
@@ -166,13 +174,14 @@ def report_view(snap: dict) -> dict:
         "snapshot": snap,
         "generated_text": snap["generated_at"].replace("T", " ").replace("+00:00", " UTC"),
         "kpis": [
-            {"label": "Artefactos del catálogo", "value": str(n)},
-            {"label": f"Assessments vigentes · de {n}", "value": f"{cur} / {n}"},
-            {"label": f"Requieren revisión · sobre {cur} vigentes", "value": str(s["requires_review"])},
-            {"label": f"Cobertura promedio · sobre {presenter.plural(cov['over_current_assessments'], 'assessment vigente', 'assessments vigentes')}",
-             "value": presenter.percent(cov["average_strict"]) if cov["average_strict"] is not None else DASH},
+            {"label": "Total de Artefactos", "value": str(n)},
+            {"label": "Assessments vigentes", "value": str(cur)},
+            {"label": "Requieren revisión", "value": str(s["requires_review"])},
+            {"label": "Cobertura promedio", "value": presenter.percent(cov["average_strict"]) if cov["average_strict"] is not None else DASH},
         ],
-        "state_labels": dict(presenter.STATE_LABELS), "state_tones": dict(presenter.STATE_TONES),
+        "state_labels": dict(STATE_DISPLAY_LABELS), "state_tones": dict(presenter.STATE_TONES),
+        "coverage_whole": {r["entry_id"]: (presenter.percent(r["coverage_strict"], 0) if r["coverage_strict"] is not None else DASH)
+                           for r in snap["assets"]},                  # solo presentación de la tabla HTML; el snapshot/JSON conserva el valor y su precisión
         "state_rows": [{"state": st, "label": presenter.STATE_LABELS[st], "count": snap["states"][st]} for st in svc.STATES],
         "confidence_rows": [{"level": lvl, "label": presenter.confidence_label(lvl), "count": s["confidence_distribution"][lvl]}
                             for lvl in CONFIDENCE_ORDER],

@@ -105,10 +105,13 @@ def test_states_are_the_canonical_individual_states_and_stale_stays_stale(world)
     assert stale["state"] == svc.STALE and stale["coverage_text"] == "—" and stale["confidence_text"] == "—"     # STALE no aporta métricas
 
 
-def test_state_labels_come_from_the_presenter_not_a_second_dictionary():
-    import inspect
-    src = inspect.getsource(pf)
-    assert "presenter.STATE_LABELS" in src and 'CURRENT: "' not in src and "Vigentes" not in src
+def test_json_and_markdown_keep_the_canonical_presenter_state_labels(world):
+    """El mapeo corto es solo del HTML del consolidado: el snapshot/JSON y el Markdown conservan los rótulos canónicos del presenter."""
+    c = _client()
+    snap = c.get("/catalog/client/assessment.json?flow=a").json()
+    assert {r["state"]: r["state_label"] for r in snap["assets"]} == {r["state"]: presenter.STATE_LABELS[r["state"]] for r in snap["assets"]}
+    md = c.get("/catalog/client/assessment.md?flow=a").text
+    assert f"- {presenter.STATE_LABELS[svc.CURRENT]}: 3" in md
 
 
 # ───────────────────────── KPIs ─────────────────────────
@@ -117,9 +120,10 @@ def test_only_current_contributes_to_coverage_and_the_denominator_is_explicit(wo
     cov = s["summary"]["coverage"]
     assert cov["over_current_assessments"] == 3 and cov["average_strict"] == pytest.approx((0.9 + 0.7 + 0.8) / 3)
     kpis = {k["label"]: k["value"] for k in pf.report_view(s)["kpis"]}
-    assert kpis["Artefactos del catálogo"] == "6" and kpis["Assessments vigentes · de 6"] == "3 / 6"
-    assert any(label.startswith("Cobertura promedio") and "3 assessments vigentes" in label for label in kpis)
-    assert any(label.startswith("Requieren revisión") and value == "3" for label, value in kpis.items())
+    assert list(kpis) == ["Total de Artefactos", "Assessments vigentes", "Requieren revisión", "Cobertura promedio"]   # sin denominadores en el texto
+    assert kpis["Total de Artefactos"] == "6" and kpis["Assessments vigentes"] == "3" and kpis["Requieren revisión"] == "3"
+    assert kpis["Cobertura promedio"] == presenter.percent((0.9 + 0.7 + 0.8) / 3)                              # misma semántica, sin cambios
+    assert cov["over_current_assessments"] == 3                                                                # el denominador sigue en el snapshot
 
 
 def test_no_current_assessment_means_a_dash_not_zero(world, monkeypatch):
@@ -183,7 +187,7 @@ def test_html_json_and_markdown_derive_from_one_snapshot(world):
     for a in snap["assets"]:
         assert (a["asset_id"] or a["domain"]) in html.text
     assert 'data-state="STALE"' in html.text and 'data-state="NOT_YET_ASSESSED"' in html.text
-    assert "3 / 6" in html.text and "Hallazgos recurrentes" in html.text and "Frontera de capas" in html.text
+    assert "Hallazgos recurrentes" in html.text and "Frontera de capas" in html.text
     assert "attachment" in j.headers["content-disposition"] and ".json" in j.headers["content-disposition"]
     for forbidden in ("review_required", "fact_index", "rule_results", "profile_json"):                          # sin payload de perfiles individuales
         assert forbidden not in j.text
@@ -320,9 +324,9 @@ def test_report_says_artefacto_not_activo_in_html_json_and_markdown(world):
     md = c.get("/catalog/client/assessment.md?flow=a").text
     txt = re.sub(r"<[^>]+>", " ", html)
     for surface in (txt, md):
-        assert "Artefactos del catálogo" in surface and "Artefacto" in surface
+        assert "Total de Artefactos" in surface and "Artefacto" in surface
         assert not re.search(r"\bactivos?\b", surface, re.I), re.findall(r".{20}\bactivos?\b.{20}", surface, re.I)
-    assert [k["label"] for k in pf.report_view(_snap(world))["kpis"]][0] == "Artefactos del catálogo"
+    assert [k["label"] for k in pf.report_view(_snap(world))["kpis"]][0] == "Total de Artefactos"
 
 
 def test_artifact_identity_is_one_label_without_duplicated_description():
@@ -441,3 +445,56 @@ def test_opening_the_portfolio_never_runs_the_backfill_or_generates(world, monke
     assert _client().get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).status_code == 200
     routers = (REPO / "webapp" / "routers" / "catalog_assessment.py").read_text(encoding="utf-8")
     assert "assessment_backfill" not in routers and "assessment_backfill" not in (REPO / "webapp" / "main.py").read_text(encoding="utf-8")
+
+
+# ───────────────────────── pulido cosmético: KPIs simples, estados cortos, cobertura entera, subtexto ─────────────────────────
+SHORT = {svc.CURRENT: "Vigente", svc.STALE: "Desactualizado", svc.NOT_YET_ASSESSED: "Sin Iniciar",
+         svc.NOT_APPLICABLE: "No Aplica", svc.FAILED: "No Disponible", svc.INCOMPATIBLE_SCHEMA: "No Compatible"}
+
+
+def test_kpi_tiles_are_simple_without_denominators(world):
+    html = _client().get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
+    tiles = re.findall(r'<span class="activity-kpi__value">([^<]*)</span><span class="activity-kpi__label">([^<]*)</span>', html)
+    assert [lbl for _, lbl in tiles] == ["Total de Artefactos", "Assessments vigentes", "Requieren revisión", "Cobertura promedio"]
+    assert [v for v, _ in tiles][:3] == ["6", "3", "3"]
+    assert " / " not in "".join(v for v, _ in tiles) and not re.search(r"\bde \d|sobre \d", "".join(l for _, l in tiles))
+
+
+def test_state_badges_use_one_short_label_mapping_in_summary_and_artifacts(world):
+    assert pf.STATE_DISPLAY_LABELS == SHORT                                                         # una sola fuente, exactamente estos rótulos
+    html = _client().get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
+    summary = html[html.index('id="cli-resumen"'): html.index('id="cli-artefactos"')]
+    assert re.findall(r'<tr data-state="(\w+)"><td><span class="[^"]+">([^<]+)</span>', summary) == [(s, SHORT[s]) for s in svc.STATES]
+    arts = html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]
+    for state, label in re.findall(r'<tr data-entry="[^"]+" data-state="(\w+)">.*?<td><span class="catalog-card__verdict[^"]*">([^<]+)</span>', arts, re.S):
+        assert label == SHORT[state]
+    assert "Assessment vigente" not in summary and "Assessment vigente" not in arts
+
+
+def test_artifact_table_shows_whole_percent_but_snapshot_and_json_keep_their_precision(world):
+    c = _client()
+    html = c.get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
+    arts = html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]
+    cells = re.findall(r"<td>(\d+(?:\.\d+)?%)</td>", arts)
+    assert cells and all("." not in x for x in cells) and {"90%", "70%", "80%"} <= set(cells)
+    snap = c.get("/catalog/client/assessment.json?flow=a").json()
+    cov = {r["entry_id"]: r["coverage_strict"] for r in snap["assets"]}
+    assert cov["a"] == 0.9 and cov["b"] == 0.7 and cov["c"] == 0.8 and cov["e"] is None             # valor canónico intacto
+    assert {r["entry_id"]: r["coverage_text"] for r in snap["assets"]}["a"] == presenter.percent(0.9) == "90.0%"
+    assert "—" in arts                                                                               # no vigentes siguen en guion
+
+
+def test_percent_precision_is_presentation_only_and_default_is_unchanged():
+    assert presenter.percent(0.935) == "93.5%" and presenter.percent(0.935, 1) == "93.5%"           # formato canónico por defecto
+    assert presenter.percent(0.935, 0) == "94%" and presenter.percent(0.925, 0) == "93%" and presenter.percent(1.0, 0) == "100%"
+    assert presenter.percent(0.9, 0) == "90%" and presenter.percent(None, 0) == "n/d"
+
+
+def test_artifact_section_subtitle_is_the_approved_text_in_the_shared_primitive(world):
+    html = _client().get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
+    arts = html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]
+    sub = re.search(r'<blockquote class="section-subtitle"><p>([^<]+)</p></blockquote>', arts).group(1)
+    assert sub == ("Solo los assessments vigentes aportan métricas; los valores representados con guiones significan no disponible. "
+                   "El veredicto del catálogo es el histórico (higiene de extracción), distinto del Assessment. "
+                   "Cada artefacto abre su detalle en el Catálogo, donde vive el informe individual.")
+    assert "admin-help" not in arts and "callout" not in arts

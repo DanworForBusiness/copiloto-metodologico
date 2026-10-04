@@ -193,9 +193,14 @@ def report_title(entry: Any, am: str | None) -> tuple[str | None, str | None]:
     return _report_title(entry, am)
 
 
-def percent(value: float | None) -> str:
-    """Proporción [0,1] como porcentaje (mismo formato que el informe y el Markdown); None → "n/d"."""
-    return P.percent_text(value)
+def percent(value: float | None, decimals: int = 1) -> str:
+    """Proporción [0,1] como porcentaje (mismo formato que el informe y el Markdown); None → "n/d".
+    ``decimals`` (por defecto 1 = el formato canónico) solo cambia la PRESENTACIÓN: se redondea half-up sobre el texto, nunca el valor."""
+    if decimals == 1 or value is None:
+        return P.percent_text(value)
+    from decimal import ROUND_HALF_UP, Decimal
+    q = Decimal(1).scaleb(-decimals)
+    return f"{(Decimal(str(value)) * 100).quantize(q, rounding=ROUND_HALF_UP)}%"
 
 
 def confidence_label(level: str) -> str:
