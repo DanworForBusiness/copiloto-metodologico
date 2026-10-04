@@ -119,7 +119,11 @@
 .module-roadmap__stage.is-optional.is-done:last-child::after {
   background: repeating-linear-gradient(90deg, var(--gold) 0 5px, transparent 5px 10px);
 }
-.module-roadmap__marker { position: relative; z-index: 1; margin-bottom: 14px; }
+/* El marcador envuelve SOLO el círculo del número (no toda la celda de la grilla): así el tooltip
+   (posicionado con left/right sobre el marcador) se ancla al círculo y no al borde de la columna.
+   Sin esto, el último paso (right:-4px) quedaba pegado al borde derecho del contenido, desprendido
+   del número; ahora abre hacia adentro desde el propio círculo, consistente con los demás pasos. */
+.module-roadmap__marker { position: relative; z-index: 1; margin-bottom: 14px; width: max-content; }
 .module-roadmap__num {
   display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
   border: 1px solid var(--rm-track); background: var(--rm-mask);
