@@ -182,7 +182,8 @@ def _rule_repeated_derivation(idx: FactIndex) -> list[Finding]:
                                 "lineage_distance": occ[0]["lineage_distance"], "adjacent": occ[0]["adjacent"],
                                 "field_relations": [{"field": o["field"], "relation": o.get("relation", "UNKNOWN"),
                                                      "relation_reason": o.get("relation_reason", "NO_QUERY_EVIDENCE"),
-                                                     "exposed_by_root": o.get("exposed_by_root")} for o in sorted(occ, key=lambda o: o["field"])]}))
+                                                     "exposed_by_root": o.get("exposed_by_root"), "exposure_basis": o.get("exposure_basis")}
+                                                    for o in sorted(occ, key=lambda o: o["field"])]}))
     return out
 
 

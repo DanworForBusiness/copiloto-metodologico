@@ -365,20 +365,37 @@ class SupplementaryEvidence:
     def remote_table(self, entity: str) -> RemoteTableEvidence | None:
         return self._remote.get(entity)
 
-    def flows_touching(self, entity: str) -> tuple[tuple[FlowEvidence, str], ...]:
+    def target_flows(self, entity: str, known_entities=None) -> tuple[tuple[tuple[FlowEvidence, str], ...], str | None]:
+        """``(((flujo, match), ...), ambiguedad)``: flujos que producen la entidad local ``entity`` como DESTINO. Orden de coincidencia (G1, contrato fijo):
+
+          1. coincidencia EXACTA del destino (RF o DF): si existe, gana y el sufijo ni se intenta (``match = "EXACT"``);
+          2. solo si no hay exacta: la UNICA normalizacion conocida, el destino ``X_Delta`` de un Replication Flow (tabla de captura de cambios) ->
+             ``X`` (``match = "DELTA_SHADOW_SUFFIX"``). Sin matching difuso ni sufijos generales;
+          3. si en el pool existe una entidad local REAL llamada ``X_Delta``, ese destino es suyo: NO se mapea a ``X``;
+          4. el candidato normalizado debe ser UNICO: con varios flujos candidatos la procedencia NO se establece y se informa la ambiguedad
+             (``MULTIPLE_DELTA_CANDIDATES``), nunca se adivina.
+
+        ``known_entities``: nombres de las entidades del pool (para el punto 3); None = no se conoce (no se aplica esa guarda)."""
+        exact = tuple((fl, "EXACT") for fl in self._flows if entity in fl.target_entities)
+        if exact:
+            return exact, None
+        shadow = f"{entity}{DELTA_SHADOW_SUFFIX}"
+        if known_entities is not None and shadow in known_entities:
+            return (), None
+        cands = tuple((fl, "DELTA_SHADOW_SUFFIX") for fl in self._flows if fl.kind == REPLICATION_FLOW and shadow in fl.target_entities)
+        if len(cands) > 1:
+            return (), "MULTIPLE_DELTA_CANDIDATES"
+        return cands, None
+
+    def flows_touching(self, entity: str, known_entities=None) -> tuple[tuple[FlowEvidence, str], ...]:
         """Flujos que referencian la entidad de Datasphere, con su rol ("source" | "target").
 
-        * Data Flow: fuentes y destinos SON entidades de Datasphere (se matchean ambos).
-        * Replication Flow: solo el DESTINO es una entidad de Datasphere; su `sourceObject` vive en el sistema de
-          ORIGEN (p.ej. una CDS de S/4) y puede coincidir por nombre con una entidad local sin ser la misma cosa, asi
-          que NO se matchea (queda como evidencia cruda en `source_entities`). Un destino `X_Delta` se resuelve a la
-          tabla local `X` (sufijo de captura de cambios); un nombre exacto tambien cuenta."""
-        out: list[tuple[FlowEvidence, str]] = []
-        for fl in self._flows:
-            if fl.kind == DATA_FLOW and entity in fl.source_entities:
-                out.append((fl, "source"))
-            if entity in fl.target_entities or f"{entity}{DELTA_SHADOW_SUFFIX}" in fl.target_entities:
-                out.append((fl, "target"))
+        * Data Flow: fuentes y destinos SON entidades de Datasphere.
+        * Replication Flow: solo el DESTINO es una entidad de Datasphere; su `sourceObject` vive en el sistema de ORIGEN (p.ej. una CDS de S/4) y puede
+          coincidir por nombre con una entidad local sin ser la misma cosa, asi que NO se matchea (queda como evidencia cruda en `source_entities`).
+        * Los DESTINOS siguen el orden de ``target_flows`` (exacto primero; ``X_Delta`` solo como normalizacion conocida, unica y sin entidad homonima)."""
+        out: list[tuple[FlowEvidence, str]] = [(fl, "source") for fl in self._flows if fl.kind == DATA_FLOW and entity in fl.source_entities]
+        out += [(fl, "target") for fl, _m in self.target_flows(entity, known_entities)[0]]
         return tuple(out)
 
     @property

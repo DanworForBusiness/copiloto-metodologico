@@ -25,6 +25,7 @@ from .assessability import (
     ASSESSABILITY_RULESET, CONFIDENCE_CUTS, CONFIDENCE_RULESET, SURFACE_REGISTRY, AssessmentComposition, ConfidenceAxis, SurfaceAssessment, SurfaceKind,
     SurfaceRole,
 )
+from .evidence_contract import CANONICAL_EVIDENCE_VERSION, validate_canonical_evidence, validate_document_evidence       # G1/G3/G4: contrato explicito de `canonical_evidence`
 from .identity import IDENTITY_RULESET
 from .model import Applicability, Assessability, Cause, Fact, SignalKind
 from .signals import SIGNAL_REGISTRY, SIGNALS_RULESET, FactIndex, Finding
@@ -32,7 +33,6 @@ from .signals import SIGNAL_REGISTRY, SIGNALS_RULESET, FactIndex, Finding
 ASSESSMENT_SCHEMA_VERSION = "modeling_assessment.assessment/v1"
 REASON_REGISTRY_VERSION = "reason-codes/v1"
 FINDING_EVIDENCE_VERSION = "finding-evidence/v2"          # v2 (G1/G3): relaciones por campo en la repeticion de derivacion
-CANONICAL_EVIDENCE_VERSION = "canonical-evidence/v1"      # G1/G3/G4: payloads de hechos persistidos en `canonical_evidence`
 
 ASSESSMENT_STATES = ("ASSESSED", "NOT_APPLICABLE", "INDETERMINATE")
 
@@ -870,13 +870,10 @@ def validate_assessment(doc: dict) -> None:
             raise ValueError(f"grupo {group['id']}: occurrence_count no coincide con las ocurrencias preservadas")
         unknown = set()
         for o in group["occurrences"]:
-            unknown |= set(o["values"]) - set(PUBLIC_VALUE_KEYS[M.LEGACY_SIGNAL_ALIASES.get(group["id"], group["id"])])
+            unknown |= set(o["values"]) - set(PUBLIC_VALUE_KEYS[M.canonical_signal_id(group["id"])])
         if unknown:
             raise ValueError(f"grupo {group['id']}: valores fuera del mapa publico: {sorted(unknown)}")
-    evidence = doc.get("canonical_evidence")          # opcional: los perfiles anteriores a G1/G3 no lo traen y siguen siendo validos
-    if evidence is not None:
-        if not isinstance(evidence, dict) or evidence.get("version") != CANONICAL_EVIDENCE_VERSION or not isinstance(evidence.get("leaf_provenance"), list):
-            raise ValueError("canonical_evidence invalido")
+    validate_document_evidence(doc)                   # contrato EXPLICITO y condicionado por version (los perfiles historicos sin la version siguen validos)
     codes = set()
 
     def collect(v: Any) -> None:

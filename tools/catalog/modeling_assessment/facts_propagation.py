@@ -28,7 +28,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from . import contract as C
-from .derivation import DERIVATION_EXTRACTOR_VERSION, REL_UNKNOWN, RELATIONS, classify_relation
+from .derivation import DERIVATION_EXTRACTOR_VERSION, EXPOSURE_BASIS_SAME_NAME, REL_UNKNOWN, RELATIONS, classify_relation
 from .facts_support import NoEvidence, entity_refs, make_fact, not_applicable, sort_facts
 from .graph import EdgeKind
 from .identity import IdentityClassification, classify
@@ -186,7 +186,7 @@ def propagation_facts(
                                  "consumer_layer_inference": C.layer_inference(entities[n]),
                                  "provider_layer_inference": C.layer_inference(entities[anc]),
                                  "relation": relation, "relation_reason": reason,
-                                 "exposed_by_root": f in root_fields, "exposure_basis": "SAME_NAME_IN_ROOT_CONTRACT"})
+                                 "exposed_by_root": f in root_fields, "exposure_basis": EXPOSURE_BASIS_SAME_NAME})
     facts.append(make_fact(
         "propagation.rederivation", P_, "closure",
         {"occurrences": redo, "adjacent_count": sum(1 for r in redo if r["adjacent"]),
@@ -210,6 +210,7 @@ def propagation_facts(
             rec = c.to_json()
             rec["reads_provider_same_field"] = c.reads(c.field, direct)
             rec["exposed_by_root"] = c.field in root_fields
+            rec["exposure_basis"] = EXPOSURE_BASIS_SAME_NAME
             fields_json.append(rec)
             for a in c.ambiguity:
                 ambiguity_counts[a] = ambiguity_counts.get(a, 0) + 1
@@ -224,7 +225,7 @@ def propagation_facts(
              "artifacts_without_query_evidence": sorted(missing), "fields": fields_json,
              "counts": {"derived_fields": len(fields_json), "unresolvable": sum(1 for r in fields_json if not r["resolvable"]),
                         "ambiguity": [{"code": k, "count": v} for k, v in sorted(ambiguity_counts.items())]},
-             "exposure_basis": "SAME_NAME_IN_ROOT_CONTRACT"},
+             "exposure_basis": EXPOSURE_BASIS_SAME_NAME},
             EvidenceClass.B, refs=sem_refs,
             assessability=Assessability.PARTIALLY_ASSESSED if missing else Assessability.ASSESSED,
             cause=Cause.NOT_IN_SNAPSHOT if missing else None))

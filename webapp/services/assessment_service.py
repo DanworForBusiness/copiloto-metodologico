@@ -72,6 +72,12 @@ INCOMPATIBLE_SCHEMA = "INCOMPATIBLE_SCHEMA"
 STATES = (CURRENT, STALE, NOT_YET_ASSESSED, NOT_APPLICABLE, FAILED, INCOMPATIBLE_SCHEMA)
 VIEWABLE_STATES = (CURRENT, STALE)
 
+# Causa de un STALE (NO es un estado publico nuevo: los seis estados no cambian). Sirve para el mensaje al usuario y para decidir que migracion aplica.
+STALE_VERSION_ONLY = "VERSION_ONLY"                    # misma entrada (firma del pool igual); cambio el contrato de evidencia/metodologia (versiones)
+STALE_INPUT_CHANGED = "INPUT_CHANGED"                  # cambio la entrada tecnica (firma del pool); mismas versiones
+STALE_VERSION_AND_INPUT = "VERSION_AND_INPUT"          # ambas
+STALE_REASONS = (STALE_VERSION_ONLY, STALE_INPUT_CHANGED, STALE_VERSION_AND_INPUT)
+
 # ── códigos de falla estables → mensaje de cara al usuario (español, sin traza) ──
 ERROR_MESSAGES = {
     "POOL_UNAVAILABLE": ("No hay datos de entrada disponibles para evaluar este modelo. "
@@ -90,6 +96,70 @@ NA_REASONS = {
 INCOMPATIBLE_MESSAGE = "El informe guardado tiene una versión de esquema que esta aplicación no reconoce."
 
 
+# ═══════════════════════════ vigencia: clasificador PURO y registro de migraciones de evidencia ═══════════════════════════
+@dataclass(frozen=True)
+class MigrationTarget:
+    """Migracion de contrato de evidencia (registro chico y explicito; NO es un framework). ``target_keys``: claves del bloque ``versions`` que cambian;
+    ``eligible_old``: valores VIEJOS elegibles por clave (``None`` = la clave no existia en el perfil viejo). El valor OBJETIVO sale siempre de
+    ``current_assessment_versions()`` (constantes reales del paquete). Toda clave NO objetivo debe coincidir ya con el valor vigente."""
+    name: str
+    target_keys: tuple[str, ...]
+    eligible_old: dict
+    description: str
+
+
+EVIDENCE_MIGRATIONS: dict[str, MigrationTarget] = {
+    "evidence_g1_g3_v1": MigrationTarget(
+        "evidence_g1_g3_v1", ("signals", "assessability", "finding_evidence", "canonical_evidence"),
+        {"signals": frozenset({"signal-rules/v2"}), "assessability": frozenset({"assessability-rules/v1"}),
+         "finding_evidence": frozenset({"finding-evidence/v1"}), "canonical_evidence": frozenset({None})},
+        "Gate 4: procedencia canonica de hojas (G1) + semantica estructural de derivaciones (G3) + canonical_evidence"),
+}
+
+
+@dataclass(frozen=True)
+class Currentness:
+    """Resultado del clasificador de vigencia (puro). ``state`` es CURRENT o STALE (los demas estados salen de otras condiciones). Para STALE:
+    ``reason`` (VERSION_ONLY | INPUT_CHANGED | VERSION_AND_INPUT), ``version_diff`` (claves del bloque ``versions`` que difieren) y, para VERSION_ONLY,
+    ``targeted`` = nombre de la migracion de evidencia que cubre EXACTAMENTE esa diferencia (o None = VERSION_ONLY_UNTARGETED)."""
+    state: str
+    reason: str | None = None
+    version_diff: tuple[str, ...] = ()
+    pool_same: bool = True
+    targeted: str | None = None
+
+    @property
+    def version_only_untargeted(self) -> bool:
+        return self.state == STALE and self.reason == STALE_VERSION_ONLY and self.targeted is None
+
+
+def version_diff(old: dict | None, new: dict | None) -> tuple[str, ...]:
+    old, new = old or {}, new or {}
+    return tuple(sorted(k for k in set(old) | set(new) if old.get(k) != new.get(k)))
+
+
+def targeted_migration(old_versions: dict | None, versions: dict) -> str | None:
+    """Migracion del registro que cubre EXACTAMENTE la diferencia entre las versiones guardadas y las vigentes (mismas claves, valores viejos conocidos,
+    toda otra clave ya igual al vigente); None si ninguna."""
+    diff = set(version_diff(old_versions, versions))
+    old = old_versions or {}
+    for m in EVIDENCE_MIGRATIONS.values():
+        if diff == set(m.target_keys) and all(old.get(k) in m.eligible_old[k] for k in m.target_keys):
+            return m.name
+    return None
+
+
+def classify_currentness(stored_signature: str | None, stored_versions: dict | None, pool_signature: str | None, versions: dict) -> Currentness:
+    """Pura: CURRENT si la firma del pool y el bloque COMPLETO de versiones coinciden; si no, STALE con su causa. Mismo criterio que siempre."""
+    pool_same = stored_signature == pool_signature
+    diff = version_diff(stored_versions, versions)
+    if pool_same and not diff:
+        return Currentness(CURRENT)
+    if pool_same:
+        return Currentness(STALE, STALE_VERSION_ONLY, diff, True, targeted_migration(stored_versions, versions))
+    return Currentness(STALE, STALE_INPUT_CHANGED if not diff else STALE_VERSION_AND_INPUT, diff, False, None)
+
+
 # ═══════════════════════════ modelo de datos ═══════════════════════════
 @dataclass(frozen=True)
 class AssessmentStatus:
@@ -103,6 +173,9 @@ class AssessmentStatus:
     profile: dict | None = None          # perfil canónico validado (CURRENT / STALE / FAILED con último perfil previo)
     previous_profile_retained: bool = False
     durable: str | None = field(default=None, compare=False)   # solo tras ``generate``: "remote" | "local" | "memory" (ver ``_store_envelope``)
+    stale_reason: str | None = field(default=None, compare=False)       # solo STALE: VERSION_ONLY | INPUT_CHANGED | VERSION_AND_INPUT
+    stale_targeted: str | None = field(default=None, compare=False)     # solo STALE VERSION_ONLY: nombre de la migracion de evidencia que lo cubre (None = no cubierto)
+    stale_version_diff: tuple = field(default=(), compare=False)        # solo STALE: claves de ``versions`` que difieren
 
     @property
     def viewable(self) -> bool:
@@ -483,8 +556,11 @@ def _status_from(entry: Any, res: Resolution, versions: dict) -> AssessmentStatu
     if env.get("assessment_schema_version") != ma_profile.ASSESSMENT_SCHEMA_VERSION or not _valid_profile(env):
         return AssessmentStatus(INCOMPATIBLE_SCHEMA, eid, client, am, reason=INCOMPATIBLE_MESSAGE, error_code="INCOMPATIBLE_SCHEMA",
                                 generated_at=env.get("generated_at"))
-    current = env.get("input_pool_signature") == res.pool_signature and env.get("assessment_versions") == versions
-    return AssessmentStatus(CURRENT if current else STALE, eid, client, am, generated_at=env.get("generated_at"), profile=prof)
+    cur = classify_currentness(env.get("input_pool_signature"), env.get("assessment_versions"), res.pool_signature, versions)
+    if cur.state == CURRENT:
+        return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof)
+    return AssessmentStatus(STALE, eid, client, am, generated_at=env.get("generated_at"), profile=prof, stale_reason=cur.reason, stale_targeted=cur.targeted,
+                            stale_version_diff=cur.version_diff)
 
 
 _validated: dict[str, bool] = {}
@@ -664,11 +740,13 @@ class EnrichmentError(Exception):
 
 @dataclass(frozen=True)
 class RegeneratedAssessment:
-    """Resultado de regenerar en MEMORIA (nada escrito todavía): el perfil nuevo, su sobre candidato y la llave del registro que reemplazaría."""
+    """Resultado de regenerar en MEMORIA (nada escrito todavía): el perfil nuevo, su sobre candidato y la llave del registro que reemplazaría.
+    ``previous_signature``: firma del artefacto del registro que se reemplazaría (la migracion la reverifica justo antes de escribir)."""
     client: str
     terminal_am: str
     profile: dict
     envelope: dict
+    previous_signature: str | None = None
 
 
 def facts_present(profile: dict | None) -> set[str]:
@@ -688,44 +766,121 @@ def _envelope_resolves_current(env: dict, res: Resolution, versions: dict) -> bo
             and env.get("input_pool_signature") == res.pool_signature and env.get("assessment_versions") == versions)
 
 
-def regenerate_in_memory(entry: Any, required_facts: Iterable[str]) -> RegeneratedAssessment:
-    """Corre el motor canónico sobre la evidencia local actual y VALIDA el resultado, sin escribir nada. Lanza ``EnrichmentError`` (código estable)
-    si el registro gobernado actual no es un CURRENT legible, si el motor o la validación fallan, si la firma del pool regenerada difiere de la del
-    pool local, si el hecho requerido no aparece o si el registro nuevo no leería CURRENT."""
-    required = tuple(required_facts)
+def _regenerate_core(entry: Any, *, precondition: Any, postcheck: Any, log_label: str) -> RegeneratedAssessment:
+    """NUCLEO SEGURO COMPARTIDO por todo flujo de regeneracion controlada (enriquecimiento de CURRENT, migracion de evidencia de STALE version-only):
+    resuelve el pool local, exige ``precondition(previous, res, versions)`` sobre el registro gobernado actual, corre el motor canonico en MEMORIA
+    (sin Datasphere, OAuth ni ``restore()``), VALIDA, exige que la firma del pool regenerada sea la del pool local, aplica ``postcheck(doc, previous, res,
+    versions)`` y que el sobre candidato lea CURRENT. No escribe nada. Cualquier fallo lanza ``EnrichmentError`` (codigo estable) ANTES de tocar el registro."""
     res = resolve_entry(entry)
     versions = current_assessment_versions()
     if res.kind != "OK":
         raise EnrichmentError(res.kind if res.kind in ERROR_MESSAGES else "POOL_UNAVAILABLE")
     client, am = res.client, res.terminal_am
     previous = _load_envelope(client, am)
-    if (previous is None or previous.get("status") != "OK" or not _valid_profile(previous)
-            or previous.get("assessment_schema_version") != ma_profile.ASSESSMENT_SCHEMA_VERSION
-            or previous.get("input_pool_signature") != res.pool_signature or previous.get("assessment_versions") != versions):
-        raise EnrichmentError("PREVIOUS_NOT_CURRENT")
+    precondition(previous, res, versions)
     try:
         doc, meta = _engine_assess(res.pool_root, res.client_dir, am, res.domain_dir)
         if doc.get("assessment_state") != "ASSESSED":
-            log.warning("assessment: enriquecimiento %s/%s: el motor no produjo un assessment (%s)", client, am, (meta or {}).get("errors"))
+            log.warning("assessment: %s %s/%s: el motor no produjo un assessment (%s)", log_label, client, am, (meta or {}).get("errors"))
             raise EnrichmentError("ENGINE_NOT_ASSESSED")
         ma_profile.validate_assessment(doc)
     except EnrichmentError:
         raise
     except ValueError:
-        log.exception("assessment: enriquecimiento %s/%s: perfil inválido", client, am)
+        log.exception("assessment: %s %s/%s: perfil inválido", log_label, client, am)
         raise EnrichmentError("INVALID_PROFILE") from None
     except Exception:                                   # noqa: BLE001 — traza SOLO al log del servidor
-        log.exception("assessment: enriquecimiento %s/%s: fallo del motor", client, am)
+        log.exception("assessment: %s %s/%s: fallo del motor", log_label, client, am)
         raise EnrichmentError("GENERATION_ERROR") from None
     sig = (doc.get("scope") or {}).get("pool_signature") or (meta or {}).get("pool_signature")
     if sig != res.pool_signature:
         raise EnrichmentError("POOL_SIGNATURE_MISMATCH")
-    if missing_facts(doc, required):
-        raise EnrichmentError("ENRICHMENT_MISSING")
+    postcheck(doc, previous, res, versions)
     env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]))
     if not _envelope_resolves_current(env, res, versions):
         raise EnrichmentError("WOULD_NOT_BE_CURRENT")
-    return RegeneratedAssessment(client, am, doc, env)
+    return RegeneratedAssessment(client, am, doc, env, (previous or {}).get("assessment_artifact_signature"))
+
+
+def _readable_previous(previous: dict | None) -> bool:
+    return bool(previous is not None and previous.get("status") == "OK" and _valid_profile(previous)
+                and previous.get("assessment_schema_version") == ma_profile.ASSESSMENT_SCHEMA_VERSION)
+
+
+def regenerate_in_memory(entry: Any, required_facts: Iterable[str]) -> RegeneratedAssessment:
+    """ENRIQUECIMIENTO: corre el motor canónico sobre la evidencia local actual y VALIDA el resultado, sin escribir nada. Lanza ``EnrichmentError`` (código
+    estable) si el registro gobernado actual no es un CURRENT legible, si el motor o la validación fallan, si la firma del pool regenerada difiere de la del
+    pool local, si el hecho requerido no aparece o si el registro nuevo no leería CURRENT."""
+    required = tuple(required_facts)
+
+    def precondition(previous: dict | None, res: Resolution, versions: dict) -> None:
+        if (not _readable_previous(previous) or previous.get("input_pool_signature") != res.pool_signature or previous.get("assessment_versions") != versions):
+            raise EnrichmentError("PREVIOUS_NOT_CURRENT")
+
+    def postcheck(doc: dict, previous: dict | None, res: Resolution, versions: dict) -> None:
+        if missing_facts(doc, required):
+            raise EnrichmentError("ENRICHMENT_MISSING")
+
+    return _regenerate_core(entry, precondition=precondition, postcheck=postcheck, log_label="enriquecimiento")
+
+
+def closure_identity(profile: dict | None) -> tuple | None:
+    """Identidad CANONICA del cierre semantico de un perfil: AM terminal + raiz (objeto y tipo) + CONJUNTO de nombres tecnicos de artefactos del cierre
+    (ordenado: el orden incidental de la lista no cuenta). None si el perfil no trae la lista de artefactos (no verificable)."""
+    sc = (profile or {}).get("scope") or {}
+    arts = sc.get("closure_artifacts")
+    if not isinstance(arts, list):
+        return None
+    return (sc.get("terminal_analytic_model"), sc.get("root_object"), sc.get("root_type"), tuple(sorted({str(a) for a in arts})))
+
+
+def migration_postcheck(name: str, doc: dict, previous: dict | None, versions: dict) -> None:
+    """Postcondiciones de la migracion de evidencia ``name`` sobre el candidato regenerado (todas ANTES de escribir)."""
+    m = EVIDENCE_MIGRATIONS[name]
+    if doc.get("versions") != versions:
+        raise EnrichmentError("CANDIDATE_VERSIONS_NOT_CURRENT")
+    if any(doc["versions"].get(k) != versions.get(k) or versions.get(k) is None for k in m.target_keys):
+        raise EnrichmentError("CANDIDATE_TARGET_VERSIONS_MISMATCH")
+    ce = doc.get("canonical_evidence")                   # por CONTENIDO (no por nombres de hecho en fact_index)
+    if not isinstance(ce, dict):
+        raise EnrichmentError("CANONICAL_EVIDENCE_MISSING")
+    try:
+        ma_profile.validate_canonical_evidence(ce)
+    except ValueError:
+        raise EnrichmentError("CANONICAL_EVIDENCE_INVALID") from None
+    old_scope = (previous or {}).get("profile_json", {}).get("scope") or {}
+    new_scope = doc.get("scope") or {}
+    if old_scope.get("terminal_analytic_model") != new_scope.get("terminal_analytic_model") or old_scope.get("root_object") != new_scope.get("root_object"):
+        raise EnrichmentError("TERMINAL_AM_CHANGED")
+    old_closure, new_closure = closure_identity((previous or {}).get("profile_json")), closure_identity(doc)
+    if old_closure is None or new_closure is None:
+        raise EnrichmentError("CLOSURE_NOT_VERIFIABLE")
+    if old_closure != new_closure:                       # misma entrada + migracion de solo evidencia NO puede cambiar el cierre semantico
+        raise EnrichmentError("CLOSURE_DRIFT")
+
+
+def regenerate_stale_evidence(entry: Any, migration: str) -> RegeneratedAssessment:
+    """MIGRACION DE EVIDENCIA: regenera en MEMORIA un assessment gobernado STALE VERSION_ONLY cubierto por ``migration`` (registro ``EVIDENCE_MIGRATIONS``).
+    Misma disciplina que el enriquecimiento (mismo nucleo): sin escrituras, sin Datasphere, sin OAuth, sin ``restore()``; cualquier fallo conserva el registro
+    previo. Lanza ``EnrichmentError`` con codigo estable."""
+    def precondition(previous: dict | None, res: Resolution, versions: dict) -> None:
+        if not _readable_previous(previous):
+            raise EnrichmentError("PREVIOUS_NOT_READABLE")
+        cur = classify_currentness(previous.get("input_pool_signature"), previous.get("assessment_versions"), res.pool_signature, versions)
+        if cur.state != STALE or cur.reason != STALE_VERSION_ONLY or cur.targeted != migration:
+            raise EnrichmentError("PREVIOUS_NOT_TARGETED_VERSION_ONLY_STALE")
+
+    return _regenerate_core(entry, precondition=precondition, log_label=f"migración {migration}",
+                            postcheck=lambda doc, previous, res, versions: migration_postcheck(migration, doc, previous, versions))
+
+
+def commit_stale_migration(candidate: RegeneratedAssessment) -> str:
+    """Escribe el candidato de una migracion por el MISMO camino seguro (``commit_regenerated``), pero reverifica antes que el registro gobernado siga siendo el
+    que se regenero (p. ej. alguien lo regenero por la UI durante la ventana STALE): si cambio, NO se pisa (``PREVIOUS_CHANGED_DURING_RUN``)."""
+    current = _load_envelope(candidate.client, candidate.terminal_am)
+    if current is None or current.get("assessment_artifact_signature") != candidate.previous_signature:
+        raise EnrichmentError("PREVIOUS_CHANGED_DURING_RUN")
+    return commit_regenerated(candidate)
 
 
 def commit_regenerated(candidate: RegeneratedAssessment) -> str:

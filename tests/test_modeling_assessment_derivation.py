@@ -357,6 +357,7 @@ def test_profiles_persisted_with_the_old_signal_id_remain_readable_and_valid():
     doc = _assess(_pool([ref("K"), dosis_base("DOSIS")], [ref("K"), case_sign_flip("DOSIS")]))
     old = copy.deepcopy(doc)
     old.pop("canonical_evidence")
+    old["versions"].pop("canonical_evidence")                       # un perfil historico no declara la version
     for g in old["review_required"]:
         if g["id"] == "REPEATED_DERIVATION_IN_LINEAGE":
             g["id"] = "CROSS_LAYER_REDERIVATION"

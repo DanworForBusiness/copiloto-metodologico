@@ -268,6 +268,7 @@ def test_old_profiles_without_canonical_evidence_stay_valid_and_the_generic_root
     doc = _doc(_pool(extra={"Acme/replication-flows/RF_X.json": _rf("RF_X", ["LOCAL_X"], ["ZCDS_SRC"])}))
     old = copy.deepcopy(doc)
     old.pop("canonical_evidence")
+    old["versions"].pop("canonical_evidence")                       # un perfil historico no declara la version
     ma_profile.validate_assessment(old)
     root = _pool(extra={"Acme/replication-flows/RF_X.json": _rf("RF_X", ["LOCAL_X"], ["ZCDS_SRC"])})
     gdoc, _ = ma_shadow.assess(root, "Acme", "3VF_X", "General", generic_root=True, root_type="view")

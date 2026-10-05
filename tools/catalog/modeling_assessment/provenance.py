@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from .readers import DATA_FLOW, DELTA_SHADOW_SUFFIX, REPLICATION_FLOW, SupplementaryEvidence
+from .readers import DATA_FLOW, REPLICATION_FLOW, SupplementaryEvidence
 
 PROVENANCE_VERSION = "leaf-provenance/v1"
 
@@ -29,19 +29,15 @@ BASIS_REPLICATION_FLOW, BASIS_DATA_FLOW = "REPLICATION_FLOW", "DATA_FLOW"
 BASIS_DECLARED_DATASET, BASIS_TABLE_FUNCTION, BASIS_NONE = "DECLARED_DATASET", "TABLE_FUNCTION", "NONE"
 
 ASSESSED, NOT_ASSESSED = "ASSESSED", "NOT_ASSESSED"
-CAUSE_NOT_IN_SNAPSHOT, CAUSE_NOT_PARSED = "NOT_IN_SNAPSHOT", "C1_NOT_YET_PARSED"
+CAUSE_NOT_IN_SNAPSHOT, CAUSE_NOT_PARSED, CAUSE_CONTRADICTORY = "NOT_IN_SNAPSHOT", "C1_NOT_YET_PARSED", "CONTRADICTORY_EVIDENCE"
 
 UP_REMOTE_TABLE, UP_LOCAL_TABLE, UP_DATASPHERE_VIEW, UP_OUTSIDE_POOL, UP_CYCLE = "REMOTE_TABLE", "LOCAL_TABLE", "DATASPHERE_VIEW", "OUTSIDE_POOL", "CYCLE"
 _MAX_DEPTH = 6
 
 
-def _target_match(entity: str, targets: tuple[str, ...]) -> str:
-    return "EXACT" if entity in targets else "DELTA_SHADOW_SUFFIX" if f"{entity}{DELTA_SHADOW_SUFFIX}" in targets else "EXACT"
-
-
 def _result(state: str | None, basis: str, status: str, cause: str | None, scope: dict, **extra: Any) -> dict:
     rec: dict[str, Any] = {"provenance_state": state, "basis": basis, "producer_flows": [], "origin": None, "upstream": [], "chain_complete": None,
-                           "declaration": None, "scope": scope, "status": status, "cause": cause}
+                           "declaration": None, "match_ambiguity": None, "scope": scope, "status": status, "cause": cause}
     rec.update(extra)
     return rec
 
@@ -70,11 +66,13 @@ def _resolve_upstream(source: str, ev: SupplementaryEvidence, entities: Mapping[
 def resolve_leaf_provenance(name: str, ev: SupplementaryEvidence, entities: Mapping[str, Any], *, _depth: int = 0, _seen: tuple[str, ...] = ()) -> dict:
     """Registro JSON de procedencia de la hoja local ``name`` (ver el docstring del modulo). Determinista; solo evidencia declarada."""
     scope = ev.provenance_scope
-    targets = [(fl, role) for fl, role in ev.flows_touching(name) if role == "target"]
+    targets, ambiguity = ev.target_flows(name, entities.keys() if hasattr(entities, "keys") else None)
+    if ambiguity:                                      # varios candidatos para la normalizacion X_Delta -> X: NO se adivina
+        return _result(None, BASIS_NONE, NOT_ASSESSED, CAUSE_CONTRADICTORY, scope, match_ambiguity=ambiguity)
     rfs = [fl for fl, _ in targets if fl.kind == REPLICATION_FLOW]
     dfs = [fl for fl, _ in targets if fl.kind == DATA_FLOW]
-    producers = [{"kind": fl.kind, "name": fl.name, "role": "target", "target_match": _target_match(name, fl.target_entities),
-                  "load_types": list(fl.load_types), "source_file": fl.source_file} for fl, _ in targets]
+    producers = [{"kind": fl.kind, "name": fl.name, "role": "target", "target_match": match, "load_types": list(fl.load_types), "source_file": fl.source_file}
+                 for fl, match in targets]
 
     complete_rfs = [fl for fl in rfs if fl.source_systems and fl.source_entities]
     if complete_rfs:

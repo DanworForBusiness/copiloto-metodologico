@@ -152,6 +152,7 @@ def test_profiles_persisted_with_the_old_rule_id_and_title_stay_valid_and_read_w
         for o in g["occurrences"]:
             o["values"].pop("field_relations", None)
     legacy.pop("canonical_evidence", None)
+    legacy["versions"].pop("canonical_evidence", None)
     ma_profile.validate_assessment(legacy)
     view, md = _view(legacy), render_md.render_markdown(legacy)
     for text in (re.sub(r"<[^>]+>", " ", _html(view)), md):

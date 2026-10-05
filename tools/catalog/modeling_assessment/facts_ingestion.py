@@ -158,7 +158,7 @@ def ingestion_facts(
     else:
         referenced = 0
         for name in closure:
-            touched = ev.flows_touching(name)
+            touched = ev.flows_touching(name, entities.keys())
             if not touched:
                 continue
             referenced += 1

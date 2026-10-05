@@ -175,6 +175,12 @@ class ReviewId(str, Enum):
 LEGACY_SIGNAL_ALIASES: dict[str, str] = {"CROSS_LAYER_REDERIVATION": ReviewId.REPEATED_DERIVATION_IN_LINEAGE.value}
 
 
+def canonical_signal_id(signal_id: str) -> str:
+    """Id CANONICO vigente de una senal: un id historico persistido (p. ej. ``CROSS_LAYER_REDERIVATION``) se normaliza al actual. Todo consumidor que COMPARE
+    o agrupe senales por id debe pasar por aca (no recordar el alias a mano). El perfil persistido NO se modifica: es una normalizacion de LECTURA."""
+    return LEGACY_SIGNAL_ALIASES.get(signal_id, signal_id)
+
+
 class Resolution(str, Enum):
     OPEN_CONTEXT_REQUIRED = "OPEN_CONTEXT_REQUIRED"   # unica resolucion posible en Fase 1
 

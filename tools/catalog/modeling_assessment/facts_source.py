@@ -37,7 +37,7 @@ from .identity import IdentityClassification, classify, remote_stem
 from .model import (
     ApplicabilityReason, Area, Assessability, Cause, EvidenceClass, EvidenceRef, Fact, Plane,
 )
-from .provenance import ASSESSED, CAUSE_NOT_PARSED, PROV_NOT_OBSERVABLE, resolve_leaf_provenance
+from .provenance import ASSESSED, CAUSE_CONTRADICTORY, CAUSE_NOT_PARSED, PROV_NOT_OBSERVABLE, resolve_leaf_provenance
 from .readers import SupplementaryEvidence
 from .scope import AssessmentUniverse
 
@@ -258,6 +258,6 @@ def source_facts(
             facts.append(make_fact("source.leaf_provenance", A_, name, value, cls, refs=refs))
         else:
             facts.append(make_fact("source.leaf_provenance", A_, name, value, EvidenceClass.C1, refs=refs, assessability=Assessability.NOT_ASSESSED,
-                                   cause=Cause.C1_NOT_YET_PARSED if rec["cause"] == CAUSE_NOT_PARSED else Cause.NOT_IN_SNAPSHOT))
+                                   cause=Cause.C1_NOT_YET_PARSED if rec["cause"] == CAUSE_NOT_PARSED else Cause.CONTRADICTORY_EVIDENCE if rec["cause"] == CAUSE_CONTRADICTORY else Cause.NOT_IN_SNAPSHOT))
 
     return sort_facts(facts)

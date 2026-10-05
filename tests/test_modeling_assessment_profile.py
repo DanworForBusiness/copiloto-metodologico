@@ -473,7 +473,7 @@ def test_profile_module_is_stdlib_and_package_only_and_never_touches_files_or_le
             mods |= {a.name for a in n.names}
         elif isinstance(n, ast.ImportFrom):
             mods.add(("." * n.level) + (n.module or ""))
-    assert mods <= {"__future__", "json", "typing", ".", ".assessability", ".identity", ".model", ".signals"}, mods
+    assert mods <= {"__future__", "json", "typing", ".", ".assessability", ".evidence_contract", ".identity", ".model", ".signals"}, mods
     text = (PKG / "profile.py").read_text(encoding="utf-8")
     for needle in ("open(", "read_text", "write_text", "legacy_bridge", "generate_catalog"):
         assert needle not in text, needle
