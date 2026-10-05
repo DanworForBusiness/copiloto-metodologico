@@ -12,6 +12,11 @@ Hechos:
         profundidad de su cadena de dependencias (semantica y solo-asociacion), alcance por linaje estricto
   harmonization.composition_artifacts (closure)  B  artefactos con fan-in >= 2: proveedores, contrato declarado propio
         (asociaciones/medidas/dimensiones declaradas), si declara 0/0/0
+  harmonization.expression_repetition (closure)  B  DESCRIPTIVO (G3): estructuras de derivacion IDENTICAS (huella exacta) repetidas en >= 2 artefactos
+        del cierre, hermanos o relacionados por linaje. Evidencia de reuso para una futura revision de armonizacion; NO es re-derivacion de
+        propagacion y no tiene senal ni juicio
+  harmonization.assembly_topology (closure)     B  DESCRIPTIVO (G4): topologia de cada artefacto de composicion (proveedores directos, de frontera,
+        intermedios y reutilizables, consumidores, distancia a la raiz, participacion sobre las hojas del cierre). Sin umbral ni senal
   harmonization.reuse_context (closure)        B  definicion de los dos alcances y el universo de AM terminales
   harmonization.local_chain_reuse (subject = artefacto)  B  LOCAL_CHAIN_REUSE + conteo crudo de consumidores en la
         clausura (contexto, NO reuso)
@@ -29,7 +34,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from . import contract as C
-from .facts_support import APPLICABLE, make_fact, not_applicable, sort_facts
+from .facts_support import NoEvidence, APPLICABLE, make_fact, not_applicable, sort_facts
 from .graph import EdgeKind
 from .identity import IdentityClassification, classify
 from .model import ApplicabilityReason, Area, Assessability, EvidenceClass, EvidenceRef, Fact, Plane
@@ -45,7 +50,9 @@ def harmonization_facts(
     am: str,
     *,
     identity: Mapping[str, IdentityClassification] | None = None,
+    evidence: Any | None = None,
 ) -> tuple[Fact, ...]:
+    ev = evidence if evidence is not None else NoEvidence()
     graph = universe.graph
     closure = universe.closure_of(am)
     closure_set = set(closure)
@@ -113,6 +120,65 @@ def harmonization_facts(
         {"count": len(comp_records), "artifacts": comp_records,
          "selection_basis": "two or more direct lineage providers inside the semantic closure"},
         EvidenceClass.B, refs=clo_ref))
+
+    # ---- topologia de ensamble (B, descriptivo; sin umbral) ------------------------------------------
+    leaves = {n for n in closure if not graph.providers(n) and not (n in ident and ident[n].identity.value == "SYSTEM")}
+
+    def trans_leaves(n: str) -> set[str]:
+        seen, stack = set(), [n]
+        while stack:
+            x = stack.pop()
+            for p in inside(graph.providers(x, [L])):
+                if p not in seen:
+                    seen.add(p)
+                    stack.append(p)
+        return {x for x in seen if x in leaves}
+
+    topo = []
+    for n in closure:
+        if n == am:
+            continue
+        provs = inside(graph.providers(n, [L]))
+        if len(provs) < 2:
+            continue
+        inter = [p for p in provs if graph.providers(p)]
+        reusable = [p for p in inter if len(inside(graph.consumers(p, [L]))) >= 2]
+        reached = trans_leaves(n)
+        topo.append({"artifact": n, "direct_providers": len(provs), "boundary_providers": sum(1 for p in provs if not graph.providers(p)),
+                     "intermediate_providers": len(inter), "reusable_intermediate_providers": len(reusable),
+                     "lineage_consumers": len(inside(graph.consumers(n, [L]))), "lineage_distance_to_root": lin_dist.get(n),
+                     "reaches_root_by_strict_lineage": graph.feeds(n, am), "closure_leaves_reached": len(reached), "closure_leaves_total": len(leaves),
+                     "share_of_closure_leaves": round(len(reached) / len(leaves), 4) if leaves else None})
+    facts.append(make_fact("harmonization.assembly_topology", H_, "closure",
+                           {"count": len(topo), "artifacts": topo,
+                            "definition": "composition artifacts = two or more direct lineage providers inside the semantic closure; descriptive topology, no threshold"},
+                           EvidenceClass.B, refs=clo_ref))
+
+    # ---- repeticion de expresiones entre artefactos (B, descriptivo) ----------------------------------
+    by_fp: dict[str, list] = {}
+    for n in closure:
+        d = ev.derivation_evidence(n)
+        if d is None or (n in ident and ident[n].identity.value == "SYSTEM"):
+            continue
+        for c in d.columns:
+            if set(c.operations) <= {"PASSTHROUGH", "CAST", "LITERAL"}:
+                continue                                              # una proyeccion o conversion trivial repetida no es evidencia de reuso
+            by_fp.setdefault(c.exact_fp, []).append(c)
+    groups = []
+    for fp_, cols in sorted(by_fp.items()):
+        arts = sorted({c.artifact for c in cols})
+        if len(arts) < 2:
+            continue
+        related = sum(1 for i, a in enumerate(arts) for b in arts[i + 1:] if b in graph.distances(a, [L]) or a in graph.distances(b, [L]))
+        pairs = len(arts) * (len(arts) - 1) // 2
+        groups.append({"exact_fp": fp_, "shape_fp": cols[0].shape_fp, "operations": list(cols[0].operations),
+                       "members": [{"artifact": c.artifact, "field": c.field} for c in sorted(cols, key=lambda c: (c.artifact, c.field, c.branch))],
+                       "artifact_pairs": pairs, "lineage_related_pairs": related, "sibling_pairs": pairs - related,
+                       "kind": "SIBLING" if related == 0 else ("LINEAGE_RELATED" if related == pairs else "MIXED")})
+    facts.append(make_fact("harmonization.expression_repetition", H_, "closure",
+                           {"count": len(groups), "groups": groups,
+                            "definition": "identical exact derivation structure (alias-insensitive) in two or more closure artifacts; descriptive reuse evidence, not re-derivation"},
+                           EvidenceClass.B, refs=clo_ref))
 
     # ---- contexto de reuso (B) ---------------------------------------------------------------------
     is_am = universe.root_type_of(am) == "analytic-model"

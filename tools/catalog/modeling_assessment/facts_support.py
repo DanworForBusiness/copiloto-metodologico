@@ -55,3 +55,10 @@ def sort_facts(facts: Iterable[Fact]) -> tuple[Fact, ...]:
 def records(items: Iterable[dict]) -> list[dict]:
     """Lista de registros estable (se conserva el orden recibido, que ya es determinista)."""
     return [dict(i) for i in items]
+
+
+class NoEvidence:
+    """Evidencia suplementaria AUSENTE (los extractores de M3 no leen archivos crudos: reciben la evidencia ya leida por quien arma el pool)."""
+
+    def derivation_evidence(self, entity: str):                  # noqa: ARG002 - misma interfaz que `readers.SupplementaryEvidence`
+        return None

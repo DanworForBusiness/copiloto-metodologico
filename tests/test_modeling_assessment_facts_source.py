@@ -189,22 +189,28 @@ def test_replication_mode_present_in_the_export_is_c1(tmp_path):
 # ── hojas sin origen remoto (Q1 del owner) ─────────────────────────────────
 def test_leaf_without_remote_entity_is_never_not_applicable_by_itself(tmp_path):
     _, facts = _facts()
-    leaves = {f.subject: f for f in _by(facts, "source.leaf_contract_status")}
+    leaves = {f.subject: f for f in _by(facts, "source.leaf_provenance")}
     assert set(leaves) == {"LOCAL_T", "LOCAL_U", "SAP.TIME.X"}
     sysf = leaves["SAP.TIME.X"]                                                  # (A) fuera del concepto => NOT_APPLICABLE
     assert (sysf.applicability.state, sysf.applicability.reason, sysf.assessability) == (
         m.Applicability.NOT_APPLICABLE, m.ApplicabilityReason.SYSTEM_ARTIFACT, A_.NOT_APPLICABLE)
-    for n in ("LOCAL_T", "LOCAL_U"):                                             # (D) procedencia desconocida => NOT_ASSESSED
+    for n in ("LOCAL_T", "LOCAL_U"):                                             # sin evidencia de productores ni alcance declarado => NOT_ASSESSED (nunca "ausente")
         assert leaves[n].applicability.state is m.Applicability.APPLICABLE and leaves[n].assessability is A_.NOT_ASSESSED
-        assert leaves[n].cause is m.Cause.PROVENANCE_UNKNOWN
+        assert leaves[n].cause is m.Cause.NOT_IN_SNAPSHOT and leaves[n].evidence_class is m.EvidenceClass.C1
+        assert leaves[n].value["provenance_state"] is None and leaves[n].value["scope"]["limitation"] == "SCOPE_NOT_DECLARED"
 
 
-def test_processing_evidence_explains_the_cause_but_never_makes_the_modeling_leaf_assessed(tmp_path):
+def test_a_producer_flow_targeting_the_leaf_establishes_its_provenance_and_only_that(tmp_path):
     _, with_flows = _facts(evidence=_evidence(tmp_path))
-    leaf = _by(with_flows, "source.leaf_contract_status", "LOCAL_T")
-    assert (leaf.assessability, leaf.cause) == (A_.NOT_ASSESSED, m.Cause.PLANE_BOUNDARY)      # CASE 1: sigue NOT_ASSESSED
-    assert leaf.value["processing_reference_present"] is True
-    assert _by(with_flows, "source.leaf_contract_status", "LOCAL_U").cause is m.Cause.PROVENANCE_UNKNOWN
+    leaf = _by(with_flows, "source.leaf_provenance", "LOCAL_T")
+    assert (leaf.assessability, leaf.cause, leaf.evidence_class) == (A_.ASSESSED, None, m.EvidenceClass.A)
+    v = leaf.value
+    assert (v["provenance_state"], v["basis"], v["chain_complete"]) == ("ESTABLISHED", "REPLICATION_FLOW", True)
+    assert v["producer_flows"] == [{"kind": "REPLICATION_FLOW", "name": "RF_LOCAL", "role": "target", "target_match": "DELTA_SHADOW_SUFFIX", "load_types": []}]
+    assert v["origin"] == {"systems": [{"connection_id": "S4PREM", "connection_type": "SAPS4HANAOP", "container": "/CDS_EXTRACTION"}], "source_objects": ["LOCAL_T"]}
+    assert any(r.plane is m.Plane.PROCESSING for r in leaf.refs)                              # la evidencia cross-plane queda CITADA, no mezclada
+    other = _by(with_flows, "source.leaf_provenance", "LOCAL_U")                              # sin productor y sin alcance declarado: NO se afirma nada
+    assert (other.assessability, other.cause) == (A_.NOT_ASSESSED, m.Cause.NOT_IN_SNAPSHOT)
 
 
 def test_processing_evidence_does_not_change_modeling_assessability_or_population(tmp_path):
@@ -212,8 +218,11 @@ def test_processing_evidence_does_not_change_modeling_assessability_or_populatio
     _, enriched = _facts(evidence=_evidence(tmp_path))
     states = lambda fs: {(f.fact_id, f.subject, f.plane): f.assessability for f in fs if f.fact_id in
                          {"source.contract", "source.keys", "source.downstream_reach", "source.identity_continuity",
-                          "source.leaf_contract_status", "source.family_distribution", "source.connection_consistency"}}
-    assert states(base) == states(enriched)
+                          "source.family_distribution", "source.connection_consistency"}}
+    assert states(base) == states(enriched)                                                  # la evidencia de Procesamiento no mueve ningun otro hecho de Modeling
+    prov = lambda fs: {f.subject: f.assessability for f in fs if f.fact_id == "source.leaf_provenance"}
+    changed = {k for k in prov(base) if prov(base)[k] != prov(enriched)[k]}
+    assert changed == {"LOCAL_T"}                                                           # solo la superficie de procedencia de la hoja con productor
     assert {f.subject for f in base if f.fact_id == "source.contract"} == {f.subject for f in enriched if f.fact_id == "source.contract"}
 
 
@@ -240,7 +249,7 @@ def test_provenance_classes_used_by_source_facts():
     assert classes["source.contract"] is classes["source.keys"] is m.EvidenceClass.A
     assert classes["source.downstream_reach"] is classes["source.identity_continuity"] is m.EvidenceClass.B
     assert classes["source.query_filter"] is classes["source.annotation_inventory"] is m.EvidenceClass.C1
-    assert m.EvidenceClass.D in {f.evidence_class for f in facts}          # procedencia de hojas desconocida => contexto requerido
+    assert m.EvidenceClass.C1 in {f.evidence_class for f in facts if f.fact_id == "source.leaf_provenance"}   # procedencia sin alcance declarado => evidencia no adquirida
     assert all(f.evidence_class is not m.EvidenceClass.C2 or f.fact_id == "source.replication_mode" for f in facts)
 
 

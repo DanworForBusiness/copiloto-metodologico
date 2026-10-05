@@ -1,15 +1,17 @@
 """
 Alcance de evidencia (familias adquiridas) y su efecto epistémico en el Modeling Assessment.
 
-AUDITORÍA DE USO (estática + empírica) de las familias opcionales del extractor:
-  * replication-flows  -> CONSUMIDA: ``readers._read_replication_flow`` -> ``ingestion.processing_reference`` / ``ingestion.processing_context_inventory``
-                          / ``source.leaf_contract_status`` (``processing_reference_present`` y causa PLANE_BOUNDARY vs PROVENANCE_UNKNOWN).
-  * data-flows         -> CONSUMIDA: igual, más ``ingestion.dataflow_boundary`` (referencias de frontera derivadas de los archivos de Data Flow).
-  * transformation-flows -> NO consumida (ningún lector ni hecho la interpreta; los archivos en el pool no alteran el documento).
-  * task-chains        -> NO consumida (idem).
-Los hechos de plano PROCESSING son cross-plane (rol XPL): no alteran denominadores de cobertura. La única superficie REQUERIDA que depende de
-la evidencia de flows es ``source.leaf_contract_status`` (unidades siempre NOT_ASSESSED): cobertura y confianza NO cambian; cambia la CAUSA.
-Regla: lo NO adquirido no se convierte en "ausente evaluado".
+AUDITORÍA DE USO (estática + empírica) de las familias de productores del extractor (Gate 4, G1):
+  * replication-flows  -> CONSUMIDA: ``readers._read_replication_flow`` -> ``source.leaf_provenance`` (ESTABLISHED, basis REPLICATION_FLOW) y los hechos
+                          de plano PROCESSING (``ingestion.processing_reference`` / ``ingestion.processing_context_inventory``).
+  * data-flows         -> CONSUMIDA: igual (basis DATA_FLOW, cadena recursiva), más ``ingestion.dataflow_boundary``.
+  * transformation-flows -> NO INTERPRETADA como procedencia (sin evidencia forense de una relación entrada/salida confiable). Solo se CUENTAN sus
+                          archivos: si el alcance los adquirió y el pool los trae, la AUSENCIA de productor deja de ser concluyente.
+  * task-chains        -> NUNCA procedencia (orquestan): ningún lector ni hecho los interpreta.
+La evidencia de Procesamiento satisface SOLO la superficie de procedencia/trazabilidad ``source.leaf_provenance`` de una hoja local cuando un productor
+la declara como DESTINO. La AUSENCIA de productor es un resultado EVALUADO (NOT_OBSERVABLE) únicamente con alcance DECLARADO y completo (las tres
+familias de productores adquiridas, sin archivos de TF sin interpretar, sin archivos ilegibles); si no, NOT_ASSESSED. La completitud nunca se infiere
+de carpetas ni de nombres.
 """
 from __future__ import annotations
 
@@ -25,6 +27,7 @@ from tools.catalog.modeling_assessment.render_md import render_markdown
 
 AM = "4AM_X"
 ALL_FLOWS = ["data-flows", "replication-flows"]
+ALL_PRODUCERS = ["data-flows", "replication-flows", "transformation-flows"]       # alcance que PERMITE afirmar la ausencia de productores
 
 
 def _w(root: Path, rel: str, body) -> None:
@@ -60,8 +63,12 @@ def _fact(doc: dict, fact_id: str) -> dict:
     return next(f for f in doc["fact_index"] if f["fact"] == fact_id)
 
 
-def _limitation_code(doc: dict) -> str:
-    return next(l for l in doc["evidence_limitations"] if l["surface_id"] == "source.leaf_contract_status")["reason"]["reason_code"]
+def _limitation_code(doc: dict) -> str | None:
+    return next((l for l in doc["evidence_limitations"] if l["surface_id"] == "source.leaf_provenance"), {"reason": {"reason_code": None}})["reason"]["reason_code"]
+
+
+def _leaf(doc: dict, name: str = "LOCAL_X") -> dict:
+    return next(l for l in doc["canonical_evidence"]["leaf_provenance"] if l["leaf"] == name)
 
 
 def _comparable(doc: dict) -> dict:
@@ -71,19 +78,30 @@ def _comparable(doc: dict) -> dict:
     return d
 
 
-# ── escenarios: adquirido y presente / adquirido y ausente / NO adquirido ──────────────────────────
-def test_acquired_and_present_flow_reference_is_a_plane_boundary():
+# ── escenarios: productor presente / ausente con alcance concluyente / ausente sin alcance concluyente ─────
+def test_present_producer_establishes_provenance_and_no_longer_blocks_the_leaf():
     doc = _doc(_pool(data_flow=True), {"effective_features": ALL_FLOWS, "requested_features": ALL_FLOWS})
-    assert _fact(doc, "source.leaf_contract_status@LOCAL_X")["evidence_class"] == "D"
+    assert _fact(doc, "source.leaf_provenance@LOCAL_X")["evidence_class"] == "A" and _fact(doc, "source.leaf_provenance@LOCAL_X")["assessability"] == "ASSESSED"
     assert _fact(doc, "ingestion.processing_reference@LOCAL_X")["assessability"] == "ASSESSED"
-    assert _limitation_code(doc) == "PROCESSING_PLANE_BOUNDARY"
+    assert _limitation_code(doc) is None
+    assert _leaf(doc)["provenance_state"] == "ESTABLISHED" and _leaf(doc)["basis"] == "DATA_FLOW"
 
 
-def test_acquired_and_absent_is_a_real_absence_provenance_not_observable():
-    doc = _doc(_pool(), {"effective_features": ALL_FLOWS, "requested_features": ALL_FLOWS})
-    assert _limitation_code(doc) == "SOURCE_PROVENANCE_NOT_OBSERVABLE"
+def test_acquired_all_producer_families_and_absent_is_a_real_assessed_absence_not_observable():
+    doc = _doc(_pool(), {"effective_features": ALL_PRODUCERS, "requested_features": ALL_PRODUCERS})
+    assert _fact(doc, "source.leaf_provenance@LOCAL_X")["assessability"] == "ASSESSED" and _limitation_code(doc) is None
+    leaf = _leaf(doc)
+    assert leaf["provenance_state"] == "NOT_OBSERVABLE" and leaf["basis"] == "NONE" and leaf["scope"]["conclusive"] is True
     assert _fact(doc, "ingestion.dataflow_boundary@closure")["assessability"] == "ASSESSED"
     assert _fact(doc, "ingestion.processing_context_inventory@closure")["assessability"] == "ASSESSED"
+
+
+def test_data_and_replication_flows_alone_cannot_establish_absence_because_a_transformation_flow_may_produce_the_leaf():
+    doc = _doc(_pool(), {"effective_features": ALL_FLOWS, "requested_features": ALL_FLOWS})
+    assert _limitation_code(doc) == "SUPPLEMENTARY_EVIDENCE_NOT_PROVIDED"
+    leaf = _leaf(doc)
+    assert leaf["provenance_state"] is None and leaf["scope"]["conclusive"] is False and leaf["scope"]["limitation"] == "PRODUCER_FAMILY_NOT_ACQUIRED"
+    assert _fact(doc, "source.leaf_provenance@LOCAL_X")["assessability"] == "NOT_ASSESSED"
 
 
 def test_not_acquired_data_flows_is_never_represented_as_acquired_and_absent():
@@ -91,7 +109,7 @@ def test_not_acquired_data_flows_is_never_represented_as_acquired_and_absent():
     assert _limitation_code(doc) == "SUPPLEMENTARY_EVIDENCE_NOT_PROVIDED"                    # "no formaba parte del conjunto evaluado"
     assert _fact(doc, "ingestion.dataflow_boundary@closure")["assessability"] == "NOT_ASSESSED"
     assert _fact(doc, "ingestion.processing_context_inventory@closure")["assessability"] == "PARTIALLY_ASSESSED"
-    assert _fact(doc, "source.leaf_contract_status@LOCAL_X")["evidence_class"] == "C1"
+    assert _fact(doc, "source.leaf_provenance@LOCAL_X")["evidence_class"] == "C1"
 
 
 def test_no_flow_family_acquired_marks_the_whole_processing_context_not_assessed():
@@ -101,19 +119,28 @@ def test_no_flow_family_acquired_marks_the_whole_processing_context_not_assessed
     assert _limitation_code(doc) == "SUPPLEMENTARY_EVIDENCE_NOT_PROVIDED"
 
 
-def test_unknown_scope_keeps_the_previous_behavior_exactly():
+def test_unknown_scope_never_yields_a_conclusive_absence_and_positive_evidence_is_unchanged():
     legacy = _doc(_pool(data_flow=True))
     assert legacy["scope"]["evidence_scope"] is None
     full = _doc(_pool(data_flow=True), {"effective_features": ALL_FLOWS, "requested_features": ALL_FLOWS})
-    assert _comparable(legacy) == _comparable(full)                                          # alcance completo == alcance desconocido (hoy)
+    assert (_leaf(legacy)["provenance_state"], _leaf(legacy)["basis"]) == (_leaf(full)["provenance_state"], _leaf(full)["basis"]) == ("ESTABLISHED", "DATA_FLOW")
+    assert _leaf(legacy)["scope"]["declared"] is False and _leaf(full)["scope"]["declared"] is True
+    for d in (legacy, full):
+        d.pop("canonical_evidence")
+    assert _comparable(legacy) == _comparable(full)
+    unknown_absent = _doc(_pool())
+    assert _leaf(unknown_absent)["provenance_state"] is None and _leaf(unknown_absent)["scope"]["limitation"] == "SCOPE_NOT_DECLARED"
 
 
-def test_coverage_confidence_and_findings_do_not_change_only_the_reason_of_the_unassessed_leaf():
-    full = _doc(_pool(), {"effective_features": ALL_FLOWS, "requested_features": ALL_FLOWS})
-    part = _doc(_pool(), {"effective_features": ["replication-flows"], "requested_features": ["replication-flows"]})
-    for key in ("summary", "observations", "review_required", "not_applicable", "descriptive_signals"):
-        assert json.dumps(full[key], sort_keys=True) == json.dumps(part[key], sort_keys=True), key
-    assert json.dumps(full["evidence_limitations"], sort_keys=True) != json.dumps(part["evidence_limitations"], sort_keys=True)
+def test_a_conclusive_scope_raises_coverage_but_never_changes_findings_or_other_areas():
+    conclusive = _doc(_pool(), {"effective_features": ALL_PRODUCERS, "requested_features": ALL_PRODUCERS})
+    partial = _doc(_pool(), {"effective_features": ["replication-flows"], "requested_features": ["replication-flows"]})
+    for key in ("observations", "review_required", "not_applicable", "descriptive_signals"):
+        assert json.dumps(conclusive[key], sort_keys=True) == json.dumps(partial[key], sort_keys=True), key
+    assert conclusive["summary"]["coverage"]["strict"] > partial["summary"]["coverage"]["strict"]
+    for a_c, a_p in zip(conclusive["areas"], partial["areas"]):
+        if a_c["id"] not in ("SOURCE_EXTRACTION", "INGESTION"):
+            assert json.dumps(a_c, sort_keys=True) == json.dumps(a_p, sort_keys=True), a_c["id"]          # el cambio queda confinado a la procedencia
 
 
 # ── el alcance viaja en el documento canónico ───────────────────────────────────────────────────
@@ -154,16 +181,20 @@ def test_transformation_flows_and_task_chains_in_the_pool_do_not_change_the_asse
     assert _comparable(base) == _comparable(extra)
 
 
-def test_static_usage_audit_only_replication_and_data_flows_are_interpreted():
+def test_static_usage_audit_only_replication_and_data_flows_are_interpreted_as_provenance():
     pkg = Path(__file__).resolve().parents[1] / "tools" / "catalog" / "modeling_assessment"
     pattern = re.compile(r"transformation[-_ ]?flows?|task[-_ ]?chains?|transformationflows|taskchains", re.I)
+    allowed = {"render_md.py", "readers.py", "provenance.py"}          # rótulos de alcance / conteo de archivos TF sin interpretar / documentación
     code_hits = []
     for p in pkg.glob("*.py"):
-        if p.name == "render_md.py":                                                          # solo rótulos de presentación del alcance
+        if p.name in allowed:
             continue
         for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
             if pattern.search(line) and not line.lstrip().startswith("#") and "Task Chains y Transformation Flows" not in line:
                 code_hits.append(f"{p.name}:{n}")
-    assert code_hits == [], code_hits                                                         # ningún lector/hecho/regla interpreta TF/TC
+    assert code_hits == [], code_hits                                                         # ningún hecho/regla interpreta TF/TC
     readers = (pkg / "readers.py").read_text(encoding="utf-8")
     assert '"replicationflows"' in readers and '"dataflows"' in readers
+    assert "taskchains" not in readers.lower().replace("task-chains", "")                     # los Task Chains jamás se leen
+    # TF solo se CUENTA (impide afirmar ausencia); no se construye ningún FlowEvidence a partir de ellos
+    assert readers.count("tf_files += 1") == 1 and "_read_transformation" not in readers

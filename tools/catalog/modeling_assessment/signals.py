@@ -11,7 +11,7 @@ hechos) y textos. Las reglas leen SOLO hechos (`Fact`) ya emitidos por M2-M4: no
 Catalogo (P5 canonico):
   OBSERVATION   DIRECT_RAW_TABLE_ACCESS            siempre que exista acceso directo a tabla fisica en el scope Modeling
   REVIEW        PASS_THROUGH_REVIEW                continuidad de schema total + nada introducido (sin juicio; CASE 1 lo contraejemplifica)
-                CROSS_LAYER_REDERIVATION           mismo campo `derived` en un artefacto y en un ancestro de linaje
+                REPEATED_DERIVATION_IN_LINEAGE     mismo campo `derived` en un artefacto y en un ancestro de linaje (+ relacion estructural de cada repeticion; antes CROSS_LAYER_REDERIVATION)
                 ROLE_LAYER_DIVERGENCE              capa codificada en el NOMBRE (§28) vs posicion estructural / rol DECLARADO
                 DUPLICATED_REMOTE_IMPORT           mismo `remote_entity` bajo >1 identidad local
                 LAYER_BOUNDARY_REVIEW              fuente remota cuyos consumidores de linaje estan TODOS en capa inferida >= 3
@@ -38,7 +38,7 @@ from .model import (
     Area, Assessability, Fact, Observation, ObservationId, ReviewId, ReviewItem, Signal, SignalKind, _ensure_jsonable,
 )
 
-SIGNALS_RULESET = "signal-rules/v2"                       # v2 (M8, parche 1): PASS_THROUGH_REVIEW solo evalua aristas internas modelado->modelado
+SIGNALS_RULESET = "signal-rules/v3"                       # v2 (M8, parche 1): PASS_THROUGH_REVIEW solo evalua aristas internas modelado->modelado; v3 (G3): CROSS_LAYER_REDERIVATION -> REPEATED_DERIVATION_IN_LINEAGE + relacion estructural
 
 _USABLE = (Assessability.ASSESSED, Assessability.PARTIALLY_ASSESSED)
 
@@ -168,16 +168,21 @@ def _rule_pass_through(idx: FactIndex) -> list[Finding]:
     return out
 
 
-def _rule_cross_layer_rederivation(idx: FactIndex) -> list[Finding]:
+def _rule_repeated_derivation(idx: FactIndex) -> list[Finding]:
+    """Detecta el PATRON (mismo campo derivado en un artefacto y en un ancestro de linaje). NO afirma duplicacion: cada campo lleva su RELACION
+    estructural (DUPLICATED_TRANSFORMATION | CHAINED_REFINEMENT | DISTINCT_TRANSFORMATION | UNKNOWN), calculada en el hecho desde el AST compilado."""
     out = []
     for f in idx.usable("propagation.rederivation"):
         pairs: dict[tuple[str, str], list[dict]] = {}
         for o in f.value["occurrences"]:
             pairs.setdefault((o["provider"], o["consumer"]), []).append(o)
         for (provider, consumer), occ in sorted(pairs.items()):
-            out.append(Finding("CROSS_LAYER_REDERIVATION", (provider, consumer), (f.key,),
+            out.append(Finding("REPEATED_DERIVATION_IN_LINEAGE", (provider, consumer), (f.key,),
                                {"provider": provider, "consumer": consumer, "fields": sorted(o["field"] for o in occ),
-                                "lineage_distance": occ[0]["lineage_distance"], "adjacent": occ[0]["adjacent"]}))
+                                "lineage_distance": occ[0]["lineage_distance"], "adjacent": occ[0]["adjacent"],
+                                "field_relations": [{"field": o["field"], "relation": o.get("relation", "UNKNOWN"),
+                                                     "relation_reason": o.get("relation_reason", "NO_QUERY_EVIDENCE"),
+                                                     "exposed_by_root": o.get("exposed_by_root")} for o in sorted(occ, key=lambda o: o["field"])]}))
     return out
 
 
@@ -390,12 +395,13 @@ SIGNAL_REGISTRY: tuple[SignalSpec, ...] = (
         legitimate_reasons=("serving boundary", "product boundary", "stable semantic contract", "technical decomposition", "compatibility layer"),
         missing_context="Functional role of the consuming layer (serving or product boundary, stable contract, technical decomposition, compatibility)."),
     SignalSpec(
-        ReviewId.CROSS_LAYER_REDERIVATION.value, SignalKind.REVIEW, Area.PROPAGATION, ("artifact_with_visible_query",),
+        ReviewId.REPEATED_DERIVATION_IN_LINEAGE.value, SignalKind.REVIEW, Area.PROPAGATION, ("artifact_with_visible_query",),
         ("propagation.rederivation",),
         "propagation.rederivation occurrences grouped by (provider, consumer) -> one review item per pair (adjacent or later lineage layers)",
         ("not an automatic defect (contract stability review)", "it does not say which derivation is the right one",
-         "formula semantics are not observable in the standard export (C2)"),
-        _rule_cross_layer_rederivation,
+         "a repeated field name alone does not mean duplicated logic: each occurrence carries a structural relation read from the compiled query (DUPLICATED_TRANSFORMATION | CHAINED_REFINEMENT | DISTINCT_TRANSFORMATION | UNKNOWN)",
+         "CHAINED_REFINEMENT (the downstream expression reads the already-derived upstream field) is not a deviation; business semantics of formulas are not inferred"),
+        _rule_repeated_derivation,
         legitimate_reasons=("a unit, currency or type conversion deliberately re-applied", "a different aggregation level per layer",
                             "recomputation required by a later join or filter", "intentional contract hardening at a boundary"),
         missing_context="Whether the field is intentionally recomputed at each layer, and which layer owns its definition."),

@@ -410,8 +410,8 @@ def test_a_client_whose_whole_source_area_is_not_assessed_says_so_in_the_macro_d
     src = next(a for a in doc["areas"] if a["id"] == "SOURCE_EXTRACTION")
     assert src["assessability"] == "NOT_ASSESSED" and src["reason"]["reason_code"] in P.PUBLIC_REASONS
     limits = {x["surface_id"]: x for x in doc["evidence_limitations"]}
-    assert limits["source.leaf_contract_status"]["counts_toward_coverage"] is True
-    assert limits["source.leaf_contract_status"]["reason"]["reason_code"] == "SOURCE_PROVENANCE_NOT_OBSERVABLE"
+    assert limits["source.leaf_provenance"]["counts_toward_coverage"] is True
+    assert limits["source.leaf_provenance"]["reason"]["reason_code"] == "SUPPLEMENTARY_EVIDENCE_NOT_PROVIDED"
 
 
 def test_optional_and_cross_plane_limitations_are_shown_but_do_not_count_toward_coverage(scenarios):
@@ -568,8 +568,8 @@ def test_boundary_breakdown_is_an_exhaustive_and_exclusive_partition():
 def test_representative_surface_titles_are_pinned_in_spanish():
     """Las evidencias que suelen aparecer como no evaluadas en los informes: su titulo es contrato publico (espanol)."""
     assert P.SURFACE_TITLES["source.replication_mode"] == "Modo de replicación (federado o replicado)"
-    assert P.SURFACE_TITLES["source.leaf_contract_status"] == "Contrato de las hojas locales sin origen remoto"
-    assert P.SURFACE_TITLES["propagation.derivation_semantics"] == "Semántica exacta de las fórmulas de derivación"
+    assert P.SURFACE_TITLES["source.leaf_provenance"] == "Procedencia de las hojas locales sin origen remoto"
+    assert P.SURFACE_TITLES["propagation.derivation_semantics"] == "Semántica estructural de las derivaciones"
     assert P.SURFACE_TITLES["naming.convention_context"] == "Contexto de la convención de nombres"
     assert P.SURFACE_TITLES["ingestion.boundary_artifacts"] == "Artefactos de frontera"
 
@@ -623,7 +623,7 @@ def test_presentation_priority_is_one_explicit_versioned_registry_independent_of
     assert P.PRESENTATION_ORDER_VERSION == "presentation-order/v1" and set(P.PRESENTATION_PRIORITY) == set(P.DISPLAY)
     pr = P.PRESENTATION_PRIORITY
     assert pr["DIRECT_RAW_TABLE_ACCESS"] < min(v for k, v in pr.items() if k not in ("DIRECT_RAW_TABLE_ACCESS",))        # observaciones primero
-    arch = ["CROSS_LAYER_REDERIVATION", "FLAT_CENTRAL_ASSEMBLY_REVIEW", "DUPLICATED_REMOTE_IMPORT", "ROLE_LAYER_DIVERGENCE", "LAYER_BOUNDARY_REVIEW",
+    arch = ["REPEATED_DERIVATION_IN_LINEAGE", "FLAT_CENTRAL_ASSEMBLY_REVIEW", "DUPLICATED_REMOTE_IMPORT", "ROLE_LAYER_DIVERGENCE", "LAYER_BOUNDARY_REVIEW",
             "PASS_THROUGH_REVIEW", "AM_SEMANTIC_UNDERUSE_REVIEW"]
     naming = ["FIELD_VOCABULARY_MIX", "OPAQUE_FIELD_NAME", "LABEL_NOT_ENRICHING"]
     assert max(pr[k] for k in arch) < min(pr[k] for k in naming) and max(pr[k] for k in naming) < pr["SOURCE_FILTER_PRESENT"]

@@ -176,7 +176,8 @@ def test_a_branched_spine_keeps_every_introduction_point_without_collapsing_to_o
 
 def test_multiple_occurrences_are_not_interpreted_as_duplication_or_a_wrong_layer():
     _, facts = _facts()
-    blob = repr([f.value for f in facts]).lower()
+    # el contrato de relaciones de G3 usa vocabulario propio (DUPLICATED_TRANSFORMATION...) en estos dos hechos; el resto no interpreta repeticion
+    blob = repr([f.value for f in facts if f.fact_id not in ("propagation.rederivation", "propagation.derivation_semantics")]).lower()
     assert not any(t in blob for t in ("duplicat", "redundan", "wrong_layer", "misplaced"))
 
 
@@ -188,7 +189,9 @@ def test_rederivation_flags_the_same_field_derived_in_consecutive_lineage_artifa
     assert f.evidence_class is m.EvidenceClass.B and f.value["adjacent_count"] == 1
     assert occ == [{"field": "AMT", "consumer": "VF_M", "provider": "VR_M", "lineage_distance": 1, "adjacent": True,
                     "consumer_layer_inference": {"inferred_layer": "3", "inferred_layer_basis": "DECLARED_ROLE"},
-                    "provider_layer_inference": {"inferred_layer": "3", "inferred_layer_basis": "NAME_PREFIX"}}]
+                    "provider_layer_inference": {"inferred_layer": "3", "inferred_layer_basis": "NAME_PREFIX"},
+                    # sin evidencia suplementaria (query compilado) la relacion NO se adivina: UNKNOWN explicito
+                    "relation": "UNKNOWN", "relation_reason": "NO_QUERY_EVIDENCE", "exposed_by_root": True, "exposure_basis": "SAME_NAME_IN_ROOT_CONTRACT"}]
 
 
 def test_rederivation_also_detects_non_adjacent_ancestors_with_their_distance():
@@ -212,11 +215,11 @@ def test_no_rederivation_when_nothing_is_derived_twice():
 
 
 # ── limite de observabilidad ───────────────────────────────────────────────
-def test_formula_semantics_are_explicitly_not_observable_c2_never_a_default_value():
+def test_derivation_semantics_without_query_evidence_is_not_assessed_never_a_default_value():
     _, facts = _facts()
     f = _by(facts, "propagation.derivation_semantics", "closure")
     assert f.value is None and f.assessability is A_.NOT_ASSESSED
-    assert f.cause is m.Cause.NOT_OBSERVABLE_IN_STANDARD_EXPORT and f.evidence_class is m.EvidenceClass.C2
+    assert f.cause is m.Cause.NOT_IN_SNAPSHOT and f.evidence_class is m.EvidenceClass.C1
 
 
 def test_processing_context_never_enters_propagation_facts():

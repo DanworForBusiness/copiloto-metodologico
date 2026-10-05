@@ -151,7 +151,7 @@ def test_zero_findings_with_unavailable_provenance_is_not_assessed_not_an_assess
     """Patron CASE 1: no hay observaciones de tabla raw, pero la procedencia de la hoja local NO es observable."""
     comp = compose(_local_chain(), "AM_C")
     raw = surface(comp, "rule.direct_raw_table_access")
-    assert raw.finding_count == 0 and raw.assessability is NA_ and raw.cause is m.Cause.PROVENANCE_UNKNOWN
+    assert raw.finding_count == 0 and raw.assessability is NA_ and raw.cause is m.Cause.NOT_IN_SNAPSHOT
     assert raw.result is A.RuleResult.ABSENCE_NOT_ESTABLISHED
     for sid in ("rule.duplicated_remote_import", "rule.layer_boundary_review"):
         assert surface(comp, sid).assessability is NA_ and surface(comp, sid).result is A.RuleResult.ABSENCE_NOT_ESTABLISHED
@@ -210,11 +210,11 @@ def test_ineligible_edges_are_not_applicable_to_the_pass_through_rule_and_never_
 
 def test_rederivation_needs_a_visible_query_in_every_artifact():
     comp = compose(_redo(), "AM_RD")
-    r = surface(comp, "rule.cross_layer_rederivation")
+    r = surface(comp, "rule.repeated_derivation_in_lineage")
     assert r.finding_count == 1 and r.assessability is AS and r.result is A.RuleResult.PATTERN_FOUND
     ents = _redo()
     ents["VR_RD"].has_query = False
-    r2 = surface(compose(ents, "AM_RD"), "rule.cross_layer_rederivation")
+    r2 = surface(compose(ents, "AM_RD"), "rule.repeated_derivation_in_lineage")
     assert r2.assessability is PA and r2.cause is m.Cause.NOT_OBSERVABLE_IN_STANDARD_EXPORT
 
 
@@ -268,14 +268,14 @@ def test_every_core_area_of_a_fully_extracted_closure_is_assessed_and_context_on
 def test_local_boundary_leaves_make_source_completely_not_assessed_never_not_applicable():
     comp = compose(_local_chain(), "AM_C")
     src = next(c for c in comp.areas if c.area is m.Area.SOURCE_EXTRACTION)
-    assert src.assessability is NA_ and src.cause in (m.Cause.PROVENANCE_UNKNOWN, m.Cause.PLANE_BOUNDARY)
+    assert src.assessability is NA_ and src.cause in (m.Cause.PROVENANCE_UNKNOWN, m.Cause.PLANE_BOUNDARY, m.Cause.NOT_IN_SNAPSHOT)
     macro = {x.macro_dimension: x.state for x in comp.coverage.macro_dimensions}
     assert macro[m.MacroDimension.SOURCE_EXTRACTION] is m.MacroDimensionState.COMPLETELY_NOT_ASSESSED
     assert macro[m.MacroDimension.NAMING] is m.MacroDimensionState.HAS_ASSESSED_EVIDENCE
     assert macro[m.MacroDimension.ARCHITECTURE_MODELING] is m.MacroDimensionState.HAS_ASSESSED_EVIDENCE      # tiene una brecha C2 pero NO esta completamente sin evaluar
     assert surface(comp, "source.connection_consistency").not_applicable_reason == "NO_REMOTE_SOURCE_IN_SCOPE"
     assert surface(comp, "source.contract").not_applicable_reason == "NO_UNITS_IN_SCOPE"
-    assert surface(comp, "source.leaf_contract_status").assessability is NA_
+    assert surface(comp, "source.leaf_provenance").assessability is NA_
 
 
 def test_an_area_without_any_extracted_facts_is_not_assessed_not_in_snapshot_never_assumed_fine():
@@ -310,12 +310,13 @@ def test_roles_context_derived_views_processing_and_optional_evidence_are_exclud
     assert {k for k, v in role.items() if v is A.SurfaceRole.OPTIONAL_DEEPER_EVIDENCE} == {"propagation.derivation_semantics"}
     assert {k for k, v in role.items() if v is A.SurfaceRole.DERIVED_VIEW} == {
         "source.family_distribution", "naming.artifact_name_populations", "naming.field_vocabulary_summary",
-        "naming.same_normalized_label_multiple_technical_names", "am.closure_composition", "am.view_type_composition"}
+        "naming.same_normalized_label_multiple_technical_names", "am.closure_composition", "am.view_type_composition",
+        "harmonization.expression_repetition", "harmonization.assembly_topology"}
     # C2 NO es automaticamente "evidencia requerida faltante": las dos brechas C2 permanentes ya no son superficies REQUERIDAS
     assert role["propagation.derivation_semantics"] is not A.SurfaceRole.REQUIRED and role["source.replication_mode"] is not A.SurfaceRole.REQUIRED
     from collections import Counter
     assert Counter((s.kind.value, s.role.value) for s in A.SURFACE_REGISTRY) == {
-        ("FACT_EVIDENCE", "REQUIRED"): 29, ("RULE_EVALUATION", "REQUIRED"): 11, ("FACT_EVIDENCE", "DERIVED_VIEW"): 6,
+        ("FACT_EVIDENCE", "REQUIRED"): 29, ("RULE_EVALUATION", "REQUIRED"): 11, ("FACT_EVIDENCE", "DERIVED_VIEW"): 8,
         ("FACT_EVIDENCE", "CROSS_PLANE_COMPLEMENT"): 4, ("FACT_EVIDENCE", "CONTEXT_ONLY"): 2, ("FACT_EVIDENCE", "OPTIONAL_DEEPER_EVIDENCE"): 1}
 
 
@@ -328,10 +329,9 @@ def test_permanent_optional_c2_surfaces_do_not_reduce_required_coverage_but_stay
     without = compose(ents, "AM_P", facts=[f for f in facts if f.fact_id not in optional])
     assert without.coverage == full.coverage                                             # su ausencia/indisponibilidad no mueve la cobertura requerida
     deriv, repl = surface(full, "propagation.derivation_semantics"), surface(full, "source.replication_mode")
-    assert deriv.assessability is NA_ and deriv.cause is m.Cause.NOT_OBSERVABLE_IN_STANDARD_EXPORT      # sigue siendo C2 / NOT OBSERVABLE
+    assert deriv.assessability is NA_ and deriv.cause is m.Cause.NOT_IN_SNAPSHOT                          # sin query compilado en el pool: no se adquirio (G3)
     assert repl.assessability is NA_ and repl.role is A.SurfaceRole.CROSS_PLANE_COMPLEMENT
     cards = {c.area: c for c in full.areas}
-    assert m.Cause.NOT_OBSERVABLE_IN_STANDARD_EXPORT in cards[m.Area.PROPAGATION].not_observable       # la limitacion se conserva a la vista del area
     assert m.Cause.NOT_OBSERVABLE_IN_STANDARD_EXPORT in cards[m.Area.SOURCE_EXTRACTION].not_observable
 
 
@@ -469,8 +469,8 @@ def test_cross_plane_evidence_is_neither_a_global_reward_nor_a_penalty(tmp_path)
     assert with_p.confidence == without_p.confidence and with_p.coverage == without_p.coverage
     fp, fn = _factor(with_p, "processing_evidence_attached"), _factor(without_p, "processing_evidence_attached")
     assert fp.value > fn.value == 0 and not fp.contributes_to_confidence and fp.axis is A.ConfidenceAxis.CROSS_PLANE
-    assert "0 Modeling facts cite Processing evidence" in fp.detail                       # ningun hecho de Modeling depende explicitamente de ella
-    assert surface(with_p, "source.leaf_contract_status").assessability is surface(without_p, "source.leaf_contract_status").assessability
+    assert "1 Modeling facts cite Processing evidence" in fp.detail                       # solo la procedencia de la hoja con productor la CITA (G1)
+    assert surface(with_p, "source.leaf_provenance").assessability is surface(without_p, "source.leaf_provenance").assessability
 
 
 def test_processing_facts_with_no_references_are_not_counted_as_attached_evidence():
@@ -517,7 +517,7 @@ def test_the_composition_exposes_everything_m7_needs_to_render():
     comp = compose(m4_entities(), "AM_X")
     assert comp.scope.terminal_am == "AM_X" and [c.area for c in comp.areas] == list(m.ASSESSED_AREAS)
     assert comp.surfaces and comp.observations is not None and comp.review_required and comp.findings
-    assert comp.assessability_ruleset == A.ASSESSABILITY_RULESET == "assessability-rules/v1"
+    assert comp.assessability_ruleset == A.ASSESSABILITY_RULESET == "assessability-rules/v2"
     assert comp.signals_ruleset == S.SIGNALS_RULESET and comp.confidence_ruleset == A.CONFIDENCE_RULESET
     rules = [s for s in comp.surfaces if s.kind is A.SurfaceKind.RULE_EVALUATION]
     assert len(rules) == 11 and all(s.result is not None and s.finding_count is not None for s in rules)

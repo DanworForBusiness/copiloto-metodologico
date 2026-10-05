@@ -38,7 +38,7 @@ def test_fact_ids_are_namespaced_by_their_area_and_classes_are_a_b_or_c2_only():
     for area, facts in _run().items():
         prefix = EXTRACTORS[area][1]
         assert all(f.fact_id.startswith(prefix + ".") and f.area is area for f in facts)
-        assert {f.evidence_class for f in facts} <= {m.EvidenceClass.A, m.EvidenceClass.B, m.EvidenceClass.C2}
+        assert {f.evidence_class for f in facts} <= {m.EvidenceClass.A, m.EvidenceClass.B, m.EvidenceClass.C1, m.EvidenceClass.C2}
 
 
 def test_no_fact_declares_a_quality_state_signal_observation_or_review_item():

@@ -22,7 +22,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-READERS_VERSION = "supplementary-readers/v1"
+from .derivation import DerivedColumn, extract_derived_columns, select_branches
+
+READERS_VERSION = "supplementary-readers/v2"
 
 REPLICATION_FLOW = "REPLICATION_FLOW"
 DATA_FLOW = "DATA_FLOW"
@@ -74,6 +76,35 @@ class FlowEvidence:
     source_entities: tuple[str, ...]
     target_entities: tuple[str, ...]
     source_systems: tuple[FlowSourceSystem, ...]      # solo Replication Flows
+    load_types: tuple[str, ...] = ()                  # solo Replication Flows: ``loadType`` de cada tarea (INITIAL | REPLICATE | ...), tal cual
+
+
+LOCAL_DECLARED_DATASET = "DECLARED_DATASET"
+LOCAL_TABLE_FUNCTION = "TABLE_FUNCTION"
+_DATASOURCE_ENTITY = "@DataWarehouse.dataSource.entity"
+_DATASOURCE_SCHEMA = "@DataWarehouse.dataSource.schema"
+_TABLE_FUNCTION_SCRIPT = "@DataWarehouse.tableFunction.script"
+
+
+@dataclass(frozen=True)
+class LocalDeclaration:
+    """Origen que el PROPIO artefacto local declara en su definicion (sin flows): un dataset externo o una table function. Es evidencia declarada:
+    no se infiere de nombres ni de la carpeta."""
+    entity: str
+    source_file: str
+    kind: str                                         # DECLARED_DATASET | TABLE_FUNCTION
+    data_source_schema: str | None
+    data_source_entity: str | None
+
+
+@dataclass(frozen=True)
+class DerivationEvidence:
+    """Columnas derivadas (AST compilado) de una definicion con ``query``. ``has_query`` distingue "sin derivadas" de "sin evidencia de query"."""
+    entity: str
+    source_file: str
+    has_query: bool
+    branches: int
+    columns: tuple[DerivedColumn, ...]
 
 
 @dataclass(frozen=True)
@@ -130,6 +161,16 @@ def _read_remote_table(name: str, defn: dict, rel: str) -> RemoteTableEvidence |
         has_remote_query=has_q, query_where=where, query_column_count=ncols, replication_annotation_keys=repl)
 
 
+def _read_local_declaration(name: str, defn: dict, rel: str) -> LocalDeclaration | None:
+    if _REMOTE_CONNECTION in defn or _REMOTE_ENTITY in defn:
+        return None
+    if _DATASOURCE_ENTITY in defn:
+        return LocalDeclaration(name, rel, LOCAL_DECLARED_DATASET, _str_or_none(defn.get(_DATASOURCE_SCHEMA)), _str_or_none(defn.get(_DATASOURCE_ENTITY)))
+    if _TABLE_FUNCTION_SCRIPT in defn:
+        return LocalDeclaration(name, rel, LOCAL_TABLE_FUNCTION, None, None)
+    return None
+
+
 def _read_replication_flow(name: str, body: dict, rel: str) -> FlowEvidence:
     contents = body.get("contents") if isinstance(body.get("contents"), dict) else {}
     systems = tuple(
@@ -140,14 +181,17 @@ def _read_replication_flow(name: str, body: dict, rel: str) -> FlowEvidence:
     tgts = body.get("targets") if isinstance(body.get("targets"), dict) else {}
     # Los objetos de las tareas tambien declaran fuente/destino (nombres crudos).
     s_names, t_names = set(srcs), set(tgts)
+    load_types: list[str] = []
     for task in (contents.get("replicationTasks") or []):
         if isinstance(task, dict):
+            if _str_or_none(task.get("loadType")):
+                load_types.append(task["loadType"])
             so, to = task.get("sourceObject"), task.get("targetObject")
             if isinstance(so, dict) and _str_or_none(so.get("name")):
                 s_names.add(so["name"])
             if isinstance(to, dict) and _str_or_none(to.get("name")):
                 t_names.add(to["name"])
-    return FlowEvidence(REPLICATION_FLOW, name, rel, tuple(sorted(s_names)), tuple(sorted(t_names)), systems)
+    return FlowEvidence(REPLICATION_FLOW, name, rel, tuple(sorted(s_names)), tuple(sorted(t_names)), systems, tuple(sorted(set(load_types))))
 
 
 def _read_data_flow(name: str, body: dict, rel: str) -> FlowEvidence:
@@ -161,6 +205,16 @@ def _read_data_flow(name: str, body: dict, rel: str) -> FlowEvidence:
 FLOW_FAMILY_REPLICATION = "replication-flows"
 FLOW_FAMILY_DATA = "data-flows"
 FLOW_FAMILIES = frozenset({FLOW_FAMILY_REPLICATION, FLOW_FAMILY_DATA})
+FLOW_FAMILY_TRANSFORMATION = "transformation-flows"
+# Familias de PRODUCTORES de objetos locales. Para afirmar la AUSENCIA de un productor (procedencia NOT_OBSERVABLE concluyente) hay que haber
+# ADQUIRIDO las tres; solo RF y DF se INTERPRETAN como procedencia (los Transformation Flows no: no hay evidencia forense de una relacion
+# entrada/salida confiable). Los Task Chains orquestan: NUNCA son procedencia.
+PRODUCER_FAMILIES = frozenset({FLOW_FAMILY_REPLICATION, FLOW_FAMILY_DATA, FLOW_FAMILY_TRANSFORMATION})
+SCOPE_NOT_DECLARED = "SCOPE_NOT_DECLARED"
+SCOPE_FAMILY_NOT_ACQUIRED = "PRODUCER_FAMILY_NOT_ACQUIRED"
+SCOPE_UNINTERPRETED_PRODUCERS = "UNINTERPRETED_PRODUCER_EVIDENCE"
+SCOPE_UNREADABLE_FILES = "UNREADABLE_POOL_FILES"
+SCOPE_NO_FILES = "NO_POOL_FILES"
 
 
 class SupplementaryEvidence:
@@ -179,7 +233,16 @@ class SupplementaryEvidence:
         files_read: int,
         acquired_flow_families: Iterable[str] | None = None,
         view_types: Mapping[str, ViewTypeEvidence] | None = None,
+        local_declarations: Mapping[str, LocalDeclaration] | None = None,
+        derivations: Mapping[str, DerivationEvidence] | None = None,
+        effective_features: Iterable[str] | None = None,
+        transformation_flow_files: int = 0,
     ) -> None:
+        self._local_declarations = dict(sorted((local_declarations or {}).items()))
+        self._derivations = dict(sorted((derivations or {}).items()))
+        # Alcance EXPLICITO declarado por la extraccion (``effective_features``). None = no declarado: la completitud NUNCA se infiere de carpetas ni nombres.
+        self.effective_features = None if effective_features is None else frozenset(effective_features)
+        self.transformation_flow_files = transformation_flow_files
         self._view_types = dict(sorted((view_types or {}).items()))
         self.acquired_flow_families = FLOW_FAMILIES if acquired_flow_families is None else frozenset(acquired_flow_families) & FLOW_FAMILIES
         self._remote = dict(sorted(remote_tables.items()))
@@ -190,7 +253,8 @@ class SupplementaryEvidence:
 
     @classmethod
     def from_files(cls, json_files: Iterable[str | Path], root: str | Path | None = None,
-                   acquired_flow_families: Iterable[str] | None = None, *, view_type_of=None, family_of_dir=None) -> "SupplementaryEvidence":
+                   acquired_flow_families: Iterable[str] | None = None, *, view_type_of=None, family_of_dir=None,
+                   effective_features: Iterable[str] | None = None) -> "SupplementaryEvidence":
         """``view_type_of(data, nombre) -> (tipo, base)`` y ``family_of_dir(carpeta) -> familia|None`` los inyecta quien lee (el shadow, vía
         ``legacy_bridge``): este módulo permanece puro. Sin ellos no se recoge evidencia de tipo de vista (comportamiento previo)."""
         rootp = Path(root) if root is not None else None
@@ -199,6 +263,9 @@ class SupplementaryEvidence:
         view_cands: dict[str, list[ViewTypeEvidence]] = {}
         files: dict[str, list[str]] = {}
         issues: list[ReadIssue] = []
+        local_decl: dict[str, LocalDeclaration] = {}
+        derivs: dict[str, DerivationEvidence] = {}
+        tf_files = 0
         n = 0
         for f in sorted(Path(x) for x in json_files):
             rel = _rel(f, rootp)
@@ -223,15 +290,24 @@ class SupplementaryEvidence:
                 ev = _read_remote_table(name, defn, rel)
                 if ev is not None and name not in remote:
                     remote[name] = ev
+                ld = _read_local_declaration(name, defn, rel)
+                if ld is not None and name not in local_decl:
+                    local_decl[name] = ld
+                branches = select_branches(defn)
+                if branches and (name not in derivs or not derivs[name].has_query):
+                    derivs[name] = DerivationEvidence(name, rel, True, len(branches), extract_derived_columns(name, defn))
             for name, body in (data.get("replicationflows") or {}).items():
                 if isinstance(body, dict):
                     flows.append(_read_replication_flow(name, body, rel))
             for name, body in (data.get("dataflows") or {}).items():
                 if isinstance(body, dict):
                     flows.append(_read_data_flow(name, body, rel))
+            if isinstance(data.get("transformationflows"), dict) and data["transformationflows"]:
+                tf_files += 1                                   # solo se CUENTA: no se interpreta (no es procedencia aprobada) pero impide afirmar ausencia
         # Un nombre definido en varios archivos: se prefiere el de la familia `views`, luego el de ruta menor (determinista).
         view_types = {name: min(c, key=lambda e: (e.family != "views", e.source_file)) for name, c in view_cands.items()}
-        return cls(remote, flows, {k: tuple(sorted(set(v))) for k, v in files.items()}, issues, n, acquired_flow_families, view_types)
+        return cls(remote, flows, {k: tuple(sorted(set(v))) for k, v in files.items()}, issues, n, acquired_flow_families, view_types,
+                   local_decl, derivs, effective_features, tf_files)
 
     @classmethod
     def empty(cls) -> "SupplementaryEvidence":
@@ -253,6 +329,34 @@ class SupplementaryEvidence:
     def view_type_evidence(self, entity: str) -> ViewTypeEvidence | None:
         """Tipo de vista de la entidad según el JSON del pool (None si el pool no lo define o no se recogió evidencia de tipo)."""
         return self._view_types.get(entity)
+
+    def local_declaration(self, entity: str) -> LocalDeclaration | None:
+        """Origen declarado por el propio artefacto local (dataset externo / table function), o None."""
+        return self._local_declarations.get(entity)
+
+    def derivation_evidence(self, entity: str) -> DerivationEvidence | None:
+        """Derivaciones (AST compilado) de la definicion, o None si el pool no trae ``query`` para la entidad."""
+        return self._derivations.get(entity)
+
+    @property
+    def provenance_scope(self) -> dict:
+        """Completitud del alcance para AFIRMAR ausencia de productores. ``conclusive`` solo si el alcance fue DECLARADO por la extraccion, incluye
+        las tres familias de productores, no hay archivos de Transformation Flow sin interpretar y no hubo archivos ilegibles. Nunca se infiere."""
+        declared = self.effective_features is not None
+        families = sorted(self.effective_features & PRODUCER_FAMILIES) if declared else []
+        if not declared:
+            limitation = SCOPE_NOT_DECLARED
+        elif PRODUCER_FAMILIES - self.effective_features:
+            limitation = SCOPE_FAMILY_NOT_ACQUIRED
+        elif self.transformation_flow_files:
+            limitation = SCOPE_UNINTERPRETED_PRODUCERS
+        elif self._issues:
+            limitation = SCOPE_UNREADABLE_FILES
+        elif not self.available:
+            limitation = SCOPE_NO_FILES
+        else:
+            limitation = None
+        return {"declared": declared, "producer_families_acquired": families, "conclusive": limitation is None, "limitation": limitation}
 
     def files_defining(self, entity: str) -> tuple[str, ...]:
         """Todos los archivos del pool que definen la entidad (L6); vacio si ninguno la define."""

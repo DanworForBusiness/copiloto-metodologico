@@ -108,9 +108,17 @@ def _fmt_pass_through(o: dict) -> str:
     return f"{_code(v.get('edge'))} — {_plural(v.get('field_count') or 0, 'campo')}; patrón declarado del consumidor: {v.get('consumer_declared_pattern')}"
 
 
+_RELATION_TEXT = {"DUPLICATED_TRANSFORMATION": "transformación duplicada", "CHAINED_REFINEMENT": "refinamiento encadenado (no es una desviación)",
+                  "DISTINCT_TRANSFORMATION": "transformación distinta", "UNKNOWN": "relación no determinable"}
+
+
 def _fmt_rederivation(o: dict) -> str:
     v = o["values"]
-    return f"{_code(v.get('provider'))} → {_code(v.get('consumer'))}: {_names(v.get('fields') or [], 5)} (distancia de linaje {v.get('lineage_distance')})"
+    base = f"{_code(v.get('provider'))} → {_code(v.get('consumer'))}: {_names(v.get('fields') or [], 5)} (distancia de linaje {v.get('lineage_distance')})"
+    rels = v.get("field_relations") or []          # perfiles anteriores a G3 no traen la relación
+    if not rels:
+        return base
+    return base + " — " + "; ".join(f"{_code(r.get('field'))}: {_RELATION_TEXT.get(r.get('relation'), 'relación no determinable')}" for r in rels[:5])
 
 
 def _fmt_role_layer(o: dict) -> str:
@@ -161,7 +169,7 @@ def _fmt_underuse(o: dict) -> str:
 
 _FMT: dict[str, Callable[[dict], str]] = {
     "DIRECT_RAW_TABLE_ACCESS": _fmt_direct_raw, "SOURCE_FILTER_PRESENT": _fmt_filter, "PASS_THROUGH_REVIEW": _fmt_pass_through,
-    "CROSS_LAYER_REDERIVATION": _fmt_rederivation, "ROLE_LAYER_DIVERGENCE": _fmt_role_layer, "DUPLICATED_REMOTE_IMPORT": _fmt_duplicate,
+    "REPEATED_DERIVATION_IN_LINEAGE": _fmt_rederivation, "CROSS_LAYER_REDERIVATION": _fmt_rederivation, "ROLE_LAYER_DIVERGENCE": _fmt_role_layer, "DUPLICATED_REMOTE_IMPORT": _fmt_duplicate,
     "LAYER_BOUNDARY_REVIEW": _fmt_layer_boundary, "FLAT_CENTRAL_ASSEMBLY_REVIEW": _fmt_flat_central, "FIELD_VOCABULARY_MIX": _fmt_vocab_mix,
     "OPAQUE_FIELD_NAME": _fmt_opaque, "LABEL_NOT_ENRICHING": _fmt_label, "AM_SEMANTIC_UNDERUSE_REVIEW": _fmt_underuse,
 }
@@ -212,8 +220,9 @@ def highlight_label(h: dict) -> str:
 
 
 # Títulos públicos que cambiaron de redacción: un perfil persistido antes del cambio conserva el texto viejo en su JSON; la lectura usa SIEMPRE el vigente.
-# Los ids / enums técnicos (p. ej. CROSS_LAYER_REDERIVATION) no cambian. El algoritmo NO compara capas: compara artefactos distintos aguas arriba.
-_TITLE_COMPAT = {"CROSS_LAYER_REDERIVATION": ("Campo derivado de nuevo en otra capa", "Derivación repetida en el linaje")}
+# Los ids / enums técnicos (p. ej. REPEATED_DERIVATION_IN_LINEAGE, antes CROSS_LAYER_REDERIVATION: alias de lectura en `model.LEGACY_SIGNAL_ALIASES`) no cambian. El algoritmo NO compara capas: compara artefactos distintos aguas arriba.
+_TITLE_COMPAT = {"CROSS_LAYER_REDERIVATION": ("Campo derivado de nuevo en otra capa", "Derivación repetida en el linaje"),
+                 "REPEATED_DERIVATION_IN_LINEAGE": ("Campo derivado de nuevo en otra capa", "Derivación repetida en el linaje")}
 
 
 def display_title(item_id: str, title: str) -> str:

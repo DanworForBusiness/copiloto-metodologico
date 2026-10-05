@@ -49,7 +49,7 @@ from .model import (
 )
 from .signals import FactIndex, Finding, SignalEvaluation, evaluate_signals
 
-ASSESSABILITY_RULESET = "assessability-rules/v1"
+ASSESSABILITY_RULESET = "assessability-rules/v2"       # v2 (G1): `source.leaf_provenance` reemplaza a `source.leaf_contract_status`; la evidencia de productores puede ESTABLECER procedencia
 CONFIDENCE_RULESET = "confidence-cuts/v1"
 
 # Cortes PROVISIONALES (no son umbrales de calidad/madurez): (corte para HIGH, corte para MEDIUM). Se validan en M8.
@@ -247,8 +247,8 @@ _FACT_SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec("source.connection_consistency", _SRC, F, REQ, "connections and dual-connection entities", ("source.connection_consistency",), per_unit=False, na_when=_no_remote),
     SurfaceSpec("source.replication_mode", _SRC, F, XPL, "federated vs replicated mode: Processing/Integration execution semantics, not observable in the standard Modeling export; complementary, never a universal Modeling coverage requirement",
                 ("source.replication_mode",), per_unit=False, na_when=_no_remote),
-    SurfaceSpec("source.leaf_contract_status", _SRC, F, REQ, "boundary leaves without remote origin: provenance not observable (Q1: NOT_ASSESSED, never NOT_APPLICABLE)",
-                ("source.leaf_contract_status",)),
+    SurfaceSpec("source.leaf_provenance", _SRC, F, REQ, "boundary leaves without remote origin: provenance ESTABLISHED/DECLARED by direct producer evidence, NOT_OBSERVABLE only with a conclusive acquired scope, NOT_ASSESSED otherwise (never NOT_APPLICABLE)",
+                ("source.leaf_provenance",)),
     # INGESTION
     SurfaceSpec("ingestion.boundary_artifacts", _ING, F, REQ, "boundary leaves of the closure", ("ingestion.boundary_artifacts",), per_unit=False),
     SurfaceSpec("ingestion.first_consumers", _ING, F, REQ, "first consumers of each boundary leaf", ("ingestion.first_consumers",)),
@@ -273,11 +273,15 @@ _FACT_SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec("propagation.contract_delta", _PRO, F, REQ, "contract delta per lineage edge", ("propagation.contract_delta",)),
     SurfaceSpec("propagation.contract_occurrences", _PRO, F, REQ, "occurrences of the AM contract along the closure", ("propagation.contract_occurrences",), per_unit=False),
     SurfaceSpec("propagation.rederivation", _PRO, F, REQ, "same field derived in lineage ancestors", ("propagation.rederivation",), per_unit=False),
-    SurfaceSpec("propagation.derivation_semantics", _PRO, F, OPT, "exact formula semantics: C2 (SQL/manual/expert evidence); Phase 1 does not judge formula correctness, so it is optional deeper evidence and would become REQUIRED only if a future surface/judgment depends on it",
+    SurfaceSpec("propagation.derivation_semantics", _PRO, F, OPT, "structural derivation semantics from the compiled query AST (operations, inputs, fingerprints, relation of repeated derivations); business semantics of formulas stay out of scope, so it is optional deeper evidence and would become REQUIRED only if a future surface/judgment depends on it",
                 ("propagation.derivation_semantics",), per_unit=False),
     # HARMONIZATION
     SurfaceSpec("harmonization.dimension_artifacts", _HAR, F, REQ, "declared dimensions of the closure", ("harmonization.dimension_artifacts",), per_unit=False),
     SurfaceSpec("harmonization.composition_artifacts", _HAR, F, REQ, "composition artifacts (fan-in >= 2)", ("harmonization.composition_artifacts",), per_unit=False),
+    SurfaceSpec("harmonization.expression_repetition", _HAR, F, VIEW, "descriptive: identical derivation structures repeated across artifacts of the closure (sibling or lineage related); reuse evidence, no judgment, not a required surface",
+                ("harmonization.expression_repetition",), per_unit=False),
+    SurfaceSpec("harmonization.assembly_topology", _HAR, F, VIEW, "descriptive topology of the composition artifacts (providers, boundary providers, reusable intermediates, consumers, distance, share of closure leaves); no threshold, no judgment",
+                ("harmonization.assembly_topology",), per_unit=False),
     SurfaceSpec("harmonization.reuse_context", _HAR, F, CTX, "definitions of the two reuse scopes: context to read the reuse facts", ("harmonization.reuse_context",), per_unit=False),
     SurfaceSpec("harmonization.local_chain_reuse", _HAR, F, REQ, "LOCAL_CHAIN_REUSE per dimension/association target", ("harmonization.local_chain_reuse",)),
     SurfaceSpec("harmonization.cross_am_reuse", _HAR, F, REQ, "CROSS_AM_REUSE per artifact (NOT_APPLICABLE when no peer analytic model exists or the root is not an analytic model)",
@@ -312,8 +316,12 @@ def _source_units(ctx: Ctx, extra_required: tuple[str, ...] = ()) -> list[Unit] 
             out.append(Unit(n, Assessability.ASSESSED if ok else Assessability.NOT_ASSESSED, None if ok else Cause.NOT_IN_SNAPSHOT,
                             None, c.evidence_class if c else EvidenceClass.C1))
         else:
-            ls = ctx.idx.get("source.leaf_contract_status", n)
-            out.append(Unit(n, Assessability.NOT_ASSESSED, ls.cause if ls is not None and ls.cause else Cause.PROVENANCE_UNKNOWN, None, EvidenceClass.D))
+            lp = ctx.idx.get("source.leaf_provenance", n)           # G1: la procedencia ESTABLECIDA/DECLARADA/NOT_OBSERVABLE-concluyente es un resultado EVALUADO
+            if lp is not None and lp.assessability is Assessability.ASSESSED:
+                out.append(Unit(n, Assessability.ASSESSED, None, None, lp.evidence_class))
+            else:
+                out.append(Unit(n, Assessability.NOT_ASSESSED, lp.cause if lp is not None and lp.cause else Cause.PROVENANCE_UNKNOWN, None,
+                                lp.evidence_class if lp is not None else EvidenceClass.D))
     return out
 
 
@@ -450,8 +458,8 @@ _RULE_SURFACES: tuple[SurfaceSpec, ...] = (
                 units=_units_role_layer, signal_id="ROLE_LAYER_DIVERGENCE"),
     SurfaceSpec("rule.pass_through_review", _PRO, R, REQ, "PASS_THROUGH_REVIEW needs a visible derivation flag; leaf -> first-consumer edges are not evaluated by the rule",
                 units=_units_pass_through, signal_id="PASS_THROUGH_REVIEW"),
-    SurfaceSpec("rule.cross_layer_rederivation", _PRO, R, REQ, "CROSS_LAYER_REDERIVATION needs a visible derivation flag in each artifact",
-                units=_units_rederivation, signal_id="CROSS_LAYER_REDERIVATION"),
+    SurfaceSpec("rule.repeated_derivation_in_lineage", _PRO, R, REQ, "REPEATED_DERIVATION_IN_LINEAGE needs a visible derivation flag in each artifact",
+                units=_units_rederivation, signal_id="REPEATED_DERIVATION_IN_LINEAGE"),
     SurfaceSpec("rule.flat_central_assembly_review", _HAR, R, REQ, "FLAT_CENTRAL_ASSEMBLY_REVIEW over the composition artifacts of the closure",
                 units=_units_flat_central, signal_id="FLAT_CENTRAL_ASSEMBLY_REVIEW"),
     SurfaceSpec("rule.am_semantic_underuse_review", _AM, R, REQ, "AM_SEMANTIC_UNDERUSE_REVIEW over the terminal analytic model",

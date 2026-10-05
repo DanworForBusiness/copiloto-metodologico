@@ -108,7 +108,7 @@ def test_each_occurrence_line_uses_only_public_values_and_is_capped(docs):
 
 
 def test_every_signal_has_an_explicit_occurrence_formatter():
-    assert set(R._FMT) == set(P.DISPLAY)
+    assert set(R._FMT) - set(__import__("tools.catalog.modeling_assessment.model", fromlist=["x"]).LEGACY_SIGNAL_ALIASES) == set(P.DISPLAY)          # los alias historicos solo se LEEN
 
 
 def test_summary_parity_with_the_json_document(docs):

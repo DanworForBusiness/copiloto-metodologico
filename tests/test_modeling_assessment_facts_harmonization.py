@@ -23,7 +23,7 @@ def test_all_harmonization_facts_are_in_the_harmonization_area_and_modeling_plan
     assert {f.area for f in facts} == {m.Area.HARMONIZATION} and {f.plane for f in facts} == {m.Plane.MODELING}
     assert {f.fact_id for f in facts} == {"harmonization.dimension_artifacts", "harmonization.composition_artifacts",
                                           "harmonization.reuse_context", "harmonization.local_chain_reuse",
-                                          "harmonization.cross_am_reuse"}
+                                          "harmonization.cross_am_reuse", "harmonization.expression_repetition", "harmonization.assembly_topology"}
 
 
 # ── dimensiones declaradas ─────────────────────────────────────────────────

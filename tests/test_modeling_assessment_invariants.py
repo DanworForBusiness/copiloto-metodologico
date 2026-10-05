@@ -339,10 +339,11 @@ def test_package_layout_is_the_approved_one():
     m5 = {"signals.py"}
     m6 = {"assessability.py"}
     m7 = {"profile.py", "render_md.py", "shadow.py", "__main__.py"}
-    view_type = {"facts_view_type.py"}       # View Type Intelligence (Gate 2): hecho descriptivo am.view_type_composition (sin juicio)
+    view_type = {"facts_view_type.py"}
+    evidence_g1_g3 = {"provenance.py", "derivation.py"}       # Gate 4: procedencia canonica de hojas (G1) y extraccion estructural de derivaciones (G3)       # View Type Intelligence (Gate 2): hecho descriptivo am.view_type_composition (sin juicio)
     public_api = {"presentation.py"}        # Catalog Assessment Report V1: API pública de presentación para consumidores externos
     present = {p.name for p in PKG_DIR.iterdir() if p.is_file()}
-    approved = m0 | m1 | m2 | m3 | m4 | m5 | m6 | m7 | view_type | public_api
+    approved = m0 | m1 | m2 | m3 | m4 | m5 | m6 | m7 | view_type | public_api | evidence_g1_g3
     assert approved <= present, sorted(approved - present)
     # Hito actual = M7: NO se adelantan milestones posteriores (M8: informe de validacion shadow contra el legacy) ni aparecen archivos no aprobados.
     assert present == approved, sorted(present - approved)

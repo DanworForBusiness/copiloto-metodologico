@@ -219,7 +219,7 @@ def test_the_fact_is_descriptive_only_and_does_not_move_coverage_signals_or_vers
     spec = next(s for s in A.SURFACE_REGISTRY if s.surface_id == "am.view_type_composition")
     assert spec.role is A.SurfaceRole.DERIVED_VIEW                                                # no es superficie requerida: la cobertura no se mueve
     assert not any("VIEW_TYPE" in g["id"] or "SQL_VIEW" in g["id"] for g in (*doc["observations"], *doc["review_required"], *doc["descriptive_signals"]))
-    assert set(doc["versions"]) == {"signals", "assessability", "confidence", "reason_codes", "finding_evidence", "identity", "facts_profile", "presentation_order"}
+    assert set(doc["versions"]) == {"signals", "assessability", "confidence", "reason_codes", "finding_evidence", "identity", "facts_profile", "presentation_order", "canonical_evidence"}
     assert doc["schema_version"] == "modeling_assessment.assessment/v1"                              # sin bump de esquema ni de versiones
     text = json.dumps(doc).lower()
     assert "penalt" not in text and "maturity" not in text

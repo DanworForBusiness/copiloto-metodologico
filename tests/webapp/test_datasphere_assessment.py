@@ -1324,7 +1324,12 @@ def test_evidence_scope_never_changes_terminal_am_closure_or_applicability_on_th
     for label in ("sub", "none"):
         for key in ("applicability", "terminal_analytic_model", "closure_size", "closure_artifacts"):
             assert docs[label]["scope"][key] == docs["all"]["scope"][key], (label, key)
-        assert docs[label]["summary"]["coverage"] == docs["all"]["summary"]["coverage"]
+    # G1: la cobertura SI depende del alcance declarado, y solo porque una ausencia de productor concluyente es un resultado EVALUADO (NOT_OBSERVABLE);
+    # un alcance incompleto (subconjunto o vacio) deja la procedencia NOT_ASSESSED y ambos dan la MISMA cobertura menor. El resto del documento no cambia.
+    assert docs["sub"]["summary"]["coverage"] == docs["none"]["summary"]["coverage"]
+    assert docs["all"]["summary"]["coverage"]["strict"] >= docs["sub"]["summary"]["coverage"]["strict"]
+    for label in ("sub", "none"):
+        assert docs[label]["observations"] == docs["all"]["observations"] and docs[label]["review_required"] == docs["all"]["review_required"]
 
 
 @pytest.mark.parametrize("features", [None, ("replication-flows", "data-flows", "transformation-flows", "task-chains"), ("replication-flows",)])
