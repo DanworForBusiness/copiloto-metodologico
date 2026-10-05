@@ -1,5 +1,5 @@
 """test_assessment_evidence_migration.py — migración CONTROLADA de assessments gobernados STALE por VERSIÓN de evidencia
-(``assessment_backfill --regenerate-stale-evidence evidence_g1_g3_v1``) y clasificador de vigencia.
+(``assessment_backfill --regenerate-stale-evidence <migracion>``: ``evidence_g1_g3_v1`` y ``evidence_closure_contract_v2``, sin encadenamiento) y clasificador de vigencia.
 
 Contrato (ver el docstring de ``assessment_backfill``):
   * modo EXPLÍCITO y separado: exige --dry-run XOR --apply, excluyente con --enrich-current-missing; el backfill normal y el enriquecimiento no cambian;
@@ -29,6 +29,8 @@ from webapp.services import assessment_service as svc
 from webapp.services import catalog_reads
 
 MIG = "evidence_closure_contract_v2"
+OLD_MIG = "evidence_g1_g3_v1"
+OLD_TARGET = svc.EVIDENCE_MIGRATIONS[OLD_MIG]
 TARGET = svc.EVIDENCE_MIGRATIONS[MIG]
 OLD_VALUES = {k: next(iter(v)) for k, v in TARGET.eligible_old.items() if v != frozenset({None})}
 
@@ -80,7 +82,7 @@ def test_the_six_public_states_are_unchanged_and_stale_reasons_are_not_states():
 
 
 def test_the_registry_is_small_explicit_and_uses_the_real_constants_as_target():
-    assert set(svc.EVIDENCE_MIGRATIONS) == {MIG} and "evidence_g1_g3_v1" not in svc.EVIDENCE_MIGRATIONS          # la migracion G1/G3 ya se aplico en produccion y se retiro
+    assert set(svc.EVIDENCE_MIGRATIONS) == {OLD_MIG, MIG}                        # ambas explicitas: un perfil historico no queda varado porque un cliente ya migro
     assert TARGET.target_keys == ("assessability", "confidence", "canonical_evidence", "closure") and TARGET.closure_policy == svc.TARGETED_CLOSURE_EXPANSION
     assert OLD_VALUES == {"assessability": "assessability-rules/v2", "confidence": "confidence-cuts/v1", "canonical_evidence": "canonical-evidence/v1"}
     assert TARGET.eligible_old["closure"] == frozenset({None})
@@ -148,10 +150,10 @@ class Fakes:
         self.retried.append((client, am))
         return False
 
-    def run(self, entries, apply=False, **kw):
+    def run(self, entries, apply=False, migration=MIG, **kw):
         kw.setdefault("remote_enabled", ALWAYS)
         kw.setdefault("verify_remote", lambda client, am: svc.REMOTE_CONFIRMED)
-        return bf.migrate_stale_evidence(entries, MIG, apply=apply, status_for=self.status_for, regenerate=self.regenerate, commit=self.commit, retry_remote=self.retry,
+        return bf.migrate_stale_evidence(entries, migration, apply=apply, status_for=self.status_for, regenerate=self.regenerate, commit=self.commit, retry_remote=self.retry,
                                          governed_state_present=ALWAYS, **kw)
 
 
@@ -264,7 +266,6 @@ def test_a_wrong_environment_is_reported_not_disguised_as_nothing_to_do():
 @pytest.mark.parametrize("argv", [["--regenerate-stale-evidence", MIG],                                          # ni --dry-run ni --apply
                                   ["--regenerate-stale-evidence", MIG, "--dry-run", "--apply"],                  # ambos
                                   ["--regenerate-stale-evidence", "nope", "--dry-run"],                          # migración desconocida
-                                  ["--regenerate-stale-evidence", "evidence_g1_g3_v1", "--dry-run"],             # la migración G1/G3 se retiró: no se reutiliza
                                   ["--regenerate-stale-evidence", MIG, "--enrich-current-missing", "view_type", "--dry-run"],   # excluyente con el otro modo
                                   ["--apply"]])                                                                  # --apply sin modo
 def test_the_cli_contract_fails_safely_with_zero_writes(argv, monkeypatch):
@@ -785,3 +786,144 @@ def test_the_expansion_is_reported_in_the_dry_run_delta_and_input_signature_sema
     assert (d["closure"]["old"], d["closure"]["new"]) == (len(old[3]), len(new[3])) and d["pool_signature_same"] in (True, False)
     c = svc.classify_currentness("sig", _old_versions(), "sig", _cur_versions())
     assert c.reason == svc.STALE_VERSION_ONLY and c.targeted == MIG                                              # misma firma de entrada: VERSION_ONLY, no INPUT_CHANGED
+
+
+# ═══════════════ 9. COMPATIBILIDAD: ambas migraciones explicitas, sin encadenamiento automatico ═══════════════
+PRE_G1G3 = {"signals": "signal-rules/v2", "assessability": "assessability-rules/v1", "finding_evidence": "finding-evidence/v1", "confidence": "confidence-cuts/v1"}
+
+
+def _pre_g1g3_versions():
+    v = dict(_cur_versions())
+    v.update(PRE_G1G3)
+    v.pop("canonical_evidence", None)                                            # el perfil anterior a G1/G3 no traia canonical_evidence ni closure
+    v.pop("closure", None)
+    return v
+
+
+def _downgrade_pre_g1g3(env):
+    """Deja el sobre como lo dejaba el motor ANTERIOR a G1/G3 (sin canonical_evidence ni closure; signals v2, assessability v1, finding_evidence v1, confidence v1)."""
+    prof = env["profile_json"]
+    prof.pop("canonical_evidence", None)
+    prof["versions"].update(PRE_G1G3)
+    prof["versions"].pop("canonical_evidence", None)
+    prof["versions"].pop("closure", None)
+    env["assessment_versions"] = dict(prof["versions"])
+
+
+def _make_pre_g1g3(world):
+    st = svc.generate(world.acme)
+    assert st.state == svc.CURRENT
+    (path,) = files(world)
+    _rewrite(path, _downgrade_pre_g1g3)
+    restart()
+    return path
+
+
+def test_the_classifier_assigns_each_historical_contract_to_exactly_its_own_migration():
+    cur = _cur_versions()
+    assert svc.targeted_migration(_pre_g1g3_versions(), cur) == OLD_MIG                       # 1: pre-G1/G3 -> evidence_g1_g3_v1
+    assert svc.targeted_migration(_old_versions(), cur) == MIG                                # contrato intermedio (G1/G3 vigente en 11ce071) -> evidence_closure_contract_v2
+    assert svc.targeted_migration(dict(cur), cur) is None                                     # CURRENT: ninguna
+    mixed = dict(_pre_g1g3_versions(), signals=cur["signals"])                                # a mitad de camino: ninguna cubre EXACTAMENTE esa diferencia
+    assert svc.targeted_migration(mixed, cur) is None
+    assert OLD_TARGET.closure_policy == svc.TARGETED_CLOSURE_EXPANSION                        # ambas regeneran con el mismo motor
+
+
+def test_a_pre_g1g3_profile_is_eligible_for_the_old_migration_and_not_directly_for_the_new_one():
+    e = _entry("e0", am="AM_0")
+    st = _status(e, svc.STALE, _prof(), reason=svc.STALE_VERSION_ONLY, targeted=OLD_MIG)
+    old = Fakes({"e0": st}).run([e], migration=OLD_MIG)
+    assert old["records"][0]["eligible"] is True and old["records"][0]["action"] == bf.WOULD_REGENERATE and old["counts"]["would_regenerate"] == 1
+    fk = Fakes({"e0": st})
+    new = fk.run([e], migration=MIG)
+    rec = new["records"][0]
+    assert not rec.get("eligible") and rec["reason"] == bf.OTHER_MIGRATION_APPLICABLE and rec["applicable_migration"] == OLD_MIG and rec["action"] == bf.SKIP
+    assert fk.regenerated == [] and new["counts"]["eligible"] == 0 and new["counts"]["would_regenerate"] == 0 and new["counts"]["other_migration_applicable"] == 1
+    assert new["counts"]["remaining_stale_not_migrated"] == 1                                 # no es un exito silencioso: queda reportado
+
+
+def test_a_profile_at_the_intermediate_contract_skips_the_old_migration_and_says_which_one_applies():
+    e = _entry("e0", am="AM_0")
+    st = _status(e, svc.STALE, _prof(), reason=svc.STALE_VERSION_ONLY, targeted=MIG)
+    fk = Fakes({"e0": st})
+    out = fk.run([e], migration=OLD_MIG)
+    rec = out["records"][0]
+    assert not rec.get("eligible") and rec["reason"] == bf.OTHER_MIGRATION_APPLICABLE and rec["applicable_migration"] == MIG and fk.regenerated == []
+
+
+def test_a_current_profile_skips_both_migrations_and_an_untargeted_one_is_still_untargeted():
+    e = _entry("e0", am="AM_0")
+    for mig in (OLD_MIG, MIG):
+        fk = Fakes({"e0": _status(e, svc.CURRENT, _prof())})
+        out = fk.run([e], migration=mig)
+        assert out["records"][0]["reason"] == bf.SKIPPED_ALREADY_CURRENT and fk.regenerated == [] and out["counts"]["current"] == 1
+        fk = Fakes({"e0": _status(e, svc.STALE, _prof(), reason=svc.STALE_VERSION_ONLY, targeted=None)})
+        assert fk.run([e], migration=mig)["records"][0]["reason"] == bf.VERSION_ONLY_UNTARGETED and fk.regenerated == []
+
+
+def test_the_new_migration_never_chains_the_old_one_on_a_real_pre_g1g3_governed_profile(world, monkeypatch):
+    path = _make_pre_g1g3(world)
+    before = _digest(path)
+    st = svc.status_for_entry(world.acme)
+    assert st.state == svc.STALE and st.stale_reason == svc.STALE_VERSION_ONLY and st.stale_targeted == OLD_MIG
+    calls = []
+    real = svc._engine_assess
+    monkeypatch.setattr(svc, "_engine_assess", lambda *a, **k: calls.append(1) or real(*a, **k))
+    monkeypatch.setattr(svc, "_store_envelope", lambda *a, **k: pytest.fail("cero escrituras"))
+    out = bf.migrate_stale_evidence([world.acme], MIG, apply=True, governed_state_present=ALWAYS)          # --apply de la migracion NUEVA sobre un perfil pre-G1/G3
+    rec = out["records"][0]
+    assert rec["reason"] == bf.OTHER_MIGRATION_APPLICABLE and rec["applicable_migration"] == OLD_MIG and calls == [] and _digest(path) == before
+    assert out["counts"]["regenerated_remote"] == out["counts"]["regenerated_local"] == 0 and out["counts"]["failed"] == 0
+
+
+def test_the_old_migration_dry_run_writes_nothing_and_apply_lands_on_the_current_contract_in_one_explicit_step(world, monkeypatch):
+    path = _make_pre_g1g3(world)
+    before = _digest(path)
+    with monkeypatch.context() as mp:
+        mp.setattr(svc, "_store_envelope", lambda *a, **k: pytest.fail("dry-run: cero escrituras"))
+        dry = bf.migrate_stale_evidence([world.acme], OLD_MIG, apply=False, governed_state_present=ALWAYS)
+    d = dry["records"][0]["delta"]
+    assert dry["records"][0]["action"] == bf.WOULD_REGENERATE and _digest(path) == before
+    assert d["versions"]["canonical_evidence"] == {"old": None, "new": "canonical-evidence/v2"} and d["versions"]["signals"] == {"old": "signal-rules/v2", "new": "signal-rules/v3"}
+    assert d["closure"]["drift"] is False and d["closure"]["policy"] == "TARGETED_CLOSURE_EXPANSION"
+    out = bf.migrate_stale_evidence([world.acme], OLD_MIG, apply=True, governed_state_present=ALWAYS)
+    assert out["records"][0]["action"] == bf.REGENERATED and out["counts"]["failed"] == 0 and files(world) == [path]
+    restart()
+    st = svc.status_for_entry(world.acme)
+    assert st.state == svc.CURRENT and st.profile["versions"] == svc.current_assessment_versions()                # el motor de este build solo emite el contrato vigente
+    ma_profile.validate_assessment(st.profile)
+    after = bf.migrate_stale_evidence([world.acme], MIG, apply=True, governed_state_present=ALWAYS)               # la migracion nueva ya no tiene nada que hacer
+    assert after["records"][0]["reason"] == bf.SKIPPED_ALREADY_CURRENT and after["counts"]["eligible"] == 0
+    again = bf.migrate_stale_evidence([world.acme], OLD_MIG, apply=True, governed_state_present=ALWAYS)          # idempotente
+    assert again["records"][0]["reason"] == bf.SKIPPED_ALREADY_CURRENT
+
+
+def test_an_intermediate_contract_profile_still_migrates_with_the_new_target_and_skips_with_the_old_one(world):
+    path = _make_old(world)                                                                                      # contrato intermedio (el de produccion en 11ce071)
+    st = svc.status_for_entry(world.acme)
+    assert st.stale_targeted == MIG
+    skipped = bf.migrate_stale_evidence([world.acme], OLD_MIG, apply=True, governed_state_present=ALWAYS)
+    assert skipped["records"][0]["reason"] == bf.OTHER_MIGRATION_APPLICABLE and skipped["records"][0]["applicable_migration"] == MIG
+    ok = bf.migrate_stale_evidence([world.acme], MIG, apply=True, governed_state_present=ALWAYS)
+    assert ok["records"][0]["action"] == bf.REGENERATED and files(world) == [path]
+
+
+def test_the_registry_has_no_chain_primitive_and_unknown_targets_stay_usage_errors(monkeypatch):
+    assert not hasattr(svc, "chain_migrations") and not hasattr(bf, "migrate_chain")
+    monkeypatch.setattr(catalog_reads, "_catalog_entries", lambda: pytest.fail("ni siquiera se lee el Catálogo"))
+    with pytest.raises(SystemExit) as exc:
+        bf.main(["--regenerate-stale-evidence", "evidence_chain_all", "--dry-run"])
+    assert exc.value.code == 2
+
+
+def test_the_cli_accepts_both_registered_targets_with_the_same_explicit_contract(monkeypatch):
+    entries = [_entry("a1", "Acme")]
+    monkeypatch.setattr(catalog_reads, "_catalog_entries", lambda: (None, entries))
+    seen = []
+    monkeypatch.setattr(bf, "migrate_stale_evidence", lambda es, name, apply=False, **k: seen.append((name, apply)) or {"counts": {"failed": 0}, "environment_warnings": []})
+    assert bf.main(["--regenerate-stale-evidence", OLD_MIG, "--dry-run"]) == 0 and bf.main(["--regenerate-stale-evidence", MIG, "--apply"]) == 0
+    assert seen == [(OLD_MIG, False), (MIG, True)]
+    for argv in (["--regenerate-stale-evidence", OLD_MIG], ["--regenerate-stale-evidence", OLD_MIG, "--dry-run", "--apply"]):       # mismo contrato de uso seguro
+        with pytest.raises(SystemExit) as exc:
+            bf.main(argv)
+        assert exc.value.code == 2

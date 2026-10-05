@@ -40,6 +40,13 @@ MIGRACIÓN CONTROLADA DE EVIDENCIA (modo explícito y SEPARADO; para assessments
   agregado es un target de flujo que Modeling ya leía en el mismo pool y que la clasificación previa excluía (hoja, leída por un miembro del cierre viejo, no un flujo);
   el cierre viejo debe ser subconjunto del nuevo. Cualquier otra diferencia es CLOSURE_DRIFT (cero escrituras). El dry-run informa los miembros agregados y su base.
 
+  SECUENCIA DE MIGRACIONES (sin encadenamiento automático): el registro tiene DOS migraciones explícitas y cada una cubre EXACTAMENTE una diferencia de versiones.
+    * ``evidence_g1_g3_v1``: perfil ANTERIOR a G1/G3 (sin ``canonical_evidence``). Sigue registrada para no varar perfiles históricos que existan o se restauren en ese contrato.
+      El motor de este build solo emite el contrato VIGENTE (no puede fabricar el intermedio G1/G3): con este build lleva el perfil al contrato vigente en UN paso explícito.
+    * ``evidence_closure_contract_v2``: perfil en el contrato G1/G3 (el vigente en ``11ce071``) -> evidence release.
+  Un perfil cuya diferencia es la de OTRA migración se informa como ``other_migration_applicable`` (con ``applicable_migration``): NO se migra por la equivocada, NO se salta
+  ni se encadena. Un perfil ya CURRENT se omite en ambas (idempotentes).
+
   DÓNDE CORRERLO: en la CONSOLA DEL SERVIDOR (DigitalOcean), donde ``governed-assessments/`` ya está restaurado y el pool del cliente está presente.
   NO desde una máquina de desarrollo y SIN restore() propio (el modo avisa si el estado gobernado parece ausente).
   REINICIO: el proceso web conserva el sobre viejo en memoria; el refresco es un reinicio CONTROLADO, y solo cuando TODO lo regenerado está en
@@ -316,7 +323,8 @@ def enrich_current(entries: Iterable[Any], enrichment: str, *, apply: bool = Fal
 SKIPPED_ALREADY_CURRENT, SKIPPED_FAILED_STATE = "skipped_already_current", "skipped_failed_state"
 SKIPPED_INCOMPATIBLE, SKIPPED_NOT_APPLICABLE = "skipped_incompatible", "skipped_not_applicable"
 VERSION_ONLY_UNTARGETED, INPUT_CHANGED_STALE, VERSION_AND_INPUT_CHANGED = "version_only_untargeted", "input_changed_stale", "version_and_input_changed"
-_STALE_ONLY_REPORTED = (VERSION_ONLY_UNTARGETED, INPUT_CHANGED_STALE, VERSION_AND_INPUT_CHANGED)
+OTHER_MIGRATION_APPLICABLE = "other_migration_applicable"       # STALE VERSION_ONLY cubierto exactamente por OTRA migracion del registro: se reporta, NO se encadena
+_STALE_ONLY_REPORTED = (VERSION_ONLY_UNTARGETED, INPUT_CHANGED_STALE, VERSION_AND_INPUT_CHANGED, OTHER_MIGRATION_APPLICABLE)
 
 
 def _provenance_summary(profile: dict | None) -> dict:
@@ -416,6 +424,8 @@ def _classify_migration(status: svc.AssessmentStatus, migration: str) -> str | N
         return VERSION_AND_INPUT_CHANGED
     if status.stale_reason == svc.STALE_VERSION_ONLY and status.stale_targeted == migration:
         return None
+    if status.stale_reason == svc.STALE_VERSION_ONLY and status.stale_targeted is not None:
+        return OTHER_MIGRATION_APPLICABLE                                         # sin salto ni encadenamiento automatico: se indica cual aplica
     return VERSION_ONLY_UNTARGETED
 
 
@@ -452,6 +462,8 @@ def migrate_stale_evidence(entries: Iterable[Any], migration: str, *, apply: boo
         reason = _classify_migration(status, migration)
         if reason is not None:
             rec["reason"] = reason
+            if reason == OTHER_MIGRATION_APPLICABLE:
+                rec["applicable_migration"] = status.stale_targeted
             continue
         rec["eligible"] = True
         old_versions = {k: None for k in target.target_keys}
@@ -481,6 +493,7 @@ def migrate_stale_evidence(entries: Iterable[Any], migration: str, *, apply: boo
         VERSION_ONLY_UNTARGETED: count(lambda r: r["reason"] == VERSION_ONLY_UNTARGETED),
         INPUT_CHANGED_STALE: count(lambda r: r["reason"] == INPUT_CHANGED_STALE),
         VERSION_AND_INPUT_CHANGED: count(lambda r: r["reason"] == VERSION_AND_INPUT_CHANGED),
+        OTHER_MIGRATION_APPLICABLE: count(lambda r: r["reason"] == OTHER_MIGRATION_APPLICABLE),
         "current": count(lambda r: r["reason"] == SKIPPED_ALREADY_CURRENT),
         "not_yet_assessed": count(lambda r: r["reason"] == SKIPPED_NOT_YET_ASSESSED),
         "failed_state": count(lambda r: r["reason"] == SKIPPED_FAILED_STATE),

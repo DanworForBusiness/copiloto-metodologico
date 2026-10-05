@@ -324,3 +324,20 @@ def test_the_assessability_surfaces_for_the_new_facts_are_all_declared_and_none_
     ids = {s["surface_id"]: s for s in doc["surfaces"]}
     required_new = {i for i, s in ids.items() if s["role"] == "REQUIRED" and i.startswith(("am.closure", "am.published", "harmonization.contract", "propagation.expression_occ", "propagation.branch", "ingestion.view_complex"))}
     assert required_new == {"am.closure_reference_resolution"}
+
+
+def test_an_explicit_delta_property_in_a_replication_flow_is_carried_verbatim_and_never_generalized():
+    root = write_pool(bundled_df=True)
+    rf = {"replicationflows": {"RF_VBAK": {"kind": "sap.dis.replicationflow", "contents": {
+        "sourceSystem": [{"connectionId": "S4", "connectionType": "SAPS4HANAOP", "container": "/CDS_EXTRACTION"}], "deltaLoadTrigger": {"interval": "PT1H"},
+        "replicationTasks": [{"name": "t1", "loadType": "REPLICATE", "truncate": False, "deltaCheckInterval": 3600,
+                              "sourceObject": {"name": "ZCDS_X", "metadata": {"isDeltaDisabled": True}}, "targetObject": {"name": "2TR_VBAK"}}]},
+        "sources": {}, "targets": {"2TR_VBAK": {"elements": {}}}}}}
+    (root / "Acme" / "replication-flows").mkdir(parents=True, exist_ok=True)
+    (root / "Acme" / "replication-flows" / "RF_VBAK.json").write_text(json.dumps(rf), encoding="utf-8")
+    d, _ = ma_shadow.assess(root, "Acme", AM, "General")
+    pr = _ce(d)["processing_flow_properties"]
+    f = next(x for x in pr["flows"] if x["flow_kind"] == "REPLICATION_FLOW")
+    t = f["properties"]["tasks"][0]
+    assert (t["load_type"], t["truncate"], t["delta_disabled"], t["delta_check_interval"]) == ("REPLICATE", False, True, 3600) and f["properties"]["delta_load_trigger"] == {"interval": "PT1H"}
+    assert pr["inferences"] == []                                             # una propiedad delta presente se lee tal cual; no se deduce FULL/INCREMENTAL/FEDERATED/REPLICATED

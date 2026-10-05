@@ -189,3 +189,56 @@ def test_the_coverage_denominator_gained_exactly_the_one_required_completeness_s
     req = [s for s in doc["surfaces"] if s["role"] == "REQUIRED"]
     assert sum(1 for s in req if s["surface_id"] == "am.closure_reference_resolution") == 1
     assert doc["summary"]["coverage"]["required_surfaces"]["applicable"] == len([s for s in req if s["assessability"] != "NOT_APPLICABLE"])
+
+
+# ═══════════════ Gate 8A.4: invariancia de empaquetado, referencias de targets de DF y separacion procedencia/consumo directo ═══════════════
+def _members(root: Path) -> list[str]:
+    return _doc(root)["scope"]["closure_artifacts"]
+
+
+def test_packaging_invariance_target_only_inside_the_df_export_vs_separate_modeling_entity(tmp_path):
+    """A: el target vive SOLO embebido en las `definitions` del DF (sin archivo propio). B: el MISMO target exportado aparte como entidad de Modeling. C: DF sin `definitions`."""
+    a = _members(write_pool(bundled_df=True, target_file=False, root=tmp_path / "a"))
+    b = _members(write_pool(bundled_df=True, target_file=True, root=tmp_path / "b"))
+    c = _members(write_pool(bundled_df=False, root=tmp_path / "c"))
+    assert a == b == c and "2TR_VBAK" in a and len(a) == 7
+
+
+def test_the_references_to_a_flow_target_are_excluded_under_the_old_policy_and_resolved_under_the_corrected_one():
+    from tools.catalog.modeling_assessment.facts_closure import closure_facts
+    root = write_pool(bundled_df=True)
+    ents = _entities(root)
+
+    def counts(policy):
+        uni = AssessmentUniverse.from_entities(ents, plane_policy=policy)
+        facts = closure_facts(uni, ents, uni.scope_for(AM, pool_signature="x").root)
+        per = {f.subject: f.value for f in facts if f.fact_id == "am.closure_reference_resolution"}
+        return per
+    old, new = counts(PLANE_POLICY_LOADER_FILE_FLAG), counts(PLANE_POLICY_MODELING_MEMBERSHIP)
+    assert old["V_A"]["counts"]["EXCLUDED_BY_PLANE"] >= 1 and old["V_B"]["counts"]["EXCLUDED_BY_PLANE"] >= 1                 # antes: referencia conocida a un miembro excluido -> completitud
+    assert new["V_A"]["counts"]["EXCLUDED_BY_PLANE"] == 0 and any(r["target"] == "2TR_VBAK" for r in new["V_A"]["resolved"])
+    assert new["V_B"]["counts"]["EXCLUDED_BY_PLANE"] == 0 and any(r["target"] == "2TR_VBAK" for r in new["V_B"]["resolved"])
+
+
+def test_a_physical_source_reached_only_through_provenance_is_never_direct_raw_table_access():
+    doc = _doc(write_pool(bundled_df=True))
+    groups = {g["id"]: g for g in doc["observations"] + doc["review_required"]}
+    direct = {a for g in groups.values() if g["id"] == "DIRECT_RAW_TABLE_ACCESS" for o in g["occurrences"] for a in o["affected_artifacts"]}
+    assert not ({"1TR_VBAK", "1TR_TVAKT", "VBAK_HIST", "DF_VBAK"} & direct)
+    assert "1TR_KNA1" in direct                                                  # la tabla fisica que SI consume la dimension de Modeling sigue siendo acceso directo
+    leaf = doc["canonical_evidence"]["physical_source_boundaries"]["leaves"][0]
+    assert all(b["counts_as_direct_raw_table_access"] is False and b["plane"] == "PROVENANCE" for b in leaf["boundaries"])
+    pb = doc["canonical_evidence"]["physical_source_boundaries"]
+    text = json.dumps({k: v for k, v in pb.items() if k != "definition"}).lower()
+    assert "direct_raw_table_access" not in text.replace("counts_as_direct_raw_table_access", "")           # los datos no colapsan los dos conceptos
+    assert "not direct_raw_table_access evidence" in pb["definition"].lower()                                # y la definicion los distingue expresamente
+
+
+def test_heterogeneous_measure_types_emit_no_signal_at_all():
+    het, hom = _doc(write_pool(bundled_df=True, peso_type="Double")), _doc(write_pool(bundled_df=True, peso_type="Decimal"))
+    ids = lambda d: sorted(g["id"] for g in d["observations"] + d["review_required"])          # noqa: E731
+    assert ids(het) == ids(hom)
+    assert het["summary"]["coverage"] == hom["summary"]["coverage"] and het["summary"]["confidence"]["level"] == hom["summary"]["confidence"]["level"]
+    assert [q["id"] for q in het["summary"]["context_required"]["questions"]] == [q["id"] for q in hom["summary"]["context_required"]["questions"]]
+    assert het["canonical_evidence"]["published_contract"]["fields"]["measure_type_composition"]["signature_count"] == 3
+    assert hom["canonical_evidence"]["published_contract"]["fields"]["measure_type_composition"]["signature_count"] == 2

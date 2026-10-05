@@ -91,14 +91,16 @@ def _view(name: str, cols: list, frm: dict, elements: dict, *, pattern: str = "A
     return {name: {"kind": "entity", "elements": elements, "@ObjectModel.modelingPattern": {"#": pattern}, "@DataWarehouse.sqlEditor.query": "SELECT 1", "query": {"SELECT": sel}}}
 
 
-def write_pool(*, bundled_df: bool = True, orphan: bool = False, mode: str = "append", upsert: bool = True, root: Path | None = None) -> Path:
+def write_pool(*, bundled_df: bool = True, orphan: bool = False, mode: str = "append", upsert: bool = True, root: Path | None = None, target_file: bool = True,
+               peso_type: str = "Double") -> Path:
     root = root or Path(tempfile.mkdtemp(prefix="evrel_"))
     # --- fuentes remotas y vista de origen del flujo
     raw = {**remote_table("1TR_VBAK", "ABAPTABLES.VBAK", raw_vbak_cols()), **remote_table("1TR_TVAKT", "ABAPTABLES.TVAKT", raw_tvakt_cols())}
     flow = dataflow("DF_VBAK", "VBAK_HIST", "2TR_VBAK", mode=mode, upsert=upsert)
     if bundled_df:
         _w(root, "Acme/DF_VBAK.json", {"definitions": {**target_def(), **raw, **vbak_hist_def()}, **flow})
-        _w(root, "Acme/local-tables/2TR_VBAK.json", {"definitions": target_def()})                  # como Illolay: el target tambien tiene su propio archivo
+        if target_file:
+            _w(root, "Acme/local-tables/2TR_VBAK.json", {"definitions": target_def()})              # como Illolay: el target tambien tiene su propio archivo
     else:
         _w(root, "Acme/remote-tables/1TR_VBAK.json", {"definitions": remote_table("1TR_VBAK", "ABAPTABLES.VBAK", raw_vbak_cols())})
         _w(root, "Acme/remote-tables/1TR_TVAKT.json", {"definitions": remote_table("1TR_TVAKT", "ABAPTABLES.TVAKT", raw_tvakt_cols())})
@@ -135,7 +137,7 @@ def write_pool(*, bundled_df: bool = True, orphan: bool = False, mode: str = "ap
     am_el = {**{c: el(SAP_LABEL[c]) for c in CODES}, "Mes": el("Mes"),
              "Cantidad": {"type": "cds.Decimal", "precision": 20, "scale": 3, "@EndUserText.label": "Cantidad", "@AnalyticsDetails.measureType": {"#": "BASE"}},
              "Importe": {"type": "cds.Decimal", "precision": 35, "scale": 3, "@EndUserText.label": "Importe", "@AnalyticsDetails.measureType": {"#": "BASE"}},
-             "Peso": {"type": "cds.Double", "@EndUserText.label": "Peso", "@AnalyticsDetails.measureType": {"#": "BASE"}},
+             "Peso": ({"type": "cds.Double"} if peso_type == "Double" else {"type": "cds.Decimal", "precision": 20, "scale": 3}) | {"@EndUserText.label": "Peso", "@AnalyticsDetails.measureType": {"#": "BASE"}},
              "_Dim": {"type": "cds.Association", "target": "2VS_DIM", "on": [{"ref": ["VBELN"]}, "=", {"ref": ["_Dim", "C0"]}], "@EndUserText.label": "Cliente"},
              "_Fecha": {"type": "cds.Association", "target": "SAP.TIME.VIEW_DIMENSION_DAY", "on": [{"ref": ["Mes"]}, "=", {"ref": ["_Fecha", "DATE_SQL"]}], "@EndUserText.label": "Fecha"}}
     am_cols += [{"ref": ["3VF_X", "Mes"], "as": "Cantidad"}, {"ref": ["3VF_X", "Mes"], "as": "Importe"}, {"ref": ["3VF_X", "Mes"], "as": "Peso"}, {"ref": ["_Dim"]}, {"ref": ["_Fecha"]}]

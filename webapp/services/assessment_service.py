@@ -111,9 +111,23 @@ class MigrationTarget:
 
 CLOSURE_EQUAL, TARGETED_CLOSURE_EXPANSION = "CLOSURE_EQUAL", "TARGETED_CLOSURE_EXPANSION"
 
-# Registro de migraciones de evidencia. ``evidence_g1_g3_v1`` (G1/G3, produccion ya migrada: 25/25 CURRENT) se RETIRO: sus versiones viejas ya no son una
-# diferencia exacta contra las vigentes (el perfil previo al evidence release tampoco tiene ``closure`` ni ``confidence-cuts/v2``) y no se reutiliza.
+# Registro de migraciones de evidencia: pequeno, explicito y SIN encadenamiento automatico. Cada migracion cubre EXACTAMENTE una diferencia de versiones; un perfil
+# cuya diferencia es la de OTRA migracion se reporta como tal (``applicable_migration``) y no se migra por esta.
+#   * ``evidence_g1_g3_v1`` (perfil ANTERIOR a G1/G3: sin ``canonical_evidence``, signals v2, assessability v1, finding_evidence v1). Sigue registrada: un perfil historico
+#     puede existir o restaurarse en ese contrato aunque produccion ya migro a otro cliente. IMPORTANTE: el motor de ESTE build solo emite el contrato VIGENTE; no puede
+#     fabricar el contrato intermedio G1/G3. Por eso, con este build, la migracion lleva el perfil al contrato vigente en UN paso explicito del operador (por eso sus claves
+#     objetivo incluyen ``confidence`` y ``closure``). Para dejar un perfil en el contrato intermedio G1/G3 hay que correrla desde un despliegue anterior al evidence release.
+#   * ``evidence_closure_contract_v2`` (perfil en el contrato G1/G3 vigente en 11ce071 -> evidence release).
+# Ambas regeneran con el MISMO motor, por lo que ambas aceptan el cierre solo bajo ``TARGETED_CLOSURE_EXPANSION``.
 EVIDENCE_MIGRATIONS: dict[str, MigrationTarget] = {
+    "evidence_g1_g3_v1": MigrationTarget(
+        "evidence_g1_g3_v1", ("signals", "assessability", "finding_evidence", "canonical_evidence", "confidence", "closure"),
+        {"signals": frozenset({"signal-rules/v2"}), "assessability": frozenset({"assessability-rules/v1"}),
+         "finding_evidence": frozenset({"finding-evidence/v1"}), "canonical_evidence": frozenset({None}),
+         "confidence": frozenset({"confidence-cuts/v1"}), "closure": frozenset({None})},
+        "Gate 4 (perfil anterior a G1/G3): procedencia canonica de hojas (G1) + semantica estructural de derivaciones (G3) + canonical_evidence; con este build aterriza en el "
+        "contrato vigente en un solo paso explicito (no encadena otra migracion)",
+        TARGETED_CLOSURE_EXPANSION),
     "evidence_closure_contract_v2": MigrationTarget(
         "evidence_closure_contract_v2", ("assessability", "confidence", "canonical_evidence", "closure"),
         {"assessability": frozenset({"assessability-rules/v2"}), "confidence": frozenset({"confidence-cuts/v1"}),
