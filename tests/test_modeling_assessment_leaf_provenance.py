@@ -223,12 +223,12 @@ def test_processing_evidence_satisfies_the_provenance_surface_only():
     with_rf = _doc(_pool(extra={"Acme/replication-flows/RF_X.json": _rf("RF_X", ["LOCAL_X"], ["ZCDS_SRC"])}), SCOPE_ALL)
     surf = lambda d: {s["surface_id"]: s["assessability"] for s in d["surfaces"]}
     changed = {k for k in surf(plain) if surf(plain)[k] != surf(with_rf)[k]}
-    assert changed <= {"source.leaf_provenance", "ingestion.processing_reference"}                                                          # ya era ASSESSED por ausencia concluyente: nada mas se movio
+    assert changed <= {"source.leaf_provenance", "ingestion.processing_reference", "source.physical_boundary"}                                # + la frontera fisica que revela la cadena (complemento de procedencia)
     for area in ("ANALYTIC_MODEL", "PROPAGATION", "HARMONIZATION", "NAMING"):
         a = next(x for x in plain["areas"] if x["id"] == area)
         b = next(x for x in with_rf["areas"] if x["id"] == area)
         assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True), area
-    keep = lambda d: [f for f in d["fact_index"] if not f["fact"].startswith(("source.leaf_provenance", "ingestion.processing", "ingestion.dataflow"))]
+    keep = lambda d: [f for f in d["fact_index"] if not f["fact"].startswith(("source.leaf_provenance", "source.physical_boundary", "ingestion.processing", "ingestion.dataflow", "ingestion.flow_load"))]
     assert keep(plain) == keep(with_rf)
 
 
@@ -238,7 +238,7 @@ def test_establishing_provenance_changes_only_the_leaf_and_the_rule_inputs_it_fe
     surf = lambda d: {s["surface_id"]: s["assessability"] for s in d["surfaces"]}
     changed = {k for k in surf(base) if surf(base)[k] != surf(est)[k]}
     assert changed <= {"source.leaf_provenance", "ingestion.processing_reference", "rule.direct_raw_table_access", "rule.duplicated_remote_import",
-                       "rule.layer_boundary_review"}                                                             # + el complemento cross-plane que CITA el flujo
+                       "rule.layer_boundary_review", "source.physical_boundary"}                                                             # + el complemento cross-plane que CITA el flujo
     assert "source.leaf_provenance" in changed
     for key in ("observations", "review_required", "descriptive_signals"):
         assert json.dumps(base[key], sort_keys=True) == json.dumps(est[key], sort_keys=True), key
@@ -278,6 +278,6 @@ def test_old_profiles_without_canonical_evidence_stay_valid_and_the_generic_root
 
 def test_the_versions_block_carries_the_evidence_contract_so_old_profiles_become_stale():
     doc = _doc(_pool())
-    assert doc["versions"]["canonical_evidence"] == "canonical-evidence/v1"
-    assert doc["versions"]["assessability"] == "assessability-rules/v2" and doc["versions"]["signals"] == "signal-rules/v3"
+    assert doc["versions"]["canonical_evidence"] == "canonical-evidence/v2" and doc["versions"]["closure"] == "closure-rules/v1"
+    assert doc["versions"]["assessability"] == "assessability-rules/v3" and doc["versions"]["signals"] == "signal-rules/v3"
     assert doc["versions"]["finding_evidence"] == "finding-evidence/v2"

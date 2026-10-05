@@ -197,14 +197,14 @@ def test_universe_survives_a_malformed_graph_without_crashing():
 
 
 # ── plano Processing ───────────────────────────────────────────────────────
-def test_universe_excludes_processing_dataflow_targets_from_every_modeling_structure():
-    """Frontera de planos: un target de Data Flow NO participa de la clausura semantica, la de linaje, el
+def test_loader_file_flag_policy_excludes_processing_dataflow_targets_from_every_modeling_structure():
+    """(politica LOADER_FILE_FLAG, el contrato previo a closure-rules/v1) Frontera de planos: un target de Data Flow NO participa de la clausura semantica, la de linaje, el
     scope del AM, el indice de contencion cross-AM, la validacion de referencias ni los terminales."""
     ents = pool(ent("AM_X", up=["V", "T"], cube=True), ent("V"),
                 ent("AM_Y", up=["T"], cube=True),
                 ent("T", dataflow=True, up=["ONLY_VIA_T"]), ent("ONLY_VIA_T"),
                 ent("AM_AS_DF", dataflow=True, cube=True))              # incluso un "cubo" marcado como target de DF
-    u = AssessmentUniverse.from_entities(ents)
+    u = AssessmentUniverse.from_entities(ents, plane_policy="LOADER_FILE_FLAG")
     assert u.terminal_ams == ("AM_X", "AM_Y")                           # AM_AS_DF no es terminal
     assert u.closure_of("AM_X") == ("AM_X", "V") and u.lineage_closure_of("AM_X") == ("AM_X", "V")
     assert u.closure_of("AM_Y") == ("AM_Y",)

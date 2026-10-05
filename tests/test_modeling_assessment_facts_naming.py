@@ -563,11 +563,11 @@ def test_extractor_is_pure_it_does_not_mutate_the_entities():
     assert repr({n: (list(e.fields), list(e.upstreams), list(e.associations)) for n, e in ents.items()}) == snap
 
 
-def test_processing_context_and_orphans_never_appear_in_naming_facts():
+def test_loader_injected_flow_lineage_and_orphans_never_appear_in_naming_facts():
     ents = m3_entities()
     u = AssessmentUniverse.from_entities(ents)
     blob = repr([(f.subject, f.value) for f in naming_facts(u, ents, "AM_M")])
-    assert "DF_T" not in blob and "ONLY_VIA_DF" not in blob
+    assert "ONLY_VIA_DF" not in blob                                    # DF_T (target de flujo que Modeling lee) es una hoja miembro; su linaje inyectado no
 
 
 def test_naming_modules_read_only_loaded_entities_never_raw_files_or_legacy_directly():

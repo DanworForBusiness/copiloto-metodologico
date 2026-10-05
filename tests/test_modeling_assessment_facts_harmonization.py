@@ -70,11 +70,11 @@ def test_composition_artifacts_are_those_with_fan_in_and_report_the_declared_con
     v = _by(facts, "harmonization.composition_artifacts", "closure").value
     assert v["count"] == 1
     r = v["artifacts"][0]
-    assert r["artifact"] == "VR_M" and r["lineage_provider_count"] == 4
+    assert r["artifact"] == "VR_M" and r["lineage_provider_count"] == 5                  # + DF_T (hoja producida por un flujo que VR_M lee)
     assert r["declares_no_associations_measures_dimensions"] is True
-    assert {p["artifact"] for p in r["lineage_providers"]} == {"SRC1", "SRC2", "DIM_V", "NOQ_V"}
+    assert {p["artifact"] for p in r["lineage_providers"]} == {"SRC1", "SRC2", "DIM_V", "NOQ_V", "DF_T"}
     assert {p["artifact"]: p["is_boundary_artifact"] for p in r["lineage_providers"]} == {
-        "SRC1": True, "SRC2": True, "DIM_V": False, "NOQ_V": False}
+        "SRC1": True, "SRC2": True, "DIM_V": False, "NOQ_V": False, "DF_T": True}
     assert r["reaches_terminal_by_strict_lineage"] is True and r["lineage_distance"] == 2
 
 
@@ -184,8 +184,12 @@ def test_inferred_layer_context_is_copied_with_its_basis_but_never_selects_the_p
     assert "name_derived_layer" not in repr([f.value for f in facts])
 
 
-def test_data_flow_targets_never_count_as_consumers_or_in_other_closures():
+def test_a_dataflow_target_is_a_leaf_member_whose_loader_injected_lineage_is_never_a_consumer_edge():
     ents = m3_entities()
-    ents["DF_T"].upstreams = ["DIM_B"]                       # un target de DF que lee DIM_B: contexto Processing, no consumidor
+    ents["DF_T"].upstreams = ["DIM_B"]                       # linaje que el loader inyecta a un target de DF: procedencia, no linaje semantico ni consumo de DIM_B
     _, facts = _facts(ents)
-    assert "DF_T" not in repr([(f.subject, f.value) for f in facts])
+    comp = _by(facts, "harmonization.composition_artifacts", "closure").value["artifacts"][0]
+    prov = {p["artifact"]: p for p in comp["lineage_providers"]}
+    assert "DF_T" in prov and prov["DF_T"]["is_boundary_artifact"] is True          # es una HOJA: sin proveedores de Modeling
+    reuse = {f.subject: f.value for f in facts if f.fact_id == "harmonization.local_chain_reuse"}
+    assert "DF_T" not in repr([f.value for f in facts if f.fact_id == "harmonization.cross_am_reuse" and f.subject == "DIM_B"])

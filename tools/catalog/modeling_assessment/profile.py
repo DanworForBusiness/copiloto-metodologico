@@ -25,7 +25,7 @@ from .assessability import (
     ASSESSABILITY_RULESET, CONFIDENCE_CUTS, CONFIDENCE_RULESET, SURFACE_REGISTRY, AssessmentComposition, ConfidenceAxis, SurfaceAssessment, SurfaceKind,
     SurfaceRole,
 )
-from .evidence_contract import CANONICAL_EVIDENCE_VERSION, validate_canonical_evidence, validate_document_evidence       # G1/G3/G4: contrato explicito de `canonical_evidence`
+from .evidence_contract import CANONICAL_EVIDENCE_VERSION, CLOSURE_RULESET, build_v2_sections, validate_canonical_evidence, validate_document_evidence       # G1/G3/G4: contrato explicito de `canonical_evidence`
 from .identity import IDENTITY_RULESET
 from .model import Applicability, Assessability, Cause, Fact, SignalKind
 from .signals import SIGNAL_REGISTRY, SIGNALS_RULESET, FactIndex, Finding
@@ -376,6 +376,12 @@ SURFACE_TITLES: dict[str, str] = {
     "ingestion.dataflow_boundary": "Referencias del plano de Procesamiento (frontera)", "ingestion.processing_context_inventory": "Inventario de contexto de Procesamiento",
     "ingestion.processing_reference": "Referencias a flujos de Procesamiento", "am.contract_inventory": "Contrato declarado del modelo analítico",
     "am.closure_composition": "Composición del cierre semántico (linaje estricto frente a asociación)",
+    "am.closure_reference_resolution": "Resolución de las referencias del cierre semántico", "am.closure_plane_context": "Contexto de planos del cierre semántico",
+    "source.physical_boundary": "Frontera física de integración revelada por la procedencia",
+    "ingestion.flow_load_properties": "Propiedades de carga exportadas de los flujos que producen hojas del cierre",
+    "am.association_semantics": "Categorías de las asociaciones del modelo analítico", "am.field_semantics": "Campos y medidas publicados (etiqueta, tipo de dato, origen del nombre)",
+    "harmonization.contract_character": "Carácter del contrato de los artefactos candidatos a armonización", "harmonization.view_complexity": "Complejidad estructural de las vistas del cierre",
+    "propagation.expression_occurrences": "Expresiones por cláusula y su reaparición estructural", "propagation.branch_reconvergence": "Reconvergencia de ramas que comparten un contrato",
     "am.view_type_composition": "Composición del cierre por tipo de vista (gráfica, SQL, sin clasificar)",
     "am.association_targets": "Destinos de asociación del modelo analítico", "am.contract_delta": "Diferencias del modelo analítico frente a sus proveedores",
     "am.numeric_attributes_not_declared_as_measures": "Atributos numéricos no declarados como medidas", "propagation.derived_fields": "Campos derivados por artefacto",
@@ -486,12 +492,14 @@ _COMPONENT_LIMITATION = {
     "non_heuristic_identity": "parte de las identidades de artefacto se basa en una regla heurística de nombres y no en metadatos observados",
     "resolved_provenance": "la procedencia de parte de los artefactos evaluados no está resuelta",
     "complete_rule_inputs": "parte de las conclusiones de las reglas se alcanzó con insumos evaluados de forma incompleta",
+    "unambiguous_closure_references": "parte de las referencias del cierre se resolvió por una coincidencia de identidad ambigua",
 }
 
 _COMPONENT_TEXT = {
     "non_heuristic_identity": "Identidades de artefacto que no dependen de una regla heurística",
     "resolved_provenance": "Artefactos con procedencia resuelta",
     "complete_rule_inputs": "Conclusiones de reglas alcanzadas con insumos completamente evaluados",
+    "unambiguous_closure_references": "Referencias del cierre cuya identidad no es ambigua",
 }
 
 # Por que cada diagnostico NO es insumo de la confianza (un diagnostico nuevo sin texto falla ruidosamente: obliga a decidir).
@@ -765,7 +773,7 @@ def _canonical_evidence(idx: FactIndex) -> dict:
     rep = idx.usable_get("harmonization.expression_repetition", "closure")
     topo = idx.usable_get("harmonization.assembly_topology", "closure")
     return {"version": CANONICAL_EVIDENCE_VERSION, "leaf_provenance": leaves, "derivation_semantics": derivation,
-            "expression_repetition": rep.value if rep is not None else None, "assembly_topology": topo.value if topo is not None else None}
+            "expression_repetition": rep.value if rep is not None else None, "assembly_topology": topo.value if topo is not None else None, **build_v2_sections(idx)}
 
 
 def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, client: str, terminal_label: str | None = None,
@@ -783,7 +791,7 @@ def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, clie
         "assessment_state": "ASSESSED" if applicable else "NOT_APPLICABLE",
         "versions": {"signals": SIGNALS_RULESET, "assessability": ASSESSABILITY_RULESET, "confidence": CONFIDENCE_RULESET, "reason_codes": REASON_REGISTRY_VERSION,
                      "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION, "presentation_order": PRESENTATION_ORDER_VERSION,
-                     "canonical_evidence": CANONICAL_EVIDENCE_VERSION},
+                     "canonical_evidence": CANONICAL_EVIDENCE_VERSION, "closure": CLOSURE_RULESET},
         "scope": {"client": client, "terminal_analytic_model": scope.terminal_am,
                   # Identidad GENERICA de la raiz evaluada (aditivo): para un AM coexiste con `terminal_analytic_model`; para vista/tabla ese campo es
                   # null (no se fabrica un AM) y la identidad es `root_object` + `root_type`.
@@ -826,7 +834,7 @@ def build_indeterminate_assessment(*, client: str, requested_model: str | None, 
     return {"schema_version": ASSESSMENT_SCHEMA_VERSION, "assessment_state": "INDETERMINATE",
             "versions": {"signals": SIGNALS_RULESET, "assessability": ASSESSABILITY_RULESET, "confidence": CONFIDENCE_RULESET, "reason_codes": REASON_REGISTRY_VERSION,
                          "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION, "presentation_order": PRESENTATION_ORDER_VERSION,
-                     "canonical_evidence": CANONICAL_EVIDENCE_VERSION},
+                     "canonical_evidence": CANONICAL_EVIDENCE_VERSION, "closure": CLOSURE_RULESET},
             "scope": {"client": client, "terminal_analytic_model": requested_model, "terminal_analytic_model_label": None,
                       "root_object": requested_model, "root_type": None, "root_label": None,
                       "applicability": "INDETERMINATE", "reason": r, "closure_size": 0,

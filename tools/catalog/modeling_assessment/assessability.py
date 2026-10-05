@@ -49,8 +49,8 @@ from .model import (
 )
 from .signals import FactIndex, Finding, SignalEvaluation, evaluate_signals
 
-ASSESSABILITY_RULESET = "assessability-rules/v2"       # v2 (G1): `source.leaf_provenance` reemplaza a `source.leaf_contract_status`; la evidencia de productores puede ESTABLECER procedencia
-CONFIDENCE_RULESET = "confidence-cuts/v1"
+ASSESSABILITY_RULESET = "assessability-rules/v3"       # v3 (evidence release): superficie REQUERIDA de completitud del cierre (`am.closure_reference_resolution`) + superficies descriptivas del contrato publicado, armonizacion, expresiones, reconvergencia, complejidad y propiedades de flujo; v2 (G1): `source.leaf_provenance` reemplaza a `source.leaf_contract_status`
+CONFIDENCE_RULESET = "confidence-cuts/v2"       # v2: factor epistemico `unambiguous_closure_references` (la resolucion AMBIGUA de una referencia del cierre afecta la CONFIANZA, no la cobertura)
 
 # Cortes PROVISIONALES (no son umbrales de calidad/madurez): (corte para HIGH, corte para MEDIUM). Se validan en M8.
 CONFIDENCE_CUTS = {                                   # PROVISIONAL, VALIDAR EN M8 (no son umbrales de calidad/madurez)
@@ -249,6 +249,8 @@ _FACT_SURFACES: tuple[SurfaceSpec, ...] = (
                 ("source.replication_mode",), per_unit=False, na_when=_no_remote),
     SurfaceSpec("source.leaf_provenance", _SRC, F, REQ, "boundary leaves without remote origin: provenance ESTABLISHED/DECLARED by direct producer evidence, NOT_OBSERVABLE only with a conclusive acquired scope, NOT_ASSESSED otherwise (never NOT_APPLICABLE)",
                 ("source.leaf_provenance",)),
+    SurfaceSpec("source.physical_boundary", _SRC, F, XPL, "external integration boundary revealed by the provenance chain of a flow-produced local leaf (physical table / governed CDS / governed SAPI extractor / unclassified): Processing-provenance evidence for the SOURCE contract; never a semantic closure member and never DIRECT_RAW_TABLE_ACCESS evidence",
+                ("source.physical_boundary",)),
     # INGESTION
     SurfaceSpec("ingestion.boundary_artifacts", _ING, F, REQ, "boundary leaves of the closure", ("ingestion.boundary_artifacts",), per_unit=False),
     SurfaceSpec("ingestion.first_consumers", _ING, F, REQ, "first consumers of each boundary leaf", ("ingestion.first_consumers",)),
@@ -257,13 +259,23 @@ _FACT_SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec("ingestion.inferred_layer_vs_lineage_depth", _ING, F, REQ, "inferred layer vs real lineage depth", ("ingestion.inferred_layer_vs_lineage_depth",), per_unit=False),
     SurfaceSpec("ingestion.dataflow_boundary", _ING, F, XPL, "Processing-plane references: never alter Modeling denominators", ("ingestion.dataflow_boundary",), per_unit=False),
     SurfaceSpec("ingestion.processing_context_inventory", _ING, F, XPL, "Processing-plane inventory", ("ingestion.processing_context_inventory",), per_unit=False),
+    SurfaceSpec("ingestion.flow_load_properties", _ING, F, XPL, "exact exported load properties (mode / upsert / filter / delta flags) of the flows that produce closure leaves; unobserved properties stay unobserved, nothing is inferred",
+                ("ingestion.flow_load_properties",), per_unit=False),
     SurfaceSpec("ingestion.processing_reference", _ING, F, XPL, "Processing-plane flow references", ("ingestion.processing_reference",)),
     # ANALYTIC MODEL
     SurfaceSpec("am.contract_inventory", _AM, F, REQ, "declared contract of the terminal analytic model", ("am.contract_inventory",), per_unit=False, na_when=_not_am_root),
+    SurfaceSpec("am.association_semantics", _AM, F, VIEW, "descriptive: association categories (business dimension / time platform dimension / other platform / unknown) from explicit identity and declared role; the number of associations is not a measure of quality",
+                ("am.association_semantics",), per_unit=False, na_when=_not_am_root),
+    SurfaceSpec("am.field_semantics", _AM, F, VIEW, "descriptive: published fields and measures (label vs technical name, datatype family / precision / scale, name equal to a remote source column) and the measure datatype composition",
+                ("am.field_semantics",), per_unit=False, na_when=_not_am_root),
     SurfaceSpec("am.association_targets", _AM, F, REQ, "association targets of the analytic model", ("am.association_targets",), per_unit=False, na_when=_not_am_root),
     SurfaceSpec("am.contract_delta", _AM, F, REQ, "what the analytic model adds/removes vs each direct lineage provider", ("am.contract_delta",), na_when=_not_am_root),
     SurfaceSpec("am.numeric_attributes_not_declared_as_measures", _AM, F, REQ, "numeric attributes not declared as measures", ("am.numeric_attributes_not_declared_as_measures",), per_unit=False,
                 na_when=_not_am_root),
+    SurfaceSpec("am.closure_reference_resolution", _AM, F, REQ, "completeness of the semantic closure: every declared reference of a closure member is RESOLVED (UNRESOLVED / EXCLUDED_BY_PLANE members lower coverage; AMBIGUOUS identity affects confidence)",
+                ("am.closure_reference_resolution",)),
+    SurfaceSpec("am.closure_plane_context", _AM, F, VIEW, "descriptive: local tables read by Modeling that a flow produces (semantic members) and the difference against the previous plane classification",
+                ("am.closure_plane_context",), per_unit=False),
     SurfaceSpec("am.closure_composition", _AM, F, VIEW, "descriptive composition of the semantic closure (strict lineage vs association): graph structure, not a required evidence surface",
                 ("am.closure_composition",), per_unit=False),
     SurfaceSpec("am.view_type_composition", _AM, F, VIEW, "descriptive composition of the closure by Datasphere view type (GRAPHICAL/SQL/UNKNOWN): objective evidence, no judgment, not a required surface",
@@ -275,6 +287,10 @@ _FACT_SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec("propagation.rederivation", _PRO, F, REQ, "same field derived in lineage ancestors", ("propagation.rederivation",), per_unit=False),
     SurfaceSpec("propagation.derivation_semantics", _PRO, F, OPT, "structural derivation semantics from the compiled query AST (operations, inputs, fingerprints, relation of repeated derivations); business semantics of formulas stay out of scope, so it is optional deeper evidence and would become REQUIRED only if a future surface/judgment depends on it",
                 ("propagation.derivation_semantics",), per_unit=False),
+    SurfaceSpec("propagation.expression_occurrences", _PRO, F, VIEW, "descriptive: expression occurrences per clause (SELECT / WHERE / GROUP BY / HAVING / JOIN ON) with transformation class, layer and observed structural reuse; no ownership judgment",
+                ("propagation.expression_occurrences",), per_unit=False),
+    SurfaceSpec("propagation.branch_reconvergence", _PRO, F, VIEW, "descriptive: parallel branches that share a provider contract and reconverge downstream (consumed-field overlap, paths); a shared source is not a deviation",
+                ("propagation.branch_reconvergence",), per_unit=False),
     # HARMONIZATION
     SurfaceSpec("harmonization.dimension_artifacts", _HAR, F, REQ, "declared dimensions of the closure", ("harmonization.dimension_artifacts",), per_unit=False),
     SurfaceSpec("harmonization.composition_artifacts", _HAR, F, REQ, "composition artifacts (fan-in >= 2)", ("harmonization.composition_artifacts",), per_unit=False),
@@ -282,6 +298,10 @@ _FACT_SURFACES: tuple[SurfaceSpec, ...] = (
                 ("harmonization.expression_repetition",), per_unit=False),
     SurfaceSpec("harmonization.assembly_topology", _HAR, F, VIEW, "descriptive topology of the composition artifacts (providers, boundary providers, reusable intermediates, consumers, distance, share of closure leaves); no threshold, no judgment",
                 ("harmonization.assembly_topology",), per_unit=False),
+    SurfaceSpec("harmonization.contract_character", _HAR, F, VIEW, "descriptive: how the contract of each harmonization candidate is built (mapping kinds, retained source fields, label origin, vocabulary carry-through, transformation classes); no quality score",
+                ("harmonization.contract_character",)),
+    SurfaceSpec("harmonization.view_complexity", _HAR, F, VIEW, "descriptive structural complexity of the closure views next to the view type; maintainability qualifier, no threshold, no directionality",
+                ("harmonization.view_complexity",)),
     SurfaceSpec("harmonization.reuse_context", _HAR, F, CTX, "definitions of the two reuse scopes: context to read the reuse facts", ("harmonization.reuse_context",), per_unit=False),
     SurfaceSpec("harmonization.local_chain_reuse", _HAR, F, REQ, "LOCAL_CHAIN_REUSE per dimension/association target", ("harmonization.local_chain_reuse",)),
     SurfaceSpec("harmonization.cross_am_reuse", _HAR, F, REQ, "CROSS_AM_REUSE per artifact (NOT_APPLICABLE when no peer analytic model exists or the root is not an analytic model)",
@@ -581,6 +601,12 @@ def _confidence_factors(surfaces: list[SurfaceAssessment], ctx: Ctx, coverage: C
     complete = sum(1 for s in concl if s.assessability is Assessability.ASSESSED)
     contributing("complete_rule_inputs", _share(complete, len(concl)),
                  f"{complete} of {len(concl)} rule conclusions were reached with fully assessed inputs")
+    refs_fx = ctx.idx.usable("am.closure_reference_resolution")
+    n_amb = sum(f.value["counts"]["AMBIGUOUS"] for f in refs_fx)
+    n_res = sum(f.value["counts"]["RESOLVED"] for f in refs_fx)
+    if refs_fx:                                          # sin hechos de resolucion del cierre (fixtures historicos) el factor no existe: no se inventa un 1.0
+        contributing("unambiguous_closure_references", _share(n_res, n_res + n_amb),
+                     f"{n_amb} of {n_res + n_amb} references of the closure members resolve only by an ambiguous (case-insensitive) identity match")
     # ── EPISTEMICO pero NO contribuye: A vs B no es una marca de fiabilidad del modelo canonico (B = derivacion explicita sobre metadata observable) ──
     fact_surf = [s for s in surfaces if s.kind is SurfaceKind.FACT_EVIDENCE and s.role is SurfaceRole.REQUIRED
                  and s.assessability in (Assessability.ASSESSED, Assessability.PARTIALLY_ASSESSED)]

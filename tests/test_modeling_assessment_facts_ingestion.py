@@ -36,12 +36,13 @@ def test_boundary_artifacts_are_the_leaves_of_the_semantic_graph_with_m1_provena
     v = _by(facts, "ingestion.boundary_artifacts", "closure").value
     got = {r["artifact"]: (r["implementation"], r["identity"], r["has_remote_entity"], r["inferred_layer"]) for r in v["artifacts"]}
     basis = {r["artifact"]: r["inferred_layer_basis"] for r in v["artifacts"]}
-    assert v["count"] == len(got) == 8
+    assert v["count"] == len(got) == 9                                                 # + DF_T: un target de flujo que Modeling LEE es una hoja del cierre (closure-rules/v1)
     assert got["RAW_T"] == ("REMOTE_IMPORTED", "UNKNOWN", True, "1")
     assert got["SAP.TIME.X"][0:2] == ("STRUCTURE_ONLY", "SYSTEM") or got["SAP.TIME.X"][0:2] == ("SYSTEM_PROVIDED", "SYSTEM")
     assert basis["RAW_T"] == "REMOTE_ENTITY"                      # la capa inferida viaja con su base
     assert got["LOCAL_T"][0] == "STRUCTURE_ONLY" and got["LOCAL_T"][2] is False
-    assert set(got) == {"RAW_T", "RAW_T2", "CDS_A", "CDS_A2", "DIM_SRC", "LOCAL_T", "LOCAL_U", "SAP.TIME.X"}
+    assert set(got) == {"RAW_T", "RAW_T2", "CDS_A", "CDS_A2", "DIM_SRC", "LOCAL_T", "LOCAL_U", "SAP.TIME.X", "DF_T"}
+    assert got["DF_T"][0] == "STRUCTURE_ONLY" and got["DF_T"][2] is False
 
 
 def test_first_consumers_separate_lineage_from_association_with_edge_origin():
@@ -101,13 +102,15 @@ def test_duplicates_only_count_modeling_entities():
 
 
 # ── plano Processing (evidencia complementaria) ────────────────────────────
-def test_dataflow_boundary_lists_modeling_references_to_dataflow_targets():
+def test_a_dataflow_target_read_by_modeling_is_a_semantic_leaf_not_a_boundary_reference():
+    """closure-rules/v1: una tabla local que Modeling LEE es miembro del cierre aunque un flujo la produzca; el linaje que el loader le inyecto (ONLY_VIA_DF)
+    es procedencia, no linaje semantico. Ya no queda como referencia de frontera."""
     _, facts = _facts()
     b = _by(facts, "ingestion.dataflow_boundary", "closure")
     assert b.plane is m.Plane.PROCESSING and b.assessability is A_.ASSESSED
-    assert b.value["dataflow_targets_referenced"] == ["DF_T"]
-    assert {(r["consumer"], r["target"], r["edge_kind"]) for r in b.value["references"]} == {("VR_P", "DF_T", "LINEAGE")}
-    assert not [f for f in facts if f.subject in {"DF_T", "ONLY_VIA_DF"}]
+    assert b.value["dataflow_targets_referenced"] == [] and b.value["references"] == []
+    assert _by(facts, "ingestion.first_consumers", "DF_T").value["lineage_consumers"][0]["consumer"] == "VR_P"      # DF_T es una hoja con su primer consumidor
+    assert not [f for f in facts if f.subject == "ONLY_VIA_DF"]
 
 
 def test_without_processing_evidence_the_inventory_is_not_assessed_and_no_references_are_invented():
@@ -120,7 +123,7 @@ def test_without_processing_evidence_the_inventory_is_not_assessed_and_no_refere
 def test_processing_references_are_tagged_processing_with_the_declared_source_system(tmp_path):
     _, facts = _facts(evidence=_evidence(tmp_path))
     refs = {f.subject: f for f in _by(facts, "ingestion.processing_reference")}
-    assert set(refs) == {"LOCAL_T", "VR_P"}
+    assert set(refs) == {"LOCAL_T", "VR_P", "DF_T"}                                  # DF_T es miembro del cierre: el flujo que lo produce se referencia como su destino
     rf = refs["LOCAL_T"].value["flows"][0]
     assert (rf["kind"], rf["name"], rf["role"]) == ("REPLICATION_FLOW", "RF_LOCAL", "target")
     assert rf["source_systems"] == [{"connection_id": "S4PREM", "connection_type": "SAPS4HANAOP", "container": "/CDS_EXTRACTION"}]
@@ -129,7 +132,7 @@ def test_processing_references_are_tagged_processing_with_the_declared_source_sy
         assert f.plane is m.Plane.PROCESSING and all(r.plane is m.Plane.PROCESSING for r in f.refs)
     inv = _by(facts, "ingestion.processing_context_inventory", "closure")
     assert inv.value["replication_flows_read"] == 1 and inv.value["data_flows_read"] == 1
-    assert inv.value["closure_artifacts_referenced"] == 2
+    assert inv.value["closure_artifacts_referenced"] == 3
     assert {i["source_file"] for i in inv.value["read_issues"]} == {"views/INVALID.json", "views/LIST_ROOT.json"}
 
 
@@ -151,7 +154,7 @@ def test_processing_evidence_never_changes_the_modeling_population_scope_or_fact
 
 def test_processing_references_to_artifacts_outside_the_closure_are_ignored(tmp_path):
     _, facts = _facts(evidence=_evidence(tmp_path))
-    assert not [f for f in _by(facts, "ingestion.processing_reference") if f.subject in {"ORPHAN", "AM_Q", "DF_T"}]
+    assert not [f for f in _by(facts, "ingestion.processing_reference") if f.subject in {"ORPHAN", "AM_Q"}]
 
 
 # ── forma / determinismo / frontera de modulo ──────────────────────────────

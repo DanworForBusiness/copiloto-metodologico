@@ -190,7 +190,7 @@ def test_replication_mode_present_in_the_export_is_c1(tmp_path):
 def test_leaf_without_remote_entity_is_never_not_applicable_by_itself(tmp_path):
     _, facts = _facts()
     leaves = {f.subject: f for f in _by(facts, "source.leaf_provenance")}
-    assert set(leaves) == {"LOCAL_T", "LOCAL_U", "SAP.TIME.X"}
+    assert set(leaves) == {"LOCAL_T", "LOCAL_U", "SAP.TIME.X", "DF_T"}              # DF_T: target de flujo que Modeling lee = hoja miembro
     sysf = leaves["SAP.TIME.X"]                                                  # (A) fuera del concepto => NOT_APPLICABLE
     assert (sysf.applicability.state, sysf.applicability.reason, sysf.assessability) == (
         m.Applicability.NOT_APPLICABLE, m.ApplicabilityReason.SYSTEM_ARTIFACT, A_.NOT_APPLICABLE)
@@ -222,15 +222,16 @@ def test_processing_evidence_does_not_change_modeling_assessability_or_populatio
     assert states(base) == states(enriched)                                                  # la evidencia de Procesamiento no mueve ningun otro hecho de Modeling
     prov = lambda fs: {f.subject: f.assessability for f in fs if f.fact_id == "source.leaf_provenance"}
     changed = {k for k in prov(base) if prov(base)[k] != prov(enriched)[k]}
-    assert changed == {"LOCAL_T"}                                                           # solo la superficie de procedencia de la hoja con productor
+    assert changed == {"LOCAL_T", "DF_T"}                                                   # solo la procedencia de las hojas con productor (RF y el DF que produce DF_T)
     assert {f.subject for f in base if f.fact_id == "source.contract"} == {f.subject for f in enriched if f.fact_id == "source.contract"}
 
 
 # ── frontera / forma ───────────────────────────────────────────────────────
-def test_dataflow_targets_and_out_of_scope_artifacts_produce_no_source_facts():
+def test_loader_injected_flow_lineage_and_out_of_scope_artifacts_produce_no_source_facts():
     _, facts = _facts()
     subjects = {f.subject for f in facts}
-    assert not subjects & {"DF_T", "ONLY_VIA_DF", "ORPHAN", "CDS_A3", "AM_Q"}
+    assert not subjects & {"ONLY_VIA_DF", "ORPHAN", "CDS_A3", "AM_Q"}
+    assert {f.subject for f in facts if f.fact_id == "source.leaf_provenance"} >= {"DF_T"}   # el target de flujo que Modeling lee SI es una hoja con procedencia
 
 
 def test_all_facts_are_source_area_valid_unique_and_sortable_into_an_area_card():

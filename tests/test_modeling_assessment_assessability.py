@@ -132,7 +132,7 @@ def test_processing_plane_evidence_never_changes_modeling_denominators(tmp_path)
     assert with_p.coverage == without_p.coverage
     xpl = [s for s in with_p.surfaces if s.role is A.SurfaceRole.CROSS_PLANE_COMPLEMENT]
     assert {s.surface_id for s in xpl} == {"ingestion.dataflow_boundary", "ingestion.processing_context_inventory", "ingestion.processing_reference",
-                                           "source.replication_mode"}
+                                           "source.replication_mode", "ingestion.flow_load_properties", "source.physical_boundary"}
     assert surface(with_p, "ingestion.processing_reference").assessability is AS          # existe y se evalua, pero NO entra en la cobertura
 
 
@@ -306,18 +306,22 @@ def test_roles_context_derived_views_processing_and_optional_evidence_are_exclud
     role = {s.surface_id: s.role for s in A.SURFACE_REGISTRY}
     assert {k for k, v in role.items() if v is A.SurfaceRole.CONTEXT_ONLY} == {"naming.convention_context", "harmonization.reuse_context"}
     assert {k for k, v in role.items() if v is A.SurfaceRole.CROSS_PLANE_COMPLEMENT} == {
-        "ingestion.dataflow_boundary", "ingestion.processing_context_inventory", "ingestion.processing_reference", "source.replication_mode"}
+        "ingestion.dataflow_boundary", "ingestion.processing_context_inventory", "ingestion.processing_reference", "source.replication_mode",
+        "ingestion.flow_load_properties", "source.physical_boundary"}
     assert {k for k, v in role.items() if v is A.SurfaceRole.OPTIONAL_DEEPER_EVIDENCE} == {"propagation.derivation_semantics"}
     assert {k for k, v in role.items() if v is A.SurfaceRole.DERIVED_VIEW} == {
         "source.family_distribution", "naming.artifact_name_populations", "naming.field_vocabulary_summary",
         "naming.same_normalized_label_multiple_technical_names", "am.closure_composition", "am.view_type_composition",
-        "harmonization.expression_repetition", "harmonization.assembly_topology"}
+        "harmonization.expression_repetition", "harmonization.assembly_topology",
+        # evidence release: evidencia DESCRIPTIVA (no entra en la cobertura): contrato publicado, armonizacion, expresiones, reconvergencia, complejidad, contexto de planos
+        "am.closure_plane_context", "am.association_semantics", "am.field_semantics", "harmonization.contract_character", "harmonization.view_complexity",
+        "propagation.expression_occurrences", "propagation.branch_reconvergence"}
     # C2 NO es automaticamente "evidencia requerida faltante": las dos brechas C2 permanentes ya no son superficies REQUERIDAS
     assert role["propagation.derivation_semantics"] is not A.SurfaceRole.REQUIRED and role["source.replication_mode"] is not A.SurfaceRole.REQUIRED
     from collections import Counter
     assert Counter((s.kind.value, s.role.value) for s in A.SURFACE_REGISTRY) == {
-        ("FACT_EVIDENCE", "REQUIRED"): 29, ("RULE_EVALUATION", "REQUIRED"): 11, ("FACT_EVIDENCE", "DERIVED_VIEW"): 8,
-        ("FACT_EVIDENCE", "CROSS_PLANE_COMPLEMENT"): 4, ("FACT_EVIDENCE", "CONTEXT_ONLY"): 2, ("FACT_EVIDENCE", "OPTIONAL_DEEPER_EVIDENCE"): 1}
+        ("FACT_EVIDENCE", "REQUIRED"): 30, ("RULE_EVALUATION", "REQUIRED"): 11, ("FACT_EVIDENCE", "DERIVED_VIEW"): 15,
+        ("FACT_EVIDENCE", "CROSS_PLANE_COMPLEMENT"): 6, ("FACT_EVIDENCE", "CONTEXT_ONLY"): 2, ("FACT_EVIDENCE", "OPTIONAL_DEEPER_EVIDENCE"): 1}
 
 
 def test_permanent_optional_c2_surfaces_do_not_reduce_required_coverage_but_stay_visible_as_limitations(tmp_path):
@@ -469,7 +473,7 @@ def test_cross_plane_evidence_is_neither_a_global_reward_nor_a_penalty(tmp_path)
     assert with_p.confidence == without_p.confidence and with_p.coverage == without_p.coverage
     fp, fn = _factor(with_p, "processing_evidence_attached"), _factor(without_p, "processing_evidence_attached")
     assert fp.value > fn.value == 0 and not fp.contributes_to_confidence and fp.axis is A.ConfidenceAxis.CROSS_PLANE
-    assert "1 Modeling facts cite Processing evidence" in fp.detail                       # solo la procedencia de la hoja con productor la CITA (G1)
+    assert "2 Modeling facts cite Processing evidence" in fp.detail                       # la procedencia de la hoja con productor (G1) y su frontera fisica la CITAN
     assert surface(with_p, "source.leaf_provenance").assessability is surface(without_p, "source.leaf_provenance").assessability
 
 
@@ -479,7 +483,7 @@ def test_processing_facts_with_no_references_are_not_counted_as_attached_evidenc
 
 
 def test_confidence_cuts_are_provisional_versioned_and_only_for_reliable_share():
-    assert set(A.CONFIDENCE_CUTS) == {"reliable_share"} and A.CONFIDENCE_RULESET == "confidence-cuts/v1"
+    assert set(A.CONFIDENCE_CUTS) == {"reliable_share"} and A.CONFIDENCE_RULESET == "confidence-cuts/v2"
     cuts = A.CONFIDENCE_CUTS["reliable_share"]
     for value, expected in ((None, "LOW"), (0.0, "LOW"), (0.49, "LOW"), (0.5, "MEDIUM"), (0.79, "MEDIUM"), (0.8, "HIGH"), (1.0, "HIGH")):
         assert A._level(value, cuts).value == expected
@@ -517,7 +521,7 @@ def test_the_composition_exposes_everything_m7_needs_to_render():
     comp = compose(m4_entities(), "AM_X")
     assert comp.scope.terminal_am == "AM_X" and [c.area for c in comp.areas] == list(m.ASSESSED_AREAS)
     assert comp.surfaces and comp.observations is not None and comp.review_required and comp.findings
-    assert comp.assessability_ruleset == A.ASSESSABILITY_RULESET == "assessability-rules/v2"
+    assert comp.assessability_ruleset == A.ASSESSABILITY_RULESET == "assessability-rules/v3"
     assert comp.signals_ruleset == S.SIGNALS_RULESET and comp.confidence_ruleset == A.CONFIDENCE_RULESET
     rules = [s for s in comp.surfaces if s.kind is A.SurfaceKind.RULE_EVALUATION]
     assert len(rules) == 11 and all(s.result is not None and s.finding_count is not None for s in rules)

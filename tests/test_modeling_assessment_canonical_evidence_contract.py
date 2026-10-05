@@ -78,7 +78,10 @@ def test_a_payload_without_a_compatible_declared_version_is_invalid_and_an_unkno
     _invalid(d2, "no soportada")
     d3 = copy.deepcopy(good_leaf)
     d3["canonical_evidence"]["version"] = "canonical-evidence/v9"
-    _invalid(d3, "version no soportada")
+    _invalid(d3, "no coincide con versions.canonical_evidence")                 # la seccion no puede declarar otra version que el bloque versions
+    d4 = copy.deepcopy(good_leaf)
+    d4["versions"]["canonical_evidence"] = d4["canonical_evidence"]["version"] = "canonical-evidence/v9"
+    _invalid(d4, "no soportada")
 
 
 def test_unknown_keys_and_missing_sections_inside_the_payload_are_rejected(good_leaf):
@@ -191,7 +194,8 @@ def test_a_valid_gate4_payload_is_accepted(good_leaf, good_notobs, good_deriv):
     for d in (good_leaf, good_notobs, good_deriv):
         P.validate_assessment(d)
         EC.validate_canonical_evidence(d["canonical_evidence"])
-        assert set(d["canonical_evidence"]) == {"version", *EC.EXPECTED_SECTIONS}
+        from tools.catalog.modeling_assessment.canonical_sections import V2_SECTIONS
+        assert set(d["canonical_evidence"]) == {"version", *EC.EXPECTED_SECTIONS, *V2_SECTIONS}
     assert good_deriv["canonical_evidence"]["derivation_semantics"]["relation_counts"]["CHAINED_REFINEMENT"] == 1
 
 

@@ -184,7 +184,7 @@ def test_transformation_flows_and_task_chains_in_the_pool_do_not_change_the_asse
 def test_static_usage_audit_only_replication_and_data_flows_are_interpreted_as_provenance():
     pkg = Path(__file__).resolve().parents[1] / "tools" / "catalog" / "modeling_assessment"
     pattern = re.compile(r"transformation[-_ ]?flows?|task[-_ ]?chains?|transformationflows|taskchains", re.I)
-    allowed = {"render_md.py", "readers.py", "provenance.py"}          # rótulos de alcance / conteo de archivos TF sin interpretar / documentación
+    allowed = {"render_md.py", "readers.py", "provenance.py", "facts_processing.py"}          # rótulos de alcance / conteo de archivos TF sin interpretar / documentación / LECTURA de propiedades de carga (no procedencia)
     code_hits = []
     for p in pkg.glob("*.py"):
         if p.name in allowed:
@@ -197,4 +197,7 @@ def test_static_usage_audit_only_replication_and_data_flows_are_interpreted_as_p
     assert '"replicationflows"' in readers and '"dataflows"' in readers
     assert "taskchains" not in readers.lower().replace("task-chains", "")                     # los Task Chains jamás se leen
     # TF solo se CUENTA (impide afirmar ausencia); no se construye ningún FlowEvidence a partir de ellos
-    assert readers.count("tf_files += 1") == 1 and "_read_transformation" not in readers
+    assert readers.count("tf_files += 1") == 1
+    # evidence release: de un TF solo se LEEN propiedades de carga exportadas (modo / delta / truncate); NUNCA se construye un FlowEvidence (procedencia) a partir de ellos
+    assert "FlowEvidence(TRANSFORMATION_FLOW" not in readers and "flows.append(_read_transformation" not in readers
+    assert "FlowPropertiesEvidence(TRANSFORMATION_FLOW" in readers

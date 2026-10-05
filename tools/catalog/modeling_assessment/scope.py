@@ -10,11 +10,11 @@ un AM. Un cliente con varios AM terminales requiere una SELECCION explicita.
 `AssessmentUniverse` indexa la contencion (que AM terminales contienen a cada artefacto en su
 clausura). Es solo el HECHO estructural: de aqui no se deriva ninguna senal de reuso ni calidad.
 
-Plano Processing: el universo se construye UNICAMENTE desde las entidades del plano Modeling. Los
-targets de Data Flow (`is_dataflow`) que el loader mezcla en el pool quedan FUERA: no son terminales, no
-integran ninguna clausura, indice de contencion ni validacion de referencias; se exponen solo como
-`processing_context` complementario. No se leen ni agregan artefactos RF/DF/TF/TC. Esa evidencia, mas
-adelante, se adjunta como evidencia cross-plane sin cambiar el scope ni los denominadores.
+Plano Processing (``closure-rules/v1``): el universo se construye desde las entidades del plano Modeling. Una entidad que
+el loader marco como target de Data Flow (`is_dataflow`) pero que un artefacto de Modeling LEE es un miembro HOJA del cierre (su
+procedencia la explica el flujo); la marcada que ningun artefacto de Modeling lee queda FUERA (no es terminal, no integra ninguna
+clausura, indice de contencion ni validacion de referencias) y se expone solo como `processing_context` complementario. No se
+leen ni agregan artefactos RF/DF/TF/TC al cierre: esa evidencia se adjunta como evidencia cross-plane sin cambiar los denominadores.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
-from .graph import DependencyGraph, ProcessingContext, UnresolvedReference
+from .graph import PLANE_POLICY_MODELING_MEMBERSHIP, DependencyGraph, ProcessingContext, UnresolvedReference
 from .model import (
     Applicability, ApplicabilityDecision, ApplicabilityReason, ProfileScope, ROOT_TYPE_ANALYTIC_MODEL, ROOT_TYPES,
 )
@@ -73,12 +73,12 @@ class AssessmentUniverse:
 
     @classmethod
     def from_entities(
-        cls, entities: Mapping[str, Any], *, is_terminal: Callable[[Any], bool] | None = None,
+        cls, entities: Mapping[str, Any], *, is_terminal: Callable[[Any], bool] | None = None, plane_policy: str = PLANE_POLICY_MODELING_MEMBERSHIP,
     ) -> "AssessmentUniverse":
         if is_terminal is None:
             from .legacy_bridge import is_cube       # criterio legacy de "modelo analitico / cubo"
             is_terminal = is_cube
-        graph = DependencyGraph.from_entities(entities)               # excluye los targets de Data Flow
+        graph = DependencyGraph.from_entities(entities, plane_policy)  # un target de flujo que Modeling lee es miembro; el contexto de Processing queda fuera
         terminal = tuple(sorted(n for n, e in entities.items() if graph.has_node(n) and is_terminal(e)))
         closures = {am: graph.semantic_closure(am) for am in terminal}
         lineage = {am: graph.lineage_closure(am) for am in terminal}

@@ -16,6 +16,10 @@ Hechos de clausura (subject = "closure"):
   source.family_distribution   B  conteos por namespace y por estado de fuente
   source.connection_consistency B conexiones y fuentes duplicadas por conexion (en la clausura y en el universo)
   source.replication_mode      C1/C2  evidencia de replicacion/federacion: ausente del export estandar => NOT_ASSESSED
+Hechos por hoja local producida por un flujo (S1, ``closure-rules/v1``):
+  source.physical_boundary     B  borde(s) externo(s) de integracion que revela la cadena de PROCEDENCIA de la hoja (flujo -> vista de origen -> fuente remota), con su
+                               clase (tabla fisica / contrato CDS gobernado / extractor SAPI gobernado / ...), la base explicita y el camino. Plano de procedencia:
+                               NO es miembro del cierre semantico ni ``DIRECT_RAW_TABLE_ACCESS`` (ver ``boundary.py``)
 Hechos por hoja sin origen remoto (aplicabilidad primero, assessability despues):
   source.leaf_provenance       SAP.* => NOT_APPLICABLE; resto => procedencia ESTABLECIDA (RF/DF con destino la hoja) / DECLARADA (dataset
                                externo, table function) / NOT_OBSERVABLE (ausencia concluyente con alcance declarado y completo); si el alcance
@@ -31,6 +35,7 @@ from enum import Enum
 from typing import Any, Mapping
 
 from . import legacy_bridge as bridge
+from .boundary import resolve_physical_boundaries
 from .facts_support import entity_refs, make_fact, not_applicable, sort_facts
 from .graph import EdgeKind, modeling_population
 from .identity import IdentityClassification, classify, remote_stem
@@ -256,6 +261,11 @@ def source_facts(
         if rec["status"] == ASSESSED:
             cls = EvidenceClass.B if rec["provenance_state"] == PROV_NOT_OBSERVABLE else EvidenceClass.A
             facts.append(make_fact("source.leaf_provenance", A_, name, value, cls, refs=refs))
+            if rec["producer_flows"]:                       # S1: el borde fisico que la cadena de procedencia revela (plano de procedencia, no cierre)
+                pb = resolve_physical_boundaries(name, rec, ev, entities, graph, closure, lambda re: source_state_of(re).value)
+                facts.append(make_fact("source.physical_boundary", A_, name, {"leaf": name, **pb}, EvidenceClass.B,
+                                       refs=[EvidenceRef(name, "flow_reference", p["source_file"], Plane.PROCESSING) for p in rec["producer_flows"]],
+                                       plane=Plane.PROCESSING))
         else:
             facts.append(make_fact("source.leaf_provenance", A_, name, value, EvidenceClass.C1, refs=refs, assessability=Assessability.NOT_ASSESSED,
                                    cause=Cause.C1_NOT_YET_PARSED if rec["cause"] == CAUSE_NOT_PARSED else Cause.CONTRADICTORY_EVIDENCE if rec["cause"] == CAUSE_CONTRADICTORY else Cause.NOT_IN_SNAPSHOT))

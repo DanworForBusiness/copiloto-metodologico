@@ -22,9 +22,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from .derivation import DerivedColumn, extract_derived_columns, select_branches
+from .complexity import view_structure
+from .derivation import (
+    DerivedColumn, ExpressionSurface, ProjectionColumn, extract_consumed_fields, extract_derived_columns, extract_expression_surface, extract_projection_columns,
+    select_branches,
+)
 
-READERS_VERSION = "supplementary-readers/v2"
+READERS_VERSION = "supplementary-readers/v3"
 
 REPLICATION_FLOW = "REPLICATION_FLOW"
 DATA_FLOW = "DATA_FLOW"
@@ -105,6 +109,31 @@ class DerivationEvidence:
     has_query: bool
     branches: int
     columns: tuple[DerivedColumn, ...]
+    expressions: ExpressionSurface | None = None                    # S4: expresiones de TODAS las clausulas (SELECT/WHERE/GROUP BY/HAVING/JOIN ON)
+    projections: tuple[ProjectionColumn, ...] = ()                  # S3: como se arma cada columna del SELECT externo
+    outer_where: Any | None = None                                  # ``SELECT.where`` VERBATIM del SELECT externo (filtro de origen de una vista fuente de flujo)
+    outer_having: Any | None = None
+    consumed_fields: tuple[tuple[str, tuple[str, ...]], ...] = ()   # S5: campos de cada proveedor-entidad que el query referencia
+
+
+@dataclass(frozen=True)
+class ViewStructureEvidence:
+    """Metricas estructurales de una vista (S6): ver ``complexity.py``. Descriptivas; sin umbral."""
+    entity: str
+    source_file: str
+    metrics: dict
+
+
+@dataclass(frozen=True)
+class FlowPropertiesEvidence:
+    """Propiedades de carga que el export de un RF/DF/TF YA trae (modo, upsert, filtro, delta). Valores EXACTOS tal como se exportan; lo que el export no trae queda
+    ausente (nunca se infiere FULL/DELTA/federado/replicado). ``targets``/``sources``: nombres crudos de entidades declaradas por el flujo."""
+    kind: str                                                       # REPLICATION_FLOW | DATA_FLOW | TRANSFORMATION_FLOW
+    name: str
+    source_file: str
+    sources: tuple[str, ...]
+    targets: tuple[str, ...]
+    properties: dict
 
 
 @dataclass(frozen=True)
@@ -200,6 +229,100 @@ def _read_data_flow(name: str, body: dict, rel: str) -> FlowEvidence:
     return FlowEvidence(DATA_FLOW, name, rel, tuple(sorted(srcs)), tuple(sorted(tgts)), ())
 
 
+TRANSFORMATION_FLOW = "TRANSFORMATION_FLOW"
+
+
+def _mappings(raw: Any) -> list[dict]:
+    out = []
+    for m in raw or []:
+        if isinstance(m, dict):
+            out.append({"target": _str_or_none(m.get("target")), "expression": m.get("expression") if "expression" in m else m.get("source")})
+    return out
+
+
+def _read_replication_flow_properties(name: str, body: dict, rel: str, base: FlowEvidence) -> FlowPropertiesEvidence:
+    contents = body.get("contents") if isinstance(body.get("contents"), dict) else {}
+    tasks = []
+    for task in (contents.get("replicationTasks") or []):
+        if not isinstance(task, dict):
+            continue
+        so = task.get("sourceObject") if isinstance(task.get("sourceObject"), dict) else {}
+        to = task.get("targetObject") if isinstance(task.get("targetObject"), dict) else {}
+        tr = task.get("transform") if isinstance(task.get("transform"), dict) else {}
+        filters = [{"name": _str_or_none(f.get("name")), "elements": [{"low": e.get("low"), "comparison": _str_or_none(e.get("comparison")), "is_excluding": e.get("isExcluding")}
+                                                                     for e in (f.get("elements") or []) if isinstance(e, dict)]}
+                   for f in (tr.get("filters") or []) if isinstance(f, dict)]
+        props = to.get("properties") if isinstance(to.get("properties"), dict) else {}
+        meta = so.get("metadata") if isinstance(so.get("metadata"), dict) else {}
+        tasks.append({"name": _str_or_none(task.get("name")), "source_object": _str_or_none(so.get("name")), "target_object": _str_or_none(to.get("name")),
+                      "load_type": _str_or_none(task.get("loadType")), "truncate": task.get("truncate") if isinstance(task.get("truncate"), bool) else None,
+                      "delta_disabled": meta.get("isDeltaDisabled") if isinstance(meta.get("isDeltaDisabled"), bool) else None,
+                      "delta_check_interval": task.get("deltaCheckInterval") if "deltaCheckInterval" in task else None,
+                      "filters": filters, "attribute_mappings": _mappings(tr.get("attributeMappings")),
+                      "change_capture_properties": {k: v for k, v in sorted(props.items()) if isinstance(k, str) and ("cdc" in k.lower() or "delta" in k.lower())}})
+    setting = contents.get("replicationTaskSetting") if isinstance(contents.get("replicationTaskSetting"), dict) else {}
+    props = {"tasks": tasks, "delta_load_trigger": contents.get("deltaLoadTrigger") if "deltaLoadTrigger" in contents else None,
+             "global_delta_partition_value": setting.get("globalDeltaPartitionValue") if "globalDeltaPartitionValue" in setting else None}
+    return FlowPropertiesEvidence(REPLICATION_FLOW, name, rel, base.source_entities, base.target_entities, props)
+
+
+_DF_TABLE_CONSUMER = "com.sap.database.table.consumer"
+_DF_TABLE_PRODUCER = "com.sap.database.table.producer"
+_DF_CDS_READER = "com.sap.abap.cds.reader"
+
+
+def _read_data_flow_properties(name: str, body: dict, rel: str, base: FlowEvidence) -> FlowPropertiesEvidence:
+    contents = body.get("contents") if isinstance(body.get("contents"), dict) else {}
+    procs = contents.get("processes") if isinstance(contents.get("processes"), dict) else {}
+    nodes, comp_counts = [], {}
+    for pk in sorted(procs):
+        pv = procs[pk]
+        if not isinstance(pv, dict):
+            continue
+        comp = _str_or_none(pv.get("component")) or ""
+        comp_counts[comp] = comp_counts.get(comp, 0) + 1
+        meta = pv.get("metadata") if isinstance(pv.get("metadata"), dict) else {}
+        cfg = meta.get("config") if isinstance(meta.get("config"), dict) else {}
+        if comp in (_DF_TABLE_CONSUMER, _DF_TABLE_PRODUCER):
+            nodes.append({"process": pk, "role": "source" if comp == _DF_TABLE_CONSUMER else "target", "entity": _str_or_none(cfg.get("dwcEntity")),
+                          "remote_object_type": _str_or_none(cfg.get("remoteObjectType")), "mode": _str_or_none(cfg.get("mode")),
+                          "upsert": cfg.get("upsert") if isinstance(cfg.get("upsert"), bool) else None,
+                          "batch_size": cfg.get("batchSize") if isinstance(cfg.get("batchSize"), int) and not isinstance(cfg.get("batchSize"), bool) else None,
+                          "attribute_mappings": _mappings(cfg.get("attributeMappings")) if comp == _DF_TABLE_PRODUCER else []})
+        elif comp == _DF_CDS_READER:
+            nodes.append({"process": pk, "role": "source", "entity": _str_or_none(cfg.get("cdsname")), "remote_object_type": "ABAP_CDS", "mode": None, "upsert": None,
+                          "batch_size": None, "attribute_mappings": [], "subscription_type": _str_or_none(cfg.get("subscriptionType")),
+                          "subscription_name": _str_or_none(cfg.get("subscriptionName")), "action": _str_or_none(cfg.get("action"))})
+    return FlowPropertiesEvidence(DATA_FLOW, name, rel, base.source_entities, base.target_entities,
+                                  {"nodes": nodes, "component_counts": [{"component": k, "count": v} for k, v in sorted(comp_counts.items())]})
+
+
+def _read_transformation_flow_properties(name: str, body: dict, rel: str) -> FlowPropertiesEvidence:
+    contents = body.get("contents") if isinstance(body.get("contents"), dict) else {}
+    meta = contents.get("metadata") if isinstance(contents.get("metadata"), dict) else {}
+    procs = contents.get("processes") if isinstance(contents.get("processes"), dict) else {}
+    targets, trunc, delta_ann, n_map = [], None, None, 0
+    for pk in sorted(procs):
+        pv = procs[pk]
+        cfg = ((pv.get("metadata") or {}).get("config") or {}) if isinstance(pv, dict) else {}
+        if isinstance(pv, dict) and _str_or_none(pv.get("component")) and "producer" in pv["component"] or pk.startswith("target"):
+            if _str_or_none(cfg.get("name")):
+                targets.append(cfg["name"])
+            if isinstance(cfg.get("truncate"), bool):
+                trunc = cfg["truncate"]
+            n_map += len(cfg.get("attributeMappings") or [])
+            d = cfg.get("definition") if isinstance(cfg.get("definition"), dict) else {}
+            ann = d.get("@DataWarehouse.delta")
+            if isinstance(ann, dict):
+                delta_ann = {k: v for k, v in sorted(ann.items()) if isinstance(k, str)}
+            for k in sorted(d):
+                if isinstance(k, str) and k.startswith("@DataWarehouse.delta.") and delta_ann is None:
+                    delta_ann = {**(delta_ann or {}), k.rsplit(".", 1)[-1]: d[k]}
+    return FlowPropertiesEvidence(TRANSFORMATION_FLOW, name, rel, (), tuple(sorted(set(targets))),
+                                  {"load_type": _str_or_none(meta.get("loadType")), "delta_enabled": meta.get("deltaEnabled") if isinstance(meta.get("deltaEnabled"), bool) else None,
+                                   "truncate": trunc, "delta_annotations": delta_ann, "attribute_mapping_count": n_map})
+
+
 # Familias del extractor que alimentan la evidencia de flows del plano PROCESSING (identificadores canonicos del extractor).
 # Task Chains y Transformation Flows NO se leen aqui (ver tests/test_modeling_assessment_evidence_scope.py: auditoria de uso).
 FLOW_FAMILY_REPLICATION = "replication-flows"
@@ -237,7 +360,11 @@ class SupplementaryEvidence:
         derivations: Mapping[str, DerivationEvidence] | None = None,
         effective_features: Iterable[str] | None = None,
         transformation_flow_files: int = 0,
+        view_structures: Mapping[str, ViewStructureEvidence] | None = None,
+        flow_properties: Iterable[FlowPropertiesEvidence] | None = None,
     ) -> None:
+        self._view_structures = dict(sorted((view_structures or {}).items()))
+        self._flow_properties = tuple(sorted(flow_properties or (), key=lambda f: (f.kind, f.name, f.source_file)))
         self._local_declarations = dict(sorted((local_declarations or {}).items()))
         self._derivations = dict(sorted((derivations or {}).items()))
         # Alcance EXPLICITO declarado por la extraccion (``effective_features``). None = no declarado: la completitud NUNCA se infiere de carpetas ni nombres.
@@ -265,6 +392,8 @@ class SupplementaryEvidence:
         issues: list[ReadIssue] = []
         local_decl: dict[str, LocalDeclaration] = {}
         derivs: dict[str, DerivationEvidence] = {}
+        structures: dict[str, ViewStructureEvidence] = {}
+        flow_props: list[FlowPropertiesEvidence] = []
         tf_files = 0
         n = 0
         for f in sorted(Path(x) for x in json_files):
@@ -295,19 +424,32 @@ class SupplementaryEvidence:
                     local_decl[name] = ld
                 branches = select_branches(defn)
                 if branches and (name not in derivs or not derivs[name].has_query):
-                    derivs[name] = DerivationEvidence(name, rel, True, len(branches), extract_derived_columns(name, defn))
+                    outer = branches[0]
+                    derivs[name] = DerivationEvidence(name, rel, True, len(branches), extract_derived_columns(name, defn), extract_expression_surface(name, defn),
+                                                      extract_projection_columns(name, defn), outer.get("where"), outer.get("having"), extract_consumed_fields(defn))
+                if name not in structures:
+                    vs = view_structure(name, defn)
+                    if vs is not None:
+                        structures[name] = ViewStructureEvidence(name, rel, vs)
             for name, body in (data.get("replicationflows") or {}).items():
                 if isinstance(body, dict):
-                    flows.append(_read_replication_flow(name, body, rel))
+                    base = _read_replication_flow(name, body, rel)
+                    flows.append(base)
+                    flow_props.append(_read_replication_flow_properties(name, body, rel, base))
             for name, body in (data.get("dataflows") or {}).items():
                 if isinstance(body, dict):
-                    flows.append(_read_data_flow(name, body, rel))
+                    base = _read_data_flow(name, body, rel)
+                    flows.append(base)
+                    flow_props.append(_read_data_flow_properties(name, body, rel, base))
+            for name, body in (data.get("transformationflows") or {}).items():
+                if isinstance(body, dict):
+                    flow_props.append(_read_transformation_flow_properties(name, body, rel))      # solo propiedades: NO es procedencia (los TF siguen sin interpretarse como productor)
             if isinstance(data.get("transformationflows"), dict) and data["transformationflows"]:
                 tf_files += 1                                   # solo se CUENTA: no se interpreta (no es procedencia aprobada) pero impide afirmar ausencia
         # Un nombre definido en varios archivos: se prefiere el de la familia `views`, luego el de ruta menor (determinista).
         view_types = {name: min(c, key=lambda e: (e.family != "views", e.source_file)) for name, c in view_cands.items()}
         return cls(remote, flows, {k: tuple(sorted(set(v))) for k, v in files.items()}, issues, n, acquired_flow_families, view_types,
-                   local_decl, derivs, effective_features, tf_files)
+                   local_decl, derivs, effective_features, tf_files, structures, flow_props)
 
     @classmethod
     def empty(cls) -> "SupplementaryEvidence":
@@ -333,6 +475,15 @@ class SupplementaryEvidence:
     def local_declaration(self, entity: str) -> LocalDeclaration | None:
         """Origen declarado por el propio artefacto local (dataset externo / table function), o None."""
         return self._local_declarations.get(entity)
+
+    def view_structure_evidence(self, entity: str) -> ViewStructureEvidence | None:
+        """Metricas estructurales de la vista (S6) o None si la definicion no trae ``query``."""
+        return self._view_structures.get(entity)
+
+    @property
+    def flow_properties(self) -> tuple[FlowPropertiesEvidence, ...]:
+        """Propiedades de carga EXACTAS de los RF/DF/TF del pool (solo lo que el export trae)."""
+        return self._flow_properties
 
     def derivation_evidence(self, entity: str) -> DerivationEvidence | None:
         """Derivaciones (AST compilado) de la definicion, o None si el pool no trae ``query`` para la entidad."""

@@ -87,7 +87,7 @@ def test_contract_delta_introduced_vs_inherited_and_first_derivation():
 
 def test_fan_in_is_retained_per_edge_so_a_later_signal_can_restrict_pass_through_to_single_provider_edges():
     _, facts = _facts()
-    assert _by(facts, "propagation.contract_delta", "DIM_V->VR_M").value["consumer_lineage_provider_count"] == 4
+    assert _by(facts, "propagation.contract_delta", "DIM_V->VR_M").value["consumer_lineage_provider_count"] == 5      # + DF_T (hoja producida por un flujo)
 
 
 def test_pure_pass_through_edge_is_described_with_plain_facts_and_no_judgment():
