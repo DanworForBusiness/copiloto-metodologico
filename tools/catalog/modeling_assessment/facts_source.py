@@ -16,9 +16,11 @@ Hechos de clausura (subject = "closure"):
   source.family_distribution   B  conteos por namespace y por estado de fuente
   source.connection_consistency B conexiones y fuentes duplicadas por conexion (en la clausura y en el universo)
   source.replication_mode      C1/C2  evidencia de replicacion/federacion: ausente del export estandar => NOT_ASSESSED
-Hechos por hoja sin origen remoto (Q1 del owner: aplicabilidad primero, assessability despues):
-  source.leaf_contract_status  SAP.* => NOT_APPLICABLE; resto => NOT_ASSESSED (PLANE_BOUNDARY si hay referencia de
-                               Processing, PROVENANCE_UNKNOWN si no). Nunca NOT_APPLICABLE "por no tener remote_entity".
+Hechos por hoja sin origen remoto (aplicabilidad primero, assessability despues):
+  source.leaf_provenance       SAP.* => NOT_APPLICABLE; resto => procedencia ESTABLECIDA (RF/DF con destino la hoja) / DECLARADA (dataset
+                               externo, table function) / NOT_OBSERVABLE (ausencia concluyente con alcance declarado y completo); si el alcance
+                               no es concluyente => NOT_ASSESSED (nunca "ausente evaluado"). Ver `provenance.py`. Reemplaza a
+                               `source.leaf_contract_status` (perfiles historicos lo conservan en su `fact_index`).
 
 Estados de fuente (neutros; derivados de la funcion unica del criterio `classify_extraction`, no copiada):
   CDS_VIEW · SAPI_ODP · RAW_PHYSICAL_TABLE · STANDARD_VIEW_ON_PHYSICAL_TABLE · BW_BRIDGE · OTHER_ORIGIN · NO_REMOTE_ORIGIN
@@ -35,6 +37,7 @@ from .identity import IdentityClassification, classify, remote_stem
 from .model import (
     ApplicabilityReason, Area, Assessability, Cause, EvidenceClass, EvidenceRef, Fact, Plane,
 )
+from .provenance import ASSESSED, CAUSE_CONTRADICTORY, CAUSE_NOT_PARSED, PROV_NOT_OBSERVABLE, resolve_leaf_provenance
 from .readers import SupplementaryEvidence
 from .scope import AssessmentUniverse
 
@@ -226,25 +229,35 @@ def source_facts(
                 EvidenceClass.C2, refs=repl_refs, assessability=Assessability.NOT_ASSESSED,
                 cause=Cause.NOT_OBSERVABLE_IN_STANDARD_EXPORT))
 
-    # ---- hojas sin origen remoto (Q1: aplicabilidad primero, assessability despues) ------------
+    # ---- procedencia de hojas locales sin origen remoto (G1: aplicabilidad primero, assessability despues) ----------
+    # Reemplaza a `source.leaf_contract_status` (siempre NOT_ASSESSED por frontera de plano). La evidencia DIRECTA de un productor (RF/DF) o una
+    # declaracion del propio artefacto ESTABLECE/DECLARA la procedencia; la ausencia es un resultado EVALUADO solo con alcance concluyente.
     for name in closure:
         e = entities[name]
         if graph.providers(name) or getattr(e, "remote_entity", ""):
             continue
         i = ident[name]
-        refs = i.evidence
+        refs = list(i.evidence)
         value = {"implementation": i.implementation.value, "identity": i.identity.value}
         if i.identity.value == "SYSTEM":
-            facts.append(make_fact("source.leaf_contract_status", A_, name, value, EvidenceClass.A, refs=refs,
+            facts.append(make_fact("source.leaf_provenance", A_, name, value, EvidenceClass.A, refs=refs,
                                    applicability=not_applicable(ApplicabilityReason.SYSTEM_ARTIFACT),
                                    assessability=Assessability.NOT_APPLICABLE))
             continue
-        touched = ev.flows_touching(name)
-        inconclusive = not touched and not ev.flows_conclusive          # una familia de flows NO se adquirio: no se puede afirmar ausencia
-        value["processing_reference_present"] = None if inconclusive else bool(touched)
-        facts.append(make_fact(
-            "source.leaf_contract_status", A_, name, value, EvidenceClass.C1 if inconclusive else EvidenceClass.D, refs=refs,
-            assessability=Assessability.NOT_ASSESSED,
-            cause=Cause.PLANE_BOUNDARY if touched else (Cause.NOT_IN_SNAPSHOT if inconclusive else Cause.PROVENANCE_UNKNOWN)))
+        rec = resolve_leaf_provenance(name, ev, entities)
+        refs += [EvidenceRef(name, "flow_reference", p["source_file"], Plane.PROCESSING) for p in rec["producer_flows"]]
+        if rec["declaration"]:
+            refs.append(EvidenceRef(name, "local_table_definition", rec["declaration"]["source_file"], Plane.MODELING))
+        payload = {k: v for k, v in rec.items() if k not in ("status", "cause")}
+        payload["producer_flows"] = [{k: v for k, v in p.items() if k != "source_file"} for p in rec["producer_flows"]]
+        if rec["declaration"]:
+            payload["declaration"] = {k: v for k, v in rec["declaration"].items() if k != "source_file"}
+        value.update(payload)
+        if rec["status"] == ASSESSED:
+            cls = EvidenceClass.B if rec["provenance_state"] == PROV_NOT_OBSERVABLE else EvidenceClass.A
+            facts.append(make_fact("source.leaf_provenance", A_, name, value, cls, refs=refs))
+        else:
+            facts.append(make_fact("source.leaf_provenance", A_, name, value, EvidenceClass.C1, refs=refs, assessability=Assessability.NOT_ASSESSED,
+                                   cause=Cause.C1_NOT_YET_PARSED if rec["cause"] == CAUSE_NOT_PARSED else Cause.CONTRADICTORY_EVIDENCE if rec["cause"] == CAUSE_CONTRADICTORY else Cause.NOT_IN_SNAPSHOT))
 
     return sort_facts(facts)

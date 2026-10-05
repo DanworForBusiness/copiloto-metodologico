@@ -120,12 +120,15 @@ def test_help_copy_is_canonical_concise_and_never_reads_as_a_score_or_a_human_re
 
 
 # ── regla: redacción pública, ids internos intactos ─────────────────────────
-def test_the_repeated_derivation_rule_is_named_the_same_everywhere_and_the_internal_id_is_unchanged(doc):
-    assert ma_profile.DISPLAY["CROSS_LAYER_REDERIVATION"][0] == NEW_RULE_TITLE
-    groups = [g for g in doc["review_required"] if g["id"] == "CROSS_LAYER_REDERIVATION"]
-    rules = [r for r in doc["rule_results"] if r["rule"] == "CROSS_LAYER_REDERIVATION"]
+def test_the_repeated_derivation_rule_is_named_the_same_everywhere_and_the_legacy_id_is_a_read_alias(doc):
+    from tools.catalog.modeling_assessment.model import LEGACY_SIGNAL_ALIASES
+    assert ma_profile.DISPLAY["REPEATED_DERIVATION_IN_LINEAGE"][0] == NEW_RULE_TITLE
+    groups = [g for g in doc["review_required"] if g["id"] == "REPEATED_DERIVATION_IN_LINEAGE"]
+    rules = [r for r in doc["rule_results"] if r["rule"] == "REPEATED_DERIVATION_IN_LINEAGE"]
     assert rules and all(r["title"] == NEW_RULE_TITLE for r in rules) and all(g["title"] == NEW_RULE_TITLE for g in groups)
-    assert "CROSS_LAYER_REDERIVATION" in {getattr(s, "signal_id", s) for s in SIGNAL_REGISTRY}                  # id/enum técnico estable
+    assert "REPEATED_DERIVATION_IN_LINEAGE" in {getattr(s, "signal_id", s) for s in SIGNAL_REGISTRY}              # id canónico vigente
+    assert "CROSS_LAYER_REDERIVATION" not in {getattr(s, "signal_id", s) for s in SIGNAL_REGISTRY}                # el identificador engañoso ya no se emite
+    assert LEGACY_SIGNAL_ALIASES["CROSS_LAYER_REDERIVATION"] == "REPEATED_DERIVATION_IN_LINEAGE"
     view, md = _view(doc), render_md.render_markdown(doc)
     html = re.sub(r"<[^>]+>", " ", _html(view))
     for text in (html, md):
@@ -133,12 +136,24 @@ def test_the_repeated_derivation_rule_is_named_the_same_everywhere_and_the_inter
     assert NEW_RULE_TITLE in html and NEW_RULE_TITLE in md
 
 
-def test_profiles_persisted_with_the_old_rule_title_read_with_the_current_one(doc):
+def test_profiles_persisted_with_the_old_rule_id_and_title_stay_valid_and_read_with_the_current_title(doc):
     legacy = copy.deepcopy(doc)
     for key in ("review_required", "rule_results"):
         for item in legacy[key]:
-            if item.get("id") == "CROSS_LAYER_REDERIVATION" or item.get("rule") == "CROSS_LAYER_REDERIVATION":
+            if item.get("id") == "REPEATED_DERIVATION_IN_LINEAGE" or item.get("rule") == "REPEATED_DERIVATION_IN_LINEAGE":
                 item["title"] = OLD_RULE_TITLE
+                if "id" in item:
+                    item["id"] = "CROSS_LAYER_REDERIVATION"                                                   # perfil gobernado persistido con el id historico
+                if "rule" in item:
+                    item["rule"] = "CROSS_LAYER_REDERIVATION"
+    for area in legacy["areas"]:
+        area["finding_groups"] = ["CROSS_LAYER_REDERIVATION" if g == "REPEATED_DERIVATION_IN_LINEAGE" else g for g in area["finding_groups"]]
+    for g in legacy["review_required"]:                                                                      # y sin los campos que aportó G3
+        for o in g["occurrences"]:
+            o["values"].pop("field_relations", None)
+    legacy.pop("canonical_evidence", None)
+    legacy["versions"].pop("canonical_evidence", None)
+    ma_profile.validate_assessment(legacy)
     view, md = _view(legacy), render_md.render_markdown(legacy)
     for text in (re.sub(r"<[^>]+>", " ", _html(view)), md):
         assert OLD_RULE_TITLE not in text

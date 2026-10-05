@@ -120,7 +120,8 @@ def _recurring_findings(rows: list[dict], statuses: dict[str, svc.AssessmentStat
         prof = statuses[r["entry_id"]].profile or {}
         for key, kind in (("observations", "OBSERVATION"), ("review_required", "REVIEW_REQUIRED")):
             for g in prof.get(key, []) or []:
-                item = acc.setdefault(g["id"], {"id": g["id"], "title": presenter.P.display_title(g["id"], g.get("title") or g["id"]), "kind": kind,
+                gid = presenter.canonical_signal_id(g["id"])                                    # un id historico y el vigente son LA MISMA senal
+                item = acc.setdefault(gid, {"id": gid, "title": presenter.P.display_title(gid, g.get("title") or gid), "kind": kind,
                                                 "kind_label": FINDING_KIND_LABELS[kind], "_entries": {}})
                 item["_entries"][r["entry_id"]] = r["asset_id"] or r["domain"]
     out = []

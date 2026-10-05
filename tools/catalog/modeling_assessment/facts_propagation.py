@@ -16,7 +16,9 @@ Hechos:
         un "origen" unico (en un grafo con ramas el mismo contrato puede declararse en varios artefactos)
   propagation.rederivation (closure)                 B  mismo campo con `derived` en un artefacto y en un ancestro de
         linaje (distancia 1 = eslabones consecutivos)
-  propagation.derivation_semantics (closure)         C2 la semantica de las formulas no es observable en el export estandar
+  propagation.derivation_semantics (closure)         B  semantica ESTRUCTURAL de las derivaciones desde el CSN compilado (G3): operaciones, insumos, huellas
+        exacta y de forma, resolubilidad; la relacion de cada repeticion (DUPLICATED_TRANSFORMATION | CHAINED_REFINEMENT | DISTINCT_TRANSFORMATION |
+        UNKNOWN) vive en `propagation.rederivation`. La semantica de NEGOCIO de las formulas no se infiere.
 
 Limite explicito (L3): `derived` solo existe para columnas con expresion visible en el query (xpr/func/val/cast);
 si el artefacto no trae query, el flag no esta disponible y el hecho queda PARTIALLY_ASSESSED.
@@ -26,7 +28,8 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from . import contract as C
-from .facts_support import entity_refs, make_fact, not_applicable, sort_facts
+from .derivation import DERIVATION_EXTRACTOR_VERSION, EXPOSURE_BASIS_SAME_NAME, REL_UNKNOWN, RELATIONS, classify_relation
+from .facts_support import NoEvidence, entity_refs, make_fact, not_applicable, sort_facts
 from .graph import EdgeKind
 from .identity import IdentityClassification, classify
 from .model import (
@@ -48,7 +51,9 @@ def propagation_facts(
     am: str,
     *,
     identity: Mapping[str, IdentityClassification] | None = None,
+    evidence: Any | None = None,
 ) -> tuple[Fact, ...]:
+    ev = evidence if evidence is not None else NoEvidence()
     graph = universe.graph
     closure = universe.closure_of(am)
     closure_set = set(closure)
@@ -150,6 +155,15 @@ def propagation_facts(
          "closure_occurrences_definition": "every artifact of the semantic closure that declares the same association target / field name / derived field"},
         EvidenceClass.B, refs=[EvidenceRef(am, "dependency_graph", None, Plane.MODELING)]))
 
+    # ---- derivaciones estructurales (G3): AST compilado por artefacto ------------------------------------
+    root_fields = set(C.field_names(entities[am]))
+
+    def cols_of(n: str, field: str | None = None):
+        d = ev.derivation_evidence(n)
+        if d is None:
+            return ()
+        return tuple(c for c in d.columns if field is None or c.field == field)
+
     # ---- re-derivacion del mismo campo en ancestros de linaje (B) ----------------------------------
     redo = []
     for n in closure:
@@ -159,25 +173,61 @@ def propagation_facts(
         if not mine:
             continue
         ancestors = graph.distances(n, [L])
+        direct = lin_providers(n)
         for anc, dist in sorted(ancestors.items(), key=lambda kv: (kv[1], kv[0])):
             if anc == n or dist < 1 or anc not in closure_set or _is_system(ident, anc):
                 continue
             theirs = set(C.derived_names(entities[anc]))
+            chain_sources = [q for q in direct if q == anc or anc in graph.distances(q, [L])]
             for f in mine:
                 if f in theirs:
+                    relation, reason = classify_relation(cols_of(anc, f), cols_of(n, f), field=f, chain_sources=chain_sources)                         if ev.derivation_evidence(anc) is not None and ev.derivation_evidence(n) is not None else (REL_UNKNOWN, "NO_QUERY_EVIDENCE")
                     redo.append({"field": f, "consumer": n, "provider": anc, "lineage_distance": dist, "adjacent": dist == 1,
                                  "consumer_layer_inference": C.layer_inference(entities[n]),
-                                 "provider_layer_inference": C.layer_inference(entities[anc])})
+                                 "provider_layer_inference": C.layer_inference(entities[anc]),
+                                 "relation": relation, "relation_reason": reason,
+                                 "exposed_by_root": f in root_fields, "exposure_basis": EXPOSURE_BASIS_SAME_NAME})
     facts.append(make_fact(
         "propagation.rederivation", P_, "closure",
         {"occurrences": redo, "adjacent_count": sum(1 for r in redo if r["adjacent"]),
-         "match_rule": "same technical field name flagged derived in an artifact and in a lineage ancestor (exact match)"},
+         "relation_counts": {rel: sum(1 for r in redo if r["relation"] == rel) for rel in RELATIONS},
+         "match_rule": "same technical field name flagged derived in an artifact and in a lineage ancestor (exact match); the RELATION of each occurrence is classified structurally from the compiled query AST (a repeated name alone decides nothing)"},
         EvidenceClass.B, refs=[EvidenceRef(am, "dependency_graph", None, Plane.MODELING)]))
 
-    # ---- semantica de formulas: no observable (C2) -------------------------------------------------
-    facts.append(make_fact(
-        "propagation.derivation_semantics", P_, "closure", None, EvidenceClass.C2,
-        refs=[EvidenceRef(am, "closure", None, Plane.MODELING)],
-        assessability=Assessability.NOT_ASSESSED, cause=Cause.NOT_OBSERVABLE_IN_STANDARD_EXPORT))
+    # ---- semantica estructural de las derivaciones (B) ---------------------------------------------
+    fields_json, ambiguity_counts, with_evidence, missing = [], {}, 0, []
+    for n in closure:
+        if _is_system(ident, n):
+            continue
+        d = ev.derivation_evidence(n)
+        if d is None:
+            if n in non_leaf_set and C.derivation_visible(entities[n]):
+                missing.append(n)
+            continue
+        with_evidence += 1
+        direct = lin_providers(n)
+        for c in d.columns:
+            rec = c.to_json()
+            rec["reads_provider_same_field"] = c.reads(c.field, direct)
+            rec["exposed_by_root"] = c.field in root_fields
+            rec["exposure_basis"] = EXPOSURE_BASIS_SAME_NAME
+            fields_json.append(rec)
+            for a in c.ambiguity:
+                ambiguity_counts[a] = ambiguity_counts.get(a, 0) + 1
+    sem_refs = [EvidenceRef(am, "compiled_query", None, Plane.MODELING)]
+    if with_evidence == 0:
+        facts.append(make_fact("propagation.derivation_semantics", P_, "closure", None, EvidenceClass.C1, refs=sem_refs,
+                               assessability=Assessability.NOT_ASSESSED, cause=Cause.NOT_IN_SNAPSHOT))
+    else:
+        facts.append(make_fact(
+            "propagation.derivation_semantics", P_, "closure",
+            {"extractor_version": DERIVATION_EXTRACTOR_VERSION, "artifacts_with_query_evidence": with_evidence,
+             "artifacts_without_query_evidence": sorted(missing), "fields": fields_json,
+             "counts": {"derived_fields": len(fields_json), "unresolvable": sum(1 for r in fields_json if not r["resolvable"]),
+                        "ambiguity": [{"code": k, "count": v} for k, v in sorted(ambiguity_counts.items())]},
+             "exposure_basis": EXPOSURE_BASIS_SAME_NAME},
+            EvidenceClass.B, refs=sem_refs,
+            assessability=Assessability.PARTIALLY_ASSESSED if missing else Assessability.ASSESSED,
+            cause=Cause.NOT_IN_SNAPSHOT if missing else None))
 
     return sort_facts(facts)

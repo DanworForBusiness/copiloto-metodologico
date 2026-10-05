@@ -118,8 +118,8 @@ def collect_facts(universe: AssessmentUniverse, entities, am: str, evidence: Sup
             *ingestion_facts(universe, entities, am, evidence=evidence, identity=identity),
             *am_facts(universe, entities, am, identity=identity),
             *view_type_facts(universe, entities, am, evidence=evidence),
-            *propagation_facts(universe, entities, am, identity=identity),
-            *harmonization_facts(universe, entities, am, identity=identity),
+            *propagation_facts(universe, entities, am, identity=identity, evidence=evidence),
+            *harmonization_facts(universe, entities, am, identity=identity, evidence=evidence),
             *naming_facts(universe, entities, am, identity=identity)]
 
 
@@ -168,7 +168,8 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
     else:
         scope = universe.scope_for(am, pool_signature=signature)           # puede lanzar UnknownTerminalAmError / TerminalAmSelectionRequired
     facts = [] if scope.root is None else collect_facts(universe, entities, scope.root, SupplementaryEvidence.from_files(group["jsons"], root=inbound, acquired_flow_families=_acquired_flow_families(evidence_scope),
-                                                                                                  view_type_of=bridge.view_type_of_export, family_of_dir=bridge.artifact_family_of_dir))
+                                                                                                  view_type_of=bridge.view_type_of_export, family_of_dir=bridge.artifact_family_of_dir,
+                                                                                                  effective_features=(evidence_scope or {}).get("effective_features") if evidence_scope else None))
     comp = compose_assessment(scope, facts)
     doc = build_assessment(comp, facts, client=key[0], terminal_label=_business_label(entities, scope.root), evidence_scope=evidence_scope)
     validate_assessment(doc)

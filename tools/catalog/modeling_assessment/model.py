@@ -160,7 +160,7 @@ class ObservationId(str, Enum):
 
 class ReviewId(str, Enum):
     PASS_THROUGH_REVIEW = "PASS_THROUGH_REVIEW"
-    CROSS_LAYER_REDERIVATION = "CROSS_LAYER_REDERIVATION"
+    REPEATED_DERIVATION_IN_LINEAGE = "REPEATED_DERIVATION_IN_LINEAGE"
     ROLE_LAYER_DIVERGENCE = "ROLE_LAYER_DIVERGENCE"
     DUPLICATED_REMOTE_IMPORT = "DUPLICATED_REMOTE_IMPORT"
     LAYER_BOUNDARY_REVIEW = "LAYER_BOUNDARY_REVIEW"
@@ -169,6 +169,16 @@ class ReviewId(str, Enum):
     OPAQUE_FIELD_NAME = "OPAQUE_FIELD_NAME"
     LABEL_NOT_ENRICHING = "LABEL_NOT_ENRICHING"
     AM_SEMANTIC_UNDERUSE_REVIEW = "AM_SEMANTIC_UNDERUSE_REVIEW"
+
+
+# Identificadores HISTORICOS de senales: los perfiles gobernados persistidos con ellos siguen siendo legibles y presentables.
+LEGACY_SIGNAL_ALIASES: dict[str, str] = {"CROSS_LAYER_REDERIVATION": ReviewId.REPEATED_DERIVATION_IN_LINEAGE.value}
+
+
+def canonical_signal_id(signal_id: str) -> str:
+    """Id CANONICO vigente de una senal: un id historico persistido (p. ej. ``CROSS_LAYER_REDERIVATION``) se normaliza al actual. Todo consumidor que COMPARE
+    o agrupe senales por id debe pasar por aca (no recordar el alias a mano). El perfil persistido NO se modifica: es una normalizacion de LECTURA."""
+    return LEGACY_SIGNAL_ALIASES.get(signal_id, signal_id)
 
 
 class Resolution(str, Enum):

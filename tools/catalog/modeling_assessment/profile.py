@@ -25,13 +25,14 @@ from .assessability import (
     ASSESSABILITY_RULESET, CONFIDENCE_CUTS, CONFIDENCE_RULESET, SURFACE_REGISTRY, AssessmentComposition, ConfidenceAxis, SurfaceAssessment, SurfaceKind,
     SurfaceRole,
 )
+from .evidence_contract import CANONICAL_EVIDENCE_VERSION, validate_canonical_evidence, validate_document_evidence       # G1/G3/G4: contrato explicito de `canonical_evidence`
 from .identity import IDENTITY_RULESET
 from .model import Applicability, Assessability, Cause, Fact, SignalKind
 from .signals import SIGNAL_REGISTRY, SIGNALS_RULESET, FactIndex, Finding
 
 ASSESSMENT_SCHEMA_VERSION = "modeling_assessment.assessment/v1"
 REASON_REGISTRY_VERSION = "reason-codes/v1"
-FINDING_EVIDENCE_VERSION = "finding-evidence/v1"
+FINDING_EVIDENCE_VERSION = "finding-evidence/v2"          # v2 (G1/G3): relaciones por campo en la repeticion de derivacion
 
 ASSESSMENT_STATES = ("ASSESSED", "NOT_APPLICABLE", "INDETERMINATE")
 
@@ -133,9 +134,9 @@ _VALUE_MAP: dict[str, tuple[tuple[str, str, Callable[[Any], Any] | None], ...]] 
     "PASS_THROUGH_REVIEW": (
         ("edge", "edge", None), ("field_count", "field_count", None), ("consumer_declared_pattern", "consumer_declared_pattern", None),
         ("provider_layer_by_inference", "provider_inferred_layer", None), ("consumer_layer_by_inference", "consumer_inferred_layer", None)),
-    "CROSS_LAYER_REDERIVATION": (
+    "REPEATED_DERIVATION_IN_LINEAGE": (
         ("provider", "provider", None), ("consumer", "consumer", None), ("fields", "fields", None), ("lineage_distance", "lineage_distance", None),
-        ("adjacent", "adjacent", None)),
+        ("adjacent", "adjacent", None), ("field_relations", "field_relations", None)),
     "ROLE_LAYER_DIVERGENCE": (
         ("artifact", "artifact", None), ("layer_encoded_in_name", "name_encoded_layer", None), ("is_boundary_leaf", "is_boundary_leaf", None),
         ("layer_of_declared_role", "declared_role_layer", None), ("divergence_kinds", "divergence_kinds", None)),
@@ -180,7 +181,7 @@ DISPLAY: dict[str, tuple[str, str]] = {
     "DIRECT_RAW_TABLE_ACCESS": ("Acceso directo a tabla física", "Una tabla física remota se importa directamente en el alcance evaluado."),
     "SOURCE_FILTER_PRESENT": ("Filtro de origen presente", "La definición de la fuente remota lleva un filtro (descriptivo; no es una virtud ni un defecto)."),
     "PASS_THROUGH_REVIEW": ("Capa de paso", "Una transformación interna modelada expone exactamente el esquema de su único proveedor y no introduce nada."),
-    "CROSS_LAYER_REDERIVATION": ("Derivación repetida en el linaje", "El mismo campo se deriva en un artefacto y otra vez en un ancestro del linaje."),
+    "REPEATED_DERIVATION_IN_LINEAGE": ("Derivación repetida en el linaje", "El mismo campo se deriva en un artefacto y otra vez en un ancestro del linaje."),
     "ROLE_LAYER_DIVERGENCE": ("La capa del nombre difiere de la posición estructural o del rol declarado",
                               "La capa codificada en el nombre del artefacto no coincide con el lugar que ocupa ni con lo que declara."),
     "DUPLICATED_REMOTE_IMPORT": ("Entidad remota importada más de una vez", "La misma entidad remota existe bajo varias identidades locales."),
@@ -200,7 +201,7 @@ DISPLAY: dict[str, tuple[str, str]] = {
 PRESENTATION_ORDER_VERSION = "presentation-order/v1"
 PRESENTATION_PRIORITY: dict[str, int] = {
     "DIRECT_RAW_TABLE_ACCESS": 10,
-    "CROSS_LAYER_REDERIVATION": 20, "FLAT_CENTRAL_ASSEMBLY_REVIEW": 30, "DUPLICATED_REMOTE_IMPORT": 40, "ROLE_LAYER_DIVERGENCE": 50,
+    "REPEATED_DERIVATION_IN_LINEAGE": 20, "FLAT_CENTRAL_ASSEMBLY_REVIEW": 30, "DUPLICATED_REMOTE_IMPORT": 40, "ROLE_LAYER_DIVERGENCE": 50,
     "LAYER_BOUNDARY_REVIEW": 60, "PASS_THROUGH_REVIEW": 70, "AM_SEMANTIC_UNDERUSE_REVIEW": 80,
     "FIELD_VOCABULARY_MIX": 110, "OPAQUE_FIELD_NAME": 120, "LABEL_NOT_ENRICHING": 130,
     "SOURCE_FILTER_PRESENT": 200,
@@ -220,7 +221,7 @@ OCCURRENCE_UNIT: dict[str, str] = {
     "DIRECT_RAW_TABLE_ACCESS": "artefacto con acceso directo a una tabla física",
     "SOURCE_FILTER_PRESENT": "fuente remota con filtro",
     "PASS_THROUGH_REVIEW": "relación proveedor→consumidor",
-    "CROSS_LAYER_REDERIVATION": "par proveedor→consumidor con campos derivados de nuevo",
+    "REPEATED_DERIVATION_IN_LINEAGE": "par proveedor→consumidor con campos derivados de nuevo",
     "ROLE_LAYER_DIVERGENCE": "artefacto",
     "DUPLICATED_REMOTE_IMPORT": "entidad remota repetida",
     "LAYER_BOUNDARY_REVIEW": "relación fuente→consumidor",
@@ -235,7 +236,7 @@ WHY_SHOWN: dict[str, str] = {
     "DIRECT_RAW_TABLE_ACCESS": "Se muestra por cada tabla física remota importada directamente en el alcance evaluado, sea cual sea su alcance o filtro: el proyecto debe indicar si cada una es una excepción deliberada.",
     "SOURCE_FILTER_PRESENT": "Se muestra como contexto porque la definición de la fuente remota lleva un filtro; no implica revisión.",
     "PASS_THROUGH_REVIEW": "Se muestra porque una transformación interna modelada (de un artefacto modelado a otro) tiene un único proveedor, no es una dimensión declarada y expone exactamente el esquema de su proveedor sin introducir campos derivados, asociaciones ni medidas.",
-    "CROSS_LAYER_REDERIVATION": "Se muestra porque el mismo campo se deriva en un artefacto y otra vez en un ancestro del linaje.",
+    "REPEATED_DERIVATION_IN_LINEAGE": "Se muestra porque el mismo campo se deriva en un artefacto y otra vez en un ancestro del linaje.",
     "ROLE_LAYER_DIVERGENCE": "Se muestra porque la capa codificada en el nombre del artefacto difiere de su posición estructural o de la capa de su rol declarado.",
     "DUPLICATED_REMOTE_IMPORT": "Se muestra porque una entidad remota se importa bajo más de una identidad local y al menos una de ellas está dentro del alcance evaluado.",
     "LAYER_BOUNDARY_REVIEW": "Se muestra porque todos los consumidores de linaje de esta fuente remota están en la capa inferida 3 o superior.",
@@ -249,7 +250,7 @@ WHY_SHOWN: dict[str, str] = {
 SIGNAL_QUESTIONS: dict[str, str] = {
     "DIRECT_RAW_TABLE_ACCESS": "¿Es el acceso directo a una tabla física remota una excepción metodológica justificada para cada artefacto afectado, o una desviación?",
     "PASS_THROUGH_REVIEW": "¿Cuál es el rol funcional de la capa consumidora (frontera de servicio o de producto, contrato estable, descomposición técnica, compatibilidad)?",
-    "CROSS_LAYER_REDERIVATION": "¿Se recalcula el campo intencionalmente en cada capa y qué capa es dueña de su definición?",
+    "REPEATED_DERIVATION_IN_LINEAGE": "¿Se recalcula el campo intencionalmente en cada capa y qué capa es dueña de su definición?",
     "ROLE_LAYER_DIVERGENCE": "¿A qué capa debe servir cada uno de estos artefactos en este proyecto?",
     "DUPLICATED_REMOTE_IMPORT": "¿Por qué se importa la misma entidad remota bajo varias identidades locales?",
     "LAYER_BOUNDARY_REVIEW": "¿Está intencionalmente ausente la armonización en estas fuentes remotas?",
@@ -263,7 +264,7 @@ SIGNAL_QUESTIONS: dict[str, str] = {
 CONTEXT_NEEDED: dict[str, str] = {
     "DIRECT_RAW_TABLE_ACCESS": "Si el acceso directo a la tabla física es una excepción metodológica justificada para este artefacto o una desviación.",
     "PASS_THROUGH_REVIEW": "Rol funcional de la capa consumidora (frontera de servicio o de producto, contrato estable, descomposición técnica, compatibilidad).",
-    "CROSS_LAYER_REDERIVATION": "Si el campo se recalcula intencionalmente en cada capa y qué capa es dueña de su definición.",
+    "REPEATED_DERIVATION_IN_LINEAGE": "Si el campo se recalcula intencionalmente en cada capa y qué capa es dueña de su definición.",
     "ROLE_LAYER_DIVERGENCE": "A qué capa debe servir el artefacto en este proyecto.",
     "DUPLICATED_REMOTE_IMPORT": "Motivo de importar la misma entidad remota bajo varias identidades locales.",
     "LAYER_BOUNDARY_REVIEW": "Si la armonización está ausente intencionalmente para esta fuente.",
@@ -288,10 +289,11 @@ INTERPRETATION_LIMITS: dict[str, tuple[str, ...]] = {
         "una capa de paso casi pura puede ser metodológicamente aceptable",
         "la lectura depende del rol funcional de la capa",
         "la ausencia de hallazgo NO significa que el patrón esté ausente: las transformaciones internas sin consulta visible o sin descriptores no son evaluables; las aristas desde la fuente hacia el primer consumidor y del último proveedor hacia el modelo analítico terminal quedan fuera de la población de esta regla"),
-    "CROSS_LAYER_REDERIVATION": (
+    "REPEATED_DERIVATION_IN_LINEAGE": (
         "no es un defecto automático (es una revisión de estabilidad del contrato)",
         "no indica cuál de las derivaciones es la correcta",
-        "la semántica de las fórmulas no es observable en la exportación estándar (clase C2)"),
+        "un nombre de campo repetido no implica lógica duplicada: cada ocurrencia lleva una relación estructural leída de la consulta compilada (DUPLICATED_TRANSFORMATION | CHAINED_REFINEMENT | DISTINCT_TRANSFORMATION | UNKNOWN)",
+        "CHAINED_REFINEMENT (la expresión de aguas abajo lee el campo ya derivado aguas arriba) no es una desviación; no se infiere la semántica de negocio de las fórmulas"),
     "ROLE_LAYER_DIVERGENCE": (
         "no es por sí solo un defecto de nombres",
         "la capa codificada en el nombre es una convención del proyecto, no una responsabilidad demostrada",
@@ -332,7 +334,7 @@ LEGITIMATE_REASONS: dict[str, tuple[str, ...]] = {
     "DIRECT_RAW_TABLE_ACCESS": (),
     "SOURCE_FILTER_PRESENT": (),
     "PASS_THROUGH_REVIEW": ("frontera de servicio", "frontera de producto", "contrato semántico estable", "descomposición técnica", "capa de compatibilidad"),
-    "CROSS_LAYER_REDERIVATION": (
+    "REPEATED_DERIVATION_IN_LINEAGE": (
         "una conversión de unidad, moneda o tipo reaplicada deliberadamente", "un nivel de agregación distinto por capa",
         "un recálculo requerido por una unión o filtro posterior", "un endurecimiento intencional del contrato en una frontera"),
     "ROLE_LAYER_DIVERGENCE": (
@@ -367,7 +369,7 @@ SURFACE_TITLES: dict[str, str] = {
     "source.annotation_inventory": "Anotaciones de las tablas remotas", "source.query_filter": "Filtros de las fuentes remotas",
     "source.downstream_reach": "Alcance aguas abajo de las fuentes remotas", "source.identity_continuity": "Continuidad entre identidad local y origen remoto",
     "source.family_distribution": "Distribución por familia de fuente", "source.connection_consistency": "Consistencia de conexiones remotas",
-    "source.replication_mode": "Modo de replicación (federado o replicado)", "source.leaf_contract_status": "Contrato de las hojas locales sin origen remoto",
+    "source.replication_mode": "Modo de replicación (federado o replicado)", "source.leaf_provenance": "Procedencia de las hojas locales sin origen remoto",
     "ingestion.boundary_artifacts": "Artefactos de frontera", "ingestion.first_consumers": "Primeros consumidores de cada hoja",
     "ingestion.field_retention": "Retención de campos de la hoja al primer consumidor", "ingestion.duplicate_remote_imports": "Importaciones remotas repetidas",
     "ingestion.inferred_layer_vs_lineage_depth": "Capa inferida frente a profundidad de linaje",
@@ -378,9 +380,10 @@ SURFACE_TITLES: dict[str, str] = {
     "am.association_targets": "Destinos de asociación del modelo analítico", "am.contract_delta": "Diferencias del modelo analítico frente a sus proveedores",
     "am.numeric_attributes_not_declared_as_measures": "Atributos numéricos no declarados como medidas", "propagation.derived_fields": "Campos derivados por artefacto",
     "propagation.contract_delta": "Diferencias de contrato por paso de linaje", "propagation.contract_occurrences": "Ocurrencias del contrato del modelo a lo largo del cierre",
-    "propagation.rederivation": "Campos derivados de nuevo en ancestros", "propagation.derivation_semantics": "Semántica exacta de las fórmulas de derivación",
+    "propagation.rederivation": "Campos derivados de nuevo en ancestros", "propagation.derivation_semantics": "Semántica estructural de las derivaciones",
     "harmonization.dimension_artifacts": "Dimensiones declaradas del cierre", "harmonization.composition_artifacts": "Artefactos de composición",
-    "harmonization.reuse_context": "Definición de los alcances de reúso", "harmonization.local_chain_reuse": "Reúso dentro de la cadena local",
+    "harmonization.reuse_context": "Definición de los alcances de reúso",
+    "harmonization.expression_repetition": "Estructuras de derivación repetidas entre artefactos", "harmonization.assembly_topology": "Topología de los artefactos de composición", "harmonization.local_chain_reuse": "Reúso dentro de la cadena local",
     "harmonization.cross_am_reuse": "Reúso entre modelos analíticos", "naming.artifact_name_contract": "Cumplimiento de la sección 28 por artefacto",
     "naming.field_name_contract": "Etiquetas por campo", "naming.field_name_forms": "Formas mecánicas de los nombres de campo",
     "naming.field_name_continuity": "Continuidad de nombres de campo en el linaje", "naming.artifact_name_populations": "Poblaciones de nombres de artefactos",
@@ -739,6 +742,32 @@ def _public_evidence_scope(scope: dict | None) -> dict | None:
     return {"requested_features": sorted(scope.get("requested_features") or ()), "effective_features": sorted(scope.get("effective_features") or ())}
 
 
+def _canonical_evidence(idx: FactIndex) -> dict:
+    """Payloads de hechos que un futuro ``judge(profile)`` necesita SIN reabrir el pool crudo (el ``fact_index`` solo lleva nombres): procedencia de
+    hojas locales (G1), semantica estructural de derivaciones y relacion de cada repeticion (G3), repeticion de expresiones y topologia de ensamble
+    (descriptivos). Es evidencia, no juicio."""
+    leaves = []
+    for f in idx.all("source.leaf_provenance"):
+        if f.assessability is Assessability.NOT_APPLICABLE or f.value is None:
+            continue
+        cause = public_reason(Assessability.NOT_ASSESSED, f.cause, None)["reason_code"] if f.assessability is not Assessability.ASSESSED else None
+        leaves.append({"leaf": f.subject, "assessability": f.assessability.value, "cause_code": cause, **f.value})
+    sem = idx.usable_get("propagation.derivation_semantics", "closure")
+    red = idx.usable_get("propagation.rederivation", "closure")
+    derivation = None
+    if sem is not None or red is not None:
+        derivation = {**({k: sem.value[k] for k in ("extractor_version", "artifacts_with_query_evidence", "artifacts_without_query_evidence", "fields", "counts",
+                                                      "exposure_basis")} if sem is not None else {}),
+                      "assessability": sem.assessability.value if sem is not None else None,
+                      "repeated_derivations": [{k: o[k] for k in ("field", "provider", "consumer", "lineage_distance", "adjacent", "relation", "relation_reason",
+                                                                    "exposed_by_root", "exposure_basis") if k in o} for o in (red.value["occurrences"] if red is not None else [])],
+                      "relation_counts": red.value.get("relation_counts") if red is not None else None}
+    rep = idx.usable_get("harmonization.expression_repetition", "closure")
+    topo = idx.usable_get("harmonization.assembly_topology", "closure")
+    return {"version": CANONICAL_EVIDENCE_VERSION, "leaf_provenance": leaves, "derivation_semantics": derivation,
+            "expression_repetition": rep.value if rep is not None else None, "assembly_topology": topo.value if topo is not None else None}
+
+
 def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, client: str, terminal_label: str | None = None,
                      evidence_scope: dict | None = None) -> dict:
     """Documento publico del assessment, derivado SOLO de la composicion de M6 (+ el indice de hechos para los highlights).
@@ -753,7 +782,8 @@ def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, clie
         "schema_version": ASSESSMENT_SCHEMA_VERSION,
         "assessment_state": "ASSESSED" if applicable else "NOT_APPLICABLE",
         "versions": {"signals": SIGNALS_RULESET, "assessability": ASSESSABILITY_RULESET, "confidence": CONFIDENCE_RULESET, "reason_codes": REASON_REGISTRY_VERSION,
-                     "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION, "presentation_order": PRESENTATION_ORDER_VERSION},
+                     "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION, "presentation_order": PRESENTATION_ORDER_VERSION,
+                     "canonical_evidence": CANONICAL_EVIDENCE_VERSION},
         "scope": {"client": client, "terminal_analytic_model": scope.terminal_am,
                   # Identidad GENERICA de la raiz evaluada (aditivo): para un AM coexiste con `terminal_analytic_model`; para vista/tabla ese campo es
                   # null (no se fabrica un AM) y la identidad es `root_object` + `root_type`.
@@ -786,6 +816,7 @@ def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, clie
     doc["surfaces"] = [_surface_json(s) for s in comp.surfaces]
     doc["fact_index"] = [{"fact": f.key, "area": f.area.value, "evidence_class": f.evidence_class.value, "plane": f.plane.value,
                           "assessability": f.assessability.value} for f in sorted(facts, key=lambda f: (f.area.value, f.fact_id, f.subject))]
+    doc["canonical_evidence"] = _canonical_evidence(idx)
     return doc
 
 
@@ -794,7 +825,8 @@ def build_indeterminate_assessment(*, client: str, requested_model: str | None, 
     r = public_reason(Assessability.INDETERMINATE, Cause.COLLISION_OR_LOAD_ERROR, None)
     return {"schema_version": ASSESSMENT_SCHEMA_VERSION, "assessment_state": "INDETERMINATE",
             "versions": {"signals": SIGNALS_RULESET, "assessability": ASSESSABILITY_RULESET, "confidence": CONFIDENCE_RULESET, "reason_codes": REASON_REGISTRY_VERSION,
-                         "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION, "presentation_order": PRESENTATION_ORDER_VERSION},
+                         "finding_evidence": FINDING_EVIDENCE_VERSION, "identity": IDENTITY_RULESET, "facts_profile": M.SCHEMA_VERSION, "presentation_order": PRESENTATION_ORDER_VERSION,
+                     "canonical_evidence": CANONICAL_EVIDENCE_VERSION},
             "scope": {"client": client, "terminal_analytic_model": requested_model, "terminal_analytic_model_label": None,
                       "root_object": requested_model, "root_type": None, "root_label": None,
                       "applicability": "INDETERMINATE", "reason": r, "closure_size": 0,
@@ -838,9 +870,10 @@ def validate_assessment(doc: dict) -> None:
             raise ValueError(f"grupo {group['id']}: occurrence_count no coincide con las ocurrencias preservadas")
         unknown = set()
         for o in group["occurrences"]:
-            unknown |= set(o["values"]) - set(PUBLIC_VALUE_KEYS[group["id"]])
+            unknown |= set(o["values"]) - set(PUBLIC_VALUE_KEYS[M.canonical_signal_id(group["id"])])
         if unknown:
             raise ValueError(f"grupo {group['id']}: valores fuera del mapa publico: {sorted(unknown)}")
+    validate_document_evidence(doc)                   # contrato EXPLICITO y condicionado por version (los perfiles historicos sin la version siguen validos)
     codes = set()
 
     def collect(v: Any) -> None:

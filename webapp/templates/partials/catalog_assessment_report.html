@@ -125,7 +125,7 @@
 {% if v.state == "FAILED" %}
 {% call callout("warn", "No se pudo generar el assessment", "alert") %}<p>{{ v.reason }}</p>{% if v.previous_profile_retained %}<p>Se muestra la última evaluación disponible; puede estar desactualizada.</p>{% endif %}{{ action_link(v) }}{% endcall %}
 {% elif v.state == "STALE" %}
-{% call callout("punch", "Assessment desactualizado — " ~ v.state_note, "status") %}<p>Se muestra el informe anterior. Regenerarlo calcula el assessment contra el modelo actual.</p>{{ action_link(v) }}{% endcall %}
+{% call callout("punch", "Assessment desactualizado — " ~ v.state_note, "status") %}<p>{{ v.state_body }}</p>{{ action_link(v) }}{% endcall %}
 {% endif %}
 
 {% if v.has_profile and v.state in ("CURRENT", "STALE", "FAILED") %}

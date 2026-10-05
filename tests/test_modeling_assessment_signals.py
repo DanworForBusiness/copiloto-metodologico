@@ -64,7 +64,7 @@ def test_registry_covers_every_canonical_observation_and_review_id_exactly_once(
 def test_each_signal_belongs_to_its_canonical_area():
     A = m.Area
     expected = {"DIRECT_RAW_TABLE_ACCESS": A.SOURCE_EXTRACTION, "SOURCE_FILTER_PRESENT": A.SOURCE_EXTRACTION,
-                "PASS_THROUGH_REVIEW": A.PROPAGATION, "CROSS_LAYER_REDERIVATION": A.PROPAGATION,
+                "PASS_THROUGH_REVIEW": A.PROPAGATION, "REPEATED_DERIVATION_IN_LINEAGE": A.PROPAGATION,
                 "ROLE_LAYER_DIVERGENCE": A.INGESTION, "DUPLICATED_REMOTE_IMPORT": A.INGESTION, "LAYER_BOUNDARY_REVIEW": A.INGESTION,
                 "FLAT_CENTRAL_ASSEMBLY_REVIEW": A.HARMONIZATION, "FIELD_VOCABULARY_MIX": A.NAMING, "OPAQUE_FIELD_NAME": A.NAMING,
                 "LABEL_NOT_ENRICHING": A.NAMING, "AM_SEMANTIC_UNDERUSE_REVIEW": A.ANALYTIC_MODEL}
@@ -232,7 +232,7 @@ def test_the_terminal_model_edge_and_the_source_edge_are_not_pass_through_candid
     assert "outside this rule's population" in " ".join(spec.interpretation_limits)
 
 
-# ── CROSS_LAYER_REDERIVATION ─────────────────────────────────────────────────
+# ── REPEATED_DERIVATION_IN_LINEAGE ─────────────────────────────────────────────────
 def _redo(adjacent=True):
     der = lambda n: f4(n, n, derived=True)                            # noqa: E731
     am = ent("AM_RD", up=["VF_RD"], cube=True, has_query=True, fields=[f4("K", "K")])
@@ -249,16 +249,19 @@ def _redo(adjacent=True):
 
 def test_the_same_field_derived_in_consecutive_layers_is_one_review_item_per_pair_listing_the_fields():
     _, ev = run(_redo(), "AM_RD")
-    f = found(ev, "CROSS_LAYER_REDERIVATION")
+    f = found(ev, "REPEATED_DERIVATION_IN_LINEAGE")
     assert len(f) == 1 and f[0].subjects == ("VR_RD", "VF_RD")
-    assert f[0].detail == {"provider": "VR_RD", "consumer": "VF_RD", "fields": ["DOSIS", "VALOR"], "lineage_distance": 1, "adjacent": True}
-    r = [i for i in ev.review_items if i.review_id is m.ReviewId.CROSS_LAYER_REDERIVATION]
+    d = dict(f[0].detail)
+    rels = d.pop("field_relations")
+    assert d == {"provider": "VR_RD", "consumer": "VF_RD", "fields": ["DOSIS", "VALOR"], "lineage_distance": 1, "adjacent": True}
+    assert [(r["field"], r["relation"], r["relation_reason"]) for r in rels] == [("DOSIS", "UNKNOWN", "NO_QUERY_EVIDENCE"), ("VALOR", "UNKNOWN", "NO_QUERY_EVIDENCE")]
+    r = [i for i in ev.review_items if i.review_id is m.ReviewId.REPEATED_DERIVATION_IN_LINEAGE]
     assert len(r) == 1 and r[0].fact_refs == ("propagation.rederivation@closure",) and r[0].no_automatic_quality_judgment
 
 
 def test_rederivation_in_later_non_adjacent_layers_is_flagged_as_not_adjacent():
     _, ev = run(_redo(adjacent=False), "AM_RD")
-    f = found(ev, "CROSS_LAYER_REDERIVATION")
+    f = found(ev, "REPEATED_DERIVATION_IN_LINEAGE")
     assert [(x.subjects, x.detail["adjacent"], x.detail["fields"]) for x in f] == [(("VR_RD", "VF_RD"), False, ["DOSIS"])]
 
 
@@ -266,7 +269,7 @@ def test_a_field_derived_in_only_one_layer_is_not_a_rederivation():
     ents = _redo()
     ents["VR_RD"].fields = [f4("K", "K"), f4("DOSIS", "D"), f4("VALOR", "V")]          # sin derived en el proveedor
     _, ev = run(ents, "AM_RD")
-    assert not found(ev, "CROSS_LAYER_REDERIVATION")
+    assert not found(ev, "REPEATED_DERIVATION_IN_LINEAGE")
 
 
 # ── ROLE_LAYER_DIVERGENCE ────────────────────────────────────────────────────
@@ -496,7 +499,7 @@ def test_missing_or_not_applicable_facts_produce_nothing_and_never_crash():
 def test_no_signal_object_or_finding_carries_scoring_vocabulary_or_a_quality_judgment():
     for ents, am in ((m4_entities(), "AM_X"), (m3_entities(), "AM_M"), (_rl(), "4AM_RL")):
         _, ev = run(ents, am)
-        assert ev.ruleset_version == S.SIGNALS_RULESET == "signal-rules/v2"
+        assert ev.ruleset_version == S.SIGNALS_RULESET == "signal-rules/v3"
         for s in ev.signals:
             assert s.ruleset_version == S.SIGNALS_RULESET and not m.find_forbidden_tokens(s.signal_id)
         for f in ev.findings:

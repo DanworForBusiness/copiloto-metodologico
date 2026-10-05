@@ -524,7 +524,7 @@
     "ReviewId": {
       "enum": [
         "PASS_THROUGH_REVIEW",
-        "CROSS_LAYER_REDERIVATION",
+        "REPEATED_DERIVATION_IN_LINEAGE",
         "ROLE_LAYER_DIVERGENCE",
         "DUPLICATED_REMOTE_IMPORT",
         "LAYER_BOUNDARY_REVIEW",

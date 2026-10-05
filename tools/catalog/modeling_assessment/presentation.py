@@ -22,7 +22,7 @@ __all__ = [
     "area_title", "macro_dimension_title", "assessability_text", "assessability_plural_text", "execution_state_text",
     "confidence_level_text", "finding_kind_text", "rule_result_text", "unit_label", "is_artifact_name",
     "percent_text", "plural", "value_text", "occurrence_text", "row_key_text", "evidence_not_acquired", "view_composition_text",
-    "has_structural_membership", "review_required_text", "context_open_text", "summary_relation_text", "reason_text", "highlight_label", "display_doc", "display_title", "structural_views_caveat",
+    "has_structural_membership", "review_required_text", "context_open_text", "summary_relation_text", "reason_text", "highlight_label", "display_doc", "display_title", "structural_views_caveat", "canonical_signal_id",
 ]
 
 
@@ -161,3 +161,8 @@ def occurrence_text(group_id: str, occurrence: dict, *, plain: bool = False) -> 
 def row_key_text(key: str) -> str:
     """Texto en español de una clave de fila de un hecho descriptivo (``compliant`` → "cumplen"); desconocida → con espacios."""
     return _md._ROW_KEY_TEXT.get(key, key.replace("_", " "))
+
+
+def canonical_signal_id(signal_id: str) -> str:
+    """Id canonico vigente de una senal (un id historico persistido se normaliza al actual); paridad con ``model.canonical_signal_id`` fijada por test."""
+    return _md._canonical_signal_id(signal_id)

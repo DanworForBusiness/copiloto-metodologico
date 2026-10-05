@@ -24,6 +24,8 @@ from urllib.parse import quote, urlencode
 from tools.catalog.modeling_assessment import presentation as P
 
 from webapp.services import assessment_service as svc
+
+canonical_signal_id = P.canonical_signal_id        # los consumidores normalizan ids historicos por aca (API publica de presentacion)
 from webapp.services import catalog_reads
 
 # ── etiquetas de ESTADO DE VIGENCIA (producto del Catálogo, no del motor) ──
@@ -38,6 +40,28 @@ STATE_LABELS = {
 STATE_NOTES = {
     svc.STALE: "El modelo cambió desde la última evaluación.",
 }
+# Mensaje de STALE según su CAUSA (``AssessmentStatus.stale_reason``): una evaluación vieja por cambio de versión NO debe decir que el modelo cambió.
+STALE_NOTES = {
+    svc.STALE_VERSION_ONLY: "La evaluación fue generada con una versión anterior de la metodología y la evidencia.",
+    svc.STALE_INPUT_CHANGED: "El modelo cambió desde la última evaluación.",
+    svc.STALE_VERSION_AND_INPUT: "El modelo cambió y la evaluación fue generada con una versión anterior de la metodología.",
+}
+STALE_BODIES = {
+    svc.STALE_VERSION_ONLY: "Se muestra el informe anterior. Regenerarlo lo vuelve a calcular con la versión vigente de la metodología y la evidencia.",
+    svc.STALE_INPUT_CHANGED: "Se muestra el informe anterior. Regenerarlo calcula el assessment contra el modelo actual.",
+    svc.STALE_VERSION_AND_INPUT: "Se muestra el informe anterior. Regenerarlo calcula el assessment contra el modelo actual y la versión vigente de la metodología.",
+}
+
+
+def stale_note(status: "svc.AssessmentStatus") -> str | None:
+    """Nota de STALE según su causa (sin causa conocida, la nota histórica)."""
+    if status.state != svc.STALE:
+        return STATE_NOTES.get(status.state)
+    return STALE_NOTES.get(status.stale_reason) or STATE_NOTES[svc.STALE]
+
+
+def stale_body(status: "svc.AssessmentStatus") -> str | None:
+    return (STALE_BODIES.get(status.stale_reason) or STALE_BODIES[svc.STALE_INPUT_CHANGED]) if status.state == svc.STALE else None
 # Tono del badge de vigencia: reusa las variantes del badge del veredicto legacy (`catalog-card__verdict--*`) para no
 # inventar un segundo lenguaje visual. Sin tono = badge neutro (sin assessment / no aplica).
 STATE_TONES = {
@@ -421,7 +445,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     doc = P.display_doc(status.profile) if status.profile is not None else None      # títulos públicos vigentes aun en perfiles persistidos anteriores
     link_entry = None if adhoc else entry
     view: dict[str, Any] = {
-        "state": status.state, "state_label": STATE_LABELS[status.state], "state_tone": STATE_TONES.get(status.state, ""), "state_note": STATE_NOTES.get(status.state),
+        "state": status.state, "state_label": STATE_LABELS[status.state], "state_tone": STATE_TONES.get(status.state, ""), "state_note": stale_note(status), "state_body": stale_body(status), "stale_reason": status.stale_reason,
         "reason": status.reason, "error_code": status.error_code,
         "client": status.client, "entry_id": status.entry_id if adhoc else entry.entry_id, "dominio": "" if adhoc else entry.dominio,
         "terminal_am": status.terminal_am, "title_desc": None, "title_id": None, "generated_at": status.generated_at,
