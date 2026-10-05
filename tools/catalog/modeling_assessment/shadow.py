@@ -26,6 +26,13 @@ from . import legacy_bridge as bridge
 from . import paths
 from .assessability import compose_assessment
 from .facts_am import am_facts
+from .facts_closure import closure_facts
+from .facts_contract_semantics import published_contract_facts
+from .facts_expressions import expression_facts
+from .facts_harmonization_contract import harmonization_contract_facts
+from .facts_processing import processing_property_facts
+from .facts_reconvergence import reconvergence_facts
+from .facts_view_complexity import view_complexity_facts
 from .facts_harmonization import harmonization_facts
 from .facts_ingestion import ingestion_facts
 from .facts_view_type import view_type_facts
@@ -117,10 +124,17 @@ def collect_facts(universe: AssessmentUniverse, entities, am: str, evidence: Sup
     return [*source_facts(universe, entities, am, evidence=evidence, identity=identity),
             *ingestion_facts(universe, entities, am, evidence=evidence, identity=identity),
             *am_facts(universe, entities, am, identity=identity),
+            *closure_facts(universe, entities, am, evidence=evidence),
             *view_type_facts(universe, entities, am, evidence=evidence),
             *propagation_facts(universe, entities, am, identity=identity, evidence=evidence),
             *harmonization_facts(universe, entities, am, identity=identity, evidence=evidence),
-            *naming_facts(universe, entities, am, identity=identity)]
+            *naming_facts(universe, entities, am, identity=identity),
+            *published_contract_facts(universe, entities, am, identity=identity, evidence=evidence),
+            *harmonization_contract_facts(universe, entities, am, identity=identity, evidence=evidence),
+            *expression_facts(universe, entities, am, identity=identity, evidence=evidence),
+            *reconvergence_facts(universe, entities, am, identity=identity, evidence=evidence),
+            *view_complexity_facts(universe, entities, am, identity=identity, evidence=evidence),
+            *processing_property_facts(universe, entities, am, identity=identity, evidence=evidence)]
 
 
 def list_terminal_models(inbound: Path, client: str, domain: str | None = None) -> tuple[str, ...]:

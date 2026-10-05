@@ -3,9 +3,10 @@ vocabularios CERRADOS tomados de las constantes del paquete (``provenance.py`` /
 
 Contrato condicionado por VERSION (el documento publico ``assessment/v1`` no tiene JSON Schema; este es su unico contrato para esta seccion):
   1. un perfil historico SIN ``versions.canonical_evidence`` puede omitir la seccion y sigue siendo legible/valido;
-  2. un perfil que declara ``versions.canonical_evidence == CANONICAL_EVIDENCE_VERSION`` DEBE traerla (ASSESSED / NOT_APPLICABLE) y debe validar;
+  2. un perfil que declara una version SOPORTADA (``v1`` o ``v2``) DEBE traer la seccion (ASSESSED / NOT_APPLICABLE) y debe validar contra el contrato de ESA version
+     (los perfiles gobernados ``v1`` siguen siendo validos mientras no se migren; ``v2`` agrega las secciones del evidence release y exige ``versions.closure``);
   3. ``canonical_evidence`` presente sin una version compatible declarada es INVALIDA (ni se ignora ni se acepta por laxitud);
-  4. una version declarada distinta de la soportada es INVALIDA (no se interpreta un contrato desconocido).
+  4. una version declarada fuera de las soportadas es INVALIDA (no se interpreta un contrato desconocido).
 Es evidencia, no juicio: ningun invariante habla de calidad.
 """
 from __future__ import annotations
@@ -15,6 +16,9 @@ from typing import Any
 from .derivation import (
     AMBIGUITY_CODES, DERIVATION_EXTRACTOR_VERSION, EXPOSURE_BASIS_SAME_NAME, INPUT_STATES, OPERATION_CLASSES, RELATION_REASONS, RELATIONS,
 )
+from .canonical_sections import V2_SECTIONS, build_v2_sections  # noqa: F401  (build_v2_sections se re-exporta: ``profile`` solo importa de este modulo)
+from .evidence_errors import CanonicalEvidenceError, _expect, _fail, _is_int, _keys  # noqa: F401  (CanonicalEvidenceError se re-exporta)
+from .facts_closure import CLOSURE_RULESET  # noqa: F401  (se re-exporta)
 from .provenance import (
     BASIS_DATA_FLOW, BASIS_DECLARED_DATASET, BASIS_NONE, BASIS_REPLICATION_FLOW, BASIS_TABLE_FUNCTION, PROV_DECLARED, PROV_ESTABLISHED, PROV_NOT_OBSERVABLE,
     UP_CYCLE, UP_DATASPHERE_VIEW, UP_LOCAL_TABLE, UP_OUTSIDE_POOL, UP_REMOTE_TABLE,
@@ -23,7 +27,9 @@ from .readers import (
     PRODUCER_FAMILIES, SCOPE_FAMILY_NOT_ACQUIRED, SCOPE_NO_FILES, SCOPE_NOT_DECLARED, SCOPE_UNINTERPRETED_PRODUCERS, SCOPE_UNREADABLE_FILES,
 )
 
-CANONICAL_EVIDENCE_VERSION = "canonical-evidence/v1"
+CANONICAL_EVIDENCE_VERSION_V1 = "canonical-evidence/v1"
+CANONICAL_EVIDENCE_VERSION = "canonical-evidence/v2"        # v2 (evidence release): closure / physical boundaries / published contract / naming / harmonization / expressions / reconvergence / complexity / processing
+SUPPORTED_VERSIONS = (CANONICAL_EVIDENCE_VERSION_V1, CANONICAL_EVIDENCE_VERSION)
 
 PROVENANCE_STATES = frozenset({PROV_ESTABLISHED, PROV_DECLARED, PROV_NOT_OBSERVABLE})
 PROVENANCE_BASES = frozenset({BASIS_REPLICATION_FLOW, BASIS_DATA_FLOW, BASIS_DECLARED_DATASET, BASIS_TABLE_FUNCTION, BASIS_NONE})
@@ -35,33 +41,7 @@ UPSTREAM_KINDS = frozenset({UP_REMOTE_TABLE, UP_LOCAL_TABLE, UP_DATASPHERE_VIEW,
 FLOW_KINDS = frozenset({"REPLICATION_FLOW", "DATA_FLOW"})
 FIELD_ASSESSABILITY = frozenset({"ASSESSED", "PARTIALLY_ASSESSED"})
 REPETITION_KINDS = frozenset({"SIBLING", "LINEAGE_RELATED", "MIXED"})
-EXPECTED_SECTIONS = ("leaf_provenance", "derivation_semantics", "expression_repetition", "assembly_topology")
-
-
-class CanonicalEvidenceError(ValueError):
-    """``canonical_evidence`` no cumple el contrato (subclase de ``ValueError``: ``validate_assessment`` ya lanza esa clase)."""
-
-
-def _fail(path: str, msg: str) -> None:
-    raise CanonicalEvidenceError(f"canonical_evidence{path}: {msg}")
-
-
-def _expect(cond: bool, path: str, msg: str) -> None:
-    if not cond:
-        _fail(path, msg)
-
-
-def _is_int(v: Any) -> bool:
-    return isinstance(v, int) and not isinstance(v, bool)
-
-
-def _keys(d: Any, required: set[str], path: str, *, closed: bool = False, optional: set[str] = frozenset()) -> None:
-    _expect(isinstance(d, dict), path, "debe ser un objeto")
-    missing = required - set(d)
-    _expect(not missing, path, f"faltan claves {sorted(missing)}")
-    if closed:
-        extra = set(d) - required - set(optional)
-        _expect(not extra, path, f"claves fuera del contrato {sorted(extra)}")
+EXPECTED_SECTIONS = ("leaf_provenance", "derivation_semantics", "expression_repetition", "assembly_topology")      # secciones de v1 (y de v2: v2 agrega V2_SECTIONS)
 
 
 # ───────────────────────────── procedencia de hojas (G1) ─────────────────────────────
@@ -215,9 +195,14 @@ def _validate_topology(t: Any) -> None:
 
 
 def validate_canonical_evidence(ce: Any) -> None:
-    """Valida la seccion ``canonical_evidence`` (vocabularios cerrados + invariantes internos). Lanza ``CanonicalEvidenceError``."""
-    _keys(ce, {"version", *EXPECTED_SECTIONS}, "", closed=True)
-    _expect(ce["version"] == CANONICAL_EVIDENCE_VERSION, ".version", "version no soportada")
+    """Valida la seccion ``canonical_evidence`` contra el contrato de SU version (vocabularios cerrados + invariantes). Lanza ``CanonicalEvidenceError``."""
+    _expect(isinstance(ce, dict), "", "debe ser un objeto")
+    version = ce.get("version")
+    _expect(version in SUPPORTED_VERSIONS, ".version", "version no soportada")
+    if version == CANONICAL_EVIDENCE_VERSION:
+        _keys(ce, {"version", *EXPECTED_SECTIONS, *V2_SECTIONS}, "", closed=True)
+    else:
+        _keys(ce, {"version", *EXPECTED_SECTIONS}, "", closed=True)
     _expect(isinstance(ce["leaf_provenance"], list), ".leaf_provenance", "debe ser lista")
     seen = set()
     for i, rec in enumerate(ce["leaf_provenance"]):
@@ -227,20 +212,32 @@ def validate_canonical_evidence(ce: Any) -> None:
     _validate_derivation(ce["derivation_semantics"])
     _validate_repetition(ce["expression_repetition"])
     _validate_topology(ce["assembly_topology"])
+    if version == CANONICAL_EVIDENCE_VERSION:
+        from .evidence_contract_v2 import validate_v2_sections
+        validate_v2_sections(ce)
 
 
 def validate_document_evidence(doc: dict) -> None:
     """Contrato condicionado por version (ver el docstring del modulo). ``doc`` ya paso la validacion de forma de ``validate_assessment``."""
-    declared = (doc.get("versions") or {}).get("canonical_evidence")
+    versions = doc.get("versions") or {}
+    declared = versions.get("canonical_evidence")
     present = "canonical_evidence" in doc and doc["canonical_evidence"] is not None
     if declared is None:
         if present:
             _fail("", "presente sin versions.canonical_evidence compatible declarada")
         return                                                      # perfil historico: la seccion es opcional
-    if declared != CANONICAL_EVIDENCE_VERSION:
-        _fail("", f"version declarada {declared!r} no soportada (se esperaba {CANONICAL_EVIDENCE_VERSION!r})")
+    if declared not in SUPPORTED_VERSIONS:
+        _fail("", f"version declarada {declared!r} no soportada (se esperaba una de {list(SUPPORTED_VERSIONS)})")
     if not present:
         if doc.get("assessment_state") in ("ASSESSED", "NOT_APPLICABLE"):
             _fail("", "el perfil declara versions.canonical_evidence pero no trae la seccion")
         return                                                      # INDETERMINATE: no hay secciones que validar
-    validate_canonical_evidence(doc["canonical_evidence"])
+    ce = doc["canonical_evidence"]
+    _expect(ce.get("version") == declared, ".version", "la version de la seccion no coincide con versions.canonical_evidence")
+    validate_canonical_evidence(ce)
+    if declared == CANONICAL_EVIDENCE_VERSION:
+        _expect(versions.get("closure") == CLOSURE_RULESET, ".closure", "canonical-evidence/v2 exige versions.closure == " + CLOSURE_RULESET)
+        pc = ce["closure"]["plane_context"]
+        size = (doc.get("scope") or {}).get("closure_size")
+        if size is not None and pc is not None:                                         # el cierre es el cierre previo mas lo agregado (y no se quita nada)
+            _expect(size == pc["loader_file_flag_closure_size"] + len(pc["added_vs_loader_file_flag"]), ".closure.plane_context", "closure_size incoherente con la diferencia vs la politica previa")

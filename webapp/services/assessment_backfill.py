@@ -28,14 +28,17 @@ ENRIQUECIMIENTO CONTROLADO (modo explícito y SEPARADO; el comando de arriba sig
   ante cualquier fallo el registro previo (memoria, disco y remoto) queda intacto. Idempotente: un CURRENT que ya trae el hecho se omite.
 
 MIGRACIÓN CONTROLADA DE EVIDENCIA (modo explícito y SEPARADO; para assessments STALE por cambio de versión de evidencia):
-    python -m webapp.services.assessment_backfill --regenerate-stale-evidence evidence_g1_g3_v1 --client Biogenesis --dry-run
-    python -m webapp.services.assessment_backfill --regenerate-stale-evidence evidence_g1_g3_v1 --client Biogenesis --apply
+    python -m webapp.services.assessment_backfill --regenerate-stale-evidence evidence_closure_contract_v2 --client Biogenesis --dry-run
+    python -m webapp.services.assessment_backfill --regenerate-stale-evidence evidence_closure_contract_v2 --client Biogenesis --apply
 
   Elegible = registro gobernado STALE por VERSIÓN únicamente (``input_pool_signature`` igual a la del pool local) cuya diferencia de versiones es EXACTAMENTE la de
   la migración (``assessment_service.EVIDENCE_MIGRATIONS``). STALE por cambio de entrada (INPUT_CHANGED / VERSION_AND_INPUT), STALE con otras diferencias de versión
   (version_only_untargeted), FAILED, INCOMPATIBLE_SCHEMA, NOT_YET_ASSESSED y NOT_APPLICABLE se REPORTAN aparte y NO se migran. Comparte con el enriquecimiento el MISMO
   núcleo seguro (regenerar en memoria → validar → postcondiciones → ``commit_regenerated`` → durabilidad remota exacta entre invocaciones → regla de reinicio); las
   postcondiciones miran el CONTENIDO de ``canonical_evidence`` y la identidad canónica del cierre (CLOSURE_DRIFT es falla dura). No inventa alcance de adquisición.
+  ``evidence_closure_contract_v2`` (evidence release) usa la política ``TARGETED_CLOSURE_EXPANSION``: el cierre de una raíz puede CRECER únicamente si cada miembro
+  agregado es un target de flujo que Modeling ya leía en el mismo pool y que la clasificación previa excluía (hoja, leída por un miembro del cierre viejo, no un flujo);
+  el cierre viejo debe ser subconjunto del nuevo. Cualquier otra diferencia es CLOSURE_DRIFT (cero escrituras). El dry-run informa los miembros agregados y su base.
 
   DÓNDE CORRERLO: en la CONSOLA DEL SERVIDOR (DigitalOcean), donde ``governed-assessments/`` ya está restaurado y el pool del cliente está presente.
   NO desde una máquina de desarrollo y SIN restore() propio (el modo avisa si el estado gobernado parece ausente).
@@ -328,49 +331,67 @@ def _provenance_summary(profile: dict | None) -> dict:
     return c
 
 
-def _old_repeated_review(profile: dict | None) -> set[tuple[str, str, str]]:
-    """(proveedor, consumidor, campo) que el perfil VIEJO ya mostraba como revisión de derivación repetida (id histórico o vigente)."""
-    out: set[tuple[str, str, str]] = set()
-    for g in (profile or {}).get("review_required") or []:
-        if presenter_canonical(g.get("id", "")) == "REPEATED_DERIVATION_IN_LINEAGE":
-            for o in g.get("occurrences") or []:
-                v = o.get("values") or {}
-                for f in v.get("fields") or []:
-                    out.add((str(v.get("provider")), str(v.get("consumer")), str(f)))
-    return out
+def _published_summary(ce: dict | None) -> dict | None:
+    pc = (ce or {}).get("published_contract")
+    if not pc:
+        return None
+    ag = (pc.get("associations") or {}).get("aggregates") or {}
+    comp = (pc.get("fields") or {}).get("measure_type_composition") or {}
+    return {"associations": ag.get("total"), "by_category": ag.get("by_category"), "measure_signatures": comp.get("signature_count"), "measure_families": comp.get("family_count")}
 
 
-def presenter_canonical(signal_id: str) -> str:
-    from webapp.services import assessment_presenter as presenter
-    return presenter.canonical_signal_id(signal_id)
+def _count_by(items: list, key: str) -> list:
+    out: dict = {}
+    for i in items:
+        out[i.get(key)] = out.get(i.get(key), 0) + 1
+    return [{"value": k, "count": v} for k, v in sorted(out.items(), key=lambda kv: str(kv[0]))]
 
 
 def compare_evidence_migration(old: dict | None, new_cand: Any, migration: str, old_versions: dict | None, versions: dict) -> dict:
-    """Informe CONCISO viejo → nuevo de la migración de evidencia (no vuelca perfiles). Lee el CONTENIDO de ``canonical_evidence``, no la membresía de hechos."""
+    """Informe CONCISO viejo → nuevo de la migración de evidencia (no vuelca perfiles). Lee el CONTENIDO de ``canonical_evidence``, no la membresía de hechos.
+    Informa SIN interpretar calidad: versiones, cierre (miembros agregados y su base), cobertura/confianza/áreas/revisiones/preguntas, y el resumen de cada
+    sección nueva de ``canonical_evidence`` v2."""
     new = new_cand.profile
     m = svc.EVIDENCE_MIGRATIONS[migration]
     base = compare_profiles(old, new, ())
+
     def cov(doc: dict | None, k: str):
         return (((doc or {}).get("summary") or {}).get("coverage") or {}).get(k)
     old_ce, new_ce = (old or {}).get("canonical_evidence"), new.get("canonical_evidence")
-    sections = ("leaf_provenance", "derivation_semantics", "assembly_topology", "expression_repetition")
+    v2_sections = ("closure", "physical_source_boundaries", "published_contract", "naming_evidence", "harmonization_contract", "expression_occurrences",
+                   "branch_reconvergence", "view_complexity", "processing_flow_properties")
     presence = lambda ce, sec: "present" if isinstance(ce, dict) and ce.get(sec) not in (None, [], {}) else "absent"          # noqa: E731
-    reviewed = _old_repeated_review(old)
-    reps = [{"field": r["field"], "provider": r["provider"], "consumer": r["consumer"], "old_review_present": (r["provider"], r["consumer"], r["field"]) in reviewed,
-             "relation": r["relation"], "relation_reason": r["relation_reason"], "exposed_by_root": r["exposed_by_root"], "exposed_by_root_basis": r["exposure_basis"]}
-            for r in ((new_ce or {}).get("derivation_semantics") or {}).get("repeated_derivations") or []]
     oc, nc = svc.closure_identity(old), svc.closure_identity(new)
-    drift = {"drift": oc != nc, "terminal_am_same": (oc or (None,))[0] == (nc or (None,))[0],
-             "closure_artifacts_old": len(oc[3]) if oc else None, "closure_artifacts_new": len(nc[3]) if nc else None}
+    added, removed = svc.closure_delta(oc, nc)
+    members = {x["artifact"]: x for x in (((new_ce or {}).get("closure") or {}).get("plane_context") or {}).get("flow_produced_members") or []}
+    closure = {"policy": m.closure_policy, "old": len(oc[3]) if oc else None, "new": len(nc[3]) if nc else None,
+               "terminal_am_same": (oc or (None,))[0] == (nc or (None,))[0], "root_identity_same": (oc or ())[:3] == (nc or ())[:3],
+               "added": [{"artifact": a, "basis": (members.get(a) or {}).get("membership_basis"), "semantic_consumers": (members.get(a) or {}).get("semantic_consumers"),
+                          "producer_flows": (members.get(a) or {}).get("producer_flows"), "excluded_before": (members.get(a) or {}).get("excluded_before")} for a in added],
+               "removed": list(removed), "drift": bool(removed) or (m.closure_policy == svc.CLOSURE_EQUAL and bool(added))}
+    rr = (((new_ce or {}).get("closure") or {}).get("reference_resolution") or {})
     pair = lambda a, b: {"old": a, "new": b, "changed": a != b}                    # noqa: E731
     delta = {"versions": {k: {"old": (old_versions or {}).get(k), "new": versions.get(k)} for k in m.target_keys},
              "pool_signature_same": True, "coverage_strict": base["coverage_strict"], "coverage_inclusive": pair(cov(old, "inclusive"), cov(new, "inclusive")),
+             "required_surfaces": pair((((old or {}).get("summary") or {}).get("coverage") or {}).get("required_surfaces"),
+                                      (((new or {}).get("summary") or {}).get("coverage") or {}).get("required_surfaces")),
              "confidence": base["confidence"], "review_occurrences": base["review_occurrences"], "open_questions": base["open_questions"], "areas": base["areas"],
-             "canonical_evidence": {"old": "present" if isinstance(old_ce, dict) else "absent", "new": "present" if isinstance(new_ce, dict) else "absent",
-                                    "sections": {s: {"old": presence(old_ce, s), "new": presence(new_ce, s)} for s in sections}},
+             "closure": closure,
+             "canonical_evidence": {"old": (old_ce or {}).get("version") if isinstance(old_ce, dict) else "absent", "new": (new_ce or {}).get("version") if isinstance(new_ce, dict) else "absent",
+                                    "sections_added": [s for s in v2_sections if presence(old_ce, s) == "absent" and presence(new_ce, s) == "present"]},
+             "closure_reference_resolution": {"members_total": rr.get("members_total"), "counts": rr.get("counts")},
              "leaf_provenance": {"old": _provenance_summary(old), "new": _provenance_summary(new)},
-             "repeated_derivations": reps, "closure_drift": drift}
-    delta["changed"] = base["changed"] or pair(cov(old, "inclusive"), cov(new, "inclusive"))["changed"]
+             "physical_source_boundaries": [{"leaf": l["leaf"], "boundaries": [{"boundary_entity": b["boundary_entity"], "boundary_class": b["boundary_class"]} for b in l["boundaries"]],
+                                             "chain_complete": l["chain_complete"]} for l in ((new_ce or {}).get("physical_source_boundaries") or {}).get("leaves") or []],
+             "published_contract": _published_summary(new_ce),
+             "harmonization_contract": _count_by([{"value": a["character"]["value"]} for a in ((new_ce or {}).get("harmonization_contract") or {}).get("artifacts") or []], "value"),
+             "expression_occurrences": {"counts": ((new_ce or {}).get("expression_occurrences") or {}).get("counts")},
+             "branch_reconvergence": {"pairs": (((new_ce or {}).get("branch_reconvergence") or {}).get("counts") or {}).get("pairs")},
+             "view_complexity": {"views": ((new_ce or {}).get("view_complexity") or {}).get("count"),
+                                 "by_view_type": _count_by(((new_ce or {}).get("view_complexity") or {}).get("views") or [], "view_type")},
+             "processing_flow_properties": {"flows": [{"flow_kind": f["flow_kind"], "flow_name": f["flow_name"], "observed": f["observed"]}
+                                                     for f in ((new_ce or {}).get("processing_flow_properties") or {}).get("flows") or []]}}
+    delta["changed"] = base["changed"] or delta["coverage_inclusive"]["changed"] or bool(added)
     return delta
 
 

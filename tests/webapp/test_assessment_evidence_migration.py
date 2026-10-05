@@ -28,7 +28,7 @@ from webapp.services import assessment_presenter as presenter
 from webapp.services import assessment_service as svc
 from webapp.services import catalog_reads
 
-MIG = "evidence_g1_g3_v1"
+MIG = "evidence_closure_contract_v2"
 TARGET = svc.EVIDENCE_MIGRATIONS[MIG]
 OLD_VALUES = {k: next(iter(v)) for k, v in TARGET.eligible_old.items() if v != frozenset({None})}
 
@@ -41,7 +41,7 @@ def _cur_versions():
 def _old_versions():
     v = dict(_cur_versions())
     v.update(OLD_VALUES)
-    v.pop("canonical_evidence", None)
+    v.pop("closure", None)                                                      # el perfil previo al evidence release no traia la clave `closure`
     return v
 
 
@@ -63,14 +63,14 @@ def test_classifier_distinguishes_version_only_input_changed_and_both():
 
 def test_classifier_version_only_untargeted_when_the_diff_is_not_exactly_the_migration():
     v = _cur_versions()
-    other = dict(v, confidence="confidence-cuts/v0")
+    other = dict(v, identity="identity-rules/v0")
     c = svc.classify_currentness("sig", other, "sig", v)
-    assert c.reason == svc.STALE_VERSION_ONLY and c.targeted is None and c.version_only_untargeted and c.version_diff == ("confidence",)
+    assert c.reason == svc.STALE_VERSION_ONLY and c.targeted is None and c.version_only_untargeted and c.version_diff == ("identity",)
     extra = dict(_old_versions(), identity="identity-rules/v0")                 # la migración MÁS otra clave
     assert svc.classify_currentness("sig", extra, "sig", v).targeted is None
-    partial = dict(v, signals=OLD_VALUES["signals"])                            # solo una de las cuatro claves
+    partial = dict(v, assessability=OLD_VALUES["assessability"])                # solo una de las cuatro claves
     assert svc.classify_currentness("sig", partial, "sig", v).targeted is None
-    unknown_old = dict(_old_versions(), signals="signal-rules/v1")              # valor viejo NO elegible
+    unknown_old = dict(_old_versions(), assessability="assessability-rules/v1") # valor viejo NO elegible (p. ej. un perfil previo a G1: otra migracion, ya aplicada)
     assert svc.classify_currentness("sig", unknown_old, "sig", v).targeted is None
 
 
@@ -80,12 +80,13 @@ def test_the_six_public_states_are_unchanged_and_stale_reasons_are_not_states():
 
 
 def test_the_registry_is_small_explicit_and_uses_the_real_constants_as_target():
-    assert set(svc.EVIDENCE_MIGRATIONS) == {MIG} and TARGET.target_keys == ("signals", "assessability", "finding_evidence", "canonical_evidence")
-    assert OLD_VALUES == {"signals": "signal-rules/v2", "assessability": "assessability-rules/v1", "finding_evidence": "finding-evidence/v1"}
-    assert TARGET.eligible_old["canonical_evidence"] == frozenset({None})
+    assert set(svc.EVIDENCE_MIGRATIONS) == {MIG} and "evidence_g1_g3_v1" not in svc.EVIDENCE_MIGRATIONS          # la migracion G1/G3 ya se aplico en produccion y se retiro
+    assert TARGET.target_keys == ("assessability", "confidence", "canonical_evidence", "closure") and TARGET.closure_policy == svc.TARGETED_CLOSURE_EXPANSION
+    assert OLD_VALUES == {"assessability": "assessability-rules/v2", "confidence": "confidence-cuts/v1", "canonical_evidence": "canonical-evidence/v1"}
+    assert TARGET.eligible_old["closure"] == frozenset({None})
     v = _cur_versions()
-    assert (v["signals"], v["assessability"], v["finding_evidence"], v["canonical_evidence"]) == (
-        "signal-rules/v3", "assessability-rules/v2", "finding-evidence/v2", "canonical-evidence/v1")
+    assert (v["assessability"], v["confidence"], v["canonical_evidence"], v["closure"]) == ("assessability-rules/v3", "confidence-cuts/v2", "canonical-evidence/v2", "closure-rules/v1")
+    assert v["signals"] == "signal-rules/v3" and v["finding_evidence"] == "finding-evidence/v2" and v["facts_profile"] == "modeling_assessment.profile/v1"     # lo no relacionado NO se subio
 
 
 # ═══════════════ 2. unidades con dobles (sin motor ni disco) ═══════════════
@@ -96,9 +97,16 @@ def _prof(*, closure=("A", "B"), am="AM", cov=0.9, covi=0.95, conf="MEDIUM", rev
                               "occurrences": [{"values": {"provider": "P", "consumer": "C", "fields": ["F"]}}]}] if reviews else [],
          "areas": [{"id": "INGESTION", "assessability": ingestion, "finding_groups": ["G1"]}, {"id": "PROPAGATION", "assessability": "ASSESSED", "finding_groups": []}]}
     if with_ce:
-        p["canonical_evidence"] = {"version": "canonical-evidence/v1", "leaf_provenance": list(leaves), "assembly_topology": {"count": 0, "artifacts": []},
-                                   "expression_repetition": {"count": 0, "groups": []},
-                                   "derivation_semantics": {"repeated_derivations": list(reps), "relation_counts": {}, "fields": []}}
+        p["canonical_evidence"] = {"version": "canonical-evidence/v2", "leaf_provenance": list(leaves), "assembly_topology": {"count": 0, "artifacts": []},
+                                   "expression_repetition": {"count": 0, "groups": []}, "derivation_semantics": {"repeated_derivations": list(reps), "relation_counts": {}, "fields": []},
+                                   "closure": {"rules": "closure-rules/v1", "plane_policy": "MODELING_MEMBERSHIP",
+                                               "reference_resolution": {"members_total": len(closure), "counts": {"RESOLVED": 3, "UNRESOLVED": 0, "EXCLUDED_BY_PLANE": 0, "AMBIGUOUS": 0}, "platform_provided_total": 0,
+                                                                       "members_with_open_references": []},
+                                               "plane_context": {"flow_produced_members": [], "added_vs_loader_file_flag": [], "removed_vs_loader_file_flag": [], "loader_file_flag_closure_size": len(closure)}},
+                                   "published_contract": {"associations": {"aggregates": {"total": 1, "by_category": {"BUSINESS_DIMENSION": 1}}}, "fields": {"measure_type_composition": {"signature_count": 2, "family_count": 1}}},
+                                   "harmonization_contract": {"artifacts": [{"character": {"value": "UNKNOWN"}}]}, "expression_occurrences": {"counts": {"occurrences": 4}},
+                                   "branch_reconvergence": {"counts": {"pairs": 1}}, "view_complexity": {"views": [{"view_type": "SQL"}], "count": 1},
+                                   "physical_source_boundaries": {"leaves": [], "boundaries_by_class": []}, "naming_evidence": {"taxonomy": []}, "processing_flow_properties": {"flows": [], "counts": {"flows": 0}}}
     return p
 
 
@@ -190,25 +198,24 @@ def test_dry_run_reports_the_old_new_evidence_delta_without_writing_and_never_du
     d = rec["delta"]
     assert rec["action"] == bf.WOULD_REGENERATE and fk.committed == [] and out["dry_run"] and not out["apply"]
     assert rec["stale_reason"] == svc.STALE_VERSION_ONLY and d["pool_signature_same"] is True
-    assert set(d["versions"]) == set(TARGET.target_keys) and d["versions"]["signals"]["new"] == "signal-rules/v3"
+    assert set(d["versions"]) == set(TARGET.target_keys) and d["versions"]["assessability"]["new"] == "assessability-rules/v3" and d["versions"]["closure"] == {"old": None, "new": "closure-rules/v1"}
     assert d["coverage_strict"] == {"old": 0.9, "new": 1.0, "changed": True} and d["coverage_inclusive"]["new"] == 1.0
     assert d["confidence"]["new"] == "HIGH" and d["areas"]["INGESTION"]["state"] == {"old": "PARTIALLY_ASSESSED", "new": "ASSESSED"}
-    assert d["canonical_evidence"]["old"] == "absent" and d["canonical_evidence"]["new"] == "present"
-    assert d["canonical_evidence"]["sections"]["leaf_provenance"] == {"old": "absent", "new": "present"}
+    assert d["canonical_evidence"]["old"] == "absent" and d["canonical_evidence"]["new"] == "canonical-evidence/v2"
+    assert set(d["canonical_evidence"]["sections_added"]) >= {"closure", "published_contract", "harmonization_contract", "expression_occurrences", "branch_reconvergence", "view_complexity"}
     assert d["leaf_provenance"]["new"]["established"] == 1 and d["leaf_provenance"]["old"]["leaves"] == 0
-    assert d["repeated_derivations"] == [{"field": "F", "provider": "P", "consumer": "C", "old_review_present": True, "relation": "CHAINED_REFINEMENT",
-                                          "relation_reason": "CONSUMER_READS_DERIVED_PROVIDER_FIELD", "exposed_by_root": True,
-                                          "exposed_by_root_basis": "SAME_NAME_IN_ROOT_CONTRACT"}]
-    assert d["closure_drift"] == {"drift": False, "terminal_am_same": True, "closure_artifacts_old": 2, "closure_artifacts_new": 2}
+    assert d["closure"] == {"policy": "TARGETED_CLOSURE_EXPANSION", "old": 2, "new": 2, "terminal_am_same": True, "root_identity_same": True, "added": [], "removed": [], "drift": False}
+    assert d["closure_reference_resolution"]["members_total"] == 2 and d["published_contract"]["associations"] == 1 and d["branch_reconvergence"] == {"pairs": 1}
+    assert d["view_complexity"] == {"views": 1, "by_view_type": [{"value": "SQL", "count": 1}]} and d["harmonization_contract"] == [{"value": "UNKNOWN", "count": 1}]
     assert "fact_index" not in json.dumps(out) and "areas" in d
 
 
 def test_the_presence_check_reads_canonical_evidence_content_never_fact_index_membership():
     old = _prof()
-    old["fact_index"] = [{"fact": "propagation.derivation_semantics@closure"}, {"fact": "harmonization.assembly_topology@closure"}]      # nombres de hecho ya presentes
+    old["fact_index"] = [{"fact": "propagation.expression_occurrences@closure"}, {"fact": "am.closure_plane_context@closure"}]      # nombres de hecho ya presentes
     cand = SimpleNamespace(profile=_prof(with_ce=True, leaves=[]))
     d = bf.compare_evidence_migration(old, cand, MIG, _old_versions(), _cur_versions())
-    assert d["canonical_evidence"]["old"] == "absent" and d["canonical_evidence"]["sections"]["derivation_semantics"]["old"] == "absent"
+    assert d["canonical_evidence"]["old"] == "absent" and "expression_occurrences" in d["canonical_evidence"]["sections_added"]
 
 
 def test_apply_commits_through_the_shared_safe_path_and_one_failure_does_not_stop_the_batch():
@@ -257,6 +264,7 @@ def test_a_wrong_environment_is_reported_not_disguised_as_nothing_to_do():
 @pytest.mark.parametrize("argv", [["--regenerate-stale-evidence", MIG],                                          # ni --dry-run ni --apply
                                   ["--regenerate-stale-evidence", MIG, "--dry-run", "--apply"],                  # ambos
                                   ["--regenerate-stale-evidence", "nope", "--dry-run"],                          # migración desconocida
+                                  ["--regenerate-stale-evidence", "evidence_g1_g3_v1", "--dry-run"],             # la migración G1/G3 se retiró: no se reutiliza
                                   ["--regenerate-stale-evidence", MIG, "--enrich-current-missing", "view_type", "--dry-run"],   # excluyente con el otro modo
                                   ["--apply"]])                                                                  # --apply sin modo
 def test_the_cli_contract_fails_safely_with_zero_writes(argv, monkeypatch):
@@ -327,6 +335,19 @@ def _rewrite(path, mutate):
     path.write_text(json.dumps(env, ensure_ascii=False), encoding="utf-8")
 
 
+def _downgrade(env):
+    """Deja el sobre como lo dejo el motor ANTERIOR al evidence release (el estado real de produccion): canonical_evidence v1 (cuatro secciones), assessability v2, confidence v1,
+    sin la clave ``closure``."""
+    from tools.catalog.modeling_assessment.canonical_sections import V2_SECTIONS
+    prof = env["profile_json"]
+    for sec in V2_SECTIONS:
+        prof["canonical_evidence"].pop(sec, None)
+    prof["canonical_evidence"]["version"] = "canonical-evidence/v1"
+    prof["versions"].update(OLD_VALUES)
+    prof["versions"].pop("closure", None)
+    env["assessment_versions"] = dict(prof["versions"])
+
+
 def _make_old(world, *, old_versions=True, input_changed=False, extra=None):
     """Genera el assessment con el motor y lo deja como uno de la versión ANTERIOR del contrato de evidencia (re-firmado, como lo habría dejado el motor viejo)."""
     st = svc.generate(world.acme)
@@ -334,12 +355,8 @@ def _make_old(world, *, old_versions=True, input_changed=False, extra=None):
     (path,) = files(world)
 
     def mutate(env):
-        prof = env["profile_json"]
         if old_versions:
-            prof.pop("canonical_evidence", None)
-            prof["versions"].pop("canonical_evidence", None)
-            prof["versions"].update(OLD_VALUES)
-            env["assessment_versions"] = dict(prof["versions"])
+            _downgrade(env)
         if input_changed:
             env["input_pool_signature"] = "0" * 64
         if extra:
@@ -417,9 +434,11 @@ def test_dry_run_runs_the_real_engine_in_memory_writes_nothing_and_reports_the_e
     rec = out["records"][0]
     d = rec["delta"]
     assert len(calls) == 1 and rec["action"] == bf.WOULD_REGENERATE and out["counts"]["would_regenerate"] == 1 and out["restart"] == bf.RESTART_DRY_RUN
-    assert d["pool_signature_same"] and d["canonical_evidence"] == {"old": "absent", "new": "present", "sections": d["canonical_evidence"]["sections"]}
-    assert d["versions"]["canonical_evidence"] == {"old": None, "new": "canonical-evidence/v1"} and d["versions"]["signals"] == {"old": "signal-rules/v2", "new": "signal-rules/v3"}
-    assert d["closure_drift"]["drift"] is False and d["leaf_provenance"]["new"]["leaves"] >= 0
+    assert d["pool_signature_same"] and d["canonical_evidence"]["old"] == "canonical-evidence/v1" and d["canonical_evidence"]["new"] == "canonical-evidence/v2"
+    assert "closure" in d["canonical_evidence"]["sections_added"] and "published_contract" in d["canonical_evidence"]["sections_added"]
+    assert d["versions"]["canonical_evidence"] == {"old": "canonical-evidence/v1", "new": "canonical-evidence/v2"} and d["versions"]["closure"] == {"old": None, "new": "closure-rules/v1"}
+    assert d["versions"]["assessability"] == {"old": "assessability-rules/v2", "new": "assessability-rules/v3"}
+    assert d["closure"]["drift"] is False and d["closure"]["added"] == [] and d["closure_reference_resolution"]["members_total"] >= 1
     assert _digest(path) == before and len(files(world)) == 1                                                  # CERO escrituras
     restart()
     assert svc.status_for_entry(world.acme).state == svc.STALE
@@ -435,7 +454,7 @@ def test_apply_replaces_the_same_governed_record_and_the_result_is_current_and_v
     st = svc.status_for_entry(world.acme)
     assert st.state == svc.CURRENT and st.stale_reason is None and st.profile["versions"] == svc.current_assessment_versions()
     ma_profile.validate_assessment(st.profile)
-    assert st.profile["canonical_evidence"]["version"] == "canonical-evidence/v1"
+    assert st.profile["canonical_evidence"]["version"] == "canonical-evidence/v2" and "closure" in st.profile["canonical_evidence"]
 
 
 def test_it_is_idempotent_a_second_run_skips_and_writes_nothing(world, monkeypatch):
@@ -500,7 +519,7 @@ def test_canonical_evidence_is_required_and_validated_before_any_write(world, mo
     path = _make_old(world)
     _patch_engine(monkeypatch, lambda d: (d.update(_tampered=True), d.pop("canonical_evidence")), skip_validation=True)
     _expect_preserved(world, path, "CANONICAL_EVIDENCE_MISSING")
-    _patch_engine(monkeypatch, lambda d: (d.update(_tampered=True), d.__setitem__("canonical_evidence", {"version": "canonical-evidence/v1", "leaf_provenance": [{"leaf": "x"}]})), skip_validation=True)
+    _patch_engine(monkeypatch, lambda d: (d.update(_tampered=True), d.__setitem__("canonical_evidence", {"version": "canonical-evidence/v2", "leaf_provenance": [{"leaf": "x"}]})), skip_validation=True)
     _expect_preserved(world, path, "CANONICAL_EVIDENCE_INVALID")
 
 
@@ -536,7 +555,7 @@ def test_a_reordered_but_identical_closure_is_not_drift(world, monkeypatch):
     path = _make_old(world)
     _patch_engine(monkeypatch, lambda d: d["scope"]["closure_artifacts"].reverse())
     out = _run(world, apply=True)
-    assert out["records"][0]["action"] == bf.REGENERATED and out["records"][0]["delta"]["closure_drift"]["drift"] is False and files(world) == [path]
+    assert out["records"][0]["action"] == bf.REGENERATED and out["records"][0]["delta"]["closure"]["drift"] is False and files(world) == [path]
 
 
 def test_a_disk_write_failure_reports_memory_and_keeps_the_previous_good_state(world, monkeypatch):
@@ -672,3 +691,97 @@ def test_the_report_callout_says_the_right_thing_for_each_stale_reason(world):
     f.write_text(f.read_text(encoding="utf-8").replace('"A7"', '"A8"', 1), encoding="utf-8")
     changed = _report_html(world)
     assert "El modelo cambió desde la última evaluación" in changed and "versión anterior de la metodología" not in changed
+
+
+# ═══════════════ 8. TARGETED_CLOSURE_EXPANSION (evidence release): el cierre solo puede CRECER por la correccion aprobada ═══════════════
+def _expansion_case():
+    """(doc nuevo del motor sobre un pool con una tabla producida por un flujo, versiones, previous-viejo-sin-esa-tabla)."""
+    from tests._evidence_release_pool import AM, write_pool
+    from tools.catalog.modeling_assessment import shadow as ma_shadow
+    doc, _ = ma_shadow.assess(write_pool(bundled_df=True), "Acme", AM, "General")
+    new = svc.closure_identity(doc)
+    old = (new[0], new[1], new[2], tuple(a for a in new[3] if a != "2TR_VBAK"))
+    return doc, old, new
+
+
+def test_the_registry_declares_the_targeted_expansion_policy_and_the_equal_policy_is_untouched():
+    assert TARGET.closure_policy == svc.TARGETED_CLOSURE_EXPANSION and svc.CLOSURE_EQUAL != svc.TARGETED_CLOSURE_EXPANSION
+
+
+def test_a_closure_that_gains_only_a_flow_produced_table_read_by_modeling_is_accepted():
+    doc, old, new = _expansion_case()
+    svc._check_targeted_closure_expansion(old, new, doc)                          # no lanza
+    assert svc.closure_delta(old, new) == (("2TR_VBAK",), ())
+
+
+def test_an_identical_closure_is_accepted_unchanged_under_the_targeted_policy():
+    doc, _old, new = _expansion_case()
+    pc = doc["canonical_evidence"]["closure"]["plane_context"]
+    pc["added_vs_loader_file_flag"], pc["loader_file_flag_closure_size"] = [], len(new[3])                   # una raiz sin tablas producidas por flujo
+    svc._check_targeted_closure_expansion(new, new, doc)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda old, new: ((old[0], old[1], old[2], old[3] + ("ZZ_OLD_ONLY",)), new),                                  # el cierre viejo tenia algo que el nuevo ya no tiene
+    lambda old, new: (old, ("OTRO_AM", new[1], new[2], new[3])),                                                   # cambia el AM terminal
+    lambda old, new: (old, (new[0], "OTRA_RAIZ", new[2], new[3])),                                                 # cambia el objeto raiz
+    lambda old, new: (old, (new[0], new[1], "view", new[3])),                                                      # cambia el tipo de raiz
+])
+def test_removals_and_root_changes_are_always_closure_drift(mutate):
+    doc, old, new = _expansion_case()
+    old, new = mutate(old, new)
+    with pytest.raises(svc.EnrichmentError, match="CLOSURE_DRIFT"):
+        svc._check_targeted_closure_expansion(old, new, doc)
+
+
+@pytest.mark.parametrize("break_it", [
+    lambda pc: pc["flow_produced_members"].clear(),                                                                # lo agregado no es un target de flujo leido por Modeling
+    lambda pc: pc["flow_produced_members"][0].__setitem__("loader_file_flag", False),                              # la politica previa no lo habria excluido
+    lambda pc: pc["flow_produced_members"][0].__setitem__("excluded_before", "OTHER"),
+    lambda pc: pc["flow_produced_members"][0].__setitem__("semantic_providers", ["X"]),                            # no es una hoja
+    lambda pc: pc["flow_produced_members"][0].__setitem__("semantic_consumers", ["NO_ESTABA_EN_EL_CIERRE_VIEJO"]), # nadie del cierre previo lo referenciaba
+    lambda pc: pc.__setitem__("loader_file_flag_closure_size", 999),                                               # la politica previa reproducida NO da el cierre guardado
+    lambda pc: pc.__setitem__("added_vs_loader_file_flag", ["2TR_VBAK", "OTRO"]),
+    lambda pc: pc.__setitem__("removed_vs_loader_file_flag", ["X"]),
+])
+def test_an_unattributable_expansion_is_closure_drift(break_it):
+    doc, old, new = _expansion_case()
+    break_it(doc["canonical_evidence"]["closure"]["plane_context"])
+    with pytest.raises(svc.EnrichmentError, match="CLOSURE_DRIFT"):
+        svc._check_targeted_closure_expansion(old, new, doc)
+
+
+def test_a_flow_itself_added_to_the_closure_is_drift_even_when_a_flow_produced_member_exists():
+    doc, old, new = _expansion_case()
+    new = (new[0], new[1], new[2], tuple(sorted(new[3] + ("DF_VBAK",))))
+    pc = doc["canonical_evidence"]["closure"]["plane_context"]
+    pc["added_vs_loader_file_flag"] = ["2TR_VBAK", "DF_VBAK"]
+    with pytest.raises(svc.EnrichmentError, match="CLOSURE_DRIFT"):
+        svc._check_targeted_closure_expansion(old, new, doc)
+
+
+def test_the_postcheck_dispatches_on_the_registry_policy_and_a_closure_equal_target_still_rejects_any_growth(monkeypatch):
+    doc, old, new = _expansion_case()
+    versions = svc.current_assessment_versions()
+    previous = {"profile_json": {"scope": {"terminal_analytic_model": new[0], "root_object": new[1], "root_type": new[2], "closure_artifacts": list(old[3])}}}
+    svc.migration_postcheck(MIG, doc, previous, versions)                          # TARGETED: acepta
+    strict = svc.MigrationTarget(**{**TARGET.__dict__, "closure_policy": svc.CLOSURE_EQUAL}) if hasattr(TARGET, "__dict__") else None
+    if strict is None:                                                             # dataclass con slots
+        import dataclasses
+        strict = dataclasses.replace(TARGET, closure_policy=svc.CLOSURE_EQUAL)
+    monkeypatch.setitem(svc.EVIDENCE_MIGRATIONS, "strict_probe", strict)
+    with pytest.raises(svc.EnrichmentError, match="CLOSURE_DRIFT"):
+        svc.migration_postcheck("strict_probe", doc, previous, versions)           # la misma expansion es drift bajo la politica global (no se debilito)
+
+
+def test_the_expansion_is_reported_in_the_dry_run_delta_and_input_signature_semantics_do_not_change():
+    from tests._evidence_release_pool import AM, write_pool
+    doc, old, new = _expansion_case()
+    old_prof = {"input_pool_signature": "sig", "scope": {"terminal_analytic_model": old[0], "root_object": old[1], "root_type": old[2], "closure_artifacts": list(old[3])},
+                "versions": _old_versions(), "summary": {}, "fact_index": [], "canonical_evidence": None}
+    cand = SimpleNamespace(profile=doc)
+    d = bf.compare_evidence_migration(old_prof, cand, MIG, _old_versions(), _cur_versions())
+    assert [a["artifact"] for a in d["closure"]["added"]] == ["2TR_VBAK"] and d["closure"]["added"][0]["basis"] == "READ_BY_SEMANTIC_MEMBER" and d["closure"]["removed"] == [] and d["closure"]["drift"] is False and d["closure"]["policy"] == "TARGETED_CLOSURE_EXPANSION"
+    assert (d["closure"]["old"], d["closure"]["new"]) == (len(old[3]), len(new[3])) and d["pool_signature_same"] in (True, False)
+    c = svc.classify_currentness("sig", _old_versions(), "sig", _cur_versions())
+    assert c.reason == svc.STALE_VERSION_ONLY and c.targeted == MIG                                              # misma firma de entrada: VERSION_ONLY, no INPUT_CHANGED

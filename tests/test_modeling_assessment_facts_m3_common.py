@@ -69,11 +69,12 @@ def test_precomputed_identity_is_equivalent_to_internal_identity_for_all_extract
         assert fn(u, ents, "AM_M") == fn(u, ents, "AM_M", identity=ident)
 
 
-def test_processing_context_and_orphans_never_appear_in_any_m3_fact():
+def test_loader_injected_flow_lineage_and_orphans_never_appear_in_any_m3_fact():
+    """DF_T (target de flujo que Modeling lee) es una hoja miembro; ONLY_VIA_DF (su linaje inyectado por el loader) y los huerfanos NO aparecen."""
     ents = m3_entities()
     for facts in _run(ents).values():
         blob = repr([(f.subject, f.value) for f in facts])
-        assert "DF_T" not in blob and "ONLY_VIA_DF" not in blob
+        assert "ONLY_VIA_DF" not in blob
 
 
 def test_all_facts_are_modeling_plane_and_never_processing():

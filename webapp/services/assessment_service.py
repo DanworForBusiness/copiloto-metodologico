@@ -106,14 +106,21 @@ class MigrationTarget:
     target_keys: tuple[str, ...]
     eligible_old: dict
     description: str
+    closure_policy: str = "CLOSURE_EQUAL"       # CLOSURE_EQUAL | TARGETED_CLOSURE_EXPANSION (ver ``migration_postcheck``)
 
 
+CLOSURE_EQUAL, TARGETED_CLOSURE_EXPANSION = "CLOSURE_EQUAL", "TARGETED_CLOSURE_EXPANSION"
+
+# Registro de migraciones de evidencia. ``evidence_g1_g3_v1`` (G1/G3, produccion ya migrada: 25/25 CURRENT) se RETIRO: sus versiones viejas ya no son una
+# diferencia exacta contra las vigentes (el perfil previo al evidence release tampoco tiene ``closure`` ni ``confidence-cuts/v2``) y no se reutiliza.
 EVIDENCE_MIGRATIONS: dict[str, MigrationTarget] = {
-    "evidence_g1_g3_v1": MigrationTarget(
-        "evidence_g1_g3_v1", ("signals", "assessability", "finding_evidence", "canonical_evidence"),
-        {"signals": frozenset({"signal-rules/v2"}), "assessability": frozenset({"assessability-rules/v1"}),
-         "finding_evidence": frozenset({"finding-evidence/v1"}), "canonical_evidence": frozenset({None})},
-        "Gate 4: procedencia canonica de hojas (G1) + semantica estructural de derivaciones (G3) + canonical_evidence"),
+    "evidence_closure_contract_v2": MigrationTarget(
+        "evidence_closure_contract_v2", ("assessability", "confidence", "canonical_evidence", "closure"),
+        {"assessability": frozenset({"assessability-rules/v2"}), "confidence": frozenset({"confidence-cuts/v1"}),
+         "canonical_evidence": frozenset({"canonical-evidence/v1"}), "closure": frozenset({None})},
+        "Evidence release: cierre semantico corregido (los targets de flujo que Modeling lee son miembros) + completitud del cierre + contrato publicado + armonizacion + "
+        "expresiones por clausula + reconvergencia + complejidad de vistas + propiedades de carga (canonical_evidence v2, assessability v3, confidence v2, closure v1)",
+        TARGETED_CLOSURE_EXPANSION),
 }
 
 
@@ -855,8 +862,40 @@ def migration_postcheck(name: str, doc: dict, previous: dict | None, versions: d
     old_closure, new_closure = closure_identity((previous or {}).get("profile_json")), closure_identity(doc)
     if old_closure is None or new_closure is None:
         raise EnrichmentError("CLOSURE_NOT_VERIFIABLE")
-    if old_closure != new_closure:                       # misma entrada + migracion de solo evidencia NO puede cambiar el cierre semantico
-        raise EnrichmentError("CLOSURE_DRIFT")
+    if m.closure_policy == CLOSURE_EQUAL:
+        if old_closure != new_closure:                   # misma entrada + migracion de solo evidencia NO puede cambiar el cierre semantico
+            raise EnrichmentError("CLOSURE_DRIFT")
+        return
+    _check_targeted_closure_expansion(old_closure, new_closure, doc)
+
+
+def closure_delta(old: tuple | None, new: tuple | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """(agregados, quitados) entre dos identidades de cierre (conjuntos de artefactos)."""
+    o, n = set(old[3]) if old else set(), set(new[3]) if new else set()
+    return tuple(sorted(n - o)), tuple(sorted(o - n))
+
+
+def _check_targeted_closure_expansion(old: tuple, new: tuple, doc: dict) -> None:
+    """TARGETED_CLOSURE_EXPANSION: el cierre puede CRECER solo si TODA la diferencia se atribuye CAUSALMENTE a la correccion aprobada (un target de flujo que Modeling
+    ya leia en el mismo pool y que la clasificacion previa excluia). Cualquier otra diferencia es ``CLOSURE_DRIFT`` (cero escrituras). No debilita la regla global."""
+    if old[:3] != new[:3]:
+        raise EnrichmentError("CLOSURE_DRIFT")                                  # identidad de la raiz estable (AM terminal, objeto raiz, tipo)
+    added, removed = closure_delta(old, new)
+    if removed:
+        raise EnrichmentError("CLOSURE_DRIFT")                                  # el cierre viejo debe ser un subconjunto del nuevo: nada desaparece
+    if not added:
+        return
+    pc = ((doc.get("canonical_evidence") or {}).get("closure") or {}).get("plane_context") or {}
+    members = {m["artifact"]: m for m in pc.get("flow_produced_members") or []}
+    flows = {f["flow_name"] for f in ((doc.get("canonical_evidence") or {}).get("processing_flow_properties") or {}).get("flows") or []}
+    old_set = set(old[3])
+    if pc.get("loader_file_flag_closure_size") != len(old_set) or set(pc.get("added_vs_loader_file_flag") or []) != set(added) or pc.get("removed_vs_loader_file_flag"):
+        raise EnrichmentError("CLOSURE_DRIFT")                                  # la politica previa reproducida debe dar EXACTAMENTE el cierre guardado
+    for a in added:
+        m = members.get(a)
+        if (m is None or a in flows or m.get("excluded_before") != "LOADER_FILE_FLAG" or m.get("loader_file_flag") is not True or m.get("semantic_providers")
+                or not (set(m.get("semantic_consumers") or []) & old_set)):
+            raise EnrichmentError("CLOSURE_DRIFT")                              # no es un target de flujo leido por Modeling / es un flujo / no es hoja / no estaba referenciado
 
 
 def regenerate_stale_evidence(entry: Any, migration: str) -> RegeneratedAssessment:

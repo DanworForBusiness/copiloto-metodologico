@@ -11,6 +11,7 @@ import pytest
 
 from tools.catalog.modeling_assessment import legacy_bridge as bridge
 from tools.catalog.modeling_assessment.graph import (
+    PLANE_POLICY_LOADER_FILE_FLAG,
     BoundaryReference, DependencyGraph, Edge, EdgeKind, EdgeOrigin, UnknownNodeError, UnresolvedReason,
     UnresolvedReference, modeling_population,
 )
@@ -286,9 +287,14 @@ def test_semantic_closure_equals_the_legacy_cube_subgraph_on_random_graphs():
 
 
 # ── plano Processing: el grafo solo contiene lo que recibe ─────────────────
-def test_dataflow_targets_are_processing_context_not_modeling_nodes():
+# closure-rules/v1: por defecto un target de flujo que Modeling LEE es una HOJA miembro (ver ``test_modeling_assessment_closure_correctness.py``). El modo
+# ``LOADER_FILE_FLAG`` conserva el contrato ANTERIOR (todo lo marcado por el loader queda fuera) para atribuir diferencias en la migracion: estos tests lo fijan.
+LEGACY = PLANE_POLICY_LOADER_FILE_FLAG
+
+
+def test_loader_file_flag_policy_keeps_dataflow_targets_as_processing_context_not_modeling_nodes():
     ents = pool(ent("AM", up=["T", "V"], cube=True), ent("T", dataflow=True, up=["DFSRC"]), ent("V"), ent("DFSRC"))
-    g = DependencyGraph.from_entities(ents)
+    g = DependencyGraph.from_entities(ents, LEGACY)
     assert g.nodes == ("AM", "DFSRC", "V")                       # T queda fuera del grafo de Modeling
     assert not g.has_node("T")
     assert g.processing_context.dataflow_targets == ("T",)       # se EXPONE como contexto complementario
@@ -300,22 +306,22 @@ def test_dataflow_targets_are_processing_context_not_modeling_nodes():
     assert not any(n.upper().startswith(("RF_", "DF_", "TF_", "TC_")) for n in g.nodes)
 
 
-def test_references_to_dataflow_targets_from_every_source_are_boundary_not_unresolved():
+def test_loader_file_flag_policy_references_to_dataflow_targets_from_every_source_are_boundary_not_unresolved():
     ents = pool(ent("A", up=["T"], assoc=["T"], declared=["T"], raw=["T"]), ent("T", dataflow=True))
-    g = DependencyGraph.from_entities(ents)
+    g = DependencyGraph.from_entities(ents, LEGACY)
     assert {(b.kind, b.evidence_source) for b in g.processing_context.boundary_references} == {
         (L, "upstreams"), (A, "assoc_upstreams"), (A, "associations"), (L, "_raw_refs")}
     assert g.unresolved == () and g.edges == ()
 
 
-def test_modeling_graph_is_reconstructable_without_the_processing_targets():
-    """El grafo de Modeling con targets de DF == el grafo del mismo pool SIN esos targets (y sin las referencias a ellos)."""
+def test_loader_file_flag_policy_modeling_graph_is_reconstructable_without_the_processing_targets():
+    """(politica LOADER_FILE_FLAG) El grafo de Modeling con targets de DF == el grafo del mismo pool SIN esos targets (y sin las referencias a ellos)."""
     with_df = pool(ent("AM", up=["V", "T"], assoc=["D", "T"], declared=["D"], raw=["V", "T"], cube=True),
                    ent("V", up=["S"]), ent("S"), ent("D"),
                    ent("T", dataflow=True, up=["ONLY_VIA_T"], assoc=["D"]), ent("ONLY_VIA_T"))
     without = pool(ent("AM", up=["V"], assoc=["D"], declared=["D"], raw=["V"], cube=True),
                    ent("V", up=["S"]), ent("S"), ent("D"), ent("ONLY_VIA_T"))
-    a, b = DependencyGraph.from_entities(with_df), DependencyGraph.from_entities(without)
+    a, b = DependencyGraph.from_entities(with_df, LEGACY), DependencyGraph.from_entities(without)
     assert (a.nodes, a.edges, a.unresolved) == (b.nodes, b.edges, b.unresolved)
     assert a.semantic_closure("AM") == b.semantic_closure("AM") and a.lineage_closure("AM") == b.lineage_closure("AM")
     assert b.processing_context.dataflow_targets == () and a.processing_context.dataflow_targets == ("T",)

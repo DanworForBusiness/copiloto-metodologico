@@ -39,11 +39,14 @@ alcance por linaje quedaria incompleto. Regla canonica:
   * `MISSING_TARGET` es ESTRICTO: la metadata declara una identidad concreta de artefacto modelado, la relacion
     es confiable y el target deberia resolver en el universo pero no existe. Nunca se infiere de residuo del parser.
 
-FRONTERA DE PLANOS. Los targets de Data Flow (`Entity.is_dataflow`) son contexto COMPLEMENTARIO de
-Processing: NO son nodos del grafo de Modeling, no entran en ninguna clausura, indice ni validacion de
-referencias, y sus propias dependencias (linaje que el loader les inyecta desde el DF) se ignoran. Las
-referencias que un artefacto de Modeling hace a un target de DF se registran como `BoundaryReference`
-(contexto), no como arista ni como referencia sin resolver. El grafo de Modeling es reconstruible sin ellos.
+FRONTERA DE PLANOS (``closure-rules/v1``). Un artefacto es MIEMBRO del grafo de Modeling por lo que el Modeling hace con el, no por quien lo produce:
+una tabla local que un artefacto de Modeling LEE pertenece al cierre semantico aunque un Data Flow la produzca (y aunque el loader legacy la haya
+marcado ``Entity.is_dataflow`` por vivir en un archivo ``DF_*`` sin query ni remote.entity). El flujo productor NO es un artefacto semantico: es contexto
+de procedencia (``ProcessingContext.flow_produced_members`` + ``source.leaf_provenance`` / ``source.physical_boundary``). El linaje que el loader inyecta a
+esa tabla desde el DF se ignora (la tabla es una HOJA del cierre: sus fuentes son procedencia, no linaje semantico). Solo es contexto de Processing
+(fuera del grafo) la entidad marcada que NINGUN artefacto de Modeling lee; una referencia a una entidad asi se registra como ``BoundaryReference``.
+La politica anterior (todo lo marcado por el loader queda fuera) se conserva SOLO como modo explicito ``LOADER_FILE_FLAG`` para reproducir el cierre
+previo (atribucion de diferencias en la migracion de evidencia y pruebas); ya no es el comportamiento por defecto.
 
 Recorridos deterministas, iterativos (sin recursion), seguros ante ciclos y duplicados.
 """
@@ -123,19 +126,56 @@ class BoundaryReference:
 
 @dataclass(frozen=True)
 class ProcessingContext:
-    """Contexto COMPLEMENTARIO de Processing visto desde el pool de Modeling. No participa de ningun recorrido."""
+    """Contexto COMPLEMENTARIO de Processing visto desde el pool de Modeling. No participa de ningun recorrido.
+
+    ``dataflow_targets``: entidades marcadas por el loader que ningun artefacto de Modeling lee (fuera del grafo).
+    ``flow_produced_members``: entidades marcadas por el loader que Modeling SI lee: miembros del grafo (hojas) cuya procedencia explica un flujo."""
     dataflow_targets: tuple[str, ...]
     boundary_references: tuple[BoundaryReference, ...]
+    flow_produced_members: tuple[str, ...] = ()
+
+
+PLANE_POLICY_MODELING_MEMBERSHIP = "MODELING_MEMBERSHIP"     # por defecto (closure-rules/v1)
+PLANE_POLICY_LOADER_FILE_FLAG = "LOADER_FILE_FLAG"           # reproduce el cierre previo al versionado explicito del cierre
+PLANE_POLICIES = (PLANE_POLICY_MODELING_MEMBERSHIP, PLANE_POLICY_LOADER_FILE_FLAG)
 
 
 def is_processing_context_entity(entity: Any) -> bool:
-    """¿La entidad es un target de Data Flow (contexto de Processing)? Duck typing sobre `is_dataflow`."""
+    """¿El loader marco la entidad como definida por un archivo de Data Flow (``is_dataflow``)? Es una MARCA de procedencia del archivo, no la pertenencia
+    al plano: la membresia la decide ``processing_only_names`` (ver el docstring del modulo)."""
     return bool(getattr(entity, "is_dataflow", False))
 
 
-def modeling_population(entities: Mapping[str, Any]) -> dict[str, Any]:
-    """Las entidades del plano Modeling: el pool SIN los targets de Data Flow."""
-    return {n: e for n, e in entities.items() if not is_processing_context_entity(e)}
+def consumed_names(entities: Mapping[str, Any]) -> frozenset[str]:
+    """Nombres que algun artefacto de Modeling (NO marcado por el loader) referencia: ``upstreams``, ``assoc_upstreams``, asociaciones declaradas y
+    referencias FROM/JOIN del query (``_raw_refs``). Solo cuenta si el referenciado existe en el pool y no es el propio consumidor."""
+    out: set[str] = set()
+    for name, e in entities.items():
+        if is_processing_context_entity(e):
+            continue                                              # el linaje inyectado a un target de flujo no es un consumo de Modeling
+        refs = set(_as_names(getattr(e, "upstreams", ()))) | set(_as_names(getattr(e, "assoc_upstreams", ())))
+        refs |= {str(a.get("target")) for a in (getattr(e, "associations", None) or ()) if isinstance(a, Mapping) and a.get("target")}
+        raw = getattr(e, "_raw_refs", None)
+        if raw is not None:
+            refs |= {str(x) for x in raw if x}
+        out |= {r for r in refs if r in entities and r != name}
+    return frozenset(out)
+
+
+def processing_only_names(entities: Mapping[str, Any], plane_policy: str = PLANE_POLICY_MODELING_MEMBERSHIP) -> frozenset[str]:
+    """Entidades que quedan FUERA del plano Modeling. Politica por defecto: marcadas por el loader Y no leidas por Modeling."""
+    if plane_policy not in PLANE_POLICIES:
+        raise ValueError(f"politica de plano desconocida: {plane_policy!r}")
+    flagged = {n for n, e in entities.items() if is_processing_context_entity(e)}
+    if plane_policy == PLANE_POLICY_LOADER_FILE_FLAG:
+        return frozenset(flagged)
+    return frozenset(flagged - consumed_names(entities))
+
+
+def modeling_population(entities: Mapping[str, Any], plane_policy: str = PLANE_POLICY_MODELING_MEMBERSHIP) -> dict[str, Any]:
+    """Las entidades del plano Modeling: el pool SIN las entidades de contexto de Processing (``processing_only_names``)."""
+    out_names = processing_only_names(entities, plane_policy)
+    return {n: e for n, e in entities.items() if n not in out_names}
 
 
 def _sorted_unique(values: Iterable[str]) -> tuple[str, ...]:
@@ -182,10 +222,11 @@ class DependencyGraph:
 
     # ── construccion desde entidades del loader legacy ─────────────────────
     @classmethod
-    def from_entities(cls, entities: Mapping[str, Any]) -> "DependencyGraph":
+    def from_entities(cls, entities: Mapping[str, Any], plane_policy: str = PLANE_POLICY_MODELING_MEMBERSHIP) -> "DependencyGraph":
         """Construye desde el mapping `nombre -> entidad` que devuelve `load_folder` (duck-typed: se leen
-        `upstreams`, `assoc_upstreams`, `associations`, `_raw_refs`, `is_dataflow`)."""
-        dataflow = {n for n, e in entities.items() if is_processing_context_entity(e)}
+        `upstreams`, `assoc_upstreams`, `associations`, `_raw_refs`, `is_dataflow`). ``plane_policy``: ver el docstring del modulo."""
+        dataflow = set(processing_only_names(entities, plane_policy))                       # fuera del grafo (contexto de Processing)
+        flow_produced = {n for n, e in entities.items() if is_processing_context_entity(e)} - dataflow   # miembros HOJA producidos por un flujo
         nodes = set(entities) - dataflow
         edges: list[Edge] = []
         unresolved: set[UnresolvedReference] = set()
@@ -194,6 +235,8 @@ class DependencyGraph:
 
         for name in sorted(nodes):
             e = entities[name]
+            if name in flow_produced:
+                continue                                       # hoja: el linaje que el loader le inyecto desde el DF es procedencia, no linaje semantico
             declared = {str(a.get("target")) for a in (getattr(e, "associations", None) or ())
                         if isinstance(a, Mapping) and a.get("target")}
             raw_attr = getattr(e, "_raw_refs", None)
@@ -245,7 +288,8 @@ class DependencyGraph:
 
         ctx = ProcessingContext(
             tuple(sorted(dataflow)),
-            tuple(sorted(boundary, key=lambda b: (b.consumer, b.target, b.kind.value, b.evidence_source))))
+            tuple(sorted(boundary, key=lambda b: (b.consumer, b.target, b.kind.value, b.evidence_source))),
+            tuple(sorted(flow_produced)))
         return cls(nodes, edges, unresolved, ctx, with_raw)
 
     # ── consulta ───────────────────────────────────────────────────────────
