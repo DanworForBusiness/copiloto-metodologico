@@ -92,7 +92,23 @@ Devolver: (1) branch/HEAD confirmados; (2) archivos/símbolos inspeccionados; (3
 
 **Tests:** golden/reglas/ejecutivo/guards/linaje FOCALIZADOS verdes; subsistema Assessment/Judgment **1386 passed, 19 skipped**; golden recodificado (SELLOUT = ND/brecha nombrada, FROZEN sigue PARCIAL), reglas LEK existenciales → RELEVANT, nuevo test decisión-crítica (verbatim→ND, indeterminada-sola→no), V3-remediation. Suite completa: ver return.
 
-**No ratificado tocado** fuera de §4 del GO; **no** persistencia/UI/migración/push/PR/LLM. Gate: candidato GO sujeto a suite completa + GO del dueño.
+**No ratificado tocado** fuera de §4 del GO; **no** persistencia/UI/migración/push/PR/LLM. Gate 8D.1 **CERRADO = GO** (ratificado por el dueño; suite completa 5604 passed).
+
+---
+
+# ⛔ EVIDENCE v3 — MIGRACIÓN DE PRODUCCIÓN: DRY-RUN → STOP (entorno sin producción)
+
+> El dueño autorizó la migración controlada `evidence_field_lineage_v3`. **Dry-run read-only ejecutado; migración NO corrida.** Resultado: **STOP / REVIEW_REQUIRED para Gate 8D.2** — este entorno no tiene población de producción que migrar.
+
+**Contratos (congelados, verificados en el build actual):** `canonical_evidence = canonical-evidence/v3` · `assessability = assessability-rules/v4` (via `current_assessment_versions()`). Target `evidence_field_lineage_v3` correcto: elegible desde `assessability-rules/v3` + `canonical-evidence/v2` → v4/v3, `CLOSURE_EQUAL`, sin encadenamiento.
+
+**Realidad del entorno (bloqueante):** `PERSIST_ENABLED=False`; `SPACES_KEY/SECRET/BUCKET` vacíos; `remote_store.enabled()=False`; `governed_assessments_dir()` = `ArquitectoDanwor-jv1/governed-assessments` (**0 perfiles**, igual que en TODOS los checkouts locales: jv1/main/judgment/enrich/calib = 0). → **Esta máquina NO está conectada al store de producción (DigitalOcean Spaces).** Los 33 perfiles del shadow se regeneran EN MEMORIA desde el pool; NO son el store gobernado durable.
+
+**Dry-run (read-only, `resolve_entries` + `classify_currentness` sobre el pool `catalog_local`):** 34 raíces de catálogo → **33 `NOT_YET_ASSESSED`** (sin perfil gobernado almacenado) + **1 `POOL/NO_TERMINAL_AM`**. Clasificación de migración: `ELIGIBLE_VERSION_ONLY=0`, `ALREADY_CURRENT=0`, `INPUT_CHANGED=0`, `VERSION_AND_INPUT_CHANGED=0`, `OTHER_MIGRATION_REQUIRED=0`, `INVALID=0`. **No hay perfiles v2 de producción accesibles para migrar.**
+
+**STOP (§4 del GO):** la clasificación de elegibilidad no coincide con el contrato (población elegible vacía). No se fabrican perfiles v2 ni se conecta/escribe a Spaces de producción. La **maquinaria** de migración (`regenerate_stale_evidence` / `commit_stale_migration` / `migration_postcheck` CLOSURE_EQUAL) queda cubierta por el subsistema (tests de durabilidad/migración, 1386 passed).
+
+**Para proceder (decisión del dueño):** correr la migración **en el entorno de producción** (DO, `PERSIST_ENABLED=true` + Spaces con `governed-assessments` en `SPACES_PERSIST_PATHS`); **o** restaurar el store gobernado de producción localmente y repetir el dry-run; **o** confirmar que producción tampoco tiene perfiles gobernados persistidos (entonces no hay nada que migrar: v3 se genera en el primer Assessment). Nada se persistió, ni UI, ni push.
 
 ---
 
