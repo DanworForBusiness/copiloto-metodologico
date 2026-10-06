@@ -6,8 +6,8 @@ anidados, joins y uniones del query compilado), cruzando o no contratos de armon
   * ``completeness``: COMPLETE (todo camino llega a una hoja frontera o a un origen sin insumo de campo) · PARTIAL (algun camino llega y otro queda sin resolver) · UNRESOLVED (ningun
     camino llega) · AMBIGUOUS (algun salto tiene varios proveedores posibles que no se pueden desambiguar: NUNCA se elige uno). Es una propiedad EPISTEMICA (evaluabilidad), no de calidad.
   * ``lineage_paths``: hasta ``MAX_SAMPLE_PATHS`` caminos de muestra (nodos + aristas con tipo de mapeo); el total y las propiedades por hoja se calculan sobre TODOS los caminos.
-  * ``frontier_leaves``: por hoja alcanzada, la clase de contrato de fuente y el caracter de los caminos que llegan a ella (solo identidad / identidad o renombre / con cast / con
-    derivacion) y cuantos cruzan un contrato de armonizacion.
+  * ``frontier_leaves``: por hoja alcanzada, la clase de contrato de fuente y los PERFILES de los caminos que llegan a ella: distribucion CONJUNTA de (caracter: solo identidad / identidad o
+    renombre / con cast / con derivacion) x (cruza o no un contrato de armonizacion).
 
 ``source.contract_class`` (subject = hoja del cierre): clase EXPLICITA del contrato de fuente de cada hoja frontera, con la base de la clasificacion. Nunca se infiere gobierno ni
 "crudo" de la tecnologia: una fuente no-SAP queda ``EXTERNAL_CONTRACT_UNDETERMINED`` salvo evidencia explicita.
@@ -40,6 +40,7 @@ PATH_CHARACTERS = (PC_IDENTITY_ONLY, PC_IDENTITY_OR_RENAME, PC_WITH_CAST, PC_WIT
 _RANK = {MT_IDENTITY: 0, MT_RENAME: 1, MT_CAST: 2, MT_DERIVED: 3, MT_EXPRESSION: 4}
 _CHARACTER_OF_RANK = {0: PC_IDENTITY_ONLY, 1: PC_IDENTITY_OR_RENAME, 2: PC_WITH_CAST, 3: PC_WITH_DERIVATION, 4: PC_WITH_DERIVATION}
 
+LABEL_RELATIONS = ("NO_LABEL", "EQUALS_LEAF_LABEL", "EQUALS_LEAF_FIELD_NAME", "DIFFERENT_FROM_LEAF", "LEAF_LABEL_UNKNOWN")
 UNRESOLVED_REASONS = ("NO_QUERY_EVIDENCE", "FIELD_NOT_IN_PROVIDER_OUTPUT", "PROVIDER_OUTSIDE_POOL", "PROVIDER_OUTSIDE_CLOSURE", "CYCLE", "DEPTH_LIMIT")
 PATH_BASIS = "COMPILED_QUERY_AST"
 DELTA_BASIS = "DELTA_SHADOW_SUFFIX_NORMALIZATION"
@@ -131,7 +132,7 @@ def source_contract_class_facts(universe: AssessmentUniverse, entities: Mapping[
 # ───────────────────────────── linaje de campo publicado ─────────────────────────────
 class _Sum:
     """Resumen de TODOS los caminos desde un nodo (entidad, campo) hacia abajo."""
-    __slots__ = ("leaves", "unresolved", "ambiguous", "no_input", "crossed")
+    __slots__ = ("leaves", "unresolved", "ambiguous", "no_input", "crossed", "via")
 
     def __init__(self) -> None:
         self.leaves: dict[tuple[str, str], Counter] = {}          # (hoja, campo) -> Counter[(rank, cruza_armonizacion)] = n caminos
@@ -139,9 +140,37 @@ class _Sum:
         self.ambiguous: Counter = Counter()
         self.no_input = 0
         self.crossed: set[str] = set()
+        self.via: set[str] = set()                                # artefactos intermedios (no raiz, no hoja) atravesados por algun camino
 
     def total(self) -> int:
         return sum(sum(c.values()) for c in self.leaves.values()) + sum(self.unresolved.values()) + sum(self.ambiguous.values()) + self.no_input
+
+
+def _norm(label: Any) -> str | None:
+    t = " ".join(str(label or "").split())
+    return t or None
+
+
+def _vocabulary(leaf_entity: Any, leaf_field: str, published_name: str, published_label: Any) -> dict:
+    """Relacion FACTUAL entre el vocabulario publicado y el de la hoja a la que llega el camino: ¿el nombre tecnico es el del campo de la hoja? ¿la etiqueta es la de la hoja, su
+    nombre de campo, distinta, o no hay? No dice si eso es bueno o malo."""
+    leaf_label = None
+    for f in (getattr(leaf_entity, "fields", None) or []):
+        if f["campo"] == leaf_field:
+            leaf_label = _norm(f.get("label"))
+            break
+    pub = _norm(published_label)
+    if pub is None:
+        rel = "NO_LABEL"
+    elif leaf_label is not None and pub == leaf_label:
+        rel = "EQUALS_LEAF_LABEL"
+    elif pub == leaf_field:
+        rel = "EQUALS_LEAF_FIELD_NAME"
+    elif leaf_label is None:
+        rel = "LEAF_LABEL_UNKNOWN"
+    else:
+        rel = "DIFFERENT_FROM_LEAF"
+    return {"name_equals_leaf_field": published_name == leaf_field, "label_relation": rel}
 
 
 def published_field_lineage_facts(universe: AssessmentUniverse, entities: Mapping[str, Any], am: str, *, identity: Mapping[str, IdentityClassification] | None = None,
@@ -224,8 +253,11 @@ def published_field_lineage_facts(universe: AssessmentUniverse, entities: Mappin
                     s.ambiguous.update(child.ambiguous)
                     s.no_input += child.no_input
                     s.crossed |= child.crossed
+                    s.via |= child.via
                 if is_cand:
                     s.crossed.add(n)
+                if n != am:
+                    s.via.add(n)
         memo[key] = s
         return s
 
@@ -301,19 +333,19 @@ def published_field_lineage_facts(universe: AssessmentUniverse, entities: Mappin
         counts[comp] += 1
         leaves_json = []
         for (leaf, lf), cnt in sorted(s.leaves.items()):
-            chars: dict[str, int] = {}
-            through = 0
+            prof: dict[tuple[str, bool], int] = {}
             for (r, cr), m in cnt.items():
-                chars[_CHARACTER_OF_RANK[r]] = chars.get(_CHARACTER_OF_RANK[r], 0) + m
-                if cr:
-                    through += m
+                k = (_CHARACTER_OF_RANK[r], bool(cr))
+                prof[k] = prof.get(k, 0) + m
             cls = classes.get(leaf) or {}
             leaves_json.append({"leaf": leaf, "leaf_field": lf, "source_contract_class": cls.get("contract_class", SCC_UNKNOWN), "paths": sum(cnt.values()),
-                                "path_characters": {c: chars[c] for c in PATH_CHARACTERS if c in chars}, "paths_through_harmonization": through})
+                                "vocabulary": _vocabulary(entities.get(leaf), lf, name, raw.get("label")),
+                                "path_profiles": [{"character": c, "through_harmonization": t, "paths": prof[(c, t)]} for c in PATH_CHARACTERS for t in (False, True) if (c, t) in prof]})
         rows.append({"technical_name": name, "label": " ".join(str(raw.get("label") or "").split()) or None, "role": role,
                      "datatype_family": datatype_of(rec["type"], rec["length"])["family"], "immediate_providers": imm, "completeness": comp,
                      "paths": {"total": s.total(), "to_frontier_leaf": n_leaf_paths, "no_field_input": s.no_input, "unresolved": n_unres, "ambiguous": n_amb},
                      "unresolved_reasons": sorted(s.unresolved), "ambiguity_codes": sorted(s.ambiguous), "harmonization_boundaries_crossed": sorted(s.crossed),
+                     "artifacts_traversed": sorted(s.via),
                      "frontier_leaves": leaves_json, "lineage_paths": sample_paths(name)})
     value = {"extractor_version": FIELD_LINEAGE_EXTRACTOR_VERSION, "root": am, "edge_basis": PATH_BASIS, "fields": rows, "counts": {"fields": len(rows), **counts},
              "harmonization_candidates_in_closure": sorted(candidates),

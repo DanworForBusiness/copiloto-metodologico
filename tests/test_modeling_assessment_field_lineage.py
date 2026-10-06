@@ -184,14 +184,14 @@ def test_identity_through_nested_subselects_reaches_the_physical_boundary(doc):
     leaves = {(l["leaf"], l["leaf_field"]) for l in a["frontier_leaves"]}
     assert leaves == {("RAW_T", "A")} and a["completeness"] == "COMPLETE"
     only = a["frontier_leaves"][0]
-    assert only["source_contract_class"] == "PHYSICAL_ABAP_TABLE_BOUNDARY" and only["path_characters"] == {"IDENTITY_ONLY": 1} and only["paths_through_harmonization"] == 0
+    assert only["source_contract_class"] == "PHYSICAL_ABAP_TABLE_BOUNDARY" and only["path_profiles"] == [{"character": "IDENTITY_ONLY", "through_harmonization": False, "paths": 1}]
     assert a["immediate_providers"] == [{"artifact": "3VF_P", "field": "A", "mapping_type": "IDENTITY"}] and a["harmonization_boundaries_crossed"] == []
 
 
 def test_a_rename_is_recorded_as_identity_or_rename_without_derivation(doc):
     b = _lineage(doc)["Brenamed"]
     assert b["immediate_providers"][0]["mapping_type"] == "RENAME"
-    assert [(l["leaf"], l["leaf_field"], l["path_characters"]) for l in b["frontier_leaves"]] == [("RAW_T", "B", {"IDENTITY_OR_RENAME": 1})]
+    assert [(l["leaf"], l["leaf_field"], l["path_profiles"]) for l in b["frontier_leaves"]] == [("RAW_T", "B", [{"character": "IDENTITY_OR_RENAME", "through_harmonization": False, "paths": 1}])]
 
 
 def test_a_derived_field_crossing_a_harmonization_candidate_records_both_facts(doc):
@@ -199,20 +199,20 @@ def test_a_derived_field_crossing_a_harmonization_candidate_records_both_facts(d
     assert u["immediate_providers"][0]["mapping_type"] == "DERIVED" and u["harmonization_boundaries_crossed"] == ["2VD_DIM"]
     (leaf,) = u["frontier_leaves"]
     assert (leaf["leaf"], leaf["leaf_field"], leaf["source_contract_class"]) == ("CDS_T", "B", "GOVERNED_SAP_CDS_CONTRACT")
-    assert leaf["path_characters"] == {"WITH_DERIVATION": 1}
-    assert leaf["paths_through_harmonization"] == 1
+    assert leaf["path_profiles"] == [{"character": "WITH_DERIVATION", "through_harmonization": True, "paths": 1}]
 
 
 def test_a_multi_input_expression_reaches_every_leaf_it_reads_with_its_own_class(doc):
     mq = _lineage(doc)["MQ"]
-    got = {(l["leaf"], l["leaf_field"]): (l["source_contract_class"], l["path_characters"]) for l in mq["frontier_leaves"]}
-    assert got == {("RAW_T", "M"): ("PHYSICAL_ABAP_TABLE_BOUNDARY", {"WITH_DERIVATION": 1}), ("SQLSRV_T", "Q"): ("EXTERNAL_CONTRACT_UNDETERMINED", {"WITH_DERIVATION": 1})}
+    got = {(l["leaf"], l["leaf_field"]): (l["source_contract_class"], l["path_profiles"]) for l in mq["frontier_leaves"]}
+    derived = [{"character": "WITH_DERIVATION", "through_harmonization": False, "paths": 1}]
+    assert got == {("RAW_T", "M"): ("PHYSICAL_ABAP_TABLE_BOUNDARY", derived), ("SQLSRV_T", "Q"): ("EXTERNAL_CONTRACT_UNDETERMINED", derived)}
     assert mq["paths"]["total"] == 2 and mq["immediate_providers"][0]["mapping_type"] == "EXPRESSION"
 
 
 def test_a_cast_is_recorded_as_a_cast_path(doc):
     m = _lineage(doc)["M"]
-    assert m["immediate_providers"][0]["mapping_type"] == "CAST" and m["frontier_leaves"][0]["path_characters"] == {"WITH_CAST": 1}
+    assert m["immediate_providers"][0]["mapping_type"] == "CAST" and m["frontier_leaves"][0]["path_profiles"] == [{"character": "WITH_CAST", "through_harmonization": False, "paths": 1}]
 
 
 def test_source_contract_classes_never_infer_governance_or_rawness_from_technology(doc):
@@ -221,6 +221,31 @@ def test_source_contract_classes_never_infer_governance_or_rawness_from_technolo
     assert c["CDS_T"]["contract_class"] == "GOVERNED_SAP_CDS_CONTRACT" and c["CDS_T"]["classification_basis"] == "REMOTE_ENTITY_NAMESPACE"
     sql = c["SQLSRV_T"]                                                                         # SQL Server: ni "cruda" ni "gobernada" por tecnologia
     assert sql["contract_class"] == "EXTERNAL_CONTRACT_UNDETERMINED" and sql["classification_basis"] == "NO_RECOGNIZED_NAMESPACE" and sql["leaf_kind"] == "REMOTE_IMPORTED"
+
+
+def test_artifacts_traversed_lists_the_intermediate_artifacts_of_every_path(doc):
+    lin = _lineage(doc)
+    assert lin["A"]["artifacts_traversed"] == ["3VF_P"] and lin["BnameU"]["artifacts_traversed"] == ["2VD_DIM", "3VF_P"]
+    assert all(AM not in r["artifacts_traversed"] and "RAW_T" not in r["artifacts_traversed"] for r in lin.values())
+
+
+def test_the_vocabulary_relation_to_the_leaf_is_factual_and_leaf_specific(doc):
+    a = _lineage(doc)["A"]["frontier_leaves"][0]["vocabulary"]
+    assert a == {"name_equals_leaf_field": True, "label_relation": "EQUALS_LEAF_FIELD_NAME"}               # el nombre es el del campo de la hoja y la etiqueta repite ese nombre
+    b = _lineage(doc)["Brenamed"]["frontier_leaves"][0]["vocabulary"]
+    assert b["name_equals_leaf_field"] is False and b["label_relation"] == "LEAF_LABEL_UNKNOWN"              # renombrado; la hoja no declara etiqueta: no se afirma nada mas
+
+
+def test_the_vocabulary_relation_distinguishes_an_inherited_leaf_label_from_an_authored_one():
+    root = _build()
+    p = root / "Acme/remote-tables/RAW_T.json"
+    d = json.loads(p.read_text(encoding="utf-8"))
+    d["definitions"]["RAW_T"]["elements"]["A"] = {**STR, "@EndUserText.label": "A"}                       # igual a la etiqueta publicada de ``A``
+    d["definitions"]["RAW_T"]["elements"]["B"] = {**STR, "@EndUserText.label": "Business B"}               # distinta de la publicada de ``Brenamed``
+    p.write_text(json.dumps(d), encoding="utf-8")
+    lin = _lineage(_doc(root))
+    assert lin["A"]["frontier_leaves"][0]["vocabulary"]["label_relation"] == "EQUALS_LEAF_LABEL"
+    assert lin["Brenamed"]["frontier_leaves"][0]["vocabulary"]["label_relation"] == "DIFFERENT_FROM_LEAF"
 
 
 def test_sample_paths_are_consistent_with_the_aggregates(doc):

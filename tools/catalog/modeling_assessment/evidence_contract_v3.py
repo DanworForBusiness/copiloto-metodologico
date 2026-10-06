@@ -8,7 +8,7 @@ from typing import Any
 
 from .evidence_errors import _expect, _is_int, _keys
 from .facts_field_lineage import (
-    CLASSIFICATION_BASES, COMPLETENESS_STATES, LEAF_KINDS, PATH_BASIS, PATH_CHARACTERS, SCC_PLATFORM, SCC_UNKNOWN, SOURCE_CONTRACT_CLASSES, UNRESOLVED_REASONS, DELTA_BASIS,
+    CLASSIFICATION_BASES, COMPLETENESS_STATES, LABEL_RELATIONS, LEAF_KINDS, PATH_BASIS, PATH_CHARACTERS, SCC_PLATFORM, SCC_UNKNOWN, SOURCE_CONTRACT_CLASSES, UNRESOLVED_REASONS, DELTA_BASIS,
     SCC_ABAP_TABLE,
 )
 from .field_lineage import AMBIGUITY_CODES, FIELD_LINEAGE_EXTRACTOR_VERSION, MAPPING_TYPES
@@ -72,7 +72,7 @@ def validate_published_field_lineage(pl: Any, leaf_classes: dict[str, str], publ
     for i, r in enumerate(pl["fields"]):
         fp = f"{p}.fields[{i}]"
         _keys(r, {"technical_name", "label", "role", "datatype_family", "immediate_providers", "completeness", "paths", "unresolved_reasons", "ambiguity_codes",
-                  "harmonization_boundaries_crossed", "frontier_leaves", "lineage_paths"}, fp, closed=True)
+                  "harmonization_boundaries_crossed", "artifacts_traversed", "frontier_leaves", "lineage_paths"}, fp, closed=True)
         _expect(r["technical_name"] not in seen, fp, "campo duplicado")
         seen.add(r["technical_name"])
         _expect(r["role"] in FIELD_ROLES and r["datatype_family"] in DATATYPE_FAMILIES, fp, "rol / familia de tipo fuera del vocabulario")
@@ -102,13 +102,24 @@ def validate_published_field_lineage(pl: Any, leaf_classes: dict[str, str], publ
         leaf_paths = 0
         for j, lf in enumerate(r["frontier_leaves"]):
             lp = f"{fp}.frontier_leaves[{j}]"
-            _keys(lf, {"leaf", "leaf_field", "source_contract_class", "paths", "path_characters", "paths_through_harmonization"}, lp, closed=True)
+            _keys(lf, {"leaf", "leaf_field", "source_contract_class", "paths", "path_profiles", "vocabulary"}, lp, closed=True)
             _expect(lf["leaf"] in leaf_classes and leaf_classes[lf["leaf"]] == lf["source_contract_class"], lp, "la hoja debe existir en source_contract_classes con la misma clase")
-            _expect(set(lf["path_characters"]) <= set(PATH_CHARACTERS) and sum(lf["path_characters"].values()) == lf["paths"] and lf["paths"] >= 1, lp, "caracter de caminos inconsistente")
-            _expect(0 <= lf["paths_through_harmonization"] <= lf["paths"], lp, "paths_through_harmonization fuera de rango")
+            _keys(lf["vocabulary"], {"name_equals_leaf_field", "label_relation"}, lp + ".vocabulary", closed=True)
+            _expect(isinstance(lf["vocabulary"]["name_equals_leaf_field"], bool) and lf["vocabulary"]["label_relation"] in LABEL_RELATIONS, lp, "vocabulario fuera del contrato")
+            seen_profiles = set()
+            for q in lf["path_profiles"]:
+                _keys(q, {"character", "through_harmonization", "paths"}, lp + ".path_profiles", closed=True)
+                _expect(q["character"] in PATH_CHARACTERS and isinstance(q["through_harmonization"], bool) and _is_int(q["paths"]) and q["paths"] >= 1, lp, "perfil de camino invalido")
+                _expect((q["character"], q["through_harmonization"]) not in seen_profiles, lp, "perfil de camino duplicado")
+                seen_profiles.add((q["character"], q["through_harmonization"]))
+            _expect(sum(q["paths"] for q in lf["path_profiles"]) == lf["paths"] and lf["paths"] >= 1, lp, "los perfiles no suman los caminos de la hoja")
             leaf_paths += lf["paths"]
         _expect(leaf_paths == pa["to_frontier_leaf"], fp, "los caminos por hoja no suman to_frontier_leaf")
         _expect(set(r["harmonization_boundaries_crossed"]) <= set(pl["harmonization_candidates_in_closure"]), fp, "una frontera de armonizacion cruzada debe ser un candidato del cierre")
+        _expect(isinstance(r["artifacts_traversed"], list) and all(isinstance(a, str) for a in r["artifacts_traversed"]) and r["artifacts_traversed"] == sorted(set(r["artifacts_traversed"])), fp,
+                "artifacts_traversed debe ser una lista ordenada y sin duplicados")
+        _expect(not (set(r["artifacts_traversed"]) & ({pl["root"]} | set(leaf_classes))) and set(r["harmonization_boundaries_crossed"]) <= set(r["artifacts_traversed"]), fp,
+                "artifacts_traversed no incluye la raiz ni hojas y contiene las fronteras de armonizacion cruzadas")
         _expect(isinstance(r["lineage_paths"], list), fp, "lineage_paths debe ser lista")
         for j, lp_ in enumerate(r["lineage_paths"]):
             pp = f"{fp}.lineage_paths[{j}]"
