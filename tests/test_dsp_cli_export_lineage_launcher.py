@@ -298,3 +298,140 @@ def test_run_export_launcher_resolution_failure_is_structured(monkeypatch, tmp_p
     assert result.error_code == "DATASPHERE_CLI_UNAVAILABLE"
     assert result.exit_code == 2
     assert "secret" not in result.message
+
+
+def test_datasphere_cli_list_spaces_uses_native_spaces_list(monkeypatch, tmp_path):
+    cli = make_cli(tmp_path)
+    calls = []
+
+    def fake_run(args, *, expect_json=False):
+        calls.append((args, expect_json))
+        return ["CALIDAD", "DESARROLLO", "PRODUCCION", "TEST"]
+
+    monkeypatch.setattr(cli, "_run", fake_run)
+
+    assert cli.list_spaces() == [
+        "CALIDAD",
+        "DESARROLLO",
+        "PRODUCCION",
+        "TEST",
+    ]
+    assert calls == [(["spaces", "list"], True)]
+
+
+def test_run_export_list_spaces_bypasses_root_pipeline(monkeypatch, tmp_path):
+    selected = launcher()
+    monkeypatch.setattr(
+        dsp,
+        "resolve_datasphere_cli_launcher",
+        lambda project_root: selected,
+    )
+
+    class SpaceDiscoveryCli:
+        calls = []
+
+        def __init__(self, *, launcher=None, **kwargs):
+            type(self).calls = []
+            self.diagnostics = (
+                kwargs.get("diagnostics")
+                or dsp.ExtractionDiagnostics(False)
+            )
+            assert launcher is selected
+
+        def oauth_preflight(self):
+            type(self).calls.append("oauth_preflight")
+
+        def login(self):
+            type(self).calls.append("login")
+
+        def list_spaces(self):
+            type(self).calls.append("list_spaces")
+            return ["CALIDAD", "DESARROLLO", "PRODUCCION", "TEST"]
+
+        def authorization_preflight(self, space):
+            raise AssertionError(
+                "authorization_preflight must not run for --list-spaces"
+            )
+
+        def list_objects(self, space, object_type):
+            raise AssertionError(
+                "object inventory must not run for --list-spaces"
+            )
+
+        def read_object(self, space, object_type, technical_name):
+            raise AssertionError(
+                "object reads must not run for --list-spaces"
+            )
+
+    monkeypatch.setattr(dsp, "DatasphereCli", SpaceDiscoveryCli)
+
+    with dsp.capture_output() as captured:
+        result = dsp.run_export(
+            dsp.ExportRequest(
+                host="https://example.test",
+                client_id="client",
+                client_secret="secret",
+                token_url="https://auth.test/oauth/token",
+                space=dsp.SPACE_LIST_SENTINEL,
+                client="Discovery",
+                catalog_root=tmp_path / "catalog",
+                csn_cache_dir=tmp_path / "cache",
+                generate_catalog=False,
+                mirror_up=False,
+            )
+        )
+
+    assert result.ok is True
+    assert result.exit_code == 0
+    assert result.root_object == ""
+    assert result.manifest_path is None
+    assert result.pool_dir is None
+    assert not (tmp_path / "catalog").exists()
+    assert not (tmp_path / "cache").exists()
+    assert SpaceDiscoveryCli.calls == [
+        "oauth_preflight",
+        "login",
+        "list_spaces",
+    ]
+
+    output = "\n".join(captured.lines)
+    assert "SPACE IDs DISPONIBLES" in output
+    assert "CALIDAD" in output
+    assert "DESARROLLO" in output
+    assert "PRODUCCION" in output
+    assert "TEST" in output
+    assert "Total: 4" in output
+
+
+def test_run_export_normal_space_still_requires_root():
+    result = dsp.run_export(
+        dsp.ExportRequest(
+            host="h",
+            client_id="id",
+            client_secret="secret",
+            token_url="t",
+            space="DSDEV",
+            client="Pampa",
+        )
+    )
+
+    assert result.ok is False
+    assert result.error_code == "INVALID_PARAMETER"
+    assert "ROOT_OBJECT_REQUIRED" in result.message
+
+
+def test_parse_args_accepts_list_spaces_without_root():
+    args = dsp.parse_args(
+        [
+            "--host", "https://example.test",
+            "--client-id", "client",
+            "--client-secret", "secret",
+            "--token-url", "https://auth.test/oauth/token",
+            "--space=--list-spaces",
+            "--client", "Discovery",
+        ]
+    )
+
+    assert args.space == dsp.SPACE_LIST_SENTINEL
+    assert args.root_object is None
+    assert args.analytic_model is None

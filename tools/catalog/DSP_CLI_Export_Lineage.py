@@ -100,6 +100,7 @@ ROOT_TYPE_TO_OBJECT_TYPE = {
     "remote-table": "remote-tables",
 }
 SUPPORTED_ROOT_TYPES = frozenset(ROOT_TYPE_TO_OBJECT_TYPE)
+SPACE_LIST_SENTINEL = "--list-spaces"
 DIAGNOSTIC_PHASES = (
     "PRECHECK",
     "ROOT / INVENTORY",
@@ -507,6 +508,21 @@ class DatasphereCli:
                 "--force",
             ]
         )
+
+    def list_spaces(self) -> list[str]:
+        data = self._run(
+            ["spaces", "list"],
+            expect_json=True,
+        )
+        if not isinstance(data, list):
+            raise DatasphereCliError(
+                "Unexpected non-list JSON for spaces list"
+            )
+        return [
+            space.strip()
+            for space in data
+            if isinstance(space, str) and space.strip()
+        ]
 
     def list_objects(self, space: str, object_type: str) -> list[dict[str, Any]]:
         page_size = 200
@@ -1460,12 +1476,18 @@ def run_export(req: ExportRequest) -> ExportResult:
         result.duration_s = round(time.perf_counter() - started_at, 1)
         return result
 
-    root_object = (req.root_object or req.analytic_model or "").strip()
-    if req.root_object and req.analytic_model:
+    list_spaces_only = req.space.strip().lower() == SPACE_LIST_SENTINEL
+    root_object = (
+        ""
+        if list_spaces_only
+        else (req.root_object or req.analytic_model or "").strip()
+    )
+
+    if not list_spaces_only and req.root_object and req.analytic_model:
         msg = "ROOT_ARGUMENT_CONFLICT - Use root_object o analytic_model, no ambos."
         _say(f"ERROR: {msg}")
         return finish(ExportResult(ok=False, error_code="ROOT_ARGUMENT_CONFLICT", message=msg, client=req.client, space=req.space, exit_code=2))
-    if not root_object:
+    if not list_spaces_only and not root_object:
         msg = "ROOT_OBJECT_REQUIRED - Debe informarse root_object/analytic_model."
         _say(f"ERROR: {msg}")
         return finish(ExportResult(ok=False, error_code="INVALID_PARAMETER", message=msg, client=req.client, space=req.space, exit_code=2))
@@ -1491,6 +1513,57 @@ def run_export(req: ExportRequest) -> ExportResult:
         base.message = str(exc)
         base.exit_code = 2
         return finish(base)
+
+    diagnostics = ExtractionDiagnostics(req.diagnostics)
+
+    if list_spaces_only:
+        with tempfile.TemporaryDirectory(prefix="dsp-space-discovery-") as tmp:
+            cli = DatasphereCli(
+                host=req.host,
+                client_id=req.client_id,
+                client_secret=req.client_secret,
+                token_url=req.token_url,
+                work_dir=Path(tmp),
+                diagnostics=diagnostics,
+                launcher=launcher,
+            )
+            try:
+                _say("\n==========================================")
+                _say("PRECHECK DE CONEXION Y AUTORIZACION")
+                _say("==========================================")
+                cli.oauth_preflight()
+
+                _say("\nLogging in to SAP Datasphere...")
+                cli.login()
+                _say("Login OK")
+
+                spaces = cli.list_spaces()
+
+                _say("\n==========================================")
+                _say("SPACE IDs DISPONIBLES")
+                _say("==========================================")
+                for space_id in spaces:
+                    _say(f"  {space_id}")
+                _say("------------------------------------------")
+                _say(f"Total: {len(spaces)}")
+                _say("==========================================")
+
+                base.ok = True
+                base.message = f"{len(spaces)} Space IDs disponibles."
+                base.exit_code = 0
+                if diagnostics.enabled:
+                    base.diagnostics = diagnostics.snapshot()
+                return finish(base)
+
+            except DatasphereCliError as exc:
+                _say(f"ERROR: {exc}")
+                base.error_code = classify_error(str(exc))
+                base.message = str(exc)
+                base.exit_code = 1
+                if diagnostics.enabled:
+                    base.diagnostics = diagnostics.snapshot()
+                return finish(base)
+
     catalog_root = Path(
         req.catalog_root or os.getenv("DANWOR_CATALOG_DIR") or (project_root / "catalog_local")
     ).resolve()
@@ -1523,8 +1596,6 @@ def run_export(req: ExportRequest) -> ExportResult:
         base.exit_code = 2
         return finish(base)
 
-    diagnostics = ExtractionDiagnostics(req.diagnostics)
-
     with tempfile.TemporaryDirectory(prefix="dsp-lineage-") as tmp:
         cli = DatasphereCli(
             host=req.host, client_id=req.client_id, client_secret=req.client_secret,
@@ -1539,6 +1610,7 @@ def run_export(req: ExportRequest) -> ExportResult:
             _say("\nLogging in to SAP Datasphere...")
             cli.login()
             _say("Login OK")
+
             cli.authorization_preflight(req.space)
             _say("\nPrechecks OK. Iniciando export de linaje...")
 
@@ -1725,7 +1797,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--client-secret", required=True)
     parser.add_argument("--token-url", required=True)
     parser.add_argument("--space", required=True)
-    roots = parser.add_mutually_exclusive_group(required=True)
+    roots = parser.add_mutually_exclusive_group(required=False)
     roots.add_argument("--root-object", help="Technical name of AM, View, Local Table or Remote Table.")
     roots.add_argument("--analytic-model", help="DEPRECATED alias for --root-object (Analytic Model).")
     parser.add_argument(
