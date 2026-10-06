@@ -10424,3 +10424,15 @@ esperados solo donde evidencia gobernada previamente inaccesible por identidad `
 UNKNOWN→gobernado).
 
 **Sin cambios de adquisición** (Gate 8D.HAR.1 es identidad/acceso de evidencia solamente).
+
+### Gate 8D.HAR.1 — safety hardening (final check antes de PR) — 2026-10-06
+
+Revisión de seguridad del dueño: la primera versión resolvía `X -> X_Delta` por el STRING del sufijo solo. Contraejemplo
+no cubierto: `X` sin registro, `X_Delta` presente y `X_Delta` es una entidad modelada INDEPENDIENTE (no una sombra
+técnica). La versión por-string la colapsaba mal. **Patch:** `classify_source` ahora resuelve `X_Delta` SOLO si la
+EVIDENCIA factual de procedencia de la hoja lógica `X` prueba un productor `target_match == "DELTA_SHADOW_SUFFIX"`
+(`leaf_provenance[X].producer_flows`), nunca por el string. Nuevo helper `_has_delta_shadow_producer`; constante
+`_TARGET_MATCH_DELTA_SHADOW` espejada (test de contrato contra `evidence_contract.TARGET_MATCHES`). Un `X_Delta`
+independiente (sin ese hecho, o con productor `EXACT`) → `classify_source(X)` = `None`. El caso de producción ya probado
+sigue resolviendo (leaf_provenance queda en identidad lógica con el hecho delta-shadow) → BUENA. Tests identity ampliados
+a 15 (incluye el contraejemplo explícito). Golden 8/8 sin cambios; corpus congelado before/after = 0 roots. Suite 5660.
