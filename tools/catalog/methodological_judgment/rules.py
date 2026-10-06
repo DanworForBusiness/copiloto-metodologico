@@ -10,7 +10,7 @@ Los unicos CORTES numericos del modulo son de CALIFICADORES (``design_coherence`
 """
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from tools.catalog.methodological_judgment.profile_access import (
     EXTERNAL_CONTRACT_UNDETERMINED, GOVERNED_SAP_CONTRACT, K_BOUNDARY, K_HARM, K_LOCAL_LEAF, K_VIEW, PHYSICAL_RAW_BOUNDARY, ProfileEvidence, sorted_unique,
@@ -71,19 +71,6 @@ def _fact_ref(ev: ProfileEvidence, fact_id: str, subject: str) -> str:
 
 
 # ───────────────────────────── utilidades de dominio ─────────────────────────────
-def _local_leaf_source_class(ev: ProfileEvidence, leaf: str) -> str:
-    """Clase de contacto de una hoja LOCAL alimentada por un flujo, segun las fronteras de su cadena de procedencia (plano de procedencia)."""
-    rec = next((l for l in (ev.section("physical_source_boundaries").get("leaves") or ()) if l.get("leaf") == leaf), None)
-    if not rec or not rec.get("boundaries"):
-        return EXTERNAL_CONTRACT_UNDETERMINED
-    classes = {b.get("boundary_class") for b in rec["boundaries"]}
-    if any(c == "PHYSICAL_TABLE" for c in classes):
-        return PHYSICAL_RAW_BOUNDARY
-    if all(c in _GOVERNED_BOUNDARY_CLASSES for c in classes):
-        return GOVERNED_SAP_CONTRACT
-    return EXTERNAL_CONTRACT_UNDETERMINED
-
-
 def _leaf_reaches_product(ev: ProfileEvidence, leaf: str) -> bool:
     nodes = set(ev.product_nodes)
     return bool(nodes & (set(ev.descendants(leaf)) | {leaf}))
@@ -143,57 +130,85 @@ def _downstream_created_semantics(ev: ProfileEvidence) -> tuple[list[dict], list
     return qual, unq
 
 
-# Procedencia canonica de cada familia: SOLO informativa (trazabilidad). La independencia metodologica NO se decide por seccion (dos secciones != dos verdades): se decide por TESTIGOS, es decir
-# por hechos subyacentes distintos. La seccion/fuente es un mecanismo de implementacion para no contar dos veces la misma observacion, no la regla.
-FAMILY_PROVENANCE = {"ASSOCIATION_AUTONOMY": "published_contract.associations", "MEASURE_SEMANTICS": "published_contract.fields", "ATTRIBUTE_LABEL_ENRICHMENT": "published_contract.fields",
-                     "SOURCE_VOCABULARY_CARRY_THROUGH": "published_contract.fields", "TECHNICAL_PROJECTION_REACHING_PUBLICATION": "harmonization_contract"}
-CONSUMER_FAMILIES = ("ASSOCIATION_AUTONOMY", "MEASURE_SEMANTICS", "ATTRIBUTE_LABEL_ENRICHMENT", "SOURCE_VOCABULARY_CARRY_THROUGH")      # evidencia del contrato publicado / consumidor
+# ───────────────────────────── exposicion del consumidor por LINAJE DE CAMPO publicado (canonical-evidence/v3) ─────────────────────────────
+# Todo lo de aqui es CAUSAL: parte de caminos trazables campo publicado -> hoja frontera, no de senales por existencia. No hay conteos, proporciones ni umbrales: una frontera
+# no resuelta "se expone" al consumidor cuando existe al menos un camino trazable que lleva su vocabulario (o la semantica creada aguas abajo a partir de ella) hasta un campo publicado.
+NEAR_IDENTITY_CHARACTERS = frozenset({"IDENTITY_ONLY", "IDENTITY_OR_RENAME"})
+VERBATIM_LABEL_RELATIONS = frozenset({"EQUALS_LEAF_LABEL", "EQUALS_LEAF_FIELD_NAME", "NO_LABEL"})
+DERIVED_CHARACTERS = frozenset({"WITH_CAST", "WITH_DERIVATION"})
 
 
-def _published_families(ev: ProfileEvidence, *, include_projection: bool) -> dict[str, set[str]]:
-    """CONSUMER_SEMANTIC_DEFICIENCY_EVIDENCE: senales de que el publicado no restaura la semantica. Cada senal es EVIDENCIA DE DEFICIENCIA (nunca exculpatoria) y aporta TESTIGOS (hechos
-    subyacentes: ``field:<campo>``, ``dim:<dimension>``, ``assoc:...``, ``cand:<candidato>``).
-    - ASSOCIATION_AUTONOMY: autonomia de maestros debil = BRECHAS concretas: dimensiones analiticas declaradas en el cierre que el publicado NO asocia (evidencia por dimension, independiente de
-      cuantas otras asociaciones existan). La EXISTENCIA de una o varias asociaciones es evidencia positiva LOCALIZADA: no prueba autonomia suficiente y NO veta nada. La AUSENCIA total de asociaciones
-      es solo evidencia de apoyo (``supporting_evidence.published_business_association_targets`` vacio): no es una familia ni establece nada por si sola.
-    - MEASURE_SEMANTICS / ATTRIBUTE_LABEL_ENRICHMENT: medidas / atributos visibles cuya etiqueta es su propio nombre tecnico (una medida o un campo enriquecido tampoco prueba restauracion).
-    - SOURCE_VOCABULARY_CARRY_THROUGH: campos visibles con nombre = columna de la fuente remota.
-    - TECHNICAL_PROJECTION_REACHING_PUBLICATION (fuera del contrato publicado): frontera de armonizacion aguas arriba del producto que es proyeccion tecnica con vocabulario fuente (premisa de
-      HAR-REL-01, por eso ``include_projection=False`` en esa regla).
-    Presencia categorica por familia; ningun conteo ni proporcion; ninguna senal suficiente por si sola."""
-    fam: dict[str, set[str]] = {}
-    gaps = {f"dim:{d if isinstance(d, str) else d.get('artifact', str(d))}" for d in ev.declared_dimensions_not_associated}
-    if gaps:
-        fam["ASSOCIATION_AUTONOMY"] = gaps
-    fields = ev.published_fields
-    meas = {f"field:{f.get('technical_name')}" for f in fields if f.get("role") == "MEASURE" and f.get("business_name_equals_technical")}
-    attr = {f"field:{f.get('technical_name')}" for f in fields if f.get("role") != "MEASURE" and f.get("business_name_equals_technical")}
-    voc = {f"field:{f.get('technical_name')}" for f in fields if f.get("name_equals_remote_source_column")}
-    if meas:
-        fam["MEASURE_SEMANTICS"] = meas
-    if attr:
-        fam["ATTRIBUTE_LABEL_ENRICHMENT"] = attr
-    if voc:
-        fam["SOURCE_VOCABULARY_CARRY_THROUGH"] = voc
-    if include_projection:
-        upstream = set(ev.product_nodes) | {a for n in ev.product_nodes for a in ev.ancestors(n)}
-        proj = {f"cand:{c}" for c in upstream if c in ev.harmonization and (ev.harmonization[c].get("character") or {}).get("value") == "TECHNICAL_MATERIALIZATION"
-                and ((ev.harmonization[c].get("source_vocabulary") or {}).get("fields_with_source_column_name") or 0) > 0}
-        if proj:
-            fam["TECHNICAL_PROJECTION_REACHING_PUBLICATION"] = proj
-    return fam
+def _verbatim_vocabulary(entry: Mapping[str, Any]) -> bool:
+    """El campo publicado conserva el nombre del campo de la hoja Y su etiqueta es la de la hoja (o su nombre de campo, o no hay etiqueta): el vocabulario llega SIN CAMBIOS."""
+    v = entry.get("vocabulary") or {}
+    return bool(v.get("name_equals_leaf_field")) and v.get("label_relation") in VERBATIM_LABEL_RELATIONS
 
 
-def _converging_families(fam: Mapping[str, set[str]]) -> list[str]:
-    """Familias que convergen: pares donde CADA familia aporta testigos que la otra no tiene (hechos subyacentes distintos: dos proyecciones del mismo campo/hecho NO son dos evidencias) y al menos UNA familia del contrato
-    publicado/consumidor en el par. Ninguna senal es suficiente por si sola ni exculpatoria; no hay conteos ni umbrales."""
-    names = sorted(fam)
-    out: set[str] = set()
-    for i, x in enumerate(names):
-        for y in names[i + 1:]:
-            if (x in CONSUMER_FAMILIES or y in CONSUMER_FAMILIES) and (fam[x] - fam[y]) and (fam[y] - fam[x]):
-                out.update((x, y))
+def _paths(entry: Mapping[str, Any], *, characters: frozenset, through: bool) -> int:
+    return sum(q["paths"] for q in entry.get("path_profiles") or () if q["character"] in characters and q["through_harmonization"] is through)
+
+
+def vocabulary_exposure(ev: ProfileEvidence, leaves: Iterable[str]) -> dict[str, list[str]]:
+    """hoja -> campos publicados que heredan SU vocabulario sin cambios por un camino casi-identidad que NO cruza un contrato de armonizacion (tipo A: el vocabulario tecnico de una
+    frontera no resuelta llega al consumidor)."""
+    wanted = set(leaves)
+    out: dict[str, list[str]] = {}
+    for name, r in ev.lineage_fields.items():
+        for lf in r.get("frontier_leaves") or ():
+            if lf["leaf"] in wanted and _verbatim_vocabulary(lf) and _paths(lf, characters=NEAR_IDENTITY_CHARACTERS, through=False):
+                out.setdefault(lf["leaf"], []).append(name)
+    return {k: sorted(set(v)) for k, v in sorted(out.items())}
+
+
+def downstream_semantics_exposure(ev: ProfileEvidence, artifacts: Iterable[str]) -> list[str]:
+    """Campos publicados cuyo linaje ATRAVIESA alguno de ``artifacts`` (los sitios donde se creo semantica reutilizable aguas abajo) por un camino con derivacion/cast que NO cruza un
+    contrato de armonizacion: el consumidor expone semantica creada aguas abajo, no resuelta en un contrato reutilizable."""
+    wanted = set(artifacts)
+    out = []
+    for name, r in ev.lineage_fields.items():
+        if wanted & set(r.get("artifacts_traversed") or ()) and any(_paths(lf, characters=DERIVED_CHARACTERS, through=False) for lf in r.get("frontier_leaves") or ()):
+            out.append(name)
     return sorted(out)
+
+
+def harmonization_passthrough_exposure(ev: ProfileEvidence) -> list[str]:
+    """Campos publicados cuyo vocabulario atraviesa un contrato de armonizacion casi-identidad y llega SIN CAMBIOS desde la hoja: la frontera de armonizacion existe pero es una
+    proyeccion tecnica (no resolvio el vocabulario) y el consumidor lo hereda."""
+    out = []
+    for name, r in ev.lineage_fields.items():
+        if any(_verbatim_vocabulary(lf) and _paths(lf, characters=NEAR_IDENTITY_CHARACTERS, through=True) for lf in r.get("frontier_leaves") or ()):
+            out.append(name)
+    return sorted(out)
+
+
+def published_positive_families(ev: ProfileEvidence, policy: str) -> tuple[dict[str, set[str]], bool, bool]:
+    """(familias AFIRMATIVAS, linaje_completo, hay_fuga) de la fortaleza del contrato publicado. Familias (ninguna es obligatoria en todo producto, ninguna es un puntaje):
+    GOVERNED_HARMONIZATION_REUSE (campos publicados trazables a una hoja gobernada a traves de un contrato de armonizacion) · AUTHORED_SEMANTICS (campos cuya etiqueta es PROPIA:
+    distinta de la de TODAS las hojas de las que provienen) · BUSINESS_ASSOCIATION (evidencia positiva LOCALIZADA: existe una asociacion a una dimension de negocio).
+    ``hay_fuga``: algun campo hereda sin cambios, por un camino casi-identidad sin armonizacion, el vocabulario de una hoja NO gobernada (cruda / externa indeterminada / desconocida)."""
+    fam: dict[str, set[str]] = {}
+    leak = False
+    for name, r in ev.lineage_fields.items():
+        entries = r.get("frontier_leaves") or ()
+        if any(ev.classify_source(lf["leaf"], policy) == GOVERNED_SAP_CONTRACT and _paths(lf, characters=frozenset({"IDENTITY_ONLY", "IDENTITY_OR_RENAME", "WITH_CAST", "WITH_DERIVATION"}), through=True) for lf in entries):
+            fam.setdefault("GOVERNED_HARMONIZATION_REUSE", set()).add(f"field:{name}")
+        if entries and all((lf.get("vocabulary") or {}).get("label_relation") == "DIFFERENT_FROM_LEAF" for lf in entries):
+            fam.setdefault("AUTHORED_SEMANTICS", set()).add(f"field:{name}")
+        for lf in entries:
+            cls = ev.classify_source(lf["leaf"], policy)
+            if cls is not None and cls != GOVERNED_SAP_CONTRACT and _verbatim_vocabulary(lf) and _paths(lf, characters=NEAR_IDENTITY_CHARACTERS, through=False):
+                leak = True
+    if ev.business_association_targets:
+        fam["BUSINESS_ASSOCIATION"] = {f"dim:{d}" for d in ev.business_association_targets}
+    complete = bool(ev.lineage_fields) and not ev.lineage_incomplete_fields
+    return fam, complete, leak
+
+
+def _independent_pair_exists(fam: Mapping[str, set[str]]) -> bool:
+    """Dos familias afirmativas son INDEPENDIENTES si no son proyecciones del MISMO conjunto de hechos subyacentes (testigos identicos = un solo hecho contado dos veces). Hechos distintos
+    sobre el mismo campo (p. ej. 'reutiliza un contrato gobernado' y 'tiene etiqueta propia') son afirmaciones distintas; el numero de familias no es un puntaje."""
+    names = sorted(fam)
+    return any(fam[a] != fam[b] for i, a in enumerate(names) for b in names[i + 1:])
 
 
 # ───────────────────────────── MATERIAL ─────────────────────────────
@@ -230,22 +245,34 @@ def rule_pro_mat_01(ev: ProfileEvidence, policy: str) -> list[dict]:
 
 
 def rule_lek_mat_02(ev: ProfileEvidence, policy: str) -> list[dict]:
-    """LEK-MAT-02 — fuga de responsabilidad DISTRIBUIDA con publicacion no restaurada.
+    """LEK-MAT-02 — fuga de responsabilidad DISTRIBUIDA con consecuencia TRAZABLE en el contrato publicado.
     L1 (se exige (a) o (b); (c) solo APOYA): (a) tabla fisica cruda en la espina que OMITE la frontera reutilizable y es compensada por logica de Modelado; (b) semantica reutilizable creada
     aguas abajo sobre una frontera de armonizacion tecnica (ver ``_downstream_created_semantics``); (c) hoja de frontera clasificada consumida directamente en el nodo de producto (apoyo).
     L2: esa responsabilidad es absorbida por nodos que NO son candidatos de armonizacion y ejecutan logica.
-    L3: el publicado no la restaura: convergen >=2 FAMILIAS independientes de evidencia semantica (asociacion/maestros, enriquecimiento de etiquetas, arrastre de vocabulario fuente,
-    proyeccion tecnica). Una sola familia (p. ej. una medida sin enriquecer) NO alcanza; no hay proporcion ni mayoria."""
+    L3 (CAUSAL, por linaje de campo publicado): el contrato publicado sigue exponiendo las consecuencias del contrato no resuelto por CAMINOS TRAZABLES: para (a), algun campo publicado
+    hereda sin cambios (nombre y etiqueta) el vocabulario de esa hoja por un camino casi-identidad que no cruza un contrato de armonizacion; para (b), algun campo publicado atraviesa un
+    sitio de la semantica creada aguas abajo por un camino con derivacion sin armonizacion. Evidencia por elemento, sin conteos ni proporciones; sin linaje (v2) no hay MATERIAL."""
     elements: dict[str, list[str]] = {}
     l2_nodes: set[str] = set()
     refs: list[str] = []
-    for leaf, logic in _raw_bypass_compensated(ev, policy).items():
+    exposed: dict[str, list[str]] = {}
+    raw = _raw_bypass_compensated(ev, policy)
+    vexp = vocabulary_exposure(ev, raw)
+    for leaf, logic in raw.items():
+        if leaf not in vexp:
+            continue                                                                   # la frontera cruda esta compensada pero NO llega al consumidor con su vocabulario: sin consecuencia trazable
         elements.setdefault("a_physical_raw_bypassing_harmonization_compensated_downstream", []).append(leaf)
+        exposed[leaf] = vexp[leaf]
         l2_nodes.update(logic)
-        refs += [_fact_ref(ev, "source.downstream_reach", leaf), _fact_ref(ev, "source.contract", leaf)]
+        refs += [_fact_ref(ev, "source.downstream_reach", leaf), _fact_ref(ev, "source.contract", leaf), f"ce:source_contract_classes/{leaf}"]
     qual, _ = _downstream_created_semantics(ev)
     for q in qual:
+        sites = [a for a in q["artifacts"]]
+        dexp = downstream_semantics_exposure(ev, sites)
+        if not dexp:
+            continue
         elements.setdefault("b_reusable_semantics_created_downstream_over_technical_boundary", []).extend([*q["artifacts"], *q["technical_upstream_candidates"]])
+        exposed[f"sites:{'+'.join(sites)}"] = dexp
         l2_nodes.update(q["artifacts"])
         refs += ["ce:expression_occurrences", *[f"ce:harmonization_contract/{c}" for c in q["technical_upstream_candidates"]]]
     for node in ev.product_nodes:
@@ -256,23 +283,22 @@ def rule_lek_mat_02(ev: ProfileEvidence, policy: str) -> list[dict]:
             l2_nodes.add(node)
             refs += [f"ce:view_complexity/{node}", *[_fact_ref(ev, "source.contract", p) for p in leaves]]
     if not (elements.keys() & {"a_physical_raw_bypassing_harmonization_compensated_downstream", "b_reusable_semantics_created_downstream_over_technical_boundary"}):
-        return []                                                                      # (c) por si solo NO basta: una hoja en el nodo de producto es solo evidencia de apoyo
-    fam = _published_families(ev, include_projection=True)
-    converging = _converging_families(fam)
-    if not converging:
-        return []                                                                      # L3 no se cumple: ninguna convergencia de >=2 familias independientes
-    refs += ["ce:published_contract/fields", "ce:published_contract/associations"]
-    if "TECHNICAL_PROJECTION_REACHING_PUBLICATION" in converging:
-        refs += ["ce:harmonization_contract"]
+        return []                                                                      # (c) por si solo NO basta; sin consecuencia trazable en el publicado tampoco
+    witness = sorted({f for v in exposed.values() for f in v})
+    refs += ["ce:published_field_lineage", *[f"ce:published_field_lineage/{f}" for f in witness]]
     arts = [a for v in elements.values() for a in v] + sorted(l2_nodes)
+    kinds = []
+    if "a_physical_raw_bypassing_harmonization_compensated_downstream" in elements:
+        kinds.append("LEK.L3.unresolved_boundary_vocabulary_reaches_the_consumer_verbatim_through_traceable_paths")
+    if "b_reusable_semantics_created_downstream_over_technical_boundary" in elements:
+        kinds.append("LEK.L3.downstream_created_semantics_reaches_the_consumer_through_traceable_paths")
     return [_reason(
         "LEK-MAT-02", C.MATERIAL_DEVIATION, C.PROPAGATION, "lek.unrestored_responsibility_leakage", "closure", ev=ev, secondary=C.PUBLISHED_CONTRACT,
         artifacts=arts, refs=refs,
-        basis=[*[f"LEK.L1.{k}" for k in sorted(elements)], "LEK.L2.absorbed_by_non_candidate_nodes_with_logic", "LEK.L3.published_non_restoration_independent_families",
-               *[f"LEK.L3.family.{f}" for f in converging]],
+        basis=[*[f"LEK.L1.{k}" for k in sorted(elements)], "LEK.L2.absorbed_by_non_candidate_nodes_with_logic", *kinds],
         causal={"expected_responsibility": "reusable source/semantic responsibility resolved at its expected boundary",
                 "unresolved": ", ".join(sorted(elements)), "compensation": "absorbed by downstream non-harmonization nodes",
-                "published_not_restored": "converging independent evidence families: " + ", ".join(converging)})]
+                "published_not_restored": "traceable published paths expose the unresolved contract: " + "; ".join(f"{k} -> {', '.join(v[:6])}{' ...' if len(v) > 6 else ''}" for k, v in sorted(exposed.items()))})]
 
 
 # ───────────────────────────── RELEVANT / LOCAL ─────────────────────────────
@@ -301,8 +327,9 @@ def _aligns_branches(ev: ProfileEvidence, node: str) -> bool:
 
 def rule_har_rel_01(ev: ProfileEvidence) -> list[dict]:
     """HAR-REL-01 — Armonizacion tecnica/no resuelta (todos los candidatos observables son materializacion tecnica que conserva el vocabulario de la fuente) MAS una CONSECUENCIA semantica
-    observable aguas abajo: (i) el publicado no restaura la semantica (>=2 familias independientes; la proyeccion tecnica es la premisa, no cuenta) o (ii) semantica reutilizable creada
-    aguas abajo sobre esa frontera tecnica. Una armonizacion tecnica SOLA es evidencia descriptiva (``supporting_evidence.technical_harmonization_candidates``), no debilidad."""
+    observable aguas abajo: (i) el vocabulario atraviesa esa frontera tecnica y llega SIN CAMBIOS a un campo publicado (linaje de campo: casi-identidad, nombre y etiqueta de la hoja),
+    (ii) semantica reutilizable creada aguas abajo sobre esa frontera tecnica o (iii) Propagacion completa la alineacion de ramas. Una armonizacion tecnica SOLA es evidencia descriptiva
+    (``supporting_evidence.technical_harmonization_candidates``), no debilidad."""
     cands = [c for c in ev.harmonization.values() if (c.get("character") or {}).get("value") != "UNKNOWN"]
     if not cands:
         return []
@@ -312,10 +339,10 @@ def rule_har_rel_01(ev: ProfileEvidence) -> list[dict]:
     if len(carry) != len(cands):
         return []
     consequence, refs = [], []
-    conv = _converging_families(_published_families(ev, include_projection=False))
-    if conv:
-        consequence += ["HAR.consequence.published_non_restoration_independent_families", *[f"HAR.consequence.family.{f}" for f in conv]]
-        refs += ["ce:published_contract/fields", "ce:published_contract/associations"]
+    passthrough = harmonization_passthrough_exposure(ev)
+    if passthrough:
+        consequence.append("HAR.consequence.technical_vocabulary_passes_through_the_harmonization_boundary_to_the_consumer")
+        refs += ["ce:published_field_lineage", *[f"ce:published_field_lineage/{f}" for f in passthrough]]
     qual, _ = _downstream_created_semantics(ev)
     if qual:
         consequence.append("HAR.consequence.reusable_semantics_created_downstream")
@@ -360,15 +387,12 @@ def rule_pro_loc_01(ev: ProfileEvidence, mat_nodes: set[str]) -> list[dict]:
 # ───────────────────────────── FORTALEZAS ─────────────────────────────
 def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool) -> list[dict]:
     out: list[dict] = []
-    # SRC-STR-01 — adquisicion gobernada (todos los contactos con la fuente en clase gobernada; al menos uno)
-    remote = [l for l in ev.remote_leaves]
-    local = [l for l in ev.local_leaves]
-    contacts_ok = ([ev.classify_source(l, policy) == GOVERNED_SAP_CONTRACT for l in remote]
-                   + [(_local_leaf_source_class(ev, l) == GOVERNED_SAP_CONTRACT and (ev.local_leaves[l].get("provenance_state") in ("ESTABLISHED", "DECLARED"))) for l in local])
-    if contacts_ok and all(contacts_ok):
-        out.append(_strength("SRC-STR-01", C.SOURCE_INGESTION, "src.governed_acquisition_explicit", ev=ev, artifacts=[*remote, *local],
-                             refs=["ce:physical_source_boundaries", "ce:leaf_provenance", *[_fact_ref(ev, "source.contract", l) for l in remote]],
-                             basis=["SRC.every_source_contact_in_governed_class", "SRC.local_leaves_provenance_established"]))
+    # SRC-STR-01 — adquisicion gobernada: TODO contacto con la fuente (hoja frontera, salvo plataforma) en clase gobernada, segun la clase explicita por hoja (v3); al menos uno
+    contacts = ev.source_contact_leaves
+    if contacts and all(ev.classify_source(l, policy) == GOVERNED_SAP_CONTRACT for l in contacts):
+        out.append(_strength("SRC-STR-01", C.SOURCE_INGESTION, "src.governed_acquisition_explicit", ev=ev, artifacts=list(contacts),
+                             refs=["ce:source_contract_classes", *[f"ce:source_contract_classes/{l}" for l in contacts]],
+                             basis=["SRC.every_source_contact_in_governed_class", "SRC.class_established_per_leaf_by_explicit_evidence"]))
     # SRC-STR-02 — carga explicita observada (descriptiva; sin inferir FULL/DELTA)
     flows = (ev.section("processing_flow_properties").get("flows") or ())
     delta_obs = []
@@ -386,8 +410,7 @@ def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool) -> list[dict]
         legit = []
         for c in cands:
             srcs = c.get("sources") or []
-            gov = bool(srcs) and all((ev.classify_source(s, policy) == GOVERNED_SAP_CONTRACT) if s in ev.remote_leaves
-                                     else (s in ev.local_leaves and _local_leaf_source_class(ev, s) == GOVERNED_SAP_CONTRACT) for s in srcs)
+            gov = bool(srcs) and all(ev.classify_source(s, policy) == GOVERNED_SAP_CONTRACT for s in srcs)                 # clase explicita por hoja (v3); un origen que no es hoja no es gobernado
             lab = c.get("label_origin_counts") or {}
             no_carry = ((c.get("source_vocabulary") or {}).get("fields_with_source_column_name") or 0) == 0
             legit.append(gov and no_carry and not lab.get("DIFFERENT_FROM_PROVIDER") and not lab.get("UNKNOWN_PROVIDER_LABEL") and not lab.get("NO_LABEL"))
@@ -409,11 +432,14 @@ def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool) -> list[dict]
         if not bad and all(node in ev.views for node in ev.product_nodes):
             out.append(_strength("PRO-STR-01", C.PROPAGATION, "pro.product_composes_resolved_contracts", ev=ev, artifacts=list(ev.product_nodes),
                                  refs=[f"ce:view_complexity/{n}" for n in ev.product_nodes], basis=["PRO.product_position_nodes_without_direct_boundary_leaf"]))
-    # PUB-STR-01 — contrato publicado autonomo
-    if ev.published_measures and not any(m.get("business_name_equals_technical") for m in ev.published_measures) and ev.business_association_targets:
-        out.append(_strength("PUB-STR-01", C.PUBLISHED_CONTRACT, "pub.semantically_autonomous_contract", ev=ev, artifacts=[ev.am] if ev.am else [],
-                             refs=["ce:published_contract/fields", "ce:published_contract/associations"],
-                             basis=["PUB.every_measure_has_business_identity", "PUB.business_dimension_association_present"]))
+    # PUB-STR-01 — contrato publicado intencional/autonomo: evidencia AFIRMATIVA convergente (>=2 familias INDEPENDIENTES) con linaje COMPLETO y SIN fuga de vocabulario no gobernado.
+    # La existencia de asociaciones es evidencia positiva LOCALIZADA: ni su numero ni una sola completan la fortaleza; ninguna familia es obligatoria en todo producto.
+    fam, lineage_complete, leak = published_positive_families(ev, policy)
+    if lineage_complete and not leak and _independent_pair_exists(fam):
+        out.append(_strength("PUB-STR-01", C.PUBLISHED_CONTRACT, "pub.semantically_intentional_consumer_contract", ev=ev, artifacts=[ev.am] if ev.am else [],
+                             refs=["ce:published_field_lineage", "ce:published_contract/fields", "ce:published_contract/associations"],
+                             basis=["PUB.published_lineage_complete_for_every_field", "PUB.no_unresolved_vocabulary_reaches_the_consumer_verbatim",
+                                    *[f"PUB.family.{f}" for f in sorted(fam)], "PUB.at_least_two_independent_affirmative_families"]))
     return sorted(out, key=lambda s: s["rule_id"])
 
 
@@ -496,6 +522,9 @@ def reviews_and_limitations(ev: ProfileEvidence, policy: str) -> tuple[list[dict
         rev.append(_review("REUSED_TEMPORAL_DERIVATION_REVIEW", "LEK-REV-01", "REUSED_TEMPORAL_DERIVATION_REVIEW", "OPEN", artifacts=sorted({a for u in unq for a in u["artifacts"]}),
                            refs=["ce:expression_occurrences"], ev=ev,
                            extra={"missing_for_material": sorted({k for u in unq for k in ("A_boundary_demonstrably_technical", "B_owned_downstream_in_multiple_nodes") if not u[k]})}))
+    # linaje de campo publicado no establecido para todos los campos: limita lo que se puede afirmar del consumidor (evaluabilidad, no calidad)
+    if ev.lineage_incomplete_fields:
+        lim.append(_limitation("published_field_lineage_incomplete", refs=["ce:published_field_lineage"], ev=ev))
     # modo de replicacion
     if ev.surface_state("source.replication_mode") == "NOT_ASSESSED":
         rev.append(_review("REPLICATION_MODE_REVIEW", "SRC-REV-02", "REPLICATION_MODE_UNOBSERVED", "OPEN", refs=["area:SOURCE_EXTRACTION"], ev=ev))
@@ -522,7 +551,10 @@ def supporting_evidence(ev: ProfileEvidence) -> dict:
         "published_fields_total": len(fields),
         "declared_dimensions_not_associated": [d if isinstance(d, str) else d.get("artifact", str(d)) for d in ev.declared_dimensions_not_associated],
         "technical_harmonization_candidates": sorted(a for a, c in ev.harmonization.items() if (c.get("character") or {}).get("value") == "TECHNICAL_MATERIALIZATION"),
-        "published_non_restoration_families": {k: sorted(v) for k, v in sorted(_published_families(ev, include_projection=True).items())},
+        "published_field_lineage": {"completeness": dict((ev.lineage or {}).get("counts") or {}), "fields_with_unharmonized_verbatim_near_identity_path_from_a_non_governed_leaf":
+                                    sorted({n for n, r in ev.lineage_fields.items() for lf in r.get("frontier_leaves") or ()
+                                            if ev.classify_source(lf["leaf"]) in (PHYSICAL_RAW_BOUNDARY, EXTERNAL_CONTRACT_UNDETERMINED) and _verbatim_vocabulary(lf)
+                                            and _paths(lf, characters=NEAR_IDENTITY_CHARACTERS, through=False)})},
         "branch_reconvergence_pairs": len(ev.reconvergences),
         "source_state_counts": dict(sorted(ev.source_state_counts.items())),
     }

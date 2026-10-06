@@ -173,8 +173,8 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     ev = ProfileEvidence(profile)
     if ev.assessment_state != "ASSESSED":
         return _unjudgeable(ev, "ASSESSMENT_NOT_JUDGEABLE")
-    if not ev.has_canonical_evidence_v2:
-        return _unjudgeable(ev, "CANONICAL_EVIDENCE_V2_REQUIRED")
+    if not ev.has_canonical_evidence_v3:
+        return _unjudgeable(ev, "CANONICAL_EVIDENCE_V3_REQUIRED")
     res = evaluate_rules(ev, external_policy)
     reasons = copy.deepcopy(res["reasons"])
     reviews = copy.deepcopy(res["review_candidates"])

@@ -5,9 +5,11 @@ Cada caso valida: nivel, estado, cierre, regla/razon decisiva (id, clase, dimens
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from tests._judgment_cases import BENCHMARK, fresh
+from tests._judgment_cases import BENCHMARK, FROZEN_LABELS, KNOWN_EVIDENCE_GAPS, fresh
 from tools.catalog.methodological_judgment import evaluate_judgment
 from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
 
@@ -112,31 +114,66 @@ def test_fixed_predicate_ownership_is_not_evaluated_and_never_blocks_judgment():
     assert not [r for r in j["reasons"] if r["rule_id"] == "PRO-REV-01"]
 
 
-def test_the_eight_labels_are_exactly_the_frozen_benchmark():
-    expected = {"illolay_pedidos_entregas": "PARCIAL", "biogenesis_base_stocks": "PARCIAL", "biogenesis_descuentos_comerciales": "ADECUADA", "kensing_gl_line_item_raw": "BUENA",
-                "biogenesis_prefacturacion": "ADECUADA", "biogenesis_lista_precios": "PARCIAL", "biogenesis_reserva_material": "PARCIAL", "biogenesis_sellout_gp": "PARCIAL"}
-    assert {a: BENCHMARK[a][0] for a in BENCHMARK} == expected and len(expected) == 8
-    assert {a: evaluate_judgment(fresh(a))["level"] for a in expected} == expected
+def test_the_frozen_human_labels_are_unchanged_and_every_divergence_is_a_documented_evidence_gap():
+    assert FROZEN_LABELS == {"illolay_pedidos_entregas": "PARCIAL", "biogenesis_base_stocks": "PARCIAL", "biogenesis_descuentos_comerciales": "ADECUADA", "kensing_gl_line_item_raw": "BUENA",
+                             "biogenesis_prefacturacion": "ADECUADA", "biogenesis_lista_precios": "PARCIAL", "biogenesis_reserva_material": "PARCIAL", "biogenesis_sellout_gp": "PARCIAL"}
+    produced = {a: evaluate_judgment(fresh(a))["level"] for a in FROZEN_LABELS}
+    diverging = {a for a in FROZEN_LABELS if produced[a] != FROZEN_LABELS[a]}
+    assert diverging == set(KNOWN_EVIDENCE_GAPS) == {"biogenesis_sellout_gp"}                     # 7/8 con la evidencia actual; la brecha esta nombrada, no se oculta ni se rodea
+    assert {a: BENCHMARK[a][0] for a in BENCHMARK} == produced
 
 
-def test_the_lek_mat_02_calibration_cases_converge_on_distributed_leakage_with_unrestored_publication():
-    for alias in ("illolay_pedidos_entregas", "biogenesis_sellout_gp"):
+def test_the_sellout_gap_is_exactly_the_unclassified_external_contract_not_a_workaround():
+    """La evidencia por campo muestra POR QUE: A004/A307 (tablas ABAP crudas) NO llegan al consumidor con su vocabulario; el vocabulario tecnico llega desde fuentes SQL Server cuya clase
+    es EXTERNAL_CONTRACT_UNDETERMINED. Establecida esa clase como cruda/tecnica, el caso congelado se sustenta (sin tocar reglas ni umbrales); y Prefacturacion NO se mueve."""
+    from tools.catalog.methodological_judgment.rules import vocabulary_exposure
+    p = fresh("biogenesis_sellout_gp")
+    ev = ProfileEvidence(p)
+    raw = [l for l in ev.remote_leaves if ev.classify_source(l) == "PHYSICAL_RAW_BOUNDARY"]
+    assert raw and vocabulary_exposure(ev, raw) == {}
+    external = [l for l, r in ev.leaf_class_records.items() if r["contract_class"] == "EXTERNAL_CONTRACT_UNDETERMINED"]
+    assert external and vocabulary_exposure(ev, external)                                          # el vocabulario tecnico sí llega al publicado... desde fuentes de clase indeterminada
+    assert evaluate_judgment(p)["level"] == "ADECUADA"
+    sens = evaluate_judgment(p, external_policy="PHYSICAL_RAW")
+    assert sens["level"] == "PARCIAL" and "LEK-MAT-02" in {r["rule_id"] for r in sens["reasons"]}
+    pref = fresh("biogenesis_prefacturacion")
+    assert {evaluate_judgment(pref, external_policy=pol)["level"] for pol in ("UNDETERMINED", "PHYSICAL_RAW", "GOVERNED")} == {"ADECUADA"}
+
+
+def test_the_lek_mat_02_calibration_cases_rest_on_traceable_published_paths_not_on_existence_signals():
+    for alias in ("illolay_pedidos_entregas", "biogenesis_lista_precios", "biogenesis_reserva_material"):
         r = next(x for x in evaluate_judgment(fresh(alias))["reasons"] if x["rule_id"] == "LEK-MAT-02")
         assert "LEK.L1.a_physical_raw_bypassing_harmonization_compensated_downstream" in r["deterministic_basis"] and "LEK.L2.absorbed_by_non_candidate_nodes_with_logic" in r["deterministic_basis"]
-        assert "LEK.L3.published_non_restoration_independent_families" in r["deterministic_basis"] and r["secondary_dimension"] == "PUBLISHED_CONTRACT"
-        fams = {b for b in r["deterministic_basis"] if b.startswith("LEK.L3.family.")}
-        assert len(fams) >= 2
+        assert "LEK.L3.unresolved_boundary_vocabulary_reaches_the_consumer_verbatim_through_traceable_paths" in r["deterministic_basis"] and r["secondary_dimension"] == "PUBLISHED_CONTRACT"
+        assert any(ref.startswith("ce:published_field_lineage/") for ref in r["evidence_refs"])                 # cada razon cita los campos publicados que la sostienen
     ill = next(x for x in evaluate_judgment(fresh("illolay_pedidos_entregas"))["reasons"] if x["rule_id"] == "LEK-MAT-02")
-    assert "LEK.L1.b_reusable_semantics_created_downstream_over_technical_boundary" in ill["deterministic_basis"]    # A (frontera tecnica aguas arriba) + B (>=2 nodos aguas abajo)
+    assert "LEK.L1.b_reusable_semantics_created_downstream_over_technical_boundary" in ill["deterministic_basis"]
+    assert "LEK.L3.downstream_created_semantics_reaches_the_consumer_through_traceable_paths" in ill["deterministic_basis"]
 
 
-def test_illolay_stays_parcial_without_any_raw_source_element_through_generic_structural_evidence():
-    """La cruda REFUERZA pero no es la causa unica: sin ella, la semantica reutilizable creada aguas abajo sobre una frontera tecnica (A+B estructurales) sigue sosteniendo PARCIAL."""
+def test_illolay_stays_parcial_without_any_raw_source_through_generic_structural_and_lineage_evidence():
+    """Si ninguna hoja es una tabla ABAP fisica, la semantica reutilizable creada aguas abajo sobre una frontera tecnica (A+B estructurales) con consecuencia trazable en el publicado
+    (campos que atraviesan los sitios con derivacion sin armonizacion) sigue sosteniendo PARCIAL."""
     p = fresh("illolay_pedidos_entregas")
     for key in ("observations", "review_required"):
         p[key] = [g for g in p[key] if g["id"] != "DIRECT_RAW_TABLE_ACCESS"]
+    for r in p["canonical_evidence"]["source_contract_classes"]["leaves"]:
+        if r["contract_class"] == "PHYSICAL_ABAP_TABLE_BOUNDARY":
+            r["contract_class"] = "GOVERNED_SAP_CDS_CONTRACT"
+    for f in p["canonical_evidence"]["published_field_lineage"]["fields"]:
+        for lf in f["frontier_leaves"]:
+            if lf["source_contract_class"] == "PHYSICAL_ABAP_TABLE_BOUNDARY":
+                lf["source_contract_class"] = "GOVERNED_SAP_CDS_CONTRACT"
     j = evaluate_judgment(p)
     assert j["level"] == "PARCIAL"
     lek = next(x for x in j["reasons"] if x["rule_id"] == "LEK-MAT-02")
     assert not any("a_physical_raw" in b for b in lek["deterministic_basis"]) and "LEK.L1.b_reusable_semantics_created_downstream_over_technical_boundary" in lek["deterministic_basis"]
+    assert "LEK.L3.downstream_created_semantics_reaches_the_consumer_through_traceable_paths" in lek["deterministic_basis"]
 
+
+def test_the_v2_profile_is_not_judgeable_because_causal_lineage_is_required():
+    p = fresh("kensing_gl_line_item_raw")
+    p["canonical_evidence"].pop("published_field_lineage")
+    p["canonical_evidence"]["version"] = "canonical-evidence/v2"
+    j = evaluate_judgment(p)
+    assert j["status"] == "NOT_DETERMINABLE" and j["level"] is None and "CANONICAL_EVIDENCE_V3_REQUIRED" in json.dumps(j)

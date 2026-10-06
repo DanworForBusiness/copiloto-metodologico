@@ -70,7 +70,7 @@ def test_predicate_ownership_cta_is_disabled_pending_evidence():
 
 # ───────────────────────────── entrada ejecutiva ─────────────────────────────
 def test_executive_input_exposes_the_immutable_judgment_and_only_grounded_material():
-    p, j, ex = ctx(SELLOUT)
+    p, j, ex = ctx("biogenesis_reserva_material")
     assert ex["executive_input_version"] == EXECUTIVE_INPUT_VERSION
     assert ex["immutable_judgment"] == {"status": j["status"], "level": j["level"], "closure": j["closure"], "ruleset_version": j["ruleset_version"], "plena_assignment": j["plena_assignment"]}
     assert ex["material_deviations"] and all(r["evidence_refs"] for r in ex["material_deviations"])

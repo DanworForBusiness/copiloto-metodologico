@@ -2,6 +2,7 @@
 Gate 8D.1 — reglas del Juicio sobre perfiles SINTETICOS (sin clientes) y pruebas CONTRAFACTICAS / anti-sobreajuste.
 
 El nivel es funcion de la EXISTENCIA de razones clasificadas (no de conteos ni proporciones); estas pruebas fijan esa propiedad.
+Gate 8D.1d: la restauracion/no-restauracion semantica del publicado se establece por LINAJE DE CAMPO (canonical-evidence/v3), no por senales por existencia.
 """
 from __future__ import annotations
 
@@ -22,10 +23,16 @@ def reason(j, rule_id):
     return next(r for r in j["reasons"] if r["rule_id"] == rule_id)
 
 
-def buena_model() -> PB:
-    """Modelo limpio: AM -> V1 (producto) -> H1 (candidato 1:1 tecnico sobre contrato SAP gobernado), medidas con identidad de negocio y asociacion a dimension."""
-    return (PB().view("V1", ["H1"]).view("H1", ["CDS1"]).cand("H1", sources=["CDS1"]).remote("CDS1").product("V1").assoc("DIM1").measure("M1")
-            .flow("RF", delta=True))
+def buena_model(*, assoc=True, authored=False) -> PB:
+    """Modelo limpio: AM -> V1 (producto) -> H1 (candidato 1:1 tecnico sobre contrato SAP gobernado), asociacion a dimension y campos publicados trazables a la hoja gobernada a
+    traves del contrato de armonizacion. ``authored``: ademas, un campo con etiqueta propia (distinta de la de la hoja)."""
+    b = PB().view("V1", ["H1"]).view("H1", ["CDS1"]).cand("H1", sources=["CDS1"]).remote("CDS1").product("V1").measure("M1").flow("RF", delta=True)
+    if assoc:
+        b.assoc("DIM1")
+    if authored:
+        b.measure("M_AUTH")
+        b.trace("M_AUTH", "CDS1", character="WITH_DERIVATION", through=True, label="DIFFERENT_FROM_LEAF", name_equals=False, via=["H1"])
+    return b.trace_all("CDS1", character="IDENTITY_OR_RENAME", through=True, label="EQUALS_LEAF_LABEL", via=["H1"])
 
 
 # ───────────────────────────── fortalezas y BUENA ─────────────────────────────
@@ -38,7 +45,7 @@ def test_buena_requires_affirmative_strength_in_all_four_critical_contracts():
 
 def test_absence_of_findings_is_not_buena():
     """Sin candidato de armonizacion no hay fortaleza de armonizacion: la ausencia de hallazgos NO alcanza."""
-    b = PB().view("V1", ["CDS1"]).remote("CDS1").product("V1").assoc("D").measure("M")
+    b = PB().view("V1", ["CDS1"]).remote("CDS1").product("V1").assoc("D").measure("M").trace_all("CDS1")
     j = evaluate_judgment(b.build())
     assert not j["reasons"] and j["status"] == "NOT_DETERMINABLE" and j["level"] is None and j["closure"] == "PROVISIONAL"
     assert "HAR-STR-01" not in {s["rule_id"] for s in j["strengths"]}
@@ -48,13 +55,13 @@ def test_absence_of_findings_is_not_buena():
 def test_dropping_any_one_critical_strength_prevents_buena(missing):
     b = buena_model()
     if missing == "SRC-STR-01":
-        b.remote("TBL", raw=False).other_origin(1)               # un contacto con fuente no establecida como gobernada
+        b.remote("TBL", external=True)                           # un contacto con fuente de clase no gobernada
     elif missing == "HAR-STR-01":
         b._cands["H1"]["source_vocabulary"]["fields_with_source_column_name"] = 4
     elif missing == "PRO-STR-01":
         b._views["V1"]["provider_names"].append("CDS9"); b.remote("CDS9")
     elif missing == "PUB-STR-01":
-        b._assoc.clear()
+        b._assoc.clear()                                         # una sola familia afirmativa (reuso gobernado) ya no alcanza
     j = evaluate_judgment(b.build())
     assert missing not in {s["rule_id"] for s in j["strengths"]} and j["level"] != "BUENA"
 
@@ -62,6 +69,48 @@ def test_dropping_any_one_critical_strength_prevents_buena(missing):
 def test_one_to_one_layers_are_not_penalized():
     j = evaluate_judgment(buena_model().build())
     assert j["level"] == "BUENA" and not rules(j, "RELEVANT_WEAKNESS") and not rules(j, "LOCAL_WEAKNESS")
+
+
+# ───────────────────────────── PUB-STR-01 (8D.1d): sin requisito de asociaciones ─────────────────────────────
+def test_pub_str_01_does_not_require_any_association():
+    """Cero asociaciones NO es debil por si mismo: con OTRAS familias afirmativas independientes (reuso gobernado trazable + semantica propia) la fortaleza se sostiene."""
+    j = evaluate_judgment(buena_model(assoc=False, authored=True).build())
+    assert "PUB-STR-01" in {s["rule_id"] for s in j["strengths"]} and j["level"] == "BUENA"
+    assert j["supporting_evidence"]["published_business_association_targets"] == []
+
+
+def test_a_single_association_never_completes_the_published_strength():
+    """Una asociacion es evidencia positiva LOCALIZADA: sola (sin otra familia afirmativa independiente) no alcanza, y el numero de asociaciones no es un puntaje."""
+    b = PB().view("V1", ["CDS1"]).remote("CDS1").product("V1").measure("M").assoc("D1").assoc("D2").assoc("D3")
+    b.trace_all("CDS1", character="IDENTITY_ONLY", through=False, label="EQUALS_LEAF_LABEL")                # gobernada, sin armonizacion ni semantica propia: solo la asociacion
+    assert "PUB-STR-01" not in {s["rule_id"] for s in evaluate_judgment(b.build())["strengths"]}
+
+
+def test_adding_or_removing_one_association_cannot_automatically_change_the_level():
+    base = evaluate_judgment(buena_model(assoc=True, authored=True).build())
+    without = evaluate_judgment(buena_model(assoc=False, authored=True).build())
+    assert base["level"] == without["level"] == "BUENA"                                                       # con otra familia afirmativa: +/-1 asociacion no mueve el nivel
+    mat = evaluate_judgment(mat_model().build())
+    assert evaluate_judgment(mat_model().assoc("D2").build())["level"] == mat["level"] == "PARCIAL"
+
+
+def test_published_strength_requires_complete_lineage_and_no_unresolved_vocabulary_leak():
+    incomplete = buena_model()
+    incomplete.incomplete("M1")
+    j = evaluate_judgment(incomplete.build())
+    assert "PUB-STR-01" not in {s["rule_id"] for s in j["strengths"]} and any(l["key"] == "published_field_lineage_incomplete" for l in j["evidence_limitations"])
+    leaky = buena_model(authored=True)
+    leaky.remote("TBL", raw=True)
+    leaky.trace("M1", "TBL", character="IDENTITY_ONLY", through=False, label="EQUALS_LEAF_LABEL")              # un campo hereda sin cambios el vocabulario de una tabla fisica
+    assert "PUB-STR-01" not in {s["rule_id"] for s in evaluate_judgment(leaky.build())["strengths"]}
+
+
+def test_two_projections_of_the_same_fact_are_not_two_affirmative_families():
+    from tools.catalog.methodological_judgment.rules import _independent_pair_exists
+    assert not _independent_pair_exists({"A": {"field:X"}, "B": {"field:X"}})
+    assert _independent_pair_exists({"A": {"field:X"}, "B": {"field:Y"}})
+    assert _independent_pair_exists({"A": {"field:X", "field:Y"}, "B": {"field:Y", "dim:D"}})
+    assert _independent_pair_exists({"A": {"field:X", "field:Y"}, "B": {"field:Y"}})                             # mismo campo, afirmaciones distintas
 
 
 # ───────────────────────────── PRO-MAT-01 ─────────────────────────────
@@ -94,161 +143,140 @@ def test_pass_through_view_between_product_and_leaf_does_not_hide_the_pattern():
     assert "PRO-MAT-01" in rules(evaluate_judgment(b.build()), "MATERIAL_DEVIATION")
 
 
-# ───────────────────────────── LEK-MAT-02 ─────────────────────────────
-def lek_model(*, enriched=False, raw=True, logic=True, assoc=False, gap=("D2",)) -> PB:
-    """AM -> V1 -> V2 -> TBL (fisica cruda): la cruda llega al producto SIN pasar por un candidato de armonizacion y V1/V2 la compensan con logica."""
-    b = (PB().view("V1", ["V2"], derived=1 if logic else 0).view("V2", ["TBL"], joins=1 if logic else 0, derived=1 if logic else 0).remote("TBL", raw=raw).product("V1"))
+# ───────────────────────────── LEK-MAT-02 (8D.1d: consecuencia trazable por linaje de campo) ─────────────────────────────
+def lek_model(*, raw=True, logic=True, exposure="verbatim", assoc=False, authored_others=0) -> PB:
+    """AM -> V1 -> V2 -> TBL (fisica cruda): la cruda llega al producto SIN pasar por un candidato de armonizacion y V1/V2 la compensan con logica.
+    ``exposure``: 'verbatim' = un campo publicado hereda sin cambios el vocabulario de TBL por un camino casi-identidad sin armonizacion; 'authored' = el campo tiene etiqueta propia;
+    'derived' = el campo se deriva aguas abajo; 'harmonized' = el camino cruza un contrato de armonizacion; 'none' = ningun campo se traza a TBL."""
+    b = (PB().view("V1", ["V2"], derived=1 if logic else 0).view("V2", ["TBL"], joins=1 if logic else 0, derived=1 if logic else 0).remote("TBL", raw=raw).remote("CDS1").product("V1"))
     if assoc:
         b.assoc("D")
-    b.gap(*gap)
-    b.measure("M", enriched=enriched)
+    b.measure("M")
+    for i in range(authored_others):
+        b.measure(f"OK{i}")
+        b.trace(f"OK{i}", "CDS1", character="WITH_DERIVATION", label="DIFFERENT_FROM_LEAF", name_equals=False)
+    if exposure == "verbatim":
+        b.trace("M", "TBL", character="IDENTITY_ONLY", through=False, label="EQUALS_LEAF_LABEL")
+    elif exposure == "authored":
+        b.trace("M", "TBL", character="IDENTITY_OR_RENAME", through=False, label="DIFFERENT_FROM_LEAF", name_equals=False)
+    elif exposure == "derived":
+        b.trace("M", "TBL", character="WITH_DERIVATION", through=False, label="DIFFERENT_FROM_LEAF", name_equals=False)
+    elif exposure == "harmonized":
+        b.trace("M", "TBL", character="IDENTITY_ONLY", through=True, label="EQUALS_LEAF_LABEL")
+    else:
+        b.trace("M", "CDS1", character="IDENTITY_ONLY", through=False, label="EQUALS_LEAF_LABEL")
     return b
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-def test_lek_mat_02_requires_raw_bypass_compensation_and_converging_published_families():
-    j = evaluate_judgment(lek_model().build())                       # brecha de maestros (dimension declarada sin asociar) + medida sin enriquecer: dos familias con testigos distintos
+def test_lek_mat_02_needs_a_traceable_published_path_that_carries_the_unresolved_vocabulary():
+    j = evaluate_judgment(lek_model().build())
     r = reason(j, "LEK-MAT-02")
     assert j["level"] == "PARCIAL" and r["classification"] == "MATERIAL_DEVIATION" and r["secondary_dimension"] == "PUBLISHED_CONTRACT"
     assert {"LEK.L1.a_physical_raw_bypassing_harmonization_compensated_downstream", "LEK.L2.absorbed_by_non_candidate_nodes_with_logic",
-            "LEK.L3.published_non_restoration_independent_families", "LEK.L3.family.ASSOCIATION_AUTONOMY", "LEK.L3.family.MEASURE_SEMANTICS"} <= set(r["deterministic_basis"])
+            "LEK.L3.unresolved_boundary_vocabulary_reaches_the_consumer_verbatim_through_traceable_paths"} <= set(r["deterministic_basis"])
+    assert "ce:published_field_lineage/M" in r["evidence_refs"]                                       # cita el campo publicado que sostiene la consecuencia
 
 
-def test_one_non_enriched_measure_alone_cannot_establish_published_non_restoration():
-    j = evaluate_judgment(lek_model(assoc=True, gap=()).build())     # solo MEASURE_SEMANTICS: una sola familia
+@pytest.mark.parametrize("exposure", ["authored", "derived", "harmonized", "none"])
+def test_without_a_verbatim_unharmonized_path_from_the_leaked_boundary_there_is_no_material(exposure):
+    """Restauracion/ausencia de trazabilidad: etiqueta propia, derivacion genuina, paso por un contrato de armonizacion o ningun campo trazable a la frontera NO son fuga al consumidor."""
+    j = evaluate_judgment(lek_model(exposure=exposure).build())
     assert "LEK-MAT-02" not in rules(j) and j["level"] != "PARCIAL"
+    assert "SRC-REL-01" in rules(j, "RELEVANT_WEAKNESS")                                               # la cruda omitida y compensada sigue siendo RELEVANT (8D.1b), no MATERIAL
 
 
-def test_one_enriched_measure_cannot_establish_restoration():
-    """Una medida enriquecida entre varias sin enriquecer NO exculpa: la no-restauracion converge igual."""
-    b = lek_model(enriched=False)
-    b.measure("M_OK", enriched=True)
-    assert "LEK-MAT-02" in rules(evaluate_judgment(b.build()), "MATERIAL_DEVIATION")
-
-
-def test_zero_business_associations_alone_cannot_create_material():
-    """La AUSENCIA de asociaciones es solo apoyo: no es una familia, no establece nada por si sola."""
-    j = evaluate_judgment(lek_model(enriched=True, assoc=False, gap=()).build())
-    assert "LEK-MAT-02" not in rules(j) and j["supporting_evidence"]["published_business_association_targets"] == []
-
-
-def test_one_association_cannot_block_material_and_adding_or_removing_it_does_not_change_the_lek_conclusion():
-    without = evaluate_judgment(lek_model(assoc=False).build())
-    with_one = evaluate_judgment(lek_model(assoc=True).build())      # una asociacion de negocio presente + brecha en otra dimension declarada: NO veta
-    assert "LEK-MAT-02" in rules(with_one, "MATERIAL_DEVIATION") and "LEK-MAT-02" in rules(without, "MATERIAL_DEVIATION")
-    assert with_one["level"] == without["level"] == "PARCIAL"
-    assert with_one["supporting_evidence"]["published_business_association_targets"] == ["D"]       # evidencia positiva LOCALIZADA, expuesta como apoyo
-
-
-def test_association_gap_is_evidence_per_dimension_not_a_count_of_associations():
-    one_gap = evaluate_judgment(lek_model(assoc=True, gap=("D2",)).build())
-    many = evaluate_judgment(lek_model(assoc=True, gap=("D2",)).assoc("D3").assoc("D4").build())      # mas asociaciones, la brecha sigue siendo la misma
-    assert reason(one_gap, "LEK-MAT-02")["deterministic_basis"] == reason(many, "LEK-MAT-02")["deterministic_basis"]
-
-
-def test_duplicate_projections_of_the_same_field_are_not_independent_evidence():
-    """Atributos con etiqueta = nombre tecnico Y nombre = columna fuente: las dos familias tienen exactamente los MISMOS testigos (mismo hecho proyectado dos veces)."""
-    b = lek_model(enriched=True, assoc=True, gap=())
-    b._fields = [{"technical_name": f"F{i}", "role": "ATTRIBUTE", "business_name_equals_technical": True, "name_equals_remote_source_column": True, "derived": False} for i in range(5)]
-    assert "LEK-MAT-02" not in rules(evaluate_judgment(b.build()))
-    b2 = lek_model(enriched=True, assoc=True, gap=("D2",))              # con una brecha de maestros distinta, SI converge
-    b2._fields = list(b._fields)
-    assert "LEK-MAT-02" in rules(evaluate_judgment(b2.build()), "MATERIAL_DEVIATION")
-
-
-def test_lek_requires_at_least_one_consumer_published_contract_family():
-    """Solo la proyeccion tecnica (contrato de armonizacion) NO alcanza aunque exista, ni siquiera con otras senales que no sean del contrato publicado."""
-    b = lek_model(enriched=True, assoc=True, gap=())
-    b._views["V1"]["provider_names"].append("H1"); b._views["V1"]["providers"] += 1
-    b.view("H1", ["CDS9"]).cand("H1", carry=3, sources=["CDS9"]).remote("CDS9")
+def test_unavailable_lineage_never_creates_material():
+    b = lek_model()
+    b._traces.clear()                                                                                  # ningun campo con linaje: la restauracion no se puede determinar (evaluabilidad)
     j = evaluate_judgment(b.build())
+    assert "LEK-MAT-02" not in rules(j) and any(l["key"] == "published_field_lineage_incomplete" for l in j["evidence_limitations"])
+
+
+def test_one_enriched_or_authored_field_cannot_establish_restoration():
+    """Muchos campos con semantica propia NO exculpan mientras exista un camino trazable que expone el vocabulario no resuelto (sin conteos ni proporciones)."""
+    j = evaluate_judgment(lek_model(authored_others=9).build())
+    assert "LEK-MAT-02" in rules(j, "MATERIAL_DEVIATION")
+
+
+def test_one_non_enriched_field_alone_cannot_establish_non_restoration_without_a_traceable_leak():
+    """Un campo con etiqueta tecnica que viene de una hoja GOBERNADA (no de la frontera cruda compensada) no es evidencia de fuga."""
+    j = evaluate_judgment(lek_model(exposure="none").build())
     assert "LEK-MAT-02" not in rules(j)
-    from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
-    from tools.catalog.methodological_judgment import rules as R
-    fam = R._published_families(ProfileEvidence(b.build()), include_projection=True)
-    assert set(fam) == {"TECHNICAL_PROJECTION_REACHING_PUBLICATION"} and R._converging_families(fam) == []
 
 
-def test_independence_is_decided_by_underlying_facts_not_by_canonical_section():
-    """Mecanismo: testigos. Familias del mismo origen canonico (campos publicados) con hechos DISTINTOS si convergen; familias de origen distinto con el MISMO hecho no."""
-    from tools.catalog.methodological_judgment import rules as R
-    distinct_same_section = {"MEASURE_SEMANTICS": {"field:M"}, "SOURCE_VOCABULARY_CARRY_THROUGH": {"field:V"}}
-    assert R.FAMILY_PROVENANCE["MEASURE_SEMANTICS"] == R.FAMILY_PROVENANCE["SOURCE_VOCABULARY_CARRY_THROUGH"] and R._converging_families(distinct_same_section) == ["MEASURE_SEMANTICS", "SOURCE_VOCABULARY_CARRY_THROUGH"]
-    same_fact_other_section = {"MEASURE_SEMANTICS": {"x:1"}, "TECHNICAL_PROJECTION_REACHING_PUBLICATION": {"x:1"}}
-    assert R._converging_families(same_fact_other_section) == []
+def test_associations_are_irrelevant_to_lek_in_both_directions():
+    """Cero asociaciones no crea MATERIAL; una o varias no lo vetan; agregarlas o quitarlas no cambia la conclusion (la restauracion se decide por trazabilidad, no por conteos)."""
+    results = {}
+    for n in (0, 1, 3):
+        b = lek_model()
+        for i in range(n):
+            b.assoc(f"D{i}")
+        results[n] = evaluate_judgment(b.build())
+    assert all("LEK-MAT-02" in rules(j, "MATERIAL_DEVIATION") and j["level"] == "PARCIAL" for j in results.values())
+    clean = {n: evaluate_judgment((lambda b: [b.assoc(f"D{i}") for i in range(n)] and b or b)(lek_model(exposure="authored")).build()) for n in (0, 1, 3)}
+    assert all("LEK-MAT-02" not in rules(j) for j in clean.values())                                  # cero asociaciones solas no crean MATERIAL
 
 
-def test_raw_alone_is_never_material_and_published_restoration_prevents_material():
-    j = evaluate_judgment(lek_model(enriched=True, logic=False).build())
+def test_raw_alone_is_never_material():
+    j = evaluate_judgment(lek_model(logic=False).build())
     assert "LEK-MAT-02" not in rules(j, "MATERIAL_DEVIATION") and j["level"] != "PARCIAL"
-    restored = evaluate_judgment(lek_model(enriched=True, assoc=True).build())
-    assert "LEK-MAT-02" not in rules(restored) and restored["level"] == "ADECUADA"
 
 
 def test_src_rel_01_needs_bypass_of_the_reusable_boundary_and_compensation_not_just_raw_in_spine():
-    bypass = evaluate_judgment(lek_model(enriched=True, assoc=True).build())
+    bypass = evaluate_judgment(lek_model(exposure="authored", assoc=True).build())
     assert "SRC-REL-01" in rules(bypass, "RELEVANT_WEAKNESS") and bypass["level"] == "ADECUADA" and "LEK-MAT-02" not in rules(bypass)
     # misma cruda en la espina, pero el camino al producto ATRAVIESA un candidato de armonizacion: evidencia de fuente, no debilidad de nivel
     b = (PB().view("V1", ["H1"], derived=1).view("H1", ["TBL"], joins=1).cand("H1", character="SEMANTIC_TRANSFORMATION_PRESENT", sources=["TBL"]).remote("TBL", raw=True)
-         .product("V1").assoc("D").measure("M"))
+         .product("V1").assoc("D").measure("M").trace_all("TBL", through=True))
     j = evaluate_judgment(b.build())
     assert "SRC-REL-01" not in rules(j) and "SRC-LOC-01" in rules(j, "LOCAL_WEAKNESS") and not rules(j, "RELEVANT_WEAKNESS")
     # cruda en la espina sin logica de compensacion: tampoco
-    nocomp = evaluate_judgment(lek_model(enriched=True, logic=False, assoc=True).build())
+    nocomp = evaluate_judgment(lek_model(logic=False, exposure="authored").build())
     assert "SRC-REL-01" not in rules(nocomp)
 
 
 def test_physical_abap_table_is_not_automatically_bad():
-    j = evaluate_judgment(lek_model(enriched=True, assoc=True, logic=False).build())
+    j = evaluate_judgment(lek_model(logic=False, exposure="authored", assoc=True).build())
     assert not rules(j, "MATERIAL_DEVIATION") and not rules(j, "RELEVANT_WEAKNESS")
 
 
-def l1b_model(*, technical_boundary=True, two_nodes=True, calendar_names=False) -> PB:
-    """Semantica TEMPORAL reutilizada aguas abajo. La frontera de armonizacion aguas arriba es tecnica (o no existe)."""
+def l1b_model(*, technical_boundary=True, two_nodes=True, calendar_names=False, exposed=True) -> PB:
+    """Semantica TEMPORAL reutilizada aguas abajo. La frontera de armonizacion aguas arriba es tecnica (o no existe). ``exposed``: algun campo publicado atraviesa los sitios con derivacion."""
     mid = ["H1"] if technical_boundary else ["CDS1"]
-    b = PB().view("V1", ["V2", "V3"], joins=1).view("V2", mid, derived=1).view("V3", mid, derived=1).remote("CDS1").product("V1").measure("M", enriched=False)
+    b = PB().view("V1", ["V2", "V3"], joins=1).view("V2", mid, derived=1).view("V3", mid, derived=1).remote("CDS1").product("V1").measure("M")
     if technical_boundary:
         b.view("H1", ["CDS1"]).cand("H1", carry=3, sources=["CDS1"])
     b.temporal_reuse("V2", "V3") if two_nodes else b.temporal_reuse("V2", "V2")
     if calendar_names:
-        b._fields += [{"technical_name": n, "role": "ATTRIBUTE", "business_name_equals_technical": False, "name_equals_remote_source_column": False, "derived": False}
-                      for n in ("Mes", "Month", "Calendar")]
-    return b
+        b.measure("Mes", ), b.measure("Month"), b.measure("Calendar")
+    if exposed:
+        b.trace("M", "CDS1", character="WITH_DERIVATION", through=False, label="DIFFERENT_FROM_LEAF", name_equals=False, via=["V2", "V3"])
+    else:
+        b.trace("M", "CDS1", character="IDENTITY_ONLY", through=False, label="EQUALS_LEAF_LABEL", via=["V1"])
+    return b.trace_all("CDS1", through=True, via=["H1"] if technical_boundary else [])
 
 
-def test_l1b_requires_a_technical_boundary_upstream_and_downstream_ownership_in_multiple_nodes():
+def test_l1b_requires_a_technical_boundary_upstream_downstream_ownership_in_multiple_nodes_and_a_traceable_published_path():
     j = evaluate_judgment(l1b_model().build())
     r = reason(j, "LEK-MAT-02")
     assert "LEK.L1.b_reusable_semantics_created_downstream_over_technical_boundary" in r["deterministic_basis"] and j["level"] == "PARCIAL"
+    assert "LEK.L3.downstream_created_semantics_reaches_the_consumer_through_traceable_paths" in r["deterministic_basis"]
     # sin frontera de armonizacion tecnica aguas arriba (A no demostrada): revision, sin efecto en nivel
     nob = evaluate_judgment(l1b_model(technical_boundary=False).build())
     assert "LEK-MAT-02" not in rules(nob)
     rv = [x for x in nob["review_candidates"] if x["review_id"] == "REUSED_TEMPORAL_DERIVATION_REVIEW"]
     assert rv and "A_boundary_demonstrably_technical" in rv[0]["missing_for_material"] and rv[0]["level_effect"] == "NONE"
-    # un solo nodo (B no demostrada)
-    one = evaluate_judgment(l1b_model(two_nodes=False).build())
-    assert "LEK-MAT-02" not in rules(one)
+    assert "LEK-MAT-02" not in rules(evaluate_judgment(l1b_model(two_nodes=False).build()))              # un solo nodo (B no demostrada)
+    assert "LEK-MAT-02" not in rules(evaluate_judgment(l1b_model(exposed=False).build()))                # ningun campo publicado atraviesa los sitios: sin consecuencia trazable
 
 
 def test_calendar_like_field_names_alone_never_create_material():
-    """Nombres como Mes/Month/Calendar no son evidencia: sin la convergencia estructural A+B no hay MATERIAL."""
-    b = l1b_model(technical_boundary=False, two_nodes=False, calendar_names=True)
-    j = evaluate_judgment(b.build())
+    """Nombres como Mes/Month/Calendar no son evidencia: sin la convergencia estructural A+B no hay MATERIAL, y con ella no agregan ni quitan nada."""
+    j = evaluate_judgment(l1b_model(technical_boundary=False, two_nodes=False, calendar_names=True).build())
     assert not rules(j, "MATERIAL_DEVIATION")
     with_names = evaluate_judgment(l1b_model(calendar_names=True).build())
     without = evaluate_judgment(l1b_model().build())
-    assert with_names["level"] == without["level"] and rules(with_names, "MATERIAL_DEVIATION") == rules(without, "MATERIAL_DEVIATION")      # los nombres no agregan ni quitan
+    assert with_names["level"] == without["level"] and rules(with_names, "MATERIAL_DEVIATION") == rules(without, "MATERIAL_DEVIATION")
 
 
 def test_a_candidate_that_owns_the_temporal_semantics_is_not_a_leak():
@@ -258,59 +286,63 @@ def test_a_candidate_that_owns_the_temporal_semantics_is_not_a_leak():
     assert "LEK-MAT-02" not in rules(evaluate_judgment(b.build()))
 
 
-# ───────────────────────────── HAR-REL-01 (8D.1b) ─────────────────────────────
-def har_model(*, assoc=False, align=False, carry=4, measure_enriched=False, gap=()) -> PB:
-    """Armonizacion tecnica que conserva el vocabulario de la fuente; el producto la consume."""
-    b = PB().view("V1", ["H1"], derived=1 if align else 0, unions=1 if align else 0).view("H1", ["CDS1"]).cand("H1", carry=carry, sources=["CDS1"]).remote("CDS1").product("V1")
-    if assoc:
-        b.assoc("D")
-    b.gap(*gap)
-    b.measure("M", enriched=measure_enriched)
+# ───────────────────────────── HAR-REL-01 (8D.1b / 8D.1d) ─────────────────────────────
+def har_model(*, passthrough=False, align=False, carry=4, authored=False) -> PB:
+    """Armonizacion tecnica que conserva el vocabulario de la fuente; el producto la consume. ``passthrough``: el vocabulario atraviesa el contrato tecnico y llega SIN CAMBIOS a un campo
+    publicado (consecuencia observable por linaje)."""
+    b = PB().view("V1", ["H1"], derived=1 if align else 0, unions=1 if align else 0).view("H1", ["CDS1"]).cand("H1", carry=carry, sources=["CDS1"]).remote("CDS1").product("V1").measure("M")
+    if passthrough:
+        b.trace("M", "CDS1", character="IDENTITY_ONLY", through=True, label="EQUALS_LEAF_LABEL", via=["H1"])
+    elif authored:
+        b.trace("M", "CDS1", character="IDENTITY_OR_RENAME", through=True, label="DIFFERENT_FROM_LEAF", name_equals=False, via=["H1"])
+    else:
+        b.trace("M", "CDS1", character="WITH_DERIVATION", through=True, label="DIFFERENT_FROM_LEAF", name_equals=False, via=["H1"])
     return b
 
 
 def test_technical_harmonization_alone_is_descriptive_not_a_weakness():
-    """Armonizacion tecnica con vocabulario fuente, SIN consecuencia semantica aguas abajo observable: no es debilidad (ni crea ADECUADA)."""
-    j = evaluate_judgment(har_model(assoc=True, measure_enriched=True).build())
+    """Armonizacion tecnica con vocabulario fuente, SIN consecuencia semantica observable (el consumidor recibe semantica propia): no es debilidad ni crea ADECUADA."""
+    j = evaluate_judgment(har_model(authored=True).build())
     assert "HAR-REL-01" not in rules(j) and j["level"] is None and j["status"] == "NOT_DETERMINABLE"
     assert j["supporting_evidence"]["technical_harmonization_candidates"] == ["H1"]
 
 
-
-
-
-def test_har_rel_01_fires_with_downstream_semantic_consequence():
-    published = evaluate_judgment(har_model(gap=("D2",)).build())    # brecha de maestros + medida sin enriquecer sobre armonizacion tecnica con vocabulario fuente
-    assert "HAR-REL-01" in rules(published, "RELEVANT_WEAKNESS") and published["level"] == "ADECUADA" and published["level_rule"] == "LVL-03"
-    assert any(b.startswith("HAR.consequence.family.") for b in reason(published, "HAR-REL-01")["deterministic_basis"])
-    aligned = evaluate_judgment(har_model(assoc=True, measure_enriched=True, align=True).build())
+def test_har_rel_01_fires_when_technical_vocabulary_passes_through_the_harmonization_boundary_to_the_consumer():
+    j = evaluate_judgment(har_model(passthrough=True).build())
+    assert "HAR-REL-01" in rules(j, "RELEVANT_WEAKNESS") and j["level"] == "ADECUADA" and j["level_rule"] == "LVL-03"
+    assert "HAR.consequence.technical_vocabulary_passes_through_the_harmonization_boundary_to_the_consumer" in reason(j, "HAR-REL-01")["deterministic_basis"]
+    aligned = evaluate_judgment(har_model(align=True, authored=True).build())
     assert "HAR-REL-01" in rules(aligned, "RELEVANT_WEAKNESS") and "HAR.consequence.propagation_completes_branch_alignment" in reason(aligned, "HAR-REL-01")["deterministic_basis"]
 
 
-def test_har_rel_01_association_presence_neither_vetoes_nor_creates_the_weakness():
-    base = har_model(gap=("D2",))
-    with_assoc = har_model(assoc=True, gap=("D2",))
-    assert "HAR-REL-01" in rules(evaluate_judgment(base.build())) and "HAR-REL-01" in rules(evaluate_judgment(with_assoc.build()))
-    assert "HAR-REL-01" not in rules(evaluate_judgment(har_model().build()))        # sin brecha ni otra familia: la ausencia de asociaciones por si sola no crea nada
+def test_har_rel_01_ignores_associations_in_both_directions():
+    base = evaluate_judgment(har_model(passthrough=True).build())
+    many = evaluate_judgment(har_model(passthrough=True).assoc("D1").assoc("D2").build())
+    clean = evaluate_judgment(har_model(authored=True).assoc("D1").build())
+    assert "HAR-REL-01" in rules(base) and "HAR-REL-01" in rules(many) and "HAR-REL-01" not in rules(clean)
 
 
 def test_one_non_enriched_field_alone_cannot_create_a_relevant_weakness():
-    b = har_model(assoc=True, measure_enriched=True)
-    b._fields = [{"technical_name": "F1", "role": "ATTRIBUTE", "business_name_equals_technical": True, "name_equals_remote_source_column": True, "derived": False}]
+    """Un campo con etiqueta tecnica que NO atraviesa la armonizacion tecnica (viene de otra hoja gobernada) no es consecuencia de ella."""
+    b = har_model(authored=True)
+    b.measure("OTHER")
+    b.remote("CDS2").trace("OTHER", "CDS2", character="IDENTITY_ONLY", through=False, label="EQUALS_LEAF_LABEL")
     j = evaluate_judgment(b.build())
     assert not rules(j, "RELEVANT_WEAKNESS") and not rules(j, "MATERIAL_DEVIATION")
 
 
 def test_har_rel_01_not_triggered_if_one_candidate_enriches():
     b = (PB().view("V1", ["H1", "H2"], joins=1).view("H1", ["C1"]).view("H2", ["C2"]).cand("H1", carry=4, sources=["C1"]).cand("H2", character="SEMANTIC_TRANSFORMATION_PRESENT", sources=["C2"])
-         .remote("C1").remote("C2").product("V1").measure("M"))
+         .remote("C1").remote("C2").product("V1").measure("M").trace_all("C1", through=True))
     assert "HAR-REL-01" not in rules(evaluate_judgment(b.build()))
 
 
 def test_technical_one_to_one_harmonization_over_a_governed_contract_may_remain_buena():
-    """El patron Kensing: capa 1:1 sobre contrato gobernado que conserva vocabulario de negocio (sin arrastre de nombres de fuente)."""
+    """El patron Kensing: capa 1:1 sobre contrato gobernado que conserva vocabulario de negocio (sin arrastre de nombres de fuente): la heredad verbatim de una hoja GOBERNADA no es fuga."""
     j = evaluate_judgment(buena_model().build())
     assert j["level"] == "BUENA" and j["closure"] == "FINAL" and "HAR-STR-01" in {x["rule_id"] for x in j["strengths"]}
+
+
 # ───────────────────────────── RELEVANT / LOCAL ─────────────────────────────
 
 
@@ -323,14 +355,14 @@ def test_technical_one_to_one_harmonization_over_a_governed_contract_may_remain_
 
 def test_external_contract_undetermined_never_creates_material():
     """Fuente no SAP (clase EXTERNAL_CONTRACT_UNDETERMINED): ni MATERIAL ni alteracion mecanica de nivel."""
-    b = PB().view("V1", ["E1", "H1"], joins=1).cand("H1").remote("H1x").remote("E1").other_origin(1).product("V1").assoc("D").measure("M")
+    b = PB().view("V1", ["E1", "H1"], joins=1).cand("H1").remote("H1x").remote("E1", external=True).product("V1").assoc("D").measure("M").trace_all("E1")
     j = evaluate_judgment(b.build())
     assert not rules(j, "MATERIAL_DEVIATION")
 
 
 @pytest.mark.parametrize("policy", ["UNDETERMINED", "PHYSICAL_RAW", "GOVERNED"])
 def test_external_policy_is_a_sensitivity_input_only_and_default_never_materializes(policy):
-    b = PB().view("V1", ["E1", "E2"], joins=1).remote("E1").remote("E2").other_origin(2).product("V1").assoc("D").measure("M")
+    b = PB().view("V1", ["E1", "E2"], joins=1).remote("E1", external=True).remote("E2", external=True).product("V1").assoc("D").measure("M").trace_all("E1")
     j = evaluate_judgment(b.build(), external_policy=policy)
     if policy == "UNDETERMINED":
         assert not rules(j, "MATERIAL_DEVIATION")
@@ -352,7 +384,8 @@ def test_field_label_ratio_crossing_fifty_percent_does_not_change_the_level():
         b = buena_model()
         b._fields = [{"technical_name": f"F{i}", "role": "ATTRIBUTE", "business_name_equals_technical": i < n_technical, "name_equals_remote_source_column": i < n_technical, "derived": False}
                      for i in range(10)]
-        return b
+        b._traces.clear()
+        return b.trace_all("CDS1", character="IDENTITY_OR_RENAME", through=True, label="EQUALS_LEAF_LABEL", via=["H1"])
     levels = {evaluate_judgment(model(n).build())["level"] for n in (0, 4, 5, 6, 10)}
     assert levels == {"BUENA"}
 
@@ -491,7 +524,7 @@ def test_not_evaluable_critical_area_makes_status_nd_even_with_relevant_reason()
     assert j["status"] == "NOT_DETERMINABLE" and j["level"] is None and j["contracts_not_evaluable"]
 
 
-def test_unjudgeable_when_assessment_is_not_assessed_or_has_no_v2_evidence():
+def test_unjudgeable_when_assessment_is_not_assessed_or_has_no_v3_evidence():
     p = buena_model().build()
     p["assessment_state"] = "NOT_ASSESSED"
     j = evaluate_judgment(p)

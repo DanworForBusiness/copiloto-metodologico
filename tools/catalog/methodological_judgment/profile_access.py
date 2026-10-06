@@ -3,7 +3,7 @@
 Existe para que los CONSUMIDORES HERMANOS de la evidencia canonica (el motor de Juicio metodologico y, mas adelante, un motor de Clasificacion de Dominio) lean el
 mismo perfil sin duplicar la logica de extraccion. NO calcula juicio, NO decide calidad, NO escribe, NO toca el filesystem ni la red y NUNCA muta el perfil.
 
-Todo lo derivado aqui sale del perfil persistido (``canonical_evidence`` v2 + ``areas`` + ``review_required``/``observations`` + ``fact_index`` + ``scope``): no hay
+Todo lo derivado aqui sale del perfil persistido (``canonical_evidence`` v3 (v2 + linaje de campo publicado + clase de contrato de fuente por hoja) + ``areas`` + ``review_required``/``observations`` + ``fact_index`` + ``scope``): no hay
 ninguna lectura del pool de artefactos ni del veredicto legacy.
 """
 from __future__ import annotations
@@ -19,6 +19,7 @@ GOVERNED_SAP_CONTRACT = "GOVERNED_SAP_CONTRACT"
 PHYSICAL_RAW_BOUNDARY = "PHYSICAL_RAW_BOUNDARY"
 EXTERNAL_CONTRACT_UNDETERMINED = "EXTERNAL_CONTRACT_UNDETERMINED"
 SOURCE_CLASSES = (GOVERNED_SAP_CONTRACT, PHYSICAL_RAW_BOUNDARY, EXTERNAL_CONTRACT_UNDETERMINED)
+_GOVERNED_CONTRACT_CLASSES = frozenset({"GOVERNED_SAP_CDS_CONTRACT", "GOVERNED_SAP_ODP_SAPI_CONTRACT", "SAP_STANDARD_VIEW_ON_PHYSICAL_TABLE", "SAP_BW_BRIDGE_VIRTUALIZATION"})
 EXTERNAL_POLICIES = ("UNDETERMINED", "PHYSICAL_RAW", "GOVERNED")                     # solo para PRUEBAS de sensibilidad; el motor usa UNDETERMINED
 
 # clases de proveedor de un nodo de composicion
@@ -68,6 +69,29 @@ class ProfileEvidence:
     @cached_property
     def has_canonical_evidence_v2(self) -> bool:
         return bool(self.ce) and all(k in self.ce for k in ("closure", "view_complexity", "harmonization_contract", "published_contract"))
+
+    @cached_property
+    def has_canonical_evidence_v3(self) -> bool:
+        """El Juicio v1 se evalua SOBRE ``canonical-evidence/v3``: sin linaje de campo ni clase de contrato por hoja no se puede establecer causalmente la restauracion semantica."""
+        return self.has_canonical_evidence_v2 and self.ce.get("version") == "canonical-evidence/v3" and "source_contract_classes" in self.ce and "published_field_lineage" in self.ce
+
+    # ───────────────────────────── clase de contrato de fuente por hoja y linaje de campo (v3) ─────────────────────────────
+    @cached_property
+    def leaf_class_records(self) -> dict[str, Mapping[str, Any]]:
+        return {r["leaf"]: r for r in (self.section("source_contract_classes").get("leaves") or ())}
+
+    @cached_property
+    def lineage(self) -> Mapping[str, Any] | None:
+        v = self.ce.get("published_field_lineage")
+        return v if isinstance(v, Mapping) else None
+
+    @cached_property
+    def lineage_fields(self) -> dict[str, Mapping[str, Any]]:
+        return {r["technical_name"]: r for r in ((self.lineage or {}).get("fields") or ())}
+
+    @cached_property
+    def lineage_incomplete_fields(self) -> tuple[str, ...]:
+        return tuple(sorted(n for n, r in self.lineage_fields.items() if r.get("completeness") != "COMPLETE"))
 
     # ───────────────────────────── areas / grupos ─────────────────────────────
     def area(self, area_id: str) -> Mapping[str, Any]:
@@ -153,16 +177,27 @@ class ProfileEvidence:
         return tuple(sorted(a for a, v in self.raw_occurrences.items() if v.get("reaches_terminal_by_strict_lineage") is True))
 
     def classify_source(self, leaf: str, external_policy: str = "UNDETERMINED") -> str | None:
-        """Clase del contacto con la fuente de una hoja REMOTA importada (None si no es una hoja remota del cierre).
-        Solo se afirma lo que el perfil permite establecer por hoja: cruda (hallazgo explicito) o, si el modelo no tiene ningun origen de clase ``OTHER_ORIGIN``,
-        gobernada (CDS / SAPI-ODP / vista estandar). Con ``OTHER_ORIGIN`` presente y sin evidencia por hoja, la hoja queda INDETERMINADA (conservador)."""
-        if leaf not in self.remote_leaves:
+        """Clase del contacto con la fuente de una hoja frontera, SEGUN LA EVIDENCIA EXPLICITA por hoja (``source_contract_classes``): CDS / ODP-SAPI / vista estandar / puente BW =>
+        gobernada; tabla ABAP fisica => frontera fisica cruda; fuente externa / mixta => indeterminada; DESCONOCIDA (procedencia no evaluada) => indeterminada; plataforma => None
+        (no es un contacto con la fuente). ``external_policy`` existe SOLO para pruebas de sensibilidad y solo afecta a las clases EXTERNAL_*/MIXED (nunca a las desconocidas)."""
+        rec = self.leaf_class_records.get(leaf)
+        if rec is None:
             return None
-        if leaf in self.raw_occurrences:
-            return PHYSICAL_RAW_BOUNDARY
-        if self.source_state_counts.get("OTHER_ORIGIN", 0) == 0:
+        cls = rec["contract_class"]
+        if cls == "PLATFORM_PROVIDED":
+            return None
+        if cls in _GOVERNED_CONTRACT_CLASSES:
             return GOVERNED_SAP_CONTRACT
+        if cls == "PHYSICAL_ABAP_TABLE_BOUNDARY":
+            return PHYSICAL_RAW_BOUNDARY
+        if cls == "UNKNOWN":
+            return EXTERNAL_CONTRACT_UNDETERMINED
         return {"UNDETERMINED": EXTERNAL_CONTRACT_UNDETERMINED, "PHYSICAL_RAW": PHYSICAL_RAW_BOUNDARY, "GOVERNED": GOVERNED_SAP_CONTRACT}[external_policy]
+
+    @cached_property
+    def source_contact_leaves(self) -> tuple[str, ...]:
+        """Hojas frontera que son un CONTACTO con la fuente (todas menos las de plataforma)."""
+        return tuple(sorted(l for l, r in self.leaf_class_records.items() if r["contract_class"] != "PLATFORM_PROVIDED"))
 
     @cached_property
     def has_external_origins(self) -> bool:
@@ -322,6 +357,10 @@ class ProfileEvidence:
         return False
 
     def _key_in_section(self, sec: str, key: str) -> bool:
+        if sec == "published_field_lineage":
+            return key in self.lineage_fields
+        if sec == "source_contract_classes":
+            return key in self.leaf_class_records
         s = self.ce.get(sec)
         return isinstance(s, Mapping) and key in s
 

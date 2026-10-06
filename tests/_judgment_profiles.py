@@ -31,6 +31,10 @@ class PB:
         self._derived = 0
         self._state = "ASSESSED"
         self._closure_extra: list[str] = []
+        self._classes: dict[str, tuple[str, str, str]] = {}                  # hoja -> (kind, clase de contrato, base)
+        self._traces: dict[str, list[dict]] = {}                             # campo publicado -> entradas de hoja del linaje
+        self._via: dict[str, list[str]] = {}
+        self._incomplete: dict[str, str] = {}
 
     # ───────── construccion ─────────
     def view(self, name, providers=(), *, joins=0, derived=0, where=0, unions=0, nodes=1, depth=1, vtype="SQL", basis="DECLARED_ROLE", dist=None):
@@ -48,15 +52,50 @@ class PB:
                              "label_origin_counts": {"DIFFERENT_FROM_PROVIDER": label_diff, "EQUALS_PROVIDER_LABEL": 1}}
         return self
 
-    def remote(self, name, *, raw=False, spine=True):
+    def remote(self, name, *, raw=False, spine=True, external=False):
+        """Hoja remota importada. ``raw`` = tabla ABAP fisica; ``external`` = fuente no SAP (clase EXTERNAL_CONTRACT_UNDETERMINED); si no, contrato CDS gobernado."""
         self._remote.append(name)
         if raw:
             self._raw[name] = spine
+            self._classes[name] = ("REMOTE_IMPORTED", "PHYSICAL_ABAP_TABLE_BOUNDARY", "REMOTE_ENTITY_NAMESPACE")
+        elif external:
+            self._classes[name] = ("REMOTE_IMPORTED", "EXTERNAL_CONTRACT_UNDETERMINED", "NO_RECOGNIZED_NAMESPACE")
+            self._external_count = getattr(self, "_external_count", 0) + 1
+        else:
+            self._classes[name] = ("REMOTE_IMPORTED", "GOVERNED_SAP_CDS_CONTRACT", "REMOTE_ENTITY_NAMESPACE")
+        return self
+
+    def leaf_class(self, name, contract_class, *, kind="REMOTE_IMPORTED", basis="REMOTE_ENTITY_NAMESPACE"):
+        """Fija explicitamente la clase de contrato de una hoja frontera (pruebas de clasificacion)."""
+        self._classes[name] = (kind, contract_class, basis)
+        return self
+
+    def trace(self, field, leaf, *, character="IDENTITY_ONLY", through=False, label="EQUALS_LEAF_LABEL", name_equals=True, via=(), paths=1):
+        """Linaje de un campo publicado hacia UNA hoja frontera (se pueden encadenar varias llamadas para el mismo campo)."""
+        cls = self._classes.get(leaf, ("REMOTE_IMPORTED", "GOVERNED_SAP_CDS_CONTRACT", "REMOTE_ENTITY_NAMESPACE"))[1]
+        self._traces.setdefault(field, []).append({"leaf": leaf, "leaf_field": field if name_equals else f"{field}_SRC", "source_contract_class": cls, "paths": paths,
+                                                   "path_profiles": [{"character": character, "through_harmonization": through, "paths": paths}],
+                                                   "vocabulary": {"name_equals_leaf_field": name_equals, "label_relation": label}})
+        self._via.setdefault(field, [])
+        self._via[field] = sorted(set(self._via[field]) | set(via))
+        return self
+
+    def trace_all(self, leaf, **kw):
+        """Traza TODO campo publicado (y medida) que aun no tenga linaje hacia ``leaf``."""
+        for f in [*self._fields, *self._measures]:
+            if f["technical_name"] not in self._traces:
+                self.trace(f["technical_name"], leaf, **kw)
+        return self
+
+    def incomplete(self, field, completeness="UNRESOLVED"):
+        self._incomplete[field] = completeness
         return self
 
     def local_leaf(self, name, *, state="ESTABLISHED", boundary="GOVERNED_CDS_CONTRACT"):
         self._local[name] = {"leaf": name, "provenance_state": state, "assessability": "ASSESSED" if state else "NOT_ASSESSED"}
         self._boundaries[name] = boundary
+        cls = {"GOVERNED_CDS_CONTRACT": "GOVERNED_SAP_CDS_CONTRACT", "PHYSICAL_TABLE": "PHYSICAL_ABAP_TABLE_BOUNDARY"}.get(boundary, "EXTERNAL_CONTRACT_UNDETERMINED")
+        self._classes[name] = ("LOCAL_FLOW_PRODUCED", cls, "RF_SOURCE_CONTAINER")
         return self
 
     def measure(self, name, *, enriched=True):
@@ -123,15 +162,27 @@ class PB:
             if a["id"] == "SOURCE_EXTRACTION":
                 counts = []
                 n_raw = len(self._raw)
-                n_gov = len(self._remote) - n_raw - self._other_origin
+                n_other = self._other_origin + getattr(self, "_external_count", 0)
+                n_gov = len(self._remote) - n_raw - n_other
                 if n_gov > 0:
                     counts.append({"name": "CDS_VIEW", "count": n_gov})
                 if n_raw:
                     counts.append({"name": "RAW_PHYSICAL_TABLE", "count": n_raw})
-                if self._other_origin:
-                    counts.append({"name": "OTHER_ORIGIN", "count": self._other_origin})
+                if n_other:
+                    counts.append({"name": "OTHER_ORIGIN", "count": n_other})
                 a["highlights"].append({"id": "by_source_state", "value": counts})
         assoc = [{"field": f"_{t}", "target": t, "category": c} for t, c in self._assoc]
+        lin_fields = []
+        for f in fields:
+            n = f["technical_name"]
+            entries = self._traces.get(n)
+            comp = self._incomplete.get(n) or ("COMPLETE" if entries else "UNRESOLVED")
+            lin_fields.append({"technical_name": n, "label": None, "role": f["role"], "datatype_family": "STRING", "immediate_providers": [], "completeness": comp,
+                               "paths": {"total": 1, "to_frontier_leaf": 1 if entries else 0, "no_field_input": 0, "unresolved": 0 if entries else 1, "ambiguous": 0},
+                               "unresolved_reasons": [] if entries else ["NO_QUERY_EVIDENCE"], "ambiguity_codes": [], "harmonization_boundaries_crossed": [],
+                               "artifacts_traversed": list(self._via.get(n, [])), "frontier_leaves": list(entries or []), "lineage_paths": []})
+        leaf_records = [{"leaf": n, "leaf_kind": k, "contract_class": c, "classification_basis": b, "classification_bases": [b], "boundary_classes": [], "source_systems": [],
+                         "remote_entities": [], "remote_connection": None, "definition": ""} for n, (k, c, b) in sorted(self._classes.items())]
         ce = {
             "closure": {"rules": "closure-rules/v1"},
             "view_complexity": {"views": views, "count": len(views)},
@@ -145,7 +196,11 @@ class PB:
             "naming_evidence": {"hygiene": {"artifact_name_populations": {"section_28": {"applicable": self._naming[0], "non_compliant": self._naming[1]}}}},
             "processing_flow_properties": {"flows": self._flows},
             "derivation_semantics": {"counts": {"derived_fields": self._derived}},
+            "source_contract_classes": {"leaves": leaf_records, "by_class": [], "definition": ""},
+            "published_field_lineage": {"extractor_version": "field-lineage/v1", "root": self.am, "fields": lin_fields,
+                                        "counts": {"fields": len(lin_fields), **{k: sum(1 for x in lin_fields if x["completeness"] == k) for k in ("COMPLETE", "PARTIAL", "UNRESOLVED", "AMBIGUOUS")}}},
         }
-        return {"schema_version": "x", "assessment_state": self._state, "versions": {"canonical_evidence": "canonical-evidence/v2"},
+        ce["version"] = "canonical-evidence/v3"
+        return {"schema_version": "x", "assessment_state": self._state, "versions": {"canonical_evidence": "canonical-evidence/v3"},
                 "scope": {"terminal_analytic_model": self.am, "closure_artifacts": sorted(names), "pool_signature": "sig"}, "summary": {"context_required": {"questions": []}},
                 "areas": areas, "observations": [], "review_required": groups, "surfaces": [], "fact_index": fi, "canonical_evidence": ce}
