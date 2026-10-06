@@ -8,6 +8,89 @@
 
 ---
 
+# METHODOLOGY JUDGMENT v1 + EVIDENCE v3 (linaje de campo) — **REVIEW_REQUIRED ANTES DE PRODUCCIÓN/PERSISTENCIA** (actualizado en la transición de agente)
+
+> **Para un agente nuevo:** esto es el estado vigente del frente «Juicio metodológico». El detalle por gate vive en `_handoffs/` (sin versionar; ver §20). **No empieces por UI ni persistencia.** Este frente NO está cerrado.
+
+## 1. Estado del repositorio (verificado al escribir)
+- **Worktree:** `C:\Users\Joe\ArquitectoDanwor-jv1` · **branch:** `feat/methodology-judgment-v1` (desde `origin/main` = `11ba9d5`) · **HEAD local al cierre del trabajo de código:** `255a794` (+ el commit local que actualiza ESTE documento).
+- Cadena de commits **solo LOCALES** (no hay push, PR, deploy, migración de producción, persistencia del Juicio, UI del Juicio, llamada a LLM ni Domain Classification):
+  - `ae9f819` Gate 8D.1 — núcleo inicial del Juicio v1
+  - `b7c9128` Gate 8D.1b — recalibración tras shadow
+  - `9947f47` Gate 8D.1c — se quita el veto binario de asociaciones (recalibración LEK)
+  - `2f12da9`, `092d6ec`, `255a794` Gate 8D.1d — evidencia v3: linaje de campo publicado + clase de contrato de fuente
+- `git status` del worktree al escribir: **limpio** (solo `_handoffs/` y `node_modules/` sin versionar en el checkout principal).
+
+## 2. Estado del gate
+**Gate 8D.1d** (evidence v3 + re-derivación de reglas). El agente anterior reportó «GO con una brecha de evidencia». **Decisión del dueño: estado efectivo = REVIEW_REQUIRED antes de producción/persistencia. NO describirlo como GO cerrado.** Faltan dos decisiones semánticas (§7 LEK y §8 SELLOUT_GP) antes de considerar congelado el núcleo del Juicio.
+
+## 3. Versiones de evidencia
+`canonical_evidence` **v2 → v3** · `assessability` **v3 → v4** (se registran 2 superficies descriptivas que **no** cuentan en la cobertura). **Sin cambio:** `confidence`, `finding_evidence`, `signals`, `closure`. Sin bumps cosméticos (en los 8 casos las secciones v2 quedan byte-idénticas y el resto del perfil no se mueve).
+
+## 4. Evidencia canónica v3 (solo procedencia; ningún veredicto vive en `canonical_evidence`)
+- **`published_field_lineage`** (hecho `am.published_field_lineage`): por cada campo/medida publicado por el AM, linaje hacia atrás reconstruido de forma determinista sobre el **query compilado (AST), no regex SQL**, atravesando subselects anidados, joins y uniones (módulo nuevo `tools/catalog/modeling_assessment/field_lineage.py`, que **extiende** `derivation.py`/`readers.py`). Por campo: proveedor inmediato, nodos/aristas (1 camino de muestra), tipo de mapeo por salto (`IDENTITY·RENAME·CAST·DERIVED·EXPRESSION·UNKNOWN`), fronteras de armonización cruzadas, `artifacts_traversed`, hojas frontera con su clase, `path_profiles` (carácter del camino × ¿cruza armonización?), `vocabulary` (relación factual del vocabulario publicado con el de la hoja) y `completeness ∈ {COMPLETE, PARTIAL, UNRESOLVED, AMBIGUOUS}`. Ambigüedad explícita; **nunca se elige un proveedor arbitrario**.
+- **`source_contract_classes`** (hecho `source.contract_class`): clase + base de clasificación **por hoja frontera**. Enum real (`facts_field_lineage.SOURCE_CONTRACT_CLASSES`): `GOVERNED_SAP_CDS_CONTRACT`, `GOVERNED_SAP_ODP_SAPI_CONTRACT`, `PHYSICAL_ABAP_TABLE_BOUNDARY`, `SAP_STANDARD_VIEW_ON_PHYSICAL_TABLE`, `SAP_BW_BRIDGE_VIRTUALIZATION`, `GOVERNED_EXTERNAL_CONTRACT`, `EXTERNAL_PHYSICAL_OR_TECHNICAL`, `EXTERNAL_CONTRACT_UNDETERMINED`, `PLATFORM_PROVIDED`, `MIXED_BOUNDARY_CLASSES`, `UNKNOWN` (las dos clases externas «gobernada»/«física» existen en el vocabulario pero **no se emiten**: no hay metadata que las establezca). **SQL Server / tecnología relacional externa NO implica cruda ni gobernada:** queda `EXTERNAL_CONTRACT_UNDETERMINED` salvo metadata explícita.
+- Validador cerrado: `evidence_contract_v3.py` (prohíbe claves de veredicto). Hechos compartidos: `candidate_basis()` en `facts_harmonization_contract.py`.
+
+## 5. Completitud medida del linaje
+8 casos de calibración: **todos los campos COMPLETE.** 33 raíces gobernadas: **1904 campos · 1888 COMPLETE · 15 UNRESOLVED · 1 AMBIGUOUS.** Excepciones: `4MA_STOCK` (15 UNRESOLVED: el export declara campos que la consulta compilada no proyecta) y `AM_JMB_Facturas.Previous_Year` (AMBIGUOUS: referencia sin calificar que exponen dos proveedores). Son hechos de **evaluabilidad**, no defectos de calidad.
+
+## 6. Estado de las reglas del Juicio sobre v3 (el Juicio exige v3: `CANONICAL_EVIDENCE_V3_REQUIRED` si no)
+- **`PRO-MAT-01`:** familia causal ratificada (el producto/Propagación re-ejecuta integración/armonización en vez de consumir un contrato suficientemente resuelto). No reabrir.
+- **L1(b):** ratificada la formulación estructural (frontera de armonización técnica/no resuelta aguas arriba + la misma responsabilidad semántica reutilizable creada en varios nodos aguas abajo). **Sin diccionarios de nombres** (nada de Mes/Month/Calendar).
+- **`SRC-REL-01`:** ratificada: «cruda en la espina» NO alcanza; relevancia de nivel = frontera gobernada ausente/omitida **+** compensación aguas abajo.
+- **`HAR-REL-01`:** usa linaje causal: la armonización técnica **no** es debilidad por sí sola; RELEVANT exige consecuencia semántica observable aguas abajo (el vocabulario atraviesa la frontera técnica y llega sin cambios a un campo publicado; o L1(b) calificado; o alineación de ramas en Propagación).
+- **`PUB-STR-01`:** implementación vigente: **no** requiere ≥1 asociación; exige linaje completo, ninguna fuga desde hojas no gobernadas y ≥2 familias afirmativas no idénticas (reuso gobernado trazable de armonización / semántica propia / asociación como evidencia positiva *localizada*). **DECISIÓN DEL DUEÑO: NO reintroducir `asociaciones ≥ 1 ⇒ fortaleza`.** Una asociación es evidencia positiva localizada; cero asociaciones no es débil por sí mismo.
+- **`LEK-MAT-02`:** implementación vigente = L1 (a: cruda omitida y compensada; b: estructural) + L2 (absorción aguas abajo) + L3 **causal por linaje**. **NO está ratificada** (ver §7).
+
+## 7. LEK-MAT-02 — decisión del dueño pendiente de implementar (PRIORIDAD 1)
+Hoy **un solo** camino/campo trazable de fuga satisface L3. **Un único campo/camino filtrado NO puede establecer MATERIAL_DEVIATION automáticamente.** Ejemplo del dueño: `AM_CONSOLIDADO_GASTOS` — solo 3 de 61 campos publicados participan de la fuga: es evidencia de debilidad, no prueba de que el contrato publicado falle materialmente. **Trabajo requerido:** que MATERIAL exija evidencia de que la responsabilidad filtrada es **del contrato / semánticamente central**, no meramente existencial. **Prohibido resolverlo con:** umbrales de conteo de campos, porcentajes, mayoría estricta, 0-vs-1 asociaciones, excepciones por raíz/cliente, diccionarios de nombres. Si la evidencia actual no prueba centralidad semántica genéricamente → clasificar **conservadoramente como RELEVANT o NOT_DETERMINABLE** y documentar la limitación; **no inventar MATERIAL**.
+
+## 8. SELLOUT_GP — brecha de calibración abierta (PRIORIDAD 2)
+Benchmark humano congelado: **Biogenesis · AM_SELLOUT_GP = PARCIAL/HIGH** (**no se cambia**). Resultado determinista v3 actual: **ADECUADA**. Causa: las tablas ABAP `A004/A307` están compensadas y llegan al publicado **derivadas y con etiqueta propia** (8 campos); 21 campos publicados heredan vocabulario técnico por caminos casi-identidad desde **7 hojas SQL Server = `EXTERNAL_CONTRACT_UNDETERMINED`**, y por política una fuente indeterminada no crea MATERIAL. Sensibilidad (`external_policy="PHYSICAL_RAW"`): SELLOUT_GP → PARCIAL por LEK; **Prefacturación no se mueve** bajo ninguna política. **Decisión del dueño:** no forzar ADECUADA ni PARCIAL por una suposición sobre SQL Server. La clasificación de la fuente externa es **decisión-crítica**: hasta que exista evidencia explícita del contrato de fuente, el tratamiento v1 debe ser conservador — `status = NOT_DETERMINABLE` (o equivalente en el repo: «la evidencia actual no puede determinar el nivel congelado porque un hecho de contrato de fuente no resuelto puede cambiarlo»). **Actualizar golden/tests:** etiqueta humana esperada = PARCIAL; el motor determinista puede afirmar explícitamente la brecha/ND. El motor puede reproducir 7/8 exactas con el 8.º bloqueado por una brecha nombrada: **no sobreajustar a 8/8**. Hoy el golden codifica ADECUADA para este caso (`tests/_judgment_cases.BENCHMARK`, `KNOWN_EVIDENCE_GAPS`): hay que cambiarlo a la semántica ND/brecha.
+
+## 9. Shadow vigente (33 raíces, HEAD 255a794)
+NOT_DETERMINABLE **12** · PARCIAL **7** · ADECUADA **9** · BUENA **5** (todas Kensing). Antes (8D.1c): ND 8 · PARCIAL 8 · ADECUADA 12 · BUENA 5. Disparos: `LEK-MAT-02` **5** (Illolay, CONSOLIDADO_GASTOS, Lista, RESERVA_MATERIAL, RESERVA_MP) · `HAR-REL-01` **4** · `PRO-MAT-01` **4** · `SRC-REL-01` **7** · `PUB-STR-01` **16**. Cambios vs 8D.1c: SELLOUT_GP PARCIAL→ADECUADA; BULTOS_DESPACHADOS/EXPORTACIONES/OCUPACION_ALMACENES/SELL_OUT_HOJOBAR ADECUADA→ND. Detalle por raíz: `_handoffs/methodology-judgment-evidence-v3-shadow.csv`. **No optimizar hacia una distribución deseada.**
+
+## 10. Calibración
+Benchmark humano (8, congelado): Illolay PARCIAL · BASE_STOCKS PARCIAL · Descuentos ADECUADA · Kensing BUENA · Prefacturación ADECUADA · Lista_Precios PARCIAL · RESERVA_MATERIAL PARCIAL · SELLOUT_GP PARCIAL. Reproducción determinista v3: **7/8 exactas**; SELLOUT_GP = brecha de evidencia explícita. Es aceptable y preferible a sobreajustar. **No reportar la etiqueta humana como cambiada.**
+
+## 11. Tamaño de perfil / persistencia (decisión del dueño)
+33 perfiles: ~7.0 MB → ~10.3 MB; Kensing ~327 KB → ~876 KB. Aceptable para validar evidencia **localmente**; **NO aceptado como forma final de persistencia en producción.** **Antes de cualquier migración a producción** hay que revisar el tamaño de serialización canónica: preservar semántica de evidencia; **no borrar linaje útil** solo para ahorrar bytes; deduplicar nodos/aristas/caminos repetidos y referenciar estructuras compartidas; omitir solo valores derivables de forma inequívoca de estructuras ya persistidas. **No optimizar prematuramente** durante el trabajo de LEK; la compactación es **requisito pre-migración**; documentar tamaño antes/después.
+
+## 12. Invarianza al empaquetado (validada; no regresionar)
+Hechos equivalentes dan **idéntico** cierre/linaje/clasificación cuando la definición remota va embebida vs exportada aparte, la tabla local va embebida en el export de Processing vs aparte, o el flujo trae definiciones embebidas vs no. Protege contra el bug histórico de cierre dependiente del empaquetado.
+
+## 13. Estado de tests (último reportado por el agente anterior)
+Linaje/clases: **38** · Juicio: **161** · calibración con pool local: **18 passed** (se omiten sin pool; env `DANWOR_CATALOG_DIR`) · subsistema Assessment/Judgment: **1384 passed, 19 skipped** · suite completa: **5598 passed, 20 skipped**. **No re-correr la suite completa de inmediato**: usar tests focalizados mientras se cambia LEK (`tests/test_methodological_judgment_*.py`, `tests/test_modeling_assessment_field_lineage*.py`). Comando: `C:\Users\Joe\ArquitectoDanwor\.venv\Scripts\python.exe -m pytest <tests> -q -p no:cacheprovider` desde el worktree (sin `PYTHONIOENCODING`/`PYTHONUTF8`).
+
+## 14. Migración — DISEÑADA, NO APLICADA
+Target `evidence_field_lineage_v3` (en `assessment_service.EVIDENCE_MIGRATIONS`): elegible desde `assessability v3` + `canonical_evidence v2`; el build regenera a `assessability v4` + `canonical_evidence v3`. Solo evidencia, **`CLOSURE_EQUAL`**, sin encadenamiento; `VERSION_ONLY` ≠ `INPUT_CHANGED` ≠ `VERSION_AND_INPUT` (los cambiados de entrada **no** se absorben); perfiles pre-v2 reportan «otra migración aplicable». **No se corrió ninguna migración de producción.** No correrla hasta que: (1) la semántica del Juicio esté congelada, (2) se acepte la decisión de tamaño/serialización, (3) el dueño autorice el rollout. Al desplegar, todo perfil v2 vigente pasa a STALE `VERSION_ONLY`.
+
+## 15. Domain Classification — roadmap (NO implementar ahora)
+`Canonical Evidence → Judgment Engine` y, **de forma independiente**, `Canonical Evidence → Domain Classification Engine → Catalog Domain Taxonomy`. El linaje/procedencia v3 es neutral en calidad y servirá. Concepto de clasificación gobernada futura: `primary_lob`, `primary_domain`, `secondary_domains`, `status`, `confidence`, `assignment_source`, `evidence_refs`, `rationale`, `alternatives`; override/confirmación humana gobernada. **La clasificación de dominio nunca afecta la calidad metodológica.** Posible refactor futuro: `ProfileEvidence` hoy vive en `tools/catalog/methodological_judgment/profile_access.py`; un módulo neutro de acceso a evidencia serviría a ambos consumidores — **no refactorizar especulativamente**.
+
+## 16. LLM Executive Advisor — arquitectura a preservar
+`Evidence Engine → Deterministic Judgment Engine → LLM Executive Advisor`; **NUNCA** `Evidence → LLM → nivel`. El LLM (futuro) explica, prioriza y propone CTA/preguntas; **no** cambia el nivel, no inventa evidencia/artefactos, no infiere carga/federación no observada, no crea CTA fuera del playbook ni convierte preguntas abiertas en defectos. Ya existen `build_executive_input` y `validate_executive_output` (sin llamada a modelo/API).
+
+## 17. CTA gobernadas
+El núcleo ya emite candidatos CTA del playbook (`cta-playbook/v1`): resolver universo mixto en Propagación · crear/reutilizar armonización semántica · consolidar capas fragmentadas · evaluar contrato de fuente gobernado · aclarar estrategia de adquisición · enriquecer semántica publicada · revisar propiedad de predicados fijos · revisar descomposición gráfica · declarar convención de nombres · confirmar intención de producto · cerrar brechas de evidencia. **Predicados fijos: `DISABLED_PENDING_EVIDENCE`** (sin evidence release de predicados).
+
+## 18. PRÓXIMO AGENTE — PRIORIDADES EXACTAS
+1. **Cerrar la materialidad/existencialidad de `LEK-MAT-02`** (§7): un camino filtrado ≠ MATERIAL automático; determinar si v3 prueba fuga de nivel-contrato/semánticamente central sin conteos/porcentajes/mayoría/veto de asociaciones/excepciones/heurísticas de nombres; si no, degradar a RELEVANT/NOT_DETERMINABLE con limitación documentada.
+2. **SELLOUT_GP** (§8): representar la incertidumbre de fuente externa como `NOT_DETERMINABLE` decisión-crítico (no ADECUADA/PARCIAL falsa); actualizar golden/tests.
+3. Re-correr tests **focalizados** del Juicio y el shadow de 33 raíces (scripts de scratch en el directorio temporal de la sesión; reconstruibles con `ma_shadow.assess` sobre el pool local `catalog_local/.csn_cache`).
+4. Si el núcleo se estabiliza: subsistema **una vez** y suite completa **una vez** solo para candidato a GO.
+5. **Obtener GO del dueño antes de:** compactación de perfil · migración de evidencia · persistencia del Juicio · UI · push/PR.
+
+## 19. NO REABRIR decisiones ratificadas (salvo evidencia nueva que las contradiga)
+Taxonomía de 4 niveles PLENA/BUENA/ADECUADA/PARCIAL · PLENA deshabilitada hasta tener control positivo · NOT_DETERMINABLE fuera de la escala · sin puntaje numérico ni pesos ni umbrales porcentuales arbitrarios · ausencia de hallazgos ≠ calidad positiva · fuente cruda sola ≠ defecto · gráfico solo ≠ defecto · SQL solo ≠ fortaleza · número de asociaciones solo ≠ calidad · armonización 1:1 puede ser legítima · naming solo no determina el nivel · calificador de naming solo no fuerza PROVISIONAL · `ACCEPTED_AS_DESIGNED` no reduce severidad · solo excepción gobernada / N/A justificado retiran razones efectivas · SAPI/ODP = adquisición SAP gobernada · la clase de una fuente relacional externa no se infiere de la tecnología · los calificadores no alteran el nivel en silencio · Domain Classification independiente del Juicio · el LLM nunca determina el nivel.
+
+## 20. Referencias (externas, sin versionar; resumir, no copiar)
+`_handoffs/methodology-judgment-gate8c-ruleset-v1-design.md` · `methodology-judgment-gate8c-decision-table.csv` · `methodology-judgment-gate8d1-implementation.md` (incluye secciones 8D.1b y 8D.1c) · `methodology-judgment-gate8d1-shadow.csv` · `methodology-judgment-evidence-v3-field-lineage.md` · `methodology-judgment-evidence-v3-shadow.csv` · `blind-calibration-pack-evidence-release-final.md` (pack ciego final, si sigue presente). Memoria del agente: `methodology-judgment-v1-core.md`.
+
+---
+
 # CCHH · APP DE REFERENCIA (`app-seleccion`) — CHECKOUT LOCAL AUTORITATIVO
 
 > **Para cualquier agente nuevo, antes de mapear dominio de CUALQUIER bloque
