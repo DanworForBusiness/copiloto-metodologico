@@ -10262,3 +10262,62 @@ en `summary.assistant_stories[].turns[]` — es pura reescritura de
 `admin_activity_content.html` (sección "Historia de preguntas al asistente")
 para que el detalle expandido lea como una narrativa, no una lista de
 badges. Dejá tu entrada acá abajo cuando termines.
+
+---
+
+## Gate A — Producer matcher parity para targets `_Delta` (delta-shadow) — 2026-10-06
+
+**Qué estaba roto.** La adquisición de productores del extractor
+(`DSP_CLI_Export_Lineage.py::discover_producers`) emparejaba Replication Flows con las
+hojas del linaje por intersección EXACTA de nombres: `set(local_tables) & info["targets"]`.
+El resolver de procedencia (`readers.target_flows`) ya entiende la normalización canónica
+`X_Delta -> X` (la tabla de captura de cambios `<leaf>_Delta` de un RF es la hoja `X`,
+salvo que `X_Delta` sea una entidad real propia). Esa **asimetría** hacía que todo RF cuyo
+único target fuera `<leaf>_Delta` se descartara (`SKIP - sin target del linaje`) y nunca se
+exportara al pool → sus hojas quedaban `LOCAL_PROVENANCE_NOT_ASSESSED`. En el root GL de
+Kensing, de 15 productores requeridos, **9 usan target `_Delta`** (invisibles para la
+intersección exacta) y 6 usan target EXACTO.
+
+**El fix (acotado).** `discover_producers` ahora empareja con la MISMA regla canónica del
+resolver: un RF produce una hoja si **algún** target declarado matchea canónicamente —
+`EXACT` o la sombra `<leaf>_Delta`— con guarda de independencia (`known_entities` = universo
+de entidades ya adquiridas, `known_names`): si `X_Delta` es una entidad real propia NO se
+colapsa a `X`. La arista `PRODUCES` sigue apuntando a la hoja base `X`.
+
+**Reuso del matcher canónico (y frontera de arquitectura).** La regla vive como
+`readers.canonical_target_match` (único punto de verdad del paquete; `target_flows` se
+refactorizó para delegar en ella, sin cambio de comportamiento). El paquete
+`modeling_assessment` está aislado del legacy por invariantes R-I2/R-I3 (solo
+`assessment_service`/`assessment_presenter` pueden importarlo; los módulos del paquete solo
+importan stdlib+intra-paquete salvo `legacy_bridge`). Por eso el extractor **no puede
+importar el paquete**: la regla se **espeja** en `DSP_CLI_Export_Lineage._canonical_target_match`
+(cuerpo idéntico) y la equivalencia se **blinda con un test de contrato**
+(`test_g_resolver_and_acquisition_matcher_agree`), que falla si ambas divergen. No se amplió
+la superficie de integración permitida.
+
+**Semántica vieja vs nueva.**
+- Vieja: `matched = set(local_tables) & info["targets"]` (solo EXACT).
+- Nueva: `matched = {leaf in local_tables : ∃ target con canonical_target_match(target, leaf, acquired) }`
+  (`EXACT` ∪ `DELTA_SHADOW_SUFFIX`), con guarda de entidad `_Delta` independiente.
+
+**Tests.** `tests/test_dsp_cli_export_lineage_producer_matching.py` (18 casos): A exacto,
+B delta-shadow (arista a la hoja base), C seguridad de entidad `X_Delta` independiente
+(no colapsa), D sufijo ajeno (`X_DeltaSomething`, `Y_Delta`), E múltiples targets (un match
+canónico basta) + no-match, unidad del matcher (espejo == regla del paquete), G acuerdo
+resolver↔adquisición. Subsistema extracción/Assessment: 1515 passed. Suite completa:
+**5633 passed, 20 skipped** (baseline 5615 + 18 nuevos; sin regresiones).
+
+**Idempotencia / no se tocó.** Publicar el mismo root tras el fix agrega los RF recién
+descubiertos al MISMO pool técnico, sin duplicar los 2 ya presentes, preserva identidad de
+catálogo/root y re-corre Assessment desde el pool refrescado como ya lo hace. NO requiere
+migración de evidencia ni `--reassess-current`. No se cambió Judgment, Assessment, schema,
+migración ni UI.
+
+**PENDIENTE EXPLÍCITO — los 4 productores EXACT TEXT.** En el pool local completo el mapeo
+es 6 EXACT + 9 DELTA. En producción, tras publicar el root, estaban presentes **solo 2/6
+EXACT y 0/9 DELTA**. Este gate hace descubribles los **9 DELTA**; NO explica por qué
+**4 productores EXACT TEXT** (`RF_MD_COSTCENTERTEXT`, `RF_MD_GLACCOUNTTEXT`,
+`RF_MD_HOUSEBANKTEXT`, `RF_MD_PROFITCENTERTEXT`) estaban ausentes pese a ser EXACT. NO se
+tocó ese problema (fuera de alcance). Resultado esperado tras re-publicar: **medir de nuevo**
+(plausible 11/15, pero NO se codeó hacia ese número). Este gate NO implementó alcance Space
+ni cambió el walk.

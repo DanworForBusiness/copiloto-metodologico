@@ -70,6 +70,28 @@ class capture_output:
 
 EXTRACTOR_VERSION = "2.2"
 
+# Regla CANÓNICA, a nivel de nombre, de "¿el target de un flow produce la hoja local?". Es un ESPEJO DELIBERADO de
+# ``tools.catalog.modeling_assessment.readers.canonical_target_match`` (la regla del resolver de procedencia): el paquete
+# ``modeling_assessment`` está aislado del legacy por invariantes de frontera (R-I2/R-I3), así que el extractor NO puede
+# importarlo. La equivalencia NO se garantiza por import compartido sino por un test de contrato
+# (``tests/test_dsp_cli_export_lineage_producer_matching.py::test_g_resolver_and_acquisition_matcher_agree``), que falla si
+# ambas reglas divergen. Mantener este cuerpo idéntico al del resolver.
+_DELTA_SHADOW_SUFFIX = "_Delta"
+
+
+def _canonical_target_match(target: str, leaf: str, known_entities=None) -> str | None:
+    """``"EXACT"`` si ``target == leaf``; ``"DELTA_SHADOW_SUFFIX"`` si ``target`` es la sombra de captura de cambios
+    ``<leaf>_Delta`` y ``<leaf>_Delta`` NO es a su vez una entidad real del universo adquirido (guarda ``known_entities``);
+    ``None`` en cualquier otro caso. Sin matching difuso ni sufijos generales."""
+    if target == leaf:
+        return "EXACT"
+    if target.endswith(_DELTA_SHADOW_SUFFIX) and target[: -len(_DELTA_SHADOW_SUFFIX)] == leaf:
+        if known_entities is not None and target in known_entities:
+            return None
+        return "DELTA_SHADOW_SUFFIX"
+    return None
+
+
 OBJECT_TYPES = [
     "analytic-models",
     "views",
@@ -977,6 +999,11 @@ class LineageExporter:
         started = time.perf_counter()
         local_tables = [n.technical_name for n in self.nodes.values() if n.object_type == "local-tables"]
         known_names = {n.technical_name for n in self.nodes.values()}
+        # Universo de entidades REALES ya adquiridas (mismo criterio que ``entities`` del resolver): guarda de
+        # independencia para la normalización ``X_Delta -> X``. Si ``X_Delta`` es una entidad propia del universo
+        # adquirido, NO es la sombra de captura de cambios de ``X`` y no se colapsa. (No se usa el inventario vivo
+        # del Space: puede listar tablas ``_Delta`` que nunca se materializan como entidad del pool.)
+        acquired_universe = known_names
 
         if "replication-flows" in self.effective_features:
             rf_names = sorted(self.ensure_inventory("replication-flows"))
@@ -988,7 +1015,12 @@ class LineageExporter:
                     _say("ERROR")
                     continue
                 info = self.parse_replication_flow(data, rf_name)
-                matched_targets = sorted(set(local_tables) & info["targets"])
+                # Un leaf del linaje se produce si ALGÚN target declarado del RF matchea canónicamente (EXACT o la
+                # sombra de captura de cambios ``<leaf>_Delta``). Misma regla que ``readers.target_flows`` (resolver).
+                matched_targets = sorted(
+                    leaf for leaf in local_tables
+                    if any(_canonical_target_match(t, leaf, acquired_universe) for t in info["targets"])
+                )
                 if not matched_targets:
                     _say("SKIP - sin target del linaje")
                     continue

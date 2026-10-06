@@ -45,6 +45,29 @@ DELTA_SHADOW_SUFFIX = "_Delta"
 _REPLICATION_KEY_TOKENS = ("replic", "delta", "federat")
 
 
+def canonical_target_match(target: str, leaf: str, known_entities=None) -> str | None:
+    """Regla CANONICA, a nivel de nombre, de "¿el destino ``target`` de un flow produce la hoja local ``leaf``?".
+    Única fuente de verdad compartida por la resolución de procedencia (``SupplementaryEvidence.target_flows``) y por la
+    adquisición de productores del extractor (``discover_producers``), para que ambos coincidan por construcción.
+
+    Devuelve:
+      * ``"EXACT"``                 si ``target == leaf``;
+      * ``"DELTA_SHADOW_SUFFIX"``   si ``target`` es la tabla de captura de cambios ``<leaf>_Delta`` — y SOLO si ``<leaf>_Delta``
+                                    NO es a su vez una entidad real e independiente del universo (guarda ``known_entities``);
+      * ``None``                    en cualquier otro caso (incluido un ``_Delta`` que es entidad propia, o un sufijo ajeno
+                                    como ``X_DeltaSomething``).
+
+    ``known_entities``: nombres de las entidades conocidas del universo (para la guarda del punto 2). ``None`` = no se conoce,
+    no se aplica esa guarda. Sin matching difuso ni sufijos generales."""
+    if target == leaf:
+        return "EXACT"
+    if target.endswith(DELTA_SHADOW_SUFFIX) and target[: -len(DELTA_SHADOW_SUFFIX)] == leaf:
+        if known_entities is not None and target in known_entities:
+            return None
+        return "DELTA_SHADOW_SUFFIX"
+    return None
+
+
 @dataclass(frozen=True)
 class ReadIssue:
     source_file: str
@@ -530,13 +553,13 @@ class SupplementaryEvidence:
              (``MULTIPLE_DELTA_CANDIDATES``), nunca se adivina.
 
         ``known_entities``: nombres de las entidades del pool (para el punto 3); None = no se conoce (no se aplica esa guarda)."""
-        exact = tuple((fl, "EXACT") for fl in self._flows if entity in fl.target_entities)
+        # Misma semántica canónica de nombre que la adquisición de productores: ``canonical_target_match``.
+        exact = tuple((fl, "EXACT") for fl in self._flows
+                      if any(canonical_target_match(t, entity) == "EXACT" for t in fl.target_entities))
         if exact:
             return exact, None
-        shadow = f"{entity}{DELTA_SHADOW_SUFFIX}"
-        if known_entities is not None and shadow in known_entities:
-            return (), None
-        cands = tuple((fl, "DELTA_SHADOW_SUFFIX") for fl in self._flows if fl.kind == REPLICATION_FLOW and shadow in fl.target_entities)
+        cands = tuple((fl, "DELTA_SHADOW_SUFFIX") for fl in self._flows if fl.kind == REPLICATION_FLOW
+                      and any(canonical_target_match(t, entity, known_entities) == "DELTA_SHADOW_SUFFIX" for t in fl.target_entities))
         if len(cands) > 1:
             return (), "MULTIPLE_DELTA_CANDIDATES"
         return cands, None
