@@ -225,6 +225,42 @@ class ProfileEvidence:
                     dq.append(c)
         return tuple(sorted(seen))
 
+    def ancestors(self, name: str) -> tuple[str, ...]:
+        """Todo lo que esta aguas ARRIBA de ``name`` (proveedores transitivos dentro del cierre)."""
+        seen: set[str] = set()
+        dq = deque([name])
+        while dq:
+            for p in (self.views.get(dq.popleft()) or {}).get("provider_names") or ():
+                if p not in seen:
+                    seen.add(p)
+                    dq.append(p)
+        return tuple(sorted(seen))
+
+    def bypass_path_nodes(self, leaf: str) -> tuple[str, ...]:
+        """Nodos intermedios de los caminos ``leaf -> nodo de producto`` que NO atraviesan ningun candidato de armonizacion (la hoja evita/omite la frontera reutilizable).
+        Vacio si todo camino pasa por un candidato o no alcanza el producto."""
+        prod = set(self.product_nodes)
+        fwd: set[str] = set()
+        dq = deque([leaf])
+        while dq:
+            n = dq.popleft()
+            for c in self.consumers.get(n, ()):
+                if c in self.harmonization or c in fwd:
+                    continue
+                fwd.add(c)
+                dq.append(c)
+        if leaf in prod:
+            return ()
+        back: set[str] = set(n for n in fwd if n in prod)
+        dq = deque(back)
+        while dq:
+            n = dq.popleft()
+            for p in (self.views.get(n) or {}).get("provider_names") or ():
+                if p in fwd and p not in back:
+                    back.add(p)
+                    dq.append(p)
+        return tuple(sorted(back))
+
     def view_has_logic(self, name: str) -> bool:
         """El nodo ejecuta responsabilidad logica (joins, uniones, derivaciones o filtros). Se mide por RESPONSABILIDAD, no por estilo grafico/SQL."""
         m = (self.views.get(name) or {}).get("metrics") or {}

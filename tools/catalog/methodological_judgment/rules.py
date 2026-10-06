@@ -109,6 +109,89 @@ def _logic_descendants(ev: ProfileEvidence, leaf: str) -> list[str]:
     return [d for d in ev.descendants(leaf) if d not in ev.harmonization and ev.view_has_logic(d)]
 
 
+# ───────────────────────────── causalidad compartida (Gate 8D.1b) ─────────────────────────────
+def _raw_on_strict_spine(ev: ProfileEvidence, leaf: str) -> bool:
+    return ev.raw_occurrences.get(leaf, {}).get("reaches_terminal_by_strict_lineage") is True or (leaf not in ev.raw_occurrences and _leaf_reaches_product(ev, leaf))
+
+
+def _raw_bypass_compensated(ev: ProfileEvidence, policy: str) -> dict[str, list[str]]:
+    """Hoja fisica cruda (en la espina estricta) CUYO camino hacia el producto OMITE la frontera reutilizable (ningun candidato de armonizacion en ese camino: frontera ausente u omitida)
+    y es COMPENSADA por logica de Modelado (nodos no candidatos con joins/derivaciones/filtros/uniones sobre ese camino). Una cruda en la espina que SI atraviesa un candidato, o que
+    no es compensada, es evidencia de fuente (LOCAL/apoyo), no una debilidad de nivel. hoja -> nodos de compensacion."""
+    out: dict[str, list[str]] = {}
+    for leaf in sorted(l for l in ev.remote_leaves if ev.classify_source(l, policy) == PHYSICAL_RAW_BOUNDARY):
+        if not _raw_on_strict_spine(ev, leaf):
+            continue
+        logic = [n for n in ev.bypass_path_nodes(leaf) if n not in ev.harmonization and ev.view_has_logic(n)]
+        if logic:
+            out[leaf] = logic
+    return out
+
+
+def _downstream_created_semantics(ev: ProfileEvidence) -> tuple[list[dict], list[dict]]:
+    """L1(b) generico: una responsabilidad semantica reutilizable (expresion TEMPORAL reutilizada que NINGUN candidato posee) que debio resolverse en una frontera de armonizacion queda
+    creada/poseida AGUAS ABAJO. Califica solo si converge A (existe aguas arriba de los sitios una frontera de armonizacion demostrablemente TECNICA, es decir, que no la resuelve) y
+    B (la responsabilidad se crea/reutiliza en >=2 nodos distintos no candidatos aguas abajo de esa frontera: la reutilizacion es la evidencia de propiedad duplicada). No se infiere por
+    nombres de campo. (calificados, no calificados)."""
+    qual, unq = [], []
+    for g in _temporal_reuse_groups(ev):
+        arts = sorted({o.get("artifact") for o in g.get("occurrences") or () if o.get("artifact")})
+        tech = sorted({c for a in arts for c in ev.ancestors(a) if c in ev.harmonization and (ev.harmonization[c].get("character") or {}).get("value") == "TECHNICAL_MATERIALIZATION"})
+        owned_downstream = len(arts) >= 2 and all(a not in ev.harmonization and a in ev.views for a in arts)
+        rec = {"exact_fp": g.get("exact_fp"), "artifacts": arts, "technical_upstream_candidates": tech, "A_boundary_demonstrably_technical": bool(tech), "B_owned_downstream_in_multiple_nodes": owned_downstream}
+        (qual if (tech and owned_downstream) else unq).append(rec)
+    return qual, unq
+
+
+FAMILY_EVIDENCE_SOURCE = {"ASSOCIATION_AUTONOMY": "published_contract.associations", "MEASURE_SEMANTICS": "published_contract.fields", "ATTRIBUTE_LABEL_ENRICHMENT": "published_contract.fields",
+                          "SOURCE_VOCABULARY_CARRY_THROUGH": "published_contract.fields", "TECHNICAL_PROJECTION_REACHING_PUBLICATION": "harmonization_contract"}
+ANCHOR_FAMILIES = ("ASSOCIATION_AUTONOMY", "MEASURE_SEMANTICS")      # familias orientadas al CONSUMIDOR: autonomia de maestros y semantica de medidas. Las demas solo corroboran.
+
+
+def _published_families(ev: ProfileEvidence, *, include_projection: bool) -> dict[str, set[str]]:
+    """Familias de evidencia de no-restauracion semantica del publicado. Presencia CATEGORICA (sin conteos ni proporciones); cada familia aporta TESTIGOS con espacio de nombres comun
+    (``field:`` para campos/medidas, ``assoc:``, ``cand:``): un mismo elemento no puede sostener dos familias (ver ``_converging_families``).
+    ANCLA (consumidor): ASSOCIATION_AUTONOMY = el publicado no expone NINGUNA asociacion a una dimension de negocio; MEASURE_SEMANTICS = existe una medida visible cuya etiqueta es su
+    propio nombre tecnico. CORROBORANTES: ATTRIBUTE_LABEL_ENRICHMENT (atributos con etiqueta = nombre tecnico), SOURCE_VOCABULARY_CARRY_THROUGH (campos con nombre = columna de la fuente
+    remota), TECHNICAL_PROJECTION_REACHING_PUBLICATION (frontera de armonizacion aguas arriba del producto que es proyeccion tecnica con vocabulario fuente; premisa de HAR-REL-01, por eso
+    ``include_projection=False`` en esa regla)."""
+    fam: dict[str, set[str]] = {}
+    if not ev.business_association_targets:
+        fam["ASSOCIATION_AUTONOMY"] = {"assoc:no_business_dimension_association"}
+    fields = ev.published_fields
+    meas = {f"field:{f.get('technical_name')}" for f in fields if f.get("role") == "MEASURE" and f.get("business_name_equals_technical")}
+    attr = {f"field:{f.get('technical_name')}" for f in fields if f.get("role") != "MEASURE" and f.get("business_name_equals_technical")}
+    voc = {f"field:{f.get('technical_name')}" for f in fields if f.get("name_equals_remote_source_column")}
+    if meas:
+        fam["MEASURE_SEMANTICS"] = meas
+    if attr:
+        fam["ATTRIBUTE_LABEL_ENRICHMENT"] = attr
+    if voc:
+        fam["SOURCE_VOCABULARY_CARRY_THROUGH"] = voc
+    if include_projection:
+        upstream = set(ev.product_nodes) | {a for n in ev.product_nodes for a in ev.ancestors(n)}
+        proj = {f"cand:{c}" for c in upstream if c in ev.harmonization and (ev.harmonization[c].get("character") or {}).get("value") == "TECHNICAL_MATERIALIZATION"
+                and ((ev.harmonization[c].get("source_vocabulary") or {}).get("fields_with_source_column_name") or 0) > 0}
+        if proj:
+            fam["TECHNICAL_PROJECTION_REACHING_PUBLICATION"] = proj
+    return fam
+
+
+def _converging_families(fam: Mapping[str, set[str]]) -> list[str]:
+    """Familias que convergen: pares con (i) FUENTES DE EVIDENCIA canonicas distintas (asociaciones / campos publicados / contrato de armonizacion: varias familias que salen de los mismos
+    campos publicados NO son independientes), (ii) TESTIGOS distintos (un elemento no sostiene dos familias) y (iii) al menos una familia ANCLA del consumidor en el par.
+    Un solo campo/medida, o varias senales del mismo origen, NO es convergencia; ninguna familia por si sola establece no-restauracion."""
+    names = sorted(fam)
+    out: set[str] = set()
+    for i, x in enumerate(names):
+        for y in names[i + 1:]:
+            if FAMILY_EVIDENCE_SOURCE[x] == FAMILY_EVIDENCE_SOURCE[y] or not (x in ANCHOR_FAMILIES or y in ANCHOR_FAMILIES):
+                continue
+            if any(u != v for u in fam[x] for v in fam[y]):
+                out.update((x, y))
+    return sorted(out)
+
+
 # ───────────────────────────── MATERIAL ─────────────────────────────
 def rule_pro_mat_01(ev: ProfileEvidence, policy: str) -> list[dict]:
     """PRO-MAT-01 — el nodo de PRODUCTO (posicion: proveedor directo del AM) re-ejecuta integracion/armonizacion: (i) universo mixto (consume un candidato de
@@ -144,31 +227,23 @@ def rule_pro_mat_01(ev: ProfileEvidence, policy: str) -> list[dict]:
 
 def rule_lek_mat_02(ev: ProfileEvidence, policy: str) -> list[dict]:
     """LEK-MAT-02 — fuga de responsabilidad DISTRIBUIDA con publicacion no restaurada.
-    L1 (se exige (a) o (b); (c) solo APOYA): (a) tabla fisica cruda en la espina; (b) semantica reutilizable de calendario (TEMPORAL) derivada aguas abajo y reutilizada
-    en >=2 clausulas/artefactos sin candidato de armonizacion que la posea; (c) hoja de frontera clasificada consumida directamente en el nodo de producto (apoyo).
-    L2: esa responsabilidad es absorbida por nodos que NO son candidatos de armonizacion y ejecutan logica (joins/derivaciones/filtros/uniones).
-    L3: el publicado no la restaura: existe al menos una medida visible cuya etiqueta es su propio nombre tecnico (sin identidad de negocio). Existencia, NO razon ni mayoria."""
+    L1 (se exige (a) o (b); (c) solo APOYA): (a) tabla fisica cruda en la espina que OMITE la frontera reutilizable y es compensada por logica de Modelado; (b) semantica reutilizable creada
+    aguas abajo sobre una frontera de armonizacion tecnica (ver ``_downstream_created_semantics``); (c) hoja de frontera clasificada consumida directamente en el nodo de producto (apoyo).
+    L2: esa responsabilidad es absorbida por nodos que NO son candidatos de armonizacion y ejecutan logica.
+    L3: el publicado no la restaura: convergen >=2 FAMILIAS independientes de evidencia semantica (asociacion/maestros, enriquecimiento de etiquetas, arrastre de vocabulario fuente,
+    proyeccion tecnica). Una sola familia (p. ej. una medida sin enriquecer) NO alcanza; no hay proporcion ni mayoria."""
     elements: dict[str, list[str]] = {}
     l2_nodes: set[str] = set()
     refs: list[str] = []
-    # (a)
-    raw_leaves = [l for l in ev.remote_leaves if ev.classify_source(l, policy) == PHYSICAL_RAW_BOUNDARY]
-    for leaf in sorted(raw_leaves):
-        if not (ev.raw_occurrences.get(leaf, {}).get("reaches_terminal_by_strict_lineage") is True or (leaf not in ev.raw_occurrences and _leaf_reaches_product(ev, leaf))):
-            continue
-        logic = _logic_descendants(ev, leaf)
-        if logic:
-            elements.setdefault("a_physical_raw_on_strict_spine", []).append(leaf)
-            l2_nodes.update(logic)
-            refs += [_fact_ref(ev, "source.downstream_reach", leaf), _fact_ref(ev, "source.contract", leaf)]
-    # (b)
-    for g in _temporal_reuse_groups(ev):
-        arts = sorted({o.get("artifact") for o in g.get("occurrences") or ()})
-        elements.setdefault("b_reusable_calendar_semantics_derived_downstream", []).extend(arts)
-        l2_nodes.update(a for a in arts if ev.view_has_logic(a) or a in ev.views)
-    if "b_reusable_calendar_semantics_derived_downstream" in elements:
-        refs += ["ce:expression_occurrences"]
-    # (c)
+    for leaf, logic in _raw_bypass_compensated(ev, policy).items():
+        elements.setdefault("a_physical_raw_bypassing_harmonization_compensated_downstream", []).append(leaf)
+        l2_nodes.update(logic)
+        refs += [_fact_ref(ev, "source.downstream_reach", leaf), _fact_ref(ev, "source.contract", leaf)]
+    qual, _ = _downstream_created_semantics(ev)
+    for q in qual:
+        elements.setdefault("b_reusable_semantics_created_downstream_over_technical_boundary", []).extend([*q["artifacts"], *q["technical_upstream_candidates"]])
+        l2_nodes.update(q["artifacts"])
+        refs += ["ce:expression_occurrences", *[f"ce:harmonization_contract/{c}" for c in q["technical_upstream_candidates"]]]
     for node in ev.product_nodes:
         eff = ev.effective_providers(node)
         leaves = [p for p in eff.get(K_BOUNDARY, ()) if ev.classify_source(p, policy) in (GOVERNED_SAP_CONTRACT, PHYSICAL_RAW_BOUNDARY)]
@@ -176,43 +251,54 @@ def rule_lek_mat_02(ev: ProfileEvidence, policy: str) -> list[dict]:
             elements.setdefault("c_boundary_leaf_at_product_node", []).extend([node, *leaves])
             l2_nodes.add(node)
             refs += [f"ce:view_complexity/{node}", *[_fact_ref(ev, "source.contract", p) for p in leaves]]
-    if not (elements.keys() & {"a_physical_raw_on_strict_spine", "b_reusable_calendar_semantics_derived_downstream"}):
+    if not (elements.keys() & {"a_physical_raw_bypassing_harmonization_compensated_downstream", "b_reusable_semantics_created_downstream_over_technical_boundary"}):
         return []                                                                      # (c) por si solo NO basta: una hoja en el nodo de producto es solo evidencia de apoyo
-    unlabeled = [m.get("technical_name") for m in ev.published_measures if m.get("business_name_equals_technical")]
-    if not unlabeled:
-        return []                                                                      # L3 no se cumple: el publicado no queda sin identidad de negocio en sus medidas
-    refs += ["ce:published_contract/fields"]
+    fam = _published_families(ev, include_projection=True)
+    converging = _converging_families(fam)
+    if not converging:
+        return []                                                                      # L3 no se cumple: ninguna convergencia de >=2 familias independientes
+    refs += ["ce:published_contract/fields", "ce:published_contract/associations"]
+    if "TECHNICAL_PROJECTION_REACHING_PUBLICATION" in converging:
+        refs += ["ce:harmonization_contract"]
     arts = [a for v in elements.values() for a in v] + sorted(l2_nodes)
     return [_reason(
         "LEK-MAT-02", C.MATERIAL_DEVIATION, C.PROPAGATION, "lek.unrestored_responsibility_leakage", "closure", ev=ev, secondary=C.PUBLISHED_CONTRACT,
         artifacts=arts, refs=refs,
-        basis=[*[f"LEK.L1.{k}" for k in sorted(elements)], "LEK.L2.absorbed_by_non_candidate_nodes_with_logic", "LEK.L3.published_measure_without_business_identity"],
+        basis=[*[f"LEK.L1.{k}" for k in sorted(elements)], "LEK.L2.absorbed_by_non_candidate_nodes_with_logic", "LEK.L3.published_non_restoration_independent_families",
+               *[f"LEK.L3.family.{f}" for f in converging]],
         causal={"expected_responsibility": "reusable source/semantic responsibility resolved at its expected boundary",
                 "unresolved": ", ".join(sorted(elements)), "compensation": "absorbed by downstream non-harmonization nodes",
-                "published_not_restored": "at least one visible measure carries only its technical name"})]
+                "published_not_restored": "converging independent evidence families: " + ", ".join(converging)})]
 
 
 # ───────────────────────────── RELEVANT / LOCAL ─────────────────────────────
 def rule_src_rel_loc(ev: ProfileEvidence, policy: str) -> list[dict]:
-    """SRC-REL-01 (RELEVANT): tabla fisica cruda en la espina CON compensacion aguas abajo. SRC-LOC-01 (LOCAL): cruda fuera de la espina o sin compensacion. Nunca MATERIAL sola."""
-    rel, loc = [], []
-    for leaf in sorted(l for l in ev.remote_leaves if ev.classify_source(l, policy) == PHYSICAL_RAW_BOUNDARY):
-        on_spine = ev.raw_occurrences.get(leaf, {}).get("reaches_terminal_by_strict_lineage") is True or (leaf not in ev.raw_occurrences and _leaf_reaches_product(ev, leaf))
-        (rel if on_spine and _logic_descendants(ev, leaf) else loc).append(leaf)
+    """SRC-REL-01 (RELEVANT): tabla fisica cruda en la espina cuyo camino al producto OMITE la frontera reutilizable (ausente u omitida) Y la responsabilidad es compensada por logica de
+    Modelado. Cualquier otra cruda (fuera de la espina, a traves de un candidato, o sin compensacion) es SRC-LOC-01 (LOCAL, evidencia de fuente). Nunca MATERIAL sola; no es 'cruda en espina'."""
+    comp = _raw_bypass_compensated(ev, policy)
+    rel = sorted(comp)
+    loc = sorted(l for l in ev.remote_leaves if ev.classify_source(l, policy) == PHYSICAL_RAW_BOUNDARY and l not in comp)
     out = []
     if rel:
-        out.append(_reason("SRC-REL-01", C.RELEVANT_WEAKNESS, C.SOURCE_INGESTION, "src.physical_reach_with_downstream_compensation", "closure", ev=ev, artifacts=rel,
-                           refs=[_fact_ref(ev, "source.downstream_reach", l) for l in rel],
-                           basis=["SRC.physical_abap_table", "SRC.on_strict_spine", "SRC.downstream_logic_present"]))
+        out.append(_reason("SRC-REL-01", C.RELEVANT_WEAKNESS, C.SOURCE_INGESTION, "src.physical_boundary_bypassed_and_compensated_downstream", "closure", ev=ev,
+                           artifacts=[*rel, *sorted({n for v in comp.values() for n in v})], refs=[_fact_ref(ev, "source.downstream_reach", l) for l in rel],
+                           basis=["SRC.physical_abap_table", "SRC.on_strict_spine", "SRC.path_to_product_bypasses_harmonization", "SRC.compensated_by_modeling_logic"]))
     if loc:
-        out.append(_reason("SRC-LOC-01", C.LOCAL_WEAKNESS, C.SOURCE_INGESTION, "src.physical_reach_peripheral", "closure", ev=ev, artifacts=loc,
-                           refs=[_fact_ref(ev, "source.downstream_reach", l) for l in loc], basis=["SRC.physical_abap_table", "SRC.off_spine_or_no_downstream_compensation"]))
+        out.append(_reason("SRC-LOC-01", C.LOCAL_WEAKNESS, C.SOURCE_INGESTION, "src.physical_reach_without_bypass_and_compensation", "closure", ev=ev, artifacts=loc,
+                           refs=[_fact_ref(ev, "source.downstream_reach", l) for l in loc], basis=["SRC.physical_abap_table", "SRC.off_spine_or_harmonized_or_not_compensated"]))
     return out
 
 
+def _aligns_branches(ev: ProfileEvidence, node: str) -> bool:
+    """El nodo de producto completa la alineacion/normalizacion de ramas (union + derivaciones) sobre vistas/contratos, sin hojas de frontera: trabajo que la armonizacion no resolvio."""
+    m = ((ev.views.get(node) or {}).get("metrics")) or {}
+    return bool(m.get("unions") and m.get("derived_columns")) and not (set(ev.effective_providers(node)) - {K_VIEW, K_HARM})
+
+
 def rule_har_rel_01(ev: ProfileEvidence) -> list[dict]:
-    """HAR-REL-01 — la armonizacion existe SOLO como proyeccion tecnica que conserva el vocabulario de la fuente (ninguna enriquece/normaliza/deriva).
-    Una capa 1:1 sobre un contrato gobernado que NO arrastra vocabulario tecnico es legitima y NO dispara esta regla."""
+    """HAR-REL-01 — Armonizacion tecnica/no resuelta (todos los candidatos observables son materializacion tecnica que conserva el vocabulario de la fuente) MAS una CONSECUENCIA semantica
+    observable aguas abajo: (i) el publicado no restaura la semantica (>=2 familias independientes; la proyeccion tecnica es la premisa, no cuenta) o (ii) semantica reutilizable creada
+    aguas abajo sobre esa frontera tecnica. Una armonizacion tecnica SOLA es evidencia descriptiva (``supporting_evidence.technical_harmonization_candidates``), no debilidad."""
     cands = [c for c in ev.harmonization.values() if (c.get("character") or {}).get("value") != "UNKNOWN"]
     if not cands:
         return []
@@ -221,9 +307,24 @@ def rule_har_rel_01(ev: ProfileEvidence) -> list[dict]:
     carry = [c["artifact"] for c in cands if ((c.get("source_vocabulary") or {}).get("fields_with_source_column_name") or 0) > 0]
     if len(carry) != len(cands):
         return []
-    return [_reason("HAR-REL-01", C.RELEVANT_WEAKNESS, C.HARMONIZATION, "har.technical_projection_only_carrying_source_vocabulary", "closure", ev=ev,
-                    artifacts=carry, refs=[f"ce:harmonization_contract/{a}" for a in carry],
-                    basis=["HAR.all_observable_candidates_technical_materialization", "HAR.source_vocabulary_carried_through"])]
+    consequence, refs = [], []
+    conv = _converging_families(_published_families(ev, include_projection=False))
+    if conv:
+        consequence += ["HAR.consequence.published_non_restoration_independent_families", *[f"HAR.consequence.family.{f}" for f in conv]]
+        refs += ["ce:published_contract/fields", "ce:published_contract/associations"]
+    qual, _ = _downstream_created_semantics(ev)
+    if qual:
+        consequence.append("HAR.consequence.reusable_semantics_created_downstream")
+        refs.append("ce:expression_occurrences")
+    aligned = [n for n in ev.product_nodes if _aligns_branches(ev, n)]
+    if aligned:
+        consequence.append("HAR.consequence.propagation_completes_branch_alignment")
+        refs += [f"ce:view_complexity/{n}" for n in aligned]
+    if not consequence:
+        return []
+    return [_reason("HAR-REL-01", C.RELEVANT_WEAKNESS, C.HARMONIZATION, "har.technical_projection_with_downstream_semantic_consequence", "closure", ev=ev,
+                    artifacts=carry, refs=[*[f"ce:harmonization_contract/{a}" for a in carry], *refs],
+                    basis=["HAR.all_observable_candidates_technical_materialization", "HAR.source_vocabulary_carried_through", *consequence])]
 
 
 def rule_har_rel_02(ev: ProfileEvidence) -> list[dict]:
@@ -385,6 +486,12 @@ def reviews_and_limitations(ev: ProfileEvidence, policy: str) -> tuple[list[dict
         rev.append(_review("EXTERNAL_CONTRACT_UNDETERMINED", "SRC-REV-01", "EXTERNAL_CONTRACT_UNDETERMINED", "OPEN", artifacts=und, ev=ev,
                            refs=["area:SOURCE_EXTRACTION"], extra={"count_in_closure": ev.source_state_counts.get("OTHER_ORIGIN", 0)}))
         lim.append(_limitation("external_source_contract_undetermined", artifacts=und, refs=["area:SOURCE_EXTRACTION"], ev=ev))
+    # semantica temporal reutilizada que NO califica como creada aguas abajo sobre una frontera tecnica (L1(b)): revision, sin efecto en nivel
+    _, unq = _downstream_created_semantics(ev)
+    if unq:
+        rev.append(_review("REUSED_TEMPORAL_DERIVATION_REVIEW", "LEK-REV-01", "REUSED_TEMPORAL_DERIVATION_REVIEW", "OPEN", artifacts=sorted({a for u in unq for a in u["artifacts"]}),
+                           refs=["ce:expression_occurrences"], ev=ev,
+                           extra={"missing_for_material": sorted({k for u in unq for k in ("A_boundary_demonstrably_technical", "B_owned_downstream_in_multiple_nodes") if not u[k]})}))
     # modo de replicacion
     if ev.surface_state("source.replication_mode") == "NOT_ASSESSED":
         rev.append(_review("REPLICATION_MODE_REVIEW", "SRC-REV-02", "REPLICATION_MODE_UNOBSERVED", "OPEN", refs=["area:SOURCE_EXTRACTION"], ev=ev))
@@ -410,6 +517,8 @@ def supporting_evidence(ev: ProfileEvidence) -> dict:
         "published_fields_with_label_equal_to_technical_name": sum(1 for f in fields if f.get("business_name_equals_technical")),
         "published_fields_total": len(fields),
         "declared_dimensions_not_associated": [d if isinstance(d, str) else d.get("artifact", str(d)) for d in ev.declared_dimensions_not_associated],
+        "technical_harmonization_candidates": sorted(a for a, c in ev.harmonization.items() if (c.get("character") or {}).get("value") == "TECHNICAL_MATERIALIZATION"),
+        "published_non_restoration_families": {k: sorted(v) for k, v in sorted(_published_families(ev, include_projection=True).items())},
         "branch_reconvergence_pairs": len(ev.reconvergences),
         "source_state_counts": dict(sorted(ev.source_state_counts.items())),
     }

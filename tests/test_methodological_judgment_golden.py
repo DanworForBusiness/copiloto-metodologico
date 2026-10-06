@@ -62,25 +62,10 @@ def test_the_pro_mat_01_calibration_cases_use_architectural_position_and_the_aut
                      "biogenesis_lista_precios": "PRO.form.ii_multi_boundary_integration_without_harmonization"}
 
 
-def test_the_lek_mat_02_calibration_cases_converge_on_distributed_leakage_with_unrestored_publication():
-    for alias, element in (("illolay_pedidos_entregas", "LEK.L1.a_physical_raw_on_strict_spine"), ("biogenesis_sellout_gp", "LEK.L1.a_physical_raw_on_strict_spine")):
-        r = next(x for x in evaluate_judgment(fresh(alias))["reasons"] if x["rule_id"] == "LEK-MAT-02")
-        assert element in r["deterministic_basis"] and "LEK.L2.absorbed_by_non_candidate_nodes_with_logic" in r["deterministic_basis"]
-        assert "LEK.L3.published_measure_without_business_identity" in r["deterministic_basis"]
-        assert r["secondary_dimension"] == "PUBLISHED_CONTRACT"
-    ill = next(x for x in evaluate_judgment(fresh("illolay_pedidos_entregas"))["reasons"] if x["rule_id"] == "LEK-MAT-02")
-    assert "LEK.L1.b_reusable_calendar_semantics_derived_downstream" in ill["deterministic_basis"]       # el calendario derivado aguas abajo, ademas de la fuente fisica
 
 
-def test_illolay_stays_parcial_without_any_raw_source_element():
-    """La cruda REFUERZA pero no es la causa unica: si se retiran los elementos de fuente fisica, el calendario reutilizado sigue sosteniendo PARCIAL."""
-    p = fresh("illolay_pedidos_entregas")
-    for key in ("observations", "review_required"):
-        p[key] = [g for g in p[key] if g["id"] != "DIRECT_RAW_TABLE_ACCESS"]
-    j = evaluate_judgment(p)
-    assert j["level"] == "PARCIAL"
-    lek = next(x for x in j["reasons"] if x["rule_id"] == "LEK-MAT-02")
-    assert not any("a_physical_raw" in b for b in lek["deterministic_basis"]) and "LEK.L1.b_reusable_calendar_semantics_derived_downstream" in lek["deterministic_basis"]
+
+
 
 
 def test_qualifiers_for_the_calibration_cases():
@@ -132,3 +117,26 @@ def test_the_eight_labels_are_exactly_the_frozen_benchmark():
                 "biogenesis_prefacturacion": "ADECUADA", "biogenesis_lista_precios": "PARCIAL", "biogenesis_reserva_material": "PARCIAL", "biogenesis_sellout_gp": "PARCIAL"}
     assert {a: BENCHMARK[a][0] for a in BENCHMARK} == expected and len(expected) == 8
     assert {a: evaluate_judgment(fresh(a))["level"] for a in expected} == expected
+
+
+def test_the_lek_mat_02_calibration_cases_converge_on_distributed_leakage_with_unrestored_publication():
+    for alias in ("illolay_pedidos_entregas", "biogenesis_sellout_gp"):
+        r = next(x for x in evaluate_judgment(fresh(alias))["reasons"] if x["rule_id"] == "LEK-MAT-02")
+        assert "LEK.L1.a_physical_raw_bypassing_harmonization_compensated_downstream" in r["deterministic_basis"] and "LEK.L2.absorbed_by_non_candidate_nodes_with_logic" in r["deterministic_basis"]
+        assert "LEK.L3.published_non_restoration_independent_families" in r["deterministic_basis"] and r["secondary_dimension"] == "PUBLISHED_CONTRACT"
+        fams = {b for b in r["deterministic_basis"] if b.startswith("LEK.L3.family.")}
+        assert len(fams) >= 2
+    ill = next(x for x in evaluate_judgment(fresh("illolay_pedidos_entregas"))["reasons"] if x["rule_id"] == "LEK-MAT-02")
+    assert "LEK.L1.b_reusable_semantics_created_downstream_over_technical_boundary" in ill["deterministic_basis"]    # A (frontera tecnica aguas arriba) + B (>=2 nodos aguas abajo)
+
+
+def test_illolay_stays_parcial_without_any_raw_source_element_through_generic_structural_evidence():
+    """La cruda REFUERZA pero no es la causa unica: sin ella, la semantica reutilizable creada aguas abajo sobre una frontera tecnica (A+B estructurales) sigue sosteniendo PARCIAL."""
+    p = fresh("illolay_pedidos_entregas")
+    for key in ("observations", "review_required"):
+        p[key] = [g for g in p[key] if g["id"] != "DIRECT_RAW_TABLE_ACCESS"]
+    j = evaluate_judgment(p)
+    assert j["level"] == "PARCIAL"
+    lek = next(x for x in j["reasons"] if x["rule_id"] == "LEK-MAT-02")
+    assert not any("a_physical_raw" in b for b in lek["deterministic_basis"]) and "LEK.L1.b_reusable_semantics_created_downstream_over_technical_boundary" in lek["deterministic_basis"]
+

@@ -95,68 +95,165 @@ def test_pass_through_view_between_product_and_leaf_does_not_hide_the_pattern():
 
 
 # ───────────────────────────── LEK-MAT-02 ─────────────────────────────
-def lek_model(*, enriched=False, raw=True, logic=True) -> PB:
-    b = (PB().view("V1", ["V2"], derived=1).view("V2", ["TBL"], joins=1 if logic else 0, derived=1 if logic else 0).remote("TBL", raw=raw).product("V1").assoc("D"))
+def lek_model(*, enriched=False, raw=True, logic=True, assoc=False) -> PB:
+    """AM -> V1 -> V2 -> TBL (fisica cruda): la cruda llega al producto SIN pasar por un candidato de armonizacion y V1/V2 la compensan con logica."""
+    b = (PB().view("V1", ["V2"], derived=1 if logic else 0).view("V2", ["TBL"], joins=1 if logic else 0, derived=1 if logic else 0).remote("TBL", raw=raw).product("V1"))
+    if assoc:
+        b.assoc("D")
     b.measure("M", enriched=enriched)
     return b
 
 
-def test_lek_mat_02_requires_raw_on_spine_with_downstream_logic_and_unrestored_publication():
-    j = evaluate_judgment(lek_model().build())
+def test_lek_mat_02_requires_raw_bypass_compensation_and_converging_published_families():
+    j = evaluate_judgment(lek_model().build())                       # sin asociaciones de negocio + medida sin enriquecer = dos familias de fuentes distintas
     r = reason(j, "LEK-MAT-02")
     assert j["level"] == "PARCIAL" and r["classification"] == "MATERIAL_DEVIATION" and r["secondary_dimension"] == "PUBLISHED_CONTRACT"
-    assert {"LEK.L1.a_physical_raw_on_strict_spine", "LEK.L2.absorbed_by_non_candidate_nodes_with_logic", "LEK.L3.published_measure_without_business_identity"} <= set(r["deterministic_basis"])
+    assert {"LEK.L1.a_physical_raw_bypassing_harmonization_compensated_downstream", "LEK.L2.absorbed_by_non_candidate_nodes_with_logic",
+            "LEK.L3.published_non_restoration_independent_families", "LEK.L3.family.ASSOCIATION_AUTONOMY", "LEK.L3.family.MEASURE_SEMANTICS"} <= set(r["deterministic_basis"])
 
 
-def test_lek_l3_is_existence_based_not_a_ratio():
-    """UNA medida sin identidad de negocio basta, aunque haya muchas otras con identidad (no hay umbral de mayoria)."""
-    b = lek_model(enriched=True)
-    for i in range(9):
-        b.measure(f"OK{i}")
-    b.measure("BAD", enriched=False)
-    assert "LEK-MAT-02" in rules(evaluate_judgment(b.build()), "MATERIAL_DEVIATION")
-    b2 = lek_model(enriched=True)                                                # todas con identidad: la publicacion restaura -> no hay MATERIAL
-    assert "LEK-MAT-02" not in rules(evaluate_judgment(b2.build()))
+def test_one_non_enriched_measure_alone_cannot_establish_published_non_restoration():
+    """Una sola familia (la medida sin enriquecer) NO alcanza aunque exista logica compensatoria sobre una cruda."""
+    j = evaluate_judgment(lek_model(assoc=True).build())            # asociacion de negocio presente: solo MEASURE_SEMANTICS
+    assert "LEK-MAT-02" not in rules(j) and j["level"] != "PARCIAL"
 
 
-def test_raw_alone_is_never_material():
-    j = evaluate_judgment(lek_model(enriched=True, logic=False).build())
-    assert "LEK-MAT-02" not in rules(j, "MATERIAL_DEVIATION") and j["level"] != "PARCIAL"
+def test_one_field_that_supports_two_families_is_not_convergence():
+    """Un mismo campo con etiqueta = nombre tecnico y nombre = columna fuente sostiene dos familias del MISMO origen y con el MISMO testigo: no converge."""
+    b = lek_model(enriched=True, assoc=True)
+    b._fields = [{"technical_name": "F1", "role": "ATTRIBUTE", "business_name_equals_technical": True, "name_equals_remote_source_column": True, "derived": False}]
+    assert "LEK-MAT-02" not in rules(evaluate_judgment(b.build()))
+    b2 = lek_model(enriched=True, assoc=False)                      # sin asociaciones: ahora SI hay una segunda fuente de evidencia con testigo distinto
+    b2._fields = list(b._fields)
+    assert "LEK-MAT-02" in rules(evaluate_judgment(b2.build()), "MATERIAL_DEVIATION")
 
 
-def test_lek_l1_b_calendar_semantics_reused_across_sites_without_raw():
-    b = lek_model(raw=False)
-    b._views["V2"]["provider_names"] = ["CDS1"]; b.remote("CDS1")
-    b.temporal_reuse("V1", "V2")
-    j = evaluate_judgment(b.build())
-    assert "LEK.L1.b_reusable_calendar_semantics_derived_downstream" in reason(j, "LEK-MAT-02")["deterministic_basis"]
-    b2 = lek_model(raw=False); b2._views["V2"]["provider_names"] = ["CDS1"]; b2.remote("CDS1"); b2.temporal_reuse("V1")        # un solo sitio: no es reutilizacion
-    assert "LEK-MAT-02" not in rules(evaluate_judgment(b2.build()))
-
-
-def test_a_candidate_that_owns_the_temporal_semantics_is_not_a_leak():
-    b = lek_model(raw=False)
-    b._views["V2"]["provider_names"] = ["CDS1"]; b.remote("CDS1")
-    b.cand("V2", character="SEMANTIC_TRANSFORMATION_PRESENT", sources=["CDS1"]).temporal_reuse("V2", "V2")
+def test_families_from_the_same_evidence_source_are_not_independent():
+    """Atributos sin enriquecer + arrastre de vocabulario + medida sin enriquecer vienen todos de los campos publicados: una sola fuente de evidencia."""
+    b = lek_model(enriched=False, assoc=True)
+    b._fields = [{"technical_name": f"F{i}", "role": "ATTRIBUTE", "business_name_equals_technical": True, "name_equals_remote_source_column": True, "derived": False} for i in range(5)]
     assert "LEK-MAT-02" not in rules(evaluate_judgment(b.build()))
 
 
-# ───────────────────────────── RELEVANT / LOCAL ─────────────────────────────
-def test_har_rel_01_all_candidates_technical_with_source_vocabulary_is_adequada():
-    b = (PB().view("V1", ["H1"]).view("H1", ["CDS1"]).cand("H1", carry=4, sources=["CDS1"]).remote("CDS1").product("V1").assoc("D").measure("M"))
+def test_raw_alone_is_never_material_and_published_restoration_prevents_material():
+    j = evaluate_judgment(lek_model(enriched=True, logic=False).build())
+    assert "LEK-MAT-02" not in rules(j, "MATERIAL_DEVIATION") and j["level"] != "PARCIAL"
+    restored = evaluate_judgment(lek_model(enriched=True, assoc=True).build())
+    assert "LEK-MAT-02" not in rules(restored) and restored["level"] == "ADECUADA"
+
+
+def test_src_rel_01_needs_bypass_of_the_reusable_boundary_and_compensation_not_just_raw_in_spine():
+    bypass = evaluate_judgment(lek_model(enriched=True, assoc=True).build())
+    assert "SRC-REL-01" in rules(bypass, "RELEVANT_WEAKNESS") and bypass["level"] == "ADECUADA" and "LEK-MAT-02" not in rules(bypass)
+    # misma cruda en la espina, pero el camino al producto ATRAVIESA un candidato de armonizacion: evidencia de fuente, no debilidad de nivel
+    b = (PB().view("V1", ["H1"], derived=1).view("H1", ["TBL"], joins=1).cand("H1", character="SEMANTIC_TRANSFORMATION_PRESENT", sources=["TBL"]).remote("TBL", raw=True)
+         .product("V1").assoc("D").measure("M"))
     j = evaluate_judgment(b.build())
-    assert j["level"] == "ADECUADA" and "HAR-REL-01" in rules(j, "RELEVANT_WEAKNESS") and j["level_rule"] == "LVL-03"
+    assert "SRC-REL-01" not in rules(j) and "SRC-LOC-01" in rules(j, "LOCAL_WEAKNESS") and not rules(j, "RELEVANT_WEAKNESS")
+    # cruda en la espina sin logica de compensacion: tampoco
+    nocomp = evaluate_judgment(lek_model(enriched=True, logic=False, assoc=True).build())
+    assert "SRC-REL-01" not in rules(nocomp)
+
+
+def test_physical_abap_table_is_not_automatically_bad():
+    j = evaluate_judgment(lek_model(enriched=True, assoc=True, logic=False).build())
+    assert not rules(j, "MATERIAL_DEVIATION") and not rules(j, "RELEVANT_WEAKNESS")
+
+
+def l1b_model(*, technical_boundary=True, two_nodes=True, calendar_names=False) -> PB:
+    """Semantica TEMPORAL reutilizada aguas abajo. La frontera de armonizacion aguas arriba es tecnica (o no existe)."""
+    mid = ["H1"] if technical_boundary else ["CDS1"]
+    b = PB().view("V1", ["V2", "V3"], joins=1).view("V2", mid, derived=1).view("V3", mid, derived=1).remote("CDS1").product("V1").measure("M", enriched=False)
+    if technical_boundary:
+        b.view("H1", ["CDS1"]).cand("H1", carry=3, sources=["CDS1"])
+    b.temporal_reuse("V2", "V3") if two_nodes else b.temporal_reuse("V2", "V2")
+    if calendar_names:
+        b._fields += [{"technical_name": n, "role": "ATTRIBUTE", "business_name_equals_technical": False, "name_equals_remote_source_column": False, "derived": False}
+                      for n in ("Mes", "Month", "Calendar")]
+    return b
+
+
+def test_l1b_requires_a_technical_boundary_upstream_and_downstream_ownership_in_multiple_nodes():
+    j = evaluate_judgment(l1b_model().build())
+    r = reason(j, "LEK-MAT-02")
+    assert "LEK.L1.b_reusable_semantics_created_downstream_over_technical_boundary" in r["deterministic_basis"] and j["level"] == "PARCIAL"
+    # sin frontera de armonizacion tecnica aguas arriba (A no demostrada): revision, sin efecto en nivel
+    nob = evaluate_judgment(l1b_model(technical_boundary=False).build())
+    assert "LEK-MAT-02" not in rules(nob)
+    rv = [x for x in nob["review_candidates"] if x["review_id"] == "REUSED_TEMPORAL_DERIVATION_REVIEW"]
+    assert rv and "A_boundary_demonstrably_technical" in rv[0]["missing_for_material"] and rv[0]["level_effect"] == "NONE"
+    # un solo nodo (B no demostrada)
+    one = evaluate_judgment(l1b_model(two_nodes=False).build())
+    assert "LEK-MAT-02" not in rules(one)
+
+
+def test_calendar_like_field_names_alone_never_create_material():
+    """Nombres como Mes/Month/Calendar no son evidencia: sin la convergencia estructural A+B no hay MATERIAL."""
+    b = l1b_model(technical_boundary=False, two_nodes=False, calendar_names=True)
+    j = evaluate_judgment(b.build())
+    assert not rules(j, "MATERIAL_DEVIATION")
+    with_names = evaluate_judgment(l1b_model(calendar_names=True).build())
+    without = evaluate_judgment(l1b_model().build())
+    assert with_names["level"] == without["level"] and rules(with_names, "MATERIAL_DEVIATION") == rules(without, "MATERIAL_DEVIATION")      # los nombres no agregan ni quitan
+
+
+def test_a_candidate_that_owns_the_temporal_semantics_is_not_a_leak():
+    b = l1b_model()
+    b._cands["H1"]["character"] = {"value": "SEMANTIC_TRANSFORMATION_PRESENT"}
+    b._reuse.clear(); b.temporal_reuse("H1", "V3")
+    assert "LEK-MAT-02" not in rules(evaluate_judgment(b.build()))
+
+
+# ───────────────────────────── HAR-REL-01 (8D.1b) ─────────────────────────────
+def har_model(*, assoc=False, align=False, carry=4, measure_enriched=False) -> PB:
+    """Armonizacion tecnica que conserva el vocabulario de la fuente; el producto la consume."""
+    b = PB().view("V1", ["H1"], derived=1 if align else 0, unions=1 if align else 0).view("H1", ["CDS1"]).cand("H1", carry=carry, sources=["CDS1"]).remote("CDS1").product("V1")
+    if assoc:
+        b.assoc("D")
+    b.measure("M", enriched=measure_enriched)
+    return b
+
+
+def test_technical_harmonization_alone_is_descriptive_not_a_weakness():
+    """Armonizacion tecnica con vocabulario fuente, SIN consecuencia semantica aguas abajo observable: no es debilidad (ni crea ADECUADA)."""
+    j = evaluate_judgment(har_model(assoc=True, measure_enriched=True).build())
+    assert "HAR-REL-01" not in rules(j) and j["level"] is None and j["status"] == "NOT_DETERMINABLE"
+    assert j["supporting_evidence"]["technical_harmonization_candidates"] == ["H1"]
+
+
+def test_har_rel_01_fires_with_downstream_semantic_consequence():
+    published = evaluate_judgment(har_model().build())               # sin asociaciones + medida sin enriquecer: dos fuentes de evidencia distintas
+    assert "HAR-REL-01" in rules(published, "RELEVANT_WEAKNESS") and published["level"] == "ADECUADA" and published["level_rule"] == "LVL-03"
+    assert any(b.startswith("HAR.consequence.family.") for b in reason(published, "HAR-REL-01")["deterministic_basis"])
+    aligned = evaluate_judgment(har_model(assoc=True, measure_enriched=True, align=True).build())
+    assert "HAR-REL-01" in rules(aligned, "RELEVANT_WEAKNESS") and "HAR.consequence.propagation_completes_branch_alignment" in reason(aligned, "HAR-REL-01")["deterministic_basis"]
+
+
+def test_one_non_enriched_field_alone_cannot_create_a_relevant_weakness():
+    b = har_model(assoc=True, measure_enriched=True)
+    b._fields = [{"technical_name": "F1", "role": "ATTRIBUTE", "business_name_equals_technical": True, "name_equals_remote_source_column": True, "derived": False}]
+    j = evaluate_judgment(b.build())
+    assert not rules(j, "RELEVANT_WEAKNESS") and not rules(j, "MATERIAL_DEVIATION")
 
 
 def test_har_rel_01_not_triggered_if_one_candidate_enriches():
     b = (PB().view("V1", ["H1", "H2"], joins=1).view("H1", ["C1"]).view("H2", ["C2"]).cand("H1", carry=4, sources=["C1"]).cand("H2", character="SEMANTIC_TRANSFORMATION_PRESENT", sources=["C2"])
-         .remote("C1").remote("C2").product("V1").assoc("D").measure("M"))
+         .remote("C1").remote("C2").product("V1").measure("M"))
     assert "HAR-REL-01" not in rules(evaluate_judgment(b.build()))
 
 
-def test_src_rel_01_raw_on_spine_with_compensation_is_relevant_but_not_material_by_itself():
-    j = evaluate_judgment(lek_model(enriched=True).build())
-    assert "SRC-REL-01" in rules(j, "RELEVANT_WEAKNESS") and "LEK-MAT-02" not in rules(j) and j["level"] == "ADECUADA"
+def test_technical_one_to_one_harmonization_over_a_governed_contract_may_remain_buena():
+    """El patron Kensing: capa 1:1 sobre contrato gobernado que conserva vocabulario de negocio (sin arrastre de nombres de fuente)."""
+    j = evaluate_judgment(buena_model().build())
+    assert j["level"] == "BUENA" and j["closure"] == "FINAL" and "HAR-STR-01" in {x["rule_id"] for x in j["strengths"]}
+# ───────────────────────────── RELEVANT / LOCAL ─────────────────────────────
+
+
+
+
+
+
+
 
 
 def test_external_contract_undetermined_never_creates_material():
