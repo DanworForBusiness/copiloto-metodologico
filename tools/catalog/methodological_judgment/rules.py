@@ -181,6 +181,17 @@ def harmonization_passthrough_exposure(ev: ProfileEvidence) -> list[str]:
     return sorted(out)
 
 
+def decision_critical_undetermined_source(ev: ProfileEvidence, policy: str) -> dict[str, list[str]]:
+    """Hojas frontera ``EXTERNAL_CONTRACT_UNDETERMINED`` cuyo vocabulario llega a un campo publicado VERBATIM por un camino casi-identidad
+    que NO cruza un contrato de armonizacion (``vocabulary_exposure``). La clase de esa fuente es DECISION-CRITICA para el contrato publicado:
+    si fuese cruda/tecnica, es vocabulario no restaurado que llega al consumidor (debilidad del contrato publicado); si fuese gobernada, es
+    reuso legitimo. La tecnologia NO la resuelve, y mientras la clase siga indeterminada el motor no puede afirmar la calidad del contrato
+    publicado para esos campos -> ``NOT_DETERMINABLE``. NARROW: exige la exposicion publicada verbatim (una hoja indeterminada SIN consecuencia
+    publicada no alcanza; por eso Prefacturacion, cuyo vocabulario externo se resuelve antes de publicar, no dispara). hoja -> campos publicados."""
+    und = [l for l in ev.remote_leaves if ev.classify_source(l, policy) == EXTERNAL_CONTRACT_UNDETERMINED]
+    return vocabulary_exposure(ev, und)
+
+
 def published_positive_families(ev: ProfileEvidence, policy: str) -> tuple[dict[str, set[str]], bool, bool]:
     """(familias AFIRMATIVAS, linaje_completo, hay_fuga) de la fortaleza del contrato publicado. Familias (ninguna es obligatoria en todo producto, ninguna es un puntaje):
     GOVERNED_HARMONIZATION_REUSE (campos publicados trazables a una hoja gobernada a traves de un contrato de armonizacion) · AUTHORED_SEMANTICS (campos cuya etiqueta es PROPIA:
@@ -282,23 +293,42 @@ def rule_lek_mat_02(ev: ProfileEvidence, policy: str) -> list[dict]:
             elements.setdefault("c_boundary_leaf_at_product_node", []).extend([node, *leaves])
             l2_nodes.add(node)
             refs += [f"ce:view_complexity/{node}", *[_fact_ref(ev, "source.contract", p) for p in leaves]]
-    if not (elements.keys() & {"a_physical_raw_bypassing_harmonization_compensated_downstream", "b_reusable_semantics_created_downstream_over_technical_boundary"}):
+    has_a = "a_physical_raw_bypassing_harmonization_compensated_downstream" in elements
+    has_b = "b_reusable_semantics_created_downstream_over_technical_boundary" in elements
+    if not (has_a or has_b):
         return []                                                                      # (c) por si solo NO basta; sin consecuencia trazable en el publicado tampoco
     witness = sorted({f for v in exposed.values() for f in v})
     refs += ["ce:published_field_lineage", *[f"ce:published_field_lineage/{f}" for f in witness]]
     arts = [a for v in elements.values() for a in v] + sorted(l2_nodes)
     kinds = []
-    if "a_physical_raw_bypassing_harmonization_compensated_downstream" in elements:
+    if has_a:
         kinds.append("LEK.L3.unresolved_boundary_vocabulary_reaches_the_consumer_verbatim_through_traceable_paths")
-    if "b_reusable_semantics_created_downstream_over_technical_boundary" in elements:
+    if has_b:
         kinds.append("LEK.L3.downstream_created_semantics_reaches_the_consumer_through_traceable_paths")
+    base_basis = [*[f"LEK.L1.{k}" for k in sorted(elements)], "LEK.L2.absorbed_by_non_candidate_nodes_with_logic", *kinds]
+    exposed_txt = "traceable published paths expose the unresolved contract: " + "; ".join(
+        f"{k} -> {', '.join(v[:6])}{' ...' if len(v) > 6 else ''}" for k, v in sorted(exposed.items()))
+    if has_b:
+        # L1(b): la MISMA responsabilidad semantica reutilizable se crea/posee en >=2 nodos aguas abajo sobre una frontera TECNICA. Esa
+        # reutilizacion estructural ES la prueba generica de centralidad arquitectonica (no un conteo de campos ni un proxy de medida/clave);
+        # el testigo publicado solo prueba que la consecuencia llega al consumidor. Por eso (b) sostiene MATERIAL con >=1 testigo publicado.
+        return [_reason(
+            "LEK-MAT-02", C.MATERIAL_DEVIATION, C.PROPAGATION, "lek.unrestored_responsibility_leakage", "closure", ev=ev, secondary=C.PUBLISHED_CONTRACT,
+            artifacts=arts, refs=refs, basis=base_basis,
+            causal={"expected_responsibility": "reusable source/semantic responsibility resolved at its expected boundary",
+                    "unresolved": ", ".join(sorted(elements)), "compensation": "absorbed by downstream non-harmonization nodes",
+                    "published_not_restored": exposed_txt})]
+    # Solo (a): una fuga cruda/bypass trazable hasta el publicado, SIN evidencia estructural de centralidad de contrato (no hay (b): la misma
+    # responsabilidad no se crea/posee en multiples nodos aguas abajo), NO es MATERIAL por si sola. Es una debilidad RELEVANTE del contrato
+    # publicado: vocabulario tecnico no restaurado que llega al consumidor. Sin conteos, proporciones, mayoria ni proxies. Si otra regla MATERIAL
+    # ya ratificada (p. ej. PRO-MAT-01) aplica de forma independiente, esa determina PARCIAL; LEK no la duplica.
     return [_reason(
-        "LEK-MAT-02", C.MATERIAL_DEVIATION, C.PROPAGATION, "lek.unrestored_responsibility_leakage", "closure", ev=ev, secondary=C.PUBLISHED_CONTRACT,
-        artifacts=arts, refs=refs,
-        basis=[*[f"LEK.L1.{k}" for k in sorted(elements)], "LEK.L2.absorbed_by_non_candidate_nodes_with_logic", *kinds],
-        causal={"expected_responsibility": "reusable source/semantic responsibility resolved at its expected boundary",
+        "LEK-REL-01", C.RELEVANT_WEAKNESS, C.PUBLISHED_CONTRACT, "lek.unrestored_raw_vocabulary_reaches_published_without_contract_centrality", "closure", ev=ev,
+        secondary=C.SOURCE_INGESTION, artifacts=arts, refs=refs,
+        basis=[*base_basis, "LEK.no_structural_contract_centrality_reusable_responsibility_not_owned_in_multiple_downstream_nodes"],
+        causal={"expected_responsibility": "raw/bypass vocabulary resolved at a reusable governed boundary",
                 "unresolved": ", ".join(sorted(elements)), "compensation": "absorbed by downstream non-harmonization nodes",
-                "published_not_restored": "traceable published paths expose the unresolved contract: " + "; ".join(f"{k} -> {', '.join(v[:6])}{' ...' if len(v) > 6 else ''}" for k, v in sorted(exposed.items()))})]
+                "published_not_restored": exposed_txt})]
 
 
 # ───────────────────────────── RELEVANT / LOCAL ─────────────────────────────
@@ -515,7 +545,10 @@ def reviews_and_limitations(ev: ProfileEvidence, policy: str) -> tuple[list[dict
         und = [l for l in sorted(ev.remote_leaves) if ev.classify_source(l, policy) == EXTERNAL_CONTRACT_UNDETERMINED]
         rev.append(_review("EXTERNAL_CONTRACT_UNDETERMINED", "SRC-REV-01", "EXTERNAL_CONTRACT_UNDETERMINED", "OPEN", artifacts=und, ev=ev,
                            refs=["area:SOURCE_EXTRACTION"], extra={"count_in_closure": ev.source_state_counts.get("OTHER_ORIGIN", 0)}))
-        lim.append(_limitation("external_source_contract_undetermined", artifacts=und, refs=["area:SOURCE_EXTRACTION"], ev=ev))
+        # DECISION-CRITICA sii alguna de esas hojas indeterminadas expone su vocabulario verbatim al contrato publicado (ver
+        # decision_critical_undetermined_source): entonces la limitacion SI puede cambiar el nivel (la clase no resuelta decide leak vs reuso).
+        crit = bool(decision_critical_undetermined_source(ev, policy))
+        lim.append(_limitation("external_source_contract_undetermined", artifacts=und, refs=["area:SOURCE_EXTRACTION"], can_change_level=crit, ev=ev))
     # semantica temporal reutilizada que NO califica como creada aguas abajo sobre una frontera tecnica (L1(b)): revision, sin efecto en nivel
     _, unq = _downstream_created_semantics(ev)
     if unq:
@@ -577,4 +610,5 @@ def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED") -> dict:
         "product_focus": qualifier_product_focus(ev),
         "naming_governance": qualifier_naming(ev, bool(h2)),
     }
-    return {"reasons": reasons, "strengths": st, "qualifiers": qualifiers, "review_candidates": reviews, "evidence_limitations": limitations, "supporting_evidence": supporting_evidence(ev)}
+    return {"reasons": reasons, "strengths": st, "qualifiers": qualifiers, "review_candidates": reviews, "evidence_limitations": limitations,
+            "supporting_evidence": supporting_evidence(ev), "critical_source_undetermined": decision_critical_undetermined_source(ev, policy)}

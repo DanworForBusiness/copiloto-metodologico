@@ -112,7 +112,7 @@ def mutate(alias, fn):
 
 @pytest.mark.parametrize("name,fn,code", [
     ("level_mismatch", lambda o, e: o["executive_summary"].update(level_echo="BUENA"), "LEVEL_MISMATCH"),
-    ("status_mismatch", lambda o, e: o["executive_summary"].update(status_echo="NOT_DETERMINABLE"), "STATUS_MISMATCH"),
+    ("status_mismatch", lambda o, e: o["executive_summary"].update(status_echo="DETERMINED"), "STATUS_MISMATCH"),
     ("closure_mismatch", lambda o, e: o["executive_summary"].update(closure_echo="FINAL"), "CLOSURE_MISMATCH"),
     ("own_level_field", lambda o, e: o.update(level="BUENA"), "UNAUTHORIZED_LEVEL_FIELD"),
     ("missing_key", lambda o, e: o.pop("strengths"), "SCHEMA"),

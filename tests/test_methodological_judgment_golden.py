@@ -21,8 +21,13 @@ def test_frozen_benchmark_level_and_decisive_reason(alias):
     level, decisive, cls, dim, closure = BENCHMARK[alias]
     p = fresh(alias)
     j = evaluate_judgment(p)
-    assert (j["status"], j["level"], j["closure"]) == ("DETERMINED", level, closure)
     assert j["plena_assignment"] == "DISABLED_UNTIL_CALIBRATED" and j["level"] != "PLENA"
+    if cls == "NOT_DETERMINABLE":
+        # El motor NO afirma el nivel: lo marca NOT_DETERMINABLE con el codigo decision-critico (brecha nombrada, no un nivel inventado).
+        assert (j["status"], j["level"], j["closure"]) == ("NOT_DETERMINABLE", None, closure)
+        assert j["level_rule"] == "LVL-05" and j.get("not_determinable_reason") == decisive[0]
+        return
+    assert (j["status"], j["level"], j["closure"]) == ("DETERMINED", level, closure)
     if cls == "POSITIVE_EVIDENCE":
         assert {s["rule_id"] for s in j["strengths"]} >= set(decisive)
         assert not [r for r in j["reasons"] if r["classification"] in ("MATERIAL_DEVIATION", "RELEVANT_WEAKNESS")]
@@ -124,31 +129,54 @@ def test_the_frozen_human_labels_are_unchanged_and_every_divergence_is_a_documen
 
 
 def test_the_sellout_gap_is_exactly_the_unclassified_external_contract_not_a_workaround():
-    """La evidencia por campo muestra POR QUE: A004/A307 (tablas ABAP crudas) NO llegan al consumidor con su vocabulario; el vocabulario tecnico llega desde fuentes SQL Server cuya clase
-    es EXTERNAL_CONTRACT_UNDETERMINED. Establecida esa clase como cruda/tecnica, el caso congelado se sustenta (sin tocar reglas ni umbrales); y Prefacturacion NO se mueve."""
-    from tools.catalog.methodological_judgment.rules import vocabulary_exposure
+    """La evidencia por campo muestra POR QUE: A004/A307 (tablas ABAP crudas) NO llegan al consumidor con su vocabulario; el vocabulario tecnico
+    llega VERBATIM desde fuentes SQL Server cuya clase es EXTERNAL_CONTRACT_UNDETERMINED. Esa clase es DECISION-CRITICA (si cruda, debilidad de
+    contrato publicado; si gobernada, reuso) => el motor emite NOT_DETERMINABLE, no ADECUADA/PARCIAL falsas. Resolver la clase (a cruda O a
+    gobernada) elimina la condicion y el caso vuelve a ser DETERMINADO; y Prefacturacion NO se mueve bajo ninguna politica."""
+    from tools.catalog.methodological_judgment.rules import vocabulary_exposure, decision_critical_undetermined_source
     p = fresh("biogenesis_sellout_gp")
     ev = ProfileEvidence(p)
     raw = [l for l in ev.remote_leaves if ev.classify_source(l) == "PHYSICAL_RAW_BOUNDARY"]
     assert raw and vocabulary_exposure(ev, raw) == {}
     external = [l for l, r in ev.leaf_class_records.items() if r["contract_class"] == "EXTERNAL_CONTRACT_UNDETERMINED"]
     assert external and vocabulary_exposure(ev, external)                                          # el vocabulario tecnico sí llega al publicado... desde fuentes de clase indeterminada
-    assert evaluate_judgment(p)["level"] == "ADECUADA"
-    sens = evaluate_judgment(p, external_policy="PHYSICAL_RAW")
-    assert sens["level"] == "PARCIAL" and "LEK-MAT-02" in {r["rule_id"] for r in sens["reasons"]}
+    assert decision_critical_undetermined_source(ev, "UNDETERMINED")                               # y esa exposicion verbatim es justo la condicion decision-critica
+    j = evaluate_judgment(p)
+    assert j["status"] == "NOT_DETERMINABLE" and j["level"] is None and j["level_rule"] == "LVL-05"
+    assert j["not_determinable_reason"] == "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL"
+    # Resolver la clase externa — a cruda O a gobernada — levanta la indeterminacion: el caso vuelve a ser DETERMINADO (y la cruda sola, por la
+    # nueva semantica de LEK, ya NO es MATERIAL: es RELEVANT, no LEK-MAT-02).
+    for pol in ("PHYSICAL_RAW", "GOVERNED"):
+        sens = evaluate_judgment(p, external_policy=pol)
+        assert sens["status"] == "DETERMINED" and sens["level"] == "ADECUADA"
+    assert "LEK-MAT-02" not in {r["rule_id"] for r in evaluate_judgment(p, external_policy="PHYSICAL_RAW")["reasons"]}
     pref = fresh("biogenesis_prefacturacion")
     assert {evaluate_judgment(pref, external_policy=pol)["level"] for pol in ("UNDETERMINED", "PHYSICAL_RAW", "GOVERNED")} == {"ADECUADA"}
 
 
-def test_the_lek_mat_02_calibration_cases_rest_on_traceable_published_paths_not_on_existence_signals():
-    for alias in ("illolay_pedidos_entregas", "biogenesis_lista_precios", "biogenesis_reserva_material"):
-        r = next(x for x in evaluate_judgment(fresh(alias))["reasons"] if x["rule_id"] == "LEK-MAT-02")
-        assert "LEK.L1.a_physical_raw_bypassing_harmonization_compensated_downstream" in r["deterministic_basis"] and "LEK.L2.absorbed_by_non_candidate_nodes_with_logic" in r["deterministic_basis"]
-        assert "LEK.L3.unresolved_boundary_vocabulary_reaches_the_consumer_verbatim_through_traceable_paths" in r["deterministic_basis"] and r["secondary_dimension"] == "PUBLISHED_CONTRACT"
-        assert any(ref.startswith("ce:published_field_lineage/") for ref in r["evidence_refs"])                 # cada razon cita los campos publicados que la sostienen
+def test_lek_material_requires_structural_contract_centrality_and_raw_bypass_alone_is_only_relevant():
+    """MATERIAL por LEK exige centralidad ESTRUCTURAL (L1(b): la misma responsabilidad reutilizable creada/poseida en varios nodos aguas
+    abajo), no un camino crudo existencial. Illolay la tiene (b) => LEK-MAT-02. Lista/Reserva tienen solo la fuga cruda (a) => LEK-REL-01
+    (RELEVANT); su PARCIAL lo determina PRO-MAT-01 de forma independiente, no LEK. Sin proxies de medida/clave, sin conteos."""
+    # Illolay: LEK-MAT-02 MATERIAL, sostenido por (b) estructural + consecuencia publicada trazable.
     ill = next(x for x in evaluate_judgment(fresh("illolay_pedidos_entregas"))["reasons"] if x["rule_id"] == "LEK-MAT-02")
+    assert ill["classification"] == "MATERIAL_DEVIATION" and ill["secondary_dimension"] == "PUBLISHED_CONTRACT"
     assert "LEK.L1.b_reusable_semantics_created_downstream_over_technical_boundary" in ill["deterministic_basis"]
     assert "LEK.L3.downstream_created_semantics_reaches_the_consumer_through_traceable_paths" in ill["deterministic_basis"]
+    assert any(ref.startswith("ce:published_field_lineage/") for ref in ill["evidence_refs"])
+    # Lista/Reserva: SOLO (a) => LEK-REL-01 RELEVANT (no MATERIAL), y PARCIAL lo trae PRO-MAT-01.
+    for alias in ("biogenesis_lista_precios", "biogenesis_reserva_material"):
+        reasons = evaluate_judgment(fresh(alias))["reasons"]
+        ids = {r["rule_id"] for r in reasons}
+        assert "LEK-MAT-02" not in ids                                                              # la fuga cruda existencial ya no es MATERIAL
+        rel = next(x for x in reasons if x["rule_id"] == "LEK-REL-01")
+        assert rel["classification"] == "RELEVANT_WEAKNESS" and rel["dimension"] == "PUBLISHED_CONTRACT"
+        assert "LEK.L1.a_physical_raw_bypassing_harmonization_compensated_downstream" in rel["deterministic_basis"]
+        assert "LEK.L3.unresolved_boundary_vocabulary_reaches_the_consumer_verbatim_through_traceable_paths" in rel["deterministic_basis"]
+        assert "LEK.no_structural_contract_centrality_reusable_responsibility_not_owned_in_multiple_downstream_nodes" in rel["deterministic_basis"]
+        assert any(ref.startswith("ce:published_field_lineage/") for ref in rel["evidence_refs"])
+        mat = [r for r in reasons if r["classification"] == "MATERIAL_DEVIATION"]
+        assert mat and {r["rule_id"] for r in mat} == {"PRO-MAT-01"}                                # otra regla ratificada determina PARCIAL
 
 
 def test_illolay_stays_parcial_without_any_raw_source_through_generic_structural_and_lineage_evidence():
@@ -177,3 +205,6 @@ def test_the_v2_profile_is_not_judgeable_because_causal_lineage_is_required():
     p["canonical_evidence"]["version"] = "canonical-evidence/v2"
     j = evaluate_judgment(p)
     assert j["status"] == "NOT_DETERMINABLE" and j["level"] is None and "CANONICAL_EVIDENCE_V3_REQUIRED" in json.dumps(j)
+    # la remediacion sugerida pide evidencia v3 (no la v2 stale): el Juicio exige v3.
+    keys = [c["change_key"] for c in j["what_would_change_the_judgment"]]
+    assert any("CANONICAL_EVIDENCE_V3" in k for k in keys) and not any("CANONICAL_EVIDENCE_V2" in k for k in keys)

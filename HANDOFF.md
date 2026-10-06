@@ -72,6 +72,30 @@ Devolver: (1) branch/HEAD confirmados; (2) archivos/símbolos inspeccionados; (3
 
 ---
 
+# ✅ UPDATE — LEK-MAT-02 + SELLOUT_GP IMPLEMENTADOS (parche mínimo aplicado tras GO del dueño)
+
+> Rebase LOW_RISK sobre `origin/main` `49463b5` hecho; HEAD de código previo al parche = `701331b` (doc). Las dos decisiones semánticas (§7, §8) quedaron IMPLEMENTADAS. Commit local (sin push). Suite completa: ver §13/return.
+
+**A. LEK-MAT-02 — existencialidad raw/bypass (PRIORIDAD 1): RESUELTA.** `rules.py::rule_lek_mat_02` ahora SEPARA la salida: con **L1(b)** (la misma responsabilidad reutilizable creada/poseída en ≥2 nodos aguas abajo sobre una frontera técnica — centralidad arquitectónica ESTRUCTURAL, no un conteo) + ≥1 testigo publicado → **MATERIAL (`LEK-MAT-02`)**; con **solo (a)** (tabla cruda/bypass compensada con consecuencia publicada trazable) y SIN (b) → **RELEVANT (`LEK-REL-01`, dimensión `PUBLISHED_CONTRACT`)**, nunca MATERIAL. Sin umbrales/porcentajes/mayoría/veto de asociaciones/excepciones/diccionarios/proxy de medida-clave. Si otra regla MATERIAL ratificada aplica de forma independiente (p. ej. `PRO-MAT-01`), esa determina PARCIAL; LEK no la duplica. (Caso del dueño `AM_CONSOLIDADO_GASTOS` 3/61: PARCIAL→ADECUADA.)
+
+**B. SELLOUT_GP — fuente externa decisión-crítica (PRIORIDAD 2): RESUELTA.** Señal NARROW nueva `rules.py::decision_critical_undetermined_source(ev, policy)` = hoja `EXTERNAL_CONTRACT_UNDETERMINED` cuyo vocabulario llega VERBATIM (casi-identidad, sin cruzar armonización; reusa `vocabulary_exposure`) a un campo publicado. Se surte a `engine._decide` como nuevo paso **después de MATERIAL y antes de RELEVANT** → `NOT_DETERMINABLE` / `level_rule="LVL-05"` / `not_determinable_reason="EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL"`. Nunca degrada un MATERIAL ya establecido (si `PRO-MAT-01` ya dio PARCIAL, no se vuelve ND). La limitación `external_source_contract_undetermined` pasa a `can_change_level=True` sii la señal dispara. Resolver la clase (a cruda O gobernada) elimina la condición. `AM_SELLOUT_GP`: ADECUADA→ND; etiqueta humana **sigue PARCIAL** (brecha nombrada, 7/8 exactas, sin sobreajuste). Prefacturación: sin exposición verbatim → **NO cambia** (ADECUADA bajo toda política).
+
+**C. Fix stale:** `engine._unjudgeable` → `PROVIDE_A_CURRENT_ASSESSMENT_WITH_CANONICAL_EVIDENCE_V3` (antes V2).
+
+**Entry points nuevos (además de §2):** `rules.py::rule_lek_mat_02` (ahora emite `LEK-MAT-02` o `LEK-REL-01`), `rules.py::decision_critical_undetermined_source`, `engine._decide(…, critical_undetermined=…)` (paso LVL-05).
+
+**Shadow 33 raíces (mismos perfiles v3 del 8D.1d) — ANTES → DESPUÉS:**
+- Distribución: ND **12→15** · PARCIAL **7→5** · ADECUADA **9→8** · BUENA **5→5**.
+- Disparos (razones): `LEK-MAT-02` **5→1** · `LEK-REL-01` **0→4** (nuevo) · `PRO-MAT-01` 4 · `HAR-REL-01` 4 · `HAR-REL-02` 8 · `SRC-REL-01` 7.
+- Decisión-crítica ND (4 raíces, todas Biogenesis): `AM_SELLOUT_GP`, `AM_SELL_OUT`, `AM_BASE_VENTAS_140325` (nuevas ADECUADA→ND) + `AM_SELL_OUT_HOJOBAR` (ya era ND; ahora con razón LVL-05).
+- **5 raíces cambiaron de estado** (causa exacta): `AM_CONSOLIDADO_GASTOS` PARCIAL→ADECUADA (LEK-MAT→LEK-REL, sin otra MATERIAL) · `AM_RESERVA_MP` PARCIAL→ADECUADA (ídem) · `AM_SELLOUT_GP` ADECUADA→ND (decisión-crítica) · `AM_SELL_OUT` ADECUADA→ND (decisión-crítica) · `AM_BASE_VENTAS_140325` ADECUADA→ND (decisión-crítica). Sin saturación ni patología; distribución no optimizada hacia un objetivo.
+
+**Tests:** golden/reglas/ejecutivo/guards/linaje FOCALIZADOS verdes; subsistema Assessment/Judgment **1386 passed, 19 skipped**; golden recodificado (SELLOUT = ND/brecha nombrada, FROZEN sigue PARCIAL), reglas LEK existenciales → RELEVANT, nuevo test decisión-crítica (verbatim→ND, indeterminada-sola→no), V3-remediation. Suite completa: ver return.
+
+**No ratificado tocado** fuera de §4 del GO; **no** persistencia/UI/migración/push/PR/LLM. Gate: candidato GO sujeto a suite completa + GO del dueño.
+
+---
+
 # UPSTREAM DRIFT — CHECK BEFORE CODING (verificado con `git fetch origin`; sin pull/rebase/merge)
 
 > **NO REBASEAR A CIEGAS ANTES DE LEER ESTA SECCIÓN.**

@@ -13,6 +13,7 @@ import pytest
 
 from tests._judgment_profiles import PB
 from tools.catalog.methodological_judgment import evaluate_judgment
+from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
 
 
 def rules(j, cls=None):
@@ -168,12 +169,16 @@ def lek_model(*, raw=True, logic=True, exposure="verbatim", assoc=False, authore
     return b
 
 
-def test_lek_mat_02_needs_a_traceable_published_path_that_carries_the_unresolved_vocabulary():
+def test_raw_bypass_leak_with_a_traceable_published_path_is_relevant_not_material():
+    """Una fuga cruda/bypass con camino publicado trazable, pero SIN centralidad estructural de contrato (no hay L1(b): la misma responsabilidad
+    reutilizable no se crea/posee en varios nodos aguas abajo), NO es MATERIAL por si sola: es una debilidad RELEVANTE del contrato publicado."""
     j = evaluate_judgment(lek_model().build())
-    r = reason(j, "LEK-MAT-02")
-    assert j["level"] == "PARCIAL" and r["classification"] == "MATERIAL_DEVIATION" and r["secondary_dimension"] == "PUBLISHED_CONTRACT"
+    assert "LEK-MAT-02" not in rules(j) and j["level"] != "PARCIAL"                                   # la cruda trazable sola NO es MATERIAL
+    r = reason(j, "LEK-REL-01")
+    assert r["classification"] == "RELEVANT_WEAKNESS" and r["dimension"] == "PUBLISHED_CONTRACT"
     assert {"LEK.L1.a_physical_raw_bypassing_harmonization_compensated_downstream", "LEK.L2.absorbed_by_non_candidate_nodes_with_logic",
-            "LEK.L3.unresolved_boundary_vocabulary_reaches_the_consumer_verbatim_through_traceable_paths"} <= set(r["deterministic_basis"])
+            "LEK.L3.unresolved_boundary_vocabulary_reaches_the_consumer_verbatim_through_traceable_paths",
+            "LEK.no_structural_contract_centrality_reusable_responsibility_not_owned_in_multiple_downstream_nodes"} <= set(r["deterministic_basis"])
     assert "ce:published_field_lineage/M" in r["evidence_refs"]                                       # cita el campo publicado que sostiene la consecuencia
 
 
@@ -193,9 +198,10 @@ def test_unavailable_lineage_never_creates_material():
 
 
 def test_one_enriched_or_authored_field_cannot_establish_restoration():
-    """Muchos campos con semantica propia NO exculpan mientras exista un camino trazable que expone el vocabulario no resuelto (sin conteos ni proporciones)."""
+    """Muchos campos con semantica propia NO borran la fuga cruda mientras exista un camino trazable que expone el vocabulario no resuelto
+    (sin conteos ni proporciones): sigue siendo una debilidad RELEVANTE del contrato publicado (ya no MATERIAL: no hay centralidad estructural)."""
     j = evaluate_judgment(lek_model(authored_others=9).build())
-    assert "LEK-MAT-02" in rules(j, "MATERIAL_DEVIATION")
+    assert "LEK-MAT-02" not in rules(j) and "LEK-REL-01" in rules(j, "RELEVANT_WEAKNESS")
 
 
 def test_one_non_enriched_field_alone_cannot_establish_non_restoration_without_a_traceable_leak():
@@ -205,16 +211,50 @@ def test_one_non_enriched_field_alone_cannot_establish_non_restoration_without_a
 
 
 def test_associations_are_irrelevant_to_lek_in_both_directions():
-    """Cero asociaciones no crea MATERIAL; una o varias no lo vetan; agregarlas o quitarlas no cambia la conclusion (la restauracion se decide por trazabilidad, no por conteos)."""
+    """Las asociaciones no afectan LEK: ni crean ni vetan. La fuga cruda trazable es RELEVANT con 0/1/3 asociaciones; la restauracion (etiqueta
+    propia) la quita en todos los casos. La conclusion se decide por trazabilidad y centralidad estructural, nunca por conteo de asociaciones."""
     results = {}
     for n in (0, 1, 3):
         b = lek_model()
         for i in range(n):
             b.assoc(f"D{i}")
         results[n] = evaluate_judgment(b.build())
-    assert all("LEK-MAT-02" in rules(j, "MATERIAL_DEVIATION") and j["level"] == "PARCIAL" for j in results.values())
+    assert all("LEK-MAT-02" not in rules(j) and "LEK-REL-01" in rules(j, "RELEVANT_WEAKNESS") for j in results.values())
     clean = {n: evaluate_judgment((lambda b: [b.assoc(f"D{i}") for i in range(n)] and b or b)(lek_model(exposure="authored")).build()) for n in (0, 1, 3)}
-    assert all("LEK-MAT-02" not in rules(j) for j in clean.values())                                  # cero asociaciones solas no crean MATERIAL
+    assert all("LEK-MAT-02" not in rules(j) and "LEK-REL-01" not in rules(j) for j in clean.values())  # restaurado: ni MATERIAL ni RELEVANT por LEK
+
+
+def _und_model(*, exposure="verbatim") -> PB:
+    """AM con una hoja EXTERNAL_CONTRACT_UNDETERMINED cuyo vocabulario llega (verbatim) o no al campo publicado."""
+    b = PB().view("V1", ["EXT"], derived=1).remote("EXT", external=True).remote("CDS1").product("V1").measure("M")
+    if exposure == "verbatim":
+        b.trace("M", "EXT", character="IDENTITY_ONLY", through=False, label="EQUALS_LEAF_LABEL")
+    else:                                                                                             # etiqueta propia: no hay herencia verbatim
+        b.trace("M", "EXT", character="IDENTITY_OR_RENAME", through=False, label="DIFFERENT_FROM_LEAF", name_equals=False)
+    return b
+
+
+def test_decision_critical_external_undetermined_source_is_not_determinable_but_undetermined_alone_is_not():
+    """Una hoja externa de clase INDETERMINADA cuyo vocabulario llega VERBATIM al publicado hace la calidad del contrato publicado
+    indeterminable (si cruda, debilidad; si gobernada, reuso): NOT_DETERMINABLE decision-critico. La MISMA hoja indeterminada SIN
+    esa exposicion verbatim NO dispara la condicion (indeterminada sola != ND). La tecnologia nunca resuelve la clase."""
+    from tools.catalog.methodological_judgment.rules import decision_critical_undetermined_source
+    ev_v = ProfileEvidence(_und_model(exposure="verbatim").build())
+    ev_a = ProfileEvidence(_und_model(exposure="authored").build())
+    assert decision_critical_undetermined_source(ev_v, "UNDETERMINED") and not decision_critical_undetermined_source(ev_a, "UNDETERMINED")
+    jv = evaluate_judgment(_und_model(exposure="verbatim").build())
+    assert jv["status"] == "NOT_DETERMINABLE" and jv["level"] is None and jv["level_rule"] == "LVL-05"
+    assert jv["not_determinable_reason"] == "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL"
+    ja = evaluate_judgment(_und_model(exposure="authored").build())
+    assert ja.get("not_determinable_reason") != "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL"           # indeterminada sin exposicion verbatim: no es decision-critica
+
+
+def test_an_independent_material_rule_keeps_parcial_despite_a_decision_critical_external_source():
+    """El paso decision-critico va DESPUES de MATERIAL: si una regla ratificada ya establece PARCIAL, una fuente externa indeterminada no lo
+    convierte en NOT_DETERMINABLE (no se degrada un MATERIAL ya probado)."""
+    from tools.catalog.methodological_judgment.engine import _decide
+    reasons = [{"classification": "MATERIAL_DEVIATION", "state": "OPEN_CANDIDATE", "rule_id": "PRO-MAT-01"}]
+    assert _decide(reasons, [], [], critical_undetermined=True)[:2] == ("DETERMINED", "PARCIAL")
 
 
 def test_raw_alone_is_never_material():

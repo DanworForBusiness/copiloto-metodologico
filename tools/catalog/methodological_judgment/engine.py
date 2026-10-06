@@ -4,12 +4,14 @@ Sin escrituras (ni disco, ni base, ni perfil), sin red, sin LLM, sin reloj en la
 El perfil se lee como SOLO LECTURA (``ProfileEvidence``) y no se muta.
 
 Logica de decision (cualitativa y existencial, en este orden):
-  1. >=1 razon MATERIAL efectiva            -> DETERMINED / PARCIAL
-  2. un contrato critico no evaluable       -> NOT_DETERMINABLE
-  3. >=1 razon RELEVANT efectiva            -> DETERMINED / ADECUADA
-  4. fortaleza afirmativa en los 4 contratos -> DETERMINED / BUENA
-  5. si no                                  -> NOT_DETERMINABLE
-PLENA nunca se emite (``PLENA_ASSIGNMENT = DISABLED_UNTIL_CALIBRATED``).
+  1. >=1 razon MATERIAL efectiva                     -> DETERMINED / PARCIAL
+  2. un contrato critico no evaluable                -> NOT_DETERMINABLE
+  3. fuente externa indeterminada DECISION-CRITICA   -> NOT_DETERMINABLE   (clase no resuelta que decide leak vs reuso en el publicado)
+  4. >=1 razon RELEVANT efectiva                     -> DETERMINED / ADECUADA
+  5. fortaleza afirmativa en los 4 contratos         -> DETERMINED / BUENA
+  6. si no                                           -> NOT_DETERMINABLE
+PLENA nunca se emite (``PLENA_ASSIGNMENT = DISABLED_UNTIL_CALIBRATED``). El paso 3 nunca degrada un MATERIAL ya establecido (va despues del 1):
+si otra regla ratificada determina PARCIAL de forma independiente, la fuente indeterminada no lo convierte en NOT_DETERMINABLE.
 """
 from __future__ import annotations
 
@@ -101,7 +103,8 @@ def _contracts_not_evaluable(ev: ProfileEvidence) -> list[str]:
     return out
 
 
-def _decide(reasons: list[dict], strengths: list[dict], not_evaluable: list[str], ignore_exceptions: bool = False) -> tuple[str, str | None, str, str | None]:
+def _decide(reasons: list[dict], strengths: list[dict], not_evaluable: list[str], ignore_exceptions: bool = False,
+            critical_undetermined: bool = False) -> tuple[str, str | None, str, str | None]:
     """(status, level, level_rule, nd_reason). Funcion de la EXISTENCIA de razones clasificadas; sin conteos ni pesos."""
     removing = () if ignore_exceptions else C.REMOVING_STATES
     live = [r for r in reasons if r["state"] not in removing]
@@ -109,6 +112,10 @@ def _decide(reasons: list[dict], strengths: list[dict], not_evaluable: list[str]
         return C.DETERMINED, C.PARCIAL, "LVL-02", None
     if not_evaluable:
         return C.NOT_DETERMINABLE, None, "LVL-01", "CONTRACT_NOT_EVALUABLE"
+    if critical_undetermined:
+        # La calidad del contrato publicado para campos que heredan vocabulario verbatim de una fuente de clase indeterminada no puede
+        # afirmarse hasta que esa clase se resuelva (decide leak vs reuso). No se adivina por tecnologia: NOT_DETERMINABLE decision-critico.
+        return C.NOT_DETERMINABLE, None, "LVL-05", "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL"
     if any(r["classification"] == C.RELEVANT_WEAKNESS for r in live):
         return C.DETERMINED, C.ADECUADA, "LVL-03", None
     have = {s["rule_id"] for s in strengths}
@@ -130,18 +137,23 @@ def _closure(status: str, level: str | None, reasons: list[dict], limitations: l
     return C.FINAL if terminal else C.PROVISIONAL
 
 
-def _what_would_change(status: str, level: str | None, reasons: list[dict], strengths: list[dict], not_evaluable: list[str]) -> list[dict]:
+def _what_would_change(status: str, level: str | None, reasons: list[dict], strengths: list[dict], not_evaluable: list[str],
+                       critical_undetermined: bool = False) -> list[dict]:
     out: list[dict] = []
     if status == C.DETERMINED and level in (C.PARCIAL, C.ADECUADA):
         cls = C.MATERIAL_DEVIATION if level == C.PARCIAL else C.RELEVANT_WEAKNESS
         sustaining = [r for r in reasons if r["classification"] == cls and r["state"] not in C.REMOVING_STATES]
         remaining = [r for r in reasons if r not in sustaining]
-        st2, lv2, _, nd = _decide(remaining, strengths, not_evaluable)
+        st2, lv2, _, nd = _decide(remaining, strengths, not_evaluable, critical_undetermined=critical_undetermined)
         out.append({"change_key": "ALL_SUSTAINING_REASONS_REMOVED_BY_VALID_EXCEPTION_OR_NOT_APPLICABLE", "reason_ids": sorted(r["reason_id"] for r in sustaining),
                     "resulting_status": st2, "resulting_level": lv2, "note_key": "removal_requires_governed_exception_or_justified_not_applicable_never_intent_alone"})
         out.append({"change_key": "ACCEPTED_AS_DESIGNED_DOES_NOT_CHANGE_LEVEL", "reason_ids": sorted(r["reason_id"] for r in sustaining), "resulting_status": status, "resulting_level": level})
     elif status == C.DETERMINED and level == C.BUENA:
         out.append({"change_key": "NEW_EVIDENCE_OF_A_RELEVANT_OR_MATERIAL_REASON_WOULD_LOWER_THE_LEVEL", "reason_ids": [], "resulting_status": C.DETERMINED, "resulting_level": None})
+    elif critical_undetermined and not not_evaluable:
+        out.append({"change_key": "RESOLVE_THE_UNDETERMINED_EXTERNAL_SOURCE_CONTRACT_CLASSIFICATION", "reason_ids": [],
+                    "note_key": "classifying_the_source_as_raw_or_governed_removes_the_decision_critical_gap_technology_alone_does_not",
+                    "resulting_status": None, "resulting_level": None})
     else:
         out.append({"change_key": "ESTABLISH_EVIDENCE_FOR_UNEVALUABLE_CONTRACTS_OR_AFFIRMATIVE_STRENGTHS", "reason_ids": [], "contracts_not_evaluable": sorted(not_evaluable),
                     "resulting_status": None, "resulting_level": None})
@@ -154,7 +166,7 @@ def _unjudgeable(ev: ProfileEvidence, code: str) -> dict:
         "plena_assignment": C.PLENA_ASSIGNMENT, "plena_state": C.PLENA_STATE, "not_determinable_reason": code,
         "source_assessment": _source_assessment(ev), "reasons": [], "strengths": [], "qualifiers": {}, "review_candidates": [], "evidence_limitations": [],
         "dispositions_applied": [], "level_without_exceptions": None, "level_rule": None, "supporting_evidence": {}, "cta_candidates": [],
-        "what_would_change_the_judgment": [{"change_key": "PROVIDE_A_CURRENT_ASSESSMENT_WITH_CANONICAL_EVIDENCE_V2", "reason_ids": [], "resulting_status": None, "resulting_level": None}],
+        "what_would_change_the_judgment": [{"change_key": "PROVIDE_A_CURRENT_ASSESSMENT_WITH_CANONICAL_EVIDENCE_V3", "reason_ids": [], "resulting_status": None, "resulting_level": None}],
         "what_would_improve_the_solution": [],
     }
     out["output_signature"] = C.signature(out)
@@ -181,10 +193,13 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     strengths = res["strengths"]
     limitations = res["evidence_limitations"]
     not_eval = _contracts_not_evaluable(ev)
+    # Fuente externa indeterminada DECISION-CRITICA: hoja EXTERNAL_CONTRACT_UNDETERMINED cuyo vocabulario llega verbatim al publicado (ver
+    # rules.decision_critical_undetermined_source). No degrada un MATERIAL ya establecido (el paso 1 de _decide gana).
+    critical = bool(res.get("critical_source_undetermined"))
     applied = _apply_dispositions(reasons, reviews, dispositions)
 
-    status, level, level_rule, nd_reason = _decide(reasons, strengths, not_eval)
-    _, level_no_exc, _, _ = _decide(reasons, strengths, not_eval, ignore_exceptions=True)
+    status, level, level_rule, nd_reason = _decide(reasons, strengths, not_eval, critical_undetermined=critical)
+    _, level_no_exc, _, _ = _decide(reasons, strengths, not_eval, ignore_exceptions=True, critical_undetermined=critical)
     closure = _closure(status, level, reasons, limitations)
     reasons.sort(key=lambda r: (_CLASS_RANK[r["classification"]], r["rule_id"], r["reason_id"]))
     reviews.sort(key=lambda r: (r["rule_id"], r["review_id"]))
@@ -196,7 +211,7 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
         "reasons": reasons, "strengths": strengths, "qualifiers": res["qualifiers"], "review_candidates": reviews, "evidence_limitations": limitations,
         "supporting_evidence": res["supporting_evidence"], "dispositions_applied": applied, "level_without_exceptions": level_no_exc,
         "cta_candidates": cta,
-        "what_would_change_the_judgment": _what_would_change(status, level, reasons, strengths, not_eval),
+        "what_would_change_the_judgment": _what_would_change(status, level, reasons, strengths, not_eval, critical),
         "what_would_improve_the_solution": [{"cta_id": c["cta_id"], "priority_class": c["priority_class"], "linked_reason_ids": c["linked_reason_ids"], "applicability_state": c["applicability_state"]}
                                             for c in cta if c["applicability_state"] != "DISABLED_PENDING_EVIDENCE"],
         "contracts_not_evaluable": sorted(not_eval),
