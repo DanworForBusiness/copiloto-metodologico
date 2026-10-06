@@ -71,6 +71,11 @@ class PB:
         self._assoc.append((target, category))
         return self
 
+    def gap(self, *dims):
+        """Dimensiones analiticas declaradas en el cierre que el publicado NO asocia (brecha concreta de autonomia de maestros)."""
+        self._declared_not_assoc += list(dims)
+        return self
+
     def product(self, *nodes):
         self._product = list(nodes)
         return self

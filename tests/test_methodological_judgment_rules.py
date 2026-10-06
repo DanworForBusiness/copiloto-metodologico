@@ -95,17 +95,30 @@ def test_pass_through_view_between_product_and_leaf_does_not_hide_the_pattern():
 
 
 # ───────────────────────────── LEK-MAT-02 ─────────────────────────────
-def lek_model(*, enriched=False, raw=True, logic=True, assoc=False) -> PB:
+def lek_model(*, enriched=False, raw=True, logic=True, assoc=False, gap=("D2",)) -> PB:
     """AM -> V1 -> V2 -> TBL (fisica cruda): la cruda llega al producto SIN pasar por un candidato de armonizacion y V1/V2 la compensan con logica."""
     b = (PB().view("V1", ["V2"], derived=1 if logic else 0).view("V2", ["TBL"], joins=1 if logic else 0, derived=1 if logic else 0).remote("TBL", raw=raw).product("V1"))
     if assoc:
         b.assoc("D")
+    b.gap(*gap)
     b.measure("M", enriched=enriched)
     return b
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 def test_lek_mat_02_requires_raw_bypass_compensation_and_converging_published_families():
-    j = evaluate_judgment(lek_model().build())                       # sin asociaciones de negocio + medida sin enriquecer = dos familias de fuentes distintas
+    j = evaluate_judgment(lek_model().build())                       # brecha de maestros (dimension declarada sin asociar) + medida sin enriquecer: dos familias con testigos distintos
     r = reason(j, "LEK-MAT-02")
     assert j["level"] == "PARCIAL" and r["classification"] == "MATERIAL_DEVIATION" and r["secondary_dimension"] == "PUBLISHED_CONTRACT"
     assert {"LEK.L1.a_physical_raw_bypassing_harmonization_compensated_downstream", "LEK.L2.absorbed_by_non_candidate_nodes_with_logic",
@@ -113,26 +126,67 @@ def test_lek_mat_02_requires_raw_bypass_compensation_and_converging_published_fa
 
 
 def test_one_non_enriched_measure_alone_cannot_establish_published_non_restoration():
-    """Una sola familia (la medida sin enriquecer) NO alcanza aunque exista logica compensatoria sobre una cruda."""
-    j = evaluate_judgment(lek_model(assoc=True).build())            # asociacion de negocio presente: solo MEASURE_SEMANTICS
+    j = evaluate_judgment(lek_model(assoc=True, gap=()).build())     # solo MEASURE_SEMANTICS: una sola familia
     assert "LEK-MAT-02" not in rules(j) and j["level"] != "PARCIAL"
 
 
-def test_one_field_that_supports_two_families_is_not_convergence():
-    """Un mismo campo con etiqueta = nombre tecnico y nombre = columna fuente sostiene dos familias del MISMO origen y con el MISMO testigo: no converge."""
-    b = lek_model(enriched=True, assoc=True)
-    b._fields = [{"technical_name": "F1", "role": "ATTRIBUTE", "business_name_equals_technical": True, "name_equals_remote_source_column": True, "derived": False}]
+def test_one_enriched_measure_cannot_establish_restoration():
+    """Una medida enriquecida entre varias sin enriquecer NO exculpa: la no-restauracion converge igual."""
+    b = lek_model(enriched=False)
+    b.measure("M_OK", enriched=True)
+    assert "LEK-MAT-02" in rules(evaluate_judgment(b.build()), "MATERIAL_DEVIATION")
+
+
+def test_zero_business_associations_alone_cannot_create_material():
+    """La AUSENCIA de asociaciones es solo apoyo: no es una familia, no establece nada por si sola."""
+    j = evaluate_judgment(lek_model(enriched=True, assoc=False, gap=()).build())
+    assert "LEK-MAT-02" not in rules(j) and j["supporting_evidence"]["published_business_association_targets"] == []
+
+
+def test_one_association_cannot_block_material_and_adding_or_removing_it_does_not_change_the_lek_conclusion():
+    without = evaluate_judgment(lek_model(assoc=False).build())
+    with_one = evaluate_judgment(lek_model(assoc=True).build())      # una asociacion de negocio presente + brecha en otra dimension declarada: NO veta
+    assert "LEK-MAT-02" in rules(with_one, "MATERIAL_DEVIATION") and "LEK-MAT-02" in rules(without, "MATERIAL_DEVIATION")
+    assert with_one["level"] == without["level"] == "PARCIAL"
+    assert with_one["supporting_evidence"]["published_business_association_targets"] == ["D"]       # evidencia positiva LOCALIZADA, expuesta como apoyo
+
+
+def test_association_gap_is_evidence_per_dimension_not_a_count_of_associations():
+    one_gap = evaluate_judgment(lek_model(assoc=True, gap=("D2",)).build())
+    many = evaluate_judgment(lek_model(assoc=True, gap=("D2",)).assoc("D3").assoc("D4").build())      # mas asociaciones, la brecha sigue siendo la misma
+    assert reason(one_gap, "LEK-MAT-02")["deterministic_basis"] == reason(many, "LEK-MAT-02")["deterministic_basis"]
+
+
+def test_duplicate_projections_of_the_same_field_are_not_independent_evidence():
+    """Atributos con etiqueta = nombre tecnico Y nombre = columna fuente: las dos familias tienen exactamente los MISMOS testigos (mismo hecho proyectado dos veces)."""
+    b = lek_model(enriched=True, assoc=True, gap=())
+    b._fields = [{"technical_name": f"F{i}", "role": "ATTRIBUTE", "business_name_equals_technical": True, "name_equals_remote_source_column": True, "derived": False} for i in range(5)]
     assert "LEK-MAT-02" not in rules(evaluate_judgment(b.build()))
-    b2 = lek_model(enriched=True, assoc=False)                      # sin asociaciones: ahora SI hay una segunda fuente de evidencia con testigo distinto
+    b2 = lek_model(enriched=True, assoc=True, gap=("D2",))              # con una brecha de maestros distinta, SI converge
     b2._fields = list(b._fields)
     assert "LEK-MAT-02" in rules(evaluate_judgment(b2.build()), "MATERIAL_DEVIATION")
 
 
-def test_families_from_the_same_evidence_source_are_not_independent():
-    """Atributos sin enriquecer + arrastre de vocabulario + medida sin enriquecer vienen todos de los campos publicados: una sola fuente de evidencia."""
-    b = lek_model(enriched=False, assoc=True)
-    b._fields = [{"technical_name": f"F{i}", "role": "ATTRIBUTE", "business_name_equals_technical": True, "name_equals_remote_source_column": True, "derived": False} for i in range(5)]
-    assert "LEK-MAT-02" not in rules(evaluate_judgment(b.build()))
+def test_lek_requires_at_least_one_consumer_published_contract_family():
+    """Solo la proyeccion tecnica (contrato de armonizacion) NO alcanza aunque exista, ni siquiera con otras senales que no sean del contrato publicado."""
+    b = lek_model(enriched=True, assoc=True, gap=())
+    b._views["V1"]["provider_names"].append("H1"); b._views["V1"]["providers"] += 1
+    b.view("H1", ["CDS9"]).cand("H1", carry=3, sources=["CDS9"]).remote("CDS9")
+    j = evaluate_judgment(b.build())
+    assert "LEK-MAT-02" not in rules(j)
+    from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
+    from tools.catalog.methodological_judgment import rules as R
+    fam = R._published_families(ProfileEvidence(b.build()), include_projection=True)
+    assert set(fam) == {"TECHNICAL_PROJECTION_REACHING_PUBLICATION"} and R._converging_families(fam) == []
+
+
+def test_independence_is_decided_by_underlying_facts_not_by_canonical_section():
+    """Mecanismo: testigos. Familias del mismo origen canonico (campos publicados) con hechos DISTINTOS si convergen; familias de origen distinto con el MISMO hecho no."""
+    from tools.catalog.methodological_judgment import rules as R
+    distinct_same_section = {"MEASURE_SEMANTICS": {"field:M"}, "SOURCE_VOCABULARY_CARRY_THROUGH": {"field:V"}}
+    assert R.FAMILY_PROVENANCE["MEASURE_SEMANTICS"] == R.FAMILY_PROVENANCE["SOURCE_VOCABULARY_CARRY_THROUGH"] and R._converging_families(distinct_same_section) == ["MEASURE_SEMANTICS", "SOURCE_VOCABULARY_CARRY_THROUGH"]
+    same_fact_other_section = {"MEASURE_SEMANTICS": {"x:1"}, "TECHNICAL_PROJECTION_REACHING_PUBLICATION": {"x:1"}}
+    assert R._converging_families(same_fact_other_section) == []
 
 
 def test_raw_alone_is_never_material_and_published_restoration_prevents_material():
@@ -205,11 +259,12 @@ def test_a_candidate_that_owns_the_temporal_semantics_is_not_a_leak():
 
 
 # ───────────────────────────── HAR-REL-01 (8D.1b) ─────────────────────────────
-def har_model(*, assoc=False, align=False, carry=4, measure_enriched=False) -> PB:
+def har_model(*, assoc=False, align=False, carry=4, measure_enriched=False, gap=()) -> PB:
     """Armonizacion tecnica que conserva el vocabulario de la fuente; el producto la consume."""
     b = PB().view("V1", ["H1"], derived=1 if align else 0, unions=1 if align else 0).view("H1", ["CDS1"]).cand("H1", carry=carry, sources=["CDS1"]).remote("CDS1").product("V1")
     if assoc:
         b.assoc("D")
+    b.gap(*gap)
     b.measure("M", enriched=measure_enriched)
     return b
 
@@ -221,12 +276,22 @@ def test_technical_harmonization_alone_is_descriptive_not_a_weakness():
     assert j["supporting_evidence"]["technical_harmonization_candidates"] == ["H1"]
 
 
+
+
+
 def test_har_rel_01_fires_with_downstream_semantic_consequence():
-    published = evaluate_judgment(har_model().build())               # sin asociaciones + medida sin enriquecer: dos fuentes de evidencia distintas
+    published = evaluate_judgment(har_model(gap=("D2",)).build())    # brecha de maestros + medida sin enriquecer sobre armonizacion tecnica con vocabulario fuente
     assert "HAR-REL-01" in rules(published, "RELEVANT_WEAKNESS") and published["level"] == "ADECUADA" and published["level_rule"] == "LVL-03"
     assert any(b.startswith("HAR.consequence.family.") for b in reason(published, "HAR-REL-01")["deterministic_basis"])
     aligned = evaluate_judgment(har_model(assoc=True, measure_enriched=True, align=True).build())
     assert "HAR-REL-01" in rules(aligned, "RELEVANT_WEAKNESS") and "HAR.consequence.propagation_completes_branch_alignment" in reason(aligned, "HAR-REL-01")["deterministic_basis"]
+
+
+def test_har_rel_01_association_presence_neither_vetoes_nor_creates_the_weakness():
+    base = har_model(gap=("D2",))
+    with_assoc = har_model(assoc=True, gap=("D2",))
+    assert "HAR-REL-01" in rules(evaluate_judgment(base.build())) and "HAR-REL-01" in rules(evaluate_judgment(with_assoc.build()))
+    assert "HAR-REL-01" not in rules(evaluate_judgment(har_model().build()))        # sin brecha ni otra familia: la ausencia de asociaciones por si sola no crea nada
 
 
 def test_one_non_enriched_field_alone_cannot_create_a_relevant_weakness():

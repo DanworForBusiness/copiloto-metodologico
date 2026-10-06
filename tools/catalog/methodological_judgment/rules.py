@@ -143,21 +143,28 @@ def _downstream_created_semantics(ev: ProfileEvidence) -> tuple[list[dict], list
     return qual, unq
 
 
-FAMILY_EVIDENCE_SOURCE = {"ASSOCIATION_AUTONOMY": "published_contract.associations", "MEASURE_SEMANTICS": "published_contract.fields", "ATTRIBUTE_LABEL_ENRICHMENT": "published_contract.fields",
-                          "SOURCE_VOCABULARY_CARRY_THROUGH": "published_contract.fields", "TECHNICAL_PROJECTION_REACHING_PUBLICATION": "harmonization_contract"}
-ANCHOR_FAMILIES = ("ASSOCIATION_AUTONOMY", "MEASURE_SEMANTICS")      # familias orientadas al CONSUMIDOR: autonomia de maestros y semantica de medidas. Las demas solo corroboran.
+# Procedencia canonica de cada familia: SOLO informativa (trazabilidad). La independencia metodologica NO se decide por seccion (dos secciones != dos verdades): se decide por TESTIGOS, es decir
+# por hechos subyacentes distintos. La seccion/fuente es un mecanismo de implementacion para no contar dos veces la misma observacion, no la regla.
+FAMILY_PROVENANCE = {"ASSOCIATION_AUTONOMY": "published_contract.associations", "MEASURE_SEMANTICS": "published_contract.fields", "ATTRIBUTE_LABEL_ENRICHMENT": "published_contract.fields",
+                     "SOURCE_VOCABULARY_CARRY_THROUGH": "published_contract.fields", "TECHNICAL_PROJECTION_REACHING_PUBLICATION": "harmonization_contract"}
+CONSUMER_FAMILIES = ("ASSOCIATION_AUTONOMY", "MEASURE_SEMANTICS", "ATTRIBUTE_LABEL_ENRICHMENT", "SOURCE_VOCABULARY_CARRY_THROUGH")      # evidencia del contrato publicado / consumidor
 
 
 def _published_families(ev: ProfileEvidence, *, include_projection: bool) -> dict[str, set[str]]:
-    """Familias de evidencia de no-restauracion semantica del publicado. Presencia CATEGORICA (sin conteos ni proporciones); cada familia aporta TESTIGOS con espacio de nombres comun
-    (``field:`` para campos/medidas, ``assoc:``, ``cand:``): un mismo elemento no puede sostener dos familias (ver ``_converging_families``).
-    ANCLA (consumidor): ASSOCIATION_AUTONOMY = el publicado no expone NINGUNA asociacion a una dimension de negocio; MEASURE_SEMANTICS = existe una medida visible cuya etiqueta es su
-    propio nombre tecnico. CORROBORANTES: ATTRIBUTE_LABEL_ENRICHMENT (atributos con etiqueta = nombre tecnico), SOURCE_VOCABULARY_CARRY_THROUGH (campos con nombre = columna de la fuente
-    remota), TECHNICAL_PROJECTION_REACHING_PUBLICATION (frontera de armonizacion aguas arriba del producto que es proyeccion tecnica con vocabulario fuente; premisa de HAR-REL-01, por eso
-    ``include_projection=False`` en esa regla)."""
+    """CONSUMER_SEMANTIC_DEFICIENCY_EVIDENCE: senales de que el publicado no restaura la semantica. Cada senal es EVIDENCIA DE DEFICIENCIA (nunca exculpatoria) y aporta TESTIGOS (hechos
+    subyacentes: ``field:<campo>``, ``dim:<dimension>``, ``assoc:...``, ``cand:<candidato>``).
+    - ASSOCIATION_AUTONOMY: autonomia de maestros debil = BRECHAS concretas: dimensiones analiticas declaradas en el cierre que el publicado NO asocia (evidencia por dimension, independiente de
+      cuantas otras asociaciones existan). La EXISTENCIA de una o varias asociaciones es evidencia positiva LOCALIZADA: no prueba autonomia suficiente y NO veta nada. La AUSENCIA total de asociaciones
+      es solo evidencia de apoyo (``supporting_evidence.published_business_association_targets`` vacio): no es una familia ni establece nada por si sola.
+    - MEASURE_SEMANTICS / ATTRIBUTE_LABEL_ENRICHMENT: medidas / atributos visibles cuya etiqueta es su propio nombre tecnico (una medida o un campo enriquecido tampoco prueba restauracion).
+    - SOURCE_VOCABULARY_CARRY_THROUGH: campos visibles con nombre = columna de la fuente remota.
+    - TECHNICAL_PROJECTION_REACHING_PUBLICATION (fuera del contrato publicado): frontera de armonizacion aguas arriba del producto que es proyeccion tecnica con vocabulario fuente (premisa de
+      HAR-REL-01, por eso ``include_projection=False`` en esa regla).
+    Presencia categorica por familia; ningun conteo ni proporcion; ninguna senal suficiente por si sola."""
     fam: dict[str, set[str]] = {}
-    if not ev.business_association_targets:
-        fam["ASSOCIATION_AUTONOMY"] = {"assoc:no_business_dimension_association"}
+    gaps = {f"dim:{d if isinstance(d, str) else d.get('artifact', str(d))}" for d in ev.declared_dimensions_not_associated}
+    if gaps:
+        fam["ASSOCIATION_AUTONOMY"] = gaps
     fields = ev.published_fields
     meas = {f"field:{f.get('technical_name')}" for f in fields if f.get("role") == "MEASURE" and f.get("business_name_equals_technical")}
     attr = {f"field:{f.get('technical_name')}" for f in fields if f.get("role") != "MEASURE" and f.get("business_name_equals_technical")}
@@ -178,16 +185,13 @@ def _published_families(ev: ProfileEvidence, *, include_projection: bool) -> dic
 
 
 def _converging_families(fam: Mapping[str, set[str]]) -> list[str]:
-    """Familias que convergen: pares con (i) FUENTES DE EVIDENCIA canonicas distintas (asociaciones / campos publicados / contrato de armonizacion: varias familias que salen de los mismos
-    campos publicados NO son independientes), (ii) TESTIGOS distintos (un elemento no sostiene dos familias) y (iii) al menos una familia ANCLA del consumidor en el par.
-    Un solo campo/medida, o varias senales del mismo origen, NO es convergencia; ninguna familia por si sola establece no-restauracion."""
+    """Familias que convergen: pares donde CADA familia aporta testigos que la otra no tiene (hechos subyacentes distintos: dos proyecciones del mismo campo/hecho NO son dos evidencias) y al menos UNA familia del contrato
+    publicado/consumidor en el par. Ninguna senal es suficiente por si sola ni exculpatoria; no hay conteos ni umbrales."""
     names = sorted(fam)
     out: set[str] = set()
     for i, x in enumerate(names):
         for y in names[i + 1:]:
-            if FAMILY_EVIDENCE_SOURCE[x] == FAMILY_EVIDENCE_SOURCE[y] or not (x in ANCHOR_FAMILIES or y in ANCHOR_FAMILIES):
-                continue
-            if any(u != v for u in fam[x] for v in fam[y]):
+            if (x in CONSUMER_FAMILIES or y in CONSUMER_FAMILIES) and (fam[x] - fam[y]) and (fam[y] - fam[x]):
                 out.update((x, y))
     return sorted(out)
 
