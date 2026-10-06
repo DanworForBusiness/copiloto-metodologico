@@ -40,10 +40,13 @@ MIGRACIÓN CONTROLADA DE EVIDENCIA (modo explícito y SEPARADO; para assessments
   agregado es un target de flujo que Modeling ya leía en el mismo pool y que la clasificación previa excluía (hoja, leída por un miembro del cierre viejo, no un flujo);
   el cierre viejo debe ser subconjunto del nuevo. Cualquier otra diferencia es CLOSURE_DRIFT (cero escrituras). El dry-run informa los miembros agregados y su base.
 
-  SECUENCIA DE MIGRACIONES (sin encadenamiento automático): el registro tiene DOS migraciones explícitas y cada una cubre EXACTAMENTE una diferencia de versiones.
+  SECUENCIA DE MIGRACIONES (sin encadenamiento automático): el registro tiene TRES migraciones explícitas y cada una cubre EXACTAMENTE una diferencia de versiones.
     * ``evidence_g1_g3_v1``: perfil ANTERIOR a G1/G3 (sin ``canonical_evidence``). Sigue registrada para no varar perfiles históricos que existan o se restauren en ese contrato.
       El motor de este build solo emite el contrato VIGENTE (no puede fabricar el intermedio G1/G3): con este build lleva el perfil al contrato vigente en UN paso explícito.
     * ``evidence_closure_contract_v2``: perfil en el contrato G1/G3 (el vigente en ``11ce071``) -> evidence release.
+    * ``evidence_field_lineage_v3``: perfil en el contrato del evidence release v2 (canonical_evidence v2 + assessability v3) -> evidence release de linaje de campo
+      (canonical_evidence v3 + assessability v4: procedencia por campo publicado hasta las hojas frontera + clase de contrato de fuente por hoja). SOLO agrega evidencia: exige
+      ``CLOSURE_EQUAL`` (el cierre semantico no puede cambiar). Un perfil con cambio de entrada (INPUT_CHANGED / VERSION_AND_INPUT) nunca se absorbe.
   Un perfil cuya diferencia es la de OTRA migración se informa como ``other_migration_applicable`` (con ``applicable_migration``): NO se migra por la equivocada, NO se salta
   ni se encadena. Un perfil ya CURRENT se omite en ambas (idempotentes).
 

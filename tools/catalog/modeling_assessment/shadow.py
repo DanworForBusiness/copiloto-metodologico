@@ -29,6 +29,7 @@ from .facts_am import am_facts
 from .facts_closure import closure_facts
 from .facts_contract_semantics import published_contract_facts
 from .facts_expressions import expression_facts
+from .facts_field_lineage import published_field_lineage_facts, source_contract_class_facts
 from .facts_harmonization_contract import harmonization_contract_facts
 from .facts_processing import processing_property_facts
 from .facts_reconvergence import reconvergence_facts
@@ -121,7 +122,10 @@ def load_pool(group: dict[str, list[Path]]):
 
 def collect_facts(universe: AssessmentUniverse, entities, am: str, evidence: SupplementaryEvidence) -> list[Fact]:
     identity = classify_universe(entities)
-    return [*source_facts(universe, entities, am, evidence=evidence, identity=identity),
+    class_facts = source_contract_class_facts(universe, entities, am, identity=identity, evidence=evidence)
+    return [*class_facts,
+            *published_field_lineage_facts(universe, entities, am, identity=identity, evidence=evidence, leaf_classes={f.subject: f.value for f in class_facts}),
+            *source_facts(universe, entities, am, evidence=evidence, identity=identity),
             *ingestion_facts(universe, entities, am, evidence=evidence, identity=identity),
             *am_facts(universe, entities, am, identity=identity),
             *closure_facts(universe, entities, am, evidence=evidence),

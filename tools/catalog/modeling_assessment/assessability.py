@@ -49,7 +49,7 @@ from .model import (
 )
 from .signals import FactIndex, Finding, SignalEvaluation, evaluate_signals
 
-ASSESSABILITY_RULESET = "assessability-rules/v3"       # v3 (evidence release): superficie REQUERIDA de completitud del cierre (`am.closure_reference_resolution`) + superficies descriptivas del contrato publicado, armonizacion, expresiones, reconvergencia, complejidad y propiedades de flujo; v2 (G1): `source.leaf_provenance` reemplaza a `source.leaf_contract_status`
+ASSESSABILITY_RULESET = "assessability-rules/v4"       # v4 (field-lineage evidence release): superficies descriptivas `am.published_field_lineage` y `source.contract_class` (no cuentan en cobertura); v3 (evidence release): superficie REQUERIDA de completitud del cierre (`am.closure_reference_resolution`) + superficies descriptivas del contrato publicado, armonizacion, expresiones, reconvergencia, complejidad y propiedades de flujo; v2 (G1): `source.leaf_provenance` reemplaza a `source.leaf_contract_status`
 CONFIDENCE_RULESET = "confidence-cuts/v2"       # v2: factor epistemico `unambiguous_closure_references` (la resolucion AMBIGUA de una referencia del cierre afecta la CONFIANZA, no la cobertura)
 
 # Cortes PROVISIONALES (no son umbrales de calidad/madurez): (corte para HIGH, corte para MEDIUM). Se validan en M8.
@@ -251,6 +251,8 @@ _FACT_SURFACES: tuple[SurfaceSpec, ...] = (
                 ("source.leaf_provenance",)),
     SurfaceSpec("source.physical_boundary", _SRC, F, XPL, "external integration boundary revealed by the provenance chain of a flow-produced local leaf (physical table / governed CDS / governed SAPI extractor / unclassified): Processing-provenance evidence for the SOURCE contract; never a semantic closure member and never DIRECT_RAW_TABLE_ACCESS evidence",
                 ("source.physical_boundary",)),
+    SurfaceSpec("source.contract_class", _SRC, F, VIEW, "descriptive: explicit source-contract class of every frontier leaf (governed SAP CDS / ODP-SAPI, physical ABAP table, external contract undetermined, platform provided, unknown) with the basis of the classification; technology alone never classifies governance or rawness",
+                ("source.contract_class",)),
     # INGESTION
     SurfaceSpec("ingestion.boundary_artifacts", _ING, F, REQ, "boundary leaves of the closure", ("ingestion.boundary_artifacts",), per_unit=False),
     SurfaceSpec("ingestion.first_consumers", _ING, F, REQ, "first consumers of each boundary leaf", ("ingestion.first_consumers",)),
@@ -268,6 +270,8 @@ _FACT_SURFACES: tuple[SurfaceSpec, ...] = (
                 ("am.association_semantics",), per_unit=False, na_when=_not_am_root),
     SurfaceSpec("am.field_semantics", _AM, F, VIEW, "descriptive: published fields and measures (label vs technical name, datatype family / precision / scale, name equal to a remote source column) and the measure datatype composition",
                 ("am.field_semantics",), per_unit=False, na_when=_not_am_root),
+    SurfaceSpec("am.published_field_lineage", _AM, F, VIEW, "descriptive: factual backward provenance of each published field through the compiled queries of the closure to the frontier leaves (mapping type per hop, harmonization contracts crossed, completeness COMPLETE/PARTIAL/UNRESOLVED/AMBIGUOUS); ambiguity is explicit, no quality judgment",
+                ("am.published_field_lineage",), per_unit=False, na_when=_not_am_root),
     SurfaceSpec("am.association_targets", _AM, F, REQ, "association targets of the analytic model", ("am.association_targets",), per_unit=False, na_when=_not_am_root),
     SurfaceSpec("am.contract_delta", _AM, F, REQ, "what the analytic model adds/removes vs each direct lineage provider", ("am.contract_delta",), na_when=_not_am_root),
     SurfaceSpec("am.numeric_attributes_not_declared_as_measures", _AM, F, REQ, "numeric attributes not declared as measures", ("am.numeric_attributes_not_declared_as_measures",), per_unit=False,

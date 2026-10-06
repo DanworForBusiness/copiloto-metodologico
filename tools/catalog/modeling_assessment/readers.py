@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .complexity import view_structure
+from .field_lineage import extract_query_ir
 from .derivation import (
     DerivedColumn, ExpressionSurface, ProjectionColumn, extract_consumed_fields, extract_derived_columns, extract_expression_surface, extract_projection_columns,
     select_branches,
@@ -114,6 +115,7 @@ class DerivationEvidence:
     outer_where: Any | None = None                                  # ``SELECT.where`` VERBATIM del SELECT externo (filtro de origen de una vista fuente de flujo)
     outer_having: Any | None = None
     consumed_fields: tuple[tuple[str, tuple[str, ...]], ...] = ()   # S5: campos de cada proveedor-entidad que el query referencia
+    query_ir: Any | None = None                                     # linaje de campo (``field_lineage``): IR del query para resolver columnas a traves de subselects/uniones
 
 
 @dataclass(frozen=True)
@@ -426,7 +428,8 @@ class SupplementaryEvidence:
                 if branches and (name not in derivs or not derivs[name].has_query):
                     outer = branches[0]
                     derivs[name] = DerivationEvidence(name, rel, True, len(branches), extract_derived_columns(name, defn), extract_expression_surface(name, defn),
-                                                      extract_projection_columns(name, defn), outer.get("where"), outer.get("having"), extract_consumed_fields(defn))
+                                                      extract_projection_columns(name, defn), outer.get("where"), outer.get("having"), extract_consumed_fields(defn),
+                                                      extract_query_ir(defn))
                 if name not in structures:
                     vs = view_structure(name, defn)
                     if vs is not None:

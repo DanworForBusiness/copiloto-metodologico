@@ -1,0 +1,34 @@
+{
+ "biogenesis_base_stocks": {
+  "closure_size": 36,
+  "expected_level": "PARCIAL"
+ },
+ "biogenesis_descuentos_comerciales": {
+  "closure_size": 30,
+  "expected_level": "ADECUADA"
+ },
+ "biogenesis_lista_precios": {
+  "closure_size": 6,
+  "expected_level": "PARCIAL"
+ },
+ "biogenesis_prefacturacion": {
+  "closure_size": 89,
+  "expected_level": "ADECUADA"
+ },
+ "biogenesis_reserva_material": {
+  "closure_size": 10,
+  "expected_level": "PARCIAL"
+ },
+ "biogenesis_sellout_gp": {
+  "closure_size": 57,
+  "expected_level": "PARCIAL"
+ },
+ "illolay_pedidos_entregas": {
+  "closure_size": 39,
+  "expected_level": "PARCIAL"
+ },
+ "kensing_gl_line_item_raw": {
+  "closure_size": 26,
+  "expected_level": "BUENA"
+ }
+}

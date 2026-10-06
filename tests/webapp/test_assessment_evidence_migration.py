@@ -30,6 +30,7 @@ from webapp.services import catalog_reads
 
 MIG = "evidence_closure_contract_v2"
 OLD_MIG = "evidence_g1_g3_v1"
+LIN_MIG = "evidence_field_lineage_v3"
 OLD_TARGET = svc.EVIDENCE_MIGRATIONS[OLD_MIG]
 TARGET = svc.EVIDENCE_MIGRATIONS[MIG]
 OLD_VALUES = {k: next(iter(v)) for k, v in TARGET.eligible_old.items() if v != frozenset({None})}
@@ -82,12 +83,12 @@ def test_the_six_public_states_are_unchanged_and_stale_reasons_are_not_states():
 
 
 def test_the_registry_is_small_explicit_and_uses_the_real_constants_as_target():
-    assert set(svc.EVIDENCE_MIGRATIONS) == {OLD_MIG, MIG}                        # ambas explicitas: un perfil historico no queda varado porque un cliente ya migro
+    assert set(svc.EVIDENCE_MIGRATIONS) == {OLD_MIG, MIG, LIN_MIG}                        # ambas explicitas: un perfil historico no queda varado porque un cliente ya migro
     assert TARGET.target_keys == ("assessability", "confidence", "canonical_evidence", "closure") and TARGET.closure_policy == svc.TARGETED_CLOSURE_EXPANSION
     assert OLD_VALUES == {"assessability": "assessability-rules/v2", "confidence": "confidence-cuts/v1", "canonical_evidence": "canonical-evidence/v1"}
     assert TARGET.eligible_old["closure"] == frozenset({None})
     v = _cur_versions()
-    assert (v["assessability"], v["confidence"], v["canonical_evidence"], v["closure"]) == ("assessability-rules/v3", "confidence-cuts/v2", "canonical-evidence/v2", "closure-rules/v1")
+    assert (v["assessability"], v["confidence"], v["canonical_evidence"], v["closure"]) == ("assessability-rules/v4", "confidence-cuts/v2", "canonical-evidence/v3", "closure-rules/v1")
     assert v["signals"] == "signal-rules/v3" and v["finding_evidence"] == "finding-evidence/v2" and v["facts_profile"] == "modeling_assessment.profile/v1"     # lo no relacionado NO se subio
 
 
@@ -99,7 +100,7 @@ def _prof(*, closure=("A", "B"), am="AM", cov=0.9, covi=0.95, conf="MEDIUM", rev
                               "occurrences": [{"values": {"provider": "P", "consumer": "C", "fields": ["F"]}}]}] if reviews else [],
          "areas": [{"id": "INGESTION", "assessability": ingestion, "finding_groups": ["G1"]}, {"id": "PROPAGATION", "assessability": "ASSESSED", "finding_groups": []}]}
     if with_ce:
-        p["canonical_evidence"] = {"version": "canonical-evidence/v2", "leaf_provenance": list(leaves), "assembly_topology": {"count": 0, "artifacts": []},
+        p["canonical_evidence"] = {"version": "canonical-evidence/v3", "leaf_provenance": list(leaves), "assembly_topology": {"count": 0, "artifacts": []},
                                    "expression_repetition": {"count": 0, "groups": []}, "derivation_semantics": {"repeated_derivations": list(reps), "relation_counts": {}, "fields": []},
                                    "closure": {"rules": "closure-rules/v1", "plane_policy": "MODELING_MEMBERSHIP",
                                                "reference_resolution": {"members_total": len(closure), "counts": {"RESOLVED": 3, "UNRESOLVED": 0, "EXCLUDED_BY_PLANE": 0, "AMBIGUOUS": 0}, "platform_provided_total": 0,
@@ -108,7 +109,8 @@ def _prof(*, closure=("A", "B"), am="AM", cov=0.9, covi=0.95, conf="MEDIUM", rev
                                    "published_contract": {"associations": {"aggregates": {"total": 1, "by_category": {"BUSINESS_DIMENSION": 1}}}, "fields": {"measure_type_composition": {"signature_count": 2, "family_count": 1}}},
                                    "harmonization_contract": {"artifacts": [{"character": {"value": "UNKNOWN"}}]}, "expression_occurrences": {"counts": {"occurrences": 4}},
                                    "branch_reconvergence": {"counts": {"pairs": 1}}, "view_complexity": {"views": [{"view_type": "SQL"}], "count": 1},
-                                   "physical_source_boundaries": {"leaves": [], "boundaries_by_class": []}, "naming_evidence": {"taxonomy": []}, "processing_flow_properties": {"flows": [], "counts": {"flows": 0}}}
+                                   "physical_source_boundaries": {"leaves": [], "boundaries_by_class": []}, "naming_evidence": {"taxonomy": []}, "processing_flow_properties": {"flows": [], "counts": {"flows": 0}},
+                                   "published_field_lineage": None, "source_contract_classes": {"leaves": [], "by_class": []}}
     return p
 
 
@@ -200,10 +202,10 @@ def test_dry_run_reports_the_old_new_evidence_delta_without_writing_and_never_du
     d = rec["delta"]
     assert rec["action"] == bf.WOULD_REGENERATE and fk.committed == [] and out["dry_run"] and not out["apply"]
     assert rec["stale_reason"] == svc.STALE_VERSION_ONLY and d["pool_signature_same"] is True
-    assert set(d["versions"]) == set(TARGET.target_keys) and d["versions"]["assessability"]["new"] == "assessability-rules/v3" and d["versions"]["closure"] == {"old": None, "new": "closure-rules/v1"}
+    assert set(d["versions"]) == set(TARGET.target_keys) and d["versions"]["assessability"]["new"] == "assessability-rules/v4" and d["versions"]["closure"] == {"old": None, "new": "closure-rules/v1"}
     assert d["coverage_strict"] == {"old": 0.9, "new": 1.0, "changed": True} and d["coverage_inclusive"]["new"] == 1.0
     assert d["confidence"]["new"] == "HIGH" and d["areas"]["INGESTION"]["state"] == {"old": "PARTIALLY_ASSESSED", "new": "ASSESSED"}
-    assert d["canonical_evidence"]["old"] == "absent" and d["canonical_evidence"]["new"] == "canonical-evidence/v2"
+    assert d["canonical_evidence"]["old"] == "absent" and d["canonical_evidence"]["new"] == "canonical-evidence/v3"
     assert set(d["canonical_evidence"]["sections_added"]) >= {"closure", "published_contract", "harmonization_contract", "expression_occurrences", "branch_reconvergence", "view_complexity"}
     assert d["leaf_provenance"]["new"]["established"] == 1 and d["leaf_provenance"]["old"]["leaves"] == 0
     assert d["closure"] == {"policy": "TARGETED_CLOSURE_EXPANSION", "old": 2, "new": 2, "terminal_am_same": True, "root_identity_same": True, "added": [], "removed": [], "drift": False}
@@ -339,9 +341,9 @@ def _rewrite(path, mutate):
 def _downgrade(env):
     """Deja el sobre como lo dejo el motor ANTERIOR al evidence release (el estado real de produccion): canonical_evidence v1 (cuatro secciones), assessability v2, confidence v1,
     sin la clave ``closure``."""
-    from tools.catalog.modeling_assessment.canonical_sections import V2_SECTIONS
+    from tools.catalog.modeling_assessment.canonical_sections import V2_SECTIONS, V3_SECTIONS
     prof = env["profile_json"]
-    for sec in V2_SECTIONS:
+    for sec in (*V2_SECTIONS, *V3_SECTIONS):
         prof["canonical_evidence"].pop(sec, None)
     prof["canonical_evidence"]["version"] = "canonical-evidence/v1"
     prof["versions"].update(OLD_VALUES)
@@ -435,10 +437,10 @@ def test_dry_run_runs_the_real_engine_in_memory_writes_nothing_and_reports_the_e
     rec = out["records"][0]
     d = rec["delta"]
     assert len(calls) == 1 and rec["action"] == bf.WOULD_REGENERATE and out["counts"]["would_regenerate"] == 1 and out["restart"] == bf.RESTART_DRY_RUN
-    assert d["pool_signature_same"] and d["canonical_evidence"]["old"] == "canonical-evidence/v1" and d["canonical_evidence"]["new"] == "canonical-evidence/v2"
+    assert d["pool_signature_same"] and d["canonical_evidence"]["old"] == "canonical-evidence/v1" and d["canonical_evidence"]["new"] == "canonical-evidence/v3"
     assert "closure" in d["canonical_evidence"]["sections_added"] and "published_contract" in d["canonical_evidence"]["sections_added"]
-    assert d["versions"]["canonical_evidence"] == {"old": "canonical-evidence/v1", "new": "canonical-evidence/v2"} and d["versions"]["closure"] == {"old": None, "new": "closure-rules/v1"}
-    assert d["versions"]["assessability"] == {"old": "assessability-rules/v2", "new": "assessability-rules/v3"}
+    assert d["versions"]["canonical_evidence"] == {"old": "canonical-evidence/v1", "new": "canonical-evidence/v3"} and d["versions"]["closure"] == {"old": None, "new": "closure-rules/v1"}
+    assert d["versions"]["assessability"] == {"old": "assessability-rules/v2", "new": "assessability-rules/v4"}
     assert d["closure"]["drift"] is False and d["closure"]["added"] == [] and d["closure_reference_resolution"]["members_total"] >= 1
     assert _digest(path) == before and len(files(world)) == 1                                                  # CERO escrituras
     restart()
@@ -455,7 +457,7 @@ def test_apply_replaces_the_same_governed_record_and_the_result_is_current_and_v
     st = svc.status_for_entry(world.acme)
     assert st.state == svc.CURRENT and st.stale_reason is None and st.profile["versions"] == svc.current_assessment_versions()
     ma_profile.validate_assessment(st.profile)
-    assert st.profile["canonical_evidence"]["version"] == "canonical-evidence/v2" and "closure" in st.profile["canonical_evidence"]
+    assert st.profile["canonical_evidence"]["version"] == "canonical-evidence/v3" and "closure" in st.profile["canonical_evidence"]
 
 
 def test_it_is_idempotent_a_second_run_skips_and_writes_nothing(world, monkeypatch):
@@ -884,7 +886,7 @@ def test_the_old_migration_dry_run_writes_nothing_and_apply_lands_on_the_current
         dry = bf.migrate_stale_evidence([world.acme], OLD_MIG, apply=False, governed_state_present=ALWAYS)
     d = dry["records"][0]["delta"]
     assert dry["records"][0]["action"] == bf.WOULD_REGENERATE and _digest(path) == before
-    assert d["versions"]["canonical_evidence"] == {"old": None, "new": "canonical-evidence/v2"} and d["versions"]["signals"] == {"old": "signal-rules/v2", "new": "signal-rules/v3"}
+    assert d["versions"]["canonical_evidence"] == {"old": None, "new": "canonical-evidence/v3"} and d["versions"]["signals"] == {"old": "signal-rules/v2", "new": "signal-rules/v3"}
     assert d["closure"]["drift"] is False and d["closure"]["policy"] == "TARGETED_CLOSURE_EXPANSION"
     out = bf.migrate_stale_evidence([world.acme], OLD_MIG, apply=True, governed_state_present=ALWAYS)
     assert out["records"][0]["action"] == bf.REGENERATED and out["counts"]["failed"] == 0 and files(world) == [path]
@@ -927,3 +929,87 @@ def test_the_cli_accepts_both_registered_targets_with_the_same_explicit_contract
         with pytest.raises(SystemExit) as exc:
             bf.main(argv)
         assert exc.value.code == 2
+
+
+# ═══════════════ 8D.1d: migracion evidence_field_lineage_v3 (v2 -> v3; solo agrega evidencia) ═══════════════
+LIN_TARGET = svc.EVIDENCE_MIGRATIONS[LIN_MIG]
+
+
+def _downgrade_v2(env):
+    """Deja el sobre como lo dejo el motor del evidence release v2 (produccion tras el evidence release): canonical_evidence v2 (sin las secciones de linaje), assessability v3."""
+    from tools.catalog.modeling_assessment.canonical_sections import V3_SECTIONS
+    prof = env["profile_json"]
+    for sec in V3_SECTIONS:
+        prof["canonical_evidence"].pop(sec, None)
+    prof["canonical_evidence"]["version"] = "canonical-evidence/v2"
+    prof["versions"].update({"canonical_evidence": "canonical-evidence/v2", "assessability": "assessability-rules/v3"})
+    env["assessment_versions"] = dict(prof["versions"])
+
+
+def _make_v2(world, *, input_changed=False):
+    st = svc.generate(world.acme)
+    assert st.state == svc.CURRENT
+    (path,) = files(world)
+
+    def mutate(env):
+        _downgrade_v2(env)
+        if input_changed:
+            env["input_pool_signature"] = "0" * 64
+    _rewrite(path, mutate)
+    restart()
+    return path
+
+
+def _run_lin(world, apply=False, **kw):
+    return bf.migrate_stale_evidence([world.acme], LIN_MIG, apply=apply, governed_state_present=ALWAYS, **kw)
+
+
+def test_the_lineage_migration_is_registered_with_exactly_the_two_changed_keys_and_closure_equal():
+    assert LIN_TARGET.target_keys == ("assessability", "canonical_evidence") and LIN_TARGET.closure_policy == svc.CLOSURE_EQUAL
+    assert LIN_TARGET.eligible_old == {"assessability": frozenset({"assessability-rules/v3"}), "canonical_evidence": frozenset({"canonical-evidence/v2"})}
+
+
+def test_a_v2_contract_profile_is_a_targeted_version_only_stale_for_the_lineage_migration(world):
+    _make_v2(world)
+    st = svc.status_for_entry(world.acme)
+    assert st.state == svc.STALE and st.stale_reason == svc.STALE_VERSION_ONLY and st.stale_targeted == LIN_MIG
+    assert st.stale_version_diff == ("assessability", "canonical_evidence")
+
+
+def test_the_lineage_migration_dry_run_writes_nothing_and_apply_lands_on_current_with_the_same_closure(world):
+    path = _make_v2(world)
+    before = _digest(path)
+    dry = _run_lin(world, apply=False)
+    assert dry["records"][0]["action"] == bf.WOULD_REGENERATE and _digest(path) == before
+    old_closure = svc.closure_identity(svc.status_for_entry(world.acme).profile)
+    out = _run_lin(world, apply=True)
+    assert out["records"][0]["action"] == bf.REGENERATED and files(world) == [path]
+    restart()
+    st = svc.status_for_entry(world.acme)
+    assert st.state == svc.CURRENT and st.profile["versions"] == svc.current_assessment_versions()
+    assert svc.closure_identity(st.profile) == old_closure                                                    # solo se agrego evidencia: el cierre no cambia
+    ce = st.profile["canonical_evidence"]
+    assert ce["version"] == "canonical-evidence/v3" and "published_field_lineage" in ce and "source_contract_classes" in ce
+
+
+def test_input_changed_v2_profiles_are_never_absorbed_by_the_lineage_migration(world):
+    path = _make_v2(world, input_changed=True)
+    st = svc.status_for_entry(world.acme)
+    assert st.state == svc.STALE and st.stale_reason == svc.STALE_VERSION_AND_INPUT and st.stale_targeted is None
+    before = _digest(path)
+    out = _run_lin(world, apply=True)
+    assert out["records"][0]["action"] != bf.REGENERATED and out["counts"]["regenerated_local"] == 0 and _digest(path) == before
+
+
+def test_a_v1_profile_is_not_migrated_by_the_lineage_migration_and_nothing_chains(world):
+    path = _make_old(world)                                                                                      # contrato anterior al evidence release v2
+    before = _digest(path)
+    out = _run_lin(world, apply=True)
+    rec = out["records"][0]
+    assert rec["reason"] == bf.OTHER_MIGRATION_APPLICABLE and rec["applicable_migration"] == MIG and _digest(path) == before
+
+
+def test_a_v2_profile_is_not_eligible_for_the_older_migration(world):
+    _make_v2(world)
+    out = bf.migrate_stale_evidence([world.acme], MIG, apply=True, governed_state_present=ALWAYS)
+    assert out["records"][0]["reason"] == bf.OTHER_MIGRATION_APPLICABLE and out["records"][0]["applicable_migration"] == LIN_MIG

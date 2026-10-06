@@ -18,6 +18,7 @@ from typing import Any
 from .facts_closure import CLOSURE_RULESET, REF_AMBIGUOUS, REF_EXCLUDED_BY_PLANE, REF_RESOLVED, REF_UNRESOLVED, REFERENCE_STATES
 from .naming_evidence import NAMING_TAXONOMY
 
+V3_SECTIONS = ("published_field_lineage", "source_contract_classes")
 V2_SECTIONS = ("closure", "physical_source_boundaries", "published_contract", "naming_evidence", "harmonization_contract", "expression_occurrences", "branch_reconvergence",
                "view_complexity", "processing_flow_properties")
 
@@ -97,3 +98,16 @@ def build_v2_sections(idx: Any) -> dict:
         "view_complexity": {"views": views, "count": len(views)},
         "processing_flow_properties": _val(idx, "ingestion.flow_load_properties", "closure"),
     }
+
+
+def build_v3_sections(idx: Any) -> dict:
+    """Secciones de ``canonical_evidence`` v3: linaje de campo publicado (None si la raiz no es un AM) y clase de contrato de fuente por hoja. Solo procedencia; sin juicio."""
+    lin = next((f for f in idx.all("am.published_field_lineage") if f.value is not None), None)
+    leaves = [f.value for f in idx.all("source.contract_class") if f.value is not None]
+    by_class: dict[str, int] = {}
+    for r in leaves:
+        by_class[r["contract_class"]] = by_class.get(r["contract_class"], 0) + 1
+    return {"published_field_lineage": lin.value if lin is not None else None,
+            "source_contract_classes": {"leaves": leaves, "by_class": [{"contract_class": k, "count": v} for k, v in sorted(by_class.items())],
+                                        "definition": "explicit source-contract class of every frontier leaf of the semantic closure with the basis of the classification; technology alone "
+                                                      "never classifies governance or rawness; no quality judgment"}}

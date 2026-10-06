@@ -1,0 +1,9 @@
+# Fixtures del benchmark dorado del Juicio metodológico (Gate 8D.1 / 8D.1d)
+
+Ocho perfiles de Assessment **seudonimizados y recortados** (`*.json.gz`), uno por caso del benchmark humano congelado (Gate 8B/8C). Los carga `tests/_judgment_cases.py`.
+
+- **Origen:** perfiles públicos de Assessment generados por el motor con el contrato **`canonical-evidence/v3`** (evidencia v2 + linaje de campo publicado + clase de contrato de fuente por hoja) sobre los pools gobernados de los clientes. No se versiona ningún pool, SQL ni dato real.
+- **Recorte:** solo las secciones que lee `tools/catalog/methodological_judgment/profile_access.py` (`scope`, `summary`, `areas`, `observations`, `review_required`, `surfaces`, `fact_index`, `canonical_evidence.*`). De cada campo del linaje se quita la muestra de camino (`lineage_paths`); se conservan los agregados por hoja.
+- **Seudonimización:** los nombres de **artefactos** (vistas, tablas, flujos, modelos) se reemplazan por alias estables y consistentes dentro de cada perfil (`ART_0001`…; la estructura y las relaciones se preservan). Las **etiquetas** de negocio se vacían, el cliente se reemplaza por `CLIENT`, las conexiones por `CONN` y los nombres de entidad remota por `REMOTE_ENTITY`. Los **nombres técnicos de campo** se conservan (son datos estructurales del contrato, no identifican al cliente). Un test verifica que no aparezcan nombres de clientes (`test_fixtures_are_pseudonymized`).
+- **Uso:** los alias de los archivos nombran el *caso* (cliente/rol), no hay lógica por cliente en el motor; `manifest.json` guarda el **nivel humano congelado** y el tamaño del cierre. Con la evidencia actual el motor reproduce 7 de los 8 niveles; la divergencia (`biogenesis_sellout_gp`) es una **brecha de evidencia documentada** (`tests/_judgment_cases.KNOWN_EVIDENCE_GAPS`), no se rodea.
+- **No regenerar a mano.** Si cambia la evidencia canónica, se regeneran desde el motor y se vuelve a validar el resultado.

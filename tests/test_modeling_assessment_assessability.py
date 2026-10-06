@@ -315,12 +315,14 @@ def test_roles_context_derived_views_processing_and_optional_evidence_are_exclud
         "harmonization.expression_repetition", "harmonization.assembly_topology",
         # evidence release: evidencia DESCRIPTIVA (no entra en la cobertura): contrato publicado, armonizacion, expresiones, reconvergencia, complejidad, contexto de planos
         "am.closure_plane_context", "am.association_semantics", "am.field_semantics", "harmonization.contract_character", "harmonization.view_complexity",
-        "propagation.expression_occurrences", "propagation.branch_reconvergence"}
+        "propagation.expression_occurrences", "propagation.branch_reconvergence",
+        # field-lineage evidence release (canonical-evidence/v3): procedencia por campo publicado y clase de contrato de fuente por hoja (descriptivas; no entran en la cobertura)
+        "am.published_field_lineage", "source.contract_class"}
     # C2 NO es automaticamente "evidencia requerida faltante": las dos brechas C2 permanentes ya no son superficies REQUERIDAS
     assert role["propagation.derivation_semantics"] is not A.SurfaceRole.REQUIRED and role["source.replication_mode"] is not A.SurfaceRole.REQUIRED
     from collections import Counter
     assert Counter((s.kind.value, s.role.value) for s in A.SURFACE_REGISTRY) == {
-        ("FACT_EVIDENCE", "REQUIRED"): 30, ("RULE_EVALUATION", "REQUIRED"): 11, ("FACT_EVIDENCE", "DERIVED_VIEW"): 15,
+        ("FACT_EVIDENCE", "REQUIRED"): 30, ("RULE_EVALUATION", "REQUIRED"): 11, ("FACT_EVIDENCE", "DERIVED_VIEW"): 17,
         ("FACT_EVIDENCE", "CROSS_PLANE_COMPLEMENT"): 6, ("FACT_EVIDENCE", "CONTEXT_ONLY"): 2, ("FACT_EVIDENCE", "OPTIONAL_DEEPER_EVIDENCE"): 1}
 
 
@@ -521,7 +523,7 @@ def test_the_composition_exposes_everything_m7_needs_to_render():
     comp = compose(m4_entities(), "AM_X")
     assert comp.scope.terminal_am == "AM_X" and [c.area for c in comp.areas] == list(m.ASSESSED_AREAS)
     assert comp.surfaces and comp.observations is not None and comp.review_required and comp.findings
-    assert comp.assessability_ruleset == A.ASSESSABILITY_RULESET == "assessability-rules/v3"
+    assert comp.assessability_ruleset == A.ASSESSABILITY_RULESET == "assessability-rules/v4"
     assert comp.signals_ruleset == S.SIGNALS_RULESET and comp.confidence_ruleset == A.CONFIDENCE_RULESET
     rules = [s for s in comp.surfaces if s.kind is A.SurfaceKind.RULE_EVALUATION]
     assert len(rules) == 11 and all(s.result is not None and s.finding_count is not None for s in rules)
