@@ -10378,3 +10378,49 @@ Futuro publish único y bulk deben compartir el mismo modelo operativo de run.
 
 **Sin cambios de Space-scope ni bulk.** La arquitectura objetivo se preserva: cierre canónico de root correcto →
 (opcional) inventario/caché Space compartido → orquestación bulk. Bulk NO es requerido para la correctitud.
+
+---
+
+## Gate 8D.HAR.1 — Source-contract identity parity para delta-shadows — 2026-10-06
+
+**Qué estaba roto.** Con Kensing ya 15/15 en provenance, el Juicio seguía NOT_DETERMINABLE
+(INSUFFICIENT_AFFIRMATIVE_EVIDENCE) sin HAR-STR-01. Diagnóstico de producción: de las 9 fuentes de los candidatos
+de armonización, solo HOUSEBANK/HOUSEBANKACCOUNT (targets EXACT bare) clasificaban GOVERNED; las otras 7
+(delta-capaces) daban `None`. Causa: `ProfileEvidence.classify_source(logical X)` hace lookup EXACTO en
+`source_contract_classes`, pero la identidad de la hoja frontera ahí quedó registrada por el nombre FÍSICO de captura
+de cambios `X_Delta` (el destino del RF), mientras el candidato de armonización referencia la fuente lógica `X`.
+Mismatch de identidad `X` vs `X_Delta` → miss → `None` → HAR-STR-01 suprimida. (Reproducido localmente: renombrando
+las 7 hojas SCC a `_Delta`, el Juicio cae a ND sin HAR-STR-01, idéntico a producción.)
+
+**El fix (capa B, acceso de evidencia — NO la regla, NO la adquisición).** `classify_source` ahora resuelve la
+IDENTIDAD delta-shadow: EXACTO primero; si falla y el nombre no termina ya en el sufijo, busca `X_Delta`. Nuevo helper
+`ProfileEvidence._leaf_class_record`. SEGURIDAD: solo REDIRIGE a un registro YA clasificado, NUNCA fabrica clase
+(devuelve la clase real, incluida UNKNOWN → indeterminada); la precedencia exacta evita colapsar un `X_Delta`
+independiente (si `X` tiene registro propio, se usa ese). NO se tocó HAR-STR-01, ni niveles, ni el extractor
+(DSP_CLI_Export_Lineage / producer discovery / association walk / publicación).
+
+**Reuso / firewall.** La constante `_DELTA_SHADOW_SUFFIX="_Delta"` es ESPEJO de la canónica del paquete de evidencia;
+el paquete de Juicio está aislado (R-I2/R-I3, guard `test_judgment..._imports_none_of_it`) y no puede importarlo, así
+que se espeja y la equivalencia se blinda con `test_delta_shadow_suffix_mirrors_the_canonical_constant`.
+
+**Tests.** `tests/test_methodological_judgment_identity.py` (12): A exacto, B delta-shadow→clase existente, C entidad
+`X_Delta` independiente no colapsa (precedencia exacta), D `X_Delta` UNKNOWN no fabrica GOVERNED, E sin registro→None,
+F HOUSEBANK exacto intacto, H físico/raw y doble-sufijo, G HAR-STR-01 emite con fuente gobernada tanto lógica como
+delta-shadow y NO emite si el registro delta-shadow es UNKNOWN, + contrato de espejo. Golden 8/8 sin cambios de nivel
+(usan identidad lógica; el fix es NO-OP sobre ellos). Subsistema Juicio/Assessment+invariantes 1942 passed. Suite
+completa **5657 passed, 20 skipped** (baseline Gate B 5645 + 12 nuevos; sin regresiones).
+
+**Corpus congelado sin cambios.** Before/after (exact-only vs fix) sobre los 8 fixtures: 0 roots cambian. El fix solo
+afecta evidencia con identidad `_Delta` (producción). Kensing golden ya era BUENA (identidad lógica); el problema era
+exclusivamente la identidad `_Delta` del perfil persistido de producción.
+
+**Resultado Kensing production-equivalent (perfil local renombrado a `_Delta`):** antes del fix ND/sin HAR-STR-01;
+después del fix **DETERMINED / BUENA** con SRC-STR-01, SRC-STR-02, HAR-STR-01, PRO-STR-01, PUB-STR-01. Sin hardcode de
+Kensing ni de BUENA.
+
+**33-root shadow (lo corre el dueño en producción).** Comando read-only disponible: por cada perfil gobernado calcula
+el Juicio con el fix y con clasificación exact-only y reporta SOLO los roots cuyo status/level cambia (cambios
+esperados solo donde evidencia gobernada previamente inaccesible por identidad `_Delta` se vuelve direccionable; nunca
+UNKNOWN→gobernado).
+
+**Sin cambios de adquisición** (Gate 8D.HAR.1 es identidad/acceso de evidencia solamente).

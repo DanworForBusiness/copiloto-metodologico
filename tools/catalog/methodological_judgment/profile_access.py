@@ -22,6 +22,12 @@ SOURCE_CLASSES = (GOVERNED_SAP_CONTRACT, PHYSICAL_RAW_BOUNDARY, EXTERNAL_CONTRAC
 _GOVERNED_CONTRACT_CLASSES = frozenset({"GOVERNED_SAP_CDS_CONTRACT", "GOVERNED_SAP_ODP_SAPI_CONTRACT", "SAP_STANDARD_VIEW_ON_PHYSICAL_TABLE", "SAP_BW_BRIDGE_VIRTUALIZATION"})
 EXTERNAL_POLICIES = ("UNDETERMINED", "PHYSICAL_RAW", "GOVERNED")                     # solo para PRUEBAS de sensibilidad; el motor usa UNDETERMINED
 
+# Sufijo de la tabla FISICA de captura de cambios (delta-shadow) de Datasphere. ESPEJO DELIBERADO de la constante
+# canónica ``readers.DELTA_SHADOW_SUFFIX`` del paquete de evidencia: ese paquete está aislado por los invariantes de
+# frontera (R-I2/R-I3) y este paquete HERMANO de Juicio no puede importarlo. La equivalencia se blinda con un test de
+# contrato (``test_methodological_judgment_identity::test_delta_shadow_suffix_mirrors_the_canonical_constant``).
+_DELTA_SHADOW_SUFFIX = "_Delta"
+
 # clases de proveedor de un nodo de composicion
 K_HARM, K_VIEW, K_LOCAL_LEAF, K_SYSTEM = "HARMONIZATION_CANDIDATE", "VIEW", "LOCAL_LEAF", "SYSTEM_OBJECT"
 K_BOUNDARY = "BOUNDARY_LEAF"
@@ -176,11 +182,27 @@ class ProfileEvidence:
     def raw_on_spine(self) -> tuple[str, ...]:
         return tuple(sorted(a for a, v in self.raw_occurrences.items() if v.get("reaches_terminal_by_strict_lineage") is True))
 
+    def _leaf_class_record(self, leaf: str) -> Mapping[str, Any] | None:
+        """Registro de clase de contrato de la hoja frontera ``leaf``, resolviendo la IDENTIDAD delta-shadow: una fuente
+        lógica ``X`` puede estar registrada en ``source_contract_classes`` bajo su nombre FÍSICO de captura de cambios
+        ``X_Delta`` (el destino del Replication Flow). Coincidencia EXACTA primero; si falla y ``X`` no termina ya en el
+        sufijo, se busca ``X_Delta``. Misma identidad canónica ``X_Delta <-> X`` que alineó la adquisición en Gate A.
+
+        SEGURIDAD: solo REDIRIGE la identidad a un registro YA clasificado; NUNCA fabrica clase (devuelve la clase real
+        del registro delta-shadow, incluida ``UNKNOWN`` → indeterminada). La precedencia exacta garantiza que si ``X`` es
+        una entidad propia registrada, se usa su registro (no se colapsa un ``X_Delta`` independiente a ``X``)."""
+        rec = self.leaf_class_records.get(leaf)
+        if rec is not None:
+            return rec
+        if leaf.endswith(_DELTA_SHADOW_SUFFIX):                      # no re-normalizar un nombre que ya es la sombra
+            return None
+        return self.leaf_class_records.get(leaf + _DELTA_SHADOW_SUFFIX)
+
     def classify_source(self, leaf: str, external_policy: str = "UNDETERMINED") -> str | None:
         """Clase del contacto con la fuente de una hoja frontera, SEGUN LA EVIDENCIA EXPLICITA por hoja (``source_contract_classes``): CDS / ODP-SAPI / vista estandar / puente BW =>
         gobernada; tabla ABAP fisica => frontera fisica cruda; fuente externa / mixta => indeterminada; DESCONOCIDA (procedencia no evaluada) => indeterminada; plataforma => None
         (no es un contacto con la fuente). ``external_policy`` existe SOLO para pruebas de sensibilidad y solo afecta a las clases EXTERNAL_*/MIXED (nunca a las desconocidas)."""
-        rec = self.leaf_class_records.get(leaf)
+        rec = self._leaf_class_record(leaf)
         if rec is None:
             return None
         cls = rec["contract_class"]
