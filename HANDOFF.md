@@ -8,6 +8,70 @@
 
 ---
 
+# NEXT AGENT — START HERE (frente Juicio metodológico; bootstrap operativo)
+
+> Contexto y decisiones: ver la sección siguiente («METHODOLOGY JUDGMENT v1 + EVIDENCE v3»). **No codear al llegar**: primero la respuesta de §7.
+
+## 1. Worktree / branch
+- Worktree: `C:\Users\Joe\ArquitectoDanwor-jv1` · branch `feat/methodology-judgment-v1`.
+- HEAD: `c8ca47dcc6e115365c6a765fb248ace342b50b23` (`c8ca47d`, solo documentación; el último commit de código es `255a794`). Base de la rama (merge-base): `11ba9d5781392a2e0f537c36e63b1183e83f6571`. `origin/main` (ref local actual): `49463b5ebf5fa953d550f75a7aedd860ce7cc756` — la rama **no** está rebaseada sobre él.
+- **Todos los commits son LOCALES** (sin push, sin PR). Python/venv: `C:\Users\Joe\ArquitectoDanwor\.venv\Scripts\python.exe`.
+
+## 2. Entry points de código (paths relativos al worktree)
+| Qué | Archivo → símbolo |
+|---|---|
+| Motor del Juicio | `tools/catalog/methodological_judgment/engine.py` → `evaluate_judgment(profile, dispositions=None, *, external_policy="UNDETERMINED")`; internos `_decide`, `_closure`, `_apply_dispositions`, `_unjudgeable` (exige v3: `CANONICAL_EVIDENCE_V3_REQUIRED`) |
+| Orquestación de reglas | `…/rules.py` → `evaluate_rules(ev, policy)` |
+| LEK-MAT-02 | `…/rules.py` → `rule_lek_mat_02(ev, policy)`; ayudas: `_raw_bypass_compensated`, `_downstream_created_semantics`, `vocabulary_exposure`, `downstream_semantics_exposure` |
+| PRO-MAT-01 | `…/rules.py` → `rule_pro_mat_01(ev, policy)` |
+| HAR-REL-01 | `…/rules.py` → `rule_har_rel_01(ev)`; ayuda `harmonization_passthrough_exposure`, `_aligns_branches` |
+| SRC-REL-01 / SRC-LOC-01 | `…/rules.py` → `rule_src_rel_loc(ev, policy)` |
+| PUB-STR-01 (y demás fortalezas) | `…/rules.py` → `strengths(ev, policy, has_pro_mat)` (rama «PUB-STR-01»); ayudas `published_positive_families`, `_independent_pair_exists` |
+| Clasificación de fuente (lectura en el Juicio) | `…/profile_access.py` → `ProfileEvidence.classify_source(leaf, external_policy)`, `leaf_class_records`, `source_contact_leaves` |
+| Clasificación de fuente (evidencia) | `tools/catalog/modeling_assessment/facts_field_lineage.py` → `source_contract_class_facts`, `_local_leaf_class`, `frontier_leaves`, `SOURCE_CONTRACT_CLASSES` |
+| `published_field_lineage` (evidencia) | `…/modeling_assessment/facts_field_lineage.py` → `published_field_lineage_facts`; resolución por columna en `…/modeling_assessment/field_lineage.py` → `extract_query_ir`, `resolve_query`; ensamblado `canonical_sections.build_v3_sections`; validador `evidence_contract_v3.validate_v3_sections` / `validate_published_field_lineage` / `validate_source_contract_classes`; orquestación `shadow.collect_facts` |
+| Lector de perfil / evidencia | `tools/catalog/methodological_judgment/profile_access.py` → `ProfileEvidence` (`lineage_fields`, `has_canonical_evidence_v3`, `ref_exists`) |
+| CTA | `…/methodological_judgment/cta.py` → `build_cta_candidates`, `PLAYBOOK` |
+| Entrada ejecutiva | `…/methodological_judgment/executive.py` → `build_executive_input(judgment, profile)` |
+| Validador de salida ejecutiva | `…/methodological_judgment/executive_validator.py` → `validate_executive_output(output, executive_input)` |
+
+## 3. Tests (paths relativos)
+- Golden 8 casos: `tests/test_methodological_judgment_golden.py` (+ `tests/_judgment_cases.py`: `BENCHMARK`, `FROZEN_LABELS`, `KNOWN_EVIDENCE_GAPS`; fixtures en `tests/fixtures/methodological_judgment/`).
+- Reglas sintéticas/contrafácticas: `tests/test_methodological_judgment_rules.py` (+ constructor `tests/_judgment_profiles.py` → `PB`).
+- Linaje de campo: `tests/test_modeling_assessment_field_lineage.py`. Clases de contrato de fuente: ídem (sección «clase de contrato de fuente de hojas locales» + `test_source_contract_classes_never_infer…`) y regeneración con pool local `tests/test_modeling_assessment_field_lineage_calibration.py`. Invarianza al empaquetado: ídem `…_field_lineage.py` (sección «invarianza al empaquetado del export»).
+- CTA, entrada ejecutiva y validador de salida: `tests/test_methodological_judgment_executive.py`. Guardas estáticas: `tests/test_methodological_judgment_guards.py`.
+
+## 4. Runner de shadow (SCRATCH, sin versionar; **no crear uno permanente**)
+Directorio: `C:\Users\Joe\AppData\Local\Temp\claude\C--Users-Joe-ArquitectoDanwor\a46a04d1-55e0-421c-92c2-d9b8146171be\scratchpad` (temporal: si ya no existe, reconstruir con `shadow.assess(pool_root, client_dir, root, domain_dir)` sobre `C:\Users\Joe\ArquitectoDanwor\catalog_local\.csn_cache`, con `DANWOR_CATALOG_DIR=C:/Users/Joe/ArquitectoDanwor/catalog_local`). Se corre **desde ese directorio** con `PYTHONPATH=.`:
+1. Generar los 33 perfiles v3 (incluye los 8 reales) → `g8h_v3/v1/<cliente>/<raíz>.json`: `PYTHONPATH=. <venv>\python.exe g8h_k.py` (usa `g8h_load.py` y `g83_gen_meta.pkl`).
+2. Los 8 casos + distribución + disparos: `PYTHONPATH=. <venv>\python.exe g8h_o.py` (marca OK/XX contra el golden).
+3. Shadow de 33 + CSV (`C:\Users\Joe\ArquitectoDanwor\_handoffs\methodology-judgment-evidence-v3-shadow.csv`, con sensibilidad a política externa y comparación vs 8D.1c): `PYTHONPATH=. <venv>\python.exe g8h_r.py` (requiere `g8d1c_after.csv` en el mismo directorio). Dossier de los 8: `g8h_q.py`. Sensibilidad externa: `g8h_p.py`. Fixtures seudonimizados: `g8h_fixtures.py`.
+
+## 5. Comandos focalizados (copiar/pegar; **no** correr la suite completa)
+Desde `C:\Users\Joe\ArquitectoDanwor-jv1`, **sin** `PYTHONIOENCODING`/`PYTHONUTF8`:
+```bash
+PY=C:/Users/Joe/ArquitectoDanwor/.venv/Scripts/python.exe
+# Juicio focalizado
+env -u PYTHONIOENCODING -u PYTHONUTF8 $PY -m pytest tests/test_methodological_judgment_*.py -q -p no:cacheprovider
+# golden benchmark
+env -u PYTHONIOENCODING -u PYTHONUTF8 $PY -m pytest tests/test_methodological_judgment_golden.py -q -p no:cacheprovider
+# linaje de campo / clases de fuente / empaquetado
+env -u PYTHONIOENCODING -u PYTHONUTF8 $PY -m pytest tests/test_modeling_assessment_field_lineage.py -q -p no:cacheprovider
+# calibración con pool local (se omite sin pool)
+DANWOR_CATALOG_DIR=C:/Users/Joe/ArquitectoDanwor/catalog_local env -u PYTHONIOENCODING -u PYTHONUTF8 $PY -m pytest tests/test_modeling_assessment_field_lineage_calibration.py -q -p no:cacheprovider
+# subsistema Assessment/Judgment (una vez)
+env -u PYTHONIOENCODING -u PYTHONUTF8 $PY -m pytest tests/test_modeling_assessment_*.py tests/webapp/test_assessment_*.py tests/webapp/test_catalog_assessment_routes.py tests/webapp/test_client_assessment_portfolio.py tests/webapp/test_governed_assessment_durability.py tests/test_methodological_judgment_*.py -q -p no:cacheprovider
+```
+
+## 6. LOS DOS PRÓXIMOS CAMBIOS — exactos
+**A. `LEK-MAT-02`** — símbolo a cambiar: `rules.py::rule_lek_mat_02` (L3: hoy, por elemento de L1, basta `vocabulary_exposure(...)` / `downstream_semantics_exposure(...)` **no vacíos**, es decir **un** campo publicado con camino trazable de fuga). *Invariante del dueño:* **una ruta filtrada ≠ MATERIAL automático** (caso: `AM_CONSOLIDADO_GASTOS`, 3 de 61 campos); MATERIAL exige que la responsabilidad filtrada sea del contrato / semánticamente central. **Prohibido:** conteos, porcentajes, mayoría estricta, veto de asociaciones, excepciones por raíz/cliente, diccionarios de nombres semánticos. Si v3 no prueba centralidad genéricamente → RELEVANT o NOT_DETERMINABLE con limitación documentada (no inventar MATERIAL).
+**B. `SELLOUT_GP`** — salida determinista actual: **ADECUADA** (`HAR-REL-02` + `SRC-REL-01`; camino: `rule_lek_mat_02` no dispara porque `vocabulary_exposure` sobre las crudas `A004/A307` es `{}` → `engine._decide` ⇒ `LVL-03`). Benchmark humano congelado: **PARCIAL/HIGH** (no se toca). Evidencia no resuelta: **7 hojas SQL Server = `EXTERNAL_CONTRACT_UNDETERMINED`** por las que 21 campos publicados heredan vocabulario técnico (casi-identidad, sin armonización). Tratamiento requerido: la incertidumbre decisión-crítica ⇒ **`NOT_DETERMINABLE`** (sitio probable: `rules.py::reviews_and_limitations` — la limitación `external_source_contract_undetermined` hoy tiene `can_change_level=False` — y `engine._decide`/`_closure`/`_unjudgeable`; actualizar `tests/_judgment_cases.py` (`BENCHMARK`, `KNOWN_EVIDENCE_GAPS`) y `test_methodological_judgment_golden.py`). **No inferir SQL Server crudo/gobernado por tecnología.** Debe seguir pasando: Prefacturación invariante bajo `external_policy`.
+
+## 7. PRIMERA RESPUESTA ESPERADA DEL PRÓXIMO AGENTE (no codear todavía)
+Devolver: (1) branch/HEAD confirmados; (2) archivos/símbolos inspeccionados; (3) lógica actual de `LEK-MAT-02` en un párrafo; (4) camino de decisión actual de SELLOUT_GP en un párrafo; (5) plan de parche mínimo; (6) cualquier contradicción entre este HANDOFF y el código. Esperar confirmación antes de modificar.
+
+---
+
 # METHODOLOGY JUDGMENT v1 + EVIDENCE v3 (linaje de campo) — **REVIEW_REQUIRED ANTES DE PRODUCCIÓN/PERSISTENCIA** (actualizado en la transición de agente)
 
 > **Para un agente nuevo:** esto es el estado vigente del frente «Juicio metodológico». El detalle por gate vive en `_handoffs/` (sin versionar; ver §20). **No empieces por UI ni persistencia.** Este frente NO está cerrado.
