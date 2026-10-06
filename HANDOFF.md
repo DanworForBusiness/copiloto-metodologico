@@ -10321,3 +10321,60 @@ EXACT y 0/9 DELTA**. Este gate hace descubribles los **9 DELTA**; NO explica por
 tocó ese problema (fuera de alcance). Resultado esperado tras re-publicar: **medir de nuevo**
 (plausible 11/15, pero NO se codeó hacia ese número). Este gate NO implementó alcance Space
 ni cambió el walk.
+
+---
+
+## Gate B — Association-aware root closure para producer discovery — 2026-10-06
+
+**Qué estaba roto (post Gate A).** Tras Gate A, publicar el root GL de Kensing pasó de 2/15 a **8/15** RF
+productores presentes (provenance 8 LOCAL_FLOW_PRODUCED / 7 LOCAL_PROVENANCE_NOT_ASSESSED; Judgment
+NOT_DETERMINABLE por evidencia insuficiente). Las 7 hojas faltantes (CHARTOFACCOUNTS + las 6 tablas de textos
+`1TT_*TEXT`) no estaban en `discover_producers.local_tables`. Causa: `walk_model_graph` es BFS multinivel pero la
+extracción de dependencias seguía SOLO fuentes del Analytic Model + `FROM/JOIN` de las vistas; **nunca traversaba
+los targets de `cds.Association`**. Esas 7 hojas son alcanzables solo por asociación (p. ej. `2VD_MD_COSTCENTER`
+asocia a `1TT_SAP_MD_COSTCENTERTEXT`; CHARTOFACCOUNTS cuelga de `2VD_MD_CHARTOFACCOUNTS`, alcanzable solo como
+target de asociación de una vista ya alcanzada). Bug de CORRECTITUD de la adquisición de un solo root.
+
+**El fix.** El walk ahora une a las dependencias de cada nodo (Analytic Model y vistas) los **targets de asociación**
+de su definición CSN, que atraviesan el MISMO gating existente (`resolve_type` + `_dependency_allowed` + visitados
+del BFS). El cierre semántico completo entra en `local_tables` ANTES del descubrimiento de productores; este queda
+conceptualmente igual que en Gate A (un solo pase, inventario de RF exhaustivo por root, matching canónico). NO se
+movió nada a alcance Space, NO hay inventario global de local-tables, NO hay segundo pase de productores.
+
+**Extractor de asociaciones canónico.** Nuevo `tools/catalog/csn_associations.py` (`is_association_element`,
+`association_targets`): regla ESTRUCTURAL (elemento cuyo `type` termina en "Association" → su `target`), sin regex ni
+nombres de negocio, válida para vistas SQL y graphical y para Analytic Models (todas exponen `elements`). Codifica la
+MISMA regla que el generador de catálogo ya aplica inline en `generate_catalog._extract_elements` (módulo legacy
+CONGELADO por el guard `test_assessment_legacy_scoring_isolation`: por eso NO se importa desde ahí — se dejó
+intacto). El extractor lo consume con import diferido (seguridad de ejecución como script).
+
+**Vistas SQL / graphical / Analytic Model.** La inclusión la decide la metadata estructural de asociación, no la
+presencia de `@DataWarehouse.sqlEditor.query`: una vista graphical sin SQL igual aporta sus targets de asociación. El
+Analytic Model también declara asociaciones en `elements` y se siguen con el mismo mecanismo. Ciclos A→B→A terminan
+por el set de visitados del BFS; targets no resolubles NO fabrican nodo (se tratan como externos, igual que un
+FROM/JOIN no resoluble); entidades no asociadas del Space no se arrastran.
+
+**Gate A intacto.** No se tocó `canonical_target_match`, la semántica `_Delta`, ni la guarda de `X_Delta`
+independiente.
+
+**Tests.** `tests/test_dsp_cli_export_lineage_association_walk.py` (12: A FROM/JOIN intacto, B asociación directa,
+C multi-hop, D asociación→tabla de textos, E productor EXACT de hoja por asociación, F productor DELTA (matcher Gate
+A), G ciclo, H target no resoluble sin nodo, I gating de alcance, J entidades ajenas fuera, K graphical, L asociación
+de Analytic Model). Subsistema extracción/Assessment + invariantes: 1842 passed. Suite completa: **5645 passed, 20
+skipped** (baseline Gate A 5633 + 12 nuevos; sin regresiones).
+
+**Regresión local Kensing (fixture no commiteada — catalog_local es runtime).** Reproducción del walk real sobre el
+pool local: antes del fix 8/15 hojas (idéntico a producción); después del fix **15/15 hojas alcanzadas y 15/15 RF
+productores descubiertos (15/58)**, con alcance acotado (10 vistas, no las 56 del Space). No se hardcodea 15 en la
+lógica.
+
+**Baseline de producción a re-medir tras deploy:** 8/15 RF presentes, 8/15 provenance resuelta, Judgment
+NOT_DETERMINABLE. Experimento único post-deploy: re-publicar `Kensing / 4AM_FNC_GLACCOUNTLINEITRAWDATA`, medir los
+mismos 15 RF y provenance/Judgment. NO publicar los otros 5 roots de Kensing todavía.
+
+**Publication Run History** sigue siendo un requerimiento de producto SEPARADO (no implementado): este forensic
+requirió reconstrucción post-hoc porque el log/recibo de ejecución de la publicación no se preserva tras navegar.
+Futuro publish único y bulk deben compartir el mismo modelo operativo de run.
+
+**Sin cambios de Space-scope ni bulk.** La arquitectura objetivo se preserva: cierre canónico de root correcto →
+(opcional) inventario/caché Space compartido → orquestación bulk. Bulk NO es requerido para la correctitud.
