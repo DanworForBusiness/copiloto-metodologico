@@ -22,6 +22,17 @@ SOURCE_CLASSES = (GOVERNED_SAP_CONTRACT, PHYSICAL_RAW_BOUNDARY, EXTERNAL_CONTRAC
 _GOVERNED_CONTRACT_CLASSES = frozenset({"GOVERNED_SAP_CDS_CONTRACT", "GOVERNED_SAP_ODP_SAPI_CONTRACT", "SAP_STANDARD_VIEW_ON_PHYSICAL_TABLE", "SAP_BW_BRIDGE_VIRTUALIZATION"})
 EXTERNAL_POLICIES = ("UNDETERMINED", "PHYSICAL_RAW", "GOVERNED")                     # solo para PRUEBAS de sensibilidad; el motor usa UNDETERMINED
 
+# Sufijo de la tabla FISICA de captura de cambios (delta-shadow) de Datasphere. ESPEJO DELIBERADO de la constante
+# canónica ``readers.DELTA_SHADOW_SUFFIX`` del paquete de evidencia: ese paquete está aislado por los invariantes de
+# frontera (R-I2/R-I3) y este paquete HERMANO de Juicio no puede importarlo. La equivalencia se blinda con un test de
+# contrato (``test_methodological_judgment_identity::test_delta_shadow_suffix_mirrors_the_canonical_constant``).
+_DELTA_SHADOW_SUFFIX = "_Delta"
+# Valor de ``target_match`` en la procedencia de hoja (``leaf_provenance.producer_flows``) que PRUEBA, por evidencia
+# factual, que el productor de la hoja lógica apunta a su tabla sombra de captura de cambios. Espejo del valor canónico
+# del contrato de evidencia (``TARGET_MATCHES``). La identidad delta-shadow se resuelve SOLO ante este hecho, NUNCA por
+# el string "_Delta" (una entidad ``X_Delta`` modelada de forma independiente no tiene este hecho).
+_TARGET_MATCH_DELTA_SHADOW = "DELTA_SHADOW_SUFFIX"
+
 # clases de proveedor de un nodo de composicion
 K_HARM, K_VIEW, K_LOCAL_LEAF, K_SYSTEM = "HARMONIZATION_CANDIDATE", "VIEW", "LOCAL_LEAF", "SYSTEM_OBJECT"
 K_BOUNDARY = "BOUNDARY_LEAF"
@@ -176,11 +187,41 @@ class ProfileEvidence:
     def raw_on_spine(self) -> tuple[str, ...]:
         return tuple(sorted(a for a, v in self.raw_occurrences.items() if v.get("reaches_terminal_by_strict_lineage") is True))
 
+    def _has_delta_shadow_producer(self, leaf: str) -> bool:
+        """¿La EVIDENCIA factual de procedencia de la hoja lógica ``leaf`` prueba que su productor apunta a la tabla
+        sombra de captura de cambios? (``leaf_provenance[leaf].producer_flows[].target_match == DELTA_SHADOW_SUFFIX``).
+        Es el hecho que distingue una sombra técnica de una entidad ``X_Delta`` modelada de forma independiente."""
+        rec = self.local_leaves.get(leaf)
+        if not isinstance(rec, Mapping):
+            return False
+        return any(isinstance(pf, Mapping) and pf.get("target_match") == _TARGET_MATCH_DELTA_SHADOW
+                   for pf in (rec.get("producer_flows") or ()))
+
+    def _leaf_class_record(self, leaf: str) -> Mapping[str, Any] | None:
+        """Registro de clase de contrato de la hoja frontera ``leaf``, resolviendo la IDENTIDAD delta-shadow: una fuente
+        lógica ``X`` puede estar registrada en ``source_contract_classes`` bajo su nombre FÍSICO de captura de cambios
+        ``X_Delta`` (el destino del Replication Flow). Coincidencia EXACTA primero; si falla, se resuelve ``X_Delta``
+        SOLO si la procedencia factual de ``X`` prueba un productor DELTA_SHADOW_SUFFIX (no por el string "_Delta").
+        Misma identidad canónica ``X_Delta <-> X`` que alineó la adquisición en Gate A.
+
+        SEGURIDAD: solo REDIRIGE la identidad a un registro YA clasificado; NUNCA fabrica clase (devuelve la clase real
+        del registro delta-shadow, incluida ``UNKNOWN`` → indeterminada). La precedencia exacta garantiza que si ``X`` es
+        una entidad propia registrada se usa su registro; y una entidad ``X_Delta`` INDEPENDIENTE (sin el hecho de
+        procedencia delta-shadow para ``X``) NUNCA se colapsa a ``X``."""
+        rec = self.leaf_class_records.get(leaf)
+        if rec is not None:
+            return rec
+        if leaf.endswith(_DELTA_SHADOW_SUFFIX):                      # no re-normalizar un nombre que ya es la sombra
+            return None
+        if not self._has_delta_shadow_producer(leaf):               # sin PRUEBA factual de sombra técnica: no se resuelve
+            return None
+        return self.leaf_class_records.get(leaf + _DELTA_SHADOW_SUFFIX)
+
     def classify_source(self, leaf: str, external_policy: str = "UNDETERMINED") -> str | None:
         """Clase del contacto con la fuente de una hoja frontera, SEGUN LA EVIDENCIA EXPLICITA por hoja (``source_contract_classes``): CDS / ODP-SAPI / vista estandar / puente BW =>
         gobernada; tabla ABAP fisica => frontera fisica cruda; fuente externa / mixta => indeterminada; DESCONOCIDA (procedencia no evaluada) => indeterminada; plataforma => None
         (no es un contacto con la fuente). ``external_policy`` existe SOLO para pruebas de sensibilidad y solo afecta a las clases EXTERNAL_*/MIXED (nunca a las desconocidas)."""
-        rec = self.leaf_class_records.get(leaf)
+        rec = self._leaf_class_record(leaf)
         if rec is None:
             return None
         cls = rec["contract_class"]
