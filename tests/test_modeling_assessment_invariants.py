@@ -346,8 +346,10 @@ def test_package_layout_is_the_approved_one():
     evidence_release = {"boundary.py", "complexity.py", "canonical_sections.py", "evidence_errors.py", "evidence_contract_v2.py", "naming_evidence.py", "facts_closure.py",
                         "facts_contract_semantics.py", "facts_harmonization_contract.py", "facts_expressions.py", "facts_reconvergence.py", "facts_view_complexity.py",
                         "facts_processing.py"}
+    # Evidence release v3 (canonical-evidence/v3): linaje de campo publicado hasta las hojas frontera + clase explicita de contrato de fuente por hoja
+    evidence_field_lineage = {"field_lineage.py", "facts_field_lineage.py", "evidence_contract_v3.py"}
     present = {p.name for p in PKG_DIR.iterdir() if p.is_file()}
-    approved = m0 | m1 | m2 | m3 | m4 | m5 | m6 | m7 | view_type | public_api | evidence_g1_g3 | evidence_release
+    approved = m0 | m1 | m2 | m3 | m4 | m5 | m6 | m7 | view_type | public_api | evidence_g1_g3 | evidence_release | evidence_field_lineage
     assert approved <= present, sorted(approved - present)
     # Hito actual = M7: NO se adelantan milestones posteriores (M8: informe de validacion shadow contra el legacy) ni aparecen archivos no aprobados.
     assert present == approved, sorted(present - approved)

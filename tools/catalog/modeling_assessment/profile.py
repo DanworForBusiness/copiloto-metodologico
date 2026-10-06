@@ -25,7 +25,7 @@ from .assessability import (
     ASSESSABILITY_RULESET, CONFIDENCE_CUTS, CONFIDENCE_RULESET, SURFACE_REGISTRY, AssessmentComposition, ConfidenceAxis, SurfaceAssessment, SurfaceKind,
     SurfaceRole,
 )
-from .evidence_contract import CANONICAL_EVIDENCE_VERSION, CLOSURE_RULESET, build_v2_sections, validate_canonical_evidence, validate_document_evidence       # G1/G3/G4: contrato explicito de `canonical_evidence`
+from .evidence_contract import CANONICAL_EVIDENCE_VERSION, CLOSURE_RULESET, build_v2_sections, build_v3_sections, validate_canonical_evidence, validate_document_evidence       # G1/G3/G4: contrato explicito de `canonical_evidence`
 from .identity import IDENTITY_RULESET
 from .model import Applicability, Assessability, Cause, Fact, SignalKind
 from .signals import SIGNAL_REGISTRY, SIGNALS_RULESET, FactIndex, Finding
@@ -396,6 +396,7 @@ SURFACE_TITLES: dict[str, str] = {
     "naming.field_vocabulary_summary": "Resumen del vocabulario de campos",
     "naming.same_normalized_label_multiple_technical_names": "Etiquetas compartidas por varios nombres técnicos",
     "naming.convention_context": "Contexto de la convención de nombres",
+    "am.published_field_lineage": "Linaje de cada campo publicado hasta las hojas frontera", "source.contract_class": "Clase de contrato de fuente de cada hoja frontera",
 }
 
 
@@ -773,7 +774,8 @@ def _canonical_evidence(idx: FactIndex) -> dict:
     rep = idx.usable_get("harmonization.expression_repetition", "closure")
     topo = idx.usable_get("harmonization.assembly_topology", "closure")
     return {"version": CANONICAL_EVIDENCE_VERSION, "leaf_provenance": leaves, "derivation_semantics": derivation,
-            "expression_repetition": rep.value if rep is not None else None, "assembly_topology": topo.value if topo is not None else None, **build_v2_sections(idx)}
+            "expression_repetition": rep.value if rep is not None else None, "assembly_topology": topo.value if topo is not None else None, **build_v2_sections(idx),
+            **build_v3_sections(idx)}
 
 
 def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, client: str, terminal_label: str | None = None,

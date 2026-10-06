@@ -118,7 +118,9 @@ CLOSURE_EQUAL, TARGETED_CLOSURE_EXPANSION = "CLOSURE_EQUAL", "TARGETED_CLOSURE_E
 #     fabricar el contrato intermedio G1/G3. Por eso, con este build, la migracion lleva el perfil al contrato vigente en UN paso explicito del operador (por eso sus claves
 #     objetivo incluyen ``confidence`` y ``closure``). Para dejar un perfil en el contrato intermedio G1/G3 hay que correrla desde un despliegue anterior al evidence release.
 #   * ``evidence_closure_contract_v2`` (perfil en el contrato G1/G3 vigente en 11ce071 -> evidence release).
-# Ambas regeneran con el MISMO motor, por lo que ambas aceptan el cierre solo bajo ``TARGETED_CLOSURE_EXPANSION``.
+#   * ``evidence_field_lineage_v3`` (perfil en el contrato del evidence release v2 -> evidence release de linaje de campo): SOLO agrega evidencia, por lo que exige ``CLOSURE_EQUAL``.
+# Las dos primeras regeneran con el MISMO motor y aceptan el cierre solo bajo ``TARGETED_CLOSURE_EXPANSION``. Ninguna se encadena con otra: un perfil se migra por la UNICA cuyo
+# conjunto de claves de version coincide EXACTAMENTE con su diferencia (``targeted_migration``); un perfil v1 NO salta a v3 por la migracion v2->v3.
 EVIDENCE_MIGRATIONS: dict[str, MigrationTarget] = {
     "evidence_g1_g3_v1": MigrationTarget(
         "evidence_g1_g3_v1", ("signals", "assessability", "finding_evidence", "canonical_evidence", "confidence", "closure"),
@@ -135,6 +137,12 @@ EVIDENCE_MIGRATIONS: dict[str, MigrationTarget] = {
         "Evidence release: cierre semantico corregido (los targets de flujo que Modeling lee son miembros) + completitud del cierre + contrato publicado + armonizacion + "
         "expresiones por clausula + reconvergencia + complejidad de vistas + propiedades de carga (canonical_evidence v2, assessability v3, confidence v2, closure v1)",
         TARGETED_CLOSURE_EXPANSION),
+    "evidence_field_lineage_v3": MigrationTarget(
+        "evidence_field_lineage_v3", ("assessability", "canonical_evidence"),
+        {"assessability": frozenset({"assessability-rules/v3"}), "canonical_evidence": frozenset({"canonical-evidence/v2"})},
+        "Evidence release (linaje de campo): procedencia de cada campo publicado hasta las hojas frontera + clase explicita de contrato de fuente por hoja "
+        "(canonical_evidence v3, assessability v4). Misma entrada y mismo cierre semantico: solo se agrega evidencia (CLOSURE_EQUAL); un perfil con otros cambios de version o de entrada NO es elegible",
+        CLOSURE_EQUAL),
 }
 
 

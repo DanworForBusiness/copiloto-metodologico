@@ -16,7 +16,7 @@ from typing import Any
 from .derivation import (
     AMBIGUITY_CODES, DERIVATION_EXTRACTOR_VERSION, EXPOSURE_BASIS_SAME_NAME, INPUT_STATES, OPERATION_CLASSES, RELATION_REASONS, RELATIONS,
 )
-from .canonical_sections import V2_SECTIONS, build_v2_sections  # noqa: F401  (build_v2_sections se re-exporta: ``profile`` solo importa de este modulo)
+from .canonical_sections import V2_SECTIONS, V3_SECTIONS, build_v2_sections, build_v3_sections  # noqa: F401  (se re-exportan: ``profile`` solo importa de este modulo)
 from .evidence_errors import CanonicalEvidenceError, _expect, _fail, _is_int, _keys  # noqa: F401  (CanonicalEvidenceError se re-exporta)
 from .facts_closure import CLOSURE_RULESET  # noqa: F401  (se re-exporta)
 from .provenance import (
@@ -28,8 +28,9 @@ from .readers import (
 )
 
 CANONICAL_EVIDENCE_VERSION_V1 = "canonical-evidence/v1"
-CANONICAL_EVIDENCE_VERSION = "canonical-evidence/v2"        # v2 (evidence release): closure / physical boundaries / published contract / naming / harmonization / expressions / reconvergence / complexity / processing
-SUPPORTED_VERSIONS = (CANONICAL_EVIDENCE_VERSION_V1, CANONICAL_EVIDENCE_VERSION)
+CANONICAL_EVIDENCE_VERSION_V2 = "canonical-evidence/v2"      # v2 (evidence release): closure / physical boundaries / published contract / naming / harmonization / expressions / reconvergence / complexity / processing
+CANONICAL_EVIDENCE_VERSION = "canonical-evidence/v3"        # v3 (field-lineage evidence release): + published_field_lineage (procedencia por campo publicado hasta las hojas frontera) + source_contract_classes (clase explicita de contrato de fuente por hoja)
+SUPPORTED_VERSIONS = (CANONICAL_EVIDENCE_VERSION_V1, CANONICAL_EVIDENCE_VERSION_V2, CANONICAL_EVIDENCE_VERSION)
 
 PROVENANCE_STATES = frozenset({PROV_ESTABLISHED, PROV_DECLARED, PROV_NOT_OBSERVABLE})
 PROVENANCE_BASES = frozenset({BASIS_REPLICATION_FLOW, BASIS_DATA_FLOW, BASIS_DECLARED_DATASET, BASIS_TABLE_FUNCTION, BASIS_NONE})
@@ -200,6 +201,8 @@ def validate_canonical_evidence(ce: Any) -> None:
     version = ce.get("version")
     _expect(version in SUPPORTED_VERSIONS, ".version", "version no soportada")
     if version == CANONICAL_EVIDENCE_VERSION:
+        _keys(ce, {"version", *EXPECTED_SECTIONS, *V2_SECTIONS, *V3_SECTIONS}, "", closed=True)
+    elif version == CANONICAL_EVIDENCE_VERSION_V2:
         _keys(ce, {"version", *EXPECTED_SECTIONS, *V2_SECTIONS}, "", closed=True)
     else:
         _keys(ce, {"version", *EXPECTED_SECTIONS}, "", closed=True)
@@ -212,9 +215,12 @@ def validate_canonical_evidence(ce: Any) -> None:
     _validate_derivation(ce["derivation_semantics"])
     _validate_repetition(ce["expression_repetition"])
     _validate_topology(ce["assembly_topology"])
-    if version == CANONICAL_EVIDENCE_VERSION:
+    if version in (CANONICAL_EVIDENCE_VERSION_V2, CANONICAL_EVIDENCE_VERSION):
         from .evidence_contract_v2 import validate_v2_sections
         validate_v2_sections(ce)
+    if version == CANONICAL_EVIDENCE_VERSION:
+        from .evidence_contract_v3 import validate_v3_sections
+        validate_v3_sections(ce)
 
 
 def validate_document_evidence(doc: dict) -> None:
@@ -235,8 +241,8 @@ def validate_document_evidence(doc: dict) -> None:
     ce = doc["canonical_evidence"]
     _expect(ce.get("version") == declared, ".version", "la version de la seccion no coincide con versions.canonical_evidence")
     validate_canonical_evidence(ce)
-    if declared == CANONICAL_EVIDENCE_VERSION:
-        _expect(versions.get("closure") == CLOSURE_RULESET, ".closure", "canonical-evidence/v2 exige versions.closure == " + CLOSURE_RULESET)
+    if declared in (CANONICAL_EVIDENCE_VERSION_V2, CANONICAL_EVIDENCE_VERSION):
+        _expect(versions.get("closure") == CLOSURE_RULESET, ".closure", f"{declared} exige versions.closure == " + CLOSURE_RULESET)
         pc = ce["closure"]["plane_context"]
         size = (doc.get("scope") or {}).get("closure_size")
         if size is not None and pc is not None:                                         # el cierre es el cierre previo mas lo agregado (y no se quita nada)

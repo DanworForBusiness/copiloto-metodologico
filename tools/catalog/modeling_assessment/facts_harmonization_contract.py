@@ -83,6 +83,21 @@ def _flow_properties(ev: Any, kind: str, name: str):
     return None
 
 
+def candidate_basis(name: str, entity: Any, am: str, ident: Mapping[str, IdentityClassification]) -> list[str]:
+    """Base de la candidatura de ``name`` a armonizacion (vacia = no es candidato). Es candidato un artefacto del cierre (no el raiz, no de plataforma, no importado remoto)
+    cuya capa inferida es 2 (por nombre de seccion 28 o por rol declarado) o que DECLARA rol de dimension. Fuente unica: la reutiliza el linaje de campo."""
+    if name == am or (name in ident and ident[name].identity.value == "SYSTEM") or getattr(entity, "remote_entity", ""):
+        return []
+    layer = C.layer_inference(entity)
+    role = C.declared_role(entity)
+    basis = []
+    if layer["inferred_layer"] == "2":
+        basis.append(f"LAYER_2_BY_{layer['inferred_layer_basis']}")
+    if role["declares_dimension"]:
+        basis.append("DECLARED_DIMENSION_ROLE")
+    return basis
+
+
 def harmonization_contract_facts(
     universe: AssessmentUniverse,
     entities: Mapping[str, Any],
@@ -111,20 +126,12 @@ def harmonization_contract_facts(
                 chain_remote[n] = {b["boundary_entity"] for b in pb["boundaries"] if b["boundary_entity"]}
 
     for n in closure:
-        if n == am:
-            continue
         e = entities[n]
-        if n in ident and ident[n].identity.value == "SYSTEM":
+        basis = candidate_basis(n, e, am, ident)
+        if not basis:
             continue
         layer = C.layer_inference(e)
         role = C.declared_role(e)
-        basis = []
-        if layer["inferred_layer"] == "2":
-            basis.append(f"LAYER_2_BY_{layer['inferred_layer_basis']}")
-        if role["declares_dimension"]:
-            basis.append("DECLARED_DIMENSION_ROLE")
-        if not basis or getattr(e, "remote_entity", ""):
-            continue
 
         fields = [f for f in (getattr(e, "fields", None) or [])]
         names = [f["campo"] for f in fields]
