@@ -682,11 +682,13 @@ _flights_lock = threading.Lock()
 _flights: dict[tuple[str, str], _Flight] = {}
 
 
-def generate(entry: Any) -> AssessmentStatus:
+def generate(entry: Any, *, force: bool = False) -> AssessmentStatus:
     """Genera/regenera/reintenta el assessment del AM de ``entry`` y devuelve el estado resultante.
 
-    Idempotente sobre la vigencia: si ya está CURRENT no recalcula. Single-flight por (cliente, AM): dos POST
-    simultáneos ejecutan el motor UNA vez y ambos reciben el mismo resultado."""
+    Idempotente sobre la vigencia: si ya está CURRENT no recalcula. ``force=True`` reevalúa EXPLÍCITAMENTE aunque ya esté
+    CURRENT (misma generación canónica: re-assess sobre el pool + reemplazo de la MISMA identidad gobernada); lo usa el modo
+    ``--reassess-current`` del backfill para recuperar evidencia cuando el contexto técnico del pool se refrescó. Single-flight
+    por (cliente, AM): dos POST simultáneos ejecutan el motor UNA vez y ambos reciben el mismo resultado."""
     res = resolve_entry(entry)
     versions = current_assessment_versions()
     if res.kind == "POOL_UNAVAILABLE":                  # sin pool no hay nada que generar: falla estable (no se cachea)
@@ -705,7 +707,7 @@ def generate(entry: Any) -> AssessmentStatus:
         return flight.result if flight.result is not None else AssessmentStatus(
             FAILED, entry.entry_id, res.client, res.terminal_am, reason=_failed_message("GENERATION_ERROR"), error_code="GENERATION_ERROR")
     try:
-        flight.result = _generate_locked(entry, res, versions)
+        flight.result = _generate_locked(entry, res, versions, force=force)
         return flight.result
     finally:
         with _flights_lock:
@@ -713,9 +715,9 @@ def generate(entry: Any) -> AssessmentStatus:
         flight.event.set()
 
 
-def _generate_locked(entry: Any, res: Resolution, versions: dict) -> AssessmentStatus:
+def _generate_locked(entry: Any, res: Resolution, versions: dict, *, force: bool = False) -> AssessmentStatus:
     current = _status_from(entry, res, versions)
-    if current.state == CURRENT:
+    if current.state == CURRENT and not force:
         return current
     client, am = res.client, res.terminal_am
     previous = _load_envelope(client, am)
