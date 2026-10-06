@@ -888,6 +888,20 @@ class LineageExporter:
         sql = definition.get("@DataWarehouse.sqlEditor.query")
         return self._extract_sql_dependencies(sql) if isinstance(sql, str) else set()
 
+    def parse_association_targets(self, data: dict[str, Any], technical_name: str) -> set[str]:
+        """Targets de las asociaciones ``cds.Association`` declaradas en la definición CSN del artefacto (``elements``).
+        Fuente canónica estructural compartida con el catálogo (``tools.catalog.csn_associations``): misma regla para
+        vistas SQL y graphical y para Analytic Models. Import diferido: el extractor puede correr como script antes del
+        bootstrap de ``sys.path`` (ver ``classify_view_type``)."""
+        from tools.catalog.csn_associations import association_targets
+        definitions = data.get("definitions", {})
+        if not isinstance(definitions, dict):
+            return set()
+        defn = definitions.get(technical_name)
+        if not isinstance(defn, dict):
+            defn = next((v for v in definitions.values() if isinstance(v, dict)), None)
+        return association_targets(defn) if isinstance(defn, dict) else set()
+
     def parse_replication_flow(self, data: dict[str, Any], technical_name: str) -> dict[str, set[str]]:
         root = data.get("replicationflows", {})
         if not isinstance(root, dict):
@@ -959,9 +973,14 @@ class LineageExporter:
                 # AM dependencies are useful only if Views/Tables are in effective scope.
                 if "views" in self.effective_features or "tables" in self.effective_features:
                     deps = self.parse_analytic_model_dependencies(data)
+                    # Cierre semántico: una asociación del AM/vista puede ser la ÚNICA ruta a una hoja (p. ej. una tabla
+                    # de textos ``_Text`` o una dimensión reusada) que el FROM/JOIN no referencia. Se unen al mismo set
+                    # y atraviesan el MISMO gating (resolve_type + _dependency_allowed + visitados) que el resto.
+                    deps |= self.parse_association_targets(data, node.technical_name)
             elif node.object_type == "views":
                 if "views" in self.effective_features or "tables" in self.effective_features:
                     deps = self.parse_view_dependencies(data, node.technical_name)
+                    deps |= self.parse_association_targets(data, node.technical_name)
 
             if not deps:
                 _say("OK - sin dependencias upstream dentro del alcance")
