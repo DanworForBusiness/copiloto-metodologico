@@ -96,6 +96,21 @@ Devolver: (1) branch/HEAD confirmados; (2) archivos/símbolos inspeccionados; (3
 
 ---
 
+# 🔁 REASSESS MODE — reevaluación gobernada de CURRENT (`--reassess-current`)
+
+> Agregado para cerrar la brecha de provenance de Kensing que el shadow de producción expuso (6 raíces Kensing = todas sus hojas `LOCAL_PROVENANCE_NOT_ASSESSED` → `SOURCE_INGESTION` no evaluable → ND). Causa: la migración de evidencia (VERSION_ONLY, `input_changed_stale:0`) preserva el MISMO pool; no puede introducir provenance ausente de ese pool. `facts_field_lineage._local_leaf_class` exige `resolve_leaf_provenance` ASSESSED + `producer_flows` (flujos productores en el pool) para dar `LOCAL_FLOW_PRODUCED`.
+
+**Implementación mínima (sin motor nuevo, sin migración, sin parche de JSON):**
+- `assessment_service.generate(entry, *, force=False)` + `_generate_locked(..., force=False)`: `force=True` **omite solo** el corto-circuito `CURRENT` y reusa el camino canónico (`_engine_assess` sobre el pool → `_store_envelope` a la MISMA identidad `(cliente, AM)`).
+- `assessment_backfill.reassess_selected(entries, *, apply)` + CLI `--reassess-current` (exige `--client` y `--dry-run` XOR `--apply`). Solo reevalúa **CURRENT** (faltantes→backfill; STALE→su camino). Dedup por (cliente, AM). Reusa `_restart_contract`/`_retry_pending_local` (durabilidad remota). Reporte: `reassessed/would_reassess/skipped_not_current/failed` + `restart_safe`.
+- Tests: `tests/webapp/test_assessment_reassess.py` (11). Subsistema 1397 passed.
+
+**⚠️ PRERREQUISITO OPERATIVO:** `generate` evalúa sobre el pool EXISTENTE; **no reexporta de Datasphere**. Como el pool de producción estaba sin flujos al migrar (`input_changed_stale:0`), el reassess recupera provenance **solo si el pool ya contiene los flujos productores de Kensing** (`1TR_SAP_*` con evidencia RF/source). Si el pool sigue sin flujos, el reassess reescribe el MISMO NA. → Refrescar el pool de Kensing (reexport con feature replication-flows) ANTES del `--apply`; el comando de post-validación revela el resultado real.
+
+**Comandos (runtime de producción):** dry-run `python3 -m webapp.services.assessment_backfill --reassess-current --client Kensing --dry-run` · apply `… --apply`. No reasessar las raíces de brecha PARCIAL de otros clientes en este gate.
+
+---
+
 # ⛔ EVIDENCE v3 — MIGRACIÓN DE PRODUCCIÓN: DRY-RUN → STOP (entorno sin producción)
 
 > El dueño autorizó la migración controlada `evidence_field_lineage_v3`. **Dry-run read-only ejecutado; migración NO corrida.** Resultado: **STOP / REVIEW_REQUIRED para Gate 8D.2** — este entorno no tiene población de producción que migrar.

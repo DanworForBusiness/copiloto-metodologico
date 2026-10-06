@@ -176,10 +176,11 @@ def _regenerate_record(rec: dict, entry: Any, status: svc.AssessmentStatus, *, r
     rec["_candidate"] = candidate
 
 
-def _retry_pending_local(out: dict, retry_remote: Callable[[str, str], bool]) -> None:
-    """Reintento EXPLÍCITO del PUT remoto de lo que quedó solo en disco (misma API del write-through)."""
+def _retry_pending_local(out: dict, retry_remote: Callable[[str, str], bool], action: str = REGENERATED) -> None:
+    """Reintento EXPLÍCITO del PUT remoto de lo que quedó solo en disco (misma API del write-through). ``action`` permite reusarlo
+    desde el reassess (acción ``REASSESSED``) sin cambiar los llamadores existentes (default ``REGENERATED``)."""
     for rec in out["records"]:
-        if rec.get("action") == REGENERATED and rec["durable"] == svc.DURABLE_LOCAL:
+        if rec.get("action") == action and rec["durable"] == svc.DURABLE_LOCAL:
             try:
                 if retry_remote(rec["client"], rec["root"]):
                     rec.update(durable=svc.DURABLE_REMOTE, remote_retry="CONFIRMED")
@@ -325,6 +326,81 @@ def enrich_current(entries: Iterable[Any], enrichment: str, *, apply: bool = Fal
 # eso es una reevaluación contra evidencia técnica distinta (modo posterior). INCOMPATIBLE_SCHEMA queda fuera.
 SKIPPED_ALREADY_CURRENT, SKIPPED_FAILED_STATE = "skipped_already_current", "skipped_failed_state"
 SKIPPED_INCOMPATIBLE, SKIPPED_NOT_APPLICABLE = "skipped_incompatible", "skipped_not_applicable"
+
+# ═══════════════════════════ reevaluación EXPLÍCITA de assessments gobernados CURRENT ═══════════════════════════
+REASSESSED, WOULD_REASSESS, SKIPPED_NOT_CURRENT = "REASSESSED", "WOULD_REASSESS", "skipped_not_current"
+
+
+def reassess_selected(entries: Iterable[Any], *, apply: bool = False,
+                      status_for: Callable[[Any], svc.AssessmentStatus] = svc.status_for_entry,
+                      generate: Callable[..., svc.AssessmentStatus] = svc.generate,
+                      governed_path: Callable[[str, str], Any] = svc.governed_path,
+                      retry_remote: Callable[[str, str], bool] = svc.retry_remote_persistence,
+                      governed_state_present: Callable[[], bool] = _governed_state_present,
+                      remote_enabled: Callable[[], bool] = lambda: svc.remote_store.enabled()) -> dict:
+    """Reevaluación EXPLÍCITA de los assessments gobernados **CURRENT** del alcance pedido (por ``--client``): re-ejecuta el MISMO
+    motor canónico de generación (``svc.generate(entry, force=True)``) sobre el contexto técnico ACTUAL del pool y reemplaza la
+    MISMA identidad gobernada (mismo cliente, mismo AM terminal, misma ruta). NO migra, NO parchea JSON, NO borra, NO duplica.
+    Recuperar provenance depende de que el pool ya traiga los flujos productores (este modo NO reexporta de Datasphere). Deduplica
+    por (cliente, AM terminal). Una falla individual no corta el lote. Solo reevalúa CURRENT (faltantes → backfill normal;
+    STALE → su propio camino)."""
+    entries = list(entries)
+    out: dict = {"mode": "reassess-current", "apply": apply, "dry_run": not apply, "records": [], "environment_warnings": []}
+    seen: dict[tuple[str, str], dict] = {}
+    states: list[str] = []
+    for entry in entries:
+        eid, client = str(getattr(entry, "entry_id", "")), str(getattr(entry, "cliente", ""))
+        try:
+            status = status_for(entry)
+        except Exception as exc:                                                  # noqa: BLE001 — una entrada rota no corta el lote
+            out["records"].append({"client": client, "root": None, "entry_ids": [eid], "state": None, "action": FAILED_ACTION,
+                                   "reason": f"STATUS_ERROR:{type(exc).__name__}", "governed_path": None, "durable": None})
+            continue
+        states.append(status.state)
+        gp = str(governed_path(status.client or client, status.terminal_am)) if status.terminal_am else None
+        rec, new = _record_for(seen, out, status, eid, client, governed_path=gp)
+        if not new:
+            continue
+        if status.state != svc.CURRENT:
+            rec["reason"] = SKIPPED_NOT_CURRENT                                   # SOLO se reevalúan CURRENT de forma explícita
+            continue
+        rec["eligible"] = True
+        if not apply:
+            rec["action"] = WOULD_REASSESS                                        # dry-run: candidato, CERO escrituras
+            continue
+        try:
+            result = generate(entry, force=True)                                 # MISMO motor canónico; assess sobre el pool; reemplazo de la MISMA identidad
+        except Exception as exc:                                                  # noqa: BLE001
+            rec.update(action=FAILED_ACTION, reason=f"REASSESS_ERROR:{type(exc).__name__}")
+            continue
+        durable = getattr(result, "durable", None)
+        rec["identity_unchanged"] = (gp is not None and str(governed_path(status.client or client, status.terminal_am)) == gp)
+        if result.state == svc.CURRENT and durable and durable != svc.DURABLE_MEMORY:
+            rec.update(action=REASSESSED, durable=durable)
+        elif result.state == svc.CURRENT and durable == svc.DURABLE_MEMORY:
+            rec.update(action=FAILED_ACTION, reason="NOT_PERSISTED_MEMORY_ONLY (registro previo conservado)", durable=durable)
+        else:
+            rec.update(action=FAILED_ACTION, reason=result.error_code or result.reason or result.state)
+    if apply:
+        _retry_pending_local(out, retry_remote, action=REASSESSED)
+    recs = out["records"]
+    count = lambda pred: sum(1 for r in recs if pred(r))                          # noqa: E731
+    out["counts"] = {
+        "eligible": count(lambda r: r.get("eligible")),
+        "would_regenerate": count(lambda r: r["action"] == WOULD_REASSESS),       # clave que consume _restart_contract (dry-run)
+        "would_reassess": count(lambda r: r["action"] == WOULD_REASSESS),
+        "reassessed": count(lambda r: r["action"] == REASSESSED),
+        "regenerated_remote": count(lambda r: r["action"] == REASSESSED and r["durable"] == svc.DURABLE_REMOTE),
+        "regenerated_local": count(lambda r: r["action"] == REASSESSED and r["durable"] == svc.DURABLE_LOCAL),
+        "reassessed_remote_confirmed": 0,                                         # el reassess no tiene categoría "ya hecho antes"
+        SKIPPED_NOT_CURRENT: count(lambda r: r["reason"] == SKIPPED_NOT_CURRENT),
+        "failed": count(lambda r: r["action"] == FAILED_ACTION),
+        "pending_remote": count(lambda r: r["action"] == REASSESSED and r["durable"] != svc.DURABLE_REMOTE),
+    }
+    _environment_warnings(out, entries, states, apply, governed_state_present, remote_enabled)
+    _restart_contract(out, out["counts"], apply, remote_enabled, "reassessed_remote_confirmed")
+    return out
+
 VERSION_ONLY_UNTARGETED, INPUT_CHANGED_STALE, VERSION_AND_INPUT_CHANGED = "version_only_untargeted", "input_changed_stale", "version_and_input_changed"
 OTHER_MIGRATION_APPLICABLE = "other_migration_applicable"       # STALE VERSION_ONLY cubierto exactamente por OTRA migracion del registro: se reporta, NO se encadena
 _STALE_ONLY_REPORTED = (VERSION_ONLY_UNTARGETED, INPUT_CHANGED_STALE, VERSION_AND_INPUT_CHANGED, OTHER_MIGRATION_APPLICABLE)
@@ -527,14 +603,19 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--regenerate-stale-evidence", choices=sorted(svc.EVIDENCE_MIGRATIONS), metavar="MIGRACION",
                       help="modo EXPLÍCITO: migra los assessments gobernados STALE por VERSIÓN únicamente (misma firma del pool) a la evidencia vigente ("
                            + ", ".join(sorted(svc.EVIDENCE_MIGRATIONS)) + "). Exige --dry-run o --apply")
+    mode.add_argument("--reassess-current", action="store_true",
+                      help="modo EXPLÍCITO: reevalúa (fuerza) los assessments gobernados CURRENT del --client con el MISMO motor canónico de generación, "
+                           "sobre el contexto técnico ACTUAL del pool, reemplazando la MISMA identidad. Exige --client y --dry-run o --apply")
     ap.add_argument("--apply", action="store_true", help="solo con un modo de regeneración: escribe los reemplazos (excluyente con --dry-run)")
     args = ap.parse_args(argv)
-    regen_mode = args.enrich_current_missing or args.regenerate_stale_evidence
+    regen_mode = args.enrich_current_missing or args.regenerate_stale_evidence or args.reassess_current
     if regen_mode:
         if args.dry_run == args.apply:                                           # ninguno o ambos: usage, CERO escrituras
             ap.error("los modos de regeneración exigen EXACTAMENTE uno de --dry-run o --apply")
     elif args.apply:
-        ap.error("--apply solo existe con --enrich-current-missing o --regenerate-stale-evidence (el backfill normal no lo usa)")
+        ap.error("--apply solo existe con un modo de regeneración (el backfill normal no lo usa)")
+    if args.reassess_current and not args.client.strip():                        # la reevaluación masiva DEBE ser explícita por cliente
+        ap.error("--reassess-current exige --client (no reevalúa todos los clientes automáticamente)")
     _mod, entries = catalog_reads._catalog_entries()
     wanted = args.client.strip().lower()
     entries = [e for e in (entries or []) if not wanted or str(getattr(e, "cliente", "")).strip().lower() == wanted]
@@ -543,6 +624,9 @@ def main(argv: list[str] | None = None) -> int:
         code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
     elif args.regenerate_stale_evidence:
         report = migrate_stale_evidence(entries, args.regenerate_stale_evidence, apply=args.apply)
+        code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
+    elif args.reassess_current:
+        report = reassess_selected(entries, apply=args.apply)
         code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
     else:
         report = backfill(entries, dry_run=args.dry_run)
