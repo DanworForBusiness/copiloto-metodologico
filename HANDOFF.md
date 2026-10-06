@@ -14,7 +14,7 @@
 
 ## 1. Worktree / branch
 - Worktree: `C:\Users\Joe\ArquitectoDanwor-jv1` · branch `feat/methodology-judgment-v1`.
-- HEAD: `c8ca47dcc6e115365c6a765fb248ace342b50b23` (`c8ca47d`, solo documentación; el último commit de código es `255a794`). Base de la rama (merge-base): `11ba9d5781392a2e0f537c36e63b1183e83f6571`. `origin/main` (ref local actual): `49463b5ebf5fa953d550f75a7aedd860ce7cc756` — la rama **no** está rebaseada sobre él.
+- HEAD: el último commit local, **solo de documentación** (`git log -1`; los commits de HANDOFF son `c8ca47d`, `de44107` y el que corrige esta línea). **Último commit de código: `255a794`** — verificar con `git log --oneline -6`. Base de la rama (merge-base): `11ba9d5781392a2e0f537c36e63b1183e83f6571`. `origin/main` (ref local actual): `49463b5ebf5fa953d550f75a7aedd860ce7cc756` — la rama **no** está rebaseada sobre él.
 - **Todos los commits son LOCALES** (sin push, sin PR). Python/venv: `C:\Users\Joe\ArquitectoDanwor\.venv\Scripts\python.exe`.
 
 ## 2. Entry points de código (paths relativos al worktree)
