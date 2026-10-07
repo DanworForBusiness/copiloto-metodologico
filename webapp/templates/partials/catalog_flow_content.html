@@ -4,6 +4,7 @@
    secciones ES el linaje: cada artefacto es una sección con su tabla. Se usa en
    la página completa (catalog_flow.html) y en el swap HTMX que actualiza SOLO el
    panel central (#content) sin salir del módulo ni perder el panel derecho. #}
+{% from "partials/assessment_report_macros.html" import kpi_tile, heading %}
 {% set ah = assessment_header %}
 {# §1 Barra de acciones transversal: ← Volver + acciones de contexto en la MISMA línea (mismo patrón que el Assessment). La
    acción del assessment (Ver Assessment / Generar, con carga integrada) y el Informe de Cliente van a la derecha; el hero
@@ -68,22 +69,28 @@
    (higiene de extracción) del hero: son dos ejes independientes. Solo aparece si hay Adopción persistida. #}
 {% if ah and ah.adoption %}
 {% set ad = ah.adoption %}
-<section class="methodology catalog-detail catalog-adoption" aria-label="Adopción metodológica">
-  <div class="catalog-adoption__head">
-    <h2 class="catalog-adoption__title">Adopción metodológica</h2>
-    {% if ad.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ ad.tone }}">{{ ad.level_label }}</span>
-    {% else %}<span class="catalog-card__verdict catalog-card__verdict--neutra">No determinable</span>{% endif %}
+{# Adopción metodológica como SECCIÓN del Catálogo (misma gramática numerada que Cumplimiento/Portabilidad: `heading()` del Hub,
+   [NN] continúa la secuencia), NO una tarjeta/contenedor. Acción «Ver Assessment» en el slot top-right del encabezado
+   (`.heading-supports`). Resultado = badge canónico; contratos = badges; conteos = indicadores `.activity-kpi`. El detalle
+   (evidencia) vive en el Assessment, no se duplica. #}
+{# Las secciones del flujo se numeran con base 0 (render_sections), así que el número = cantidad; Adopción es la siguiente. #}
+{% set adoption_num = (sections | length) + 1 %}
+{% set adoption_action %}<a class="support-link" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Ver Assessment<span>↗</span></a>{% endset %}
+<article class="methodology catalog-detail">
+<section class="content-section" aria-label="Adopción metodológica">
+  {{ heading(adoption_num, "Adopción metodológica", "Qué tan cerca está el modelo de adoptar la metodología, como resultado determinista sobre los cuatro contratos. Es independiente del veredicto del catálogo; el detalle (evidencia) está en el Assessment.", supports=adoption_action) }}
+  {% if ad.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ ad.tone }}">{{ ad.level_label }}</span>
+  {% else %}<span class="catalog-card__verdict catalog-card__verdict--neutra">No determinable</span>{% endif %}
+  <p>{{ ad.headline }}</p>
+  <h3>Contratos evaluados</h3>
+  <div class="catalog-verdict-line">
+    {% for c in ad.contracts %}<span class="catalog-card__verdict catalog-card__verdict--{% if c.state == 'positive' %}plena{% elif c.state == 'attention' %}parcial{% else %}neutra{% endif %}" title="{{ c.state_text }}">{{ c.label }}</span>{% endfor %}
   </div>
-  <p class="catalog-adoption__headline">{{ ad.headline }}</p>
-  <ul class="asr-contracts">
-    {% for c in ad.contracts %}
-    <li class="asr-contract" title="{{ c.state_text }}"><span class="catalog-card__verdict catalog-card__verdict--{% if c.state == 'positive' %}plena{% elif c.state == 'attention' %}parcial{% else %}neutra{% endif %} asr-contract__mark" aria-hidden="true">{% if c.state == 'positive' %}✓{% elif c.state == 'attention' %}!{% else %}·{% endif %}</span><span class="asr-contract__name">{{ c.label }}</span></li>
-    {% endfor %}
-  </ul>
-  <p class="catalog-adoption__foot">
-    <span class="catalog-adoption__counts">{{ ad.strengths_count }} evidencia{{ "s" if ad.strengths_count != 1 }} favorable{{ "s" if ad.strengths_count != 1 }} · {{ ad.reasons_count }} punto{{ "s" if ad.reasons_count != 1 }} de atención</span>
-    <a class="catalog-adoption__cta" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Ver Assessment →</a>
-  </p>
+  <div class="activity-kpi-grid">
+    {{ kpi_tile({"value": ad.strengths_count, "label": "Evidencias favorables"}) }}
+    {{ kpi_tile({"value": ad.reasons_count, "label": "Puntos de atención"}) }}
+  </div>
 </section>
+</article>
 {% endif %}
 {% include "partials/catalog_feedback.html" %}

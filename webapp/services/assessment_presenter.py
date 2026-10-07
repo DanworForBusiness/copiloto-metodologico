@@ -170,14 +170,15 @@ def header_for(entry: Any, pack: str) -> dict | None:
 _JDG_LEVEL_LABEL = {"BUENA": "Buena", "ADECUADA": "Adecuada", "PARCIAL": "Parcial", "PLENA": "Plena"}
 _JDG_LEVEL_TONE = {"BUENA": "plena", "ADECUADA": "buena", "PARCIAL": "parcial", "PLENA": "plena"}
 # Copy conciso, orientado al usuario (sin terminología de implementación). Por nivel cuando aporta; genérico si no.
-# Copy orientada al producto: constructiva y progresiva (qué tan cerca está el modelo de adoptar la metodología), nunca punitiva.
+# Copy orientada al producto: conclusión INTERPRETATIVA ("qué muestra la evidencia"), constructiva y progresiva, nunca
+# punitiva. Es el cierre editorial de la sección (punch del Hub), después de los contratos y la evidencia.
 _JDG_LEVEL_HEADLINE = {
-    "BUENA": "El modelo presenta una adopción metodológica consistente en los cuatro contratos evaluados.",
-    "ADECUADA": "El modelo presenta una adopción metodológica adecuada, con oportunidades puntuales de mejora.",
-    "PARCIAL": "El modelo presenta una adopción metodológica parcial; existen aspectos que requieren atención.",
+    "BUENA": "La evidencia observada muestra una adopción consistente de los cuatro contratos metodológicos.",
+    "ADECUADA": "La evidencia observada muestra una adopción adecuada, con oportunidades puntuales de mejora.",
+    "PARCIAL": "La adopción es parcial: existen señales favorables, pero persisten aspectos que requieren atención.",
 }
-_JDG_GENERIC_HEADLINE = "El nivel refleja la adopción metodológica observada en los cuatro contratos evaluados."
-_JDG_ND_HEADLINE = "No fue posible determinar el nivel de adopción metodológica."
+_JDG_GENERIC_HEADLINE = "La evidencia observada refleja la adopción metodológica en los cuatro contratos."
+_JDG_ND_HEADLINE = "No fue posible determinar la adopción metodológica con la evidencia disponible."
 _JDG_ND_REASON = {
     "INSUFFICIENT_AFFIRMATIVE_EVIDENCE": "Evidencia afirmativa insuficiente",
     "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL": "Contrato de fuente externa crítico no resoluble",

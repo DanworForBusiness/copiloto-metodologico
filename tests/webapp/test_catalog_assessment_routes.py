@@ -114,11 +114,13 @@ def test_ux_generation_has_integrated_loading_and_no_duplicate_floating_label(wo
 def test_ux_judgment_is_result_first_with_compact_contract_chips(world):
     html = _post(client_for()).text                                                             # CURRENT -> Juicio persistido visible
     seg = html[html.index('id="asr-juicio"'):html.index("</section>", html.index('id="asr-juicio"'))]
-    # Gate UX.4 §3/§4: renombrada a "Adopción metodológica" y como sección del informe (heading del Hub, no eyebrow propio).
-    assert '<h2>Adopción metodológica</h2>' in seg and 'asr-judgment__eyebrow' not in seg
-    assert 'asr-judgment__level' in seg and 'asr-judgment__headline' in seg                      # resultado + copy conciso como unidad (no un badge aislado)
-    assert seg.index('asr-judgment__level') < seg.index('asr-contract')                          # resultado PRIMERO, luego los contratos
-    assert seg.count('class="asr-contract"') == 4 and 'activity-kpi-grid' not in seg             # cuatro contratos como chips compactos, no tiles KPI
+    # Gate UX.4 (reuse): sección del informe con heading del Hub; nivel y contratos = badge canónico `.catalog-card__verdict`;
+    # evidencia = tabla nativa. Sin primitivos propios espejados (asr-judgment__/asr-contract/asr-evidence) ni tiles KPI en el detalle.
+    assert '<h2>Adopción metodológica</h2>' in seg
+    assert seg.index('catalog-card__verdict--') < seg.index('Contratos evaluados')               # resultado (badge de nivel) PRIMERO, luego los contratos
+    for c in ("Ingesta", "Armonización", "Propagación", "Contrato publicado"):
+        assert c in seg
+    assert not any(x in seg for x in ("asr-judgment__", "asr-contract", "asr-evidence", "activity-kpi-grid"))
 
 
 def test_ux_hero_shows_business_name_primary_and_technical_id_secondary(world, monkeypatch):
@@ -712,7 +714,8 @@ def test_open_questions_are_one_table_and_reconcile_with_the_kpi(world):
     html = _post(c).text
     prof = svc.status_for_entry(world.entries[0]).profile
     ctx = prof["summary"]["context_required"]
-    sec = html[html.index("Preguntas que solo el proyecto puede responder"):html.index('id="asr-m-architecture_modeling"')]
+    # corta en "Adopción metodológica" (sección siguiente a «Resumen» desde Gate UX.4): el área de preguntas abiertas termina ahí.
+    sec = html[html.index("Preguntas que solo el proyecto puede responder"):html.index('id="asr-juicio"')]
     tables = re.findall(r"<table[^>]*>.*?</table>", sec, re.S)
     assert len(tables) == 1 and 'data-block="open-questions"' in tables[0]                         # UNA sola tabla (antes: una por tipo de hallazgo)
     assert "<th>Pregunta</th><th>Vinculada a</th><th>Hallazgo</th><th>Ocurrencias</th>" in tables[0]

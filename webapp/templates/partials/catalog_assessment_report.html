@@ -191,35 +191,34 @@
    por dimensión. `id="asr-juicio"` se conserva (anclado por las regresiones). Es independiente del veredicto del catálogo. ── #}
 {% if v.judgment %}
 {% set j = v.judgment %}
-<section class="content-section asr-judgment" id="asr-juicio" aria-label="Adopción metodológica">
+<section class="content-section" id="asr-juicio" aria-label="Adopción metodológica">
   {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Adopción metodológica", "Qué tan cerca está el modelo de adoptar la metodología, como resultado determinista sobre los cuatro contratos. Es independiente del veredicto del catálogo (higiene de extracción) y no recalcula el Assessment.") }}
-  {# Resultado PRIMERO: nivel prominente (badge del Hub) + interpretación; sin score/semáforo/gauge. #}
-  <div class="asr-judgment__result">
-    {% if j.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ j.tone }} asr-judgment__level">{{ j.level_label }}</span>
-    {% else %}<span class="catalog-card__verdict catalog-card__verdict--neutra asr-judgment__level">No determinable</span>{% endif %}
-    <p class="asr-judgment__headline">{{ j.headline }}</p>
-  </div>
-  {% if v.state == "STALE" %}<p class="asr-judgment__stale"><span class="catalog-meta-dot catalog-meta-dot--parcial" aria-hidden="true"></span>Corresponde al perfil evaluado; el Assessment técnico está desactualizado.</p>{% endif %}
-  {# §5 Dos granularidades distintas, rotuladas distinto: CONTRATOS EVALUADOS = 4 (una marca por dimensión); EVIDENCIAS = ítems. #}
+  {# Resultado PRIMERO (resultado de scan): SOLO el badge de nivel (mismo `.catalog-card__verdict` del Hub). La lectura
+     interpretativa NO va acá — baja al punch de cierre, para no duplicarla. #}
+  {% if j.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ j.tone }}">{{ j.level_label }}</span>
+  {% else %}<span class="catalog-card__verdict catalog-card__verdict--neutra">No determinable</span>{% endif %}
+  {% if v.state == "STALE" %}{% call callout("note", "Corresponde al perfil evaluado") %}<p>El Assessment técnico está desactualizado; la Adopción refleja el último perfil evaluado.</p>{% endcall %}{% endif %}
+  {# §5 CONTRATOS EVALUADOS = 4 badges de veredicto del Hub (tono = estado), en la fila de estado del Hub. EVIDENCIAS = ítems (tabla abajo). #}
   <h3>Contratos evaluados</h3>
-  <ul class="asr-contracts">
-    {% for c in j.contracts %}
-    <li class="asr-contract" title="{{ c.state_text }}"><span class="catalog-card__verdict catalog-card__verdict--{% if c.state == 'positive' %}plena{% elif c.state == 'attention' %}parcial{% else %}neutra{% endif %} asr-contract__mark" aria-hidden="true">{% if c.state == 'positive' %}✓{% elif c.state == 'attention' %}!{% else %}·{% endif %}</span><span class="asr-contract__name">{{ c.label }}</span></li>
-    {% endfor %}
-  </ul>
-  {# §6 Evidencia AGRUPADA por dimensión (varios ítems por contrato no parecen un error). Enunciado primario; clasificación secundaria. #}
+  <div class="catalog-verdict-line">
+    {% for c in j.contracts %}<span class="catalog-card__verdict catalog-card__verdict--{% if c.state == 'positive' %}plena{% elif c.state == 'attention' %}parcial{% else %}neutra{% endif %}" title="{{ c.state_text }}">{{ c.label }}</span>{% endfor %}
+  </div>
+  {# §6/§5E Evidencia como TABLA nativa del informe (`.methodology table`, igual que «Resumen»/hallazgos), agrupada por contrato con rowspan. Preserva cada ítem canónico. #}
   {% if j.strengths_grouped %}
   <details class="dashboard-section" open>
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Evidencias favorables · {{ j.strengths_count }}</span></summary>
-    <div class="dashboard-section__body">{% for grp in j.strengths_grouped %}<p class="asr-evidence__dim asr-evidence__group">{{ grp.dimension }} · {{ grp.count }}</p><ul class="asr-evidence">{% for it in grp.rows %}<li><span class="asr-evidence__stmt">{{ it.text }}</span></li>{% endfor %}</ul>{% endfor %}</div>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Evidencias favorables</span><span class="dashboard-section__count">{{ j.strengths_count }}</span></summary>
+    <div class="dashboard-section__body"><table><thead><tr><th>Contrato</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.strengths_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.text }}</td></tr>{% endfor %}{% endfor %}</tbody></table></div>
   </details>
   {% endif %}
   {% if j.reasons_grouped %}
   <details class="dashboard-section" open>
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Puntos de atención · {{ j.reasons_count }}</span></summary>
-    <div class="dashboard-section__body">{% for grp in j.reasons_grouped %}<p class="asr-evidence__dim asr-evidence__group">{{ grp.dimension }} · {{ grp.count }}</p><ul class="asr-evidence">{% for it in grp.rows %}<li>{% if it.kind %}<span class="asr-evidence__dim">{{ it.kind }}</span>{% endif %}<span class="asr-evidence__stmt">{{ it.text }}</span></li>{% endfor %}</ul>{% endfor %}</div>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Puntos de atención</span><span class="dashboard-section__count">{{ j.reasons_count }}</span></summary>
+    <div class="dashboard-section__body"><table><thead><tr><th>Contrato</th><th>Tipo</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.reasons_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.kind }}</td><td>{{ it.text }}</td></tr>{% endfor %}{% endfor %}</tbody></table></div>
   </details>
   {% endif %}
+  {# Cierre editorial: qué significa la evidencia de arriba. Reusa el callout canónico del Hub (`callout`, tono punch); también
+     hace de transición visual al divisor de fin de sección (border-bottom de `.content-section`). La lectura va SOLO acá. #}
+  {% call callout("punch", "Lectura de la adopción") %}<p>{{ j.headline }}</p>{% endcall %}
 </section>
 {% endif %}
 
@@ -236,7 +235,9 @@
   {# Grupo con subáreas reales (Arquitectura & Modelado): un disclosure del CRM por subárea, TODOS colapsados al cargar (cada uno se abre por separado). #}
   {% for a in mg.areas %}
   <details class="dashboard-section" id="{{ a.dom_id }}">
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ a.title }}</span> {{ state_badge(a) }}{% if a.findings %}<span class="dashboard-section__count">{{ a.findings|length }} hallazgo{{ "s" if a.findings|length != 1 }}</span>{% endif %}</summary>
+    {# Fila de disclosure: título a la izquierda; estado (badge canónico del Hub) a la DERECHA, en el mismo slot de metadata que
+       el conteo (`margin-left:auto`, como `__count`). El estado es genuinamente por-fila (un área puede quedar ASSESSED y otra no). #}
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ a.title }}</span>{% if a.findings %}<span class="dashboard-section__count">{{ a.findings|length }} hallazgo{{ "s" if a.findings|length != 1 }}</span>{% endif %}<span class="dashboard-section__state">{{ state_badge(a) }}</span></summary>
     <div class="dashboard-section__body">{{ area_body(a, 4) }}</div>
   </details>
   {% endfor %}
