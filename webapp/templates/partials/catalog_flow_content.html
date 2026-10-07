@@ -17,10 +17,11 @@
     {% if ah and ah.action %}
     {% if ah.action.method == "get" %}
     <a class="support-link" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ ah.action.label }}<span>↗</span></a>
-    {% else %}
-    <a class="support-link" href="#" role="button" hx-post="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML"
-       hx-indicator="#asm-busy" @click.prevent>{{ ah.action.label }}<span>↗</span></a>
-    <span class="htmx-indicator" id="asm-busy" role="status">Generando…</span>
+    {% else %}{# acción de generación con carga INTEGRADA en el botón (sin label flotante); hx-disabled-elt evita doble envío #}
+    <button type="button" class="support-link asr-generate" hx-post="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-disabled-elt="this" aria-live="polite">
+      <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Generando informe…</span>
+      <span class="asr-generate__label">{{ ah.action.label }}</span>
+    </button>
     {% endif %}
     {% endif %}
     {# Informe de Cliente (consolidado V1): `.support-link` hermano del assessment del flujo; carga en el MISMO slot y su "← Volver" regresa a este flujo. #}
@@ -34,7 +35,7 @@
       <span class="catalog-meta-dot{% if ah.tone %} catalog-meta-dot--{{ ah.tone }}{% endif %}" aria-hidden="true"></span>
       {# El badge es un enlace real al MISMO destino/acción que el support-link (sin JS propio); "No aplica" no es accionable. #}
       {% if ah.action %}<a class="catalog-card__verdict{% if ah.tone %} catalog-card__verdict--{{ ah.tone }}{% endif %} asm-badge-link" href="#" role="button" title="{{ ah.action.label }}" aria-label="{{ ah.label }}: {{ ah.action.label }}"
-         {% if ah.action.method == "get" %}hx-get="{{ ah.url }}"{% else %}hx-post="{{ ah.url }}" hx-indicator="#asm-busy"{% endif %} hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ ah.label }}</a>
+         {% if ah.action.method == "get" %}hx-get="{{ ah.url }}"{% else %}hx-post="{{ ah.url }}"{% endif %} hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ ah.label }}</a>
       {% else %}<span class="catalog-card__verdict{% if ah.tone %} catalog-card__verdict--{{ ah.tone }}{% endif %}">{{ ah.label }}</span>{% endif %}
       {% if ah.coverage %}<span>Cobertura {{ ah.coverage }} · Confianza {{ ah.confidence }} · <span title="{{ ah.reviews_title }}">{{ ah.reviews }}</span></span>
       {% elif ah.reason %}<span>{{ ah.reason }}</span>{% endif %}

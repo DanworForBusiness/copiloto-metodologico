@@ -107,7 +107,7 @@ def test_ux_generation_has_integrated_loading_and_no_duplicate_floating_label(wo
     html = client_for().get("/catalog/flow/assessment?flow=acme-4am", headers=HX).text         # NOT_YET: muestra el botón "Generar informe"
     assert 'class="support-link asr-generate"' in html and 'hx-disabled-elt="this"' in html     # botón con carga integrada, anti doble-envío
     assert 'asr-generate__spinner' in html and 'asr-generate__label' in html
-    assert 'id="asr-busy"' not in html and html.count("Generando…") == 1                         # un único label, integrado en el botón (no flotante)
+    assert 'id="asr-busy"' not in html and html.count("Generando informe…") == 1 and "hx-indicator" not in html  # un único label integrado; sin hx-indicator inválido ni label flotante
 
 
 def test_ux_judgment_is_result_first_with_compact_contract_chips(world):
@@ -255,7 +255,9 @@ def test_detail_header_states_follow_the_contract(world, monkeypatch):
         return _detail(c, monkeypatch)
     h = hdr()                                                                  # NOT_YET_ASSESSED
     assert "Sin assessment" in h and "Generar informe" in h and "hx-post" in h and "Cobertura" not in h
-    assert 'class="support-link"' in h and "support-links heading-supports" in h and "<button" not in h
+    # Gate UX.2: la acción de generación es un BOTÓN con carga integrada (se deshabilita, sin label flotante).
+    assert "support-links heading-supports" in h and 'class="support-link asr-generate"' in h and 'hx-disabled-elt="this"' in h
+    assert "id=\"asm-busy\"" not in h and h.count("Generando informe…") == 1    # un único label, dentro del botón (no flotante)
     assert _post(c).status_code == 200
     h = hdr()                                                                  # CURRENT
     assert "Assessment vigente" in h and "Ver Assessment" in h and "Ver informe" not in h and "hx-get" in h and "hx-post" not in h and re.search(r"Cobertura \d+\.\d%", h)

@@ -10,12 +10,13 @@
      · acciones ........ `.support-links` / `.support-link`;  etiquetas: badge `.catalog-card__verdict`
      · avisos .......... `.callout` SOLO para estados excepcionales (sin informe, desactualizado, falla, dimensión sin evidencia) #}
 {% macro lineage_link(url) %}{% if url %}<a href="#" role="button" hx-get="{{ url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent><code>Ver en linaje</code></a>{% endif %}{% endmacro %}
-{# Acción de generación/regeneración: botón del Hub con estado de carga INTEGRADO (se deshabilita, conserva ancho, muestra
-   spinner + "Generando…"; HTMX: hx-disabled-elt evita doble envío, hx-indicator="this" activa el indicador interno). #}
+{# Acción de generación/regeneración: botón del Hub con estado de carga INTEGRADO. El elemento que dispara la request
+   recibe `.htmx-request` por sí solo (no hace falta hx-indicator): con `.asr-generate.htmx-request` se muestra el spinner
+   y se oculta el label. `hx-disabled-elt="this"` lo deshabilita (anti doble envío) conservando sus dimensiones. #}
 {% macro action_link(v) %}{% if v.action %}
 <div class="support-links">
-  <button type="button" class="support-link asr-generate" hx-post="{{ v.report_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-disabled-elt="this" hx-indicator="this" aria-live="polite">
-    <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Generando…</span>
+  <button type="button" class="support-link asr-generate" hx-post="{{ v.report_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-disabled-elt="this" aria-live="polite">
+    <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Generando informe…</span>
     <span class="asr-generate__label">{{ v.action.label }}</span>
   </button>
 </div>{% endif %}{% endmacro %}
@@ -138,13 +139,11 @@
 {% set j = v.judgment %}
 <section class="methodology catalog-detail asr-judgment" id="asr-juicio" aria-label="Juicio metodológico">
   <div class="content-section">
-    {# §4 resultado PRIMERO: título + nivel en una sola unidad visual (sin score/semáforo/gauge). #}
+    {# §4 resultado PRIMERO como una sola composición: rótulo → nivel prominente → explicación. Sin score/semáforo/gauge. #}
     <header class="asr-judgment__head">
       <span class="asr-judgment__eyebrow">Juicio metodológico</span>
-      <p class="asr-judgment__result">
-        {% if j.determined %}<span class="asr-judgment__caption">Nivel metodológico</span><span class="catalog-card__verdict catalog-card__verdict--{{ j.tone }} asr-judgment__level">{{ j.level_label }}</span>
-        {% else %}<span class="catalog-card__verdict catalog-card__verdict--neutra asr-judgment__level">No determinable</span>{% endif %}
-      </p>
+      {% if j.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ j.tone }} asr-judgment__level">{{ j.level_label }}</span>
+      {% else %}<span class="catalog-card__verdict catalog-card__verdict--neutra asr-judgment__level">No determinable</span>{% endif %}
     </header>
     <p class="asr-judgment__headline">{{ j.headline }}</p>
     {% if v.state == "STALE" %}<p class="asr-judgment__stale"><span class="catalog-meta-dot catalog-meta-dot--parcial" aria-hidden="true"></span>Corresponde al perfil evaluado; el Assessment técnico está desactualizado.</p>{% endif %}
@@ -156,13 +155,13 @@
     </ul>
     {% if j.strengths %}
     <details class="dashboard-section" open>
-      <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Evidencia a favor</span><span class="dashboard-section__count">{{ j.strengths|length }}</span></summary>
+      <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Evidencia a favor · {{ j.strengths|length }}</span></summary>
       <div class="dashboard-section__body"><ul class="asr-evidence">{% for st in j.strengths %}<li><span class="asr-evidence__dim">{{ st.dimension }}</span><span class="asr-evidence__stmt">{{ st.text }}</span></li>{% endfor %}</ul></div>
     </details>
     {% endif %}
     {% if j.reasons %}
     <details class="dashboard-section" open>
-      <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Puntos de atención</span><span class="dashboard-section__count">{{ j.reasons|length }}</span></summary>
+      <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Puntos de atención · {{ j.reasons|length }}</span></summary>
       <div class="dashboard-section__body"><ul class="asr-evidence">{% for r in j.reasons %}<li><span class="asr-evidence__dim">{{ r.dimension }} · {{ r.kind }}</span><span class="asr-evidence__stmt">{{ r.text }}</span></li>{% endfor %}</ul></div>
     </details>
     {% endif %}
