@@ -45,7 +45,7 @@ from .model import Fact
 from .profile import (
     REASON_REGISTRY_VERSION, build_assessment, build_indeterminate_assessment, canonical_assessment_json, validate_assessment,
 )
-from .readers import SupplementaryEvidence
+from .readers import SupplementaryEvidence, technical_delta_shadow_entities
 from .render_md import render_markdown
 from .scope import AssessmentUniverse, TerminalAmSelectionRequired, UnknownRootObjectError, UnknownTerminalAmError
 
@@ -180,6 +180,15 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
     except AssessmentPoolLoadError as exc:
         meta["errors"].append(str(exc))
         return build_indeterminate_assessment(client=key[0], requested_model=am, message=str(exc), pool_signature=signature), meta
+    # Identidad canónica de hoja: una tabla local delta-capable X es una proyección sobre su entidad física de captura de
+    # cambios D (``@DataWarehouse.delta.deltaFromEntities``). D NO es una fuente SEMÁNTICA; es la implementación técnica
+    # interna de X. Si el pool la materializa como entidad, se excluye del universo semántico para que la frontera/linaje
+    # se detengan en X (el RF productor con target físico D queda como DELTA_SHADOW_SUFFIX en procedencia). Por el HECHO
+    # del CSN, nunca por el sufijo; una D consumida por una fuente ordinaria se preserva.
+    shadows = technical_delta_shadow_entities(entities, group["jsons"])
+    if shadows:
+        entities = {n: e for n, e in entities.items() if n not in shadows}
+        meta["technical_delta_shadows_excluded"] = sorted(shadows)
     universe = AssessmentUniverse.from_entities(entities)
     if generic_root and am is not None:
         universe, scope = universe.resolve_root(entities, am, root_type, pool_signature=signature)   # puede lanzar UnknownRootObjectError
