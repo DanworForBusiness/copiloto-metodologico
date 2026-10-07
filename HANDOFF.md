@@ -10485,3 +10485,47 @@ por la identidad canÃ³nica EXACTA `X`; el fallback de HAR.1 queda definitivament
 propio PR chico. No mezclar con este fix.
 
 Branch `fix/single-root-logical-leaf-materialization` â†’ renombrada conceptualmente a este fix de grafo/frontera. SIN push/PR.
+
+## Gate 8D.HAR.2 ÔÇö Canonical leaf identity + removal of the dead 8D.HAR.1 fallback ÔÇö 2026-10-06
+
+**Corrige el modelo de 8D.HAR.1.** El diagn+¦stico autoritativo de producci+¦n mostr+¦ que para las 7 fuentes
+delta-capaces, el perfil persistido tiene `source_contract_classes` Y `leaf_provenance` AMBOS bajo la identidad F+ìSICA
+`X_Delta`, con `producer target_match = EXACT` (porque una vez que la hoja ES `X_Delta`, `X_Delta -> X_Delta` es exacto).
+Es decir, el perfil ya perdi+¦ el hecho `DELTA_SHADOW_SUFFIX`.
+
+**Hallazgo de traza (read-only):** `local_leaves` (hechos `source.leaf_provenance`, `facts_source.py` bucle
+`for name in closure` filtrando `graph.providers`) y `source_contract_classes` (`facts_field_lineage.source_contract_class_facts`,
+bucle sobre `frontier_leaves`) se construyen de la MISMA iteraci+¦n de hojas frontera del cierre ÔåÆ **SIEMPRE comparten la
+identidad can+¦nica de hoja; NUNCA divergen** (confirmado en el perfil local: keys id+®nticas, 15==15). La identidad de la
+hoja = el NOMBRE DE ENTIDAD del cierre (lo que el pool trae como local-table). No hay reescritura `X->X_Delta`; es la
+entidad del pool.
+
+**Consecuencia sobre 8D.HAR.1:** su reproducci+¦n (renombrar SOLO `source_contract_classes` a `_Delta`, dejando
+`leaf_provenance` l+¦gico) era ESTRUCTURALMENTE IMPOSIBLE. El fallback `_has_delta_shadow_producer` / `_leaf_class_record`
+exig+¡a `SCC[X_Delta]` con `leaf_provenance[X]` presente ÔÇö algo que no puede existir. **El fallback es c+¦digo muerto: no
+dispara nunca sobre un perfil real** (producci+¦n sigue en ND con el fallback desplegado, PR #139). Confirmado localmente:
+0 fuentes necesitan el fallback; la clasificaci+¦n exact-only ya da los 9 GOVERNED.
+
+**Fix de este gate:** se ELIMINA el fallback (`classify_source` vuelve a lookup EXACTO por la clave can+¦nica). El Juicio
+no vuelve a tener conocimiento de la implementaci+¦n f+¡sica delta-shadow ÔÇö fuente +¦nica de verdad de identidad = la
+generaci+¦n de evidencia can+¦nica. NO se toc+¦ la generaci+¦n de evidencia (ya produce identidad l+¦gica `X` con pool
+correcto: fresh local Kensing = BUENA; COSTCENTER = candidate `X` / canonical leaf `X` / producer target `X_Delta` /
+target_match `DELTA_SHADOW_SUFFIX` / SCC key `X` / GOVERNED).
+
+**Estado del fallback HAR.1: REMOVE** (muerto + romp+¡a "single source of identity truth").
+
+**Remediaci+¦n de producci+¦n (sin reacquirir; Gates A+B ya completaron el pool):** regenerar el perfil contra el pool
+COMPLETO actual. `assessment_backfill --reassess-current --client Kensing` si el perfil est+í CURRENT (reassess-current
+SALTA los STALE INPUT_CHANGED por dise+¦o); si el pool se refresc+¦ y qued+¦ STALE, re-publicar re-assesa. NO migraci+¦n por
+sufijo (insegura: no distingue un `X_Delta` independiente). Comando read-only de diagn+¦stico disponible para confirmar
+si el perfil persistido est+í keyeado por `X` o `X_Delta` y si las fuentes de armonizaci+¦n divergen de SCC. Si el pool
+COMPLETO actual expone identidad l+¦gica `X` (como el local de referencia), la reassessment produce BUENA; si el pool
+mismo trae `X_Delta` como entidad frontera, es un tema de adquisici+¦n/evidencia para otro gate (no resoluble por
+reassess ni por sufijo).
+
+**Tests:** `tests/test_methodological_judgment_identity.py` reescrito (11): clasificaci+¦n por identidad EXACTA, sin
+fallback de sufijo, `X_Delta` independiente direccionable por su clave propia, + invariante can+¦nico sobre el golden de
+Kensing (SCC keys == leaf_provenance keys) + HAR-STR-01 por identidad exacta. Golden 8/8 sin cambios. Subsistema 1940.
+Suite completa **5655 passed, 20 skipped** (sin regresiones).
+
+Branch `fix/judgment-remove-dead-delta-shadow-fallback` (sobre origin/main post PR #139). SIN push/PR.
