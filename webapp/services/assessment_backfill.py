@@ -592,6 +592,59 @@ def migrate_stale_evidence(entries: Iterable[Any], migration: str, *, apply: boo
     return out
 
 
+def backfill_judgment(*, apply: bool = False, client: str = "") -> dict:
+    """Materializa el Juicio metodológico DERIVADO en los sobres gobernados que lo tengan ausente o con un contrato de
+    Juicio anterior, SIN reassess ni adquisición: se deriva del ``profile_json`` YA persistido con el motor canónico y se
+    reescribe la MISMA identidad gobernada (perfil, firmas del artefacto y versiones de Assessment intactos). Idempotente
+    por ``output_signature``: un segundo ``--apply`` no hace trabajo. ``apply=False`` solo informa."""
+    wanted = client.strip().lower()
+    records, failed, pending = [], 0, 0
+    for env, path in svc.iter_governed_envelopes():
+        if wanted and str(env.get("client", "")).strip().lower() != wanted:
+            continue
+        action, fresh = svc.classify_judgment_backfill(env)
+        rec = {"client": env.get("client"), "terminal_am": env.get("terminal_am"), "action": action,
+               "assessment_status": env.get("status"),
+               "from_version": list(svc.judgment_versions_of(env.get("judgment"))) if env.get("judgment") else None,
+               "to_version": list(svc.judgment_versions_of(fresh)) if fresh else None}
+        needs = action in (svc.JDG_MISSING, svc.JDG_VERSION_STALE, svc.JDG_CONTENT_STALE)
+        if needs and apply:
+            try:
+                durable = svc.apply_judgment_backfill(env, fresh)
+                rec["durable"] = durable
+                rec["action"] = "updated"
+                if durable != svc.DURABLE_REMOTE:
+                    pending += 1
+            except Exception as exc:                                    # noqa: BLE001 — una falla NO corrompe el sobre previo
+                svc.log.exception("backfill de Juicio: fallo al escribir %s", path)
+                rec["action"] = "failed"
+                rec["error"] = type(exc).__name__
+                failed += 1
+        elif needs:
+            rec["action"] = "would_update"
+        records.append(rec)
+
+    def count(pred):
+        return sum(1 for r in records if pred(r))
+    counts = {
+        "eligible": len(records),
+        "already_current": count(lambda r: r["action"] == svc.JDG_CURRENT),
+        "no_profile": count(lambda r: r["action"] == svc.JDG_NO_PROFILE),
+        "judgment_missing": count(lambda r: r.get("from_version") is None and r["action"] in ("would_update", "updated")),
+        "judgment_version_stale": count(lambda r: r.get("from_version") is not None
+                                        and tuple(r.get("to_version") or ()) != tuple(r.get("from_version") or ())
+                                        and r["action"] in ("would_update", "updated")),
+        "would_update": count(lambda r: r["action"] == "would_update"),
+        "updated": count(lambda r: r["action"] == "updated"),
+        "failed": failed,
+        "pending_remote": pending,
+    }
+    # restart-safe: tras un apply exitoso, un segundo apply ve todo ``already_current`` (cero trabajo)
+    counts["complete"] = (failed == 0 and (not apply or counts["would_update"] == 0))
+    return {"mode": "backfill-judgment", "apply": apply, "dry_run": not apply, "records": records, "counts": counts,
+            "environment_warnings": ["sin almacén durable (solo memoria): el backfill no persiste"] if svc.governed_dir() is None else []}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     ap.add_argument("--client", default="", help="limitar a un cliente (por defecto: todas las entradas del Catálogo)")
@@ -606,9 +659,12 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--reassess-current", action="store_true",
                       help="modo EXPLÍCITO: reevalúa (fuerza) los assessments gobernados CURRENT del --client con el MISMO motor canónico de generación, "
                            "sobre el contexto técnico ACTUAL del pool, reemplazando la MISMA identidad. Exige --client y --dry-run o --apply")
+    mode.add_argument("--backfill-judgment", action="store_true",
+                      help="modo EXPLÍCITO: materializa el Juicio metodológico DERIVADO en los sobres gobernados que lo tengan ausente o con un contrato de "
+                           "Juicio anterior, derivándolo del perfil YA persistido (SIN reassess ni adquisición). Idempotente. Exige --dry-run o --apply")
     ap.add_argument("--apply", action="store_true", help="solo con un modo de regeneración: escribe los reemplazos (excluyente con --dry-run)")
     args = ap.parse_args(argv)
-    regen_mode = args.enrich_current_missing or args.regenerate_stale_evidence or args.reassess_current
+    regen_mode = args.enrich_current_missing or args.regenerate_stale_evidence or args.reassess_current or args.backfill_judgment
     if regen_mode:
         if args.dry_run == args.apply:                                           # ninguno o ambos: usage, CERO escrituras
             ap.error("los modos de regeneración exigen EXACTAMENTE uno de --dry-run o --apply")
@@ -627,6 +683,9 @@ def main(argv: list[str] | None = None) -> int:
         code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
     elif args.reassess_current:
         report = reassess_selected(entries, apply=args.apply)
+        code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
+    elif args.backfill_judgment:
+        report = backfill_judgment(apply=args.apply, client=args.client)
         code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
     else:
         report = backfill(entries, dry_run=args.dry_run)

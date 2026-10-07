@@ -36,4 +36,8 @@ def test_assessment_surfaces_never_use_the_legacy_verdict_vocabulary_for_coverag
     for rel in ("webapp/templates/partials/catalog_assessment_report.html", "webapp/services/assessment_presenter.py"):
         src = (REPO / rel).read_text(encoding="utf-8")
         visible = re.sub(r"\{#.*?#\}", "", src, flags=re.S)
+        # La presentación del Juicio metodológico (Gate 8D.2) usa su taxonomía AUTORIZADA (BUENA/ADECUADA/PARCIAL/No
+        # determinable); se excluye de esta regresión (validada aparte en test_judgment_persistence). La cobertura/confianza
+        # del assessment siguen sin poder usar el vocabulario del veredicto legacy.
+        visible = re.sub(r"# BEGIN judgment-presentation.*?# END judgment-presentation", "", visible, flags=re.S)
         assert not re.search(r"\b(PLENA|BUENA|PARCIAL|Plena|Buena|Parcial)\b", visible), rel

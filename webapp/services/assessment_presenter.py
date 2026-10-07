@@ -160,6 +160,94 @@ def header_for(entry: Any, pack: str) -> dict | None:
         return None
 
 
+# BEGIN judgment-presentation (Gate 8D.2) — taxonomía AUTORIZADA del Juicio metodológico (BUENA/ADECUADA/PARCIAL/No determinable).
+# ═══════════════════════════ Juicio metodológico (presentación del resultado DETERMINISTA persistido) ═══════════════════════════
+# Mapeo SOLO de presentación: traduce el resultado ya decidido por el motor canónico a copy en español. NO decide nivel,
+# NO recalcula, NO codifica lógica de calidad (sin puntaje/banda/madurez). El Juicio llega PERSISTIDO en ``status.judgment``.
+_JDG_LEVEL_LABEL = {"BUENA": "Buena", "ADECUADA": "Adecuada", "PARCIAL": "Parcial", "PLENA": "Plena"}
+_JDG_LEVEL_TONE = {"BUENA": "plena", "ADECUADA": "plena", "PARCIAL": "parcial", "PLENA": "plena"}
+_JDG_ND_REASON = {
+    "INSUFFICIENT_AFFIRMATIVE_EVIDENCE": "Evidencia afirmativa insuficiente",
+    "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL": "Contrato de fuente externa crítico no resoluble",
+    "CONTRACT_NOT_EVALUABLE": "Contrato metodológico no evaluable",
+    "CANONICAL_EVIDENCE_V3_REQUIRED": "Evidencia canónica insuficiente para emitir juicio",
+    "ASSESSMENT_NOT_JUDGEABLE": "El assessment todavía no puede juzgarse",
+}
+_JDG_DIMENSIONS = (("SOURCE_INGESTION", "Ingesta"), ("HARMONIZATION", "Armonización"),
+                   ("PROPAGATION", "Propagación"), ("PUBLISHED_CONTRACT", "Contrato publicado"))
+_JDG_CLASSIFICATION = {"MATERIAL_DEVIATION": "Desvío material", "RELEVANT_WEAKNESS": "Debilidad relevante",
+                       "LOCAL_WEAKNESS": "Debilidad local", "POSITIVE_EVIDENCE": "Evidencia positiva"}
+_JDG_STATEMENT = {
+    "har.legitimate_reusable_boundary_over_governed_contract": "Capa de armonización 1:1 legítima y reutilizable sobre un contrato gobernado",
+    "har.reusable_semantic_enrichment": "Enriquecimiento semántico reutilizable consumido aguas abajo",
+    "pro.product_composes_resolved_contracts": "El producto compone contratos ya resueltos (no reintegra la fuente)",
+    "pub.semantically_intentional_consumer_contract": "Contrato publicado intencional y autónomo para el consumidor",
+    "src.governed_acquisition_explicit": "Adquisición de la fuente gobernada en todo contacto con el origen",
+    "src.explicit_incremental_acquisition_observed": "Carga incremental explícita observada en la adquisición",
+    "pro.product_node_reperforms_integration": "Un nodo de producto reintegra la fuente o rearma la armonización",
+    "lek.unrestored_responsibility_leakage": "Responsabilidad estructural no restaurada que se filtra aguas abajo",
+    "har.technical_projection_with_downstream_semantic_consequence": "Proyección técnica que traslada vocabulario no armonizado al consumidor",
+    "har.fragmented_layers_with_undeclared_roles": "Capas de armonización fragmentadas con roles no declarados",
+    "lek.unrestored_raw_vocabulary_reaches_published_without_contract_centrality": "Vocabulario crudo no restaurado llega al contrato publicado sin centralidad de contrato",
+    "src.physical_boundary_bypassed_and_compensated_downstream": "Frontera física cruda evitada y compensada aguas abajo",
+    "pro.branch_alignment_completed_at_product": "Alineación de ramas completada recién en el producto",
+    "src.physical_reach_without_bypass_and_compensation": "Acceso a tabla física cruda (sin bypass ni compensación material)",
+}
+_JDG_CONTRACT_STATE_TEXT = {"positive": "Evidencia positiva", "attention": "Requiere atención", "neutral": "Sin señal específica"}
+
+
+def _jdg_statement_text(item: dict) -> str:
+    return _JDG_STATEMENT.get(item.get("statement_key") or "") or _DIM_LABEL.get(item.get("dimension") or "", "Observación metodológica")
+
+
+_DIM_LABEL = dict(_JDG_DIMENSIONS)
+
+
+def judgment_view(judgment: dict | None) -> dict | None:
+    """View-model del Juicio metodológico PERSISTIDO. Solo presentación: lee el resultado ya decidido (status/level,
+    razones, fortalezas, motivo de no-determinación) y lo traduce. Devuelve ``None`` si no hay Juicio (estado sin perfil)."""
+    if not judgment:
+        return None
+    status, level = judgment.get("status"), judgment.get("level")
+    determined = status == "DETERMINED" and level is not None
+
+    def _rows(items, with_kind=False):
+        seen, out = set(), []
+        for it in items or []:
+            key = (it.get("dimension"), it.get("statement_key"))
+            if key in seen:
+                continue
+            seen.add(key)
+            row = {"dimension": _DIM_LABEL.get(it.get("dimension") or "", it.get("dimension") or ""), "text": _jdg_statement_text(it)}
+            if with_kind:
+                row["kind"] = _JDG_CLASSIFICATION.get(it.get("classification") or "", it.get("classification") or "")
+            out.append(row)
+        return out
+
+    strengths = _rows(judgment.get("strengths"))
+    reasons = _rows(judgment.get("reasons"), with_kind=True)
+    strong_dims = {s.get("dimension") for s in judgment.get("strengths") or []}
+    weak_dims = {r.get("dimension") for r in judgment.get("reasons") or []}
+    contracts = []
+    for dim, label in _JDG_DIMENSIONS:
+        state = "attention" if dim in weak_dims else ("positive" if dim in strong_dims else "neutral")
+        contracts.append({"label": label, "state": state, "state_text": _JDG_CONTRACT_STATE_TEXT[state]})
+    return {
+        "determined": determined,
+        "level": level,
+        "level_label": _JDG_LEVEL_LABEL.get(level or "", level) if determined else "No determinable",
+        "tone": _JDG_LEVEL_TONE.get(level or "", "") if determined else "parcial",
+        "nd_reason": None if determined else _JDG_ND_REASON.get(judgment.get("not_determinable_reason") or "", "No determinable"),
+        "nd_reason_id": None if determined else judgment.get("not_determinable_reason"),
+        "strengths": strengths,
+        "reasons": reasons,
+        "contracts": contracts,
+        "ruleset_version": judgment.get("ruleset_version"),
+        "schema_version": judgment.get("judgment_schema_version"),
+    }
+# END judgment-presentation (Gate 8D.2)
+
+
 # ═══════════════════════════ informe ═══════════════════════════
 @dataclass(frozen=True)
 class AdhocReport:
@@ -456,6 +544,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         "md_url": adhoc.md_url if adhoc else "/catalog/flow/assessment.md?" + urlencode({"flow": entry.entry_id}),
         "has_profile": doc is not None,
         "adhoc": adhoc is not None,
+        "judgment": judgment_view(status.judgment),   # Juicio metodológico persistido (distinto de la vigencia del Assessment)
     }
     canonical = _canonical_label(doc)
     if canonical and status.terminal_am:                              # nombre de negocio del perfil canónico (respaldado por la evidencia)

@@ -187,6 +187,9 @@ def test_no_maturity_score_or_band_vocabulary_and_human_text_is_spanish(world, m
     report = _post(c).text
     tile = _detail(c, monkeypatch)
     for html in (report, tile):
+        # La sección "Juicio metodológico" (Gate 8D.2) muestra la taxonomía AUTORIZADA del Juicio (incluye "Parcial");
+        # se excluye de esta regresión de anti-scoring (sin puntaje/banda/madurez, validada en test_judgment_persistence).
+        html = re.sub(r'<section[^>]*id="asr-juicio".*?</section>', " ", html, flags=re.S)
         visible = re.sub(r"<(script|style)\b.*?</\1>", " ", html, flags=re.S)
         visible = re.sub(r"<[^>]+>", " ", visible)
         assert not BANNED.search(visible), BANNED.search(visible).group(0)
