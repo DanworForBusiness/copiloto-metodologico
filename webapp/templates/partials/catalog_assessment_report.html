@@ -95,9 +95,19 @@
 {# Estado vacío estándar del Hub (`.dashboard-empty`): "No detectado" = se evaluó y no apareció el patrón (≠ No disponible ≠ No aplica). #}
 {% macro not_detected(text) %}<div class="dashboard-empty"><span class="dashboard-empty__label">No detectado</span><p>{{ text }}</p></div>{% endmacro %}
 
-{% if v.adhoc %}{# assessment ad-hoc (página propia): "Volver" regresa a la herramienta, sin HTMX ni flujo del Catálogo #}
-<a class="catalog-back" href="{{ v.flow_url }}">← Volver</a>
-{% else %}<a class="catalog-back" href="#" role="button" hx-get="{{ v.flow_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>{% endif %}
+{# §1 Barra de acciones transversal: ← Volver a la izquierda, acciones de contexto a la derecha, MISMA línea y gutter que el
+   contenido. Un solo patrón (`.catalog-actionbar`) compartido con la página de modelo del Catálogo; el hero arranca debajo. #}
+<div class="catalog-actionbar">
+  {% if v.adhoc %}{# assessment ad-hoc (página propia): "Volver" regresa a la herramienta, sin HTMX ni flujo del Catálogo #}
+  <a class="catalog-back" href="{{ v.flow_url }}">← Volver</a>
+  {% else %}<a class="catalog-back" href="#" role="button" hx-get="{{ v.flow_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>{% endif %}
+  {% if v.has_profile %}
+  <div class="support-links catalog-actionbar__actions">
+    <a class="support-link" href="{{ v.md_url }}" download>Exportar Markdown<span>↗</span></a>
+    <a class="support-link" href="{{ v.json_url }}" download>Exportar JSON<span>↗</span></a>
+  </div>
+  {% endif %}
+</div>
 <section class="module-hero asr-hero">
   <p class="eyebrow">Assessment de {{ v.module_label }} · {{ v.client }}</p>
   {# Jerarquía: nombre de negocio PRIMARIO (h1); identificador técnico SECUNDARIO (línea mono debajo, no compite ni domina). #}
@@ -111,12 +121,6 @@
       {% if v.has_profile %}<span>{{ v.scope_text }}</span>{% endif %}
     </span>
   </div>
-  {% if v.has_profile %}
-  <div class="support-links asr-actions">
-    <a class="support-link" href="{{ v.md_url }}" download>Exportar Markdown<span>↗</span></a>
-    <a class="support-link" href="{{ v.json_url }}" download>Exportar JSON<span>↗</span></a>
-  </div>
-  {% endif %}
 </section>
 
 {# ── estados sin informe ── #}
@@ -134,40 +138,8 @@
 {% call callout("punch", "Assessment desactualizado — " ~ v.state_note, "status") %}<p>{{ v.state_body }}</p>{{ action_link(v) }}{% endcall %}
 {% endif %}
 
-{# ── Juicio metodológico (resultado DETERMINISTA persistido; derivado del perfil, distinto de la vigencia del Assessment) ── #}
-{% if v.judgment %}
-{% set j = v.judgment %}
-<section class="methodology catalog-detail asr-judgment" id="asr-juicio" aria-label="Juicio metodológico">
-  <div class="content-section">
-    {# §4 resultado PRIMERO como una sola composición: rótulo → nivel prominente → explicación. Sin score/semáforo/gauge. #}
-    <header class="asr-judgment__head">
-      <span class="asr-judgment__eyebrow">Juicio metodológico</span>
-      {% if j.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ j.tone }} asr-judgment__level">{{ j.level_label }}</span>
-      {% else %}<span class="catalog-card__verdict catalog-card__verdict--neutra asr-judgment__level">No determinable</span>{% endif %}
-    </header>
-    <p class="asr-judgment__headline">{{ j.headline }}</p>
-    {% if v.state == "STALE" %}<p class="asr-judgment__stale"><span class="catalog-meta-dot catalog-meta-dot--parcial" aria-hidden="true"></span>Corresponde al perfil evaluado; el Assessment técnico está desactualizado.</p>{% endif %}
-    {# §6 cuatro contratos: chips compactos (nombre + estado legibles juntos), no cuatro tarjetas decorativas. #}
-    <ul class="asr-contracts">
-      {% for c in j.contracts %}
-      <li class="asr-contract" title="{{ c.state_text }}"><span class="catalog-card__verdict catalog-card__verdict--{% if c.state == 'positive' %}plena{% elif c.state == 'attention' %}parcial{% else %}neutra{% endif %} asr-contract__mark" aria-hidden="true">{% if c.state == 'positive' %}✓{% elif c.state == 'attention' %}!{% else %}·{% endif %}</span><span class="asr-contract__name">{{ c.label }}</span></li>
-      {% endfor %}
-    </ul>
-    {% if j.strengths %}
-    <details class="dashboard-section" open>
-      <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Evidencia a favor · {{ j.strengths|length }}</span></summary>
-      <div class="dashboard-section__body"><ul class="asr-evidence">{% for st in j.strengths %}<li><span class="asr-evidence__dim">{{ st.dimension }}</span><span class="asr-evidence__stmt">{{ st.text }}</span></li>{% endfor %}</ul></div>
-    </details>
-    {% endif %}
-    {% if j.reasons %}
-    <details class="dashboard-section" open>
-      <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Puntos de atención · {{ j.reasons|length }}</span></summary>
-      <div class="dashboard-section__body"><ul class="asr-evidence">{% for r in j.reasons %}<li><span class="asr-evidence__dim">{{ r.dimension }} · {{ r.kind }}</span><span class="asr-evidence__stmt">{{ r.text }}</span></li>{% endfor %}</ul></div>
-    </details>
-    {% endif %}
-  </div>
-</section>
-{% endif %}
+{# §8 La «Adopción metodológica» se movió DENTRO del informe, después de «Resumen» (ver `id="asr-juicio"` más abajo): el
+   Catálogo muestra el resultado conciso y el Assessment la justificación detallada; sin otro hero grande antes del informe. #}
 
 {% if v.has_profile and v.state in ("CURRENT", "STALE", "FAILED") %}
 {% set s = v.summary %}
@@ -213,6 +185,43 @@
   {% call callout("punch", "Para qué sirven estas preguntas", icon="💡") %}<p>Estas preguntas no son conclusiones sobre la calidad del modelo. Identifican información que el proyecto debe aportar para que nuestros consultores puedan cerrar o interpretar correctamente los hallazgos del assessment.</p>{% endcall %}
   {% endif %}
 </section>
+
+{# ── §8 Adopción metodológica: resultado DETERMINISTA persistido, como sección del informe (misma gramática que «Resumen»:
+   eyebrow [NN] + h2 + subtítulo). Resultado primero (nivel + interpretación), luego los 4 contratos y la evidencia AGRUPADA
+   por dimensión. `id="asr-juicio"` se conserva (anclado por las regresiones). Es independiente del veredicto del catálogo. ── #}
+{% if v.judgment %}
+{% set j = v.judgment %}
+<section class="content-section asr-judgment" id="asr-juicio" aria-label="Adopción metodológica">
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Adopción metodológica", "Qué tan cerca está el modelo de adoptar la metodología, como resultado determinista sobre los cuatro contratos. Es independiente del veredicto del catálogo (higiene de extracción) y no recalcula el Assessment.") }}
+  {# Resultado PRIMERO: nivel prominente (badge del Hub) + interpretación; sin score/semáforo/gauge. #}
+  <div class="asr-judgment__result">
+    {% if j.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ j.tone }} asr-judgment__level">{{ j.level_label }}</span>
+    {% else %}<span class="catalog-card__verdict catalog-card__verdict--neutra asr-judgment__level">No determinable</span>{% endif %}
+    <p class="asr-judgment__headline">{{ j.headline }}</p>
+  </div>
+  {% if v.state == "STALE" %}<p class="asr-judgment__stale"><span class="catalog-meta-dot catalog-meta-dot--parcial" aria-hidden="true"></span>Corresponde al perfil evaluado; el Assessment técnico está desactualizado.</p>{% endif %}
+  {# §5 Dos granularidades distintas, rotuladas distinto: CONTRATOS EVALUADOS = 4 (una marca por dimensión); EVIDENCIAS = ítems. #}
+  <h3>Contratos evaluados</h3>
+  <ul class="asr-contracts">
+    {% for c in j.contracts %}
+    <li class="asr-contract" title="{{ c.state_text }}"><span class="catalog-card__verdict catalog-card__verdict--{% if c.state == 'positive' %}plena{% elif c.state == 'attention' %}parcial{% else %}neutra{% endif %} asr-contract__mark" aria-hidden="true">{% if c.state == 'positive' %}✓{% elif c.state == 'attention' %}!{% else %}·{% endif %}</span><span class="asr-contract__name">{{ c.label }}</span></li>
+    {% endfor %}
+  </ul>
+  {# §6 Evidencia AGRUPADA por dimensión (varios ítems por contrato no parecen un error). Enunciado primario; clasificación secundaria. #}
+  {% if j.strengths_grouped %}
+  <details class="dashboard-section" open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Evidencias favorables · {{ j.strengths_count }}</span></summary>
+    <div class="dashboard-section__body">{% for grp in j.strengths_grouped %}<p class="asr-evidence__dim asr-evidence__group">{{ grp.dimension }} · {{ grp.count }}</p><ul class="asr-evidence">{% for it in grp.rows %}<li><span class="asr-evidence__stmt">{{ it.text }}</span></li>{% endfor %}</ul>{% endfor %}</div>
+  </details>
+  {% endif %}
+  {% if j.reasons_grouped %}
+  <details class="dashboard-section" open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Puntos de atención · {{ j.reasons_count }}</span></summary>
+    <div class="dashboard-section__body">{% for grp in j.reasons_grouped %}<p class="asr-evidence__dim asr-evidence__group">{{ grp.dimension }} · {{ grp.count }}</p><ul class="asr-evidence">{% for it in grp.rows %}<li>{% if it.kind %}<span class="asr-evidence__dim">{{ it.kind }}</span>{% endif %}<span class="asr-evidence__stmt">{{ it.text }}</span></li>{% endfor %}</ul>{% endfor %}</div>
+  </details>
+  {% endif %}
+</section>
+{% endif %}
 
 {% for mg in v.macro_groups %}
 <section class="content-section" id="asr-m-{{ mg.id|lower }}">

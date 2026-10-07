@@ -4,16 +4,15 @@
    secciones ES el linaje: cada artefacto es una sección con su tabla. Se usa en
    la página completa (catalog_flow.html) y en el swap HTMX que actualiza SOLO el
    panel central (#content) sin salir del módulo ni perder el panel derecho. #}
-{% if focus_csv and assessment_url %}{# llegó desde el informe: "Volver" regresa a quien lo invocó #}
-<a class="catalog-back" href="#" role="button" hx-get="{{ assessment_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>
-{% else %}<a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>{% endif %}
-{# Assessment de modelado (contextual al flujo abierto; NO vive en el tile del listado). `assessment_header` =
-   assessment_presenter.header_for(...): badge de vigencia (misma forma que el badge del veredicto legacy) + métricas
-   mínimas del MISMO perfil canónico que el informe, y la acción como `.support-link` (patrón `.support-links
-   .heading-supports` del pipeline de contenido) arriba a la derecha. Sin score ni banda de madurez. #}
 {% set ah = assessment_header %}
-<section class="module-hero asm-hero-has-support">
-  <div class="support-links heading-supports asm-hero-support">
+{# §1 Barra de acciones transversal: ← Volver + acciones de contexto en la MISMA línea (mismo patrón que el Assessment). La
+   acción del assessment (Ver Assessment / Generar, con carga integrada) y el Informe de Cliente van a la derecha; el hero
+   arranca debajo. `support-links heading-supports` se conserva (patrón del pipeline de contenido y anclado por regresiones). #}
+<div class="catalog-actionbar">
+  {% if focus_csv and assessment_url %}{# llegó desde el informe: "Volver" regresa a quien lo invocó #}
+  <a class="catalog-back" href="#" role="button" hx-get="{{ assessment_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>
+  {% else %}<a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>{% endif %}
+  <div class="support-links heading-supports catalog-actionbar__actions">
     {% if ah and ah.action %}
     {% if ah.action.method == "get" %}
     <a class="support-link" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ ah.action.label }}<span>↗</span></a>
@@ -27,6 +26,8 @@
     {# Informe de Cliente (consolidado V1): `.support-link` hermano del assessment del flujo; carga en el MISMO slot y su "← Volver" regresa a este flujo. #}
     <a class="support-link" href="#" role="button" hx-get="/catalog/client/assessment?flow={{ entry_id|urlencode }}&pack={{ pack|urlencode }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Ver Informe de Cliente<span>↗</span></a>
   </div>
+</div>
+<section class="module-hero">
   <p class="eyebrow">Catálogo Danwor · {{ cliente }}</p>
   <h1>{{ dominio }}</h1>
   {% if ah %}
@@ -62,4 +63,27 @@
 <article class="methodology catalog-detail">
   {% for s in sections %}<section id="{{ s.slug }}" class="content-section">{{ s.html|safe }}{% with slug=s.slug %}{% include "partials/catalog_section_feedback.html" %}{% endwith %}</section>{% endfor %}
 </article>
+{# §7D Resumen COMPACTO de Adopción metodológica: nivel + una línea + los 4 contratos + conteos + CTA al Assessment. El detalle
+   (evidencia agrupada, justificación) vive SOLO en el Assessment; acá no se duplica. Distinto del «Veredicto del catálogo»
+   (higiene de extracción) del hero: son dos ejes independientes. Solo aparece si hay Adopción persistida. #}
+{% if ah and ah.adoption %}
+{% set ad = ah.adoption %}
+<section class="methodology catalog-detail catalog-adoption" aria-label="Adopción metodológica">
+  <div class="catalog-adoption__head">
+    <h2 class="catalog-adoption__title">Adopción metodológica</h2>
+    {% if ad.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ ad.tone }}">{{ ad.level_label }}</span>
+    {% else %}<span class="catalog-card__verdict catalog-card__verdict--neutra">No determinable</span>{% endif %}
+  </div>
+  <p class="catalog-adoption__headline">{{ ad.headline }}</p>
+  <ul class="asr-contracts">
+    {% for c in ad.contracts %}
+    <li class="asr-contract" title="{{ c.state_text }}"><span class="catalog-card__verdict catalog-card__verdict--{% if c.state == 'positive' %}plena{% elif c.state == 'attention' %}parcial{% else %}neutra{% endif %} asr-contract__mark" aria-hidden="true">{% if c.state == 'positive' %}✓{% elif c.state == 'attention' %}!{% else %}·{% endif %}</span><span class="asr-contract__name">{{ c.label }}</span></li>
+    {% endfor %}
+  </ul>
+  <p class="catalog-adoption__foot">
+    <span class="catalog-adoption__counts">{{ ad.strengths_count }} evidencia{{ "s" if ad.strengths_count != 1 }} favorable{{ "s" if ad.strengths_count != 1 }} · {{ ad.reasons_count }} punto{{ "s" if ad.reasons_count != 1 }} de atención</span>
+    <a class="catalog-adoption__cta" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Ver Assessment →</a>
+  </p>
+</section>
+{% endif %}
 {% include "partials/catalog_feedback.html" %}

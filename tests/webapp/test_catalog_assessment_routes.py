@@ -87,8 +87,9 @@ def _detail(c, monkeypatch, flow="acme-4am") -> str:
     monkeypatch.setattr(main, "_catalog_flow_view", lambda entry, show_assoc=None, pack="": ([{"slug": "m", "html": "x"}], "", bool(show_assoc), False))
     r = c.get(f"/catalog/flow?flow={flow}&pack=datasphere_core", headers=HX)
     assert r.status_code == 200
-    m = re.search(r'<section class="module-hero.*?</section>', r.text, re.S)
-    assert m, "no hay hero en el detalle del flujo"
+    # Gate UX.4 §1: la cabecera es la barra de acciones transversal (← Volver + acciones) + el hero debajo.
+    m = re.search(r'<div class="catalog-actionbar".*?</section>', r.text, re.S)
+    assert m, "no hay cabecera (barra de acciones + hero) en el detalle del flujo"
     return m.group(0)
 
 
@@ -113,8 +114,10 @@ def test_ux_generation_has_integrated_loading_and_no_duplicate_floating_label(wo
 def test_ux_judgment_is_result_first_with_compact_contract_chips(world):
     html = _post(client_for()).text                                                             # CURRENT -> Juicio persistido visible
     seg = html[html.index('id="asr-juicio"'):html.index("</section>", html.index('id="asr-juicio"'))]
-    assert 'class="asr-judgment__eyebrow">Juicio metodológico<' in seg
+    # Gate UX.4 §3/§4: renombrada a "Adopción metodológica" y como sección del informe (heading del Hub, no eyebrow propio).
+    assert '<h2>Adopción metodológica</h2>' in seg and 'asr-judgment__eyebrow' not in seg
     assert 'asr-judgment__level' in seg and 'asr-judgment__headline' in seg                      # resultado + copy conciso como unidad (no un badge aislado)
+    assert seg.index('asr-judgment__level') < seg.index('asr-contract')                          # resultado PRIMERO, luego los contratos
     assert seg.count('class="asr-contract"') == 4 and 'activity-kpi-grid' not in seg             # cuatro contratos como chips compactos, no tiles KPI
 
 
@@ -281,8 +284,9 @@ def test_detail_header_sits_right_below_the_title_with_the_action_in_the_support
     c = client_for()
     _post(c)
     h = _detail(c, monkeypatch)
-    assert h.index("support-links heading-supports") < h.index("<h1>") < h.index("Assessment vigente")   # acción arriba a la derecha; estado justo bajo el título
-    assert "asm-hero-has-support" in h
+    # Gate UX.4 §1: las acciones viven en la barra transversal (← Volver + acciones) ARRIBA del hero; el estado queda bajo el título.
+    assert h.index("catalog-actionbar") < h.index("support-links heading-supports") < h.index("<h1>") < h.index("Assessment vigente")
+    assert "catalog-back" in h and "asm-hero-has-support" not in h
 
 
 def test_header_values_come_from_the_same_cached_profile_as_report_and_exports(world, monkeypatch):
@@ -598,9 +602,10 @@ def test_report_sections_follow_the_governed_markdown_hierarchy_without_a_generi
     c = client_for()
     html = _post(c).text
     heads = re.findall(r'<span class="section-eyebrow">\[(\d+)\]</span><h2>([^<]+)</h2>', html)
-    assert [t for _n, t in heads] == ["Resumen", "Arquitectura &amp; Modelado", "Convención de nombres", "Fuente &amp; Extracción", "Observaciones",
+    # Gate UX.4 §8: "Adopción metodológica" entra como sección del informe JUSTO después de "Resumen" (Resumen → Adopción → resto).
+    assert [t for _n, t in heads] == ["Resumen", "Adopción metodológica", "Arquitectura &amp; Modelado", "Convención de nombres", "Fuente &amp; Extracción", "Observaciones",
                                       "Casos a revisar", "No evaluado / Limitaciones de evidencia", "Evidencia / Detalle técnico"]
-    assert [n for n, _t in heads] == [f"{i:02d}" for i in range(1, 9)]                       # numeración continua generada por la plantilla
+    assert [n for n, _t in heads] == [f"{i:02d}" for i in range(1, 10)]                      # numeración continua generada por la plantilla
     assert 'id="asr-areas"' not in html and "<h2>Áreas</h2>" not in html
     arch = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-m-naming"')]
     for title in ("Modelo analítico", "Propagación", "Armonización", "Ingesta"):

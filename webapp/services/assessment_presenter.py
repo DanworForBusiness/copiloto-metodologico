@@ -147,6 +147,9 @@ def header_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
         view["reviews"] = _plural(n, "caso a revisar", "casos a revisar") if n else "Sin casos a revisar"
         view["reviews_title"] = (f"{_plural(n, 'caso')} en {_plural(summary['review_groups'], 'tipo de revisión', 'tipos de revisión')}"
                                  if n else "Ningún caso a revisar")
+    # Resumen COMPACTO de Adopción metodológica para el Catálogo (resultado persistido; el detalle vive en el Assessment).
+    # Es el MISMO view-model que usa el informe (``judgment_view``): sin recálculo, solo presentación.
+    view["adoption"] = judgment_view(status.judgment)
     return view
 
 
@@ -167,12 +170,14 @@ def header_for(entry: Any, pack: str) -> dict | None:
 _JDG_LEVEL_LABEL = {"BUENA": "Buena", "ADECUADA": "Adecuada", "PARCIAL": "Parcial", "PLENA": "Plena"}
 _JDG_LEVEL_TONE = {"BUENA": "plena", "ADECUADA": "buena", "PARCIAL": "parcial", "PLENA": "plena"}
 # Copy conciso, orientado al usuario (sin terminología de implementación). Por nivel cuando aporta; genérico si no.
+# Copy orientada al producto: constructiva y progresiva (qué tan cerca está el modelo de adoptar la metodología), nunca punitiva.
 _JDG_LEVEL_HEADLINE = {
-    "BUENA": "El modelo presenta evidencia metodológica consistente en los cuatro contratos evaluados.",
-    "ADECUADA": "El modelo presenta evidencia metodológica suficiente, con puntos de atención menores.",
-    "PARCIAL": "El modelo presenta evidencia metodológica parcial: hay desvíos que requieren atención.",
+    "BUENA": "El modelo presenta una adopción metodológica consistente en los cuatro contratos evaluados.",
+    "ADECUADA": "El modelo presenta una adopción metodológica adecuada, con oportunidades puntuales de mejora.",
+    "PARCIAL": "El modelo presenta una adopción metodológica parcial; existen aspectos que requieren atención.",
 }
-_JDG_GENERIC_HEADLINE = "El nivel refleja la evidencia metodológica observada en los cuatro contratos evaluados."
+_JDG_GENERIC_HEADLINE = "El nivel refleja la adopción metodológica observada en los cuatro contratos evaluados."
+_JDG_ND_HEADLINE = "No fue posible determinar el nivel de adopción metodológica."
 _JDG_ND_REASON = {
     "INSUFFICIENT_AFFIRMATIVE_EVIDENCE": "Evidencia afirmativa insuficiente",
     "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL": "Contrato de fuente externa crítico no resoluble",
@@ -245,15 +250,37 @@ def judgment_view(judgment: dict | None) -> dict | None:
         "level": level,
         "level_label": _JDG_LEVEL_LABEL.get(level or "", level) if determined else "No determinable",
         "tone": _JDG_LEVEL_TONE.get(level or "", "") if determined else "neutra",
-        "headline": (_JDG_LEVEL_HEADLINE.get(level or "") or _JDG_GENERIC_HEADLINE) if determined else nd_reason,
+        "headline": (_JDG_LEVEL_HEADLINE.get(level or "") or _JDG_GENERIC_HEADLINE) if determined
+                    else (_JDG_ND_HEADLINE + (" " + nd_reason if nd_reason else "")),
         "nd_reason": nd_reason,
         "nd_reason_id": None if determined else judgment.get("not_determinable_reason"),
         "strengths": strengths,
         "reasons": reasons,
+        # §5/§6 — las agrupaciones son SOLO presentación: dos granularidades distintas conviven sin inconsistencia.
+        # CONTRATOS = 4 (una fila por dimensión metodológica); EVIDENCIAS = ítems deterministas individuales, varios por contrato.
+        # Se preserva cada ítem canónico; solo se agrupan por dimensión para que una dimensión repetida no parezca un error.
+        "strengths_grouped": _group_by_dimension(strengths),
+        "reasons_grouped": _group_by_dimension(reasons),
+        "strengths_count": len(strengths),
+        "reasons_count": len(reasons),
         "contracts": contracts,
         "ruleset_version": judgment.get("ruleset_version"),
         "schema_version": judgment.get("judgment_schema_version"),
     }
+
+
+_DIM_ORDER = [label for _, label in _JDG_DIMENSIONS]
+
+
+def _group_by_dimension(rows: list[dict]) -> list[dict]:
+    """Agrupa filas de evidencia por dimensión (label), en el orden canónico de los contratos. Presentación pura: no
+    descarta ni fusiona ítems; una dimensión con N ítems queda ``{dimension, count: N, items:[...]}``."""
+    buckets: dict[str, list] = {}
+    for r in rows:
+        buckets.setdefault(r["dimension"], []).append(r)
+    ordered = sorted(buckets, key=lambda d: (_DIM_ORDER.index(d) if d in _DIM_ORDER else len(_DIM_ORDER), d))
+    # clave ``rows`` (no ``items``): en Jinja ``grp.items`` resolvería al método del dict, no a la lista.
+    return [{"dimension": d, "count": len(buckets[d]), "rows": buckets[d]} for d in ordered]
 # END judgment-presentation (Gate 8D.2)
 
 
