@@ -10529,3 +10529,59 @@ Kensing (SCC keys == leaf_provenance keys) + HAR-STR-01 por identidad exacta. Go
 Suite completa **5655 passed, 20 skipped** (sin regresiones).
 
 Branch `fix/judgment-remove-dead-delta-shadow-fallback` (sobre origin/main post PR #139). SIN push/PR.
+
+---
+
+## Gate 8D.2 — Juicio metodológico persistido + UI gobernada — 2026-10-07
+
+Persiste el resultado DETERMINISTA de `evaluate_judgment` junto al Assessment gobernado y lo muestra en el detalle del
+Catálogo. Arquitectura: Evidencia → Juicio determinista → Juicio PERSISTIDO → UI (sin LLM entre Evidencia y Juicio).
+
+**Persistencia (una sola fuente).** `assessment_service._envelope` ahora incluye `judgment = evaluate_judgment(profile_json)`
+(helper `_derive_judgment`), así todo write del sobre (generate/reassess/backfill) lo materializa automáticamente. El Juicio
+trae su propia versión (`judgment_schema_version`, `ruleset_version`) y linaje (`source_assessment.profile_signature`,
+`output_signature`); no se inventó hashing paralelo. `AssessmentStatus.judgment` lo expone; `_persisted_judgment(env)` lo lee
+del sobre con fallback TEMPORAL de rollout (deriva en solo-lectura del perfil si falta; nunca persiste desde un GET). La UI
+NUNCA recalcula.
+
+**Backfill idempotente sin reassess.** `assessment_backfill --backfill-judgment --dry-run|--apply` (+ `--client` opcional):
+itera el almacén gobernado (`svc.iter_governed_envelopes`), deriva el Juicio del `profile_json` YA persistido y reescribe la
+MISMA identidad (perfil, `assessment_artifact_signature`, versiones de Assessment intactas) solo con el Juicio nuevo. SIN
+adquisición, SIN regenerar evidencia, SIN duplicados. Idempotente por `output_signature` (segundo apply = cero trabajo).
+Conteos: eligible/already_current/no_profile/judgment_missing/judgment_version_stale/would_update/updated/failed/
+pending_remote/complete.
+
+**Lectura/UI.** Vigencia del Assessment (CURRENT/STALE) y Juicio son conceptos DISTINTOS y se muestran separados (STALE no
+oculta ni relabela el Juicio; el Juicio corresponde al snapshot del perfil). `assessment_presenter.judgment_view` mapea el
+resultado persistido a español (solo presentación, sin lógica de calidad): nivel (Buena/Adecuada/Parcial) o "No determinable"
+con motivo traducido (enum crudo solo como metadato); fortalezas y puntos de atención por `statement_key`; y la visibilidad
+compacta de los cuatro contratos (Ingesta/Armonización/Propagación/Contrato publicado) derivada de las dimensiones del Juicio
+(sin puntaje nuevo). Sección "Juicio metodológico" en `catalog_assessment_report.html`, reusando primitivos del Hub
+(`.catalog-card__verdict`, `.activity-kpi`, `.dashboard-section`). Sin scores, %, semáforo numérico, LLM ni dominio.
+
+**Guards actualizados (feature autorizada por §5A).** La taxonomía del Juicio (BUENA/ADECUADA/PARCIAL) colisiona con los
+guards anti-scoring legacy; se acotaron para excluir la sección/constantes del Juicio (marcadores `BEGIN/END
+judgment-presentation` + `id="asr-juicio"`), preservando la prohibición de puntaje/banda/madurez en cobertura/confianza. El
+set de claves del sobre durable suma `judgment`.
+
+**Tests.** `tests/webapp/test_judgment_persistence.py` (12): persistencia (generate persiste; reassess regenera; persistido ==
+evaluate_judgment; versión presente; UI no recalcula), backfill (missing→would/updated; current no-op; version-stale actualiza
+solo el Juicio; segundo apply idempotente; sin mutación de perfil/identidad), compat fallback, presentación (BUENA con 4
+contratos positivos; ND con motivo traducido; PARCIAL con razones; vigencia separada del Juicio). Subsistema 2615. Suite
+completa **5678 passed, 20 skipped**.
+
+**Paridad §9.** Corpus gobernado LOCAL vacío (PERSIST deshabilitado). La paridad "distribución desde el Juicio persistido ==
+desde evaluate_judgment" está GARANTIZADA por construcción (el persistido ES evaluate_judgment(profile)); demostrado sobre los
+8 golden (todas las `output_signature` coinciden). La verificación de producción (ND 15 / PARCIAL 5 / ADECUADA 8 / BUENA 5) la
+corre el dueño con `--backfill-judgment --dry-run`.
+
+**Aceptación localhost.** App: `uvicorn webapp.main:app --port 8501` (lee `catalog_local` por defecto). Ruta: detalle de un
+modelo del Catálogo → panel de Assessment (fragmento HTMX `GET/POST /catalog/flow/assessment?flow=<entry_id>`); la sección
+"Juicio metodológico" aparece arriba del informe cuando hay perfil. Checklist (ver §13 del return).
+
+**Migración de producción (tras merge):** `python -m webapp.services.assessment_backfill --backfill-judgment --dry-run`
+(revisar conteos) → `--apply`. No reacquisición, no re-publicación, idempotente. (Nota: queda PENDIENTE desplegar primero A.3
++ reassess de Kensing para que el perfil persistido de Kensing ya tenga frontera lógica; el backfill de Juicio luego lo
+reflejará.)
+
+Branch `feat/judgment-persistence-ui`. SIN push/PR.

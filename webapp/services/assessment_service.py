@@ -57,6 +57,7 @@ from tools.catalog.modeling_assessment import profile as ma_profile
 from tools.catalog.modeling_assessment import shadow as ma_shadow
 from tools.catalog.modeling_assessment.render_md import render_markdown
 from tools.catalog.modeling_assessment.scope import AssessmentUniverse, UnknownTerminalAmError
+from tools.catalog.methodological_judgment import JUDGMENT_SCHEMA_VERSION, RULESET_VERSION, evaluate_judgment
 
 log = logging.getLogger("danwor.assessment")
 
@@ -200,6 +201,7 @@ class AssessmentStatus:
     error_code: str | None = None
     generated_at: str | None = None
     profile: dict | None = None          # perfil canónico validado (CURRENT / STALE / FAILED con último perfil previo)
+    judgment: dict | None = field(default=None, compare=False)   # Juicio metodológico DERIVADO y PERSISTIDO del perfil (nunca recalculado por la UI)
     previous_profile_retained: bool = False
     durable: str | None = field(default=None, compare=False)   # solo tras ``generate``: "remote" | "local" | "memory" (ver ``_store_envelope``)
     stale_reason: str | None = field(default=None, compare=False)       # solo STALE: VERSION_ONLY | INPUT_CHANGED | VERSION_AND_INPUT
@@ -406,8 +408,31 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+_UNSET: Any = object()
+# Versión canónica del contrato de Juicio persistido (del propio paquete de Juicio; no se inventa un hash paralelo).
+JUDGMENT_CONTRACT_VERSIONS = (JUDGMENT_SCHEMA_VERSION, RULESET_VERSION)
+
+
+def judgment_versions_of(judgment: dict | None) -> tuple[str | None, str | None]:
+    j = judgment or {}
+    return (j.get("judgment_schema_version"), j.get("ruleset_version"))
+
+
+def judgment_is_current_version(judgment: dict | None) -> bool:
+    """¿El Juicio persistido fue producido por el contrato de Juicio VIGENTE? (versión de esquema + ruleset)."""
+    return bool(judgment) and judgment_versions_of(judgment) == JUDGMENT_CONTRACT_VERSIONS
+
+
+def _derive_judgment(profile: dict | None) -> dict | None:
+    """Juicio metodológico DETERMINISTA del perfil, derivado con el ÚNICO motor canónico (``evaluate_judgment``). Es
+    estado DERIVADO del perfil persistido: se calcula aquí al escribir el sobre (generate/reassess/backfill) y NUNCA se
+    recalcula ni se edita en la UI. ``None`` solo si no hay perfil (estado sin assessment)."""
+    return evaluate_judgment(profile) if profile is not None else None
+
+
 def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_signature: str | None,
-              versions: dict | None, error_code: str | None = None, generated_at: str | None = None) -> dict:
+              versions: dict | None, error_code: str | None = None, generated_at: str | None = None,
+              judgment: dict | None = _UNSET) -> dict:
     return {
         "envelope_version": ENVELOPE_VERSION,
         "client": client,
@@ -419,6 +444,7 @@ def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_s
         "assessment_artifact_signature": _artifact_signature(profile) if profile is not None else None,
         "status": status,
         "profile_json": profile,
+        "judgment": _derive_judgment(profile) if judgment is _UNSET else judgment,
         "error_code": error_code,
     }
 
@@ -480,6 +506,60 @@ def governed_dir() -> Path | None:
             log.error("assessment: el almacén gobernado %s cae bajo %s: persistencia durable DESACTIVADA", d, f)
             return None
     return d
+
+
+# ── backfill de Juicio: materializa el Juicio DERIVADO en sobres gobernados existentes, SIN reassess ni adquisición ──
+# El Juicio se deriva del ``profile_json`` YA persistido con el motor canónico; se compara por ``output_signature`` para
+# idempotencia exacta (un segundo apply no hace trabajo). No cambia identidad, perfil, firmas del artefacto ni versiones
+# de Assessment. ``profile_json`` None (p. ej. FAILED sin perfil previo) no tiene Juicio y se reporta como al día.
+JDG_CURRENT, JDG_MISSING, JDG_VERSION_STALE, JDG_CONTENT_STALE, JDG_NO_PROFILE = (
+    "judgment_current", "judgment_missing", "judgment_version_stale", "judgment_content_stale", "no_profile")
+
+
+def iter_governed_envelopes() -> Iterable[tuple[dict, Path]]:
+    """(sobre, ruta) de cada registro gobernado durable del almacén (SOLO LECTURA de disco; sin validar vigencia de pool)."""
+    d = governed_dir()
+    if d is None:
+        return
+    base = d / GOVERNED_LAYOUT_VERSION
+    if not base.is_dir():
+        return
+    for client_dir in sorted(p for p in base.iterdir() if p.is_dir()):
+        for f in sorted(client_dir.glob("*.json")):
+            if f.name.startswith(".tmp"):
+                continue
+            try:
+                env = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                log.warning("assessment: registro gobernado ilegible en backfill (%s); se omite", f, exc_info=True)
+                continue
+            if isinstance(env, dict) and env.get("envelope_version") == ENVELOPE_VERSION:
+                yield env, f
+
+
+def classify_judgment_backfill(env: dict) -> tuple[str, dict | None]:
+    """(acción, Juicio canónico fresco). Deriva el Juicio del perfil persistido y lo compara con el persistido por
+    ``output_signature``. Acciones: ``no_profile`` (sin perfil → nada que materializar), ``judgment_current`` (ya es el
+    resultado canónico), ``judgment_missing`` / ``judgment_version_stale`` / ``judgment_content_stale`` (debe actualizarse)."""
+    prof = env.get("profile_json")
+    if prof is None:
+        return JDG_NO_PROFILE, None
+    fresh = _derive_judgment(prof)
+    persisted = env.get("judgment")
+    if persisted is None:
+        return JDG_MISSING, fresh
+    if (persisted.get("output_signature"), persisted.get("judgment_schema_version"), persisted.get("ruleset_version")) == \
+       (fresh.get("output_signature"), fresh.get("judgment_schema_version"), fresh.get("ruleset_version")):
+        return JDG_CURRENT, fresh
+    return (JDG_VERSION_STALE if not judgment_is_current_version(persisted) else JDG_CONTENT_STALE), fresh
+
+
+def apply_judgment_backfill(env: dict, judgment: dict | None) -> str:
+    """Reescribe el MISMO sobre gobernado (misma identidad, mismo ``profile_json`` y firmas) solo con el Juicio nuevo.
+    Devuelve la durabilidad lograda (``remote``/``local``/``memory``)."""
+    new_env = dict(env)
+    new_env["judgment"] = judgment
+    return _store_envelope(new_env)
 
 
 def governed_path(client: str, am: str) -> Path | None:
@@ -578,18 +658,30 @@ def _status_from(entry: Any, res: Resolution, versions: dict) -> AssessmentStatu
     if env is None:
         return AssessmentStatus(NOT_YET_ASSESSED, eid, client, am)
     prof = env.get("profile_json")
+    jdg = _persisted_judgment(env)
     if env.get("status") == "FAILED":
         code = env.get("error_code")
         return AssessmentStatus(FAILED, eid, client, am, reason=_failed_message(code), error_code=code,
-                                generated_at=env.get("generated_at"), profile=prof, previous_profile_retained=prof is not None)
+                                generated_at=env.get("generated_at"), profile=prof, judgment=jdg, previous_profile_retained=prof is not None)
     if env.get("assessment_schema_version") != ma_profile.ASSESSMENT_SCHEMA_VERSION or not _valid_profile(env):
         return AssessmentStatus(INCOMPATIBLE_SCHEMA, eid, client, am, reason=INCOMPATIBLE_MESSAGE, error_code="INCOMPATIBLE_SCHEMA",
                                 generated_at=env.get("generated_at"))
     cur = classify_currentness(env.get("input_pool_signature"), env.get("assessment_versions"), res.pool_signature, versions)
     if cur.state == CURRENT:
-        return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof)
-    return AssessmentStatus(STALE, eid, client, am, generated_at=env.get("generated_at"), profile=prof, stale_reason=cur.reason, stale_targeted=cur.targeted,
+        return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg)
+    return AssessmentStatus(STALE, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, stale_reason=cur.reason, stale_targeted=cur.targeted,
                             stale_version_diff=cur.version_diff)
+
+
+def _persisted_judgment(env: dict) -> dict | None:
+    """Juicio PERSISTIDO en el sobre. Compatibilidad TEMPORAL de rollout (sobres históricos previos al backfill de
+    Juicio): si falta, se deriva en SOLO LECTURA del ``profile_json`` ya persistido (misma función canónica); JAMÁS se
+    persiste desde una lectura. El backfill lo materializa; esta rama desaparece cuando el corpus está migrado."""
+    jdg = env.get("judgment")
+    if jdg is not None:
+        return jdg
+    prof = env.get("profile_json")
+    return _derive_judgment(prof) if prof is not None else None
 
 
 _validated: dict[str, bool] = {}

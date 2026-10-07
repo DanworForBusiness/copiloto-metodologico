@@ -128,6 +128,42 @@
 {% call callout("punch", "Assessment desactualizado — " ~ v.state_note, "status") %}<p>{{ v.state_body }}</p>{{ action_link(v) }}{% endcall %}
 {% endif %}
 
+{# ── Juicio metodológico (resultado DETERMINISTA persistido; derivado del perfil, distinto de la vigencia del Assessment) ── #}
+{% if v.judgment %}
+{% set j = v.judgment %}
+<section class="methodology catalog-detail" id="asr-juicio" aria-label="Juicio metodológico">
+  <div class="content-section">
+    <header class="content-heading has-subtitle"><div class="content-heading-copy"><h2>Juicio metodológico</h2></div></header>
+    <blockquote class="section-subtitle"><p>Resultado metodológico determinista sobre el perfil persistido. Es independiente del dictamen del catálogo y no expresa una calificación numérica; {% if j.determined %}indica el nivel alcanzado por la evidencia afirmativa a través de los cuatro contratos.{% else %}cuando no puede emitirse, se explica por qué.{% endif %}</p></blockquote>
+    <p>
+      {% if j.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ j.tone }}">{{ j.level_label }}</span>
+      {% else %}<span class="catalog-card__verdict catalog-card__verdict--parcial">No determinable</span> <span>{{ j.nd_reason }}</span>{% endif %}
+      {% if v.state == "STALE" %}<span class="catalog-meta-dot catalog-meta-dot--parcial" aria-hidden="true"></span><span>El Assessment técnico está desactualizado; el juicio corresponde al perfil evaluado.</span>{% endif %}
+    </p>
+    <div class="activity-kpi-grid">
+      {% for c in j.contracts %}
+      <div class="activity-kpi">
+        <span class="activity-kpi__value"><span class="catalog-card__verdict{% if c.state == 'positive' %} catalog-card__verdict--plena{% elif c.state == 'attention' %} catalog-card__verdict--parcial{% endif %}">{{ c.state_text }}</span></span>
+        <span class="activity-kpi__label">{{ c.label }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% if j.strengths %}
+    <details class="dashboard-section" open>
+      <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Evidencia a favor</span><span class="dashboard-section__count">{{ j.strengths|length }}</span></summary>
+      <div class="dashboard-section__body"><ul>{% for st in j.strengths %}<li><span class="catalog-card__verdict">{{ st.dimension }}</span> {{ st.text }}</li>{% endfor %}</ul></div>
+    </details>
+    {% endif %}
+    {% if j.reasons %}
+    <details class="dashboard-section" open>
+      <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Puntos de atención</span><span class="dashboard-section__count">{{ j.reasons|length }}</span></summary>
+      <div class="dashboard-section__body"><ul>{% for r in j.reasons %}<li><span class="catalog-card__verdict catalog-card__verdict--parcial">{{ r.kind }}</span> <span class="catalog-card__verdict">{{ r.dimension }}</span> {{ r.text }}</li>{% endfor %}</ul></div>
+    </details>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
 {% if v.has_profile and v.state in ("CURRENT", "STALE", "FAILED") %}
 {% set s = v.summary %}
 {# Lo primero bajo el título: indicadores del assessment (tiles KPI compartidos) dentro del disclosure del CRM, abierto. #}
