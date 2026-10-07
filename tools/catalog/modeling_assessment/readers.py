@@ -34,6 +34,64 @@ READERS_VERSION = "supplementary-readers/v3"
 REPLICATION_FLOW = "REPLICATION_FLOW"
 DATA_FLOW = "DATA_FLOW"
 
+_DELTA_ANNOTATION = "@DataWarehouse.delta"                               # anotación nativa de una tabla local delta-capable
+
+
+def _entity_source_refs(e: Any) -> set[str]:
+    """Nombres que la entidad ``e`` referencia como entrada estructural (FROM/JOIN recuperado + upstreams + asociaciones declaradas)."""
+    refs: set[str] = set()
+    for attr in ("_raw_refs", "upstreams", "assoc_upstreams"):
+        refs |= {str(x) for x in (getattr(e, attr, None) or ()) if x}
+    for a in (getattr(e, "associations", None) or ()):
+        if isinstance(a, Mapping) and a.get("target"):
+            refs.add(str(a["target"]))
+    return refs
+
+
+def technical_delta_shadow_entities(entities: Mapping[str, Any], jsons: Iterable[str]) -> frozenset[str]:
+    """Entidades ``D`` que son la SOMBRA TÉCNICA de captura de cambios de un wrapper lógico ``X`` de Datasphere, probado por
+    el HECHO EXPLÍCITO del CSN y NO por el sufijo ``_Delta``:
+
+      * ``X.@DataWarehouse.delta.deltaFromEntities`` contiene ``D`` (``X`` es una tabla local delta-capable), y
+      * ``X`` referencia estructuralmente a ``D`` (``D`` en el FROM/JOIN/upstreams de ``X``: acuerdo query↔anotación), y
+      * ``D`` es una entidad del pool, y
+      * ``D`` es referenciada ÚNICAMENTE por sus wrappers declarados (si alguna otra entidad consume ``D`` como fuente
+        ordinaria, ``D`` se PRESERVA como entidad semántica: no se reescribe un consumidor explícito de ``D`` a ``X``).
+
+    Tal ``D`` es la implementación técnica interna de ``X``, no una fuente semántica del linaje: el assessment debe tratar
+    a ``X`` como la hoja frontera (con el RF productor cuyo target físico es ``D`` y ``target_match = DELTA_SHADOW_SUFFIX``),
+    no desplazar la identidad a ``D``. Determinista; solo evidencia declarada."""
+    declared: dict[str, set[str]] = {}                                  # D -> {wrappers X que la declaran}
+    for jf in jsons:
+        try:
+            doc = json.load(open(jf, encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        defs = doc.get("definitions")
+        if not isinstance(defs, Mapping):
+            continue
+        for xname, xdef in defs.items():
+            if xname not in entities or not isinstance(xdef, Mapping):
+                continue
+            delta = xdef.get(_DELTA_ANNOTATION)
+            dfe = delta.get("deltaFromEntities") if isinstance(delta, Mapping) else None
+            if not isinstance(dfe, (list, tuple)):
+                continue
+            refs = _entity_source_refs(entities[xname])
+            for d in dfe:
+                d = str(d)
+                if d != xname and d in entities and d in refs:          # acuerdo estructural: X lee D en su FROM
+                    declared.setdefault(d, set()).add(str(xname))
+    if not declared:
+        return frozenset()
+    refs_by_entity = {n: _entity_source_refs(e) for n, e in entities.items()}
+    out: set[str] = set()
+    for d, wrappers in declared.items():
+        referrers = {n for n, r in refs_by_entity.items() if d in r}
+        if referrers and referrers <= wrappers:                         # D solo referenciada por sus wrappers
+            out.add(d)
+    return frozenset(out)
+
 _REMOTE_CONNECTION = "@DataWarehouse.remote.connection"
 _REMOTE_ENTITY = "@DataWarehouse.remote.entity"
 _REMOTE_QUERY = "@DataWarehouse.remote.query"

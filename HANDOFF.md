@@ -10436,3 +10436,52 @@ EVIDENCIA factual de procedencia de la hoja lógica `X` prueba un productor `tar
 independiente (sin ese hecho, o con productor `EXACT`) → `classify_source(X)` = `None`. El caso de producción ya probado
 sigue resolviendo (leaf_provenance queda en identidad lógica con el hecho delta-shadow) → BUENA. Tests identity ampliados
 a 15 (incluye el contraejemplo explícito). Golden 8/8 sin cambios; corpus congelado before/after = 0 roots. Suite 5660.
+
+---
+
+## Gate A.3 — Delta-shadow técnico no reemplaza la hoja frontera lógica — 2026-10-07
+
+**Causa raíz (confirmada con la CSN autoritativa de producción + reproducción fiel).** Una tabla local delta-capable
+de Datasphere `X = 1TR_SAP_MD_COSTCENTER` es una PROYECCIÓN sobre su entidad física de captura de cambios
+`D = X_Delta`: su CSN declara `@DataWarehouse.delta.deltaFromEntities = [D]` y `query.SELECT.from.ref = [D]`, y la CSN
+completa embebe `D: kind=entity`. El loader pone `D` en `X.upstreams/_raw_refs`, y `graph.from_entities`
+(`graph.py:261/266`) crea una arista LINEAGE semántica `X→D` cuando `D` es un nodo. Entonces `X` deja de ser hoja
+frontera, `D` pasa a ser la frontera (`SCC/local_leaves` keyed `D`, RF match EXACT), mientras la fuente del candidato de
+armonización sigue siendo `X` → `classify_source(X)=None` → HAR-STR-01 suprimida → ND.
+
+**Por qué el pool local "bueno" lo enmascaraba (§8).** La CSN local de COSTCENTER tiene la MISMA metadata delta
+(`deltaFromEntities`, `SELECT.from.ref=D`) PERO **no embebe la entidad `D`** → `D ∉ entities` → sin arista `X→D` →
+`X` sigue siendo frontier → BUENA. Reproducción fiel: al agregar `D: kind=entity` a la CSN local de X, el assessment
+cae exactamente a `frontier=D / EXACT / ND` (idéntico a producción).
+
+**El fix (capa: universo semántico; la más chica genérica).** En `shadow.assess`, tras `load_pool`, se EXCLUYEN del
+universo de entidades las sombras técnicas delta probadas por el HECHO del CSN (`readers.technical_delta_shadow_entities`):
+`D` se excluye sii algún wrapper `X` declara `D` en `@DataWarehouse.delta.deltaFromEntities` Y `X` referencia
+estructuralmente a `D` (acuerdo query↔anotación) Y `D` es entidad del pool Y `D` es referenciada SOLO por sus wrappers
+(si una vista consume `D` como fuente ordinaria, `D` se PRESERVA). Nunca por el sufijo `_Delta`. Con `D` fuera del
+universo: no hay arista `X→D` (X queda frontier), y el guard de independencia del resolver (`shadow in known_entities`)
+no dispara → el RF (target físico `D`) matchea `X` como `DELTA_SHADOW_SUFFIX`. Reproduce el comportamiento del pool
+local bueno. No se tocó Judgment, HAR, producer discovery ni la adquisición asociativa.
+
+**Resultado (pool con forma de producción) tras el fix:** frontier=`X`, `local_leaves`/SCC key=`X`, producer target
+físico=`D`, `target_match=DELTA_SHADOW_SUFFIX`, `classify_source(X)=GOVERNED_SAP_CONTRACT`, HAR-STR-01 presente,
+**DETERMINED / BUENA**. Pool local bueno: sin cambios (BUENA). Golden 8/8 sin cambios.
+
+**Tests.** `tests/test_modeling_assessment_delta_shadow.py` (12): predicado §6 A-H (wrapper nativo excluido; fuente
+ordinaria preservada; entidad `_Delta` independiente sin prueba no se toca; `D` consumida como fuente ordinaria se
+preserva; desacuerdo estructural conservador; sin entidad target no fabrica; sin anotación delta intacto; el sufijo
+NUNCA es criterio) + e2e por `shadow.assess` (before-fix reproduce `frontier=X_Delta`; after-fix `frontier=X` +
+`DELTA_SHADOW_SUFFIX`; `D` con consumidor directo se preserva). Subsistema+golden+invariantes 2028. Suite completa
+**5672 passed, 20 skipped** (sin regresiones).
+
+**Remediación de producción.** El fix cambia SOLO la interpretación semántica del grafo/frontera; la CSN wrapper ya es
+correcta en el pool (lo es para COSTCENTER). NO requiere reacquisición. Post-deploy: `assessment_backfill
+--reassess-current --client Kensing --apply` (GL es el único CURRENT elegible) → evidencia regenerada con frontier
+lógico `X` → BUENA. Re-publicar solo si el fix requiriera cambiar artefactos del pool (no es el caso). No broad-publish
+antes de validar el benchmark.
+
+**7a10c97 (`fix/judgment-remove-dead-delta-shadow-fallback`): KEEP_PENDING.** Con A.3 la evidencia regenerada clasifica
+por la identidad canónica EXACTA `X`; el fallback de HAR.1 queda definitivamente muerto y se remueve después en su
+propio PR chico. No mezclar con este fix.
+
+Branch `fix/single-root-logical-leaf-materialization` → renombrada conceptualmente a este fix de grafo/frontera. SIN push/PR.
