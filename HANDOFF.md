@@ -10585,3 +10585,31 @@ modelo del Catálogo → panel de Assessment (fragmento HTMX `GET/POST /catalog/
 reflejará.)
 
 Branch `feat/judgment-persistence-ui`. SIN push/PR.
+
+---
+
+## Gate UX.1 — Pulido de producto del Assessment + Juicio — 2026-10-07
+
+Presentación/interacción solamente (sin tocar Judgment/persistencia/Evidencia/backfill/API). Reusa el lenguaje visual
+del Hub; CSS nuevo SOLO donde había necesidad semántica/layout real.
+
+- **Hero (§1):** nombre de negocio PRIMARIO (`h1.asr-title`) + identificador técnico SECUNDARIO en línea mono
+  (`.asr-subid code`, `overflow-wrap:anywhere`) — ya no "Descripción · TÉCNICO" al mismo tamaño; los AM_ largos no dominan.
+- **Juicio resultado-primero (§4/§5):** cabecera `Juicio metodológico` + `Nivel metodológico · Buena` como unidad
+  (`.asr-judgment__head/__eyebrow/__caption/__level`, el badge del Hub un punto mayor); ND → "No determinable" + motivo
+  humano. Copy conciso orientado al usuario (`judgment_view.headline`, por nivel), sin terminología de implementación.
+- **Cuatro contratos (§6):** chips compactos (`.asr-contracts`/`.asr-contract` + marca ✓/!/· coloreada por
+  `.catalog-card__verdict--plena/parcial/neutra`), no cuatro tiles KPI. Sin literales de color propios (los aporta el badge).
+- **Evidencia (§7):** enunciado primario, dimensión secundaria (`.asr-evidence`), conteo en el header del disclosure, sin IDs.
+- **Carga (§3):** botón con estado integrado (`.asr-generate` + `hx-disabled-elt="this"` + `hx-indicator="this"`): se
+  deshabilita, conserva ancho, muestra spinner + "Generando…" (un único label, no flotante). Reemplaza el `#asr-busy` suelto.
+- **Guards actualizados (cambios autorizados §1/§5A):** test de título a la nueva jerarquía; `.asr-subid` evita el token
+  prohibido `.asr-tech`; chips reusan el badge del Hub (sin literal de color en el CSS del assessment).
+
+Tests nuevos (route): carga integrada sin label duplicado; Juicio resultado-primero + 4 chips (no KPI tiles); hero
+negocio-primario/técnico-secundario. Subsistema webapp 4389. Suite completa **5681 passed, 20 skipped**.
+
+Aceptación localhost (ver §11 del return): `uvicorn webapp.main:app --port 8501`; detalle de modelo → panel de Assessment
+(`/catalog/flow/assessment?flow=<id>`). Preview visual estático generado para BUENA/PARCIAL/ND.
+
+Branch `feat/judgment-persistence-ui` (sobre el commit de 8D.2). SIN push/PR.

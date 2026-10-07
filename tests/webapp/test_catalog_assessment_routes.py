@@ -102,6 +102,28 @@ def _no_engine(monkeypatch):
     monkeypatch.setattr(svc, "_engine_assess", boom)
 
 
+# ── Gate UX.1: pulido de presentación (resultado primero, carga integrada, chips, identidad) ──
+def test_ux_generation_has_integrated_loading_and_no_duplicate_floating_label(world):
+    html = client_for().get("/catalog/flow/assessment?flow=acme-4am", headers=HX).text         # NOT_YET: muestra el botón "Generar informe"
+    assert 'class="support-link asr-generate"' in html and 'hx-disabled-elt="this"' in html     # botón con carga integrada, anti doble-envío
+    assert 'asr-generate__spinner' in html and 'asr-generate__label' in html
+    assert 'id="asr-busy"' not in html and html.count("Generando…") == 1                         # un único label, integrado en el botón (no flotante)
+
+
+def test_ux_judgment_is_result_first_with_compact_contract_chips(world):
+    html = _post(client_for()).text                                                             # CURRENT -> Juicio persistido visible
+    seg = html[html.index('id="asr-juicio"'):html.index("</section>", html.index('id="asr-juicio"'))]
+    assert 'class="asr-judgment__eyebrow">Juicio metodológico<' in seg
+    assert 'asr-judgment__level' in seg and 'asr-judgment__headline' in seg                      # resultado + copy conciso como unidad (no un badge aislado)
+    assert seg.count('class="asr-contract"') == 4 and 'activity-kpi-grid' not in seg             # cuatro contratos como chips compactos, no tiles KPI
+
+
+def test_ux_hero_shows_business_name_primary_and_technical_id_secondary(world, monkeypatch):
+    monkeypatch.setattr(catalog_reads, "artifact_title", lambda entry, name: ("Libro mayor · Acme", name))
+    html = _post(client_for()).text
+    assert re.search(r'<h1 class="asr-title">[^<]+</h1>\s*<p class="asr-subid"><code>4AM_ACME</code></p>', html)  # negocio primario + id técnico secundario
+
+
 # ── 2/20. GET: sin motor, sin efectos ───────────────────────────────────────
 def test_get_cache_miss_is_not_yet_assessed_and_has_no_side_effects(world, monkeypatch):
     _no_engine(monkeypatch)
@@ -536,9 +558,12 @@ def test_report_title_matches_the_flow_detail_heading_format_description_dot_tec
     c = client_for()
     monkeypatch.setattr(catalog_reads, "artifact_title", lambda entry, name: ("Modelo analítico - Acme", name))
     html = _post(c).text
-    assert re.search(r'<h1 class="asr-title"><span class="tone-black">Acme · </span><span class="tone-gold">4AM_ACME</span></h1>', html)          # sin el prefijo "Modelo analítico - "
+    # Gate UX.1: jerarquía nombre de negocio PRIMARIO (h1) + identificador técnico SECUNDARIO (línea mono), no "desc · técnico".
+    assert re.search(r'<h1 class="asr-title">Acme</h1>', html)                                   # nombre de negocio primario (sin prefijo "Modelo analítico - ")
+    assert re.search(r'<p class="asr-subid"><code>4AM_ACME</code></p>', html)                    # identificador técnico secundario
     monkeypatch.setattr(catalog_reads, "artifact_title", lambda entry, name: (name, name))
-    assert re.search(r'<span class="tone-black">4AM_ACME · </span><span class="tone-gold">4AM_ACME</span>', _post(c).text)                       # fallback: nombre técnico
+    fb = _post(c).text
+    assert re.search(r'<h1 class="asr-title">4AM_ACME</h1>', fb) and '<p class="asr-subid">' not in fb  # fallback técnico: sin línea secundaria redundante
 
 
 def test_report_back_returns_to_the_flow_detail_and_support_links_use_the_hub_pattern(world):

@@ -165,7 +165,14 @@ def header_for(entry: Any, pack: str) -> dict | None:
 # Mapeo SOLO de presentación: traduce el resultado ya decidido por el motor canónico a copy en español. NO decide nivel,
 # NO recalcula, NO codifica lógica de calidad (sin puntaje/banda/madurez). El Juicio llega PERSISTIDO en ``status.judgment``.
 _JDG_LEVEL_LABEL = {"BUENA": "Buena", "ADECUADA": "Adecuada", "PARCIAL": "Parcial", "PLENA": "Plena"}
-_JDG_LEVEL_TONE = {"BUENA": "plena", "ADECUADA": "plena", "PARCIAL": "parcial", "PLENA": "plena"}
+_JDG_LEVEL_TONE = {"BUENA": "plena", "ADECUADA": "buena", "PARCIAL": "parcial", "PLENA": "plena"}
+# Copy conciso, orientado al usuario (sin terminología de implementación). Por nivel cuando aporta; genérico si no.
+_JDG_LEVEL_HEADLINE = {
+    "BUENA": "El modelo presenta evidencia metodológica consistente en los cuatro contratos evaluados.",
+    "ADECUADA": "El modelo presenta evidencia metodológica suficiente, con puntos de atención menores.",
+    "PARCIAL": "El modelo presenta evidencia metodológica parcial: hay desvíos que requieren atención.",
+}
+_JDG_GENERIC_HEADLINE = "El nivel refleja la evidencia metodológica observada en los cuatro contratos evaluados."
 _JDG_ND_REASON = {
     "INSUFFICIENT_AFFIRMATIVE_EVIDENCE": "Evidencia afirmativa insuficiente",
     "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL": "Contrato de fuente externa crítico no resoluble",
@@ -232,12 +239,14 @@ def judgment_view(judgment: dict | None) -> dict | None:
     for dim, label in _JDG_DIMENSIONS:
         state = "attention" if dim in weak_dims else ("positive" if dim in strong_dims else "neutral")
         contracts.append({"label": label, "state": state, "state_text": _JDG_CONTRACT_STATE_TEXT[state]})
+    nd_reason = None if determined else _JDG_ND_REASON.get(judgment.get("not_determinable_reason") or "", "No determinable")
     return {
         "determined": determined,
         "level": level,
         "level_label": _JDG_LEVEL_LABEL.get(level or "", level) if determined else "No determinable",
-        "tone": _JDG_LEVEL_TONE.get(level or "", "") if determined else "parcial",
-        "nd_reason": None if determined else _JDG_ND_REASON.get(judgment.get("not_determinable_reason") or "", "No determinable"),
+        "tone": _JDG_LEVEL_TONE.get(level or "", "") if determined else "neutra",
+        "headline": (_JDG_LEVEL_HEADLINE.get(level or "") or _JDG_GENERIC_HEADLINE) if determined else nd_reason,
+        "nd_reason": nd_reason,
         "nd_reason_id": None if determined else judgment.get("not_determinable_reason"),
         "strengths": strengths,
         "reasons": reasons,
