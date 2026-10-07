@@ -2907,12 +2907,22 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .asr-contract__mark { width: 17px; height: 17px; justify-content: center; padding: 0; border-radius: 50%; font-size: .66rem; }
 .asr-contract__name { font-weight: 500; }
 
-/* Evidencia a favor / Puntos de atención: enunciado PRIMARIO con contraste de cuerpo normal (no el gris atenuado que
-   `.methodology li` impone), dimensión SECUNDARIA legible. `ul.asr-evidence` > `.methodology ul`. */
-.methodology ul.asr-evidence { list-style: none; padding: 0; margin: 4px 0 2px; display: grid; gap: 14px; }
-.methodology .asr-evidence li { display: grid; gap: 3px; color: var(--ink); }
+/* Evidencia a favor / Puntos de atención. El enunciado es el texto PRIMARIO de cada fila; la dimensión/clasificación,
+   SECUNDARIA. Causa del lavado anterior: fijábamos `color: var(--ink)` en el enunciado, pero ese token solo vale la
+   tinta correcta dentro de `.copilot-panel`; el :root global (app.css) lo deja en el valor del tema OSCURO (un gris casi
+   blanco), así que en la columna central (.module-content) el enunciado tomaba ese gris y se lavaba sobre el lienzo
+   claro (el titular se salvaba de rebote por `.content-theme-light .methodology p`; el enunciado no). Solución: NO fijar
+   color — el enunciado HEREDA el contraste de cuerpo normal del Hub, que ya está resuelto por tema (`.methodology li`
+   via app.css/layout.css). La dimensión queda secundaria con el token `--soft` (más apagado que el cuerpo). Sin
+   literales de color (el surface reusa tokens/clases del Hub). Lista editorial compacta, sin rediseñar el disclosure. */
+.methodology ul.asr-evidence { list-style: none; padding: 0; margin: 2px 0 0; display: grid; gap: 9px; }
+.methodology .asr-evidence li { display: grid; gap: 2px; }
 .methodology .asr-evidence__dim { color: var(--soft); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .07em; }
-.methodology .asr-evidence__stmt { color: var(--ink); font-size: .9rem; line-height: 1.55; }
+.methodology .asr-evidence__stmt { font-size: .9rem; line-height: 1.5; }   /* sin color propio: hereda el cuerpo del Hub (correcto por tema), PRIMARIO frente a la dimensión */
+/* Densidad: compactar SOLO los disclosures del Juicio (no el componente global `.dashboard-section`). */
+.asr-judgment .dashboard-section { margin: 10px 0; }
+.asr-judgment .dashboard-section__head { padding: 10px 14px; }
+.asr-judgment .dashboard-section__body { padding: 4px 14px 12px; }
 
 /* Foco de linaje (server-side, ?focus=A,B): solo estilo sobre nodos existentes; no altera el grafo. */
 .ln-node-focus .ln-node { stroke: var(--gold); stroke-width: 2.6; }
