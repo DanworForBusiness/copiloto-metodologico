@@ -24,7 +24,8 @@
     {% if e.consumo %}<p class="catalog-card__consumo">Consumo: <span>{{ e.consumo|join(", ") }}</span></p>{% endif %}
     {# "XX artefactos" va ARRIBA para que los dos desplegables "+ VER FUENTES" y
        "+ VER NOTAS" queden juntos (antes el conteo se colaba entre ambos). #}
-    <p class="catalog-card__meta">{{ e.artefactos|length }} artefacto{{ "s" if e.artefactos|length != 1 }}{% if g.freshness %} · {{ g.freshness }}{% endif %}</p>
+    {% set n_art = (logical_counts or {}).get(e.entry_id, e.artefactos|length) %}
+    <p class="catalog-card__meta">{{ n_art }} artefacto{{ "s" if n_art != 1 }}{% if g.freshness %} · {{ g.freshness }}{% endif %}</p>
     {% if foco == "capas" and e.capas %}<p class="catalog-card__foco"><strong>Capas:</strong> {{ e.capas|join(" · ") }}</p>{% endif %}
     {% if foco == "fuentes" and e.origenes %}
     <details class="catalog-card__notes" onclick="event.stopPropagation()">

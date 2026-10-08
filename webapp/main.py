@@ -1660,7 +1660,8 @@ def catalog_domain(request: Request, dominio: str = "", modulo: str = "", pack: 
     return templates.TemplateResponse(
         request=request, name="partials/catalog_flows.html",
         context={"flows": flows, "dominio": dominio, "foco": foco, "pack": _pack(pack),
-                 "grades": assessment_presenter.tile_grades(flows)},   # grado PRIMARIO de la tile = Adopción metodológica persistida
+                 "grades": assessment_presenter.tile_grades(flows),
+                 "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows}},   # cantidad LÓGICA (mismo conjunto normalizado del linaje)   # grado PRIMARIO de la tile = Adopción metodológica persistida
     )
 
 
@@ -2261,6 +2262,34 @@ def _catalog_delta_pairs(order: list, autos: dict) -> dict:
     return out
 
 
+_logical_count_cache: dict = {}
+
+
+def _catalog_logical_artifact_count(entry) -> int:
+    """Cantidad de artefactos del flujo que ve el USUARIO en el Catálogo (hero y tile): objetos LÓGICOS = la lista física menos las compañeras técnicas
+    `_Delta` plegadas por ``_catalog_delta_pairs`` (el MISMO conjunto normalizado del linaje; no hay otra regla de conteo). El conteo FÍSICO sigue
+    siendo ``len(entry.artefactos)`` y es el que usan el Assessment (cobertura/evidencia) y el detalle técnico (que conserva `X_Delta`).
+    Sin candidatos (ningún `X_Delta` con su base `X` en el flujo) no hace I/O; con candidatos lee solo las vistas de ese flujo y cachea por proceso."""
+    names = list(getattr(entry, "artefactos", None) or [])
+    present = set(names)
+    if not any(n.endswith(_DELTA_SUFFIX) and n[: -len(_DELTA_SUFFIX)] in present for n in names):
+        return len(names)
+    key = (getattr(entry, "entry_id", None), tuple(names))
+    if key in _logical_count_cache:
+        return _logical_count_cache[key]
+    from webapp.services.content_service import split_front_matter
+    vistas_dir = Path(entry.path).parent / "vistas"
+    autos = {}
+    for name in names:
+        vpath = vistas_dir / f"{name}.md"
+        if vpath.exists():
+            meta, _body = split_front_matter(vpath.read_text(encoding="utf-8"))
+            autos[name] = meta.get("auto") or {}
+    count = len(names) - len(_catalog_delta_pairs([n for n in names if n in autos], autos))
+    _logical_count_cache[key] = count
+    return count
+
+
 def _catalog_add_delta_rows(vbody: str, delta_name: str) -> str:
     """Agrega al detalle técnico de la ingesta lógica X las filas que preservan la verdad técnica del par (sin perder información)."""
     rows = f"| Delta capable | Sí |\n| Tabla técnica de cambios | {delta_name} |"
@@ -2492,7 +2521,7 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
             "available_workspaces": workspaces.available_workspaces(user),
             "cliente": entry.cliente, "dominio": entry.dominio, "icon": entry.icon,
             "veredicto": entry.veredicto, "apto": entry.apto,
-            "n_art": len(entry.artefactos), "sections": sections,
+            "n_art": _catalog_logical_artifact_count(entry), "sections": sections,
             "assessment_header": ah_view,
             "evaluation": asset_evaluation.asset_evaluation(
                 entry, findings=(ah_view or {}).get("governance_findings"), assessed=bool((ah_view or {}).get("has_profile"))),

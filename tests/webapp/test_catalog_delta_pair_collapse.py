@@ -138,3 +138,31 @@ def test_focus_on_the_delta_companion_points_to_its_logical_object(tmp_path, mon
     out: dict = {}
     main._catalog_flow_view(e, False, "datasphere_core", focus=["1TR_X_Delta"], focus_out=out)
     assert [p["name"] for p in out["present"]] == ["1TR_X"] and out["missing"] == []
+
+
+# ── conteo visible: LÓGICO (mismo conjunto normalizado del linaje); el físico queda para Assessment y detalle técnico ──────────────────────
+def test_user_facing_artifact_count_follows_the_logical_lineage_objects(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from webapp.services import auth_service
+    v, order = _chain()
+    e = _flow(tmp_path, monkeypatch, v, order)
+    sections, svg = _view(e)
+    assert len(e.artefactos) == 5 and len(sections) == 4 == len(_node_order(svg))                      # físico 5; objetos lógicos del linaje 4
+    assert main._catalog_logical_artifact_count(e) == 4                                                # el helper deriva del MISMO conjunto normalizado
+    c = TestClient(main.app)
+    c.cookies.set(auth_service.COOKIE_NAME, auth_service.create_session({"email": "t@d.com", "name": "T", "first_name": "T", "family_name": "U"}))
+    hero = c.get(f"/catalog/flow?flow={e.entry_id}&pack=datasphere_core", headers={"HX-Request": "true"}).text
+    tile = c.get("/catalog/domain?dominio=Dom").text
+    assert "<span>4 artefactos</span>" in hero and '<p class="catalog-card__meta">4 artefactos' in tile      # hero y tile = lógico
+    assert "5 artefactos" not in hero + tile
+    assert len(e.artefactos) == 5                                                                      # el conteo físico NO se toca (Assessment / evidencia / fingerprints)
+
+
+def test_logical_count_equals_the_physical_one_when_nothing_collapses(tmp_path, monkeypatch):
+    v, order = _chain(with_delta=False)
+    e = _flow(tmp_path, monkeypatch, v, order)
+    assert main._catalog_logical_artifact_count(e) == len(e.artefactos) == 4
+    v2, order2 = _chain(with_delta=False)
+    v2["1TR_Y_Delta"] = _vista("1TR_Y_Delta", "Ingesta")                                               # `_Delta` sin base: no es par → cuenta como artefacto
+    e2 = _flow(tmp_path / "b", monkeypatch, v2, order2 + ["1TR_Y_Delta"], cliente="Cli2")
+    assert main._catalog_logical_artifact_count(e2) == 5
