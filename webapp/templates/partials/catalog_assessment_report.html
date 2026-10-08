@@ -20,43 +20,41 @@
     <span class="asr-generate__label">{{ v.action.label }}</span>
   </button>
 </div>{% endif %}{% endmacro %}
-{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile %}
+{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, contracts_evaluated, tile_grid, evaluation_table %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
 {% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}
-{# Hallazgo: encabezado semántico + "por qué aparece" siempre visibles; el detalle, bajo demanda (disclosure del CRM) y como TABLAS:
-   (A) aspecto/detalle (solo filas presentes) y (B) ocurrencias. Presentación únicamente: ningún dato se recalcula. #}
+{# Hallazgo = FILA de disclosure del Hub (la misma gramática que las subáreas de Arquitectura): izquierda el título de negocio; derecha la metadata legible
+   (categoría · ocurrencias · artefactos); el cuerpo abre el «por qué aparece» y el detalle como TABLAS. El id interno de la regla (`g.id`) NO se muestra en la
+   lectura funcional: queda en el detalle técnico del cuerpo. Presentación únicamente: ningún dato se recalcula. #}
 {% macro group(g, level) %}
-<article id="{{ g.dom_id }}">
-  <h{{ level }}>{{ g.title }}</h{{ level }}>
-  <p><span class="catalog-card__verdict">{{ g.kind_text }}</span> <span class="catalog-card__verdict">{{ g.area_title }}</span> <span class="catalog-card__verdict">{{ n_occ(g.occurrence_count) }}</span> <code>{{ g.id }}</code></p>
-  <p>{{ g.why_shown }}</p>
-  <details class="dashboard-section">
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Detalle del hallazgo</span><span class="dashboard-section__count">{{ n_occ(g.occurrence_count) }} · {{ g.artifacts|length }} artefacto{{ "s" if g.artifacts|length != 1 }}</span></summary>
-    <div class="dashboard-section__body">
-      <table>
-        <thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead>
-        <tbody>
-          <tr><td>Descripción</td><td>{{ g.explanation }}</td></tr>
-          {% if g.question %}<tr><td>Pregunta para el proyecto</td><td>{{ g.question }} <em>Estado: abierto — requiere contexto, no se emite juicio.</em></td></tr>{% endif %}
-          {% if g.legitimate_reasons %}<tr><td>Razones legítimas</td><td>{{ g.legitimate_reasons|join("; ") }}</td></tr>{% endif %}
-          {% if g.interpretation_limits %}<tr><td>Cómo NO leerlo</td><td>{{ g.interpretation_limits|join("; ") }}</td></tr>{% endif %}
-          {% if g.evidence_limit %}<tr><td>Límite de evidencia</td><td>{{ g.evidence_limit }}</td></tr>{% endif %}
-          <tr><td>Unidad de cada ocurrencia</td><td>{{ g.occurrence_unit }}</td></tr>
-          <tr><td>Artefactos involucrados ({{ g.artifacts|length }})</td><td>{% for a in g.artifacts[:12] %}<code>{{ a }}</code> {% endfor %}{% if g.artifacts|length > 12 %}… (+{{ g.artifacts|length - 12 }}){% endif %} {{ lineage_link(g.lineage_url) }}</td></tr>
-        </tbody>
-      </table>
-      <h{{ level + 1 }}>Ocurrencias ({{ g.occurrences|length }})</h{{ level + 1 }}>
-      <table>
-        <thead><tr><th>Artefactos</th><th>Detalle</th><th>Acción</th></tr></thead>
-        <tbody>
-          {% for o in g.occurrences %}
-          <tr><td>{% for a in o.artifacts[:6] %}<code>{{ a }}</code> {% endfor %}{% if o.artifacts|length > 6 %}… (+{{ o.artifacts|length - 6 }}){% endif %}</td><td>{{ o.text }}</td><td>{{ lineage_link(o.lineage_url) }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </details>
-</article>
+<details class="dashboard-section" id="{{ g.dom_id }}">
+  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ g.title }}</span><span class="dashboard-section__count">{{ g.area_title }} · {{ n_occ(g.occurrence_count) }} · {{ g.artifacts|length }} artefacto{{ "s" if g.artifacts|length != 1 }}</span></summary>
+  <div class="dashboard-section__body">
+    <p>{{ g.why_shown }}</p>
+    <table>
+      <thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead>
+      <tbody>
+        <tr><td>Descripción</td><td>{{ g.explanation }}</td></tr>
+        {% if g.question %}<tr><td>Pregunta para el proyecto</td><td>{{ g.question }} <em>Estado: abierto — requiere contexto, no se emite juicio.</em></td></tr>{% endif %}
+        {% if g.legitimate_reasons %}<tr><td>Razones legítimas</td><td>{{ g.legitimate_reasons|join("; ") }}</td></tr>{% endif %}
+        {% if g.interpretation_limits %}<tr><td>Cómo NO leerlo</td><td>{{ g.interpretation_limits|join("; ") }}</td></tr>{% endif %}
+        {% if g.evidence_limit %}<tr><td>Límite de evidencia</td><td>{{ g.evidence_limit }}</td></tr>{% endif %}
+        <tr><td>Unidad de cada ocurrencia</td><td>{{ g.occurrence_unit }}</td></tr>
+        <tr><td>Artefactos involucrados ({{ g.artifacts|length }})</td><td>{% for a in g.artifacts[:12] %}<code>{{ a }}</code> {% endfor %}{% if g.artifacts|length > 12 %}… (+{{ g.artifacts|length - 12 }}){% endif %} {{ lineage_link(g.lineage_url) }}</td></tr>
+        <tr><td>Identificador de la regla (trazabilidad)</td><td><span class="catalog-note__ev">{{ g.id }}</span></td></tr>
+      </tbody>
+    </table>
+    <h{{ level }}>Ocurrencias ({{ g.occurrences|length }})</h{{ level }}>
+    <table>
+      <thead><tr><th>Artefactos</th><th>Detalle</th><th>Acción</th></tr></thead>
+      <tbody>
+        {% for o in g.occurrences %}
+        <tr><td>{% for a in o.artifacts[:6] %}<code>{{ a }}</code> {% endfor %}{% if o.artifacts|length > 6 %}… (+{{ o.artifacts|length - 6 }}){% endif %}</td><td>{{ o.text }}</td><td>{{ lineage_link(o.lineage_url) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
 {% endmacro %}
 {# Cuerpo de un área, en orden de lectura: contexto de evidencia → titulares (≤4 tiles KPI) → evidencia de apoyo (tablas compactas)
    → evaluación de reglas (tabla) → hallazgos. `lvl`: nivel de los rótulos (h3 en sección propia, h4 dentro de un disclosure). #}
@@ -154,9 +152,25 @@
 </details>
 
 <article class="methodology catalog-detail">
-{% set ns = namespace(n=1) %}
+{# Recorrido del informe (misma gramática Hub en todas las secciones: `heading()` [NN] + h2 + subtítulo → tiles → tablas / disclosures →
+   cierre → divisor `.content-section`): [01] Resumen · [02] Adopción metodológica · [03] Arquitectura & Modelado · [04] Gobierno & estándares ·
+   [05] Portabilidad & preparación BDC · [06] Casos a revisar y preguntas abiertas · [07] Cierre. Tres lecturas INDEPENDIENTES (no se consumen
+   entre sí): Gobierno (hallazgos, sin nota global), Portabilidad (capacidad técnica) y Adopción (el único grado metodológico). #}
+{% set ns = namespace(n=0) %}
+{# Áreas de una dimensión: un disclosure del CRM por subárea (cerrados al cargar). El estado por fila solo aparece cuando NO es «Evaluado»
+   (si todas están evaluadas, repetirlo en cada fila no informa; el subtítulo de la sección lo dice una vez). #}
+{% macro area_rows(mg) %}
+  {% for a in mg.areas %}
+  <details class="dashboard-section" id="{{ a.dom_id }}">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ a.title }}</span>{% if a.state != "ASSESSED" %}<span class="dashboard-section__state">{% if a.findings %}<span class="dashboard-section__count">{{ a.findings|length }} hallazgo{{ "s" if a.findings|length != 1 }}&nbsp;&nbsp;·&nbsp;&nbsp;</span>{% endif %}{{ state_badge(a) }}</span>{% elif a.findings %}<span class="dashboard-section__count">{{ a.findings|length }} hallazgo{{ "s" if a.findings|length != 1 }}</span>{% endif %}</summary>
+    <div class="dashboard-section__body">{{ area_body(a, 4) }}</div>
+  </details>
+  {% endfor %}
+{% endmacro %}
+
+{# ── [01] Resumen ── #}
 <section class="content-section" id="asr-resumen">
-  {{ heading(ns.n, "Resumen", "Perfil de evidencia, cobertura y confianza. Describe qué se observó, qué requiere revisión y qué no pudo evaluarse; los hallazgos son observaciones para revisión técnica de nuestros consultores, no conclusiones sobre la calidad del modelo. " ~ s.relation_text ~ " Es una evaluación independiente del veredicto del catálogo.") }}
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Resumen", "Perfil de evidencia, cobertura y confianza. Describe qué se observó, qué requiere revisión y qué no pudo evaluarse; los hallazgos son observaciones para revisión técnica de nuestros consultores, no conclusiones sobre la calidad del modelo. " ~ s.relation_text ~ " Es una evaluación independiente del veredicto del catálogo.") }}
   <table>
     <thead><tr><th>Medida</th><th>Valor</th><th>Cómo leerla</th></tr></thead>
     <tbody>
@@ -165,12 +179,106 @@
       <tr><td>Confianza</td><td>{{ s.confidence }}</td><td>{{ s.confidence_meaning }}{% if s.confidence_limitation %} Limitación principal: {{ s.confidence_limitation }}{% endif %}</td></tr>
       <tr><td>Casos a revisar</td><td>{{ s.review_open }}</td><td>{{ s.review_reading }}</td></tr>
       <tr><td>Preguntas abiertas</td><td>{{ s.context_open }}</td><td>{{ s.context_reading }}</td></tr>
-      <tr><td>Observaciones</td><td>{{ s.observation_occurrences }}</td><td>{{ s.observation_groups }} grupo{{ "s" if s.observation_groups != 1 }} de observación: patrones descriptivos para revisión técnica del consultor, sin juicio (detalle en Observaciones).</td></tr>
+      <tr><td>Observaciones</td><td>{{ s.observation_occurrences }}</td><td>{{ s.observation_groups }} grupo{{ "s" if s.observation_groups != 1 }} de observación: patrones descriptivos para revisión técnica del consultor, sin juicio (detalle en «Casos a revisar y preguntas abiertas»).</td></tr>
     </tbody>
   </table>
   {% for d in s.no_evidence_dimensions %}{% call callout("punch", "Dimensión " ~ d) %}<p>Sin evidencia evaluada — ninguna evidencia requerida pudo evaluarse.</p>{% endcall %}{% endfor %}
+</section>
+
+{# ── [02] Adopción metodológica: resultado DETERMINISTA persistido (el ÚNICO grado metodológico del informe). Recorrido: contratos evaluados →
+   tiles → evidencias favorables → puntos de atención → cierre (punch con el tono de `status_tone`). Sin badge flotante de nivel: el
+   nivel se lee en el cierre. `id="asr-juicio"` se conserva. Independiente del veredicto del catálogo y del Gobierno / la Portabilidad. ── #}
+{% if v.judgment %}
+{% set j = v.judgment %}
+<section class="content-section" id="asr-juicio" aria-label="Adopción metodológica">
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Adopción metodológica", "Qué tan cerca está el modelo de adoptar la metodología, como resultado determinista sobre los cuatro contratos. Es independiente del veredicto del catálogo (higiene de extracción) y no recalcula el Assessment.") }}
+  {% if v.state == "STALE" %}{% call callout("note", "Corresponde al perfil evaluado") %}<p>El Assessment técnico está desactualizado; la Adopción refleja el último perfil evaluado.</p>{% endcall %}{% endif %}
+  {# Contratos = 4 (una fila por dimensión); evidencias = ítems individuales (varios por contrato). #}
+  {{ contracts_evaluated(j) }}
+  {{ tile_grid(j.tiles) }}
+  {% if j.strengths_grouped %}
+  <h3>Evidencias favorables</h3>
+  <table><thead><tr><th>Contrato</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.strengths_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.text }}</td></tr>{% endfor %}{% endfor %}</tbody></table>
+  {% endif %}
+  {% if j.reasons_grouped %}
+  <h3>Puntos de atención</h3>
+  <table><thead><tr><th>Contrato</th><th>Tipo</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.reasons_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.kind }}</td><td>{{ it.text }}</td></tr>{% endfor %}{% endfor %}</tbody></table>
+  {% endif %}
+  {# Cierre editorial = callout canónico del Hub con el tono de `status_tone` (verde / ámbar / naranja / gris); el nivel va en el título. #}
+  {% call callout(j.tone, "Lectura de la adopción · " ~ j.level_label) %}<p>{{ j.headline }}</p>{% endcall %}
+</section>
+{% endif %}
+
+{# ── [03] Arquitectura & Modelado (referencia de la gramática): resumen transversal de vistas (tiles) + un disclosure por subárea. ── #}
+{% set mg = v.story.architecture %}
+{% if mg %}
+<section class="content-section" id="asr-m-{{ mg.id|lower }}">
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, mg.title, "Cómo está construido el modelo analítico: composición del cierre, capas, patrones de modelado e ingesta / fuente & extracción observados. Cada subárea se abre por separado." ~ (" Todas las subáreas fueron evaluadas." if mg.all_assessed and mg.areas|length > 1 else "")) }}
+  {% if mg.view_overview %}
+  <h3>{{ mg.view_overview.title }}</h3>
+  <div class="activity-kpi-grid asm-facts" data-block="view-overview">{% for k in mg.view_overview.tiles %}{{ kpi_tile(k) }}{% endfor %}</div>
+  {% if mg.view_overview.caveat %}<p>{{ mg.view_overview.caveat }}</p>{% endif %}
+  {% endif %}
+  {{ area_rows(mg) }}
+</section>
+{% endif %}
+
+{# ── [04] Gobierno & estándares: hallazgos de cumplimiento del Catálogo (factuales, SIN nota global) + convención de nombres (área NAMING). ── #}
+{% set gov = v.evaluation.governance %}
+{% set gma = v.story.governance_areas %}
+{% set dcl = v.domain_classification %}
+{% if gov or gma or dcl %}
+<section class="content-section" id="asr-gobierno">
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Gobierno & estándares", "Estándares y convenciones que el activo debe respetar: observaciones de gobierno (convención de nombres y señales asociadas) y clasificación de dominio. Son lecturas factuales para revisión técnica; no se consolidan en una nota global ni se mezclan con la adopción metodológica.") }}
+  {% if gov %}
+  {{ tile_grid(gov.tiles) }}
+  <details class="dashboard-section" id="asr-gobierno-hallazgos"{% if gov.rows %} open{% endif %}>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Observaciones de gobierno</span><span class="dashboard-section__count">{{ gov.summary }}</span></summary>
+    <div class="dashboard-section__body">{% if gov.rows %}{{ evaluation_table(gov.rows, ["Tipo", "Observación", "Evidencia"]) }}{% else %}{{ not_detected("El Assessment no detectó observaciones de gobierno.") }}{% endif %}</div>
+  </details>
+  {% endif %}
+  {% if gma %}{{ area_rows(gma) }}{% endif %}
+  {# Clasificación de dominio: SUGERENCIA derivada de la evidencia (hermana del Juicio; no afecta la adopción ni mueve nada). Abierta solo si hay sugerencia. #}
+  {% if dcl %}
+  <details class="dashboard-section" id="asr-dominio"{% if dcl.suggested %} open{% endif %}>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Clasificación de dominio</span><span class="dashboard-section__count">{{ dcl.summary }}</span></summary>
+    <div class="dashboard-section__body">
+      <p>{{ dcl.headline }}</p>
+      <table><thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead><tbody>{% for r in dcl.rows %}<tr><td>{{ r.label }}</td><td>{{ r.value }}</td></tr>{% endfor %}</tbody></table>
+      {% if dcl.evidence %}
+      <h4>Evidencia</h4>
+      <table><thead><tr><th>Término</th><th>Fuente</th><th>Artefactos</th></tr></thead><tbody>{% for e in dcl.evidence %}<tr><td>{{ e.term }}</td><td>{{ e.family }}</td><td>{% for a in e.artifacts %}<code>{{ a }}</code> {% endfor %}</td></tr>{% endfor %}</tbody></table>
+      {% endif %}
+      {% if dcl.alternatives %}<p>Otros dominios del cliente compatibles: {{ dcl.alternatives|join(", ") }}.</p>{% endif %}
+      <p>{{ dcl.note }}</p>
+    </div>
+  </details>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ── [05] Portabilidad & preparación BDC: SOLO capacidad técnica futura (score, confianza, riesgos y adaptaciones; sin badge de grado). ── #}
+{% set por = v.evaluation.portability %}
+{% if por %}
+<section class="content-section" id="asr-portabilidad">
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Portabilidad & preparación BDC", por.lead ~ " Es una capacidad técnica distinta de la adopción metodológica: no se interpreta como un grado de calidad del modelo.") }}
+  {{ tile_grid(por.tiles) }}
+  <p>{{ por.coverage }}{% if por.n_acks %} · {{ por.n_acks }} acknowledgement{{ "s" if por.n_acks != 1 }} registrados por el equipo{% endif %}.</p>
+  <details class="dashboard-section" id="asr-portabilidad-hallazgos">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Hallazgos de portabilidad</span><span class="dashboard-section__count">{{ por.summary }}</span></summary>
+    <div class="dashboard-section__body">{% if por.rows %}{{ evaluation_table(por.rows, ["Tipo", "Hallazgo", "Campos · Recomendación"]) }}{% else %}{{ not_detected("Sin hallazgos de portabilidad — tipos consistentes para el cruce de runtimes.") }}{% endif %}</div>
+  </details>
+</section>
+{% endif %}
+
+{# ── [06] Casos a revisar y preguntas abiertas: lo que requiere revisión técnica o información del proyecto (observaciones descriptivas incluidas). ── #}
+<section class="content-section" id="asr-revision">
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Casos a revisar y preguntas abiertas", "Casos que requieren criterio técnico o contexto del proyecto para poder interpretarse o cerrarse.") }}
+  <h3>Casos a revisar · {{ s.review_occurrences }}</h3>
+  {% for g in v.review_required %}{{ group(g, 4) }}{% else %}
+  {{ not_detected("Las reglas que pudieron evaluarse no levantaron casos a revisar. Ver «Cierre» para la evidencia que no pudo evaluarse.") }}
+  {% endfor %}
   {% if s.context_rows %}
-  {# Mismo contenedor que los bloques agrupados del informe (disclosure del CRM, p. ej. Modelo analítico): el título es su cabecera. #}
   <details class="dashboard-section" id="asr-preguntas" open>
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Preguntas que solo el proyecto puede responder</span><span class="dashboard-section__count">{{ s.context_summary }}</span></summary>
     <div class="dashboard-section__body">
@@ -184,100 +292,29 @@
   </details>
   {% call callout("punch", "Para qué sirven estas preguntas", icon="💡") %}<p>Estas preguntas no son conclusiones sobre la calidad del modelo. Identifican información que el proyecto debe aportar para que nuestros consultores puedan cerrar o interpretar correctamente los hallazgos del assessment.</p>{% endcall %}
   {% endif %}
-</section>
-
-{# ── §8 Adopción metodológica: resultado DETERMINISTA persistido, como sección del informe (misma gramática que «Resumen»:
-   eyebrow [NN] + h2 + subtítulo). Resultado primero (nivel + interpretación), luego los 4 contratos y la evidencia AGRUPADA
-   por dimensión. `id="asr-juicio"` se conserva (anclado por las regresiones). Es independiente del veredicto del catálogo. ── #}
-{% if v.judgment %}
-{% set j = v.judgment %}
-<section class="content-section" id="asr-juicio" aria-label="Adopción metodológica">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Adopción metodológica", "Qué tan cerca está el modelo de adoptar la metodología, como resultado determinista sobre los cuatro contratos. Es independiente del veredicto del catálogo (higiene de extracción) y no recalcula el Assessment.") }}
-  {# Resultado PRIMERO (resultado de scan): SOLO el badge de nivel (mismo `.catalog-card__verdict` del Hub). La lectura
-     interpretativa NO va acá — baja al punch de cierre, para no duplicarla. #}
-  {% if j.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ j.tone }}">{{ j.level_label }}</span>
-  {% else %}<span class="catalog-card__verdict catalog-card__verdict--neutra">No determinable</span>{% endif %}
-  {% if v.state == "STALE" %}{% call callout("note", "Corresponde al perfil evaluado") %}<p>El Assessment técnico está desactualizado; la Adopción refleja el último perfil evaluado.</p>{% endcall %}{% endif %}
-  {# §5 CONTRATOS EVALUADOS = 4 badges de veredicto del Hub (tono = estado), en la fila de estado del Hub. EVIDENCIAS = ítems (tabla abajo). #}
-  <h3>Contratos evaluados</h3>
-  <div class="catalog-verdict-line">
-    {% for c in j.contracts %}<span class="catalog-card__verdict catalog-card__verdict--{% if c.state == 'positive' %}plena{% elif c.state == 'attention' %}parcial{% else %}neutra{% endif %}" title="{{ c.state_text }}">{{ c.label }}</span>{% endfor %}
-  </div>
-  {# §6/§5E Evidencia como TABLA nativa del informe (`.methodology table`, igual que «Resumen»/hallazgos), agrupada por contrato con rowspan. Preserva cada ítem canónico. #}
-  {% if j.strengths_grouped %}
-  <details class="dashboard-section" open>
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Evidencias favorables</span><span class="dashboard-section__count">{{ j.strengths_count }}</span></summary>
-    <div class="dashboard-section__body"><table><thead><tr><th>Contrato</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.strengths_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.text }}</td></tr>{% endfor %}{% endfor %}</tbody></table></div>
-  </details>
-  {% endif %}
-  {% if j.reasons_grouped %}
-  <details class="dashboard-section" open>
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Puntos de atención</span><span class="dashboard-section__count">{{ j.reasons_count }}</span></summary>
-    <div class="dashboard-section__body"><table><thead><tr><th>Contrato</th><th>Tipo</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.reasons_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.kind }}</td><td>{{ it.text }}</td></tr>{% endfor %}{% endfor %}</tbody></table></div>
-  </details>
-  {% endif %}
-  {# Cierre editorial: qué significa la evidencia de arriba. Reusa el callout canónico del Hub (`callout`, tono punch); también
-     hace de transición visual al divisor de fin de sección (border-bottom de `.content-section`). La lectura va SOLO acá. #}
-  {% call callout("punch", "Lectura de la adopción") %}<p>{{ j.headline }}</p>{% endcall %}
-</section>
-{% endif %}
-
-{% for mg in v.macro_groups %}
-<section class="content-section" id="asr-m-{{ mg.id|lower }}">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, mg.title) }}
-  {% if mg.view_overview %}
-  {# Resumen TRANSVERSAL de la sección: la composición del cierre por tipo de vista tiene un solo hogar (hecho `am.view_type_composition`); las áreas no la repiten. #}
-  <h3>{{ mg.view_overview.title }}</h3>
-  <div class="activity-kpi-grid asm-facts" data-block="view-overview">{% for k in mg.view_overview.tiles %}{{ kpi_tile(k) }}{% endfor %}</div>
-  {% if mg.view_overview.caveat %}<p>{{ mg.view_overview.caveat }}</p>{% endif %}
-  {% endif %}
-  {% if mg.areas|length > 1 %}
-  {# Grupo con subáreas reales (Arquitectura & Modelado): un disclosure del CRM por subárea, TODOS colapsados al cargar (cada uno se abre por separado). #}
-  {% for a in mg.areas %}
-  <details class="dashboard-section" id="{{ a.dom_id }}">
-    {# Fila de disclosure: título a la izquierda; estado (badge canónico del Hub) a la DERECHA, en el mismo slot de metadata que
-       el conteo (`margin-left:auto`, como `__count`). El estado es genuinamente por-fila (un área puede quedar ASSESSED y otra no). #}
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ a.title }}</span>{% if a.findings %}<span class="dashboard-section__count">{{ a.findings|length }} hallazgo{{ "s" if a.findings|length != 1 }}</span>{% endif %}<span class="dashboard-section__state">{{ state_badge(a) }}</span></summary>
-    <div class="dashboard-section__body">{{ area_body(a, 4) }}</div>
-  </details>
-  {% endfor %}
-  {% else %}
-  {# Una sola área lógica: contenido directo (sin disclosure de un único hijo). #}
-  {% for a in mg.areas %}
-  <p id="{{ a.dom_id }}">{{ state_badge(a) }}</p>
-  {{ area_body(a, 3) }}
-  {% endfor %}
-  {% endif %}
-</section>
-{% endfor %}
-
-<section class="content-section" id="asr-observaciones">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Observaciones") }}
-  {% for g in v.observations %}{{ group(g, 3) }}{% else %}
-  {{ not_detected("No se detectaron patrones de nivel observación en la evidencia que pudo evaluarse. Ver “No evaluado / Limitaciones” para la evidencia que no pudo evaluarse.") }}
+  <div id="asr-observaciones">
+  <h3>Observaciones · {{ s.observation_occurrences }}</h3>
+  {% for g in v.observations %}{{ group(g, 4) }}{% else %}
+  {{ not_detected("No se detectaron patrones de nivel observación en la evidencia que pudo evaluarse. Ver «Cierre» para la evidencia que no pudo evaluarse.") }}
   {% endfor %}
   {% if v.descriptive %}
-  <h3>Señales descriptivas (no son casos a revisar)</h3>
-  {% for g in v.descriptive %}{{ group(g, 4) }}{% endfor %}
+  <h4>Señales descriptivas (no son casos a revisar)</h4>
+  {% for g in v.descriptive %}{{ group(g, 5) }}{% endfor %}
   {% endif %}
+  </div>
 </section>
 
-<section class="content-section" id="asr-revision">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Casos a revisar") }}
-  {% for g in v.review_required %}{{ group(g, 3) }}{% else %}
-  {{ not_detected("Las reglas que pudieron evaluarse no levantaron casos a revisar. Ver “No evaluado / Limitaciones” para la evidencia que no pudo evaluarse.") }}
-  {% endfor %}
-</section>
-
+{# ── [07] Cierre: límites de la evidencia y trazabilidad del informe (ambos ya existen en el perfil gobernado). ── #}
 <section class="content-section" id="asr-limitaciones">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "No evaluado / Limitaciones de evidencia", "Las evidencias que cuentan para la cobertura se marcan “cuenta”; las demás se muestran por transparencia y no modifican la cobertura.") }}
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Cierre: limitaciones y trazabilidad", "Qué no pudo evaluarse y cómo reconstruir el informe. Las evidencias que cuentan para la cobertura se marcan «cuenta»; las demás se muestran por transparencia y no modifican la cobertura.") }}
+  <h3>No evaluado / Limitaciones de evidencia</h3>
   {% if v.evidence_not_acquired %}<p><strong>Evidencia no adquirida:</strong> {{ v.evidence_not_acquired|join(", ") }}. No se extrajo; su ausencia en este assessment no implica que no exista.</p>{% endif %}
   {% if v.limitations %}
   <table>
     <thead><tr><th>Evidencia</th><th>Área</th><th>Estado</th><th>Motivo</th><th>¿Cuenta?</th></tr></thead>
     <tbody>{% for l in v.limitations %}
-      <tr><td>{{ l.title }}<br><code>{{ l.surface_id }}</code></td><td>{{ l.area }}</td><td>{{ l.state }}</td>
-          <td>{{ l.reason }} <code>{{ l.reason_code }}</code>{% if l.units %}<br>Unidades: {{ l.units[:8]|join(", ") }}{% if l.units|length > 8 %}, … (+{{ l.units|length - 8 }}){% endif %}{% endif %}</td>
+      <tr><td>{{ l.title }}<br><span class="catalog-note__ev">{{ l.surface_id }}</span></td><td>{{ l.area }}</td><td><span class="catalog-card__verdict catalog-card__verdict--neutra">{{ l.state }}</span></td>
+          <td>{{ l.reason }} <span class="catalog-note__ev">{{ l.reason_code }}</span>{% if l.units %}<br>Unidades: {{ l.units[:8]|join(", ") }}{% if l.units|length > 8 %}, … (+{{ l.units|length - 8 }}){% endif %}{% endif %}</td>
           <td>{{ "cuenta" if l.counts else "no cuenta" }}</td></tr>{% endfor %}
     </tbody>
   </table>
@@ -288,13 +325,13 @@
   {% endif %}
   {% if v.confidence_components %}
   <h4>Componentes de confianza</h4>
-  <ul>{% for c in v.confidence_components %}<li>{{ c.label }}: {{ c.value }} — {{ c.level }}</li>{% endfor %}</ul>
+  <table data-block="confidence-components">
+    <thead><tr><th>Componente</th><th>Valor</th><th>Nivel</th></tr></thead>
+    <tbody>{% for c in v.confidence_components %}<tr><td>{{ c.label }}</td><td><strong title="Valor exacto: {{ c.value }}">{{ c.value_text }}</strong></td><td><span class="catalog-card__verdict catalog-card__verdict--{{ c.tone }}">{{ c.level }}</span></td></tr>{% endfor %}</tbody>
+  </table>
   <p>Los componentes se combinan tomando el nivel más bajo. Los puntos de corte son provisionales y están pendientes de validación. La cobertura, las preguntas de contexto abiertas y la evidencia del plano de Procesamiento no son insumos de la confianza.</p>
   {% endif %}
-</section>
-
-<section class="content-section" id="asr-evidencia">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Evidencia / Detalle técnico") }}
+  <div id="asr-evidencia">
   <details class="dashboard-section">
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Mostrar detalle técnico (trazabilidad)</span></summary>
     <div class="dashboard-section__body">
@@ -324,6 +361,7 @@
     </tbody></table>
     </div>
   </details>
+  </div>
 </section>
 </article>
 {% endif %}

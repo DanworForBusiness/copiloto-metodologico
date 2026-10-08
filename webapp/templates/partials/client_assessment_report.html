@@ -54,9 +54,9 @@
   </section>
 
   <section class="content-section" id="cli-artefactos">
-    {{ heading(2, "Artefactos", "Solo los assessments vigentes aportan métricas; los valores representados con guiones significan no disponible. El veredicto del catálogo es el histórico (higiene de extracción), distinto del Assessment. Cada artefacto abre su detalle en el Catálogo, donde vive el informe individual.") }}
+    {{ heading(2, "Artefactos", "Solo los assessments vigentes aportan métricas; los valores representados con guiones significan no disponible. La adopción metodológica es el resultado persistido del Assessment de cada artefacto. Cada artefacto abre su detalle en el Catálogo, donde vive el informe individual.") }}
     <table>
-      <thead><tr><th>Artefacto</th><th>Estado</th><th>Cobertura</th><th>Confianza</th><th>Observaciones</th><th>Revisión requerida</th><th>Veredicto del catálogo</th></tr></thead>
+      <thead><tr><th>Artefacto</th><th>Estado</th><th>Cobertura</th><th>Confianza</th><th>Observaciones</th><th>Revisión requerida</th><th>Adopción metodológica</th></tr></thead>
       <tbody>
         {% for r in snap.assets %}
         <tr data-entry="{{ r.entry_id }}" data-state="{{ r.state }}">
@@ -66,12 +66,12 @@
           <td>{{ r.confidence_text }}</td>
           <td>{{ r.observation_occurrences if r.observation_occurrences is not none else "—" }}</td>
           <td>{{ r.review_occurrences if r.review_occurrences is not none else "—" }}</td>
-          <td>{% if r.catalog_verdict %}<span class="catalog-card__verdict catalog-card__verdict--{{ r.catalog_verdict|catalog_verdict_tone }}">{{ r.catalog_verdict|catalog_verdict_label }}</span>{% else %}—{% endif %}</td>
+          <td><span class="catalog-card__verdict catalog-card__verdict--{{ r.adoption.tone }}">{{ r.adoption.label }}</span></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    {% if v.catalog_verdict_story %}{% call callout("punch", "Lectura del veredicto del catálogo", icon="💡") %}<p>{{ v.catalog_verdict_story }}</p>{% endcall %}{% endif %}
+
   </section>
 
   <section class="content-section" id="cli-hallazgos">

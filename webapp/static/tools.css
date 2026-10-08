@@ -2125,11 +2125,13 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .catalog-card__head { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; font-size: .9rem; color: var(--ink); }
 .catalog-card__icon { margin-right: 4px; }
 .catalog-card__verdict { display: inline-flex; align-items: center; color: var(--soft); font: 650 .58rem var(--mono); text-transform: uppercase; letter-spacing: .04em; border: 1px solid var(--line); border-radius: 3px; padding: 1px 4px; line-height: 1.25; }
-.catalog-card__verdict--plena { color: #2e9e5b; border-color: rgba(46,158,91,.42); background: rgba(46,158,91,.08); }
-.catalog-card__verdict--buena { color: #c89100; border-color: rgba(200,145,0,.42); background: rgba(200,145,0,.08); }
-.catalog-card__verdict--parcial { color: #d06f1f; border-color: rgba(208,111,31,.42); background: rgba(208,111,31,.08); }
+/* Tonos de estado del Hub (UNA fuente): `status_tone()` emite plena/buena/parcial/neutra; badge, punto y callout consumen estos tokens. */
+:root { --tone-plena: #2e9e5b; --tone-buena: #c89100; --tone-parcial: #d06f1f; --tone-neutra: #55555d; }
+.catalog-card__verdict--plena { color: var(--tone-plena); border-color: color-mix(in srgb, var(--tone-plena) 42%, transparent); background: color-mix(in srgb, var(--tone-plena) 8%, transparent); }
+.catalog-card__verdict--buena { color: var(--tone-buena); border-color: color-mix(in srgb, var(--tone-buena) 42%, transparent); background: color-mix(in srgb, var(--tone-buena) 8%, transparent); }
+.catalog-card__verdict--parcial { color: var(--tone-parcial); border-color: color-mix(in srgb, var(--tone-parcial) 42%, transparent); background: color-mix(in srgb, var(--tone-parcial) 8%, transparent); }
 /* Estados neutros del Assessment (sin assessment / no aplica): mismo badge, gris claro y texto gris oscuro; sin semántica de puntaje. */
-.catalog-card__verdict--neutra { color: #55555d; border-color: rgba(85,85,93,.28); background: rgba(85,85,93,.07); }
+.catalog-card__verdict--neutra { color: var(--tone-neutra); border-color: color-mix(in srgb, var(--tone-neutra) 28%, transparent); background: color-mix(in srgb, var(--tone-neutra) 7%, transparent); }
 .catalog-card__apto { margin: 0 0 4px; color: var(--soft); font-size: .8rem; }
 .catalog-card__consumo { margin: 0 0 4px; color: var(--dim); font: 500 .66rem var(--mono); line-height: 1.3; }
 .catalog-card__consumo span { color: var(--soft); }
@@ -2167,9 +2169,10 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .catalog-detail__apto { margin-top: 18px; }
 .catalog-detail__sem { margin-right: 2px; }
 .catalog-meta-dot { display: inline-block; flex: 0 0 auto; width: 7px; height: 7px; border-radius: 999px; margin: 0; vertical-align: middle; background: var(--gold); }
-.catalog-meta-dot--plena { background: #2e9e5b; }
-.catalog-meta-dot--buena { background: #c89100; }
-.catalog-meta-dot--parcial { background: #d06f1f; }
+.catalog-meta-dot--plena { background: var(--tone-plena); }
+.catalog-meta-dot--buena { background: var(--tone-buena); }
+.catalog-meta-dot--parcial { background: var(--tone-parcial); }
+.catalog-meta-dot--neutra { background: var(--tone-neutra); }
 .content-section { scroll-margin-top: 16px; }
 
 /* Diagrama de linaje por capas (SVG server-side, temeable, nodos = anclas). */
@@ -2459,6 +2462,10 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
   word-break: normal;
 }
 
+/* Badge de estado/tipo dentro de una tabla del Hub: no se parte en dos líneas; su columna se ajusta al contenido y las demás se reparten el resto (responsive). */
+.methodology table:not(.table-fixed-columns) .catalog-card__verdict { white-space: nowrap; }
+.methodology table:not(.table-fixed-columns) td:has(> .catalog-card__verdict:only-child) { width: 1%; white-space: nowrap; }
+
 /* Separadores semánticos dentro de tablas markdown: `{{table_group: ...}}`. */
 .methodology tr.table-group-row td {
   padding: 10px 13px;
@@ -2593,6 +2600,11 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .callout--success { --callout-accent: #22a85a; }
 .callout--punch { --callout-accent: #d3a000; }
 .callout--warn { --callout-accent: #d64c5f; }
+/* Tonos de estado (mismo vocabulario que el badge `.catalog-card__verdict--*`): el cierre de una sección toma el tono de `status_tone()`. */
+.callout--plena { --callout-accent: var(--tone-plena); }
+.callout--buena { --callout-accent: var(--tone-buena); }
+.callout--parcial { --callout-accent: var(--tone-parcial); }
+.callout--neutra { --callout-accent: var(--tone-neutra); }
 .callout__head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .callout__icon { font-size: 1.35rem; line-height: 1; }
 .callout__title { color: var(--ink); font-size: .95rem; font-weight: 800; line-height: 1.25; }

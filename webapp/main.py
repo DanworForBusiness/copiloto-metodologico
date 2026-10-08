@@ -62,6 +62,7 @@ from webapp.routers import catalog_assessment as catalog_assessment_router
 from webapp.routers import datasphere_assessment as datasphere_assessment_router
 from webapp.routers import datasphere_publication as datasphere_publication_router
 from webapp.services import assessment_presenter
+from webapp.services import asset_evaluation
 from webapp.services import assessment_service
 from webapp.services import catalog_view_source
 from webapp.routers import commercial_strategy as commercial_strategy_router
@@ -1658,7 +1659,8 @@ def catalog_domain(request: Request, dominio: str = "", modulo: str = "", pack: 
     foco = {"03": "fuentes"}.get((modulo or "").strip())
     return templates.TemplateResponse(
         request=request, name="partials/catalog_flows.html",
-        context={"flows": flows, "dominio": dominio, "foco": foco, "pack": _pack(pack)},
+        context={"flows": flows, "dominio": dominio, "foco": foco, "pack": _pack(pack),
+                 "grades": assessment_presenter.tile_grades(flows)},   # grado PRIMARIO de la tile = Adopción metodológica persistida
     )
 
 
@@ -2157,6 +2159,10 @@ def _catalog_cds_view(name: str):
 
 
 
+# Gobierno/Portabilidad: tonos, badge, tablas y filas viven en `webapp/services/asset_evaluation.py` (compartidos con el informe de
+# Assessment). La CLASIFICACIÓN legacy de hallazgos (marcador/palabras clave → semáforo) NO cambia para las páginas existentes del
+# Catálogo (conexiones, seguridad, data products): se conserva tal cual acá; el clasificador por marcador del generador es propio de
+# «Mirada Danwor» (asset_evaluation.compliance_status).
 def _catalog_compliance_status(raw: str) -> tuple[str, str]:
     """Map generated compliance markers/text to a visual status class + label."""
     value = (raw or "").lower()
@@ -2171,131 +2177,16 @@ def _catalog_compliance_status(raw: str) -> tuple[str, str]:
     return "blue", "Nota"
 
 
-# Gate UX.4 (addendum): UNA sola familia de badges en toda la página del Catálogo. El semáforo legacy (green/amber/orange/
-# red/blue de Cumplimiento y Portabilidad) se mapea al badge canónico del Hub `.catalog-card__verdict--*`; no hay tono
-# "peligro", así que rojo/crítico cae en `parcial` (la etiqueta conserva el significado). Reemplaza a `.catalog-status--*`.
-_CATALOG_SEMAFORO_TONE = {"green": "plena", "amber": "buena", "orange": "parcial", "red": "parcial", "blue": "neutra"}
-
-
-def _catalog_status_badge(semaforo: str, label: str) -> str:
-    tone = _CATALOG_SEMAFORO_TONE.get((semaforo or "").lower(), "neutra")
-    return f'<span class="catalog-card__verdict catalog-card__verdict--{tone}">{html.escape(label)}</span>'
-
-
-def _catalog_inline_html(text: str) -> str:
-    safe = html.escape((text or "").strip())
-    safe = re.sub(r"`([^`]+)`", r"<code>\1</code>", safe)
-    safe = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", safe)
-    safe = re.sub(r"(?<!\w)_([^_\n]+)_(?!\w)", r"<em>\1</em>", safe)
-    return safe
-
-
-def _catalog_evidence_html(text: str) -> str:
-    clean = re.sub(r"\s+", " ", (text or "").strip())
-    if not clean:
-        return "Sin evidencia detallada."
-    parts = [part.strip() for part in clean.split(" | ") if part.strip()]
-    if len(parts) >= 2:
-        items = "".join(f"<li>{_catalog_inline_html(part)}</li>" for part in parts)
-        return f"<ul>{items}</ul>"
-    comma_parts = [part.strip() for part in clean.split(",") if part.strip()]
-    if len(comma_parts) >= 3:
-        artifact_like = sum(
-            1
-            for part in comma_parts
-            if "->" in part
-            or "→" in part
-            or "ABAP_CDS." in part.upper()
-            or re.search(r"\bZ[A-Z0-9_*$]+\b", part.upper())
-        )
-        if artifact_like >= max(2, len(comma_parts) // 2):
-            items = "".join(f"<li>{_catalog_inline_html(part)}</li>" for part in comma_parts)
-            return f"<ul>{items}</ul>"
-    return _catalog_inline_html(clean)
-
-
-def _catalog_compliance_table_html(source: str) -> str:
-    """Render generated catalog compliance bullets as a readable semaphore table.
-
-    The generator keeps producing simple markdown. This presentation layer only
-    upgrades the final `Hallazgos de cumplimiento` block when the pattern is present.
-    """
-    block = (source or "").strip()
-    if not block:
-        return ""
-    item_re = re.compile(
-        r"(?ms)^-\s*(?P<marker>\S+)?\s*\*\*(?P<title>.+?)\*\*\s*(?P<body>.*?)(?=\n-\s+\S*\s*\*\*|\Z)"
-    )
-    rows = []
-    for match in item_re.finditer(block):
-        marker = match.group("marker") or ""
-        title = re.sub(r"\s+", " ", match.group("title") or "").strip()
-        body = match.group("body") or ""
-        ev_match = re.search(r"(?is)_?Evidencia:_?\s*(.*)$", body)
-        evidence = ev_match.group(1).strip() if ev_match else body.strip()
-        status_class, status_label = _catalog_compliance_status(f"{marker} {title} {evidence}")
-        rows.append(
-            "<tr>"
-            f"<td>{_catalog_status_badge(status_class, status_label)}</td>"
-            f"<td>{_catalog_inline_html(title)}</td>"
-            f"<td>{_catalog_evidence_html(evidence)}</td>"
-            "</tr>"
-        )
-    if not rows:
-        return block
-    # Tabla nativa del Hub (hereda `.methodology table`); el `.catalog-compliance` wrapper solo da aire + scroll en mobile.
-    return (
-        '<div class="catalog-compliance">'
-        '<table>'
-        '<thead><tr><th>Estado</th><th>Hallazgo</th><th>Evidencia</th></tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody>'
-        '</table>'
-        '</div>'
-    )
-
-_PORT_CLASIF_LABEL = {
-    "plena": "Plena", "buena": "Buena", "condicionada": "Condicionada",
-    "inspiracional": "Inspiracional / Referencia",
-    "no_recomendable": "No recomendable para réplica directa",
-    "no_evaluable": "No evaluable",
-}
-_PORT_HALLAZGO_LABEL = {
-    "riesgo": "Riesgo", "adaptacion": "Adaptación", "buena_practica": "Buena práctica",
-    "hint": "Hint", "no_evaluable": "No evaluable",
-}
+_catalog_status_badge = asset_evaluation.status_badge_html
+_catalog_inline_html = asset_evaluation.inline_html
+_catalog_evidence_html = asset_evaluation.evidence_html
+_catalog_compliance_table_html = lambda source: asset_evaluation.compliance_table_html(source, classify=_catalog_compliance_status)
+_PORT_CLASIF_LABEL = asset_evaluation.PORT_CLASIF_LABEL
+_PORT_HALLAZGO_LABEL = asset_evaluation.PORT_HALLAZGO_LABEL
 
 
 def _catalog_portability_table_html(findings: list, asset_type: str) -> str:
-    """Tabla de portabilidad AGRUPADA por regla (badge canónico del Hub por hallazgo). Tabla nativa `.methodology table`
-    + badge `.catalog-card__verdict--*` (misma familia que el resto del Catálogo). Muchos campos de la misma regla se
-    resumen en una fila (evita listar 80 filas) — como el ejemplo '3 campos DecimalFloat'."""
-    if not findings:
-        return ""
-    order = {"red": 0, "orange": 1, "amber": 2, "blue": 3, "green": 4}
-    groups: dict[str, list] = {}
-    for f in sorted(findings, key=lambda x: order.get(x.get("semaforo"), 5)):
-        groups.setdefault(f.get("regla"), []).append(f)
-    rows = []
-    for _regla, fs in groups.items():
-        f0 = fs[0]
-        estado = _PORT_HALLAZGO_LABEL.get(f0.get("tipo_hallazgo"), "Nota")
-        nombres = list(dict.fromkeys(
-            (f"{x.get('artefacto')}.{x.get('campo')}" if x.get("artefacto") else str(x.get("campo") or ""))
-            for x in fs))
-        campos = ", ".join(nombres)
-        if len(campos) > 160:
-            campos = campos[:157] + "…"
-        titulo = f"{len(fs)} campo(s) · {html.escape(str(f0.get('titulo') or ''))}"
-        ev = html.escape(campos)
-        if f0.get("recomendacion"):
-            ev += f" — <em>{html.escape(str(f0['recomendacion']))}</em>"
-        rows.append(
-            f"<tr><td>{_catalog_status_badge(f0.get('semaforo', 'amber'), estado)}</td>"
-            f"<td>{titulo}</td>"
-            f"<td>{ev}</td></tr>")
-    return ('<div class="catalog-compliance"><table>'
-            '<thead><tr><th>Tipo</th><th>Hallazgo</th><th>Campos · Recomendación</th></tr></thead>'
-            f'<tbody>{"".join(rows)}</tbody></table></div>')
+    return asset_evaluation.portability_table_html(findings)
 
 
 def _catalog_portability_section_md(port: dict, asset_type: str, acks: list | None = None) -> str:
@@ -2456,22 +2347,7 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
             sql_btn = _catalog_sql_button_html(name, pack, entry.cliente, entry.dominio, entry.entry_id)
             vbody = re.sub(r"(?m)^##\s+.*$", lambda m: m.group(0) + sql_btn, vbody, count=1)
         parts.append(vbody)
-    # Sección de cumplimiento: reutiliza el bloque "## Hallazgos…" del flujo_*.md.
-    mh = re.search(r"##\s*Hallazgos[^\n]*\n(.*)$", entry.body or "", re.S)
-    if mh:
-        verdict = str(entry.veredicto or "").strip().lower()
-        intro = _catalog_compliance_intro_md(
-            verdict,
-            str(entry.apto or _catalog_verdict_text(verdict)),
-            f"el dominio {entry.dominio} de {entry.cliente}",
-        )
-        parts.append("## Cumplimiento\n\n" + intro + "\n\n" + _catalog_compliance_table_html(mh.group(1)))
-    # Dimensión PARALELA: Portabilidad BDC (cross-runtime). Sección propia, no altera el
-    # cumplimiento de extracción. Se muestra sólo si el generador la computó.
-    _port_md = _catalog_portability_section_md(
-        getattr(entry, "portabilidad_bdc", None), "dominio", getattr(entry, "portabilidad_ack", None))
-    if _port_md:
-        parts.append(_port_md)
+    # Cumplimiento y Portabilidad ya NO son secciones del flujo: se resumen en «Mirada Danwor» (ver `asset_evaluation`).
     composed = "\n\n".join(parts)
     # Linkear en las tablas → ancla de su sección, solo para artefactos VISIBLES
     # (evita links muertos a secciones filtradas por el toggle).
@@ -2543,6 +2419,7 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
         return templates.TemplateResponse(request=request, name="partials/catalog_lineage.html",
                                           context=lineage_ctx)
     academy = [a for a in list_academy(selected) if not a.nav_hidden]
+    ah_view = assessment_presenter.header_for(entry, selected)          # grado + hallazgos de gobierno SOLO del Assessment gobernado (None si falla: sin fallback legacy)
     # HTMX → solo el fragmento (actualiza #content sin salir del módulo ni perder
     # el panel derecho). Navegación directa → página completa con shell + nav.
     tmpl = "partials/catalog_flow_content.html" if request.headers.get("HX-Request") else "catalog_flow.html"
@@ -2561,7 +2438,9 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
             "cliente": entry.cliente, "dominio": entry.dominio, "icon": entry.icon,
             "veredicto": entry.veredicto, "apto": entry.apto,
             "n_art": len(entry.artefactos), "sections": sections,
-            "assessment_header": assessment_presenter.header_for(entry, selected),
+            "assessment_header": ah_view,
+            "evaluation": asset_evaluation.asset_evaluation(
+                entry, findings=(ah_view or {}).get("governance_findings"), assessed=bool((ah_view or {}).get("has_profile"))),
             "catalog_kind": "domain",
             "catalog_ref": f"{entry.cliente} · {entry.dominio}",
             **lineage_ctx,

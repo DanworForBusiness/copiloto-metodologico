@@ -537,7 +537,7 @@ def test_adhoc_report_is_the_same_template_and_presenter_without_lineage_or_cata
     page = owner.get(f"/modules/{STEM}/datasphere-assessment/result/{rid}?pack=datasphere_core")
     assert page.status_code == 200
     t = page.text
-    for needle in ("Indicadores del assessment", "Resumen", "Cobertura estricta", "Arquitectura &amp; Modelado", "Evidencia / Detalle técnico"):
+    for needle in ("Indicadores del assessment", "Resumen", "Cobertura estricta", "Arquitectura &amp; Modelado", "Cierre: limitaciones y trazabilidad"):
         assert needle in t, needle
     assert "4AM_ACME" in t and "Assessment de Modelado &amp; Desarrollo · Acme" in t
     assert "Ver en linaje" not in t and "/catalog/flow" not in t and "Actualizar catálogo" not in t                  # sin linaje, sin flujo, sin Catálogo

@@ -99,7 +99,7 @@ def test_client_scoping_does_not_touch_other_clients():
 
 
 def test_reassess_uses_canonical_generation_not_migration_nor_json_patch():
-    src = inspect.getsource(bf.reassess_selected)
+    src = inspect.getsource(bf._reassess_core)                                     # núcleo compartido de --reassess-current
     assert "generate(entry, force=True)" in src
     assert "regenerate_stale_evidence" not in src and "commit_stale_migration" not in src
     assert "profile_json" not in src and "EVIDENCE_MIGRATIONS" not in src
