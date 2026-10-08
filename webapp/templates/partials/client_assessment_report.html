@@ -9,6 +9,9 @@
 {% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile %}
 {% set snap = v.snapshot %}
 {# Mismo badge `.catalog-card__verdict` para TODOS los estados; los neutros (sin assessment / no aplica) usan su variante gris, sin semántica de puntaje. #}
+{# Tabla-resumen de DOS columnas (etiqueta | valor): UN solo contrato de geometría para todas (`.table-fixed-columns` del Hub: layout fijo, columnas equivalentes), de modo que
+   las columnas arranquen en la misma posición entre tablas hermanas. Misma estructura = misma implementación (sin anchos por tabla). #}
+{% macro summary_table(label_col, value_col) %}<table class="table-fixed-columns"><thead><tr><th>{{ label_col }}</th><th>{{ value_col }}</th></tr></thead><tbody>{{ caller() }}</tbody></table>{% endmacro %}
 {% macro badge(state) %}<span class="catalog-card__verdict catalog-card__verdict--{{ v.state_tones.get(state) or "neutra" }}">{{ v.state_labels[state] }}</span>{% endmacro %}
 {# §1 (Gate UX.4) Misma barra de acciones transversal que el informe individual: ← Volver + exports en la misma línea. #}
 <div class="catalog-actionbar">
@@ -41,15 +44,9 @@
 <article class="methodology catalog-detail">
   <section class="content-section" id="cli-resumen">
     {{ heading(1, "Resumen", "Derivado de los assessments ya generados de los artefactos del catálogo de este cliente. Abrirlo no se conecta a Datasphere ni ejecuta evaluaciones: un artefacto sin assessment vigente se genera desde su detalle. No es un puntaje de madurez.") }}
-    <table>
-      <thead><tr><th>Estado del assessment</th><th>Artefactos</th></tr></thead>
-      <tbody>{% for r in v.state_rows %}<tr data-state="{{ r.state }}"><td>{{ badge(r.state) }}</td><td>{{ r.count }}</td></tr>{% endfor %}</tbody>
-    </table>
+    {% call summary_table("Estado del assessment", "Artefactos") %}{% for r in v.state_rows %}<tr data-state="{{ r.state }}"><td>{{ badge(r.state) }}</td><td>{{ r.count }}</td></tr>{% endfor %}{% endcall %}
     <p>Confianza de los {{ snap.summary.current_assessments }} assessments vigentes (confiabilidad de la evidencia, no calidad del artefacto; se muestra como distribución).</p>
-    <table>
-      <thead><tr><th>Confianza</th><th>Assessments</th></tr></thead>
-      <tbody>{% for r in v.confidence_rows %}<tr data-confidence="{{ r.level }}"><td>{{ r.label }}</td><td>{{ r.count }}</td></tr>{% endfor %}</tbody>
-    </table>
+    {% call summary_table("Confianza", "Assessments") %}{% for r in v.confidence_rows %}<tr data-confidence="{{ r.level }}"><td>{{ r.label }}</td><td>{{ r.count }}</td></tr>{% endfor %}{% endcall %}
     {% if v.confidence_story %}{% call callout("punch", "Lectura de la confianza", icon="💡") %}<p>{{ v.confidence_story }}</p>{% endcall %}{% endif %}
   </section>
 
@@ -60,7 +57,7 @@
       <tbody>
         {% for r in snap.assets %}
         <tr data-entry="{{ r.entry_id }}" data-state="{{ r.state }}">
-          <td><a href="#" role="button" hx-get="{{ r.detail_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent><code>{{ r.artifact_label }}</code></a>{% if r.artifact_scope %}<br>{{ r.artifact_scope }}{% endif %}</td>
+          <td><a class="reference-text-link" href="#" role="button" hx-get="{{ r.detail_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{% if r.asset_title and r.asset_id %}{{ r.asset_title }}</a><span class="catalog-note__ev"> · {{ r.asset_id }}</span>{% else %}{{ r.artifact_label }}</a>{% endif %}{% if r.artifact_scope %}<br><span class="catalog-note__ev">{{ r.artifact_scope }}</span>{% endif %}</td>
           <td>{{ badge(r.state) }}{% if r.reason %}<br>{{ r.reason }}{% endif %}</td>
           <td>{{ v.coverage_whole[r.entry_id] }}</td>
           <td>{{ r.confidence_text }}</td>

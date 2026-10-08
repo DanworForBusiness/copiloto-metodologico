@@ -62,6 +62,7 @@ from webapp.routers import catalog_assessment as catalog_assessment_router
 from webapp.routers import datasphere_assessment as datasphere_assessment_router
 from webapp.routers import datasphere_publication as datasphere_publication_router
 from webapp.services import assessment_presenter
+from webapp.services import catalog_delta_evidence
 from webapp.services import asset_evaluation
 from webapp.services import assessment_service
 from webapp.services import catalog_view_source
@@ -1660,7 +1661,8 @@ def catalog_domain(request: Request, dominio: str = "", modulo: str = "", pack: 
     return templates.TemplateResponse(
         request=request, name="partials/catalog_flows.html",
         context={"flows": flows, "dominio": dominio, "foco": foco, "pack": _pack(pack),
-                 "grades": assessment_presenter.tile_grades(flows)},   # grado PRIMARIO de la tile = Adopción metodológica persistida
+                 "grades": assessment_presenter.tile_grades(flows),
+                 "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows}},   # cantidad LÓGICA (mismo conjunto normalizado del linaje)   # grado PRIMARIO de la tile = Adopción metodológica persistida
     )
 
 
@@ -2223,6 +2225,94 @@ def _catalog_portability_section_md(port: dict, asset_type: str, acks: list | No
 _catalog_clean_label = catalog_reads.catalog_clean_label   # helper compartido con el informe de assessment (mismo título de artefacto)
 
 
+_DELTA_SUFFIX = "_Delta"
+
+
+def _catalog_delta_pairs(order: list, autos: dict, capture=None) -> dict:
+    """{D: X} — pares «ingesta local X + su compañera técnica D = X_Delta» que son UN SOLO objeto lógico de ingesta delta-capable.
+    Regla (determinista; ante cualquier duda NO colapsa). D se pliega en X solo si TODO esto se cumple:
+      1. D == X + «_Delta» (sufijo exacto) y AMBOS están en el flujo (D sin su base X NUNCA se colapsa);
+      2. ambos son «Tabla local» de la capa Ingesta y sin origen remoto;
+      3. D es hoja (sin upstreams ni asociaciones) y X no lee nada distinto de D;
+      4. nadie más que X consume D (si otro artefacto usa D como fuente ordinaria, D es un objeto semántico propio);
+      5. evidencia CANÓNICA de captura delta de X (``capture(X)``, definición CSN `@DataWarehouse.delta`; la MISMA que muestra «Delta capture» en el detalle):
+         ON **y** ``deltaFromEntities`` identifica a D como compañera. Sin esa confirmación (ON sin identidad de la compañera, OFF o evidencia
+         INDETERMINADA) NO se pliega: no existe un par plegado sin evidencia canónica (ninguna heurística de nombre/estructura decide lo visible).
+    Un artefacto que solo «termina en Delta» pero no cumple el par canónico queda tal cual."""
+    present = set(order)
+    consumers: dict[str, set] = {}
+    for n in order:
+        for u in list(autos[n].get("upstreams") or []) + list(autos[n].get("upstreams_asociacion") or []):
+            consumers.setdefault(u, set()).add(n)
+    is_local_ingest = lambda a: (a.get("artefacto_tecnico") == "Tabla local" and a.get("capa") == "Ingesta" and not a.get("origen_remoto"))   # noqa: E731
+    out: dict = {}
+    for d in order:
+        if not d.endswith(_DELTA_SUFFIX) or len(d) == len(_DELTA_SUFFIX):
+            continue
+        x = d[: -len(_DELTA_SUFFIX)]
+        if x not in present:
+            continue
+        ad, ax = autos[d], autos[x]
+        if not (is_local_ingest(ad) and is_local_ingest(ax)):
+            continue
+        if ad.get("upstreams") or ad.get("upstreams_asociacion") or ax.get("upstreams_asociacion"):
+            continue
+        if set(ax.get("upstreams") or []) - {d} or (consumers.get(d, set()) - {x}):
+            continue
+        ev = capture(x) if capture else {"state": "UNDETERMINED", "companions": []}
+        if ev["state"] != "ON" or d not in ev["companions"]:
+            continue
+        out[d] = x
+    return out
+
+
+_logical_count_cache: dict = {}
+
+
+def _catalog_logical_artifact_count(entry) -> int:
+    """Cantidad de artefactos del flujo que ve el USUARIO en el Catálogo (hero y tile): objetos LÓGICOS = la lista física menos las compañeras técnicas
+    `_Delta` plegadas por ``_catalog_delta_pairs`` (el MISMO conjunto normalizado del linaje; no hay otra regla de conteo). El conteo FÍSICO sigue
+    siendo ``len(entry.artefactos)`` y es el que usan el Assessment (cobertura/evidencia) y el detalle técnico (que conserva `X_Delta`).
+    Sin candidatos (ningún `X_Delta` con su base `X` en el flujo) no hace I/O; con candidatos lee solo las vistas de ese flujo y cachea por proceso."""
+    names = list(getattr(entry, "artefactos", None) or [])
+    present = set(names)
+    if not any(n.endswith(_DELTA_SUFFIX) and n[: -len(_DELTA_SUFFIX)] in present for n in names):
+        return len(names)
+    key = (getattr(entry, "entry_id", None), tuple(names))
+    if key in _logical_count_cache:
+        return _logical_count_cache[key]
+    from webapp.services.content_service import split_front_matter
+    vistas_dir = Path(entry.path).parent / "vistas"
+    autos = {}
+    for name in names:
+        vpath = vistas_dir / f"{name}.md"
+        if vpath.exists():
+            meta, _body = split_front_matter(vpath.read_text(encoding="utf-8"))
+            autos[name] = meta.get("auto") or {}
+    capture = lambda n: catalog_delta_evidence.delta_capture(entry.cliente, entry.dominio, n)   # noqa: E731
+    count = len(names) - len(_catalog_delta_pairs([n for n in names if n in autos], autos, capture))
+    _logical_count_cache[key] = count
+    return count
+
+
+_DELTA_CAPTURE_LABEL = {"ON": "ON", "OFF": "OFF", "UNDETERMINED": "No determinado"}
+
+
+def _catalog_add_delta_rows(vbody: str, state: str, companions: list) -> str:
+    """Filas «Delta capture» (ON | OFF | No determinado) y, si la compañera técnica es conocida, «Tabla técnica de cambios» (solo trazabilidad), en la tabla
+    de propiedades del detalle, justo después de «Artefacto». OFF nunca fabrica una tabla delta; ND jamás se convierte en OFF."""
+    rows = f"| Delta capture | {_DELTA_CAPTURE_LABEL.get(state, 'No determinado')} |\n"
+    if companions:
+        rows += f"| Tabla técnica de cambios | {', '.join(companions)} |\n"
+    m = re.search(r"(?ms)^\| Propiedad \| Valor \|\n\|[-| ]+\|\n(?:\|[^\n]*\n)+", vbody)
+    if m is None:
+        return vbody
+    block = m.group(0)
+    lines = block.splitlines(keepends=True)
+    at = next((i for i, ln in enumerate(lines) if ln.startswith("| Artefacto |")), len(lines) - 1) + 1
+    return vbody[:m.start()] + "".join(lines[:at]) + rows + "".join(lines[at:]) + vbody[m.end():]
+
+
 def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", focus=None, focus_out: dict | None = None):
     """Arma el detalle de un flujo: (a) un diagrama SVG de linaje por capas y (b)
     las secciones estilo-módulo (una por artefacto, con sus tablas), renderizadas
@@ -2286,12 +2376,17 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
             assoc = sorted(set(assoc) | demote)
         return up, assoc
 
+    # Ingesta local + su compañera técnica `_Delta` = UN objeto lógico: se pliega en el grafo/secciones y su verdad técnica queda en el detalle de la base.
+    _capture = lambda n: catalog_delta_evidence.delta_capture(entry.cliente, entry.dominio, n)   # noqa: E731 — evidencia canónica (CSN), UNA para colapso y detalle
+    delta_pairs = _catalog_delta_pairs([n for n in names if n in bodies], autos, _capture)
     # Nodos del flujo (sin num todavía: se numera por posición en el ORDEN VISIBLE).
-    nodes, order = [], [n for n in names if n in bodies]
+    nodes, order = [], [n for n in names if n in bodies and n not in delta_pairs]
     for name in order:
         auto = autos[name]
         label = _catalog_clean_label(auto.get("label"), name)
         up, assoc = _split_up(auto)
+        up = [u for u in dict.fromkeys(delta_pairs.get(u, u) for u in up) if u != name]          # aristas hacia `_Delta` → su base lógica (sin auto-bucles)
+        assoc = [u for u in dict.fromkeys(delta_pairs.get(u, u) for u in assoc) if u != name]
         sem = f"{auto.get('data_category') or ''} {auto.get('modeling_pattern') or ''}".upper()
         nodes.append({
             "name": name, "num": 0, "slug": slug_of[name],
@@ -2313,7 +2408,7 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
     explicit_assoc = show_assoc is not None
     if show_assoc is None:
         show_assoc = assoc_context
-    focus_list = list(dict.fromkeys(str(f) for f in (focus or ())))
+    focus_list = list(dict.fromkeys(delta_pairs.get(str(f), str(f)) for f in (focus or ())))          # el foco sobre la compañera `_Delta` apunta a su objeto lógico
     if focus_list and not explicit_assoc and not show_assoc:
         direct_keep = _catalog_flow_keep(nodes, False)
         if any(n["name"] in focus_list and n["name"] not in direct_keep for n in nodes):
@@ -2334,6 +2429,9 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
         # H1 → H2 (lambda: la descripción con tonos puede traer caracteres que re
         # interpretaría como grupos de reemplazo).
         vbody = re.sub(r"^\s*#\s+.*$", lambda _m: f"## {headings[name]}", bodies[name], count=1, flags=re.M)
+        if autos[name].get("artefacto_tecnico") == "Tabla local":
+            ev = _capture(name)
+            vbody = _catalog_add_delta_rows(vbody, ev["state"], ev["companions"] if ev["state"] == "ON" else [])     # la tabla técnica sale SOLO de la evidencia canónica
         # Botón "Abrir CDS View": auto-vínculo al código del extractor cuando el
         # origen es ABAP_CDS.<X> y existe APIs/<X>.md (si no, no se renderiza →
         # robusto, sin link muerto). Va como bloque HTML tras el heading (markdown
@@ -2354,7 +2452,7 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
     shown_set = set(shown_order)
     composed = re.sub(
         r"`([A-Za-z0-9_]+)`",
-        lambda m: (f"[{m.group(1)}](#{slug_of[m.group(1)]})" if m.group(1) in shown_set else m.group(0)),
+        lambda m: (f"[{m.group(1)}](#{slug_of[delta_pairs.get(m.group(1), m.group(1))]})" if delta_pairs.get(m.group(1), m.group(1)) in shown_set else m.group(0)),
         composed,
     )
     return render_sections(composed, pack_name="", stem="", base=0), lineage_svg, show_assoc, assoc_context
@@ -2437,7 +2535,7 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
             "available_workspaces": workspaces.available_workspaces(user),
             "cliente": entry.cliente, "dominio": entry.dominio, "icon": entry.icon,
             "veredicto": entry.veredicto, "apto": entry.apto,
-            "n_art": len(entry.artefactos), "sections": sections,
+            "n_art": _catalog_logical_artifact_count(entry), "sections": sections,
             "assessment_header": ah_view,
             "evaluation": asset_evaluation.asset_evaluation(
                 entry, findings=(ah_view or {}).get("governance_findings"), assessed=bool((ah_view or {}).get("has_profile"))),
