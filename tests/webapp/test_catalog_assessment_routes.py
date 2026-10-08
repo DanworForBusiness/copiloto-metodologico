@@ -389,29 +389,95 @@ def test_readonly_academy_user_can_view_and_generate_by_policy(world, monkeypatc
     assert c.get("/catalog/flow/assessment.json?flow=acme-4am").status_code == 200
 
 
-# ── 18. el tile del listado vuelve a su rol mínimo; el veredicto/apto legacy no cambia ──
-def test_catalog_list_tile_has_no_assessment_block_and_legacy_content_is_unchanged(world):
+# ── 18. el grado PRIMARIO de la tile del listado = Adopción metodológica persistida; el veredicto del catálogo queda como guía descriptiva ──
+def test_catalog_list_tile_grade_comes_from_adoption_and_catalog_guidance_stays_descriptive(world):
     c = client_for()
     before = c.get("/catalog/domain?dominio=Dom").text
+    assert re.search(r'catalog-card__verdict catalog-card__verdict--neutra" title="Adopción metodológica">Sin assessment<', before)    # sin assessment: neutro, NUNCA el grado del catálogo
+    assert "catalog-card__verdict--plena" not in before and "catalog-card--plena" not in before
     _post(c)
     after = c.get("/catalog/domain?dominio=Dom").text
-    assert before == after                                          # el assessment no altera el listado en ningún estado
+    j = presenter.judgment_view(svc.status_for_entry(world.entries[0]).judgment)
+    assert f'catalog-card__verdict--{j["tone"]}" title="Adopción metodológica">{j["level_label"]}<' in after   # grado = Juicio persistido
     for html in (before, after):
-        for absent in ("Assessment", "asm-", "assessment", "Ver informe", "Generar informe", "Cobertura", "Confianza"):
+        for absent in ("asm-", "Ver informe", "Generar informe", "Cobertura", "Confianza"):
             assert absent not in html, absent
-    assert "catalog-card__verdict--plena" in after
-    assert '<p class="catalog-card__apto">Referencia reutilizable</p>' in after
-    assert re.search(r'<span class="catalog-card__verdict catalog-card__verdict--plena">\s*\S+\s*</span>', after)
+        assert '<p class="catalog-card__apto">Referencia reutilizable</p>' in html                       # guía del catálogo, independiente
     assert not (REPO / "webapp/templates/partials/catalog_assessment_tile.html").exists()
+
+
+def _judgment(level):
+    if level:
+        return {"status": "DETERMINED", "level": level, "strengths": [], "reasons": []}
+    return {"status": "NOT_DETERMINABLE", "level": None, "not_determinable_reason": "INSUFFICIENT_AFFIRMATIVE_EVIDENCE"}
+
+
+def _tile(world, verdict, level, state=None, with_judgment=True):
+    """Renderiza la tile real (`catalog_flows.html`) para un veredicto de catálogo dado y un Juicio persistido dado."""
+    import dataclasses
+    e = world.entries[0]
+    e = dataclasses.replace(e, veredicto=verdict) if dataclasses.is_dataclass(e) else e
+    st = svc.AssessmentStatus(state=state or svc.CURRENT, entry_id=e.entry_id, client=e.cliente, terminal_am="X",
+                              judgment=_judgment(level) if with_judgment else None)
+    grade = presenter.tile_grade(st)
+    html = main.templates.get_template("partials/catalog_flows.html").render(flows=[e], grades={e.entry_id: grade}, dominio="Dom", foco=None, pack="datasphere_core")
+    return html, grade
+
+
+def test_tile_catalog_buena_with_adoption_not_determinable_is_neutral(world):
+    html, g = _tile(world, "buena", None)
+    assert g["tone"] == "neutra" and g["label"] == "No determinable"
+    assert 'catalog-card__verdict--neutra" title="Adopción metodológica">No determinable<' in html and "catalog-card--neutra" in html
+    assert "catalog-card__verdict--plena" not in html and "catalog-card__verdict--buena" not in html     # una sola insignia de grado
+
+
+def test_tile_catalog_buena_with_adoption_buena_is_green(world):
+    html, g = _tile(world, "buena", "BUENA")
+    assert (g["tone"], g["label"]) == ("plena", "Buena")                                               # status_tone: Buena = verde
+    assert 'catalog-card__verdict--plena" title="Adopción metodológica">Buena<' in html
+
+
+def test_tile_catalog_parcial_with_adoption_adecuada_uses_the_canonical_tone(world):
+    from webapp.services.status_tone import status_tone
+    html, g = _tile(world, "parcial", "ADECUADA")
+    assert g["tone"] == status_tone("ADECUADA") == "buena" and g["label"] == "Adecuada"
+    assert 'catalog-card__verdict--buena" title="Adopción metodológica">Adecuada<' in html
+    assert "catalog-card__verdict--parcial" not in html                                                # el PARCIAL del catálogo no se filtra a la tile
+
+
+def test_tile_without_assessment_or_judgment_never_falls_back_to_the_catalog_grade(world):
+    for state, label in ((svc.NOT_YET_ASSESSED, "Sin assessment"), (svc.NOT_APPLICABLE, "No aplica"), (svc.FAILED, "Assessment no disponible"), (svc.CURRENT, "Juicio no disponible")):
+        html, g = _tile(world, "plena", None, state=state, with_judgment=False)
+        assert (g["tone"], g["label"], g["has_judgment"]) == ("neutra", label, False), state
+        assert f'catalog-card__verdict--neutra" title="Adopción metodológica">{label}<' in html and "catalog-card__verdict--plena" not in html
+    bare = main.templates.get_template("partials/catalog_flows.html").render(flows=[world.entries[0]], grades={}, dominio="Dom", foco=None, pack="x")
+    assert "catalog-card__verdict--neutra" in bare and "catalog-card__verdict--plena" not in bare     # sin `grades` tampoco hay fallback al catálogo
+
+
+def test_tile_stale_assessment_keeps_the_adoption_grade_and_shows_freshness_separately(world):
+    html, g = _tile(world, "parcial", "BUENA", state=svc.STALE)
+    assert (g["tone"], g["label"], g["freshness"]) == ("plena", "Buena", "Assessment desactualizado")  # el grado NO se recolorea por vigencia
+    assert 'catalog-card__verdict--plena" title="Adopción metodológica">Buena<' in html
+    assert re.search(r'<p class="catalog-card__meta">\d+ artefactos? · Assessment desactualizado</p>', html)   # vigencia en la línea de metadata, aparte
+    cur, gc = _tile(world, "parcial", "BUENA", state=svc.CURRENT)
+    assert gc["tone"] == g["tone"] and gc["freshness"] is None and "desactualizado" not in cur
+
+
+def test_tile_grades_are_fail_soft_and_never_use_the_catalog_verdict(world, monkeypatch):
+    monkeypatch.setattr(svc, "statuses_for_entries", lambda es: (_ for _ in ()).throw(RuntimeError("boom")))
+    grades = presenter.tile_grades(world.entries)
+    assert {g["tone"] for g in grades.values()} == {"neutra"} and {g["label"] for g in grades.values()} == {"Assessment no disponible"}
+    r = client_for().get("/catalog/domain?dominio=Dom")
+    assert r.status_code == 200 and "catalog-card__verdict--plena" not in r.text and "boom" not in r.text
 
 
 def test_assessment_failure_never_breaks_the_flow_detail(world, monkeypatch):
     monkeypatch.setattr(svc, "status_for_entry", lambda e: (_ for _ in ()).throw(RuntimeError("boom")))
     c = client_for()
     h = _detail(c, monkeypatch)
-    assert "<h1>" in h and "catalog-card__verdict--plena" in h and "Assessment" not in h and "boom" not in h
+    assert "<h1>" in h and "catalog-card__verdict--plena" in h and "Assessment" not in h and "boom" not in h     # hero: «Veredicto del catálogo» rotulado, sin assessment
     lst = c.get("/catalog/domain?dominio=Dom")
-    assert lst.status_code == 200 and "catalog-card__verdict--plena" in lst.text
+    assert lst.status_code == 200 and "boom" not in lst.text
 
 
 def test_assessment_css_reuses_hub_primitives_instead_of_duplicating_them():

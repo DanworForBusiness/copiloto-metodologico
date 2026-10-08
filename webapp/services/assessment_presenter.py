@@ -165,6 +165,33 @@ def header_for(entry: Any, pack: str) -> dict | None:
         return None
 
 
+# Grado PRIMARIO de la tile del Catálogo: SOLO la Adopción metodológica persistida (nunca el veredicto del catálogo, ni como fallback).
+# Adopción y vigencia son ejes separados: un Juicio persistido sobre un Assessment STALE conserva su grado y la vigencia va aparte.
+_TILE_NO_JUDGMENT = {svc.NOT_YET_ASSESSED: "Sin assessment", svc.NOT_APPLICABLE: "No aplica", svc.FAILED: "Assessment no disponible",
+                     svc.INCOMPATIBLE_SCHEMA: "Informe no compatible"}
+_TILE_JUDGMENT_UNAVAILABLE = "Juicio no disponible"
+
+
+def tile_grade(status: svc.AssessmentStatus) -> dict:
+    """{tone, label, freshness}. ``tone`` sale de ``status_tone`` (vía ``judgment_view``); sin Juicio → neutro con el vocabulario de estado existente."""
+    j = judgment_view(status.judgment)
+    freshness = STATE_LABELS[svc.STALE] if status.state == svc.STALE else None
+    if j:
+        return {"tone": j["tone"], "label": j["level_label"], "freshness": freshness, "has_judgment": True}
+    return {"tone": NEUTRAL, "label": _TILE_NO_JUDGMENT.get(status.state, _TILE_JUDGMENT_UNAVAILABLE), "freshness": freshness, "has_judgment": False}
+
+
+def tile_grades(entries: Any) -> dict[str, dict]:
+    """entry_id → grado de tile, en UNA lectura por lote. Fail-soft: si el estado no se puede leer, neutro «Assessment no disponible» (jamás el veredicto del catálogo)."""
+    entries = list(entries)
+    try:
+        statuses = svc.statuses_for_entries(entries)
+        return {e.entry_id: tile_grade(statuses[e.entry_id]) for e in entries}
+    except Exception:                                   # noqa: BLE001 — la lista del Catálogo no debe depender del assessment
+        svc.log.exception("assessment: no se pudo calcular el grado de las tiles")
+        return {e.entry_id: {"tone": NEUTRAL, "label": "Assessment no disponible", "freshness": None, "has_judgment": False} for e in entries}
+
+
 # BEGIN judgment-presentation (Gate 8D.2) — taxonomía AUTORIZADA del Juicio metodológico (BUENA/ADECUADA/PARCIAL/No determinable).
 # ═══════════════════════════ Juicio metodológico (presentación del resultado DETERMINISTA persistido) ═══════════════════════════
 # Mapeo SOLO de presentación: traduce el resultado ya decidido por el motor canónico a copy en español. NO decide nivel,

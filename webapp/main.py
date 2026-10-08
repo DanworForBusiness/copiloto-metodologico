@@ -1659,7 +1659,8 @@ def catalog_domain(request: Request, dominio: str = "", modulo: str = "", pack: 
     foco = {"03": "fuentes"}.get((modulo or "").strip())
     return templates.TemplateResponse(
         request=request, name="partials/catalog_flows.html",
-        context={"flows": flows, "dominio": dominio, "foco": foco, "pack": _pack(pack)},
+        context={"flows": flows, "dominio": dominio, "foco": foco, "pack": _pack(pack),
+                 "grades": assessment_presenter.tile_grades(flows)},   # grado PRIMARIO de la tile = Adopción metodológica persistida
     )
 
 

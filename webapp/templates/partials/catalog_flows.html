@@ -7,14 +7,16 @@
 {% elif foco == "capas" %}<p class="catalog-foco">Foco de este módulo: <strong>capas de modelado</strong>.</p>{% endif %}
 <ul class="catalog-flows-list">
   {% for e in flows %}
-  <li class="catalog-card catalog-card--{{ e.veredicto|catalog_verdict_tone }}"
+  {# Grado PRIMARIO = Adopción metodológica persistida (`grades`, vía status_tone); el veredicto del catálogo queda como guía descriptiva (`apto`). #}
+  {% set g = (grades or {}).get(e.entry_id) or {"tone": "neutra", "label": "Assessment no disponible", "freshness": none} %}
+  <li class="catalog-card catalog-card--{{ g.tone }}"
       role="link" tabindex="0" title="Ver detalle del flujo"
       hx-get="/catalog/flow?cliente={{ e.cliente|urlencode }}&dominio={{ e.dominio|urlencode }}&flow={{ e.entry_id|urlencode }}&pack={{ pack|default('datasphere_core') }}"
       hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, keyup[key=='Enter']">
     <p class="catalog-card__head">
-      <span class="catalog-meta-dot catalog-meta-dot--{{ e.veredicto|catalog_verdict_tone }}" aria-hidden="true"></span>
+      <span class="catalog-meta-dot catalog-meta-dot--{{ g.tone }}" aria-hidden="true"></span>
       <strong>{{ e.cliente }}</strong>
-      <span class="catalog-card__verdict catalog-card__verdict--{{ e.veredicto|catalog_verdict_tone }}">{{ e.veredicto|catalog_verdict_label }}</span>
+      <span class="catalog-card__verdict catalog-card__verdict--{{ g.tone }}" title="Adopción metodológica">{{ g.label }}</span>
     </p>
     {# Discriminador funcional: distingue dos flujos del mismo cliente/dominio por
        su modelo de consumo (ver CatalogEntry.consumo). Sin él, dos tiles legítimas
@@ -24,7 +26,7 @@
     <p class="catalog-card__apto">{{ e.apto }}</p>
     {# "XX artefactos" va ARRIBA para que los dos desplegables "+ VER FUENTES" y
        "+ VER NOTAS" queden juntos (antes el conteo se colaba entre ambos). #}
-    <p class="catalog-card__meta">{{ e.artefactos|length }} artefacto{{ "s" if e.artefactos|length != 1 }}</p>
+    <p class="catalog-card__meta">{{ e.artefactos|length }} artefacto{{ "s" if e.artefactos|length != 1 }}{% if g.freshness %} · {{ g.freshness }}{% endif %}</p>
     {% if foco == "capas" and e.capas %}<p class="catalog-card__foco"><strong>Capas:</strong> {{ e.capas|join(" · ") }}</p>{% endif %}
     {% if foco == "fuentes" and e.origenes %}
     <details class="catalog-card__notes" onclick="event.stopPropagation()">

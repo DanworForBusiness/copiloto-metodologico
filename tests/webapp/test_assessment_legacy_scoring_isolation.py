@@ -24,8 +24,9 @@ def test_assessment_code_never_imports_or_calls_the_legacy_evaluator():
 
 def test_legacy_list_tile_template_and_scoring_modules_are_untouched_by_the_assessment_front():
     import subprocess
-    out = subprocess.run(["git", "diff", "--stat", "main", "--", "webapp/templates/partials/catalog_flows.html",
-                          "tools/catalog/generate_catalog.py", "tools/catalog/catalog_service.py"],
+    # La tile del listado (`catalog_flows.html`) ya NO está congelada: desde el gate «grado de la tile = Adopción metodológica» su grado
+    # primario sale del Juicio persistido (ver test_catalog_assessment_routes). Los módulos de scoring legacy siguen intactos.
+    out = subprocess.run(["git", "diff", "--stat", "main", "--", "tools/catalog/generate_catalog.py", "tools/catalog/catalog_service.py"],
                          cwd=REPO, capture_output=True, text=True)
     if out.returncode != 0:                                                  # sin rama `main` local (p. ej. CI en detached HEAD): no aplica
         return
