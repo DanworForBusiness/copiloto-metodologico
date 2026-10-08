@@ -2223,6 +2223,54 @@ def _catalog_portability_section_md(port: dict, asset_type: str, acks: list | No
 _catalog_clean_label = catalog_reads.catalog_clean_label   # helper compartido con el informe de assessment (mismo título de artefacto)
 
 
+_DELTA_SUFFIX = "_Delta"
+
+
+def _catalog_delta_pairs(order: list, autos: dict) -> dict:
+    """{D: X} — pares «ingesta local X + su compañera técnica D = X_Delta» que son UN SOLO objeto lógico de ingesta delta-capable.
+    Regla (determinista; ante cualquier duda NO colapsa). D se pliega en X solo si TODO esto se cumple:
+      1. D == X + «_Delta» (sufijo exacto) y AMBOS están en el flujo (D sin su base X NUNCA se colapsa);
+      2. ambos son «Tabla local» de la capa Ingesta y sin origen remoto;
+      3. D es hoja (sin upstreams ni asociaciones) y X no lee nada distinto de D;
+      4. nadie más que X consume D (si otro artefacto usa D como fuente ordinaria, D es un objeto semántico propio);
+      5. corroboración de identidad: X lee a D (X proyecta D) o ambos comparten la misma etiqueta canónica (D.label == X).
+    Un artefacto que solo «termina en Delta» pero no cumple el par canónico queda tal cual."""
+    present = set(order)
+    consumers: dict[str, set] = {}
+    for n in order:
+        for u in list(autos[n].get("upstreams") or []) + list(autos[n].get("upstreams_asociacion") or []):
+            consumers.setdefault(u, set()).add(n)
+    is_local_ingest = lambda a: (a.get("artefacto_tecnico") == "Tabla local" and a.get("capa") == "Ingesta" and not a.get("origen_remoto"))   # noqa: E731
+    out: dict = {}
+    for d in order:
+        if not d.endswith(_DELTA_SUFFIX) or len(d) == len(_DELTA_SUFFIX):
+            continue
+        x = d[: -len(_DELTA_SUFFIX)]
+        if x not in present:
+            continue
+        ad, ax = autos[d], autos[x]
+        if not (is_local_ingest(ad) and is_local_ingest(ax)):
+            continue
+        if ad.get("upstreams") or ad.get("upstreams_asociacion") or ax.get("upstreams_asociacion"):
+            continue
+        if set(ax.get("upstreams") or []) - {d} or (consumers.get(d, set()) - {x}):
+            continue
+        if not (d in (ax.get("upstreams") or []) or str(ad.get("label") or "") == x):
+            continue
+        out[d] = x
+    return out
+
+
+def _catalog_add_delta_rows(vbody: str, delta_name: str) -> str:
+    """Agrega al detalle técnico de la ingesta lógica X las filas que preservan la verdad técnica del par (sin perder información)."""
+    rows = f"| Delta capable | Sí |\n| Tabla técnica de cambios | {delta_name} |"
+    m = re.search(r"(?ms)^\| Propiedad \| Valor \|\n\|[-| ]+\|\n(?:\|[^\n]*\n)+", vbody)
+    if m is None:
+        return vbody
+    block = m.group(0)
+    return vbody[:m.start()] + block.rstrip("\n") + "\n" + rows + "\n" + vbody[m.end():]
+
+
 def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", focus=None, focus_out: dict | None = None):
     """Arma el detalle de un flujo: (a) un diagrama SVG de linaje por capas y (b)
     las secciones estilo-módulo (una por artefacto, con sus tablas), renderizadas
@@ -2286,12 +2334,17 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
             assoc = sorted(set(assoc) | demote)
         return up, assoc
 
+    # Ingesta local + su compañera técnica `_Delta` = UN objeto lógico: se pliega en el grafo/secciones y su verdad técnica queda en el detalle de la base.
+    delta_pairs = _catalog_delta_pairs([n for n in names if n in bodies], autos)
+    delta_of = {x: d for d, x in delta_pairs.items()}
     # Nodos del flujo (sin num todavía: se numera por posición en el ORDEN VISIBLE).
-    nodes, order = [], [n for n in names if n in bodies]
+    nodes, order = [], [n for n in names if n in bodies and n not in delta_pairs]
     for name in order:
         auto = autos[name]
         label = _catalog_clean_label(auto.get("label"), name)
         up, assoc = _split_up(auto)
+        up = [u for u in dict.fromkeys(delta_pairs.get(u, u) for u in up) if u != name]          # aristas hacia `_Delta` → su base lógica (sin auto-bucles)
+        assoc = [u for u in dict.fromkeys(delta_pairs.get(u, u) for u in assoc) if u != name]
         sem = f"{auto.get('data_category') or ''} {auto.get('modeling_pattern') or ''}".upper()
         nodes.append({
             "name": name, "num": 0, "slug": slug_of[name],
@@ -2313,7 +2366,7 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
     explicit_assoc = show_assoc is not None
     if show_assoc is None:
         show_assoc = assoc_context
-    focus_list = list(dict.fromkeys(str(f) for f in (focus or ())))
+    focus_list = list(dict.fromkeys(delta_pairs.get(str(f), str(f)) for f in (focus or ())))          # el foco sobre la compañera `_Delta` apunta a su objeto lógico
     if focus_list and not explicit_assoc and not show_assoc:
         direct_keep = _catalog_flow_keep(nodes, False)
         if any(n["name"] in focus_list and n["name"] not in direct_keep for n in nodes):
@@ -2334,6 +2387,8 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
         # H1 → H2 (lambda: la descripción con tonos puede traer caracteres que re
         # interpretaría como grupos de reemplazo).
         vbody = re.sub(r"^\s*#\s+.*$", lambda _m: f"## {headings[name]}", bodies[name], count=1, flags=re.M)
+        if name in delta_of:
+            vbody = _catalog_add_delta_rows(vbody, delta_of[name])
         # Botón "Abrir CDS View": auto-vínculo al código del extractor cuando el
         # origen es ABAP_CDS.<X> y existe APIs/<X>.md (si no, no se renderiza →
         # robusto, sin link muerto). Va como bloque HTML tras el heading (markdown
@@ -2354,7 +2409,7 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
     shown_set = set(shown_order)
     composed = re.sub(
         r"`([A-Za-z0-9_]+)`",
-        lambda m: (f"[{m.group(1)}](#{slug_of[m.group(1)]})" if m.group(1) in shown_set else m.group(0)),
+        lambda m: (f"[{m.group(1)}](#{slug_of[delta_pairs.get(m.group(1), m.group(1))]})" if delta_pairs.get(m.group(1), m.group(1)) in shown_set else m.group(0)),
         composed,
     )
     return render_sections(composed, pack_name="", stem="", base=0), lineage_svg, show_assoc, assoc_context
