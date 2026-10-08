@@ -5,8 +5,8 @@
   <h1>Seguridad &amp; Gobernanza</h1>
   <div class="hero-meta">
     <span class="catalog-verdict-line">
-      <span class="catalog-meta-dot catalog-meta-dot--{{ entry.veredicto|catalog_verdict_class }}" aria-hidden="true"></span>
-      <span class="catalog-card__verdict catalog-card__verdict--{{ entry.veredicto|catalog_verdict_class }}">{{ entry.veredicto|catalog_verdict_label }}</span>
+      <span class="catalog-meta-dot catalog-meta-dot--{{ entry.veredicto|catalog_verdict_tone }}" aria-hidden="true"></span>
+      <span class="catalog-card__verdict catalog-card__verdict--{{ entry.veredicto|catalog_verdict_tone }}">{{ entry.veredicto|catalog_verdict_label }}</span>
       <span>{{ entry.apto }}</span>
     </span>
     {% if entry.family == "roles" %}

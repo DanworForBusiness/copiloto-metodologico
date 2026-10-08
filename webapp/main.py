@@ -152,7 +152,16 @@ def _catalog_verdict_text(value: str) -> str:
     return _CATALOG_VERDICT_TEXT.get(_catalog_verdict_key(value), "Referencia Danwor")
 
 
-templates.env.filters["catalog_verdict_class"] = _catalog_verdict_key
+def _catalog_verdict_tone(value: str) -> str:
+    """TONO (color) del veredicto por el mapeo canónico ÚNICO (valencia), separado de la CLAVE del veredicto. Así 'Buena'
+    es verde en TODO el Hub (igual que Adopción), sin que el color codifique rango ni reparos. La clave (`catalog_verdict_class`)
+    se mantiene para `data-*` y filtros."""
+    from webapp.services.status_tone import status_tone
+    return status_tone(_catalog_verdict_key(value))
+
+
+templates.env.filters["catalog_verdict_class"] = _catalog_verdict_key          # CLAVE semántica (data-verdict, filtros): plena/buena/parcial
+templates.env.filters["catalog_verdict_tone"] = _catalog_verdict_tone          # TONO (color) canónico por valencia: buena→verde
 templates.env.filters["catalog_verdict_label"] = _catalog_verdict_label
 templates.env.filters["catalog_verdict_text"] = _catalog_verdict_text
 

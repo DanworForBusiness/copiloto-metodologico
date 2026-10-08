@@ -27,6 +27,7 @@ from webapp.services import assessment_service as svc
 
 canonical_signal_id = P.canonical_signal_id        # los consumidores normalizan ids historicos por aca (API publica de presentacion)
 from webapp.services import catalog_reads
+from webapp.services.status_tone import status_tone
 
 # ── etiquetas de ESTADO DE VIGENCIA (producto del Catálogo, no del motor) ──
 STATE_LABELS = {
@@ -168,7 +169,8 @@ def header_for(entry: Any, pack: str) -> dict | None:
 # Mapeo SOLO de presentación: traduce el resultado ya decidido por el motor canónico a copy en español. NO decide nivel,
 # NO recalcula, NO codifica lógica de calidad (sin puntaje/banda/madurez). El Juicio llega PERSISTIDO en ``status.judgment``.
 _JDG_LEVEL_LABEL = {"BUENA": "Buena", "ADECUADA": "Adecuada", "PARCIAL": "Parcial", "PLENA": "Plena"}
-_JDG_LEVEL_TONE = {"BUENA": "plena", "ADECUADA": "buena", "PARCIAL": "parcial", "PLENA": "plena"}
+# El TONO (color) del nivel sale del mapeo canónico ÚNICO del Hub (`status_tone`), el MISMO que usa el veredicto del Catálogo:
+# 'Buena' es verde en todos lados (por valencia, no por rango). No hay mapa de color propio del Juicio.
 # Copy conciso, orientado al usuario (sin terminología de implementación). Por nivel cuando aporta; genérico si no.
 # Copy orientada al producto: conclusión INTERPRETATIVA ("qué muestra la evidencia"), constructiva y progresiva, nunca
 # punitiva. Es el cierre editorial de la sección (punch del Hub), después de los contratos y la evidencia.
@@ -250,7 +252,7 @@ def judgment_view(judgment: dict | None) -> dict | None:
         "determined": determined,
         "level": level,
         "level_label": _JDG_LEVEL_LABEL.get(level or "", level) if determined else "No determinable",
-        "tone": _JDG_LEVEL_TONE.get(level or "", "") if determined else "neutra",
+        "tone": status_tone(level) if determined else "neutra",
         "headline": (_JDG_LEVEL_HEADLINE.get(level or "") or _JDG_GENERIC_HEADLINE) if determined
                     else (_JDG_ND_HEADLINE + (" " + nd_reason if nd_reason else "")),
         "nd_reason": nd_reason,

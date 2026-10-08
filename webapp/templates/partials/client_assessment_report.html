@@ -66,7 +66,7 @@
           <td>{{ r.confidence_text }}</td>
           <td>{{ r.observation_occurrences if r.observation_occurrences is not none else "—" }}</td>
           <td>{{ r.review_occurrences if r.review_occurrences is not none else "—" }}</td>
-          <td>{% if r.catalog_verdict %}<span class="catalog-card__verdict catalog-card__verdict--{{ r.catalog_verdict|catalog_verdict_class }}">{{ r.catalog_verdict|catalog_verdict_label }}</span>{% else %}—{% endif %}</td>
+          <td>{% if r.catalog_verdict %}<span class="catalog-card__verdict catalog-card__verdict--{{ r.catalog_verdict|catalog_verdict_tone }}">{{ r.catalog_verdict|catalog_verdict_label }}</span>{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>

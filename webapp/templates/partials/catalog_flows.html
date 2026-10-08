@@ -7,14 +7,14 @@
 {% elif foco == "capas" %}<p class="catalog-foco">Foco de este módulo: <strong>capas de modelado</strong>.</p>{% endif %}
 <ul class="catalog-flows-list">
   {% for e in flows %}
-  <li class="catalog-card catalog-card--{{ e.veredicto|catalog_verdict_class }}"
+  <li class="catalog-card catalog-card--{{ e.veredicto|catalog_verdict_tone }}"
       role="link" tabindex="0" title="Ver detalle del flujo"
       hx-get="/catalog/flow?cliente={{ e.cliente|urlencode }}&dominio={{ e.dominio|urlencode }}&flow={{ e.entry_id|urlencode }}&pack={{ pack|default('datasphere_core') }}"
       hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, keyup[key=='Enter']">
     <p class="catalog-card__head">
-      <span class="catalog-meta-dot catalog-meta-dot--{{ e.veredicto|catalog_verdict_class }}" aria-hidden="true"></span>
+      <span class="catalog-meta-dot catalog-meta-dot--{{ e.veredicto|catalog_verdict_tone }}" aria-hidden="true"></span>
       <strong>{{ e.cliente }}</strong>
-      <span class="catalog-card__verdict catalog-card__verdict--{{ e.veredicto|catalog_verdict_class }}">{{ e.veredicto|catalog_verdict_label }}</span>
+      <span class="catalog-card__verdict catalog-card__verdict--{{ e.veredicto|catalog_verdict_tone }}">{{ e.veredicto|catalog_verdict_label }}</span>
     </p>
     {# Discriminador funcional: distingue dos flujos del mismo cliente/dominio por
        su modelo de consumo (ver CatalogEntry.consumo). Sin él, dos tiles legítimas
