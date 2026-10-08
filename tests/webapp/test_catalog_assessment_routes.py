@@ -1188,3 +1188,9 @@ def test_confidence_levels_are_tone_mapped_by_the_single_status_tone_source():
     assert (status_tone("ALTA"), status_tone("MEDIA"), status_tone("BAJA")) == ("plena", "buena", "parcial")
     css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
     assert not re.search(r"confidence-components|\.asr-confidence|\.asr-component", css)                     # sin CSS propio de confianza
+
+
+def test_badge_columns_in_hub_tables_fit_their_content_on_one_line():
+    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    assert re.search(r"\.methodology table:not\(\.table-fixed-columns\) \.catalog-card__verdict \{ white-space: nowrap; \}", css)
+    assert re.search(r"td:has\(> \.catalog-card__verdict:only-child\) \{ width: 1%; white-space: nowrap; \}", css)       # la columna del badge se ajusta; las demás se reparten el resto

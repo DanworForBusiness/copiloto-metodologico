@@ -2462,6 +2462,10 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
   word-break: normal;
 }
 
+/* Badge de estado/tipo dentro de una tabla del Hub: no se parte en dos líneas; su columna se ajusta al contenido y las demás se reparten el resto (responsive). */
+.methodology table:not(.table-fixed-columns) .catalog-card__verdict { white-space: nowrap; }
+.methodology table:not(.table-fixed-columns) td:has(> .catalog-card__verdict:only-child) { width: 1%; white-space: nowrap; }
+
 /* Separadores semánticos dentro de tablas markdown: `{{table_group: ...}}`. */
 .methodology tr.table-group-row td {
   padding: 10px 13px;
