@@ -23,40 +23,38 @@
 {% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, contracts_evaluated, tile_grid, evaluation_table %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
 {% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}
-{# Hallazgo: encabezado semántico + "por qué aparece" siempre visibles; el detalle, bajo demanda (disclosure del CRM) y como TABLAS:
-   (A) aspecto/detalle (solo filas presentes) y (B) ocurrencias. Presentación únicamente: ningún dato se recalcula. #}
+{# Hallazgo = FILA de disclosure del Hub (la misma gramática que las subáreas de Arquitectura): izquierda el título de negocio; derecha la metadata legible
+   (categoría · ocurrencias · artefactos); el cuerpo abre el «por qué aparece» y el detalle como TABLAS. El id interno de la regla (`g.id`) NO se muestra en la
+   lectura funcional: queda en el detalle técnico del cuerpo. Presentación únicamente: ningún dato se recalcula. #}
 {% macro group(g, level) %}
-<article id="{{ g.dom_id }}">
-  <h{{ level }}>{{ g.title }}</h{{ level }}>
-  <p><span class="catalog-card__verdict">{{ g.kind_text }}</span> <span class="catalog-card__verdict">{{ g.area_title }}</span> <span class="catalog-card__verdict">{{ n_occ(g.occurrence_count) }}</span> <code>{{ g.id }}</code></p>
-  <p>{{ g.why_shown }}</p>
-  <details class="dashboard-section">
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Detalle del hallazgo</span><span class="dashboard-section__count">{{ n_occ(g.occurrence_count) }} · {{ g.artifacts|length }} artefacto{{ "s" if g.artifacts|length != 1 }}</span></summary>
-    <div class="dashboard-section__body">
-      <table>
-        <thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead>
-        <tbody>
-          <tr><td>Descripción</td><td>{{ g.explanation }}</td></tr>
-          {% if g.question %}<tr><td>Pregunta para el proyecto</td><td>{{ g.question }} <em>Estado: abierto — requiere contexto, no se emite juicio.</em></td></tr>{% endif %}
-          {% if g.legitimate_reasons %}<tr><td>Razones legítimas</td><td>{{ g.legitimate_reasons|join("; ") }}</td></tr>{% endif %}
-          {% if g.interpretation_limits %}<tr><td>Cómo NO leerlo</td><td>{{ g.interpretation_limits|join("; ") }}</td></tr>{% endif %}
-          {% if g.evidence_limit %}<tr><td>Límite de evidencia</td><td>{{ g.evidence_limit }}</td></tr>{% endif %}
-          <tr><td>Unidad de cada ocurrencia</td><td>{{ g.occurrence_unit }}</td></tr>
-          <tr><td>Artefactos involucrados ({{ g.artifacts|length }})</td><td>{% for a in g.artifacts[:12] %}<code>{{ a }}</code> {% endfor %}{% if g.artifacts|length > 12 %}… (+{{ g.artifacts|length - 12 }}){% endif %} {{ lineage_link(g.lineage_url) }}</td></tr>
-        </tbody>
-      </table>
-      <h{{ level + 1 }}>Ocurrencias ({{ g.occurrences|length }})</h{{ level + 1 }}>
-      <table>
-        <thead><tr><th>Artefactos</th><th>Detalle</th><th>Acción</th></tr></thead>
-        <tbody>
-          {% for o in g.occurrences %}
-          <tr><td>{% for a in o.artifacts[:6] %}<code>{{ a }}</code> {% endfor %}{% if o.artifacts|length > 6 %}… (+{{ o.artifacts|length - 6 }}){% endif %}</td><td>{{ o.text }}</td><td>{{ lineage_link(o.lineage_url) }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </details>
-</article>
+<details class="dashboard-section" id="{{ g.dom_id }}">
+  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ g.title }}</span><span class="dashboard-section__count">{{ g.area_title }} · {{ n_occ(g.occurrence_count) }} · {{ g.artifacts|length }} artefacto{{ "s" if g.artifacts|length != 1 }}</span></summary>
+  <div class="dashboard-section__body">
+    <p>{{ g.why_shown }}</p>
+    <table>
+      <thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead>
+      <tbody>
+        <tr><td>Descripción</td><td>{{ g.explanation }}</td></tr>
+        {% if g.question %}<tr><td>Pregunta para el proyecto</td><td>{{ g.question }} <em>Estado: abierto — requiere contexto, no se emite juicio.</em></td></tr>{% endif %}
+        {% if g.legitimate_reasons %}<tr><td>Razones legítimas</td><td>{{ g.legitimate_reasons|join("; ") }}</td></tr>{% endif %}
+        {% if g.interpretation_limits %}<tr><td>Cómo NO leerlo</td><td>{{ g.interpretation_limits|join("; ") }}</td></tr>{% endif %}
+        {% if g.evidence_limit %}<tr><td>Límite de evidencia</td><td>{{ g.evidence_limit }}</td></tr>{% endif %}
+        <tr><td>Unidad de cada ocurrencia</td><td>{{ g.occurrence_unit }}</td></tr>
+        <tr><td>Artefactos involucrados ({{ g.artifacts|length }})</td><td>{% for a in g.artifacts[:12] %}<code>{{ a }}</code> {% endfor %}{% if g.artifacts|length > 12 %}… (+{{ g.artifacts|length - 12 }}){% endif %} {{ lineage_link(g.lineage_url) }}</td></tr>
+        <tr><td>Identificador de la regla (trazabilidad)</td><td><span class="catalog-note__ev">{{ g.id }}</span></td></tr>
+      </tbody>
+    </table>
+    <h{{ level }}>Ocurrencias ({{ g.occurrences|length }})</h{{ level }}>
+    <table>
+      <thead><tr><th>Artefactos</th><th>Detalle</th><th>Acción</th></tr></thead>
+      <tbody>
+        {% for o in g.occurrences %}
+        <tr><td>{% for a in o.artifacts[:6] %}<code>{{ a }}</code> {% endfor %}{% if o.artifacts|length > 6 %}… (+{{ o.artifacts|length - 6 }}){% endif %}</td><td>{{ o.text }}</td><td>{{ lineage_link(o.lineage_url) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
 {% endmacro %}
 {# Cuerpo de un área, en orden de lectura: contexto de evidencia → titulares (≤4 tiles KPI) → evidencia de apoyo (tablas compactas)
    → evaluación de reglas (tabla) → hallazgos. `lvl`: nivel de los rótulos (h3 en sección propia, h4 dentro de un disclosure). #}
@@ -275,8 +273,8 @@
 
 {# ── [06] Casos a revisar y preguntas abiertas: lo que requiere revisión técnica o información del proyecto (observaciones descriptivas incluidas). ── #}
 <section class="content-section" id="asr-revision">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Casos a revisar y preguntas abiertas", "Lo que requiere revisión técnica o información que solo el proyecto puede aportar, más las observaciones descriptivas (sin juicio). Para cada hallazgo se indica por qué aparece y cómo leerlo.") }}
-  <h3>Casos a revisar</h3>
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Casos a revisar y preguntas abiertas", "Casos que requieren criterio técnico o contexto del proyecto para poder interpretarse o cerrarse.") }}
+  <h3>Casos a revisar · {{ s.review_occurrences }}</h3>
   {% for g in v.review_required %}{{ group(g, 4) }}{% else %}
   {{ not_detected("Las reglas que pudieron evaluarse no levantaron casos a revisar. Ver «Cierre» para la evidencia que no pudo evaluarse.") }}
   {% endfor %}
@@ -295,7 +293,7 @@
   {% call callout("punch", "Para qué sirven estas preguntas", icon="💡") %}<p>Estas preguntas no son conclusiones sobre la calidad del modelo. Identifican información que el proyecto debe aportar para que nuestros consultores puedan cerrar o interpretar correctamente los hallazgos del assessment.</p>{% endcall %}
   {% endif %}
   <div id="asr-observaciones">
-  <h3>Observaciones</h3>
+  <h3>Observaciones · {{ s.observation_occurrences }}</h3>
   {% for g in v.observations %}{{ group(g, 4) }}{% else %}
   {{ not_detected("No se detectaron patrones de nivel observación en la evidencia que pudo evaluarse. Ver «Cierre» para la evidencia que no pudo evaluarse.") }}
   {% endfor %}
@@ -315,8 +313,8 @@
   <table>
     <thead><tr><th>Evidencia</th><th>Área</th><th>Estado</th><th>Motivo</th><th>¿Cuenta?</th></tr></thead>
     <tbody>{% for l in v.limitations %}
-      <tr><td>{{ l.title }}<br><code>{{ l.surface_id }}</code></td><td>{{ l.area }}</td><td>{{ l.state }}</td>
-          <td>{{ l.reason }} <code>{{ l.reason_code }}</code>{% if l.units %}<br>Unidades: {{ l.units[:8]|join(", ") }}{% if l.units|length > 8 %}, … (+{{ l.units|length - 8 }}){% endif %}{% endif %}</td>
+      <tr><td>{{ l.title }}<br><span class="catalog-note__ev">{{ l.surface_id }}</span></td><td>{{ l.area }}</td><td><span class="catalog-card__verdict catalog-card__verdict--neutra">{{ l.state }}</span></td>
+          <td>{{ l.reason }} <span class="catalog-note__ev">{{ l.reason_code }}</span>{% if l.units %}<br>Unidades: {{ l.units[:8]|join(", ") }}{% if l.units|length > 8 %}, … (+{{ l.units|length - 8 }}){% endif %}{% endif %}</td>
           <td>{{ "cuenta" if l.counts else "no cuenta" }}</td></tr>{% endfor %}
     </tbody>
   </table>
@@ -327,7 +325,10 @@
   {% endif %}
   {% if v.confidence_components %}
   <h4>Componentes de confianza</h4>
-  <ul>{% for c in v.confidence_components %}<li>{{ c.label }}: {{ c.value }} — {{ c.level }}</li>{% endfor %}</ul>
+  <table data-block="confidence-components">
+    <thead><tr><th>Componente</th><th>Valor</th><th>Nivel</th></tr></thead>
+    <tbody>{% for c in v.confidence_components %}<tr><td>{{ c.label }}</td><td><strong title="Valor exacto: {{ c.value }}">{{ c.value_text }}</strong></td><td><span class="catalog-card__verdict catalog-card__verdict--{{ c.tone }}">{{ c.level }}</span></td></tr>{% endfor %}</tbody>
+  </table>
   <p>Los componentes se combinan tomando el nivel más bajo. Los puntos de corte son provisionales y están pendientes de validación. La cobertura, las preguntas de contexto abiertas y la evidencia del plano de Procesamiento no son insumos de la confianza.</p>
   {% endif %}
   <div id="asr-evidencia">

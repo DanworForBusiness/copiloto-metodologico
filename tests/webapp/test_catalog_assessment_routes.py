@@ -171,7 +171,7 @@ def test_post_generates_validated_json_and_returns_the_structured_report(world):
 def test_report_shows_findings_with_why_context_and_lineage_links(world):
     html = _post(client_for()).text
     assert "Acceso directo a tabla" in html or "ACCESO DIRECTO A TABLA" in html.upper()
-    assert "Detalle del hallazgo" in html and "Pregunta para el proyecto" in html and "Ver en linaje" in html and "/catalog/flow?" in html and "focus=" in html
+    assert "Pregunta para el proyecto" in html and "Ver en linaje" in html and "/catalog/flow?" in html and "focus=" in html
 
 
 # ── 13. el HTML sale del JSON; nada de Markdown→HTML ────────────────────────
@@ -715,15 +715,25 @@ def test_report_leads_with_kpis_in_the_crm_disclosure_and_hero_text_is_simplifie
     assert html.count("Perfil de evidencia, cobertura y confianza") == 1
 
 
-def test_findings_are_semantic_headings_with_progressive_disclosure_not_callouts(world):
+def test_findings_are_hub_disclosure_rows_with_business_metadata_not_raw_inline_text(world):
     html = _post(client_for()).text
     assert not re.search(r'<aside class="callout[^"]*" id="asr-g-', html)
-    arts = re.findall(r'<article id="asr-g-[^"]+">\s*<h[45]>[^<]+</h[45]>.*?</article>', html, re.S)
-    assert arts
-    for art in arts:
-        assert '<details class="dashboard-section">' in art and "Detalle del hallazgo" in art
-        visible = art.split('<details class="dashboard-section">')[0]
-        assert "Pregunta para el proyecto" not in visible and "Razones legítimas" not in visible               # la historia completa va bajo demanda
+    rows = re.findall(r'<details class="dashboard-section" id="asr-g-[^"]+">.*?</details>', html, re.S)
+    assert rows
+    for row in rows:
+        head = row[:row.index("</summary>")]
+        assert '<span class="dashboard-section__title">' in head and '<span class="dashboard-section__count">' in head           # título a la izquierda, metadata a la derecha
+        meta = re.search(r'<span class="dashboard-section__count">([^<]+)</span>', head).group(1)
+        assert re.fullmatch(r"[^·]+ · \d+ ocurrencias? · \d+ artefactos?", meta), meta                                           # categoría · N ocurrencias · N artefactos
+        body = row[row.index("</summary>"):]
+        assert "Pregunta para el proyecto" not in head and "Razones legítimas" not in head                                         # la historia completa va bajo demanda
+        assert "catalog-card__verdict" not in row                                                                                  # sin etiquetas sueltas (CASO A REVISAR, N OCURRENCIAS…)
+    sec = html[html.index('id="asr-revision"'):html.index('id="asr-limitaciones"')]
+    visible = re.sub(r"<(script|style)\b.*?</\1>", " ", sec, flags=re.S)
+    for rule_id in re.findall(r'asr-g-([A-Z_]+)"', sec):
+        before_rows = re.sub(r"<details.*?</details>", " ", visible, flags=re.S)                                                   # fuera de las filas: nada de ids internos
+        assert rule_id not in before_rows, rule_id
+        assert f'<tr><td>Identificador de la regla (trazabilidad)</td><td><span class="catalog-note__ev">{rule_id}</span>' in sec     # el id queda en el detalle técnico
 
 
 def test_facts_have_a_reading_hierarchy_headline_kpis_then_supporting_tables_and_nothing_is_lost(world):
@@ -815,11 +825,11 @@ def test_empty_observaciones_uses_the_hub_empty_state_with_no_detectado(world):
 
 def test_finding_detail_uses_structured_tables_with_a_stable_occurrence_schema(world):
     html = _post(client_for()).text
-    arts = re.findall(r'<article id="asr-g-[^"]+">.*?</article>', html, re.S)
-    assert arts
-    for art in arts:
-        assert re.search(r"<h[345]>[^<]+</h[345]>", art)                                                  # título = encabezado semántico
-        det = art.split('<details class="dashboard-section">')[1]
+    rows = re.findall(r'<details class="dashboard-section" id="asr-g-[^"]+">.*?</details>', html, re.S)
+    assert rows
+    for row in rows:
+        det = row[row.index("</summary>"):]
+        assert re.search(r"<h[345]>Ocurrencias \(\d+\)</h[345]>", det)                                       # subtítulo semántico dentro del detalle
         assert "<thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead>" in det and "<th>Artefactos</th><th>Detalle</th><th>Acción</th>" in det
         assert "<strong>Pregunta para el proyecto" not in det                                      # sin narrativa suelta
         assert "<td>Descripción</td>" in det and "<td>Unidad de cada ocurrencia</td>" in det
@@ -1133,3 +1143,48 @@ def test_legacy_catalog_payload_alone_cannot_produce_a_note_or_call_to_action():
         assert "hallazgos" not in scrub and "Ver notas" not in src, name
     ev = main.asset_evaluation.asset_evaluation(type("E", (), {"hallazgos": [LEGACY_NOTE], "body": "## Hallazgos de cumplimiento\n- x **t** _Evidencia:_ y", "portabilidad_bdc": None})(), assessed=False)
     assert ev == {"governance": None, "portability": None}
+
+
+# ── [06]/[07] normalizados a la gramática del Hub ───────────────────────────────────────────────────────────────────────────────────────
+def test_section_06_reads_as_the_same_report_with_concise_copy_and_counted_subsections(world):
+    html = _post(client_for()).text
+    sec = html[html.index('id="asr-revision"'):html.index('id="asr-limitaciones"')]
+    assert "Casos que requieren criterio técnico o contexto del proyecto para poder interpretarse o cerrarse." in sec
+    assert re.search(r"<h3>Casos a revisar · \d+</h3>", sec) and re.search(r"<h3>Observaciones · \d+</h3>", sec)
+    assert re.search(r'id="asr-preguntas"', sec) and "Preguntas que solo el proyecto puede responder" in sec                    # tabla/disclosure canónico existente
+    lead = sec[:sec.index("<details")]                                                                                         # entre el encabezado y la primera fila: nada suelto
+    assert "catalog-card__verdict" not in lead and "FIELD_VOCABULARY_MIX" not in lead and "<code>" not in lead
+
+
+def test_confidence_components_are_a_canonical_table_with_two_decimals_and_a_tone_badge(world):
+    html = _post(client_for()).text
+    sec = html[html.index('id="asr-limitaciones"'):]
+    comp = re.search(r'<table data-block="confidence-components">.*?</table>', sec, re.S).group(0)
+    assert "<th>Componente</th><th>Valor</th><th>Nivel</th>" in comp
+    rows = re.findall(r'<tr><td>([^<]+)</td><td><strong title="Valor exacto: ([^"]+)">(\d\.\d{2})</strong></td><td><span class="catalog-card__verdict catalog-card__verdict--(\w+)">([A-ZÁÉÍÓÚ]+)</span></td></tr>', comp)
+    prof = svc.status_for_entry(world.entries[0]).profile
+    comps = prof["summary"]["confidence"]["components"]
+    assert len(rows) == len(comps) and rows
+    for (label, exact, shown, tone, level), c in zip(rows, comps):
+        assert float(exact) == c["value"] and shown == f"{c['value']:.2f}"                                  # 2 decimales de DISPLAY; el valor persistido no cambia
+        assert tone == {"ALTA": "plena", "MEDIA": "buena", "BAJA": "parcial"}[level]                        # tono canónico (status_tone)
+    assert "Los componentes se combinan tomando el nivel más bajo." in sec                                  # la explicación se conserva
+    assert not re.search(r"\d\.\d+ — [A-Z]+", sec)                                                          # sin fragmentos crudos «1.0 — ALTA»
+
+
+def test_limitations_table_uses_the_neutral_state_badge_and_keeps_technical_ids_secondary(world):
+    html = _post(client_for()).text
+    sec = html[html.index('id="asr-limitaciones"'):]
+    tbl = re.search(r"<table>\s*<thead><tr><th>Evidencia</th><th>Área</th><th>Estado</th>.*?</table>", sec, re.S)
+    if tbl:                                                                                                  # el fixture puede no traer limitaciones
+        t = tbl.group(0)
+        assert 'catalog-card__verdict catalog-card__verdict--neutra">' in t and "<code>" not in t           # estado = badge neutro; ids técnicos sin competir
+        assert re.search(r'<span class="catalog-note__ev">[^<]+</span>', t)
+        assert re.search(r"<td>(cuenta|no cuenta)</td>", t) and "verdict\">cuenta" not in t                 # «¿Cuenta?» sigue siendo texto simple
+
+
+def test_confidence_levels_are_tone_mapped_by_the_single_status_tone_source():
+    from webapp.services.status_tone import status_tone
+    assert (status_tone("ALTA"), status_tone("MEDIA"), status_tone("BAJA")) == ("plena", "buena", "parcial")
+    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    assert not re.search(r"confidence-components|\.asr-confidence|\.asr-component", css)                     # sin CSS propio de confianza

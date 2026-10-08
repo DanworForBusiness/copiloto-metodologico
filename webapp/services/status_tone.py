@@ -29,6 +29,9 @@ _STATUS_TONE = {
     "buena": POSITIVE,            # favorable → verde (NO ámbar): el color es el estado, no el rango
     "adecuada": ACCEPTABLE,       # aceptable con oportunidades → ámbar
     "parcial": ATTENTION,         # requiere atención → naranja
+    "alta": POSITIVE,             # niveles de CONFIANZA del assessment (por valencia, igual que el resto)
+    "media": ACCEPTABLE,
+    "baja": ATTENTION,
     "nodeterminable": NEUTRAL,
     "sindictamen": NEUTRAL,
     "neutra": NEUTRAL,
