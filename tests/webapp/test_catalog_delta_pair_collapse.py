@@ -60,10 +60,11 @@ def _node_order(svg):
 
 
 # 1. un objeto lógico, un nodo
-@pytest.mark.parametrize("delta_reads,label", [(True, None), (False, "1TR_X")])
+@pytest.mark.parametrize("delta_reads,label", [(True, None), (False, "otra etiqueta")])
 def test_local_ingest_with_its_delta_companion_renders_as_one_logical_node(tmp_path, monkeypatch, delta_reads, label):
+    _pool(tmp_path, monkeypatch, {"1TR_X": _delta()})                                                   # ON + deltaFromEntities identifica a la compañera
     v, order = _chain(delta_reads=delta_reads, delta_label=label)
-    sections, svg = _view(_flow(tmp_path, monkeypatch, v, order))
+    sections, svg = _view(_flow(tmp_path / "cat", monkeypatch, v, order))
     slugs = [s.slug for s in sections]
     assert not any("delta" in s for s in slugs) and len(slugs) == 4                                     # sin sección/nodo para la compañera técnica
     assert "1TR_X_Delta" not in svg and svg.count("1TR_X") >= 1
@@ -73,11 +74,12 @@ def test_local_ingest_with_its_delta_companion_renders_as_one_logical_node(tmp_p
 
 # 2. el detalle técnico conserva la verdad
 def test_the_technical_detail_still_says_the_ingest_is_delta_capable(tmp_path, monkeypatch):
+    _pool(tmp_path, monkeypatch, {"1TR_X": _delta()})
     v, order = _chain()
-    sections, _svg = _view(_flow(tmp_path, monkeypatch, v, order))
+    sections, _svg = _view(_flow(tmp_path / "cat", monkeypatch, v, order))
     base = next(s for s in sections if s.slug.endswith("1tr-x") or "1TR_X" in s.title)
     text = re.sub(r"<[^>]+>", " ", base.html)
-    assert re.search(r"Delta capture\s+No determinado", text)                                           # sin evidencia CSN: nunca un OFF falso
+    assert re.search(r"Delta capture\s+ON", text)
     assert re.search(r"Tabla técnica de cambios\s+1TR_X_Delta", text)                                   # trazabilidad: la tabla técnica sigue identificada
     assert "1TR_X_Delta" not in [s.title for s in sections]
 
@@ -125,8 +127,9 @@ def test_an_artifact_that_merely_ends_in_delta_is_not_collapsed(tmp_path, monkey
 
 # 5. el resto del orden se mantiene
 def test_the_rest_of_the_lineage_order_is_stable(tmp_path, monkeypatch):
+    _pool(tmp_path, monkeypatch, {"1TR_X": _delta()})
     v, order = _chain()
-    sections, svg = _view(_flow(tmp_path, monkeypatch, v, order))
+    sections, svg = _view(_flow(tmp_path / "cat", monkeypatch, v, order))
     v0, order0 = _chain(with_delta=False)
     sections0, svg0 = _view(_flow(tmp_path / "plain", monkeypatch, v0, order0, cliente="Cli"))
     assert [s.title for s in sections] == [s.title for s in sections0]                                  # mismo orden visible que el flujo sin compañera
@@ -134,8 +137,9 @@ def test_the_rest_of_the_lineage_order_is_stable(tmp_path, monkeypatch):
 
 
 def test_focus_on_the_delta_companion_points_to_its_logical_object(tmp_path, monkeypatch):
+    _pool(tmp_path, monkeypatch, {"1TR_X": _delta()})
     v, order = _chain()
-    e = _flow(tmp_path, monkeypatch, v, order)
+    e = _flow(tmp_path / "cat", monkeypatch, v, order)
     out: dict = {}
     main._catalog_flow_view(e, False, "datasphere_core", focus=["1TR_X_Delta"], focus_out=out)
     assert [p["name"] for p in out["present"]] == ["1TR_X"] and out["missing"] == []
@@ -145,8 +149,9 @@ def test_focus_on_the_delta_companion_points_to_its_logical_object(tmp_path, mon
 def test_user_facing_artifact_count_follows_the_logical_lineage_objects(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     from webapp.services import auth_service
+    _pool(tmp_path, monkeypatch, {"1TR_X": _delta()})
     v, order = _chain()
-    e = _flow(tmp_path, monkeypatch, v, order)
+    e = _flow(tmp_path / "cat", monkeypatch, v, order)
     sections, svg = _view(e)
     assert len(e.artefactos) == 5 and len(sections) == 4 == len(_node_order(svg))                      # físico 5; objetos lógicos del linaje 4
     assert main._catalog_logical_artifact_count(e) == 4                                                # el helper deriva del MISMO conjunto normalizado
@@ -188,7 +193,7 @@ def _delta(companions=("1TR_X_Delta",), type_="ACTIVE"):
 
 
 def _detail_text(sections, title_part):
-    sec = next(s for s in sections if title_part in s.title)
+    sec = next(s for s in sections if s.title.endswith(f"· {title_part}"))                            # la sección de ESE objeto (no la de `X_Delta`)
     return re.sub(r"<[^>]+>", " ", sec.html)
 
 
@@ -239,3 +244,32 @@ def test_on_without_the_companion_in_the_closure_still_reports_capture_and_the_t
     text = _detail_text(sections, "1TR_X")
     assert re.search(r"Delta capture\s+ON", text) and re.search(r"Tabla técnica de cambios\s+1TR_X_Delta", text)
     assert len(sections) == 4 and len(_node_order(svg)) == 4                                        # el grafo no cambia (un solo objeto lógico)
+
+
+# ── Invariante final: SIN evidencia canónica no hay par plegado ───────────────────────────────────────────────────────────────────────────────
+def test_undetermined_evidence_with_a_structurally_plausible_pair_keeps_two_visible_nodes(tmp_path, monkeypatch):
+    from webapp.services import catalog_delta_evidence as cde
+    _pool(tmp_path, monkeypatch, {"OTRA": {}})                                                       # hay pool, pero ninguna definición de 1TR_X → No determinado
+    v, order = _chain(delta_reads=True, delta_label="1TR_X")                                         # estructuralmente perfecto: X lee D, misma etiqueta, hoja, un solo consumidor
+    sections, svg = _view(_flow(tmp_path / "cat", monkeypatch, v, order))
+    assert cde.delta_capture("Cli", "Dom", "1TR_X")["state"] == cde.UNDETERMINED
+    assert len(sections) == 5 and "1TR_X_Delta" in svg and len(_node_order(svg)) == 5                 # DOS nodos de ingesta visibles
+    text = _detail_text(sections, "1TR_X")
+    assert re.search(r"Delta capture\s+No determinado", text) and "Tabla técnica de cambios" not in text   # sin tabla técnica afirmada
+    e = _flow(tmp_path / "cat2", monkeypatch, v, order, cliente="Cli2")
+    assert main._catalog_logical_artifact_count(e) == 5                                              # y el conteo visible tampoco pliega
+
+
+def test_on_without_a_canonical_companion_identity_does_not_collapse_nor_invents_a_technical_table(tmp_path, monkeypatch):
+    for extra in (_delta(companions=()), _delta(companions=("OTRA_TABLA_Delta",))):                  # ON sin identidad de la compañera / apuntando a otra
+        root = _pool(tmp_path / extra["@DataWarehouse.delta"]["type"]["#"] / str(len(extra["@DataWarehouse.delta"]["deltaFromEntities"])), monkeypatch, {"1TR_X": extra})
+        v, order = _chain()
+        sections, svg = _view(_flow(root.parent / "cat", monkeypatch, v, order))
+        text = _detail_text(sections, "1TR_X")
+        assert re.search(r"Delta capture\s+ON", text)                                                # la captura SÍ consta
+        assert len(sections) == 5 and "1TR_X_Delta" in svg                                           # no se pliega
+        assert not re.search(r"Tabla técnica de cambios\s+1TR_X_Delta", text)                       # no se inventa
+        if not extra["@DataWarehouse.delta"]["deltaFromEntities"]:
+            assert "Tabla técnica de cambios" not in text
+        else:
+            assert re.search(r"Tabla técnica de cambios\s+OTRA_TABLA_Delta", text)                    # solo lo que declara la evidencia

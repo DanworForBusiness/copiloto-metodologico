@@ -2236,8 +2236,8 @@ def _catalog_delta_pairs(order: list, autos: dict, capture=None) -> dict:
       3. D es hoja (sin upstreams ni asociaciones) y X no lee nada distinto de D;
       4. nadie más que X consume D (si otro artefacto usa D como fuente ordinaria, D es un objeto semántico propio);
       5. evidencia CANÓNICA de captura delta de X (``capture(X)``, definición CSN `@DataWarehouse.delta`; la MISMA que muestra «Delta capture» en el detalle):
-         ON + D declarada como compañera → par PROBADO; OFF → NO se pliega (la definición autoritativa dice que X no tiene delta); sin evidencia
-         (UNDETERMINED) → corroboración estructural: X lee a D (X proyecta D) o ambos comparten la misma etiqueta canónica (D.label == X).
+         ON **y** ``deltaFromEntities`` identifica a D como compañera. Sin esa confirmación (ON sin identidad de la compañera, OFF o evidencia
+         INDETERMINADA) NO se pliega: no existe un par plegado sin evidencia canónica (ninguna heurística de nombre/estructura decide lo visible).
     Un artefacto que solo «termina en Delta» pero no cumple el par canónico queda tal cual."""
     present = set(order)
     consumers: dict[str, set] = {}
@@ -2260,12 +2260,7 @@ def _catalog_delta_pairs(order: list, autos: dict, capture=None) -> dict:
         if set(ax.get("upstreams") or []) - {d} or (consumers.get(d, set()) - {x}):
             continue
         ev = capture(x) if capture else {"state": "UNDETERMINED", "companions": []}
-        if ev["state"] == "OFF":
-            continue
-        if ev["state"] == "ON":
-            if d not in ev["companions"]:
-                continue
-        elif not (d in (ax.get("upstreams") or []) or str(ad.get("label") or "") == x):
+        if ev["state"] != "ON" or d not in ev["companions"]:
             continue
         out[d] = x
     return out
@@ -2384,7 +2379,6 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
     # Ingesta local + su compañera técnica `_Delta` = UN objeto lógico: se pliega en el grafo/secciones y su verdad técnica queda en el detalle de la base.
     _capture = lambda n: catalog_delta_evidence.delta_capture(entry.cliente, entry.dominio, n)   # noqa: E731 — evidencia canónica (CSN), UNA para colapso y detalle
     delta_pairs = _catalog_delta_pairs([n for n in names if n in bodies], autos, _capture)
-    delta_of = {x: d for d, x in delta_pairs.items()}
     # Nodos del flujo (sin num todavía: se numera por posición en el ORDEN VISIBLE).
     nodes, order = [], [n for n in names if n in bodies and n not in delta_pairs]
     for name in order:
@@ -2437,8 +2431,7 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
         vbody = re.sub(r"^\s*#\s+.*$", lambda _m: f"## {headings[name]}", bodies[name], count=1, flags=re.M)
         if autos[name].get("artefacto_tecnico") == "Tabla local":
             ev = _capture(name)
-            comps = list(dict.fromkeys([*ev["companions"], *([delta_of[name]] if name in delta_of else [])]))
-            vbody = _catalog_add_delta_rows(vbody, ev["state"], comps if (ev["state"] == "ON" or name in delta_of) else [])
+            vbody = _catalog_add_delta_rows(vbody, ev["state"], ev["companions"] if ev["state"] == "ON" else [])     # la tabla técnica sale SOLO de la evidencia canónica
         # Botón "Abrir CDS View": auto-vínculo al código del extractor cuando el
         # origen es ABAP_CDS.<X> y existe APIs/<X>.md (si no, no se renderiza →
         # robusto, sin link muerto). Va como bloque HTML tras el heading (markdown
