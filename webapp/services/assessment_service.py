@@ -202,6 +202,7 @@ class AssessmentStatus:
     generated_at: str | None = None
     profile: dict | None = None          # perfil canónico validado (CURRENT / STALE / FAILED con último perfil previo)
     judgment: dict | None = field(default=None, compare=False)   # Juicio metodológico DERIVADO y PERSISTIDO del perfil (nunca recalculado por la UI)
+    domain_classification: dict | None = field(default=None, compare=False)   # Clasificación de dominio PERSISTIDA (hermana del Juicio; sugerencia, jamás insumo de calidad)
     previous_profile_retained: bool = False
     durable: str | None = field(default=None, compare=False)   # solo tras ``generate``: "remote" | "local" | "memory" (ver ``_store_envelope``)
     stale_reason: str | None = field(default=None, compare=False)       # solo STALE: VERSION_ONLY | INPUT_CHANGED | VERSION_AND_INPUT
@@ -430,9 +431,16 @@ def _derive_judgment(profile: dict | None) -> dict | None:
     return evaluate_judgment(profile) if profile is not None else None
 
 
+def _derive_domain_classification(entry: Any, am: str | None) -> dict | None:
+    """Clasificación de dominio DERIVADA del contexto local del Catálogo (nombres/etiquetas del flujo y dominios del cliente). Sin red,
+    sin Datasphere, sin leer el Juicio ni el perfil: cambiarla NO puede cambiar ningún resultado metodológico. Fail-soft (``None``)."""
+    from webapp.services import domain_classification_service
+    return domain_classification_service.derive_for_entry(entry, am)
+
+
 def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_signature: str | None,
               versions: dict | None, error_code: str | None = None, generated_at: str | None = None,
-              judgment: dict | None = _UNSET) -> dict:
+              judgment: dict | None = _UNSET, domain_classification: dict | None = None) -> dict:
     return {
         "envelope_version": ENVELOPE_VERSION,
         "client": client,
@@ -445,6 +453,8 @@ def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_s
         "status": status,
         "profile_json": profile,
         "judgment": _derive_judgment(profile) if judgment is _UNSET else judgment,
+        # Clasificación de dominio: derivado HERMANO del Juicio (contrato/versión propios). No entra en las firmas del perfil ni del artefacto.
+        "domain_classification": domain_classification,
         "error_code": error_code,
     }
 
@@ -535,6 +545,29 @@ def iter_governed_envelopes() -> Iterable[tuple[dict, Path]]:
                 continue
             if isinstance(env, dict) and env.get("envelope_version") == ENVELOPE_VERSION:
                 yield env, f
+
+
+DC_CURRENT, DC_MISSING, DC_STALE, DC_NO_ROOT = "domain_classification_current", "domain_classification_missing", "domain_classification_stale", "no_root"
+
+
+def classify_domain_classification_backfill(env: dict, entry: Any) -> tuple[str, dict | None]:
+    """(acción, clasificación fresca) para UN sobre gobernado + SU entrada del Catálogo. Idempotente por ``input_signature``+versión."""
+    fresh = _derive_domain_classification(entry, env.get("terminal_am"))
+    if fresh is None:
+        return DC_NO_ROOT, None
+    persisted = env.get("domain_classification")
+    if persisted is None:
+        return DC_MISSING, fresh
+    if (persisted.get("version"), persisted.get("input_signature")) == (fresh.get("version"), fresh.get("input_signature")):
+        return DC_CURRENT, fresh
+    return DC_STALE, fresh
+
+
+def apply_domain_classification_backfill(env: dict, dclass: dict | None) -> str:
+    """Reescribe el MISMO sobre (identidad, perfil, Juicio, firmas y versiones intactos) solo con la clasificación nueva."""
+    new_env = dict(env)
+    new_env["domain_classification"] = dclass
+    return _store_envelope(new_env)
 
 
 def classify_judgment_backfill(env: dict) -> tuple[str, dict | None]:
@@ -659,17 +692,18 @@ def _status_from(entry: Any, res: Resolution, versions: dict) -> AssessmentStatu
         return AssessmentStatus(NOT_YET_ASSESSED, eid, client, am)
     prof = env.get("profile_json")
     jdg = _persisted_judgment(env)
+    dcl = env.get("domain_classification")
     if env.get("status") == "FAILED":
         code = env.get("error_code")
         return AssessmentStatus(FAILED, eid, client, am, reason=_failed_message(code), error_code=code,
-                                generated_at=env.get("generated_at"), profile=prof, judgment=jdg, previous_profile_retained=prof is not None)
+                                generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, previous_profile_retained=prof is not None)
     if env.get("assessment_schema_version") != ma_profile.ASSESSMENT_SCHEMA_VERSION or not _valid_profile(env):
         return AssessmentStatus(INCOMPATIBLE_SCHEMA, eid, client, am, reason=INCOMPATIBLE_MESSAGE, error_code="INCOMPATIBLE_SCHEMA",
                                 generated_at=env.get("generated_at"))
     cur = classify_currentness(env.get("input_pool_signature"), env.get("assessment_versions"), res.pool_signature, versions)
     if cur.state == CURRENT:
-        return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg)
-    return AssessmentStatus(STALE, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, stale_reason=cur.reason, stale_targeted=cur.targeted,
+        return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl)
+    return AssessmentStatus(STALE, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, stale_reason=cur.reason, stale_targeted=cur.targeted,
                             stale_version_diff=cur.version_diff)
 
 
@@ -823,7 +857,8 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict, *, force: bool
         if state == "ASSESSED":
             ma_profile.validate_assessment(doc)
             sig = (doc.get("scope") or {}).get("pool_signature") or meta.get("pool_signature")
-            durable = _store_envelope(_envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"])))
+            durable = _store_envelope(_envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
+                                                domain_classification=_derive_domain_classification(entry, am)))
             return replace(_status_from(entry, res, versions), durable=durable)
         if state == "NOT_APPLICABLE":
             return AssessmentStatus(NOT_APPLICABLE, entry.entry_id, client, None, reason=NA_REASONS["NO_TERMINAL_AM"])
@@ -845,7 +880,8 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict, *, force: bool
         client, am, status="FAILED", profile=retained["profile_json"] if retained else None,
         pool_signature=retained.get("input_pool_signature") if retained else None,
         versions=retained.get("assessment_versions") if retained else None,
-        error_code=code, generated_at=retained.get("generated_at") if retained else None))
+        error_code=code, generated_at=retained.get("generated_at") if retained else None,
+        domain_classification=(retained or {}).get("domain_classification")))
     return replace(_status_from(entry, res, versions), durable=durable)
 
 
@@ -919,7 +955,8 @@ def _regenerate_core(entry: Any, *, precondition: Any, postcheck: Any, log_label
     if sig != res.pool_signature:
         raise EnrichmentError("POOL_SIGNATURE_MISMATCH")
     postcheck(doc, previous, res, versions)
-    env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]))
+    env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
+                    domain_classification=_derive_domain_classification(entry, am))
     if not _envelope_resolves_current(env, res, versions):
         raise EnrichmentError("WOULD_NOT_BE_CURRENT")
     return RegeneratedAssessment(client, am, doc, env, (previous or {}).get("assessment_artifact_signature"))

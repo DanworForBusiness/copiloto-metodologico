@@ -228,9 +228,10 @@
 {# ── [04] Gobierno & estándares: hallazgos de cumplimiento del Catálogo (factuales, SIN nota global) + convención de nombres (área NAMING). ── #}
 {% set gov = v.evaluation.governance %}
 {% set gma = v.story.governance_areas %}
-{% if gov or gma %}
+{% set dcl = v.domain_classification %}
+{% if gov or gma or dcl %}
 <section class="content-section" id="asr-gobierno">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Gobierno & estándares", "Estándares y convenciones que el activo debe respetar: hallazgos de cumplimiento y convención de nombres. Son lecturas factuales para revisión técnica; no se consolidan en una nota global ni se mezclan con la adopción metodológica.") }}
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Gobierno & estándares", "Estándares y convenciones que el activo debe respetar: hallazgos de cumplimiento, convención de nombres y clasificación de dominio. Son lecturas factuales para revisión técnica; no se consolidan en una nota global ni se mezclan con la adopción metodológica.") }}
   {% if gov %}
   {{ tile_grid(gov.tiles) }}
   {% if gov.key_findings %}<p>Hallazgos clave: {% for t in gov.key_findings %}{{ t }}{% if not loop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
@@ -240,6 +241,22 @@
   </details>
   {% endif %}
   {% if gma %}{{ area_rows(gma) }}{% endif %}
+  {# Clasificación de dominio: SUGERENCIA derivada de la evidencia (hermana del Juicio; no afecta la adopción ni mueve nada). Abierta solo si hay sugerencia. #}
+  {% if dcl %}
+  <details class="dashboard-section" id="asr-dominio"{% if dcl.suggested %} open{% endif %}>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Clasificación de dominio</span><span class="dashboard-section__count">{{ dcl.summary }}</span></summary>
+    <div class="dashboard-section__body">
+      <p>{{ dcl.headline }}</p>
+      <table><thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead><tbody>{% for r in dcl.rows %}<tr><td>{{ r.label }}</td><td>{{ r.value }}</td></tr>{% endfor %}</tbody></table>
+      {% if dcl.evidence %}
+      <h4>Evidencia</h4>
+      <table><thead><tr><th>Término</th><th>Fuente</th><th>Artefactos</th></tr></thead><tbody>{% for e in dcl.evidence %}<tr><td>{{ e.term }}</td><td>{{ e.family }}</td><td>{% for a in e.artifacts %}<code>{{ a }}</code> {% endfor %}</td></tr>{% endfor %}</tbody></table>
+      {% endif %}
+      {% if dcl.alternatives %}<p>Otros dominios del cliente compatibles: {{ dcl.alternatives|join(", ") }}.</p>{% endif %}
+      <p>{{ dcl.note }}</p>
+    </div>
+  </details>
+  {% endif %}
 </section>
 {% endif %}
 

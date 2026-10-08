@@ -28,6 +28,7 @@ from webapp.services import assessment_service as svc
 canonical_signal_id = P.canonical_signal_id        # los consumidores normalizan ids historicos por aca (API publica de presentacion)
 from webapp.services import catalog_reads
 from webapp.services import asset_evaluation as AE
+from webapp.services import domain_classification_service as dcs
 from webapp.services.status_tone import ATTENTION, NEUTRAL, POSITIVE, status_tone
 
 # ── etiquetas de ESTADO DE VIGENCIA (producto del Catálogo, no del motor) ──
@@ -190,6 +191,42 @@ def tile_grades(entries: Any) -> dict[str, dict]:
     except Exception:                                   # noqa: BLE001 — la lista del Catálogo no debe depender del assessment
         svc.log.exception("assessment: no se pudo calcular el grado de las tiles")
         return {e.entry_id: {"tone": NEUTRAL, "label": "Assessment no disponible", "freshness": None, "has_judgment": False} for e in entries}
+
+
+# ── Clasificación de dominio (presentación de la SUGERENCIA persistida; hermana del Juicio, sin grado ni color propios) ──
+_DC_HEADLINE = {"SUGGEST_RECLASSIFICATION": "La evidencia disponible sugiere una clasificación más específica.",
+                "ALIGNED": "El dominio actual es consistente con la evidencia disponible.",
+                "UNDETERMINED": "No hay evidencia suficiente para recomendar otro dominio."}
+_DC_REASON = {"CONFLICTING_CANDIDATES": "La evidencia respalda más de un dominio existente por igual; no se recomienda ninguno.",
+              "CURRENT_DOMAIN_NO_EVIDENCE": "El dominio actual no tiene respaldo ni contradicción en la evidencia disponible; no se recomienda otro dominio."}
+_DC_CONFIDENCE = {"HIGH": "Alta", "MEDIUM": "Media", "LOW": "Baja"}
+_DC_TYPE = {"EXISTING_DOMAIN": "Dominio existente del cliente", "NEW_DOMAIN_CANDIDATE": "Dominio nuevo, derivado del vocabulario observado"}
+_DC_FAMILY = {"ROOT": "Objeto raíz", "CLOSURE": "Vocabulario repetido en el cierre", "ROOT+CLOSURE": "Objeto raíz y vocabulario repetido en el cierre"}
+
+
+def domain_classification_view(dc: dict | None) -> dict | None:
+    """View-model de la Clasificación de dominio. SOLO presentación: no decide ni recalcula; es una SUGERENCIA (no mueve ni modifica nada)."""
+    if not dc:
+        return None
+    status = dc.get("classification_status")
+    cur = dc.get("current_domain") or "Sin dominio"
+    sug = dc.get("suggested_domain")
+    conf = _DC_CONFIDENCE.get(dc.get("confidence") or "", "—")
+    headline = _DC_HEADLINE.get(status, _DC_HEADLINE["UNDETERMINED"])
+    if status == "UNDETERMINED" and dc.get("reason") in _DC_REASON:
+        headline = _DC_REASON[dc["reason"]]
+    rows = [("Dominio actual", cur)]
+    if sug:
+        rows.append(("Sugerencia", sug))
+        rows.append(("Tipo de sugerencia", _DC_TYPE.get(dc.get("suggestion_type") or "", "")))
+    rows.append(("Confianza", conf))
+    summary = (f"Sugerencia: {sug} · confianza {conf.lower()}" if status == "SUGGEST_RECLASSIFICATION" and sug
+               else (f"Alineado con «{cur}»" if status == "ALIGNED" else "Sin recomendación"))
+    return {"status": status, "headline": headline, "summary": summary, "rows": [{"label": a, "value": b} for a, b in rows if b],
+            "evidence": ([{"term": e["term"], "family": _DC_FAMILY.get(e["family"], e["family"]), "artifacts": e["artifacts"]} for e in dc.get("evidence") or []]
+                         if status == "SUGGEST_RECLASSIFICATION" else []),     # ALIGNED / UNDETERMINED: presentación compacta (el sustento solo acompaña una sugerencia)
+            "alternatives": list(dc.get("alternatives") or []), "suggested": bool(sug) and status == "SUGGEST_RECLASSIFICATION",
+            "note": "Es una sugerencia: no mueve el modelo ni modifica el catálogo."}
 
 
 # BEGIN judgment-presentation (Gate 8D.2) — taxonomía AUTORIZADA del Juicio metodológico (BUENA/ADECUADA/PARCIAL/No determinable).
@@ -711,6 +748,9 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         arch = src
     ev = AE.asset_evaluation(link_entry) if link_entry is not None else {"governance": None, "portability": None}
     view["evaluation"] = ev
+    # Clasificación de dominio (hermana del Juicio): persistida si su firma de entradas coincide con el Catálogo actual; si no, derivada en solo lectura.
+    dcl, _persisted = (dcs.resolve(status.domain_classification, link_entry, status.terminal_am) if link_entry is not None else (None, False))
+    view["domain_classification"] = domain_classification_view(dcl)
     view["story"] = {
         "architecture": arch,
         "governance_areas": by_id.get("NAMING"),

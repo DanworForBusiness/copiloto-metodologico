@@ -645,6 +645,46 @@ def backfill_judgment(*, apply: bool = False, client: str = "") -> dict:
             "environment_warnings": ["sin almacén durable (solo memoria): el backfill no persiste"] if svc.governed_dir() is None else []}
 
 
+def backfill_domain_classification(entries: Iterable[Any], *, apply: bool = False) -> dict:
+    """Materializa la CLASIFICACIÓN DE DOMINIO (sugerencia) en los sobres gobernados que la tengan ausente o desactualizada, SIN reassess ni
+    adquisición: se deriva del contexto local del Catálogo y se reescribe la MISMA identidad (perfil, Juicio y firmas intactos). Es la ruta
+    operativa de backfill (más barata y segura que ``--reassess-current``: no re-ejecuta el motor). Idempotente por ``input_signature``."""
+    entries = list(entries)
+    resolutions = svc.resolve_entries(entries)
+    records, failed, pending = [], 0, 0
+    for e in entries:
+        res = resolutions[e.entry_id]
+        if res.kind != "OK":
+            continue
+        env = svc._load_envelope(res.client, res.terminal_am)
+        if env is None:
+            continue
+        action, fresh = svc.classify_domain_classification_backfill(env, e)
+        rec = {"client": res.client, "terminal_am": res.terminal_am, "domain": str(getattr(e, "dominio", "")), "action": action,
+               "status": (fresh or {}).get("classification_status"), "suggested_domain": (fresh or {}).get("suggested_domain")}
+        needs = action in (svc.DC_MISSING, svc.DC_STALE)
+        if needs and apply:
+            try:
+                durable = svc.apply_domain_classification_backfill(env, fresh)
+                rec["durable"], rec["action"] = durable, "updated"
+                if durable != svc.DURABLE_REMOTE:
+                    pending += 1
+            except Exception as exc:                                    # noqa: BLE001 — una falla NO corrompe el sobre previo
+                svc.log.exception("backfill de clasificación de dominio: fallo al escribir %s/%s", res.client, res.terminal_am)
+                rec["action"], rec["error"] = "failed", type(exc).__name__
+                failed += 1
+        elif needs:
+            rec["action"] = "would_update"
+        records.append(rec)
+    count = lambda pred: sum(1 for r in records if pred(r))             # noqa: E731
+    counts = {"eligible": len(records), "already_current": count(lambda r: r["action"] == svc.DC_CURRENT), "no_root": count(lambda r: r["action"] == svc.DC_NO_ROOT),
+              "would_update": count(lambda r: r["action"] == "would_update"), "updated": count(lambda r: r["action"] == "updated"),
+              "failed": failed, "pending_remote": pending}
+    counts["complete"] = (failed == 0 and (not apply or counts["would_update"] == 0))
+    return {"mode": "backfill-domain-classification", "apply": apply, "dry_run": not apply, "records": records, "counts": counts,
+            "environment_warnings": ["sin almacén durable (solo memoria): el backfill no persiste"] if svc.governed_dir() is None else []}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     ap.add_argument("--client", default="", help="limitar a un cliente (por defecto: todas las entradas del Catálogo)")
@@ -662,9 +702,12 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--backfill-judgment", action="store_true",
                       help="modo EXPLÍCITO: materializa el Juicio metodológico DERIVADO en los sobres gobernados que lo tengan ausente o con un contrato de "
                            "Juicio anterior, derivándolo del perfil YA persistido (SIN reassess ni adquisición). Idempotente. Exige --dry-run o --apply")
+    mode.add_argument("--backfill-domain-classification", action="store_true",
+                      help="modo EXPLÍCITO: materializa la CLASIFICACIÓN DE DOMINIO (sugerencia, hermana del Juicio) en los sobres gobernados que la tengan ausente "
+                           "o desactualizada, derivándola del Catálogo local (SIN reassess ni adquisición; no toca perfil ni Juicio). Idempotente. Exige --dry-run o --apply")
     ap.add_argument("--apply", action="store_true", help="solo con un modo de regeneración: escribe los reemplazos (excluyente con --dry-run)")
     args = ap.parse_args(argv)
-    regen_mode = args.enrich_current_missing or args.regenerate_stale_evidence or args.reassess_current or args.backfill_judgment
+    regen_mode = args.enrich_current_missing or args.regenerate_stale_evidence or args.reassess_current or args.backfill_judgment or args.backfill_domain_classification
     if regen_mode:
         if args.dry_run == args.apply:                                           # ninguno o ambos: usage, CERO escrituras
             ap.error("los modos de regeneración exigen EXACTAMENTE uno de --dry-run o --apply")
@@ -686,6 +729,9 @@ def main(argv: list[str] | None = None) -> int:
         code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
     elif args.backfill_judgment:
         report = backfill_judgment(apply=args.apply, client=args.client)
+        code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
+    elif args.backfill_domain_classification:
+        report = backfill_domain_classification(entries, apply=args.apply)
         code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
     else:
         report = backfill(entries, dry_run=args.dry_run)

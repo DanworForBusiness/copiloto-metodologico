@@ -236,7 +236,7 @@ def test_no_credentials_or_request_data_are_serialized(world):
     svc.generate(world.acme)
     env = json.loads(files(world)[0].read_text(encoding="utf-8"))
     assert set(env) == {"envelope_version", "client", "terminal_am", "generated_at", "assessment_schema_version", "assessment_versions",
-                        "input_pool_signature", "assessment_artifact_signature", "status", "profile_json", "judgment", "error_code"}
+                        "input_pool_signature", "assessment_artifact_signature", "status", "profile_json", "judgment", "domain_classification", "error_code"}
     text = files(world)[0].read_text(encoding="utf-8")
     assert not re.search(r"secret|password|token|authorization|bearer|api[_-]?key|credential|t@d\.com", text, re.I)
 
