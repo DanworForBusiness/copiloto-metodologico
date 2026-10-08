@@ -361,24 +361,24 @@ def test_all_states_use_the_same_badge_and_neutral_states_get_the_gray_variant(w
     assert ".catalog-card__verdict--neutra {" in css and "padding" not in css.split(".catalog-card__verdict--neutra {")[1].split("}")[0]
 
 
-def test_catalog_verdict_is_a_labeled_secondary_column_and_never_a_score(world):
+def test_client_report_shows_adoption_as_the_only_grade_and_never_the_legacy_catalog_verdict(world):
     c = _client()
     html = c.get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
-    assert "<th>Veredicto del catálogo</th>" in html and "scoring" not in html.lower()
+    assert "<th>Adopción metodológica</th>" in html and "Veredicto del catálogo" not in html and "scoring" not in html.lower()
     snap = c.get("/catalog/client/assessment.json?flow=a").json()
-    assert {r["catalog_verdict"] for r in snap["assets"]} == {"buena"}                              # CatalogEntry.veredicto tal cual
+    assert all("catalog_verdict" not in r for r in snap["assets"])                                    # el grado legacy del catálogo está RETIRADO del snapshot
+    assert all(set(r["adoption"]) == {"label", "tone", "has_judgment"} for r in snap["assets"])
+    assert all(r["adoption"]["tone"] == "neutra" and not r["adoption"]["has_judgment"] for r in snap["assets"])   # sin Juicio persistido: neutro, jamás el grado del catálogo
+    last_cells = re.findall(r'<td><span class="catalog-card__verdict catalog-card__verdict--(\w+)">([^<]+)</span></td>\s*</tr>', html)
+    assert last_cells and all(t == "neutra" for t, _ in last_cells)                                     # columna Adopción: neutra sin Juicio (nunca el 'buena' del catálogo)
     kpis = " ".join(k["label"] for k in pf.report_view(snap)["kpis"])
     assert not re.search(r"plena|buena|parcial", kpis, re.I)                                           # nunca un KPI de veredicto
-    # el veredicto del catálogo NO se deriva de cobertura/confianza: cambia la cobertura, no cambia el veredicto
-    world.statuses["a"].profile["summary"]["coverage"]["strict"] = 0.05
-    again = pf.build_snapshot(world.entries["a"], PACK)
-    assert {r["entry_id"]: r["catalog_verdict"] for r in again["assets"]} == {r["entry_id"]: r["catalog_verdict"] for r in snap["assets"]}
 
 
-def test_catalog_detail_labels_the_legacy_verdict_explicitly():
+def test_catalog_detail_hero_no_longer_renders_the_legacy_verdict():
     tpl = (REPO / "webapp" / "templates" / "partials" / "catalog_flow_content.html").read_text(encoding="utf-8")
-    line = tpl[tpl.index("Veredicto LEGACY del catálogo"):]
-    assert line.index("Veredicto del catálogo") < line.index("catalog_verdict_label") < line.index("{{ apto }}")   # etiqueta · BUENA · texto canónico
+    assert "Veredicto del catálogo" not in tpl and "{{ apto }}" not in tpl and "catalog_verdict_label" not in tpl and "catalog_verdict_tone" not in tpl
+    assert "ah.grade" in tpl                                                                            # el grado sale de la MISMA fuente que la tile
 
 
 def test_report_hero_divider_rhythm_is_symmetric_and_shared_by_both_reports():
@@ -497,7 +497,7 @@ def test_artifact_section_subtitle_is_the_approved_text_in_the_shared_primitive(
     arts = html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]
     sub = re.search(r'<blockquote class="section-subtitle"><p>([^<]+)</p></blockquote>', arts).group(1)
     assert sub == ("Solo los assessments vigentes aportan métricas; los valores representados con guiones significan no disponible. "
-                   "El veredicto del catálogo es el histórico (higiene de extracción), distinto del Assessment. "
+                   "La adopción metodológica es el resultado persistido del Assessment de cada artefacto. "
                    "Cada artefacto abre su detalle en el Catálogo, donde vive el informe individual.")
     head = arts[: arts.index("<table")]
     assert "admin-help" not in arts and "callout" not in head                                        # el subtítulo no es un callout (el cierre va después de la tabla)
@@ -518,19 +518,8 @@ def test_confidence_story_follows_the_actual_distribution_with_few_qualitative_b
     assert s({"HIGH": 5, "MEDIUM": 5, "LOW": 1}) != cautious and "mayor cautela" in s({"HIGH": 3, "MEDIUM": 4, "LOW": 3})   # baja material (≥ 25%)
 
 
-def test_catalog_verdict_story_follows_the_historical_verdict_distribution_only():
-    s = pf.catalog_verdict_story
-    assert s([]) is None and s([None, "?", ""]) is None                                              # sin veredictos usables: se omite
-    plena, buena = s(["plena"] * 6 + ["buena"] * 2 + ["parcial"]), s(["buena"] * 6 + ["plena"] * 2 + ["parcial"])
-    attention, mixed = s(["plena"] * 3 + ["parcial"] * 3), s(["plena"] * 4 + ["buena"] * 4 + ["parcial"])
-    assert len({plena, buena, attention, mixed}) == 4
-    assert "sólido" in plena and "Plena" in plena and "mayormente reutilizable" in buena and "veredicto histórico del catálogo" in buena
-    assert "requiere atención" in attention and "panorama mixto" in mixed
-
-
 def test_stories_never_present_the_catalog_verdict_as_an_assessment_score_nor_create_a_number(world):
     texts = [pf.confidence_story({"HIGH": h, "MEDIUM": m, "LOW": b}) for h, m, b in ((9, 1, 0), (1, 9, 0), (1, 1, 5), (3, 3, 0))]
-    texts += [pf.catalog_verdict_story(v) for v in (["plena"] * 5, ["buena"] * 5, ["parcial"] * 5, ["plena", "buena"])]
     for t in texts:
         assert not re.search(r"score|scoring|puntaje|\d", t, re.I), t                                # sin número sintético ni lenguaje de puntaje
     snap = _snap(world)
@@ -544,7 +533,7 @@ def test_zero_current_assessments_render_no_confidence_callout(world, monkeypatc
     html = _client().get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
     resumen = html[html.index('id="cli-resumen"'): html.index('id="cli-artefactos"')]
     assert "callout" not in resumen                                                                  # sin vigentes no hay conclusión inventada
-    assert "callout" in html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]    # el veredicto del catálogo es independiente del Assessment
+    assert "callout" not in html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]   # ya no hay lectura del veredicto legacy del catálogo
 
 
 def test_both_closures_use_the_standard_punch_callout_primitive(world):
@@ -552,9 +541,9 @@ def test_both_closures_use_the_standard_punch_callout_primitive(world):
     html = c.get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
     resumen = html[html.index('id="cli-resumen"'): html.index('id="cli-artefactos"')]
     arts = html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]
-    for block, story in ((resumen, pf.report_view(_snap(world))["confidence_story"]), (arts, pf.report_view(_snap(world))["catalog_verdict_story"])):
-        assert block.count('<aside class="callout callout--punch">') == 1 and story in block
-    assert resumen.index("</table>") < resumen.index("<aside") and arts.rindex("</table>") < arts.index("<aside")   # después de las tablas
+    story = pf.report_view(_snap(world))["confidence_story"]
+    assert resumen.count('<aside class="callout callout--punch">') == 1 and story in resumen and "<aside" not in arts
+    assert resumen.index("</table>") < resumen.index("<aside")                                          # después de las tablas
     client, macros, single = _tpl("client_assessment_report.html"), _tpl("assessment_report_macros.html"), _tpl("catalog_assessment_report.html")
     assert macros.count("macro callout") == 1 and "macro callout" not in client and "macro callout" not in single   # un solo primitivo, importado
     assert "<aside" not in client and "import heading, callout" in client and "import heading, callout" in single
@@ -567,6 +556,6 @@ def test_markdown_uses_the_same_narrative_source_as_the_html(world):
     c = _client()
     md = c.get("/catalog/client/assessment.md?flow=a").text
     v = pf.report_view(_snap(world))
-    assert f"> {v['confidence_story']}" in md and f"> {v['catalog_verdict_story']}" in md
+    assert f"> {v['confidence_story']}" in md and "catalog_verdict_story" not in v
     html = c.get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
-    assert v["confidence_story"] in html and v["catalog_verdict_story"] in html
+    assert v["confidence_story"] in html

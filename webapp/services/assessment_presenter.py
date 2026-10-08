@@ -153,6 +153,7 @@ def header_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
     # Resumen COMPACTO de Adopción metodológica para el Catálogo (resultado persistido; el detalle vive en el Assessment).
     # Es el MISMO view-model que usa el informe (``judgment_view``): sin recálculo, solo presentación.
     view["adoption"] = judgment_view(status.judgment)
+    view["grade"] = tile_grade(status)          # UN activo, UN grado primario: la MISMA fuente que la tile (Adopción persistida; sin Juicio → estado neutro)
     return view
 
 
@@ -176,7 +177,7 @@ _TILE_JUDGMENT_UNAVAILABLE = "Juicio no disponible"
 def tile_grade(status: svc.AssessmentStatus) -> dict:
     """{tone, label, freshness}. ``tone`` sale de ``status_tone`` (vía ``judgment_view``); sin Juicio → neutro con el vocabulario de estado existente."""
     j = judgment_view(status.judgment)
-    freshness = STATE_LABELS[svc.STALE] if status.state == svc.STALE else None
+    freshness = STATE_LABELS[status.state] if status.state in (svc.STALE, svc.FAILED) and j else None   # vigencia / falla de la regeneración: eje APARTE del grado
     if j:
         return {"tone": j["tone"], "label": j["level_label"], "freshness": freshness, "has_judgment": True}
     return {"tone": NEUTRAL, "label": _TILE_NO_JUDGMENT.get(status.state, _TILE_JUDGMENT_UNAVAILABLE), "freshness": freshness, "has_judgment": False}

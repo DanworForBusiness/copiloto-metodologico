@@ -224,7 +224,7 @@ def test_no_maturity_score_or_band_vocabulary_and_human_text_is_spanish(world, m
         visible = re.sub(r"<(script|style)\b.*?</\1>", " ", html, flags=re.S)
         visible = re.sub(r"<[^>]+>", " ", visible)
         assert not BANNED.search(visible), BANNED.search(visible).group(0)
-    assert "Assessment vigente" in tile and "Cobertura" in tile and "Confianza" in tile
+    assert "Adopción metodológica" in tile and "Cobertura" in tile and "Confianza" in tile
     for english in ("Not assessed", "Coverage", "Confidence", "Review required", "Generate report", "Retry"):
         assert english not in report and english not in tile, english
 
@@ -269,7 +269,7 @@ def test_detail_header_states_follow_the_contract(world, monkeypatch):
     assert "id=\"asm-busy\"" not in h and h.count("Generando informe…") == 1    # un único label, dentro del botón (no flotante)
     assert _post(c).status_code == 200
     h = hdr()                                                                  # CURRENT
-    assert "Assessment vigente" in h and "Ver Assessment" in h and "Ver informe" not in h and "hx-get" in h and "hx-post" not in h and re.search(r"Cobertura \d+\.\d%", h)
+    assert "Adopción metodológica · " in h and "Ver Assessment" in h and "Ver informe" not in h and "hx-get" in h and "hx-post" not in h and re.search(r"Cobertura \d+\.\d%", h)
     assert re.search(r"Confianza (Alta|Media|Baja)", h) and re.search(r"(\d+ casos? a revisar|Sin casos a revisar)", h)
     for absent in ("Inclusiva", "inclusive", "signal-rules", "assessment-rules", "confidence-cuts", "UTC", "2026", "preguntas de contexto", "Generado"):
         assert absent not in h, absent
@@ -291,7 +291,7 @@ def test_detail_header_sits_right_below_the_title_with_the_action_in_the_support
     _post(c)
     h = _detail(c, monkeypatch)
     # Gate UX.4 §1: las acciones viven en la barra transversal (← Volver + acciones) ARRIBA del hero; el estado queda bajo el título.
-    assert h.index("catalog-actionbar") < h.index("support-links heading-supports") < h.index("<h1>") < h.index("Assessment vigente")
+    assert h.index("catalog-actionbar") < h.index("support-links heading-supports") < h.index("<h1>") < h.index("Adopción metodológica · ")
     assert "catalog-back" in h and "asm-hero-has-support" not in h
 
 
@@ -402,7 +402,7 @@ def test_catalog_list_tile_grade_comes_from_adoption_and_catalog_guidance_stays_
     for html in (before, after):
         for absent in ("asm-", "Ver informe", "Generar informe", "Cobertura", "Confianza"):
             assert absent not in html, absent
-        assert '<p class="catalog-card__apto">Referencia reutilizable</p>' in html                       # guía del catálogo, independiente
+        assert "Referencia reutilizable" not in html and "catalog-card__apto" not in html                 # la guía/veredicto LEGACY del catálogo ya no se muestra
     assert not (REPO / "webapp/templates/partials/catalog_assessment_tile.html").exists()
 
 
@@ -475,7 +475,7 @@ def test_assessment_failure_never_breaks_the_flow_detail(world, monkeypatch):
     monkeypatch.setattr(svc, "status_for_entry", lambda e: (_ for _ in ()).throw(RuntimeError("boom")))
     c = client_for()
     h = _detail(c, monkeypatch)
-    assert "<h1>" in h and "catalog-card__verdict--plena" in h and "Assessment" not in h and "boom" not in h     # hero: «Veredicto del catálogo» rotulado, sin assessment
+    assert "<h1>" in h and "Veredicto del catálogo" not in h and "catalog-card__verdict--plena" not in h and "boom" not in h   # hero: sin veredicto legacy; grado neutro
     lst = c.get("/catalog/domain?dominio=Dom")
     assert lst.status_code == 200 and "boom" not in lst.text
 
@@ -834,7 +834,7 @@ def test_clickable_status_badge_matches_the_support_action_and_not_applicable_is
     assert badge and "hx-post" in badge.group(0) and 'role="button"' in badge.group(0) and "Generar informe" in badge.group(0)
     _post(c)
     h = _detail(c, monkeypatch)                                                                             # CURRENT → badge = Ver Assessment (mismo destino)
-    badge = re.search(r'<a class="catalog-card__verdict[^"]*"[^>]*>Assessment vigente</a>', h, re.S).group(0)
+    badge = re.search(r'<a class="catalog-card__verdict[^"]*"[^>]*>Adopción metodológica · [^<]+</a>', h, re.S).group(0)
     support = re.search(r'<a class="support-link"[^>]*>', h).group(0)
     url = re.search(r'hx-get="([^"]+)"', badge).group(1)
     assert url == re.search(r'hx-get="([^"]+)"', support).group(1) and "Ver Assessment" in badge and "click" not in badge.replace("@click.prevent", "")
@@ -981,3 +981,68 @@ def test_hero_status_dot_and_badge_are_neutral_when_there_is_no_assessment(world
     first = h[h.index('<span class="catalog-verdict-line">'):]
     first = first[:first.index("</span>\n    </span>") if "</span>\n    </span>" in first else 600]
     assert 'catalog-meta-dot catalog-meta-dot--neutra' in first and 'catalog-card__verdict--neutra' in first      # mismo gris que la tile (no el dorado por defecto)
+
+
+# ── UN activo, UN grado primario: Adopción metodológica persistida; el grado legacy del catálogo está RETIRADO de la UI ──────────────────────
+def _surfaces(world, monkeypatch, catalog_verdict, state=None, level=None, with_judgment=True):
+    """(hero, tile) reales de UN mismo flujo para un veredicto LEGACY dado y un estado/Juicio persistido dado (estado inyectado en el servicio)."""
+    import dataclasses
+    e = dataclasses.replace(world.entries[0], veredicto=catalog_verdict)
+    world.entries[0] = e                                                                    # la lista es la que sirve el catálogo falso
+    judgment = _judgment(level) if with_judgment else None
+    st = svc.AssessmentStatus(state=state or svc.CURRENT, entry_id=e.entry_id, client=e.cliente, terminal_am="4AM_ACME", judgment=judgment)
+    monkeypatch.setattr(svc, "status_for_entry", lambda entry: st)
+    monkeypatch.setattr(svc, "statuses_for_entries", lambda es: {x.entry_id: st for x in es})
+    monkeypatch.setattr(main, "_catalog_flow_view", lambda entry, show_assoc=None, pack="": ([{"slug": "m", "html": "x"}], "", bool(show_assoc), False))
+    c = client_for()
+    hero = c.get("/catalog/flow?flow=acme-4am&pack=datasphere_core", headers=HX).text
+    hero = hero[hero.index('<section class="module-hero">'):hero.index("</section>", hero.index('<section class="module-hero">'))]
+    tile = c.get("/catalog/domain?dominio=Dom").text
+    return hero, tile
+
+
+def _grade_badges(html):
+    return re.findall(r'<(?:a|span) class="catalog-card__verdict catalog-card__verdict--(\w+)[^"]*"[^>]*>([^<]+)</(?:a|span)>', html)
+
+
+def test_no_assessment_with_legacy_catalog_buena_shows_sin_assessment_only(world, monkeypatch):
+    hero, tile = _surfaces(world, monkeypatch, "buena", state=svc.NOT_YET_ASSESSED, with_judgment=False)
+    for html in (hero, tile):
+        assert {(t, x.strip()) for t, x in _grade_badges(html)} == {("neutra", "Sin assessment")}    # UN solo badge distinto: neutro; sin grado
+        assert "BUENA" not in html.upper().replace("SIN ASSESSMENT", "") and "Veredicto del catálogo" not in html and "Reutilizable" not in html
+
+
+def test_assessment_not_determinable_with_legacy_catalog_buena_shows_no_determinable_only(world, monkeypatch):
+    hero, tile = _surfaces(world, monkeypatch, "buena", level=None)
+    assert [(t, x.strip()) for t, x in _grade_badges(hero)] == [("neutra", "Adopción metodológica · No determinable")]
+    assert {(t, x.strip()) for t, x in _grade_badges(tile)} == {("neutra", "No determinable")}                          # (la lista del dominio trae 2 flujos con el mismo estado inyectado)
+    for html in (hero, tile):
+        assert "Buena" not in html and "BUENA" not in html and "Veredicto del catálogo" not in html
+
+
+def test_assessment_buena_with_legacy_catalog_parcial_shows_buena_only(world, monkeypatch):
+    hero, tile = _surfaces(world, monkeypatch, "parcial", level="BUENA")
+    assert [(t, x.strip()) for t, x in _grade_badges(hero)] == [("plena", "Adopción metodológica · Buena")]
+    assert {(t, x.strip()) for t, x in _grade_badges(tile)} == {("plena", "Buena")}                          # (la lista del dominio trae 2 flujos con el mismo estado inyectado)
+    for html in (hero, tile):
+        assert "parcial" not in html.lower() and "Veredicto del catálogo" not in html
+
+
+def test_stale_assessment_keeps_the_persisted_adoption_grade_and_shows_freshness_without_a_legacy_grade(world, monkeypatch):
+    hero, tile = _surfaces(world, monkeypatch, "parcial", state=svc.STALE, level="ADECUADA")
+    assert [(t, x.strip()) for t, x in _grade_badges(hero)] == [("buena", "Adopción metodológica · Adecuada")]    # el grado NO se recolorea por vigencia
+    assert {(t, x.strip()) for t, x in _grade_badges(tile)} == {("buena", "Adecuada")}                          # (la lista del dominio trae 2 flujos con el mismo estado inyectado)
+    assert "Assessment desactualizado" in hero and "Assessment desactualizado" in tile                      # vigencia, aparte
+    for html in (hero, tile):
+        assert "Veredicto del catálogo" not in html and "catalog-card__verdict--parcial" not in html
+
+
+def test_right_tile_and_central_hero_use_the_same_grade_source(world, monkeypatch):
+    for verdict, state, level, with_j in (("buena", svc.CURRENT, None, True), ("parcial", svc.CURRENT, "BUENA", True), ("plena", svc.STALE, "PARCIAL", True),
+                                          ("buena", svc.NOT_YET_ASSESSED, None, False)):
+        hero, tile = _surfaces(world, monkeypatch, verdict, state=state, level=level, with_judgment=with_j)
+        (ht, hl), (tt, tl) = _grade_badges(hero)[0], _grade_badges(tile)[0]
+        assert ht == tt and hl.strip().split(" · ")[-1] == tl.strip()                                        # mismo tono y mismo nivel
+    e = world.entries[0]
+    st = svc.AssessmentStatus(state=svc.CURRENT, entry_id=e.entry_id, client=e.cliente, terminal_am="4AM_ACME", judgment=_judgment("BUENA"))
+    assert presenter.header_view(st, e, "datasphere_core")["grade"] == presenter.tile_grade(st)               # UNA sola función

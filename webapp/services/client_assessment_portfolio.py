@@ -98,7 +98,8 @@ def _row(entry: Any, status: svc.AssessmentStatus, pack: str) -> dict:
     return {
         "entry_id": entry.entry_id, "domain": str(entry.dominio), "asset_id": am, "asset_title": title,
         "artifact_label": label, "artifact_scope": scope,
-        "catalog_verdict": str(getattr(entry, "veredicto", "") or "").strip().lower() or None,       # veredicto LEGACY del catálogo, tal cual (no es un score del Assessment)
+        # UN activo, UN grado primario: Adopción metodológica PERSISTIDA (misma fuente que la tile). Sin Juicio → estado neutro; el veredicto legacy del catálogo ya no se muestra.
+        "adoption": {k: presenter.tile_grade(status)[k] for k in ("label", "tone", "has_judgment")},
         "state": status.state, "state_label": presenter.STATE_LABELS[status.state],
         "coverage_strict": cov, "coverage_text": presenter.percent(cov) if cov is not None else DASH,
         "confidence": conf, "confidence_text": presenter.confidence_label(conf) if conf else DASH,
@@ -231,29 +232,6 @@ def confidence_story(dist: dict) -> str | None:
             "con poca presencia de confianza alta y sin señales significativas de confianza baja.")
 
 
-VERDICT_ORDER = ("plena", "buena", "parcial")
-
-
-def catalog_verdict_story(verdicts: list) -> str | None:
-    """Lectura cualitativa del veredicto HISTÓRICO del catálogo (higiene de extracción; NO es un puntaje del Assessment ni uno nuevo).
-    Reglas: sin veredictos usables → nada; parcial material (≥ 25%) → atención; plena > 50% → sólido; buena > 50% → mayormente
-    reutilizable; si no, mixto."""
-    counts = {v: sum(1 for x in verdicts if x == v) for v in VERDICT_ORDER}
-    n = sum(counts.values())
-    if n == 0:
-        return None
-    if counts["parcial"] * 4 >= n:
-        return ("El panorama de reutilización requiere atención: una proporción relevante de artefactos mantiene reservas que "
-                "conviene revisar antes de promover su reutilización más amplia.")
-    if counts["plena"] * 2 > n:
-        return ("El catálogo presenta un perfil de reutilización sólido, con predominio de artefactos clasificados como Plena y "
-                "reservas concentradas en una porción menor del universo.")
-    if counts["buena"] * 2 > n:
-        return ("El catálogo muestra un panorama mayormente reutilizable, aunque una parte relevante de los artefactos conserva "
-                "reservas puntuales según el veredicto histórico del catálogo.")
-    return ("El catálogo presenta un panorama mixto de reutilización, con distintos niveles de reserva entre los artefactos evaluados.")
-
-
 ND = "No disponible"
 UNKNOWN_PARTIAL_CAVEAT = ("La identificación de vistas sin clasificar es parcial porque este inventario no informa la familia de todos los artefactos.")
 
@@ -349,7 +327,6 @@ def report_view(snap: dict) -> dict:
         "coverage_whole": {r["entry_id"]: (presenter.percent(r["coverage_strict"], 0) if r["coverage_strict"] is not None else DASH)
                            for r in snap["assets"]},                  # solo presentación de la tabla HTML; el snapshot/JSON conserva el valor y su precisión
         "confidence_story": confidence_story(s["confidence_distribution"]),
-        "catalog_verdict_story": catalog_verdict_story([r["catalog_verdict"] for r in snap["assets"]]),
         "state_rows": [{"state": st, "label": presenter.STATE_LABELS[st], "count": snap["states"][st]} for st in svc.STATES],
         "confidence_rows": [{"level": lvl, "label": presenter.confidence_label(lvl), "count": s["confidence_distribution"][lvl]}
                             for lvl in CONFIDENCE_ORDER],
@@ -376,13 +353,11 @@ def to_markdown(snap: dict) -> str:
     lines += [f"- {r['label']}: {r['count']}" for r in v["confidence_rows"]]
     if v["confidence_story"]:
         lines += ["", f"> {v['confidence_story']}"]
-    lines += ["", "## Artefactos", "", "| Artefacto | Estado | Cobertura | Confianza | Observaciones | Revisión requerida | Veredicto del catálogo |", "|---|---|---|---|---|---|---|"]
+    lines += ["", "## Artefactos", "", "| Artefacto | Estado | Cobertura | Confianza | Observaciones | Revisión requerida | Adopción metodológica |", "|---|---|---|---|---|---|---|"]
     for r in snap["assets"]:
         lines.append("| " + " | ".join(_cell(x) for x in (
             r["artifact_label"] + (f" ({r['artifact_scope']})" if r["artifact_scope"] else ""), r["state_label"], r["coverage_text"] if r["coverage_strict"] is not None else None,
-            r["confidence_text"] if r["confidence"] else None, r["observation_occurrences"], r["review_occurrences"], (r["catalog_verdict"] or "").upper() or None)) + " |")
-    if v["catalog_verdict_story"]:
-        lines += ["", f"> {v['catalog_verdict_story']}"]
+            r["confidence_text"] if r["confidence"] else None, r["observation_occurrences"], r["review_occurrences"], r["adoption"]["label"] if r["adoption"]["has_judgment"] else None)) + " |")
     lines += ["", "## Hallazgos recurrentes", ""]
     if snap["recurring_findings"]:
         lines += [f"- **{f['title']}** ({f['id']}): {presenter.plural(f['entries'], 'artefacto')}" for f in snap["recurring_findings"]]

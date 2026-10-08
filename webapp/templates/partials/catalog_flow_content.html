@@ -22,28 +22,22 @@
 <section class="module-hero">
   <p class="eyebrow">Catálogo Danwor · {{ cliente }}</p>
   <h1>{{ dominio }}</h1>
-  {% if ah %}
+  {# UN activo, UN grado primario: Adopción metodológica persistida (`ah.grade`, la MISMA fuente que la tile del panel). Sin assessment: «Sin assessment», sin grado.
+     El veredicto LEGACY del catálogo ya no se muestra. La vigencia (STALE) va aparte y no recolorea el grado. #}
+  {% set g = ah.grade if ah else {"tone": "neutra", "label": "Assessment no disponible", "freshness": none, "has_judgment": false} %}
   <div class="hero-meta asm-hero-meta">
     <span class="catalog-verdict-line">
-      <span class="catalog-meta-dot{% if ah.tone %} catalog-meta-dot--{{ ah.tone }}{% endif %}" aria-hidden="true"></span>
+      <span class="catalog-meta-dot catalog-meta-dot--{{ g.tone }}" aria-hidden="true"></span>
       {# El badge es un enlace real al MISMO destino/acción que el support-link (sin JS propio); "No aplica" no es accionable. #}
-      {% if ah.action %}<a class="catalog-card__verdict{% if ah.tone %} catalog-card__verdict--{{ ah.tone }}{% endif %} asm-badge-link" href="#" role="button" title="{{ ah.action.label }}" aria-label="{{ ah.label }}: {{ ah.action.label }}"
-         {% if ah.action.method == "get" %}hx-get="{{ ah.url }}"{% else %}hx-post="{{ ah.url }}"{% endif %} hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ ah.label }}</a>
-      {% else %}<span class="catalog-card__verdict{% if ah.tone %} catalog-card__verdict--{{ ah.tone }}{% endif %}">{{ ah.label }}</span>{% endif %}
-      {% if ah.coverage %}<span>Cobertura {{ ah.coverage }} · Confianza {{ ah.confidence }} · <span title="{{ ah.reviews_title }}">{{ ah.reviews }}</span></span>
-      {% elif ah.reason %}<span>{{ ah.reason }}</span>{% endif %}
+      {% set badge_text %}{% if g.has_judgment %}Adopción metodológica · {% endif %}{{ g.label }}{% endset %}
+      {% if ah and ah.action %}<a class="catalog-card__verdict catalog-card__verdict--{{ g.tone }} asm-badge-link" href="#" role="button" title="{{ ah.action.label }}" aria-label="{{ badge_text }}: {{ ah.action.label }}"
+         {% if ah.action.method == "get" %}hx-get="{{ ah.url }}"{% else %}hx-post="{{ ah.url }}"{% endif %} hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ badge_text }}</a>
+      {% else %}<span class="catalog-card__verdict catalog-card__verdict--{{ g.tone }}">{{ badge_text }}</span>{% endif %}
+      {% if g.freshness %}<span>{{ g.freshness }}</span>{% endif %}
+      {% if ah and ah.coverage %}<span>Cobertura {{ ah.coverage }} · Confianza {{ ah.confidence }} · <span title="{{ ah.reviews_title }}">{{ ah.reviews }}</span></span>
+      {% elif ah and ah.reason %}<span>{{ ah.reason }}</span>{% endif %}
+      <span>{{ n_art }} artefactos</span>
     </span>
-  </div>
-  {% endif %}
-  <div class="hero-meta">
-    <span class="catalog-verdict-line">
-      <span class="catalog-meta-dot catalog-meta-dot--{{ veredicto|catalog_verdict_tone }}" aria-hidden="true"></span>
-      {# Veredicto LEGACY del catálogo (higiene de extracción/fuente; congelado): NO es el resultado del Assessment de la línea de arriba. #}
-      <span>Veredicto del catálogo</span>
-      <span class="catalog-card__verdict catalog-card__verdict--{{ veredicto|catalog_verdict_tone }}">{{ veredicto|catalog_verdict_label }}</span>
-      <span>{{ apto }}</span>
-    </span>
-    <span>{{ n_art }} artefactos</span>
   </div>
 </section>
 {% include "partials/catalog_lineage.html" %}
@@ -58,7 +52,7 @@
 {# «Mirada Danwor» (id `evaluacion-del-activo`): UNA sección numerada con la gramática del Hub (`heading()` + disclosures `.dashboard-section` con resumen a la derecha) y
    TRES lecturas independientes, sin puntaje cruzado: Gobierno & estándares (hallazgos, sin nota global), Portabilidad & preparación BDC (capacidad
    técnica: score/confianza/riesgos) y Adopción metodológica (el único grado: nivel con tono de `status_tone`). Es un RESUMEN: el detalle de la
-   evidencia vive en el Assessment («Ver Assessment»). Distinto del «Veredicto del catálogo» del hero (higiene de extracción, congelado). #}
+   evidencia vive en el Assessment («Ver Assessment»). El veredicto legacy del catálogo ya no se muestra: el grado primario del activo es la Adopción metodológica persistida. #}
 {% set ev = evaluation or {} %}
 {% set gov = ev.governance %}
 {% set por = ev.portability %}
