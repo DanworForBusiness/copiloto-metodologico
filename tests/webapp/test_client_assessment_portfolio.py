@@ -306,7 +306,8 @@ def test_portfolio_reuses_the_individual_report_structure_not_a_copy(world):
     assert shared <= used
     # todas las clases del consolidado existen en el informe individual o en el macro compartido (ninguna clase propia del Portfolio)
     vocabulary = set(re.findall(r"[A-Za-z][\w-]+", single + macros))                          # incluye clases armadas con Jinja (`catalog-meta-dot{% if … %}`)
-    own = {c for c in used - vocabulary if not c.startswith(("catalog-card__verdict--", "callout--"))}           # los tonos del badge son los del informe individual
+    hub = {"table-fixed-columns", "reference-text-link", "catalog-note__ev"}                    # primitivos EXISTENTES del Hub (content.css / tools.css): tabla de columnas equivalentes, enlace de texto, metadata secundaria
+    own = {c for c in used - vocabulary - hub if not c.startswith(("catalog-card__verdict--", "callout--"))}           # los tonos del badge son los del informe individual
     assert not own, own
     assert re.findall(r'<span class="section-eyebrow">\[(\d\d)\]</span>', html) == ["01", "02", "03", "04"]      # encabezado de sección compartido (la 04 es la Composición del modelado, aditiva)
     for own in ("tone-gold", "admin-help", "asm-client", "asr-client", "portfolio"):
@@ -345,7 +346,10 @@ def test_every_surface_describes_the_artifact_row_the_same_way(world):
     table = html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]
     for r in snap["assets"]:
         assert r["artifact_label"] in html and r["artifact_label"] in md
-        assert table.count(f"<code>{r['artifact_label']}</code>") == 1                                # una sola vez por fila (sin segunda línea repetida)
+        primary = r["asset_title"] if r["asset_title"] and r["asset_id"] else r["artifact_label"]
+        assert table.count(f">{primary}</a>") == 1                                                    # negocio primero (enlace con la tinta del Hub), una sola vez por fila
+        if r["asset_title"] and r["asset_id"]:
+            assert table.count(f'<span class="catalog-note__ev"> · {r["asset_id"]}</span>') == 1       # identidad técnica secundaria, sin duplicar el enlace
 
 
 def test_all_states_use_the_same_badge_and_neutral_states_get_the_gray_variant(world):
@@ -559,3 +563,18 @@ def test_markdown_uses_the_same_narrative_source_as_the_html(world):
     assert f"> {v['confidence_story']}" in md and "catalog_verdict_story" not in v
     html = c.get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
     assert v["confidence_story"] in html
+
+
+def test_summary_tables_share_one_two_column_contract_and_artifact_names_are_business_first(world):
+    src = _tpl("client_assessment_report.html")
+    assert src.count("macro summary_table") == 1 and src.count("{% call summary_table(") == 2           # una sola definición, usada por AMBAS tablas hermanas
+    html = _client().get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
+    resumen = html[html.index('id="cli-resumen"'): html.index('id="cli-artefactos"')]
+    tables = re.findall(r"<table([^>]*)><thead><tr><th>([^<]+)</th><th>([^<]+)</th></tr></thead>", resumen)
+    assert [(h1, h2) for _a, h1, h2 in tables] == [("Estado del assessment", "Artefactos"), ("Confianza", "Assessments")]
+    assert {a.strip() for a, _h1, _h2 in tables} == {'class="table-fixed-columns"'}                       # mismo contrato de columnas (sin anchos por tabla)
+    css = (REPO / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert not re.search(r"assessment-state-table|confidence-table|cli-summary", css)
+    arts = html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]
+    assert "<code>" not in arts.split("<tbody>")[1].split("</tbody>")[0].split("</td>")[0]                # el primer campo ya no es una cadena técnica en dorado
+    assert 'class="reference-text-link"' in arts                                                           # enlace de negocio = primitivo canónico del Hub (tinta normal)
