@@ -161,7 +161,7 @@ def test_post_generates_validated_json_and_returns_the_structured_report(world):
     assert r.status_code == 200
     assert "HX-Trigger" not in r.headers                                  # nada escuchaba el evento del tile: se retiró
     for needle in ("Assessment vigente", "Resumen", "Observaciones", "Casos a revisar", "No evaluado / Limitaciones de evidencia",
-                   "Cierre: limitaciones y trazabilidad", "Arquitectura &amp; Modelado", "Gobierno &amp; estándares", "Portabilidad &amp; preparación BDC", "Cobertura estricta", "Cobertura inclusiva", "Exportar Markdown", "Exportar JSON", "4AM_ACME"):
+                   "Cierre: limitaciones y trazabilidad", "Arquitectura &amp; Modelado", "Gobierno &amp; estándares", "Cobertura estricta", "Cobertura inclusiva", "Exportar Markdown", "Exportar JSON", "4AM_ACME"):
         assert needle in r.text, needle
     ma_profile.validate_assessment(svc.status_for_entry(world.entries[0]).profile)
     again = client_for().get("/catalog/flow/assessment?flow=acme-4am", headers=HX)
@@ -609,19 +609,20 @@ def test_report_sections_follow_the_governed_markdown_hierarchy_without_a_generi
     html = _post(c).text
     heads = re.findall(r'<span class="section-eyebrow">\[(\d+)\]</span><h2>([^<]+)</h2>', html)
     # Gate UX.4 §8: "Adopción metodológica" entra como sección del informe JUSTO después de "Resumen" (Resumen → Adopción → resto).
-    # Gate UX.5: recorrido de 7 secciones (Resumen → Adopción → Arquitectura → Gobierno → Portabilidad → Casos/preguntas → Cierre).
-    assert [t for _n, t in heads] == ["Resumen", "Adopción metodológica", "Arquitectura &amp; Modelado", "Gobierno &amp; estándares", "Portabilidad &amp; preparación BDC",
+    # Gate UX.5: recorrido (Resumen → Adopción → Arquitectura → Gobierno → [Portabilidad: solo si el Catálogo trae portabilidad] → Casos/preguntas → Cierre).
+    assert [t for _n, t in heads] == ["Resumen", "Adopción metodológica", "Arquitectura &amp; Modelado", "Gobierno &amp; estándares",
                                       "Casos a revisar y preguntas abiertas", "Cierre: limitaciones y trazabilidad"]
-    assert [n for n, _t in heads] == [f"{i:02d}" for i in range(1, 8)]                       # numeración continua generada por la plantilla
+    assert [n for n, _t in heads] == [f"{i:02d}" for i in range(1, 7)]                       # numeración continua generada por la plantilla
     assert 'id="asr-areas"' not in html and "<h2>Áreas</h2>" not in html
     arch = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-gobierno"')]
     for title in ("Modelo analítico", "Propagación", "Armonización", "Ingesta"):
         assert f'<span class="dashboard-section__title">{title}</span>' in arch
-    assert len(re.findall(r'<details class="dashboard-section" id="asr-a-', arch)) == 4
-    for sec, area in (("asr-gobierno", "NAMING"), ("asr-portabilidad", "SOURCE_EXTRACTION")):          # Convención de nombres → Gobierno; Fuente & Extracción → Portabilidad
+    assert len(re.findall(r'<details class="dashboard-section" id="asr-a-', arch)) == 5                     # 4 subáreas + Ingesta / Fuente & Extracción
+    for sec, area in (("asr-m-architecture_modeling", "SOURCE_EXTRACTION"), ("asr-gobierno", "NAMING")):   # Fuente & Extracción → Arquitectura; Convención de nombres → Gobierno
         part = html[html.index(f'id="{sec}"'):]
         part = part[:part.index("</section>")]
         assert f'<details class="dashboard-section" id="asr-a-{area}"' in part
+    assert 'id="asr-portabilidad"' not in html and 'id="asr-a-SOURCE_EXTRACTION"' in arch                  # Portabilidad = solo portabilidad futura; sin datos no hay sección
     assert "content-collapsible" not in html
     # alineación con el Markdown gobernado: mismos `##` de primer nivel (con su rotulado) y las 4 subáreas como `###`
     md = render_markdown(svc.status_for_entry(world.entries[0]).profile)
@@ -683,7 +684,7 @@ def test_facts_have_a_reading_hierarchy_headline_kpis_then_supporting_tables_and
     sec = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-gobierno"')]
     assert 'class="activity-kpi-grid asm-facts"' in sec and "<th>Hecho</th><th>Valor</th>" in sec
     assert not re.search(r"<li>[^<]*: \d+</li>", sec)                                                  # sin pared de bullets "Hecho: n"
-    nam = html[html.index('id="asr-a-NAMING"'):html.index('id="asr-portabilidad"')]
+    nam = html[html.index('id="asr-a-NAMING"'):html.index('id="asr-revision"')]
     assert len(re.findall(r'class="activity-kpi"', nam)) == 3                                           # Convención de nombres: 3 titulares, no un muro de tiles
     # tipos de valor
     view = presenter._facts_view("SIN_LAYOUT", [
@@ -837,7 +838,7 @@ def test_catalog_evaluation_is_one_numbered_section_with_three_independent_lense
 
 def test_evaluation_service_marks_findings_by_generator_marker_without_a_global_grade():
     from webapp.services import asset_evaluation as ae
-    g = ae.governance_view("- \U0001f534 **A** _Evidencia:_ x\n- \U0001f7e1 **B** _Evidencia:_ y\n- \U0001f535 **C** _Evidencia:_ z\n- cumple **D** _Evidencia:_ w")
+    g = ae.governance_view("- \U0001f534 **A** _Evidencia:_ x\n- \U0001f7e1 **B** _Evidencia:_ y\n- \U0001f535 **C** _Evidencia:_ z\n- \U0001f7e2 **D** _Evidencia:_ w")
     assert [r["label"] for r in g["rows"]] == ["Bloqueante", "Observar", "Nota", "Cumple"]
     assert [r["tone"] for r in g["rows"]] == ["parcial", "buena", "neutra", "plena"]                           # tono = status_tone (semáforo → badge canónico del Hub)
     assert g["blocking"] == 1 and "grade" not in g and "score" not in g
@@ -854,3 +855,35 @@ def test_report_closing_callout_takes_its_tone_from_status_tone_for_every_level(
     css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
     for t in ("plena", "buena", "parcial", "neutra"):
         assert f".callout--{t} " in css and f"--tone-{t}:" in css                                              # un solo juego de tokens de tono para badge, punto y callout
+
+
+def test_legacy_compliance_classification_is_unchanged_for_the_other_catalog_pages():
+    """«Mirada Danwor» clasifica por el marcador del generador; las páginas existentes (conexiones, seguridad, data products, tabla de dominio
+    heredada) siguen con el clasificador legacy SIN cambios: texto/palabras clave, y el emoji NO decide por sí solo."""
+    st = main._catalog_compliance_status
+    assert [st(x) for x in ("cumple Cobertura", "observar X", "atender Y", "nota Z")] == [("green", "Cumple"), ("amber", "Observar"), ("orange", "Atender"), ("blue", "Nota")]
+    assert st("\U0001f534 Hoja sin contrato") == ("blue", "Nota") and st("\U0001f7e1 Nombre") == ("blue", "Nota")     # el emoji solo, no clasifica (comportamiento legacy)
+    assert st("\U0001f534 Algo critico") == ("red", "Critico")
+    html = main._catalog_compliance_table_html("- cumple **Cobertura** _Evidencia:_ ok\n- atender **Cap** _Evidencia:_ a | b")
+    assert 'catalog-card__verdict--plena">Cumple<' in html and 'catalog-card__verdict--parcial">Atender<' in html and "<th>Estado</th><th>Hallazgo</th><th>Evidencia</th>" in html
+    from webapp.services import asset_evaluation as ae
+    assert ae.governance_view("- \U0001f534 **A** _Evidencia:_ x")["rows"][0]["label"] == "Bloqueante"          # solo la superficie nueva usa el marcador
+
+
+def test_portability_section_exists_only_with_catalog_portability_data_and_has_no_source_extraction(world):
+    c = client_for()
+    _post(c)
+    e0 = world.entries[0]
+    view = presenter.report_view(svc.status_for_entry(e0), e0, "datasphere_core")
+    view["evaluation"] = _evaluation_stub()
+    html = main.templates.get_template("partials/catalog_assessment_report.html").render(v=view, pack="datasphere_core")
+    por = html[html.index('id="asr-portabilidad"'):]
+    por = por[:por.index("</section>")]
+    assert "Score de portabilidad" in por and "asr-a-" not in por     # solo portabilidad futura (score/riesgos/adaptaciones); la fuente vive en Arquitectura
+
+
+def test_asset_evaluation_is_composition_only_and_imports_no_engine():
+    src = (REPO / "webapp/services/asset_evaluation.py").read_text(encoding="utf-8")
+    imports = re.findall(r"^(?:from|import)\s+([\w.]+)", src, re.M)
+    assert not any(m.startswith(("tools", "core")) for m in imports), imports               # sin motores de Assessment / Juicio / Portabilidad
+    assert not re.search(r"evaluate_judgment|portabilidad_bdc\s*\(|def\s+(compute|calc|score)", src)

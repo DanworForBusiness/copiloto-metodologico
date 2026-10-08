@@ -302,7 +302,7 @@ def _architecture_section(doc):
 def test_the_four_area_containers_load_collapsed_and_keep_their_order(doc):
     _html_full, sec = _architecture_section(doc)
     tags = re.findall(r'<details class="dashboard-section" id="asr-a-([A-Z_]+)"([^>]*)>', sec)
-    assert [t[0] for t in tags] == ["ANALYTIC_MODEL", "PROPAGATION", "HARMONIZATION", "INGESTION"]               # mismo orden que antes
+    assert [t[0] for t in tags] == ["ANALYTIC_MODEL", "PROPAGATION", "HARMONIZATION", "INGESTION", "SOURCE_EXTRACTION"]   # las 4 de siempre + Ingesta / Fuente & Extracción (UX.5 cleanup)
     for area_id, attrs in tags:
         assert "open" not in attrs.split(), area_id                                                           # colapsado por defecto (Modelo analítico, Armonización, Propagación, Ingesta)
     assert set(AREA_IDS) <= {t[0] for t in tags}

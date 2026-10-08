@@ -672,14 +672,20 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         g["all_assessed"] = g["uniform_state"] and g["areas"][0]["state"] == "ASSESSED"
     view["macro_groups"] = list(groups.values())
     # Narrativa del informe: cada dimensión macro del perfil se ubica en UNA sección del recorrido (mapeo de presentación, no
-    # se inventa información): Arquitectura & Modelado · Gobierno & estándares (+ hallazgos de cumplimiento del Catálogo) ·
-    # Portabilidad & preparación BDC (+ portabilidad del Catálogo; fuente & extracción es la base de esa lectura).
+    # se inventa información): Arquitectura & Modelado (+ Ingesta / Fuente & Extracción) · Gobierno & estándares (+ hallazgos de
+    # cumplimiento del Catálogo) · Portabilidad & preparación BDC (solo la portabilidad del Catálogo: riesgos y adaptaciones).
     by_id = {g["id"]: g for g in groups.values()}
+    arch, src = by_id.get("ARCHITECTURE_MODELING"), by_id.get("SOURCE_EXTRACTION")
+    if arch and src:                                                                            # la fuente es parte de cómo se construye el modelo, no de su portabilidad
+        areas = [*arch["areas"], *src["areas"]]
+        arch = {**arch, "areas": areas, "uniform_state": len({a["state"] for a in areas}) == 1,
+                "all_assessed": all(a["state"] == "ASSESSED" for a in areas)}
+    elif src and not arch:
+        arch = src
     ev = AE.asset_evaluation(link_entry) if link_entry is not None else {"governance": None, "portability": None}
     view["evaluation"] = ev
     view["story"] = {
-        "architecture": by_id.get("ARCHITECTURE_MODELING"),
+        "architecture": arch,
         "governance_areas": by_id.get("NAMING"),
-        "portability_areas": by_id.get("SOURCE_EXTRACTION"),
     }
     return view

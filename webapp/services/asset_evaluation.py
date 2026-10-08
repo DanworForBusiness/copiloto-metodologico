@@ -8,6 +8,10 @@ y NO emite un puntaje/nota global de cumplimiento. Las tres lecturas del activo 
     · Portabilidad & preparación BDC .. capacidad técnica (score/confianza/riesgos) — sin badge de grado
     · Adopción metodológica ........ ÚNICA lectura con grado (BUENA/ADECUADA/PARCIAL/No determinable; `status_tone`)
 
+COMPOSICIÓN SOLA: lee lo que ya produjeron los motores (marcadores/severidad del generador del catálogo, dict `portabilidad_bdc` ya calculado,
+Juicio persistido que consume el presentador) y solo agrega/da formato (conteos, texto, tonos). No importa ningún motor ni recalcula score,
+severidad, nivel ni cobertura.
+
 El color de cada fila sale del mapeo canónico del Hub (`status_tone`): aquí el semáforo del generador se traduce a los
 modificadores del badge `.catalog-card__verdict--*`. Las filas se devuelven como DATOS (texto escapado → `Markup`), no como
 HTML a medida, para que cada plantilla las renderice con la tabla nativa del Hub.
@@ -65,26 +69,15 @@ def evidence_html(text: str) -> str:
     return inline_html(clean)
 
 
-# Marcadores que emite el generador (`severidad`: alto / medio / nota) y los de los detectores de conexiones/seguridad.
+# Marcador de severidad que el GENERADOR del flujo ya emitió (`severidad`: alto / medio / nota) → semáforo. Es un mapa de presentación del
+# dato existente: no se infiere nada del texto; un marcador desconocido queda como «Nota».
 _MARKER_STATUS = {"🔴": ("red", "Bloqueante"), "🟡": ("amber", "Observar"), "🔵": ("blue", "Nota"),
                   "🟠": ("orange", "Atender"), "🟢": ("green", "Cumple")}
 
 
-def compliance_status(raw: str, marker: str = "") -> tuple[str, str]:
-    """Marcador/texto de un hallazgo del generador → (semáforo, etiqueta). El marcador manda; sin marcador reconocido, se
-    clasifica por palabras clave (marcadores en texto de los detectores: cumple / observar / atender / nota)."""
-    if marker in _MARKER_STATUS:
-        return _MARKER_STATUS[marker]
-    value = (raw or "").lower()
-    if any(token in value for token in ("rojo", "crit", "grave", "bloque", "no cumple")):
-        return "red", "Bloqueante"
-    if any(token in value for token in ("naranja", "parcial", "riesgo", "atender")):
-        return "orange", "Atender"
-    if any(token in value for token in ("amarillo", "advert", "warning", "observ", "buena", "reutilizable con notas")):
-        return "amber", "Observar"
-    if any(token in value for token in ("verde", "cumple", "plena", "correcto")):
-        return "green", "Cumple"
-    return "blue", "Nota"
+def compliance_status(marker: str) -> tuple[str, str]:
+    """Marcador del generador → (semáforo, etiqueta)."""
+    return _MARKER_STATUS.get(marker, ("blue", "Nota"))
 
 
 def tone_of(semaforo: str) -> str:
@@ -99,8 +92,9 @@ def status_badge_html(semaforo: str, label: str) -> str:
 _ITEM_RE = re.compile(r"(?ms)^-\s*(?P<marker>\S+)?\s*\*\*(?P<title>.+?)\*\*\s*(?P<body>.*?)(?=\n-\s+\S*\s*\*\*|\Z)")
 
 
-def compliance_rows(source: str) -> list[dict]:
-    """Bullets `- <marcador> **Título** _Evidencia:_ …` del generador → filas {semaforo, tone, label, title, evidence}."""
+def compliance_rows(source: str, classify=None) -> list[dict]:
+    """Bullets `- <marcador> **Título** _Evidencia:_ …` del generador → filas {semaforo, tone, label, title, evidence}.
+    `classify` (opcional): clasificador legacy `texto → (semáforo, etiqueta)` de las páginas existentes del Catálogo; por defecto manda el marcador."""
     rows = []
     for m in _ITEM_RE.finditer((source or "").strip()):
         marker = m.group("marker") or ""
@@ -108,7 +102,7 @@ def compliance_rows(source: str) -> list[dict]:
         body = m.group("body") or ""
         ev = re.search(r"(?is)_?Evidencia:_?\s*(.*)$", body)
         evidence = ev.group(1).strip() if ev else body.strip()
-        semaforo, label = compliance_status(f"{marker} {title} {evidence}", marker)
+        semaforo, label = classify(f"{marker} {title} {evidence}") if classify else compliance_status(marker)
         rows.append({"semaforo": semaforo, "tone": tone_of(semaforo), "label": label,
                      "title": Markup(inline_html(title)), "evidence": Markup(evidence_html(evidence))})
     return rows
@@ -151,8 +145,8 @@ def _table_html(headers: tuple[str, str, str], rows: list[dict]) -> str:
     return f'<div class="catalog-compliance"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
-def compliance_table_html(source: str) -> str:
-    rows = compliance_rows(source)
+def compliance_table_html(source: str, classify=None) -> str:
+    rows = compliance_rows(source, classify)
     return _table_html(("Estado", "Hallazgo", "Evidencia"), rows) if rows else (source or "").strip()
 
 

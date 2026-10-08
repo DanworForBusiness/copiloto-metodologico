@@ -2158,13 +2158,28 @@ def _catalog_cds_view(name: str):
 
 
 
-# Gobierno/Portabilidad (tonos, filas, tablas): UNA implementación en `webapp/services/asset_evaluation.py`, compartida con el
-# informe de Assessment. Estos alias se conservan para las demás páginas del Catálogo (conexiones, seguridad, data products).
-_catalog_compliance_status = asset_evaluation.compliance_status
+# Gobierno/Portabilidad: tonos, badge, tablas y filas viven en `webapp/services/asset_evaluation.py` (compartidos con el informe de
+# Assessment). La CLASIFICACIÓN legacy de hallazgos (marcador/palabras clave → semáforo) NO cambia para las páginas existentes del
+# Catálogo (conexiones, seguridad, data products): se conserva tal cual acá; el clasificador por marcador del generador es propio de
+# «Mirada Danwor» (asset_evaluation.compliance_status).
+def _catalog_compliance_status(raw: str) -> tuple[str, str]:
+    """Map generated compliance markers/text to a visual status class + label."""
+    value = (raw or "").lower()
+    if any(token in value for token in ("rojo", "crit", "grave", "bloque", "no cumple", "??")):
+        return "red", "Critico"
+    if any(token in value for token in ("naranja", "parcial", "riesgo", "atender", "??")):
+        return "orange", "Atender"
+    if any(token in value for token in ("amarillo", "advert", "warning", "observ", "buena", "reutilizable con notas", "??")):
+        return "amber", "Observar"
+    if any(token in value for token in ("verde", "cumple", "plena", "correcto", "?", "?", "??")):
+        return "green", "Cumple"
+    return "blue", "Nota"
+
+
 _catalog_status_badge = asset_evaluation.status_badge_html
 _catalog_inline_html = asset_evaluation.inline_html
 _catalog_evidence_html = asset_evaluation.evidence_html
-_catalog_compliance_table_html = asset_evaluation.compliance_table_html
+_catalog_compliance_table_html = lambda source: asset_evaluation.compliance_table_html(source, classify=_catalog_compliance_status)
 _PORT_CLASIF_LABEL = asset_evaluation.PORT_CLASIF_LABEL
 _PORT_HALLAZGO_LABEL = asset_evaluation.PORT_HALLAZGO_LABEL
 

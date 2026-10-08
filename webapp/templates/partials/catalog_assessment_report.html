@@ -215,7 +215,7 @@
 {% set mg = v.story.architecture %}
 {% if mg %}
 <section class="content-section" id="asr-m-{{ mg.id|lower }}">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, mg.title, "Cómo está construido el modelo analítico: composición del cierre, capas y patrones de modelado observados. Cada subárea se abre por separado." ~ (" Todas las subáreas fueron evaluadas." if mg.all_assessed and mg.areas|length > 1 else "")) }}
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, mg.title, "Cómo está construido el modelo analítico: composición del cierre, capas, patrones de modelado e ingesta / fuente & extracción observados. Cada subárea se abre por separado." ~ (" Todas las subáreas fueron evaluadas." if mg.all_assessed and mg.areas|length > 1 else "")) }}
   {% if mg.view_overview %}
   <h3>{{ mg.view_overview.title }}</h3>
   <div class="activity-kpi-grid asm-facts" data-block="view-overview">{% for k in mg.view_overview.tiles %}{{ kpi_tile(k) }}{% endfor %}</div>
@@ -243,21 +243,17 @@
 </section>
 {% endif %}
 
-{# ── [05] Portabilidad & preparación BDC: capacidad TÉCNICA (score, confianza, riesgos; sin badge de grado) + contrato de fuente y extracción. ── #}
+{# ── [05] Portabilidad & preparación BDC: SOLO capacidad técnica futura (score, confianza, riesgos y adaptaciones; sin badge de grado). ── #}
 {% set por = v.evaluation.portability %}
-{% set pma = v.story.portability_areas %}
-{% if por or pma %}
+{% if por %}
 <section class="content-section" id="asr-portabilidad">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Portabilidad & preparación BDC", (por.lead ~ " " if por else "") ~ "Es una capacidad técnica distinta de la adopción metodológica: no se interpreta como un grado de calidad del modelo.") }}
-  {% if por %}
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Portabilidad & preparación BDC", por.lead ~ " Es una capacidad técnica distinta de la adopción metodológica: no se interpreta como un grado de calidad del modelo.") }}
   {{ tile_grid(por.tiles) }}
   <p>{{ por.coverage }}{% if por.n_acks %} · {{ por.n_acks }} acknowledgement{{ "s" if por.n_acks != 1 }} registrados por el equipo{% endif %}.</p>
   <details class="dashboard-section" id="asr-portabilidad-hallazgos">
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Hallazgos de portabilidad</span><span class="dashboard-section__count">{{ por.summary }}</span></summary>
     <div class="dashboard-section__body">{% if por.rows %}{{ evaluation_table(por.rows, ["Tipo", "Hallazgo", "Campos · Recomendación"]) }}{% else %}{{ not_detected("Sin hallazgos de portabilidad — tipos consistentes para el cruce de runtimes.") }}{% endif %}</div>
   </details>
-  {% endif %}
-  {% if pma %}{{ area_rows(pma) }}{% endif %}
 </section>
 {% endif %}
 
