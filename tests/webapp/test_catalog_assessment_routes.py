@@ -87,8 +87,9 @@ def _detail(c, monkeypatch, flow="acme-4am") -> str:
     monkeypatch.setattr(main, "_catalog_flow_view", lambda entry, show_assoc=None, pack="": ([{"slug": "m", "html": "x"}], "", bool(show_assoc), False))
     r = c.get(f"/catalog/flow?flow={flow}&pack=datasphere_core", headers=HX)
     assert r.status_code == 200
-    m = re.search(r'<section class="module-hero.*?</section>', r.text, re.S)
-    assert m, "no hay hero en el detalle del flujo"
+    # Gate UX.4 §1: la cabecera es la barra de acciones transversal (← Volver + acciones) + el hero debajo.
+    m = re.search(r'<div class="catalog-actionbar".*?</section>', r.text, re.S)
+    assert m, "no hay cabecera (barra de acciones + hero) en el detalle del flujo"
     return m.group(0)
 
 
@@ -100,6 +101,32 @@ def _no_engine(monkeypatch):
     def boom(*a, **k):
         raise AssertionError("el GET no debe ejecutar el motor")
     monkeypatch.setattr(svc, "_engine_assess", boom)
+
+
+# ── Gate UX.1: pulido de presentación (resultado primero, carga integrada, chips, identidad) ──
+def test_ux_generation_has_integrated_loading_and_no_duplicate_floating_label(world):
+    html = client_for().get("/catalog/flow/assessment?flow=acme-4am", headers=HX).text         # NOT_YET: muestra el botón "Generar informe"
+    assert 'class="support-link asr-generate"' in html and 'hx-disabled-elt="this"' in html     # botón con carga integrada, anti doble-envío
+    assert 'asr-generate__spinner' in html and 'asr-generate__label' in html
+    assert 'id="asr-busy"' not in html and html.count("Generando informe…") == 1 and "hx-indicator" not in html  # un único label integrado; sin hx-indicator inválido ni label flotante
+
+
+def test_ux_judgment_is_result_first_with_compact_contract_chips(world):
+    html = _post(client_for()).text                                                             # CURRENT -> Juicio persistido visible
+    seg = html[html.index('id="asr-juicio"'):html.index("</section>", html.index('id="asr-juicio"'))]
+    # Gate UX.4 (reuse): sección del informe con heading del Hub; nivel y contratos = badge canónico `.catalog-card__verdict`;
+    # evidencia = tabla nativa. Sin primitivos propios espejados (asr-judgment__/asr-contract/asr-evidence) ni tiles KPI en el detalle.
+    assert '<h2>Adopción metodológica</h2>' in seg
+    assert seg.index('catalog-card__verdict--') < seg.index('Contratos evaluados')               # resultado (badge de nivel) PRIMERO, luego los contratos
+    for c in ("Ingesta", "Armonización", "Propagación", "Contrato publicado"):
+        assert c in seg
+    assert not any(x in seg for x in ("asr-judgment__", "asr-contract", "asr-evidence", "activity-kpi-grid"))
+
+
+def test_ux_hero_shows_business_name_primary_and_technical_id_secondary(world, monkeypatch):
+    monkeypatch.setattr(catalog_reads, "artifact_title", lambda entry, name: ("Libro mayor · Acme", name))
+    html = _post(client_for()).text
+    assert re.search(r'<h1 class="asr-title">[^<]+</h1>\s*<p class="asr-subid"><code>4AM_ACME</code></p>', html)  # negocio primario + id técnico secundario
 
 
 # ── 2/20. GET: sin motor, sin efectos ───────────────────────────────────────
@@ -233,7 +260,9 @@ def test_detail_header_states_follow_the_contract(world, monkeypatch):
         return _detail(c, monkeypatch)
     h = hdr()                                                                  # NOT_YET_ASSESSED
     assert "Sin assessment" in h and "Generar informe" in h and "hx-post" in h and "Cobertura" not in h
-    assert 'class="support-link"' in h and "support-links heading-supports" in h and "<button" not in h
+    # Gate UX.2: la acción de generación es un BOTÓN con carga integrada (se deshabilita, sin label flotante).
+    assert "support-links heading-supports" in h and 'class="support-link asr-generate"' in h and 'hx-disabled-elt="this"' in h
+    assert "id=\"asm-busy\"" not in h and h.count("Generando informe…") == 1    # un único label, dentro del botón (no flotante)
     assert _post(c).status_code == 200
     h = hdr()                                                                  # CURRENT
     assert "Assessment vigente" in h and "Ver Assessment" in h and "Ver informe" not in h and "hx-get" in h and "hx-post" not in h and re.search(r"Cobertura \d+\.\d%", h)
@@ -257,8 +286,9 @@ def test_detail_header_sits_right_below_the_title_with_the_action_in_the_support
     c = client_for()
     _post(c)
     h = _detail(c, monkeypatch)
-    assert h.index("support-links heading-supports") < h.index("<h1>") < h.index("Assessment vigente")   # acción arriba a la derecha; estado justo bajo el título
-    assert "asm-hero-has-support" in h
+    # Gate UX.4 §1: las acciones viven en la barra transversal (← Volver + acciones) ARRIBA del hero; el estado queda bajo el título.
+    assert h.index("catalog-actionbar") < h.index("support-links heading-supports") < h.index("<h1>") < h.index("Assessment vigente")
+    assert "catalog-back" in h and "asm-hero-has-support" not in h
 
 
 def test_header_values_come_from_the_same_cached_profile_as_report_and_exports(world, monkeypatch):
@@ -536,9 +566,12 @@ def test_report_title_matches_the_flow_detail_heading_format_description_dot_tec
     c = client_for()
     monkeypatch.setattr(catalog_reads, "artifact_title", lambda entry, name: ("Modelo analítico - Acme", name))
     html = _post(c).text
-    assert re.search(r'<h1 class="asr-title"><span class="tone-black">Acme · </span><span class="tone-gold">4AM_ACME</span></h1>', html)          # sin el prefijo "Modelo analítico - "
+    # Gate UX.1: jerarquía nombre de negocio PRIMARIO (h1) + identificador técnico SECUNDARIO (línea mono), no "desc · técnico".
+    assert re.search(r'<h1 class="asr-title">Acme</h1>', html)                                   # nombre de negocio primario (sin prefijo "Modelo analítico - ")
+    assert re.search(r'<p class="asr-subid"><code>4AM_ACME</code></p>', html)                    # identificador técnico secundario
     monkeypatch.setattr(catalog_reads, "artifact_title", lambda entry, name: (name, name))
-    assert re.search(r'<span class="tone-black">4AM_ACME · </span><span class="tone-gold">4AM_ACME</span>', _post(c).text)                       # fallback: nombre técnico
+    fb = _post(c).text
+    assert re.search(r'<h1 class="asr-title">4AM_ACME</h1>', fb) and '<p class="asr-subid">' not in fb  # fallback técnico: sin línea secundaria redundante
 
 
 def test_report_back_returns_to_the_flow_detail_and_support_links_use_the_hub_pattern(world):
@@ -571,9 +604,10 @@ def test_report_sections_follow_the_governed_markdown_hierarchy_without_a_generi
     c = client_for()
     html = _post(c).text
     heads = re.findall(r'<span class="section-eyebrow">\[(\d+)\]</span><h2>([^<]+)</h2>', html)
-    assert [t for _n, t in heads] == ["Resumen", "Arquitectura &amp; Modelado", "Convención de nombres", "Fuente &amp; Extracción", "Observaciones",
+    # Gate UX.4 §8: "Adopción metodológica" entra como sección del informe JUSTO después de "Resumen" (Resumen → Adopción → resto).
+    assert [t for _n, t in heads] == ["Resumen", "Adopción metodológica", "Arquitectura &amp; Modelado", "Convención de nombres", "Fuente &amp; Extracción", "Observaciones",
                                       "Casos a revisar", "No evaluado / Limitaciones de evidencia", "Evidencia / Detalle técnico"]
-    assert [n for n, _t in heads] == [f"{i:02d}" for i in range(1, 9)]                       # numeración continua generada por la plantilla
+    assert [n for n, _t in heads] == [f"{i:02d}" for i in range(1, 10)]                      # numeración continua generada por la plantilla
     assert 'id="asr-areas"' not in html and "<h2>Áreas</h2>" not in html
     arch = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-m-naming"')]
     for title in ("Modelo analítico", "Propagación", "Armonización", "Ingesta"):
@@ -680,7 +714,8 @@ def test_open_questions_are_one_table_and_reconcile_with_the_kpi(world):
     html = _post(c).text
     prof = svc.status_for_entry(world.entries[0]).profile
     ctx = prof["summary"]["context_required"]
-    sec = html[html.index("Preguntas que solo el proyecto puede responder"):html.index('id="asr-m-architecture_modeling"')]
+    # corta en "Adopción metodológica" (sección siguiente a «Resumen» desde Gate UX.4): el área de preguntas abiertas termina ahí.
+    sec = html[html.index("Preguntas que solo el proyecto puede responder"):html.index('id="asr-juicio"')]
     tables = re.findall(r"<table[^>]*>.*?</table>", sec, re.S)
     assert len(tables) == 1 and 'data-block="open-questions"' in tables[0]                         # UNA sola tabla (antes: una por tipo de hallazgo)
     assert "<th>Pregunta</th><th>Vinculada a</th><th>Hallazgo</th><th>Ocurrencias</th>" in tables[0]

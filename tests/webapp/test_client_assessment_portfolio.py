@@ -265,11 +265,12 @@ def test_flow_detail_renders_the_entrypoint(world, monkeypatch):
     env.filters["catalog_verdict_class"] = lambda v: "x"
     env.filters["catalog_verdict_label"] = lambda v: "x"
     src = (REPO / "webapp" / "templates" / "partials" / "catalog_flow_content.html").read_text(encoding="utf-8")
-    hero = src[src.index('<section class="module-hero'): src.index("</section>")]
-    out = env.from_string(hero + "</section>").render(assessment_header=None, cliente="Acme", dominio="D", entry_id="flow-1", pack=PACK,
-                                                      veredicto="x", apto="y", n_art=1)
+    # Gate UX.4 §1: la acción vive en la barra transversal (← Volver + acciones), antes del hero.
+    bar = src[src.index('<div class="catalog-actionbar"'): src.index('<section class="module-hero')]
+    out = env.from_string(bar).render(assessment_header=None, focus_csv="", assessment_url="", cliente="Acme", dominio="D", entry_id="flow-1", pack=PACK,
+                                      veredicto="x", apto="y", n_art=1)
     assert "Ver Informe de Cliente" in out and "/catalog/client/assessment?flow=flow-1&pack=datasphere_core" in out
-    group = out[out.index("support-links"): out.index("</div>", out.index("support-links"))]
+    group = out[out.index("support-links"): out.rindex("</div>")]
     assert 'class="support-link"' in group and "Ver Informe de Cliente" in group
 
 
@@ -298,7 +299,7 @@ def test_portfolio_reuses_the_individual_report_structure_not_a_copy(world):
     assert 'import heading' in client and 'import heading' in single and "macro heading" in macros
     assert "macro heading" not in client and "macro heading" not in single                       # una sola definición del encabezado de sección
     html = _client().get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
-    shared = {"catalog-back", "module-hero", "eyebrow", "asr-title", "hero-meta", "catalog-verdict-line", "support-links", "asr-actions",
+    shared = {"catalog-back", "catalog-actionbar", "catalog-actionbar__actions", "module-hero", "eyebrow", "asr-title", "hero-meta", "catalog-verdict-line", "support-links",
               "support-link", "dashboard-section", "activity-kpi-grid", "activity-kpi", "methodology", "catalog-detail", "content-section",
               "content-heading", "content-heading-copy", "section-eyebrow", "section-subtitle"}
     used = _classes(html)

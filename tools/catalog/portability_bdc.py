@@ -34,7 +34,7 @@ _BASE_DIR = Path(__file__).resolve().parents[2]
 # Confianza textual → factor multiplicativo del scoring.
 _CONF_FACTOR = {"alta": 1.0, "media": 0.7, "baja": 0.4}
 
-# Semáforo por tipo de hallazgo (reusa las clases .catalog-status--* existentes).
+# Semáforo por tipo de hallazgo (la UI lo mapea al badge canónico del Hub `.catalog-card__verdict--*` vía `_catalog_status_badge`).
 SEMAFORO_HALLAZGO = {
     "riesgo": "red",
     "adaptacion": "blue",

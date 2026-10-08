@@ -4,28 +4,31 @@
    secciones ES el linaje: cada artefacto es una sección con su tabla. Se usa en
    la página completa (catalog_flow.html) y en el swap HTMX que actualiza SOLO el
    panel central (#content) sin salir del módulo ni perder el panel derecho. #}
-{% if focus_csv and assessment_url %}{# llegó desde el informe: "Volver" regresa a quien lo invocó #}
-<a class="catalog-back" href="#" role="button" hx-get="{{ assessment_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>
-{% else %}<a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>{% endif %}
-{# Assessment de modelado (contextual al flujo abierto; NO vive en el tile del listado). `assessment_header` =
-   assessment_presenter.header_for(...): badge de vigencia (misma forma que el badge del veredicto legacy) + métricas
-   mínimas del MISMO perfil canónico que el informe, y la acción como `.support-link` (patrón `.support-links
-   .heading-supports` del pipeline de contenido) arriba a la derecha. Sin score ni banda de madurez. #}
+{% from "partials/assessment_report_macros.html" import kpi_tile, heading %}
 {% set ah = assessment_header %}
-<section class="module-hero asm-hero-has-support">
-  <div class="support-links heading-supports asm-hero-support">
+{# §1 Barra de acciones transversal: ← Volver + acciones de contexto en la MISMA línea (mismo patrón que el Assessment). La
+   acción del assessment (Ver Assessment / Generar, con carga integrada) y el Informe de Cliente van a la derecha; el hero
+   arranca debajo. `support-links heading-supports` se conserva (patrón del pipeline de contenido y anclado por regresiones). #}
+<div class="catalog-actionbar">
+  {% if focus_csv and assessment_url %}{# llegó desde el informe: "Volver" regresa a quien lo invocó #}
+  <a class="catalog-back" href="#" role="button" hx-get="{{ assessment_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>
+  {% else %}<a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>{% endif %}
+  <div class="support-links heading-supports catalog-actionbar__actions">
     {% if ah and ah.action %}
     {% if ah.action.method == "get" %}
     <a class="support-link" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ ah.action.label }}<span>↗</span></a>
-    {% else %}
-    <a class="support-link" href="#" role="button" hx-post="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML"
-       hx-indicator="#asm-busy" @click.prevent>{{ ah.action.label }}<span>↗</span></a>
-    <span class="htmx-indicator" id="asm-busy" role="status">Generando…</span>
+    {% else %}{# acción de generación con carga INTEGRADA en el botón (sin label flotante); hx-disabled-elt evita doble envío #}
+    <button type="button" class="support-link asr-generate" hx-post="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-disabled-elt="this" aria-live="polite">
+      <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Generando informe…</span>
+      <span class="asr-generate__label">{{ ah.action.label }}</span>
+    </button>
     {% endif %}
     {% endif %}
     {# Informe de Cliente (consolidado V1): `.support-link` hermano del assessment del flujo; carga en el MISMO slot y su "← Volver" regresa a este flujo. #}
     <a class="support-link" href="#" role="button" hx-get="/catalog/client/assessment?flow={{ entry_id|urlencode }}&pack={{ pack|urlencode }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Ver Informe de Cliente<span>↗</span></a>
   </div>
+</div>
+<section class="module-hero">
   <p class="eyebrow">Catálogo Danwor · {{ cliente }}</p>
   <h1>{{ dominio }}</h1>
   {% if ah %}
@@ -34,7 +37,7 @@
       <span class="catalog-meta-dot{% if ah.tone %} catalog-meta-dot--{{ ah.tone }}{% endif %}" aria-hidden="true"></span>
       {# El badge es un enlace real al MISMO destino/acción que el support-link (sin JS propio); "No aplica" no es accionable. #}
       {% if ah.action %}<a class="catalog-card__verdict{% if ah.tone %} catalog-card__verdict--{{ ah.tone }}{% endif %} asm-badge-link" href="#" role="button" title="{{ ah.action.label }}" aria-label="{{ ah.label }}: {{ ah.action.label }}"
-         {% if ah.action.method == "get" %}hx-get="{{ ah.url }}"{% else %}hx-post="{{ ah.url }}" hx-indicator="#asm-busy"{% endif %} hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ ah.label }}</a>
+         {% if ah.action.method == "get" %}hx-get="{{ ah.url }}"{% else %}hx-post="{{ ah.url }}"{% endif %} hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ ah.label }}</a>
       {% else %}<span class="catalog-card__verdict{% if ah.tone %} catalog-card__verdict--{{ ah.tone }}{% endif %}">{{ ah.label }}</span>{% endif %}
       {% if ah.coverage %}<span>Cobertura {{ ah.coverage }} · Confianza {{ ah.confidence }} · <span title="{{ ah.reviews_title }}">{{ ah.reviews }}</span></span>
       {% elif ah.reason %}<span>{{ ah.reason }}</span>{% endif %}
@@ -43,10 +46,10 @@
   {% endif %}
   <div class="hero-meta">
     <span class="catalog-verdict-line">
-      <span class="catalog-meta-dot catalog-meta-dot--{{ veredicto|catalog_verdict_class }}" aria-hidden="true"></span>
+      <span class="catalog-meta-dot catalog-meta-dot--{{ veredicto|catalog_verdict_tone }}" aria-hidden="true"></span>
       {# Veredicto LEGACY del catálogo (higiene de extracción/fuente; congelado): NO es el resultado del Assessment de la línea de arriba. #}
       <span>Veredicto del catálogo</span>
-      <span class="catalog-card__verdict catalog-card__verdict--{{ veredicto|catalog_verdict_class }}">{{ veredicto|catalog_verdict_label }}</span>
+      <span class="catalog-card__verdict catalog-card__verdict--{{ veredicto|catalog_verdict_tone }}">{{ veredicto|catalog_verdict_label }}</span>
       <span>{{ apto }}</span>
     </span>
     <span>{{ n_art }} artefactos</span>
@@ -61,4 +64,33 @@
 <article class="methodology catalog-detail">
   {% for s in sections %}<section id="{{ s.slug }}" class="content-section">{{ s.html|safe }}{% with slug=s.slug %}{% include "partials/catalog_section_feedback.html" %}{% endwith %}</section>{% endfor %}
 </article>
+{# §7D Resumen COMPACTO de Adopción metodológica: nivel + una línea + los 4 contratos + conteos + CTA al Assessment. El detalle
+   (evidencia agrupada, justificación) vive SOLO en el Assessment; acá no se duplica. Distinto del «Veredicto del catálogo»
+   (higiene de extracción) del hero: son dos ejes independientes. Solo aparece si hay Adopción persistida. #}
+{% if ah and ah.adoption %}
+{% set ad = ah.adoption %}
+{# Adopción metodológica como SECCIÓN del Catálogo (misma gramática numerada que Cumplimiento/Portabilidad: `heading()` del Hub,
+   [NN] continúa la secuencia), NO una tarjeta/contenedor. Acción «Ver Assessment» en el slot top-right del encabezado
+   (`.heading-supports`). Resultado = badge canónico; contratos = badges; conteos = indicadores `.activity-kpi`. El detalle
+   (evidencia) vive en el Assessment, no se duplica. #}
+{# Las secciones del flujo se numeran con base 0 (render_sections), así que el número = cantidad; Adopción es la siguiente. #}
+{% set adoption_num = (sections | length) + 1 %}
+{% set adoption_action %}<a class="support-link" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Ver Assessment<span>↗</span></a>{% endset %}
+<article class="methodology catalog-detail">
+<section class="content-section" aria-label="Adopción metodológica">
+  {{ heading(adoption_num, "Adopción metodológica", "Qué tan cerca está el modelo de adoptar la metodología, como resultado determinista sobre los cuatro contratos. Es independiente del veredicto del catálogo; el detalle (evidencia) está en el Assessment.", supports=adoption_action) }}
+  {% if ad.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ ad.tone }}">{{ ad.level_label }}</span>
+  {% else %}<span class="catalog-card__verdict catalog-card__verdict--neutra">No determinable</span>{% endif %}
+  <p>{{ ad.headline }}</p>
+  <h3>Contratos evaluados</h3>
+  <div class="catalog-verdict-line">
+    {% for c in ad.contracts %}<span class="catalog-card__verdict catalog-card__verdict--{% if c.state == 'positive' %}plena{% elif c.state == 'attention' %}parcial{% else %}neutra{% endif %}" title="{{ c.state_text }}">{{ c.label }}</span>{% endfor %}
+  </div>
+  <div class="activity-kpi-grid">
+    {{ kpi_tile({"value": ad.strengths_count, "label": "Evidencias favorables"}) }}
+    {{ kpi_tile({"value": ad.reasons_count, "label": "Puntos de atención"}) }}
+  </div>
+</section>
+</article>
+{% endif %}
 {% include "partials/catalog_feedback.html" %}

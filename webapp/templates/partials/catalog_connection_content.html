@@ -6,8 +6,8 @@
   <h1>Conexiones &amp; Espacios</h1>
   <div class="hero-meta">
     <span class="catalog-verdict-line">
-      <span class="catalog-meta-dot catalog-meta-dot--{{ verdict|catalog_verdict_class }}" aria-hidden="true"></span>
-      <span class="catalog-card__verdict catalog-card__verdict--{{ verdict|catalog_verdict_class }}">{{ verdict|catalog_verdict_label }}</span>
+      <span class="catalog-meta-dot catalog-meta-dot--{{ verdict|catalog_verdict_tone }}" aria-hidden="true"></span>
+      <span class="catalog-card__verdict catalog-card__verdict--{{ verdict|catalog_verdict_tone }}">{{ verdict|catalog_verdict_label }}</span>
       <span>{{ verdict|catalog_verdict_text }}</span>
     </span>
     <span>{{ count }} {{ "conexión" if count == 1 else "conexiones" }}</span>

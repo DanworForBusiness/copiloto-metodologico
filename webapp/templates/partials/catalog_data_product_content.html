@@ -4,8 +4,8 @@
   <h1>{{ product.business_name or product.title }}</h1>
   <div class="hero-meta">
     <span class="catalog-verdict-line">
-      <span class="catalog-meta-dot catalog-meta-dot--{{ product.veredicto|catalog_verdict_class }}" aria-hidden="true"></span>
-      <span class="catalog-card__verdict catalog-card__verdict--{{ product.veredicto|catalog_verdict_class }}">{{ product.veredicto|catalog_verdict_label }}</span>
+      <span class="catalog-meta-dot catalog-meta-dot--{{ product.veredicto|catalog_verdict_tone }}" aria-hidden="true"></span>
+      <span class="catalog-card__verdict catalog-card__verdict--{{ product.veredicto|catalog_verdict_tone }}">{{ product.veredicto|catalog_verdict_label }}</span>
       <span>{{ product.apto }}</span>
     </span>
     <span>{{ product.artifact_names|length }} entidad{{ "es" if product.artifact_names|length != 1 else "" }}</span>

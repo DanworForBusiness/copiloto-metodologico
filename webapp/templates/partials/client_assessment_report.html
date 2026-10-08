@@ -1,7 +1,7 @@
 {# Assessment del cliente (consolidado V1): fragmento del slot de detalle del Catálogo (#catalog-detail-slot). Solo lectura derivada de los
    assessments canónicos ya generados: abrirlo no conecta a Datasphere ni ejecuta evaluaciones. Es OTRO informe de la familia del informe
    individual (`catalog_assessment_report.html`): MISMA estructura y primitivos, sin CSS propio de aspecto:
-     · wrapper/hero ... `.catalog-back` + `.module-hero` (`.eyebrow`, `h1.asr-title`, `.hero-meta > .catalog-verdict-line`, `.support-links.asr-actions`)
+     · wrapper/hero ... `.catalog-actionbar` (`.catalog-back` + `.support-links.catalog-actionbar__actions`) + `.module-hero` (`.eyebrow`, `h1.asr-title`, `.hero-meta > .catalog-verdict-line`)
      · KPIs ............ `details.dashboard-section` + `.activity-kpi-grid` / `.activity-kpi`
      · secciones ....... `article.methodology.catalog-detail` > `section.content-section` + macro compartida `heading` ([NN] + h2 + subtítulo)
      · tablas/enlaces .. tablas nativas de `.methodology`; enlaces de contenido `<a><code>…</code></a>`; etiquetas `.catalog-card__verdict`
@@ -10,7 +10,14 @@
 {% set snap = v.snapshot %}
 {# Mismo badge `.catalog-card__verdict` para TODOS los estados; los neutros (sin assessment / no aplica) usan su variante gris, sin semántica de puntaje. #}
 {% macro badge(state) %}<span class="catalog-card__verdict catalog-card__verdict--{{ v.state_tones.get(state) or "neutra" }}">{{ v.state_labels[state] }}</span>{% endmacro %}
-<a class="catalog-back" href="#" role="button" hx-get="{{ back_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>
+{# §1 (Gate UX.4) Misma barra de acciones transversal que el informe individual: ← Volver + exports en la misma línea. #}
+<div class="catalog-actionbar">
+  <a class="catalog-back" href="#" role="button" hx-get="{{ back_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>
+  <div class="support-links catalog-actionbar__actions">
+    <a class="support-link" href="{{ md_url }}" download>Exportar Markdown<span>↗</span></a>
+    <a class="support-link" href="{{ json_url }}" download>Exportar JSON<span>↗</span></a>
+  </div>
+</div>
 <section class="module-hero asr-hero">
   <p class="eyebrow">Assessment del cliente</p>
   <h1 class="asr-title">{{ snap.client }}</h1>
@@ -19,10 +26,6 @@
       <span class="catalog-meta-dot" aria-hidden="true"></span>
       <span>Generado {{ v.generated_text }}</span>
     </span>
-  </div>
-  <div class="support-links asr-actions">
-    <a class="support-link" href="{{ md_url }}" download>Exportar Markdown<span>↗</span></a>
-    <a class="support-link" href="{{ json_url }}" download>Exportar JSON<span>↗</span></a>
   </div>
 </section>
 
@@ -63,7 +66,7 @@
           <td>{{ r.confidence_text }}</td>
           <td>{{ r.observation_occurrences if r.observation_occurrences is not none else "—" }}</td>
           <td>{{ r.review_occurrences if r.review_occurrences is not none else "—" }}</td>
-          <td>{% if r.catalog_verdict %}<span class="catalog-card__verdict catalog-card__verdict--{{ r.catalog_verdict|catalog_verdict_class }}">{{ r.catalog_verdict|catalog_verdict_label }}</span>{% else %}—{% endif %}</td>
+          <td>{% if r.catalog_verdict %}<span class="catalog-card__verdict catalog-card__verdict--{{ r.catalog_verdict|catalog_verdict_tone }}">{{ r.catalog_verdict|catalog_verdict_label }}</span>{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>

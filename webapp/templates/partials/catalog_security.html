@@ -18,15 +18,15 @@
   {% endif %}
   <ul class="catalog-flows-list catalog-security-list"{% if family != "roles" %} data-security-dac-source hidden{% endif %}>
     {% for e in items %}
-    <li class="catalog-card catalog-security-card catalog-card--{{ e.veredicto|catalog_verdict_class }}"
+    <li class="catalog-card catalog-security-card catalog-card--{{ e.veredicto|catalog_verdict_tone }}"
         role="link" tabindex="0" title="Ver detalle de seguridad"
         {% if family != "roles" %}data-search="{{ (e._search or "")|lower }}" data-cliente="{{ e.cliente }}" data-verdict="{{ e.veredicto|catalog_verdict_class }}"{% endif %}
         hx-get="/catalog/security/detail?cliente={{ e.cliente|urlencode }}&criterio={{ e.criterio|urlencode }}&dac={{ e.dac|urlencode }}&pack={{ pack|default('datasphere_core') }}"
         hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, keyup[key=='Enter']">
       <p class="catalog-card__head">
-        <span class="catalog-meta-dot catalog-meta-dot--{{ e.veredicto|catalog_verdict_class }}" aria-hidden="true"></span>
+        <span class="catalog-meta-dot catalog-meta-dot--{{ e.veredicto|catalog_verdict_tone }}" aria-hidden="true"></span>
         <strong>{{ e.cliente }}</strong>
-        <span class="catalog-card__verdict catalog-card__verdict--{{ e.veredicto|catalog_verdict_class }}">{{ e.veredicto|catalog_verdict_label }}</span>
+        <span class="catalog-card__verdict catalog-card__verdict--{{ e.veredicto|catalog_verdict_tone }}">{{ e.veredicto|catalog_verdict_label }}</span>
       </p>
       <p class="catalog-card__apto">{{ e.apto }}</p>
       {% if e.family == "roles" %}

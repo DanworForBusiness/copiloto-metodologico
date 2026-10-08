@@ -588,6 +588,10 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .dashboard-section[open] > .dashboard-section__head .dashboard-section__caret::before { content: "▾"; }
 .dashboard-section__count { margin-left: auto; color: #7a7a82; font: 500 .7rem var(--mono); }
 .content-theme-dark .dashboard-section__count { color: #8b8b96; }
+/* Slot de ESTADO de la fila de disclosure (badge a la derecha): mismo mecanismo de alineación que `__count` (margin-left:auto);
+   la separación con el conteo la da el `gap` del `__head`. Con conteo presente, el conteo toma el espacio libre y el estado
+   queda a su derecha → estado consistentemente a la derecha. */
+.dashboard-section__state { margin-left: auto; display: inline-flex; align-items: center; }
 .dashboard-section__body { padding: 4px 16px 20px; }
 
 /* Estados de arrastre (reordenamiento drag-and-drop, ver app.js
@@ -754,9 +758,9 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 }
 .content-theme-dark .activity-kpi__value { color: #e4e4ec; }
 .activity-kpi__label { color: var(--kpi-accent, var(--gold)); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .06em; }
-/* Acento distinto por tile — paleta canónica de estados de catálogo (mismos
-   colores que .catalog-status--*), para que se diferencien sin romper la
-   identidad. Solo borde + label; el valor queda neutro por legibilidad. */
+/* Acento distinto por tile — paleta canónica de estados de catálogo (azul/verde/
+   ámbar/naranja/dorado), para que se diferencien sin romper la identidad. Solo
+   borde + label; el valor queda neutro por legibilidad. */
 .activity-kpi:nth-child(1) { --kpi-accent: #2f6fbd; }  /* azul */
 .activity-kpi:nth-child(2) { --kpi-accent: #2e9e5b; }  /* verde */
 .activity-kpi:nth-child(3) { --kpi-accent: #c89100; }  /* ámbar */
@@ -2384,73 +2388,11 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 
 
 /* Catalogo: hallazgos de cumplimiento renderizados como tabla semaforizada. */
+/* Gate UX.4 (addendum): Cumplimiento y Portabilidad BDC se renderizan con la MISMA gramática del Hub que el resto de la
+   página — tabla nativa `.methodology table` (th dorada mono, filas con border-bottom) y badges `.catalog-card__verdict--*`.
+   Se retiró el sistema visual legacy propio (`.catalog-compliance-table`, `.catalog-compliance__*`, `.catalog-status--*`:
+   card con fondo/borde redondeado, pills con punto y colores literales). Queda solo este wrapper de aire + scroll en mobile. */
 .catalog-compliance { margin: 4px 0 18px; overflow-x: auto; }
-.catalog-compliance-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: #fff;
-  color: #111827;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  overflow: hidden;
-  font-size: .88rem;
-}
-.catalog-compliance-table th {
-  padding: 12px 14px;
-  color: var(--gold);
-  font: 700 .64rem var(--mono);
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  text-align: left;
-  background: rgba(231,176,8,.06);
-  border-bottom: 1px solid var(--line);
-}
-.catalog-compliance-table td {
-  padding: 13px 14px;
-  vertical-align: top;
-  border-bottom: 1px solid var(--line);
-  line-height: 1.5;
-}
-.catalog-compliance-table tr:last-child td { border-bottom: 0; }
-.catalog-compliance__state { width: 106px; white-space: nowrap; }
-.catalog-compliance__finding { width: 32%; font-weight: 700; color: #111827; }
-.catalog-compliance__evidence { color: #243141; overflow-wrap: anywhere; }
-.catalog-compliance__muted { color: var(--dim); }
-.catalog-compliance__evidence-list {
-  list-style: none !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  display: grid;
-  gap: 7px;
-}
-.catalog-compliance__evidence-list li {
-  display: block !important;
-  padding-left: 12px;
-  border-left: 2px solid rgba(231,176,8,.38);
-}
-.catalog-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 78px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  font: 700 .62rem var(--mono);
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  border: 1px solid currentColor;
-  background: color-mix(in srgb, currentColor 10%, transparent);
-}
-.catalog-status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.catalog-status--green { color: #2e9e5b; }
-.catalog-status--blue { color: #2f6fbd; }
-.catalog-status--amber { color: #c89100; }
-.catalog-status--orange { color: #d06f1f; }
-.catalog-status--red { color: #c43d32; }
-.content-theme-dark .catalog-compliance-table { background: #181819; color: var(--ink); }
-.content-theme-dark .catalog-compliance-table th { background: rgba(231,176,8,.08); }
-.content-theme-dark .catalog-compliance__finding { color: var(--ink); }
-.content-theme-dark .catalog-compliance__evidence { color: var(--soft); }
 
 .catalog-connection-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; }
 .catalog-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px; font: 600 .66rem var(--mono); color: var(--soft); background: var(--bg); }
@@ -2848,11 +2790,13 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    + `.content-heading`, `.section-subtitle`, `.section-index`, `.callout`(+`-row`), `.content-collapsible`, tablas/listas/links
    nativos de `.methodology`, `.support-links`/`.support-link`, `.htmx-indicator` y el badge `.catalog-card__verdict`.
    Acá queda SOLO lo que no existe en ese sistema (ver cada regla). Sin score ni banda de madurez. */
-/* El hero del Hub no tiene slot de acciones arriba a la derecha (`.heading-supports` solo existe en el header de sección). */
-.asm-hero-has-support { position: relative; container-type: inline-size; }
-.asm-hero-has-support > .asm-hero-support { position: absolute; top: 0; right: 0; margin: 0; }
-/* Dos botones (Ver Assessment + Ver Informe de Cliente) no caben sobre el eyebrow en un panel angosto: el ancho que importa es el del hero, no el del viewport. */
-@container (max-width: 640px) { .asm-hero-has-support > .asm-hero-support { position: static; margin: 0 0 12px; } }
+/* §1 (Gate UX.4) Barra de acciones TRANSVERSAL: `← Volver` a la izquierda + acciones de contexto a la derecha, en la misma
+   línea y gutter que el contenido (dentro de `.module-content`). Un solo patrón para la página de modelo del Catálogo y para
+   el Assessment, así el usuario aprende un layout único. El back pierde su sticky SOLO dentro de la barra (en otras páginas
+   sigue igual); las acciones se empujan a la derecha y envuelven abajo en anchos chicos sin chocar con el título. */
+.catalog-actionbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 0 0 16px; }
+.catalog-actionbar .catalog-back { position: static; top: auto; margin: 0; background: none; z-index: auto; }
+.catalog-actionbar__actions { margin: 0 0 0 auto; flex-wrap: wrap; }
 /* Fila de estado del assessment bajo el título (concepto nuevo): pegada al título, 6px más arriba por pedido del owner. */
 .asm-hero-meta { margin-top: -4px; }
 /* La fila de metadata legacy (veredicto · artefactos) hereda `.hero-meta{margin-top:22px}` del Hub: pegada a la del assessment forman un solo bloque. */
@@ -2861,8 +2805,6 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .asm-facts > .activity-kpi { --kpi-accent: var(--gold); }
 /* El badge de vigencia como enlace conserva su aspecto de badge (el reset de enlace del Hub subraya). */
 .catalog-verdict-line a.asm-badge-link { text-decoration: none; cursor: pointer; }
-/* `.support-links` no envuelve: la fila de acciones del informe tiene hasta 3 enlaces. */
-.asr-actions { flex-wrap: wrap; }
 /* Divisor del hero de los informes de Assessment (borde inferior de `.module-hero`): mismo aire arriba (padding) y abajo (margen del bloque que sigue).
    Medido en el informe individual y en el de cliente: 59px arriba (padding 44 + margen 14 del último hijo) vs 12px abajo. Solo la familia `.asr-hero`. */
 .module-hero.asr-hero { padding-bottom: 32px; }
@@ -2870,6 +2812,39 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .module-hero.asr-hero + * { margin-top: 32px; }
 /* IDs técnicos largos (AM_…) sin cortes naturales: a la escala del h1 del Hub (hasta 4.5rem) no caben ni parten bien. */
 .asr-title { font-size: clamp(1.5rem, 3vw, 2.4rem); line-height: 1.1; letter-spacing: -.03em; overflow-wrap: anywhere; }
+
+/* ── Gate UX.1/UX.2 (pulido de producto): jerarquía del hero, Juicio "resultado primero", carga integrada, chips y
+   contraste de evidencia. Reusa tokens/animaciones del Hub (--gold/--soft/--ink/--line, `analysis-spin`,
+   `.catalog-card__verdict`); sin score/banda/semáforo numérico ni literales de color. */
+/* Hero OPERATIVO, no sobredimensionado: nombre de negocio primario compacto + identificador técnico secundario. */
+.asr-hero h1.asr-title { margin: 8px 0 6px; }
+.asr-subid { margin: 0 0 2px; }
+.asr-subid code { font: 600 .82rem var(--mono); color: var(--soft); overflow-wrap: anywhere; }
+.asr-hero .hero-meta { margin-top: 12px; }
+
+/* Botón de generar/regenerar con carga INTEGRADA: el propio botón recibe `.htmx-request` al disparar; muestra spinner +
+   "Generando informe…" y oculta el label; sin segundo texto flotante. Ancho estable; deshabilitado legible (no al 30%). */
+.asr-generate { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 12rem; cursor: pointer; }
+.asr-generate__busy { align-items: center; gap: 7px; }                 /* es `.htmx-indicator`: oculto salvo `.htmx-request` */
+.asr-generate.htmx-request .asr-generate__busy { display: inline-flex; }
+.asr-generate.htmx-request .asr-generate__label { display: none; }
+.asr-generate:disabled { opacity: 1; cursor: progress; }               /* durante la carga el spinner comunica el estado; sin el fade al 30% de button:disabled */
+.asr-generate__spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--line); border-top-color: var(--gold); border-radius: 50%; animation: analysis-spin .8s linear infinite; }
+
+/* Ritmo vertical de la fila de contratos (badges en `.catalog-verdict-line`) cuando es un bloque del informe (`.methodology`):
+   aire antes del siguiente bloque (disclosures/indicadores). En el hero la fila NO está en `.methodology`, así que no se afecta. */
+.methodology .catalog-verdict-line { margin: 4px 0 18px; }
+
+/* Adopción metodológica (detalle del informe y resumen compacto del Catálogo) — Gate UX.4 reuse refactor:
+   NO lleva CSS propio. Se arma con primitivos canónicos del Hub, sin tipografía/geometría espejada:
+     · encabezado de sección .. `heading()` → `.content-heading` / `.section-subtitle` (igual que «Resumen»)
+     · nivel + contratos ..... `.catalog-card__verdict--*` (misma familia de badges que vigencia/veredicto), en `.catalog-verdict-line`
+     · interpretación ......... `<p>` de `.methodology` (cuerpo del informe por tema)
+     · evidencia .............. `.methodology table` (igual que «Resumen»/hallazgos), agrupada por contrato con rowspan
+     · conteos ................ indicadores `.activity-kpi` vía `kpi_tile` (mismo primitivo que Operaciones/Comercial/Resumen)
+     · tarjeta compacta ....... `details.dashboard-section` (`__head`/`__title`/`__count`/`__body`) + CTA `.support-link`
+   Se eliminaron los antiguos `.asr-judgment__result|level|headline|stale`, `.asr-contract*`, `.asr-evidence*` y
+   `.catalog-adoption*` (todos duplicaban valores de primitivos existentes). */
 
 /* Foco de linaje (server-side, ?focus=A,B): solo estilo sobre nodos existentes; no altera el grafo. */
 .ln-node-focus .ln-node { stroke: var(--gold); stroke-width: 2.6; }

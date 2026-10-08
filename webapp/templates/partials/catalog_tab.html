@@ -106,14 +106,14 @@
     {% if catalog_data_products %}
     <ul class="catalog-flows-list">
       {% for dp in catalog_data_products %}
-      <li class="catalog-card catalog-card--{{ dp.veredicto|catalog_verdict_class }}"
+      <li class="catalog-card catalog-card--{{ dp.veredicto|catalog_verdict_tone }}"
           role="link" tabindex="0" title="Ver detalle del Data Product"
           hx-get="/catalog/data-product?product_id={{ dp.product_id|urlencode }}&pack={{ pack|default('datasphere_core') }}"
           hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, keyup[key=='Enter']">
         <p class="catalog-card__head">
-          <span class="catalog-meta-dot catalog-meta-dot--{{ dp.veredicto|catalog_verdict_class }}" aria-hidden="true"></span>
+          <span class="catalog-meta-dot catalog-meta-dot--{{ dp.veredicto|catalog_verdict_tone }}" aria-hidden="true"></span>
           <strong>{{ dp.business_name or dp.title }}</strong>
-          <span class="catalog-card__verdict catalog-card__verdict--{{ dp.veredicto|catalog_verdict_class }}">{{ dp.veredicto|catalog_verdict_label }}</span>
+          <span class="catalog-card__verdict catalog-card__verdict--{{ dp.veredicto|catalog_verdict_tone }}">{{ dp.veredicto|catalog_verdict_label }}</span>
         </p>
         <p class="catalog-card__apto">{{ dp.apto }}</p>
         <p class="catalog-card__meta">{{ dp.product_id }} · {{ dp.artifact_names|length }} entidad{{ "es" if dp.artifact_names|length != 1 else "" }}</p>

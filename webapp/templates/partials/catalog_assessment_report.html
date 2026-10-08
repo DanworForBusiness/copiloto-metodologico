@@ -10,10 +10,15 @@
      · acciones ........ `.support-links` / `.support-link`;  etiquetas: badge `.catalog-card__verdict`
      · avisos .......... `.callout` SOLO para estados excepcionales (sin informe, desactualizado, falla, dimensión sin evidencia) #}
 {% macro lineage_link(url) %}{% if url %}<a href="#" role="button" hx-get="{{ url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent><code>Ver en linaje</code></a>{% endif %}{% endmacro %}
+{# Acción de generación/regeneración: botón del Hub con estado de carga INTEGRADO. El elemento que dispara la request
+   recibe `.htmx-request` por sí solo (no hace falta hx-indicator): con `.asr-generate.htmx-request` se muestra el spinner
+   y se oculta el label. `hx-disabled-elt="this"` lo deshabilita (anti doble envío) conservando sus dimensiones. #}
 {% macro action_link(v) %}{% if v.action %}
 <div class="support-links">
-  <a class="support-link" href="#" role="button" hx-post="{{ v.report_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-indicator="#asr-busy" @click.prevent>{{ v.action.label }}<span>↗</span></a>
-  <span class="htmx-indicator" id="asr-busy" role="status">Generando…</span>
+  <button type="button" class="support-link asr-generate" hx-post="{{ v.report_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-disabled-elt="this" aria-live="polite">
+    <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Generando informe…</span>
+    <span class="asr-generate__label">{{ v.action.label }}</span>
+  </button>
 </div>{% endif %}{% endmacro %}
 {% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
@@ -90,13 +95,24 @@
 {# Estado vacío estándar del Hub (`.dashboard-empty`): "No detectado" = se evaluó y no apareció el patrón (≠ No disponible ≠ No aplica). #}
 {% macro not_detected(text) %}<div class="dashboard-empty"><span class="dashboard-empty__label">No detectado</span><p>{{ text }}</p></div>{% endmacro %}
 
-{% if v.adhoc %}{# assessment ad-hoc (página propia): "Volver" regresa a la herramienta, sin HTMX ni flujo del Catálogo #}
-<a class="catalog-back" href="{{ v.flow_url }}">← Volver</a>
-{% else %}<a class="catalog-back" href="#" role="button" hx-get="{{ v.flow_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>{% endif %}
+{# §1 Barra de acciones transversal: ← Volver a la izquierda, acciones de contexto a la derecha, MISMA línea y gutter que el
+   contenido. Un solo patrón (`.catalog-actionbar`) compartido con la página de modelo del Catálogo; el hero arranca debajo. #}
+<div class="catalog-actionbar">
+  {% if v.adhoc %}{# assessment ad-hoc (página propia): "Volver" regresa a la herramienta, sin HTMX ni flujo del Catálogo #}
+  <a class="catalog-back" href="{{ v.flow_url }}">← Volver</a>
+  {% else %}<a class="catalog-back" href="#" role="button" hx-get="{{ v.flow_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>{% endif %}
+  {% if v.has_profile %}
+  <div class="support-links catalog-actionbar__actions">
+    <a class="support-link" href="{{ v.md_url }}" download>Exportar Markdown<span>↗</span></a>
+    <a class="support-link" href="{{ v.json_url }}" download>Exportar JSON<span>↗</span></a>
+  </div>
+  {% endif %}
+</div>
 <section class="module-hero asr-hero">
   <p class="eyebrow">Assessment de {{ v.module_label }} · {{ v.client }}</p>
-  {# Mismo formato `Descripción · NOMBRE_TÉCNICO` (negro · dorado) que el heading del modelo en el detalle del flujo. #}
-  <h1 class="asr-title">{% if v.title_id and v.title_desc %}<span class="tone-black">{{ v.title_desc }} · </span><span class="tone-gold">{{ v.title_id }}</span>{% elif v.title_id %}<span class="tone-gold">{{ v.title_id }}</span>{% else %}{{ v.dominio }}{% endif %}</h1>
+  {# Jerarquía: nombre de negocio PRIMARIO (h1); identificador técnico SECUNDARIO (línea mono debajo, no compite ni domina). #}
+  <h1 class="asr-title">{{ v.title_desc or v.title_id or v.dominio }}</h1>
+  {% if v.title_desc and v.title_id and v.title_desc != v.title_id %}<p class="asr-subid"><code>{{ v.title_id }}</code></p>{% endif %}
   <div class="hero-meta">
     <span class="catalog-verdict-line">
       <span class="catalog-meta-dot{% if v.state_tone %} catalog-meta-dot--{{ v.state_tone }}{% endif %}" aria-hidden="true"></span>
@@ -105,12 +121,6 @@
       {% if v.has_profile %}<span>{{ v.scope_text }}</span>{% endif %}
     </span>
   </div>
-  {% if v.has_profile %}
-  <div class="support-links asr-actions">
-    <a class="support-link" href="{{ v.md_url }}" download>Exportar Markdown<span>↗</span></a>
-    <a class="support-link" href="{{ v.json_url }}" download>Exportar JSON<span>↗</span></a>
-  </div>
-  {% endif %}
 </section>
 
 {# ── estados sin informe ── #}
@@ -128,41 +138,8 @@
 {% call callout("punch", "Assessment desactualizado — " ~ v.state_note, "status") %}<p>{{ v.state_body }}</p>{{ action_link(v) }}{% endcall %}
 {% endif %}
 
-{# ── Juicio metodológico (resultado DETERMINISTA persistido; derivado del perfil, distinto de la vigencia del Assessment) ── #}
-{% if v.judgment %}
-{% set j = v.judgment %}
-<section class="methodology catalog-detail" id="asr-juicio" aria-label="Juicio metodológico">
-  <div class="content-section">
-    <header class="content-heading has-subtitle"><div class="content-heading-copy"><h2>Juicio metodológico</h2></div></header>
-    <blockquote class="section-subtitle"><p>Resultado metodológico determinista sobre el perfil persistido. Es independiente del dictamen del catálogo y no expresa una calificación numérica; {% if j.determined %}indica el nivel alcanzado por la evidencia afirmativa a través de los cuatro contratos.{% else %}cuando no puede emitirse, se explica por qué.{% endif %}</p></blockquote>
-    <p>
-      {% if j.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ j.tone }}">{{ j.level_label }}</span>
-      {% else %}<span class="catalog-card__verdict catalog-card__verdict--parcial">No determinable</span> <span>{{ j.nd_reason }}</span>{% endif %}
-      {% if v.state == "STALE" %}<span class="catalog-meta-dot catalog-meta-dot--parcial" aria-hidden="true"></span><span>El Assessment técnico está desactualizado; el juicio corresponde al perfil evaluado.</span>{% endif %}
-    </p>
-    <div class="activity-kpi-grid">
-      {% for c in j.contracts %}
-      <div class="activity-kpi">
-        <span class="activity-kpi__value"><span class="catalog-card__verdict{% if c.state == 'positive' %} catalog-card__verdict--plena{% elif c.state == 'attention' %} catalog-card__verdict--parcial{% endif %}">{{ c.state_text }}</span></span>
-        <span class="activity-kpi__label">{{ c.label }}</span>
-      </div>
-      {% endfor %}
-    </div>
-    {% if j.strengths %}
-    <details class="dashboard-section" open>
-      <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Evidencia a favor</span><span class="dashboard-section__count">{{ j.strengths|length }}</span></summary>
-      <div class="dashboard-section__body"><ul>{% for st in j.strengths %}<li><span class="catalog-card__verdict">{{ st.dimension }}</span> {{ st.text }}</li>{% endfor %}</ul></div>
-    </details>
-    {% endif %}
-    {% if j.reasons %}
-    <details class="dashboard-section" open>
-      <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Puntos de atención</span><span class="dashboard-section__count">{{ j.reasons|length }}</span></summary>
-      <div class="dashboard-section__body"><ul>{% for r in j.reasons %}<li><span class="catalog-card__verdict catalog-card__verdict--parcial">{{ r.kind }}</span> <span class="catalog-card__verdict">{{ r.dimension }}</span> {{ r.text }}</li>{% endfor %}</ul></div>
-    </details>
-    {% endif %}
-  </div>
-</section>
-{% endif %}
+{# §8 La «Adopción metodológica» se movió DENTRO del informe, después de «Resumen» (ver `id="asr-juicio"` más abajo): el
+   Catálogo muestra el resultado conciso y el Assessment la justificación detallada; sin otro hero grande antes del informe. #}
 
 {% if v.has_profile and v.state in ("CURRENT", "STALE", "FAILED") %}
 {% set s = v.summary %}
@@ -209,6 +186,42 @@
   {% endif %}
 </section>
 
+{# ── §8 Adopción metodológica: resultado DETERMINISTA persistido, como sección del informe (misma gramática que «Resumen»:
+   eyebrow [NN] + h2 + subtítulo). Resultado primero (nivel + interpretación), luego los 4 contratos y la evidencia AGRUPADA
+   por dimensión. `id="asr-juicio"` se conserva (anclado por las regresiones). Es independiente del veredicto del catálogo. ── #}
+{% if v.judgment %}
+{% set j = v.judgment %}
+<section class="content-section" id="asr-juicio" aria-label="Adopción metodológica">
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Adopción metodológica", "Qué tan cerca está el modelo de adoptar la metodología, como resultado determinista sobre los cuatro contratos. Es independiente del veredicto del catálogo (higiene de extracción) y no recalcula el Assessment.") }}
+  {# Resultado PRIMERO (resultado de scan): SOLO el badge de nivel (mismo `.catalog-card__verdict` del Hub). La lectura
+     interpretativa NO va acá — baja al punch de cierre, para no duplicarla. #}
+  {% if j.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ j.tone }}">{{ j.level_label }}</span>
+  {% else %}<span class="catalog-card__verdict catalog-card__verdict--neutra">No determinable</span>{% endif %}
+  {% if v.state == "STALE" %}{% call callout("note", "Corresponde al perfil evaluado") %}<p>El Assessment técnico está desactualizado; la Adopción refleja el último perfil evaluado.</p>{% endcall %}{% endif %}
+  {# §5 CONTRATOS EVALUADOS = 4 badges de veredicto del Hub (tono = estado), en la fila de estado del Hub. EVIDENCIAS = ítems (tabla abajo). #}
+  <h3>Contratos evaluados</h3>
+  <div class="catalog-verdict-line">
+    {% for c in j.contracts %}<span class="catalog-card__verdict catalog-card__verdict--{% if c.state == 'positive' %}plena{% elif c.state == 'attention' %}parcial{% else %}neutra{% endif %}" title="{{ c.state_text }}">{{ c.label }}</span>{% endfor %}
+  </div>
+  {# §6/§5E Evidencia como TABLA nativa del informe (`.methodology table`, igual que «Resumen»/hallazgos), agrupada por contrato con rowspan. Preserva cada ítem canónico. #}
+  {% if j.strengths_grouped %}
+  <details class="dashboard-section" open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Evidencias favorables</span><span class="dashboard-section__count">{{ j.strengths_count }}</span></summary>
+    <div class="dashboard-section__body"><table><thead><tr><th>Contrato</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.strengths_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.text }}</td></tr>{% endfor %}{% endfor %}</tbody></table></div>
+  </details>
+  {% endif %}
+  {% if j.reasons_grouped %}
+  <details class="dashboard-section" open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Puntos de atención</span><span class="dashboard-section__count">{{ j.reasons_count }}</span></summary>
+    <div class="dashboard-section__body"><table><thead><tr><th>Contrato</th><th>Tipo</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.reasons_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.kind }}</td><td>{{ it.text }}</td></tr>{% endfor %}{% endfor %}</tbody></table></div>
+  </details>
+  {% endif %}
+  {# Cierre editorial: qué significa la evidencia de arriba. Reusa el callout canónico del Hub (`callout`, tono punch); también
+     hace de transición visual al divisor de fin de sección (border-bottom de `.content-section`). La lectura va SOLO acá. #}
+  {% call callout("punch", "Lectura de la adopción") %}<p>{{ j.headline }}</p>{% endcall %}
+</section>
+{% endif %}
+
 {% for mg in v.macro_groups %}
 <section class="content-section" id="asr-m-{{ mg.id|lower }}">
   {% set ns.n = ns.n + 1 %}{{ heading(ns.n, mg.title) }}
@@ -222,7 +235,9 @@
   {# Grupo con subáreas reales (Arquitectura & Modelado): un disclosure del CRM por subárea, TODOS colapsados al cargar (cada uno se abre por separado). #}
   {% for a in mg.areas %}
   <details class="dashboard-section" id="{{ a.dom_id }}">
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ a.title }}</span> {{ state_badge(a) }}{% if a.findings %}<span class="dashboard-section__count">{{ a.findings|length }} hallazgo{{ "s" if a.findings|length != 1 }}</span>{% endif %}</summary>
+    {# Fila de disclosure: título a la izquierda; estado (badge canónico del Hub) a la DERECHA, en el mismo slot de metadata que
+       el conteo (`margin-left:auto`, como `__count`). El estado es genuinamente por-fila (un área puede quedar ASSESSED y otra no). #}
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ a.title }}</span>{% if a.findings %}<span class="dashboard-section__count">{{ a.findings|length }} hallazgo{{ "s" if a.findings|length != 1 }}</span>{% endif %}<span class="dashboard-section__state">{{ state_badge(a) }}</span></summary>
     <div class="dashboard-section__body">{{ area_body(a, 4) }}</div>
   </details>
   {% endfor %}

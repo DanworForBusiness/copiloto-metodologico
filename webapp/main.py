@@ -152,7 +152,16 @@ def _catalog_verdict_text(value: str) -> str:
     return _CATALOG_VERDICT_TEXT.get(_catalog_verdict_key(value), "Referencia Danwor")
 
 
-templates.env.filters["catalog_verdict_class"] = _catalog_verdict_key
+def _catalog_verdict_tone(value: str) -> str:
+    """TONO (color) del veredicto por el mapeo canónico ÚNICO (valencia), separado de la CLAVE del veredicto. Así 'Buena'
+    es verde en TODO el Hub (igual que Adopción), sin que el color codifique rango ni reparos. La clave (`catalog_verdict_class`)
+    se mantiene para `data-*` y filtros."""
+    from webapp.services.status_tone import status_tone
+    return status_tone(_catalog_verdict_key(value))
+
+
+templates.env.filters["catalog_verdict_class"] = _catalog_verdict_key          # CLAVE semántica (data-verdict, filtros): plena/buena/parcial
+templates.env.filters["catalog_verdict_tone"] = _catalog_verdict_tone          # TONO (color) canónico por valencia: buena→verde
 templates.env.filters["catalog_verdict_label"] = _catalog_verdict_label
 templates.env.filters["catalog_verdict_text"] = _catalog_verdict_text
 
@@ -2162,6 +2171,17 @@ def _catalog_compliance_status(raw: str) -> tuple[str, str]:
     return "blue", "Nota"
 
 
+# Gate UX.4 (addendum): UNA sola familia de badges en toda la página del Catálogo. El semáforo legacy (green/amber/orange/
+# red/blue de Cumplimiento y Portabilidad) se mapea al badge canónico del Hub `.catalog-card__verdict--*`; no hay tono
+# "peligro", así que rojo/crítico cae en `parcial` (la etiqueta conserva el significado). Reemplaza a `.catalog-status--*`.
+_CATALOG_SEMAFORO_TONE = {"green": "plena", "amber": "buena", "orange": "parcial", "red": "parcial", "blue": "neutra"}
+
+
+def _catalog_status_badge(semaforo: str, label: str) -> str:
+    tone = _CATALOG_SEMAFORO_TONE.get((semaforo or "").lower(), "neutra")
+    return f'<span class="catalog-card__verdict catalog-card__verdict--{tone}">{html.escape(label)}</span>'
+
+
 def _catalog_inline_html(text: str) -> str:
     safe = html.escape((text or "").strip())
     safe = re.sub(r"`([^`]+)`", r"<code>\1</code>", safe)
@@ -2173,11 +2193,11 @@ def _catalog_inline_html(text: str) -> str:
 def _catalog_evidence_html(text: str) -> str:
     clean = re.sub(r"\s+", " ", (text or "").strip())
     if not clean:
-        return '<span class="catalog-compliance__muted">Sin evidencia detallada.</span>'
+        return "Sin evidencia detallada."
     parts = [part.strip() for part in clean.split(" | ") if part.strip()]
     if len(parts) >= 2:
         items = "".join(f"<li>{_catalog_inline_html(part)}</li>" for part in parts)
-        return f'<ul class="catalog-compliance__evidence-list">{items}</ul>'
+        return f"<ul>{items}</ul>"
     comma_parts = [part.strip() for part in clean.split(",") if part.strip()]
     if len(comma_parts) >= 3:
         artifact_like = sum(
@@ -2190,7 +2210,7 @@ def _catalog_evidence_html(text: str) -> str:
         )
         if artifact_like >= max(2, len(comma_parts) // 2):
             items = "".join(f"<li>{_catalog_inline_html(part)}</li>" for part in comma_parts)
-            return f'<ul class="catalog-compliance__evidence-list">{items}</ul>'
+            return f"<ul>{items}</ul>"
     return _catalog_inline_html(clean)
 
 
@@ -2216,16 +2236,17 @@ def _catalog_compliance_table_html(source: str) -> str:
         status_class, status_label = _catalog_compliance_status(f"{marker} {title} {evidence}")
         rows.append(
             "<tr>"
-            f'<td class="catalog-compliance__state"><span class="catalog-status catalog-status--{status_class}">{status_label}</span></td>'
-            f'<td class="catalog-compliance__finding">{_catalog_inline_html(title)}</td>'
-            f'<td class="catalog-compliance__evidence">{_catalog_evidence_html(evidence)}</td>'
+            f"<td>{_catalog_status_badge(status_class, status_label)}</td>"
+            f"<td>{_catalog_inline_html(title)}</td>"
+            f"<td>{_catalog_evidence_html(evidence)}</td>"
             "</tr>"
         )
     if not rows:
         return block
+    # Tabla nativa del Hub (hereda `.methodology table`); el `.catalog-compliance` wrapper solo da aire + scroll en mobile.
     return (
         '<div class="catalog-compliance">'
-        '<table class="catalog-compliance-table">'
+        '<table>'
         '<thead><tr><th>Estado</th><th>Hallazgo</th><th>Evidencia</th></tr></thead>'
         f'<tbody>{"".join(rows)}</tbody>'
         '</table>'
@@ -2245,9 +2266,9 @@ _PORT_HALLAZGO_LABEL = {
 
 
 def _catalog_portability_table_html(findings: list, asset_type: str) -> str:
-    """Tabla de portabilidad AGRUPADA por regla (semáforo por hallazgo). Reusa las clases
-    .catalog-compliance* / .catalog-status--* existentes. Muchos campos de la misma regla
-    se resumen en una fila (evita listar 80 filas) — como el ejemplo '3 campos DecimalFloat'."""
+    """Tabla de portabilidad AGRUPADA por regla (badge canónico del Hub por hallazgo). Tabla nativa `.methodology table`
+    + badge `.catalog-card__verdict--*` (misma familia que el resto del Catálogo). Muchos campos de la misma regla se
+    resumen en una fila (evita listar 80 filas) — como el ejemplo '3 campos DecimalFloat'."""
     if not findings:
         return ""
     order = {"red": 0, "orange": 1, "amber": 2, "blue": 3, "green": 4}
@@ -2269,10 +2290,10 @@ def _catalog_portability_table_html(findings: list, asset_type: str) -> str:
         if f0.get("recomendacion"):
             ev += f" — <em>{html.escape(str(f0['recomendacion']))}</em>"
         rows.append(
-            f'<tr><td class="catalog-compliance__state"><span class="catalog-status catalog-status--{f0.get("semaforo","amber")}">{estado}</span></td>'
-            f'<td class="catalog-compliance__finding">{titulo}</td>'
-            f'<td class="catalog-compliance__evidence">{ev}</td></tr>')
-    return ('<div class="catalog-compliance"><table class="catalog-compliance-table">'
+            f"<tr><td>{_catalog_status_badge(f0.get('semaforo', 'amber'), estado)}</td>"
+            f"<td>{titulo}</td>"
+            f"<td>{ev}</td></tr>")
+    return ('<div class="catalog-compliance"><table>'
             '<thead><tr><th>Tipo</th><th>Hallazgo</th><th>Campos · Recomendación</th></tr></thead>'
             f'<tbody>{"".join(rows)}</tbody></table></div>')
 
@@ -2291,7 +2312,7 @@ def _catalog_portability_section_md(port: dict, asset_type: str, acks: list | No
     score = port.get("score")
     rev, noeval = port.get("campos_revisados", 0), port.get("campos_no_evaluables", 0)
     nrisk, nadapt = port.get("n_riesgos", 0), port.get("n_adaptaciones", 0)
-    pill = f'<span class="catalog-status catalog-status--{semaforo}">{html.escape(label)}</span>'
+    pill = _catalog_status_badge(semaforo, label)
     score_txt = f" · Score **{score}/100**" if isinstance(score, int) else ""
     scope = ("Análisis retrospectivo del contrato publicado — safety check de incompatibilidades "
              "residuales y detección de adaptaciones/workarounds (los hints no penalizan)."
