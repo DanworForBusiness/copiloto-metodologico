@@ -149,7 +149,7 @@ def test_the_canonical_punch_callout_closes_the_questions_container_exactly_once
     assert "callout" not in inside                                                                    # el punch NO va dentro del contenedor
     punch = '<aside class="callout callout--punch">'
     assert html.count(punch + '<div class="callout__head"><span class="callout__icon">💡</span><strong class="callout__title">Para qué sirven estas preguntas</strong>') == 1
-    assert after.lstrip().startswith(punch) and after.index(punch) < after.index('id="asr-m-architecture_modeling"')   # justo después del contenedor y antes de la sección siguiente
+    assert after.lstrip().startswith(punch) and after.index(punch) < after.index('id="asr-observaciones"')   # justo después del contenedor y antes de las observaciones
     assert ("Estas preguntas no son conclusiones sobre la calidad del modelo. Identifican información que el proyecto debe aportar para que nuestros "
             "consultores puedan cerrar o interpretar correctamente los hallazgos del assessment.") in after
     assert "Estas preguntas representan información que el análisis no puede obtener" not in html      # la frase previa ya no se duplica arriba de la tabla

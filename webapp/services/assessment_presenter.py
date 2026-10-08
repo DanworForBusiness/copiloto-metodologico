@@ -27,7 +27,8 @@ from webapp.services import assessment_service as svc
 
 canonical_signal_id = P.canonical_signal_id        # los consumidores normalizan ids historicos por aca (API publica de presentacion)
 from webapp.services import catalog_reads
-from webapp.services.status_tone import status_tone
+from webapp.services import asset_evaluation as AE
+from webapp.services.status_tone import ATTENTION, NEUTRAL, POSITIVE, status_tone
 
 # ── etiquetas de ESTADO DE VIGENCIA (producto del Catálogo, no del motor) ──
 STATE_LABELS = {
@@ -209,6 +210,8 @@ _JDG_STATEMENT = {
     "src.physical_reach_without_bypass_and_compensation": "Acceso a tabla física cruda (sin bypass ni compensación material)",
 }
 _JDG_CONTRACT_STATE_TEXT = {"positive": "Evidencia positiva", "attention": "Requiere atención", "neutral": "Sin señal específica"}
+# Estado del contrato → tono canónico del Hub (valencia: positivo / atención / neutro); sin mapa de color propio.
+_CONTRACT_TONE = {"positive": POSITIVE, "attention": ATTENTION, "neutral": NEUTRAL}
 
 
 def _jdg_statement_text(item: dict) -> str:
@@ -246,7 +249,7 @@ def judgment_view(judgment: dict | None) -> dict | None:
     contracts = []
     for dim, label in _JDG_DIMENSIONS:
         state = "attention" if dim in weak_dims else ("positive" if dim in strong_dims else "neutral")
-        contracts.append({"label": label, "state": state, "state_text": _JDG_CONTRACT_STATE_TEXT[state]})
+        contracts.append({"label": label, "state": state, "state_text": _JDG_CONTRACT_STATE_TEXT[state], "tone": _CONTRACT_TONE[state]})
     nd_reason = None if determined else _JDG_ND_REASON.get(judgment.get("not_determinable_reason") or "", "No determinable")
     return {
         "determined": determined,
@@ -266,6 +269,7 @@ def judgment_view(judgment: dict | None) -> dict | None:
         "reasons_grouped": _group_by_dimension(reasons),
         "strengths_count": len(strengths),
         "reasons_count": len(reasons),
+        "tiles": [{"value": len(strengths), "label": "Evidencias favorables"}, {"value": len(reasons), "label": "Puntos de atención"}],
         "contracts": contracts,
         "ruleset_version": judgment.get("ruleset_version"),
         "schema_version": judgment.get("judgment_schema_version"),
@@ -663,5 +667,19 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     for g in groups.values():                                                                   # resumen transversal de la sección: composición del cierre por tipo de vista
         cv = next((a["facts"]["closure_views"] for a in g["areas"] if a["facts"].get("closure_views")), None)
         g["view_overview"] = _view_overview(cv) if cv else None
+    for g in groups.values():                                                                   # estado por fila SOLO si difiere (no repetir "Evaluado" en cada disclosure)
+        g["uniform_state"] = len({a["state"] for a in g["areas"]}) == 1
+        g["all_assessed"] = g["uniform_state"] and g["areas"][0]["state"] == "ASSESSED"
     view["macro_groups"] = list(groups.values())
+    # Narrativa del informe: cada dimensión macro del perfil se ubica en UNA sección del recorrido (mapeo de presentación, no
+    # se inventa información): Arquitectura & Modelado · Gobierno & estándares (+ hallazgos de cumplimiento del Catálogo) ·
+    # Portabilidad & preparación BDC (+ portabilidad del Catálogo; fuente & extracción es la base de esa lectura).
+    by_id = {g["id"]: g for g in groups.values()}
+    ev = AE.asset_evaluation(link_entry) if link_entry is not None else {"governance": None, "portability": None}
+    view["evaluation"] = ev
+    view["story"] = {
+        "architecture": by_id.get("ARCHITECTURE_MODELING"),
+        "governance_areas": by_id.get("NAMING"),
+        "portability_areas": by_id.get("SOURCE_EXTRACTION"),
+    }
     return view

@@ -4,7 +4,7 @@
    secciones ES el linaje: cada artefacto es una sección con su tabla. Se usa en
    la página completa (catalog_flow.html) y en el swap HTMX que actualiza SOLO el
    panel central (#content) sin salir del módulo ni perder el panel derecho. #}
-{% from "partials/assessment_report_macros.html" import kpi_tile, heading %}
+{% from "partials/assessment_report_macros.html" import heading, contracts_evaluated, tile_grid, evaluation_table %}
 {% set ah = assessment_header %}
 {# §1 Barra de acciones transversal: ← Volver + acciones de contexto en la MISMA línea (mismo patrón que el Assessment). La
    acción del assessment (Ver Assessment / Generar, con carga integrada) y el Informe de Cliente van a la derecha; el hero
@@ -64,32 +64,53 @@
 <article class="methodology catalog-detail">
   {% for s in sections %}<section id="{{ s.slug }}" class="content-section">{{ s.html|safe }}{% with slug=s.slug %}{% include "partials/catalog_section_feedback.html" %}{% endwith %}</section>{% endfor %}
 </article>
-{# §7D Resumen COMPACTO de Adopción metodológica: nivel + una línea + los 4 contratos + conteos + CTA al Assessment. El detalle
-   (evidencia agrupada, justificación) vive SOLO en el Assessment; acá no se duplica. Distinto del «Veredicto del catálogo»
-   (higiene de extracción) del hero: son dos ejes independientes. Solo aparece si hay Adopción persistida. #}
-{% if ah and ah.adoption %}
-{% set ad = ah.adoption %}
-{# Adopción metodológica como SECCIÓN del Catálogo (misma gramática numerada que Cumplimiento/Portabilidad: `heading()` del Hub,
-   [NN] continúa la secuencia), NO una tarjeta/contenedor. Acción «Ver Assessment» en el slot top-right del encabezado
-   (`.heading-supports`). Resultado = badge canónico; contratos = badges; conteos = indicadores `.activity-kpi`. El detalle
-   (evidencia) vive en el Assessment, no se duplica. #}
-{# Las secciones del flujo se numeran con base 0 (render_sections), así que el número = cantidad; Adopción es la siguiente. #}
-{% set adoption_num = (sections | length) + 1 %}
-{% set adoption_action %}<a class="support-link" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Ver Assessment<span>↗</span></a>{% endset %}
+{# «Mirada Danwor» (id `evaluacion-del-activo`): UNA sección numerada con la gramática del Hub (`heading()` + disclosures `.dashboard-section` con resumen a la derecha) y
+   TRES lecturas independientes, sin puntaje cruzado: Gobierno & estándares (hallazgos, sin nota global), Portabilidad & preparación BDC (capacidad
+   técnica: score/confianza/riesgos) y Adopción metodológica (el único grado: nivel con tono de `status_tone`). Es un RESUMEN: el detalle de la
+   evidencia vive en el Assessment («Ver Assessment»). Distinto del «Veredicto del catálogo» del hero (higiene de extracción, congelado). #}
+{% set ev = evaluation or {} %}
+{% set gov = ev.governance %}
+{% set por = ev.portability %}
+{% set ad = ah.adoption if ah else none %}
+{% if gov or por or ad %}
+{# Las secciones del flujo se numeran con base 0 (render_sections), así que el número = cantidad; la evaluación es la siguiente. #}
+{% set eval_num = (sections | length) + 1 %}
+{% set eval_action %}{% if ah and ah.url %}<a class="support-link" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Ver Assessment<span>↗</span></a>{% endif %}{% endset %}
 <article class="methodology catalog-detail">
-<section class="content-section" aria-label="Adopción metodológica">
-  {{ heading(adoption_num, "Adopción metodológica", "Qué tan cerca está el modelo de adoptar la metodología, como resultado determinista sobre los cuatro contratos. Es independiente del veredicto del catálogo; el detalle (evidencia) está en el Assessment.", supports=adoption_action) }}
-  {% if ad.determined %}<span class="catalog-card__verdict catalog-card__verdict--{{ ad.tone }}">{{ ad.level_label }}</span>
-  {% else %}<span class="catalog-card__verdict catalog-card__verdict--neutra">No determinable</span>{% endif %}
-  <p>{{ ad.headline }}</p>
-  <h3>Contratos evaluados</h3>
-  <div class="catalog-verdict-line">
-    {% for c in ad.contracts %}<span class="catalog-card__verdict catalog-card__verdict--{% if c.state == 'positive' %}plena{% elif c.state == 'attention' %}parcial{% else %}neutra{% endif %}" title="{{ c.state_text }}">{{ c.label }}</span>{% endfor %}
-  </div>
-  <div class="activity-kpi-grid">
-    {{ kpi_tile({"value": ad.strengths_count, "label": "Evidencias favorables"}) }}
-    {{ kpi_tile({"value": ad.reasons_count, "label": "Puntos de atención"}) }}
-  </div>
+<section id="evaluacion-del-activo" class="content-section" aria-label="Mirada Danwor">
+  {{ heading(eval_num, "Mirada Danwor", "Tres lecturas independientes: gobierno y estándares, portabilidad hacia BDC y adopción metodológica. El detalle de la evidencia está en el Assessment.", supports=eval_action) }}
+  {% if gov %}
+  <details class="dashboard-section" id="eval-gobierno">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Gobierno &amp; estándares</span><span class="dashboard-section__count">{{ gov.summary }}</span></summary>
+    <div class="dashboard-section__body">
+      <p>{{ gov.lead }}</p>
+      {% if gov.key_findings %}<p>Hallazgos clave: {% for t in gov.key_findings %}{{ t }}{% if not loop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
+      {{ evaluation_table(gov.rows, ["Estado", "Hallazgo", "Evidencia"]) }}
+    </div>
+  </details>
+  {% endif %}
+  {% if por %}
+  <details class="dashboard-section" id="eval-portabilidad">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Portabilidad &amp; preparación BDC</span><span class="dashboard-section__count">{{ por.summary }}</span></summary>
+    <div class="dashboard-section__body">
+      <p>{{ por.lead }}</p>
+      {{ tile_grid(por.tiles) }}
+      <p>{{ por.coverage }}{% if por.n_acks %} · {{ por.n_acks }} acknowledgement{{ "s" if por.n_acks != 1 }} registrados por el equipo{% endif %}.</p>
+      {% if por.rows %}{{ evaluation_table(por.rows, ["Tipo", "Hallazgo", "Campos · Recomendación"]) }}{% else %}<p>Sin hallazgos de portabilidad — tipos consistentes para el cruce de runtimes.</p>{% endif %}
+    </div>
+  </details>
+  {% endif %}
+  {% if ad %}
+  <details class="dashboard-section" id="eval-adopcion" open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Adopción metodológica</span>{# resumen y badge en el MISMO slot a la derecha, separados por «·» (un solo margin-left:auto) #}<span class="dashboard-section__state"><span class="dashboard-section__count">{{ ad.strengths_count }} evidencias favorables · {{ ad.reasons_count }} puntos de atención&nbsp;&nbsp;·&nbsp;&nbsp;</span><span class="catalog-card__verdict catalog-card__verdict--{{ ad.tone }}">{{ ad.level_label }}</span></span></summary>
+    <div class="dashboard-section__body">
+      <p>{{ ad.headline }}</p>
+      {{ contracts_evaluated(ad) }}
+      {{ tile_grid(ad.tiles) }}
+    </div>
+  </details>
+  {% endif %}
+  {% with slug="evaluacion-del-activo" %}{% include "partials/catalog_section_feedback.html" %}{% endwith %}
 </section>
 </article>
 {% endif %}

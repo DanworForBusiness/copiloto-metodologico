@@ -294,7 +294,9 @@ AREA_IDS = ("ANALYTIC_MODEL", "HARMONIZATION", "PROPAGATION", "INGESTION")
 
 def _architecture_section(doc):
     html = _html(_view(doc))
-    return html, html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-observaciones"')]
+    start = html.index('id="asr-m-architecture_modeling"')
+    end = min(i for i in (html.find(m, start) for m in ('id="asr-gobierno"', 'id="asr-portabilidad"', 'id="asr-revision"')) if i != -1)   # [03] termina donde empieza la siguiente sección
+    return html, html[start:end]
 
 
 def test_the_four_area_containers_load_collapsed_and_keep_their_order(doc):
@@ -314,9 +316,10 @@ def test_collapsed_areas_keep_their_content_badges_and_the_overview_stays_visibl
     assert not any(a < ov < b for a, b in details_spans)                                                      # el resumen transversal queda FUERA de los contenedores
     for _a, _b in details_spans:
         block = sec[_a:_b]
-        assert "dashboard-section__head" in block and re.search(r"catalog-card__verdict[^>]*>\s*Evaluado", block)   # su badge de estado se conserva
+        assert "dashboard-section__head" in block and "dashboard-section__state" not in block                  # todas evaluadas: el estado NO se repite por fila (se dice una vez en el subtítulo)
         assert "dashboard-section__body" in block and "Superficies de evidencia requeridas" in block            # el contenido sigue en el HTML (accesible al expandir)
     assert "Pasos de linaje evaluados" in sec and "Evaluación de reglas" in sec
+    assert "Todas las subáreas fueron evaluadas." in sec                                                      # estado a nivel sección, una sola vez
 
 
 def test_other_sections_keep_their_own_default_state_and_no_accordion_or_js_was_added(doc):

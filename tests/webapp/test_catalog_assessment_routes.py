@@ -117,10 +117,14 @@ def test_ux_judgment_is_result_first_with_compact_contract_chips(world):
     # Gate UX.4 (reuse): sección del informe con heading del Hub; nivel y contratos = badge canónico `.catalog-card__verdict`;
     # evidencia = tabla nativa. Sin primitivos propios espejados (asr-judgment__/asr-contract/asr-evidence) ni tiles KPI en el detalle.
     assert '<h2>Adopción metodológica</h2>' in seg
-    assert seg.index('catalog-card__verdict--') < seg.index('Contratos evaluados')               # resultado (badge de nivel) PRIMERO, luego los contratos
+    # Gate UX.5: SIN badge de nivel flotante arriba; recorrido = contratos evaluados → tiles → (tablas) → cierre con el tono de `status_tone`.
+    assert seg.index("Contratos evaluados") < seg.index('class="catalog-card__verdict')              # lo primero bajo el encabezado son los contratos, no un badge de nivel
     for c in ("Ingesta", "Armonización", "Propagación", "Contrato publicado"):
         assert c in seg
-    assert not any(x in seg for x in ("asr-judgment__", "asr-contract", "asr-evidence", "activity-kpi-grid"))
+    assert seg.index("Contratos evaluados") < seg.index("activity-kpi-grid") < seg.index("Lectura de la adopción")
+    assert "Evidencias favorables" in seg and "Puntos de atención" in seg                          # tiles KPI del Hub (no disclosures)
+    assert re.search(r'<aside class="callout callout--(plena|buena|parcial|neutra)"', seg)          # cierre = callout canónico con tono de status_tone
+    assert not any(x in seg for x in ("asr-judgment__", "asr-contract", "asr-evidence"))
 
 
 def test_ux_hero_shows_business_name_primary_and_technical_id_secondary(world, monkeypatch):
@@ -157,7 +161,7 @@ def test_post_generates_validated_json_and_returns_the_structured_report(world):
     assert r.status_code == 200
     assert "HX-Trigger" not in r.headers                                  # nada escuchaba el evento del tile: se retiró
     for needle in ("Assessment vigente", "Resumen", "Observaciones", "Casos a revisar", "No evaluado / Limitaciones de evidencia",
-                   "Evidencia / Detalle técnico", "Arquitectura &amp; Modelado", "Convención de nombres", "Fuente &amp; Extracción", "Cobertura estricta", "Cobertura inclusiva", "Exportar Markdown", "Exportar JSON", "4AM_ACME"):
+                   "Cierre: limitaciones y trazabilidad", "Arquitectura &amp; Modelado", "Gobierno &amp; estándares", "Portabilidad &amp; preparación BDC", "Cobertura estricta", "Cobertura inclusiva", "Exportar Markdown", "Exportar JSON", "4AM_ACME"):
         assert needle in r.text, needle
     ma_profile.validate_assessment(svc.status_for_entry(world.entries[0]).profile)
     again = client_for().get("/catalog/flow/assessment?flow=acme-4am", headers=HX)
@@ -605,19 +609,19 @@ def test_report_sections_follow_the_governed_markdown_hierarchy_without_a_generi
     html = _post(c).text
     heads = re.findall(r'<span class="section-eyebrow">\[(\d+)\]</span><h2>([^<]+)</h2>', html)
     # Gate UX.4 §8: "Adopción metodológica" entra como sección del informe JUSTO después de "Resumen" (Resumen → Adopción → resto).
-    assert [t for _n, t in heads] == ["Resumen", "Adopción metodológica", "Arquitectura &amp; Modelado", "Convención de nombres", "Fuente &amp; Extracción", "Observaciones",
-                                      "Casos a revisar", "No evaluado / Limitaciones de evidencia", "Evidencia / Detalle técnico"]
-    assert [n for n, _t in heads] == [f"{i:02d}" for i in range(1, 10)]                      # numeración continua generada por la plantilla
+    # Gate UX.5: recorrido de 7 secciones (Resumen → Adopción → Arquitectura → Gobierno → Portabilidad → Casos/preguntas → Cierre).
+    assert [t for _n, t in heads] == ["Resumen", "Adopción metodológica", "Arquitectura &amp; Modelado", "Gobierno &amp; estándares", "Portabilidad &amp; preparación BDC",
+                                      "Casos a revisar y preguntas abiertas", "Cierre: limitaciones y trazabilidad"]
+    assert [n for n, _t in heads] == [f"{i:02d}" for i in range(1, 8)]                       # numeración continua generada por la plantilla
     assert 'id="asr-areas"' not in html and "<h2>Áreas</h2>" not in html
-    arch = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-m-naming"')]
+    arch = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-gobierno"')]
     for title in ("Modelo analítico", "Propagación", "Armonización", "Ingesta"):
         assert f'<span class="dashboard-section__title">{title}</span>' in arch
     assert len(re.findall(r'<details class="dashboard-section" id="asr-a-', arch)) == 4
-    for sec in ("asr-m-naming", "asr-m-source_extraction"):
+    for sec, area in (("asr-gobierno", "NAMING"), ("asr-portabilidad", "SOURCE_EXTRACTION")):          # Convención de nombres → Gobierno; Fuente & Extracción → Portabilidad
         part = html[html.index(f'id="{sec}"'):]
         part = part[:part.index("</section>")]
-        assert '<details class="dashboard-section"' not in part and "dashboard-section__title" not in part      # sin disclosure de un único hijo
-        assert 'class="catalog-card__verdict' in part and "<h3>Evaluación de reglas</h3>" in part
+        assert f'<details class="dashboard-section" id="asr-a-{area}"' in part
     assert "content-collapsible" not in html
     # alineación con el Markdown gobernado: mismos `##` de primer nivel (con su rotulado) y las 4 subáreas como `###`
     md = render_markdown(svc.status_for_entry(world.entries[0]).profile)
@@ -647,7 +651,7 @@ def test_report_leads_with_kpis_in_the_crm_disclosure_and_hero_text_is_simplifie
 def test_findings_are_semantic_headings_with_progressive_disclosure_not_callouts(world):
     html = _post(client_for()).text
     assert not re.search(r'<aside class="callout[^"]*" id="asr-g-', html)
-    arts = re.findall(r'<article id="asr-g-[^"]+">\s*<h3>[^<]+</h3>.*?</article>', html, re.S)
+    arts = re.findall(r'<article id="asr-g-[^"]+">\s*<h[45]>[^<]+</h[45]>.*?</article>', html, re.S)
     assert arts
     for art in arts:
         assert '<details class="dashboard-section">' in art and "Detalle del hallazgo" in art
@@ -676,10 +680,10 @@ def test_facts_have_a_reading_hierarchy_headline_kpis_then_supporting_tables_and
     assert [m["label"] for m in am["headline"]] == ["Campos expuestos", "Medidas", "Asociaciones declaradas"]
     assert [g["title"] for g in am["groups"]] == ["Composición del modelo", "Cierre semántico del modelo analítico (artefactos)", "Linaje y asociaciones",
                                                           "Vistas del cierre (nombre técnico y tipo)"]
-    sec = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-observaciones"')]
+    sec = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-gobierno"')]
     assert 'class="activity-kpi-grid asm-facts"' in sec and "<th>Hecho</th><th>Valor</th>" in sec
     assert not re.search(r"<li>[^<]*: \d+</li>", sec)                                                  # sin pared de bullets "Hecho: n"
-    nam = html[html.index('id="asr-m-naming"'):html.index('id="asr-m-source_extraction"')]
+    nam = html[html.index('id="asr-a-NAMING"'):html.index('id="asr-portabilidad"')]
     assert len(re.findall(r'class="activity-kpi"', nam)) == 3                                           # Convención de nombres: 3 titulares, no un muro de tiles
     # tipos de valor
     view = presenter._facts_view("SIN_LAYOUT", [
@@ -702,7 +706,7 @@ def test_rule_evaluation_is_a_table_not_bullets(world):
 
 def test_question_links_use_the_hub_content_link(world):
     html = _post(client_for()).text
-    sec = html[html.index("Preguntas que solo el proyecto puede responder"):html.index('id="asr-m-architecture_modeling"')]
+    sec = html[html.index("Preguntas que solo el proyecto puede responder"):html.index('id="asr-observaciones"')]
     links = re.findall(r'<td><a ([^>]*)><code>', sec)
     assert links and all("class=" not in l and 'href="#asr-g-' in l for l in links)                       # mismo enlace de contenido del Hub, sin clase propia
     css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
@@ -714,8 +718,8 @@ def test_open_questions_are_one_table_and_reconcile_with_the_kpi(world):
     html = _post(c).text
     prof = svc.status_for_entry(world.entries[0]).profile
     ctx = prof["summary"]["context_required"]
-    # corta en "Adopción metodológica" (sección siguiente a «Resumen» desde Gate UX.4): el área de preguntas abiertas termina ahí.
-    sec = html[html.index("Preguntas que solo el proyecto puede responder"):html.index('id="asr-juicio"')]
+    # corta en «Observaciones» (Gate UX.5: las preguntas abiertas viven en la sección «Casos a revisar y preguntas abiertas»).
+    sec = html[html.index("Preguntas que solo el proyecto puede responder"):html.index('id="asr-observaciones"')]
     tables = re.findall(r"<table[^>]*>.*?</table>", sec, re.S)
     assert len(tables) == 1 and 'data-block="open-questions"' in tables[0]                         # UNA sola tabla (antes: una por tipo de hallazgo)
     assert "<th>Pregunta</th><th>Vinculada a</th><th>Hallazgo</th><th>Ocurrencias</th>" in tables[0]
@@ -736,10 +740,10 @@ def test_empty_observaciones_uses_the_hub_empty_state_with_no_detectado(world):
     view = presenter.report_view(svc.status_for_entry(e0), e0, "datasphere_core")
     view["observations"] = []                                                                      # presentación: sin grupos de observación
     html = main.templates.get_template("partials/catalog_assessment_report.html").render(v=view, pack="datasphere_core")
-    sec = html[html.index('id="asr-observaciones"'):html.index('id="asr-revision"')]
+    sec = html[html.index('id="asr-observaciones"'):html.index('id="asr-limitaciones"')]
     assert '<div class="dashboard-empty"><span class="dashboard-empty__label">No detectado</span>' in sec
     assert "No disponible" not in sec and "No aplica" not in sec
-    assert "Ver “No evaluado / Limitaciones” para la evidencia que no pudo evaluarse." in sec
+    assert "Ver «Cierre» para la evidencia que no pudo evaluarse." in sec
 
 
 def test_finding_detail_uses_structured_tables_with_a_stable_occurrence_schema(world):
@@ -747,7 +751,7 @@ def test_finding_detail_uses_structured_tables_with_a_stable_occurrence_schema(w
     arts = re.findall(r'<article id="asr-g-[^"]+">.*?</article>', html, re.S)
     assert arts
     for art in arts:
-        assert re.search(r"<h[34]>[^<]+</h[34]>", art)                                                    # título = encabezado semántico
+        assert re.search(r"<h[345]>[^<]+</h[345]>", art)                                                  # título = encabezado semántico
         det = art.split('<details class="dashboard-section">')[1]
         assert "<thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead>" in det and "<th>Artefactos</th><th>Detalle</th><th>Acción</th>" in det
         assert "<strong>Pregunta para el proyecto" not in det                                      # sin narrativa suelta
@@ -795,3 +799,58 @@ def test_every_content_link_in_the_report_uses_the_one_hub_content_link_treatmen
     block = css[css.index("Assessment de modelado en el Catálogo"):]
     assert not re.search(r"\.asr-link|\.assessment-link|sap-note-link|reference-text-link", block)       # sin CSS de enlace propio
 
+
+
+# ── Gate UX.5: «Mirada Danwor» del Catálogo + gramática compartida con el informe ──────────────────────────
+def _evaluation_stub():
+    from webapp.services import asset_evaluation as ae
+    gov = ae.governance_view("- \U0001f534 **Hoja sin contrato** _Evidencia:_ A | B\n- \U0001f7e1 **Nombre fuera de convención** _Evidencia:_ C\n- \U0001f535 **Nota menor** _Evidencia:_ D")
+    por = ae.portability_view({"clasificacion": "condicionada", "score": 72, "confianza": "media", "n_riesgos": 2, "n_adaptaciones": 1,
+                               "campos_revisados": 40, "campos_no_evaluables": 0,
+                               "findings": [{"regla": "R1", "semaforo": "orange", "tipo_hallazgo": "riesgo", "titulo": "DecimalFloat",
+                                             "artefacto": "V1", "campo": "X", "recomendacion": "Usar Decimal"}]})
+    return {"governance": gov, "portability": por}
+
+
+def test_catalog_evaluation_is_one_numbered_section_with_three_independent_lenses(world, monkeypatch):
+    c = client_for()
+    _post(c)                                                                                                 # Adopción persistida (CURRENT)
+    monkeypatch.setattr(main, "_catalog_flow_view", lambda entry, show_assoc=None, pack="": ([{"slug": "m", "html": "x"}], "", bool(show_assoc), False))
+    monkeypatch.setattr(main.asset_evaluation, "asset_evaluation", lambda entry: _evaluation_stub())
+    html = c.get("/catalog/flow?flow=acme-4am&pack=datasphere_core", headers=HX).text
+    sec = html[html.index('id="evaluacion-del-activo"'):]
+    sec = sec[:sec.index("</section>")]
+    assert '<span class="section-eyebrow">[02]</span><h2>Mirada Danwor</h2>' in sec                      # numeración continúa tras las secciones del flujo (1)
+    titles = re.findall(r'<span class="dashboard-section__title">([^<]+)</span>', sec)
+    assert titles == ["Gobierno &amp; estándares", "Portabilidad &amp; preparación BDC", "Adopción metodológica"]
+    ado = sec[sec.index('id="eval-adopcion"'):]
+    head = ado[:ado.index("</summary>")]
+    assert head.count("dashboard-section__state") == 1 and "&nbsp;·&nbsp;" in head and head.index("evidencias favorables") < head.index("catalog-card__verdict")   # resumen · badge, juntos a la derecha
+    # Gobierno: factual, SIN nota global ni badge de grado en la cabecera de la fila; Portabilidad: capacidad técnica, sin badge de grado.
+    gov = sec[sec.index('id="eval-gobierno"'):sec.index('id="eval-portabilidad"')]
+    assert "3 hallazgos · 1 bloqueante" in gov and "dashboard-section__state" not in gov
+    por = sec[sec.index('id="eval-portabilidad"'):]
+    assert "Score 72/100" in por and "Score de portabilidad" in por and "dashboard-section__state" not in por.split("</summary>")[0]
+    # el detalle del Assessment NO se duplica en el Catálogo y la acción lleva al informe
+    assert "Evidencias favorables</h3>" not in sec and "Ver Assessment" in sec
+
+
+def test_evaluation_service_marks_findings_by_generator_marker_without_a_global_grade():
+    from webapp.services import asset_evaluation as ae
+    g = ae.governance_view("- \U0001f534 **A** _Evidencia:_ x\n- \U0001f7e1 **B** _Evidencia:_ y\n- \U0001f535 **C** _Evidencia:_ z\n- cumple **D** _Evidencia:_ w")
+    assert [r["label"] for r in g["rows"]] == ["Bloqueante", "Observar", "Nota", "Cumple"]
+    assert [r["tone"] for r in g["rows"]] == ["parcial", "buena", "neutra", "plena"]                           # tono = status_tone (semáforo → badge canónico del Hub)
+    assert g["blocking"] == 1 and "grade" not in g and "score" not in g
+    assert ae.governance_view("Sin desvíos detectados.") is None and ae.portability_view(None) is None
+
+
+def test_report_closing_callout_takes_its_tone_from_status_tone_for_every_level():
+    from webapp.services.status_tone import status_tone
+    for level in ("BUENA", "ADECUADA", "PARCIAL"):
+        j = presenter.judgment_view({"status": "DETERMINED", "level": level, "strengths": [], "reasons": []})
+        assert j["tone"] == status_tone(level)
+    nd = presenter.judgment_view({"status": "NOT_DETERMINABLE", "level": None, "not_determinable_reason": "INSUFFICIENT_AFFIRMATIVE_EVIDENCE"})
+    assert nd["tone"] == "neutra"
+    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    for t in ("plena", "buena", "parcial", "neutra"):
+        assert f".callout--{t} " in css and f"--tone-{t}:" in css                                              # un solo juego de tokens de tono para badge, punto y callout

@@ -212,6 +212,11 @@
 .content-theme-light .callout--success { background: #f2fbf5; }
 .content-theme-light .callout--punch { background: #fffaf0; }
 .content-theme-light .callout--warn { background: #fff5f6; }
+/* Tonos de estado (`status_tone`): el acento sale del token del tono (tools.css `--tone-*`); sólo se aclara la superficie sobre blanco. */
+.content-theme-light .callout--plena,
+.content-theme-light .callout--buena,
+.content-theme-light .callout--parcial,
+.content-theme-light .callout--neutra { background: color-mix(in srgb, var(--callout-accent) 8%, #fff); }
 .content-theme-light .hero-meta { color: #66666e; }
 
 .content-theme-dark .module-content { background: var(--bg); color: var(--ink); }
