@@ -953,3 +953,31 @@ def test_asset_evaluation_is_composition_only_and_imports_no_engine():
     imports = re.findall(r"^(?:from|import)\s+([\w.]+)", src, re.M)
     assert not any(m.startswith(("tools", "core")) for m in imports), imports               # sin motores de Assessment / Juicio / Portabilidad
     assert not re.search(r"evaluate_judgment|portabilidad_bdc\s*\(|def\s+(compute|calc|score)", src)
+
+
+def test_mirada_danwor_action_mirrors_the_top_bar_action(world, monkeypatch):
+    """Los botones son un ESPEJO: sin assessment, arriba «Generar informe» y abajo (Mirada Danwor) lo mismo; «Ver Assessment» solo si existe."""
+    monkeypatch.setattr(main, "_catalog_flow_view", lambda entry, show_assoc=None, pack="": ([{"slug": "m", "html": "x"}], "", bool(show_assoc), False))
+    monkeypatch.setattr(main.asset_evaluation, "asset_evaluation", lambda entry: _evaluation_stub())
+    c = client_for()
+
+    def parts():
+        html = c.get("/catalog/flow?flow=acme-4am&pack=datasphere_core", headers=HX).text
+        top = html[html.index('<div class="catalog-actionbar">'):html.index('<section class="module-hero">')]
+        mir = html[html.index('id="evaluacion-del-activo"'):]
+        return top, mir[:mir.index("</section>")]
+
+    top, mir = parts()                                                              # NOT_YET_ASSESSED
+    assert "Generar informe" in top and "hx-post" in top and "Ver Assessment" not in top
+    assert "Generar informe" in mir and "hx-post" in mir and "asr-generate" in mir and "Ver Assessment" not in mir
+    _post(c)                                                                        # CURRENT
+    top, mir = parts()
+    assert "Ver Assessment" in top and "Ver Assessment" in mir and "Generar informe" not in top and "Generar informe" not in mir
+    assert re.search(r'hx-get="([^"]+)"[^>]*>Ver Assessment', top).group(1) == re.search(r'hx-get="([^"]+)"[^>]*>Ver Assessment', mir).group(1)   # mismo destino
+
+
+def test_hero_status_dot_and_badge_are_neutral_when_there_is_no_assessment(world, monkeypatch):
+    h = _detail(client_for(), monkeypatch)                                          # NOT_YET_ASSESSED
+    first = h[h.index('<span class="catalog-verdict-line">'):]
+    first = first[:first.index("</span>\n    </span>") if "</span>\n    </span>" in first else 600]
+    assert 'catalog-meta-dot catalog-meta-dot--neutra' in first and 'catalog-card__verdict--neutra' in first      # mismo gris que la tile (no el dorado por defecto)

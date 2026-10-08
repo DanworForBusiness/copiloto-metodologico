@@ -267,7 +267,7 @@ def test_flow_detail_renders_the_entrypoint(world, monkeypatch):
     src = (REPO / "webapp" / "templates" / "partials" / "catalog_flow_content.html").read_text(encoding="utf-8")
     # Gate UX.4 §1: la acción vive en la barra transversal (← Volver + acciones), antes del hero.
     bar = src[src.index('<div class="catalog-actionbar"'): src.index('<section class="module-hero')]
-    out = env.from_string(bar).render(assessment_header=None, focus_csv="", assessment_url="", cliente="Acme", dominio="D", entry_id="flow-1", pack=PACK,
+    out = env.from_string('{% from "partials/assessment_report_macros.html" import assessment_action %}' + bar).render(assessment_header=None, focus_csv="", assessment_url="", cliente="Acme", dominio="D", entry_id="flow-1", pack=PACK,
                                       veredicto="x", apto="y", n_art=1)
     assert "Ver Informe de Cliente" in out and "/catalog/client/assessment?flow=flow-1&pack=datasphere_core" in out
     group = out[out.index("support-links"): out.rindex("</div>")]

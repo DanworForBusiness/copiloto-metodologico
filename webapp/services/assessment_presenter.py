@@ -134,7 +134,7 @@ def header_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
     view: dict[str, Any] = {
         "state": status.state,
         "label": STATE_LABELS[status.state],
-        "tone": STATE_TONES.get(status.state, ""),
+        "tone": STATE_TONES.get(status.state, NEUTRAL),
         "reason": status.reason if status.state in (svc.NOT_APPLICABLE, svc.FAILED, svc.INCOMPATIBLE_SCHEMA) else None,
         "url": assessment_url(entry, pack),
         "entry_id": entry.entry_id,
@@ -640,7 +640,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     doc = P.display_doc(status.profile) if status.profile is not None else None      # títulos públicos vigentes aun en perfiles persistidos anteriores
     link_entry = None if adhoc else entry
     view: dict[str, Any] = {
-        "state": status.state, "state_label": STATE_LABELS[status.state], "state_tone": STATE_TONES.get(status.state, ""), "state_note": stale_note(status), "state_body": stale_body(status), "stale_reason": status.stale_reason,
+        "state": status.state, "state_label": STATE_LABELS[status.state], "state_tone": STATE_TONES.get(status.state, NEUTRAL), "state_note": stale_note(status), "state_body": stale_body(status), "stale_reason": status.stale_reason,
         "reason": status.reason, "error_code": status.error_code,
         "client": status.client, "entry_id": status.entry_id if adhoc else entry.entry_id, "dominio": "" if adhoc else entry.dominio,
         "terminal_am": status.terminal_am, "title_desc": None, "title_id": None, "generated_at": status.generated_at,
