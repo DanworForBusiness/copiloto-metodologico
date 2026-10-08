@@ -1,5 +1,4 @@
 {# Resultado del dropdown de Catalogo: fichas de flujo ordenadas por mirada Danwor. #}
-{% set sevicon = {"alto": "🔴", "medio": "🟡", "nota": "🔵"} %}
 {% if not flows %}
 <p class="empty-panel">{% if dominio %}Sin flujos implementados para "{{ dominio }}".{% else %}Elegí un dominio.{% endif %}</p>
 {% else %}
@@ -33,12 +32,13 @@
       <ul>{% for o in e.origenes %}<li>{{ o }}</li>{% endfor %}</ul>
     </details>
     {% endif %}
-    {% if e.hallazgos %}
+    {# Resumen compacto de los hallazgos de GOBIERNO del Assessment gobernado (los MISMOS de Assessment [04]); sin Assessment no hay notas del catálogo legacy. #}
+    {% if g.findings %}
     <details class="catalog-card__notes" onclick="event.stopPropagation()">
-      <summary>Ver notas ({{ e.hallazgos|length }})</summary>
+      <summary>{{ g.findings_summary }}</summary>
       <ul>
-        {% for h in e.hallazgos %}
-        <li><span class="catalog-note__sev">{{ sevicon.get(h.severidad, "•") }}</span> <strong>{{ h.titulo }}</strong>{% if h.evidencia %}<br><span class="catalog-note__ev">{{ h.evidencia }}</span>{% endif %}</li>
+        {% for h in g.findings %}
+        <li><strong>{{ h.title }}</strong>{% if h.evidence %}<br><span class="catalog-note__ev">{{ h.evidence }}</span>{% endif %}{% if h.reference_text %}<br><span class="catalog-note__ev">{{ h.reference_text }}</span>{% endif %}</li>
         {% endfor %}
       </ul>
     </details>

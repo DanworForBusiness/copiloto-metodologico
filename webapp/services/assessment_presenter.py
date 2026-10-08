@@ -29,6 +29,7 @@ canonical_signal_id = P.canonical_signal_id        # los consumidores normalizan
 from webapp.services import catalog_reads
 from webapp.services import asset_evaluation as AE
 from webapp.services import domain_classification_service as dcs
+from webapp.services import module_reference as MR
 from webapp.services.status_tone import ATTENTION, NEUTRAL, POSITIVE, status_tone
 
 # ── etiquetas de ESTADO DE VIGENCIA (producto del Catálogo, no del motor) ──
@@ -153,6 +154,8 @@ def header_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
     # Resumen COMPACTO de Adopción metodológica para el Catálogo (resultado persistido; el detalle vive en el Assessment).
     # Es el MISMO view-model que usa el informe (``judgment_view``): sin recálculo, solo presentación.
     view["adoption"] = judgment_view(status.judgment)
+    view["has_profile"] = status.profile is not None
+    view["governance_findings"] = governance_findings(status.profile)       # None sin Assessment
     view["grade"] = tile_grade(status)          # UN activo, UN grado primario: la MISMA fuente que la tile (Adopción persistida; sin Juicio → estado neutro)
     return view
 
@@ -174,13 +177,30 @@ _TILE_NO_JUDGMENT = {svc.NOT_YET_ASSESSED: "Sin assessment", svc.NOT_APPLICABLE:
 _TILE_JUDGMENT_UNAVAILABLE = "Juicio no disponible"
 
 
+def governance_findings(profile: dict | None) -> list[dict] | None:
+    """Hallazgos de GOBIERNO del Assessment gobernado persistido (compuestos por ``asset_evaluation.governed_findings`` desde el perfil: grupos del
+    área NAMING + evidencia canónica de la sección 28). ``None`` si no hay perfil (sin Assessment no hay conclusiones)."""
+    if profile is None:
+        return None
+    doc = P.display_doc(profile)
+    groups = [{"id": g["id"], "title": g["title"], "explanation": g["explanation"], "kind_text": P.finding_kind_text(g["kind"])}
+              for key in ("observations", "review_required", "descriptive_signals") for g in doc.get(key) or [] if g.get("area") == "NAMING"]
+    s28 = (((doc.get("canonical_evidence") or {}).get("naming_evidence") or {}).get("hygiene") or {}).get("artifact_name_populations", {}).get("section_28")
+    if s28:                                                      # motivos persistidos con ordinales históricos («§29: …») → sin ordinal (compatibilidad de lectura)
+        s28 = {**s28, "violation_reason_histogram": [{**r, "key": MR.strip_ordinals(r.get("key"))} for r in s28.get("violation_reason_histogram") or []]}
+    ref = MR.resolve_ref(MR.NAMING_CONVENTION)                   # módulo/sección por CLAVE; el número se resuelve acá, contra la estructura VIGENTE del módulo
+    return AE.governed_findings(groups, s28, ref)
+
+
 def tile_grade(status: svc.AssessmentStatus) -> dict:
     """{tone, label, freshness}. ``tone`` sale de ``status_tone`` (vía ``judgment_view``); sin Juicio → neutro con el vocabulario de estado existente."""
     j = judgment_view(status.judgment)
     freshness = STATE_LABELS[status.state] if status.state in (svc.STALE, svc.FAILED) and j else None   # vigencia / falla de la regeneración: eje APARTE del grado
+    findings = governance_findings(status.profile) or []                # SOLO del Assessment persistido (STALE: del último snapshot evaluado)
+    extra = {"findings": findings, "findings_summary": AE.governance_summary(len(findings)) if findings else None}
     if j:
-        return {"tone": j["tone"], "label": j["level_label"], "freshness": freshness, "has_judgment": True}
-    return {"tone": NEUTRAL, "label": _TILE_NO_JUDGMENT.get(status.state, _TILE_JUDGMENT_UNAVAILABLE), "freshness": freshness, "has_judgment": False}
+        return {"tone": j["tone"], "label": j["level_label"], "freshness": freshness, "has_judgment": True, **extra}
+    return {"tone": NEUTRAL, "label": _TILE_NO_JUDGMENT.get(status.state, _TILE_JUDGMENT_UNAVAILABLE), "freshness": freshness, "has_judgment": False, **extra}
 
 
 def tile_grades(entries: Any) -> dict[str, dict]:
@@ -191,7 +211,7 @@ def tile_grades(entries: Any) -> dict[str, dict]:
         return {e.entry_id: tile_grade(statuses[e.entry_id]) for e in entries}
     except Exception:                                   # noqa: BLE001 — la lista del Catálogo no debe depender del assessment
         svc.log.exception("assessment: no se pudo calcular el grado de las tiles")
-        return {e.entry_id: {"tone": NEUTRAL, "label": "Assessment no disponible", "freshness": None, "has_judgment": False} for e in entries}
+        return {e.entry_id: {"tone": NEUTRAL, "label": "Assessment no disponible", "freshness": None, "has_judgment": False, "findings": [], "findings_summary": None} for e in entries}
 
 
 # ── Clasificación de dominio (presentación de la SUGERENCIA persistida; hermana del Juicio, sin grado ni color propios) ──
@@ -726,6 +746,8 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
                       "fact_families": len({f["fact"].split("@")[0] for f in doc["fact_index"]}), "fact_instances": len(doc["fact_index"]),
                       "versions_all": sorted(doc["versions"].items())},
     })
+    for k in ("areas", "summary", "rule_results", "limitations", "observations", "review_required", "descriptive", "not_applicable"):
+        view[k] = MR.walk(view[k])                                                              # rótulos persistidos con «sección 28» (histórico) → referencia VIGENTE
     groups: dict[str, dict] = {}
     for a in view["areas"]:
         groups.setdefault(a["macro_id"], {"id": a["macro_id"], "title": SECTION_TITLES.get(a["macro_id"], a["macro"]), "areas": []})["areas"].append(a)
@@ -747,7 +769,8 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
                 "all_assessed": all(a["state"] == "ASSESSED" for a in areas)}
     elif src and not arch:
         arch = src
-    ev = AE.asset_evaluation(link_entry) if link_entry is not None else {"governance": None, "portability": None}
+    ev = (AE.asset_evaluation(link_entry, governance_findings(status.profile), assessed=True) if link_entry is not None
+          else {"governance": AE.governance_view(governance_findings(status.profile)), "portability": None})
     view["evaluation"] = ev
     # Clasificación de dominio (hermana del Juicio): persistida si su firma de entradas coincide con el Catálogo actual; si no, derivada en solo lectura.
     dcl, _persisted = (dcs.resolve(status.domain_classification, link_entry, status.terminal_am) if link_entry is not None else (None, False))

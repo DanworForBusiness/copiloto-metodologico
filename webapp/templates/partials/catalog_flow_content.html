@@ -57,21 +57,24 @@
 {% set gov = ev.governance %}
 {% set por = ev.portability %}
 {% set ad = ah.adoption if ah else none %}
-{% if gov or por or ad %}
 {# Las secciones del flujo se numeran con base 0 (render_sections), así que el número = cantidad; la evaluación es la siguiente. #}
 {% set eval_num = (sections | length) + 1 %}
 {# Espejo exacto de la acción de la barra superior: «Ver Assessment» solo si existe; si no, «Generar informe». #}
 {% set eval_action %}{{ assessment_action(ah) }}{% endset %}
+{% if ah %}
 <article class="methodology catalog-detail">
 <section id="evaluacion-del-activo" class="content-section" aria-label="Mirada Danwor">
   {{ heading(eval_num, "Mirada Danwor", "Tres lecturas independientes: gobierno y estándares, portabilidad hacia BDC y adopción metodológica. El detalle de la evidencia está en el Assessment.", supports=eval_action) }}
+  {% if not ah.has_profile %}
+  {# SIN Assessment no hay conclusiones: ni grado, ni notas, ni hallazgos del evaluador legacy del catálogo. #}
+  <div class="dashboard-empty"><span class="dashboard-empty__label">{{ ah.grade.label }}</span><p>{% if ah.reason %}{{ ah.reason }}{% else %}Todavía no hay un Assessment de este activo. Generá el informe para ver gobierno y estándares, portabilidad hacia BDC y adopción metodológica.{% endif %}</p></div>
+  {% else %}
   {% if gov %}
   <details class="dashboard-section" id="eval-gobierno">
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Gobierno &amp; estándares</span><span class="dashboard-section__count">{{ gov.summary }}</span></summary>
     <div class="dashboard-section__body">
       <p>{{ gov.lead }}</p>
-      {% if gov.key_findings %}<p>Hallazgos clave: {% for t in gov.key_findings %}{{ t }}{% if not loop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
-      {{ evaluation_table(gov.rows, ["Estado", "Hallazgo", "Evidencia"]) }}
+      {% if gov.rows %}{{ evaluation_table(gov.rows, ["Tipo", "Observación", "Evidencia"]) }}{% else %}<p>El Assessment no detectó observaciones de gobierno.</p>{% endif %}
     </div>
   </details>
   {% endif %}
@@ -95,6 +98,7 @@
       {{ tile_grid(ad.tiles) }}
     </div>
   </details>
+  {% endif %}
   {% endif %}
   {% with slug="evaluacion-del-activo" %}{% include "partials/catalog_section_feedback.html" %}{% endwith %}
 </section>

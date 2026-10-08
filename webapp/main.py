@@ -2419,6 +2419,7 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
         return templates.TemplateResponse(request=request, name="partials/catalog_lineage.html",
                                           context=lineage_ctx)
     academy = [a for a in list_academy(selected) if not a.nav_hidden]
+    ah_view = assessment_presenter.header_for(entry, selected)          # grado + hallazgos de gobierno SOLO del Assessment gobernado (None si falla: sin fallback legacy)
     # HTMX → solo el fragmento (actualiza #content sin salir del módulo ni perder
     # el panel derecho). Navegación directa → página completa con shell + nav.
     tmpl = "partials/catalog_flow_content.html" if request.headers.get("HX-Request") else "catalog_flow.html"
@@ -2437,8 +2438,9 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
             "cliente": entry.cliente, "dominio": entry.dominio, "icon": entry.icon,
             "veredicto": entry.veredicto, "apto": entry.apto,
             "n_art": len(entry.artefactos), "sections": sections,
-            "assessment_header": assessment_presenter.header_for(entry, selected),
-            "evaluation": asset_evaluation.asset_evaluation(entry),
+            "assessment_header": ah_view,
+            "evaluation": asset_evaluation.asset_evaluation(
+                entry, findings=(ah_view or {}).get("governance_findings"), assessed=bool((ah_view or {}).get("has_profile"))),
             "catalog_kind": "domain",
             "catalog_ref": f"{entry.cliente} · {entry.dominio}",
             **lineage_ctx,

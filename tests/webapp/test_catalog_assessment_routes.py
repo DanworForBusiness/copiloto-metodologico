@@ -869,9 +869,14 @@ def test_every_content_link_in_the_report_uses_the_one_hub_content_link_treatmen
 
 
 # ── Gate UX.5: «Mirada Danwor» del Catálogo + gramática compartida con el informe ──────────────────────────
+S28 = {"applicable": 4, "non_compliant": 1, "non_compliant_artifacts": ["4AM_ACME"],
+       "violation_reason_histogram": [{"key": "artefacto tipado 'AM' no debe llevar prefijo de capa '4' (§29: los artefactos tipados se nombran sin número de capa)", "count": 1}]}
+
+
 def _evaluation_stub():
     from webapp.services import asset_evaluation as ae
-    gov = ae.governance_view("- \U0001f534 **Hoja sin contrato** _Evidencia:_ A | B\n- \U0001f7e1 **Nombre fuera de convención** _Evidencia:_ C\n- \U0001f535 **Nota menor** _Evidencia:_ D")
+    gov = ae.governance_view(ae.governed_findings([{"id": "FIELD_VOCABULARY_MIX", "title": "Etiqueta compartida entre vocabularios técnicos distintos",
+                                                    "explanation": "Una misma etiqueta nombra campos distintos.", "kind_text": "Observación"}], S28))
     por = ae.portability_view({"clasificacion": "condicionada", "score": 72, "confianza": "media", "n_riesgos": 2, "n_adaptaciones": 1,
                                "campos_revisados": 40, "campos_no_evaluables": 0,
                                "findings": [{"regla": "R1", "semaforo": "orange", "tipo_hallazgo": "riesgo", "titulo": "DecimalFloat",
@@ -883,7 +888,7 @@ def test_catalog_evaluation_is_one_numbered_section_with_three_independent_lense
     c = client_for()
     _post(c)                                                                                                 # Adopción persistida (CURRENT)
     monkeypatch.setattr(main, "_catalog_flow_view", lambda entry, show_assoc=None, pack="": ([{"slug": "m", "html": "x"}], "", bool(show_assoc), False))
-    monkeypatch.setattr(main.asset_evaluation, "asset_evaluation", lambda entry: _evaluation_stub())
+    monkeypatch.setattr(main.asset_evaluation, "asset_evaluation", lambda entry, findings=None, assessed=False: _evaluation_stub())
     html = c.get("/catalog/flow?flow=acme-4am&pack=datasphere_core", headers=HX).text
     sec = html[html.index('id="evaluacion-del-activo"'):]
     sec = sec[:sec.index("</section>")]
@@ -895,20 +900,24 @@ def test_catalog_evaluation_is_one_numbered_section_with_three_independent_lense
     assert head.count("dashboard-section__state") == 1 and "&nbsp;·&nbsp;" in head and head.index("evidencias favorables") < head.index("catalog-card__verdict")   # resumen · badge, juntos a la derecha
     # Gobierno: factual, SIN nota global ni badge de grado en la cabecera de la fila; Portabilidad: capacidad técnica, sin badge de grado.
     gov = sec[sec.index('id="eval-gobierno"'):sec.index('id="eval-portabilidad"')]
-    assert "3 hallazgos · 1 bloqueante" in gov and "dashboard-section__state" not in gov
+    assert "2 observaciones de gobierno" in gov and "dashboard-section__state" not in gov and "convención de nombres" in gov.lower()
     por = sec[sec.index('id="eval-portabilidad"'):]
     assert "Score 72/100" in por and "Score de portabilidad" in por and "dashboard-section__state" not in por.split("</summary>")[0]
     # el detalle del Assessment NO se duplica en el Catálogo y la acción lleva al informe
     assert "Evidencias favorables</h3>" not in sec and "Ver Assessment" in sec
 
 
-def test_evaluation_service_marks_findings_by_generator_marker_without_a_global_grade():
+def test_governed_findings_compose_naming_section_28_from_the_persisted_canonical_evidence():
     from webapp.services import asset_evaluation as ae
-    g = ae.governance_view("- \U0001f534 **A** _Evidencia:_ x\n- \U0001f7e1 **B** _Evidencia:_ y\n- \U0001f535 **C** _Evidencia:_ z\n- \U0001f7e2 **D** _Evidencia:_ w")
-    assert [r["label"] for r in g["rows"]] == ["Bloqueante", "Observar", "Nota", "Cumple"]
-    assert [r["tone"] for r in g["rows"]] == ["parcial", "buena", "neutra", "plena"]                           # tono = status_tone (semáforo → badge canónico del Hub)
-    assert g["blocking"] == 1 and "grade" not in g and "score" not in g
-    assert ae.governance_view("Sin desvíos detectados.") is None and ae.portability_view(None) is None
+    ref = {"module_key": "04", "section_key": "naming", "text": "Módulo 04 · §29 · Convención de Nombres"}
+    rows = ae.governed_findings([], S28, ref)
+    assert len(rows) == 1 and rows[0]["title"] == "Oportunidades en la convención de nombres" and rows[0]["finding_type"] == "NAMING_CONVENTION"
+    assert "4AM_ACME" in rows[0]["evidence"] and "no debe llevar prefijo de capa" in rows[0]["evidence"]          # evidencia explicativa y artefacto, del propio perfil
+    assert rows[0]["reference"] == {"module_key": "04", "section_key": "naming"} and rows[0]["reference_text"] == ref["text"]   # identidad = claves semánticas; el número solo se presenta
+    assert ae.governed_findings([], {"applicable": 4, "non_compliant": 0}) == [] and ae.governed_findings([], None) == []
+    g = ae.governance_view(rows)
+    assert g["total"] == 1 and g["summary"] == "1 observación de gobierno" and "grade" not in g and ae.governance_view(None) is None
+    assert ae.asset_evaluation(object(), findings=rows, assessed=False) == {"governance": None, "portability": None}   # sin Assessment: nada del evaluador legacy
 
 
 def test_report_closing_callout_takes_its_tone_from_status_tone_for_every_level():
@@ -932,8 +941,6 @@ def test_legacy_compliance_classification_is_unchanged_for_the_other_catalog_pag
     assert st("\U0001f534 Algo critico") == ("red", "Critico")
     html = main._catalog_compliance_table_html("- cumple **Cobertura** _Evidencia:_ ok\n- atender **Cap** _Evidencia:_ a | b")
     assert 'catalog-card__verdict--plena">Cumple<' in html and 'catalog-card__verdict--parcial">Atender<' in html and "<th>Estado</th><th>Hallazgo</th><th>Evidencia</th>" in html
-    from webapp.services import asset_evaluation as ae
-    assert ae.governance_view("- \U0001f534 **A** _Evidencia:_ x")["rows"][0]["label"] == "Bloqueante"          # solo la superficie nueva usa el marcador
 
 
 def test_portability_section_exists_only_with_catalog_portability_data_and_has_no_source_extraction(world):
@@ -958,7 +965,7 @@ def test_asset_evaluation_is_composition_only_and_imports_no_engine():
 def test_mirada_danwor_action_mirrors_the_top_bar_action(world, monkeypatch):
     """Los botones son un ESPEJO: sin assessment, arriba «Generar informe» y abajo (Mirada Danwor) lo mismo; «Ver Assessment» solo si existe."""
     monkeypatch.setattr(main, "_catalog_flow_view", lambda entry, show_assoc=None, pack="": ([{"slug": "m", "html": "x"}], "", bool(show_assoc), False))
-    monkeypatch.setattr(main.asset_evaluation, "asset_evaluation", lambda entry: _evaluation_stub())
+    monkeypatch.setattr(main.asset_evaluation, "asset_evaluation", lambda entry, findings=None, assessed=False: _evaluation_stub())
     c = client_for()
 
     def parts():
@@ -1046,3 +1053,83 @@ def test_right_tile_and_central_hero_use_the_same_grade_source(world, monkeypatc
     e = world.entries[0]
     st = svc.AssessmentStatus(state=svc.CURRENT, entry_id=e.entry_id, client=e.cliente, terminal_am="4AM_ACME", judgment=_judgment("BUENA"))
     assert presenter.header_view(st, e, "datasphere_core")["grade"] == presenter.tile_grade(st)               # UNA sola función
+
+
+# ── Hallazgos de gobierno: SOLO del Assessment gobernado; el evaluador legacy del catálogo no produce notas ni CTAs ──────────────────────────
+LEGACY_NOTE = {"severidad": "nota", "titulo": "Oportunidades en la convención de nombres §28 (módulo 04)",
+               "evidencia": "4AM_LEGACY: artefacto tipado 'AM' no debe llevar prefijo de capa '4' (§29)"}
+
+
+def _governed(world, monkeypatch, state=svc.CURRENT, s28=None, legacy=True, groups=None, with_profile=True):
+    """(hero, tile, status, entry) con un Assessment gobernado sintético (perfil real + evidencia de §28 inyectada) y una nota LEGACY en el catálogo."""
+    import copy
+    import dataclasses
+    svc.generate(world.entries[0])
+    prof = copy.deepcopy(svc.status_for_entry(world.entries[0]).profile)
+    hy = prof["canonical_evidence"]["naming_evidence"]["hygiene"]["artifact_name_populations"]
+    hy["section_28"] = {**hy["section_28"], **(s28 or {"applicable": 4, "non_compliant": 0, "non_compliant_artifacts": [], "violation_reason_histogram": []})}
+    for key in ("observations", "review_required", "descriptive_signals"):
+        prof[key] = [g for g in prof[key] if g.get("area") != "NAMING"]
+    for area in prof["areas"]:
+        if area["id"] == "NAMING":
+            area["finding_groups"] = []
+    e = dataclasses.replace(world.entries[0], hallazgos=[LEGACY_NOTE] if legacy else [])
+    world.entries[0] = e
+    st = svc.AssessmentStatus(state=state if with_profile else svc.NOT_YET_ASSESSED, entry_id=e.entry_id, client=e.cliente, terminal_am="4AM_ACME",
+                              profile=prof if with_profile else None, judgment=_judgment("BUENA") if with_profile else None)
+    monkeypatch.setattr(svc, "status_for_entry", lambda entry: st)
+    monkeypatch.setattr(svc, "statuses_for_entries", lambda es: {x.entry_id: st for x in es})
+    monkeypatch.setattr(main, "_catalog_flow_view", lambda entry, show_assoc=None, pack="": ([{"slug": "m", "html": "x"}], "", bool(show_assoc), False))
+    c = client_for()
+    hero = c.get("/catalog/flow?flow=acme-4am&pack=datasphere_core", headers=HX).text
+    tile = c.get("/catalog/domain?dominio=Dom").text
+    return hero, tile, st, e
+
+
+def test_no_assessment_with_a_legacy_naming_note_renders_no_note_anywhere(world, monkeypatch):
+    hero, tile, _st, _e = _governed(world, monkeypatch, with_profile=False)
+    for html in (hero, tile):
+        assert "convención de nombres" not in html.lower() and "Ver notas" not in html and "4AM_LEGACY" not in html and "catalog-card__notes" not in html
+    assert "Sin assessment" in tile and 'id="eval-gobierno"' not in hero and 'id="eval-portabilidad"' not in hero    # Mirada: solo estado vacío + acción
+    assert "Generar informe" in hero and "dashboard-empty" in hero.split('id="evaluacion-del-activo"')[1]
+
+
+def test_current_assessment_with_a_governed_naming_finding_shows_the_same_finding_in_tile_mirada_and_assessment(world, monkeypatch):
+    hero, tile, st, e = _governed(world, monkeypatch, s28=S28)
+    expected = presenter.governance_findings(st.profile)
+    assert len(expected) == 1 and expected[0]["title"] == "Oportunidades en la convención de nombres" and "§" not in expected[0]["evidence"]
+    tile_notes = tile[tile.index('catalog-card__notes'):]
+    tile_notes = tile_notes[:tile_notes.index("</details>")]
+    assert "1 observación de gobierno" in tile_notes and expected[0]["title"] in tile_notes and "4AM_ACME" in tile_notes      # resumen compacto con el MISMO hallazgo
+    assert "4AM_LEGACY" not in tile + hero and "§28" not in tile + hero + client_for().get("/catalog/flow/assessment?flow=acme-4am", headers=HX).text   # nada del payload legacy ni ordinales viejos
+    assert "Módulo 04 · §" in tile_notes and "Convención de Nombres" in tile_notes                                       # referencia semántica resuelta dinámicamente
+    gov = hero[hero.index('id="eval-gobierno"'):]
+    assert expected[0]["title"] in gov[:gov.index("</details>")]                                                          # Mirada: el MISMO hallazgo
+    report = client_for().get("/catalog/flow/assessment?flow=acme-4am", headers=HX).text
+    sec = report[report.index('id="asr-gobierno"'):report.index('id="asr-revision"')]
+    assert expected[0]["title"] in sec and "4AM_ACME" in sec and "no debe llevar prefijo de capa" in sec and "4AM_LEGACY" not in report   # Assessment [04]: idéntico
+
+
+def test_current_assessment_without_governance_findings_leaks_no_legacy_note(world, monkeypatch):
+    hero, tile, st, e = _governed(world, monkeypatch, s28=None, legacy=True)
+    assert presenter.governance_findings(st.profile) == []
+    assert "catalog-card__notes" not in tile and "Oportunidades en la convención" not in (tile + hero) and "4AM_LEGACY" not in tile + hero
+    assert "Sin observaciones de gobierno" in hero and "El Assessment no detectó observaciones de gobierno." in hero
+    report = client_for().get("/catalog/flow/assessment?flow=acme-4am", headers=HX).text
+    assert "4AM_LEGACY" not in report and "Oportunidades en la convención" not in report and "El Assessment no detectó observaciones de gobierno." in report
+
+
+def test_stale_assessment_keeps_the_persisted_governed_finding_with_freshness_apart(world, monkeypatch):
+    hero, tile, st, e = _governed(world, monkeypatch, state=svc.STALE, s28=S28)
+    assert "1 observación de gobierno" in tile and "Assessment desactualizado" in tile                                     # hallazgo del último snapshot + vigencia aparte
+    assert "Assessment desactualizado" in hero and "4AM_LEGACY" not in tile + hero
+
+
+def test_legacy_catalog_payload_alone_cannot_produce_a_note_or_call_to_action():
+    for name in ("catalog_flows.html", "catalog_flow_content.html"):
+        src = (REPO / "webapp/templates/partials" / name).read_text(encoding="utf-8")
+        scrub = src.replace("hallazgos de portabilidad", "").replace("Sin hallazgos de portabilidad", "").replace("Hallazgos de portabilidad", "")
+        scrub = re.sub(r"\{#.*?#\}", "", scrub, flags=re.S)                                  # (los comentarios de plantilla explican la política)
+        assert "hallazgos" not in scrub and "Ver notas" not in src, name
+    ev = main.asset_evaluation.asset_evaluation(type("E", (), {"hallazgos": [LEGACY_NOTE], "body": "## Hallazgos de cumplimiento\n- x **t** _Evidencia:_ y", "portabilidad_bdc": None})(), assessed=False)
+    assert ev == {"governance": None, "portability": None}

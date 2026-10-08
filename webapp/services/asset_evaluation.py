@@ -1,7 +1,7 @@
 """Evaluación del activo (presentación): Gobierno & estándares + Portabilidad & preparación BDC.
 
-Una sola implementación para el Catálogo (resumen compacto) y el informe de Assessment (sección). Solo PRESENTA datos que el
-generador del catálogo ya produjo (`## Hallazgos…` del flujo y el dict `portabilidad_bdc`); no recalcula, no decide niveles
+Una sola implementación para el Catálogo (resumen compacto) y el informe de Assessment (sección). Solo PRESENTA datos ya producidos: los hallazgos
+del Assessment gobernado persistido y el dict `portabilidad_bdc`, y SOLO si existe un Assessment; no recalcula, no decide niveles
 y NO emite un puntaje/nota global de cumplimiento. Las tres lecturas del activo son independientes y no se consumen entre sí:
 
     · Gobierno & estándares ........ hallazgos de cumplimiento (notas / bloqueantes) — sin nota propia
@@ -69,17 +69,6 @@ def evidence_html(text: str) -> str:
     return inline_html(clean)
 
 
-# Marcador de severidad que el GENERADOR del flujo ya emitió (`severidad`: alto / medio / nota) → semáforo. Es un mapa de presentación del
-# dato existente: no se infiere nada del texto; un marcador desconocido queda como «Nota».
-_MARKER_STATUS = {"🔴": ("red", "Bloqueante"), "🟡": ("amber", "Observar"), "🔵": ("blue", "Nota"),
-                  "🟠": ("orange", "Atender"), "🟢": ("green", "Cumple")}
-
-
-def compliance_status(marker: str) -> tuple[str, str]:
-    """Marcador del generador → (semáforo, etiqueta)."""
-    return _MARKER_STATUS.get(marker, ("blue", "Nota"))
-
-
 def tone_of(semaforo: str) -> str:
     return SEMAFORO_TONE.get((semaforo or "").lower(), NEUTRAL)
 
@@ -92,9 +81,9 @@ def status_badge_html(semaforo: str, label: str) -> str:
 _ITEM_RE = re.compile(r"(?ms)^-\s*(?P<marker>\S+)?\s*\*\*(?P<title>.+?)\*\*\s*(?P<body>.*?)(?=\n-\s+\S*\s*\*\*|\Z)")
 
 
-def compliance_rows(source: str, classify=None) -> list[dict]:
+def compliance_rows(source: str, classify) -> list[dict]:
     """Bullets `- <marcador> **Título** _Evidencia:_ …` del generador → filas {semaforo, tone, label, title, evidence}.
-    `classify` (opcional): clasificador legacy `texto → (semáforo, etiqueta)` de las páginas existentes del Catálogo; por defecto manda el marcador."""
+    `classify`: clasificador legacy `texto → (semáforo, etiqueta)` de las demás páginas del Catálogo (conexiones, seguridad, data products)."""
     rows = []
     for m in _ITEM_RE.finditer((source or "").strip()):
         marker = m.group("marker") or ""
@@ -102,7 +91,7 @@ def compliance_rows(source: str, classify=None) -> list[dict]:
         body = m.group("body") or ""
         ev = re.search(r"(?is)_?Evidencia:_?\s*(.*)$", body)
         evidence = ev.group(1).strip() if ev else body.strip()
-        semaforo, label = classify(f"{marker} {title} {evidence}") if classify else compliance_status(marker)
+        semaforo, label = classify(f"{marker} {title} {evidence}")
         rows.append({"semaforo": semaforo, "tone": tone_of(semaforo), "label": label,
                      "title": Markup(inline_html(title)), "evidence": Markup(evidence_html(evidence))})
     return rows
@@ -145,7 +134,7 @@ def _table_html(headers: tuple[str, str, str], rows: list[dict]) -> str:
     return f'<div class="catalog-compliance"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
-def compliance_table_html(source: str, classify=None) -> str:
+def compliance_table_html(source: str, classify) -> str:
     rows = compliance_rows(source, classify)
     return _table_html(("Estado", "Hallazgo", "Evidencia"), rows) if rows else (source or "").strip()
 
@@ -156,31 +145,52 @@ def portability_table_html(findings: list) -> str:
 
 
 # ─────────────────────────── vistas (resumen + filas) ───────────────────────────
-_SEVERITY = {"red": 0, "orange": 1, "amber": 2, "blue": 3, "green": 4}
+_KIND_LABEL = {"OBSERVATION": "Observación", "REVIEW_REQUIRED": "Caso a revisar", "DESCRIPTIVE": "Señal descriptiva"}
 
 
-def governance_view(hallazgos_md: str | None) -> dict | None:
-    """Lectura de Gobierno & estándares sobre los hallazgos de cumplimiento del flujo. SIN nota global: conteos factuales
-    (bloqueantes / a atender / observaciones / cumplen) + los hallazgos clave (los de mayor severidad que no cumplen)."""
-    rows = compliance_rows(hallazgos_md or "")
-    if not rows:
+NAMING_CONVENTION_TYPE = "NAMING_CONVENTION"
+
+
+def governed_findings(groups: list[dict], section_28: dict | None, reference: dict | None = None) -> list[dict]:
+    """Hallazgos de GOBIERNO del Assessment gobernado PERSISTIDO (única fuente; el evaluador legacy del Catálogo no interviene).
+    ``groups``: grupos de hallazgo del área NAMING ({id, title, explanation, kind_text}); ``section_28``: evidencia canónica de higiene de nombres
+    ({applicable, non_compliant, non_compliant_artifacts, violation_reason_histogram}) con los motivos YA sin ordinales; ``reference``: referencia
+    SEMÁNTICA resuelta por el presentador ({module_key, section_key, text}). Solo COMPONE: no detecta ni recalcula nada. La identidad del hallazgo
+    es ``finding_type`` + ``reference`` (módulo/sección por clave), NUNCA un número de sección: el número (``reference_text``) se resuelve al presentar."""
+    rows = []
+    s28 = section_28 or {}
+    n_bad = int(s28.get("non_compliant") or 0)
+    if n_bad > 0:
+        arts = [str(a) for a in s28.get("non_compliant_artifacts") or []]
+        reasons = [str(r.get("key")) for r in s28.get("violation_reason_histogram") or [] if r.get("key")]
+        shown = ", ".join(arts[:6]) + (f" (+{len(arts) - 6})" if len(arts) > 6 else "")
+        lead = f"{n_bad} de {int(s28.get('applicable') or 0)} artefactos: " if n_bad > 1 else ""
+        evidence = lead + shown + ((": " if shown else "") + " | ".join(reasons) if reasons else "")
+        ref = reference or {}
+        rows.append({"id": NAMING_CONVENTION_TYPE, "finding_type": NAMING_CONVENTION_TYPE, "dom_id": "asr-a-NAMING", "tone": NEUTRAL, "label": "Nota",
+                     "title": "Oportunidades en la convención de nombres", "evidence": evidence or "Sin detalle de artefactos.",
+                     "reference": {k: ref[k] for k in ("module_key", "section_key") if k in ref} or None, "reference_text": ref.get("text")})
+    for g in groups or []:
+        rows.append({"id": g["id"], "finding_type": g["id"], "dom_id": f"asr-g-{g['id']}", "tone": NEUTRAL, "label": g.get("kind_text") or _KIND_LABEL.get(g.get("kind"), "Observación"),
+                     "title": g["title"], "evidence": g.get("explanation") or "", "reference": None, "reference_text": None})
+    return rows
+
+
+def governance_summary(n: int) -> str:
+    return _plural(n, "observación de gobierno", "observaciones de gobierno") if n else "Sin observaciones de gobierno"
+
+
+def governance_view(findings: list[dict] | None) -> dict | None:
+    """Lectura de Gobierno & estándares sobre los hallazgos GOBERNADOS (sin nota global). ``None`` si no hay Assessment (``findings is None``)."""
+    if findings is None:
         return None
-    n = {k: sum(1 for r in rows if r["semaforo"] == k) for k in _SEVERITY}
-    blocking, attend, observe, notes, ok = n["red"], n["orange"], n["amber"], n["blue"], n["green"]
-    pending = sorted((r for r in rows if r["semaforo"] != "green"), key=lambda r: _SEVERITY.get(r["semaforo"], 5))
-    parts = [_plural(len(rows), "hallazgo"), _plural(blocking, "bloqueante")]
-    if attend:
-        parts.append(f"{attend} a atender")
-    if observe or notes:
-        parts.append(_plural(observe + notes, "observación", "observaciones"))
+    rows = [{**f, "title": Markup(html.escape(f["title"])), "evidence": Markup(html.escape(f["evidence"]))} for f in findings]   # (evidencia: la referencia va aparte, en `reference_text`)
     return {
-        "tiles": [{"value": len(rows), "label": "Hallazgos"}, {"value": blocking, "label": "Bloqueantes"},
-                  {"value": attend, "label": "A atender"}, {"value": observe + notes, "label": "Observaciones"}],
-        "rows": rows, "total": len(rows), "blocking": blocking, "attend": attend, "observe": observe, "notes": notes, "ok": ok,
-        "summary": " · ".join(parts),
-        "key_findings": [r["title"] for r in pending[:3]] if len(rows) > 3 else [],     # con ≤3 hallazgos la tabla ya los muestra todos (no repetir)
-        "lead": ("Los hallazgos de cumplimiento del activo frente al estándar de modelado y fuente. Son lecturas factuales para "
-                 "revisión técnica; no se consolidan en una nota global."),
+        "rows": rows, "total": len(rows), "summary": governance_summary(len(rows)),
+        "tiles": [{"value": len(rows), "label": "Observaciones de gobierno"}],
+        "key_findings": [],
+        "lead": ("Observaciones de gobierno y estándares del Assessment vigente (convención de nombres y señales asociadas). Son lecturas factuales "
+                 "para revisión técnica; no se consolidan en una nota global."),
     }
 
 
@@ -218,15 +228,12 @@ def _plural(n: int, one: str, many: str | None = None) -> str:
     return f"{n} {one if n == 1 else (many or one + 's')}"
 
 
-def hallazgos_block(body: str | None) -> str | None:
-    """El bloque `## Hallazgos…` del `flujo_*.md` (lo que el generador emite como cumplimiento)."""
-    m = re.search(r"##\s*Hallazgos[^\n]*\n(.*)$", body or "", re.S)
-    return m.group(1) if m else None
-
-
-def asset_evaluation(entry: Any) -> dict:
-    """Gobierno + Portabilidad de un flujo del Catálogo (cada lectura puede faltar → None)."""
+def asset_evaluation(entry: Any, findings: list[dict] | None = None, assessed: bool = False) -> dict:
+    """Gobierno + Portabilidad de un flujo SOLO cuando existe un Assessment gobernado (``assessed``): sin Assessment no se expone ninguna conclusión
+    del evaluador legacy del Catálogo. ``findings`` = hallazgos de gobierno del Assessment persistido (``governed_findings``)."""
+    if not assessed:
+        return {"governance": None, "portability": None}
     return {
-        "governance": governance_view(hallazgos_block(getattr(entry, "body", None))),
+        "governance": governance_view(findings if findings is not None else []),
         "portability": portability_view(getattr(entry, "portabilidad_bdc", None), getattr(entry, "portabilidad_ack", None), "dominio"),
     }
