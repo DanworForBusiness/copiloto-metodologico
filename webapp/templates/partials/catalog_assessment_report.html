@@ -229,7 +229,7 @@
 {% set dcl = v.domain_classification %}
 {% if gov or gma or dcl %}
 <section class="content-section" id="asr-gobierno">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Gobierno & estándares", "Estándares y convenciones que el activo debe respetar: observaciones de gobierno (convención de nombres y señales asociadas) y clasificación de dominio. Son lecturas factuales para revisión técnica; no se consolidan en una nota global ni se mezclan con la adopción metodológica.") }}
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Gobierno & estándares", "Estándares y convenciones que el activo debe respetar: observaciones de gobierno (convención de nombres y señales asociadas) y clasificación de negocio (línea de negocio y dominio). Son lecturas factuales para revisión técnica; no se consolidan en una nota global ni se mezclan con la adopción metodológica.") }}
   {% if gov %}
   {{ tile_grid(gov.tiles) }}
   <details class="dashboard-section" id="asr-gobierno-hallazgos"{% if gov.rows %} open{% endif %}>
@@ -241,7 +241,7 @@
   {# Clasificación de dominio: SUGERENCIA derivada de la evidencia (hermana del Juicio; no afecta la adopción ni mueve nada). Abierta solo si hay sugerencia. #}
   {% if dcl %}
   <details class="dashboard-section" id="asr-dominio"{% if dcl.suggested %} open{% endif %}>
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Clasificación de dominio</span><span class="dashboard-section__count">{{ dcl.summary }}</span></summary>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Clasificación de negocio</span><span class="dashboard-section__count">{{ dcl.summary }}</span></summary>
     <div class="dashboard-section__body">
       <p>{{ dcl.headline }}</p>
       <table><thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead><tbody>{% for r in dcl.rows %}<tr><td>{{ r.label }}</td><td>{{ r.value }}</td></tr>{% endfor %}</tbody></table>
