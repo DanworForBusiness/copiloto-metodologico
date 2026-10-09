@@ -452,20 +452,41 @@ def _callout_body_html(body: str) -> str:
     return "".join(parts)
 
 
+def _collapsible_open_tag(title: str, is_open: bool = False, anchor: str = "") -> str:
+    """Apertura del componente plegable del Hub (`.content-collapsible`: <details>/<summary> nativos). UNA sola definición del markup."""
+    attr = " open" if is_open else ""
+    ident = f' id="{html.escape(anchor, quote=True)}"' if anchor else ""
+    return (
+        f'<details class="content-collapsible"{ident}{attr}>'
+        f'<summary class="content-collapsible__summary">{html.escape(title.strip())}</summary>'
+        f'<div class="content-collapsible__body">'
+    )
+
+
 def _collapsible_html(rendered: str) -> str:
     """Convierte los centinelas DWCOLL (dejados por `_prepare`) en un bloque
     <details>/<summary>. Corre DESPUES de markdown: el cuerpo ya es HTML con su
     copy-button, y el plegado no afecta anchors/Ctrl+F (el contenido sigue en DOM)."""
     def _open(match: re.Match[str]) -> str:
-        state, title = match.group(1), html.escape(match.group(2).strip())
-        attr = " open" if state == "OPEN" else ""
-        return (
-            f'<details class="content-collapsible"{attr}>'
-            f'<summary class="content-collapsible__summary">{title}</summary>'
-            f'<div class="content-collapsible__body">'
-        )
+        return _collapsible_open_tag(match.group(2), match.group(1) == "OPEN")
     rendered = COLLAPSIBLE_OPEN_HTML_RE.sub(_open, rendered)
     return COLLAPSIBLE_CLOSE_HTML_RE.sub("</div></details>", rendered)
+
+
+# Tablas de campos de los artefactos del Catálogo (todas las capas): `#### Campos (N)` y, en los modelos analíticos, `#### Medidas (N)` / `#### Atributos (N)`.
+FIELD_TABLE_RE = re.compile(r'<h4 id="([^"]*)">(Campos|Medidas|Atributos) \((\d+)\)</h4>\s*(<table>.*?</table>)', re.S)
+
+
+def collapse_field_tables(rendered: str) -> str:
+    """Envuelve cada tabla de campos YA renderizada en el plegable del Hub (`.content-collapsible`, COLAPSADO por defecto): el encabezado compacto conserva el conteo REAL de filas
+    (``Campos (153)``), cada tabla abre/cierra de forma independiente y la tabla queda BYTE A BYTE igual y presente en el DOM (abrir no pide nada). Solo presentación: no recalcula
+    nada, no toca el contenido del catálogo y conserva el ancla de la sección."""
+    def _wrap(m: re.Match[str]) -> str:
+        anchor, label, table = m.group(1), m.group(2), m.group(4)
+        body = table.split("<tbody>", 1)[1] if "<tbody>" in table else ""
+        rows = body.count("<tr>")
+        return _collapsible_open_tag(f"{label} ({rows})", False, anchor) + table + "</div></details>"
+    return FIELD_TABLE_RE.sub(_wrap, rendered)
 
 
 def _prepare(source: str, pack_name: str, stem: str = "") -> str:

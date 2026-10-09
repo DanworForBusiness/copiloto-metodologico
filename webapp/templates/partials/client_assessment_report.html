@@ -71,6 +71,18 @@
 
   </section>
 
+  {# Síntesis de adopción metodológica: veredictos del Juicio PERSISTIDOS y vigentes (moda, no promedio; los no determinables y los no vigentes se informan aparte). Entre las secciones 02 y 03; sin numerar. #}
+  {% if v.adoption_story %}{% set a = v.adoption_story %}
+  <div class="content-section" id="cli-adopcion" data-adoption-kind="{{ a.kind }}">
+    {% call callout("punch", "Síntesis de adopción metodológica", icon="💡") %}
+      <p><span class="catalog-card__verdict catalog-card__verdict--{{ a.tone }}">{{ a.badge }}</span> <strong>{{ a.headline }}</strong></p>
+      {% if a.chips %}<p class="catalog-verdict-line">{% for c in a.chips %}<span class="catalog-card__verdict catalog-card__verdict--{{ c.tone }}">{{ c.label }} · {{ c.count }}</span> {% endfor %}</p>{% endif %}
+      {% if a.outside %}<p>{{ a.outside }}</p>{% endif %}
+      <p class="catalog-note__ev">{{ a.criterion }}</p>
+    {% endcall %}
+  </div>
+  {% endif %}
+
   <section class="content-section" id="cli-hallazgos">
     {{ heading(3, "Hallazgos recurrentes", "Cada artefacto cuenta una vez por hallazgo. Solo assessments vigentes; sin pesos ni severidad.") }}
     {% if snap.recurring_findings %}

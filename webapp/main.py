@@ -2,6 +2,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from urllib.parse import quote, urlencode
 import asyncio
+import dataclasses
 import html
 import logging
 import os
@@ -2423,7 +2424,7 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
     {"present": [{name, slug}], "missing": [name]} — presente = nodo visible en el diagrama actual. Si
     la apertura es fresca (show_assoc None) y un nodo enfocado solo existe como asociación,
     se activan las asociaciones para poder mostrarlo."""
-    from webapp.services.content_service import render_sections, split_front_matter
+    from webapp.services.content_service import collapse_field_tables, render_sections, split_front_matter
     from core.utils import slugify
 
     def _heading(name: str, label: str) -> tuple[str, str]:
@@ -2550,7 +2551,8 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
         lambda m: (f"[{m.group(1)}](#{slug_of[delta_pairs.get(m.group(1), m.group(1))]})" if delta_pairs.get(m.group(1), m.group(1)) in shown_set else m.group(0)),
         composed,
     )
-    return render_sections(composed, pack_name="", stem="", base=0), lineage_svg, show_assoc, assoc_context
+    sections = tuple(dataclasses.replace(s, html=collapse_field_tables(s.html)) for s in render_sections(composed, pack_name="", stem="", base=0))    # tablas de campos plegadas (todas las capas)
+    return sections, lineage_svg, show_assoc, assoc_context
 
 
 @app.get("/catalog/flow", response_class=HTMLResponse, include_in_schema=False)

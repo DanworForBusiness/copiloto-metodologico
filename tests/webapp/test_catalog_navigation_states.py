@@ -160,10 +160,13 @@ def _nav_block():
     return APP_JS[a:APP_JS.index("window.DwCatalogNav = DwCatalogNav;")]
 
 
-def test_nav_logic_has_no_timers_one_listener_per_event_and_is_defined_once():
+def test_nav_logic_has_one_grace_timer_no_simulated_progress_one_listener_per_event_and_is_defined_once():
     block = _nav_block()
-    assert not re.search(r"\b(setTimeout|setInterval|requestAnimationFrame)\b", block)                 # sin progreso simulado ni temporizadores
-    for ev in ("htmx:beforeRequest", "htmx:afterRequest", "click"):
+    assert not re.search(r"\b(setInterval|requestAnimationFrame)\b", block)                            # sin progreso simulado ni animaciones por JS
+    assert block.count("setTimeout(") == 1 and "clearTimeout(" in block                                # UN solo timer: el umbral de continuidad del loader (cancelado en cada salida)
+    assert re.search(r"const GRACE_MS = \d{2,3};", block) and "}, GRACE_MS);" in block
+    assert "MIN_" not in block and "minDuration" not in block                                          # sin duración mínima: el loader dura lo que dure la espera real
+    for ev in ("htmx:beforeRequest", "htmx:afterRequest", "htmx:afterSwap", "click"):
         assert block.count(f'addEventListener("{ev}"') == 1, ev
     assert 'forEach((n) => document.body.addEventListener(n, onFailure))' in block
     assert APP_JS.count("const DwCatalogNav") == 1 and APP_JS.count("window.dwCatalogBack = function") == 1
