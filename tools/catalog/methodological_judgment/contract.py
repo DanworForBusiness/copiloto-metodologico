@@ -10,7 +10,7 @@ import json
 from typing import Any
 
 JUDGMENT_SCHEMA_VERSION = "judgment/v1"
-RULESET_VERSION = "judgment-rules/v1"
+RULESET_VERSION = "judgment-rules/v2"
 EXECUTIVE_INPUT_VERSION = "executive-input/v1"
 EXECUTIVE_OUTPUT_CONTRACT_VERSION = "executive-output-contract/v1"
 CTA_PLAYBOOK_VERSION = "cta-playbook/v1"

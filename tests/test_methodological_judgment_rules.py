@@ -62,7 +62,7 @@ def test_dropping_any_one_critical_strength_prevents_buena(missing):
     elif missing == "PRO-STR-01":
         b._views["V1"]["provider_names"].append("CDS9"); b.remote("CDS9")
     elif missing == "PUB-STR-01":
-        b._assoc.clear()                                         # una sola familia afirmativa (reuso gobernado) ya no alcanza
+        b.incomplete("M1")                                       # linaje publicado incompleto: la fortaleza exige evidencia completa (con A1** una sola familia SÍ alcanza si hay sustancia; ver test_methodological_judgment_published_conformance)
     j = evaluate_judgment(b.build())
     assert missing not in {s["rule_id"] for s in j["strengths"]} and j["level"] != "BUENA"
 

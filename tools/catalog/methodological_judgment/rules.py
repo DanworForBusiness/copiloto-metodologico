@@ -222,6 +222,28 @@ def _independent_pair_exists(fam: Mapping[str, set[str]]) -> bool:
     return any(fam[a] != fam[b] for i, a in enumerate(names) for b in names[i + 1:])
 
 
+def published_contract_conformance(ev: ProfileEvidence, policy: str) -> dict:
+    """Condiciones del reconocimiento de la fortaleza del contrato publicado (PUB-STR-01), UNA sola fuente para la fortaleza y para la explicación de LVL-06.
+    Vía 1 (original): ≥2 familias afirmativas independientes. Vía 2 (conformidad con sustancia, sin asociaciones obligatorias): ≥1 familia afirmativa A NIVEL DE CAMPO (reuso gobernado trazable o semántica propia; una asociación sola no alcanza) + evidencia de SUSTANCIA del contrato
+    publicado (≥1 medida publicada, identidad de negocio en TODAS las medidas, ningún campo publicado con el nombre de la columna fuente). Ambas exigen linaje completo y ausencia de fuga.
+    ``declared_dimensions_not_associated`` es solo INFORMATIVA: no bloquea ninguna vía (es una observación; ver ``supporting_evidence``). Sin umbrales, nombres ni reglas por cliente."""
+    fam, lineage_complete, leak = published_positive_families(ev, policy)
+    measures = ev.published_measures
+    conds = {
+        "lineage_complete": lineage_complete,
+        "no_vocabulary_leak": not leak,
+        "field_level_affirmative_family": any(f != "BUSINESS_ASSOCIATION" for f in fam),   # una asociación SOLA nunca completa la fortaleza (decisión de owner 8D.1d)
+        "measures_published": bool(measures),
+        "measures_business_identity": not any(m.get("business_name_equals_technical") for m in measures),
+        "no_source_column_names": not any(f.get("name_equals_remote_source_column") for f in ev.published_fields),
+    }
+    base = lineage_complete and not leak
+    via_pair = base and _independent_pair_exists(fam)
+    substance = conds["measures_published"] and conds["measures_business_identity"] and conds["no_source_column_names"]
+    via_substance = base and conds["field_level_affirmative_family"] and substance
+    return {"families": fam, "conditions": conds, "via": "INDEPENDENT_FAMILIES" if via_pair else ("SUBSTANCE_CONFORMANCE" if via_substance else None)}
+
+
 # ───────────────────────────── MATERIAL ─────────────────────────────
 def rule_pro_mat_01(ev: ProfileEvidence, policy: str) -> list[dict]:
     """PRO-MAT-01 — el nodo de PRODUCTO (posicion: proveedor directo del AM) re-ejecuta integracion/armonizacion: (i) universo mixto (consume un candidato de
@@ -464,12 +486,19 @@ def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool) -> list[dict]
                                  refs=[f"ce:view_complexity/{n}" for n in ev.product_nodes], basis=["PRO.product_position_nodes_without_direct_boundary_leaf"]))
     # PUB-STR-01 — contrato publicado intencional/autonomo: evidencia AFIRMATIVA convergente (>=2 familias INDEPENDIENTES) con linaje COMPLETO y SIN fuga de vocabulario no gobernado.
     # La existencia de asociaciones es evidencia positiva LOCALIZADA: ni su numero ni una sola completan la fortaleza; ninguna familia es obligatoria en todo producto.
-    fam, lineage_complete, leak = published_positive_families(ev, policy)
-    if lineage_complete and not leak and _independent_pair_exists(fam):
+    pub = published_contract_conformance(ev, policy)
+    fam = pub["families"]
+    if pub["via"] == "INDEPENDENT_FAMILIES":                                   # vía original, intacta
         out.append(_strength("PUB-STR-01", C.PUBLISHED_CONTRACT, "pub.semantically_intentional_consumer_contract", ev=ev, artifacts=[ev.am] if ev.am else [],
                              refs=["ce:published_field_lineage", "ce:published_contract/fields", "ce:published_contract/associations"],
                              basis=["PUB.published_lineage_complete_for_every_field", "PUB.no_unresolved_vocabulary_reaches_the_consumer_verbatim",
                                     *[f"PUB.family.{f}" for f in sorted(fam)], "PUB.at_least_two_independent_affirmative_families"]))
+    elif pub["via"] == "SUBSTANCE_CONFORMANCE":                                # vía 2: conformidad con sustancia; las asociaciones son fortaleza adicional, no requisito
+        out.append(_strength("PUB-STR-01", C.PUBLISHED_CONTRACT, "pub.semantically_intentional_consumer_contract", ev=ev, artifacts=[ev.am] if ev.am else [],
+                             refs=["ce:published_field_lineage", "ce:published_contract/fields", "ce:published_contract/associations"],
+                             basis=["PUB.published_lineage_complete_for_every_field", "PUB.no_unresolved_vocabulary_reaches_the_consumer_verbatim",
+                                    *[f"PUB.family.{f}" for f in sorted(fam)], "PUB.conformance_with_substance_without_required_associations",
+                                    "PUB.published_measures_with_business_identity", "PUB.no_source_column_names_in_the_consumption_vocabulary"]))
     return sorted(out, key=lambda s: s["rule_id"])
 
 

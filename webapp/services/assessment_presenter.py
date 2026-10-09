@@ -308,6 +308,25 @@ _JDG_LEVEL_HEADLINE = {
 }
 _JDG_GENERIC_HEADLINE = "La evidencia observada refleja la adopción metodológica en los cuatro contratos."
 _JDG_ND_HEADLINE = "No fue posible determinar la adopción metodológica con la evidencia disponible."
+# LVL-06: la evidencia es evaluable pero no hay evidencia afirmativa suficiente en alguna dimensión (≠ evidencia insuficiente). Estados/causas estables de ``not_determinable_detail``.
+_JDG_ND_SUFFICIENT_HEADLINE = "La evidencia disponible es suficiente y no registra debilidades, pero no hay evidencia afirmativa suficiente en: {dims}."
+_JDG_ND_INSUFFICIENT_DETAIL = " Falta evidencia en: {dims}."
+_JDG_ND_STATE_TEXT = {"NO_STRENGTH": "Sin evidencia afirmativa suficiente (evaluado)", "INSUFFICIENT_EVIDENCE": "Evidencia insuficiente"}
+_JDG_ND_CAUSE = {
+    "NO_SOURCE_CONTACT_OBSERVED": "no se observó contacto con la fuente",
+    "SOURCE_CONTRACT_CLASS_UNDETERMINED": "la clase del contrato de fuente no está determinada",
+    "SOURCE_CONTACT_NOT_ALL_GOVERNED": "no todo contacto con la fuente es un contrato gobernado",
+    "NO_HARMONIZATION_BOUNDARY_OBSERVED": "no se observó una frontera de armonización",
+    "HARMONIZATION_MAPPING_NOT_OBSERVABLE": "el mapeo de la armonización no es observable",
+    "HARMONIZATION_NOT_A_LEGITIMATE_REUSABLE_BOUNDARY": "la armonización no es una frontera técnica reutilizable legítima",
+    "NO_PRODUCT_NODE_OBSERVED": "no se observó un nodo de producto",
+    "PRODUCT_DOES_NOT_COMPOSE_RESOLVED_CONTRACTS": "el producto no compone contratos ya resueltos",
+    "PUBLISHED_LINEAGE_INCOMPLETE": "el linaje de los campos publicados está incompleto",
+    "UNRESOLVED_VOCABULARY_REACHES_THE_CONSUMER": "vocabulario sin resolver llega al consumidor",
+    "NO_AFFIRMATIVE_PUBLISHED_FAMILY": "el contrato publicado no acredita evidencia afirmativa propia",
+    "PUBLISHED_CONTRACT_SUBSTANCE_NOT_ESTABLISHED": "el contrato publicado no acredita sustancia de consumo (medidas con identidad de negocio, sin nombres técnicos de columna)",
+    "NO_AFFIRMATIVE_EVIDENCE": "sin evidencia afirmativa",
+}
 _JDG_ND_REASON = {
     "INSUFFICIENT_AFFIRMATIVE_EVIDENCE": "Evidencia afirmativa insuficiente",
     "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL": "Contrato de fuente externa crítico no resoluble",
@@ -377,13 +396,24 @@ def judgment_view(judgment: dict | None) -> dict | None:
         state = "attention" if dim in weak_dims else ("positive" if dim in strong_dims else "neutral")
         contracts.append({"label": label, "state": state, "state_text": _JDG_CONTRACT_STATE_TEXT[state], "tone": _CONTRACT_TONE[state]})
     nd_reason = None if determined else _JDG_ND_REASON.get(judgment.get("not_determinable_reason") or "", "No determinable")
+    nd_detail = (judgment.get("not_determinable_detail") or {}) if not determined else {}
+    nd_missing = [{"dimension": _DIM_LABEL.get(d.get("dimension") or "", d.get("dimension") or ""), "state": d.get("state"),
+                   "state_text": _JDG_ND_STATE_TEXT.get(d.get("state") or "", ""), "cause_text": _JDG_ND_CAUSE.get(d.get("cause") or "", "")}
+                  for d in nd_detail.get("missing_strength_dimensions") or []]
+    headline = (_JDG_LEVEL_HEADLINE.get(level or "") or _JDG_GENERIC_HEADLINE) if determined else (_JDG_ND_HEADLINE + (" " + nd_reason if nd_reason else ""))
+    if nd_missing:
+        if nd_detail.get("evidence_sufficient"):
+            headline = _JDG_ND_SUFFICIENT_HEADLINE.format(dims=", ".join(m["dimension"] for m in nd_missing))
+        else:
+            headline = _JDG_ND_HEADLINE + _JDG_ND_INSUFFICIENT_DETAIL.format(dims=", ".join(m["dimension"] for m in nd_missing if m["state"] == "INSUFFICIENT_EVIDENCE"))
     return {
         "determined": determined,
         "level": level,
         "level_label": _JDG_LEVEL_LABEL.get(level or "", level) if determined else "No determinable",
         "tone": status_tone(level) if determined else "neutra",
-        "headline": (_JDG_LEVEL_HEADLINE.get(level or "") or _JDG_GENERIC_HEADLINE) if determined
-                    else (_JDG_ND_HEADLINE + (" " + nd_reason if nd_reason else "")),
+        "headline": headline,
+        "nd_missing": nd_missing,
+        "nd_evidence_sufficient": nd_detail.get("evidence_sufficient") if nd_missing else None,
         "nd_reason": nd_reason,
         "nd_reason_id": None if determined else judgment.get("not_determinable_reason"),
         "strengths": strengths,

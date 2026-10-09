@@ -22,7 +22,7 @@ from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
 
 from . import contract as C
 from .cta import build_cta_candidates
-from .rules import evaluate_rules
+from .rules import evaluate_rules, published_contract_conformance
 
 _STRENGTH_BY_DIM = {
     C.SOURCE_INGESTION: ("SRC-STR-01",),
@@ -137,8 +137,56 @@ def _closure(status: str, level: str | None, reasons: list[dict], limitations: l
     return C.FINAL if terminal else C.PROVISIONAL
 
 
+# Estados de una dimensión SIN fortaleza en LVL-06: ``NO_STRENGTH`` = lo observable se evaluó y no hay evidencia afirmativa suficiente (ausencia de fortaleza, no una deficiencia);
+# ``INSUFFICIENT_EVIDENCE`` = falta evidencia para poder afirmar (clase de fuente sin determinar, linaje publicado incompleto, mapeo no observable).
+NO_STRENGTH, INSUFFICIENT_EVIDENCE = "NO_STRENGTH", "INSUFFICIENT_EVIDENCE"
+
+
+def _missing_strength_dimensions(ev: ProfileEvidence, strengths: list[dict], policy: str) -> list[dict]:
+    """Dimensiones sin fortaleza afirmativa, cada una con su ``state`` y su ``cause`` estable. Solo lee hechos canónicos ya usados por las reglas; no inventa evidencia."""
+    have = {s["rule_id"] for s in strengths}
+    out = []
+    for dim, ids in _STRENGTH_BY_DIM.items():
+        if any(i in have for i in ids):
+            continue
+        state, cause, unmet = NO_STRENGTH, "NO_AFFIRMATIVE_EVIDENCE", []
+        if dim == C.SOURCE_INGESTION:
+            classes = {ev.classify_source(l, policy) for l in ev.source_contact_leaves}
+            if not ev.source_contact_leaves:
+                cause = "NO_SOURCE_CONTACT_OBSERVED"
+            elif "EXTERNAL_CONTRACT_UNDETERMINED" in classes:
+                state, cause = INSUFFICIENT_EVIDENCE, "SOURCE_CONTRACT_CLASS_UNDETERMINED"
+            else:
+                cause = "SOURCE_CONTACT_NOT_ALL_GOVERNED"
+        elif dim == C.HARMONIZATION:
+            if not ev.harmonization:
+                cause = "NO_HARMONIZATION_BOUNDARY_OBSERVED"
+            elif any(c.get("mapping_determinable") is False for c in ev.harmonization.values()):
+                state, cause = INSUFFICIENT_EVIDENCE, "HARMONIZATION_MAPPING_NOT_OBSERVABLE"
+            else:
+                cause = "HARMONIZATION_NOT_A_LEGITIMATE_REUSABLE_BOUNDARY"
+        elif dim == C.PROPAGATION:
+            cause = "NO_PRODUCT_NODE_OBSERVED" if not ev.product_nodes else "PRODUCT_DOES_NOT_COMPOSE_RESOLVED_CONTRACTS"
+        elif dim == C.PUBLISHED_CONTRACT:
+            conds = published_contract_conformance(ev, policy)["conditions"]
+            unmet = sorted(k for k, v in conds.items() if not v)
+            if not conds["lineage_complete"]:
+                state, cause = INSUFFICIENT_EVIDENCE, "PUBLISHED_LINEAGE_INCOMPLETE"
+            elif not conds["no_vocabulary_leak"]:
+                cause = "UNRESOLVED_VOCABULARY_REACHES_THE_CONSUMER"
+            elif not conds["field_level_affirmative_family"]:
+                cause = "NO_AFFIRMATIVE_PUBLISHED_FAMILY"
+            else:
+                cause = "PUBLISHED_CONTRACT_SUBSTANCE_NOT_ESTABLISHED"
+        item = {"dimension": dim, "state": state, "cause": cause}
+        if unmet:
+            item["unmet_conditions"] = unmet
+        out.append(item)
+    return out
+
+
 def _what_would_change(status: str, level: str | None, reasons: list[dict], strengths: list[dict], not_evaluable: list[str],
-                       critical_undetermined: bool = False) -> list[dict]:
+                       critical_undetermined: bool = False, missing_dims: list[dict] | None = None) -> list[dict]:
     out: list[dict] = []
     if status == C.DETERMINED and level in (C.PARCIAL, C.ADECUADA):
         cls = C.MATERIAL_DEVIATION if level == C.PARCIAL else C.RELEVANT_WEAKNESS
@@ -155,8 +203,11 @@ def _what_would_change(status: str, level: str | None, reasons: list[dict], stre
                     "note_key": "classifying_the_source_as_raw_or_governed_removes_the_decision_critical_gap_technology_alone_does_not",
                     "resulting_status": None, "resulting_level": None})
     else:
-        out.append({"change_key": "ESTABLISH_EVIDENCE_FOR_UNEVALUABLE_CONTRACTS_OR_AFFIRMATIVE_STRENGTHS", "reason_ids": [], "contracts_not_evaluable": sorted(not_evaluable),
-                    "resulting_status": None, "resulting_level": None})
+        entry = {"change_key": "ESTABLISH_EVIDENCE_FOR_UNEVALUABLE_CONTRACTS_OR_AFFIRMATIVE_STRENGTHS", "reason_ids": [], "contracts_not_evaluable": sorted(not_evaluable),
+                 "resulting_status": None, "resulting_level": None}
+        if missing_dims:
+            entry["missing_strength_dimensions"] = [d["dimension"] for d in missing_dims]
+        out.append(entry)
     return out
 
 
@@ -204,6 +255,7 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     reasons.sort(key=lambda r: (_CLASS_RANK[r["classification"]], r["rule_id"], r["reason_id"]))
     reviews.sort(key=lambda r: (r["rule_id"], r["review_id"]))
     cta = build_cta_candidates(reasons, reviews, res["qualifiers"], limitations, res["supporting_evidence"])
+    missing_dims = _missing_strength_dimensions(ev, strengths, external_policy) if level_rule == "LVL-06" else None
     out = {
         "judgment_schema_version": C.JUDGMENT_SCHEMA_VERSION, "ruleset_version": C.RULESET_VERSION, "status": status, "level": level, "closure": closure,
         "plena_assignment": C.PLENA_ASSIGNMENT, "plena_state": C.PLENA_STATE, "level_rule": level_rule,
@@ -211,13 +263,16 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
         "reasons": reasons, "strengths": strengths, "qualifiers": res["qualifiers"], "review_candidates": reviews, "evidence_limitations": limitations,
         "supporting_evidence": res["supporting_evidence"], "dispositions_applied": applied, "level_without_exceptions": level_no_exc,
         "cta_candidates": cta,
-        "what_would_change_the_judgment": _what_would_change(status, level, reasons, strengths, not_eval, critical),
+        "what_would_change_the_judgment": _what_would_change(status, level, reasons, strengths, not_eval, critical, missing_dims),
         "what_would_improve_the_solution": [{"cta_id": c["cta_id"], "priority_class": c["priority_class"], "linked_reason_ids": c["linked_reason_ids"], "applicability_state": c["applicability_state"]}
                                             for c in cta if c["applicability_state"] != "DISABLED_PENDING_EVIDENCE"],
         "contracts_not_evaluable": sorted(not_eval),
     }
     if nd_reason:
         out["not_determinable_reason"] = nd_reason
+    if missing_dims is not None:                           # LVL-06: distingue ausencia de fortalezas (evidencia evaluada) de insuficiencia de evidencia; aditivo, no cambia el nivel
+        out["not_determinable_detail"] = {"level_rule": "LVL-06", "missing_strength_dimensions": missing_dims,
+                                          "evidence_sufficient": not any(d["state"] == INSUFFICIENT_EVIDENCE for d in missing_dims)}
     if external_policy != "UNDETERMINED":
         out["ruleset_options"] = {"external_policy": external_policy}
     out["output_signature"] = C.signature(out)
