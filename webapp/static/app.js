@@ -544,6 +544,7 @@ document.body.addEventListener("htmx:timeout", dwRenderRequestErrorFallback);
 // derecho). Guardamos el scroll del módulo para restaurarlo al volver.
 let dwModuleScroll = 0;
 window.dwCatalogBack = function () {
+  if (window.DwCatalogNav) window.DwCatalogNav.cancelDetail();   // si el detalle aún está cargando, su respuesta no puede reabrir el panel
   const content = document.getElementById("content");
   const slot = document.getElementById("catalog-detail-slot");
   if (content && slot && content.classList.contains("catalog-detail-open")) {
@@ -692,6 +693,113 @@ document.body.addEventListener("htmx:afterSwap", event => {
     }
   }
 });
+// ── Catálogo: estado de navegación (carga · error · cancelación) ────────────────────────────────────────────────────────────
+// Dos superficies, UN solo juego de listeners (este archivo se carga una vez), SIN timers ni progreso simulado:
+//  · LISTAS (Líneas de negocio / Clientes): la carga es NATIVA de htmx (`hx-indicator` marca `.catalog-region.htmx-request`, que el CSS usa para ocultar las
+//    tarjetas anteriores y mostrar el loader; `hx-sync="this:replace"` aborta la solicitud previa). Acá solo: aria-busy, error y reintento.
+//  · PANEL CENTRAL (`#catalog-detail-slot`): al pedir un tile (GET) se abre el panel con el loader YA, sin conservar el contenido anterior; el swap del
+//    detalle lo reemplaza (el loader termina cuando el contenido está en el DOM). Hay 20+ emisores hacia ese slot, por eso la cancelación de la solicitud previa
+//    se hace acá (una sola vez) y no con un `hx-sync` por emisor.
+// Dueña de la UI = la ÚLTIMA solicitud (`detail.xhr`): una respuesta/aborto/error de una solicitud anterior jamás toca la UI de la vigente.
+// Un error de red/HTTP se muestra como ERROR con reintento (nunca como "sin datos"); una cancelación por reemplazo es silenciosa.
+const DwCatalogNav = (() => {
+  const DETAIL_ID = "catalog-detail-slot";
+  const owners = new WeakMap();                      // contenedor (región de lista | slot) → { xhr, retry }
+  const slotEl = () => document.getElementById(DETAIL_ID);
+  const tpl = (id) => { const t = document.getElementById(id); return t && t.content ? t.content.cloneNode(true) : null; };
+  const regionOf = (elt) => { const sel = elt && elt.getAttribute && elt.getAttribute("data-dw-nav-region"); return sel ? document.querySelector(sel) : null; };
+  const listBox = (region) => region.querySelector(".catalog-flows");
+  const isDetailGet = (d) => !!(d.target && d.target.id === DETAIL_ID && String((d.requestConfig && d.requestConfig.verb) || "").toLowerCase() === "get");
+  const containerFor = (d) => (d.target && d.target.id === DETAIL_ID ? slotEl() : regionOf(d.elt));
+  const isOwner = (container, xhr) => { const o = container && owners.get(container); return !!o && o.xhr === xhr; };
+
+  function begin(container, xhr, retry) {
+    const prev = owners.get(container);
+    if (prev && prev.xhr !== xhr) { try { prev.xhr.abort(); } catch (_) { /* ya terminada */ } }
+    owners.set(container, { xhr, retry });
+  }
+  function openDetail() {                            // mismo criterio que el handler htmx:afterSwap existente (guarda el scroll del módulo la primera vez)
+    const content = document.getElementById("content");
+    if (!content) return;
+    if (!content.classList.contains("catalog-detail-open")) dwModuleScroll = content.scrollTop;
+    content.classList.add("catalog-detail-open");
+    content.scrollTop = 0;
+  }
+  function closeDetail() {
+    const s = slotEl(), content = document.getElementById("content");
+    if (!s) return;
+    owners.delete(s);
+    s.replaceChildren();
+    s.removeAttribute("aria-busy");
+    if (content && content.classList.contains("catalog-detail-open")) {
+      content.classList.remove("catalog-detail-open");
+      content.scrollTop = dwModuleScroll || 0;
+    }
+  }
+  function showError(container, templateId) {
+    const node = tpl(templateId);
+    if (!node) return;
+    container.replaceChildren(node);
+    container.removeAttribute("aria-busy");
+  }
+
+  function onBeforeRequest(e) {
+    const d = e.detail || {};
+    if (isDetailGet(d)) {
+      const s = slotEl(), loading = tpl("catalog-detail-loading-tpl");
+      if (!s || !loading) return;
+      const path = (d.pathInfo && d.pathInfo.finalRequestPath) || (d.requestConfig && d.requestConfig.path);
+      begin(s, d.xhr, () => htmx.ajax("GET", path, { target: "#" + DETAIL_ID, swap: "innerHTML" }));
+      openDetail();
+      s.replaceChildren(loading);
+      s.setAttribute("aria-busy", "true");
+      return;
+    }
+    const region = regionOf(d.elt);
+    if (!region) return;
+    begin(region, d.xhr, () => htmx.trigger(d.elt, "change"));   // reintento = re-disparar el cambio del propio selector (conserva su valor)
+    const box = listBox(region);
+    if (box) box.setAttribute("aria-busy", "true");
+  }
+  function onAfterRequest(e) {
+    const d = e.detail || {};
+    const container = containerFor(d);
+    if (!container || !isOwner(container, d.xhr)) return;        // la UI es de una solicitud posterior (reemplazo/cancelación): no se toca
+    const el = container.id === DETAIL_ID ? container : listBox(container);
+    if (el) el.removeAttribute("aria-busy");
+    // 2xx sin contenido (204…) con el loader aún puesto: htmx no swapeó nada → no dejar un loader permanente
+    if (d.successful === true && container.id === DETAIL_ID && container.querySelector("[data-dw-nav-loading]")) closeDetail();
+  }
+  function onFailure(e) {                                        // htmx:responseError | sendError | timeout | sendAbort sin sucesor
+    const d = e.detail || {};
+    const container = containerFor(d);
+    if (!container || !isOwner(container, d.xhr)) return;
+    if (container.id === DETAIL_ID) showError(container, "catalog-detail-error-tpl");
+    else { const box = listBox(container); if (box) showError(box, "catalog-list-error-tpl"); }
+  }
+  function onClick(e) {
+    const btn = e.target && e.target.closest ? e.target.closest("[data-dw-nav-retry]") : null;
+    if (!btn) return;
+    if (e.preventDefault) e.preventDefault();
+    const container = btn.closest("#" + DETAIL_ID) || btn.closest(".catalog-region");
+    const o = container && owners.get(container);
+    if (o && o.retry) o.retry();
+  }
+  function cancelDetail() {                                      // "← Volver" durante la carga: la respuesta en vuelo no puede reabrir el panel
+    const s = slotEl(), o = s && owners.get(s);
+    if (!o) return;
+    owners.delete(s);
+    s.removeAttribute("aria-busy");
+    try { o.xhr.abort(); } catch (_) { /* ya terminada */ }
+  }
+
+  document.body.addEventListener("htmx:beforeRequest", onBeforeRequest);
+  document.body.addEventListener("htmx:afterRequest", onAfterRequest);
+  ["htmx:responseError", "htmx:sendError", "htmx:timeout", "htmx:sendAbort"].forEach((n) => document.body.addEventListener(n, onFailure));
+  document.body.addEventListener("click", onClick);
+  return { onBeforeRequest, onAfterRequest, onFailure, onClick, cancelDetail, closeDetail };
+})();
+window.DwCatalogNav = DwCatalogNav;
 document.body.addEventListener("htmx:load", syncAssistantFeedbackState);
 
 // Reordenamiento drag-and-drop de grupos colapsables dentro de un dashboard.

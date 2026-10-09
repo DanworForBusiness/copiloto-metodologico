@@ -2872,3 +2872,22 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .lineage-focus__actions { margin-left: auto; display: inline-flex; gap: 12px; }
 .lineage-focus__actions a { color: var(--gold); font: 600 .7rem var(--mono); text-decoration: none; cursor: pointer; }
 .lineage-focus__actions a:hover { text-decoration: underline; }
+
+/* ═══ Catálogo: carga de navegación, panel central y estados (DwCatalogNav, app.js) ═══
+   Reusa el loader existente (`.section-analysis-loading` + `.section-analysis-spinner`) y `.tool-empty`; nada de componentes de carga nuevos. */
+.catalog-region > .catalog-loading { display: none; align-items: center; justify-content: center; gap: 8px; margin: 22px 0; }
+.catalog-region.htmx-request > .catalog-loading { display: flex; }                  /* `.htmx-request` lo pone htmx (hx-indicator) mientras hay una solicitud en vuelo */
+.catalog-region.htmx-request > .catalog-flows { display: none; }                    /* las tarjetas de la selección anterior NO se ven durante la carga */
+.catalog-region .section-analysis-spinner, .catalog-detail-loading .section-analysis-spinner { margin-right: 0; }
+.catalog-detail-loading { display: flex; flex-direction: column; min-height: calc(100vh - 240px); padding: 8px 0 72px; }   /* ← Volver arriba; el loader queda al centro del panel */
+#content:has(.catalog-detail-loading) { overflow-y: hidden; scrollbar-gutter: auto; }                /* durante la carga no hay scrollbar (el panel es de altura fija) */
+.catalog-detail-loading .catalog-loading { display: flex; align-items: center; justify-content: center; gap: 12px; margin: auto 0; font-size: .8rem; }
+.catalog-detail-loading .section-analysis-spinner { width: 14px; height: 14px; }
+.catalog-state { display: flex; align-items: flex-start; gap: 11px; margin-top: 14px; padding: 14px 16px; }
+.catalog-state__icon { flex: none; width: 18px; height: 18px; margin-top: 1px; color: var(--soft); }
+.catalog-state--error { border-color: color-mix(in srgb, var(--tone-parcial) 55%, transparent); background: color-mix(in srgb, var(--tone-parcial) 7%, transparent); }
+.catalog-state--error .catalog-state__icon, .catalog-state--error span { color: var(--tone-parcial); }       /* tono del sistema (--tone-*), no un color nuevo */
+.catalog-state__body { min-width: 0; }
+.catalog-state__body > span { display: block; margin-bottom: 3px; }
+.catalog-state__body p { margin: 0; line-height: 1.45; }
+.catalog-state__actions { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 9px; }

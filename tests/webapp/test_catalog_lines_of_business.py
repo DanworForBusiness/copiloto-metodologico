@@ -263,7 +263,7 @@ def test_route_unclassified_view_shows_discrete_reasons_and_medium_suggestion(cl
 
 
 def test_route_empty_line_and_prompt_and_unknown_and_auth(client, catalog):
-    assert "Aún no hay modelos en «Manufactura»." in client.get("/catalog/lob?lob=MANUFACTURING").text
+    assert "Todavía no hay modelos asociados a esta línea de negocio." in client.get("/catalog/lob?lob=MANUFACTURING").text
     assert "Elegí una línea de negocio." in client.get("/catalog/lob").text
     assert client.get("/catalog/lob?lob=NOPE").status_code == 404
     assert TestClient(main.app).get("/catalog/lob?lob=SALES").status_code == 401
@@ -323,7 +323,7 @@ def test_flows_template_is_identical_without_the_new_optional_context(client, ca
     assert tpl.render(**base) == tpl.render(**base, lob_info=None, empty_message=None, lob_unavailable=0)
     assert "catalog-card__lob" not in tpl.render(**base)
     empty = tpl.render(**{**base, "flows": []})
-    assert 'Sin flujos implementados para "Ventas".' in empty
+    assert 'Sin flujos implementados para "Ventas".' in __import__("html").unescape(empty)
 
 
 def _render_tab(**over):
@@ -398,8 +398,8 @@ def test_client_route_lists_all_the_models_of_the_selected_client(client, catalo
 
 def test_client_route_prompt_unknown_and_auth(client, catalog):
     assert "Elegí un cliente." in client.get("/catalog/client").text
-    assert "Sin modelos para «Nadie»." in client.get("/catalog/client?cliente=Nadie").text
-    assert "Sin modelos para «Delta»." in client.get("/catalog/client?cliente=Delta").text                         # su único flujo es de dominio reservado
+    assert "Todavía no hay modelos asociados al cliente «Nadie»." in client.get("/catalog/client?cliente=Nadie").text
+    assert "Todavía no hay modelos asociados al cliente «Delta»." in client.get("/catalog/client?cliente=Delta").text      # su único flujo es de dominio reservado
     assert TestClient(main.app).get("/catalog/client?cliente=Alfa").status_code == 401
 
 
