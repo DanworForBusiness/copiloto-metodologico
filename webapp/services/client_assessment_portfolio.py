@@ -30,6 +30,7 @@ from webapp.services import assessment_presenter as presenter
 from webapp.services import assessment_service as svc
 from webapp.services import catalog_reads
 from webapp.services import client_modeling_inventory as inventory
+from webapp.services import domain_classification_service as dcs
 
 log = logging.getLogger("danwor.client_assessment")
 
@@ -77,15 +78,13 @@ def _metrics(status: svc.AssessmentStatus) -> dict:
             "observation_occurrences": summary["observation_occurrences"], "review_occurrences": summary["review_occurrences"]}
 
 
-def _identity(title: str | None, am: str | None, domain: str) -> tuple[str, str | None]:
-    """Una sola descripción del artefacto para HTML / JSON / Markdown: ``Descripción · ID``. El dominio solo se agrega si es un concepto
-    distinto (no repite la descripción ni el id)."""
-    label = f"{title} · {am}" if title and am else (am or title or domain)
-    scope = domain if domain and domain not in (title, am, label) else None
-    return label, scope
+def _identity(title: str | None, am: str | None, domain: str) -> str:
+    """Una sola descripción del artefacto para HTML / JSON / Markdown: ``Descripción · ID``. La agrupación legacy (``entry.dominio``) ya NO se muestra como
+    clasificación: bajo el nombre va la Línea de negocio EFECTIVA (``line_of_business``); el dominio solo es el último recurso de nombre si no hay título ni id."""
+    return f"{title} · {am}" if title and am else (am or title or domain)
 
 
-def _row(entry: Any, status: svc.AssessmentStatus, pack: str) -> dict:
+def _row(entry: Any, status: svc.AssessmentStatus, pack: str, lob: dict | None = None) -> dict:
     m = _metrics(status)
     am = status.terminal_am
     try:
@@ -94,10 +93,12 @@ def _row(entry: Any, status: svc.AssessmentStatus, pack: str) -> dict:
         desc = None
     cov, conf, review_n = m["coverage_strict"], m["confidence"], m["review_occurrences"]
     title = desc if desc and desc != am else None
-    label, scope = _identity(title, am, str(entry.dominio))
+    label = _identity(title, am, str(entry.dominio))
     return {
         "entry_id": entry.entry_id, "domain": str(entry.dominio), "asset_id": am, "asset_title": title,
-        "artifact_label": label, "artifact_scope": scope,
+        "artifact_label": label,
+        # Línea de negocio EFECTIVA persistida (manual > automática HIGH > Sin clasificar): contexto de negocio, no adopción/cobertura/confianza/Juicio.
+        "line_of_business": lob or presenter.lob_display(None),
         # UN activo, UN grado primario: Adopción metodológica PERSISTIDA (misma fuente que la tile). Sin Juicio → estado neutro; el veredicto legacy del catálogo ya no se muestra.
         "adoption": {k: presenter.tile_grade(status)[k] for k in ("label", "tone", "has_judgment")},
         "state": status.state, "state_label": presenter.STATE_LABELS[status.state],
@@ -174,15 +175,21 @@ def build_snapshot(entry: Any, pack: str, *, now: datetime | None = None) -> dic
     statuses = _statuses(entries)
     rows = []
     for e in entries:
-        st = statuses.get(e.entry_id) or _failed(e)
-        statuses[e.entry_id] = st
+        statuses[e.entry_id] = statuses.get(e.entry_id) or _failed(e)
+    try:                                                                # UNA lectura por lote del resolver efectivo del Catálogo (sin derivar ni escribir)
+        lobs = {k: presenter.lob_display(v) for k, v in dcs.effective_lob_by_entry(entries, statuses).items()}
+    except Exception:                                                   # noqa: BLE001 — un fallo del lote se informa como «no disponible», no rompe el consolidado
+        log.exception("client_assessment: no se pudo resolver la línea de negocio efectiva")
+        lobs = {}
+    for e in entries:
+        st = statuses[e.entry_id]
         try:
-            rows.append(_row(e, st, pack))
+            rows.append(_row(e, st, pack, lobs.get(e.entry_id)))
         except Exception:                                               # noqa: BLE001 — una fila rota no rompe el consolidado
             log.exception("client_assessment: no se pudo armar la fila de %s", e.entry_id)
             bad = _failed(e)
             statuses[e.entry_id] = bad
-            rows.append(_row(e, bad, pack))
+            rows.append(_row(e, bad, pack, lobs.get(e.entry_id)))
     states = {s: sum(1 for r in rows if r["state"] == s) for s in svc.STATES}
     current = [r for r in rows if r["state"] == svc.CURRENT]
     covs = [r["coverage_strict"] for r in current if r["coverage_strict"] is not None]
@@ -356,7 +363,7 @@ def to_markdown(snap: dict) -> str:
     lines += ["", "## Artefactos", "", "| Artefacto | Estado | Cobertura | Confianza | Observaciones | Revisión requerida | Adopción metodológica |", "|---|---|---|---|---|---|---|"]
     for r in snap["assets"]:
         lines.append("| " + " | ".join(_cell(x) for x in (
-            r["artifact_label"] + (f" ({r['artifact_scope']})" if r["artifact_scope"] else ""), r["state_label"], r["coverage_text"] if r["coverage_strict"] is not None else None,
+            r["artifact_label"] + f" ({r['line_of_business']['label']})", r["state_label"], r["coverage_text"] if r["coverage_strict"] is not None else None,
             r["confidence_text"] if r["confidence"] else None, r["observation_occurrences"], r["review_occurrences"], r["adoption"]["label"] if r["adoption"]["has_judgment"] else None)) + " |")
     lines += ["", "## Hallazgos recurrentes", ""]
     if snap["recurring_findings"]:

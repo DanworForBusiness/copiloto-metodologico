@@ -160,11 +160,37 @@ def header_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
     return view
 
 
+# Línea de negocio EFECTIVA tal como se muestra en el Informe de Cliente y en la cabecera del detalle: contexto de negocio (NO adopción, cobertura, confianza ni Juicio).
+# Fuente única: `dcs.effective_lob_by_entry` (manual > automática HIGH > sin clasificar, de la v2 PERSISTIDA); acá solo se traduce a texto. Una sugerencia MEDIUM jamás se
+# muestra como asignación: queda «Sin clasificar». Un error real de lectura NO se disfraza de «Sin clasificar».
+LOB_UNCLASSIFIED_LABEL, LOB_UNAVAILABLE_LABEL = "Sin clasificar", "Clasificación no disponible"
+
+
+def lob_display(effective: dict | None) -> dict:
+    """{label, source} de una entrada de ``dcs.effective_lob_by_entry``. ``source``: MANUAL | AUTOMATIC | UNCLASSIFIED | UNAVAILABLE."""
+    if not effective or not effective.get("available", True) or effective.get("source") == dcs.UNAVAILABLE:
+        return {"label": LOB_UNAVAILABLE_LABEL, "source": dcs.UNAVAILABLE}
+    return {"label": effective.get("label") or LOB_UNCLASSIFIED_LABEL, "source": effective.get("source") or dcs.UNCLASSIFIED}
+
+
+def lob_for(entry: Any, status: Any) -> dict:
+    """Línea de negocio efectiva de UN activo con el estado ya leído (sin segunda lectura). Fail-soft: un error se informa como «no disponible»."""
+    try:
+        return lob_display(dcs.effective_lob_by_entry([entry], {entry.entry_id: status})[entry.entry_id])
+    except Exception:                                   # noqa: BLE001
+        svc.log.exception("línea de negocio: no se pudo resolver la clasificación efectiva de %s", getattr(entry, "entry_id", "?"))
+        return lob_display(None)
+
+
 def header_for(entry: Any, pack: str) -> dict | None:
     """Vista de la cabecera del flujo. Fail-soft: si el assessment falla, el detalle del Catálogo se abre igual
-    (sin la línea de assessment); jamás rompe el detalle legacy. Nunca genera ni escribe la caché."""
+    (sin la línea de assessment); jamás rompe el detalle legacy. Nunca genera ni escribe la caché.
+    Incluye ``line_of_business`` ({label, source}) con el MISMO estado leído, para la cabecera «Catálogo Danwor · {Línea} · {Cliente}»."""
     try:
-        return header_view(svc.status_for_entry(entry), entry, pack)
+        status = svc.status_for_entry(entry)
+        view = header_view(status, entry, pack)
+        view["line_of_business"] = lob_for(entry, status)
+        return view
     except Exception:                                   # noqa: BLE001 — el detalle del Catálogo no debe depender del assessment
         svc.log.exception("assessment: no se pudo calcular el estado de la cabecera")
         return None

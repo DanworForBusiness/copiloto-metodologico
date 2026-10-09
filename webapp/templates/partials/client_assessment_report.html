@@ -57,7 +57,7 @@
       <tbody>
         {% for r in snap.assets %}
         <tr data-entry="{{ r.entry_id }}" data-state="{{ r.state }}">
-          <td><a class="reference-text-link" href="#" role="button" hx-get="{{ r.detail_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{% if r.asset_title and r.asset_id %}{{ r.asset_title }}</a><span class="catalog-note__ev"> · {{ r.asset_id }}</span>{% else %}{{ r.artifact_label }}</a>{% endif %}{% if r.artifact_scope %}<br><span class="catalog-note__ev">{{ r.artifact_scope }}</span>{% endif %}</td>
+          <td><a class="reference-text-link" href="#" role="button" hx-get="{{ r.detail_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{% if r.asset_title and r.asset_id %}{{ r.asset_title }}</a><span class="catalog-note__ev"> · {{ r.asset_id }}</span>{% else %}{{ r.artifact_label }}</a>{% endif %}<br><span class="catalog-note__ev" data-lob-source="{{ r.line_of_business.source }}">{{ r.line_of_business.label }}</span></td>
           <td>{{ badge(r.state) }}{% if r.reason %}<br>{{ r.reason }}{% endif %}</td>
           <td>{{ v.coverage_whole[r.entry_id] }}</td>
           <td>{{ r.confidence_text }}</td>
