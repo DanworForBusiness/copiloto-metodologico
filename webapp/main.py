@@ -201,6 +201,10 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             log.warning("restore en background falló: %s", exc)
 
+    log.info("persistencia: %s", remote_store.describe_mode())
+    warning = remote_store.mode_warning()
+    if warning:
+        log.warning(warning)
     tasks = []
     if remote_store.enabled():
         tasks.append(asyncio.create_task(_restore_bg()))
@@ -215,11 +219,13 @@ async def lifespan(app: FastAPI):
                 await task
             except asyncio.CancelledError:
                 pass
-        # Flush final best-effort (cubre deploys/recycles graceful).
-        try:
-            await asyncio.to_thread(remote_store.mirror_up)
-        except Exception:
-            pass
+        # Flush final best-effort (cubre deploys/recycles graceful). Solo con persistencia remota completa; `mirror_up` además se niega a correr si el restore
+        # no terminó o quedó incompleto.
+        if remote_store.enabled():
+            try:
+                await asyncio.to_thread(remote_store.mirror_up)
+            except Exception:
+                pass
 
         # Cierre del pool de conexiones a Odoo. Vive en el PROCESO, asi que
         # el unico lugar legitimo para cerrarlo es el shutdown de la app —
