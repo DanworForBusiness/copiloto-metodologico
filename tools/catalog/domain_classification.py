@@ -217,3 +217,14 @@ def classify_domain(*, current_domain: str | None, root: dict, closure: Iterable
                       suggestion_type=NEW_DOMAIN_CANDIDATE, confidence=conf, reason=R_GENERIC_STRONG,
                       evidence=_evidence(chosen, ("ROOT", "CLOSURE")))
     return result
+
+
+# ── superficie pública mínima reutilizada por la clasificación de negocio v2 (misma tokenización; comportamiento v1 intacto) ──
+def tokenize(text: str) -> list[tuple[str, str]]:
+    """[(token_normalizado, grafía_observada)] — la tokenización de v1 (sin vacías/técnicas/numéricas), reutilizada por v2."""
+    return _tokens(text)
+
+
+def normalize_word(word: str) -> str:
+    """Normaliza UNA palabra del léxico como lo hace ``tokenize`` (minúsculas, sin tildes, singular simple)."""
+    return _stem(_fold(word).lower())

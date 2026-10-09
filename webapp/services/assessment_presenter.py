@@ -250,6 +250,46 @@ def domain_classification_view(dc: dict | None) -> dict | None:
             "note": "Es una sugerencia: no mueve el modelo ni modifica el catálogo."}
 
 
+# ── Clasificación de NEGOCIO v2 (línea de negocio + dominio): evoluciona la presentación de la clasificación de dominio; sin grado ni color propios ──
+_BC_HEADLINE = {"CLASSIFIED": "La evidencia canónica respalda esta línea de negocio con varias familias de evidencia independientes.",
+                "SUGGESTED": "La evidencia disponible sugiere esta línea de negocio, pero sin corroboración independiente suficiente: queda como sugerencia.",
+                "CROSS_LINE_CONFLICT": "La evidencia respalda más de una línea de negocio por igual; no se recomienda ninguna.",
+                "INSUFFICIENT_BUSINESS_EVIDENCE": "No hay evidencia suficiente para determinar la línea de negocio."}
+_BC_FAMILY = {"ROOT": "Objeto raíz", "LINEAGE": "Linaje del cierre", "SOURCE": "Fuentes del origen"}
+_BC_SOURCE_STATE = {"MANUAL": "Manual", "CLASSIFIED": "Clasificación automática", "SUGGESTED": "Sugerida", "UNDETERMINED": "Sin determinar"}
+
+
+def business_classification_view(bc: dict | None, dc_view: dict | None, manual_lob: str | None = None) -> dict | None:
+    """View-model de la Clasificación de negocio (v2) sobre la MISMA estructura que la de dominio (mismo bloque de Assessment [04]). SOLO presentación: no
+    decide ni recalcula; es una SUGERENCIA salvo asignación manual. Sin v2 (sobre histórico) devuelve la vista de dominio v1 tal cual (nunca la presenta como v2)."""
+    if not bc:
+        return dc_view
+    from tools.catalog import business_classification as BC
+    eff = BC.effective_classification(bc, manual_lob)
+    lob = (bc.get("line_of_business") or {}).get("label")
+    dom = bc.get("domain") or {}
+    conf = _DC_CONFIDENCE.get(bc.get("confidence") or "", "—")
+    state_key = "MANUAL" if eff["source"] == "MANUAL" else bc.get("status")
+    rows = [("Línea de negocio", BC.lob_label(manual_lob) if eff["source"] == "MANUAL" else (lob or "Sin determinar"))]
+    if dom.get("label"):
+        rows.append(("Dominio", f"{dom['label']} ({'actual' if dom.get('origin') == 'CURRENT' else 'sugerido'})"))
+    cur = (bc.get("domain_classification") or {}).get("current_domain")
+    if cur and cur != dom.get("label"):
+        rows.append(("Dominio actual", cur))
+    rows += [("Confianza", conf), ("Estado", _BC_SOURCE_STATE.get(state_key, "Sin determinar")),
+             ("Agrupación efectiva", eff["label"] or "Sin clasificar")]
+    if eff.get("automatic_alignment") == "DISAGREES":
+        rows.append(("Clasificación automática", f"{lob or '—'} (difiere de la asignación manual)"))
+    elif bc.get("alignment") == "DISAGREES":
+        rows.append(("Dominio actual del cliente", "su vocabulario sugiere otra línea de negocio"))
+    summary = (f"{rows[0][1]} · confianza {conf.lower()}" if lob or eff["source"] == "MANUAL" else "Sin determinar")
+    headline = _BC_HEADLINE["CLASSIFIED" if bc.get("status") == "CLASSIFIED" else "SUGGESTED"] if lob else _BC_HEADLINE.get(bc.get("reason_code"), _BC_HEADLINE["INSUFFICIENT_BUSINESS_EVIDENCE"])
+    return {"status": bc.get("status"), "headline": headline, "summary": summary, "rows": [{"label": a, "value": b} for a, b in rows if b],
+            "evidence": [{"term": e["signal"], "family": _BC_FAMILY.get(e["family"], e["family"]), "artifacts": e["artifacts"]} for e in bc.get("evidence") or []],
+            "alternatives": [c["label"] for c in bc.get("competing") or [] if c.get("label")], "suggested": bc.get("status") in ("SUGGESTED", "CLASSIFIED") and eff["source"] != "MANUAL",
+            "note": "Es una clasificación derivada de la evidencia local: no mueve el modelo ni modifica el catálogo.", "contract_version": bc.get("contract_version")}
+
+
 # BEGIN judgment-presentation (Gate 8D.2) — taxonomía AUTORIZADA del Juicio metodológico (BUENA/ADECUADA/PARCIAL/No determinable).
 # ═══════════════════════════ Juicio metodológico (presentación del resultado DETERMINISTA persistido) ═══════════════════════════
 # Mapeo SOLO de presentación: traduce el resultado ya decidido por el motor canónico a copy en español. NO decide nivel,
@@ -776,7 +816,8 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     view["evaluation"] = ev
     # Clasificación de dominio (hermana del Juicio): persistida si su firma de entradas coincide con el Catálogo actual; si no, derivada en solo lectura.
     dcl, _persisted = (dcs.resolve(status.domain_classification, link_entry, status.terminal_am) if link_entry is not None else (None, False))
-    view["domain_classification"] = domain_classification_view(dcl)
+    bcl, _bpersisted = (dcs.resolve_business(status.business_classification, link_entry, status.terminal_am) if link_entry is not None else (None, False))
+    view["domain_classification"] = business_classification_view(bcl, domain_classification_view(dcl), dcs.manual_lob(link_entry) if link_entry is not None else None)
     view["story"] = {
         "architecture": arch,
         "governance_areas": by_id.get("NAMING"),

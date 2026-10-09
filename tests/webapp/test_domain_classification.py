@@ -182,7 +182,7 @@ def test_suggestion_is_visible_non_destructive_and_uses_hub_primitives(world):
     sec = html[html.index('id="asr-dominio"'):]
     sec = sec[:sec.index("</details>")]
     assert 'id="asr-dominio" open' in html                                                                            # con sugerencia, abierta
-    for text in ("Clasificación de dominio", "Dominio actual", "General", "Sugerencia", "Pedidos / Entregas", "Confianza", "Alta", "Evidencia", "4MA_PEDIDOS_ENTREGAS",
+    for text in ("Clasificación de negocio", "Dominio actual", "General", "Sugerencia", "Pedidos / Entregas", "Confianza", "Alta", "Evidencia", "4MA_PEDIDOS_ENTREGAS",
                  "La evidencia disponible sugiere una clasificación más específica.", "no mueve el modelo ni modifica el catálogo"):
         assert text in sec, text
     assert not re.search(r"incorrect|errónea|erronea|equivocad", sec, re.I)
