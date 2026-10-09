@@ -203,11 +203,12 @@ def tile_grade(status: svc.AssessmentStatus) -> dict:
     return {"tone": NEUTRAL, "label": _TILE_NO_JUDGMENT.get(status.state, _TILE_JUDGMENT_UNAVAILABLE), "freshness": freshness, "has_judgment": False, **extra}
 
 
-def tile_grades(entries: Any) -> dict[str, dict]:
-    """entry_id → grado de tile, en UNA lectura por lote. Fail-soft: si el estado no se puede leer, neutro «Assessment no disponible» (jamás el veredicto del catálogo)."""
+def tile_grades(entries: Any, statuses: dict | None = None) -> dict[str, dict]:
+    """entry_id → grado de tile, en UNA lectura por lote (o reutilizando ``statuses`` ya leídos por el llamador, sin una segunda lectura). Fail-soft: si el
+    estado no se puede leer, neutro «Assessment no disponible» (jamás el veredicto del catálogo)."""
     entries = list(entries)
     try:
-        statuses = svc.statuses_for_entries(entries)
+        statuses = statuses if statuses is not None else svc.statuses_for_entries(entries)
         return {e.entry_id: tile_grade(statuses[e.entry_id]) for e in entries}
     except Exception:                                   # noqa: BLE001 — la lista del Catálogo no debe depender del assessment
         svc.log.exception("assessment: no se pudo calcular el grado de las tiles")

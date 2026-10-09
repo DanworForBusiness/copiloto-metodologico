@@ -732,8 +732,10 @@ def _status_from(entry: Any, res: Resolution, versions: dict) -> AssessmentStatu
         return AssessmentStatus(FAILED, eid, client, am, reason=_failed_message(code), error_code=code,
                                 generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl, previous_profile_retained=prof is not None)
     if env.get("assessment_schema_version") != ma_profile.ASSESSMENT_SCHEMA_VERSION or not _valid_profile(env):
+        # La clasificación de negocio v2 es un eje INDEPENDIENTE del esquema del perfil/Juicio: una incompatibilidad del perfil no la invalida
+        # (el consumidor igual valida su propio contrato). El perfil y el Juicio SÍ siguen sin exponerse.
         return AssessmentStatus(INCOMPATIBLE_SCHEMA, eid, client, am, reason=INCOMPATIBLE_MESSAGE, error_code="INCOMPATIBLE_SCHEMA",
-                                generated_at=env.get("generated_at"))
+                                generated_at=env.get("generated_at"), business_classification=bcl)
     cur = classify_currentness(env.get("input_pool_signature"), env.get("assessment_versions"), res.pool_signature, versions)
     if cur.state == CURRENT:
         return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl)

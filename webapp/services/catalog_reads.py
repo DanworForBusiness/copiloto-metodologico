@@ -78,6 +78,20 @@ def _catalog_domains() -> list:
     return mod.domains(entries) if mod else []
 
 
+def _catalog_clients() -> list:
+    """Opciones del selector "Clientes" del Catálogo (ver ``catalog_navigation.clients``)."""
+    from webapp.services import catalog_navigation
+    mod, entries = _catalog_entries()
+    return catalog_navigation.clients(mod, entries) if mod else []
+
+
+def _catalog_model_domains() -> list:
+    """Opciones del selector "Modelos" del Catálogo: solo modelos genuinos/desagrupados (ver ``catalog_navigation.model_domains``)."""
+    from webapp.services import catalog_navigation
+    mod, entries = _catalog_entries()
+    return catalog_navigation.model_domains(mod, entries) if mod else []
+
+
 @lru_cache(maxsize=1)
 def _catalog_architecture_connections():
     try:
