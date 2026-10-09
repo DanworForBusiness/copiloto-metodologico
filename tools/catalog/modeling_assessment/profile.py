@@ -491,14 +491,14 @@ def _rule_results(comp: AssessmentComposition) -> list[dict]:
 
 _COMPONENT_LIMITATION = {
     "non_heuristic_identity": "parte de las identidades de artefacto se basa en una regla heurística de nombres y no en metadatos observados",
-    "resolved_provenance": "la procedencia de parte de los artefactos evaluados no está resuelta",
+    "resolved_provenance": "el origen de los datos de parte de los artefactos evaluados no está demostrado (identidad desconocida sin un productor que lo establezca)",
     "complete_rule_inputs": "parte de las conclusiones de las reglas se alcanzó con insumos evaluados de forma incompleta",
     "unambiguous_closure_references": "parte de las referencias del cierre se resolvió por una coincidencia de identidad ambigua",
 }
 
 _COMPONENT_TEXT = {
     "non_heuristic_identity": "Identidades de artefacto que no dependen de una regla heurística",
-    "resolved_provenance": "Artefactos con procedencia resuelta",
+    "resolved_provenance": "Artefactos con origen de datos identificado (la identidad del nombre no cuenta si un productor demuestra el origen)",
     "complete_rule_inputs": "Conclusiones de reglas alcanzadas con insumos completamente evaluados",
     "unambiguous_closure_references": "Referencias del cierre cuya identidad no es ambigua",
 }

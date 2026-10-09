@@ -83,12 +83,12 @@ def test_the_six_public_states_are_unchanged_and_stale_reasons_are_not_states():
 
 
 def test_the_registry_is_small_explicit_and_uses_the_real_constants_as_target():
-    assert set(svc.EVIDENCE_MIGRATIONS) == {OLD_MIG, MIG, LIN_MIG}                        # ambas explicitas: un perfil historico no queda varado porque un cliente ya migro
+    assert set(svc.EVIDENCE_MIGRATIONS) == {OLD_MIG, MIG, LIN_MIG, "evidence_confidence_v3"}                        # ambas explicitas: un perfil historico no queda varado porque un cliente ya migro
     assert TARGET.target_keys == ("assessability", "confidence", "canonical_evidence", "closure") and TARGET.closure_policy == svc.TARGETED_CLOSURE_EXPANSION
     assert OLD_VALUES == {"assessability": "assessability-rules/v2", "confidence": "confidence-cuts/v1", "canonical_evidence": "canonical-evidence/v1"}
     assert TARGET.eligible_old["closure"] == frozenset({None})
     v = _cur_versions()
-    assert (v["assessability"], v["confidence"], v["canonical_evidence"], v["closure"]) == ("assessability-rules/v4", "confidence-cuts/v2", "canonical-evidence/v3", "closure-rules/v1")
+    assert (v["assessability"], v["confidence"], v["canonical_evidence"], v["closure"]) == ("assessability-rules/v4", "confidence-cuts/v3", "canonical-evidence/v3", "closure-rules/v1")
     assert v["signals"] == "signal-rules/v3" and v["finding_evidence"] == "finding-evidence/v2" and v["facts_profile"] == "modeling_assessment.profile/v1"     # lo no relacionado NO se subio
 
 
