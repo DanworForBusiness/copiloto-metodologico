@@ -54,3 +54,32 @@ def _isolate_remote_store_persistence(tmp_path_factory, monkeypatch):
     import config
     monkeypatch.setattr(config, "PERSIST_ENABLED", False, raising=False)
     monkeypatch.setattr(config, "BASE_DIR", tmp_path_factory.mktemp("runtime-base-dir"), raising=False)
+    monkeypatch.setattr(config, "PERSIST_READ_ONLY", False, raising=False)
+    # Estado de sincronización del remote_store (módulo con estado de proceso): un test que lo deja "degradado" o con archivos sin reconciliar NO puede bloquear
+    # el `mirror_up` de otro.
+    from core import remote_store
+    monkeypatch.setattr(remote_store, "_restore_degraded", False, raising=False)
+    monkeypatch.setattr(remote_store, "_unreconciled", set(), raising=False)
+
+
+def _case_listing(path) -> set[str]:
+    import os
+    try:
+        return set(os.listdir(path))
+    except OSError:
+        return set()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_case_library(tmp_path_factory, monkeypatch):
+    """Ningún test puede escribir en la `case_library` REAL. Los tests que recorren un árbol del Wizard hasta una hoja crean un caso (`create_for_run`) en
+    `config.CASE_LIBRARY_DIR`; ese valor se capturaba al importar (el singleton de `copilot_runtime` y `BASE_DIR` redirigido no lo cubrían), así que cada
+    corrida completa dejaba ~10 casos `case_*.yaml` en el directorio real (que luego un `mirror_up` con credenciales intentaba subir al bucket). Se redirige a un tmp
+    y, al terminar el test, se verifica que el directorio real no recibió archivos nuevos."""
+    import config
+    real = config.CASE_LIBRARY_DIR
+    before = _case_listing(real)
+    monkeypatch.setattr(config, "CASE_LIBRARY_DIR", tmp_path_factory.mktemp("runtime-case-library"))
+    yield
+    leaked = sorted(_case_listing(real) - before)
+    assert not leaked, f"el test escribió en la case_library REAL ({real}): {leaked[:5]} (¿otro proceso escribiendo a la vez?)"

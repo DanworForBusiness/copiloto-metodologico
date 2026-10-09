@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from config import CASE_LIBRARY_DIR
+import config
 
 if TYPE_CHECKING:
     from webapp.services.wizard_service import WizardRun
@@ -30,9 +30,19 @@ def _default_outcome(leaf: dict) -> str:
 class CaseLibraryRepository:
     """Persistencia YAML compatible con la case_library heredada."""
 
-    def __init__(self, root: Path = CASE_LIBRARY_DIR) -> None:
-        self.root = Path(root)
+    def __init__(self, root: Path | None = None) -> None:
+        # `root=None` → se resuelve `config.CASE_LIBRARY_DIR` AL USAR (no al importar): el singleton de `copilot_runtime` ya no captura la ruta real antes de que
+        # un entorno (p. ej. los tests) la redirija. Un `root` explícito se respeta tal cual.
+        self._root = Path(root) if root is not None else None
         self._lock = RLock()
+
+    @property
+    def root(self) -> Path:
+        return self._root if self._root is not None else Path(config.CASE_LIBRARY_DIR)
+
+    @root.setter
+    def root(self, value) -> None:
+        self._root = Path(value)
 
     def _path(self, case_id: str) -> Path:
         return self.root / f"{case_id}.yaml"

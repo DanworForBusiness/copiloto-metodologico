@@ -123,7 +123,31 @@ PERSIST_PATHS     = [p.strip() for p in _env(
     "catalog_local,case_library,feedback_log,activity_log,reports,reporting_cache,human-capital,"
     "commercial_strategy_runtime,commercial-licensing-priority,governed-assessments"
 ).split(",") if p.strip()]
-PERSIST_ENABLED   = bool(SPACES_ENDPOINT and SPACES_BUCKET and SPACES_KEY and SPACES_SECRET)
+# ── Modo de persistencia (DANWOR_PERSISTENCE) ────────────────────────────────────────────────────────────────────────────
+# Las credenciales SPACES_* dicen qué está DISPONIBLE, no qué está AUTORIZADO: tenerlas en un `.env` local NO debe habilitar restore/sync/escrituras contra el
+# bucket productivo. El modo es explícito y NUNCA se infiere de credenciales, hostname ni puerto:
+#   local     (default)  sin acceso remoto automático (no-op total, sin cliente S3), aunque haya credenciales.
+#   read-only            solo LECTURA remota explícita (restore manual, read_object_bytes); jamás escribe/borra en el bucket.
+#   remote               producción: restore en el arranque + sincronización periódica + write-through.
+# Un valor inválido FALLA al importar la config (jamás activa persistencia remota por accidente).
+# GATE OBLIGATORIO DE DESPLIEGUE: DigitalOcean App Platform debe tener `DANWOR_PERSISTENCE=remote` definido ANTES de desplegar una versión con este contrato;
+# sin esa variable producción arrancaría en `local` y dejaría de persistir (el arranque lo advierte en el log si hay credenciales).
+PERSISTENCE_MODES = ("local", "read-only", "remote")
+
+
+def parse_persistence_mode(raw: str | None) -> str:
+    value = (raw or "").strip().lower()
+    if not value:
+        return "local"
+    if value not in PERSISTENCE_MODES:
+        raise ValueError(f"DANWOR_PERSISTENCE inválido: {raw!r}. Valores permitidos: {', '.join(PERSISTENCE_MODES)}.")
+    return value
+
+
+PERSISTENCE_MODE  = parse_persistence_mode(_env("DANWOR_PERSISTENCE", "local"))
+SPACES_CONFIGURED = bool(SPACES_ENDPOINT and SPACES_BUCKET and SPACES_KEY and SPACES_SECRET)   # credenciales DISPONIBLES (≠ autorización)
+PERSIST_ENABLED   = SPACES_CONFIGURED and PERSISTENCE_MODE == "remote"                         # persistencia remota COMPLETA autorizada (compat de consumidores)
+PERSIST_READ_ONLY = SPACES_CONFIGURED and PERSISTENCE_MODE == "read-only"                      # solo lectura remota explícita
 
 # LLM
 MODEL        = _env("OPENAI_MODEL", "gpt-4o-mini")
