@@ -111,6 +111,16 @@
        #content toma la clase .catalog-detail-open, que oculta el módulo sin
        destruirlo (scroll-spy/observers/feedback intactos). Ver app.js. #}
     <div id="catalog-detail-slot"></div>
+    {# Plantillas de ESTADO del Catálogo que `DwCatalogNav` (app.js) clona: carga del panel central apenas se elige un tile (sin dejar el contenido anterior), y los
+       errores de red/HTTP (distintos de "sin datos"). Mismo componente `catalog_state.html` y mismo loader (`.section-analysis-spinner`) que el resto. #}
+    <template id="catalog-detail-loading-tpl">
+      <div class="catalog-detail-loading" data-dw-nav-loading role="status" aria-live="polite">
+        <a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>
+        <div class="catalog-loading section-analysis-loading"><span class="section-analysis-spinner" aria-hidden="true"></span><span class="section-analysis-loading-copy">Cargando detalle…</span></div>
+      </div>
+    </template>
+    <template id="catalog-detail-error-tpl">{% with state_kind="error", state_title="No se pudo cargar el detalle", state_text="Ocurrió un problema al recuperar la información. Reintentá o volvé al listado.", state_retry=true, state_back=true %}{% include "partials/catalog_state.html" %}{% endwith %}</template>
+    <template id="catalog-list-error-tpl">{% with state_kind="error", state_title="No se pudo cargar", state_text="Ocurrió un problema al recuperar los modelos. No significa que no existan: reintentá.", state_retry=true %}{% include "partials/catalog_state.html" %}{% endwith %}</template>
   </main>
   {% endif %}
 

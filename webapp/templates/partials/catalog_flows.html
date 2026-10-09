@@ -1,7 +1,10 @@
 {# Resultado del dropdown de Catalogo: fichas de flujo ordenadas por mirada Danwor. #}
 {% if lob_unavailable %}<p class="catalog-card__lob catalog-card__lob--warn" role="status">Clasificación no disponible para {{ lob_unavailable }} modelo{{ "s" if lob_unavailable != 1 }} (error de lectura). <a href="#" hx-get="/catalog/lob?lob=UNAVAILABLE&pack={{ pack|default('datasphere_core') }}" hx-target="#catalog-lob-flows" hx-swap="innerHTML" @click.prevent>Ver cuáles</a></p>
 {% endif %}{% if not flows %}
-<p class="empty-panel">{% if empty_message %}{{ empty_message }}{% elif dominio %}Sin flujos implementados para "{{ dominio }}".{% else %}Elegí un dominio.{% endif %}</p>
+{# Estado sin tarjetas con el componente del Hub (`catalog_state.html`): error de recuperación ≠ sin datos ≠ pedido de selección. Sin `empty_kind` conserva el copy histórico. #}
+{% if empty_kind == "error" %}{% with state_kind="error", state_title=(empty_title or "No se pudo cargar"), state_text=empty_message, state_retry=true %}{% include "partials/catalog_state.html" %}{% endwith %}
+{% elif empty_kind == "prompt" or (not empty_kind and not empty_message and not dominio) %}{% with state_kind="prompt", state_title=(empty_title or "Elegí un dominio."), state_text=(empty_message if empty_kind else none) %}{% include "partials/catalog_state.html" %}{% endwith %}
+{% else %}{% with state_kind="empty", state_title=(empty_title or ("Sin resultados" if (dominio and not empty_message) else "Sin modelos disponibles")), state_text=(empty_message or 'Sin flujos implementados para "' ~ dominio ~ '".') %}{% include "partials/catalog_state.html" %}{% endwith %}{% endif %}
 {% else %}
 {% if foco == "fuentes" %}<p class="catalog-foco">Foco de este módulo: <strong>fuentes de integración</strong> (CDS / API corporativa).</p>
 {% elif foco == "capas" %}<p class="catalog-foco">Foco de este módulo: <strong>capas de modelado</strong>.</p>{% endif %}

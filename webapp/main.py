@@ -1697,6 +1697,12 @@ def _lob_note(eff: dict) -> str | None:
     return None
 
 
+_LOB_EMPTY = {
+    "UNCLASSIFIED": "No hay modelos pendientes de clasificar.",
+    "UNAVAILABLE": "No hay modelos con la clasificación no disponible.",
+}
+
+
 @app.get("/catalog/lob", response_class=HTMLResponse, include_in_schema=False)
 def catalog_lob(request: Request, lob: str = "", pack: str = Query(DEFAULT_PACK)):
     """Flujos de una LÍNEA DE NEGOCIO (tercera modalidad del Catálogo, junto a Dominios y Data Products). Solo LEE la clasificación v2 PERSISTIDA
@@ -1710,7 +1716,8 @@ def catalog_lob(request: Request, lob: str = "", pack: str = Query(DEFAULT_PACK)
     if wanted and wanted not in valid:
         raise HTTPException(404, "Línea de negocio desconocida")
     selected = _pack(pack)
-    ctx = {"flows": [], "dominio": "", "foco": None, "pack": selected, "grades": {}, "logical_counts": {}, "lob_info": {}, "empty_message": "Elegí una línea de negocio."}
+    ctx = {"flows": [], "dominio": "", "foco": None, "pack": selected, "grades": {}, "logical_counts": {}, "lob_info": {},
+           "empty_kind": "prompt", "empty_title": "Elegí una línea de negocio.", "empty_message": None}
     if not wanted:
         return templates.TemplateResponse(request=request, name="partials/catalog_flows.html", context=ctx)
     mod, entries = _catalog_entries()
@@ -1720,15 +1727,16 @@ def catalog_lob(request: Request, lob: str = "", pack: str = Query(DEFAULT_PACK)
         eff = dcs.effective_lob_by_entry(universe, statuses)
     except Exception:                                                           # noqa: BLE001 — error real de lectura: se informa, jamás una clasificación ficticia
         logging.getLogger("danwor.catalog").exception("línea de negocio: no se pudo leer la clasificación persistida")
-        ctx["empty_message"] = "Clasificación no disponible: no se pudo leer la clasificación de línea de negocio. Reintentá en unos segundos."
+        ctx.update({"empty_kind": "error", "empty_title": "Clasificación no disponible",
+                    "empty_message": "No se pudo leer la clasificación de línea de negocio. No significa que no haya modelos: reintentá en unos segundos."})
         return templates.TemplateResponse(request=request, name="partials/catalog_flows.html", context=ctx)
     flows = catalog_navigation.sort_flows_by_verdict(dcs.partition_by_lob(universe, eff)[wanted])
     n_unavailable = sum(1 for v in eff.values() if not v["available"])
-    label = next((o["label"] for o in dcs.lob_options() if o["id"] == wanted), "Clasificación no disponible")
     ctx.update({"flows": flows, "grades": assessment_presenter.tile_grades(flows, statuses),
                 "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows},
                 "lob_info": {f.entry_id: {"note": _lob_note(eff[f.entry_id])} for f in flows},
-                "empty_message": f"Aún no hay modelos en «{label}».", "lob_unavailable": n_unavailable if wanted != dcs.UNAVAILABLE else 0})
+                "empty_kind": "empty", "empty_title": "Sin modelos disponibles", "empty_message": _LOB_EMPTY.get(wanted, "Todavía no hay modelos asociados a esta línea de negocio."),
+                "lob_unavailable": n_unavailable if wanted != dcs.UNAVAILABLE else 0})
     return templates.TemplateResponse(request=request, name="partials/catalog_flows.html", context=ctx)
 
 
@@ -1743,10 +1751,12 @@ def catalog_client(request: Request, cliente: str = "", pack: str = Query(DEFAUL
     mod, entries = _catalog_entries()
     name = (cliente or "").strip()
     flows = catalog_navigation.flows_for_client(mod, entries, name) if (mod and name) else []
-    empty = f"Sin modelos para «{name}»." if name else "Elegí un cliente."
     return templates.TemplateResponse(
         request=request, name="partials/catalog_flows.html",
-        context={"flows": flows, "dominio": "", "foco": None, "pack": selected, "empty_message": empty,
+        context={"flows": flows, "dominio": "", "foco": None, "pack": selected,
+                 "empty_kind": "empty" if name else "prompt",
+                 "empty_title": "Sin modelos disponibles" if name else "Elegí un cliente.",
+                 "empty_message": f"Todavía no hay modelos asociados al cliente «{name}»." if name else None,
                  "grades": assessment_presenter.tile_grades(flows),
                  "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows}})
 

@@ -1,0 +1,25 @@
+{# Estado del Catálogo (vacío / pedido de selección / error de carga) con el lenguaje visual del panel de herramientas (`.tool-empty`: caja punteada, título dorado
+   mono, texto suave) + icono de trazo como el resto de la UI. COMPACTO (panel lateral). UN solo componente para los tres estados:
+     state_kind  "empty"  → no hay resultados para la selección (role=status)
+                 "prompt" → todavía no se eligió nada (role=status)
+                 "error"  → NO se pudo recuperar la información (role=alert): jamás se presenta como "sin datos"
+     state_title / state_text → copy; state_retry → botón "Reintentar" (lo atiende `DwCatalogNav`, app.js); state_back → "← Volver" del panel central.
+   Se usa server-side (catalog_flows.html) y como <template> clonable por app.js (errores de red/HTTP), para no duplicar el markup en JS. #}
+{% set _kind = state_kind|default("empty") %}
+<div class="tool-empty catalog-state catalog-state--{{ _kind }}" role="{{ 'alert' if _kind == 'error' else 'status' }}">
+  <svg class="catalog-state__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {% if _kind == "error" %}<path d="M12 3.5 22 20.5H2L12 3.5z"/><path d="M12 10v4.5"/><path d="M12 17.6h.01"/>
+    {% elif _kind == "prompt" %}<path d="M4 6.5h16"/><path d="M4 12h16"/><path d="M4 17.5h9"/>
+    {% else %}<path d="M3 13.5 5.5 6h13l2.5 7.5"/><path d="M3 13.5V19h18v-5.5"/><path d="M3 13.5h5l1.2 2.2h5.6l1.2-2.2h5"/>{% endif %}
+  </svg>
+  <div class="catalog-state__body">
+    <span>{{ state_title }}</span>
+    {% if state_text %}<p>{{ state_text }}</p>{% endif %}
+    {% if state_retry or state_back %}
+    <div class="catalog-state__actions">
+      {% if state_retry %}<button type="button" class="table-action-btn table-action-btn--text" data-dw-nav-retry>Reintentar</button>{% endif %}
+      {% if state_back %}<button type="button" class="table-action-btn table-action-btn--text" onclick="return dwCatalogBack();">← Volver</button>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>

@@ -110,17 +110,23 @@
     <div class="tree-picker catalog-picker--secondary">
       <label for="catalog-lob">Línea de negocio</label>
       <div class="tree-picker-row">
+        {# Carga NATIVA de htmx: `hx-indicator` marca la región (`.htmx-request`: oculta las tarjetas anteriores y muestra el loader) y `hx-sync="this:replace"`
+           aborta la solicitud anterior del selector (una respuesta tardía jamás pisa una selección posterior). Error/cancelación/aria-busy: DwCatalogNav (app.js). #}
         <select id="catalog-lob" name="lob"
-                hx-get="/catalog/lob?pack={{ pack }}" hx-target="#catalog-lob-flows" hx-swap="innerHTML" hx-trigger="change">
+                hx-get="/catalog/lob?pack={{ pack }}" hx-target="#catalog-lob-flows" hx-swap="innerHTML" hx-trigger="change"
+                hx-sync="this:replace" hx-indicator="#catalog-lob-region" data-dw-nav-region="#catalog-lob-region">
           <option value="">Elegí una línea de negocio...</option>
           {% for o in catalog_lobs or [] %}<option value="{{ o.id }}">{{ o.label }}</option>{% endfor %}
         </select>
       </div>
     </div>
-    <div id="catalog-lob-flows" class="catalog-flows">
-      <div class="tool-empty">
-        <span>{{ (catalog_lobs or [])|length }} opciones</span>
-        <p>Elegí la línea de negocio (Finanzas, Ventas, Cadena de suministro…) para ver los modelos agrupados con ese criterio.</p>
+    <div id="catalog-lob-region" class="catalog-region">
+      <div class="catalog-loading section-analysis-loading" role="status" aria-live="polite"><span class="section-analysis-spinner" aria-hidden="true"></span><span class="section-analysis-loading-copy">Cargando modelos…</span></div>
+      <div id="catalog-lob-flows" class="catalog-flows">
+        <div class="tool-empty">
+          <span>{{ (catalog_lobs or [])|length }} opciones</span>
+          <p>Elegí la línea de negocio (Finanzas, Ventas, Cadena de suministro…) para ver los modelos agrupados con ese criterio.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -131,16 +137,20 @@
       <label for="catalog-client">Cliente</label>
       <div class="tree-picker-row">
         <select id="catalog-client" name="cliente"
-                hx-get="/catalog/client?pack={{ pack }}" hx-target="#catalog-client-flows" hx-swap="innerHTML" hx-trigger="change">
+                hx-get="/catalog/client?pack={{ pack }}" hx-target="#catalog-client-flows" hx-swap="innerHTML" hx-trigger="change"
+                hx-sync="this:replace" hx-indicator="#catalog-client-region" data-dw-nav-region="#catalog-client-region">
           <option value="">Elegí el cliente...</option>
           {% for c in catalog_clients or [] %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
         </select>
       </div>
     </div>
-    <div id="catalog-client-flows" class="catalog-flows">
-      <div class="tool-empty">
-        <span>{{ (catalog_clients or [])|length }} {{ "cliente disponible" if (catalog_clients or [])|length == 1 else "clientes disponibles" }}</span>
-        <p>Elegí el cliente para ver todos sus modelos publicados.</p>
+    <div id="catalog-client-region" class="catalog-region">
+      <div class="catalog-loading section-analysis-loading" role="status" aria-live="polite"><span class="section-analysis-spinner" aria-hidden="true"></span><span class="section-analysis-loading-copy">Cargando modelos…</span></div>
+      <div id="catalog-client-flows" class="catalog-flows">
+        <div class="tool-empty">
+          <span>{{ (catalog_clients or [])|length }} {{ "cliente disponible" if (catalog_clients or [])|length == 1 else "clientes disponibles" }}</span>
+          <p>Elegí el cliente para ver todos sus modelos publicados.</p>
+        </div>
       </div>
     </div>
   </div>
