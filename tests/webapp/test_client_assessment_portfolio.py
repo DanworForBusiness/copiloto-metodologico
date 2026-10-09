@@ -332,10 +332,10 @@ def test_report_says_artefacto_not_activo_in_html_json_and_markdown(world):
 
 
 def test_artifact_identity_is_one_label_without_duplicated_description():
-    assert pf._identity("Despachos", "AM_DESPACHOS", "Despachos") == ("Despachos · AM_DESPACHOS", None)
-    assert pf._identity(None, "AM_RESERVA_MP", "AM_RESERVA_MP") == ("AM_RESERVA_MP", None)
-    assert pf._identity("Ventas", "AM_V", "Comercial") == ("Ventas · AM_V", "Comercial")        # un concepto distinto NO se descarta en silencio
-    assert pf._identity(None, None, "Compras") == ("Compras", None)
+    assert pf._identity("Despachos", "AM_DESPACHOS", "Despachos") == "Despachos · AM_DESPACHOS"
+    assert pf._identity(None, "AM_RESERVA_MP", "AM_RESERVA_MP") == "AM_RESERVA_MP"
+    assert pf._identity("Ventas", "AM_V", "Comercial") == "Ventas · AM_V"                       # el dominio legacy ya NO es «scope»: bajo el nombre va la línea de negocio efectiva
+    assert pf._identity(None, None, "Compras") == "Compras"
 
 
 def test_every_surface_describes_the_artifact_row_the_same_way(world):

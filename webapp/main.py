@@ -2622,6 +2622,7 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
             "veredicto": entry.veredicto, "apto": entry.apto,
             "n_art": _catalog_logical_artifact_count(entry), "sections": sections,
             "assessment_header": ah_view,
+            "lob_label": ((ah_view or {}).get("line_of_business") or assessment_presenter.lob_display(None))["label"],
             "evaluation": asset_evaluation.asset_evaluation(
                 entry, findings=(ah_view or {}).get("governance_findings"), assessed=bool((ah_view or {}).get("has_profile"))),
             "catalog_kind": "domain",

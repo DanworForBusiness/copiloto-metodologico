@@ -20,7 +20,7 @@
   </div>
 </div>
 <section class="module-hero">
-  <p class="eyebrow">Catálogo Danwor · {{ cliente }}</p>
+  <p class="eyebrow">Catálogo Danwor · {{ lob_label or "Clasificación no disponible" }} · {{ cliente }}</p>   {# línea de negocio EFECTIVA (contexto de negocio, no adopción); sin clasificar → «Sin clasificar» #}
   <h1>{{ dominio }}</h1>
   {# UN activo, UN grado primario: Adopción metodológica persistida (`ah.grade`, la MISMA fuente que la tile del panel). Sin assessment: «Sin assessment», sin grado.
      El veredicto LEGACY del catálogo ya no se muestra. La vigencia (STALE) va aparte y no recolorea el grado. #}
