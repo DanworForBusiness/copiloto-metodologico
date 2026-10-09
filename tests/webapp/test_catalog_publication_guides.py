@@ -171,12 +171,12 @@ def test_internal_cta_url_is_absent_in_raw_yaml():
 
 def test_every_catalog_how_to_publish_link_uses_the_same_copy():
     """Transversal: el link "¿Falta un X? Cómo publicarlo →" se lee IGUAL en todos los catálogos de todos los módulos (orígenes, objetos
-    de seguridad, catálogo de datos, dominios y data products)."""
+    de seguridad, catálogo de datos, modelos —antes "dominios"— y data products)."""
     import re
     from pathlib import Path
     tpl = Path(__file__).resolve().parents[2] / "webapp" / "templates" / "partials" / "catalog_tab.html"
     html = tpl.read_text(encoding="utf-8")
     links = re.findall(r"<strong>(¿Falta [^<]+\?)</strong>([^<]*)</a>", html)
-    assert [q for q, _ in links] == ["¿Falta un Origen?", "¿Falta un Objeto?", "¿Falta un Catálogo de Datos?", "¿Falta un Dominio?", "¿Falta un Data Product?"]
+    assert [q for q, _ in links] == ["¿Falta un Origen?", "¿Falta un Objeto?", "¿Falta un Catálogo de Datos?", "¿Falta un Modelo?", "¿Falta un Data Product?"]
     assert {tail for _, tail in links} == {" Cómo publicarlo →"}
     assert "Cómo podés" not in html

@@ -53,6 +53,7 @@ from webapp.copilot_runtime import assistant_store, store
 from webapp.presentation import invite
 from webapp.services import auth_service
 from webapp.services import catalog_reads
+from webapp.services import domain_classification_service as dcs
 from webapp.services import module_registry
 from webapp.services.activity_service import log_activity
 from webapp.services.activity_context import SCOPE_COPILOT, AREA_METHODOLOGY
@@ -253,9 +254,12 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             "invite_src": invite.invite_src(request, selected),
             "catalog_pilot": os.getenv("DANWOR_CATALOG_PILOT", "").lower() in {"1", "true", "on", "yes"},
             "catalog_domains": catalog_reads._catalog_domains(),
+            "catalog_clients": catalog_reads._catalog_clients(),          # selector "Clientes": clientes con flujos navegables
+            "catalog_models": catalog_reads._catalog_model_domains(),     # selector "Modelos": sin agrupaciones legacy (catalog_domains conserva su contrato)
             "catalog_connection_types": catalog_reads._catalog_connection_types(),
             "catalog_security_families": catalog_reads._catalog_security_families(),
             "catalog_data_products": catalog_reads._catalog_data_products_list(),
+            "catalog_lobs": dcs.lob_options(),            # taxonomía gobernada (estática): los conteos/grupos se leen recién al elegir una línea (GET /catalog/lob)
             "initial_tab": initial_tab,
             "initial_tool": initial_tool,
             "initial_catalog_action": initial_catalog_action,

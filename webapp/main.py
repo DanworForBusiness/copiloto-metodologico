@@ -65,6 +65,8 @@ from webapp.services import assessment_presenter
 from webapp.services import catalog_delta_evidence
 from webapp.services import asset_evaluation
 from webapp.services import assessment_service
+from webapp.services import domain_classification_service as dcs
+from webapp.services import catalog_navigation
 from webapp.services import catalog_view_source
 from webapp.routers import commercial_strategy as commercial_strategy_router
 
@@ -1664,6 +1666,83 @@ def catalog_domain(request: Request, dominio: str = "", modulo: str = "", pack: 
                  "grades": assessment_presenter.tile_grades(flows),
                  "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows}},   # cantidad LÓGICA (mismo conjunto normalizado del linaje)   # grado PRIMARIO de la tile = Adopción metodológica persistida
     )
+
+
+_LOB_NOTES = {
+    "NO_ANALYTIC_MODEL": "Sin modelo analítico terminal: no hay raíz que clasificar.",
+    "NOT_CLASSIFIED": "Aún sin clasificación de línea de negocio.",
+    "UNDETERMINED": "Evidencia insuficiente para determinar la línea de negocio.",
+}
+
+
+def _lob_note(eff: dict) -> str | None:
+    """Texto discreto de la tarjeta en la vista por línea de negocio (SOLO presentación de lo persistido/efectivo; no decide nada)."""
+    if not eff["available"]:
+        return "Clasificación no disponible (error de lectura)."
+    if eff["source"] == "MANUAL":
+        extra = f" · la clasificación automática sugiere {eff['automatic_label']}" if eff.get("automatic_label") else ""
+        return f"Asignación manual{extra}"
+    if eff["source"] == "UNCLASSIFIED":
+        sug = eff.get("suggestion")
+        if sug:
+            conf = {"MEDIUM": "media", "HIGH": "alta"}.get(sug.get("confidence") or "", "media")
+            return f"Sugerencia: {sug['label']} (confianza {conf}) · requiere confirmación; no agrupa."
+        return _LOB_NOTES.get(eff.get("reason") or "")
+    return None
+
+
+@app.get("/catalog/lob", response_class=HTMLResponse, include_in_schema=False)
+def catalog_lob(request: Request, lob: str = "", pack: str = Query(DEFAULT_PACK)):
+    """Flujos de una LÍNEA DE NEGOCIO (tercera modalidad del Catálogo, junto a Dominios y Data Products). Solo LEE la clasificación v2 PERSISTIDA
+    (``domain_classification_service.effective_lob_by_entry``): precedencia manual > automática HIGH > sin clasificar; la MEDIUM no agrupa. Jamás deriva,
+    clasifica ni escribe. Reusa las tarjetas de ``catalog_flows.html`` y su navegación al detalle."""
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="lob", ref=lob)
+    if not auth_service.session_user(request):
+        raise HTTPException(401, "Sin sesión")
+    wanted = (lob or "").strip().upper()
+    valid = {o["id"] for o in dcs.lob_options()} | {dcs.UNAVAILABLE}
+    if wanted and wanted not in valid:
+        raise HTTPException(404, "Línea de negocio desconocida")
+    selected = _pack(pack)
+    ctx = {"flows": [], "dominio": "", "foco": None, "pack": selected, "grades": {}, "logical_counts": {}, "lob_info": {}, "empty_message": "Elegí una línea de negocio."}
+    if not wanted:
+        return templates.TemplateResponse(request=request, name="partials/catalog_flows.html", context=ctx)
+    mod, entries = _catalog_entries()
+    universe = catalog_navigation.browsable_flows(mod, entries) if mod else []
+    try:
+        statuses = assessment_service.statuses_for_entries(universe)            # UNA lectura por lote; la reusan la clasificación y los grados de las tarjetas
+        eff = dcs.effective_lob_by_entry(universe, statuses)
+    except Exception:                                                           # noqa: BLE001 — error real de lectura: se informa, jamás una clasificación ficticia
+        logging.getLogger("danwor.catalog").exception("línea de negocio: no se pudo leer la clasificación persistida")
+        ctx["empty_message"] = "Clasificación no disponible: no se pudo leer la clasificación de línea de negocio. Reintentá en unos segundos."
+        return templates.TemplateResponse(request=request, name="partials/catalog_flows.html", context=ctx)
+    flows = catalog_navigation.sort_flows_by_verdict(dcs.partition_by_lob(universe, eff)[wanted])
+    n_unavailable = sum(1 for v in eff.values() if not v["available"])
+    label = next((o["label"] for o in dcs.lob_options() if o["id"] == wanted), "Clasificación no disponible")
+    ctx.update({"flows": flows, "grades": assessment_presenter.tile_grades(flows, statuses),
+                "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows},
+                "lob_info": {f.entry_id: {"note": _lob_note(eff[f.entry_id])} for f in flows},
+                "empty_message": f"Aún no hay modelos en «{label}».", "lob_unavailable": n_unavailable if wanted != dcs.UNAVAILABLE else 0})
+    return templates.TemplateResponse(request=request, name="partials/catalog_flows.html", context=ctx)
+
+
+@app.get("/catalog/client", response_class=HTMLResponse, include_in_schema=False)
+def catalog_client(request: Request, cliente: str = "", pack: str = Query(DEFAULT_PACK)):
+    """Todos los modelos (flujos) de un CLIENTE: cuarta modalidad del Catálogo. Mismas tarjetas y navegación que Modelos; solo filtra por ``entry.cliente``
+    (coincidencia exacta sin distinguir mayúsculas), sin reglas por cliente. Solo lectura."""
+    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="client", ref=cliente)
+    if not auth_service.session_user(request):
+        raise HTTPException(401, "Sin sesión")
+    selected = _pack(pack)
+    mod, entries = _catalog_entries()
+    name = (cliente or "").strip()
+    flows = catalog_navigation.flows_for_client(mod, entries, name) if (mod and name) else []
+    empty = f"Sin modelos para «{name}»." if name else "Elegí un cliente."
+    return templates.TemplateResponse(
+        request=request, name="partials/catalog_flows.html",
+        context={"flows": flows, "dominio": "", "foco": None, "pack": selected, "empty_message": empty,
+                 "grades": assessment_presenter.tile_grades(flows),
+                 "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows}})
 
 
 _CATALOG_LAYERS = ["Ingesta", "Armonización", "Propagación", "Consumo"]

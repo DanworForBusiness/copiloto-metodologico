@@ -1,6 +1,7 @@
 {# Resultado del dropdown de Catalogo: fichas de flujo ordenadas por mirada Danwor. #}
-{% if not flows %}
-<p class="empty-panel">{% if dominio %}Sin flujos implementados para "{{ dominio }}".{% else %}Elegí un dominio.{% endif %}</p>
+{% if lob_unavailable %}<p class="catalog-card__lob catalog-card__lob--warn" role="status">Clasificación no disponible para {{ lob_unavailable }} modelo{{ "s" if lob_unavailable != 1 }} (error de lectura). <a href="#" hx-get="/catalog/lob?lob=UNAVAILABLE&pack={{ pack|default('datasphere_core') }}" hx-target="#catalog-lob-flows" hx-swap="innerHTML" @click.prevent>Ver cuáles</a></p>
+{% endif %}{% if not flows %}
+<p class="empty-panel">{% if empty_message %}{{ empty_message }}{% elif dominio %}Sin flujos implementados para "{{ dominio }}".{% else %}Elegí un dominio.{% endif %}</p>
 {% else %}
 {% if foco == "fuentes" %}<p class="catalog-foco">Foco de este módulo: <strong>fuentes de integración</strong> (CDS / API corporativa).</p>
 {% elif foco == "capas" %}<p class="catalog-foco">Foco de este módulo: <strong>capas de modelado</strong>.</p>{% endif %}
@@ -26,7 +27,7 @@
        "+ VER NOTAS" queden juntos (antes el conteo se colaba entre ambos). #}
     {% set n_art = (logical_counts or {}).get(e.entry_id, e.artefactos|length) %}
     <p class="catalog-card__meta">{{ n_art }} artefacto{{ "s" if n_art != 1 }}{% if g.freshness %} · {{ g.freshness }}{% endif %}</p>
-    {% if foco == "capas" and e.capas %}<p class="catalog-card__foco"><strong>Capas:</strong> {{ e.capas|join(" · ") }}</p>{% endif %}
+    {# Línea de negocio (SOLO en la vista "Líneas de negocio", `lob_info`): asignación manual o sugerencia MEDIUM, discreta; no altera el grado ni el veredicto. En la MISMA línea que el foco para no agregar bytes a Dominios. #}{% if lob_info and (lob_info.get(e.entry_id) or {}).get("note") %}<p class="catalog-card__lob" title="Clasificación de línea de negocio (v2)">{{ lob_info[e.entry_id].note }}</p>{% endif %}{% if foco == "capas" and e.capas %}<p class="catalog-card__foco"><strong>Capas:</strong> {{ e.capas|join(" · ") }}</p>{% endif %}
     {% if foco == "fuentes" and e.origenes %}
     <details class="catalog-card__notes" onclick="event.stopPropagation()">
       <summary>Ver fuentes ({{ e.origenes|length }})</summary>

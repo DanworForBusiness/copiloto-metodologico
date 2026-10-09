@@ -63,8 +63,10 @@
     <div class="tree-picker-row" x-show="catalogView !== 'publish'">
       <select id="catalog-kind" x-model="catalogKind">
         <option value="">Elegí un catálogo...</option>
-        <option value="domains">Dominios</option>
+        <option value="domains">Modelos</option>
         <option value="data_products">Data Products</option>
+        <option value="lob">Líneas de negocio</option>
+        <option value="clients">Clientes</option>
       </select>
     </div>
   </div>
@@ -78,26 +80,67 @@
   <div x-show="catalogView !== 'publish'" x-cloak>
   <div x-show="!catalogKind" x-cloak id="catalog-flows-empty" class="catalog-flows">
     <div class="tool-empty">
-      <span>2 catálogos disponibles</span>
-      <p>Elegí si querés explorar dominios implementados en Datasphere o Data Products publicados bajo el marco BDC.</p>
+      <span>4 catálogos disponibles</span>
+      <p>Elegí si querés explorar modelos implementados en Datasphere, Data Products publicados bajo el marco BDC, los modelos agrupados por línea de negocio o los modelos de cada cliente.</p>
     </div>
   </div>
 
   <div x-show="catalogKind === 'domains'" x-cloak>
     <div class="tree-picker catalog-picker--secondary">
-      <label for="catalog-dominio">Dominio</label>
+      <label for="catalog-dominio">Modelo</label>
       <div class="tree-picker-row">
         <select id="catalog-dominio" name="dominio"
                 hx-get="/catalog/domain?modulo={{ document.summary.number }}&pack={{ pack }}" hx-target="#catalog-flows" hx-swap="innerHTML" hx-trigger="change">
-          <option value="">Elegí un dominio...</option>
-          {% for d in catalog_domains %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+          <option value="">Elegí un modelo...</option>
+          {% for d in (catalog_models if catalog_models is defined else catalog_domains) %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
         </select>
       </div>
     </div>
     <div id="catalog-flows" class="catalog-flows">
       <div class="tool-empty">
-        <span>{{ catalog_domains|length }} {{ "dominio disponible" if catalog_domains|length == 1 else "dominios disponibles" }}</span>
-        <p>Elegí el dominio que mejor represente el flujo que necesitás resolver.</p>
+        {% set _models = catalog_models if catalog_models is defined else catalog_domains %}
+        <span>{{ _models|length }} {{ "modelo disponible" if _models|length == 1 else "modelos disponibles" }}</span>
+        <p>Elegí el modelo que mejor represente el flujo que necesitás resolver.</p>
+      </div>
+    </div>
+  </div>
+
+  <div x-show="catalogKind === 'lob'" x-cloak>
+    {# Tercera modalidad: agrupa los MISMOS flujos por línea de negocio (clasificación v2 PERSISTIDA, manual > automática alta > sin clasificar). Independiente de Dominios. #}
+    <div class="tree-picker catalog-picker--secondary">
+      <label for="catalog-lob">Línea de negocio</label>
+      <div class="tree-picker-row">
+        <select id="catalog-lob" name="lob"
+                hx-get="/catalog/lob?pack={{ pack }}" hx-target="#catalog-lob-flows" hx-swap="innerHTML" hx-trigger="change">
+          <option value="">Elegí una línea de negocio...</option>
+          {% for o in catalog_lobs or [] %}<option value="{{ o.id }}">{{ o.label }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div id="catalog-lob-flows" class="catalog-flows">
+      <div class="tool-empty">
+        <span>{{ (catalog_lobs or [])|length }} opciones</span>
+        <p>Elegí la línea de negocio (Finanzas, Ventas, Cadena de suministro…) para ver los modelos agrupados con ese criterio.</p>
+      </div>
+    </div>
+  </div>
+
+  <div x-show="catalogKind === 'clients'" x-cloak>
+    {# Cuarta modalidad: TODOS los modelos de un cliente (mismas tarjetas y navegación). Independiente de Modelos y de Líneas de negocio. #}
+    <div class="tree-picker catalog-picker--secondary">
+      <label for="catalog-client">Cliente</label>
+      <div class="tree-picker-row">
+        <select id="catalog-client" name="cliente"
+                hx-get="/catalog/client?pack={{ pack }}" hx-target="#catalog-client-flows" hx-swap="innerHTML" hx-trigger="change">
+          <option value="">Elegí el cliente...</option>
+          {% for c in catalog_clients or [] %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div id="catalog-client-flows" class="catalog-flows">
+      <div class="tool-empty">
+        <span>{{ (catalog_clients or [])|length }} {{ "cliente disponible" if (catalog_clients or [])|length == 1 else "clientes disponibles" }}</span>
+        <p>Elegí el cliente para ver todos sus modelos publicados.</p>
       </div>
     </div>
   </div>
@@ -148,7 +191,7 @@
 
   {% if module_number == "03" or module_number == "04" %}
   <p class="tool-suggest__link" x-show="!catalogKind" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Catálogo de Datos?</strong> Cómo publicarlo →</a></p>
-  <p class="tool-suggest__link" x-show="catalogKind === 'domains'" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Dominio?</strong> Cómo publicarlo →</a></p>
+  <p class="tool-suggest__link" x-show="catalogKind === 'domains'" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Modelo?</strong> Cómo publicarlo →</a></p>
   <p class="tool-suggest__link" x-show="catalogKind === 'data_products'" x-cloak><a href="/catalog/guide/como-publicar-dominios?pack={{ pack }}"><strong>¿Falta un Data Product?</strong> Cómo publicarlo →</a></p>
   {% endif %}
   </div>
