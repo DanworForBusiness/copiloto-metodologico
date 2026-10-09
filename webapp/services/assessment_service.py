@@ -38,6 +38,7 @@ Con varios procesos/instancias cada uno tendría su propia caché y su propio lo
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -120,6 +121,8 @@ CLOSURE_EQUAL, TARGETED_CLOSURE_EXPANSION = "CLOSURE_EQUAL", "TARGETED_CLOSURE_E
 #     objetivo incluyen ``confidence`` y ``closure``). Para dejar un perfil en el contrato intermedio G1/G3 hay que correrla desde un despliegue anterior al evidence release.
 #   * ``evidence_closure_contract_v2`` (perfil en el contrato G1/G3 vigente en 11ce071 -> evidence release).
 #   * ``evidence_field_lineage_v3`` (perfil en el contrato del evidence release v2 -> evidence release de linaje de campo): SOLO agrega evidencia, por lo que exige ``CLOSURE_EQUAL``.
+#   * ``evidence_confidence_v3`` (perfil en ``confidence-cuts/v2`` -> ``confidence-cuts/v3``): SOLO cambia la CONFIANZA (el factor ``resolved_provenance`` mide el origen de los datos). Regenera con el
+#     MISMO motor sobre el MISMO pool local (sin Datasphere); ``migration_postcheck`` exige que TODO el perfil salvo ``summary.confidence`` y ``versions.confidence`` quede idéntico (evidencia, cobertura, cierre).
 # Las dos primeras regeneran con el MISMO motor y aceptan el cierre solo bajo ``TARGETED_CLOSURE_EXPANSION``. Ninguna se encadena con otra: un perfil se migra por la UNICA cuyo
 # conjunto de claves de version coincide EXACTAMENTE con su diferencia (``targeted_migration``); un perfil v1 NO salta a v3 por la migracion v2->v3.
 EVIDENCE_MIGRATIONS: dict[str, MigrationTarget] = {
@@ -143,6 +146,11 @@ EVIDENCE_MIGRATIONS: dict[str, MigrationTarget] = {
         {"assessability": frozenset({"assessability-rules/v3"}), "canonical_evidence": frozenset({"canonical-evidence/v2"})},
         "Evidence release (linaje de campo): procedencia de cada campo publicado hasta las hojas frontera + clase explicita de contrato de fuente por hoja "
         "(canonical_evidence v3, assessability v4). Misma entrada y mismo cierre semantico: solo se agrega evidencia (CLOSURE_EQUAL); un perfil con otros cambios de version o de entrada NO es elegible",
+        CLOSURE_EQUAL),
+    "evidence_confidence_v3": MigrationTarget(
+        "evidence_confidence_v3", ("confidence",), {"confidence": frozenset({"confidence-cuts/v2"})},
+        "Confianza metodologica v3: `resolved_provenance` mide el ORIGEN DE LOS DATOS (una hoja de identidad UNKNOWN con productor y clase de contrato resuelta cuenta como resuelta). "
+        "Misma entrada, mismo cierre y mismo resto del perfil: solo cambia summary.confidence (CLOSURE_EQUAL + perfil idéntico salvo la confianza)",
         CLOSURE_EQUAL),
 }
 
@@ -1031,6 +1039,16 @@ def closure_identity(profile: dict | None) -> tuple | None:
     return (sc.get("terminal_analytic_model"), sc.get("root_object"), sc.get("root_type"), tuple(sorted({str(a) for a in arts})))
 
 
+def _without_confidence(profile: dict | None) -> dict | None:
+    """Perfil sin la confianza (``summary.confidence`` y ``versions.confidence``): lo ÚNICO que ``evidence_confidence_v3`` puede cambiar."""
+    if not isinstance(profile, dict):
+        return None
+    out = copy.deepcopy(profile)
+    (out.get("summary") or {}).pop("confidence", None)
+    (out.get("versions") or {}).pop("confidence", None)
+    return out
+
+
 def migration_postcheck(name: str, doc: dict, previous: dict | None, versions: dict) -> None:
     """Postcondiciones de la migracion de evidencia ``name`` sobre el candidato regenerado (todas ANTES de escribir)."""
     m = EVIDENCE_MIGRATIONS[name]
@@ -1055,6 +1073,8 @@ def migration_postcheck(name: str, doc: dict, previous: dict | None, versions: d
     if m.closure_policy == CLOSURE_EQUAL:
         if old_closure != new_closure:                   # misma entrada + migracion de solo evidencia NO puede cambiar el cierre semantico
             raise EnrichmentError("CLOSURE_DRIFT")
+        if name == "evidence_confidence_v3" and _without_confidence(doc) != _without_confidence((previous or {}).get("profile_json")):
+            raise EnrichmentError("NON_CONFIDENCE_CONTENT_CHANGED")      # solo la confianza puede cambiar: evidencia, cobertura, areas y hallazgos quedan IDENTICOS
         return
     _check_targeted_closure_expansion(old_closure, new_closure, doc)
 

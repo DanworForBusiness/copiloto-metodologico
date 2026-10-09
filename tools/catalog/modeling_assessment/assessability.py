@@ -50,12 +50,17 @@ from .model import (
 from .signals import FactIndex, Finding, SignalEvaluation, evaluate_signals
 
 ASSESSABILITY_RULESET = "assessability-rules/v4"       # v4 (field-lineage evidence release): superficies descriptivas `am.published_field_lineage` y `source.contract_class` (no cuentan en cobertura); v3 (evidence release): superficie REQUERIDA de completitud del cierre (`am.closure_reference_resolution`) + superficies descriptivas del contrato publicado, armonizacion, expresiones, reconvergencia, complejidad y propiedades de flujo; v2 (G1): `source.leaf_provenance` reemplaza a `source.leaf_contract_status`
-CONFIDENCE_RULESET = "confidence-cuts/v2"       # v2: factor epistemico `unambiguous_closure_references` (la resolucion AMBIGUA de una referencia del cierre afecta la CONFIANZA, no la cobertura)
+CONFIDENCE_RULESET = "confidence-cuts/v3"       # v3: `resolved_provenance` mide el ORIGEN DE LOS DATOS: una hoja de identidad UNKNOWN cuyo origen esta demostrado por un productor (LOCAL_FLOW_PRODUCED + clase de contrato resuelta) cuenta como resuelta; v2: factor epistemico `unambiguous_closure_references` (la resolucion AMBIGUA de una referencia del cierre afecta la CONFIANZA, no la cobertura)
 
 # Cortes PROVISIONALES (no son umbrales de calidad/madurez): (corte para HIGH, corte para MEDIUM). Se validan en M8.
 CONFIDENCE_CUTS = {                                   # PROVISIONAL, VALIDAR EN M8 (no son umbrales de calidad/madurez)
     "reliable_share": (0.8, 0.5),                     # share fiable de cada factor epistemico: >= 0.8 -> HIGH; >= 0.5 -> MEDIUM; si no LOW
 }
+
+# Literales del hecho `source.contract_class` (facts_field_lineage.LEAF_KINDS / SCC_UNKNOWN). Este modulo solo puede leer hechos/senales/modelo (guardado por test), por eso NO importa
+# facts_field_lineage; un test fija que ambos literales coinciden con los de esa fuente.
+_LEAF_FLOW_PRODUCED = "LOCAL_FLOW_PRODUCED"
+_CONTRACT_CLASS_UNKNOWN = "UNKNOWN"
 
 _LEVEL_ORDER = (ConfidenceLevel.LOW, ConfidenceLevel.MEDIUM, ConfidenceLevel.HIGH)
 _OPEN_GAP_CLASSES = (EvidenceClass.C1, EvidenceClass.C2, EvidenceClass.D)
@@ -594,13 +599,22 @@ def _confidence_factors(surfaces: list[SurfaceAssessment], ctx: Ctx, coverage: C
         out.append(ConfidenceFactor(E, name, share, detail, True, None if share is None else _level(share, cuts)))
 
     # ── EPISTEMICOS que contribuyen (marcas explicitas del modelo canonico) ──
-    idents = [f.value["identity"] for f in ctx.idx.usable("naming.artifact_name_contract")]
+    ident_facts = ctx.idx.usable("naming.artifact_name_contract")
+    idents = [f.value["identity"] for f in ident_facts]
     heuristic = sum(1 for i in idents if i["certainty"] == "HEURISTIC")
-    unknown = sum(1 for i in idents if i["identity"] == "UNKNOWN")
+    unknown_names = {f.subject for f in ident_facts if f.value["identity"]["identity"] == "UNKNOWN"}
+    # IDENTIDAD del artefacto (quien asigno el nombre) != ORIGEN de los datos. Una hoja de identidad UNKNOWN (tabla local / estructura sin remoto ni query) cuyo origen esta DEMOSTRADO
+    # por un productor con destino la hoja (hecho `source.contract_class`: LOCAL_FLOW_PRODUCED con clase de contrato RESUELTA, la misma evidencia que usa el Juicio) tiene su origen
+    # resuelto. Siguen sin resolver: hojas declaradas, no observables, no evaluadas o con cadena incompleta (clase UNKNOWN). Sin inferencia por nombres.
+    origin_demonstrated = {f.subject for f in ctx.idx.usable("source.contract_class")
+                           if f.value.get("leaf_kind") == _LEAF_FLOW_PRODUCED and f.value.get("contract_class") not in (None, _CONTRACT_CLASS_UNKNOWN)}
+    unresolved = len(unknown_names - origin_demonstrated)
+    exempt = len(unknown_names & origin_demonstrated)
     contributing("non_heuristic_identity", _share(len(idents) - heuristic, len(idents)),
                  f"{heuristic} of {len(idents)} artifact identities rest on a HEURISTIC rule (the rest are PROVEN or UNKNOWN)")
-    contributing("resolved_provenance", _share(len(idents) - unknown, len(idents)),
-                 f"{unknown} of {len(idents)} artifacts have unresolved (UNKNOWN) provenance")
+    contributing("resolved_provenance", _share(len(idents) - unresolved, len(idents)),
+                 f"{unresolved} of {len(idents)} artifacts have an unresolved data origin (UNKNOWN identity without a demonstrated producer"
+                 + (f"; {exempt} UNKNOWN-identity leaves whose origin is demonstrated by a producer flow count as resolved)" if exempt else ")"))
     concl = [s for s in surfaces if s.kind is SurfaceKind.RULE_EVALUATION and s.result in (RuleResult.PATTERN_FOUND, RuleResult.ASSESSED_ABSENCE)]
     complete = sum(1 for s in concl if s.assessability is Assessability.ASSESSED)
     contributing("complete_rule_inputs", _share(complete, len(concl)),

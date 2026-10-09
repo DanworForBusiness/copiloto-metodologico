@@ -485,7 +485,7 @@ def test_processing_facts_with_no_references_are_not_counted_as_attached_evidenc
 
 
 def test_confidence_cuts_are_provisional_versioned_and_only_for_reliable_share():
-    assert set(A.CONFIDENCE_CUTS) == {"reliable_share"} and A.CONFIDENCE_RULESET == "confidence-cuts/v2"
+    assert set(A.CONFIDENCE_CUTS) == {"reliable_share"} and A.CONFIDENCE_RULESET == "confidence-cuts/v3"
     cuts = A.CONFIDENCE_CUTS["reliable_share"]
     for value, expected in ((None, "LOW"), (0.0, "LOW"), (0.49, "LOW"), (0.5, "MEDIUM"), (0.79, "MEDIUM"), (0.8, "HIGH"), (1.0, "HIGH")):
         assert A._level(value, cuts).value == expected
