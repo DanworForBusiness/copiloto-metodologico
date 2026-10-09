@@ -55,6 +55,12 @@ MIGRACIÓN CONTROLADA DE EVIDENCIA (modo explícito y SEPARADO; para assessments
   Un perfil cuya diferencia es la de OTRA migración se informa como ``other_migration_applicable`` (con ``applicable_migration``): NO se migra por la equivocada, NO se salta
   ni se encadena. Un perfil ya CURRENT se omite en ambas (idempotentes).
 
+MIGRACIÓN DE JUICIO (cambio de ``RULESET_VERSION``; p. ej. ``judgment-rules/v2``: segunda vía de reconocimiento del contrato publicado + explicación de LVL-06):
+    python -m webapp.services.assessment_backfill --backfill-judgment --dry-run
+    python -m webapp.services.assessment_backfill --backfill-judgment --apply
+  El Juicio es estado DERIVADO del ``profile_json`` ya persistido: este modo lo re-deriva con el motor vigente y reescribe SOLO el Juicio del MISMO sobre (perfil, firmas y versiones de Assessment
+  intactos; sin reassess, sin Datasphere, sin reacquisition). Un Juicio de ruleset anterior se clasifica ``judgment_version_stale``; idempotente por ``output_signature``.
+
 REEVALUACIÓN GENÉRICA OFFLINE DE EXISTENTES (modo explícito y SEPARADO; reconstruye COMPLETO el assessment gobernado, CURRENT o STALE):
     python3 -m webapp.services.assessment_backfill --reassess-existing --client Kensing --dry-run
     python3 -m webapp.services.assessment_backfill --reassess-existing --client Kensing --apply     (sin --client: todos los existentes)
