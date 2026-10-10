@@ -121,20 +121,24 @@
   </div>
 </section>
 
-{# ── estados sin informe ── #}
+{# ── estados sin informe y avisos de estado ──
+   Viven FUERA de `<article class="methodology">` (van antes del índice del informe), por eso se envuelven en `.methodology`: sin ese ámbito el texto del callout perdía la tipografía/color del
+   Hub (16 px gris claro en lugar de 14.4 px) y se veía distinto de los demás `callout("punch")` del informe. El punch de estado lleva el mismo ícono 💡 que el resto. #}
+{% if v.state != "CURRENT" %}<div class="methodology">{% endif %}
 {% if v.state == "NOT_YET_ASSESSED" %}
 {% call callout("note", "Este modelo todavía no tiene assessment") %}<p>El informe se genera a pedido a partir del conjunto de artefactos del cliente. Abrir esta pantalla no ejecuta nada.</p>{{ action_link(v) }}{% endcall %}
 {% elif v.state == "NOT_APPLICABLE" %}
 {% call callout("note", "No aplica") %}<p>{{ v.reason }}</p>{% endcall %}
 {% elif v.state == "INCOMPATIBLE_SCHEMA" %}
-{% call callout("punch", "Informe no compatible") %}<p>{{ v.reason }} No se muestra para evitar una lectura incorrecta.</p>{{ action_link(v) }}{% endcall %}
+{% call callout("punch", "Informe no compatible", icon="💡") %}<p>{{ v.reason }} No se muestra para evitar una lectura incorrecta.</p>{{ action_link(v) }}{% endcall %}
 {% endif %}
 
 {% if v.state == "FAILED" %}
 {% call callout("warn", "No se pudo generar el assessment", "alert") %}<p>{{ v.reason }}</p>{% if v.previous_profile_retained %}<p>Se muestra la última evaluación disponible; puede estar desactualizada.</p>{% endif %}{{ action_link(v) }}{% endcall %}
 {% elif v.state == "STALE" %}
-{% call callout("punch", "Assessment desactualizado — " ~ v.state_note, "status") %}<p>{{ v.state_body }}</p>{{ action_link(v) }}{% endcall %}
+{% call callout("punch", "Assessment desactualizado", "status", icon="💡") %}<p>{{ v.state_note }}</p><p>{{ v.state_body }}</p>{{ action_link(v) }}{% endcall %}
 {% endif %}
+{% if v.state != "CURRENT" %}</div>{% endif %}
 
 {# §8 La «Adopción metodológica» se movió DENTRO del informe, después de «Resumen» (ver `id="asr-juicio"` más abajo): el
    Catálogo muestra el resultado conciso y el Assessment la justificación detallada; sin otro hero grande antes del informe. #}
