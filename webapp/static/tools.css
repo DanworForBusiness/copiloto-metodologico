@@ -2841,6 +2841,7 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    "Generando informe…" y oculta el label; sin segundo texto flotante. Ancho estable; deshabilitado legible (no al 30%). */
 .asr-generate { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 12rem; cursor: pointer; }
 .asr-generate__busy { align-items: center; gap: 7px; }                 /* es `.htmx-indicator`: oculto salvo `.htmx-request` */
+.asr-generate .asr-generate__label { margin-left: 0; color: inherit; } /* `.support-link span` (app.css) está pensado para la flecha ↗ (dorada, con margen): el label del botón toma el color del botón, como los demás support-links */
 .asr-generate.htmx-request .asr-generate__busy { display: inline-flex; }
 .asr-generate.htmx-request .asr-generate__label { display: none; }
 .asr-generate:disabled { opacity: 1; cursor: progress; }               /* durante la carga el spinner comunica el estado; sin el fade al 30% de button:disabled */

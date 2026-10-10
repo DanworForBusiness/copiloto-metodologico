@@ -251,7 +251,7 @@ def test_stale_report_is_still_exportable_and_viewable(world):
     f = world.inbound / "Acme/views/1VR_RAW.json"
     f.write_text(f.read_text(encoding="utf-8").replace('"A"', '"A9"', 1), encoding="utf-8")
     html = c.get("/catalog/flow/assessment?flow=acme-4am", headers=HX).text
-    assert "Assessment desactualizado — El modelo cambió desde la última evaluación." in html
+    assert 'Assessment desactualizado</strong>' in html and "<p>El modelo cambió desde la última evaluación.</p>" in html      # título corto + nota como primer párrafo (mismo formato que el resto de los punch)
     assert "Regenerar assessment" in html and "Resumen" in html            # banner + informe anterior + acción
     assert c.get("/catalog/flow/assessment.json?flow=acme-4am").status_code == 200
 
@@ -1194,3 +1194,40 @@ def test_badge_columns_in_hub_tables_fit_their_content_on_one_line():
     css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
     assert re.search(r"\.methodology table:not\(\.table-fixed-columns\) \.catalog-card__verdict \{ white-space: nowrap; \}", css)
     assert re.search(r"td:has\(> \.catalog-card__verdict:only-child\) \{ width: 1%; white-space: nowrap; \}", css)       # la columna del badge se ajusta; las demás se reparten el resto
+
+
+# ── avisos de estado del informe (desactualizado / sin assessment): mismo lenguaje visual que el resto de los `callout("punch")` ──
+def _status_block(html):
+    """El bloque de avisos de estado: el `<div class="methodology">` con su(s) callout(s), antes del índice/artículo del informe."""
+    m = re.search(r'<div class="methodology">(?:(?!<details|<article).)*?</aside>\s*</div>', html, re.S)
+    return m.group(0) if m else ""
+
+
+def test_stale_notice_follows_the_hub_punch_style_not_a_bare_callout(world):
+    c = client_for()
+    _post(c)
+    f = world.inbound / "Acme/views/1VR_RAW.json"
+    f.write_text(f.read_text(encoding="utf-8").replace('"A"', '"A9"', 1), encoding="utf-8")
+    html = c.get("/catalog/flow/assessment?flow=acme-4am", headers=HX).text
+    block = _status_block(html)
+    # vive dentro del ámbito `.methodology` (sin él el texto perdía la tipografía/color del Hub: 16 px gris claro en lugar de 14.4 px)
+    assert block.startswith('<div class="methodology">') and block.rstrip().endswith("</div>")
+    assert 'class="callout callout--punch" role="status"' in block
+    assert '<span class="callout__icon">💡</span><strong class="callout__title">Assessment desactualizado</strong>' in block   # MISMO ícono y título corto que los demás punch
+    assert block.count("<p>") == 2 and "Regenerar assessment" in block                                                       # nota + explicación, luego la acción
+    questions = html[html.index("Para qué sirven estas preguntas") - 200: html.index("Para qué sirven estas preguntas")]
+    assert 'class="callout callout--punch"' in questions and "💡" in questions                                                 # el punch general que sirve de referencia
+
+
+def test_the_generate_button_label_takes_the_button_color_like_any_support_link():
+    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    assert ".asr-generate .asr-generate__label { margin-left: 0; color: inherit; }" in css                                # `.support-link span` (flecha dorada) no tiñe el label del botón
+
+
+def test_status_notices_are_wrapped_only_when_there_is_a_notice(world):
+    c = client_for()
+    pre = c.get("/catalog/flow/assessment?flow=acme-4am", headers=HX).text                                                 # sin assessment todavía
+    assert '<div class="methodology">' in pre and "Este modelo todavía no tiene assessment" in _status_block(pre)
+    _post(c)
+    current = c.get("/catalog/flow/assessment?flow=acme-4am", headers=HX).text
+    assert _status_block(current) == ""                                                                                     # CURRENT: sin envoltorio vacío ni aviso
