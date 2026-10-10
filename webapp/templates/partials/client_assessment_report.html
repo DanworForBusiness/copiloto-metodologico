@@ -69,19 +69,21 @@
       </tbody>
     </table>
 
-  </section>
-
-  {# Síntesis de adopción metodológica: veredictos del Juicio PERSISTIDOS y vigentes (moda, no promedio; los no determinables y los no vigentes se informan aparte). Entre las secciones 02 y 03; sin numerar. #}
-  {% if v.adoption_story %}{% set a = v.adoption_story %}
-  <div class="content-section" id="cli-adopcion" data-adoption-kind="{{ a.kind }}">
+    {# Síntesis de adopción metodológica: veredictos del Juicio PERSISTIDOS y vigentes (moda, no promedio; los no determinables y los no vigentes se informan aparte). Dentro de la sección 02, pegada al
+       final de la tabla (sin separador previo), antes del cierre de la sección. UN solo mensaje principal + su fundamento; la distribución solo cuando aporta (empates, no determinables dominantes,
+       varias categorías) y lo que queda fuera de la síntesis (desactualizados / sin veredicto). #}
+    {% if v.adoption_story %}{% set a = v.adoption_story %}
+    {% set shown = a.chips | rejectattr("label", "equalto", "No determinable") | list %}
+    <div id="cli-adopcion" data-adoption-kind="{{ a.kind }}">
     {% call callout("punch", "Síntesis de adopción metodológica", icon="💡") %}
-      <p><span class="catalog-card__verdict catalog-card__verdict--{{ a.tone }}">{{ a.badge }}</span> <strong>{{ a.headline }}</strong></p>
-      {% if a.chips %}<p class="catalog-verdict-line">{% for c in a.chips %}<span class="catalog-card__verdict catalog-card__verdict--{{ c.tone }}">{{ c.label }} · {{ c.count }}</span> {% endfor %}</p>{% endif %}
+      <p><span class="catalog-meta-dot catalog-meta-dot--{{ a.tone }}" aria-hidden="true"></span> <strong>{{ a.headline }}</strong></p>
+      {% if shown|length > 1 or a.kind in ("TIE", "MAJORITY_NOT_DETERMINABLE", "ONLY_NOT_DETERMINABLE") %}<p class="catalog-verdict-line">{% for c in a.chips %}<span class="catalog-card__verdict catalog-card__verdict--{{ c.tone }}">{{ c.label }} · {{ c.count }}</span> {% endfor %}</p>{% endif %}
       {% if a.outside %}<p>{{ a.outside }}</p>{% endif %}
       <p class="catalog-note__ev">{{ a.criterion }}</p>
     {% endcall %}
-  </div>
-  {% endif %}
+    </div>
+    {% endif %}
+  </section>
 
   <section class="content-section" id="cli-hallazgos">
     {{ heading(3, "Hallazgos recurrentes", "Cada artefacto cuenta una vez por hallazgo. Solo assessments vigentes; sin pesos ni severidad.") }}
