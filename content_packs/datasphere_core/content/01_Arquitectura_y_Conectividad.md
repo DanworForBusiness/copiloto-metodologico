@@ -171,6 +171,7 @@ out_of_scope_redirect:
 | Ciclo de vida gestionado por Datasphere | Ciclo de vida en el flujo, no en el objeto |
 | DEV-> QA-> PRD via transportes | Sin DEV-> QA-> PRD en storage |
 | Cross-Sharing nativo hacia espacios de negocio | Spark como motor de transformación |
+| Tipos de Datasphere (p. ej. `DecimalFloat`) | Tipos del archivo (Parquet/Delta): la adaptación del tipo a ese destino se decide al publicar |
 
 <div class="paradigm-tags">
   <span class="paradigm-tag">📌 Lo que construimos hoy</span>
@@ -178,7 +179,7 @@ out_of_scope_redirect:
 </div>
 
 {{callout: title="Las capas no cambian con el runtime" tone="punch" icon="💡"}}
-Las capas Danwor (Ingesta, Armonización, Propagación, Consumo) no son una propiedad de HANA que se pierde al pasar a HDLF — aplican igual en ambos paradigmas, porque describen responsabilidad arquitectónica, no almacenamiento físico. En HDLF vas a encontrar también la terminología Bronze/Silver/Gold (propia del patrón Lakehouse) nombrando la misma responsabilidad; ver cómo se relacionan en el módulo 04 · Evolución de Arquitectura por Capas.
+Las capas Danwor (Ingesta, Armonización, Propagación, Consumo) no son una propiedad de HANA que se pierde al pasar a HDLF — aplican igual en ambos paradigmas, porque describen responsabilidad arquitectónica, no almacenamiento físico. Lo que sí cambia con el runtime es el tipo de dato: un tipo válido en HANA puede requerir una decisión de contrato al llegar a HDLF — ver [Del tipo del runtime al tipo del contrato](/modules/03_Integracion_y_Estrategia_de_Datos?pack={{pack}}#modelo-de-integracion-hibrido). En HDLF vas a encontrar también la terminología Bronze/Silver/Gold (propia del patrón Lakehouse) nombrando la misma responsabilidad; ver cómo se relacionan en el módulo 04 · Evolución de Arquitectura por Capas.
 {{/callout}}
 
 ## {dw-black}Espacios & {dw-gold}Transportes

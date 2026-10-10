@@ -103,6 +103,18 @@ intent_assets:
   - keywords: ["video tutorial", "tutoriales video", "datasphere tutorials", "videos datasphere"]
     description: "SAP Datasphere Video Tutorials"
     asset: "https://help.sap.com/docs/SAP_DATASPHERE/55b34306f32145359e499c4492fc65eb/9ef88a8d4cd1479cb1272ae0de1eada0.html?locale=en-US&version=LATEST"
+  - keywords: ["unsupported data types replication flow", "tipos no soportados replication flow", "decfloat decimal 38,6"]
+    description: "SAP Help: Unsupported Data Types in a Replication Flow | Compatibilidad de tipos y publicación hacia BDC"
+    asset: "https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/6c770bbebb3c4086b30945fd2ebbfd75.html?locale=en-US"
+  - keywords: ["data types local tables file", "tipos soportados local table file", "tipos custom data products"]
+    description: "SAP Help: Data Types Supported By Local Tables (File) | Compatibilidad de tipos y publicación hacia BDC"
+    asset: "https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/2f39104e5bd847919b8daee1580c4f68.html?locale=en-US"
+  - keywords: ["column data types datasphere", "tipos de columna datasphere"]
+    description: "SAP Help: Column Data Types | Compatibilidad de tipos y publicación hacia BDC"
+    asset: "https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/7b1dc6e0fad147de8e50aa8dc4744aa3.html?locale=en-US"
+  - keywords: ["creating data products for sap business data cloud", "crear data product bdc"]
+    description: "SAP Help: Creating Data Products for SAP Business Data Cloud | Compatibilidad de tipos y publicación hacia BDC"
+    asset: "https://help.sap.com/docs/SAP_DATASPHERE/e4059f908d16406492956e5dbcf142dc/b07e95d07a1e4569b87d9bb57b732bcf.html?locale=en-US"
   - keywords: ["joule in DSP", "joule in sap datasphere", "joule in datasphere", "joule in BDC"]
     description: "Joule in SAP Datasphere"
     asset: "https://help.sap.com/docs/joule/capabilities-guide/joule-in-sap-datasphere?locale=en-US&version=LATEST"
@@ -297,6 +309,10 @@ key_topics:
 - 🌒 Eclipse & BWMT Updates | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/ERBQ6TkdufZNpyLJSzmXdJYBHlblTXhuzMEwx-8i096YMQ?e=4Z3Lik)
 - 🆕 Deep dive Extracción ODP-CDS | [Link](https://learning.sap.com/learning-journeys/upgrading-your-sap-bw-skills-to-sap-bw-4hana/working-with-odp-context-cds-view-based-extraction_f01df9a0-0e79-4d76-be38-d2cfac4dde42)
 - 🛠️ Tools for Troubleshooting | [Link](https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/4428871866.html?locale=en-US)
+- 🧬 Unsupported Data Types in a Replication Flow | [Link](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/6c770bbebb3c4086b30945fd2ebbfd75.html?locale=en-US)
+- 🧬 Data Types Supported By Local Tables (File) | [Link](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/2f39104e5bd847919b8daee1580c4f68.html?locale=en-US)
+- 🧬 Column Data Types | [Link](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/7b1dc6e0fad147de8e50aa8dc4744aa3.html?locale=en-US)
+- 🧬 Creating Data Products for SAP Business Data Cloud | [Link](https://help.sap.com/docs/SAP_DATASPHERE/e4059f908d16406492956e5dbcf142dc/b07e95d07a1e4569b87d9bb57b732bcf.html?locale=en-US)
 - ▶️ Video Tutorials | [Link](https://help.sap.com/docs/SAP_DATASPHERE/55b34306f32145359e499c4492fc65eb/9ef88a8d4cd1479cb1272ae0de1eada0.html?locale=en-US&version=LATEST)
 
 ## {dw-black}Colección {dw-gold}How-To

@@ -20,7 +20,7 @@
     <span class="asr-generate__label">{{ v.action.label }}</span>
   </button>
 </div>{% endif %}{% endmacro %}
-{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, contracts_evaluated, tile_grid, evaluation_table %}
+{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, contracts_evaluated, tile_grid, evaluation_table, compatibility_block %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
 {% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}
 {# Hallazgo = FILA de disclosure del Hub (la misma gramática que las subáreas de Arquitectura): izquierda el título de negocio; derecha la metadata legible
@@ -272,6 +272,7 @@
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Hallazgos de portabilidad</span><span class="dashboard-section__count">{{ por.summary }}</span></summary>
     <div class="dashboard-section__body">{% if por.rows %}{{ evaluation_table(por.rows, ["Tipo", "Hallazgo", "Campos · Recomendación"]) }}{% else %}{{ not_detected("Sin hallazgos de portabilidad — tipos consistentes para el cruce de runtimes.") }}{% endif %}</div>
   </details>
+  {{ compatibility_block(v.evaluation.compatibility, "asr-compatibilidad") }}
 </section>
 {% endif %}
 
