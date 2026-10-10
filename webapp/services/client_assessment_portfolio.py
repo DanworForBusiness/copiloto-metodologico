@@ -84,6 +84,14 @@ def _identity(title: str | None, am: str | None, domain: str) -> str:
     return f"{title} · {am}" if title and am else (am or title or domain)
 
 
+def _verdict_code(status: svc.AssessmentStatus) -> str | None:
+    """Veredicto del Juicio PERSISTIDO del artefacto: BUENA | ADECUADA | PARCIAL | PLENA | NOT_DETERMINABLE; ``None`` si no hay Juicio. Solo lectura: no evalúa nada."""
+    jv = presenter.judgment_view(status.judgment)
+    if not jv:
+        return None
+    return jv["level"] if jv["determined"] else "NOT_DETERMINABLE"
+
+
 def _row(entry: Any, status: svc.AssessmentStatus, pack: str, lob: dict | None = None) -> dict:
     m = _metrics(status)
     am = status.terminal_am
@@ -100,7 +108,7 @@ def _row(entry: Any, status: svc.AssessmentStatus, pack: str, lob: dict | None =
         # Línea de negocio EFECTIVA persistida (manual > automática HIGH > Sin clasificar): contexto de negocio, no adopción/cobertura/confianza/Juicio.
         "line_of_business": lob or presenter.lob_display(None),
         # UN activo, UN grado primario: Adopción metodológica PERSISTIDA (misma fuente que la tile). Sin Juicio → estado neutro; el veredicto legacy del catálogo ya no se muestra.
-        "adoption": {k: presenter.tile_grade(status)[k] for k in ("label", "tone", "has_judgment")},
+        "adoption": {**{k: presenter.tile_grade(status)[k] for k in ("label", "tone", "has_judgment")}, "verdict": _verdict_code(status)},
         "state": status.state, "state_label": presenter.STATE_LABELS[status.state],
         "coverage_strict": cov, "coverage_text": presenter.percent(cov) if cov is not None else DASH,
         "confidence": conf, "confidence_text": presenter.confidence_label(conf) if conf else DASH,
@@ -204,10 +212,107 @@ def build_snapshot(entry: Any, pack: str, *, now: datetime | None = None) -> dic
             "coverage": {"average_strict": (sum(covs) / len(covs)) if covs else None, "over_current_assessments": len(covs)},
             "confidence_distribution": {lvl: sum(1 for r in current if r["confidence"] == lvl) for lvl in CONFIDENCE_ORDER},
         },
+        "adoption_synthesis": adoption_synthesis(rows),                 # síntesis DESCRIPTIVA de los veredictos persistidos (aparte de `summary`: no es una métrica de assessment)
         "assets": rows,
         "recurring_findings": _recurring_findings(rows, statuses),
         "modeling_composition": {"inventory": inventory.inventory_for(client), "current_assessment_scope": _assessment_scope(rows, statuses)},
     }
+
+
+# ───────────────────── síntesis de adopción metodológica (agregación DESCRIPTIVA de veredictos persistidos) ─────────────────────
+ADOPTION_LEVELS = ("PLENA", "BUENA", "ADECUADA", "PARCIAL")           # categorías ORDINALES del Juicio; jamás se promedian ni se convierten en números
+ND_VERDICT = "NOT_DETERMINABLE"
+(SYN_NO_ARTIFACTS, SYN_NONE_CURRENT, SYN_ONLY_ND, SYN_MAJORITY_ND, SYN_UNANIMOUS, SYN_PREDOMINANT, SYN_TIE) = (
+    "NO_ARTIFACTS", "NONE_CURRENT", "ONLY_NOT_DETERMINABLE", "MAJORITY_NOT_DETERMINABLE", "UNANIMOUS", "PREDOMINANT", "TIE")
+
+
+def adoption_synthesis(rows: list[dict]) -> dict:
+    """Síntesis DESCRIPTIVA y determinística de los veredictos del Juicio PERSISTIDOS de los artefactos en alcance (no recalcula, no puntúa, no promedia).
+    Regla explícita:
+      1. Solo cuentan los assessments VIGENTES (``state == CURRENT``) con Juicio. Los STALE (``stale``) y los sin veredicto vigente (``no_verdict``: sin assessment, no aplica, no disponible,
+         no compatible) se informan aparte y NO entran en la síntesis.
+      2. Entre los vigentes, los NO DETERMINABLES (``not_determinable``) NO son un valor: se cuentan aparte y nunca se mapean a un número ni a una categoría.
+      3. Predominante = veredicto MÁS FRECUENTE (moda) entre los determinados. Si hay más de uno con la frecuencia máxima → ``TIE`` (sin predominante; no se desempata por «mejor» ni «peor»).
+         Si TODOS los vigentes tienen el mismo veredicto → ``UNANIMOUS``. Si los no determinables superan a los determinados → ``MAJORITY_NOT_DETERMINABLE`` (no se declara predominante).
+      4. Sin artefactos → ``NO_ARTIFACTS``; sin vigentes → ``NONE_CURRENT``; solo no determinables → ``ONLY_NOT_DETERMINABLE``.
+    Devuelve conteos y la decisión (``kind``, ``predominant``, ``tied``); el texto vive en ``adoption_story``."""
+    counts = {lvl: 0 for lvl in ADOPTION_LEVELS}
+    nd = stale = no_verdict = current = 0
+    for r in rows:
+        st, verdict = r.get("state"), (r.get("adoption") or {}).get("verdict")
+        if st == svc.CURRENT and verdict is not None:
+            current += 1
+            if verdict == ND_VERDICT:
+                nd += 1
+            elif verdict in counts:
+                counts[verdict] += 1
+            else:                                                   # veredicto desconocido: se informa como sin veredicto vigente, nunca se inventa una categoría
+                current -= 1
+                no_verdict += 1
+        elif st == svc.STALE:
+            stale += 1
+        else:
+            no_verdict += 1
+    determined = sum(counts.values())
+    out = {"total": len(rows), "current": current, "determined": determined, "counts": counts, "not_determinable": nd, "stale": stale, "no_verdict": no_verdict,
+           "kind": None, "predominant": None, "tied": []}
+    if not rows:
+        out["kind"] = SYN_NO_ARTIFACTS
+    elif current == 0:
+        out["kind"] = SYN_NONE_CURRENT
+    elif determined == 0:
+        out["kind"] = SYN_ONLY_ND
+    elif nd > determined:
+        out["kind"] = SYN_MAJORITY_ND
+    else:
+        top = max(counts.values())
+        leaders = [lvl for lvl in ADOPTION_LEVELS if counts[lvl] == top]
+        if len(leaders) > 1:
+            out["kind"], out["tied"] = SYN_TIE, leaders
+        else:
+            out["predominant"] = leaders[0]
+            out["kind"] = SYN_UNANIMOUS if counts[leaders[0]] == current else SYN_PREDOMINANT
+    return out
+
+
+def adoption_story(syn: dict) -> dict | None:
+    """Presentación de ``adoption_synthesis`` (solo formatea; no decide): titular, detalle, tono y fichas con conteos. ``None`` si no hay artefactos."""
+    kind = syn["kind"]
+    if kind == SYN_NO_ARTIFACTS:
+        return None
+    lab = presenter._JDG_LEVEL_LABEL
+    tone = lambda lvl: presenter.status_tone(lvl)                                              # noqa: E731 — el color sale del mapeo canónico ÚNICO del Hub
+    cur, nd, counts = syn["current"], syn["not_determinable"], syn["counts"]
+    if kind == SYN_NONE_CURRENT:
+        headline, tn = "No hay assessments vigentes para sintetizar la adopción metodológica.", presenter.NEUTRAL
+    elif kind == SYN_ONLY_ND:
+        headline, tn = f"Los {cur} assessments vigentes son no determinables: no hay un veredicto para sintetizar." if cur != 1 else "El único assessment vigente es no determinable: no hay un veredicto para sintetizar.", presenter.NEUTRAL
+    elif kind == SYN_MAJORITY_ND:
+        headline, tn = f"La mayoría de los assessments vigentes ({nd} de {cur}) no pudo determinarse: no se declara un veredicto predominante.", presenter.NEUTRAL
+    elif kind == SYN_TIE:
+        names = " y ".join(lab[t] for t in syn["tied"])
+        headline, tn = f"Sin veredicto predominante: empate entre {names} ({counts[syn['tied'][0]]} artefactos cada uno).", presenter.NEUTRAL
+    elif kind == SYN_UNANIMOUS:
+        p = syn["predominant"]
+        headline, tn = f"Adopción {lab[p]} en {cur} de {cur} artefactos vigentes.", tone(p)
+    else:
+        p = syn["predominant"]
+        pend = f"; {nd} no determinable{'s' if nd != 1 else ''}, pendiente{'s' if nd != 1 else ''} de determinar" if nd else ""
+        headline, tn = f"Predomina la adopción {lab[p]}: {counts[p]} de {cur} artefactos vigentes{pend}.", tone(p)
+    chips = [{"label": lab[l], "count": counts[l], "tone": tone(l)} for l in ADOPTION_LEVELS if counts[l]]
+    if nd:
+        chips.append({"label": "No determinable", "count": nd, "tone": presenter.NEUTRAL})
+    aside = []
+    if syn["stale"]:
+        aside.append(f"{syn['stale']} desactualizado{'s' if syn['stale'] != 1 else ''}")
+    if syn["no_verdict"]:
+        aside.append(f"{syn['no_verdict']} sin veredicto vigente (sin assessment, no aplica o no disponible)")
+    badge = (lab[syn["predominant"]] if syn["predominant"] else
+             {SYN_TIE: "Sin predominio", SYN_MAJORITY_ND: "No determinable", SYN_ONLY_ND: "No determinable", SYN_NONE_CURRENT: "Sin vigentes"}[kind])
+    return {"kind": kind, "headline": headline, "tone": tn, "badge": badge, "chips": chips,
+            "outside": ("Fuera de la síntesis: " + "; ".join(aside) + ".") if aside else None,
+            "criterion": "Criterio: veredicto más frecuente entre los assessments vigentes (no es un promedio ni un puntaje); los no determinables y los no vigentes se informan aparte y no se cuentan como un valor.",
+            "markdown": headline + (" " + " · ".join(f"{c['label']} {c['count']}" for c in chips) + "." if chips else "") + (" " + "; ".join(aside) + "." if aside else "")}
 
 
 # ───────────────────── presentación / exportaciones (del MISMO snapshot) ─────────────────────
@@ -334,6 +439,7 @@ def report_view(snap: dict) -> dict:
         "coverage_whole": {r["entry_id"]: (presenter.percent(r["coverage_strict"], 0) if r["coverage_strict"] is not None else DASH)
                            for r in snap["assets"]},                  # solo presentación de la tabla HTML; el snapshot/JSON conserva el valor y su precisión
         "confidence_story": confidence_story(s["confidence_distribution"]),
+        "adoption_story": adoption_story(snap["adoption_synthesis"]),
         "state_rows": [{"state": st, "label": presenter.STATE_LABELS[st], "count": snap["states"][st]} for st in svc.STATES],
         "confidence_rows": [{"level": lvl, "label": presenter.confidence_label(lvl), "count": s["confidence_distribution"][lvl]}
                             for lvl in CONFIDENCE_ORDER],
@@ -360,6 +466,8 @@ def to_markdown(snap: dict) -> str:
     lines += [f"- {r['label']}: {r['count']}" for r in v["confidence_rows"]]
     if v["confidence_story"]:
         lines += ["", f"> {v['confidence_story']}"]
+    if v["adoption_story"]:
+        lines += ["", f"> **Síntesis de adopción metodológica.** {v['adoption_story']['markdown']}"]
     lines += ["", "## Artefactos", "", "| Artefacto | Estado | Cobertura | Confianza | Observaciones | Revisión requerida | Adopción metodológica |", "|---|---|---|---|---|---|---|"]
     for r in snap["assets"]:
         lines.append("| " + " | ".join(_cell(x) for x in (

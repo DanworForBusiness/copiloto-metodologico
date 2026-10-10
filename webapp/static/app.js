@@ -694,17 +694,25 @@ document.body.addEventListener("htmx:afterSwap", event => {
   }
 });
 // ── Catálogo: estado de navegación (carga · error · cancelación) ────────────────────────────────────────────────────────────
-// Dos superficies, UN solo juego de listeners (este archivo se carga una vez), SIN timers ni progreso simulado:
+// Dos superficies, UN solo juego de listeners (este archivo se carga una vez), SIN progreso simulado ni duración mínima de loader:
 //  · LISTAS (Líneas de negocio / Clientes): la carga es NATIVA de htmx (`hx-indicator` marca `.catalog-region.htmx-request`, que el CSS usa para ocultar las
 //    tarjetas anteriores y mostrar el loader; `hx-sync="this:replace"` aborta la solicitud previa). Acá solo: aria-busy, error y reintento.
-//  · PANEL CENTRAL (`#catalog-detail-slot`): al pedir un tile (GET) se abre el panel con el loader YA, sin conservar el contenido anterior; el swap del
-//    detalle lo reemplaza (el loader termina cuando el contenido está en el DOM). Hay 20+ emisores hacia ese slot, por eso la cancelación de la solicitud previa
-//    se hace acá (una sola vez) y no con un `hx-sync` por emisor.
+//  · PANEL CENTRAL (`#catalog-detail-slot`): loader PROPORCIONAL a la espera real. Una respuesta más rápida que GRACE_MS no muestra loader (continuidad visual: se pasa
+//    del contenido anterior al nuevo sin parpadeo); si la espera supera GRACE_MS se abre el panel con el loader, sin conservar contenido anterior, y dura exactamente hasta
+//    que el contenido nuevo está en el DOM (sin mínimo). Hay 20+ emisores hacia ese slot, por eso la cancelación de la solicitud previa se hace acá (una sola vez) y no
+//    con un `hx-sync` por emisor.
+//  · VOLVER sin pedir de nuevo: al navegar hacia adelante dentro del slot se guarda UNA instantánea (un nivel, clonada) del contenido real que se abandona; un «← Volver» (`.catalog-back`)
+//    que pide EXACTAMENTE esa misma URL la restaura en lugar de repetir la solicitud. La instantánea se descarta ante cualquier solicitud NO-GET (POST: regenerar, etc.), al cerrar el
+//    detalle, al reemplazarla otra navegación o pasado BACK_TTL_MS: nunca se sirve un contenido que pueda haber cambiado por una acción del usuario.
 // Dueña de la UI = la ÚLTIMA solicitud (`detail.xhr`): una respuesta/aborto/error de una solicitud anterior jamás toca la UI de la vigente.
 // Un error de red/HTTP se muestra como ERROR con reintento (nunca como "sin datos"); una cancelación por reemplazo es silenciosa.
 const DwCatalogNav = (() => {
   const DETAIL_ID = "catalog-detail-slot";
-  const owners = new WeakMap();                      // contenedor (región de lista | slot) → { xhr, retry }
+  const GRACE_MS = 150;                              // umbral de continuidad (NO es un mínimo): respuestas más rápidas no muestran loader; si se supera, el loader dura lo que dure la espera
+  const BACK_TTL_MS = 120000;                        // vida máxima de la instantánea de «Volver»
+  const owners = new WeakMap();                      // contenedor (región de lista | slot) → { xhr, retry, timer }
+  let current = null;                                // { path, at }: contenido REAL (GET) que muestra hoy el slot (null si hay loader/error/vacío/POST)
+  let back = null;                                   // { path, at, scroll, nodes }: instantánea de UN nivel del contenido previo
   const slotEl = () => document.getElementById(DETAIL_ID);
   const tpl = (id) => { const t = document.getElementById(id); return t && t.content ? t.content.cloneNode(true) : null; };
   const regionOf = (elt) => { const sel = elt && elt.getAttribute && elt.getAttribute("data-dw-nav-region"); return sel ? document.querySelector(sel) : null; };
@@ -713,10 +721,15 @@ const DwCatalogNav = (() => {
   const containerFor = (d) => (d.target && d.target.id === DETAIL_ID ? slotEl() : regionOf(d.elt));
   const isOwner = (container, xhr) => { const o = container && owners.get(container); return !!o && o.xhr === xhr; };
 
+  const verbOf = (d) => String((d.requestConfig && d.requestConfig.verb) || "").toLowerCase();
+  const canon = (p) => {                             // URL canónica (parámetros decodificados y ordenados): `%20` y `+` son la misma consulta
+    try { const u = new URL(p, location.href); return u.pathname + "?" + Array.from(u.searchParams.entries()).sort().map(([k, v]) => k + "=" + v).join("&"); } catch (_) { return String(p); }
+  };
+
   function begin(container, xhr, retry) {
     const prev = owners.get(container);
-    if (prev && prev.xhr !== xhr) { try { prev.xhr.abort(); } catch (_) { /* ya terminada */ } }
-    owners.set(container, { xhr, retry });
+    if (prev) { clearTimeout(prev.timer); if (prev.xhr !== xhr) { try { prev.xhr.abort(); } catch (_) { /* ya terminada */ } } }
+    owners.set(container, { xhr, retry, timer: null });
   }
   function openDetail() {                            // mismo criterio que el handler htmx:afterSwap existente (guarda el scroll del módulo la primera vez)
     const content = document.getElementById("content");
@@ -728,7 +741,10 @@ const DwCatalogNav = (() => {
   function closeDetail() {
     const s = slotEl(), content = document.getElementById("content");
     if (!s) return;
+    const o = owners.get(s);
+    if (o) clearTimeout(o.timer);
     owners.delete(s);
+    current = back = null;
     s.replaceChildren();
     s.removeAttribute("aria-busy");
     if (content && content.classList.contains("catalog-detail-open")) {
@@ -739,20 +755,56 @@ const DwCatalogNav = (() => {
   function showError(container, templateId) {
     const node = tpl(templateId);
     if (!node) return;
+    if (container.id === DETAIL_ID) { current = null; openDetail(); }           // un fallo ANTES del umbral: el panel aún no estaba abierto
     container.replaceChildren(node);
     container.removeAttribute("aria-busy");
+  }
+  function snapshot(s, requestedPath) {              // navegación hacia adelante: instantánea (clon) del contenido REAL que se abandona
+    if (!current || s.querySelector("[data-dw-nav-loading]") || !s.childNodes.length || canon(requestedPath) === current.path) return;
+    const content = document.getElementById("content");
+    back = { path: current.path, at: current.at, scroll: content ? content.scrollTop : 0, nodes: Array.from(s.childNodes, (n) => n.cloneNode(true)) };
+  }
+  function tryRestore(d, s, path) {                  // «← Volver» a EXACTAMENTE el contenido ya cargado, sin repetir la solicitud
+    const isBack = !!(d.elt && d.elt.classList && d.elt.classList.contains("catalog-back"));
+    if (!isBack || !back || Date.now() - back.at > BACK_TTL_MS || canon(path) !== back.path) return false;
+    const snap = back;
+    back = null;
+    current = { path: snap.path, at: snap.at };
+    const o = owners.get(s);
+    if (o) { clearTimeout(o.timer); owners.delete(s); try { o.xhr.abort(); } catch (_) { /* ya terminada */ } }
+    openDetail();
+    s.replaceChildren(...snap.nodes);
+    s.removeAttribute("aria-busy");
+    htmx.process(s);                                 // reengancha hx-* (equivale a la tarea de settle de un swap)
+    Array.from(s.children).forEach((c) => htmx.trigger(c, "htmx:load"));
+    const content = document.getElementById("content");
+    if (content) content.scrollTop = snap.scroll;
+    return true;
   }
 
   function onBeforeRequest(e) {
     const d = e.detail || {};
+    const verb = verbOf(d);
+    if (verb && verb !== "get") {                    // una acción del usuario (POST: regenerar, etc.) puede cambiar el contenido: nada guardado sigue siendo válido
+      back = null;
+      if (d.target && d.target.id === DETAIL_ID) current = null;
+    }
     if (isDetailGet(d)) {
-      const s = slotEl(), loading = tpl("catalog-detail-loading-tpl");
-      if (!s || !loading) return;
+      const s = slotEl();
+      if (!s) return;
       const path = (d.pathInfo && d.pathInfo.finalRequestPath) || (d.requestConfig && d.requestConfig.path);
+      if (tryRestore(d, s, path)) { if (e.preventDefault) e.preventDefault(); return; }      // sin solicitud, sin loader
+      snapshot(s, path);
       begin(s, d.xhr, () => htmx.ajax("GET", path, { target: "#" + DETAIL_ID, swap: "innerHTML" }));
-      openDetail();
-      s.replaceChildren(loading);
+      const o = owners.get(s);
       s.setAttribute("aria-busy", "true");
+      o.timer = setTimeout(() => {                   // la espera superó el umbral: loader (la última solicitud sigue siendo la dueña)
+        const loading = tpl("catalog-detail-loading-tpl");
+        if (owners.get(s) !== o || !loading) return;
+        current = null;
+        openDetail();
+        s.replaceChildren(loading);
+      }, GRACE_MS);
       return;
     }
     const region = regionOf(d.elt);
@@ -765,6 +817,7 @@ const DwCatalogNav = (() => {
     const d = e.detail || {};
     const container = containerFor(d);
     if (!container || !isOwner(container, d.xhr)) return;        // la UI es de una solicitud posterior (reemplazo/cancelación): no se toca
+    clearTimeout(owners.get(container).timer);                   // respondió antes del umbral: no hubo (ni habrá) loader
     const el = container.id === DETAIL_ID ? container : listBox(container);
     if (el) el.removeAttribute("aria-busy");
     // 2xx sin contenido (204…) con el loader aún puesto: htmx no swapeó nada → no dejar un loader permanente
@@ -774,6 +827,7 @@ const DwCatalogNav = (() => {
     const d = e.detail || {};
     const container = containerFor(d);
     if (!container || !isOwner(container, d.xhr)) return;
+    clearTimeout(owners.get(container).timer);
     if (container.id === DETAIL_ID) showError(container, "catalog-detail-error-tpl");
     else { const box = listBox(container); if (box) showError(box, "catalog-list-error-tpl"); }
   }
@@ -785,9 +839,17 @@ const DwCatalogNav = (() => {
     const o = container && owners.get(container);
     if (o && o.retry) o.retry();
   }
+  function onAfterSwap(e) {                                      // qué contenido REAL muestra el slot (origen de «Volver»)
+    const d = e.detail || {};
+    if (!d.target || d.target.id !== DETAIL_ID) return;
+    if (verbOf(d) !== "get") { current = back = null; return; }
+    current = { path: canon((d.pathInfo && d.pathInfo.finalRequestPath) || (d.requestConfig && d.requestConfig.path)), at: Date.now() };
+  }
   function cancelDetail() {                                      // "← Volver" durante la carga: la respuesta en vuelo no puede reabrir el panel
+    current = back = null;                                       // cerrar el detalle descarta la instantánea
     const s = slotEl(), o = s && owners.get(s);
     if (!o) return;
+    clearTimeout(o.timer);
     owners.delete(s);
     s.removeAttribute("aria-busy");
     try { o.xhr.abort(); } catch (_) { /* ya terminada */ }
@@ -795,9 +857,10 @@ const DwCatalogNav = (() => {
 
   document.body.addEventListener("htmx:beforeRequest", onBeforeRequest);
   document.body.addEventListener("htmx:afterRequest", onAfterRequest);
+  document.body.addEventListener("htmx:afterSwap", onAfterSwap);
   ["htmx:responseError", "htmx:sendError", "htmx:timeout", "htmx:sendAbort"].forEach((n) => document.body.addEventListener(n, onFailure));
   document.body.addEventListener("click", onClick);
-  return { onBeforeRequest, onAfterRequest, onFailure, onClick, cancelDetail, closeDetail };
+  return { onBeforeRequest, onAfterRequest, onAfterSwap, onFailure, onClick, cancelDetail, closeDetail };
 })();
 window.DwCatalogNav = DwCatalogNav;
 document.body.addEventListener("htmx:load", syncAssistantFeedbackState);

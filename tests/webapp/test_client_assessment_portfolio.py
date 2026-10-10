@@ -180,7 +180,7 @@ def test_html_json_and_markdown_derive_from_one_snapshot(world):
     md = c.get("/catalog/client/assessment.md?flow=a")
     assert html.status_code == j.status_code == md.status_code == 200
     snap = j.json()
-    assert set(snap) == {"schema_version", "generated_at", "client", "catalog_assets", "states", "summary", "assets", "recurring_findings", "modeling_composition"}   # + composición del modelado (aditiva)
+    assert set(snap) == {"schema_version", "generated_at", "client", "catalog_assets", "states", "summary", "adoption_synthesis", "assets", "recurring_findings", "modeling_composition"}   # + composición del modelado y síntesis de adopción (aditivas)
     fresh = pf.build_snapshot(world.entries["a"], PACK)
     fresh["generated_at"] = snap["generated_at"]
     assert snap == fresh and md.text == pf.to_markdown(snap)                                                    # JSON = snapshot; MD = f(snapshot)
@@ -371,7 +371,8 @@ def test_client_report_shows_adoption_as_the_only_grade_and_never_the_legacy_cat
     assert "<th>Adopción metodológica</th>" in html and "Veredicto del catálogo" not in html and "scoring" not in html.lower()
     snap = c.get("/catalog/client/assessment.json?flow=a").json()
     assert all("catalog_verdict" not in r for r in snap["assets"])                                    # el grado legacy del catálogo está RETIRADO del snapshot
-    assert all(set(r["adoption"]) == {"label", "tone", "has_judgment"} for r in snap["assets"])
+    assert all(set(r["adoption"]) == {"label", "tone", "has_judgment", "verdict"} for r in snap["assets"])             # `verdict`: código del Juicio persistido (None sin Juicio)
+    assert all(r["adoption"]["verdict"] is None for r in snap["assets"])
     assert all(r["adoption"]["tone"] == "neutra" and not r["adoption"]["has_judgment"] for r in snap["assets"])   # sin Juicio persistido: neutro, jamás el grado del catálogo
     last_cells = re.findall(r'<td><span class="catalog-card__verdict catalog-card__verdict--(\w+)">([^<]+)</span></td>\s*</tr>', html)
     assert last_cells and all(t == "neutra" for t, _ in last_cells)                                     # columna Adopción: neutra sin Juicio (nunca el 'buena' del catálogo)
@@ -537,14 +538,14 @@ def test_zero_current_assessments_render_no_confidence_callout(world, monkeypatc
     html = _client().get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
     resumen = html[html.index('id="cli-resumen"'): html.index('id="cli-artefactos"')]
     assert "callout" not in resumen                                                                  # sin vigentes no hay conclusión inventada
-    assert "callout" not in html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]   # ya no hay lectura del veredicto legacy del catálogo
+    assert "callout" not in html[html.index('id="cli-artefactos"'): html.index('id="cli-adopcion"')]   # ya no hay lectura del veredicto legacy del catálogo en la sección Artefactos
 
 
 def test_both_closures_use_the_standard_punch_callout_primitive(world):
     c = _client()
     html = c.get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX).text
     resumen = html[html.index('id="cli-resumen"'): html.index('id="cli-artefactos"')]
-    arts = html[html.index('id="cli-artefactos"'): html.index('id="cli-hallazgos"')]
+    arts = html[html.index('id="cli-artefactos"'): html.index('id="cli-adopcion"')]
     story = pf.report_view(_snap(world))["confidence_story"]
     assert resumen.count('<aside class="callout callout--punch">') == 1 and story in resumen and "<aside" not in arts
     assert resumen.index("</table>") < resumen.index("<aside")                                          # después de las tablas
