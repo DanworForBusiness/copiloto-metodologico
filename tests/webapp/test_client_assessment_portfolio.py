@@ -306,8 +306,8 @@ def test_portfolio_reuses_the_individual_report_structure_not_a_copy(world):
     assert shared <= used
     # todas las clases del consolidado existen en el informe individual o en el macro compartido (ninguna clase propia del Portfolio)
     vocabulary = set(re.findall(r"[A-Za-z][\w-]+", single + macros))                          # incluye clases armadas con Jinja (`catalog-meta-dot{% if … %}`)
-    hub = {"table-fixed-columns", "reference-text-link", "catalog-note__ev"}                    # primitivos EXISTENTES del Hub (content.css / tools.css): tabla de columnas equivalentes, enlace de texto, metadata secundaria
-    own = {c for c in used - vocabulary - hub if not c.startswith(("catalog-card__verdict--", "callout--"))}           # los tonos del badge son los del informe individual
+    hub = {"table-fixed-columns", "reference-text-link", "catalog-note__ev", "catalog-meta-dot"}   # primitivos EXISTENTES del Hub (content.css / tools.css): tabla de columnas equivalentes, enlace de texto, metadata secundaria, punto de estado
+    own = {c for c in used - vocabulary - hub if not c.startswith(("catalog-card__verdict--", "callout--", "catalog-meta-dot--"))}           # los tonos del badge/punto son los del Hub
     assert not own, own
     assert re.findall(r'<span class="section-eyebrow">\[(\d\d)\]</span>', html) == ["01", "02", "03", "04"]      # encabezado de sección compartido (la 04 es la Composición del modelado, aditiva)
     for own in ("tone-gold", "admin-help", "asm-client", "asr-client", "portfolio"):

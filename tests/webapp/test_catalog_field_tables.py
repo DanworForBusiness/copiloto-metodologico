@@ -1,9 +1,9 @@
 """
 test_catalog_field_tables.py — las tablas de campos de los artefactos del Catálogo (todas las capas) se muestran plegadas.
 
-Contrato: cada tabla `Campos (N)` y, en los modelos analíticos, `Medidas (N)` / `Atributos (N)` queda dentro del plegable EXISTENTE del Hub (`.content-collapsible`, <details>/<summary> nativos),
-COLAPSADO por defecto, con el conteo REAL de filas en el encabezado; cada una abre/cierra de forma independiente; la tabla queda byte a byte igual y ya renderizada (abrir no pide nada: sin hx-*,
-sin scripts); solo presentación (sin cambios en Evidence/Judgment/APIs/persistencia). Fixtures sintéticas.
+Contrato: cada tabla `Campos (N)` y, en los modelos analíticos, `Medidas (N)` / `Atributos (N)` queda dentro del disclosure EXISTENTE del Hub (`details.dashboard-section`: fondo transparente,
+borde fino, caret ▸/▾; sin barra gris), COLAPSADO por defecto, con el conteo REAL de filas en el encabezado; cada una abre/cierra de forma independiente; la tabla queda byte a byte igual y ya
+renderizada (abrir no pide nada: sin hx-*, sin scripts) dentro de `.matrix-scroll` (scroll interno en vez de recorte por el `overflow:hidden` del disclosure); solo presentación. Fixtures sintéticas.
 """
 from __future__ import annotations
 
@@ -33,21 +33,22 @@ def test_each_field_table_is_wrapped_closed_with_its_real_row_count_and_the_tabl
     html = _doc("<p>intro</p>", '<h4 id="campos-3">Campos (3)</h4>', T3, "<p>fin</p>")
     out = content.collapse_field_tables(html)
     assert out.count("<details") == 1 and "<h4" not in out
-    assert 'class="content-collapsible" id="campos-3">' in out and "<details class=\"content-collapsible\" id=\"campos-3\" open" not in out and " open" not in out.split("<summary")[0]
-    assert '<summary class="content-collapsible__summary">Campos (3)</summary><div class="content-collapsible__body">' + T3 + "</div></details>" in out   # tabla EXACTA dentro
+    assert '<details class="dashboard-section" id="campos-3">' in out and " open" not in out.split("<summary")[0]
+    assert ('<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Campos (3)</span></summary>'
+            '<div class="dashboard-section__body"><div class="matrix-scroll">' + T3 + "</div></div></details>") in out                                  # tabla EXACTA dentro
     assert out.startswith("<p>intro</p>") and out.endswith("<p>fin</p>")
 
 
 def test_the_header_count_is_the_real_number_of_rows_not_the_text_of_the_heading():
     out = content.collapse_field_tables(_doc('<h4 id="campos-9">Campos (9)</h4>', T2))
-    assert "<summary class=\"content-collapsible__summary\">Campos (2)</summary>" in out
+    assert '<span class="dashboard-section__title">Campos (2)</span>' in out
 
 
 def test_campos_medidas_and_atributos_each_get_their_own_independent_collapsible():
     html = _doc('<h4 id="campos-3">Campos (3)</h4>', T3, '<h4 id="medidas-2">Medidas (2)</h4>', T2, '<h4 id="atributos-5">Atributos (5)</h4>', T5)
     out = content.collapse_field_tables(html)
     assert out.count("<details") == 3 and out.count("</details>") == 3 and out.count(" open") == 0
-    assert re.findall(r'<summary class="content-collapsible__summary">([^<]+)</summary>', out) == ["Campos (3)", "Medidas (2)", "Atributos (5)"]
+    assert re.findall(r'<span class="dashboard-section__title">([^<]+)</span>', out) == ["Campos (3)", "Medidas (2)", "Atributos (5)"]
     blocks = re.findall(r"<details.*?</details>", out, re.S)
     assert len(blocks) == 3 and all(b.count("<details") == 1 for b in blocks)                       # sin anidar: abrir una no abre las otras
 
@@ -67,14 +68,18 @@ def test_opening_needs_no_request_the_table_is_already_rendered_and_nothing_is_w
     assert "<table>" in out                                                                        # ya está en el DOM
 
 
-def test_it_reuses_the_existing_hub_collapsible_component_and_does_not_add_new_css():
-    css = (REPO / "webapp/static/content.css").read_text(encoding="utf-8")
-    assert ".content-collapsible {" in css and ".content-collapsible__summary {" in css and ".content-collapsible__body {" in css
-    assert "catalog-field" not in css and "catalog-field" not in (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
-    # el plegable de contenido existente sigue generando EXACTAMENTE el mismo markup (misma función de apertura)
+def test_it_reuses_the_hub_disclosure_pattern_without_the_grey_bar_and_adds_no_new_css():
+    tools = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    for rule in (".dashboard-section {", ".dashboard-section__head {", ".dashboard-section__caret", ".dashboard-section__body {", ".matrix-scroll {"):
+        assert rule in tools, rule
+    head = re.search(r"\.dashboard-section \{([^}]*)\}", tools).group(1)
+    assert "background" not in head and "1px solid" in head                                              # fondo transparente + borde fino (sin barra gris de fondo completo)
+    assert "catalog-field" not in tools and "catalog-field" not in (REPO / "webapp/static/content.css").read_text(encoding="utf-8")
+    out = content.collapse_field_tables(_doc('<h4 id="campos-3">Campos (3)</h4>', T3))
+    assert "content-collapsible" not in out                                                              # ya no usa la barra gris del plegable de contenido
+    # el plegable de contenido existente queda INTACTO (mismo markup)
     legacy = content._collapsible_html("<!--DWCOLL:SHUT:Ver más-->x<!--DWCOLL:/-->")
     assert '<details class="content-collapsible"><summary class="content-collapsible__summary">Ver más</summary><div class="content-collapsible__body">' in legacy
-    assert content._collapsible_html("<!--DWCOLL:OPEN:T-->x<!--DWCOLL:/-->").startswith('<details class="content-collapsible" open>')
 
 
 # ── integración: el detalle del flujo (todas las capas) ─────────────────────
@@ -94,9 +99,9 @@ def test_the_flow_detail_collapses_the_field_tables_of_every_layer(tmp_path):
     entry = cs.load_catalog(str(tmp_path))[0]
     sections, *_ = main._catalog_flow_view(entry, None, "datasphere_core")
     html = "".join(s.html for s in sections)
-    assert re.findall(r'<summary class="content-collapsible__summary">((?:Campos|Medidas|Atributos) \(\d+\))</summary>', html) == ["Campos (4)", "Campos (3)", "Medidas (2)", "Atributos (5)"]
+    assert re.findall(r'<span class="dashboard-section__title">((?:Campos|Medidas|Atributos) \(\d+\))</span>', html) == ["Campos (4)", "Campos (3)", "Medidas (2)", "Atributos (5)"]
     assert not re.search(r'<h4 id="[^"]*">(?:Campos|Medidas|Atributos) \(', html) and html.count("<details") >= 4
-    assert " open" not in "".join(re.findall(r'<details class="content-collapsible"[^>]*>', html))                    # todas colapsadas
+    assert " open" not in "".join(re.findall(r'<details class="dashboard-section"[^>]*>', html))                    # todas colapsadas
     assert "<td>Capa</td>" in html and html.count("<tbody>") == 5                                                       # la tabla de propiedades no se pliega ni se pierde ninguna tabla
     for s in sections:
         assert s.number and s.title and s.slug and s.markdown                                                          # el resto de la sección queda igual

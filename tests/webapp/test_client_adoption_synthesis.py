@@ -149,16 +149,45 @@ def _html(c):
     return c.get(f"/catalog/client/assessment?flow=e0&pack={PACK}", headers=HX).text
 
 
-def test_the_callout_sits_between_artefactos_and_hallazgos_and_shows_counts_with_the_system_tone(portfolio):
+def test_the_callout_sits_right_after_the_artefactos_table_inside_section_02_with_no_separator_before_it(portfolio):
     portfolio([("BUENA", svc.CURRENT)] * 5 + [("NOT_DETERMINABLE", svc.CURRENT)])
     html = _html(_client())
     a, b, c = html.index('id="cli-artefactos"'), html.index('id="cli-adopcion"'), html.index('id="cli-hallazgos"')
     assert a < b < c
+    sec = html[a:c]
+    assert sec.index("</table>") < sec.index('id="cli-adopcion"') < sec.rindex("</section>")                       # tras la tabla y ANTES del cierre de la sección 02
+    between = sec[sec.index("</table>"): sec.index('id="cli-adopcion"')]
+    assert "</section>" not in between and "<hr" not in between                                                    # sin el cierre/línea de sección entre la tabla y el callout
+    wrapper = re.search(r'<div id="cli-adopcion"[^>]*>', html).group(0)
+    assert "content-section" not in wrapper                                                                       # el envoltorio no trae el padding/línea de `.content-section`
     block = html[b:c]
-    assert 'class="callout callout--punch"' in block and "Síntesis de adopción metodológica" in block                      # primitivo `callout("punch", …)` existente
-    assert "Predomina la adopción Buena: 5 de 6 artefactos vigentes" in block and "Buena · 5" in block and "No determinable · 1" in block
-    assert "catalog-card__verdict--plena" in block and "catalog-card__verdict--neutra" in block                         # verde (Buena) y gris (ND) del mapeo canónico
-    assert 'data-adoption-kind="PREDOMINANT"' in html
+    assert 'class="callout callout--punch"' in block and "Síntesis de adopción metodológica" in block              # primitivo `callout("punch", …)` existente
+    assert "Predomina la adopción Buena: 5 de 6 artefactos vigentes; 1 no determinable, pendiente de determinar." in block
+    assert 'data-adoption-kind="PREDOMINANT"' in html and "catalog-meta-dot--plena" in block                       # el tono (verde) lo da el punto de estado del Hub
+
+
+def test_one_main_message_no_redundant_badges_or_chips_when_everything_is_unanimous(portfolio):
+    portfolio([("BUENA", svc.CURRENT)] * 6)
+    block = _html(_client())
+    block = block[block.index('id="cli-adopcion"'): block.index('id="cli-hallazgos"')]
+    assert block.count("Adopción Buena en 6 de 6 artefactos vigentes.") == 1
+    assert "catalog-card__verdict" not in block and "Buena · 6" not in block and "BUENA" not in block.upper().replace("ADOPCIÓN BUENA", "")   # sin badge ni ficha que repitan el mensaje
+    assert "catalog-meta-dot--plena" in block and "No determinable" not in block and "Fuera de la síntesis" not in block
+
+
+def test_the_distribution_is_shown_only_when_it_adds_information(portfolio):
+    portfolio([("BUENA", svc.CURRENT)] * 3 + [("ADECUADA", svc.CURRENT), ("PARCIAL", svc.CURRENT), ("NOT_DETERMINABLE", svc.CURRENT), ("BUENA", svc.STALE), (None, svc.NOT_YET_ASSESSED)])
+    block = _html(_client())
+    block = block[block.index('id="cli-adopcion"'): block.index('id="cli-hallazgos"')]
+    assert "Buena · 3" in block and "Adecuada · 1" in block and "Parcial · 1" in block and "No determinable · 1" in block      # varias categorías: la distribución aporta
+    assert "Fuera de la síntesis: 1 desactualizado; 1 sin veredicto vigente" in block
+    portfolio([("BUENA", svc.CURRENT)] * 5 + [("NOT_DETERMINABLE", svc.CURRENT)])
+    one = _html(_client())
+    one = one[one.index('id="cli-adopcion"'): one.index('id="cli-hallazgos"')]
+    assert "catalog-card__verdict" not in one                                                                      # 5 + 1 ND: el titular ya lo dice todo (sin fichas redundantes)
+    portfolio([("BUENA", svc.CURRENT)] * 2 + [("ADECUADA", svc.CURRENT)] * 2)
+    tie = _html(_client())
+    assert "empate entre Buena y Adecuada" in tie and "Buena · 2" in tie and "Adecuada · 2" in tie                  # empate: la distribución es el fundamento
 
 
 def test_after_a1_the_same_report_code_shows_six_of_six_buena(portfolio):
