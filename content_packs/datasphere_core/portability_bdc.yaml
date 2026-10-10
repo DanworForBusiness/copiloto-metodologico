@@ -209,3 +209,247 @@ reglas:
     incidentes: [caso-2-decimal-37-19]
     habilitada: true
     version: 1
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# Compatibilidad BDC — contrato `compatibilidad_bdc/v1`
+#
+# EJE ADITIVO e INDEPENDIENTE del score de portabilidad (`reglas` + `config` de arriba no
+# se tocan): NO emite puntaje; describe, por ESCENARIO (mecanismo × destino) y por
+# RESTRICCIÓN, qué ocurre con cada tipo de dato. Es la FUENTE ÚNICA de las restricciones:
+# el motor (tools/catalog/compat_bdc.py), el Assessment y el contenido del Copiloto la
+# referencian por id; no se copian reglas en otro archivo.
+#
+# Principios:
+#   • Evidencia = el `tipo`/`longitud` canónico (CSN) de cada columna. Nunca el nombre/label.
+#   • Que un tipo NO figure en una matriz SAP NO es una prohibición universal: es
+#     `condicionada` + `pendiente_verificacion`. `incompatible_explicita` exige que la
+#     documentación SAP lo diga de forma expresa para ese mecanismo/destino.
+#   • El destino se DECLARA (manual.publicacion_bdc del flujo); jamás se infiere del linaje.
+#   • Cada restricción trae `estado_validacion`:
+#       sap_documentado        → lo afirma la documentación oficial SAP (con `fuentes`).
+#       danwor_empirico        → observación de proyectos Danwor (no es doc. SAP).
+#       pendiente_verificacion → depende de destino/mecanismo y aún no está verificado.
+#
+# estados_compatibilidad (de menos a más severo): compatible · conversion_documentada ·
+#   condicionada · adaptacion_requerida · incompatible_explicita (+ no_evaluable aparte).
+# ══════════════════════════════════════════════════════════════════════════════════
+compatibilidad:
+  contrato: "compatibilidad_bdc/v1"
+  version: 1
+
+  estados_compatibilidad:
+    compatible:            { etiqueta: "Compatible",                 orden: 0 }
+    conversion_documentada: { etiqueta: "Conversión documentada",     orden: 1 }
+    condicionada:          { etiqueta: "Compatibilidad condicionada", orden: 2 }
+    adaptacion_requerida:  { etiqueta: "Requiere adaptación",         orden: 3 }
+    incompatible_explicita: { etiqueta: "Incompatibilidad explícita", orden: 4 }
+    no_evaluable:          { etiqueta: "No evaluable",                orden: -1 }
+
+  estados_validacion:
+    sap_documentado:        "SAP documentado"
+    danwor_empirico:        "Validado Danwor"
+    pendiente_verificacion: "Pendiente de verificación"
+
+  # Fuentes oficiales SAP. `etiqueta` = texto del Support Link (solo [A-Za-z0-9 _-], contrato de
+  # `{{support: Etiqueta="url"}}`); la MISMA url vive en content/apendices/A04 y en los {{support}} del
+  # contenido (un test verifica que no diverjan).
+  fuentes:
+    SAP-RF-TIPOS:
+      etiqueta: "SAP Help Tipos Replication Flow"
+      titulo: "Unsupported Data Types in a Replication Flow"
+      url: "https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/6c770bbebb3c4086b30945fd2ebbfd75.html?locale=en-US"
+    SAP-LTF-TIPOS:
+      etiqueta: "SAP Help Tipos Local Table File"
+      titulo: "Data Types Supported By Local Tables (File)"
+      url: "https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/2f39104e5bd847919b8daee1580c4f68.html?locale=en-US"
+    SAP-COL-TIPOS:
+      etiqueta: "SAP Help Column Data Types"
+      titulo: "Column Data Types"
+      url: "https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/7b1dc6e0fad147de8e50aa8dc4744aa3.html?locale=en-US"
+    SAP-DP-BDC:
+      etiqueta: "SAP Help Data Products BDC"
+      titulo: "Creating Data Products for SAP Business Data Cloud"
+      url: "https://help.sap.com/docs/SAP_DATASPHERE/e4059f908d16406492956e5dbcf142dc/b07e95d07a1e4569b87d9bb57b732bcf.html?locale=en-US"
+
+  mecanismos:
+    replication_flow:         "Replication Flow"
+    transformation_flow:      "Transformation Flow"
+    data_product_delta_share: "Data Product (Delta Share)"
+  destinos:
+    hana_local_table:    "Tabla local HANA"
+    local_table_file:    "Local Table (File) / HDLF"
+    custom_data_product: "Custom Data Product (BDC)"
+
+  # Tipos válidos en SAP Datasphere (fuente SAP-COL-TIPOS). Un tipo fuera de esta lista es `no_evaluable`
+  # (no se asume compatibilidad ni incompatibilidad).
+  tipos_datasphere:
+    - Date
+    - DateTime
+    - Time
+    - Timestamp
+    - LargeString
+    - String
+    - Decimal
+    - DecimalFloat
+    - Double
+    - Integer
+    - Integer64
+    - hana.REAL
+    - hana.SMALLDECIMAL
+    - hana.SMALLINT
+    - hana.TINYINT
+    - Boolean
+    - Binary
+    - LargeBinary
+    - hana.BINARY
+    - UUID
+    - hana.ST_GEOMETRY
+    - hana.ST_POINT
+
+  # Escenarios = pares (mecanismo, destino) que el equipo puede DECLARAR en `manual.publicacion_bdc`.
+  escenarios:
+    - id: ESC-RF-HANA
+      mecanismo: replication_flow
+      destino: hana_local_table
+      nombre: "Replication Flow → tabla local HANA"
+      nota: "Ruta de adquisición habitual del dominio. Los tipos de Datasphere se conservan; no hay restricción de tipo documentada para este destino."
+    - id: ESC-RF-LTF
+      mecanismo: replication_flow
+      destino: local_table_file
+      nombre: "Replication Flow → Local Table (File)"
+      condiciones:
+        - { texto: "El destino es una tabla local de un espacio de archivos (HDLF).", fuentes: [SAP-LTF-TIPOS] }
+    - id: ESC-TF-LTF
+      mecanismo: transformation_flow
+      destino: local_table_file
+      nombre: "Transformation Flow → Local Table (File)"
+      condiciones:
+        - { texto: "El tipo de la columna se fija en la vista/tabla de origen del flujo, antes de materializar en el HDLF.", fuentes: [SAP-LTF-TIPOS] }
+    - id: ESC-DP-DELTA
+      mecanismo: data_product_delta_share
+      destino: custom_data_product
+      nombre: "Data Product Delta Share (BDC)"
+      condiciones:
+        - { texto: "Solo se pueden agregar tablas locales de un espacio SAP HANA Data Lake (sin vistas); solo se listan las tablas con tipos soportados.", fuentes: [SAP-DP-BDC] }
+        - { texto: "No se pueden filtrar columnas ni filas, ni quitar columnas de la tabla.", fuentes: [SAP-DP-BDC] }
+        - { texto: "Dos entidades cuyo nombre técnico difiere solo en mayúsculas/minúsculas se rechazan al desplegar.", fuentes: [SAP-DP-BDC] }
+        - { texto: "En tablas con captura delta, las columnas internas Change Date y Change Type no se publican; los consumidores reciben los cambios por Delta Sharing (CDF).", fuentes: [SAP-DP-BDC] }
+
+  # Restricciones. `tipos` en minúsculas-insensible; `alcance.mecanismos: ["*"]` = cualquiera.
+  # Si varias restricciones aplican a un tipo en un escenario gana la MÁS ESPECÍFICA (mecanismo
+  # explícito, luego menos destinos) y, ante empate, la más severa; las demás se informan como `tambien`.
+  restricciones:
+    - id: SAPC-RFLTF-001
+      nombre: "DecimalFloat se convierte a DECIMAL(38,6) al replicar a Local Table (File)"
+      alcance: { mecanismos: [replication_flow], destinos: [local_table_file] }
+      tipos: [DecimalFloat]
+      resultado: conversion_documentada
+      convierte_a: "DECIMAL(38,6)"
+      estado_validacion: sap_documentado
+      fuentes: [SAP-RF-TIPOS, SAP-LTF-TIPOS]
+      detalle: "Replication Flow convierte decfloat16/decfloat34 a decimal(38,6) al importar a una Local Table (File)."
+      implicancia: "Implicancia técnica derivada del tipo (no documentada por SAP): la escala queda fija en 6 y se pierde el rango flotante; conviene confirmar que el uso funcional lo tolera."
+      recomendacion: "Documentar la conversión y, si se quiere controlar el tipo, fijar DECIMAL(38,6) de forma explícita en Propagación (adaptación técnica del destino) en lugar de depender de la conversión implícita."
+      pregunta: "¿Los valores DecimalFloat toleran una escala fija de 6 decimales?"
+      sintesis: "los valores DecimalFloat se convierten a DECIMAL(38,6) al replicar"
+      evidencias:
+        - { estado_validacion: danwor_empirico, texto: "Caso Pampa Energía: la conversión explícita DecimalFloat → DECIMAL(38,6) resolvió la exportación a HDLF/Parquet (el mecanismo exacto no quedó registrado)." }
+      metodologia: { module_key: "03", section_key: portabilidad_tipos, label: "Modelo de Integración Híbrido", ancla: "del-tipo-del-runtime-al-tipo-del-contrato" }
+
+    - id: SAPC-RFLTF-002
+      nombre: "Columnas que Replication Flow no replica a Local Table (File)"
+      alcance: { mecanismos: [replication_flow], destinos: [local_table_file] }
+      tipos: [Time, hana.ST_POINT, hana.ST_GEOMETRY]
+      resultado: incompatible_explicita
+      estado_validacion: sap_documentado
+      fuentes: [SAP-RF-TIPOS]
+      detalle: "La documentación indica que las columnas de estos tipos no se replican a una Local Table (File)."
+      recomendacion: "Excluir la columna del flujo o transformarla a un tipo soportado (por ejemplo String) antes de replicar."
+      pregunta: "¿Las columnas de tipo Time o espacial son necesarias en el destino?"
+      sintesis: "las columnas {tipos} no se replican"
+      metodologia: { module_key: "03", section_key: portabilidad_tipos, label: "Modelo de Integración Híbrido", ancla: "del-tipo-del-runtime-al-tipo-del-contrato" }
+
+    - id: SAPC-RFLTF-003
+      nombre: "Tipos que la documentación lista como no replicados pero la matriz declara soportados"
+      alcance: { mecanismos: [replication_flow], destinos: [local_table_file] }
+      tipos: [hana.TINYINT, DateTime]
+      resultado: condicionada
+      estado_validacion: pendiente_verificacion
+      fuentes: [SAP-RF-TIPOS, SAP-LTF-TIPOS]
+      detalle: "La página de Replication Flow lista «tiny int» y «datatime» entre las columnas no replicadas, mientras la matriz de Local Table (File) declara hana.TINYINT y DateTime como soportados. La documentación es contradictoria."
+      recomendacion: "Verificar en un caso de prueba antes de depender de estas columnas."
+      pregunta: "¿Hay columnas hana.TINYINT o DateTime que deban llegar al destino?"
+      sintesis: "los tipos {tipos} requieren verificación (la documentación de SAP es contradictoria)"
+      metodologia: { module_key: "03", section_key: portabilidad_tipos, label: "Modelo de Integración Híbrido", ancla: "del-tipo-del-runtime-al-tipo-del-contrato" }
+
+    - id: SAPC-TFLTF-001
+      nombre: "DecimalFloat en publicación a HDLF mediante Transformation Flow"
+      alcance: { mecanismos: [transformation_flow], destinos: [local_table_file] }
+      tipos: [DecimalFloat]
+      resultado: adaptacion_requerida
+      convierte_a: "DECIMAL(38,6)"
+      estado_validacion: danwor_empirico
+      fuentes: [SAP-LTF-TIPOS]
+      detalle: "Observado en un proyecto Danwor: campos monetarios DecimalFloat publicados a HDLF se tradujeron a String(10) y la carga falló. SAP no documenta este comportamiento: es observación empírica."
+      implicancia: "Se observó en campos monetarios; aplicarlo por tipo, sin inferir semántica, es una extensión pendiente de verificar por mecanismo."
+      recomendacion: "Adaptar a DECIMAL(38,6) en Propagación, antes del artefacto físico destinado a HDLF (adaptación técnica del destino), sin alterar el contrato corporativo definido en Armonización; si la precisión y la escala son una decisión corporativa, definirlas en Armonización."
+      pregunta: "¿Se materializará con Transformation Flow hacia un espacio de archivos?"
+      sintesis: "los valores DecimalFloat requieren adaptación explícita a DECIMAL(38,6)"
+      evidencias:
+        - { estado_validacion: danwor_empirico, texto: "Incidente interno 1: DecimalFloat monetario → String(10) en la publicación a HDLF." }
+        - { estado_validacion: danwor_empirico, texto: "Caso Pampa Energía: DECIMAL(38,6) explícito resolvió la exportación a HDLF/Parquet." }
+        - { estado_validacion: pendiente_verificacion, texto: "No verificado para otros mecanismos ni para campos no monetarios." }
+      metodologia: { module_key: "03", section_key: portabilidad_tipos, label: "Modelo de Integración Híbrido", ancla: "del-tipo-del-runtime-al-tipo-del-contrato" }
+
+    - id: SAPC-LTF-001
+      nombre: "Tipo que la matriz de Local Table (File) no lista"
+      alcance: { mecanismos: ["*"], destinos: [local_table_file, custom_data_product] }
+      tipos: [DecimalFloat, Time, LargeString, LargeBinary, hana.SMALLDECIMAL, hana.ST_GEOMETRY, hana.ST_POINT]
+      resultado: condicionada
+      estado_validacion: pendiente_verificacion
+      fuentes: [SAP-LTF-TIPOS, SAP-COL-TIPOS]
+      detalle: "El tipo es válido en Datasphere pero no figura en la matriz de tipos soportados por Local Table (File). Que no figure no equivale a una prohibición: el comportamiento depende del mecanismo y del destino."
+      recomendacion: "Confirmar con el mecanismo concreto; si se necesita un contrato estable, fijar un tipo soportado de forma explícita en la capa de Propagación."
+      pregunta: "¿La columna se publica con su tipo actual o se puede fijar un tipo soportado en Propagación?"
+      sintesis: "los tipos {tipos} no figuran en la matriz de tipos soportados"
+      metodologia: { module_key: "03", section_key: portabilidad_tipos, label: "Modelo de Integración Híbrido", ancla: "del-tipo-del-runtime-al-tipo-del-contrato" }
+
+    - id: SAPC-LTF-002
+      nombre: "Timestamp en UTC para Local Table (File)"
+      alcance: { mecanismos: ["*"], destinos: [local_table_file, custom_data_product] }
+      tipos: [Timestamp]
+      resultado: condicionada
+      estado_validacion: sap_documentado
+      fuentes: [SAP-LTF-TIPOS]
+      detalle: "Timestamp está soportado, pero debe usar zona horaria UTC y almacenar valores UTC. El CSN no informa la zona horaria."
+      recomendacion: "Confirmar que los valores están en UTC o convertirlos en la capa de Propagación."
+      pregunta: "¿Las columnas Timestamp almacenan valores en UTC?"
+      sintesis: "los Timestamp deben almacenarse en UTC"
+      metodologia: { module_key: "03", section_key: portabilidad_tipos, label: "Modelo de Integración Híbrido", ancla: "del-tipo-del-runtime-al-tipo-del-contrato" }
+
+    - id: SAPC-DP-001
+      nombre: "Tipos no soportados en Custom Data Products"
+      alcance: { mecanismos: ["*"], destinos: [custom_data_product] }
+      tipos: [hana.BINARY, hana.REAL]
+      resultado: incompatible_explicita
+      estado_validacion: sap_documentado
+      fuentes: [SAP-LTF-TIPOS, SAP-DP-BDC]
+      detalle: "La matriz de Local Table (File) marca estos tipos como no soportados para Custom Data Products."
+      recomendacion: "Convertir la columna a un tipo soportado (Binary, Double o Decimal según corresponda) en la capa de Propagación antes de agregar la tabla al Data Product."
+      pregunta: "¿Estas columnas se publican en el Data Product?"
+      sintesis: "los tipos {tipos} no se admiten en un Data Product"
+      metodologia: { module_key: "03", section_key: data_contract, label: "Contrato de Datos vs. Data Product" }
+
+  # Preguntas para completar el análisis cuando NO hay destino declarado.
+  preguntas:
+    - id: Q-DESTINO
+      texto: "¿El dominio se publicará fuera de HANA (Local Table (File) / HDLF) o como Data Product de BDC?"
+    - id: Q-MECANISMO
+      texto: "¿Con qué mecanismo se replica o materializa hacia ese destino (Replication Flow o Transformation Flow)?"
+    - id: Q-DELTA-SHARE
+      texto: "¿Se compartirá mediante Delta Sharing hacia BDC o Databricks?"
+
+  # Cómo declarar el contexto (documentación; lo lee el Assessment para explicar la ausencia).
+  declaracion:
+    ubicacion: "manual.publicacion_bdc del flujo_*.md del Catálogo"
+    ejemplo: "publicacion_bdc: [{ mecanismo: replication_flow, destino: local_table_file }]"

@@ -19,6 +19,9 @@ key_topics:
   - id: tablas_remotas
     label: Tablas Remotas
     heading: "Tablas Remotas"
+  - id: portabilidad_tipos
+    label: Portabilidad de tipos
+    heading: "Modelo de Integración Híbrido"
 roadmap:
   - stage: "Contrato"
     tagline: "Qué te comprometés a entregar y bajo qué arquitectura"
@@ -227,6 +230,7 @@ La API Corporativa es el momento en que el dato pasa de pertenecer a SAP a perte
 ## {dw-black}Contrato de Datos vs. {dw-gold}Data Product
 {{section_meta: keywords="API extracción, API corporativa, data product, contrato de datos"}}
 {{subtitle: no-gap}}
+{{support: SAP Help Data Products BDC="https://help.sap.com/docs/SAP_DATASPHERE/e4059f908d16406492956e5dbcf142dc/b07e95d07a1e4569b87d9bb57b732bcf.html?locale=en-US"}}
 > En el modelo Danwor, ambos conceptos se utilizan de forma equivalente en el contexto de consumo.
 
   - El contrato de datos define estructura, semantica y reglas de acceso. Responde a **¿Qué prometemos entregar?**
@@ -240,6 +244,9 @@ La API Corporativa es el momento en que el dato pasa de pertenecer a SAP a perte
 {{callout: title="Contrato Propio" tone="punch" icon="🤝"}}
 En la práctica, el Data Product es el contrato de datos expuesto al negocio.
 {{/callout}}
+
+Cuando el Data Product se publica en BDC como **Delta Share**, el destino fija condiciones sobre el contrato: se agregan tablas locales de un espacio HDLF (no vistas), sin filtrar columnas ni filas, y solo con tipos soportados. Qué tipos requieren una decisión de contrato y dónde conviene tomarla se explica en [Del tipo del runtime al tipo del contrato](/modules/03_Integracion_y_Estrategia_de_Datos?pack={{pack}}#modelo-de-integracion-hibrido).
+
 
 {{tree_button: Resolución de Contrato}}
 
@@ -451,6 +458,7 @@ Es fundamental no verlas como alternativas (una u otra), sino que coexisten y tr
 {{section_meta: keywords="modelo híbrido, integración híbrida, híbrido federación persistencia, tablas remotas locales combinadas, evolución integración, remote tables local tables, data flow replication flow, cuándo usar híbrido"}}
 
 {{subtitle: no-gap}}
+{{support: SAP Help Tipos Replication Flow="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/6c770bbebb3c4086b30945fd2ebbfd75.html?locale=en-US" SAP Help Tipos Local Table File="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/2f39104e5bd847919b8daee1580c4f68.html?locale=en-US" SAP Help Column Data Types="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/7b1dc6e0fad147de8e50aa8dc4744aa3.html?locale=en-US"}}
 > La decisión entre federar y persistir no cambia el modelo de integración, sino el modo de consumo del Data Product.
 
 | Aspecto | Federacion / Tablas Remotas | Persistencia / Tablas Locales | Object Store / HDLF
@@ -462,13 +470,16 @@ Es fundamental no verlas como alternativas (una u otra), sino que coexisten y tr
 | **Limitaciones** | Dependencia del sistema origen (latencia, disponibilidad). Limitaciones en las transformaciones y uniones. Consultas complejas pueden ser lentas. | Almacenamiento (Licenciamiento/Capacity Units). Necesidad de sincronización y monitoreo. Potencial consistencia si los datos cambian rápidamente. | Requiere mínimo 128GB de memoria HANA habilitados (Nota SAP 3648786). Sin separación de ambientes DEV/QA/PRD en el storage (el lifecycle se gestiona desde los flujos). Mayor latencia que HANA in-memory para consultas analíticas frecuentes. El ciclo de vida del dato depende del flujo que lo genera, no del objeto en sí |
 | **Role en Danwor** | Acceso al Dato | Construccion del Data Product | Lakehouse / Aterrizaje BDC-ready |
 
-{{callout: title="Portabilidad HDLF/BDC" tone="warn" icon="⚠️"}}
-Cuando el Data Product aterriza en Object Store / HDLF (o se comparte vía Delta Sharing hacia Databricks), **un tipo válido en HANA no es necesariamente un contrato portable confiable cross-runtime**. Aprendizajes de campo Danwor:
+### Del tipo del runtime al tipo del contrato
+{{section_meta: keywords="portabilidad de tipos, DecimalFloat, DECIMAL(38,6), tipo válido en Datasphere, Local Table File, Custom Data Product, Delta Sharing tipos, tipos soportados HDLF, conversión de tipos publicación, contrato portable, cast contractual, Parquet decimal, replication flow tipos no soportados, adaptar tipo antes de publicar, cuándo convertir tipos"}}
 
-- Campos monetarios `DecimalFloat` pueden convertirse de forma impredecible (String(10)) al publicar → **normalizar a `DECIMAL(38,6)` en la capa contractual**.
-- Un KPI con escala inferida alta (ej. `DECIMAL(37,19)`) puede romper el Transformation Flow → **castear `CAST` en la misma expresión donde nace el campo**.
-- Regla: el tipo del campo derivado se fija **donde nace** (capa contractual / expresión de origen), no en la publicación. 
-{{/callout}}
+La compatibilidad de tipos depende del mecanismo de persistencia o publicación. Un tipo válido en SAP Datasphere no necesariamente forma parte del conjunto admitido por Local Table (File), HDLF o determinados contratos de Data Products: el tipo pertenece al runtime donde vive la tabla, y cada destino admite su propio conjunto.
+
+`DecimalFloat` es el ejemplo concreto. **SAP documenta** que un Replication Flow hacia una Local Table (File) convierte `decfloat16`/`decfloat34` a `decimal(38,6)`; en cambio, `DecimalFloat` no figura en la matriz de tipos soportados de Local Table (File) ni en la de Custom Data Products, y que no figure no equivale a que esté prohibido. **Nuestra experiencia** con HDLF (campos monetarios publicados con Transformation Flow, traducidos a `String(10)`) también evidenció la necesidad de adaptar el tipo, pero es una observación empírica de Danwor: no está verificada para otros mecanismos y no debe generalizarse.
+
+Cuando hace falta convertir, conviene validar el impacto en precisión, escala y rango: `DECIMAL(38,6)` fija la escala en 6 (los valores con más decimales se redondean), reemplaza el rango de un decimal flotante, y las sumas sobre valores redondeados pueden no conciliar con las del origen. Son implicancias derivadas del tipo, no documentadas por SAP.
+
+La decisión es validar la compatibilidad con el destino previsto y definir las adaptaciones necesarias. En qué capa corresponde cada una se resuelve con los criterios de [Arquitectura por Capas](/modules/04_Modelado_y_Desarrollo?pack={{pack}}#arquitectura-por-capas-guia-operativa) del módulo 04; el Assessment muestra qué restricciones aplican al modelo analizado.
 
 Te ayudamos a identificar el enfoque de Integración en SAP Datasphere a través de un **árbol determinístico** de decisión guiada.
 {{tree_button: Federación vs Persistencia vs Híbrido}}

@@ -233,7 +233,9 @@ def asset_evaluation(entry: Any, findings: list[dict] | None = None, assessed: b
     del evaluador legacy del Catálogo. ``findings`` = hallazgos de gobierno del Assessment persistido (``governed_findings``)."""
     if not assessed:
         return {"governance": None, "portability": None}
+    from webapp.services import bdc_compatibility_service       # eje ADITIVO e independiente del score de portabilidad (derivado en solo lectura; fail-soft)
     return {
         "governance": governance_view(findings if findings is not None else []),
         "portability": portability_view(getattr(entry, "portabilidad_bdc", None), getattr(entry, "portabilidad_ack", None), "dominio"),
+        "compatibility": bdc_compatibility_service.view_for_entry(entry),
     }

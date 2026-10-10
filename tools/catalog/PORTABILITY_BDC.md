@@ -126,3 +126,29 @@ La sección **“Portabilidad BDC”** aparece al final del detalle de un domini
   portabilidad — no las “simplifiques” sin entender por qué están.
 - **Regla de oro** (de los incidentes reales): el tipo de un campo derivado debe fijarse
   con `CAST` **en la misma capa/expresión donde nace**, no tarde durante la publicación.
+
+---
+
+# Compatibilidad BDC por restricciones (`compatibilidad_bdc/v1`)
+
+Eje **aditivo e independiente** del score de arriba: no emite puntaje y no cambia ni el score, ni la
+confianza, ni los hallazgos de portabilidad. Vive en el bloque *Portabilidad & preparación BDC* del
+Assessment, como «Compatibilidad con destinos BDC».
+
+- **Fuente única**: la sección `compatibilidad` de `content_packs/<pack>/portability_bdc.yaml`
+  (escenarios = mecanismo × destino, restricciones `SAPC-*`, fuentes SAP). Motor puro:
+  `tools/catalog/compat_bdc.py`; composición para el informe: `webapp/services/bdc_compatibility_service.py`.
+  No hay seeds en código a propósito: duplicar las restricciones crearía dos fuentes de verdad.
+- **Evidencia**: el `tipo`/`longitud` canónico de cada columna (el mismo que consume el evaluador de
+  portabilidad). Nunca el nombre ni el label del campo.
+- **Estados**: `compatible` · `conversion_documentada` · `condicionada` · `adaptacion_requerida` ·
+  `incompatible_explicita` (+ `no_evaluable`). Que un tipo no figure en una matriz SAP **no** es una
+  prohibición: es `condicionada` + `pendiente_verificacion`.
+- **Validación de cada restricción**: `sap_documentado` (doc. oficial, con `fuentes`), `danwor_empirico`
+  (observación de proyectos) o `pendiente_verificacion`.
+- **Contexto de publicación**: se **declara** en el flujo (`manual.publicacion_bdc`), por ejemplo
+  `publicacion_bdc: [{ mecanismo: replication_flow, destino: local_table_file }]`. Nunca se infiere del
+  linaje y no lo modifica. Sin declaración, el diagnóstico es «condicionado al destino» y lista las preguntas.
+- **Metodología**: cada restricción referencia una sección del Copiloto por `key_topics`
+  (`module_reference`), y las URLs SAP se registran una vez en `content/apendices/A04` y en los
+  `{{support: …}}` del contenido; un test verifica que no diverjan.

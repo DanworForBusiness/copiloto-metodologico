@@ -9,6 +9,43 @@
 {% macro tile_grid(tiles) %}<div class="activity-kpi-grid">{% for k in tiles %}{{ kpi_tile(k) }}{% endfor %}</div>{% endmacro %}
 {# Tabla de Gobierno / Portabilidad: filas ya escapadas por `asset_evaluation` (Markup); badge = `.catalog-card__verdict--{tone}`. #}
 {% macro evaluation_table(rows, headers) %}<table><thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr><td><span class="catalog-card__verdict catalog-card__verdict--{{ r.tone }}">{{ r.label }}</span></td><td>{{ r.title }}</td><td>{{ r.evidence }}{% if r.reference_text %}<br><em>Referencia: {{ r.reference_text }}</em>{% endif %}</td></tr>{% endfor %}</tbody></table>{% endmacro %}
+{# Compatibilidad con destinos BDC (eje ADITIVO, sin puntaje): `c` = `bdc_compatibility_service.build_view`. Mismo disclosure (`details.dashboard-section`) y tablas nativas del Hub; los estados usan los
+   badges `.catalog-card__verdict--*` y el estado de validación el punto `.catalog-meta-dot--*` + texto (SAP documentado / Validado Danwor / Pendiente de verificación). Los enlaces SAP son Support Links. #}
+{% macro compatibility_block(c, id="asr-compatibilidad") %}{% if c %}
+<details class="dashboard-section" id="{{ id }}">
+  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Compatibilidad con destinos BDC</span><span class="dashboard-section__count">{{ c.summary }}</span></summary>
+  <div class="dashboard-section__body">
+    <p>{{ c.lead }}</p>
+    <p class="catalog-verdict-line"><span class="catalog-card__verdict catalog-card__verdict--{{ c.state.tone }}">{{ c.state.label }}</span> <span>{{ c.context }}</span></p>
+    {% for bad in c.invalid %}<p class="catalog-note__ev">Declaración no reconocida ({{ bad.valor }}): {{ bad.motivo }}. Se trata como destino no declarado.</p>{% endfor %}
+    {% if c.questions %}{% call callout("punch", "Para completar el análisis", icon="💡") %}<p>{% if c.declared %}Quedan abiertos:{% else %}Con estas respuestas el diagnóstico pasa de condicionado a concreto. Se declaran en <code>{{ c.declaration.ubicacion }}</code>, por ejemplo <code>{{ c.declaration.ejemplo }}</code>.{% endif %}</p><ul>{% for q in c.questions %}<li>{{ q.texto }}</li>{% endfor %}</ul>{% endcall %}{% endif %}
+    {% for s in c.scenarios %}
+    <h3>{{ s.name }}{% if not c.declared %} <span class="catalog-note__ev">(hipótesis)</span>{% endif %}</h3>
+    <p class="catalog-verdict-line"><span class="catalog-card__verdict catalog-card__verdict--{{ s.tone }}">{{ s.state_label }}</span>{% if s.note %} <span>{{ s.note }}</span>{% endif %}</p>
+    {% if s.conditions %}<p class="catalog-note__ev">Condiciones del destino (SAP)</p><ul class="catalog-note__ev">{% for cnd in s.conditions %}<li>{{ cnd.text }}</li>{% endfor %}</ul>{% endif %}
+    {% if s.rows %}
+    <div class="matrix-scroll"><table><thead><tr><th>Estado</th><th>Restricción · Evidencia</th><th>Recomendación</th></tr></thead><tbody>
+      {% for r in s.rows %}<tr>
+        <td><span class="catalog-card__verdict catalog-card__verdict--{{ r.tone }}">{{ r.state_label }}</span><br><span class="catalog-note__ev"><span class="catalog-meta-dot catalog-meta-dot--{{ r.validation_tone }}" aria-hidden="true"></span> {{ r.validation_label }}</span></td>
+        <td><strong>{{ r.name }}</strong> <code>{{ r.id }}</code><br>{{ r.detail }}{% if r.converts_to %} Tipo resultante: <code>{{ r.converts_to }}</code>.{% endif %}
+          <br><span class="catalog-note__ev">{{ r.evidence }}{% if r.examples %} — p. ej. {{ r.examples|join(", ") }}{% endif %}</span>
+          {% if r.implication %}<br><em>{{ r.implication }}</em>{% endif %}
+          {% for e in r.evidences %}<br><span class="catalog-note__ev"><span class="catalog-meta-dot catalog-meta-dot--{{ e.tone }}" aria-hidden="true"></span> {{ e.label }}: {{ e.text }}</span>{% endfor %}</td>
+        <td>{{ r.recommendation }}{% if r.reference %}<br>{% if r.reference.url %}<a class="reference-text-link" href="{{ r.reference.url }}" target="_blank" rel="noopener noreferrer">{{ r.reference.text }}</a>{% else %}<span class="catalog-note__ev">{{ r.reference.text }}</span>{% endif %}{% endif %}</td>
+      </tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}<p class="catalog-note__ev">Sin restricciones de tipo documentadas para este escenario.</p>{% endif %}
+    {% endfor %}
+    <h3>Tipos evaluados · {{ c.inventory_summary }}</h3>
+    <div class="matrix-scroll"><table><thead><tr><th>Tipo</th><th>Columnas</th><th>Campos distintos</th><th>En Datasphere</th></tr></thead><tbody>
+      {% for t in c.inventory %}<tr><td><code>{{ t.tipo }}</code></td><td>{{ t.columnas }}</td><td>{{ t.campos }}</td><td>{{ t.valid }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% if c.sources %}<p class="catalog-note__ev">Fuentes oficiales SAP</p>{{ c.support_links }}{% endif %}
+  </div>
+</details>
+{% endif %}{% endmacro %}
+{# Observación editorial de compatibilidad BDC para el resumen del Catálogo (Mirada Danwor): UNA frase en prosa derivada del MISMO `compatibilidad_bdc` (sin etiquetas del motor, sin KPI, sin tabla) y un enlace discreto al detalle. `c.signal` = None cuando no hay nada que advertir. #}
+{% macro compatibility_signal(c, ah) %}{% if c and c.signal %}<p id="eval-compatibilidad">{{ c.signal }}{% if ah and ah.action and ah.action.method == "get" %} <a class="reference-text-link" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML show:#asr-compatibilidad:top" hx-on::after-request="document.getElementById('asr-compatibilidad')?.setAttribute('open', '')" @click.prevent>Ver detalle en el Assessment →</a>{% endif %}</p>{% endif %}{% endmacro %}
 {# Acción del assessment del flujo (la MISMA en la barra superior y en «Mirada Danwor»: espejo exacto): «Ver Assessment» si existe (GET), «Generar informe» si no
    (POST con carga INTEGRADA en el botón). Sin acción (p. ej. «No aplica») no se renderiza nada. #}
 {% macro assessment_action(ah) %}{% if ah and ah.action %}{% if ah.action.method == "get" %}<a class="support-link" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ ah.action.label }}<span>↗</span></a>{% else %}<button type="button" class="support-link asr-generate" hx-post="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-disabled-elt="this" aria-live="polite"><span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Generando informe…</span><span class="asr-generate__label">{{ ah.action.label }}</span></button>{% endif %}{% endif %}{% endmacro %}
