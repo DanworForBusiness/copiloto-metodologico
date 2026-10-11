@@ -83,3 +83,23 @@ def _isolate_case_library(tmp_path_factory, monkeypatch):
     yield
     leaked = sorted(_case_listing(real) - before)
     assert not leaked, f"el test escribió en la case_library REAL ({real}): {leaked[:5]} (¿otro proceso escribiendo a la vez?)"
+
+@pytest.fixture
+def frozen_portfolio_clock(monkeypatch):
+    """Congela el reloj con el que `client_assessment_portfolio.build_snapshot` sella `generated_at` (opt-in).
+
+    Cada request (HTML, JSON, Markdown) construye SU snapshot y lo sella con la hora de ese instante; es el comportamiento productivo correcto. Un test que compara dos
+    requests contra el mismo snapshot depende entonces de que no se cruce un segundo entre ellas: este fixture lo hace determinista sin tocar la lógica productiva."""
+    from datetime import datetime, timezone
+
+    from webapp.services import client_assessment_portfolio as portfolio
+
+    fixed = datetime(2026, 10, 11, 21, 40, 17, tzinfo=timezone.utc)
+
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz) if tz else fixed.replace(tzinfo=None)
+
+    monkeypatch.setattr(portfolio, "datetime", _Frozen)
+    return fixed

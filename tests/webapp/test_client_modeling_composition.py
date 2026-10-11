@@ -279,7 +279,7 @@ def _client_html(env, first):
     return r.text
 
 
-def test_json_markdown_and_html_agree_because_they_share_one_snapshot(env):
+def test_json_markdown_and_html_agree_because_they_share_one_snapshot(env, frozen_portfolio_clock):
     first = env.add("Acme", 3, lambda i: _profile([("V_G1", "GRAPHICAL"), ("V_S1", "SQL"), ("V_U1", "UNKNOWN")]))
     c = _client()
     html = c.get(f"/catalog/client/assessment?flow={first.entry_id}&pack={PACK}", headers=HX).text
