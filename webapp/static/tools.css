@@ -1895,6 +1895,11 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .methodology ol, .section-analysis-output ol { list-style: decimal outside; padding-left: 1.45em; margin: 12px 0; }
 .methodology li, .section-analysis-output li { display: list-item; }
 .methodology li::marker, .section-analysis-output li::marker { color: var(--gold); }
+/* Consecuencias de compatibilidad dentro de una celda de `evaluation_table`: heredan la tipografía de la celda (el `font-size`/`color` de `.methodology li` es para prosa)
+   y conservan la viñeta dorada; solo esta lista, ninguna otra del Hub. */
+.methodology ul.eval-cell-list { margin: 6px 0; padding-left: 1.1em; }
+.methodology ul.eval-cell-list > li { font: inherit; color: inherit; margin: 0 0 3px; }
+.methodology ul.eval-cell-list > li:last-child { margin-bottom: 0; }
 .section-analysis-output li > ul,
 .section-analysis-output li > ol {
   margin-top: 9px;

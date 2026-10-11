@@ -54,46 +54,64 @@ config:
   escala_alta: 10
   precision_alta: 30
 
+  # ── portability-scoring/v2 ──────────────────────────────────────────────────────────────────
+  # El score mide la CONSISTENCIA ESTRUCTURAL de los tipos del dominio, independiente del destino. Lo que depende del mecanismo/destino vive en la sección `compatibilidad`
+  # (compatibilidad_bdc/v1). Las heurísticas por nombre no penalizan sin evidencia estructural: en texto solo se reconocen magnitudes de `semantica_texto` y se descarta
+  # todo nombre que describa una unidad/código/fecha/indicador/entidad (`no_magnitud`); en tipos numéricos un importe «en moneda X» sigue siendo un importe.
+  version_scoring: "portability-scoring/v2"
+  semantica_texto:
+    porcentaje_ratio: [percent, porcentaje, cobertura, tasa]
+    cantidad: [cantidad]
+  no_magnitud:
+    [unit, uom, einheit, eh, unidad, unidades, currency, moneda, waers, meins, mon, code, codigo, indicator, indicador, flag, status, estado, type,
+     tipo, id, key, clave, group, grupo, category, categoria, date, fecha, datum, dat, day, days, dia, dias, year, ano, anos, month, mes, time, hora,
+     validity, validez, vigencia, vigente, periodo, center, centro, object, objeto, profile, perfil, strategy, estrategia, name, nombre, description,
+     descripcion, user, usuario, person, persona, template, resource, recurso, material, reason, motivo, rule, regla, method, metodo, step, paso,
+     counter, contador, area, function, funcion, jurisdiction, country, pais, segment, segmento, color, size, caracteristica, determinante, is, has,
+     estimate, partner, origin, controlling, printer, hierarchy, jerarquia, block, bloqueo, variant, variante, email, mail, conversion, quotation]
+  no_magnitud_numerico:
+    [unit, uom, einheit, eh, unidad, unidades, code, codigo, indicator, indicador, flag, status, estado, id, key]
+  # Escalas altas legítimas por naturaleza (coordenadas, tipos de cambio): no generan el indicio PB-002H.
+  escala_legitima:
+    [longitude, latitude, latitud, exchange, cambio, fx, coordinate, coordenada]
+
 reglas:
   - id: PB-001
     nombre: "DecimalFloat en campo monetario"
     descripcion: >-
-      Campos monetarios que llegan como DecimalFloat/DECFLOAT (precisión flotante
-      decimal). Válido en HANA, pero su representación no es un contrato portable
-      confiable hacia HDLF/Databricks: durante la publicación puede convertirse de
-      forma impredecible (se observó traducción a String(10) y falla de carga).
+      Campos monetarios que llegan como DecimalFloat/DECFLOAT. Válido en Datasphere; su tratamiento DEPENDE del mecanismo y del destino (Replication Flow hacia Local
+      Table (File) lo convierte a DECIMAL(38,6) según SAP; en publicaciones a HDLF con Transformation Flow se observó una traducción a String(10)). En un dominio sin
+      destino conocido no se penaliza: lo cubre `compatibilidad_bdc/v1`. Se conserva SOLO como safety check del contrato ya publicado (data product).
     cuando:
       semantica: monetario
       tipo_o_native_in: [DecimalFloat, DECFLOAT, DECIMAL_FLOAT, DECFLOAT16, DECFLOAT34]
-    dominio:      { tipo_hallazgo: riesgo, severidad: alto, peso: 22 }
+    # Sin `dominio`: la regla no aplica al diagnóstico preventivo de un dominio.
     data_product: { tipo_hallazgo: riesgo, severidad: medio, peso: 14, control: safety_check }
     recomendacion: "Normalizar a DECIMAL(38,6) en la capa contractual, antes de la publicación."
     capa_correccion: "Capa contractual (antes del artefacto físico destinado a HDLF)."
     normalizacion_observada: "DECIMAL(38,6)"
+    depende_de_nombre: true
     confianza: alta
     estado_validacion: validado
     fuente_evidencia: "Incidente interno Danwor — campos monetarios S/4HANA en data product de posiciones comerciales."
     incidentes: [caso-1-decimalfloat]
     habilitada: true
-    version: 1
+    version: 2
 
   - id: PB-002
     nombre: "Escala/precisión inferida elevada en derivado (ratio/porcentaje)"
     descripcion: >-
-      Resultado de una división/ratio/porcentaje cuyo tipo fue INFERIDO por HANA con
-      escala/precisión inusualmente alta (ej. observado DECIMAL(37,19)). El tipo es
-      formalmente válido pero el Transformation Flow HANA→HDLF puede fallar antes de
-      procesar en Spark. Un cast tardío en la publicación no siempre lo corrige.
+      Resultado de una división/ratio/porcentaje cuyo tipo fue INFERIDO por HANA con escala/precisión inusualmente alta (ej. observado DECIMAL(37,19)). Exige evidencia de
+      inferencia: campo derivado SIN CAST explícito. Los decimales con escala alta DECLARADA no penalizan (ver PB-002H).
     cuando:
-      # El smell es la ESCALA inferida alta (ej. 19), NO la precisión: DECIMAL(38,6)
-      # (precisión 38, escala 6) es la normalización BUENA y no debe caer acá.
       tipo_base: decimal
       escala_min: 10
+      derivado: true
+      sin_cast: true
     dominio:      { tipo_hallazgo: riesgo, severidad: alto, peso: 20 }
     data_product: { tipo_hallazgo: riesgo, severidad: medio, peso: 12, control: safety_check }
     recomendacion: >-
-      Tipificar el campo explícitamente (CAST) en la MISMA expresión y capa donde nace
-      (p. ej. DECIMAL(15,6) según la necesidad funcional), no sólo en la publicación.
+      Tipificar el campo explícitamente (CAST) en la MISMA expresión y capa donde nace (p. ej. DECIMAL(15,6) según la necesidad funcional), no sólo en la publicación.
     capa_correccion: "En la expresión que origina el campo (flujo Datasphere previo a la publicación)."
     normalizacion_observada: "DECIMAL(15,6)"
     confianza: alta
@@ -101,37 +119,60 @@ reglas:
     fuente_evidencia: "Incidente interno Danwor — ConfirmationCoveragePercent = ConfirmedQuantity/OrderQuantity*100."
     incidentes: [caso-2-decimal-37-19]
     habilitada: true
-    version: 1
+    version: 2
 
-  - id: PB-003
-    nombre: "Campo con semántica numérica representado como String"
+  - id: PB-002H
+    nombre: "Escala/precisión elevada declarada (informativo)"
     descripcion: >-
-      Atributo cuya semántica (nombre/label) es numérica pero cuyo tipo es String.
-      Puede implicar pérdida de capacidad numérica, ordenamiento incorrecto,
-      truncamiento o un workaround técnico de compatibilidad. NO es error automático.
+      Importe, cantidad o ratio con escala elevada DECLARADA (no inferida). Es un indicio informativo que preserva la evidencia sin penalizar: puede ser intencional. Se excluyen
+      las escalas altas legítimas por naturaleza (coordenadas, tipos de cambio) y los numéricos sin semántica de importe/cantidad/ratio.
     cuando:
-      tipo_base: string
+      tipo_base: decimal
+      escala_min: 10
+      derivado: false
       semantica_en: [monetario, porcentaje_ratio, cantidad]
-    dominio:      { tipo_hallazgo: riesgo, severidad: nota, peso: 6 }
-    data_product: { tipo_hallazgo: hint, severidad: nota, peso: 0, control: workaround }
-    recomendacion: "Revisar si el tipo String responde a una limitación técnica; preferir el tipo numérico contractual."
-    capa_correccion: "Capa contractual o expresión de origen."
+      sin_tokens_escala_legitima: true
+    dominio: { tipo_hallazgo: hint, severidad: nota, peso: 0, control: workaround }
+    recomendacion: "Escala elevada declarada en un importe, cantidad o ratio: confirmar que el tipo es intencional antes de publicarlo. No es una incompatibilidad confirmada."
+    capa_correccion: "Capa donde se declara el tipo."
+    depende_de_nombre: true
     confianza: media
     estado_validacion: recomendado
-    fuente_evidencia: "Buena práctica Danwor — evitar degradar semántica numérica a texto por compatibilidad."
+    fuente_evidencia: "Calibración portability-scoring/v2 — evidencia del incidente 2 sin penalizar tipos declarados."
     habilitada: true
-    version: 1
+    version: 2
+
+  - id: PB-003
+    nombre: "Posible magnitud numérica representada como String"
+    descripcion: >-
+      Indicio por nombre de que un String podría representar una magnitud numérica (porcentaje/ratio o cantidad). NO penaliza: el nombre solo no es evidencia suficiente. Descarta
+      unidades, códigos, fechas, indicadores y entidades (`no_magnitud`), exige longitud >= 2 y reconoce solo las palabras de magnitud con precisión validada
+      (`semantica_texto`). En texto nunca se infiere «monetario» por nombre.
+    cuando:
+      tipo_base: string
+      semantica_en: [porcentaje_ratio, cantidad]
+      longitud_min: 2
+    dominio:      { tipo_hallazgo: hint, severidad: nota, peso: 0, control: workaround }
+    data_product: { tipo_hallazgo: hint, severidad: nota, peso: 0, control: workaround }
+    recomendacion: "Indicio por nombre: verificar si el String representa una magnitud numérica (porcentaje o cantidad) y, si es así, preferir el tipo numérico contractual."
+    capa_correccion: "Capa contractual o expresión de origen."
+    depende_de_nombre: true
+    confianza: media
+    estado_validacion: recomendado
+    fuente_evidencia: "Buena práctica Danwor — evitar degradar semántica numérica a texto por compatibilidad. Calibrada con muestra etiquetada (PB003_muestra_etiquetada.csv)."
+    habilitada: true
+    version: 2
 
   - id: PB-004
     nombre: "Campo derivado sin cast contractual explícito"
     descripcion: >-
-      Campo calculado (división, multiplicación monetaria, porcentaje, ROUND, CASE con
-      ramas de tipos distintos, COALESCE con literales, concatenación usada como clave)
-      cuyo tipo quedó INFERIDO, sin un CAST explícito en su expresión de origen. No se
-      marcan todos los derivados: sólo los de riesgo (semántica sensible o escala alta).
+      Campo numérico calculado (división, multiplicación monetaria, porcentaje, ROUND, CASE con ramas de tipos distintos, COALESCE con literales) cuyo tipo quedó INFERIDO, sin un
+      CAST explícito en su expresión de origen. Solo tipos numéricos: un String derivado no tiene riesgo de precisión. No se marcan todos los derivados: sólo los de riesgo
+      (semántica sensible o escala alta).
     cuando:
       derivado: true
       sin_cast: true
+      tipo_base: decimal
       o:
         - { semantica_en: [monetario, porcentaje_ratio] }
         - { escala_min: 10 }
@@ -139,29 +180,47 @@ reglas:
     data_product: { tipo_hallazgo: hint, severidad: nota, peso: 0, control: workaround }
     recomendacion: "Fijar el tipo con CAST explícito en la misma capa/expresión donde nace el campo."
     capa_correccion: "Expresión de origen del campo derivado."
+    depende_de_nombre: true
     confianza: media
     estado_validacion: recomendado
     fuente_evidencia: "Aprendizaje metodológico — el cast debe aplicarse donde nace el atributo, no en la publicación."
     habilitada: true
-    version: 1
+    version: 2
 
   - id: PB-005
-    nombre: "Tipo distinto entre foreign key y su primary key relacionada"
+    nombre: "Tipo base distinto entre foreign key y su primary key relacionada"
     descripcion: >-
-      Una columna FK cuyo tipo/longitud difiere del de la primary key que referencia.
-      Riesgo alto para asociaciones y portabilidad relacional (joins, integridad,
-      representación estable cross-runtime).
+      Una columna FK cuyo TIPO BASE difiere del de la primary key que referencia (p. ej. Integer64 vs String). Riesgo alto para asociaciones y joins. Las diferencias de
+      longitud/precisión dentro de la misma base se evalúan en PB-005B y no bloquean.
     cuando:
-      pk_fk_tipo_distinto: true
+      pk_fk_base_distinta: true
     dominio:      { tipo_hallazgo: riesgo, severidad: alto, peso: 18, bloqueante: true }
     data_product: { tipo_hallazgo: riesgo, severidad: alto, peso: 18, control: safety_check, bloqueante: true }
-    recomendacion: "Alinear el tipo/longitud de la FK con su PK en la capa contractual."
+    recomendacion: "Alinear el tipo de la FK con el de su PK en la capa contractual."
     capa_correccion: "Capa contractual (definición de la relación)."
     confianza: alta
     estado_validacion: recomendado
     fuente_evidencia: "Buena práctica Danwor — consistencia PK/FK para portabilidad relacional."
     habilitada: true
-    version: 1
+    version: 2
+
+  - id: PB-005B
+    nombre: "FK más ancha que su PK (alineación potencialmente destructiva)"
+    descripcion: >-
+      FK de la misma base que su PK pero de mayor longitud o precisión/escala. Con solo metadata NO se puede afirmar truncamiento ni pérdida: indica que alinear la FK al tipo de
+      la PK sería potencialmente destructivo. Las ampliaciones compatibles (FK que cabe en la PK) no generan hallazgo. Un String(5000) suele ser «longitud no declarada».
+    cuando:
+      pk_fk_reduccion: true
+    dominio:      { tipo_hallazgo: riesgo, severidad: medio, peso: 8 }
+    data_product: { tipo_hallazgo: riesgo, severidad: medio, peso: 8, control: safety_check }
+    recomendacion: >-
+      Si se alinea la FK al largo/precisión de la PK, validar que ningún valor existente la supere. Con solo metadata no se puede afirmar truncamiento ni pérdida.
+    capa_correccion: "Capa contractual (definición de la relación)."
+    confianza: media
+    estado_validacion: recomendado
+    fuente_evidencia: "Calibración portability-scoring/v2 — separación de ampliaciones compatibles y reducciones potencialmente destructivas."
+    habilitada: true
+    version: 2
 
   # ── Reconocimiento de NORMALIZACIONES (no penalizan; validan o dan hint) ───────────
   - id: PB-010
@@ -180,6 +239,7 @@ reglas:
     data_product: { tipo_hallazgo: adaptacion, severidad: nota, peso: 0, control: workaround }
     recomendacion: "Conservar el tipo y documentar la decisión antes de reutilizar el contrato."
     capa_correccion: "Ya normalizado en la capa contractual."
+    depende_de_nombre: true
     confianza: media
     estado_validacion: validado
     fuente_evidencia: "Normalización observada como resolución del incidente 1."
@@ -203,6 +263,7 @@ reglas:
     data_product: { tipo_hallazgo: adaptacion, severidad: nota, peso: 0, control: workaround }
     recomendacion: "Conservar el cast en la capa donde nace el indicador y documentar la decisión."
     capa_correccion: "Ya normalizado en la expresión de origen."
+    depende_de_nombre: true
     confianza: media
     estado_validacion: validado
     fuente_evidencia: "Normalización observada como resolución del incidente 2."

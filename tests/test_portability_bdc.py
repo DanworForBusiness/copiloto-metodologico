@@ -29,13 +29,17 @@ def _by_rule(res):
 
 # ── CASO A — DOMINIO con DecimalFloat monetario (incidente 1, preventivo) ──────────
 def test_caso_a_dominio_decimalfloat_monetario():
+    """v2: en un DOMINIO (sin destino conocido) DecimalFloat NO penaliza: depende del mecanismo/destino y lo cubre compatibilidad_bdc/v1.
+    Sigue siendo un safety check en el contrato YA publicado (data product)."""
     cols = [_col("NetAmount", "DecimalFloat", native="DECFLOAT", label="Net value")]
-    res = pb.evaluate_portability(cols, "dominio", MATRIX)
-    f = next(f for f in res["findings"] if f["regla"] == "PB-001")
-    assert f["tipo_hallazgo"] == "riesgo" and f["severidad"] == "alto"
+    dom = pb.evaluate_portability(cols, "dominio", MATRIX)
+    assert "PB-001" not in _by_rule(dom) and dom["n_riesgos"] == 0 and dom["score"] == 100
+    dp = pb.evaluate_portability(cols, "data_product", MATRIX)
+    f = next(f for f in dp["findings"] if f["regla"] == "PB-001")
+    assert f["tipo_hallazgo"] == "riesgo" and f["severidad"] == "medio" and f["control"] == "safety_check"
     assert "DECIMAL(38,6)" in f["recomendacion"]
     assert "contractual" in f["capa_correccion"].lower()
-    assert res["n_riesgos"] >= 1 and res["score"] < 90
+    assert dp["n_riesgos"] >= 1
 
 
 # ── CASO B — DOMINIO con DECIMAL(37,19) derivado (incidente 2, preventivo) ─────────
@@ -75,15 +79,16 @@ def test_caso_d_data_product_decimal_15_6_porcentaje():
 
 # ── CASO E — numérico convertido a String (advertencia contextual, sin afirmar) ────
 def test_caso_e_numerico_como_string():
-    cols = [_col("OrderQuantity", "String", "10", label="Order quantity")]
+    """v2: un String con magnitud en el nombre es un INDICIO (hint) en ambos contextos; el nombre solo no penaliza."""
+    cols = [_col("ANZPK", "String", "5", label="Cantidad total de bultos de entrega")]
     dom = pb.evaluate_portability(cols, "dominio", MATRIX)
     dp = pb.evaluate_portability(cols, "data_product", MATRIX)
     assert "PB-003" in _by_rule(dom) and "PB-003" in _by_rule(dp)
     fdom = next(f for f in dom["findings"] if f["regla"] == "PB-003")
     fdp = next(f for f in dp["findings"] if f["regla"] == "PB-003")
-    assert fdom["tipo_hallazgo"] == "riesgo" and fdom["severidad"] == "nota"  # contextual, bajo impacto
-    assert fdom["semaforo"] == "amber"                                        # revisión, no rojo
-    assert fdp["tipo_hallazgo"] == "hint" and not fdp["afecta_scoring"]  # DP: posible workaround, no error
+    assert fdom["tipo_hallazgo"] == "hint" and fdom["peso"] == 0 and not fdom["afecta_scoring"]
+    assert fdp["tipo_hallazgo"] == "hint" and not fdp["afecta_scoring"]
+    assert dom["score"] == 100 and dom["n_riesgos"] == 0                       # un indicio por nombre no resta
 
 
 # ── CASO F — PK y FK con tipos diferentes (riesgo relacional, bloqueante) ──────────
@@ -94,9 +99,15 @@ def test_caso_f_pk_fk_tipos_distintos():
         _col("Customer", "String", "8", artefacto="DIM_CUSTOMER", key=True),
     ]
     res = pb.evaluate_portability(cols, "dominio", MATRIX)
-    f = next(f for f in res["findings"] if f["regla"] == "PB-005")
-    assert f["tipo_hallazgo"] == "riesgo" and f["severidad"] == "alto" and f["bloqueante"]
-    assert res["score"] <= 49  # bloqueante impide buena/plena
+    assert "PB-005" not in _by_rule(res)                        # v2: misma base ⇒ no es PB-005 (bloqueante)
+    f = next(f for f in res["findings"] if f["regla"] == "PB-005B")   # FK(10) más ancha que PK(8): alinearla sería potencialmente destructivo
+    assert f["tipo_hallazgo"] == "riesgo" and f["severidad"] == "medio" and not f["bloqueante"]
+    assert "no se puede afirmar" in f["recomendacion"] and res["score"] > 49
+    base = pb.evaluate_portability([
+        _col("SoldToParty", "Integer64", artefacto="FACT", assoc="DIM_CUSTOMER", assoc_col="Customer"),
+        _col("Customer", "String", "8", artefacto="DIM_CUSTOMER", key=True)], "dominio", MATRIX)
+    g = next(f for f in base["findings"] if f["regla"] == "PB-005")
+    assert g["tipo_hallazgo"] == "riesgo" and g["severidad"] == "alto" and g["bloqueante"] and base["score"] <= 49   # base distinta: sigue bloqueando
 
 
 def test_caso_f_pk_fk_iguales_no_dispara():

@@ -1,0 +1,196 @@
+﻿campo,label,longitud,subconjunto,etiqueta,alcance_positivo,v1_marca,v2_1_marca
+ABWCT,Alternative Exchange Rate Type,4,barrido_amplio,N,,False,False
+ABWGA,Date from which the alternative exchange rate type is valid,8,barrido_amplio,N,,False,False
+ACCRUALVALUEDATE,Fecha de valor de periodificación,8,barrido_amplio,N,,True,False
+ADDITIONALQUANTITY1UNIT,Unidad de cantidad adicional 1,3,barrido_amplio,N,,False,False
+ADDITIONALQUANTITY2UNIT,Unidad de cantidad adicional 2,3,barrido_amplio,N,,False,False
+ADDITIONALQUANTITY3UNIT,Unidad de cantidad adicional 3,3,barrido_amplio,N,,False,False
+AccountingExchangeRateIsSet,Opción de tipo de cambio,1,barrido_amplio,N,,True,False
+ActlPostgCostCenterActyTypeCat,Variant activity type category for actual postings,1,barrido_amplio,N,,False,False
+ActualPriceAllocationMethod,Indicator: actual allocation price,3,barrido_amplio,N,,False,False
+ActualQuantityIsSetManually,Indicator: confirm quantity manually in actual,1,barrido_amplio,N,,False,False
+AllocationCostElement,Allocation cost element,10,barrido_amplio,N,,True,False
+BALANCETRANSACTIONCURRENCY,Saldo de moneda de operación,5,barrido_amplio,N,,False,False
+BKUZU,Exch.rate type of av. rate used to determine selling rate,4,barrido_amplio,N,,False,False
+CMPSC,Status verific.de crédito frente a valor máximo de documento,1,barrido_amplio,N,,False,False
+CROSSITEM_PRC_DATE,Fecha de determinación precio válida para varias posiciones,8,barrido_amplio,N,,True,False
+CURVW,ExchangeRateTypeUsage,40,barrido_amplio,N,,False,False
+CostCtrActivityTypeCategory,Activity type category,1,barrido_amplio,N,,False,False
+CostCtrActivityTypeDesc,Description,40,barrido_amplio,N,,False,False
+CostCtrActivityTypeName,General name,20,barrido_amplio,N,,False,False
+CostCtrActivityTypeOutpQtyUnit,Output unit,3,barrido_amplio,N,,False,False
+CostCtrActivityTypeQtyUnit,Activity unit,3,barrido_amplio,N,,False,False
+CostCtrActivityTypeValidCat,Valid cost center categories,8,barrido_amplio,N,,False,False
+CostCtrActyTypeIsCtrlgRlvtComp,Indicator for component relevancy co,1,barrido_amplio,N,,False,False
+CostCtrActyTypeIsHumRsceRlvt,"Indicator: component relevance, hr",1,barrido_amplio,N,,False,False
+CostCtrActyTypeTxtSearchTerm,Search term for matchcode use,20,barrido_amplio,N,,False,False
+CostElement,Cost element,10,barrido_amplio,N,,True,False
+CostElementCategory,Cost element category,2,barrido_amplio,N,,False,False
+CostElementDescription,Description,40,barrido_amplio,N,,True,False
+CostElementName,General name,20,barrido_amplio,N,,True,False
+ExchangeRateType,Exchange rate type,4,barrido_amplio,N,,False,False
+ExchangeRateType,Tipo de cotización,4,barrido_amplio,N,,False,False
+FE_IN_VALIDEZ,Cronomarcador para determinación de precio,14,barrido_amplio,N,,True,False
+FixedCostIsPredistributed,Predistribution of fixed costs for acty type/bus. process,1,barrido_amplio,N,,False,False
+GKUZU,Exch. rate type of av. rate used to determine buying rate,4,barrido_amplio,N,,False,False
+HITYP_PR,Tipo de jerarquía determinación de precio,1,barrido_amplio,N,,True,False
+IND_IMPUESTO,Indicador IVA,2,barrido_amplio,N,,False,False
+KURST,Exchange rate type,4,barrido_amplio,N,,False,False
+KURST,ExchangeRateType,4,barrido_amplio,N,,False,False
+LHME1,Unidad medida para 1ª cantidad de medios auxiliares de carga,3,barrido_amplio,N,,True,False
+LHME2,Unidad de medida para 2ª cantidad medios auxiliares de carga,3,barrido_amplio,N,,True,False
+LHME3,Unidad medida p.3ª cantidad de medios auxiliares de carga,3,barrido_amplio,N,,True,False
+LSSTK,Estado de bloqueo de entrega total (todas las posiciones),1,barrido_amplio,N,,False,False
+LandRegisterVolume,Land register volume,5,barrido_amplio,A,,True,False
+LeaseDurationInFiscalPeriods,Length of lease in periods,3,barrido_amplio,P,duracion_fuera_de_categoria,False,False
+LeaseDurationInFiscalYears,Length of lease in years,3,barrido_amplio,P,duracion_fuera_de_categoria,False,False
+NETDUEDATE,Vencimiento neto,8,barrido_amplio,N,,False,False
+ORIG_PRECIO,Origen de precio,1,barrido_amplio,N,,True,False
+PRICINGINCOMPLETIONSTATUS,Estado datos incompletos determinación de precio (posición),1,barrido_amplio,N,,True,False
+PROC_VALOR_CERO,Procesar condiciones con valor igual a cero,1,barrido_amplio,N,,True,False
+PeriodPriceIsAverage,Price calculation with period-based average prices,1,barrido_amplio,N,,True,False
+PlanQuantityIsSetManually,Indicator: plan quantity manually set.,1,barrido_amplio,N,,False,False
+Price Source,Price Source,5000,barrido_amplio,N,,True,False
+PriceAllocationMethod,Price indicator: calculate allocation price,3,barrido_amplio,N,,False,False
+PricingIncompletionStatus,Estado datos incompletos determinación de precio (posición),1,barrido_amplio,N,,False,False
+SPSTG,Estado de bloqueo total (cabecera),1,barrido_amplio,N,,False,False
+TIPO_CONDICION,"Tipo condición: Porte,impuesto,prec.base=Ingr.,prec.,val.",1,barrido_amplio,N,,False,False
+TOTAL_DELIV_RELTD_BILLG_STA,Estado de facturación por entrega (todas las posiciones),1,barrido_amplio,N,,False,False
+TOTAL_DGSTA,Estado de mercancías peligrosas (todas las posiciones),1,barrido_amplio,N,,False,False
+TOTAL_PCSTA,Estado de capacidad de mercado (todas las posiciones),1,barrido_amplio,N,,False,False
+TOTAL_SDSSTA,Estado de hoja de datos de seguridad (todas las posiciones),1,barrido_amplio,N,,False,False
+UVPRS,Estado datos incompletos determinación precio (tod.pos.),1,barrido_amplio,N,,True,False
+VALOR_MAXIMO,Indicador valor de la condición máximo,1,barrido_amplio,N,,True,False
+VALUEDATE,Fecha valor,8,barrido_amplio,N,,True,False
+XBWRL,"Ind.: Base curr. is ""from"" curr. in the exchange rate table",1,barrido_amplio,N,,True,False
+XEURO,Indicator: Exchange rate type uses special translation model,1,barrido_amplio,N,,False,False
+XFIXD,Indicator: Exchange rate type uses fixed exchange rates,1,barrido_amplio,N,,False,False
+XINVR,Indicator: Calculation allowed with inverted exchange rate ?,1,barrido_amplio,N,,False,False
+cod_ven,cod_ven,3,aleatoria_n130,N,,False,False
+Prd Chemistry Text (PH6),Product hierarchy text,40,aleatoria_n130,N,,False,False
+kzvbr,Contabilización de consumo,1,aleatoria_n130,N,,False,False
+PartialDeliveryIsAllowed,Partial delivery at item level,1,aleatoria_n130,N,,False,False
+MaterialSubstitutionReason,Reason for material substitution,4,aleatoria_n130,N,,False,False
+BPAddrCityName,City,40,aleatoria_n130,N,,False,False
+BASEUNIT,Unidad de medida base,3,aleatoria_n130,N,,False,False
+REALESTATEPARTNERCONTRACT,Contrato de socio inmobiliario,13,aleatoria_n130,N,,False,False
+WarehouseStagingArea,Staging area for warehouse complex,10,aleatoria_n130,N,,False,False
+AssetSupplierName,Name of asset supplier,30,aleatoria_n130,N,,False,False
+ADDITIONALMATERIALGROUP5,Grupo de materiales 5,3,aleatoria_n130,N,,False,False
+PostingIsBlocked,Central posting block,1,aleatoria_n130,N,,False,False
+IncotermsVersion,Incoterms version,4,aleatoria_n130,N,,False,False
+CustomerName,Name of customer,80,aleatoria_n130,N,,False,False
+VSBED,Condición de expedición,2,aleatoria_n130,N,,False,False
+AdditionalCustomerGroup3,Grupo de clientes 3,3,aleatoria_n130,N,,False,False
+ABSTK,Estado de rechazo (todas las posiciones),1,aleatoria_n130,N,,False,False
+ItemBillingBlockReason,,2,aleatoria_n130,N,,False,False
+KZLER,Indicador de ubicación vacía,1,aleatoria_n130,N,,False,False
+DistrStatusByDecentralizedWrhs,Distribution status (decentralized warehouse processing),1,aleatoria_n130,N,,False,False
+HCLASS,Cl.jerarquía,4,aleatoria_n130,N,,False,False
+ReceivingPlant,Receiving plant for deliveries,4,aleatoria_n130,N,,False,False
+TrainStationName,Train station,25,aleatoria_n130,N,,False,False
+ORIGINORDER,Pedido origen,12,aleatoria_n130,N,,False,False
+ALTERNATIVEGLACCOUNT,Número de cuenta de mayor alternativo en sociedad,10,aleatoria_n130,N,,False,False
+DataController4,Bp: data controller (internal use only),30,aleatoria_n130,N,,False,False
+LandRegisterPage,Land register page,5,aleatoria_n130,N,,False,False
+SalesGroup,Sales group,3,aleatoria_n130,N,,False,False
+Product,Número de producto,40,aleatoria_n130,N,,False,False
+IHREZ,Su referencia,12,aleatoria_n130,N,,False,False
+OverallDeliveryStatus,,1,aleatoria_n130,N,,False,False
+InventoryIsCounted,Inventory indicator,1,aleatoria_n130,N,,False,False
+QUARTER,Quarter,2,aleatoria_n130,N,,False,False
+CalendarMonthName,Short text for fixed values,60,aleatoria_n130,N,,False,False
+FINANCIALMANAGEMENTAREA,Entidad CP,4,aleatoria_n130,N,,False,False
+TaxNumber2,Tax number 2,11,aleatoria_n130,N,,False,False
+BillingIssueType,Tipo de salida de facturación,1,aleatoria_n130,N,,False,False
+VZEIT,"Propuesta hora de reparto (local, ref.a org.ventas)",6,aleatoria_n130,N,,False,False
+PickedItemsLocation,Picked items location,20,aleatoria_n130,N,,False,False
+PaytAuthsnCreditCheckSts,Status of credit check against payment card authorization,1,aleatoria_n130,N,,False,False
+REPARTNERSETTLEMENTUNITID,Unidad liquidación socio inmobiliario,5,aleatoria_n130,N,,False,False
+ORDERID,Número de orden,12,aleatoria_n130,N,,False,False
+PARTNERWBSELEMENT,Elemento PEP de socio,24,aleatoria_n130,N,,False,False
+UnitOfMeasure,Unit of measurement,3,aleatoria_n130,N,,False,False
+InternationalLocationNumber2,International location number (part 2),5,aleatoria_n130,N,,False,False
+IndustryCode5,Industry code 5,10,aleatoria_n130,N,,False,False
+BILLINGDOCUMENTTYPE,BILLINGDOCUMENTTYPE,4,aleatoria_n130,N,,False,False
+Country,Country key,3,aleatoria_n130,N,,False,False
+AlternativePayeeIsAllowed,Indicator: is an alternative payer allowed in document?,1,aleatoria_n130,N,,False,False
+resp_com,resp_com,60,aleatoria_n130,N,,False,False
+LANDX,Country name,15,aleatoria_n130,N,,False,False
+SOURCEREFERENCEDOCUMENTCNTXT,Contexto de documento referencia origen,10,aleatoria_n130,N,,False,False
+FiscalYear,Ejercicio,4,aleatoria_n130,N,,False,False
+Profit Center,Profit center,10,aleatoria_n130,N,,False,False
+OriginalAcquisitionFiscalYear,Fiscal year of original acquisition,4,aleatoria_n130,N,,False,False
+NUMERO_NIVEL,Número de paso,3,aleatoria_n130,N,,False,False
+MAINTENANCEACTIVITYTYPE,Clase de actividad de mantenimiento,3,aleatoria_n130,N,,False,False
+PLANT,Centro,4,aleatoria_n130,N,,False,False
+IncotermsLocation2,Incoterms lugar 2,70,aleatoria_n130,N,,False,False
+SO Line Item,,6,aleatoria_n130,N,,False,False
+RESP_COM,RESP_COM,5000,aleatoria_n130,N,,False,False
+SalesOrganization,Sales organization,4,aleatoria_n130,N,,False,False
+LegacyDataTransferDate,Legacy data transfer date,8,aleatoria_n130,N,,False,False
+CUSTOMERACCOUNTASSIGNMENTGROUP,CUSTOMERACCOUNTASSIGNMENTGROUP,2,aleatoria_n130,N,,False,False
+CALMONTH,CALMONTH,5000,aleatoria_n130,N,,False,False
+Prd Cont Type Text (PH7),Product hierarchy text,40,aleatoria_n130,N,,False,False
+WERKS,Centro (propio o externo),4,aleatoria_n130,N,,False,False
+CALMONTH,Calendar Year/Month,6,aleatoria_n130,N,,False,False
+ISCOMMITMENT,Indicador: Comprometido,1,aleatoria_n130,N,,False,False
+MATKL,MATL_GROUP,9,aleatoria_n130,N,,False,False
+FixedAssetExternalID,Asset number,17,aleatoria_n130,N,,False,False
+TransportationPlanningStatus,Transportation planning status (header),1,aleatoria_n130,N,,False,False
+STORAGELOCATION,STORAGELOCATION,4,aleatoria_n130,N,,False,False
+PartnerCompany,Company id of trading partner,6,aleatoria_n130,N,,False,False
+HISTUNR,Número de nivel dentro de la jerarquía,2,aleatoria_n130,A,,False,False
+ACCRUALITEMTYPE,Clase de posición del subobjeto de periodificación,11,aleatoria_n130,N,,False,False
+SDDOCUMENTREASON,MOT_PEDIDO,3,aleatoria_n130,N,,False,False
+cod_ven,Interlocutor Comercial,5000,aleatoria_n130,N,,False,False
+CountryThreeLetterISOCode,Iso country code 3 char,3,aleatoria_n130,N,,False,False
+PUBSECBUDGETACCOUNTCOCODE,Sociedad de cuenta de presupuesto,4,aleatoria_n130,N,,False,False
+Document Number,,10,aleatoria_n130,N,,False,False
+PROFITABILITYSEGMENT,Segmento de rentabilidad (obsoleto),10,aleatoria_n130,N,,False,False
+TaxNumber4,Tax number 4,18,aleatoria_n130,N,,False,False
+ADDITIONALCUSTOMERGROUP3,Grupo de clientes 3,3,aleatoria_n130,N,,False,False
+SOURCELEDGER,Libro de origen,2,aleatoria_n130,N,,False,False
+HANDOVERLOC,Lugar para una entrega física de mercancías,10,aleatoria_n130,N,,False,False
+TECNICO,TECNICO,5000,aleatoria_n130,N,,False,False
+OrganizationBPName2,Name 2,35,aleatoria_n130,N,,False,False
+PARENTID,ID padre de un nodo jerárquico,8,aleatoria_n130,N,,False,False
+AD_PERSNUM,Número de persona,10,aleatoria_n130,N,,False,False
+AreaSizeUnit,Area unit,3,aleatoria_n130,N,,False,False
+TXTLG,Descripción larga,60,aleatoria_n130,N,,False,False
+mesanio,mesanio,6,aleatoria_n130,N,,False,False
+RECORDMODE,RECORDMODE,1,aleatoria_n130,N,,False,False
+IVIVO,Inventario previsto,1,aleatoria_n130,N,,False,False
+CUSTOMERPAYMENTTERMS,CUSTOMERPAYMENTTERMS,4,aleatoria_n130,N,,False,False
+TCURR,To-currency,5,aleatoria_n130,N,,False,False
+MATERIALSUBSTITUTIONREASON,Motivo de la sustitución de material,4,aleatoria_n130,N,,False,False
+BILLINGDOCUMENTITEMTEXT,BILLINGDOCUMENTITEMTEXT,40,aleatoria_n130,N,,False,False
+ISREVERSAL,Indicador: La posición anula otra posición,1,aleatoria_n130,N,,False,False
+PAIS_REG_DECL,País/Región de declaración fiscal,3,aleatoria_n130,N,,False,False
+OrganizationDivision,Sector a nivel cabecera de pedido,2,aleatoria_n130,N,,False,False
+LVSME,Unidad de medida WM,3,aleatoria_n130,N,,False,False
+AdditionalMaterialGroup4,Grupo de materiales 4,3,aleatoria_n130,N,,False,False
+INVENTORYSPCLSTKSALESDOCITM,Pos.doc.ventas stock espec.inventario,6,aleatoria_n130,N,,False,False
+ADDITIONALCUSTOMERGROUP2,Grupo de clientes 2,3,aleatoria_n130,N,,False,False
+cputm,Hora de entrada,6,aleatoria_n130,N,,False,False
+REVENUEACCOUNTINGCONTRACT,Contrato contabilidad de ingresos,14,aleatoria_n130,N,,False,False
+AddressID,Address,10,aleatoria_n130,N,,False,False
+OvrlItmPickingIncompletionSts,Picking/putaway incompletion status (all items),1,aleatoria_n130,N,,False,False
+PRECEDINGDOCUMENTITEM,Posición anterior de un documento comercial,6,aleatoria_n130,N,,False,False
+PayerParty,Payer,10,aleatoria_n130,N,,False,False
+BSTDK,Fecha de referencia de cliente,8,aleatoria_n130,N,,False,False
+ProfitCenter,Profit center,10,aleatoria_n130,N,,False,False
+WBSTK,Estado de movimiento de mercancías (todos los artículos),1,aleatoria_n130,N,,False,False
+Segment,Segment,4,aleatoria_n130,N,,False,False
+CustomerTaxClassification9,Clasificación fiscal 9 para cliente,1,aleatoria_n130,N,,False,False
+SALESORGANIZATIONCURRENCY,Moneda estadística,5,aleatoria_n130,N,,False,False
+REFERENCESDDOCUMENTITEM,Núm.posición de la posición modelo,6,aleatoria_n130,N,,False,False
+DistributionChannel,Canal de distribución,2,aleatoria_n130,N,,False,False
+TaxCode,Tax on sales/purchases code,2,aleatoria_n130,N,,False,False
+EMAIL,EMAIL,100,aleatoria_n130,N,,False,False
+LGORT,Almacén,4,aleatoria_n130,N,,False,False
+CAMPO,CAMPO,100,aleatoria_n130,N,,False,False
+Year Key,Year Key,5000,aleatoria_n130,N,,False,False
+vbtyp,Tipo de documento de ventas,4,aleatoria_n130,N,,False,False
+SKZUE,Indicador de bloqueo: Para almacenamiento (usuario),1,aleatoria_n130,N,,False,False
+RESP_COMERCIAL,RESP_COMERCIAL,5000,aleatoria_n130,N,,False,False

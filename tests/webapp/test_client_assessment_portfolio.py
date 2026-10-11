@@ -173,7 +173,7 @@ def test_drilldown_uses_the_existing_flow_detail_path(world):
 
 
 # ───────────────────────── HTML / JSON / Markdown: un solo snapshot ─────────────────────────
-def test_html_json_and_markdown_derive_from_one_snapshot(world):
+def test_html_json_and_markdown_derive_from_one_snapshot(world, frozen_portfolio_clock):
     c = _client()
     html = c.get(f"/catalog/client/assessment?flow=a&pack={PACK}", headers=HX)
     j = c.get("/catalog/client/assessment.json?flow=a")
@@ -182,8 +182,7 @@ def test_html_json_and_markdown_derive_from_one_snapshot(world):
     snap = j.json()
     assert set(snap) == {"schema_version", "generated_at", "client", "catalog_assets", "states", "summary", "adoption_synthesis", "assets", "recurring_findings", "modeling_composition"}   # + composición del modelado y síntesis de adopción (aditivas)
     fresh = pf.build_snapshot(world.entries["a"], PACK)
-    fresh["generated_at"] = snap["generated_at"]
-    assert snap == fresh and md.text == pf.to_markdown(snap)                                                    # JSON = snapshot; MD = f(snapshot)
+    assert snap == fresh and snap["generated_at"] == "2026-10-11T21:40:17+00:00" and md.text == pf.to_markdown(snap)                                                    # JSON = snapshot; MD = f(snapshot)
     for a in snap["assets"]:
         assert (a["asset_id"] or a["domain"]) in html.text
     assert 'data-state="STALE"' in html.text and 'data-state="NOT_YET_ASSESSED"' in html.text
@@ -191,6 +190,17 @@ def test_html_json_and_markdown_derive_from_one_snapshot(world):
     assert "attachment" in j.headers["content-disposition"] and ".json" in j.headers["content-disposition"]
     for forbidden in ("review_required", "fact_index", "rule_results", "profile_json"):                          # sin payload de perfiles individuales
         assert forbidden not in j.text
+
+
+def test_export_equality_holds_across_a_real_second_boundary(world, frozen_portfolio_clock):
+    """Regresión de la carrera de `generated_at`: con el reloj congelado, el JSON y el Markdown (requests independientes) coinciden aunque entre ambas pase más de un segundo real."""
+    import time
+
+    c = _client()
+    snap = c.get("/catalog/client/assessment.json?flow=a").json()
+    time.sleep(1.1)
+    md = c.get("/catalog/client/assessment.md?flow=a")
+    assert md.text == pf.to_markdown(snap) and "2026-10-11 21:40:17 UTC" in md.text
 
 
 def test_back_returns_to_the_originating_flow_detail_in_the_same_slot(world):

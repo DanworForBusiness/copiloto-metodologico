@@ -225,24 +225,25 @@ def test_declared_context_narrows_the_diagnosis_to_that_scenario_and_closes_only
 
 
 # ── el eje no toca el score histórico ──────────────────────────────────────────────────────────────────────────────
-def test_historic_portability_result_is_identical_with_and_without_the_axis():
+def test_portability_result_is_identical_with_and_without_the_axis():
     cols = [{**c, "label": c["campo"]} for c in KENSING_LIKE]
     before = pb.evaluate_portability(cols, "dominio", pb.load_matrix("datasphere_core"))
     run(cols, RF_LTF); run(cols)
-    assert pb.evaluate_portability(cols, "dominio", pb.load_matrix("datasphere_core")) == before
-    assert before["findings"] and {f["regla"] for f in before["findings"]} == {"PB-003"}           # los falsos positivos históricos por naming siguen igual (scoring v2)
+    assert pb.evaluate_portability(cols, "dominio", pb.load_matrix("datasphere_core")) == before   # el eje de compatibilidad no altera el score
+    assert not before["findings"] and before["score"] == 100                                       # v2: `CostCenter*` y DecimalFloat ya no puntúan por nombre/tipo en dominio
 
 
 def test_portability_module_does_not_depend_on_the_new_axis():
     src = (REPO / "tools/catalog/portability_bdc.py").read_text(encoding="utf-8")
-    assert "compat_bdc" not in src and 'get("compatibilidad")' not in src and "def load_compatibility" not in src
+    code = "\n".join(line for line in src.splitlines() if re.match(r"\s*(from|import)\s", line))
+    assert "compat_bdc" not in code and 'get("compatibilidad")' not in src and "def load_compatibility" not in src
 
 
 KENSING_VISTAS = Path(r"C:\Users\Joe\ArquitectoDanwor\catalog_local\Kensing\Raw_Data_of_G_L_Account_Line_Item\vistas")
 
 
 @pytest.mark.skipif(not KENSING_VISTAS.exists(), reason="datos restaurados de Kensing no disponibles")
-def test_kensing_raw_gl_historic_result_stays_80_and_97_while_the_axis_finds_decimalfloat():
+def test_kensing_raw_gl_v2_has_no_false_positives_while_the_axis_still_finds_decimalfloat():
     import yaml
     cols = []
     for p in sorted(KENSING_VISTAS.glob("*.md")):
@@ -250,7 +251,8 @@ def test_kensing_raw_gl_historic_result_stays_80_and_97_while_the_axis_finds_dec
         a = (yaml.safe_load(m.group(1)) or {}).get("auto") or {}
         cols += [{**f, "artefacto": a.get("nombre")} for f in a.get("campos") or []]
     hist = pb.evaluate_portability(cols, "dominio", pb.load_matrix("datasphere_core"))
-    assert (hist["score"], hist["confianza"], hist["n_riesgos"], hist["n_adaptaciones"], hist["campos_revisados"]) == (80, "alta", 97, 0, 2368)
+    assert (hist["score"], hist["confianza"], hist["n_riesgos"], hist["n_adaptaciones"], hist["campos_revisados"]) == (100, "alta", 0, 0, 2368)   # v1 era 80/97 por `CostCenter*`
+    assert hist["version"] == "portability-scoring/v2" and hist["clase_evidencia"] == "ejercida_sin_hallazgos" and hist["evidencia"]["relaciones_fk_resueltas"] == 14
     out = run(cols)
     inv = {t["tipo"]: t for t in out["inventario"]["tipos"]}
     assert (inv["DecimalFloat"]["columnas"], inv["DecimalFloat"]["campos"]) == (120, 24) and out["inventario"]["no_reconocidas"] == 0
@@ -260,11 +262,11 @@ def test_kensing_raw_gl_historic_result_stays_80_and_97_while_the_axis_finds_dec
 def test_the_existing_yaml_contract_is_unchanged_for_its_current_consumers():
     m = pb.load_matrix("datasphere_core")
     assert set(m) == {"config", "reglas"}                                                          # el cargador histórico no ve la sección nueva
-    assert [r["id"] for r in m["reglas"]] == ["PB-001", "PB-002", "PB-003", "PB-004", "PB-005", "PB-010", "PB-011"]
+    assert [r["id"] for r in m["reglas"]] == ["PB-001", "PB-002", "PB-002H", "PB-003", "PB-004", "PB-005", "PB-005B", "PB-010", "PB-011"]
     assert (m["config"]["score_base"], m["config"]["penalizacion_max_por_regla"], m["config"]["peso_global"]) == (100, 20, 0)
     pb001 = next(r for r in m["reglas"] if r["id"] == "PB-001")
-    assert pb001["cuando"]["semantica"] == "monetario" and pb001["dominio"]["peso"] == 22        # PB-001 intacta
-    assert "compatibilidad" not in str(pb._SEED_REGLAS) and "compatibilidad" not in pb._SEED_CONFIG
+    assert pb001["cuando"]["semantica"] == "monetario" and "dominio" not in pb001 and pb001["data_product"]["peso"] == 14   # v2: solo safety check en data product
+    assert "compatibilidad_bdc" not in str(pb._SEED_REGLAS) and "compatibilidad" not in pb._SEED_CONFIG
 
 
 def test_the_axis_does_not_import_judgment_evidence_confidence_or_business_classification():

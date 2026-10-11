@@ -4,7 +4,7 @@
    secciones ES el linaje: cada artefacto es una sección con su tabla. Se usa en
    la página completa (catalog_flow.html) y en el swap HTMX que actualiza SOLO el
    panel central (#content) sin salir del módulo ni perder el panel derecho. #}
-{% from "partials/assessment_report_macros.html" import heading, contracts_evaluated, tile_grid, evaluation_table, assessment_action, compatibility_signal %}
+{% from "partials/assessment_report_macros.html" import heading, contracts_evaluated, tile_grid, evaluation_table, assessment_action %}
 {% set ah = assessment_header %}
 {# §1 Barra de acciones transversal: ← Volver + acciones de contexto en la MISMA línea (mismo patrón que el Assessment). La
    acción del assessment (Ver Assessment / Generar, con carga integrada) y el Informe de Cliente van a la derecha; el hero
@@ -85,8 +85,7 @@
       <p>{{ por.lead }}</p>
       {{ tile_grid(por.tiles) }}
       <p>{{ por.coverage }}{% if por.n_acks %} · {{ por.n_acks }} acknowledgement{{ "s" if por.n_acks != 1 }} registrados por el equipo{% endif %}.</p>
-      {{ compatibility_signal(ev.compatibility, ah) }}
-      {% if por.rows %}{{ evaluation_table(por.rows, ["Tipo", "Hallazgo", "Campos · Recomendación"]) }}{% else %}<p>Sin hallazgos de portabilidad — tipos consistentes para el cruce de runtimes.</p>{% endif %}
+      {% if por.rows %}{{ evaluation_table(por.rows, ["Tipo", "Hallazgo", "Campos · Recomendación"]) }}{% else %}<p>Sin observaciones estructurales en las reglas evaluadas.</p>{% endif %}
     </div>
   </details>
   {% endif %}

@@ -152,3 +152,29 @@ Assessment, como «Compatibilidad con destinos BDC».
 - **Metodología**: cada restricción referencia una sección del Copiloto por `key_topics`
   (`module_reference`), y las URLs SAP se registran una vez en `content/apendices/A04` y en los
   `{{support: …}}` del contenido; un test verifica que no diverjan.
+
+---
+
+# Portability Scoring v2 (`portability-scoring/v2`)
+
+**Qué cambia respecto de la v1 descrita arriba** (la v1 sigue explicando el origen de las reglas y los incidentes):
+
+- El score mide la **consistencia estructural de los tipos** del dominio, **independiente del destino**. Lo que depende del mecanismo o del destino (p. ej. `DecimalFloat`) se evalúa
+  en `compatibilidad_bdc/v1` (sección `compatibilidad` del YAML) y aparece en la **misma tabla** como «condicionado por destino», sin sumar al score ni a los riesgos.
+- **Bandas** (ids persistidos sin cambios; solo cambia la etiqueta visible): `plena` = «Sin hallazgos estructurales» (o «Sin elementos estructurales que evaluar» si ninguna regla
+  estructural tuvo entrada), `buena` = «Observaciones menores», `condicionada` = «Observaciones relevantes», `inspiracional` = «Inconsistencias estructurales»,
+  `no_recomendable` = «Inconsistencias críticas». «Condicionada/Plena/Buena» ya no se usan como etiqueta: colisionaban con la adopción metodológica y con la compatibilidad.
+- **Reglas**: PB-001 solo como safety check en data product; PB-002 exige campo derivado sin CAST (los decimales con escala alta *declarada* son el indicio informativo PB-002H,
+  sin coordenadas ni tipos de cambio); PB-003 es un **indicio** por nombre (nunca penaliza; texto: solo magnitudes con precisión validada, nunca «monetario»; descarta unidades,
+  códigos, fechas, indicadores y entidades; longitud ≥ 2); PB-004 solo numéricos; PB-005 solo por **base de tipo distinta** (bloqueante) y PB-005B para «FK más ancha que su PK»
+  (alineación potencialmente destructiva: con solo metadata no se afirma truncamiento ni pérdida; las ampliaciones compatibles no generan hallazgo).
+- **Tipo de hallazgo → etiqueta**: `riesgo` = Riesgo (evidencia estructural), `hint` = Indicio (por nombre, sin penalización), `adaptacion` = **Normalización detectada**
+  (ya aplicada; no confundir con «Adaptación requerida» de compatibilidad).
+- **Confianza** (de la *evaluación*; no mide compatibilidad con un destino): *baja* si la cobertura de metadata < 0.7; *media* si < 0.9, si la banda cambia al retirar los hallazgos
+  que dependen de nombres (`depende_de_nombre` en la matriz) o si las reglas estructurales no tuvieron evidencia que ejercer (campos numéricos derivados / relaciones FK resueltas);
+  *alta* en otro caso. Ausencia de riesgos ≠ evidencia suficiente. La evidencia que respalda la confianza se muestra en el (i) del tile.
+- **KPI** por **campos distintos** (`campos_distintos`); las ocurrencias por artefacto siguen en `findings` y en el detalle de cada fila.
+- **Persistencia/migración**: `auto.portabilidad_bdc` (generado por el Catálogo) lleva `version`. Un resultado sin `version` es v1 y la UI lo marca; la migración es **regenerar el Catálogo**
+  (la firma del generador ahora incluye `portability_bdc.py` y el YAML, así que un cambio de scoring invalida el cache incremental). No hay backfill de assessments.
+- **Calibración**: PB-003 se validó con una muestra de calibración (362 tuplas) y una **muestra independiente** (195 tuplas de 292 entidades fuera de los 35 flujos): 0 falsos positivos
+  en 191 negativos; límites y falsos negativos conocidos (duraciones en días, vocabulario) en `tests/fixtures/portability_v2/` y `tests/test_portability_scoring_v2.py`.
