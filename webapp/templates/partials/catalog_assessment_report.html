@@ -270,7 +270,7 @@
   <p>{{ por.coverage }}{% if por.n_acks %} · {{ por.n_acks }} acknowledgement{{ "s" if por.n_acks != 1 }} registrados por el equipo{% endif %}.</p>
   <details class="dashboard-section" id="asr-portabilidad-hallazgos">
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Hallazgos de portabilidad</span><span class="dashboard-section__count">{{ por.summary }}</span></summary>
-    <div class="dashboard-section__body">{% if por.rows %}{{ evaluation_table(por.rows, ["Tipo", "Hallazgo", "Campos · Recomendación"]) }}{% else %}{{ not_detected("Sin hallazgos de portabilidad — tipos consistentes para el cruce de runtimes.") }}{% endif %}</div>
+    <div class="dashboard-section__body">{% if por.rows %}{{ evaluation_table(por.rows, ["Tipo", "Hallazgo", "Campos · Recomendación"]) }}{% else %}{{ not_detected("Sin observaciones estructurales en las reglas evaluadas.") }}{% endif %}</div>
   </details>
   {{ compatibility_block(v.evaluation.compatibility, "asr-compatibilidad") }}
 </section>

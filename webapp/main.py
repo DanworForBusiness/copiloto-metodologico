@@ -2294,27 +2294,25 @@ def _catalog_portability_section_md(port: dict, asset_type: str, acks: list | No
     if not port or not isinstance(port, dict):
         return ""
     findings = port.get("findings") or []
-    clasif = str(port.get("clasificacion") or "no_evaluable")
-    label = _PORT_CLASIF_LABEL.get(clasif, clasif.replace("_", " ").title())
+    view = asset_evaluation.portability_view(port, acks, asset_type)      # UNA sola semántica (etiquetas, KPI por campos distintos, copy) para Catálogo, Assessment y Data Product
+    label = view["classification"]
     semaforo = port.get("semaforo") or "amber"
     conf = str(port.get("confianza") or "media").title()
     score = port.get("score")
-    rev, noeval = port.get("campos_revisados", 0), port.get("campos_no_evaluables", 0)
-    nrisk, nadapt = port.get("n_riesgos", 0), port.get("n_adaptaciones", 0)
+    tiles = {t["label"]: t["value"] for t in view["tiles"]}
+    nrisk, nind = tiles.get("Riesgos", 0), tiles.get("Normalizaciones / indicios", 0)
+    noeval = port.get("campos_no_evaluables", 0)
     pill = _catalog_status_badge(semaforo, label)
-    score_txt = f" · Score **{score}/100**" if isinstance(score, int) else ""
-    scope = ("Análisis retrospectivo del contrato publicado — safety check de incompatibilidades "
-             "residuales y detección de adaptaciones/workarounds (los hints no penalizan)."
-             if asset_type == "data_product"
-             else "Diagnóstico PREVENTIVO de portabilidad hacia HDLF / SAP BDC / Databricks.")
-    intro = (f"> {pill}{score_txt} · Confianza **{conf}**. {scope}\n>\n"
-             f"> Revisados **{rev}** campos · **{nrisk}** riesgo(s) · **{nadapt}** adaptación/hint"
-             + (f" · **{noeval}** no evaluable(s)" if noeval else "") + ".")
+    score_txt = f" · Consistencia **{score}/100**" if isinstance(score, int) else ""
+    intro = (f"> {pill}{score_txt} · Confianza **{conf}**. {view['lead']}\n>\n"
+             f"> Revisados **{port.get('campos_revisados', 0)}** campos · **{nrisk}** riesgo(s) · **{nind}** normalización/indicio"
+             + (f" · **{noeval}** no evaluable(s)" if noeval else "") + "."
+             + (" Evaluado con reglas anteriores (v1): regenerá el Catálogo para actualizarlo." if view["legacy"] else ""))
     ack_note = ""
     if acks:
         ack_note = f"\n\n> _{len(acks)} acknowledgement(s) registrados por el equipo._"
     table = _catalog_portability_table_html(findings, asset_type)
-    body = table if table else "> Sin hallazgos de portabilidad — tipos consistentes para el cruce de runtimes."
+    body = table if table else "> Sin observaciones estructurales en las reglas evaluadas."
     return f"## Portabilidad BDC\n\n{intro}\n\n{body}{ack_note}\n"
 
 

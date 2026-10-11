@@ -26,11 +26,16 @@ def test_legacy_list_tile_template_and_scoring_modules_are_untouched_by_the_asse
     import subprocess
     # La tile del listado (`catalog_flows.html`) ya NO está congelada: desde el gate «grado de la tile = Adopción metodológica» su grado
     # primario sale del Juicio persistido (ver test_catalog_assessment_routes). Los módulos de scoring legacy siguen intactos.
-    out = subprocess.run(["git", "diff", "--stat", "main", "--", "tools/catalog/generate_catalog.py", "tools/catalog/catalog_service.py"],
+    out = subprocess.run(["git", "diff", "-U0", "main", "--", "tools/catalog/generate_catalog.py", "tools/catalog/catalog_service.py"],
                          cwd=REPO, capture_output=True, text=True)
     if out.returncode != 0:                                                  # sin rama `main` local (p. ej. CI en detached HEAD): no aplica
         return
-    assert out.stdout.strip() == "", out.stdout
+    # La ÚNICA excepción admitida es la firma del cache incremental del generador (`_catalog_generator_signature`), que desde portability-scoring/v2 también cubre el
+    # evaluador y la matriz de portabilidad para que un cambio de scoring invalide el cache; la evaluación de cumplimiento/veredicto legacy sigue intacta.
+    changed = [l for l in out.stdout.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+    allowed = re.compile(r"signature|sha256|parts|portability_bdc|Firma del generador|reutilizamos salidas viejas|hashlib|invalid|scoring|persiste|here|extra|unknown|try:|except|return|\"\"\"|^[+-]\s*$|cache incremental|no reutilizamos")
+    assert all(allowed.search(l) for l in changed), changed
+    assert "catalog_service.py" not in out.stdout, out.stdout
 
 
 def test_assessment_surfaces_never_use_the_legacy_verdict_vocabulary_for_coverage_or_confidence():

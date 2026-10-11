@@ -912,7 +912,7 @@ def test_catalog_evaluation_is_one_numbered_section_with_three_independent_lense
     gov = sec[sec.index('id="eval-gobierno"'):sec.index('id="eval-portabilidad"')]
     assert "2 observaciones de gobierno" in gov and "dashboard-section__state" not in gov and "convención de nombres" in gov.lower()
     por = sec[sec.index('id="eval-portabilidad"'):]
-    assert "Score 72/100" in por and "Score de portabilidad" in por and "dashboard-section__state" not in por.split("</summary>")[0]
+    assert "Consistencia 72/100" in por and "Consistencia de tipos" in por and "dashboard-section__state" not in por.split("</summary>")[0]
     # el detalle del Assessment NO se duplica en el Catálogo y la acción lleva al informe
     assert "Evidencias favorables</h3>" not in sec and "Ver Assessment" in sec
 
@@ -962,7 +962,7 @@ def test_portability_section_exists_only_with_catalog_portability_data_and_has_n
     html = main.templates.get_template("partials/catalog_assessment_report.html").render(v=view, pack="datasphere_core")
     por = html[html.index('id="asr-portabilidad"'):]
     por = por[:por.index("</section>")]
-    assert "Score de portabilidad" in por and "asr-a-" not in por     # solo portabilidad futura (score/riesgos/adaptaciones); la fuente vive en Arquitectura
+    assert "Consistencia de tipos" in por and "asr-a-" not in por     # solo portabilidad futura (score/riesgos/adaptaciones); la fuente vive en Arquitectura
 
 
 def test_asset_evaluation_is_composition_only_and_imports_no_engine():

@@ -30,15 +30,18 @@ from webapp.services.status_tone import ATTENTION, ACCEPTABLE, NEUTRAL, POSITIVE
 # (la ETIQUETA conserva el significado: "Crítico").
 SEMAFORO_TONE = {"green": POSITIVE, "amber": ACCEPTABLE, "orange": ATTENTION, "red": ATTENTION, "blue": NEUTRAL}
 
+# Etiquetas VISIBLES de la banda del score (los ids persistidos `plena/buena/…` no cambian): el score mide la CONSISTENCIA ESTRUCTURAL de los tipos del dominio,
+# no la compatibilidad con un destino; por eso no usa «Plena/Buena/Condicionada» (colisionan con la adopción metodológica y con «Compatibilidad condicionada»).
 PORT_CLASIF_LABEL = {
-    "plena": "Plena", "buena": "Buena", "condicionada": "Condicionada",
-    "inspiracional": "Inspiracional / Referencia",
-    "no_recomendable": "No recomendable para réplica directa",
+    "plena": "Sin hallazgos estructurales", "buena": "Observaciones menores", "condicionada": "Observaciones relevantes",
+    "inspiracional": "Inconsistencias estructurales",
+    "no_recomendable": "Inconsistencias críticas",
     "no_evaluable": "No evaluable",
 }
+PORT_CLASIF_NOT_EXERCISED = "Sin elementos estructurales que evaluar"
 PORT_HALLAZGO_LABEL = {
-    "riesgo": "Riesgo", "adaptacion": "Adaptación", "buena_practica": "Buena práctica",
-    "hint": "Hint", "no_evaluable": "No evaluable",
+    "riesgo": "Riesgo", "adaptacion": "Normalización detectada", "buena_practica": "Buena práctica",
+    "hint": "Indicio", "no_evaluable": "No evaluable",
 }
 
 
@@ -98,7 +101,7 @@ def compliance_rows(source: str, classify) -> list[dict]:
 
 
 def portability_rows(findings: list) -> list[dict]:
-    """Hallazgos de portabilidad AGRUPADOS por regla (una fila por regla: evita listar decenas de campos)."""
+    """Hallazgos de portabilidad CONSOLIDADOS por regla (una fila por regla), con campos DISTINTOS; las ocurrencias por artefacto se informan en la evidencia."""
     if not findings:
         return []
     order = {"red": 0, "orange": 1, "amber": 2, "blue": 3, "green": 4}
@@ -108,18 +111,20 @@ def portability_rows(findings: list) -> list[dict]:
     rows = []
     for fs in groups.values():
         f0 = fs[0]
-        nombres = list(dict.fromkeys(
-            (f"{x.get('artefacto')}.{x.get('campo')}" if x.get("artefacto") else str(x.get("campo") or "")) for x in fs))
+        nombres = list(dict.fromkeys(str(x.get("campo") or "") for x in fs))
+        arts = {str(x.get("artefacto") or "") for x in fs}
         campos = ", ".join(nombres)
         if len(campos) > 160:
             campos = campos[:157] + "…"
         ev = html.escape(campos)
+        if len(fs) > len(nombres):
+            ev += html.escape(f" ({len(fs)} ocurrencias en {_plural(len(arts), 'artefacto')})")
         if f0.get("recomendacion"):
             ev += f" — <em>{html.escape(str(f0['recomendacion']))}</em>"
         semaforo = f0.get("semaforo", "amber")
         rows.append({"semaforo": semaforo, "tone": tone_of(semaforo),
                      "label": PORT_HALLAZGO_LABEL.get(f0.get("tipo_hallazgo"), "Nota"),
-                     "title": Markup(f"{len(fs)} campo(s) · {html.escape(str(f0.get('titulo') or ''))}"),
+                     "title": Markup(f"{_plural(len(nombres), 'campo', 'campos')} · {html.escape(str(f0.get('titulo') or ''))}"),
                      "evidence": Markup(ev)})
     return rows
 
@@ -194,33 +199,63 @@ def governance_view(findings: list[dict] | None) -> dict | None:
     }
 
 
-def portability_view(port: dict | None, acks: list | None = None, asset_type: str = "dominio") -> dict | None:
-    """Lectura de Portabilidad & preparación BDC: capacidad TÉCNICA (score, confianza, riesgos). Sin badge de grado."""
+def _confidence_help(port: dict) -> list[str]:
+    """Qué evidencia respalda la confianza (no confundir cobertura de metadata ni compatibilidad con un destino)."""
+    det = port.get("confianza_detalle")
+    if not isinstance(det, dict):
+        return ["Evaluado con reglas anteriores (v1): la confianza solo reflejaba la cobertura de metadata."]
+    lines = ["Confianza de la evaluación estructural; no mide la compatibilidad con un destino.",
+             f"Cobertura de metadata: {round(float(det.get('cobertura') or 0) * 100)} %."]
+    if det.get("evidencia_ejercida"):
+        lines.append(f"Evidencia estructural ejercida: {_plural(det.get('derivadas_numericas', 0), 'campo numérico derivado', 'campos numéricos derivados')} y "
+                     f"{_plural(det.get('relaciones_fk_resueltas', 0), 'relación FK resuelta', 'relaciones FK resueltas')}.")
+    else:
+        lines.append("Sin campos numéricos derivados ni relaciones FK que evaluar: las reglas estructurales no tuvieron entrada.")
+    if det.get("sensible_a_heuristicas"):
+        lines.append("La banda cambia al retirar los indicios que dependen de nombres.")
+    return lines
+
+
+def portability_view(port: dict | None, acks: list | None = None, asset_type: str = "dominio", compat_rows: list | None = None) -> dict | None:
+    """Lectura de Portabilidad & preparación BDC (portability-scoring/v2): CONSISTENCIA estructural de los tipos (score, confianza, riesgos) + restricciones por destino
+    (`compat_rows`, proyección de `compatibilidad_bdc/v1` en la MISMA tabla; no suman al score ni a los riesgos). Sin badge de grado."""
     if not port or not isinstance(port, dict):
         return None
     clasif = str(port.get("clasificacion") or "no_evaluable")
     score = port.get("score")
     conf = str(port.get("confianza") or "media").title()
-    n_risk, n_adapt = port.get("n_riesgos", 0), port.get("n_adaptaciones", 0)
+    dist = port.get("campos_distintos") if isinstance(port.get("campos_distintos"), dict) else None
+    n_risk = dist["riesgos"] if dist else port.get("n_riesgos", 0)                      # KPI por campos distintos; el detalle conserva las ocurrencias
+    n_ind = (dist["indicios"] + dist["normalizaciones"]) if dist else port.get("n_adaptaciones", 0)
     rev, noeval = port.get("campos_revisados", 0), port.get("campos_no_evaluables", 0)
+    compat_rows = list(compat_rows or [])
+    legacy = not port.get("version")
     scope = ("Análisis retrospectivo del contrato publicado: safety check de incompatibilidades residuales y detección de "
-             "adaptaciones/workarounds (los hints no penalizan)."
+             "adaptaciones/workarounds (los indicios no penalizan)."
              if asset_type == "data_product"
-             else "Diagnóstico preventivo de portabilidad hacia HDLF / SAP BDC / Databricks.")
+             else "Consistencia estructural de los tipos del dominio, independiente del destino de publicación. Lo que depende del mecanismo o del destino se muestra en la "
+                  "misma tabla como «condicionado por destino».")
     tiles = []
     if isinstance(score, int):
-        tiles.append({"value": f"{score}/100", "label": "Score de portabilidad"})
-    tiles += [{"value": conf, "label": "Confianza"}, {"value": n_risk, "label": "Riesgos"},
-              {"value": n_adapt, "label": "Adaptaciones / hints"}]
-    parts = ([f"Score {score}/100"] if isinstance(score, int) else []) + [f"confianza {conf.lower()}", _plural(n_risk, "riesgo")]
+        tiles.append({"value": f"{score}/100", "label": "Consistencia de tipos",
+                      "help": ["Consistencia estructural de los tipos del dominio, sin considerar el destino de publicación."]})
+    tiles += [{"value": conf, "label": "Confianza", "help": _confidence_help(port)}, {"value": n_risk, "label": "Riesgos"},
+              {"value": n_ind, "label": "Normalizaciones / indicios"}]
+    parts = ([f"Consistencia {score}/100"] if isinstance(score, int) else []) + [f"confianza {conf.lower()}", _plural(n_risk, "riesgo")]
+    n_tipos = len({t for r in compat_rows for t in r.get("tipos", [])})                         # tipos DISTINTOS sujetos a restricciones por destino (no filas ni escenarios)
+    if compat_rows:
+        parts.append(_plural(n_tipos, "tipo sujeto a restricciones por destino", "tipos sujetos a restricciones por destino"))
+    label = (PORT_CLASIF_NOT_EXERCISED if (clasif == "plena" and port.get("clase_evidencia") == "no_ejercida")
+             else PORT_CLASIF_LABEL.get(clasif, clasif.replace("_", " ").title()))
     return {
-        "rows": portability_rows(port.get("findings") or []),
+        "rows": portability_rows(port.get("findings") or []) + compat_rows,
         "tiles": tiles, "summary": " · ".join(parts),
-        "classification": PORT_CLASIF_LABEL.get(clasif, clasif.replace("_", " ").title()),
-        "lead": scope,                                   # la clasificación propia (Plena/Buena/…) NO se muestra como grado: se confundiría con el nivel de adopción
-        "reviewed": rev, "not_evaluable": noeval, "n_acks": len(acks or []),
+        "classification": label,
+        "lead": scope,                                   # la clasificación propia NO se muestra como grado: se confundiría con el nivel de adopción
+        "reviewed": rev, "not_evaluable": noeval, "n_acks": len(acks or []), "legacy": legacy, "n_compat": n_tipos,
         "coverage": (f"{_plural(rev, 'campo revisado', 'campos revisados')}"
-                     + (f" · {_plural(noeval, 'no evaluable', 'no evaluables')}" if noeval else "")),
+                     + (f" · {_plural(noeval, 'no evaluable', 'no evaluables')}" if noeval else "")
+                     + (" · Evaluado con reglas anteriores (v1): regenerá el Catálogo para actualizarlo." if legacy else "")),
     }
 
 
@@ -233,9 +268,11 @@ def asset_evaluation(entry: Any, findings: list[dict] | None = None, assessed: b
     del evaluador legacy del Catálogo. ``findings`` = hallazgos de gobierno del Assessment persistido (``governed_findings``)."""
     if not assessed:
         return {"governance": None, "portability": None}
-    from webapp.services import bdc_compatibility_service       # eje ADITIVO e independiente del score de portabilidad (derivado en solo lectura; fail-soft)
+    from webapp.services import bdc_compatibility_service       # eje ADITIVO e independiente del score (derivado en solo lectura; fail-soft): UN resultado alimenta tabla y detalle
+    compat = bdc_compatibility_service.evaluate_entry(entry)
     return {
         "governance": governance_view(findings if findings is not None else []),
-        "portability": portability_view(getattr(entry, "portabilidad_bdc", None), getattr(entry, "portabilidad_ack", None), "dominio"),
-        "compatibility": bdc_compatibility_service.view_for_entry(entry),
+        "portability": portability_view(getattr(entry, "portabilidad_bdc", None), getattr(entry, "portabilidad_ack", None), "dominio",
+                                        compat_rows=bdc_compatibility_service.table_rows(compat)),
+        "compatibility": bdc_compatibility_service.build_view(compat),
     }

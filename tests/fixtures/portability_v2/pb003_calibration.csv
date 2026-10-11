@@ -1,0 +1,363 @@
+﻿campo,label,longitud,ocurrencias,etiqueta,alcance_positivo,clase_negativo,v1_marca,v2_marca,origen
+ActlDepStatisticalKeyFigures,Template: act. stat. key figure - cost center/activity type,10,9,A,,,False,False,barrido_amplio
+SuplrInvcDeliveryCostCndnStep,Step number,3,2,A,,,True,False,hit_v1
+SuplrInvcDeliveryCostCndnCount,Condition counter,3,2,A,,,True,False,hit_v1
+ACTLDEPSTATISTICALKEYFIGURES,Modelo: Valor estadístico real en ce.coste/clase actividad,10,1,A,,,True,True,hit_v1
+STAGR,Valor estadístico,6,1,A,,,True,True,hit_v1
+ATZHL,Contador valor de prop.,3,1,A,,,True,False,hit_v1
+GRPVL,Valor de agrupamiento p.contratos por ocupación,4,1,A,,,True,True,hit_v1
+GEWEI,Unidad de peso,3,54,N,,unidad/moneda,True,False,hit_v1
+VOLEH,Unidad de volumen,3,44,N,,unidad/moneda,True,False,hit_v1
+ERGEI,Unidad de peso,3,42,N,,unidad/moneda,True,False,hit_v1
+ERVOE,Unidad de volumen,3,42,N,,unidad/moneda,True,False,hit_v1
+BMATN,Mat.gestion.stock,40,42,N,,entidad/código/grupo,False,False,barrido_amplio
+PMATA,Material precio,40,41,N,,entidad/código/grupo,True,False,hit_v1
+CostCenter,Cost center,10,31,N,,entidad/código/grupo,True,False,hit_v1
+PLGTP,Tipo banda precio,2,24,N,,entidad/código/grupo,True,False,hit_v1
+SPROF,Perfil de precio,1,23,N,,indicador,True,False,hit_v1
+NSNID,Nº de stock de OTAN,9,20,N,,entidad/código/grupo,False,False,barrido_amplio
+FITYP,Clase de impuesto,2,18,N,,entidad/código/grupo,False,False,barrido_amplio
+KONWA,Unidad condición (moneda o porcentaje),5,17,N,,unidad/moneda,True,False,hit_v1
+VALDT,Fecha de valor,8,17,N,,fecha/duración,True,False,hit_v1
+BWART,Clase de movimiento (gestión stocks),3,16,N,,entidad/código/grupo,False,False,barrido_amplio
+ItemWeightUnit,Weight unit,3,14,N,,unidad/moneda,False,False,barrido_amplio
+ItemVolumeUnit,Volume unit,3,14,N,,unidad/moneda,False,False,barrido_amplio
+FSH_SEAIM,Indicador: Temporada activa en gestión de stocks,1,11,N,,indicador,False,False,barrido_amplio
+GDATU,Date As of Which the Exchange Rate Is Effective,8,11,N,,fecha/duración,True,False,hit_v1
+PurchaseOrderQuantityUnit,Purchase order unit of measure,3,11,N,,unidad/moneda,False,False,barrido_amplio
+PRFRE,Indicador relevante para determinación de precios,1,10,N,,indicador,False,False,barrido_amplio
+PricingDate,Date for pricing and exchange rate,8,10,N,,fecha/duración,True,False,hit_v1
+ExchangeRateDate,Translation date,8,10,N,,fecha/duración,True,False,hit_v1
+TAXIW,Identificador de impuestos centro (Compras),1,9,N,,indicador,False,False,barrido_amplio
+sobkz,Indicador de stock especial,1,9,N,,indicador,False,False,barrido_amplio
+PLTYP,Tipo de lista de precios,2,9,N,,entidad/código/grupo,False,False,barrido_amplio
+FSH_VAS_CG,Grupo de clientes para servicios de valor añadido,3,9,N,,entidad/código/grupo,True,False,hit_v1
+FSH_FRATE_AGG_LEVEL,Nivel de agregación de tasa de cumplimiento,1,9,N,,indicador,True,False,hit_v1
+CashDiscountBaseAmtIsNetAmt,Indicator: discount base amount is the net value,1,9,N,,indicador,False,False,barrido_amplio
+CostCenterCategory,Cost center category,1,9,N,,indicador,False,False,barrido_amplio
+CostCtrResponsiblePersonName,Person responsible,20,9,N,,texto,True,False,hit_v1
+CostCtrResponsibleUser,User responsible,12,9,N,,entidad/código/grupo,True,False,hit_v1
+CostCenterCurrency,Currency key,5,9,N,,unidad/moneda,False,False,barrido_amplio
+CostCenterCreationDate,Entered on,8,9,N,,fecha/duración,True,False,hit_v1
+CostCenterCreatedByUser,Entered by,12,9,N,,entidad/código/grupo,True,False,hit_v1
+IsBlkdForPrimaryCostsPosting,Lock indicator for actual primary postings,1,9,N,,indicador,False,False,barrido_amplio
+IsBlockedForPlanPrimaryCosts,Lock indicator for plan primary costs,1,9,N,,indicador,False,False,barrido_amplio
+IsBlkdForSecondaryCostsPosting,Lock indicator for actual secondary costs,1,9,N,,indicador,False,False,barrido_amplio
+IsBlockedForPlanSecondaryCosts,Lock indicator for plan secondary costs,1,9,N,,indicador,False,False,barrido_amplio
+CostCenterAllocationMethod,Indicator for allowed allocation methods,2,9,N,,indicador,False,False,barrido_amplio
+ConsumptionQtyIsRecorded,Indicator for recording consumption quantities,1,9,N,,indicador,False,False,barrido_amplio
+SubsequentCostCenter,Subsequent cost center,10,9,N,,entidad/código/grupo,True,False,hit_v1
+CostCenterAccountingOverhead,Co-cca overhead key,6,9,N,,entidad/código/grupo,False,False,barrido_amplio
+CostCenterAddrName3,Name 3,35,9,N,,texto,True,False,hit_v1
+CostCenterAddrName4,Name 4,35,9,N,,texto,True,False,hit_v1
+CostCenterPrinterDestination,Printer destination for cctr report,4,9,N,,entidad/código/grupo,True,False,hit_v1
+CostCenterStandardHierArea,Standard hierarchy area,12,9,N,,entidad/código/grupo,True,False,hit_v1
+CostCollector,Cost collector key,23,9,N,,entidad/código/grupo,False,False,barrido_amplio
+CostCenterIsComplete,Completion flag for the cost center master record,1,9,N,,indicador,False,False,barrido_amplio
+IsStatisticalCostCenter,Indicator: cost center is statistical account assignment,1,9,N,,indicador,False,False,barrido_amplio
+CostCenterFunction,Function of cost center,3,9,N,,entidad/código/grupo,True,False,hit_v1
+CostCenterAlternativeFunction,Alternative function of cost center,3,9,N,,entidad/código/grupo,True,False,hit_v1
+ActyIndependentAllocationTmpl,Template: activity-independent allocation to cost center,10,9,N,,entidad/código/grupo,True,False,hit_v1
+ActyDependentAllocationTmpl,Template: activity-dependent allocation to cost center,10,9,N,,entidad/código/grupo,True,False,hit_v1
+BudgetCarryingCostCenter,Budget-carrying cost center,10,9,N,,entidad/código/grupo,True,False,hit_v1
+AvailabilityControlIsActive,Budget availability control for cost centers is active,1,9,N,,indicador,True,False,hit_v1
+WeightUnit,Weight unit,3,9,N,,unidad/moneda,False,False,barrido_amplio
+VolumeUnit,Volume unit,3,9,N,,unidad/moneda,False,False,barrido_amplio
+HasVariableTareWeight,Variable tare weight,1,9,N,,indicador,True,False,hit_v1
+DiscountInKindEligibility,Material qualifies for discount in kind,1,9,N,,indicador,False,False,barrido_amplio
+TotalCreditCheckStatus,Overall status of credit checks,1,9,N,,indicador,False,False,barrido_amplio
+InventorySpecialStockType,Special stock indicator,1,9,N,,indicador,False,False,barrido_amplio
+KONDA,Grupo de precio de cliente,2,8,N,,entidad/código/grupo,True,False,hit_v1
+gewei,Unidad de peso,3,7,N,,unidad/moneda,True,False,hit_v1
+CostObject,Cost object,12,7,N,,entidad/código/grupo,True,False,hit_v1
+SOBKZ,Indicador de stock especial,1,6,N,,indicador,False,False,barrido_amplio
+UMJAH,Año para el cual se indica el volumen de ventas,4,6,N,,fecha/duración,True,False,hit_v1
+UWAER,Moneda de volumen de negocios,5,6,N,,unidad/moneda,True,False,hit_v1
+XICMS,Indicador: El deudor está exento del impuesto ICMS,1,6,N,,indicador,False,False,barrido_amplio
+XXIPI,Indicador: El deudor está exento del impuesto IPI,1,6,N,,indicador,False,False,barrido_amplio
+J_3GNEGMEN,Ctd.negativas autorizadas también en gestión stocks cronol.,1,6,N,,indicador,False,False,barrido_amplio
+J_3GSCHPRS,Indicador precio de turno,1,6,N,,indicador,True,False,hit_v1
+/SAPCEM/KVMEQ,Indicador: Cantidad compensación relevante para equipo,1,6,N,,indicador,True,False,hit_v1
+PRICINGDATE,Fecha para la determinación de precios y tipo de cambio,8,6,N,,fecha/duración,False,False,barrido_amplio
+WRTTP,Tipo de valor,2,6,N,,entidad/código/grupo,True,False,hit_v1
+BTEXT,Texto de clase de movimiento (Gestión de stocks),20,5,N,,texto,False,False,barrido_amplio
+CONDITIONCATEGORY,"Tipo condición: Porte,impuesto,prec.base=Ingr.,prec.,val.",1,5,N,,indicador,False,False,barrido_amplio
+PLGTP,Tipo de banda de precio,2,5,N,,entidad/código/grupo,True,False,hit_v1
+SDFULFILLMENTCALCULATIONRULE,"Cantidad positiva, negativa o no calculada",1,5,N,,indicador,True,False,hit_v1
+TXJCD,Cód.emplazamiento fiscal: Emplazamiento p.cálculo impuestos,15,5,N,,entidad/código/grupo,False,False,barrido_amplio
+XVALV,Indicador: ¿Proponer fecha CPU como fecha valor?,1,5,N,,fecha/duración,True,False,hit_v1
+XSKFN,Indicador: El importe base para DPP es el valor neto,1,5,N,,indicador,True,False,hit_v1
+XMWSN,Indicador: ¿Valor neto como base imponible para impuesto?,1,5,N,,indicador,True,False,hit_v1
+XBBBF,Verif. de autorización de cuentas de mayor en gestión stocks,1,5,N,,indicador,False,False,barrido_amplio
+MWSKV,Indicador de impuesto de op. exenta IVA soportado,2,5,N,,indicador,False,False,barrido_amplio
+MWSKA,Indicador de impuestos de op. exenta IVA repercutido,2,5,N,,indicador,False,False,barrido_amplio
+WT_NEWWT,Indicador: liquidación de impuestos ampliada activa,1,5,N,,indicador,False,False,barrido_amplio
+DTAMTC,Document Type for Journal Voucher (Amount Correction),2,5,N,,entidad/código/grupo,False,False,barrido_amplio
+DTAXR,Regla impuestos diferidos,4,5,N,,entidad/código/grupo,False,False,barrido_amplio
+XVATDATE,Fecha de declaración de impuestos activa en documentos,1,5,N,,fecha/duración,False,False,barrido_amplio
+TIPO_VALOR,Tipo Valor,4,5,N,,entidad/código/grupo,True,False,hit_v1
+BillingQuantityUnit,Sales unit,3,5,N,,unidad/moneda,False,False,barrido_amplio
+CustomerPriceGroup,Customer price group,2,5,N,,entidad/código/grupo,False,False,barrido_amplio
+PriceListType,Price list type,2,5,N,,entidad/código/grupo,False,False,barrido_amplio
+PriceDetnExchangeRateDate,Translation date,8,5,N,,fecha/duración,True,False,hit_v1
+PartnerCostCenter,Partner cost center,10,5,N,,entidad/código/grupo,True,False,hit_v1
+CostSourceUnit,Cost source unit,3,5,N,,unidad/moneda,False,False,barrido_amplio
+ReferenceQuantityUnit,Unit of measure for reference quantity,3,5,N,,unidad/moneda,False,False,barrido_amplio
+CostEstimate,Cost estimate,12,5,N,,entidad/código/grupo,True,False,hit_v1
+InventorySpecialStockValnType,Inventory special stock valuation type,1,5,N,,indicador,False,False,barrido_amplio
+InventorySpecialStockType,Inventory special stock type,1,5,N,,indicador,False,False,barrido_amplio
+InvtrySpclStockWBSElmntIntID,Inventory special stock wbs element internal id,8,5,N,,entidad/código/grupo,False,False,barrido_amplio
+InventorySpclStockWBSElement,Inventory special stock wbs element,24,5,N,,entidad/código/grupo,False,False,barrido_amplio
+InventorySpecialStockSupplier,Supplier of valuated special inventory,10,5,N,,entidad/código/grupo,False,False,barrido_amplio
+CostOriginGroup,Origin group as subdivision of cost element,4,5,N,,entidad/código/grupo,False,False,barrido_amplio
+QuantityIsIncomplete,Indicator: quantity is incomplete,1,5,N,,indicador,False,False,barrido_amplio
+OriginCostCtrActivityType,Origin cost center activity type,6,5,N,,entidad/código/grupo,False,False,barrido_amplio
+OriginCostCenter,Origin cost center,10,5,N,,entidad/código/grupo,True,False,hit_v1
+CostCtrActivityType,Activity type,6,5,N,,entidad/código/grupo,False,False,barrido_amplio
+CostAnalysisResource,Resource (cost analysis view),10,5,N,,entidad/código/grupo,True,False,hit_v1
+PartnerCostCtrActivityType,Partner cost center activity type,6,5,N,,entidad/código/grupo,False,False,barrido_amplio
+PartnerCostObject,Partner cost object,12,5,N,,entidad/código/grupo,True,False,hit_v1
+PubSecBudgetCnsmpnAmtType,Budget consumption amount type,4,5,N,,entidad/código/grupo,False,False,barrido_amplio
+JointVentureCostRecoveryCode,Joint venture cost recovery code,2,5,N,,entidad/código/grupo,False,False,barrido_amplio
+SenderCostRecoveryCode,Sender cost recovery code,2,5,N,,entidad/código/grupo,False,False,barrido_amplio
+CutbackCostObject,Cutback cost object,22,5,N,,entidad/código/grupo,True,False,hit_v1
+PriceSpecificationProductGroup,Product pricing group,2,5,N,,entidad/código/grupo,False,False,barrido_amplio
+DeliveryQuantityUnit,Unit of measure of delivery unit,3,5,N,,unidad/moneda,False,False,barrido_amplio
+VolumeRebateGroup,Volume rebate group,2,5,N,,entidad/código/grupo,False,False,barrido_amplio
+CashDiscountIsDeductible,Cash discount indicator,1,5,N,,indicador,False,False,barrido_amplio
+PriceFixingCategory,Indicator for price fixing,1,5,N,,indicador,False,False,barrido_amplio
+OrderQuantityUnit,Sales unit,3,5,N,,unidad/moneda,False,False,barrido_amplio
+TargetQuantityUnit,Target quantity uom,3,5,N,,unidad/moneda,False,False,barrido_amplio
+NetPriceQuantityUnit,Condition unit,3,5,N,,unidad/moneda,False,False,barrido_amplio
+OverallTotalDeliveryStatus,Overall delivery status (all items),1,5,N,,indicador,False,False,barrido_amplio
+OverallTotalSDDocRefStatus,Overall reference status (all items),1,5,N,,indicador,False,False,barrido_amplio
+TotalSDDocReferenceStatus,Overall reference status (item),1,5,N,,indicador,False,False,barrido_amplio
+TotalDeliveryStatus,Overall delivery status (item),1,5,N,,indicador,False,False,barrido_amplio
+XLONG,Stocks negativos permitidos en almacén,1,4,N,,indicador,False,False,barrido_amplio
+XBUFX,Está permitido fijar stock teórico en almacén,1,4,N,,indicador,False,False,barrido_amplio
+MESST,Clase de gestión stocks para almacén de producción,1,4,N,,indicador,False,False,barrido_amplio
+OIH_LICNO,Número de permiso para stock exento de impuestos,15,4,N,,entidad/código/grupo,False,False,barrido_amplio
+STCD6,Número impuesto 6,20,4,N,,entidad/código/grupo,False,False,barrido_amplio
+bwart,Clase de movimiento (gestión stocks),3,4,N,,entidad/código/grupo,False,False,barrido_amplio
+SKTOF,Indicador: Derecho a descuentos,1,4,N,,indicador,False,False,barrido_amplio
+PMATN,Material determinante del precio,40,4,N,,entidad/código/grupo,True,False,hit_v1
+KONDM,Grupo de precios de material,2,4,N,,entidad/código/grupo,False,False,barrido_amplio
+PBIND,Indicador para fijación de precios,1,4,N,,indicador,False,False,barrido_amplio
+VPRSV,Indicador de control de precios,1,4,N,,indicador,False,False,barrido_amplio
+0STOCKCAT,Tipo de stocks,1,4,N,,indicador,False,False,barrido_amplio
+0STOCKTYPE,Característica stock,1,4,N,,indicador,False,False,barrido_amplio
+ATWRT,Valor de la característica,70,4,N,,entidad/código/grupo,True,False,hit_v1
+HeaderWeightUnit,Weight unit,3,4,N,,unidad/moneda,False,False,barrido_amplio
+HeaderVolumeUnit,Volume unit,3,4,N,,unidad/moneda,False,False,barrido_amplio
+HandlingUnitInStock,Handling unit placed in stock,1,4,N,,unidad/moneda,False,False,barrido_amplio
+TotalBlockStatus,Overall block status (header),1,4,N,,indicador,False,False,barrido_amplio
+OverallChmlCmplncStatus,Total product marketability check status,1,4,N,,indicador,False,False,barrido_amplio
+OverallDangerousGoodsStatus,Total dangerous goods check status,1,4,N,,indicador,False,False,barrido_amplio
+OverallSafetyDataSheetStatus,Total safety data sheet check status,1,4,N,,indicador,False,False,barrido_amplio
+QuantityIsFixed,Quantity is fixed,1,4,N,,indicador,True,False,hit_v1
+DeliveryQuantityUnit,Sales unit,3,4,N,,unidad/moneda,False,False,barrido_amplio
+WarehouseStockCategory,Stock category in the warehouse management system,1,4,N,,indicador,False,False,barrido_amplio
+IssgOrRcvgStockCategory,Stock category in the warehouse management system,1,4,N,,indicador,False,False,barrido_amplio
+IssgOrRcvgSpclStockInd,Special stock indicator for physical stock transfer,1,4,N,,indicador,False,False,barrido_amplio
+StockType,Stock type,1,4,N,,indicador,False,False,barrido_amplio
+StockSegment,Stock segment,40,4,N,,entidad/código/grupo,False,False,barrido_amplio
+FXPRU,Co-producto de precio fijo,1,3,N,,indicador,True,False,hit_v1
+SGT_SCAT,Segmento de stock,40,3,N,,entidad/código/grupo,False,False,barrido_amplio
+VFNID,Status del impuesto del subcontratista verificado,1,3,N,,indicador,False,False,barrido_amplio
+Tipo_Stocks,Tipo de stocks,1,3,N,,indicador,False,False,barrido_amplio
+Caracteristica_Stock,Característica stock,1,3,N,,indicador,False,False,barrido_amplio
+GEWEI,Weight Unit,3,3,N,,unidad/moneda,False,False,barrido_amplio
+CostCenterName,Cost center name,20,3,N,,texto,True,False,hit_v1
+CostCenterDescription,Description of cost center,40,3,N,,texto,True,False,hit_v1
+ControllingArea_CostCenter,Controlling area,4,3,N,,entidad/código/grupo,True,False,hit_v1
+VMVPR,Indicador de control de precios del periodo precedente,1,3,N,,fecha/duración,False,False,barrido_amplio
+VJVPR,Indicador de control de precios del año precedente,1,3,N,,fecha/duración,False,False,barrido_amplio
+LAEPR,Fecha de la útima modificación del precio,8,3,N,,fecha/duración,True,False,hit_v1
+ZKDAT,Inicio de la validez del precio,8,3,N,,fecha/duración,True,False,hit_v1
+ZPLD1,Fecha de entrada en vigor del precio plan futuro 1,8,3,N,,fecha/duración,True,False,hit_v1
+ZPLD2,Fecha de entrada en vigor del precio plan futuro 2,8,3,N,,fecha/duración,True,False,hit_v1
+ZPLD3,Fecha de entrada en vigor del precio plan futuro 3,8,3,N,,fecha/duración,True,False,hit_v1
+ABWKZ,Valor mínimo: Indicador de devaluación,2,3,N,,indicador,True,False,hit_v1
+KZIWL,Indicador de inventario para artículo de valor,3,3,N,,indicador,True,False,hit_v1
+LBWST,"Estrategia valoración precio plan actual, stock ped.cliente",1,3,N,,indicador,True,False,hit_v1
+VBWST,"Estrategia valoración para precio plan anterior, stock indv.",1,3,N,,indicador,True,False,hit_v1
+FBWST,"Estrategia valoración para precio plan futuro, stock indiv.",1,3,N,,indicador,True,False,hit_v1
+EKLAS,Categoría de valoración para stock para pedido de cliente,4,3,N,,entidad/código/grupo,False,False,barrido_amplio
+QKLAS,Categoría de valoración para stock para proyecto,4,3,N,,entidad/código/grupo,False,False,barrido_amplio
+OKLAS,Categoría valoración para stock especial en proveedor,4,3,N,,entidad/código/grupo,False,False,barrido_amplio
+FMENG,Cantidad fija,1,2,N,,indicador,True,False,hit_v1
+NETAU,Indicador de rechazo neto,1,2,N,,indicador,False,False,barrido_amplio
+BDZTP,Fecha de necesidad de la cantidad de reserva,6,2,N,,fecha/duración,True,False,hit_v1
+KZBWS,Valoración stock especial,1,2,N,,indicador,False,False,barrido_amplio
+UMSOK,Indicador de stock especial del traslado,1,2,N,,indicador,False,False,barrido_amplio
+SERVICEDURATIONUNIT,Unidad de duración para servicio simplificado,3,2,N,,unidad/moneda,False,False,barrido_amplio
+MAINTORDCOMPCMTDQTYISKEPT,Mantener cantidades confirmadas de componentes de stock,1,2,N,,indicador,False,False,barrido_amplio
+RWPRO,Perfil de cobertura,3,2,N,,entidad/código/grupo,True,False,hit_v1
+DPCBT,Valor propuesto para lote de pieza individual,1,2,N,,indicador,True,False,hit_v1
+IPISP,Indicador: Valor fiscal repartido,1,2,N,,indicador,True,False,hit_v1
+TIPO_DESCUENTO,TIPO_DESCUENTO,9,2,N,,entidad/código/grupo,False,False,barrido_amplio
+0VOLUMEUNIT,Unidad volumen,3,2,N,,unidad/moneda,True,False,hit_v1
+0UNIT_OF_WT,Unidad de peso,3,2,N,,unidad/moneda,False,False,barrido_amplio
+0STOCKRELEV,BW: Relevancia stock,1,2,N,,indicador,False,False,barrido_amplio
+Relevancia_Stock,BW: Relevancia stock,1,2,N,,indicador,False,False,barrido_amplio
+KOSTL,Cost Center,10,2,N,,entidad/código/grupo,True,False,hit_v1
+UMJAH,Año volumen negocios,4,2,N,,fecha/duración,True,False,hit_v1
+UWAER,Mon.volumen negocios,5,2,N,,unidad/moneda,True,False,hit_v1
+GRICD,Indicador de actividad p.el impuesto sobre ingresos brutos,2,2,N,,indicador,False,False,barrido_amplio
+AD_HASH,Dirección de e-mail para aviso: Valor de control,10,2,N,,entidad/código/grupo,True,False,hit_v1
+QLAND,Clave de país/región de retención de impuestos,3,2,N,,entidad/código/grupo,False,False,barrido_amplio
+ExchRateIsIndirectQuotation,Exchange rate is indirect quotation,1,2,N,,indicador,True,False,hit_v1
+NetAmountIsPosted,Net amount is posted,1,2,N,,indicador,True,False,hit_v1
+TaxBaseAmountIsNetAmount,Tax base amount is net amount,1,2,N,,indicador,True,False,hit_v1
+TaxExchRateIsIndirectQuotation,Tax exchange rate is indirect quotation,1,2,N,,indicador,True,False,hit_v1
+IsDiscountDocument,Indicator: entry represents a discount document,1,2,N,,indicador,False,False,barrido_amplio
+xkdfb,Do not post any exchange rate differences,1,2,N,,indicador,True,False,hit_v1
+PurchaseOrderPriceUnit,Order price unit (purchasing),3,2,N,,unidad/moneda,False,False,barrido_amplio
+SuplrInvcDeliveryCostCndnType,Condition type,4,2,N,,entidad/código/grupo,False,False,barrido_amplio
+IsNotCashDiscountLiable,Indicator: line item not liable to cash discount?,1,2,N,,indicador,False,False,barrido_amplio
+SuplrInvcItemHasPriceVariance,Blocking reason: price,1,2,N,,indicador,True,False,hit_v1
+SuplrInvcItemHasQtyVariance,Blocking reason: quantity,1,2,N,,indicador,True,False,hit_v1
+SuplrInvcItemHasOrdPrcQtyVarc,Blocking reason: order price quantity,1,2,N,,indicador,True,False,hit_v1
+SuplrInvcItemHasAmountOutsdTol,Blocking reason: item amount,1,2,N,,indicador,True,False,hit_v1
+FixedCashDiscount,Fixed payment terms,1,2,N,,indicador,False,False,barrido_amplio
+UnplannedDeliveryCostTaxCode,Tax code,2,2,N,,entidad/código/grupo,False,False,barrido_amplio
+UnplndDelivCostTaxJurisdiction,Tax jurisdiction,15,2,N,,entidad/código/grupo,True,False,hit_v1
+UnplndDeliveryCostTaxCountry,Tax reporting country/region,3,2,N,,entidad/código/grupo,True,False,hit_v1
+Centro_Costo,Cost center,10,2,N,,entidad/código/grupo,True,False,hit_v1
+LAGPR,Código de porcentaje de costes de almacenaje,1,1,N,,indicador,True,False,hit_v1
+INSMK,Contabilizar en stock en insp.calidad,1,1,N,,indicador,False,False,barrido_amplio
+XMCNG,Stocks negativos permitidos en el centro,1,1,N,,indicador,False,False,barrido_amplio
+EPRIO,Grupo de determinación de stocks,4,1,N,,entidad/código/grupo,False,False,barrido_amplio
+SFTY_STK_METH,Método de stock de seguridad de MRP,2,1,N,,entidad/código/grupo,False,False,barrido_amplio
+STEUC,Código de control p.impuestos sb.consumo en comercio ext.,16,1,N,,entidad/código/grupo,False,False,barrido_amplio
+ROTATION_DATE,Estrategia almacenamiento y salida de material en stock,1,1,N,,fecha/duración,False,False,barrido_amplio
+EXCISE_TAX_RLVNCE,Indicador de relevancia de impuesto de consumo,1,1,N,,indicador,False,False,barrido_amplio
+SGT_MRPSI,Clasificar stock según el segmento,1,1,N,,indicador,False,False,barrido_amplio
+SGT_STK_PRT,Indicador de protección de stock [obsoleto],1,1,N,,indicador,False,False,barrido_amplio
+SGT_DEFSC,Valor de segmento stock por defecto,40,1,N,,entidad/código/grupo,True,False,hit_v1
+SCM_GES_MNG_USE,Consumir cantidad total de un elemento de entrada,1,1,N,,indicador,True,False,hit_v1
+SCM_GES_BST_USE,Consumir cantidad total de un elemento de stock,1,1,N,,indicador,True,False,hit_v1
+SCM_SFT_LOCK,Indicador para sustituir el stock de seguridad,1,1,N,,indicador,False,False,barrido_amplio
+LP_Vigente_Anterior_Fecha,Lista De Precio Vigente Anterior,8,1,N,,fecha/duración,True,False,hit_v1
+PRICINGREFERENCEMATERIAL,Material determinante del precio,40,1,N,,entidad/código/grupo,True,False,hit_v1
+ITEMWEIGHTUNIT,Unidad de peso,3,1,N,,unidad/moneda,True,False,hit_v1
+ITEMVOLUMEUNIT,Unidad de volumen,3,1,N,,unidad/moneda,True,False,hit_v1
+CUSTOMERPRICEGROUP,Grupo de precio de cliente,2,1,N,,entidad/código/grupo,True,False,hit_v1
+PRICELISTTYPE,Tipo de lista de precios,2,1,N,,entidad/código/grupo,False,False,barrido_amplio
+FIXEDVALUEDATE,Fecha de valor,8,1,N,,fecha/duración,True,False,hit_v1
+OVERALLPRICINGINCOMPLETIONSTS,Estado datos incompletos determinación precio (tod.pos.),1,1,N,,indicador,True,False,hit_v1
+ERGEI,Unidad de peso (peso de embalaje autorizado),3,1,N,,unidad/moneda,True,False,hit_v1
+ERVOE,Unidad de volumen (volumen embalaje autorizado),3,1,N,,unidad/moneda,True,False,hit_v1
+PMATA,Material determinante del precio,40,1,N,,entidad/código/grupo,True,False,hit_v1
+SPROF,Perfil de precio para variantes,1,1,N,,indicador,True,False,hit_v1
+BMATN,"Nº del material gestionado en stock, propio de la empresa",40,1,N,,entidad/código/grupo,False,False,barrido_amplio
+TARE_VAR,Peso neto variable,1,1,N,,indicador,True,False,hit_v1
+CWQREL,EWM-CW: El material es un material Catch Weight,1,1,N,,indicador,True,False,hit_v1
+CWQPROC,EWV-CW: Perfil Catch Weight para introducir cantidad CW,2,1,N,,entidad/código/grupo,True,False,hit_v1
+CWQTOLGR,Grupo de tolerancia Catch Weight,9,1,N,,entidad/código/grupo,True,False,hit_v1
+ALLOW_PMAT_IGNO,Precio de variante permitido (relativo a maestro artículos),1,1,N,,indicador,True,False,hit_v1
+FSH_SC_MID,ID conversión material para conversión valor característica,2,1,N,,entidad/código/grupo,False,False,barrido_amplio
+HEIGHT_NONFLAT_UOM,UM valor umbral de altura abs.(pilas sobre superf.irregular),3,1,N,,unidad/moneda,False,False,barrido_amplio
+SCM_RESTRICT_INVBAL,Ajuste de stock no permitido,1,1,N,,indicador,False,False,barrido_amplio
+SCM_DRP_GL_STOCK,Stock global para ubicación entrada DRP,1,1,N,,indicador,False,False,barrido_amplio
+/CWM/TOLGR,Grupo de tolerancia para Catch Weight Management,9,1,N,,entidad/código/grupo,True,False,hit_v1
+/CWM/TARA,Considerar peso embalaje completo por unidad medida refer.,1,1,N,,unidad/moneda,True,False,hit_v1
+/CWM/TARUM,Unidad de medida de referencia para cálculo de peso embalaje,3,1,N,,unidad/moneda,True,False,hit_v1
+SRV_DURA_UOM,Un.duración trabajo,3,1,N,,unidad/moneda,False,False,barrido_amplio
+NSNID,Número de stock de la OTAN,9,1,N,,entidad/código/grupo,False,False,barrido_amplio
+COLOR,Valor de característica para colores en variantes,18,1,N,,entidad/código/grupo,True,False,hit_v1
+SIZE1,Valor característica para tamaño principal en variantes,18,1,N,,entidad/código/grupo,True,False,hit_v1
+SIZE2,Valor característica para segundo tamaño en variantes,18,1,N,,entidad/código/grupo,True,False,hit_v1
+FREE_CHAR,Valor de característica para objetivos de análisis,18,1,N,,entidad/código/grupo,True,False,hit_v1
+LVORM,Petición de borrado para datos (todos) de stock lotes,1,1,N,,indicador,False,False,barrido_amplio
+KZICL,Indicador de inventario para stock almacén año actual,3,1,N,,fecha/duración,False,False,barrido_amplio
+KZICQ,Ind. de invent. para stock en control calidad año actual,3,1,N,,fecha/duración,False,False,barrido_amplio
+KZICE,Indicador de inventario para stock de utilización limitada,3,1,N,,indicador,False,False,barrido_amplio
+KZICS,Indicador de inventario para stock bloqueado,3,1,N,,indicador,False,False,barrido_amplio
+KZVCL,Ind.de inventario para stock almacén en el período anterior,3,1,N,,fecha/duración,False,False,barrido_amplio
+KZVCQ,Ind-inventario para stock en control-calidad en periodo ant.,3,1,N,,fecha/duración,False,False,barrido_amplio
+KZVCE,Ind-inventario para stock utiliz. restring en periodo anter.,3,1,N,,fecha/duración,False,False,barrido_amplio
+KZVCS,Ind. de inventario para stock bloqueado en el periodo anter.,3,1,N,,fecha/duración,False,False,barrido_amplio
+KZILL,Indicador de inventario para stock almacén año actual,3,1,N,,fecha/duración,False,False,barrido_amplio
+KZILQ,Ind. de invent. para stock en control calidad año actual,3,1,N,,fecha/duración,False,False,barrido_amplio
+KZILE,Indicador de inventario para stock de utilización limitada,3,1,N,,indicador,False,False,barrido_amplio
+KZILS,Indicador de inventario para stock bloqueado,3,1,N,,indicador,False,False,barrido_amplio
+KZVLL,Ind.de inventario para stock almacén en el período anterior,3,1,N,,fecha/duración,False,False,barrido_amplio
+KZVLQ,Ind-inventario para stock en control-calidad en periodo ant.,3,1,N,,fecha/duración,False,False,barrido_amplio
+KZVLE,Ind-inventario para stock utiliz. restring en periodo anter.,3,1,N,,fecha/duración,False,False,barrido_amplio
+KZVLS,Ind. de inventario para stock bloqueado en el periodo anter.,3,1,N,,fecha/duración,False,False,barrido_amplio
+STOCKSEGMENT,Segmento de stock,40,1,N,,entidad/código/grupo,False,False,barrido_amplio
+MFGORDERTOTALCOMMITMENTDATE,Fecha de confirmación total,8,1,N,,fecha/duración,False,False,barrido_amplio
+WSDAT,Fecha valor para conversión de moneda,8,1,N,,unidad/moneda,True,False,hit_v1
+ATPRZ,Indicador para indicación de tolerancia en porcentaje,1,1,N,,indicador,True,False,hit_v1
+J_3GSCHPRS,Indicator: Shift Price,1,1,N,,indicador,False,False,barrido_amplio
+/SAPCEM/KVMEQ,Indicator: Settlement Qty Relevant to Equipment,1,1,N,,indicador,False,False,barrido_amplio
+VOLEH,Volume unit,3,1,N,,unidad/moneda,False,False,barrido_amplio
+AEKLK,Stock Transfer Net Change Costing,1,1,N,,indicador,False,False,barrido_amplio
+ERGEI,Unit of weight (allowed packaging weight),3,1,N,,unidad/moneda,False,False,barrido_amplio
+ERVOE,Volume unit (allowed packaging volume),3,1,N,,unidad/moneda,False,False,barrido_amplio
+PLGTP,Price Band Category,2,1,N,,entidad/código/grupo,False,False,barrido_amplio
+CMETH,Quantity Conversion Method,1,1,N,,indicador,True,False,hit_v1
+NRFHG,Material qualifies for discount in kind,1,1,N,,indicador,False,False,barrido_amplio
+TARE_VAR,Variable Tare Weight,1,1,N,,indicador,True,False,hit_v1
+CWQREL,EWM CW: Material Is a Catch Weight Material,1,1,N,,indicador,True,False,hit_v1
+CWQPROC,EWM CW: Catch Weight Profile for Entering CW Quantity,2,1,N,,entidad/código/grupo,True,False,hit_v1
+CWQTOLGR,Catch Weight Tolerance Group,9,1,N,,entidad/código/grupo,False,False,barrido_amplio
+ALLOW_PMAT_IGNO,Variant Price Allowed (for Material Master),1,1,N,,indicador,True,False,hit_v1
+NSNID,NATO Stock Number,9,1,N,,entidad/código/grupo,False,False,barrido_amplio
+GSKST,Business Area from Cost Center,4,1,N,,entidad/código/grupo,True,False,hit_v1
+DAT_FZAU,Cml delivery order qty date,8,1,N,,fecha/duración,True,False,hit_v1
+RFGSK,Total Reference Status of all Items,1,1,N,,indicador,False,False,barrido_amplio
+UVALS,Total incompletion status of all items in general,1,1,N,,indicador,False,False,barrido_amplio
+UVFAS,Total Incompletion Status of all Items: Billing,1,1,N,,indicador,False,False,barrido_amplio
+UVVLS,Total Incompletion Status of all Items: Delivery,1,1,N,,indicador,False,False,barrido_amplio
+TOTAL_EMCST,Total Embargo Check Status,1,1,N,,indicador,False,False,barrido_amplio
+TOTAL_SLCST,Total Sanctioned Party List Screening Status,1,1,N,,indicador,False,False,barrido_amplio
+TOTAL_LCCST,Total Legal Control Check Status,1,1,N,,indicador,False,False,barrido_amplio
+BRAND,Valor de la característica,70,1,N,,entidad/código/grupo,True,False,hit_v1
+PMATA,Material precio,18,1,N,,entidad/código/grupo,True,False,hit_v1
+BMATN,Mat.gestion.stock,18,1,N,,entidad/código/grupo,False,False,barrido_amplio
+INSMK,Tipo de stocks,1,1,N,,indicador,False,False,barrido_amplio
+XMCNG,Stocks neg.centro,1,1,N,,indicador,False,False,barrido_amplio
+_DATAAGING,Valor de filtro de datos para Data Aging,8,1,N,,entidad/código/grupo,True,True,hit_v1
+KONDA,Grupo de precios de cliente,2,1,N,,entidad/código/grupo,False,False,barrido_amplio
+QSZNR,Número del certificado de exención de la retención impuestos,10,1,N,,entidad/código/grupo,False,False,barrido_amplio
+QSBGR,Motivo de exención de la retención de impuestos,1,1,N,,indicador,False,False,barrido_amplio
+SPE_GTS_STOCK_TY,SPE_GTS_STOCK_TY,1,1,N,,indicador,False,False,barrido_amplio
+Grupo Imputacion Fiscal,Clase de impuesto,2,1,N,,entidad/código/grupo,False,False,barrido_amplio
+FIBER_PART1,Porcentaje 1,3,23,P,categoria_regla,,True,True,hit_v1
+FIBER_PART2,Porcentaje 2,3,23,P,categoria_regla,,True,True,hit_v1
+FIBER_PART3,Porcentaje 3,3,23,P,categoria_regla,,True,True,hit_v1
+FIBER_PART4,Porcentaje 4,3,23,P,categoria_regla,,True,True,hit_v1
+VALTG,Días valor adicionales,2,17,P,duracion_fuera_de_categoria,,True,False,hit_v1
+BETOL,Nº de días tolerancia pedido - compactación reg. info - UA,3,9,P,duracion_fuera_de_categoria,,False,False,barrido_amplio
+FSH_FRATE,% de tasa de cumplimiento,3,9,P,categoria_regla,,True,True,hit_v1
+/VSO/R_I_NO_LYR,Cantidad capas antes de paleta intermedia (optim.área carga),2,6,P,categoria_regla,,True,False,hit_v1
+J_3GEMINBE,Duración utilización mínima p.utilización limitada (días),5,6,P,duracion_fuera_de_categoria,,False,False,barrido_amplio
+J_3GFMGUE,Límite mensaje validación p.utilización ilimitada (días),5,6,P,duracion_fuera_de_categoria,,False,False,barrido_amplio
+J_3GZUSCHUE,Recargo para utilización ilimitada (días),5,6,P,duracion_fuera_de_categoria,,False,False,barrido_amplio
+anzpk,Cantidad total de bultos de entrega,5,5,P,categoria_regla,,True,True,hit_v1
+WAABW,Desviación máxima del T/C en porcentaje,2,5,P,categoria_regla,,True,True,hit_v1
+AdditionalValueDays,Additional value days,2,5,P,duracion_fuera_de_categoria,,False,False,barrido_amplio
+HdrOrderProbabilityInPercent,Sales probability,3,5,P,categoria_regla,,True,True,hit_v1
+ItemOrderProbabilityInPercent,Order probability of the item,3,5,P,categoria_regla,,True,True,hit_v1
+TotalNumberOfPackage,Total number of packages in delivery,5,4,P,categoria_regla,,False,False,barrido_amplio
+ANZPK,Cantidad total de bultos de entrega,5,3,P,categoria_regla,,True,True,hit_v1
+LET01,Días tolerancia_1,2,3,P,duracion_fuera_de_categoria,,False,False,barrido_amplio
+LET02,Días tolerancia_2,2,3,P,duracion_fuera_de_categoria,,False,False,barrido_amplio
+LET03,Días tolerancia_3,2,3,P,duracion_fuera_de_categoria,,False,False,barrido_amplio
+ExecutionLeadDays,Lead days for date of execution,2,2,P,duracion_fuera_de_categoria,,False,False,barrido_amplio
+SHZET,Tiempo de seguridad (en días laborables),2,1,P,duracion_fuera_de_categoria,,False,False,barrido_amplio
+MIN_TROC,Cobertura objetivo mínima,3,1,P,categoria_regla,,True,True,hit_v1
+MAX_TROC,Cobertura objetivo máxima,3,1,P,categoria_regla,,True,True,hit_v1
+ADDITIONALVALUEDAYS,Días valor adicionales,2,1,P,duracion_fuera_de_categoria,,True,False,hit_v1
+/SAPMP/AHO,Cantidad máxima de capas,3,1,P,categoria_regla,,True,True,hit_v1
+/VSO/R_NO_P_GVH,Cantidad materiales por material embalaje cerrado (OAC),2,1,P,categoria_regla,,True,False,hit_v1
+FIBER_PART1,Porcentaje de fibra (componente 1),3,1,P,categoria_regla,,True,True,hit_v1
+FIBER_PART2,Porcentaje de fibra (componente 2),3,1,P,categoria_regla,,True,True,hit_v1
+FIBER_PART3,Porcentaje de fibra (componente 3),3,1,P,categoria_regla,,True,True,hit_v1
+FIBER_PART4,Porcentaje de fibra (componente 4),3,1,P,categoria_regla,,True,True,hit_v1
+FIBER_PART5,Porcentaje de fibra (componente 5),3,1,P,categoria_regla,,True,True,hit_v1
+J_3GEMINBE,Minimum Usage Period for Restricted Usage (Days),5,1,P,duracion_fuera_de_categoria,,False,False,barrido_amplio
+J_3GFMGUE,Release Notification Allowance for Unrestricted Usage (Days),5,1,P,duracion_fuera_de_categoria,,False,False,barrido_amplio
+J_3GZUSCHUE,Surcharge for Unrestricted Usage (Days),5,1,P,duracion_fuera_de_categoria,,False,False,barrido_amplio

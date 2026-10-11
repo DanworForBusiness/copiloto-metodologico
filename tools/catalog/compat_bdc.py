@@ -143,8 +143,9 @@ def evaluate_compatibility(columns: list[dict], declared: list[str] | None, matr
                 continue
             hits.sort(key=lambda r: (_specificity(r), order.get(r["resultado"], 0)), reverse=True)
             win = hits[0]
-            g = groups.setdefault(win["id"], {"restriccion": win, "columnas": 0, "_campos": {}, "_tipos": {}, "tambien": {}})
+            g = groups.setdefault(win["id"], {"restriccion": win, "columnas": 0, "_campos": {}, "_tipos": {}, "_arts": set(), "tambien": {}})
             g["columnas"] += 1
+            g["_arts"].add(str(c.get("artefacto") or ""))
             g["_campos"].setdefault(str(c.get("campo") or ""), str(c.get("artefacto") or ""))
             g["_tipos"][str(c.get("tipo"))] = g["_tipos"].get(str(c.get("tipo")), 0) + 1
             for other in hits[1:]:
@@ -155,7 +156,7 @@ def evaluate_compatibility(columns: list[dict], declared: list[str] | None, matr
             campos = list(g["_campos"])
             resultados.append({
                 "restriccion": r["id"], "nombre": r["nombre"], "estado": r["resultado"],
-                "estado_validacion": r["estado_validacion"], "tipos": g["_tipos"], "columnas": g["columnas"], "campos": len(campos),
+                "estado_validacion": r["estado_validacion"], "tipos": g["_tipos"], "columnas": g["columnas"], "campos": len(campos), "artefactos": len(g["_arts"]),
                 "ejemplos": campos[:_EXAMPLES],
                 "convierte_a": r.get("convierte_a", ""), "detalle": r.get("detalle", ""), "implicancia": r.get("implicancia", ""),
                 "recomendacion": r.get("recomendacion", ""), "pregunta": r.get("pregunta", ""),

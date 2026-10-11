@@ -8,7 +8,7 @@
 {% macro contracts_evaluated(j) %}<h3>Contratos evaluados</h3><div class="catalog-verdict-line">{% for c in j.contracts %}<span class="catalog-card__verdict catalog-card__verdict--{{ c.tone }}" title="{{ c.state_text }}">{{ c.label }}</span>{% endfor %}</div>{% endmacro %}
 {% macro tile_grid(tiles) %}<div class="activity-kpi-grid">{% for k in tiles %}{{ kpi_tile(k) }}{% endfor %}</div>{% endmacro %}
 {# Tabla de Gobierno / Portabilidad: filas ya escapadas por `asset_evaluation` (Markup); badge = `.catalog-card__verdict--{tone}`. #}
-{% macro evaluation_table(rows, headers) %}<table><thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr><td><span class="catalog-card__verdict catalog-card__verdict--{{ r.tone }}">{{ r.label }}</span></td><td>{{ r.title }}</td><td>{{ r.evidence }}{% if r.reference_text %}<br><em>Referencia: {{ r.reference_text }}</em>{% endif %}</td></tr>{% endfor %}</tbody></table>{% endmacro %}
+{% macro evaluation_table(rows, headers) %}<table><thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr><td><span class="catalog-card__verdict catalog-card__verdict--{{ r.tone }}">{{ r.label }}</span></td><td>{{ r.title }}</td><td>{{ r.evidence }}{% if r.reference_url %}<br>Referencia: <a class="reference-text-link" href="{{ r.reference_url }}" target="_blank" rel="noopener noreferrer">{{ r.reference_text }}</a>{% elif r.reference_text %}<br><em>Referencia: {{ r.reference_text }}</em>{% endif %}</td></tr>{% endfor %}</tbody></table>{% endmacro %}
 {# Compatibilidad con destinos BDC (eje ADITIVO, sin puntaje): `c` = `bdc_compatibility_service.build_view`. Mismo disclosure (`details.dashboard-section`) y tablas nativas del Hub; los estados usan los
    badges `.catalog-card__verdict--*` y el estado de validación el punto `.catalog-meta-dot--*` + texto (SAP documentado / Validado Danwor / Pendiente de verificación). Los enlaces SAP son Support Links. #}
 {% macro compatibility_block(c, id="asr-compatibilidad") %}{% if c %}
@@ -25,14 +25,18 @@
     {% if s.conditions %}<p class="catalog-note__ev">Condiciones del destino (SAP)</p><ul class="catalog-note__ev">{% for cnd in s.conditions %}<li>{{ cnd.text }}</li>{% endfor %}</ul>{% endif %}
     {% if s.rows %}
     <div class="matrix-scroll"><table><thead><tr><th>Estado</th><th>Restricción · Evidencia</th><th>Recomendación</th></tr></thead><tbody>
-      {% for r in s.rows %}<tr>
+      {% for r in s.rows %}{% if r.repeat_of %}<tr>
+        <td><span class="catalog-card__verdict catalog-card__verdict--{{ r.tone }}">{{ r.state_label }}</span></td>
+        <td><strong>{{ r.name }}</strong> <code>{{ r.id }}</code><br><span class="catalog-note__ev">Mismo resultado que en «{{ r.repeat_of }}» (detalle arriba).</span></td>
+        <td>{% if r.reference %}{% if r.reference.url %}<a class="reference-text-link" href="{{ r.reference.url }}" target="_blank" rel="noopener noreferrer">{{ r.reference.text }}</a>{% else %}<span class="catalog-note__ev">{{ r.reference.text }}</span>{% endif %}{% endif %}</td>
+      </tr>{% else %}<tr>
         <td><span class="catalog-card__verdict catalog-card__verdict--{{ r.tone }}">{{ r.state_label }}</span><br><span class="catalog-note__ev"><span class="catalog-meta-dot catalog-meta-dot--{{ r.validation_tone }}" aria-hidden="true"></span> {{ r.validation_label }}</span></td>
         <td><strong>{{ r.name }}</strong> <code>{{ r.id }}</code><br>{{ r.detail }}{% if r.converts_to %} Tipo resultante: <code>{{ r.converts_to }}</code>.{% endif %}
           <br><span class="catalog-note__ev">{{ r.evidence }}{% if r.examples %} — p. ej. {{ r.examples|join(", ") }}{% endif %}</span>
           {% if r.implication %}<br><em>{{ r.implication }}</em>{% endif %}
           {% for e in r.evidences %}<br><span class="catalog-note__ev"><span class="catalog-meta-dot catalog-meta-dot--{{ e.tone }}" aria-hidden="true"></span> {{ e.label }}: {{ e.text }}</span>{% endfor %}</td>
         <td>{{ r.recommendation }}{% if r.reference %}<br>{% if r.reference.url %}<a class="reference-text-link" href="{{ r.reference.url }}" target="_blank" rel="noopener noreferrer">{{ r.reference.text }}</a>{% else %}<span class="catalog-note__ev">{{ r.reference.text }}</span>{% endif %}{% endif %}</td>
-      </tr>{% endfor %}
+      </tr>{% endif %}{% endfor %}
     </tbody></table></div>
     {% else %}<p class="catalog-note__ev">Sin restricciones de tipo documentadas para este escenario.</p>{% endif %}
     {% endfor %}
@@ -44,8 +48,6 @@
   </div>
 </details>
 {% endif %}{% endmacro %}
-{# Observación editorial de compatibilidad BDC para el resumen del Catálogo (Mirada Danwor): UNA frase en prosa derivada del MISMO `compatibilidad_bdc` (sin etiquetas del motor, sin KPI, sin tabla) y un enlace discreto al detalle. `c.signal` = None cuando no hay nada que advertir. #}
-{% macro compatibility_signal(c, ah) %}{% if c and c.signal %}<p id="eval-compatibilidad">{{ c.signal }}{% if ah and ah.action and ah.action.method == "get" %} <a class="reference-text-link" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML show:#asr-compatibilidad:top" hx-on::after-request="document.getElementById('asr-compatibilidad')?.setAttribute('open', '')" @click.prevent>Ver detalle en el Assessment →</a>{% endif %}</p>{% endif %}{% endmacro %}
 {# Acción del assessment del flujo (la MISMA en la barra superior y en «Mirada Danwor»: espejo exacto): «Ver Assessment» si existe (GET), «Generar informe» si no
    (POST con carga INTEGRADA en el botón). Sin acción (p. ej. «No aplica») no se renderiza nada. #}
 {% macro assessment_action(ah) %}{% if ah and ah.action %}{% if ah.action.method == "get" %}<a class="support-link" href="#" role="button" hx-get="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>{{ ah.action.label }}<span>↗</span></a>{% else %}<button type="button" class="support-link asr-generate" hx-post="{{ ah.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-disabled-elt="this" aria-live="polite"><span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Generando informe…</span><span class="asr-generate__label">{{ ah.action.label }}</span></button>{% endif %}{% endif %}{% endmacro %}

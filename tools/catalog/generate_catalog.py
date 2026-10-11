@@ -1431,9 +1431,14 @@ def _catalog_sha256(path: Path) -> str:
 
 
 def _catalog_generator_signature() -> str:
-    """Firma del generador. Si cambia el script, no reutilizamos salidas viejas."""
+    """Firma del generador. Si cambia el script —o el evaluador/matriz de portabilidad, cuyo resultado se persiste en cada flujo (`auto.portabilidad_bdc`)—
+    no reutilizamos salidas viejas: un cambio de scoring debe invalidar el cache incremental."""
     try:
-        return _catalog_sha256(Path(__file__))
+        here = Path(__file__)
+        parts = [_catalog_sha256(here)]
+        for extra in (here.with_name("portability_bdc.py"), here.parents[2] / "content_packs" / "datasphere_core" / "portability_bdc.yaml"):
+            parts.append(_catalog_sha256(extra) if extra.exists() else "-")
+        return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
     except Exception:
         return "unknown"
 
