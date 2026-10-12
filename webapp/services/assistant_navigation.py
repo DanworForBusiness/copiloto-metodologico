@@ -234,25 +234,40 @@ def is_methodological(question: str) -> bool:
     return q.startswith(_CONCEPTUAL_START) or bool(_INV_METHOD.search(q))
 
 
-def _inventory_intent(question: str, clients: list[str]) -> _InventoryIntent | None:
+def _lobs_named(q: str) -> list[str]:
+    """Ids de línea de negocio (taxonomía gobernada) o «UNCLASSIFIED» nombrados en la consulta ya normalizada."""
     from webapp.services import domain_classification_service as dcs
+    if _INV_UNCLASSIFIED.search(q):
+        return [dcs.UNCLASSIFIED]
+    padded = f" {q} "
+    return [o["id"] for o in dcs.lob_options() if o["id"] != dcs.UNCLASSIFIED and _word(o["label"], padded)]
+
+
+def names_line_of_business(question: str) -> bool:
+    """La consulta nombra una línea de negocio (p. ej. «Ventas»). Esa pregunta la responde la clasificación EFECTIVA del Catálogo; una ruta anterior que empareja por el rótulo de dominio legado
+    («Ventas» como dominio ≠ línea de negocio) no puede contestarla."""
+    return bool(_lobs_named(norm_text(question).strip().lstrip("¿¡")))
+
+
+def _inventory_intent(question: str, clients: list[str]) -> _InventoryIntent | None:
     q = norm_text(question).strip().lstrip("¿¡")
     if is_methodological(question) or _INV_OTHER.search(q):
         return None
     padded = f" {q} "
     hit_clients = [c for c in clients if _word(c, padded)]
-    lobs = (["UNCLASSIFIED"] if _INV_UNCLASSIFIED.search(q) else
-            [o["id"] for o in dcs.lob_options() if o["id"] != dcs.UNCLASSIFIED and _word(o["label"], padded)])
+    lobs = _lobs_named(q)
     if len(hit_clients) > 1 or len(lobs) > 1:
         return None                                                                # ambiguo: no se elige por el usuario
     client, lob = (hit_clients[0] if hit_clients else None), (lobs[0] if lobs else None)
     count = _INV_COUNT.search(q)
     n = int(next(g for g in count.groups() if g)) if count else 0
     list_verb = bool(_NAV_VERB.search(q) or _INV_LIST_VERB.search(q))
-    if _INV_SUBJECT.search(q):
+    # «catálogos de Ventas / de Pampa» es un inventario filtrado como «modelos de Ventas / de Pampa» (un «catálogo» a secas lo resuelve `data_catalog`)
+    subject = bool(_INV_SUBJECT.search(q)) or bool((lob or client) and re.search(r"\bcatalogos?\b", q))
+    if subject:
         if not (_INV_CUE.search(q) or list_verb or n or lob or client):
             return None
-    elif not (client and _INV_TIENE.search(q)):                                    # sin sujeto, solo «¿qué tiene Pampa?» (cliente conocido)
+    elif not ((client and _INV_TIENE.search(q)) or (lob and _INV_CUE.search(q))):  # sin sujeto: «¿qué tiene Pampa?» (cliente conocido) o «¿tenemos algo de Ventas?»
         return None
     limit = min(n, MAX_LIST) if n else MAX_LIST
     mode = "list" if (lob or client or list_verb or n) else "summary"
