@@ -28,6 +28,7 @@ from webapp.services import assessment_service as svc
 canonical_signal_id = P.canonical_signal_id        # los consumidores normalizan ids historicos por aca (API publica de presentacion)
 from webapp.services import catalog_reads
 from webapp.services import asset_evaluation as AE
+from webapp.services import assessment_acquisition as AQ
 from webapp.services import domain_classification_service as dcs
 from webapp.services import module_reference as MR
 from webapp.services.status_tone import ATTENTION, NEUTRAL, POSITIVE, status_tone
@@ -655,10 +656,15 @@ def _fact_into(group: dict, h: dict) -> None:
         group["properties"].append({"label": label, "value": None, "names": [P.value_text(v)]})
 
 
-def _facts_view(area_id: str, highlights: list[dict]) -> dict:
+def _facts_view(area_id: str, highlights: list[dict], extras: dict | None = None) -> dict:
     """Hechos descriptivos de un área en dos niveles de lectura: ``headline`` (tiles KPI de síntesis) y ``groups`` (evidencia de apoyo). La población de vistas
     de vistas del cierre (``views_in_closure`` / ``view_type_distribution``) NO se muestra en el área: es transversal y vive en el resumen de la sección
     (``closure_views``); en el área solo queda el detalle por artefacto (``view_artifacts``)."""
+    extras = extras or {}
+    hidden = extras.get("hide") or set()
+    highlights = [h for h in highlights if h["id"] not in hidden]                     # indicadores de federación sin artefactos remotos / sin evidencia evaluada: no se muestran
+    if extras.get("breakdown") is not None:                                           # Ingesta: mismo hecho, desglose con la procedencia ya resuelta
+        highlights = [({**h, "breakdown": extras["breakdown"]} if h["id"] == "boundary_artifacts" and h.get("breakdown") else h) for h in highlights]
     closure = next((h for h in highlights if h["id"] == "views_in_closure"), None) if area_id == "ANALYTIC_MODEL" else None
     structural = P.has_structural_membership(highlights)
     highlights = [{**h, "label": P.highlight_label(h)} for h in highlights
@@ -686,7 +692,11 @@ def _facts_view(area_id: str, highlights: list[dict]) -> dict:
     if rest["properties"] or rest["tables"]:
         groups.append(rest)
     groups = [g for g in groups if g["properties"] or g["tables"]]
-    notes = []
+    if extras.get("table"):                                                           # tabla de adquisición (Fuente: primera) / de carga (Ingesta: tras la frontera)
+        t = extras["table"]
+        eg = {"title": t["title"], "properties": [], "tables": [t]}
+        groups = [eg, *groups] if area_id == "SOURCE_EXTRACTION" else [*groups, eg]
+    notes = list(extras.get("notes") or [])
     for g in groups:                                                                      # grupo de una sola tabla: el título de la tabla ES el del grupo
         if not g["properties"] and len(g["tables"]) == 1:
             g["title"] = g["tables"][0]["title"]
@@ -708,19 +718,41 @@ def _view_overview(cv: dict) -> dict:
     return {"title": "Vistas del cierre semántico", "tiles": tiles, "caveat": P.structural_views_caveat() if cv["structural"] and cv["total"] else None}
 
 
-def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, list[dict]]) -> dict:
+def _area_extras(a: dict, doc: dict) -> dict | None:
+    """Extras de presentación de Fuente / Extracción e Ingesta desde la evidencia canónica persistida (``assessment_acquisition``); ``None`` = presentación vigente."""
+    if a["id"] == "SOURCE_EXTRACTION":
+        return AQ.source_facts(doc)
+    if a["id"] == "INGESTION":
+        load = AQ.load_facts(doc) or {}
+        bd = next((h.get("breakdown") for h in a["highlights"] if h["id"] == "boundary_artifacts" and h.get("breakdown")), None)
+        breakdown = P.boundary_breakdown(doc, bd) if bd else None            # misma proyección que el Markdown (``presentation``)
+        hide = AQ.ingestion_hidden(doc) if AQ._leaves(doc) is not None else set()
+        return {**load, "breakdown": breakdown, "hide": hide} if (load or breakdown or hide) else None
+    return None
+
+
+def _rule_view(r: dict) -> dict:
+    return {"rule": r.get("rule"), "title": r["title"], "result": r["result"], "result_text": P.rule_result_text(r["result"]),
+            "reason": P.reason_text(r["reason"]) if r["reason"] else None, "population": r.get("population")}
+
+
+def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, list[dict]], doc: dict | None = None) -> dict:
     rs = a["required_surfaces"]
+    rules = rules_by_area.get(a["id"], [])
+    split = AQ.split_rules(doc, a["id"], rules) if doc is not None else None
     return {
         "id": a["id"], "dom_id": f"asr-a-{a['id']}", "title": P.area_title(a["id"]), "macro": P.macro_dimension_title(a["macro_dimension"]),
         "state": a["assessability"], "state_text": P.assessability_text(a["assessability"]),
         "reason": (f"{P.reason_text(a['reason'])} ({a['reason']['reason_code']})" if a["reason"] else None),
         "surfaces": (f"{_plural(rs['assessed'], 'evaluada')}, {_plural(rs['partially_assessed'], 'parcialmente evaluada')}, "
                      f"{_plural(rs['not_assessed'], 'no evaluada')}, {rs['not_applicable']} no aplican"),
-        "facts": _facts_view(a["id"], a["highlights"]), "macro_id": a["macro_dimension"],
+        "facts": _facts_view(a["id"], a["highlights"], _area_extras(a, doc) if doc is not None else None), "macro_id": a["macro_dimension"],
         "findings": [{"title": groups_by_id[gid]["title"], "dom_id": f"asr-g-{gid}", "count": groups_by_id[gid]["occurrence_count"],
                       "kind_text": P.finding_kind_text(groups_by_id[gid]["kind"])} for gid in a["finding_groups"]],
-        "rules": [{"title": r["title"], "result": r["result"], "result_text": P.rule_result_text(r["result"]),
-                   "reason": P.reason_text(r["reason"]) if r["reason"] else None} for r in rules_by_area.get(a["id"], [])],
+        "rules": [_rule_view(r) for r in rules],
+        "rules_split": split is not None,
+        "rules_open": [_rule_view(r) for r in split[0]] if split else [],
+        "rules_clean": [_rule_view(r) for r in split[1]] if split else [],
         "limitations_not_observable": bool(a["limitations_not_observable"]),
     }
 
@@ -815,7 +847,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
             "observation_occurrences": sum(g["occurrence_count"] for g in doc["observations"]),
             "review_occurrences": sum(g["occurrence_count"] for g in doc["review_required"]),
         },
-        "areas": [_area_view(a, groups_by_id, rules_by_area) for a in doc["areas"]],
+        "areas": [_area_view(a, groups_by_id, rules_by_area, doc) for a in doc["areas"]],
         "kpis": [
             _kpi("coverage_strict", "Cobertura estricta", P.percent_text(cov["strict"])),
             _kpi("confidence", "Confianza", P.confidence_level_text(conf["level"])),

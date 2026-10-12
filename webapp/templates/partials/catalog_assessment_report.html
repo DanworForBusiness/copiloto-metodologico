@@ -76,7 +76,26 @@
   {% endif %}
   {% for t in g.tables %}{% if t.title != g.title %}<h{{ lvl + 1 }}>{{ t.title }}</h{{ lvl + 1 }}>{% endif %}{{ table(t.columns, t.rows) }}{% endfor %}
   {% endfor %}
-  {% if a.rules %}
+  {% if a.rules_split %}{# Fuente / Ingesta: la tabla muestra solo reglas con hallazgos o con ausencia NO establecida; los controles sin hallazgos quedan accesibles, plegados, con su población evaluada #}
+  {% if a.rules_open %}
+  <h{{ lvl }}>Evaluación de reglas</h{{ lvl }}>
+  <table>
+    <thead><tr><th>Regla</th><th>Resultado</th></tr></thead>
+    <tbody>{% for r in a.rules_open %}<tr><td>{{ r.title }}</td><td>{{ r.result_text }}{% if r.reason %} ({{ r.reason }}){% endif %}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+  {% if a.rules_clean %}
+  <details class="dashboard-section">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Controles sin hallazgos</span><span class="dashboard-section__count">{{ a.rules_clean|length }}</span></summary>
+    <div class="dashboard-section__body">
+      <table>
+        <thead><tr><th>Regla</th><th>Resultado</th><th>Población evaluada</th></tr></thead>
+        <tbody>{% for r in a.rules_clean %}<tr><td>{{ r.title }}</td><td>{{ r.result_text }}{% if r.reason %} ({{ r.reason }}){% endif %}</td><td>{{ r.population }}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
+  {% elif a.rules %}
   <h{{ lvl }}>Evaluación de reglas</h{{ lvl }}>
   <table>
     <thead><tr><th>Regla</th><th>Resultado</th></tr></thead>

@@ -22,7 +22,7 @@ __all__ = [
     "area_title", "macro_dimension_title", "assessability_text", "assessability_plural_text", "execution_state_text",
     "confidence_level_text", "finding_kind_text", "rule_result_text", "unit_label", "is_artifact_name",
     "percent_text", "plural", "value_text", "occurrence_text", "row_key_text", "evidence_not_acquired", "view_composition_text",
-    "has_structural_membership", "review_required_text", "context_open_text", "summary_relation_text", "reason_text", "highlight_label", "display_doc", "display_title", "structural_views_caveat", "canonical_signal_id",
+    "has_structural_membership", "review_required_text", "context_open_text", "summary_relation_text", "reason_text", "highlight_label", "display_doc", "display_title", "structural_views_caveat", "canonical_signal_id", "boundary_breakdown",
 ]
 
 
@@ -166,3 +166,9 @@ def row_key_text(key: str) -> str:
 def canonical_signal_id(signal_id: str) -> str:
     """Id canonico vigente de una senal (un id historico persistido se normaliza al actual); paridad con ``model.canonical_signal_id`` fijada por test."""
     return _md._canonical_signal_id(signal_id)
+
+
+def boundary_breakdown(doc: dict, original: list[dict]) -> list[dict] | None:
+    """Reparto de las hojas de frontera de Ingesta con la procedencia resuelta por la evidencia canónica del documento (misma función que el Markdown); ``None`` si el
+    documento no la trae o no permite una partición exacta (se conserva el desglose persistido)."""
+    return _md.projected_boundary_breakdown(doc, original)
