@@ -625,7 +625,10 @@ class AssistantRoutingService:
         # REAL publicado es mejor respuesta —y evidencia— que ofrecer un template para
         # construirlo. Solo lidera si matchea a nivel dominio (umbral fuerte); si el
         # catálogo está vacío, no devuelve nada y sigue el flujo normal.
-        if _is_availability_query(question) and not _is_conceptual_or_comparative_query(question):
+        # Si la consulta nombra una LÍNEA DE NEGOCIO, la autoridad es la clasificación efectiva (la resolvió `assistant_navigation` más arriba): este emparejamiento por rótulo de dominio legado
+        # («Ventas» como dominio ≠ línea de negocio) no puede sustituirla.
+        if (_is_availability_query(question) and not _is_conceptual_or_comparative_query(question)
+                and not assistant_navigation.names_line_of_business(question)):
             cat_entry = _find_matching_catalog(question, pack_name)
             if cat_entry is not None:
                 label = f"{cat_entry.cliente} · {cat_entry.dominio}".strip(" ··")
