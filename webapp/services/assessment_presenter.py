@@ -704,7 +704,7 @@ def _facts_view(area_id: str, highlights: list[dict], extras: dict | None = None
     if closure is not None:
         n = {b["name"]: b["count"] for b in closure.get("breakdown") or []}
         closure_views = {"total": closure["value"], "graphical": n.get("gráficas", 0), "sql": n.get("SQL", 0), "unknown": n.get("sin clasificar", 0), "structural": structural}
-    return {"headline": headline, "groups": groups, "notes": notes, "closure_views": closure_views}
+    return {"headline": headline, "groups": groups, "notes": notes, "closure_views": closure_views, "empty_state": extras.get("empty_state")}
 
 
 def _view_overview(cv: dict) -> dict:

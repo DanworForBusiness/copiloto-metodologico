@@ -120,7 +120,10 @@ def test_source_shows_mechanism_origin_contract_and_evidence_of_a_replication_on
     assert v["facts"]["groups"][0]["title"] == ACQ                                                       # primera evidencia del colapsable
     assert v["facts"]["headline"] == []                                                                   # sin artefactos remotos: ni 0/0/0 ni «Por estado de la fuente» vacío
     assert not any(g["title"] == "Por estado de la fuente" for g in v["facts"]["groups"])
-    assert any("no contiene artefactos con origen remoto" in n for n in v["facts"]["notes"])
+    assert v["facts"]["empty_state"] == {"label": "Sin origen remoto", "text": "El alcance evaluado no contiene artefactos con origen remoto (tablas importadas desde otra conexión); "
+                                                                            "las superficies de contrato remoto no aplican a este modelo."}
+    assert not any("no contiene artefactos" in n for n in v["facts"]["notes"])                            # ya no es texto corrido
+    assert _view_of(_federated_doc(), "SOURCE_EXTRACTION")["facts"]["empty_state"] is None                 # con origen remoto real: comportamiento actual
     assert "7 no aplican" in v["surfaces"]                                                                # la cobertura de superficies se conserva tal cual
 
 
@@ -330,3 +333,23 @@ def test_markdown_without_canonical_evidence_is_exactly_the_historical_one():
     del doc["canonical_evidence"]
     assert _md_breakdown(doc)[1] == ("locales: origen no observable", 3)
     assert ma_profile.canonical_assessment_json.__name__                                                       # (el export JSON sigue siendo el mismo serializador canónico)
+
+
+def test_the_no_remote_message_renders_with_the_hub_empty_state_pattern_only_in_source_extraction(tmp_path):
+    from tests._modeling_assessment_m7_fixtures import write_inbound
+    from tools.catalog.modeling_assessment import shadow
+    doc, _meta = shadow.assess(write_inbound(tmp_path / "pool"), "Acme", "4AM_ACME")
+    entry = type("E", (), {"entry_id": "e", "cliente": "Acme", "dominio": "General", "artefactos": ["4AM_ACME"]})()
+    view = presenter.report_view(svc.AssessmentStatus(svc.CURRENT, "e", "Acme", "4AM_ACME", generated_at="2026-10-04T00:00:00+00:00", profile=doc), entry, "datasphere_core")
+    baseline = templates.get_template(TEMPLATE).render(v=view)
+    assert "Sin origen remoto" not in baseline                                                            # con origen remoto real (o sin evidencia): HTML idéntico al actual
+    src = next(a for a in view["areas"] if a["id"] == "SOURCE_EXTRACTION")
+    src["facts"]["empty_state"] = _view_of(_replication_doc(), "SOURCE_EXTRACTION")["facts"]["empty_state"]
+    html = templates.get_template(TEMPLATE).render(v=view)
+    block = re.search(r'<div class="dashboard-empty"><span class="dashboard-empty__label">Sin origen remoto</span><p>(.*?)</p></div>', html, re.S)
+    assert block and html.count("Sin origen remoto") == 1                                                  # primitivo existente `.dashboard-empty`, label + pie
+    area = html[html.index('id="asr-a-SOURCE_EXTRACTION"'):]
+    assert area.index("Superficies de evidencia requeridas") < area.index("Sin origen remoto")             # debajo de la línea de superficies
+    assert "no contiene artefactos con origen remoto" in block.group(1) and "no aplican a este modelo" in block.group(1)
+    assert baseline != html
+    assert html.replace(block.group(0), "").count("dashboard-empty") == baseline.count("dashboard-empty")    # nada más cambia

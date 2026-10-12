@@ -59,7 +59,8 @@
 {# Cuerpo de un área, en orden de lectura: contexto de evidencia → titulares (≤4 tiles KPI) → evidencia de apoyo (tablas compactas)
    → evaluación de reglas (tabla) → hallazgos. `lvl`: nivel de los rótulos (h3 en sección propia, h4 dentro de un disclosure). #}
 {% macro area_body(a, lvl) %}
-  <p>Superficies de evidencia requeridas: {{ a.surfaces }}.{% if a.reason %} {{ a.reason }}.{% endif %}</p>
+  <p>Superficies de evidencia requeridas: {{ a.surfaces }}.{% if a.reason %} {{ a.reason }}.{% endif %}</p>{% if a.facts.empty_state %}
+  {{ not_detected(a.facts.empty_state.text, a.facts.empty_state.label) }}{% endif %}
   {% if a.facts.headline %}
   <div class="activity-kpi-grid asm-facts">
     {% for m in a.facts.headline %}{{ kpi_tile(m) }}{% endfor %}
@@ -110,7 +111,7 @@
 {% endmacro %}
 {% macro state_badge(a) %}<span class="catalog-card__verdict{% if a.state == 'ASSESSED' %} catalog-card__verdict--plena{% elif a.state != 'NOT_APPLICABLE' %} catalog-card__verdict--parcial{% endif %}">{{ a.state_text }}</span>{% endmacro %}
 {# Estado vacío estándar del Hub (`.dashboard-empty`): "No detectado" = se evaluó y no apareció el patrón (≠ No disponible ≠ No aplica). #}
-{% macro not_detected(text) %}<div class="dashboard-empty"><span class="dashboard-empty__label">No detectado</span><p>{{ text }}</p></div>{% endmacro %}
+{% macro not_detected(text, label="No detectado") %}<div class="dashboard-empty"><span class="dashboard-empty__label">{{ label }}</span><p>{{ text }}</p></div>{% endmacro %}
 
 {# §1 Barra de acciones transversal: ← Volver a la izquierda, acciones de contexto a la derecha, MISMA línea y gutter que el
    contenido. Un solo patrón (`.catalog-actionbar`) compartido con la página de modelo del Catálogo; el hero arranca debajo. #}

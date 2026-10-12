@@ -132,10 +132,12 @@ def source_facts(doc: dict) -> dict | None:
         return None
     gate = federation_gate(doc)
     notes = []
-    if gate["known"] and not gate["has_remote"]:
-        notes.append("El alcance evaluado no contiene artefactos con origen remoto (tablas importadas desde otra conexión); las superficies de contrato remoto "
-                     "no aplican a este modelo.")
-    return {"table": {"title": "Adquisición de las hojas de frontera", "columns": ["Mecanismo", "Origen", "Contrato de la fuente", "Hojas", "Evidencia"], "rows": rows},
+    empty = None
+    if gate["known"] and not gate["has_remote"]:                        # estado vacío del Hub (`.dashboard-empty`): mismo mensaje, ya no como texto corrido
+        empty = {"label": "Sin origen remoto",
+                 "text": "El alcance evaluado no contiene artefactos con origen remoto (tablas importadas desde otra conexión); las superficies de contrato remoto "
+                         "no aplican a este modelo."}
+    return {"empty_state": empty, "table": {"title": "Adquisición de las hojas de frontera", "columns": ["Mecanismo", "Origen", "Contrato de la fuente", "Hojas", "Evidencia"], "rows": rows},
             "notes": notes, "hide": gate["hide"] | gate["hide_unassessed"]}
 
 
