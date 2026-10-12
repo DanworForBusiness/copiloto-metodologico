@@ -12,6 +12,7 @@ from openai import OpenAI
 import yaml
 
 from config import DEFAULT_EXECUTION_MODE, FEEDBACK_LOG_DIR, MODEL, ia_enabled_for
+from core import remote_store
 from core.prompts import build_system_prompt
 
 
@@ -297,7 +298,5 @@ class AssistantFeedbackRepository:
             "user": str(user.get("sub") or user.get("email") or ""),
             "name": str(user.get("name") or ""),
         }
-        temporary = path.with_suffix(".yaml.tmp")
-        temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
-        temporary.replace(path)
+        remote_store.write_through(path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
         return path

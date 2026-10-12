@@ -46,6 +46,7 @@ from core.content_registry import (
     resolve_pack,
 )
 from config import FEEDBACK_LOG_DIR
+from core import remote_store
 
 router = APIRouter()
 
@@ -130,9 +131,7 @@ def _save_academy_feedback(request: Request, stem: str, pack: str, rating: str, 
             "ts": now.isoformat(),
         }
         path = FEEDBACK_LOG_DIR / f"academy_feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
-        temporary = path.with_suffix(".yaml.tmp")
-        temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
-        temporary.replace(path)
+        remote_store.write_through(path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
     except Exception:
         # El feedback no debe romper la navegación ni el contenido de Academy.
         pass

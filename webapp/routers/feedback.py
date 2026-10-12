@@ -46,6 +46,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from config import FEEDBACK_LOG_DIR
+from core import remote_store
 from core.content_registry import DEFAULT_PACK, resolve_pack
 from webapp.services import auth_service
 from webapp.services import module_registry
@@ -120,9 +121,7 @@ def _save_module_feedback(request: Request, document, selected: str, rating: str
         if clean_comment:
             payload["comment"] = clean_comment
         path = FEEDBACK_LOG_DIR / f"module_feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
-        temporary = path.with_suffix(".yaml.tmp")
-        temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
-        temporary.replace(path)
+        remote_store.write_through(path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
     except Exception:
         # El feedback no debe romper la navegacion ni el contenido del modulo.
         pass
@@ -259,9 +258,7 @@ def _save_section_feedback(request: Request, document, section, selected: str, r
         if clean_comment:
             payload["comment"] = clean_comment
         path = FEEDBACK_LOG_DIR / f"section_feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
-        temporary = path.with_suffix(".yaml.tmp")
-        temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
-        temporary.replace(path)
+        remote_store.write_through(path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
     except Exception:
         # El feedback no debe romper la navegación ni el contenido del módulo.
         pass
@@ -351,9 +348,7 @@ def _save_catalog_feedback(request: Request, kind: str, ref: str, pack: str, rat
         if c:
             payload["comment"] = c
         path = FEEDBACK_LOG_DIR / f"catalog_feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
-        tmp = path.with_suffix(".yaml.tmp")
-        tmp.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
-        tmp.replace(path)
+        remote_store.write_through(path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
     except Exception:  # noqa: BLE001 — el feedback nunca rompe la navegación
         pass
     # USAGE METRICS — REACCIONES: MISMO criterio que _save_module_feedback
@@ -437,9 +432,7 @@ def _save_catalog_section_feedback(request: Request, cliente: str, dominio: str,
         if c:
             payload["comment"] = c
         path = FEEDBACK_LOG_DIR / f"catalog_section_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
-        tmp = path.with_suffix(".yaml.tmp")
-        tmp.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
-        tmp.replace(path)
+        remote_store.write_through(path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
     except Exception:  # noqa: BLE001
         pass
     # USAGE METRICS — REACCIONES: MISMO criterio que _save_catalog_feedback

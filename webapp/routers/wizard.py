@@ -36,6 +36,7 @@ from fastapi.responses import HTMLResponse
 from markupsafe import Markup
 
 from config import FEEDBACK_LOG_DIR
+from core import remote_store
 from core.content_registry import DEFAULT_PACK, resolve_pack
 from webapp import access
 from webapp.copilot_runtime import store
@@ -72,9 +73,7 @@ def _save_tree_suggestion(request: Request, module: str, title: str, detail: str
         if d:
             payload["detail"] = d
         path = FEEDBACK_LOG_DIR / f"tree_suggestion_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
-        tmp = path.with_suffix(".yaml.tmp")
-        tmp.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
-        tmp.replace(path)
+        remote_store.write_through(path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
     except Exception:  # noqa: BLE001
         pass
 
