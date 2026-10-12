@@ -18,6 +18,7 @@ from core.routing_scorers import (
     _should_pair_section_with_asset,
 )
 from core.utils import norm_text, slugify
+from webapp.services import assistant_navigation
 from webapp.services.content_service import (
     ModuleDocument,
     list_appendices,
@@ -572,6 +573,11 @@ class AssistantRoutingService:
         question = (question or "").strip()
         if not question:
             return None
+        # Navegación a activos internos del Hub («ver informe de cliente para X»): si la pregunta pide ABRIR un recurso existente, la respuesta es el acceso a ese recurso
+        # (acción estructurada), no una explicación recuperada de contenido. Sin intención de navegación → sigue el flujo normal.
+        nav = assistant_navigation.resolve(question, pack_name)
+        if nav is not None:
+            return AssistantRoute(nav.message, tuple(AssistantRouteAction(label, url, embed=True) for label, url in nav.actions), question)
         stem = document.summary.stem
         source = document.source
         # Skip posicional: si en el camino descartamos una recomendación por ser la

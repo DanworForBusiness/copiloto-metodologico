@@ -128,8 +128,9 @@ def assessment_markdown(request: Request, flow: str = ""):
 
 # ═══════════════════ consolidado del cliente (solo lectura) ═══════════════════
 @router.get("/catalog/client/assessment", response_class=HTMLResponse, include_in_schema=False)
-def client_assessment_get(request: Request, flow: str = "", pack: str = Query(DEFAULT_PACK)):
-    """Assessment del cliente: lee las entradas del Catálogo del cliente del flujo ``flow`` y su estado canónico (caché). NUNCA genera."""
+def client_assessment_get(request: Request, flow: str = "", pack: str = Query(DEFAULT_PACK), origin: str = ""):
+    """Assessment del cliente: lee las entradas del Catálogo del cliente del flujo ``flow`` y su estado canónico (caché). NUNCA genera.
+    ``origin=assistant`` (único valor admitido): se abrió desde el asistente con un flujo de REFERENCIA técnica; «← Volver» cierra el detalle y restaura el módulo."""
     user = auth_service.session_user(request)
     if not user:
         if request.headers.get("HX-Request"):
@@ -144,7 +145,7 @@ def client_assessment_get(request: Request, flow: str = "", pack: str = Query(DE
     q = {"flow": entry.entry_id}
     return templates.TemplateResponse(
         request=request, name="partials/client_assessment_report.html",
-        context={"v": portfolio.report_view(snap), "pack": selected, "back_url": presenter.flow_url(entry, selected),
+        context={"v": portfolio.report_view(snap), "pack": selected, "back_url": presenter.flow_url(entry, selected), "back_close": origin == "assistant",
                  "json_url": "/catalog/client/assessment.json?" + urlencode(q), "md_url": "/catalog/client/assessment.md?" + urlencode(q)})
 
 
