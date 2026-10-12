@@ -15,7 +15,7 @@
 {% macro badge(state) %}<span class="catalog-card__verdict catalog-card__verdict--{{ v.state_tones.get(state) or "neutra" }}">{{ v.state_labels[state] }}</span>{% endmacro %}
 {# §1 (Gate UX.4) Misma barra de acciones transversal que el informe individual: ← Volver + exports en la misma línea. #}
 <div class="catalog-actionbar">
-  <a class="catalog-back" href="#" role="button" hx-get="{{ back_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>
+  {% if back_close %}<a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>{% else %}<a class="catalog-back" href="#" role="button" hx-get="{{ back_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>{% endif %}
   <div class="support-links catalog-actionbar__actions">
     <a class="support-link" href="{{ md_url }}" download>Exportar Markdown<span>↗</span></a>
     <a class="support-link" href="{{ json_url }}" download>Exportar JSON<span>↗</span></a>
