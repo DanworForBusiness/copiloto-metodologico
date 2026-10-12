@@ -318,9 +318,54 @@ def run_catalog_generation_locked(graph_token: str = "") -> tuple[bool, str]:
         _CATALOG_REGEN_LOCK.release()
 
 
+# Directorios persistidos que toca una regeneración (el catálogo y los reportes derivados que escribe la reconciliación/telemetría) y marcador de completitud.
+_CATALOG_PERSIST_NAMES = ("catalog_local", "reports")
+_CATALOG_COMPLETION_MARKERS = (".catalog_manifest.json",)
+
+
+def _catalog_persistence_line(incidents: list[str], hold=None) -> str:
+    """Persistencia EXPLÍCITA al completarse «Generar catálogo» (sin depender del ciclo de ``mirror_up``): sube a Spaces solo lo que cambió y deja el manifest al final.
+    Una regeneración incompleta (algún generador falló) NO se publica. Devuelve la línea de estado para el panel ('' si la persistencia remota no está autorizada)."""
+    if not remote_store.write_enabled():
+        return ""
+    if incidents:
+        if hold is not None:
+            hold.fail()
+        return (f"\n[persistencia] NO publicado en Spaces: la regeneración quedó incompleta ({len(incidents)} incidente(s)); un resultado parcial no se confirma como "
+                "regeneración completa y tampoco lo sube el ciclo periódico (queda retenido hasta la próxima regeneración completa o un reinicio). Corregí el origen y volvé a generar.")
+    try:
+        out = remote_store.persist_changed(_CATALOG_PERSIST_NAMES, last=_CATALOG_COMPLETION_MARKERS)
+    except Exception as exc:  # noqa: BLE001 — la persistencia nunca rompe la regeneración
+        if hold is not None:
+            hold.fail()
+        return f"\n[persistencia] ATENCIÓN: no se pudo confirmar en Spaces ({type(exc).__name__}: {exc}); el resultado local es válido y no se publica a medias."
+    if out["status"] != "remote" and hold is not None:
+        hold.fail()                                             # estado incompleto en Spaces: el ciclo periódico no debe completarlo por su cuenta
+    status = out["status"]
+    if status == "remote":
+        return (f"\n[persistencia] Spaces: {out['uploaded']} archivo(s) modificado(s) confirmado(s) (manifest al final)." if out["uploaded"]
+                else "\n[persistencia] Spaces: sin archivos modificados por confirmar.")
+    if status == "blocked":
+        return f"\n[persistencia] ATENCIÓN: no se publicó en Spaces ({out['reason']}); el resultado local es válido."
+    if status == "failed":
+        return f"\n[persistencia] ATENCIÓN: no se pudo confirmar en Spaces ({out['reason']}); el resultado local es válido."
+    withheld = " El manifest NO se publicó: Spaces no refleja una regeneración completa." if out["marker_withheld"] else ""
+    return (f"\n[persistencia] ATENCIÓN: {out['uploaded']} de {out['changed']} archivo(s) confirmado(s) en Spaces "
+            f"({len(out['failed'])} sin confirmar, {out['skipped_unreconciled']} sin reconciliar).{withheld} "
+            "El resultado local es válido; el ciclo periódico NO lo completa por su cuenta (queda retenido): lo pendiente se confirma en la próxima regeneración completa.")
+
+
 def run_catalog_generation(graph_token: str = "") -> str:
+    """Regenera el catálogo y, si terminó COMPLETA, lo persiste explícitamente en Spaces (ver ``_catalog_persistence_line``). Mismo texto que antes + la línea de persistencia."""
+    with remote_store.hold_publication(("catalog_local",)) as hold:       # el ciclo periódico no publica catalog_local a medias mientras se regenera
+        text, incidents = _run_catalog_generation(graph_token=graph_token)
+        line = _catalog_persistence_line(incidents, hold)
+    return text + line
+
+
+def _run_catalog_generation(graph_token: str = "") -> tuple[str, list[str]]:
     """PILOTO (no productivo): regenera el catálogo CDS desde los JSON crudos.
-    Dispara el botón del panel diagnóstico. Fuente de los JSON crudos:
+    Dispara el botón del panel diagnóstico. Devuelve (texto, incidentes): un incidente es un fallo que deja la regeneración incompleta. Fuente de los JSON crudos:
     - Si hay token de sesión + SHAREPOINT_CATALOG_CSN_URL → lee la carpeta CSN
       de SharePoint (Graph, token delegado) a un temp y genera desde ahí.
     - Si no → carpeta local catalog_inbound (stand-in de desarrollo).
@@ -336,6 +381,7 @@ def run_catalog_generation(graph_token: str = "") -> str:
         SHAREPOINT_SECURITY_ROLE_MATRIX_URL,
     )
     out = os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
+    incidents: list[str] = []
     csn_url = (SHAREPOINT_CATALOG_CSN_URL or "").strip()
     svc_dir = str(BASE_DIR / "tools" / "catalog")
     if svc_dir not in sys.path:
@@ -356,14 +402,17 @@ def run_catalog_generation(graph_token: str = "") -> str:
             try:
                 parts.append(space_gen.generate_all(src_dir, out))
             except Exception as space_exc:  # noqa: BLE001 — no debe bloquear los demás catálogos
+                incidents.append("espacios/conexiones")
                 parts.append(f"[WARN] Catálogo de espacios/conexiones no generado: {type(space_exc).__name__}: {space_exc}")
             try:
                 parts.append(security_gen.generate_all(src_dir, out))
             except Exception as security_exc:  # noqa: BLE001 — no debe bloquear los demás catálogos
+                incidents.append("seguridad/DAC")
                 parts.append(f"[WARN] Catálogo de seguridad/DAC no generado: {type(security_exc).__name__}: {security_exc}")
             try:
                 parts.append(data_products_gen.generate_all(src_dir, out))
             except Exception as dp_exc:  # noqa: BLE001 — no debe bloquear los demás catálogos
+                incidents.append("data products")
                 parts.append(f"[WARN] Catálogo de Data Products no generado: {type(dp_exc).__name__}: {dp_exc}")
             # Reconciliación diagnóstico ⇄ automatización AUTOMÁTICA tras regenerar: el
             # criterio se re-espeja solo (ya no es un botón manual). Marca fuerte si hay
@@ -391,11 +440,12 @@ def run_catalog_generation(graph_token: str = "") -> str:
                     cache_root=cache,
                 ))
             messages.append(_run_generators(cache))
-            return "\n".join(messages)
+            return "\n".join(messages), incidents
         inbound = os.getenv("DANWOR_CATALOG_INBOUND_DIR", "").strip() or str(BASE_DIR / "catalog_inbound")
-        return _run_generators(inbound)
+        return _run_generators(inbound), incidents
     except Exception as exc:  # noqa: BLE001 — se reporta al panel
-        return f"[ERROR] {type(exc).__name__}: {exc}\n" + traceback.format_exc(limit=8)
+        incidents.append(type(exc).__name__)
+        return f"[ERROR] {type(exc).__name__}: {exc}\n" + traceback.format_exc(limit=8), incidents
 
 
 # =========================================================

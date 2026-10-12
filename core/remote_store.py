@@ -209,6 +209,13 @@ def _matches_remote(path: Path, size, etag) -> bool:
         return False
 
 
+def _seed_digest(key: str, etag) -> None:
+    """Contenido ya idéntico en Spaces, conocido por su ETag cuando es un md5 simple (sin multipart ni cifrado): metadato que el restore ya recibe; no se lee ningún archivo."""
+    e = str(etag or "").strip('"').lower()
+    if len(e) == 32 and all(c in "0123456789abcdef" for c in e):
+        _digests[key] = e
+
+
 def restore(overwrite: bool = False) -> int:
     """Baja al FS local lo persistido en el bucket. Pensado para el boot, cuando el
     FS efímero arranca vacío. Devuelve la cantidad de archivos bajados.
@@ -271,6 +278,7 @@ def restore(overwrite: bool = False) -> int:
             if dest.exists() and not overwrite:
                 if _matches_remote(dest, size, etag):
                     _signatures[key] = _sig(dest)            # el local ya ES la copia remota: reconciliado
+                    _seed_digest(key, etag)
                     return "reconciled"
                 _unreconciled.add(key)                        # el local difiere (o no se puede verificar): se PRESERVA y mirror_up no lo sube
                 return "skipped"
@@ -278,6 +286,7 @@ def restore(overwrite: bool = False) -> int:
             client.download_file(bucket, key, str(dest))
             # Sembramos la firma para que el primer mirror_up no re-suba lo bajado.
             _signatures[key] = _sig(dest)
+            _seed_digest(key, etag)                           # y el contenido confirmado (ETag md5), para que una regeneración que reescribe lo MISMO no lo vuelva a subir
             _unreconciled.discard(key)
             return "downloaded"
 
@@ -335,6 +344,9 @@ def mirror_up() -> int:
     for name, local in _persist_dirs():
         if not local.is_dir():
             continue
+        if _held.get(name):                                    # un productor lo está regenerando con persistencia explícita: no se publican resultados a medias
+            log.info("remote_store.mirror_up: '%s' retenido durante una regeneración en curso; se omite en este ciclo.", name)
+            continue
         root_key = _key(name)
         for path in local.rglob("*"):
             if not path.is_file():
@@ -347,6 +359,8 @@ def mirror_up() -> int:
             except OSError:
                 continue
             if _signatures.get(key) == sig:
+                continue
+            if _withheld.get(key) == sig:                      # resultado parcial de una regeneración fallida/incompleta, sin cambios desde entonces: no se publica
                 continue
             try:
                 client.upload_file(str(path), bucket, key)
@@ -485,6 +499,193 @@ def write_through(path: str | Path, data: str | bytes, *, encoding: str = "utf-8
         _pending_push.pop(next(iter(_pending_push)), None)
     log.warning("remote_store.write_through: escrito localmente pero NO confirmado en Spaces (%s); queda pendiente y se reintenta en el próximo evento de escritura", path)
     return DURABLE_LOCAL
+
+
+_held: dict[str, int] = {}                  # nombre de directorio persistido → regeneraciones en curso (mirror_up lo omite mientras > 0)
+_withheld: dict[str, tuple] = {}            # key → firma local retenida tras una regeneración fallida/incompleta (mirror_up no la sube mientras el archivo no cambie)
+_hold_lock = threading.Lock()
+
+
+class PublicationHold:
+    """Protege los archivos de directorios persistidos (``names``) del ``mirror_up`` periódico mientras un productor los REGENERA con persistencia explícita.
+    Con ``with hold_publication(names) as hold:`` el directorio no se publica durante la regeneración; si ésta termina FALLIDA o INCOMPLETA (``hold.fail()`` o una
+    excepción), todo lo que había sin confirmar en Spaces queda RETENIDO (el ciclo no lo sube mientras ese archivo no cambie). Si termina bien y ``persist_changed`` lo
+    confirmó completo, la retención se levanta. Todo en memoria: un reinicio la limpia (el restore deja Spaces como única verdad) y la siguiente regeneración completa
+    también. Solo afecta a ``names``: los demás directorios y productores siguen sincronizando."""
+
+    def __init__(self, names):
+        self.names = tuple(names)
+        self.failed = False
+
+    def fail(self) -> None:
+        self.failed = True
+
+    def __enter__(self):
+        with _hold_lock:
+            for n in self.names:
+                _held[n] = _held.get(n, 0) + 1
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is not None:
+            self.failed = True
+        with _hold_lock:
+            for n in self.names:
+                _held[n] = max(0, _held.get(n, 0) - 1)
+                if not _held[n]:
+                    _held.pop(n, None)
+            if self.failed and write_enabled():
+                _withhold_unsynced(self.names)
+        return False
+
+
+def hold_publication(names) -> PublicationHold:
+    return PublicationHold(names)
+
+
+def _withhold_unsynced(names) -> int:
+    """Retiene (con su firma actual) todo archivo de ``names`` que ``mirror_up`` subiría ahora: lo que no coincide con lo último confirmado en Spaces."""
+    wanted, n = set(names), 0
+    for name, local in _persist_dirs():
+        if name not in wanted or not local.is_dir():
+            continue
+        root_key = _key(name)
+        for path in local.rglob("*"):
+            if not path.is_file():
+                continue
+            key = f"{root_key}/{path.relative_to(local).as_posix()}"
+            try:
+                sig = _sig(path)
+            except OSError:
+                continue
+            if _signatures.get(key) != sig:
+                _withheld[key] = sig
+                n += 1
+    if n:
+        log.warning("remote_store: %d archivo(s) de %s retenido(s) del ciclo periódico (regeneración fallida o incompleta); se liberan con la próxima regeneración completa o al reiniciar.", n, sorted(wanted))
+    return n
+
+
+def _release_withheld(names) -> None:
+    prefixes = tuple(_key(n) + "/" for n in names)
+    for k in [k for k in _withheld if k.startswith(prefixes)]:
+        _withheld.pop(k, None)
+
+
+_digests: dict[str, str] = {}                # key → md5 del contenido que ESTE proceso confirmó en Spaces (evita re-subir lo que un generador solo «tocó» con el mismo contenido)
+
+
+def _md5(path: Path) -> str:
+    import hashlib
+    return hashlib.md5(path.read_bytes()).hexdigest()  # noqa: S324 — identidad de contenido, no criptografía
+
+
+def persist_changed(names, *, last=(), workers: int = 8) -> dict:
+    """Evento de persistencia ACOTADO: sube a Spaces, al terminar un productor, solo lo que cambió bajo los directorios persistidos ``names`` (p. ej. el catálogo
+    legacy al completar «Generar catálogo»), sin esperar al ciclo de ``mirror_up``. «Cambió» = la firma local difiere de la última confirmada en Spaces
+    (``_signatures``: la MISMA vara de ``mirror_up``), así que un archivo que un evento anterior dejó sin confirmar se incluye; si solo cambió la firma (mtime) pero el
+    contenido es idéntico al que este proceso ya confirmó (``_digests``), no se vuelve a subir. No barre directorios ajenos a ``names``.
+
+    Mismos resguardos que ``mirror_up``: nada si la persistencia remota no está autorizada, ni mientras el restore esté en curso/incompleto, ni sobre un key
+    ``_unreconciled``. No borra objetos remotos (como ``mirror_up``).
+
+    NO publica resultados parciales como completos: los archivos cuyo nombre figura en ``last`` (marcadores de completitud, p. ej. ``.catalog_manifest.json``) se suben
+    SOLO al final y SOLO si todo lo demás quedó confirmado; ante el primer fallo no se intentan más PUT (sin multiplicar latencia con Spaces caído), los pendientes
+    quedan registrados para el siguiente evento de escritura y el marcador NO se publica.
+
+    Devuelve ``{"status", "changed", "uploaded", "failed", "skipped_unreconciled", "marker_withheld", "reason"}`` con ``status`` en:
+    ``disabled`` (no autorizado) · ``blocked`` (restore) · ``remote`` (todo lo cambiado quedó confirmado) · ``partial`` (algo no se confirmó) · ``failed`` (sin cliente)."""
+    result = {"status": "remote", "changed": 0, "uploaded": 0, "failed": [], "skipped_unreconciled": 0, "marker_withheld": False, "reason": None}
+    if not write_enabled():
+        result["status"] = "disabled"
+        return result
+    blocked = sync_blocked_reason()
+    if blocked is not None:
+        result.update(status="blocked", reason=blocked)
+        log.warning("remote_store.persist_changed: BLOQUEADO — %s; no se sube nada.", blocked)
+        return result
+    try:
+        _get_client()
+    except Exception as exc:  # noqa: BLE001
+        result.update(status="failed", reason=f"no se pudo inicializar el cliente: {exc}")
+        log.warning("remote_store.persist_changed: no se pudo inicializar el cliente: %s", exc)
+        return result
+
+    wanted, markers = set(names), set(last)
+    body: list[Path] = []
+    tail: list[Path] = []
+    keys: dict[Path, str] = {}
+    for name, local in _persist_dirs():
+        if name not in wanted or not local.is_dir():
+            continue
+        root_key = _key(name)
+        for path in local.rglob("*"):
+            if not path.is_file():
+                continue
+            key = f"{root_key}/{path.relative_to(local).as_posix()}"
+            if key in _unreconciled:
+                result["skipped_unreconciled"] += 1
+                continue
+            try:
+                sig = _sig(path)
+                if _signatures.get(key) == sig:
+                    continue
+                if key in _digests and _digests[key] == _md5(path):          # mismo contenido que lo ya confirmado: solo cambió la firma
+                    _signatures[key] = sig
+                    continue
+            except OSError:
+                continue
+            keys[path] = key
+            (tail if path.name in markers else body).append(path)
+    result["changed"] = len(body) + len(tail) + result["skipped_unreconciled"]
+
+    abort = threading.Event()
+
+    def _push(path: Path) -> bool:
+        if abort.is_set():
+            return False
+        try:
+            digest = _md5(path)
+        except OSError:
+            digest = None
+        if push_path(path):
+            _pending_push.pop(str(path), None)
+            if digest is not None:
+                _digests[keys[path]] = digest
+            return True
+        abort.set()                                            # primer fallo: no se intentan más PUT
+        return False
+
+    if body:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=max(1, min(workers, len(body)))) as pool:
+            outcomes = list(pool.map(_push, body))
+        result["uploaded"] += sum(outcomes)
+        for path, ok in zip(body, outcomes):
+            if not ok:
+                result["failed"].append(str(path))
+                _pending_push[str(path)] = path
+        while len(_pending_push) > _PENDING_MAX:
+            _pending_push.pop(next(iter(_pending_push)), None)
+    if result["failed"] or result["skipped_unreconciled"]:
+        result["marker_withheld"] = bool(tail)
+        result["status"] = "partial"
+    else:
+        for path in tail:                                       # marcadores de completitud: al final y solo con todo lo demás confirmado
+            if _push(path):
+                result["uploaded"] += 1
+            else:
+                result["failed"].append(str(path))
+                _pending_push[str(path)] = path
+                result["status"] = "partial"
+    if result["status"] == "partial":
+        log.warning("remote_store.persist_changed: %d de %d archivo(s) confirmados; fallidos=%d sin reconciliar=%d marcador retenido=%s",
+                    result["uploaded"], result["changed"], len(result["failed"]), result["skipped_unreconciled"], result["marker_withheld"])
+    else:
+        _release_withheld(wanted)                               # todo lo cambiado quedó confirmado: nada que retener
+        if result["uploaded"]:
+            log.info("remote_store.persist_changed: %d archivo(s) confirmados en Spaces", result["uploaded"])
+    return result
 
 
 def read_object_bytes(local_path: str | Path) -> bytes | None:
