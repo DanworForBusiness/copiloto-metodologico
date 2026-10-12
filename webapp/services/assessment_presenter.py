@@ -526,6 +526,16 @@ def _report_title(entry: Any, am: str | None) -> tuple[str | None, str | None]:
     return (stripped or desc), name
 
 
+def flow_heading(entry: Any) -> tuple[str | None, str | None]:
+    """(título del modelo, nombre técnico) del encabezado del detalle del flujo: el nombre PROPIO del modelo de consumo, no la clasificación de negocio (``dominio``,
+    compartida por varios modelos). Solo si el flujo tiene UN modelo de consumo con etiqueta propia; si no, (None, None) y el encabezado cae al dominio."""
+    ams = catalog_reads.consumption_artifacts(entry)
+    if len(ams) != 1:
+        return None, None
+    desc, name = _report_title(entry, ams[0])
+    return (desc, name) if desc and desc != name else (None, None)       # sin etiqueta confiable el encabezado sigue siendo el dominio (no el nombre técnico)
+
+
 def report_title(entry: Any, am: str | None) -> tuple[str | None, str | None]:
     """Título (descripción, nombre técnico) de un activo: misma lógica que el informe individual (API pública para el consolidado)."""
     return _report_title(entry, am)

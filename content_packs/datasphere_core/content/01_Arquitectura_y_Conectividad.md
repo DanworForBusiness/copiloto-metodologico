@@ -222,6 +222,10 @@ Definir:
 {{subtitle: no-gap}}
 > Los porcentajes son un punto de partida metodológico. Deben ajustarse según volumen real, criticidad, persistencia, concurrencia, estrategia de federación y evolución post-PoC.
 
+{{collapsible: title="Calculadora de distribución de cuota" style="hub"}}
+{{html_embed: ../assets/danwor-calculadora-cuota.html height=580}}
+{{/collapsible}}
+
 ## {dw-black}Checklist de {dw-gold}Configuración
 {{section_meta: keywords="checklist configuración, checklist datasphere, lista verificación, revisión proyecto, setup inicial, buenas practicas, oportunidad mejora, verificar espacios, verificar conexiones, verificar transporte, puntos de control arquitectura, configuración base datasphere, lista chequeo"}}
 

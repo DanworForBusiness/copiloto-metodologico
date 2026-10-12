@@ -52,7 +52,7 @@ CALLOUT_ATTR_RE = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
 # para que el codigo siga tomando el copy-button y el resaltado normales.
 COLLAPSIBLE_RE = re.compile(r"\{\{collapsible:(.*?)\}\}(.*?)\{\{/collapsible\}\}", re.I | re.S)
 COLLAPSIBLE_OPEN_HTML_RE = re.compile(
-    r"(?:<p>\s*)?<!--DWCOLL:(OPEN|SHUT):(.*?)-->(?:\s*</p>)?", re.S
+    r"(?:<p>\s*)?<!--DWCOLL:(OPEN|SHUT)(HUB)?:(.*?)-->(?:\s*</p>)?", re.S
 )
 COLLAPSIBLE_CLOSE_HTML_RE = re.compile(r"(?:<p>\s*)?<!--DWCOLL:/-->(?:\s*</p>)?")
 CUSTOM_LINK_RE = re.compile(r'<link\s+url="(.*?)"\s*>(.*?)</link>', re.I | re.S)
@@ -457,8 +457,12 @@ def _collapsible_html(rendered: str) -> str:
     <details>/<summary>. Corre DESPUES de markdown: el cuerpo ya es HTML con su
     copy-button, y el plegado no afecta anchors/Ctrl+F (el contenido sigue en DOM)."""
     def _open(match: re.Match[str]) -> str:
-        state, title = match.group(1), html.escape(match.group(2).strip())
+        state, hub, title = match.group(1), match.group(2), html.escape(match.group(3).strip())
         attr = " open" if state == "OPEN" else ""
+        if hub:      # variante `style="hub"`: el disclosure de los dashboards del Hub (borde fino, caret gold), el mismo que ya usan las tablas de campos del Catálogo
+            return (f'<details class="dashboard-section"{attr}>'
+                    f'<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{title}</span></summary>'
+                    f'<div class="dashboard-section__body">')
         return (
             f'<details class="content-collapsible"{attr}>'
             f'<summary class="content-collapsible__summary">{title}</summary>'
@@ -497,6 +501,8 @@ def _prepare(source: str, pack_name: str, stem: str = "") -> str:
         attrs = {item.group(1).lower(): item.group(2) for item in CALLOUT_ATTR_RE.finditer(match.group(1))}
         title = (attrs.get("title") or "Ver más").replace("--", "—")
         state = "OPEN" if str(attrs.get("open", "")).strip().lower() in {"true", "1", "yes", "si", "sí"} else "SHUT"
+        if str(attrs.get("style", "")).strip().lower() == "hub":
+            state += "HUB"
         body = match.group(2).strip("\n")
         return f"\n\n<!--DWCOLL:{state}:{title}-->\n\n{body}\n\n<!--DWCOLL:/-->\n\n"
 

@@ -32,8 +32,10 @@ def test_legacy_list_tile_template_and_scoring_modules_are_untouched_by_the_asse
         return
     # La ÚNICA excepción admitida es la firma del cache incremental del generador (`_catalog_generator_signature`), que desde portability-scoring/v2 también cubre el
     # evaluador y la matriz de portabilidad para que un cambio de scoring invalide el cache; la evaluación de cumplimiento/veredicto legacy sigue intacta.
+    # Segunda excepción admitida: el LOADER lee los Data Flows del export CLI (`dataflows`: sources/targets) y los une al linaje de la tabla que producen
+    # (`dataflow_lineage`); es entrada del catálogo, no scoring (el assessment la desactiva) y `evaluate_compliance` no se toca.
     changed = [l for l in out.stdout.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))]
-    allowed = re.compile(r"signature|sha256|parts|portability_bdc|Firma del generador|reutilizamos salidas viejas|hashlib|invalid|scoring|persiste|here|extra|unknown|try:|except|return|\"\"\"|^[+-]\s*$|cache incremental|no reutilizamos")
+    allowed = re.compile(r"signature|sha256|parts|portability_bdc|Firma del generador|reutilizamos salidas viejas|hashlib|invalid|scoring|persiste|here|extra|unknown|try:|except|return|\"\"\"|^[+-]\s*$|cache incremental|no reutilizamos|def load_folder|dataflow_lineage|export_df_membership|_dfname|_dfbody|_srcs|_tgts|_slot|slot\[|srcs|tname|Data Flow del export CLI|mixed-mode|MISMA regla")
     assert all(allowed.search(l) for l in changed), changed
     assert "catalog_service.py" not in out.stdout, out.stdout
 

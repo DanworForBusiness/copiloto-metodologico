@@ -502,7 +502,7 @@ def _semantic_definition_signature(definition: dict) -> str:
     return json.dumps(normalized, sort_keys=True, ensure_ascii=False, default=str)
 
 
-def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None) -> tuple[dict, dict]:
+def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, dataflow_lineage: bool = True) -> tuple[dict, dict]:
     """Devuelve (entities_by_name, sql_by_name).
 
     Legacy: `load_folder(folder)` recorre PLANO `folder.glob("*.json"/"*.txt")`.
@@ -512,8 +512,13 @@ def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None) 
     encuentra su tabla en local-tables/). La identidad es SEMÁNTICA (nombre de
     entidad), nunca el path: dos archivos que definen la misma entidad se
     deduplican si su contenido canónico coincide, y levantan `CatalogCollisionError`
-    si difieren Y vienen de carpetas físicas distintas (mixed-mode)."""
+    si difieren Y vienen de carpetas físicas distintas (mixed-mode).
+
+    `dataflow_lineage`: los Data Flows del export CLI (`data-flows/DF_*.json`, sección `dataflows` con `sources`/`targets`) aportan al linaje de la tabla local que
+    producen (target <- sources) con la MISMA regla que los `DF_*` legacy. El catálogo lo necesita (continuidad fuente → modelo terminal); el assessment lo desactiva
+    (`False`): su cierre trata la tabla producida por un flujo como HOJA y modela el flujo como procedencia, no como linaje semántico."""
     entities: dict[str, Entity] = {}
+    export_df_membership: dict[str, dict] = {}   # DF del export CLI → {targets, sources} (solo nombres declarados por el propio DF)
     sql_by_name: dict[str, str] = {}
     df_membership: dict[str, dict] = {}   # DF file → {targets, sources}
     raw_elems: dict[str, dict] = {}       # entidad → dict crudo de elements (para heredar tipos)
@@ -554,6 +559,13 @@ def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None) 
                         if _v:
                             i18n_map[str(_k)] = str(_v)
         is_df = jf.stem.upper().startswith("DF_")
+        for _dfname, _dfbody in (data.get("dataflows") or {}).items():
+            if isinstance(_dfbody, dict):
+                _srcs = _dfbody.get("sources") if isinstance(_dfbody.get("sources"), dict) else {}
+                _tgts = _dfbody.get("targets") if isinstance(_dfbody.get("targets"), dict) else {}
+                _slot = export_df_membership.setdefault(str(_dfname), {"targets": set(), "sources": set()})
+                _slot["sources"].update(str(k) for k in _srcs)
+                _slot["targets"].update(str(k) for k in _tgts)
         defs = data.get("definitions") or {}
         for name, defn in defs.items():
             if not isinstance(defn, dict):
@@ -722,6 +734,15 @@ def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None) 
             if t and not t.upstreams:
                 srcs = {s for s in slot["sources"] if s != tname}
                 t.upstreams = sorted(srcs)
+
+    # Data Flow del export CLI: SOLO relaciones que el propio flujo declara y cuyos dos extremos existen en el pool (nunca se fabrica una dependencia por nombre).
+    if dataflow_lineage:
+        for slot in export_df_membership.values():
+            srcs = {s for s in slot["sources"] if s in entities}
+            for tname in sorted(slot["targets"]):
+                t = entities.get(tname)
+                if t and not t.upstreams and (srcs - {tname}):
+                    t.upstreams = sorted(srcs - {tname})
 
     if _collisions:
         raise CatalogCollisionError(

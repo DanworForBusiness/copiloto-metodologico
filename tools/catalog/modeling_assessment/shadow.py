@@ -112,7 +112,7 @@ def load_pool(group: dict[str, list[Path]]):
     """Entidades del pool (el loader legacy imprime en stdout: se silencia)."""
     try:
         with contextlib.redirect_stdout(io.StringIO()):
-            entities, _sql = bridge.load_folder(json_files=group["jsons"], txt_files=group["txts"])
+            entities, _sql = bridge.load_folder(json_files=group["jsons"], txt_files=group["txts"], dataflow_lineage=False)
     except bridge.CatalogCollisionError as exc:
         raise AssessmentPoolLoadError(f"colisión de entidades en el conjunto de artefactos: {exc}") from exc
     except Exception as exc:  # noqa: BLE001 - cualquier fallo de carga se reporta como documento INDETERMINATE, nunca se enmascara

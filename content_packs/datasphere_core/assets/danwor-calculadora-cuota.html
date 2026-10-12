@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Danwor — Calculadora de distribución de cuota</title>
+<link rel="stylesheet" href="danwor-shared.css">
+<style>
+  /* Tipografía y colores de la tabla metodológica del Hub (`.methodology table`): Inter 12.8 px, encabezados JetBrains Mono gold, valores en mono dorado. */
+  :root { --q-ink: #19191b; --q-soft: #6b6b73; --q-line: #d9d9d3; --q-gold: #e7b008; --q-code: #806500; --q-field: #ffffff; --q-field-line: rgba(128,128,128,.4); --q-warn: #b4501a; }
+  html[data-dw-theme="dark"] { --q-ink: #e4e4ec; --q-soft: #8b8b96; --q-line: rgba(226,232,245,.09); --q-code: #d0b33a; --q-field: #181819; --q-field-line: rgba(226,232,245,.22); --q-warn: #ff9a5c; }
+  html, body { min-height: 0; height: auto; }
+  body { margin: 0; background: transparent; font-family: 'Inter', sans-serif; color: var(--q-ink); line-height: 1.5; }
+  .qc { padding: 0 2px 4px; }
+  /* Datos de entrada compactos, alineados a la derecha sobre el encabezado de la tabla (como la referencia del Hub). */
+  .qc-toolbar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px 18px; margin: 4px 0 2px; }
+  .qc-hint { margin-right: auto; font-size: 11.5px; color: var(--q-soft); }
+  .qc-field { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; color: var(--q-ink); }
+  .qc-field input { width: 84px; box-sizing: border-box; padding: 5px 8px; border: 1px solid var(--q-field-line); border-radius: 6px; background: var(--q-field); color: var(--q-ink); font: 500 12.5px 'JetBrains Mono', monospace; text-align: right; }
+  .qc-field input:focus { outline: 2px solid var(--q-gold); outline-offset: 1px; }
+  .qc-field input[aria-invalid="true"] { border-color: var(--q-warn); }
+  .qc-unit { font: 500 11.5px 'JetBrains Mono', monospace; color: var(--q-soft); min-width: 18px; }
+  .qc-errors { min-height: 18px; margin: 4px 0 0; text-align: right; font-size: 11.5px; color: var(--q-warn); }
+  table { width: 100%; margin: 4px 0 0; border-collapse: collapse; font-size: 12.8px; }
+  th { text-align: left; color: var(--q-gold); font: 500 10.88px 'JetBrains Mono', monospace; text-transform: uppercase; padding: 13px; border-bottom: 1px solid var(--q-line); }
+  td { padding: 13px; border-bottom: 1px solid var(--q-line); vertical-align: top; }
+  td.num, th.num { text-align: right; }
+  td.num { font-family: 'JetBrains Mono', monospace; color: var(--q-code); white-space: nowrap; }
+  td.num.plain { font-family: 'Inter', sans-serif; color: var(--q-ink); white-space: normal; }
+  td.num small { display: block; margin-top: 2px; font: 400 10.5px 'Inter', sans-serif; color: var(--q-soft); }
+  .qc-note { margin: 12px 2px 0; font-size: 11.5px; color: var(--q-soft); }
+  @media (max-width: 560px) {
+    .qc-toolbar { justify-content: flex-start; }
+    .qc-hint { flex-basis: 100%; }
+    .qc-errors { text-align: left; }
+    table { display: block; overflow-x: auto; }                     /* como `.methodology table` del Hub en móvil: la tabla desplaza, la página no */
+    th, td { padding: 10px 8px; }
+    td.num { white-space: normal; }
+  }
+</style>
+</head>
+<body>
+<div class="qc" id="qc">
+  <div class="qc-toolbar" role="group" aria-label="Datos del tenant (valores de ejemplo, editables)">
+    <span class="qc-hint">Valores de ejemplo: editalos con los de tu tenant.</span>
+    <label class="qc-field" for="qc-d">Disk (D) <input id="qc-d" type="text" inputmode="decimal" autocomplete="off" value="256" aria-describedby="qc-errors"><span class="qc-unit">GB</span></label>
+    <label class="qc-field" for="qc-m">Memory (M) <input id="qc-m" type="text" inputmode="decimal" autocomplete="off" value="64" aria-describedby="qc-errors"><span class="qc-unit">GB</span></label>
+    <label class="qc-field" for="qc-n">Espacios de dominio (N) <input id="qc-n" type="text" inputmode="numeric" autocomplete="off" value="5" aria-describedby="qc-errors"></label>
+  </div>
+  <p class="qc-errors" id="qc-errors" role="alert" aria-live="polite"></p>
+  <table>
+    <thead><tr><th>Tipo de espacio</th><th class="num">Disk sugerido</th><th class="num">Memory sugerida</th><th>Criterio</th></tr></thead>
+    <tbody>
+      <tr><td><strong>DEV / Desarrollo</strong></td><td class="num" id="r-dev-d">—</td><td class="num" id="r-dev-m">—</td><td>Desarrollo, pruebas unitarias y primeros modelos</td></tr>
+      <tr><td><strong>QA / Calidad</strong></td><td class="num" id="r-qa-d">—</td><td class="num" id="r-qa-m">—</td><td>Validación, pruebas integradas y regresión</td></tr>
+      <tr><td><strong>PRD / Producción</strong></td><td class="num" id="r-prd-d">—</td><td class="num" id="r-prd-m">—</td><td>Operación productiva y consumo estable</td></tr>
+      <tr><td><strong>Espacios de dominio / negocio</strong></td><td class="num" id="r-dom-d">—</td><td class="num" id="r-dom-m">—</td><td>Distribución por dominio, área o producto de datos</td></tr>
+      <tr><td><strong>Reserva tenant</strong></td><td class="num plain">No asignar inicialmente</td><td class="num plain">No asignar inicialmente</td><td>Margen para crecimiento, performance tuning y contingencia</td></tr>
+    </tbody>
+  </table>
+  <p class="qc-note">Simulación orientativa con los porcentajes del ratio de arriba; no es un sizing oficial de SAP. En «Espacios de dominio / negocio» el valor es por espacio. Los valores no se guardan.</p>
+</div>
+<script>
+/* Lógica pura (sin DOM): exactamente las fórmulas publicadas en «Ratio orientativo de distribución de quota». */
+function quotaParse(raw, opts) {
+  var text = String(raw == null ? "" : raw).trim().replace(",", ".");
+  if (text === "") return { error: "Campo obligatorio." };
+  if (!/^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(text)) return { error: "Ingresá un número (solo dígitos y un separador decimal)." };
+  var value = Number(text);
+  if (!isFinite(value)) return { error: "Ingresá un número finito." };
+  if (value < 0) return { error: "No puede ser negativo." };
+  if (opts && opts.integer && !Number.isInteger(value)) return { error: "Debe ser un número entero." };
+  if (opts && opts.min != null && value < opts.min) return { error: "Debe ser al menos " + opts.min + "." };
+  return { value: value };
+}
+function quotaCompute(dRaw, mRaw, nRaw) {
+  var d = quotaParse(dRaw), m = quotaParse(mRaw), n = quotaParse(nRaw, { integer: true, min: 1 });
+  var errors = { d: d.error || null, m: m.error || null, n: n.error || null };
+  if (errors.d || errors.m || errors.n) return { ok: false, errors: errors };
+  return { ok: true, errors: errors, rows: {
+    dev: { disk: d.value * 0.10, mem: m.value * 0.10 },
+    qa: { disk: d.value * 0.20, mem: m.value * 0.20 },
+    prd: { disk: d.value * 0.25, mem: m.value * 0.25 },
+    dom: { disk: (d.value * 0.35) / n.value, mem: (m.value * 0.25) / n.value }
+  } };
+}
+if (typeof window !== "undefined") window.DanworQuota = { parse: quotaParse, compute: quotaCompute };
+</script>
+<script>
+(function () {
+  var ids = { d: "qc-d", m: "qc-m", n: "qc-n" }, names = { d: "Disk (D)", m: "Memory (M)", n: "Espacios (N)" };
+  var cells = { "dev": "r-dev", "qa": "r-qa", "prd": "r-prd", "dom": "r-dom" };
+  function fmt(x) { return x.toLocaleString("es-AR", { maximumFractionDigits: 2 }) + " GB"; }
+  function el(id) { return document.getElementById(id); }
+  function render() {
+    var res = quotaCompute(el(ids.d).value, el(ids.m).value, el(ids.n).value), msgs = [];
+    ["d", "m", "n"].forEach(function (k) {
+      var msg = res.errors[k];
+      el(ids[k]).setAttribute("aria-invalid", msg ? "true" : "false");
+      if (msg) msgs.push(names[k] + ": " + msg);
+    });
+    el("qc-errors").textContent = msgs.join("  ·  ");
+    Object.keys(cells).forEach(function (key) {
+      el(cells[key] + "-d").textContent = res.ok ? fmt(res.rows[key].disk) : "—";
+      el(cells[key] + "-m").textContent = res.ok ? fmt(res.rows[key].mem) : "—";
+    });
+  }
+  ["d", "m", "n"].forEach(function (k) { el(ids[k]).addEventListener("input", render); });
+  render();
+  // Altura a medida: el asset es same-origin, así que ajusta la altura de SU propio contenedor (`--embed-height` del `.html-embed-shell`); la altura fija del embed
+  // reservaba espacio vacío debajo de la nota. Sin frame padre (pantalla completa) no hace nada.
+  function fit() {
+    try {
+      if (!window.innerWidth) return;                                 // colapsable cerrado: el frame no tiene ancho y la medida no es válida
+      var shell = window.frameElement && window.frameElement.parentElement;
+      if (shell) shell.style.setProperty("--embed-height", Math.ceil(el("qc").getBoundingClientRect().height + 4) + "px");
+    } catch (e) { /* sin acceso al frame padre: se conserva la altura declarada */ }
+  }
+  fit();
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(el("qc"));
+  else window.addEventListener("resize", fit);
+})();
+</script>
+</body>
+</html>
