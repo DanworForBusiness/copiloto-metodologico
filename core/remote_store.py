@@ -408,6 +408,85 @@ def push_path(local_path: str | Path) -> bool:
     return False
 
 
+# ── persistencia explícita por evento ─────────────────────────────────────────────────────────────────────────────
+DURABLE_REMOTE, DURABLE_LOCAL = "remote", "local"
+_pending_push: dict[str, Path] = {}          # PUT fallidos de write_through: se reintentan en el SIGUIENTE evento de escritura (no por reloj)
+_PENDING_MAX = 500                           # tope de la lista (memoria acotada si Spaces está caído mucho tiempo)
+
+
+def _is_persisted_path(path: Path) -> bool:
+    for _name, local in _persist_dirs():
+        try:
+            path.resolve().relative_to(local.resolve())
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def retry_pending(limit: int = 20) -> int:
+    """Reintenta (como máximo ``limit``) los PUT que fallaron en un ``write_through`` anterior, de CUALQUIER archivo pendiente. Dirigido por eventos: lo invoca el
+    propio ``write_through``. Se detiene en el PRIMER fallo (si Spaces está caído no se multiplica la latencia del evento: como mucho 1 reintento + el PUT propio)."""
+    done = 0
+    for key, path in list(_pending_push.items())[:limit]:
+        if not path.is_file():
+            _pending_push.pop(key, None)
+            continue
+        if not push_path(path):
+            break
+        _pending_push.pop(key, None)
+        done += 1
+    return done
+
+
+def write_through(path: str | Path, data: str | bytes, *, encoding: str = "utf-8") -> str:
+    """Escritura ATÓMICA + persistencia EXPLÍCITA al completarse el evento (sin depender del ciclo de ``mirror_up`` ni del flush al apagar).
+
+    1. escribe a un temporal único junto al destino y hace ``os.replace`` (nunca queda un archivo a medias);
+    2. si la persistencia remota está autorizada (``DANWOR_PERSISTENCE=remote`` + credenciales) y la ruta cae bajo un directorio persistido, ``push_path``;
+    3. devuelve la durabilidad REALMENTE lograda: ``"remote"`` (PUT confirmado) o ``"local"`` (persistencia deshabilitada, ruta no persistida o PUT fallido).
+    Un PUT fallido NO es un error del productor (el archivo local es válido): se registra, queda pendiente y se reintenta en el siguiente ``write_through``.
+    Los errores de E/S locales sí se propagan (el llamador decide si son best-effort).
+
+    CONTRATO DE FALLO REMOTO (best-effort, explícito):
+      · ``"remote"`` es la ÚNICA señal de persistencia confirmada; ``"local"`` significa «no confirmada» (deshabilitada, ruta no persistida o PUT fallido) y nunca debe
+        presentarse como éxito remoto.
+      · el reintento es en memoria y por eventos: el siguiente ``write_through`` reintenta TODOS los pendientes (tope ``limit``), no solo el mismo archivo.
+      · si el proceso termina antes del reintento no hay garantía propia: el archivo queda sin firma en ``_signatures``, por lo que el respaldo vigente (``mirror_up``,
+        incluido el flush al apagar) lo sube mientras ese mecanismo exista; ante un crash sin flush se pierde.
+      · el PUT es incondicional (last-writer-wins, sin ETag/If-Match): no detecta que otra instancia/proceso haya escrito una versión más nueva de la MISMA clave.
+        Los productores migrados escriben claves nuevas y únicas (``feedback_log``, ``case_<ts>_<id>``); solo ``case_library.update_feedback`` reescribe su propio caso."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        if isinstance(data, bytes):
+            tmp.write_bytes(data)
+        else:
+            tmp.write_text(data, encoding=encoding)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+    if not write_enabled() or not _is_persisted_path(path):
+        return DURABLE_LOCAL
+    try:
+        retry_pending()
+    except Exception as exc:  # noqa: BLE001 — un reintento viejo nunca rompe el evento actual
+        log.warning("remote_store.write_through: reintento de pendientes falló: %s", exc)
+    if push_path(path):
+        _pending_push.pop(str(path), None)
+        return DURABLE_REMOTE
+    _pending_push[str(path)] = path
+    while len(_pending_push) > _PENDING_MAX:                     # el archivo sigue en disco (y bajo el respaldo de mirror_up): solo se acota la memoria
+        _pending_push.pop(next(iter(_pending_push)), None)
+    log.warning("remote_store.write_through: escrito localmente pero NO confirmado en Spaces (%s); queda pendiente y se reintenta en el próximo evento de escritura", path)
+    return DURABLE_LOCAL
+
+
 def read_object_bytes(local_path: str | Path) -> bytes | None:
     """Lee del bucket los bytes EXACTOS del objeto correspondiente a `local_path`
     (MISMO mapeo local→key que `push_path`). Es el primitivo de verificación

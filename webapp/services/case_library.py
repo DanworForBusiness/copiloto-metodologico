@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import yaml
 
 import config
+from core import remote_store
 
 if TYPE_CHECKING:
     from webapp.services.wizard_service import WizardRun
@@ -49,12 +50,7 @@ class CaseLibraryRepository:
 
     def _write(self, path: Path, data: dict) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".yaml.tmp")
-        temporary.write_text(
-            yaml.dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False),
-            encoding="utf-8",
-        )
-        temporary.replace(path)
+        remote_store.write_through(path, yaml.dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False))   # atómico + persistencia explícita al terminar el evento
 
     def create_for_run(self, run: WizardRun) -> str:
         if run.leaf is None:

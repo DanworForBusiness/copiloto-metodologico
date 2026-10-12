@@ -49,6 +49,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from config import FEEDBACK_LOG_DIR
+from core import remote_store
 from core.content_registry import DEFAULT_PACK
 from webapp import commercial_access, same_origin_guard, workspaces
 from webapp.services import auth_service, commercial_strategy_editing, commercial_strategy_markup
@@ -447,9 +448,7 @@ def _save_strategy_section_feedback(request, user, section_id: str, section_titl
         if clean_comment:
             payload["comment"] = clean_comment
         path = FEEDBACK_LOG_DIR / f"section_feedback_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
-        temporary = path.with_suffix(".yaml.tmp")
-        temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
-        temporary.replace(path)
+        remote_store.write_through(path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
     except Exception:  # noqa: BLE001 — el feedback nunca rompe la navegación
         pass
     try:

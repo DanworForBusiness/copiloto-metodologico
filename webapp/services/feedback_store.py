@@ -21,6 +21,7 @@ from uuid import uuid4
 import yaml
 
 from config import FEEDBACK_LOG_DIR
+from core import remote_store
 
 
 def write_feedback_record(payload: dict[str, Any], *, prefix: str, stamp: str) -> None:
@@ -32,8 +33,6 @@ def write_feedback_record(payload: dict[str, Any], *, prefix: str, stamp: str) -
     try:
         FEEDBACK_LOG_DIR.mkdir(parents=True, exist_ok=True)
         path = FEEDBACK_LOG_DIR / f"{prefix}_{stamp}_{uuid4().hex[:8]}.yaml"
-        temporary = path.with_suffix(".yaml.tmp")
-        temporary.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
-        temporary.replace(path)
+        remote_store.write_through(path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
     except Exception:  # noqa: BLE001 — el feedback nunca rompe la navegación
         pass
