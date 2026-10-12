@@ -347,7 +347,44 @@ def _group_block(g: dict, level: str) -> list[str]:
     return out
 
 
-def _area_block(area: dict, groups_by_id: dict[str, dict], rule_by_area: dict[str, list[dict]], level: str) -> list[str]:
+def _canonical_leaves(doc: dict) -> list[dict] | None:
+    ce = doc.get("canonical_evidence") if isinstance(doc, dict) else None
+    leaves = ((ce or {}).get("source_contract_classes") or {}).get("leaves") if isinstance(ce, dict) else None
+    return leaves if isinstance(leaves, list) and leaves else None
+
+
+def projected_boundary_breakdown(doc: dict, original: list[dict]) -> list[dict] | None:
+    """Reparto de las hojas de frontera con la PROCEDENCIA ya resuelta por la evidencia canónica del MISMO documento (``source_contract_classes`` / ``leaf_provenance``).
+
+    Es la ÚNICA proyección del rótulo histórico «locales: origen no observable» (lo construye ``profile._boundary_breakdown`` solo por ``has_remote_entity``): la
+    comparten el Markdown y la UI (``presentation.boundary_breakdown``). El JSON canónico NO se reescribe (conserva el rótulo histórico y la evidencia que permite
+    derivar este mismo reparto). Partición exhaustiva y excluyente; si el documento no permite reconstruirla con exactitud devuelve ``None`` (se conserva el original)."""
+    leaves = _canonical_leaves(doc)
+    if leaves is None:
+        return None
+    prov = {x["leaf"]: x for x in ((doc.get("canonical_evidence") or {}).get("leaf_provenance") or []) if isinstance(x, dict) and "leaf" in x}
+    by = {b["name"]: b["count"] for b in original}
+    remote, system, local_orig = by.get("con origen remoto observado"), by.get("provistos por la plataforma (sistema)"), by.get("locales: origen no observable")
+    if remote is None or system is None or local_orig is None:
+        return None
+    kinds: dict[str, int] = {}
+    for leaf in leaves:
+        kinds[leaf.get("leaf_kind")] = kinds.get(leaf.get("leaf_kind"), 0) + 1
+    produced, declared, unassessed = kinds.get("LOCAL_FLOW_PRODUCED", 0), kinds.get("LOCAL_DECLARED_SOURCE", 0), kinds.get("LOCAL_PROVENANCE_NOT_ASSESSED", 0)
+    not_observable = sum(1 for leaf in leaves if leaf.get("leaf_kind") == "LOCAL_PROVENANCE_NOT_ASSESSED"
+                         and (prov.get(leaf["leaf"]) or {}).get("provenance_state") == "NOT_OBSERVABLE")
+    if produced + declared + unassessed != local_orig or kinds.get("REMOTE_IMPORTED", 0) != remote or kinds.get("PLATFORM_OBJECT", 0) != system:
+        return None
+    rows = [{"name": "con origen remoto observado", "count": remote},
+            {"name": "locales con productor identificado (flujo)", "count": produced},
+            {"name": "locales con origen declarado", "count": declared},
+            {"name": "locales: origen no observable", "count": not_observable},
+            {"name": "locales: origen sin evaluar", "count": unassessed - not_observable},
+            {"name": "provistos por la plataforma (sistema)", "count": system}]
+    return [r for r in rows if r["count"]] or rows[:1]
+
+
+def _area_block(area: dict, groups_by_id: dict[str, dict], rule_by_area: dict[str, list[dict]], level: str, doc: dict | None = None) -> list[str]:
     title = _AREA_TITLE[area["id"]]
     out = [f"{level} {title}", ""]
     st = area["assessability"]
@@ -369,7 +406,10 @@ def _area_block(area: dict, groups_by_id: dict[str, dict], rule_by_area: dict[st
         out.append("")
         for h in shown:
             out.append(f"- {highlight_label(h)}: {_value_text(h['value'])}")
-            for b in h.get("breakdown") or []:
+            breakdown = h.get("breakdown") or []
+            if doc is not None and area["id"] == "INGESTION" and h["id"] == "boundary_artifacts" and breakdown:
+                breakdown = projected_boundary_breakdown(doc, breakdown) or breakdown          # misma procedencia que la UI (el JSON canónico conserva el rótulo histórico)
+            for b in breakdown:
                 out.append(f"  - {b['name']}: {b['count']}")
         out.append("")
     gids = area["finding_groups"]
@@ -510,7 +550,7 @@ def render_markdown(doc: dict) -> str:
         L += [view_composition_text(closure_views["value"], closure_views.get("breakdown") or [],
                                     structural=has_structural_membership(areas["ANALYTIC_MODEL"]["highlights"])), ""]
     for aid in _ARCH_AREAS:
-        L += _area_block(areas[aid], groups_by_id, rule_by_area, "###")
+        L += _area_block(areas[aid], groups_by_id, rule_by_area, "###", doc)
     L += ["## Convención de nombres", ""] + _area_block(areas["NAMING"], groups_by_id, rule_by_area, "###")[2:]
     L += ["## Fuente / Extracción", ""] + _area_block(areas["SOURCE_EXTRACTION"], groups_by_id, rule_by_area, "###")[2:]
 
