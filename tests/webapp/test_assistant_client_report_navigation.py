@@ -140,8 +140,8 @@ def test_the_target_route_keeps_its_own_access_control_and_rejects_invented_flow
     assert _client().get(f"/catalog/client/assessment?flow=no-existe&pack={PACK}", headers=HX).status_code == 404
 
 
-def test_the_mechanism_is_extensible_by_target_and_only_client_report_is_registered():
-    assert [t.key for t in nav.TARGETS] == ["client_report"]
+def test_the_mechanism_is_extensible_by_target_and_the_registered_targets_are_the_expected_ones():
+    assert [t.key for t in nav.TARGETS] == ["client_report", "data_catalog"]
 
 
 # ── el flujo de la URL es solo una REFERENCIA técnica; el informe cubre todo el cliente ─────────────────────────────────────────────────────────
