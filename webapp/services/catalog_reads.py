@@ -37,6 +37,14 @@ def catalog_display_title(name: str, label: str) -> str:
     return label if (label and label != name) else name
 
 
+def consumption_artifacts(entry) -> list[str]:
+    """Nombres técnicos de los artefactos de capa Consumo del flujo (sin duplicados, en orden): el MISMO criterio de capa que `CatalogEntry.consumo`."""
+    mod, _ = _catalog_entries()
+    if mod is None:
+        return []
+    return list(dict.fromkeys(str(a) for a in entry.artefactos if mod._capa_of_name(str(a)) == "Consumo"))
+
+
 def artifact_title(entry, name: str) -> tuple[str, str]:
     """(descripción, nombre técnico) de un artefacto del flujo, leída del MISMO `auto.label` de su vista que usa el detalle del
     flujo para su heading. Fail-soft: sin vista o sin label devuelve el nombre técnico en ambas partes."""

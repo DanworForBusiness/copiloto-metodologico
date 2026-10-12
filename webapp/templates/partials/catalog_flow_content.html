@@ -20,8 +20,8 @@
   </div>
 </div>
 <section class="module-hero">
-  <p class="eyebrow">Catálogo Danwor · {{ lob_label or "Clasificación no disponible" }} · {{ cliente }}</p>   {# línea de negocio EFECTIVA (contexto de negocio, no adopción); sin clasificar → «Sin clasificar» #}
-  <h1>{{ dominio }}</h1>
+  <p class="eyebrow">Catálogo Danwor · {{ lob_label or "Clasificación no disponible" }} · {{ cliente }}{% if heading_title and heading_title != dominio %} · {{ dominio }}{% endif %}</p>   {# línea de negocio EFECTIVA (contexto de negocio, no adopción); sin clasificar → «Sin clasificar». El dominio (clasificación compartida por varios modelos) pasa al eyebrow cuando el encabezado es el nombre del modelo #}
+  <h1{% if heading_title %} title="{{ heading_tech }}"{% endif %}>{{ heading_title or dominio }}</h1>
   {# UN activo, UN grado primario: Adopción metodológica persistida (`ah.grade`, la MISMA fuente que la tile del panel). Sin assessment: «Sin assessment», sin grado.
      El veredicto LEGACY del catálogo ya no se muestra. La vigencia (STALE) va aparte y no recolorea el grado. #}
   {% set g = ah.grade if ah else {"tone": "neutra", "label": "Assessment no disponible", "freshness": none, "has_judgment": false} %}
