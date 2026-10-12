@@ -60,6 +60,10 @@ def _isolate_remote_store_persistence(tmp_path_factory, monkeypatch):
     from core import remote_store
     monkeypatch.setattr(remote_store, "_restore_degraded", False, raising=False)
     monkeypatch.setattr(remote_store, "_unreconciled", set(), raising=False)
+    # Retención del ciclo periódico durante/tras una regeneración + contenido ya confirmado: estado de proceso, nunca compartido entre tests.
+    monkeypatch.setattr(remote_store, "_held", {}, raising=False)
+    monkeypatch.setattr(remote_store, "_withheld", {}, raising=False)
+    monkeypatch.setattr(remote_store, "_digests", {}, raising=False)
 
 
 def _case_listing(path) -> set[str]:
