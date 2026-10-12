@@ -383,26 +383,12 @@ def _is_domain_inventory_query(question: str) -> bool:
     return has_domain and has_inventory
 
 
-def _domains_inventory(pack_name: str):
-    """Inventario real de dominios/flujos publicados (dedup por cliente+dominio,
-    ordenado por veredicto). None si vacío."""
-    try:
-        _cat, cat_dir = _catalog_module()
-        entries = _cat.load_catalog(cat_dir)
-        if not entries:
-            return None
-        seen, items = set(), []
-        for e in entries:
-            key = (e.cliente, e.dominio)
-            if key in seen:
-                continue
-            seen.add(key)
-            items.append(e)
-        rank = {"plena": 0, "buena": 1, "parcial": 2}
-        items.sort(key=lambda e: (rank.get(str(e.veredicto).lower(), 9), e.cliente.lower(), e.dominio.lower()))
-        return items or None
-    except Exception:  # noqa: BLE001 — el catálogo nunca debe romper el routing
-        return None
+def _navigation_route(nav, question: str) -> "AssistantRoute":
+    """``NavigationResult`` → ``AssistantRoute``. Modo de cada acción: "embed" (por defecto, carga en el slot del Catálogo) · "tab:<pestaña>" (activa esa pestaña en la página) · "link" (navega)."""
+    def _action(a: tuple) -> AssistantRouteAction:
+        mode = a[2] if len(a) > 2 else "embed"
+        return AssistantRouteAction(a[0], a[1], embed=mode == "embed", activate_tab=mode.split(":", 1)[1] if mode.startswith("tab:") else "")
+    return AssistantRoute(nav.message, tuple(_action(a) for a in nav.actions), question)
 
 
 def _domains_catalog_action(pack_name: str) -> AssistantRouteAction | None:
@@ -580,10 +566,7 @@ class AssistantRoutingService:
         # (acción estructurada), no una explicación recuperada de contenido. Sin intención de navegación → sigue el flujo normal.
         nav = assistant_navigation.resolve(question, pack_name, document.summary.stem)
         if nav is not None:
-            def _action(a: tuple) -> AssistantRouteAction:
-                mode = a[2] if len(a) > 2 else "embed"
-                return AssistantRouteAction(a[0], a[1], embed=mode == "embed", activate_tab=mode.split(":", 1)[1] if mode.startswith("tab:") else "")
-            return AssistantRoute(nav.message, tuple(_action(a) for a in nav.actions), question)
+            return _navigation_route(nav, question)
         stem = document.summary.stem
         source = document.source
         # Skip posicional: si en el camino descartamos una recomendación por ser la
@@ -698,32 +681,10 @@ class AssistantRoutingService:
         # tenemos desarrollados?"): la evidencia es el catálogo de flujos publicados, no
         # una sección de otro módulo. Respondemos con el inventario REAL (dominios +
         # cliente + veredicto) y un botón por dominio que abre el flujo en el slot.
-        if _is_domain_inventory_query(question):
-            items = _domains_inventory(pack_name)
-            if items:
-                clientes = sorted({e.cliente for e in items})
-                lead = (
-                    f"En el catálogo tenemos **{len(items)} modelo"
-                    f"{'s' if len(items) != 1 else ''} de datos** (dominios) desarrollado"
-                    f"{'s' if len(items) != 1 else ''} en {len(clientes)} "
-                    f"cliente{'s' if len(clientes) != 1 else ''}, ordenados por cumplimiento:"
-                )
-                bullets = "\n".join(
-                    f"- {e.icon} **{e.cliente} · {e.dominio}** (mirada Danwor {e.veredicto})"
-                    for e in items
-                )
-                message = f"{lead}\n\n{bullets}"
-                actions = tuple(
-                    AssistantRouteAction(
-                        f"{e.cliente} · {e.dominio}",
-                        (f"/catalog/flow?cliente={quote(e.cliente)}"
-                         f"&dominio={quote(e.dominio)}&flow={quote(e.entry_id)}"
-                         f"&pack={quote(pack_name)}"),
-                        embed=True,
-                    )
-                    for e in items[:12]
-                )
-                return AssistantRoute(message, actions, question)
+        if _is_domain_inventory_query(question) and not assistant_navigation.is_methodological(question):
+            summary = assistant_navigation.inventory_summary(pack_name, stem)         # resumen agregado y acotado (no el inventario completo ni un botón por modelo)
+            if summary is not None:
+                return _navigation_route(summary, question)
 
         # Filtro de conexiones por faceta ("¿qué conexiones usan adaptador ABAP / cloud
         # connector / model import?"): escanea el catálogo real. Sin match → afirma el

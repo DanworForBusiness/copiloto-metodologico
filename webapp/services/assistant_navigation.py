@@ -8,6 +8,7 @@ Garantías: las URLs salen SIEMPRE de entradas reales del Catálogo (nunca de te
 (cliente inexistente, ambiguo o sin flujos publicados) la respuesta lo dice explícitamente y no ofrece enlaces inventados."""
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Callable
@@ -18,6 +19,7 @@ from webapp.services import catalog_navigation, catalog_reads
 from webapp.services import client_assessment_portfolio as portfolio
 
 MAX_OPTIONS = 12
+log = logging.getLogger("danwor.assistant_navigation")
 
 
 @dataclass(frozen=True)
@@ -124,7 +126,7 @@ def _known_without_report(asked: str, clients: list[str]) -> str | None:
 # propio: 01 (conexiones) y 02 (seguridad) muestran otro, 05 no tiene pestaña y 00 es inmersivo (ver `module.html` / `modules.py`).
 DATA_CATALOG_VIEWS = ("Modelos", "Data Products", "Líneas de negocio", "Clientes")
 _NO_DATA_CATALOG_MODULES = ("00", "01", "02", "05")
-_OTHER_QUALIFIERS_OK = {"datos", "data", "hub", "danwor"}                  # «catálogo de datos»; «catálogo de conexiones/seguridad/APIs…» es OTRO catálogo: no se inventa destino
+_OTHER_QUALIFIERS_OK = {"datos", "data", "hub", "danwor", "modelos", "dominios"}                # «catálogo de datos»; «catálogo de conexiones/seguridad/APIs…» es OTRO catálogo: no se inventa destino
 _CATALOG_WORD = re.compile(r"\bcatalogos?\b(?:\s+(?:de|del)\s+([a-z0-9_]+))?")
 _AVAILABILITY_WORDS = re.compile(r"\b(?:disponibles?|hay|tenemos|existen|existe|cuales|ofrece|ofrecemos|tiene)\b")
 _CONCEPTUAL_START = ("que es", "que significa", "como ", "para que", "por que", "explica", "defin", "cual es la diferencia")
@@ -171,17 +173,24 @@ def _join(items: list[str]) -> str:
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " y " + items[-1]
 
 
+def _open_catalog_action(pack: str, stem: str = "") -> tuple | None:
+    """Acción «Abrir Catálogo»: activa la pestaña en el módulo actual si ya muestra el Catálogo de datos; si no, navega al primer módulo que lo muestra. None si ninguno lo hospeda."""
+    hosts = _data_catalog_hosts(pack)
+    if not hosts:
+        return None
+    here = next((h for h in hosts if h.stem == stem), None)                                 # el módulo actual ya muestra ese catálogo: se activa la pestaña sin recargar
+    url = f"/modules/{quote((here or hosts[0]).stem)}?pack={quote(pack)}&tab=catalogo"        # mecanismo existente `?tab=catalogo`; sin él (otro módulo) se navega a un módulo que lo muestra
+    return ("Abrir Catálogo", url, "tab:catalogo") if here else ("Abrir Catálogo", url, "link")
+
+
 def _data_catalog(question: str, pack: str, stem: str = "") -> NavigationResult | None:
     intent = _data_catalog_intent(question)
     if intent is None:
         return None
     views = _data_catalog_views()
-    hosts = _data_catalog_hosts(pack)
-    if not views or not hosts:
+    action = _open_catalog_action(pack, stem)
+    if not views or action is None:
         return NavigationResult("El Catálogo de datos todavía no tiene modelos ni Data Products publicados, así que no hay nada para abrir.", ())
-    here = next((h for h in hosts if h.stem == stem), None)                                 # el módulo actual ya muestra ese catálogo: se activa la pestaña sin recargar
-    url = f"/modules/{quote((here or hosts[0]).stem)}?pack={quote(pack)}&tab=catalogo"        # mecanismo existente `?tab=catalogo`; sin él (otro módulo) se navega a un módulo que lo muestra
-    action = ("Abrir Catálogo", url, "tab:catalogo") if here else ("Abrir Catálogo", url, "link")
     if intent == "info":
         listed = _join([f"**{v}**" + (f" ({n})" if n else "") for v, n in views])
         message = f"El **Catálogo de datos** del Hub se explora en {len(views)} vistas: {listed}."
@@ -190,7 +199,186 @@ def _data_catalog(question: str, pack: str, stem: str = "") -> NavigationResult 
     return NavigationResult(message, (action,))
 
 
-TARGETS: tuple[NavigationTarget, ...] = (NavigationTarget("client_report", _client_report), NavigationTarget("data_catalog", _data_catalog))
+# ── Inventario del Catálogo: resumen agregado, listados acotados y filtros ─────────────────────────────────────────────────────
+# El asistente RESUME, ayuda a acotar y lleva al Catálogo; no vuelca el inventario en la conversación (con 100+ modelos no escalaría). Mismas fuentes que el Catálogo: el universo es
+# `catalog_navigation.browsable_flows` (el que parte la vista «Líneas de negocio» y recorre «Clientes») y la clasificación es la EFECTIVA de `dcs.effective_lob_by_entry` (manual > automática
+# HIGH > sin clasificar): no hay inventario ni clasificación propios. Un modelo sin clasificación efectiva jamás se presenta bajo una línea de negocio.
+MAX_LIST = 10                                                                  # tope de modelos listados por respuesta
+_INV_SUBJECT = re.compile(r"\b(?:dominios?|modelos?)\b")
+_INV_CUE = re.compile(r"\b(?:hay|tenemos|tienen|disponibles?|existen|existe|cuantos|cuantas|cuales|contamos)\b")
+_INV_LIST_VERB = re.compile(r"\b(?:lista|listame|listar|listado|enumera|enumerame|cuales son)\b")
+_INV_TIENE = re.compile(r"\btiene(?:n)?\b")
+_INV_COUNT = re.compile(r"\b(\d{1,4})\s+(?:\w+\s+)?(?:modelos?|dominios?)\b|\b(?:primeros?|top)\s+(\d{1,4})\b")
+_INV_UNCLASSIFIED = re.compile(r"\b(?:sin clasificar|no clasificados?|sin clasificacion)\b")
+# preguntas metodológicas/conceptuales y otros inventarios (Data Products, conexiones, CDS, APIs, seguridad): no son este destino
+_INV_METHOD = re.compile(r"\b(?:definir|defino|definen|disenar|diseno|crear|armar|construir|modelar|conviene|deberia|diferencias?|practicas?|metodolog\w*|estandar\w*|gobernar|gobierno|tipicos?|comunes|habituales|ejemplos?)\b")
+_INV_OTHER = re.compile(r"\b(?:data products?|productos? de datos|conexion\w*|cds|apis?|seguridad|usuarios?)\b")
+
+
+@dataclass(frozen=True)
+class _InventoryIntent:
+    mode: str                  # "summary" (pregunta amplia) | "list" (listado explícito o filtrado)
+    limit: int                 # tope de modelos a listar (≤ MAX_LIST)
+    capped: bool               # pidió más que el tope
+    lob: str | None            # id de línea de negocio, "UNCLASSIFIED" o None
+    client: str | None         # cliente del Catálogo (nombre canónico) o None
+
+
+def _word(term: str, text: str) -> bool:
+    return bool(re.search(rf"(?<![a-z0-9]){re.escape(norm_text(term))}(?![a-z0-9])", text))
+
+
+def is_methodological(question: str) -> bool:
+    """Pregunta conceptual/metodológica («qué es…», «cómo definir…», «dominios típicos…»): se contesta con el contenido, nunca con un inventario del Catálogo."""
+    q = norm_text(question).strip().lstrip("¿¡")
+    return q.startswith(_CONCEPTUAL_START) or bool(_INV_METHOD.search(q))
+
+
+def _inventory_intent(question: str, clients: list[str]) -> _InventoryIntent | None:
+    from webapp.services import domain_classification_service as dcs
+    q = norm_text(question).strip().lstrip("¿¡")
+    if is_methodological(question) or _INV_OTHER.search(q):
+        return None
+    padded = f" {q} "
+    hit_clients = [c for c in clients if _word(c, padded)]
+    lobs = (["UNCLASSIFIED"] if _INV_UNCLASSIFIED.search(q) else
+            [o["id"] for o in dcs.lob_options() if o["id"] != dcs.UNCLASSIFIED and _word(o["label"], padded)])
+    if len(hit_clients) > 1 or len(lobs) > 1:
+        return None                                                                # ambiguo: no se elige por el usuario
+    client, lob = (hit_clients[0] if hit_clients else None), (lobs[0] if lobs else None)
+    count = _INV_COUNT.search(q)
+    n = int(next(g for g in count.groups() if g)) if count else 0
+    list_verb = bool(_NAV_VERB.search(q) or _INV_LIST_VERB.search(q))
+    if _INV_SUBJECT.search(q):
+        if not (_INV_CUE.search(q) or list_verb or n or lob or client):
+            return None
+    elif not (client and _INV_TIENE.search(q)):                                    # sin sujeto, solo «¿qué tiene Pampa?» (cliente conocido)
+        return None
+    limit = min(n, MAX_LIST) if n else MAX_LIST
+    mode = "list" if (lob or client or list_verb or n) else "summary"
+    return _InventoryIntent(mode, limit, n > MAX_LIST, lob, client)
+
+
+def _effective_lobs(flows: list) -> dict | None:
+    """Clasificación efectiva por lote (``entry_id`` → dict de ``dcs``); None si no se pudo leer: jamás se reemplaza por una clasificación supuesta."""
+    try:
+        from webapp.services import assessment_service
+        from webapp.services import domain_classification_service as dcs
+        return dcs.effective_lob_by_entry(flows, assessment_service.statuses_for_entries(flows))
+    except Exception:  # noqa: BLE001 — la clasificación nunca rompe el asistente; se informa como no disponible
+        log.exception("inventario del asistente: no se pudo leer la clasificación efectiva")
+        return None
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'s' if n != 1 else ''}"
+
+
+def _entries(n: int) -> str:
+    """«35 entradas navegables»: la unidad es la entrada del Catálogo (un flujo/modelo publicado), la misma que particiona «Líneas de negocio» y recorre «Clientes»; no «modelos de datos» ni «dominios»."""
+    return f"{n} entrada{'s' if n != 1 else ''} navegable{'s' if n != 1 else ''}"
+
+
+def _distribution(scope: list, eff: dict, labels: dict[str, str]) -> str:
+    """«Ventas: 18 · Cadena de suministro: 3 · **Sin clasificar**: 12»: por cantidad (desc) y orden de la taxonomía; sin clasificar y no disponible siempre al final y rotulados como tales.
+    Formato «etiqueta: n» y no «etiqueta (n)»: el render del chat (``render_llm_html``) interpreta «n)» como inicio de lista numerada."""
+    from webapp.services import domain_classification_service as dcs
+    counts: dict[str, int] = {}
+    for e in scope:
+        g = eff[e.entry_id]["group"]
+        counts[g] = counts.get(g, 0) + 1
+    order = list(labels)
+    lines = [f"{labels[g]}: {counts[g]}" for g in sorted((g for g in counts if g not in (dcs.UNCLASSIFIED, dcs.UNAVAILABLE)), key=lambda g: (-counts[g], order.index(g)))]
+    if counts.get(dcs.UNCLASSIFIED):
+        lines.append(f"**Sin clasificar**: {counts[dcs.UNCLASSIFIED]}")
+    if counts.get(dcs.UNAVAILABLE):
+        lines.append(f"**Clasificación no disponible**: {counts[dcs.UNAVAILABLE]}")
+    return " · ".join(lines)
+
+
+def _model_line(e, eff: dict | None, labels: dict[str, str], show_lob: bool) -> str:
+    consumo = list(e.consumo)
+    tail = f" · Consumo: {', '.join(consumo[:2])}{f' +{len(consumo) - 2}' if len(consumo) > 2 else ''}" if consumo else ""        # discriminador funcional, como en la tarjeta
+    lob = f" · _{labels[eff[e.entry_id]['group']]}_" if (show_lob and eff is not None) else ""
+    return f"- {e.icon} **{e.cliente} · {e.dominio}**{tail}{lob}"
+
+
+def _catalog_inventory(question: str, pack: str, stem: str = "") -> NavigationResult | None:
+    mod, entries = catalog_reads._catalog_entries()
+    intent = _inventory_intent(question, catalog_navigation.clients(mod, entries) if mod else [])
+    return _inventory_result(intent, pack, stem) if intent is not None else None
+
+
+def inventory_summary(pack: str, stem: str = "") -> NavigationResult | None:
+    """Resumen agregado del Catálogo para las preguntas amplias que reconoce el enrutador (p. ej. «¿qué flujos hay implementados?»); la misma respuesta acotada que el destino ``catalog_inventory``."""
+    return _inventory_result(_InventoryIntent("summary", MAX_LIST, False, None, None), pack, stem)
+
+
+def _inventory_result(intent: _InventoryIntent, pack: str, stem: str) -> NavigationResult:
+    mod, entries = catalog_reads._catalog_entries()
+    flows = catalog_navigation.browsable_flows(mod, entries) if mod else []
+    clients = catalog_navigation.clients(mod, entries) if mod else []
+    if not flows:
+        return NavigationResult("El Catálogo todavía no tiene entradas navegables.", ())
+    from webapp.services import domain_classification_service as dcs
+    open_action = _open_catalog_action(pack, stem)
+    actions: list[tuple] = [open_action] if open_action else []
+    labels = {o["id"]: o["label"] for o in dcs.lob_options()}
+    labels[dcs.UNAVAILABLE] = "Clasificación no disponible"
+    eff = _effective_lobs(flows)
+    scope = flows
+    if intent.client:
+        scope = catalog_navigation.flows_for_client(mod, entries, intent.client)
+        ref = _reference_flow(mod, entries, intent.client)
+        if ref:
+            actions.append((f"Informe de Cliente · {intent.client}", _report_url(ref, pack)))
+    if intent.lob:
+        if eff is None:
+            return NavigationResult("No pude leer la clasificación por línea de negocio en este momento, así que no filtro por línea de negocio para no darte un dato incorrecto. Probá de nuevo en unos segundos o abrí el Catálogo.", tuple(actions[:1]))
+        scope = [e for e in scope if eff[e.entry_id]["group"] == intent.lob]            # SOLO la clasificación efectiva: lo que no la tiene no se cuela bajo ninguna línea
+
+    if intent.mode == "summary":
+        lines = [f"El Catálogo contiene **{_entries(len(flows))}** de **{_plural(len(clients), 'cliente')}**."]
+        if eff is not None:
+            lines += ["", f"- **Por línea de negocio** (clasificación efectiva): {_distribution(flows, eff, labels)}"]
+        else:
+            lines += ["", "- La clasificación por línea de negocio no está disponible en este momento."]
+        products = len(catalog_reads._catalog_data_products_list())
+        if products:
+            lines.append(f"- Hay **{_plural(products, 'Data Product')}**: son otra vista del Catálogo y no se cuentan acá.")
+        groups = [eff[e.entry_id]["group"] for e in flows if eff[e.entry_id]["group"] not in (dcs.UNCLASSIFIED, dcs.UNAVAILABLE)] if eff else []
+        top_lob = labels[max(sorted(set(groups), key=list(labels).index), key=groups.count)] if groups else None      # ejemplos reales: la línea con más modelos y el cliente con más modelos
+        top_client = max(clients, key=lambda c: (len(catalog_navigation.flows_for_client(mod, entries, c)), c.lower()), default=None)
+        tips = [f"«modelos de {top_lob}»" if top_lob else "", f"«qué tiene {top_client}»" if top_client else "", "«mostrame 10 modelos»"]
+        lines += ["", "---", "", f"Para acotar: {_join([t for t in tips if t])}. O abrí el Catálogo para explorarlos completos."]       # «---»: el render del chat no separa párrafos por línea en blanco
+        return NavigationResult("\n".join(lines), tuple(actions))
+
+    desc = []
+    if intent.client:
+        desc.append(f"de **{intent.client}**")
+    if intent.lob == dcs.UNCLASSIFIED:
+        desc.append("**sin clasificar** (sin línea de negocio efectiva)")
+    elif intent.lob:
+        desc.append(f"en la línea de negocio **{labels[intent.lob]}** (clasificación efectiva)")
+    where = " ".join(desc) or "en el Catálogo"
+    ordered = sorted(scope, key=lambda e: (catalog_navigation._VERDICT_RANK.get(e.veredicto, 9), (e.cliente or "").lower(), (e.dominio or "").lower(), [c.lower() for c in e.consumo], e.entry_id))
+    if not ordered:
+        return NavigationResult(f"No hay entradas navegables {where}.", tuple(actions))
+    shown = ordered[:intent.limit]
+    head = f"Hay **{_entries(len(ordered))}** {where}"
+    order_note = "ordenados por mirada Danwor (plena → parcial) y luego por cliente y nombre"
+    if len(ordered) > len(shown):
+        head += (f". Muestro una selección de {len(shown)} (el máximo por respuesta), {order_note}:" if intent.capped else f". Muestro {len(shown)}, {order_note}:")        # «selección»/«muestro», no «top»: no hay un ranking real
+    else:
+        head += f", {order_note}:" if len(ordered) > 1 else ":"
+    lines = [head, ""] + [_model_line(e, eff, labels, show_lob=not intent.lob) for e in shown]
+    if len(ordered) > len(shown):
+        lines += ["", "---", "", f"Hay {len(ordered) - len(shown)} más. Para acotar, sumá un cliente o una línea de negocio, o abrí el Catálogo para explorar el resto."]
+    return NavigationResult("\n".join(lines), tuple(actions))
+
+
+TARGETS: tuple[NavigationTarget, ...] = (NavigationTarget("client_report", _client_report), NavigationTarget("data_catalog", _data_catalog),
+                                         NavigationTarget("catalog_inventory", _catalog_inventory))
 
 
 def resolve(question: str, pack: str, stem: str = "") -> NavigationResult | None:
