@@ -1869,6 +1869,62 @@ def _wrap_label(label: str, max_chars: int = 20) -> list[str]:
     return [label[:mid], label[mid:]]
 
 
+def _lineage_crossings(order: dict, edges) -> int:
+    """Cruces de aristas de un orden vertical: cada nodo en (columna, fila) y cada arista como el segmento entre sus extremos; cuenta los pares que se cortan de
+    verdad (las aristas que comparten un nodo no cuentan). Solo mide: no modifica nada."""
+    where = {n: (c, r) for c, names in order.items() for r, n in enumerate(names)}
+    segs = [(u, v, where[u], where[v]) for u, v in sorted(set(edges)) if u != v and u in where and v in where and where[u][0] != where[v][0]]
+
+    def orient(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    total = 0
+    for i in range(len(segs)):
+        u1, v1, a1, b1 = segs[i]
+        for j in range(i + 1, len(segs)):
+            u2, v2, a2, b2 = segs[j]
+            if {u1, v1} & {u2, v2}:
+                continue
+            if orient(a1, b1, a2) * orient(a1, b1, b2) < 0 and orient(a2, b2, a1) * orient(a2, b2, b1) < 0:
+                total += 1
+    return total
+
+
+def _lineage_row_order(by_col: dict, cols: list, edges, sweeps: int = 8) -> dict:
+    """Orden VERTICAL de los nodos dentro de cada columna del diagrama de linaje (las columnas, los nodos, las aristas y la numeración NO cambian). Criterio conservador:
+    baricentro de los vecinos de las otras columnas (alinea cada nodo con sus predecesores/sucesores), barridos alternados y DETERMINISTAS (empates = orden actual); el
+    resultado reemplaza al orden actual SOLO si reduce estrictamente los cruces. Si no hay mejora demostrable, devuelve el orden de entrada tal cual."""
+    from collections import defaultdict
+    cur = {d: [n["name"] for n in by_col[d]] for d in cols}
+    best_x = _lineage_crossings(cur, edges)
+    if best_x == 0 or len(cols) < 2:
+        return by_col
+    nbrs = defaultdict(set)
+    for u, v in edges:
+        if u != v:
+            nbrs[u].add(v)
+            nbrs[v].add(u)
+    best = {d: list(v) for d, v in cur.items()}
+    for k in range(sweeps):
+        for d in (cols if k % 2 == 0 else list(reversed(cols))):
+            rows = {n: r for names in cur.values() for r, n in enumerate(names)}
+            own = set(cur[d])
+
+            def key(n, rows=rows, own=own):
+                ys = [rows[m] for m in nbrs.get(n, ()) if m in rows and m not in own]
+                return ((sum(ys) / len(ys)) if ys else rows[n], rows[n])
+            cur[d] = sorted(cur[d], key=key)
+        x = _lineage_crossings(cur, edges)
+        if x < best_x:
+            best_x, best = x, {d: list(v) for d, v in cur.items()}
+            if x == 0:
+                break
+    if best == {d: [n["name"] for n in by_col[d]] for d in cols}:
+        return by_col
+    by_name = {n["name"]: n for d in cols for n in by_col[d]}
+    return {d: [by_name[name] for name in best[d]] for d in cols}
+
+
 def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None) -> str:
     """Diagrama SVG del linaje del OUTPUT del flujo (solo los nodos en `keep`).
     Aristas DIRECTAS (FROM/JOIN) siempre; por ASOCIACIÓN (dimensiones/textos) solo con
@@ -1997,8 +2053,9 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None) -
         width = max(hana_width, object_width) + band_pad_x * 2
         height = object_top + band_label_h + max(1, object_rows) * (H + VGAP) - VGAP + 18
     else:
+        rows_by_col = _lineage_row_order(by_col, cols, [(u, t) for u, t in edges_layout if u in shown_names and t in shown_names])   # solo el orden vertical, alineado con vecinos
         for d in cols:
-            for r, n in enumerate(by_col[d]):
+            for r, n in enumerate(rows_by_col[d]):
                 pos[n["name"]] = (col_x[d], HEAD + r * (H + VGAP))
             max_rows = max(max_rows, len(by_col[d]))
         width = (acc - COLGAP) if cols else 0
@@ -2612,8 +2669,8 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
         return templates.TemplateResponse(request=request, name="partials/catalog_lineage.html",
                                           context=lineage_ctx)
     academy = [a for a in list_academy(selected) if not a.nav_hidden]
-    heading_title, heading_tech = assessment_presenter.flow_heading(entry)
     ah_view = assessment_presenter.header_for(entry, selected)          # grado + hallazgos de gobierno SOLO del Assessment gobernado (None si falla: sin fallback legacy)
+    heading_title, _heading_tech = assessment_presenter.flow_heading(entry, ah_view)      # identidad del MODELO terminal (negocio → nombre técnico legible); el dominio legacy no nombra un modelo identificado
     # HTMX → solo el fragmento (actualiza #content sin salir del módulo ni perder
     # el panel derecho). Navegación directa → página completa con shell + nav.
     tmpl = "partials/catalog_flow_content.html" if request.headers.get("HX-Request") else "catalog_flow.html"
@@ -2630,7 +2687,7 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
             "current_workspace": workspaces.COPILOT,
             "available_workspaces": workspaces.available_workspaces(user),
             "cliente": entry.cliente, "dominio": entry.dominio, "icon": entry.icon,
-            "heading_title": heading_title, "heading_tech": heading_tech,
+            "heading_title": heading_title,
             "veredicto": entry.veredicto, "apto": entry.apto,
             "n_art": _catalog_logical_artifact_count(entry), "sections": sections,
             "assessment_header": ah_view,

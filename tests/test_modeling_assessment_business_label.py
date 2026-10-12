@@ -158,6 +158,6 @@ def test_catalog_precedence_prefers_canonical_label_then_catalog_metadata_then_t
     v1 = presenter.report_view(s1, _Entry(), "datasphere_core")
     v2 = presenter.report_view(s2, _Entry(), "datasphere_core")
     assert v1["title_desc"] == LABEL and v1["title_id"] == AM                                # canónico gana
-    expected = presenter._report_title(_Entry(), AM)                                         # sin canónico: comportamiento previo del Catálogo
+    expected = presenter.model_title(_Entry(), AM)                                           # sin canónico: Catálogo → nombre técnico legible (mismo resolver que el encabezado)
     assert (v2["title_desc"], v2["title_id"]) == expected
     assert v1["adhoc"] is False and v2["adhoc"] is False

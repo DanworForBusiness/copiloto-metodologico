@@ -641,7 +641,8 @@ def test_report_title_matches_the_flow_detail_heading_format_description_dot_tec
     assert re.search(r'<p class="asr-subid"><code>4AM_ACME</code></p>', html)                    # identificador técnico secundario
     monkeypatch.setattr(catalog_reads, "artifact_title", lambda entry, name: (name, name))
     fb = _post(c).text
-    assert re.search(r'<h1 class="asr-title">4AM_ACME</h1>', fb) and '<p class="asr-subid">' not in fb  # fallback técnico: sin línea secundaria redundante
+    # Sin nombre de negocio: el título es el nombre técnico LEGIBLE (mismo resolver que el encabezado del Catálogo) y el identificador técnico sigue visible debajo.
+    assert re.search(r'<h1 class="asr-title">Acme</h1>', fb) and re.search(r'<p class="asr-subid"><code>4AM_ACME</code></p>', fb)
 
 
 def test_report_back_returns_to_the_flow_detail_and_support_links_use_the_hub_pattern(world):
