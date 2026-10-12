@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "partials/platform_topbar.html" import platform_topbar %}
-{% block title %}{{ cliente }} · {{ dominio }} · Catálogo Danwor{% endblock %}
+{% block title %}{{ cliente }} · {{ heading_title }} · Catálogo Danwor{% endblock %}
 {% block body %}
 <div
   x-data="copilotLayout('{{ active_group }}', {{ 'true' if readonly else 'false' }})"

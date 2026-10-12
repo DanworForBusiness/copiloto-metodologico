@@ -154,10 +154,36 @@ def test_the_flow_heading_is_the_model_name_not_the_shared_business_classificati
     assert presenter.flow_heading(entry) == ("Ocupación de Almacenes", "AM_OCUPACION_ALMACENES")
 
 
-def test_the_flow_heading_falls_back_to_the_domain_without_a_single_labelled_model(tmp_path):
-    no_label = _entry(tmp_path / "a", "Stock / Inventario", ["AM_X"], {})
-    assert presenter.flow_heading(no_label) == (None, None)
+def test_the_flow_heading_uses_the_readable_technical_name_when_there_is_no_business_name(tmp_path):
+    no_label = _entry(tmp_path / "a", "General", ["4MA_PEDIDOS_ENTREGAS"], {})
+    assert presenter.flow_heading(no_label) == ("Pedidos Entregas", "4MA_PEDIDOS_ENTREGAS")                  # nunca «General»
+
+
+def test_the_flow_heading_keeps_an_honest_fallback_without_an_identifiable_terminal_model(tmp_path):
     none = _entry(tmp_path / "b", "Stock / Inventario", ["3VF_X"], {})
-    assert presenter.flow_heading(none) == (None, None)
+    assert presenter.flow_heading(none) == (presenter.NO_TERMINAL_TITLE, None) == ("Flujo sin modelo terminal", None)         # neutro: nunca el dominio legacy
     two = _entry(tmp_path / "c", "Stock / Inventario", ["AM_X", "AM_Y"], {"AM_X": "X", "AM_Y": "Y"})
-    assert presenter.flow_heading(two) == (None, None)
+    assert presenter.flow_heading(two) == (presenter.NO_TERMINAL_TITLE, None)
+
+
+def test_terminal_titles_resolve_canonical_then_catalog_then_readable_name(tmp_path):
+    from types import SimpleNamespace as NS
+    entry = _entry(tmp_path, "General", ["AM_A", "AM_B"], {"AM_A": "A", "AM_B": "B"})
+    doc = {"scope": {"root_label": "Modelo analítico - Nombre canónico B"}}
+    assert presenter.terminal_titles(NS(terminal_am="AM_B"), entry, doc) == ("Nombre canónico B", "AM_B")                 # 1. negocio (perfil canónico)
+    assert presenter.terminal_titles(NS(terminal_am="AM_B"), entry, None) == ("B", "AM_B")                                # 1. negocio (Catálogo)
+    assert presenter.terminal_titles(NS(terminal_am="AM_Z_SIN_VISTA"), entry, None) == ("Z Sin Vista", "AM_Z_SIN_VISTA")  # 2. técnico legible
+    assert presenter.terminal_titles(NS(terminal_am=None), entry, None) == (presenter.NO_TERMINAL_TITLE, None)            # sin modelo terminal: neutro
+    assert presenter.terminal_titles(NS(terminal_am="AM_B"), entry, None, adhoc=True) == (None, "AM_B")                   # ad-hoc: sin cambios
+
+
+def test_the_flow_heading_reuses_the_title_resolved_for_the_assessment_header(tmp_path):
+    entry = _entry(tmp_path, "General", ["AM_B"], {"AM_B": "B"})
+    assert presenter.flow_heading(entry, {"terminal_am": "AM_B", "title_desc": "Título del informe", "title_id": "AM_B"}) == ("Título del informe", "AM_B")
+    assert presenter.flow_heading(entry, {"terminal_am": None, "title_desc": presenter.NO_TERMINAL_TITLE, "title_id": None}) == (presenter.NO_TERMINAL_TITLE, None)
+
+
+@pytest.mark.parametrize("technical,expected", [("4MA_PEDIDOS_ENTREGAS", "Pedidos Entregas"), ("AM_Lista_Precios", "Lista Precios"), ("AM_RESERVA_MP", "Reserva MP"),
+                                                 ("AM_DescuentosComerciales", "Descuentos Comerciales"), ("AM_TEST_VENTA_2", "Test Venta 2"), ("4MA_STOCK", "Stock"), ("", "")])
+def test_the_readable_technical_name_only_strips_the_layer_prefix_and_formats_words(technical, expected):
+    assert presenter.readable_model_name(technical) == expected

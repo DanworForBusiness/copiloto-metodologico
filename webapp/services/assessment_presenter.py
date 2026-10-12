@@ -158,6 +158,8 @@ def header_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
     view["has_profile"] = status.profile is not None
     view["governance_findings"] = governance_findings(status.profile)       # None sin Assessment
     view["grade"] = tile_grade(status)          # UN activo, UN grado primario: la MISMA fuente que la tile (Adopción persistida; sin Juicio → estado neutro)
+    view["terminal_am"] = status.terminal_am
+    view["title_desc"], view["title_id"] = terminal_titles(status, entry, P.display_doc(status.profile) if status.profile is not None else None)     # identidad del modelo (= informe)
     return view
 
 
@@ -526,14 +528,50 @@ def _report_title(entry: Any, am: str | None) -> tuple[str | None, str | None]:
     return (stripped or desc), name
 
 
-def flow_heading(entry: Any) -> tuple[str | None, str | None]:
-    """(título del modelo, nombre técnico) del encabezado del detalle del flujo: el nombre PROPIO del modelo de consumo, no la clasificación de negocio (``dominio``,
-    compartida por varios modelos). Solo si el flujo tiene UN modelo de consumo con etiqueta propia; si no, (None, None) y el encabezado cae al dominio."""
-    ams = catalog_reads.consumption_artifacts(entry)
-    if len(ams) != 1:
+_LAYER_PREFIX = re.compile(r"^\d?(?:AM|MA)_", re.I)
+
+
+def readable_model_name(technical: str) -> str:
+    """Nombre técnico legible del modelo terminal, sin inventar nada: se quita SOLO el prefijo de capa (``4MA_``/``AM_``), se separa por «_» y por camelCase, y las
+    palabras en MAYÚSCULAS se capitalizan (las de ≤2 letras, p. ej. «MP», se conservan). ``4MA_PEDIDOS_ENTREGAS`` → «Pedidos Entregas»."""
+    core = re.sub(r"(?<=[a-z])(?=[A-Z])", "_", _LAYER_PREFIX.sub("", technical or ""))
+    words = [w if len(w) <= 2 or not w.isupper() else w.capitalize() for w in re.split(r"[_\s]+", core) if w]
+    return " ".join(words) or technical
+
+
+NO_TERMINAL_TITLE = "Flujo sin modelo terminal"          # fallback NEUTRO: solo cuando no hay identidad terminal verificable (el dominio legacy queda como metadato interno)
+
+
+def model_title(entry: Any, am: str | None) -> tuple[str | None, str | None]:
+    """(título, identificador técnico) de un modelo terminal, con prioridad única: 1) nombre de negocio (etiqueta del Catálogo, sin el prefijo genérico) y, si no
+    hay, 2) nombre técnico LEGIBLE (``readable_model_name``). Es el resolver que comparten el detalle del Catálogo y el informe de Assessment; el identificador técnico
+    se conserva aparte (en el informe se muestra bajo el título). No usa dominio ni agrupación legacy."""
+    if not am:
         return None, None
-    desc, name = _report_title(entry, ams[0])
-    return (desc, name) if desc and desc != name else (None, None)       # sin etiqueta confiable el encabezado sigue siendo el dominio (no el nombre técnico)
+    desc, name = _report_title(entry, am)
+    return (desc if desc and desc != name else readable_model_name(am)), am
+
+
+def terminal_titles(status: svc.AssessmentStatus, entry: Any, doc: dict | None, adhoc: bool = False) -> tuple[str | None, str | None]:
+    """(título, identificador técnico) del MODELO TERMINAL del Assessment: el MISMO resolver para el informe y para el encabezado del Catálogo. Prioridad única: nombre de
+    negocio del perfil canónico → nombre de negocio del Catálogo → nombre técnico legible; sin modelo terminal, ``NO_TERMINAL_TITLE``. Solo presentación: no lee ni modifica el
+    documento canónico más allá de su etiqueta, y nunca usa dominio/agrupación legacy como título."""
+    am = status.terminal_am
+    canonical = _canonical_label(doc)
+    if canonical and am:
+        return canonical, am
+    if adhoc:
+        return None, am
+    return model_title(entry, am) if am else (NO_TERMINAL_TITLE, None)
+
+
+def flow_heading(entry: Any, header: dict | None = None) -> tuple[str, str | None]:
+    """(título, identificador técnico) del encabezado del detalle del flujo. Con el header del Assessment usa SU título resuelto (``terminal_titles``: idéntico al del informe);
+    sin él (el Assessment no pudo calcularse) resuelve por el Catálogo con el único artefacto de consumo. Sin modelo terminal identificable → ``NO_TERMINAL_TITLE``."""
+    if header and "title_desc" in header:
+        return header["title_desc"] or NO_TERMINAL_TITLE, header.get("title_id")
+    ams = catalog_reads.consumption_artifacts(entry)
+    return model_title(entry, ams[0]) if len(ams) == 1 else (NO_TERMINAL_TITLE, None)
 
 
 def report_title(entry: Any, am: str | None) -> tuple[str | None, str | None]:
@@ -813,11 +851,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         "adhoc": adhoc is not None,
         "judgment": judgment_view(status.judgment),   # Juicio metodológico persistido (distinto de la vigencia del Assessment)
     }
-    canonical = _canonical_label(doc)
-    if canonical and status.terminal_am:                              # nombre de negocio del perfil canónico (respaldado por la evidencia)
-        view["title_desc"], view["title_id"] = canonical, status.terminal_am
-    else:                                                             # sin etiqueta canónica: metadato del Catálogo (si lo hay) o nombre técnico
-        view["title_desc"], view["title_id"] = (None, status.terminal_am) if adhoc else _report_title(entry, status.terminal_am)
+    view["title_desc"], view["title_id"] = terminal_titles(status, entry, doc, adhoc is not None)     # canónico → Catálogo → nombre técnico legible; sin modelo terminal: neutro
     view["module_label"] = MODULE_LABEL
     if doc is None:
         return view
