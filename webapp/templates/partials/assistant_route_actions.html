@@ -5,7 +5,10 @@
 {% set r = route or explain %}
 <div class="assistant-route-actions" aria-label="Opciones sugeridas">
   {% for action in r.actions %}
-  {% if action.embed %}
+  {% if action.activate_tab %}
+  {# Pestaña de «Herramientas de decisión» de ESTA página (p. ej. Catálogo): se activa por el estado Alpine `toolTab` (mismo mecanismo que el clic en la pestaña); href de respaldo. #}
+  <a class="assistant-route-action" href="{{ action.url }}" @click.prevent="toolTab='{{ action.activate_tab }}'">{{ action.label }}</a>
+  {% elif action.embed %}
   {# Detalle de catálogo: cargar en el slot por HTMX (como un card manual) para que
      Volver y "Abrir CDS View" funcionen. href queda de fallback (abrir en pestaña). #}
   <a class="assistant-route-action" href="{{ action.url }}"

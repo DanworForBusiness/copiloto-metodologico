@@ -1,8 +1,8 @@
-"""Navegación del asistente hacia activos internos del Hub (primer destino: el Informe de Cliente del Catálogo).
+"""Navegación del asistente hacia activos internos del Hub (destinos: Informe de Cliente y Catálogo de datos).
 
 El asistente ya devuelve acciones estructuradas (``AssistantRoute`` / ``AssistantRouteAction``: botón con URL interna, ``embed`` = carga en el slot del Catálogo). Este módulo
 solo agrega el RECONOCIMIENTO de una intención de navegación y la resolución del destino contra los recursos reales; el enrutador la usa antes de intentar contestar con
-contenido. Extensible: cada destino es un ``NavigationTarget`` (reconoce + resuelve) en ``TARGETS``; hoy solo existe ``client_report``.
+contenido. Extensible: cada destino es un ``NavigationTarget`` (reconoce + resuelve) en ``TARGETS``; hoy ``client_report`` y ``data_catalog``.
 
 Garantías: las URLs salen SIEMPRE de entradas reales del Catálogo (nunca de texto del usuario); la ruta destino conserva su propio control de sesión; sin ese recurso
 (cliente inexistente, ambiguo o sin flujos publicados) la respuesta lo dice explícitamente y no ofrece enlaces inventados."""
@@ -23,13 +23,13 @@ MAX_OPTIONS = 12
 @dataclass(frozen=True)
 class NavigationResult:
     message: str
-    actions: tuple[tuple[str, str], ...]          # (etiqueta, URL interna)
+    actions: tuple[tuple, ...]                    # (etiqueta, URL interna[, modo]); modo: "embed" (por defecto: carga en el slot del Catálogo) · "tab:<pestaña>" (activa esa pestaña en la página) · "link" (navega)
 
 
 @dataclass(frozen=True)
 class NavigationTarget:
     key: str
-    resolve: Callable[[str, str], NavigationResult | None]    # (pregunta, pack) → resultado o None si la intención no es de este destino
+    resolve: Callable[[str, str, str], NavigationResult | None]    # (pregunta, pack, módulo actual) → resultado o None si la intención no es de este destino
 
 
 # ── Informe de Cliente ──────────────────────────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ def _report_url(entry, pack: str) -> str:
     return f"/catalog/client/assessment?flow={quote(entry.entry_id)}&pack={quote(pack)}&origin=assistant"
 
 
-def _client_report(question: str, pack: str) -> NavigationResult | None:
+def _client_report(question: str, pack: str, stem: str = "") -> NavigationResult | None:
     if not _is_client_report_request(question):
         return None
     mod, entries = catalog_reads._catalog_entries()
@@ -119,14 +119,85 @@ def _known_without_report(asked: str, clients: list[str]) -> str | None:
     return next((n for n in sorted(names) if norm_text(n) == target and target not in have), None)
 
 
-TARGETS: tuple[NavigationTarget, ...] = (NavigationTarget("client_report", _client_report),)
+# ── Catálogo de datos (pestaña «Catálogo» de «Herramientas de decisión») ─────────────────────────────────────────────────────────
+# Vistas del selector «Catálogo de datos» de `catalog_tab.html` (un test verifica que sigan siendo las mismas). La pestaña muestra ESTE catálogo en los módulos que no tienen uno
+# propio: 01 (conexiones) y 02 (seguridad) muestran otro, 05 no tiene pestaña y 00 es inmersivo (ver `module.html` / `modules.py`).
+DATA_CATALOG_VIEWS = ("Modelos", "Data Products", "Líneas de negocio", "Clientes")
+_NO_DATA_CATALOG_MODULES = ("00", "01", "02", "05")
+_OTHER_QUALIFIERS_OK = {"datos", "data", "hub", "danwor"}                  # «catálogo de datos»; «catálogo de conexiones/seguridad/APIs…» es OTRO catálogo: no se inventa destino
+_CATALOG_WORD = re.compile(r"\bcatalogos?\b(?:\s+(?:de|del)\s+([a-z0-9_]+))?")
+_AVAILABILITY_WORDS = re.compile(r"\b(?:disponibles?|hay|tenemos|existen|existe|cuales|ofrece|ofrecemos|tiene)\b")
+_CONCEPTUAL_START = ("que es", "que significa", "como ", "para que", "por que", "explica", "defin", "cual es la diferencia")
 
 
-def resolve(question: str, pack: str) -> NavigationResult | None:
+def _data_catalog_intent(question: str) -> str | None:
+    """«open» (pide abrirlo), «info» (pregunta qué catálogos hay) o None. Las preguntas conceptuales/metodológicas («qué es…», «cómo diseñar…») no son navegación."""
+    q = norm_text(question).strip().lstrip("¿¡")
+    m = _CATALOG_WORD.search(q)
+    if not m or (m.group(1) and m.group(1) not in _OTHER_QUALIFIERS_OK):
+        return None
+    if _NAV_VERB.search(q) and not q.startswith(("que es", "que significa")):
+        return "open"
+    if re.search(r"\bcatalogos\b", q) and _AVAILABILITY_WORDS.search(q) and not q.startswith(_CONCEPTUAL_START):
+        return "info"
+    return None
+
+
+def _data_catalog_hosts(pack: str) -> list:
+    """Módulos cuya pestaña «Catálogo» ES el Catálogo de datos, en orden."""
+    from webapp.services.content_service import list_modules
+    return [m for m in list_modules(pack) if str(m.number) not in _NO_DATA_CATALOG_MODULES]
+
+
+def _data_catalog_views() -> list[tuple[str, int | None]]:
+    """(vista, cantidad|None) de lo REALMENTE disponible hoy, con las mismas fuentes que la pestaña (nada se inventa ni se duplica)."""
+    from webapp.services import domain_classification_service as dcs
+    models = len(catalog_reads._catalog_model_domains())
+    products = len(catalog_reads._catalog_data_products_list())
+    clients = len(catalog_reads._catalog_clients())
+    views: list[tuple[str, int | None]] = []
+    if models:
+        views.append(("Modelos", models))
+    if products:
+        views.append(("Data Products", products))
+    if models and dcs.lob_options():
+        views.append(("Líneas de negocio", None))
+    if clients:
+        views.append(("Clientes", clients))
+    return views
+
+
+def _join(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " y " + items[-1]
+
+
+def _data_catalog(question: str, pack: str, stem: str = "") -> NavigationResult | None:
+    intent = _data_catalog_intent(question)
+    if intent is None:
+        return None
+    views = _data_catalog_views()
+    hosts = _data_catalog_hosts(pack)
+    if not views or not hosts:
+        return NavigationResult("El Catálogo de datos todavía no tiene modelos ni Data Products publicados, así que no hay nada para abrir.", ())
+    here = next((h for h in hosts if h.stem == stem), None)                                 # el módulo actual ya muestra ese catálogo: se activa la pestaña sin recargar
+    url = f"/modules/{quote((here or hosts[0]).stem)}?pack={quote(pack)}&tab=catalogo"        # mecanismo existente `?tab=catalogo`; sin él (otro módulo) se navega a un módulo que lo muestra
+    action = ("Abrir Catálogo", url, "tab:catalogo") if here else ("Abrir Catálogo", url, "link")
+    if intent == "info":
+        listed = _join([f"**{v}**" + (f" ({n})" if n else "") for v, n in views])
+        message = f"El **Catálogo de datos** del Hub se explora en {len(views)} vistas: {listed}."
+    else:
+        message = f"Acá tenés el **Catálogo de datos** del Hub: explorá {_join([f'**{v}**' for v, _n in views])}."
+    return NavigationResult(message, (action,))
+
+
+TARGETS: tuple[NavigationTarget, ...] = (NavigationTarget("client_report", _client_report), NavigationTarget("data_catalog", _data_catalog))
+
+
+def resolve(question: str, pack: str, stem: str = "") -> NavigationResult | None:
     """Primer destino que reconoce la intención de navegación; None si la pregunta no es de navegación (sigue el flujo normal del asistente)."""
     for target in TARGETS:
         try:
-            result = target.resolve(question, pack)
+            result = target.resolve(question, pack, stem)
         except Exception:  # noqa: BLE001 — un fallo de navegación nunca rompe el asistente: cae al flujo normal
             result = None
         if result is not None:
