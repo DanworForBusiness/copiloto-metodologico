@@ -69,7 +69,7 @@ STATE_CONCEPTS: tuple[StateConcept, ...] = (
                  ("sin assessment vigente", "sin assessments vigentes", "no tiene assessment vigente", "no tienen assessment vigente", "no vigente", "no vigentes"),
                  "no tienen assessment vigente", group=True),
     StateConcept(NOT_DETERMINABLE_ID, "No determinable", (),
-                 ("no determinable", "no determinables"), "tienen adopción no determinable", judgment=True),
+                 ("no determinable", "no determinables"), "son no determinables", judgment=True),
 )
 STATE_BY_ID = {c.id: c for c in STATE_CONCEPTS}
 _ASSESSMENT_CONCEPTS = tuple(c for c in STATE_CONCEPTS if not c.judgment)

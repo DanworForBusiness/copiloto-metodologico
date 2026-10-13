@@ -191,6 +191,11 @@ def order_entries(scope: list) -> list:
                                         [c.lower() for c in e.consumo], e.entry_id))
 
 
+def order_entries_neutral(scope: list) -> list:
+    """Orden NEUTRAL y estable (cliente, nombre, ``entry_id``): para listados filtrados por estado, que no tienen un criterio de orden propio. No es un ranking y no hereda el veredicto legado."""
+    return sorted(scope, key=lambda e: ((e.cliente or "").lower(), (e.dominio or "").lower(), e.entry_id))
+
+
 def distribution(scope: list, eff: dict, labels: dict[str, str]) -> tuple[tuple[str, str, int], ...]:
     """(grupo, rótulo, n) por cantidad (desc) y orden de la taxonomía; «sin clasificar» y «no disponible» siempre al final y rotulados como tales."""
     counts: dict[str, int] = {}
