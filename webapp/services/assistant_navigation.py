@@ -644,22 +644,26 @@ def _ranking_result(intent: _RankIntent, pack: str, stem: str) -> NavigationResu
 _DOC_NOUNS = re.compile(r"\b(?:documentacion|documentos?|guias?|recursos?|links?|enlaces?|referencias?|materiales?|material|how-?tos?|templates?|plantillas?|manuales?|tutoriales?|articulos?|glosario|secciones?|capitulos?|bibliografia)\b")
 
 
+_ASSESSMENTS_WORD = re.compile(r"\b(?:assessments|evaluaciones)\b")          # el PLURAL nombra el conjunto de assessments del Catálogo («el estado de los assessments»); el singular es otra pregunta
+
+
 @dataclass(frozen=True)
 class _Entities:
     clients: tuple[str, ...]
     lobs: tuple[str, ...]
     entry: bool            # nombró entradas («modelos», «entradas», «flujos», «activos»)
     group: bool            # nombró grupos («clientes», «dominios», «líneas de negocio»)
+    assessments: bool = False       # nombró los assessments en plural («los assessments»)
 
     @property
     def scoped(self) -> bool:
-        """¿Tiene un alcance resoluble sobre el Catálogo? (un cliente, una línea de negocio o «entradas»)."""
-        return bool(self.clients or self.lobs or self.entry)
+        """¿Tiene un alcance resoluble sobre el Catálogo? (un cliente, una línea de negocio, «entradas» o «los assessments»)."""
+        return bool(self.clients or self.lobs or self.entry or self.assessments)
 
 
 def _entities(q: str, clients: list[str]) -> _Entities:
     padded = f" {q} "
-    return _Entities(tuple(c for c in clients if _word(c, padded)), tuple(_lobs_named(q)), bool(_RK_ENTRY.search(q)), bool(_RK_GROUP.search(q)))
+    return _Entities(tuple(c for c in clients if _word(c, padded)), tuple(_lobs_named(q)), bool(_RK_ENTRY.search(q)), bool(_RK_GROUP.search(q)), bool(_ASSESSMENTS_WORD.search(q)))
 
 
 def _query_excluded(q: str, ent: _Entities) -> bool:
@@ -771,12 +775,13 @@ def _by_state(scope: list, state_id: str, governed: caps.Governed, pack: str) ->
 
 def _state_parts(lines: tuple, breakdown: tuple) -> str:
     """La distribución por estado en texto, separando AUSENCIA DE EVALUACIÓN («sin assessment») de AUSENCIA DE RESULTADO UTILIZABLE (no aplica / no disponible / no compatible)."""
-    text = " · ".join(f"{label}: {n}" for _id, label, n in lines) + "."
+    # Cláusulas separadas por «;» y NUNCA un punto detrás de un número: el render del chat (`render_llm_html`) interpreta «13. » como el inicio de una lista numerada y se come el número.
+    parts = [" · ".join(f"{label}: {n}" for _id, label, n in lines)]
     if breakdown:
-        text += " «Sin resultado utilizable» abre en " + " · ".join(f"{label}: {n}" for label, n in breakdown) + "."
+        parts.append("«Sin resultado utilizable» abre en " + " · ".join(f"{label}: {n}" for label, n in breakdown))
     if any(cid in (query.NOT_EVALUATED_ID, query.NO_USABLE_RESULT_ID) for cid, _l, _n in lines):
-        text += " «Sin assessment» (nunca se evaluó) y «sin resultado utilizable» (no aplica, no disponible o no compatible) son conceptos distintos."
-    return text
+        parts.append("«Sin assessment» (nunca se evaluó) y «sin resultado utilizable» (no aplica, no disponible o no compatible) son conceptos distintos")
+    return "; ".join(parts) + ("." if not parts[-1][-1:].isdigit() else "")
 
 
 def _state_context(scope: list, governed: caps.Governed) -> str:

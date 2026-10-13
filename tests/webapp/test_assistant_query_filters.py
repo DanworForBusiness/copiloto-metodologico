@@ -409,3 +409,257 @@ def test_mutation_stale_counted_as_current_is_detected(world, monkeypatch):
     monkeypatch.setattr(ind, "_assessment_gate", lenient)
     with pytest.raises(AssertionError):
         _check_level_counts(world)
+
+
+# ══ 4. ESTADOS (4A.2) — D-5: «sin assessment» (ausencia de EVALUACIÓN) ≠ «sin resultado utilizable» (no aplica / no disponible / no compatible) ═════════
+S_CURRENT, S_STALE, S_NOT_YET = svc.CURRENT, svc.STALE, svc.NOT_YET_ASSESSED
+S_NA, S_FAILED, S_INCOMPAT = svc.NOT_APPLICABLE, svc.FAILED, svc.INCOMPATIBLE_SCHEMA
+NO_USABLE = {S_NA, S_FAILED, S_INCOMPAT}
+NOT_CURRENT = {S_STALE, S_NOT_YET} | NO_USABLE
+
+
+def _neutral(entries):
+    return sorted(entries, key=lambda e: ((e.cliente or "").lower(), (e.dominio or "").lower(), e.entry_id))
+
+
+def states_oracle(world, wanted, *, client=None, lob=None):
+    """Entradas del alcance cuyo estado REAL está en ``wanted``, en el orden neutral y estable (cliente, nombre, entry_id). Escrito acá desde el contrato de estados, no desde el código bajo prueba."""
+    scope = _scope(world, client, lob)
+    return types.SimpleNamespace(universe=len(scope), ids=[e.entry_id for e in _neutral(e for e, s in scope if s["state"] in wanted)])
+
+
+def nd_oracle(world, *, client=None, lob=None):
+    scope = _scope(world, client, lob)
+    return types.SimpleNamespace(universe=len(scope), ids=[e.entry_id for e in _neutral(e for e, s in scope if _current(s) and s["judgment"] == "ND")])
+
+
+STATE_CASES = [
+    ("¿Qué modelos están desactualizados?", {S_STALE}, None, None),
+    ("modelos vigentes", {S_CURRENT}, None, None),
+    ("¿Qué modelos están sin assessment?", {S_NOT_YET}, None, None),                          # SOLO nunca evaluados: NO incluye no aplica / no disponible / no compatible
+    ("¿Qué modelos no tienen assessment?", {S_NOT_YET}, None, None),
+    ("modelos sin evaluar", {S_NOT_YET}, None, None),
+    ("modelos que figuran como no aplica", {S_NA}, None, None),
+    ("modelos con assessment no disponible", {S_FAILED}, None, None),
+    ("modelos con informe no compatible", {S_INCOMPAT}, None, None),
+    ("modelos sin resultado utilizable", NO_USABLE, None, None),                              # el grupo: no aplica + no disponible + no compatible
+    ("modelos sin assessment vigente", NOT_CURRENT, None, None),                              # todo lo que NO es vigente
+    ("modelos de Pampa desactualizados", {S_STALE}, "Pampa", None),
+    ("modelos de Loma sin assessment", {S_NOT_YET}, "Loma", None),
+    ("modelos de Ventas vigentes", {S_CURRENT}, None, "SALES"),
+    ("modelos de Kensing en Finanzas sin resultado utilizable", NO_USABLE, "Kensing", "FINANCE"),
+]
+
+
+@pytest.mark.parametrize("text,wanted,client,lob", STATE_CASES)
+def test_a_state_query_returns_exactly_the_entries_of_the_oracle_in_neutral_order(world, text, wanted, client, lob):
+    expected = states_oracle(world, wanted, client=client, lob=lob)
+    chat = Chat()
+    first = chat.ask(text)
+    assert not first.llm, text
+    assert head_count(first) == len(expected.ids), (text, first.text)
+    assert first.refs == expected.ids[:10]
+    assert walk(chat, first) == expected.ids                                                                # todas las páginas: sin duplicados ni omisiones
+
+
+@pytest.mark.parametrize("text,wanted,client,lob", STATE_CASES)
+def test_the_state_head_echoes_the_effective_filters_and_never_the_legacy_order(world, text, wanted, client, lob):
+    r = Chat().ask(text)
+    assert "con estado " in r.text or r.text.startswith("Ninguna entrada")
+    assert "mirada Danwor" not in r.text and "plena → parcial" not in r.text                                 # D-2: orden neutral, no el del veredicto legado
+    if client:
+        assert client in r.text
+    if lob:
+        assert LOB_LABEL[lob] in r.text
+
+
+def test_D5_no_assessment_and_no_usable_result_are_different_concepts_with_different_sets(world):
+    never = states_oracle(world, {S_NOT_YET}).ids
+    unusable = states_oracle(world, NO_USABLE).ids
+    assert never and unusable and not set(never) & set(unusable)                                             # el mundo tiene los dos y no se solapan
+    chat = Chat()
+    assert walk(chat, chat.ask("modelos sin assessment")) == never
+    chat2 = Chat()
+    assert walk(chat2, chat2.ask("modelos sin resultado utilizable")) == unusable
+    for state, phrase in ((S_NA, "figuran como no aplica"), (S_FAILED, "con assessment no disponible"), (S_INCOMPAT, "con informe no compatible")):
+        chat3 = Chat()
+        assert walk(chat3, chat3.ask(f"modelos {phrase}")) == states_oracle(world, {state}).ids                # cada estado concreto, por separado
+
+
+def test_D5_a_state_list_shows_each_entry_with_its_real_state_label(world):
+    r = Chat().ask("modelos sin resultado utilizable")
+    labels = {S_NA: "No aplica", S_FAILED: "Assessment no disponible", S_INCOMPAT: "Informe no compatible"}
+    badges = re.findall(r'assistant-result-metric"><strong>([^<]+)</strong>', r.raw)
+    assert badges == [labels[spec4(world.index[ref])["state"]] for ref in r.refs]
+
+
+def test_D5_the_footer_separates_both_absences_and_opens_the_unusable_group(world):
+    scope = _scope(world)
+    n_never = sum(1 for _e, s in scope if s["state"] == S_NOT_YET)
+    n_unusable = sum(1 for _e, s in scope if s["state"] in NO_USABLE)
+    r = Chat().ask("modelos desactualizados")
+    assert f"Sin assessment: {n_never}" in r.note and f"Sin resultado utilizable: {n_unusable}" in r.note
+    assert "«Sin assessment» (nunca se evaluó) y «sin resultado utilizable»" in r.note and "son conceptos distintos" in r.note
+    for state, label in ((S_NA, "No aplica"), (S_FAILED, "Assessment no disponible"), (S_INCOMPAT, "Informe no compatible")):
+        assert f"{label}: {sum(1 for _e, s in scope if s['state'] == state)}" in r.note
+
+
+def test_a_state_without_entries_is_an_explicit_none_with_the_denominator_and_the_distribution(world):
+    expected = states_oracle(world, {S_STALE}, client="Danone")
+    assert expected.ids == []                                                                                 # Danone no tiene ningún desactualizado en este mundo
+    r = Chat().ask("modelos de Danone desactualizados")
+    assert r.text.startswith("Ninguna entrada") and f"de {expected.universe} en el alcance" in r.text and not r.rows and not r.llm
+    assert "Estado de las" in r.text and "Sin assessment:" in r.text
+
+
+def test_adoption_not_determinable_is_a_judgment_condition_of_current_assessments_only(world):
+    expected = nd_oracle(world)
+    chat = Chat()
+    first = chat.ask("modelos con adopción no determinable")
+    assert head_count(first) == len(expected.ids) > 0 and walk(chat, first) == expected.ids
+    assert "con adopción metodológica no determinable" in first.text
+
+
+def test_the_state_distribution_partitions_the_scope_and_separates_both_absences(world):
+    for text, client in (("Resumime el estado de los assessments", None), ("Resumime el estado de Pampa", "Pampa"), ("¿Cuál es el estado de los assessments de Loma?", "Loma")):
+        scope = _scope(world, client)
+        r = Chat().ask(text)
+        total = 0
+        for state_label, wanted in (("Assessment vigente", {S_CURRENT}), ("Assessment desactualizado", {S_STALE}), ("Sin assessment", {S_NOT_YET}), ("Sin resultado utilizable", NO_USABLE)):
+            n = sum(1 for _e, s in scope if s["state"] in wanted)
+            m = re.search(rf"{state_label}: (\d+)", r.text)
+            assert (int(m.group(1)) if m else 0) == n, (text, state_label, r.text)
+            total += n
+        assert total == len(scope)                                                                           # las líneas PARTEN el universo
+        assert not r.rows and not r.llm and f"{len(scope)} entradas navegables" in r.text
+        assert "son conceptos distintos" in r.text
+
+
+def test_the_state_distribution_of_a_client_offers_its_client_report(world):
+    r = Chat().ask("Resumime el estado de Pampa")
+    assert "Estado de los assessments" in r.text and "Pampa" in r.text and "Informe de Cliente · Pampa" in r.raw
+
+
+def test_a_state_asked_with_an_indicator_filters_the_scope_and_ranks_what_is_left(world):
+    stale = [(e, spec4(world.index[e.entry_id])) for e, s in _scope(world) if s["state"] == S_STALE]
+    ranked = sorted(((e, s) for e, s in stale if s["score"] is not None and s["version"]), key=lambda p: (-p[1]["score"], p[0].cliente.lower(), p[0].dominio.lower(), p[0].entry_id))
+    r = Chat().ask("modelos desactualizados con mejor consistencia de tipos")
+    assert "Assessment desactualizado" in r.text and "Consistencia de tipos" in r.text                       # eco del estado y de la métrica
+    assert r.refs == [e.entry_id for e, _s in ranked][:10]
+
+
+def test_a_state_that_makes_the_asked_indicator_incomparable_is_explained_not_ignored(world):
+    stale = [e for e, s in _scope(world) if s["state"] == S_STALE]
+    r = Chat().ask("modelos desactualizados con adopción buena")
+    assert r.text.startswith("Ninguna de las") and f"{len(stale)} desactualizadas" in r.text and "nivel pedido: «Buena»" in r.text and not r.rows
+
+
+def test_several_states_are_clarified_one_at_a_time(world):
+    r = Chat().ask("¿Cuántos modelos sin assessment o desactualizados?")
+    assert "más de un estado" in r.text and not r.rows and not r.llm
+    assert {label for _q, label in r.asks} == {"Assessment desactualizado", "Sin assessment"}
+    for question, label in r.asks:
+        wanted = {S_STALE} if "desactualizado" in label else {S_NOT_YET}
+        assert head_count(Chat().ask(question)) == len(states_oracle(world, wanted).ids)
+
+
+def test_not_determinable_is_not_combined_with_a_level_or_another_metric(world):
+    for text in ("modelos con adopción no determinable y buena", "modelos no determinables con mejor cobertura"):
+        r = Chat().ask(text)
+        assert "describe un Juicio sin nivel" in r.text and not r.rows and not r.llm, text
+
+
+def test_the_word_estado_next_to_a_metric_is_clarified(world):
+    r = Chat().ask("modelos de Pampa con el estado de la cobertura")
+    assert "«Estado» puede ser el estado del assessment" in r.text and not r.rows and r.asks
+
+
+def test_state_canonical_questions_round_trip_through_the_router(world):
+    for concept in aq.STATE_CONCEPTS:
+        if concept.judgment:
+            continue
+        question = f"¿Qué entradas de Kensing {concept.canonical}?"
+        expected = states_oracle(world, set(concept.states), client="Kensing")
+        r = Chat().ask(question)
+        assert head_count(r) == len(expected.ids) and r.refs == expected.ids[:10], question
+
+
+def test_the_context_keeps_the_state_as_a_concept_id_and_pagination_and_references_follow_it(world):
+    expected = states_oracle(world, NOT_CURRENT)
+    chat = Chat()
+    chat.ask("modelos sin assessment vigente")
+    assert chat.state.spec.capability == "list" and chat.state.spec.state == aq.NOT_CURRENT_ID
+    assert all(isinstance(r, tuple) and r[0] == caps.CATALOG_ENTRY for r in chat.state.refs)
+    p2 = chat.ask("Mostrame los siguientes")
+    assert p2.refs == expected.ids[10:20]
+    assert chat.ask("Abrí el segundo").refs == [expected.ids[11]]
+
+
+# ── precedencia de destinos: el vocabulario gobernado se resuelve ANTES que «ver assessment de <modelo>» ───────────────────────────────────────────
+def test_governed_vocabulary_with_the_word_assessment_is_a_state_filter_not_an_assessment_navigation(world):
+    for text, wanted in (("Mostrame los modelos con assessment vigente", {S_CURRENT}), ("Ver los modelos con assessment desactualizado", {S_STALE})):
+        out = nav.resolve(text, PACK, HOST)
+        assert out is not None and out.result is not None and out.result.capability == "list", text
+        assert not any("/catalog/flow/assessment" in a[1] for a in out.actions)
+        chat = Chat()
+        assert walk(chat, chat.ask(text)) == states_oracle(world, wanted).ids
+
+
+def test_viewing_the_assessment_of_a_model_still_navigates_after_the_merge(world):
+    e = next(x for x in world.entries if world.index[x.entry_id] == 12)
+    out = nav.resolve(f"ver assessment de {e.dominio} de {e.cliente}", PACK, HOST)
+    assert out is not None and out.result is None and [a[0] for a in out.actions] == ["Ver Assessment"]
+
+
+def test_the_registry_has_governed_vocabulary_before_the_assessment_navigation():
+    keys = [t.key for t in nav.TARGETS]
+    assert keys.index("catalog_query") < keys.index("entry_assessment") < keys.index("catalog_ranking")
+
+
+# ══ 5. MUTACIONES de estados ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+def _check_state_counts(world):
+    for text, wanted, client, lob in STATE_CASES:
+        expected = states_oracle(world, wanted, client=client, lob=lob)
+        r = Chat().ask(text)
+        assert head_count(r) == len(expected.ids), text
+        assert r.refs == expected.ids[:10], text
+
+
+def test_mutation_a_state_ignored_is_detected(world, monkeypatch):
+    _check_state_counts(world)
+    monkeypatch.setattr(nav, "_by_state", lambda scope, state_id, governed, pack: scope)
+    with pytest.raises(AssertionError):
+        _check_state_counts(world)
+
+
+def test_mutation_the_legacy_verdict_order_applied_to_a_filtered_list_is_detected(world, monkeypatch):
+    _check_state_counts(world)
+    monkeypatch.setattr(caps, "order_entries_neutral", caps.order_entries)
+    with pytest.raises(AssertionError):
+        _check_state_counts(world)
+
+
+def test_mutation_no_assessment_equated_with_no_usable_result_is_detected(world, monkeypatch):
+    _check_state_counts(world)
+    original = aq.STATE_BY_ID[aq.NOT_EVALUATED_ID]
+    merged = type(original)(original.id, original.label, original.states + (S_NA, S_FAILED, S_INCOMPAT), original.terms, original.canonical)
+    monkeypatch.setitem(aq.STATE_BY_ID, aq.NOT_EVALUATED_ID, merged)
+    with pytest.raises(AssertionError):
+        _check_state_counts(world)
+
+
+def test_a_number_is_never_followed_by_a_period_in_the_state_texts(world):
+    """El render del chat interpreta «13. » como el inicio de una lista numerada y se come el número: ninguna distribución por estado puede terminar una cláusula con «n.»."""
+    scope = _scope(world)
+    states = [s["state"] for _e, s in scope]
+    lines, breakdown = aq.distribution(states)
+    text = nav._state_parts(lines, breakdown)
+    assert not re.search(r"\d\.(\s|$)", text), text
+    only_current = nav._state_parts(*aq.distribution([S_CURRENT] * 3))
+    assert not re.search(r"\d\.(\s|$)", only_current) and "Assessment vigente: 3" in only_current
+    from webapp.services.section_analysis import render_llm_html
+    rendered = re.sub(r"<[^>]+>", "", render_llm_html(text))
+    for _id, label, n in lines:
+        assert f"{label}: {n}" in rendered                                                                    # ningún número se pierde al renderizar
+    for label, n in breakdown:
+        assert f"{label}: {n}" in rendered
