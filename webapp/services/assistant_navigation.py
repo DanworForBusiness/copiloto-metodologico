@@ -751,6 +751,8 @@ def _query_resolve(q: str, frame: query.QueryFrame, ent: _Entities, pack: str, s
         return _need_scope(frame, labels, base)
     wants_levels = bool(frame.levels and inds)
     dimension = frame.dimension_state and not frame.states
+    if dimension and frame.superlative and not inds:
+        return None                                                          # «mejor/peor estado»: «estado» no es una métrica ordenable; lo sigue aclarando el ranking (no se contesta con una distribución que ignore «mejor»)
     threshold = bool(frame.threshold_word and inds)
     if not (wants_levels or frame.states or dimension or threshold):
         return None                                                          # sin calificador gobernado por consumir: lo resuelven los destinos de siempre (equivalencia con los pasos 0–3)

@@ -569,6 +569,15 @@ def test_not_determinable_is_not_combined_with_a_level_or_another_metric(world):
         assert "describe un Juicio sin nivel" in r.text and not r.rows and not r.llm, text
 
 
+@pytest.mark.parametrize("text", ["¿Qué modelos tienen mejor estado?", "¿Qué modelos tienen peor estado?", "los modelos con el mejor estado"])
+def test_better_or_worse_state_is_not_answered_with_a_distribution_that_ignores_it(world, text):
+    """«Estado» no es una métrica ordenable: el pedido de «mejor/peor» sigue con la aclaración de métricas de siempre (no se contesta con la distribución por estado)."""
+    assert _ask_query(text) is None
+    r = Chat().ask(text)
+    assert "Estado de los assessments" not in r.text and not r.llm
+    assert "No existe un «scoring» único" in r.text and r.asks
+
+
 def test_the_word_estado_next_to_a_metric_is_clarified(world):
     r = Chat().ask("modelos de Pampa con el estado de la cobertura")
     assert "«Estado» puede ser el estado del assessment" in r.text and not r.rows and r.asks
