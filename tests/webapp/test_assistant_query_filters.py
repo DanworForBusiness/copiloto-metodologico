@@ -663,3 +663,128 @@ def test_a_number_is_never_followed_by_a_period_in_the_state_texts(world):
         assert f"{label}: {n}" in rendered                                                                    # ningún número se pierde al renderizar
     for label, n in breakdown:
         assert f"{label}: {n}" in rendered
+
+
+# ══ 6. OPERACIONES NO SOPORTADAS (4A.3): taxonomía cerrada, declaradas — nunca un ranking que las ignore ═══════════════════════════════════════════
+DECLARED_CASES = [
+    ("Promedio de cobertura de Kensing", "No calculo promedios, sumas ni porcentajes"),
+    ("¿Cuántos casos a revisar tiene Kensing en total?", "No calculo promedios, sumas ni porcentajes"),
+    ("¿Cuántos casos a revisar tiene Kensing?", "No calculo promedios, sumas ni porcentajes"),
+    ("¿Qué porcentaje de modelos tiene adopción buena?", "No calculo promedios, sumas ni porcentajes"),
+    ("la suma de los casos a revisar de Pampa", "No calculo promedios, sumas ni porcentajes"),
+    ("Compará Pampa con Kensing", "No comparo grupos entre sí"),
+    ("modelos con cobertura mayor a 80", "no tiene niveles gobernados"),
+    ("modelos con cobertura completa", "no tiene niveles gobernados"),
+    ("modelos con casos a revisar mas de 10", "no tiene niveles gobernados"),
+    ("¿Cuál es el cliente con más modelos desactualizados?", "No hay una regla de agregación gobernada para ordenar clientes"),
+    ("¿Cuál es la línea de negocio con menos modelos desactualizados?", "No hay una regla de agregación gobernada para ordenar clientes"),
+]
+
+
+@pytest.mark.parametrize("text,phrase", DECLARED_CASES)
+def test_an_unsupported_operation_is_declared_never_answered_with_a_ranking_that_ignores_it(world, text, phrase):
+    r = Chat().ask(text)
+    assert phrase in r.text and not r.rows and not r.llm and r.asks, (text, r.text)
+    assert "ordenadas por" not in r.text and "Hay " not in r.text.split(".")[0]
+
+
+def test_comparing_groups_offers_each_one_separately_and_each_option_works(world):
+    r = Chat().ask("Compará Pampa con Kensing")
+    assert {label for _q, label in r.asks} == {"Pampa", "Kensing"}
+    for question, label in r.asks:
+        again = Chat().ask(question)
+        assert head_count(again) == sum(1 for e in world.entries if e.cliente == label) and label in again.text
+
+
+def test_the_group_ranking_declaration_offers_the_catalog_summary(world):
+    r = Chat().ask("¿Cuál es el cliente con más modelos desactualizados?")
+    assert [label for _q, label in r.asks] == ["Ver el resumen del Catálogo"]
+    assert "Por línea de negocio" in Chat().ask(r.asks[0][0]).text
+
+
+def test_a_grouped_count_is_declared_as_not_supported_yet_never_answered_with_a_summary_that_ignores_it(world):
+    for text in ("¿Cuántos modelos hay por cliente?", "¿Cuántos modelos hay por línea de negocio?", "Modelos por cliente"):
+        r = Chat().ask(text)
+        assert "Todavía no cuento entradas agrupadas" in r.text and not r.rows and not r.llm and r.asks, text
+
+
+def test_the_existing_group_declaration_of_the_indicator_queries_is_untouched(world):
+    r = Chat().ask("¿Cuál es el cliente con más casos a revisar?")
+    assert r.text.startswith("No hay una regla de agregación gobernada para ordenar dominios, líneas de negocio ni clientes") and not r.rows
+
+
+@pytest.mark.parametrize("text", ["¿Cuál es el promedio de ventas del trimestre?", "¿Cuál es el promedio de edad de los candidatos?", "Compará Ventas con Compras", "la suma de 2 más 3"])
+def test_operations_that_are_not_about_catalog_entries_are_not_claimed(world, text):
+    assert _ask_query(text) is None
+
+
+def test_the_declared_cases_cover_every_operation_class_of_the_closed_taxonomy():
+    classes = {aq.AGGREGATE, aq.COMPARE, aq.THRESHOLD, aq.NEGATED_LEVEL}
+    seen = set()
+    for text, _phrase in DECLARED_CASES:
+        seen |= set(aq.parse(text).ops)
+    seen.add(aq.NEGATED_LEVEL)                                                                                 # cubierta en la sección de niveles
+    assert classes <= seen
+
+
+# ══ 7. D-1: métrica o estado sin alcance suficiente → aclaración determinista ═════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize("text,term", [
+    ("¿Qué casos a revisar tiene Delivery Document?", "Casos a revisar"),
+    ("¿Qué tienen adopción buena?", "Adopción metodológica"),
+    ("¿Hay algo desactualizado?", "Assessment desactualizado"),
+    ("Mostrame la cobertura de Delivery Document", "Cobertura estricta"),
+])
+def test_a_metric_or_state_without_a_resolvable_scope_asks_for_one_and_never_falls_elsewhere(world, text, term):
+    r = Chat().ask(text)
+    assert f"Entendí que preguntás por {term}" in r.text and "no pude ubicar un cliente, una línea de negocio ni un conjunto de entradas" in r.text
+    assert "no lee el valor de una entrada puntual" in r.text and not r.rows and not r.llm and r.asks
+    assert "Delivery Document" not in r.text                                                                   # no repite el texto del usuario
+
+
+def test_the_options_of_the_missing_scope_declaration_resolve_to_real_governed_answers(world):
+    r = Chat().ask("¿Qué casos a revisar tiene Delivery Document?")
+    question, _label = r.asks[0]
+    again = Chat().ask(question)
+    assert again.rows and "Casos a revisar" in again.text
+    r2 = Chat().ask("¿Hay algo desactualizado?")
+    again2 = Chat().ask(r2.asks[0][0])
+    assert head_count(again2) == len(states_oracle(world, {S_STALE}).ids)
+
+
+@pytest.mark.parametrize("text", ["¿Qué recursos hay sobre cobertura?", "¿Qué es la adopción metodológica?", "Mostrame la guía de confianza de la evidencia", "¿Cómo se calcula la cobertura estricta?"])
+def test_documentary_and_methodological_questions_are_not_asked_for_a_scope(world, text):
+    assert _ask_query(text) is None
+
+
+# ══ 9. conteo (Q3): «Son N …» y lo que NO cambia ══════════════════════════════════════════════════════════════════════════════════════════════
+def test_a_count_with_a_state_answers_the_number_first(world):
+    n = len(states_oracle(world, {S_STALE}).ids)
+    r = Chat().ask("¿Cuántas entradas están desactualizadas?")
+    assert r.text.startswith(f"Son {n} entradas navegables") and r.refs == states_oracle(world, {S_STALE}).ids[:10]
+
+
+@pytest.mark.parametrize("text", ["¿Cuántos modelos hay sin clasificar?", "¿Cuántos modelos de Ventas hay?", "¿Cuántos modelos tiene Pampa?", "¿Cuántos modelos hay?"])
+def test_a_plain_count_stays_with_the_inventory(world, text):
+    assert _ask_query(text) is None
+
+
+# ══ 10. MUTACIONES de 4A.3 ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+def _check_declarations(world):
+    for text, phrase in DECLARED_CASES:
+        r = Chat().ask(text)
+        assert phrase in r.text and not r.rows, text
+
+
+def test_mutation_unsupported_operations_ignored_are_detected(world, monkeypatch):
+    _check_declarations(world)
+    monkeypatch.setattr(nav, "_declared_ops", lambda frame, ent: [])
+    with pytest.raises(AssertionError):
+        _check_declarations(world)
+
+
+def test_mutation_the_missing_scope_declaration_removed_is_detected(world, monkeypatch):
+    r = Chat().ask("¿Qué casos a revisar tiene Delivery Document?")
+    assert "no pude ubicar un cliente" in r.text
+    monkeypatch.setattr(nav, "_need_scope", lambda frame, labels, base: None)
+    after = Chat().ask("¿Qué casos a revisar tiene Delivery Document?")
+    assert "no pude ubicar un cliente" not in after.text

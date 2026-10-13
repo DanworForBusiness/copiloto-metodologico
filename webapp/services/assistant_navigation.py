@@ -726,22 +726,42 @@ def _query_resolve(q: str, frame: query.QueryFrame, ent: _Entities, pack: str, s
     labels = caps.lob_labels()
     open_action = _open_catalog_action(pack, stem)
     base = (open_action,) if open_action else ()
-    wants_levels = bool(frame.levels and frame.indicators)
+    inds = frame.indicators
+    governed = bool(inds or frame.states or frame.levels or frame.dimension_state)
+    strong = bool(ent.entry or ent.clients or ent.assessments)                    # alcance fuerte: sin vocabulario gobernado, una operación solo se reclama si habla de entradas o de un cliente
+    # 1. operación NO soportada → declaración explícita (nunca un ranking que la ignore)
+    ops = _declared_ops(frame, ent)
+    group_rank = bool(ent.group and (frame.states or frame.levels) and _GROUP_SUPERLATIVE.search(q))       # ranking de GRUPOS por estado o nivel: sin regla de agregación gobernada
+    if group_rank:
+        return _declaration("group_rank", frame, ent, labels, base)
+    if ops and (governed or strong):
+        return _declaration(ops[0], frame, ent, labels, base)
+    # 2. conteo agrupado por cliente o por línea de negocio: todavía no soportado → declarado (nunca un resumen que lo ignore)
+    if frame.group_by:
+        return _declaration("group_by", frame, ent, labels, base)
+    # 3. métrica o estado nombrados sin alcance resoluble → declaración «necesito un alcance»
+    if (inds or frame.states) and not ent.scoped and not ent.group and _data_cue(q):
+        return _need_scope(frame, labels, base)
+    wants_levels = bool(frame.levels and inds)
     dimension = frame.dimension_state and not frame.states
-    if not (wants_levels or frame.states or dimension):
-        return None                                                          # operaciones no soportadas, cantidad agrupada y consultas sin alcance: incrementos siguientes de 4A
+    threshold = bool(frame.threshold_word and inds)
+    if not (wants_levels or frame.states or dimension or threshold):
+        return None                                                          # sin calificador gobernado por consumir: lo resuelven los destinos de siempre (equivalencia con los pasos 0–3)
     if not ent.scoped or (ent.group and not ent.entry):
         return None
     if len(ent.clients) > 1 or len(ent.lobs) > 1:
         return _ranking_result(_RankIntent("ambiguous_filter"), pack, stem)
     client = ent.clients[0] if ent.clients else None
     lob = ent.lobs[0] if ent.lobs else None
+    if threshold and not wants_levels and not frame.states:
+        ordinal_or_not = next((indicators.BY_ID[i] for i in inds if not indicators.BY_ID[i].levels), indicators.BY_ID[inds[0]])
+        return _levels_clarification(ordinal_or_not, frame, client, lob, labels, base)
     m = _INV_COUNT.search(q)
     n = int(next(g for g in m.groups() if g)) if m else 0
     limit, capped = (min(n, MAX_LIST) if n else MAX_LIST), n > MAX_LIST
     common = dict(limit=limit, capped=capped, count=frame.count)
     if dimension:
-        if frame.indicators:
+        if inds:
             return _dimension_clarification(frame, client, lob, labels)
         return _states_result(client, lob, pack, stem)
     if not frame.states:
@@ -750,10 +770,10 @@ def _query_resolve(q: str, frame: query.QueryFrame, ent: _Entities, pack: str, s
         return _states_clarification(frame, client, lob, labels)
     state = frame.states[0]
     if query.STATE_BY_ID[state].judgment:
-        if frame.levels or any(i != "adoption" for i in frame.indicators):
+        if frame.levels or any(i != "adoption" for i in inds):
             return _judgment_clarification(frame, client, lob, labels)
         return _inventory_result(_InventoryIntent("list", limit, capped, lob, client, state=state, count=frame.count), pack, stem)
-    if not frame.indicators:
+    if not inds:
         return _inventory_result(_InventoryIntent("list", limit, capped, lob, client, state=state, count=frame.count), pack, stem)
     return _indicator_query(q, frame, client, lob, common, state, labels, base, pack, stem)
 
@@ -857,6 +877,56 @@ def _dimension_clarification(frame: query.QueryFrame, client: str | None, lob: s
     where = _canonical_where(client, lob, labels)
     options = (_ask("Estado de los assessments", f"¿Cuál es el estado de los assessments{where}?"),) + _indicator_options(_RankIntent("clarify_indicator", client=client, lob=lob), labels, frame.indicators)
     return NavigationResult("«Estado» puede ser el estado del assessment (vigente, desactualizado…) o el valor de una métrica. ¿Cuál querés ver?", options)
+
+
+_GROUP_SUPERLATIVE = re.compile(r"\b(?:clientes?|dominios?|lineas? de negocio)\b.{0,40}\b(?:mas|menos|mayor(?:es)?|menor(?:es)?|mejor(?:es)?|peor(?:es)?)\b")      # «el cliente con más…», «la línea de negocio con menor…»
+
+
+def _data_cue(q: str) -> bool:
+    """¿Es una pregunta de DATO (posesión, existencia, cantidad o pedido de ver)? Reutiliza las señales del inventario: sin listas nuevas."""
+    return bool(_INV_CUE.search(q) or _NAV_VERB.search(q) or _INV_LIST_VERB.search(q) or _INV_TIENE.search(q))
+
+
+def _declared_ops(frame: query.QueryFrame, ent: _Entities) -> list[str]:
+    """Operaciones NO soportadas que la consulta pide (taxonomía cerrada de `assistant_query` + las que dependen del indicador: «total»/«cuántos» sobre una métrica de VOLUMEN suman casos)."""
+    inds = [indicators.BY_ID[i] for i in frame.indicators]
+    ops = [o for o in frame.ops if o != query.NEGATED_LEVEL]
+    volume = any(i.volume for i in inds)
+    if volume and (frame.total_word or (frame.count and not frame.levels and not frame.states and not frame.group_by)) and query.AGGREGATE not in ops:
+        ops.append(query.AGGREGATE)                                                    # «¿cuántos casos a revisar tiene X?» / «…en total»: sumar casos es una agregación sin regla gobernada
+    return ops
+
+
+def _declaration(op: str, frame: query.QueryFrame, ent: _Entities, labels: dict[str, str], base: tuple) -> NavigationResult:
+    """Declaración EXPLÍCITA de una operación no soportada (una plantilla por clase; agregar una clase = agregar una fila). Nunca repite el texto del usuario; ofrece lo que sí se puede hacer."""
+    client = ent.clients[0] if len(ent.clients) == 1 else None
+    lob = ent.lobs[0] if len(ent.lobs) == 1 else None
+    ids = tuple(frame.indicators) or None
+    metric_options = _indicator_options(_RankIntent("clarify_indicator", client=client, lob=lob), labels, ids)
+    if op == query.COMPARE:
+        who = tuple(_ask(c, f"¿Qué tiene {c}?") for c in ent.clients) + tuple(_ask(labels[o], f"Mostrame los modelos en {labels[o]}") for o in ent.lobs if o in labels and o != dcs.UNCLASSIFIED)
+        return NavigationResult("No comparo grupos entre sí: no hay una regla de agregación gobernada para decir cuál es mejor. Puedo mostrarte cada uno por separado:", who or base)
+    if op == query.THRESHOLD:
+        levelless = next((indicators.BY_ID[i] for i in frame.indicators if not indicators.BY_ID[i].levels), None)
+        ind = levelless or (indicators.BY_ID[frame.indicators[0]] if frame.indicators else None)
+        if ind is not None:
+            return _levels_clarification(ind, frame, client, lob, labels, base)
+    if op in ("group_rank", "group_by"):
+        text = ("No hay una regla de agregación gobernada para ordenar clientes, líneas de negocio ni dominios, así que no puedo decir cuál tiene «más» o «menos». Sí puedo contar entradas dentro de un cliente o de una línea de negocio."
+                if op == "group_rank" else
+                "Todavía no cuento entradas agrupadas por cliente ni por línea de negocio. Sí puedo contarlas dentro de un cliente o de una línea de negocio.")
+        return NavigationResult(text, (_ask("Ver el resumen del Catálogo", "¿Qué modelos tenemos?"),))
+    return NavigationResult("No calculo promedios, sumas ni porcentajes: no hay una regla de agregación gobernada (cada métrica se evalúa por entrada, no por grupo). Sí puedo ordenar o contar entradas.",
+                            metric_options + (_ask("Ver el resumen del Catálogo", "¿Qué modelos tenemos?"),))
+
+
+def _need_scope(frame: query.QueryFrame, labels: dict[str, str], base: tuple) -> NavigationResult:
+    """Una métrica o un estado nombrados SIN alcance resoluble (cliente, línea de negocio o entradas): no se responde con un recurso documental ni con el LLM libre; se declara qué falta y qué sí se puede."""
+    terms = _join([f"{indicators.BY_ID[i].label}" for i in frame.indicators] + [query.STATE_BY_ID[s].label for s in frame.states])
+    options = _indicator_options(_RankIntent("clarify_indicator"), labels, tuple(frame.indicators)) if frame.indicators else ()
+    options += tuple(_ask(f"Ver las entradas: {query.STATE_BY_ID[s].label}", _state_question(s, None, None, labels)) for s in frame.states)
+    return NavigationResult(f"Entendí que preguntás por **{terms}**, pero no pude ubicar un cliente, una línea de negocio ni un conjunto de entradas. Por ahora el chat ordena y cuenta **entradas** por cliente, "
+                            "línea de negocio, nivel o estado, y no lee el valor de una entrada puntual (eso queda para el detalle del modelo en el Catálogo).", options + base)
 
 
 def _levels_result(intent: "_RankIntent", ind, rs: caps.ResultSet, draft: qctx.QueryDraft, where: str, actions: list) -> NavigationResult:
