@@ -5,7 +5,16 @@
 {% set r = route or explain %}
 <div class="assistant-route-actions" aria-label="Opciones sugeridas">
   {% for action in r.actions %}
-  {% if action.activate_tab %}
+  {% if action.ask %}
+  {# Aclaración de una consulta analítica: reenvía al MISMO chat una pregunta canónica fijada por el servidor (nunca texto del usuario); el router la resuelve como cualquier otra. #}
+  <form class="assistant-route-ask" hx-post="/modules/{{ stem }}/assistant/chat" hx-target="#assistant-conversation" hx-swap="beforeend" hx-indicator="#assistant-chat-loading" hx-disabled-elt="button"
+        data-dw-request-error-target="#assistant-conversation" data-dw-request-error-message="No pudimos completar la solicitud por un problema de conectividad. Intentá nuevamente en unos minutos.">
+    <input type="hidden" name="pack" value="{{ pack }}">
+    <input type="hidden" name="conversation_id" value="{{ reply.conversation_id }}">
+    <input type="hidden" name="question" value="{{ action.ask }}">
+    <button type="submit" class="assistant-route-action">{{ action.label }}</button>
+  </form>
+  {% elif action.activate_tab %}
   {# Pestaña de «Herramientas de decisión» de ESTA página (p. ej. Catálogo): se activa por el estado Alpine `toolTab` (mismo mecanismo que el clic en la pestaña); href de respaldo. #}
   <a class="assistant-route-action" href="{{ action.url }}" @click.prevent="toolTab='{{ action.activate_tab }}'">{{ action.label }}</a>
   {% elif action.embed %}

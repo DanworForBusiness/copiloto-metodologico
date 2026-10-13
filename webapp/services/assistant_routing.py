@@ -44,6 +44,8 @@ class AssistantRouteAction:
     # activate_tab: la acción activa esa pestaña de «Herramientas de decisión» en la propia página (Alpine `toolTab`), sin recargar; `url` queda de respaldo
     # (abrir en otra pestaña del navegador). Solo valores que fija el servidor (nunca texto del usuario).
     activate_tab: str = ""
+    # ask: aclaración de una consulta analítica: al hacer clic se reenvía ESTA pregunta (fijada por el servidor, nunca texto del usuario) al MISMO router por el chat. `url` queda vacío.
+    ask: str = ""
 
 
 @dataclass(frozen=True)
@@ -420,10 +422,10 @@ def _is_domain_inventory_query(question: str) -> bool:
 
 
 def _navigation_route(nav, question: str) -> "AssistantRoute":
-    """``NavigationResult`` → ``AssistantRoute``. Modo de cada acción: "embed" (por defecto, carga en el slot del Catálogo) · "tab:<pestaña>" (activa esa pestaña en la página) · "link" (navega)."""
+    """``NavigationResult`` → ``AssistantRoute``. Modo de cada acción: "embed" (por defecto, carga en el slot del Catálogo) · "tab:<pestaña>" (activa esa pestaña en la página) · "link" (navega) · "ask:<pregunta>" (reenvía esa pregunta al chat)."""
     def _action(a: tuple) -> AssistantRouteAction:
         mode = a[2] if len(a) > 2 else "embed"
-        return AssistantRouteAction(a[0], a[1], embed=mode == "embed", activate_tab=mode.split(":", 1)[1] if mode.startswith("tab:") else "")
+        return AssistantRouteAction(a[0], a[1], embed=mode == "embed", activate_tab=mode.split(":", 1)[1] if mode.startswith("tab:") else "", ask=mode.split(":", 1)[1] if mode.startswith("ask:") else "")
     return AssistantRoute(nav.message, tuple(_action(a) for a in nav.actions), question, result=nav.result)
 
 
