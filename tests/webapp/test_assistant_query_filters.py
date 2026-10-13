@@ -696,16 +696,12 @@ def test_comparing_groups_offers_each_one_separately_and_each_option_works(world
         assert head_count(again) == sum(1 for e in world.entries if e.cliente == label) and label in again.text
 
 
-def test_the_group_ranking_declaration_offers_the_catalog_summary(world):
+def test_the_group_ranking_declaration_offers_the_grouped_counts_and_they_resolve(world):
     r = Chat().ask("¿Cuál es el cliente con más modelos desactualizados?")
-    assert [label for _q, label in r.asks] == ["Ver el resumen del Catálogo"]
-    assert "Por línea de negocio" in Chat().ask(r.asks[0][0]).text
-
-
-def test_a_grouped_count_is_declared_as_not_supported_yet_never_answered_with_a_summary_that_ignores_it(world):
-    for text in ("¿Cuántos modelos hay por cliente?", "¿Cuántos modelos hay por línea de negocio?", "Modelos por cliente"):
-        r = Chat().ask(text)
-        assert "Todavía no cuento entradas agrupadas" in r.text and not r.rows and not r.llm and r.asks, text
+    assert [label for _q, label in r.asks] == ["Cuántas entradas por cliente", "Cuántas entradas por línea de negocio"]
+    for question, _label in r.asks:
+        again = Chat().ask(question)
+        assert "Entradas navegables por" in again.text and not again.rows
 
 
 def test_the_existing_group_declaration_of_the_indicator_queries_is_untouched(world):
@@ -754,6 +750,73 @@ def test_the_options_of_the_missing_scope_declaration_resolve_to_real_governed_a
 @pytest.mark.parametrize("text", ["¿Qué recursos hay sobre cobertura?", "¿Qué es la adopción metodológica?", "Mostrame la guía de confianza de la evidencia", "¿Cómo se calcula la cobertura estricta?"])
 def test_documentary_and_methodological_questions_are_not_asked_for_a_scope(world, text):
     assert _ask_query(text) is None
+
+
+# ══ 8. CONTEO AGRUPADO por cliente o línea de negocio (4A.3, último incremento) ═══════════════════════════════════════════════════════════════
+def _group_counts(text: str, labels) -> dict[str, int]:
+    out = {}
+    for label in labels:
+        m = re.search(rf"(?:^|[ ·]){re.escape(label)} ?: (\d+)", text)
+        if m:
+            out[label] = int(m.group(1))
+    return out
+
+
+def test_counting_by_client_partitions_the_catalog(world):
+    r = Chat().ask("¿Cuántos modelos hay por cliente?")
+    expected = {c: sum(1 for e in world.entries if e.cliente == c) for c in CLIENTS}
+    assert _group_counts(r.text, CLIENTS) == expected and sum(expected.values()) == len(world.entries)
+    assert f"{len(world.entries)} entradas navegables" in r.text and not r.rows and not r.llm
+    assert [m for m in re.findall(r"(Loma|Pampa|Danone|Kensing): (\d+)", r.text)][0][0] in ("Loma", "Pampa")      # orden: por cantidad desc y nombre
+
+
+def test_counting_by_line_of_business_partitions_the_catalog_with_the_effective_classification(world):
+    r = Chat().ask("¿Cuántos modelos hay por línea de negocio?")
+    expected = {"Ventas": 0, "Finanzas": 0, "Sin clasificar": 0}
+    for _e, s in _scope(world):
+        expected[{"SALES": "Ventas", "FINANCE": "Finanzas", None: "Sin clasificar"}[s["lob"]]] += 1
+    assert _group_counts(r.text, expected) == expected and sum(expected.values()) == len(world.entries)
+
+
+def test_a_grouped_count_can_be_filtered_by_state_or_line_of_business(world):
+    r = Chat().ask("¿Cuántos modelos desactualizados hay por cliente?")
+    expected = {c: sum(1 for e, s in _scope(world, c) if s["state"] == S_STALE) for c in CLIENTS}
+    expected = {c: n for c, n in expected.items() if n}
+    assert _group_counts(r.text, CLIENTS) == expected and "Assessment desactualizado" in r.text
+    r2 = Chat().ask("¿Cuántos modelos de Ventas hay por cliente?")
+    expected2 = {c: sum(1 for e, s in _scope(world, c, "SALES")) for c in CLIENTS}
+    assert _group_counts(r2.text, CLIENTS) == {c: n for c, n in expected2.items() if n} and "Ventas" in r2.text
+
+
+def test_a_grouped_count_with_no_entries_is_an_explicit_none(world):
+    r = Chat().ask("¿Cuántos modelos no determinables hay por cliente?")
+    n = len(nd_oracle(world).ids)
+    assert n > 0 and _group_counts(r.text, CLIENTS)                                                            # sí hay: el conteo parte el conjunto de no determinables
+    assert sum(_group_counts(r.text, CLIENTS).values()) == n
+
+
+def test_grouping_without_a_count_or_with_a_metric_is_clarified_or_declared(world):
+    r = Chat().ask("Modelos por cliente")
+    assert "pedímelo como una cantidad" in r.text and r.asks and not r.rows
+    r2 = Chat().ask("¿Cuántos modelos con adopción buena hay por cliente?")
+    assert "No calculo promedios, sumas ni porcentajes" in r2.text and not r2.rows
+
+
+def test_the_grouped_count_context_keeps_only_parameters_and_has_no_pages(world):
+    chat = Chat()
+    chat.ask("¿Cuántos modelos desactualizados hay por cliente?")
+    spec = chat.state.spec
+    assert (spec.capability, spec.group_by, spec.state, spec.count) == ("groups", "client", aq.STALE_ID, True) and chat.state.refs == ()
+    assert "no tiene páginas" in chat.ask("Mostrame los siguientes").text
+    again = nav._canonical_again(spec)
+    assert again is not None and "por cliente" in again[2]
+
+
+def test_the_grouped_count_follow_up_by_client_filter_stays_a_grouped_count(world):
+    chat = Chat()
+    chat.ask("¿Cuántos modelos hay por cliente?")
+    r = chat.ask("¿Y los de Ventas?")
+    assert "Entradas navegables por cliente" in r.text and "Ventas" in r.text and not r.rows
 
 
 # ══ 9. conteo (Q3): «Son N …» y lo que NO cambia ══════════════════════════════════════════════════════════════════════════════════════════════

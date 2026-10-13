@@ -736,9 +736,16 @@ def _query_resolve(q: str, frame: query.QueryFrame, ent: _Entities, pack: str, s
         return _declaration("group_rank", frame, ent, labels, base)
     if ops and (governed or strong):
         return _declaration(ops[0], frame, ent, labels, base)
-    # 2. conteo agrupado por cliente o por línea de negocio: todavía no soportado → declarado (nunca un resumen que lo ignore)
+    # 2. conteo agrupado por cliente o por línea de negocio (cardinalidades)
     if frame.group_by:
-        return _declaration("group_by", frame, ent, labels, base)
+        if inds or frame.levels:
+            return _declaration(query.AGGREGATE, frame, ent, labels, base)
+        if not frame.count:
+            return _group_by_clarification(frame.group_by)
+        if len(ent.lobs) > 1 or len(frame.states) > 1:
+            return _ranking_result(_RankIntent("ambiguous_filter"), pack, stem) if len(ent.lobs) > 1 else _states_clarification(frame, None, None, labels)
+        state = frame.states[0] if frame.states else None
+        return _groups_result(frame.group_by, ent.lobs[0] if ent.lobs else None, state, pack, stem)
     # 3. métrica o estado nombrados sin alcance resoluble → declaración «necesito un alcance»
     if (inds or frame.states) and not ent.scoped and not ent.group and _data_cue(q):
         return _need_scope(frame, labels, base)
@@ -911,11 +918,9 @@ def _declaration(op: str, frame: query.QueryFrame, ent: _Entities, labels: dict[
         ind = levelless or (indicators.BY_ID[frame.indicators[0]] if frame.indicators else None)
         if ind is not None:
             return _levels_clarification(ind, frame, client, lob, labels, base)
-    if op in ("group_rank", "group_by"):
-        text = ("No hay una regla de agregación gobernada para ordenar clientes, líneas de negocio ni dominios, así que no puedo decir cuál tiene «más» o «menos». Sí puedo contar entradas dentro de un cliente o de una línea de negocio."
-                if op == "group_rank" else
-                "Todavía no cuento entradas agrupadas por cliente ni por línea de negocio. Sí puedo contarlas dentro de un cliente o de una línea de negocio.")
-        return NavigationResult(text, (_ask("Ver el resumen del Catálogo", "¿Qué modelos tenemos?"),))
+    if op == "group_rank":
+        return NavigationResult("No hay una regla de agregación gobernada para ordenar clientes, líneas de negocio ni dominios, así que no puedo decir cuál tiene «más» o «menos». Sí puedo contar entradas por cliente o por línea de negocio.",
+                                (_ask("Cuántas entradas por cliente", "¿Cuántos modelos hay por cliente?"), _ask("Cuántas entradas por línea de negocio", "¿Cuántos modelos hay por línea de negocio?")))
     return NavigationResult("No calculo promedios, sumas ni porcentajes: no hay una regla de agregación gobernada (cada métrica se evalúa por entrada, no por grupo). Sí puedo ordenar o contar entradas.",
                             metric_options + (_ask("Ver el resumen del Catálogo", "¿Qué modelos tenemos?"),))
 
@@ -927,6 +932,48 @@ def _need_scope(frame: query.QueryFrame, labels: dict[str, str], base: tuple) ->
     options += tuple(_ask(f"Ver las entradas: {query.STATE_BY_ID[s].label}", _state_question(s, None, None, labels)) for s in frame.states)
     return NavigationResult(f"Entendí que preguntás por **{terms}**, pero no pude ubicar un cliente, una línea de negocio ni un conjunto de entradas. Por ahora el chat ordena y cuenta **entradas** por cliente, "
                             "línea de negocio, nivel o estado, y no lee el valor de una entrada puntual (eso queda para el detalle del modelo en el Catálogo).", options + base)
+
+
+def _groups_result(group_by: str, lob: str | None, state: str | None, pack: str, stem: str) -> NavigationResult:
+    """Conteo AGRUPADO de entradas por cliente o por línea de negocio efectiva (cardinalidades: no se ordena por calidad ni se corona a ningún grupo). Las líneas PARTEN el alcance."""
+    mod, entries = catalog_reads._catalog_entries()
+    flows = catalog_navigation.browsable_flows(mod, entries) if mod else []
+    if not flows:
+        return NavigationResult("El Catálogo todavía no tiene entradas navegables.", ())
+    open_action = _open_catalog_action(pack, stem)
+    actions = (open_action,) if open_action else ()
+    labels = caps.lob_labels()
+    governed = caps.governed_read(flows)
+    if governed is None:
+        return NavigationResult("No pude leer la clasificación ni los estados en este momento, así que no cuento por grupo para no darte un dato incorrecto. Probá de nuevo en unos segundos o abrí el Catálogo.", actions)
+    scope = flows
+    if lob:
+        scope = [e for e in scope if governed.eff[e.entry_id]["group"] == lob]
+    if state:
+        scope = _by_state(scope, state, governed, pack)
+    where = _where_text(None, lob, labels, state)
+    spec = qctx.QuerySpec("groups", None, lob, state=state, group_by=group_by, count=True)
+    if not scope:
+        return NavigationResult(f"Ninguna entrada {where} (de {len(flows)} entradas navegables).", actions, state=qctx.QueryDraft(spec))
+    if group_by == "client":
+        counts: dict[str, int] = {}
+        for e in scope:
+            counts[e.cliente] = counts.get(e.cliente, 0) + 1
+        aggregates = tuple((c, c, n) for c, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower())))
+        title, what = "por cliente", "Entradas navegables por cliente"
+    else:
+        aggregates = caps.distribution(scope, governed.eff, labels)
+        title, what = "por línea de negocio", "Entradas navegables por línea de negocio (clasificación efectiva)"
+    fp = qctx.fingerprint(("groups", group_by, lob, state), [(caps.CATALOG_ENTRY, e.entry_id, e.cliente, governed.eff[e.entry_id]["group"]) for e in caps.order_entries_neutral(scope)])
+    result = caps.ResultSet("summary", total=len(scope), catalog=caps.CatalogSummary(aggregates=aggregates, classified=True), fingerprint=fp)
+    text = f"**{what}** {where} ({_entries(len(scope))}): {_distribution_text(aggregates)}"
+    return NavigationResult(text, actions, result, state=qctx.QueryDraft(spec, (), fp))
+
+
+def _group_by_clarification(group_by: str) -> NavigationResult:
+    label = "por cliente" if group_by == "client" else "por línea de negocio"
+    return NavigationResult(f"Para ver cuántas entradas hay {label} pedímelo como una cantidad: no agrupo listados ni métricas.",
+                            (_ask(f"Cuántas entradas {label}", f"¿Cuántos modelos hay {label}?"),))
 
 
 def _levels_result(intent: "_RankIntent", ind, rs: caps.ResultSet, draft: qctx.QueryDraft, where: str, actions: list) -> NavigationResult:
@@ -1061,6 +1108,8 @@ def _run_spec(spec: qctx.QuerySpec, pack: str, stem: str) -> NavigationResult:
         return _inventory_result(_InventoryIntent("list", spec.limit, False, spec.lob, spec.client, spec.offset, spec.state, spec.count), pack, stem)
     if spec.capability == "states":
         return _states_result(spec.client, spec.lob, pack, stem)
+    if spec.capability == "groups":
+        return _groups_result(spec.group_by or "client", spec.lob, spec.state, pack, stem)
     if spec.capability == "rank":
         return _ranking_result(_RankIntent("rank", spec.indicator, spec.order, lob=spec.lob, client=spec.client, limit=spec.limit, offset=spec.offset,
                                            levels=spec.levels, state=spec.state, count=spec.count), pack, stem)
@@ -1080,6 +1129,8 @@ def _canonical_again(spec: qctx.QuerySpec) -> tuple | None:
         return _ask("Volver a consultar", _state_question(spec.state, spec.client, spec.lob, labels) if spec.state else f"Mostrame los modelos{where}")
     if spec.capability == "states":
         return _ask("Volver a consultar", f"¿Cuál es el estado de los assessments{where}?")
+    if spec.capability == "groups":
+        return _ask("Volver a consultar", f"¿Cuántos modelos hay {'por cliente' if spec.group_by == 'client' else 'por línea de negocio'}?")
     return None
 
 
