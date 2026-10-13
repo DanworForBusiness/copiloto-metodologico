@@ -159,6 +159,21 @@ class AssistantConversationStore:
         return conversation
 
 
+# Regla de integridad de datos del Catálogo, SIEMPRE presente en el prompt del chat libre (también con directiva y con general=True). Defensa COMPLEMENTARIA: la integridad de los
+# datos gobernados la garantizan las consultas deterministas, no este texto. No bloquea explicaciones conceptuales ni ejemplos hipotéticos explícitos; solo impide presentar
+# puntajes, rankings o estados inventados como datos reales del Catálogo.
+DATA_INTEGRITY_RULE = (
+    "REGLA DE DATOS DEL CATÁLOGO\n"
+    f"{'-' * 40}\n"
+    "Los puntajes, rankings, niveles de evaluación, coberturas, niveles de confianza, conteos y estados de los modelos del Catálogo Danwor "
+    "(por ejemplo, cuál es el «mejor» o el «peor» modelo) son datos reales que NO conocés, salvo los que figuren expresamente en el bloque de "
+    "catálogo de este mensaje. Si te piden esos datos como reales y no figuran acá, decí con claridad que no tenés acceso a ese dato en esta "
+    "conversación y que se consulta en el Catálogo; no los estimes, no los inventes ni los presentes como reales. "
+    "Sí podés explicar conceptos y metodología, y dar un ejemplo hipotético si el usuario lo pide, siempre rotulado de forma explícita como "
+    "ilustrativo y nunca como dato del Catálogo."
+)
+
+
 class AssistantChatService:
     def __init__(
         self,
@@ -232,6 +247,7 @@ class AssistantChatService:
             + context_block
             + f"CONVERSACION PREVIA\n{'-' * 40}\n{conversation or '(sin mensajes previos)'}\n\n"
             f"NUEVA CONSULTA\n{'-' * 40}\n{question}\n\n"
+            f"{DATA_INTEGRITY_RULE}\n\n"
             "FORMATO DE RESPUESTA\n"
             f"{'-' * 40}\n"
             "Respond\u00e9 en Markdown v\u00e1lido y legible. Si el contexto incluye una estructura, "
