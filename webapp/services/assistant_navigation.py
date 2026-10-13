@@ -16,6 +16,7 @@ from typing import Callable
 from urllib.parse import quote
 
 from core.utils import norm_text
+from webapp.services import assessment_presenter as presenter
 from webapp.services import assistant_capabilities as caps
 from webapp.services import assistant_context as qctx
 from webapp.services import assistant_indicators as indicators
@@ -206,6 +207,64 @@ def _data_catalog(question: str, pack: str, stem: str = "", ctx: qctx.QueryConte
     else:
         message = f"Acá tenés el **Catálogo de datos** del Hub: explorá {_join([f'**{v}**' for v, _n in views])}."
     return NavigationResult(message, (action,))
+
+
+# ── Assessment de una entrada: navegación al Assessment EXISTENTE ────────────────────────────────────────────────────────────────────────────
+# «Ver assessment de <modelo>» se resuelve con NAVEGACIÓN: el informe vigente (o su estado, si todavía no se evaluó) lo muestra la ruta de siempre, `GET /catalog/flow/assessment` (solo lectura, con su propio control
+# de sesión). El asistente no describe un assessment: contestar con un resumen sin los datos del Assessment era la causa de presentar el veredicto legado como si fuera el Juicio vigente. El modelo se identifica por
+# su DOMINIO (el nombre que muestra el Catálogo) con el emparejador existente del Catálogo (`catalog_service.best_domain_match`), acotado al cliente si lo nombró; si más de un modelo coincide, se pregunta cuál
+# (nunca se elige uno por el usuario). La URL sale SIEMPRE del `entry_id` real. Sin modelo identificable devuelve None: sigue el flujo normal (el LLM ya no recibe datos de evaluación).
+_ASSESSMENT_WORD = re.compile(r"\bassessments?\b")
+_NAME_STOP = {"the", "and", "del", "los", "las", "con", "por", "para", "from", "assessment", "assessments"}
+
+
+def _name_tokens(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", norm_text(text)) if len(w) >= 3} - _NAME_STOP
+
+
+def _is_assessment_request(q: str) -> bool:
+    """Pide ver/abrir/consultar el assessment de algo (verbo de navegación, forma de disponibilidad o el sustantivo como imperativo). Lo conceptual («qué es…», «cómo se genera…») no es navegación."""
+    if not _ASSESSMENT_WORD.search(q) or is_methodological(q):
+        return False
+    return bool(_NAV_VERB.search(q) or _AVAILABILITY_WORDS.search(q) or re.match(r"^(?:el |los )?assessments?\b", q))
+
+
+def _assessment_candidates(q: str, question: str, mod, entries, flows: list, clients: list[str]) -> list:
+    """Entradas que la consulta nombra por su dominio. Con un cliente nombrado, solo las de ese cliente. Si el nombre COMPLETO de un dominio está en la consulta, ese es el más específico
+    («delivery document» no es «delivery document item»); si no, todas las que comparten un término de dominio."""
+    named = [c for c in clients if _word(c, f" {q} ")]
+    scope = catalog_navigation.flows_for_client(mod, entries, named[0]) if len(named) == 1 else flows
+    candidates = [e for e in scope if mod.best_domain_match(question, [e]) is not None]
+    words = _name_tokens(q)
+    exact = [e for e in candidates if _name_tokens(e.dominio) and _name_tokens(e.dominio) <= words]
+    if exact:
+        longest = max(len(_name_tokens(e.dominio)) for e in exact)
+        return [e for e in exact if len(_name_tokens(e.dominio)) == longest]
+    return candidates
+
+
+def _entry_assessment(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
+    q = norm_text(question).strip().lstrip("¿¡")
+    if not _is_assessment_request(q):
+        return None
+    mod, entries = catalog_reads._catalog_entries()
+    flows = catalog_navigation.browsable_flows(mod, entries) if mod else []
+    if not flows:
+        return None
+    found = _assessment_candidates(q, question, mod, entries, flows, catalog_navigation.clients(mod, entries))
+    if not found:
+        return None
+    ordered = sorted(found, key=lambda e: ((e.cliente or "").lower(), (e.dominio or "").lower(), e.entry_id))
+    if len(ordered) == 1:
+        e = ordered[0]
+        label = f"{e.cliente} · {e.dominio}".strip(" ·")
+        return NavigationResult(f"Acá está el **Assessment** de **{label}**: se abre el informe tal como figura hoy en el Catálogo (o su estado, si todavía no se evaluó).",
+                                (("Ver Assessment", presenter.assessment_url(e, pack)),))
+    shown = ordered[:MAX_OPTIONS]
+    more = f" Muestro los primeros {MAX_OPTIONS}: sumá el cliente o el nombre completo para acotar." if len(ordered) > MAX_OPTIONS else ""
+    titles = caps.build_items(shown, caps.governed_read(shown), pack)          # el MISMO título que muestran las filas del Catálogo: varios modelos pueden compartir dominio y cliente
+    options = tuple((f"Assessment · {item.title} · {e.cliente}".strip(" ·"), presenter.assessment_url(e, pack)) for item, e in zip(titles, shown))
+    return NavigationResult(f"Hay más de un modelo que coincide con tu consulta. ¿De cuál querés ver el Assessment?{more}", options)
 
 
 # ── Inventario del Catálogo: resumen agregado, listados acotados y filtros ─────────────────────────────────────────────────────
@@ -1044,7 +1103,8 @@ def _catalog_followup(question: str, pack: str, stem: str = "", ctx: qctx.QueryC
 
 
 TARGETS: tuple[NavigationTarget, ...] = (NavigationTarget("catalog_followup", _catalog_followup), NavigationTarget("client_report", _client_report), NavigationTarget("data_catalog", _data_catalog),
-                                         NavigationTarget("catalog_query", _catalog_query), NavigationTarget("catalog_ranking", _catalog_ranking), NavigationTarget("catalog_inventory", _catalog_inventory))
+                                         NavigationTarget("catalog_query", _catalog_query), NavigationTarget("entry_assessment", _entry_assessment),
+                                         NavigationTarget("catalog_ranking", _catalog_ranking), NavigationTarget("catalog_inventory", _catalog_inventory))
 
 
 def resolve(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
