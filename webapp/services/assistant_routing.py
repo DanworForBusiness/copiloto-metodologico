@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from urllib.parse import quote
@@ -19,7 +20,9 @@ from core.routing_scorers import (
 )
 from core.utils import norm_text, slugify
 from webapp.services import assistant_navigation
-from webapp.services.assistant_capabilities import ResultSet
+from webapp.services.assistant_capabilities import (
+    CURATED_RESOURCE, MODE_EXTERNAL, MODE_LINK, ResultItem, ResultSet, is_external_url, valid_target,
+)
 from webapp.services.content_service import (
     ModuleDocument,
     list_appendices,
@@ -84,6 +87,35 @@ def _asset_action(asset: dict, pack_name: str) -> AssistantRouteAction | None:
         kind, relative = "assets", normalized
     url = f"/pack-resources/{quote(pack_name)}/{kind}/{quote(relative, safe='/')}"
     return AssistantRouteAction("Abrir recurso", url, True)
+
+
+_RESOURCE_PERMISSION_NOTE = ("Los enlaces externos (por ejemplo, de SharePoint) se abren en una pestaña nueva y dependen de los permisos de tu cuenta en el sitio de destino: "
+                             "si no podés abrirlos, pedí acceso al responsable del documento.")
+
+
+def _resource_result(assets: list[dict], pack_name: str) -> ResultSet | None:
+    """Recursos curados del Hub (`intent_assets`) como filas navegables del contrato transversal de resultados, en el MISMO orden de relevancia que devolvió la recuperación.
+    Solo usa los metadatos y destinos que el recurso ya declara: título = su descripción, subtítulo = el módulo de origen, destino = el de `_asset_action` (nunca derivado de la consulta)
+    y modo `external` (pestaña nueva, igual que antes). La identidad es `(curated_resource, módulo + huella estable del destino)`: no expone el enlace en la identidad ni colisiona con otras familias.
+    Que un recurso esté curado NO garantiza que el usuario tenga permiso de lectura en el sitio de destino: el pie lo dice cuando hay enlaces externos."""
+    items: list[ResultItem] = []
+    seen: set[str] = set()
+    for asset in assets:
+        action = _asset_action(asset, pack_name)
+        if action is None:
+            continue
+        mode = MODE_EXTERNAL if action.external else MODE_LINK
+        raw = str(asset.get("asset") or asset.get("url") or "").strip()
+        ref = f"{asset.get('_module') or ''}:{hashlib.sha1(raw.encode('utf-8')).hexdigest()[:12]}"
+        if ref in seen or not valid_target(mode, action.url):
+            continue
+        seen.add(ref)
+        items.append(ResultItem(
+            kind=CURATED_RESOURCE, ref=ref, title=str(asset.get("description") or "").strip() or "Recurso curado",
+            subtitle=str(asset.get("_module_label") or asset.get("_module") or ""), url=action.url, mode=mode))
+    if not items:
+        return None
+    return ResultSet("list", total=len(items), items=tuple(items), footer=_RESOURCE_PERMISSION_NOTE if any(is_external_url(it.url) for it in items) else "")
 
 
 def _module_stem_for_number(number: str, pack_name: str) -> str:
@@ -761,15 +793,13 @@ class AssistantRoutingService:
             question, stem, source, pack_name=pack_name,
         )
         if multiple_assets:
-            actions = tuple(
-                action for asset in multiple_assets
-                if (action := _asset_action(asset, pack_name)) is not None
-            )
-            if actions:
+            resources = _resource_result(multiple_assets, pack_name)
+            if resources is not None:
                 return AssistantRoute(
                     "Encontré varios recursos curados que pueden ayudarte. Elegí cuál querés abrir.",
-                    actions,
+                    (),
                     question,
+                    result=resources,
                 )
 
         local_section = _find_matching_section(question, source)

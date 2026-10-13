@@ -71,7 +71,12 @@ def _chat(question, stem=HOST, with_session=True) -> str:
     return _html.unescape(_chat_raw(question, stem, with_session))
 
 
-ROW = re.compile(r'<a class="assistant-result-row" href="([^"]+)"\s+hx-get="([^"]+)" hx-target="#catalog-detail-slot" hx-swap="innerHTML" data-entry-id="([^"]+)">')
+_ROW_TAG = re.compile(r'<a class="assistant-result-row"([^>]*)>')
+
+
+def _rows(page: str) -> list[dict]:
+    """Filas del chat como dicts de atributos HTML (href, hx-get, target, rel, data-kind, data-ref…)."""
+    return [dict(re.findall(r'([\w-]+)="([^"]*)"', tag)) for tag in _ROW_TAG.findall(page)]
 
 
 def test_a_list_answer_carries_a_structured_result_set_with_real_identities(world):
@@ -81,7 +86,8 @@ def test_a_list_answer_carries_a_structured_result_set_with_real_identities(worl
     by_id = {e.entry_id: e for e in world}
     for it in rs.items:
         e = by_id[it.ref]                                                                            # la identidad es el entry_id REAL de una entrada del Catálogo
-        assert it.url == presenter.flow_url(e, PACK) and it.mode == "embed" and it.client == e.cliente
+        assert it.url == presenter.flow_url(e, PACK) and it.mode == "embed" and it.catalog.client == e.cliente
+        assert it.kind == "catalog_entry" and it.key == ("catalog_entry", e.entry_id)                 # identidad compuesta (kind, ref)
     assert not any(it.title == by_id[it.ref].dominio for it in rs.items)                              # nunca el rótulo de dominio legado como título
 
 
@@ -93,7 +99,7 @@ def test_titles_come_from_the_catalog_resolver_and_fall_back_to_the_catalog_reso
     monkeypatch.setattr(caps, "governed_read", lambda flows: None)                                    # sin lectura gobernada: el resolver del propio Catálogo por artefacto de consumo
     monkeypatch.setattr(presenter, "flow_heading", lambda entry, header=None: (f"Heading de {entry.entry_id}", None))
     items = _route("Mostrame 3 modelos").result.items
-    assert [it.title for it in items] == [f"Heading de {it.ref}" for it in items] and all(it.lob_label == "" for it in items)
+    assert [it.title for it in items] == [f"Heading de {it.ref}" for it in items] and all(it.catalog.lob_label == "" for it in items)
 
 
 def test_the_effective_line_of_business_is_shown_per_row_never_a_guess(world):
@@ -101,25 +107,28 @@ def test_the_effective_line_of_business_is_shown_per_row_never_a_guess(world):
     for it in _route("Mostrame 500 modelos").result.items:
         i = int(re.search(r"-d(\d{3})-", it.ref).group(1))
         expected = {"SALES": "Ventas", "FINANCE": "Finanzas", "SUPPLY_CHAIN": "Cadena de suministro", None: "Sin clasificar"}[LOBS[i % 5]]
-        assert it.lob_label == expected and by_id[it.ref]
+        assert it.catalog.lob_label == expected and by_id[it.ref]
+        assert it.subtitle == f"{it.catalog.client} · {expected}"                                      # subtítulo universal = lo que la fila muestra
 
 
 def test_at_most_ten_rows_and_a_bounded_response_even_with_120_entries(world):
     for q in ("Mostrame 10 modelos", "Mostrame 500 modelos", "Modelos de Ventas", "¿Qué tiene Pampa?", "¿Qué dominios hay disponibles?"):
         page = _chat(q)
-        rows = ROW.findall(page)
+        rows = _rows(page)
         assert len(rows) <= nav.MAX_LIST, q
         assert page.count('class="assistant-route-action"') <= 2 and "<table" not in page, q                 # sin tabla ni botonera por modelo
         assert len(page) < 14_000, (q, len(page))
-    assert len(ROW.findall(_chat("Mostrame 500 modelos"))) == 10
+    assert len(_rows(_chat("Mostrame 500 modelos"))) == 10
 
 
 def test_every_row_opens_its_own_entry_through_the_existing_embed_mechanism(world):
     page = _chat("Modelos de Ventas")
-    rows = ROW.findall(page)
+    rows = _rows(page)
     assert len(rows) == 10
     real_ids = {e.entry_id for e in world}
-    for href, hx_get, entry_id in rows:
+    for row in rows:
+        href, hx_get, entry_id = row["href"], row.get("hx-get"), row["data-ref"]
+        assert row["data-kind"] == "catalog_entry" and row["hx-target"] == "#catalog-detail-slot" and "target" not in row     # modo embed: panel central, sin pestaña nueva
         assert href == hx_get and entry_id in real_ids
         q = parse_qs(urlparse(href).query)
         assert urlparse(href).path == "/catalog/flow" and q["flow"] == [entry_id] and q["pack"] == [PACK]       # identidad real; ninguna URL inferida de texto
@@ -127,7 +136,7 @@ def test_every_row_opens_its_own_entry_through_the_existing_embed_mechanism(worl
 
 
 def test_a_row_url_opens_the_entry_with_a_session_and_is_rejected_without_one(world):
-    href = ROW.findall(_chat("Mostrame 3 modelos"))[0][0]
+    href = _rows(_chat("Mostrame 3 modelos"))[0]["href"]
     ok = _client().get(href, headers={"HX-Request": "true"})
     assert ok.status_code == 200 and "Dominio" not in ok.text[:0]                                      # el detalle de la entrada abre
     denied = _client(with_session=False).get(href, headers={"HX-Request": "true"}, follow_redirects=False)
@@ -158,9 +167,9 @@ def test_only_list_answers_render_rows(world):
 def test_summary_is_a_result_set_too_with_the_distribution_as_a_complete_partition(world):
     r = _route("¿Qué modelos tenemos?")
     rs = r.result
-    assert rs.capability == "summary" and rs.items == () and rs.total == N and rs.classified
-    assert sum(n for _g, _l, n in rs.aggregates) == N                                                   # nada se pierde ni se duplica
-    groups = [g for g, _l, _n in rs.aggregates]
+    assert rs.capability == "summary" and rs.items == () and rs.total == N and rs.catalog.classified
+    assert sum(n for _g, _l, n in rs.catalog.aggregates) == N                                                   # nada se pierde ni se duplica
+    groups = [g for g, _l, _n in rs.catalog.aggregates]
     assert groups[-1] == dcs.UNCLASSIFIED and groups.index("SALES") < groups.index(dcs.UNCLASSIFIED)    # lo no clasificado, al final y rotulado como tal
 
 
@@ -173,7 +182,7 @@ def test_the_order_is_deterministic_and_independent_of_load_order(world):
 def test_when_the_classification_cannot_be_read_rows_still_open_and_say_nothing_about_a_line(world, monkeypatch):
     monkeypatch.setattr(caps, "governed_read", lambda flows: None)
     page = _chat("¿Qué tiene Pampa?")
-    assert len(ROW.findall(page)) == 15 - 5 and "Sin clasificar" not in page and "Cadena de suministro" not in page
+    assert len(_rows(page)) == 15 - 5 and "Sin clasificar" not in page and "Cadena de suministro" not in page
 
 
 def test_the_row_css_keeps_one_column_wrapping_and_a_visible_keyboard_focus():

@@ -1,4 +1,4 @@
-"""Capacidades de consulta estructurada del asistente sobre el Catálogo (paso 1: contrato de resultados + ejecución del inventario).
+"""Capacidades de consulta estructurada del asistente: contrato TRANSVERSAL de resultados navegables + ejecución del inventario del Catálogo (su primera familia de recursos).
 
 El asistente RESUME, ayuda a acotar y lleva al Catálogo; la consulta (qué entradas, en qué orden, con qué clasificación) se ejecuta acá, de forma determinista y SOLO con los contratos
 gobernados existentes, y devuelve un ``ResultSet`` independiente del render. El texto de la respuesta y las filas del chat se construyen aparte (``assistant_navigation`` y la plantilla
@@ -13,33 +13,94 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
+from webapp.safe_redirect import safe_internal_next
 from webapp.services import catalog_navigation
 from webapp.services import domain_classification_service as dcs
 
 log = logging.getLogger("danwor.assistant_capabilities")
 
 
+# ── Contrato transversal de resultados navegables ───────────────────────────────────────────────────────────────────────────────
+# Una fila = UNA cosa que el usuario puede abrir, de cualquier familia de recursos (entradas del Catálogo, recursos curados del Hub…). Lo UNIVERSAL es la identidad compuesta `(kind, ref)`,
+# el título, el subtítulo y la acción de navegación (`url` + `mode`). Lo propio de una familia va en un bloque OPCIONAL compuesto (`catalog`), nunca como campo obligatorio del resto.
+# El render solo conoce lo universal: no depende de ninguna familia.
+CATALOG_ENTRY = "catalog_entry"            # entrada navegable del Catálogo (ref = entry_id)
+CURATED_RESOURCE = "curated_resource"      # recurso curado del Hub (`intent_assets`; ref = módulo + huella estable del destino)
+
+MODE_EMBED, MODE_LINK, MODE_EXTERNAL = "embed", "link", "external"
+MODES = (MODE_EMBED, MODE_LINK, MODE_EXTERNAL)
+# embed    → panel central por HTMX (mecanismo existente de las acciones del asistente); solo rutas internas.
+# link     → navegación normal en la misma pestaña a una ruta interna (cada ruta destino conserva su control de sesión).
+# external → pestaña NUEVA con rel="noopener noreferrer": URL absoluta http(s) o un recurso del pack (`/pack-resources/…`, ruta interna con sesión que se abre fuera de la página).
+EXTERNAL_INTERNAL_PREFIX = "/pack-resources/"
+
+
+def is_internal_path(url: str) -> bool:
+    """Ruta interna segura. La regla de «qué es interno» es la AUTORIDAD ÚNICA del Hub (`webapp.safe_redirect.safe_internal_next`: UNA barra, nunca «//», sin barras invertidas ni lo que el browser
+    normalizaría); acá solo se exige que la URL ya sea EXACTAMENTE su propia forma segura y que no lleve espacios ni caracteres de control. No se duplica la validación."""
+    return bool(url) and safe_internal_next(url) == url and not any(ord(c) <= 32 for c in url)
+
+
+def is_external_url(url: str) -> bool:
+    """URL absoluta http(s) con host, sin caracteres de control."""
+    parts = urlsplit(url)
+    return parts.scheme.lower() in ("http", "https") and bool(parts.netloc) and not any(ord(c) < 32 or c.isspace() for c in url)
+
+
+def valid_target(mode: str, url: str) -> bool:
+    """Un destino es válido para su modo: `embed`/`link` solo rutas internas; `external` solo URL http(s) o recursos del pack."""
+    if mode in (MODE_EMBED, MODE_LINK):
+        return is_internal_path(url)
+    if mode == MODE_EXTERNAL:
+        return is_external_url(url) or (is_internal_path(url) and url.startswith(EXTERNAL_INTERNAL_PREFIX))
+    return False
+
+
+@dataclass(frozen=True)
+class CatalogAttrs:
+    """Atributos propios de una entrada del Catálogo (no existen en otras familias)."""
+    client: str
+    lob_label: str          # línea de negocio EFECTIVA («Sin clasificar» / «Clasificación no disponible» incluidos); "" si la clasificación no se pudo leer
+    lob_source: str         # MANUAL | AUTOMATIC | UNCLASSIFIED | UNAVAILABLE | "" (clasificación no leída)
+
+
 @dataclass(frozen=True)
 class ResultItem:
-    """Una entrada navegable del Catálogo, lista para una fila compacta del chat."""
-    ref: str                # ``entry_id`` real: única identidad de la entrada
-    title: str              # título legible del modelo (el MISMO resolver que el encabezado del detalle); nunca el rótulo de dominio legado
-    client: str
-    lob_label: str          # línea de negocio EFECTIVA («Sin clasificar» / «Clasificación no disponible» incluidos)
-    lob_source: str         # MANUAL | AUTOMATIC | UNCLASSIFIED | UNAVAILABLE | "" (clasificación no leída)
-    url: str                # detalle de la entrada (``presenter.flow_url``)
-    mode: str = "embed"     # cómo se abre: «embed» = panel central por HTMX (mismo mecanismo que las acciones del asistente)
+    kind: str               # familia del recurso (CATALOG_ENTRY, CURATED_RESOURCE…)
+    ref: str                # identidad estable DENTRO de la familia; la identidad global es `(kind, ref)`
+    title: str              # título legible
+    subtitle: str = ""      # línea secundaria legible (p. ej. «cliente · línea de negocio» o el módulo de origen)
+    url: str = ""           # destino: SIEMPRE sale de la identidad real del recurso, nunca del texto de la consulta
+    mode: str = MODE_EMBED
+    catalog: CatalogAttrs | None = None     # solo en entradas del Catálogo
+
+    def __post_init__(self):
+        if not self.kind or not self.ref:
+            raise ValueError("un resultado necesita kind y ref")
+        if not valid_target(self.mode, self.url):
+            raise ValueError(f"destino inválido para el modo {self.mode!r}")
+
+    @property
+    def key(self) -> tuple[str, str]:
+        return (self.kind, self.ref)
+
+
+@dataclass(frozen=True)
+class CatalogSummary:
+    """Resumen propio de consultas sobre el Catálogo (distribución por clasificación)."""
+    aggregates: tuple[tuple[str, str, int], ...] = ()    # (grupo, rótulo, n): distribución por línea de negocio EFECTIVA; es pertenencia, no un ranking
+    classified: bool = True                              # False si la clasificación efectiva no se pudo leer (jamás se reemplaza por una supuesta)
 
 
 @dataclass(frozen=True)
 class ResultSet:
-    capability: str                                          # "summary" | "list"
-    total: int                                               # entradas del universo tras los filtros
-    items: tuple[ResultItem, ...] = ()                       # ya acotado (≤ MAX_LIST); vacío en el resumen
-    aggregates: tuple[tuple[str, str, int], ...] = ()        # (grupo, rótulo, n): distribución por línea de negocio EFECTIVA; es pertenencia, no un ranking
-    classified: bool = True                                  # False si la clasificación efectiva no se pudo leer (jamás se reemplaza por una supuesta)
-    footer: str = ""                                         # nota en texto plano bajo las filas
+    capability: str                                      # "summary" | "list"
+    total: int                                           # elementos del universo tras los filtros
+    items: tuple[ResultItem, ...] = ()                   # ya acotado; vacío en un resumen
+    footer: str = ""                                     # nota en texto plano bajo las filas
+    catalog: CatalogSummary | None = None                # solo en consultas sobre el Catálogo
 
 
 @dataclass(frozen=True)
@@ -105,8 +166,9 @@ def build_items(entries: list, governed: Governed | None, pack: str) -> tuple[Re
     items = []
     for e in entries:
         lob = presenter.lob_display(governed.eff[e.entry_id]) if governed is not None else None
+        attrs = CatalogAttrs(client=str(e.cliente or ""), lob_label=lob["label"] if lob else "", lob_source=lob["source"] if lob else "")
         items.append(ResultItem(
-            ref=e.entry_id, title=_title(e, governed), client=str(e.cliente or ""),
-            lob_label=lob["label"] if lob else "", lob_source=lob["source"] if lob else "",
-            url=presenter.flow_url(e, pack)))
+            kind=CATALOG_ENTRY, ref=e.entry_id, title=_title(e, governed),
+            subtitle=" · ".join(x for x in (attrs.client, attrs.lob_label) if x),
+            url=presenter.flow_url(e, pack), mode=MODE_EMBED, catalog=attrs))
     return tuple(items)

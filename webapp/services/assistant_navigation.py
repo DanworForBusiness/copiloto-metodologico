@@ -327,16 +327,16 @@ def _inventory_result(intent: _InventoryIntent, pack: str, stem: str) -> Navigat
 
     if intent.mode == "summary":
         aggregates = caps.distribution(flows, eff, labels) if eff is not None else ()
-        result = caps.ResultSet("summary", total=len(flows), aggregates=aggregates, classified=eff is not None)
+        result = caps.ResultSet("summary", total=len(flows), catalog=caps.CatalogSummary(aggregates=aggregates, classified=eff is not None))
         lines = [f"El Catálogo contiene **{_entries(result.total)}** de **{_plural(len(clients), 'cliente')}**."]
-        if result.classified:
-            lines += ["", f"- **Por línea de negocio** (clasificación efectiva): {_distribution_text(result.aggregates)}"]
+        if result.catalog.classified:
+            lines += ["", f"- **Por línea de negocio** (clasificación efectiva): {_distribution_text(result.catalog.aggregates)}"]
         else:
             lines += ["", "- La clasificación por línea de negocio no está disponible en este momento."]
         products = len(catalog_reads._catalog_data_products_list())
         if products:
             lines.append(f"- Hay **{_plural(products, 'Data Product')}**: son otra vista del Catálogo y no se cuentan acá.")
-        top_lob = next((label for group, label, _n in result.aggregates if group not in (dcs.UNCLASSIFIED, dcs.UNAVAILABLE)), None)      # ejemplos reales: la línea con más entradas y el cliente con más entradas
+        top_lob = next((label for group, label, _n in result.catalog.aggregates if group not in (dcs.UNCLASSIFIED, dcs.UNAVAILABLE)), None)      # ejemplos reales: la línea con más entradas y el cliente con más entradas
         top_client = max(clients, key=lambda c: (len(catalog_navigation.flows_for_client(mod, entries, c)), c.lower()), default=None)
         tips = [f"«modelos de {top_lob}»" if top_lob else "", f"«qué tiene {top_client}»" if top_client else "", "«mostrame 10 modelos»"]
         lines += ["", "---", "", f"Para acotar: {_join([t for t in tips if t])}. O abrí el Catálogo para explorarlos completos."]       # «---»: el render del chat no separa párrafos por línea en blanco
@@ -362,7 +362,7 @@ def _inventory_result(intent: _InventoryIntent, pack: str, stem: str) -> Navigat
         head += f", {order_note}:" if len(ordered) > 1 else ":"
     footer = (f"Hay {len(ordered) - len(shown)} más. Para acotar, sumá un cliente o una línea de negocio, o abrí el Catálogo para explorar el resto."
               if len(ordered) > len(shown) else "")
-    result = caps.ResultSet("list", total=len(ordered), items=caps.build_items(shown, governed, pack), classified=eff is not None, footer=footer)
+    result = caps.ResultSet("list", total=len(ordered), items=caps.build_items(shown, governed, pack), footer=footer, catalog=caps.CatalogSummary(classified=eff is not None))
     return NavigationResult(head, tuple(actions), result)
 
 
