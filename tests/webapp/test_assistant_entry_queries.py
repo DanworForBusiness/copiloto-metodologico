@@ -271,3 +271,11 @@ def test_an_individual_question_never_reads_a_value_from_another_entry(world):
         seen[key] = r.text
     assert len(set(seen.values())) == len(seen)
     assert "95.0%" in seen["dd"] and "95.0%" not in "".join(t for k, t in seen.items() if k != "dd")
+
+
+@pytest.mark.parametrize("question", [
+    "¿Cuántos modelos como Delivery Document tienen casos a revisar?", "¿Qué modelos se parecen a Sell Out en confianza de la evidencia?",
+    "Mostrame las entradas con cobertura mayor que la de Delivery Document", "¿Qué assessments tienen adopción buena, como Delivery Document?",
+])
+def test_a_set_question_that_mentions_a_model_title_is_not_an_individual_query(world, question):
+    assert nav._entry_query(question, PACK, HOST) is None, question

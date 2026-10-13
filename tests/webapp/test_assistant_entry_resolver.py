@@ -155,3 +155,11 @@ def test_entry_without_terminal_identity_has_no_title_key():
 def test_resolution_never_returns_an_identity_that_is_not_in_the_universe():
     for q in ("Sell Out", "Stock", "Delivery Document", "Reserva MP", "x"):
         assert set(ids(r(q))) <= {w.entry_id for w in WORLD}
+
+
+def test_a_domain_shared_by_several_models_never_identifies_even_outside_the_line_of_business_scope():
+    world = [_i("a", BIO, "Alfa", "AM_A", "Compras Varias"), _i("b", KEN, "Beta", "AM_B", "Compras Varias"), _i("c", BIO, "Gamma", "AM_C", "Gamma Dominio")]
+    assert resolve("la confianza de compras varias", world, CLIENTS, ()).status == NONE                  # sin línea de negocio que lo reserve: el dominio compartido igual no identifica
+    assert ids(resolve("la confianza de gamma dominio", world, CLIENTS, ())) == ["c"]                    # el propio (no compartido) sí
+    quoted = resolve("la confianza de «Compras Varias»", world, CLIENTS, ())
+    assert quoted.status == AMBIGUOUS and sorted(ids(quoted)) == ["a", "b"]
