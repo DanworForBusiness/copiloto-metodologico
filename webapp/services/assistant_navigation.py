@@ -934,7 +934,7 @@ def _need_scope(frame: query.QueryFrame, labels: dict[str, str], base: tuple) ->
                             "línea de negocio, nivel o estado, y no lee el valor de una entrada puntual (eso queda para el detalle del modelo en el Catálogo).", options + base)
 
 
-def _groups_result(group_by: str, lob: str | None, state: str | None, pack: str, stem: str) -> NavigationResult:
+def _groups_result(group_by: str, lob: str | None, state: str | None, pack: str, stem: str, client: str | None = None) -> NavigationResult:
     """Conteo AGRUPADO de entradas por cliente o por línea de negocio efectiva (cardinalidades: no se ordena por calidad ni se corona a ningún grupo). Las líneas PARTEN el alcance."""
     mod, entries = catalog_reads._catalog_entries()
     flows = catalog_navigation.browsable_flows(mod, entries) if mod else []
@@ -947,12 +947,14 @@ def _groups_result(group_by: str, lob: str | None, state: str | None, pack: str,
     if governed is None:
         return NavigationResult("No pude leer la clasificación ni los estados en este momento, así que no cuento por grupo para no darte un dato incorrecto. Probá de nuevo en unos segundos o abrí el Catálogo.", actions)
     scope = flows
+    if client:
+        scope = catalog_navigation.flows_for_client(mod, entries, client)
     if lob:
         scope = [e for e in scope if governed.eff[e.entry_id]["group"] == lob]
     if state:
         scope = _by_state(scope, state, governed, pack)
-    where = _where_text(None, lob, labels, state)
-    spec = qctx.QuerySpec("groups", None, lob, state=state, group_by=group_by, count=True)
+    where = _where_text(client, lob, labels, state)
+    spec = qctx.QuerySpec("groups", client, lob, state=state, group_by=group_by, count=True)
     if not scope:
         return NavigationResult(f"Ninguna entrada {where} (de {len(flows)} entradas navegables).", actions, state=qctx.QueryDraft(spec))
     if group_by == "client":
@@ -964,7 +966,7 @@ def _groups_result(group_by: str, lob: str | None, state: str | None, pack: str,
     else:
         aggregates = caps.distribution(scope, governed.eff, labels)
         title, what = "por línea de negocio", "Entradas navegables por línea de negocio (clasificación efectiva)"
-    fp = qctx.fingerprint(("groups", group_by, lob, state), [(caps.CATALOG_ENTRY, e.entry_id, e.cliente, governed.eff[e.entry_id]["group"]) for e in caps.order_entries_neutral(scope)])
+    fp = qctx.fingerprint(("groups", group_by, client, lob, state), [(caps.CATALOG_ENTRY, e.entry_id, e.cliente, governed.eff[e.entry_id]["group"]) for e in caps.order_entries_neutral(scope)])
     result = caps.ResultSet("summary", total=len(scope), catalog=caps.CatalogSummary(aggregates=aggregates, classified=True), fingerprint=fp)
     text = f"**{what}** {where} ({_entries(len(scope))}): {_distribution_text(aggregates)}"
     return NavigationResult(text, actions, result, state=qctx.QueryDraft(spec, (), fp))
@@ -1008,6 +1010,7 @@ _FU_NOUNS = {"modelos", "modelo", "entradas", "entrada", "resultados", "resultad
 _FU_PAGE_LEAD = r"(?:(?:y|mostrame|muestrame|mostra|ver|dame|pasame|quiero ver|los|las|unos|el|la)\s+)*"
 _FU_NEXT = re.compile(rf"^{_FU_PAGE_LEAD}(?:pagina\s+)?(?:siguientes?|proxim[oa]s?|mas)(?:\s+(?:resultados|entradas|modelos|paginas?))?$")
 _FU_PREV = re.compile(rf"^{_FU_PAGE_LEAD}(?:pagina\s+)?(?:anteriores|anterior|previos|previas)(?:\s+(?:resultados|entradas|modelos|paginas?))?$")
+_FU_COUNT = re.compile(r"^(?:y\s+)?(?:cuantos|cuantas)(?:\s+(?:son|hay|resultados|entradas|modelos))?$")                  # «¿cuántos son?»: la cantidad de la consulta vigente (D-4)
 _FU_RESET = re.compile(r"^(?:(?:y|quiero|podemos|vamos a)\s+)?(?:empezar|empeza|empecemos|comenzar|comenza|arrancar|arranca|reiniciar|reinicia)\s+(?:de\s+)?(?:nuevo|cero)$"
                        r"|^(?:una\s+)?nueva\s+consulta$|^(?:olvida|olvidate de|borra|borrar)\s+(?:lo anterior|el contexto|todo)$|^desde cero$")
 _ORDINALS = {"primero": 1, "primer": 1, "primera": 1, "segundo": 2, "segunda": 2, "tercero": 3, "tercer": 3, "tercera": 3, "cuarto": 4, "cuarta": 4, "quinto": 5, "quinta": 5, "sexto": 6, "sexta": 6,
@@ -1030,6 +1033,9 @@ class _Follow:
     inds: tuple[str, ...] = ()
     order: str = indicators.BEST_FIRST
     clarify_direction: bool = False
+    levels: tuple[tuple[str, str], ...] = ()      # (indicador dueño, nivel) nombrados junto a su indicador
+    states: tuple[str, ...] = ()                  # conceptos de estado nombrados
+    count: bool = False                           # change: pidió una cantidad · op «count»: «¿cuántos son?»
 
 
 def _direction(q: str, ind) -> tuple[str, bool]:
@@ -1051,6 +1057,8 @@ def _direction(q: str, ind) -> tuple[str, bool]:
 def _followup_intent(question: str, clients: list[str], live: bool) -> _Follow | None:
     t = re.sub(r"\s+", " ", re.sub(r"[¿?¡!.,;:]", " ", norm_text(question))).strip()
     words = t.split()
+    if t and _FU_COUNT.match(t):
+        return _Follow("count")
     if not t or len(words) > 9 or words[0] in _FU_INTERROGATIVES:
         return None                                                          # un seguimiento es corto y no es una pregunta nueva
     if _FU_RESET.match(t):
@@ -1068,9 +1076,12 @@ def _followup_intent(question: str, clients: list[str], live: bool) -> _Follow |
     hit_clients = [c for c in clients if _word(c, padded)]
     lobs = _lobs_named(t)
     inds = indicators.indicators_named(t)
-    if not (hit_clients or lobs or inds):
+    frame = query.parse(t)
+    if frame.ops or frame.group_by or (frame.levels and not frame.indicators):
+        return None                                                          # operación no soportada, agrupación o nivel SIN su indicador: no es un seguimiento de filtro (el nivel solo vale junto a su indicador)
+    if not (hit_clients or lobs or inds or frame.states):
         return None
-    rest = f" {t} "
+    rest = f" {frame.masked} "                                               # el texto sin estados, niveles, cantidad ni nombres de indicador (vocabulario derivado de los contratos)
     for c in hit_clients:
         rest = re.sub(rf"(?<![a-z0-9]){re.escape(norm_text(c))}(?![a-z0-9])", " ", rest)
     for o in dcs.lob_options():
@@ -1090,7 +1101,7 @@ def _followup_intent(question: str, clients: list[str], live: bool) -> _Follow |
         return None                                                          # sin contexto y sin marca de continuación, una entidad suelta no se interpreta como seguimiento
     ind = indicators.BY_ID[inds[0]] if len(inds) == 1 else None
     order, clarify = _direction(t, ind)
-    return _Follow("change", clients=tuple(hit_clients), lobs=tuple(lobs), inds=tuple(inds), order=order, clarify_direction=clarify)
+    return _Follow("change", clients=tuple(hit_clients), lobs=tuple(lobs), inds=tuple(inds), order=order, clarify_direction=clarify, levels=frame.levels, states=frame.states, count=frame.count)
 
 
 def _no_context(expired: bool) -> NavigationResult:
@@ -1109,7 +1120,7 @@ def _run_spec(spec: qctx.QuerySpec, pack: str, stem: str) -> NavigationResult:
     if spec.capability == "states":
         return _states_result(spec.client, spec.lob, pack, stem)
     if spec.capability == "groups":
-        return _groups_result(spec.group_by or "client", spec.lob, spec.state, pack, stem)
+        return _groups_result(spec.group_by or "client", spec.lob, spec.state, pack, stem, spec.client)
     if spec.capability == "rank":
         return _ranking_result(_RankIntent("rank", spec.indicator, spec.order, lob=spec.lob, client=spec.client, limit=spec.limit, offset=spec.offset,
                                            levels=spec.levels, state=spec.state, count=spec.count), pack, stem)
@@ -1187,21 +1198,44 @@ def _followup_change(f: _Follow, st: qctx.QueryState, pack: str, stem: str) -> N
         return NavigationResult("Nombraste más de un cliente o más de una línea de negocio. Pedime un solo cliente y una sola línea de negocio por vez.", (), keep_state=True)
     client = f.clients[0] if f.clients else spec.client
     lob = f.lobs[0] if f.lobs else spec.lob
+    labels = caps.lob_labels()
+    if len(f.states) > 1:
+        return dataclasses.replace(_states_clarification(query.QueryFrame(states=f.states), client, lob, labels), keep_state=True)
+    state = f.states[0] if f.states else spec.state                                                 # el estado pertenece al ALCANCE: se conserva salvo que se pida otro
+    count = spec.count or f.count
     if len(f.inds) > 1:
-        return _ranking_result(_RankIntent("multi", candidates=f.inds, client=client, lob=lob), pack, stem)
+        level_map = tuple((i, tuple(lv for owner, lv in f.levels if owner == i)) for i in f.inds if any(owner == i for owner, _lv in f.levels))
+        return _ranking_result(_RankIntent("multi", candidates=f.inds, client=client, lob=lob, state=state, level_map=level_map), pack, stem)
     if f.inds:
+        ind = indicators.BY_ID[f.inds[0]]
         if f.clarify_direction:
-            return _ranking_result(_RankIntent("clarify_direction", indicator=f.inds[0], client=client, lob=lob, quality_words=True), pack, stem)
-        new = qctx.QuerySpec("rank", client, lob, f.inds[0], f.order, spec.limit, 0, state=spec.state)
+            return _ranking_result(_RankIntent("clarify_direction", indicator=ind.id, client=client, lob=lob, quality_words=True), pack, stem)
+        if any(owner != ind.id for owner, _lv in f.levels) or (f.levels and not ind.levels):          # un nivel que el indicador no tiene: se aclara, nunca se ignora
+            frame = query.QueryFrame(indicators=f.inds, levels=f.levels)
+            return dataclasses.replace(_levels_clarification(ind, frame, client, lob, labels, ()), keep_state=True)
+        levels = tuple(lv for lv in ind.levels if any(owner == ind.id and lv == l2 for owner, l2 in f.levels))      # los niveles pedidos AHORA; los del indicador anterior NO sobreviven al cambio de indicador
+        new = qctx.QuerySpec("rank", client, lob, ind.id, f.order, spec.limit, 0, levels=levels, state=state, count=count)
     else:
         capability = "list" if spec.capability == "summary" else spec.capability                 # un filtro sobre el resumen es un listado filtrado
-        new = dataclasses.replace(spec, capability=capability, client=client, lob=lob, offset=0)
+        if capability == "states" and f.states:
+            capability = "list"                                                                  # «¿y los desactualizados?» tras la distribución: el listado de ese estado
+        new = dataclasses.replace(spec, capability=capability, client=client, lob=lob, state=state, offset=0, count=count)
     return _run_spec(new, pack, stem)
+
+
+def _followup_count(st: qctx.QueryState, pack: str, stem: str) -> NavigationResult:
+    """«¿Cuántos son?»: la MISMA consulta vigente, recalculada con datos vigentes, con el encabezado que contesta el número primero (D-4)."""
+    spec = st.spec
+    if spec.capability == "pending":
+        pending = _run_spec(spec, pack, stem)
+        return dataclasses.replace(pending, message="Todavía no hay una lista para contar: primero elegí una métrica. " + pending.message, keep_state=True)
+    return _run_spec(dataclasses.replace(spec, count=True, offset=0), pack, stem)
 
 
 def _catalog_followup(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
     words = norm_text(question).strip().split()
-    if not words or len(words) > 9 or words[0].strip("¿¡") in _FU_INTERROGATIVES:
+    is_count = bool(_FU_COUNT.match(re.sub(r"\s+", " ", re.sub(r"[¿?¡!.,;:]", " ", norm_text(question))).strip()))
+    if not words or len(words) > 9 or (words[0].strip("¿¡") in _FU_INTERROGATIVES and not is_count):
         return None                                                          # compuerta barata: la mayoría de las preguntas no son seguimientos y no pagan la carga del Catálogo
     ctx = ctx or qctx.QueryContext(None, "", 0.0)
     status = ctx.status()
@@ -1213,7 +1247,8 @@ def _catalog_followup(question: str, pack: str, stem: str = "", ctx: qctx.QueryC
     if f.op == "reset":
         return NavigationResult("Listo, empezamos de nuevo: no conservo la consulta anterior. " + _FU_HELP, (_ask("Ver el resumen del Catálogo", "¿Qué modelos tenemos?"), _ask("Elegir una métrica", "¿Qué entradas tienen mejor scoring?")))
     if status != qctx.LIVE:
-        if f.op == "change" and (_ranking_intent(question, clients) is not None or _inventory_intent(question, clients) is not None):
+        if f.op == "change" and (_ranking_intent(question, clients) is not None or _inventory_intent(question, clients) is not None
+                                 or ((f.states or f.levels) and (f.clients or f.lobs))):
             return None                                                      # trae su propia consulta completa: la resuelve el destino directo
         return _no_context(expired=status == qctx.EXPIRED)
     st = ctx.state
@@ -1222,6 +1257,8 @@ def _catalog_followup(question: str, pack: str, stem: str = "", ctx: qctx.QueryC
             return _followup_page(f, st, pack, stem)
         if f.op == "ref":
             return _followup_reference(f, st, pack, stem)
+        if f.op == "count":
+            return _followup_count(st, pack, stem)
         return _followup_change(f, st, pack, stem)
     except Exception:  # noqa: BLE001 — un seguimiento RECONOCIDO nunca cae en silencio al LLM libre: si falla la ejecución, se dice
         log.exception("seguimiento del asistente: falló la ejecución de %s", f.op)

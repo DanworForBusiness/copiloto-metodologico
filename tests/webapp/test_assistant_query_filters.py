@@ -851,3 +851,142 @@ def test_mutation_the_missing_scope_declaration_removed_is_detected(world, monke
     monkeypatch.setattr(nav, "_need_scope", lambda frame, labels, base: None)
     after = Chat().ask("¿Qué casos a revisar tiene Delivery Document?")
     assert "no pude ubicar un cliente" not in after.text
+
+
+# ══ 11. SEGUIMIENTOS (4A.4): niveles, estados y «¿cuántos son?» sobre el contexto vigente ═══════════════════════════════════════════════════════
+ALL_CONFIDENCE = {"HIGH", "MEDIUM", "LOW"}
+
+
+def test_a_client_follow_up_keeps_the_levels_of_the_previous_query(world):
+    chat = Chat()
+    chat.ask("modelos de Kensing con adopción buena")
+    r = chat.ask("¿Y los de Pampa?")
+    expected = levels_oracle(world, "adoption", {"BUENA"}, client="Pampa")
+    assert head_count(r) == len(expected.ids) and r.refs == expected.ids[:10] and "«Buena»" in r.text
+    assert chat.state.spec.levels == ("BUENA",) and chat.state.spec.client == "Pampa"
+
+
+def test_changing_the_indicator_drops_the_levels_that_belonged_to_the_previous_one(world):
+    chat = Chat()
+    chat.ask("modelos con adopción buena")
+    r = chat.ask("¿Y por confianza?")
+    expected = levels_oracle(world, "confidence", ALL_CONFIDENCE)
+    assert chat.state.spec.indicator == "confidence" and chat.state.spec.levels == ()                         # los niveles de adopción NO sobreviven
+    assert "«Buena»" not in r.text and "Confianza de la evidencia" in r.text
+    assert r.refs == expected.ids[:10]
+
+
+def test_changing_the_indicator_and_asking_a_level_at_once_applies_the_new_level(world):
+    chat = Chat()
+    chat.ask("modelos con adopción buena")
+    r = chat.ask("¿Y con confianza alta?")
+    expected = levels_oracle(world, "confidence", {"HIGH"})
+    assert head_count(r) == len(expected.ids) and r.refs == expected.ids[:10]
+    assert (chat.state.spec.indicator, chat.state.spec.levels) == ("confidence", ("HIGH",))
+    assert chat.ask("Abrí el primero").refs == [expected.ids[0]]                                              # la referencia sigue el listado filtrado
+
+
+def test_a_state_follow_up_replaces_the_state_and_keeps_the_scope(world):
+    chat = Chat()
+    chat.ask("modelos desactualizados")
+    r = chat.ask("¿Y los de Pampa?")
+    assert r.refs == states_oracle(world, {S_STALE}, client="Pampa").ids[:10] and head_count(r) == len(states_oracle(world, {S_STALE}, client="Pampa").ids)
+    r2 = chat.ask("¿Y los vigentes?")
+    expected = states_oracle(world, {S_CURRENT}, client="Pampa")
+    assert head_count(r2) == len(expected.ids) and r2.refs == expected.ids[:10]
+    assert (chat.state.spec.client, chat.state.spec.state) == ("Pampa", aq.CURRENT_ID)
+
+
+def test_a_state_follow_up_over_an_inventory_list_filters_that_list(world):
+    chat = Chat()
+    chat.ask("modelos de Pampa")
+    r = chat.ask("¿Y los desactualizados?")
+    expected = states_oracle(world, {S_STALE}, client="Pampa")
+    assert head_count(r) == len(expected.ids) and r.refs == expected.ids[:10] and "Pampa" in r.text
+
+
+def test_the_state_survives_a_change_of_indicator(world):
+    chat = Chat()
+    chat.ask("modelos desactualizados")
+    r = chat.ask("¿Y por consistencia de tipos?")
+    stale = [(e, spec4(world.index[e.entry_id])) for e, s in _scope(world) if s["state"] == S_STALE]
+    ranked = sorted(((e, s) for e, s in stale if s["score"] is not None and s["version"]), key=lambda p: (-p[1]["score"], p[0].cliente.lower(), p[0].dominio.lower(), p[0].entry_id))
+    assert chat.state.spec.state == aq.STALE_ID and chat.state.spec.indicator == "types"
+    assert r.refs == [e.entry_id for e, _s in ranked][:10] and "Assessment desactualizado" in r.text
+
+
+def test_the_state_distribution_follow_ups_filter_then_list(world):
+    chat = Chat()
+    chat.ask("Resumime el estado de los assessments")
+    d = chat.ask("¿Y los de Pampa?")
+    assert "Pampa" in d.text and "Estado de los assessments" in d.text and not d.rows
+    listing = chat.ask("Solo los desactualizados")
+    expected = states_oracle(world, {S_STALE}, client="Pampa")
+    assert head_count(listing) == len(expected.ids) and listing.refs == expected.ids[:10]
+
+
+def test_how_many_are_they_answers_the_number_of_the_current_query(world):
+    chat = Chat()
+    chat.ask("modelos desactualizados")
+    n = len(states_oracle(world, {S_STALE}).ids)
+    for phrase in ("¿Cuántos son?", "¿Y cuántos?"):
+        r = chat.ask(phrase)
+        assert r.text.startswith(f"Son {n} entradas navegables") and r.refs == states_oracle(world, {S_STALE}).ids[:10], phrase
+    assert chat.state.spec.count is True and chat.state.spec.state == aq.STALE_ID
+
+
+def test_how_many_are_they_works_over_a_level_query_and_keeps_the_filter(world):
+    chat = Chat()
+    chat.ask("modelos con adopción buena")
+    r = chat.ask("¿Cuántos son?")
+    expected = levels_oracle(world, "adoption", {"BUENA"})
+    assert r.text.startswith(f"Son {len(expected.ids)} entradas navegables") and "«Buena»" in r.text
+
+
+def test_how_many_are_they_without_a_live_context_is_a_deterministic_clarification(world):
+    for phrase in ("¿Cuántos son?", "¿Y cuántos?"):
+        r = Chat().ask(phrase)
+        assert "No tengo una consulta previa vigente" in r.text and not r.rows and not r.llm and r.asks, phrase
+
+
+def test_a_follow_up_with_a_level_the_new_indicator_does_not_have_is_clarified_and_keeps_the_context(world):
+    chat = Chat()
+    chat.ask("modelos con adopción buena")
+    r = chat.ask("¿Y con confianza buena?")
+    assert "No reconozco ese nivel para Confianza de la evidencia" in r.text and not r.rows and not r.llm
+    assert (chat.state.spec.indicator, chat.state.spec.levels) == ("adoption", ("BUENA",))                    # el contexto sigue intacto
+
+
+def test_a_level_without_its_indicator_and_an_unsupported_operation_are_not_filter_follow_ups(world):
+    assert nav._followup_intent("¿Y las buenas?", CLIENTS, True) is None
+    assert nav._followup_intent("¿Y el promedio?", CLIENTS, True) is None
+    assert nav._followup_intent("¿Y por cliente?", CLIENTS, True) is None
+
+
+def test_a_complete_query_with_a_state_and_a_client_needs_no_context(world):
+    r = Chat().ask("¿Y los de Pampa desactualizados?")
+    expected = states_oracle(world, {S_STALE}, client="Pampa")
+    assert "No tengo una consulta previa vigente" not in r.text and head_count(r) == len(expected.ids)
+
+
+def test_a_grouped_count_follow_up_by_client_stays_a_grouped_count_inside_that_client(world):
+    chat = Chat()
+    chat.ask("¿Cuántos modelos hay por línea de negocio?")
+    r = chat.ask("¿Y los de Pampa?")
+    expected = {"Ventas": 0, "Finanzas": 0, "Sin clasificar": 0}
+    for _e, s in _scope(world, "Pampa"):
+        expected[{"SALES": "Ventas", "FINANCE": "Finanzas", None: "Sin clasificar"}[s["lob"]]] += 1
+    assert _group_counts(r.text, expected) == {k: v for k, v in expected.items() if v} and "Pampa" in r.text and not r.rows
+    assert chat.state.spec.capability == "groups" and chat.state.spec.client == "Pampa"
+
+
+def test_the_context_after_follow_ups_still_holds_only_parameters_and_identities(world):
+    chat = Chat()
+    chat.ask("modelos con adopción buena")
+    chat.ask("¿Y los de Pampa?")
+    chat.ask("¿Y con confianza alta?")
+    chat.ask("¿Y los desactualizados?")
+    spec = chat.state.spec
+    assert (spec.capability, spec.indicator, spec.levels, spec.state, spec.client) == ("rank", "confidence", ("HIGH",), aq.STALE_ID, "Pampa")
+    dumped = repr(chat.state)
+    assert "Alta" not in dumped and "http" not in dumped and "/catalog/" not in dumped
