@@ -71,6 +71,10 @@ class FakeS3:
             raise _NotFound()
         return {"ContentLength": len(self.objects[Key])}
 
+    def list_objects_v2(self, Bucket, Prefix="", ContinuationToken=None, **_kw):
+        self._tick("list_objects_v2", Prefix)
+        return {"Contents": [{"Key": k, "Size": len(v)} for k, v in sorted(self.objects.items()) if k.startswith(Prefix)], "IsTruncated": False}
+
     def copy_object(self, Bucket, Key, CopySource):
         self._tick("copy_object", Key)
         self.objects[Key] = self.objects[CopySource["Key"]]
@@ -322,7 +326,7 @@ def test_the_preflight_writes_nothing_locally_nor_in_spaces(world):
     remote_before = dict(world.s3.objects)
     apis.build_plan(TOKEN)
     assert tree_hash(world.root) == before and world.s3.objects == remote_before
-    assert world.s3.mutations() == [] and all(op == "head_object" for op, _k in world.s3.ops)         # solo lecturas de existencia
+    assert world.s3.mutations() == [] and all(op in ("head_object", "list_objects_v2") for op, _k in world.s3.ops)         # solo lecturas de existencia
     assert world.graph.downloaded == []                                                               # y ninguna descarga de contenido
 
 
@@ -457,7 +461,7 @@ def test_a_failed_put_triggers_a_verified_rollback_that_restores_spaces_and_loca
     world.s3.fail_if = lambda op, key, n: op == "upload_file" and n == 3
     outcome = apis.apply(TOKEN, plan.plan_id, apis.CONFIRM_PHRASE)
     assert outcome.state == "rolled_back" and outcome.rollback_verified is True
-    assert any("PUBLICACIÓN INCOMPLETA" in l for l in outcome.lines) and any("Rollback VERIFICADO" in l for l in outcome.lines)
+    assert any("PUBLICACIÓN INCOMPLETA" in l for l in outcome.lines) and any("verificado por hash" in l and "no es una verificación global" in l for l in outcome.lines)
     _assert_fully_restored(world, local_before, remote_before)
 
 
@@ -522,7 +526,7 @@ def test_a_new_key_that_appears_in_spaces_during_the_sync_is_never_overwritten_n
     intruder = key_of("APIs/D.md")
     world.s3.after = lambda op, key: world.s3.objects.__setitem__(intruder, b"de otro proceso") if op == "copy_object" and intruder not in world.s3.objects else None
     outcome = apis.apply(TOKEN, plan.plan_id, apis.CONFIRM_PHRASE)
-    assert outcome.state in ("rolled_back", "incomplete") and "ya existe" in " ".join(outcome.lines)
+    assert outcome.state in ("rolled_back", "incomplete") and "contenido DISTINTO" in " ".join(outcome.lines)
     assert world.s3.objects[intruder] == b"de otro proceso"                                              # ni pisada ni borrada por el rollback
     assert [1 for op, _k in world.s3.ops if op == "upload_file"] == []
 

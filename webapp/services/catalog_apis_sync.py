@@ -80,6 +80,7 @@ class Plan:
     absent_cache: list[str] = field(default_factory=list)         # entradas del manifest de descargas del subárbol que el origen ya no tiene: se conservan
     keys: list[PlannedKey] = field(default_factory=list)
     remote_checked: bool = False
+    scope_keys: set[str] = field(default_factory=set)             # claves que existían en Spaces dentro del alcance al armar el plan (informativo: base para detectar objetos ajenos; NO entra al plan_id)
     errors: list[str] = field(default_factory=list)
     plan_id: str = ""
     root_folders: list[str] = field(default_factory=list)
@@ -227,6 +228,7 @@ def build_plan(graph_token: str) -> Plan:
         for k in plan.keys:
             k.remote = _head(k.key)
         plan.remote_checked = True
+        plan.scope_keys = _scope_listing(plan.folder) or set()
     plan.plan_id = _plan_id(plan)
     return plan
 
@@ -338,6 +340,8 @@ def apply(graph_token: str, plan_id: str, confirm: str) -> Outcome:
         return Outcome("aborted", ["No se aplicó nada: ya hay una regeneración o sincronización en curso. Esperá unos segundos y volvé a intentar."])
     try:
         with remote_store.hold_publication(("catalog_local",)) as hold:          # el ciclo periódico no publica nada de catalog_local mientras dura
+            if not hold.exclusive:                                               # un ciclo de mirror_up sigue publicando catalog_local: nada se modifica hasta que termine
+                return Outcome("aborted", ["No se aplicó nada: hay una publicación periódica en curso sobre catalog_local que no terminó a tiempo. No se modificó ningún archivo; reintentá en unos minutos."])
             outcome = _apply_locked(graph_token, plan_id)
             if outcome.state == "incomplete":
                 hold.fail()                                                      # lo no confirmado queda retenido del ciclo periódico (misma garantía que la regeneración)
@@ -420,10 +424,58 @@ def _remote_bytes(path: Path) -> bytes | None:
     return remote_store.read_object_bytes(path)
 
 
+def _scope_listing(folder: str) -> set[str] | None:
+    """Claves que hoy existen en Spaces dentro del alcance de este modo (``APIs/`` y el subárbol de la carpeta en la caché). Solo lectura; None si no se pudo listar."""
+    try:
+        keys: set[str] = set()
+        for prefix in (_remote_key("catalog_local/APIs/"), _remote_key(f"catalog_local/.csn_cache/{folder}/")):
+            token = None
+            while True:
+                kwargs = {"Bucket": config.SPACES_BUCKET, "Prefix": prefix}
+                if token:
+                    kwargs["ContinuationToken"] = token
+                page = _client().list_objects_v2(**kwargs)
+                keys |= {o["Key"] for o in page.get("Contents", []) or []}
+                if not page.get("IsTruncated"):
+                    break
+                token = page.get("NextContinuationToken")
+        return keys
+    except Exception:  # noqa: BLE001 — informativo: sin listado no se afirma nada sobre objetos ajenos
+        return None
+
+
+def _foreign_lines(plan: Plan, journal: dict) -> list[str]:
+    """Objetos del subárbol que aparecieron en Spaces durante la operación y NO figuran en el journal (posible publicación de otro productor): se informan, nunca se tocan."""
+    if not plan.scope_keys or not plan.folder:
+        return []
+    now = _scope_listing(plan.folder)
+    if now is None:
+        return ["No se pudo listar el subárbol de APIs en Spaces al terminar: no se puede informar si otro productor publicó objetos durante la operación."]
+    foreign = sorted(k for k in now - plan.scope_keys if k not in {e["key"] for e in journal["keys"]})
+    if not foreign:
+        return []
+    shown = ", ".join(k.rsplit("/", 1)[-1] for k in foreign[:10]) + (f" y {len(foreign) - 10} más" if len(foreign) > 10 else "")
+    return [f"Aparecieron {len(foreign)} objeto(s) del subárbol de APIs en Spaces durante la operación y NO figuran en el journal (posible publicación de otro productor, p. ej. el ciclo periódico): {shown}. "
+            "No se modificaron ni se revierten."]
+
+
+def _preexisting_lines(journal: dict) -> list[str]:
+    pre = [e for e in journal["keys"] if e["state"] == "preexisting"]
+    return ([f"{len(pre)} clave(s) del plan ya estaban en Spaces con contenido IDÉNTICO al esperado (publicadas por otro productor, p. ej. el ciclo periódico): no se volvieron a escribir, no son "
+             "creaciones de esta operación y ningún rollback las toca."] if pre else [])
+
+
 def _publish(todo: list[PlannedKey], snap: dict[str, bytes], out: Path, cache: Path, plan: Plan, gen, lines: list[str], known: set[str]) -> Outcome:
     jid = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     bucket = config.SPACES_BUCKET
     journal = {"id": jid, "started": jid, "plan_id": plan.plan_id, "folder": plan.folder, "status": "backup", "keys": []}
+
+    def recognize_new(entry: dict, path: Path) -> str:
+        """Una clave que el plan daba por NUEVA: 'absent' (sigue ausente), 'identical' (apareció con EXACTAMENTE el contenido esperado: la publicó otro productor) o 'different' (apareció con otro contenido)."""
+        current = _remote_bytes(path)
+        if current is None:
+            return "absent"
+        return "identical" if _sha(current) == entry["after_sha"] else "different"
 
     def fail(msg: str, *, published: bool) -> Outcome:
         journal["status"] = "failed"
@@ -433,9 +485,16 @@ def _publish(todo: list[PlannedKey], snap: dict[str, bytes], out: Path, cache: P
             _write_journal(journal)
         except Exception:  # noqa: BLE001
             log.exception("apis_only: no se pudo escribir el journal final")
+        own = [e for e in journal["keys"] if e["state"] in ("rolled_back", "rollback_failed")]          # lo que ESTA operación llegó a intentar escribir
         text = [f"PUBLICACIÓN INCOMPLETA: {msg}"]
-        text.append("Rollback VERIFICADO por hash: Spaces y el catálogo local quedaron como antes." if verified else
-                    f"El rollback NO pudo verificarse: el estado de Spaces es incierto. Journal y backups en backups/apis-sync-{jid}/ (acción «Rollback» con ese id).")
+        if not own:
+            text.append("Esta operación no escribió nada en Spaces: no hay escrituras propias que revertir. El catálogo local volvió al estado previo.")
+        elif verified:
+            text.append(f"Rollback de las {len(own)} escritura(s) propia(s) de esta operación verificado por hash (solo las claves del journal; no es una verificación global de Spaces). "
+                        "El catálogo local volvió al estado previo.")
+        else:
+            text.append(f"El rollback de las escrituras propias NO pudo verificarse: el estado de esas claves en Spaces es incierto. Journal y backups en backups/apis-sync-{jid}/ (acción «Rollback» con ese id).")
+        text += _preexisting_lines(journal) + _foreign_lines(plan, journal)
         return Outcome("rolled_back" if verified else "incomplete", lines + text, jid, sum(1 for e in journal["keys"] if e["state"] == "published"), verified)
 
     # backup previo de las claves EXISTENTES (copia en el servidor + verificación por hash) y journal recuperable ANTES del primer PUT
@@ -453,8 +512,13 @@ def _publish(todo: list[PlannedKey], snap: dict[str, bytes], out: Path, cache: P
                 _client().copy_object(Bucket=bucket, Key=entry["backup_key"], CopySource={"Bucket": bucket, "Key": k.key})
                 if _sha(_client().get_object(Bucket=bucket, Key=entry["backup_key"])["Body"].read()) != entry["before_sha"]:
                     return fail(f"el backup de {k.key} no coincide por hash con el original.", published=False)
-            elif _remote_bytes(Path(k.local)) is not None:
-                return fail(f"la clave nueva {k.key} ya existe en Spaces (cambió desde el preflight).", published=False)
+            else:
+                seen = recognize_new(entry, Path(k.local))
+                if seen == "identical":
+                    entry["state"] = "preexisting"                                # ya publicada por otro productor con el contenido esperado: ni PUT ni rollback
+                    entry["before_sha"] = entry["after_sha"]
+                elif seen == "different":
+                    return fail(f"la clave nueva {k.key} apareció en Spaces con un contenido DISTINTO al esperado (otro productor la escribió después del preflight); no se sobrescribe.", published=False)
         journal["status"] = "publishing"
         _write_journal(journal)
     except Exception as exc:  # noqa: BLE001
@@ -463,11 +527,21 @@ def _publish(todo: list[PlannedKey], snap: dict[str, bytes], out: Path, cache: P
     lines.append(f"Backup verificado de {sum(1 for e in journal['keys'] if e['existed'])} clave(s) existente(s); journal en backups/apis-sync-{jid}/journal.json.")
     for entry in journal["keys"]:
         path = Path(entry["local"])
+        if entry["state"] == "preexisting":
+            continue
         try:
             if entry["existed"]:                                                  # nadie más debe haber cambiado la clave desde el backup
                 current = _remote_bytes(path)
                 if current is None or _sha(current) != entry["before_sha"]:
                     return fail(f"la clave {entry['key']} fue modificada por otro proceso durante la sincronización.", published=True)
+            else:                                                                 # y una clave nueva no debe haber aparecido entre el chequeo y el PUT
+                seen = recognize_new(entry, path)
+                if seen == "identical":
+                    entry["state"] = "preexisting"
+                    entry["before_sha"] = entry["after_sha"]
+                    continue
+                if seen == "different":
+                    return fail(f"la clave nueva {entry['key']} apareció en Spaces con un contenido DISTINTO al esperado justo antes de publicarla; no se sobrescribe.", published=True)
             entry["state"] = "attempted"
             if not remote_store.push_path(path):
                 return fail(f"no se confirmó la publicación de {entry['key']}.", published=True)
@@ -478,14 +552,21 @@ def _publish(todo: list[PlannedKey], snap: dict[str, bytes], out: Path, cache: P
             _write_journal(journal)
         except Exception as exc:  # noqa: BLE001
             return fail(f"falló la publicación de {entry['key']} ({type(exc).__name__}: {exc}).", published=True)
+    for entry in journal["keys"]:                                                 # lo reconocido como preexistente debe seguir siendo exactamente lo esperado
+        if entry["state"] == "preexisting":
+            current = _remote_bytes(Path(entry["local"]))
+            if current is None or _sha(current) != entry["after_sha"]:
+                return fail(f"la clave {entry['key']}, reconocida como ya publicada, cambió antes de cerrar la operación.", published=True)
     journal["status"] = "complete"
     try:
         _write_journal(journal)
     except Exception as exc:  # noqa: BLE001
         return fail(f"no se pudo cerrar el journal ({type(exc).__name__}: {exc}).", published=True)
-    lines.append(f"Publicación verificada por hash: {len(todo)} clave(s) ({sum(1 for e in journal['keys'] if not e['existed'])} nueva(s), "
-                 f"{sum(1 for e in journal['keys'] if e['existed'])} existente(s) con backup); el .download_manifest se publicó al final.")
-    return Outcome("ok", lines, jid, len(todo))
+    own = [e for e in journal["keys"] if e["state"] == "published"]
+    lines.append(f"Publicación verificada por hash: {len(own)} clave(s) publicadas por esta operación ({sum(1 for e in own if not e['existed'])} nueva(s), "
+                 f"{sum(1 for e in own if e['existed'])} existente(s) con backup); el .download_manifest se publicó al final.")
+    lines += _preexisting_lines(journal) + _foreign_lines(plan, journal)
+    return Outcome("ok", lines, jid, len(own))
 
 
 def _rollback(journal: dict, snap: dict[str, bytes] | None, out: Path, cache: Path, folder: str, gen, known: set[str] | None = None) -> bool:
@@ -494,8 +575,8 @@ def _rollback(journal: dict, snap: dict[str, bytes] | None, out: Path, cache: Pa
     bucket, ok = config.SPACES_BUCKET, True
     known = set(remote_store._signatures) if known is None else known
     for entry in reversed(journal["keys"]):
-        if entry["state"] == "pending":
-            continue
+        if entry["state"] in ("pending", "preexisting"):
+            continue                                                              # nunca se intentó, o la publicó otro productor: no es una escritura propia, el rollback no la toca
         path = Path(entry["local"])
         try:
             if entry["existed"]:
@@ -552,6 +633,8 @@ def rollback(journal_id: str, confirm: str) -> Outcome:
         return Outcome("aborted", ["Ya hay una regeneración o sincronización en curso."])
     try:
         with remote_store.hold_publication(("catalog_local",)) as hold:
+            if not hold.exclusive:
+                return Outcome("aborted", ["No se hizo nada: hay una publicación periódica en curso sobre catalog_local que no terminó a tiempo. Reintentá en unos minutos."])
             try:
                 journal = json.loads(_client().get_object(Bucket=config.SPACES_BUCKET, Key=_journal_key(journal_id))["Body"].read())
             except Exception as exc:  # noqa: BLE001

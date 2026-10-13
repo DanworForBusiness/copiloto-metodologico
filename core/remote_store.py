@@ -344,32 +344,50 @@ def mirror_up() -> int:
     for name, local in _persist_dirs():
         if not local.is_dir():
             continue
-        if _held.get(name):                                    # un productor lo está regenerando con persistencia explícita: no se publican resultados a medias
-            log.info("remote_store.mirror_up: '%s' retenido durante una regeneración en curso; se omite en este ciclo.", name)
-            continue
-        root_key = _key(name)
-        for path in local.rglob("*"):
-            if not path.is_file():
+        with _hold_cv:                                         # «¿está retenido?» y «entro a publicarlo» son UN solo paso atómico: un hold no puede colarse entre ambos
+            if _held.get(name):                                # un productor lo está regenerando con persistencia explícita: no se publican resultados a medias
+                log.info("remote_store.mirror_up: '%s' retenido durante una regeneración en curso; se omite en este ciclo.", name)
                 continue
-            key = f"{root_key}/{path.relative_to(local).as_posix()}"
-            if key in _unreconciled:
-                continue
-            try:
-                sig = _sig(path)
-            except OSError:
-                continue
-            if _signatures.get(key) == sig:
-                continue
-            if _withheld.get(key) == sig:                      # resultado parcial de una regeneración fallida/incompleta, sin cambios desde entonces: no se publica
-                continue
-            try:
-                client.upload_file(str(path), bucket, key)
-                _signatures[key] = sig
-                uploaded += 1
-            except Exception as exc:
-                log.warning("remote_store.mirror_up: fallo subiendo '%s': %s", key, exc)
+            _inflight[name] = _inflight.get(name, 0) + 1       # ciclo EN VUELO sobre este directorio: un hold nuevo espera a que termine (barrera)
+        try:
+            uploaded += _mirror_dir(client, bucket, name, local)
+        finally:
+            with _hold_cv:
+                _inflight[name] = _inflight.get(name, 1) - 1
+                if _inflight[name] <= 0:
+                    _inflight.pop(name, None)
+                _hold_cv.notify_all()
     if uploaded:
         log.info("remote_store.mirror_up: %d archivos sincronizados a Spaces", uploaded)
+    return uploaded
+
+
+def _mirror_dir(client, bucket: str, name: str, local: Path) -> int:
+    uploaded = 0
+    root_key = _key(name)
+    for path in local.rglob("*"):
+        if _held.get(name):                                    # DEFENSA ADICIONAL por archivo: un hold adquirido durante el barrido detiene la publicación en el siguiente archivo
+            log.info("remote_store.mirror_up: '%s' pasó a retenido durante el barrido; se detiene en este ciclo (lo restante se publica cuando se libere).", name)
+            break
+        if not path.is_file():
+            continue
+        key = f"{root_key}/{path.relative_to(local).as_posix()}"
+        if key in _unreconciled:
+            continue
+        try:
+            sig = _sig(path)
+        except OSError:
+            continue
+        if _signatures.get(key) == sig:
+            continue
+        if _withheld.get(key) == sig:                          # resultado parcial de una regeneración fallida/incompleta, sin cambios desde entonces: no se publica
+            continue
+        try:
+            client.upload_file(str(path), bucket, key)
+            _signatures[key] = sig
+            uploaded += 1
+        except Exception as exc:
+            log.warning("remote_store.mirror_up: fallo subiendo '%s': %s", key, exc)
     return uploaded
 
 
@@ -504,6 +522,9 @@ def write_through(path: str | Path, data: str | bytes, *, encoding: str = "utf-8
 _held: dict[str, int] = {}                  # nombre de directorio persistido → regeneraciones en curso (mirror_up lo omite mientras > 0)
 _withheld: dict[str, tuple] = {}            # key → firma local retenida tras una regeneración fallida/incompleta (mirror_up no la sube mientras el archivo no cambie)
 _hold_lock = threading.Lock()
+_hold_cv = threading.Condition(_hold_lock)  # protege _held e _inflight; notifica cuando termina un ciclo de mirror_up
+_inflight: dict[str, int] = {}              # nombre de directorio persistido → ciclos de mirror_up publicándolo ahora mismo
+HOLD_WAIT_TIMEOUT = 300.0                   # tope (s) que ``hold_publication`` espera a un ciclo en vuelo; un barrido completo tras un arranque tardó ~90 s
 
 
 class PublicationHold:
@@ -513,17 +534,36 @@ class PublicationHold:
     confirmó completo, la retención se levanta. Todo en memoria: un reinicio la limpia (el restore deja Spaces como única verdad) y la siguiente regeneración completa
     también. Solo afecta a ``names``: los demás directorios y productores siguen sincronizando."""
 
-    def __init__(self, names):
+    def __init__(self, names, wait_timeout: float | None = None):
         self.names = tuple(names)
         self.failed = False
+        self.wait_timeout = HOLD_WAIT_TIMEOUT if wait_timeout is None else wait_timeout
+        self.exclusive = True                  # False si venció la espera y todavía había un ciclo de mirror_up publicando alguno de ``names``
 
     def fail(self) -> None:
         self.failed = True
 
     def __enter__(self):
-        with _hold_lock:
+        """Adquiere el hold y ESPERA (acotado) a que terminen los ciclos de ``mirror_up`` ya en vuelo sobre ``names``: los nuevos ya lo ven retenido y los en vuelo se detienen en su siguiente
+        archivo, así que la espera es corta. Si vence ``wait_timeout`` no se bloquea para siempre: ``exclusive`` queda en False y el productor decide (APIS_ONLY aborta; los demás siguen como antes)."""
+        with _hold_cv:
             for n in self.names:
                 _held[n] = _held.get(n, 0) + 1
+            try:
+                deadline = time.monotonic() + self.wait_timeout
+                while any(_inflight.get(n) for n in self.names):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        self.exclusive = False
+                        log.warning("remote_store.hold_publication: venció la espera (%.0fs) a un ciclo de mirror_up en vuelo sobre %s; el hold no es exclusivo.", self.wait_timeout, list(self.names))
+                        break
+                    _hold_cv.wait(remaining)
+            except BaseException:                                         # una interrupción durante la espera no debe dejar el directorio retenido para siempre
+                for n in self.names:
+                    _held[n] = max(0, _held.get(n, 0) - 1)
+                    if not _held[n]:
+                        _held.pop(n, None)
+                raise
         return self
 
     def __exit__(self, exc_type, exc, tb):
@@ -539,8 +579,8 @@ class PublicationHold:
         return False
 
 
-def hold_publication(names) -> PublicationHold:
-    return PublicationHold(names)
+def hold_publication(names, wait_timeout: float | None = None) -> PublicationHold:
+    return PublicationHold(names, wait_timeout)
 
 
 def _withhold_unsynced(names) -> int:
