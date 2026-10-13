@@ -679,9 +679,10 @@ class AssistantRoutingService:
                 url = (f"/catalog/flow?cliente={quote(cat_entry.cliente)}"
                        f"&dominio={quote(cat_entry.dominio)}&flow={quote(cat_entry.entry_id)}"
                        f"&pack={quote(pack_name)}")
+                # Una consulta de EXISTENCIA confirma e identifica el recurso; no le atribuye ninguna evaluación (el veredicto legado «mirada Danwor» y su ícono ya no se muestran acá,
+                # y tampoco se lo reemplaza por el Juicio vigente: eso es otra pregunta, que se resuelve con «ver assessment de …»).
                 return AssistantRoute(
-                    f"Sí — ya tenemos esto implementado: **{label}** "
-                    f"({cat_entry.icon} mirada Danwor {cat_entry.veredicto}). Miralo en el catálogo.",
+                    f"Sí — ya tenemos esto implementado: **{label}**. Miralo en el catálogo.",
                     (AssistantRouteAction("Ver en el catálogo", url, embed=True),),
                     question,
                 )
