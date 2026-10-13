@@ -65,8 +65,14 @@ def _route(question, stem=HOST):
     return assistant_routing.AssistantRoutingService().route(load_module(stem, PACK), question, PACK)
 
 
-def _bullets(route) -> list[str]:
-    return [ln for ln in route.message.splitlines() if ln.startswith("- ") and "**" in ln and " · " in ln and "Por línea" not in ln and "Data Products" not in ln]
+def _bullets(route) -> list:
+    """Filas (``ResultItem``) que el asistente muestra: el resultado ESTRUCTURADO, no el texto del mensaje (identidad real = ``entry_id``)."""
+    return list(route.result.items) if route is not None and route.result is not None else []
+
+
+def _i(item) -> int:
+    """Índice sintético de la entrada, leído de su ``entry_id`` real (``<cliente>-d<NNN>-flujo-d<NNN>``)."""
+    return int(re.search(r"-d(\d{3})-", item.ref).group(1))
 
 
 def _count(pred, n=N) -> int:
@@ -112,18 +118,19 @@ def test_an_explicit_list_is_limited_ordered_deterministically_and_explains_the_
     lines = _bullets(r)
     assert len(lines) == 10 and "Hay **120 entradas navegables**" in r.message and "Muestro 10," in r.message and "top" not in r.message.lower()
     assert "ordenados por mirada Danwor (plena → parcial) y luego por cliente y nombre" in r.message
-    assert "Hay 110 más" in r.message
-    assert lines[0].startswith("- 🟢") and all(ln.startswith("- 🟢") for ln in lines)               # primero lo de mejor mirada (plena)
-    keys = [re.search(r"\*\*(.+?)\*\*", ln).group(1).lower() for ln in lines]
-    assert keys == sorted(keys)                                                                      # y luego cliente · nombre
+    assert "Hay 110 más" in r.result.footer and "Hay 110 más" not in r.message                       # el pie va bajo las filas, no en el encabezado
+    by_id = {e.entry_id: e for e in big}
+    expected = sorted(big, key=lambda e: ({"plena": 0, "buena": 1, "parcial": 2}.get(e.veredicto, 9), e.cliente.lower(), e.dominio.lower(), [c.lower() for c in e.consumo], e.entry_id))[:10]
+    assert [it.ref for it in lines] == [e.entry_id for e in expected]                                # orden por mirada Danwor (plena primero), luego cliente · nombre, con el MISMO orden de siempre
+    assert all(by_id[it.ref].veredicto == "plena" for it in lines)                                   # primero lo de mejor mirada
     monkeypatch.setattr(catalog_reads, "_catalog_entries", lambda: (cs, list(reversed(big))))
-    assert _bullets(_route("Mostrame 10 modelos")) == lines                                           # mismo resultado con otro orden de carga
+    assert [it.ref for it in _bullets(_route("Mostrame 10 modelos"))] == [it.ref for it in lines]    # mismo resultado con otro orden de carga
 
 
 def test_the_requested_number_is_honored_up_to_the_cap(big):
     assert len(_bullets(_route("Mostrame 3 modelos"))) == 3
     r = _route("Mostrame 500 modelos")
-    assert len(_bullets(r)) == nav.MAX_LIST and f"Muestro una selección de {nav.MAX_LIST} (el máximo por respuesta)" in r.message and "abrí el Catálogo para explorar el resto" in r.message
+    assert len(_bullets(r)) == nav.MAX_LIST and f"Muestro una selección de {nav.MAX_LIST} (el máximo por respuesta)" in r.message and "abrí el Catálogo para explorar el resto" in r.result.footer
 
 
 def test_filtering_by_line_of_business_uses_only_the_effective_classification(big):
@@ -131,9 +138,9 @@ def test_filtering_by_line_of_business_uses_only_the_effective_classification(bi
     sales = _count(lambda s: s["lob"] == "SALES")
     assert f"Hay **{sales} entradas navegables** en la línea de negocio **Ventas** (clasificación efectiva)" in r.message
     listed = nav._catalog_inventory("Mostrame 500 modelos de Ventas", PACK, HOST)
-    names = re.findall(r"\*\*(\w+) · (Dominio \d{3})\*\*", listed.message)
-    assert names and all(_spec(int(d.split()[1]))["lob"] == "SALES" for _c, d in names)              # ninguno sin clasificar (ni de otra línea) bajo Ventas
-    assert not any(_spec(int(d.split()[1]))["lob"] is None for _c, d in names)
+    rows = listed.result.items
+    assert rows and all(_spec(_i(it))["lob"] == "SALES" and it.lob_label == "Ventas" for it in rows)       # ninguno sin clasificar (ni de otra línea) bajo Ventas
+    assert not any(_spec(_i(it))["lob"] is None for it in rows)
 
 
 def test_unclassified_models_are_expressed_as_such_and_never_under_a_line(big):
@@ -141,18 +148,16 @@ def test_unclassified_models_are_expressed_as_such_and_never_under_a_line(big):
     none = _count(lambda s: s["lob"] is None)
     assert f"Hay **{none} entradas navegables** **sin clasificar** (sin línea de negocio efectiva)" in r.message
     lines = _bullets(r)
-    assert lines and all(_spec(int(re.search(r"Dominio (\d{3})", ln).group(1)))["lob"] is None for ln in lines)
-    unfiltered = nav._catalog_inventory("Mostrame 500 modelos", PACK, HOST).message
-    for ln in (x for x in unfiltered.splitlines() if x.startswith("- ")):
-        spec = _spec(int(re.search(r"Dominio (\d{3})", ln).group(1)))
-        assert ("_Sin clasificar_" in ln) == (spec["lob"] is None)                                     # cada modelo muestra su clasificación efectiva real, no una supuesta
+    assert lines and all(_spec(_i(it))["lob"] is None and it.lob_label == "Sin clasificar" for it in lines)
+    for it in nav._catalog_inventory("Mostrame 500 modelos", PACK, HOST).result.items:
+        assert (it.lob_label == "Sin clasificar") == (_spec(_i(it))["lob"] is None)                    # cada entrada muestra su clasificación efectiva real, no una supuesta
 
 
 def test_a_client_filter_is_applied_first_and_offers_the_client_report(big):
     r = _route("¿Qué tiene Pampa?")
     pampa = _count(lambda s: s["cliente"] == "Pampa")
     assert f"Hay **{pampa} entradas navegables** de **Pampa**" in r.message
-    assert all("Pampa ·" in ln for ln in _bullets(r)) and len(_bullets(r)) == min(pampa, nav.MAX_LIST)
+    assert all(it.client == "Pampa" for it in _bullets(r)) and len(_bullets(r)) == min(pampa, nav.MAX_LIST)
     assert [a.label for a in r.actions] == ["Abrir Catálogo", "Informe de Cliente · Pampa"] and r.actions[1].embed
     both = _route("Modelos de Ventas de Pampa")
     n = _count(lambda s: s["cliente"] == "Pampa" and s["lob"] == "SALES")
@@ -187,13 +192,14 @@ def test_other_inventories_unknown_names_and_ambiguity_never_invent_a_destinatio
 
 
 def test_when_the_classification_cannot_be_read_it_says_so_instead_of_guessing(big, monkeypatch):
-    monkeypatch.setattr(nav, "_effective_lobs", lambda flows: None)
+    monkeypatch.setattr(nav.caps, "governed_read", lambda flows: None)
     r = _route("¿Qué modelos tenemos?")
     assert "**120 entradas navegables**" in r.message and "no está disponible en este momento" in r.message and "Ventas: " not in r.message and "Sin clasificar" not in r.message
     r = _route("Modelos de Ventas")
     assert "no filtro por línea de negocio" in r.message and _bullets(r) == [] and len(r.actions) == 1
     r = _route("¿Qué tiene Pampa?")                                                                    # sin pedir línea de negocio, el filtro por cliente no depende de la clasificación
-    assert "de **Pampa**" in r.message and not any(f"_{label}_" in ln for ln in _bullets(r) for label in ("Ventas", "Finanzas", "Cadena de suministro", "Sin clasificar"))
+    assert "de **Pampa**" in r.message and _bullets(r) and all(it.lob_label == "" and it.lob_source == "" for it in _bullets(r))     # sin clasificación legible, las filas no muestran línea de negocio (ni una supuesta)
+    assert all(it.title for it in _bullets(r))                                                                                      # y los títulos salen del resolver del Catálogo por artefacto de consumo
 
 
 def test_one_unreadable_entry_is_reported_as_unavailable_not_as_unclassified(small, monkeypatch):

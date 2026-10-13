@@ -15,8 +15,10 @@ from typing import Callable
 from urllib.parse import quote
 
 from core.utils import norm_text
+from webapp.services import assistant_capabilities as caps
 from webapp.services import catalog_navigation, catalog_reads
 from webapp.services import client_assessment_portfolio as portfolio
+from webapp.services import domain_classification_service as dcs
 
 MAX_OPTIONS = 12
 log = logging.getLogger("danwor.assistant_navigation")
@@ -26,6 +28,7 @@ log = logging.getLogger("danwor.assistant_navigation")
 class NavigationResult:
     message: str
     actions: tuple[tuple, ...]                    # (etiqueta, URL interna[, modo]); modo: "embed" (por defecto: carga en el slot del Catálogo) · "tab:<pestaña>" (activa esa pestaña en la página) · "link" (navega)
+    result: caps.ResultSet | None = None          # resultado estructurado de una consulta sobre el Catálogo (filas navegables); ``message`` queda como su encabezado
 
 
 @dataclass(frozen=True)
@@ -274,17 +277,6 @@ def _inventory_intent(question: str, clients: list[str]) -> _InventoryIntent | N
     return _InventoryIntent(mode, limit, n > MAX_LIST, lob, client)
 
 
-def _effective_lobs(flows: list) -> dict | None:
-    """Clasificación efectiva por lote (``entry_id`` → dict de ``dcs``); None si no se pudo leer: jamás se reemplaza por una clasificación supuesta."""
-    try:
-        from webapp.services import assessment_service
-        from webapp.services import domain_classification_service as dcs
-        return dcs.effective_lob_by_entry(flows, assessment_service.statuses_for_entries(flows))
-    except Exception:  # noqa: BLE001 — la clasificación nunca rompe el asistente; se informa como no disponible
-        log.exception("inventario del asistente: no se pudo leer la clasificación efectiva")
-        return None
-
-
 def _plural(n: int, word: str) -> str:
     return f"{n} {word}{'s' if n != 1 else ''}"
 
@@ -294,28 +286,10 @@ def _entries(n: int) -> str:
     return f"{n} entrada{'s' if n != 1 else ''} navegable{'s' if n != 1 else ''}"
 
 
-def _distribution(scope: list, eff: dict, labels: dict[str, str]) -> str:
-    """«Ventas: 18 · Cadena de suministro: 3 · **Sin clasificar**: 12»: por cantidad (desc) y orden de la taxonomía; sin clasificar y no disponible siempre al final y rotulados como tales.
+def _distribution_text(aggregates: tuple[tuple[str, str, int], ...]) -> str:
+    """«Ventas: 18 · Cadena de suministro: 3 · **Sin clasificar**: 12» a partir de la distribución del ``ResultSet`` (sin clasificar y no disponible, resaltados).
     Formato «etiqueta: n» y no «etiqueta (n)»: el render del chat (``render_llm_html``) interpreta «n)» como inicio de lista numerada."""
-    from webapp.services import domain_classification_service as dcs
-    counts: dict[str, int] = {}
-    for e in scope:
-        g = eff[e.entry_id]["group"]
-        counts[g] = counts.get(g, 0) + 1
-    order = list(labels)
-    lines = [f"{labels[g]}: {counts[g]}" for g in sorted((g for g in counts if g not in (dcs.UNCLASSIFIED, dcs.UNAVAILABLE)), key=lambda g: (-counts[g], order.index(g)))]
-    if counts.get(dcs.UNCLASSIFIED):
-        lines.append(f"**Sin clasificar**: {counts[dcs.UNCLASSIFIED]}")
-    if counts.get(dcs.UNAVAILABLE):
-        lines.append(f"**Clasificación no disponible**: {counts[dcs.UNAVAILABLE]}")
-    return " · ".join(lines)
-
-
-def _model_line(e, eff: dict | None, labels: dict[str, str], show_lob: bool) -> str:
-    consumo = list(e.consumo)
-    tail = f" · Consumo: {', '.join(consumo[:2])}{f' +{len(consumo) - 2}' if len(consumo) > 2 else ''}" if consumo else ""        # discriminador funcional, como en la tarjeta
-    lob = f" · _{labels[eff[e.entry_id]['group']]}_" if (show_lob and eff is not None) else ""
-    return f"- {e.icon} **{e.cliente} · {e.dominio}**{tail}{lob}"
+    return " · ".join(f"**{label}**: {n}" if group in (dcs.UNCLASSIFIED, dcs.UNAVAILABLE) else f"{label}: {n}" for group, label, n in aggregates)
 
 
 def _catalog_inventory(question: str, pack: str, stem: str = "") -> NavigationResult | None:
@@ -335,12 +309,11 @@ def _inventory_result(intent: _InventoryIntent, pack: str, stem: str) -> Navigat
     clients = catalog_navigation.clients(mod, entries) if mod else []
     if not flows:
         return NavigationResult("El Catálogo todavía no tiene entradas navegables.", ())
-    from webapp.services import domain_classification_service as dcs
     open_action = _open_catalog_action(pack, stem)
     actions: list[tuple] = [open_action] if open_action else []
-    labels = {o["id"]: o["label"] for o in dcs.lob_options()}
-    labels[dcs.UNAVAILABLE] = "Clasificación no disponible"
-    eff = _effective_lobs(flows)
+    labels = caps.lob_labels()
+    governed = caps.governed_read(flows)                                               # estados + clasificación efectiva, UNA lectura por lote (None = no disponible)
+    eff = governed.eff if governed is not None else None
     scope = flows
     if intent.client:
         scope = catalog_navigation.flows_for_client(mod, entries, intent.client)
@@ -353,20 +326,21 @@ def _inventory_result(intent: _InventoryIntent, pack: str, stem: str) -> Navigat
         scope = [e for e in scope if eff[e.entry_id]["group"] == intent.lob]            # SOLO la clasificación efectiva: lo que no la tiene no se cuela bajo ninguna línea
 
     if intent.mode == "summary":
-        lines = [f"El Catálogo contiene **{_entries(len(flows))}** de **{_plural(len(clients), 'cliente')}**."]
-        if eff is not None:
-            lines += ["", f"- **Por línea de negocio** (clasificación efectiva): {_distribution(flows, eff, labels)}"]
+        aggregates = caps.distribution(flows, eff, labels) if eff is not None else ()
+        result = caps.ResultSet("summary", total=len(flows), aggregates=aggregates, classified=eff is not None)
+        lines = [f"El Catálogo contiene **{_entries(result.total)}** de **{_plural(len(clients), 'cliente')}**."]
+        if result.classified:
+            lines += ["", f"- **Por línea de negocio** (clasificación efectiva): {_distribution_text(result.aggregates)}"]
         else:
             lines += ["", "- La clasificación por línea de negocio no está disponible en este momento."]
         products = len(catalog_reads._catalog_data_products_list())
         if products:
             lines.append(f"- Hay **{_plural(products, 'Data Product')}**: son otra vista del Catálogo y no se cuentan acá.")
-        groups = [eff[e.entry_id]["group"] for e in flows if eff[e.entry_id]["group"] not in (dcs.UNCLASSIFIED, dcs.UNAVAILABLE)] if eff else []
-        top_lob = labels[max(sorted(set(groups), key=list(labels).index), key=groups.count)] if groups else None      # ejemplos reales: la línea con más modelos y el cliente con más modelos
+        top_lob = next((label for group, label, _n in result.aggregates if group not in (dcs.UNCLASSIFIED, dcs.UNAVAILABLE)), None)      # ejemplos reales: la línea con más entradas y el cliente con más entradas
         top_client = max(clients, key=lambda c: (len(catalog_navigation.flows_for_client(mod, entries, c)), c.lower()), default=None)
         tips = [f"«modelos de {top_lob}»" if top_lob else "", f"«qué tiene {top_client}»" if top_client else "", "«mostrame 10 modelos»"]
         lines += ["", "---", "", f"Para acotar: {_join([t for t in tips if t])}. O abrí el Catálogo para explorarlos completos."]       # «---»: el render del chat no separa párrafos por línea en blanco
-        return NavigationResult("\n".join(lines), tuple(actions))
+        return NavigationResult("\n".join(lines), tuple(actions), result)
 
     desc = []
     if intent.client:
@@ -376,7 +350,7 @@ def _inventory_result(intent: _InventoryIntent, pack: str, stem: str) -> Navigat
     elif intent.lob:
         desc.append(f"en la línea de negocio **{labels[intent.lob]}** (clasificación efectiva)")
     where = " ".join(desc) or "en el Catálogo"
-    ordered = sorted(scope, key=lambda e: (catalog_navigation._VERDICT_RANK.get(e.veredicto, 9), (e.cliente or "").lower(), (e.dominio or "").lower(), [c.lower() for c in e.consumo], e.entry_id))
+    ordered = caps.order_entries(scope)
     if not ordered:
         return NavigationResult(f"No hay entradas navegables {where}.", tuple(actions))
     shown = ordered[:intent.limit]
@@ -386,10 +360,10 @@ def _inventory_result(intent: _InventoryIntent, pack: str, stem: str) -> Navigat
         head += (f". Muestro una selección de {len(shown)} (el máximo por respuesta), {order_note}:" if intent.capped else f". Muestro {len(shown)}, {order_note}:")        # «selección»/«muestro», no «top»: no hay un ranking real
     else:
         head += f", {order_note}:" if len(ordered) > 1 else ":"
-    lines = [head, ""] + [_model_line(e, eff, labels, show_lob=not intent.lob) for e in shown]
-    if len(ordered) > len(shown):
-        lines += ["", "---", "", f"Hay {len(ordered) - len(shown)} más. Para acotar, sumá un cliente o una línea de negocio, o abrí el Catálogo para explorar el resto."]
-    return NavigationResult("\n".join(lines), tuple(actions))
+    footer = (f"Hay {len(ordered) - len(shown)} más. Para acotar, sumá un cliente o una línea de negocio, o abrí el Catálogo para explorar el resto."
+              if len(ordered) > len(shown) else "")
+    result = caps.ResultSet("list", total=len(ordered), items=caps.build_items(shown, governed, pack), classified=eff is not None, footer=footer)
+    return NavigationResult(head, tuple(actions), result)
 
 
 TARGETS: tuple[NavigationTarget, ...] = (NavigationTarget("client_report", _client_report), NavigationTarget("data_catalog", _data_catalog),

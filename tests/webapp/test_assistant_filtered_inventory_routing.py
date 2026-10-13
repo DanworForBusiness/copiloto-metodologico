@@ -50,7 +50,9 @@ def _route(question, stem=HOST):
 
 
 def _listed(route) -> set[str]:
-    return set(re.findall(r"Consumo: ([A-Za-z0-9_]+)", route.message))
+    """Consumo de las entradas MOSTRADAS, por identidad real (``entry_id`` de cada fila del resultado estructurado)."""
+    by_id = {e.entry_id: e for e in catalog_reads._catalog_entries()[1]}
+    return {by_id[it.ref].consumo[0] for it in (route.result.items if route.result else ())}
 
 
 def _effective(entries) -> dict[str, str]:

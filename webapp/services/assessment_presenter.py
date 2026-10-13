@@ -159,7 +159,7 @@ def header_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
     view["governance_findings"] = governance_findings(status.profile)       # None sin Assessment
     view["grade"] = tile_grade(status)          # UN activo, UN grado primario: la MISMA fuente que la tile (Adopción persistida; sin Juicio → estado neutro)
     view["terminal_am"] = status.terminal_am
-    view["title_desc"], view["title_id"] = terminal_titles(status, entry, P.display_doc(status.profile) if status.profile is not None else None)     # identidad del modelo (= informe)
+    view["title_desc"], view["title_id"] = entry_title(status, entry)     # identidad del modelo (= informe)
     return view
 
 
@@ -563,6 +563,12 @@ def terminal_titles(status: svc.AssessmentStatus, entry: Any, doc: dict | None, 
     if adhoc:
         return None, am
     return model_title(entry, am) if am else (NO_TERMINAL_TITLE, None)
+
+
+def entry_title(status: svc.AssessmentStatus, entry: Any) -> tuple[str | None, str | None]:
+    """(título, identificador técnico) del modelo de una entrada con el estado YA leído: el MISMO resolver que el encabezado del detalle del Catálogo (``header_view``) y el informe
+    (``terminal_titles``), para que un listado (p. ej. el del asistente) nombre cada entrada igual que el Catálogo. Nunca usa el dominio legado."""
+    return terminal_titles(status, entry, P.display_doc(status.profile) if status.profile is not None else None)
 
 
 def flow_heading(entry: Any, header: dict | None = None) -> tuple[str, str | None]:

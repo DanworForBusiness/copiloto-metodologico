@@ -1,0 +1,16 @@
+{# Entradas del Catálogo devueltas por una consulta del asistente (`route.result`, ver assistant_capabilities.ResultSet): UNA fila compacta clickeable por entrada, no una tabla ni diez botones.
+   El clic abre la entrada en el panel central por el MISMO mecanismo `embed` de las acciones del asistente (HTMX a #catalog-detail-slot; href de respaldo = abrir en otra pestaña). La URL sale del
+   `entry_id` real (`presenter.flow_url`), nunca de texto; el control de sesión es el de la ruta destino. #}
+{% set rs = route.result %}
+<ul class="assistant-results" aria-label="Entradas del Catálogo">
+  {% for item in rs.items %}
+  <li>
+    <a class="assistant-result-row" href="{{ item.url }}"
+       hx-get="{{ item.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" data-entry-id="{{ item.ref }}">
+      <span class="assistant-result-title">{{ item.title }}</span>
+      <span class="assistant-result-meta">{{ item.client }}{% if item.lob_label %} · {{ item.lob_label }}{% endif %}</span>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% if rs.footer %}<p class="assistant-results-note">{{ rs.footer }}</p>{% endif %}
