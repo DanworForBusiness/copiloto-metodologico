@@ -59,11 +59,30 @@ def valid_target(mode: str, url: str) -> bool:
 
 
 @dataclass(frozen=True)
+class Evidence:
+    """De dónde sale un valor: la fuente autoritativa, cuándo se generó y con qué reglas (solo lectura de contratos gobernados; nada se recalcula)."""
+    source: str
+    generated_at: str | None = None     # fecha legible del Assessment o evaluación que lo respalda
+    ruleset: str | None = None          # versión de las reglas (Juicio, portabilidad…)
+    url: str | None = None              # informe/detalle donde se ve la evidencia completa (se reconstruye con los presenters, nunca de texto)
+
+
+@dataclass(frozen=True)
+class Metric:
+    """Valor de UN indicador gobernado sobre una entrada, con su evidencia. `value` es el valor crudo de la fuente (un nivel ordinal NO se convierte en número)."""
+    indicator: str
+    value: Any
+    display: str
+    evidence: Evidence | None = None
+
+
+@dataclass(frozen=True)
 class CatalogAttrs:
     """Atributos propios de una entrada del Catálogo (no existen en otras familias)."""
     client: str
     lob_label: str          # línea de negocio EFECTIVA («Sin clasificar» / «Clasificación no disponible» incluidos); "" si la clasificación no se pudo leer
     lob_source: str         # MANUAL | AUTOMATIC | UNCLASSIFIED | UNAVAILABLE | "" (clasificación no leída)
+    metrics: tuple[Metric, ...] = ()        # indicadores gobernados consultados (vacío en un inventario)
 
 
 @dataclass(frozen=True)
@@ -75,6 +94,8 @@ class ResultItem:
     url: str = ""           # destino: SIEMPRE sale de la identidad real del recurso, nunca del texto de la consulta
     mode: str = MODE_EMBED
     catalog: CatalogAttrs | None = None     # solo en entradas del Catálogo
+    badge: str = ""         # valor corto destacado en la fila (p. ej. «Buena», «100.0%», «88/100»); lo decide quien arma el resultado, la fila solo lo muestra
+    note: str = ""          # evidencia/aclaración corta bajo el valor (fuente · reglas · fecha)
 
     def __post_init__(self):
         if not self.kind or not self.ref:
@@ -95,12 +116,28 @@ class CatalogSummary:
 
 
 @dataclass(frozen=True)
+class RankingInfo:
+    """Cómo se ordenó un resultado por UN indicador: universo, cobertura, exclusiones, empates y advertencia metodológica (para explicarlo sin inventar conclusiones)."""
+    indicator: str
+    label: str
+    order: str                                        # "best_first" | "worst_first"
+    order_text: str                                   # «de mejor a peor», «de más a menos»…
+    universe: int                                     # entradas del alcance (tras filtros)
+    evaluated: int                                    # entradas con valor comparable (las únicas que se ordenan)
+    excluded: tuple[tuple[str, int], ...] = ()        # (motivo, n) de lo que NO se compara
+    ties: tuple[tuple[str, int], ...] = ()            # (valor mostrado, n) de los empates visibles
+    cut_in_tie: tuple[str, int] | None = None         # el corte de filas cae dentro de un empate: (valor, entradas que quedaron fuera)
+    caveat: str = ""
+
+
+@dataclass(frozen=True)
 class ResultSet:
-    capability: str                                      # "summary" | "list"
+    capability: str                                      # "summary" | "list" | "rank"
     total: int                                           # elementos del universo tras los filtros
     items: tuple[ResultItem, ...] = ()                   # ya acotado; vacío en un resumen
     footer: str = ""                                     # nota en texto plano bajo las filas
     catalog: CatalogSummary | None = None                # solo en consultas sobre el Catálogo
+    ranking: RankingInfo | None = None                   # solo en resultados ordenados por un indicador
 
 
 @dataclass(frozen=True)

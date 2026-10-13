@@ -13,6 +13,7 @@
        data-kind="{{ item.kind }}" data-ref="{{ item.ref }}">
       <span class="assistant-result-title">{{ item.title }}{% if item.mode == "external" %} <span class="assistant-result-ext" aria-hidden="true">↗</span><span class="assistant-result-sr">(se abre en una pestaña nueva)</span>{% endif %}</span>
       {% if item.subtitle %}<span class="assistant-result-meta">{{ item.subtitle }}</span>{% endif %}
+      {% if item.badge %}<span class="assistant-result-metric"><strong>{{ item.badge }}</strong>{% if item.note %}<span class="assistant-result-evidence"> · {{ item.note }}</span>{% endif %}</span>{% endif %}
     </a>
   </li>
   {% endfor %}

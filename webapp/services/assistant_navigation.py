@@ -16,6 +16,7 @@ from urllib.parse import quote
 
 from core.utils import norm_text
 from webapp.services import assistant_capabilities as caps
+from webapp.services import assistant_indicators as indicators
 from webapp.services import catalog_navigation, catalog_reads
 from webapp.services import client_assessment_portfolio as portfolio
 from webapp.services import domain_classification_service as dcs
@@ -342,14 +343,7 @@ def _inventory_result(intent: _InventoryIntent, pack: str, stem: str) -> Navigat
         lines += ["", "---", "", f"Para acotar: {_join([t for t in tips if t])}. O abrí el Catálogo para explorarlos completos."]       # «---»: el render del chat no separa párrafos por línea en blanco
         return NavigationResult("\n".join(lines), tuple(actions), result)
 
-    desc = []
-    if intent.client:
-        desc.append(f"de **{intent.client}**")
-    if intent.lob == dcs.UNCLASSIFIED:
-        desc.append("**sin clasificar** (sin línea de negocio efectiva)")
-    elif intent.lob:
-        desc.append(f"en la línea de negocio **{labels[intent.lob]}** (clasificación efectiva)")
-    where = " ".join(desc) or "en el Catálogo"
+    where = _where_text(intent.client, intent.lob, labels)
     ordered = caps.order_entries(scope)
     if not ordered:
         return NavigationResult(f"No hay entradas navegables {where}.", tuple(actions))
@@ -366,8 +360,171 @@ def _inventory_result(intent: _InventoryIntent, pack: str, stem: str) -> Navigat
     return NavigationResult(head, tuple(actions), result)
 
 
+# ── Consultas analíticas: ordenar ENTRADAS por UN indicador gobernado explícito ───────────────────────────────────────────────────────────
+# «Mejor scoring» no existe como métrica única: cada indicador (registro cerrado de `assistant_indicators`) es una medida distinta y el usuario debe nombrar UNA. Sin indicador → aclaración con las
+# métricas reales (cada opción reenvía una pregunta canónica fijada por el servidor al MISMO router, nunca texto del usuario). Con indicador → se resuelve directo con datos reales (solo lectura de los
+# contratos gobernados). Sobre dominios, líneas de negocio o clientes NO hay una regla de agregación gobernada: no se corona a ninguno; se ofrece comparar entradas individuales. Toda consulta analítica
+# reconocida produce una respuesta gobernada o una aclaración explícita: nunca cae al LLM libre. El orden lo fija el indicador, no el veredicto legado del inventario.
+_RK_POS_GEN = re.compile(r"\b(?:mayor(?:es)?|mas alt[oa]s?|maximo)\b")
+_RK_NEG_GEN = re.compile(r"\b(?:menor(?:es)?|mas baj[oa]s?|minimo)\b")
+_RK_POS_Q = re.compile(r"\bmejor(?:es)?\b")
+_RK_NEG_Q = re.compile(r"\bpeor(?:es)?\b")
+_RK_MORE, _RK_LESS = re.compile(r"\bmas\b"), re.compile(r"\bmenos\b")          # solo cuentan para indicadores de VOLUMEN
+_RK_CUE = re.compile(r"\b(?:ranking|rankear\w*|scoring|puntaje|puntuacion|score|calificacion|evaluacion(?:es)?|riesgos?|ordena\w*|ordenad\w*)\b")
+_RK_ENTRY = re.compile(r"\b(?:modelos?|entradas?|flujos?|activos?)\b")
+_RK_GROUP = re.compile(r"\b(?:dominios?|lineas? de negocio|clientes?)\b")
+
+
+@dataclass(frozen=True)
+class _RankIntent:
+    kind: str                           # rank | clarify_indicator | clarify_direction | group | multi | ambiguous_filter
+    indicator: str | None = None
+    order: str = indicators.BEST_FIRST
+    candidates: tuple[str, ...] = ()    # indicadores nombrados (multi)
+    quality_words: bool = False         # usó «mejor/peor» (no aplica a indicadores de volumen)
+    lob: str | None = None
+    client: str | None = None
+    limit: int = MAX_LIST
+    capped: bool = False
+
+
+def _ranking_intent(question: str, clients: list[str]) -> _RankIntent | None:
+    q = norm_text(question).strip().lstrip("¿¡")
+    if is_methodological(indicators.without_indicator_names(q)) or _INV_OTHER.search(q):          # el NOMBRE de un indicador no vuelve metodológica a la pregunta
+        return None
+    padded = f" {q} "
+    named = indicators.indicators_named(q)
+    pos_q, neg_q = bool(_RK_POS_Q.search(q)), bool(_RK_NEG_Q.search(q))
+    pos_g, neg_g = bool(_RK_POS_GEN.search(q)), bool(_RK_NEG_GEN.search(q))
+    cue = pos_q or neg_q or pos_g or neg_g or bool(_RK_CUE.search(q))
+    hit_clients = [c for c in clients if _word(c, padded)]
+    lobs = _lobs_named(q)
+    entry, group = bool(_RK_ENTRY.search(q)), bool(_RK_GROUP.search(q))
+    if not (entry or group or hit_clients or lobs):
+        return None                                                         # sin materia del Catálogo: no es esta capacidad
+    if not (named or cue):
+        return None                                                         # inventario puro: lo resuelve catalog_inventory
+    count = _INV_COUNT.search(q)
+    n = int(next(g for g in count.groups() if g)) if count else 0
+    common = dict(lob=lobs[0] if len(lobs) == 1 else None, client=hit_clients[0] if len(hit_clients) == 1 else None, limit=min(n, MAX_LIST) if n else MAX_LIST, capped=n > MAX_LIST,
+                  quality_words=pos_q or neg_q)
+    if len(hit_clients) > 1 or len(lobs) > 1:
+        return _RankIntent("ambiguous_filter", **common)
+    if group and not entry:
+        return _RankIntent("group", indicator=named[0] if len(named) == 1 else None, candidates=tuple(named), **common)
+    if len(named) > 1:
+        return _RankIntent("multi", candidates=tuple(named), **common)
+    if not named:
+        return _RankIntent("clarify_indicator", order=indicators.WORST_FIRST if (neg_q or neg_g) and not (pos_q or pos_g) else indicators.BEST_FIRST, **common)
+    ind = indicators.BY_ID[named[0]]
+    pos = pos_g or (bool(_RK_MORE.search(q)) if ind.volume else pos_q)
+    neg = neg_g or (bool(_RK_LESS.search(q)) if ind.volume else neg_q)
+    if ind.volume and (pos_q or neg_q) and not (pos_g or neg_g or _RK_MORE.search(q) or _RK_LESS.search(q)):
+        return _RankIntent("clarify_direction", indicator=ind.id, **common)         # «mejor/peor» no aplica a un indicador de volumen
+    if not ind.volume:
+        pos, neg = pos or pos_q, neg or neg_q
+    order = indicators.WORST_FIRST if neg and not pos else indicators.BEST_FIRST
+    return _RankIntent("rank", indicator=ind.id, order=order, **common)
+
+
+def _where_text(client: str | None, lob: str | None, labels: dict[str, str]) -> str:
+    desc = []
+    if client:
+        desc.append(f"de **{client}**")
+    if lob == dcs.UNCLASSIFIED:
+        desc.append("**sin clasificar** (sin línea de negocio efectiva)")
+    elif lob:
+        desc.append(f"en la línea de negocio **{labels[lob]}** (clasificación efectiva)")
+    return " ".join(desc) or "en el Catálogo"
+
+
+def _ask(label: str, question: str) -> tuple:
+    return (label, "", f"ask:{question}")
+
+
+def _indicator_options(intent: _RankIntent, labels: dict[str, str], ids: tuple[str, ...] | None = None) -> tuple[tuple, ...]:
+    """Una opción por indicador: reenvía al MISMO router la pregunta canónica (fijada por el servidor) con los filtros ya aplicados. Los indicadores de volumen se omiten si el usuario pidió
+    «mejor/peor» (miden cantidad, no calidad)."""
+    out = []
+    for ind in indicators.INDICATORS:
+        if (ids is not None and ind.id not in ids) or (ind.volume and intent.quality_words and ids is None):
+            continue
+        order = intent.order
+        label = ind.label + (" (más casos primero)" if ind.volume and order == indicators.BEST_FIRST else " (menos casos primero)" if ind.volume else "")
+        out.append(_ask(label, indicators.canonical_question(ind.id, order, client=intent.client, lob_label=labels.get(intent.lob or ""), unclassified=intent.lob == dcs.UNCLASSIFIED)))
+    return tuple(out)
+
+
+def _catalog_ranking(question: str, pack: str, stem: str = "") -> NavigationResult | None:
+    mod, entries = catalog_reads._catalog_entries()
+    intent = _ranking_intent(question, catalog_navigation.clients(mod, entries) if mod else [])
+    return _ranking_result(intent, pack, stem) if intent is not None else None
+
+
+def _ranking_result(intent: _RankIntent, pack: str, stem: str) -> NavigationResult:
+    mod, entries = catalog_reads._catalog_entries()
+    flows = catalog_navigation.browsable_flows(mod, entries) if mod else []
+    labels = caps.lob_labels()
+    where = _where_text(intent.client, intent.lob, labels)
+    open_action = _open_catalog_action(pack, stem)
+    base = (open_action,) if open_action else ()
+    if intent.kind == "ambiguous_filter":
+        return NavigationResult("Nombraste más de un cliente o más de una línea de negocio. Para comparar entradas pedime una consulta por vez, con un solo cliente y una sola línea de negocio.", base)
+    if intent.kind == "group":
+        subject = "dominios, líneas de negocio ni clientes"
+        text = (f"No hay una regla de agregación gobernada para ordenar {subject}, así que no puedo decir cuál tiene el «mejor» o el «peor» resultado. "
+                "Sí puedo comparar **entradas individuales** según una métrica definida.")
+        if intent.indicator:
+            options = _indicator_options(intent, labels, (intent.indicator,))
+            text += f" Para **{indicators.BY_ID[intent.indicator].label}**:"
+        else:
+            options = _indicator_options(intent, labels) + (_ask("Ver la distribución por línea de negocio", "¿Qué modelos tenemos?"),)
+            text += " ¿Con qué métrica querés compararlas?"
+        return NavigationResult(text, options)
+    if intent.kind == "multi":
+        names = [indicators.BY_ID[i].label for i in intent.candidates]
+        return NavigationResult(f"Nombraste más de una métrica ({_join(names)}). Son medidas distintas y no las combino en un puntaje: elegí una.", _indicator_options(intent, labels, intent.candidates))
+    if intent.kind == "clarify_indicator":
+        text = ("No existe un «scoring» único: cada métrica mide algo distinto. Para ordenar entradas necesito que elijas una de las métricas disponibles"
+                + (f" ({where})" if where != "en el Catálogo" else "") + ".")
+        return NavigationResult(text, _indicator_options(intent, labels))
+    if intent.kind == "clarify_direction":
+        ind = indicators.BY_ID[intent.indicator]
+        more = indicators.canonical_question(ind.id, indicators.BEST_FIRST, client=intent.client, lob_label=labels.get(intent.lob or ""), unclassified=intent.lob == dcs.UNCLASSIFIED)
+        less = indicators.canonical_question(ind.id, indicators.WORST_FIRST, client=intent.client, lob_label=labels.get(intent.lob or ""), unclassified=intent.lob == dcs.UNCLASSIFIED)
+        return NavigationResult(f"**{ind.label}** mide cantidad, no calidad: {ind.caveat.split(': ', 1)[-1]} Por eso no hay un «mejor» o un «peor». ¿Querés ver las entradas con más o con menos?",
+                                (_ask("Más " + ind.label.lower(), more), _ask("Menos " + ind.label.lower(), less)))
+    # kind == "rank"
+    ind = indicators.BY_ID[intent.indicator]
+    if not flows:
+        return NavigationResult("El Catálogo todavía no tiene entradas navegables.", ())
+    governed = caps.governed_read(flows)
+    eff = governed.eff if governed is not None else None
+    if governed is None and (intent.lob or ind.id != "types"):
+        return NavigationResult("No pude leer los datos gobernados en este momento, así que no ordeno por esa métrica para no darte un dato incorrecto. Probá de nuevo en unos segundos o abrí el Catálogo.", base)
+    scope = flows
+    actions = list(base)
+    if intent.client:
+        scope = catalog_navigation.flows_for_client(mod, entries, intent.client)
+        ref = _reference_flow(mod, entries, intent.client)
+        if ref:
+            actions.append((f"Informe de Cliente · {intent.client}", _report_url(ref, pack)))
+    if intent.lob:
+        scope = [e for e in scope if eff[e.entry_id]["group"] == intent.lob]            # SOLO la clasificación efectiva
+    if not scope:
+        return NavigationResult(f"No hay entradas navegables {where}.", tuple(actions))
+    rs = indicators.rank_scope(ind, intent.order, scope, governed, pack, intent.limit)
+    info = rs.ranking
+    if info.evaluated == 0:
+        return NavigationResult(f"Ninguna de las {_entries(info.universe)} {where} tiene un valor comparable de **{ind.label}**: {indicators._excluded_text(info.excluded)}. {ind.caveat}", tuple(actions), rs)
+    head = f"Entradas {where} ordenadas por **{ind.label}** ({info.order_text}). {info.evaluated} de {info.universe} tienen un valor comparable."
+    if len(rs.items) < info.evaluated:
+        head += f" Muestro {len(rs.items)}" + (" (el máximo por respuesta)." if intent.capped or intent.limit == MAX_LIST else ".")
+    return NavigationResult(head, tuple(actions), rs)
+
+
 TARGETS: tuple[NavigationTarget, ...] = (NavigationTarget("client_report", _client_report), NavigationTarget("data_catalog", _data_catalog),
-                                         NavigationTarget("catalog_inventory", _catalog_inventory))
+                                         NavigationTarget("catalog_ranking", _catalog_ranking), NavigationTarget("catalog_inventory", _catalog_inventory))
 
 
 def resolve(question: str, pack: str, stem: str = "") -> NavigationResult | None:

@@ -98,7 +98,7 @@
 .assistant-feedback-actions button { width: auto !important; height: auto !important; min-height: 36px; padding: 7px !important; border-radius: 0 !important; }
 .assistant-feedback-thanks { padding: 5px 0 0 5px; }
 .assistant-route-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 7px; }
-.assistant-route-explain { display: contents; }
+.assistant-route-explain, .assistant-route-ask { display: contents; }
 /* Entradas del Catálogo devueltas por el asistente: filas compactas clickeables (una columna, ancho real del sidebar; sin tabla ni botones grandes). */
 .assistant-results { display: grid; gap: 5px; margin: 9px 0 0; padding: 0; list-style: none; }
 .assistant-results li { min-width: 0; }
@@ -107,6 +107,9 @@
 .assistant-result-row:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
 .assistant-result-title { font: 700 .72rem/1.3 var(--sans); overflow-wrap: anywhere; }
 .assistant-result-meta { color: var(--soft); font: 500 .65rem/1.3 var(--sans); overflow-wrap: anywhere; }
+.assistant-result-metric { font: 500 .65rem/1.35 var(--sans); color: var(--ink); overflow-wrap: anywhere; }
+.assistant-result-metric strong { font-weight: 800; }
+.assistant-result-evidence { color: var(--soft); }
 .assistant-result-ext { color: var(--soft); font-weight: 700; }
 .assistant-result-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .assistant-results-note { margin: 8px 0 0; padding-top: 7px; border-top: 1px solid var(--line); color: var(--soft); font: .67rem/1.45 var(--sans); }
