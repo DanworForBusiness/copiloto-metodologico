@@ -70,6 +70,18 @@
       </div>
     </form>
     <div id="res-catalog" class="admin-result"></div>
+    <p class="admin-help">Si solo cambió el código de las CDS views (carpeta <code>01. APIs</code> de SharePoint), sincronizá únicamente eso: primero un preflight de solo lectura y luego una confirmación explícita. No regenera modelos, espacios, seguridad ni Data Products.</p>
+    <form hx-post="/admin/catalog/generate" hx-target="#res-apis" hx-swap="innerHTML"
+          hx-indicator="#ind-apis" hx-disabled-elt="button[type='submit']"
+          data-dw-graph-token>
+      <input type="hidden" name="scope" value="apis_only">
+      <input type="hidden" name="step" value="preflight">
+      <div class="admin-actions">
+        <button type="submit" class="btn-primary">Sincronizar solo APIs/CDS</button>
+        <span id="ind-apis" class="admin-indicator htmx-indicator">leyendo SharePoint…</span>
+      </div>
+    </form>
+    <div id="res-apis" class="admin-result"></div>
   </div>
 </details>
 
