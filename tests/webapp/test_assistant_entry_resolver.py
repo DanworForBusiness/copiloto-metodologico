@@ -96,7 +96,7 @@ def test_same_title_in_two_clients_is_ambiguous_without_client_and_unique_with_i
 
 
 def test_client_alone_never_selects_a_model():
-    for q in ("qué sabés de Pampa", "el modelo de Kensing", "Biogenesis"):
+    for q in ("qué sabés de Pampa", "el modelo de Kensing", "Biogenesis", "qué sabés de Loma"):                # Loma tiene UN solo modelo: aun así el cliente solo no lo selecciona
         assert r(q).status == NONE and r(q).matches == (), q
 
 

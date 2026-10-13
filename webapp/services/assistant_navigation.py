@@ -1411,7 +1411,8 @@ def _focus_followup(question: str, pack: str, stem: str, ctx: qctx.QueryContext)
     if not (open_own or continuation):
         return None
     no_focus = live is None or not live.focus
-    if no_focus and not (open_own or deictic):
+    bare_why = intent is not None and intent.why and (bool(intent.levels) or len(words) <= 4)         # «¿por qué tiene Buena?», «¿y por qué?»: sin modelo nombrado, se refieren al foco
+    if no_focus and not (open_own or deictic or bare_why):
         return None
     mod, entries = catalog_reads._catalog_entries()
     flows = catalog_navigation.browsable_flows(mod, entries) if mod else []
@@ -1431,9 +1432,13 @@ def _focus_followup(question: str, pack: str, stem: str, ctx: qctx.QueryContext)
         if open_own:
             item = caps.build_items([entry], governed, pack)[0]
             label = f"{entry.cliente} · {item.title}".strip(" ·")
-            return NavigationResult(f"Acá está el **Assessment** de **{label}**: se abre el informe tal como figura hoy en el Catálogo (o su estado, si todavía no se evaluó).",
-                                    (("Ver Assessment", presenter.assessment_url(entry, pack)),), state=_focus_draft(entry.entry_id))
-        return _entry_answer(intent, entry, governed, pack)
+            out = NavigationResult(f"Acá está el **Assessment** de **{label}**: se abre el informe tal como figura hoy en el Catálogo (o su estado, si todavía no se evaluó).",
+                                   (("Ver Assessment", presenter.assessment_url(entry, pack)),), state=_focus_draft(entry.entry_id))
+        else:
+            out = _entry_answer(intent, entry, governed, pack)
+        if entity_list:                                                      # el foco vino de una lista: la lista sigue valiendo («abrí el tercero») y el modelo consultado queda en foco
+            return dataclasses.replace(out, state=qctx.QueryDraft(live.spec, live.refs, live.fingerprint, focus=entry.entry_id))
+        return out
     except Exception:  # noqa: BLE001 — un seguimiento RECONOCIDO nunca cae en silencio al LLM libre: si falla la lectura, se dice
         log.exception("seguimiento sobre el modelo en foco: falló la respuesta")
         return NavigationResult(_FAILED_QUERY, (), keep_state=True)
