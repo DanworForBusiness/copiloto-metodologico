@@ -27,6 +27,7 @@ log = logging.getLogger("danwor.assistant_entry_facts")
 
 ATTRIBUTE_ORDER = ("adoption", "confidence", "coverage", "types", "attention")      # orden de la ficha (el estado va siempre primero)
 MAX_REASONS, MAX_STRENGTHS, MAX_LIMITATIONS = 3, 3, 2
+UNREADABLE = -1                                                                     # ``limitations_total`` cuando el informe no se pudo leer
 STATE_ATTRIBUTE = "state"                                                           # «estado del assessment»: no es un indicador del registro
 
 # códigos de lo no entregado: distinguen AUSENTE, NO DETERMINABLE, NO APLICABLE, NO DISPONIBLE y DESACTUALIZADO (nunca un «sin dato» genérico)
@@ -101,7 +102,7 @@ def fundamentals(entry: Any, governed: caps.Governed, pack: str) -> caps.Fundame
     if not jv:
         return None
     limitations: tuple = ()
-    total = 0
+    total = 0 if not status.viewable else UNREADABLE                                  # sin informe legible no hay limitaciones que contar; si el informe no se pudo armar, se dice (no se afirma «ninguna»)
     if status.viewable:
         try:
             rows = presenter.report_view(status, entry, pack).get("limitations") or []
@@ -109,6 +110,7 @@ def fundamentals(entry: Any, governed: caps.Governed, pack: str) -> caps.Fundame
             limitations = tuple((r["title"], r["area"], r["state"], r["reason"]) for r in rows[:MAX_LIMITATIONS])
         except Exception:  # noqa: BLE001 — las limitaciones son un complemento: si el informe no se arma, los fundamentos del Juicio igual se entregan
             log.exception("fundamentos del asistente: no se pudieron leer las limitaciones de %s", entry.entry_id)
+            total = UNREADABLE
     return caps.Fundamentals(
         entry_id=entry.entry_id, determined=bool(jv["determined"]), level=jv["level"], level_label=jv["level_label"], headline=jv["headline"],
         contracts=tuple((c["label"], c["state_text"]) for c in jv["contracts"]),

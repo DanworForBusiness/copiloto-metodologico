@@ -196,7 +196,7 @@ def test_inventory_rankings_navigation_resources_and_methodology_are_not_claimed
 
 
 def test_the_target_sits_after_governed_vocabulary_queries_and_before_the_rankings():
-    assert [t.key for t in nav.TARGETS] == ["catalog_followup", "client_report", "data_catalog", "catalog_query", "entry_assessment", "catalog_ranking", "catalog_inventory"]
+    assert [t.key for t in nav.TARGETS] == ["catalog_followup", "client_report", "data_catalog", "entry_query", "catalog_query", "entry_assessment", "catalog_ranking", "catalog_inventory"]
 
 
 def test_through_the_real_chat_the_answer_is_navigation_and_never_reaches_the_llm(world, monkeypatch):
