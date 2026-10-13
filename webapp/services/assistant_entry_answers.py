@@ -34,6 +34,7 @@ class Intent:
     strengths: bool = False
     limitations: bool = False
     levels: tuple[tuple[str, str], ...] = ()   # (indicador, nivel) nombrados: «¿por qué tiene Buena?»
+    nd: bool = False                           # nombró «no determinable» (condición del Juicio): «¿por qué es no determinable?»
 
     @property
     def fundamentals(self) -> bool:
@@ -59,7 +60,8 @@ def parse_intent(question: str) -> Intent | None:
     ficha = bool(_FICHA.search(q)) and not (named or state or why or strengths or limitations)
     if not (named or state or why or strengths or limitations or ficha):
         return None
-    return Intent(attributes=tuple(i.id for i in indicators.INDICATORS if i.id in named), state=state, ficha=ficha, why=why, strengths=strengths, limitations=limitations, levels=frame.levels)
+    return Intent(attributes=tuple(i.id for i in indicators.INDICATORS if i.id in named), state=state, ficha=ficha, why=why, strengths=strengths, limitations=limitations, levels=frame.levels,
+                  nd=any(query.STATE_BY_ID[s].judgment for s in frame.states))
 
 
 @dataclass(frozen=True)

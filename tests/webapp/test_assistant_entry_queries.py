@@ -279,3 +279,8 @@ def test_an_individual_question_never_reads_a_value_from_another_entry(world):
 ])
 def test_a_set_question_that_mentions_a_model_title_is_not_an_individual_query(world, question):
     assert nav._entry_query(question, PACK, HOST) is None, question
+
+
+def test_why_not_determinable_on_a_model_that_has_a_level_clarifies_the_false_premise(world):
+    r = one_entry(ask("¿Por qué Delivery Document es no determinable?"), world, "dd")
+    assert "no tiene hoy adopción no determinable" in r.text and "Buena" in r.text and "Adquisición de la fuente" not in r.text

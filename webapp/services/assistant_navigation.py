@@ -381,12 +381,14 @@ def _entry_answer(intent: answers.Intent, entry, governed: caps.Governed | None,
 def _level_mismatch(intent: answers.Intent, ans: caps.EntryAnswer) -> NavigationResult | None:
     """«¿Por qué tiene Buena?» fundamenta el nivel VIGENTE: si el nivel pedido no es el actual, se aclara en vez de justificar otro nivel."""
     asked = tuple(level for owner, level in intent.levels if owner == "adoption")
-    if not (intent.fundamentals and asked and ans.fundamentals is not None and not ans.fundamentals.historical):
+    if not (intent.fundamentals and (asked or intent.nd) and ans.fundamentals is not None and not ans.fundamentals.historical):
         return None
     f = ans.fundamentals
-    if f.determined and f.level in asked:
+    if asked and f.determined and f.level in asked:
         return None
-    wanted = indicators.level_text(indicators.BY_ID["adoption"], asked)
+    if intent.nd and not asked and not f.determined:
+        return None
+    wanted = indicators.level_text(indicators.BY_ID["adoption"], asked) if asked else "no determinable"
     now = f"**{f.level_label}**" if f.determined else "**no determinable**"
     item = ans.entry
     text = f"**{item.title}** ({item.subtitle}) no tiene hoy adopción **{wanted}**: su Juicio vigente es {now}. Puedo explicarte los fundamentos del Juicio vigente."
