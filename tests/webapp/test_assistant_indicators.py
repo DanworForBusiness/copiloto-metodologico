@@ -445,7 +445,7 @@ def test_an_ordering_cue_with_no_catalog_subject_is_not_this_capability(world):
 
 
 def test_registry_order_places_the_analytic_target_before_the_inventory_and_after_the_open_catalog():
-    assert [t.key for t in nav.TARGETS] == ["client_report", "data_catalog", "catalog_ranking", "catalog_inventory"]
+    assert [t.key for t in nav.TARGETS] == ["catalog_followup", "client_report", "data_catalog", "catalog_ranking", "catalog_inventory"]
 
 
 def test_the_indicator_names_never_trigger_the_methodological_guard_by_themselves():

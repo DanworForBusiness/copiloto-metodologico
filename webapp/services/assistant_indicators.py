@@ -19,6 +19,7 @@ from core.utils import norm_text
 from webapp.services import assessment_presenter as presenter
 from webapp.services import assessment_service as svc
 from webapp.services import assistant_capabilities as caps
+from webapp.services import assistant_context as qctx
 from webapp.services import client_assessment_portfolio as portfolio
 
 MAX_LIST = 10
@@ -210,7 +211,7 @@ def _excluded_text(excluded: tuple[tuple[str, int], ...]) -> str:
     return ", ".join(parts[:-1]) + (" y " if len(parts) > 1 else "") + parts[-1] if parts else ""
 
 
-def rank_scope(ind: Indicator, order: str, scope: list, governed: caps.Governed | None, pack: str, limit: int = MAX_LIST) -> caps.ResultSet:
+def rank_scope(ind: Indicator, order: str, scope: list, governed: caps.Governed | None, pack: str, limit: int = MAX_LIST, offset: int = 0, scope_key: tuple = ()) -> caps.ResultSet:
     """Ordena las entradas de ``scope`` por UN indicador y devuelve un ``ResultSet`` de solo lectura: filas (≤ limit) con valor y evidencia, cobertura, exclusiones y empates.
     Las entradas sin valor comparable NO se rankean: se cuentan y se explican. El orden lo determina el indicador (nunca el veredicto legado); los empates se agrupan y entre ellos el orden es
     estable (cliente, nombre, ``entry_id``), no un ranking."""
@@ -221,7 +222,7 @@ def rank_scope(ind: Indicator, order: str, scope: list, governed: caps.Governed 
         if measured[e.entry_id].state != OK:
             excluded[measured[e.entry_id].state] = excluded.get(measured[e.entry_id].state, 0) + 1
     ok.sort(key=lambda e: (_order_value(ind, measured[e.entry_id].value, order), (e.cliente or "").lower(), (e.dominio or "").lower(), e.entry_id))
-    shown = ok[:limit]
+    shown = ok[offset:offset + limit]
     by_value: dict[Any, int] = {}
     for e in ok:
         by_value[measured[e.entry_id].value] = by_value.get(measured[e.entry_id].value, 0) + 1
@@ -232,10 +233,15 @@ def rank_scope(ind: Indicator, order: str, scope: list, governed: caps.Governed 
             seen.add(v)
             ties.append((measured[e.entry_id].display, by_value[v]))
     cut = None
-    if shown and len(ok) > len(shown):
+    after = ok[offset + len(shown):]
+    if shown and after:
         last = measured[shown[-1].entry_id].value
-        extra = by_value[last] - sum(1 for e in shown if measured[e.entry_id].value == last)
+        extra = sum(1 for e in after if measured[e.entry_id].value == last)
         cut = (measured[shown[-1].entry_id].display, extra) if extra > 0 else None
+    continues = None
+    if shown and offset > 0 and measured[ok[offset - 1].entry_id].value == measured[shown[0].entry_id].value:      # la página anterior terminó en el mismo valor: sigue el MISMO empate
+        first = measured[shown[0].entry_id].value
+        continues = (measured[shown[0].entry_id].display, sum(1 for e in ok[:offset] if measured[e.entry_id].value == first))
     items = []
     for item, e in zip(caps.build_items(shown, governed, pack), shown):
         m = measured[e.entry_id]
@@ -244,21 +250,26 @@ def rank_scope(ind: Indicator, order: str, scope: list, governed: caps.Governed 
         attrs = replace(item.catalog, metrics=(metric,)) if item.catalog else None
         items.append(replace(item, badge=m.display, note=evidence, catalog=attrs))
     info = caps.RankingInfo(indicator=ind.id, label=ind.label, order=order, order_text=ind.order_text(order), universe=len(scope), evaluated=len(ok),
-                            excluded=tuple(sorted(excluded.items())), ties=tuple(ties), cut_in_tie=cut, caveat=ind.caveat)
-    return caps.ResultSet("rank", total=len(scope), items=tuple(items), footer=footer_text(info, len(ok) - len(shown)), catalog=caps.CatalogSummary(classified=governed is not None), ranking=info)
+                            excluded=tuple(sorted(excluded.items())), ties=tuple(ties), cut_in_tie=cut, caveat=ind.caveat,
+                            page=offset // max(limit, 1) + 1, pages=max(1, -(-len(ok) // max(limit, 1))), continues_tie=continues)
+    rows = [(caps.CATALOG_ENTRY, e.entry_id, repr(measured[e.entry_id].value)) for e in ok]                  # el conjunto ORDENADO completo y el valor que determina su posición
+    return caps.ResultSet("rank", total=len(scope), items=tuple(items), footer=footer_text(info, len(after)), catalog=caps.CatalogSummary(classified=governed is not None), ranking=info,
+                          fingerprint=qctx.fingerprint(("rank", ind.id, order) + tuple(scope_key), rows))
 
 
 def footer_text(info: caps.RankingInfo, more: int) -> str:
     """Nota en texto plano bajo las filas: empates, lo que no se compara, lo que falta mostrar y la advertencia metodológica del indicador."""
     parts = []
+    if info.continues_tie:
+        parts.append(f"Estas entradas continúan el empate de «{info.continues_tie[0]}»: hay {info.continues_tie[1]} más con ese valor en páginas anteriores. El orden entre ellas no implica un ranking.")
     if info.ties:
         shown = "; ".join(f"{n} entradas con «{display}»" for display, n in info.ties[:3])
         parts.append(f"Empatan: {shown}. Entre ellas el orden es estable pero no implica un ranking.")
     if info.cut_in_tie:
-        parts.append(f"El corte cae dentro de un empate: hay {info.cut_in_tie[1]} entradas más con «{info.cut_in_tie[0]}».")
+        parts.append(f"El corte cae dentro de un empate: hay {info.cut_in_tie[1]} entrada{'s' if info.cut_in_tie[1] != 1 else ''} más con «{info.cut_in_tie[0]}».")
     if info.excluded:
         parts.append(f"No se comparan: {_excluded_text(info.excluded)}.")
     if more > 0:
-        parts.append(f"Hay {more} más con valor comparable: acotá por cliente o línea de negocio, o abrí el Catálogo.")
+        parts.append(f"Hay {more} más con valor comparable: acotá por cliente o línea de negocio, o abrí el Catálogo. Pedime «mostrame los siguientes» para ver la página siguiente.")
     parts.append(info.caveat)
     return " ".join(parts)

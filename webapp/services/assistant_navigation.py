@@ -8,6 +8,7 @@ Garantías: las URLs salen SIEMPRE de entradas reales del Catálogo (nunca de te
 (cliente inexistente, ambiguo o sin flujos publicados) la respuesta lo dice explícitamente y no ofrece enlaces inventados."""
 from __future__ import annotations
 
+import dataclasses
 import logging
 import re
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from urllib.parse import quote
 
 from core.utils import norm_text
 from webapp.services import assistant_capabilities as caps
+from webapp.services import assistant_context as qctx
 from webapp.services import assistant_indicators as indicators
 from webapp.services import catalog_navigation, catalog_reads
 from webapp.services import client_assessment_portfolio as portfolio
@@ -30,12 +32,14 @@ class NavigationResult:
     message: str
     actions: tuple[tuple, ...]                    # (etiqueta, URL interna[, modo]); modo: "embed" (por defecto: carga en el slot del Catálogo) · "tab:<pestaña>" (activa esa pestaña en la página) · "link" (navega)
     result: caps.ResultSet | None = None          # resultado estructurado de una consulta sobre el Catálogo (filas navegables); ``message`` queda como su encabezado
+    state: qctx.QueryDraft | None = None          # contexto de la consulta para los seguimientos (el borde HTTP lo asocia a usuario e instante); None = esta respuesta no deja contexto
+    keep_state: bool = False                      # sin `state`: conservar el contexto vigente (p. ej. «abrí el segundo» no cambia la lista); por defecto una respuesta que no es una consulta lo borra
 
 
 @dataclass(frozen=True)
 class NavigationTarget:
     key: str
-    resolve: Callable[[str, str, str], NavigationResult | None]    # (pregunta, pack, módulo actual) → resultado o None si la intención no es de este destino
+    resolve: Callable[..., NavigationResult | None]    # (pregunta, pack, módulo actual, contexto de la conversación) → resultado o None si la intención no es de este destino
 
 
 # ── Informe de Cliente ──────────────────────────────────────────────────────────────────────────
@@ -74,7 +78,7 @@ def _report_url(entry, pack: str) -> str:
     return f"/catalog/client/assessment?flow={quote(entry.entry_id)}&pack={quote(pack)}&origin=assistant"
 
 
-def _client_report(question: str, pack: str, stem: str = "") -> NavigationResult | None:
+def _client_report(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
     if not _is_client_report_request(question):
         return None
     mod, entries = catalog_reads._catalog_entries()
@@ -187,7 +191,7 @@ def _open_catalog_action(pack: str, stem: str = "") -> tuple | None:
     return ("Abrir Catálogo", url, "tab:catalogo") if here else ("Abrir Catálogo", url, "link")
 
 
-def _data_catalog(question: str, pack: str, stem: str = "") -> NavigationResult | None:
+def _data_catalog(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
     intent = _data_catalog_intent(question)
     if intent is None:
         return None
@@ -226,6 +230,7 @@ class _InventoryIntent:
     capped: bool               # pidió más que el tope
     lob: str | None            # id de línea de negocio, "UNCLASSIFIED" o None
     client: str | None         # cliente del Catálogo (nombre canónico) o None
+    offset: int = 0            # desplazamiento de la página (seguimientos: «los siguientes»)
 
 
 def _word(term: str, text: str) -> bool:
@@ -293,7 +298,7 @@ def _distribution_text(aggregates: tuple[tuple[str, str, int], ...]) -> str:
     return " · ".join(f"**{label}**: {n}" if group in (dcs.UNCLASSIFIED, dcs.UNAVAILABLE) else f"{label}: {n}" for group, label, n in aggregates)
 
 
-def _catalog_inventory(question: str, pack: str, stem: str = "") -> NavigationResult | None:
+def _catalog_inventory(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
     mod, entries = catalog_reads._catalog_entries()
     intent = _inventory_intent(question, catalog_navigation.clients(mod, entries) if mod else [])
     return _inventory_result(intent, pack, stem) if intent is not None else None
@@ -341,23 +346,30 @@ def _inventory_result(intent: _InventoryIntent, pack: str, stem: str) -> Navigat
         top_client = max(clients, key=lambda c: (len(catalog_navigation.flows_for_client(mod, entries, c)), c.lower()), default=None)
         tips = [f"«modelos de {top_lob}»" if top_lob else "", f"«qué tiene {top_client}»" if top_client else "", "«mostrame 10 modelos»"]
         lines += ["", "---", "", f"Para acotar: {_join([t for t in tips if t])}. O abrí el Catálogo para explorarlos completos."]       # «---»: el render del chat no separa párrafos por línea en blanco
-        return NavigationResult("\n".join(lines), tuple(actions), result)
+        return NavigationResult("\n".join(lines), tuple(actions), result, state=qctx.QueryDraft(qctx.QuerySpec("summary")))
 
     where = _where_text(intent.client, intent.lob, labels)
     ordered = caps.order_entries(scope)
+    spec = qctx.QuerySpec("list", intent.client, intent.lob, limit=intent.limit, offset=intent.offset)
+    fp = qctx.fingerprint(("list", intent.client, intent.lob), [(caps.CATALOG_ENTRY, e.entry_id, eff[e.entry_id]["group"] if eff is not None else "", e.veredicto, e.cliente, e.dominio) for e in ordered])
     if not ordered:
-        return NavigationResult(f"No hay entradas navegables {where}.", tuple(actions))
-    shown = ordered[:intent.limit]
+        return NavigationResult(f"No hay entradas navegables {where}.", tuple(actions), state=qctx.QueryDraft(spec, (), fp))
+    shown = ordered[intent.offset:intent.offset + intent.limit]
+    if not shown:
+        return NavigationResult(f"Ya viste todas las entradas {where} ({len(ordered)}). Pedime «mostrame los anteriores» para volver o una consulta nueva.", tuple(actions), keep_state=True)
+    remaining = len(ordered) - intent.offset - len(shown)
     head = f"Hay **{_entries(len(ordered))}** {where}"
     order_note = "ordenados por mirada Danwor (plena → parcial) y luego por cliente y nombre"
-    if len(ordered) > len(shown):
+    if intent.offset:
+        head += f". Página {intent.offset // intent.limit + 1} de {-(-len(ordered) // intent.limit)}: muestro {len(shown)}, {order_note}:"
+    elif remaining > 0:
         head += (f". Muestro una selección de {len(shown)} (el máximo por respuesta), {order_note}:" if intent.capped else f". Muestro {len(shown)}, {order_note}:")        # «selección»/«muestro», no «top»: no hay un ranking real
     else:
         head += f", {order_note}:" if len(ordered) > 1 else ":"
-    footer = (f"Hay {len(ordered) - len(shown)} más. Para acotar, sumá un cliente o una línea de negocio, o abrí el Catálogo para explorar el resto."
-              if len(ordered) > len(shown) else "")
-    result = caps.ResultSet("list", total=len(ordered), items=caps.build_items(shown, governed, pack), footer=footer, catalog=caps.CatalogSummary(classified=eff is not None))
-    return NavigationResult(head, tuple(actions), result)
+    footer = (f"Hay {remaining} más. Para acotar, sumá un cliente o una línea de negocio, o abrí el Catálogo para explorar el resto. Pedime «mostrame los siguientes» para ver la página siguiente."
+              if remaining > 0 else "")
+    result = caps.ResultSet("list", total=len(ordered), items=caps.build_items(shown, governed, pack), footer=footer, catalog=caps.CatalogSummary(classified=eff is not None), fingerprint=fp)
+    return NavigationResult(head, tuple(actions), result, state=qctx.QueryDraft(spec, tuple(it.key for it in result.items), fp))
 
 
 # ── Consultas analíticas: ordenar ENTRADAS por UN indicador gobernado explícito ───────────────────────────────────────────────────────────
@@ -386,6 +398,7 @@ class _RankIntent:
     client: str | None = None
     limit: int = MAX_LIST
     capped: bool = False
+    offset: int = 0
 
 
 def _ranking_intent(question: str, clients: list[str]) -> _RankIntent | None:
@@ -415,15 +428,11 @@ def _ranking_intent(question: str, clients: list[str]) -> _RankIntent | None:
     if len(named) > 1:
         return _RankIntent("multi", candidates=tuple(named), **common)
     if not named:
-        return _RankIntent("clarify_indicator", order=indicators.WORST_FIRST if (neg_q or neg_g) and not (pos_q or pos_g) else indicators.BEST_FIRST, **common)
+        return _RankIntent("clarify_indicator", order=_direction(q, None)[0], **common)
     ind = indicators.BY_ID[named[0]]
-    pos = pos_g or (bool(_RK_MORE.search(q)) if ind.volume else pos_q)
-    neg = neg_g or (bool(_RK_LESS.search(q)) if ind.volume else neg_q)
-    if ind.volume and (pos_q or neg_q) and not (pos_g or neg_g or _RK_MORE.search(q) or _RK_LESS.search(q)):
+    order, clarify = _direction(q, ind)
+    if clarify:
         return _RankIntent("clarify_direction", indicator=ind.id, **common)         # «mejor/peor» no aplica a un indicador de volumen
-    if not ind.volume:
-        pos, neg = pos or pos_q, neg or neg_q
-    order = indicators.WORST_FIRST if neg and not pos else indicators.BEST_FIRST
     return _RankIntent("rank", indicator=ind.id, order=order, **common)
 
 
@@ -455,10 +464,16 @@ def _indicator_options(intent: _RankIntent, labels: dict[str, str], ids: tuple[s
     return tuple(out)
 
 
-def _catalog_ranking(question: str, pack: str, stem: str = "") -> NavigationResult | None:
+def _catalog_ranking(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
     mod, entries = catalog_reads._catalog_entries()
     intent = _ranking_intent(question, catalog_navigation.clients(mod, entries) if mod else [])
-    return _ranking_result(intent, pack, stem) if intent is not None else None
+    if intent is None:
+        return None
+    try:
+        return _ranking_result(intent, pack, stem)
+    except Exception:  # noqa: BLE001 — una consulta analítica RECONOCIDA nunca cae en silencio al LLM libre: si falla la ejecución, se dice
+        log.exception("consulta analítica del asistente: falló la ejecución")
+        return NavigationResult(_FAILED_QUERY, ())
 
 
 def _ranking_result(intent: _RankIntent, pack: str, stem: str) -> NavigationResult:
@@ -468,6 +483,7 @@ def _ranking_result(intent: _RankIntent, pack: str, stem: str) -> NavigationResu
     where = _where_text(intent.client, intent.lob, labels)
     open_action = _open_catalog_action(pack, stem)
     base = (open_action,) if open_action else ()
+    pending = qctx.QueryDraft(qctx.QuerySpec("pending", intent.client, intent.lob, order=intent.order))       # una aclaración de métrica pendiente: «¿y por confianza?» la completa
     if intent.kind == "ambiguous_filter":
         return NavigationResult("Nombraste más de un cliente o más de una línea de negocio. Para comparar entradas pedime una consulta por vez, con un solo cliente y una sola línea de negocio.", base)
     if intent.kind == "group":
@@ -480,20 +496,20 @@ def _ranking_result(intent: _RankIntent, pack: str, stem: str) -> NavigationResu
         else:
             options = _indicator_options(intent, labels) + (_ask("Ver la distribución por línea de negocio", "¿Qué modelos tenemos?"),)
             text += " ¿Con qué métrica querés compararlas?"
-        return NavigationResult(text, options)
+        return NavigationResult(text, options, state=pending)
     if intent.kind == "multi":
         names = [indicators.BY_ID[i].label for i in intent.candidates]
-        return NavigationResult(f"Nombraste más de una métrica ({_join(names)}). Son medidas distintas y no las combino en un puntaje: elegí una.", _indicator_options(intent, labels, intent.candidates))
+        return NavigationResult(f"Nombraste más de una métrica ({_join(names)}). Son medidas distintas y no las combino en un puntaje: elegí una.", _indicator_options(intent, labels, intent.candidates), state=pending)
     if intent.kind == "clarify_indicator":
         text = ("No existe un «scoring» único: cada métrica mide algo distinto. Para ordenar entradas necesito que elijas una de las métricas disponibles"
                 + (f" ({where})" if where != "en el Catálogo" else "") + ".")
-        return NavigationResult(text, _indicator_options(intent, labels))
+        return NavigationResult(text, _indicator_options(intent, labels), state=pending)
     if intent.kind == "clarify_direction":
         ind = indicators.BY_ID[intent.indicator]
         more = indicators.canonical_question(ind.id, indicators.BEST_FIRST, client=intent.client, lob_label=labels.get(intent.lob or ""), unclassified=intent.lob == dcs.UNCLASSIFIED)
         less = indicators.canonical_question(ind.id, indicators.WORST_FIRST, client=intent.client, lob_label=labels.get(intent.lob or ""), unclassified=intent.lob == dcs.UNCLASSIFIED)
         return NavigationResult(f"**{ind.label}** mide cantidad, no calidad: {ind.caveat.split(': ', 1)[-1]} Por eso no hay un «mejor» o un «peor». ¿Querés ver las entradas con más o con menos?",
-                                (_ask("Más " + ind.label.lower(), more), _ask("Menos " + ind.label.lower(), less)))
+                                (_ask("Más " + ind.label.lower(), more), _ask("Menos " + ind.label.lower(), less)), state=pending)
     # kind == "rank"
     ind = indicators.BY_ID[intent.indicator]
     if not flows:
@@ -513,25 +529,254 @@ def _ranking_result(intent: _RankIntent, pack: str, stem: str) -> NavigationResu
         scope = [e for e in scope if eff[e.entry_id]["group"] == intent.lob]            # SOLO la clasificación efectiva
     if not scope:
         return NavigationResult(f"No hay entradas navegables {where}.", tuple(actions))
-    rs = indicators.rank_scope(ind, intent.order, scope, governed, pack, intent.limit)
+    spec = qctx.QuerySpec("rank", intent.client, intent.lob, ind.id, intent.order, intent.limit, intent.offset)
+    rs = indicators.rank_scope(ind, intent.order, scope, governed, pack, intent.limit, intent.offset, (intent.client, intent.lob))
     info = rs.ranking
+    draft = qctx.QueryDraft(spec, tuple(it.key for it in rs.items), rs.fingerprint)
     if info.evaluated == 0:
-        return NavigationResult(f"Ninguna de las {_entries(info.universe)} {where} tiene un valor comparable de **{ind.label}**: {indicators._excluded_text(info.excluded)}. {ind.caveat}", tuple(actions), rs)
+        return NavigationResult(f"Ninguna de las {_entries(info.universe)} {where} tiene un valor comparable de **{ind.label}**: {indicators._excluded_text(info.excluded)}. {ind.caveat}", tuple(actions), rs, state=draft)
+    if not rs.items:
+        return NavigationResult(f"Ya viste todas las entradas con valor comparable de **{ind.label}** ({info.evaluated}). Pedime «mostrame los anteriores» para volver o una consulta nueva.", tuple(actions), keep_state=True)
     head = f"Entradas {where} ordenadas por **{ind.label}** ({info.order_text}). {info.evaluated} de {info.universe} tienen un valor comparable."
-    if len(rs.items) < info.evaluated:
+    if intent.offset:
+        head += f" Página {info.page} de {info.pages}: muestro {len(rs.items)}."
+    elif len(rs.items) < info.evaluated:
         head += f" Muestro {len(rs.items)}" + (" (el máximo por respuesta)." if intent.capped or intent.limit == MAX_LIST else ".")
-    return NavigationResult(head, tuple(actions), rs)
+    return NavigationResult(head, tuple(actions), rs, state=draft)
 
 
-TARGETS: tuple[NavigationTarget, ...] = (NavigationTarget("client_report", _client_report), NavigationTarget("data_catalog", _data_catalog),
+# ── Seguimientos conversacionales sobre la última consulta estructurada ───────────────────────────────────────────────────────────────────
+# «¿Y los de Finanzas?», «¿y por confianza?», «los siguientes», «abrí el segundo», «empezar de nuevo». La gramática es ACOTADA y se DERIVA de los contratos que ya existen (clientes del Catálogo,
+# taxonomía de líneas de negocio, alias del registro de indicadores): no hay un intent por frase. Un mensaje es un seguimiento solo si, quitadas las entidades conocidas, los alias de indicador, las palabras
+# de dirección y las muletillas, NO queda nada: una pregunta con contenido propio («¿qué tiene Pampa?», «modelos de Ventas») es una consulta NUEVA y reemplaza el contexto. El contexto (assistant_context)
+# guarda solo la consulta y las identidades mostradas: todo se RECALCULA desde las fuentes gobernadas vigentes antes de paginar, filtrar o abrir una referencia.
+_FU_INTERROGATIVES = {"que", "como", "cual", "cuales", "quien", "quienes", "donde", "cuando", "cuanto", "cuantos", "cuantas", "hay", "tenemos", "existe", "existen", "lista", "listame"}
+_FU_LEAD = ("y", "solo", "solamente", "unicamente", "pero", "tambien", "por", "segun")
+_FU_FILLERS = {"y", "e", "los", "las", "el", "la", "lo", "de", "del", "para", "en", "por", "segun", "solo", "solamente", "unicamente", "nada", "pero", "tambien", "ahora", "quiero", "ver", "mostrame", "muestrame",
+               "mostra", "dame", "pasame", "ordena", "ordenalos", "ordenalas", "ordenar", "ordenado", "ordenados", "ordenadas", "ordename", "ordenamelos", "linea", "lineas", "negocio", "cliente", "clientes", "nivel",
+               "esos", "esas"}
+_FU_NOUNS = {"modelos", "modelo", "entradas", "entrada", "resultados", "resultado", "con"}          # solo cuentan como muletilla si el mensaje arranca como continuación («y los modelos de Ventas…»)
+_FU_PAGE_LEAD = r"(?:(?:y|mostrame|muestrame|mostra|ver|dame|pasame|quiero ver|los|las|unos|el|la)\s+)*"
+_FU_NEXT = re.compile(rf"^{_FU_PAGE_LEAD}(?:pagina\s+)?(?:siguientes?|proxim[oa]s?|mas)(?:\s+(?:resultados|entradas|modelos|paginas?))?$")
+_FU_PREV = re.compile(rf"^{_FU_PAGE_LEAD}(?:pagina\s+)?(?:anteriores|anterior|previos|previas)(?:\s+(?:resultados|entradas|modelos|paginas?))?$")
+_FU_RESET = re.compile(r"^(?:(?:y|quiero|podemos|vamos a)\s+)?(?:empezar|empeza|empecemos|comenzar|comenza|arrancar|arranca|reiniciar|reinicia)\s+(?:de\s+)?(?:nuevo|cero)$"
+                       r"|^(?:una\s+)?nueva\s+consulta$|^(?:olvida|olvidate de|borra|borrar)\s+(?:lo anterior|el contexto|todo)$|^desde cero$")
+_ORDINALS = {"primero": 1, "primer": 1, "primera": 1, "segundo": 2, "segunda": 2, "tercero": 3, "tercer": 3, "tercera": 3, "cuarto": 4, "cuarta": 4, "quinto": 5, "quinta": 5, "sexto": 6, "sexta": 6,
+             "septimo": 7, "septima": 7, "octavo": 8, "octava": 8, "noveno": 9, "novena": 9, "decimo": 10, "decima": 10,
+             "undecimo": 11, "undecima": 11, "duodecimo": 12, "duodecima": 12, "decimotercero": 13, "decimocuarto": 14, "decimoquinto": 15, "decimosexto": 16, "decimoseptimo": 17,
+             "decimoctavo": 18, "decimonoveno": 19, "vigesimo": 20, "vigesima": 20}
+_ORDINAL_TEXT = {1: "primero", 2: "segundo", 3: "tercero", 4: "cuarto", 5: "quinto", 6: "sexto", 7: "séptimo", 8: "octavo", 9: "noveno", 10: "décimo", 11: "undécimo", 12: "duodécimo", 13: "decimotercero", 14: "decimocuarto", 15: "decimoquinto", 16: "decimosexto", 17: "decimoséptimo", 18: "decimoctavo", 19: "decimonoveno", 20: "vigésimo"}
+_FU_REF = re.compile(r"^(?:(?:abri|abrime|abre|mostrame|muestrame|mostra|ver|veo|dame|pasame|quiero ver|llevame a|ir a|entra a|y)\s+)*(?:(?:el|la|al)\s+)?(?:numero\s+)?"
+                     rf"(?P<w>{'|'.join(sorted(_ORDINALS, key=len, reverse=True))}|ultim[oa]|\d{{1,2}}(?:o|a|º|°)?|ese|esa|este|esta)(?:\s+(?:modelo|entrada|resultado))?(?:\s+de la lista)?$")
+_FAILED_QUERY = "No pude completar la consulta en este momento, así que no te muestro un dato dudoso. Probá de nuevo en unos segundos o hacé una consulta nueva."
+_FU_HELP = "Pedime, por ejemplo, «¿Qué modelos tenemos?» o «¿Qué entradas tienen mejor adopción metodológica?»."
+
+
+@dataclass(frozen=True)
+class _Follow:
+    op: str                                   # reset | next | prev | ref | change
+    ordinal: int | None = None                # ref: posición 1-based en la lista VISIBLE; -1 = último; 0 = «ese/esta» (solo si es inequívoco)
+    clients: tuple[str, ...] = ()
+    lobs: tuple[str, ...] = ()
+    inds: tuple[str, ...] = ()
+    order: str = indicators.BEST_FIRST
+    clarify_direction: bool = False
+
+
+def _direction(q: str, ind) -> tuple[str, bool]:
+    """(orden, aclarar_dirección) de una consulta normalizada. «mejor/peor» no aplica a un indicador de VOLUMEN (más/menos): en ese caso se pide aclarar."""
+    pos_q, neg_q = bool(_RK_POS_Q.search(q)), bool(_RK_NEG_Q.search(q))
+    pos_g, neg_g = bool(_RK_POS_GEN.search(q)), bool(_RK_NEG_GEN.search(q))
+    if ind is None:
+        return (indicators.WORST_FIRST if (neg_q or neg_g) and not (pos_q or pos_g) else indicators.BEST_FIRST), False
+    more, less = bool(_RK_MORE.search(q)), bool(_RK_LESS.search(q))
+    pos = pos_g or (more if ind.volume else pos_q)
+    neg = neg_g or (less if ind.volume else neg_q)
+    if ind.volume and (pos_q or neg_q) and not (pos_g or neg_g or more or less):
+        return indicators.BEST_FIRST, True
+    if not ind.volume:
+        pos, neg = pos or pos_q, neg or neg_q
+    return (indicators.WORST_FIRST if neg and not pos else indicators.BEST_FIRST), False
+
+
+def _followup_intent(question: str, clients: list[str], live: bool) -> _Follow | None:
+    t = re.sub(r"\s+", " ", re.sub(r"[¿?¡!.,;:]", " ", norm_text(question))).strip()
+    words = t.split()
+    if not t or len(words) > 9 or words[0] in _FU_INTERROGATIVES:
+        return None                                                          # un seguimiento es corto y no es una pregunta nueva
+    if _FU_RESET.match(t):
+        return _Follow("reset")
+    if _FU_NEXT.match(t):
+        return _Follow("next")
+    if _FU_PREV.match(t):
+        return _Follow("prev")
+    m = _FU_REF.match(t)
+    if m:
+        w = m.group("w")
+        ordinal = (-1 if w.startswith("ultim") else 0 if w in ("ese", "esa", "este", "esta") else _ORDINALS.get(w) or int(re.match(r"\d+", w).group()))
+        return _Follow("ref", ordinal=ordinal)
+    padded = f" {t} "
+    hit_clients = [c for c in clients if _word(c, padded)]
+    lobs = _lobs_named(t)
+    inds = indicators.indicators_named(t)
+    if not (hit_clients or lobs or inds):
+        return None
+    rest = f" {t} "
+    for c in hit_clients:
+        rest = re.sub(rf"(?<![a-z0-9]){re.escape(norm_text(c))}(?![a-z0-9])", " ", rest)
+    for o in dcs.lob_options():
+        if o["id"] != dcs.UNCLASSIFIED:
+            rest = re.sub(rf"(?<![a-z0-9]){re.escape(norm_text(o['label']))}(?![a-z0-9])", " ", rest)
+    rest = _INV_UNCLASSIFIED.sub(" ", rest)
+    rest = re.sub(r"\bnada mas\b", " ", rest)
+    rest = indicators.without_indicator_names(rest.strip())
+    for rx in (_RK_POS_Q, _RK_NEG_Q, _RK_POS_GEN, _RK_NEG_GEN, _RK_MORE, _RK_LESS):
+        rest = rx.sub(" ", rest)
+    lead = words[0] in _FU_LEAD or t.startswith("nada mas") or words[0].startswith("ordena")
+    allowed = _FU_FILLERS | (_FU_NOUNS if lead else set())
+    if any(tok not in allowed for tok in rest.split()):
+        return None                                                          # tiene contenido propio: es una consulta nueva
+    only_unclassified = lobs == [dcs.UNCLASSIFIED] and not hit_clients and not inds
+    if not (lead or live or only_unclassified):
+        return None                                                          # sin contexto y sin marca de continuación, una entidad suelta no se interpreta como seguimiento
+    ind = indicators.BY_ID[inds[0]] if len(inds) == 1 else None
+    order, clarify = _direction(t, ind)
+    return _Follow("change", clients=tuple(hit_clients), lobs=tuple(lobs), inds=tuple(inds), order=order, clarify_direction=clarify)
+
+
+def _no_context(expired: bool) -> NavigationResult:
+    """Un seguimiento reconocible SIN contexto vigente: aclaración determinista (no inventa referencias ni cae al LLM libre)."""
+    lead = (f"Pasaron más de {qctx.TTL_SECONDS // 60} minutos desde tu última consulta y no conservo el contexto. " if expired
+            else "No tengo una consulta previa vigente para completar con eso. ")
+    return NavigationResult(lead + _FU_HELP, (_ask("Ver el resumen del Catálogo", "¿Qué modelos tenemos?"), _ask("Elegir una métrica", "¿Qué entradas tienen mejor scoring?")))
+
+
+def _run_spec(spec: qctx.QuerySpec, pack: str, stem: str) -> NavigationResult:
+    """Ejecuta una consulta estructurada con los MISMOS ejecutores que las consultas directas (datos vigentes, nada reutilizado)."""
+    if spec.capability == "summary":
+        return _inventory_result(_InventoryIntent("summary", MAX_LIST, False, None, None), pack, stem)
+    if spec.capability == "list":
+        return _inventory_result(_InventoryIntent("list", spec.limit, False, spec.lob, spec.client, spec.offset), pack, stem)
+    if spec.capability == "rank":
+        return _ranking_result(_RankIntent("rank", spec.indicator, spec.order, lob=spec.lob, client=spec.client, limit=spec.limit, offset=spec.offset), pack, stem)
+    return _ranking_result(_RankIntent("clarify_indicator", order=spec.order, lob=spec.lob, client=spec.client), pack, stem)         # "pending": la aclaración de métrica
+
+
+def _canonical_again(spec: qctx.QuerySpec) -> tuple | None:
+    """Opción «volver a consultar» con la pregunta canónica de la consulta (offset 0), fijada por el servidor."""
+    labels = caps.lob_labels()
+    lob_label, unclassified = labels.get(spec.lob or ""), spec.lob == dcs.UNCLASSIFIED
+    if spec.capability == "rank" and spec.indicator:
+        return _ask("Volver a consultar", indicators.canonical_question(spec.indicator, spec.order, client=spec.client, lob_label=lob_label, unclassified=unclassified))
+    if spec.capability == "list":
+        where = (f" de {spec.client}" if spec.client else "") + (" sin clasificar" if unclassified else (f" en {lob_label}" if lob_label else ""))
+        return _ask("Volver a consultar", f"Mostrame los modelos{where}")
+    return None
+
+
+def _followup_reference(f: _Follow, st: qctx.QueryState, pack: str, stem: str) -> NavigationResult:
+    """«Abrí el segundo»: se resuelve sobre la ÚLTIMA lista efectivamente visible, solo si el resultado recalculado es el MISMO (huella y entradas) y la entrada sigue existiendo."""
+    if st.spec.capability not in ("list", "rank") or not st.refs:
+        return NavigationResult("Todavía no hay una lista visible para elegir una entrada. " + _FU_HELP, (), keep_state=True)
+    n = len(st.refs)
+    if f.ordinal == 0:
+        if n != 1:
+            return NavigationResult(f"Hay {n} entradas visibles: decime cuál querés abrir (por ejemplo, «abrí el segundo»).", (), keep_state=True)
+        position = 1
+    else:
+        position = n if f.ordinal == -1 else f.ordinal
+    if not 1 <= position <= n:
+        return NavigationResult(f"La lista visible tiene {n} entrada{'s' if n != 1 else ''}: no hay un {_ORDINAL_TEXT.get(position, str(position))}.", (), keep_state=True)
+    current = _run_spec(st.spec, pack, stem)                                  # datos VIGENTES: la lista se recalcula con la misma consulta y la misma página
+    again = _canonical_again(st.spec)
+    if current.state is None:
+        return NavigationResult("No pude revalidar la lista en este momento, así que no abro ninguna entrada para no abrir otra por error. Probá de nuevo en unos segundos.", (), keep_state=True)
+    if current.state.fingerprint != st.fingerprint or current.state.refs != st.refs:
+        return NavigationResult("La lista cambió desde que te la mostré (se actualizaron datos, clasificaciones o el orden), así que no abro ninguna entrada para no abrir otra por error. Volvé a pedirla para ver la lista vigente.",
+                                (again,) if again else ())
+    kind, ref = st.refs[position - 1]
+    entry = caps.find_entry(kind, ref)                                        # la identidad se revalida contra el Catálogo actual; la URL se reconstruye con los presenters, nunca se reutiliza
+    if entry is None:
+        return NavigationResult("Esa entrada ya no está disponible en el Catálogo. Volvé a pedir la lista para ver las vigentes.", (again,) if again else ())
+    governed = caps.governed_read([entry])
+    item = dataclasses.replace(caps.build_items([entry], governed, pack)[0], autoload=True)
+    text = f"Abro el {_ORDINAL_TEXT.get(position, str(position))} de la lista que te mostré: **{item.title}**."
+    return NavigationResult(text, (), caps.ResultSet("list", total=1, items=(item,)), keep_state=True)
+
+
+def _followup_page(f: _Follow, st: qctx.QueryState, pack: str, stem: str) -> NavigationResult:
+    spec = st.spec
+    if spec.capability == "summary":
+        return NavigationResult("El resumen no tiene páginas. Pedime un listado (por ejemplo, «mostrame 10 modelos») y después los siguientes.", (), keep_state=True)
+    if spec.capability == "pending":
+        pending = _run_spec(spec, pack, stem)
+        return dataclasses.replace(pending, message="Todavía no hay una lista para recorrer: primero elegí una métrica. " + pending.message, keep_state=True)
+    if f.op == "prev" and spec.offset == 0:
+        return NavigationResult("Ya estás en la primera página.", (), keep_state=True)
+    offset = spec.offset + spec.limit if f.op == "next" else max(0, spec.offset - spec.limit)
+    page = _run_spec(dataclasses.replace(spec, offset=offset), pack, stem)     # se reconsultan los datos vigentes antes de paginar
+    if page.state is not None and page.state.fingerprint != st.fingerprint:
+        fresh = _run_spec(dataclasses.replace(spec, offset=0), pack, stem)     # el conjunto cambió: se reinicia desde la primera página para no duplicar ni omitir entradas
+        return dataclasses.replace(fresh, message="Los datos cambiaron desde que te mostré la lista; vuelvo a la primera página para no duplicar ni omitir entradas. " + fresh.message)
+    return page
+
+
+def _followup_change(f: _Follow, st: qctx.QueryState, pack: str, stem: str) -> NavigationResult:
+    spec = st.spec
+    if len(f.clients) > 1 or len(f.lobs) > 1:
+        return NavigationResult("Nombraste más de un cliente o más de una línea de negocio. Pedime un solo cliente y una sola línea de negocio por vez.", (), keep_state=True)
+    client = f.clients[0] if f.clients else spec.client
+    lob = f.lobs[0] if f.lobs else spec.lob
+    if len(f.inds) > 1:
+        return _ranking_result(_RankIntent("multi", candidates=f.inds, client=client, lob=lob), pack, stem)
+    if f.inds:
+        if f.clarify_direction:
+            return _ranking_result(_RankIntent("clarify_direction", indicator=f.inds[0], client=client, lob=lob, quality_words=True), pack, stem)
+        new = qctx.QuerySpec("rank", client, lob, f.inds[0], f.order, spec.limit, 0)
+    else:
+        capability = "list" if spec.capability == "summary" else spec.capability                 # un filtro sobre el resumen es un listado filtrado
+        new = dataclasses.replace(spec, capability=capability, client=client, lob=lob, offset=0)
+    return _run_spec(new, pack, stem)
+
+
+def _catalog_followup(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
+    words = norm_text(question).strip().split()
+    if not words or len(words) > 9 or words[0].strip("¿¡") in _FU_INTERROGATIVES:
+        return None                                                          # compuerta barata: la mayoría de las preguntas no son seguimientos y no pagan la carga del Catálogo
+    ctx = ctx or qctx.QueryContext(None, "", 0.0)
+    status = ctx.status()
+    mod, entries = catalog_reads._catalog_entries()
+    clients = catalog_navigation.clients(mod, entries) if mod else []
+    f = _followup_intent(question, clients, status == qctx.LIVE)
+    if f is None:
+        return None
+    if f.op == "reset":
+        return NavigationResult("Listo, empezamos de nuevo: no conservo la consulta anterior. " + _FU_HELP, (_ask("Ver el resumen del Catálogo", "¿Qué modelos tenemos?"), _ask("Elegir una métrica", "¿Qué entradas tienen mejor scoring?")))
+    if status != qctx.LIVE:
+        if f.op == "change" and (_ranking_intent(question, clients) is not None or _inventory_intent(question, clients) is not None):
+            return None                                                      # trae su propia consulta completa: la resuelve el destino directo
+        return _no_context(expired=status == qctx.EXPIRED)
+    st = ctx.state
+    try:
+        if f.op in ("next", "prev"):
+            return _followup_page(f, st, pack, stem)
+        if f.op == "ref":
+            return _followup_reference(f, st, pack, stem)
+        return _followup_change(f, st, pack, stem)
+    except Exception:  # noqa: BLE001 — un seguimiento RECONOCIDO nunca cae en silencio al LLM libre: si falla la ejecución, se dice
+        log.exception("seguimiento del asistente: falló la ejecución de %s", f.op)
+        return NavigationResult(_FAILED_QUERY, (), keep_state=True)
+
+
+TARGETS: tuple[NavigationTarget, ...] = (NavigationTarget("catalog_followup", _catalog_followup), NavigationTarget("client_report", _client_report), NavigationTarget("data_catalog", _data_catalog),
                                          NavigationTarget("catalog_ranking", _catalog_ranking), NavigationTarget("catalog_inventory", _catalog_inventory))
 
 
-def resolve(question: str, pack: str, stem: str = "") -> NavigationResult | None:
+def resolve(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
     """Primer destino que reconoce la intención de navegación; None si la pregunta no es de navegación (sigue el flujo normal del asistente)."""
     for target in TARGETS:
         try:
-            result = target.resolve(question, pack, stem)
+            result = target.resolve(question, pack, stem, ctx)
         except Exception:  # noqa: BLE001 — un fallo de navegación nunca rompe el asistente: cae al flujo normal
             result = None
         if result is not None:

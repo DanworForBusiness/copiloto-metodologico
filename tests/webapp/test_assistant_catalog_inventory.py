@@ -233,7 +233,7 @@ def test_the_older_inventory_classifier_now_gets_the_same_bounded_summary(big):
 
 
 def test_registry_order_keeps_client_report_first():
-    assert [t.key for t in nav.TARGETS] == ["client_report", "data_catalog", "catalog_ranking", "catalog_inventory"]
+    assert [t.key for t in nav.TARGETS] == ["catalog_followup", "client_report", "data_catalog", "catalog_ranking", "catalog_inventory"]
 
 
 def test_end_to_end_the_chat_renders_one_action_and_no_model_buttons(big):

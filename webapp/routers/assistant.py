@@ -30,6 +30,8 @@ mutable de proceso compartido (`store`, `assistant_store`).
 """
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
@@ -46,6 +48,7 @@ from webapp.services.assistant_service import (
     AssistantFeedbackRepository,
     StaleAssistantReplyError,
 )
+from webapp.services.assistant_context import QueryContext, stamp
 from webapp.services.assistant_routing import AssistantRoutingService
 from webapp.services.llm_client import LLMServiceError, log_failure
 from webapp.services.content_service import load_module
@@ -189,8 +192,11 @@ def assistant_chat(
     try:
         document = load_module(stem, selected)
         history = assistant_store.history(conversation_id, stem, selected)
+        user_sub = str(user.get("sub") or user.get("email") or "")                     # el contexto estructurado pertenece a ESTE usuario y a ESTA conversación
+        now = time.time()
+        context = QueryContext(assistant_store.query_state(conversation_id, stem, selected, user_sub), user_sub, now)
         route = None if routing_bypass else assistant_routing_service.route(
-            document, question, selected, active_section,
+            document, question, selected, active_section, context,
         )
         answer_document = document
         answer_context = None
@@ -238,6 +244,15 @@ def assistant_chat(
             action="Routing" if route else ("IA bloqueada" if ia_blocked else "Asistente"),
             include_user=not routing_bypass,
         )
+        # Contexto de la última consulta estructurada: una consulta nueva lo reemplaza, un seguimiento que no cambia la lista lo conserva y cualquier otra respuesta (metodológica, recursos,
+        # Informe de Cliente, LLM) lo borra para que el siguiente mensaje no herede filtros ajenos.
+        if user_sub:
+            if route is not None and route.state is not None:
+                assistant_store.set_query_state(conversation_id, stem, selected, stamp(route.state, user_sub, now))
+            elif route is not None and route.keep_state:
+                assistant_store.touch_query_state(conversation_id, stem, selected, user_sub, now)
+            else:
+                assistant_store.clear_query_state(conversation_id, stem, selected, user_sub)
         error = ""
     except (FileNotFoundError, KeyError, SectionAnalysisError, LLMServiceError) as exc:
         reply = None

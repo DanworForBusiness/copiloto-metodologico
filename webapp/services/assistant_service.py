@@ -42,6 +42,7 @@ def _catalog_grounding(query: str) -> str:
         return mod.format_catalog_for_prompt(mod.search_catalog(query, entries))
     except Exception:
         return ""
+from webapp.services.assistant_context import QueryState, touch
 from webapp.services.content_service import ModuleDocument
 from webapp.services.llm_client import classify_openai_error, default_client
 from webapp.services.section_analysis import SectionAnalysisError, _legacy_api_key, render_llm_html
@@ -71,6 +72,7 @@ class AssistantConversation:
     messages: list[tuple[str, str]] = field(default_factory=list)
     latest_reply_id: str = ""
     analysis_fingerprints: set[tuple[str, str]] = field(default_factory=set)
+    query_state: QueryState | None = None       # contexto ESTRUCTURADO de la última consulta (ver assistant_context); en memoria, mismo ciclo de vida que la conversación
 
 
 class AssistantConversationStore:
@@ -150,6 +152,33 @@ class AssistantConversationStore:
             if conversation.latest_reply_id != reply_id:
                 raise StaleAssistantReplyError(reply_id)
         return reply
+
+    # ── contexto estructurado de la última consulta (paso 3) ─────────────────────────────────────────────────────────────────────
+    # Pertenece a UN usuario y a ESTA conversación: otro usuario nunca lo lee ni lo borra. No guarda URLs ni valores (ver assistant_context).
+    def query_state(self, conversation_id: str, module: str, pack: str, user_sub: str) -> QueryState | None:
+        conversation = self._conversation(conversation_id, module, pack)
+        with self._lock:
+            state = conversation.query_state
+        return state if (state is not None and user_sub and state.user_sub == user_sub) else None
+
+    def set_query_state(self, conversation_id: str, module: str, pack: str, state: QueryState) -> None:
+        conversation = self._conversation(conversation_id, module, pack)
+        with self._lock:
+            conversation.query_state = state
+
+    def clear_query_state(self, conversation_id: str, module: str, pack: str, user_sub: str) -> None:
+        conversation = self._conversation(conversation_id, module, pack)
+        with self._lock:
+            if conversation.query_state is not None and conversation.query_state.user_sub == user_sub:
+                conversation.query_state = None
+
+    def touch_query_state(self, conversation_id: str, module: str, pack: str, user_sub: str, now: float) -> None:
+        """Renueva el instante del contexto (el TTL corre desde la última actividad) sin tocar nada más."""
+        conversation = self._conversation(conversation_id, module, pack)
+        with self._lock:
+            state = conversation.query_state
+            if state is not None and state.user_sub == user_sub:
+                conversation.query_state = touch(state, now)
 
     def _conversation(self, conversation_id: str, module: str, pack: str) -> AssistantConversation:
         with self._lock:
