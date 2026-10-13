@@ -14,6 +14,7 @@
   <div class="assistant-message assistant-message--assistant">
     <span class="assistant-message-label">Arquitecto Danwor</span>
     <div class="section-analysis-output">{{ (result.html if result else answer_html)|safe }}</div>
+    {% if route and route.result and route.result.items %}{% include "partials/assistant_result_rows.html" %}{% endif %}
     {% if llm_answer %}<p class="assistant-llm-disclaimer">Respuesta generada con IA. Validala antes de aplicarla: puede no estar 100% respaldada por el marco Danwor.</p>{% endif %}
     {% if diagnostic_mode and result %}<details class="analysis-prompt"><summary>Ver prompt de diagnóstico</summary><pre>{{ result.prompt }}</pre></details>{% endif %}
   </div>

@@ -99,6 +99,17 @@
 .assistant-feedback-thanks { padding: 5px 0 0 5px; }
 .assistant-route-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 7px; }
 .assistant-route-explain { display: contents; }
+/* Entradas del Catálogo devueltas por el asistente: filas compactas clickeables (una columna, ancho real del sidebar; sin tabla ni botones grandes). */
+.assistant-results { display: grid; gap: 5px; margin: 9px 0 0; padding: 0; list-style: none; }
+.assistant-results li { min-width: 0; }
+.assistant-result-row { display: grid; gap: 2px; min-width: 0; padding: 7px 9px; border: 1px solid var(--line); border-left: 3px solid rgba(194,145,0,.55); background: var(--card); color: var(--ink); text-decoration: none; cursor: pointer; }
+.assistant-result-row:hover { border-color: rgba(194,145,0,.55); background: color-mix(in srgb, var(--card) 91%, var(--gold)); }
+.assistant-result-row:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+.assistant-result-title { font: 700 .72rem/1.3 var(--sans); overflow-wrap: anywhere; }
+.assistant-result-meta { color: var(--soft); font: 500 .65rem/1.3 var(--sans); overflow-wrap: anywhere; }
+.assistant-results-note { margin: 8px 0 0; padding-top: 7px; border-top: 1px solid var(--line); color: var(--soft); font: .67rem/1.45 var(--sans); }
+.content-theme-dark .assistant-result-row { border-left-color: rgba(231,176,8,.6); }
+.content-theme-dark .assistant-result-row:hover { border-color: rgba(231,176,8,.5); background: rgba(231,176,8,.12); }
 .assistant-route-action { display: grid; min-height: 38px; place-items: center; padding: 8px 10px; border: 1px solid rgba(194,145,0,.34); background: color-mix(in srgb, var(--card) 91%, var(--gold)); color: var(--ink); font: 700 .69rem var(--sans); text-align: center; text-decoration: none; cursor: pointer; }
 .assistant-route-action:hover { border-color: rgba(194,145,0,.55); background: color-mix(in srgb, var(--card) 84%, var(--gold)); }
 .assistant-route-action--secondary { width: 100%; border-color: var(--line); background: var(--card); color: var(--ink); }
