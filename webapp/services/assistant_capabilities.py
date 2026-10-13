@@ -134,6 +134,9 @@ class RankingInfo:
     page: int = 1                                     # página mostrada (1-based) y total de páginas con valor comparable
     pages: int = 1
     continues_tie: tuple[str, int] | None = None      # esta página CONTINÚA un empate de la anterior: (valor, entradas con ese valor en páginas previas)
+    matched: int | None = None                        # con niveles pedidos: entradas comparables que COINCIDEN con alguno (None = sin filtro por nivel)
+    levels: tuple[str, ...] = ()                      # niveles pedidos (ids de la fuente), en el orden de la fuente
+    level_text: str = ""                              # los mismos niveles con su rótulo visible («Buena o Adecuada»)
 
 
 @dataclass(frozen=True)
@@ -186,6 +189,11 @@ def order_entries(scope: list) -> list:
     """Orden determinista: mirada Danwor (plena → parcial), luego cliente, nombre, consumo y ``entry_id`` (independiente del orden de carga)."""
     return sorted(scope, key=lambda e: (catalog_navigation._VERDICT_RANK.get(e.veredicto, 9), (e.cliente or "").lower(), (e.dominio or "").lower(),
                                         [c.lower() for c in e.consumo], e.entry_id))
+
+
+def order_entries_neutral(scope: list) -> list:
+    """Orden NEUTRAL y estable (cliente, nombre, ``entry_id``): para listados filtrados por estado, que no tienen un criterio de orden propio. No es un ranking y no hereda el veredicto legado."""
+    return sorted(scope, key=lambda e: ((e.cliente or "").lower(), (e.dominio or "").lower(), e.entry_id))
 
 
 def distribution(scope: list, eff: dict, labels: dict[str, str]) -> tuple[tuple[str, str, int], ...]:
