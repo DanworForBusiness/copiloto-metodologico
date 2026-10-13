@@ -93,6 +93,14 @@ def _state_line(state: caps.StateInfo) -> str:
     return head + (f". {extra}" if extra else "")
 
 
+def _items(header: str, rows: list[str], total: int, shown: int) -> list[str]:
+    """Una sección con su rótulo y una línea «• …» por ítem (saltos duros, sin listas Markdown: el chat aplana las listas anidadas y pega al último ítem lo que sigue)."""
+    out = [header] + [f"› {r}" for r in rows]
+    if total > shown:
+        out.append(f"› y {total - shown} más en el informe")
+    return out
+
+
 def _fundamentals_lines(f: caps.Fundamentals, intent: Intent) -> list[str]:
     lines: list[str] = []
     both = not (intent.strengths or intent.limitations) or intent.why
@@ -107,14 +115,12 @@ def _fundamentals_lines(f: caps.Fundamentals, intent: Intent) -> list[str]:
     if f.contracts and (both or intent.strengths) and not intent.limitations:
         lines.append("Los cuatro contratos: " + " · ".join(f"{dim} ({state})" for dim, state in f.contracts))
     if (both or intent.strengths) and f.strengths:
-        lines.append(f"**Evidencias favorables** ({f.strengths_total}):\n" + "\n".join(f"- {dim}: {text}" for dim, text in f.strengths)
-                     + (f"\n- y {f.strengths_total - len(f.strengths)} más en el informe" if f.strengths_total > len(f.strengths) else ""))
+        lines += _items(f"**Evidencias favorables** ({f.strengths_total}):", [f"{dim}: {text}" for dim, text in f.strengths], f.strengths_total, len(f.strengths))
     if (intent.why or not (intent.strengths or intent.limitations)) and f.reasons:
-        lines.append(f"**Puntos de atención** ({f.reasons_total}):\n" + "\n".join(f"- {dim} · {kind}: {text}" for dim, kind, text in f.reasons)
-                     + (f"\n- y {f.reasons_total - len(f.reasons)} más en el informe" if f.reasons_total > len(f.reasons) else ""))
+        lines += _items(f"**Puntos de atención** ({f.reasons_total}):", [f"{dim} · {kind}: {text}" for dim, kind, text in f.reasons], f.reasons_total, len(f.reasons))
     if (intent.limitations or intent.why) and f.limitations:
-        lines.append(f"**Limitaciones de la evidencia** ({f.limitations_total}):\n" + "\n".join(f"- {title} ({area}): {state}" + (f" — {reason}" if reason else "") for title, area, state, reason in f.limitations)
-                     + (f"\n- y {f.limitations_total - len(f.limitations)} más en el informe" if f.limitations_total > len(f.limitations) else ""))
+        lines += _items(f"**Limitaciones de la evidencia** ({f.limitations_total}):",
+                        [f"{title} ({area}): {state}" + (f" — {reason}" if reason else "") for title, area, state, reason in f.limitations], f.limitations_total, len(f.limitations))
     if intent.strengths and not intent.why and not f.strengths:
         lines.append("El Juicio vigente no registra evidencias favorables para este modelo.")
     if (intent.limitations or intent.why) and f.limitations_total == facts.UNREADABLE:
@@ -143,34 +149,37 @@ _SHORT = {facts.ABSENT: "Sin assessment", facts.NOT_APPLICABLE: "No aplica", fac
 
 
 def render(answer: caps.EntryAnswer, intent: Intent) -> Rendered:
-    """Redacta la respuesta individual desde el ``EntryAnswer`` (la identidad siempre primero). No agrega hechos que no estén en la estructura."""
+    """Redacta la respuesta individual desde el ``EntryAnswer`` (la identidad siempre primero). No agrega hechos que no estén en la estructura.
+    Formato: líneas con salto duro («  \\n»: el chat colapsa los párrafos) y, a lo sumo, UNA lista al final (lo que sigue a una lista se pega a su último ítem)."""
     item, state = answer.entry, answer.state
     ident = f"**{item.title}** ({item.subtitle})" if item.subtitle else f"**{item.title}**"
     by_id, held = {v.indicator: v for v in answer.attributes}, {w.indicator: w for w in answer.withheld}
     ids = facts.ATTRIBUTE_ORDER if intent.ficha else tuple(i for i in intent.attributes if not (intent.fundamentals and i == "adoption"))
-    lines = [(indicators.BY_ID[i].label, i) for i in ids if i in by_id or i in held]
+    measures = [(indicators.BY_ID[i].label, i) for i in ids if i in by_id or i in held]
     text_of = lambda iid: _value_text(by_id[iid], state) if iid in by_id else held[iid].text           # noqa: E731
-    blocks: list[str] = []
+    lines: list[str] = []
+    bullets: list[str] = []
     footer: list[str] = []
     badge, note = state.label, (f"generado el {state.generated_at}" if state.generated_at and state.current else "")
 
     if intent.ficha:
-        blocks += [ident, _state_line(state), "\n".join(_ficha_bullets(lines, by_id, held, state))]
+        lines += [ident, _state_line(state)]
         if any(v.historical for v in by_id.values()):
-            blocks.append(f"Los valores marcados como «histórico» son del último informe" + (f" ({state.generated_at})" if state.generated_at else "") + " y **no son los vigentes**.")
+            lines.append("Los valores marcados como «histórico» son del último informe" + (f" ({state.generated_at})" if state.generated_at else "") + " y **no son los vigentes**.")
+        bullets = _ficha_bullets(measures, by_id, held, state)
         footer.append("Cada medida tiene su propia fuente y advertencia: no se combinan en un puntaje.")
     else:
         if intent.fundamentals:
             f = answer.fundamentals
             adoption = held.get("adoption")
-            blocks += [ident] + (_fundamentals_lines(f, intent) if f is not None else [adoption.text if adoption else "No hay un Juicio metodológico para este modelo."])
+            lines += [ident] + (_fundamentals_lines(f, intent) if f is not None else [adoption.text if adoption else "No hay un Juicio metodológico para este modelo."])
             if f is not None:
                 badge, note = f.level_label + (" · histórico, no vigente" if f.historical else ""), ("Juicio metodológico" + (f" · {state.generated_at}" if state.generated_at else ""))
             footer.append("Los fundamentos son los del informe de Assessment; abrilo para ver el detalle completo.")
-        if lines:
-            if len(lines) == 1 and not intent.fundamentals:
-                label, iid = lines[0]
-                blocks.append(f"{ident} · {label}: {text_of(iid)}")
+        if measures:
+            if len(measures) == 1 and not intent.fundamentals:
+                label, iid = measures[0]
+                lines.append(f"{ident} · {label}: {text_of(iid)}")
                 if iid in by_id:
                     v = by_id[iid]
                     badge, note = v.display + (" · histórico, no vigente" if v.historical else ""), _evidence_note(v)
@@ -178,15 +187,18 @@ def render(answer: caps.EntryAnswer, intent: Intent) -> Rendered:
                 else:
                     badge, note = _SHORT.get(held[iid].code, state.label), ""
             else:
-                blocks += ([] if blocks else [ident]) + ["\n".join(f"- **{label}**: {text_of(i)}" for label, i in lines)]
-                footer += [by_id[i].caveat for _l, i in lines if i in by_id][:2]
+                lines += [] if lines else [ident]
+                bullets = [f"- **{label}**: {text_of(i)}" for label, i in measures]
+                footer += [by_id[i].caveat for _l, i in measures if i in by_id][:2]
         for owner in dict.fromkeys(o for o, _lv in intent.levels):                           # «¿tiene adopción Buena?»: se contesta el valor y si coincide con lo consultado
             v = by_id.get(owner)
             if v is not None and not v.historical and not intent.fundamentals:
                 asked = tuple(lv for o, lv in intent.levels if o == owner)
-                blocks.append(f"Consultaste el nivel «{indicators.level_text(indicators.BY_ID[owner], asked)}»: " + ("coincide" if v.value in asked else "no coincide") + " con el valor vigente.")
+                lines.append(f"Consultaste el nivel «{indicators.level_text(indicators.BY_ID[owner], asked)}»: " + ("coincide" if v.value in asked else "no coincide") + " con el valor vigente.")
         if intent.state:
-            blocks += ([] if blocks else [ident]) + [_state_line(state)]
-        if not blocks:
-            blocks.append(ident)
-    return Rendered("\n\n".join(b for b in blocks if b), " ".join(dict.fromkeys(x for x in footer if x)), badge, note)
+            lines += [] if lines else [ident]
+            lines.append(_state_line(state))
+        if not lines:
+            lines.append(ident)
+    message = "  \n".join(lines) + (("\n" if lines else "") + "\n".join(bullets) if bullets else "")
+    return Rendered(message, " ".join(dict.fromkeys(x for x in footer if x)), badge, note)
