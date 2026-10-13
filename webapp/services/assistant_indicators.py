@@ -60,6 +60,7 @@ class Indicator:
     caveat: str                         # advertencia metodológica que se muestra con el resultado
     measure: Callable[[Any, Any, str], Measurement]
     levels: tuple[str, ...] = ()        # ordinal: de MEJOR a peor, tal como lo define la fuente autoritativa
+    level_labels: tuple[tuple[str, str], ...] = ()      # ordinal: (nivel, rótulo visible) de cada nivel, en el mismo orden; de ahí sale el vocabulario con que se PIDE un nivel («adopción buena»)
     volume: bool = False                # True: mide VOLUMEN (más/menos), no calidad: «mejor/peor» no aplica
 
     def phrase(self, order: str) -> str:
@@ -141,6 +142,7 @@ def _measure_types(entry: Any, g: caps.Governed | None, pack: str) -> Measuremen
 INDICATORS: tuple[Indicator, ...] = (
     Indicator(
         id="adoption", label="Adopción metodológica", kind="ordinal", levels=portfolio.ADOPTION_LEVELS,
+        level_labels=tuple((lv, presenter._JDG_LEVEL_LABEL[lv]) for lv in portfolio.ADOPTION_LEVELS),
         aliases=("adopcion metodologica", "nivel de adopcion", "grado de adopcion", "adopcion", "juicio metodologico", "juicio"),
         source="Juicio metodológico persistido del Assessment vigente (assessment_presenter.judgment_view; orden: client_assessment_portfolio.ADOPTION_LEVELS)",
         caveat="Es un nivel ordinal del Juicio metodológico vigente: no se promedia ni se convierte en número.",
@@ -153,6 +155,7 @@ INDICATORS: tuple[Indicator, ...] = (
         measure=_summary_measure("strict", "Assessment · cobertura estricta", presenter.percent, lambda v: isinstance(v, (int, float)) and not isinstance(v, bool))),
     Indicator(
         id="confidence", label="Confianza de la evidencia", kind="ordinal", levels=_CONFIDENCE_LEVELS,
+        level_labels=tuple((lv, presenter.confidence_label(lv)) for lv in _CONFIDENCE_LEVELS),
         aliases=("confianza de la evidencia", "nivel de confianza", "confianza"),
         source="Resumen del Assessment vigente: nivel de confianza (assessment_service.headline_summary; presentación: presenter.confidence_label)",
         caveat="Es la confianza de la evidencia del Assessment, no un juicio sobre la calidad del modelo: una confianza alta no significa que el modelo sea favorable.",
