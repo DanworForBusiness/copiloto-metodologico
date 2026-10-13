@@ -19,6 +19,7 @@ from core.utils import norm_text
 from webapp.services import assessment_presenter as presenter
 from webapp.services import assistant_capabilities as caps
 from webapp.services import assistant_context as qctx
+from webapp.services import assistant_entry_resolver as resolver
 from webapp.services import assistant_indicators as indicators
 from webapp.services import assistant_query as query
 from webapp.services import catalog_navigation, catalog_reads
@@ -243,6 +244,33 @@ def _assessment_candidates(q: str, question: str, mod, entries, flows: list, cli
     return candidates
 
 
+def _identities(flows: list, governed: caps.Governed | None) -> list[resolver.Identity]:
+    """Las identidades que el resolvedor compara: título del Catálogo (el MISMO resolver de títulos que las filas y el detalle), identificador técnico del modelo terminal y dominio.
+    Un flujo sin modelo terminal identificable no tiene título que lo nombre (el marcador neutro no es un nombre)."""
+    out = []
+    for e in flows:
+        try:
+            title, technical = presenter.entry_title(governed.statuses[e.entry_id], e) if governed is not None else presenter.flow_heading(e)
+        except Exception:  # noqa: BLE001 — un título que no se resuelve deja a la entrada sin clave de título, nunca rompe la consulta
+            title, technical = None, None
+        out.append(resolver.Identity(e.entry_id, str(e.cliente or ""), "" if not title or title == presenter.NO_TERMINAL_TITLE else title, str(technical or ""), str(e.dominio or "")))
+    return out
+
+
+def _resolve_entry(question: str, flows: list, clients: list[str], governed: caps.Governed | None) -> resolver.Resolution:
+    """A qué modelo se refiere la pregunta (paso 4B.0). Las líneas de negocio son ALCANCE (4A), no nombre de modelo, salvo entre «comillas»."""
+    labels = [label for lob, label in caps.lob_labels().items() if lob != dcs.UNAVAILABLE]
+    return resolver.resolve(question, _identities(flows, governed), tuple(clients), tuple(labels))
+
+
+def _entry_options(matches, flows: list, governed: caps.Governed | None, pack: str) -> tuple[tuple, ...]:
+    """Una opción «Assessment · título · cliente» por modelo coincidente (la URL sale del ``entry_id``)."""
+    by_id = {e.entry_id: e for e in flows}
+    shown = [by_id[m.entry_id] for m in matches[:MAX_OPTIONS] if m.entry_id in by_id]
+    titles = caps.build_items(shown, governed, pack)
+    return tuple((f"Assessment · {item.title} · {e.cliente}".strip(" ·"), presenter.assessment_url(e, pack)) for item, e in zip(titles, shown))
+
+
 def _entry_assessment(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
     q = norm_text(question).strip().lstrip("¿¡")
     if not _is_assessment_request(q):
@@ -251,7 +279,20 @@ def _entry_assessment(question: str, pack: str, stem: str = "", ctx: qctx.QueryC
     flows = catalog_navigation.browsable_flows(mod, entries) if mod else []
     if not flows:
         return None
-    found = _assessment_candidates(q, question, mod, entries, flows, catalog_navigation.clients(mod, entries))
+    clients = catalog_navigation.clients(mod, entries)
+    governed = caps.governed_read(flows)
+    res = _resolve_entry(question, flows, clients, governed)           # identidad por TÍTULO del Catálogo (no por dominio); un cliente solo desambigua
+    if res.status == resolver.UNIQUE:
+        e = next(x for x in flows if x.entry_id == res.matches[0].entry_id)
+        title = caps.build_items([e], governed, pack)[0].title
+        label = f"{e.cliente} · {e.dominio if title == presenter.NO_TERMINAL_TITLE else title}".strip(" ·")          # sin modelo terminal: el único nombre que existe es el dominio, como antes
+        return NavigationResult(f"Acá está el **Assessment** de **{label}**: se abre el informe tal como figura hoy en el Catálogo (o su estado, si todavía no se evaluó).",
+                                (("Ver Assessment", presenter.assessment_url(e, pack)),))
+    if res.status in (resolver.AMBIGUOUS, resolver.MULTIPLE):
+        more = f" Muestro los primeros {MAX_OPTIONS}: sumá el cliente o el nombre completo para acotar." if len(res.matches) > MAX_OPTIONS else ""
+        lead = "Nombraste más de un modelo." if res.status == resolver.MULTIPLE else "Hay más de un modelo que coincide con tu consulta."
+        return NavigationResult(f"{lead} ¿De cuál querés ver el Assessment?{more}", _entry_options(res.matches, flows, governed, pack))
+    found = _assessment_candidates(q, question, mod, entries, flows, clients)          # sin coincidencia por título: el emparejador por dominio de siempre (equivalencia con los pasos anteriores)
     if not found:
         return None
     ordered = sorted(found, key=lambda e: ((e.cliente or "").lower(), (e.dominio or "").lower(), e.entry_id))
