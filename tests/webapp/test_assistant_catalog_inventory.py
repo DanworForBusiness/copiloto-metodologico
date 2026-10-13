@@ -139,7 +139,7 @@ def test_filtering_by_line_of_business_uses_only_the_effective_classification(bi
     assert f"Hay **{sales} entradas navegables** en la línea de negocio **Ventas** (clasificación efectiva)" in r.message
     listed = nav._catalog_inventory("Mostrame 500 modelos de Ventas", PACK, HOST)
     rows = listed.result.items
-    assert rows and all(_spec(_i(it))["lob"] == "SALES" and it.lob_label == "Ventas" for it in rows)       # ninguno sin clasificar (ni de otra línea) bajo Ventas
+    assert rows and all(_spec(_i(it))["lob"] == "SALES" and it.catalog.lob_label == "Ventas" for it in rows)       # ninguno sin clasificar (ni de otra línea) bajo Ventas
     assert not any(_spec(_i(it))["lob"] is None for it in rows)
 
 
@@ -148,16 +148,16 @@ def test_unclassified_models_are_expressed_as_such_and_never_under_a_line(big):
     none = _count(lambda s: s["lob"] is None)
     assert f"Hay **{none} entradas navegables** **sin clasificar** (sin línea de negocio efectiva)" in r.message
     lines = _bullets(r)
-    assert lines and all(_spec(_i(it))["lob"] is None and it.lob_label == "Sin clasificar" for it in lines)
+    assert lines and all(_spec(_i(it))["lob"] is None and it.catalog.lob_label == "Sin clasificar" for it in lines)
     for it in nav._catalog_inventory("Mostrame 500 modelos", PACK, HOST).result.items:
-        assert (it.lob_label == "Sin clasificar") == (_spec(_i(it))["lob"] is None)                    # cada entrada muestra su clasificación efectiva real, no una supuesta
+        assert (it.catalog.lob_label == "Sin clasificar") == (_spec(_i(it))["lob"] is None)                    # cada entrada muestra su clasificación efectiva real, no una supuesta
 
 
 def test_a_client_filter_is_applied_first_and_offers_the_client_report(big):
     r = _route("¿Qué tiene Pampa?")
     pampa = _count(lambda s: s["cliente"] == "Pampa")
     assert f"Hay **{pampa} entradas navegables** de **Pampa**" in r.message
-    assert all(it.client == "Pampa" for it in _bullets(r)) and len(_bullets(r)) == min(pampa, nav.MAX_LIST)
+    assert all(it.catalog.client == "Pampa" for it in _bullets(r)) and len(_bullets(r)) == min(pampa, nav.MAX_LIST)
     assert [a.label for a in r.actions] == ["Abrir Catálogo", "Informe de Cliente · Pampa"] and r.actions[1].embed
     both = _route("Modelos de Ventas de Pampa")
     n = _count(lambda s: s["cliente"] == "Pampa" and s["lob"] == "SALES")
@@ -198,7 +198,7 @@ def test_when_the_classification_cannot_be_read_it_says_so_instead_of_guessing(b
     r = _route("Modelos de Ventas")
     assert "no filtro por línea de negocio" in r.message and _bullets(r) == [] and len(r.actions) == 1
     r = _route("¿Qué tiene Pampa?")                                                                    # sin pedir línea de negocio, el filtro por cliente no depende de la clasificación
-    assert "de **Pampa**" in r.message and _bullets(r) and all(it.lob_label == "" and it.lob_source == "" for it in _bullets(r))     # sin clasificación legible, las filas no muestran línea de negocio (ni una supuesta)
+    assert "de **Pampa**" in r.message and _bullets(r) and all(it.catalog.lob_label == "" and it.catalog.lob_source == "" for it in _bullets(r))     # sin clasificación legible, las filas no muestran línea de negocio (ni una supuesta)
     assert all(it.title for it in _bullets(r))                                                                                      # y los títulos salen del resolver del Catálogo por artefacto de consumo
 
 

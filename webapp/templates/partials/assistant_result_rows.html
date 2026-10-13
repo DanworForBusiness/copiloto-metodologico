@@ -1,14 +1,18 @@
-{# Entradas del Catálogo devueltas por una consulta del asistente (`route.result`, ver assistant_capabilities.ResultSet): UNA fila compacta clickeable por entrada, no una tabla ni diez botones.
-   El clic abre la entrada en el panel central por el MISMO mecanismo `embed` de las acciones del asistente (HTMX a #catalog-detail-slot; href de respaldo = abrir en otra pestaña). La URL sale del
-   `entry_id` real (`presenter.flow_url`), nunca de texto; el control de sesión es el de la ruta destino. #}
+{# Resultados navegables de una consulta del asistente (`route.result`, ver assistant_capabilities.ResultSet): UNA fila compacta clickeable por elemento, de cualquier familia de recursos
+   (entradas del Catálogo, recursos curados del Hub…); no una tabla ni N botones. La fila solo conoce lo UNIVERSAL: título, subtítulo y la acción de navegación (`url` + `mode`); lo propio de cada
+   familia no interviene en el render. La URL sale de la identidad real del recurso, nunca de texto de la consulta; el control de sesión/permiso es el de la ruta destino. Modos:
+     embed    → panel central por HTMX (#catalog-detail-slot), el mismo mecanismo de las acciones del asistente; href de respaldo = abrir en otra pestaña.
+     link     → navegación normal en la misma pestaña a una ruta interna.
+     external → pestaña NUEVA con rel="noopener noreferrer" (URL externa o recurso del pack). El enlace no garantiza que el usuario tenga permiso en el destino. #}
 {% set rs = route.result %}
-<ul class="assistant-results" aria-label="Entradas del Catálogo">
+<ul class="assistant-results" aria-label="Resultados">
   {% for item in rs.items %}
   <li>
     <a class="assistant-result-row" href="{{ item.url }}"
-       hx-get="{{ item.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" data-entry-id="{{ item.ref }}">
-      <span class="assistant-result-title">{{ item.title }}</span>
-      <span class="assistant-result-meta">{{ item.client }}{% if item.lob_label %} · {{ item.lob_label }}{% endif %}</span>
+       {% if item.mode == "embed" %}hx-get="{{ item.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML"{% elif item.mode == "external" %}target="_blank" rel="noopener noreferrer"{% endif %}
+       data-kind="{{ item.kind }}" data-ref="{{ item.ref }}">
+      <span class="assistant-result-title">{{ item.title }}{% if item.mode == "external" %} <span class="assistant-result-ext" aria-hidden="true">↗</span><span class="assistant-result-sr">(se abre en una pestaña nueva)</span>{% endif %}</span>
+      {% if item.subtitle %}<span class="assistant-result-meta">{{ item.subtitle }}</span>{% endif %}
     </a>
   </li>
   {% endfor %}
