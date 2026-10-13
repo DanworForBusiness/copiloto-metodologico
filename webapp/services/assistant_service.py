@@ -16,9 +16,28 @@ from core import remote_store
 from core.prompts import build_system_prompt
 
 
+def _grounding_text(matches: list) -> str:
+    """Bloque de grounding del catálogo para el LLM: SOLO IDENTIDAD (qué flujos existen, de qué cliente y cuántos artefactos tienen).
+
+    Deliberadamente NO incluye el veredicto legado del catálogo («mirada Danwor»: plena/buena/parcial), su ícono ni su texto de aptitud: son una clasificación histórica del generador, no una evaluación
+    vigente, y con ellos el LLM los presentaba como si fueran el Assessment del modelo (o su Juicio metodológico). Ningún dato de evaluación (Juicio, confianza, cobertura, estado) viaja en este bloque: los
+    contratos gobernados los responden las consultas deterministas o el propio Assessment, y acá se declara explícitamente que no están (ver ``DATA_INTEGRITY_RULE``)."""
+    if not matches:
+        return ""
+    lines = [
+        "FLUJOS PUBLICADOS EN EL CATÁLOGO (solo identidad)",
+        "Esta lista indica ÚNICAMENTE qué flujos existen, de qué cliente son y cuántos artefactos tienen. NO contiene el Assessment ni el Juicio metodológico de ningún modelo, ni su adopción, "
+        "confianza, cobertura o estado, y no permite deducirlos. Si te piden alguno de esos datos, decí que no lo tenés en esta conversación y que se consulta en el Assessment del modelo, "
+        "desde el Catálogo. No inventes flujos: usá solo los de esta lista. Ofrecé verlos por cliente si hay varios.",
+        "",
+    ]
+    lines += [f"- {e.dominio} · cliente {e.cliente} ({len(e.artefactos)} artefactos)" for e in matches]
+    return "\n".join(lines)
+
+
 def _catalog_grounding(query: str) -> str:
     """PILOTO (local, no productivo): si existe un catálogo CDS local, devuelve el
-    bloque de grounding (flujos implementados, ordenados por mirada Danwor) para
+    bloque de grounding (identidad de los flujos publicados, sin ninguna evaluación) para
     inyectar en el prompt del asistente. Gateado por DANWOR_CATALOG_DIR o, por
     defecto, <repo>/catalog_local. No-op si la carpeta no existe → cero riesgo."""
     try:
@@ -39,7 +58,7 @@ def _catalog_grounding(query: str) -> str:
             entries = mod.fetch_catalog_from_sharepoint(token)
         else:
             entries = mod.load_catalog(cat_dir)
-        return mod.format_catalog_for_prompt(mod.search_catalog(query, entries))
+        return _grounding_text(mod.search_catalog(query, entries))
     except Exception:
         return ""
 from webapp.services.assistant_context import QueryState, touch
@@ -195,11 +214,19 @@ DATA_INTEGRITY_RULE = (
     "REGLA DE DATOS DEL CATÁLOGO\n"
     f"{'-' * 40}\n"
     "Los puntajes, rankings, niveles de evaluación, coberturas, niveles de confianza, conteos y estados de los modelos del Catálogo Danwor "
-    "(por ejemplo, cuál es el «mejor» o el «peor» modelo) son datos reales que NO conocés, salvo los que figuren expresamente en el bloque de "
-    "catálogo de este mensaje. Si te piden esos datos como reales y no figuran acá, decí con claridad que no tenés acceso a ese dato en esta "
+    "(por ejemplo, cuál es el «mejor» o el «peor» modelo) son datos reales que NO conocés, salvo los que figuren expresamente, con su fuente, en este "
+    "mensaje. Si te piden esos datos como reales y no figuran acá, decí con claridad que no tenés acceso a ese dato en esta "
     "conversación y que se consulta en el Catálogo; no los estimes, no los inventes ni los presentes como reales. "
     "Sí podés explicar conceptos y metodología, y dar un ejemplo hipotético si el usuario lo pide, siempre rotulado de forma explícita como "
-    "ilustrativo y nunca como dato del Catálogo."
+    "ilustrativo y nunca como dato del Catálogo.\n\n"
+    "TRES COSAS QUE NO SE CONFUNDEN\n"
+    "- Veredicto legado del catálogo («mirada Danwor»: plena, buena o parcial): es una clasificación histórica del generador del catálogo, NO una evaluación vigente. "
+    "Nunca lo presentes como el Assessment, como la adopción metodológica ni como el estado de un modelo.\n"
+    "- Juicio metodológico vigente (Adopción metodológica: Plena, Buena, Adecuada, Parcial o No determinable): solo existe si un Assessment vigente lo respalda; "
+    "no lo deduzcas de ninguna otra clasificación.\n"
+    "- Estado del Assessment (vigente, desactualizado, sin assessment, no aplica, no disponible o no compatible): describe la vigencia del informe, no la calidad del modelo.\n"
+    "Si te piden ver o resumir el assessment, la adopción, la confianza o el estado de un modelo y esos datos no figuran en este mensaje, decí que no tenés acceso a ese dato "
+    "en esta conversación y que se consulta en el Assessment del modelo, desde el Catálogo. No uses emojis de color ni semáforos para representar niveles: los colores los define el producto."
 )
 
 
