@@ -1,0 +1,92 @@
+{# Sincronizar SOLO APIs/CDS (modo `apis_only` de /admin/catalog/generate): preflight de solo lectura, confirmación explícita y resultado verificado. #}
+<div class="admin-result-block" data-apis-sync>
+  <span class="admin-result-title">Catálogo de APIs/CDS — sincronización focalizada</span>
+  {% if error %}
+  <p class="admin-help" role="alert"><strong>No se pudo continuar.</strong> {{ error }}</p>
+  {% endif %}
+
+  {% if plan %}
+  <p class="admin-help"><strong>Preflight (solo lectura):</strong> no se descargó ni se escribió nada, ni en el catálogo local ni en Spaces.
+    {% if plan.folder %}Carpeta de origen: <code>{{ plan.folder }}</code>.{% endif %} Plan <code>{{ plan.plan_id }}</code>.</p>
+  {% for e in plan.errors %}<p class="admin-help" role="alert">{{ e }}</p>{% endfor %}
+  {% if plan.folder %}
+  <div class="admin-table-wrap">
+  <table class="admin-table admin-table--compact" aria-label="APIs identificadas en SharePoint">
+    <thead><tr><th>API</th><th>Estado</th></tr></thead>
+    <tbody>
+    {% for i in plan.items %}
+      <tr><td><code>{{ i.name }}</code></td>
+          <td>{{ status_text.get(i.status, i.status) }}{% if i.detail %} — {{ i.detail }}{% endif %}<br>
+              <small>remoto {{ i.size if i.size is not none else "—" }} B · local {{ i.local_size if i.local_size is not none else "—" }} B</small></td></tr>
+    {% else %}
+      <tr><td colspan="2">SharePoint no tiene archivos .md en esa carpeta.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="admin-help">
+    Locales hoy: <strong>{{ plan.local_names|length }}</strong> · en SharePoint: <strong>{{ plan.items|length }}</strong> ·
+    nuevas: <strong>{{ plan.of("new")|length }}</strong> · con tag/eTag distinto: <strong>{{ plan.of("changed", "maybe")|length }}</strong>
+    (contenido distinto seguro: {{ plan.of("changed")|length }}; a verificar por hash al aplicar: {{ plan.of("maybe")|length }}) ·
+    sin cambio detectado: <strong>{{ plan.of("unchanged")|length }}</strong> · protegidas o con diferencia local: <strong>{{ plan.of("protected", "diverged")|length }}</strong>.
+  </p>
+  {% if plan.absent %}
+  <p class="admin-help"><strong>Ausentes del origen (se conservan, no se borran):</strong> {% for n in plan.absent %}<code>{{ n }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+  {% endif %}
+  {% if plan.absent_cache %}
+  <p class="admin-help"><strong>Entradas del manifest de descargas que el origen ya no tiene (se conservan):</strong> {% for n in plan.absent_cache %}<code>{{ n }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+  {% endif %}
+
+  {% if plan.keys %}
+  <div class="admin-table-wrap">
+  <table class="admin-table admin-table--compact" aria-label="Claves de Spaces previstas">
+    <thead><tr><th>Clave exacta de Spaces</th><th>Hoy</th></tr></thead>
+    <tbody>
+    {% for k in plan.keys %}<tr><td><code>{{ k.key }}</code><br><small>{{ k.kind }}</small></td><td>{{ k.remote }}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if not plan.remote_checked %}<p class="admin-help">El estado en Spaces no se verificó: la lectura remota no está autorizada en este entorno.</p>{% endif %}
+  {% endif %}
+  <p class="admin-help">{{ statement }} Las APIs «protegidas» o con diferencia local no se modifican. Un archivo con tag distinto y contenido idéntico no se reescribe ni se publica.</p>
+
+  {% if plan.writes and not plan.errors %}
+  <form hx-post="/admin/catalog/generate" hx-target="closest [data-apis-sync]" hx-swap="outerHTML" hx-indicator="#ind-apis-apply" hx-disabled-elt="button[type='submit']" data-dw-graph-token>
+    <input type="hidden" name="scope" value="apis_only">
+    <input type="hidden" name="step" value="apply">
+    <input type="hidden" name="plan" value="{{ plan.plan_id }}">
+    <label class="admin-help" for="apis-confirm">Para aplicar este plan escribí <code>{{ confirm_phrase }}</code>:</label>
+    <input id="apis-confirm" class="admin-confirm" type="text" name="confirm" autocomplete="off" required>
+    <div class="admin-actions">
+      <button type="submit" class="btn-primary">Aplicar sincronización de APIs</button>
+      <span id="ind-apis-apply" class="admin-indicator htmx-indicator">sincronizando…</span>
+    </div>
+  </form>
+  {% elif not plan.errors %}
+  <p class="admin-help"><strong>No hay nada para sincronizar.</strong></p>
+  {% endif %}
+  {% endif %}
+  {% endif %}
+
+  {% if outcome %}
+  <p class="admin-help"><strong>Resultado:</strong>
+    {% if outcome.state == "ok" %}sincronización publicada y verificada.
+    {% elif outcome.state == "nothing" %}sin cambios que publicar.
+    {% elif outcome.state == "local_only" %}importación local (sin publicación en Spaces).
+    {% elif outcome.state == "rolled_back" %}falló y se revirtió con verificación.
+    {% elif outcome.state == "incomplete" %}PUBLICACIÓN INCOMPLETA — requiere atención.
+    {% else %}no se aplicó nada.{% endif %}</p>
+  <pre class="admin-result-output">{% for l in outcome.lines %}{{ l }}
+{% endfor %}</pre>
+  {% if outcome.state == "incomplete" and outcome.journal_id %}
+  <form hx-post="/admin/catalog/generate" hx-target="closest [data-apis-sync]" hx-swap="outerHTML" hx-disabled-elt="button[type='submit']" data-dw-graph-token>
+    <input type="hidden" name="scope" value="apis_only">
+    <input type="hidden" name="step" value="rollback">
+    <input type="hidden" name="journal" value="{{ outcome.journal_id }}">
+    <label class="admin-help" for="apis-rollback">Para reintentar el rollback desde el journal <code>{{ outcome.journal_id }}</code> escribí <code>{{ rollback_phrase }}</code>:</label>
+    <input id="apis-rollback" class="admin-confirm" type="text" name="confirm" autocomplete="off" required>
+    <div class="admin-actions"><button type="submit" class="btn-primary">Rollback desde el journal</button></div>
+  </form>
+  {% endif %}
+  {% endif %}
+</div>

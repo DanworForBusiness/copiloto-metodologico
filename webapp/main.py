@@ -2981,9 +2981,37 @@ def catalog_regenerate(request: Request, graph_token: str = Form("")):
     return JSONResponse({"ok": ok, "message": message})
 
 
+def _admin_apis_only(request: Request, graph_token: str, step: str, plan_id: str, confirm: str, journal_id: str):
+    """Modo «solo APIs/CDS» del panel (preflight de solo lectura → apply confirmado → rollback desde el journal). El token Graph llega en el request y no se guarda."""
+    from webapp.services import catalog_apis_sync as apis
+    context = {"plan": None, "outcome": None, "error": "", "confirm_phrase": apis.CONFIRM_PHRASE, "rollback_phrase": apis.ROLLBACK_PHRASE,
+               "statement": apis.untouched_statement(), "status_text": apis.STATUS_TEXT}
+    try:
+        if step == "apply":
+            context["outcome"] = apis.apply(graph_token, plan_id, confirm)
+        elif step == "rollback":
+            context["outcome"] = apis.rollback(journal_id, confirm)
+        else:
+            context["plan"] = apis.build_plan(graph_token)
+    except apis.ApisSyncError as exc:
+        context["error"] = str(exc)
+    except Exception:  # noqa: BLE001 — el panel nunca devuelve un 500 opaco
+        logging.getLogger("danwor.catalog_apis_sync").exception("sincronización solo-APIs: falló")
+        context["error"] = "Falló la operación por un error interno; no se modificó nada que no esté informado arriba. Revisá el log."
+    outcome = context["outcome"]
+    if outcome is not None and outcome.state in ("ok", "local_only", "rolled_back", "incomplete"):
+        _invalidate_catalog_cache()
+    user = auth_service.session_user(request) or {}
+    log_activity("catalog_apis_sync", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, step=step or "preflight", state=(outcome.state if outcome else "preflight"))
+    return templates.TemplateResponse(request=request, name="partials/admin_apis_sync.html", context=context)
+
+
 @app.post("/admin/catalog/generate", response_class=HTMLResponse)
-def admin_catalog_generate(request: Request, graph_token: str = Form("")):
+def admin_catalog_generate(request: Request, graph_token: str = Form(""), scope: str = Form(""), step: str = Form(""), plan: str = Form(""),
+                           confirm: str = Form(""), journal: str = Form("")):
     _require_diagnostic(request)
+    if scope == "apis_only":
+        return _admin_apis_only(request, graph_token, step, plan, confirm, journal)
     output = admin_tools.run_catalog_generation(graph_token=graph_token)
     _invalidate_catalog_cache()
     return _admin_result(request, "Catálogo CSN — regeneración", output)
