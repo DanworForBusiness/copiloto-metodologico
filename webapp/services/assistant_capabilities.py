@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from webapp.safe_redirect import safe_internal_next
-from webapp.services import catalog_navigation
+from webapp.services import catalog_navigation, catalog_reads
 from webapp.services import domain_classification_service as dcs
 
 log = logging.getLogger("danwor.assistant_capabilities")
@@ -96,12 +96,15 @@ class ResultItem:
     catalog: CatalogAttrs | None = None     # solo en entradas del Catálogo
     badge: str = ""         # valor corto destacado en la fila (p. ej. «Buena», «100.0%», «88/100»); lo decide quien arma el resultado, la fila solo lo muestra
     note: str = ""          # evidencia/aclaración corta bajo el valor (fuente · reglas · fecha)
+    autoload: bool = False  # abrir el detalle al renderizarse (solo `embed`): lo usa una referencia resuelta («abrí el segundo»), con la URL reconstruida desde el recurso vigente
 
     def __post_init__(self):
         if not self.kind or not self.ref:
             raise ValueError("un resultado necesita kind y ref")
         if not valid_target(self.mode, self.url):
             raise ValueError(f"destino inválido para el modo {self.mode!r}")
+        if self.autoload and self.mode != MODE_EMBED:
+            raise ValueError("solo un destino embed puede abrirse solo")
 
     @property
     def key(self) -> tuple[str, str]:
@@ -128,6 +131,9 @@ class RankingInfo:
     ties: tuple[tuple[str, int], ...] = ()            # (valor mostrado, n) de los empates visibles
     cut_in_tie: tuple[str, int] | None = None         # el corte de filas cae dentro de un empate: (valor, entradas que quedaron fuera)
     caveat: str = ""
+    page: int = 1                                     # página mostrada (1-based) y total de páginas con valor comparable
+    pages: int = 1
+    continues_tie: tuple[str, int] | None = None      # esta página CONTINÚA un empate de la anterior: (valor, entradas con ese valor en páginas previas)
 
 
 @dataclass(frozen=True)
@@ -138,6 +144,7 @@ class ResultSet:
     footer: str = ""                                     # nota en texto plano bajo las filas
     catalog: CatalogSummary | None = None                # solo en consultas sobre el Catálogo
     ranking: RankingInfo | None = None                   # solo en resultados ordenados por un indicador
+    fingerprint: str = ""                                # huella del conjunto ORDENADO completo (todas las páginas) que originó la lista; validador de referencias y de paginación
 
 
 @dataclass(frozen=True)
@@ -145,6 +152,16 @@ class Governed:
     """Lectura gobernada de un lote de entradas: estados de Assessment (títulos) y clasificación efectiva, leídos UNA vez."""
     statuses: dict
     eff: dict
+
+
+def find_entry(kind: str, ref: str):
+    """La entrada VIGENTE del Catálogo que corresponde a una identidad `(kind, ref)`, o None si ya no existe (o la familia no se resuelve acá). La referencia se revalida contra el universo navegable
+    actual: no se confía en nada guardado (ni URLs ni títulos)."""
+    if kind != CATALOG_ENTRY:
+        return None
+    mod, entries = catalog_reads._catalog_entries()
+    flows = catalog_navigation.browsable_flows(mod, entries) if mod else []
+    return next((e for e in flows if e.entry_id == ref), None)
 
 
 def lob_labels() -> dict[str, str]:

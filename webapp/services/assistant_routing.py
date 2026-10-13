@@ -20,6 +20,7 @@ from core.routing_scorers import (
 )
 from core.utils import norm_text, slugify
 from webapp.services import assistant_navigation
+from webapp.services.assistant_context import QueryContext, QueryDraft
 from webapp.services.assistant_capabilities import (
     CURATED_RESOURCE, MODE_EXTERNAL, MODE_LINK, ResultItem, ResultSet, is_external_url, valid_target,
 )
@@ -70,6 +71,10 @@ class AssistantRoute:
     # Resultado estructurado de una consulta sobre el Catálogo (ver `assistant_capabilities.ResultSet`): filas compactas navegables que dibuja `partials/assistant_result_rows.html`
     # debajo de `message`. None en el resto de las rutas.
     result: ResultSet | None = None
+    # Contexto de la consulta para los seguimientos (ver assistant_context): `state` lo fija una consulta estructurada; `keep_state` conserva el vigente (p. ej. «abrí el segundo»). Cualquier otra ruta
+    # (metodológica, recursos curados, Informe de Cliente, LLM) no deja contexto: el borde HTTP lo borra, así un seguimiento nunca hereda filtros de una consulta ajena.
+    state: QueryDraft | None = None
+    keep_state: bool = False
 
 
 def _module_url(stem: str, pack_name: str, heading: str = "") -> str:
@@ -426,7 +431,7 @@ def _navigation_route(nav, question: str) -> "AssistantRoute":
     def _action(a: tuple) -> AssistantRouteAction:
         mode = a[2] if len(a) > 2 else "embed"
         return AssistantRouteAction(a[0], a[1], embed=mode == "embed", activate_tab=mode.split(":", 1)[1] if mode.startswith("tab:") else "", ask=mode.split(":", 1)[1] if mode.startswith("ask:") else "")
-    return AssistantRoute(nav.message, tuple(_action(a) for a in nav.actions), question, result=nav.result)
+    return AssistantRoute(nav.message, tuple(_action(a) for a in nav.actions), question, result=nav.result, state=nav.state, keep_state=nav.keep_state)
 
 
 def _domains_catalog_action(pack_name: str) -> AssistantRouteAction | None:
@@ -596,13 +601,14 @@ class AssistantRoutingService:
         question: str,
         pack_name: str,
         active_section: str = "",
+        context: QueryContext | None = None,
     ) -> AssistantRoute | None:
         question = (question or "").strip()
         if not question:
             return None
         # Navegación a activos internos del Hub («ver informe de cliente para X»): si la pregunta pide ABRIR un recurso existente, la respuesta es el acceso a ese recurso
         # (acción estructurada), no una explicación recuperada de contenido. Sin intención de navegación → sigue el flujo normal.
-        nav = assistant_navigation.resolve(question, pack_name, document.summary.stem)
+        nav = assistant_navigation.resolve(question, pack_name, document.summary.stem, context)
         if nav is not None:
             return _navigation_route(nav, question)
         stem = document.summary.stem

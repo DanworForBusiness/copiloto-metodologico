@@ -9,7 +9,7 @@
   {% for item in rs.items %}
   <li>
     <a class="assistant-result-row" href="{{ item.url }}"
-       {% if item.mode == "embed" %}hx-get="{{ item.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML"{% elif item.mode == "external" %}target="_blank" rel="noopener noreferrer"{% endif %}
+       {% if item.mode == "embed" %}hx-get="{{ item.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML"{% if item.autoload %} hx-trigger="load, click"{% endif %}{% elif item.mode == "external" %}target="_blank" rel="noopener noreferrer"{% endif %}
        data-kind="{{ item.kind }}" data-ref="{{ item.ref }}">
       <span class="assistant-result-title">{{ item.title }}{% if item.mode == "external" %} <span class="assistant-result-ext" aria-hidden="true">↗</span><span class="assistant-result-sr">(se abre en una pestaña nueva)</span>{% endif %}</span>
       {% if item.subtitle %}<span class="assistant-result-meta">{{ item.subtitle }}</span>{% endif %}
