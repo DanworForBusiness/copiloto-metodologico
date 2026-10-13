@@ -134,6 +134,9 @@ class RankingInfo:
     page: int = 1                                     # página mostrada (1-based) y total de páginas con valor comparable
     pages: int = 1
     continues_tie: tuple[str, int] | None = None      # esta página CONTINÚA un empate de la anterior: (valor, entradas con ese valor en páginas previas)
+    matched: int | None = None                        # con niveles pedidos: entradas comparables que COINCIDEN con alguno (None = sin filtro por nivel)
+    levels: tuple[str, ...] = ()                      # niveles pedidos (ids de la fuente), en el orden de la fuente
+    level_text: str = ""                              # los mismos niveles con su rótulo visible («Buena o Adecuada»)
 
 
 @dataclass(frozen=True)

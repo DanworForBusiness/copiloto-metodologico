@@ -129,10 +129,8 @@ def level_label(indicator: str, level: str) -> str:
 
 
 def level_phrase(indicator: str, levels: Iterable[str]) -> str:
-    """«Buena», «Buena o Adecuada» (rótulos visibles, en el orden de la fuente)."""
-    order = [lv for lv, _ in indicators.BY_ID[indicator].level_labels]
-    labels = [level_label(indicator, lv) for lv in sorted(set(levels), key=order.index)]
-    return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " o " + labels[-1]
+    """«Buena», «Buena o Adecuada» (rótulos visibles, en el orden de la fuente): una sola implementación, la del registro."""
+    return indicators.level_text(indicators.BY_ID[indicator], tuple(levels))
 
 
 # ── Operaciones NO soportadas: taxonomía CERRADA (agregar una clase = agregar una fila) ──────────────────────────────────────────────────────────

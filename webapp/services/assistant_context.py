@@ -19,13 +19,17 @@ LIVE, MISSING, EXPIRED = "live", "missing", "expired"
 @dataclass(frozen=True)
 class QuerySpec:
     """La consulta estructurada ejecutada (nada de valores ni resultados)."""
-    capability: str                 # "summary" | "list" | "rank" | "pending" (aclaración de métrica pendiente)
+    capability: str                 # "summary" | "list" | "rank" | "states" | "groups" | "pending" (aclaración de métrica pendiente)
     client: str | None = None       # cliente del Catálogo (nombre canónico)
     lob: str | None = None          # id de línea de negocio EFECTIVA o "UNCLASSIFIED"
     indicator: str | None = None    # id del registro de indicadores
     order: str = "best_first"       # "best_first" | "worst_first"
     limit: int = 10                 # tamaño de página (≤ 10)
     offset: int = 0                 # desplazamiento de la página mostrada
+    levels: tuple[str, ...] = ()    # niveles pedidos del indicador (ids de la fuente; solo junto a `indicator`): son parámetros, no valores
+    state: str | None = None        # id de concepto de estado (assistant_query.STATE_CONCEPTS)
+    count: bool = False             # la consulta pidió una cantidad: el encabezado contesta el número primero
+    group_by: str | None = None     # "client" | "lob": conteo agrupado (capacidad "groups")
 
 
 @dataclass(frozen=True)

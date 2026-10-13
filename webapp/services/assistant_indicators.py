@@ -74,6 +74,16 @@ class Indicator:
         return "de mejor a peor" if order == BEST_FIRST else "de peor a mejor"
 
 
+def level_text(ind: Indicator, levels: tuple[str, ...] | list[str]) -> str:
+    """Los niveles pedidos con su rótulo visible y en el orden de la fuente: «Buena», «Buena o Adecuada», «Plena, Buena o Parcial»."""
+    labels = dict(ind.level_labels)
+    wanted = set(levels)
+    shown = [labels.get(lv, lv) for lv in ind.levels if lv in wanted]
+    if not shown:
+        return ""
+    return shown[0] if len(shown) == 1 else ", ".join(shown[:-1]) + " o " + shown[-1]
+
+
 def _date(value: Any) -> str | None:
     """Fecha legible (dd/mm/aaaa) de un instante ISO; None si no hay."""
     if not value:
@@ -194,10 +204,14 @@ def without_indicator_names(q: str) -> str:
     return re.sub(r"\s+", " ", out).strip()
 
 
-def canonical_question(indicator: str, order: str, *, client: str | None = None, lob_label: str | None = None, unclassified: bool = False) -> str:
-    """Pregunta canónica (fijada por el SERVIDOR, nunca texto del usuario) que una aclaración reenvía al MISMO router. Es reconocible de ida y vuelta (hay un test)."""
+def canonical_question(indicator: str, order: str, *, client: str | None = None, lob_label: str | None = None, unclassified: bool = False,
+                       levels: tuple[str, ...] = (), state_phrase: str = "") -> str:
+    """Pregunta canónica (fijada por el SERVIDOR, nunca texto del usuario) que una aclaración reenvía al MISMO router. Es reconocible de ida y vuelta (hay un test). Con niveles pide ESOS
+    niveles («tienen adopción metodológica buena o adecuada»); con ``state_phrase`` (frase canónica de un concepto de estado) suma ese estado."""
     where = (f" de {client}" if client else "") + (" sin clasificar" if unclassified else (f" en {lob_label}" if lob_label else ""))
-    return f"¿Qué entradas{where} tienen {BY_ID[indicator].phrase(order)}?"
+    ind = BY_ID[indicator]
+    measure = f"tienen {ind.label.lower()} {level_text(ind, levels).lower().replace(', ', ' o ')}" if levels else f"tienen {ind.phrase(order)}"
+    return f"¿Qué entradas{where} {state_phrase + ' y ' if state_phrase else ''}{measure}?"
 
 
 # ── ordenamiento ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -214,12 +228,15 @@ def _excluded_text(excluded: tuple[tuple[str, int], ...]) -> str:
     return ", ".join(parts[:-1]) + (" y " if len(parts) > 1 else "") + parts[-1] if parts else ""
 
 
-def rank_scope(ind: Indicator, order: str, scope: list, governed: caps.Governed | None, pack: str, limit: int = MAX_LIST, offset: int = 0, scope_key: tuple = ()) -> caps.ResultSet:
+def rank_scope(ind: Indicator, order: str, scope: list, governed: caps.Governed | None, pack: str, limit: int = MAX_LIST, offset: int = 0, scope_key: tuple = (),
+               levels: tuple[str, ...] = ()) -> caps.ResultSet:
     """Ordena las entradas de ``scope`` por UN indicador y devuelve un ``ResultSet`` de solo lectura: filas (≤ limit) con valor y evidencia, cobertura, exclusiones y empates.
     Las entradas sin valor comparable NO se rankean: se cuentan y se explican. El orden lo determina el indicador (nunca el veredicto legado); los empates se agrupan y entre ellos el orden es
-    estable (cliente, nombre, ``entry_id``), no un ranking."""
+    estable (cliente, nombre, ``entry_id``), no un ranking. Con ``levels`` (niveles pedidos de un indicador ordinal) solo se muestran las comparables que COINCIDEN con alguno (unión); las demás siguen
+    contando en el denominador (``evaluated``) y las no comparables, en las exclusiones: nada se descarta en silencio."""
     measured = {e.entry_id: ind.measure(e, governed, pack) for e in scope}
-    ok = [e for e in scope if measured[e.entry_id].state == OK]
+    comparable = [e for e in scope if measured[e.entry_id].state == OK]
+    ok = [e for e in comparable if not levels or measured[e.entry_id].value in levels]
     excluded: dict[str, int] = {}
     for e in scope:
         if measured[e.entry_id].state != OK:
@@ -252,9 +269,11 @@ def rank_scope(ind: Indicator, order: str, scope: list, governed: caps.Governed 
         evidence = " · ".join(x for x in ((m.evidence.source if m.evidence else None), (m.evidence.ruleset if m.evidence else None), (m.evidence.generated_at if m.evidence else None)) if x)
         attrs = replace(item.catalog, metrics=(metric,)) if item.catalog else None
         items.append(replace(item, badge=m.display, note=evidence, catalog=attrs))
-    info = caps.RankingInfo(indicator=ind.id, label=ind.label, order=order, order_text=ind.order_text(order), universe=len(scope), evaluated=len(ok),
+    kept = tuple(lv for lv in ind.levels if lv in set(levels))
+    info = caps.RankingInfo(indicator=ind.id, label=ind.label, order=order, order_text=ind.order_text(order), universe=len(scope), evaluated=len(comparable),
                             excluded=tuple(sorted(excluded.items())), ties=tuple(ties), cut_in_tie=cut, caveat=ind.caveat,
-                            page=offset // max(limit, 1) + 1, pages=max(1, -(-len(ok) // max(limit, 1))), continues_tie=continues)
+                            page=offset // max(limit, 1) + 1, pages=max(1, -(-len(ok) // max(limit, 1))), continues_tie=continues,
+                            matched=len(ok) if kept else None, levels=kept, level_text=level_text(ind, kept) if kept else "")
     rows = [(caps.CATALOG_ENTRY, e.entry_id, repr(measured[e.entry_id].value)) for e in ok]                  # el conjunto ORDENADO completo y el valor que determina su posición
     return caps.ResultSet("rank", total=len(scope), items=tuple(items), footer=footer_text(info, len(after)), catalog=caps.CatalogSummary(classified=governed is not None), ranking=info,
                           fingerprint=qctx.fingerprint(("rank", ind.id, order) + tuple(scope_key), rows))
@@ -263,16 +282,19 @@ def rank_scope(ind: Indicator, order: str, scope: list, governed: caps.Governed 
 def footer_text(info: caps.RankingInfo, more: int) -> str:
     """Nota en texto plano bajo las filas: empates, lo que no se compara, lo que falta mostrar y la advertencia metodológica del indicador."""
     parts = []
-    if info.continues_tie:
+    if len(info.levels) == 1:                                                           # un solo nivel pedido: TODAS las filas comparten el valor; no se las presenta como un ranking
+        parts.append(f"Todas comparten el nivel «{info.level_text}»: el orden entre ellas es estable (cliente, nombre) y no implica un ranking.")
+    elif info.continues_tie:
         parts.append(f"Estas entradas continúan el empate de «{info.continues_tie[0]}»: hay {info.continues_tie[1]} más con ese valor en páginas anteriores. El orden entre ellas no implica un ranking.")
-    if info.ties:
+    if info.ties and len(info.levels) != 1:
         shown = "; ".join(f"{n} entradas con «{display}»" for display, n in info.ties[:3])
         parts.append(f"Empatan: {shown}. Entre ellas el orden es estable pero no implica un ranking.")
-    if info.cut_in_tie:
+    if info.cut_in_tie and len(info.levels) != 1:
         parts.append(f"El corte cae dentro de un empate: hay {info.cut_in_tie[1]} entrada{'s' if info.cut_in_tie[1] != 1 else ''} más con «{info.cut_in_tie[0]}».")
     if info.excluded:
         parts.append(f"No se comparan: {_excluded_text(info.excluded)}.")
     if more > 0:
-        parts.append(f"Hay {more} más con valor comparable: acotá por cliente o línea de negocio, o abrí el Catálogo. Pedime «mostrame los siguientes» para ver la página siguiente.")
+        what = "con ese filtro de nivel" if info.levels else "con valor comparable"
+        parts.append(f"Hay {more} más {what}: acotá por cliente o línea de negocio, o abrí el Catálogo. Pedime «mostrame los siguientes» para ver la página siguiente.")
     parts.append(info.caveat)
     return " ".join(parts)
