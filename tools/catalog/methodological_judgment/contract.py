@@ -11,6 +11,11 @@ from typing import Any
 
 JUDGMENT_SCHEMA_VERSION = "judgment/v1"
 RULESET_VERSION = "judgment-rules/v2"
+# Variantes EXPERIMENTALES (T4/T5) del MISMO motor: opt-in, solo para medir impacto. Vacio (la politica vigente) = salida byte a byte identica a judgment-rules/v2. Adoptar una variante como
+# regla definitiva exige subir RULESET_VERSION (=> JDG_VERSION_STALE en los Juicios persistidos; migracion explicita ``--backfill-judgment``, sin tocar el Assessment).
+VARIANT_T4_HAR = "T4_HAR"                      # HAR-STR-01 reformulada: reconoce proyecciones tecnicas reutilizables 1:1 de contratos gobernados que preservan el vocabulario por ETIQUETA
+VARIANT_T5_LOCAL_PHYSICAL = "T5_LOCAL_PHYSICAL"    # SRC-LOC-01 tambien para tablas locales cuya procedencia comprobada (Data Flow) es una tabla fisica ABAP
+VARIANTS = frozenset({VARIANT_T4_HAR, VARIANT_T5_LOCAL_PHYSICAL})
 EXECUTIVE_INPUT_VERSION = "executive-input/v1"
 EXECUTIVE_OUTPUT_CONTRACT_VERSION = "executive-output-contract/v1"
 CTA_PLAYBOOK_VERSION = "cta-playbook/v1"

@@ -354,20 +354,34 @@ def rule_lek_mat_02(ev: ProfileEvidence, policy: str) -> list[dict]:
 
 
 # ───────────────────────────── RELEVANT / LOCAL ─────────────────────────────
-def rule_src_rel_loc(ev: ProfileEvidence, policy: str) -> list[dict]:
+def local_physical_boundaries(ev: ProfileEvidence, policy: str) -> list[str]:
+    """T5 — tablas LOCALES cuya clase de contrato es tabla ABAP fisica (``source_contract_classes``) Y cuya procedencia fue COMPROBADA por un Data Flow (``leaf_provenance``: ESTABLISHED/DATA_FLOW):
+    el Data Flow materializa en Datasphere el contenido de una tabla fisica. Ni cualquier tabla local es frontera cruda, ni se deduce por nombre: se exige la clase explicita Y la procedencia comprobada.
+    Una tabla replicada de un contrato gobernado (Replication Flow), una transformada con clase mixta/indeterminada o una sin procedencia NO entran."""
+    out = []
+    for leaf, rec in sorted(ev.local_leaves.items()):
+        if rec.get("provenance_state") == "ESTABLISHED" and rec.get("basis") == "DATA_FLOW" and ev.classify_source(leaf, policy) == PHYSICAL_RAW_BOUNDARY:
+            out.append(leaf)
+    return out
+
+
+def rule_src_rel_loc(ev: ProfileEvidence, policy: str, variants: frozenset = frozenset()) -> list[dict]:
     """SRC-REL-01 (RELEVANT): tabla fisica cruda en la espina cuyo camino al producto OMITE la frontera reutilizable (ausente u omitida) Y la responsabilidad es compensada por logica de
     Modelado. Cualquier otra cruda (fuera de la espina, a traves de un candidato, o sin compensacion) es SRC-LOC-01 (LOCAL, evidencia de fuente). Nunca MATERIAL sola; no es 'cruda en espina'."""
     comp = _raw_bypass_compensated(ev, policy)
     rel = sorted(comp)
     loc = sorted(l for l in ev.remote_leaves if ev.classify_source(l, policy) == PHYSICAL_RAW_BOUNDARY and l not in comp)
+    local_phys = [l for l in local_physical_boundaries(ev, policy) if l not in loc] if C.VARIANT_T5_LOCAL_PHYSICAL in variants else []
     out = []
     if rel:
         out.append(_reason("SRC-REL-01", C.RELEVANT_WEAKNESS, C.SOURCE_INGESTION, "src.physical_boundary_bypassed_and_compensated_downstream", "closure", ev=ev,
                            artifacts=[*rel, *sorted({n for v in comp.values() for n in v})], refs=[_fact_ref(ev, "source.downstream_reach", l) for l in rel],
                            basis=["SRC.physical_abap_table", "SRC.on_strict_spine", "SRC.path_to_product_bypasses_harmonization", "SRC.compensated_by_modeling_logic"]))
-    if loc:
-        out.append(_reason("SRC-LOC-01", C.LOCAL_WEAKNESS, C.SOURCE_INGESTION, "src.physical_reach_without_bypass_and_compensation", "closure", ev=ev, artifacts=loc,
-                           refs=[_fact_ref(ev, "source.downstream_reach", l) for l in loc], basis=["SRC.physical_abap_table", "SRC.off_spine_or_harmonized_or_not_compensated"]))
+    if loc or local_phys:
+        out.append(_reason("SRC-LOC-01", C.LOCAL_WEAKNESS, C.SOURCE_INGESTION, "src.physical_reach_without_bypass_and_compensation", "closure", ev=ev, artifacts=[*loc, *local_phys],
+                           refs=[*[_fact_ref(ev, "source.downstream_reach", l) for l in loc], *[f"ce:leaf_provenance/{l}" for l in local_phys], *[f"ce:source_contract_classes/{l}" for l in local_phys]],
+                           basis=["SRC.physical_abap_table", "SRC.off_spine_or_harmonized_or_not_compensated",
+                                  *(["SRC.local_table_materialized_from_physical_abap_table_by_established_data_flow"] if local_phys else [])]))
     return out
 
 
@@ -437,7 +451,47 @@ def rule_pro_loc_01(ev: ProfileEvidence, mat_nodes: set[str]) -> list[dict]:
 
 
 # ───────────────────────────── FORTALEZAS ─────────────────────────────
-def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool) -> list[dict]:
+_HAR_NON_BUSINESS_LABELS = ("NO_LABEL", "UNKNOWN_PROVIDER_LABEL", "EQUALS_OWN_NAME", "EQUALS_PROVIDER_TECHNICAL_NAME", "DIFFERENT_FROM_PROVIDER")
+
+
+def _har_sources_governed(ev: ProfileEvidence, cand: Mapping[str, Any], policy: str, seen: frozenset = frozenset()) -> bool:
+    """T4 — TODAS las fuentes del candidato resuelven a hojas gobernadas, directamente o A TRAVES de otros candidatos de armonizacion tecnica 1:1 (una dimension reutilizable construida sobre otra
+    dimension reutilizable). Un origen que no es hoja ni candidato (p. ej. una vista cualquiera) o una hoja no gobernada NO califica."""
+    srcs = cand.get("sources") or []
+    if not srcs:
+        return False
+    for s in srcs:
+        sub = ev.harmonization.get(s)
+        if sub is not None:
+            if s in seen or (sub.get("character") or {}).get("value") != "TECHNICAL_MATERIALIZATION" or not _har_sources_governed(ev, sub, policy, seen | {cand.get("artifact")}):
+                return False
+        elif ev.classify_source(s, policy) != GOVERNED_SAP_CONTRACT:
+            return False
+    return True
+
+
+def _har_business_labels(cand: Mapping[str, Any]) -> bool:
+    """T4 — el vocabulario de negocio se preserva por ETIQUETA: todo campo conserva la etiqueta del proveedor gobernado (ninguno sin etiqueta, con la etiqueta = su propio nombre tecnico o distinta
+    del proveedor). Conservar el NOMBRE tecnico de columna en una proyeccion 1:1 no es un defecto: es la responsabilidad de una frontera reutilizable que no renombra."""
+    lab = cand.get("label_origin_counts") or {}
+    return not any(lab.get(k) for k in _HAR_NON_BUSINESS_LABELS) and (lab.get("EQUALS_PROVIDER_LABEL") or 0) > 0
+
+
+def har_str_01_reformulated(ev: ProfileEvidence, policy: str) -> list[str]:
+    """T4 — candidatos que califican como FRONTERA REUTILIZABLE LEGITIMA sobre un contrato gobernado (lista vacia = no hay fortaleza). La fortaleza exige EVIDENCIA AFIRMATIVA (>=1 candidato
+    1:1 sobre contrato gobernado, con etiquetas de negocio preservadas y consumido aguas abajo) Y la AUSENCIA de las tres consecuencias que definen HAR-REL-01 (vocabulario tecnico que
+    atraviesa al consumidor, semantica reutilizable creada aguas abajo, alineacion de ramas en Propagacion). Candidatos de caracter UNKNOWN/MIXED no bloquean (no son deficiencia demostrada)
+    ni cuentan como fortaleza; la ausencia de defectos por si sola nunca la otorga."""
+    cands = [c for c in ev.harmonization.values() if (c.get("character") or {}).get("value") == "TECHNICAL_MATERIALIZATION"]
+    qualified = [c["artifact"] for c in cands if _har_sources_governed(ev, c, policy) and _har_business_labels(c) and ev.descendants(c["artifact"])]
+    if not qualified:
+        return []
+    if harmonization_passthrough_exposure(ev) or _downstream_created_semantics(ev)[0] or any(_aligns_branches(ev, n) for n in ev.product_nodes):
+        return []
+    return sorted(qualified)
+
+
+def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool, variants: frozenset = frozenset()) -> list[dict]:
     out: list[dict] = []
     # SRC-STR-01 — adquisicion gobernada: TODO contacto con la fuente (hoja frontera, salvo plataforma) en clase gobernada, segun la clase explicita por hoja (v3); al menos uno
     contacts = ev.source_contact_leaves
@@ -458,6 +512,7 @@ def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool) -> list[dict]
                              basis=["SRC.explicit_change_capture_or_delta_property_present_in_export"]))
     # HAR-STR-01 / HAR-STR-02
     cands = [c for c in ev.harmonization.values()]
+    har_str_01 = False
     if cands and all((c.get("character") or {}).get("value") == "TECHNICAL_MATERIALIZATION" for c in cands):
         legit = []
         for c in cands:
@@ -467,9 +522,15 @@ def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool) -> list[dict]
             no_carry = ((c.get("source_vocabulary") or {}).get("fields_with_source_column_name") or 0) == 0
             legit.append(gov and no_carry and not lab.get("DIFFERENT_FROM_PROVIDER") and not lab.get("UNKNOWN_PROVIDER_LABEL") and not lab.get("NO_LABEL"))
         if all(legit):
+            har_str_01 = True
             out.append(_strength("HAR-STR-01", C.HARMONIZATION, "har.legitimate_reusable_boundary_over_governed_contract", ev=ev, artifacts=[c["artifact"] for c in cands],
                                  refs=[f"ce:harmonization_contract/{c['artifact']}" for c in cands],
                                  basis=["HAR.one_to_one_over_governed_contract", "HAR.business_vocabulary_preserved", "HAR.no_downstream_compensation"]))
+    if C.VARIANT_T4_HAR in variants and not har_str_01:                       # camino ADICIONAL (la condicion vigente queda intacta): nunca quita una fortaleza ya reconocida
+        qual = har_str_01_reformulated(ev, policy)
+        if qual:
+            out.append(_strength("HAR-STR-01", C.HARMONIZATION, "har.legitimate_reusable_boundary_over_governed_contract", ev=ev, artifacts=qual, refs=[f"ce:harmonization_contract/{a}" for a in qual],
+                                 basis=["HAR.one_to_one_over_governed_contract", "HAR.business_vocabulary_preserved_by_provider_labels", "HAR.consumed_by_downstream_artifact", "HAR.no_downstream_compensation"]))
     enriched = [c["artifact"] for c in cands if (c.get("label_origin_counts") or {}).get("DIFFERENT_FROM_PROVIDER") or (c.get("character") or {}).get("value") == "SEMANTIC_TRANSFORMATION_PRESENT"]
     if enriched and all(ev.descendants(a) for a in enriched):
         out.append(_strength("HAR-STR-02", C.HARMONIZATION, "har.reusable_semantic_enrichment", ev=ev, artifacts=enriched,
@@ -622,14 +683,14 @@ def supporting_evidence(ev: ProfileEvidence) -> dict:
     }
 
 
-def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED") -> dict:
+def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: frozenset = frozenset()) -> dict:
     pro = rule_pro_mat_01(ev, policy)
     lek = rule_lek_mat_02(ev, policy)
-    src = rule_src_rel_loc(ev, policy)
+    src = rule_src_rel_loc(ev, policy, variants)
     h1, h2 = rule_har_rel_01(ev), rule_har_rel_02(ev)
     loc = rule_pro_loc_01(ev, {r["reason_id"].split(":", 1)[1] for r in pro})
     reasons = [*pro, *lek, *src, *h1, *h2, *loc]
-    st = strengths(ev, policy, has_pro_mat=bool(pro))
+    st = strengths(ev, policy, has_pro_mat=bool(pro), variants=variants)
     cg = review_complex_graphical_chain(ev)
     reviews, limitations = reviews_and_limitations(ev, policy)
     if cg:

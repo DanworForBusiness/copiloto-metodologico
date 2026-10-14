@@ -230,15 +230,19 @@ def _source_assessment(ev: ProfileEvidence) -> dict:
 
 
 # ───────────────────────────── API ─────────────────────────────
-def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping[str, Any]] | None = None, *, external_policy: str = "UNDETERMINED") -> dict:
+def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping[str, Any]] | None = None, *, external_policy: str = "UNDETERMINED",
+                      variants: Iterable[str] = ()) -> dict:
     """Juicio determinista sobre un perfil de Assessment YA persistido/generado (solo lectura). ``external_policy`` existe SOLO para pruebas de sensibilidad
     (``UNDETERMINED`` es la politica vigente); no forma parte del contrato de produccion."""
+    variants = frozenset(variants or ())
+    if not variants <= C.VARIANTS:
+        raise ValueError(f"variantes desconocidas: {sorted(variants - C.VARIANTS)}")
     ev = ProfileEvidence(profile)
     if ev.assessment_state != "ASSESSED":
         return _unjudgeable(ev, "ASSESSMENT_NOT_JUDGEABLE")
     if not ev.has_canonical_evidence_v3:
         return _unjudgeable(ev, "CANONICAL_EVIDENCE_V3_REQUIRED")
-    res = evaluate_rules(ev, external_policy)
+    res = evaluate_rules(ev, external_policy, variants)
     reasons = copy.deepcopy(res["reasons"])
     reviews = copy.deepcopy(res["review_candidates"])
     strengths = res["strengths"]
@@ -273,7 +277,7 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     if missing_dims is not None:                           # LVL-06: distingue ausencia de fortalezas (evidencia evaluada) de insuficiencia de evidencia; aditivo, no cambia el nivel
         out["not_determinable_detail"] = {"level_rule": "LVL-06", "missing_strength_dimensions": missing_dims,
                                           "evidence_sufficient": not any(d["state"] == INSUFFICIENT_EVIDENCE for d in missing_dims)}
-    if external_policy != "UNDETERMINED":
-        out["ruleset_options"] = {"external_policy": external_policy}
+    if external_policy != "UNDETERMINED" or variants:
+        out["ruleset_options"] = {**({"external_policy": external_policy} if external_policy != "UNDETERMINED" else {}), **({"variants": sorted(variants)} if variants else {})}
     out["output_signature"] = C.signature(out)
     return out
