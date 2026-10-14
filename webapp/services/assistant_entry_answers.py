@@ -110,6 +110,8 @@ def _fundamentals_lines(f: caps.Fundamentals, intent: Intent) -> list[str]:
     if not f.determined:
         if f.nd_reason:
             lines.append(f"Motivo: {f.nd_reason}.")
+        if f.nd_insufficient:
+            lines.append("Evidencia insuficiente para afirmar en: " + ", ".join(f.nd_insufficient) + ".")
         if f.nd_missing:
             lines.append("Sin evidencia afirmativa suficiente en: " + ", ".join(f.nd_missing) + ".")
     if f.contracts and (both or intent.strengths) and not intent.limitations:

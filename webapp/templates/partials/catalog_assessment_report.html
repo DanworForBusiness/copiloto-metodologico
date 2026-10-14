@@ -227,6 +227,11 @@
   <h3>Puntos de atención</h3>
   <table><thead><tr><th>Contrato</th><th>Tipo</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.reasons_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.kind }}</td><td>{{ it.text }}</td></tr>{% endfor %}{% endfor %}</tbody></table>
   {% endif %}
+  {# T2 — «No determinable» sigue siendo el valor oficial; esta tabla EXPLICA la causa real desde hechos del Juicio (``presenter.nd_explanation``), por contrato. #}
+  {% if j.nd and j.nd.dimensions %}
+  <h3>Por qué no hay un nivel · {{ j.nd.label }}</h3>
+  <table><thead><tr><th>Contrato</th><th>Situación</th><th>Causa</th></tr></thead><tbody>{% for d in j.nd.dimensions %}<tr><td>{{ d.dimension }}</td><td>{{ d.state_text }}</td><td>{{ d.cause_text }}</td></tr>{% endfor %}</tbody></table>
+  {% endif %}
   {# Cierre editorial = callout canónico del Hub con el tono de `status_tone` (verde / ámbar / naranja / gris); el nivel va en el título. #}
   {% call callout(j.tone, "Lectura de la adopción · " ~ j.level_label) %}<p>{{ j.headline }}</p>{% endcall %}
 </section>
