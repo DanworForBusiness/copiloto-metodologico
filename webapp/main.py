@@ -68,6 +68,7 @@ from webapp.services import asset_evaluation
 from webapp.services import assessment_service
 from webapp.services import domain_classification_service as dcs
 from webapp.services import catalog_navigation
+from webapp.presentation import artifact_icons
 from webapp.services import catalog_ingestion_orchestration
 from webapp.services import catalog_view_source
 from webapp.routers import commercial_strategy as commercial_strategy_router
@@ -1926,14 +1927,19 @@ def _lineage_row_order(by_col: dict, cols: list, edges, sweeps: int = 8) -> dict
     return {d: [by_name[name] for name in best[d]] for d in cols}
 
 
-def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None) -> str:
+def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None, *, edge_kind: dict | None = None, aria: str | None = None) -> str:
     """Diagrama SVG del linaje del OUTPUT del flujo (solo los nodos en `keep`).
     Aristas DIRECTAS (FROM/JOIN) siempre; por ASOCIACIÓN (dimensiones/textos) solo con
     `show_assoc` (punteadas). Cada nodo es un ancla a su sección; el `num` del nodo ya
     viene alineado con el nº de sección (posición en el orden visible). `nodes`:
     [{name,label,title,layer,upstreams,assoc_upstreams,slug,num,is_factcube}].
     `focus` (opcional): nombres técnicos a RESALTAR (clase `ln-node-focus` en el ancla;
-    p. ej. desde el informe de assessment). Solo estilo: no altera nodos, aristas ni layout."""
+    p. ej. desde el informe de assessment). Solo estilo: no altera nodos, aristas ni layout.
+
+    Extensión OPCIONAL para diagramas de pipeline (p. ej. «Orquestación de ingesta»; sin estas claves la salida es BYTE A BYTE la de siempre): un nodo con `icon` (tipo del registro
+    `presentation.artifact_icons`) dibuja el ícono en lugar del número; con `role` agrega una línea de rol bajo el nombre COMPLETO (envuelto en ≤2 líneas, nunca truncado); sin `slug`
+    no es un ancla (no hay ruta a la que enlazar); `evidence="unverified"` marca el nodo como no verificado. `edge_kind` {(origen, destino): "orch"|"proj"|"unverified"} agrega la
+    clase `ln-edge--<kind>` a esa arista; `aria` reemplaza la etiqueta accesible del SVG."""
     from collections import defaultdict
     focus_names = frozenset(focus or ())
     names = {n["name"] for n in nodes if n["name"] in keep}
@@ -1977,12 +1983,16 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None) -
     # H mayor en flujos normales para alojar labels de ≤2 líneas (nombres largos se
     # envuelven en vez de forzar ancho → evita overflow horizontal). COLGAP más chico
     # comprime el grafo. Los diagramas de Data Product (con subtext) conservan su H.
-    H, VGAP, COLGAP, HEAD = (46 if any(n.get("subtext") for n in shown) else 44), 16, 30, 6
+    H, VGAP, COLGAP, HEAD = (58 if any(n.get("role") for n in shown) else 46 if any(n.get("subtext") for n in shown) else 44), 16, 30, 6
     # Ancho POR CONTENIDO: cada caja se ajusta a su texto (no ancho fijo), para no
     # desperdiciar espacio; el ancho de columna = el del nodo más ancho de la columna.
     NUM_W, CHAR, PAD_R, WMIN, WMAX = 30, 6.3, 14, 92, 260
 
     def _node_dims(n):
+        role = str(n.get("role") or "")
+        if role:
+            lines = _wrap_label(n["label"])
+            return max(WMIN, min(WMAX, int(max(NUM_W + max(len(ln) for ln in lines) * CHAR + PAD_R, NUM_W + len(role) * 5.4 + PAD_R)))), lines
         sub = str(n.get("subtext") or "")
         if sub:
             # Data Product: comportamiento actual (1 línea + subtext); el ancho toma el
@@ -2062,7 +2072,7 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None) -
         width = (acc - COLGAP) if cols else 0
         height = HEAD + max_rows * (H + VGAP) - VGAP + 4
     p = [f'<svg class="lineage-svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
-         f'role="img" aria-label="Diagrama de trazabilidad del flujo">',
+         f'role="img" aria-label="{html.escape(aria or "Diagrama de trazabilidad del flujo", quote=True)}">',
          '<defs><marker id="ln-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">'
          '<path d="M0,0 L8,4 L0,8 z" class="ln-arrowhead"/></marker></defs>']
 
@@ -2102,7 +2112,7 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None) -
     def _edge(up, tgt, cls):
         if up not in pos or tgt not in pos:
             return
-        edge_cls = cls
+        edge_cls = cls + (f" ln-edge--{html.escape(str((edge_kind or {}).get((up, tgt)) or ''))}" if (edge_kind or {}).get((up, tgt)) else "")
         cross_band = (is_data_product_lineage
                       and runtime_by_name.get(up) == "hana"
                       and runtime_by_name.get(tgt) == "object_store"
@@ -2146,8 +2156,10 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None) -
         else:
             sx, sy, tx, ty = x1 + node_w[up], y1 + H / 2, x2, y2 + H / 2
             dx = max(24, abs(tx - sx) / 2)
+            # Una PROYECCIÓN (`X_Delta — X`, «no es una carga») es un vínculo sin dirección de transferencia: sin punta de flecha. El resto de las aristas conserva su marcador.
+            marker = "" if (edge_kind or {}).get((up, tgt)) == "proj" else ' marker-end="url(#ln-arrow)"'
             p.append(f'<path class="{edge_cls}" d="M{sx:.0f},{sy:.0f} C{sx+dx:.0f},{sy:.0f} '
-                     f'{tx-dx:.0f},{ty:.0f} {tx:.0f},{ty:.0f}" marker-end="url(#ln-arrow)"/>')
+                     f'{tx-dx:.0f},{ty:.0f} {tx:.0f},{ty:.0f}"{marker}/>')
 
     for up, tgt in direct_edges:
         _edge(up, tgt, "ln-edge")
@@ -2162,7 +2174,15 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None) -
         lineage_key_class = f" ln-k-{lineage_key}" if lineage_key in duplicate_lineage_keys else ""
         if n["name"] in focus_names:
             lineage_key_class += " ln-node-focus"
-        if subtext:
+        role = str(n.get("role") or "").strip()
+        if role:
+            # Pipeline: ícono del tipo (en lugar del número), nombre COMPLETO en ≤2 líneas y el rol debajo. Sin truncar: el nombre técnico largo se envuelve.
+            num_y = y + H / 2 + 3
+            y0 = y + (H / 2 - 12 if len(lines) == 1 else H / 2 - 18)
+            tsp = "".join(f'<tspan x="{x+32}" dy="{0 if i == 0 else 12}">{html.escape(ln)}</tspan>' for i, ln in enumerate(lines))
+            label_svg = f'<text class="ln-node-text" x="{x+32}" y="{y0 + 12:.0f}">{tsp}</text>'
+            sub_html = f'<text class="ln-node-subtext" x="{x+32}" y="{y + H - 10:.0f}">{html.escape(role)}</text>'
+        elif subtext:
             main_y = y + 18
             num_y = main_y
             label_svg = f'<text class="ln-node-text" x="{x+32}" y="{main_y:.0f}">{html.escape(lines[0])}</text>'
@@ -2180,11 +2200,16 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None) -
                          f'<tspan x="{x+32}" dy="0">{html.escape(lines[0])}</tspan>'
                          f'<tspan x="{x+32}" dy="12">{html.escape(lines[1])}</tspan></text>')
             sub_html = ''
-        p.append(
-            f'<a href="#{n["slug"]}" class="ln-node-a{lineage_key_class}"><title>{html.escape(n["title"])}</title>'
-            f'<rect class="ln-node ln-layer-{n["layer"]}" x="{x}" y="{y}" width="{w}" height="{H}" rx="8"/>'
-            f'<text class="ln-num" x="{x+11}" y="{num_y:.0f}">{n["num"]:02d}</text>'
-            f'{label_svg}{sub_html}</a>')
+        icon_key = n.get("icon")
+        mark = (artifact_icons.icon_group(icon_key, variant=n.get("icon_variant"), x=x + 8, y=y + (H - 18) / 2, size=18) if icon_key
+                else f'<text class="ln-num" x="{x+11}" y="{num_y:.0f}">{n["num"]:02d}</text>')
+        node_cls = f'ln-node ln-layer-{n["layer"]}' + (" ln-node--unverified" if n.get("evidence") == "unverified" else "")
+        inner = (f'<title>{html.escape(n["title"])}</title><rect class="{node_cls}" x="{x}" y="{y}" width="{w}" height="{H}" rx="8"/>'
+                 f'{mark}{label_svg}{sub_html}')
+        if n.get("slug"):
+            p.append(f'<a href="#{n["slug"]}" class="ln-node-a{lineage_key_class}">{inner}</a>')
+        else:
+            p.append(f'<g class="ln-node-a ln-node-a--static{lineage_key_class}">{inner}</g>')
     p.append("</svg>")
     return '<div class="catalog-lineage__scroll">' + "".join(p) + "</div>"
 
@@ -2622,7 +2647,7 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
         if name is None:
             return dataclasses.replace(s, html=body)
         orch = catalog_ingestion_orchestration.orchestration_for(entry.cliente, name, _capture(name))
-        block = catalog_ingestion_orchestration.render_html(orch, f"orquestacion-{s.slug}", _orch_cds_link)
+        block = catalog_ingestion_orchestration.render_html(orch, f"orquestacion-{s.slug}", _orch_cds_link, diagram=_catalog_lineage_svg)
         return dataclasses.replace(s, html=catalog_ingestion_orchestration.inject_after_fields(body, block))
 
     sections = tuple(_fold(s) for s in render_sections(composed, pack_name="", stem="", base=0))    # tablas de campos plegadas (todas las capas)
