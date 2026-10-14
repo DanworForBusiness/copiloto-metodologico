@@ -68,6 +68,7 @@ from webapp.services import asset_evaluation
 from webapp.services import assessment_service
 from webapp.services import domain_classification_service as dcs
 from webapp.services import catalog_navigation
+from webapp.services import catalog_ingestion_orchestration
 from webapp.services import catalog_view_source
 from webapp.routers import commercial_strategy as commercial_strategy_router
 
@@ -2606,7 +2607,25 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
         lambda m: (f"[{m.group(1)}](#{slug_of[delta_pairs.get(m.group(1), m.group(1))]})" if delta_pairs.get(m.group(1), m.group(1)) in shown_set else m.group(0)),
         composed,
     )
-    sections = tuple(dataclasses.replace(s, html=collapse_field_tables(s.html)) for s in render_sections(composed, pack_name="", stem="", base=0))    # tablas de campos plegadas (todas las capas)
+    # «Orquestación de ingesta» (colapsable bajo «Campos») SOLO en tablas locales de capa Ingesta: relaciones del manifiesto del CLI, detalle de los JSON técnicos.
+    orch_of = {slug_of[n]: n for n in shown_order if (autos.get(n) or {}).get("capa") == "Ingesta" and (autos.get(n) or {}).get("artefacto_tecnico") == "Tabla local"}
+
+    def _orch_cds_link(obj: str) -> str:
+        if not obj or "/" in obj or "\\" in obj or not (_catalog_apis_dir() / f"{obj}.md").exists():
+            return ""                                     # sin código de la CDS en APIs/ no hay enlace (nunca un link muerto)
+        qs = urlencode({"name": obj, "cliente": entry.cliente, "dominio": entry.dominio, "flow": entry.entry_id, "pack": pack or DEFAULT_PACK})
+        return f'<a href="#" role="button" hx-get="/catalog/cds?{html.escape(qs)}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Abrir CDS View</a>'
+
+    def _fold(s):
+        body = collapse_field_tables(s.html)
+        name = orch_of.get(s.slug)
+        if name is None:
+            return dataclasses.replace(s, html=body)
+        orch = catalog_ingestion_orchestration.orchestration_for(entry.cliente, name, _capture(name))
+        block = catalog_ingestion_orchestration.render_html(orch, f"orquestacion-{s.slug}", _orch_cds_link)
+        return dataclasses.replace(s, html=catalog_ingestion_orchestration.inject_after_fields(body, block))
+
+    sections = tuple(_fold(s) for s in render_sections(composed, pack_name="", stem="", base=0))    # tablas de campos plegadas (todas las capas)
     return sections, lineage_svg, show_assoc, assoc_context
 
 
