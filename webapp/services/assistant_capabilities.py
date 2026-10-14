@@ -139,15 +139,83 @@ class RankingInfo:
     level_text: str = ""                              # los mismos niveles con su rótulo visible («Buena o Adecuada»)
 
 
+# ── Respuesta INDIVIDUAL sobre UN modelo (paso 4B) ────────────────────────────────────────────────────────────────────────────────────
+# Lo que el asistente sabe de una entrada, separado en dimensiones que NO se mezclan: vigencia (estado), grado (Juicio), indicadores, fundamentos y lo que no se entrega y por qué. Cada valor lleva el
+# ``entry_id`` del que salió (nunca se muestra un valor de otra entrada) y su evidencia; un valor de un Assessment desactualizado solo existe rotulado como histórico y no vigente.
+@dataclass(frozen=True)
+class StateInfo:
+    """Vigencia del Assessment de la entrada (``AssessmentStatus.state``) con el rótulo y la nota que ya presenta el producto."""
+    state: str
+    label: str
+    concept: str                       # id del concepto de estado (assistant_query): distingue «sin assessment» de «sin resultado utilizable»
+    note: str = ""                     # nota del producto (desactualizado: causa; no aplica / no disponible / no compatible: motivo)
+    body: str = ""                     # solo STALE: qué ocurre al regenerar
+    generated_at: str | None = None
+    current: bool = False
+
+
+@dataclass(frozen=True)
+class AttributeValue:
+    indicator: str
+    label: str
+    entry_id: str                      # entrada de la que sale el valor (anti-mezcla)
+    display: str
+    value: Any = None
+    evidence: Evidence | None = None
+    caveat: str = ""
+    historical: bool = False           # último valor conocido de un Assessment DESACTUALIZADO: no es el vigente
+
+
+@dataclass(frozen=True)
+class Withheld:
+    """Un atributo que NO se entrega y el motivo (ausente, no determinable, no aplicable, desactualizado…)."""
+    indicator: str
+    label: str
+    code: str
+    text: str
+
+
+@dataclass(frozen=True)
+class Fundamentals:
+    """Fundamentos del Juicio: SOLO lo que el producto ya presenta (``judgment_view`` / ``report_view``); nada se redacta ni se infiere acá."""
+    entry_id: str
+    determined: bool
+    level: str | None
+    level_label: str
+    headline: str
+    contracts: tuple[tuple[str, str], ...] = ()            # (dimensión, estado)
+    strengths: tuple[tuple[str, str], ...] = ()            # (dimensión, texto)
+    reasons: tuple[tuple[str, str, str], ...] = ()         # (dimensión, tipo, texto)
+    strengths_total: int = 0
+    reasons_total: int = 0
+    limitations: tuple[tuple[str, str, str, str], ...] = ()    # (título, área, estado, motivo)
+    limitations_total: int = 0
+    nd_reason: str = ""
+    nd_missing: tuple[str, ...] = ()
+    historical: bool = False
+    report_url: str = ""
+
+
+@dataclass(frozen=True)
+class EntryAnswer:
+    entry: "ResultItem"
+    state: StateInfo
+    attributes: tuple[AttributeValue, ...] = ()
+    withheld: tuple[Withheld, ...] = ()
+    fundamentals: Fundamentals | None = None
+    links: tuple[tuple[str, str], ...] = ()                # (rótulo, URL interna) construidas desde el entry_id
+
+
 @dataclass(frozen=True)
 class ResultSet:
-    capability: str                                      # "summary" | "list" | "rank"
+    capability: str                                      # "summary" | "list" | "rank" | "states" | "groups" | "entry"
     total: int                                           # elementos del universo tras los filtros
     items: tuple[ResultItem, ...] = ()                   # ya acotado; vacío en un resumen
     footer: str = ""                                     # nota en texto plano bajo las filas
     catalog: CatalogSummary | None = None                # solo en consultas sobre el Catálogo
     ranking: RankingInfo | None = None                   # solo en resultados ordenados por un indicador
     fingerprint: str = ""                                # huella del conjunto ORDENADO completo (todas las páginas) que originó la lista; validador de referencias y de paginación
+    entry: EntryAnswer | None = None                     # solo en respuestas individuales (capacidad "entry")
 
 
 @dataclass(frozen=True)

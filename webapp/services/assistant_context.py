@@ -1,8 +1,8 @@
 """Contexto conversacional ESTRUCTURADO del asistente (paso 3): qué consulta estructurada se hizo por última vez en una conversación, para resolver seguimientos («¿y los de Finanzas?», «los siguientes»,
 «abrí el segundo») sin convertir el historial de texto en fuente de verdad.
 
-Qué guarda: la consulta (`QuerySpec`: capacidad, cliente, línea de negocio efectiva, indicador, orden, tamaño de página y desplazamiento), las IDENTIDADES `(kind, ref)` de lo efectivamente mostrado y en
-su orden, la identidad del usuario, el instante y una HUELLA del resultado completo. Qué NO guarda: URLs, valores de indicadores, títulos ni copias del Catálogo; todo eso se vuelve a calcular desde las
+Qué guarda: la consulta (`QuerySpec`: capacidad, cliente, línea de negocio efectiva, indicador, orden, tamaño de página y desplazamiento; en una consulta sobre UN modelo, su `entry_id` y los indicadores pedidos),
+las IDENTIDADES `(kind, ref)` de lo efectivamente mostrado y en su orden, el `entry_id` del modelo EN FOCO, la identidad del usuario, el instante y una HUELLA del resultado completo. Qué NO guarda: URLs, valores de indicadores, títulos ni copias del Catálogo; todo eso se vuelve a calcular desde las
 fuentes gobernadas vigentes cada vez. La huella (`fingerprint`) no es una autoridad sino un VALIDADOR: se compara contra el resultado recalculado y, si difiere, las referencias posicionales se invalidan.
 
 Módulo puro (sin dependencias del resto de la webapp): vive en memoria dentro del `AssistantConversationStore`, con el mismo alcance y ciclo de vida que la conversación (sin persistencia nueva).
@@ -19,7 +19,7 @@ LIVE, MISSING, EXPIRED = "live", "missing", "expired"
 @dataclass(frozen=True)
 class QuerySpec:
     """La consulta estructurada ejecutada (nada de valores ni resultados)."""
-    capability: str                 # "summary" | "list" | "rank" | "states" | "groups" | "pending" (aclaración de métrica pendiente)
+    capability: str                 # "summary" | "list" | "rank" | "states" | "groups" | "entry" (consulta sobre UN modelo) | "pending" (aclaración de métrica pendiente)
     client: str | None = None       # cliente del Catálogo (nombre canónico)
     lob: str | None = None          # id de línea de negocio EFECTIVA o "UNCLASSIFIED"
     indicator: str | None = None    # id del registro de indicadores
@@ -30,6 +30,8 @@ class QuerySpec:
     state: str | None = None        # id de concepto de estado (assistant_query.STATE_CONCEPTS)
     count: bool = False             # la consulta pidió una cantidad: el encabezado contesta el número primero
     group_by: str | None = None     # "client" | "lob": conteo agrupado (capacidad "groups")
+    entry: str | None = None        # capacidad "entry": ``entry_id`` del modelo consultado (identidad, nunca título ni valores)
+    attrs: tuple[str, ...] = ()     # capacidad "entry": ids de indicador pedidos (parámetros, nunca valores)
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,7 @@ class QueryDraft:
     spec: QuerySpec
     refs: tuple[tuple[str, str], ...] = ()      # identidades `(kind, ref)` de las filas mostradas, en orden
     fingerprint: str = ""                       # huella del conjunto ORDENADO completo que originó la lista (todas las páginas)
+    focus: str | None = None                    # ``entry_id`` del modelo EN FOCO («su confianza», «abrí su Assessment»): identidad, se revalida contra el Catálogo vigente en cada uso
 
 
 @dataclass(frozen=True)
@@ -47,6 +50,7 @@ class QueryState:
     fingerprint: str
     user_sub: str
     updated_at: float
+    focus: str | None = None
 
 
 @dataclass(frozen=True)
@@ -68,7 +72,7 @@ class QueryContext:
 
 
 def stamp(draft: QueryDraft, user_sub: str, now: float) -> QueryState:
-    return QueryState(draft.spec, draft.refs, draft.fingerprint, user_sub, now)
+    return QueryState(draft.spec, draft.refs, draft.fingerprint, user_sub, now, draft.focus)
 
 
 def touch(state: QueryState, now: float) -> QueryState:

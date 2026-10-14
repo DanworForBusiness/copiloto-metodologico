@@ -350,11 +350,12 @@ def test_the_state_stores_only_the_query_identities_and_a_fingerprint_never_urls
     chat = Chat()
     chat.ask("¿Qué entradas tienen mejor consistencia de tipos?")
     st = chat.state
-    assert {f.name for f in dataclasses.fields(qc.QueryState)} == {"spec", "refs", "fingerprint", "user_sub", "updated_at"}
-    # 4A: se sumaron SOLO parámetros de la consulta (niveles pedidos, concepto de estado, cantidad, agrupación); jamás un valor medido
-    assert {f.name for f in dataclasses.fields(qc.QuerySpec)} == {"capability", "client", "lob", "indicator", "order", "limit", "offset", "levels", "state", "count", "group_by"}
+    # 4B: se suma SOLO una identidad (el `entry_id` del modelo en foco, o None)
+    assert {f.name for f in dataclasses.fields(qc.QueryState)} == {"spec", "refs", "fingerprint", "user_sub", "updated_at", "focus"} and st.focus is None
+    # 4A: se sumaron SOLO parámetros de la consulta (niveles pedidos, concepto de estado, cantidad, agrupación); 4B: la identidad del modelo consultado y los indicadores pedidos; jamás un valor medido
+    assert {f.name for f in dataclasses.fields(qc.QuerySpec)} == {"capability", "client", "lob", "indicator", "order", "limit", "offset", "levels", "state", "count", "group_by", "entry", "attrs"}
     allowed = {"capability": str, "client": (str, type(None)), "lob": (str, type(None)), "indicator": (str, type(None)), "order": str, "limit": int, "offset": int,
-               "levels": tuple, "state": (str, type(None)), "count": bool, "group_by": (str, type(None))}
+               "levels": tuple, "state": (str, type(None)), "count": bool, "group_by": (str, type(None)), "entry": (str, type(None)), "attrs": tuple}
     assert all(isinstance(getattr(st.spec, name), kind) for name, kind in allowed.items())
     assert all(isinstance(level, str) for level in qc.QuerySpec("rank", levels=("BUENA", "ADECUADA")).levels)
     assert len(st.refs) == 10 and all(isinstance(r, tuple) and len(r) == 2 and r[0] == caps.CATALOG_ENTRY for r in st.refs)

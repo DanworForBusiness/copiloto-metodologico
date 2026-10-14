@@ -141,7 +141,7 @@ def test_the_target_route_keeps_its_own_access_control_and_rejects_invented_flow
 
 
 def test_the_mechanism_is_extensible_by_target_and_the_registered_targets_are_the_expected_ones():
-    assert [t.key for t in nav.TARGETS] == ["catalog_followup", "client_report", "data_catalog", "catalog_query", "entry_assessment", "catalog_ranking", "catalog_inventory"]
+    assert [t.key for t in nav.TARGETS] == ["catalog_followup", "client_report", "data_catalog", "entry_query", "catalog_query", "entry_assessment", "catalog_ranking", "catalog_inventory"]
 
 
 # ── el flujo de la URL es solo una REFERENCIA técnica; el informe cubre todo el cliente ─────────────────────────────────────────────────────────

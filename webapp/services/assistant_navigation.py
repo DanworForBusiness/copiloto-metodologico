@@ -19,6 +19,9 @@ from core.utils import norm_text
 from webapp.services import assessment_presenter as presenter
 from webapp.services import assistant_capabilities as caps
 from webapp.services import assistant_context as qctx
+from webapp.services import assistant_entry_answers as answers
+from webapp.services import assistant_entry_facts as facts
+from webapp.services import assistant_entry_resolver as resolver
 from webapp.services import assistant_indicators as indicators
 from webapp.services import assistant_query as query
 from webapp.services import catalog_navigation, catalog_reads
@@ -243,6 +246,33 @@ def _assessment_candidates(q: str, question: str, mod, entries, flows: list, cli
     return candidates
 
 
+def _identities(flows: list, governed: caps.Governed | None) -> list[resolver.Identity]:
+    """Las identidades que el resolvedor compara: título del Catálogo (el MISMO resolver de títulos que las filas y el detalle), identificador técnico del modelo terminal y dominio.
+    Un flujo sin modelo terminal identificable no tiene título que lo nombre (el marcador neutro no es un nombre)."""
+    out = []
+    for e in flows:
+        try:
+            title, technical = presenter.entry_title(governed.statuses[e.entry_id], e) if governed is not None else presenter.flow_heading(e)
+        except Exception:  # noqa: BLE001 — un título que no se resuelve deja a la entrada sin clave de título, nunca rompe la consulta
+            title, technical = None, None
+        out.append(resolver.Identity(e.entry_id, str(e.cliente or ""), "" if not title or title == presenter.NO_TERMINAL_TITLE else title, str(technical or ""), str(e.dominio or "")))
+    return out
+
+
+def _resolve_entry(question: str, flows: list, clients: list[str], governed: caps.Governed | None) -> resolver.Resolution:
+    """A qué modelo se refiere la pregunta (paso 4B.0). Las líneas de negocio son ALCANCE (4A), no nombre de modelo, salvo entre «comillas»."""
+    labels = [label for lob, label in caps.lob_labels().items() if lob != dcs.UNAVAILABLE]
+    return resolver.resolve(question, _identities(flows, governed), tuple(clients), tuple(labels))
+
+
+def _entry_options(matches, flows: list, governed: caps.Governed | None, pack: str) -> tuple[tuple, ...]:
+    """Una opción «Assessment · título · cliente» por modelo coincidente (la URL sale del ``entry_id``)."""
+    by_id = {e.entry_id: e for e in flows}
+    shown = [by_id[m.entry_id] for m in matches[:MAX_OPTIONS] if m.entry_id in by_id]
+    titles = caps.build_items(shown, governed, pack)
+    return tuple((f"Assessment · {item.title} · {e.cliente}".strip(" ·"), presenter.assessment_url(e, pack)) for item, e in zip(titles, shown))
+
+
 def _entry_assessment(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
     q = norm_text(question).strip().lstrip("¿¡")
     if not _is_assessment_request(q):
@@ -251,7 +281,20 @@ def _entry_assessment(question: str, pack: str, stem: str = "", ctx: qctx.QueryC
     flows = catalog_navigation.browsable_flows(mod, entries) if mod else []
     if not flows:
         return None
-    found = _assessment_candidates(q, question, mod, entries, flows, catalog_navigation.clients(mod, entries))
+    clients = catalog_navigation.clients(mod, entries)
+    governed = caps.governed_read(flows)
+    res = _resolve_entry(question, flows, clients, governed)           # identidad por TÍTULO del Catálogo (no por dominio); un cliente solo desambigua
+    if res.status == resolver.UNIQUE:
+        e = next(x for x in flows if x.entry_id == res.matches[0].entry_id)
+        title = caps.build_items([e], governed, pack)[0].title
+        label = f"{e.cliente} · {e.dominio if title == presenter.NO_TERMINAL_TITLE else title}".strip(" ·")          # sin modelo terminal: el único nombre que existe es el dominio, como antes
+        return NavigationResult(f"Acá está el **Assessment** de **{label}**: se abre el informe tal como figura hoy en el Catálogo (o su estado, si todavía no se evaluó).",
+                                (("Ver Assessment", presenter.assessment_url(e, pack)),), state=_focus_draft(e.entry_id))
+    if res.status in (resolver.AMBIGUOUS, resolver.MULTIPLE):
+        more = f" Muestro los primeros {MAX_OPTIONS}: sumá el cliente o el nombre completo para acotar." if len(res.matches) > MAX_OPTIONS else ""
+        lead = "Nombraste más de un modelo." if res.status == resolver.MULTIPLE else "Hay más de un modelo que coincide con tu consulta."
+        return NavigationResult(f"{lead} ¿De cuál querés ver el Assessment?{more}", _entry_options(res.matches, flows, governed, pack))
+    found = _assessment_candidates(q, question, mod, entries, flows, clients)          # sin coincidencia por título: el emparejador por dominio de siempre (equivalencia con los pasos anteriores)
     if not found:
         return None
     ordered = sorted(found, key=lambda e: ((e.cliente or "").lower(), (e.dominio or "").lower(), e.entry_id))
@@ -265,6 +308,134 @@ def _entry_assessment(question: str, pack: str, stem: str = "", ctx: qctx.QueryC
     titles = caps.build_items(shown, caps.governed_read(shown), pack)          # el MISMO título que muestran las filas del Catálogo: varios modelos pueden compartir dominio y cliente
     options = tuple((f"Assessment · {item.title} · {e.cliente}".strip(" ·"), presenter.assessment_url(e, pack)) for item, e in zip(titles, shown))
     return NavigationResult(f"Hay más de un modelo que coincide con tu consulta. ¿De cuál querés ver el Assessment?{more}", options)
+
+
+# ── Consultas INDIVIDUALES sobre un modelo (paso 4B) ────────────────────────────────────────────────────────────────────────────────────────
+# «¿Qué casos a revisar tiene Delivery Document?», «¿qué sabés de Lista Precios?», «¿por qué tiene adopción buena?»: se identifica UN modelo con el resolvedor compartido (título del Catálogo; el cliente
+# solo desambigua), se recuperan sus datos gobernados (`assistant_entry_facts`) y se redacta con plantillas fijas (`assistant_entry_answers`). Sin LLM. Si no se identifica UN modelo, devuelve None y
+# todo lo de 4A queda IDÉNTICO; si se identifica más de uno, se pregunta cuál (nunca se elige por el usuario). La respuesta muestra siempre la identidad (título · cliente · línea de negocio).
+def _entry_question(intent: answers.Intent, title: str, client: str) -> str:
+    """Pregunta canónica (fijada por el servidor, con el nombre entre comillas) que reenvía al MISMO router la misma consulta sobre UN modelo concreto."""
+    name = f"«{title.replace('«', '').replace('»', '')}» de {client}"
+    if intent.ficha:
+        return f"¿Qué sabés de {name}?"
+    if intent.limitations:
+        return f"¿Cuáles son las limitaciones de {name}?"
+    if intent.strengths and not intent.why:
+        return f"¿Cuáles son las fortalezas de {name}?"
+    if intent.why:
+        return f"¿Cuáles son los fundamentos de {name}?"
+    labels = [indicators.BY_ID[i].label for i in intent.attributes] + (["Estado del assessment"] if intent.state else [])
+    return f"¿{' y '.join(labels)} de {name}?"
+
+
+def _entry_choice(intent: answers.Intent, matches, flows: list, governed: caps.Governed | None, pack: str, multiple: bool, lead: str | None = None) -> NavigationResult:
+    by_id = {e.entry_id: e for e in flows}
+    shown = [by_id[m.entry_id] for m in matches[:MAX_OPTIONS] if m.entry_id in by_id]
+    titles = caps.build_items(shown, governed, pack)
+    # un modelo SIN título nombrable (sin modelo terminal: «Flujo sin modelo terminal») no se puede pedir por nombre: su opción abre directo su Assessment (la URL sale del entry_id)
+    options = tuple(((f"{item.title} · {e.cliente} (abrir Assessment)".strip(" ·"), presenter.assessment_url(e, pack)) if item.title == presenter.NO_TERMINAL_TITLE
+                     else _ask(f"{item.title} · {e.cliente}".strip(" ·"), _entry_question(intent, item.title, str(e.cliente or "")))) for item, e in zip(titles, shown))
+    more = f" Muestro los primeros {MAX_OPTIONS}: sumá el cliente o el nombre completo para acotar." if len(matches) > MAX_OPTIONS else ""
+    lead = lead or ("Nombraste más de un modelo. Consultá uno por vez:" if multiple else "Hay más de un modelo con ese nombre. ¿Cuál querés consultar?")
+    return NavigationResult(lead + more, options)
+
+
+_NAME_STOP = frozenset({"de", "del", "la", "el", "los", "las", "un", "una", "unos", "unas", "y", "e", "o", "u", "a", "al", "en", "con", "por", "porque", "para", "sobre", "acerca", "que", "sabes", "sabe",
+                        "sabemos", "contame", "contanos", "decime", "dime", "resumime", "resumen", "ficha", "informacion", "info", "como", "esta", "anda", "tal", "situacion", "cual", "cuales", "es",
+                        "son", "tiene", "tienen", "su", "sus", "mi", "me", "te", "se", "lo", "hay", "ese", "esa", "este", "mas", "si", "no", "ya", "modelo", "modelos", "assessment"})
+
+
+def _name_terms(question: str, clients: list[str], res: resolver.Resolution) -> list[str]:
+    """Las palabras de la pregunta que NOMBRAN un modelo: sin vocabulario gobernado (indicadores, niveles, estados), sin clientes ni líneas de negocio, sin muletillas. Entre «comillas» manda el
+    texto entrecomillado tal cual."""
+    if res.quoted:
+        return [w for m in resolver._QUOTED.findall(question) for g in m if g for w in resolver.tokens(g)]
+    text = f" {query.parse(question).masked} "
+    for c in clients:
+        text = re.sub(rf"(?<![a-z0-9]){re.escape(norm_text(c))}(?![a-z0-9])", " ", text)
+    for label in caps.lob_labels().values():
+        text = re.sub(rf"(?<![a-z0-9]){re.escape(norm_text(label))}(?![a-z0-9])", " ", text)
+    return [w for w in resolver.tokens(text) if w not in _NAME_STOP]
+
+
+def _entry_unresolved(intent: answers.Intent, question: str, res: resolver.Resolution, flows: list, clients: list[str], governed: caps.Governed | None, pack: str) -> NavigationResult | None:
+    """Pregunta INDIVIDUAL sin modelo identificado (el nombre no coincide exacto): se ofrecen candidatos que el usuario confirma; jamás se elige uno ni se cae al LLM libre. Sin candidatos y
+    sin comillas devuelve None (lo resuelve 4A / el flujo de siempre); un nombre entre comillas que no existe se dice."""
+    candidates = resolver.suggest(_name_terms(question, clients, res), _identities(flows, governed), res.clients)
+    if candidates:
+        return _entry_choice(intent, candidates, flows, governed, pack, False, "No encontré un modelo con ese nombre exacto. ¿Te referís a alguno de estos? Elegí uno y lo consulto:")
+    if res.quoted:
+        return NavigationResult("No encontré en el Catálogo un modelo con ese nombre exacto. Probá con el título tal como figura en el Catálogo.", ())
+    return None
+
+
+def _entry_query(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
+    intent = answers.parse_intent(question)
+    if intent is None:
+        return None                                                          # compuerta barata: sin una pregunta individual no se paga la carga del Catálogo
+    try:
+        mod, entries = catalog_reads._catalog_entries()
+        flows = catalog_navigation.browsable_flows(mod, entries) if mod else []
+        if not flows:
+            return None
+        governed = caps.governed_read(flows)
+        res = _resolve_entry(question, flows, catalog_navigation.clients(mod, entries), governed)
+    except Exception:  # noqa: BLE001 — sin poder identificar un modelo no se reclama la pregunta: siguen los destinos de siempre
+        log.exception("consulta individual: falló la identificación del modelo")
+        return None
+    if res.status == resolver.NONE and len(res.clients) <= 1:
+        try:
+            unresolved = _entry_unresolved(intent, question, res, flows, catalog_navigation.clients(mod, entries), governed, pack)
+        except Exception:  # noqa: BLE001 — las sugerencias son ayuda: si fallan, sigue el flujo de siempre
+            log.exception("consulta individual: falló la búsqueda de candidatos")
+            unresolved = None
+        if unresolved is not None:
+            return unresolved
+    if res.status == resolver.NONE or len(res.clients) > 1:
+        return None                                                          # sin UN modelo identificable (o con varios clientes) lo resuelve 4A / el flujo de siempre
+    if res.status in (resolver.AMBIGUOUS, resolver.MULTIPLE):
+        return _entry_choice(intent, res.matches, flows, governed, pack, res.status == resolver.MULTIPLE)
+    try:
+        return _entry_answer(intent, next(e for e in flows if e.entry_id == res.matches[0].entry_id), governed, pack)
+    except Exception:  # noqa: BLE001 — una consulta individual RECONOCIDA nunca cae en silencio al LLM libre: si falla la lectura, se dice
+        log.exception("consulta individual: falló la respuesta")
+        return NavigationResult(_FAILED_QUERY, ())
+
+
+def _entry_answer(intent: answers.Intent, entry, governed: caps.Governed | None, pack: str) -> NavigationResult:
+    if governed is None:
+        return NavigationResult("No pude leer los datos gobernados en este momento, así que no te muestro valores de ese modelo para no darte un dato incorrecto. Probá de nuevo en unos segundos.", ())
+    ids = facts.ATTRIBUTE_ORDER if intent.ficha else tuple(dict.fromkeys(intent.attributes + (("adoption",) if intent.fundamentals else ())))
+    ans = facts.answer(entry, governed, pack, ids, with_fundamentals=intent.fundamentals)
+    mismatch = _level_mismatch(intent, ans)
+    if mismatch is not None:
+        return mismatch
+    out = answers.render(ans, intent)
+    item = dataclasses.replace(ans.entry, badge=out.badge, note=out.note)
+    result = caps.ResultSet("entry", total=1, items=(item,), footer=out.footer, entry=ans)
+    return NavigationResult(out.message, (ans.links[0],), result, state=_focus_draft(entry.entry_id, ids))
+
+
+def _level_mismatch(intent: answers.Intent, ans: caps.EntryAnswer) -> NavigationResult | None:
+    """«¿Por qué tiene Buena?» fundamenta el nivel VIGENTE: si el nivel pedido no es el actual, se aclara en vez de justificar otro nivel."""
+    asked = tuple(level for owner, level in intent.levels if owner == "adoption")
+    if not (intent.fundamentals and (asked or intent.nd) and ans.fundamentals is not None):
+        return None
+    f = ans.fundamentals
+    if asked and f.determined and f.level in asked:
+        return None
+    if intent.nd and not asked and not f.determined:
+        return None
+    wanted = indicators.level_text(indicators.BY_ID["adoption"], asked) if asked else "no determinable"
+    now = f"**{f.level_label}**" if f.determined else "**no determinable**"
+    item = ans.entry
+    if f.historical:                                                             # Assessment desactualizado: lo que se conoce es el último informe, que NO es el vigente
+        text = (f"**{item.title}** ({item.subtitle}) no tenía adopción **{wanted}** en su último informe conocido (el Assessment está desactualizado y ese informe no es el vigente): era {now}. "
+                "Puedo explicarte los fundamentos de ese último informe, rotulados como no vigentes.")
+    else:
+        text = f"**{item.title}** ({item.subtitle}) no tiene hoy adopción **{wanted}**: su Juicio vigente es {now}. Puedo explicarte los fundamentos del Juicio vigente."
+    return NavigationResult(text, (ans.links[0],), caps.ResultSet("entry", total=1, items=(item,), entry=ans), state=_focus_draft(item.ref))
 
 
 # ── Inventario del Catálogo: resumen agregado, listados acotados y filtros ─────────────────────────────────────────────────────
@@ -1147,34 +1318,43 @@ def _canonical_again(spec: qctx.QuerySpec) -> tuple | None:
     return None
 
 
-def _followup_reference(f: _Follow, st: qctx.QueryState, pack: str, stem: str) -> NavigationResult:
-    """«Abrí el segundo»: se resuelve sobre la ÚLTIMA lista efectivamente visible, solo si el resultado recalculado es el MISMO (huella y entradas) y la entrada sigue existiendo."""
+def _reference_entry(f: _Follow, st: qctx.QueryState, pack: str, stem: str) -> tuple:
+    """«Abrí el segundo» / «la confianza del segundo»: (entrada, posición, None) si la referencia se resuelve sobre la ÚLTIMA lista visible; (None, None, respuesta) si no. Solo se resuelve si el
+    resultado recalculado es el MISMO (huella y entradas) y la entrada sigue existiendo."""
     if st.spec.capability not in ("list", "rank") or not st.refs:
-        return NavigationResult("Todavía no hay una lista visible para elegir una entrada. " + _FU_HELP, (), keep_state=True)
+        return None, None, NavigationResult("Todavía no hay una lista visible para elegir una entrada. " + _FU_HELP, (), keep_state=True)
     n = len(st.refs)
     if f.ordinal == 0:
         if n != 1:
-            return NavigationResult(f"Hay {n} entradas visibles: decime cuál querés abrir (por ejemplo, «abrí el segundo»).", (), keep_state=True)
+            return None, None, NavigationResult(f"Hay {n} entradas visibles: decime cuál querés abrir (por ejemplo, «abrí el segundo»).", (), keep_state=True)
         position = 1
     else:
         position = n if f.ordinal == -1 else f.ordinal
     if not 1 <= position <= n:
-        return NavigationResult(f"La lista visible tiene {n} entrada{'s' if n != 1 else ''}: no hay un {_ORDINAL_TEXT.get(position, str(position))}.", (), keep_state=True)
+        return None, None, NavigationResult(f"La lista visible tiene {n} entrada{'s' if n != 1 else ''}: no hay un {_ORDINAL_TEXT.get(position, str(position))}.", (), keep_state=True)
     current = _run_spec(st.spec, pack, stem)                                  # datos VIGENTES: la lista se recalcula con la misma consulta y la misma página
     again = _canonical_again(st.spec)
     if current.state is None:
-        return NavigationResult("No pude revalidar la lista en este momento, así que no abro ninguna entrada para no abrir otra por error. Probá de nuevo en unos segundos.", (), keep_state=True)
+        return None, None, NavigationResult("No pude revalidar la lista en este momento, así que no abro ninguna entrada para no abrir otra por error. Probá de nuevo en unos segundos.", (), keep_state=True)
     if current.state.fingerprint != st.fingerprint or current.state.refs != st.refs:
-        return NavigationResult("La lista cambió desde que te la mostré (se actualizaron datos, clasificaciones o el orden), así que no abro ninguna entrada para no abrir otra por error. Volvé a pedirla para ver la lista vigente.",
-                                (again,) if again else ())
+        return None, None, NavigationResult("La lista cambió desde que te la mostré (se actualizaron datos, clasificaciones o el orden), así que no abro ninguna entrada para no abrir otra por error. Volvé a pedirla para ver la lista vigente.",
+                                            (again,) if again else ())
     kind, ref = st.refs[position - 1]
     entry = caps.find_entry(kind, ref)                                        # la identidad se revalida contra el Catálogo actual; la URL se reconstruye con los presenters, nunca se reutiliza
     if entry is None:
-        return NavigationResult("Esa entrada ya no está disponible en el Catálogo. Volvé a pedir la lista para ver las vigentes.", (again,) if again else ())
+        return None, None, NavigationResult("Esa entrada ya no está disponible en el Catálogo. Volvé a pedir la lista para ver las vigentes.", (again,) if again else ())
+    return entry, position, None
+
+
+def _followup_reference(f: _Follow, st: qctx.QueryState, pack: str, stem: str) -> NavigationResult:
+    """«Abrí el segundo»: se resuelve sobre la ÚLTIMA lista efectivamente visible (ver ``_reference_entry``). El modelo abierto queda EN FOCO sin cambiar la lista."""
+    entry, position, error = _reference_entry(f, st, pack, stem)
+    if error is not None:
+        return error
     governed = caps.governed_read([entry])
     item = dataclasses.replace(caps.build_items([entry], governed, pack)[0], autoload=True)
     text = f"Abro el {_ORDINAL_TEXT.get(position, str(position))} de la lista que te mostré: **{item.title}**."
-    return NavigationResult(text, (), caps.ResultSet("list", total=1, items=(item,)), keep_state=True)
+    return NavigationResult(text, (), caps.ResultSet("list", total=1, items=(item,)), state=qctx.QueryDraft(st.spec, st.refs, st.fingerprint, focus=entry.entry_id))
 
 
 def _followup_page(f: _Follow, st: qctx.QueryState, pack: str, stem: str) -> NavigationResult:
@@ -1234,7 +1414,120 @@ def _followup_count(st: qctx.QueryState, pack: str, stem: str) -> NavigationResu
     return _run_spec(dataclasses.replace(spec, count=True, offset=0), pack, stem)
 
 
+# ── Modelo EN FOCO: «¿y su confianza?», «¿por qué tiene Buena?», «abrí su Assessment», «la confianza del segundo» ───────────────────────────────────────────────
+# El foco es la IDENTIDAD (`entry_id`) del último modelo consultado, abierto por referencia o navegado: se guarda con la consulta (`QueryState.focus`), vence con ella (15 min, mismo usuario y conversación) y
+# se REVALIDA contra el Catálogo vigente en cada uso; los valores se vuelven a leer siempre (nunca se reutiliza nada de la respuesta anterior). Una consulta nueva o cualquier otra respuesta lo borra.
+_DEIXIS = re.compile(r"\b(?:su|sus|ese|esa|este|mismo|misma|esta (?:modelo|entrada|flujo|evaluacion|cobertura|confianza|adopcion))\b")          # «esta» sola es «está» sin tilde: no es deixis
+_OPEN_OWN = re.compile(r"^(?:y )?(?:(?:me )?(?:abri|abre|abrime|ver|veo|mostra|mostrame|muestrame|quiero ver|necesito ver|llevame a|ir a)\s+)(?:(?:el|la|al)\s+)?(?:su|ese|este|esa|esta)\s+(?:assessment|evaluacion|informe)\b")
+_ORD_ATTR = re.compile(r"^(?:y )?(?P<attr>.+?)\s+(?:del|de el|de la)\s+(?P<w>" + "|".join(sorted(_ORDINALS, key=len, reverse=True)) + r"|ultim[oa]|\d{1,2}(?:o|a)?)$")
+
+
+def _focus_draft(entry_id: str, attrs: tuple[str, ...] = ()) -> qctx.QueryDraft:
+    """El contexto de una respuesta sobre UN modelo: su identidad como foco y los indicadores pedidos (parámetros, nunca valores)."""
+    return qctx.QueryDraft(qctx.QuerySpec("entry", entry=entry_id, attrs=attrs), ((caps.CATALOG_ENTRY, entry_id),), "", focus=entry_id)
+
+
+def _no_focus(expired: bool) -> NavigationResult:
+    lead = (f"Pasaron más de {qctx.TTL_SECONDS // 60} minutos desde tu última consulta y no conservo el modelo del que hablábamos. " if expired
+            else "No tengo un modelo en foco para completar con eso. ")
+    return NavigationResult(lead + "Decime el nombre del modelo, por ejemplo «¿Qué sabés de Delivery Document?».", ())
+
+
+def _focus_entry_missing() -> NavigationResult:
+    return NavigationResult("Ese modelo ya no está disponible en el Catálogo, así que no te muestro datos de él. Volvé a consultarlo por su nombre o pedime la lista vigente.", ())
+
+
+def _focus_followup(question: str, pack: str, stem: str, ctx: qctx.QueryContext) -> NavigationResult | None:
+    """Seguimiento sobre el modelo en foco. Solo se reclama un mensaje CORTO con una pregunta individual (atributo, vigencia, fundamentos) marcada como continuación («y…», «su…», «ese…», o un «por qué»)
+    o el pedido de abrir SU Assessment; un nombre de modelo, un cliente o una línea de negocio nuevos lo hacen una consulta nueva."""
+    t = re.sub(r"\s+", " ", re.sub(r"[¿?¡!.,;:]", " ", norm_text(question))).strip()
+    words = t.split()
+    if not words or len(words) > 9:
+        return None
+    open_own = bool(_OPEN_OWN.match(t))
+    intent = None if open_own else answers.parse_intent(question)
+    deictic = bool(_DEIXIS.search(t))
+    if not open_own and intent is None:
+        return None
+    status = ctx.status()
+    live = ctx.live_state() if status == qctx.LIVE else None
+    entity_list = live is not None and live.spec.capability in ("list", "rank")                    # el foco vino de abrir una referencia: sin deixis, «¿y por confianza?» sigue siendo de la lista
+    continuation = deictic or (intent is not None and (words[0] == "y" or intent.why) and not entity_list)
+    if not (open_own or continuation):
+        return None
+    no_focus = live is None or not live.focus
+    bare_why = intent is not None and intent.why and (bool(intent.levels) or len(words) <= 4)         # «¿por qué tiene Buena?», «¿y por qué?»: sin modelo nombrado, se refieren al foco
+    if no_focus and not (open_own or deictic or bare_why):
+        return None
+    mod, entries = catalog_reads._catalog_entries()
+    flows = catalog_navigation.browsable_flows(mod, entries) if mod else []
+    clients = catalog_navigation.clients(mod, entries) if mod else []
+    padded = f" {t} "
+    if any(_word(c, padded) for c in clients) or _lobs_named(t):
+        return None                                                          # nombró otro alcance: es una consulta nueva
+    governed = caps.governed_read(flows) if flows else None
+    if governed is not None and _resolve_entry(question, flows, clients, governed).status != resolver.NONE:
+        return None                                                          # nombró un modelo: lo resuelve la consulta directa
+    if no_focus:
+        return _no_focus(status == qctx.EXPIRED)
+    entry = caps.find_entry(caps.CATALOG_ENTRY, live.focus)                  # el foco se revalida contra el Catálogo vigente
+    if entry is None or governed is None or entry.entry_id not in governed.statuses:
+        return _focus_entry_missing()
+    try:
+        if open_own:
+            item = caps.build_items([entry], governed, pack)[0]
+            label = f"{entry.cliente} · {item.title}".strip(" ·")
+            out = NavigationResult(f"Acá está el **Assessment** de **{label}**: se abre el informe tal como figura hoy en el Catálogo (o su estado, si todavía no se evaluó).",
+                                   (("Ver Assessment", presenter.assessment_url(entry, pack)),), state=_focus_draft(entry.entry_id))
+        else:
+            out = _entry_answer(intent, entry, governed, pack)
+        if entity_list:                                                      # el foco vino de una lista: la lista sigue valiendo («abrí el tercero») y el modelo consultado queda en foco
+            return dataclasses.replace(out, state=qctx.QueryDraft(live.spec, live.refs, live.fingerprint, focus=entry.entry_id))
+        return out
+    except Exception:  # noqa: BLE001 — un seguimiento RECONOCIDO nunca cae en silencio al LLM libre: si falla la lectura, se dice
+        log.exception("seguimiento sobre el modelo en foco: falló la respuesta")
+        return NavigationResult(_FAILED_QUERY, (), keep_state=True)
+
+
+def _ordinal_attribute(question: str, ctx: qctx.QueryContext, pack: str, stem: str) -> NavigationResult | None:
+    """«La confianza del segundo»: el atributo de una entrada de la ÚLTIMA lista visible, solo si la lista recalculada es la misma (huella y entradas) y la entrada sigue existiendo."""
+    t = re.sub(r"\s+", " ", re.sub(r"[¿?¡!.,;:]", " ", norm_text(question))).strip()
+    m = _ORD_ATTR.match(t)
+    if not m:
+        return None
+    intent = answers.parse_intent(m.group("attr"))
+    if intent is None:
+        return None
+    status = ctx.status()
+    if status != qctx.LIVE:
+        return _no_context(expired=status == qctx.EXPIRED)
+    st = ctx.state
+    w = m.group("w")
+    f = _Follow("ref", ordinal=-1 if w.startswith("ultim") else _ORDINALS.get(w) or int(re.match(r"\d+", w).group()))
+    try:
+        found, position, error = _reference_entry(f, st, pack, stem)
+        if error is not None:
+            return error
+        governed = caps.governed_read([found])
+        if governed is None:
+            return NavigationResult(_FAILED_QUERY, (), keep_state=True)
+        out = _entry_answer(intent, found, governed, pack)
+        return dataclasses.replace(out, state=qctx.QueryDraft(st.spec, st.refs, st.fingerprint, focus=found.entry_id))           # la lista sigue valiendo («el tercero») y el modelo queda en foco
+    except Exception:  # noqa: BLE001
+        log.exception("atributo de una referencia de la lista: falló la respuesta")
+        return NavigationResult(_FAILED_QUERY, (), keep_state=True)
+
+
+def _entry_context_help() -> NavigationResult:
+    return NavigationResult("La última consulta fue sobre un solo modelo, así que no hay una lista para filtrar, contar o recorrer. Para eso pedime una consulta de conjunto, por ejemplo "
+                            "«¿Qué modelos tienen adopción buena?»; para otro atributo del mismo modelo, «¿y su confianza?».", (), keep_state=True)
+
+
 def _catalog_followup(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
+    ctx = ctx or qctx.QueryContext(None, "", 0.0)
+    focused = _focus_followup(question, pack, stem, ctx) or _ordinal_attribute(question, ctx, pack, stem)          # modelo en foco / atributo de una referencia (paso 4B.4)
+    if focused is not None:
+        return focused
     words = norm_text(question).strip().split()
     is_count = bool(_FU_COUNT.match(re.sub(r"\s+", " ", re.sub(r"[¿?¡!.,;:]", " ", norm_text(question))).strip()))
     if not words or len(words) > 9 or (words[0].strip("¿¡") in _FU_INTERROGATIVES and not is_count):
@@ -1255,6 +1548,8 @@ def _catalog_followup(question: str, pack: str, stem: str = "", ctx: qctx.QueryC
         return _no_context(expired=status == qctx.EXPIRED)
     st = ctx.state
     try:
+        if st.spec.capability == "entry" and f.op != "ref":
+            return _entry_context_help()                                      # la consulta vigente es sobre UN modelo: no hay lista que paginar, contar o filtrar
         if f.op in ("next", "prev"):
             return _followup_page(f, st, pack, stem)
         if f.op == "ref":
@@ -1268,7 +1563,7 @@ def _catalog_followup(question: str, pack: str, stem: str = "", ctx: qctx.QueryC
 
 
 TARGETS: tuple[NavigationTarget, ...] = (NavigationTarget("catalog_followup", _catalog_followup), NavigationTarget("client_report", _client_report), NavigationTarget("data_catalog", _data_catalog),
-                                         NavigationTarget("catalog_query", _catalog_query), NavigationTarget("entry_assessment", _entry_assessment),
+                                         NavigationTarget("entry_query", _entry_query), NavigationTarget("catalog_query", _catalog_query), NavigationTarget("entry_assessment", _entry_assessment),
                                          NavigationTarget("catalog_ranking", _catalog_ranking), NavigationTarget("catalog_inventory", _catalog_inventory))
 
 
