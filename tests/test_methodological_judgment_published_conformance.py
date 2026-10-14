@@ -150,10 +150,10 @@ def test_the_detail_exists_only_for_lvl06_and_never_changes_the_level():
 def test_the_presenter_says_evidence_is_sufficient_when_only_strengths_are_missing():
     v = presenter.judgment_view(_nd_missing_pub_only())
     assert v["determined"] is False and v["nd_evidence_sufficient"] is True
-    assert "suficiente" in v["headline"] and "Contrato publicado" in v["headline"]
+    assert "La evidencia alcanzó para evaluar" in v["headline"] and "fortaleza no establecida en: Contrato publicado" in v["headline"] and v["nd"]["cause"] == "SUFFICIENT_EVIDENCE_NO_STRENGTH"
     assert v["nd_missing"][0]["state"] == "NO_STRENGTH" and v["nd_missing"][0]["cause_text"]
     vi = presenter.judgment_view(evaluate_judgment(_build(_base().incomplete("F1"))))
-    assert vi["nd_evidence_sufficient"] is False and "Falta evidencia en: Contrato publicado" in vi["headline"]
+    assert vi["nd_evidence_sufficient"] is False and "Evidencia insuficiente para afirmar en: Contrato publicado" in vi["headline"] and vi["nd"]["cause"] == "INSUFFICIENT_EVIDENCE"
 
 
 # ── versionado y migración dirigida (mecanismo existente: --backfill-judgment) ──
