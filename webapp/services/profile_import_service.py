@@ -68,6 +68,7 @@ LIMITACIÓN aceptada de esta primera rebanada, documentada explícitamente
 (Phase 3.8 §20), no un bug."""
 from __future__ import annotations
 
+import base64
 import io
 import time
 import uuid
@@ -301,6 +302,22 @@ def _sign_row_token(*, profile_id: str, row_number: int, fields: dict, has_dupli
     return jwt.encode(claims, config.SESSION_SECRET, algorithm="HS256")
 
 
+def _has_canonical_signature(token: str) -> bool:
+    """¿El segmento de firma del JWS está en su ÚNICA codificación base64url canónica? HMAC-SHA256 son 32 bytes = 256 bits, pero 43 caracteres base64url llevan 258: los 2 bits
+    bajos del ÚLTIMO carácter no se usan, así que 4 caracteres distintos decodifican a la MISMA firma; además el decodificador de la librería descarta caracteres fuera del
+    alfabeto y completa el relleno. La firma sigue siendo válida (no cambia ningún claim), pero el token sería una representación DISTINTA aceptada como legítima: se exige
+    que re-codificar los bytes decodificados reproduzca EXACTAMENTE el segmento recibido."""
+    parts = token.split(".")
+    if len(parts) != 3 or not parts[2]:
+        return False
+    sig = parts[2]
+    try:
+        raw = base64.urlsafe_b64decode(sig + "=" * (-len(sig) % 4))
+    except (ValueError, TypeError):
+        return False
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii") == sig
+
+
 def verify_row_token(token: str) -> dict:
     """Verifica la firma Y el `purpose` de un token de fila, y devuelve
     sus claims — NUNCA confía en un token sin verificar primero
@@ -311,6 +328,10 @@ def verify_row_token(token: str) -> dict:
     último chequeo (Phase 3.8.1 §3) rechaza un JWT de sesión de auth
     (misma firma válida, mismo alg, pero sin este `purpose`) que llegara
     acá por accidente o de forma deliberada."""
+    if not isinstance(token, str) or not _has_canonical_signature(token):
+        raise RowTokenError(
+            "El estado de esta fila expiró o no es válido. Volvé a la vista previa e intentá de nuevo."
+        )
     try:
         claims = jwt.decode(token, config.SESSION_SECRET, algorithms=["HS256"])
     except JWTError as exc:

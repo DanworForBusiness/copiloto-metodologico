@@ -241,12 +241,59 @@ def test_valid_signed_token_verifies():
     assert claims["fields"]["first_name"] == "Juan"
 
 
+_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+
+def _tokens(n):
+    """n tokens legítimos distintos (el `exp` cambia y con él la firma): la prueba no depende de UNA firma concreta."""
+    claims = {"purpose": pis._ROW_TOKEN_PURPOSE, "profile_id": "p", "row_number": 1, "fields": {"first_name": "Juan"}, "has_duplicate_advisory": False}
+    return [jwt.encode({**claims, "exp": 1_900_000_000 + i}, config.SESSION_SECRET, algorithm="HS256") for i in range(n)]
+
+
 def test_tampered_token_is_rejected():
     data = _workbook_bytes(_ALL_HEADERS, [_row()])
     preview = pis.build_preview(pis.parse_workbook(data))
-    tampered = preview[0].token[:-2] + ("aa" if preview[0].token[-2:] != "aa" else "bb")
+    head, payload, sig = preview[0].token.split(".")
+    # Mutación que cambia inequívocamente bytes FIRMADOS: el PRIMER carácter de la firma lleva 6 bits significativos (el último solo 4 de 6).
+    tampered = ".".join([head, payload, ("B" if sig[0] != "B" else "C") + sig[1:]])
     with pytest.raises(pis.RowTokenError):
         pis.verify_row_token(tampered)
+    # y el payload: cualquier cambio invalida la firma
+    flipped = ".".join([head, payload[:-2] + ("AA" if payload[-2:] != "AA" else "BB"), sig])
+    with pytest.raises(pis.RowTokenError):
+        pis.verify_row_token(flipped)
+
+
+def test_tampering_is_rejected_for_many_distinct_signatures():
+    """Regresión de la intermitencia: la mutación «últimos dos caracteres → aa» dejaba la MISMA firma en ~0,1 % de los tokens (el último carácter base64url de una firma de
+    32 bytes solo usa 4 de sus 6 bits). Con la mutación sobre bytes firmados no hay token que se acepte."""
+    for tok in _tokens(400):
+        head, payload, sig = tok.split(".")
+        bad = ".".join([head, payload, ("B" if sig[0] != "B" else "C") + sig[1:]])
+        with pytest.raises(pis.RowTokenError):
+            pis.verify_row_token(bad)
+        assert pis.verify_row_token(tok)["purpose"] == pis._ROW_TOKEN_PURPOSE         # y el legítimo sigue verificando
+
+
+def test_non_canonical_base64_representations_of_a_valid_signature_are_rejected():
+    for tok in _tokens(60):
+        head, payload, sig = tok.split(".")
+        last = sig[-1]
+        same_bits = [c for c in _B64 if (_B64.index(c) >> 2) == (_B64.index(last) >> 2) and c != last]    # 3 caracteres distintos que decodifican a la MISMA firma
+        assert len(same_bits) == 3
+        for c in same_bits:
+            with pytest.raises(pis.RowTokenError):
+                pis.verify_row_token(".".join([head, payload, sig[:-1] + c]))
+        for noisy in (sig + "=", sig + "==", sig[:10] + "*" + sig[10:], sig[:5] + "\n" + sig[5:]):          # relleno y caracteres fuera del alfabeto que el decodificador descarta
+            with pytest.raises(pis.RowTokenError):
+                pis.verify_row_token(".".join([head, payload, noisy]))
+        assert pis.verify_row_token(tok)["profile_id"] == "p"                            # la forma canónica es la única aceptada
+
+
+def test_malformed_token_shapes_are_rejected_without_leaking_library_errors():
+    for bad in ("", "a.b", "a.b.", "a.b.c.d", ".."):
+        with pytest.raises(pis.RowTokenError):
+            pis.verify_row_token(bad)
 
 
 def test_swapped_profile_id_inside_the_token_is_rejected():
