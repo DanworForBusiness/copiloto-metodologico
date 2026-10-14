@@ -157,7 +157,7 @@ def test_evidence_carries_source_date_ruleset_and_a_link_built_from_the_entry_id
 def test_judgment_not_determinable_withholds_only_adoption_and_says_why(world):
     a = _facts(world, "mp")
     w = _held(a, "adoption")
-    assert w.code == facts.NOT_DETERMINABLE and "No determinable" in w.text and "Evidencia afirmativa insuficiente" in w.text
+    assert w.code == facts.NOT_DETERMINABLE and "No determinable" in w.text and "Falta evidencia afirmativa de fortaleza" in w.text
     assert [v.indicator for v in a.attributes] == ["confidence", "coverage", "types", "attention"]            # los demás indicadores siguen su curso
     assert _val(a, "coverage").value == 0.85 and not any(v.historical for v in a.attributes)
 
@@ -251,7 +251,7 @@ def test_fundamentals_of_one_entry_never_carry_another_levels_text(world):
 
 def test_fundamentals_not_determinable_carry_the_reason_and_no_level(world):
     f = _facts(world, "mp", "adoption", fundamentals=True).fundamentals
-    assert not f.determined and f.level is None and f.nd_reason == "Evidencia afirmativa insuficiente" and f.level_label == "No determinable"
+    assert not f.determined and f.level is None and f.nd_reason == "Falta evidencia afirmativa de fortaleza" and f.level_label == "No determinable"
 
 
 def test_fundamentals_of_a_stale_assessment_are_marked_historical(world):
@@ -297,5 +297,5 @@ def test_a_stale_assessment_whose_last_judgment_was_not_determinable_says_so_as_
     a = _facts(world, "lp", "adoption", "confidence")
     held = _held(a, "adoption")
     assert held.code == facts.NOT_DETERMINABLE and held.text.startswith("Último informe conocido (Assessment desactualizado, no vigente): no determinable")
-    assert "Evidencia afirmativa insuficiente" in held.text and "no hay un último valor legible" not in held.text
+    assert "Falta evidencia afirmativa de fortaleza" in held.text and "no hay un último valor legible" not in held.text
     assert _val(a, "confidence").historical and _val(a, "confidence").value == "LOW"                  # y los demás valores históricos siguen su curso

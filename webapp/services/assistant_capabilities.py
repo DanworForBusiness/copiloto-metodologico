@@ -191,7 +191,8 @@ class Fundamentals:
     limitations: tuple[tuple[str, str, str, str], ...] = ()    # (título, área, estado, motivo)
     limitations_total: int = 0
     nd_reason: str = ""
-    nd_missing: tuple[str, ...] = ()
+    nd_missing: tuple[str, ...] = ()                       # dimensiones SIN fortaleza con evidencia suficiente (NO_STRENGTH)
+    nd_insufficient: tuple[str, ...] = ()                  # dimensiones con evidencia INSUFICIENTE para afirmar (INSUFFICIENT_EVIDENCE)
     historical: bool = False
     report_url: str = ""
 

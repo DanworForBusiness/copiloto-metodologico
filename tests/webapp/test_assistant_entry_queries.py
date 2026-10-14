@@ -92,7 +92,7 @@ def test_ficha_phrasings(world, question):
 # ══ 3. los siete estados se distinguen ══════════════════════════════════════════════════════════════════════════════════════════════════════
 def test_not_determinable_says_it_and_still_answers_the_other_measures(world):
     r = one_entry(ask("¿Qué sabés de Reserva MP?"), world, "mp")
-    assert "No determinable" in r.text and "Evidencia afirmativa insuficiente" in r.text and "85.0%" in r.text and "80/100" in r.text
+    assert "No determinable" in r.text and "Falta evidencia afirmativa de fortaleza" in r.text and "85.0%" in r.text and "80/100" in r.text
     only = one_entry(ask("¿Qué adopción tiene Reserva MP?"), world, "mp")
     assert "No determinable" in only.text and "Buena" not in only.text and "Plena" not in only.text
 
@@ -231,7 +231,7 @@ def test_why_for_each_level_uses_that_levels_headline(world):
 
 def test_why_not_determinable_gives_the_reason_and_no_level(world):
     r = one_entry(ask("¿Por qué Reserva MP es no determinable?"), world, "mp")
-    assert "No determinable" in r.text and "Evidencia afirmativa insuficiente" in r.text and "Buena" not in r.text and "Adecuada" not in r.text
+    assert "No determinable" in r.text and "Falta evidencia afirmativa de fortaleza" in r.text and "Buena" not in r.text and "Adecuada" not in r.text
 
 
 def test_why_of_a_stale_assessment_is_labelled_historical(world):

@@ -23,6 +23,7 @@ from urllib.parse import quote, urlencode
 
 from tools.catalog.modeling_assessment import presentation as P
 
+from tools.catalog.methodological_judgment import contract as C
 from webapp.services import assessment_service as svc
 
 canonical_signal_id = P.canonical_signal_id        # los consumidores normalizan ids historicos por aca (API publica de presentacion)
@@ -338,8 +339,6 @@ _JDG_LEVEL_HEADLINE = {
 _JDG_GENERIC_HEADLINE = "La evidencia observada refleja la adopción metodológica en los cuatro contratos."
 _JDG_ND_HEADLINE = "No fue posible determinar la adopción metodológica con la evidencia disponible."
 # LVL-06: la evidencia es evaluable pero no hay evidencia afirmativa suficiente en alguna dimensión (≠ evidencia insuficiente). Estados/causas estables de ``not_determinable_detail``.
-_JDG_ND_SUFFICIENT_HEADLINE = "La evidencia disponible es suficiente y no registra debilidades, pero no hay evidencia afirmativa suficiente en: {dims}."
-_JDG_ND_INSUFFICIENT_DETAIL = " Falta evidencia en: {dims}."
 _JDG_ND_STATE_TEXT = {"NO_STRENGTH": "Sin evidencia afirmativa suficiente (evaluado)", "INSUFFICIENT_EVIDENCE": "Evidencia insuficiente"}
 _JDG_ND_CAUSE = {
     "NO_SOURCE_CONTACT_OBSERVED": "no se observó contacto con la fuente",
@@ -356,12 +355,28 @@ _JDG_ND_CAUSE = {
     "PUBLISHED_CONTRACT_SUBSTANCE_NOT_ESTABLISHED": "el contrato publicado no acredita sustancia de consumo (medidas con identidad de negocio, sin nombres técnicos de columna)",
     "NO_AFFIRMATIVE_EVIDENCE": "sin evidencia afirmativa",
 }
-_JDG_ND_REASON = {
-    "INSUFFICIENT_AFFIRMATIVE_EVIDENCE": "Evidencia afirmativa insuficiente",
-    "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL": "Contrato de fuente externa crítico no resoluble",
-    "CONTRACT_NOT_EVALUABLE": "Contrato metodológico no evaluable",
-    "CANONICAL_EVIDENCE_V3_REQUIRED": "Evidencia canónica insuficiente para emitir juicio",
-    "ASSESSMENT_NOT_JUDGEABLE": "El assessment todavía no puede juzgarse",
+# T2 — EXPLICACIÓN COMPLEMENTARIA de «No determinable». El valor oficial sigue siendo «No determinable» (nunca un nivel alternativo): estos textos salen SOLO del código de
+# motivo, la regla de nivel y el detalle estructurado que el Juicio ya persiste (``not_determinable_reason`` / ``level_rule`` / ``not_determinable_detail`` / ``contracts_not_evaluable`` /
+# ``reasons`` / ``review_candidates``); ni inferencias del LLM ni heurísticas de presentación. Una causa distinta, un texto distinto.
+ND_SUFFICIENT_NO_STRENGTH = "SUFFICIENT_EVIDENCE_NO_STRENGTH"
+ND_INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+ND_PARTIAL_EVIDENCE = "PARTIALLY_INSUFFICIENT_EVIDENCE"
+ND_NO_STRENGTH_UNDETAILED = "NO_AFFIRMATIVE_EVIDENCE_UNDETAILED"
+ND_CONTRACT_NOT_EVALUABLE = "CONTRACT_NOT_EVALUABLE"
+ND_SOURCE_CLASS_CRITICAL = "EXTERNAL_SOURCE_CLASS_UNDETERMINED"
+ND_NOT_JUDGEABLE = "ASSESSMENT_NOT_JUDGEABLE"
+ND_EVIDENCE_V3_REQUIRED = "CANONICAL_EVIDENCE_V3_REQUIRED"
+ND_UNSPECIFIED = "UNSPECIFIED"
+_JDG_ND_LABEL = {
+    ND_SUFFICIENT_NO_STRENGTH: "Sin deficiencias determinables · fortaleza no establecida",
+    ND_INSUFFICIENT_EVIDENCE: "Evidencia insuficiente",
+    ND_PARTIAL_EVIDENCE: "Evidencia insuficiente en parte de los contratos",
+    ND_NO_STRENGTH_UNDETAILED: "Falta evidencia afirmativa de fortaleza",
+    ND_CONTRACT_NOT_EVALUABLE: "Contrato no evaluable",
+    ND_SOURCE_CLASS_CRITICAL: "Clase de la fuente externa sin determinar",
+    ND_NOT_JUDGEABLE: "Assessment aún no juzgable",
+    ND_EVIDENCE_V3_REQUIRED: "Evidencia canónica desactualizada",
+    ND_UNSPECIFIED: "No determinable",
 }
 _JDG_DIMENSIONS = (("SOURCE_INGESTION", "Ingesta"), ("HARMONIZATION", "Armonización"),
                    ("PROPAGATION", "Propagación"), ("PUBLISHED_CONTRACT", "Contrato publicado"))
@@ -386,6 +401,72 @@ _JDG_STATEMENT = {
 _JDG_CONTRACT_STATE_TEXT = {"positive": "Evidencia positiva", "attention": "Requiere atención", "neutral": "Sin señal específica"}
 # Estado del contrato → tono canónico del Hub (valencia: positivo / atención / neutro); sin mapa de color propio.
 _CONTRACT_TONE = {"positive": POSITIVE, "attention": ATTENTION, "neutral": NEUTRAL}
+
+
+def _plural_es(n: int, one: str, many: str) -> str:
+    return one if n == 1 else many
+
+
+def nd_explanation(judgment: dict | None) -> dict | None:
+    """T2: ¿POR QUÉ el Juicio no llegó a un nivel? ``None`` si hay nivel (o no hay Juicio). Complementaria: el valor oficial sigue siendo «No determinable».
+
+    Devuelve ``{cause, label, text, dimensions: [{dimension, state_text, cause_text}], reason_code, level_rule}``. Causas (cada una con su propio texto):
+      · SUFFICIENT_EVIDENCE_NO_STRENGTH — LVL-06 y TODAS las dimensiones sin fortaleza se evaluaron (``NO_STRENGTH``): no hay desvíos ni debilidades relevantes; falta evidencia AFIRMATIVA de fortaleza.
+      · INSUFFICIENT_EVIDENCE / PARTIALLY_INSUFFICIENT_EVIDENCE — LVL-06 con dimensiones ``INSUFFICIENT_EVIDENCE`` (todas / solo algunas): falta evidencia para poder afirmar.
+      · NO_AFFIRMATIVE_EVIDENCE_UNDETAILED — LVL-06 de un Juicio persistido SIN detalle: no se puede decir si la evidencia alcanzaba; no se afirma nada que el Juicio no registró.
+      · CONTRACT_NOT_EVALUABLE (LVL-01) · EXTERNAL_SOURCE_CLASS_UNDETERMINED (LVL-05) · ASSESSMENT_NOT_JUDGEABLE / CANONICAL_EVIDENCE_V3_REQUIRED (sin Juicio emitido)."""
+    if not judgment or (judgment.get("status") == "DETERMINED" and judgment.get("level") is not None):
+        return None
+    code = judgment.get("not_determinable_reason") or ""
+    rule = judgment.get("level_rule")
+    detail = judgment.get("not_determinable_detail") or {}
+    missing = [d for d in detail.get("missing_strength_dimensions") or [] if isinstance(d, dict)]
+
+    def _dim(d: dict) -> dict:
+        return {"dimension": _DIM_LABEL.get(d.get("dimension") or "", d.get("dimension") or ""), "state_text": _JDG_ND_STATE_TEXT.get(d.get("state") or "", ""),
+                "cause_text": _JDG_ND_CAUSE.get(d.get("cause") or "", "")}
+
+    def names(ds: list[dict]) -> str:
+        return ", ".join(_DIM_LABEL.get(d.get("dimension") or "", d.get("dimension") or "") for d in ds)
+
+    dims: list[dict] = []
+    if code == "INSUFFICIENT_AFFIRMATIVE_EVIDENCE" and missing:
+        insuf = [d for d in missing if d.get("state") == "INSUFFICIENT_EVIDENCE"]
+        nostr = [d for d in missing if d.get("state") != "INSUFFICIENT_EVIDENCE"]
+        dims = [_dim(d) for d in missing]
+        if not insuf:
+            cause = ND_SUFFICIENT_NO_STRENGTH
+            local = sum(1 for r in judgment.get("reasons") or [] if r.get("classification") == "LOCAL_WEAKNESS" and r.get("state") not in C.REMOVING_STATES)
+            lead = ("Sin deficiencias determinables" if not local else
+                    f"Sin desvíos materiales ni debilidades relevantes ({local} {_plural_es(local, 'debilidad local sin efecto', 'debilidades locales sin efecto')} en el nivel)")
+            text = f"{lead}; fortaleza no establecida en: {names(nostr)}. La evidencia alcanzó para evaluar; falta evidencia afirmativa de fortaleza."
+        elif not nostr:
+            cause = ND_INSUFFICIENT_EVIDENCE
+            text = f"Evidencia insuficiente para afirmar en: {names(insuf)}. Mientras falte esa evidencia no se puede determinar un nivel."
+        else:
+            cause = ND_PARTIAL_EVIDENCE
+            text = f"Evidencia insuficiente para afirmar en: {names(insuf)}; fortaleza no establecida (evidencia suficiente) en: {names(nostr)}."
+    elif code == "INSUFFICIENT_AFFIRMATIVE_EVIDENCE":
+        cause = ND_NO_STRENGTH_UNDETAILED
+        text = "No hay evidencia afirmativa suficiente en al menos un contrato; este Juicio no detalla en cuáles ni si la evidencia disponible alcanzaba."
+    elif code == "CONTRACT_NOT_EVALUABLE":
+        cause = ND_CONTRACT_NOT_EVALUABLE
+        ne = [_DIM_LABEL.get(d, d) for d in judgment.get("contracts_not_evaluable") or []]
+        text = (f"No se pudo evaluar {_plural_es(len(ne), 'el contrato', 'los contratos')}: {', '.join(ne)}; sin esa evaluación no hay nivel." if ne
+                else "Al menos un contrato metodológico no pudo evaluarse; sin esa evaluación no hay nivel.")
+    elif code == "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL":
+        cause = ND_SOURCE_CLASS_CRITICAL
+        arts = sorted({a for r in judgment.get("review_candidates") or [] if r.get("rule_id") == "SRC-REV-01" for a in r.get("affected_artifacts") or []})
+        scope = f" ({len(arts)} {_plural_es(len(arts), 'artefacto', 'artefactos')})" if arts else ""
+        text = (f"La clase del contrato de la fuente externa{scope} (cruda o gobernada) no está determinada y decide cómo se lee el contrato publicado; "
+                "mientras no se resuelva no se puede determinar un nivel.")
+    elif code == "ASSESSMENT_NOT_JUDGEABLE":
+        cause, text = ND_NOT_JUDGEABLE, "El Assessment todavía no está en un estado que permita juzgarlo; no se emitió un Juicio."
+    elif code == "CANONICAL_EVIDENCE_V3_REQUIRED":
+        cause, text = ND_EVIDENCE_V3_REQUIRED, "El Assessment no tiene la evidencia canónica v3 que el Juicio requiere; hay que regenerarlo con la versión vigente para poder juzgarlo."
+    else:
+        cause, text = ND_UNSPECIFIED, "El Juicio no llegó a un nivel" + (f" (motivo registrado: {code})." if code else ".")
+    return {"cause": cause, "label": _JDG_ND_LABEL[cause], "text": text, "dimensions": dims, "reason_code": code or None, "level_rule": rule}
 
 
 def _jdg_statement_text(item: dict) -> str:
@@ -424,17 +505,15 @@ def judgment_view(judgment: dict | None) -> dict | None:
     for dim, label in _JDG_DIMENSIONS:
         state = "attention" if dim in weak_dims else ("positive" if dim in strong_dims else "neutral")
         contracts.append({"label": label, "state": state, "state_text": _JDG_CONTRACT_STATE_TEXT[state], "tone": _CONTRACT_TONE[state]})
-    nd_reason = None if determined else _JDG_ND_REASON.get(judgment.get("not_determinable_reason") or "", "No determinable")
+    nd = nd_explanation(judgment)
+    nd_reason = None if determined else (nd["label"] if nd else "No determinable")
     nd_detail = (judgment.get("not_determinable_detail") or {}) if not determined else {}
     nd_missing = [{"dimension": _DIM_LABEL.get(d.get("dimension") or "", d.get("dimension") or ""), "state": d.get("state"),
                    "state_text": _JDG_ND_STATE_TEXT.get(d.get("state") or "", ""), "cause_text": _JDG_ND_CAUSE.get(d.get("cause") or "", "")}
                   for d in nd_detail.get("missing_strength_dimensions") or []]
     headline = (_JDG_LEVEL_HEADLINE.get(level or "") or _JDG_GENERIC_HEADLINE) if determined else (_JDG_ND_HEADLINE + (" " + nd_reason if nd_reason else ""))
-    if nd_missing:
-        if nd_detail.get("evidence_sufficient"):
-            headline = _JDG_ND_SUFFICIENT_HEADLINE.format(dims=", ".join(m["dimension"] for m in nd_missing))
-        else:
-            headline = _JDG_ND_HEADLINE + _JDG_ND_INSUFFICIENT_DETAIL.format(dims=", ".join(m["dimension"] for m in nd_missing if m["state"] == "INSUFFICIENT_EVIDENCE"))
+    if nd:
+        headline = nd["text"]                      # T2: texto propio de la causa real (ver ``nd_explanation``); el nivel oficial sigue siendo «No determinable»
     return {
         "determined": determined,
         "level": level,
@@ -442,6 +521,7 @@ def judgment_view(judgment: dict | None) -> dict | None:
         "tone": status_tone(level) if determined else "neutra",
         "headline": headline,
         "nd_missing": nd_missing,
+        "nd": nd,
         "nd_evidence_sufficient": nd_detail.get("evidence_sufficient") if nd_missing else None,
         "nd_reason": nd_reason,
         "nd_reason_id": None if determined else judgment.get("not_determinable_reason"),

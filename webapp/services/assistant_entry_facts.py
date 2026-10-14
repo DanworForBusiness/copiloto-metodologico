@@ -132,7 +132,8 @@ def fundamentals(entry: Any, governed: caps.Governed, pack: str) -> caps.Fundame
         contracts=tuple((c["label"], c["state_text"]) for c in jv["contracts"]),
         strengths=tuple((s["dimension"], s["text"]) for s in jv["strengths"][:MAX_STRENGTHS]), reasons=tuple((r["dimension"], r["kind"], r["text"]) for r in jv["reasons"][:MAX_REASONS]),
         strengths_total=jv["strengths_count"], reasons_total=jv["reasons_count"], limitations=limitations, limitations_total=total,
-        nd_reason=jv["nd_reason"] or "", nd_missing=tuple(m["dimension"] for m in jv["nd_missing"]), historical=status.state == svc.STALE,
+        nd_reason=jv["nd_reason"] or "", nd_missing=tuple(m["dimension"] for m in jv["nd_missing"] if m["state"] != "INSUFFICIENT_EVIDENCE"),
+        nd_insufficient=tuple(m["dimension"] for m in jv["nd_missing"] if m["state"] == "INSUFFICIENT_EVIDENCE"), historical=status.state == svc.STALE,
         report_url=presenter.assessment_url(entry, pack))
 
 

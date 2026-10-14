@@ -115,7 +115,7 @@ def test_presenter_renders_buena_with_strengths_and_four_contracts():
 def test_presenter_renders_not_determinable_with_translated_reason():
     jv = P.judgment_view(evaluate_judgment(_golden("biogenesis_sellout_gp")))
     assert not jv["determined"] and jv["level_label"] == "No determinable"
-    assert jv["nd_reason"] == "Contrato de fuente externa crítico no resoluble"
+    assert jv["nd_reason"] == "Clase de la fuente externa sin determinar"
     assert jv["nd_reason_id"] == "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL"       # id crudo solo como metadato
 
 
