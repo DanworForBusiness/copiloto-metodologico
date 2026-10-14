@@ -264,7 +264,9 @@ def test_the_marker_is_declarative_and_carries_no_credential():
     APROBADOS por archivo (no un número mágico suelto) para que sumar/quitar un
     consumidor sea una decisión explícita, no un conteo silencioso:
       - operations/staffing.html    -> asignaciones (1)
-      - partials/admin_panel.html   -> diagnóstico/refresh (3)
+      - partials/admin_panel.html   -> diagnóstico/refresh (3) + «Sincronizar solo APIs/CDS» (1)
+      - partials/admin_apis_sync.html -> aplicar sincronización (1) y reintentar rollback (1) del modo APIS_ONLY (formularios que devuelve el
+        preflight: el token Graph delegado lo inyecta el MISMO hook en cada POST; nada se guarda ni viaja en el markup)
       - partials/human_capital_catalog_refresh_topbar.html -> "Actualizar
         catálogos" en un click (1), promovido al topbar compartido de
         Capital Humano (owner corrective: antes vivía sólo en
@@ -274,7 +276,8 @@ def test_the_marker_is_declarative_and_carries_no_credential():
     """
     approved = {
         "operations/staffing.html": 1,
-        "partials/admin_panel.html": 3,
+        "partials/admin_apis_sync.html": 2,
+        "partials/admin_panel.html": 4,
         "partials/human_capital_catalog_refresh_topbar.html": 1,
     }
     found = {}

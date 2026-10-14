@@ -562,6 +562,11 @@
 .admin-table { width: 100%; border-collapse: collapse; font-size: .73rem; }
 .admin-table th, .admin-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); color: var(--soft); }
 .admin-table th { color: var(--gold); font: 600 .66rem var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+.admin-table-wrap { overflow-x: auto; max-width: 100%; }
+.admin-confirm { display: block; width: 100%; box-sizing: border-box; margin: 4px 0 10px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: .74rem var(--mono); }
+.admin-confirm:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+.admin-table--compact code { word-break: break-all; }
+.admin-table--compact small { color: var(--soft); opacity: .8; }
 .admin-tool--pending { opacity: .85; }
 
 /* Dashboard de Actividad y métricas de uso (panel central, /admin/activity).

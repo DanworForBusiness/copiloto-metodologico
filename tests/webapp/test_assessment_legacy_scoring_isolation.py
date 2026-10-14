@@ -23,13 +23,33 @@ def test_assessment_code_never_imports_or_calls_the_legacy_evaluator():
 
 
 def test_legacy_list_tile_template_and_scoring_modules_are_untouched_by_the_assessment_front():
+    import difflib
     import subprocess
     # La tile del listado (`catalog_flows.html`) ya NO está congelada: desde el gate «grado de la tile = Adopción metodológica» su grado
     # primario sale del Juicio persistido (ver test_catalog_assessment_routes). Los módulos de scoring legacy siguen intactos.
-    out = subprocess.run(["git", "diff", "-U0", "main", "--", "tools/catalog/generate_catalog.py", "tools/catalog/catalog_service.py"],
-                         cwd=REPO, capture_output=True, text=True)
-    if out.returncode != 0:                                                  # sin rama `main` local (p. ej. CI en detached HEAD): no aplica
+    out = subprocess.run(["git", "diff", "-U0", "main", "--", "tools/catalog/catalog_service.py"], cwd=REPO, capture_output=True, encoding="utf-8")
+    base = subprocess.run(["git", "show", "main:tools/catalog/generate_catalog.py"], cwd=REPO, capture_output=True, encoding="utf-8")
+    if out.returncode != 0 or base.returncode != 0:                          # sin rama `main` local (p. ej. CI en detached HEAD): no aplica
         return
+    # Tercera excepción admitida (modo «solo APIs/CDS» del panel): la DESCARGA de la carpeta CSN de SharePoint y la copia de las APIs (`fetch_csn_folder`, `_sync_apis`, `_same_text`)
+    # ganaron parámetros de alcance y no reescriben lo idéntico. Es entrada/sincronización del catálogo, no scoring: esas tres funciones se excluyen de la comparación; TODO lo demás
+    # del generador (evaluación de cumplimiento, veredicto, portabilidad) se sigue vigilando con las reglas de abajo.
+    exempt = {"fetch_csn_folder", "_sync_apis", "_same_text"}
+
+    def without_exempt(src: str) -> list[str]:
+        kept, skipping = [], False
+        for line in src.splitlines():
+            m = re.match(r"def (\w+)\(", line)
+            if m:
+                skipping = m.group(1) in exempt
+            elif skipping and line and not line[0].isspace() and not line.startswith(("#", ")")):
+                skipping = False                                             # siguiente sentencia de primer nivel: termina la función exenta
+            if not skipping:
+                kept.append(line)
+        return kept
+    now = (REPO / "tools/catalog/generate_catalog.py").read_text(encoding="utf-8")
+    generator_diff = "\n".join(difflib.unified_diff(without_exempt(base.stdout), without_exempt(now), n=0, lineterm=""))
+    out.stdout = (generator_diff + "\n" + (out.stdout or "")).strip()
     # La ÚNICA excepción admitida es la firma del cache incremental del generador (`_catalog_generator_signature`), que desde portability-scoring/v2 también cubre el
     # evaluador y la matriz de portabilidad para que un cambio de scoring invalide el cache; la evaluación de cumplimiento/veredicto legacy sigue intacta.
     # Segunda excepción admitida: el LOADER lee los Data Flows del export CLI (`dataflows`: sources/targets) y los une al linaje de la tabla que producen

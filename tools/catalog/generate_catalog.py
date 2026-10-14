@@ -1301,22 +1301,50 @@ def fetch_shared_file(sharing_url: str, token: str, dest_dir, *, fallback_name: 
     return f"Activo SharePoint descargado: {target.name}"
 
 
-def fetch_csn_folder(sharing_url: str, token: str, dest_dir) -> str:
+def _same_text(path: Path, text: str) -> bool:
+    """¿El archivo ya tiene EXACTAMENTE este contenido (salvo el fin de línea)? Sirve para no reescribir lo idéntico: un mtime nuevo con el mismo contenido no es un cambio."""
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore").replace("\r\n", "\n") == text.replace("\r\n", "\n")
+    except OSError:
+        return False
+
+
+def fetch_csn_folder(sharing_url: str, token: str, dest_dir, *, only_kinds=None, only_suffixes=None, prune: bool = True, dry_run: bool = False,
+                     skip_rels=frozenset(), report: dict | None = None) -> str:
     """Descarga el árbol de la carpeta CSN de SharePoint (resuelta por su link de
     compartir vía Graph /shares) a `dest_dir`, preservando la estructura
     <Cliente>/<Dominio>/*.json. INCREMENTAL: `dest_dir` es un caché persistente; con
     el manifest de descargas (`.download_manifest`, bloque `folder`) solo baja los
     archivos cuyo tag remoto (cTag/eTag) cambió, reusa de caché los que no, y borra
-    los que desaparecieron en SharePoint. Reusa los helpers Graph de catalog_service."""
+    los que desaparecieron en SharePoint. Reusa los helpers Graph de catalog_service.
+
+    Alcance acotado (modo «solo APIs/CDS»; sin estos parámetros el comportamiento es el de siempre):
+      * ``only_kinds``    carpetas de PRIMER nivel (normalizadas con ``_catalog_dir_kind``) que entran; el resto del árbol ni se lista ni se baja, y sus entradas del manifest
+                          quedan INTACTAS (no se podan).
+      * ``only_suffixes`` extensiones que se bajan (por defecto todas las soportadas).
+      * ``prune=False``   no borra lo que ya no está en el origen: lo conserva (caché y manifest) y lo informa en ``report["absent"]``.
+      * ``skip_rels``     rutas relativas que no se bajan ni se tocan (su entrada del manifest se conserva).
+      * ``dry_run``       SOLO LECTURA: lista por Graph pero no crea carpetas, no descarga, no poda y no escribe el manifest.
+      * ``report``        dict que se completa con ``files`` (rel, name, size, tag, ctag, etag, modified, status new|changed|unchanged|skipped), ``absent`` y ``root_folders``.
+    Un archivo cuyo contenido descargado es idéntico al de la caché no se reescribe (solo se actualiza su tag)."""
     import base64
     import urllib.request
     import catalog_service as cs
     dest = Path(dest_dir)
-    dest.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        dest.mkdir(parents=True, exist_ok=True)
     manifest = _load_download_manifest(dest)
     folder_prev = dict(manifest.get("folder") or {})
-    folder_now: dict[str, str] = {}
-    downloaded = reused = 0
+    suffixes = tuple(only_suffixes) if only_suffixes else (".json", ".txt", ".md", ".csv", ".xlsx")
+
+    def in_scope(parts) -> bool:
+        return only_kinds is None or (len(parts) >= 2 and _catalog_dir_kind(parts[0]) in only_kinds)
+
+    folder_now: dict[str, str] = {k: v for k, v in folder_prev.items() if not in_scope(Path(k).parts)}      # fuera del alcance: intactas (ni se bajan ni se podan)
+    seen: set[str] = set()                                                       # rutas del alcance que el origen SÍ tiene (la base de «ausentes» en el modo de solo lectura)
+    downloaded = reused = same_content = 0
+    if report is not None:
+        report.update(files=[], absent=[], root_folders=[])
 
     enc = "u!" + base64.urlsafe_b64encode(sharing_url.strip().encode()).decode().rstrip("=")
     root = cs._graph_get_json(
@@ -1343,15 +1371,35 @@ def fetch_csn_folder(sharing_url: str, token: str, dest_dir) -> str:
                     continue
                 name = it.get("name", "")
                 if it.get("folder"):
+                    if not rel.parts and report is not None:
+                        report["root_folders"].append(name)
+                    if only_kinds is not None and not rel.parts and _catalog_dir_kind(name) not in only_kinds:
+                        continue                                                 # carpeta de primer nivel fuera del alcance: ni se lista
                     stack.append((it["id"], rel / name))
                     continue
-                if not (it.get("file") and name.lower().endswith((".json", ".txt", ".md", ".csv", ".xlsx"))):
+                if not (it.get("file") and name.lower().endswith(suffixes)):
+                    continue
+                if not in_scope((rel / name).parts):
                     continue
                 relpath = (rel / name).as_posix()
+                seen.add(relpath)
                 tag = _remote_tag(it)
                 target = dest / rel / name
+                status = ("unchanged" if target.exists() and folder_prev.get(relpath) == tag
+                          else "new" if (not target.exists() and relpath not in folder_prev) else "changed")
+                if relpath in skip_rels:
+                    status = "skipped"
+                if report is not None:
+                    report["files"].append({"rel": relpath, "name": name, "size": it.get("size"), "tag": tag, "ctag": it.get("cTag"), "etag": it.get("eTag"),
+                                            "modified": it.get("lastModifiedDateTime"), "status": status})
+                if status == "skipped":
+                    if relpath in folder_prev:
+                        folder_now[relpath] = folder_prev[relpath]               # protegida: ni se baja ni se toca; su entrada del manifest se conserva
+                    continue
+                if dry_run:
+                    continue
                 # Reuso de caché: mismo tag y el crudo sigue en disco → no bajar.
-                if target.exists() and folder_prev.get(relpath) == tag:
+                if status == "unchanged":
                     folder_now[relpath] = tag
                     reused += 1
                     continue
@@ -1368,26 +1416,41 @@ def fetch_csn_folder(sharing_url: str, token: str, dest_dir) -> str:
                     with urllib.request.urlopen(urllib.request.Request(durl), timeout=30) as response:
                         target.write_bytes(response.read())
                 else:
-                    target.write_text(cs._download_text(durl), encoding="utf-8")
+                    text = cs._download_text(durl)
+                    if target.exists() and _same_text(target, text):
+                        same_content += 1                                        # mismo contenido (solo cambiaron los metadatos): no se reescribe
+                    else:
+                        target.write_text(text, encoding="utf-8")
                 folder_now[relpath] = tag
                 downloaded += 1
             url = next_url
 
-    # Prune: archivos que estaban en el caché (bloque folder) y ya no están en SharePoint.
+    absent = ([old for old in folder_prev if in_scope(Path(old).parts) and old not in seen] if dry_run
+              else [old for old in folder_prev if old not in folder_now])        # estaban en la caché (bloque folder) y ya no figuran en el origen (o no se pudieron leer)
+    if report is not None:
+        report["absent"] = sorted(absent)
+    if dry_run:
+        return f"{len((report or {}).get('files', []))} archivo(s) en el alcance, {len(absent)} ausente(s) del origen — SharePoint/CSN (solo lectura)"
+
+    # Prune: archivos que estaban en el caché y ya no están en SharePoint (solo del alcance pedido: lo de fuera se sembró arriba). Con prune=False se CONSERVAN.
     pruned = 0
-    for old_rel in folder_prev:
-        if old_rel not in folder_now:
-            stale = dest / old_rel
-            try:
-                if stale.is_file():
-                    stale.unlink()
-                    pruned += 1
-            except OSError:
-                pass
+    for old_rel in absent:
+        if not prune:
+            folder_now[old_rel] = folder_prev[old_rel]
+            continue
+        stale = dest / old_rel
+        try:
+            if stale.is_file():
+                stale.unlink()
+                pruned += 1
+        except OSError:
+            pass
     manifest["folder"] = folder_now
     _save_download_manifest(dest, manifest)
 
     bits = [f"{downloaded} descargado(s)"]
+    if same_content:
+        bits.append(f"{same_content} con contenido idéntico (sin reescribir)")
     if reused:
         bits.append(f"{reused} sin cambios (caché)")
     if pruned:
@@ -1567,22 +1630,36 @@ def _prune_stale_domain_outputs(
             pass
     return pruned
 
-def _sync_apis(inbound_root: Path, out_root: Path) -> int:
+def _sync_apis(inbound_root: Path, out_root: Path, *, folder: str | None = None, skip=frozenset(), changed: list | None = None) -> int:
     """Copia el código de las CDS views (extractores) desde la carpeta compartida
     del origen (APIs/ o CDS/, a nivel raíz) a <out>/APIs. Es agnóstica de cliente:
     una sola copia por CDS view, referenciada por el nombre del extractor
-    (ABAP_CDS.<X> → <X>.md). Devuelve la cantidad copiada."""
-    src = next((
-        p for p in sorted(inbound_root.iterdir() if inbound_root.is_dir() else [])
-        if p.is_dir() and _catalog_dir_kind(p.name) in {"api", "apis", "cds"}
-    ), None)
+    (ABAP_CDS.<X> → <X>.md). Devuelve la cantidad de archivos alcanzados.
+
+    No reescribe un archivo cuyo contenido ya es idéntico; los que escribe (nuevos o con contenido distinto) se agregan a ``changed`` si se pasa una lista. ``folder`` fija la
+    carpeta de origen por nombre (sin esto, la primera APIs/CDS en orden); ``skip`` son nombres (sin «.md») que NO se tocan. Nunca borra nada de <out>/APIs."""
+    root = Path(inbound_root)
+    if folder:
+        src = root / folder if (root / folder).is_dir() else None
+    else:
+        src = next((
+            p for p in sorted(root.iterdir() if root.is_dir() else [])
+            if p.is_dir() and _catalog_dir_kind(p.name) in {"api", "apis", "cds"}
+        ), None)
     if src is None:
         return 0
     dest = Path(out_root) / "APIs"
     dest.mkdir(parents=True, exist_ok=True)
     count = 0
-    for md in src.glob("*.md"):
-        (dest / md.name).write_text(md.read_text(encoding="utf-8", errors="ignore"), encoding="utf-8")
+    for md in sorted(src.glob("*.md")):
+        if md.stem in skip:
+            continue
+        text = md.read_text(encoding="utf-8", errors="ignore")
+        target = dest / md.name
+        if not (target.exists() and _same_text(target, text)):
+            target.write_text(text, encoding="utf-8")
+            if changed is not None:
+                changed.append(md.name)
         count += 1
     return count
 
