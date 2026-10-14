@@ -333,7 +333,9 @@ def _entry_choice(intent: answers.Intent, matches, flows: list, governed: caps.G
     by_id = {e.entry_id: e for e in flows}
     shown = [by_id[m.entry_id] for m in matches[:MAX_OPTIONS] if m.entry_id in by_id]
     titles = caps.build_items(shown, governed, pack)
-    options = tuple(_ask(f"{item.title} · {e.cliente}".strip(" ·"), _entry_question(intent, item.title, str(e.cliente or ""))) for item, e in zip(titles, shown))
+    # un modelo SIN título nombrable (sin modelo terminal: «Flujo sin modelo terminal») no se puede pedir por nombre: su opción abre directo su Assessment (la URL sale del entry_id)
+    options = tuple(((f"{item.title} · {e.cliente} (abrir Assessment)".strip(" ·"), presenter.assessment_url(e, pack)) if item.title == presenter.NO_TERMINAL_TITLE
+                     else _ask(f"{item.title} · {e.cliente}".strip(" ·"), _entry_question(intent, item.title, str(e.cliente or "")))) for item, e in zip(titles, shown))
     more = f" Muestro los primeros {MAX_OPTIONS}: sumá el cliente o el nombre completo para acotar." if len(matches) > MAX_OPTIONS else ""
     lead = lead or ("Nombraste más de un modelo. Consultá uno por vez:" if multiple else "Hay más de un modelo con ese nombre. ¿Cuál querés consultar?")
     return NavigationResult(lead + more, options)

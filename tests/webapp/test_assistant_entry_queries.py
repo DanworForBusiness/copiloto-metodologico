@@ -16,6 +16,8 @@ from tests.webapp.test_assistant_entry_facts import CAST, CONF_LABEL, LEVEL_LABE
 from tests.webapp.test_assistant_indicators import HOST
 from tests.webapp.test_assistant_query_context import Chat, Reply
 from webapp.services import assessment_presenter as presenter
+from webapp.services import assistant_capabilities as caps
+from webapp.services import catalog_reads
 from webapp.services import assistant_navigation as nav
 
 COLOR_EMOJIS = "🟢🟡🟠🔴⚪"
@@ -326,3 +328,17 @@ def test_the_stale_ficha_describes_a_not_determinable_last_judgment_instead_of_c
     world.statuses[key] = dataclasses.replace(world.statuses[key], judgment=nd)
     r = one_entry(ask("¿Qué sabés de Lista Precios?"), world, "lp")
     assert "Último informe conocido (Assessment desactualizado, no vigente): no determinable" in r.text and "no hay un último valor legible" not in r.text
+
+
+def test_an_option_for_a_model_without_a_nameable_title_opens_its_assessment_instead_of_asking_for_an_unresolvable_name(world):
+    from webapp.services import catalog_navigation
+    mod, entries = catalog_reads._catalog_entries()
+    flows = catalog_navigation.browsable_flows(mod, entries)
+    governed = caps.governed_read(flows)
+    ids = nav._identities(flows, governed)
+    pick = [i for i in ids if i.entry_id in (world.e["dan"].entry_id, world.e["dd"].entry_id)]
+    result = nav._entry_choice(nav.answers.Intent(ficha=True), pick, flows, governed, PACK, False)
+    by_label = {a[0]: a for a in result.actions}
+    dan = by_label["Flujo sin modelo terminal · Danone (abrir Assessment)"]
+    assert dan[1] == presenter.assessment_url(world.e["dan"], PACK) and len(dan) == 2                                       # enlace real, construido desde el entry_id
+    assert by_label["Delivery Document · Kensing"][2].startswith("ask:¿Qué sabés de «Delivery Document» de Kensing?")        # los nombrables siguen siendo preguntas canónicas
