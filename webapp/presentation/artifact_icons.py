@@ -5,15 +5,16 @@ SVG PROPIOS (formas y semántica inspiradas en las de Datasphere; no son sus rec
 sin scripts, sin enlaces externos ni colores fijos: el color lo pone el CSS (`.ai-icon` en tools.css → dorado del Hub, legible en tema claro y oscuro).
 
 Tres ejes DISTINTOS (nunca se mezclan):
-  · TIPO de artefacto  (`table`, `graphical_view`, `sql_view`, `er_model`, `analytic_model`, `data_flow`, `replication_flow`, `transformation_flow`, `task_chain`, `data_access_control`);
+  · TIPO de artefacto  (`table`, `graphical_view`, `sql_view`, `er_model`, `analytic_model`, `data_product`, `data_flow`, `replication_flow`, `transformation_flow`, `task_chain`,
+    `data_access_control`). Un Data Product NO es un Modelo Analítico: tienen tipo e ícono propios y conviven;
   · VARIANTE técnica   (p. ej. tabla `delta` = tabla técnica de captura de cambios; es una marca sobre el mismo tipo, no otro tipo);
   · ESTADO de evidencia (comprobado / no verificado): lo decide quien dibuja con CSS (`is-unverified`), no el ícono.
 
 El tipo NUNCA se infiere del prefijo del nombre: solo de metadata (`artefacto_tecnico` del Catálogo, `viewType` de la vista o el tipo de objeto del manifest del CLI). Sin metadata
 suficiente `artifact_type()` devuelve None y quien llama cae a su representación neutra.
 
-Uso (hoy solo «Orquestación de ingesta»; el resto de los diagramas puede migrar después sin tocar este módulo): `icon_group("replication_flow", x=8, y=12, size=18)` → `<g>` listo para
-incrustar en un SVG.
+Uso: `icon_group("replication_flow", x=8, y=12, size=18)` → `<g>` listo para incrustar en un SVG; `symbol_markup(...)` → `<svg>` independiente para leyendas/HTML.
+Superficies que lo consumen: «Orquestación de ingesta», linaje numerado de dominios y diagramas de linaje de Data Products (vista simple y completa). Listados y encabezados NO llevan ícono.
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ _TYPES = (
     ArtifactType("sql_view", "Vista SQL", '<ellipse cx="12" cy="5.8" rx="7" ry="2.6"/><path d="M5 5.8v5.6c0 1.45 3.1 2.6 7 2.6s7-1.15 7-2.6V5.8"/><text x="12" y="21.4" text-anchor="middle" class="ai-text">SQL</text>'),
     ArtifactType("er_model", "Modelo entidad-relación", '<rect x="3" y="3" width="6.5" height="6.5" rx="1.5"/><rect x="14.5" y="3" width="6.5" height="6.5" rx="1.5"/><rect x="8.75" y="14.5" width="6.5" height="6.5" rx="1.5"/><path d="M6.25 9.5v2a1.5 1.5 0 0 0 1.5 1.5H12v1.5M17.75 9.5v2a1.5 1.5 0 0 1-1.5 1.5H12"/>'),
     ArtifactType("analytic_model", "Modelo analítico", '<path d="M12 2.5l8 4.5v10l-8 4.5-8-4.5V7z"/><path d="M12 12l8-5M12 12L4 7M12 12v9.5"/>'),
+    ArtifactType("data_product", "Data Product", '<path d="M16.6 4.6L20 7v10l-8 4.5L4 17V7l8-4.5 1.7 1"/><path d="M8.6 9.4c2.8-1.5 6.4-.2 6.8 3 .2 1.6-.5 2.9-1.7 3.7"/><circle cx="8.9" cy="15.4" r="1.25"/>'),   # hexágono abierto + trazo + punto (ref. Datasphere); NO el cubo del Modelo Analítico
     ArtifactType("data_flow", "Data Flow", '<rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M8 10l3 2-3 2M13 10l3 2-3 2"/>'),
     ArtifactType("replication_flow", "Replication Flow", '<rect x="3" y="4" width="18" height="4.2" rx="2.1"/><rect x="3" y="9.9" width="18" height="4.2" rx="2.1"/><rect x="3" y="15.8" width="18" height="4.2" rx="2.1"/><path d="M6.4 6.1h.01M6.4 12h.01M6.4 17.9h.01"/>'),
     ArtifactType("transformation_flow", "Transformation Flow", '<path d="M3.5 13.5l4.2-8 4.2 8z"/><rect x="13.5" y="5" width="7" height="7" rx="1.2"/><path d="M7.5 19.5a6.2 6.2 0 0 0 11.2-3.4M18.7 12.7v3.4h-3.4"/>'),
@@ -47,11 +49,11 @@ _VARIANT_MARK = {"delta": '<path d="M17.2 21.5l2.3-4 2.3 4z" class="ai-mark"/>'}
 
 # Metadata CONFIABLE → tipo. `artefacto_tecnico` es el campo del front-matter que genera el Catálogo; `object_type` es el tipo de objeto del manifest del CLI.
 _BY_ARTEFACTO_TECNICO = {
-    "Tabla local": "table", "Tabla remota": "table", "Extractor ODP-SAPI": "table", "Data Flow (tabla local)": "table", "Analytic Model": "analytic_model", "Data Flow": "data_flow", "Replication Flow": "replication_flow",
+    "Tabla local": "table", "Tabla remota": "table", "Extractor ODP-SAPI": "table", "Data Flow (tabla local)": "table", "Analytic Model": "analytic_model", "Data Product": "data_product", "Data Flow": "data_flow", "Replication Flow": "replication_flow",
     "Transformation Flow": "transformation_flow", "Entity Relationship Model": "er_model", "Data Access Controls": "data_access_control", "Task Chain": "task_chain",
 }
 _BY_OBJECT_TYPE = {
-    "local-tables": "table", "remote-tables": "table", "analytic-models": "analytic_model", "data-flows": "data_flow", "replication-flows": "replication_flow",
+    "local-tables": "table", "remote-tables": "table", "analytic-models": "analytic_model", "data-products": "data_product", "data-flows": "data_flow", "replication-flows": "replication_flow",
     "transformation-flows": "transformation_flow", "task-chains": "task_chain",
 }
 _BY_VIEW_TYPE = {"GRAPHICAL": "graphical_view", "SQL": "sql_view"}

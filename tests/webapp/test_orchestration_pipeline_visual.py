@@ -14,8 +14,8 @@ def _orch(target_kind, chains=(), state=co.CONFIRMED, physical=None):
     return co.IngestionOrchestration(T, co.ESTABLISHED, (p,))
 
 
-def test_icon_registry_covers_the_ten_types_with_safe_light_svg():
-    assert set(ai.ARTIFACT_TYPES) == {"table", "graphical_view", "sql_view", "er_model", "analytic_model", "data_flow", "replication_flow", "transformation_flow", "task_chain", "data_access_control"}
+def test_icon_registry_covers_the_eleven_types_with_safe_light_svg():
+    assert set(ai.ARTIFACT_TYPES) == {"table", "graphical_view", "sql_view", "er_model", "analytic_model", "data_product", "data_flow", "replication_flow", "transformation_flow", "task_chain", "data_access_control"}
     for k in ai.ARTIFACT_TYPES:
         svg = ai.symbol_markup(k)
         assert 'viewBox="0 0 24 24"' in svg and len(svg) < 1500 and not re.search(r"<script|href=|on\w+=|<image|style=|#[0-9a-fA-F]{3,6}\b", svg)
