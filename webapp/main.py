@@ -71,6 +71,7 @@ from webapp.services import domain_classification_service as dcs
 from webapp.services import catalog_navigation
 from webapp.presentation import artifact_icons
 from webapp.services import catalog_ingestion_orchestration
+from webapp.services import catalog_cds_docs
 from webapp.services import catalog_view_source
 from webapp.routers import commercial_strategy as commercial_strategy_router
 
@@ -2257,13 +2258,11 @@ def _cds_name_from_origen(origen: str) -> str:
 
 
 def _catalog_cds_link(origen: str) -> str:
-    """Nombre de la CDS view SOLO si su código existe en APIs/. "" si no hay origen
-    ABAP_CDS o el archivo no está (así el botón no se renderiza y no hay link muerto
-    ni error de consola). Es lo que hace el auto-vínculo robusto."""
+    """Nombre del documento de la CDS view SOLO si su código existe en APIs/. "" si no hay origen ABAP_CDS o no hay correspondencia CONFIABLE (así el botón no se renderiza
+    y no hay link muerto ni error de consola). El nombre del origen puede ser el de la entidad (archivo con ese nombre) o el de su vista SQL (``@AbapCatalog.sqlViewName`` declarado
+    por UN solo documento): ver ``catalog_cds_docs.resolve``."""
     cds = _cds_name_from_origen(origen)
-    if cds and (_catalog_apis_dir() / f"{cds}.md").exists():
-        return cds
-    return ""
+    return catalog_cds_docs.resolve(_catalog_apis_dir(), cds) if cds else ""
 
 
 def _catalog_source_button_html(path: str, label: str, css: str, **params) -> str:
@@ -2304,9 +2303,9 @@ def _catalog_dp_inject_cds_buttons(body: str, lineage_nodes: list, pack: str) ->
     for n in lineage_nodes or []:
         if not isinstance(n, dict):
             continue
-        cds = str(n.get("origen_cds") or "").strip()
+        cds = catalog_cds_docs.resolve(apis, str(n.get("origen_cds") or "").strip())
         disp = str(n.get("display") or "").strip()
-        if cds and disp and (apis / f"{cds}.md").exists():
+        if cds and disp:
             by_display[disp] = cds
     if not by_display:
         return body
@@ -2663,8 +2662,9 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
     orch_of = {slug_of[n]: n for n in shown_order if (autos.get(n) or {}).get("capa") == "Ingesta" and (autos.get(n) or {}).get("artefacto_tecnico") == "Tabla local"}
 
     def _orch_cds_link(obj: str) -> str:
-        if not obj or "/" in obj or "\\" in obj or not (_catalog_apis_dir() / f"{obj}.md").exists():
-            return ""                                     # sin código de la CDS en APIs/ no hay enlace (nunca un link muerto)
+        obj = catalog_cds_docs.resolve(_catalog_apis_dir(), obj)
+        if not obj:
+            return ""                                     # sin código de la CDS en APIs/ (o sin correspondencia confiable) no hay enlace (nunca un link muerto)
         qs = urlencode({"name": obj, "cliente": entry.cliente, "dominio": entry.dominio, "flow": entry.entry_id, "pack": pack or DEFAULT_PACK})
         return f'<a href="#" role="button" hx-get="/catalog/cds?{html.escape(qs)}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Abrir CDS View</a>'
 
