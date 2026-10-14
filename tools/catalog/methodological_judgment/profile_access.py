@@ -148,6 +148,16 @@ class ProfileEvidence:
         return {l["leaf"]: l for l in (self.ce.get("leaf_provenance") or ())}
 
     @cached_property
+    def materialization(self) -> dict[str, dict[str, Any]]:
+        """Materializacion OBSERVADA por hoja local (``leaf-materialization/v1``): derivacion pura y de solo consulta sobre la evidencia ya persistida (``{}`` si el perfil es historico).
+        NINGUNA regla del motor la consume todavia; no altera la evidencia, el perfil ni las firmas. Modulo neutro hermano (no es el paquete de Assessment)."""
+        from tools.catalog.leaf_materialization import derive_all
+        return derive_all(self.ce)
+
+    def materialization_of(self, leaf: str) -> Mapping[str, Any] | None:
+        return self.materialization.get(leaf)
+
+    @cached_property
     def product_nodes(self) -> tuple[str, ...]:
         """Nodos de POSICION de producto: proveedores de linaje directos del modelo analitico (distancia 1). Se define por posicion, no por nombre."""
         v = self.highlight("ANALYTIC_MODEL", "direct_lineage_providers")
