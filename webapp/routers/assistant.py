@@ -189,15 +189,17 @@ def assistant_chat(
         first_name = str(user.get("name") or "Tú").strip().split()[0]
     ia_blocked = False
     explain = None
+    user_sub = str(user.get("sub") or user.get("email") or "")                         # el contexto estructurado pertenece a ESTE usuario y a ESTA conversación
+    routed = False                                                                     # ¿ya se decidió la ruta de ESTA pregunta? (para no perder el contexto por una falla anterior)
     try:
         document = load_module(stem, selected)
         history = assistant_store.history(conversation_id, stem, selected)
-        user_sub = str(user.get("sub") or user.get("email") or "")                     # el contexto estructurado pertenece a ESTE usuario y a ESTA conversación
         now = time.time()
         context = QueryContext(assistant_store.query_state(conversation_id, stem, selected, user_sub), user_sub, now)
         route = None if routing_bypass else assistant_routing_service.route(
             document, question, selected, active_section, context,
         )
+        routed = True
         answer_document = document
         answer_context = None
         if routing_bypass and route_module:
@@ -255,6 +257,10 @@ def assistant_chat(
                 assistant_store.clear_query_state(conversation_id, stem, selected, user_sub)
         error = ""
     except (FileNotFoundError, KeyError, SectionAnalysisError, LLMServiceError) as exc:
+        # Si la pregunta NO tuvo ruta estructurada y falló la respuesta libre (p. ej. LLM sin configurar o caído), igual es «otra respuesta»: el foco/filtros anteriores no
+        # deben sobrevivir y reaparecer en el mensaje siguiente. Una falla ANTERIOR a decidir la ruta (módulo ausente) no toca el contexto: la pregunta no se procesó.
+        if user_sub and routed and (route is None or (route.state is None and not route.keep_state)):
+            assistant_store.clear_query_state(conversation_id, stem, selected, user_sub)
         reply = None
         route = None
         explain = None

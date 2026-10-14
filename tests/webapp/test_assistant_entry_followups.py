@@ -121,12 +121,99 @@ def test_a_new_set_query_clears_the_focus(world):
     assert not r.llm and "No tengo un modelo en foco" in r.text and not r.refs
 
 
-def test_any_other_route_clears_the_focus(world):
+CONCEPT = "¿Qué es la cobertura estricta?"          # sin ruta estructurada: cae a la respuesta libre (LLM)
+
+
+@pytest.fixture
+def llm(monkeypatch):
+    """La respuesta libre NO depende del entorno: LLM de prueba que contesta (`llm.up()`) o sin configurar (`llm.down()`, como el CI sin OPENAI_API_KEY). El test fallido de CI dependía de que
+    la máquina local tuviera la clave: con clave consumía el LLM real; sin ella, la pregunta conceptual fallaba y el foco anterior sobrevivía."""
+    import webapp.services.assistant_service as svc_mod
+    from webapp.routers.assistant import assistant_chat_service
+
+    class Fake:
+        def __init__(self, **_): self.chat = self
+        completions = property(lambda self: self)
+        def create(self, **_):
+            return type("R", (), {"choices": [type("C", (), {"message": type("M", (), {"content": "Es la cobertura de la evidencia requerida."})()})()]})()
+
+    monkeypatch.setattr(svc_mod, "_catalog_grounding", lambda _q: "")
+    monkeypatch.setattr(assistant_chat_service, "client_factory", Fake)
+    monkeypatch.setattr(assistant_chat_service, "execution_mode", "produccion")
+
+    class Switch:
+        def up(self):
+            monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        def down(self):
+            monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+            monkeypatch.setattr(svc_mod, "_legacy_api_key", lambda: "")
+    return Switch()
+
+
+@pytest.mark.parametrize("llm_state", ["up", "down"])
+def test_any_other_route_clears_the_focus(world, llm, llm_state):
+    getattr(llm, llm_state)()
     chat = Chat()
     chat.ask("¿Qué sabés de Delivery Document?")
-    chat.ask("¿Qué es la cobertura estricta?")                                                       # ruta conceptual: borra el contexto estructurado
+    assert chat.state.focus == world.e["dd"].entry_id
+    r = chat.ask(CONCEPT)                                                                            # ruta conceptual (respondida o con la IA caída): borra el contexto estructurado
+    assert r.llm == (llm_state == "up")
     assert chat.state is None or chat.state.focus is None
+    again = chat.ask("¿Y su confianza?")
+    assert "No tengo un modelo en foco" in again.text and not again.refs                              # el modelo no se reutiliza ni se conserva
+
+
+def test_a_conceptual_question_does_not_reuse_the_focused_model_even_if_it_mentions_a_metric(world, llm):
+    llm.down()
+    chat = Chat()
+    chat.ask("¿Qué sabés de Delivery Document?")
+    chat.ask(CONCEPT)
+    assert chat.state is None or (chat.state.focus is None and chat.state.spec.entry is None)
+
+
+def test_after_a_conceptual_change_a_new_model_sets_a_new_focus_and_followups_work_again(world, llm):
+    llm.down()
+    chat = Chat()
+    chat.ask("¿Qué sabés de Delivery Document?")
+    chat.ask(CONCEPT)
+    second = chat.ask("¿Qué sabés de Reserva MP?")
+    new_focus = chat.state.focus
+    assert new_focus is not None and new_focus != world.e["dd"].entry_id and second.refs == [new_focus]
+    conf = chat.ask("¿Y su confianza?")
+    assert not conf.llm and conf.refs == [new_focus]                                                 # el seguimiento legítimo vale para el modelo NUEVO, nunca para el anterior
+
+
+def test_a_legitimate_followup_still_keeps_the_focus_across_turns(world, llm):
+    llm.down()                                                                                       # el seguimiento individual no usa el LLM: su foco no depende de él
+    chat = Chat()
+    chat.ask("¿Qué sabés de Delivery Document?")
+    for q in ("¿Y su confianza?", "¿Por qué tiene Buena?"):
+        assert_about(chat.ask(q), world, "dd")
+        assert chat.state.focus == world.e["dd"].entry_id
+    opened = chat.ask("Abrí su Assessment")
+    assert not opened.llm and "Acá está el Assessment" in opened.text and chat.state.focus == world.e["dd"].entry_id
+
+
+def test_an_explicit_restart_clears_the_focus_too(world, llm):
+    llm.down()
+    chat = Chat()
+    chat.ask("¿Qué sabés de Delivery Document?")
+    assert chat.state.focus
+    r = chat.ask("Empezar de nuevo")
+    assert chat.state is None and "empezamos de nuevo" in r.text
     assert "No tengo un modelo en foco" in chat.ask("¿Y su confianza?").text
+
+
+def test_a_failure_before_the_route_is_decided_does_not_touch_the_context(world, llm, monkeypatch):
+    """La falla de un módulo ausente ocurre ANTES de decidir la ruta: la pregunta no se procesó y el foco vigente no se pierde."""
+    llm.down()
+    from webapp.routers import assistant as router_mod
+    chat = Chat()
+    chat.ask("¿Qué sabés de Delivery Document?")
+    focus = chat.state.focus
+    monkeypatch.setattr(router_mod, "load_module", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("módulo ausente")))
+    chat.ask("¿Y su confianza?")
+    assert chat.state is not None and chat.state.focus == focus
 
 
 def test_the_focus_expires_with_the_ttl(world):
