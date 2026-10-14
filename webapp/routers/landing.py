@@ -67,7 +67,7 @@ _COPILOT_LANDING_COPY = {
 }
 
 
-def render_landing(request: Request, selected_pack: str, next: str, *, default_home: str, copy: dict):
+def render_landing(request: Request, selected_pack: str, next: str, *, default_home: str, copy: dict, resolve_home=None):
     """Comportamiento COMPLETO de la landing histórica (auth + redirect +
     template), parametrizado por `default_home`/`copy` para que `/`,
     `/copilot` y (desde `webapp/routers/platform.py`) `/onedanwor` sin
@@ -77,7 +77,11 @@ def render_landing(request: Request, selected_pack: str, next: str, *, default_h
     # evitar un open-redirect a un host externo.
     safe_next = safe_internal_next(next)
     if auth_service.session_user(request):
-        return RedirectResponse(safe_next or default_home, status_code=307)
+        if safe_next:
+            return RedirectResponse(safe_next, status_code=307)
+        # Con sesión y sin `next`, la raíz solo reenviaba a `default_home` (`/home`), que a su vez decidía el destino real y redirigía de nuevo: dos saltos encadenados por un
+        # único resultado. `resolve_home` (la MISMA decisión de `/home`, ver `home_destination`) lo resuelve en un solo salto; sin él se conserva el comportamiento anterior.
+        return RedirectResponse(resolve_home() if resolve_home is not None else default_home, status_code=307)
     home_url = safe_next or default_home
     # `auth_popup`/`code`: esta misma landing es también la página que el POPUP
     # de Microsoft abre en ambos extremos del flujo (auth.js abre `<page
@@ -100,6 +104,17 @@ def render_landing(request: Request, selected_pack: str, next: str, *, default_h
     )
 
 
+def home_destination(request: Request, pack: str) -> str:
+    """ÚNICA decisión del destino post-login (perfil → Academy o módulo inicial; pack solo en modo diagnóstico), compartida por `/home` y por la raíz con sesión. Supone sesión
+    válida: quien la llama ya la verificó. Lanza el mismo 503 de `home_url` si no hay módulos."""
+    selected = resolve_pack(pack) if access.is_diagnostic(request) else DEFAULT_PACK
+    if access.is_readonly(request):
+        academy = [item for item in list_academy(selected) if not item.nav_hidden]
+        if academy:
+            return f"/academy/{academy[0].stem}?pack={selected}"
+    return home_url(selected)
+
+
 @router.get("/home", include_in_schema=False)
 def home(request: Request, pack: str = Query(DEFAULT_PACK)):
     """Destino post-login, dependiente del perfil. Los usuarios de solo lectura
@@ -109,11 +124,7 @@ def home(request: Request, pack: str = Query(DEFAULT_PACK)):
     selected = resolve_pack(pack) if access.is_diagnostic(request) else DEFAULT_PACK
     if not auth_service.session_user(request):
         return login_redirect(request, selected)
-    if access.is_readonly(request):
-        academy = [item for item in list_academy(selected) if not item.nav_hidden]
-        if academy:
-            return RedirectResponse(f"/academy/{academy[0].stem}?pack={selected}", status_code=307)
-    return RedirectResponse(home_url(selected), status_code=307)
+    return RedirectResponse(home_destination(request, pack), status_code=307)
 
 
 # ── Invitación al Desafío (one-off) ──────────────────────────────────────
@@ -163,6 +174,7 @@ def landing(request: Request, pack: str = Query(DEFAULT_PACK), next: str = Query
     selected = resolve_pack(pack)
     return render_landing(
         request, selected, next, default_home=f"/home?pack={selected}", copy=_COPILOT_LANDING_COPY,
+        resolve_home=lambda: home_destination(request, selected),
     )
 
 
@@ -173,6 +185,7 @@ def copilot_entry(request: Request, pack: str = Query(DEFAULT_PACK), next: str =
     selected = resolve_pack(pack)
     return render_landing(
         request, selected, next, default_home=f"/home?pack={selected}", copy=_COPILOT_LANDING_COPY,
+        resolve_home=lambda: home_destination(request, selected),
     )
 
 

@@ -1013,7 +1013,9 @@ def test_root_forwards_logged_users_into_the_app():
     # landing con la sección de acceso, sino seguir de largo al copiloto.
     logged = client.get("/", follow_redirects=False)
     assert logged.status_code == 307
-    assert "/home" in logged.headers["location"]
+    # Un solo salto al destino final: el MISMO que decide /home (antes la raíz reenviaba a /home y este volvía a redirigir).
+    assert logged.headers["location"] == client.get("/home?pack=datasphere_core", follow_redirects=False).headers["location"]
+    assert "/modules/" in logged.headers["location"]
     # Sin sesión, el landing se sirve normal.
     anonymous = TestClient(app).get("/", follow_redirects=False)
     assert anonymous.status_code == 200
@@ -1033,7 +1035,8 @@ def test_root_rejects_open_redirect_next_param():
     # descarta: cae al home por defecto en vez de seguir a `next`.
     response = client.get("/?next=//evil.com", follow_redirects=False)
     assert response.status_code == 307
-    assert response.headers["location"].startswith("/home?pack=")
+    assert response.headers["location"] == client.get("/home?pack=datasphere_core", follow_redirects=False).headers["location"]
+    assert "evil.com" not in response.headers["location"]
 
 
 def test_login_redirects_to_landing_access_section():
@@ -1066,7 +1069,7 @@ def test_copilot_alias_renders_the_same_experience_as_root():
 def test_copilot_alias_forwards_logged_users_into_the_app():
     logged = client.get("/copilot", follow_redirects=False)
     assert logged.status_code == 307
-    assert "/home" in logged.headers["location"]
+    assert logged.headers["location"] == client.get("/home?pack=datasphere_core", follow_redirects=False).headers["location"]
 
 
 def test_copilot_alias_preserves_next_like_root():
