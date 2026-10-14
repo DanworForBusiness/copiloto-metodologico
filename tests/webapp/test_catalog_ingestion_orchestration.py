@@ -89,7 +89,7 @@ def test_chain_confirmed_with_label_and_delta_shadow_target(env):
     assert p.target_kind == co.DELTA_SHADOW and p.physical_target == base + "_Delta"
     assert p.chains_state == co.CONFIRMED and [(c.name, c.label, c.path) for c in p.chains] == [("TC_MD_01", "Task Chain Master Data 01", ("TC_MD_01",))]
     html = co.render_html(co.orchestration_for(CLIENT, base, delta), "a")
-    assert "proyección activa (no es la misma tabla)" in html and "<code>" + base + "_Delta</code>" in html
+    assert "proyección activa de <code>" in html and "no es la misma tabla" not in html and "<code>" + base + "_Delta</code>" in html
 
 
 def test_delta_target_without_canonical_evidence_makes_no_claim(env):

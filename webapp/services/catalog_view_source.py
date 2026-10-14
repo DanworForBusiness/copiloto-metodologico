@@ -176,6 +176,42 @@ def _index(client: str, domain: str) -> tuple[Path, dict[str, str]]:
     return root, index
 
 
+_type_memo: dict[tuple[str, str], tuple[tuple, dict[str, str]]] = {}
+
+
+def view_type_map(client: str, domain: str) -> dict[str, str]:
+    """{nombre técnico → GRAPHICAL | SQL} de las VISTAS del cliente, con el MISMO clasificador y la MISMA pertenencia que «Abrir SQL» y el Assessment (`view_record`). Sin pool o sin
+    `viewType` derivable → {}: quien llama no dibuja ícono (nunca se adivina por el nombre). Solo lectura; el índice en memoria guarda (nombre → tipo) por huella del pool."""
+    try:
+        found = asvc.pool_json_files(client, domain)
+        if found is None:
+            return {}
+        root, files = found
+        fp = tuple(sorted((str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in files))
+        key = (str(root), client.lower())
+        with _lock:
+            cached = _type_memo.get(key)
+            if cached is not None and cached[0] == fp:
+                return cached[1]
+        out: dict[str, str] = {}
+        for path in sorted(files):
+            data = load_json(path)
+            if data is None:
+                continue
+            family = family_of_dir(path.parent.name) if path.parent != root else None
+            for name in (data.get("definitions") or {}):
+                if name not in out:
+                    rec = view_record(data, name, family)
+                    if rec is not None and rec[0] in (vt.GRAPHICAL, vt.SQL):
+                        out[name] = rec[0]
+        with _lock:
+            _type_memo[key] = (fp, out)
+        return out
+    except Exception:                                         # noqa: BLE001 — presentación: jamás rompe el detalle del flujo
+        log.exception("catalog_view_source: no se pudo derivar el tipo de vista de %s", client)
+        return {}
+
+
 def sql_view_names(client: str, domain: str) -> frozenset[str]:
     """Nombres técnicos de las vistas SQL CON consulta del cliente (para decidir qué artefactos muestran "Abrir SQL"). Sin texto SQL."""
     try:

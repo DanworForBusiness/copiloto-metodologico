@@ -271,12 +271,14 @@ def _producer_rows(p: Producer, entity: str, cds_link: Callable[[str], str]) -> 
     if p.target_kind == BASE:
         dest = f"{_C(p.physical_target)} · tabla de esta ingesta"
     elif p.target_kind == DELTA_SHADOW:
-        dest = f"{_C(p.physical_target)} · tabla de captura de cambios; {_C(entity)} es su proyección activa (no es la misma tabla)"
+        dest = f"{_C(p.physical_target)} · tabla técnica de captura de cambios"
     elif p.target_kind == OTHER:
         dest = "El JSON del flujo no declara un destino que coincida con esta tabla ni con su compañera delta conocida"
     else:
         dest = "No disponible: el JSON del Replication Flow no está en el pool"
     rows.append(_row("Destino físico", dest))
+    if p.target_kind == DELTA_SHADOW:
+        rows.append(_row("Tabla base", f"{_C(entity)} · proyección activa de {_C(p.physical_target)}"))
     if p.chains_state == CONFIRMED:
         parts = []
         for c in p.chains:
@@ -294,23 +296,27 @@ def _producer_rows(p: Producer, entity: str, cds_link: Callable[[str], str]) -> 
 def pipeline_model(orch: IngestionOrchestration) -> dict | None:
     """Modelo del diagrama (nodos + aristas REALES) derivado SOLO del contrato ya comprobado; None si no hay productor comprobado (no se dibuja nada inventado).
 
-    Tipos de nodo por metadata del manifest (Task Chain, Replication Flow, tabla local), nunca por prefijo. Aristas: `data` (RF → tabla; flujo de datos), `orch` (Task Chain → RF y TC → TC;
-    ORQUESTACIÓN, no flujo de datos), `proj` (tabla técnica `X_Delta` → `X`: proyección activa, solo con el hecho CSN que la prueba) y `unverified` (el manifest dice RF → tabla pero el JSON
-    del RF no confirma el destino físico: se dibuja punteada, nunca como un destino físico comprobado)."""
+    Lectura de izquierda a derecha: el artefacto materializado es lo principal (tabla base → tabla técnica `X_Delta`, si existe) y los mecanismos que lo alimentan y orquestan van a su derecha
+    (Replication Flow → Task Chain, si existe). Cada arista `(izquierda, derecha)` se dibuja con la punta hacia la IZQUIERDA: el mecanismo apunta al artefacto que carga/orquesta.
+    Tipos de nodo por metadata del manifest, nunca por prefijo. Aristas: datos (RF → tabla; sin clase propia), `orch` (Task Chain → RF y TC → TC; ORQUESTACIÓN, no flujo de datos), `proj`
+    (`X_Delta — X`: proyección activa, solo con el hecho CSN que la prueba; sin punta: no es una carga) y `unverified` (el manifest dice RF → tabla pero el JSON del RF no confirma el
+    destino físico: punteada). Cada arista lleva un `<title>` accesible (`edge_title`)."""
     if orch.state != ESTABLISHED or not orch.producers:
         return None
     nodes: dict[str, dict] = {}
     kinds: dict[tuple[str, str], str] = {}
+    titles: dict[tuple[str, str], str] = {}
 
     def node(key: str, label: str, icon: str, role: str, title: str, variant: str | None = None) -> dict:
         return nodes.setdefault(key, {"name": key, "label": label, "title": title, "layer": "0", "upstreams": [], "assoc_upstreams": [], "slug": None, "num": 0,
                                       "icon": icon, "icon_variant": variant, "role": role})
 
-    def link(up: str, tgt: str, kind: str) -> None:
-        if up not in nodes[tgt]["upstreams"]:
-            nodes[tgt]["upstreams"].append(up)
+    def link(left: str, right: str, kind: str, title: str) -> None:
+        if left not in nodes[right]["upstreams"]:
+            nodes[right]["upstreams"].append(left)
         if kind != "data":
-            kinds[(up, tgt)] = kind
+            kinds[(left, right)] = kind
+        titles[(left, right)] = title
 
     tkey = f"tbl:{orch.entity}"
     node(tkey, orch.entity, "table", "Tabla local", f"Tabla local de ingesta {orch.entity}")
@@ -324,51 +330,32 @@ def pipeline_model(orch: IngestionOrchestration) -> dict | None:
         if p.target_kind == DELTA_SHADOW and p.physical_target:
             phys = f"tbl:{p.physical_target}"
             node(phys, p.physical_target, "table", "Tabla técnica de cambios", f"Tabla física de captura de cambios {p.physical_target}: destino del Replication Flow", variant="delta")
-            link(rfk, phys, "data")
-            link(phys, tkey, "proj")
+            link(tkey, phys, "proj", f"{orch.entity} es la proyección activa de {p.physical_target} (no es una carga)")
+            link(phys, rfk, "data", f"{p.flow} carga {p.physical_target}")
             nodes[tkey]["role"] = "Tabla local · proyección activa"
-            nodes[tkey]["title"] = f"{orch.entity} es la proyección activa de {p.physical_target} (hecho CSN); no es la misma tabla"
+            nodes[tkey]["title"] = f"{orch.entity} es la proyección activa de {p.physical_target} (hecho CSN)"
             parts.append(f"{p.flow} carga {p.physical_target}, tabla técnica de la que {orch.entity} es la proyección activa")
         elif p.target_kind == BASE:
-            link(rfk, tkey, "data")
+            link(tkey, rfk, "data", f"{p.flow} carga {orch.entity}")
             nodes[tkey]["role"] = "Tabla local · destino físico"
             parts.append(f"{p.flow} carga {orch.entity}")
         else:
-            link(rfk, tkey, "unverified")
+            link(tkey, rfk, "unverified", f"Relación del manifest: {p.flow} produce {orch.entity}; destino físico no verificado")
             parts.append(f"{p.flow} produce {orch.entity} según el manifest (destino físico no verificado)")
         for c in p.chains:
-            prev_k = None
-            for name in c.path:
+            prev_k, prev_name = rfk, p.flow
+            for name in reversed(c.path):                       # de la cadena directa hacia la superior
                 k = f"tc:{name}"
                 node(k, name, "task_chain", "Task Chain", f"Task Chain {name}" + (f" · {c.label}" if c.label and name == c.name else ""))
-                if prev_k is not None:
-                    link(prev_k, k, "orch")
-                prev_k = k
-            link(prev_k, rfk, "orch")
+                link(prev_k, k, "orch", f"{name} orquesta {prev_name}")
+                prev_k, prev_name = k, name
             parts.append(f"{' → '.join(c.path)} orquesta {p.flow}")
-    return {"nodes": list(nodes.values()), "edge_kind": kinds, "aria": f"Pipeline de ingesta de {orch.entity}: " + "; ".join(parts) + "."}
-
-
-_LEGEND = {
-    "data": ("Flujo de datos", ""),
-    "orch": ("Orquestación (Task Chain; no mueve datos)", "orch"),
-    "proj": ("Proyección (no es una carga): tabla técnica — tabla base", "proj"),
-    "unverified": ("Relación del manifest, destino físico no verificado", "unverified"),
-}
-
-
-def _legend_html(kinds: set) -> str:
-    items = []
-    for k in ("data", "orch", "proj", "unverified"):
-        if k == "data" or k in kinds:
-            label, cls = _LEGEND[k]
-            edge_cls = "ln-edge" + (" ln-edge--" + cls if cls else "")
-            items.append(f'<li><svg viewBox="0 0 30 8" width="30" height="8" aria-hidden="true" focusable="false"><path class="{edge_cls}" d="M1,4 L29,4"/></svg>{_E(label)}</li>')
-    return f'<ul class="orch-legend">{"".join(items)}</ul>'
+    return {"nodes": list(nodes.values()), "edge_kind": kinds, "edge_title": titles,
+            "aria": f"Pipeline de ingesta de {orch.entity}: " + "; ".join(parts) + "."}
 
 
 def _pipeline_notes(orch: IngestionOrchestration, cds_link: Callable[[str], str]) -> str:
-    """Notas VISIBLES junto al diagrama: origen técnico (no es un nodo) y el estado de la orquestación cuando no hay Task Chain comprobada."""
+    """Notas VISIBLES junto al diagrama: origen técnico (no es un nodo) y la advertencia cuando la orquestación no se evaluó (la ausencia comprobada de Task Chain se dice solo en el «Detalle técnico»)."""
     out = []
     for p in orch.producers:
         objs = ", ".join(_C(o) + (f" {cds_link(o)}" if cds_link(o) else "") for o in p.source_objects)
@@ -376,9 +363,7 @@ def _pipeline_notes(orch: IngestionOrchestration, cds_link: Callable[[str], str]
         if objs:
             tail = (f" · {_E(' · '.join(bits))}" if bits else "") + ("" if p.source_task_certain else " <em>(el flujo declara varias fuentes; no se fijó cuál alimenta esta tabla)</em>")
             out.append(f"<p>Origen técnico: {objs}{tail}</p>")
-        if p.chains_state == NOT_FOUND_IN_EXPORT:
-            out.append(f"<p>Sin Task Chain comprobada: ninguna cadena del export ejecuta {_C(p.flow)}. El Replication Flow es el orquestador conocido.</p>")
-        elif p.chains_state != CONFIRMED:
+        if p.chains_state not in (CONFIRMED, NOT_FOUND_IN_EXPORT):          # «Sin Task Chain comprobada» vive solo en el «Detalle técnico»
             out.append("<p>Orquestación no evaluada: el export de este modelo no incluyó Task Chains.</p>")
     return f'<div class="orch-notes">{"".join(out)}</div>'
 
@@ -388,14 +373,14 @@ def render_html(orch: IngestionOrchestration, anchor: str, cds_link: Callable[[s
     PIPELINE visual y la tabla técnica completa queda como «Detalle técnico» (sin pérdida de contenido); sin `diagram` (o sin productor) se muestra la tabla/estado neutral de siempre."""
     model = pipeline_model(orch) if diagram is not None else None
     if model is not None:
-        svg = diagram(model["nodes"], False, {n["name"] for n in model["nodes"]}, None, edge_kind=model["edge_kind"], aria=model["aria"])
+        svg = diagram(model["nodes"], False, {n["name"] for n in model["nodes"]}, None, edge_kind=model["edge_kind"], aria=model["aria"], arrow_at="start", edge_title=model["edge_title"])
         if svg:
             count = f" ({len(orch.producers)})" if len(orch.producers) > 1 else ""
             return (f'<details class="dashboard-section orch-pipeline" id="{_E(anchor)}">'
                     f'<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Orquestación de ingesta{count}</span></summary>'
-                    f'<div class="dashboard-section__body">{svg}{_legend_html(set(model["edge_kind"].values()))}{_pipeline_notes(orch, cds_link)}'
-                    f'<details class="content-collapsible orch-text"><summary class="content-collapsible__summary">Detalle técnico</summary><div class="content-collapsible__body">'
-                    f'<div class="matrix-scroll">{_table_html(orch, cds_link)}</div></div></details></div></details>')
+                    f'<div class="dashboard-section__body">{svg}{_pipeline_notes(orch, cds_link)}'
+                    f'<details class="dashboard-section orch-text"><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Detalle técnico</span></summary>'
+                    f'<div class="dashboard-section__body"><div class="matrix-scroll">{_table_html(orch, cds_link)}</div></div></details></div></details>')
     return _table_disclosure(orch, anchor, cds_link)
 
 
