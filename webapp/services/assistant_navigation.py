@@ -418,7 +418,7 @@ def _entry_answer(intent: answers.Intent, entry, governed: caps.Governed | None,
 def _level_mismatch(intent: answers.Intent, ans: caps.EntryAnswer) -> NavigationResult | None:
     """«¿Por qué tiene Buena?» fundamenta el nivel VIGENTE: si el nivel pedido no es el actual, se aclara en vez de justificar otro nivel."""
     asked = tuple(level for owner, level in intent.levels if owner == "adoption")
-    if not (intent.fundamentals and (asked or intent.nd) and ans.fundamentals is not None and not ans.fundamentals.historical):
+    if not (intent.fundamentals and (asked or intent.nd) and ans.fundamentals is not None):
         return None
     f = ans.fundamentals
     if asked and f.determined and f.level in asked:
@@ -428,7 +428,11 @@ def _level_mismatch(intent: answers.Intent, ans: caps.EntryAnswer) -> Navigation
     wanted = indicators.level_text(indicators.BY_ID["adoption"], asked) if asked else "no determinable"
     now = f"**{f.level_label}**" if f.determined else "**no determinable**"
     item = ans.entry
-    text = f"**{item.title}** ({item.subtitle}) no tiene hoy adopción **{wanted}**: su Juicio vigente es {now}. Puedo explicarte los fundamentos del Juicio vigente."
+    if f.historical:                                                             # Assessment desactualizado: lo que se conoce es el último informe, que NO es el vigente
+        text = (f"**{item.title}** ({item.subtitle}) no tenía adopción **{wanted}** en su último informe conocido (el Assessment está desactualizado y ese informe no es el vigente): era {now}. "
+                "Puedo explicarte los fundamentos de ese último informe, rotulados como no vigentes.")
+    else:
+        text = f"**{item.title}** ({item.subtitle}) no tiene hoy adopción **{wanted}**: su Juicio vigente es {now}. Puedo explicarte los fundamentos del Juicio vigente."
     return NavigationResult(text, (ans.links[0],), caps.ResultSet("entry", total=1, items=(item,), entry=ans), state=_focus_draft(item.ref))
 
 

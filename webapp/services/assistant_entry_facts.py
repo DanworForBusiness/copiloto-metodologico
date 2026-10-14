@@ -50,8 +50,20 @@ def _historical(ind: indicators.Indicator, entry: Any, governed: caps.Governed, 
     return ind.measure(entry, shadow, pack)
 
 
-def _withheld_text(ind: indicators.Indicator, m: indicators.Measurement, status: Any, nd_reason: str) -> tuple[str, str]:
-    """(código, texto) de por qué NO se entrega el valor."""
+_HISTORICAL = "Último informe conocido (Assessment desactualizado, no vigente): "
+
+
+def _withheld_text(ind: indicators.Indicator, m: indicators.Measurement, status: Any, nd_reason: str, historical: bool = False) -> tuple[str, str]:
+    """(código, texto) de por qué NO se entrega el valor. ``historical``: la medición viene del último informe de un Assessment desactualizado (no vigente)."""
+    if historical:
+        code, text = _withheld_text(ind, m, status, nd_reason)
+        if m.state == indicators.NOT_DETERMINABLE:
+            text = f"no determinable, sin un nivel ({nd_reason or 'evidencia insuficiente'})."
+        elif m.state == indicators.LEGACY_RULES:
+            text = "se calculó con reglas anteriores."
+        elif m.state == indicators.NO_VALUE:
+            text = "el informe no traía un valor utilizable para esta medida."
+        return code, _HISTORICAL + text
     if m.state == indicators.NOT_DETERMINABLE:
         return NOT_DETERMINABLE, f"No determinable: el Juicio vigente no llegó a un nivel ({nd_reason or 'evidencia insuficiente'})."
     if m.state == indicators.STALE:
@@ -87,6 +99,10 @@ def attributes(entry: Any, governed: caps.Governed, pack: str, ids: tuple[str, .
             past = _historical(ind, entry, governed, pack)
             if past.state == indicators.OK:
                 m, historical = past, True
+            elif past.state in (indicators.NOT_DETERMINABLE, indicators.NO_VALUE, indicators.LEGACY_RULES):          # el último informe SÍ se leyó: se dice qué era, rotulado como histórico
+                code, text = _withheld_text(ind, past, status, nd_reason, historical=True)
+                withheld.append(caps.Withheld(iid, ind.label, code, text))
+                continue
         if m.state == indicators.OK:
             values.append(caps.AttributeValue(iid, ind.label, entry.entry_id, m.display, m.value, m.evidence, ind.caveat, historical))
         else:

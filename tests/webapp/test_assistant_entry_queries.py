@@ -308,3 +308,21 @@ def test_a_set_question_that_mentions_a_model_title_is_not_an_individual_query(w
 def test_why_not_determinable_on_a_model_that_has_a_level_clarifies_the_false_premise(world):
     r = one_entry(ask("¿Por qué Delivery Document es no determinable?"), world, "dd")
     assert "no tiene hoy adopción no determinable" in r.text and "Buena" in r.text and "Adquisición de la fuente" not in r.text
+
+
+def test_why_with_a_false_level_premise_on_a_stale_assessment_clarifies_with_the_historical_label(world):
+    import dataclasses
+    key = world.e["lp"].entry_id                                                                         # desactualizado; su último informe decía BUENA
+    world.statuses[key] = dataclasses.replace(world.statuses[key], judgment={**world.statuses[key].judgment, "level": "ADECUADA"})
+    r = one_entry(ask("¿Por qué Lista Precios tiene adopción buena?"), world, "lp")
+    assert "no tenía adopción" in r.text and "último informe conocido" in r.text and "no es el vigente" in r.text and "Adecuada" in r.text
+    assert "Adquisición de la fuente" not in r.text                                                      # no se justifica un nivel que el informe no tenía
+
+
+def test_the_stale_ficha_describes_a_not_determinable_last_judgment_instead_of_claiming_no_readable_value(world):
+    import dataclasses
+    key = world.e["lp"].entry_id
+    nd = {"status": "NOT_DETERMINABLE", "level": None, "ruleset_version": "judgment-rules/v2", "strengths": [], "reasons": [], "not_determinable_reason": "INSUFFICIENT_AFFIRMATIVE_EVIDENCE"}
+    world.statuses[key] = dataclasses.replace(world.statuses[key], judgment=nd)
+    r = one_entry(ask("¿Qué sabés de Lista Precios?"), world, "lp")
+    assert "Último informe conocido (Assessment desactualizado, no vigente): no determinable" in r.text and "no hay un último valor legible" not in r.text

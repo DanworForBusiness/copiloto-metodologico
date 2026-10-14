@@ -288,3 +288,14 @@ def test_the_contract_exposes_no_field_the_product_does_not_present():
 def test_links_are_built_from_the_entry_id(world):
     a = _facts(world, "dd")
     assert dict(a.links) == {"Ver Assessment": presenter.assessment_url(world.e["dd"], PACK), "Abrir detalle": presenter.flow_url(world.e["dd"], PACK)}
+
+
+def test_a_stale_assessment_whose_last_judgment_was_not_determinable_says_so_as_historical(world):
+    key = world.e["lp"].entry_id
+    nd = {"status": "NOT_DETERMINABLE", "level": None, "ruleset_version": "judgment-rules/v2", "strengths": [], "reasons": [], "not_determinable_reason": "INSUFFICIENT_AFFIRMATIVE_EVIDENCE"}
+    world.statuses[key] = dataclasses.replace(world.statuses[key], judgment=nd)
+    a = _facts(world, "lp", "adoption", "confidence")
+    held = _held(a, "adoption")
+    assert held.code == facts.NOT_DETERMINABLE and held.text.startswith("Último informe conocido (Assessment desactualizado, no vigente): no determinable")
+    assert "Evidencia afirmativa insuficiente" in held.text and "no hay un último valor legible" not in held.text
+    assert _val(a, "confidence").historical and _val(a, "confidence").value == "LOW"                  # y los demás valores históricos siguen su curso
