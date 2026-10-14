@@ -98,4 +98,4 @@ def test_variants_keep_confidence_coverage_inputs_and_the_profile_untouched():
     for v in (T4, T5, ALL):
         evaluate_judgment(p, variants=v)
     assert p == before                                                               # solo lectura: confianza, cobertura y evidencia del perfil no se tocan (el Juicio no las calcula)
-    assert C.VARIANTS == frozenset(ALL)
+    assert C.VARIANTS == frozenset(ALL) | {C.VARIANT_LEVEL_RESOLUTION}

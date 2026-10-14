@@ -22,7 +22,7 @@ from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
 
 from . import contract as C
 from .cta import build_cta_candidates
-from .rules import evaluate_rules, published_contract_conformance
+from .rules import dimension_resolution, evaluate_rules, published_contract_conformance, resolve_level_exploratory
 
 _STRENGTH_BY_DIM = {
     C.SOURCE_INGESTION: ("SRC-STR-01",),
@@ -255,6 +255,14 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
 
     status, level, level_rule, nd_reason = _decide(reasons, strengths, not_eval, critical_undetermined=critical)
     _, level_no_exc, _, _ = _decide(reasons, strengths, not_eval, ignore_exceptions=True, critical_undetermined=critical)
+    dim_states = None
+    if C.VARIANT_LEVEL_RESOLUTION in variants and level_rule == "LVL-06":              # EXPLORATORIA: solo reinterpreta los LVL-06; el resto de la logica de decision queda intacta
+        pre_missing = _missing_strength_dimensions(ev, strengths, external_policy)
+        dim_states = dimension_resolution(ev, external_policy, strengths, reasons, pre_missing)
+        resolved = resolve_level_exploratory(dim_states)
+        if resolved is not None:
+            status, (level, level_rule), nd_reason = C.DETERMINED, resolved, None
+            level_no_exc = level
     closure = _closure(status, level, reasons, limitations)
     reasons.sort(key=lambda r: (_CLASS_RANK[r["classification"]], r["rule_id"], r["reason_id"]))
     reviews.sort(key=lambda r: (r["rule_id"], r["review_id"]))
@@ -277,6 +285,8 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     if missing_dims is not None:                           # LVL-06: distingue ausencia de fortalezas (evidencia evaluada) de insuficiencia de evidencia; aditivo, no cambia el nivel
         out["not_determinable_detail"] = {"level_rule": "LVL-06", "missing_strength_dimensions": missing_dims,
                                           "evidence_sufficient": not any(d["state"] == INSUFFICIENT_EVIDENCE for d in missing_dims)}
+    if dim_states is not None:
+        out["dimension_states"] = dim_states
     if external_policy != "UNDETERMINED" or variants:
         out["ruleset_options"] = {**({"external_policy": external_policy} if external_policy != "UNDETERMINED" else {}), **({"variants": sorted(variants)} if variants else {})}
     out["output_signature"] = C.signature(out)

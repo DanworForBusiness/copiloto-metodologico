@@ -683,6 +683,91 @@ def supporting_evidence(ev: ProfileEvidence) -> dict:
     }
 
 
+# ───────────────────────────── RESOLUCION DE NIVEL EXPLORATORIA (variante LEVEL_RESOLUTION) ─────────────────────────────
+def _no_integration_scope(ev: ProfileEvidence) -> list[str]:
+    """Justificacion ARQUITECTONICA de «armonizacion no aplicable»: NINGUN candidato de armonizacion en el cierre, NINGUNA vista del cierre integra varias entradas (0 joins y 0 uniones: metricas
+    observadas) y ningun nodo de producto integra >1 hoja. Con esa arquitectura no existe responsabilidad de armonizar. La mera ausencia de una capa NO alcanza (p. ej. un join de dos hojas la desmiente).
+    Devuelve las bases (vacio = no se puede justificar)."""
+    if ev.harmonization or not ev.views:
+        return []
+    for v in ev.views.values():
+        m = v.get("metrics") or {}
+        if m.get("joins") or m.get("unions"):
+            return []
+    for n in ev.product_nodes:
+        eff = ev.effective_providers(n)
+        if len(eff.get(K_LOCAL_LEAF, ())) + len(eff.get(K_BOUNDARY, ())) > 1:
+            return []
+    return ["ARCH.no_harmonization_candidate_in_closure", "ARCH.no_view_in_closure_integrates_several_inputs_joins_0_unions_0", "ARCH.no_product_node_integrates_more_than_one_leaf"]
+
+
+def _propagation_met_by_replicated_ingestion(ev: ProfileEvidence, policy: str) -> list[str]:
+    """EVIDENCIA POSITIVA de «el producto compone contratos ya resueltos» cuando lee una tabla LOCAL replicada: cada nodo de producto consume SOLO vistas/candidatos/tablas locales (ninguna hoja de frontera
+    directa), a lo sumo UNA hoja local, y esa hoja es una RÉPLICA PURA: procedencia COMPROBADA (ESTABLISHED, cadena completa), producida UNICAMENTE por Replication Flow y de clase de contrato gobernado.
+    Una tabla escrita ademas por un Data Flow (transformada/cargada por dos vías) no es una réplica pura. Sin esa procedencia: nada."""
+    if not ev.product_nodes:
+        return []
+    bases: list[str] = []
+    for n in ev.product_nodes:
+        eff = ev.effective_providers(n)
+        if not set(eff) <= {K_VIEW, K_HARM, K_LOCAL_LEAF} or len(eff.get(K_LOCAL_LEAF, ())) > 1:
+            return []
+        for lf in eff.get(K_LOCAL_LEAF, ()):
+            rec = ev.local_leaves.get(lf) or {}
+            kinds = {p.get("kind") for p in rec.get("producer_flows") or ()}
+            if not (rec.get("provenance_state") == "ESTABLISHED" and rec.get("chain_complete") is True and rec.get("basis") == "REPLICATION_FLOW" and kinds == {"REPLICATION_FLOW"}
+                    and ev.classify_source(lf, policy) == GOVERNED_SAP_CONTRACT):
+                return []                                           # una tabla que ADEMAS escribe un Data Flow (u otro productor) ya no es una replica pura: no hay evidencia positiva de «ingesta replicada»
+            bases.append(f"ce:leaf_provenance/{lf}")
+    return [*sorted(set(bases)), "PRO.product_consumes_only_a_replicated_governed_ingestion_contract_with_established_provenance"] if bases else []
+
+
+def dimension_resolution(ev: ProfileEvidence, policy: str, strengths_: list[dict], reasons: list[dict], missing: list[dict]) -> list[dict]:
+    """Estado por dimension para la resolucion exploratoria del nivel, con su evidencia y causa. Solo lee lo ya calculado por el motor (fortalezas, razones, causas de ausencia) y evidencia canonica."""
+    have = {s["rule_id"] for s in strengths_}
+    by_dim = {m["dimension"]: m for m in missing}
+    out = []
+    for dim, ids in (("SOURCE_INGESTION", ("SRC-STR-01",)), ("HARMONIZATION", ("HAR-STR-01", "HAR-STR-02")), ("PROPAGATION", ("PRO-STR-01",)), ("PUBLISHED_CONTRACT", ("PUB-STR-01",))):
+        dim_reasons = [r["rule_id"] for r in reasons if r["dimension"] == dim and r["state"] not in C.REMOVING_STATES]
+        item = {"dimension": dim, "state": C.DS_UNRESOLVED, "cause": None, "basis": [], "local_deficiencies": dim_reasons}
+        if any(i in have for i in ids):
+            item["state"] = C.DS_STRENGTH
+            item["basis"] = [i for i in ids if i in have]
+        else:
+            m = by_dim.get(dim) or {}
+            item["cause"] = m.get("cause")
+            if m.get("state") == "INSUFFICIENT_EVIDENCE" or m.get("cause") in ("NO_SOURCE_CONTACT_OBSERVED", "NO_PRODUCT_NODE_OBSERVED"):
+                item["state"] = C.DS_NOT_EVALUABLE                                                   # falta evidencia: NO es «no aplicable»
+            elif dim_reasons:
+                item["state"], item["basis"] = C.DS_DEFICIENCY, dim_reasons
+            elif dim == "HARMONIZATION" and m.get("cause") == "NO_HARMONIZATION_BOUNDARY_OBSERVED":
+                na = _no_integration_scope(ev)
+                if na:
+                    item["state"], item["basis"] = C.DS_NOT_APPLICABLE, na
+            elif dim == "PROPAGATION" and m.get("cause") == "PRODUCT_DOES_NOT_COMPOSE_RESOLVED_CONTRACTS":
+                met = _propagation_met_by_replicated_ingestion(ev, policy)
+                if met:
+                    item["state"], item["basis"] = C.DS_MET, met
+        out.append(item)
+    return out
+
+
+def resolve_level_exploratory(states: list[dict]) -> tuple[str, str] | None:
+    """HIPOTESIS de nivel (NO definitiva) sobre los estados por dimension, solo para los casos que la regla vigente deja en LVL-06. ``None`` = sigue «No determinable».
+    · cualquier dimension aplicable no evaluable, sin resolver (sin evidencia positiva) o con deficiencia demostrada ⇒ no se promueve;
+    · BUENA (LVL-07): fortalezas en >= 3 dimensiones y el resto cumplida o no aplicable;
+    · ADECUADA (LVL-08): todas las dimensiones aplicables con fortaleza o responsabilidad cumplida, con fortalezas en < 3 y al menos una."""
+    applicable = [s for s in states if s["state"] != C.DS_NOT_APPLICABLE]
+    if not applicable or any(s["state"] in (C.DS_NOT_EVALUABLE, C.DS_UNRESOLVED, C.DS_DEFICIENCY) for s in applicable):
+        return None
+    n = sum(1 for s in applicable if s["state"] == C.DS_STRENGTH)
+    if n >= C.BUENA_MIN_STRENGTH_DIMENSIONS:
+        return C.BUENA, C.LEVEL_RULE_BUENA_BY_RESOLUTION
+    if n >= 1:
+        return C.ADECUADA, C.LEVEL_RULE_ADECUADA_BY_RESOLUTION
+    return None
+
+
 def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: frozenset = frozenset()) -> dict:
     pro = rule_pro_mat_01(ev, policy)
     lek = rule_lek_mat_02(ev, policy)
