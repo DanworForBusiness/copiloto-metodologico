@@ -15,12 +15,13 @@ Feature COPILOT que consume capacidades compartidas desde sus dueños explícito
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from core.content_registry import resolve_pack, resolve_pack_file, roots_for_kind
 from webapp.services import auth_service
@@ -56,8 +57,19 @@ def _js_single_quoted(value: str) -> str:
     return "'" + escaped + "'"
 
 
+# El logo animado es PÚBLICO y determinista: depende solo de (pack, title, subtitle) y del archivo del pack, nunca de la sesión. Se descarga en CADA página del Hub
+# (iframe de identidad, ~125 KB) y sin validador ni vigencia el navegador lo bajaba entero en cada navegación, aun con la caché caliente. ETag por contenido + vigencia
+# corta: una navegación posterior no vuelve a pedirlo y, vencida la vigencia, un 304 evita el cuerpo. Vigencia acotada: tras un deploy que cambie el asset, a lo sumo
+# una hora con el anterior (no es un asset versionado por URL, por eso NO es `immutable`).
+DANCING_LOGO_MAX_AGE = 3600
+
+
+def _dancing_logo_headers(etag: str) -> dict[str, str]:
+    return {"ETag": etag, "Cache-Control": f"public, max-age={DANCING_LOGO_MAX_AGE}"}
+
+
 @router.get("/brand/dancing/{pack_name}", include_in_schema=False)
-def dancing_logo(pack_name: str, title: str = Query(""), subtitle: str = Query("")):
+def dancing_logo(request: Request, pack_name: str, title: str = Query(""), subtitle: str = Query("")):
     selected = resolve_pack(pack_name)
     path = resolve_pack_file("assets", "danwor-animated-dancing.html", selected)
     if not path.exists():
@@ -78,7 +90,11 @@ def dancing_logo(pack_name: str, title: str = Query(""), subtitle: str = Query("
         source = _TITLE_PATTERN.sub(lambda m: f"const TITLE    = {_js_single_quoted(title)};", source, count=1)
     if subtitle:
         source = _SUBTITLE_PATTERN.sub(lambda m: f"const SUBTITLE = {_js_single_quoted(subtitle)};", source, count=1)
-    return HTMLResponse(source)
+    etag = '"' + hashlib.sha1(source.encode("utf-8")).hexdigest() + '"'
+    headers = _dancing_logo_headers(etag)
+    if etag in [v.strip() for v in request.headers.get("if-none-match", "").split(",")]:
+        return Response(status_code=304, headers=headers)
+    return HTMLResponse(source, headers=headers)
 
 
 @router.get("/pack-assets/{pack_name}/{asset_path:path}", include_in_schema=False)
