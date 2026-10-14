@@ -352,7 +352,7 @@ def pipeline_model(orch: IngestionOrchestration) -> dict | None:
 _LEGEND = {
     "data": ("Flujo de datos", ""),
     "orch": ("Orquestación (Task Chain; no mueve datos)", "orch"),
-    "proj": ("Proyección activa de la tabla técnica", "proj"),
+    "proj": ("Proyección (no es una carga): tabla técnica — tabla base", "proj"),
     "unverified": ("Relación del manifest, destino físico no verificado", "unverified"),
 }
 

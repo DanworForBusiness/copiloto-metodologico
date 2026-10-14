@@ -2156,8 +2156,10 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None, *
         else:
             sx, sy, tx, ty = x1 + node_w[up], y1 + H / 2, x2, y2 + H / 2
             dx = max(24, abs(tx - sx) / 2)
+            # Una PROYECCIÓN (`X_Delta — X`, «no es una carga») es un vínculo sin dirección de transferencia: sin punta de flecha. El resto de las aristas conserva su marcador.
+            marker = "" if (edge_kind or {}).get((up, tgt)) == "proj" else ' marker-end="url(#ln-arrow)"'
             p.append(f'<path class="{edge_cls}" d="M{sx:.0f},{sy:.0f} C{sx+dx:.0f},{sy:.0f} '
-                     f'{tx-dx:.0f},{ty:.0f} {tx:.0f},{ty:.0f}" marker-end="url(#ln-arrow)"/>')
+                     f'{tx-dx:.0f},{ty:.0f} {tx:.0f},{ty:.0f}"{marker}/>')
 
     for up, tgt in direct_edges:
         _edge(up, tgt, "ln-edge")

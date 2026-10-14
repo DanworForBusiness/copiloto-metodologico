@@ -59,3 +59,24 @@ def test_shared_lineage_renderer_is_unchanged_without_the_new_optional_keys():
     svg = _catalog_lineage_svg(nodes, False, {"A", "B"})
     assert "ai-icon" not in svg and "ln-node-a--static" not in svg and 'class="ln-num"' in svg and 'href="#a"' in svg and "ln-edge--" not in svg
     assert 'aria-label="Diagrama de trazabilidad del flujo"' in svg
+
+
+def test_projection_edge_has_no_arrowhead_while_data_and_orchestration_edges_keep_theirs():
+    html = co.render_html(_orch(co.DELTA_SHADOW, [co.Chain("TC_1", None, ("TC_1",))], physical=T + "_Delta"), "a", diagram=_catalog_lineage_svg)
+    paths = re.findall(r'<path class="(ln-edge[^"]*)" d="[^"]*"( marker-end="url\(#ln-arrow\)")?/>', html.split('<ul class="orch-legend">')[0])
+    by_kind = {("proj" if "--proj" in c else "orch" if "--orch" in c else "data"): bool(m) for c, m in paths}
+    assert by_kind == {"proj": False, "orch": True, "data": True}                       # solo la proyección pierde la punta; datos y orquestación intactos
+    assert len(paths) == 3 and "ln-edge--proj" in html
+
+
+def test_legend_states_that_the_projection_is_not_a_load():
+    html = co.render_html(_orch(co.DELTA_SHADOW, physical=T + "_Delta"), "a", diagram=_catalog_lineage_svg)
+    assert "Proyección (no es una carga): tabla técnica — tabla base" in html
+    assert "proyección activa (no es la misma tabla)" in html                           # el detalle textual conserva su semántica
+
+
+def test_legacy_renderer_edges_always_keep_the_arrowhead_without_edge_kind():
+    nodes = [{"name": "A", "label": "A", "title": "A", "layer": "1", "upstreams": [], "assoc_upstreams": [], "slug": "a", "num": 1, "is_factcube": False},
+             {"name": "B", "label": "B", "title": "B", "layer": "3", "upstreams": ["A"], "assoc_upstreams": [], "slug": "b", "num": 2, "is_factcube": True}]
+    svg = _catalog_lineage_svg(nodes, False, {"A", "B"})
+    assert svg.count('marker-end="url(#ln-arrow)"') == 1
