@@ -668,6 +668,21 @@ def _catalog_data_product_lineage_svg(product, show_lineage: bool = False) -> st
         for n in (getattr(product, "lineage_nodes", []) or []) if isinstance(n, dict)
     }
 
+    _node_icon = {
+        str(n.get("display") or "").strip().lower(): artifact_icons.artifact_type(artefacto_tecnico=str(n.get("kind_label") or "") or None)
+        for n in (getattr(product, "lineage_nodes", []) or []) if isinstance(n, dict)
+    }
+
+    def _dp_node_text(x: float, y: float, ytxt: str, num: str, label: str, icon_key: str | None, cut: int) -> str:
+        """Texto del nodo SIMPLE. Sin ícono: la salida histórica (número + nombre en un solo <text>); con ícono: número, ícono del registro y nombre desplazado."""
+        if not icon_key:
+            return (f'<text x="{x + 16}" y="{ytxt}" class="ln-node-text"><tspan class="ln-num">{num}</tspan> '
+                    f'{html.escape(label[:cut] + ("..." if len(label) > cut else ""), quote=True)}</text>')
+        short = label[:cut - 7] + ("..." if len(label) > cut - 7 else "")
+        return (f'<text x="{x + 16}" y="{ytxt}" class="ln-node-text"><tspan class="ln-num">{num}</tspan></text>'
+                + artifact_icons.icon_group(icon_key, x=x + 40, y=y + 13.5, size=15)
+                + f'<text x="{x + 62}" y="{ytxt}" class="ln-node-text">{html.escape(short, quote=True)}</text>')
+
     def _dp_anchor(display: str, ent_label: str = "") -> str:
         lbl = (_node_label.get(display.lower()) or ent_label or "").strip()
         desc = lbl if (lbl and lbl != display) else display
@@ -719,6 +734,7 @@ def _catalog_data_product_lineage_svg(product, show_lineage: bool = False) -> st
             else:
                 extra_index += 1
                 num = extra_index + 1
+            icon_key = artifact_icons.artifact_type(artefacto_tecnico=str(raw_node.get("kind_label") or "") or None)        # misma fuente de verdad de tipos; sin metadata → sin ícono
             title_parts = [str(raw_node.get("label") or raw_node.get("kind_label") or display)]
             if runtime:
                 title_parts.append("Object Store" if runtime == "object_store" else "HANA")
@@ -739,6 +755,7 @@ def _catalog_data_product_lineage_svg(product, show_lineage: bool = False) -> st
                     "delta capable" if raw_node.get("delta_capable") else "",
                     "compartido" if raw_node.get("shared") else "",
                 ])),
+                **({"icon": icon_key} if icon_key else {}),
             })
         if lineage_nodes:
             product_label = getattr(product, "business_name", "") or getattr(product, "title", "") or getattr(product, "product_id", "")
@@ -755,6 +772,7 @@ def _catalog_data_product_lineage_svg(product, show_lineage: bool = False) -> st
                 "is_factcube": False,
                 "runtime": "object_store",
                 "subtext": "Data Product",
+                "icon": "data_product",                    # tipo PROPIO: un Data Product no es un Modelo Analítico (no usa el cubo)
             })
             return _catalog_lineage_svg(lineage_nodes, True, {n["name"] for n in lineage_nodes})
 
@@ -782,12 +800,12 @@ def _catalog_data_product_lineage_svg(product, show_lineage: bool = False) -> st
         p.append(f'<path d="M{left_x + left_w},{y + H / 2:.1f} C{left_x + left_w + 45},{y + H / 2:.1f} {right_x - 55},{product_y + H / 2:.1f} {right_x - 4},{product_y + H / 2:.1f}" class="ln-edge" marker-end="url(#dp-ln-arrow)"/>')
         p.append(f'<a href="#{esc(slug)}" class="ln-node-a" data-catalog-anchor="#{esc(slug)}">')
         p.append(f'<rect x="{left_x}" y="{y}" width="{left_w}" height="{H}" rx="8" class="ln-node"/>')
-        p.append(f'<text x="{left_x + 16}" y="{y + 26}" class="ln-node-text"><tspan class="ln-num">{i + 2:02d}</tspan> {esc(label[:42] + ("..." if len(label) > 42 else ""))}</text>')
+        p.append(_dp_node_text(left_x, y, str(y + 26), f"{i + 2:02d}", label, _node_icon.get(label.lower()), 42))
         p.append('</a>')
     p += [
         '<a href="#resumen" class="ln-node-a" data-catalog-anchor="#resumen">',
         f'<rect x="{right_x}" y="{product_y:.1f}" width="{right_w}" height="{H}" rx="8" class="ln-node"/>',
-        f'<text x="{right_x + 16}" y="{product_y + 26:.1f}" class="ln-node-text"><tspan class="ln-num">01</tspan> {esc(product_label[:34] + ("..." if len(product_label) > 34 else ""))}</text>',
+        _dp_node_text(right_x, product_y, f"{product_y + 26:.1f}", "01", str(product_label), "data_product", 34),
         '</a>',
         '</svg></div>',
     ]
@@ -2009,8 +2027,9 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None, *
             # Data Product: comportamiento actual (1 línea + subtext); el ancho toma el
             # MAYOR de nombre y subtexto (SUB_CHAR levemente sobreestimado).
             disp = (n["label"][:33] + "…") if len(n["label"]) > 34 else n["label"]
-            w = max(WMIN, min(WMAX, int(max(NUM_W + len(disp) * CHAR + PAD_R,
-                                            32 + len(sub) * 5.2 + PAD_R))))
+            ix = ICON_X if n.get("icon") else 0                  # sin ícono: 0 (ancho histórico idéntico)
+            w = max(WMIN, min(WMAX, int(max(NUM_W + ix + len(disp) * CHAR + PAD_R,
+                                            32 + ix + len(sub) * 5.2 + PAD_R))))
             return w, [disp]
         # Flujo normal: nombre COMPLETO envuelto en ≤2 líneas; ancho = la línea más larga.
         lines = _wrap_label(n["label"])
