@@ -193,6 +193,22 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
         {"name": name, "label": content_pack_short_label(name), "description": content_pack_label(name), "home": nav.home_url(name)}
         for name in available_content_packs()
     ]
+    # Inventarios del Catálogo para la pestaña «Catálogo»: solo los consume el cuerpo NO inmersivo y el panel derecho (`show_panel`), que un módulo inmersivo (00 Intro: un iframe de
+    # storytelling) nunca renderiza. Leerlos ahí costaba la carga completa de flujos y Data Products (≈0,3 s en frío) para nada; en los demás módulos y en `?tab=catalogo` se leen
+    # igual que siempre. Los valores vacíos de la intro nunca se renderizan (ver module.html: todo uso está en la rama `else` de `immersive`).
+    catalog_ctx = (
+        {"catalog_domains": [], "catalog_clients": [], "catalog_models": [], "catalog_connection_types": [], "catalog_security_families": [], "catalog_data_products": [],
+         "catalog_lobs": []}
+        if immersive and not initial_tab == "catalogo" else {
+            "catalog_domains": catalog_reads._catalog_domains(),
+            "catalog_clients": catalog_reads._catalog_clients(),          # selector "Clientes": clientes con flujos navegables
+            "catalog_models": catalog_reads._catalog_model_domains(),     # selector "Modelos": sin agrupaciones legacy (catalog_domains conserva su contrato)
+            "catalog_connection_types": catalog_reads._catalog_connection_types(),
+            "catalog_security_families": catalog_reads._catalog_security_families(),
+            "catalog_data_products": catalog_reads._catalog_data_products_list(),
+            "catalog_lobs": dcs.lob_options(),            # taxonomía gobernada (estática): los conteos/grupos se leen recién al elegir una línea (GET /catalog/lob)
+        }
+    )
     return templates.TemplateResponse(
         request=request,
         name="module.html",
@@ -253,13 +269,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             "conversation_id": conversation.id,
             "invite_src": invite.invite_src(request, selected),
             "catalog_pilot": os.getenv("DANWOR_CATALOG_PILOT", "").lower() in {"1", "true", "on", "yes"},
-            "catalog_domains": catalog_reads._catalog_domains(),
-            "catalog_clients": catalog_reads._catalog_clients(),          # selector "Clientes": clientes con flujos navegables
-            "catalog_models": catalog_reads._catalog_model_domains(),     # selector "Modelos": sin agrupaciones legacy (catalog_domains conserva su contrato)
-            "catalog_connection_types": catalog_reads._catalog_connection_types(),
-            "catalog_security_families": catalog_reads._catalog_security_families(),
-            "catalog_data_products": catalog_reads._catalog_data_products_list(),
-            "catalog_lobs": dcs.lob_options(),            # taxonomía gobernada (estática): los conteos/grupos se leen recién al elegir una línea (GET /catalog/lob)
+            **catalog_ctx,
             "initial_tab": initial_tab,
             "initial_tool": initial_tool,
             "initial_catalog_action": initial_catalog_action,
