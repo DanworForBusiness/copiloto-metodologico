@@ -163,3 +163,26 @@ def test_a_domain_shared_by_several_models_never_identifies_even_outside_the_lin
     assert ids(resolve("la confianza de gamma dominio", world, CLIENTS, ())) == ["c"]                    # el propio (no compartido) sí
     quoted = resolve("la confianza de «Compras Varias»", world, CLIENTS, ())
     assert quoted.status == AMBIGUOUS and sorted(ids(quoted)) == ["a", "b"]
+
+
+# ── candidatos (suggest): ayuda para el usuario, jamás una selección ──────────────────────────────────────────────────────────────────────────
+from webapp.services.assistant_entry_resolver import suggest  # noqa: E402
+
+
+def test_suggest_matches_every_term_by_equality_or_a_prefix_of_three_letters():
+    assert [i.entry_id for i in suggest(["raw", "g", "l"], WORLD, (KEN,))] == ["ken-gl"]                         # «Raw G/L de Kensing»
+    assert [i.entry_id for i in suggest(["delivery", "doc"], WORLD)] == ["ken-dd", "ken-ddi"]
+    assert [i.entry_id for i in suggest(["reserva"], WORLD)] == ["bio-mat", "bio-mp"]
+
+
+def test_suggest_requires_all_terms_and_a_meaningful_one_and_respects_the_client():
+    assert suggest(["delivery", "inexistente"], WORLD) == ()
+    assert suggest(["g"], WORLD) == () and suggest([], WORLD) == ()                                               # una letra suelta no sugiere nada
+    assert suggest(["delivery", "doc"], WORLD, (PAM,)) == ()                                                      # el cliente nombrado acota
+    assert [i.entry_id for i in suggest(["stock"], WORLD)] == ["lom-stock", "pam-stock"]
+
+
+def test_suggest_is_capped_and_ordered_and_never_changes_resolve():
+    many = [_i(f"e{n}", BIO, f"Modelo Comun {n:02d}", "", "") for n in range(20)]
+    assert len(suggest(["modelo", "comun"], many)) == 8
+    assert resolve("modelo comun 03", many, CLIENTS, ()).status == UNIQUE and resolve("modelo comun", many, CLIENTS, ()).status == NONE   # resolve sigue sin fuzzy

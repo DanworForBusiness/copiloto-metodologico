@@ -329,14 +329,43 @@ def _entry_question(intent: answers.Intent, title: str, client: str) -> str:
     return f"¿{' y '.join(labels)} de {name}?"
 
 
-def _entry_choice(intent: answers.Intent, matches, flows: list, governed: caps.Governed | None, pack: str, multiple: bool) -> NavigationResult:
+def _entry_choice(intent: answers.Intent, matches, flows: list, governed: caps.Governed | None, pack: str, multiple: bool, lead: str | None = None) -> NavigationResult:
     by_id = {e.entry_id: e for e in flows}
     shown = [by_id[m.entry_id] for m in matches[:MAX_OPTIONS] if m.entry_id in by_id]
     titles = caps.build_items(shown, governed, pack)
     options = tuple(_ask(f"{item.title} · {e.cliente}".strip(" ·"), _entry_question(intent, item.title, str(e.cliente or ""))) for item, e in zip(titles, shown))
     more = f" Muestro los primeros {MAX_OPTIONS}: sumá el cliente o el nombre completo para acotar." if len(matches) > MAX_OPTIONS else ""
-    lead = "Nombraste más de un modelo. Consultá uno por vez:" if multiple else "Hay más de un modelo con ese nombre. ¿Cuál querés consultar?"
+    lead = lead or ("Nombraste más de un modelo. Consultá uno por vez:" if multiple else "Hay más de un modelo con ese nombre. ¿Cuál querés consultar?")
     return NavigationResult(lead + more, options)
+
+
+_NAME_STOP = frozenset({"de", "del", "la", "el", "los", "las", "un", "una", "unos", "unas", "y", "e", "o", "u", "a", "al", "en", "con", "por", "porque", "para", "sobre", "acerca", "que", "sabes", "sabe",
+                        "sabemos", "contame", "contanos", "decime", "dime", "resumime", "resumen", "ficha", "informacion", "info", "como", "esta", "anda", "tal", "situacion", "cual", "cuales", "es",
+                        "son", "tiene", "tienen", "su", "sus", "mi", "me", "te", "se", "lo", "hay", "ese", "esa", "este", "mas", "si", "no", "ya", "modelo", "modelos", "assessment"})
+
+
+def _name_terms(question: str, clients: list[str], res: resolver.Resolution) -> list[str]:
+    """Las palabras de la pregunta que NOMBRAN un modelo: sin vocabulario gobernado (indicadores, niveles, estados), sin clientes ni líneas de negocio, sin muletillas. Entre «comillas» manda el
+    texto entrecomillado tal cual."""
+    if res.quoted:
+        return [w for m in resolver._QUOTED.findall(question) for g in m if g for w in resolver.tokens(g)]
+    text = f" {query.parse(question).masked} "
+    for c in clients:
+        text = re.sub(rf"(?<![a-z0-9]){re.escape(norm_text(c))}(?![a-z0-9])", " ", text)
+    for label in caps.lob_labels().values():
+        text = re.sub(rf"(?<![a-z0-9]){re.escape(norm_text(label))}(?![a-z0-9])", " ", text)
+    return [w for w in resolver.tokens(text) if w not in _NAME_STOP]
+
+
+def _entry_unresolved(intent: answers.Intent, question: str, res: resolver.Resolution, flows: list, clients: list[str], governed: caps.Governed | None, pack: str) -> NavigationResult | None:
+    """Pregunta INDIVIDUAL sin modelo identificado (el nombre no coincide exacto): se ofrecen candidatos que el usuario confirma; jamás se elige uno ni se cae al LLM libre. Sin candidatos y
+    sin comillas devuelve None (lo resuelve 4A / el flujo de siempre); un nombre entre comillas que no existe se dice."""
+    candidates = resolver.suggest(_name_terms(question, clients, res), _identities(flows, governed), res.clients)
+    if candidates:
+        return _entry_choice(intent, candidates, flows, governed, pack, False, "No encontré un modelo con ese nombre exacto. ¿Te referís a alguno de estos? Elegí uno y lo consulto:")
+    if res.quoted:
+        return NavigationResult("No encontré en el Catálogo un modelo con ese nombre exacto. Probá con el título tal como figura en el Catálogo.", ())
+    return None
 
 
 def _entry_query(question: str, pack: str, stem: str = "", ctx: qctx.QueryContext | None = None) -> NavigationResult | None:
@@ -353,6 +382,14 @@ def _entry_query(question: str, pack: str, stem: str = "", ctx: qctx.QueryContex
     except Exception:  # noqa: BLE001 — sin poder identificar un modelo no se reclama la pregunta: siguen los destinos de siempre
         log.exception("consulta individual: falló la identificación del modelo")
         return None
+    if res.status == resolver.NONE and len(res.clients) <= 1:
+        try:
+            unresolved = _entry_unresolved(intent, question, res, flows, catalog_navigation.clients(mod, entries), governed, pack)
+        except Exception:  # noqa: BLE001 — las sugerencias son ayuda: si fallan, sigue el flujo de siempre
+            log.exception("consulta individual: falló la búsqueda de candidatos")
+            unresolved = None
+        if unresolved is not None:
+            return unresolved
     if res.status == resolver.NONE or len(res.clients) > 1:
         return None                                                          # sin UN modelo identificable (o con varios clientes) lo resuelve 4A / el flujo de siempre
     if res.status in (resolver.AMBIGUOUS, resolver.MULTIPLE):

@@ -74,6 +74,28 @@ def _keys(i: Identity, shared_domains: set[tuple[str, ...]]) -> list[tuple[tuple
     return out
 
 
+def suggest(terms: list[str] | tuple[str, ...], identities: list[Identity] | tuple[Identity, ...], clients: tuple[str, ...] | list[str] = (), limit: int = 8) -> tuple[Identity, ...]:
+    """CANDIDATOS (nunca una selección) para un nombre que NO coincide exacto: los modelos cuyas palabras de título, identificador técnico o dominio contienen TODAS las palabras pedidas
+    (igualdad, o prefijo de al menos 3 letras: «doc» → «document»). Un cliente nombrado acota. Sirve solo para ofrecerle al usuario opciones que ÉL confirma; ``resolve`` sigue sin fuzzy."""
+    wanted = list(dict.fromkeys(t for t in terms if t))
+    if not wanted or not (len(wanted) >= 2 or any(len(t) >= 3 for t in wanted)):
+        return ()
+    domain_count: dict[tuple[str, ...], int] = {}
+    for i in identities:
+        d = tokens(i.domain)
+        if d:
+            domain_count[d] = domain_count.get(d, 0) + 1
+    shared = {d for d, n in domain_count.items() if n > 1}                    # un dominio compartido no nombra a ningún modelo (ni siquiera como sugerencia)
+    found = []
+    for i in identities:
+        if clients and i.client not in clients:
+            continue
+        words = {w for keys, _origin in _keys(i, shared) for w in keys}
+        if all(any(w == t or (len(t) >= 3 and w.startswith(t)) for w in words) for t in wanted):
+            found.append(i)
+    return tuple(sorted(found, key=lambda i: (i.client.lower(), i.title.lower(), i.entry_id))[:limit])
+
+
 def _inside(span: tuple[int, int], others: list[tuple[int, int]]) -> bool:
     return any(o[0] <= span[0] and span[1] <= o[1] for o in others)
 

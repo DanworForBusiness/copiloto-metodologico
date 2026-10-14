@@ -169,9 +169,33 @@ def test_a_client_alone_never_selects_a_model(world):
     assert "Estado del Assessment" not in ask("¿Qué sabés de Kensing?").text
 
 
-def test_no_fuzzy_matching_a_partial_name_is_not_a_model(world):
-    for q in ("¿Qué casos a revisar tiene Delivery Doc?", "¿Qué casos a revisar tiene Lista de Precios?", "¿Qué casos a revisar tiene Sellout?"):
-        assert nav._entry_query(q, PACK, HOST) is None, q                                          # sin coincidencia exacta de nombre no se reclama la pregunta
+def test_a_partial_name_is_never_selected_but_candidates_are_offered_for_the_user_to_confirm(world):
+    r = nav._entry_query("¿Qué casos a revisar tiene Delivery Doc?", PACK, HOST)
+    assert r is not None and r.result is None and "No encontré un modelo con ese nombre exacto" in r.message                 # no se elige ni se responde un valor
+    assert [label for label, _u, _m in [(a[0], a[1], a[2]) for a in r.actions]] == ["Delivery Document · Kensing", "Delivery Document Item · Kensing"]
+    chat = ask("¿Qué sabés de Delivery Doc?")
+    assert not chat.llm and not chat.rows and [label for _q, label in chat.asks] == ["Delivery Document · Kensing", "Delivery Document Item · Kensing"]
+    for (question, _label), key in zip(chat.asks, ("dd", "ddi")):
+        one_entry(Chat().ask(question), world, key)                                                                         # cada opción lleva EXACTAMENTE a ese modelo
+
+
+def test_a_prefix_inside_a_named_client_only_offers_that_clients_models(world):
+    r = ask("¿Qué sabés de Delivery Doc de Pampa?")
+    assert not r.asks and not r.rows                                                                                         # Pampa no tiene ningún «Delivery Doc…»: no se ofrece el de Kensing
+    r2 = ask("¿Qué sabés de Lista de Precios?")
+    assert [label for _q, label in r2.asks] == ["Lista Precios · Biogenesis"] and not r2.llm
+
+
+def test_a_name_with_no_candidates_is_not_claimed(world):
+    for q in ("¿Qué casos a revisar tiene Sellout?", "¿Qué sabés de la arquitectura de datos?", "¿Cuál es el estado de la calidad de los datos de Kensing?"):
+        assert nav._entry_query(q, PACK, HOST) is None, q
+
+
+def test_a_quoted_name_that_does_not_exist_is_said_not_guessed(world):
+    r = nav._entry_query("¿Qué sabés de «Delivery Docs»?", PACK, HOST)
+    assert r is not None and r.result is None and "ese nombre exacto" in r.message and not r.actions
+    r2 = nav._entry_query("¿Qué sabés de «Delivery Doc»?", PACK, HOST)
+    assert r2 is not None and len(r2.actions) == 2                                                                           # entre comillas también se ofrecen candidatos (prefijo), nunca se selecciona
 
 
 def test_a_line_of_business_name_is_scope_not_a_model(world):
