@@ -2247,23 +2247,17 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .ln-edge.ln-edge--orch { stroke: var(--gold); stroke-dasharray: 2 4; opacity: .95; }
 .ln-edge.ln-edge--proj { stroke-dasharray: 1 3; stroke-width: 2; }
 .ln-edge.ln-edge--unverified { stroke-dasharray: 6 4; opacity: .5; }
-/* Legibilidad (AA): rol en gris oscuro e íconos en un dorado más profundo sobre fondo claro; en tema oscuro, tonos claros. */
+/* Legibilidad (AA): rol en gris oscuro; los íconos usan el MISMO dorado (`--gold`) que el linaje numerado y el resto del Hub. */
 .orch-pipeline .ln-node-subtext { fill: #55555c; opacity: 1; }
 .content-theme-dark .orch-pipeline .ln-node-subtext { fill: #aeaeb6; }
-.orch-pipeline .ai-icon { color: #8a6200; }
-.content-theme-dark .orch-pipeline .ai-icon { color: var(--gold); }
 .orch-pipeline .ln-edge, .orch-pipeline .ln-arrowhead { stroke-opacity: 1; opacity: 1; }
 .orch-pipeline .ln-edge { stroke: #85858d; }
 .orch-pipeline .ln-arrowhead { fill: #85858d; }
 .content-theme-dark .orch-pipeline .ln-edge { stroke: #8b8b94; }
 .content-theme-dark .orch-pipeline .ln-arrowhead { fill: #8b8b94; }
-.orch-pipeline .ln-edge.ln-edge--orch, .orch-legend .ln-edge--orch { stroke: var(--gold); }
+.orch-pipeline .ln-edge.ln-edge--orch { stroke: var(--gold); }
 .orch-pipeline .ln-edge.ln-edge--unverified { opacity: .6; }
 .orch-pipeline .lineage-svg { max-width: none; height: auto; }
-.orch-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 10px 0 0; padding: 0; font: 500 .72rem var(--sans); color: var(--soft); }
-.orch-legend li { display: inline-flex; align-items: center; margin: 0; padding: 0; }
-.orch-legend li::before { display: none; }
-.orch-legend svg { margin-right: 6px; }
 .orch-notes p { margin: 6px 0 0; font-size: .8rem; color: var(--soft); }
 .orch-text { margin-top: 12px; }
 

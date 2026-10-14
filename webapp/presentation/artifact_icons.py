@@ -47,7 +47,7 @@ _VARIANT_MARK = {"delta": '<path d="M17.2 21.5l2.3-4 2.3 4z" class="ai-mark"/>'}
 
 # Metadata CONFIABLE → tipo. `artefacto_tecnico` es el campo del front-matter que genera el Catálogo; `object_type` es el tipo de objeto del manifest del CLI.
 _BY_ARTEFACTO_TECNICO = {
-    "Tabla local": "table", "Tabla remota": "table", "Analytic Model": "analytic_model", "Data Flow": "data_flow", "Replication Flow": "replication_flow",
+    "Tabla local": "table", "Tabla remota": "table", "Extractor ODP-SAPI": "table", "Data Flow (tabla local)": "table", "Analytic Model": "analytic_model", "Data Flow": "data_flow", "Replication Flow": "replication_flow",
     "Transformation Flow": "transformation_flow", "Entity Relationship Model": "er_model", "Data Access Controls": "data_access_control", "Task Chain": "task_chain",
 }
 _BY_OBJECT_TYPE = {

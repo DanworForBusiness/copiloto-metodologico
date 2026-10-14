@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import unicodedata
+import zlib
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -1927,7 +1928,15 @@ def _lineage_row_order(by_col: dict, cols: list, edges, sweeps: int = 8) -> dict
     return {d: [by_name[name] for name in best[d]] for d in cols}
 
 
-def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None, *, edge_kind: dict | None = None, aria: str | None = None) -> str:
+def _catalog_node_icon(auto: dict, name: str, view_types: dict) -> dict:
+    """Clave de ícono del nodo del linaje según la MISMA fuente de verdad de tipos que el pipeline (`artifact_icons.artifact_type`): `artefacto_tecnico` del Catálogo y, para las vistas,
+    su `viewType` real (misma función que «Abrir SQL»). Sin metadata suficiente → {} y el nodo sale EXACTAMENTE como siempre (solo número)."""
+    key = artifact_icons.artifact_type(artefacto_tecnico=str(auto.get("artefacto_tecnico") or "") or None, view_type=view_types.get(name))
+    return {"icon": key} if key else {}
+
+
+def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None, *, edge_kind: dict | None = None, aria: str | None = None,
+                         arrow_at: str = "end", edge_title: dict | None = None) -> str:
     """Diagrama SVG del linaje del OUTPUT del flujo (solo los nodos en `keep`).
     Aristas DIRECTAS (FROM/JOIN) siempre; por ASOCIACIÓN (dimensiones/textos) solo con
     `show_assoc` (punteadas). Cada nodo es un ancla a su sección; el `num` del nodo ya
@@ -1939,7 +1948,8 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None, *
     Extensión OPCIONAL para diagramas de pipeline (p. ej. «Orquestación de ingesta»; sin estas claves la salida es BYTE A BYTE la de siempre): un nodo con `icon` (tipo del registro
     `presentation.artifact_icons`) dibuja el ícono en lugar del número; con `role` agrega una línea de rol bajo el nombre COMPLETO (envuelto en ≤2 líneas, nunca truncado); sin `slug`
     no es un ancla (no hay ruta a la que enlazar); `evidence="unverified"` marca el nodo como no verificado. `edge_kind` {(origen, destino): "orch"|"proj"|"unverified"} agrega la
-    clase `ln-edge--<kind>` a esa arista; `aria` reemplaza la etiqueta accesible del SVG."""
+    clase `ln-edge--<kind>` a esa arista; `aria` reemplaza la etiqueta accesible del SVG; `arrow_at="start"` pone la punta en el extremo IZQUIERDO (el mecanismo apunta al artefacto
+    que alimenta); `edge_title` {(origen, destino): texto} agrega un `<title>` (tooltip accesible) a la arista. Un nodo numerado con `icon` suma el ícono de su tipo junto al número."""
     from collections import defaultdict
     focus_names = frozenset(focus or ())
     names = {n["name"] for n in nodes if n["name"] in keep}
@@ -1987,6 +1997,7 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None, *
     # Ancho POR CONTENIDO: cada caja se ajusta a su texto (no ancho fijo), para no
     # desperdiciar espacio; el ancho de columna = el del nodo más ancho de la columna.
     NUM_W, CHAR, PAD_R, WMIN, WMAX = 30, 6.3, 14, 92, 260
+    ICON_X = 18        # desplazamiento extra del texto cuando el nodo NUMERADO lleva ícono (sin ícono: 0, salida idéntica a la histórica)
 
     def _node_dims(n):
         role = str(n.get("role") or "")
@@ -2003,7 +2014,7 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None, *
             return w, [disp]
         # Flujo normal: nombre COMPLETO envuelto en ≤2 líneas; ancho = la línea más larga.
         lines = _wrap_label(n["label"])
-        w = max(WMIN, min(WMAX, int(NUM_W + max(len(ln) for ln in lines) * CHAR + PAD_R)))
+        w = max(WMIN, min(WMAX, int(NUM_W + (ICON_X if n.get("icon") else 0) + max(len(ln) for ln in lines) * CHAR + PAD_R)))
         return w, lines
 
     node_w, node_disp, col_width = {}, {}, {}
@@ -2071,10 +2082,14 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None, *
             max_rows = max(max_rows, len(by_col[d]))
         width = (acc - COLGAP) if cols else 0
         height = HEAD + max_rows * (H + VGAP) - VGAP + 4
+    # La punta al inicio lleva un id ÚNICO por diagrama: varios SVG conviven en la página y `url(#id)` resuelve al PRIMERO del documento; si ese vive en un <details> cerrado (display:none) no se dibuja.
+    arrow_start_id = f"ln-arrow-start-{zlib.crc32('|'.join(n['name'] for n in nodes).encode()):x}" if arrow_at == "start" else "ln-arrow-start"
     p = [f'<svg class="lineage-svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
          f'role="img" aria-label="{html.escape(aria or "Diagrama de trazabilidad del flujo", quote=True)}">',
          '<defs><marker id="ln-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">'
-         '<path d="M0,0 L8,4 L0,8 z" class="ln-arrowhead"/></marker></defs>']
+         '<path d="M0,0 L8,4 L0,8 z" class="ln-arrowhead"/></marker>'
+         + (f'<marker id="{arrow_start_id}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse">'
+            '<path d="M0,0 L8,4 L0,8 z" class="ln-arrowhead"/></marker>' if arrow_at == "start" else '') + '</defs>']
 
     runtime_labels = {"hana": "HANA Space", "object_store": "HDLF Object Store", "data_product": "Data Product"}
     runtime_groups = defaultdict(list)
@@ -2157,9 +2172,11 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None, *
             sx, sy, tx, ty = x1 + node_w[up], y1 + H / 2, x2, y2 + H / 2
             dx = max(24, abs(tx - sx) / 2)
             # Una PROYECCIÓN (`X_Delta — X`, «no es una carga») es un vínculo sin dirección de transferencia: sin punta de flecha. El resto de las aristas conserva su marcador.
-            marker = "" if (edge_kind or {}).get((up, tgt)) == "proj" else ' marker-end="url(#ln-arrow)"'
+            marker = ("" if (edge_kind or {}).get((up, tgt)) == "proj"
+                      else f' marker-start="url(#{arrow_start_id})"' if arrow_at == "start" else ' marker-end="url(#ln-arrow)"')
+            ttl = (edge_title or {}).get((up, tgt))
             p.append(f'<path class="{edge_cls}" d="M{sx:.0f},{sy:.0f} C{sx+dx:.0f},{sy:.0f} '
-                     f'{tx-dx:.0f},{ty:.0f} {tx:.0f},{ty:.0f}"{marker}/>')
+                     f'{tx-dx:.0f},{ty:.0f} {tx:.0f},{ty:.0f}"{marker}' + (f'><title>{html.escape(ttl)}</title></path>' if ttl else '/>'))
 
     for up, tgt in direct_edges:
         _edge(up, tgt, "ln-edge")
@@ -2183,26 +2200,34 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None, *
             label_svg = f'<text class="ln-node-text" x="{x+32}" y="{y0 + 12:.0f}">{tsp}</text>'
             sub_html = f'<text class="ln-node-subtext" x="{x+32}" y="{y + H - 10:.0f}">{html.escape(role)}</text>'
         elif subtext:
+            tx = x + 32 + (ICON_X if n.get("icon") else 0)
             main_y = y + 18
             num_y = main_y
-            label_svg = f'<text class="ln-node-text" x="{x+32}" y="{main_y:.0f}">{html.escape(lines[0])}</text>'
-            sub_html = f'<text class="ln-node-subtext" x="{x+32}" y="{y+32:.0f}">{html.escape(subtext)}</text>'
+            label_svg = f'<text class="ln-node-text" x="{tx}" y="{main_y:.0f}">{html.escape(lines[0])}</text>'
+            sub_html = f'<text class="ln-node-subtext" x="{tx}" y="{y+32:.0f}">{html.escape(subtext)}</text>'
         elif len(lines) == 1:
+            tx = x + 32 + (ICON_X if n.get("icon") else 0)
             main_y = y + H / 2 + 4
             num_y = main_y
-            label_svg = f'<text class="ln-node-text" x="{x+32}" y="{main_y:.0f}">{html.escape(lines[0])}</text>'
+            label_svg = f'<text class="ln-node-text" x="{tx}" y="{main_y:.0f}">{html.escape(lines[0])}</text>'
             sub_html = ''
         else:
             # Label en 2 líneas (nombre completo): tspans; el número se centra vertical.
+            tx = x + 32 + (ICON_X if n.get("icon") else 0)
             num_y = y + H / 2 + 3
             y0 = y + H / 2 - 5
-            label_svg = (f'<text class="ln-node-text" x="{x+32}" y="{y0:.0f}">'
-                         f'<tspan x="{x+32}" dy="0">{html.escape(lines[0])}</tspan>'
-                         f'<tspan x="{x+32}" dy="12">{html.escape(lines[1])}</tspan></text>')
+            label_svg = (f'<text class="ln-node-text" x="{tx}" y="{y0:.0f}">'
+                         f'<tspan x="{tx}" dy="0">{html.escape(lines[0])}</tspan>'
+                         f'<tspan x="{tx}" dy="12">{html.escape(lines[1])}</tspan></text>')
             sub_html = ''
         icon_key = n.get("icon")
-        mark = (artifact_icons.icon_group(icon_key, variant=n.get("icon_variant"), x=x + 8, y=y + (H - 18) / 2, size=18) if icon_key
-                else f'<text class="ln-num" x="{x+11}" y="{num_y:.0f}">{n["num"]:02d}</text>')
+        if icon_key and role:                      # pipeline: el ícono reemplaza al número
+            mark = artifact_icons.icon_group(icon_key, variant=n.get("icon_variant"), x=x + 8, y=y + (H - 18) / 2, size=18)
+        elif icon_key:                             # linaje numerado: se conserva el número y se suma el ícono del tipo
+            mark = (f'<text class="ln-num" x="{x+11}" y="{num_y:.0f}">{n["num"]:02d}</text>'
+                    + artifact_icons.icon_group(icon_key, variant=n.get("icon_variant"), x=x + 27, y=y + (H - 15) / 2, size=15))
+        else:
+            mark = f'<text class="ln-num" x="{x+11}" y="{num_y:.0f}">{n["num"]:02d}</text>'
         node_cls = f'ln-node ln-layer-{n["layer"]}' + (" ln-node--unverified" if n.get("evidence") == "unverified" else "")
         inner = (f'<title>{html.escape(n["title"])}</title><rect class="{node_cls}" x="{x}" y="{y}" width="{w}" height="{H}" rx="8"/>'
                  f'{mark}{label_svg}{sub_html}')
@@ -2556,6 +2581,7 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
     # Ingesta local + su compañera técnica `_Delta` = UN objeto lógico: se pliega en el grafo/secciones y su verdad técnica queda en el detalle de la base.
     _capture = lambda n: catalog_delta_evidence.delta_capture(entry.cliente, entry.dominio, n)   # noqa: E731 — evidencia canónica (CSN), UNA para colapso y detalle
     delta_pairs = _catalog_delta_pairs([n for n in names if n in bodies], autos, _capture)
+    view_types = catalog_view_source.view_type_map(entry.cliente, entry.dominio)       # {vista → GRAPHICAL|SQL}; {} sin pool (los nodos de vista quedan sin ícono)
     # Nodos del flujo (sin num todavía: se numera por posición en el ORDEN VISIBLE).
     nodes, order = [], [n for n in names if n in bodies and n not in delta_pairs]
     for name in order:
@@ -2573,6 +2599,7 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
             "is_factcube": ("FACT" in sem or "CUBE" in sem),
             "upstreams": up,
             "assoc_upstreams": assoc,
+            **_catalog_node_icon(auto, name, view_types),
         })
 
     # keep = artefactos visibles según el toggle. Las secciones del detalle y el SVG

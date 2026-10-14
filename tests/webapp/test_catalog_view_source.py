@@ -271,3 +271,11 @@ def test_no_css_or_js_was_added_for_the_sql_hero():
     assert not re.search(r"meta_prefix|catalog-sql-(hero|meta)|sql-hero", css)
     tpl = (root / "webapp/templates/partials/catalog_cds_content.html").read_text(encoding="utf-8")
     assert "<script" not in tpl and "style=" not in tpl.replace('style="border-top:1px solid rgba(128,128,128,.32)"', "")
+
+
+def test_view_type_map_gives_the_real_type_of_views_only_and_nothing_without_a_pool(world):
+    catalog_view_source._type_memo.clear()
+    got = catalog_view_source.view_type_map("Acme", "")
+    assert got == {"2VG_GR": "GRAPHICAL", "3VF_SQL": "SQL", "3VF_EMPTY": "SQL", "3VF_BOTH": "GRAPHICAL"}      # sin UNKNOWN, tablas remotas ni modelos analíticos: nunca se adivina
+    assert catalog_view_source.view_type_map("Acme", "") == got                                                   # memoizado por huella del pool
+    assert catalog_view_source.view_type_map("NoExiste", "") == {}
