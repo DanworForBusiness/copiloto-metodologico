@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import itertools
 import json
 import shutil
 from pathlib import Path
@@ -30,6 +31,7 @@ from webapp import main
 from webapp.services import assessment_backfill as bf
 from webapp.services import assessment_service as svc
 from webapp.services import catalog_reads
+from webapp.services import migration_approval as ma
 
 MIG = "evidence_leaf_materialization_v4"
 KEY = "leaf_materialization"
@@ -108,8 +110,18 @@ def _make_v3(w, *entries) -> dict:
     return out
 
 
+_BACKUPS = itertools.count(1)
+
+
+def _grant(migration, plan):
+    return ma.Authorization(True, "AUTHORIZED", approver="approver", operator="operator")
+
+
 def _run(w, *entries, apply=False, **kw) -> dict:
-    return bf.migrate_stale_evidence(list(entries) or [w.k], MIG, apply=apply, governed_state_present=ALWAYS, **kw)
+    """``apply=True`` recorre el camino REAL asegurado (plan -> autorizacion -> respaldo verificado -> olas); la autorizacion la concede el test (la logica fail-closed se prueba en test_migration_secured_apply)."""
+    if not apply:
+        return bf.migrate_stale_evidence(list(entries) or [w.k], MIG, apply=False, governed_state_present=ALWAYS, **kw)
+    return bf.secured_migrate(list(entries) or [w.k], MIG, authorizer=_grant, backup_dir=w.tmp / f"backup-{next(_BACKUPS)}", allow_local_only=True, governed_state_present=ALWAYS, **kw)
 
 
 def _rec(out: dict, client: str = "Kensing") -> dict:
@@ -401,8 +413,10 @@ def test_cli_apply_needs_the_explicit_confirmation_naming_the_migration(monkeypa
         with pytest.raises(SystemExit) as e:
             _cli(monkeypatch, argv)
         assert e.value.code == 2
+    monkeypatch.setattr(bf, "secured_migrate", lambda es, name, **k: seen_secured.append(name) or {"outcome": "APPLIED", "counts": {"failed": 0, "abstained": 0}, "environment_warnings": []})
+    seen_secured: list = []
     code, seen = _cli(monkeypatch, ["--regenerate-stale-evidence", MIG, "--apply", "--confirm-migration", MIG])
-    assert (code, seen) == (0, [("migrate", MIG, True)])
+    assert (code, seen, seen_secured) == (0, [], [MIG])                                                                 # la migracion sensible SOLO se aplica por el camino asegurado
     assert _cli(monkeypatch, ["--regenerate-stale-evidence", "evidence_confidence_v3", "--apply"])[1] == [("migrate", "evidence_confidence_v3", True)]      # las demas migraciones no cambian
 
 
@@ -416,15 +430,12 @@ def test_cli_exit_codes_distinguish_abstentions_and_the_judgment_revalidation_mo
         bf.main(["--revalidate-judgment"])
 
 
-def test_the_authorization_hook_downgrades_an_unauthorized_apply_to_a_dry_run_without_writes(kworld):
+def test_a_direct_apply_of_the_sensitive_migration_is_refused_never_downgraded_to_a_dry_run(kworld):
     _make_v3(kworld, kworld.k)
     snap = _snapshot(kworld)
-    out = _run(kworld, apply=True, authorize_apply=lambda m: False)
-    assert out["apply"] is False and out["dry_run"] is True and any("APPLY_NOT_AUTHORIZED" in w for w in out["environment_warnings"])
-    assert _rec(out)["action"] == bf.WOULD_REGENERATE and _snapshot(kworld) == snap
-    seen = []
-    _run(kworld, apply=True, authorize_apply=lambda m: seen.append(m) or True)
-    assert seen == [MIG]
+    with pytest.raises(bf.ApplyRequiresAuthorization):
+        bf.migrate_stale_evidence([kworld.k], MIG, apply=True, governed_state_present=ALWAYS)
+    assert _snapshot(kworld) == snap
 
 
 # ───────────────────────────── revalidacion SEPARADA del Juicio v2 ─────────────────────────────
