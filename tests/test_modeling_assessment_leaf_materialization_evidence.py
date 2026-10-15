@@ -301,15 +301,16 @@ def test_both_contract_versions_are_accepted_by_the_judgment_gate(doc):
 
 
 # ───────────────────────────── firmas y vigencia (STALE) ─────────────────────────────
-def test_a_v3_profile_is_a_version_only_stale_covered_exactly_by_the_v4c_migration(doc):
+def test_a_v3_profile_is_covered_exactly_by_the_v4c_migration_and_is_transitionally_current(doc):
     cur = svc.current_assessment_versions()
     assert cur["canonical_evidence"] == "canonical-evidence/v4" and cur["assessability"] == "assessability-rules/v4" and cur["confidence"] == "confidence-cuts/v3"       # solo cambia canonical_evidence
     old = dict(cur, canonical_evidence="canonical-evidence/v3")
     c = svc.classify_currentness("sig", old, "sig", cur)
-    assert (c.state, c.reason, c.version_diff, c.pool_same) == (svc.STALE, svc.STALE_VERSION_ONLY, ("canonical_evidence",), True)
-    assert c.targeted == "evidence_leaf_materialization_v4" and not c.version_only_untargeted                          # v4.C: la migracion registrada cubre EXACTAMENTE esa diferencia (no se ejecuta aqui)
-    assert svc.classify_currentness("sig", cur, "sig", cur).state == svc.CURRENT
-    assert svc.classify_currentness("old", old, "new", cur).reason == svc.STALE_VERSION_AND_INPUT
+    # Opcion A (compatibilidad transitoria estricta): la UNICA diferencia es la que cubre la migracion => CURRENT pendiente de ella (la diferencia sigue visible)
+    assert (c.state, c.version_diff, c.pool_same, c.pending_migration) == (svc.CURRENT, ("canonical_evidence",), True, "evidence_leaf_materialization_v4")
+    assert svc.targeted_migration(old, cur) == "evidence_leaf_materialization_v4"                                         # la migracion registrada cubre EXACTAMENTE esa diferencia
+    assert svc.classify_currentness("sig", cur, "sig", cur).pending_migration is None
+    assert svc.classify_currentness("old", old, "new", cur).reason == svc.STALE_VERSION_AND_INPUT                         # otro motivo de STALE: no se oculta
 
 
 def test_the_signature_of_the_profile_changes_only_through_the_new_section_and_version(doc):

@@ -143,10 +143,11 @@ def test_the_migration_is_registered_in_the_existing_framework_and_targets_only_
     assert svc.targeted_migration({**cur, "canonical_evidence": V3, "confidence": "confidence-cuts/v2"}, cur) is None                                                      # diferencias ajenas: no elegible
 
 
-def test_a_v3_governed_profile_is_a_targeted_version_only_stale(kworld):
+def test_a_v3_governed_profile_is_current_but_pending_the_migration(kworld):
     _make_v3(kworld, kworld.k)
     st = svc.status_for_entry(kworld.k)
-    assert (st.state, st.stale_reason, st.stale_targeted, st.stale_version_diff) == (svc.STALE, svc.STALE_VERSION_ONLY, MIG, ("canonical_evidence",)) and st.profile is not None
+    # COMPATIBILIDAD DE TRANSICION (Opcion A): el unico motivo es canonical_evidence v3->v4 => sigue CURRENT para la presentacion pero queda identificado como pendiente de MIG
+    assert (st.state, st.stale_reason, st.pending_migration) == (svc.CURRENT, None, MIG) and st.profile is not None
 
 
 @pytest.mark.parametrize("tag, mutate, bucket", [

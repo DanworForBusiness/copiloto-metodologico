@@ -111,6 +111,7 @@ class MigrationTarget:
     eligible_old: dict
     description: str
     closure_policy: str = "CLOSURE_EQUAL"       # CLOSURE_EQUAL | TARGETED_CLOSURE_EXPANSION (ver ``migration_postcheck``)
+    transitional: bool = False                  # COMPATIBILIDAD DE TRANSICION (ver ``classify_currentness``): un perfil cubierto EXACTAMENTE por esta migracion sigue CURRENT hasta migrarse
 
 
 CLOSURE_EQUAL, TARGETED_CLOSURE_EXPANSION = "CLOSURE_EQUAL", "TARGETED_CLOSURE_EXPANSION"
@@ -154,7 +155,7 @@ EVIDENCE_MIGRATIONS: dict[str, MigrationTarget] = {
         "canonical-evidence/v4 (v4.C): perfil v3 -> v4 = v3 + seccion `leaf_materialization` (materializacion derivada de las hojas locales con referencias recuperables al pool). Misma entrada, "
         "mismo cierre y el MISMO Assessment metodologico: el perfil solo puede diferir en `canonical_evidence.version`, `versions.canonical_evidence` y la seccion nueva (CLOSURE_EQUAL + perfil identico "
         "salvo eso). Se ABSTIENE si falta el pool, difiere su firma o no se resuelven las referencias; el Juicio v2 se revalida (misma metodologia, nueva firma) o la migracion se abstiene",
-        CLOSURE_EQUAL),
+        CLOSURE_EQUAL, transitional=True),
     "evidence_confidence_v3": MigrationTarget(
         "evidence_confidence_v3", ("confidence",), {"confidence": frozenset({"confidence-cuts/v2"})},
         "Confianza metodologica v3: `resolved_provenance` mide el ORIGEN DE LOS DATOS (una hoja de identidad UNKNOWN con productor y clase de contrato resuelta cuenta como resuelta). "
@@ -173,6 +174,7 @@ class Currentness:
     version_diff: tuple[str, ...] = ()
     pool_same: bool = True
     targeted: str | None = None
+    pending_migration: str | None = None     # solo CURRENT por COMPATIBILIDAD DE TRANSICION: migracion que aun debe aplicarse (None = vigente de verdad)
 
     @property
     def version_only_untargeted(self) -> bool:
@@ -202,7 +204,13 @@ def classify_currentness(stored_signature: str | None, stored_versions: dict | N
     if pool_same and not diff:
         return Currentness(CURRENT)
     if pool_same:
-        return Currentness(STALE, STALE_VERSION_ONLY, diff, True, targeted_migration(stored_versions, versions))
+        targeted = targeted_migration(stored_versions, versions)
+        if targeted is not None and EVIDENCE_MIGRATIONS[targeted].transitional:
+            # COMPATIBILIDAD DE TRANSICION ESTRICTA: misma entrada (pool igual) y la UNICA diferencia es la que cubre EXACTAMENTE una migracion marcada ``transitional``
+            # (hoy canonical_evidence v3->v4). Sigue CURRENT para la presentacion, pero queda identificado como pendiente de esa migracion. Cualquier otra causa
+            # (pool distinto, otras claves de version, valores viejos desconocidos) NO entra aca y sigue siendo STALE. Se retira quitando ``transitional``.
+            return Currentness(CURRENT, version_diff=diff, pending_migration=targeted)
+        return Currentness(STALE, STALE_VERSION_ONLY, diff, True, targeted)
     return Currentness(STALE, STALE_INPUT_CHANGED if not diff else STALE_VERSION_AND_INPUT, diff, False, None)
 
 
@@ -225,6 +233,7 @@ class AssessmentStatus:
     stale_reason: str | None = field(default=None, compare=False)       # solo STALE: VERSION_ONLY | INPUT_CHANGED | VERSION_AND_INPUT
     stale_targeted: str | None = field(default=None, compare=False)     # solo STALE VERSION_ONLY: nombre de la migracion de evidencia que lo cubre (None = no cubierto)
     stale_version_diff: tuple = field(default=(), compare=False)        # solo STALE: claves de ``versions`` que difieren
+    pending_migration: str | None = field(default=None, compare=False)  # solo CURRENT por compatibilidad de transicion: migracion de evidencia pendiente (sigue siendo CURRENT)
 
     @property
     def viewable(self) -> bool:
@@ -754,7 +763,8 @@ def _status_from(entry: Any, res: Resolution, versions: dict) -> AssessmentStatu
                                 generated_at=env.get("generated_at"), business_classification=bcl)
     cur = classify_currentness(env.get("input_pool_signature"), env.get("assessment_versions"), res.pool_signature, versions)
     if cur.state == CURRENT:
-        return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl)
+        return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl,
+                                pending_migration=cur.pending_migration)
     return AssessmentStatus(STALE, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl, stale_reason=cur.reason, stale_targeted=cur.targeted,
                             stale_version_diff=cur.version_diff)
 
@@ -1238,7 +1248,8 @@ def regenerate_stale_evidence(entry: Any, migration: str) -> RegeneratedAssessme
         if not _readable_previous(previous):
             raise EnrichmentError("PREVIOUS_NOT_READABLE")
         cur = classify_currentness(previous.get("input_pool_signature"), previous.get("assessment_versions"), res.pool_signature, versions)
-        if cur.state != STALE or cur.reason != STALE_VERSION_ONLY or cur.targeted != migration:
+        stale_targeted = cur.state == STALE and cur.reason == STALE_VERSION_ONLY and cur.targeted == migration
+        if not stale_targeted and not (cur.state == CURRENT and cur.pending_migration == migration):
             raise EnrichmentError("PREVIOUS_NOT_TARGETED_VERSION_ONLY_STALE")
 
     def postcheck(doc: dict, previous: dict | None, res: Resolution, versions: dict) -> None:

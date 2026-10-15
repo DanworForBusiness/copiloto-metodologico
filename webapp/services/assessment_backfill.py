@@ -318,7 +318,7 @@ def enrich_current(entries: Iterable[Any], enrichment: str, *, apply: bool = Fal
         if status.state == svc.NOT_YET_ASSESSED:
             rec["reason"] = SKIPPED_NOT_YET_ASSESSED                              # lo genera el backfill normal; este modo NUNCA genera faltantes
             continue
-        if status.state != svc.CURRENT or status.profile is None:
+        if status.state != svc.CURRENT or status.profile is None or status.pending_migration:     # un CURRENT pendiente de migracion NO se enriquece: primero migra (revalida el Juicio)
             rec["reason"] = SKIPPED_NON_CURRENT
             continue
         rec["missing"] = svc.missing_facts(status.profile, required)
@@ -605,6 +605,8 @@ def _classify_migration(status: svc.AssessmentStatus, migration: str) -> str | N
     if st == svc.INCOMPATIBLE_SCHEMA:
         return SKIPPED_INCOMPATIBLE
     if st == svc.CURRENT:
+        if status.pending_migration == migration and status.profile is not None:
+            return None                                                           # CURRENT por compatibilidad de transicion: pendiente de ESTA migracion (elegible)
         return SKIPPED_ALREADY_CURRENT
     if status.profile is None:
         return SKIPPED_FAILED_STATE
@@ -647,6 +649,7 @@ def _migration_counts(recs: list[dict]) -> dict:
         VERSION_AND_INPUT_CHANGED: count(lambda r: r["reason"] == VERSION_AND_INPUT_CHANGED),
         OTHER_MIGRATION_APPLICABLE: count(lambda r: r["reason"] == OTHER_MIGRATION_APPLICABLE),
         "current": count(lambda r: r["reason"] == SKIPPED_ALREADY_CURRENT),
+        "pending_migration_compat": count(lambda r: r.get("eligible") and r.get("state") == svc.CURRENT and r["action"] != REGENERATED),      # CURRENT por compatibilidad de transicion, aun sin migrar (criterio de retiro: 0)
         "not_yet_assessed": count(lambda r: r["reason"] == SKIPPED_NOT_YET_ASSESSED),
         "failed_state": count(lambda r: r["reason"] == SKIPPED_FAILED_STATE),
         "incompatible": count(lambda r: r["reason"] == SKIPPED_INCOMPATIBLE),
@@ -765,7 +768,8 @@ def migrate_stale_evidence(entries: Iterable[Any], migration: str, *, apply: boo
             plan_items.append(rec.pop("_plan_item"))
         if rec["action"] == FAILED_ACTION and rec["reason"] in ("PREVIOUS_NOT_TARGETED_VERSION_ONLY_STALE", "PREVIOUS_CHANGED_DURING_RUN"):
             try:                                                                  # alguien lo regeneró por la UI durante la ventana: si ahora es CURRENT, se tolera
-                if status_for(entry).state == svc.CURRENT:
+                again = status_for(entry)
+                if again.state == svc.CURRENT and not again.pending_migration:
                     rec.update(action=SKIP, reason=SKIPPED_ALREADY_CURRENT, delta=None, eligible=False)
             except Exception:                                                     # noqa: BLE001
                 pass

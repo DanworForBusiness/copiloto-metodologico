@@ -266,7 +266,7 @@ def test_restore_by_object_brings_back_the_exact_bytes_is_idempotent_and_touches
     assert gb.restore_object(bk, keys["Kensing"], governed_dir=kworld.governed, apply=True)["status"] == "ALREADY_RESTORED"
     assert gb.restore_object(bk, "v1/nada.json", governed_dir=kworld.governed)["status"] == "UNKNOWN_OBJECT"
     restart()
-    assert svc.status_for_entry(kworld.k).state == svc.STALE and svc.status_for_entry(kworld.k2).state == svc.CURRENT                                  # k volvio a v3, k2 sigue migrado
+    assert svc.status_for_entry(kworld.k).pending_migration == MIG and svc.status_for_entry(kworld.k2).pending_migration is None                                  # k volvio a v3, k2 sigue migrado
 
 
 def test_restore_never_overwrites_a_concurrent_local_change(kworld):
