@@ -12,11 +12,16 @@ Modulo NEUTRO (``tools/catalog``, sin importar el paquete de Juicio ni el de Ass
 resultado es ``UNKNOWN`` con CODIGO de causa; la ausencia de evidencia nunca se lee como buena. NUNCA lanza por un perfil historico (v1/v2): devuelve ``UNKNOWN``.
 
 ``materialization_kind`` (valor unico, describe lo que hacen los PRODUCTORES de la hoja, no la cadena aguas arriba de su fuente):
-  REPLICA      todos los productores EXACT son Replication Flow y todo mapeo observado de la hoja es identidad o ``Skip Mapping`` (sin mapeos explicitos = identidad por defecto de la plataforma)
+  REPLICA      todos los productores EXACT son Replication Flow y todo mapeo observado de la hoja es identidad o ``Skip Mapping`` (columna destino SIN alimentar; sin mapeos explicitos =
+               identidad por defecto: ``attributeMappings`` es una lista de ANULACIONES, contrato verificado contra el CSN crudo de los Replication Flow disponibles; ``implicit_identity`` lo conserva)
   COPY         el productor es un Data Flow cuyos unicos componentes son ``table.consumer`` + ``table.producer`` (1 y 1) y todo mapeo de la hoja es identidad o ``Skip Mapping``
-  TRANSFORMED  se demuestra una transformacion: mapeo de renombre o de expresion, o cualquier componente de Data Flow distinto de consumer/producer (projection, join, agregacion, ...)
+  TRANSFORMED  se demuestra una transformacion TECNICA (no necesariamente armonizacion semantica; no acredita fortalezas HAR): mapeo de renombre o de expresion, o cualquier componente de
+               Data Flow distinto de consumer/producer (projection, join, agregacion, ...)
   UNKNOWN      productor ausente / no interpretable, ``target_match`` distinto de EXACT, mapeo no clasificable, forma de flujo no interpretable, evidencia contradictoria, multiples productores
                no comparables o secciones ausentes (siempre con ``unknown_reasons``)
+Evidencia CSN OPCIONAL (``csn``; sin ella el resultado depende solo del perfil): ``delta_links`` (vinculos EXPLICITOS ``X.@DataWarehouse.delta.deltaFromEntities`` -> ``D``) es la unica via para
+resolver un productor ``DELTA_SHADOW_SUFFIX`` (el sufijo es solo una pista); ``rf_task_columns`` verifica por tarea la identidad implicita y la equivalencia de un renombre SOLO de mayusculas
+(identidad normalizada solo con columnas exactas, sin colision y origen CDS; sin casefold universal).
 Atributos SEPARADOS (nunca inferidos del nombre del artefacto): ``flags.multi_producer`` (>= 2 flujos distintos EXACT), ``flags.filtered`` (filtros de origen / de tarea observados),
 ``flags.writes`` (modo de escritura observado del destino).
 
@@ -68,9 +73,10 @@ U_COMPONENTS_NOT_OBSERVED = "COMPONENTS_NOT_OBSERVED"
 U_SHAPE_NOT_INTERPRETABLE = "FLOW_SHAPE_NOT_INTERPRETABLE"
 U_CONTRADICTORY = "CONTRADICTORY_EVIDENCE"
 U_MULTI_PRODUCER_NOT_COMPARABLE = "MULTI_PRODUCER_NOT_COMPARABLE"
+U_IMPLICIT_IDENTITY_CONTRADICTED = "IMPLICIT_IDENTITY_CONTRADICTED"
 UNKNOWN_REASON_CODES = frozenset({U_EVIDENCE_NOT_AVAILABLE, U_SECTION_MISSING, U_LEAF_NOT_FOUND, U_NO_PRODUCER, U_DECLARED_NOT_OBSERVED, U_TARGET_MATCH_NOT_EXACT, U_FLOW_KIND_UNSUPPORTED,
                                   U_FLOW_NOT_IN_EVIDENCE, U_FLOW_AMBIGUOUS, U_TARGET_NOT_FOUND, U_TARGET_AMBIGUOUS, U_MAPPING_NOT_OBSERVED, U_MAPPING_NOT_CLASSIFIABLE,
-                                  U_COMPONENTS_NOT_OBSERVED, U_SHAPE_NOT_INTERPRETABLE, U_CONTRADICTORY, U_MULTI_PRODUCER_NOT_COMPARABLE})
+                                  U_COMPONENTS_NOT_OBSERVED, U_SHAPE_NOT_INTERPRETABLE, U_CONTRADICTORY, U_MULTI_PRODUCER_NOT_COMPARABLE, U_IMPLICIT_IDENTITY_CONTRADICTED})
 
 # ── codigos de causa de UNDETERMINED (clase de borde) ──
 B_NO_SECTION = "BOUNDARY_SECTION_MISSING"
@@ -81,6 +87,14 @@ B_CHAIN_INCOMPLETE = "CHAIN_INCOMPLETE"
 B_UNCLASSIFIED = "UNCLASSIFIED_BOUNDARY"
 
 DATA_FLOW, REPLICATION_FLOW = "DATA_FLOW", "REPLICATION_FLOW"
+DELTA_SHADOW_SUFFIX_MATCH = "DELTA_SHADOW_SUFFIX"                      # ``target_match`` persistido: PISTA por nombre; solo un vinculo CSN EXPLICITO la convierte en relacion
+RESOLVED_VIA_DELTA_LINK = "CSN_DELTA_LINK"
+_DELTA_ANNOTATION = "@DataWarehouse.delta"
+# Evidencia de columnas del CSN crudo de un Replication Flow (estado por tarea)
+COLUMN_EVIDENCE_VERIFIED, COLUMN_EVIDENCE_CONTRADICTED, COLUMN_EVIDENCE_NOT_PROVIDED = "VERIFIED", "CONTRADICTED", "NOT_PROVIDED"
+# Premisa de IDENTIFICADORES (no se deduce de los datos): los elementos de una CDS de ABAP son identificadores ABAP (insensibles a mayusculas). Un renombre que solo cambia mayusculas
+# se trata como identidad normalizada UNICAMENTE si el origen de la tarea es una CDS gobernada, hay evidencia de columnas sin colision y el origen/destino existen EXACTAMENTE.
+CASE_INSENSITIVE_SOURCE_BOUNDARY_CLASSES = frozenset({BC_GOVERNED_CDS})
 EXACT = "EXACT"
 _DF_CONSUMER, _DF_PRODUCER = "com.sap.database.table.consumer", "com.sap.database.table.producer"
 _SKIP_MAPPING = "Skip Mapping"
@@ -115,23 +129,31 @@ def _strs(x: Any) -> list[str]:
 
 
 def _empty_mapping_profile() -> dict[str, Any]:
-    return {"identity": 0, "rename": 0, "rename_case_only": 0, "skip": 0, "expression": 0, "unknown": 0, "implicit_identity": False}
+    return {"identity": 0, "identity_normalized": 0, "rename": 0, "rename_case_only": 0, "skip": 0, "expression": 0, "unknown": 0, "implicit_identity": False,
+            "column_evidence": COLUMN_EVIDENCE_NOT_PROVIDED}
 
 
 def _add_profiles(profiles: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     out = _empty_mapping_profile()
+    states: list[Any] = []
     for p in profiles:
-        for k in ("identity", "rename", "rename_case_only", "skip", "expression", "unknown"):
+        for k in ("identity", "identity_normalized", "rename", "rename_case_only", "skip", "expression", "unknown"):
             out[k] += int(p.get(k) or 0)
         out["implicit_identity"] = out["implicit_identity"] or bool(p.get("implicit_identity"))
+        states.append(p.get("column_evidence"))
+    if states and COLUMN_EVIDENCE_CONTRADICTED in states:
+        out["column_evidence"] = COLUMN_EVIDENCE_CONTRADICTED
+    elif states and all(s == COLUMN_EVIDENCE_VERIFIED for s in states):
+        out["column_evidence"] = COLUMN_EVIDENCE_VERIFIED
     return out
 
 
 # ───────────────────────────── mapeos ─────────────────────────────
-def classify_mappings(attribute_mappings: Any) -> dict[str, Any]:
+def classify_mappings(attribute_mappings: Any, case_equivalent: frozenset = frozenset()) -> dict[str, Any]:
     """Perfil de los mapeos de atributos de UN destino. Cada mapeo ``{"target": T, "expression": E}`` es:
     ``skip`` (E = ``"Skip Mapping"``) · ``identity`` (E = ``"T"``, mismo identificador exacto) · ``rename`` (E = ``"X"`` con X != T; ``rename_case_only`` cuenta los que solo difieren en
-    mayusculas, que NO se tratan como identidad) · ``expression`` (cualquier otra expresion) · ``unknown`` (sin objetivo o sin expresion textual). La lista vacia NO es un mapeo desconocido:
+    mayusculas; ``rename`` solo cuenta los NO verificados) · ``identity_normalized`` (renombre solo-mayusculas cuyo par ``(target, origen)`` figura en ``case_equivalent``: equivalencia
+    COMPROBADA por el llamador, nunca un casefold universal; ``rename_case_only`` sigue contando TODOS los solo-mayusculas) · ``expression`` (cualquier otra expresion) · ``unknown`` (sin objetivo o sin expresion textual). La lista vacia NO es un mapeo desconocido:
     ``implicit_identity`` = True (la plataforma mapea por nombre cuando no hay anulaciones; la bandera permite a un consumidor distinguirlo de una identidad declarada)."""
     out = _empty_mapping_profile()
     items = _list(attribute_mappings)
@@ -151,9 +173,12 @@ def classify_mappings(attribute_mappings: Any) -> dict[str, Any]:
         elif quoted and quoted.group(1) == target:
             out["identity"] += 1
         elif quoted:
-            out["rename"] += 1
-            if quoted.group(1).lower() == target.lower():
-                out["rename_case_only"] += 1
+            case_only = quoted.group(1).lower() == target.lower()
+            out["rename_case_only"] += int(case_only)
+            if case_only and (target, quoted.group(1)) in case_equivalent:
+                out["identity_normalized"] += 1
+            else:
+                out["rename"] += 1
         else:
             out["expression"] += 1
     return out
@@ -163,17 +188,98 @@ def _is_transforming(mp: Mapping[str, Any]) -> bool:
     return bool(mp["rename"] or mp["expression"])
 
 
+# ───────────────────────────── evidencia CSN OPCIONAL (vinculos delta explicitos, columnas de Replication Flow) ─────────────────────────────
+def explicit_delta_links(definitions: Any) -> dict[str, tuple[str, ...]]:
+    """``{X: (D, ...)}`` a partir de las ``definitions`` de un CSN YA CARGADO: solo lo que la entidad ``X`` DECLARA en ``@DataWarehouse.delta.deltaFromEntities`` (vinculo EXPLICITO). Nunca por
+    sufijo, similitud de nombres ni convencion. No verifica el acuerdo estructural ``X`` lee ``D`` (eso lo hace la extraccion, ``technical_delta_shadow_entities``): es un insumo, no un veredicto."""
+    out: dict[str, tuple[str, ...]] = {}
+    for x, xd in _map(definitions).items():
+        dfe = _map(_map(xd).get(_DELTA_ANNOTATION)).get("deltaFromEntities")
+        ds = sorted({d for d in _list(dfe) if isinstance(d, str) and d and d != x})
+        if isinstance(x, str) and ds:
+            out[x] = tuple(ds)
+    return out
+
+
+def _column_names(obj: Any) -> list[str]:
+    return [c["name"] for c in _dicts(_map(_map(obj).get("definition")).get("columns")) if isinstance(c.get("name"), str)]
+
+
+def rf_task_columns(replication_flows: Any) -> dict[tuple[str, str], dict[str, list[str]]]:
+    """``{(flujo, destino): {"source_columns": [...], "target_columns": [...]}}`` a partir del bloque ``replicationflows`` de un CSN YA CARGADO (columnas del objeto origen y del objeto destino de cada
+    tarea). Las tareas sin definiciones de columnas, o con la misma clave y contenido distinto (ambiguas), se omiten: ausencia de evidencia, no evidencia."""
+    out: dict[tuple[str, str], dict[str, list[str]]] = {}
+    dropped: set[tuple[str, str]] = set()
+    for fname, fd in _map(replication_flows).items():
+        for task in _dicts(_map(_map(fd).get("contents")).get("replicationTasks")):
+            tgt_name = _map(task.get("targetObject")).get("name")
+            src, tgt = _column_names(task.get("sourceObject")), _column_names(task.get("targetObject"))
+            if not isinstance(fname, str) or not isinstance(tgt_name, str) or not src or not tgt:
+                continue
+            key, val = (fname, tgt_name), {"source_columns": src, "target_columns": tgt}
+            if key in out and out[key] != val:
+                dropped.add(key)
+            out.setdefault(key, val)
+    return {k: v for k, v in out.items() if k not in dropped}
+
+
+def _has_columns(columns: Any) -> bool:
+    return bool(_strs(_map(columns).get("source_columns"))) and bool(_strs(_map(columns).get("target_columns")))
+
+
+def _case_only_pairs(mappings: Any) -> list[tuple[str, str]]:
+    out = []
+    for m in _dicts(mappings):
+        target, expr = m.get("target"), m.get("expression")
+        q = _QUOTED_NAME.match(expr.strip()) if isinstance(expr, str) else None
+        if isinstance(target, str) and q and q.group(1) not in (_SKIP_MAPPING, target) and q.group(1).lower() == target.lower():
+            out.append((target, q.group(1)))
+    return out
+
+
+def _task_column_contradictions(task: Mapping[str, Any], columns: Mapping[str, Any]) -> list[str]:
+    """Contradicciones entre la lista de mapeos de la tarea y las columnas crudas. Contrato verificado: ``attributeMappings`` es una lista de ANULACIONES; toda columna destino debe estar
+    (i) mapeada explicitamente (``Skip Mapping`` = columna destino SIN alimentar), (ii) alimentada por la columna origen HOMONIMA (nombre exacto) o (iii) ser una columna CDC declarada por las
+    propiedades de captura de cambios del propio destino; y el origen de todo mapeo ``"X"`` debe existir exactamente."""
+    src, tgt = set(_strs(columns.get("source_columns"))), set(_strs(columns.get("target_columns")))
+    maps = _dicts(task.get("attribute_mappings"))
+    mapped_targets = {m["target"] for m in maps if isinstance(m.get("target"), str)}
+    cdc = {v for v in _map(task.get("change_capture_properties")).values() if isinstance(v, str)}
+    sources = []
+    for m in maps:
+        e = m.get("expression")
+        q = _QUOTED_NAME.match(e.strip()) if isinstance(e, str) else None
+        if q and q.group(1) != _SKIP_MAPPING:
+            sources.append(q.group(1))
+    return sorted([f"target_column_without_origin:{c}" for c in tgt - mapped_targets - src - cdc] + [f"mapped_source_missing:{s}" for s in set(sources) if s not in src])
+
+
+def _verified_case_pairs(pairs: list[tuple[str, str]], columns: Mapping[str, Any]) -> frozenset:
+    """Pares (destino, origen) solo-mayusculas con equivalencia COMPROBADA en las columnas crudas: ambos existen EXACTAMENTE y ninguna otra columna del mismo objeto se distingue solo por
+    mayusculas (colision). Se evalua PAR A PAR; no se aplica casefold a nada mas."""
+    src, tgt = _strs(columns.get("source_columns")), _strs(columns.get("target_columns"))
+    ok = set()
+    for t_name, s_name in pairs:
+        collides = any(c != s_name and c.lower() == s_name.lower() for c in src) or any(c != t_name and c.lower() == t_name.lower() for c in tgt)
+        if s_name in src and t_name in tgt and not collides:
+            ok.add((t_name, s_name))
+    return frozenset(ok)
+
+
 # ───────────────────────────── un productor (un flujo) respecto de una hoja ─────────────────────────────
-def classify_flow_kind(flow: Any, leaf: str) -> dict[str, Any]:
+def classify_flow_kind(flow: Any, leaf: str, target: str | None = None, columns: Any = None, case_premise: bool = False) -> dict[str, Any]:
     """Clasifica lo que UN flujo (registro de ``processing_flow_properties.flows``) hace con la hoja ``leaf``. Devuelve ``materialization_kind``, ``unknown_reasons``, ``mapping_profile``,
-    ``filtered``, ``write_mode`` (+ ``upsert``/``load_type``/``components``). La hoja se localiza por IDENTIDAD EXACTA del destino (tarea ``target_object`` / nodo ``role=target``)."""
+    ``filtered``, ``write_mode`` (+ ``upsert``/``load_type``/``components``/``detail``). La hoja se localiza por IDENTIDAD EXACTA del destino (tarea ``target_object`` / nodo ``role=target``);
+    ``target`` (por defecto ``leaf``) permite pasar la entidad fisica delta ``D`` ya resuelta por un vinculo CSN explicito. ``columns`` = columnas crudas de la tarea (opcional) y
+    ``case_premise`` = el origen es una CDS gobernada (premisa de identificadores): solo con ambos un renombre solo-mayusculas verificado cuenta como identidad normalizada."""
+    target = leaf if target is None else target
     flow = _map(flow)
     kind = flow.get("flow_kind")
     props = _map(flow.get("properties"))
     res: dict[str, Any] = {"materialization_kind": KIND_UNKNOWN, "unknown_reasons": [], "mapping_profile": _empty_mapping_profile(), "filtered": None, "write_mode": None,
-                           "upsert": None, "load_type": None, "components": []}
+                           "upsert": None, "load_type": None, "components": [], "detail": {}}
     if kind == REPLICATION_FLOW:
-        tasks = [t for t in _dicts(props.get("tasks")) if t.get("target_object") == leaf]
+        tasks = [t for t in _dicts(props.get("tasks")) if t.get("target_object") == target]
         if not tasks:
             res["unknown_reasons"].append(U_TARGET_NOT_FOUND)
             return res
@@ -182,7 +288,16 @@ def classify_flow_kind(flow: Any, leaf: str) -> dict[str, Any]:
             return res
         t = tasks[0]
         raw_mappings = t.get("attribute_mappings")
-        mp = classify_mappings(raw_mappings) if isinstance(raw_mappings, (list, tuple)) else _empty_mapping_profile()
+        contradictions: list[str] = []
+        verified: frozenset = frozenset()
+        have_cols = isinstance(raw_mappings, (list, tuple)) and _has_columns(columns)
+        if have_cols:
+            contradictions = _task_column_contradictions(t, columns)
+            if case_premise:
+                verified = _verified_case_pairs(_case_only_pairs(raw_mappings), columns)
+        mp = classify_mappings(raw_mappings, verified) if isinstance(raw_mappings, (list, tuple)) else _empty_mapping_profile()
+        if have_cols:
+            mp["column_evidence"] = COLUMN_EVIDENCE_CONTRADICTED if contradictions else COLUMN_EVIDENCE_VERIFIED
         res["mapping_profile"] = mp
         res["filtered"] = bool(_list(t.get("filters")))
         tr = t.get("truncate")
@@ -193,13 +308,16 @@ def classify_flow_kind(flow: Any, leaf: str) -> dict[str, Any]:
             res["materialization_kind"] = KIND_TRANSFORMED
         elif not isinstance(raw_mappings, (list, tuple)):
             res["unknown_reasons"].append(U_MAPPING_NOT_OBSERVED)
+        elif contradictions:                                   # las columnas crudas CONTRADICEN la lectura "anulaciones + identidad por nombre": no se certifica la replica
+            res["unknown_reasons"].append(U_IMPLICIT_IDENTITY_CONTRADICTED)
+            res["detail"][U_IMPLICIT_IDENTITY_CONTRADICTED] = contradictions[:8]
         elif mp["unknown"]:
             res["unknown_reasons"].append(U_MAPPING_NOT_CLASSIFIABLE)
         else:
             res["materialization_kind"] = KIND_REPLICA
         return res
     if kind == DATA_FLOW:
-        nodes = [n for n in _dicts(props.get("nodes")) if n.get("role") == "target" and n.get("entity") == leaf]
+        nodes = [n for n in _dicts(props.get("nodes")) if n.get("role") == "target" and n.get("entity") == target]
         if not nodes:
             res["unknown_reasons"].append(U_TARGET_NOT_FOUND)
             return res
@@ -296,8 +414,18 @@ def _unknown(leaf: str, code: str, detail: list[str] | None = None, boundary_cod
     return out
 
 
-def derive_leaf_materialization(leaf: str, ce: Any) -> dict[str, Any]:
-    """Materializacion observada de UNA hoja sobre ``canonical_evidence`` (dict ya persistido; solo lectura). Nunca lanza ni muta; ver el docstring del modulo."""
+def _cds_source_premise(pb_leaf: Mapping[str, Any] | None, flow_name: str) -> bool:
+    """El origen de la tarea es (solo) una CDS gobernada: todo borde terminal alcanzado POR ese flujo es de una clase de ``CASE_INSENSITIVE_SOURCE_BOUNDARY_CLASSES`` (y hay al menos uno)."""
+    bs = [b for b in _dicts(_map(pb_leaf).get("boundaries")) if flow_name in _strs(b.get("via_flows"))]
+    return bool(bs) and all(b.get("boundary_class") in CASE_INSENSITIVE_SOURCE_BOUNDARY_CLASSES for b in bs)
+
+
+def derive_leaf_materialization(leaf: str, ce: Any, csn: Any = None) -> dict[str, Any]:
+    """Materializacion observada de UNA hoja sobre ``canonical_evidence`` (dict ya persistido; solo lectura). Nunca lanza ni muta; ver el docstring del modulo.
+
+    ``csn`` (OPCIONAL, ya cargado por el llamador; sin el, el resultado depende solo del perfil persistido): ``{"delta_links": {X: (D, ...)}, "rf_task_columns": {(flujo, destino): {...}}}``
+    (ver ``explicit_delta_links`` / ``rf_task_columns``). ``delta_links`` es la UNICA via para resolver un productor con ``target_match = DELTA_SHADOW_SUFFIX`` (pista por nombre): la hoja ``X``
+    debe DECLARAR a ``D`` y la tarea del flujo debe escribir EXACTAMENTE en ``D``. ``rf_task_columns`` permite verificar por tarea la identidad implicita y la equivalencia solo-mayusculas."""
     if not isinstance(leaf, str) or not isinstance(ce, Mapping) or not ce:
         return _unknown(leaf if isinstance(leaf, str) else "", U_EVIDENCE_NOT_AVAILABLE, boundary_code=B_NO_SECTION)
     missing = _missing_sections(ce)
@@ -342,17 +470,21 @@ def derive_leaf_materialization(leaf: str, ce: Any) -> dict[str, Any]:
 
     flows = _dicts(_map(ce["processing_flow_properties"]).get("flows"))
     out["evidence_refs"].append("ce:processing_flow_properties")
+    csn = _map(csn)
+    leaf_links = tuple(d for d in _list(_map(csn.get("delta_links")).get(leaf)) if isinstance(d, str))
+    col_evidence = _map(csn.get("rf_task_columns"))
     results = []
     for p in prods:
         name = p.get("name") if isinstance(p.get("name"), str) else None
         pkind = p.get("kind") if isinstance(p.get("kind"), str) else None
         match = p.get("target_match") if isinstance(p.get("target_match"), str) else None
         entry: dict[str, Any] = {"kind": pkind, "name": name, "target_match": match, "load_types": sorted(_strs(p.get("load_types"))), "materialization_kind": KIND_UNKNOWN,
-                                 "unknown_reasons": [], "mapping_profile": _empty_mapping_profile(), "filtered": None, "write_mode": None, "upsert": None, "components": []}
+                                 "unknown_reasons": [], "mapping_profile": _empty_mapping_profile(), "filtered": None, "write_mode": None, "upsert": None, "components": [],
+                                 "resolved_via": None, "shadow_entity": None}
         if name is None or pkind is None:
             entry["unknown_reasons"].append(U_FLOW_NOT_IN_EVIDENCE)
             fail(U_FLOW_NOT_IN_EVIDENCE, "unparseable_producer")
-        elif match != EXACT:
+        elif match != EXACT and not (match == DELTA_SHADOW_SUFFIX_MATCH and leaf_links and pkind == REPLICATION_FLOW):
             entry["unknown_reasons"].append(U_TARGET_MATCH_NOT_EXACT)
             fail(U_TARGET_MATCH_NOT_EXACT, f"{name}:{match}")
         else:
@@ -364,15 +496,32 @@ def derive_leaf_materialization(leaf: str, ce: Any) -> dict[str, Any]:
                 entry["unknown_reasons"].append(U_FLOW_AMBIGUOUS)
                 fail(U_FLOW_AMBIGUOUS, str(name))
             else:
-                r = classify_flow_kind(cands[0], leaf)
+                target = leaf
+                if match != EXACT:                                  # pista por nombre: solo un vinculo CSN explicito X -> D la convierte en relacion
+                    covered = sorted({t["target_object"] for t in _dicts(_map(cands[0].get("properties")).get("tasks")) if t.get("target_object") in leaf_links})
+                    if len(covered) != 1:
+                        code = U_CONTRADICTORY if not covered else U_TARGET_AMBIGUOUS
+                        entry["unknown_reasons"].append(code)
+                        fail(code, f"delta_link_does_not_cover_producer_target:{name}" if not covered else f"delta_link_covers_several_targets:{name}")
+                        results.append(entry)
+                        continue
+                    target = covered[0]
+                    entry["resolved_via"], entry["shadow_entity"] = RESOLVED_VIA_DELTA_LINK, target
+                cols = col_evidence.get((name, target)) if pkind == REPLICATION_FLOW else None
+                r = classify_flow_kind(cands[0], leaf, target=target, columns=cols, case_premise=pkind == REPLICATION_FLOW and _cds_source_premise(pb_leaf, name))
                 entry.update({k: r[k] for k in ("materialization_kind", "unknown_reasons", "mapping_profile", "filtered", "write_mode", "upsert", "components")})
                 entry["load_type"] = r["load_type"]
                 for code in r["unknown_reasons"]:
-                    fail(code, str(name))
+                    extras = r["detail"].get(code)
+                    if extras:
+                        for extra in extras:
+                            fail(code, f"{name}:{extra}")
+                    else:
+                        fail(code, str(name))
         results.append(entry)
     out["producers"] = results
 
-    exact = {(e["kind"], e["name"]) for e in results if e["target_match"] == EXACT}
+    exact = {(e["kind"], e["name"]) for e in results if e["target_match"] == EXACT or e["resolved_via"]}
     out["flags"]["multi_producer"] = len(exact) >= 2
     fl = [e["filtered"] for e in results]
     out["flags"]["filtered"] = True if any(x is True for x in fl) else (None if any(x is None for x in fl) else False)
@@ -404,10 +553,10 @@ def _finish(out: dict[str, Any], reasons: set[str], detail: dict[str, set[str]])
     return out
 
 
-def derive_all(ce: Any) -> dict[str, dict[str, Any]]:
-    """``{hoja: derive_leaf_materialization}`` para toda hoja con registro de procedencia o de borde, ordenado por nombre. ``{}`` si no hay evidencia o es historica."""
+def derive_all(ce: Any, csn: Any = None) -> dict[str, dict[str, Any]]:
+    """``{hoja: derive_leaf_materialization}`` para toda hoja con registro de procedencia o de borde, ordenado por nombre. ``{}`` si no hay evidencia o es historica. ``csn``: ver ``derive_leaf_materialization``."""
     if not isinstance(ce, Mapping) or not ce or _missing_sections(ce):
         return {}
     names = {r["leaf"] for r in _dicts(ce.get("leaf_provenance")) if isinstance(r.get("leaf"), str)}
     names |= {r["leaf"] for r in _dicts(_map(ce.get("physical_source_boundaries")).get("leaves")) if isinstance(r.get("leaf"), str)}
-    return {leaf: derive_leaf_materialization(leaf, ce) for leaf in sorted(names)}
+    return {leaf: derive_leaf_materialization(leaf, ce, csn) for leaf in sorted(names)}

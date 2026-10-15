@@ -20,7 +20,7 @@ from tools.catalog import leaf_materialization as lm
 from tools.catalog.modeling_assessment import boundary as _boundary, readers as _readers
 from tools.catalog.leaf_materialization import (
     DBC_GOVERNED, DBC_MIXED, DBC_PHYSICAL, DBC_UNDETERMINED, KIND_COPY, KIND_REPLICA, KIND_TRANSFORMED, KIND_UNKNOWN,
-    classify_flow_kind, classify_mappings, derive_all, derive_boundary_class, derive_leaf_materialization,
+    classify_flow_kind, classify_mappings, derive_all, derive_boundary_class, derive_leaf_materialization, explicit_delta_links, rf_task_columns,
 )
 
 DF_CONSUMER, DF_PRODUCER = "com.sap.database.table.consumer", "com.sap.database.table.producer"
@@ -393,6 +393,167 @@ def test_the_neutral_module_imports_neither_package_and_its_boundary_literals_ma
     assert (lm.DATA_FLOW, lm.REPLICATION_FLOW) == (_readers.DATA_FLOW, _readers.REPLICATION_FLOW)
 
 
+# ───────────────────────────── evidencia CSN explicita: vinculos delta, identidad implicita y equivalencia solo-mayusculas ─────────────────────────────
+def rf_to(name: str, leaf: str, target: str, mappings=None, cdc=None, extra_tasks=()) -> dict:
+    f = rf(name, target, mappings)
+    f["properties"]["tasks"][0]["change_capture_properties"] = cdc or {}
+    f["properties"]["tasks"].extend(extra_tasks)
+    f["closure_targets"] = f["targets"] = [target]
+    return f
+
+
+def delta_ce(match="DELTA_SHADOW_SUFFIX", mappings=None, cdc=None, bclass=CDS, leaf="X", shadow="X_Delta", extra_tasks=()) -> dict:
+    return ev([lp(leaf, [prod("REPLICATION_FLOW", "RF_X", match=match, load_types=["REPLICATE"])])], [rf_to("RF_X", leaf, shadow, mappings, cdc, extra_tasks)],
+              [pbl(leaf, [bnd(None, "CDS_X", bclass, ["RF_X"])], ["RF_X"])])
+
+
+def test_delta_shadow_producer_stays_unknown_without_an_explicit_csn_link_even_if_the_suffix_matches():
+    r = derive_leaf_materialization("X", delta_ce())
+    assert r["materialization_kind"] == KIND_UNKNOWN and r["unknown_reasons"] == [lm.U_TARGET_MATCH_NOT_EXACT] and r["unknown_detail"][lm.U_TARGET_MATCH_NOT_EXACT] == ["RF_X:DELTA_SHADOW_SUFFIX"]
+    for csn in ({}, {"delta_links": {}}, {"delta_links": {"OTRA": ("X_Delta",)}}, {"delta_links": {"X": ()}}):
+        assert derive_leaf_materialization("X", delta_ce(), csn)["unknown_reasons"] == [lm.U_TARGET_MATCH_NOT_EXACT], csn
+
+
+def test_explicit_csn_delta_link_resolves_the_producer_and_records_how():
+    r = derive_leaf_materialization("X", delta_ce(), {"delta_links": {"X": ("X_Delta",)}})
+    assert (r["materialization_kind"], r["unknown_reasons"], r["flags"]["multi_producer"]) == (KIND_REPLICA, [], False)
+    p = r["producers"][0]
+    assert (p["resolved_via"], p["shadow_entity"], p["target_match"]) == (lm.RESOLVED_VIA_DELTA_LINK, "X_Delta", "DELTA_SHADOW_SUFFIX")      # el target_match persistido no se reescribe
+    assert derive_all(delta_ce(), {"delta_links": {"X": ["X_Delta"]}})["X"]["materialization_kind"] == KIND_REPLICA
+
+
+def test_the_link_decides_not_the_suffix_the_declared_companion_must_be_the_exact_target_of_the_task():
+    ce = delta_ce(shadow="X_Delta")
+    r = derive_leaf_materialization("X", ce, {"delta_links": {"X": ("OTRA_COMPANERA",)}})              # el sufijo coincide pero el CSN declara otra companera
+    assert r["materialization_kind"] == KIND_UNKNOWN and r["unknown_reasons"] == [lm.U_CONTRADICTORY]
+    assert r["unknown_detail"][lm.U_CONTRADICTORY] == ["delta_link_does_not_cover_producer_target:RF_X"]
+    # un destino SIN sufijo _Delta se resuelve igual si y solo si el CSN lo declara (el nombre es irrelevante)
+    ce = delta_ce(shadow="TECH_STORE_X")
+    assert derive_leaf_materialization("X", ce, {"delta_links": {"X": ("TECH_STORE_X",)}})["materialization_kind"] == KIND_REPLICA
+
+
+def test_link_covering_several_task_targets_is_ambiguous_and_a_link_never_applies_to_data_flows_or_exact_matches():
+    other = rf("RF_X", "X_Delta2")["properties"]["tasks"][0]
+    r = derive_leaf_materialization("X", delta_ce(extra_tasks=[other]), {"delta_links": {"X": ("X_Delta", "X_Delta2")}})
+    assert r["unknown_reasons"] == [lm.U_TARGET_AMBIGUOUS]
+    ce = one_df(ident("A"), name="DF_X", leaf="X")
+    ce["leaf_provenance"][0]["producer_flows"][0]["target_match"] = "DELTA_SHADOW_SUFFIX"
+    assert derive_leaf_materialization("X", ce, {"delta_links": {"X": ("T",)}})["unknown_reasons"] == [lm.U_TARGET_MATCH_NOT_EXACT]
+    r = derive_leaf_materialization("T_LOCAL", one_rf(), {"delta_links": {"T_LOCAL": ("T_LOCAL_Delta",)}})
+    assert r["materialization_kind"] == KIND_REPLICA and r["producers"][0]["resolved_via"] is None   # EXACT: el vinculo no interviene
+
+
+def test_resolved_delta_producer_counts_for_multi_producer_and_still_cannot_be_certified_replica_with_a_second_replicator():
+    ce = delta_ce()
+    ce["leaf_provenance"][0]["producer_flows"].append(prod("REPLICATION_FLOW", "RF_Y"))
+    ce["processing_flow_properties"]["flows"].append(rf("RF_Y", "X"))
+    ce["physical_source_boundaries"]["leaves"][0]["flows"] = ["RF_X", "RF_Y"]
+    r = derive_leaf_materialization("X", ce, {"delta_links": {"X": ("X_Delta",)}})
+    assert r["flags"]["multi_producer"] is True and r["unknown_reasons"] == [lm.U_MULTI_PRODUCER_NOT_COMPARABLE]
+
+
+def test_explicit_delta_links_reads_only_the_declared_annotation():
+    defs = {"X": {"@DataWarehouse.delta": {"deltaFromEntities": ["X_Delta", "X", 3, ""]}}, "Y": {"@DataWarehouse.delta": {"type": "ACTIVE"}}, "Y_Delta": {}, "Z_Delta": {"kind": "entity"},
+            "W": {"@DataWarehouse.delta": {"deltaFromEntities": "no-lista"}}, "V": "x"}
+    assert explicit_delta_links(defs) == {"X": ("X_Delta",)}                  # ni Y/Y_Delta ni Z_Delta por sufijo; sin autoenlaces ni basura
+    assert explicit_delta_links(None) == {} and explicit_delta_links([1]) == {}
+
+
+def raw_rf(flow="RF_X", target="X", src=("A", "B"), tgt=("A", "B"), maps=()) -> dict:
+    col = lambda names: {"definition": {"columns": [{"name": n} for n in names]}}      # noqa: E731
+    return {flow: {"contents": {"replicationTasks": [{"name": "t", "sourceObject": dict(col(src), name="S"), "targetObject": dict(col(tgt), name=target),
+                                                     "transform": {"attributeMappings": list(maps)}}]}}}
+
+
+def test_rf_task_columns_extracts_unambiguous_column_evidence_and_omits_the_rest():
+    assert rf_task_columns(raw_rf()) == {("RF_X", "X"): {"source_columns": ["A", "B"], "target_columns": ["A", "B"]}}
+    assert rf_task_columns(raw_rf(src=())) == {} and rf_task_columns(None) == {} and rf_task_columns({"RF": "x"}) == {}
+    both = raw_rf()
+    both["RF_X"]["contents"]["replicationTasks"].append(copy.deepcopy(both["RF_X"]["contents"]["replicationTasks"][0]))
+    assert ("RF_X", "X") in rf_task_columns(both)                             # duplicado identico: una sola entrada
+    both["RF_X"]["contents"]["replicationTasks"][1]["sourceObject"]["definition"]["columns"].append({"name": "C"})
+    assert rf_task_columns(both) == {}                                        # misma clave, contenido distinto: ambigua, se omite
+
+
+def cols_csn(src, tgt, flow="RF_X", target="T_LOCAL"):
+    return {"rf_task_columns": {(flow, target): {"source_columns": list(src), "target_columns": list(tgt)}}}
+
+
+def test_column_evidence_verifies_the_implicit_identity_per_task_and_the_default_contract_still_applies_without_it():
+    plain = kind_of(one_rf())
+    assert plain["materialization_kind"] == KIND_REPLICA and plain["mapping_profile"]["column_evidence"] == lm.COLUMN_EVIDENCE_NOT_PROVIDED and plain["mapping_profile"]["implicit_identity"] is True
+    r = derive_leaf_materialization("T_LOCAL", one_rf(), cols_csn(["A", "B", "C"], ["A", "B"]))              # seleccion de columnas del RF: sin perdida de valores
+    assert r["materialization_kind"] == KIND_REPLICA and r["mapping_profile"]["column_evidence"] == lm.COLUMN_EVIDENCE_VERIFIED and r["mapping_profile"]["implicit_identity"] is True
+
+
+def test_cdc_and_skipped_target_columns_are_explained_but_an_unexplained_target_column_contradicts_the_implicit_identity():
+    ce = one_rf([{"target": "FKDAT", "expression": q("Skip Mapping")}])
+    ce["processing_flow_properties"]["flows"][0]["properties"]["tasks"][0]["change_capture_properties"] = {"com.sap.datasuite.cdc.mode.column": "Change_Type"}
+    ok = derive_leaf_materialization("T_LOCAL", ce, cols_csn(["A"], ["A", "FKDAT", "Change_Type"]))
+    assert ok["materialization_kind"] == KIND_REPLICA and ok["mapping_profile"]["column_evidence"] == lm.COLUMN_EVIDENCE_VERIFIED
+    bad = derive_leaf_materialization("T_LOCAL", one_rf(), cols_csn(["A"], ["A", "INVENTADA"]))
+    assert bad["materialization_kind"] == KIND_UNKNOWN and bad["unknown_reasons"] == [lm.U_IMPLICIT_IDENTITY_CONTRADICTED]
+    assert bad["unknown_detail"][lm.U_IMPLICIT_IDENTITY_CONTRADICTED] == ["RF_X:target_column_without_origin:INVENTADA"] and bad["mapping_profile"]["column_evidence"] == lm.COLUMN_EVIDENCE_CONTRADICTED
+    missing = derive_leaf_materialization("T_LOCAL", one_rf(ident("Z")), cols_csn(["A"], ["A", "Z"]))        # un mapeo identidad cuyo origen no existe
+    assert missing["unknown_reasons"] == [lm.U_IMPLICIT_IDENTITY_CONTRADICTED]
+
+
+def case_ce(bclass=CDS):
+    return one_rf([{"target": "audat", "expression": q("AUDAT")}], cls=bclass)
+
+
+def test_case_only_rename_is_identity_normalized_only_with_verified_columns_and_a_cds_source():
+    csn = cols_csn(["AUDAT", "B"], ["audat", "B"])
+    r = derive_leaf_materialization("T_LOCAL", case_ce(), csn)
+    mp = r["mapping_profile"]
+    assert r["materialization_kind"] == KIND_REPLICA and (mp["identity_normalized"], mp["rename"], mp["rename_case_only"], mp["identity"]) == (1, 0, 1, 0)
+    # sin evidencia de columnas: sigue siendo renombre (conservador) y rename_case_only se preserva
+    r = derive_leaf_materialization("T_LOCAL", case_ce())
+    assert r["materialization_kind"] == KIND_TRANSFORMED and (r["mapping_profile"]["identity_normalized"], r["mapping_profile"]["rename"], r["mapping_profile"]["rename_case_only"]) == (0, 1, 1)
+    # origen que NO es una CDS gobernada: la premisa de identificadores no se cumple
+    for cls in (PHYS, STDVIEW):
+        r = derive_leaf_materialization("T_LOCAL", case_ce(cls), csn)
+        assert r["materialization_kind"] == KIND_TRANSFORMED and r["mapping_profile"]["identity_normalized"] == 0, cls
+
+
+@pytest.mark.parametrize("src, tgt", [(["AUDAT", "Audat"], ["audat"]),            # colision de mayusculas en el origen
+                                      (["AUDAT"], ["audat", "AUDat"]),            # colision en el destino
+                                      (["audat"], ["audat"]),                     # el origen mapeado no existe EXACTAMENTE
+                                      (["AUDAT"], ["otra"])])                     # el destino mapeado no existe
+def test_collisions_or_missing_exact_names_prevent_the_case_equivalence(src, tgt):
+    r = derive_leaf_materialization("T_LOCAL", case_ce(), cols_csn(src, tgt))
+    assert r["materialization_kind"] == KIND_TRANSFORMED and r["mapping_profile"]["identity_normalized"] == 0 and r["mapping_profile"]["rename"] == 1 and r["mapping_profile"]["rename_case_only"] == 1
+
+
+def test_there_is_no_universal_casefold_only_verified_case_only_pairs_are_normalized_and_data_flows_never_are():
+    mixed = [{"target": "audat", "expression": q("AUDAT")}, {"target": "fkdat_2", "expression": q("FKDAT")}]       # el segundo es un renombre real
+    r = derive_leaf_materialization("T_LOCAL", one_rf(mixed), cols_csn(["AUDAT", "FKDAT"], ["audat", "fkdat_2"]))
+    assert r["materialization_kind"] == KIND_TRANSFORMED and (r["mapping_profile"]["identity_normalized"], r["mapping_profile"]["rename"]) == (1, 1)
+    ce = one_df([{"target": "vbeln", "expression": q("VBELN")}], bounds=[bnd("B", "ABAP_CDS.X", CDS, ["DF_X"])])
+    r = derive_leaf_materialization("T_LOCAL", ce, cols_csn(["VBELN"], ["vbeln"], flow="DF_X"))
+    assert r["materialization_kind"] == KIND_TRANSFORMED and r["mapping_profile"]["identity_normalized"] == 0 and r["mapping_profile"]["rename_case_only"] == 1
+    p = classify_mappings([{"target": "a", "expression": q("A")}], frozenset({("a", "A")}))
+    assert (p["identity_normalized"], p["rename"], p["rename_case_only"]) == (1, 0, 1)
+    p = classify_mappings([{"target": "a", "expression": q("A")}], frozenset({("b", "B")}))
+    assert (p["identity_normalized"], p["rename"], p["rename_case_only"]) == (0, 1, 1)
+
+
+def test_transformed_is_technical_and_nothing_in_the_record_claims_semantic_harmonization():
+    r = kind_of(one_df(ident("A"), (DF_CONSUMER, DF_PRODUCER, PROJECTION)))
+    assert r["materialization_kind"] == KIND_TRANSFORMED
+    assert not any("harmon" in k.lower() or "strength" in k.lower() or "har_" in k.lower() for k in r)       # sin campos de armonizacion/fortaleza
+    assert "TECNICA" in (lm.__doc__ or "").upper() or "TECHNICAL" in (lm.__doc__ or "").upper()
+
+
+def test_csn_evidence_never_changes_the_default_output_for_leaves_it_does_not_cover():
+    for ce in (one_rf(), one_df(ident("A")), two_producers((DF_CONSUMER, DF_PRODUCER))):
+        base = derive_all(ce)
+        with_csn = derive_all(ce, {"delta_links": {"OTRA": ("D",)}, "rf_task_columns": {("RF_OTRO", "OTRA"): {"source_columns": ["A"], "target_columns": ["A"]}}})
+        norm = lambda d: json.loads(json.dumps(d))                                                        # noqa: E731
+        assert norm(base) == norm(with_csn)
+
+
+
 # ───────────────────────────── accesor de lectura y no regresion del Juicio ─────────────────────────────
 def test_profile_evidence_exposes_materialization_read_only_and_historical_profiles_give_empty():
     p = {"canonical_evidence": one_rf()}
@@ -454,3 +615,37 @@ def test_oracle_derived_boundary_class_matches_the_persisted_source_contract_cla
             # source_contract_classes llama MIXED a ">1 clase de borde" (tambien dos familias gobernadas); aqui MIXED = gobernado + fisico y la composicion conserva ambas clases
             assert scc[leaf] in expected or (r["derived_boundary_class"] == DBC_GOVERNED and scc[leaf] == "MIXED_BOUNDARY_CLASSES" and len(r["composition"]) >= 2), (f, leaf, r["derived_boundary_class"], scc[leaf])
     assert checked > 0
+
+
+_CSN = os.environ.get("LEAF_MATERIALIZATION_CSN", "")
+
+
+def _csn_for(client: str) -> dict:
+    links, cols = {}, {}
+    for jf in glob.glob(os.path.join(_CSN, client, "**", "*.json"), recursive=True):
+        try:
+            doc = json.loads(Path(jf).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(doc, dict):
+            links.update(explicit_delta_links(doc.get("definitions")))
+            cols.update(rf_task_columns(doc.get("replicationflows")))
+    return {"delta_links": links, "rf_task_columns": cols}
+
+
+@pytest.mark.skipif(not (_CORPUS and _CSN) or not glob.glob(os.path.join(_CORPUS, "v1", "*", "*.json")), reason="LEAF_MATERIALIZATION_CORPUS / LEAF_MATERIALIZATION_CSN no definidos")
+def test_oracle_with_explicit_csn_evidence_resolves_every_delta_shadow_leaf_and_contradicts_no_replication_flow():
+    resolved = verified = 0
+    for f in sorted(glob.glob(os.path.join(_CORPUS, "v1", "*", "*.json"))):
+        d = json.loads(Path(f).read_text(encoding="utf-8"))
+        ce = d["profile_json"]["canonical_evidence"]
+        csn = _csn_for(d["client"])
+        base, out = derive_all(ce), derive_all(ce, csn)
+        for leaf, r in out.items():
+            for p in r["producers"]:
+                assert p["mapping_profile"]["column_evidence"] != lm.COLUMN_EVIDENCE_CONTRADICTED, (f, leaf, p["name"])      # el contrato "anulaciones + identidad por nombre" se sostiene
+                verified += p["mapping_profile"]["column_evidence"] == lm.COLUMN_EVIDENCE_VERIFIED
+                resolved += p["resolved_via"] == lm.RESOLVED_VIA_DELTA_LINK
+            if lm.U_TARGET_MATCH_NOT_EXACT in base[leaf]["unknown_reasons"]:
+                assert lm.U_TARGET_MATCH_NOT_EXACT not in r["unknown_reasons"], (f, leaf)         # todo vinculo por sufijo del corpus esta respaldado por una declaracion CSN explicita
+    assert resolved > 0 and verified > 0
