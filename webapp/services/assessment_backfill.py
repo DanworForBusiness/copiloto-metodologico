@@ -883,6 +883,11 @@ def secured_migrate(entries: Iterable[Any], migration: str, *, authorizer: Calla
                 dbk.publish_event(migration, run_id, seq[0], rec)                  # remoto: un objeto inmutable por evento; una falla detiene las olas (restore necesita los COMMITTED)
             except dbk.DurableBackupError as exc:
                 jfail.append(exc.code)
+    journal({"event": "AUTHORIZED", "approver": auth.approver, "operator": auth.operator, "duties_mode": auth.duties_mode, "duties_collapsed": auth.duties_collapsed,
+             "operator_assurance": auth.operator_assurance, "attestation": auth.attestation, "plan_digest": plan["digest"],
+             "approval_sha256": hashlib.sha256(ma.canonical(auth.document)).hexdigest() if auth.document is not None else None})      # registro auditable ANTES de la primera escritura
+    if jfail:
+        return _refusal(plan_report, BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error="JOURNAL_REMOTE_FAILED")
     stopped = None
     for n, wave in enumerate(order, 1):
         wanted = {c.lower() for c in wave}
