@@ -16,7 +16,13 @@ MODOS DE FUNCIONES (``duties_mode`` firmado en la aprobacion; ver ``_handoffs/V4
   * ``OWNER_MANAGED`` (explicito y opt-in; administracion individual): aprobador == operador == UNA sola identidad, aceptado SOLO si (1) el servidor la autoriza formalmente en
     ``DANWOR_MIGRATION_OWNER_MANAGED_IDS`` (JSON, lista de ids; ausente/invalida => el modo no existe), (2) la aprobacion firmada declara ``OWNER_MANAGED`` con ``approver == authorized_operator == --operator``
     y (3) trae una ``operator_attestation`` Ed25519 de esa MISMA identidad, atada al ``plan_digest`` y a la firma de ESTA aprobacion, de vigencia <= ``MAX_ATTESTATION_TTL``, que acredita por firma (no por
-    variables de entorno ni por acceso a consola) a quien ejecuta (``operator_assurance = ATTESTED_SIGNATURE``). Se conservan firma, ``plan_digest``, vencimiento y alcance. ``APP_OWNER`` no se consulta."""
+    variables de entorno ni por acceso a consola) a quien ejecuta (``operator_assurance = ATTESTED_SIGNATURE``). Se conservan firma, ``plan_digest``, vencimiento y alcance. ``APP_OWNER`` no se consulta.
+
+CONFIGURACION DE LA IDENTIDAD OWNER_MANAGED (sin JSON): dos variables ESCALARES ``DANWOR_MIGRATION_OWNER_ID`` (id) y ``DANWOR_MIGRATION_OWNER_PUBLIC_KEY`` (clave publica Ed25519 en Base64). Con ellas el
+modulo construye internamente el registro ``{id: clave}`` y la autorizacion formal de ese id SOLO para OWNER_MANAGED; no hace falta ``DANWOR_MIGRATION_APPROVER_KEYS`` ni ``DANWOR_MIGRATION_OWNER_MANAGED_IDS``
+(que siguen vigentes sin cambios: SEPARATED_DUTIES usa SOLO ``DANWOR_MIGRATION_APPROVER_KEYS``, y OWNER_MANAGED con JSON sigue funcionando si no hay variables escalares). Las variables escalares NO autorizan nada por
+si solas: siguen siendo obligatorias la aprobacion firmada, la acreditacion, el ``plan_digest``, el alcance y el vencimiento. Configuracion parcial, invalida o contradictoria (escalar vs JSON: misma identidad con otra
+clave, la misma clave bajo otra identidad, ids de OWNER_MANAGED distintos, JSON ilegible) => se DENIEGA TODO con una causa explicita ``OWNER_CONFIG_*``: nunca se elige una configuracion en silencio."""
 from __future__ import annotations
 
 import base64
@@ -47,6 +53,11 @@ EMPTY_PLAN = "EMPTY_PLAN"
 ENV_OWNER_MANAGED_IDS = "DANWOR_MIGRATION_OWNER_MANAGED_IDS"
 SEPARATED_DUTIES, OWNER_MANAGED = "SEPARATED_DUTIES", "OWNER_MANAGED"
 DUTIES_MODES = (SEPARATED_DUTIES, OWNER_MANAGED)
+ENV_OWNER_ID, ENV_OWNER_PUBLIC_KEY = "DANWOR_MIGRATION_OWNER_ID", "DANWOR_MIGRATION_OWNER_PUBLIC_KEY"
+CFG_SCALAR, CFG_LEGACY, CFG_EXPLICIT = "SCALAR_OWNER", "LEGACY_JSON", "EXPLICIT"
+CFG_INCOMPLETE, CFG_BAD_ID, CFG_BAD_KEY = "OWNER_CONFIG_INCOMPLETE", "OWNER_CONFIG_INVALID_ID", "OWNER_CONFIG_INVALID_KEY"
+CFG_LEGACY_INVALID, CFG_KEY_CONFLICT = "OWNER_CONFIG_LEGACY_JSON_INVALID", "OWNER_CONFIG_CONFLICT_KEY"
+CFG_KEY_SHARED, CFG_IDS_CONFLICT = "OWNER_CONFIG_CONFLICT_KEY_SHARED", "OWNER_CONFIG_CONFLICT_IDENTITIES"
 ATTESTATION_SCHEMA = "migration-operator-attestation/v1"
 MAX_ATTESTATION_TTL = timedelta(minutes=60)
 ASSURANCE_DESIGNATED, ASSURANCE_ATTESTED = "DESIGNATED_BY_APPROVER", "ATTESTED_SIGNATURE"
@@ -69,10 +80,11 @@ class Authorization:
     duties_collapsed: bool = False                                       # True solo en OWNER_MANAGED: aprobador y operador son la MISMA identidad (explicito, no oculto)
     operator_assurance: str | None = None                                # DESIGNATED_BY_APPROVER | ATTESTED_SIGNATURE
     attestation: dict | None = field(default=None, compare=False)        # resumen de la acreditacion (identidad, vigencia, hash de su firma); nunca la firma completa
+    identity_config: str | None = None                                   # de DONDE salio el registro de identidades: SCALAR_OWNER | LEGACY_JSON | EXPLICIT (registro auditable)
 
     def as_dict(self) -> dict:
         return {"granted": self.granted, "reason": self.reason, "approver": self.approver, "operator": self.operator, "expires_at": self.expires_at, "duties_mode": self.duties_mode,
-                "duties_collapsed": self.duties_collapsed, "operator_assurance": self.operator_assurance, "attestation": self.attestation}
+                "duties_collapsed": self.duties_collapsed, "operator_assurance": self.operator_assurance, "attestation": self.attestation, "identity_config": self.identity_config}
 
 
 DENIED = lambda reason, **kw: Authorization(False, reason, **kw)             # noqa: E731
@@ -162,6 +174,84 @@ def load_owner_managed_ids(raw: str | None = None) -> frozenset:
     return frozenset(data)
 
 
+@dataclass(frozen=True)
+class IdentityConfig:
+    """Registro de identidades EFECTIVO resuelto del entorno. ``separated_keys``: claves de aprobadores para SEPARATED_DUTIES (SIEMPRE el JSON actual). ``owner_keys``/``owner_ids``: registro y autorizacion formal
+    para OWNER_MANAGED (escalares => ``{id: clave}``; sin escalares => el JSON de siempre). ``error`` != None => configuracion parcial/invalida/contradictoria: se deniega todo."""
+    source: str
+    separated_keys: Mapping[str, Ed25519PublicKey]
+    owner_keys: Mapping[str, Ed25519PublicKey]
+    owner_ids: frozenset
+    error: str | None = None
+    owner_id: str | None = None
+    key_fingerprint: str | None = None
+
+
+def _pub_bytes(key: Ed25519PublicKey) -> bytes:
+    from cryptography.hazmat.primitives import serialization
+    return key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+
+
+def _strict_keys_json(raw: str) -> dict[str, Ed25519PublicKey] | None:
+    """JSON ``{id: clave}`` ESTRICTO (None si no se puede leer): con variables escalares presentes no se descarta en silencio un JSON ilegible."""
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return None
+        return {str(i): Ed25519PublicKey.from_public_bytes(base64.b64decode(b64, validate=True)) for i, b64 in data.items()}
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _strict_ids_json(raw: str) -> frozenset | None:
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, list) or not all(isinstance(x, str) and x.strip() for x in data):
+        return None
+    return frozenset(data)
+
+
+def load_identity_config(env: Mapping[str, str] | None = None) -> IdentityConfig:
+    """Resuelve el registro de identidades del ENTORNO. Sin variables escalares: comportamiento ACTUAL (``DANWOR_MIGRATION_APPROVER_KEYS`` / ``DANWOR_MIGRATION_OWNER_MANAGED_IDS``), sin cambios. Con
+    ``DANWOR_MIGRATION_OWNER_ID`` y/o ``DANWOR_MIGRATION_OWNER_PUBLIC_KEY``: ambas obligatorias y validas (clave Ed25519 Base64 de 32 bytes, id sin espacios internos), y coherentes con el JSON si tambien existe;
+    cualquier problema => ``error`` explicito (NUNCA se elige una configuracion en silencio). Los valores escalares se recortan (``strip``) por los espacios/saltos de linea tipicos de pegar secretos."""
+    env = os.environ if env is None else env
+    sid, skey = (env.get(ENV_OWNER_ID) or "").strip(), (env.get(ENV_OWNER_PUBLIC_KEY) or "").strip()
+    raw_keys, raw_ids = env.get(ENV_APPROVER_KEYS, ""), env.get(ENV_OWNER_MANAGED_IDS, "")
+    if not sid and not skey:
+        keys = load_approver_keys(raw_keys)
+        return IdentityConfig(CFG_LEGACY, keys, keys, load_owner_managed_ids(raw_ids))
+    fail = lambda code: IdentityConfig(CFG_SCALAR, {}, {}, frozenset(), error=code)               # noqa: E731
+    if not (sid and skey):
+        return fail(CFG_INCOMPLETE)                                                               # una sola de las dos variables
+    if any(c.isspace() or ord(c) < 32 for c in sid):
+        return fail(CFG_BAD_ID)
+    try:
+        key = Ed25519PublicKey.from_public_bytes(base64.b64decode(skey, validate=True))
+    except (ValueError, TypeError):
+        return fail(CFG_BAD_KEY)
+    json_keys: dict[str, Ed25519PublicKey] = {}
+    if raw_keys.strip():
+        json_keys = _strict_keys_json(raw_keys)
+        if json_keys is None:
+            return fail(CFG_LEGACY_INVALID)
+    json_ids: frozenset = frozenset()
+    if raw_ids.strip():
+        ids = _strict_ids_json(raw_ids)
+        if ids is None:
+            return fail(CFG_LEGACY_INVALID)
+        json_ids = ids
+    if sid in json_keys and _pub_bytes(json_keys[sid]) != _pub_bytes(key):
+        return fail(CFG_KEY_CONFLICT)                                                             # misma identidad, otra clave
+    if any(i != sid and _pub_bytes(k) == _pub_bytes(key) for i, k in json_keys.items()):
+        return fail(CFG_KEY_SHARED)                                                               # la misma clave bajo otra identidad (dos nombres para una persona)
+    if json_ids and json_ids != frozenset({sid}):
+        return fail(CFG_IDS_CONFLICT)                                                             # ids de OWNER_MANAGED que contradicen al escalar
+    return IdentityConfig(CFG_SCALAR, json_keys, {sid: key}, frozenset({sid}), owner_id=sid, key_fingerprint=hashlib.sha256(_pub_bytes(key)).hexdigest()[:16])
+
+
 def verify_attestation(att: Any, approval: Mapping[str, Any], keys: Mapping[str, Ed25519PublicKey], now: datetime) -> tuple[str | None, dict | None]:
     """(causa de denegacion | None, resumen). La acreditacion debe: existir, tener el esquema correcto, ser de la identidad aprobadora, estar firmada por su clave registrada, referirse a ESTA aprobacion y
     a ESTE plan, no estar vencida ni emitida en el futuro y durar <= ``MAX_ATTESTATION_TTL``."""
@@ -211,9 +301,19 @@ def verify_approval(approval: Any, *, migration: str, plan_digest: str, plan_cli
     """Verifica TODAS las condiciones (ver el docstring del modulo). Devuelve ``Authorization``; cualquier fallo => ``granted=False`` con causa estable. Nunca lanza.
     ``owner_managed_ids``: identidades autorizadas formalmente para OWNER_MANAGED (None => ``DANWOR_MIGRATION_OWNER_MANAGED_IDS``; vacio => el modo no existe)."""
     now = now or datetime.now(timezone.utc)
-    keys = load_approver_keys() if approver_keys is None else dict(approver_keys)
     if not isinstance(approval, Mapping):
         return DENIED(NO_APPROVAL)
+    cfg_source, cfg_owner_ids = CFG_EXPLICIT, None
+    if approver_keys is not None:                                                   # registro explicito (tests/integradores): se usa tal cual, como siempre
+        keys = dict(approver_keys)
+    else:
+        cfg = load_identity_config()
+        if cfg.error:
+            return DENIED(cfg.error, identity_config=cfg.source)                    # configuracion parcial/invalida/contradictoria: se deniega TODO, explicito
+        if cfg.source == CFG_SCALAR and approval.get("duties_mode") == OWNER_MANAGED:
+            keys, cfg_owner_ids, cfg_source = dict(cfg.owner_keys), cfg.owner_ids, CFG_SCALAR      # OWNER_MANAGED con escalares: SOLO {id: clave} (el JSON no interviene)
+        else:
+            keys, cfg_owner_ids, cfg_source = dict(cfg.separated_keys), cfg.owner_ids, CFG_LEGACY    # SEPARATED_DUTIES / JSON actual: sin cambios
     if not keys:
         return DENIED(NO_APPROVERS)
     if approval.get("schema") != APPROVAL_SCHEMA:
@@ -239,7 +339,7 @@ def verify_approval(approval: Any, *, migration: str, plan_digest: str, plan_cli
         if operator == approver:
             return DENIED(SAME_PERSON, **ctx)                                       # aprobador distinto de quien ejecuta (modo por defecto, sin cambios)
     else:                                                                           # OWNER_MANAGED: opt-in formal del servidor + UNA sola identidad (la acreditacion se exige al final)
-        owner_ids = load_owner_managed_ids() if owner_managed_ids is None else frozenset(owner_managed_ids)
+        owner_ids = (cfg_owner_ids if cfg_owner_ids is not None else load_owner_managed_ids()) if owner_managed_ids is None else frozenset(owner_managed_ids)
         if not owner_ids:
             return DENIED(OWNER_NOT_ENABLED, **ctx)
         if approver not in owner_ids:
@@ -272,7 +372,7 @@ def verify_approval(approval: Any, *, migration: str, plan_digest: str, plan_cli
             return DENIED(reason, **ctx)
         assurance = ASSURANCE_ATTESTED
     return Authorization(True, "AUTHORIZED", approver=approver, operator=operator, expires_at=approval.get("expires_at"), document=dict(approval), duties_mode=mode,
-                         duties_collapsed=(mode == OWNER_MANAGED), operator_assurance=assurance, attestation=summary)
+                         duties_collapsed=(mode == OWNER_MANAGED), operator_assurance=assurance, attestation=summary, identity_config=cfg_source)
 
 
 def authorizer_from_file(path: str | Path | None, operator: str | None, *, now: Callable[[], datetime] | None = None,
@@ -320,6 +420,7 @@ def main(argv: list[str] | None = None) -> int:
     iss.add_argument("--duties-mode", choices=DUTIES_MODES, default=SEPARATED_DUTIES, help="SEPARATED_DUTIES (por defecto) | OWNER_MANAGED (opt-in: --operator debe ser igual a --approver y el servidor debe autorizarlo en "
                      + ENV_OWNER_MANAGED_IDS + ")")
     iss.add_argument("--out", required=True)
+    sub.add_parser("config", help="muestra (sin secretos) la configuracion de identidades EFECTIVA del entorno: origen, ids, huella de la clave del owner y errores/conflictos")
     att = sub.add_parser("attest", help="OWNER_MANAGED: acredita por firma a quien ejecuta (agrega operator_attestation a la aprobacion; correr poco antes del apply)")
     att.add_argument("--key", required=True)
     att.add_argument("--approval", required=True)
@@ -334,6 +435,13 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.out).write_text(base64.b64encode(key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())).decode("ascii"), encoding="ascii")
         print(public_key_b64(key))
         return 0
+    if args.cmd == "config":
+        c = load_identity_config()
+        info = {"source": c.source, "error": c.error, "owner_id": c.owner_id, "owner_key_fingerprint_sha256_16": c.key_fingerprint, "approver_ids_for_separated_duties": sorted(c.separated_keys),
+                "owner_managed_ids": sorted(c.owner_ids), "owner_managed_available": bool(c.owner_ids and c.owner_keys and not c.error),
+                "separated_duties_available": bool(c.separated_keys and not c.error)}
+        print(json.dumps(info, indent=1, sort_keys=True))
+        return 2 if c.error else 0
     if args.cmd == "attest":
         try:
             approval = json.loads(Path(args.approval).read_text(encoding="utf-8"))
