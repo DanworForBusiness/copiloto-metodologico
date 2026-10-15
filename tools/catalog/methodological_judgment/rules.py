@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
+from tools.catalog import leaf_materialization as LM
 from tools.catalog.methodological_judgment.profile_access import (
     EXTERNAL_CONTRACT_UNDETERMINED, GOVERNED_SAP_CONTRACT, K_BOUNDARY, K_HARM, K_LOCAL_LEAF, K_VIEW, PHYSICAL_RAW_BOUNDARY, ProfileEvidence, sorted_unique,
 )
@@ -31,7 +32,7 @@ _GOVERNED_BOUNDARY_CLASSES = ("GOVERNED_CDS_CONTRACT", "STANDARD_VIEW_ON_PHYSICA
 # ───────────────────────────── constructores ─────────────────────────────
 def _reason(rule_id: str, classification: str, dimension: str, statement_key: str, scope: str, *, artifacts, refs, basis, secondary: str | None = None,
             causal: Mapping[str, str] | None = None, disposition_allowed: bool = True, max_class: str | None = None, evaluability: str = C.EVALUATED,
-            ev: ProfileEvidence) -> dict:
+            ev: ProfileEvidence, extra: Mapping[str, Any] | None = None) -> dict:
     out = {
         "reason_id": f"{rule_id}:{scope}", "rule_id": rule_id, "classification": classification, "dimension": dimension, "statement_key": statement_key,
         "affected_artifacts": sorted_unique(artifacts), "evidence_refs": sorted_unique(r for r in refs if ev.ref_exists(r)), "deterministic_basis": list(basis),
@@ -42,6 +43,8 @@ def _reason(rule_id: str, classification: str, dimension: str, statement_key: st
     }
     if secondary:
         out["secondary_dimension"] = secondary
+    if extra:
+        out.update(extra)
     if causal:
         out["causal_conditions"] = dict(causal)
     return out
@@ -354,20 +357,86 @@ def rule_lek_mat_02(ev: ProfileEvidence, policy: str) -> list[dict]:
 
 
 # ───────────────────────────── RELEVANT / LOCAL ─────────────────────────────
-def rule_src_rel_loc(ev: ProfileEvidence, policy: str) -> list[dict]:
+_SCC_MIXED, _SCC_PHYSICAL = "MIXED_BOUNDARY_CLASSES", "PHYSICAL_ABAP_TABLE_BOUNDARY"
+
+
+def _verified_provenance(ev: ProfileEvidence, leaf: str, rec: Mapping[str, Any], m: Mapping[str, Any] | None) -> bool:
+    """Procedencia comprobada comun: ESTABLISHED, cadena completa y sin huecos, sin evidencia contradictoria y al menos un productor EXACT o resuelto por CSN."""
+    return bool(m is not None and rec.get("provenance_state") == "ESTABLISHED" and m["chain_complete"] is True and not m["chain_gaps"] and LM.U_CONTRADICTORY not in m["unknown_reasons"]
+                and any(p["target_match"] == LM.EXACT or p["resolved_via"] for p in m["producers"]))
+
+
+def local_mixed_physical_components_materialized(ev: ProfileEvidence, policy: str) -> list[dict]:
+    """T5 integrada — FRONTERAS MIXED con COMPONENTE FISICO COMPROBADO. Una tabla local cuyos bordes terminales son gobernados Y fisicos (``MIXED``) no es una deficiencia por si misma: solo se
+    reconoce el componente fisico (tablas ABAP fisicas alcanzadas), y unicamente con procedencia comprobada (cadena completa, sin huecos ni bordes sin clasificar —garantizado por la clase derivada—,
+    sin contradiccion) y con la clase explicita de ``source_contract_classes`` CORROBORANDO la mezcla y el componente fisico. Cada componente informa si participa de la ESPINA del producto
+    (la hoja alimenta un nodo de producto por linaje) o es una RAMA AUXILIAR. Devuelve ``[{leaf, physical_entities, governed_entities, on_spine}]``."""
+    out = []
+    for leaf, rec in sorted(ev.local_leaves.items()):
+        m = ev.materialization_of(leaf)
+        scc = ev.leaf_class_records.get(leaf) or {}
+        if (not _verified_provenance(ev, leaf, rec, m) or m["derived_boundary_class"] != LM.DBC_MIXED or scc.get("contract_class") != _SCC_MIXED
+                or _SCC_PHYSICAL not in (scc.get("boundary_classes") or ())):
+            continue
+        tb = m["terminal_boundaries"]
+        out.append({"leaf": leaf, "physical_entities": sorted({b["remote_entity"] for b in tb if b["boundary_class"] in LM.PHYSICAL_BOUNDARY_CLASSES and b["remote_entity"]}),
+                    "governed_entities": sorted({b["remote_entity"] for b in tb if b["boundary_class"] in LM.GOVERNED_BOUNDARY_CLASSES and b["remote_entity"]}),
+                    "on_spine": _leaf_reaches_product(ev, leaf)})
+    return [c for c in out if c["physical_entities"]]
+
+
+def local_physical_boundaries_materialized(ev: ProfileEvidence, policy: str) -> list[str]:
+    """T5 integrada con ``leaf-materialization/v1`` — tablas LOCALES con procedencia FISICA COMPROBADA: clase de borde derivada ``PHYSICAL_DERIVED`` (todos los bordes terminales son tablas ABAP
+    fisicas, cadena completa y sin huecos), al menos un productor EXACT (Data Flow o Replication Flow) con procedencia ESTABLISHED y sin evidencia contradictoria. La CLASE DE FUENTE sigue viniendo
+    de ``source_contract_classes`` (identidad/gobierno): la derivacion solo la CORROBORA (si el registro explicito discrepa, la hoja no cuenta). Es INDEPENDIENTE de ``materialization_kind`` (una
+    copia, una replica o una transformacion de tablas fisicas son igualmente contacto con la fuente fisica) y de ``filter_nature``; ninguna tabla local entra solo por serlo ni por su nombre."""
+    out = []
+    for leaf, rec in sorted(ev.local_leaves.items()):
+        m = ev.materialization_of(leaf)
+        if (m is None or rec.get("provenance_state") != "ESTABLISHED" or m["derived_boundary_class"] != LM.DBC_PHYSICAL or m["chain_complete"] is not True
+                or LM.U_CONTRADICTORY in m["unknown_reasons"] or ev.classify_source(leaf, policy) != PHYSICAL_RAW_BOUNDARY):
+            continue
+        if any(p["target_match"] == LM.EXACT or p["resolved_via"] for p in m["producers"]):
+            out.append(leaf)
+    out += [c["leaf"] for c in local_mixed_physical_components_materialized(ev, policy) if c["on_spine"]]        # MIXED: solo el componente fisico comprobado Y en la espina del producto
+    return sorted(out)
+
+
+def local_physical_boundaries(ev: ProfileEvidence, policy: str, materialized: bool = False) -> list[str]:
+    """T5 — tablas LOCALES cuya clase de contrato es tabla ABAP fisica (``source_contract_classes``) Y cuya procedencia fue COMPROBADA por un Data Flow (``leaf_provenance``: ESTABLISHED/DATA_FLOW):
+    el Data Flow materializa en Datasphere el contenido de una tabla fisica. Ni cualquier tabla local es frontera cruda, ni se deduce por nombre: se exige la clase explicita Y la procedencia comprobada.
+    Una tabla replicada de un contrato gobernado (Replication Flow), una transformada con clase mixta/indeterminada o una sin procedencia NO entran."""
+    if materialized:
+        return local_physical_boundaries_materialized(ev, policy)
+    out = []
+    for leaf, rec in sorted(ev.local_leaves.items()):
+        if rec.get("provenance_state") == "ESTABLISHED" and rec.get("basis") == "DATA_FLOW" and ev.classify_source(leaf, policy) == PHYSICAL_RAW_BOUNDARY:
+            out.append(leaf)
+    return out
+
+
+def rule_src_rel_loc(ev: ProfileEvidence, policy: str, variants: frozenset = frozenset()) -> list[dict]:
     """SRC-REL-01 (RELEVANT): tabla fisica cruda en la espina cuyo camino al producto OMITE la frontera reutilizable (ausente u omitida) Y la responsabilidad es compensada por logica de
     Modelado. Cualquier otra cruda (fuera de la espina, a traves de un candidato, o sin compensacion) es SRC-LOC-01 (LOCAL, evidencia de fuente). Nunca MATERIAL sola; no es 'cruda en espina'."""
     comp = _raw_bypass_compensated(ev, policy)
     rel = sorted(comp)
     loc = sorted(l for l in ev.remote_leaves if ev.classify_source(l, policy) == PHYSICAL_RAW_BOUNDARY and l not in comp)
+    materialized = C.VARIANT_MATERIALIZED_INPUT in variants
+    local_phys = [l for l in local_physical_boundaries(ev, policy, materialized) if l not in loc] if C.VARIANT_T5_LOCAL_PHYSICAL in variants else []
+    mixed = {c["leaf"]: c for c in local_mixed_physical_components_materialized(ev, policy) if c["on_spine"] and c["leaf"] in local_phys} if materialized and local_phys else {}
     out = []
     if rel:
         out.append(_reason("SRC-REL-01", C.RELEVANT_WEAKNESS, C.SOURCE_INGESTION, "src.physical_boundary_bypassed_and_compensated_downstream", "closure", ev=ev,
                            artifacts=[*rel, *sorted({n for v in comp.values() for n in v})], refs=[_fact_ref(ev, "source.downstream_reach", l) for l in rel],
                            basis=["SRC.physical_abap_table", "SRC.on_strict_spine", "SRC.path_to_product_bypasses_harmonization", "SRC.compensated_by_modeling_logic"]))
-    if loc:
-        out.append(_reason("SRC-LOC-01", C.LOCAL_WEAKNESS, C.SOURCE_INGESTION, "src.physical_reach_without_bypass_and_compensation", "closure", ev=ev, artifacts=loc,
-                           refs=[_fact_ref(ev, "source.downstream_reach", l) for l in loc], basis=["SRC.physical_abap_table", "SRC.off_spine_or_harmonized_or_not_compensated"]))
+    if loc or local_phys:
+        out.append(_reason("SRC-LOC-01", C.LOCAL_WEAKNESS, C.SOURCE_INGESTION, "src.physical_reach_without_bypass_and_compensation", "closure", ev=ev, artifacts=[*loc, *local_phys],
+                           refs=[*[_fact_ref(ev, "source.downstream_reach", l) for l in loc], *[f"ce:leaf_provenance/{l}" for l in local_phys], *[f"ce:source_contract_classes/{l}" for l in local_phys],
+                                 *([f"ce:physical_source_boundaries/{l}" for l in local_phys] if materialized else [])],
+                           basis=["SRC.physical_abap_table", "SRC.off_spine_or_harmonized_or_not_compensated",
+                                  *((["SRC.local_table_physical_provenance_verified_by_leaf_materialization"] if materialized else ["SRC.local_table_materialized_from_physical_abap_table_by_established_data_flow"]) if local_phys else []),
+                                  *(["SRC.mixed_boundary_physical_component_verified_on_product_spine"] if mixed else [])],
+                           extra=({"mixed_boundary_physical_components": [{k: c[k] for k in ("leaf", "physical_entities", "governed_entities", "on_spine")} for _, c in sorted(mixed.items())]} if mixed else None)))
     return out
 
 
@@ -437,7 +506,47 @@ def rule_pro_loc_01(ev: ProfileEvidence, mat_nodes: set[str]) -> list[dict]:
 
 
 # ───────────────────────────── FORTALEZAS ─────────────────────────────
-def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool) -> list[dict]:
+_HAR_NON_BUSINESS_LABELS = ("NO_LABEL", "UNKNOWN_PROVIDER_LABEL", "EQUALS_OWN_NAME", "EQUALS_PROVIDER_TECHNICAL_NAME", "DIFFERENT_FROM_PROVIDER")
+
+
+def _har_sources_governed(ev: ProfileEvidence, cand: Mapping[str, Any], policy: str, seen: frozenset = frozenset()) -> bool:
+    """T4 — TODAS las fuentes del candidato resuelven a hojas gobernadas, directamente o A TRAVES de otros candidatos de armonizacion tecnica 1:1 (una dimension reutilizable construida sobre otra
+    dimension reutilizable). Un origen que no es hoja ni candidato (p. ej. una vista cualquiera) o una hoja no gobernada NO califica."""
+    srcs = cand.get("sources") or []
+    if not srcs:
+        return False
+    for s in srcs:
+        sub = ev.harmonization.get(s)
+        if sub is not None:
+            if s in seen or (sub.get("character") or {}).get("value") != "TECHNICAL_MATERIALIZATION" or not _har_sources_governed(ev, sub, policy, seen | {cand.get("artifact")}):
+                return False
+        elif ev.classify_source(s, policy) != GOVERNED_SAP_CONTRACT:
+            return False
+    return True
+
+
+def _har_business_labels(cand: Mapping[str, Any]) -> bool:
+    """T4 — el vocabulario de negocio se preserva por ETIQUETA: todo campo conserva la etiqueta del proveedor gobernado (ninguno sin etiqueta, con la etiqueta = su propio nombre tecnico o distinta
+    del proveedor). Conservar el NOMBRE tecnico de columna en una proyeccion 1:1 no es un defecto: es la responsabilidad de una frontera reutilizable que no renombra."""
+    lab = cand.get("label_origin_counts") or {}
+    return not any(lab.get(k) for k in _HAR_NON_BUSINESS_LABELS) and (lab.get("EQUALS_PROVIDER_LABEL") or 0) > 0
+
+
+def har_str_01_reformulated(ev: ProfileEvidence, policy: str) -> list[str]:
+    """T4 — candidatos que califican como FRONTERA REUTILIZABLE LEGITIMA sobre un contrato gobernado (lista vacia = no hay fortaleza). La fortaleza exige EVIDENCIA AFIRMATIVA (>=1 candidato
+    1:1 sobre contrato gobernado, con etiquetas de negocio preservadas y consumido aguas abajo) Y la AUSENCIA de las tres consecuencias que definen HAR-REL-01 (vocabulario tecnico que
+    atraviesa al consumidor, semantica reutilizable creada aguas abajo, alineacion de ramas en Propagacion). Candidatos de caracter UNKNOWN/MIXED no bloquean (no son deficiencia demostrada)
+    ni cuentan como fortaleza; la ausencia de defectos por si sola nunca la otorga."""
+    cands = [c for c in ev.harmonization.values() if (c.get("character") or {}).get("value") == "TECHNICAL_MATERIALIZATION"]
+    qualified = [c["artifact"] for c in cands if _har_sources_governed(ev, c, policy) and _har_business_labels(c) and ev.descendants(c["artifact"])]
+    if not qualified:
+        return []
+    if harmonization_passthrough_exposure(ev) or _downstream_created_semantics(ev)[0] or any(_aligns_branches(ev, n) for n in ev.product_nodes):
+        return []
+    return sorted(qualified)
+
+
+def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool, variants: frozenset = frozenset()) -> list[dict]:
     out: list[dict] = []
     # SRC-STR-01 — adquisicion gobernada: TODO contacto con la fuente (hoja frontera, salvo plataforma) en clase gobernada, segun la clase explicita por hoja (v3); al menos uno
     contacts = ev.source_contact_leaves
@@ -458,6 +567,7 @@ def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool) -> list[dict]
                              basis=["SRC.explicit_change_capture_or_delta_property_present_in_export"]))
     # HAR-STR-01 / HAR-STR-02
     cands = [c for c in ev.harmonization.values()]
+    har_str_01 = False
     if cands and all((c.get("character") or {}).get("value") == "TECHNICAL_MATERIALIZATION" for c in cands):
         legit = []
         for c in cands:
@@ -467,9 +577,15 @@ def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool) -> list[dict]
             no_carry = ((c.get("source_vocabulary") or {}).get("fields_with_source_column_name") or 0) == 0
             legit.append(gov and no_carry and not lab.get("DIFFERENT_FROM_PROVIDER") and not lab.get("UNKNOWN_PROVIDER_LABEL") and not lab.get("NO_LABEL"))
         if all(legit):
+            har_str_01 = True
             out.append(_strength("HAR-STR-01", C.HARMONIZATION, "har.legitimate_reusable_boundary_over_governed_contract", ev=ev, artifacts=[c["artifact"] for c in cands],
                                  refs=[f"ce:harmonization_contract/{c['artifact']}" for c in cands],
                                  basis=["HAR.one_to_one_over_governed_contract", "HAR.business_vocabulary_preserved", "HAR.no_downstream_compensation"]))
+    if C.VARIANT_T4_HAR in variants and not har_str_01:                       # camino ADICIONAL (la condicion vigente queda intacta): nunca quita una fortaleza ya reconocida
+        qual = har_str_01_reformulated(ev, policy)
+        if qual:
+            out.append(_strength("HAR-STR-01", C.HARMONIZATION, "har.legitimate_reusable_boundary_over_governed_contract", ev=ev, artifacts=qual, refs=[f"ce:harmonization_contract/{a}" for a in qual],
+                                 basis=["HAR.one_to_one_over_governed_contract", "HAR.business_vocabulary_preserved_by_provider_labels", "HAR.consumed_by_downstream_artifact", "HAR.no_downstream_compensation"]))
     enriched = [c["artifact"] for c in cands if (c.get("label_origin_counts") or {}).get("DIFFERENT_FROM_PROVIDER") or (c.get("character") or {}).get("value") == "SEMANTIC_TRANSFORMATION_PRESENT"]
     if enriched and all(ev.descendants(a) for a in enriched):
         out.append(_strength("HAR-STR-02", C.HARMONIZATION, "har.reusable_semantic_enrichment", ev=ev, artifacts=enriched,
@@ -622,18 +738,150 @@ def supporting_evidence(ev: ProfileEvidence) -> dict:
     }
 
 
-def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED") -> dict:
+# ───────────────────────────── RESOLUCION DE NIVEL EXPLORATORIA (variante LEVEL_RESOLUTION) ─────────────────────────────
+def _no_integration_scope(ev: ProfileEvidence) -> list[str]:
+    """Justificacion ARQUITECTONICA de «armonizacion no aplicable»: NINGUN candidato de armonizacion en el cierre, NINGUNA vista del cierre integra varias entradas (0 joins y 0 uniones: metricas
+    observadas) y ningun nodo de producto integra >1 hoja. Con esa arquitectura no existe responsabilidad de armonizar. La mera ausencia de una capa NO alcanza (p. ej. un join de dos hojas la desmiente).
+    Devuelve las bases (vacio = no se puede justificar)."""
+    if ev.harmonization or not ev.views:
+        return []
+    for v in ev.views.values():
+        m = v.get("metrics") or {}
+        if m.get("joins") or m.get("unions"):
+            return []
+    for n in ev.product_nodes:
+        eff = ev.effective_providers(n)
+        if len(eff.get(K_LOCAL_LEAF, ())) + len(eff.get(K_BOUNDARY, ())) > 1:
+            return []
+    return ["ARCH.no_harmonization_candidate_in_closure", "ARCH.no_view_in_closure_integrates_several_inputs_joins_0_unions_0", "ARCH.no_product_node_integrates_more_than_one_leaf"]
+
+
+def _propagation_met_materialized(ev: ProfileEvidence, policy: str) -> tuple[list[str], list[dict]]:
+    """LEVEL_RESOLUTION integrada con ``leaf-materialization/v1`` — misma condicion estructural que ``_propagation_met_by_replicated_ingestion`` (el producto compone SOLO contratos ya resueltos y
+    a lo sumo UNA hoja local), pero la hoja local debe ser una RÉPLICA TECNICAMENTE ACREDITADA: ``materialization_kind = REPLICA`` (un unico flujo EXACT/resuelto con mapeos de identidad
+    verificados), clase de borde derivada ``GOVERNED_DERIVED`` con cadena completa, procedencia ESTABLISHED y la clase de fuente explicita GOBERNADA (gobierno = ``source_contract_classes``; la replica
+    no lo otorga). Una hoja UNKNOWN (p. ej. una sombra Delta sin CSN), TRANSFORMED o multi-productor NO aporta evidencia positiva. Un wrapper con filtro de estado CDC no es una transformacion semantica,
+    pero tampoco una exposicion integra: se informa como calificador (``filtered`` / ``filter_natures``). Devuelve (bases, calificadores por hoja)."""
+    if not ev.product_nodes:
+        return [], []
+    bases: list[str] = []
+    quals: list[dict] = []
+    for n in ev.product_nodes:
+        eff = ev.effective_providers(n)
+        if not set(eff) <= {K_VIEW, K_HARM, K_LOCAL_LEAF} or len(eff.get(K_LOCAL_LEAF, ())) > 1:
+            return [], []
+        for lf in eff.get(K_LOCAL_LEAF, ()):
+            rec = ev.local_leaves.get(lf) or {}
+            m = ev.materialization_of(lf)
+            if not (m is not None and rec.get("provenance_state") == "ESTABLISHED" and m["materialization_kind"] == LM.KIND_REPLICA and not m["flags"]["multi_producer"]
+                    and m["derived_boundary_class"] == LM.DBC_GOVERNED and m["chain_complete"] is True and ev.classify_source(lf, policy) == GOVERNED_SAP_CONTRACT):
+                return [], []
+            bases += [f"ce:leaf_provenance/{lf}", f"ce:physical_source_boundaries/{lf}"]
+            mp = m["mapping_profile"]
+            quals.append({"leaf": lf, "materialization_kind": m["materialization_kind"], "derived_boundary_class": m["derived_boundary_class"], "filtered": m["flags"]["filtered"],
+                          "filter_natures": sorted({p["wrapper"]["filter_nature"] for p in m["producers"] if p.get("wrapper") and p["wrapper"].get("filter_nature")}),
+                          "resolved_via": sorted({p["resolved_via"] for p in m["producers"] if p.get("resolved_via")}), "implicit_identity": mp["implicit_identity"],
+                          "identity_normalized": mp["identity_normalized"], "column_evidence": mp["column_evidence"]})
+    return ([*sorted(set(bases)), "PRO.product_consumes_only_a_technically_accredited_replica_of_a_governed_contract"], quals) if bases else ([], [])
+
+
+def _propagation_met_by_replicated_ingestion(ev: ProfileEvidence, policy: str) -> list[str]:
+    """EVIDENCIA POSITIVA de «el producto compone contratos ya resueltos» cuando lee una tabla LOCAL replicada: cada nodo de producto consume SOLO vistas/candidatos/tablas locales (ninguna hoja de frontera
+    directa), a lo sumo UNA hoja local, y esa hoja es una RÉPLICA PURA: procedencia COMPROBADA (ESTABLISHED, cadena completa), producida UNICAMENTE por Replication Flow y de clase de contrato gobernado.
+    Una tabla escrita ademas por un Data Flow (transformada/cargada por dos vías) no es una réplica pura. Sin esa procedencia: nada."""
+    if not ev.product_nodes:
+        return []
+    bases: list[str] = []
+    for n in ev.product_nodes:
+        eff = ev.effective_providers(n)
+        if not set(eff) <= {K_VIEW, K_HARM, K_LOCAL_LEAF} or len(eff.get(K_LOCAL_LEAF, ())) > 1:
+            return []
+        for lf in eff.get(K_LOCAL_LEAF, ()):
+            rec = ev.local_leaves.get(lf) or {}
+            kinds = {p.get("kind") for p in rec.get("producer_flows") or ()}
+            if not (rec.get("provenance_state") == "ESTABLISHED" and rec.get("chain_complete") is True and rec.get("basis") == "REPLICATION_FLOW" and kinds == {"REPLICATION_FLOW"}
+                    and ev.classify_source(lf, policy) == GOVERNED_SAP_CONTRACT):
+                return []                                           # una tabla que ADEMAS escribe un Data Flow (u otro productor) ya no es una replica pura: no hay evidencia positiva de «ingesta replicada»
+            bases.append(f"ce:leaf_provenance/{lf}")
+    return [*sorted(set(bases)), "PRO.product_consumes_only_a_replicated_governed_ingestion_contract_with_established_provenance"] if bases else []
+
+
+def dimension_resolution(ev: ProfileEvidence, policy: str, strengths_: list[dict], reasons: list[dict], missing: list[dict], materialized: bool = False) -> list[dict]:
+    """Estado por dimension para la resolucion exploratoria del nivel, con su evidencia y causa. Solo lee lo ya calculado por el motor (fortalezas, razones, causas de ausencia) y evidencia canonica."""
+    have = {s["rule_id"] for s in strengths_}
+    by_dim = {m["dimension"]: m for m in missing}
+    out = []
+    for dim, ids in (("SOURCE_INGESTION", ("SRC-STR-01",)), ("HARMONIZATION", ("HAR-STR-01", "HAR-STR-02")), ("PROPAGATION", ("PRO-STR-01",)), ("PUBLISHED_CONTRACT", ("PUB-STR-01",))):
+        dim_reasons = [r["rule_id"] for r in reasons if r["dimension"] == dim and r["state"] not in C.REMOVING_STATES]
+        item = {"dimension": dim, "state": C.DS_UNRESOLVED, "cause": None, "basis": [], "local_deficiencies": dim_reasons}
+        if any(i in have for i in ids):
+            item["state"] = C.DS_STRENGTH
+            item["basis"] = [i for i in ids if i in have]
+        else:
+            m = by_dim.get(dim) or {}
+            item["cause"] = m.get("cause")
+            if m.get("state") == "INSUFFICIENT_EVIDENCE" or m.get("cause") in ("NO_SOURCE_CONTACT_OBSERVED", "NO_PRODUCT_NODE_OBSERVED"):
+                item["state"] = C.DS_NOT_EVALUABLE                                                   # falta evidencia: NO es «no aplicable»
+            elif dim_reasons:
+                item["state"], item["basis"] = C.DS_DEFICIENCY, dim_reasons
+            elif dim == "HARMONIZATION" and m.get("cause") == "NO_HARMONIZATION_BOUNDARY_OBSERVED":
+                na = _no_integration_scope(ev)
+                if na:
+                    item["state"], item["basis"] = C.DS_NOT_APPLICABLE, na
+            elif dim == "PROPAGATION" and m.get("cause") == "PRODUCT_DOES_NOT_COMPOSE_RESOLVED_CONTRACTS":
+                if materialized:
+                    met, quals = _propagation_met_materialized(ev, policy)
+                else:
+                    met, quals = _propagation_met_by_replicated_ingestion(ev, policy), []
+                if met:
+                    item["state"], item["basis"] = C.DS_MET, met
+                    if materialized:
+                        item["materialization"] = quals
+        out.append(item)
+    return out
+
+
+def resolve_level_exploratory(states: list[dict]) -> tuple[str, str] | None:
+    """HIPOTESIS de nivel (NO definitiva) sobre los estados por dimension, solo para los casos que la regla vigente deja en LVL-06. ``None`` = sigue «No determinable».
+    · cualquier dimension aplicable no evaluable, sin resolver (sin evidencia positiva) o con deficiencia demostrada ⇒ no se promueve;
+    · BUENA (LVL-07): fortalezas en >= 3 dimensiones y el resto cumplida o no aplicable;
+    · ADECUADA (LVL-08): todas las dimensiones aplicables con fortaleza o responsabilidad cumplida, con fortalezas en < 3 y al menos una."""
+    applicable = [s for s in states if s["state"] != C.DS_NOT_APPLICABLE]
+    if not applicable or any(s["state"] in (C.DS_NOT_EVALUABLE, C.DS_UNRESOLVED, C.DS_DEFICIENCY) for s in applicable):
+        return None
+    n = sum(1 for s in applicable if s["state"] == C.DS_STRENGTH)
+    if n >= C.BUENA_MIN_STRENGTH_DIMENSIONS:
+        return C.BUENA, C.LEVEL_RULE_BUENA_BY_RESOLUTION
+    if n >= 1:
+        return C.ADECUADA, C.LEVEL_RULE_ADECUADA_BY_RESOLUTION
+    return None
+
+
+def mixed_auxiliary_physical_reviews(ev: ProfileEvidence, policy: str) -> list[dict]:
+    """T5 integrada — componente fisico COMPROBADO de una frontera MIXED que NO participa de la espina del producto (rama auxiliar): evidencia tecnica informativa, SIN razon, sin penalizacion y
+    sin efecto en el nivel ni en el cierre. Solo existe para que el alcance efectivo de SRC-LOC-01 (espina) no oculte el hecho."""
+    aux = [c for c in local_mixed_physical_components_materialized(ev, policy) if not c["on_spine"]]
+    if not aux:
+        return []
+    return [_review("MIXED_BOUNDARY_AUXILIARY_PHYSICAL_COMPONENT", "SRC-REV-03", "MIXED_BOUNDARY_PHYSICAL_COMPONENT_OFF_SPINE", "OBSERVED", artifacts=[c["leaf"] for c in aux],
+                    refs=[r for c in aux for r in (f"ce:leaf_provenance/{c['leaf']}", f"ce:physical_source_boundaries/{c['leaf']}")], ev=ev,
+                    extra={"physical_components": [{k: c[k] for k in ("leaf", "physical_entities", "governed_entities")} for c in aux], "interpretation": "TECHNICAL_EVIDENCE_NOT_A_DEFICIENCY"})]
+
+
+def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: frozenset = frozenset()) -> dict:
     pro = rule_pro_mat_01(ev, policy)
     lek = rule_lek_mat_02(ev, policy)
-    src = rule_src_rel_loc(ev, policy)
+    src = rule_src_rel_loc(ev, policy, variants)
     h1, h2 = rule_har_rel_01(ev), rule_har_rel_02(ev)
     loc = rule_pro_loc_01(ev, {r["reason_id"].split(":", 1)[1] for r in pro})
     reasons = [*pro, *lek, *src, *h1, *h2, *loc]
-    st = strengths(ev, policy, has_pro_mat=bool(pro))
+    st = strengths(ev, policy, has_pro_mat=bool(pro), variants=variants)
     cg = review_complex_graphical_chain(ev)
     reviews, limitations = reviews_and_limitations(ev, policy)
     if cg:
         reviews.append(cg)
+    if C.VARIANT_T5_LOCAL_PHYSICAL in variants and C.VARIANT_MATERIALIZED_INPUT in variants:
+        reviews += mixed_auxiliary_physical_reviews(ev, policy)
     qualifiers = {
         "design_coherence": qualifier_design_coherence(ev, bool(h2), bool(cg)),
         "product_focus": qualifier_product_focus(ev),

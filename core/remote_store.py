@@ -808,6 +808,82 @@ def delete_path(local_path: str | Path) -> bool:
     return False
 
 
+# ── namespace EXCLUSIVO de respaldos de migracion (escrituras DIRIGIDAS, fuera de PERSIST_PATHS) ─────────────────────────────────────────────────────────
+# ``migration-backups/<migracion>/<run_id>/...``: NO es un directorio persistido, asi que ``restore``/``mirror_up``/``push_path``/``delete_path`` jamas lo tocan (todos parten de
+# ``_persist_dirs()``) y nada aqui borra: el respaldo solo se ESCRIBE (una vez por clave, jamas se sobrescribe) y se LEE. Lo usa ``webapp/services/durable_backup``.
+BACKUP_NAMESPACE = "migration-backups"
+
+
+class RemoteBackupExists(Exception):
+    """La clave del respaldo YA existe: un respaldo (sellado o no) jamas se sobrescribe."""
+
+
+def backup_namespace_collision() -> str | None:
+    """None si el namespace de respaldos NO colisiona con ningun directorio persistido (``PERSIST_PATHS``); si no, la causa. Se exige antes de escribir un respaldo."""
+    for name in config.PERSIST_PATHS:
+        n = str(name).strip("/")
+        if n == BACKUP_NAMESPACE or n.startswith(BACKUP_NAMESPACE + "/") or BACKUP_NAMESPACE.startswith(n + "/"):
+            return f"'{name}' en SPACES_PERSIST_PATHS colisiona con el namespace {BACKUP_NAMESPACE}/ (restore/mirror_up lo sincronizarian)"
+    return None
+
+
+def _backup_key(rel: str) -> str:
+    rel = str(rel).replace("\\", "/")
+    if not rel.startswith(BACKUP_NAMESPACE + "/") or ".." in rel.split("/") or rel.endswith("/") or "//" in rel:
+        raise RemoteReadError(f"clave de respaldo fuera del namespace {BACKUP_NAMESPACE}/: '{rel}'")
+    return _key(rel)
+
+
+def put_backup_object(rel: str, data: bytes) -> None:
+    """PUT dirigido de UN objeto del namespace de respaldos, SIN sobrescribir (``RemoteBackupExists`` si la clave ya existe). Requiere capacidad de ESCRITURA y que el namespace no
+    colisione con ``PERSIST_PATHS``; cualquier otra falla lanza (el llamador trata el respaldo como NO garantizado). Nota: check-then-PUT (Spaces no ofrece PUT condicional fiable);
+    la unicidad del ``run_id`` acota la carrera."""
+    if not write_enabled():
+        raise RemoteReadError("escritura remota no autorizada (DANWOR_PERSISTENCE != remote)")
+    collision = backup_namespace_collision()
+    if collision:
+        raise RemoteReadError(collision)
+    key = _backup_key(rel)
+    client = _get_client()
+    if get_backup_object(rel) is not None:
+        raise RemoteBackupExists(rel)
+    client.put_object(Bucket=config.SPACES_BUCKET, Key=key, Body=bytes(data))
+
+
+def get_backup_object(rel: str) -> bytes | None:
+    """Bytes EXACTOS de un objeto del namespace de respaldos, ``None`` si no existe; ``RemoteReadError`` si no se puede determinar."""
+    if not read_enabled():
+        raise RemoteReadError("lectura remota no autorizada")
+    key = _backup_key(rel)
+    try:
+        client = _get_client()
+        return client.get_object(Bucket=config.SPACES_BUCKET, Key=key)["Body"].read()
+    except RemoteReadError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        code = str((getattr(exc, "response", None) or {}).get("Error", {}).get("Code", ""))
+        status = (getattr(exc, "response", None) or {}).get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if code in ("NoSuchKey", "404", "NotFound") or status == 404:
+            return None
+        raise RemoteReadError(f"GET fallo: {type(exc).__name__}") from exc
+
+
+def list_backup_keys(prefix_rel: str) -> list[str]:
+    """Claves (sin el prefijo de ambiente) bajo ``prefix_rel`` (dentro del namespace de respaldos). ``RemoteReadError`` si no se puede listar."""
+    if not read_enabled():
+        raise RemoteReadError("lectura remota no autorizada")
+    base = _backup_key(prefix_rel.rstrip("/") + "/x")[:-1]
+    strip = _key("")
+    out: list[str] = []
+    try:
+        client = _get_client()
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=config.SPACES_BUCKET, Prefix=base):
+            out.extend(o["Key"][len(strip):] for o in page.get("Contents", []) or [])
+    except Exception as exc:  # noqa: BLE001
+        raise RemoteReadError(f"listado fallo: {type(exc).__name__}") from exc
+    return sorted(out)
+
+
 async def sync_loop() -> None:
     """Loop periódico de mirror_up para correr como background task del app.
     Cada mirror corre en un thread para no bloquear el event loop."""

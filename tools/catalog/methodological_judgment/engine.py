@@ -16,13 +16,15 @@ si otra regla ratificada determina PARCIAL de forma independiente, la fuente ind
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from typing import Any, Iterable, Mapping
 
 from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
 
 from . import contract as C
 from .cta import build_cta_candidates
-from .rules import evaluate_rules, published_contract_conformance
+from .rules import dimension_resolution, evaluate_rules, published_contract_conformance, resolve_level_exploratory
 
 _STRENGTH_BY_DIM = {
     C.SOURCE_INGESTION: ("SRC-STR-01",),
@@ -230,15 +232,36 @@ def _source_assessment(ev: ProfileEvidence) -> dict:
 
 
 # ───────────────────────────── API ─────────────────────────────
-def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping[str, Any]] | None = None, *, external_policy: str = "UNDETERMINED") -> dict:
+def _materialization_digest(ev: ProfileEvidence) -> str:
+    """Huella de la materializacion que el motor CONSUMIO (la evidencia CSN explicita cambia el resultado y por tanto la firma de salida)."""
+    slim = {leaf: [m["materialization_kind"], m["derived_boundary_class"], m["flags"], m["unknown_reasons"], sorted(p["resolved_via"] or "" for p in m["producers"]), m["mapping_profile"]]
+            for leaf, m in sorted(ev.materialization.items())}
+    return hashlib.sha256(json.dumps(slim, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def _materialization_options(ev: ProfileEvidence, materialization_csn: Mapping[str, Any] | None) -> dict:
+    """``ruleset_options.materialization``: de DONDE salio la materializacion que el motor consumio. En un perfil v4 con la seccion persistida es la EVIDENCIA PERSISTIDA (fuente unica; un CSN de
+    ejecucion se ignora y no se declara); en un perfil historico es la derivacion experimental sobre la evidencia persistida, con el CSN explicito del llamador si lo hubo."""
+    view = ev.persisted_materialization
+    persisted = bool(view["persisted"] and view["state"] == "EVALUATED")
+    return {"version": "leaf-materialization/v1", "source": "PERSISTED_SECTION" if persisted else "DERIVED_ON_READ",
+            "csn_evidence_provided": bool(view["csn_provided"]) if persisted else bool(materialization_csn), "digest": _materialization_digest(ev)}
+
+
+def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping[str, Any]] | None = None, *, external_policy: str = "UNDETERMINED",
+                      variants: Iterable[str] = (), materialization_csn: Mapping[str, Any] | None = None) -> dict:
     """Juicio determinista sobre un perfil de Assessment YA persistido/generado (solo lectura). ``external_policy`` existe SOLO para pruebas de sensibilidad
     (``UNDETERMINED`` es la politica vigente); no forma parte del contrato de produccion."""
-    ev = ProfileEvidence(profile)
+    variants = frozenset(variants or ())
+    if not variants <= C.VARIANTS:
+        raise ValueError(f"variantes desconocidas: {sorted(variants - C.VARIANTS)}")
+    materialized = C.VARIANT_MATERIALIZED_INPUT in variants
+    ev = ProfileEvidence(profile, materialization_csn if materialized else None)      # el CSN es una entrada EXPLICITA: sin el modificador no se usa; sin CSN las relaciones no verificables quedan UNKNOWN
     if ev.assessment_state != "ASSESSED":
         return _unjudgeable(ev, "ASSESSMENT_NOT_JUDGEABLE")
     if not ev.has_canonical_evidence_v3:
         return _unjudgeable(ev, "CANONICAL_EVIDENCE_V3_REQUIRED")
-    res = evaluate_rules(ev, external_policy)
+    res = evaluate_rules(ev, external_policy, variants)
     reasons = copy.deepcopy(res["reasons"])
     reviews = copy.deepcopy(res["review_candidates"])
     strengths = res["strengths"]
@@ -251,6 +274,14 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
 
     status, level, level_rule, nd_reason = _decide(reasons, strengths, not_eval, critical_undetermined=critical)
     _, level_no_exc, _, _ = _decide(reasons, strengths, not_eval, ignore_exceptions=True, critical_undetermined=critical)
+    dim_states = None
+    if C.VARIANT_LEVEL_RESOLUTION in variants and level_rule == "LVL-06":              # EXPLORATORIA: solo reinterpreta los LVL-06; el resto de la logica de decision queda intacta
+        pre_missing = _missing_strength_dimensions(ev, strengths, external_policy)
+        dim_states = dimension_resolution(ev, external_policy, strengths, reasons, pre_missing, materialized)
+        resolved = resolve_level_exploratory(dim_states)
+        if resolved is not None:
+            status, (level, level_rule), nd_reason = C.DETERMINED, resolved, None
+            level_no_exc = level
     closure = _closure(status, level, reasons, limitations)
     reasons.sort(key=lambda r: (_CLASS_RANK[r["classification"]], r["rule_id"], r["reason_id"]))
     reviews.sort(key=lambda r: (r["rule_id"], r["review_id"]))
@@ -273,7 +304,11 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     if missing_dims is not None:                           # LVL-06: distingue ausencia de fortalezas (evidencia evaluada) de insuficiencia de evidencia; aditivo, no cambia el nivel
         out["not_determinable_detail"] = {"level_rule": "LVL-06", "missing_strength_dimensions": missing_dims,
                                           "evidence_sufficient": not any(d["state"] == INSUFFICIENT_EVIDENCE for d in missing_dims)}
-    if external_policy != "UNDETERMINED":
-        out["ruleset_options"] = {"external_policy": external_policy}
+    if dim_states is not None:
+        out["dimension_states"] = dim_states
+    if external_policy != "UNDETERMINED" or variants:
+        out["ruleset_options"] = {**({"external_policy": external_policy} if external_policy != "UNDETERMINED" else {}), **({"variants": sorted(variants)} if variants else {}),
+                                  **({"materialization": _materialization_options(ev, materialization_csn)}
+                                     if materialized and variants & {C.VARIANT_T5_LOCAL_PHYSICAL, C.VARIANT_LEVEL_RESOLUTION} else {})}
     out["output_signature"] = C.signature(out)
     return out

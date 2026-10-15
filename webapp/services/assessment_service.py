@@ -59,6 +59,8 @@ from tools.catalog.modeling_assessment import shadow as ma_shadow
 from tools.catalog.modeling_assessment.render_md import render_markdown
 from tools.catalog.modeling_assessment.scope import AssessmentUniverse, UnknownTerminalAmError
 from tools.catalog.methodological_judgment import JUDGMENT_SCHEMA_VERSION, RULESET_VERSION, evaluate_judgment
+from tools.catalog.methodological_judgment.contract import signature as _judgment_signature
+from tools.catalog import leaf_materialization_evidence as _lme
 
 log = logging.getLogger("danwor.assessment")
 
@@ -109,6 +111,7 @@ class MigrationTarget:
     eligible_old: dict
     description: str
     closure_policy: str = "CLOSURE_EQUAL"       # CLOSURE_EQUAL | TARGETED_CLOSURE_EXPANSION (ver ``migration_postcheck``)
+    transitional: bool = False                  # COMPATIBILIDAD DE TRANSICION (ver ``classify_currentness``): un perfil cubierto EXACTAMENTE por esta migracion sigue CURRENT hasta migrarse
 
 
 CLOSURE_EQUAL, TARGETED_CLOSURE_EXPANSION = "CLOSURE_EQUAL", "TARGETED_CLOSURE_EXPANSION"
@@ -147,6 +150,12 @@ EVIDENCE_MIGRATIONS: dict[str, MigrationTarget] = {
         "Evidence release (linaje de campo): procedencia de cada campo publicado hasta las hojas frontera + clase explicita de contrato de fuente por hoja "
         "(canonical_evidence v3, assessability v4). Misma entrada y mismo cierre semantico: solo se agrega evidencia (CLOSURE_EQUAL); un perfil con otros cambios de version o de entrada NO es elegible",
         CLOSURE_EQUAL),
+    "evidence_leaf_materialization_v4": MigrationTarget(
+        "evidence_leaf_materialization_v4", ("canonical_evidence",), {"canonical_evidence": frozenset({"canonical-evidence/v3"})},
+        "canonical-evidence/v4 (v4.C): perfil v3 -> v4 = v3 + seccion `leaf_materialization` (materializacion derivada de las hojas locales con referencias recuperables al pool). Misma entrada, "
+        "mismo cierre y el MISMO Assessment metodologico: el perfil solo puede diferir en `canonical_evidence.version`, `versions.canonical_evidence` y la seccion nueva (CLOSURE_EQUAL + perfil identico "
+        "salvo eso). Se ABSTIENE si falta el pool, difiere su firma o no se resuelven las referencias; el Juicio v2 se revalida (misma metodologia, nueva firma) o la migracion se abstiene",
+        CLOSURE_EQUAL, transitional=True),
     "evidence_confidence_v3": MigrationTarget(
         "evidence_confidence_v3", ("confidence",), {"confidence": frozenset({"confidence-cuts/v2"})},
         "Confianza metodologica v3: `resolved_provenance` mide el ORIGEN DE LOS DATOS (una hoja de identidad UNKNOWN con productor y clase de contrato resuelta cuenta como resuelta). "
@@ -165,6 +174,7 @@ class Currentness:
     version_diff: tuple[str, ...] = ()
     pool_same: bool = True
     targeted: str | None = None
+    pending_migration: str | None = None     # solo CURRENT por COMPATIBILIDAD DE TRANSICION: migracion que aun debe aplicarse (None = vigente de verdad)
 
     @property
     def version_only_untargeted(self) -> bool:
@@ -194,7 +204,13 @@ def classify_currentness(stored_signature: str | None, stored_versions: dict | N
     if pool_same and not diff:
         return Currentness(CURRENT)
     if pool_same:
-        return Currentness(STALE, STALE_VERSION_ONLY, diff, True, targeted_migration(stored_versions, versions))
+        targeted = targeted_migration(stored_versions, versions)
+        if targeted is not None and EVIDENCE_MIGRATIONS[targeted].transitional:
+            # COMPATIBILIDAD DE TRANSICION ESTRICTA: misma entrada (pool igual) y la UNICA diferencia es la que cubre EXACTAMENTE una migracion marcada ``transitional``
+            # (hoy canonical_evidence v3->v4). Sigue CURRENT para la presentacion, pero queda identificado como pendiente de esa migracion. Cualquier otra causa
+            # (pool distinto, otras claves de version, valores viejos desconocidos) NO entra aca y sigue siendo STALE. Se retira quitando ``transitional``.
+            return Currentness(CURRENT, version_diff=diff, pending_migration=targeted)
+        return Currentness(STALE, STALE_VERSION_ONLY, diff, True, targeted)
     return Currentness(STALE, STALE_INPUT_CHANGED if not diff else STALE_VERSION_AND_INPUT, diff, False, None)
 
 
@@ -217,6 +233,7 @@ class AssessmentStatus:
     stale_reason: str | None = field(default=None, compare=False)       # solo STALE: VERSION_ONLY | INPUT_CHANGED | VERSION_AND_INPUT
     stale_targeted: str | None = field(default=None, compare=False)     # solo STALE VERSION_ONLY: nombre de la migracion de evidencia que lo cubre (None = no cubierto)
     stale_version_diff: tuple = field(default=(), compare=False)        # solo STALE: claves de ``versions`` que difieren
+    pending_migration: str | None = field(default=None, compare=False)  # solo CURRENT por compatibilidad de transicion: migracion de evidencia pendiente (sigue siendo CURRENT)
 
     @property
     def viewable(self) -> bool:
@@ -746,7 +763,8 @@ def _status_from(entry: Any, res: Resolution, versions: dict) -> AssessmentStatu
                                 generated_at=env.get("generated_at"), business_classification=bcl)
     cur = classify_currentness(env.get("input_pool_signature"), env.get("assessment_versions"), res.pool_signature, versions)
     if cur.state == CURRENT:
-        return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl)
+        return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl,
+                                pending_migration=cur.pending_migration)
     return AssessmentStatus(STALE, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl, stale_reason=cur.reason, stale_targeted=cur.targeted,
                             stale_version_diff=cur.version_diff)
 
@@ -951,6 +969,7 @@ class RegeneratedAssessment:
     profile: dict
     envelope: dict
     previous_signature: str | None = None
+    notes: dict = field(default_factory=dict, compare=False)       # decisiones del gancho de sobre (p. ej. accion de revalidacion del Juicio), solo para el informe
 
 
 def facts_present(profile: dict | None) -> set[str]:
@@ -970,7 +989,7 @@ def _envelope_resolves_current(env: dict, res: Resolution, versions: dict) -> bo
             and env.get("input_pool_signature") == res.pool_signature and env.get("assessment_versions") == versions)
 
 
-def _regenerate_core(entry: Any, *, precondition: Any, postcheck: Any, log_label: str) -> RegeneratedAssessment:
+def _regenerate_core(entry: Any, *, precondition: Any, postcheck: Any, log_label: str, envelope_hook: Any = None) -> RegeneratedAssessment:
     """NUCLEO SEGURO COMPARTIDO por todo flujo de regeneracion controlada (enriquecimiento de CURRENT, migracion de evidencia de STALE version-only):
     resuelve el pool local, exige ``precondition(previous, res, versions)`` sobre el registro gobernado actual, corre el motor canonico en MEMORIA
     (sin Datasphere, OAuth ni ``restore()``), VALIDA, exige que la firma del pool regenerada sea la del pool local, aplica ``postcheck(doc, previous, res,
@@ -1000,11 +1019,16 @@ def _regenerate_core(entry: Any, *, precondition: Any, postcheck: Any, log_label
     if sig != res.pool_signature:
         raise EnrichmentError("POOL_SIGNATURE_MISMATCH")
     postcheck(doc, previous, res, versions)
-    env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
-                    domain_classification=_derive_domain_classification(entry, am), business_classification=_derive_business_classification(entry, am))
+    notes: dict = {}
+    if envelope_hook is None:
+        env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
+                        domain_classification=_derive_domain_classification(entry, am), business_classification=_derive_business_classification(entry, am))
+    else:                                                 # migracion estricta: el gancho decide el Juicio y los derivados hermanos (sin recalificar ni re-derivar a escondidas)
+        overrides, notes = envelope_hook(doc, previous)
+        env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]), **overrides)
     if not _envelope_resolves_current(env, res, versions):
         raise EnrichmentError("WOULD_NOT_BE_CURRENT")
-    return RegeneratedAssessment(client, am, doc, env, (previous or {}).get("assessment_artifact_signature"))
+    return RegeneratedAssessment(client, am, doc, env, (previous or {}).get("assessment_artifact_signature"), notes)
 
 
 def _readable_previous(previous: dict | None) -> bool:
@@ -1049,6 +1073,22 @@ def _without_confidence(profile: dict | None) -> dict | None:
     return out
 
 
+MATERIALIZATION_MIGRATION = "evidence_leaf_materialization_v4"
+
+
+def _without_materialization(profile: dict | None) -> dict | None:
+    """Perfil sin lo UNICO que ``evidence_leaf_materialization_v4`` puede cambiar: ``canonical_evidence.version``, la seccion ``leaf_materialization`` y ``versions.canonical_evidence``."""
+    if not isinstance(profile, dict):
+        return None
+    out = copy.deepcopy(profile)
+    ce = out.get("canonical_evidence")
+    if isinstance(ce, dict):
+        ce.pop(_lme.SECTION_KEY, None)
+        ce.pop("version", None)
+    (out.get("versions") or {}).pop("canonical_evidence", None)
+    return out
+
+
 def migration_postcheck(name: str, doc: dict, previous: dict | None, versions: dict) -> None:
     """Postcondiciones de la migracion de evidencia ``name`` sobre el candidato regenerado (todas ANTES de escribir)."""
     m = EVIDENCE_MIGRATIONS[name]
@@ -1075,6 +1115,8 @@ def migration_postcheck(name: str, doc: dict, previous: dict | None, versions: d
             raise EnrichmentError("CLOSURE_DRIFT")
         if name == "evidence_confidence_v3" and _without_confidence(doc) != _without_confidence((previous or {}).get("profile_json")):
             raise EnrichmentError("NON_CONFIDENCE_CONTENT_CHANGED")      # solo la confianza puede cambiar: evidencia, cobertura, areas y hallazgos quedan IDENTICOS
+        if name == MATERIALIZATION_MIGRATION and _without_materialization(doc) != _without_materialization((previous or {}).get("profile_json")):
+            raise EnrichmentError("NON_MATERIALIZATION_CONTENT_CHANGED")  # mismo Assessment metodologico: solo version + seccion nueva pueden diferir
         return
     _check_targeted_closure_expansion(old_closure, new_closure, doc)
 
@@ -1108,6 +1150,96 @@ def _check_targeted_closure_expansion(old: tuple, new: tuple, doc: dict) -> None
             raise EnrichmentError("CLOSURE_DRIFT")                              # no es un target de flujo leido por Modeling / es un flujo / no es hoja / no estaba referenciado
 
 
+# ═══════════════════════════ v4.C: migracion de la seccion `leaf_materialization` — pool, referencias y revalidacion del Juicio ═══════════════════════════
+def _pool_resolver(pool_root: Path | None):
+    """Resuelve una referencia (ruta RELATIVA al pool) a su JSON; ``None`` si el archivo ya no existe o no se puede leer. Solo LECTURA; nunca sale de la raiz del pool."""
+    def resolve(rel: str) -> Any:
+        if pool_root is None:
+            return None
+        try:
+            p = (pool_root / rel).resolve()
+            if not _is_within(p, pool_root.resolve()) or not p.is_file():
+                return None
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+    return resolve
+
+
+def _materialization_postcheck(doc: dict, res: Resolution) -> None:
+    """Antes de escribir NADA: la seccion nueva debe estar EVALUADA sobre el pool LOCAL (misma firma), sin limitaciones de referencia, y TODA referencia debe resolverse contra
+    la fuente (recuperable y con el mismo hash). Cualquier falla => abstencion (``EnrichmentError``): el perfil anterior queda intacto; no se reconstruye evidencia desde otras fuentes."""
+    sec = ((doc.get("canonical_evidence") or {}).get(_lme.SECTION_KEY))
+    if not isinstance(sec, dict):
+        raise EnrichmentError("MATERIALIZATION_SECTION_MISSING")
+    if sec.get("evaluation_state") != _lme.EVALUATED:
+        raise EnrichmentError("MATERIALIZATION_NOT_EVALUATED")
+    csn = (sec.get("derivation_inputs") or {}).get("csn") or {}
+    if not csn.get("provided"):
+        raise EnrichmentError("MATERIALIZATION_CSN_NOT_PROVIDED")
+    if csn.get("pool_signature") != res.pool_signature:
+        raise EnrichmentError("MATERIALIZATION_POOL_SIGNATURE_MISMATCH")
+    if _lme.LIM_REFERENCE_UNAVAILABLE in (csn.get("limitations") or ()):
+        raise EnrichmentError("MATERIALIZATION_REFERENCES_INCOMPLETE")
+    audit = _lme.audit_section(sec, _pool_resolver(res.pool_root))
+    if audit["has_unrecoverable"]:
+        raise EnrichmentError("MATERIALIZATION_SOURCE_NOT_RECOVERABLE")
+    if audit["references"] and not audit["all_verified"]:
+        raise EnrichmentError("MATERIALIZATION_REFERENCE_UNRESOLVED")
+
+
+# Juicio persistido y cambio de ``profile_signature``: el Juicio de un sobre lleva la firma del perfil que evaluo (``source_assessment``) y su propia ``output_signature``; al migrar el perfil
+# (v3 -> v4) esas dos claves cambian aunque la metodologia NO. Estrategia: REVALIDAR, no recalificar. La parte metodologica (todo salvo las claves de enlace al perfil) del Juicio nuevo, derivado
+# por el MISMO motor v2, debe ser IDENTICA a la del Juicio persistido; solo entonces se reconoce la nueva firma. Si difiere en algo, NO se reescribe (divergencia: decision humana).
+JUDGMENT_PROFILE_BINDING_KEYS = ("source_assessment", "output_signature")
+JDG_SIGNATURE_REBOUND, JDG_METHODOLOGY_DIVERGED = "judgment_signature_rebound", "judgment_methodology_diverged"
+
+
+def judgment_methodology(judgment: dict | None) -> dict | None:
+    """La parte METODOLOGICA del Juicio (nivel, estado, cierre, fortalezas, razones, revisiones, limitaciones, calificadores, CTA, evidencia de apoyo...): todo salvo el enlace al perfil evaluado."""
+    if not isinstance(judgment, dict):
+        return None
+    return {k: v for k, v in judgment.items() if k not in JUDGMENT_PROFILE_BINDING_KEYS}
+
+
+def judgment_methodology_diff(previous: dict | None, fresh: dict | None) -> list[str]:
+    """Claves de la parte metodologica que difieren entre dos Juicios (vacio = misma metodologia)."""
+    a, b = judgment_methodology(previous) or {}, judgment_methodology(fresh) or {}
+    return sorted(k for k in set(a) | set(b) if _judgment_signature(a.get(k)) != _judgment_signature(b.get(k)))
+
+
+def revalidate_judgment(previous: dict | None, profile: dict | None) -> tuple[str, dict | None]:
+    """(accion, Juicio a persistir). NO recalifica: ``judgment_current`` (identico), ``judgment_signature_rebound`` (misma metodologia, nueva firma de perfil: se persiste el Juicio fresco),
+    ``judgment_methodology_diverged`` (la metodologia difiere: NO se reescribe), ``judgment_missing`` (no hay Juicio: no se crea aqui; es ``--backfill-judgment``),
+    ``judgment_version_stale`` (contrato de Juicio anterior: se conserva tal cual; es ``--backfill-judgment``) y ``no_profile``."""
+    if profile is None:
+        return JDG_NO_PROFILE, previous
+    if previous is None:
+        return JDG_MISSING, None
+    if not judgment_is_current_version(previous):
+        return JDG_VERSION_STALE, previous
+    fresh = _derive_judgment(profile)
+    if judgment_methodology_diff(previous, fresh):
+        return JDG_METHODOLOGY_DIVERGED, None
+    return (JDG_CURRENT if _judgment_signature(previous) == _judgment_signature(fresh) else JDG_SIGNATURE_REBOUND), fresh
+
+
+def classify_judgment_revalidation(env: dict) -> tuple[str, dict | None]:
+    """Clasificacion de un sobre gobernado para el operador ``--revalidate-judgment`` (ver ``revalidate_judgment``)."""
+    return revalidate_judgment(env.get("judgment"), env.get("profile_json"))
+
+
+def _materialization_envelope_hook(doc: dict, previous: dict | None) -> tuple[dict, dict]:
+    """Sobre candidato de ``evidence_leaf_materialization_v4``: el Juicio se REVALIDA (misma metodologia, nueva firma) o la migracion se abstiene; los derivados HERMANOS (clasificacion de
+    dominio y de negocio) se conservan tal cual (no son parte de esta migracion y no dependen del perfil)."""
+    prev = previous or {}
+    action, judgment = revalidate_judgment(prev.get("judgment"), doc)
+    if action == JDG_METHODOLOGY_DIVERGED:
+        raise EnrichmentError("JUDGMENT_METHODOLOGY_DIVERGED")
+    return ({"judgment": judgment, "domain_classification": prev.get("domain_classification"), "business_classification": prev.get("business_classification")},
+            {"judgment_action": action, "previous_judgment_level": (prev.get("judgment") or {}).get("level"), "new_judgment_level": (judgment or {}).get("level")})
+
+
 def regenerate_stale_evidence(entry: Any, migration: str) -> RegeneratedAssessment:
     """MIGRACION DE EVIDENCIA: regenera en MEMORIA un assessment gobernado STALE VERSION_ONLY cubierto por ``migration`` (registro ``EVIDENCE_MIGRATIONS``).
     Misma disciplina que el enriquecimiento (mismo nucleo): sin escrituras, sin Datasphere, sin OAuth, sin ``restore()``; cualquier fallo conserva el registro
@@ -1116,11 +1248,17 @@ def regenerate_stale_evidence(entry: Any, migration: str) -> RegeneratedAssessme
         if not _readable_previous(previous):
             raise EnrichmentError("PREVIOUS_NOT_READABLE")
         cur = classify_currentness(previous.get("input_pool_signature"), previous.get("assessment_versions"), res.pool_signature, versions)
-        if cur.state != STALE or cur.reason != STALE_VERSION_ONLY or cur.targeted != migration:
+        stale_targeted = cur.state == STALE and cur.reason == STALE_VERSION_ONLY and cur.targeted == migration
+        if not stale_targeted and not (cur.state == CURRENT and cur.pending_migration == migration):
             raise EnrichmentError("PREVIOUS_NOT_TARGETED_VERSION_ONLY_STALE")
 
-    return _regenerate_core(entry, precondition=precondition, log_label=f"migración {migration}",
-                            postcheck=lambda doc, previous, res, versions: migration_postcheck(migration, doc, previous, versions))
+    def postcheck(doc: dict, previous: dict | None, res: Resolution, versions: dict) -> None:
+        migration_postcheck(migration, doc, previous, versions)
+        if migration == MATERIALIZATION_MIGRATION:
+            _materialization_postcheck(doc, res)
+
+    return _regenerate_core(entry, precondition=precondition, log_label=f"migración {migration}", postcheck=postcheck,
+                            envelope_hook=_materialization_envelope_hook if migration == MATERIALIZATION_MIGRATION else None)
 
 
 def commit_stale_migration(candidate: RegeneratedAssessment) -> str:

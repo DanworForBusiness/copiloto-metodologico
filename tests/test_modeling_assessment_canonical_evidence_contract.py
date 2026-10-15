@@ -194,8 +194,8 @@ def test_a_valid_gate4_payload_is_accepted(good_leaf, good_notobs, good_deriv):
     for d in (good_leaf, good_notobs, good_deriv):
         P.validate_assessment(d)
         EC.validate_canonical_evidence(d["canonical_evidence"])
-        from tools.catalog.modeling_assessment.canonical_sections import V2_SECTIONS, V3_SECTIONS
-        assert set(d["canonical_evidence"]) == {"version", *EC.EXPECTED_SECTIONS, *V2_SECTIONS, *V3_SECTIONS}
+        from tools.catalog.modeling_assessment.canonical_sections import V2_SECTIONS, V3_SECTIONS, V4_SECTIONS
+        assert set(d["canonical_evidence"]) == {"version", *EC.EXPECTED_SECTIONS, *V2_SECTIONS, *V3_SECTIONS, *V4_SECTIONS}
     assert good_deriv["canonical_evidence"]["derivation_semantics"]["relation_counts"]["CHAINED_REFINEMENT"] == 1
 
 

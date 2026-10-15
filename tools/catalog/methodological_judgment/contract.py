@@ -11,6 +11,22 @@ from typing import Any
 
 JUDGMENT_SCHEMA_VERSION = "judgment/v1"
 RULESET_VERSION = "judgment-rules/v2"
+# Variantes EXPERIMENTALES (T4/T5) del MISMO motor: opt-in, solo para medir impacto. Vacio (la politica vigente) = salida byte a byte identica a judgment-rules/v2. Adoptar una variante como
+# regla definitiva exige subir RULESET_VERSION (=> JDG_VERSION_STALE en los Juicios persistidos; migracion explicita ``--backfill-judgment``, sin tocar el Assessment).
+VARIANT_T4_HAR = "T4_HAR"                      # HAR-STR-01 reformulada: reconoce proyecciones tecnicas reutilizables 1:1 de contratos gobernados que preservan el vocabulario por ETIQUETA
+VARIANT_T5_LOCAL_PHYSICAL = "T5_LOCAL_PHYSICAL"    # SRC-LOC-01 tambien para tablas locales cuya procedencia comprobada (Data Flow) es una tabla fisica ABAP
+VARIANT_LEVEL_RESOLUTION = "LEVEL_RESOLUTION"   # EXPLORATORIA: resuelve el nivel de los LVL-06 con estados explicitos por dimension (fortaleza / responsabilidad cumplida / deficiencia / no evaluable / no aplicable)
+# MODIFICADOR (no una regla): T5_LOCAL_PHYSICAL y LEVEL_RESOLUTION leen la materializacion OBSERVADA de las hojas locales (``leaf-materialization/v1``, derivada del perfil persistido) en vez de
+# sus condiciones ad hoc. Sin T5/LEVEL no tiene efecto. Solo con el perfil (sin CSN) las hojas cuya relacion no se puede verificar quedan UNKNOWN y NO aportan evidencia positiva.
+VARIANT_MATERIALIZED_INPUT = "MATERIALIZED_INPUT"
+VARIANTS = frozenset({VARIANT_T4_HAR, VARIANT_T5_LOCAL_PHYSICAL, VARIANT_LEVEL_RESOLUTION, VARIANT_MATERIALIZED_INPUT})
+
+# Estados por dimension (solo con la variante LEVEL_RESOLUTION). «No evaluable» (falta evidencia) y «No aplicable» (justificado por la arquitectura observada) NO son equivalentes; la ausencia de
+# fortaleza no es deficiencia; «cumplida» exige EVIDENCIA POSITIVA, nunca la mera ausencia de debilidades.
+DS_STRENGTH, DS_MET, DS_DEFICIENCY, DS_NOT_EVALUABLE, DS_NOT_APPLICABLE, DS_UNRESOLVED = (
+    "STRENGTH", "RESPONSIBILITY_MET", "DEFICIENCY_DEMONSTRATED", "NOT_EVALUABLE", "NOT_APPLICABLE", "UNRESOLVED_NO_POSITIVE_EVIDENCE")
+LEVEL_RULE_BUENA_BY_RESOLUTION, LEVEL_RULE_ADECUADA_BY_RESOLUTION = "LVL-07", "LVL-08"
+BUENA_MIN_STRENGTH_DIMENSIONS = 3                # hipotesis a contrastar: fortalezas en >= 3 dimensiones; el resto, cumplida o no aplicable
 EXECUTIVE_INPUT_VERSION = "executive-input/v1"
 EXECUTIVE_OUTPUT_CONTRACT_VERSION = "executive-output-contract/v1"
 CTA_PLAYBOOK_VERSION = "cta-playbook/v1"

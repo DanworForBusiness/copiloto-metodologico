@@ -101,6 +101,7 @@ def test_label_is_descriptive_only_all_assessment_content_is_unchanged(tmp_path)
         d["scope"].pop("terminal_analytic_model_label")
         d["scope"].pop("root_label")
         d["scope"].pop("pool_signature")                       # la firma del pool cambia con los BYTES del CSN, no con la semántica
+        d["canonical_evidence"]["leaf_materialization"]["derivation_inputs"]["csn"]["pool_signature"] = None      # v4.A: la referencia al pool lleva su firma (bytes del CSN), no semantica
         return d
     assert strip(with_label) == strip(without)                 # hechos, señales, cobertura, confianza, reglas: idénticos
 
