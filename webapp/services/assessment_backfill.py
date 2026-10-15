@@ -85,6 +85,7 @@ import json
 import sys
 from typing import Any, Callable, Iterable
 
+from tools.catalog import leaf_materialization_evidence as lme
 from webapp.services import assessment_service as svc
 from webapp.services import catalog_reads
 
@@ -127,6 +128,7 @@ def backfill(entries: Iterable[Any], *, dry_run: bool = False,
 ENRICHMENTS: dict[str, tuple[str, ...]] = {"view_type": ("am.view_type_composition",)}
 
 WOULD_REGENERATE, REGENERATED, SKIP, FAILED_ACTION = "WOULD_REGENERATE", "REGENERATED", "SKIP", "FAILED"
+ABSTAINED = "ABSTAINED"      # solo ``evidence_leaf_materialization_v4``: la migracion se ABSTIENE (falta el pool, difiere su firma, referencias irresolubles, cierre/metodologia distintos): perfil anterior intacto
 SKIPPED_ALREADY_ENRICHED, SKIPPED_NON_CURRENT, SKIPPED_NOT_YET_ASSESSED = "skipped_already_enriched", "skipped_non_current", "skipped_not_yet_assessed"
 RESTART_SAFE, RESTART_BLOCKED, RESTART_NOT_NEEDED, RESTART_DRY_RUN = "RESTART_SAFE", "RESTART_BLOCKED_PENDING_REMOTE", "NO_RESTART_NEEDED", "NOT_APPLICABLE_DRY_RUN"
 
@@ -167,14 +169,14 @@ def _governed_state_present() -> bool:
 # Enriquecimiento de CURRENT y migración de evidencia de STALE version-only comparten: regenerar en memoria + delta + escritura segura + reintento
 # remoto + verificación de durabilidad entre invocaciones + regla de reinicio. Solo difieren la ELEGIBILIDAD, las postcondiciones (en el servicio) y el delta.
 def _regenerate_record(rec: dict, entry: Any, status: svc.AssessmentStatus, *, regenerate_call: Callable[[Any], Any], compare: Callable[[dict | None, Any], dict],
-                       commit: Callable[[Any], str], apply: bool) -> None:
+                       commit: Callable[[Any], str], apply: bool, abstain_codes: frozenset = frozenset()) -> None:
     """Regenera en MEMORIA el assessment de ``entry`` (el motor canónico; no escribe), calcula el delta viejo→nuevo con el MISMO perfil que se escribiría y,
     solo con ``apply``, lo escribe por el camino seguro. Muta ``rec``; nunca lanza (una falla individual no corta el lote); ante cualquier falla el registro
     previo queda intacto."""
     try:
         candidate = regenerate_call(entry)                                        # motor canónico en MEMORIA; valida; no escribe
     except svc.EnrichmentError as exc:
-        rec.update(action=FAILED_ACTION, reason=exc.code)
+        rec.update(action=ABSTAINED if exc.code in abstain_codes else FAILED_ACTION, reason=exc.code)
         return
     except Exception as exc:                                                      # noqa: BLE001 — jamás se escribe nada; el registro previo queda
         rec.update(action=FAILED_ACTION, reason=f"REGENERATION_ERROR:{type(exc).__name__}")
@@ -259,7 +261,7 @@ def _restart_contract(out: dict, counts: dict, apply: bool, remote_enabled: Call
     else:
         out["restart"] = RESTART_DRY_RUN if not apply else RESTART_NOT_NEEDED
     out["restart_safe"] = out["restart"] == RESTART_SAFE
-    out["complete"] = apply and counts["failed"] == 0 and counts["pending_remote"] == 0
+    out["complete"] = apply and counts["failed"] == 0 and counts["pending_remote"] == 0 and counts.get("abstained", 0) == 0
 
 
 def _record_for(seen: dict, out: dict, status: svc.AssessmentStatus, eid: str, client: str, **extra: Any) -> tuple[dict, bool]:
@@ -488,6 +490,12 @@ def reassess_existing(entries: Iterable[Any], *, apply: bool = False,
 VERSION_ONLY_UNTARGETED, INPUT_CHANGED_STALE, VERSION_AND_INPUT_CHANGED = "version_only_untargeted", "input_changed_stale", "version_and_input_changed"
 OTHER_MIGRATION_APPLICABLE = "other_migration_applicable"       # STALE VERSION_ONLY cubierto exactamente por OTRA migracion del registro: se reporta, NO se encadena
 _STALE_ONLY_REPORTED = (VERSION_ONLY_UNTARGETED, INPUT_CHANGED_STALE, VERSION_AND_INPUT_CHANGED, OTHER_MIGRATION_APPLICABLE)
+# Causas de ABSTENCION de ``evidence_leaf_materialization_v4`` (no son fallas del operador: la condicion de elegibilidad no se cumple y el perfil anterior se conserva).
+ABSTENTION_CODES = frozenset({*svc.ERROR_MESSAGES, "PREVIOUS_NOT_TARGETED_VERSION_ONLY_STALE", "PREVIOUS_NOT_READABLE", "POOL_SIGNATURE_MISMATCH", "ENGINE_NOT_ASSESSED", "CLOSURE_DRIFT",
+                              "CLOSURE_NOT_VERIFIABLE", "TERMINAL_AM_CHANGED", "NON_MATERIALIZATION_CONTENT_CHANGED", "CANDIDATE_VERSIONS_NOT_CURRENT", "CANDIDATE_TARGET_VERSIONS_MISMATCH",
+                              "MATERIALIZATION_SECTION_MISSING", "MATERIALIZATION_NOT_EVALUATED", "MATERIALIZATION_CSN_NOT_PROVIDED", "MATERIALIZATION_POOL_SIGNATURE_MISMATCH",
+                              "MATERIALIZATION_REFERENCES_INCOMPLETE", "MATERIALIZATION_SOURCE_NOT_RECOVERABLE", "MATERIALIZATION_REFERENCE_UNRESOLVED", "JUDGMENT_METHODOLOGY_DIVERGED"})
+CONFIRMATION_REQUIRED = frozenset({svc.MATERIALIZATION_MIGRATION})        # ``--apply`` de estas migraciones exige ``--confirm-migration <nombre>`` (control explicito; autorizacion futura via ``authorize_apply``)
 
 
 def _provenance_summary(profile: dict | None) -> dict:
@@ -562,6 +570,13 @@ def compare_evidence_migration(old: dict | None, new_cand: Any, migration: str, 
                                  "by_view_type": _count_by(((new_ce or {}).get("view_complexity") or {}).get("views") or [], "view_type")},
              "processing_flow_properties": {"flows": [{"flow_kind": f["flow_kind"], "flow_name": f["flow_name"], "observed": f["observed"]}
                                                      for f in ((new_ce or {}).get("processing_flow_properties") or {}).get("flows") or []]}}
+    sec = (new_ce or {}).get(lme.SECTION_KEY) if isinstance(new_ce, dict) else None
+    if isinstance(sec, dict):                                              # v4: resumen de la seccion nueva (sin volcarla) y decision de revalidacion del Juicio
+        csn = (sec.get("derivation_inputs") or {}).get("csn") or {}
+        delta["leaf_materialization"] = {"state": sec.get("evaluation_state"), "counts": sec.get("counts"), "csn_provided": csn.get("provided"),
+                                         "references": len(csn.get("references") or ()), "limitations": list(csn.get("limitations") or ())}
+    if getattr(new_cand, "notes", None):
+        delta["judgment"] = dict(new_cand.notes)
     delta["changed"] = base["changed"] or delta["coverage_inclusive"]["changed"] or bool(added)
     return delta
 
@@ -599,15 +614,21 @@ def migrate_stale_evidence(entries: Iterable[Any], migration: str, *, apply: boo
                            retry_remote: Callable[[str, str], bool] = svc.retry_remote_persistence,
                            verify_remote: Callable[[str, str], str] = svc.verify_remote_durability,
                            governed_state_present: Callable[[], bool] = _governed_state_present,
-                           remote_enabled: Callable[[], bool] = lambda: svc.remote_store.enabled()) -> dict:
+                           remote_enabled: Callable[[], bool] = lambda: svc.remote_store.enabled(),
+                           authorize_apply: Callable[[str], bool] = lambda migration: True) -> dict:
     """Preview (``apply=False``: corre el motor en memoria y NO escribe) o aplicación de la migración de evidencia ``migration`` sobre los assessments gobernados
-    STALE VERSION_ONLY. Sin Datasphere, OAuth, SharePoint ni ``restore()``. Deduplica por (cliente, AM terminal). Una falla individual no corta el lote."""
+    STALE VERSION_ONLY. Sin Datasphere, OAuth, SharePoint ni ``restore()``. Deduplica por (cliente, AM terminal). Una falla individual no corta el lote.
+    ``authorize_apply``: gancho de AUTORIZACION futuro (por defecto permite); si deniega, la corrida se degrada a dry-run con ``APPLY_NOT_AUTHORIZED``."""
+    apply_requested = apply
+    if apply and not authorize_apply(migration):
+        apply = False
     target = svc.EVIDENCE_MIGRATIONS[migration]
     versions = svc.current_assessment_versions()
     entries = list(entries)
     out: dict = {"mode": "regenerate-stale-evidence", "migration": migration, "target_keys": list(target.target_keys),
                  "target_versions": {k: versions.get(k) for k in target.target_keys}, "apply": apply, "dry_run": not apply,
-                 "records": [], "environment_warnings": []}
+                 "records": [], "environment_warnings": ["APPLY_NOT_AUTHORIZED: la aplicación fue denegada por el control de autorización; se ejecutó como dry-run"] if apply_requested and not apply else []}
+    abstain = ABSTENTION_CODES if migration == svc.MATERIALIZATION_MIGRATION else frozenset()
     seen: dict[tuple[str, str], dict] = {}
     states: list[str] = []
     for entry in entries:
@@ -636,7 +657,7 @@ def migrate_stale_evidence(entries: Iterable[Any], migration: str, *, apply: boo
         except Exception:                                                         # noqa: BLE001
             pass
         _regenerate_record(rec, entry, status, regenerate_call=lambda e: regenerate(e, migration),
-                           compare=lambda old, cand: compare_evidence_migration(old, cand, migration, old_versions, versions), commit=commit, apply=apply)
+                           compare=lambda old, cand: compare_evidence_migration(old, cand, migration, old_versions, versions), commit=commit, apply=apply, abstain_codes=abstain)
         if rec["action"] == FAILED_ACTION and rec["reason"] in ("PREVIOUS_NOT_TARGETED_VERSION_ONLY_STALE", "PREVIOUS_CHANGED_DURING_RUN"):
             try:                                                                  # alguien lo regeneró por la UI durante la ventana: si ahora es CURRENT, se tolera
                 if status_for(entry).state == svc.CURRENT:
@@ -666,6 +687,7 @@ def migrate_stale_evidence(entries: Iterable[Any], migration: str, *, apply: boo
         "regenerated_remote": count(lambda r: r["action"] == REGENERATED and r["durable"] == svc.DURABLE_REMOTE),
         "regenerated_local": count(lambda r: r["action"] == REGENERATED and r["durable"] == svc.DURABLE_LOCAL),
         "failed": count(lambda r: r["action"] == FAILED_ACTION),
+        "abstained": count(lambda r: r["action"] == ABSTAINED),
         "already_current_remote_confirmed": count(lambda r: r["reason"] == SKIPPED_ALREADY_CURRENT and r.get("remote_state") == svc.REMOTE_CONFIRMED),
         "pending_remote": count(lambda r: (r["action"] == REGENERATED and r["durable"] != svc.DURABLE_REMOTE)
                                 or (r["reason"] == SKIPPED_ALREADY_CURRENT and r.get("remote_state") != svc.REMOTE_CONFIRMED)),
@@ -727,6 +749,47 @@ def backfill_judgment(*, apply: bool = False, client: str = "") -> dict:
     counts["complete"] = (failed == 0 and (not apply or counts["would_update"] == 0))
     return {"mode": "backfill-judgment", "apply": apply, "dry_run": not apply, "records": records, "counts": counts,
             "environment_warnings": ["sin almacén durable (solo memoria): el backfill no persiste"] if svc.governed_dir() is None else []}
+
+
+def revalidate_judgments(*, apply: bool = False, client: str = "") -> dict:
+    """``--revalidate-judgment``: REVALIDA (no recalifica) los Juicios v2 persistidos cuya firma de perfil quedo desactualizada tras un cambio de evidencia del perfil (p. ej. la migracion
+    ``evidence_leaf_materialization_v4``). Para cada sobre se deriva el Juicio con el MISMO motor v2 y se compara su parte METODOLOGICA (nivel, estado, cierre, fortalezas, razones, revisiones,
+    limitaciones, calificadores, CTA...; todo salvo ``source_assessment`` y ``output_signature``) con la persistida: identica => se reconoce la nueva firma del perfil (``judgment_signature_rebound``);
+    cualquier diferencia => ``judgment_methodology_diverged``: NO se reescribe y se informa que claves difieren (decision humana). No crea Juicios ausentes ni migra contratos viejos (eso es
+    ``--backfill-judgment``). Solo reescribe el Juicio del MISMO sobre (perfil, firmas y versiones intactos). Idempotente. ``apply=False`` no escribe."""
+    wanted = client.strip().lower()
+    records, failed, pending = [], 0, 0
+    for env, path in svc.iter_governed_envelopes():
+        if wanted and str(env.get("client", "")).strip().lower() != wanted:
+            continue
+        action, fresh = svc.classify_judgment_revalidation(env)
+        prev = env.get("judgment") or {}
+        rec = {"client": env.get("client"), "terminal_am": env.get("terminal_am"), "action": action,
+               "previous": {"status": prev.get("status"), "level": prev.get("level"), "level_rule": prev.get("level_rule")} if prev else None,
+               "revalidated": {"status": (fresh or {}).get("status"), "level": (fresh or {}).get("level"), "level_rule": (fresh or {}).get("level_rule")} if fresh else None}
+        if action == svc.JDG_METHODOLOGY_DIVERGED:
+            rec["methodology_diff_keys"] = svc.judgment_methodology_diff(prev, svc._derive_judgment(env.get("profile_json")))
+        if action == svc.JDG_SIGNATURE_REBOUND and apply:
+            try:
+                durable = svc.apply_judgment_backfill(env, fresh)
+                rec.update(action="rebound", durable=durable)
+                if durable != svc.DURABLE_REMOTE:
+                    pending += 1
+            except Exception as exc:                                    # noqa: BLE001 — una falla NO corrompe el sobre previo
+                svc.log.exception("revalidacion de Juicio: fallo al escribir %s", path)
+                rec.update(action="failed", error=type(exc).__name__)
+                failed += 1
+        elif action == svc.JDG_SIGNATURE_REBOUND:
+            rec["action"] = "would_rebind"
+        records.append(rec)
+    count = lambda pred: sum(1 for r in records if pred(r))              # noqa: E731
+    counts = {"examined": len(records), "already_current": count(lambda r: r["action"] == svc.JDG_CURRENT), "would_rebind": count(lambda r: r["action"] == "would_rebind"),
+              "rebound": count(lambda r: r["action"] == "rebound"), "methodology_diverged": count(lambda r: r["action"] == svc.JDG_METHODOLOGY_DIVERGED),
+              "judgment_missing": count(lambda r: r["action"] == svc.JDG_MISSING), "judgment_version_stale": count(lambda r: r["action"] == svc.JDG_VERSION_STALE),
+              "no_profile": count(lambda r: r["action"] == svc.JDG_NO_PROFILE), "failed": failed, "pending_remote": pending}
+    counts["complete"] = failed == 0 and counts["methodology_diverged"] == 0 and (not apply or counts["would_rebind"] == 0)
+    return {"mode": "revalidate-judgment", "apply": apply, "dry_run": not apply, "records": records, "counts": counts,
+            "environment_warnings": ["sin almacén durable (solo memoria): la revalidación no persiste"] if svc.governed_dir() is None else []}
 
 
 def backfill_domain_classification(entries: Iterable[Any], *, apply: bool = False) -> dict:
@@ -836,6 +899,9 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--backfill-judgment", action="store_true",
                       help="modo EXPLÍCITO: materializa el Juicio metodológico DERIVADO en los sobres gobernados que lo tengan ausente o con un contrato de "
                            "Juicio anterior, derivándolo del perfil YA persistido (SIN reassess ni adquisición). Idempotente. Exige --dry-run o --apply")
+    mode.add_argument("--revalidate-judgment", action="store_true",
+                      help="modo EXPLÍCITO: REVALIDA (no recalifica) los Juicios v2 persistidos cuya firma de perfil quedó desactualizada: si la parte metodológica del Juicio derivado por el motor v2 es "
+                           "IDÉNTICA a la persistida reconoce la nueva firma del perfil; si difiere en algo NO escribe. No crea ni migra Juicios (eso es --backfill-judgment). Exige --dry-run o --apply")
     mode.add_argument("--backfill-business-classification", action="store_true",
                       help="modo EXPLÍCITO: materializa la clasificación de NEGOCIO v2 (línea de negocio + dominio) en los sobres gobernados que la tengan ausente o desactualizada, "
                            "derivándola del Catálogo local (SIN reassess ni adquisición; no toca perfil, Juicio ni la clasificación de dominio v1). Idempotente. Exige --dry-run o --apply")
@@ -843,13 +909,20 @@ def main(argv: list[str] | None = None) -> int:
                       help="modo EXPLÍCITO: materializa la CLASIFICACIÓN DE DOMINIO (sugerencia, hermana del Juicio) en los sobres gobernados que la tengan ausente "
                            "o desactualizada, derivándola del Catálogo local (SIN reassess ni adquisición; no toca perfil ni Juicio). Idempotente. Exige --dry-run o --apply")
     ap.add_argument("--apply", action="store_true", help="solo con un modo de regeneración: escribe los reemplazos (excluyente con --dry-run)")
+    ap.add_argument("--confirm-migration", default="", metavar="MIGRACION",
+                    help="confirmación EXPLÍCITA que exige --apply en las migraciones sensibles (" + ", ".join(sorted(CONFIRMATION_REQUIRED)) + "): debe repetir el nombre de la migración")
     args = ap.parse_args(argv)
-    regen_mode = args.enrich_current_missing or args.regenerate_stale_evidence or args.reassess_current or args.reassess_existing or args.backfill_judgment or args.backfill_domain_classification or args.backfill_business_classification
+    regen_mode = (args.enrich_current_missing or args.regenerate_stale_evidence or args.reassess_current or args.reassess_existing or args.backfill_judgment or args.revalidate_judgment
+                  or args.backfill_domain_classification or args.backfill_business_classification)
     if regen_mode:
         if args.dry_run == args.apply:                                           # ninguno o ambos: usage, CERO escrituras
             ap.error("los modos de regeneración exigen EXACTAMENTE uno de --dry-run o --apply")
     elif args.apply:
         ap.error("--apply solo existe con un modo de regeneración (el backfill normal no lo usa)")
+    if args.apply and args.regenerate_stale_evidence in CONFIRMATION_REQUIRED and args.confirm_migration != args.regenerate_stale_evidence:
+        ap.error(f"--apply de {args.regenerate_stale_evidence} exige --confirm-migration {args.regenerate_stale_evidence} (control explícito; cero escrituras)")
+    if args.confirm_migration and args.confirm_migration != args.regenerate_stale_evidence:
+        ap.error("--confirm-migration solo confirma la migración indicada en --regenerate-stale-evidence")
     if args.reassess_current and not args.client.strip():                        # la reevaluación masiva DEBE ser explícita por cliente
         ap.error("--reassess-current exige --client (no reevalúa todos los clientes automáticamente)")
     _mod, entries = catalog_reads._catalog_entries()
@@ -860,7 +933,7 @@ def main(argv: list[str] | None = None) -> int:
         code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
     elif args.regenerate_stale_evidence:
         report = migrate_stale_evidence(entries, args.regenerate_stale_evidence, apply=args.apply)
-        code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
+        code = 1 if report["counts"]["failed"] else (3 if report["counts"].get("abstained") else (2 if report["environment_warnings"] else 0))
     elif args.reassess_current:
         report = reassess_selected(entries, apply=args.apply)
         code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
@@ -870,6 +943,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.backfill_judgment:
         report = backfill_judgment(apply=args.apply, client=args.client)
         code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
+    elif args.revalidate_judgment:
+        report = revalidate_judgments(apply=args.apply, client=args.client)
+        code = 1 if report["counts"]["failed"] else (3 if report["counts"].get("methodology_diverged") else (2 if report["environment_warnings"] else 0))
     elif args.backfill_domain_classification:
         report = backfill_domain_classification(entries, apply=args.apply)
         code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)

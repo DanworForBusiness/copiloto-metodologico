@@ -83,7 +83,7 @@ def test_the_six_public_states_are_unchanged_and_stale_reasons_are_not_states():
 
 
 def test_the_registry_is_small_explicit_and_uses_the_real_constants_as_target():
-    assert set(svc.EVIDENCE_MIGRATIONS) == {OLD_MIG, MIG, LIN_MIG, "evidence_confidence_v3"}                        # ambas explicitas: un perfil historico no queda varado porque un cliente ya migro
+    assert set(svc.EVIDENCE_MIGRATIONS) == {OLD_MIG, MIG, LIN_MIG, "evidence_confidence_v3", "evidence_leaf_materialization_v4"}                        # ambas explicitas: un perfil historico no queda varado porque un cliente ya migro
     assert TARGET.target_keys == ("assessability", "confidence", "canonical_evidence", "closure") and TARGET.closure_policy == svc.TARGETED_CLOSURE_EXPANSION
     assert OLD_VALUES == {"assessability": "assessability-rules/v2", "confidence": "confidence-cuts/v1", "canonical_evidence": "canonical-evidence/v1"}
     assert TARGET.eligible_old["closure"] == frozenset({None})

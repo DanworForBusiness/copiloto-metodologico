@@ -301,13 +301,13 @@ def test_both_contract_versions_are_accepted_by_the_judgment_gate(doc):
 
 
 # ───────────────────────────── firmas y vigencia (STALE) ─────────────────────────────
-def test_a_v3_profile_is_a_version_only_stale_not_covered_by_any_migration_until_v4c(doc):
+def test_a_v3_profile_is_a_version_only_stale_covered_exactly_by_the_v4c_migration(doc):
     cur = svc.current_assessment_versions()
     assert cur["canonical_evidence"] == "canonical-evidence/v4" and cur["assessability"] == "assessability-rules/v4" and cur["confidence"] == "confidence-cuts/v3"       # solo cambia canonical_evidence
     old = dict(cur, canonical_evidence="canonical-evidence/v3")
     c = svc.classify_currentness("sig", old, "sig", cur)
     assert (c.state, c.reason, c.version_diff, c.pool_same) == (svc.STALE, svc.STALE_VERSION_ONLY, ("canonical_evidence",), True)
-    assert c.targeted is None and c.version_only_untargeted and "evidence_leaf_materialization_v4" not in svc.EVIDENCE_MIGRATIONS          # v4.C declarara la migracion; v4.A no ejecuta ni registra ninguna
+    assert c.targeted == "evidence_leaf_materialization_v4" and not c.version_only_untargeted                          # v4.C: la migracion registrada cubre EXACTAMENTE esa diferencia (no se ejecuta aqui)
     assert svc.classify_currentness("sig", cur, "sig", cur).state == svc.CURRENT
     assert svc.classify_currentness("old", old, "new", cur).reason == svc.STALE_VERSION_AND_INPUT
 
