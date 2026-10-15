@@ -96,6 +96,7 @@ from typing import Any, Callable, Iterable, Mapping
 from tools.catalog import leaf_materialization_evidence as lme
 from webapp.services import assessment_service as svc
 from webapp.services import catalog_reads
+from webapp.services import durable_backup as dbk
 from webapp.services import governed_backup as gb
 from webapp.services import migration_approval as ma
 
@@ -829,7 +830,7 @@ def parse_waves(spec: str, plan: dict) -> list[list[str]]:
 
 
 def secured_migrate(entries: Iterable[Any], migration: str, *, authorizer: Callable[[str, dict], "ma.Authorization"], backup_dir: Any, allow_local_only: bool = False,
-                    waves: list[list[str]] | None = None, **kw: Any) -> dict:
+                    waves: list[list[str]] | None = None, run_id: str | None = None, **kw: Any) -> dict:
     """Aplica ``migration`` SOLO si: (1) hay autorizacion valida del plan EXACTO recalculado ahora (``plan_digest``), (2) el remoto esta disponible (salvo ``allow_local_only`` explicito),
     (3) el respaldo verificable del conjunto afectado quedo garantizado, y (4) cada ola (cliente) cierra limpia: sin fallas, abstenciones ni pendientes remotos, con confirmacion remota por bytes.
     Cualquier incumplimiento deja ``outcome`` explicito (exit 4/5) y NO escribe nada mas. Sin items en el plan: solo recupera pendientes remotos (``RECOVERY_ONLY``), sin regenerar."""
@@ -859,13 +860,29 @@ def secured_migrate(entries: Iterable[Any], migration: str, *, authorizer: Calla
     except gb.BackupError as exc:
         return _refusal(plan_report, BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error=exc.code)
     backup_dir = Path(backup_dir)
+    remote_info = None
+    if remote_enabled():                                                           # copia DURABLE en Spaces: sellada y confirmada por bytes ANTES de modificar el primer Assessment
+        run_id = run_id or dbk.new_run_id(plan["digest"])
+        try:
+            remote_info = dbk.publish(backup_dir, migration, run_id, approval=auth.document)
+        except dbk.DurableBackupError as exc:
+            return _refusal(plan_report, BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error=exc.code, backup_detail=exc.detail)
     guard = {(str(i["client"]), str(i["root"])): i for i in plan["items"]}
     order = waves or _default_waves(plan)
-    sec = {"plan_digest": plan["digest"], "authorization": auth.as_dict(), "backup": {"dir": str(backup_dir), "manifest_sha256": manifest["manifest_sha256"], "objects": len(manifest["objects"])},
-           "waves": []}
+    sec = {"plan_digest": plan["digest"], "authorization": auth.as_dict(), "backup": {"dir": str(backup_dir), "manifest_sha256": manifest["manifest_sha256"], "objects": len(manifest["objects"]),
+                                                                                       "remote": remote_info}, "waves": []}
     out: dict = {"mode": "regenerate-stale-evidence", "migration": migration, "apply": True, "dry_run": False, "secured": True, "records": [], "environment_warnings": [],
                  "target_keys": plan_report["target_keys"], "target_versions": plan_report["target_versions"]}
-    journal = lambda ev: gb.append_journal(backup_dir, ev)                         # noqa: E731
+    seq, jfail = [0], []
+
+    def journal(ev: dict) -> None:
+        rec = gb.append_journal(backup_dir, ev)                                    # local: si falla se propaga (no se sigue sin registro)
+        if remote_info is not None:
+            seq[0] += 1
+            try:
+                dbk.publish_event(migration, run_id, seq[0], rec)                  # remoto: un objeto inmutable por evento; una falla detiene las olas (restore necesita los COMMITTED)
+            except dbk.DurableBackupError as exc:
+                jfail.append(exc.code)
     stopped = None
     for n, wave in enumerate(order, 1):
         wanted = {c.lower() for c in wave}
@@ -878,7 +895,7 @@ def secured_migrate(entries: Iterable[Any], migration: str, *, authorizer: Calla
             if r.get("action") == REGENERATED:
                 journal({"event": "REMOTE_CONFIRMED" if r.get("remote_state") == svc.REMOTE_CONFIRMED else "REMOTE_PENDING", "key": _key_of(r)})
         c = res["counts"]
-        clean = not (c["failed"] or c["abstained"] or (remote_enabled() and c["pending_remote"]))      # sin remoto (solo con allow_local_only) lo local es lo maximo alcanzable
+        clean = not (c["failed"] or c["abstained"] or jfail or (remote_enabled() and c["pending_remote"]))      # sin remoto (solo con allow_local_only) lo local es lo maximo alcanzable
         sec["waves"].append({"wave": n, "clients": wave, "status": "CLEAN" if clean else "STOPPED", "regenerated": c["regenerated_remote"] + c["regenerated_local"],
                              "failed": c["failed"], "abstained": c["abstained"], "pending_remote": c["pending_remote"]})
         if not clean:
@@ -893,6 +910,7 @@ def secured_migrate(entries: Iterable[Any], migration: str, *, authorizer: Calla
             out["environment_warnings"].extend(w for w in res["environment_warnings"] if w not in out["environment_warnings"])
             sec["recovery_pass"] = {"records": len(res["records"]), "pending_remote": res["counts"]["pending_remote"], "failed": res["counts"]["failed"]}
     sec["not_attempted_waves"] = [w for w in order[(stopped or len(order)):]]
+    sec["journal_remote_failures"] = list(jfail)
     out["secured_apply"] = sec
     out["plan"] = {"digest": plan["digest"], "clients": plan["clients"], "items": len(plan["items"])}
     out["counts"] = _migration_counts(out["records"])
@@ -907,9 +925,11 @@ def secured_migrate(entries: Iterable[Any], migration: str, *, authorizer: Calla
 
 
 # ═══════════════════════════ RESTAURACION por objeto desde un respaldo ═══════════════════════════
-def restore_from_backup(backup_dir: Any, *, apply: bool = False, keys: list[str] | None = None, confirm: str = "") -> dict:
+def restore_from_backup(backup_dir: Any, *, apply: bool = False, keys: list[str] | None = None, confirm: str = "",
+                        authorizer: Callable[[str, dict], "ma.Authorization"] | None = None) -> dict:
     """Restaura POR OBJETO los sobres del respaldo ``backup_dir`` (dry-run por omision). Solo escribe lo que la migracion escribio (sha256 del diario) o lo ya restaurado; cualquier otro
-    contenido local/remoto => ``CONFLICT_CONCURRENT_CHANGE`` y no se toca. Exige que el respaldo sea de ESTE entorno y, con ``apply``, ``confirm`` = prefijo del sello del manifiesto."""
+    contenido local/remoto => ``CONFLICT_CONCURRENT_CHANGE`` y no se toca. Exige que el respaldo sea de ESTE entorno y, con ``apply``: ``confirm`` = prefijo del sello del manifiesto Y una
+    AUTORIZACION firmada (``authorizer``; migracion ``restore:<migracion>``, plan_digest = sello del manifiesto, alcance = clientes del manifiesto); sin ella => ``RESTORE_DENIED``."""
     backup_dir = Path(backup_dir)
     governed = svc.governed_dir()
     try:
@@ -921,6 +941,10 @@ def restore_from_backup(backup_dir: Any, *, apply: bool = False, keys: list[str]
         return {**base, "outcome": "ENVIRONMENT_MISMATCH", "counts": {"failed": 1}}
     if apply and (len(confirm) < 12 or not str(m.get("manifest_sha256", "")).startswith(confirm)):
         return {**base, "outcome": "CONFIRMATION_REQUIRED", "counts": {"failed": 1}, "required": "--confirm-restore <primeros 12+ caracteres de manifest_sha256>"}
+    if apply:
+        auth = (authorizer or ma.deny_all)(f"restore:{m.get('migration')}", {"digest": m.get("manifest_sha256"), "clients": sorted({str(o["client"]) for o in m["objects"]})})
+        if not auth.granted:
+            return {**base, "outcome": "RESTORE_DENIED", "applied": False, "authorization": auth.as_dict(), "counts": {"failed": 1}}
     remote = svc.remote_store.enabled()
     wanted = keys or [o["key"] for o in m["objects"]]
     for key in wanted:
@@ -934,6 +958,19 @@ def restore_from_backup(backup_dir: Any, *, apply: bool = False, keys: list[str]
     counts["conflicts"] = counts.get("CONFLICT_CONCURRENT_CHANGE", 0)
     counts["pending_remote"] = counts.get("RESTORE_REMOTE_PENDING", 0)
     return {**base, "outcome": "DONE", "counts": counts}
+
+
+def restore_from_remote_run(migration: str, run_id: str, staging_dir: Any, *, apply: bool = False, keys: list[str] | None = None, confirm: str = "",
+                            authorizer: Callable[[str, dict], "ma.Authorization"] | None = None) -> dict:
+    """Baja el run SELLADO ``migration-backups/<migracion>/<run_id>/`` de Spaces a ``staging_dir`` (vacio; verifica sello, manifiesto y cada hash) y restaura desde ahi con las MISMAS reglas
+    (por objeto, sin pisar cambios, confirmacion + autorizacion firmada). Sirve cuando el respaldo local del contenedor ya no existe."""
+    try:
+        dbk.fetch(migration, run_id, Path(staging_dir))
+    except dbk.DurableBackupError as exc:
+        return {"mode": "restore-backup", "apply": apply, "dry_run": not apply, "outcome": f"REMOTE_BACKUP_UNUSABLE:{exc.code}", "results": [], "counts": {"failed": 1}}
+    out = restore_from_backup(staging_dir, apply=apply, keys=keys, confirm=confirm, authorizer=authorizer)
+    out["remote_run"] = {"migration": migration, "run_id": run_id}
+    return out
 
 
 def backfill_judgment(*, apply: bool = False, client: str = "") -> dict:
@@ -1162,18 +1199,38 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--backup-dir", default="", metavar="DIR", help="directorio VACIO, fuera del almacen gobernado, donde se guarda el respaldo verificable previo al --apply")
     ap.add_argument("--waves", default="", metavar="A,B;C", help="olas de clientes (por defecto un cliente por ola, de menos a mas sobres); debe cubrir los clientes del plan")
     ap.add_argument("--allow-local-only", action="store_true", help="permite aplicar SIN Spaces habilitado (por defecto el --apply de una migracion sensible exige remoto confirmado por bytes)")
-    ap.add_argument("--restore-backup", default="", metavar="DIR", help="modo de RESTAURACION por objeto desde un respaldo (--dry-run para simular, --apply con --confirm-restore); no pisa cambios concurrentes")
+    ap.add_argument("--restore-backup", default="", metavar="DIR", help="modo de RESTAURACION por objeto desde un respaldo local (--dry-run para simular; --apply exige --confirm-restore Y una --approval firmada de 'restore:<migracion>'); no pisa cambios concurrentes")
+    ap.add_argument("--restore-remote-run", default="", metavar="MIGRACION/RUN_ID", help="igual que --restore-backup pero desde el respaldo DURABLE sellado en Spaces; requiere --backup-dir (directorio vacio de staging)")
+    ap.add_argument("--list-remote-backups", default="", metavar="MIGRACION", help="lista (solo lectura) los runs de respaldo durable de la migracion y si estan sellados")
     ap.add_argument("--object", action="append", default=[], metavar="CLAVE", help="con --restore-backup: restaura solo este objeto (repetible); por omision todos")
     ap.add_argument("--confirm-restore", default="", metavar="SELLO", help="con --restore-backup --apply: primeros 12+ caracteres de manifest_sha256")
     ap.add_argument("--confirm-migration", default="", metavar="MIGRACION",
                     help="confirmación EXPLÍCITA que exige --apply en las migraciones sensibles (" + ", ".join(sorted(CONFIRMATION_REQUIRED)) + "): debe repetir el nombre de la migración")
     args = ap.parse_args(argv)
-    if args.restore_backup:
+    if args.list_remote_backups:
+        try:
+            report = {"mode": "list-remote-backups", "migration": args.list_remote_backups, "runs": dbk.list_runs(args.list_remote_backups)}
+        except svc.remote_store.RemoteReadError as exc:
+            report = {"mode": "list-remote-backups", "migration": args.list_remote_backups, "runs": [], "error": str(exc)}
+        sys.stdout.buffer.write((json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+        return 1 if report.get("error") else 0
+    if args.restore_backup or args.restore_remote_run:
+        if args.restore_backup and args.restore_remote_run:
+            ap.error("--restore-backup y --restore-remote-run son excluyentes")
         if args.dry_run == args.apply:
-            ap.error("--restore-backup exige EXACTAMENTE uno de --dry-run o --apply")
-        report = restore_from_backup(args.restore_backup, apply=args.apply, keys=args.object or None, confirm=args.confirm_restore)
+            ap.error("la restauracion exige EXACTAMENTE uno de --dry-run o --apply")
+        auth = ma.authorizer_from_file(args.approval or None, args.operator or None)
+        if args.restore_remote_run:
+            mig, _, rid = args.restore_remote_run.partition("/")
+            if not rid or not args.backup_dir:
+                ap.error("--restore-remote-run exige MIGRACION/RUN_ID y --backup-dir (directorio vacio de staging)")
+            report = restore_from_remote_run(mig, rid, args.backup_dir, apply=args.apply, keys=args.object or None, confirm=args.confirm_restore, authorizer=auth)
+        else:
+            report = restore_from_backup(args.restore_backup, apply=args.apply, keys=args.object or None, confirm=args.confirm_restore, authorizer=auth)
         sys.stdout.buffer.write((json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
         c = report["counts"]
+        if report["outcome"] in ("RESTORE_DENIED", "CONFIRMATION_REQUIRED"):
+            return EXIT_DENIED
         return 1 if report["outcome"] != "DONE" or c.get("failed") else (3 if c.get("conflicts") else (2 if c.get("pending_remote") else 0))
     regen_mode = (args.enrich_current_missing or args.regenerate_stale_evidence or args.reassess_current or args.reassess_existing or args.backfill_judgment or args.revalidate_judgment
                   or args.backfill_domain_classification or args.backfill_business_classification)

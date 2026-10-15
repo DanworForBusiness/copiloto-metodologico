@@ -15,7 +15,7 @@ import base64
 import hashlib
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
@@ -44,6 +44,7 @@ class Authorization:
     approver: str | None = None
     operator: str | None = None
     expires_at: str | None = None
+    document: Any = field(default=None, compare=False, repr=False)      # la aprobacion verificada (solo si granted): se archiva con el respaldo; NO sale en ``as_dict``
 
     def as_dict(self) -> dict:
         return {"granted": self.granted, "reason": self.reason, "approver": self.approver, "operator": self.operator, "expires_at": self.expires_at}
@@ -153,7 +154,7 @@ def verify_approval(approval: Any, *, migration: str, plan_digest: str, plan_cli
         return DENIED(SCOPE_NOT_COVERED, **ctx)
     if approval.get("plan_digest") != plan_digest:
         return DENIED(PLAN_CHANGED, **ctx)                                           # el plan de ahora NO es el aprobado
-    return Authorization(True, "AUTHORIZED", approver=approver, operator=operator, expires_at=approval.get("expires_at"))
+    return Authorization(True, "AUTHORIZED", approver=approver, operator=operator, expires_at=approval.get("expires_at"), document=dict(approval))
 
 
 def authorizer_from_file(path: str | Path | None, operator: str | None, *, now: Callable[[], datetime] | None = None,

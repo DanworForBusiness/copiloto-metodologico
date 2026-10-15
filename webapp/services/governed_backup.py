@@ -57,13 +57,15 @@ def manifest_digest(manifest: dict) -> str:
     return _sha(json.dumps({k: manifest[k] for k in ("schema", "migration", "plan_digest", "environment", "objects")}, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
-def append_journal(dest: Path, event: dict) -> None:
-    """Evento append-only (una linea JSON); un fallo al escribir el diario se propaga: no se sigue sin registro."""
-    line = json.dumps({"at": _now(), **event}, sort_keys=True, ensure_ascii=False) + "\n"
+def append_journal(dest: Path, event: dict) -> dict:
+    """Evento append-only (una linea JSON); un fallo al escribir el diario se propaga: no se sigue sin registro. Devuelve el evento escrito (con ``at``)."""
+    rec = {"at": _now(), **event}
+    line = json.dumps(rec, sort_keys=True, ensure_ascii=False) + "\n"
     with open(Path(dest) / "journal.jsonl", "ab") as f:
         f.write(line.encode("utf-8"))
         f.flush()
         os.fsync(f.fileno())
+    return rec
 
 
 def read_journal(dest: Path) -> list[dict]:

@@ -289,13 +289,30 @@ def test_restore_of_an_object_the_migration_never_wrote_is_not_committed(kworld)
     assert gb.restore_object(bk, key, governed_dir=kworld.governed, apply=True)["status"] == "NOT_COMMITTED"
 
 
-def test_restore_cli_requires_the_same_environment_and_an_explicit_confirmation(kworld, monkeypatch, capsys):
+def _restore_approval(w, bk, *, operator="bob", clients=None, migration=None) -> Path:
+    m = gb.load_manifest(bk)
+    doc = ma.issue_approval(migration=migration or f"restore:{MIG}", plan_digest=m["manifest_sha256"], clients=clients or sorted({o["client"] for o in m["objects"]}), approver="alice", operator=operator,
+                            private_key=_PRIV, issued_at=datetime.now(timezone.utc) - timedelta(minutes=1), ttl=timedelta(hours=1))
+    f = w.tmp / f"restore-approval-{len(list(w.tmp.glob('restore-approval-*')))}.json"
+    f.write_text(json.dumps(doc), encoding="utf-8")
+    return f
+
+
+def test_restore_requires_same_environment_confirmation_and_a_signed_authorization(kworld, monkeypatch, capsys):
     before, bk, _ = _applied(kworld)
     rep = bf.restore_from_backup(bk, apply=True, confirm="")
     assert rep["outcome"] == "CONFIRMATION_REQUIRED" and not [e for e in gb.read_journal(bk) if e["event"] == "RESTORED"]
     seal = gb.load_manifest(bk)["manifest_sha256"]
+    monkeypatch.setenv(ma.ENV_APPROVER_KEYS, json.dumps({"alice": ma.public_key_b64(_PRIV)}))
+    snap = _snapshot(kworld)
     assert bf.main(["--restore-backup", str(bk), "--dry-run"]) == 0 and json.loads(capsys.readouterr().out)["counts"]["WOULD_RESTORE"] == 2
-    assert bf.main(["--restore-backup", str(bk), "--apply", "--confirm-restore", seal[:12]]) == 0
+    # sin aprobacion / con aprobacion de otra migracion, de otro operador o de otros clientes => denegado, cero escrituras
+    assert bf.main(["--restore-backup", str(bk), "--apply", "--confirm-restore", seal[:12], "--operator", "bob"]) == bf.EXIT_DENIED and json.loads(capsys.readouterr().out)["outcome"] == "RESTORE_DENIED"
+    for bad in (_restore_approval(kworld, bk, migration=MIG), _restore_approval(kworld, bk, operator="eve"), _restore_approval(kworld, bk, clients=["Otro"])):
+        assert bf.main(["--restore-backup", str(bk), "--apply", "--confirm-restore", seal[:12], "--operator", "bob", "--approval", str(bad)]) == bf.EXIT_DENIED
+        assert json.loads(capsys.readouterr().out)["outcome"] == "RESTORE_DENIED" and _snapshot(kworld) == snap
+    ok = _restore_approval(kworld, bk)
+    assert bf.main(["--restore-backup", str(bk), "--apply", "--confirm-restore", seal[:12], "--operator", "bob", "--approval", str(ok)]) == 0
     assert {p.name: p.read_bytes() for p in files(kworld)} == before                                                                                      # todo restaurado, byte a byte
     other = kworld.tmp / "otro-governed"
     monkeypatch.setenv("DANWOR_GOVERNED_ASSESSMENTS_DIR", str(other))
@@ -363,6 +380,13 @@ def test_waves_must_cover_exactly_the_plan_clients(kworld):
 @pytest.fixture()
 def remote(kworld, monkeypatch):
     bucket = FakeBucket()
+    bucket.fail_puts = False
+
+    def put_object(Bucket, Key, Body):                                                                 # PUT dirigido (respaldo durable)
+        if bucket.fail_puts:
+            raise RuntimeError("simulated put failure")
+        bucket.objects[Key] = bytes(Body)
+    bucket.put_object = put_object
     monkeypatch.setattr(config, "SPACES_ENDPOINT", "https://fake.digitaloceanspaces.com")
     monkeypatch.setattr(config, "SPACES_BUCKET", "fake-bucket")
     monkeypatch.setattr(config, "SPACES_KEY", "fake-key")
