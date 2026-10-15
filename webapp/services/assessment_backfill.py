@@ -883,9 +883,12 @@ def secured_migrate(entries: Iterable[Any], migration: str, *, authorizer: Calla
                 dbk.publish_event(migration, run_id, seq[0], rec)                  # remoto: un objeto inmutable por evento; una falla detiene las olas (restore necesita los COMMITTED)
             except dbk.DurableBackupError as exc:
                 jfail.append(exc.code)
-    journal({"event": "AUTHORIZED", "approver": auth.approver, "operator": auth.operator, "duties_mode": auth.duties_mode, "duties_collapsed": auth.duties_collapsed,
-             "operator_assurance": auth.operator_assurance, "attestation": auth.attestation, "plan_digest": plan["digest"],
-             "approval_sha256": hashlib.sha256(ma.canonical(auth.document)).hexdigest() if auth.document is not None else None})      # registro auditable ANTES de la primera escritura
+    try:                                                                            # el registro de la autorizacion debe quedar PERSISTIDO (local y, si hay remoto, remoto) antes de tocar un Assessment
+        journal({"event": "AUTHORIZED", "approver": auth.approver, "operator": auth.operator, "duties_mode": auth.duties_mode, "duties_collapsed": auth.duties_collapsed,
+                 "operator_assurance": auth.operator_assurance, "attestation": auth.attestation, "plan_digest": plan["digest"],
+                 "approval_sha256": hashlib.sha256(ma.canonical(auth.document)).hexdigest() if auth.document is not None else None})      # registro auditable ANTES de la primera escritura
+    except Exception:                                                              # noqa: BLE001 — sin detalle (podria contener rutas); cero escrituras sobre Assessments
+        return _refusal(plan_report, BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error="AUDIT_LOG_FAILED")
     if jfail:
         return _refusal(plan_report, BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error="JOURNAL_REMOTE_FAILED")
     stopped = None

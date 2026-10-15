@@ -307,3 +307,146 @@ def test_the_cli_issues_owner_managed_approvals_and_attests_the_operator(tmp_pat
     sep = tmp_path / "s.json"                                                                                               # el modo por defecto del CLI sigue siendo SEPARATED_DUTIES
     assert ma.main(["issue", "--key", str(key), "--migration", MIG, "--plan-digest", "d" * 64, "--client", "Kensing", "--approver", "owner", "--operator", "bob", "--out", str(sep)]) == 0
     assert "duties_mode" not in json.loads(sep.read_text(encoding="utf-8"))
+
+
+# ═════════════════════ GATE PREVIO A PUBLICAR: separacion de proposito, config fail-closed, orden AUTHORIZED, no reutilizacion, compatibilidad ═════════════════════
+def _restore_owner_doc(plan, *, attest=True, **kw):
+    doc = ma.issue_approval(migration=f"restore:{MIG}", plan_digest=plan["digest"], clients=plan["clients"], approver="owner", operator="owner", private_key=OWN, duties_mode=ma.OWNER_MANAGED,
+                            issued_at=NOW - timedelta(minutes=5), **kw)
+    return ma.attest_operator(approval=doc, identity="owner", private_key=OWN, issued_at=NOW - timedelta(minutes=1)) if attest else doc
+
+
+def _vm(doc, *, migration, plan=PLAN, operator="owner", ids=IDS, keys=KEYS):
+    return ma.verify_approval(doc, migration=migration, plan_digest=plan["digest"], plan_clients=plan["clients"], operator=operator, now=NOW, approver_keys=keys, owner_managed_ids=ids)
+
+
+def test_cryptographic_purpose_separation_between_approval_attestation_and_restore_authorization():
+    apply_doc, restore_doc = _owner_doc(), _restore_owner_doc(PLAN)
+    assert _vm(apply_doc, migration=MIG).granted and _vm(restore_doc, migration=f"restore:{MIG}").granted
+    # una aprobacion de migracion NO autoriza una restauracion y viceversa
+    assert _vm(apply_doc, migration=f"restore:{MIG}").reason == ma.WRONG_MIGRATION
+    assert _vm(restore_doc, migration=MIG).reason == ma.WRONG_MIGRATION
+    # la acreditacion de una NO sirve en la otra (atada a la firma de SU aprobacion, aunque plan y clave coincidan)
+    swapped_a = {**restore_doc, "operator_attestation": apply_doc["operator_attestation"]}
+    swapped_b = {**apply_doc, "operator_attestation": restore_doc["operator_attestation"]}
+    assert _vm(swapped_a, migration=f"restore:{MIG}").reason == ma.ATT_OTHER_APPROVAL
+    assert _vm(swapped_b, migration=MIG).reason == ma.ATT_OTHER_APPROVAL
+    # dominios de firma distintos: una acreditacion no es una aprobacion ni al reves, ni con la misma clave
+    att_only = apply_doc["operator_attestation"]
+    assert _vm(att_only, migration=MIG).reason == ma.BAD_SCHEMA
+    assert _vm({**{k: v for k, v in apply_doc.items() if k != "operator_attestation"}, "operator_attestation": {k: v for k, v in apply_doc.items() if k != "operator_attestation"}},
+               migration=MIG).reason == ma.ATT_INVALID
+    forged = dict(att_only, signature=apply_doc["signature"])                                              # la firma de la APROBACION no vale como firma de la acreditacion
+    assert _vm({**apply_doc, "operator_attestation": forged}, migration=MIG).reason == ma.ATT_INVALID
+    forged_purpose = dict(att_only, purpose="restore")                                                    # cambiar el proposito invalida la firma
+    assert _vm({**apply_doc, "operator_attestation": forged_purpose}, migration=MIG).reason == ma.ATT_INVALID
+    assert _vm({**apply_doc, "operator_attestation": dict(att_only, purpose="other")}, migration=MIG).reason == ma.ATT_INVALID
+
+
+def test_the_attestation_cannot_be_reused_for_another_operator_or_plan_or_approval():
+    doc = _owner_doc()
+    assert _v(doc, operator="alice").reason == ma.OPERATOR_MISMATCH                                       # otro operador
+    other = {"digest": "c" * 64, "clients": ["Kensing"]}
+    assert _v({**_owner_doc(plan=other, attest=False), "operator_attestation": doc["operator_attestation"]}, plan=other).reason == ma.ATT_OTHER_APPROVAL      # otro plan
+    assert _v({**_owner_doc(attest=False, issued_at=NOW - timedelta(minutes=9)), "operator_attestation": doc["operator_attestation"]}).reason == ma.ATT_OTHER_APPROVAL   # otra aprobacion
+    alice_doc = ma.issue_approval(migration=MIG, plan_digest=PLAN["digest"], clients=PLAN["clients"], approver="owner", operator="owner", private_key=OWN, duties_mode=ma.OWNER_MANAGED,
+                                  issued_at=NOW - timedelta(minutes=5))
+    alice_att = ma.attest_operator(approval=alice_doc, identity="alice", private_key=ALICE, issued_at=NOW - timedelta(minutes=1))                  # acreditacion de OTRA identidad
+    assert _v(alice_att, ids=frozenset({"owner", "alice"})).reason == ma.ATT_IDENTITY
+
+
+@pytest.mark.parametrize("keys_raw, ids_raw, expected", [
+    ("", '["owner"]', ma.NO_APPROVERS),                                    # sin aprobadores configurados ni opt-in basta
+    ("{no es json", '["owner"]', ma.NO_APPROVERS),                         # configuracion de claves invalida
+    ('{"owner": "!!!no-base64!!!"}', '["owner"]', ma.NO_APPROVERS),         # clave manipulada/ilegible: TODA la config se descarta
+    ("KEYS", "", ma.OWNER_NOT_ENABLED),                                    # claves ok pero sin opt-in
+    ("KEYS", "{no es json", ma.OWNER_NOT_ENABLED),                         # opt-in invalido
+    ("KEYS", '["Owner"]', ma.OWNER_ID_NOT_AUTHORIZED),                     # id con otra capitalizacion
+    ("KEYS", '[" owner"]', ma.OWNER_ID_NOT_AUTHORIZED),                    # id con espacios
+    ("KEYS", '["otro"]', ma.OWNER_ID_NOT_AUTHORIZED),
+])
+def test_missing_invalid_or_manipulated_configuration_fails_closed_through_the_environment(keys_raw, ids_raw, expected, monkeypatch, tmp_path):
+    if keys_raw == "KEYS":
+        keys_raw = json.dumps({"owner": ma.public_key_b64(OWN)})
+    monkeypatch.setenv(ma.ENV_APPROVER_KEYS, keys_raw)
+    monkeypatch.setenv(ma.ENV_OWNER_MANAGED_IDS, ids_raw)
+    f = tmp_path / "a.json"
+    f.write_text(json.dumps(_owner_doc(plan=PLAN)), encoding="utf-8")
+    a = ma.authorizer_from_file(f, "owner", now=lambda: NOW)(MIG, PLAN)                                  # sin parametros explicitos: lee SOLO el entorno
+    assert not a.granted and a.reason == expected
+
+
+def test_a_key_swapped_in_the_configuration_cannot_validate_someone_elses_approval(monkeypatch):
+    swapped = {"owner": ALICE.public_key()}                                                                # la clave registrada de "owner" es otra
+    assert _v(_owner_doc(), keys=swapped).reason == ma.BAD_SIGNATURE
+
+
+def test_authorized_is_persisted_locally_and_remotely_before_the_first_assessment_operation(kworld, remote, monkeypatch):
+    from webapp.services import assessment_service as svc
+    _make_v3(kworld, kworld.k, kworld.k2)
+    _publish_all(kworld)
+    f = _owner_file(kworld, _plan(kworld))
+    seen = []
+    real = svc.commit_regenerated
+
+    def spy(candidate):
+        local = [e["event"] for e in gb.read_journal(kworld.tmp / "bk")]
+        rem = [json.loads(v)["event"] for k, v in remote.objects.items() if k.startswith(f"migration-backups/{MIG}/run-ord/journal/")]
+        seen.append({"local_authorized": "AUTHORIZED" in local, "local_committed_before": "COMMITTED" in local, "remote_authorized": "AUTHORIZED" in rem, "remote_committed_before": "COMMITTED" in rem})
+        return real(candidate)
+    monkeypatch.setattr(svc, "commit_regenerated", spy)
+    writes = []
+    real_push = remote.upload_file
+    monkeypatch.setattr(remote, "upload_file", lambda filename, bucket, key: writes.append(key) or real_push(filename, bucket, key))        # PUT de sobres gobernados (push_path)
+    out = _secured(kworld, authorizer=ma.authorizer_from_file(f, "owner", approver_keys=KEYS, owner_managed_ids=IDS), allow_local_only=False, run_id="run-ord", waves=[["Kensing"], ["Kensing2"]])
+    assert out["outcome"] == bf.APPLIED and len(seen) == 2
+    assert seen[0] == {"local_authorized": True, "local_committed_before": False, "remote_authorized": True, "remote_committed_before": False}     # antes de la 1.a escritura
+    assert all(s["local_authorized"] and s["remote_authorized"] for s in seen) and writes                                                          # y en cada escritura posterior
+
+
+def test_if_authorized_cannot_be_persisted_locally_nothing_is_written_and_the_refusal_is_clean(kworld, remote, monkeypatch):
+    _make_v3(kworld, kworld.k, kworld.k2)
+    _publish_all(kworld)
+    snap, before = _snapshot(kworld), dict(remote.objects)
+    f = _owner_file(kworld, _plan(kworld))
+    real = gb.append_journal
+
+    def failing(dest, event):
+        if event.get("event") == "AUTHORIZED":
+            raise OSError("disco lleno")
+        return real(dest, event)
+    monkeypatch.setattr(gb, "append_journal", failing)
+    out = _secured(kworld, authorizer=ma.authorizer_from_file(f, "owner", approver_keys=KEYS, owner_managed_ids=IDS), allow_local_only=False)
+    assert out["outcome"] == bf.BACKUP_NOT_GUARANTEED and out["backup_error"] == "AUDIT_LOG_FAILED" and out["applied"] is False and out["writes"] == 0
+    assert _snapshot(kworld) == snap and {k: v for k, v in remote.objects.items() if "governed-assessments" in k} == {k: v for k, v in before.items() if "governed-assessments" in k}
+
+
+def test_recovery_only_never_regenerates_or_commits_and_republishes_only_existing_bytes(kworld, remote, monkeypatch):
+    """Excepcion ACOTADA y documentada: con plan vacio (todo ya migrado) no hay AUTHORIZED nuevo porque no hay nada que autorizar; solo se re-verifica/reintenta el PUT de bytes ya escritos."""
+    from webapp.services import assessment_service as svc
+    _make_v3(kworld, kworld.k)
+    _publish_all(kworld)
+    f = _owner_file(kworld, _plan(kworld, kworld.k))
+    assert _secured(kworld, kworld.k, authorizer=ma.authorizer_from_file(f, "owner", approver_keys=KEYS, owner_managed_ids=IDS), allow_local_only=False)["outcome"] == bf.APPLIED
+    snap, remote_before = _snapshot(kworld), dict(remote.objects)
+    commits = []
+    monkeypatch.setattr(svc, "commit_regenerated", lambda c: commits.append(c))
+    out = _secured(kworld, kworld.k, authorizer=ma.deny_all, backup=kworld.tmp / "bk-2", allow_local_only=False)
+    assert out["outcome"] == bf.RECOVERY_ONLY and commits == [] and _snapshot(kworld) == snap and remote.objects == remote_before and not (kworld.tmp / "bk-2").exists()
+    with pytest.raises(bf.ApplyRequiresAuthorization):                                                                  # y la migracion sensible NO se puede aplicar directo, con plan o sin el
+        bf.migrate_stale_evidence([kworld.k], MIG, apply=True, governed_state_present=ALWAYS)
+
+
+def test_separated_duties_is_fully_backward_compatible_with_approvals_signed_by_the_previous_version():
+    """Un documento firmado como lo hacia la version anterior (payload = todo salvo ``signature``) se verifica igual: el payload nuevo es identico mientras no exista ``operator_attestation``."""
+    old = {"schema": ma.APPROVAL_SCHEMA, "migration": MIG, "plan_digest": PLAN["digest"], "scope": {"clients": PLAN["clients"]}, "approver": "alice", "authorized_operator": "bob",
+           "issued_at": ma._iso(NOW - timedelta(minutes=5)), "expires_at": ma._iso(NOW + timedelta(hours=2))}
+    old["signature"] = base64.b64encode(ALICE.sign(ma.canonical({k: v for k, v in old.items() if k != "signature"}))).decode()      # firma exacta de la version previa
+    assert ma.signed_payload(old) == {k: v for k, v in old.items() if k != "signature"}
+    a = _v(old, operator="bob")
+    assert a.granted and a.duties_mode == ma.SEPARATED_DUTIES and a.duties_collapsed is False and a.operator_assurance == ma.ASSURANCE_DESIGNATED and a.approver == "alice" and a.operator == "bob"
+    assert _v(old, operator="alice").reason == ma.OPERATOR_MISMATCH and _v(old, operator="eve").reason == ma.OPERATOR_MISMATCH
+    same = {k: v for k, v in old.items() if k != "signature"} | {"authorized_operator": "alice"}                                      # misma persona en el modo por defecto: sigue denegado como siempre
+    same["signature"] = base64.b64encode(ALICE.sign(ma.canonical(dict(same)))).decode()
+    assert _v(same, operator="alice").reason == ma.SAME_PERSON
+    assert ma.issue_approval(migration=MIG, plan_digest=PLAN["digest"], clients=PLAN["clients"], approver="alice", operator="bob", private_key=ALICE, issued_at=NOW - timedelta(minutes=5)).keys() == old.keys()
