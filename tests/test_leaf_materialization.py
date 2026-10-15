@@ -407,6 +407,29 @@ def delta_ce(match="DELTA_SHADOW_SUFFIX", mappings=None, cdc=None, bclass=CDS, l
               [pbl(leaf, [bnd(None, "CDS_X", bclass, ["RF_X"])], ["RF_X"])])
 
 
+CDC_WHERE = [{"ref": ["Change_Type"]}, "not", "in", {"list": [{"val": "D"}, {"val": "M"}]}]
+
+
+def wrapper_defs(leaf="X", shadow="X_Delta", columns=("A", "B"), frm=None, where=CDC_WHERE, select_extra=None, shadow_defined=True, x_types=None) -> dict:
+    """Definiciones CSN de un wrapper logico X (``query.SELECT.from = D``) y, opcionalmente, de su companera D (con las 2 columnas CDC)."""
+    sel = {"from": frm if frm is not None else {"ref": [shadow]}, "columns": [c if isinstance(c, dict) else {"ref": [c]} for c in columns]}
+    if where is not None:
+        sel["where"] = where
+    sel.update(select_extra or {})
+    el = lambda **kw: dict({"type": "cds.String", "length": 10}, **kw)                       # noqa: E731
+    d_els = {c: el() for c in ("A", "B", "C")}
+    d_els.update({"Change_Type": el(length=1), "Change_Date": {"type": "cds.Timestamp"}})
+    x_els = {c: dict(el(), **(x_types or {}).get(c, {})) for c in ("A", "B")}
+    out = {leaf: {"kind": "entity", "@DataWarehouse.delta": {"type": {"#": "ACTIVE"}, "deltaFromEntities": [shadow]}, "query": {"SELECT": sel}, "elements": x_els}}
+    if shadow_defined:
+        out[shadow] = {"kind": "entity", "elements": d_els}
+    return out
+
+
+def dcsn(**kw) -> dict:
+    return {"entity_definitions": wrapper_defs(**kw)}
+
+
 def test_delta_shadow_producer_stays_unknown_without_an_explicit_csn_link_even_if_the_suffix_matches():
     r = derive_leaf_materialization("X", delta_ce())
     assert r["materialization_kind"] == KIND_UNKNOWN and r["unknown_reasons"] == [lm.U_TARGET_MATCH_NOT_EXACT] and r["unknown_detail"][lm.U_TARGET_MATCH_NOT_EXACT] == ["RF_X:DELTA_SHADOW_SUFFIX"]
@@ -415,26 +438,31 @@ def test_delta_shadow_producer_stays_unknown_without_an_explicit_csn_link_even_i
 
 
 def test_explicit_csn_delta_link_resolves_the_producer_and_records_how():
-    r = derive_leaf_materialization("X", delta_ce(), {"delta_links": {"X": ("X_Delta",)}})
+    r = derive_leaf_materialization("X", delta_ce(), dcsn())
     assert (r["materialization_kind"], r["unknown_reasons"], r["flags"]["multi_producer"]) == (KIND_REPLICA, [], False)
     p = r["producers"][0]
     assert (p["resolved_via"], p["shadow_entity"], p["target_match"]) == (lm.RESOLVED_VIA_DELTA_LINK, "X_Delta", "DELTA_SHADOW_SUFFIX")      # el target_match persistido no se reescribe
-    assert derive_all(delta_ce(), {"delta_links": {"X": ["X_Delta"]}})["X"]["materialization_kind"] == KIND_REPLICA
+    w = p["wrapper"]
+    assert (w["reads_shadow"], w["projection"], w["transformations"], w["column_identity"]) == (True, "COLUMNS_ONLY", [], "VERIFIED_DEFINITION")
+    assert (w["filtered"], w["filter_columns"], w["filter_nature"]) == (True, ["Change_Type"], "ROW_FILTER") and r["flags"]["filtered"] is True      # filtro de estado CDC: bandera, no cambia el tipo
+    assert derive_all(delta_ce(), dcsn())["X"]["materialization_kind"] == KIND_REPLICA
+    r = derive_leaf_materialization("X", delta_ce(cdc={"com.sap.datasuite.cdc.mode.column": "Change_Type"}), dcsn())
+    assert r["producers"][0]["wrapper"]["filter_nature"] == "CDC_ROW_STATE"                                 # el filtro solo mira la columna CDC declarada por la tarea
 
 
 def test_the_link_decides_not_the_suffix_the_declared_companion_must_be_the_exact_target_of_the_task():
     ce = delta_ce(shadow="X_Delta")
-    r = derive_leaf_materialization("X", ce, {"delta_links": {"X": ("OTRA_COMPANERA",)}})              # el sufijo coincide pero el CSN declara otra companera
+    r = derive_leaf_materialization("X", ce, {"delta_links": {"X": ("OTRA_COMPANERA",)}, **dcsn()})  # el sufijo coincide pero el CSN declara otra companera
     assert r["materialization_kind"] == KIND_UNKNOWN and r["unknown_reasons"] == [lm.U_CONTRADICTORY]
     assert r["unknown_detail"][lm.U_CONTRADICTORY] == ["delta_link_does_not_cover_producer_target:RF_X"]
     # un destino SIN sufijo _Delta se resuelve igual si y solo si el CSN lo declara (el nombre es irrelevante)
     ce = delta_ce(shadow="TECH_STORE_X")
-    assert derive_leaf_materialization("X", ce, {"delta_links": {"X": ("TECH_STORE_X",)}})["materialization_kind"] == KIND_REPLICA
+    assert derive_leaf_materialization("X", ce, dcsn(shadow="TECH_STORE_X"))["materialization_kind"] == KIND_REPLICA
 
 
 def test_link_covering_several_task_targets_is_ambiguous_and_a_link_never_applies_to_data_flows_or_exact_matches():
     other = rf("RF_X", "X_Delta2")["properties"]["tasks"][0]
-    r = derive_leaf_materialization("X", delta_ce(extra_tasks=[other]), {"delta_links": {"X": ("X_Delta", "X_Delta2")}})
+    r = derive_leaf_materialization("X", delta_ce(extra_tasks=[other]), {"delta_links": {"X": ("X_Delta", "X_Delta2")}, **dcsn()})
     assert r["unknown_reasons"] == [lm.U_TARGET_AMBIGUOUS]
     ce = one_df(ident("A"), name="DF_X", leaf="X")
     ce["leaf_provenance"][0]["producer_flows"][0]["target_match"] = "DELTA_SHADOW_SUFFIX"
@@ -448,8 +476,79 @@ def test_resolved_delta_producer_counts_for_multi_producer_and_still_cannot_be_c
     ce["leaf_provenance"][0]["producer_flows"].append(prod("REPLICATION_FLOW", "RF_Y"))
     ce["processing_flow_properties"]["flows"].append(rf("RF_Y", "X"))
     ce["physical_source_boundaries"]["leaves"][0]["flows"] = ["RF_X", "RF_Y"]
-    r = derive_leaf_materialization("X", ce, {"delta_links": {"X": ("X_Delta",)}})
+    r = derive_leaf_materialization("X", ce, dcsn())
     assert r["flags"]["multi_producer"] is True and r["unknown_reasons"] == [lm.U_MULTI_PRODUCER_NOT_COMPARABLE]
+
+
+def test_a_declared_link_is_not_enough_the_wrapper_definition_must_be_available_and_readable():
+    r = derive_leaf_materialization("X", delta_ce(), {"delta_links": {"X": ("X_Delta",)}})                    # vinculo sin definicion de X
+    assert r["materialization_kind"] == KIND_UNKNOWN and r["unknown_reasons"] == [lm.U_DELTA_WRAPPER_NOT_VERIFIABLE]
+    assert r["unknown_detail"][lm.U_DELTA_WRAPPER_NOT_VERIFIABLE] == ["RF_X:wrapper_definition_missing"] and r["producers"][0]["wrapper"]["reads_shadow"] is None
+    defs = wrapper_defs()
+    del defs["X"]["query"]
+    r = derive_leaf_materialization("X", delta_ce(), {"entity_definitions": defs})
+    assert r["unknown_detail"][lm.U_DELTA_WRAPPER_NOT_VERIFIABLE] == ["RF_X:wrapper_has_no_select"]
+    defs = wrapper_defs()
+    defs["X"]["query"]["SELECT"]["sample"] = 1
+    assert derive_leaf_materialization("X", delta_ce(), {"entity_definitions": defs})["unknown_reasons"] == [lm.U_DELTA_WRAPPER_NOT_VERIFIABLE]
+    r = derive_leaf_materialization("X", delta_ce(), dcsn(frm={"ref": ["X_Delta"], "args": [1]}))
+    assert r["unknown_reasons"] == [lm.U_DELTA_WRAPPER_NOT_VERIFIABLE]
+
+
+def test_a_wrapper_that_declares_the_shadow_but_reads_something_else_is_contradictory_evidence():
+    r = derive_leaf_materialization("X", delta_ce(), dcsn(frm={"ref": ["OTRA_TABLA"]}))
+    assert r["materialization_kind"] == KIND_UNKNOWN and r["unknown_reasons"] == [lm.U_CONTRADICTORY]
+    assert r["unknown_detail"][lm.U_CONTRADICTORY] == ["RF_X:wrapper_does_not_read_shadow:X<-X_Delta"] and r["producers"][0]["wrapper"]["reads_shadow"] is False
+
+
+@pytest.mark.parametrize("kwargs, nature", [
+    (dict(columns=("A", {"ref": ["B"], "as": "B2"})), "RENAME"),
+    (dict(columns=("A", {"func": "upper", "args": [{"ref": ["B"]}], "as": "B"})), "EXPRESSION"),
+    (dict(columns=("A", {"ref": ["B"], "cast": {"type": "cds.Integer"}})), "EXPRESSION"),
+    (dict(select_extra={"groupBy": [{"ref": ["A"]}]}), "AGGREGATION"),
+    (dict(select_extra={"distinct": True}), "DISTINCT"),
+    (dict(select_extra={"limit": {"rows": {"val": 5}}}), "LIMIT"),
+    (dict(frm={"join": "inner", "args": [{"ref": ["X_Delta"]}, {"ref": ["OTRA"]}], "on": []}), "JOIN"),
+    (dict(x_types={"A": {"length": 20}}), "TYPE_CHANGE"),
+])
+def test_a_demonstrated_wrapper_transformation_classifies_the_leaf_as_transformed_by_its_nature(kwargs, nature):
+    r = derive_leaf_materialization("X", delta_ce(), dcsn(**kwargs))
+    assert r["materialization_kind"] == KIND_TRANSFORMED and r["unknown_reasons"] == []
+    w = r["producers"][0]["wrapper"]
+    assert nature in w["transformations"] and w["projection"] == "NOT_PURE"
+
+
+def test_wrapper_column_identity_is_checked_against_the_shadow_definition_or_the_rf_target_names_when_available():
+    # D no definida en el CSN: se usan las columnas del destino del RF (solo nombres)
+    cdc = {"com.sap.datasuite.cdc.mode.column": "Change_Type"}
+    csn = dict(dcsn(shadow_defined=False), **cols_csn(["A", "B", "C"], ["A", "B", "C", "Change_Type"], flow="RF_X", target="X_Delta"))
+    r = derive_leaf_materialization("X", delta_ce(cdc=cdc), csn)
+    assert r["materialization_kind"] == KIND_REPLICA and r["producers"][0]["wrapper"]["column_identity"] == "VERIFIED_RF_TARGET_NAMES"
+    # sin definicion de D ni columnas del RF: no verificable pero NO bloquea (la proyeccion si se verifica por el SELECT)
+    r = derive_leaf_materialization("X", delta_ce(), dcsn(shadow_defined=False))
+    assert r["materialization_kind"] == KIND_REPLICA and r["producers"][0]["wrapper"]["column_identity"] == "NOT_VERIFIABLE"
+    # una columna que X proyecta y D no tiene: evidencia contradictoria
+    r = derive_leaf_materialization("X", delta_ce(), dcsn(columns=("A", "NO_ESTA_EN_D")))
+    assert r["unknown_reasons"] == [lm.U_CONTRADICTORY] and r["unknown_detail"][lm.U_CONTRADICTORY] == ["RF_X:wrapper_columns_not_in_shadow:NO_ESTA_EN_D"]
+    csn = dict(dcsn(shadow_defined=False, columns=("A", "ZZ")), **cols_csn(["A", "B"], ["A", "B", "Change_Type"], flow="RF_X", target="X_Delta"))
+    assert derive_leaf_materialization("X", delta_ce(cdc=cdc), csn)["unknown_reasons"] == [lm.U_CONTRADICTORY]
+
+
+def test_wrapper_filters_are_flags_not_kinds_and_a_wrapper_without_where_is_not_filtered():
+    r = derive_leaf_materialization("X", delta_ce(), dcsn(where=None))
+    assert r["materialization_kind"] == KIND_REPLICA and r["flags"]["filtered"] is False and r["producers"][0]["wrapper"]["filter_nature"] is None
+    r = derive_leaf_materialization("X", delta_ce(), dcsn(where=[{"ref": ["A"]}, "=", {"val": "1"}]))
+    assert r["materialization_kind"] == KIND_REPLICA and r["flags"]["filtered"] is True and r["producers"][0]["wrapper"]["filter_nature"] == "ROW_FILTER"
+
+
+def test_verify_delta_wrapper_is_pure_and_never_raises_on_garbage():
+    snap = copy.deepcopy(wrapper_defs())
+    defs = wrapper_defs()
+    info, reasons = lm.verify_delta_wrapper("X", "X_Delta", defs)
+    assert reasons == [] and defs == snap and info["projection"] == "COLUMNS_ONLY"
+    for garbage in (None, [], "x", {"X": "x"}, {"X": {"query": "x"}}, {"X": {"query": {"SELECT": {"from": 3}}}}, {"X": {"query": {"SELECT": {"from": {"ref": ["X_Delta"]}, "columns": [3, None, "*"], "where": 5}}}}):
+        info, reasons = lm.verify_delta_wrapper("X", "X_Delta", garbage)
+        assert isinstance(info, dict) and isinstance(reasons, list)
 
 
 def test_explicit_delta_links_reads_only_the_declared_annotation():
@@ -621,16 +720,18 @@ _CSN = os.environ.get("LEAF_MATERIALIZATION_CSN", "")
 
 
 def _csn_for(client: str) -> dict:
-    links, cols = {}, {}
+    links, cols, defs = {}, {}, {}
     for jf in glob.glob(os.path.join(_CSN, client, "**", "*.json"), recursive=True):
         try:
             doc = json.loads(Path(jf).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         if isinstance(doc, dict):
+            if isinstance(doc.get("definitions"), dict):
+                defs.update(doc["definitions"])
             links.update(explicit_delta_links(doc.get("definitions")))
             cols.update(rf_task_columns(doc.get("replicationflows")))
-    return {"delta_links": links, "rf_task_columns": cols}
+    return {"delta_links": links, "rf_task_columns": cols, "entity_definitions": defs}
 
 
 @pytest.mark.skipif(not (_CORPUS and _CSN) or not glob.glob(os.path.join(_CORPUS, "v1", "*", "*.json")), reason="LEAF_MATERIALIZATION_CORPUS / LEAF_MATERIALIZATION_CSN no definidos")

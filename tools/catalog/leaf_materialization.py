@@ -74,9 +74,10 @@ U_SHAPE_NOT_INTERPRETABLE = "FLOW_SHAPE_NOT_INTERPRETABLE"
 U_CONTRADICTORY = "CONTRADICTORY_EVIDENCE"
 U_MULTI_PRODUCER_NOT_COMPARABLE = "MULTI_PRODUCER_NOT_COMPARABLE"
 U_IMPLICIT_IDENTITY_CONTRADICTED = "IMPLICIT_IDENTITY_CONTRADICTED"
+U_DELTA_WRAPPER_NOT_VERIFIABLE = "DELTA_WRAPPER_NOT_VERIFIABLE"
 UNKNOWN_REASON_CODES = frozenset({U_EVIDENCE_NOT_AVAILABLE, U_SECTION_MISSING, U_LEAF_NOT_FOUND, U_NO_PRODUCER, U_DECLARED_NOT_OBSERVED, U_TARGET_MATCH_NOT_EXACT, U_FLOW_KIND_UNSUPPORTED,
                                   U_FLOW_NOT_IN_EVIDENCE, U_FLOW_AMBIGUOUS, U_TARGET_NOT_FOUND, U_TARGET_AMBIGUOUS, U_MAPPING_NOT_OBSERVED, U_MAPPING_NOT_CLASSIFIABLE,
-                                  U_COMPONENTS_NOT_OBSERVED, U_SHAPE_NOT_INTERPRETABLE, U_CONTRADICTORY, U_MULTI_PRODUCER_NOT_COMPARABLE, U_IMPLICIT_IDENTITY_CONTRADICTED})
+                                  U_COMPONENTS_NOT_OBSERVED, U_SHAPE_NOT_INTERPRETABLE, U_CONTRADICTORY, U_MULTI_PRODUCER_NOT_COMPARABLE, U_IMPLICIT_IDENTITY_CONTRADICTED, U_DELTA_WRAPPER_NOT_VERIFIABLE})
 
 # ── codigos de causa de UNDETERMINED (clase de borde) ──
 B_NO_SECTION = "BOUNDARY_SECTION_MISSING"
@@ -92,7 +93,7 @@ RESOLVED_VIA_DELTA_LINK = "CSN_DELTA_LINK"
 _DELTA_ANNOTATION = "@DataWarehouse.delta"
 # Evidencia de columnas del CSN crudo de un Replication Flow (estado por tarea)
 COLUMN_EVIDENCE_VERIFIED, COLUMN_EVIDENCE_CONTRADICTED, COLUMN_EVIDENCE_NOT_PROVIDED = "VERIFIED", "CONTRADICTED", "NOT_PROVIDED"
-# Premisa de IDENTIFICADORES (no se deduce de los datos): los elementos de una CDS de ABAP son identificadores ABAP (insensibles a mayusculas). Un renombre que solo cambia mayusculas
+# Premisa de IDENTIFICADORES (RATIFICADA por el owner con la documentacion oficial de SAP: los identificadores ABAP CDS son insensibles a mayusculas; NO se extiende a identificadores SQL HANA entre comillas). Un renombre que solo cambia mayusculas
 # se trata como identidad normalizada UNICAMENTE si el origen de la tarea es una CDS gobernada, hay evidencia de columnas sin colision y el origen/destino existen EXACTAMENTE.
 CASE_INSENSITIVE_SOURCE_BOUNDARY_CLASSES = frozenset({BC_GOVERNED_CDS})
 EXACT = "EXACT"
@@ -199,6 +200,113 @@ def explicit_delta_links(definitions: Any) -> dict[str, tuple[str, ...]]:
         if isinstance(x, str) and ds:
             out[x] = tuple(ds)
     return out
+
+
+_WRAPPER_SELECT_KEYS = frozenset({"from", "columns", "where", "orderBy", "groupBy", "having", "distinct", "limit"})
+_TYPE_KEYS = ("type", "length", "precision", "scale")
+
+
+def _from_refs(frm: Any) -> list[str]:
+    """Nombres de entidad referenciados por un ``from`` CSN (ref simple o arbol de joins)."""
+    if not isinstance(frm, Mapping):
+        return []
+    out = [r if isinstance(r, str) else _map(r).get("id") for r in _list(frm.get("ref"))[:1]]
+    for arg in _list(frm.get("args")) if "join" in frm else []:
+        out += _from_refs(arg)
+    return [r for r in out if isinstance(r, str)]
+
+
+def _where_columns(node: Any) -> set[str]:
+    cols: set[str] = set()
+    if isinstance(node, Mapping):
+        ref = node.get("ref")
+        if isinstance(ref, (list, tuple)) and ref and isinstance(ref[-1], str):
+            cols.add(ref[-1])
+        for v in node.values():
+            cols |= _where_columns(v)
+    elif isinstance(node, (list, tuple)):
+        for v in node:
+            cols |= _where_columns(v)
+    return cols
+
+
+def verify_delta_wrapper(leaf: str, shadow: str, definitions: Any, cdc_columns: Iterable[str] = (), shadow_columns: Any = None) -> tuple[dict[str, Any], list[tuple[str, str]]]:
+    """Verifica, SOLO con el CSN ya cargado, que el wrapper logico ``leaf`` (X) es una PROYECCION de su companera delta ``shadow`` (D) y que no hay transformacion relevante.
+    Devuelve ``(info, razones)``; ``razones`` = ``[(codigo, detalle)]`` (vacia = verificado). ``info``: ``reads_shadow``, ``projection`` (``COLUMNS_ONLY`` | ``NOT_PURE``),
+    ``transformations`` (``RENAME`` | ``EXPRESSION`` | ``TYPE_CHANGE`` | ``JOIN`` | ``AGGREGATION`` | ``DISTINCT`` | ``LIMIT`` | ``SET_OPERATION``), ``filtered`` / ``filter_columns`` /
+    ``filter_nature`` (``CDC_ROW_STATE`` si el filtro solo mira columnas CDC declaradas; ``ROW_FILTER`` en otro caso: un filtro de filas NO es una transformacion de valores) y
+    ``column_identity`` (``VERIFIED_DEFINITION`` con tipos contra la definicion de D | ``VERIFIED_RF_TARGET_NAMES`` solo nombres contra el destino del RF | ``NOT_VERIFIABLE``).
+    Nada se deduce por sufijo ni nombre: X debe LEER a D en su ``query.SELECT.from``. Sin definicion de X o sin ``SELECT`` => no verificable."""
+    info: dict[str, Any] = {"entity": leaf, "shadow_entity": shadow, "reads_shadow": None, "projection": None, "transformations": [], "filtered": False, "filter_columns": [],
+                            "filter_nature": None, "column_identity": "NOT_VERIFIABLE"}
+    reasons: list[tuple[str, str]] = []
+    defs = _map(definitions)
+    xd = defs.get(leaf)
+    if not isinstance(xd, Mapping):
+        return info, [(U_DELTA_WRAPPER_NOT_VERIFIABLE, "wrapper_definition_missing")]
+    q = _map(xd.get("query"))
+    sel = q.get("SELECT")
+    if not isinstance(sel, Mapping):
+        if "SET" in q:
+            info["transformations"].append("SET_OPERATION")
+            info["projection"] = "NOT_PURE"
+            return info, []
+        return info, [(U_DELTA_WRAPPER_NOT_VERIFIABLE, "wrapper_has_no_select")]
+    unknown_keys = sorted(k for k in sel if k not in _WRAPPER_SELECT_KEYS)
+    if unknown_keys:
+        return info, [(U_DELTA_WRAPPER_NOT_VERIFIABLE, "wrapper_select_unrecognized:" + ",".join(map(str, unknown_keys)))]
+    frm = sel.get("from")
+    refs = _from_refs(frm)
+    if shadow not in refs:
+        info["reads_shadow"] = False
+        return info, [(U_CONTRADICTORY, f"wrapper_does_not_read_shadow:{leaf}<-{shadow}")]       # X declara a D pero no la lee: evidencia contradictoria
+    info["reads_shadow"] = True
+    if isinstance(frm, Mapping) and "join" in frm:
+        info["transformations"].append("JOIN")
+    elif not (isinstance(frm, Mapping) and set(frm) <= {"ref", "as"} and len(_list(frm.get("ref"))) == 1):
+        return info, [(U_DELTA_WRAPPER_NOT_VERIFIABLE, "wrapper_from_not_interpretable")]
+    sources: list[str] = []
+    for c in (sel.get("columns") if isinstance(sel.get("columns"), (list, tuple)) else ["*"]):
+        if c == "*":
+            continue
+        ref = _map(c).get("ref") if isinstance(c, Mapping) else None
+        if isinstance(c, Mapping) and set(c) <= {"ref", "as"} and isinstance(ref, (list, tuple)) and ref and all(isinstance(r, str) for r in ref) and len(ref) <= 2:
+            sources.append(ref[-1])
+            if isinstance(c.get("as"), str) and c["as"] != ref[-1]:
+                info["transformations"].append("RENAME")
+        else:
+            info["transformations"].append("EXPRESSION")
+    for key, label in (("groupBy", "AGGREGATION"), ("having", "AGGREGATION"), ("distinct", "DISTINCT"), ("limit", "LIMIT")):
+        if sel.get(key):
+            info["transformations"].append(label)
+    if "where" in sel:
+        wc = sorted(_where_columns(sel.get("where")))
+        info["filtered"], info["filter_columns"] = True, wc
+        info["filter_nature"] = "CDC_ROW_STATE" if wc and set(wc) <= set(cdc_columns) else "ROW_FILTER"
+    info["transformations"] = sorted(set(info["transformations"]))
+    info["projection"] = "COLUMNS_ONLY" if not info["transformations"] else "NOT_PURE"
+    # identidad de columnas "cuando la definicion lo permita"
+    dd = _map(defs.get(shadow))
+    d_els = _map(dd.get("elements"))
+    x_els = _map(xd.get("elements"))
+    if d_els and sources:
+        missing = sorted(s for s in set(sources) if s not in d_els)
+        if missing:
+            reasons.append((U_CONTRADICTORY, "wrapper_columns_not_in_shadow:" + ",".join(missing)))
+        else:
+            info["column_identity"] = "VERIFIED_DEFINITION"
+            if any(_map(x_els.get(s)) and any(_map(x_els[s]).get(k) != _map(d_els[s]).get(k) for k in _TYPE_KEYS) for s in set(sources)):
+                info["transformations"] = sorted(set(info["transformations"]) | {"TYPE_CHANGE"})
+                info["projection"] = "NOT_PURE"
+    elif shadow_columns is not None and sources:
+        have = set(_strs(shadow_columns))
+        if have:
+            missing = sorted(s for s in set(sources) if s not in have)
+            if missing:
+                reasons.append((U_CONTRADICTORY, "wrapper_columns_not_in_shadow:" + ",".join(missing)))
+            else:
+                info["column_identity"] = "VERIFIED_RF_TARGET_NAMES"
+    return info, reasons
 
 
 def _column_names(obj: Any) -> list[str]:
@@ -423,9 +531,11 @@ def _cds_source_premise(pb_leaf: Mapping[str, Any] | None, flow_name: str) -> bo
 def derive_leaf_materialization(leaf: str, ce: Any, csn: Any = None) -> dict[str, Any]:
     """Materializacion observada de UNA hoja sobre ``canonical_evidence`` (dict ya persistido; solo lectura). Nunca lanza ni muta; ver el docstring del modulo.
 
-    ``csn`` (OPCIONAL, ya cargado por el llamador; sin el, el resultado depende solo del perfil persistido): ``{"delta_links": {X: (D, ...)}, "rf_task_columns": {(flujo, destino): {...}}}``
-    (ver ``explicit_delta_links`` / ``rf_task_columns``). ``delta_links`` es la UNICA via para resolver un productor con ``target_match = DELTA_SHADOW_SUFFIX`` (pista por nombre): la hoja ``X``
-    debe DECLARAR a ``D`` y la tarea del flujo debe escribir EXACTAMENTE en ``D``. ``rf_task_columns`` permite verificar por tarea la identidad implicita y la equivalencia solo-mayusculas."""
+    ``csn`` (OPCIONAL, ya cargado por el llamador; sin el, el resultado depende solo del perfil persistido): ``{"entity_definitions": {nombre: definicion CSN}, "delta_links": {X: (D, ...)},
+    "rf_task_columns": {(flujo, destino): {...}}}`` (ver ``explicit_delta_links`` / ``rf_task_columns`` / ``verify_delta_wrapper``). Un productor con ``target_match = DELTA_SHADOW_SUFFIX`` (pista por
+    nombre) se resuelve SOLO si (1) la hoja ``X`` DECLARA a ``D`` (``delta_links``, o derivado de ``entity_definitions``), (2) la tarea escribe EXACTAMENTE en ``D`` y (3) ``verify_delta_wrapper``
+    comprueba con el CSN que ``X`` LEE a ``D`` como proyeccion: sin la definicion de ``X`` => ``DELTA_WRAPPER_NOT_VERIFIABLE``; ``X`` no lee ``D`` => ``CONTRADICTORY_EVIDENCE``; una transformacion
+    demostrada en ``X`` => ``TRANSFORMED``; un filtro de filas => ``filtered`` (no cambia el tipo). ``rf_task_columns`` verifica por tarea la identidad implicita y la equivalencia solo-mayusculas."""
     if not isinstance(leaf, str) or not isinstance(ce, Mapping) or not ce:
         return _unknown(leaf if isinstance(leaf, str) else "", U_EVIDENCE_NOT_AVAILABLE, boundary_code=B_NO_SECTION)
     missing = _missing_sections(ce)
@@ -471,7 +581,8 @@ def derive_leaf_materialization(leaf: str, ce: Any, csn: Any = None) -> dict[str
     flows = _dicts(_map(ce["processing_flow_properties"]).get("flows"))
     out["evidence_refs"].append("ce:processing_flow_properties")
     csn = _map(csn)
-    leaf_links = tuple(d for d in _list(_map(csn.get("delta_links")).get(leaf)) if isinstance(d, str))
+    entity_defs = _map(csn.get("entity_definitions"))
+    leaf_links = tuple(d for d in _list(_map(csn.get("delta_links")).get(leaf)) if isinstance(d, str)) or explicit_delta_links({leaf: entity_defs[leaf]} if leaf in entity_defs else {}).get(leaf, ())
     col_evidence = _map(csn.get("rf_task_columns"))
     results = []
     for p in prods:
@@ -480,7 +591,7 @@ def derive_leaf_materialization(leaf: str, ce: Any, csn: Any = None) -> dict[str
         match = p.get("target_match") if isinstance(p.get("target_match"), str) else None
         entry: dict[str, Any] = {"kind": pkind, "name": name, "target_match": match, "load_types": sorted(_strs(p.get("load_types"))), "materialization_kind": KIND_UNKNOWN,
                                  "unknown_reasons": [], "mapping_profile": _empty_mapping_profile(), "filtered": None, "write_mode": None, "upsert": None, "components": [],
-                                 "resolved_via": None, "shadow_entity": None}
+                                 "resolved_via": None, "shadow_entity": None, "wrapper": None}
         if name is None or pkind is None:
             entry["unknown_reasons"].append(U_FLOW_NOT_IN_EVIDENCE)
             fail(U_FLOW_NOT_IN_EVIDENCE, "unparseable_producer")
@@ -507,10 +618,26 @@ def derive_leaf_materialization(leaf: str, ce: Any, csn: Any = None) -> dict[str
                         continue
                     target = covered[0]
                     entry["resolved_via"], entry["shadow_entity"] = RESOLVED_VIA_DELTA_LINK, target
+                    task = next(t for t in _dicts(_map(cands[0].get("properties")).get("tasks")) if t.get("target_object") == target)
+                    cdc = {v for v in _map(task.get("change_capture_properties")).values() if isinstance(v, str)}
+                    winfo, wreasons = verify_delta_wrapper(leaf, target, entity_defs, cdc, _map(col_evidence.get((name, target))).get("target_columns"))
+                    entry["wrapper"] = winfo
+                    if wreasons:                                   # el vinculo declarado NO basta: X debe leer a D como proyeccion verificable
+                        for code, why in wreasons:
+                            entry["unknown_reasons"].append(code)
+                            fail(code, f"{name}:{why}")
+                        results.append(entry)
+                        continue
                 cols = col_evidence.get((name, target)) if pkind == REPLICATION_FLOW else None
                 r = classify_flow_kind(cands[0], leaf, target=target, columns=cols, case_premise=pkind == REPLICATION_FLOW and _cds_source_premise(pb_leaf, name))
                 entry.update({k: r[k] for k in ("materialization_kind", "unknown_reasons", "mapping_profile", "filtered", "write_mode", "upsert", "components")})
                 entry["load_type"] = r["load_type"]
+                w = entry["wrapper"]
+                if w is not None and not r["unknown_reasons"]:
+                    if w["filtered"]:
+                        entry["filtered"] = True
+                    if w["transformations"] and entry["materialization_kind"] == KIND_REPLICA:
+                        entry["materialization_kind"] = KIND_TRANSFORMED          # transformacion TECNICA demostrada en el wrapper (naturaleza en wrapper.transformations)
                 for code in r["unknown_reasons"]:
                     extras = r["detail"].get(code)
                     if extras:
