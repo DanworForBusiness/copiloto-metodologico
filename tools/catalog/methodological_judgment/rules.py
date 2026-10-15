@@ -32,7 +32,7 @@ _GOVERNED_BOUNDARY_CLASSES = ("GOVERNED_CDS_CONTRACT", "STANDARD_VIEW_ON_PHYSICA
 # ───────────────────────────── constructores ─────────────────────────────
 def _reason(rule_id: str, classification: str, dimension: str, statement_key: str, scope: str, *, artifacts, refs, basis, secondary: str | None = None,
             causal: Mapping[str, str] | None = None, disposition_allowed: bool = True, max_class: str | None = None, evaluability: str = C.EVALUATED,
-            ev: ProfileEvidence) -> dict:
+            ev: ProfileEvidence, extra: Mapping[str, Any] | None = None) -> dict:
     out = {
         "reason_id": f"{rule_id}:{scope}", "rule_id": rule_id, "classification": classification, "dimension": dimension, "statement_key": statement_key,
         "affected_artifacts": sorted_unique(artifacts), "evidence_refs": sorted_unique(r for r in refs if ev.ref_exists(r)), "deterministic_basis": list(basis),
@@ -43,6 +43,8 @@ def _reason(rule_id: str, classification: str, dimension: str, statement_key: st
     }
     if secondary:
         out["secondary_dimension"] = secondary
+    if extra:
+        out.update(extra)
     if causal:
         out["causal_conditions"] = dict(causal)
     return out
@@ -355,6 +357,34 @@ def rule_lek_mat_02(ev: ProfileEvidence, policy: str) -> list[dict]:
 
 
 # ───────────────────────────── RELEVANT / LOCAL ─────────────────────────────
+_SCC_MIXED, _SCC_PHYSICAL = "MIXED_BOUNDARY_CLASSES", "PHYSICAL_ABAP_TABLE_BOUNDARY"
+
+
+def _verified_provenance(ev: ProfileEvidence, leaf: str, rec: Mapping[str, Any], m: Mapping[str, Any] | None) -> bool:
+    """Procedencia comprobada comun: ESTABLISHED, cadena completa y sin huecos, sin evidencia contradictoria y al menos un productor EXACT o resuelto por CSN."""
+    return bool(m is not None and rec.get("provenance_state") == "ESTABLISHED" and m["chain_complete"] is True and not m["chain_gaps"] and LM.U_CONTRADICTORY not in m["unknown_reasons"]
+                and any(p["target_match"] == LM.EXACT or p["resolved_via"] for p in m["producers"]))
+
+
+def local_mixed_physical_components_materialized(ev: ProfileEvidence, policy: str) -> list[dict]:
+    """T5 integrada — FRONTERAS MIXED con COMPONENTE FISICO COMPROBADO. Una tabla local cuyos bordes terminales son gobernados Y fisicos (``MIXED``) no es una deficiencia por si misma: solo se
+    reconoce el componente fisico (tablas ABAP fisicas alcanzadas), y unicamente con procedencia comprobada (cadena completa, sin huecos ni bordes sin clasificar —garantizado por la clase derivada—,
+    sin contradiccion) y con la clase explicita de ``source_contract_classes`` CORROBORANDO la mezcla y el componente fisico. Cada componente informa si participa de la ESPINA del producto
+    (la hoja alimenta un nodo de producto por linaje) o es una RAMA AUXILIAR. Devuelve ``[{leaf, physical_entities, governed_entities, on_spine}]``."""
+    out = []
+    for leaf, rec in sorted(ev.local_leaves.items()):
+        m = ev.materialization_of(leaf)
+        scc = ev.leaf_class_records.get(leaf) or {}
+        if (not _verified_provenance(ev, leaf, rec, m) or m["derived_boundary_class"] != LM.DBC_MIXED or scc.get("contract_class") != _SCC_MIXED
+                or _SCC_PHYSICAL not in (scc.get("boundary_classes") or ())):
+            continue
+        tb = m["terminal_boundaries"]
+        out.append({"leaf": leaf, "physical_entities": sorted({b["remote_entity"] for b in tb if b["boundary_class"] in LM.PHYSICAL_BOUNDARY_CLASSES and b["remote_entity"]}),
+                    "governed_entities": sorted({b["remote_entity"] for b in tb if b["boundary_class"] in LM.GOVERNED_BOUNDARY_CLASSES and b["remote_entity"]}),
+                    "on_spine": _leaf_reaches_product(ev, leaf)})
+    return [c for c in out if c["physical_entities"]]
+
+
 def local_physical_boundaries_materialized(ev: ProfileEvidence, policy: str) -> list[str]:
     """T5 integrada con ``leaf-materialization/v1`` — tablas LOCALES con procedencia FISICA COMPROBADA: clase de borde derivada ``PHYSICAL_DERIVED`` (todos los bordes terminales son tablas ABAP
     fisicas, cadena completa y sin huecos), al menos un productor EXACT (Data Flow o Replication Flow) con procedencia ESTABLISHED y sin evidencia contradictoria. La CLASE DE FUENTE sigue viniendo
@@ -368,7 +398,8 @@ def local_physical_boundaries_materialized(ev: ProfileEvidence, policy: str) -> 
             continue
         if any(p["target_match"] == LM.EXACT or p["resolved_via"] for p in m["producers"]):
             out.append(leaf)
-    return out
+    out += [c["leaf"] for c in local_mixed_physical_components_materialized(ev, policy) if c["on_spine"]]        # MIXED: solo el componente fisico comprobado Y en la espina del producto
+    return sorted(out)
 
 
 def local_physical_boundaries(ev: ProfileEvidence, policy: str, materialized: bool = False) -> list[str]:
@@ -392,6 +423,7 @@ def rule_src_rel_loc(ev: ProfileEvidence, policy: str, variants: frozenset = fro
     loc = sorted(l for l in ev.remote_leaves if ev.classify_source(l, policy) == PHYSICAL_RAW_BOUNDARY and l not in comp)
     materialized = C.VARIANT_MATERIALIZED_INPUT in variants
     local_phys = [l for l in local_physical_boundaries(ev, policy, materialized) if l not in loc] if C.VARIANT_T5_LOCAL_PHYSICAL in variants else []
+    mixed = {c["leaf"]: c for c in local_mixed_physical_components_materialized(ev, policy) if c["on_spine"] and c["leaf"] in local_phys} if materialized and local_phys else {}
     out = []
     if rel:
         out.append(_reason("SRC-REL-01", C.RELEVANT_WEAKNESS, C.SOURCE_INGESTION, "src.physical_boundary_bypassed_and_compensated_downstream", "closure", ev=ev,
@@ -402,7 +434,9 @@ def rule_src_rel_loc(ev: ProfileEvidence, policy: str, variants: frozenset = fro
                            refs=[*[_fact_ref(ev, "source.downstream_reach", l) for l in loc], *[f"ce:leaf_provenance/{l}" for l in local_phys], *[f"ce:source_contract_classes/{l}" for l in local_phys],
                                  *([f"ce:physical_source_boundaries/{l}" for l in local_phys] if materialized else [])],
                            basis=["SRC.physical_abap_table", "SRC.off_spine_or_harmonized_or_not_compensated",
-                                  *((["SRC.local_table_physical_provenance_verified_by_leaf_materialization"] if materialized else ["SRC.local_table_materialized_from_physical_abap_table_by_established_data_flow"]) if local_phys else [])]))
+                                  *((["SRC.local_table_physical_provenance_verified_by_leaf_materialization"] if materialized else ["SRC.local_table_materialized_from_physical_abap_table_by_established_data_flow"]) if local_phys else []),
+                                  *(["SRC.mixed_boundary_physical_component_verified_on_product_spine"] if mixed else [])],
+                           extra=({"mixed_boundary_physical_components": [{k: c[k] for k in ("leaf", "physical_entities", "governed_entities", "on_spine")} for _, c in sorted(mixed.items())]} if mixed else None)))
     return out
 
 
@@ -823,6 +857,17 @@ def resolve_level_exploratory(states: list[dict]) -> tuple[str, str] | None:
     return None
 
 
+def mixed_auxiliary_physical_reviews(ev: ProfileEvidence, policy: str) -> list[dict]:
+    """T5 integrada — componente fisico COMPROBADO de una frontera MIXED que NO participa de la espina del producto (rama auxiliar): evidencia tecnica informativa, SIN razon, sin penalizacion y
+    sin efecto en el nivel ni en el cierre. Solo existe para que el alcance efectivo de SRC-LOC-01 (espina) no oculte el hecho."""
+    aux = [c for c in local_mixed_physical_components_materialized(ev, policy) if not c["on_spine"]]
+    if not aux:
+        return []
+    return [_review("MIXED_BOUNDARY_AUXILIARY_PHYSICAL_COMPONENT", "SRC-REV-03", "MIXED_BOUNDARY_PHYSICAL_COMPONENT_OFF_SPINE", "OBSERVED", artifacts=[c["leaf"] for c in aux],
+                    refs=[r for c in aux for r in (f"ce:leaf_provenance/{c['leaf']}", f"ce:physical_source_boundaries/{c['leaf']}")], ev=ev,
+                    extra={"physical_components": [{k: c[k] for k in ("leaf", "physical_entities", "governed_entities")} for c in aux], "interpretation": "TECHNICAL_EVIDENCE_NOT_A_DEFICIENCY"})]
+
+
 def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: frozenset = frozenset()) -> dict:
     pro = rule_pro_mat_01(ev, policy)
     lek = rule_lek_mat_02(ev, policy)
@@ -835,6 +880,8 @@ def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: 
     reviews, limitations = reviews_and_limitations(ev, policy)
     if cg:
         reviews.append(cg)
+    if C.VARIANT_T5_LOCAL_PHYSICAL in variants and C.VARIANT_MATERIALIZED_INPUT in variants:
+        reviews += mixed_auxiliary_physical_reviews(ev, policy)
     qualifiers = {
         "design_coherence": qualifier_design_coherence(ev, bool(h2), bool(cg)),
         "product_focus": qualifier_product_focus(ev),

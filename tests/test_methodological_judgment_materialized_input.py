@@ -270,3 +270,98 @@ def test_judgment_reaches_the_derivation_only_through_the_neutral_module_and_nev
     neutral = Path(__file__).resolve().parents[1] / "tools" / "catalog" / "leaf_materialization.py"
     code = "; ".join(l for l in neutral.read_text(encoding="utf-8").splitlines() if l.lstrip().startswith(("import ", "from ")))
     assert "methodological_judgment" not in code and "modeling_assessment" not in code
+
+
+# ───────────────────────────── T5 integrada: fronteras MIXED con componente fisico comprobado ─────────────────────────────
+MIXED_BOUNDS = [bnd("B1", "ABAPTABLES.NSDM_V_MCHB", STDVIEW, ["DF1"]), bnd("B2", "ABAPTABLES.MLGN", PHYS, ["DF1"])]
+
+
+def mixed_profile(on_spine=True, bounds=None, gaps=None, complete=True, scc_classes=("PHYSICAL_ABAP_TABLE_BOUNDARY", "SAP_STANDARD_VIEW_ON_PHYSICAL_TABLE"), scc_class="MIXED_BOUNDARY_CLASSES") -> dict:
+    """Tabla local alimentada por un Data Flow con bordes terminales gobernados + fisicos. ``on_spine``: la hoja la lee un nodo de producto (``_replica_model``) o flota como rama auxiliar."""
+    p = _replica_model() if on_spine else _with_local_leaf("DATA_FLOW", "PHYSICAL_TABLE")
+    mat(p, [prod("DATA_FLOW", "DF1")], [df("DF1", "LT1", ident("A"))], pbl("LT1", bounds if bounds is not None else MIXED_BOUNDS, ["DF1"], gaps=gaps, complete=complete), basis="DATA_FLOW")
+    for rec in p["canonical_evidence"]["source_contract_classes"]["leaves"]:
+        if rec["leaf"] == "LT1":
+            rec.update(contract_class=scc_class, boundary_classes=list(scc_classes))
+    return p
+
+
+def test_mixed_with_verified_physical_component_on_the_product_spine_is_recognized_as_a_local_weakness_with_its_scope():
+    p = mixed_profile(on_spine=True)
+    m = ProfileEvidence(p).materialization_of("LT1")
+    assert m["derived_boundary_class"] == "MIXED" and m["chain_complete"] is True
+    j = evaluate_judgment(p, variants=T5M)
+    r = reason(j, "SRC-LOC-01")
+    assert r["classification"] == "LOCAL_WEAKNESS" and "LT1" in r["affected_artifacts"]
+    assert "SRC.mixed_boundary_physical_component_verified_on_product_spine" in r["deterministic_basis"]
+    assert r["mixed_boundary_physical_components"] == [{"leaf": "LT1", "physical_entities": ["ABAPTABLES.MLGN"], "governed_entities": ["ABAPTABLES.NSDM_V_MCHB"], "on_spine": True}]     # alcance: solo el componente fisico
+    assert "ABAPTABLES.NSDM_V_MCHB" not in r["mixed_boundary_physical_components"][0]["physical_entities"]                              # el componente gobernado NO se trata como fisico
+    base = evaluate_judgment(p)
+    assert (j["status"], j["level"], j["level_rule"]) == (base["status"], base["level"], base["level_rule"]) and j["strengths"] == base["strengths"]     # LOCAL: sin efecto en nivel ni fortalezas
+    assert not [x for x in j["review_candidates"] if x["rule_id"] == "SRC-REV-03"]
+    assert "SRC-LOC-01" not in rules(evaluate_judgment(p, variants=T5))                      # sin el modificador (T5 anterior) la MIXED no se reconoce
+
+
+def test_mixed_with_verified_physical_component_off_the_spine_is_an_informative_review_never_a_reason():
+    p = mixed_profile(on_spine=False)
+    assert ProfileEvidence(p).materialization_of("LT1")["derived_boundary_class"] == "MIXED"
+    j = evaluate_judgment(p, variants=T5M)
+    assert "SRC-LOC-01" not in rules(j)                                                      # no se amplia SRC-LOC-01 a una rama auxiliar
+    rv = [x for x in j["review_candidates"] if x["rule_id"] == "SRC-REV-03"]
+    assert len(rv) == 1 and rv[0]["state"] == "OBSERVED" and rv[0]["level_effect"] == "NONE" and rv[0]["closure_effect"] == "NONE" and rv[0]["affected_artifacts"] == ["LT1"]
+    assert rv[0]["interpretation"] == "TECHNICAL_EVIDENCE_NOT_A_DEFICIENCY" and rv[0]["physical_components"][0]["physical_entities"] == ["ABAPTABLES.MLGN"]
+    base = evaluate_judgment(p)
+    assert (j["status"], j["level"], j["level_rule"], j["closure"]) == (base["status"], base["level"], base["level_rule"], base["closure"]) and j["reasons"] == base["reasons"]
+    assert all(r["rule_id"] != "SRC-REV-03" for r in evaluate_judgment(p, variants=T5)["review_candidates"])      # solo con el modificador
+
+
+@pytest.mark.parametrize("tag, kw", [
+    ("cadena incompleta", dict(complete=False)),
+    ("cadena con huecos", dict(gaps=["OUTSIDE_POOL"])),
+    ("borde sin clasificar junto a un fisico", dict(bounds=[bnd("B1", "ABAPTABLES.MLGN", PHYS, ["DF1"]), bnd("B2", "X.Y", "UNCLASSIFIED", ["DF1"])])),
+    ("clase explicita no corrobora la mezcla", dict(scc_class="GOVERNED_SAP_CDS_CONTRACT")),
+    ("clase explicita sin componente fisico", dict(scc_classes=("SAP_STANDARD_VIEW_ON_PHYSICAL_TABLE", "GOVERNED_SAP_CDS_CONTRACT"))),
+    ("productor fuera de los flujos del borde (contradiccion)", dict(bounds=[bnd("B1", "ABAPTABLES.NSDM_V_MCHB", STDVIEW, ["DF_X"]), bnd("B2", "ABAPTABLES.MLGN", PHYS, ["DF_X"])])),
+])
+@pytest.mark.parametrize("on_spine", [True, False])
+def test_mixed_physical_component_that_cannot_be_verified_is_neither_a_reason_nor_a_review_nor_a_deficiency(tag, kw, on_spine):
+    p = mixed_profile(on_spine=on_spine, **kw)
+    if tag.startswith("productor fuera"):
+        p["canonical_evidence"]["physical_source_boundaries"]["leaves"][0]["flows"] = ["DF_X"]
+    j = evaluate_judgment(p, variants=T5M)
+    base = evaluate_judgment(p)
+    assert "SRC-LOC-01" not in rules(j) and not [x for x in j["review_candidates"] if x["rule_id"] == "SRC-REV-03"], tag
+    assert j["reasons"] == base["reasons"] and (j["status"], j["level"], j["level_rule"]) == (base["status"], base["level"], base["level_rule"])
+
+
+def test_mixed_recognition_does_not_widen_src_loc_01_to_every_observed_physical_source():
+    # gobernado puro, fisico puro con clase explicita gobernada, y MIXED fuera de la espina: ninguno entra por esta via
+    for p in (rf_replica(), phys_profile(boundary="GOVERNED_CDS_CONTRACT"), mixed_profile(on_spine=False)):
+        assert "SRC-LOC-01" not in rules(evaluate_judgment(p, variants=T5M))
+    # un MIXED en la espina NO arrastra otras hojas: solo la suya figura entre los artefactos afectados
+    j = evaluate_judgment(mixed_profile(on_spine=True), variants=T5M)
+    assert reason(j, "SRC-LOC-01")["affected_artifacts"] == ["LT1"]
+    # y no cambia la poblacion de PHYSICAL_DERIVED (paridad con la T5 anterior para el caso fisico puro)
+    p = phys_profile()
+    assert reason(evaluate_judgment(p, variants=T5M), "SRC-LOC-01")["affected_artifacts"] == reason(evaluate_judgment(p, variants=T5), "SRC-LOC-01")["affected_artifacts"]
+
+
+def test_mixed_components_are_independent_of_kind_filter_and_never_deduced_by_name_and_the_profile_is_untouched():
+    p = mixed_profile(on_spine=True)
+    p["canonical_evidence"]["processing_flow_properties"]["flows"][0] = df("DF1", "LT1", ident("A"), (DF_CONSUMER, DF_PRODUCER, PROJECTION), where=[{"ref": ["A"]}, "=", {"val": "1"}])
+    m = ProfileEvidence(p).materialization_of("LT1")
+    assert m["materialization_kind"] == "TRANSFORMED" and m["flags"]["filtered"] is True
+    assert "SRC-LOC-01" in rules(evaluate_judgment(p, variants=T5M), "LOCAL_WEAKNESS")                  # tipo y filtro no condicionan el reconocimiento del componente fisico
+    snap = copy.deepcopy(p)
+    evaluate_judgment(p, variants=(*T4, *T5, *LV, MI))
+    assert p == snap
+
+
+def test_level_resolution_and_t4_are_unchanged_by_the_mixed_recognition():
+    p = mixed_profile(on_spine=True)
+    assert evaluate_judgment(p, variants=LVM)["dimension_states"] == evaluate_judgment(p, variants=LVM)["dimension_states"]
+    full = evaluate_judgment(p, variants=(*T4, *T5, *LV, MI))
+    only_lv = evaluate_judgment(p, variants=(*T4, *LV, MI))
+    key = lambda j: [(d["dimension"], d["state"], d["cause"], d["basis"]) for d in j["dimension_states"]]          # local_deficiencies solo refleja las razones LOCAL presentes (informativo)
+    assert full["level"] == only_lv["level"] and full["level_rule"] == only_lv["level_rule"] and key(full) == key(only_lv) and full["strengths"] == only_lv["strengths"]
+    assert [d["local_deficiencies"] for d in full["dimension_states"] if d["dimension"] == "SOURCE_INGESTION"] == [["SRC-LOC-01"]]
