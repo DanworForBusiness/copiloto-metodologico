@@ -75,9 +75,10 @@ U_CONTRADICTORY = "CONTRADICTORY_EVIDENCE"
 U_MULTI_PRODUCER_NOT_COMPARABLE = "MULTI_PRODUCER_NOT_COMPARABLE"
 U_IMPLICIT_IDENTITY_CONTRADICTED = "IMPLICIT_IDENTITY_CONTRADICTED"
 U_DELTA_WRAPPER_NOT_VERIFIABLE = "DELTA_WRAPPER_NOT_VERIFIABLE"
+U_SECTION_NOT_PERSISTED = "SECTION_NOT_PERSISTED"             # solo del LECTOR de la seccion persistida (perfil historico sin ``leaf_materialization``): evidencia NO evaluada
 UNKNOWN_REASON_CODES = frozenset({U_EVIDENCE_NOT_AVAILABLE, U_SECTION_MISSING, U_LEAF_NOT_FOUND, U_NO_PRODUCER, U_DECLARED_NOT_OBSERVED, U_TARGET_MATCH_NOT_EXACT, U_FLOW_KIND_UNSUPPORTED,
                                   U_FLOW_NOT_IN_EVIDENCE, U_FLOW_AMBIGUOUS, U_TARGET_NOT_FOUND, U_TARGET_AMBIGUOUS, U_MAPPING_NOT_OBSERVED, U_MAPPING_NOT_CLASSIFIABLE,
-                                  U_COMPONENTS_NOT_OBSERVED, U_SHAPE_NOT_INTERPRETABLE, U_CONTRADICTORY, U_MULTI_PRODUCER_NOT_COMPARABLE, U_IMPLICIT_IDENTITY_CONTRADICTED, U_DELTA_WRAPPER_NOT_VERIFIABLE})
+                                  U_COMPONENTS_NOT_OBSERVED, U_SHAPE_NOT_INTERPRETABLE, U_CONTRADICTORY, U_MULTI_PRODUCER_NOT_COMPARABLE, U_IMPLICIT_IDENTITY_CONTRADICTED, U_DELTA_WRAPPER_NOT_VERIFIABLE, U_SECTION_NOT_PERSISTED})
 
 # ── codigos de causa de UNDETERMINED (clase de borde) ──
 B_NO_SECTION = "BOUNDARY_SECTION_MISSING"
@@ -86,6 +87,7 @@ B_NO_BOUNDARIES = "NO_TERMINAL_BOUNDARIES"
 B_CHAIN_GAPS = "CHAIN_GAPS"
 B_CHAIN_INCOMPLETE = "CHAIN_INCOMPLETE"
 B_UNCLASSIFIED = "UNCLASSIFIED_BOUNDARY"
+BOUNDARY_REASON_CODES = frozenset({B_NO_SECTION, B_NO_RECORD, B_NO_BOUNDARIES, B_CHAIN_GAPS, B_CHAIN_INCOMPLETE, B_UNCLASSIFIED})
 
 DATA_FLOW, REPLICATION_FLOW = "DATA_FLOW", "REPLICATION_FLOW"
 DELTA_SHADOW_SUFFIX_MATCH = "DELTA_SHADOW_SUFFIX"                      # ``target_match`` persistido: PISTA por nombre; solo un vinculo CSN EXPLICITO la convierte en relacion
@@ -385,7 +387,7 @@ def classify_flow_kind(flow: Any, leaf: str, target: str | None = None, columns:
     kind = flow.get("flow_kind")
     props = _map(flow.get("properties"))
     res: dict[str, Any] = {"materialization_kind": KIND_UNKNOWN, "unknown_reasons": [], "mapping_profile": _empty_mapping_profile(), "filtered": None, "write_mode": None,
-                           "upsert": None, "load_type": None, "components": [], "detail": {}}
+                           "upsert": None, "load_type": None, "components": [], "detail": {}, "normalized_pairs": []}
     if kind == REPLICATION_FLOW:
         tasks = [t for t in _dicts(props.get("tasks")) if t.get("target_object") == target]
         if not tasks:
@@ -406,6 +408,7 @@ def classify_flow_kind(flow: Any, leaf: str, target: str | None = None, columns:
         mp = classify_mappings(raw_mappings, verified) if isinstance(raw_mappings, (list, tuple)) else _empty_mapping_profile()
         if have_cols:
             mp["column_evidence"] = COLUMN_EVIDENCE_CONTRADICTED if contradictions else COLUMN_EVIDENCE_VERIFIED
+        res["normalized_pairs"] = sorted([t_name, s_name] for t_name, s_name in verified)
         res["mapping_profile"] = mp
         res["filtered"] = bool(_list(t.get("filters")))
         tr = t.get("truncate")
@@ -591,7 +594,7 @@ def derive_leaf_materialization(leaf: str, ce: Any, csn: Any = None) -> dict[str
         match = p.get("target_match") if isinstance(p.get("target_match"), str) else None
         entry: dict[str, Any] = {"kind": pkind, "name": name, "target_match": match, "load_types": sorted(_strs(p.get("load_types"))), "materialization_kind": KIND_UNKNOWN,
                                  "unknown_reasons": [], "mapping_profile": _empty_mapping_profile(), "filtered": None, "write_mode": None, "upsert": None, "components": [],
-                                 "resolved_via": None, "shadow_entity": None, "wrapper": None}
+                                 "resolved_via": None, "shadow_entity": None, "wrapper": None, "destination": None, "normalized_pairs": [], "load_type": None}
         if name is None or pkind is None:
             entry["unknown_reasons"].append(U_FLOW_NOT_IN_EVIDENCE)
             fail(U_FLOW_NOT_IN_EVIDENCE, "unparseable_producer")
@@ -618,6 +621,7 @@ def derive_leaf_materialization(leaf: str, ce: Any, csn: Any = None) -> dict[str
                         continue
                     target = covered[0]
                     entry["resolved_via"], entry["shadow_entity"] = RESOLVED_VIA_DELTA_LINK, target
+                    entry["destination"] = target                       # el destino queda establecido por el vinculo + la tarea, aunque el wrapper luego no se pueda verificar
                     task = next(t for t in _dicts(_map(cands[0].get("properties")).get("tasks")) if t.get("target_object") == target)
                     cdc = {v for v in _map(task.get("change_capture_properties")).values() if isinstance(v, str)}
                     winfo, wreasons = verify_delta_wrapper(leaf, target, entity_defs, cdc, _map(col_evidence.get((name, target))).get("target_columns"))
@@ -628,9 +632,10 @@ def derive_leaf_materialization(leaf: str, ce: Any, csn: Any = None) -> dict[str
                             fail(code, f"{name}:{why}")
                         results.append(entry)
                         continue
+                entry["destination"] = target                       # destino EXACTO del productor (la propia hoja, o la entidad fisica delta resuelta por un vinculo CSN)
                 cols = col_evidence.get((name, target)) if pkind == REPLICATION_FLOW else None
                 r = classify_flow_kind(cands[0], leaf, target=target, columns=cols, case_premise=pkind == REPLICATION_FLOW and _cds_source_premise(pb_leaf, name))
-                entry.update({k: r[k] for k in ("materialization_kind", "unknown_reasons", "mapping_profile", "filtered", "write_mode", "upsert", "components")})
+                entry.update({k: r[k] for k in ("materialization_kind", "unknown_reasons", "mapping_profile", "filtered", "write_mode", "upsert", "components", "normalized_pairs")})
                 entry["load_type"] = r["load_type"]
                 w = entry["wrapper"]
                 if w is not None and not r["unknown_reasons"]:

@@ -25,7 +25,7 @@ from .assessability import (
     ASSESSABILITY_RULESET, CONFIDENCE_CUTS, CONFIDENCE_RULESET, SURFACE_REGISTRY, AssessmentComposition, ConfidenceAxis, SurfaceAssessment, SurfaceKind,
     SurfaceRole,
 )
-from .evidence_contract import CANONICAL_EVIDENCE_VERSION, CLOSURE_RULESET, build_v2_sections, build_v3_sections, validate_canonical_evidence, validate_document_evidence       # G1/G3/G4: contrato explicito de `canonical_evidence`
+from .evidence_contract import CANONICAL_EVIDENCE_VERSION, CLOSURE_RULESET, build_v2_sections, build_v3_sections, build_v4_sections, validate_canonical_evidence, validate_document_evidence       # G1/G3/G4: contrato explicito de `canonical_evidence`
 from .identity import IDENTITY_RULESET
 from .model import Applicability, Assessability, Cause, Fact, SignalKind
 from .signals import SIGNAL_REGISTRY, SIGNALS_RULESET, FactIndex, Finding
@@ -751,7 +751,7 @@ def _public_evidence_scope(scope: dict | None) -> dict | None:
     return {"requested_features": sorted(scope.get("requested_features") or ()), "effective_features": sorted(scope.get("effective_features") or ())}
 
 
-def _canonical_evidence(idx: FactIndex) -> dict:
+def _canonical_evidence(idx: FactIndex, materialization_evidence=None) -> dict:
     """Payloads de hechos que un futuro ``judge(profile)`` necesita SIN reabrir el pool crudo (el ``fact_index`` solo lleva nombres): procedencia de
     hojas locales (G1), semantica estructural de derivaciones y relacion de cada repeticion (G3), repeticion de expresiones y topologia de ensamble
     (descriptivos). Es evidencia, no juicio."""
@@ -773,13 +773,15 @@ def _canonical_evidence(idx: FactIndex) -> dict:
                       "relation_counts": red.value.get("relation_counts") if red is not None else None}
     rep = idx.usable_get("harmonization.expression_repetition", "closure")
     topo = idx.usable_get("harmonization.assembly_topology", "closure")
-    return {"version": CANONICAL_EVIDENCE_VERSION, "leaf_provenance": leaves, "derivation_semantics": derivation,
-            "expression_repetition": rep.value if rep is not None else None, "assembly_topology": topo.value if topo is not None else None, **build_v2_sections(idx),
-            **build_v3_sections(idx)}
+    ce = {"version": CANONICAL_EVIDENCE_VERSION, "leaf_provenance": leaves, "derivation_semantics": derivation,
+          "expression_repetition": rep.value if rep is not None else None, "assembly_topology": topo.value if topo is not None else None, **build_v2_sections(idx),
+          **build_v3_sections(idx)}
+    ev = materialization_evidence(ce) if callable(materialization_evidence) else materialization_evidence       # evidencia tecnica del pool (v4.A); None => la seccion informa que no hubo
+    return {**ce, **build_v4_sections(ce, ev)}
 
 
 def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, client: str, terminal_label: str | None = None,
-                     evidence_scope: dict | None = None) -> dict:
+                     evidence_scope: dict | None = None, materialization_evidence=None) -> dict:
     """Documento publico del assessment, derivado SOLO de la composicion de M6 (+ el indice de hechos para los highlights).
     ``terminal_label``: nombre de negocio del modelo analitico terminal TAL COMO lo declara la evidencia (@EndUserText.label ya resuelto);
     es identidad descriptiva (None si la evidencia no lo declara): ninguna regla, hecho ni medida lo consume."""
@@ -826,7 +828,7 @@ def build_assessment(comp: AssessmentComposition, facts: Sequence[Fact], *, clie
     doc["surfaces"] = [_surface_json(s) for s in comp.surfaces]
     doc["fact_index"] = [{"fact": f.key, "area": f.area.value, "evidence_class": f.evidence_class.value, "plane": f.plane.value,
                           "assessability": f.assessability.value} for f in sorted(facts, key=lambda f: (f.area.value, f.fact_id, f.subject))]
-    doc["canonical_evidence"] = _canonical_evidence(idx)
+    doc["canonical_evidence"] = _canonical_evidence(idx, materialization_evidence)
     return doc
 
 

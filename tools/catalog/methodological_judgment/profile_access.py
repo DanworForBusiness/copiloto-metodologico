@@ -74,7 +74,7 @@ class ProfileEvidence:
     @cached_property
     def has_canonical_evidence_v3(self) -> bool:
         """El Juicio v1 se evalua SOBRE ``canonical-evidence/v3``: sin linaje de campo ni clase de contrato por hoja no se puede establecer causalmente la restauracion semantica."""
-        return self.has_canonical_evidence_v2 and self.ce.get("version") == "canonical-evidence/v3" and "source_contract_classes" in self.ce and "published_field_lineage" in self.ce
+        return self.has_canonical_evidence_v2 and self.ce.get("version") in ("canonical-evidence/v3", "canonical-evidence/v4") and "source_contract_classes" in self.ce and "published_field_lineage" in self.ce
 
     # ───────────────────────────── clase de contrato de fuente por hoja y linaje de campo (v3) ─────────────────────────────
     @cached_property
@@ -153,7 +153,22 @@ class ProfileEvidence:
         """Materializacion OBSERVADA por hoja local (``leaf-materialization/v1``): derivacion pura y de solo consulta sobre la evidencia ya persistida (``{}`` si el perfil es historico).
         NINGUNA regla del motor la consume todavia; no altera la evidencia, el perfil ni las firmas. Modulo neutro hermano (no es el paquete de Assessment)."""
         from tools.catalog.leaf_materialization import derive_all
-        return derive_all(self.ce, self._materialization_csn)
+        view = self.persisted_materialization
+        if view["persisted"] and view["state"] == "EVALUATED":
+            return dict(view["leaves"])                             # v4: la evidencia PERSISTIDA es la unica fuente (no se recalcula ni se mezcla con un CSN de ejecucion)
+        return derive_all(self.ce, self._materialization_csn)       # perfil historico (v1-v3): derivacion experimental sobre la evidencia ya persistida (opt-in)
+
+    @cached_property
+    def persisted_materialization(self) -> dict[str, Any]:
+        """Vista de solo lectura de la seccion PERSISTIDA ``leaf_materialization`` (canonical-evidence/v4). Un perfil historico sin la seccion es evidencia NO EVALUADA
+        (``state = NOT_EVALUATED``, ``SECTION_NOT_PERSISTED``), nunca ausencia de problemas."""
+        from tools.catalog.leaf_materialization_evidence import read_section
+        return read_section(self.ce)
+
+    def persisted_materialization_of(self, leaf: str) -> Mapping[str, Any]:
+        """Registro persistido de ``leaf`` o su representacion NO EVALUADA (UNKNOWN con causa)."""
+        from tools.catalog.leaf_materialization_evidence import record_of
+        return record_of(self.persisted_materialization, leaf)
 
     def materialization_of(self, leaf: str) -> Mapping[str, Any] | None:
         return self.materialization.get(leaf)

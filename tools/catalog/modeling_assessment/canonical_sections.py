@@ -19,6 +19,7 @@ from .facts_closure import CLOSURE_RULESET, REF_AMBIGUOUS, REF_EXCLUDED_BY_PLANE
 from .naming_evidence import NAMING_TAXONOMY
 
 V3_SECTIONS = ("published_field_lineage", "source_contract_classes")
+V4_SECTIONS = ("leaf_materialization",)
 V2_SECTIONS = ("closure", "physical_source_boundaries", "published_contract", "naming_evidence", "harmonization_contract", "expression_occurrences", "branch_reconvergence",
                "view_complexity", "processing_flow_properties")
 
@@ -111,3 +112,11 @@ def build_v3_sections(idx: Any) -> dict:
             "source_contract_classes": {"leaves": leaves, "by_class": [{"contract_class": k, "count": v} for k, v in sorted(by_class.items())],
                                         "definition": "explicit source-contract class of every frontier leaf of the semantic closure with the basis of the classification; technology alone "
                                                       "never classifies governance or rawness; no quality judgment"}}
+
+
+def build_v4_sections(ce: dict, evidence: dict | None = None) -> dict:
+    """Seccion de ``canonical_evidence`` v4 (v4.A): ``leaf_materialization``, DERIVADA de las secciones v1-v3 ya armadas (``ce``) por la derivacion unica (``tools.catalog.leaf_materialization``).
+    ``evidence`` (opcional, del pool): ``{"csn": ..., "references": ..., "pool_signature": ...}`` (ver ``materialization_evidence``); sin el, lo que depende del CSN queda UNKNOWN y se informa."""
+    from .legacy_bridge import leaf_materialization_evidence as LME          # perezoso: el import del paquete no carga el legacy (R-I3)
+    ev = evidence or {}
+    return {LME.SECTION_KEY: LME.build_section(ce, ev.get("csn"), ev.get("references"), pool_signature=ev.get("pool_signature"))}

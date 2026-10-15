@@ -41,6 +41,7 @@ from .facts_naming import naming_facts
 from .facts_propagation import propagation_facts
 from .facts_source import source_facts
 from .identity import classify_universe
+from .materialization_evidence import collect_materialization_evidence
 from .model import Fact
 from .profile import (
     REASON_REGISTRY_VERSION, build_assessment, build_indeterminate_assessment, canonical_assessment_json, validate_assessment,
@@ -198,7 +199,8 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
                                                                                                   view_type_of=bridge.view_type_of_export, family_of_dir=bridge.artifact_family_of_dir,
                                                                                                   effective_features=(evidence_scope or {}).get("effective_features") if evidence_scope else None))
     comp = compose_assessment(scope, facts)
-    doc = build_assessment(comp, facts, client=key[0], terminal_label=_business_label(entities, scope.root), evidence_scope=evidence_scope)
+    doc = build_assessment(comp, facts, client=key[0], terminal_label=_business_label(entities, scope.root), evidence_scope=evidence_scope,
+                           materialization_evidence=lambda ce: collect_materialization_evidence(group["jsons"], inbound, ce, signature))      # v4.A: referencias recuperables al pool (solo lectura)
     validate_assessment(doc)
     meta["terminal_analytic_models_in_pool"] = len(universe.terminal_ams)
     return doc, meta

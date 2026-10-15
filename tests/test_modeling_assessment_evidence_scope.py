@@ -75,6 +75,15 @@ def _comparable(doc: dict) -> dict:
     d = copy.deepcopy(doc)
     d["scope"].pop("pool_signature")
     d["scope"].pop("evidence_scope")
+
+    def blank(n):                                                                  # v4.A: las referencias recuperables llevan la firma del pool (bytes del pool), no semantica
+        if isinstance(n, dict):
+            for k in list(n):
+                n[k] = None if k == "pool_signature" else blank(n[k])
+        elif isinstance(n, list):
+            n[:] = [blank(x) for x in n]
+        return n
+    blank((d.get("canonical_evidence") or {}).get("leaf_materialization"))
     return d
 
 

@@ -172,9 +172,9 @@ def doc() -> dict:
     return d
 
 
-def test_the_profile_declares_the_v3_contract_and_validates(doc):
+def test_the_profile_declares_the_current_contract_which_keeps_the_v3_sections_and_validates(doc):
     ce = doc["canonical_evidence"]
-    assert ce["version"] == "canonical-evidence/v3" == doc["versions"]["canonical_evidence"] and doc["versions"]["assessability"] == "assessability-rules/v4"
+    assert ce["version"] == "canonical-evidence/v4" == doc["versions"]["canonical_evidence"] and doc["versions"]["assessability"] == "assessability-rules/v4"      # v4 = v3 + leaf_materialization (v4.A)
     EC.validate_canonical_evidence(ce)
     assert ce["published_field_lineage"]["counts"] == {"fields": 5, "COMPLETE": 5, "PARTIAL": 0, "UNRESOLVED": 0, "AMBIGUOUS": 0}
 
@@ -438,9 +438,9 @@ def test_the_validator_requires_lineage_to_cover_exactly_the_published_fields(do
 
 def test_v2_profiles_stay_valid_without_the_new_sections():
     d = _doc(_build())
-    from tools.catalog.modeling_assessment.canonical_sections import V3_SECTIONS
+    from tools.catalog.modeling_assessment.canonical_sections import V3_SECTIONS, V4_SECTIONS
     old = copy.deepcopy(d)
-    for sec in V3_SECTIONS:
+    for sec in (*V3_SECTIONS, *V4_SECTIONS):
         old["canonical_evidence"].pop(sec)
     old["canonical_evidence"]["version"] = "canonical-evidence/v2"
     old["versions"].update({"canonical_evidence": "canonical-evidence/v2", "assessability": "assessability-rules/v3"})

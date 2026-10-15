@@ -239,6 +239,15 @@ def _materialization_digest(ev: ProfileEvidence) -> str:
     return hashlib.sha256(json.dumps(slim, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
+def _materialization_options(ev: ProfileEvidence, materialization_csn: Mapping[str, Any] | None) -> dict:
+    """``ruleset_options.materialization``: de DONDE salio la materializacion que el motor consumio. En un perfil v4 con la seccion persistida es la EVIDENCIA PERSISTIDA (fuente unica; un CSN de
+    ejecucion se ignora y no se declara); en un perfil historico es la derivacion experimental sobre la evidencia persistida, con el CSN explicito del llamador si lo hubo."""
+    view = ev.persisted_materialization
+    persisted = bool(view["persisted"] and view["state"] == "EVALUATED")
+    return {"version": "leaf-materialization/v1", "source": "PERSISTED_SECTION" if persisted else "DERIVED_ON_READ",
+            "csn_evidence_provided": bool(view["csn_provided"]) if persisted else bool(materialization_csn), "digest": _materialization_digest(ev)}
+
+
 def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping[str, Any]] | None = None, *, external_policy: str = "UNDETERMINED",
                       variants: Iterable[str] = (), materialization_csn: Mapping[str, Any] | None = None) -> dict:
     """Juicio determinista sobre un perfil de Assessment YA persistido/generado (solo lectura). ``external_policy`` existe SOLO para pruebas de sensibilidad
@@ -299,7 +308,7 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
         out["dimension_states"] = dim_states
     if external_policy != "UNDETERMINED" or variants:
         out["ruleset_options"] = {**({"external_policy": external_policy} if external_policy != "UNDETERMINED" else {}), **({"variants": sorted(variants)} if variants else {}),
-                                  **({"materialization": {"version": "leaf-materialization/v1", "csn_evidence_provided": bool(materialization_csn), "digest": _materialization_digest(ev)}}
+                                  **({"materialization": _materialization_options(ev, materialization_csn)}
                                      if materialized and variants & {C.VARIANT_T5_LOCAL_PHYSICAL, C.VARIANT_LEVEL_RESOLUTION} else {})}
     out["output_signature"] = C.signature(out)
     return out
