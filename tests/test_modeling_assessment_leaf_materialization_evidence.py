@@ -311,6 +311,12 @@ def test_a_v3_profile_is_covered_exactly_by_the_v4c_migration_and_is_transitiona
     assert svc.targeted_migration(old, cur) == "evidence_leaf_materialization_v4"                                         # la migracion registrada cubre EXACTAMENTE esa diferencia
     assert svc.classify_currentness("sig", cur, "sig", cur).pending_migration is None
     assert svc.classify_currentness("old", old, "new", cur).reason == svc.STALE_VERSION_AND_INPUT                         # otro motivo de STALE: no se oculta
+    # discrepancias AJENAS a canonical_evidence v3->v4 siguen STALE (no las absorbe la compatibilidad), aun con el mismo pool
+    for extra in ({"assessability": "assessability-rules/v0"}, {"confidence": "confidence-cuts/v1"}, {"signals": "signal-rules/v0"}):
+        other = svc.classify_currentness("sig", dict(old, **extra), "sig", cur)
+        assert (other.state, other.reason, other.pending_migration) == (svc.STALE, svc.STALE_VERSION_ONLY, None) and "canonical_evidence" in other.version_diff
+    assert svc.classify_currentness("sig", dict(old, canonical_evidence=None), "sig", cur).state == svc.STALE            # valor viejo desconocido
+    assert svc.classify_currentness("sig", dict(old, canonical_evidence="canonical-evidence/v2"), "sig", cur).pending_migration is None
 
 
 def test_the_signature_of_the_profile_changes_only_through_the_new_section_and_version(doc):
