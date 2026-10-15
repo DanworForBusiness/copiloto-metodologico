@@ -885,7 +885,7 @@ def secured_migrate(entries: Iterable[Any], migration: str, *, authorizer: Calla
                 jfail.append(exc.code)
     try:                                                                            # el registro de la autorizacion debe quedar PERSISTIDO (local y, si hay remoto, remoto) antes de tocar un Assessment
         journal({"event": "AUTHORIZED", "approver": auth.approver, "operator": auth.operator, "duties_mode": auth.duties_mode, "duties_collapsed": auth.duties_collapsed,
-                 "operator_assurance": auth.operator_assurance, "attestation": auth.attestation, "plan_digest": plan["digest"],
+                 "operator_assurance": auth.operator_assurance, "attestation": auth.attestation, "identity_config": auth.identity_config, "plan_digest": plan["digest"],
                  "approval_sha256": hashlib.sha256(ma.canonical(auth.document)).hexdigest() if auth.document is not None else None})      # registro auditable ANTES de la primera escritura
     except Exception:                                                              # noqa: BLE001 — sin detalle (podria contener rutas); cero escrituras sobre Assessments
         return _refusal(plan_report, BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error="AUDIT_LOG_FAILED")
