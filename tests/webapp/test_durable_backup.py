@@ -133,13 +133,13 @@ def test_when_the_durable_backup_cannot_be_confirmed_no_assessment_is_modified(k
 def test_a_failure_publishing_the_remote_journal_stops_the_next_waves(kworld, remote, monkeypatch):
     _make_v3(kworld, kworld.k, kworld.k2)
     _publish_all(kworld)
-    real = dbk.publish
+    real_event = dbk.publish_event
 
-    def publish_then_break(*a, **k):
-        r = real(*a, **k)
-        remote.fail_puts = True                                                                                                                            # el diario remoto deja de poder escribirse
-        return r
-    monkeypatch.setattr(dbk, "publish", publish_then_break)
+    def event_then_break(migration, run_id, seq, event):
+        real_event(migration, run_id, seq, event)
+        if seq == 1:                                                                  # tras el evento AUTHORIZED (seq 1) el diario remoto deja de poder escribir
+            remote.fail_puts = True
+    monkeypatch.setattr(dbk, "publish_event", event_then_break)
     out = _secured(kworld, allow_local_only=False, waves=[["Kensing"], ["Kensing2"]], run_id="run-j")
     assert out["outcome"] == bf.STOPPED_AT_WAVE and out["secured_apply"]["journal_remote_failures"] and out["secured_apply"]["not_attempted_waves"] == [["Kensing2"]]
 
