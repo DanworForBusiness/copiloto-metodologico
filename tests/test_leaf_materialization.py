@@ -14,7 +14,6 @@ import pytest
 
 from tests._judgment_cases import BENCHMARK, fresh
 from tools.catalog.methodological_judgment import evaluate_judgment
-from tools.catalog.methodological_judgment import engine as _engine, rules as _rules
 from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
 from tools.catalog import leaf_materialization as lm
 from tools.catalog.modeling_assessment import boundary as _boundary, readers as _readers
@@ -676,10 +675,16 @@ def test_judgment_output_and_signature_are_unchanged_by_deriving_the_materializa
     assert after == baseline and after["output_signature"] == baseline["output_signature"]
 
 
-def test_no_rule_or_engine_code_references_the_materialization():
-    for mod in (_rules, _engine):
-        src = Path(mod.__file__).read_text(encoding="utf-8")
-        assert not any(tok in src for tok in ("leaf_materialization", "materialization_of", ".materialization", "derive_all")), mod.__name__
+def test_the_base_policy_never_consults_the_materialization_only_the_opt_in_modifier_does(monkeypatch):
+    """La politica vigente (sin variantes) y las variantes T5/LEVEL sin el modificador MATERIALIZED_INPUT no consultan la derivacion (ver tests/test_methodological_judgment_materialized_input.py)."""
+    from tools.catalog.methodological_judgment.profile_access import ProfileEvidence as PE
+
+    def boom(self):
+        raise AssertionError("consulta no autorizada de la materializacion")
+    monkeypatch.setattr(PE, "materialization", property(boom))
+    for alias in sorted(BENCHMARK):
+        evaluate_judgment(fresh(alias))
+        evaluate_judgment(fresh(alias), variants=("T4_HAR", "T5_LOCAL_PHYSICAL", "LEVEL_RESOLUTION"))
 
 
 @pytest.mark.parametrize("alias", sorted(BENCHMARK))

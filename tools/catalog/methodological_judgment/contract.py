@@ -16,7 +16,10 @@ RULESET_VERSION = "judgment-rules/v2"
 VARIANT_T4_HAR = "T4_HAR"                      # HAR-STR-01 reformulada: reconoce proyecciones tecnicas reutilizables 1:1 de contratos gobernados que preservan el vocabulario por ETIQUETA
 VARIANT_T5_LOCAL_PHYSICAL = "T5_LOCAL_PHYSICAL"    # SRC-LOC-01 tambien para tablas locales cuya procedencia comprobada (Data Flow) es una tabla fisica ABAP
 VARIANT_LEVEL_RESOLUTION = "LEVEL_RESOLUTION"   # EXPLORATORIA: resuelve el nivel de los LVL-06 con estados explicitos por dimension (fortaleza / responsabilidad cumplida / deficiencia / no evaluable / no aplicable)
-VARIANTS = frozenset({VARIANT_T4_HAR, VARIANT_T5_LOCAL_PHYSICAL, VARIANT_LEVEL_RESOLUTION})
+# MODIFICADOR (no una regla): T5_LOCAL_PHYSICAL y LEVEL_RESOLUTION leen la materializacion OBSERVADA de las hojas locales (``leaf-materialization/v1``, derivada del perfil persistido) en vez de
+# sus condiciones ad hoc. Sin T5/LEVEL no tiene efecto. Solo con el perfil (sin CSN) las hojas cuya relacion no se puede verificar quedan UNKNOWN y NO aportan evidencia positiva.
+VARIANT_MATERIALIZED_INPUT = "MATERIALIZED_INPUT"
+VARIANTS = frozenset({VARIANT_T4_HAR, VARIANT_T5_LOCAL_PHYSICAL, VARIANT_LEVEL_RESOLUTION, VARIANT_MATERIALIZED_INPUT})
 
 # Estados por dimension (solo con la variante LEVEL_RESOLUTION). «No evaluable» (falta evidencia) y «No aplicable» (justificado por la arquitectura observada) NO son equivalentes; la ausencia de
 # fortaleza no es deficiencia; «cumplida» exige EVIDENCIA POSITIVA, nunca la mera ausencia de debilidades.

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
+from tools.catalog import leaf_materialization as LM
 from tools.catalog.methodological_judgment.profile_access import (
     EXTERNAL_CONTRACT_UNDETERMINED, GOVERNED_SAP_CONTRACT, K_BOUNDARY, K_HARM, K_LOCAL_LEAF, K_VIEW, PHYSICAL_RAW_BOUNDARY, ProfileEvidence, sorted_unique,
 )
@@ -354,10 +355,28 @@ def rule_lek_mat_02(ev: ProfileEvidence, policy: str) -> list[dict]:
 
 
 # ───────────────────────────── RELEVANT / LOCAL ─────────────────────────────
-def local_physical_boundaries(ev: ProfileEvidence, policy: str) -> list[str]:
+def local_physical_boundaries_materialized(ev: ProfileEvidence, policy: str) -> list[str]:
+    """T5 integrada con ``leaf-materialization/v1`` — tablas LOCALES con procedencia FISICA COMPROBADA: clase de borde derivada ``PHYSICAL_DERIVED`` (todos los bordes terminales son tablas ABAP
+    fisicas, cadena completa y sin huecos), al menos un productor EXACT (Data Flow o Replication Flow) con procedencia ESTABLISHED y sin evidencia contradictoria. La CLASE DE FUENTE sigue viniendo
+    de ``source_contract_classes`` (identidad/gobierno): la derivacion solo la CORROBORA (si el registro explicito discrepa, la hoja no cuenta). Es INDEPENDIENTE de ``materialization_kind`` (una
+    copia, una replica o una transformacion de tablas fisicas son igualmente contacto con la fuente fisica) y de ``filter_nature``; ninguna tabla local entra solo por serlo ni por su nombre."""
+    out = []
+    for leaf, rec in sorted(ev.local_leaves.items()):
+        m = ev.materialization_of(leaf)
+        if (m is None or rec.get("provenance_state") != "ESTABLISHED" or m["derived_boundary_class"] != LM.DBC_PHYSICAL or m["chain_complete"] is not True
+                or LM.U_CONTRADICTORY in m["unknown_reasons"] or ev.classify_source(leaf, policy) != PHYSICAL_RAW_BOUNDARY):
+            continue
+        if any(p["target_match"] == LM.EXACT or p["resolved_via"] for p in m["producers"]):
+            out.append(leaf)
+    return out
+
+
+def local_physical_boundaries(ev: ProfileEvidence, policy: str, materialized: bool = False) -> list[str]:
     """T5 — tablas LOCALES cuya clase de contrato es tabla ABAP fisica (``source_contract_classes``) Y cuya procedencia fue COMPROBADA por un Data Flow (``leaf_provenance``: ESTABLISHED/DATA_FLOW):
     el Data Flow materializa en Datasphere el contenido de una tabla fisica. Ni cualquier tabla local es frontera cruda, ni se deduce por nombre: se exige la clase explicita Y la procedencia comprobada.
     Una tabla replicada de un contrato gobernado (Replication Flow), una transformada con clase mixta/indeterminada o una sin procedencia NO entran."""
+    if materialized:
+        return local_physical_boundaries_materialized(ev, policy)
     out = []
     for leaf, rec in sorted(ev.local_leaves.items()):
         if rec.get("provenance_state") == "ESTABLISHED" and rec.get("basis") == "DATA_FLOW" and ev.classify_source(leaf, policy) == PHYSICAL_RAW_BOUNDARY:
@@ -371,7 +390,8 @@ def rule_src_rel_loc(ev: ProfileEvidence, policy: str, variants: frozenset = fro
     comp = _raw_bypass_compensated(ev, policy)
     rel = sorted(comp)
     loc = sorted(l for l in ev.remote_leaves if ev.classify_source(l, policy) == PHYSICAL_RAW_BOUNDARY and l not in comp)
-    local_phys = [l for l in local_physical_boundaries(ev, policy) if l not in loc] if C.VARIANT_T5_LOCAL_PHYSICAL in variants else []
+    materialized = C.VARIANT_MATERIALIZED_INPUT in variants
+    local_phys = [l for l in local_physical_boundaries(ev, policy, materialized) if l not in loc] if C.VARIANT_T5_LOCAL_PHYSICAL in variants else []
     out = []
     if rel:
         out.append(_reason("SRC-REL-01", C.RELEVANT_WEAKNESS, C.SOURCE_INGESTION, "src.physical_boundary_bypassed_and_compensated_downstream", "closure", ev=ev,
@@ -379,9 +399,10 @@ def rule_src_rel_loc(ev: ProfileEvidence, policy: str, variants: frozenset = fro
                            basis=["SRC.physical_abap_table", "SRC.on_strict_spine", "SRC.path_to_product_bypasses_harmonization", "SRC.compensated_by_modeling_logic"]))
     if loc or local_phys:
         out.append(_reason("SRC-LOC-01", C.LOCAL_WEAKNESS, C.SOURCE_INGESTION, "src.physical_reach_without_bypass_and_compensation", "closure", ev=ev, artifacts=[*loc, *local_phys],
-                           refs=[*[_fact_ref(ev, "source.downstream_reach", l) for l in loc], *[f"ce:leaf_provenance/{l}" for l in local_phys], *[f"ce:source_contract_classes/{l}" for l in local_phys]],
+                           refs=[*[_fact_ref(ev, "source.downstream_reach", l) for l in loc], *[f"ce:leaf_provenance/{l}" for l in local_phys], *[f"ce:source_contract_classes/{l}" for l in local_phys],
+                                 *([f"ce:physical_source_boundaries/{l}" for l in local_phys] if materialized else [])],
                            basis=["SRC.physical_abap_table", "SRC.off_spine_or_harmonized_or_not_compensated",
-                                  *(["SRC.local_table_materialized_from_physical_abap_table_by_established_data_flow"] if local_phys else [])]))
+                                  *((["SRC.local_table_physical_provenance_verified_by_leaf_materialization"] if materialized else ["SRC.local_table_materialized_from_physical_abap_table_by_established_data_flow"]) if local_phys else [])]))
     return out
 
 
@@ -701,6 +722,35 @@ def _no_integration_scope(ev: ProfileEvidence) -> list[str]:
     return ["ARCH.no_harmonization_candidate_in_closure", "ARCH.no_view_in_closure_integrates_several_inputs_joins_0_unions_0", "ARCH.no_product_node_integrates_more_than_one_leaf"]
 
 
+def _propagation_met_materialized(ev: ProfileEvidence, policy: str) -> tuple[list[str], list[dict]]:
+    """LEVEL_RESOLUTION integrada con ``leaf-materialization/v1`` — misma condicion estructural que ``_propagation_met_by_replicated_ingestion`` (el producto compone SOLO contratos ya resueltos y
+    a lo sumo UNA hoja local), pero la hoja local debe ser una RÉPLICA TECNICAMENTE ACREDITADA: ``materialization_kind = REPLICA`` (un unico flujo EXACT/resuelto con mapeos de identidad
+    verificados), clase de borde derivada ``GOVERNED_DERIVED`` con cadena completa, procedencia ESTABLISHED y la clase de fuente explicita GOBERNADA (gobierno = ``source_contract_classes``; la replica
+    no lo otorga). Una hoja UNKNOWN (p. ej. una sombra Delta sin CSN), TRANSFORMED o multi-productor NO aporta evidencia positiva. Un wrapper con filtro de estado CDC no es una transformacion semantica,
+    pero tampoco una exposicion integra: se informa como calificador (``filtered`` / ``filter_natures``). Devuelve (bases, calificadores por hoja)."""
+    if not ev.product_nodes:
+        return [], []
+    bases: list[str] = []
+    quals: list[dict] = []
+    for n in ev.product_nodes:
+        eff = ev.effective_providers(n)
+        if not set(eff) <= {K_VIEW, K_HARM, K_LOCAL_LEAF} or len(eff.get(K_LOCAL_LEAF, ())) > 1:
+            return [], []
+        for lf in eff.get(K_LOCAL_LEAF, ()):
+            rec = ev.local_leaves.get(lf) or {}
+            m = ev.materialization_of(lf)
+            if not (m is not None and rec.get("provenance_state") == "ESTABLISHED" and m["materialization_kind"] == LM.KIND_REPLICA and not m["flags"]["multi_producer"]
+                    and m["derived_boundary_class"] == LM.DBC_GOVERNED and m["chain_complete"] is True and ev.classify_source(lf, policy) == GOVERNED_SAP_CONTRACT):
+                return [], []
+            bases += [f"ce:leaf_provenance/{lf}", f"ce:physical_source_boundaries/{lf}"]
+            mp = m["mapping_profile"]
+            quals.append({"leaf": lf, "materialization_kind": m["materialization_kind"], "derived_boundary_class": m["derived_boundary_class"], "filtered": m["flags"]["filtered"],
+                          "filter_natures": sorted({p["wrapper"]["filter_nature"] for p in m["producers"] if p.get("wrapper") and p["wrapper"].get("filter_nature")}),
+                          "resolved_via": sorted({p["resolved_via"] for p in m["producers"] if p.get("resolved_via")}), "implicit_identity": mp["implicit_identity"],
+                          "identity_normalized": mp["identity_normalized"], "column_evidence": mp["column_evidence"]})
+    return ([*sorted(set(bases)), "PRO.product_consumes_only_a_technically_accredited_replica_of_a_governed_contract"], quals) if bases else ([], [])
+
+
 def _propagation_met_by_replicated_ingestion(ev: ProfileEvidence, policy: str) -> list[str]:
     """EVIDENCIA POSITIVA de «el producto compone contratos ya resueltos» cuando lee una tabla LOCAL replicada: cada nodo de producto consume SOLO vistas/candidatos/tablas locales (ninguna hoja de frontera
     directa), a lo sumo UNA hoja local, y esa hoja es una RÉPLICA PURA: procedencia COMPROBADA (ESTABLISHED, cadena completa), producida UNICAMENTE por Replication Flow y de clase de contrato gobernado.
@@ -722,7 +772,7 @@ def _propagation_met_by_replicated_ingestion(ev: ProfileEvidence, policy: str) -
     return [*sorted(set(bases)), "PRO.product_consumes_only_a_replicated_governed_ingestion_contract_with_established_provenance"] if bases else []
 
 
-def dimension_resolution(ev: ProfileEvidence, policy: str, strengths_: list[dict], reasons: list[dict], missing: list[dict]) -> list[dict]:
+def dimension_resolution(ev: ProfileEvidence, policy: str, strengths_: list[dict], reasons: list[dict], missing: list[dict], materialized: bool = False) -> list[dict]:
     """Estado por dimension para la resolucion exploratoria del nivel, con su evidencia y causa. Solo lee lo ya calculado por el motor (fortalezas, razones, causas de ausencia) y evidencia canonica."""
     have = {s["rule_id"] for s in strengths_}
     by_dim = {m["dimension"]: m for m in missing}
@@ -745,9 +795,14 @@ def dimension_resolution(ev: ProfileEvidence, policy: str, strengths_: list[dict
                 if na:
                     item["state"], item["basis"] = C.DS_NOT_APPLICABLE, na
             elif dim == "PROPAGATION" and m.get("cause") == "PRODUCT_DOES_NOT_COMPOSE_RESOLVED_CONTRACTS":
-                met = _propagation_met_by_replicated_ingestion(ev, policy)
+                if materialized:
+                    met, quals = _propagation_met_materialized(ev, policy)
+                else:
+                    met, quals = _propagation_met_by_replicated_ingestion(ev, policy), []
                 if met:
                     item["state"], item["basis"] = C.DS_MET, met
+                    if materialized:
+                        item["materialization"] = quals
         out.append(item)
     return out
 

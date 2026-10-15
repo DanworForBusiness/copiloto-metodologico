@@ -34,8 +34,9 @@ def is_system_name(name: str) -> bool:
 class ProfileEvidence:
     """Vista de solo lectura sobre un perfil. ``profile`` no se copia ni se modifica."""
 
-    def __init__(self, profile: Mapping[str, Any]):
+    def __init__(self, profile: Mapping[str, Any], materialization_csn: Mapping[str, Any] | None = None):
         self.profile = profile
+        self._materialization_csn = materialization_csn           # evidencia CSN EXPLICITA y opcional (ver ``leaf_materialization``); None = solo el perfil persistido
 
     # ───────────────────────────── generales ─────────────────────────────
     @cached_property
@@ -152,7 +153,7 @@ class ProfileEvidence:
         """Materializacion OBSERVADA por hoja local (``leaf-materialization/v1``): derivacion pura y de solo consulta sobre la evidencia ya persistida (``{}`` si el perfil es historico).
         NINGUNA regla del motor la consume todavia; no altera la evidencia, el perfil ni las firmas. Modulo neutro hermano (no es el paquete de Assessment)."""
         from tools.catalog.leaf_materialization import derive_all
-        return derive_all(self.ce)
+        return derive_all(self.ce, self._materialization_csn)
 
     def materialization_of(self, leaf: str) -> Mapping[str, Any] | None:
         return self.materialization.get(leaf)

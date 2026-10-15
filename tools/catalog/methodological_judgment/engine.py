@@ -16,6 +16,8 @@ si otra regla ratificada determina PARCIAL de forma independiente, la fuente ind
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from typing import Any, Iterable, Mapping
 
 from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
@@ -230,14 +232,22 @@ def _source_assessment(ev: ProfileEvidence) -> dict:
 
 
 # ───────────────────────────── API ─────────────────────────────
+def _materialization_digest(ev: ProfileEvidence) -> str:
+    """Huella de la materializacion que el motor CONSUMIO (la evidencia CSN explicita cambia el resultado y por tanto la firma de salida)."""
+    slim = {leaf: [m["materialization_kind"], m["derived_boundary_class"], m["flags"], m["unknown_reasons"], sorted(p["resolved_via"] or "" for p in m["producers"]), m["mapping_profile"]]
+            for leaf, m in sorted(ev.materialization.items())}
+    return hashlib.sha256(json.dumps(slim, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
 def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping[str, Any]] | None = None, *, external_policy: str = "UNDETERMINED",
-                      variants: Iterable[str] = ()) -> dict:
+                      variants: Iterable[str] = (), materialization_csn: Mapping[str, Any] | None = None) -> dict:
     """Juicio determinista sobre un perfil de Assessment YA persistido/generado (solo lectura). ``external_policy`` existe SOLO para pruebas de sensibilidad
     (``UNDETERMINED`` es la politica vigente); no forma parte del contrato de produccion."""
     variants = frozenset(variants or ())
     if not variants <= C.VARIANTS:
         raise ValueError(f"variantes desconocidas: {sorted(variants - C.VARIANTS)}")
-    ev = ProfileEvidence(profile)
+    materialized = C.VARIANT_MATERIALIZED_INPUT in variants
+    ev = ProfileEvidence(profile, materialization_csn if materialized else None)      # el CSN es una entrada EXPLICITA: sin el modificador no se usa; sin CSN las relaciones no verificables quedan UNKNOWN
     if ev.assessment_state != "ASSESSED":
         return _unjudgeable(ev, "ASSESSMENT_NOT_JUDGEABLE")
     if not ev.has_canonical_evidence_v3:
@@ -258,7 +268,7 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     dim_states = None
     if C.VARIANT_LEVEL_RESOLUTION in variants and level_rule == "LVL-06":              # EXPLORATORIA: solo reinterpreta los LVL-06; el resto de la logica de decision queda intacta
         pre_missing = _missing_strength_dimensions(ev, strengths, external_policy)
-        dim_states = dimension_resolution(ev, external_policy, strengths, reasons, pre_missing)
+        dim_states = dimension_resolution(ev, external_policy, strengths, reasons, pre_missing, materialized)
         resolved = resolve_level_exploratory(dim_states)
         if resolved is not None:
             status, (level, level_rule), nd_reason = C.DETERMINED, resolved, None
@@ -288,6 +298,8 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     if dim_states is not None:
         out["dimension_states"] = dim_states
     if external_policy != "UNDETERMINED" or variants:
-        out["ruleset_options"] = {**({"external_policy": external_policy} if external_policy != "UNDETERMINED" else {}), **({"variants": sorted(variants)} if variants else {})}
+        out["ruleset_options"] = {**({"external_policy": external_policy} if external_policy != "UNDETERMINED" else {}), **({"variants": sorted(variants)} if variants else {}),
+                                  **({"materialization": {"version": "leaf-materialization/v1", "csn_evidence_provided": bool(materialization_csn), "digest": _materialization_digest(ev)}}
+                                     if materialized and variants & {C.VARIANT_T5_LOCAL_PHYSICAL, C.VARIANT_LEVEL_RESOLUTION} else {})}
     out["output_signature"] = C.signature(out)
     return out
