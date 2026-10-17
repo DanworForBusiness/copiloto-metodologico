@@ -32,8 +32,13 @@ EVENT_REVOKED = "REVOKED"
 SUPPORTED_EVENTS = frozenset({EVENT_RATIFIED, EVENT_REVOKED})
 
 DIGEST_ALGO = "sha256"
-# D7 — el digest contractual cubre SOLO estas dos subsecciones de `canonical_evidence` (ver ADR §3.3).
+# D7 — el digest contractual cubre SOLO estas dos subsecciones de `canonical_evidence` (ver ADR §3.3). (Digest a nivel PERFIL;
+# conservado por compatibilidad. B3 ratifica a nivel CDS: usar `cds_contract_digest` / `CDS_DIGEST_FIELDS`.)
 CONTRACT_DIGEST_FIELDS = ("published_contract", "source_contract_classes.leaves")
+# D4/B3 — identidad y digest PER-CDS: un único registro de `source_contract_classes.leaves` (hoja REMOTE_IMPORTED). El digest
+# acredita la EVIDENCIA OBSERVADA de identidad+clasificación de la CDS, NO su contenido funcional completo ni aprobación corporativa previa.
+CDS_DIGEST_FIELDS = ("source_contract_classes.leaves[cds]",)
+LEAF_KIND_REMOTE_IMPORTED = "REMOTE_IMPORTED"
 
 REVIEW_DEFAULT_MONTHS = 12
 REVIEW_MAX_MONTHS = 24
@@ -125,8 +130,61 @@ def contract_evidence_digest(canonical_evidence: dict | None) -> str:
 
 
 def evidence_ref(canonical_evidence: dict | None) -> dict:
-    """`evidence_ref` para incrustar en un evento RATIFIED: algoritmo, campos cubiertos y digest. NO incluye el perfil."""
+    """`evidence_ref` (nivel PERFIL) para un evento RATIFIED: algoritmo, campos cubiertos y digest. NO incluye el perfil. (B3 usa `cds_evidence_ref`.)"""
     return {"algo": DIGEST_ALGO, "fields": list(CONTRACT_DIGEST_FIELDS), "digest": contract_evidence_digest(canonical_evidence)}
+
+
+# ─────────────────────────── identidad + evidencia PER-CDS (D4/B3) ───────────────────────────
+
+def cds_identity(leaf_record: dict) -> dict:
+    """Identidad técnica observada v1 de una CDS/API fuente = (remote_connection, remote_entity), desde un registro de
+    `source_contract_classes.leaves` con `leaf_kind == REMOTE_IMPORTED` y EXACTAMENTE una `remote_entity`. Fail-closed si no.
+    NO usa `leaf` como identidad. `remote_connection=None` solo si la entidad es inequívoca (lo valida la resolución B3, no acá)."""
+    if not isinstance(leaf_record, dict):
+        raise ValidationError("leaf_record debe ser objeto")
+    if leaf_record.get("leaf_kind") != LEAF_KIND_REMOTE_IMPORTED:
+        raise ValidationError(f"sujeto no ratificable: leaf_kind {leaf_record.get('leaf_kind')!r} != {LEAF_KIND_REMOTE_IMPORTED} (D4: solo CDS/API externa)")
+    ents = [e for e in (leaf_record.get("remote_entities") or []) if isinstance(e, str) and e.strip()]
+    if len(ents) != 1:
+        raise ValidationError(f"identidad ambigua: la hoja tiene {len(ents)} remote_entities (se exige exactamente 1)")
+    conn = leaf_record.get("remote_connection")
+    if conn is not None and (not isinstance(conn, str) or not conn.strip() or any(w in conn for w in _WILDCARDS)):
+        raise ValidationError("remote_connection inválida")
+    ent = ents[0]
+    if any(w in ent for w in _WILDCARDS):
+        raise ValidationError("remote_entity con comodín")
+    return {"remote_connection": conn if conn else None, "remote_entity": ent}
+
+
+def cds_technical_id(identity: dict) -> str:
+    """`technical_id` exacto y estable de la CDS = JSON canónico de la identidad {remote_connection, remote_entity}. Sin comodines/heurística."""
+    return canonical_json({"remote_connection": identity.get("remote_connection"), "remote_entity": identity.get("remote_entity")})
+
+
+def extract_cds_contract_evidence(leaf_record: dict) -> dict:
+    """Slice canónico per-CDS para el digest D7: SOLO lo que define el contrato OBSERVADO — identidad + `leaf_kind` +
+    `contract_class` + `classification_bases` (conjunto ordenado). EXCLUYE contexto del consumidor (`leaf`, `source_systems`,
+    `boundary_classes`, `definition`, linaje). Fail-closed vía `cds_identity`."""
+    identity = cds_identity(leaf_record)
+    contract_class = leaf_record.get("contract_class")
+    if not isinstance(contract_class, str) or not contract_class.strip():
+        raise ValidationError("contract_class ausente/ inválida en la hoja")
+    bases = leaf_record.get("classification_bases")
+    if bases is None:
+        b = leaf_record.get("classification_basis")
+        bases = [b] if b else []
+    bases_sorted = sorted({str(x) for x in bases if x is not None})
+    return {"identity": identity, "leaf_kind": LEAF_KIND_REMOTE_IMPORTED, "contract_class": contract_class, "classification_bases": bases_sorted}
+
+
+def cds_contract_digest(leaf_record: dict) -> str:
+    """Digest hex sha256 del slice per-CDS. Acredita la evidencia OBSERVADA de identidad+clasificación, no el contenido funcional ni aprobación previa."""
+    return hashlib.sha256(canonical_json(extract_cds_contract_evidence(leaf_record)).encode("utf-8")).hexdigest()
+
+
+def cds_evidence_ref(leaf_record: dict) -> dict:
+    """`evidence_ref` per-CDS para un evento RATIFIED (B3)."""
+    return {"algo": DIGEST_ALGO, "fields": list(CDS_DIGEST_FIELDS), "digest": cds_contract_digest(leaf_record)}
 
 
 # ─────────────────────────── utilidades de tiempo (deterministas) ───────────────────────────
@@ -203,8 +261,9 @@ def _validate_evidence_ref(ref: Any) -> None:
     digest = ref.get("digest")
     if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
         raise ValidationError("evidence_ref.digest debe ser sha256 hex (64)")
-    if list(ref.get("fields") or ()) != list(CONTRACT_DIGEST_FIELDS):
-        raise ValidationError("evidence_ref.fields debe ser exactamente los campos contractuales (D7)")
+    fields = list(ref.get("fields") or ())
+    if fields not in (list(CONTRACT_DIGEST_FIELDS), list(CDS_DIGEST_FIELDS)):
+        raise ValidationError("evidence_ref.fields debe ser los campos contractuales de perfil (D7) o per-CDS (D4/B3)")
 
 
 def assert_is_governed_decision(obj: Any) -> None:
@@ -233,6 +292,8 @@ def validate_event(event: Any) -> None:
     parse_utc(decided_at)                                          # formato
     if not isinstance(event.get("rationale"), str) or not event["rationale"].strip():
         raise ValidationError("rationale obligatorio (D5 para revocación; también en ratificación)")
+    if "request_id" in event and event.get("request_id") is not None:
+        _require_exact_text(event.get("request_id"), "request_id")  # idempotencia A: token opaco, exacto, sin comodines (opcional por compat B1/B2)
 
     if etype == EVENT_RATIFIED:
         _validate_evidence_ref(event.get("evidence_ref"))
@@ -251,17 +312,20 @@ def validate_event(event: Any) -> None:
 
 # ─────────────────────────── constructores puros (sin I/O/reloj/azar) ───────────────────────────
 
-def build_ratification(*, event_id: str, subject: dict, canonical_evidence: dict | None, rationale: str, actor: str,
-                       decided_at: str, review_by: str | None = None, traceability: dict | None = None) -> dict:
-    """Arma (y valida) un evento RATIFIED. `event_id`/`decided_at` los provee el llamador (server-side, determinista acá).
-    `review_by` por defecto = +12 meses. `traceability` (modelos/Data Products consumidores) es contexto, NO amplía alcance (D4)."""
+def build_ratification(*, event_id: str, subject: dict, rationale: str, actor: str, decided_at: str,
+                       canonical_evidence: dict | None = None, evidence_ref_override: dict | None = None,
+                       review_by: str | None = None, traceability: dict | None = None, request_id: str | None = None) -> dict:
+    """Arma (y valida) un evento RATIFIED. `event_id`/`decided_at`/`actor` los IMPONE el backend. Evidencia: pasar
+    `evidence_ref_override` ya armado (per-CDS, B3 → `cds_evidence_ref`) o `canonical_evidence` (nivel perfil, compat).
+    `request_id` = token de idempotencia (A). `review_by` def +12m. `traceability` es contexto, NO amplía alcance (D4)."""
+    ref = evidence_ref_override if evidence_ref_override is not None else evidence_ref(canonical_evidence)
     event = {
         "schema": SCHEMA,
         "event_id": event_id,
         "event": EVENT_RATIFIED,
         "kind": KIND_CONTRACT_RATIFICATION,
         "subject": dict(subject) if isinstance(subject, dict) else subject,   # tal cual lo da el llamador → validate_event rechaza claves extra/comodines
-        "evidence_ref": evidence_ref(canonical_evidence),
+        "evidence_ref": ref,
         "rationale": rationale,
         "actor": actor,
         "decided_at": decided_at,
@@ -269,13 +333,15 @@ def build_ratification(*, event_id: str, subject: dict, canonical_evidence: dict
     }
     if traceability is not None:
         event["traceability"] = traceability
+    if request_id is not None:
+        event["request_id"] = request_id
     validate_event(event)
     return event
 
 
 def build_revocation(*, event_id: str, subject: dict, revokes_event_id: str, rationale: str, actor: str,
-                     decided_at: str) -> dict:
-    """Arma (y valida) un evento REVOKED (D5): motivo obligatorio; apunta al RATIFIED que revoca; nunca edita el original."""
+                     decided_at: str, request_id: str | None = None) -> dict:
+    """Arma (y valida) un evento REVOKED (D5): motivo obligatorio; apunta al RATIFIED que revoca; nunca edita el original. `request_id` = idempotencia (A)."""
     event = {
         "schema": SCHEMA,
         "event_id": event_id,
@@ -287,6 +353,8 @@ def build_revocation(*, event_id: str, subject: dict, revokes_event_id: str, rat
         "actor": actor,
         "decided_at": decided_at,
     }
+    if request_id is not None:
+        event["request_id"] = request_id
     validate_event(event)
     return event
 
