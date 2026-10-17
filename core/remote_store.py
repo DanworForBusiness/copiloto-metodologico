@@ -884,6 +884,84 @@ def list_backup_keys(prefix_rel: str) -> list[str]:
     return sorted(out)
 
 
+# ── namespace EXCLUSIVO de DECISIONES DE GOBIERNO (append-only, fuera de PERSIST_PATHS) ─────────────────────────────────────────────────────
+# ``governed-decisions/<cliente>/<subject_hash>/<decided_at>-<event_id>.json``: igual que los respaldos, NO es un directorio persistido, asi que
+# ``restore``/``mirror_up``/``push_path``/``delete_path`` jamas lo tocan y nada aqui BORRA ni ACTUALIZA: solo se ESCRIBE (una vez por clave, create-only)
+# y se LEE. Plano SEPARADO del de respaldos (``migration-backups``) y de la persistencia general. Lo usa ``webapp/services/governed_decisions_store``.
+GOVERNED_DECISIONS_NAMESPACE = "governed-decisions"
+
+
+class GovernedDecisionObjectExists(Exception):
+    """La clave del evento de gobierno YA existe: create-only, jamas se sobrescribe (el llamador decide idempotencia/conflicto por bytes)."""
+
+
+def governed_decisions_namespace_collision() -> str | None:
+    """None si ``governed-decisions/`` NO colisiona con ningun ``PERSIST_PATHS`` (si colisionara, restore/mirror_up lo sincronizarian). Se exige antes de escribir."""
+    for name in config.PERSIST_PATHS:
+        n = str(name).strip("/")
+        if n == GOVERNED_DECISIONS_NAMESPACE or n.startswith(GOVERNED_DECISIONS_NAMESPACE + "/") or GOVERNED_DECISIONS_NAMESPACE.startswith(n + "/"):
+            return f"'{name}' en SPACES_PERSIST_PATHS colisiona con el namespace {GOVERNED_DECISIONS_NAMESPACE}/ (restore/mirror_up lo sincronizarian)"
+    return None
+
+
+def _decision_key(rel: str) -> str:
+    rel = str(rel).replace("\\", "/")
+    if not rel.startswith(GOVERNED_DECISIONS_NAMESPACE + "/") or ".." in rel.split("/") or rel.endswith("/") or "//" in rel:
+        raise RemoteReadError(f"clave fuera del namespace {GOVERNED_DECISIONS_NAMESPACE}/: '{rel}'")
+    return _key(rel)
+
+
+def put_governed_decision_object(rel: str, data: bytes) -> None:
+    """PUT create-only de UN evento de gobierno (``GovernedDecisionObjectExists`` si la clave ya existe). Requiere ESCRITURA remota y que el namespace no
+    colisione con ``PERSIST_PATHS``. **Concurrencia:** check-then-PUT — DigitalOcean Spaces NO documenta ``If-None-Match`` en PutObject, así que **NO es
+    create-only atómico y NO impide una sobrescritura concurrente** (si dos escritores ven la clave ausente, el 2º PUT sobrescribe). Solo ACOTA la carrera por
+    la UNICIDAD de la clave por evento; el llamador confirma por bytes y el replay detecta contradicciones. No hay update ni delete."""
+    if not write_enabled():
+        raise RemoteReadError("escritura remota no autorizada (DANWOR_PERSISTENCE != remote)")
+    collision = governed_decisions_namespace_collision()
+    if collision:
+        raise RemoteReadError(collision)
+    key = _decision_key(rel)
+    client = _get_client()
+    if get_governed_decision_object(rel) is not None:
+        raise GovernedDecisionObjectExists(rel)
+    client.put_object(Bucket=config.SPACES_BUCKET, Key=key, Body=bytes(data))
+
+
+def get_governed_decision_object(rel: str) -> bytes | None:
+    """Bytes EXACTOS de un evento de gobierno; ``None`` si no existe; ``RemoteReadError`` si no se puede determinar."""
+    if not read_enabled():
+        raise RemoteReadError("lectura remota no autorizada")
+    key = _decision_key(rel)
+    try:
+        client = _get_client()
+        return client.get_object(Bucket=config.SPACES_BUCKET, Key=key)["Body"].read()
+    except RemoteReadError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        code = str((getattr(exc, "response", None) or {}).get("Error", {}).get("Code", ""))
+        status = (getattr(exc, "response", None) or {}).get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if code in ("NoSuchKey", "404", "NotFound") or status == 404:
+            return None
+        raise RemoteReadError(f"GET fallo: {type(exc).__name__}") from exc
+
+
+def list_governed_decision_keys(prefix_rel: str) -> list[str]:
+    """Claves (sin el prefijo de ambiente) bajo ``prefix_rel`` dentro del namespace de decisiones. ``RemoteReadError`` si no se puede listar."""
+    if not read_enabled():
+        raise RemoteReadError("lectura remota no autorizada")
+    base = _decision_key(prefix_rel.rstrip("/") + "/x")[:-1]
+    strip = _key("")
+    out: list[str] = []
+    try:
+        client = _get_client()
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=config.SPACES_BUCKET, Prefix=base):
+            out.extend(o["Key"][len(strip):] for o in page.get("Contents", []) or [])
+    except Exception as exc:  # noqa: BLE001
+        raise RemoteReadError(f"listado fallo: {type(exc).__name__}") from exc
+    return sorted(out)
+
+
 async def sync_loop() -> None:
     """Loop periódico de mirror_up para correr como background task del app.
     Cada mirror corre en un thread para no bloquear el event loop."""
