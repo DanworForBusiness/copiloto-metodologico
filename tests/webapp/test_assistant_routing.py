@@ -187,3 +187,160 @@ def test_clasificador_inventario_de_conectividad():
     assert not inv("como conectar Power BI por ODBC")
     # sin término de conectividad → no
     assert not inv("que modelos analiticos tenemos?")
+
+def test_howto_external_consumer_does_not_route_to_source_connection(monkeypatch):
+    """Una coincidencia de protocolo no justifica responder con una conexión de origen."""
+    from tools.catalog.catalog_service import CatalogConnectionEntry
+    from webapp.services import assistant_routing as ar
+
+    connection = CatalogConnectionEntry(
+        path="test/GDA.md",
+        cliente="Loma",
+        space="TEST",
+        connection="GDA",
+        type_id="ODATA",
+    )
+
+    class FakeCatalog:
+        @staticmethod
+        def load_architecture_connections(_directory):
+            return [connection]
+
+    monkeypatch.setattr(ar, "_catalog_module", lambda: (FakeCatalog, "test"))
+
+    document = load_module("05_Reporting_y_Consumo", "datasphere_core")
+    route = AssistantRoutingService().route(
+        document,
+        "¿Cómo conectar Power BI con Datasphere usando OData?",
+        "datasphere_core",
+    )
+
+    assert route is not None
+    assert "GDA" not in route.message
+    assert not any("/catalog/connections/detail" in a.url for a in route.actions)
+
+def test_explicit_connection_instance_still_routes_to_catalog(monkeypatch):
+    """Una consulta sobre una conexión concreta conserva la evidencia del catálogo."""
+    from tools.catalog.catalog_service import CatalogConnectionEntry
+    from webapp.services import assistant_routing as ar
+
+    connection = CatalogConnectionEntry(
+        path="test/GDA.md",
+        cliente="Loma",
+        space="TEST",
+        connection="GDA",
+        type_id="ODATA",
+    )
+
+    class FakeCatalog:
+        @staticmethod
+        def load_architecture_connections(_directory):
+            return [connection]
+
+    monkeypatch.setattr(ar, "_catalog_module", lambda: (FakeCatalog, "test"))
+
+    document = load_module("01_Arquitectura_y_Conectividad", "datasphere_core")
+    route = AssistantRoutingService().route(
+        document,
+        "¿Cómo está configurada la conexión GDA de Loma?",
+        "datasphere_core",
+    )
+
+    assert route is not None
+    assert "Loma" in route.message
+    assert "GDA" in route.message
+    assert any(
+        "/catalog/connections/detail" in action.url
+        for action in route.actions
+    )
+
+def test_specific_postgresql_howto_keeps_published_connection(monkeypatch):
+    """Una conexión publicada pertinente puede liderar un How-To."""
+    from tools.catalog.catalog_service import CatalogConnectionEntry
+    from webapp.services import assistant_routing as ar
+
+    connection = CatalogConnectionEntry(
+        path="test/CONN_001.md",
+        cliente="ClienteTest",
+        space="TEST",
+        connection="CONN_001",
+        type_id="POSTGRESQL",
+    )
+
+    class FakeCatalog:
+        @staticmethod
+        def load_architecture_connections(_directory):
+            return [connection]
+
+    monkeypatch.setattr(ar, "_catalog_module", lambda: (FakeCatalog, "test"))
+
+    document = load_module("01_Arquitectura_y_Conectividad", "datasphere_core")
+    route = AssistantRoutingService().route(
+        document,
+        "¿Cómo configurar PostgreSQL en Datasphere?",
+        "datasphere_core",
+    )
+
+    assert route is not None
+    assert "postgresql" in route.message.lower()
+    assert any(
+        "/catalog/connections/detail" in action.url
+        for action in route.actions
+    )
+
+def test_protocol_only_match_does_not_claim_published_connection(monkeypatch):
+    """Un protocolo compartido no identifica por sí solo una conexión concreta."""
+    from tools.catalog.catalog_service import CatalogConnectionEntry
+    from webapp.services import assistant_routing as ar
+
+    connection = CatalogConnectionEntry(
+        path="test/ServicioExterno.md",
+        cliente="ClienteTest",
+        space="TEST",
+        connection="ServicioExterno",
+        type_id="ODATA",
+    )
+
+    class FakeCatalog:
+        @staticmethod
+        def load_architecture_connections(_directory):
+            return [connection]
+
+    monkeypatch.setattr(ar, "_catalog_module", lambda: (FakeCatalog, "test"))
+
+    document = load_module("05_Reporting_y_Consumo", "datasphere_core")
+    route = AssistantRoutingService().route(
+        document,
+        "¿Cómo consumir datos de Datasphere mediante OData?",
+        "datasphere_core",
+    )
+
+    assert route is None or not any(
+        "/catalog/connections/detail" in action.url
+        for action in route.actions
+    )
+
+def test_generic_power_bi_howto_offers_both_protocols():
+    """Una consulta sin protocolo ofrece alternativas, no elige arbitrariamente."""
+    from webapp.services.content_service import load_module
+    from webapp.services.assistant_routing import AssistantRoutingService
+
+    document = load_module("05_Reporting_y_Consumo", "datasphere_core")
+
+    route = AssistantRoutingService().route(
+        document,
+        "como conecto power bi?",
+        "datasphere_core",
+    )
+
+    assert route is not None
+    assert route.result is not None
+
+    items = route.result.items
+    assert len(items) == 2
+
+    titles = [item.title for item in items]
+    assert any("Power BI" in title and "ODBC" in title for title in titles)
+    assert any("Power BI" in title and "OData" in title for title in titles)
+
+    assert len({item.url for item in items}) == 2

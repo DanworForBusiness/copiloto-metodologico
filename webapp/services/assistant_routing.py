@@ -13,10 +13,12 @@ from core.routing_scorers import (
     _find_matching_asset,
     _find_matching_assets,
     _find_matching_section,
+    _find_cross_module_asset_ties,
     _is_asset_seeking_query,
     _is_conceptual_or_comparative_query,
     _query_object_tokens,
     _should_pair_section_with_asset,
+    _asset_platform_axes,
 )
 from core.utils import norm_text, slugify
 from webapp.services import assistant_navigation
@@ -691,9 +693,39 @@ class AssistantRoutingService:
         # configurar/conectar X") —o disponibilidad— cuyo objeto YA tenemos resuelto
         # como conexión publicada, la conexión REAL lidera como referencia, en vez de
         # un how-to genérico (o, peor, un recurso tangencial por verbo compartido).
-        if ((_is_asset_seeking_query(question) or _is_availability_query(question))
-                and not _is_conceptual_or_comparative_query(question)):
+        if (
+            (_is_asset_seeking_query(question) or _is_availability_query(question))
+            and not _is_conceptual_or_comparative_query(question)
+            and not _is_connectivity_inventory_query(question)
+        ):
             conn = _find_matching_connection(question, pack_name)
+
+            if conn is not None and _is_howto(question):
+                question_platforms = _asset_platform_axes(question)
+                connection_platforms = _asset_platform_axes(
+                    " ".join(
+                        str(value or "")
+                        for value in (
+                            conn.connection,
+                            conn.type_label,
+                            conn.type_id,
+                            conn.business_name,
+                        )
+                    )
+                )
+
+                connection_name_tokens = set(norm_text(conn.connection).split())
+                explicit_connection = bool(
+                    _query_object_tokens(question) & connection_name_tokens
+                )
+
+                if (
+                    question_platforms
+                    and not question_platforms.issubset(connection_platforms)
+                    and not explicit_connection
+                ):
+                    conn = None
+
             if conn is not None:
                 label = f"{conn.cliente} · {conn.type_label}".strip(" ··")
                 url = (f"/catalog/connections/detail?cliente={quote(conn.cliente)}"
@@ -806,6 +838,23 @@ class AssistantRoutingService:
             if resources is not None:
                 return AssistantRoute(
                     "Encontré varios recursos curados que pueden ayudarte. Elegí cuál querés abrir.",
+                    (),
+                    question,
+                    result=resources,
+                )
+
+        # Una consulta operativa puede tener varios recursos igualmente
+        # pertinentes. Ofrecemos alternativas sin elegir uno arbitrariamente.
+        tied_assets = _find_cross_module_asset_ties(
+            question, stem, pack_name=pack_name,
+        )
+        if tied_assets:
+            resources = _resource_result(tied_assets, pack_name)
+            if resources is not None:
+                return AssistantRoute(
+                    "Encontré estas alternativas: "
+                    + " | ".join(str(asset.get("description") or "Recurso curado") for asset in tied_assets)
+                    + ". Elegí cuál querés abrir.",
                     (),
                     question,
                     result=resources,

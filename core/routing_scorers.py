@@ -986,6 +986,77 @@ def _find_cross_module_asset(
     best["_score"] = best_score
     return best
 
+def _find_cross_module_asset_ties(
+    question: str,
+    current_stem: str,
+    *,
+    pack_name: str | None = None,
+    limit: int = 5,
+) -> list[dict]:
+    """Recupera alternativas pertinentes cuando hay empate documental transversal."""
+    if _is_conceptual_or_comparative_query(question):
+        return []
+
+    if not _is_asset_seeking_query(question):
+        return []
+
+    candidates: list[tuple[int, dict]] = []
+
+    for path in sorted(
+        iter_content_markdown_paths(pack_name),
+        key=lambda p: p.name.lower(),
+    ):
+        if path.stem == current_stem:
+            continue
+
+        try:
+            md = path.read_text(encoding="utf-8", errors="ignore")
+            meta, _body = split_front_matter(md)
+            module_label = module_label_from_md(path.stem, md)
+        except Exception as exc:
+            log.warning(
+                "Cross-module asset ties: no se pudo leer %s: %s",
+                path.name, exc,
+            )
+            continue
+
+        for raw_asset in meta.get("intent_assets") or []:
+            if _should_skip_asset_for_question(question, raw_asset):
+                continue
+
+            score = _score_asset_candidate(question, raw_asset)
+            if score < 8:
+                continue
+
+            if not _asset_covers_query_object(question, raw_asset):
+                continue
+
+            asset = dict(raw_asset)
+            asset["_module"] = path.stem
+            asset["_module_label"] = module_label
+            candidates.append((score, asset))
+
+    candidates = _dedupe_assets(candidates)
+    candidates.sort(key=lambda item: item[0], reverse=True)
+
+    if len(candidates) < 2:
+        return []
+
+    best_score = candidates[0][0]
+    second_score = candidates[1][0]
+
+    # Mismo margen utilizado por _find_cross_module_asset().
+    if best_score - second_score >= 3:
+        return []
+
+    tied = [
+        asset
+        for score, asset in candidates
+        if best_score - score < 3
+    ]
+
+    return tied[:limit] if len(tied) >= 2 else []
+
 
 def _needs_cds_delta_choice(question: str) -> bool:
     q = _norm(question)

@@ -129,7 +129,7 @@ intent_assets:
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDH0QR69h6MS4nI0CC5z4ijAf9TsJHXhMCRwZkXMs1owV4?e=dxEHcJ"
   - keywords: ["configurar dp agent", "instalar dp agent", "dpa", "data provisioning agent", "dp agent datasphere"]
     description: "How-to Danwor: Instalar y Configurar DP Agent"
-    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQBX2bMaIeFqTroYJER_FKJKAeonRE5glwlSwCvV-dXSEGQ?e=Eyy0ct"   
+    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQBX2bMaIeFqTroYJER_FKJKAeonRE5glwlSwCvV-dXSEGQ?e=Eyy0ct"
   - keywords: ["importar odp", "importar extractores", "extractores odp datasphere", "odp sapi datasphere"]
     description: "How-to Danwor: Importar extractores ODP a Datasphere"
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EakLSitvsIFGqZl3lXZfp0QBwRPQLq8WrWSMN5dG2pQ27w?e=eSvJk8"
@@ -154,6 +154,9 @@ intent_assets:
   - keywords: ["power bi", "powerbi", "odbc datasphere", "conectar powerbi datasphere"]
     description: "How-to Danwor: Conectar Power BI con Datasphere ODBC"
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EQY8lBQbHUZKmFPXW_okYs8BLS_7PeauIlCMnJ6NDJEJJA?e=hg4FVu"
+  - keywords: ["power bi", "powerbi", "odata datasphere", "conectar powerbi odata"]
+    description: "How-to Danwor: Conectar Power BI con Datasphere OData"
+    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQBBQb2cJQe3RIPgzDrnsK5yAdSP6E0xMacvO3m-UpxyCRI?e=iJuXA7"
   - keywords: ["business content bw bridge", "activar business content bw bridge"]
     description: "How-to Danwor: Activar Business Content en BW Bridge"
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/ESytEyMyaUJEunPxGlrZw9kBuCpsKdrPKXiNlmPygWF96A?e=bOoSwz"
@@ -171,10 +174,10 @@ intent_assets:
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EV5-PLFGhDRKrpAAczehYikBm7Cr00MXKZd1OBB94JBSdg?e=BdhLru"
   - keywords: ["IBP integration", "Integracion IBP", "Integrated Business Planning"]
     description: "How-to Danwor: Integrar IBP y Datasphere"
-    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQD5v5je5gIfTq58irVVNTSxAS4n8OBJ2mFQlhnYoD35NJM?e=Uc0GEE"    
+    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQD5v5je5gIfTq58irVVNTSxAS4n8OBJ2mFQlhnYoD35NJM?e=Uc0GEE"
   - keywords: ["SSFF integration", "Integracion SSFF", "Success Factors integration", "Integracion Success Factors"]
     description: "How-to Danwor: Integrar SuccessFactors y Datasphere"
-    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQCLvan5B8VFRZhLjOdCCj8iAROq6a3WMEOUxV9W0aQWKcc?e=vPCvmY"    
+    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQCLvan5B8VFRZhLjOdCCj8iAROq6a3WMEOUxV9W0aQWKcc?e=vPCvmY"
   - keywords: ["SAC metadata", "SAC resources", "Recursos y Modelos SAC", "relevamiento tecnico SAC", "acelerar analisis SAC"]
     description: "How-to Danwor: Guia para acelerar relevamiento tecnico via API metadata & recursos tecnicos SAC"
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQDZngIfKT28R42JaCzC1d-KAXJcVbfaTe6vrQcdIFXcP2Q?e=nBoM4r"
@@ -186,7 +189,7 @@ intent_assets:
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQCsU_lo4usOS78fIeWBXeu7AVn3an4_a3LxgQtfdmgWAPQ?e=4q7lFj"
   - keywords: ["automatizar alertas", "alertas automaticas", "health-check automatizado", "monitoreo automatizado"]
     description: "How-to Danwor: Guia de automatizacion alerta memoria HANA Datasphere"
-    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQBeg98nVm1FR6k73lLVFdTEASMcDTe0NjkzmUiqEHStHaI?e=uEZUA0"    
+    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQBeg98nVm1FR6k73lLVFdTEASMcDTe0NjkzmUiqEHStHaI?e=uEZUA0"
   - keywords: ["nota 3498095", "3498095", "abap on-premise datasphere"]
     description: "Nota SAP 3498095: SAP Datasphere notes on source ABAP-based On-premise"
     asset: "https://me.sap.com/notes/3498095"
@@ -213,7 +216,7 @@ intent_assets:
     asset: "https://me.sap.com/notes/3590400"
   - keywords: ["nota 2559981", "2559981", "requerimientos DP agent"]
     description: "Nota SAP 2559981: System requirements for installing Data Provisioning Agent"
-    asset: "https://me.sap.com/notes/2559981"    
+    asset: "https://me.sap.com/notes/2559981"
   - keywords: ["nota 3220622", "3220622", "hana cloud release schedule"]
     description: "Nota SAP 3220622: HANA Cloud Release/Schedule for SAP Datasphere"
     asset: "https://me.sap.com/notes/3220622"
@@ -331,7 +334,7 @@ key_topics:
 - Transportar desde Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EcxDFg2WdwdIotUZ8pMTQ4sB8qMcWXqK1O0ilL-nkqhV3Q?e=rnjAzc)
 - Catalogo de Funciones SQL | [Link](https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/ERWvokGY9E9Jo5iY93hMSbsBTOSq4OaDpzjlX85wedLWhA?e=b1uxwT)
 - Conectar SAC con Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EVwZ4LrADDJOkzuK41mhP_kB3suiqyYK2BhyF1sxYwz3fw?e=lUIVjN)
-- Conectar PowerBI con Datasphere ODBC | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EQY8lBQbHUZKmFPXW_okYs8BLS_7PeauIlCMnJ6NDJEJJA?e=hg4FVu)
+- Conectar PowerBI con Datasphere | [ODBC](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EQY8lBQbHUZKmFPXW_okYs8BLS_7PeauIlCMnJ6NDJEJJA?e=hg4FVu) | [OData](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQBBQb2cJQe3RIPgzDrnsK5yAdSP6E0xMacvO3m-UpxyCRI?e=iJuXA7)
 - Activar Business Content en BW Bridge | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/ESytEyMyaUJEunPxGlrZw9kBuCpsKdrPKXiNlmPygWF96A?e=bOoSwz)
 - Activar Business Content en Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EZvKNc4VmHxHtJY0RCULX3gBI7ysO_CrcQv0zd6UhilpMw?e=MASv9C)
 - Configurar OpenID en Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/EUbAI1YVMNhPjWToI2P0jqUBa4QCpFDNCLCLPTDLbXgRTQ?e=br6EWQ)
@@ -371,8 +374,8 @@ key_topics:
 | Nota | Descripción | Alcance |
 |---|---|---|
 | **3509695** | Conectar SAP Integrated Business Planning (IBP) con Datasphere | Integración |
-| **3384164** | Out of Memory errors in SAP Datasphere | Técnico / Performance | 
-| **3764217** | Schedule Publications failing for story based on SAP Datasphere live connecton | Técnico / Compatibilidad | 
+| **3384164** | Out of Memory errors in SAP Datasphere | Técnico / Performance |
+| **3764217** | Schedule Publications failing for story based on SAP Datasphere live connecton | Técnico / Compatibilidad |
 
 ## {dw-black}KBAs {dw-gold}SAP
 {{section_meta: keywords="kba sap, knowledge base article, kbas sac, kba 3576331, kba 3524959, kba 3311985, kba 3493600, kba 3460999, kba 3561284, gobierno contenido sac kba, transporte sac kba, deleted files sac, object id sac, workspace sac kba, kba 3209242, kba 3570139, streaming read, rfc streaming, dialogue mode, abapadapter"}}

@@ -369,23 +369,48 @@ def _sap_note_table_links_html(source: str) -> str:
 
 
 def _pipe_links_html(source: str) -> str:
-    """Convierte `Texto | [Link](url)` en un link de texto completo.
+    """Renderiza referencias externas simples y múltiples en nueva pestaña."""
 
-    Se usa para la biblioteca de referencias: el texto queda visualmente como
-    contenido normal, abre en una nueva pestana y solo revela affordance en hover.
-    """
     def repl(match: re.Match[str]) -> str:
         prefix = match.group(1) or ""
         label = (match.group(2) or "").strip()
         url = (match.group(3) or "").strip()
-        safe_label = html.escape(label)
-        safe_url = html.escape(url, quote=True)
+
         return (
-            f'{prefix}<a class="reference-text-link" href="{safe_url}" '
-            f'target="_blank" rel="noopener noreferrer">{safe_label}</a>'
+            f'{prefix}<a class="reference-text-link" '
+            f'href="{html.escape(url, quote=True)}" '
+            f'target="_blank" rel="noopener noreferrer">'
+            f'{html.escape(label)}</a>'
         )
 
-    return PIPE_LINK_RE.sub(repl, source or "")
+    rendered = PIPE_LINK_RE.sub(repl, source or "")
+
+    dual_reference_re = re.compile(
+        r"(?P<prefix>^[ \t]*[-*]\s+[^|\n]+)"
+        r"(?P<links>(?:\s*\|\s*\[[^\]\n]+\]"
+        r"\(https?://[^)\n]+\)){2,})\s*$",
+        re.M,
+    )
+
+    external_link_re = re.compile(
+        r"\|\s*\[([^\]\n]+)\]\((https?://[^)\n]+)\)"
+    )
+
+    def replace_dual(match: re.Match[str]) -> str:
+        prefix = match.group("prefix")
+        links = match.group("links")
+
+        def replace_link(link_match: re.Match[str]) -> str:
+            label = html.escape(link_match.group(1))
+            url = html.escape(link_match.group(2), quote=True)
+            return (
+                f'| <a class="reference-text-link" href="{url}" '
+                f'target="_blank" rel="noopener noreferrer">{label}</a>'
+            )
+
+        return prefix + external_link_re.sub(replace_link, links)
+
+    return dual_reference_re.sub(replace_dual, rendered)
 
 
 def _callout_inline_html(text: str) -> str:
