@@ -398,6 +398,109 @@ def _connections_inventory(pack_name: str):
         return None
 
 
+
+
+
+def _unregistered_connection_type(question: str) -> str | None:
+    """Detecta un tipo explicito en preguntas de inventario, sin catalogo."""
+    q = norm_text(question)
+
+    match = re.search(
+        r"\bconexiones\s+([a-z][a-z0-9_/-]*)\s+"
+        r"(?:tenemos|hay|estan|estan disponibles)\b",
+        q,
+    )
+    if not match:
+        return None
+
+    candidate = match.group(1)
+    if candidate in {
+        "que", "cuales", "cuantas", "tenemos", "disponibles",
+        "resueltas", "implementadas", "de", "en", "para",
+    }:
+        return None
+
+    return candidate
+
+def _filtered_connection_inventory(question: str, pack_name: str):
+    """Inventario filtrado por tipo y cliente, con resultados navegables."""
+    try:
+        catalog, catalog_dir = _catalog_module()
+        connections = catalog.load_architecture_connections(catalog_dir)
+        def words(value):
+            return " " + re.sub(
+                r"[^\w]+", " ", norm_text(value)
+            ).strip() + " "
+
+        normalized_question = words(question)
+
+        type_ids = {
+            conn.type_id for conn in connections
+            if conn.type_id and any(
+                words(candidate) in normalized_question
+                for candidate in (conn.type_id, conn.type_label)
+                if candidate and words(candidate).strip()
+            )
+        }
+        if len(type_ids) != 1:
+            if not type_ids:
+                requested_type = _unregistered_connection_type(question)
+                if requested_type:
+                    return (
+                        ResultSet("list", total=0, items=()),
+                        requested_type.upper(),
+                        None,
+                    )
+            return None
+
+        selected_type = next(iter(type_ids))
+        selected = catalog.connections_for_type(connections, selected_type)
+
+        clients = {
+            conn.cliente.casefold(): conn.cliente
+            for conn in connections if conn.cliente
+        }
+        mentioned_clients = {
+            key for key, name in clients.items()
+            if words(name) in normalized_question
+        }
+
+        if mentioned_clients:
+            selected = [
+                conn for conn in selected
+                if conn.cliente.casefold() in mentioned_clients
+            ]
+
+        groups = {}
+        for conn in selected:
+            groups.setdefault(conn.cliente.casefold(), conn)
+
+        items = []
+        for conn in sorted(groups.values(), key=lambda c: c.cliente.casefold()):
+            url = (
+                f"/catalog/connections/detail?cliente={quote(conn.cliente)}"
+                f"&type_id={quote(conn.type_id)}&pack={quote(pack_name)}"
+            )
+            items.append(ResultItem(
+                kind="catalog_connection",
+                ref=f"{conn.cliente}:{conn.type_id}",
+                title=f"{conn.cliente} - {conn.type_label}",
+                subtitle="Arquitectura & Conectividad",
+                url=url,
+                mode="embed",
+            ))
+
+        matched_client = (
+            clients[next(iter(mentioned_clients))]
+            if len(mentioned_clients) == 1 else None
+        )
+        result = ResultSet("list", total=len(items), items=tuple(items))
+        return result, selected_type, matched_client
+
+    except Exception as exc:
+        raise RuntimeError("connection_inventory_unavailable") from exc
+
+
 def _connectivity_catalog_action(pack_name: str) -> AssistantRouteAction | None:
     """Botón a la pestaña Catálogo del módulo 01 (Arquitectura & Conectividad), donde
     vive el catálogo de conexiones por tipo/cliente."""
@@ -743,6 +846,40 @@ class AssistantRoutingService:
         # Respondemos con el inventario REAL (tipos + clientes) y deep-link al catálogo,
         # en vez de derivar a una sección genérica.
         if _is_connectivity_inventory_query(question):
+            try:
+                filtered = _filtered_connection_inventory(question, pack_name)
+            except RuntimeError as exc:
+                if str(exc) != "connection_inventory_unavailable":
+                    raise
+                return AssistantRoute(
+                    "No pudimos consultar el catalogo de conexiones "
+                    f"para responder tu pregunta: {question}. "
+                    "Intenta nuevamente.",
+                    (),
+                    question,
+                )
+            if filtered is not None:
+                results, connection_type, client = filtered
+                context = f" de {client}" if client else ""
+
+                if not results.items:
+                    return AssistantRoute(
+                        f"No encontramos conexiones {connection_type}{context} "
+                        "en nuestro catalogo con los filtros solicitados.",
+                        (),
+                        question,
+                    )
+
+                count = results.total
+                group_label = "grupo" if count == 1 else "grupos"
+                return AssistantRoute(
+                    f"Encontr\u00e9 {count} {group_label} de conexiones "
+                    f"{connection_type}{context} en nuestro cat\u00e1logo. "
+                    "Eleg\u00ed cu\u00e1l quer\u00e9s consultar.",
+                    (),
+                    question,
+                    result=results,
+                )
             inv = _connections_inventory(pack_name)
             action = _connectivity_catalog_action(pack_name)
             if inv and action:

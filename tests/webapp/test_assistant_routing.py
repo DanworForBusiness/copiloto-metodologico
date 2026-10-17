@@ -344,3 +344,329 @@ def test_generic_power_bi_howto_offers_both_protocols():
     assert any("Power BI" in title and "OData" in title for title in titles)
 
     assert len({item.url for item in items}) == 2
+def test_inventario_odata_filtrado_y_navegable(monkeypatch):
+    from tools.catalog.catalog_service import CatalogConnectionEntry
+    from webapp.services import assistant_routing as ar
+
+    connections = [
+        CatalogConnectionEntry(
+            path="loma/gda.md",
+            cliente="Loma",
+            space="VENTAS",
+            connection="GDA",
+            type_id="ODATA",
+        ),
+        CatalogConnectionEntry(
+            path="loma/erp.md",
+            cliente="Loma",
+            space="FINANZAS",
+            connection="ERP",
+            type_id="SAPABAP",
+        ),
+    ]
+
+    class FakeCatalog:
+        @staticmethod
+        def load_architecture_connections(_directory):
+            return connections
+
+        @staticmethod
+        def connections_for_type(entries, type_id):
+            return [
+                conn for conn in entries
+                if conn.type_id.casefold() == type_id.casefold()
+            ]
+
+    monkeypatch.setattr(ar, "_catalog_module", lambda: (FakeCatalog, "unused"))
+
+    document = load_module("01_Arquitectura_y_Conectividad")
+    route = ar.AssistantRoutingService().route(
+        document, "que conexiones odata tenemos?", "datasphere_core"
+    )
+
+    assert route is not None
+    assert route.result is not None
+    assert len(route.result.items) == 1
+
+    item = route.result.items[0]
+    assert "Loma" in item.title
+    assert "ODATA" in item.title.upper()
+    assert item.mode == "embed"
+    assert "/catalog/connections/detail?" in item.url
+    assert "cliente=Loma" in item.url
+    assert "type_id=ODATA" in item.url
+    assert "SAPABAP" not in route.message
+
+def test_inventario_odata_filtra_cliente_explicito(monkeypatch):
+    from tools.catalog.catalog_service import (
+        CatalogConnectionEntry,
+        connections_for_type,
+    )
+    from webapp.services import assistant_routing as ar
+
+    connections = [
+        CatalogConnectionEntry(
+            path="loma/gda.md",
+            cliente="Loma",
+            space="VENTAS",
+            connection="GDA",
+            type_id="ODATA",
+        ),
+        CatalogConnectionEntry(
+            path="pampa/odata.md",
+            cliente="Pampa",
+            space="FINANZAS",
+            connection="ODATA_FIN",
+            type_id="ODATA",
+        ),
+        CatalogConnectionEntry(
+            path="loma/erp.md",
+            cliente="Loma",
+            space="FINANZAS",
+            connection="ERP",
+            type_id="SAPABAP",
+        ),
+    ]
+
+    class FakeCatalog:
+        @staticmethod
+        def load_architecture_connections(_directory):
+            return connections
+
+        @staticmethod
+        def connections_for_type(entries, type_id):
+            return [
+                conn for conn in entries
+                if conn.type_id.casefold() == type_id.casefold()
+            ]
+
+    monkeypatch.setattr(ar, "_catalog_module", lambda: (FakeCatalog, "unused"))
+
+    document = load_module("01_Arquitectura_y_Conectividad")
+    route = ar.AssistantRoutingService().route(
+        document, "que conexiones OData tenemos en Loma?", "datasphere_core"
+    )
+
+    assert route is not None
+    assert route.result is not None
+    assert len(route.result.items) == 1
+    assert "Loma" in route.result.items[0].title
+    assert "cliente=Loma" in route.result.items[0].url
+    assert "Pampa" not in route.message
+
+def test_inventario_odata_sin_coincidencias_no_amplia_filtro(monkeypatch):
+    from tools.catalog.catalog_service import CatalogConnectionEntry
+    from webapp.services import assistant_routing as ar
+
+    connections = [
+        CatalogConnectionEntry(
+            path="loma/gda.md",
+            cliente="Loma",
+            space="VENTAS",
+            connection="GDA",
+            type_id="ODATA",
+        ),
+        CatalogConnectionEntry(
+            path="pampa/erp.md",
+            cliente="Pampa",
+            space="FINANZAS",
+            connection="ERP",
+            type_id="SAPABAP",
+        ),
+    ]
+
+    class FakeCatalog:
+        @staticmethod
+        def load_architecture_connections(_directory):
+            return connections
+
+        @staticmethod
+        def connections_for_type(entries, type_id):
+            return [c for c in entries if c.type_id == type_id]
+
+    monkeypatch.setattr(ar, "_catalog_module", lambda: (FakeCatalog, "unused"))
+
+    document = load_module("01_Arquitectura_y_Conectividad")
+    route = ar.AssistantRoutingService().route(
+        document, "que conexiones OData tenemos en Pampa?", "datasphere_core"
+    )
+
+    assert route is not None
+    assert "ODATA" in route.message.upper()
+    assert "Pampa" in route.message
+    assert "no encontr" in route.message.lower()
+    assert route.result is None or len(route.result.items) == 0
+
+def test_inventario_postgresql_filtrado_y_generico_preservado(monkeypatch):
+    from tools.catalog.catalog_service import CatalogConnectionEntry
+    from webapp.services import assistant_routing as ar
+
+    connections = [
+        CatalogConnectionEntry(
+            path="bio/postgres.md",
+            cliente="Biogenesis",
+            space="INGESTA",
+            connection="PG_SOURCE",
+            type_id="POSTGRESQL",
+        ),
+        CatalogConnectionEntry(
+            path="loma/odata.md",
+            cliente="Loma",
+            space="INGESTA",
+            connection="GDA",
+            type_id="ODATA",
+        ),
+    ]
+
+    class FakeCatalog:
+        @staticmethod
+        def load_architecture_connections(_directory):
+            return connections
+
+        @staticmethod
+        def connections_for_type(entries, type_id):
+            return [c for c in entries if c.type_id.casefold() == type_id.casefold()]
+
+    monkeypatch.setattr(ar, "_catalog_module", lambda: (FakeCatalog, "unused"))
+
+    document = load_module("01_Arquitectura_y_Conectividad")
+
+    filtered = ar.AssistantRoutingService().route(
+        document, "que conexiones PostgreSQL tenemos?", "datasphere_core"
+    )
+
+    assert filtered is not None
+    assert filtered.result is not None
+    assert len(filtered.result.items) == 1
+    assert "Biogenesis" in filtered.result.items[0].title
+    assert "type_id=POSTGRESQL" in filtered.result.items[0].url
+    assert filtered.result.items[0].mode == "embed"
+
+    generic = ar.AssistantRoutingService().route(
+        document, "que conexiones tenemos?", "datasphere_core"
+    )
+
+    assert generic is not None
+    assert generic.result is None
+    assert "ODATA" in generic.message.upper()
+    assert "POSTGRESQL" in generic.message.upper()
+    assert any("tab=catalogo" in action.url for action in generic.actions)
+
+def test_inventario_tipo_compuesto_s4hana(monkeypatch):
+    from tools.catalog.catalog_service import (
+        CatalogConnectionEntry,
+        connections_for_type,
+    )
+    from webapp.services import assistant_routing as ar
+
+    connections = [
+        CatalogConnectionEntry(
+            path="pampa/s4.md",
+            cliente="Pampa",
+            space="INGESTA",
+            connection="S4_PRD",
+            type_id="SAPS4HANAOP",
+        ),
+        CatalogConnectionEntry(
+            path="loma/odata.md",
+            cliente="Loma",
+            space="INGESTA",
+            connection="GDA",
+            type_id="ODATA",
+        ),
+    ]
+
+    class FakeCatalog:
+        @staticmethod
+        def load_architecture_connections(_directory):
+            return connections
+
+        @staticmethod
+        def connections_for_type(entries, type_id):
+            return [
+                c for c in entries
+                if c.type_id.casefold() == type_id.casefold()
+            ]
+
+    monkeypatch.setattr(ar, "_catalog_module", lambda: (FakeCatalog, "unused"))
+
+    document = load_module("01_Arquitectura_y_Conectividad")
+    route = ar.AssistantRoutingService().route(
+        document,
+        "que conexiones SAP S/4HANA OP tenemos?",
+        "datasphere_core",
+    )
+
+    assert route is not None
+    assert route.result is not None
+    assert len(route.result.items) == 1
+
+    item = route.result.items[0]
+    assert "Pampa" in item.title
+    assert "SAP S/4HANA OP" in item.title
+    assert "type_id=SAPS4HANAOP" in item.url
+    assert item.mode == "embed"
+
+def test_inventario_filtrado_no_pierde_contexto_ante_error(monkeypatch):
+    from webapp.services import assistant_routing as ar
+
+    class FakeCatalog:
+        @staticmethod
+        def load_architecture_connections(_directory):
+            raise RuntimeError("Error simulado de lectura")
+
+    monkeypatch.setattr(ar, "_catalog_module", lambda: (FakeCatalog, "unused"))
+
+    document = load_module("01_Arquitectura_y_Conectividad")
+    route = ar.AssistantRoutingService().route(
+        document,
+        "que conexiones OData tenemos?",
+        "datasphere_core",
+    )
+
+    assert route is not None
+    assert "ODATA" in route.message.upper()
+    assert "no pudimos consultar" in route.message.lower()
+    assert route.result is None
+    assert not route.actions
+
+def test_inventario_tipo_no_registrado_no_devuelve_generico(monkeypatch):
+    from tools.catalog.catalog_service import CatalogConnectionEntry
+    from webapp.services import assistant_routing as ar
+
+    connections = [
+        CatalogConnectionEntry(
+            path="loma/gda.md",
+            cliente="Loma",
+            space="INGESTA",
+            connection="GDA",
+            type_id="ODATA",
+        ),
+    ]
+
+    class FakeCatalog:
+        @staticmethod
+        def load_architecture_connections(_directory):
+            return connections
+
+        @staticmethod
+        def connections_for_type(entries, type_id):
+            return [
+                c for c in entries
+                if c.type_id.casefold() == type_id.casefold()
+            ]
+
+    monkeypatch.setattr(ar, "_catalog_module", lambda: (FakeCatalog, "unused"))
+
+    document = load_module("01_Arquitectura_y_Conectividad")
+    route = ar.AssistantRoutingService().route(
+        document,
+        "que conexiones Snowflake tenemos?",
+        "datasphere_core",
+    )
+
+    assert route is not None
+    assert "snowflake" in route.message.lower()
+    assert "no encontr" in route.message.lower()
+    assert route.result is None or not route.result.items
+    assert "ODATA" not in route.message.upper()
