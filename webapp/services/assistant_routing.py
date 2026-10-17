@@ -13,6 +13,7 @@ from core.routing_scorers import (
     _find_matching_asset,
     _find_matching_assets,
     _find_matching_section,
+    _find_cross_module_asset_ties,
     _is_asset_seeking_query,
     _is_conceptual_or_comparative_query,
     _query_object_tokens,
@@ -837,6 +838,23 @@ class AssistantRoutingService:
             if resources is not None:
                 return AssistantRoute(
                     "Encontré varios recursos curados que pueden ayudarte. Elegí cuál querés abrir.",
+                    (),
+                    question,
+                    result=resources,
+                )
+
+        # Una consulta operativa puede tener varios recursos igualmente
+        # pertinentes. Ofrecemos alternativas sin elegir uno arbitrariamente.
+        tied_assets = _find_cross_module_asset_ties(
+            question, stem, pack_name=pack_name,
+        )
+        if tied_assets:
+            resources = _resource_result(tied_assets, pack_name)
+            if resources is not None:
+                return AssistantRoute(
+                    "Encontré estas alternativas: "
+                    + " | ".join(str(asset.get("description") or "Recurso curado") for asset in tied_assets)
+                    + ". Elegí cuál querés abrir.",
                     (),
                     question,
                     result=resources,

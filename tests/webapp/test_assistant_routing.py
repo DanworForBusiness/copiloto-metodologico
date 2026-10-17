@@ -319,3 +319,28 @@ def test_protocol_only_match_does_not_claim_published_connection(monkeypatch):
         "/catalog/connections/detail" in action.url
         for action in route.actions
     )
+
+def test_generic_power_bi_howto_offers_both_protocols():
+    """Una consulta sin protocolo ofrece alternativas, no elige arbitrariamente."""
+    from webapp.services.content_service import load_module
+    from webapp.services.assistant_routing import AssistantRoutingService
+
+    document = load_module("05_Reporting_y_Consumo", "datasphere_core")
+
+    route = AssistantRoutingService().route(
+        document,
+        "como conecto power bi?",
+        "datasphere_core",
+    )
+
+    assert route is not None
+    assert route.result is not None
+
+    items = route.result.items
+    assert len(items) == 2
+
+    titles = [item.title for item in items]
+    assert any("Power BI" in title and "ODBC" in title for title in titles)
+    assert any("Power BI" in title and "OData" in title for title in titles)
+
+    assert len({item.url for item in items}) == 2
