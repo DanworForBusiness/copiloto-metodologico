@@ -792,7 +792,9 @@ def test_15_route_surface_still_156():
     #     (herramienta "Publicar modelo", alta gobernada del Catálogo) -- CERO rutas de Staffing tocadas.
     #   196 -> 199 (governed-decision/v1 B3): +3 rutas autenticadas del APP_OWNER
     #     (GET /governed-decisions/status, POST .../ratify, POST .../revoke) -- CERO rutas de Staffing tocadas.
-    assert len(snapshot) == 199   # +2 (Datasphere UI: POST run, refresh-catalog) +5 (ad-hoc: GET result, export.json, export.md, log, POST delete) +1 (Datasphere publicación: POST .../datasphere-publication/run) +3 (Assessment del cliente: GET /catalog/client/assessment, .json, .md) +1 (Perfiles de clientes del dueño: POST /modules/{stem}/datasphere-profiles)  +1 (Abrir SQL: GET /catalog/sql) +1 (Catálogo: GET /catalog/lob, línea de negocio) +1 (Catálogo: GET /catalog/client, modelos por cliente) +3 (Decisiones de gobierno B3: GET /governed-decisions/status, POST .../ratify, POST .../revoke)
+    #   199 -> 201 (Contratos Gobernados B4): +2 rutas de consulta read-only
+    #     (GET /governed-contracts, GET /governed-contracts/detail) -- CERO rutas de Staffing tocadas.
+    assert len(snapshot) == 201   # +2 (Datasphere UI: POST run, refresh-catalog) +5 (ad-hoc: GET result, export.json, export.md, log, POST delete) +1 (Datasphere publicación: POST .../datasphere-publication/run) +3 (Assessment del cliente: GET /catalog/client/assessment, .json, .md) +1 (Perfiles de clientes del dueño: POST /modules/{stem}/datasphere-profiles)  +1 (Abrir SQL: GET /catalog/sql) +1 (Catálogo: GET /catalog/lob, línea de negocio) +1 (Catálogo: GET /catalog/client, modelos por cliente) +3 (Decisiones de gobierno B3: GET /governed-decisions/status, POST .../ratify, POST .../revoke)
     assert "POST /operaciones/staffing/asignaciones/historial" in snapshot
     assert "POST /operaciones/staffing/asignaciones/ausencias" in snapshot
     assert "POST /operaciones/staffing/asignaciones/vacaciones" not in snapshot

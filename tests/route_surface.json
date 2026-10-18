@@ -71,6 +71,8 @@
   "GET /desafio",
   "GET /desafio/cerrar",
   "GET /favicon.ico",
+  "GET /governed-contracts",
+  "GET /governed-contracts/detail",
   "GET /governed-decisions/status",
   "GET /health",
   "GET /home",

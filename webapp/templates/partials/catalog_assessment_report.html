@@ -392,5 +392,16 @@
   </details>
   </div>
 </section>
+{% if governed_contracts %}
+<section class="content-section">
+  <h3>Contratos de origen gobernados</h3>
+  <p class="catalog-note__ev">CDS/API externas de origen de este modelo. Ver o gestionar su ratificación — la ratificación pertenece a la CDS/API, no aprueba este Assessment ni su Judgment.</p>
+  <div class="support-links">
+    {% for g in governed_contracts %}
+    <a class="support-link" href="{{ g.url }}">{{ g.remote_connection or '—' }} · {{ g.remote_entity }} — Ver contrato de origen <span>↗</span></a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 </article>
 {% endif %}

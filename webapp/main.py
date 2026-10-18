@@ -64,6 +64,7 @@ from webapp.routers import catalog_assessment as catalog_assessment_router
 from webapp.routers import datasphere_assessment as datasphere_assessment_router
 from webapp.routers import datasphere_publication as datasphere_publication_router
 from webapp.routers import governed_decisions as governed_decisions_router
+from webapp.routers import governed_contracts_ui as governed_contracts_ui_router
 from webapp.services import assessment_presenter
 from webapp.services import catalog_delta_evidence
 from webapp.services import asset_evaluation
@@ -267,6 +268,7 @@ app.include_router(catalog_assessment_router.router)
 app.include_router(datasphere_assessment_router.router)
 app.include_router(datasphere_publication_router.router)
 app.include_router(governed_decisions_router.router)
+app.include_router(governed_contracts_ui_router.router)
 
 
 # Aliases a las capacidades ya extraídas (gate distribuido pre-2D). Los handlers
