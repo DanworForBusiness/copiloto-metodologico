@@ -445,3 +445,18 @@ def test_v2_profiles_stay_valid_without_the_new_sections():
     old["canonical_evidence"]["version"] = "canonical-evidence/v2"
     old["versions"].update({"canonical_evidence": "canonical-evidence/v2", "assessability": "assessability-rules/v3"})
     ma_profile.validate_assessment(old)
+
+
+def test_a_ref_flagged_param_true_is_an_input_parameter_not_a_column_even_without_the_dollar_prefix():
+    """Defecto B5.6 (JMB_Facturas): ``{"ref": ["IP_YEAR"], "param": true}`` es un parametro de entrada; sin cruzar el prefijo ``$`` se lo trataba como columna sin calificar y, con varios origenes,
+    el campo publicado quedaba AMBIGUO (UNQUALIFIED_MULTI_SOURCE) aunque su unico insumo de campo estaba calificado."""
+    frm = {"join": "left", "args": [{"ref": ["S1"]}, {"ref": ["S2"]}], "on": [{"ref": ["S1", "K"]}, "=", {"ref": ["S2", "K"]}]}
+    case = {"as": "PREV", "xpr": ["case", "when", {"ref": ["S1", "D"]}, "between", {"func": "TO_DATE", "args": [{"xpr": [{"ref": ["IP_YEAR"], "param": True}, "||", {"val": "0101"}]}]}, "then", {"val": 1}, "else", {"val": 0}, "end"]}
+    r = _res(_sel(frm, [case]), {"S1": ("D", "K"), "S2": ("K", "X")})
+    assert _o(r, "PREV") == [("S1", "D", MT_DERIVED, None)]                                     # solo el campo calificado; el parametro no es origen ni ambiguedad
+
+
+def test_a_real_unqualified_column_without_the_param_flag_is_still_ambiguous_over_several_sources():
+    frm = {"join": "left", "args": [{"ref": ["S1"]}, {"ref": ["S2"]}], "on": []}
+    r = _res(_sel(frm, [{"as": "PREV", "xpr": [{"ref": ["K"]}, "+", {"val": 1}]}]), {"S1": ("K",), "S2": ("K",)})
+    assert any(o.ambiguity == AMB_UNQUALIFIED_MULTI for o in r["PREV"])                         # K existe en ambos: NO se adivina (la marca param no se infiere)

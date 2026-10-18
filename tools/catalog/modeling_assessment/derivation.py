@@ -233,10 +233,13 @@ def _fp(col: dict, exact: bool) -> str:
 def _inputs(col: dict, aliases: dict[str, tuple[str, str | None]]) -> tuple[tuple[InputRef, ...], list[str]]:
     refs: list[list[str]] = []
     amb: list[str] = []
+    param_paths: set[tuple[str, ...]] = set()
 
     def f(n: dict) -> None:
         if isinstance(n.get("ref"), list):
             refs.append([_segment(x) for x in n["ref"]])
+            if n.get("param") is True:                                         # ``"param": true`` = parametro de entrada (p. ej. IP_YEAR), no una columna del FROM
+                param_paths.add(tuple(refs[-1]))
         if "SELECT" in n or "SET" in n:
             amb.append(AMB_SUBQUERY)
     _walk(col, f)
@@ -246,7 +249,7 @@ def _inputs(col: dict, aliases: dict[str, tuple[str, str | None]]) -> tuple[tupl
     for path in refs:
         if not path:
             continue
-        if path[0].startswith("$"):
+        if path[0].startswith("$") or tuple(path) in param_paths:
             out.append(InputRef(None, path[-1], IN_PARAMETER))
             continue
         field = path[-1]
