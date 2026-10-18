@@ -244,11 +244,13 @@ def _resolve_ratifications(ev: ProfileEvidence, ratified_contracts: Iterable[Map
     records: list[dict] = []
     applied: set[str] = set()
     for item in sorted((i for i in (ratified_contracts or ()) if isinstance(i, Mapping)), key=lambda i: (str(i.get("leaf")), str(i.get("event_id")))):
-        leaf, ident, event_id, digest = item.get("leaf"), item.get("identity"), item.get("event_id"), item.get("digest")
+        leaf, ident, event_id, digest, eref = item.get("leaf"), item.get("identity"), item.get("event_id"), item.get("digest"), item.get("evidence_ref")
+        # Trazabilidad al EVENTO concreto (no solo al subject CDS/API): event_id + la referencia de evidencia con la que se ratifico (algo, campos cubiertos y digest) + technical_id del contrato.
         rec = {"target": f"source:{leaf}", "decision": C.DISPOSITION_GOVERNED_CONTRACT_RATIFIED, "scope": C.RATIFICATION_SCOPE, "leaf": leaf, "identity": ident,
-               "event_id": event_id, "digest": digest}
+               "technical_id": item.get("technical_id"), "event_id": event_id, "digest": digest, "evidence_ref": dict(eref) if isinstance(eref, Mapping) else eref}
         code = None
-        if not (isinstance(leaf, str) and leaf and isinstance(ident, Mapping) and isinstance(event_id, str) and event_id.strip() and isinstance(digest, str) and len(digest) == 64):
+        if not (isinstance(leaf, str) and leaf and isinstance(ident, Mapping) and isinstance(event_id, str) and event_id.strip() and isinstance(digest, str) and len(digest) == 64
+                and isinstance(eref, Mapping) and eref.get("algo") == "sha256" and eref.get("digest") == digest and eref.get("fields")):
             code = "INVALID_RATIFICATION"
         else:
             lr = ev.leaf_class_records.get(leaf)

@@ -34,7 +34,8 @@ def with_identities(p: dict) -> dict:
 
 def ratif(p: dict, leaf: str, *, event_id: str | None = None, **override) -> dict:
     rec = next(r for r in p["canonical_evidence"]["source_contract_classes"]["leaves"] if r["leaf"] == leaf)
-    item = {"leaf": leaf, "identity": {"remote_connection": rec["remote_connection"], "remote_entity": rec["remote_entities"][0]}, "event_id": event_id or f"gd-{leaf}", "digest": HEX}
+    item = {"leaf": leaf, "identity": {"remote_connection": rec["remote_connection"], "remote_entity": rec["remote_entities"][0]}, "event_id": event_id or f"gd-{leaf}", "digest": HEX,
+            "technical_id": f"tid:{leaf}", "evidence_ref": {"algo": "sha256", "fields": ["source_contract_classes.leaves[cds]"], "digest": HEX}}
     item.update(override)
     return item
 
@@ -131,6 +132,9 @@ def test_a_partial_ratification_leaves_the_remaining_critical_leaves_unresolved(
     ({"identity": {"remote_connection": None, "remote_entity": '"dbo"."ART_0012"'}}, "IDENTITY_MISMATCH"),
     ({"leaf": "NO_EXISTE"}, "UNKNOWN_LEAF"),
     ({"digest": "corto"}, "INVALID_RATIFICATION"),
+    ({"evidence_ref": None}, "INVALID_RATIFICATION"),                                                         # sin referencia de evidencia no hay trazabilidad al evento
+    ({"evidence_ref": {"algo": "md5", "fields": ["x"], "digest": HEX}}, "INVALID_RATIFICATION"),
+    ({"evidence_ref": {"algo": "sha256", "fields": ["x"], "digest": "b" * 64}}, "INVALID_RATIFICATION"),      # el digest de la referencia debe ser el del evento
     ({"event_id": " "}, "INVALID_RATIFICATION"),
 ])
 def test_a_ratification_with_the_wrong_identity_or_shape_is_rejected_and_never_changes_the_judgment(override, code):
@@ -206,3 +210,47 @@ def test_a_ratification_never_changes_a_profile_that_was_not_blocked_by_lvl05_in
     leaves = [r["leaf"] for r in p["canonical_evidence"]["source_contract_classes"]["leaves"] if r["contract_class"] == "EXTERNAL_CONTRACT_UNDETERMINED" and r["leaf_kind"] == "REMOTE_IMPORTED"]
     sim = run(p, [ratif(p, l) for l in leaves])
     assert shape(sim) == shape(base) and {s["rule_id"] for s in sim["strengths"]} == {s["rule_id"] for s in base["strengths"]}
+
+
+# ───────────── trazabilidad al evento concreto ─────────────
+def test_every_applied_record_cites_the_exact_event_and_its_evidence_reference_not_only_the_cds_subject():
+    p = gp()
+    items = [ratif(p, l, event_id=f"gd-evt-{l}") for l in CRITICAL]
+    sim = run(p, items)
+    for it in items:
+        rec = rec_for(sim, it["leaf"])
+        assert rec["status"] == "APPLIED"
+        assert (rec["event_id"], rec["digest"], rec["evidence_ref"], rec["technical_id"], rec["identity"]) == (it["event_id"], it["digest"], it["evidence_ref"], it["technical_id"], it["identity"])
+        assert rec["evidence_ref"]["algo"] == "sha256" and rec["evidence_ref"]["fields"] and rec["evidence_ref"]["digest"] == rec["digest"]
+
+
+def test_the_traceability_changes_the_output_signature_so_a_different_event_is_a_different_simulation():
+    p = gp()
+    a = run(p, [ratif(p, l, event_id="gd-A") for l in CRITICAL])
+    b = run(p, [ratif(p, l, event_id="gd-B") for l in CRITICAL])
+    assert shape(a) == shape(b) and a["output_signature"] != b["output_signature"]
+
+
+# ───────────── consumidores existentes: comportamiento v2 salvo pedido explicito ─────────────
+def test_no_production_module_requests_the_variant_or_passes_ratifications():
+    """El unico consumidor productivo es ``assessment_service._derive_judgment`` (``evaluate_judgment(profile)``). Ningun modulo fuera del motor, del enlace y de los tests nombra la variante."""
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[1]
+    allowed = {"tools/catalog/methodological_judgment/contract.py", "tools/catalog/methodological_judgment/engine.py", "tools/catalog/methodological_judgment/rules.py",
+               "webapp/services/governed_ratification_link.py"}
+    offenders = []
+    for path in list((root / "tools").rglob("*.py")) + list((root / "webapp").rglob("*.py")) + list((root / "core").rglob("*.py")):
+        rel = path.relative_to(root).as_posix()
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if ("GOVERNED_CONTRACT_RATIFIED" in text or "ratified_contracts" in text) and rel not in allowed:
+            offenders.append(rel)
+    assert offenders == []
+
+
+def test_the_production_derivation_is_the_plain_v2_call_for_every_fixture():
+    from webapp.services import assessment_service as svc
+    for alias in ALIASES:
+        p = fresh(alias)
+        j = svc._derive_judgment(p)
+        assert j["output_signature"] == evaluate_judgment(p)["output_signature"] and "ruleset_options" not in j and j["ruleset_version"] == "judgment-rules/v2"
+        assert all(d.get("decision") != VARIANT for d in j["dispositions_applied"])

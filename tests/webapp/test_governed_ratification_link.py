@@ -145,7 +145,7 @@ def test_physical_governed_unknown_and_non_remote_leaves_are_never_candidates_ev
     ev_gov = ratified(p, "ART_0010", event_id="gd-gov")                                                           # CDS ya gobernada
     rep = link.link_ratifications(p, CLIENT, now=NOW, load_events=store(ev_raw, ev_gov))
     assert rep["ratified_contracts"] == [] and {"ART_0007", "ART_0010"}.isdisjoint(reasons(rep))
-    sim = evaluate_judgment(p, variants=[VARIANT], ratified_contracts=[{"leaf": "ART_0007", "identity": gd.cds_identity(leaf_rec(p, "ART_0007")), "event_id": "gd-raw", "digest": ev_raw["evidence_ref"]["digest"]}])
+    sim = evaluate_judgment(p, variants=[VARIANT], ratified_contracts=[{"leaf": "ART_0007", "identity": gd.cds_identity(leaf_rec(p, "ART_0007")), "event_id": "gd-raw", "digest": ev_raw["evidence_ref"]["digest"], "evidence_ref": ev_raw["evidence_ref"]}])
     assert next(d for d in sim["dispositions_applied"] if d.get("leaf") == "ART_0007")["reject_code"] == "SOURCE_NOT_ELIGIBLE"      # defensa en profundidad: el motor también lo rechaza
 
 
@@ -163,3 +163,14 @@ def test_the_link_is_read_only_it_never_mutates_the_profile_or_the_events():
     p0, e0 = copy.deepcopy(p), copy.deepcopy(events)
     simulate(p, store(*events))
     assert p == p0 and events == e0
+
+
+def test_the_linked_item_carries_the_exact_event_and_evidence_reference_and_the_latest_event_wins():
+    p = gp()
+    old = ratified(p, "ART_0012", event_id="gd-old", decided_at="2026-10-01T00:00:00Z")
+    new = ratified(p, "ART_0012", event_id="gd-new", decided_at="2026-10-05T00:00:00Z")
+    rep, sim = simulate(p, store(old, new))
+    item = next(c for c in rep["ratified_contracts"] if c["leaf"] == "ART_0012")
+    assert (item["event_id"], item["evidence_ref"], item["technical_id"], item["decided_at"]) == ("gd-new", new["evidence_ref"], new["subject"]["technical_id"], "2026-10-05T00:00:00Z")
+    rec = next(d for d in sim["dispositions_applied"] if d.get("leaf") == "ART_0012")
+    assert (rec["event_id"], rec["evidence_ref"], rec["technical_id"]) == ("gd-new", new["evidence_ref"], new["subject"]["technical_id"])        # trazable al evento vigente, no al viejo

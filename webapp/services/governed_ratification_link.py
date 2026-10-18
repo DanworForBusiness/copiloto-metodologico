@@ -74,6 +74,7 @@ def link_ratifications(profile: Mapping[str, Any], client: str, *, now: datetime
             report.append(_report(name, OUT_NOT_LINKED, "EVIDENCE_UNKNOWN", technical_id=tid))
         else:
             event = next(e for e in events if e["event_id"] == st["ratified_event_id"])
-            linked.append({"leaf": name, "identity": identity, "event_id": event["event_id"], "digest": event["evidence_ref"]["digest"]})
+            linked.append({"leaf": name, "identity": identity, "technical_id": tid, "event_id": event["event_id"], "digest": event["evidence_ref"]["digest"],
+                           "evidence_ref": dict(event["evidence_ref"]), "decided_at": event["decided_at"]})
             report.append(_report(name, OUT_LINKED, None, technical_id=tid, event_id=event["event_id"], review=st["review"]))
     return {"ratified_contracts": linked, "report": report}
