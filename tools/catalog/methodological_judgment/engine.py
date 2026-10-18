@@ -24,7 +24,7 @@ from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
 
 from . import contract as C
 from .cta import build_cta_candidates
-from .rules import dimension_resolution, evaluate_rules, published_contract_conformance, resolve_level_exploratory
+from .rules import decision_critical_undetermined_source, dimension_resolution, evaluate_rules, published_contract_conformance, resolve_level_exploratory
 
 _STRENGTH_BY_DIM = {
     C.SOURCE_INGESTION: ("SRC-STR-01",),
@@ -231,6 +231,48 @@ def _source_assessment(ev: ProfileEvidence) -> dict:
             "assessment_versions": dict(sorted((ev.versions or {}).items())), "profile_signature": C.signature(ev.profile)}
 
 
+# ───────────────────────────── ratificaciones de gobierno (B5, SIMULACION opt-in) ─────────────────────────────
+_UNDETERMINED_CLASS = "EXTERNAL_CONTRACT_UNDETERMINED"
+
+
+def _resolve_ratifications(ev: ProfileEvidence, ratified_contracts: Iterable[Mapping[str, Any]] | None, policy: str) -> tuple[frozenset, list[dict]]:
+    """Valida CONTRA EL PERFIL cada ratificacion ya resuelta por el llamador (identidad + vigencia + digest MATCH se comprueban FUERA del motor: este solo lee la evidencia).
+    Una ratificacion solo resuelve la indeterminacion contractual decision-critica (LVL-05) de una hoja ``REMOTE_IMPORTED`` cuya clase explicita es ``EXTERNAL_CONTRACT_UNDETERMINED`` y cuya identidad
+    (remote_connection, remote_entity) coincide EXACTAMENTE con la del evento. Una hoja de clase fisica cruda / gobernada / desconocida / de plataforma NO es elegible: la ratificacion humana no
+    reclasifica evidencia positiva. Devuelve (hojas resueltas, registros auditables APPLIED/REJECTED/NO_EFFECT)."""
+    critical = decision_critical_undetermined_source(ev, policy)
+    records: list[dict] = []
+    applied: set[str] = set()
+    for item in sorted((i for i in (ratified_contracts or ()) if isinstance(i, Mapping)), key=lambda i: (str(i.get("leaf")), str(i.get("event_id")))):
+        leaf, ident, event_id, digest = item.get("leaf"), item.get("identity"), item.get("event_id"), item.get("digest")
+        rec = {"target": f"source:{leaf}", "decision": C.DISPOSITION_GOVERNED_CONTRACT_RATIFIED, "scope": C.RATIFICATION_SCOPE, "leaf": leaf, "identity": ident,
+               "event_id": event_id, "digest": digest}
+        code = None
+        if not (isinstance(leaf, str) and leaf and isinstance(ident, Mapping) and isinstance(event_id, str) and event_id.strip() and isinstance(digest, str) and len(digest) == 64):
+            code = "INVALID_RATIFICATION"
+        else:
+            lr = ev.leaf_class_records.get(leaf)
+            if lr is None:
+                code = "UNKNOWN_LEAF"
+            elif lr.get("leaf_kind") != "REMOTE_IMPORTED" or lr.get("contract_class") != _UNDETERMINED_CLASS or ev.classify_source(leaf, policy) != _UNDETERMINED_CLASS:
+                code = "SOURCE_NOT_ELIGIBLE"
+            else:
+                ents = [e for e in (lr.get("remote_entities") or ()) if isinstance(e, str) and e.strip()]
+                if len(ents) != 1 or ident.get("remote_entity") != ents[0] or ident.get("remote_connection") != lr.get("remote_connection"):
+                    code = "IDENTITY_MISMATCH"
+                elif leaf in applied:
+                    code = "DUPLICATE_LEAF"
+        if code is not None:
+            rec.update(status="REJECTED", reject_code=code)
+        elif leaf not in critical:
+            rec.update(status="NO_EFFECT", reject_code="NO_DECISION_CRITICAL_EXPOSURE")      # valida, pero esta hoja no era la causa de LVL-05: nada que resolver
+        else:
+            rec.update(status="APPLIED")
+            applied.add(leaf)
+        records.append(rec)
+    return frozenset(applied), records
+
+
 # ───────────────────────────── API ─────────────────────────────
 def _materialization_digest(ev: ProfileEvidence) -> str:
     """Huella de la materializacion que el motor CONSUMIO (la evidencia CSN explicita cambia el resultado y por tanto la firma de salida)."""
@@ -249,19 +291,24 @@ def _materialization_options(ev: ProfileEvidence, materialization_csn: Mapping[s
 
 
 def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping[str, Any]] | None = None, *, external_policy: str = "UNDETERMINED",
-                      variants: Iterable[str] = (), materialization_csn: Mapping[str, Any] | None = None) -> dict:
+                      variants: Iterable[str] = (), materialization_csn: Mapping[str, Any] | None = None,
+                      ratified_contracts: Iterable[Mapping[str, Any]] | None = None) -> dict:
     """Juicio determinista sobre un perfil de Assessment YA persistido/generado (solo lectura). ``external_policy`` existe SOLO para pruebas de sensibilidad
     (``UNDETERMINED`` es la politica vigente); no forma parte del contrato de produccion."""
     variants = frozenset(variants or ())
     if not variants <= C.VARIANTS:
         raise ValueError(f"variantes desconocidas: {sorted(variants - C.VARIANTS)}")
+    ratifying = C.VARIANT_GOVERNED_CONTRACT_RATIFIED in variants
+    if ratified_contracts is not None and not ratifying:
+        raise ValueError("ratified_contracts exige la variante GOVERNED_CONTRACT_RATIFIED (opt-in explicito)")
     materialized = C.VARIANT_MATERIALIZED_INPUT in variants
     ev = ProfileEvidence(profile, materialization_csn if materialized else None)      # el CSN es una entrada EXPLICITA: sin el modificador no se usa; sin CSN las relaciones no verificables quedan UNKNOWN
     if ev.assessment_state != "ASSESSED":
         return _unjudgeable(ev, "ASSESSMENT_NOT_JUDGEABLE")
     if not ev.has_canonical_evidence_v3:
         return _unjudgeable(ev, "CANONICAL_EVIDENCE_V3_REQUIRED")
-    res = evaluate_rules(ev, external_policy, variants)
+    ratified_leaves, ratification_records = _resolve_ratifications(ev, ratified_contracts, external_policy) if ratifying else (frozenset(), [])
+    res = evaluate_rules(ev, external_policy, variants, ratified_leaves)
     reasons = copy.deepcopy(res["reasons"])
     reviews = copy.deepcopy(res["review_candidates"])
     strengths = res["strengths"]
@@ -270,7 +317,7 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     # Fuente externa indeterminada DECISION-CRITICA: hoja EXTERNAL_CONTRACT_UNDETERMINED cuyo vocabulario llega verbatim al publicado (ver
     # rules.decision_critical_undetermined_source). No degrada un MATERIAL ya establecido (el paso 1 de _decide gana).
     critical = bool(res.get("critical_source_undetermined"))
-    applied = _apply_dispositions(reasons, reviews, dispositions)
+    applied = _apply_dispositions(reasons, reviews, dispositions) + ratification_records
 
     status, level, level_rule, nd_reason = _decide(reasons, strengths, not_eval, critical_undetermined=critical)
     _, level_no_exc, _, _ = _decide(reasons, strengths, not_eval, ignore_exceptions=True, critical_undetermined=critical)
@@ -309,6 +356,7 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     if external_policy != "UNDETERMINED" or variants:
         out["ruleset_options"] = {**({"external_policy": external_policy} if external_policy != "UNDETERMINED" else {}), **({"variants": sorted(variants)} if variants else {}),
                                   **({"materialization": _materialization_options(ev, materialization_csn)}
-                                     if materialized and variants & {C.VARIANT_T5_LOCAL_PHYSICAL, C.VARIANT_LEVEL_RESOLUTION} else {})}
+                                     if materialized and variants & {C.VARIANT_T5_LOCAL_PHYSICAL, C.VARIANT_LEVEL_RESOLUTION} else {}),
+                                  **({"ratified_contracts": {"scope": C.RATIFICATION_SCOPE, "resolved_leaves": sorted(ratified_leaves), "promotes_strengths": False}} if ratifying else {})}
     out["output_signature"] = C.signature(out)
     return out
