@@ -19,7 +19,12 @@ VARIANT_LEVEL_RESOLUTION = "LEVEL_RESOLUTION"   # EXPLORATORIA: resuelve el nive
 # MODIFICADOR (no una regla): T5_LOCAL_PHYSICAL y LEVEL_RESOLUTION leen la materializacion OBSERVADA de las hojas locales (``leaf-materialization/v1``, derivada del perfil persistido) en vez de
 # sus condiciones ad hoc. Sin T5/LEVEL no tiene efecto. Solo con el perfil (sin CSN) las hojas cuya relacion no se puede verificar quedan UNKNOWN y NO aportan evidencia positiva.
 VARIANT_MATERIALIZED_INPUT = "MATERIALIZED_INPUT"
-VARIANTS = frozenset({VARIANT_T4_HAR, VARIANT_T5_LOCAL_PHYSICAL, VARIANT_LEVEL_RESOLUTION, VARIANT_MATERIALIZED_INPUT})
+# B5 (SIMULACION, opt-in): una ratificacion de gobierno vigente (governed-decision/v1, resuelta FUERA del motor) resuelve UNICAMENTE la indeterminacion contractual decision-critica de LVL-05 de una hoja
+# EXTERNAL_CONTRACT_UNDETERMINED. NO la convierte en gobernada para las demas reglas ni otorga fortalezas (SRC-STR-01, PUB-STR-01...). Vacio = salida byte a byte identica a judgment-rules/v2.
+VARIANT_GOVERNED_CONTRACT_RATIFIED = "GOVERNED_CONTRACT_RATIFIED"
+DISPOSITION_GOVERNED_CONTRACT_RATIFIED = "GOVERNED_CONTRACT_RATIFIED"
+RATIFICATION_SCOPE = "LVL-05_SOURCE_CONTRACT_CLASS_ONLY"
+VARIANTS = frozenset({VARIANT_T4_HAR, VARIANT_T5_LOCAL_PHYSICAL, VARIANT_LEVEL_RESOLUTION, VARIANT_MATERIALIZED_INPUT, VARIANT_GOVERNED_CONTRACT_RATIFIED})
 
 # Estados por dimension (solo con la variante LEVEL_RESOLUTION). «No evaluable» (falta evidencia) y «No aplicable» (justificado por la arquitectura observada) NO son equivalentes; la ausencia de
 # fortaleza no es deficiencia; «cumplida» exige EVIDENCIA POSITIVA, nunca la mera ausencia de debilidades.

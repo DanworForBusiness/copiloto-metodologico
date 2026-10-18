@@ -184,14 +184,15 @@ def harmonization_passthrough_exposure(ev: ProfileEvidence) -> list[str]:
     return sorted(out)
 
 
-def decision_critical_undetermined_source(ev: ProfileEvidence, policy: str) -> dict[str, list[str]]:
+def decision_critical_undetermined_source(ev: ProfileEvidence, policy: str, exclude: frozenset = frozenset()) -> dict[str, list[str]]:
     """Hojas frontera ``EXTERNAL_CONTRACT_UNDETERMINED`` cuyo vocabulario llega a un campo publicado VERBATIM por un camino casi-identidad
     que NO cruza un contrato de armonizacion (``vocabulary_exposure``). La clase de esa fuente es DECISION-CRITICA para el contrato publicado:
     si fuese cruda/tecnica, es vocabulario no restaurado que llega al consumidor (debilidad del contrato publicado); si fuese gobernada, es
     reuso legitimo. La tecnologia NO la resuelve, y mientras la clase siga indeterminada el motor no puede afirmar la calidad del contrato
     publicado para esos campos -> ``NOT_DETERMINABLE``. NARROW: exige la exposicion publicada verbatim (una hoja indeterminada SIN consecuencia
-    publicada no alcanza; por eso Prefacturacion, cuyo vocabulario externo se resuelve antes de publicar, no dispara). hoja -> campos publicados."""
-    und = [l for l in ev.remote_leaves if ev.classify_source(l, policy) == EXTERNAL_CONTRACT_UNDETERMINED]
+    publicada no alcanza; por eso Prefacturacion, cuyo vocabulario externo se resuelve antes de publicar, no dispara). hoja -> campos publicados.
+    ``exclude`` (SOLO variante B5 GOVERNED_CONTRACT_RATIFIED): hojas cuya indeterminacion contractual resolvio una ratificacion vigente; la clase de la hoja NO cambia para ninguna otra regla."""
+    und = [l for l in ev.remote_leaves if ev.classify_source(l, policy) == EXTERNAL_CONTRACT_UNDETERMINED and l not in exclude]
     return vocabulary_exposure(ev, und)
 
 
@@ -676,7 +677,7 @@ def qualifier_naming(ev: ProfileEvidence, har_rel_02: bool) -> dict:
     return {"state": state, "disposition": C.NEEDS_CONTEXT if state not in ("NONE", "NOT_DETERMINABLE") else None, "level_effect": "NONE", "closure_effect": "NONE"}
 
 
-def reviews_and_limitations(ev: ProfileEvidence, policy: str) -> tuple[list[dict], list[dict]]:
+def reviews_and_limitations(ev: ProfileEvidence, policy: str, ratified: frozenset = frozenset()) -> tuple[list[dict], list[dict]]:
     rev, lim = [], []
     # predicados fijos: NO evaluados en v1
     trivial = (ev.section("expression_occurrences").get("trivial_predicates") or ())
@@ -692,7 +693,7 @@ def reviews_and_limitations(ev: ProfileEvidence, policy: str) -> tuple[list[dict
                            refs=["area:SOURCE_EXTRACTION"], extra={"count_in_closure": ev.source_state_counts.get("OTHER_ORIGIN", 0)}))
         # DECISION-CRITICA sii alguna de esas hojas indeterminadas expone su vocabulario verbatim al contrato publicado (ver
         # decision_critical_undetermined_source): entonces la limitacion SI puede cambiar el nivel (la clase no resuelta decide leak vs reuso).
-        crit = bool(decision_critical_undetermined_source(ev, policy))
+        crit = bool(decision_critical_undetermined_source(ev, policy, ratified))
         lim.append(_limitation("external_source_contract_undetermined", artifacts=und, refs=["area:SOURCE_EXTRACTION"], can_change_level=crit, ev=ev))
     # semantica temporal reutilizada que NO califica como creada aguas abajo sobre una frontera tecnica (L1(b)): revision, sin efecto en nivel
     _, unq = _downstream_created_semantics(ev)
@@ -868,7 +869,7 @@ def mixed_auxiliary_physical_reviews(ev: ProfileEvidence, policy: str) -> list[d
                     extra={"physical_components": [{k: c[k] for k in ("leaf", "physical_entities", "governed_entities")} for c in aux], "interpretation": "TECHNICAL_EVIDENCE_NOT_A_DEFICIENCY"})]
 
 
-def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: frozenset = frozenset()) -> dict:
+def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: frozenset = frozenset(), ratified: frozenset = frozenset()) -> dict:
     pro = rule_pro_mat_01(ev, policy)
     lek = rule_lek_mat_02(ev, policy)
     src = rule_src_rel_loc(ev, policy, variants)
@@ -877,7 +878,7 @@ def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: 
     reasons = [*pro, *lek, *src, *h1, *h2, *loc]
     st = strengths(ev, policy, has_pro_mat=bool(pro), variants=variants)
     cg = review_complex_graphical_chain(ev)
-    reviews, limitations = reviews_and_limitations(ev, policy)
+    reviews, limitations = reviews_and_limitations(ev, policy, ratified)
     if cg:
         reviews.append(cg)
     if C.VARIANT_T5_LOCAL_PHYSICAL in variants and C.VARIANT_MATERIALIZED_INPUT in variants:
@@ -888,4 +889,4 @@ def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: 
         "naming_governance": qualifier_naming(ev, bool(h2)),
     }
     return {"reasons": reasons, "strengths": st, "qualifiers": qualifiers, "review_candidates": reviews, "evidence_limitations": limitations,
-            "supporting_evidence": supporting_evidence(ev), "critical_source_undetermined": decision_critical_undetermined_source(ev, policy)}
+            "supporting_evidence": supporting_evidence(ev), "critical_source_undetermined": decision_critical_undetermined_source(ev, policy, ratified)}
