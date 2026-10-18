@@ -127,9 +127,12 @@ def test_a_consumed_candidate_of_unknown_character_is_insufficient_evidence_not_
     assert b["not_determinable_detail"]["evidence_sufficient"] is False and states_of(b)["HARMONIZATION"] == NE
 
 
-def test_an_unconsumed_candidate_with_missing_evidence_does_not_block_the_evaluation_of_the_product():
+def test_an_unconsumed_candidate_with_missing_evidence_is_not_sufficient_evidence_by_mere_existence():
+    """Decision del owner (conservadora): el candidato UNKNOWN bloquea la evaluacion aunque no tenga consumidores en el cierre; hasta demostrar su relevancia en el linaje publicado no se promueve."""
     b = v(unknown_candidate_model(False), V4)
-    assert states_of(b)["HARMONIZATION"] != NE
+    assert states_of(b)["HARMONIZATION"] == NE and b["status"] == "NOT_DETERMINABLE"
+    det = {d["dimension"]: d for d in b["not_determinable_detail"]["missing_strength_dimensions"]}
+    assert det["HARMONIZATION"]["cause"] == "HARMONIZATION_CANDIDATE_CHARACTER_NOT_DETERMINABLE"
 
 
 # ───────── composicion normal (propagacion) y hechos adversos verificados ─────────

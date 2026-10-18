@@ -866,9 +866,10 @@ def resolve_level_exploratory(states: list[dict]) -> tuple[str, str] | None:
 # Nivel: cualquier NOT_EVALUABLE o UNRESOLVED => sigue «No determinable»; si no, ADECUADA (LVL-08) con >= 1 fortaleza. NUNCA BUENA por resolucion (BUENA exige las 4 fortalezas) y NUNCA PARCIAL
 # (PARCIAL exige una desviacion MATERIAL; «tabla fisica cruda» sola jamas lo es: ver encabezado del modulo).
 def har_unknown_candidates(ev: ProfileEvidence) -> list[str]:
-    """Candidatos de armonizacion de caracter UNKNOWN (etiquetas/mapeo/productor no determinables) que ALIMENTAN algun artefacto aguas abajo del cierre: no son deficiencia ni fortaleza; la dimension no
-    es evaluable. Un candidato sin consumidores en el cierre no interviene en la armonizacion del producto: su evidencia faltante no impide evaluarlo."""
-    return sorted(c["artifact"] for c in ev.harmonization.values() if (c.get("character") or {}).get("value") == "UNKNOWN" and ev.descendants(c["artifact"]))
+    """Candidatos de armonizacion de caracter UNKNOWN (etiquetas/mapeo/productor no determinables), CONSUMIDOS O NO: no son deficiencia ni fortaleza; la dimension no es evaluable. Decision del owner
+    (conservadora): un artefacto sin consumidores no se toma como evidencia suficiente por mera existencia, ni su evidencia faltante se ignora; mientras no se demuestre su relevancia en el linaje
+    publicado, la armonizacion permanece indeterminada."""
+    return sorted(c["artifact"] for c in ev.harmonization.values() if (c.get("character") or {}).get("value") == "UNKNOWN")
 
 
 def har_projection_over_physical_raw(ev: ProfileEvidence, policy: str) -> list[str]:
