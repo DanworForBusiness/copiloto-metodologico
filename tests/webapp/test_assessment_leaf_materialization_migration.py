@@ -219,7 +219,7 @@ def test_the_persisted_judgment_keeps_its_methodology_and_recognizes_the_new_pro
     new = _env(_path(kworld, "Kensing"))
     jo, jn = old["judgment"], new["judgment"]
     assert svc.judgment_methodology(jo) == svc.judgment_methodology(jn) and svc.judgment_methodology_diff(jo, jn) == []                   # niveles, fortalezas, razones, criterios intactos
-    assert (jn["status"], jn["level"], jn["level_rule"], jn["ruleset_version"]) == (jo["status"], jo["level"], jo["level_rule"], "judgment-rules/v2")
+    assert (jn["status"], jn["level"], jn["level_rule"], jn["ruleset_version"]) == (jo["status"], jo["level"], jo["level_rule"], svc.JUDGMENT_CONTRACT_VERSIONS[1])
     assert jn["source_assessment"]["profile_signature"] == jsig(new["profile_json"]) != jo["source_assessment"]["profile_signature"]                  # reconoce la NUEVA firma del perfil
     assert jn["source_assessment"]["assessment_versions"]["canonical_evidence"] == "canonical-evidence/v4" and jn["output_signature"] != jo["output_signature"]
     assert svc.classify_judgment_backfill(new)[0] == svc.JDG_CURRENT and svc.classify_judgment_revalidation(new)[0] == svc.JDG_CURRENT
@@ -341,7 +341,7 @@ def test_it_abstains_when_the_judgment_methodology_would_differ_instead_of_requa
     _make_v3(kworld, kworld.k)
     snap = _snapshot(kworld)
     real = svc._derive_judgment
-    monkeypatch.setattr(svc, "_derive_judgment", lambda prof: {**real(prof), "level": "OTRO_NIVEL"})                   # el motor "recalificaria": NO se acepta
+    monkeypatch.setattr(svc, "_derive_judgment", lambda prof, ratified=None: {**real(prof, ratified), "level": "OTRO_NIVEL"})                   # el motor "recalificaria": NO se acepta
     out = _run(kworld, apply=True)
     assert _rec(out)["action"] == bf.ABSTAINED and _rec(out)["reason"] == "JUDGMENT_METHODOLOGY_DIVERGED" and _snapshot(kworld) == snap
 

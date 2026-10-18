@@ -58,7 +58,7 @@ from tools.catalog.modeling_assessment import profile as ma_profile
 from tools.catalog.modeling_assessment import shadow as ma_shadow
 from tools.catalog.modeling_assessment.render_md import render_markdown
 from tools.catalog.modeling_assessment.scope import AssessmentUniverse, UnknownTerminalAmError
-from tools.catalog.methodological_judgment import JUDGMENT_SCHEMA_VERSION, RULESET_VERSION, evaluate_judgment
+from tools.catalog.methodological_judgment import CURRENT_RULESET_VERSION, JUDGMENT_SCHEMA_VERSION, evaluate_judgment
 from tools.catalog.methodological_judgment.contract import signature as _judgment_signature
 from tools.catalog import leaf_materialization_evidence as _lme
 
@@ -437,7 +437,9 @@ def _now() -> str:
 
 _UNSET: Any = object()
 # Versión canónica del contrato de Juicio persistido (del propio paquete de Juicio; no se inventa un hash paralelo).
-JUDGMENT_CONTRACT_VERSIONS = (JUDGMENT_SCHEMA_VERSION, RULESET_VERSION)
+# B5.3: el contrato VIGENTE del Juicio persistido es judgment-rules/v3 (= v2 + resolucion de LVL-05 por ratificacion de gobierno INYECTADA). judgment-rules/v2 sigue reproducible en el motor
+# (``evaluate_judgment`` por defecto) pero un Juicio persistido v2 es ``JDG_VERSION_STALE`` hasta una migracion explicita (``--backfill-judgment``).
+JUDGMENT_CONTRACT_VERSIONS = (JUDGMENT_SCHEMA_VERSION, CURRENT_RULESET_VERSION)
 
 
 def judgment_versions_of(judgment: dict | None) -> tuple[str | None, str | None]:
@@ -450,11 +452,12 @@ def judgment_is_current_version(judgment: dict | None) -> bool:
     return bool(judgment) and judgment_versions_of(judgment) == JUDGMENT_CONTRACT_VERSIONS
 
 
-def _derive_judgment(profile: dict | None) -> dict | None:
-    """Juicio metodológico DETERMINISTA del perfil, derivado con el ÚNICO motor canónico (``evaluate_judgment``). Es
+def _derive_judgment(profile: dict | None, ratified: Any = None) -> dict | None:
+    """Juicio metodológico DETERMINISTA del perfil, derivado con el ÚNICO motor canónico (``evaluate_judgment``, ruleset vigente v3). Es
     estado DERIVADO del perfil persistido: se calcula aquí al escribir el sobre (generate/reassess/backfill) y NUNCA se
-    recalcula ni se edita en la UI. ``None`` solo si no hay perfil (estado sin assessment)."""
-    return evaluate_judgment(profile) if profile is not None else None
+    recalcula ni se edita en la UI. ``ratified``: ratificaciones de gobierno INYECTADAS (las enlaza el operador explícito con una instantánea del registro;
+    sin ellas v3 == v2 en niveles: el registro jamás se lee de fondo). ``None`` solo si no hay perfil (estado sin assessment)."""
+    return evaluate_judgment(profile, ruleset=CURRENT_RULESET_VERSION, ratified_contracts=list(ratified or ())) if profile is not None else None
 
 
 def _derive_business_classification(entry: Any, am: str | None) -> dict | None:
@@ -559,6 +562,8 @@ def governed_dir() -> Path | None:
 # de Assessment. ``profile_json`` None (p. ej. FAILED sin perfil previo) no tiene Juicio y se reporta como al día.
 JDG_CURRENT, JDG_MISSING, JDG_VERSION_STALE, JDG_CONTENT_STALE, JDG_NO_PROFILE = (
     "judgment_current", "judgment_missing", "judgment_version_stale", "judgment_content_stale", "no_profile")
+# B5.3: el Juicio persistido consumio una decision de gobierno que YA NO es valida (revocada / evidencia STALE): queda marcado PENDIENTE DE REEVALUACION, no se reescribe en silencio.
+JDG_DECISION_STALE = "judgment_decision_stale"
 
 
 def iter_governed_envelopes() -> Iterable[tuple[dict, Path]]:
@@ -628,28 +633,49 @@ def apply_domain_classification_backfill(env: dict, dclass: dict | None) -> str:
     return _store_envelope(new_env)
 
 
-def classify_judgment_backfill(env: dict) -> tuple[str, dict | None]:
-    """(acción, Juicio canónico fresco). Deriva el Juicio del perfil persistido y lo compara con el persistido por
-    ``output_signature``. Acciones: ``no_profile`` (sin perfil → nada que materializar), ``judgment_current`` (ya es el
-    resultado canónico), ``judgment_missing`` / ``judgment_version_stale`` / ``judgment_content_stale`` (debe actualizarse)."""
+def classify_judgment_decisions(env: dict, snapshot: Any = None) -> dict:
+    """Clasificacion completa de UN sobre para el operador de Juicio: ``{"action", "fresh", "lost", "link_report"}``. ``snapshot`` = instantanea de decisiones (``judgment_decisions.Snapshot``);
+    ``None`` = SIN decisiones (v3 == v2 en niveles). Acciones: ``no_profile``, ``judgment_missing``, ``judgment_current``, ``judgment_version_stale`` (contrato anterior, p. ej. v2),
+    ``judgment_decision_stale`` (v3 vigente que consumio una decision ya revocada/obsoleta: PENDIENTE DE REEVALUACION) y ``judgment_content_stale`` (cualquier otra diferencia)."""
+    from webapp.services import judgment_decisions as jd
     prof = env.get("profile_json")
     if prof is None:
-        return JDG_NO_PROFILE, None
-    fresh = _derive_judgment(prof)
+        return {"action": JDG_NO_PROFILE, "fresh": None, "lost": [], "link_report": None}
+    snap = snapshot if snapshot is not None else jd.empty_snapshot()
+    fresh, report = jd.derive(prof, str(env.get("client") or ""), snap)
     persisted = env.get("judgment")
+    out = {"fresh": fresh, "lost": [], "link_report": report}
     if persisted is None:
-        return JDG_MISSING, fresh
-    if (persisted.get("output_signature"), persisted.get("judgment_schema_version"), persisted.get("ruleset_version")) == \
-       (fresh.get("output_signature"), fresh.get("judgment_schema_version"), fresh.get("ruleset_version")):
-        return JDG_CURRENT, fresh
-    return (JDG_VERSION_STALE if not judgment_is_current_version(persisted) else JDG_CONTENT_STALE), fresh
+        return {**out, "action": JDG_MISSING}
+    if (persisted.get("output_signature"), persisted.get("judgment_schema_version"), persisted.get("ruleset_version")) ==        (fresh.get("output_signature"), fresh.get("judgment_schema_version"), fresh.get("ruleset_version")):
+        return {**out, "action": JDG_CURRENT}
+    if not judgment_is_current_version(persisted):
+        return {**out, "action": JDG_VERSION_STALE}
+    lost = jd.lost_decisions(persisted, fresh, report)
+    return {**out, "action": JDG_DECISION_STALE if lost else JDG_CONTENT_STALE, "lost": lost}
+
+
+def classify_judgment_backfill(env: dict, snapshot: Any = None) -> tuple[str, dict | None]:
+    """(acción, Juicio canónico fresco). Deriva el Juicio del perfil persistido (con la instantánea de decisiones inyectada, si la hay) y lo compara con el persistido por
+    ``output_signature``. Acciones: ``no_profile``, ``judgment_current``, ``judgment_missing`` / ``judgment_version_stale`` / ``judgment_content_stale`` (debe actualizarse) y
+    ``judgment_decision_stale`` (pendiente de reevaluación: NO se reescribe en silencio)."""
+    r = classify_judgment_decisions(env, snapshot)
+    return r["action"], r["fresh"]
 
 
 def apply_judgment_backfill(env: dict, judgment: dict | None) -> str:
-    """Reescribe el MISMO sobre gobernado (misma identidad, mismo ``profile_json`` y firmas) solo con el Juicio nuevo.
+    """Reescribe el MISMO sobre gobernado (misma identidad, mismo ``profile_json`` y firmas) solo con el Juicio nuevo (y retira la marca de reevaluación pendiente, que ya no aplica).
     Devuelve la durabilidad lograda (``remote``/``local``/``memory``)."""
     new_env = dict(env)
     new_env["judgment"] = judgment
+    new_env.pop("judgment_review", None)
+    return _store_envelope(new_env)
+
+
+def apply_judgment_review_marker(env: dict, marker: dict) -> str:
+    """Marca el Juicio PERSISTIDO como pendiente de reevaluacion (clave hermana ``judgment_review``) SIN tocar el Juicio, el perfil, las firmas ni las versiones."""
+    new_env = dict(env)
+    new_env["judgment_review"] = marker
     return _store_envelope(new_env)
 
 
@@ -1218,7 +1244,8 @@ def revalidate_judgment(previous: dict | None, profile: dict | None) -> tuple[st
         return JDG_MISSING, None
     if not judgment_is_current_version(previous):
         return JDG_VERSION_STALE, previous
-    fresh = _derive_judgment(profile)
+    from webapp.services import judgment_decisions as jd
+    fresh = _derive_judgment(profile, jd.consumed(previous))                   # REPLAY de las MISMAS decisiones que consumio el Juicio previo (revalidar no recalifica ni relee el registro)
     if judgment_methodology_diff(previous, fresh):
         return JDG_METHODOLOGY_DIVERGED, None
     return (JDG_CURRENT if _judgment_signature(previous) == _judgment_signature(fresh) else JDG_SIGNATURE_REBOUND), fresh

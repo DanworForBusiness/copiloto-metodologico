@@ -53,7 +53,7 @@ def test_the_report_covers_eligibility_signatures_digests_and_proves_no_writes(k
     assert pc["eligible"] == 1 and pc["pending_migration_compat"] == 1 and pc["states"] == {"CURRENT|None": 1} and pc["pool_signature"] == {"coincide": 1} and pc["abstained"] == {} and pc["failed"] == {}
     assert pc["judgment_actions"] == {"judgment_signature_rebound": 1}
     js = pc["judgment_signatures"][0]
-    assert js["ruleset_old"] == js["ruleset_new"] == "judgment-rules/v2" and js["output_signature_old"] != js["output_signature_new"] and js["source_profile_signature_old"] != js["source_profile_signature_new"]
+    assert js["ruleset_old"] == js["ruleset_new"] == svc.JUDGMENT_CONTRACT_VERSIONS[1] and js["output_signature_old"] != js["output_signature_new"] and js["source_profile_signature_old"] != js["source_profile_signature_new"]
     plan = rep["plan"]
     assert plan["items"] == 2 and plan["clients"] == ["Kensing", "Kensing2"] and plan["plan_digest"] and plan["items_digest_env_independent"] and set(plan["by_client_items_digest"]) == {"Kensing", "Kensing2"}
     assert rep["divergences"] == []
