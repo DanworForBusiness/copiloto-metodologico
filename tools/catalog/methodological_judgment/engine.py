@@ -24,7 +24,8 @@ from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
 
 from . import contract as C
 from .cta import build_cta_candidates
-from .rules import decision_critical_undetermined_source, dimension_resolution, evaluate_rules, published_contract_conformance, resolve_level_exploratory
+from .rules import (decision_critical_undetermined_source, dimension_resolution, dimension_resolution_v4, evaluate_rules, har_unknown_candidates, published_contract_conformance,
+                    resolve_level_exploratory, resolve_level_v4)
 
 _STRENGTH_BY_DIM = {
     C.SOURCE_INGESTION: ("SRC-STR-01",),
@@ -144,7 +145,7 @@ def _closure(status: str, level: str | None, reasons: list[dict], limitations: l
 NO_STRENGTH, INSUFFICIENT_EVIDENCE = "NO_STRENGTH", "INSUFFICIENT_EVIDENCE"
 
 
-def _missing_strength_dimensions(ev: ProfileEvidence, strengths: list[dict], policy: str) -> list[dict]:
+def _missing_strength_dimensions(ev: ProfileEvidence, strengths: list[dict], policy: str, v4: bool = False) -> list[dict]:
     """Dimensiones sin fortaleza afirmativa, cada una con su ``state`` y su ``cause`` estable. Solo lee hechos canónicos ya usados por las reglas; no inventa evidencia."""
     have = {s["rule_id"] for s in strengths}
     out = []
@@ -165,6 +166,8 @@ def _missing_strength_dimensions(ev: ProfileEvidence, strengths: list[dict], pol
                 cause = "NO_HARMONIZATION_BOUNDARY_OBSERVED"
             elif any(c.get("mapping_determinable") is False for c in ev.harmonization.values()):
                 state, cause = INSUFFICIENT_EVIDENCE, "HARMONIZATION_MAPPING_NOT_OBSERVABLE"
+            elif v4 and har_unknown_candidates(ev):                           # v4: un candidato de caracter UNKNOWN (etiquetas/productor no determinables) no es «frontera no legitima»: falta evidencia
+                state, cause = INSUFFICIENT_EVIDENCE, "HARMONIZATION_CANDIDATE_CHARACTER_NOT_DETERMINABLE"
             else:
                 cause = "HARMONIZATION_NOT_A_LEGITIMATE_REUSABLE_BOUNDARY"
         elif dim == C.PROPAGATION:
@@ -317,20 +320,22 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
         raise ValueError(f"variantes desconocidas: {sorted(variants - C.VARIANTS)}")
     if ruleset not in C.RULESETS:
         raise ValueError(f"ruleset desconocido: {ruleset!r} (permitidos: {list(C.RULESETS)})")
-    v3 = ruleset == C.RULESET_V3
+    v4 = ruleset == C.RULESET_V4
+    v3 = ruleset in (C.RULESET_V3, C.RULESET_V4)                          # v4 incluye la politica de ratificacion de v3 (misma entrada ``ratified_contracts``/``decision_inputs``)
     if v3 and variants:
-        raise ValueError("judgment-rules/v3 no admite variantes experimentales (solo la politica de ratificacion de gobierno, que es parte del ruleset)")
+        raise ValueError(f"{ruleset} no admite variantes experimentales (solo la politica de ratificacion de gobierno, que es parte del ruleset)")
+    active = frozenset({C.VARIANT_T5_LOCAL_PHYSICAL, C.VARIANT_MATERIALIZED_INPUT}) if v4 else variants   # politica v4: T5 + evidencia de materializacion PERSISTIDA (leaf-materialization/v1); T4 y LEVEL_RESOLUTION NO se activan (no agregan fortalezas)
     ratifying = v3 or C.VARIANT_GOVERNED_CONTRACT_RATIFIED in variants
     if ratified_contracts is not None and not ratifying:
         raise ValueError("ratified_contracts exige la variante GOVERNED_CONTRACT_RATIFIED (opt-in explicito) o ruleset judgment-rules/v3")
-    materialized = C.VARIANT_MATERIALIZED_INPUT in variants
+    materialized = C.VARIANT_MATERIALIZED_INPUT in active
     ev = ProfileEvidence(profile, materialization_csn if materialized else None)      # el CSN es una entrada EXPLICITA: sin el modificador no se usa; sin CSN las relaciones no verificables quedan UNKNOWN
     if ev.assessment_state != "ASSESSED":
         return _unjudgeable(ev, "ASSESSMENT_NOT_JUDGEABLE", ruleset)
     if not ev.has_canonical_evidence_v3:
         return _unjudgeable(ev, "CANONICAL_EVIDENCE_V3_REQUIRED", ruleset)
     ratified_leaves, ratification_records = _resolve_ratifications(ev, ratified_contracts, external_policy) if ratifying else (frozenset(), [])
-    res = evaluate_rules(ev, external_policy, variants, ratified_leaves)
+    res = evaluate_rules(ev, external_policy, active, ratified_leaves)
     reasons = copy.deepcopy(res["reasons"])
     reviews = copy.deepcopy(res["review_candidates"])
     strengths = res["strengths"]
@@ -351,11 +356,18 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
         if resolved is not None:
             status, (level, level_rule), nd_reason = C.DETERMINED, resolved, None
             level_no_exc = level
+    elif v4 and level_rule == "LVL-06":                                                # v4: resolucion por estado de dimension (politica adoptada, no experimental)
+        pre_missing = _missing_strength_dimensions(ev, strengths, external_policy, True)
+        dim_states = dimension_resolution_v4(ev, external_policy, strengths, reasons, pre_missing, published_contract_conformance(ev, external_policy)["conditions"]["lineage_complete"], True)
+        resolved = resolve_level_v4(dim_states)
+        if resolved is not None:
+            status, (level, level_rule), nd_reason = C.DETERMINED, resolved, None
+            level_no_exc = level
     closure = _closure(status, level, reasons, limitations)
     reasons.sort(key=lambda r: (_CLASS_RANK[r["classification"]], r["rule_id"], r["reason_id"]))
     reviews.sort(key=lambda r: (r["rule_id"], r["review_id"]))
     cta = build_cta_candidates(reasons, reviews, res["qualifiers"], limitations, res["supporting_evidence"])
-    missing_dims = _missing_strength_dimensions(ev, strengths, external_policy) if level_rule == "LVL-06" else None
+    missing_dims = _missing_strength_dimensions(ev, strengths, external_policy, v4) if level_rule == "LVL-06" else None
     out = {
         "judgment_schema_version": C.JUDGMENT_SCHEMA_VERSION, "ruleset_version": ruleset, "status": status, "level": level, "closure": closure,
         "plena_assignment": C.PLENA_ASSIGNMENT, "plena_state": C.PLENA_STATE, "level_rule": level_rule,
@@ -368,6 +380,9 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
                                             for c in cta if c["applicability_state"] != "DISABLED_PENDING_EVIDENCE"],
         "contracts_not_evaluable": sorted(not_eval),
     }
+    if level_rule == C.LEVEL_RULE_ADECUADA_BY_RESOLUTION:
+        out["what_would_change_the_judgment"] = [{"change_key": "ESTABLISH_AFFIRMATIVE_STRENGTH_IN_EVERY_DIMENSION_FOR_BUENA", "reason_ids": [], "resulting_status": C.DETERMINED, "resulting_level": C.BUENA},
+                                                  {"change_key": "NEW_EVIDENCE_OF_A_RELEVANT_OR_MATERIAL_REASON_WOULD_LOWER_THE_LEVEL", "reason_ids": [], "resulting_status": C.DETERMINED, "resulting_level": None}]
     if v3:
         out["decision_inputs"] = decision_inputs(ratified_contracts)       # ENTRADA verificable del Juicio (entra en la firma de salida): que decisiones se inyectaron, por evento y evidencia
     if nd_reason:

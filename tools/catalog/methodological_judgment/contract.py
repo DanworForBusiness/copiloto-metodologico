@@ -12,12 +12,15 @@ from typing import Any
 JUDGMENT_SCHEMA_VERSION = "judgment/v1"
 RULESET_V2 = "judgment-rules/v2"
 RULESET_V3 = "judgment-rules/v3"
-RULESETS = (RULESET_V2, RULESET_V3)
+RULESET_V4 = "judgment-rules/v4"
+RULESETS = (RULESET_V2, RULESET_V3, RULESET_V4)
 RULESET_VERSION = RULESET_V2                           # ruleset POR DEFECTO del motor: judgment-rules/v2 sigue siendo reproducible e inalterado para toda llamada que no pida v3 explicitamente
 # judgment-rules/v3 = judgment-rules/v2 + UNA sola politica adicional: una ratificacion de gobierno vigente (governed-decision/v1, inyectada como ENTRADA explicita; el motor jamas la lee) resuelve
 # unicamente la indeterminacion contractual decision-critica de LVL-05 (variante GOVERNED_CONTRACT_RATIFIED, alcance conservador). Sin ratificaciones inyectadas v3 produce los mismos niveles que v2.
 # CURRENT_RULESET_VERSION es el contrato de Juicio VIGENTE para el Juicio PERSISTIDO (lo adopta el servicio de Assessment); no cambia el defecto del motor.
-CURRENT_RULESET_VERSION = RULESET_V3
+# judgment-rules/v4 = v3 + resolucion de nivel por ESTADO DE DIMENSION para los casos que v3 deja en LVL-06 (politica transversal; ver rules.dimension_resolution_v4) + T5 (tabla local de origen fisico
+# comprobado = SRC-LOC-01, debilidad LOCAL) + refinamiento de la causa de ND (candidato de armonizacion UNKNOWN => evidencia insuficiente). No agrega fortalezas ni otras razones; nunca BUENA ni PARCIAL por resolucion.
+CURRENT_RULESET_VERSION = RULESET_V4
 DECISION_INPUTS_VERSION = "judgment-decision-inputs/v1"
 # Variantes EXPERIMENTALES (T4/T5) del MISMO motor: opt-in, solo para medir impacto. Vacio (la politica vigente) = salida byte a byte identica a judgment-rules/v2. Adoptar una variante como
 # regla definitiva exige subir RULESET_VERSION (=> JDG_VERSION_STALE en los Juicios persistidos; migracion explicita ``--backfill-judgment``, sin tocar el Assessment).

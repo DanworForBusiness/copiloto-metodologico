@@ -858,6 +858,120 @@ def resolve_level_exploratory(states: list[dict]) -> tuple[str, str] | None:
     return None
 
 
+# ───────────────────────────── judgment-rules/v4: RESOLUCION DE NIVEL POR ESTADO DE DIMENSION (politica transversal) ─────────────────────────────
+# Principio: un NO DETERMINABLE legitimo es evidencia INSUFICIENTE (o una clase de contrato critica sin decidir). Si la evidencia alcanza en los cuatro contratos, el nivel DEBE salir de los hechos
+# verificados. v4 NO agrega razones ni fortalezas (``reasons``/``strengths`` salen de v3 + T5); solo evalua, para los casos que v3 deja en LVL-06, el ESTADO de cada dimension:
+#   STRENGTH / RESPONSIBILITY_MET (evidencia positiva, NO fortaleza) / NOT_APPLICABLE (justificacion arquitectonica) / DEFICIENCY_DEMONSTRATED (hecho verificado adverso)
+#   NOT_EVALUABLE (evidencia insuficiente) / UNRESOLVED (evidencia suficiente pero ningun predicado la clasifica).
+# Nivel: cualquier NOT_EVALUABLE o UNRESOLVED => sigue «No determinable»; si no, ADECUADA (LVL-08) con >= 1 fortaleza. NUNCA BUENA por resolucion (BUENA exige las 4 fortalezas) y NUNCA PARCIAL
+# (PARCIAL exige una desviacion MATERIAL; «tabla fisica cruda» sola jamas lo es: ver encabezado del modulo).
+def har_unknown_candidates(ev: ProfileEvidence) -> list[str]:
+    """Candidatos de armonizacion de caracter UNKNOWN (etiquetas/mapeo/productor no determinables) que ALIMENTAN algun artefacto aguas abajo del cierre: no son deficiencia ni fortaleza; la dimension no
+    es evaluable. Un candidato sin consumidores en el cierre no interviene en la armonizacion del producto: su evidencia faltante no impide evaluarlo."""
+    return sorted(c["artifact"] for c in ev.harmonization.values() if (c.get("character") or {}).get("value") == "UNKNOWN" and ev.descendants(c["artifact"]))
+
+
+def har_projection_over_physical_raw(ev: ProfileEvidence, policy: str) -> list[str]:
+    """Candidatos de armonizacion cuyas fuentes incluyen tablas FISICAS CRUDAS verificadas (clase explicita): la frontera existe pero proyecta una fuente no gobernada; con evidencia determinable
+    (ningun candidato UNKNOWN) esto es un hecho adverso verificado de la dimension, no una laguna."""
+    if har_unknown_candidates(ev):
+        return []
+    return sorted(c["artifact"] for c in ev.harmonization.values() if any(ev.classify_source(s, policy) == PHYSICAL_RAW_BOUNDARY for s in (c.get("sources") or ())))
+
+
+def published_vocabulary_leak_from_physical_raw(ev: ProfileEvidence, policy: str) -> list[str]:
+    """Campos publicados que heredan SIN CAMBIOS (camino casi-identidad, sin armonizacion) el vocabulario de una hoja FISICA CRUDA verificada. Solo la clase explicita ``PHYSICAL_RAW_BOUNDARY``: una
+    clase indeterminada/desconocida NO es un hecho verificado (eso es evidencia insuficiente)."""
+    out = set()
+    for name, r in ev.lineage_fields.items():
+        for lf in r.get("frontier_leaves") or ():
+            if ev.classify_source(lf["leaf"], policy) == PHYSICAL_RAW_BOUNDARY and _verbatim_vocabulary(lf) and _paths(lf, characters=NEAR_IDENTITY_CHARACTERS, through=False):
+                out.add(name)
+    return sorted(out)
+
+
+def _local_leaf_accredited_governed(ev: ProfileEvidence, policy: str, leaf: str) -> bool:
+    """Tabla LOCAL cuyo contenido proviene SOLO de contratos gobernados por flujos con mapeo de identidad/renombre (0 expresiones, 0 desconocidos), cadena completa, procedencia ESTABLISHED y clase
+    gobernada (varios productores —p. ej. carga inicial + delta— no la convierten en transformada semantica). Evidencia persistida (leaf-materialization/v1), nunca inferida por nombre."""
+    rec = ev.local_leaves.get(leaf) or {}
+    m = ev.materialization_of(leaf)
+    if m is None or rec.get("provenance_state") != "ESTABLISHED" or m["chain_complete"] is not True or m["derived_boundary_class"] != LM.DBC_GOVERNED or m["unknown_reasons"]:
+        return False
+    mp = m["mapping_profile"]
+    return ev.classify_source(leaf, policy) == GOVERNED_SAP_CONTRACT and mp["expression"] == 0 and mp["unknown"] == 0
+
+
+def propagation_normal_composition(ev: ProfileEvidence, policy: str) -> list[str]:
+    """PROPAGACION «cumplida» por composicion NORMAL de insumos resueltos: cada nodo de producto lee vistas/candidatos de armonizacion, contratos de frontera GOBERNADOS (un hecho gobernado
+    compuesto con una dimension armonizada es composicion normal: la misma salvedad de PRO-MAT-01) y tablas locales acreditadas como derivadas de contratos gobernados. Ninguna hoja cruda ni de clase
+    indeterminada. Es evidencia positiva de responsabilidad cumplida, NO una fortaleza (PRO-STR-01 sigue exigiendo que no haya hoja de frontera directa)."""
+    if not ev.product_nodes:
+        return []
+    bases: list[str] = []
+    for n in ev.product_nodes:
+        eff = ev.effective_providers(n)
+        if not set(eff) <= {K_VIEW, K_HARM, K_LOCAL_LEAF, K_BOUNDARY} or n not in ev.views:
+            return []
+        if any(ev.classify_source(p, policy) != GOVERNED_SAP_CONTRACT for p in eff.get(K_BOUNDARY, ())):
+            return []
+        if len(eff.get(K_BOUNDARY, ())) + len(eff.get(K_LOCAL_LEAF, ())) > 1 and not eff.get(K_HARM):
+            return []                                                   # integrar >1 hoja SIN ningun candidato de armonizacion es re-integracion en el producto (la forma (ii) de PRO-MAT-01), no composicion normal
+        if any(not _local_leaf_accredited_governed(ev, policy, lf) for lf in eff.get(K_LOCAL_LEAF, ())):
+            return []
+        bases += [f"ce:view_complexity/{n}", *[f"ce:source_contract_classes/{p}" for p in eff.get(K_BOUNDARY, ())], *[f"ce:leaf_provenance/{lf}" for lf in eff.get(K_LOCAL_LEAF, ())]]
+    return [*sorted(set(bases)), "PRO.product_composes_only_resolved_inputs_governed_contracts_harmonized_views_or_accredited_replicas"]
+
+
+def dimension_resolution_v4(ev: ProfileEvidence, policy: str, strengths_: list[dict], reasons: list[dict], missing: list[dict], pub_lineage_complete: bool, materialized: bool = True) -> list[dict]:
+    """Estado por dimension de judgment-rules/v4. Solo lee lo ya calculado (fortalezas, razones, causas de ausencia) y evidencia canonica; no inventa evidencia ni agrega razones/fortalezas."""
+    have = {s["rule_id"] for s in strengths_}
+    by_dim = {m["dimension"]: m for m in missing}
+    out = []
+    for dim, ids in (("SOURCE_INGESTION", ("SRC-STR-01",)), ("HARMONIZATION", ("HAR-STR-01", "HAR-STR-02")), ("PROPAGATION", ("PRO-STR-01",)), ("PUBLISHED_CONTRACT", ("PUB-STR-01",))):
+        dim_reasons = [r["rule_id"] for r in reasons if r["dimension"] == dim and r["state"] not in C.REMOVING_STATES]
+        item = {"dimension": dim, "state": C.DS_UNRESOLVED, "cause": None, "basis": [], "local_deficiencies": dim_reasons}
+        m = by_dim.get(dim) or {}
+        if any(i in have for i in ids):
+            item["state"], item["basis"] = C.DS_STRENGTH, [i for i in ids if i in have]
+        elif m.get("state") == "INSUFFICIENT_EVIDENCE" or m.get("cause") in ("NO_SOURCE_CONTACT_OBSERVED", "NO_PRODUCT_NODE_OBSERVED"):
+            item["state"], item["cause"] = C.DS_NOT_EVALUABLE, m.get("cause")
+        elif dim_reasons:
+            item["state"], item["cause"], item["basis"] = C.DS_DEFICIENCY, m.get("cause"), dim_reasons
+        elif dim == "HARMONIZATION":
+            item["cause"] = m.get("cause")
+            if har_str_01_reformulated(ev, policy):
+                item["state"], item["basis"] = C.DS_MET, ["HAR.one_to_one_over_governed_contract", "HAR.business_vocabulary_preserved_by_provider_labels", "HAR.consumed_by_downstream_artifact"]
+            elif har_projection_over_physical_raw(ev, policy):
+                item["state"], item["basis"] = C.DS_DEFICIENCY, ["HAR.reusable_boundary_projects_verified_physical_raw_sources"]
+            elif m.get("cause") == "NO_HARMONIZATION_BOUNDARY_OBSERVED":
+                na = _no_integration_scope(ev)
+                if na:
+                    item["state"], item["basis"] = C.DS_NOT_APPLICABLE, na
+        elif dim == "PROPAGATION":
+            item["cause"] = m.get("cause")
+            met = _propagation_met_materialized(ev, policy)[0] if materialized else _propagation_met_by_replicated_ingestion(ev, policy)
+            met = met or propagation_normal_composition(ev, policy)
+            if met:
+                item["state"], item["basis"] = C.DS_MET, met
+        elif dim == "PUBLISHED_CONTRACT":
+            item["cause"] = m.get("cause")
+            leak = published_vocabulary_leak_from_physical_raw(ev, policy) if pub_lineage_complete else []
+            if leak:
+                item["state"], item["basis"] = C.DS_DEFICIENCY, ["PUB.vocabulary_of_a_verified_physical_raw_boundary_reaches_the_consumer_verbatim"]
+        elif dim == "SOURCE_INGESTION":
+            item["cause"] = m.get("cause")
+        out.append(item)
+    return out
+
+
+def resolve_level_v4(states: list[dict]) -> tuple[str, str] | None:
+    """(nivel, regla) o ``None`` (sigue «No determinable»). Cualquier dimension no evaluable o sin resolver => None. Con las cuatro resueltas y >= 1 fortaleza => ADECUADA (LVL-08)."""
+    applicable = [s for s in states if s["state"] != C.DS_NOT_APPLICABLE]
+    if not applicable or any(s["state"] in (C.DS_NOT_EVALUABLE, C.DS_UNRESOLVED) for s in applicable):
+        return None
+    return (C.ADECUADA, C.LEVEL_RULE_ADECUADA_BY_RESOLUTION) if any(s["state"] == C.DS_STRENGTH for s in applicable) else None
+
+
 def mixed_auxiliary_physical_reviews(ev: ProfileEvidence, policy: str) -> list[dict]:
     """T5 integrada — componente fisico COMPROBADO de una frontera MIXED que NO participa de la espina del producto (rama auxiliar): evidencia tecnica informativa, SIN razon, sin penalizacion y
     sin efecto en el nivel ni en el cierre. Solo existe para que el alcance efectivo de SRC-LOC-01 (espina) no oculte el hecho."""

@@ -251,12 +251,15 @@ def test_only_the_explicit_v3_adoption_path_injects_ratifications_and_nothing_re
     assert bad_variant == [] and bad_inject == []
 
 
-def test_the_production_derivation_is_v3_and_without_injected_decisions_it_keeps_every_v2_level():
+def test_the_production_derivation_is_the_current_ruleset_and_without_injected_decisions_it_keeps_every_v2_level_on_the_golden_fixtures():
+    from tools.catalog.methodological_judgment import CURRENT_RULESET_VERSION
     from webapp.services import assessment_service as svc
     for alias in ALIASES:
         p = fresh(alias)
         j, v2 = svc._derive_judgment(p), evaluate_judgment(p)
-        assert j["ruleset_version"] == "judgment-rules/v3" and "ruleset_options" not in j and j["decision_inputs"]["ratified_contracts"] == []
+        assert j["ruleset_version"] == CURRENT_RULESET_VERSION and "ruleset_options" not in j and j["decision_inputs"]["ratified_contracts"] == []
         assert all(d.get("decision") != VARIANT for d in j["dispositions_applied"])
-        for k in ("status", "level", "level_rule", "closure", "reasons", "strengths", "review_candidates", "evidence_limitations", "not_determinable_reason"):
-            assert j.get(k) == v2.get(k), (alias, k)                                                                 # v3 sin decisiones == v2 en TODO el contenido metodologico
+        for k in ("status", "level", "level_rule", "closure", "not_determinable_reason"):
+            assert j.get(k) == v2.get(k), (alias, k)
+        assert {x["rule_id"] for x in j["strengths"]} == {x["rule_id"] for x in v2["strengths"]}                                    # sin fortalezas nuevas
+        assert [(r["rule_id"], r["classification"]) for r in j["reasons"]] == [(r["rule_id"], r["classification"]) for r in v2["reasons"]]

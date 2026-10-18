@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from tools.catalog.methodological_judgment import RULESET_V3, evaluate_judgment
+from tools.catalog.methodological_judgment import CURRENT_RULESET_VERSION, evaluate_judgment
 from webapp.services import governed_decisions as gd
 from webapp.services import governed_ratification_link as link
 
@@ -77,9 +77,17 @@ def take_snapshot(clients: list[str], *, now: datetime | None = None) -> Snapsho
 
 
 def derive(profile: Mapping[str, Any], client: str, snapshot: Snapshot) -> tuple[dict, dict]:
-    """(Juicio v3, reporte del enlace). Determinista dado (perfil, instantánea): el motor solo recibe las ratificaciones ENLAZADAS (identidad + vigencia + digest MATCH)."""
+    """(Juicio del ruleset VIGENTE —v3/v4 incluyen la politica de ratificacion—, reporte del enlace). Determinista dado (perfil, instantánea): el motor solo recibe las ratificaciones ENLAZADAS (identidad + vigencia + digest MATCH)."""
     rep = link.link_ratifications(profile, client, now=snapshot.taken_at, load_events=snapshot.load_events)
-    return evaluate_judgment(profile, ruleset=RULESET_V3, ratified_contracts=rep["ratified_contracts"]), rep
+    linked = rep["ratified_contracts"]
+    j = evaluate_judgment(profile, ruleset=CURRENT_RULESET_VERSION, ratified_contracts=linked)
+    # La ENTRADA persistida = solo las ratificaciones que RESOLVIERON algo (hoja decision-critica). Una ratificacion valida de un contrato que este modelo usa sin que sea decision-critica (NO_EFFECT)
+    # no cambia el Juicio: no entra en ``decision_inputs`` (evita churn de firmas y falsos «pendiente de reevaluacion» si luego se revoca). Se re-evalua una sola vez sin ellas.
+    applied_ids = {d.get("event_id") for d in j.get("dispositions_applied", ()) if d.get("decision") == "GOVERNED_CONTRACT_RATIFIED" and d.get("status") == "APPLIED"}
+    effective = [i for i in linked if i["event_id"] in applied_ids]
+    if len(effective) != len(linked):
+        j = evaluate_judgment(profile, ruleset=CURRENT_RULESET_VERSION, ratified_contracts=effective)
+    return j, rep
 
 
 def consumed(judgment: Mapping[str, Any] | None) -> list[dict]:

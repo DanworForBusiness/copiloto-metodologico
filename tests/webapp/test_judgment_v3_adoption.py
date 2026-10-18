@@ -14,7 +14,7 @@ import pytest
 
 from tests._judgment_cases import fresh
 from tests.webapp.test_governed_assessment_durability import files, restart, world  # noqa: F401 (fixture reutilizada)
-from tools.catalog.methodological_judgment import RULESET_V3, evaluate_judgment
+from tools.catalog.methodological_judgment import CURRENT_RULESET_VERSION, RULESET_V3, evaluate_judgment
 from webapp.services import assessment_backfill as bf
 from webapp.services import assessment_service as svc
 from webapp.services import governed_decisions as gd
@@ -94,7 +94,7 @@ def test_v3_resolves_only_lvl05_records_the_exact_events_and_signs_its_decision_
     v3, rep = jd.derive(p, CLIENT, s)
     v2 = evaluate_judgment(p)
     assert (v2["status"], v2["level_rule"]) == ("NOT_DETERMINABLE", "LVL-05")
-    assert (v3["ruleset_version"], v3["status"], v3["level"], v3["level_rule"]) == ("judgment-rules/v3", "DETERMINED", "ADECUADA", "LVL-03")
+    assert (v3["ruleset_version"], v3["status"], v3["level"], v3["level_rule"]) == (CURRENT_RULESET_VERSION, "DETERMINED", "ADECUADA", "LVL-03")
     assert {x["rule_id"] for x in v3["strengths"]} == {x["rule_id"] for x in v2["strengths"]}               # sin fortalezas nuevas
     assert [(r["rule_id"], r["classification"]) for r in v3["reasons"]] == [(r["rule_id"], r["classification"]) for r in v2["reasons"]]
     inputs = v3["decision_inputs"]["ratified_contracts"]
@@ -111,7 +111,7 @@ def test_a_different_event_or_no_event_changes_the_signed_input_and_the_output_s
     none, _ = jd.derive(p, CLIENT, jd.empty_snapshot(NOW))
     assert a["decision_inputs"]["signature"] != b["decision_inputs"]["signature"] != none["decision_inputs"]["signature"]
     assert len({a["output_signature"], b["output_signature"], none["output_signature"]}) == 3
-    replay = evaluate_judgment(p, ruleset=RULESET_V3, ratified_contracts=jd.consumed(a))                   # replay de la MISMA entrada => MISMO Juicio (revalidar no relee el registro)
+    replay = evaluate_judgment(p, ruleset=CURRENT_RULESET_VERSION, ratified_contracts=jd.consumed(a))                   # replay de la MISMA entrada => MISMO Juicio (revalidar no relee el registro)
     assert replay["output_signature"] == a["output_signature"]
 
 
@@ -121,6 +121,19 @@ def test_events_of_other_clients_or_unrelated_contracts_do_not_change_the_judgme
     other = jd.Snapshot(jd.MODE_REGISTRY, NOW, {"Kensing": (ratified(p, "ART_0012", client="Kensing"),), CLIENT: (ratified(p, "ART_0007"),)})   # otro cliente + contrato fisico no candidato
     again, rep = jd.derive(p, CLIENT, other)
     assert again["output_signature"] == base["output_signature"] and rep["ratified_contracts"] == []
+
+
+def test_a_valid_ratification_that_resolves_nothing_for_this_model_is_not_part_of_its_judgment_input_or_signature():
+    p = gp_profile()
+    base, _ = jd.derive(p, CLIENT, jd.empty_snapshot(NOW))
+    noncritical = snap(ratified(p, "ART_0011"), ratified(p, "ART_0016"))                      # indeterminadas SIN exposicion decision-critica en este modelo (NO_EFFECT)
+    j, rep = jd.derive(p, CLIENT, noncritical)
+    assert [x["leaf"] for x in rep["ratified_contracts"]] == ["ART_0011", "ART_0016"]         # el enlace las ve y son validas...
+    assert j["decision_inputs"]["ratified_contracts"] == [] and j["output_signature"] == base["output_signature"]   # ...pero el Juicio ni su firma cambian (sin churn)
+    mixed, _ = jd.derive(p, CLIENT, snap(*ALL4(p), ratified(p, "ART_0011")))
+    assert [i["leaf"] for i in mixed["decision_inputs"]["ratified_contracts"]] == CRITICAL and mixed["level"] == "ADECUADA"
+    revoked_noneffect = jd.derive(p, CLIENT, snap(*ALL4(p), ratified(p, "ART_0011"), revoked(p, "ART_0011")))[0]
+    assert revoked_noneffect["output_signature"] == mixed["output_signature"]                 # revocar una decision que no resolvia nada no invalida el Juicio
 
 
 def test_the_snapshot_digest_is_verifiable_and_changes_with_the_registry_content():
@@ -137,8 +150,8 @@ def test_an_unreadable_registry_is_never_the_same_as_no_decisions(monkeypatch):
 
 
 # ───────────── contrato vigente y clasificacion ─────────────
-def test_the_current_persisted_contract_is_v3_and_a_persisted_v2_judgment_is_version_stale(world):
-    assert svc.JUDGMENT_CONTRACT_VERSIONS == ("judgment/v1", "judgment-rules/v3")
+def test_the_current_persisted_contract_is_v4_and_a_persisted_v2_judgment_is_version_stale(world):
+    assert svc.JUDGMENT_CONTRACT_VERSIONS == ("judgment/v1", "judgment-rules/v4")
     env = seed(world)
     assert env["judgment"]["ruleset_version"] == "judgment-rules/v2"
     r = svc.classify_judgment_decisions(stored(), snap(*ALL4(gp_profile())))
@@ -148,7 +161,7 @@ def test_the_current_persisted_contract_is_v3_and_a_persisted_v2_judgment_is_ver
 def test_generation_and_reads_never_consult_the_registry_so_a_fresh_derivation_has_no_decisions(world):
     p = gp_profile()
     j = svc._derive_judgment(p)                                                        # lo que usan generate/reassess/lectura: sin instantanea
-    assert j["ruleset_version"] == "judgment-rules/v3" and j["decision_inputs"]["ratified_contracts"] == [] and (j["status"], j["level_rule"]) == ("NOT_DETERMINABLE", "LVL-05")
+    assert j["ruleset_version"] == "judgment-rules/v4" and j["decision_inputs"]["ratified_contracts"] == [] and (j["status"], j["level_rule"]) == ("NOT_DETERMINABLE", "LVL-05")
 
 
 # ───────────── dry-run sin escrituras con conteos exactos ─────────────
@@ -187,7 +200,7 @@ def test_apply_persists_the_v3_judgment_with_event_traceability_and_touches_noth
     rep = bf.backfill_judgment(apply=True, client=CLIENT, snapshot=s)
     assert rep["counts"]["updated"] == 1 and rep["counts"]["failed"] == 0
     env = stored()
-    assert (env["judgment"]["ruleset_version"], env["judgment"]["level"], env["judgment"]["level_rule"]) == ("judgment-rules/v3", "ADECUADA", "LVL-03")
+    assert (env["judgment"]["ruleset_version"], env["judgment"]["level"], env["judgment"]["level_rule"]) == (CURRENT_RULESET_VERSION, "ADECUADA", "LVL-03")
     assert [i["event_id"] for i in env["judgment"]["decision_inputs"]["ratified_contracts"]] == [f"gd-{l}" for l in CRITICAL]
     assert all(env[k] == env0[k] for k in ("profile_json", "assessment_artifact_signature", "input_pool_signature", "assessment_versions", "domain_classification", "business_classification", "generated_at"))
     assert "judgment_review" not in env and len(files(world)) == 1
@@ -265,7 +278,7 @@ def test_the_cli_apply_is_fail_closed_without_confirmation_and_without_a_signed_
     before = raw_bytes(world)
     with pytest.raises(SystemExit):
         bf.main(["--backfill-judgment", "--apply", "--decisions", "none"])                  # sin --confirm-migration
-    code = bf.main(["--backfill-judgment", "--apply", "--decisions", "none", "--confirm-migration", bf.JUDGMENT_V3_MIGRATION])
+    code = bf.main(["--backfill-judgment", "--apply", "--decisions", "none", "--confirm-migration", bf.JUDGMENT_ADOPTION_MIGRATION])
     out = json.loads(capsys.readouterr().out)
     assert code == bf.EXIT_DENIED and out["outcome"] == bf.DENIED and out["writes"] == 0 and raw_bytes(world) == before
 
