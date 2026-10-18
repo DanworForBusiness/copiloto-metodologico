@@ -168,7 +168,7 @@ def test_a_persisted_v1_judgment_is_classified_version_stale_and_rederived_from_
     old = {**j, "ruleset_version": "judgment-rules/v1", "status": "NOT_DETERMINABLE", "level": None, "level_rule": "LVL-06", "output_signature": "sha256:old"}
     env = {"profile_json": prof, "judgment": old}
     action, fresh = svc.classify_judgment_backfill(env)
-    assert action == svc.JDG_VERSION_STALE and (fresh["status"], fresh["level"]) == ("DETERMINED", "BUENA") and fresh["ruleset_version"] == "judgment-rules/v3"
+    assert action == svc.JDG_VERSION_STALE and (fresh["status"], fresh["level"]) == ("DETERMINED", "BUENA") and fresh["ruleset_version"] == "judgment-rules/v4"
     assert svc.classify_judgment_backfill({"profile_json": prof, "judgment": j})[0] == svc.JDG_VERSION_STALE   # un Juicio judgment-rules/v2 persistido es contrato anterior (B5.3)
     env2 = {"profile_json": prof, "judgment": svc._derive_judgment(prof)}
     assert svc.classify_judgment_backfill(env2)[0] == svc.JDG_CURRENT                                         # idempotente

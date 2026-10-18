@@ -347,6 +347,7 @@ _JDG_ND_CAUSE = {
     "NO_HARMONIZATION_BOUNDARY_OBSERVED": "no se observó una frontera de armonización",
     "HARMONIZATION_MAPPING_NOT_OBSERVABLE": "el mapeo de la armonización no es observable",
     "HARMONIZATION_NOT_A_LEGITIMATE_REUSABLE_BOUNDARY": "la armonización no es una frontera técnica reutilizable legítima",
+    "HARMONIZATION_CANDIDATE_CHARACTER_NOT_DETERMINABLE": "no se puede determinar el carácter de un candidato de armonización (sus etiquetas o su mapeo no son observables)",
     "NO_PRODUCT_NODE_OBSERVED": "no se observó un nodo de producto",
     "PRODUCT_DOES_NOT_COMPOSE_RESOLVED_CONTRACTS": "el producto no compone contratos ya resueltos",
     "PUBLISHED_LINEAGE_INCOMPLETE": "el linaje de los campos publicados está incompleto",

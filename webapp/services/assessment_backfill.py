@@ -61,14 +61,14 @@ MIGRACIÓN DE JUICIO (cambio de ``RULESET_VERSION``; p. ej. ``judgment-rules/v2`
   El Juicio es estado DERIVADO del ``profile_json`` ya persistido: este modo lo re-deriva con el motor vigente y reescribe SOLO el Juicio del MISMO sobre (perfil, firmas y versiones de Assessment
   intactos; sin reassess, sin Datasphere, sin reacquisition). Un Juicio de ruleset anterior se clasifica ``judgment_version_stale``; idempotente por ``output_signature``.
 
-  ADOPCION de ``judgment-rules/v3`` (= v2 + resolucion de LVL-05 por RATIFICACION de gobierno INYECTADA; ver ``judgment_decisions``): el operador toma UNA instantanea de SOLO LECTURA del registro
+  ADOPCION de ``judgment-rules/v4`` (= v3 [v2 + resolucion de LVL-05 por RATIFICACION de gobierno INYECTADA; ver ``judgment_decisions``] + resolucion de nivel por estado de dimension): el operador toma UNA instantanea de SOLO LECTURA del registro
   ``governed-decisions/`` (``--decisions registry``, defecto; fail-closed si no se puede leer; ``--decisions none`` = Juicio v3 sin decisiones), la inyecta al motor y persiste en el Juicio la ENTRADA
   consumida (``decision_inputs``: event_id, technical_id, evidence_ref). ``--dry-run`` informa ``plan.digest`` (ligado a la instantanea), conteos exactos y ``level_changes``, sin escribir. ``--apply`` es
-  ASEGURADO (como ``SECURED_MIGRATIONS``): exige ``--confirm-migration judgment_rules_v3``, ``--approval`` firmada del ``plan.digest``, ``--operator``, ``--backup-dir`` y remoto confirmado (o
+  ASEGURADO (como ``SECURED_MIGRATIONS``): exige ``--confirm-migration judgment_rules_v4``, ``--approval`` firmada del ``plan.digest``, ``--operator``, ``--backup-dir`` y remoto confirmado (o
   ``--allow-local-only``); respalda, firma el diario y aplica por ola/cliente deteniendose ante la primera falla (exit 4/5). Un Juicio v3 que consumio una decision ya revocada/obsoleta
   (``judgment_decision_stale``) NO se reescribe en silencio: se MARCA ``judgment_review: PENDING_REEVALUATION``; ``--reevaluate-decision-stale`` lo re-deriva explicitamente.
     python -m webapp.services.assessment_backfill --backfill-judgment --dry-run
-    python -m webapp.services.assessment_backfill --backfill-judgment --apply --confirm-migration judgment_rules_v3 --approval aprobacion.json --operator <id> --backup-dir <dir vacio fuera del almacen>
+    python -m webapp.services.assessment_backfill --backfill-judgment --apply --confirm-migration judgment_rules_v4 --approval aprobacion.json --operator <id> --backup-dir <dir vacio fuera del almacen>
 
 REEVALUACIÓN GENÉRICA OFFLINE DE EXISTENTES (modo explícito y SEPARADO; reconstruye COMPLETO el assessment gobernado, CURRENT o STALE):
     python3 -m webapp.services.assessment_backfill --reassess-existing --client Kensing --dry-run
@@ -990,7 +990,7 @@ def restore_from_remote_run(migration: str, run_id: str, staging_dir: Any, *, ap
     return out
 
 
-JUDGMENT_V3_MIGRATION = "judgment_rules_v3"      # nombre de la migracion de ADOPCION del contrato de Juicio v3 (plan firmado + respaldo + diario); el apply por CLI SOLO existe por ``secured_adopt_judgment``
+JUDGMENT_ADOPTION_MIGRATION = "judgment_rules_v4"      # nombre de la migracion de ADOPCION del contrato de Juicio vigente (v4; la de v3 fue "judgment_rules_v3") (plan firmado + respaldo + diario); el apply por CLI SOLO existe por ``secured_adopt_judgment``
 
 
 def _lvl(j: dict | None) -> tuple | None:
@@ -1082,7 +1082,7 @@ def backfill_judgment(*, apply: bool = False, client: str = "", snapshot: Any = 
     # restart-safe: tras un apply exitoso, un segundo apply ve todo ``already_current`` (cero trabajo)
     counts["complete"] = (failed == 0 and (not apply or (counts["would_update"] == 0 and counts["would_mark_pending_reevaluation"] == 0)))
     return {"mode": "backfill-judgment", "apply": apply, "dry_run": not apply, "records": records, "counts": counts,
-            "decision_snapshot": snap.summary(), "plan": build_plan(JUDGMENT_V3_MIGRATION, plan_items),
+            "decision_snapshot": snap.summary(), "plan": build_plan(JUDGMENT_ADOPTION_MIGRATION, plan_items),
             "level_changes": [{"client": r["client"], "terminal_am": r["terminal_am"], "from": r["from_level"], "to": r["to_level"],
                                "event_ids": (r.get("decision_inputs") or {}).get("consumed_event_ids")} for r in records if changed(r)],
             "environment_warnings": ["sin almacén durable (solo memoria): el backfill no persiste"] if svc.governed_dir() is None else []}
@@ -1091,7 +1091,7 @@ def backfill_judgment(*, apply: bool = False, client: str = "", snapshot: Any = 
 def secured_adopt_judgment(*, authorizer: Callable[[str, dict], "ma.Authorization"], backup_dir: Any, client: str = "", snapshot: Any = None, allow_local_only: bool = False,
                            waves: list[list[str]] | None = None, run_id: str | None = None, reevaluate_decision_stale: bool = False,
                            remote_enabled: Callable[[], bool] | None = None) -> dict:
-    """ADOPCION controlada de ``judgment-rules/v3`` (``--backfill-judgment --apply``): SOLO si hay (1) autorizacion firmada del plan EXACTO recalculado ahora (incluye el digest de la
+    """ADOPCION controlada del contrato de Juicio vigente (``judgment-rules/v4``) (``--backfill-judgment --apply``): SOLO si hay (1) autorizacion firmada del plan EXACTO recalculado ahora (incluye el digest de la
     instantanea de decisiones), (2) remoto disponible (salvo ``allow_local_only``), (3) respaldo verificable previo (local + copia durable sellada en Spaces) y (4) cada ola (cliente) cierra
     limpia con el sobre reescrito CONFIRMADO. Cualquier incumplimiento => ``outcome`` explicito, exit 4/5 y NO se escribe nada mas. Un sobre cuya derivacion difiere de la planificada (deriva del
     registro o del perfil entre el plan y la escritura) NO se escribe. Diario por objeto compatible con ``--restore-backup`` (COMMITTED con sha256)."""
@@ -1100,7 +1100,7 @@ def secured_adopt_judgment(*, authorizer: Callable[[str, dict], "ma.Authorizatio
     snap = snapshot if snapshot is not None else jd.empty_snapshot()
     plan_report = backfill_judgment(apply=False, client=client, snapshot=snap, reevaluate_decision_stale=reevaluate_decision_stale)
     plan = plan_report["plan"]
-    base = {"mode": "backfill-judgment", "migration": JUDGMENT_V3_MIGRATION, "apply": True, "dry_run": False, "secured": True, "decision_snapshot": snap.summary(),
+    base = {"mode": "backfill-judgment", "migration": JUDGMENT_ADOPTION_MIGRATION, "apply": True, "dry_run": False, "secured": True, "decision_snapshot": snap.summary(),
             "plan": {"digest": plan["digest"], "clients": plan["clients"], "items": len(plan["items"])}}
 
     def refuse(outcome: str, **extra: Any) -> dict:
@@ -1108,7 +1108,7 @@ def secured_adopt_judgment(*, authorizer: Callable[[str, dict], "ma.Authorizatio
                 "complete": False, **extra}
     if not plan["items"]:
         return {**base, "outcome": "NOTHING_TO_DO", "applied": False, "writes": 0, "records": [], "counts": plan_report["counts"], "complete": plan_report["counts"]["complete"]}
-    auth = authorizer(JUDGMENT_V3_MIGRATION, plan)
+    auth = authorizer(JUDGMENT_ADOPTION_MIGRATION, plan)
     if not auth.granted:
         return refuse(DENIED, authorization=auth.as_dict())
     if not remote_enabled() and not allow_local_only:
@@ -1120,7 +1120,7 @@ def secured_adopt_judgment(*, authorizer: Callable[[str, dict], "ma.Authorizatio
             raise gb.BackupError("BACKUP_DIR_REQUIRED")
         if governed is None or any(t["path"] is None for t in targets):
             raise gb.BackupError("NO_GOVERNED_STORE")
-        manifest = gb.create_backup(Path(backup_dir), targets, governed_dir=governed, migration=JUDGMENT_V3_MIGRATION, plan_digest=plan["digest"], environment=plan["environment"],
+        manifest = gb.create_backup(Path(backup_dir), targets, governed_dir=governed, migration=JUDGMENT_ADOPTION_MIGRATION, plan_digest=plan["digest"], environment=plan["environment"],
                                     remote_read=svc.remote_store.read_object_bytes if remote_enabled() else None, require_remote=not allow_local_only)
     except gb.BackupError as exc:
         return refuse(BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error=exc.code)
@@ -1129,7 +1129,7 @@ def secured_adopt_judgment(*, authorizer: Callable[[str, dict], "ma.Authorizatio
     if remote_enabled():
         run_id = run_id or dbk.new_run_id(plan["digest"])
         try:
-            remote_info = dbk.publish(backup_dir, JUDGMENT_V3_MIGRATION, run_id, approval=auth.document)
+            remote_info = dbk.publish(backup_dir, JUDGMENT_ADOPTION_MIGRATION, run_id, approval=auth.document)
         except dbk.DurableBackupError as exc:
             return refuse(BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error=exc.code, backup_detail=exc.detail)
     seq, jfail = [0], []
@@ -1139,7 +1139,7 @@ def secured_adopt_judgment(*, authorizer: Callable[[str, dict], "ma.Authorizatio
         if remote_info is not None:
             seq[0] += 1
             try:
-                dbk.publish_event(JUDGMENT_V3_MIGRATION, run_id, seq[0], rec)
+                dbk.publish_event(JUDGMENT_ADOPTION_MIGRATION, run_id, seq[0], rec)
             except dbk.DurableBackupError as exc:
                 jfail.append(exc.code)
     try:
@@ -1365,7 +1365,7 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--backfill-judgment", action="store_true",
                       help="modo EXPLÍCITO: materializa el Juicio metodológico DERIVADO (judgment-rules/v3) en los sobres gobernados que lo tengan ausente o con un contrato de "
                            "Juicio anterior, derivándolo del perfil YA persistido (SIN reassess ni adquisición) e INYECTANDO una instantánea verificable del registro de decisiones "
-                           "de gobierno (--decisions). Idempotente. Exige --dry-run o --apply; --apply es ASEGURADO (aprobación firmada + respaldo + --confirm-migration " + JUDGMENT_V3_MIGRATION + ")")
+                           "de gobierno (--decisions). Idempotente. Exige --dry-run o --apply; --apply es ASEGURADO (aprobación firmada + respaldo + --confirm-migration " + JUDGMENT_ADOPTION_MIGRATION + ")")
     ap.add_argument("--decisions", choices=("registry", "none"), default="registry",
                     help="con --backfill-judgment: 'registry' (defecto) toma UNA instantánea de SOLO LECTURA del registro governed-decisions/ (fail-closed si no se puede leer); 'none' = Juicio v3 SIN decisiones")
     ap.add_argument("--reevaluate-decision-stale", action="store_true",
@@ -1427,10 +1427,10 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("--apply solo existe con un modo de regeneración (el backfill normal no lo usa)")
     if args.apply and args.regenerate_stale_evidence in CONFIRMATION_REQUIRED and args.confirm_migration != args.regenerate_stale_evidence:
         ap.error(f"--apply de {args.regenerate_stale_evidence} exige --confirm-migration {args.regenerate_stale_evidence} (control explícito; cero escrituras)")
-    if args.backfill_judgment and args.apply and args.confirm_migration != JUDGMENT_V3_MIGRATION:
-        ap.error(f"--apply de --backfill-judgment exige --confirm-migration {JUDGMENT_V3_MIGRATION} (control explícito; cero escrituras)")
-    if args.confirm_migration and args.confirm_migration != (JUDGMENT_V3_MIGRATION if args.backfill_judgment else args.regenerate_stale_evidence):
-        ap.error("--confirm-migration solo confirma la migración indicada (--regenerate-stale-evidence, o " + JUDGMENT_V3_MIGRATION + " con --backfill-judgment)")
+    if args.backfill_judgment and args.apply and args.confirm_migration != JUDGMENT_ADOPTION_MIGRATION:
+        ap.error(f"--apply de --backfill-judgment exige --confirm-migration {JUDGMENT_ADOPTION_MIGRATION} (control explícito; cero escrituras)")
+    if args.confirm_migration and args.confirm_migration != (JUDGMENT_ADOPTION_MIGRATION if args.backfill_judgment else args.regenerate_stale_evidence):
+        ap.error("--confirm-migration solo confirma la migración indicada (--regenerate-stale-evidence, o " + JUDGMENT_ADOPTION_MIGRATION + " con --backfill-judgment)")
     if (args.decisions != "registry" or args.reevaluate_decision_stale) and not args.backfill_judgment:
         ap.error("--decisions/--reevaluate-decision-stale solo existen con --backfill-judgment")
     if args.reassess_current and not args.client.strip():                        # la reevaluación masiva DEBE ser explícita por cliente
