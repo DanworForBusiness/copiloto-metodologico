@@ -232,25 +232,31 @@ def test_the_traceability_changes_the_output_signature_so_a_different_event_is_a
 
 
 # ───────────── consumidores existentes: comportamiento v2 salvo pedido explicito ─────────────
-def test_no_production_module_requests_the_variant_or_passes_ratifications():
-    """El unico consumidor productivo es ``assessment_service._derive_judgment`` (``evaluate_judgment(profile)``). Ningun modulo fuera del motor, del enlace y de los tests nombra la variante."""
+def test_only_the_explicit_v3_adoption_path_injects_ratifications_and_nothing_requests_the_experimental_variant():
+    """B5.3: el unico camino productivo que inyecta ratificaciones es la derivacion de ``judgment-rules/v3`` (``assessment_service._derive_judgment`` recibe ``ratified`` solo del operador
+    explicito con instantanea). Ningun modulo fuera del motor y el enlace nombra la VARIANTE experimental GOVERNED_CONTRACT_RATIFIED."""
     import pathlib
     root = pathlib.Path(__file__).resolve().parents[1]
-    allowed = {"tools/catalog/methodological_judgment/contract.py", "tools/catalog/methodological_judgment/engine.py", "tools/catalog/methodological_judgment/rules.py",
-               "webapp/services/governed_ratification_link.py"}
-    offenders = []
+    variant_allowed = {"tools/catalog/methodological_judgment/contract.py", "tools/catalog/methodological_judgment/engine.py", "tools/catalog/methodological_judgment/rules.py",
+                       "webapp/services/governed_ratification_link.py"}
+    inject_allowed = variant_allowed | {"webapp/services/assessment_service.py", "webapp/services/judgment_decisions.py"}
+    bad_variant, bad_inject = [], []
     for path in list((root / "tools").rglob("*.py")) + list((root / "webapp").rglob("*.py")) + list((root / "core").rglob("*.py")):
         rel = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8", errors="ignore")
-        if ("GOVERNED_CONTRACT_RATIFIED" in text or "ratified_contracts" in text) and rel not in allowed:
-            offenders.append(rel)
-    assert offenders == []
+        if "GOVERNED_CONTRACT_RATIFIED" in text and rel not in variant_allowed | {"webapp/services/judgment_decisions.py"}:
+            bad_variant.append(rel)
+        if "ratified_contracts" in text and rel not in inject_allowed:
+            bad_inject.append(rel)
+    assert bad_variant == [] and bad_inject == []
 
 
-def test_the_production_derivation_is_the_plain_v2_call_for_every_fixture():
+def test_the_production_derivation_is_v3_and_without_injected_decisions_it_keeps_every_v2_level():
     from webapp.services import assessment_service as svc
     for alias in ALIASES:
         p = fresh(alias)
-        j = svc._derive_judgment(p)
-        assert j["output_signature"] == evaluate_judgment(p)["output_signature"] and "ruleset_options" not in j and j["ruleset_version"] == "judgment-rules/v2"
+        j, v2 = svc._derive_judgment(p), evaluate_judgment(p)
+        assert j["ruleset_version"] == "judgment-rules/v3" and "ruleset_options" not in j and j["decision_inputs"]["ratified_contracts"] == []
         assert all(d.get("decision") != VARIANT for d in j["dispositions_applied"])
+        for k in ("status", "level", "level_rule", "closure", "reasons", "strengths", "review_candidates", "evidence_limitations", "not_determinable_reason"):
+            assert j.get(k) == v2.get(k), (alias, k)                                                                 # v3 sin decisiones == v2 en TODO el contenido metodologico

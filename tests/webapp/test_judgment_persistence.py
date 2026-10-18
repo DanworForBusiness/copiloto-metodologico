@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.webapp.test_governed_assessment_durability import files, restart, world  # noqa: F401 (fixtures reutilizadas)
-from tools.catalog.methodological_judgment import JUDGMENT_SCHEMA_VERSION, RULESET_VERSION, evaluate_judgment
+from tools.catalog.methodological_judgment import CURRENT_RULESET_VERSION, JUDGMENT_SCHEMA_VERSION, RULESET_V3, evaluate_judgment
 from webapp.services import assessment_backfill as bf
 from webapp.services import assessment_presenter as P
 from webapp.services import assessment_service as svc
@@ -33,8 +33,8 @@ def test_generate_persists_judgment_derived_from_profile(world):
     assert st.state == svc.CURRENT
     env = _env(world)
     assert env is not None and env.get("judgment") is not None
-    assert env["judgment"]["output_signature"] == evaluate_judgment(env["profile_json"])["output_signature"]
-    assert svc.judgment_versions_of(env["judgment"]) == (JUDGMENT_SCHEMA_VERSION, RULESET_VERSION)
+    assert env["judgment"]["output_signature"] == evaluate_judgment(env["profile_json"], ruleset=RULESET_V3)["output_signature"]
+    assert svc.judgment_versions_of(env["judgment"]) == (JUDGMENT_SCHEMA_VERSION, CURRENT_RULESET_VERSION)
     assert svc.status_for_entry(world.acme).judgment["output_signature"] == env["judgment"]["output_signature"]
 
 
@@ -42,7 +42,7 @@ def test_reassess_regenerates_judgment_with_profile(world):
     svc.generate(world.acme)
     svc.generate(world.acme, force=True)
     env = _env(world)
-    assert env["judgment"]["output_signature"] == evaluate_judgment(env["profile_json"])["output_signature"]
+    assert env["judgment"]["output_signature"] == evaluate_judgment(env["profile_json"], ruleset=RULESET_V3)["output_signature"]
 
 
 def test_ui_never_recomputes__judgment_is_read_from_persisted_envelope(world):
@@ -66,7 +66,7 @@ def test_backfill_judgment_missing_apply_idempotent_and_no_profile_mutation(worl
     rec = next(r for r in app["records"] if r["terminal_am"] == "4AM_ACME")
     assert rec["action"] == "updated" and app["counts"]["failed"] == 0
     env = _env(world)
-    assert env["judgment"]["output_signature"] == evaluate_judgment(env["profile_json"])["output_signature"]
+    assert env["judgment"]["output_signature"] == evaluate_judgment(env["profile_json"], ruleset=RULESET_V3)["output_signature"]
     assert env["assessment_artifact_signature"] == sig0 and env["profile_json"] == prof0 and env["input_pool_signature"] == pool0
     assert len(files(world)) == 1                                     # misma identidad/ruta, sin duplicados
 
@@ -92,7 +92,7 @@ def test_backfill_judgment_stale_version_updates_only_judgment(world, monkeypatc
     assert rec["action"] == "would_update" and dry["counts"]["judgment_version_stale"] >= 1
     bf.backfill_judgment(apply=True, client="Acme")
     env = _env(world)
-    assert svc.judgment_versions_of(env["judgment"]) == (JUDGMENT_SCHEMA_VERSION, RULESET_VERSION)
+    assert svc.judgment_versions_of(env["judgment"]) == (JUDGMENT_SCHEMA_VERSION, CURRENT_RULESET_VERSION)
     assert env["profile_json"] == base["profile_json"]               # el perfil no se tocó
 
 
@@ -101,7 +101,7 @@ def test_compat_fallback_derives_judgment_readonly_when_absent(world):
     svc.generate(world.acme)
     env = dict(_env(world)); env.pop("judgment", None)
     jv = svc._persisted_judgment(env)
-    assert jv is not None and jv["output_signature"] == evaluate_judgment(env["profile_json"])["output_signature"]
+    assert jv is not None and jv["output_signature"] == evaluate_judgment(env["profile_json"], ruleset=RULESET_V3)["output_signature"]
 
 
 # ═══════════════ presentación (UI view-model) ═══════════════

@@ -61,6 +61,15 @@ MIGRACIÓN DE JUICIO (cambio de ``RULESET_VERSION``; p. ej. ``judgment-rules/v2`
   El Juicio es estado DERIVADO del ``profile_json`` ya persistido: este modo lo re-deriva con el motor vigente y reescribe SOLO el Juicio del MISMO sobre (perfil, firmas y versiones de Assessment
   intactos; sin reassess, sin Datasphere, sin reacquisition). Un Juicio de ruleset anterior se clasifica ``judgment_version_stale``; idempotente por ``output_signature``.
 
+  ADOPCION de ``judgment-rules/v3`` (= v2 + resolucion de LVL-05 por RATIFICACION de gobierno INYECTADA; ver ``judgment_decisions``): el operador toma UNA instantanea de SOLO LECTURA del registro
+  ``governed-decisions/`` (``--decisions registry``, defecto; fail-closed si no se puede leer; ``--decisions none`` = Juicio v3 sin decisiones), la inyecta al motor y persiste en el Juicio la ENTRADA
+  consumida (``decision_inputs``: event_id, technical_id, evidence_ref). ``--dry-run`` informa ``plan.digest`` (ligado a la instantanea), conteos exactos y ``level_changes``, sin escribir. ``--apply`` es
+  ASEGURADO (como ``SECURED_MIGRATIONS``): exige ``--confirm-migration judgment_rules_v3``, ``--approval`` firmada del ``plan.digest``, ``--operator``, ``--backup-dir`` y remoto confirmado (o
+  ``--allow-local-only``); respalda, firma el diario y aplica por ola/cliente deteniendose ante la primera falla (exit 4/5). Un Juicio v3 que consumio una decision ya revocada/obsoleta
+  (``judgment_decision_stale``) NO se reescribe en silencio: se MARCA ``judgment_review: PENDING_REEVALUATION``; ``--reevaluate-decision-stale`` lo re-deriva explicitamente.
+    python -m webapp.services.assessment_backfill --backfill-judgment --dry-run
+    python -m webapp.services.assessment_backfill --backfill-judgment --apply --confirm-migration judgment_rules_v3 --approval aprobacion.json --operator <id> --backup-dir <dir vacio fuera del almacen>
+
 REEVALUACIÓN GENÉRICA OFFLINE DE EXISTENTES (modo explícito y SEPARADO; reconstruye COMPLETO el assessment gobernado, CURRENT o STALE):
     python3 -m webapp.services.assessment_backfill --reassess-existing --client Kensing --dry-run
     python3 -m webapp.services.assessment_backfill --reassess-existing --client Kensing --apply     (sin --client: todos los existentes)
@@ -981,27 +990,61 @@ def restore_from_remote_run(migration: str, run_id: str, staging_dir: Any, *, ap
     return out
 
 
-def backfill_judgment(*, apply: bool = False, client: str = "") -> dict:
+JUDGMENT_V3_MIGRATION = "judgment_rules_v3"      # nombre de la migracion de ADOPCION del contrato de Juicio v3 (plan firmado + respaldo + diario); el apply por CLI SOLO existe por ``secured_adopt_judgment``
+
+
+def _lvl(j: dict | None) -> tuple | None:
+    return (j.get("status"), j.get("level"), j.get("level_rule")) if isinstance(j, dict) else None
+
+
+def backfill_judgment(*, apply: bool = False, client: str = "", snapshot: Any = None, reevaluate_decision_stale: bool = False) -> dict:
     """Materializa el Juicio metodológico DERIVADO en los sobres gobernados que lo tengan ausente o con un contrato de
     Juicio anterior, SIN reassess ni adquisición: se deriva del ``profile_json`` YA persistido con el motor canónico y se
     reescribe la MISMA identidad gobernada (perfil, firmas del artefacto y versiones de Assessment intactos). Idempotente
-    por ``output_signature``: un segundo ``--apply`` no hace trabajo. ``apply=False`` solo informa."""
+    por ``output_signature``: un segundo ``--apply`` no hace trabajo. ``apply=False`` solo informa.
+
+    ``snapshot`` (judgment-rules/v3): instantánea VERIFICABLE de decisiones de gobierno (``judgment_decisions.Snapshot``) que el operador INYECTA al motor; ``None`` = sin decisiones.
+    Un Juicio v3 que consumió una decisión ya revocada/obsoleta (``judgment_decision_stale``) NO se reescribe en silencio: queda MARCADO ``PENDING_REEVALUATION`` (clave hermana
+    ``judgment_review``); solo ``reevaluate_decision_stale=True`` lo reemplaza. ``plan`` lista (para firmar) cada sobre que cambiaría y la instantánea que lo justifica."""
+    from webapp.services import judgment_decisions as jd
     wanted = client.strip().lower()
-    records, failed, pending = [], 0, 0
+    records, failed, pending, plan_items = [], 0, 0, []
+    snap = snapshot if snapshot is not None else jd.empty_snapshot()
     for env, path in svc.iter_governed_envelopes():
         if wanted and str(env.get("client", "")).strip().lower() != wanted:
             continue
-        action, fresh = svc.classify_judgment_backfill(env)
+        cls = svc.classify_judgment_decisions(env, snap)
+        action, fresh = cls["action"], cls["fresh"]
+        persisted = env.get("judgment")
         rec = {"client": env.get("client"), "terminal_am": env.get("terminal_am"), "action": action,
                "assessment_status": env.get("status"),
-               "from_version": list(svc.judgment_versions_of(env.get("judgment"))) if env.get("judgment") else None,
-               "to_version": list(svc.judgment_versions_of(fresh)) if fresh else None}
-        needs = action in (svc.JDG_MISSING, svc.JDG_VERSION_STALE, svc.JDG_CONTENT_STALE)
-        if needs and apply:
+               "from_version": list(svc.judgment_versions_of(persisted)) if persisted else None,
+               "to_version": list(svc.judgment_versions_of(fresh)) if fresh else None,
+               "from_level": list(_lvl(persisted) or ()) or None, "to_level": list(_lvl(fresh) or ()) or None,
+               "decision_inputs": ({"signature": (fresh.get("decision_inputs") or {}).get("signature"), "consumed_event_ids": [i["event_id"] for i in jd.consumed(fresh)]} if fresh else None)}
+        if cls["lost"]:
+            rec["lost_decisions"] = cls["lost"]
+        rewrite = action in (svc.JDG_MISSING, svc.JDG_VERSION_STALE, svc.JDG_CONTENT_STALE) or (action == svc.JDG_DECISION_STALE and reevaluate_decision_stale)
+        mark = action == svc.JDG_DECISION_STALE and not reevaluate_decision_stale
+        if rewrite or mark:
+            plan_items.append({"client": str(env.get("client")), "root": str(env.get("terminal_am")), "operation": "REPLACE_JUDGMENT" if rewrite else "MARK_PENDING_REEVALUATION",
+                               "previous_ruleset": (persisted or {}).get("ruleset_version"), "previous_output_signature": (persisted or {}).get("output_signature"),
+                               "new_ruleset": (fresh or {}).get("ruleset_version"), "new_output_signature": (fresh or {}).get("output_signature") if rewrite else None,
+                               "new_level": list(_lvl(fresh) or ()) if rewrite else None, "decision_inputs_signature": ((fresh or {}).get("decision_inputs") or {}).get("signature") if rewrite else None,
+                               "lost_event_ids": sorted(l["event_id"] for l in cls["lost"]) if mark else None, "snapshot_digest": snap.digest,
+                               # claves que ``ma.compute_plan_digest`` SI firma: la aprobacion queda atada al Juicio previo, al Juicio/entrada resultante y a la INSTANTANEA del registro
+                               "previous_artifact_signature": (persisted or {}).get("output_signature"), "pool_signature": snap.digest,
+                               "candidate_artifact_signature": (fresh or {}).get("output_signature") if rewrite else "MARK:" + ",".join(sorted(l["event_id"] for l in cls["lost"])),
+                               "judgment_action": f"{'REPLACE_JUDGMENT' if rewrite else 'MARK_PENDING_REEVALUATION'}:{((fresh or {}).get('decision_inputs') or {}).get('signature') if rewrite else ''}"})
+        if (rewrite or mark) and apply:
             try:
-                durable = svc.apply_judgment_backfill(env, fresh)
+                if rewrite:
+                    durable = svc.apply_judgment_backfill(env, fresh)
+                    rec["action"] = "updated"
+                else:
+                    durable = svc.apply_judgment_review_marker(env, jd.review_marker(persisted, cls["lost"], snap))
+                    rec["action"] = "marked_pending_reevaluation"
                 rec["durable"] = durable
-                rec["action"] = "updated"
                 if durable != svc.DURABLE_REMOTE:
                     pending += 1
             except Exception as exc:                                    # noqa: BLE001 — una falla NO corrompe el sobre previo
@@ -1009,12 +1052,15 @@ def backfill_judgment(*, apply: bool = False, client: str = "") -> dict:
                 rec["action"] = "failed"
                 rec["error"] = type(exc).__name__
                 failed += 1
-        elif needs:
+        elif rewrite:
             rec["action"] = "would_update"
+        elif mark:
+            rec["action"] = "would_mark_pending_reevaluation"
         records.append(rec)
 
     def count(pred):
         return sum(1 for r in records if pred(r))
+    changed = lambda r: r["action"] in ("would_update", "updated") and r.get("from_level") is not None and r.get("from_level") != r.get("to_level")   # noqa: E731
     counts = {
         "eligible": len(records),
         "already_current": count(lambda r: r["action"] == svc.JDG_CURRENT),
@@ -1023,15 +1069,142 @@ def backfill_judgment(*, apply: bool = False, client: str = "") -> dict:
         "judgment_version_stale": count(lambda r: r.get("from_version") is not None
                                         and tuple(r.get("to_version") or ()) != tuple(r.get("from_version") or ())
                                         and r["action"] in ("would_update", "updated")),
+        "decision_stale": count(lambda r: r.get("lost_decisions")),
         "would_update": count(lambda r: r["action"] == "would_update"),
+        "would_mark_pending_reevaluation": count(lambda r: r["action"] == "would_mark_pending_reevaluation"),
         "updated": count(lambda r: r["action"] == "updated"),
+        "marked_pending_reevaluation": count(lambda r: r["action"] == "marked_pending_reevaluation"),
+        "level_changes": count(changed),
+        "decision_resolutions": count(lambda r: r["action"] in ("would_update", "updated") and (r.get("decision_inputs") or {}).get("consumed_event_ids")),
         "failed": failed,
         "pending_remote": pending,
     }
     # restart-safe: tras un apply exitoso, un segundo apply ve todo ``already_current`` (cero trabajo)
-    counts["complete"] = (failed == 0 and (not apply or counts["would_update"] == 0))
+    counts["complete"] = (failed == 0 and (not apply or (counts["would_update"] == 0 and counts["would_mark_pending_reevaluation"] == 0)))
     return {"mode": "backfill-judgment", "apply": apply, "dry_run": not apply, "records": records, "counts": counts,
+            "decision_snapshot": snap.summary(), "plan": build_plan(JUDGMENT_V3_MIGRATION, plan_items),
+            "level_changes": [{"client": r["client"], "terminal_am": r["terminal_am"], "from": r["from_level"], "to": r["to_level"],
+                               "event_ids": (r.get("decision_inputs") or {}).get("consumed_event_ids")} for r in records if changed(r)],
             "environment_warnings": ["sin almacén durable (solo memoria): el backfill no persiste"] if svc.governed_dir() is None else []}
+
+
+def secured_adopt_judgment(*, authorizer: Callable[[str, dict], "ma.Authorization"], backup_dir: Any, client: str = "", snapshot: Any = None, allow_local_only: bool = False,
+                           waves: list[list[str]] | None = None, run_id: str | None = None, reevaluate_decision_stale: bool = False,
+                           remote_enabled: Callable[[], bool] | None = None) -> dict:
+    """ADOPCION controlada de ``judgment-rules/v3`` (``--backfill-judgment --apply``): SOLO si hay (1) autorizacion firmada del plan EXACTO recalculado ahora (incluye el digest de la
+    instantanea de decisiones), (2) remoto disponible (salvo ``allow_local_only``), (3) respaldo verificable previo (local + copia durable sellada en Spaces) y (4) cada ola (cliente) cierra
+    limpia con el sobre reescrito CONFIRMADO. Cualquier incumplimiento => ``outcome`` explicito, exit 4/5 y NO se escribe nada mas. Un sobre cuya derivacion difiere de la planificada (deriva del
+    registro o del perfil entre el plan y la escritura) NO se escribe. Diario por objeto compatible con ``--restore-backup`` (COMMITTED con sha256)."""
+    from webapp.services import judgment_decisions as jd
+    remote_enabled = remote_enabled or (lambda: svc.remote_store.enabled())
+    snap = snapshot if snapshot is not None else jd.empty_snapshot()
+    plan_report = backfill_judgment(apply=False, client=client, snapshot=snap, reevaluate_decision_stale=reevaluate_decision_stale)
+    plan = plan_report["plan"]
+    base = {"mode": "backfill-judgment", "migration": JUDGMENT_V3_MIGRATION, "apply": True, "dry_run": False, "secured": True, "decision_snapshot": snap.summary(),
+            "plan": {"digest": plan["digest"], "clients": plan["clients"], "items": len(plan["items"])}}
+
+    def refuse(outcome: str, **extra: Any) -> dict:
+        return {**base, "outcome": outcome, "applied": False, "writes": 0, "records": [], "counts": {"failed": 0, "refused": 1}, "environment_warnings": [f"APPLY_NOT_PERFORMED: {outcome}"],
+                "complete": False, **extra}
+    if not plan["items"]:
+        return {**base, "outcome": "NOTHING_TO_DO", "applied": False, "writes": 0, "records": [], "counts": plan_report["counts"], "complete": plan_report["counts"]["complete"]}
+    auth = authorizer(JUDGMENT_V3_MIGRATION, plan)
+    if not auth.granted:
+        return refuse(DENIED, authorization=auth.as_dict())
+    if not remote_enabled() and not allow_local_only:
+        return refuse(REMOTE_REQUIRED, authorization=auth.as_dict())
+    governed = svc.governed_dir()
+    targets = [{"client": i["client"], "root": i["root"], "path": svc.governed_path(i["client"], i["root"])} for i in plan["items"]]
+    try:
+        if not backup_dir:
+            raise gb.BackupError("BACKUP_DIR_REQUIRED")
+        if governed is None or any(t["path"] is None for t in targets):
+            raise gb.BackupError("NO_GOVERNED_STORE")
+        manifest = gb.create_backup(Path(backup_dir), targets, governed_dir=governed, migration=JUDGMENT_V3_MIGRATION, plan_digest=plan["digest"], environment=plan["environment"],
+                                    remote_read=svc.remote_store.read_object_bytes if remote_enabled() else None, require_remote=not allow_local_only)
+    except gb.BackupError as exc:
+        return refuse(BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error=exc.code)
+    backup_dir = Path(backup_dir)
+    remote_info = None
+    if remote_enabled():
+        run_id = run_id or dbk.new_run_id(plan["digest"])
+        try:
+            remote_info = dbk.publish(backup_dir, JUDGMENT_V3_MIGRATION, run_id, approval=auth.document)
+        except dbk.DurableBackupError as exc:
+            return refuse(BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error=exc.code, backup_detail=exc.detail)
+    seq, jfail = [0], []
+
+    def journal(ev: dict) -> None:
+        rec = gb.append_journal(backup_dir, ev)
+        if remote_info is not None:
+            seq[0] += 1
+            try:
+                dbk.publish_event(JUDGMENT_V3_MIGRATION, run_id, seq[0], rec)
+            except dbk.DurableBackupError as exc:
+                jfail.append(exc.code)
+    try:
+        journal({"event": "AUTHORIZED", "approver": auth.approver, "operator": auth.operator, "duties_mode": auth.duties_mode, "duties_collapsed": auth.duties_collapsed,
+                 "operator_assurance": auth.operator_assurance, "attestation": auth.attestation, "identity_config": auth.identity_config, "plan_digest": plan["digest"],
+                 "decision_snapshot_digest": snap.digest,
+                 "approval_sha256": hashlib.sha256(ma.canonical(auth.document)).hexdigest() if auth.document is not None else None})
+    except Exception:                                                              # noqa: BLE001
+        return refuse(BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error="AUDIT_LOG_FAILED")
+    if jfail:
+        return refuse(BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error="JOURNAL_REMOTE_FAILED")
+    guard = {(i["client"], i["root"]): i for i in plan["items"]}
+    order = waves or _default_waves(plan)
+    out_records, wave_log, stopped = [], [], None
+    for n, wave in enumerate(order, 1):
+        wanted = {c.lower() for c in wave}
+        failed = pending = done = 0
+        for env, path in svc.iter_governed_envelopes():
+            key = (str(env.get("client")), str(env.get("terminal_am")))
+            if str(env.get("client", "")).strip().lower() not in wanted or key not in guard:
+                continue
+            item = guard[key]
+            cls = svc.classify_judgment_decisions(env, snap)
+            rec = {"client": key[0], "terminal_am": key[1], "operation": item["operation"]}
+            try:
+                if item["operation"] == "REPLACE_JUDGMENT":
+                    drift = (cls["fresh"] or {}).get("output_signature") != item["new_output_signature"]
+                else:
+                    drift = cls["action"] != svc.JDG_DECISION_STALE
+                if drift:
+                    raise RuntimeError("PLAN_DRIFT")
+                if item["operation"] == "REPLACE_JUDGMENT":
+                    durable = svc.apply_judgment_backfill(env, cls["fresh"])
+                else:
+                    durable = svc.apply_judgment_review_marker(env, jd.review_marker(env.get("judgment"), cls["lost"], snap))
+                p = svc.governed_path(*key)
+                okey = _key_of({"client": key[0], "root": key[1]})
+                journal({"event": "COMMITTED", "key": okey, "sha256": hashlib.sha256(p.read_bytes()).hexdigest() if p is not None and p.is_file() else None, "durable": durable})
+                rec.update(action="applied", durable=durable)
+                done += 1
+                if durable == svc.DURABLE_REMOTE:
+                    journal({"event": "REMOTE_CONFIRMED", "key": okey})
+                elif remote_enabled():
+                    pending += 1
+                    journal({"event": "REMOTE_PENDING", "key": okey})
+            except Exception as exc:                                               # noqa: BLE001
+                failed += 1
+                rec.update(action="failed", error=str(exc.args[0]) if isinstance(exc, RuntimeError) and exc.args else type(exc).__name__)
+                journal({"event": "FAILED", "key": _key_of({"client": key[0], "root": key[1]}), "error": rec["error"]})
+            out_records.append(rec)
+        clean = not (failed or pending or jfail)
+        wave_log.append({"wave": n, "clients": wave, "status": "CLEAN" if clean else "STOPPED", "applied": done, "failed": failed, "pending_remote": pending})
+        if not clean:
+            stopped = n
+            break
+    counts = {"applied": sum(1 for r in out_records if r["action"] == "applied"), "failed": sum(1 for r in out_records if r["action"] == "failed"),
+              "pending_remote": sum(w["pending_remote"] for w in wave_log)}
+    out = {**base, "outcome": STOPPED_AT_WAVE if stopped else APPLIED, "applied": True, "records": out_records, "counts": counts,
+           "secured_apply": {"plan_digest": plan["digest"], "authorization": auth.as_dict(), "backup": {"dir": str(backup_dir), "manifest_sha256": manifest["manifest_sha256"],
+                                                                                                         "objects": len(manifest["objects"]), "remote": remote_info},
+                             "waves": wave_log, "not_attempted_waves": order[(stopped or len(order)):], "journal_remote_failures": list(jfail)},
+           "complete": not stopped and not counts["failed"] and not counts["pending_remote"], "environment_warnings": []}
+    if stopped:
+        out["environment_warnings"].append(f"STOPPED_AT_WAVE_{stopped}: las olas siguientes NO se ejecutaron; resolver, regenerar el plan y volver a autorizar")
+    return out
 
 
 def revalidate_judgments(*, apply: bool = False, client: str = "") -> dict:
@@ -1190,8 +1363,13 @@ def main(argv: list[str] | None = None) -> int:
                            "se recalcula canónicamente. SIN Datasphere/DSP/publicación. Confía en el pool local: NO afirma que Datasphere esté al día. "
                            "Opcional --client (sin --client = todos los existentes). Exige --dry-run o --apply")
     mode.add_argument("--backfill-judgment", action="store_true",
-                      help="modo EXPLÍCITO: materializa el Juicio metodológico DERIVADO en los sobres gobernados que lo tengan ausente o con un contrato de "
-                           "Juicio anterior, derivándolo del perfil YA persistido (SIN reassess ni adquisición). Idempotente. Exige --dry-run o --apply")
+                      help="modo EXPLÍCITO: materializa el Juicio metodológico DERIVADO (judgment-rules/v3) en los sobres gobernados que lo tengan ausente o con un contrato de "
+                           "Juicio anterior, derivándolo del perfil YA persistido (SIN reassess ni adquisición) e INYECTANDO una instantánea verificable del registro de decisiones "
+                           "de gobierno (--decisions). Idempotente. Exige --dry-run o --apply; --apply es ASEGURADO (aprobación firmada + respaldo + --confirm-migration " + JUDGMENT_V3_MIGRATION + ")")
+    ap.add_argument("--decisions", choices=("registry", "none"), default="registry",
+                    help="con --backfill-judgment: 'registry' (defecto) toma UNA instantánea de SOLO LECTURA del registro governed-decisions/ (fail-closed si no se puede leer); 'none' = Juicio v3 SIN decisiones")
+    ap.add_argument("--reevaluate-decision-stale", action="store_true",
+                    help="con --backfill-judgment: reemplaza (re-deriva) los Juicios marcados judgment_decision_stale; por defecto SOLO se marcan pendientes de reevaluación sin reescribir el Juicio")
     mode.add_argument("--revalidate-judgment", action="store_true",
                       help="modo EXPLÍCITO: REVALIDA (no recalifica) los Juicios v2 persistidos cuya firma de perfil quedó desactualizada: si la parte metodológica del Juicio derivado por el motor v2 es "
                            "IDÉNTICA a la persistida reconoce la nueva firma del perfil; si difiere en algo NO escribe. No crea ni migra Juicios (eso es --backfill-judgment). Exige --dry-run o --apply")
@@ -1249,8 +1427,12 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("--apply solo existe con un modo de regeneración (el backfill normal no lo usa)")
     if args.apply and args.regenerate_stale_evidence in CONFIRMATION_REQUIRED and args.confirm_migration != args.regenerate_stale_evidence:
         ap.error(f"--apply de {args.regenerate_stale_evidence} exige --confirm-migration {args.regenerate_stale_evidence} (control explícito; cero escrituras)")
-    if args.confirm_migration and args.confirm_migration != args.regenerate_stale_evidence:
-        ap.error("--confirm-migration solo confirma la migración indicada en --regenerate-stale-evidence")
+    if args.backfill_judgment and args.apply and args.confirm_migration != JUDGMENT_V3_MIGRATION:
+        ap.error(f"--apply de --backfill-judgment exige --confirm-migration {JUDGMENT_V3_MIGRATION} (control explícito; cero escrituras)")
+    if args.confirm_migration and args.confirm_migration != (JUDGMENT_V3_MIGRATION if args.backfill_judgment else args.regenerate_stale_evidence):
+        ap.error("--confirm-migration solo confirma la migración indicada (--regenerate-stale-evidence, o " + JUDGMENT_V3_MIGRATION + " con --backfill-judgment)")
+    if (args.decisions != "registry" or args.reevaluate_decision_stale) and not args.backfill_judgment:
+        ap.error("--decisions/--reevaluate-decision-stale solo existen con --backfill-judgment")
     if args.reassess_current and not args.client.strip():                        # la reevaluación masiva DEBE ser explícita por cliente
         ap.error("--reassess-current exige --client (no reevalúa todos los clientes automáticamente)")
     _mod, entries = catalog_reads._catalog_entries()
@@ -1275,8 +1457,25 @@ def main(argv: list[str] | None = None) -> int:
         report = reassess_existing(entries, apply=args.apply)
         code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
     elif args.backfill_judgment:
-        report = backfill_judgment(apply=args.apply, client=args.client)
-        code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
+        from webapp.services import judgment_decisions as jd
+        try:
+            if args.decisions == "registry":                                      # UNA instantánea SOLO LECTURA del registro; si no se puede leer/validar NO se continúa
+                wanted_c = args.client.strip().lower()
+                scope = [str(e.get("client") or "") for e, _p in svc.iter_governed_envelopes() if not wanted_c or str(e.get("client", "")).strip().lower() == wanted_c]
+                snap = jd.take_snapshot(scope)
+            else:
+                snap = jd.empty_snapshot()
+        except jd.DecisionSnapshotError as exc:
+            sys.stdout.buffer.write((json.dumps({"mode": "backfill-judgment", "outcome": "DECISION_SNAPSHOT_FAILED", "error": str(exc), "writes": 0}, ensure_ascii=False, indent=2) + chr(10)).encode("utf-8"))
+            return 1
+        if args.apply:
+            report = secured_adopt_judgment(authorizer=ma.authorizer_from_file(args.approval or None, args.operator or None), backup_dir=args.backup_dir or None, client=args.client,
+                                            snapshot=snap, allow_local_only=args.allow_local_only, reevaluate_decision_stale=args.reevaluate_decision_stale)
+            code = (EXIT_DENIED if report.get("outcome") in (DENIED, BACKUP_NOT_GUARANTEED, REMOTE_REQUIRED) else EXIT_WAVE_STOPPED if report.get("outcome") == STOPPED_AT_WAVE
+                    else 1 if report["counts"].get("failed") else (2 if report.get("environment_warnings") else 0))
+        else:
+            report = backfill_judgment(apply=False, client=args.client, snapshot=snap, reevaluate_decision_stale=args.reevaluate_decision_stale)
+            code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
     elif args.revalidate_judgment:
         report = revalidate_judgments(apply=args.apply, client=args.client)
         code = 1 if report["counts"]["failed"] else (3 if report["counts"].get("methodology_diverged") else (2 if report["environment_warnings"] else 0))
