@@ -33,6 +33,16 @@ def _owner(request: Request) -> dict:
     return user
 
 
+def _session(request: Request) -> dict:
+    """401 sin sesión. CONSULTA (B4, Política B): cualquier usuario autenticado del Hub puede LEER el estado de un contrato —
+    misma visibilidad que ya tienen los informes de Assessment de donde deriva la evidencia (ver B4_ACCESS_MODEL.md). La
+    ESCRITURA (ratify/revoke) sigue siendo owner-only vía `_authorize_write`."""
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
+    return user
+
+
 def _authorize_write(request: Request) -> dict:
     """Escritura: sesión → same-origin → APP_OWNER."""
     user = auth_service.session_user(request)
@@ -105,7 +115,7 @@ def revoke(request: Request, client: str = Form(...), remote_connection: str = F
 
 @router.get("/governed-decisions/status", include_in_schema=False)
 def status(request: Request, client: str, remote_entity: str, remote_connection: str = ""):
-    _owner(request)                                            # consulta técnica: solo el APP_OWNER (B4 definirá visibilidad en el Hub)
+    _session(request)                                          # consulta técnica: cualquier usuario autenticado (B4, Política B); escritura sigue owner-only
     recon = _run(lambda: ops.status(client.strip(), _identity(remote_connection, remote_entity), datetime.now(timezone.utc)))
     st = recon["status"]
     # dimensiones INDEPENDIENTES; una ratificación NO implica cumplimiento metodológico

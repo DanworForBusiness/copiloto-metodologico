@@ -126,9 +126,11 @@ def test_ratify_requires_same_origin(bucket, owner):
     assert r.status_code == 403 and r.json()["detail"] == "Origen no permitido"
 
 
-def test_status_requires_owner(bucket, intruder):
+def test_status_readable_by_any_authenticated(bucket, intruder):
+    # B4 / Política B: la CONSULTA de estado la puede leer cualquier usuario autenticado (no sólo el owner); la ESCRITURA
+    # (ratify/revoke) sigue siendo owner-only (ver test_ratify_requires_owner). Antes de B4 esto era owner-only (403).
     r = intruder.get("/governed-decisions/status", params={"client": "Kensing", "remote_entity": "ABAP_CDS.ZBILL", "remote_connection": "S4H_PROD"})
-    assert r.status_code == 403
+    assert r.status_code == 200
 
 
 def test_status_requires_session(bucket):

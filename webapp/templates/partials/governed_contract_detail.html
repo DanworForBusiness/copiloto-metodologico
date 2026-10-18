@@ -1,0 +1,101 @@
+{# Detalle de un Contrato Gobernado (B4). Reusa el look&feel del detalle del Catálogo: catalog-back + module-hero + hero-meta +
+   article.methodology.catalog-detail + dashboard-section (colapsables) + catalog-card__verdict (badges) + catalog-note__ev. SOLO
+   LECTURA; acciones Ratificar/Revocar visibles sólo para el APP_OWNER y ejecutadas por el navegador contra las rutas POST de B3. #}
+<a class="catalog-back" href="#"
+   hx-get="/governed-contracts?client={{ client|urlencode }}&pack={{ pack }}" hx-target="#governed-contracts-panel"
+   hx-swap="innerHTML" @click.prevent>← Volver a contratos</a>
+
+<section class="module-hero">
+  <p class="eyebrow">Catálogo Danwor · Contrato de origen · {{ client }}</p>
+  <h1>{{ identity.remote_entity }}</h1>
+  <p class="hero-lead">Las tres dimensiones de estado son independientes. Una ratificación no implica cumplimiento metodológico (Judgment) ni aprueba a los Assessments consumidores.</p>
+  <div class="hero-meta">
+    <span>Conexión <code>{{ identity.remote_connection or '—' }}</code></span>
+    <span>Entidad <code>{{ identity.remote_entity }}</code></span>
+  </div>
+</section>
+
+<div class="catalog-flow-sep" style="border-top:1px solid rgba(128,128,128,.32)"></div>
+
+<article class="methodology catalog-detail">
+  <p class="catalog-verdict-line">
+    <span class="catalog-card__verdict catalog-card__verdict--{{ chips.decision.tone }}" title="Estado de decisión">Decisión · {{ chips.decision.label }}</span>
+    <span class="catalog-card__verdict catalog-card__verdict--{{ chips.evidence.tone }}" title="Estado de evidencia">Evidencia · {{ chips.evidence.label }}</span>
+    <span class="catalog-card__verdict catalog-card__verdict--{{ chips.review.tone }}" title="Estado de revisión">Revisión · {{ chips.review.label }}</span>
+  </p>
+
+  {% if events %}
+  {% set last = events[-1] %}
+  <details class="dashboard-section" open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Última decisión</span><span class="dashboard-section__count">{{ 'Ratificación' if last.event == 'RATIFIED' else 'Revocación' }}</span></summary>
+    <div class="dashboard-section__body">
+      <p><strong>Aprobador:</strong> {{ last.actor }}<br><strong>Fecha:</strong> {{ last.decided_at }}<br><strong>Justificación:</strong> {{ last.rationale }}</p>
+    </div>
+  </details>
+  {% endif %}
+
+  <details class="dashboard-section" open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Evidencia observada</span><span class="dashboard-section__count">{{ observed.contract_class if observed else 'no verificable' }}</span></summary>
+    <div class="dashboard-section__body">
+      {% if observed %}
+      <div class="matrix-scroll"><table>
+        <tbody>
+          <tr><th scope="row">leaf_kind</th><td><code>{{ observed.leaf_kind }}</code></td></tr>
+          <tr><th scope="row">Clase de contrato</th><td><code>{{ observed.contract_class }}</code></td></tr>
+          <tr><th scope="row">Bases de clasificación</th><td>{{ observed.classification_bases|join(', ') or '—' }}</td></tr>
+          <tr><th scope="row">Digest</th><td><code>{{ (evidence_digest or '')[:16] }}{% if evidence_digest %}…{% endif %}</code></td></tr>
+        </tbody>
+      </table></div>
+      {% else %}
+      <p class="catalog-note__ev">{{ observed_note or 'No verificable ahora.' }}</p>
+      {% endif %}
+      <p class="catalog-note__ev">El digest refleja la identidad y la clasificación observadas en los Assessments; no prueba el contenido funcional completo de la CDS/API ni una aprobación corporativa previa.</p>
+    </div>
+  </details>
+
+  <details class="dashboard-section">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Consumidores (trazabilidad)</span><span class="dashboard-section__count">{{ consumers|length }}</span></summary>
+    <div class="dashboard-section__body">
+      <p class="catalog-note__ev">Trazabilidad — los Assessments consumidores no son sujetos aprobados.</p>
+      {% if consumers %}<ul>{% for c in consumers %}<li>{{ c }}</li>{% endfor %}</ul>{% else %}<p class="catalog-note__ev">Sin Assessments consumidores observados.</p>{% endif %}
+    </div>
+  </details>
+
+  <details class="dashboard-section" open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span><span class="dashboard-section__count">{{ events|length }}</span></summary>
+    <div class="dashboard-section__body">
+      {% if events %}
+      <div class="matrix-scroll"><table>
+        <thead><tr><th>Decisión</th><th>Fecha</th><th>Aprobador</th><th>Justificación</th></tr></thead>
+        <tbody>
+          {% for e in events|reverse %}
+          <tr>
+            <td><span class="catalog-card__verdict catalog-card__verdict--{{ 'plena' if e.event == 'RATIFIED' else 'parcial' }}">{{ 'Ratificada' if e.event == 'RATIFIED' else 'Revocada' }}</span></td>
+            <td>{{ e.decided_at }}</td><td>{{ e.actor }}</td><td>{{ e.rationale }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+      {% else %}
+      <p class="catalog-note__ev">Este contrato aún no tiene ratificaciones ni revocaciones registradas.</p>
+      {% endif %}
+    </div>
+  </details>
+
+  {% if is_owner %}
+  <section class="content-section" data-gc-actions
+           data-client="{{ client }}" data-remote-connection="{{ identity.remote_connection or '' }}" data-remote-entity="{{ identity.remote_entity }}">
+    <h2>Acciones del dueño</h2>
+    <p class="catalog-note__ev">Ratificar/Revocar quedan registrados de forma permanente (append-only) y requieren justificación.</p>
+    <label>Justificación<textarea data-gc-rationale rows="2" placeholder="Motivo de la decisión (obligatorio)" style="width:100%;margin-top:4px"></textarea></label>
+    <div class="admin-actions">
+      <button type="button" class="btn-primary" data-gc-ratify>Ratificar</button>
+      <button type="button" class="support-link" data-gc-revoke>Revocar</button>
+    </div>
+    <div class="section-analysis-loading" role="status" data-gc-progress hidden>
+      <span class="section-analysis-spinner" data-gc-spinner></span><span class="section-analysis-loading-copy" data-gc-status></span>
+    </div>
+    <div class="feedback-error" role="alert" data-gc-error hidden><strong data-gc-error-title></strong> <span data-gc-error-msg></span></div>
+  </section>
+  {% endif %}
+</article>

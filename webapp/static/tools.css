@@ -2202,7 +2202,6 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .catalog-meta-dot--buena { background: var(--tone-buena); }
 .catalog-meta-dot--parcial { background: var(--tone-parcial); }
 .catalog-meta-dot--neutra { background: var(--tone-neutra); }
-.content-section { scroll-margin-top: 16px; }
 
 /* Diagrama de linaje por capas (SVG server-side, temeable, nodos = anclas). */
 /* Espeja el bloque "EN ESTE MÓDULO" (.section-index): mismo padding. La LÍNEA DE

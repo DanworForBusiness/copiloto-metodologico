@@ -1,0 +1,53 @@
+{# Listado de Contratos Gobernados por cliente (B4). MISMA estructura de pantalla que el detalle de una CDS del Catálogo
+   (catalog_cds_content): module-hero + article.methodology.catalog-detail. El listado es una tabla NATIVA del informe
+   (matrix-scroll + <table>), con badges de estado catalog-card__verdict por tono (idénticos a los del Assessment). Selector de
+   cliente = tree-picker del Catálogo. SOLO LECTURA. Sin clases ni estilos propios de esta pantalla. #}
+<section class="module-hero">
+  <p class="eyebrow">Catálogo Danwor · Gobierno de contratos</p>
+  <h1>Contratos Gobernados</h1>
+  <p class="hero-lead">Ratificación de contratos CDS/API de origen. La ratificación pertenece a la CDS/API; los Assessments consumidores son trazabilidad, no sujetos aprobados; no implica cumplimiento metodológico (Judgment).</p>
+</section>
+<div class="catalog-flow-sep" style="border-top:1px solid rgba(128,128,128,.32)"></div>
+<article class="methodology catalog-detail">
+  {# Selector de cliente: mismo componente del Catálogo (tree-picker > select, misma forma que `.tool-tab-panel select`: alto 42,
+     borde var(--line), sin radio). El Catálogo lo muestra en el copilot-panel, donde `--card` está tematizado; en el contenido
+     central `--card` es oscuro-por-defecto, así que el select toma `background:transparent` + `color:inherit` para seguir el tema
+     de la página (claro/oscuro) reusando los tokens existentes — adaptación mínima de presentación, sin clase ni CSS nuevos. #}
+  <div class="tree-picker">
+    <label for="gc-client">Cliente</label>
+    <div class="tree-picker-row">
+      <select id="gc-client" name="client"
+              style="width:100%;height:42px;padding:0 32px 0 10px;background:transparent;color:inherit;border:1px solid var(--line);border-radius:0;font:500 .78rem var(--sans)"
+              hx-get="/governed-contracts?pack={{ pack }}" hx-target="#governed-contracts-panel" hx-swap="innerHTML"
+              hx-trigger="change" hx-push-url="true">
+        <option value="">— Elegí un cliente —</option>
+        {% for c in clients %}<option value="{{ c }}" {% if c == selected_client %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+
+  {% if list_error %}
+    <p class="catalog-note__ev">No se pudo listar: {{ list_error }}</p>
+  {% elif not selected_client %}
+    <p>Seleccioná un cliente para ver sus contratos CDS/API gobernados.</p>
+  {% elif not contracts %}
+    <p>Este cliente no tiene contratos CDS/API con evidencia ni decisiones registradas.</p>
+  {% else %}
+  <div class="matrix-scroll"><table>
+    <thead><tr><th>Contrato (conexión · entidad)</th><th>Decisión</th><th>Evidencia</th><th>Revisión</th><th>Consumidores</th></tr></thead>
+    <tbody>
+      {% for ct in contracts %}
+      <tr role="link" tabindex="0" title="Ver detalle del contrato" style="cursor:pointer"
+          hx-get="/governed-contracts/detail?client={{ selected_client|urlencode }}&remote_connection={{ (ct.identity.remote_connection or '')|urlencode }}&remote_entity={{ ct.identity.remote_entity|urlencode }}&pack={{ pack }}"
+          hx-target="#governed-contracts-panel" hx-swap="innerHTML" hx-trigger="click, keyup[key=='Enter']">
+        <td><strong>{{ ct.identity.remote_entity }}</strong><br><span class="catalog-note__ev"><code>{{ ct.identity.remote_connection or '—' }}</code></span></td>
+        <td><span class="catalog-card__verdict catalog-card__verdict--{{ ct.chips.decision.tone }}">{{ ct.chips.decision.label }}</span></td>
+        <td><span class="catalog-card__verdict catalog-card__verdict--{{ ct.chips.evidence.tone }}">{{ ct.chips.evidence.label }}</span>{% if ct.evidence_ambiguous %} <span class="catalog-note__ev" title="Evidencia contradictoria entre consumidores">(!)</span>{% endif %}</td>
+        <td><span class="catalog-card__verdict catalog-card__verdict--{{ ct.chips.review.tone }}">{{ ct.chips.review.label }}</span></td>
+        <td>{{ ct.consumers|length }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</article>

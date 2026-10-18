@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% block title %}Contratos Gobernados · Catálogo Danwor{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('{{ active_group }}', {{ 'true' if readonly else 'false' }})"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.APP_TITLE | urlencode }}&subtitle={{ config.APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, "/?pack=" ~ pack, _identity_html, "Módulos") %}{% endcall %}
+
+  {% include "partials/copilot_nav.html" %}
+
+  <main id="content" class="module-content">
+    <div id="governed-contracts-panel">
+      {% if mode == "detail" %}
+        {% include "partials/governed_contract_detail.html" %}
+      {% else %}
+        {% include "partials/governed_contracts_list.html" %}
+      {% endif %}
+    </div>
+  </main>
+</div>
+<script src="/static/governed_contracts.js" defer></script>
+{% endblock %}

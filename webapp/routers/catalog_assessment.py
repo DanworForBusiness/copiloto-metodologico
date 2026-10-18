@@ -34,6 +34,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from core.content_registry import DEFAULT_PACK, resolve_pack
 from webapp import access, nav, same_origin_guard
 from webapp.services import assessment_presenter as presenter
+from webapp.services import governed_decisions_presenter as gd_presenter
 from webapp.services import assessment_service as svc
 from webapp.services import auth_service, catalog_reads
 from webapp.services import client_assessment_portfolio as portfolio
@@ -66,7 +67,8 @@ def _pack(request: Request, pack: str) -> str:
 def _report_response(request: Request, status: svc.AssessmentStatus, entry, pack: str) -> HTMLResponse:
     return templates.TemplateResponse(
         request=request, name="partials/catalog_assessment_report.html",
-        context={"v": presenter.report_view(status, entry, pack), "pack": pack})
+        context={"v": presenter.report_view(status, entry, pack), "pack": pack,
+                 "governed_contracts": gd_presenter.governed_contract_links(status.profile, status.client, pack)})
 
 
 @router.get("/catalog/flow/assessment", response_class=HTMLResponse, include_in_schema=False)
