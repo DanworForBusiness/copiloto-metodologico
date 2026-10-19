@@ -539,3 +539,10 @@ def test_the_summary_reuses_the_hub_primitives_and_adds_no_publicaciones_specifi
     root = Path(__file__).resolve().parents[2] / "webapp" / "static"
     css = "\n".join(re.sub(r"\.module-hero \+ #hc-entrevistas-panel[^{]*\{[^}]*\}", "", (root / n).read_text(encoding="utf-8")) for n in ("human_capital.css", "tools.css", "layout.css"))
     assert not re.search(r"publicaciones-(kpi|resumen|bar)|hc-publicaciones[^{]*activity-", css)
+
+
+def test_the_filter_bar_comes_first_then_the_summary_then_the_table_because_the_tiles_depend_on_the_filters():
+    _pub()
+    html = _get()
+    assert html.index('class="hc-profile-filters filter-toolbar-card"') < html.index('data-dashboard-key="cchh-publicaciones-resumen"') < html.index('data-dashboard-key="cchh-publicaciones"')
+    assert html.index('id="hc-publicaciones-panel"') < html.index('class="hc-profile-filters filter-toolbar-card"') < html.index("activity-kpi-grid")
