@@ -83,13 +83,13 @@ def test_the_six_public_states_are_unchanged_and_stale_reasons_are_not_states():
 
 
 def test_the_registry_is_small_explicit_and_uses_the_real_constants_as_target():
-    assert set(svc.EVIDENCE_MIGRATIONS) == {OLD_MIG, MIG, LIN_MIG, "evidence_confidence_v3", "evidence_leaf_materialization_v4"}                        # ambas explicitas: un perfil historico no queda varado porque un cliente ya migro
+    assert set(svc.EVIDENCE_MIGRATIONS) == {OLD_MIG, MIG, LIN_MIG, "evidence_confidence_v3", "evidence_leaf_materialization_v4", "signals_layer_boundary_v4"}                        # ambas explicitas: un perfil historico no queda varado porque un cliente ya migro
     assert TARGET.target_keys == ("assessability", "confidence", "canonical_evidence", "closure") and TARGET.closure_policy == svc.TARGETED_CLOSURE_EXPANSION
     assert OLD_VALUES == {"assessability": "assessability-rules/v2", "confidence": "confidence-cuts/v1", "canonical_evidence": "canonical-evidence/v1"}
     assert TARGET.eligible_old["closure"] == frozenset({None})
     v = _cur_versions()
     assert (v["assessability"], v["confidence"], v["canonical_evidence"], v["closure"]) == ("assessability-rules/v4", "confidence-cuts/v3", "canonical-evidence/v4", "closure-rules/v1")
-    assert v["signals"] == "signal-rules/v3" and v["finding_evidence"] == "finding-evidence/v2" and v["facts_profile"] == "modeling_assessment.profile/v1"     # lo no relacionado NO se subio
+    assert v["signals"] == "signal-rules/v4" and v["finding_evidence"] == "finding-evidence/v2" and v["facts_profile"] == "modeling_assessment.profile/v1"     # lo no relacionado NO se subio
 
 
 # ═══════════════ 2. unidades con dobles (sin motor ni disco) ═══════════════
@@ -886,7 +886,7 @@ def test_the_old_migration_dry_run_writes_nothing_and_apply_lands_on_the_current
         dry = bf.migrate_stale_evidence([world.acme], OLD_MIG, apply=False, governed_state_present=ALWAYS)
     d = dry["records"][0]["delta"]
     assert dry["records"][0]["action"] == bf.WOULD_REGENERATE and _digest(path) == before
-    assert d["versions"]["canonical_evidence"] == {"old": None, "new": "canonical-evidence/v4"} and d["versions"]["signals"] == {"old": "signal-rules/v2", "new": "signal-rules/v3"}
+    assert d["versions"]["canonical_evidence"] == {"old": None, "new": "canonical-evidence/v4"} and d["versions"]["signals"] == {"old": "signal-rules/v2", "new": "signal-rules/v4"}
     assert d["closure"]["drift"] is False and d["closure"]["policy"] == "TARGETED_CLOSURE_EXPANSION"
     out = bf.migrate_stale_evidence([world.acme], OLD_MIG, apply=True, governed_state_present=ALWAYS)
     assert out["records"][0]["action"] == bf.REGENERATED and out["counts"]["failed"] == 0 and files(world) == [path]

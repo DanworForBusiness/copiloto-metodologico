@@ -142,8 +142,15 @@ def _fmt_duplicate(o: dict) -> str:
 
 def _fmt_layer_boundary(o: dict) -> str:
     v = o["values"]
+    fun = v.get("functional_consumers") or []
+    if fun:                                            # signal-rules/v4: primer consumidor FUNCIONAL; el inmediato puede ser una vista de paso (no se afirma conexion directa)
+        parts = []
+        for c in fun[:4]:
+            via = c.get("reached_through") or []
+            parts.append(f"{_code(c['consumer'])} (capa {c['inferred_layer']})" + (f", a través de {', '.join(_code(x) for x in via)}" if via else ""))
+        return f"{_code(v.get('source'))}: primer consumidor funcional {', '.join(parts)}"
     cons = ", ".join(f"{_code(c['consumer'])} (capa {c['inferred_layer']})" for c in (v.get("lineage_consumers") or [])[:4])
-    return f"{_code(v.get('source'))} consumida directamente por {cons}"
+    return f"{_code(v.get('source'))} consumida directamente por {cons}"      # ocurrencias persistidas con signal-rules/v3
 
 
 def _fmt_flat_central(o: dict) -> str:

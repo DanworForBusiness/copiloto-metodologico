@@ -81,10 +81,23 @@ def test_every_registry_entry_declares_its_limits_mapping_and_context():
             assert s.context_question_key and s.missing_context, s.signal_id
 
 
-def test_required_facts_of_the_registry_are_real_fact_ids_emitted_by_the_extractors():
+def _engine_facts(root, client, am):
+    """Hechos del MISMO recorrido que el motor (``shadow.collect_facts``) sobre un pool CSN en disco: incluye los que exigen evidencia de queries (complejidad de vistas) y la clase de contrato de fuente."""
+    from tools.catalog.modeling_assessment import shadow as ma_shadow
+    _key, group = ma_shadow.select_pool(root, client, "General")
+    entities = ma_shadow.load_pool(group)
+    universe = AssessmentUniverse.from_entities(entities)
+    scope = universe.scope_for(am, pool_signature="sig")
+    return ma_shadow.collect_facts(universe, entities, scope.root, SupplementaryEvidence.from_files(group["jsons"], root=root))
+
+
+def test_required_facts_of_the_registry_are_real_fact_ids_emitted_by_the_extractors(tmp_path):
+    from tests import _layer_boundary_pool as LB
     emitted = set()
     for ents, am in ((m2_entities(), "AM_P"), (m3_entities(), "AM_M"), (m4_entities(), "AM_X")):
         emitted |= {f.fact_id for f in all_facts(ents, am)}
+    topo = {"leaves": {"SRC_TAB": LB.TABLE}, "views": [LB.view("VR_P", ["SRC_TAB"]), LB.view("VF_X", ["VR_P", "VR_P"], "join", "ANALYTICAL_FACT")], "am_from": "VF_X"}
+    emitted |= {f.fact_id for f in _engine_facts(LB.write_pool(tmp_path, topo), LB.CLIENT, LB.AM)}
     required = {r for s in S.SIGNAL_REGISTRY for r in s.required_fact_ids}
     assert required <= emitted, sorted(required - emitted)
 
@@ -499,7 +512,7 @@ def test_missing_or_not_applicable_facts_produce_nothing_and_never_crash():
 def test_no_signal_object_or_finding_carries_scoring_vocabulary_or_a_quality_judgment():
     for ents, am in ((m4_entities(), "AM_X"), (m3_entities(), "AM_M"), (_rl(), "4AM_RL")):
         _, ev = run(ents, am)
-        assert ev.ruleset_version == S.SIGNALS_RULESET == "signal-rules/v3"
+        assert ev.ruleset_version == S.SIGNALS_RULESET == "signal-rules/v4"
         for s in ev.signals:
             assert s.ruleset_version == S.SIGNALS_RULESET and not m.find_forbidden_tokens(s.signal_id)
         for f in ev.findings:
@@ -528,13 +541,16 @@ def _keys(value):
 def test_signals_read_only_facts_never_entities_files_or_legacy_directly():
     text = (PKG / "signals.py").read_text(encoding="utf-8")
     tree = ast.parse(text)
-    mods = set()
+    mods, shared = set(), set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             mods.add(("." * node.level) + (node.module or ""))
+            if node.level == 1 and not node.module:
+                shared.update(a.name for a in node.names)
         elif isinstance(node, ast.Import):
             mods.update(a.name for a in node.names)
-    assert mods <= {"__future__", "re", "unicodedata", "dataclasses", "typing", ".model"}, mods
+    assert mods <= {"__future__", "re", "unicodedata", "dataclasses", "typing", ".model", "."}, mods
+    assert shared == {"layer_evidence"}, shared                       # unico import intra-paquete extra: definiciones PURAS compartidas con el Juicio (sin I/O ni legacy)
     for needle in ("open(", "read_text", "json.load", "legacy_bridge", "generate_catalog"):
         assert needle not in text, needle
     assert not re.search(r"\bentities\b", text)                          # no recibe ni recorre entidades: solo hechos

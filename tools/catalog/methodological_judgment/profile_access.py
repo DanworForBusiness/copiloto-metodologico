@@ -12,6 +12,8 @@ from collections import deque
 from functools import cached_property
 from typing import Any, Iterable, Mapping
 
+from tools.catalog import layer_semantics
+
 SYSTEM_NAMESPACE = "SAP"
 
 # clases de contacto con la fuente (politica de contrato de fuente, Gate 8C.1)
@@ -19,7 +21,7 @@ GOVERNED_SAP_CONTRACT = "GOVERNED_SAP_CONTRACT"
 PHYSICAL_RAW_BOUNDARY = "PHYSICAL_RAW_BOUNDARY"
 EXTERNAL_CONTRACT_UNDETERMINED = "EXTERNAL_CONTRACT_UNDETERMINED"
 SOURCE_CLASSES = (GOVERNED_SAP_CONTRACT, PHYSICAL_RAW_BOUNDARY, EXTERNAL_CONTRACT_UNDETERMINED)
-_GOVERNED_CONTRACT_CLASSES = frozenset({"GOVERNED_SAP_CDS_CONTRACT", "GOVERNED_SAP_ODP_SAPI_CONTRACT", "SAP_STANDARD_VIEW_ON_PHYSICAL_TABLE", "SAP_BW_BRIDGE_VIRTUALIZATION"})
+_GOVERNED_CONTRACT_CLASSES = layer_semantics.GOVERNED_CONTRACT_CLASSES            # definicion COMPARTIDA con las senales del Assessment (``tools/catalog/layer_semantics.py``)
 EXTERNAL_POLICIES = ("UNDETERMINED", "PHYSICAL_RAW", "GOVERNED")                     # solo para PRUEBAS de sensibilidad; el motor usa UNDETERMINED
 
 # clases de proveedor de un nodo de composicion
@@ -232,13 +234,7 @@ class ProfileEvidence:
     # ───────────────────────────── grafo de vistas ─────────────────────────────
     def is_pass_through(self, name: str) -> bool:
         """Vista de paso: 1 proveedor, 1 nodo SELECT, sin joins, uniones, columnas derivadas ni filtros."""
-        v = self.views.get(name)
-        if not v:
-            return False
-        m = v.get("metrics") or {}
-        f = m.get("filters") or {}
-        return (v.get("providers") == 1 and m.get("select_nodes") == 1 and not m.get("joins") and not m.get("unions") and not m.get("derived_columns")
-                and not f.get("where_nodes") and not f.get("having_nodes"))
+        return layer_semantics.is_pass_through_view(self.views.get(name))          # definicion COMPARTIDA con las senales del Assessment (``tools/catalog/layer_semantics.py``)
 
     def collapse(self, name: str) -> str:
         seen = 0

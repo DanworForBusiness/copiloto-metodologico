@@ -124,6 +124,8 @@ CLOSURE_EQUAL, TARGETED_CLOSURE_EXPANSION = "CLOSURE_EQUAL", "TARGETED_CLOSURE_E
 #     objetivo incluyen ``confidence`` y ``closure``). Para dejar un perfil en el contrato intermedio G1/G3 hay que correrla desde un despliegue anterior al evidence release.
 #   * ``evidence_closure_contract_v2`` (perfil en el contrato G1/G3 vigente en 11ce071 -> evidence release).
 #   * ``evidence_field_lineage_v3`` (perfil en el contrato del evidence release v2 -> evidence release de linaje de campo): SOLO agrega evidencia, por lo que exige ``CLOSURE_EQUAL``.
+#   * ``signals_layer_boundary_v4`` (perfil en ``signal-rules/v3`` -> ``signal-rules/v4``): SOLO cambia la revision LAYER_BOUNDARY_REVIEW (primer consumidor FUNCIONAL, capa con evidencia, fuentes de contrato gobernado).
+#     Regenera con el MISMO motor sobre el MISMO pool local; ``migration_postcheck`` exige que TODO el perfil salvo esa revision (y lo derivado de ella) quede identico, y el Juicio se REVALIDA o la migracion se abstiene.
 #   * ``evidence_confidence_v3`` (perfil en ``confidence-cuts/v2`` -> ``confidence-cuts/v3``): SOLO cambia la CONFIANZA (el factor ``resolved_provenance`` mide el origen de los datos). Regenera con el
 #     MISMO motor sobre el MISMO pool local (sin Datasphere); ``migration_postcheck`` exige que TODO el perfil salvo ``summary.confidence`` y ``versions.confidence`` quede idéntico (evidencia, cobertura, cierre).
 # Las dos primeras regeneran con el MISMO motor y aceptan el cierre solo bajo ``TARGETED_CLOSURE_EXPANSION``. Ninguna se encadena con otra: un perfil se migra por la UNICA cuyo
@@ -155,6 +157,12 @@ EVIDENCE_MIGRATIONS: dict[str, MigrationTarget] = {
         "canonical-evidence/v4 (v4.C): perfil v3 -> v4 = v3 + seccion `leaf_materialization` (materializacion derivada de las hojas locales con referencias recuperables al pool). Misma entrada, "
         "mismo cierre y el MISMO Assessment metodologico: el perfil solo puede diferir en `canonical_evidence.version`, `versions.canonical_evidence` y la seccion nueva (CLOSURE_EQUAL + perfil identico "
         "salvo eso). Se ABSTIENE si falta el pool, difiere su firma o no se resuelven las referencias; el Juicio v2 se revalida (misma metodologia, nueva firma) o la migracion se abstiene",
+        CLOSURE_EQUAL, transitional=True),
+    "signals_layer_boundary_v4": MigrationTarget(
+        "signals_layer_boundary_v4", ("signals",), {"signals": frozenset({"signal-rules/v3"})},
+        "signal-rules/v4: LAYER_BOUNDARY_REVIEW evalua el primer consumidor FUNCIONAL (atraviesa vistas de paso), solo con capa respaldada por evidencia (rol declarado / nomenclatura de capas) y sin fuentes de "
+        "contrato gobernado. Misma entrada, mismo cierre, mismo resto del perfil y MISMO Juicio: el perfil solo puede diferir en `versions.signals` y en la revision LAYER_BOUNDARY_REVIEW con lo derivado de ella "
+        "(areas, superficie y resultado de regla, preguntas de contexto y la parte de «insumos completos de las reglas» de la confianza, sin cambiar su nivel). CLOSURE_EQUAL + Juicio revalidado (misma metodologia, nueva firma) o la migracion se abstiene",
         CLOSURE_EQUAL, transitional=True),
     "evidence_confidence_v3": MigrationTarget(
         "evidence_confidence_v3", ("confidence",), {"confidence": frozenset({"confidence-cuts/v2"})},
@@ -1115,6 +1123,70 @@ def _without_materialization(profile: dict | None) -> dict | None:
     return out
 
 
+LAYER_BOUNDARY_MIGRATION = "signals_layer_boundary_v4"
+_LAYER_BOUNDARY_ID = "LAYER_BOUNDARY_REVIEW"
+_LAYER_BOUNDARY_SURFACE = "rule.layer_boundary_review"
+_RULE_INPUTS_COMPONENT = "complete_rule_inputs"
+_CONTEXT_COUNTERS = ("open_questions", "questions_backed_by_findings", "questions_without_findings", "occurrences")
+
+
+def _without_layer_boundary(profile: dict | None) -> dict | None:
+    """Perfil sin lo UNICO que ``signals_layer_boundary_v4`` puede cambiar: ``versions.signals``, la revision LAYER_BOUNDARY_REVIEW y lo derivado de ella (su resultado de regla y de superficie, su grupo en el area y su pregunta de
+    contexto con los contadores de preguntas). Todo lo demas (evidencia, cobertura, cierre, confianza, las OTRAS revisiones/observaciones) debe quedar IDENTICO."""
+    if not isinstance(profile, dict):
+        return None
+    out = copy.deepcopy(profile)
+    (out.get("versions") or {}).pop("signals", None)
+    out["review_required"] = [r for r in out.get("review_required") or [] if r.get("id") != _LAYER_BOUNDARY_ID]
+    out["rule_results"] = [r for r in out.get("rule_results") or [] if r.get("rule") != _LAYER_BOUNDARY_ID]
+    for area in out.get("areas") or []:
+        area["finding_groups"] = [g for g in area.get("finding_groups") or [] if g != _LAYER_BOUNDARY_ID]
+    for surface in out.get("surfaces") or []:                       # la superficie de la regla conserva su evaluabilidad; solo su RESULTADO (hallazgos) deriva de la revision
+        if surface.get("surface_id") == _LAYER_BOUNDARY_SURFACE:
+            surface.pop("finding_count", None)
+            surface.pop("rule_result", None)
+    ctx = (out.get("summary") or {}).get("context_required")
+    if isinstance(ctx, dict):
+        ctx["questions"] = [q for q in ctx.get("questions") or [] if q.get("id") != _LAYER_BOUNDARY_ID]
+        for k in _CONTEXT_COUNTERS:
+            ctx.pop(k, None)
+    for lim in out.get("evidence_limitations") or []:               # el titulo de la limitacion de la regla copia el de la revision (texto actualizado)
+        if lim.get("surface_id") == _LAYER_BOUNDARY_SURFACE:
+            lim.pop("title", None)
+    conf = (out.get("summary") or {}).get("confidence")             # la parte de «insumos completos de las reglas» de la confianza se deriva del RESULTADO de cada regla (ver ``_check_layer_boundary_delta``)
+    if isinstance(conf, dict):
+        for c in conf.get("components") or []:
+            if c.get("id") == _RULE_INPUTS_COMPONENT:
+                for k in ("value", "summary", "level"):
+                    c.pop(k, None)
+    return out
+
+
+def _rule_conclusion_share(profile: dict | None) -> float | None:
+    """Parte de las conclusiones de reglas (PATTERN_FOUND / ASSESSED_ABSENCE) alcanzadas con insumos completamente evaluados: MISMA definicion que el factor ``complete_rule_inputs`` de la confianza."""
+    surfaces = [s for s in (profile or {}).get("surfaces") or [] if s.get("kind") == "RULE_EVALUATION" and s.get("rule_result") in ("PATTERN_FOUND", "ASSESSED_ABSENCE")]
+    return round(sum(1 for s in surfaces if s.get("assessability") == "ASSESSED") / len(surfaces), 4) if surfaces else None
+
+
+def _rule_inputs_component_value(profile: dict | None) -> Any:
+    comp = next((c for c in ((profile or {}).get("summary") or {}).get("confidence", {}).get("components") or [] if c.get("id") == _RULE_INPUTS_COMPONENT), None)
+    return None if comp is None else comp.get("value")
+
+
+def _check_layer_boundary_delta(new: dict, old: dict | None) -> None:
+    """Postcondicion de ``signals_layer_boundary_v4`` sobre el perfil candidato: (1) la confianza (nivel, eje, limitacion principal) NO cambia (un cambio de nivel es una decision humana: ``CONFIDENCE_LEVEL_CHANGED``);
+    (2) todo el perfil salvo la revision y lo derivado de ella queda identico; (3) el unico movimiento permitido en la confianza (la parte de «insumos completos de las reglas») debe estar EXPLICADO por los
+    resultados de regla del PROPIO perfil (viejo y nuevo): se recalcula desde sus superficies y debe coincidir. Cualquier otra cosa => ``NON_LAYER_BOUNDARY_CONTENT_CHANGED``."""
+    head = lambda p: {k: ((p.get("summary") or {}).get("confidence") or {}).get(k) for k in ("level", "driver", "main_limitation")}      # noqa: E731
+    if old is None or head(new) != head(old):
+        raise EnrichmentError("CONFIDENCE_LEVEL_CHANGED")
+    if _without_layer_boundary(new) != _without_layer_boundary(old):
+        raise EnrichmentError("NON_LAYER_BOUNDARY_CONTENT_CHANGED")
+    for prof in (new, old):
+        share = _rule_conclusion_share(prof)
+        if share is not None and round(float(_rule_inputs_component_value(prof) or 0), 4) != share:
+            raise EnrichmentError("NON_LAYER_BOUNDARY_CONTENT_CHANGED")
+
 def migration_postcheck(name: str, doc: dict, previous: dict | None, versions: dict) -> None:
     """Postcondiciones de la migracion de evidencia ``name`` sobre el candidato regenerado (todas ANTES de escribir)."""
     m = EVIDENCE_MIGRATIONS[name]
@@ -1143,6 +1215,8 @@ def migration_postcheck(name: str, doc: dict, previous: dict | None, versions: d
             raise EnrichmentError("NON_CONFIDENCE_CONTENT_CHANGED")      # solo la confianza puede cambiar: evidencia, cobertura, areas y hallazgos quedan IDENTICOS
         if name == MATERIALIZATION_MIGRATION and _without_materialization(doc) != _without_materialization((previous or {}).get("profile_json")):
             raise EnrichmentError("NON_MATERIALIZATION_CONTENT_CHANGED")  # mismo Assessment metodologico: solo version + seccion nueva pueden diferir
+        if name == LAYER_BOUNDARY_MIGRATION:
+            _check_layer_boundary_delta(doc, (previous or {}).get("profile_json"))      # solo la revision LAYER_BOUNDARY_REVIEW (y lo derivado de ella) puede diferir; la confianza no cambia de nivel
         return
     _check_targeted_closure_expansion(old_closure, new_closure, doc)
 
@@ -1256,8 +1330,11 @@ def classify_judgment_revalidation(env: dict) -> tuple[str, dict | None]:
     return revalidate_judgment(env.get("judgment"), env.get("profile_json"))
 
 
+JUDGMENT_REVALIDATING_MIGRATIONS = frozenset({MATERIALIZATION_MIGRATION, LAYER_BOUNDARY_MIGRATION})      # migraciones que NO recalifican: revalidan el Juicio (misma metodologia, nueva firma de perfil)
+
+
 def _materialization_envelope_hook(doc: dict, previous: dict | None) -> tuple[dict, dict]:
-    """Sobre candidato de ``evidence_leaf_materialization_v4``: el Juicio se REVALIDA (misma metodologia, nueva firma) o la migracion se abstiene; los derivados HERMANOS (clasificacion de
+    """Sobre candidato de una migracion que REVALIDA el Juicio (``evidence_leaf_materialization_v4``, ``signals_layer_boundary_v4``): el Juicio se REVALIDA (misma metodologia, nueva firma) o la migracion se abstiene; los derivados HERMANOS (clasificacion de
     dominio y de negocio) se conservan tal cual (no son parte de esta migracion y no dependen del perfil)."""
     prev = previous or {}
     action, judgment = revalidate_judgment(prev.get("judgment"), doc)
@@ -1285,7 +1362,7 @@ def regenerate_stale_evidence(entry: Any, migration: str) -> RegeneratedAssessme
             _materialization_postcheck(doc, res)
 
     return _regenerate_core(entry, precondition=precondition, log_label=f"migración {migration}", postcheck=postcheck,
-                            envelope_hook=_materialization_envelope_hook if migration == MATERIALIZATION_MIGRATION else None)
+                            envelope_hook=_materialization_envelope_hook if migration in JUDGMENT_REVALIDATING_MIGRATIONS else None)
 
 
 def regenerate_current_evidence(entry: Any, snapshot: Any = None) -> RegeneratedAssessment:

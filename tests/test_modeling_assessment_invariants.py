@@ -351,7 +351,8 @@ def test_package_layout_is_the_approved_one():
     present = {p.name for p in PKG_DIR.iterdir() if p.is_file()}
     # Evidence release v4.A (canonical-evidence/v4): materializacion derivada de hojas locales (contrato + recolector de referencias tecnicas del pool; la logica vive en tools/catalog/leaf_materialization)
     evidence_materialization = {"evidence_contract_v4.py", "materialization_evidence.py"}
-    approved = m0 | m1 | m2 | m3 | m4 | m5 | m6 | m7 | view_type | public_api | evidence_g1_g3 | evidence_release | evidence_field_lineage | evidence_materialization
+    layer_boundary = {"layer_evidence.py"}      # LAYER_BOUNDARY_REVIEW (signal-rules/v4): definiciones neutras de capa/contrato compartidas con el Juicio (la logica vive en tools/catalog/layer_semantics)
+    approved = m0 | m1 | m2 | m3 | m4 | m5 | m6 | m7 | view_type | public_api | evidence_g1_g3 | evidence_release | evidence_field_lineage | evidence_materialization | layer_boundary
     assert approved <= present, sorted(approved - present)
     # Hito actual = M7: NO se adelantan milestones posteriores (M8: informe de validacion shadow contra el legacy) ni aparecen archivos no aprobados.
     assert present == approved, sorted(present - approved)

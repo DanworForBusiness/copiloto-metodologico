@@ -52,6 +52,10 @@ MIGRACIÓN CONTROLADA DE EVIDENCIA (modo explícito y SEPARADO; para assessments
       perfil salvo ``summary.confidence`` / ``versions.confidence`` quede idéntico (``NON_CONFIDENCE_CONTENT_CHANGED`` es falla dura, cero escrituras). Operador (en la consola del servidor):
           python -m webapp.services.assessment_backfill --regenerate-stale-evidence evidence_confidence_v3 --dry-run
           python -m webapp.services.assessment_backfill --regenerate-stale-evidence evidence_confidence_v3 --apply
+    * ``signals_layer_boundary_v4``: perfil en ``signal-rules/v3`` -> ``signal-rules/v4`` (LAYER_BOUNDARY_REVIEW: primer consumidor FUNCIONAL, capa respaldada por evidencia, sin fuentes de contrato
+      gobernado). SENSIBLE (``SECURED_MIGRATIONS``: misma aplicacion asegurada que ``evidence_leaf_materialization_v4``). Sigue CURRENT mientras no se migra (compatibilidad de transicion; nada se vuelve STALE).
+      Regenera con el MISMO motor sobre el pool LOCAL; solo puede diferir ``versions.signals`` y la revision (con lo derivado de ella); el Juicio se REVALIDA (misma metodologia, nueva firma) o se ABSTIENE
+      (``JUDGMENT_METHODOLOGY_DIVERGED``); un cambio del NIVEL de confianza => ``CONFIDENCE_LEVEL_CHANGED`` (decision humana). El dry-run informa ``layer_boundary`` (fuentes viejas/nuevas, pregunta de contexto).
   Un perfil cuya diferencia es la de OTRA migración se informa como ``other_migration_applicable`` (con ``applicable_migration``): NO se migra por la equivocada, NO se salta
   ni se encadena. Un perfil ya CURRENT se omite en ambas (idempotentes).
 
@@ -91,7 +95,7 @@ REEVALUACIÓN GENÉRICA OFFLINE DE EXISTENTES (modo explícito y SEPARADO; recon
 
   DÓNDE CORRERLO: en la CONSOLA DEL SERVIDOR (DigitalOcean), donde ``governed-assessments/`` ya está restaurado y el pool del cliente está presente.
   NO desde una máquina de desarrollo y SIN restore() propio (el modo avisa si el estado gobernado parece ausente).
-  APLICACION ASEGURADA (``evidence_leaf_materialization_v4``; ``SECURED_MIGRATIONS``): ``--apply`` es FAIL-CLOSED. Flujo: (1) ``--dry-run`` imprime ``plan.digest`` y los clientes; (2) un APROBADOR (distinto del operador) emite
+  APLICACION ASEGURADA (``evidence_leaf_materialization_v4`` y ``signals_layer_boundary_v4``; ``SECURED_MIGRATIONS``): ``--apply`` es FAIL-CLOSED. Flujo: (1) ``--dry-run`` imprime ``plan.digest`` y los clientes; (2) un APROBADOR (distinto del operador) emite
   una aprobacion FIRMADA de ese digest (``python -m webapp.services.migration_approval issue ...``; sus claves publicas, y solo esas, se configuran en ``DANWOR_MIGRATION_APPROVER_KEYS``; APP_OWNER NO autoriza); (3)
       python -m webapp.services.assessment_backfill --regenerate-stale-evidence evidence_leaf_materialization_v4 --apply --confirm-migration evidence_leaf_materialization_v4 \
           --approval aprobacion.json --operator <id> --backup-dir <dir vacio fuera del almacen> [--waves "Pampa,Loma,Illolay;Kensing;Biogenesis"] [--allow-local-only]
@@ -518,12 +522,12 @@ def reassess_existing(entries: Iterable[Any], *, apply: bool = False,
 VERSION_ONLY_UNTARGETED, INPUT_CHANGED_STALE, VERSION_AND_INPUT_CHANGED = "version_only_untargeted", "input_changed_stale", "version_and_input_changed"
 OTHER_MIGRATION_APPLICABLE = "other_migration_applicable"       # STALE VERSION_ONLY cubierto exactamente por OTRA migracion del registro: se reporta, NO se encadena
 _STALE_ONLY_REPORTED = (VERSION_ONLY_UNTARGETED, INPUT_CHANGED_STALE, VERSION_AND_INPUT_CHANGED, OTHER_MIGRATION_APPLICABLE)
-# Causas de ABSTENCION de ``evidence_leaf_materialization_v4`` (no son fallas del operador: la condicion de elegibilidad no se cumple y el perfil anterior se conserva).
+# Causas de ABSTENCION de las migraciones aseguradas (``evidence_leaf_materialization_v4``, ``signals_layer_boundary_v4``) (no son fallas del operador: la condicion de elegibilidad no se cumple y el perfil anterior se conserva).
 ABSTENTION_CODES = frozenset({*svc.ERROR_MESSAGES, "PREVIOUS_NOT_TARGETED_VERSION_ONLY_STALE", "PREVIOUS_NOT_READABLE", "POOL_SIGNATURE_MISMATCH", "ENGINE_NOT_ASSESSED", "CLOSURE_DRIFT",
-                              "CLOSURE_NOT_VERIFIABLE", "TERMINAL_AM_CHANGED", "NON_MATERIALIZATION_CONTENT_CHANGED", "CANDIDATE_VERSIONS_NOT_CURRENT", "CANDIDATE_TARGET_VERSIONS_MISMATCH",
+                              "CLOSURE_NOT_VERIFIABLE", "TERMINAL_AM_CHANGED", "NON_MATERIALIZATION_CONTENT_CHANGED", "NON_LAYER_BOUNDARY_CONTENT_CHANGED", "CONFIDENCE_LEVEL_CHANGED", "CANDIDATE_VERSIONS_NOT_CURRENT", "CANDIDATE_TARGET_VERSIONS_MISMATCH",
                               "MATERIALIZATION_SECTION_MISSING", "MATERIALIZATION_NOT_EVALUATED", "MATERIALIZATION_CSN_NOT_PROVIDED", "MATERIALIZATION_POOL_SIGNATURE_MISMATCH",
                               "MATERIALIZATION_REFERENCES_INCOMPLETE", "MATERIALIZATION_SOURCE_NOT_RECOVERABLE", "MATERIALIZATION_REFERENCE_UNRESOLVED", "JUDGMENT_METHODOLOGY_DIVERGED"})
-CONFIRMATION_REQUIRED = frozenset({svc.MATERIALIZATION_MIGRATION})        # ``--apply`` de estas migraciones exige ``--confirm-migration <nombre>`` ademas de la autorizacion firmada
+CONFIRMATION_REQUIRED = frozenset({svc.MATERIALIZATION_MIGRATION, svc.LAYER_BOUNDARY_MIGRATION})        # ``--apply`` de estas migraciones exige ``--confirm-migration <nombre>`` ademas de la autorizacion firmada
 SECURED_MIGRATIONS = CONFIRMATION_REQUIRED                                  # solo se aplican por ``secured_migrate`` (autorizacion fail-closed + respaldo + olas); ``migrate_stale_evidence(apply=True)`` directo se NIEGA
 _PLAN_KEYS = ("previous_artifact_signature", "pool_signature", "candidate_artifact_signature", "judgment_action")
 
@@ -605,10 +609,27 @@ def compare_evidence_migration(old: dict | None, new_cand: Any, migration: str, 
         csn = (sec.get("derivation_inputs") or {}).get("csn") or {}
         delta["leaf_materialization"] = {"state": sec.get("evaluation_state"), "counts": sec.get("counts"), "csn_provided": csn.get("provided"),
                                          "references": len(csn.get("references") or ()), "limitations": list(csn.get("limitations") or ())}
+    if migration == svc.LAYER_BOUNDARY_MIGRATION:                          # signal-rules/v4: que cambia LAYER_BOUNDARY_REVIEW (fuentes, pregunta de contexto) y su efecto derivado en la confianza
+        delta["layer_boundary"] = _layer_boundary_report(old, new)
     if getattr(new_cand, "notes", None):
         delta["judgment"] = dict(new_cand.notes)
     delta["changed"] = base["changed"] or delta["coverage_inclusive"]["changed"] or bool(added)
     return delta
+
+
+def _layer_boundary_report(old: dict | None, new: dict | None) -> dict:
+    """Resumen viejo → nuevo de LAYER_BOUNDARY_REVIEW para el plan de ``signals_layer_boundary_v4`` (sin volcar perfiles): ocurrencias y fuentes, pregunta de contexto y parte de «insumos completos de las reglas»."""
+    def occurrences(doc: dict | None) -> list:
+        item = next((r for r in (doc or {}).get("review_required") or [] if r.get("id") == "LAYER_BOUNDARY_REVIEW"), None)
+        return list(item["occurrences"]) if item else []
+
+    def has_question(doc: dict | None) -> bool:
+        return any(q.get("id") == "LAYER_BOUNDARY_REVIEW" for q in (((doc or {}).get("summary") or {}).get("context_required") or {}).get("questions") or [])
+    o, n = occurrences(old), occurrences(new)
+    so, sn = sorted(x["values"]["source"] for x in o), sorted(x["values"]["source"] for x in n)
+    return {"occurrences": {"old": len(o), "new": len(n)}, "sources": {"old": so, "new": sn}, "removed_sources": sorted(set(so) - set(sn)), "added_sources": sorted(set(sn) - set(so)),
+            "context_question": {"old": has_question(old), "new": has_question(new)},
+            "rule_inputs_share": {"old": svc._rule_inputs_component_value(old), "new": svc._rule_inputs_component_value(new)}}
 
 
 def _classify_migration(status: svc.AssessmentStatus, migration: str) -> str | None:
@@ -725,7 +746,7 @@ def migrate_stale_evidence(entries: Iterable[Any], migration: str, *, apply: boo
     out: dict = {"mode": "regenerate-stale-evidence", "migration": migration, "target_keys": list(target.target_keys),
                  "target_versions": {k: versions.get(k) for k in target.target_keys}, "apply": apply, "dry_run": not apply,
                  "records": [], "environment_warnings": []}
-    abstain = ABSTENTION_CODES if migration == svc.MATERIALIZATION_MIGRATION else frozenset()
+    abstain = ABSTENTION_CODES if migration in SECURED_MIGRATIONS else frozenset()
     seen: dict[tuple[str, str], dict] = {}
     states: list[str] = []
     plan_items: list[dict] = []
