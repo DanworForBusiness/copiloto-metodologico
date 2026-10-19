@@ -52,5 +52,10 @@
     <a href="/cchh/onboarding" class="module-link {% if active_page == 'onboarding' %}is-active{% endif %}">
       <span>04</span><strong>Onboarding</strong>
     </a>
+    {# Avisos — capability real del workspace, tomada de la app de referencia (tab "Avisos" -> /publicaciones; el H1 de la página es «Publicaciones», MISMO criterio de doble
+       nombre que Candidatos / Base de CVs): registro histórico de los avisos publicados (ver publicacion_repository.py). `active_page == 'publicaciones'` lo pasa el router. #}
+    <a href="/cchh/publicaciones" class="module-link {% if active_page == 'publicaciones' %}is-active{% endif %}">
+      <span>05</span><strong>Avisos</strong>
+    </a>
   </nav>
 </aside>

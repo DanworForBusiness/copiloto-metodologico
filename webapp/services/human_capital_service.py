@@ -45,7 +45,8 @@ duplicados (nunca si `duplicate_confirmed=True`, ver abajo)."""
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import re
+from datetime import date, datetime
 
 from webapp.services import human_capital_catalog_repository as catalog_repo
 from webapp.services import busqueda_repository
@@ -53,6 +54,7 @@ from webapp.services import entrevista_repository
 from webapp.services import onboarding_checklist
 from webapp.services import onboarding_repository
 from webapp.services import profile_repository
+from webapp.services import publicacion_repository
 from webapp.services.profile_repository import (  # re-exportados para el router
     ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
@@ -1099,3 +1101,164 @@ def onboarding_pending_by_busqueda() -> dict[str, int]:
         if not o.get("completado") and o.get("busqueda_id"):
             out[o["busqueda_id"]] = out.get(o["busqueda_id"], 0) + 1
     return out
+
+
+# ── PUBLICACIONES / AVISOS ───────────────────────────────────────────────────
+# Dominio verbatim de la referencia (ver publicacion_repository.py, module docstring): registro histórico plano, sin estados; `posicion` es un SNAPSHOT.
+_PERIODO_RE = re.compile(r"^\d{4}-Q[1-4]$")
+
+
+def periodo_desde_fecha(d: date) -> str:
+    """Trimestre «YYYY-Qn» de una fecha (MISMA regla que `periodoDesdeFecha` de la referencia)."""
+    return f"{d.year}-Q{(d.month - 1) // 3 + 1}"
+
+
+def periodo_actual(today: date | None = None) -> str:
+    return periodo_desde_fecha(today or date.today())
+
+
+def periodos_disponibles(today: date | None = None) -> list[str]:
+    """Opciones de período de un ALTA (MISMA ventana que `periodosDisponibles` de la referencia): año actual y el siguiente, trimestres 4→1, más recientes primero."""
+    year = (today or date.today()).year
+    return [f"{y}-Q{q}" for y in (year + 1, year) for q in (4, 3, 2, 1)]
+
+
+def _validate_periodo(value: str | None, *, existing_value: str | None, today: date | None = None) -> str:
+    """`YYYY-Qn` obligatorio. Un ALTA acepta sólo la ventana calculada; una EDICIÓN conserva sin cambios un período histórico (fuera de la ventana) ya guardado y exige la ventana
+    sólo si se CAMBIA (history-safe: no se vuelve imposible editar un registro viejo porque cambió el año)."""
+    v = (value or "").strip()
+    if not v:
+        raise ValueError("Elegí un período.")
+    if not _PERIODO_RE.match(v):
+        raise ValueError("El período tiene que tener el formato AAAA-Tn (por ejemplo 2026-Q3).")
+    if v == existing_value:
+        return v
+    if v not in periodos_disponibles(today):
+        raise ValueError("Elegí un período de la lista.")
+    return v
+
+
+def _validate_canal_publicacion_governed(new_value: str | None, *, existing_value: str | None) -> None:
+    """Canal = taxonomía gobernada `canal_publicacion` (MISMO contrato migration-safe que Seniority/Fuente/Área): un alta exige un valor ACTIVO; una edición conserva un valor histórico
+    fuera de catálogo si no se toca. Sin catálogo disponible el único camino es fallar (cerrado), sin fallback hardcodeado."""
+    if _is_governed_value_allowed("canal_publicacion", new_value, existing_value=existing_value):
+        return
+    active = catalog_repo.catalog_values("canal_publicacion")
+    if active:
+        raise ValueError(f"Canal inválido. Elegí uno del catálogo vigente: {', '.join(active)}.")
+    raise ValueError("El catálogo de Canales de publicación todavía no está disponible. Refrescá el catálogo antes de cargar una publicación.")
+
+
+def _shape_publicacion_fields(fields: dict, *, existing: dict | None = None, today: date | None = None) -> dict:
+    """Valida y arma los campos persistibles. SNAPSHOT de `posicion`: con una Búsqueda NUEVA (alta, o edición que cambia el vínculo) se COPIA su `nombre_puesto`; con el MISMO vínculo se
+    conserva la `posicion` ya guardada (nunca se re-deriva ni se sincroniza si la Búsqueda cambió de nombre); sin Búsqueda la `posicion` es texto libre OBLIGATORIO."""
+    busqueda_id = (fields.get("busqueda_id") or "").strip() or None
+    existing_bid = (existing or {}).get("busqueda_id")
+    if busqueda_id:
+        busqueda = busqueda_repository.get(busqueda_id)
+        if existing is not None and busqueda_id == existing_bid:
+            posicion = existing.get("posicion") or (busqueda or {}).get("nombre_puesto") or ""       # mismo vínculo: el snapshot histórico se conserva
+        elif busqueda is None:
+            raise ValueError("La búsqueda elegida no existe.")
+        else:
+            posicion = busqueda["nombre_puesto"]                                                       # vínculo nuevo: se copia el puesto actual
+    else:
+        posicion = (fields.get("posicion") or "").strip()
+        if not posicion:
+            raise ValueError("Completá la posición o elegí una búsqueda.")
+    canal = (fields.get("canal") or "").strip()
+    if not canal:
+        raise ValueError("Elegí un canal.")
+    _validate_canal_publicacion_governed(canal, existing_value=(existing or {}).get("canal"))
+    try:
+        cantidad = int(str(fields.get("cantidad_avisos") if fields.get("cantidad_avisos") is not None else "").strip())
+    except ValueError:
+        cantidad = 0
+    if cantidad < 1:
+        raise ValueError("La cantidad de avisos tiene que ser al menos 1.")
+    periodo = _validate_periodo(fields.get("periodo"), existing_value=(existing or {}).get("periodo"), today=today)
+    fecha = (fields.get("fecha") or "").strip() or None
+    if fecha is not None:
+        try:
+            datetime.strptime(fecha, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("La fecha no es válida.") from None
+    return {"busqueda_id": busqueda_id, "posicion": posicion, "canal": canal, "cantidad_avisos": cantidad, "periodo": periodo, "fecha": fecha,
+            "observacion": (fields.get("observacion") or "").strip() or None}
+
+
+def create_publicacion(fields: dict) -> dict:
+    return publicacion_repository.create(_shape_publicacion_fields(fields))
+
+
+def update_publicacion(publicacion_id: str, expected_revision: int, fields: dict) -> dict:
+    existing = publicacion_repository.get(publicacion_id)
+    return publicacion_repository.update(publicacion_id, expected_revision, _shape_publicacion_fields(fields, existing=existing))
+
+
+def delete_publicacion(publicacion_id: str) -> None:
+    publicacion_repository.delete(publicacion_id)
+
+
+def get_publicacion(publicacion_id: str) -> dict | None:
+    return publicacion_repository.get(publicacion_id)
+
+
+def publicacion_view(publicacion: dict) -> dict:
+    """Publicación + la Búsqueda vinculada leída EN VIVO sólo para mostrar/buscar su nombre actual (la `posicion` mostrada es SIEMPRE el snapshot persistido)."""
+    busqueda = busqueda_repository.get(publicacion["busqueda_id"]) if publicacion.get("busqueda_id") else None
+    return {**publicacion, "busqueda": busqueda, "busqueda_nombre": (busqueda or {}).get("nombre_puesto")}
+
+
+def list_publicaciones_view() -> list[dict]:
+    return [publicacion_view(p) for p in publicacion_repository.list()]
+
+
+def _publicacion_search_haystack(row: dict) -> str:
+    """Texto sobre el que busca el campo Buscar del listado: contenido VISIBLE/relevante de la fila (posición, canal, período, fecha en ISO y DD-MM-YYYY, observación y nombre de la Búsqueda
+    vinculada). Nunca ids técnicos. MISMA normalización que Candidatos/Entrevistas/Onboarding."""
+    fecha = row.get("fecha") or ""
+    parts = fecha.split("-")
+    fecha_dmy = "-".join(reversed(parts)) if len(parts) == 3 else fecha
+    values = [row.get("posicion"), row.get("canal"), row.get("periodo"), fecha, fecha_dmy, row.get("observacion"), row.get("busqueda_nombre")]
+    return " ".join(_normalize_text(v) for v in values if v)
+
+
+def filter_publicaciones(rows: list[dict], *, periodo: str = "", canal: str = "", q: str = "") -> list[dict]:
+    """AND entre Período (igualdad exacta), Canal (igualdad exacta, incluido un valor histórico fuera de catálogo) y Buscar (substring normalizado). Un filtro vacío no restringe."""
+    wanted_q = _normalize_text(q)
+    return [r for r in rows
+            if (not periodo or (r.get("periodo") or "") == periodo) and (not canal or (r.get("canal") or "") == canal)
+            and (not wanted_q or wanted_q in _publicacion_search_haystack(r))]
+
+
+def _sum_by(rows: list[dict], key) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for r in rows:
+        k = key(r)
+        out[k] = out.get(k, 0) + int(r.get("cantidad_avisos") or 0)
+    return out
+
+
+def _with_pct(pairs: list[tuple[str, int]]) -> list[dict]:
+    top = max((c for _, c in pairs), default=0)
+    return [{"label": label, "count": count, "pct": round(100 * count / top) if top else 0} for label, count in pairs]
+
+
+def publicaciones_summary(filtered_rows: list[dict], all_rows: list[dict], today: date | None = None) -> dict:
+    """Resumen del listado (MISMA semántica que `PublicacionesView` de la referencia): Avisos publicados = SUMA de `cantidad_avisos` (no cuenta filas); Búsquedas difundidas = posiciones
+    DISTINTAS normalizadas (trim + minúsculas), no `busqueda_id`; Registros = filas; y las dos distribuciones se calculan sobre el conjunto FILTRADO. «Este trimestre» es la única métrica que usa el
+    dataset COMPLETO (suma de `cantidad_avisos` del período actual). Canal: mayor a menor, desempate alfabético; Período: cronológico descendente (más reciente primero). Los canales históricos
+    fuera de catálogo se incluyen tal cual (no depende del catálogo activo)."""
+    periodo_hoy = periodo_actual(today)
+    por_canal = _sum_by(filtered_rows, lambda r: r.get("canal") or "—")
+    por_periodo = _sum_by(filtered_rows, lambda r: r.get("periodo") or "—")
+    return {
+        "avisos_publicados": sum(por_canal.values()),
+        "busquedas_difundidas": len({(r.get("posicion") or "").strip().lower() for r in filtered_rows}),
+        "registros": len(filtered_rows),
+        "periodo_actual": periodo_hoy,
+        "avisos_trimestre": sum(int(r.get("cantidad_avisos") or 0) for r in all_rows if r.get("periodo") == periodo_hoy),
+        "por_canal": _with_pct(sorted(por_canal.items(), key=lambda kv: (-kv[1], kv[0].lower(), kv[0]))),
+        "por_periodo": _with_pct(sorted(por_periodo.items(), key=lambda kv: kv[0], reverse=True)),
+    }

@@ -1,0 +1,86 @@
+[
+  {
+    "publicacion_id": "66666666-6666-6666-6666-666666666601",
+    "busqueda_id": "22222222-2222-2222-2222-222222222201",
+    "posicion": "Analista de Datos / BI Semi-Senior",
+    "canal": "LinkedIn Jobs",
+    "cantidad_avisos": 2,
+    "periodo": "2026-Q3",
+    "fecha": "2026-08-18",
+    "observacion": "Aviso principal y repost a los 15 días.",
+    "created_at": "2026-09-01T10:00:00+00:00",
+    "updated_at": "2026-09-01T10:00:00+00:00"
+  },
+  {
+    "publicacion_id": "66666666-6666-6666-6666-666666666602",
+    "busqueda_id": null,
+    "posicion": "Account Executive",
+    "canal": "Bumeran",
+    "cantidad_avisos": 1,
+    "periodo": "2026-Q3",
+    "fecha": null,
+    "observacion": null,
+    "created_at": "2026-09-02T10:00:00+00:00",
+    "updated_at": "2026-09-02T10:00:00+00:00"
+  },
+  {
+    "publicacion_id": "66666666-6666-6666-6666-666666666603",
+    "busqueda_id": "22222222-2222-2222-2222-222222222201",
+    "posicion": "Analista de Datos / BI",
+    "canal": "LinkedIn Jobs",
+    "cantidad_avisos": 1,
+    "periodo": "2026-Q4",
+    "fecha": "2026-10-02",
+    "observacion": "Snapshot histórico: el puesto de la búsqueda se llamaba distinto cuando se publicó.",
+    "created_at": "2026-09-03T10:00:00+00:00",
+    "updated_at": "2026-09-03T10:00:00+00:00"
+  },
+  {
+    "publicacion_id": "66666666-6666-6666-6666-666666666604",
+    "busqueda_id": "22222222-2222-2222-2222-222222222201",
+    "posicion": "Analista de Datos / BI Semi-Senior",
+    "canal": "Computrabajo",
+    "cantidad_avisos": 3,
+    "periodo": "2026-Q3",
+    "fecha": "2026-08-25",
+    "observacion": null,
+    "created_at": "2026-09-04T10:00:00+00:00",
+    "updated_at": "2026-09-04T10:00:00+00:00"
+  },
+  {
+    "publicacion_id": "66666666-6666-6666-6666-666666666605",
+    "busqueda_id": null,
+    "posicion": "Consultor SAP FICO Senior",
+    "canal": "Sitio propio",
+    "cantidad_avisos": 1,
+    "periodo": "2026-Q3",
+    "fecha": "2026-09-12",
+    "observacion": "Publicado en la sección de empleo del sitio institucional con el texto completo del perfil: experiencia en implementaciones regionales multi-país, integración continua, cierre contable, reporting estatutario y gestión de proveedores; incluye aclaración sobre modalidad híbrida y disponibilidad para viajar al interior del país.",
+    "created_at": "2026-09-05T10:00:00+00:00",
+    "updated_at": "2026-09-05T10:00:00+00:00"
+  },
+  {
+    "publicacion_id": "66666666-6666-6666-6666-666666666606",
+    "busqueda_id": null,
+    "posicion": "Pasante de RRHH",
+    "canal": "Flyer",
+    "cantidad_avisos": 5,
+    "periodo": "2026-Q2",
+    "fecha": null,
+    "observacion": "Canal histórico: ya no figura en el catálogo vigente.",
+    "created_at": "2026-09-06T10:00:00+00:00",
+    "updated_at": "2026-09-06T10:00:00+00:00"
+  },
+  {
+    "publicacion_id": "66666666-6666-6666-6666-666666666607",
+    "busqueda_id": "22222222-2222-2222-2222-222222222203",
+    "posicion": "Desarrollador Full-Stack",
+    "canal": "Bumeran",
+    "cantidad_avisos": 2,
+    "periodo": "2024-Q2",
+    "fecha": "2024-05-14",
+    "observacion": "Período histórico fuera de la ventana de alta.",
+    "created_at": "2026-09-07T10:00:00+00:00",
+    "updated_at": "2026-09-07T10:00:00+00:00"
+  }
+]

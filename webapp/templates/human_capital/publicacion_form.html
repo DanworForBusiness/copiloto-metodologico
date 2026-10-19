@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}{{ 'Editar publicación' if is_edit else 'Nueva publicación' }} · Capital Humano · Danwor{% endblock %}
+{% block body %}
+{% set rc = list_return(request, "/cchh/publicaciones") %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% include "partials/human_capital_catalog_refresh_topbar.html" %}{% endcall %}
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    {# Sin vista de detalle: Editar/Crear vuelven directo al listado en su contexto (`return_to`), MISMO primitivo compartido `.catalog-back`. #}
+    <a class="catalog-back" href="{{ rc.back_url }}">← Volver a Publicaciones</a>
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano</p>
+        <h1>{{ 'Editar publicación' if is_edit else 'Nueva publicación' }}</h1>
+        {% if is_edit and publicacion %}<p>{{ publicacion.posicion }} · {{ publicacion.canal }} · {{ publicacion.periodo }}</p>{% else %}<p>Registrá los avisos publicados de una búsqueda o de una posición genérica.</p>{% endif %}
+      </div>
+    </section>
+
+    {% if concurrent_modification %}
+    <div class="callout callout--warn"><div class="callout__body"><p>Esta publicación cambió desde que abriste el formulario. Volvé a abrirla para no pisar el cambio.</p></div></div>
+    {% elif form_error %}
+    <div class="dashboard-empty" data-error-kind="validation"><span class="dashboard-empty__label">No se guardó</span><p>{{ form_error }}</p></div>
+    {% endif %}
+    {% if canal_catalog_empty %}
+    <div class="dashboard-empty" data-error-kind="catalog"><span class="dashboard-empty__label">Catálogo no disponible</span><p>El catálogo de Canales de publicación todavía no tiene valores activos. Refrescá el catálogo desde la barra superior antes de cargar una publicación.</p></div>
+    {% endif %}
+
+    <form method="post" action="{{ ('/cchh/publicaciones/' ~ form_values.publicacion_id ~ '/editar' ~ rc.qs) if is_edit else ('/cchh/publicaciones/nueva' ~ rc.qs) }}" class="hc-profile-form"
+          x-data='{ bid: {{ (form_values.busqueda_id or "") | tojson }}, orig: {{ ((publicacion.busqueda_id if publicacion else "") or "") | tojson }} }'>
+      {% if is_edit %}<input type="hidden" name="expected_revision" value="{{ form_values.expected_revision }}">{% endif %}
+
+      <section class="hc-profile-section">
+        <h2>
+          Datos de la publicación
+          {# `(i)` transversal del Hub. La posición es un SNAPSHOT histórico: «qué posición decía el aviso cuando se publicó». #}
+          {% set _snap_help = "Al elegir una búsqueda se copia su puesto como posición y queda guardado en la publicación. Si después la búsqueda cambia de nombre, la publicación conserva el valor original. Cambiar la búsqueda vinculada vuelve a copiar el puesto de la nueva." %}
+          <span class="chart-tooltip-anchor">
+            <button type="button" class="activity-kpi__info" aria-label="{{ _snap_help }}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
+            </button>
+            <span class="chart-tooltip"><p>{{ _snap_help }}</p></span>
+          </span>
+        </h2>
+
+        <div class="feedback-field">
+          <label for="pub-busqueda">Búsqueda <span>opcional</span></label>
+          <select id="pub-busqueda" name="busqueda_id" x-model="bid">
+            <option value="">Otra / aviso genérico (escribir la posición)</option>
+            {% if busqueda_missing %}<option value="{{ form_values.busqueda_id }}">Búsqueda no disponible (se conserva la posición registrada)</option>{% endif %}
+            {% if busquedas_activas %}<optgroup label="Activas">{% for b in busquedas_activas %}<option value="{{ b.busqueda_id }}" {% if form_values.busqueda_id == b.busqueda_id %}selected{% endif %}>{{ b.nombre_puesto }}</option>{% endfor %}</optgroup>{% endif %}
+            {% if busquedas_cerradas %}<optgroup label="Cerradas">{% for b in busquedas_cerradas %}<option value="{{ b.busqueda_id }}" {% if form_values.busqueda_id == b.busqueda_id %}selected{% endif %}>{{ b.nombre_puesto }}</option>{% endfor %}</optgroup>{% endif %}
+          </select>
+        </div>
+
+        <div class="feedback-field" x-show="!bid">
+          <label for="pub-posicion">Posición</label>
+          <input id="pub-posicion" name="posicion" type="text" value="{{ form_values.posicion or '' }}" placeholder="Ej: Account Executive">
+        </div>
+        <div class="feedback-field" x-show="bid" x-cloak>
+          <label>Posición</label>
+          {% if is_edit and publicacion and publicacion.busqueda_id %}
+          <p x-show="bid === orig">{{ publicacion.posicion }} <span class="field-hint">Posición registrada al publicar: no cambia si la búsqueda cambia de nombre.</span></p>
+          <p x-show="bid !== orig" class="field-hint">Al guardar se copia el puesto de la búsqueda elegida.</p>
+          {% else %}
+          <p class="field-hint">Al guardar se copia el puesto de la búsqueda elegida.</p>
+          {% endif %}
+        </div>
+
+        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+          <div class="feedback-field feedback-field--medium">
+            <label for="pub-canal">Canal</label>
+            <select id="pub-canal" name="canal" required>
+              <option value="" {% if not form_values.canal %}selected{% endif %}>Elegí un canal…</option>
+              {% for c in canales %}<option value="{{ c }}" {% if form_values.canal == c %}selected{% endif %}>{{ c }}{% if canal_is_legacy and form_values.canal == c %} (fuera de catálogo){% endif %}</option>{% endfor %}
+            </select>
+            {% if canal_is_legacy %}<p class="field-hint field-hint--warn">Valor histórico fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>{% endif %}
+          </div>
+          <div class="feedback-field feedback-field--compact">
+            <label for="pub-cantidad">Cantidad de avisos</label>
+            <input id="pub-cantidad" name="cantidad_avisos" type="number" min="1" step="1" required value="{{ form_values.cantidad_avisos if form_values.cantidad_avisos is not none else 1 }}">
+          </div>
+          <div class="feedback-field feedback-field--compact">
+            <label for="pub-periodo">Período</label>
+            <select id="pub-periodo" name="periodo" required>
+              {% for p in periodos %}<option value="{{ p }}" {% if form_values.periodo == p %}selected{% endif %}>{{ p }}</option>{% endfor %}
+            </select>
+            {% if periodo_is_historical %}<p class="field-hint">Período histórico fuera de la ventana actual: se conserva si no lo cambiás.</p>{% endif %}
+          </div>
+          <div class="feedback-field feedback-field--compact">
+            <label for="pub-fecha">Fecha <span>opcional</span></label>
+            <input id="pub-fecha" name="fecha" type="date" value="{{ form_values.fecha or '' }}">
+          </div>
+        </div>
+
+        <div class="feedback-field">
+          <label for="pub-obs">Observación <span>opcional</span></label>
+          <textarea id="pub-obs" name="observacion" rows="3">{{ form_values.observacion or '' }}</textarea>
+        </div>
+      </section>
+
+      <div class="hc-profile-form__actions">
+        <button type="submit" class="btn-primary">{{ 'Guardar cambios' if is_edit else 'Crear publicación' }}</button>
+        {% if not is_edit %}<a href="{{ rc.back_url }}" class="btn-secondary">Cancelar</a>{% endif %}
+      </div>
+    </form>
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{% endblock %}

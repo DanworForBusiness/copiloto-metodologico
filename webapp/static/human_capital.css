@@ -61,7 +61,8 @@
    `margin: 12px 0` del `.dashboard-section`) y Onboarding (`#hc-onboarding-panel`, sin margen) quedaban más pegados. El margen del primer
    `.dashboard-section` colapsa con éste (24 > 12), así que el resultado es exactamente 24px. */
 .module-hero + #hc-entrevistas-panel,
-.module-hero + #hc-onboarding-panel { margin-top: 24px; }
+.module-hero + #hc-onboarding-panel,
+.module-hero + #hc-publicaciones-panel { margin-top: 24px; }
 
 /* /cchh/catalogos: MISMO criterio de respiro post-divisor que arriba (24px)
    -- acá el hero puede ir seguido de un callout de resultado, un

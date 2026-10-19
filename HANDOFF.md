@@ -244,6 +244,45 @@ Taxonomía de 4 niveles PLENA/BUENA/ADECUADA/PARCIAL · PLENA deshabilitada hast
 
 ---
 
+# CCHH · PUBLICACIONES / AVISOS (core) — OWNER QA PASS (2026-10-19)
+
+Branch `work/cchh-publicaciones-core` (desde `main` fdc2007, con Onboarding + homologación CCHH ya mergeados). Candidatos / Búsquedas / Entrevistas / Onboarding siguen CLOSED: no se reabrió ninguna de sus superficies.
+
+## Dominio (verbatim de la referencia `app-seleccion`: `schema.sql` tabla `publicaciones`, `lib/actions/publicaciones.ts`, `PublicacionesView`/`PublicacionModal`, migraciones 07-23-c/d y fase 2)
+- **Es un REGISTRO HISTÓRICO plano de avisos publicados** (crear / editar / eliminar). **Sin estados ni lifecycle** (no hay borrador/publicada/cerrada/expirada, ni publicar/despublicar/cerrar/duplicar): NO se inventan.
+- **Entidad `Publicacion`** (`webapp/services/publicacion_repository.py`, un JSON por entidad en `human-capital/publicaciones/`, patrón de Entrevistas): `publicacion_id`, `busqueda_id` (opcional), `posicion` (obligatoria), `canal`, `cantidad_avisos` (≥ 1), `periodo` («YYYY-Qn»), `fecha` (opcional), `observacion` (opcional), `revision`, `created_at/updated_at`. Búsqueda 1 → 0..N Publicaciones; Publicación 0..1 → Búsqueda; **sin relación con CandidateApplication/Profile**.
+- **`posicion` es un SNAPSHOT** (decisión del owner, a diferencia de Entrevistas): al elegir una Búsqueda se COPIA su puesto y se persisten ambos; después NO se re-deriva ni se sincroniza si la Búsqueda cambia de nombre; con el MISMO vínculo en una edición se conserva el snapshot; cambiar EXPLÍCITAMENTE la Búsqueda vuelve a copiar el de la nueva; sin Búsqueda `posicion` es texto libre obligatorio. La Búsqueda se lee en vivo sólo para mostrar su nombre actual / buscar.
+- **Canal = catálogo gobernado `canal_publicacion`** (ya en `GOVERNED_CATALOGS`, sin hardcodear LinkedIn/Flyer): alta exige valor ACTIVO; edición conserva un valor histórico fuera de catálogo; cambiarlo exige uno activo; catálogo vacío → fail-closed (sin fallback). **Se muestra como texto normal** (no `status-badge`: es taxonomía, no estado; sin colores por canal).
+- **Período** («YYYY-Qn»): validación de formato; default = trimestre actual; opciones del ALTA = año actual y siguiente (como la referencia); EDICIÓN history-safe (un período fuera de la ventana ya guardado se muestra seleccionado y se conserva; cambiarlo exige la ventana). El FILTRO usa los períodos realmente presentes en el dataset (cronológico, más reciente primero).
+- **Delete = hard delete** con diálogo de confirmación compartido, sin precondiciones, con `return_to`.
+- **Naming**: nav `05 Avisos`, ruta `/cchh/publicaciones`, H1 «Publicaciones», CTA «+ Nueva publicación» (doble nombre como Candidatos / Base de CVs).
+
+## Resumen de métricas (formato Hub)
+Orden en el panel `#hc-publicaciones-panel`: barra de filtros (Período · Canal · Buscar) → «Resumen» → tabla → paginador (los tiles dependen de los filtros, por eso van debajo de ellos). Se recalcula con cada swap de HTMX. 4 KPI (`.activity-kpi-grid`/`.activity-kpi` + (i)) y 2 distribuciones lado a lado (`.activity-grid-2` + `.dashboard-subhead` + `.activity-bar-*`), con los MISMOS primitivos de Admin/Actividad y Uso de métricas: **sin CSS específico de métricas**. Cálculo en `human_capital_service.publicaciones_summary`, **antes de la paginación** (sobre el conjunto filtrado completo, nunca la página). Semántica de la referencia (`PublicacionesView.tsx`):
+- Avisos publicados = SUM(`cantidad_avisos`), filtrado (no cuenta filas).
+- Búsquedas difundidas = `posicion` distintas (trim + minúsculas), filtrado; NO `busqueda_id`.
+- Registros cargados = filas filtradas.
+- Este trimestre · YYYY-Qn = SUM(`cantidad_avisos`) del período actual sobre el dataset COMPLETO (global, única métrica que no sigue los filtros).
+- Avisos por canal = filtrado; desc por avisos, desempate alfabético, incluye canales históricos fuera de catálogo.
+- Avisos por período = filtrado; cronológico descendente, sólo períodos presentes.
+
+## Listado (estándar CCHH)
+`/cchh/publicaciones`: dashboard-section con contador `N publicaciones` = TOTAL FILTRADO; tabla compartida (reorder/resize/persistencia, namespace `cchh-publicaciones`) con Posición (+ «Búsqueda: …» si está vinculada) · Canal · Cantidad · Período · Fecha · Observación · Acciones (Editar / Eliminar, sin vista «Ver»). Filtros: **Período · Canal · Buscar · ✕ Limpiar** (primitivo compartido; Período/Canal a ancho natural). Buscar server-side sobre posición, canal, período, fecha (ISO y DD-MM-YYYY), observación y nombre de la Búsqueda vinculada (nunca ids). Orden: período desc, luego alta desc, ANTES de paginar. Paginador compartido (50 / 100 / 200 / 300) y `return_to` (periodo/canal/q/page/page_size).
+Rutas (+6, `route_surface.json` 205→211): `GET /cchh/publicaciones`, `GET/POST /cchh/publicaciones/nueva`, `GET/POST /cchh/publicaciones/{id}/editar`, `POST /cchh/publicaciones/{id}/eliminar`.
+
+## Deferred (no asumir que falta por error)
+«Efectividad por canal de aviso» (Indicadores) · exportar a Excel · vínculo inverso desde Búsqueda hacia sus avisos · backfill histórico de la app original · integraciones con portales · IA de redacción · automatizaciones · cualquier lifecycle inexistente.
+
+## PRÓXIMOS BLOQUES (en este orden; NO mezclar en este slice)
+**A. `fix/hub-shell-flash`** (flash del shell del Hub al navegar): primero experimento del owner bloqueando `cdn.tailwindcss.com` (una variable por experimento; si no es el culpable, Google Fonts; luego Performance + Screenshots). NO implementar hasta tener el resultado; hotfix mínimo sólo sobre el culpable, sin hx-boost/SPA, sobre `main` actualizado.
+
+**B. Troubleshooting upload de CVs a SharePoint** (error al subir): hipótesis del owner — el problema de privilegios probablemente es falso (incluso un admin global del SharePoint objetivo recibe el mismo error). Plan: cambiar TEMPORALMENTE el destino CCHH a un sitio interno controlado por el owner para aislar lógica/request Graph vs permisos/configuración del sitio actual. No tocar ese flujo desde `work/cchh-publicaciones-core`.
+
+## Tests / localhost
+`tests/webapp/test_human_capital_publicaciones.py` (41). Fixtures: `tests/fixtures/human_capital/publicaciones.json` (vinculada, genérica, mismo puesto en distintos períodos/canales, cantidad > 1, observación larga, fecha vacía, canal histórico `Flyer`, período histórico `2024-Q2`, snapshot divergente); harness `tools/cchh_visual_harness.py` (+ `CCHH_HARNESS_EXTRA_ROWS` opt-in también para publicaciones).
+
+---
+
 # CCHH · ESTADO DEL SLICE ACTUAL — OWNER QA PASS (2026-10-19)
 
 Candidatos = OWNER QA PASS · Búsquedas = OWNER QA PASS · Entrevistas = OWNER QA PASS · Onboarding = OWNER QA PASS. Branch `work/cchh-onboarding-core` (Onboarding core + homologaciones CCHH: filtros, status-badge, paginación estándar, return_to). Próxima sección: **Publicaciones / Avisos** — NO sobre esta branch: primero PR → merge → `main` actualizado, y recién ahí `work/cchh-publicaciones-core` desde main (mapear desde `app-seleccion`: publicaciones/avisos/canales/estados/relación con Búsquedas/cierre/expiración/métricas; la terminología final sale de la referencia).
