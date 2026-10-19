@@ -1772,8 +1772,8 @@ def _onboarding_list_context(estado: str = "todos") -> dict:
     rows: list[dict] = []
     source_error: str | None = None
     try:
-        # Repone los Onboardings de ingresos que ya existían (Finalizado + Ingreso) antes de esta sección; idempotente, no-op en régimen.
-        human_capital_service.reconcile_onboardings()
+        # GET de navegación = SOLO LECTURA: nunca crea/repone onboardings. El backfill de ingresos históricos es un paso operativo explícito y separado
+        # (`human_capital_service.reconcile_onboardings`, DEFERRED: Historical onboarding backfill = deferred operational step).
         rows = human_capital_service.list_onboardings_view()
     except (onboarding_repository.OnboardingStorageError, busqueda_repository.BusquedaStorageError) as exc:
         source_error = str(exc)

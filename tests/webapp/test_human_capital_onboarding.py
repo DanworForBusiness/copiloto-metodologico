@@ -336,11 +336,60 @@ def test_list_no_matches_state_differs_from_dataset_empty():
     assert 'data-empty-kind="no_matches"' in html and "0 onboardings" in html
 
 
-def test_opening_the_list_reconciles_ingresos_that_predate_the_section():
+def _tree_snapshot():
+    root = config.BASE_DIR / "human-capital"
+    return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+def test_navigating_the_onboarding_pages_is_read_only_and_never_backfills():
+    bid = _busqueda()
+    _pid, aid = _hire(bid, "Vieja", "Carga")
+    onboarding_repository._onboarding_path(aid).unlink()                                  # ingreso histórico SIN onboarding (anterior a la sección)
+    before = _tree_snapshot()
+    c = _client()
+    for url in ("/cchh/onboarding", "/cchh/onboarding?estado=pendientes", "/cchh/busquedas"):
+        assert c.get(url).status_code == 200
+    assert c.get("/cchh/onboarding", headers={"HX-Request": "true"}).status_code == 200
+    assert onboarding_repository.list() == [] and _tree_snapshot() == before              # ni entidades nuevas ni archivos tocados
+    assert "Sin onboardings" in c.get("/cchh/onboarding").text
+
+
+def test_the_historical_backfill_is_an_explicit_idempotent_operation_outside_any_request():
     bid = _busqueda()
     _pid, aid = _hire(bid, "Vieja", "Carga")
     onboarding_repository._onboarding_path(aid).unlink()
-    assert "Vieja Carga" in _client().get("/cchh/onboarding").text and onboarding_repository.get(aid) is not None
+    assert human_capital_service.reconcile_onboardings() == 1 and human_capital_service.reconcile_onboardings() == 0
+    assert "Vieja Carga" in _client().get("/cchh/onboarding").text
+    router_src = open(__import__("webapp.routers.human_capital", fromlist=["x"]).__file__, encoding="utf-8").read()
+    assert "reconcile_onboardings()" not in router_src.replace("`human_capital_service.reconcile_onboardings`", "")       # ningún call site en el router
+
+
+def test_a_stale_open_form_never_overwrites_the_checklist_ticked_meanwhile():
+    """Form abierto en revision N -> se tilda/destilda el checklist (guardado inmediato, no bumpea revision) -> se guarda el form viejo: el checklist vigente se preserva."""
+    bid = _busqueda()
+    _pid, aid = _hire(bid)
+    c = TestClient(app, follow_redirects=False)
+    c.cookies.set(auth_service.COOKIE_NAME, auth_service.create_session({"email": _AUTHORIZED_EMAIL, "name": "O", "first_name": "O", "family_name": "T"}))
+    html = c.get(f"/cchh/onboarding/{aid}/editar").text
+    assert 'name="expected_revision" value="1"' in html                                    # el formulario queda abierto en revision 1
+    for key in ("dni", "nda", "foto"):
+        c.post(f"/cchh/onboarding/{aid}/checklist/{key}", data={"checked": "1"})
+    c.post(f"/cchh/onboarding/{aid}/checklist/nda", data={})                                # y destilda uno
+    assert onboarding_repository.get(aid)["revision"] == 1                                  # tildar no invalidó el formulario
+    r = c.post(f"/cchh/onboarding/{aid}/editar", data={"fecha_ingreso": "2026-10-12", "oferta_cerrada": "USD 2.000", "area": "", "expected_revision": "1"})
+    assert r.status_code == 303                                                             # el form viejo se acepta...
+    o = onboarding_repository.get(aid)
+    assert o["checklist"] == {"dni": True, "nda": False, "foto": True} and o["completado"] is False      # ...y el estado NUEVO del checklist sigue intacto
+    assert (o["fecha_ingreso"], o["oferta_cerrada"], o["revision"]) == ("2026-10-12", "USD 2.000", 2)
+
+
+def test_ticking_after_a_form_save_also_preserves_the_form_fields():
+    bid = _busqueda()
+    _pid, aid = _hire(bid)
+    human_capital_service.update_onboarding(aid, 1, {"fecha_ingreso": "2026-10-12", "oferta_cerrada": "X", "area": ""})
+    onboarding_repository.set_item(aid, "dni", True)
+    o = onboarding_repository.get(aid)
+    assert (o["fecha_ingreso"], o["oferta_cerrada"], o["checklist"], o["revision"]) == ("2026-10-12", "X", {"dni": True}, 2)
 
 
 def test_list_shows_a_deleted_profile_without_breaking():

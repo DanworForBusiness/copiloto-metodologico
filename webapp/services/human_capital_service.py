@@ -941,8 +941,9 @@ def sync_onboardings_for_busqueda(busqueda: dict) -> None:
 
 
 def reconcile_onboardings() -> int:
-    """Repone los Onboardings de candidaturas que YA están Finalizado + Ingreso y no lo tienen (p. ej. ingresos cargados antes de existir esta sección).
-    Idempotente. Devuelve cuántos creó."""
+    """BACKFILL explícito (NO se invoca desde ningún request): repone los Onboardings de candidaturas que YA están Finalizado + Ingreso y no lo tienen (p. ej. ingresos
+    cargados antes de existir esta sección). Idempotente. Devuelve cuántos creó. Paso operativo DIFERIDO (`Historical onboarding backfill = deferred operational step`): se
+    ejecutará desde un operador/migración explícita; navegar `GET /cchh/onboarding` jamás escribe."""
     created = 0
     for busqueda in busqueda_repository.list():
         for app in busqueda.get("candidatos", []):
