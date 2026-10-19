@@ -1099,4 +1099,3 @@ def onboarding_pending_by_busqueda() -> dict[str, int]:
         if not o.get("completado") and o.get("busqueda_id"):
             out[o["busqueda_id"]] = out.get(o["busqueda_id"], 0) + 1
     return out
-
