@@ -50,6 +50,7 @@ reintentar SOLO la persistencia — CERO PUT nuevo a Graph en ese camino."""
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import time
 import urllib.error
@@ -59,7 +60,7 @@ from jose import JWTError, jwt
 
 import config
 from core import microsoft365
-from webapp.services import profile_document_repository, profile_document_validation
+from webapp.services import profile_document_repository, profile_document_validation, sharepoint_graph_diagnostics
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
@@ -372,15 +373,19 @@ def ensure_profile_folder(profile_id: str, access_token: str) -> str:
     así que se clasifica de inmediato como `ProfileDocumentGraphSourceError`,
     sin retry. La ambigüedad real (§8) vive exclusivamente en el POST de
     creación, ver `_create_folder_with_retry`."""
+    url = _folder_by_path_url(profile_id)
     try:
-        existing = microsoft365.graph_get_json(_folder_by_path_url(profile_id), access_token)
+        existing = microsoft365.graph_get_json(url, access_token)
         return existing["id"]
     except urllib.error.HTTPError as exc:
+        # Diagnóstico (sólo observabilidad): el cuerpo real de Graph (code/message/innerError) se registraba nunca. Un 404 es el caso NORMAL «carpeta aún no existe» → INFO.
+        sharepoint_graph_diagnostics.log_graph_failure("ensure_folder.lookup", "GET", url, exc, level=logging.INFO if exc.code == 404 else logging.WARNING)
         if exc.code == 403:
             raise ProfileDocumentPermissionDeniedError(_PERMISSION_DENIED_MESSAGE) from exc
         if exc.code != 404:
             raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
     except urllib.error.URLError as exc:
+        sharepoint_graph_diagnostics.log_graph_failure("ensure_folder.lookup", "GET", url, exc)
         raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
 
     return _create_folder_with_retry(profile_id, access_token)
@@ -399,16 +404,19 @@ def _attempt_create_folder(profile_id: str, access_token: str) -> tuple[str | No
     distinto de 409), es una clasificación DEFINITIVA — se propaga como
     excepción de inmediato, nunca participa de la ambigüedad "reintentar
     o no"."""
+    url = _cv_root_children_url()
     try:
-        created = microsoft365.graph_post_json(_cv_root_children_url(), access_token, _folder_create_body(profile_id))
+        created = microsoft365.graph_post_json(url, access_token, _folder_create_body(profile_id))
         return created["id"], True
     except urllib.error.HTTPError as exc:
+        sharepoint_graph_diagnostics.log_graph_failure("ensure_folder.create", "POST", url, exc, level=logging.INFO if exc.code == 409 else logging.WARNING)
         if exc.code == 403:
             raise ProfileDocumentPermissionDeniedError(_PERMISSION_DENIED_MESSAGE) from exc
         if exc.code == 409:
             return None, True
         raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
-    except urllib.error.URLError:
+    except urllib.error.URLError as exc:
+        sharepoint_graph_diagnostics.log_graph_failure("ensure_folder.create", "POST", url, exc)
         return None, False
 
 
@@ -419,14 +427,17 @@ def _reread_folder_after_conflict(profile_id: str, access_token: str) -> str:
     clasifica de inmediato (403 → permission denied, cualquier otra cosa →
     GRAPH_SOURCE_ERROR), sin un tercer intento de creación ni un retry
     anidado."""
+    url = _folder_by_path_url(profile_id)
     try:
-        existing = microsoft365.graph_get_json(_folder_by_path_url(profile_id), access_token)
+        existing = microsoft365.graph_get_json(url, access_token)
         return existing["id"]
     except urllib.error.HTTPError as exc:
+        sharepoint_graph_diagnostics.log_graph_failure("ensure_folder.reread_after_conflict", "GET", url, exc)
         if exc.code == 403:
             raise ProfileDocumentPermissionDeniedError(_PERMISSION_DENIED_MESSAGE) from exc
         raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
     except urllib.error.URLError as exc:
+        sharepoint_graph_diagnostics.log_graph_failure("ensure_folder.reread_after_conflict", "GET", url, exc)
         raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
 
 
@@ -461,10 +472,13 @@ def _put_once(url: str, access_token: str, data: bytes, content_type: str) -> di
     try:
         return microsoft365.graph_put_bytes(url, access_token, data, content_type=content_type)
     except urllib.error.HTTPError as exc:
+        # Diagnóstico: hoy un 4xx/5xx NO-403 acá se aplana a «no confirmado → reintento» y el motivo real de Graph se perdía.
+        sharepoint_graph_diagnostics.log_graph_failure("upload.put", "PUT", url, exc)
         if exc.code == 403:
             raise ProfileDocumentPermissionDeniedError(_PERMISSION_DENIED_MESSAGE) from exc
         return None
-    except urllib.error.URLError:
+    except urllib.error.URLError as exc:
+        sharepoint_graph_diagnostics.log_graph_failure("upload.put", "PUT", url, exc)
         return None
 
 

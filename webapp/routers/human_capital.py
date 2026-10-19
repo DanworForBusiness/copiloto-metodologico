@@ -102,15 +102,16 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import config
 from core.content_registry import DEFAULT_PACK
+from webapp import access as app_access
 from webapp import human_capital_access, workspaces
 from webapp.services import (
     auth_service, busqueda_repository, entrevista_repository, human_capital_catalog_repository,
     human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
-    profile_document_validation, profile_import_service,
+    profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
@@ -2325,3 +2326,44 @@ def human_capital_legacy_import_redirect() -> RedirectResponse:
 @router.get("/human-capital/profiles/{profile_id}/edit", include_in_schema=False)
 def human_capital_legacy_edit_redirect(profile_id: str) -> RedirectResponse:
     return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=308)
+
+
+# ── DIAGNÓSTICO SharePoint (CV upload) — sonda de SOLO LECTURA, sólo APP_OWNER ────────────────────────────────────────────────────────
+# Instrumento temporal del troubleshooting «CV upload → SharePoint»: con el MISMO token delegado que usa el uploader (`dwHumanCapitalDocumentWriteToken`, scopes base + HC_DOCUMENT_WRITE_SCOPE)
+# ejecuta SÓLO GET contra el destino actual (config) y, opcionalmente, contra un destino de CONTROL descubierto desde un sharing link. No escribe nada, no persiste ni loguea el token.
+# Ver `webapp/services/sharepoint_graph_diagnostics.py`. NO está en el nav.
+
+def _require_owner_for_diagnostics(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    if not app_access.is_owner(request):
+        raise HTTPException(403, "Sólo el dueño de la app puede usar el diagnóstico de SharePoint")
+    return None
+
+
+@router.get("/cchh/diagnostico/sharepoint", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_sharepoint_diagnostics_page(request: Request):
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    ctx = {
+        "current_workspace": workspaces.HUMAN_CAPITAL,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack": DEFAULT_PACK, "user": user, "active_page": "diagnostico",
+        "current_target": sharepoint_graph_diagnostics.current_target(),
+        "write_scope": config.HC_DOCUMENT_WRITE_SCOPE, "client_id": config.AZURE_CLIENT_ID,
+    }
+    return templates.TemplateResponse(request=request, name="human_capital/diagnostico_sharepoint.html", context=ctx)
+
+
+@router.post("/cchh/diagnostico/sharepoint/sonda", include_in_schema=False)
+def human_capital_sharepoint_diagnostics_probe(request: Request, graph_token: str = Form(""), control_url: str = Form("")):
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    if not graph_token:
+        return JSONResponse({"ok": False, "error": "Sin token de Microsoft 365 (el navegador no pudo obtenerlo)."}, status_code=400, headers={"Cache-Control": "no-store"})
+    result = sharepoint_graph_diagnostics.run_probe(graph_token, control_sharing_url=control_url)
+    return JSONResponse({"ok": True, **result}, headers={"Cache-Control": "no-store"})
