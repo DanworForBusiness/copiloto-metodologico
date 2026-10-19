@@ -1080,8 +1080,8 @@ def test_recent_item_renders_the_capital_humano_delete_pattern_with_accessible_l
     _post(owner)
     html = _page(owner)
     item = re.search(r"<div class=\"catalog-picker--secondary\" data-dsa-recent-item>.*?</form>", html, re.S).group(0)
-    # MISMO patrón/SVG que Capital Humano (human_capital/entrevistas.html): form de confirmación compartida + botón de acción destructiva
-    ch = (REPO / "webapp/templates/human_capital/entrevistas.html").read_text(encoding="utf-8")
+    # MISMO patrón/SVG que Capital Humano (el panel de Entrevistas, partials/human_capital_entrevistas_panel.html — antes inline en human_capital/entrevistas.html): form de confirmación compartida + botón de acción destructiva
+    ch = (REPO / "webapp/templates/partials/human_capital_entrevistas_panel.html").read_text(encoding="utf-8")
     ch_svg = re.search(r'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/>.*?</svg>', ch, re.S).group(0)
     assert ch_svg in item
     assert 'class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Eliminar assessment"' in item

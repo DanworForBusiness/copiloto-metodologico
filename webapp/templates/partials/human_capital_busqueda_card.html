@@ -9,18 +9,19 @@
     <span class="busqueda-card__title">{{ b.nombre_puesto }}</span>
     {% if b.descripcion %}<p class="busqueda-card__desc">{{ b.descripcion }}</p>{% endif %}
     {% if b.area_departamento %}<span class="busqueda-card__area">{{ b.area_departamento }}</span>{% endif %}
-    {% if sig and (sig.estancada or sig.sin_requerimiento) %}
+    {% if sig and (sig.estancada or sig.sin_requerimiento or sig.onboarding_pendiente) %}
     <div class="busqueda-card__signals">
-      {% if sig.estancada %}<span class="busqueda-signal busqueda-signal--estancada">Estancada · {{ sig.dias_sin_movimiento }} días</span>{% endif %}
-      {% if sig.sin_requerimiento %}<span class="busqueda-signal busqueda-signal--warn">Sin requerimiento formal</span>{% endif %}
+      {% if sig.estancada %}<span class="status-badge status-badge--estancada">Estancada · {{ sig.dias_sin_movimiento }} días</span>{% endif %}
+      {% if sig.sin_requerimiento %}<span class="status-badge status-badge--tentativo">Sin requerimiento formal</span>{% endif %}
+      {% if sig.onboarding_pendiente %}<span class="status-badge status-badge--tentativo">Onboarding pendiente{% if sig.onboarding_pendiente > 1 %} · {{ sig.onboarding_pendiente }}{% endif %}</span>{% endif %}
     </div>
     {% endif %}
   </div>
   <div class="busqueda-card__foot">
     <span class="busqueda-card__desde">Desde {{ b.fecha_apertura | fecha_dmy }}{% if b.fecha_cierre %} · Cierre {{ b.fecha_cierre | fecha_dmy }}{% endif %}</span>
     <div class="busqueda-card__badges">
-      <span class="busqueda-estado busqueda-estado--{{ 'activa' if b.estado == 'activo' else 'cerrada' }}">{{ 'Activo' if b.estado == 'activo' else 'Cerrado' }}</span>
-      <span class="busqueda-card__count">{{ b.candidatos | length }} candidato{{ '' if (b.candidatos | length) == 1 else 's' }}</span>
+      <span class="status-badge status-badge--{{ 'activo' if b.estado == 'activo' else 'inactivo' }}">{{ 'Activo' if b.estado == 'activo' else 'Cerrado' }}</span>
+      <span class="status-badge status-badge--count">{{ b.candidatos | length }} candidato{{ '' if (b.candidatos | length) == 1 else 's' }}</span>
     </div>
   </div>
 </a>

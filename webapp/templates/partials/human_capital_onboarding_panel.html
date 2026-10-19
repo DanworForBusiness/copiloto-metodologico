@@ -1,0 +1,154 @@
+{% from "partials/pager.html" import render_pager %}
+{# human_capital_onboarding_panel.html — fragmento compartido por GET /cchh/onboarding (embebido en la página completa) y el propio GET al filtrar (swap de
+   HTMX sobre esta MISMA superficie) — MISMO patrón que human_capital_profiles_panel.html (Candidatos).
+   Filtro de estado reactivo (Todos / Pendientes / Completos) con el patrón transversal `.filter-toolbar-card` + "✕ Limpiar" como ÚLTIMO control. La lista vive en
+   el primitivo compartido de paneles (`<details class="dashboard-section">`), título a la izquierda y contador a la derecha. #}
+<div id="hc-onboarding-panel">
+  {# Barra de filtros: MISMO primitivo que Candidatos (`.hc-profile-filters.filter-toolbar-card` + `.feedback-field`), con Estado y Área a ANCHO NATURAL (modificador
+     `.feedback-field--auto` = `flex:0 0 auto`, mismo trato que "Indicadores"/"✕ Limpiar": el select mide su opción más larga), Buscar (`--wide`) ocupando el espacio
+     restante y `✕ Limpiar` como ÚLTIMO control (resetea Estado + Área + Buscar). Reactivo (HTMX): cada campo con su propio `hx-get` + `hx-include="closest form"`
+     (los tres filtros se combinan con AND en el server); Buscar con el MISMO debounce que Candidatos. #}
+  <form class="hc-profile-filters filter-toolbar-card" hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML">
+    {# Tamaño de página vigente: viaja con TODO cambio de Estado/Área/Buscar (que vuelve a la página 1, porque `page` nunca se incluye). #}
+    <input type="hidden" name="page_size" value="{{ pager.page_size }}">
+    <div class="feedback-field feedback-field--auto">
+      <label for="hc-onboarding-estado">Estado</label>
+      <select id="hc-onboarding-estado" name="estado" hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
+        <option value="todos" {% if estado == 'todos' %}selected{% endif %}>Todos</option>
+        <option value="pendientes" {% if estado == 'pendientes' %}selected{% endif %}>Pendientes</option>
+        <option value="completos" {% if estado == 'completos' %}selected{% endif %}>Completos</option>
+      </select>
+    </div>
+    <div class="feedback-field feedback-field--auto">
+      <label for="hc-onboarding-area">Área</label>
+      {# Opciones = catálogo gobernado `area_consultora` + valores legacy presentes en las filas + «Sin área» si corresponde (ver `_onboarding_area_filter_options`). #}
+      <select id="hc-onboarding-area" name="area" hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
+        <option value="" {% if not area %}selected{% endif %}>Todas</option>
+        {% for opt in area_options %}
+        <option value="{{ opt.value }}" {% if area == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="feedback-field feedback-field--wide">
+      <label for="hc-onboarding-q">Buscar</label>
+      <input id="hc-onboarding-q" name="q" type="text" value="{{ q or '' }}" placeholder="Candidato, puesto, área, fecha, progreso..." hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
+    </div>
+    <button type="button" class="whatsnew-filter__clear" hx-get="{{ pager.urls.reset }}" hx-target="#hc-onboarding-panel" hx-swap="outerHTML">✕ Limpiar</button>
+  </form>
+
+  <div class="dashboard-sections" data-dashboard-key="cchh-onboarding-list" data-persist-collapse>
+    <details class="dashboard-section" data-section-id="onboarding" open>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Onboarding</span>
+        {% if not source_error %}<span class="dashboard-section__count">{{ total_onboardings }} onboarding{{ '' if total_onboardings == 1 else 's' }}</span>{% endif %}
+      </summary>
+      <div class="dashboard-section__body">
+        {% if source_error %}
+        <div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>{{ source_error }}</p></div>
+        {% elif not dataset_has_any_onboarding %}
+        <div class="dashboard-empty" data-empty-kind="dataset_empty"><span class="dashboard-empty__label">Sin onboardings</span><p>Todavía no hay candidatos en onboarding. Se crea solo cuando un candidato queda como Ingreso en el pipeline de una Búsqueda.</p></div>
+        {% elif not onboardings %}
+        <div class="dashboard-empty" data-empty-kind="no_matches"><span class="dashboard-empty__label">Sin resultados</span><p>No hay onboardings para el filtro seleccionado.</p></div>
+        {% else %}
+        {# Reorder + resize: MISMO primitivo compartido que Candidatos/Entrevistas (initDraggableColumns/initResizableColumns, app.js); `cchh-onboarding` es un
+           namespace propio. El adapter del final reaplica orden/anchos guardados después de cada swap de este panel. #}
+        <div class="matrix-scroll" data-draggable-columns-key="cchh-onboarding" data-resizable-columns-key="cchh-onboarding">
+          <table class="dashboard-table" id="hc-onboarding-table">
+            <colgroup>
+              <col data-column-key="candidato" style="width:26%">
+              <col data-column-key="puesto" style="width:26%">
+              <col data-column-key="area" style="width:15%">
+              <col data-column-key="ingreso" style="width:14%">
+              <col data-column-key="progreso" style="width:19%">
+              <col style="width:76px">
+            </colgroup>
+            <thead>
+              <tr>
+                <th class="left" data-column-key="candidato" draggable="true">Candidato</th>
+                <th class="left" data-column-key="puesto" draggable="true">Puesto</th>
+                <th class="left" data-column-key="area" draggable="true">Área</th>
+                <th class="left" data-column-key="ingreso" draggable="true">Fecha de ingreso</th>
+                <th class="left" data-column-key="progreso" draggable="true">Progreso</th>
+                <th class="center">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for o in onboardings %}
+              <tr>
+                <td class="left" data-column-key="candidato">
+                  <div class="dw-idcell">
+                    {% if o.profile %}<span class="dw-idcell__name">{{ o.profile.first_name }} {{ o.profile.last_name }}</span>{% else %}<span class="dw-idcell__name">Candidato eliminado del Banco</span>{% endif %}
+                  </div>
+                </td>
+                <td class="left" data-column-key="puesto">{{ o.puesto_mostrado or "—" }}</td>
+                <td class="left" data-column-key="area">{{ o.area or "—" }}</td>
+                <td class="left" data-column-key="ingreso">{{ (o.fecha_ingreso | fecha_dmy) if o.fecha_ingreso else "—" }}</td>
+                <td class="left" data-column-key="progreso">
+                  {# Badge de estado transversal del Hub (`.status-badge`, tools.css: la forma de `.catalog-card__verdict` del Catálogo) con sus variantes de tono. #}
+                  {% if o.completado %}<span class="status-badge status-badge--activo">Completado</span>
+                  {% elif o.progress.hechos == 0 %}<span class="status-badge status-badge--inactivo">{{ o.progress.hechos }}/{{ o.progress.total }} · {{ o.progress.porcentaje }}%</span>
+                  {% else %}<span class="status-badge status-badge--tentativo">{{ o.progress.hechos }}/{{ o.progress.total }} · {{ o.progress.porcentaje }}%</span>{% endif %}
+                </td>
+                <td class="center">
+                  <div class="dw-row-actions">
+                    <a href="/cchh/onboarding/{{ o.application_id }}/editar?return_to={{ pager.urls.current | urlencode }}" class="table-action-btn chart-tooltip-anchor" aria-label="Editar onboarding">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                      <span class="chart-tooltip" aria-hidden="true"><p>Editar</p></span>
+                    </a>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {# Paginación estándar CCHH (partials/pager.html → `.activity-pager`, MISMO paginador de «Uso de métricas»): Estado/Área/Buscar ya se aplicaron antes del slice. #}
+        {{ render_pager(pager, "#hc-onboarding-panel", "Paginación de onboardings", "Onboardings por página") }}
+        {% endif %}
+      </div>
+    </details>
+  </div>
+</div>
+<script>
+(function () {
+  // Adapter CCHH (MISMO patrón que human_capital_profiles_panel.html): aplica el orden/anchos YA guardados sobre el DOM ya renderizado por el server, en la carga
+  // inicial Y después de cada swap de HTMX de este panel (el <script> viaja en el fragmento, así que corre de nuevo en cada swap). Nunca reconstruye filas.
+  function applyStoredColumnOrder(container) {
+    if (typeof readStoredColumnOrder !== "function") return;
+    var orderKey = container.dataset.draggableColumnsKey;
+    if (!orderKey) return;
+    var headerRow = container.querySelector("table > thead > tr");
+    if (!headerRow) return;
+    var validKeys = [].slice.call(headerRow.querySelectorAll("th[data-column-key]")).map(function (th) { return th.dataset.columnKey; });
+    if (!validKeys.length) return;
+    var order = readStoredColumnOrder(orderKey, validKeys);
+    if (!order) return;
+    container.querySelectorAll("tr").forEach(function (row) {
+      order.forEach(function (key) {
+        var cell = row.querySelector('[data-column-key="' + key + '"]');
+        if (cell) row.appendChild(cell);
+      });
+      [].slice.call(row.children).filter(function (cell) { return !cell.dataset.columnKey; })
+        .forEach(function (cell) { row.appendChild(cell); });
+    });
+  }
+  function wire() {
+    document.querySelectorAll("[data-draggable-columns-key='cchh-onboarding']").forEach(function (container) {
+      applyStoredColumnOrder(container);
+      if (typeof restorePersistedColumnWidths === "function") restorePersistedColumnWidths(container);
+      // initDraggableColumns/initResizableColumns buscan [data-draggable-columns-key] como DESCENDIENTE del scope: se les pasa `document` (nunca el container).
+      if (typeof initDraggableColumns === "function") initDraggableColumns(document);
+      if (typeof initResizableColumns === "function") initResizableColumns(document);
+      if (container.dataset.cchhReorderListenerWired) return;
+      container.dataset.cchhReorderListenerWired = "1";
+      container.addEventListener("dw:columns-reordered", function () { applyStoredColumnOrder(container); });
+    });
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", wire);
+  } else {
+    wire();
+  }
+})();
+</script>

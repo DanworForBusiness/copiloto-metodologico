@@ -22,7 +22,7 @@
        concatena form de edición + panel de documentos (potencialmente
        larga): el sticky de `.catalog-back` es lo que mantiene el
        "Volver" visible durante ese scroll, sin reimplementar nada. #}
-    <a class="catalog-back" href="/cchh/candidatos">← Volver al listado</a>
+    {% set rc = list_return(request, "/cchh/candidatos") %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver al listado</a>
     {# `.hc-profiles-hero`/`.hc-profiles-hero-text`/`.hc-profiles-hero-actions`
        (human_capital.css) -- MISMO patrón ya establecido un click antes
        (profiles.html: título a la izquierda, acciones a la derecha, EN LA
@@ -73,7 +73,7 @@
            el diálogo compartido (data-dw-confirm-form -> submit intercept).
            `display:contents` (`.dw-inline-form`) para que el botón participe de
            la MISMA botonera flex, sin romper la fila. #}
-        <form method="post" action="/cchh/candidatos/{{ form_values.profile_id }}/eliminar" class="dw-inline-form"
+        <form method="post" action="/cchh/candidatos/{{ form_values.profile_id }}/eliminar{{ rc.qs }}" class="dw-inline-form"
               data-dw-confirm-form data-dw-confirm-title="Eliminar candidato"
               data-dw-confirm-message="¿Querés eliminar a {{ form_values.first_name }} {{ form_values.last_name }}?&#10;Esta acción puede afectar la información asociada al candidato.">
           <button type="submit" class="btn-danger">

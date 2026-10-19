@@ -33,7 +33,8 @@
    borde. El modifier neutraliza SÓLO el chrome de card de `.hc-profile-
    form` -- nunca toca la clase base, así que Alta (que no lo lleva) queda
    exactamente igual. #}
-<form class="hc-profile-form hc-profile-form--plain" method="post" action="/cchh/candidatos/{{ profile_id }}/editar">
+{% set rc = list_return(request, "/cchh/candidatos") %}
+<form class="hc-profile-form hc-profile-form--plain" method="post" action="/cchh/candidatos/{{ profile_id }}/editar{{ rc.qs }}">
   <input type="hidden" name="expected_revision" value="{{ expected_revision }}">
 
   {% if error %}<p class="feedback-error">{{ error }}</p>{% endif %}
@@ -78,7 +79,7 @@
     <div class="callout__body">
       <p>Ya existe un candidato posiblemente duplicado: <strong>{{ duplicate_advisory.first_name }} {{ duplicate_advisory.last_name }}</strong>{% if duplicate_advisory.email %} — {{ duplicate_advisory.email }}{% endif %}. Podés cancelar o guardarlo de todos modos.</p>
       <div class="feedback-form-actions">
-        <a href="/cchh/candidatos" class="btn-secondary">Cancelar</a>
+        <a href="{{ rc.back_url }}" class="btn-secondary">Cancelar</a>
         <button type="submit" name="duplicate_confirmed" value="true" class="btn-primary">Guardar de todos modos</button>
       </div>
     </div>
@@ -94,7 +95,7 @@
     <div class="callout__body">
       <p>Alguien más guardó un cambio en este candidato desde que abriste este formulario. Tu edición NO se guardó, para no perder el cambio ajeno. Volvé al listado para ver la versión actual y editar de nuevo si hace falta.</p>
       <div class="feedback-form-actions">
-        <a href="/cchh/candidatos" class="btn-secondary">Volver al listado</a>
+        <a href="{{ rc.back_url }}" class="btn-secondary">Volver al listado</a>
       </div>
     </div>
   </div>

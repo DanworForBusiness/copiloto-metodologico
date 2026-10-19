@@ -2,7 +2,7 @@
    derivadas, no estados estructurales) + grilla de tiles. Es el ÚNICO target
    HTMX del filtro (`#busquedas-activas-panel`), así el `<details>` contenedor y
    su estado colapsable/reordenable quedan intactos. Un proceso aparece UNA sola
-   vez — las condiciones (estancada / sin requerimiento) se ven como badges en el
+   vez — las condiciones (estancada / sin requerimiento / onboarding pendiente) se ven como badges en el
    tile y se navegan con estos filtros, nunca duplicando el proceso. #}
 {% from "partials/human_capital_busqueda_card.html" import busqueda_card %}
 <div id="busquedas-activas-panel">
@@ -23,6 +23,11 @@
             {% if atencion_counts.sin_requerimiento == 0 and atencion != 'sin_requerimiento' %}disabled{% endif %}
             hx-get="/cchh/busquedas?atencion=sin_requerimiento" hx-target="#busquedas-activas-panel" hx-swap="outerHTML">
       Sin requerimiento · {{ atencion_counts.sin_requerimiento }}
+    </button>
+    <button type="button" class="{{ 'is-active' if atencion == 'onboarding_pendiente' else '' }}"
+            {% if atencion_counts.onboarding_pendiente == 0 and atencion != 'onboarding_pendiente' %}disabled{% endif %}
+            hx-get="/cchh/busquedas?atencion=onboarding_pendiente" hx-target="#busquedas-activas-panel" hx-swap="outerHTML">
+      Onboarding pendiente · {{ atencion_counts.onboarding_pendiente }}
     </button>
   </div>
 

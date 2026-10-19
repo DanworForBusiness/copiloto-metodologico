@@ -363,8 +363,9 @@ def test_list_actions_are_only_editar_and_eliminar_no_ver():
     profile = _profile()
     e = human_capital_service.create_entrevista_manual(profile["profile_id"], {})
     html = _client().get("/cchh/entrevistas").text
-    assert f'href="/cchh/entrevistas/{e["entrevista_id"]}/editar"' in html
-    assert f'action="/cchh/entrevistas/{e["entrevista_id"]}/eliminar"' in html
+    # Las acciones de fila llevan el contexto del listado (`?return_to=`, ver test_human_capital_return_context.py): el destino sigue siendo Editar / Eliminar.
+    assert f'href="/cchh/entrevistas/{e["entrevista_id"]}/editar?return_to=' in html
+    assert f'action="/cchh/entrevistas/{e["entrevista_id"]}/eliminar?return_to=' in html
     assert "Ver entrevista" not in html
     assert f'href="/cchh/entrevistas/{e["entrevista_id"]}"' not in html
 

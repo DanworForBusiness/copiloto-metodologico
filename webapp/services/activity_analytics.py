@@ -108,25 +108,8 @@ _DEFAULT_STORY_PAGE_SIZE = 10
 _DAILY_TREND_PAGE_SIZE = 25
 
 
-def _page_window(page: int, total_pages: int, radius: int = 2) -> list[int | None]:
-    """Números de página a mostrar en el paginador: siempre primera/última,
-    +/- `radius` alrededor de la actual, con `None` como separador "…" en los
-    huecos. Ej. page=4, total=10, radius=2 → [1, None, 2,3,4,5,6, None, 10]."""
-    if total_pages <= 1:
-        return [1]
-    window = {1, total_pages}
-    for p in range(page - radius, page + radius + 1):
-        if 1 <= p <= total_pages:
-            window.add(p)
-    ordered = sorted(window)
-    result: list[int | None] = []
-    prev = None
-    for p in ordered:
-        if prev is not None and p - prev > 1:
-            result.append(None)
-        result.append(p)
-        prev = p
-    return result
+# `_page_window` vive ahora en `webapp.services.pagination` (paginación genérica compartida del Hub; MISMA función, sin cambios de comportamiento).
+from webapp.services.pagination import page_window as _page_window  # noqa: E402,F401
 
 # Qué mide cada evento — se muestra como tooltip sobre el nombre del evento en el
 # dashboard, para que quien lee los números sepa exactamente qué está contando

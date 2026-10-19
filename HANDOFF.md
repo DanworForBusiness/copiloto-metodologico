@@ -244,6 +244,76 @@ Taxonomía de 4 niveles PLENA/BUENA/ADECUADA/PARCIAL · PLENA deshabilitada hast
 
 ---
 
+# CCHH · ESTADO DEL SLICE ACTUAL — OWNER QA PASS (2026-10-19)
+
+Candidatos = OWNER QA PASS · Búsquedas = OWNER QA PASS · Entrevistas = OWNER QA PASS · Onboarding = OWNER QA PASS. Branch `work/cchh-onboarding-core` (Onboarding core + homologaciones CCHH: filtros, status-badge, paginación estándar, return_to). Próxima sección: **Publicaciones / Avisos** — NO sobre esta branch: primero PR → merge → `main` actualizado, y recién ahí `work/cchh-publicaciones-core` desde main (mapear desde `app-seleccion`: publicaciones/avisos/canales/estados/relación con Búsquedas/cierre/expiración/métricas; la terminología final sale de la referencia).
+
+### Entrevistas — filtro estándar (Origen · Puesto · Área · Buscar · ✕ Limpiar)
+- Mismo primitivo que Candidatos/Onboarding (`.hc-profile-filters.filter-toolbar-card`, `.feedback-field--auto` para los tres desplegables, `--wide` para Buscar); cero CSS propio de Entrevistas.
+- **Origen** = origen efectivo de la fila (`Profile.source`): taxonomía gobernada `fuente` + legacy realmente presentes («(fuera de catálogo)») + «Sin origen» si hay filas vacías. **Puesto** = valores distintos presentes (NO es catálogo; orden estable case-insensitive; «Sin puesto» sólo si hay vacíos). **Área** = `area_consultora` gobernada + legacy + «Sin área». Las opciones se calculan sobre el dataset COMPLETO (no desaparecen al filtrar). Helper compartido `_governed_filter_options` (también usado por Onboarding).
+- **Buscar**: server-side, case-insensitive/trim/espacios colapsados, debounce 500 ms, sobre lo visible de la fila (candidato, origen, puesto, área, fecha DD-MM-YYYY e ISO, modalidad, remuneración, «No concretada»); nunca ids técnicos.
+- Los cuatro criterios se combinan con AND **antes de paginar** (`human_capital_service.filter_entrevistas`); el contador `N entrevistas` es el TOTAL FILTRADO; cualquier cambio de filtro/búsqueda/tamaño y ✕ Limpiar vuelven a la página 1 (el form lleva `page_size` oculto y nunca `page`; Limpiar conserva `page_size`).
+- `return_to` conserva origen/puesto/área/q/page/page_size en Editar → Guardar / No se concretó / Volver / Eliminar (mecanismo ya existente; no se creó uno nuevo). Tests: `tests/webapp/test_human_capital_entrevistas_filters.py`.
+
+### CCHH TABLE STANDARD (regla permanente para toda tabla/listado tabular CCHH)
+- **Table ergonomics compartida**: `.dashboard-table` dentro de `.matrix-scroll` con drag/reorder + resize + persistencia por namespace (`cchh-candidatos` / `cchh-entrevistas` / `cchh-onboarding`); el adapter viaja en el fragmento HTMX y se reaplica en cada swap; el estado de columnas es independiente de la página.
+- **Filtros compartidos**: `.hc-profile-filters.filter-toolbar-card` + `.feedback-field` (`--auto` = ancho natural para selects, `--wide` = Buscar ocupa el resto) + `✕ Limpiar` (`.whatsnew-filter__clear`) siempre último; reactivo por HTMX (cada campo con su `hx-get` + `hx-include="closest form"`), filtros server-side combinados con AND.
+- **Badges**: sólo el primitivo `.status-badge` (forma del `.catalog-card__verdict` del Catálogo) con sus tonos (`--activo` / `--tentativo` / `--inactivo`); modificadores de SOLO color cuando la paleta no alcanza (`--estancada`, `--potential`, `--count`). Prohibido `.dashboard-status-badge` (pill de CRM) y estilos locales de forma. Los filter chips interactivos (`.dashboard-view-switch`) no son badges.
+- **Paginador**: ver «CCHH TABLE PAGINATION STANDARD» (default 50; 50/100/200/300; filtros/búsqueda/orden antes de paginar; contador = total filtrado; reset a página 1; query state preservado).
+- **Return context**: `return_to` (ver la misma sección) conserva filtros/búsqueda/página/tamaño al editar/guardar/cancelar/eliminar.
+- **Header de la sección**: separación hero → primer componente = 24px en las cuatro secciones (`.module-hero + #hc-…-panel`).
+
+### Onboarding — decisiones vigentes (sin cambios)
+Entidad por `application_id` · creación automática idempotente al quedar Finalizado + Ingreso (condición única `is_ingreso_application`, tras cualquier mutación de candidaturas) · nunca se borra si el resultado cambia · 17 ítems de checklist canónicos de la referencia, guardado inmediato, `completado` persistido · `area_consultora` gobernada, sincronizada desde la Entrevista (sólo capa de servicio) · concurrencia optimista sólo para el formulario (tildar no sube `revision`) · `GET /cchh/onboarding` es SOLO LECTURA · **Historical onboarding backfill = deferred operational step** (`reconcile_onboardings`, sin UI/admin) · administración del checklist DEFERRED · alertas −90/+7 días DEFERRED · señal «Onboarding pendiente» en Búsquedas (badge en el tile + chip de filtro sólo sobre activos, patrón existente «filters = active only») · 4 rutas, nav `04 Onboarding`.
+
+### Baseline conocido del checkout canónico
+`commercial_strategy_runtime/strategy.yaml` (ignorado por git, local) hace fallar `tests/webapp/test_commercial_strategy.py::test_next_steps_has_sixteen_rows` (14 en vez de 16) SOLO en este checkout; pasa en `origin/main` limpio y en un worktree limpio de esta branch. No modificar ese runtime para «arreglar» el test; correr la full suite desde un worktree limpio.
+
+---
+
+### CCHH TABLE PAGINATION STANDARD (regla permanente del owner, 2026-10-19)
+
+Every tabular list surface in Capital Humano must reuse the canonical Hub paginator. Aplica hoy a **Candidatos, Entrevistas y Onboarding** y automáticamente a cualquier futura sección CCHH con tabla/listado tabular (Búsquedas queda fuera: su superficie es una grilla/pipeline, no una tabla).
+
+- **Primitivo canónico**: el paginador de «Uso de métricas» (Admin → Actividad): clases `.activity-pager*` (tools.css) + `page_window` (ahora en `webapp/services/pagination.py`, compartida; `activity_analytics` la importa sin cambios). Markup compartido: macro `render_pager` de `webapp/templates/partials/pager.html`; cálculo/URLs: `pagination.paginate(...)`. **Prohibido** crear un paginador propio de CCHH (`.hc-pagination`, `.cchh-paginator`, CSS equivalente); si hace falta configuración, extender el primitivo de forma genérica y retrocompatible.
+- Contract:
+  - default page size: **50**; allowed sizes: **50 / 100 / 200 / 300** (cualquier otro valor cae a 50);
+  - filters before pagination; search before pagination; sorting before pagination (orden: dataset → filtros → búsqueda → orden → total filtrado → slice);
+  - filter/search/page-size changes (y ✕ Limpiar) reset to page 1; una página fuera de rango se acota (nunca tabla vacía);
+  - query state preserved across page navigation (filtros, búsqueda, `page_size`): los `<form>` de filtros llevan `page_size` oculto y **nunca** `page`; el selector de tamaño hace GET a la base sin página;
+  - counter reflects filtered total (`dashboard-section__count`), nunca el tamaño de la página;
+  - no CCHH-specific paginator implementation;
+  - el paginador se muestra cuando hay más filas que el tamaño mínimo (50), para que el selector siga disponible;
+  - el estado de columnas (drag/resize/persistencia) es por superficie e independiente de la página: el adapter viaja en el fragmento HTMX y se reaplica en cada swap.
+- **Return context** (acciones de fila no expulsan del listado): el listado agrega `?return_to=<url del listado con filtros/búsqueda/página/tamaño>` (`pager.urls.current`) a Editar/Eliminar; las páginas de edición usan el global Jinja `list_return(request, "<path>")` (`rc.back_url` / `rc.qs`, validado por `pagination.list_return_url` sobre `safe_internal_next` y el path exacto del listado) y anexan `rc.qs` a TODA acción de la página (guardar, eliminar, documentos); las rutas vuelven con `_return_redirect`/`_edit_redirect`. Si la página guardada ya no existe, `paginate` la acota a la última válida. **No** usar hidden fields ad-hoc por módulo. Tests: `tests/webapp/test_human_capital_return_context.py`.
+- Tests: `tests/webapp/test_human_capital_pagination.py` (helper + suite parametrizada por superficie con datasets sintéticos; no inflar el harness). Una superficie nueva se registra en `SURFACES` de ese archivo.
+
+---
+
+# CCHH · ONBOARDING (core) — OWNER QA PASS (2026-10-19)
+
+Branch `work/cchh-onboarding-core` (desde `main` e1c3d4d). Candidatos / Búsquedas / Entrevistas siguen CLOSED/FROZEN: no se reabrió ninguna superficie suya (solo capa de servicio de integración).
+
+## Dominio (verbatim de la referencia `app-seleccion`: `schema.sql` tabla `onboarding`, `lib/actions/onboarding.ts`, `lib/onboarding.ts`)
+- **Una fila por candidatura** (`candidato_id` UNIQUE en la referencia). En el Hub la identidad es el **`application_id`** de la CandidateApplication (se referencia, no se inventa otro id); `profile_id`/`busqueda_id` solo para resolver Profile/Búsqueda. Archivo `human-capital/onboarding/<application_id>.json`.
+- **Nace solo, automáticamente** (sin alta manual, sin delete) cuando la candidatura queda **Finalizado + Ingreso**. Condición única `human_capital_service.is_ingreso_application`, aplicada tras CUALQUIER mutación de candidaturas (`sync_onboardings_for_busqueda`, llamada desde `move_application_stage` y `close_busqueda`): vale con Finalizado+Ingreso en una operación o con el resultado asignado después. Idempotente. **Si el resultado cambia luego, NO se borra** (como la referencia). `reconcile_onboardings()` es el helper de BACKFILL de ingresos históricos previos a la sección: **no se invoca desde ningún request** (`GET /cchh/onboarding` es solo lectura). **Historical onboarding backfill = deferred operational step** (se ejecutará desde un operador/migración explícita).
+- Campos: `fecha_ingreso` (default hoy, obligatoria), `oferta_cerrada` (texto libre), `area` (hereda de la Entrevista de esa candidatura; **catálogo `area_consultora`**, legacy-safe), `checklist` `{clave: bool}`, `completado`, `revision`, `created_at/updated_at`.
+- **Checklist = 17 ítems canónicos** (`webapp/services/onboarding_checklist.py`, orden de `ITEMS_ONBOARDING`), separados del estado por Onboarding. **NO es catálogo CCHH**: en la referencia es configuración de aplicación (`configuraciones_app`, categoría `onboarding`). **ADMINISTRACIÓN DEL CHECKLIST = DEFERRED** (el Hub no tiene un mecanismo transversal de configuración equivalente; no se creó otro).
+- Tildar = guardado inmediato y atómico por ítem (HTMX), **no** bumpea `revision` (que protege solo el formulario). `completado` se recalcula en cada escritura del checklist (todos tildados) y se persiste.
+- Área sincronizada: editar el área de una Entrevista con `application_id` actualiza el Onboarding existente (`sincronizarAreaOnboardingDesdeEntrevista`); no crea onboardings.
+- **Onboarding pendiente** = existe Onboarding del proceso con `completado == False`. Badge en el tile (activos y cerrados) + chip de filtro en la barra de atención (recorta solo la grilla de activos, como los otros chips). Sin duplicar el proceso.
+
+## Rutas (+4, `route_surface.json` 201→205)
+`GET /cchh/onboarding` (filtro `estado=todos|pendientes|completos`; HX-Request → solo `#hc-onboarding-panel`), `GET/POST /cchh/onboarding/{application_id}/editar`, `POST /cchh/onboarding/{application_id}/checklist/{item_key}`. Nav `04 Onboarding`.
+
+## Deferred (no asumir que falta por error)
+Administración del checklist · alertas −90/+7 días del dashboard · responsables/deadlines por tarea/documentos/mensajería/reportes (no existen en la referencia) · edición inline de fecha de ingreso/oferta en la tarjeta del pipeline · link desde Historial de Profile · cambios de copy en Entrevistas.
+
+## Tests / localhost
+`tests/webapp/test_human_capital_onboarding.py` (36). Fixtures: `tests/fixtures/human_capital/onboarding.json` (+ 2 candidaturas Ingreso en `busquedas.json`); harness `tools/cchh_visual_harness.py`.
+
+---
+
 # CCHH · ENTREVISTAS — OWNER QA PASS / READY TO MERGE (2026-09-30)
 
 > **Branch**: `work/cchh-entrevistas-core`, feature commit `74f3a6c` (sobre

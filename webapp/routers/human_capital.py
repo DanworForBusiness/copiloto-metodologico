@@ -109,7 +109,7 @@ from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
 from webapp.services import (
     auth_service, busqueda_repository, entrevista_repository, human_capital_catalog_repository,
-    human_capital_service, profile_document_repository, profile_document_service,
+    human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service,
     profile_document_validation, profile_import_service,
 )
 from webapp.services.human_capital_service import (
@@ -150,7 +150,7 @@ def human_capital_page(request: Request):
     return RedirectResponse(url="/cchh/candidatos", status_code=307)
 
 
-def _profiles_panel_context(*, query: dict | None = None) -> dict:
+def _profiles_panel_context(*, query: dict | None = None, page=1, page_size=None) -> dict:
     """Contexto del fragmento `human_capital_profiles_panel.html` —
     listado + filtros ÚNICAMENTE (Fase de paridad funcional: el alta se
     mudó a su propia página/ruta, `GET/POST /cchh/candidatos/nuevo`,
@@ -185,8 +185,12 @@ def _profiles_panel_context(*, query: dict | None = None) -> dict:
     except ProfileStorageError as exc:
         source_error = str(exc)
     profiles = human_capital_service.filter_profiles(all_profiles, query) if query else all_profiles
+    # Paginación estándar CCHH (HANDOFF «CCHH TABLE PAGINATION STANDARD»): dataset → filtros/búsqueda (arriba) → TOTAL filtrado → slice. El contador del panel es `total_profiles`.
+    pager = pagination.paginate(profiles, page=page, page_size=page_size, base_url="/cchh/candidatos", params=query or {})
     return {
-        "profiles": profiles,
+        "profiles": pager["items"],
+        "total_profiles": pager["total"],
+        "pager": pager,
         "dataset_has_any_profiles": bool(all_profiles),
         "source_error": source_error,
         "config_incomplete": False,
@@ -209,6 +213,7 @@ def human_capital_profiles_page(
     request: Request,
     q: str = Query(""), seniority: str = Query(""), source: str = Query(""),
     location: str = Query(""), potential_mark: str = Query(""),
+    page: str = Query(""), page_size: str = Query(""),
 ):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
@@ -224,7 +229,7 @@ def human_capital_profiles_page(
         "pack": DEFAULT_PACK,
         "user": user,
         "active_page": "perfiles",
-        **_profiles_panel_context(query=query),
+        **_profiles_panel_context(query=query, page=page, page_size=page_size),
     }
     # BUG real encontrado con el Visual QA Harness (owner post-#107 audit):
     # este GET nunca distinguía HTMX de navegación directa -- el filtro
@@ -639,8 +644,8 @@ def human_capital_profile_edit_submit(
         return _render(create_error=str(exc))
     # Éxito: vuelve al listado -- "guardar" implica "terminé de editar
     # esto", MISMO criterio que un alta exitosa vuelve al panel con el
-    # form limpio, pero acá la edición vive en su propia página.
-    return RedirectResponse(url="/cchh/candidatos", status_code=303)
+    # form limpio, pero acá la edición vive en su propia página. Vuelve al MISMO contexto de listado (filtros/página/tamaño) si vino de él (`?return_to=`).
+    return _return_redirect(request, "/cchh/candidatos")
 
 
 @router.post("/cchh/candidatos/{profile_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
@@ -651,6 +656,7 @@ def human_capital_profile_delete(
     # re-aplican al re-render para que el borrado NO pierda la búsqueda activa.
     q: str = Form(""), seniority: str = Form(""), source: str = Form(""),
     location: str = Form(""), potential_mark: str = Form(""),
+    page: str = Form(""), page_size: str = Form(""),
 ):
     """Borrado LÓGICO del candidato — UNA sola operación de servicio
     (`soft_delete_profile`), compartida por los dos puntos de entrada de UI
@@ -680,7 +686,7 @@ def human_capital_profile_delete(
         # Si falló, el candidato SIGUE presente (no hay remoción parcial) y se
         # muestra el error.
         query = {"q": q, "seniority": seniority, "source": source, "location": location, "potential_mark": potential_mark}
-        context = {"request": request, **_profiles_panel_context(query=query)}
+        context = {"request": request, **_profiles_panel_context(query=query, page=page, page_size=page_size)}
         if delete_error:
             context["delete_error"] = delete_error
         return templates.TemplateResponse(
@@ -703,7 +709,7 @@ def human_capital_profile_delete(
                     "document_state": None,
                 },
             )
-    return RedirectResponse(url="/cchh/candidatos", status_code=303)
+    return _return_redirect(request, "/cchh/candidatos")
 
 
 def _import_page_context(**kwargs) -> dict:
@@ -952,7 +958,7 @@ async def human_capital_profile_documents_upload(
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
         )
-    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
+    return _edit_redirect(request, profile_id)
 
 
 @router.post("/cchh/candidatos/{profile_id}/documentos/retry-upload", response_class=HTMLResponse, include_in_schema=False)
@@ -1025,7 +1031,7 @@ async def human_capital_profile_documents_retry_upload(
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
         )
-    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
+    return _edit_redirect(request, profile_id)
 
 
 @router.post("/cchh/candidatos/{profile_id}/documentos/retry-commit", response_class=HTMLResponse, include_in_schema=False)
@@ -1058,7 +1064,7 @@ def human_capital_profile_documents_retry_commit(request: Request, profile_id: s
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
         )
-    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
+    return _edit_redirect(request, profile_id)
 
 
 # Delete (Fase 4.1.2, ver HANDOFF): MISMO idioma que upload/retry -- router
@@ -1114,7 +1120,7 @@ async def human_capital_profile_documents_delete(
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DELETE_OUTCOME_UNKNOWN", "message": str(exc)},
         )
-    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
+    return _edit_redirect(request, profile_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1130,7 +1136,7 @@ _BUSQUEDA_SHELL_ERRORS = (
 )
 
 
-_BUSQUEDA_ATENCION_FILTERS = ("todas", "estancadas", "sin_requerimiento")
+_BUSQUEDA_ATENCION_FILTERS = ("todas", "estancadas", "sin_requerimiento", "onboarding_pendiente")
 
 
 def _busquedas_list_context(atencion: str = "todas") -> dict:
@@ -1150,17 +1156,23 @@ def _busquedas_list_context(atencion: str = "todas") -> dict:
     # nunca se duplica en otro contenedor. Activos: se cuentan las señales para
     # los chips y se filtra la grilla por la señal elegida. Cerrados: se enriquecen
     # igual (para el badge "sin requerimiento") pero no llevan filtro de atención.
-    activas = [human_capital_service.busqueda_with_attention(b)
+    # `onboarding_pendiente`: Onboardings de ese proceso con completado == False (señal sobre el MISMO proceso, nunca otro contenedor). Aplica a activos Y
+    # cerrados (un proceso cerrado puede tener ingresos con onboarding pendiente); el filtro, como los demás, sólo recorta la grilla de activos.
+    pendientes = human_capital_service.onboarding_pending_by_busqueda()
+    activas = [human_capital_service.busqueda_with_attention(b, pendientes.get(b["busqueda_id"], 0))
                for b in all_b if b.get("estado") == "activo"]
-    cerradas = [human_capital_service.busqueda_with_attention(b)
+    cerradas = [human_capital_service.busqueda_with_attention(b, pendientes.get(b["busqueda_id"], 0))
                 for b in all_b if b.get("estado") == "cerrado"]
     estancadas_n = sum(1 for b in activas if b["attention"]["estancada"])
     sin_req_n = sum(1 for b in activas if b["attention"]["sin_requerimiento"])
+    onb_pend_n = sum(1 for b in activas if b["attention"]["onboarding_pendiente"])
 
     if atencion == "estancadas":
         activas_view = [b for b in activas if b["attention"]["estancada"]]
     elif atencion == "sin_requerimiento":
         activas_view = [b for b in activas if b["attention"]["sin_requerimiento"]]
+    elif atencion == "onboarding_pendiente":
+        activas_view = [b for b in activas if b["attention"]["onboarding_pendiente"]]
     else:
         activas_view = activas
 
@@ -1170,7 +1182,8 @@ def _busquedas_list_context(atencion: str = "todas") -> dict:
         "total_busquedas": len(all_b),
         "total_activas": len(activas),
         "atencion": atencion,
-        "atencion_counts": {"todas": len(activas), "estancadas": estancadas_n, "sin_requerimiento": sin_req_n},
+        "atencion_counts": {"todas": len(activas), "estancadas": estancadas_n, "sin_requerimiento": sin_req_n,
+                            "onboarding_pendiente": onb_pend_n},
         "source_error": source_error,
     }
 
@@ -1503,17 +1516,31 @@ def _entrevistas_shell(request, extra: dict) -> dict:
     }
 
 
-def _entrevistas_list_context() -> dict:
+def _entrevistas_list_context(origen: str = "", puesto: str = "", area: str = "", q: str = "", page=1, page_size=None) -> dict:
+    origen, puesto, area, q = (origen or "").strip(), (puesto or "").strip(), (area or "").strip(), (q or "").strip()
     entrevistas: list[dict] = []
     source_error: str | None = None
     try:
         entrevistas = human_capital_service.list_entrevistas_view()
     except entrevista_repository.EntrevistaStorageError as exc:
         source_error = str(exc)
-    entrevistas.sort(key=lambda e: e.get("created_at") or "", reverse=True)
+    dataset_has_any = bool(entrevistas)
+    # Opciones de los tres desplegables sobre el dataset COMPLETO (no desaparecen al aplicar otros filtros). Origen = Profile.source (taxonomía gobernada `fuente`), Puesto = distintos presentes
+    # (no es catálogo), Área = `area_consultora`.
+    origen_options = _governed_filter_options("fuente", [e.get("origen") for e in entrevistas], origen, human_capital_service.ENTREVISTA_SIN_ORIGEN, "Sin origen")
+    puesto_options = _governed_filter_options(None, [e.get("puesto_mostrado") for e in entrevistas], puesto, human_capital_service.ENTREVISTA_SIN_PUESTO, "Sin puesto")
+    area_options = _governed_filter_options("area_consultora", [e.get("area") for e in entrevistas], area, human_capital_service.SIN_AREA, "Sin área")
+    entrevistas = human_capital_service.filter_entrevistas(entrevistas, origen=origen, puesto=puesto, area=area, q=q)      # filtros + búsqueda ANTES de paginar
+    entrevistas.sort(key=lambda e: e.get("created_at") or "", reverse=True)                                                # orden ANTES de paginar
+    pager = pagination.paginate(entrevistas, page=page, page_size=page_size, base_url="/cchh/entrevistas",
+                                params={"origen": origen, "puesto": puesto, "area": area, "q": q})
     return {
-        "entrevistas": entrevistas,
-        "total_entrevistas": len(entrevistas),
+        "entrevistas": pager["items"],
+        "total_entrevistas": pager["total"],                                        # TOTAL FILTRADO (contador del dashboard-section), nunca el tamaño de la página
+        "dataset_has_any_entrevista": dataset_has_any,
+        "pager": pager,
+        "origen": origen, "puesto": puesto, "area": area, "q": q,
+        "origen_options": origen_options, "puesto_options": puesto_options, "area_options": area_options,
         "source_error": source_error,
     }
 
@@ -1568,13 +1595,20 @@ def _entrevista_form_from_request(fecha_entrevista, puesto_evaluado, area, modal
 
 
 @router.get("/cchh/entrevistas", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_entrevistas_page(request: Request):
+def human_capital_entrevistas_page(request: Request, origen: str = Query(""), puesto: str = Query(""), area: str = Query(""), q: str = Query(""),
+                                   page: str = Query(""), page_size: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    ctx = _entrevistas_list_context(origen, puesto, area, q, page, page_size)
+    # Paginación (HTMX): sólo se re-renderiza el panel (`#hc-entrevistas-panel`), MISMO criterio de fragmento que Candidatos/Onboarding.
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_entrevistas_panel.html", context={"request": request, **ctx},
+        )
     return templates.TemplateResponse(
         request=request, name="human_capital/entrevistas.html",
-        context=_entrevistas_shell(request, _entrevistas_list_context()),
+        context=_entrevistas_shell(request, ctx),
     )
 
 
@@ -1671,7 +1705,7 @@ def human_capital_entrevista_edit_submit(
         return _render(concurrent_modification=True)
     except _ENTREVISTA_SHELL_ERRORS as exc:
         return _render(error=str(exc))
-    return RedirectResponse(url="/cchh/entrevistas", status_code=303)
+    return _return_redirect(request, "/cchh/entrevistas")
 
 
 @router.post("/cchh/entrevistas/{entrevista_id}/no-concretada", response_class=HTMLResponse, include_in_schema=False)
@@ -1716,7 +1750,7 @@ def human_capital_entrevista_no_concretada(
         return _render(concurrent_modification=True)
     except _ENTREVISTA_SHELL_ERRORS as exc:
         return _render(error=str(exc))
-    return RedirectResponse(url="/cchh/entrevistas", status_code=303)
+    return _return_redirect(request, "/cchh/entrevistas")
 
 
 @router.post("/cchh/entrevistas/{entrevista_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
@@ -1730,7 +1764,195 @@ def human_capital_entrevista_delete(request: Request, entrevista_id: str):
         pass
     except _ENTREVISTA_SHELL_ERRORS:
         pass
-    return RedirectResponse(url="/cchh/entrevistas", status_code=303)
+    return _return_redirect(request, "/cchh/entrevistas")
+
+
+# ---------------------------------------------------------------------------
+# Onboarding — listado / edición (datos + checklist con guardado inmediato).
+# Dominio verbatim de la referencia (app-seleccion, tabla `onboarding`; ver
+# onboarding_repository.py): un registro por candidatura que queda Finalizado +
+# Ingreso, creado SOLO automáticamente (human_capital_service.
+# sync_onboardings_for_busqueda), sin alta manual ni delete. Router liviano,
+# MISMO criterio que Entrevistas: sin filesystem/Spaces/UUID/JSON acá.
+# ---------------------------------------------------------------------------
+_ONBOARDING_SHELL_ERRORS = (
+    onboarding_repository.OnboardingConfigIncompleteError,
+    onboarding_repository.OnboardingRemoteOutcomeUnknownError,
+    onboarding_repository.OnboardingStorageError,
+)
+_ONBOARDING_ESTADO_FILTERS = ("todos", "pendientes", "completos")
+
+
+def _onboarding_shell(request, extra: dict) -> dict:
+    user = auth_service.session_user(request)
+    return {
+        "current_workspace": workspaces.HUMAN_CAPITAL,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack": DEFAULT_PACK, "user": user, "active_page": "onboarding",
+        **extra,
+    }
+
+
+def _governed_filter_options(catalog_name: str | None, values: list, selected: str, sentinel: str, sin_label: str) -> list[dict]:
+    """Opciones de un filtro de listado SOBRE EL DATASET COMPLETO (no desaparecen al filtrar): el catálogo GOBERNADO `catalog_name` (si lo hay; sin hardcodear), MÁS los valores presentes
+    en las filas que ya no están en el catálogo (legacy, marcados «(fuera de catálogo)» SOLO cuando hay catálogo) o el valor seleccionado, MÁS «Sin …» si alguna fila no tiene valor.
+    Sin catálogo (p. ej. Puesto) son los valores distintos presentes, en orden estable (case-insensitive)."""
+    active = human_capital_catalog_repository.catalog_values(catalog_name) if catalog_name else []
+    present = sorted({(v or "").strip() for v in values if (v or "").strip()}, key=lambda x: (x.casefold(), x))
+    extra = [v for v in present if v not in active]
+    if selected and selected != sentinel and selected not in active and selected not in extra:
+        extra.append(selected)
+    tag = " (fuera de catálogo)" if catalog_name else ""
+    options = [{"value": a, "label": a} for a in active] + [{"value": a, "label": f"{a}{tag}"} for a in extra]
+    if any(not (v or "").strip() for v in values) or selected == sentinel:
+        options.append({"value": sentinel, "label": sin_label})
+    return options
+
+
+def _onboarding_area_filter_options(rows: list[dict], selected: str) -> list[dict]:
+    """Filtro Área de Onboarding: catálogo gobernado `area_consultora` + legacy presentes + «Sin área» (ver `_governed_filter_options`)."""
+    return _governed_filter_options("area_consultora", [o.get("area") for o in rows], selected, human_capital_service.SIN_AREA, "Sin área")
+
+
+def _onboarding_list_context(estado: str = "todos", area: str = "", q: str = "", page=1, page_size=None) -> dict:
+    if estado not in _ONBOARDING_ESTADO_FILTERS:
+        estado = "todos"
+    area, q = (area or "").strip(), (q or "").strip()
+    rows: list[dict] = []
+    source_error: str | None = None
+    try:
+        # GET de navegación = SOLO LECTURA: nunca crea/repone onboardings. El backfill de ingresos históricos es un paso operativo explícito y separado
+        # (`human_capital_service.reconcile_onboardings`, DEFERRED: Historical onboarding backfill = deferred operational step).
+        rows = human_capital_service.list_onboardings_view()
+    except (onboarding_repository.OnboardingStorageError, busqueda_repository.BusquedaStorageError) as exc:
+        source_error = str(exc)
+    dataset_has_any = bool(rows)
+    area_options = _onboarding_area_filter_options(rows, area)         # sobre el dataset COMPLETO: las opciones no desaparecen al filtrar
+    rows = human_capital_service.filter_onboardings(rows, estado=estado, area=area, q=q)
+    rows.sort(key=lambda o: (o.get("fecha_ingreso") or "", o.get("created_at") or ""), reverse=True)      # orden ANTES de paginar
+    pager = pagination.paginate(rows, page=page, page_size=page_size, base_url="/cchh/onboarding",
+                                params={"estado": estado if estado != "todos" else "", "area": area, "q": q})
+    return {
+        "onboardings": pager["items"],
+        "total_onboardings": pager["total"],                                        # TOTAL FILTRADO (contador del dashboard-section), nunca el tamaño de la página
+        "pager": pager,
+        "dataset_has_any_onboarding": dataset_has_any,
+        "estado": estado,
+        "area": area,
+        "q": q,
+        "area_options": area_options,
+        "source_error": source_error,
+    }
+
+
+def _onboarding_form_context(*, form_values, onboarding=None, error=None, concurrent_modification=False,
+                             checklist_error=None) -> dict:
+    # `area` = taxonomía `area_consultora` (la misma que Entrevista.area y Búsqueda.area_consultora, de donde se hereda): MISMO contrato migration-safe que
+    # Entrevistas (opciones del catálogo activo + el valor legacy actual marcado "(fuera de catálogo)").
+    return {
+        "form_values": form_values,
+        "onboarding": onboarding,
+        "form_error": error,
+        "concurrent_modification": concurrent_modification,
+        "checklist_error": checklist_error,
+        "areas": _governed_edit_options("area_consultora", form_values.get("area")),
+        "area_is_legacy": _is_legacy_governed_value("area_consultora", form_values.get("area")),
+    }
+
+
+@router.get("/cchh/onboarding", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_onboarding_page(request: Request, estado: str = Query("todos"), area: str = Query(""), q: str = Query(""),
+                                  page: str = Query(""), page_size: str = Query("")):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    ctx = _onboarding_list_context(estado, area, q, page, page_size)
+    # Filtro reactivo (HTMX): sólo se re-renderiza el panel (`#hc-onboarding-panel`) — MISMO criterio de fragmento que Candidatos.
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_onboarding_panel.html",
+            context={"request": request, **ctx},
+        )
+    return templates.TemplateResponse(
+        request=request, name="human_capital/onboarding.html",
+        context=_onboarding_shell(request, ctx),
+    )
+
+
+def _onboarding_edit_response(request: Request, application_id: str, form_values: dict, **extra):
+    onboarding = human_capital_service.get_onboarding(application_id)
+    view = human_capital_service.onboarding_view(onboarding) if onboarding else None
+    return templates.TemplateResponse(
+        request=request, name="human_capital/onboarding_form.html",
+        context=_onboarding_shell(request, _onboarding_form_context(
+            form_values=form_values, onboarding=view, **extra)),
+    )
+
+
+@router.get("/cchh/onboarding/{application_id}/editar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_onboarding_edit_page(request: Request, application_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    onboarding = human_capital_service.get_onboarding(application_id)
+    if onboarding is None:
+        raise HTTPException(404, "Onboarding no encontrado")
+    form_values = dict(onboarding)
+    form_values["expected_revision"] = onboarding.get("revision", 1)
+    return _onboarding_edit_response(request, application_id, form_values)
+
+
+@router.post("/cchh/onboarding/{application_id}/editar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_onboarding_edit_submit(
+    request: Request, application_id: str,
+    fecha_ingreso: str = Form(""), oferta_cerrada: str = Form(""), area: str = Form(""),
+    expected_revision: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form_values = {"fecha_ingreso": fecha_ingreso, "oferta_cerrada": oferta_cerrada, "area": area}
+    try:
+        revision_int = int(expected_revision)
+    except ValueError:
+        raise HTTPException(400, "expected_revision inválido") from None
+    fv = {**form_values, "expected_revision": revision_int, "application_id": application_id}
+    try:
+        human_capital_service.update_onboarding(application_id, revision_int, form_values)
+    except onboarding_repository.OnboardingNotFoundError:
+        raise HTTPException(404, "Onboarding no encontrado") from None
+    except ValueError as exc:
+        return _onboarding_edit_response(request, application_id, fv, error=str(exc))
+    except onboarding_repository.OnboardingConcurrentModificationError:
+        return _onboarding_edit_response(request, application_id, fv, concurrent_modification=True)
+    except _ONBOARDING_SHELL_ERRORS as exc:
+        return _onboarding_edit_response(request, application_id, fv, error=str(exc))
+    return _return_redirect(request, "/cchh/onboarding")
+
+
+@router.post("/cchh/onboarding/{application_id}/checklist/{item_key}", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_onboarding_toggle_item(request: Request, application_id: str, item_key: str, checked: str = Form("")):
+    """Tildado con guardado inmediato (HTMX): devuelve el fragmento del checklist con el estado ya persistido. Un casillero destildado no envía el campo, así
+    que `checked == "1"` ⇔ tildado."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    error = None
+    try:
+        human_capital_service.set_onboarding_item(application_id, item_key, checked == "1")
+    except onboarding_repository.OnboardingNotFoundError:
+        raise HTTPException(404, "Onboarding no encontrado") from None
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except _ONBOARDING_SHELL_ERRORS as exc:
+        error = str(exc)
+    onboarding = human_capital_service.get_onboarding(application_id)
+    if onboarding is None:
+        raise HTTPException(404, "Onboarding no encontrado")
+    return templates.TemplateResponse(
+        request=request, name="partials/human_capital_onboarding_checklist.html",
+        context={"request": request, "onboarding": human_capital_service.onboarding_view(onboarding), "checklist_error": error},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1777,6 +1999,18 @@ def _fecha_dmy(value: str | None) -> str:
 
 
 templates.env.filters["fecha_dmy"] = _fecha_dmy
+# Contexto de listado para las páginas de edición (ver `pagination.list_return_context`): `{% set rc = list_return(request, "/cchh/…") %}` → `rc.back_url` / `rc.qs`.
+templates.env.globals["list_return"] = lambda request, list_path: pagination.list_return_context(request.query_params, list_path)
+
+
+def _edit_redirect(request: Request, profile_id: str) -> RedirectResponse:
+    """303 a la página de edición del candidato conservando `?return_to=` (Cancelar/Guardar siguen volviendo al listado correcto tras una operación de documentos)."""
+    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar" + pagination.list_return_context(request.query_params, "/cchh/candidatos")["qs"], status_code=303)
+
+
+def _return_redirect(request: Request, list_path: str) -> RedirectResponse:
+    """303 al listado EN EL MISMO CONTEXTO (filtros/página/tamaño) si la acción vino de él (`?return_to=`); si no, al listado base."""
+    return RedirectResponse(url=pagination.list_return_url(request.query_params.get("return_to"), list_path) or list_path, status_code=303)
 
 
 def _catalogos_context(request: Request, *, refresh_result: dict | None, refresh_error: dict | None) -> dict:
