@@ -50,6 +50,8 @@ from datetime import datetime
 from webapp.services import human_capital_catalog_repository as catalog_repo
 from webapp.services import busqueda_repository
 from webapp.services import entrevista_repository
+from webapp.services import onboarding_checklist
+from webapp.services import onboarding_repository
 from webapp.services import profile_repository
 from webapp.services.profile_repository import (  # re-exportados para el router
     ProfileConcurrentModificationError,
@@ -623,7 +625,9 @@ def update_busqueda(busqueda_id: str, expected_revision: int, fields: dict) -> d
 
 
 def close_busqueda(busqueda_id: str, finalize_application_ids: list[str] | None = None) -> dict:
-    return busqueda_repository.close(busqueda_id, finalize_application_ids)
+    busqueda = busqueda_repository.close(busqueda_id, finalize_application_ids)
+    sync_onboardings_for_busqueda(busqueda)             # misma condición central tras CUALQUIER mutación de candidaturas
+    return busqueda
 
 
 def busqueda_is_placeholder(busqueda: dict) -> bool:
@@ -694,6 +698,7 @@ def move_application_stage(busqueda_id: str, application_id: str, etapa: str,
     else:
         resultado = None  # el repo también lo fuerza; se valida acá el contrato
     busqueda = busqueda_repository.move_stage(busqueda_id, application_id, etapa, resultado)
+    sync_onboardings_for_busqueda(busqueda)             # Finalizado + Ingreso => Onboarding (en una sola operación o con el resultado asignado después)
     if etapa in _ETAPAS_QUE_DISPARAN_ENTREVISTA:
         app = next((a for a in busqueda.get("candidatos", []) if a.get("application_id") == application_id), None)
         if app is not None:
@@ -768,7 +773,7 @@ def busqueda_dias_sin_movimiento(busqueda: dict) -> int | None:
     return max((datetime.now() - ultimo).days, 0)
 
 
-def busqueda_attention(busqueda: dict) -> dict:
+def busqueda_attention(busqueda: dict, onboarding_pendiente: int = 0) -> dict:
     """Señales derivadas de atención de un proceso, para badges + filtros. Sólo
     presentación/UX — no muta el documento ni cambia su lifecycle. `estancada`
     aplica ÚNICAMENTE a procesos activos (igual que la referencia)."""
@@ -778,12 +783,14 @@ def busqueda_attention(busqueda: dict) -> dict:
         "dias_sin_movimiento": dias,
         "estancada": bool(activo and dias is not None and dias >= BUSQUEDA_UMBRAL_ESTANCADA_DIAS),
         "sin_requerimiento": not busqueda.get("pedido_formal_recibido"),
+        # Cantidad de Onboardings de este proceso con `completado == False` (la lista la arma `onboarding_pending_by_busqueda`). Señal derivada: no duplica el proceso.
+        "onboarding_pendiente": onboarding_pendiente,
     }
 
 
-def busqueda_with_attention(busqueda: dict) -> dict:
+def busqueda_with_attention(busqueda: dict, onboarding_pendiente: int = 0) -> dict:
     """Copia del proceso con `attention` embebido (nunca se persiste)."""
-    return {**busqueda, "attention": busqueda_attention(busqueda)}
+    return {**busqueda, "attention": busqueda_attention(busqueda, onboarding_pendiente)}
 
 
 # ── ENTREVISTAS ───────────────────────────────────────────────────────────────
@@ -833,8 +840,10 @@ def create_entrevista_manual(profile_id: str, fields: dict) -> dict:
 
 def update_entrevista(entrevista_id: str, expected_revision: int, fields: dict) -> dict:
     existing = entrevista_repository.get(entrevista_id)
-    return entrevista_repository.update(
+    updated = entrevista_repository.update(
         entrevista_id, expected_revision, _shape_entrevista_fields(fields, existing=existing))
+    sync_onboarding_area_from_entrevista(updated)
+    return updated
 
 
 def marcar_entrevista_no_concretada(entrevista_id: str, expected_revision: int) -> dict:
@@ -898,3 +907,122 @@ def entrevista_view(entrevista: dict) -> dict:
 
 def list_entrevistas_view() -> list[dict]:
     return [entrevista_view(e) for e in list_entrevistas()]
+
+
+# ── ONBOARDING ───────────────────────────────────────────────────────────────
+# Dominio verbatim de la referencia (ver onboarding_repository.py, module docstring).
+def is_ingreso_application(app: dict) -> bool:
+    """Condición ÚNICA de nacimiento de un Onboarding: la candidatura quedó Finalizado Y con resultado Ingreso. Se evalúa sobre el ESTADO resultante (no sobre el
+    evento), así vale tanto si se mueve a Finalizado + Ingreso en una sola operación como si primero quedó Finalizado y el resultado se asignó después."""
+    return app.get("etapa") == busqueda_repository.ETAPA_FINAL and app.get("resultado_final") == "Ingreso"
+
+
+def ensure_onboarding_for_application(busqueda: dict, app: dict) -> dict | None:
+    """Idempotente: crea el Onboarding de la candidatura si cumple `is_ingreso_application` y todavía no existe. El área se trae de la Entrevista de esa
+    candidatura (si tiene), como `crearOnboardingSiNoExiste` en la referencia; `fecha_ingreso` = hoy. Best-effort: un fallo de persistencia NUNCA rompe la
+    mutación de pipeline ya confirmada (mismo criterio que la entrevista automática); `reconcile_onboardings` lo repone."""
+    if not is_ingreso_application(app) or not app.get("application_id"):
+        return None
+    entrevista = entrevista_repository.find_by_profile_and_busqueda(app["profile_id"], busqueda["busqueda_id"])
+    try:
+        doc, _created = onboarding_repository.create_if_absent(
+            application_id=app["application_id"], profile_id=app["profile_id"], busqueda_id=busqueda["busqueda_id"],
+            area=(entrevista or {}).get("area"))
+        return doc
+    except (onboarding_repository.OnboardingStorageError, onboarding_repository.OnboardingRemoteOutcomeUnknownError):
+        _logger.warning("human_capital.onboarding_automatico_fallo application_id=%s", app.get("application_id"))
+        return None
+
+
+def sync_onboardings_for_busqueda(busqueda: dict) -> None:
+    """Punto central tras una mutación de las candidaturas de una Búsqueda: asegura el Onboarding de cada una que esté Finalizado + Ingreso."""
+    for app in busqueda.get("candidatos", []):
+        ensure_onboarding_for_application(busqueda, app)
+
+
+def reconcile_onboardings() -> int:
+    """Repone los Onboardings de candidaturas que YA están Finalizado + Ingreso y no lo tienen (p. ej. ingresos cargados antes de existir esta sección).
+    Idempotente. Devuelve cuántos creó."""
+    created = 0
+    for busqueda in busqueda_repository.list():
+        for app in busqueda.get("candidatos", []):
+            if is_ingreso_application(app) and onboarding_repository.get(app["application_id"]) is None:
+                created += 1 if ensure_onboarding_for_application(busqueda, app) is not None else 0
+    return created
+
+
+def sync_onboarding_area_from_entrevista(entrevista: dict) -> None:
+    """Editar el área de la Entrevista de una candidatura que ya tiene Onboarding mantiene sincronizada el área del Onboarding (`sincronizarAreaOnboardingDesdeEntrevista`
+    en la referencia). Sin Onboarding, no hace nada. Best-effort."""
+    application_id = entrevista.get("application_id")
+    if not application_id:
+        return
+    try:
+        onboarding_repository.set_area(application_id, entrevista.get("area"))
+    except (onboarding_repository.OnboardingStorageError, onboarding_repository.OnboardingRemoteOutcomeUnknownError):
+        _logger.warning("human_capital.onboarding_area_sync_fallo application_id=%s", application_id)
+
+
+def list_onboardings() -> list[dict]:
+    return onboarding_repository.list()
+
+
+def get_onboarding(application_id: str) -> dict | None:
+    return onboarding_repository.get(application_id)
+
+
+def onboarding_view(onboarding: dict) -> dict:
+    """Enriquece un Onboarding con el Profile (maestro de datos personales, leído en vivo), la Búsqueda (puesto/proceso) y el progreso derivado del checklist."""
+    profile = profile_repository.get(onboarding.get("profile_id"))
+    busqueda = busqueda_repository.get(onboarding["busqueda_id"]) if onboarding.get("busqueda_id") else None
+    return {
+        **onboarding,
+        "profile": profile,
+        "busqueda": busqueda,
+        "puesto_mostrado": (busqueda or {}).get("nombre_puesto"),
+        "progress": onboarding_checklist.progress(onboarding.get("checklist")),
+        "checklist_items": onboarding_checklist.items_view(onboarding.get("checklist")),
+    }
+
+
+def list_onboardings_view() -> list[dict]:
+    return [onboarding_view(o) for o in list_onboardings()]
+
+
+def _shape_onboarding_fields(fields: dict, *, existing: dict | None = None) -> dict:
+    """`fecha_ingreso` es obligatoria (NOT NULL en la referencia); `oferta_cerrada` es texto libre opcional; `area` está GOBERNADA por `area_consultora` (MISMA
+    taxonomía que Entrevista.area/Búsqueda.area_consultora: es la que se hereda de la entrevista y se sincroniza), con el contrato migration-safe habitual."""
+    fecha = (fields.get("fecha_ingreso") or "").strip()
+    try:
+        datetime.strptime(fecha, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError("La fecha de ingreso es obligatoria y tiene que ser una fecha válida.") from None
+    area = (fields.get("area") or "").strip() or None
+    _validate_area_consultora_governed(area, existing_value=(existing or {}).get("area"))
+    return {"fecha_ingreso": fecha, "oferta_cerrada": (fields.get("oferta_cerrada") or "").strip() or None, "area": area}
+
+
+def update_onboarding(application_id: str, expected_revision: int, fields: dict) -> dict:
+    existing = onboarding_repository.get(application_id)
+    return onboarding_repository.update(
+        application_id, expected_revision, _shape_onboarding_fields(fields, existing=existing))
+
+
+def set_onboarding_item(application_id: str, key: str, checked: bool) -> dict:
+    return onboarding_repository.set_item(application_id, key, checked)
+
+
+def onboarding_pending_by_busqueda() -> dict[str, int]:
+    """`{busqueda_id: cantidad de Onboardings con completado == False}`: la señal «Onboarding pendiente» de Búsquedas. Un fallo de lectura NUNCA rompe el listado
+    de Búsquedas (la señal simplemente no se muestra)."""
+    try:
+        docs = onboarding_repository.list()
+    except onboarding_repository.OnboardingStorageError:
+        _logger.warning("human_capital.onboarding_pendientes_lectura_fallo")
+        return {}
+    out: dict[str, int] = {}
+    for o in docs:
+        if not o.get("completado") and o.get("busqueda_id"):
+            out[o["busqueda_id"]] = out.get(o["busqueda_id"], 0) + 1
+    return out
+

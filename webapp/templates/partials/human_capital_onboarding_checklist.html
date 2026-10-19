@@ -1,0 +1,31 @@
+{# Checklist de ingreso: 17 ítems canónicos (onboarding_checklist.py), guardado INMEDIATO por ítem (HTMX; MISMA conducta que la referencia). Es el ÚNICO target del
+   tildado (`#hc-onboarding-checklist`): devuelve el estado ya persistido y el progreso derivado, sin tocar el formulario de datos de arriba. Un casillero destildado no
+   envía el campo `checked`, por eso el server interpreta `checked == "1"`. Primitivos compartidos del Hub: `.dashboard-checkbox-group` / `.dashboard-checkbox-option`,
+   `.dashboard-status-badge`, `(i)` transversal; cero CSS propio. #}
+{% set _p = onboarding.progress %}
+<section class="hc-profile-section" id="hc-onboarding-checklist">
+  <h2>
+    Checklist de ingreso
+    {% set _check_help = "Cada casillero se guarda al tildarlo. El onboarding queda completo cuando están tildados los 17 ítems." %}
+    <span class="chart-tooltip-anchor">
+      <button type="button" class="activity-kpi__info" aria-label="{{ _check_help }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
+      </button>
+      <span class="chart-tooltip"><p>{{ _check_help }}</p></span>
+    </span>
+    {% if onboarding.completado %}<span class="dashboard-status-badge dashboard-status-badge--green" data-onboarding-progress>Completado · {{ _p.hechos }}/{{ _p.total }}</span>
+    {% elif _p.hechos == 0 %}<span class="dashboard-status-badge dashboard-status-badge--grey" data-onboarding-progress>{{ _p.hechos }}/{{ _p.total }} · {{ _p.porcentaje }}%</span>
+    {% else %}<span class="dashboard-status-badge dashboard-status-badge--amber" data-onboarding-progress>{{ _p.hechos }}/{{ _p.total }} · {{ _p.porcentaje }}%</span>{% endif %}
+  </h2>
+  {% if checklist_error %}<div class="dashboard-empty" data-error-kind="validation"><span class="dashboard-empty__label">No se guardó</span><p>{{ checklist_error }}</p></div>{% endif %}
+  <div class="dashboard-checkbox-group dashboard-checkbox-group--grid-2">
+    {% for it in onboarding.checklist_items %}
+    <label class="dashboard-checkbox-option">
+      <input type="checkbox" name="checked" value="1" data-onboarding-item="{{ it.key }}" {% if it.checked %}checked{% endif %}
+             hx-post="/cchh/onboarding/{{ onboarding.application_id }}/checklist/{{ it.key }}" hx-trigger="change" hx-include="this"
+             hx-target="#hc-onboarding-checklist" hx-swap="outerHTML">
+      <span>{{ it.label }}</span>
+    </label>
+    {% endfor %}
+  </div>
+</section>

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Editar onboarding · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% include "partials/human_capital_catalog_refresh_topbar.html" %}{% endcall %}
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    {# Sin vista de detalle: Editar vuelve directo al listado (MISMO primitivo `.catalog-back` que Búsquedas/Candidatos/Entrevistas). #}
+    <a class="catalog-back" href="/cchh/onboarding">← Volver a Onboarding</a>
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano</p>
+        <h1>Editar onboarding</h1>
+        {% if onboarding %}<p>{% if onboarding.profile %}{{ onboarding.profile.first_name }} {{ onboarding.profile.last_name }}{% else %}Candidato eliminado del Banco{% endif %}{% if onboarding.puesto_mostrado %} · {{ onboarding.puesto_mostrado }}{% endif %}</p>{% endif %}
+      </div>
+    </section>
+
+    {% if concurrent_modification %}
+    <div class="callout callout--warn"><div class="callout__body"><p>Este onboarding cambió desde que abriste el formulario. Volvé a abrirlo para no pisar el cambio.</p></div></div>
+    {% elif form_error %}
+    <div class="dashboard-empty" data-error-kind="validation"><span class="dashboard-empty__label">No se guardó</span><p>{{ form_error }}</p></div>
+    {% endif %}
+
+    <form method="post" action="/cchh/onboarding/{{ form_values.application_id }}/editar" class="hc-profile-form">
+      <input type="hidden" name="expected_revision" value="{{ form_values.expected_revision }}">
+
+      <section class="hc-profile-section">
+        <h2>
+          Datos del ingreso
+          {# `(i)` transversal del Hub (`.chart-tooltip-anchor` / `.activity-kpi__info` / `.chart-tooltip`). #}
+          {% set _datos_help = "El onboarding se crea solo cuando el candidato queda como Ingreso en la Búsqueda. La fecha de ingreso arranca en el día en que se marcó el ingreso y se puede corregir. El área se completa desde la entrevista y se mantiene sincronizada si se edita ahí." %}
+          <span class="chart-tooltip-anchor">
+            <button type="button" class="activity-kpi__info" aria-label="{{ _datos_help }}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
+            </button>
+            <span class="chart-tooltip"><p>{{ _datos_help }}</p></span>
+          </span>
+        </h2>
+
+        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+          <div class="feedback-field feedback-field--compact">
+            <label for="onb-fecha">Fecha de ingreso</label>
+            <input id="onb-fecha" name="fecha_ingreso" type="date" required value="{{ form_values.fecha_ingreso or '' }}">
+          </div>
+          <div class="feedback-field feedback-field--medium">
+            <label for="onb-oferta">Oferta cerrada</label>
+            <input id="onb-oferta" name="oferta_cerrada" type="text" value="{{ form_values.oferta_cerrada or '' }}">
+          </div>
+          <div class="feedback-field feedback-field--medium">
+            <label for="onb-area">Área</label>
+            <select id="onb-area" name="area">
+              <option value="" {% if not form_values.area %}selected{% endif %}>Sin definir</option>
+              {% for a in areas %}
+              <option value="{{ a }}" {% if form_values.area == a %}selected{% endif %}>{{ a }}{% if area_is_legacy and form_values.area == a %} (fuera de catálogo){% endif %}</option>
+              {% endfor %}
+            </select>
+            {% if area_is_legacy %}<p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>{% endif %}
+          </div>
+        </div>
+      </section>
+
+      <div class="hc-profile-form__actions">
+        <button type="submit" class="btn-primary">Guardar cambios</button>
+      </div>
+    </form>
+
+    {% if onboarding %}{% include "partials/human_capital_onboarding_checklist.html" %}{% endif %}
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{% endblock %}

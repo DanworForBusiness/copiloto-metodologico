@@ -109,7 +109,7 @@ from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
 from webapp.services import (
     auth_service, busqueda_repository, entrevista_repository, human_capital_catalog_repository,
-    human_capital_service, profile_document_repository, profile_document_service,
+    human_capital_service, onboarding_repository, profile_document_repository, profile_document_service,
     profile_document_validation, profile_import_service,
 )
 from webapp.services.human_capital_service import (
@@ -1130,7 +1130,7 @@ _BUSQUEDA_SHELL_ERRORS = (
 )
 
 
-_BUSQUEDA_ATENCION_FILTERS = ("todas", "estancadas", "sin_requerimiento")
+_BUSQUEDA_ATENCION_FILTERS = ("todas", "estancadas", "sin_requerimiento", "onboarding_pendiente")
 
 
 def _busquedas_list_context(atencion: str = "todas") -> dict:
@@ -1150,17 +1150,23 @@ def _busquedas_list_context(atencion: str = "todas") -> dict:
     # nunca se duplica en otro contenedor. Activos: se cuentan las señales para
     # los chips y se filtra la grilla por la señal elegida. Cerrados: se enriquecen
     # igual (para el badge "sin requerimiento") pero no llevan filtro de atención.
-    activas = [human_capital_service.busqueda_with_attention(b)
+    # `onboarding_pendiente`: Onboardings de ese proceso con completado == False (señal sobre el MISMO proceso, nunca otro contenedor). Aplica a activos Y
+    # cerrados (un proceso cerrado puede tener ingresos con onboarding pendiente); el filtro, como los demás, sólo recorta la grilla de activos.
+    pendientes = human_capital_service.onboarding_pending_by_busqueda()
+    activas = [human_capital_service.busqueda_with_attention(b, pendientes.get(b["busqueda_id"], 0))
                for b in all_b if b.get("estado") == "activo"]
-    cerradas = [human_capital_service.busqueda_with_attention(b)
+    cerradas = [human_capital_service.busqueda_with_attention(b, pendientes.get(b["busqueda_id"], 0))
                 for b in all_b if b.get("estado") == "cerrado"]
     estancadas_n = sum(1 for b in activas if b["attention"]["estancada"])
     sin_req_n = sum(1 for b in activas if b["attention"]["sin_requerimiento"])
+    onb_pend_n = sum(1 for b in activas if b["attention"]["onboarding_pendiente"])
 
     if atencion == "estancadas":
         activas_view = [b for b in activas if b["attention"]["estancada"]]
     elif atencion == "sin_requerimiento":
         activas_view = [b for b in activas if b["attention"]["sin_requerimiento"]]
+    elif atencion == "onboarding_pendiente":
+        activas_view = [b for b in activas if b["attention"]["onboarding_pendiente"]]
     else:
         activas_view = activas
 
@@ -1170,7 +1176,8 @@ def _busquedas_list_context(atencion: str = "todas") -> dict:
         "total_busquedas": len(all_b),
         "total_activas": len(activas),
         "atencion": atencion,
-        "atencion_counts": {"todas": len(activas), "estancadas": estancadas_n, "sin_requerimiento": sin_req_n},
+        "atencion_counts": {"todas": len(activas), "estancadas": estancadas_n, "sin_requerimiento": sin_req_n,
+                            "onboarding_pendiente": onb_pend_n},
         "source_error": source_error,
     }
 
@@ -1731,6 +1738,167 @@ def human_capital_entrevista_delete(request: Request, entrevista_id: str):
     except _ENTREVISTA_SHELL_ERRORS:
         pass
     return RedirectResponse(url="/cchh/entrevistas", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Onboarding — listado / edición (datos + checklist con guardado inmediato).
+# Dominio verbatim de la referencia (app-seleccion, tabla `onboarding`; ver
+# onboarding_repository.py): un registro por candidatura que queda Finalizado +
+# Ingreso, creado SOLO automáticamente (human_capital_service.
+# sync_onboardings_for_busqueda), sin alta manual ni delete. Router liviano,
+# MISMO criterio que Entrevistas: sin filesystem/Spaces/UUID/JSON acá.
+# ---------------------------------------------------------------------------
+_ONBOARDING_SHELL_ERRORS = (
+    onboarding_repository.OnboardingConfigIncompleteError,
+    onboarding_repository.OnboardingRemoteOutcomeUnknownError,
+    onboarding_repository.OnboardingStorageError,
+)
+_ONBOARDING_ESTADO_FILTERS = ("todos", "pendientes", "completos")
+
+
+def _onboarding_shell(request, extra: dict) -> dict:
+    user = auth_service.session_user(request)
+    return {
+        "current_workspace": workspaces.HUMAN_CAPITAL,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack": DEFAULT_PACK, "user": user, "active_page": "onboarding",
+        **extra,
+    }
+
+
+def _onboarding_list_context(estado: str = "todos") -> dict:
+    if estado not in _ONBOARDING_ESTADO_FILTERS:
+        estado = "todos"
+    rows: list[dict] = []
+    source_error: str | None = None
+    try:
+        # Repone los Onboardings de ingresos que ya existían (Finalizado + Ingreso) antes de esta sección; idempotente, no-op en régimen.
+        human_capital_service.reconcile_onboardings()
+        rows = human_capital_service.list_onboardings_view()
+    except (onboarding_repository.OnboardingStorageError, busqueda_repository.BusquedaStorageError) as exc:
+        source_error = str(exc)
+    dataset_has_any = bool(rows)
+    if estado == "pendientes":
+        rows = [o for o in rows if not o.get("completado")]
+    elif estado == "completos":
+        rows = [o for o in rows if o.get("completado")]
+    rows.sort(key=lambda o: (o.get("fecha_ingreso") or "", o.get("created_at") or ""), reverse=True)
+    return {
+        "onboardings": rows,
+        "total_onboardings": len(rows),
+        "dataset_has_any_onboarding": dataset_has_any,
+        "estado": estado,
+        "source_error": source_error,
+    }
+
+
+def _onboarding_form_context(*, form_values, onboarding=None, error=None, concurrent_modification=False,
+                             checklist_error=None) -> dict:
+    # `area` = taxonomía `area_consultora` (la misma que Entrevista.area y Búsqueda.area_consultora, de donde se hereda): MISMO contrato migration-safe que
+    # Entrevistas (opciones del catálogo activo + el valor legacy actual marcado "(fuera de catálogo)").
+    return {
+        "form_values": form_values,
+        "onboarding": onboarding,
+        "form_error": error,
+        "concurrent_modification": concurrent_modification,
+        "checklist_error": checklist_error,
+        "areas": _governed_edit_options("area_consultora", form_values.get("area")),
+        "area_is_legacy": _is_legacy_governed_value("area_consultora", form_values.get("area")),
+    }
+
+
+@router.get("/cchh/onboarding", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_onboarding_page(request: Request, estado: str = Query("todos")):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    ctx = _onboarding_list_context(estado)
+    # Filtro reactivo (HTMX): sólo se re-renderiza el panel (`#hc-onboarding-panel`) — MISMO criterio de fragmento que Candidatos.
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_onboarding_panel.html",
+            context={"request": request, **ctx},
+        )
+    return templates.TemplateResponse(
+        request=request, name="human_capital/onboarding.html",
+        context=_onboarding_shell(request, ctx),
+    )
+
+
+def _onboarding_edit_response(request: Request, application_id: str, form_values: dict, **extra):
+    onboarding = human_capital_service.get_onboarding(application_id)
+    view = human_capital_service.onboarding_view(onboarding) if onboarding else None
+    return templates.TemplateResponse(
+        request=request, name="human_capital/onboarding_form.html",
+        context=_onboarding_shell(request, _onboarding_form_context(
+            form_values=form_values, onboarding=view, **extra)),
+    )
+
+
+@router.get("/cchh/onboarding/{application_id}/editar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_onboarding_edit_page(request: Request, application_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    onboarding = human_capital_service.get_onboarding(application_id)
+    if onboarding is None:
+        raise HTTPException(404, "Onboarding no encontrado")
+    form_values = dict(onboarding)
+    form_values["expected_revision"] = onboarding.get("revision", 1)
+    return _onboarding_edit_response(request, application_id, form_values)
+
+
+@router.post("/cchh/onboarding/{application_id}/editar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_onboarding_edit_submit(
+    request: Request, application_id: str,
+    fecha_ingreso: str = Form(""), oferta_cerrada: str = Form(""), area: str = Form(""),
+    expected_revision: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form_values = {"fecha_ingreso": fecha_ingreso, "oferta_cerrada": oferta_cerrada, "area": area}
+    try:
+        revision_int = int(expected_revision)
+    except ValueError:
+        raise HTTPException(400, "expected_revision inválido") from None
+    fv = {**form_values, "expected_revision": revision_int, "application_id": application_id}
+    try:
+        human_capital_service.update_onboarding(application_id, revision_int, form_values)
+    except onboarding_repository.OnboardingNotFoundError:
+        raise HTTPException(404, "Onboarding no encontrado") from None
+    except ValueError as exc:
+        return _onboarding_edit_response(request, application_id, fv, error=str(exc))
+    except onboarding_repository.OnboardingConcurrentModificationError:
+        return _onboarding_edit_response(request, application_id, fv, concurrent_modification=True)
+    except _ONBOARDING_SHELL_ERRORS as exc:
+        return _onboarding_edit_response(request, application_id, fv, error=str(exc))
+    return RedirectResponse(url="/cchh/onboarding", status_code=303)
+
+
+@router.post("/cchh/onboarding/{application_id}/checklist/{item_key}", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_onboarding_toggle_item(request: Request, application_id: str, item_key: str, checked: str = Form("")):
+    """Tildado con guardado inmediato (HTMX): devuelve el fragmento del checklist con el estado ya persistido. Un casillero destildado no envía el campo, así
+    que `checked == "1"` ⇔ tildado."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    error = None
+    try:
+        human_capital_service.set_onboarding_item(application_id, item_key, checked == "1")
+    except onboarding_repository.OnboardingNotFoundError:
+        raise HTTPException(404, "Onboarding no encontrado") from None
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except _ONBOARDING_SHELL_ERRORS as exc:
+        error = str(exc)
+    onboarding = human_capital_service.get_onboarding(application_id)
+    if onboarding is None:
+        raise HTTPException(404, "Onboarding no encontrado")
+    return templates.TemplateResponse(
+        request=request, name="partials/human_capital_onboarding_checklist.html",
+        context={"request": request, "onboarding": human_capital_service.onboarding_view(onboarding), "checklist_error": error},
+    )
 
 
 # ---------------------------------------------------------------------------

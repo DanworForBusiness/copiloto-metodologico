@@ -267,6 +267,20 @@ def _seed_runtime(keep: bool) -> Path:
         payload = {"schema_version": entrevista_repository._SCHEMA_VERSION, "revision": 1, **entry}
         entrevista_repository._write_atomic(entrevista_repository._entrevista_path(entry["entrevista_id"]), payload)
     print(f"[harness] {len(entrevistas_raw)} entrevistas sembradas bajo {RUNTIME_DIR / 'human-capital' / 'entrevistas'}")
+
+    # Onboarding — MISMO criterio (internals reales del repositorio). Ver
+    # tests/fixtures/human_capital/onboarding.json: indexado por `application_id`
+    # (las candidaturas Finalizado + Ingreso de busquedas.json) y cubre nuevo (sin
+    # ítems), parcial (7/17 y 16/17), completo (17/17), fechas de ingreso distintas,
+    # oferta cerrada larga, área legacy fuera de catálogo y un mismo proceso con
+    # onboarding pendiente + completo (señal en Búsquedas). Los 17 ítems son los
+    # canónicos de la referencia (webapp/services/onboarding_checklist.py).
+    from webapp.services import onboarding_repository
+    onboarding_raw = _json.loads((FIXTURES_DIR / "onboarding.json").read_text(encoding="utf-8"))
+    for entry in onboarding_raw:
+        payload = {"schema_version": onboarding_repository._SCHEMA_VERSION, "revision": 1, **entry}
+        onboarding_repository._write_atomic(onboarding_repository._onboarding_path(entry["application_id"]), payload)
+    print(f"[harness] {len(onboarding_raw)} onboardings sembrados bajo {RUNTIME_DIR / 'human-capital' / 'onboarding'}")
     return RUNTIME_DIR
 
 

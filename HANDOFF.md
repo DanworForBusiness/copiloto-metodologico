@@ -244,6 +244,30 @@ Taxonomía de 4 niveles PLENA/BUENA/ADECUADA/PARCIAL · PLENA deshabilitada hast
 
 ---
 
+# CCHH · ONBOARDING (core) — OWNER REVIEW PENDIENTE (2026-10-19)
+
+Branch `work/cchh-onboarding-core` (desde `main` e1c3d4d). Candidatos / Búsquedas / Entrevistas siguen CLOSED/FROZEN: no se reabrió ninguna superficie suya (solo capa de servicio de integración).
+
+## Dominio (verbatim de la referencia `app-seleccion`: `schema.sql` tabla `onboarding`, `lib/actions/onboarding.ts`, `lib/onboarding.ts`)
+- **Una fila por candidatura** (`candidato_id` UNIQUE en la referencia). En el Hub la identidad es el **`application_id`** de la CandidateApplication (se referencia, no se inventa otro id); `profile_id`/`busqueda_id` solo para resolver Profile/Búsqueda. Archivo `human-capital/onboarding/<application_id>.json`.
+- **Nace solo, automáticamente** (sin alta manual, sin delete) cuando la candidatura queda **Finalizado + Ingreso**. Condición única `human_capital_service.is_ingreso_application`, aplicada tras CUALQUIER mutación de candidaturas (`sync_onboardings_for_busqueda`, llamada desde `move_application_stage` y `close_busqueda`): vale con Finalizado+Ingreso en una operación o con el resultado asignado después. Idempotente. **Si el resultado cambia luego, NO se borra** (como la referencia). `reconcile_onboardings()` repone ingresos previos a la sección (corre al abrir el listado; idempotente).
+- Campos: `fecha_ingreso` (default hoy, obligatoria), `oferta_cerrada` (texto libre), `area` (hereda de la Entrevista de esa candidatura; **catálogo `area_consultora`**, legacy-safe), `checklist` `{clave: bool}`, `completado`, `revision`, `created_at/updated_at`.
+- **Checklist = 17 ítems canónicos** (`webapp/services/onboarding_checklist.py`, orden de `ITEMS_ONBOARDING`), separados del estado por Onboarding. **NO es catálogo CCHH**: en la referencia es configuración de aplicación (`configuraciones_app`, categoría `onboarding`). **ADMINISTRACIÓN DEL CHECKLIST = DEFERRED** (el Hub no tiene un mecanismo transversal de configuración equivalente; no se creó otro).
+- Tildar = guardado inmediato y atómico por ítem (HTMX), **no** bumpea `revision` (que protege solo el formulario). `completado` se recalcula en cada escritura del checklist (todos tildados) y se persiste.
+- Área sincronizada: editar el área de una Entrevista con `application_id` actualiza el Onboarding existente (`sincronizarAreaOnboardingDesdeEntrevista`); no crea onboardings.
+- **Onboarding pendiente** = existe Onboarding del proceso con `completado == False`. Badge en el tile (activos y cerrados) + chip de filtro en la barra de atención (recorta solo la grilla de activos, como los otros chips). Sin duplicar el proceso.
+
+## Rutas (+4, `route_surface.json` 201→205)
+`GET /cchh/onboarding` (filtro `estado=todos|pendientes|completos`; HX-Request → solo `#hc-onboarding-panel`), `GET/POST /cchh/onboarding/{application_id}/editar`, `POST /cchh/onboarding/{application_id}/checklist/{item_key}`. Nav `04 Onboarding`.
+
+## Deferred (no asumir que falta por error)
+Administración del checklist · alertas −90/+7 días del dashboard · responsables/deadlines por tarea/documentos/mensajería/reportes (no existen en la referencia) · edición inline de fecha de ingreso/oferta en la tarjeta del pipeline · link desde Historial de Profile · cambios de copy en Entrevistas.
+
+## Tests / localhost
+`tests/webapp/test_human_capital_onboarding.py` (36). Fixtures: `tests/fixtures/human_capital/onboarding.json` (+ 2 candidaturas Ingreso en `busquedas.json`); harness `tools/cchh_visual_harness.py`.
+
+---
+
 # CCHH · ENTREVISTAS — OWNER QA PASS / READY TO MERGE (2026-09-30)
 
 > **Branch**: `work/cchh-entrevistas-core`, feature commit `74f3a6c` (sobre
