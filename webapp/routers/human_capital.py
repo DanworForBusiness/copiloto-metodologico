@@ -1766,9 +1766,23 @@ def _onboarding_shell(request, extra: dict) -> dict:
     }
 
 
-def _onboarding_list_context(estado: str = "todos") -> dict:
+def _onboarding_area_filter_options(rows: list[dict], selected: str) -> list[dict]:
+    """Opciones del filtro Área: el catálogo GOBERNADO `area_consultora` (sin hardcodear), MÁS los valores legacy fuera de catálogo que existan en las filas (o el
+    seleccionado) para no ocultar nunca un registro legacy, MÁS «Sin área» si alguna fila no tiene. Un valor legacy se marca «(fuera de catálogo)»."""
+    active = human_capital_catalog_repository.catalog_values("area_consultora")
+    extra = sorted({(o.get("area") or "").strip() for o in rows if (o.get("area") or "").strip()} - set(active))
+    if selected and selected != human_capital_service.ONBOARDING_SIN_AREA and selected not in active and selected not in extra:
+        extra.append(selected)
+    options = [{"value": a, "label": a} for a in active] + [{"value": a, "label": f"{a} (fuera de catálogo)"} for a in extra]
+    if any(not (o.get("area") or "").strip() for o in rows) or selected == human_capital_service.ONBOARDING_SIN_AREA:
+        options.append({"value": human_capital_service.ONBOARDING_SIN_AREA, "label": "Sin área"})
+    return options
+
+
+def _onboarding_list_context(estado: str = "todos", area: str = "", q: str = "") -> dict:
     if estado not in _ONBOARDING_ESTADO_FILTERS:
         estado = "todos"
+    area, q = (area or "").strip(), (q or "").strip()
     rows: list[dict] = []
     source_error: str | None = None
     try:
@@ -1778,16 +1792,17 @@ def _onboarding_list_context(estado: str = "todos") -> dict:
     except (onboarding_repository.OnboardingStorageError, busqueda_repository.BusquedaStorageError) as exc:
         source_error = str(exc)
     dataset_has_any = bool(rows)
-    if estado == "pendientes":
-        rows = [o for o in rows if not o.get("completado")]
-    elif estado == "completos":
-        rows = [o for o in rows if o.get("completado")]
+    area_options = _onboarding_area_filter_options(rows, area)         # sobre el dataset COMPLETO: las opciones no desaparecen al filtrar
+    rows = human_capital_service.filter_onboardings(rows, estado=estado, area=area, q=q)
     rows.sort(key=lambda o: (o.get("fecha_ingreso") or "", o.get("created_at") or ""), reverse=True)
     return {
         "onboardings": rows,
         "total_onboardings": len(rows),
         "dataset_has_any_onboarding": dataset_has_any,
         "estado": estado,
+        "area": area,
+        "q": q,
+        "area_options": area_options,
         "source_error": source_error,
     }
 
@@ -1808,11 +1823,11 @@ def _onboarding_form_context(*, form_values, onboarding=None, error=None, concur
 
 
 @router.get("/cchh/onboarding", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_onboarding_page(request: Request, estado: str = Query("todos")):
+def human_capital_onboarding_page(request: Request, estado: str = Query("todos"), area: str = Query(""), q: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    ctx = _onboarding_list_context(estado)
+    ctx = _onboarding_list_context(estado, area, q)
     # Filtro reactivo (HTMX): sólo se re-renderiza el panel (`#hc-onboarding-panel`) — MISMO criterio de fragmento que Candidatos.
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(

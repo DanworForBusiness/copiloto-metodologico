@@ -748,6 +748,10 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    casillas (`.dashboard-checkbox-group`) en lugar de un input/select. Ancho
    natural (no fluido): no crece ni se encoge, MISMO trato que "✕ Limpiar". */
 .hc-profile-filters .feedback-field--indicators { flex: 0 0 auto; }
+/* Campo a ANCHO NATURAL (Estado/Área de Onboarding): no crece ni se encoge — el select mide su opción más larga, MISMO trato que "Indicadores" y "✕ Limpiar"; el
+   campo flexible de la fila (`--wide`, Buscar) consume el espacio restante. En mobile apila al 100% (cada control ya es `width:100%` de su campo). */
+.hc-profile-filters .feedback-field--auto { flex: 0 0 auto; }
+@media (max-width: 640px) { .hc-profile-filters .feedback-field--auto { flex: 1 1 100%; } }
 /* El rótulo del campo es `.feedback-field label` (mismo estilo que "Ubicación"
    etc.). PERO ese selector es descendiente, así que también alcanzaría a las
    `<label>` internas de las casillas: se re-afirma su tipografía propia del

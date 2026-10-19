@@ -450,11 +450,11 @@
 /* Señales derivadas de atención dentro del tile (estancada / sin requerimiento):
    badges compactos y consistentes, nunca duplican el proceso en otro bloque. */
 .busqueda-card__signals { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
-.busqueda-signal { font: 600 .62rem var(--mono); padding: 3px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; }
-.busqueda-signal--estancada { color: #a3341f; background: rgba(200,80,50,.14); }
-.content-theme-dark .busqueda-signal--estancada { color: #e88b72; }
-.busqueda-signal--warn { color: #8a6300; background: rgba(231,176,8,.16); }
-.content-theme-dark .busqueda-signal--warn { color: #e7b008; }
+/* Las señales usan el badge de estado transversal `.status-badge` (tools.css): "sin requerimiento"/"onboarding pendiente" = `--tentativo`. "Estancada" es una ALERTA sin
+   equivalente en la paleta del primitivo (verde/ámbar/gris), así que conserva su color propio como MODIFICADOR de tono sobre la base compartida (mismo criterio que
+   `.status-badge--potential`): sólo color, nunca forma/tipografía/padding. */
+.status-badge--estancada { color: #a3341f; border-color: rgba(200,80,50,.42); background: rgba(200,80,50,.08); }
+.content-theme-dark .status-badge--estancada { color: #e88b72; }
 
 /* Barra de filtros de atención: usa el primitivo compartido `.dashboard-view-switch`;
    acá sólo su ubicación (separación de la grilla) y scroll en viewports angostos. */

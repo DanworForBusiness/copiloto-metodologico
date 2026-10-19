@@ -990,6 +990,46 @@ def list_onboardings_view() -> list[dict]:
     return [onboarding_view(o) for o in list_onboardings()]
 
 
+ONBOARDING_SIN_AREA = "__sin_area__"        # valor del filtro Área para las filas SIN área (no es una taxonomía: es la ausencia de valor)
+
+
+def _onboarding_search_haystack(row: dict) -> str:
+    """Texto sobre el que busca el campo Buscar del listado: lo VISIBLE de la fila (candidato, puesto, área, fecha de ingreso en su formato de presentación DD-MM-YYYY
+    y en ISO, y el texto de progreso tal cual se muestra) + la oferta cerrada (dato relevante de la fila). MISMA normalización que la búsqueda de Candidatos."""
+    profile = row.get("profile") or {}
+    fecha = row.get("fecha_ingreso") or ""
+    parts = fecha.split("-")
+    fecha_dmy = "-".join(reversed(parts)) if len(parts) == 3 else fecha
+    prog = row.get("progress") or {}
+    progreso = "Completado" if row.get("completado") else f"{prog.get('hechos', 0)}/{prog.get('total', 0)} · {prog.get('porcentaje', 0)}%"
+    values = [f"{profile.get('first_name') or ''} {profile.get('last_name') or ''}", row.get("puesto_mostrado"), row.get("area"), fecha, fecha_dmy, progreso,
+              row.get("oferta_cerrada")]
+    return " ".join(_normalize_text(v) for v in values if v)
+
+
+def filter_onboardings(rows: list[dict], *, estado: str = "todos", area: str = "", q: str = "") -> list[dict]:
+    """AND entre Estado (pendientes/completos por `completado`), Área (igualdad EXACTA sobre el área EFECTIVA de la fila, incluido un valor legacy fuera de catálogo;
+    `ONBOARDING_SIN_AREA` = filas sin área) y Buscar (substring normalizado, case-insensitive, sobre `_onboarding_search_haystack`). Un filtro vacío no restringe."""
+    wanted_q = _normalize_text(q)
+    out = []
+    for row in rows:
+        if estado == "pendientes" and row.get("completado"):
+            continue
+        if estado == "completos" and not row.get("completado"):
+            continue
+        if area:
+            effective = (row.get("area") or "").strip()
+            if area == ONBOARDING_SIN_AREA:
+                if effective:
+                    continue
+            elif effective != area:
+                continue
+        if wanted_q and wanted_q not in _onboarding_search_haystack(row):
+            continue
+        out.append(row)
+    return out
+
+
 def _shape_onboarding_fields(fields: dict, *, existing: dict | None = None) -> dict:
     """`fecha_ingreso` es obligatoria (NOT NULL en la referencia); `oferta_cerrada` es texto libre opcional; `area` está GOBERNADA por `area_consultora` (MISMA
     taxonomía que Entrevista.area/Búsqueda.area_consultora: es la que se hereda de la entrevista y se sincroniza), con el contrato migration-safe habitual."""

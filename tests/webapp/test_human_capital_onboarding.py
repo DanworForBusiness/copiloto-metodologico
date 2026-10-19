@@ -446,7 +446,7 @@ def test_toggling_the_last_item_completes_the_onboarding_in_the_ui():
     for k in onboarding_checklist.ITEM_KEYS:
         frag = c.post(f"/cchh/onboarding/{aid}/checklist/{k}", data={"checked": "1"}).text
     assert "Completado · 17/17" in frag and onboarding_repository.get(aid)["completado"] is True
-    assert "dashboard-status-badge--green" in c.get("/cchh/onboarding").text
+    assert "status-badge--activo" in c.get("/cchh/onboarding").text
 
 
 def test_edit_submit_saves_and_redirects_and_reports_validation_and_concurrency():
@@ -559,3 +559,158 @@ def test_the_post_hero_gap_is_the_same_24px_in_the_four_cchh_sections():
         rule = next(r for r in re.findall(r"([^{}]+)\{([^}]*)\}", flat) if selector in [s.strip() for s in r[0].split(",")])
         assert "margin-top: 24px" in rule[1], selector
     assert ".dashboard-section { margin: 12px 0;" in (Path(config.__file__).parent / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")   # el 12px interno colapsa dentro de los 24px
+
+
+# ── barra de filtros (Estado · Área · Buscar · ✕ Limpiar) ─────────────────────
+
+def _fixture_rows():
+    """Cuatro onboardings con áreas activa / legacy / sin área, para probar los tres filtros y su combinación."""
+    _seed_area_consultora("Consultoria", "RRHH")
+    bid = _busqueda("Analista de Datos BI")
+    bid2 = _busqueda("Desarrollador Full-Stack")
+    _p1, a1 = _hire(bid, "Gimena", "Alvarez")           # pendiente · Consultoria
+    _p2, a2 = _hire(bid, "Joaquin", "Martinez")         # completo  · RRHH
+    _p3, a3 = _hire(bid2, "Hernan", "Lopez")            # pendiente · legacy OPERACIONES
+    _p4, a4 = _hire(bid2, "Maria", "Gonzalez")          # pendiente · sin área
+    human_capital_service.update_onboarding(a1, 1, {"fecha_ingreso": "2026-09-14", "oferta_cerrada": "USD 2.400", "area": "Consultoria"})
+    human_capital_service.update_onboarding(a2, 1, {"fecha_ingreso": "2026-08-31", "oferta_cerrada": "", "area": "RRHH"})
+    human_capital_service.update_onboarding(a3, 1, {"fecha_ingreso": "2026-10-05", "oferta_cerrada": "", "area": ""})
+    onboarding_repository.set_area(a3, "OPERACIONES")                                       # legacy heredado de una entrevista vieja
+    human_capital_service.update_onboarding(a4, 1, {"fecha_ingreso": "2026-10-20", "oferta_cerrada": "", "area": ""})
+    for k in onboarding_checklist.ITEM_KEYS:
+        onboarding_repository.set_item(a2, k, True)
+    for k in onboarding_checklist.ITEM_KEYS[:7]:
+        onboarding_repository.set_item(a1, k, True)
+    return a1, a2, a3, a4
+
+
+def _names(html: str) -> list[str]:
+    return re.findall(r'dw-idcell__name">([^<]*)<', html)
+
+
+def _get(c, **params):
+    return c.get("/cchh/onboarding", params=params, headers={"HX-Request": "true"}).text
+
+
+def _static(name: str) -> str:
+    from pathlib import Path
+    return (Path(__import__("webapp").__file__).parent / "static" / name).read_text(encoding="utf-8")
+
+
+def test_filter_bar_uses_the_shared_toolbar_with_natural_width_selects_a_flexible_search_and_clear_last():
+    _fixture_rows()
+    html = _get(_client())
+    bar = html.split('<form class="hc-profile-filters filter-toolbar-card"', 1)[1].split("</form>", 1)[0]
+    order = [bar.index(x) for x in ('id="hc-onboarding-estado"', 'id="hc-onboarding-area"', 'id="hc-onboarding-q"', "✕ Limpiar")]
+    assert order == sorted(order)                                                          # Estado · Área · Buscar · ✕ Limpiar
+    assert bar.count("feedback-field--auto") == 2 and bar.count("feedback-field--wide") == 1       # selects naturales, buscar flexible
+    assert "feedback-field--medium" not in bar and "feedback-field--compact" not in bar and "style=" not in bar     # sin anchos artificiales
+    assert bar.count('hx-include="closest form"') == 3 and 'hx-trigger="keyup changed delay:500ms"' in bar and 'class="whatsnew-filter__clear"' in bar
+    css = _static("tools.css")
+    assert ".hc-profile-filters .feedback-field--auto { flex: 0 0 auto; }" in css
+    assert "max-width: 640px) { .hc-profile-filters .feedback-field--auto { flex: 1 1 100%; } }" in css
+
+
+def test_area_filter_options_come_from_the_governed_catalog_plus_legacy_and_sin_area():
+    _fixture_rows()
+    html = _get(_client())
+    area = html.split('id="hc-onboarding-area"', 1)[1].split("</select>", 1)[0]
+    opts = re.findall(r'<option value="([^"]*)"[^>]*>([^<]*)<', area)
+    assert opts == [("", "Todas"), ("Consultoria", "Consultoria"), ("RRHH", "RRHH"), ("OPERACIONES", "OPERACIONES (fuera de catálogo)"), ("__sin_area__", "Sin área")]
+    _seed_area_consultora("Consultoria", "RRHH", "Finanzas")                                  # el catálogo cambia => el filtro lo refleja, sin código
+    assert 'value="Finanzas"' in _get(_client())
+
+
+def test_state_filter_pendientes_and_completos():
+    _fixture_rows()
+    c = _client()
+    assert sorted(_names(_get(c, estado="pendientes"))) == ["Gimena Alvarez", "Hernan Lopez", "Maria Gonzalez"]
+    assert _names(_get(c, estado="completos")) == ["Joaquin Martinez"]
+    assert len(_names(_get(c, estado="todos"))) == 4
+
+
+def test_area_filter_matches_active_legacy_and_missing_areas_exactly():
+    _fixture_rows()
+    c = _client()
+    assert _names(_get(c, area="Consultoria")) == ["Gimena Alvarez"]
+    assert _names(_get(c, area="RRHH")) == ["Joaquin Martinez"]
+    assert _names(_get(c, area="OPERACIONES")) == ["Hernan Lopez"]                           # un legacy NO se oculta por no estar en el catálogo
+    assert _names(_get(c, area="__sin_area__")) == ["Maria Gonzalez"]
+    assert len(_names(_get(c))) == 4                                                          # "Todas": ninguno oculto, legacy y sin área incluidos
+
+
+def test_search_is_case_insensitive_and_covers_candidate_puesto_area_dates_progress_and_offer():
+    _fixture_rows()
+    c = _client()
+    assert _names(_get(c, q="gimena")) == ["Gimena Alvarez"] and _names(_get(c, q="  GIMENA   alvarez ")) == ["Gimena Alvarez"]      # case + whitespace
+    assert sorted(_names(_get(c, q="full-stack"))) == ["Hernan Lopez", "Maria Gonzalez"]                                              # puesto
+    assert _names(_get(c, q="consultoria")) == ["Gimena Alvarez"] and _names(_get(c, q="operaciones")) == ["Hernan Lopez"]            # área (activa y legacy)
+    assert _names(_get(c, q="14-09-2026")) == ["Gimena Alvarez"] and _names(_get(c, q="2026-10-05")) == ["Hernan Lopez"]              # fecha visible DMY y ISO
+    assert _names(_get(c, q="7/17")) == ["Gimena Alvarez"] and _names(_get(c, q="completado")) == ["Joaquin Martinez"]                # progreso tal cual se muestra
+    assert _names(_get(c, q="usd 2.400")) == ["Gimena Alvarez"]                                                                       # oferta cerrada
+    assert _get(c, q="zzz-no-existe").count('data-empty-kind="no_matches"') == 1
+
+
+def test_the_three_filters_combine_with_and_and_clear_resets_them():
+    _fixture_rows()
+    c = _client()
+    assert _names(_get(c, estado="pendientes", area="Consultoria", q="Gimena")) == ["Gimena Alvarez"]
+    assert _names(_get(c, estado="completos", area="Consultoria", q="Gimena")) == []         # Estado excluye
+    assert _names(_get(c, estado="pendientes", area="RRHH", q="Gimena")) == []                # Área excluye
+    assert _names(_get(c, estado="pendientes", area="Consultoria", q="Joaquin")) == []        # Buscar excluye
+    assert sorted(_names(_get(c, estado="pendientes", q="full-stack"))) == ["Hernan Lopez", "Maria Gonzalez"]
+    panel = _get(c, estado="pendientes", area="Consultoria", q="Gimena")
+    assert 'value="pendientes" selected' in panel and 'value="Consultoria" selected' in panel and 'value="Gimena"' in panel          # los valores sobreviven al swap
+    cleared = c.get("/cchh/onboarding", headers={"HX-Request": "true"}).text                  # ✕ Limpiar = GET sin parámetros
+    assert len(_names(cleared)) == 4 and 'value="todos" selected' in cleared and 'name="q" type="text" value=""' in cleared
+    assert re.search(r'class="whatsnew-filter__clear" hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel"', cleared)
+
+
+def test_the_counter_follows_the_dashboard_section_pattern_filtered_result():
+    _fixture_rows()
+    c = _client()
+    assert "4 onboardings" in _get(c) and "3 onboardings" in _get(c, estado="pendientes")
+    assert "1 onboarding<" in _get(c, area="RRHH").replace("</span>", "<")
+    assert "0 onboardings" in _get(c, q="zzz")                                                # MISMO criterio que Candidatos: `profiles | length` (resultado filtrado)
+
+
+# ── badges: primitivo transversal, sin CSS duplicado ─────────────────────────
+
+def test_onboarding_progress_uses_the_shared_status_badge_with_the_hub_tones():
+    a1, _a2, _a3, _a4 = _fixture_rows()
+    html = _get(_client())
+    assert '<span class="status-badge status-badge--activo">Completado</span>' in html
+    assert '<span class="status-badge status-badge--tentativo">7/17 · 41%</span>' in html
+    assert '<span class="status-badge status-badge--inactivo">0/17 · 0%</span>' in html
+    edit = _client().get(f"/cchh/onboarding/{a1}/editar").text
+    assert 'class="status-badge status-badge--tentativo" data-onboarding-progress' in edit
+
+
+def test_cchh_templates_use_only_the_shared_badge_primitive_for_status_and_indicators():
+    from pathlib import Path
+    root = Path(__import__("webapp").__file__).parent
+    templates_dir = [*(root / "templates" / "human_capital").glob("*.html"), *(root / "templates" / "partials").glob("human_capital_*.html")]
+    for t in templates_dir:
+        text = t.read_text(encoding="utf-8")
+        assert "dashboard-status-badge" not in text, t.name                                    # no el pill de CRM mezclado con el badge de estado de CCHH/Catálogo
+        assert "busqueda-signal" not in text, t.name                                           # las señales ya no tienen estilo local propio
+    card = (root / "templates" / "partials" / "human_capital_busqueda_card.html").read_text(encoding="utf-8")
+    assert card.count('class="status-badge status-badge--') >= 3                               # estancada / sin requerimiento / onboarding pendiente
+
+
+def test_cchh_css_never_redefines_the_badge_shape_only_tone_modifiers():
+    css = _static("human_capital.css")
+    flat = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    assert ".busqueda-signal" not in flat and "dashboard-status-badge" not in flat
+    modifiers = [(sel, body) for sel, body in re.findall(r"([^{}]*\.status-badge[^{}]*)\{([^}]*)\}", flat) if ".status-badge--" in sel]
+    assert modifiers                                                                           # existen (potential, estancada)
+    for sel, body in modifiers:                                                                # modificadores de tono: nunca forma
+        assert "border-radius" not in body and "padding" not in body and "font" not in body, sel
+
+
+def test_the_busquedas_tile_signals_render_with_the_shared_badge_and_keep_their_text():
+    b = _busqueda("Proceso con señal")
+    _hire(b)
+    html = _client().get("/cchh/busquedas").text
+    tile = html.split("Proceso con señal")[1].split("</a>")[0]
+    assert '<span class="status-badge status-badge--tentativo">Onboarding pendiente</span>' in tile and "busqueda-signal" not in tile

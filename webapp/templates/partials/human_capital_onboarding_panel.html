@@ -3,14 +3,32 @@
    Filtro de estado reactivo (Todos / Pendientes / Completos) con el patrón transversal `.filter-toolbar-card` + "✕ Limpiar" como ÚLTIMO control. La lista vive en
    el primitivo compartido de paneles (`<details class="dashboard-section">`), título a la izquierda y contador a la derecha. #}
 <div id="hc-onboarding-panel">
+  {# Barra de filtros: MISMO primitivo que Candidatos (`.hc-profile-filters.filter-toolbar-card` + `.feedback-field`), con Estado y Área a ANCHO NATURAL (modificador
+     `.feedback-field--auto` = `flex:0 0 auto`, mismo trato que "Indicadores"/"✕ Limpiar": el select mide su opción más larga), Buscar (`--wide`) ocupando el espacio
+     restante y `✕ Limpiar` como ÚLTIMO control (resetea Estado + Área + Buscar). Reactivo (HTMX): cada campo con su propio `hx-get` + `hx-include="closest form"`
+     (los tres filtros se combinan con AND en el server); Buscar con el MISMO debounce que Candidatos. #}
   <form class="hc-profile-filters filter-toolbar-card" hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML">
-    <div class="feedback-field feedback-field--compact">
+    <div class="feedback-field feedback-field--auto">
       <label for="hc-onboarding-estado">Estado</label>
       <select id="hc-onboarding-estado" name="estado" hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
         <option value="todos" {% if estado == 'todos' %}selected{% endif %}>Todos</option>
         <option value="pendientes" {% if estado == 'pendientes' %}selected{% endif %}>Pendientes</option>
         <option value="completos" {% if estado == 'completos' %}selected{% endif %}>Completos</option>
       </select>
+    </div>
+    <div class="feedback-field feedback-field--auto">
+      <label for="hc-onboarding-area">Área</label>
+      {# Opciones = catálogo gobernado `area_consultora` + valores legacy presentes en las filas + «Sin área» si corresponde (ver `_onboarding_area_filter_options`). #}
+      <select id="hc-onboarding-area" name="area" hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
+        <option value="" {% if not area %}selected{% endif %}>Todas</option>
+        {% for opt in area_options %}
+        <option value="{{ opt.value }}" {% if area == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="feedback-field feedback-field--wide">
+      <label for="hc-onboarding-q">Buscar</label>
+      <input id="hc-onboarding-q" name="q" type="text" value="{{ q or '' }}" placeholder="Candidato, puesto, área, fecha, progreso..." hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
     </div>
     <button type="button" class="whatsnew-filter__clear" hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML">✕ Limpiar</button>
   </form>
@@ -64,9 +82,10 @@
                 <td class="left" data-column-key="area">{{ o.area or "—" }}</td>
                 <td class="left" data-column-key="ingreso">{{ (o.fecha_ingreso | fecha_dmy) if o.fecha_ingreso else "—" }}</td>
                 <td class="left" data-column-key="progreso">
-                  {% if o.completado %}<span class="dashboard-status-badge dashboard-status-badge--green">Completado</span>
-                  {% elif o.progress.hechos == 0 %}<span class="dashboard-status-badge dashboard-status-badge--grey">{{ o.progress.hechos }}/{{ o.progress.total }} · {{ o.progress.porcentaje }}%</span>
-                  {% else %}<span class="dashboard-status-badge dashboard-status-badge--amber">{{ o.progress.hechos }}/{{ o.progress.total }} · {{ o.progress.porcentaje }}%</span>{% endif %}
+                  {# Badge de estado transversal del Hub (`.status-badge`, tools.css: la forma de `.catalog-card__verdict` del Catálogo) con sus variantes de tono. #}
+                  {% if o.completado %}<span class="status-badge status-badge--activo">Completado</span>
+                  {% elif o.progress.hechos == 0 %}<span class="status-badge status-badge--inactivo">{{ o.progress.hechos }}/{{ o.progress.total }} · {{ o.progress.porcentaje }}%</span>
+                  {% else %}<span class="status-badge status-badge--tentativo">{{ o.progress.hechos }}/{{ o.progress.total }} · {{ o.progress.porcentaje }}%</span>{% endif %}
                 </td>
                 <td class="center">
                   <div class="dw-row-actions">

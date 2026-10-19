@@ -11,9 +11,9 @@
     {% if b.area_departamento %}<span class="busqueda-card__area">{{ b.area_departamento }}</span>{% endif %}
     {% if sig and (sig.estancada or sig.sin_requerimiento or sig.onboarding_pendiente) %}
     <div class="busqueda-card__signals">
-      {% if sig.estancada %}<span class="busqueda-signal busqueda-signal--estancada">Estancada · {{ sig.dias_sin_movimiento }} días</span>{% endif %}
-      {% if sig.sin_requerimiento %}<span class="busqueda-signal busqueda-signal--warn">Sin requerimiento formal</span>{% endif %}
-      {% if sig.onboarding_pendiente %}<span class="busqueda-signal busqueda-signal--warn">Onboarding pendiente{% if sig.onboarding_pendiente > 1 %} · {{ sig.onboarding_pendiente }}{% endif %}</span>{% endif %}
+      {% if sig.estancada %}<span class="status-badge status-badge--estancada">Estancada · {{ sig.dias_sin_movimiento }} días</span>{% endif %}
+      {% if sig.sin_requerimiento %}<span class="status-badge status-badge--tentativo">Sin requerimiento formal</span>{% endif %}
+      {% if sig.onboarding_pendiente %}<span class="status-badge status-badge--tentativo">Onboarding pendiente{% if sig.onboarding_pendiente > 1 %} · {{ sig.onboarding_pendiente }}{% endif %}</span>{% endif %}
     </div>
     {% endif %}
   </div>
