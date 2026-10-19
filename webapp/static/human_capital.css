@@ -56,6 +56,12 @@
    (`#hc-profiles-panel`): 24px estandarizados en las dos pantallas — el listado
    de procesos ya no queda más pegado al divisor que Candidatos (owner). */
 .module-hero + .busquedas-list { margin-top: 24px; }
+/* Owner (post-Onboarding): el respiro entre el divisor del hero y el PRIMER componente tiene que ser el mismo (24px) en las cuatro secciones —
+   Candidatos (`#hc-profiles-panel`) y Búsquedas (`.busquedas-list`) ya lo tenían; Entrevistas (`.dashboard-sections` directo, que sólo traía el
+   `margin: 12px 0` del `.dashboard-section`) y Onboarding (`#hc-onboarding-panel`, sin margen) quedaban más pegados. El margen del primer
+   `.dashboard-section` colapsa con éste (24 > 12), así que el resultado es exactamente 24px. */
+.module-hero + .dashboard-sections,
+.module-hero + #hc-onboarding-panel { margin-top: 24px; }
 
 /* /cchh/catalogos: MISMO criterio de respiro post-divisor que arriba (24px)
    -- acá el hero puede ir seguido de un callout de resultado, un

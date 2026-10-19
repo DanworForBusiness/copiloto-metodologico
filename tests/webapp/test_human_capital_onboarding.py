@@ -499,3 +499,14 @@ def test_the_shared_topbar_refresh_button_and_workspace_shell_render_on_onboardi
     for url in ("/cchh/onboarding", f"/cchh/onboarding/{aid}/editar"):
         html = c.get(url).text
         assert 'hx-post="/cchh/catalogos/refresh"' in html and "CAPITAL HUMANO" in html, url
+
+
+def test_the_post_hero_gap_is_the_same_24px_in_the_four_cchh_sections():
+    """Owner UX: divisor del hero -> primer componente, mismo margen en Candidatos, Búsquedas, Entrevistas y Onboarding."""
+    from pathlib import Path
+    css = (Path(config.__file__).parent / "webapp" / "static" / "human_capital.css").read_text(encoding="utf-8")
+    flat = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    for selector in (".module-hero + #hc-profiles-panel", ".module-hero + .busquedas-list", ".module-hero + .dashboard-sections", ".module-hero + #hc-onboarding-panel"):
+        rule = next(r for r in re.findall(r"([^{}]+)\{([^}]*)\}", flat) if selector in [s.strip() for s in r[0].split(",")])
+        assert "margin-top: 24px" in rule[1], selector
+    assert ".dashboard-section { margin: 12px 0;" in (Path(config.__file__).parent / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")   # el 12px interno colapsa dentro de los 24px
