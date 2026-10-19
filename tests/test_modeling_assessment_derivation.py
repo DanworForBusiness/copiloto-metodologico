@@ -386,3 +386,11 @@ def test_assembly_topology_is_descriptive_without_thresholds_or_signals():
     roles = {s.surface_id: s.role for s in A.SURFACE_REGISTRY}
     assert roles["harmonization.assembly_topology"] is A.SurfaceRole.DERIVED_VIEW and roles["harmonization.expression_repetition"] is A.SurfaceRole.DERIVED_VIEW
     assert [g["id"] for g in doc["review_required"] if g["id"] == "FLAT_CENTRAL_ASSEMBLY_REVIEW"] == []          # sin cambiar la semantica de la revision existente
+
+
+def test_a_ref_flagged_param_true_is_a_parameter_input_not_an_unqualified_column():
+    frm = {"join": "inner", "args": [{"ref": ["ORD"]}, {"ref": ["CUST"]}], "on": []}
+    (c,) = cols_of(defn(sel(frm, [{"as": "X", "xpr": [ref("ORD", "A"), "+", {"ref": ["IP_YEAR"], "param": True}]}])))
+    assert {(i.field, i.state) for i in c.inputs} == {("A", "RESOLVED"), ("IP_YEAR", "PARAMETER")} and c.resolvable
+    (d,) = cols_of(defn(sel(frm, [{"as": "X", "xpr": [ref("ORD", "A"), "+", {"ref": ["IP_YEAR"]}]}])))        # sin la marca sigue siendo ambiguo
+    assert d.ambiguity == ("UNQUALIFIED_MULTI_SOURCE",)

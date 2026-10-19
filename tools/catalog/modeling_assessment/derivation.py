@@ -233,10 +233,13 @@ def _fp(col: dict, exact: bool) -> str:
 def _inputs(col: dict, aliases: dict[str, tuple[str, str | None]]) -> tuple[tuple[InputRef, ...], list[str]]:
     refs: list[list[str]] = []
     amb: list[str] = []
+    param_paths: set[tuple[str, ...]] = set()
 
     def f(n: dict) -> None:
         if isinstance(n.get("ref"), list):
             refs.append([_segment(x) for x in n["ref"]])
+            if n.get("param") is True:                                         # ``"param": true`` = parametro de entrada (p. ej. IP_YEAR), no una columna del FROM
+                param_paths.add(tuple(refs[-1]))
         if "SELECT" in n or "SET" in n:
             amb.append(AMB_SUBQUERY)
     _walk(col, f)
@@ -246,7 +249,7 @@ def _inputs(col: dict, aliases: dict[str, tuple[str, str | None]]) -> tuple[tupl
     for path in refs:
         if not path:
             continue
-        if path[0].startswith("$"):
+        if path[0].startswith("$") or tuple(path) in param_paths:
             out.append(InputRef(None, path[-1], IN_PARAMETER))
             continue
         field = path[-1]
@@ -541,6 +544,9 @@ class ProjectionColumn:
     kind: str
     source_provider: str | None
     source_field: str | None
+    # Proveedores ENTIDAD del FROM cuando la referencia NO esta calificada y hay varios origenes (todos entidades; ninguno subselect): permite resolver el proveedor por pertenencia del campo en el
+    # catalogo de entidades (SQL exige que una columna sin calificar sea inequivoca). Vacio = no resoluble. NO forma parte de ``to_json`` (evidencia persistida).
+    candidates: tuple[str, ...] = ()
 
     def to_json(self) -> dict:
         return {"output": self.output, "kind": self.kind, "source_provider": self.source_provider, "source_field": self.source_field, "branch": self.branch}
@@ -563,14 +569,17 @@ def extract_projection_columns(artifact: str, definition: dict) -> tuple[Project
                 path = [_segment(x) for x in col["ref"]]
                 field = path[-1]
                 provider = None
+                candidates: tuple[str, ...] = ()
                 if len(path) >= 2:
                     src = aliases.get(path[0])
                     provider = src[1] if src is not None and src[0] == "ENTITY" else None
                 elif len(distinct) == 1:
                     src = next(iter(distinct))
                     provider = src[1] if src[0] == "ENTITY" else None
+                elif distinct and all(v[0] == "ENTITY" for v in distinct):
+                    candidates = tuple(sorted({v[1] for v in distinct}))                 # sin calificar con varios origenes ENTIDAD: se resuelve despues, con los campos de cada entidad
                 kind = MAP_CAST if "cast" in col else (MAP_IDENTITY if name == field else MAP_RENAME)
-                out.append(ProjectionColumn(artifact, bi, name, kind, provider, field))
+                out.append(ProjectionColumn(artifact, bi, name, kind, provider, field, candidates))
             else:
                 out.append(ProjectionColumn(artifact, bi, name, MAP_DERIVED, None, None))
     return tuple(out)

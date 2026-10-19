@@ -76,6 +76,23 @@ def _provider_label(entities: Mapping[str, Any], provider: str | None, field: st
     return None, False
 
 
+def resolve_unqualified_provider(col: Any, entities: Mapping[str, Any]) -> str | None:
+    """Proveedor de una columna SIN calificar en un FROM con varios origenes. SQL exige que esa referencia sea inequivoca: si TODOS los proveedores del FROM son entidades con campos conocidos y
+    EXACTAMENTE UNO expone el campo (comparacion exacta, como los identificadores entrecomillados), ese es el proveedor. Si algun proveedor es desconocido (sin campos en el pool) o mas de uno
+    expone el nombre, no se adivina (``None``). Es evidencia presente en el catalogo que el lector por archivo no podia cruzar."""
+    cands = tuple(getattr(col, "candidates", ()) or ())
+    if not cands or col.source_field is None:
+        return None
+    holders = []
+    for p in cands:
+        flds = getattr(entities.get(p), "fields", None) if p in entities else None
+        if not flds:
+            return None                                                       # proveedor sin catalogo de campos: no se puede afirmar la unicidad
+        if any(f.get("campo") == col.source_field for f in flds):
+            holders.append(p)
+    return holders[0] if len(holders) == 1 else None
+
+
 def _flow_properties(ev: Any, kind: str, name: str):
     for fp in ev.flow_properties:
         if fp.kind == kind and fp.name == name:
@@ -151,7 +168,8 @@ def harmonization_contract_facts(
             if proj:
                 mapping_basis = "QUERY_PROJECTION"
                 for c in proj:
-                    mapping[c.output] = (c.kind, c.source_provider, c.source_field)
+                    prov = c.source_provider if c.source_provider is not None else resolve_unqualified_provider(c, entities)
+                    mapping[c.output] = (c.kind, prov, c.source_field)
             else:
                 undet = "NO_QUERY_EVIDENCE"
             derived_cols = [c for c in d.columns if c.branch == 0]

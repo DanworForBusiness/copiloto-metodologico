@@ -105,7 +105,7 @@ def _column(col: Any) -> OutCol | None:
     content = {k for k in col if not str(k).startswith("@")} - {"as", "key", "cast", "ref"}
     if isinstance(ref, list) and ref and not content:
         path = [_segment(x) for x in ref]
-        r = RefIn(path[0] if len(path) >= 2 else None, path[-1], param=path[0].startswith("$"))
+        r = RefIn(path[0] if len(path) >= 2 else None, path[-1], param=path[0].startswith("$") or col.get("param") is True)
         return OutCol(name, SHAPE_REF, "cast" in col, (r,))
     refs: list[RefIn] = []
     sub = [False]
@@ -113,7 +113,7 @@ def _column(col: Any) -> OutCol | None:
     def f(n: dict) -> None:
         if isinstance(n.get("ref"), list) and n["ref"]:
             path = [_segment(x) for x in n["ref"]]
-            refs.append(RefIn(path[0] if len(path) >= 2 else None, path[-1], param=path[0].startswith("$")))
+            refs.append(RefIn(path[0] if len(path) >= 2 else None, path[-1], param=path[0].startswith("$") or n.get("param") is True))   # ``"param": true`` = parametro de entrada, no una columna
         if "SELECT" in n or "SET" in n:
             sub[0] = True
     _walk({k: v for k, v in col.items() if k != "as"}, f)
