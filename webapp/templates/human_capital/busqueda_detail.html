@@ -28,8 +28,8 @@
         {% if busqueda.descripcion %}<p>{{ busqueda.descripcion }}</p>{% endif %}
         <div class="busqueda-status-row">
           <span class="status-badge status-badge--{{ 'activo' if busqueda.estado == 'activo' else 'inactivo' }}">{{ 'Activo' if busqueda.estado == 'activo' else 'Cerrado' }}</span>
-          {% if busqueda.area_consultora %}<span class="busqueda-status-row__area">{{ busqueda.area_consultora }}</span>{% endif %}
-          {% if not busqueda.pedido_formal_recibido %}<span class="busqueda-card__warn">Sin requerimiento formal</span>{% endif %}
+          {% if busqueda.area_consultora %}<span class="status-badge status-badge--inactivo">{{ busqueda.area_consultora }}</span>{% endif %}
+          {% if not busqueda.pedido_formal_recibido %}<span class="status-badge status-badge--tentativo">Sin requerimiento formal</span>{% endif %}
         </div>
       </div>
       <div class="hc-profiles-hero-actions">

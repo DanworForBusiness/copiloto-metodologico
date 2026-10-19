@@ -480,3 +480,22 @@ def test_area_edit_preserves_legacy_value_out_of_catalog():
         {"nombre_puesto": "D2", "fecha_apertura": "2026-09-01", "area_departamento": "Legacy Área"})
     assert updated["nombre_puesto"] == "D2"
     assert updated["area_departamento"] == "Legacy Área"  # legacy preservado
+
+
+def test_detail_header_status_row_uses_the_shared_status_badge_for_every_pill_and_no_bespoke_classes():
+    _seed_catalog(area=["Datos & BI"], area_consultora=["SAP"])
+    b = human_capital_service.create_busqueda({"nombre_puesto": "Dev", "fecha_apertura": "2026-09-01", "area_consultora": "SAP"})     # pedido formal sin recibir
+    html = _client().get(f"/cchh/busquedas/{b['busqueda_id']}").text
+    row = html.split('class="busqueda-status-row"', 1)[1].split("</div>", 1)[0]
+    assert row.count('class="status-badge ') == 3
+    assert 'status-badge--activo">Activo<' in row and 'status-badge--inactivo">SAP<' in row and 'status-badge--tentativo">Sin requerimiento formal<' in row
+    assert "busqueda-status-row__area" not in html and "busqueda-card__warn" not in html
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "human_capital.css").read_text(encoding="utf-8")
+    assert "busqueda-status-row__area" not in css and "busqueda-card__warn" not in css
+
+
+def test_detail_header_closed_busqueda_uses_the_shared_inactive_status_badge():
+    b = human_capital_service.create_busqueda({"nombre_puesto": "Dev", "fecha_apertura": "2026-09-01", "pedido_formal_recibido": "on"})
+    human_capital_service.close_busqueda(b["busqueda_id"])
+    row = _client().get(f"/cchh/busquedas/{b['busqueda_id']}").text.split('class="busqueda-status-row"', 1)[1].split("</div>", 1)[0]
+    assert 'class="status-badge status-badge--inactivo">Cerrado<' in row and row.count('class="status-badge ') == 1       # con pedido formal recibido no hay badge de requerimiento
