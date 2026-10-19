@@ -244,7 +244,7 @@ Taxonomía de 4 niveles PLENA/BUENA/ADECUADA/PARCIAL · PLENA deshabilitada hast
 
 ---
 
-# CCHH · PUBLICACIONES / AVISOS (core) — OWNER REVIEW PENDIENTE (2026-10-19)
+# CCHH · PUBLICACIONES / AVISOS (core) — OWNER QA PASS (2026-10-19)
 
 Branch `work/cchh-publicaciones-core` (desde `main` fdc2007, con Onboarding + homologación CCHH ya mergeados). Candidatos / Búsquedas / Entrevistas / Onboarding siguen CLOSED: no se reabrió ninguna de sus superficies.
 
@@ -258,7 +258,13 @@ Branch `work/cchh-publicaciones-core` (desde `main` fdc2007, con Onboarding + ho
 - **Naming**: nav `05 Avisos`, ruta `/cchh/publicaciones`, H1 «Publicaciones», CTA «+ Nueva publicación» (doble nombre como Candidatos / Base de CVs).
 
 ## Resumen de métricas (formato Hub)
-Bloque «Resumen» DENTRO del panel `#hc-publicaciones-panel` (se recalcula con los filtros), arriba de la barra de filtros: 4 KPI (`.activity-kpi-grid`/`.activity-kpi` + (i)) y 2 distribuciones lado a lado (`.activity-grid-2` + `.dashboard-subhead` + `.activity-bar-*`), todo con los MISMOS primitivos de Admin/Actividad y Uso de métricas: sin CSS propio. Cálculo en `human_capital_service.publicaciones_summary`. Semántica de la referencia (`PublicacionesView.tsx`): Avisos publicados = SUMA de `cantidad_avisos`; Búsquedas difundidas = `posicion` distinta (trim + minúsculas), NO `busqueda_id`; Registros = filas; «Este trimestre · YYYY-Qn» = suma del período actual sobre el dataset COMPLETO (única métrica global); las otras 3 y ambas distribuciones siguen el conjunto FILTRADO (como la referencia). Canal: desc por avisos, desempate alfabético, incluye canales históricos; Período: cronológico descendente (como la referencia), sólo períodos presentes.
+Orden en el panel `#hc-publicaciones-panel`: barra de filtros (Período · Canal · Buscar) → «Resumen» → tabla → paginador (los tiles dependen de los filtros, por eso van debajo de ellos). Se recalcula con cada swap de HTMX. 4 KPI (`.activity-kpi-grid`/`.activity-kpi` + (i)) y 2 distribuciones lado a lado (`.activity-grid-2` + `.dashboard-subhead` + `.activity-bar-*`), con los MISMOS primitivos de Admin/Actividad y Uso de métricas: **sin CSS específico de métricas**. Cálculo en `human_capital_service.publicaciones_summary`, **antes de la paginación** (sobre el conjunto filtrado completo, nunca la página). Semántica de la referencia (`PublicacionesView.tsx`):
+- Avisos publicados = SUM(`cantidad_avisos`), filtrado (no cuenta filas).
+- Búsquedas difundidas = `posicion` distintas (trim + minúsculas), filtrado; NO `busqueda_id`.
+- Registros cargados = filas filtradas.
+- Este trimestre · YYYY-Qn = SUM(`cantidad_avisos`) del período actual sobre el dataset COMPLETO (global, única métrica que no sigue los filtros).
+- Avisos por canal = filtrado; desc por avisos, desempate alfabético, incluye canales históricos fuera de catálogo.
+- Avisos por período = filtrado; cronológico descendente, sólo períodos presentes.
 
 ## Listado (estándar CCHH)
 `/cchh/publicaciones`: dashboard-section con contador `N publicaciones` = TOTAL FILTRADO; tabla compartida (reorder/resize/persistencia, namespace `cchh-publicaciones`) con Posición (+ «Búsqueda: …» si está vinculada) · Canal · Cantidad · Período · Fecha · Observación · Acciones (Editar / Eliminar, sin vista «Ver»). Filtros: **Período · Canal · Buscar · ✕ Limpiar** (primitivo compartido; Período/Canal a ancho natural). Buscar server-side sobre posición, canal, período, fecha (ISO y DD-MM-YYYY), observación y nombre de la Búsqueda vinculada (nunca ids). Orden: período desc, luego alta desc, ANTES de paginar. Paginador compartido (50 / 100 / 200 / 300) y `return_to` (periodo/canal/q/page/page_size).
@@ -267,11 +273,13 @@ Rutas (+6, `route_surface.json` 205→211): `GET /cchh/publicaciones`, `GET/POST
 ## Deferred (no asumir que falta por error)
 «Efectividad por canal de aviso» (Indicadores) · exportar a Excel · vínculo inverso desde Búsqueda hacia sus avisos · backfill histórico de la app original · integraciones con portales · IA de redacción · automatizaciones · cualquier lifecycle inexistente.
 
-## PRÓXIMO TROUBLESHOOTING (NO mezclar en este slice)
-**Upload de CVs a SharePoint** (error al subir): hipótesis del owner — el problema de privilegios probablemente es falso (incluso un admin global del SharePoint objetivo recibe el mismo error). Plan: tras cerrar Publicaciones, cambiar TEMPORALMENTE el destino CCHH a un sitio interno controlado por el owner para aislar lógica/upload Graph vs permisos/configuración del sitio actual. No tocar ese flujo desde `work/cchh-publicaciones-core`.
+## PRÓXIMOS BLOQUES (en este orden; NO mezclar en este slice)
+**A. `fix/hub-shell-flash`** (flash del shell del Hub al navegar): primero experimento del owner bloqueando `cdn.tailwindcss.com` (una variable por experimento; si no es el culpable, Google Fonts; luego Performance + Screenshots). NO implementar hasta tener el resultado; hotfix mínimo sólo sobre el culpable, sin hx-boost/SPA, sobre `main` actualizado.
+
+**B. Troubleshooting upload de CVs a SharePoint** (error al subir): hipótesis del owner — el problema de privilegios probablemente es falso (incluso un admin global del SharePoint objetivo recibe el mismo error). Plan: cambiar TEMPORALMENTE el destino CCHH a un sitio interno controlado por el owner para aislar lógica/request Graph vs permisos/configuración del sitio actual. No tocar ese flujo desde `work/cchh-publicaciones-core`.
 
 ## Tests / localhost
-`tests/webapp/test_human_capital_publicaciones.py` (31). Fixtures: `tests/fixtures/human_capital/publicaciones.json` (vinculada, genérica, mismo puesto en distintos períodos/canales, cantidad > 1, observación larga, fecha vacía, canal histórico `Flyer`, período histórico `2024-Q2`, snapshot divergente); harness `tools/cchh_visual_harness.py` (+ `CCHH_HARNESS_EXTRA_ROWS` opt-in también para publicaciones).
+`tests/webapp/test_human_capital_publicaciones.py` (41). Fixtures: `tests/fixtures/human_capital/publicaciones.json` (vinculada, genérica, mismo puesto en distintos períodos/canales, cantidad > 1, observación larga, fecha vacía, canal histórico `Flyer`, período histórico `2024-Q2`, snapshot divergente); harness `tools/cchh_visual_harness.py` (+ `CCHH_HARNESS_EXTRA_ROWS` opt-in también para publicaciones).
 
 ---
 
