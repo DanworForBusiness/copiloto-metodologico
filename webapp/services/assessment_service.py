@@ -1288,6 +1288,36 @@ def regenerate_stale_evidence(entry: Any, migration: str) -> RegeneratedAssessme
                             envelope_hook=_materialization_envelope_hook if migration == MATERIALIZATION_MIGRATION else None)
 
 
+def regenerate_current_evidence(entry: Any, snapshot: Any = None) -> RegeneratedAssessment:
+    """REGENERACION SELECTIVA de un assessment gobernado CURRENT cuya EVIDENCIA quedo atras de una correccion del motor que NO cambia ``assessment_versions`` (p. ej. el parser de B5.6).
+    Mismo nucleo seguro que el resto de las regeneraciones controladas (en MEMORIA, sin Datasphere/OAuth/``restore()``, sin escribir). Exige: registro previo legible y CURRENT (misma firma de pool y
+    mismo bloque de versiones), Juicio previo en el contrato vigente y MISMO cierre semantico (AM terminal, raiz y conjunto de artefactos; si cambia => ``CLOSURE_DRIFT``). El Juicio se RE-DERIVA con
+    el motor vigente y la instantanea de decisiones ``snapshot`` (``None`` = sin decisiones); la clasificacion de dominio y de negocio (derivados hermanos) se conservan tal cual."""
+    from webapp.services import judgment_decisions as jd
+    snap = snapshot if snapshot is not None else jd.empty_snapshot()
+
+    def precondition(previous: dict | None, res: Resolution, versions: dict) -> None:
+        if (not _readable_previous(previous) or previous.get("input_pool_signature") != res.pool_signature or previous.get("assessment_versions") != versions):
+            raise EnrichmentError("PREVIOUS_NOT_CURRENT")
+        if not judgment_is_current_version(previous.get("judgment")):
+            raise EnrichmentError("PREVIOUS_JUDGMENT_NOT_CURRENT")
+
+    def postcheck(doc: dict, previous: dict | None, res: Resolution, versions: dict) -> None:
+        old_id, new_id = closure_identity((previous or {}).get("profile_json")), closure_identity(doc)
+        if old_id is None or new_id != old_id:
+            raise EnrichmentError("CLOSURE_DRIFT")
+
+    def hook(doc: dict, previous: dict | None) -> tuple[dict, dict]:
+        prev = previous or {}
+        fresh, _report = jd.derive(doc, str(prev.get("client") or ""), snap)
+        return ({"judgment": fresh, "domain_classification": prev.get("domain_classification"), "business_classification": prev.get("business_classification")},
+                {"previous_judgment_level": (prev.get("judgment") or {}).get("level"), "previous_judgment_rule": (prev.get("judgment") or {}).get("level_rule"),
+                 "new_judgment_level": (fresh or {}).get("level"), "new_judgment_rule": (fresh or {}).get("level_rule"),
+                 "judgment_action": "judgment_current" if (prev.get("judgment") or {}).get("output_signature") == (fresh or {}).get("output_signature") else "judgment_rederived"})
+
+    return _regenerate_core(entry, precondition=precondition, log_label="regeneración selectiva", postcheck=postcheck, envelope_hook=hook)
+
+
 def commit_stale_migration(candidate: RegeneratedAssessment) -> str:
     """Escribe el candidato de una migracion por el MISMO camino seguro (``commit_regenerated``), pero reverifica antes que el registro gobernado siga siendo el
     que se regenero (p. ej. alguien lo regenero por la UI durante la ventana STALE): si cambio, NO se pisa (``PREVIOUS_CHANGED_DURING_RUN``)."""
