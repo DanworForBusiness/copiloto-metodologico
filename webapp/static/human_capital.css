@@ -439,8 +439,6 @@
 .busqueda-card__desc { margin: 0; color: #55555c; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .content-theme-dark .busqueda-card__desc { color: #b2b2bc; }
 .busqueda-card__area { color: #7a7a82; font: 600 .68rem var(--mono); }
-.busqueda-card__warn { align-self: flex-start; font: 600 .64rem var(--mono); color: #8a6300; background: rgba(231,176,8,.16); padding: 3px 8px; border-radius: 999px; }
-.content-theme-dark .busqueda-card__warn { color: #e7b008; }
 .busqueda-card__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; margin-top: auto; padding-top: 12px; }
 .busqueda-card__desde { color: #7a7a82; font: 500 .72rem var(--mono); }
 .busqueda-card__badges { display: flex; align-items: center; gap: 8px; flex: none; }
@@ -465,8 +463,6 @@
 /* Fila de estado del detalle (bajo el título): pill de estado + área de la
    consultora + aviso de requerimiento, MISMA composición que la referencia. */
 .busqueda-status-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
-.busqueda-status-row__area { color: #55555c; font: 600 .68rem var(--mono); background: rgba(128,128,128,.12); padding: 3px 9px; border-radius: 999px; }
-.content-theme-dark .busqueda-status-row__area { color: #b2b2bc; }
 
 /* Barra de vistas del detalle: usa el primitivo compartido
    `.dashboard-view-switch` (tools.css); acá sólo su ubicación/scroll. */
