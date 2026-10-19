@@ -1,0 +1,155 @@
+{% from "partials/pager.html" import render_pager %}
+{# human_capital_publicaciones_panel.html — fragmento compartido por GET /cchh/publicaciones (embebido en la página completa) y los filtros/la paginación (swap de HTMX sobre esta MISMA superficie)
+   — MISMO patrón que Candidatos/Entrevistas/Onboarding. Barra de filtros del estándar CCHH (`.hc-profile-filters.filter-toolbar-card`): Período · Canal (ancho natural, `--auto`) · Buscar
+   (`--wide`, ocupa el resto) · `✕ Limpiar` último. Reactivo (HTMX): cada campo con su `hx-get` + `hx-include="closest form"`; los tres criterios se combinan con AND en el server ANTES
+   de paginar; `page_size` viaja oculto y `page` nunca (cualquier cambio vuelve a la página 1). #}
+<div id="hc-publicaciones-panel">
+{% if source_error %}
+<div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>{{ source_error }}</p></div>
+{% else %}
+<form class="hc-profile-filters filter-toolbar-card" hx-get="/cchh/publicaciones" hx-target="#hc-publicaciones-panel" hx-swap="outerHTML">
+  <input type="hidden" name="page_size" value="{{ pager.page_size }}">
+  <div class="feedback-field feedback-field--auto">
+    <label for="hc-publicaciones-periodo">Período</label>
+    <select id="hc-publicaciones-periodo" name="periodo" hx-get="/cchh/publicaciones" hx-target="#hc-publicaciones-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
+      <option value="" {% if not periodo %}selected{% endif %}>Todos</option>
+      {% for opt in periodo_options %}<option value="{{ opt }}" {% if periodo == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="feedback-field feedback-field--auto">
+    <label for="hc-publicaciones-canal">Canal</label>
+    <select id="hc-publicaciones-canal" name="canal" hx-get="/cchh/publicaciones" hx-target="#hc-publicaciones-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
+      <option value="" {% if not canal %}selected{% endif %}>Todos</option>
+      {% for opt in canal_options %}<option value="{{ opt.value }}" {% if canal == opt.value %}selected{% endif %}>{{ opt.label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="feedback-field feedback-field--wide">
+    <label for="hc-publicaciones-q">Buscar</label>
+    <input id="hc-publicaciones-q" name="q" type="text" value="{{ q or '' }}" placeholder="Posición, canal, período, fecha, observación, búsqueda..." hx-get="/cchh/publicaciones" hx-target="#hc-publicaciones-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
+  </div>
+  <button type="button" class="whatsnew-filter__clear" hx-get="{{ pager.urls.reset }}" hx-target="#hc-publicaciones-panel" hx-swap="outerHTML">✕ Limpiar</button>
+</form>
+
+<div class="dashboard-sections" data-dashboard-key="cchh-publicaciones">
+  <details class="dashboard-section" data-section-id="publicaciones" data-persist-collapse open>
+    <summary class="dashboard-section__head" draggable="true">
+      <span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title">Publicaciones</span>
+      <span class="dashboard-section__count">{{ total_publicaciones }} publicaci{{ 'ón' if total_publicaciones == 1 else 'ones' }}</span>
+    </summary>
+    <div class="dashboard-section__body">
+      {% if not publicaciones and dataset_has_any_publicacion %}
+      <div class="dashboard-empty" data-empty-kind="no_matches"><span class="dashboard-empty__label">Sin resultados</span><p>No se encontraron publicaciones para los filtros seleccionados.</p></div>
+      {% elif not publicaciones %}
+      <div class="dashboard-empty" data-empty-kind="dataset_empty"><span class="dashboard-empty__label">Sin publicaciones</span><p>Todavía no hay avisos registrados. Cargá el primero con "+ Nueva publicación".</p></div>
+      {% else %}
+      {# Reorder + resize: MISMO primitivo compartido que el resto de CCHH (initDraggableColumns/initResizableColumns, app.js); `cchh-publicaciones` es un namespace propio. El adapter del final
+         reaplica orden/anchos guardados después de cada swap de este panel. #}
+      <div class="matrix-scroll" data-draggable-columns-key="cchh-publicaciones" data-resizable-columns-key="cchh-publicaciones">
+        <table class="dashboard-table" id="hc-publicaciones-table">
+          <colgroup>
+            <col data-column-key="posicion" style="width:26%">
+            <col data-column-key="canal" style="width:13%">
+            <col data-column-key="cantidad" style="width:9%">
+            <col data-column-key="periodo" style="width:10%">
+            <col data-column-key="fecha" style="width:11%">
+            <col data-column-key="observacion" style="width:31%">
+            <col style="width:76px">
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="left" data-column-key="posicion" draggable="true">Posición</th>
+              <th class="left" data-column-key="canal" draggable="true">Canal</th>
+              <th class="left" data-column-key="cantidad" draggable="true">Cantidad</th>
+              <th class="left" data-column-key="periodo" draggable="true">Período</th>
+              <th class="left" data-column-key="fecha" draggable="true">Fecha</th>
+              <th class="left" data-column-key="observacion" draggable="true">Observación</th>
+              <th class="center">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in publicaciones %}
+            <tr>
+              <td class="left" data-column-key="posicion">
+                <div class="dw-idcell">
+                  <span class="dw-idcell__name">{{ p.posicion }}</span>
+                  {# La posición mostrada es SIEMPRE el snapshot persistido; la Búsqueda vinculada (si existe) se lee en vivo sólo para identificarla. #}
+                  {% if p.busqueda_nombre %}<span class="field-hint">Búsqueda: {{ p.busqueda_nombre }}</span>{% endif %}
+                </div>
+              </td>
+              <td class="left" data-column-key="canal">{{ p.canal or "—" }}</td>
+              <td class="left" data-column-key="cantidad">{{ p.cantidad_avisos }}</td>
+              <td class="left" data-column-key="periodo">{{ p.periodo or "—" }}</td>
+              <td class="left" data-column-key="fecha">{{ (p.fecha | fecha_dmy) if p.fecha else "—" }}</td>
+              <td class="left" data-column-key="observacion" title="{{ p.observacion or '' }}">{{ p.observacion or "—" }}</td>
+              <td class="center">
+                <div class="dw-row-actions">
+                  <a href="/cchh/publicaciones/{{ p.publicacion_id }}/editar?return_to={{ pager.urls.current | urlencode }}" class="table-action-btn chart-tooltip-anchor" aria-label="Editar publicación">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                    <span class="chart-tooltip" aria-hidden="true"><p>Editar</p></span>
+                  </a>
+                  <form method="post" action="/cchh/publicaciones/{{ p.publicacion_id }}/eliminar?return_to={{ pager.urls.current | urlencode }}" class="dw-row-actions__form"
+                        data-dw-confirm-form data-dw-confirm-title="Eliminar publicación"
+                        data-dw-confirm-message="¿Seguro que querés eliminar el registro de &quot;{{ p.posicion }}&quot;? Esta acción no se puede deshacer."
+                        data-dw-confirm-ok="Eliminar">
+                    <button type="submit" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Eliminar publicación">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                      <span class="chart-tooltip" aria-hidden="true"><p>Eliminar</p></span>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {# Paginación estándar CCHH (partials/pager.html → `.activity-pager`, MISMO paginador de «Uso de métricas»): filtros/búsqueda/orden ya se aplicaron antes del slice. #}
+      {{ render_pager(pager, "#hc-publicaciones-panel", "Paginación de publicaciones", "Publicaciones por página") }}
+      {% endif %}
+    </div>
+  </details>
+</div>
+{% endif %}
+</div>
+<script>
+(function () {
+  // Adapter CCHH (MISMO patrón que el resto): aplica el orden/anchos YA guardados sobre el DOM ya renderizado por el server, en la carga inicial Y después de cada swap de HTMX de este panel.
+  function applyStoredColumnOrder(container) {
+    if (typeof readStoredColumnOrder !== "function") return;
+    var orderKey = container.dataset.draggableColumnsKey;
+    if (!orderKey) return;
+    var headerRow = container.querySelector("table > thead > tr");
+    if (!headerRow) return;
+    var validKeys = [].slice.call(headerRow.querySelectorAll("th[data-column-key]")).map(function (th) { return th.dataset.columnKey; });
+    if (!validKeys.length) return;
+    var order = readStoredColumnOrder(orderKey, validKeys);
+    if (!order) return;
+    container.querySelectorAll("tr").forEach(function (row) {
+      order.forEach(function (key) {
+        var cell = row.querySelector('[data-column-key="' + key + '"]');
+        if (cell) row.appendChild(cell);
+      });
+      [].slice.call(row.children).filter(function (cell) { return !cell.dataset.columnKey; })
+        .forEach(function (cell) { row.appendChild(cell); });
+    });
+  }
+  function wire() {
+    document.querySelectorAll("[data-draggable-columns-key='cchh-publicaciones']").forEach(function (container) {
+      applyStoredColumnOrder(container);
+      if (typeof restorePersistedColumnWidths === "function") restorePersistedColumnWidths(container);
+      // initDraggableColumns/initResizableColumns buscan [data-draggable-columns-key] como DESCENDIENTE del scope: se les pasa `document` (nunca el container).
+      if (typeof initDraggableColumns === "function") initDraggableColumns(document);
+      if (typeof initResizableColumns === "function") initResizableColumns(document);
+      if (container.dataset.cchhReorderListenerWired) return;
+      container.dataset.cchhReorderListenerWired = "1";
+      container.addEventListener("dw:columns-reordered", function () { applyStoredColumnOrder(container); });
+    });
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", wire);
+  } else {
+    wire();
+  }
+})();
+</script>

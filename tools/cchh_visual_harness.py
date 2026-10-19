@@ -282,6 +282,16 @@ def _seed_runtime(keep: bool) -> Path:
         onboarding_repository._write_atomic(onboarding_repository._onboarding_path(entry["application_id"]), payload)
     print(f"[harness] {len(onboarding_raw)} onboardings sembrados bajo {RUNTIME_DIR / 'human-capital' / 'onboarding'}")
 
+    # Publicaciones / Avisos — MISMO criterio (internals reales del repositorio). Ver tests/fixtures/human_capital/publicaciones.json: vinculada a Búsqueda, genérica sin Búsqueda, mismo
+    # puesto en distintos períodos y canales, cantidad > 1, observación larga, fecha vacía, canal histórico (Flyer, fuera del catálogo) y un período histórico fuera de la ventana del alta
+    # (2024-Q2). `posicion` es un snapshot: una fila conserva un nombre distinto al actual de su Búsqueda a propósito.
+    from webapp.services import publicacion_repository
+    publicaciones_raw = _json.loads((FIXTURES_DIR / "publicaciones.json").read_text(encoding="utf-8"))
+    for entry in publicaciones_raw:
+        payload = {"schema_version": publicacion_repository._SCHEMA_VERSION, "revision": 1, **entry}
+        publicacion_repository._write_atomic(publicacion_repository._publicacion_path(entry["publicacion_id"]), payload)
+    print(f"[harness] {len(publicaciones_raw)} publicaciones sembradas bajo {RUNTIME_DIR / 'human-capital' / 'publicaciones'}")
+
     # OPT-IN (apagado por defecto: el harness NO se infla): CCHH_HARNESS_EXTRA_ROWS=N agrega N perfiles + N entrevistas + N onboardings SINTÉTICOS determinísticos
     # (ids `99999999-…`) SOLO para ver/validar el paginador estándar (>50 filas) en Candidatos/Entrevistas/Onboarding. Las suites de tests usan sus propios datasets.
     extra = int(os.environ.get("CCHH_HARNESS_EXTRA_ROWS", "0") or 0)
@@ -306,7 +316,14 @@ def _seed_runtime(keep: bool) -> Path:
                 "fecha_ingreso": (base + timedelta(days=i)).isoformat(), "oferta_cerrada": None, "area": areas[i % len(areas)] if areas else None,
                 "checklist": {k: True for k in list(_json.loads((FIXTURES_DIR / "onboarding.json").read_text(encoding="utf-8"))[0]["checklist"])[: i % 18]},
                 "completado": False, "created_at": ts, "updated_at": ts})
-        print(f"[harness] +{extra} perfiles/entrevistas/onboardings sintéticos (CCHH_HARNESS_EXTRA_ROWS) para validar la paginación")
+        canales = [r["valor"] for r in catalogs_raw.get("canal_publicacion", [])] if isinstance(catalogs_raw, dict) else []
+        for i in range(extra):
+            publicacion_repository._write_atomic(publicacion_repository._publicacion_path(f"99999999-bbbb-bbbb-bbbb-{i:012d}"), {
+                "schema_version": publicacion_repository._SCHEMA_VERSION, "publicacion_id": f"99999999-bbbb-bbbb-bbbb-{i:012d}", "revision": 1, "busqueda_id": None,
+                "posicion": f"Posicion sintetica {i:04d}", "canal": canales[i % len(canales)] if canales else "LinkedIn", "cantidad_avisos": 1 + i % 4, "periodo": f"2026-Q{1 + i % 4}",
+                "fecha": (base + timedelta(days=i)).isoformat(), "observacion": None, "created_at": f"2026-09-01T{(i // 60) % 24:02d}:{i % 60:02d}:00+00:00",
+                "updated_at": f"2026-09-01T{(i // 60) % 24:02d}:{i % 60:02d}:00+00:00"})
+        print(f"[harness] +{extra} perfiles/entrevistas/onboardings/publicaciones sintéticos (CCHH_HARNESS_EXTRA_ROWS) para validar la paginación")
     return RUNTIME_DIR
 
 

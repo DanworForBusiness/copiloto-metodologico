@@ -109,7 +109,7 @@ from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
 from webapp.services import (
     auth_service, busqueda_repository, entrevista_repository, human_capital_catalog_repository,
-    human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service,
+    human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
     profile_document_validation, profile_import_service,
 )
 from webapp.services.human_capital_service import (
@@ -1953,6 +1953,196 @@ def human_capital_onboarding_toggle_item(request: Request, application_id: str, 
         request=request, name="partials/human_capital_onboarding_checklist.html",
         context={"request": request, "onboarding": human_capital_service.onboarding_view(onboarding), "checklist_error": error},
     )
+
+
+# ---------------------------------------------------------------------------
+# Publicaciones / Avisos — listado (filtros Período · Canal · Buscar, paginado) / alta / edición / eliminar.
+# Dominio verbatim de la referencia (app-seleccion, tabla `publicaciones`; ver publicacion_repository.py): registro histórico plano, SIN estados; `posicion` es un SNAPSHOT
+# (se copia el puesto de la Búsqueda al elegirla y no se sincroniza después); canal = catálogo gobernado `canal_publicacion`. Router liviano, MISMO criterio que Entrevistas.
+# ---------------------------------------------------------------------------
+_PUBLICACION_SHELL_ERRORS = (
+    publicacion_repository.PublicacionConfigIncompleteError,
+    publicacion_repository.PublicacionRemoteOutcomeUnknownError,
+    publicacion_repository.PublicacionStorageError,
+)
+
+
+def _publicaciones_shell(request, extra: dict) -> dict:
+    user = auth_service.session_user(request)
+    return {
+        "current_workspace": workspaces.HUMAN_CAPITAL,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack": DEFAULT_PACK, "user": user, "active_page": "publicaciones",
+        **extra,
+    }
+
+
+def _publicaciones_list_context(periodo: str = "", canal: str = "", q: str = "", page=1, page_size=None) -> dict:
+    periodo, canal, q = (periodo or "").strip(), (canal or "").strip(), (q or "").strip()
+    rows: list[dict] = []
+    source_error: str | None = None
+    try:
+        rows = human_capital_service.list_publicaciones_view()
+    except publicacion_repository.PublicacionStorageError as exc:
+        source_error = str(exc)
+    dataset_has_any = bool(rows)
+    # Opciones sobre el dataset COMPLETO (no desaparecen al filtrar). Período = los realmente presentes (cronológico, más reciente primero; NO la ventana del alta);
+    # Canal = catálogo gobernado `canal_publicacion` + valores históricos presentes («(fuera de catálogo)»).
+    periodos = sorted({r.get("periodo") for r in rows if r.get("periodo")} | ({periodo} if periodo else set()), reverse=True)
+    canal_options = _governed_filter_options("canal_publicacion", [r.get("canal") for r in rows], canal, "__sin_canal__", "Sin canal")
+    rows = human_capital_service.filter_publicaciones(rows, periodo=periodo, canal=canal, q=q)      # filtros + búsqueda ANTES de paginar
+    rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+    rows.sort(key=lambda r: r.get("periodo") or "", reverse=True)                                    # período desc, luego alta desc (MISMO orden que la referencia); orden ANTES de paginar
+    pager = pagination.paginate(rows, page=page, page_size=page_size, base_url="/cchh/publicaciones", params={"periodo": periodo, "canal": canal, "q": q})
+    return {
+        "publicaciones": pager["items"],
+        "total_publicaciones": pager["total"],                                      # TOTAL FILTRADO (contador del dashboard-section), nunca el tamaño de la página
+        "dataset_has_any_publicacion": dataset_has_any,
+        "pager": pager,
+        "periodo": periodo, "canal": canal, "q": q,
+        "periodo_options": periodos, "canal_options": canal_options,
+        "source_error": source_error,
+    }
+
+
+def _publicacion_form_context(*, form_values, is_edit, publicacion=None, error=None, concurrent_modification=False) -> dict:
+    busquedas = sorted(human_capital_service.list_busquedas(), key=lambda b: b.get("fecha_apertura") or "", reverse=True)
+    current_periodo = (form_values.get("periodo") or "").strip()
+    window = human_capital_service.periodos_disponibles()
+    historical = bool(current_periodo) and current_periodo not in window
+    current_bid = (form_values.get("busqueda_id") or "").strip()
+    return {
+        "form_values": form_values, "is_edit": is_edit, "publicacion": publicacion, "form_error": error, "concurrent_modification": concurrent_modification,
+        "busquedas_activas": [b for b in busquedas if b.get("estado") == "activo"],
+        "busquedas_cerradas": [b for b in busquedas if b.get("estado") != "activo"],
+        "busqueda_missing": bool(current_bid) and not any(b["busqueda_id"] == current_bid for b in busquedas),
+        # Canal GOBERNADO (`canal_publicacion`): opciones del catálogo activo + el valor histórico actual (fuera de catálogo) marcado; sin fallback hardcodeado.
+        "canales": _governed_edit_options("canal_publicacion", form_values.get("canal")),
+        "canal_is_legacy": _is_legacy_governed_value("canal_publicacion", form_values.get("canal")),
+        "canal_catalog_empty": not human_capital_catalog_repository.catalog_values("canal_publicacion"),
+        # Período: ventana calculada del alta; una edición conserva SELECCIONADO un período histórico fuera de la ventana (history-safe).
+        "periodos": ([current_periodo, *window] if historical else window),
+        "periodo_is_historical": historical,
+    }
+
+
+def _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, periodo, fecha, observacion) -> dict:
+    return {"busqueda_id": busqueda_id, "posicion": posicion, "canal": canal, "cantidad_avisos": cantidad_avisos, "periodo": periodo, "fecha": fecha, "observacion": observacion}
+
+
+@router.get("/cchh/publicaciones", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_publicaciones_page(request: Request, periodo: str = Query(""), canal: str = Query(""), q: str = Query(""),
+                                     page: str = Query(""), page_size: str = Query("")):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    ctx = _publicaciones_list_context(periodo, canal, q, page, page_size)
+    # Filtros/paginación reactivos (HTMX): sólo se re-renderiza el panel (`#hc-publicaciones-panel`), MISMO criterio de fragmento que Candidatos/Entrevistas/Onboarding.
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_publicaciones_panel.html", context={"request": request, **ctx},
+        )
+    return templates.TemplateResponse(request=request, name="human_capital/publicaciones.html", context=_publicaciones_shell(request, ctx))
+
+
+@router.get("/cchh/publicaciones/nueva", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_publicacion_new_page(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form_values = {"periodo": human_capital_service.periodo_actual(), "cantidad_avisos": 1}
+    return templates.TemplateResponse(
+        request=request, name="human_capital/publicacion_form.html",
+        context=_publicaciones_shell(request, _publicacion_form_context(form_values=form_values, is_edit=False)),
+    )
+
+
+@router.post("/cchh/publicaciones/nueva", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_publicacion_new_submit(
+    request: Request, busqueda_id: str = Form(""), posicion: str = Form(""), canal: str = Form(""), cantidad_avisos: str = Form(""),
+    periodo: str = Form(""), fecha: str = Form(""), observacion: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form_values = _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, periodo, fecha, observacion)
+
+    def _render(**extra):
+        return templates.TemplateResponse(
+            request=request, name="human_capital/publicacion_form.html",
+            context=_publicaciones_shell(request, _publicacion_form_context(form_values=form_values, is_edit=False, **extra)))
+    try:
+        human_capital_service.create_publicacion(form_values)
+    except ValueError as exc:
+        return _render(error=str(exc))
+    except _PUBLICACION_SHELL_ERRORS as exc:
+        return _render(error=str(exc))
+    return _return_redirect(request, "/cchh/publicaciones")
+
+
+@router.get("/cchh/publicaciones/{publicacion_id}/editar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_publicacion_edit_page(request: Request, publicacion_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    publicacion = human_capital_service.get_publicacion(publicacion_id)
+    if publicacion is None:
+        raise HTTPException(404, "Publicación no encontrada")
+    form_values = dict(publicacion)
+    form_values["expected_revision"] = publicacion.get("revision", 1)
+    return templates.TemplateResponse(
+        request=request, name="human_capital/publicacion_form.html",
+        context=_publicaciones_shell(request, _publicacion_form_context(
+            form_values=form_values, is_edit=True, publicacion=human_capital_service.publicacion_view(publicacion))),
+    )
+
+
+@router.post("/cchh/publicaciones/{publicacion_id}/editar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_publicacion_edit_submit(
+    request: Request, publicacion_id: str, busqueda_id: str = Form(""), posicion: str = Form(""), canal: str = Form(""), cantidad_avisos: str = Form(""),
+    periodo: str = Form(""), fecha: str = Form(""), observacion: str = Form(""), expected_revision: str = Form(""),
+):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form_values = _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, periodo, fecha, observacion)
+    try:
+        revision_int = int(expected_revision)
+    except ValueError:
+        raise HTTPException(400, "expected_revision inválido") from None
+
+    def _render(**extra):
+        fv = {**form_values, "publicacion_id": publicacion_id, "expected_revision": revision_int}
+        current = human_capital_service.get_publicacion(publicacion_id)
+        return templates.TemplateResponse(
+            request=request, name="human_capital/publicacion_form.html",
+            context=_publicaciones_shell(request, _publicacion_form_context(
+                form_values=fv, is_edit=True, publicacion=human_capital_service.publicacion_view(current) if current else None, **extra)))
+    try:
+        human_capital_service.update_publicacion(publicacion_id, revision_int, form_values)
+    except publicacion_repository.PublicacionNotFoundError:
+        raise HTTPException(404, "Publicación no encontrada") from None
+    except ValueError as exc:
+        return _render(error=str(exc))
+    except publicacion_repository.PublicacionConcurrentModificationError:
+        return _render(concurrent_modification=True)
+    except _PUBLICACION_SHELL_ERRORS as exc:
+        return _render(error=str(exc))
+    return _return_redirect(request, "/cchh/publicaciones")
+
+
+@router.post("/cchh/publicaciones/{publicacion_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_publicacion_delete(request: Request, publicacion_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        human_capital_service.delete_publicacion(publicacion_id)
+    except publicacion_repository.PublicacionNotFoundError:
+        pass
+    except _PUBLICACION_SHELL_ERRORS:
+        pass
+    return _return_redirect(request, "/cchh/publicaciones")
 
 
 # ---------------------------------------------------------------------------
