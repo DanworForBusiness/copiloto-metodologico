@@ -13,7 +13,7 @@
     {# Sin vista de detalle: Editar vuelve directo al listado, MISMO primitivo
        compartido `.catalog-back` que Búsquedas/Candidatos -- nunca un eyebrow
        gold propio. #}
-    <a class="catalog-back" href="/cchh/entrevistas">← Volver a Entrevistas</a>
+    {% set rc = list_return(request, "/cchh/entrevistas") %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver a Entrevistas</a>
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
         <p class="eyebrow">Capital Humano</p>
@@ -28,7 +28,7 @@
     <div class="dashboard-empty" data-error-kind="validation"><span class="dashboard-empty__label">No se guardó</span><p>{{ form_error }}</p></div>
     {% endif %}
 
-    <form method="post" action="{{ '/cchh/entrevistas/' ~ form_values.entrevista_id ~ '/editar' if is_edit else '/cchh/entrevistas/nueva' }}" class="hc-profile-form">
+    <form method="post" action="{{ '/cchh/entrevistas/' ~ form_values.entrevista_id ~ '/editar' ~ rc.qs if is_edit else '/cchh/entrevistas/nueva' }}" class="hc-profile-form">
       {% if is_edit %}<input type="hidden" name="expected_revision" value="{{ form_values.expected_revision }}">{% endif %}
 
       <section class="hc-profile-section">
@@ -158,7 +158,7 @@
          Búsquedas create). #}
       <div class="hc-profile-form__actions">
         {% if is_edit and entrevista and entrevista.concretada %}
-        <button type="submit" formaction="/cchh/entrevistas/{{ form_values.entrevista_id }}/no-concretada" formnovalidate class="btn-danger">No se concretó</button>
+        <button type="submit" formaction="/cchh/entrevistas/{{ form_values.entrevista_id }}/no-concretada{{ rc.qs }}" formnovalidate class="btn-danger">No se concretó</button>
         {% endif %}
         <button type="submit" class="btn-primary">{{ 'Guardar cambios' if is_edit else 'Crear entrevista' }}</button>
         {% if not is_edit %}

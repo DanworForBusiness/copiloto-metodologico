@@ -82,7 +82,7 @@
           {% endif %}
         </td>
         <td>
-          <form method="post" action="/cchh/candidatos/{{ profile_id }}/documentos/{{ doc.document_id }}/delete" data-hc-document-delete-form>
+          <form method="post" action="/cchh/candidatos/{{ profile_id }}/documentos/{{ doc.document_id }}/delete{{ list_return(request, '/cchh/candidatos').qs }}" data-hc-document-delete-form>
             <input type="hidden" name="graph_token" value="">
             <button type="submit" class="btn-secondary" data-hc-document-delete-button>Eliminar</button>
           </form>
@@ -117,7 +117,7 @@
       <div class="callout__body">
         <p>{{ document_state.message }}</p>
         {% if document_state.retry_kind == "upload" %}
-        <form class="hc-document-retry-form" method="post" action="/cchh/candidatos/{{ profile_id }}/documentos/retry-upload" enctype="multipart/form-data" data-hc-document-upload-form>
+        <form class="hc-document-retry-form" method="post" action="/cchh/candidatos/{{ profile_id }}/documentos/retry-upload{{ list_return(request, '/cchh/candidatos').qs }}" enctype="multipart/form-data" data-hc-document-upload-form>
           <input type="hidden" name="token" value="{{ document_state.retry_token }}">
           <input type="hidden" name="graph_token" value="">
           <div class="feedback-field">
@@ -127,7 +127,7 @@
           <button type="submit" class="btn-primary">Reintentar subida</button>
         </form>
         {% elif document_state.retry_kind == "commit" %}
-        <form method="post" action="/cchh/candidatos/{{ profile_id }}/documentos/retry-commit">
+        <form method="post" action="/cchh/candidatos/{{ profile_id }}/documentos/retry-commit{{ list_return(request, '/cchh/candidatos').qs }}">
           <input type="hidden" name="token" value="{{ document_state.retry_token }}">
           <button type="submit" class="btn-primary">Reintentar registro</button>
         </form>
@@ -147,7 +147,7 @@
     {% endif %}
   {% endif %}
 
-  <form class="hc-document-upload-form" method="post" action="/cchh/candidatos/{{ profile_id }}/documentos" enctype="multipart/form-data" data-hc-document-upload-form>
+  <form class="hc-document-upload-form" method="post" action="/cchh/candidatos/{{ profile_id }}/documentos{{ list_return(request, '/cchh/candidatos').qs }}" enctype="multipart/form-data" data-hc-document-upload-form>
     <input type="hidden" name="graph_token" value="">
     <div class="feedback-field">
       <label for="hc-document-file">Nuevo documento (PDF, DOC o DOCX)</label>

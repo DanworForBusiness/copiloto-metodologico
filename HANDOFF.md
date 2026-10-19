@@ -258,6 +258,7 @@ Every tabular list surface in Capital Humano must reuse the canonical Hub pagina
   - no CCHH-specific paginator implementation;
   - el paginador se muestra cuando hay más filas que el tamaño mínimo (50), para que el selector siga disponible;
   - el estado de columnas (drag/resize/persistencia) es por superficie e independiente de la página: el adapter viaja en el fragmento HTMX y se reaplica en cada swap.
+- **Return context** (acciones de fila no expulsan del listado): el listado agrega `?return_to=<url del listado con filtros/búsqueda/página/tamaño>` (`pager.urls.current`) a Editar/Eliminar; las páginas de edición usan el global Jinja `list_return(request, "<path>")` (`rc.back_url` / `rc.qs`, validado por `pagination.list_return_url` sobre `safe_internal_next` y el path exacto del listado) y anexan `rc.qs` a TODA acción de la página (guardar, eliminar, documentos); las rutas vuelven con `_return_redirect`/`_edit_redirect`. Si la página guardada ya no existe, `paginate` la acota a la última válida. **No** usar hidden fields ad-hoc por módulo. Tests: `tests/webapp/test_human_capital_return_context.py`.
 - Tests: `tests/webapp/test_human_capital_pagination.py` (helper + suite parametrizada por superficie con datasets sintéticos; no inflar el harness). Una superficie nueva se registra en `SURFACES` de ese archivo.
 
 ---

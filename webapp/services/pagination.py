@@ -8,8 +8,10 @@ Contrato de orden (lo garantiza quien llama): dataset completo → filtros → b
 """
 from __future__ import annotations
 
-from typing import Any, Sequence
-from urllib.parse import urlencode
+from typing import Any, Mapping, Sequence
+from urllib.parse import quote, urlencode, urlparse
+
+from webapp.safe_redirect import safe_internal_next
 
 # Contrato de tablas de Capital Humano (ver HANDOFF «CCHH TABLE PAGINATION STANDARD»).
 CCHH_PAGE_SIZES: tuple[int, ...] = (50, 100, 200, 300)
@@ -52,6 +54,21 @@ def _qs(params: dict[str, Any], **extra: Any) -> str:
     return urlencode(merged)
 
 
+def list_return_url(value: str | None, list_path: str) -> str:
+    """Contexto de LISTADO para volver desde una acción de fila (Editar / Guardar / Cancelar / Eliminar): la URL del listado con su estado (filtros, búsqueda, página, tamaño).
+    Se acepta SOLO un destino interno (`safe_internal_next`, autoridad única) cuyo PATH sea exactamente `list_path`; cualquier otra cosa → `""` (el caller cae a su default). La
+    página guardada puede ya no existir (p. ej. se borró la última fila de la última página): `paginate` la acota a la última válida al renderizar el listado."""
+    url = safe_internal_next(value)
+    return url if url and urlparse(url).path == list_path else ""
+
+
+def list_return_context(query_params: Mapping[str, str], list_path: str) -> dict:
+    """Para plantillas/rutas de edición: `return_to` validado, `back_url` (return_to o el listado base) y `qs` (`?return_to=…` para anexar a TODA acción/form de la página de edición,
+    de modo que Guardar/Eliminar/documentos vuelvan al mismo contexto; vacío si no hay)."""
+    url = list_return_url(query_params.get("return_to"), list_path)
+    return {"return_to": url, "back_url": url or list_path, "qs": f"?return_to={quote(url, safe='')}" if url else ""}
+
+
 def paginate(items: Sequence[Any], *, page: Any = 1, page_size: Any = None, base_url: str = "", params: dict[str, Any] | None = None,
              sizes: Sequence[int] = CCHH_PAGE_SIZES, default_size: int = CCHH_DEFAULT_PAGE_SIZE,
              page_param: str = "page", size_param: str = "page_size") -> dict:
@@ -77,7 +94,7 @@ def paginate(items: Sequence[Any], *, page: Any = 1, page_size: Any = None, base
         "total": total, "page": current, "page_size": size, "page_sizes": sizes, "total_pages": total_pages, "page_window": window,
         "show": total > min(sizes),
         "range_start": start + 1 if total else 0, "range_end": min(start + size, total),
-        "urls": {**{p: url(p) for p in window if p is not None}, "first": url(1), "prev": url(max(1, current - 1)), "next": url(min(total_pages, current + 1)), "last": url(total_pages),
+        "urls": {**{p: url(p) for p in window if p is not None}, "current": url(current), "first": url(1), "prev": url(max(1, current - 1)), "next": url(min(total_pages, current + 1)), "last": url(total_pages),
                  "size": f"{base_url}?{_qs(params)}", "reset": f"{base_url}?{_qs({}, **{size_param: size})}"},
         "size_param": size_param, "page_param": page_param,
     }

@@ -644,8 +644,8 @@ def human_capital_profile_edit_submit(
         return _render(create_error=str(exc))
     # Éxito: vuelve al listado -- "guardar" implica "terminé de editar
     # esto", MISMO criterio que un alta exitosa vuelve al panel con el
-    # form limpio, pero acá la edición vive en su propia página.
-    return RedirectResponse(url="/cchh/candidatos", status_code=303)
+    # form limpio, pero acá la edición vive en su propia página. Vuelve al MISMO contexto de listado (filtros/página/tamaño) si vino de él (`?return_to=`).
+    return _return_redirect(request, "/cchh/candidatos")
 
 
 @router.post("/cchh/candidatos/{profile_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
@@ -709,7 +709,7 @@ def human_capital_profile_delete(
                     "document_state": None,
                 },
             )
-    return RedirectResponse(url="/cchh/candidatos", status_code=303)
+    return _return_redirect(request, "/cchh/candidatos")
 
 
 def _import_page_context(**kwargs) -> dict:
@@ -958,7 +958,7 @@ async def human_capital_profile_documents_upload(
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
         )
-    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
+    return _edit_redirect(request, profile_id)
 
 
 @router.post("/cchh/candidatos/{profile_id}/documentos/retry-upload", response_class=HTMLResponse, include_in_schema=False)
@@ -1031,7 +1031,7 @@ async def human_capital_profile_documents_retry_upload(
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
         )
-    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
+    return _edit_redirect(request, profile_id)
 
 
 @router.post("/cchh/candidatos/{profile_id}/documentos/retry-commit", response_class=HTMLResponse, include_in_schema=False)
@@ -1064,7 +1064,7 @@ def human_capital_profile_documents_retry_commit(request: Request, profile_id: s
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
         )
-    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
+    return _edit_redirect(request, profile_id)
 
 
 # Delete (Fase 4.1.2, ver HANDOFF): MISMO idioma que upload/retry -- router
@@ -1120,7 +1120,7 @@ async def human_capital_profile_documents_delete(
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DELETE_OUTCOME_UNKNOWN", "message": str(exc)},
         )
-    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=303)
+    return _edit_redirect(request, profile_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1692,7 +1692,7 @@ def human_capital_entrevista_edit_submit(
         return _render(concurrent_modification=True)
     except _ENTREVISTA_SHELL_ERRORS as exc:
         return _render(error=str(exc))
-    return RedirectResponse(url="/cchh/entrevistas", status_code=303)
+    return _return_redirect(request, "/cchh/entrevistas")
 
 
 @router.post("/cchh/entrevistas/{entrevista_id}/no-concretada", response_class=HTMLResponse, include_in_schema=False)
@@ -1737,7 +1737,7 @@ def human_capital_entrevista_no_concretada(
         return _render(concurrent_modification=True)
     except _ENTREVISTA_SHELL_ERRORS as exc:
         return _render(error=str(exc))
-    return RedirectResponse(url="/cchh/entrevistas", status_code=303)
+    return _return_redirect(request, "/cchh/entrevistas")
 
 
 @router.post("/cchh/entrevistas/{entrevista_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
@@ -1751,7 +1751,7 @@ def human_capital_entrevista_delete(request: Request, entrevista_id: str):
         pass
     except _ENTREVISTA_SHELL_ERRORS:
         pass
-    return RedirectResponse(url="/cchh/entrevistas", status_code=303)
+    return _return_redirect(request, "/cchh/entrevistas")
 
 
 # ---------------------------------------------------------------------------
@@ -1906,7 +1906,7 @@ def human_capital_onboarding_edit_submit(
         return _onboarding_edit_response(request, application_id, fv, concurrent_modification=True)
     except _ONBOARDING_SHELL_ERRORS as exc:
         return _onboarding_edit_response(request, application_id, fv, error=str(exc))
-    return RedirectResponse(url="/cchh/onboarding", status_code=303)
+    return _return_redirect(request, "/cchh/onboarding")
 
 
 @router.post("/cchh/onboarding/{application_id}/checklist/{item_key}", response_class=HTMLResponse, include_in_schema=False)
@@ -1978,6 +1978,18 @@ def _fecha_dmy(value: str | None) -> str:
 
 
 templates.env.filters["fecha_dmy"] = _fecha_dmy
+# Contexto de listado para las páginas de edición (ver `pagination.list_return_context`): `{% set rc = list_return(request, "/cchh/…") %}` → `rc.back_url` / `rc.qs`.
+templates.env.globals["list_return"] = lambda request, list_path: pagination.list_return_context(request.query_params, list_path)
+
+
+def _edit_redirect(request: Request, profile_id: str) -> RedirectResponse:
+    """303 a la página de edición del candidato conservando `?return_to=` (Cancelar/Guardar siguen volviendo al listado correcto tras una operación de documentos)."""
+    return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar" + pagination.list_return_context(request.query_params, "/cchh/candidatos")["qs"], status_code=303)
+
+
+def _return_redirect(request: Request, list_path: str) -> RedirectResponse:
+    """303 al listado EN EL MISMO CONTEXTO (filtros/página/tamaño) si la acción vino de él (`?return_to=`); si no, al listado base."""
+    return RedirectResponse(url=pagination.list_return_url(request.query_params.get("return_to"), list_path) or list_path, status_code=303)
 
 
 def _catalogos_context(request: Request, *, refresh_result: dict | None, refresh_error: dict | None) -> dict:
