@@ -283,6 +283,18 @@ Rutas (+6, `route_surface.json` 205→211): `GET /cchh/publicaciones`, `GET/POST
 
 ---
 
+# HUB · SHELL FLASH — Tailwind Play CDN removido (2026-10-19, branch `fix/hub-shell-flash`)
+
+**Causa raíz (confirmada por A/B del owner en DigitalOcean; en localhost no se percibe):** `base.html` cargaba `cdn.tailwindcss.com`, que genera CSS (preflight + utilities) en el navegador y lo anexa al FINAL del `<head>` después del primer render → flash claro/gris al cambiar de sección con latencia real. Con el CDN bloqueado el flash desaparece.
+
+**Fix (una sola variable):** se elimina el `<script src="https://cdn.tailwindcss.com">` y las 6 utilities de `<html>`/`<body>` (`h-full`, `scroll-smooth`, `min-h-full`, `bg-[#0c0c0d]`, `text-[#e4e4ec]`, `antialiased` — único uso productivo; auditado con búsqueda en plantillas/JS/py). El reemplazo es CSS estático en `webapp/static/app.css` (bloque «Base del Hub», sólo el subconjunto del preflight que el Hub emite; sin `.hc-*`, sin mini-Tailwind). Nota de cascada: el `<style>` del CDN iba último en el `<head>`, así que el preflight ganaba empates a `app.css`: por eso `body{line-height:inherit}` + `html{line-height:1.5}` (el `1.65` previo de `body` nunca era el valor efectivo). `scroll-smooth` ya estaba en `app.css` (`html{scroll-behavior:smooth}`); a diferencia de antes, `prefers-reduced-motion` ahora sí lo anula como pretendía ese CSS.
+
+**NO tocado:** HTMX, Alpine, Google Fonts, hx-boost, auth, sidebar, CSS de workspaces. Guarda transversal: `tests/webapp/test_hub_base_static_shell.py`.
+
+**Validación autoritativa = DigitalOcean** (owner smoke real, sin Request Blocking): `cdn.tailwindcss.com` ausente en Network, sin flash, sidebar estable, sin diferencias visuales. Siguiente bloque: troubleshooting upload CV → SharePoint.
+
+---
+
 # CCHH · ESTADO DEL SLICE ACTUAL — OWNER QA PASS (2026-10-19)
 
 Candidatos = OWNER QA PASS · Búsquedas = OWNER QA PASS · Entrevistas = OWNER QA PASS · Onboarding = OWNER QA PASS. Branch `work/cchh-onboarding-core` (Onboarding core + homologaciones CCHH: filtros, status-badge, paginación estándar, return_to). Próxima sección: **Publicaciones / Avisos** — NO sobre esta branch: primero PR → merge → `main` actualizado, y recién ahí `work/cchh-publicaciones-core` desde main (mapear desde `app-seleccion`: publicaciones/avisos/canales/estados/relación con Búsquedas/cierre/expiración/métricas; la terminología final sale de la referencia).
