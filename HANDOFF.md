@@ -257,12 +257,15 @@ Branch `work/cchh-publicaciones-core` (desde `main` fdc2007, con Onboarding + ho
 - **Delete = hard delete** con diálogo de confirmación compartido, sin precondiciones, con `return_to`.
 - **Naming**: nav `05 Avisos`, ruta `/cchh/publicaciones`, H1 «Publicaciones», CTA «+ Nueva publicación» (doble nombre como Candidatos / Base de CVs).
 
+## Resumen de métricas (formato Hub)
+Bloque «Resumen» DENTRO del panel `#hc-publicaciones-panel` (se recalcula con los filtros), arriba de la barra de filtros: 4 KPI (`.activity-kpi-grid`/`.activity-kpi` + (i)) y 2 distribuciones lado a lado (`.activity-grid-2` + `.dashboard-subhead` + `.activity-bar-*`), todo con los MISMOS primitivos de Admin/Actividad y Uso de métricas: sin CSS propio. Cálculo en `human_capital_service.publicaciones_summary`. Semántica de la referencia (`PublicacionesView.tsx`): Avisos publicados = SUMA de `cantidad_avisos`; Búsquedas difundidas = `posicion` distinta (trim + minúsculas), NO `busqueda_id`; Registros = filas; «Este trimestre · YYYY-Qn» = suma del período actual sobre el dataset COMPLETO (única métrica global); las otras 3 y ambas distribuciones siguen el conjunto FILTRADO (como la referencia). Canal: desc por avisos, desempate alfabético, incluye canales históricos; Período: cronológico descendente (como la referencia), sólo períodos presentes.
+
 ## Listado (estándar CCHH)
 `/cchh/publicaciones`: dashboard-section con contador `N publicaciones` = TOTAL FILTRADO; tabla compartida (reorder/resize/persistencia, namespace `cchh-publicaciones`) con Posición (+ «Búsqueda: …» si está vinculada) · Canal · Cantidad · Período · Fecha · Observación · Acciones (Editar / Eliminar, sin vista «Ver»). Filtros: **Período · Canal · Buscar · ✕ Limpiar** (primitivo compartido; Período/Canal a ancho natural). Buscar server-side sobre posición, canal, período, fecha (ISO y DD-MM-YYYY), observación y nombre de la Búsqueda vinculada (nunca ids). Orden: período desc, luego alta desc, ANTES de paginar. Paginador compartido (50 / 100 / 200 / 300) y `return_to` (periodo/canal/q/page/page_size).
 Rutas (+6, `route_surface.json` 205→211): `GET /cchh/publicaciones`, `GET/POST /cchh/publicaciones/nueva`, `GET/POST /cchh/publicaciones/{id}/editar`, `POST /cchh/publicaciones/{id}/eliminar`.
 
 ## Deferred (no asumir que falta por error)
-4 tarjetas resumen y 2 barras analíticas · «Efectividad por canal de aviso» (Indicadores) · exportar a Excel · vínculo inverso desde Búsqueda hacia sus avisos · backfill histórico de la app original · integraciones con portales · IA de redacción · automatizaciones · cualquier lifecycle inexistente.
+«Efectividad por canal de aviso» (Indicadores) · exportar a Excel · vínculo inverso desde Búsqueda hacia sus avisos · backfill histórico de la app original · integraciones con portales · IA de redacción · automatizaciones · cualquier lifecycle inexistente.
 
 ## PRÓXIMO TROUBLESHOOTING (NO mezclar en este slice)
 **Upload de CVs a SharePoint** (error al subir): hipótesis del owner — el problema de privilegios probablemente es falso (incluso un admin global del SharePoint objetivo recibe el mismo error). Plan: tras cerrar Publicaciones, cambiar TEMPORALMENTE el destino CCHH a un sitio interno controlado por el owner para aislar lógica/upload Graph vs permisos/configuración del sitio actual. No tocar ese flujo desde `work/cchh-publicaciones-core`.

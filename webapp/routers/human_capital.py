@@ -1990,7 +1990,9 @@ def _publicaciones_list_context(periodo: str = "", canal: str = "", q: str = "",
     # Canal = catálogo gobernado `canal_publicacion` + valores históricos presentes («(fuera de catálogo)»).
     periodos = sorted({r.get("periodo") for r in rows if r.get("periodo")} | ({periodo} if periodo else set()), reverse=True)
     canal_options = _governed_filter_options("canal_publicacion", [r.get("canal") for r in rows], canal, "__sin_canal__", "Sin canal")
+    all_rows = rows
     rows = human_capital_service.filter_publicaciones(rows, periodo=periodo, canal=canal, q=q)      # filtros + búsqueda ANTES de paginar
+    summary = human_capital_service.publicaciones_summary(rows, all_rows)                          # sobre el filtrado COMPLETO (no la página); «Este trimestre» sobre el dataset entero
     rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
     rows.sort(key=lambda r: r.get("periodo") or "", reverse=True)                                    # período desc, luego alta desc (MISMO orden que la referencia); orden ANTES de paginar
     pager = pagination.paginate(rows, page=page, page_size=page_size, base_url="/cchh/publicaciones", params={"periodo": periodo, "canal": canal, "q": q})
@@ -2001,6 +2003,7 @@ def _publicaciones_list_context(periodo: str = "", canal: str = "", q: str = "",
         "pager": pager,
         "periodo": periodo, "canal": canal, "q": q,
         "periodo_options": periodos, "canal_options": canal_options,
+        "summary": summary,
         "source_error": source_error,
     }
 

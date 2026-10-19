@@ -1230,3 +1230,35 @@ def filter_publicaciones(rows: list[dict], *, periodo: str = "", canal: str = ""
     return [r for r in rows
             if (not periodo or (r.get("periodo") or "") == periodo) and (not canal or (r.get("canal") or "") == canal)
             and (not wanted_q or wanted_q in _publicacion_search_haystack(r))]
+
+
+def _sum_by(rows: list[dict], key) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for r in rows:
+        k = key(r)
+        out[k] = out.get(k, 0) + int(r.get("cantidad_avisos") or 0)
+    return out
+
+
+def _with_pct(pairs: list[tuple[str, int]]) -> list[dict]:
+    top = max((c for _, c in pairs), default=0)
+    return [{"label": label, "count": count, "pct": round(100 * count / top) if top else 0} for label, count in pairs]
+
+
+def publicaciones_summary(filtered_rows: list[dict], all_rows: list[dict], today: date | None = None) -> dict:
+    """Resumen del listado (MISMA semántica que `PublicacionesView` de la referencia): Avisos publicados = SUMA de `cantidad_avisos` (no cuenta filas); Búsquedas difundidas = posiciones
+    DISTINTAS normalizadas (trim + minúsculas), no `busqueda_id`; Registros = filas; y las dos distribuciones se calculan sobre el conjunto FILTRADO. «Este trimestre» es la única métrica que usa el
+    dataset COMPLETO (suma de `cantidad_avisos` del período actual). Canal: mayor a menor, desempate alfabético; Período: cronológico descendente (más reciente primero). Los canales históricos
+    fuera de catálogo se incluyen tal cual (no depende del catálogo activo)."""
+    periodo_hoy = periodo_actual(today)
+    por_canal = _sum_by(filtered_rows, lambda r: r.get("canal") or "—")
+    por_periodo = _sum_by(filtered_rows, lambda r: r.get("periodo") or "—")
+    return {
+        "avisos_publicados": sum(por_canal.values()),
+        "busquedas_difundidas": len({(r.get("posicion") or "").strip().lower() for r in filtered_rows}),
+        "registros": len(filtered_rows),
+        "periodo_actual": periodo_hoy,
+        "avisos_trimestre": sum(int(r.get("cantidad_avisos") or 0) for r in all_rows if r.get("periodo") == periodo_hoy),
+        "por_canal": _with_pct(sorted(por_canal.items(), key=lambda kv: (-kv[1], kv[0].lower(), kv[0]))),
+        "por_periodo": _with_pct(sorted(por_periodo.items(), key=lambda kv: kv[0], reverse=True)),
+    }

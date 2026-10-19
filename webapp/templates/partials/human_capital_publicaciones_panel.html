@@ -7,6 +7,45 @@
 {% if source_error %}
 <div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>{{ source_error }}</p></div>
 {% else %}
+{# Resumen: MISMOS primitivos que Admin/Actividad («Resumen») y Uso de métricas — `.activity-kpi-grid`/`.activity-kpi` (+ `(i)` `.activity-kpi__info`/`.chart-tooltip`) y `.activity-grid-2` +
+   `.dashboard-subhead` + `.activity-bar-*` dentro de un `dashboard-section`. Sin CSS propio. Vive DENTRO del panel para recalcularse con los filtros (misma semántica que la referencia:
+   avisos/búsquedas/registros y ambas distribuciones siguen el conjunto FILTRADO; «Este trimestre» es la única que usa el dataset completo). #}
+{% macro kpi(value, label, help) %}<div class="activity-kpi"><span class="activity-kpi__value">{{ value }}</span><span class="activity-kpi__label">{{ label }}</span><button type="button" class="activity-kpi__info" aria-label="Información sobre {{ label }}: {{ help }}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg></button><span class="chart-tooltip">{{ help }}</span></div>{% endmacro %}
+{% macro bars(rows) %}{% for row in rows %}
+        <div class="activity-bar-row">
+          <span class="activity-bar-label" title="{{ row.label }}">{{ row.label }}</span>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
+          <span class="activity-bar-count">{{ row.count }}</span>
+        </div>
+{% endfor %}{% endmacro %}
+<div class="dashboard-sections" data-dashboard-key="cchh-publicaciones-resumen">
+  <details class="dashboard-section" data-section-id="resumen" data-persist-collapse open>
+    <summary class="dashboard-section__head" draggable="true">
+      <span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title">Resumen</span>
+      <span class="dashboard-section__count">{{ summary.avisos_publicados }} aviso{{ '' if summary.avisos_publicados == 1 else 's' }}</span>
+    </summary>
+    <div class="dashboard-section__body">
+      <div class="activity-kpi-grid">
+        {{ kpi(summary.avisos_publicados, "Avisos publicados", "Suma de la Cantidad de avisos de cada registro (no cuenta filas). Sigue los filtros.") }}
+        {{ kpi(summary.busquedas_difundidas, "Búsquedas difundidas", "Posiciones distintas del listado, sin distinguir mayúsculas ni espacios sobrantes. Sigue los filtros.") }}
+        {{ kpi(summary.registros, "Registros cargados", "Cantidad de registros del listado. Sigue los filtros.") }}
+        {{ kpi(summary.avisos_trimestre, "Este trimestre · " ~ summary.periodo_actual, "Avisos publicados en el trimestre actual sobre todas las publicaciones. No cambia con los filtros.") }}
+      </div>
+      <div class="activity-grid-2">
+        <div>
+          <p class="dashboard-subhead">Avisos por canal</p>
+          {% if summary.por_canal %}{{ bars(summary.por_canal) }}{% else %}<p class="field-hint">Sin datos para los filtros seleccionados.</p>{% endif %}
+        </div>
+        <div>
+          <p class="dashboard-subhead">Avisos por período</p>
+          {% if summary.por_periodo %}{{ bars(summary.por_periodo) }}{% else %}<p class="field-hint">Sin datos para los filtros seleccionados.</p>{% endif %}
+        </div>
+      </div>
+    </div>
+  </details>
+</div>
+
 <form class="hc-profile-filters filter-toolbar-card" hx-get="/cchh/publicaciones" hx-target="#hc-publicaciones-panel" hx-swap="outerHTML">
   <input type="hidden" name="page_size" value="{{ pager.page_size }}">
   <div class="feedback-field feedback-field--auto">

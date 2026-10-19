@@ -445,3 +445,97 @@ def test_the_shared_topbar_refresh_button_and_back_link_render_on_publicaciones_
         html = c.get(url).text
         assert 'hx-post="/cchh/catalogos/refresh"' in html and "CAPITAL HUMANO" in html, url
     assert 'class="catalog-back" href="/cchh/publicaciones"' in c.get("/cchh/publicaciones/nueva").text
+
+
+# ── resumen de métricas (formato Hub) ────────────────────────────────────────
+
+def _summary(rows, all_rows=None, today=date(2026, 10, 19)):
+    return human_capital_service.publicaciones_summary(rows, rows if all_rows is None else all_rows, today=today)
+
+
+def _r(posicion="Account Executive", canal="Bumeran", cantidad=1, periodo="2026-Q4") -> dict:
+    return {"posicion": posicion, "canal": canal, "cantidad_avisos": cantidad, "periodo": periodo}
+
+
+def test_avisos_publicados_is_the_sum_of_cantidad_not_the_row_count():
+    s = _summary([_r(cantidad=3), _r(cantidad=2), _r(cantidad=1)])
+    assert s["avisos_publicados"] == 6 and s["registros"] == 3
+
+
+def test_busquedas_difundidas_counts_distinct_normalized_positions_like_the_reference_not_busqueda_ids():
+    rows = [_r("Account Executive"), _r("  account executive "), _r("ACCOUNT EXECUTIVE"), _r("Cadete"), _r("")]
+    assert _summary(rows)["busquedas_difundidas"] == 3                       # «account executive», «cadete», «» (trim + minúsculas)
+    b = _busqueda("Analista BI")
+    _pub(busqueda_id=b["busqueda_id"], periodo="2026-Q3")
+    _pub(busqueda_id=b["busqueda_id"], periodo="2026-Q4")
+    _pub(posicion="Analista BI", periodo="2026-Q4")                          # sin vínculo pero MISMA posición → no suma
+    assert _summary(human_capital_service.list_publicaciones_view())["busquedas_difundidas"] == 1
+
+
+def test_registros_cargados_counts_rows():
+    assert _summary([_r(cantidad=5), _r(cantidad=5)])["registros"] == 2 and _summary([])["registros"] == 0
+
+
+def test_este_trimestre_sums_only_the_current_period_over_the_full_dataset_and_ignores_the_filtered_subset():
+    allr = [_r(cantidad=2, periodo="2026-Q4"), _r(cantidad=4, periodo="2026-Q4"), _r(cantidad=9, periodo="2026-Q3"), _r(cantidad=7, periodo="2025-Q4")]
+    s = _summary([allr[2]], all_rows=allr)                                   # subset filtrado al Q3
+    assert s["avisos_trimestre"] == 6 and s["periodo_actual"] == "2026-Q4" and s["avisos_publicados"] == 9
+    assert _summary(allr, today=date(2026, 1, 5))["periodo_actual"] == "2026-Q1"
+
+
+def test_avisos_por_canal_groups_sums_orders_desc_with_stable_ties_and_keeps_legacy_channels_without_the_catalog():
+    s = _summary([_r(canal="Bumeran", cantidad=2), _r(canal="Flyer", cantidad=5), _r(canal="Bumeran", cantidad=1), _r(canal="Computrabajo", cantidad=3), _r(canal="Alpha", cantidad=3)])
+    assert [(x["label"], x["count"]) for x in s["por_canal"]] == [("Flyer", 5), ("Alpha", 3), ("Bumeran", 3), ("Computrabajo", 3)]
+    assert [x["pct"] for x in s["por_canal"]] == [100, 60, 60, 60]
+    catalog_repo.snapshot_path().unlink()                                    # sin catálogo activo: la distribución no depende de él
+    assert [x["label"] for x in _summary([_r(canal="Flyer", cantidad=1)])["por_canal"]] == ["Flyer"]
+
+
+def test_avisos_por_periodo_groups_sums_and_orders_chronologically_with_only_present_periods():
+    s = _summary([_r(periodo="2026-Q3", cantidad=2), _r(periodo="2025-Q4", cantidad=1), _r(periodo="2026-Q4", cantidad=4), _r(periodo="2026-Q3", cantidad=1), _r(periodo="2024-Q2", cantidad=3)])
+    assert [(x["label"], x["count"]) for x in s["por_periodo"]] == [("2026-Q4", 4), ("2026-Q3", 3), ("2025-Q4", 1), ("2024-Q2", 3)]
+    assert "2026-Q1" not in [x["label"] for x in s["por_periodo"]]
+
+
+def _kpis(html: str) -> dict[str, str]:
+    return {label: value for value, label in re.findall(r'activity-kpi__value">([^<]*)</span><span class="activity-kpi__label">([^<]*)</span>', html)}
+
+
+def _bars(html: str, title: str) -> list[tuple[str, str]]:
+    block = html.split(f'dashboard-subhead">{title}</p>', 1)[1].split("</div>\n      </div>", 1)[0] if title == "Avisos por período" else html.split(f'dashboard-subhead">{title}</p>', 1)[1].split('<div>\n          <p class="dashboard-subhead">', 1)[0]
+    return re.findall(r'activity-bar-label" title="[^"]*">([^<]*)</span>.*?activity-bar-count">(\d+)<', block, flags=re.S)
+
+
+def test_the_page_renders_the_four_kpis_and_both_distributions_following_the_filters_except_este_trimestre():
+    _seed_mixed()
+    html = _get()
+    k = _kpis(html)
+    assert k["Avisos publicados"] == "5" and k["Registros cargados"] == "4" and k["Búsquedas difundidas"] == "4"
+    assert f"Este trimestre · {TODAY_PERIODO}" in k
+    assert _bars(html, "Avisos por período") == [("2026-Q4", "1"), ("2026-Q3", "3"), ("2024-Q2", "1")]
+    por_canal = _bars(html, "Avisos por canal")
+    assert por_canal == [("Bumeran", "2"), ("LinkedIn Jobs", "2"), ("Flyer", "1")]            # desc por avisos, empate alfabético, canal histórico incluido
+    filtered = _get(canal="Bumeran")
+    kf = _kpis(filtered)
+    assert kf["Avisos publicados"] == "2" and kf["Registros cargados"] == "2"
+    assert kf[f"Este trimestre · {TODAY_PERIODO}"] == k[f"Este trimestre · {TODAY_PERIODO}"]  # única métrica global
+    assert _bars(filtered, "Avisos por canal") == [("Bumeran", "2")]
+    assert [p for p, _ in _bars(filtered, "Avisos por período")] == ["2026-Q4", "2026-Q3"]
+
+
+def test_the_summary_is_computed_over_the_whole_filtered_set_not_the_current_page(monkeypatch):
+    _seed_n(60, monkeypatch)
+    html = _get(page_size="50")
+    assert _kpis(html)["Registros cargados"] == "60" and len(_names(html)) == 50
+
+
+def test_the_summary_reuses_the_hub_primitives_and_adds_no_publicaciones_specific_css():
+    _pub(cantidad_avisos=3)
+    html = _get()
+    for cls in ("activity-kpi-grid", "activity-kpi", "activity-kpi__value", "activity-kpi__label", "activity-kpi__info", "activity-grid-2", "dashboard-subhead",
+                "activity-bar-row", "activity-bar", "activity-bar__fill", "activity-bar-label", "activity-bar-count", "chart-tooltip"):
+        assert f'"{cls}"' in html or f'"{cls} ' in html or f' {cls}"' in html, cls
+    assert "publicaciones-kpi" not in html
+    root = Path(__file__).resolve().parents[2] / "webapp" / "static"
+    css = "\n".join(re.sub(r"\.module-hero \+ #hc-entrevistas-panel[^{]*\{[^}]*\}", "", (root / n).read_text(encoding="utf-8")) for n in ("human_capital.css", "tools.css", "layout.css"))
+    assert not re.search(r"publicaciones-(kpi|resumen|bar)|hc-publicaciones[^{]*activity-", css)
