@@ -1,7 +1,8 @@
 """test_cchh_sharepoint_diagnostics.py — instrumentación SEGURA + sonda de LECTURA del upload de CVs a SharePoint.
 
 Contrato: el uploader NO cambia de comportamiento (mismos errores/clasificación/mensajes); sólo deja de PERDER el cuerpo real de Graph (code/message/innerError/request-id) en un log estructurado.
-Nunca se registra ni se devuelve el access token. La sonda es sólo GET y sólo APP_OWNER.
+Nunca se registra ni se devuelve el access token ni claims de identidad. La sonda es sólo GET y sólo APP_OWNER. Evidencia que produce para los permisos «Selected»: scope presente en el token +
+grant explícito de la APLICACIÓN sobre el driveItem (el acceso del usuario/admin al sitio NO es evidencia), y el caso A–E de la matriz de decisión.
 """
 from __future__ import annotations
 
@@ -24,6 +25,9 @@ from webapp.services import auth_service, profile_document_service, sharepoint_g
 SECRET_TOKEN = "eyJhbGciOiJub25lIn0.SECRET-ACCESS-TOKEN-VALUE.sig"
 OWNER = "owner-sp-diag@danwor.com"
 HC_USER = "hc-sp-diag@danwor.com"
+APP_ID = "11111111-2222-3333-4444-555555555555"
+SCOPES_OK = "User.Read Sites.Read.All Files.SelectedOperations.Selected"
+CONTROL_URL = "https://danwor.sharepoint.com/:f:/s/Operaciones-IniciativasOperacionesDanworTransversal/IgABC?e=xyz"
 
 
 def _http_error(code: int, body: dict | None = None, *, url="https://graph.microsoft.com/v1.0/sites/s/drives/d/items/r:/x?token=LEAK&a=b", headers=None):
@@ -38,13 +42,22 @@ def _graph_body(code="accessDenied", message="Access denied", inner=None):
     return {"error": {"code": code, "message": message, "innerError": inner or {"request-id": "req-123", "client-request-id": "cli-456", "date": "2026-10-19T12:00:00"}}}
 
 
+def _fake_jwt(claims: dict) -> str:
+    seg = lambda o: base64.urlsafe_b64encode(json.dumps(o).encode()).decode().rstrip("=")
+    return f"{seg({'alg': 'none'})}.{seg(claims)}.signature-part"
+
+
+def _tok(scp=SCOPES_OK) -> str:
+    return _fake_jwt({"aud": "https://graph.microsoft.com", "tid": "tenant-1", "appid": APP_ID, "scp": scp, "upn": "someone@danwor.com"})
+
+
 @pytest.fixture(autouse=True)
 def _cfg(monkeypatch):
     monkeypatch.setattr(config, "HC_SHAREPOINT_SITE_ID", "host.sharepoint.com,SITEGUID,WEBGUID")
     monkeypatch.setattr(config, "HC_SHAREPOINT_DRIVE_ID", "b!DRIVE")
     monkeypatch.setattr(config, "HC_CV_ROOT_ITEM_ID", "ROOTITEM")
     monkeypatch.setattr(config, "HC_DOCUMENT_WRITE_SCOPE", "Files.SelectedOperations.Selected")
-    monkeypatch.setattr(config, "AZURE_CLIENT_ID", "11111111-2222-3333-4444-555555555555")
+    monkeypatch.setattr(config, "AZURE_CLIENT_ID", APP_ID)
 
 
 # ── helpers puros ────────────────────────────────────────────────────────────
@@ -71,20 +84,32 @@ def test_log_graph_failure_emits_one_structured_line_without_query_string_or_tok
     assert SECRET_TOKEN not in caplog.text and "LEAK" not in caplog.text and "access_token" not in caplog.text
 
 
-def _fake_jwt(claims: dict) -> str:
-    seg = lambda o: base64.urlsafe_b64encode(json.dumps(o).encode()).decode().rstrip("=")
-    return f"{seg({'alg': 'none'})}.{seg(claims)}.signature-part"
-
-
-def test_token_claims_summary_reports_effective_scopes_and_hides_identity_claims():
-    token = _fake_jwt({"aud": "https://graph.microsoft.com", "scp": "User.Read Sites.Read.All Files.SelectedOperations.Selected", "appid": "app-x", "tid": "tenant", "exp": 1893456000,
-                       "upn": "someone@danwor.com", "name": "Someone", "oid": "obj-id"})
+def test_token_claims_summary_exposes_only_aud_tid_app_id_and_scopes_and_flags_the_two_relevant_scopes():
+    token = _fake_jwt({"aud": "https://graph.microsoft.com", "tid": "tenant-1", "scp": SCOPES_OK, "appid": APP_ID, "exp": 1893456000,
+                       "upn": "someone@danwor.com", "name": "Someone", "oid": "obj-id", "iss": "https://sts.windows.net/x/", "ver": "1.0"})
     s = diag.token_claims_summary(token)
-    assert s["mode"] == "delegated" and s["write_scope_in_token"] is True and "Sites.Read.All" in s["scp"]
-    assert s["aud"] == "https://graph.microsoft.com" and s["appid"] == "app-x" and s["exp_utc"].startswith("2030-")
-    assert not any(k in s for k in ("upn", "name", "oid"))
-    assert diag.token_claims_summary(_fake_jwt({"scp": "User.Read"}))["write_scope_in_token"] is False
+    assert (s["aud"], s["tid"], s["client_application_id"]) == ("https://graph.microsoft.com", "tenant-1", APP_ID)
+    assert s["files_selectedoperations_selected_present"] is True and s["sites_read_all_present"] is True and s["token_app_matches_configured_client_id"] is True
+    assert sorted(s) == sorted(["decodable", "aud", "tid", "client_application_id", "scp", "files_selectedoperations_selected_present", "sites_read_all_present",
+                                "configured_write_scope", "configured_write_scope_in_token", "token_app_matches_configured_client_id"])     # nada de usuario/oid/iss/exp
+    assert "someone@danwor.com" not in json.dumps(s) and token not in json.dumps(s)
+    v2 = diag.token_claims_summary(_fake_jwt({"scp": "User.Read", "azp": "app-from-azp"}))                  # tokens v2: azp en vez de appid
+    assert v2["client_application_id"] == "app-from-azp" and v2["files_selectedoperations_selected_present"] is False and v2["sites_read_all_present"] is False
     assert diag.token_claims_summary("not-a-jwt") == {"decodable": False}
+
+
+def test_app_grant_for_matches_only_the_token_application_id_and_distinguishes_unreadable_from_absent():
+    perms = [{"id": "perm-1", "roles": ["write"], "grantedToV2": {"application": {"id": "AAAA-1111", "displayName": "Danwor Hub"}}},
+             {"id": "perm-2", "roles": ["read"], "grantedToIdentitiesV2": [{"application": {"id": "other-app", "displayName": "Otra app"}}]},
+             {"id": "perm-3", "roles": ["owner"], "grantedToV2": {"user": {"displayName": "Someone", "email": "someone@danwor.com"}}}]
+    g = diag.app_grant_for("aaaa-1111", perms)
+    assert g["found"] is True and g["roles"] == ["write"] and g["permission_id"] == "perm-1" and g["has_write_role"] is True and g["application_id"] == "AAAA-1111"
+    assert [o["application_id"] for o in g["other_application_grants"]] == ["other-app"]
+    assert "someone@danwor.com" not in json.dumps(g) and "Someone" not in json.dumps(g)                      # usuarios/grupos: ni se devuelven ni se cuentan
+    read_only = diag.app_grant_for("other-app", perms)
+    assert read_only["found"] is True and read_only["has_write_role"] is False
+    assert diag.app_grant_for("nobody", perms)["found"] is False
+    assert diag.app_grant_for("aaaa-1111", None)["found"] is None                                           # permissions no legibles ≠ «sin grant»
 
 
 # ── el uploader no cambia: mismas excepciones/mensajes, ahora con log ────────
@@ -139,61 +164,81 @@ def test_put_non_403_is_still_unconfirmed_and_retried_once_but_each_attempt_logs
 # ── sonda: sólo GET, mismas formas de URL que el uploader ───────────────────
 
 class _FakeGraph:
-    """Responde por sufijo de URL; registra cada llamada. Sólo `graph_get_json` está parcheado: cualquier POST/PUT/DELETE a Graph usaría el transporte real y haría fallar el test."""
+    """Responde por URL; registra cada llamada. Sólo `graph_get_json` está parcheado: cualquier POST/PUT/DELETE a Graph usaría el transporte real y haría fallar el test."""
 
-    def __init__(self, fail_permissions=False):
+    def __init__(self, current_roles=("write",), control_roles=("write",), unreadable=()):
         self.urls: list[str] = []
-        self.fail_permissions = fail_permissions
+        self.roles = {"ROOTITEM": current_roles, "CTRLITEM": control_roles}
+        self.unreadable = set(unreadable)
 
     def __call__(self, url, token, **kw):
-        assert token == SECRET_TOKEN
+        assert token.count(".") == 2
         self.urls.append(url)
         path = url.split("?", 1)[0]
         if "/shares/" in path:
             return {"id": "CTRLITEM", "name": "CV-prueba", "webUrl": "https://danwor.sharepoint.com/sites/Ctrl/Shared%20Documents/CV-prueba", "folder": {},
                     "parentReference": {"siteId": "danwor.sharepoint.com,CTRLSITE,CTRLWEB", "driveId": "b!CTRLDRIVE"}}
         if path.endswith("/permissions"):
-            if self.fail_permissions:
+            item = path.rsplit("/items/", 1)[1].split("/", 1)[0]
+            if item in self.unreadable:
                 raise _http_error(403, _graph_body("accessDenied", "need FullControl"))
-            return {"value": [{"roles": ["write"], "grantedToV2": {"application": {"id": "11111111-2222-3333-4444-555555555555", "displayName": "Danwor Hub"}}},
-                              {"roles": ["owner"], "grantedToV2": {"user": {"displayName": "Someone", "email": "someone@danwor.com"}}}]}
+            perms = [{"id": "u-1", "roles": ["owner"], "grantedToV2": {"user": {"displayName": "Someone", "email": "someone@danwor.com"}}}]
+            if self.roles.get(item):
+                perms.append({"id": f"perm-{item}", "roles": list(self.roles[item]), "grantedToV2": {"application": {"id": APP_ID, "displayName": "Danwor Hub"}}})
+            return {"value": perms}
         if path.endswith(":/__dw_diagnostic_probe_does_not_exist__"):
             raise _http_error(404, _graph_body("itemNotFound", "not found"))
         return {"id": "X", "name": "Carpeta"}
 
 
-def test_probe_runs_only_gets_with_the_uploader_url_shapes_for_current_and_control(monkeypatch):
+def test_probe_runs_only_gets_uses_the_uploader_url_shapes_and_the_requested_permissions_endpoint(monkeypatch):
     fake = _FakeGraph()
     monkeypatch.setattr(microsoft365, "graph_get_json", fake)
-    monkeypatch.setattr(diag, "token_claims_summary", lambda t: {"decodable": True})
-    result = diag.run_probe(SECRET_TOKEN, control_sharing_url="https://danwor.sharepoint.com/:f:/s/Operaciones-IniciativasOperacionesDanworTransversal/IgABC?e=xyz")
-    assert result["current"]["item_id"] == "ROOTITEM" and result["control"]["item_id"] == "CTRLITEM" and result["control"]["drive_id"] == "b!CTRLDRIVE"
-    assert result["control"]["site_path"] == "Operaciones-IniciativasOperacionesDanworTransversal" and result["control"]["hostname"] == "danwor.sharepoint.com"
-    current_urls = [u.split("?", 1)[0] for u in fake.urls if "ROOTITEM" in u or "SITEGUID" in u]
-    assert "https://graph.microsoft.com/v1.0/sites/host.sharepoint.com,SITEGUID,WEBGUID/drives/b!DRIVE/items/ROOTITEM" in current_urls          # MISMA forma que `_drive_items_base`
-    assert "https://graph.microsoft.com/v1.0/sites/host.sharepoint.com,SITEGUID,WEBGUID/drives/b!DRIVE/items/ROOTITEM:/__dw_diagnostic_probe_does_not_exist__" in current_urls
-    lookup = [s for s in result["current"]["steps"] if "nonexistent" in s["step"]][0]
+    result = diag.run_probe(_tok(), control_sharing_url=CONTROL_URL)
+    cur, ctl = result["current_target"], result["control_target"]
+    assert cur["item_id"] == "ROOTITEM" and ctl["item_id"] == "CTRLITEM" and ctl["drive_id"] == "b!CTRLDRIVE" and ctl["site_id"] == "danwor.sharepoint.com,CTRLSITE,CTRLWEB"
+    assert ctl["site_path"] == "Operaciones-IniciativasOperacionesDanworTransversal" and ctl["hostname"] == "danwor.sharepoint.com" and ctl["is_folder"] is True
+    urls = [u.split("?", 1)[0] for u in fake.urls]
+    assert "https://graph.microsoft.com/v1.0/sites/host.sharepoint.com,SITEGUID,WEBGUID/drives/b!DRIVE/items/ROOTITEM" in urls                  # MISMA forma que `_drive_items_base`
+    assert "https://graph.microsoft.com/v1.0/sites/host.sharepoint.com,SITEGUID,WEBGUID/drives/b!DRIVE/items/ROOTITEM:/__dw_diagnostic_probe_does_not_exist__" in urls
+    assert "https://graph.microsoft.com/v1.0/drives/b!DRIVE/items/ROOTITEM/permissions" in urls                                                    # GET /drives/{drive}/items/{item}/permissions
+    assert "https://graph.microsoft.com/v1.0/drives/b!CTRLDRIVE/items/CTRLITEM/permissions" in urls
+    lookup = [s for s in cur["steps"] if "nonexistent" in s["step"]][0]
     assert lookup["status"] == 404 and lookup["code"] == "itemNotFound" and lookup["ok"] is False
-    assert result["current"]["grants"]["hub_app_has_grant"] is True and result["current"]["grants"]["other_grants_count"] == 1
-    assert "someone@danwor.com" not in json.dumps(result)                                     # no se vuelcan correos de usuarios
-    assert SECRET_TOKEN not in json.dumps(result) and "access_token" not in json.dumps(result)
-    assert "?" not in "".join(s["endpoint"] for s in result["current"]["steps"] + result["control"]["steps"])   # endpoints sanitizados
+    assert cur["read_status"] == {"site": 200, "drive": 200, "folder_metadata": 200, "children_top1": 200}
+    assert result["app_grants"]["current"]["permission_id"] == "perm-ROOTITEM" and result["app_grants"]["control"]["roles"] == ["write"]
+    blob = json.dumps(result)
+    assert "someone@danwor.com" not in blob and "Someone" not in blob and "access_token" not in blob and _tok() not in blob
+    assert "?" not in "".join(s["endpoint"] for s in cur["steps"] + ctl["steps"])
 
 
-def test_probe_reports_the_exact_failing_level_and_missing_grant_visibility(monkeypatch):
-    monkeypatch.setattr(microsoft365, "graph_get_json", _FakeGraph(fail_permissions=True))
-    monkeypatch.setattr(diag, "token_claims_summary", lambda t: {"decodable": True})
-    res = diag.run_probe(SECRET_TOKEN)
-    perm = [s for s in res["current"]["steps"] if s["step"].endswith("item_permissions")][0]
-    assert perm["status"] == 403 and perm["code"] == "accessDenied" and res["current"]["grants"] is None and res["control"] is None
+@pytest.mark.parametrize("scp,cur_roles,ctl_roles,unreadable,control_url,case", [
+    ("User.Read Sites.Read.All", ("write",), ("write",), (), CONTROL_URL, "C"),                         # sin scope Selected: primero consentimiento/token
+    (SCOPES_OK, (), ("write",), (), CONTROL_URL, "A"),                                                  # scope sí, carpeta actual sin grant
+    (SCOPES_OK, ("read",), ("write",), (), CONTROL_URL, "A"),                                           # grant read ≠ write
+    (SCOPES_OK, ("write",), (), (), "", "B"),                                                           # grant write en la actual, control no evaluado: el problema está más abajo
+    (SCOPES_OK, ("write",), (), (), CONTROL_URL, "D"),                                                  # actual sí, control no
+    (SCOPES_OK, ("write",), ("write",), (), CONTROL_URL, "E"),                                          # ambos
+    (SCOPES_OK, ("write",), ("write",), ("ROOTITEM",), CONTROL_URL, "?"),                               # permissions de la actual no legibles: no se afirma nada
+])
+def test_next_step_follows_the_owner_decision_matrix(monkeypatch, scp, cur_roles, ctl_roles, unreadable, control_url, case):
+    monkeypatch.setattr(microsoft365, "graph_get_json", _FakeGraph(current_roles=cur_roles, control_roles=ctl_roles, unreadable=unreadable))
+    assert diag.run_probe(_tok(scp), control_sharing_url=control_url)["next_step"]["case"] == case
+
+
+def test_unreadable_permissions_are_reported_as_such_not_as_a_missing_grant(monkeypatch):
+    monkeypatch.setattr(microsoft365, "graph_get_json", _FakeGraph(unreadable=("ROOTITEM",)))
+    res = diag.run_probe(_tok())
+    perm = [s for s in res["current_target"]["steps"] if s["step"].endswith("item_permissions")][0]
+    assert perm["status"] == 403 and perm["code"] == "accessDenied"
+    assert res["current_target"]["app_grant"]["found"] is None and res["control_target"] is None
 
 
 def test_probe_rejects_a_control_link_outside_sharepoint_without_calling_graph(monkeypatch):
     fake = _FakeGraph()
     monkeypatch.setattr(microsoft365, "graph_get_json", fake)
-    monkeypatch.setattr(diag, "token_claims_summary", lambda t: {"decodable": True})
-    res = diag.run_probe(SECRET_TOKEN, control_sharing_url="http://evil.example.com/x")
-    assert "sharepoint.com" in res["control"]["error"] and not any("/shares/" in u for u in fake.urls)
+    res = diag.run_probe(_tok(), control_sharing_url="http://evil.example.com/x")
+    assert "sharepoint.com" in res["control_target"]["error"] and not any("/shares/" in u for u in fake.urls)
 
 
 def test_sharing_id_follows_the_documented_graph_encoding():
@@ -232,6 +277,9 @@ def test_probe_route_requires_a_token_and_never_echoes_it_back(monkeypatch):
     owner = _client(OWNER, monkeypatch)
     r = owner.post("/cchh/diagnostico/sharepoint/sonda", data={"graph_token": ""})
     assert r.status_code == 400 and r.headers["cache-control"] == "no-store"
-    r = owner.post("/cchh/diagnostico/sharepoint/sonda", data={"graph_token": SECRET_TOKEN, "control_url": ""})
+    tok = _tok()
+    r = owner.post("/cchh/diagnostico/sharepoint/sonda", data={"graph_token": tok, "control_url": ""})
     assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
-    assert SECRET_TOKEN not in r.text and r.json()["ok"] is True and r.json()["control"] is None
+    body = r.json()
+    assert tok not in r.text and body["ok"] is True and body["control_target"] is None and body["token"]["client_application_id"] == APP_ID
+    assert body["next_step"]["case"] == "B" and set(body) == {"ok", "token", "current_target", "control_target", "app_grants", "next_step"}

@@ -46,6 +46,7 @@
             </div>
           </form>
           <p class="field-hint" id="dw-sp-status" role="status"></p>
+          <div class="hc-profile-form__actions" id="dw-sp-copy-row" hidden><button type="button" class="btn-secondary" id="dw-sp-copy">Copiar JSON</button></div>
           <pre class="admin-result-output" id="dw-sp-output" hidden></pre>
         </div>
       </details>
@@ -58,10 +59,14 @@
   var out = document.getElementById("dw-sp-output");
   var status = document.getElementById("dw-sp-status");
   var btn = document.getElementById("dw-sp-run");
-  function show(obj) { out.hidden = false; out.textContent = JSON.stringify(obj, null, 2); }
+  var copyRow = document.getElementById("dw-sp-copy-row");
+  function show(obj) { out.hidden = false; out.textContent = JSON.stringify(obj, null, 2); copyRow.hidden = false; }
+  document.getElementById("dw-sp-copy").addEventListener("click", function () {
+    if (navigator.clipboard && out.textContent) navigator.clipboard.writeText(out.textContent).then(function () { status.textContent = "JSON copiado (no contiene token ni usuarios)."; });
+  });
   form.addEventListener("submit", async function (ev) {
     ev.preventDefault();
-    btn.disabled = true; out.hidden = true;
+    btn.disabled = true; out.hidden = true; copyRow.hidden = true;
     status.textContent = "Obteniendo token de Microsoft 365…";
     try {
       // MISMO token del uploader: scopes base + HC_DOCUMENT_WRITE_SCOPE (puede abrir el popup de consentimiento; este submit ES el gesto del usuario).
