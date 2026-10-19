@@ -138,19 +138,61 @@ def _application_grants(items: list[dict]) -> list[dict]:
     return grants
 
 
-def app_grant_for(client_application_id: str | None, permissions: list[dict] | None) -> dict:
-    """Busca el grant cuyo `application.id` == el id de aplicación del TOKEN. `found: None` si los permissions no se pudieron leer (no es lo mismo que «no hay grant»)."""
+def _caller_identity(token: str) -> tuple[str, set[str]]:
+    """Identidad del llamador, usada SÓLO internamente para reconocer su propia entrada en `/permissions`. Nunca se devuelve ni se registra."""
+    try:
+        payload = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode("utf-8"))
+    except Exception:  # noqa: BLE001
+        return "", set()
+    names = {str(claims.get(k)).lower() for k in ("upn", "preferred_username", "unique_name", "email") if claims.get(k)}
+    return str(claims.get("oid") or "").lower(), names
+
+
+def _caller_is_item_owner(permissions: list[dict], token: str) -> bool:
+    """Graph documenta que `GET .../permissions` lista TODOS los permisos sólo si el llamador es owner/co-owner del item; si no, sólo los que le aplican a él. Se considera demostrado
+    ÚNICAMENTE si la propia entrada del llamador (por oid o por UPN/correo) trae el rol `owner`. NO se infiere de HTTP 200, de ser admin del sitio ni de `Sites.Read.All`."""
+    oid, names = _caller_identity(token)
+    if not (oid or names):
+        return False
+    for perm in permissions:
+        if "owner" not in [str(r).lower() for r in (perm.get("roles") or [])]:
+            continue
+        identities = [i for i in [perm.get("grantedToV2"), perm.get("grantedTo")] + list(perm.get("grantedToIdentitiesV2") or []) + list(perm.get("grantedToIdentities") or []) if isinstance(i, dict)]
+        for ident in identities:
+            user = ident.get("user")
+            if isinstance(user, dict) and ((oid and str(user.get("id") or "").lower() == oid) or str(user.get("email") or "").lower() in names):
+                return True
+    return False
+
+
+def app_grant_for(client_application_id: str | None, permissions: list[dict] | None, token: str = "", permissions_status=None, permissions_error: str | None = None) -> dict:
+    """Evidencia del grant EXPLÍCITO de la aplicación sobre el item (permiso «Selected»: el acceso del usuario/admin al sitio NO es evidencia).
+
+    `app_grant_state`:
+      - PRESENT: se encontró un grant cuyo `application.id` == el id de aplicación del token (evidencia positiva: vale aunque la enumeración sea parcial).
+      - ABSENT: no se encontró Y la enumeración es AUTORITATIVA (el llamador es owner/co-owner del item, demostrado por su propia entrada con rol `owner`).
+      - UNKNOWN: no se encontró pero la enumeración NO es autoritativa (un llamador no-owner sólo recibe los permisos que le aplican) o `/permissions` no se pudo leer.
+    `app_grant_found` es sólo «lo vimos»: `false` NO significa ausencia salvo que `app_grant_state == "ABSENT"`."""
+    base = {"permissions_status": permissions_status, "app_grant_found": False, "application_id": None, "roles": [], "permission_id": None, "has_write_role": False,
+            "enumeration_authoritative": False, "enumeration_reason": None, "app_grant_state": "UNKNOWN", "other_application_grants": []}
     if permissions is None:
-        return {"found": None, "reason": "permissions no legibles con este token/usuario"}
+        base["enumeration_reason"] = f"GET /permissions falló ({permissions_error or permissions_status}): no se puede afirmar presencia ni ausencia del grant."
+        return base
     wanted = str(client_application_id or "").lower()
     grants = _application_grants(permissions)
     mine = [g for g in grants if str(g["application_id"]).lower() == wanted] if wanted else []
-    return {
-        "found": bool(mine), "application_id": mine[0]["application_id"] if mine else None,
-        "roles": sorted({r for g in mine for r in g["roles"]}), "permission_id": mine[0]["permission_id"] if mine else None,
-        "has_write_role": any(set(g["roles"]) & _WRITE_ROLES for g in mine),
-        "other_application_grants": [g for g in grants if g not in mine],          # grants a OTRAS aplicaciones (p. ej. un app registration distinto): sólo id/nombre/roles
-    }
+    owner = _caller_is_item_owner(permissions, token)
+    base["enumeration_authoritative"] = owner
+    base["enumeration_reason"] = ("El llamador figura como owner del item en su propia entrada: Graph devuelve todos los permisos." if owner else
+                                  "No se pudo demostrar que el llamador sea owner/co-owner del item: Graph, para un no-owner, devuelve sólo los permisos que le aplican (200 + sin grant ≠ ausente).")
+    base["other_application_grants"] = [g for g in grants if g not in mine]
+    if mine:
+        base.update({"app_grant_found": True, "application_id": mine[0]["application_id"], "roles": sorted({r for g in mine for r in g["roles"]}),
+                     "permission_id": mine[0]["permission_id"], "has_write_role": any(set(map(str.lower, g["roles"])) & _WRITE_ROLES for g in mine), "app_grant_state": "PRESENT"})
+    elif owner:
+        base["app_grant_state"] = "ABSENT"
+    return base
 
 
 def _read_permissions(drive_id: str, item_id: str, token: str) -> tuple[dict, list[dict] | None]:
@@ -190,7 +232,7 @@ def probe_target(label: str, site_id: str, drive_id: str, item_id: str, token: s
     return {"label": label, "site_id": site_id, "drive_id": drive_id, "item_id": item_id,
             "folder": {"name": (item or {}).get("name"), "web_url": (item or {}).get("webUrl")},
             "read_status": {s["step"].split(":", 1)[1]: s.get("status") for s in read_steps},
-            "app_grant": app_grant_for(client_application_id, permissions), "steps": steps}
+            "app_grant": app_grant_for(client_application_id, permissions, token, perm_record.get("status"), perm_record.get("code") or perm_record.get("reason")), "steps": steps}
 
 
 def sharing_id(sharing_url: str) -> str:
@@ -216,24 +258,31 @@ def current_target() -> dict:
 
 
 def decision_case(token: dict, current: dict | None, control: dict | None) -> dict:
-    """Caso A–E de la matriz de decisión (calculado; evidencia, no autoridad). Sin escribir nada."""
+    """Caso A–E (o INDETERMINADO) de la matriz del owner. La AUSENCIA de un grant sólo se afirma si `app_grant_state == "ABSENT"` (enumeración autoritativa); PRESENT es evidencia positiva
+    siempre. Calculado como ayuda: la decisión es del owner. Sin escribir nada."""
     if not token.get("decodable"):
-        return {"case": "?", "why": "El token no se pudo decodificar."}
+        return {"case": "INDETERMINADO", "why": "El token no se pudo decodificar."}
     if not token.get("files_selectedoperations_selected_present"):
         return {"case": "C", "why": "El token NO trae Files.SelectedOperations.Selected: primero resolver consentimiento/adquisición del token; no tocar grants todavía."}
     cur = (current or {}).get("app_grant") or {}
-    if cur.get("found") is None:
-        return {"case": "?", "why": "No se pudieron leer los permissions de la carpeta actual (ver el paso item_permissions): no se puede afirmar presencia ni ausencia del grant."}
+    state = cur.get("app_grant_state")
+    if state == "ABSENT":
+        return {"case": "A", "why": "Scope presente y carpeta actual SIN grant de la aplicación, con enumeración autoritativa (el llamador es owner del item)."}
+    if state != "PRESENT":
+        return {"case": "INDETERMINADO", "why": "Scope presente pero la existencia del grant en la carpeta actual no se pudo establecer (enumeración no autoritativa o /permissions ilegible): no elegir A."}
     if not cur.get("has_write_role"):
-        return {"case": "A", "why": "El token trae el scope Selected pero la carpeta actual NO tiene grant de aplicación con rol write para este application id."}
+        if cur.get("enumeration_authoritative"):
+            return {"case": "A", "why": "La carpeta actual tiene grant de la aplicación pero SIN rol write (enumeración autoritativa)."}
+        return {"case": "INDETERMINADO", "why": "Hay grant visible sin rol write, pero la enumeración no es autoritativa (podría existir otro con write): no elegir A."}
     if control is None:
-        return {"case": "B", "why": "Scope presente y grant write en la carpeta actual: el problema está más abajo (reproducir el upload con instrumentación). Control no evaluado."}
+        return {"case": "B", "why": "Scope presente y grant write encontrado en la carpeta actual: el problema está más abajo; reproducir el upload actual con instrumentación (status/code/message). Control no evaluado."}
     ctl = control.get("app_grant") or {}
-    if ctl.get("found") is None:
-        return {"case": "?", "why": "Carpeta actual con grant write, pero no se pudieron leer los permissions de la carpeta de control."}
-    if not ctl.get("has_write_role"):
-        return {"case": "D", "why": "La carpeta actual tiene grant write y la de control no: NO comparar uploads; primero darle a control un grant equivalente."}
-    return {"case": "E", "why": "Ambas carpetas tienen grant write de la aplicación: el A/B de upload es válido."}
+    cstate = ctl.get("app_grant_state")
+    if cstate == "PRESENT" and ctl.get("has_write_role"):
+        return {"case": "E", "why": "Ambas carpetas tienen grant write de la aplicación: el A/B de upload es válido."}
+    if cstate == "ABSENT" or (cstate == "PRESENT" and ctl.get("enumeration_authoritative")):
+        return {"case": "D", "why": "La carpeta actual tiene grant write y la de control no (con evidencia autoritativa): NO comparar uploads; primero darle a control un grant equivalente."}
+    return {"case": "INDETERMINADO", "why": "Carpeta actual con grant write, pero el grant de la carpeta de control no se pudo establecer con evidencia suficiente (D/E no aplican todavía)."}
 
 
 def run_probe(token: str, *, control_sharing_url: str = "") -> dict:

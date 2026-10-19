@@ -98,18 +98,38 @@ def test_token_claims_summary_exposes_only_aud_tid_app_id_and_scopes_and_flags_t
     assert diag.token_claims_summary("not-a-jwt") == {"decodable": False}
 
 
-def test_app_grant_for_matches_only_the_token_application_id_and_distinguishes_unreadable_from_absent():
+def test_app_grant_for_matches_only_the_token_application_id_and_never_calls_a_partial_enumeration_absent():
     perms = [{"id": "perm-1", "roles": ["write"], "grantedToV2": {"application": {"id": "AAAA-1111", "displayName": "Danwor Hub"}}},
              {"id": "perm-2", "roles": ["read"], "grantedToIdentitiesV2": [{"application": {"id": "other-app", "displayName": "Otra app"}}]},
              {"id": "perm-3", "roles": ["owner"], "grantedToV2": {"user": {"displayName": "Someone", "email": "someone@danwor.com"}}}]
-    g = diag.app_grant_for("aaaa-1111", perms)
-    assert g["found"] is True and g["roles"] == ["write"] and g["permission_id"] == "perm-1" and g["has_write_role"] is True and g["application_id"] == "AAAA-1111"
+    g = diag.app_grant_for("aaaa-1111", perms, _tok(), 200)
+    assert g["app_grant_found"] is True and g["app_grant_state"] == "PRESENT" and g["roles"] == ["write"] and g["permission_id"] == "perm-1" and g["has_write_role"] is True
+    assert g["permissions_status"] == 200 and g["application_id"] == "AAAA-1111"
     assert [o["application_id"] for o in g["other_application_grants"]] == ["other-app"]
     assert "someone@danwor.com" not in json.dumps(g) and "Someone" not in json.dumps(g)                      # usuarios/grupos: ni se devuelven ni se cuentan
-    read_only = diag.app_grant_for("other-app", perms)
-    assert read_only["found"] is True and read_only["has_write_role"] is False
-    assert diag.app_grant_for("nobody", perms)["found"] is False
-    assert diag.app_grant_for("aaaa-1111", None)["found"] is None                                           # permissions no legibles ≠ «sin grant»
+    assert diag.app_grant_for("other-app", perms, _tok(), 200)["has_write_role"] is False
+    # Llamador owner (su propia entrada trae `owner`) → la enumeración es autoritativa → ausencia demostrada.
+    absent = diag.app_grant_for("nobody", perms, _tok(), 200)
+    assert absent["app_grant_found"] is False and absent["enumeration_authoritative"] is True and absent["app_grant_state"] == "ABSENT"
+
+
+def test_a_non_owner_caller_gets_unknown_not_absent_even_with_http_200():
+    only_applicable_to_me = [{"id": "p", "roles": ["read"], "grantedToV2": {"user": {"email": "someone@danwor.com"}}}]                # el llamador figura, pero NO como owner
+    g = diag.app_grant_for(APP_ID, only_applicable_to_me, _tok(), 200)
+    assert g["app_grant_found"] is False and g["enumeration_authoritative"] is False and g["app_grant_state"] == "UNKNOWN"
+    assert "no-owner" in g["enumeration_reason"] or "no se pudo demostrar" in g["enumeration_reason"].lower()
+    assert diag.app_grant_for(APP_ID, [], _tok(), 200)["app_grant_state"] == "UNKNOWN"                                           # lista vacía + sin owner demostrado
+    other_owner = [{"id": "p", "roles": ["owner"], "grantedToV2": {"user": {"email": "alguien-mas@danwor.com"}}}]               # el owner es OTRA persona
+    assert diag.app_grant_for(APP_ID, other_owner, _tok(), 200)["enumeration_authoritative"] is False
+    assert diag.app_grant_for(APP_ID, [], _fake_jwt({"scp": "x"}), 200)["app_grant_state"] == "UNKNOWN"                           # token sin identidad: nunca autoritativa
+    by_oid = [{"id": "p", "roles": ["owner"], "grantedToV2": {"user": {"id": "OBJ-1"}}}]
+    assert diag.app_grant_for(APP_ID, by_oid, _fake_jwt({"oid": "obj-1", "scp": "x"}), 200)["enumeration_authoritative"] is True
+
+
+def test_unreadable_permissions_are_unknown_with_status_and_reason():
+    g = diag.app_grant_for(APP_ID, None, _tok(), 403, "accessDenied")
+    assert g["permissions_status"] == 403 and g["app_grant_found"] is False and g["app_grant_state"] == "UNKNOWN" and g["enumeration_authoritative"] is False
+    assert "accessDenied" in g["enumeration_reason"]
 
 
 # ── el uploader no cambia: mismas excepciones/mensajes, ahora con log ────────
@@ -164,12 +184,14 @@ def test_put_non_403_is_still_unconfirmed_and_retried_once_but_each_attempt_logs
 # ── sonda: sólo GET, mismas formas de URL que el uploader ───────────────────
 
 class _FakeGraph:
-    """Responde por URL; registra cada llamada. Sólo `graph_get_json` está parcheado: cualquier POST/PUT/DELETE a Graph usaría el transporte real y haría fallar el test."""
+    """Responde por URL; registra cada llamada. Sólo `graph_get_json` está parcheado: cualquier POST/PUT/DELETE a Graph usaría el transporte real y haría fallar el test.
+    `owner_on`: items donde la propia entrada del llamador trae rol `owner` (enumeración autoritativa); en el resto sólo figura como lector."""
 
-    def __init__(self, current_roles=("write",), control_roles=("write",), unreadable=()):
+    def __init__(self, current_roles=("write",), control_roles=("write",), unreadable=(), owner_on=("ROOTITEM", "CTRLITEM")):
         self.urls: list[str] = []
         self.roles = {"ROOTITEM": current_roles, "CTRLITEM": control_roles}
         self.unreadable = set(unreadable)
+        self.owner_on = set(owner_on)
 
     def __call__(self, url, token, **kw):
         assert token.count(".") == 2
@@ -182,7 +204,8 @@ class _FakeGraph:
             item = path.rsplit("/items/", 1)[1].split("/", 1)[0]
             if item in self.unreadable:
                 raise _http_error(403, _graph_body("accessDenied", "need FullControl"))
-            perms = [{"id": "u-1", "roles": ["owner"], "grantedToV2": {"user": {"displayName": "Someone", "email": "someone@danwor.com"}}}]
+            me_roles = ["owner"] if item in self.owner_on else ["read"]
+            perms = [{"id": "u-1", "roles": me_roles, "grantedToV2": {"user": {"displayName": "Someone", "email": "someone@danwor.com"}}}]
             if self.roles.get(item):
                 perms.append({"id": f"perm-{item}", "roles": list(self.roles[item]), "grantedToV2": {"application": {"id": APP_ID, "displayName": "Danwor Hub"}}})
             return {"value": perms}
@@ -206,23 +229,28 @@ def test_probe_runs_only_gets_uses_the_uploader_url_shapes_and_the_requested_per
     lookup = [s for s in cur["steps"] if "nonexistent" in s["step"]][0]
     assert lookup["status"] == 404 and lookup["code"] == "itemNotFound" and lookup["ok"] is False
     assert cur["read_status"] == {"site": 200, "drive": 200, "folder_metadata": 200, "children_top1": 200}
-    assert result["app_grants"]["current"]["permission_id"] == "perm-ROOTITEM" and result["app_grants"]["control"]["roles"] == ["write"]
+    gc, gk = result["app_grants"]["current"], result["app_grants"]["control"]
+    assert gc["permission_id"] == "perm-ROOTITEM" and gk["roles"] == ["write"] and gc["permissions_status"] == 200 and gc["enumeration_authoritative"] is True
+    assert set(gc) >= {"permissions_status", "app_grant_found", "enumeration_authoritative", "enumeration_reason", "app_grant_state"}
     blob = json.dumps(result)
     assert "someone@danwor.com" not in blob and "Someone" not in blob and "access_token" not in blob and _tok() not in blob
     assert "?" not in "".join(s["endpoint"] for s in cur["steps"] + ctl["steps"])
 
 
-@pytest.mark.parametrize("scp,cur_roles,ctl_roles,unreadable,control_url,case", [
-    ("User.Read Sites.Read.All", ("write",), ("write",), (), CONTROL_URL, "C"),                         # sin scope Selected: primero consentimiento/token
-    (SCOPES_OK, (), ("write",), (), CONTROL_URL, "A"),                                                  # scope sí, carpeta actual sin grant
-    (SCOPES_OK, ("read",), ("write",), (), CONTROL_URL, "A"),                                           # grant read ≠ write
-    (SCOPES_OK, ("write",), (), (), "", "B"),                                                           # grant write en la actual, control no evaluado: el problema está más abajo
-    (SCOPES_OK, ("write",), (), (), CONTROL_URL, "D"),                                                  # actual sí, control no
-    (SCOPES_OK, ("write",), ("write",), (), CONTROL_URL, "E"),                                          # ambos
-    (SCOPES_OK, ("write",), ("write",), ("ROOTITEM",), CONTROL_URL, "?"),                               # permissions de la actual no legibles: no se afirma nada
+@pytest.mark.parametrize("scp,cur_roles,ctl_roles,unreadable,owner_on,control_url,case", [
+    ("User.Read Sites.Read.All", ("write",), ("write",), (), ("ROOTITEM", "CTRLITEM"), CONTROL_URL, "C"),               # sin scope Selected: primero consentimiento/token
+    (SCOPES_OK, (), ("write",), (), ("ROOTITEM", "CTRLITEM"), CONTROL_URL, "A"),                                       # sin grant + enumeración AUTORITATIVA → ausente → A
+    (SCOPES_OK, (), ("write",), (), ("CTRLITEM",), CONTROL_URL, "INDETERMINADO"),                                      # 200 + grant no visible + NO autoritativa → no elegir A
+    (SCOPES_OK, ("read",), ("write",), (), ("ROOTITEM", "CTRLITEM"), CONTROL_URL, "A"),                                # grant read (autoritativo) ≠ write
+    (SCOPES_OK, ("read",), ("write",), (), ("CTRLITEM",), CONTROL_URL, "INDETERMINADO"),                               # grant read visible, no autoritativa: podría haber otro con write
+    (SCOPES_OK, ("write",), (), (), (), "", "B"),                                                                       # grant write encontrado (evidencia positiva, aun sin autoridad) → B
+    (SCOPES_OK, ("write",), (), (), ("ROOTITEM", "CTRLITEM"), CONTROL_URL, "D"),                                        # actual sí; control ausente con evidencia autoritativa → D
+    (SCOPES_OK, ("write",), (), (), ("ROOTITEM",), CONTROL_URL, "INDETERMINADO"),                                      # control sin grant visible y no autoritativa → ni D ni E
+    (SCOPES_OK, ("write",), ("write",), (), (), CONTROL_URL, "E"),                                                      # ambos con write encontrado → E
+    (SCOPES_OK, ("write",), ("write",), ("ROOTITEM",), ("ROOTITEM", "CTRLITEM"), CONTROL_URL, "INDETERMINADO"),        # permissions de la actual ilegibles: no se afirma nada
 ])
-def test_next_step_follows_the_owner_decision_matrix(monkeypatch, scp, cur_roles, ctl_roles, unreadable, control_url, case):
-    monkeypatch.setattr(microsoft365, "graph_get_json", _FakeGraph(current_roles=cur_roles, control_roles=ctl_roles, unreadable=unreadable))
+def test_next_step_follows_the_owner_decision_matrix_without_treating_partial_enumeration_as_absence(monkeypatch, scp, cur_roles, ctl_roles, unreadable, owner_on, control_url, case):
+    monkeypatch.setattr(microsoft365, "graph_get_json", _FakeGraph(current_roles=cur_roles, control_roles=ctl_roles, unreadable=unreadable, owner_on=owner_on))
     assert diag.run_probe(_tok(scp), control_sharing_url=control_url)["next_step"]["case"] == case
 
 
@@ -231,7 +259,9 @@ def test_unreadable_permissions_are_reported_as_such_not_as_a_missing_grant(monk
     res = diag.run_probe(_tok())
     perm = [s for s in res["current_target"]["steps"] if s["step"].endswith("item_permissions")][0]
     assert perm["status"] == 403 and perm["code"] == "accessDenied"
-    assert res["current_target"]["app_grant"]["found"] is None and res["control_target"] is None
+    g = res["current_target"]["app_grant"]
+    assert g["permissions_status"] == 403 and g["app_grant_found"] is False and g["app_grant_state"] == "UNKNOWN" and g["enumeration_authoritative"] is False
+    assert res["control_target"] is None
 
 
 def test_probe_rejects_a_control_link_outside_sharepoint_without_calling_graph(monkeypatch):

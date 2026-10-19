@@ -45,6 +45,7 @@
               <button type="submit" class="btn-primary" id="dw-sp-run">Ejecutar sonda de lectura</button>
             </div>
           </form>
+          <p class="field-hint">Cómo leerlo: <code>app_grant_state</code> = PRESENT (se vio el grant de la app), ABSENT (no está y la enumeración es autoritativa: el llamador es owner del item) o UNKNOWN (no se vio, pero Graph a un no-owner sólo le muestra los permisos que le aplican: <strong>no es evidencia de ausencia</strong>).</p>
           <p class="field-hint" id="dw-sp-status" role="status"></p>
           <div class="hc-profile-form__actions" id="dw-sp-copy-row" hidden><button type="button" class="btn-secondary" id="dw-sp-copy">Copiar JSON</button></div>
           <pre class="admin-result-output" id="dw-sp-output" hidden></pre>
