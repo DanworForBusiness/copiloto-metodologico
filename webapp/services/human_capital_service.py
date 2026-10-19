@@ -990,7 +990,10 @@ def list_onboardings_view() -> list[dict]:
     return [onboarding_view(o) for o in list_onboardings()]
 
 
-ONBOARDING_SIN_AREA = "__sin_area__"        # valor del filtro Área para las filas SIN área (no es una taxonomía: es la ausencia de valor)
+SIN_AREA = "__sin_area__"                  # valor de un filtro Área para las filas SIN área (no es una taxonomía: es la ausencia de valor)
+ONBOARDING_SIN_AREA = SIN_AREA
+ENTREVISTA_SIN_ORIGEN = "__sin_origen__"   # ídem para Origen / Puesto en el listado de Entrevistas
+ENTREVISTA_SIN_PUESTO = "__sin_puesto__"
 
 
 def _onboarding_search_haystack(row: dict) -> str:
@@ -1027,6 +1030,36 @@ def filter_onboardings(rows: list[dict], *, estado: str = "todos", area: str = "
         if wanted_q and wanted_q not in _onboarding_search_haystack(row):
             continue
         out.append(row)
+    return out
+
+
+def _entrevista_search_haystack(row: dict) -> str:
+    """Texto sobre el que busca el campo Buscar del listado de Entrevistas: el contenido VISIBLE de la fila (candidato, origen, puesto, área, fecha de entrevista en DD-MM-YYYY y ISO,
+    modalidad, remuneración y la marca «No concretada»). Nunca ids técnicos. MISMA normalización que Candidatos/Onboarding."""
+    profile = row.get("profile") or {}
+    fecha = row.get("fecha_entrevista") or ""
+    parts = fecha.split("-")
+    fecha_dmy = "-".join(reversed(parts)) if len(parts) == 3 else fecha
+    values = [f"{profile.get('first_name') or ''} {profile.get('last_name') or ''}", row.get("origen"), row.get("puesto_mostrado"), row.get("area"), fecha, fecha_dmy,
+              row.get("modalidad_contratacion"), row.get("remuneracion_pretendida"), None if row.get("concretada", True) else "No concretada"]
+    return " ".join(_normalize_text(v) for v in values if v)
+
+
+def filter_entrevistas(rows: list[dict], *, origen: str = "", puesto: str = "", area: str = "", q: str = "") -> list[dict]:
+    """AND entre Origen (igualdad EXACTA sobre el origen EFECTIVO de la fila = Profile.source; `ENTREVISTA_SIN_ORIGEN` = sin origen), Puesto (igualdad exacta sobre el puesto mostrado;
+    `ENTREVISTA_SIN_PUESTO` = sin puesto), Área (igualdad exacta, incluido un legacy fuera de catálogo; `SIN_AREA` = sin área) y Buscar (substring normalizado sobre
+    `_entrevista_search_haystack`). Un filtro vacío no restringe."""
+    def matches(value, wanted, sentinel):
+        effective = (value or "").strip()
+        if not wanted:
+            return True
+        return not effective if wanted == sentinel else effective == wanted
+    wanted_q = _normalize_text(q)
+    out = []
+    for row in rows:
+        if (matches(row.get("origen"), origen, ENTREVISTA_SIN_ORIGEN) and matches(row.get("puesto_mostrado"), puesto, ENTREVISTA_SIN_PUESTO)
+                and matches(row.get("area"), area, SIN_AREA) and (not wanted_q or wanted_q in _entrevista_search_haystack(row))):
+            out.append(row)
     return out
 
 

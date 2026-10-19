@@ -4,6 +4,39 @@
 {% if source_error %}
 <div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>{{ source_error }}</p></div>
 {% else %}
+{# Barra de filtros: MISMO primitivo que Candidatos/Onboarding (`.hc-profile-filters.filter-toolbar-card` + `.feedback-field`, `--auto` = ancho natural, `--wide` = Buscar ocupa el resto). Orden:
+   Origen · Puesto · Área · Buscar · ✕ Limpiar. Reactivo (HTMX): cada campo con su `hx-get` + `hx-include="closest form"`; los filtros se combinan con AND en el server ANTES de paginar;
+   `page_size` viaja oculto y `page` nunca (cualquier cambio vuelve a la página 1). #}
+<form class="hc-profile-filters filter-toolbar-card" hx-get="/cchh/entrevistas" hx-target="#hc-entrevistas-panel" hx-swap="outerHTML">
+  <input type="hidden" name="page_size" value="{{ pager.page_size }}">
+  <div class="feedback-field feedback-field--auto">
+    <label for="hc-entrevistas-origen">Origen</label>
+    <select id="hc-entrevistas-origen" name="origen" hx-get="/cchh/entrevistas" hx-target="#hc-entrevistas-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
+      <option value="" {% if not origen %}selected{% endif %}>Todos</option>
+      {% for opt in origen_options %}<option value="{{ opt.value }}" {% if origen == opt.value %}selected{% endif %}>{{ opt.label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="feedback-field feedback-field--auto">
+    <label for="hc-entrevistas-puesto">Puesto</label>
+    <select id="hc-entrevistas-puesto" name="puesto" hx-get="/cchh/entrevistas" hx-target="#hc-entrevistas-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
+      <option value="" {% if not puesto %}selected{% endif %}>Todos</option>
+      {% for opt in puesto_options %}<option value="{{ opt.value }}" {% if puesto == opt.value %}selected{% endif %}>{{ opt.label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="feedback-field feedback-field--auto">
+    <label for="hc-entrevistas-area">Área</label>
+    <select id="hc-entrevistas-area" name="area" hx-get="/cchh/entrevistas" hx-target="#hc-entrevistas-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
+      <option value="" {% if not area %}selected{% endif %}>Todas</option>
+      {% for opt in area_options %}<option value="{{ opt.value }}" {% if area == opt.value %}selected{% endif %}>{{ opt.label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="feedback-field feedback-field--wide">
+    <label for="hc-entrevistas-q">Buscar</label>
+    <input id="hc-entrevistas-q" name="q" type="text" value="{{ q or '' }}" placeholder="Candidato, origen, puesto, área, fecha, modalidad..." hx-get="/cchh/entrevistas" hx-target="#hc-entrevistas-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
+  </div>
+  <button type="button" class="whatsnew-filter__clear" hx-get="{{ pager.urls.reset }}" hx-target="#hc-entrevistas-panel" hx-swap="outerHTML">✕ Limpiar</button>
+</form>
+
 <div class="dashboard-sections" data-dashboard-key="cchh-entrevistas">
   <details class="dashboard-section" data-section-id="entrevistas" data-persist-collapse open>
     <summary class="dashboard-section__head" draggable="true">
@@ -12,7 +45,9 @@
       <span class="dashboard-section__count">{{ total_entrevistas }} entrevista{{ '' if total_entrevistas == 1 else 's' }}</span>
     </summary>
     <div class="dashboard-section__body">
-      {% if not entrevistas %}
+      {% if not entrevistas and dataset_has_any_entrevista %}
+      <div class="dashboard-empty" data-empty-kind="no_matches"><span class="dashboard-empty__label">Sin resultados</span><p>No se encontraron entrevistas para los filtros seleccionados.</p></div>
+      {% elif not entrevistas %}
       <div class="dashboard-empty" data-empty-kind="dataset_empty"><span class="dashboard-empty__label">Sin entrevistas</span><p>Todavía no hay entrevistas registradas. Se generan solas al mover un candidato a "Entrevista CCHH" en una Búsqueda, o cargalas a mano con "+ Nueva entrevista".</p></div>
       {% else %}
       {# Reorder + resize: MISMO primitivo compartido que Candidatos

@@ -1516,19 +1516,31 @@ def _entrevistas_shell(request, extra: dict) -> dict:
     }
 
 
-def _entrevistas_list_context(page=1, page_size=None) -> dict:
+def _entrevistas_list_context(origen: str = "", puesto: str = "", area: str = "", q: str = "", page=1, page_size=None) -> dict:
+    origen, puesto, area, q = (origen or "").strip(), (puesto or "").strip(), (area or "").strip(), (q or "").strip()
     entrevistas: list[dict] = []
     source_error: str | None = None
     try:
         entrevistas = human_capital_service.list_entrevistas_view()
     except entrevista_repository.EntrevistaStorageError as exc:
         source_error = str(exc)
-    entrevistas.sort(key=lambda e: e.get("created_at") or "", reverse=True)       # orden ANTES de paginar
-    pager = pagination.paginate(entrevistas, page=page, page_size=page_size, base_url="/cchh/entrevistas")
+    dataset_has_any = bool(entrevistas)
+    # Opciones de los tres desplegables sobre el dataset COMPLETO (no desaparecen al aplicar otros filtros). Origen = Profile.source (taxonomía gobernada `fuente`), Puesto = distintos presentes
+    # (no es catálogo), Área = `area_consultora`.
+    origen_options = _governed_filter_options("fuente", [e.get("origen") for e in entrevistas], origen, human_capital_service.ENTREVISTA_SIN_ORIGEN, "Sin origen")
+    puesto_options = _governed_filter_options(None, [e.get("puesto_mostrado") for e in entrevistas], puesto, human_capital_service.ENTREVISTA_SIN_PUESTO, "Sin puesto")
+    area_options = _governed_filter_options("area_consultora", [e.get("area") for e in entrevistas], area, human_capital_service.SIN_AREA, "Sin área")
+    entrevistas = human_capital_service.filter_entrevistas(entrevistas, origen=origen, puesto=puesto, area=area, q=q)      # filtros + búsqueda ANTES de paginar
+    entrevistas.sort(key=lambda e: e.get("created_at") or "", reverse=True)                                                # orden ANTES de paginar
+    pager = pagination.paginate(entrevistas, page=page, page_size=page_size, base_url="/cchh/entrevistas",
+                                params={"origen": origen, "puesto": puesto, "area": area, "q": q})
     return {
         "entrevistas": pager["items"],
-        "total_entrevistas": pager["total"],                                        # TOTAL (sin filtros en este listado), nunca el tamaño de la página
+        "total_entrevistas": pager["total"],                                        # TOTAL FILTRADO (contador del dashboard-section), nunca el tamaño de la página
+        "dataset_has_any_entrevista": dataset_has_any,
         "pager": pager,
+        "origen": origen, "puesto": puesto, "area": area, "q": q,
+        "origen_options": origen_options, "puesto_options": puesto_options, "area_options": area_options,
         "source_error": source_error,
     }
 
@@ -1583,11 +1595,12 @@ def _entrevista_form_from_request(fecha_entrevista, puesto_evaluado, area, modal
 
 
 @router.get("/cchh/entrevistas", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_entrevistas_page(request: Request, page: str = Query(""), page_size: str = Query("")):
+def human_capital_entrevistas_page(request: Request, origen: str = Query(""), puesto: str = Query(""), area: str = Query(""), q: str = Query(""),
+                                   page: str = Query(""), page_size: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    ctx = _entrevistas_list_context(page, page_size)
+    ctx = _entrevistas_list_context(origen, puesto, area, q, page, page_size)
     # Paginación (HTMX): sólo se re-renderiza el panel (`#hc-entrevistas-panel`), MISMO criterio de fragmento que Candidatos/Onboarding.
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
@@ -1780,17 +1793,25 @@ def _onboarding_shell(request, extra: dict) -> dict:
     }
 
 
-def _onboarding_area_filter_options(rows: list[dict], selected: str) -> list[dict]:
-    """Opciones del filtro Área: el catálogo GOBERNADO `area_consultora` (sin hardcodear), MÁS los valores legacy fuera de catálogo que existan en las filas (o el
-    seleccionado) para no ocultar nunca un registro legacy, MÁS «Sin área» si alguna fila no tiene. Un valor legacy se marca «(fuera de catálogo)»."""
-    active = human_capital_catalog_repository.catalog_values("area_consultora")
-    extra = sorted({(o.get("area") or "").strip() for o in rows if (o.get("area") or "").strip()} - set(active))
-    if selected and selected != human_capital_service.ONBOARDING_SIN_AREA and selected not in active and selected not in extra:
+def _governed_filter_options(catalog_name: str | None, values: list, selected: str, sentinel: str, sin_label: str) -> list[dict]:
+    """Opciones de un filtro de listado SOBRE EL DATASET COMPLETO (no desaparecen al filtrar): el catálogo GOBERNADO `catalog_name` (si lo hay; sin hardcodear), MÁS los valores presentes
+    en las filas que ya no están en el catálogo (legacy, marcados «(fuera de catálogo)» SOLO cuando hay catálogo) o el valor seleccionado, MÁS «Sin …» si alguna fila no tiene valor.
+    Sin catálogo (p. ej. Puesto) son los valores distintos presentes, en orden estable (case-insensitive)."""
+    active = human_capital_catalog_repository.catalog_values(catalog_name) if catalog_name else []
+    present = sorted({(v or "").strip() for v in values if (v or "").strip()}, key=lambda x: (x.casefold(), x))
+    extra = [v for v in present if v not in active]
+    if selected and selected != sentinel and selected not in active and selected not in extra:
         extra.append(selected)
-    options = [{"value": a, "label": a} for a in active] + [{"value": a, "label": f"{a} (fuera de catálogo)"} for a in extra]
-    if any(not (o.get("area") or "").strip() for o in rows) or selected == human_capital_service.ONBOARDING_SIN_AREA:
-        options.append({"value": human_capital_service.ONBOARDING_SIN_AREA, "label": "Sin área"})
+    tag = " (fuera de catálogo)" if catalog_name else ""
+    options = [{"value": a, "label": a} for a in active] + [{"value": a, "label": f"{a}{tag}"} for a in extra]
+    if any(not (v or "").strip() for v in values) or selected == sentinel:
+        options.append({"value": sentinel, "label": sin_label})
     return options
+
+
+def _onboarding_area_filter_options(rows: list[dict], selected: str) -> list[dict]:
+    """Filtro Área de Onboarding: catálogo gobernado `area_consultora` + legacy presentes + «Sin área» (ver `_governed_filter_options`)."""
+    return _governed_filter_options("area_consultora", [o.get("area") for o in rows], selected, human_capital_service.SIN_AREA, "Sin área")
 
 
 def _onboarding_list_context(estado: str = "todos", area: str = "", q: str = "", page=1, page_size=None) -> dict:
