@@ -303,7 +303,8 @@ def test_the_filter_bar_reuses_the_shared_toolbar_in_the_requested_order_and_cle
     assert bar.count('hx-include="closest form"') == 3 and 'hx-trigger="keyup changed delay:500ms"' in bar and 'name="page_size" value="100"' in bar and 'name="page"' not in bar
     assert re.findall(r'class="whatsnew-filter__clear" hx-get="([^"]+)"', bar) == ["/cchh/publicaciones?page_size=100"]
     css = (Path(__import__("webapp").__file__).parent / "static" / "human_capital.css").read_text(encoding="utf-8")
-    assert "publicaciones" not in css                                                                           # cero CSS propio de Publicaciones
+    own = re.sub(r"/\*.*?\*/", "", css, flags=re.S).replace(".module-hero + #hc-publicaciones-panel", "")            # la ÚNICA mención es el respiro hero → primer componente (24px) compartido con las otras secciones
+    assert "publicaciones" not in own                                                                           # cero CSS propio de Publicaciones
 
 
 # ── estándar de tabla: paginación / return_to ────────────────────────────────
