@@ -244,6 +244,24 @@ Taxonomía de 4 niveles PLENA/BUENA/ADECUADA/PARCIAL · PLENA deshabilitada hast
 
 ---
 
+### CCHH TABLE PAGINATION STANDARD (regla permanente del owner, 2026-10-19)
+
+Every tabular list surface in Capital Humano must reuse the canonical Hub paginator. Aplica hoy a **Candidatos, Entrevistas y Onboarding** y automáticamente a cualquier futura sección CCHH con tabla/listado tabular (Búsquedas queda fuera: su superficie es una grilla/pipeline, no una tabla).
+
+- **Primitivo canónico**: el paginador de «Uso de métricas» (Admin → Actividad): clases `.activity-pager*` (tools.css) + `page_window` (ahora en `webapp/services/pagination.py`, compartida; `activity_analytics` la importa sin cambios). Markup compartido: macro `render_pager` de `webapp/templates/partials/pager.html`; cálculo/URLs: `pagination.paginate(...)`. **Prohibido** crear un paginador propio de CCHH (`.hc-pagination`, `.cchh-paginator`, CSS equivalente); si hace falta configuración, extender el primitivo de forma genérica y retrocompatible.
+- Contract:
+  - default page size: **50**; allowed sizes: **50 / 100 / 200 / 300** (cualquier otro valor cae a 50);
+  - filters before pagination; search before pagination; sorting before pagination (orden: dataset → filtros → búsqueda → orden → total filtrado → slice);
+  - filter/search/page-size changes (y ✕ Limpiar) reset to page 1; una página fuera de rango se acota (nunca tabla vacía);
+  - query state preserved across page navigation (filtros, búsqueda, `page_size`): los `<form>` de filtros llevan `page_size` oculto y **nunca** `page`; el selector de tamaño hace GET a la base sin página;
+  - counter reflects filtered total (`dashboard-section__count`), nunca el tamaño de la página;
+  - no CCHH-specific paginator implementation;
+  - el paginador se muestra cuando hay más filas que el tamaño mínimo (50), para que el selector siga disponible;
+  - el estado de columnas (drag/resize/persistencia) es por superficie e independiente de la página: el adapter viaja en el fragmento HTMX y se reaplica en cada swap.
+- Tests: `tests/webapp/test_human_capital_pagination.py` (helper + suite parametrizada por superficie con datasets sintéticos; no inflar el harness). Una superficie nueva se registra en `SURFACES` de ese archivo.
+
+---
+
 # CCHH · ONBOARDING (core) — OWNER REVIEW PENDIENTE (2026-10-19)
 
 Branch `work/cchh-onboarding-core` (desde `main` e1c3d4d). Candidatos / Búsquedas / Entrevistas siguen CLOSED/FROZEN: no se reabrió ninguna superficie suya (solo capa de servicio de integración).

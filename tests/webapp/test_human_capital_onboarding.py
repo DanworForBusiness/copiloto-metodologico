@@ -555,7 +555,7 @@ def test_the_post_hero_gap_is_the_same_24px_in_the_four_cchh_sections():
     from pathlib import Path
     css = (Path(config.__file__).parent / "webapp" / "static" / "human_capital.css").read_text(encoding="utf-8")
     flat = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-    for selector in (".module-hero + #hc-profiles-panel", ".module-hero + .busquedas-list", ".module-hero + .dashboard-sections", ".module-hero + #hc-onboarding-panel"):
+    for selector in (".module-hero + #hc-profiles-panel", ".module-hero + .busquedas-list", ".module-hero + #hc-entrevistas-panel", ".module-hero + #hc-onboarding-panel"):
         rule = next(r for r in re.findall(r"([^{}]+)\{([^}]*)\}", flat) if selector in [s.strip() for s in r[0].split(",")])
         assert "margin-top: 24px" in rule[1], selector
     assert ".dashboard-section { margin: 12px 0;" in (Path(config.__file__).parent / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")   # el 12px interno colapsa dentro de los 24px
@@ -663,7 +663,7 @@ def test_the_three_filters_combine_with_and_and_clear_resets_them():
     assert 'value="pendientes" selected' in panel and 'value="Consultoria" selected' in panel and 'value="Gimena"' in panel          # los valores sobreviven al swap
     cleared = c.get("/cchh/onboarding", headers={"HX-Request": "true"}).text                  # ✕ Limpiar = GET sin parámetros
     assert len(_names(cleared)) == 4 and 'value="todos" selected' in cleared and 'name="q" type="text" value=""' in cleared
-    assert re.search(r'class="whatsnew-filter__clear" hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel"', cleared)
+    assert re.search(r'class="whatsnew-filter__clear" hx-get="/cchh/onboarding\?page_size=50" hx-target="#hc-onboarding-panel"', cleared)       # sin filtros, página 1, tamaño vigente
 
 
 def test_the_counter_follows_the_dashboard_section_pattern_filtered_result():
@@ -714,3 +714,21 @@ def test_the_busquedas_tile_signals_render_with_the_shared_badge_and_keep_their_
     html = _client().get("/cchh/busquedas").text
     tile = html.split("Proceso con señal")[1].split("</a>")[0]
     assert '<span class="status-badge status-badge--tentativo">Onboarding pendiente</span>' in tile and "busqueda-signal" not in tile
+
+
+def test_busquedas_tile_estado_and_candidate_count_use_the_shared_status_badge_keeping_their_colours():
+    b = _busqueda("Proceso Estado")
+    _add(b, _profile())
+    closed = _busqueda("Proceso Cerrado Estado")
+    human_capital_service.close_busqueda(closed)
+    html = _client().get("/cchh/busquedas").text
+    tile = html.split("Proceso Estado")[1].split("</a>")[0]
+    assert '<span class="status-badge status-badge--activo">Activo</span>' in tile                                  # verde del primitivo (como antes)
+    assert '<span class="status-badge status-badge--count">1 candidato</span>' in tile                              # dorado conservado vía modificador de color
+    assert '<span class="status-badge status-badge--inactivo">Cerrado</span>' in html.split("Proceso Cerrado Estado")[1].split("</a>")[0]
+    assert "busqueda-estado" not in html and "busqueda-card__count" not in html
+    detail = _client().get(f"/cchh/busquedas/{b}").text
+    assert '<span class="status-badge status-badge--activo">Activo</span>' in detail and "busqueda-estado" not in detail
+    css = _static("human_capital.css")
+    assert "busqueda-estado" not in css and "busqueda-card__count" not in css
+    assert re.search(r"\.status-badge--count \{ color: #1f1f24; background: var\(--gold\); border-color: var\(--gold\); \}", css)

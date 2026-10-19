@@ -1,3 +1,4 @@
+{% from "partials/pager.html" import render_pager %}
 {# human_capital_onboarding_panel.html — fragmento compartido por GET /cchh/onboarding (embebido en la página completa) y el propio GET al filtrar (swap de
    HTMX sobre esta MISMA superficie) — MISMO patrón que human_capital_profiles_panel.html (Candidatos).
    Filtro de estado reactivo (Todos / Pendientes / Completos) con el patrón transversal `.filter-toolbar-card` + "✕ Limpiar" como ÚLTIMO control. La lista vive en
@@ -8,6 +9,8 @@
      restante y `✕ Limpiar` como ÚLTIMO control (resetea Estado + Área + Buscar). Reactivo (HTMX): cada campo con su propio `hx-get` + `hx-include="closest form"`
      (los tres filtros se combinan con AND en el server); Buscar con el MISMO debounce que Candidatos. #}
   <form class="hc-profile-filters filter-toolbar-card" hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML">
+    {# Tamaño de página vigente: viaja con TODO cambio de Estado/Área/Buscar (que vuelve a la página 1, porque `page` nunca se incluye). #}
+    <input type="hidden" name="page_size" value="{{ pager.page_size }}">
     <div class="feedback-field feedback-field--auto">
       <label for="hc-onboarding-estado">Estado</label>
       <select id="hc-onboarding-estado" name="estado" hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">
@@ -30,7 +33,7 @@
       <label for="hc-onboarding-q">Buscar</label>
       <input id="hc-onboarding-q" name="q" type="text" value="{{ q or '' }}" placeholder="Candidato, puesto, área, fecha, progreso..." hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
     </div>
-    <button type="button" class="whatsnew-filter__clear" hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML">✕ Limpiar</button>
+    <button type="button" class="whatsnew-filter__clear" hx-get="{{ pager.urls.reset }}" hx-target="#hc-onboarding-panel" hx-swap="outerHTML">✕ Limpiar</button>
   </form>
 
   <div class="dashboard-sections" data-dashboard-key="cchh-onboarding-list" data-persist-collapse>
@@ -100,6 +103,8 @@
             </tbody>
           </table>
         </div>
+        {# Paginación estándar CCHH (partials/pager.html → `.activity-pager`, MISMO paginador de «Uso de métricas»): Estado/Área/Buscar ya se aplicaron antes del slice. #}
+        {{ render_pager(pager, "#hc-onboarding-panel", "Paginación de onboardings", "Onboardings por página") }}
         {% endif %}
       </div>
     </details>

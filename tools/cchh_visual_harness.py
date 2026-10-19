@@ -281,6 +281,32 @@ def _seed_runtime(keep: bool) -> Path:
         payload = {"schema_version": onboarding_repository._SCHEMA_VERSION, "revision": 1, **entry}
         onboarding_repository._write_atomic(onboarding_repository._onboarding_path(entry["application_id"]), payload)
     print(f"[harness] {len(onboarding_raw)} onboardings sembrados bajo {RUNTIME_DIR / 'human-capital' / 'onboarding'}")
+
+    # OPT-IN (apagado por defecto: el harness NO se infla): CCHH_HARNESS_EXTRA_ROWS=N agrega N perfiles + N entrevistas + N onboardings SINTÉTICOS determinísticos
+    # (ids `99999999-…`) SOLO para ver/validar el paginador estándar (>50 filas) en Candidatos/Entrevistas/Onboarding. Las suites de tests usan sus propios datasets.
+    extra = int(os.environ.get("CCHH_HARNESS_EXTRA_ROWS", "0") or 0)
+    if extra > 0:
+        from datetime import date, timedelta
+        base = date(2026, 1, 1)
+        areas = [r["valor"] for r in catalogs_raw.get("area_consultora", [])] if isinstance(catalogs_raw, dict) else []
+        for i in range(extra):
+            pid = f"99999999-9999-9999-9999-{i:012d}"
+            aid = f"99999999-aaaa-aaaa-aaaa-{i:012d}"
+            ts = f"2026-09-01T{(i // 60) % 24:02d}:{i % 60:02d}:00+00:00"
+            profile_repository._write_atomic(profile_repository._profile_path(pid), {
+                "schema_version": profile_repository._SCHEMA_VERSION, "profile_id": pid, "revision": 1, "first_name": f"Sintetico{i:04d}", "last_name": "Paginacion",
+                "email": f"sintetico{i}@example.com", "location": "CABA", "profile_skills": f"Skill {i % 7}", "seniority": "Senior" if i % 2 else "Junior",
+                "source": "LinkedIn", "potential_rating": None, "potential_mark": None, "created_at": ts, "updated_at": ts})
+            entrevista_repository._write_atomic(entrevista_repository._entrevista_path(f"99999999-eeee-eeee-eeee-{i:012d}"), {
+                "schema_version": entrevista_repository._SCHEMA_VERSION, "entrevista_id": f"99999999-eeee-eeee-eeee-{i:012d}", "revision": 1, "profile_id": pid, "busqueda_id": None,
+                "application_id": None, "fecha_entrevista": (base + timedelta(days=i)).isoformat(), "puesto_evaluado": "Analista sintético", "area": areas[i % len(areas)] if areas else None,
+                "modalidad_contratacion": None, "remuneracion_pretendida": None, "observaciones": None, "resumen_entrevista_tecnica": None, "concretada": True, "created_at": ts, "updated_at": ts})
+            onboarding_repository._write_atomic(onboarding_repository._onboarding_path(aid), {
+                "schema_version": onboarding_repository._SCHEMA_VERSION, "application_id": aid, "profile_id": pid, "busqueda_id": "22222222-2222-2222-2222-222222222201", "revision": 1,
+                "fecha_ingreso": (base + timedelta(days=i)).isoformat(), "oferta_cerrada": None, "area": areas[i % len(areas)] if areas else None,
+                "checklist": {k: True for k in list(_json.loads((FIXTURES_DIR / "onboarding.json").read_text(encoding="utf-8"))[0]["checklist"])[: i % 18]},
+                "completado": False, "created_at": ts, "updated_at": ts})
+        print(f"[harness] +{extra} perfiles/entrevistas/onboardings sintéticos (CCHH_HARNESS_EXTRA_ROWS) para validar la paginación")
     return RUNTIME_DIR
 
 

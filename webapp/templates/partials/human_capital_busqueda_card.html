@@ -20,8 +20,8 @@
   <div class="busqueda-card__foot">
     <span class="busqueda-card__desde">Desde {{ b.fecha_apertura | fecha_dmy }}{% if b.fecha_cierre %} · Cierre {{ b.fecha_cierre | fecha_dmy }}{% endif %}</span>
     <div class="busqueda-card__badges">
-      <span class="busqueda-estado busqueda-estado--{{ 'activa' if b.estado == 'activo' else 'cerrada' }}">{{ 'Activo' if b.estado == 'activo' else 'Cerrado' }}</span>
-      <span class="busqueda-card__count">{{ b.candidatos | length }} candidato{{ '' if (b.candidatos | length) == 1 else 's' }}</span>
+      <span class="status-badge status-badge--{{ 'activo' if b.estado == 'activo' else 'inactivo' }}">{{ 'Activo' if b.estado == 'activo' else 'Cerrado' }}</span>
+      <span class="status-badge status-badge--count">{{ b.candidatos | length }} candidato{{ '' if (b.candidatos | length) == 1 else 's' }}</span>
     </div>
   </div>
 </a>

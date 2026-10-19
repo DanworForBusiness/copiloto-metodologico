@@ -109,7 +109,7 @@ from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, workspaces
 from webapp.services import (
     auth_service, busqueda_repository, entrevista_repository, human_capital_catalog_repository,
-    human_capital_service, onboarding_repository, profile_document_repository, profile_document_service,
+    human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service,
     profile_document_validation, profile_import_service,
 )
 from webapp.services.human_capital_service import (
@@ -150,7 +150,7 @@ def human_capital_page(request: Request):
     return RedirectResponse(url="/cchh/candidatos", status_code=307)
 
 
-def _profiles_panel_context(*, query: dict | None = None) -> dict:
+def _profiles_panel_context(*, query: dict | None = None, page=1, page_size=None) -> dict:
     """Contexto del fragmento `human_capital_profiles_panel.html` —
     listado + filtros ÚNICAMENTE (Fase de paridad funcional: el alta se
     mudó a su propia página/ruta, `GET/POST /cchh/candidatos/nuevo`,
@@ -185,8 +185,12 @@ def _profiles_panel_context(*, query: dict | None = None) -> dict:
     except ProfileStorageError as exc:
         source_error = str(exc)
     profiles = human_capital_service.filter_profiles(all_profiles, query) if query else all_profiles
+    # Paginación estándar CCHH (HANDOFF «CCHH TABLE PAGINATION STANDARD»): dataset → filtros/búsqueda (arriba) → TOTAL filtrado → slice. El contador del panel es `total_profiles`.
+    pager = pagination.paginate(profiles, page=page, page_size=page_size, base_url="/cchh/candidatos", params=query or {})
     return {
-        "profiles": profiles,
+        "profiles": pager["items"],
+        "total_profiles": pager["total"],
+        "pager": pager,
         "dataset_has_any_profiles": bool(all_profiles),
         "source_error": source_error,
         "config_incomplete": False,
@@ -209,6 +213,7 @@ def human_capital_profiles_page(
     request: Request,
     q: str = Query(""), seniority: str = Query(""), source: str = Query(""),
     location: str = Query(""), potential_mark: str = Query(""),
+    page: str = Query(""), page_size: str = Query(""),
 ):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
@@ -224,7 +229,7 @@ def human_capital_profiles_page(
         "pack": DEFAULT_PACK,
         "user": user,
         "active_page": "perfiles",
-        **_profiles_panel_context(query=query),
+        **_profiles_panel_context(query=query, page=page, page_size=page_size),
     }
     # BUG real encontrado con el Visual QA Harness (owner post-#107 audit):
     # este GET nunca distinguía HTMX de navegación directa -- el filtro
@@ -651,6 +656,7 @@ def human_capital_profile_delete(
     # re-aplican al re-render para que el borrado NO pierda la búsqueda activa.
     q: str = Form(""), seniority: str = Form(""), source: str = Form(""),
     location: str = Form(""), potential_mark: str = Form(""),
+    page: str = Form(""), page_size: str = Form(""),
 ):
     """Borrado LÓGICO del candidato — UNA sola operación de servicio
     (`soft_delete_profile`), compartida por los dos puntos de entrada de UI
@@ -680,7 +686,7 @@ def human_capital_profile_delete(
         # Si falló, el candidato SIGUE presente (no hay remoción parcial) y se
         # muestra el error.
         query = {"q": q, "seniority": seniority, "source": source, "location": location, "potential_mark": potential_mark}
-        context = {"request": request, **_profiles_panel_context(query=query)}
+        context = {"request": request, **_profiles_panel_context(query=query, page=page, page_size=page_size)}
         if delete_error:
             context["delete_error"] = delete_error
         return templates.TemplateResponse(
@@ -1510,17 +1516,19 @@ def _entrevistas_shell(request, extra: dict) -> dict:
     }
 
 
-def _entrevistas_list_context() -> dict:
+def _entrevistas_list_context(page=1, page_size=None) -> dict:
     entrevistas: list[dict] = []
     source_error: str | None = None
     try:
         entrevistas = human_capital_service.list_entrevistas_view()
     except entrevista_repository.EntrevistaStorageError as exc:
         source_error = str(exc)
-    entrevistas.sort(key=lambda e: e.get("created_at") or "", reverse=True)
+    entrevistas.sort(key=lambda e: e.get("created_at") or "", reverse=True)       # orden ANTES de paginar
+    pager = pagination.paginate(entrevistas, page=page, page_size=page_size, base_url="/cchh/entrevistas")
     return {
-        "entrevistas": entrevistas,
-        "total_entrevistas": len(entrevistas),
+        "entrevistas": pager["items"],
+        "total_entrevistas": pager["total"],                                        # TOTAL (sin filtros en este listado), nunca el tamaño de la página
+        "pager": pager,
         "source_error": source_error,
     }
 
@@ -1575,13 +1583,19 @@ def _entrevista_form_from_request(fecha_entrevista, puesto_evaluado, area, modal
 
 
 @router.get("/cchh/entrevistas", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_entrevistas_page(request: Request):
+def human_capital_entrevistas_page(request: Request, page: str = Query(""), page_size: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    ctx = _entrevistas_list_context(page, page_size)
+    # Paginación (HTMX): sólo se re-renderiza el panel (`#hc-entrevistas-panel`), MISMO criterio de fragmento que Candidatos/Onboarding.
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request=request, name="partials/human_capital_entrevistas_panel.html", context={"request": request, **ctx},
+        )
     return templates.TemplateResponse(
         request=request, name="human_capital/entrevistas.html",
-        context=_entrevistas_shell(request, _entrevistas_list_context()),
+        context=_entrevistas_shell(request, ctx),
     )
 
 
@@ -1779,7 +1793,7 @@ def _onboarding_area_filter_options(rows: list[dict], selected: str) -> list[dic
     return options
 
 
-def _onboarding_list_context(estado: str = "todos", area: str = "", q: str = "") -> dict:
+def _onboarding_list_context(estado: str = "todos", area: str = "", q: str = "", page=1, page_size=None) -> dict:
     if estado not in _ONBOARDING_ESTADO_FILTERS:
         estado = "todos"
     area, q = (area or "").strip(), (q or "").strip()
@@ -1794,10 +1808,13 @@ def _onboarding_list_context(estado: str = "todos", area: str = "", q: str = "")
     dataset_has_any = bool(rows)
     area_options = _onboarding_area_filter_options(rows, area)         # sobre el dataset COMPLETO: las opciones no desaparecen al filtrar
     rows = human_capital_service.filter_onboardings(rows, estado=estado, area=area, q=q)
-    rows.sort(key=lambda o: (o.get("fecha_ingreso") or "", o.get("created_at") or ""), reverse=True)
+    rows.sort(key=lambda o: (o.get("fecha_ingreso") or "", o.get("created_at") or ""), reverse=True)      # orden ANTES de paginar
+    pager = pagination.paginate(rows, page=page, page_size=page_size, base_url="/cchh/onboarding",
+                                params={"estado": estado if estado != "todos" else "", "area": area, "q": q})
     return {
-        "onboardings": rows,
-        "total_onboardings": len(rows),
+        "onboardings": pager["items"],
+        "total_onboardings": pager["total"],                                        # TOTAL FILTRADO (contador del dashboard-section), nunca el tamaño de la página
+        "pager": pager,
         "dataset_has_any_onboarding": dataset_has_any,
         "estado": estado,
         "area": area,
@@ -1823,11 +1840,12 @@ def _onboarding_form_context(*, form_values, onboarding=None, error=None, concur
 
 
 @router.get("/cchh/onboarding", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_onboarding_page(request: Request, estado: str = Query("todos"), area: str = Query(""), q: str = Query("")):
+def human_capital_onboarding_page(request: Request, estado: str = Query("todos"), area: str = Query(""), q: str = Query(""),
+                                  page: str = Query(""), page_size: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    ctx = _onboarding_list_context(estado, area, q)
+    ctx = _onboarding_list_context(estado, area, q, page, page_size)
     # Filtro reactivo (HTMX): sólo se re-renderiza el panel (`#hc-onboarding-panel`) — MISMO criterio de fragmento que Candidatos.
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
