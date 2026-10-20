@@ -642,15 +642,7 @@
    `.whatsnew-banner__close`/`.dw-lightbox__close` (borde cero, fondo
    transparente, gris apagado, pill de hover) — sin adoptar esas clases
    puntuales de otra feature, nombre propio de Comercial. */
-.panel-close {
-  width: 26px; height: 26px; flex-shrink: 0;
-  display: grid; place-items: center; border: 0; border-radius: 6px;
-  background: transparent; color: #7a7a82; font-size: 1.1rem; line-height: 1;
-  cursor: pointer;
-}
-.content-theme-dark .panel-close { color: #9a9aa2; }
-.panel-close:hover { color: inherit; background: rgba(128,128,128,.16); }
-.panel-close:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+/* `.panel-close` (botón × de cierre en el encabezado de un `<details>`): promovido a tools.css (primitivo compartido; ahora también lo usa el Assessment del Catálogo). */
 
 /* ── Creadas — jerarquía del análisis (owner UX corrective) ────────────────
    Antes el ranking y la tabla mensual iban LADO A LADO (`.analysis-split`) y

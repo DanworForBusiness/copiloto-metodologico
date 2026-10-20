@@ -126,14 +126,6 @@ def test_findings_without_a_rule_are_preserved_as_residual_and_the_rest_are_not_
     assert v["rules"][0]["dom_id"] == "asr-r-R1"
 
 
-def test_group_origins_point_to_the_control_row_or_the_residual_item_and_only_when_they_exist():
-    groups = {"R1": _group("R1", "Con regla", "NAMING"), "DESC": _group("DESC", "Descriptivo", "NAMING", "DESCRIPTIVE", 1)}
-    area = presenter._area_view(_area(["R1", "DESC"]), groups, {"NAMING": [_rule("R1", "Control 1", n=2), _rule("LIMPIA", "Sin hallazgos", result="ASSESSED_ABSENCE")]})
-    origins = presenter._group_origins([area])
-    assert origins["R1"]["dom_id"] == "asr-r-R1" and origins["DESC"]["dom_id"] == "asr-f-DESC"
-    assert set(origins) == {"R1", "DESC"} and all(o["label"] == f"Volver a «{area['title']}»" for o in origins.values())   # la regla limpia no origina nada
-
-
 # ── informe renderizado del Catálogo ────────────────────────────────────────────────────────────────────────────────────────────────────────
 def test_catalog_report_has_one_integrated_table_per_area_and_no_redundant_findings_list(world):
     html, status, v = _report(world)
@@ -157,8 +149,11 @@ def test_catalog_report_has_one_integrated_table_per_area_and_no_redundant_findi
                 assert "Ver detalle" not in cell                                                                       # la etiqueta de texto genérica ya no se muestra
             else:
                 assert "table-action-btn" not in row.group(1)                                                       # sin destino no hay acción
-    for t in re.findall(r"<table>\s*<thead><tr><th>Regla</th><th>Resultado</th><th>Hallazgos</th></tr>", html):
-        assert t                                                                                               # tabla integrada de 3 columnas
+    heads = re.findall(r'<thead><tr><th>Regla</th><th>Resultado</th><th>Hallazgos</th><th class="asr-col-action">Acciones</th></tr></thead>', html)
+    assert heads                                                                                               # tabla integrada con CELDA de acción independiente (4 columnas)
+    for m in re.finditer(r'<tr id="asr-r-[^"]+">(.*?)</tr>', html, re.S):
+        if "table-action-btn" in m.group(1):
+            assert re.search(r'<td class="asr-col-action"><span class="dw-row-actions"><a href="#asr-g-', m.group(1))   # la acción vive en SU celda, no pegada al texto de ocurrencias
     actions = len(re.findall(r'class="table-action-btn chart-tooltip-anchor"', html))
     assert actions == sum(1 for a in v["areas"] for r in a["rules"] if r["finding"])                            # cardinalidad: una acción por regla con hallazgo
     assert "<code>Ver detalle</code>" not in html and ">Ver detalle<" not in html
@@ -177,20 +172,30 @@ def test_every_group_is_reachable_from_its_area_and_nothing_is_orphaned(world):
     assert all(l["style"] is None for l in d.links)
 
 
-def test_each_finding_detail_links_back_to_its_origin_and_the_origin_links_forward(world):
+def test_each_finding_detail_closes_with_a_single_svg_x_in_its_header_and_has_no_textual_back_link(world):
     html, status, v = _report(world)
-    d = _dom(html)
     groups = [*v["observations"], *v["review_required"], *v["descriptive"]]
     assert groups
+    assert "Volver a «" not in html and "data-asr-return" not in html                                          # el enlace textual de regreso ya no existe
     for g in groups:
-        if not g["origin"]:
-            continue
-        assert g["origin"]["dom_id"] in d.ids
         det = re.search(rf'<details class="dashboard-section" id="{re.escape(g["dom_id"])}">(.*?)</details>', html, re.S).group(1)
-        assert f'<a href="#{g["origin"]["dom_id"]}" data-asr-return><code>{g["origin"]["label"]}</code></a>' in det
-        origin = re.search(rf'id="{re.escape(g["origin"]["dom_id"])}"[^>]*>(.*?)(?:</tr>|</li>)', html, re.S).group(1)
-        assert f'href="#{g["dom_id"]}"' in origin                                                              # ida y vuelta son simétricas
-    assert sum(1 for g in groups if g["origin"]) == len(re.findall(r"data-asr-return", html))
+        head = det[:det.index("</summary>")]
+        assert head.count("data-asr-close") == 1                                                                # una sola X por encabezado (no se duplica el control de cierre)
+        # patrón de Comercial: `.panel-close` como ÚLTIMO ítem del <summary>, + nombre accesible que nombra al objeto, SVG decorativo y tooltip del primitivo compartido
+        x = re.search(r'<button type="button" class="panel-close chart-tooltip-anchor" data-asr-close aria-label="([^"]+)">(.*?)</button></summary>', det, re.S)
+        assert x, g["id"]
+        assert x.group(1) == html_escape(f'Cerrar el detalle del hallazgo «{g["title"]}»')
+        assert '<svg viewBox="0 0 24 24" aria-hidden="true">' in x.group(2) and "&times;" not in x.group(2)
+        assert '<span class="chart-tooltip" aria-hidden="true"><p>Cerrar detalle</p></span>' in x.group(2)
+    assert html.count("data-asr-close") == len(groups)
+
+
+def test_panel_close_is_one_shared_primitive_and_hidden_while_the_container_is_closed():
+    tools = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    commercial = (REPO / "webapp/static/commercial.css").read_text(encoding="utf-8")
+    assert re.search(r"^\.panel-close \{", tools, re.M) and not re.search(r"^\.panel-close[ :{]", commercial, re.M)   # definido UNA vez, en el CSS que carga todo el Hub
+    assert "details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }" in tools
+    assert ".panel-close .chart-tooltip" in tools and "top: calc(100% + 7px)" in tools                       # tooltip debajo: el <details> es overflow:hidden
 
 
 def test_clean_controls_stay_available_in_the_collapsed_disclosure_with_their_results(world):

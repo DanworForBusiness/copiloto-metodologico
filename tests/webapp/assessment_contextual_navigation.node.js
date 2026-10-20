@@ -24,6 +24,7 @@ class El {
     this.classList = { add: (c) => this.cls.add(c), remove: (c) => this.cls.delete(c), contains: (c) => this.cls.has(c) };
   }
   get id() { return this.attrs.id; }
+  get isConnected() { for (let e = this; e; e = e.parentElement) if (e === body) return true; return false; }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
   append(c) { c.parentElement = this; this.children.push(c); return c; }
@@ -61,9 +62,12 @@ const sec06 = report.append(new El("section", { id: "asr-revision" }));
 const outer06 = sec06.append(new El("details", { id: "asr-obs-wrap" }));          // un ancestro extra cerrado (anidado)
 const g1 = outer06.append(new El("details", { id: "asr-g-R1" }));
 const g1sum = g1.append(new El("summary"));
-const linkBack = g1.append(new El("a", { href: "#asr-r-R1", "data-asr-return": "" }));
+const closeBtn = g1sum.append(new El("button", { "data-asr-close": "", class: "panel-close" }));       // X del encabezado (último ítem del <summary>)
+const closeSvg = closeBtn.append(new El("svg"));
+const g2close = null;
 const g2 = sec06.append(new El("details", { id: "asr-g-DESC" }));
-g2.append(new El("summary"));
+const g2sum = g2.append(new El("summary"));
+const closeBtn2 = g2sum.append(new El("button", { "data-asr-close": "", class: "panel-close" }));
 // Caso de producción: el hallazgo vive dentro de VARIOS contenedores colapsables, todos cerrados al cargar (informe > dimensión > subárea > hallazgo).
 const lvl1 = report.append(new El("details", { id: "asr-m-lvl1" }));
 const lvl2 = lvl1.append(new El("details", { id: "asr-m-lvl2" }));
@@ -85,16 +89,17 @@ const doc = {
   addEventListener: (t, fn) => { (listeners.document[t] = listeners.document[t] || []).push(fn); },
   body: { addEventListener: (t, fn) => { (listeners.body[t] = listeners.body[t] || []).push(fn); } },
 };
-const win = { location: { hash: "" }, addEventListener: (t, fn) => { (listeners.window[t] = listeners.window[t] || []).push(fn); } };
+const historyCalls = [];
+const win = { location: { hash: "", pathname: "/catalog", search: "?pack=x" }, history: { replaceState: (st, t, url) => { historyCalls.push(url); win.location.hash = ""; } }, addEventListener: (t, fn) => { (listeners.window[t] = listeners.window[t] || []).push(fn); } };
 const sandbox = { window: win, document: doc, decodeURIComponent, console };
 vm.createContext(sandbox);
 vm.runInContext(snippet, sandbox);
 
-check(!/pushState|replaceState/.test(snippet), "el módulo no debe usar un sistema propio de historial (pushState/replaceState)");
+check(!/pushState/.test(snippet) && (snippet.match(/replaceState/g) || []).length === 1, "sin sistema propio de historial: nunca pushState; replaceState SOLO una vez (limpiar el hash del detalle que se cierra)");
 check(win.DwAssessmentNav && typeof win.DwAssessmentNav.go === "function", "DwAssessmentNav expuesto en window");
 
 const fire = (kind, type, ev) => (listeners[kind][type] || []).forEach((fn) => fn(ev));
-const resetState = () => { all.forEach((e) => { e.scrolled = 0; e.focused = 0; e.cls.delete("is-nav-target"); }); [area, outer06, g1, g2, alien, lvl1, lvl2, lvl3, gDeep].forEach((d) => { d.open = false; }); doc.activeElement = null; win.location.hash = ""; };
+const resetState = () => { historyCalls.length = 0; win.DwAssessmentNav.source = null; all.forEach((e) => { e.scrolled = 0; e.focused = 0; e.cls.delete("is-nav-target"); }); [area, outer06, g1, g2, alien, lvl1, lvl2, lvl3, gDeep].forEach((d) => { d.open = false; }); doc.activeElement = null; win.location.hash = ""; };
 const navigate = (hash) => { win.location.hash = hash; fire("window", "hashchange", {}); };                       // lo que haría el navegador al seguir un enlace
 const click = (el, extra = {}) => { const ev = { target: el, button: 0, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra }; fire("document", "click", ev); return ev; };
 
@@ -183,6 +188,51 @@ check(g1.open && outer06.open && g1.cls.has("is-nav-target") && !gDeep.cls.has("
 resetState();
 navigate("#asr-g-DESC"); check(g2.open, "los hallazgos descriptivos (sin regla) también son destino navegable");
 check(win.DwAssessmentNav.go(doc, "#asr-f-DESC") && area.open && resid.cls.has("is-nav-target"), "el ítem residual del área es destino navegable");
+
+// 13. CIERRE CONTEXTUAL (X del encabezado del hallazgo)
+// 13a. abierto desde una acción de la tabla → cierra, limpia el hash (sin entrada nueva), devuelve foco y posición a ESA acción y resalta su fila
+resetState();
+click(linkFwd); navigate("#asr-g-R1");
+check(g1.open && win.location.hash === "#asr-g-R1", "(prep) detalle abierto desde la acción de la tabla");
+area.open = false; row.scrolled = 0; linkFwd.scrolled = 0; linkFwd.focused = 0;
+ev = click(closeSvg);                                                                  // el clic real cae sobre el <svg> de la X
+check(ev.defaultPrevented === true, "la X previene el alternado nativo del <summary>");
+check(!g1.open && !g1.cls.has("is-nav-target"), "la X cierra el <details> del hallazgo");
+check(win.location.hash === "" && historyCalls.length === 1 && historyCalls[0] === "/catalog?pack=x", "el hash deja de apuntar al detalle: replaceState sin hash (ni una entrada nueva ni deep link residual)");
+check(area.open && doc.activeElement === linkFwd && linkFwd.scrolled === 1 && linkFwd.lastScroll.block === "center", "devuelve foco y posición a la acción que originó la navegación (abriendo el área si estaba colapsada)");
+check(row.cls.has("is-nav-target"), "resalta la fila de origen");
+// 13b. tras cerrar, volver a abrir desde la misma acción funciona (el hash ya no coincide → navegación nativa)
+ev = click(linkFwd); check(ev.defaultPrevented === false, "reabrir desde la acción: navegación nativa");
+navigate("#asr-g-R1"); check(g1.open, "…y el hashchange lo vuelve a abrir");
+// 13c. Atrás/Adelante siguen siendo nativos: un hashchange a #asr-g-… reabre aunque se haya cerrado antes
+click(closeBtn); check(!g1.open, "(prep) cerrado otra vez");
+navigate("#asr-g-R1"); check(g1.open && g1.cls.has("is-nav-target"), "Adelante/Atrás a la entrada del hallazgo lo reabre");
+// 13d. URL directa (sin acción previa): se cierra en el lugar, sin depender de un origen; foco en el encabezado; hash limpio
+resetState();
+navigate("#asr-g-DESC");
+check(g2.open && win.location.hash === "#asr-g-DESC", "(prep) abierto por URL directa");
+resid.cls.delete("is-nav-target"); linkResid.focused = 0;
+click(closeBtn2);
+check(!g2.open && win.location.hash === "" && historyCalls.length === 1, "URL directa: cierra y limpia el hash");
+check(doc.activeElement === g2sum && linkResid.focused === 0 && !resid.cls.has("is-nav-target"), "sin origen: no se mueve a ningún lado, el foco queda en el encabezado");
+// 13e. origen de OTRO hallazgo, o ya desconectado del DOM → se trata como sin origen
+resetState();
+click(linkResid); navigate("#asr-g-R1");
+click(closeBtn); check(!g1.open && doc.activeElement === g1sum, "el último enlace usado apuntaba a otro hallazgo: sin origen");
+resetState();
+click(linkFwd); navigate("#asr-g-R1");
+const detached = row.parentElement; row.parentElement = null;                           // la fila de origen ya no está en el DOM
+click(closeBtn); check(!g1.open && doc.activeElement === g1sum, "origen desconectado: cierra en el lugar");
+row.parentElement = detached;
+// 13f. un hash que apunta a OTRO destino no se toca al cerrar
+resetState();
+navigate("#asr-g-R1"); win.location.hash = "#asr-g-DESC";
+click(closeBtn); check(historyCalls.length === 0 && win.location.hash === "#asr-g-DESC", "no borra un hash que no es el del detalle cerrado");
+// 13g. teclado: Enter/Espacio sobre la X emiten `click` (button nativo): mismo camino; la X solo vive dentro de un informe
+resetState(); g1.open = true;
+const stray = new El("button", { "data-asr-close": "" }); body.append(stray);
+ev = click(stray); check(ev.defaultPrevented === false && g1.open, "una X fuera del informe no hace nada");
+
 
 if (failures) { console.log(failures + " verificación(es) fallida(s)"); process.exit(1); }
 console.log("OK");

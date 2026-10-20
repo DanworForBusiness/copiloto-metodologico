@@ -678,6 +678,30 @@ const DwAssessmentNav = {
     focusable.focus({ preventScroll: true });
     return true;
   },
+  // Cierre contextual (X del encabezado del hallazgo). `source` = el enlace del informe que abrió ESTE detalle (se registra en el clic); si existe y sigue en el DOM,
+  // el foco y la posición vuelven a esa acción. Sin origen conocido (URL directa, Atrás/Adelante) se cierra en el lugar y el foco queda en el encabezado.
+  // El hash deja de apuntar al detalle (reemplazo de la entrada actual, sin entrada nueva): ni una recarga ni un Adelante parcial lo reabren; Atrás/Adelante siguen nativos.
+  source: null,
+  close(doc, details) {
+    if (!details || details.tagName !== "DETAILS") return false;
+    const id = details.id;
+    details.open = false;
+    details.classList.remove("is-nav-target");
+    if (window.location.hash === "#" + id) window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    const src = this.source && this.source.id === id && this.source.el.isConnected ? this.source.el : null;
+    if (src) {
+      this.reveal(src);
+      doc.querySelectorAll(".is-nav-target").forEach(n => n.classList.remove("is-nav-target"));
+      const row = src.closest("tr, li");
+      if (row) { void row.offsetWidth; row.classList.add("is-nav-target"); }
+      src.scrollIntoView({ behavior: "auto", block: "center" });
+      src.focus({ preventScroll: true });
+    } else {
+      const head = details.querySelector(":scope > summary");
+      if (head) head.focus({ preventScroll: true });
+    }
+    return true;
+  },
 };
 window.DwAssessmentNav = DwAssessmentNav;
 window.addEventListener("hashchange", () => { DwAssessmentNav.go(document, window.location.hash); });
@@ -688,8 +712,15 @@ document.body.addEventListener("htmx:load", event => {
   DwAssessmentNav.go(document, window.location.hash);
 });
 document.addEventListener("click", event => {
+  const closer = event.target.closest("[data-asr-close]");
+  if (closer && closer.closest("[data-asr-report]")) {
+    event.preventDefault();                               // el botón vive en el <summary>: sin esto el clic también alternaría el <details>
+    DwAssessmentNav.close(document, closer.closest("details"));
+    return;
+  }
   const a = event.target.closest('a[href^="#"]');
   if (a && a.closest("[data-asr-report]")) {
+    if ((a.getAttribute("href") || "").startsWith("#asr-g-")) DwAssessmentNav.source = { id: a.getAttribute("href").slice(1), el: a };
     // Navegación nativa (nueva entrada de historial → hashchange). Solo si el hash NO cambia (mismo destino otra vez) no habría hashchange: se resuelve acá.
     if (event.button === 0 && !(event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) && a.getAttribute("href") === window.location.hash
         && DwAssessmentNav.go(document, a.getAttribute("href"))) event.preventDefault();
