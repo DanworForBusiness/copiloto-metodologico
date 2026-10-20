@@ -57,5 +57,10 @@
     <a href="/cchh/publicaciones" class="module-link {% if active_page == 'publicaciones' %}is-active{% endif %}">
       <span>05</span><strong>Avisos</strong>
     </a>
+    {# Indicadores — capability real del workspace, tomada de la app de referencia (tab "Indicadores" -> /metricas; el H1 es «Indicadores»): tiempos de cobertura y contratación, conversión,
+       fuentes y perfiles más entrevistados (ver human_capital_indicators.py). `active_page == 'indicadores'` lo pasa el router. #}
+    <a href="/cchh/indicadores" class="module-link {% if active_page == 'indicadores' %}is-active{% endif %}">
+      <span>06</span><strong>Indicadores</strong>
+    </a>
   </nav>
 </aside>

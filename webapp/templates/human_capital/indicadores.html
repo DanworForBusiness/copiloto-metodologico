@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Indicadores · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% include "partials/human_capital_catalog_refresh_topbar.html" %}{% endcall %}
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano</p>
+        <h1>Indicadores</h1>
+        <p>Indicadores clave del proceso de reclutamiento: tiempos de cobertura, conversión, fuentes de candidaturas y perfiles más entrevistados.</p>
+      </div>
+    </section>
+
+    {# 06 Indicadores — paridad funcional con `/metricas` de la app de referencia (spec `_handoffs/CCHH_06_INDICADORES_SPEC.md`). Esta plantilla SOLO presenta lo que devuelve el motor
+       (`human_capital_indicators.build_page`, Bloque A): ningún cálculo de negocio acá. Todo es histórico (no hay filtros globales); C6 y C9 tienen su propio selector de período, independiente.
+       La exportación a Excel llega con el Bloque C: hasta entonces no hay botón (nada inoperante). #}
+    {% if source_error %}
+    <div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>No se pudieron cargar las métricas: {{ source_error }}</p></div>
+    {% else %}
+    {% include "partials/human_capital_indicadores_panel.html" %}
+    {% endif %}
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{% endblock %}

@@ -783,6 +783,15 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 }
 .content-theme-dark .activity-kpi__value { color: #e4e4ec; }
 .activity-kpi__label { color: var(--kpi-accent, var(--gold)); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+/* Nota VISIBLE bajo el valor del KPI (extensión mínima y genérica de `.activity-kpi`): aclara cómo se calcula un número cuyo cálculo no es obvio. `--warn` = advertencia contextual (p. ej. fechas
+   estimadas): el llamador la renderiza solo cuando hay registros afectados. `.activity-kpi-grid.activity-kpi-grid--notes` (doble clase: gana a la regla de 2 columnas del media query angosto) ordena los tiles en 1/2/3 columnas (por viewport) para que una nota de varias líneas no quede angosta. */
+.activity-kpi__note { margin: 2px 0 0; color: #55555c; font-size: .72rem; line-height: 1.4; }
+.content-theme-dark .activity-kpi__note { color: #b2b2bc; }
+.activity-kpi__note--warn { color: #8a6300; }
+.content-theme-dark .activity-kpi__note--warn { color: #e0b84a; }
+.activity-kpi-grid.activity-kpi-grid--notes { grid-template-columns: 1fr; }
+@media (min-width: 640px) { .activity-kpi-grid.activity-kpi-grid--notes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1000px) { .activity-kpi-grid.activity-kpi-grid--notes { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 /* Acento distinto por tile — paleta canónica de estados de catálogo (azul/verde/
    ámbar/naranja/dorado), para que se diferencien sin romper la identidad. Solo
    borde + label; el valor queda neutro por legibilidad. */
@@ -1004,6 +1013,30 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .activity-bar-row:nth-of-type(10) .activity-bar__fill { background: hsl(48,71%,73%); }
 .activity-bar-count { min-width: 28px; text-align: right; font: .72rem var(--mono); color: #55555c; }
 .content-theme-dark .activity-bar-count { color: #b2b2bc; }
+/* Lista de barras con ETIQUETA de ancho fijo y elipsis (el texto íntegro queda en `title`): las barras arrancan alineadas aunque los rótulos sean largos o de largo dispar. En angosto la etiqueta cede
+   hasta el 40 % de la fila. Extensión mínima y genérica de `.activity-bar-row`. */
+.activity-bar-list--fixed .activity-bar-label { flex: 0 0 min(11rem, 40%); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* BARRA SEGMENTADA — extensión mínima y reutilizable de `.activity-bar`: N segmentos proporcionales (ancho en % ya calculado por quien la usa) de CARDINALIDAD DINÁMICA. El tono sale de
+   `data-seg` (0..5, cíclico por posición; `muted` = neutro para «sin dato»/complementos). El MISMO `data-seg` pinta el segmento y su clave de leyenda (`.activity-seg-key`), así la leyenda y la
+   barra no se desincronizan. Fila = `.activity-segrow` (rótulo + leyenda + barra). Funciona igual en tema claro y oscuro (tonos medios de la paleta canónica del Hub). */
+.activity-segrow { margin: 10px 0; }
+.activity-segrow__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; margin-bottom: 4px; font-size: .73rem; }
+.activity-segrow__label { color: #55555c; font-weight: 600; }
+.content-theme-dark .activity-segrow__label { color: #b2b2bc; }
+.activity-segrow__legend { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font: .7rem var(--mono); color: #1f1f24; }
+.content-theme-dark .activity-segrow__legend { color: #e4e4ec; }
+.activity-segrow__total { font-weight: 800; }
+.activity-bar--segmented { display: flex; gap: 2px; }
+.activity-bar__seg { display: block; flex: 0 0 auto; height: 100%; min-width: 0; background: var(--seg-color, hsl(45,83%,52%)); }
+.activity-seg-key::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 2px; background: var(--seg-color, hsl(45,83%,52%)); }
+:is(.activity-bar__seg, .activity-seg-key)[data-seg="0"] { --seg-color: #2f6fbd; }
+:is(.activity-bar__seg, .activity-seg-key)[data-seg="1"] { --seg-color: #2e9e5b; }
+:is(.activity-bar__seg, .activity-seg-key)[data-seg="2"] { --seg-color: #c89100; }
+:is(.activity-bar__seg, .activity-seg-key)[data-seg="3"] { --seg-color: #d06f1f; }
+:is(.activity-bar__seg, .activity-seg-key)[data-seg="4"] { --seg-color: #8a63c9; }
+:is(.activity-bar__seg, .activity-seg-key)[data-seg="5"] { --seg-color: #2b9aa6; }
+:is(.activity-bar__seg, .activity-seg-key)[data-seg="muted"] { --seg-color: #8b8b96; }
 
 /* Chip del panel desde donde se abrió el árbol (árbol / diagnóstico / etc.). */
 .tree-panel-chip { display: inline-block; margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: rgba(128,128,128,.16); color: #7a7a82; font: 600 .6rem var(--mono); text-transform: uppercase; letter-spacing: .04em; vertical-align: middle; }
@@ -1595,6 +1628,10 @@ table.dashboard-table tr.depth-2 td.row-label { font-weight: 400; color: #55555c
    `overflow` recorte la tabla en silencio. Comportamiento de Reporting sin
    cambios (misma regla, mismo efecto, ahora sin scope). */
 .matrix-scroll { overflow-x: auto; }
+/* Variante CONTENIDA de `.matrix-scroll` (extensión mínima y genérica): tablas largas scrollean DENTRO de su contenedor (altura máxima) y mantienen visible la cabecera; nunca scroll de página. */
+.matrix-scroll--contained { max-height: 16rem; overflow-y: auto; }
+.matrix-scroll--contained table.dashboard-table th { position: sticky; top: 0; z-index: 1; background: #fff; box-shadow: inset 0 -1px 0 rgba(128,128,128,.25); }
+.content-theme-dark .matrix-scroll--contained table.dashboard-table th { background: #181819; }   /* fondo sólido = el de la tarjeta de contenido (claro #fff / oscuro #181819) */
 /* Redimensionado de columnas — primitivo compartido (initResizableColumns,
    app.js), opt-in vía [data-resizable-columns-key]. `position: relative`
    sobre CUALQUIER <th data-column-key> (lo usa también el reorder,

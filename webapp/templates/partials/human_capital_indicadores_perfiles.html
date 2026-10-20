@@ -1,0 +1,24 @@
+{% from "partials/human_capital_indicadores_macros.html" import empty, date_note, bar_rows, periodo_select %}
+{# human_capital_indicadores_perfiles.html — C6 «Perfiles más entrevistados»: fragmento compartido por la página completa y por el selector de período PROPIO de esta tarjeta (HTMX, GET
+   /cchh/indicadores/tarjetas/perfiles). Independiente de C9 y de los KPI. `perfiles` = `human_capital_indicators.build_perfiles(...)`: el motor resuelve el período (uno desconocido degrada a
+   «Histórico completo»); acá solo se presenta. #}
+<div id="hc-ind-perfiles">
+{% if source_error %}
+<div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>No se pudieron cargar las métricas: {{ source_error }}</p></div>
+{% else %}
+  {{ periodo_select("perfiles", perfiles.periodo, perfiles.periodos) }}
+  <p class="field-hint">Cantidad de entrevistas concretadas por puesto evaluado (el de la búsqueda o, en entrevistas manuales, el texto cargado). Top 10 en el gráfico, listado completo abajo.</p>
+  {% if not perfiles.periodo_valido %}{{ date_note("El período pedido no está disponible: se muestra el histórico completo.") }}{% endif %}
+  {% if perfiles.fechas.estimadas > 0 %}{{ date_note(perfiles.fechas.estimadas ~ " de " ~ perfiles.fechas.total ~ " entrevistas usan una fecha estimada (no tienen fecha de entrevista cargada).") }}{% endif %}
+  {% if perfiles.filas %}
+    {{ bar_rows(perfiles.top, "perfil", "cantidad") }}
+    <div class="matrix-scroll matrix-scroll--contained">
+      <table class="dashboard-table">
+        <colgroup><col style="width:78%"><col style="width:22%"></colgroup>
+        <thead><tr><th class="left">Perfil</th><th>Cantidad</th></tr></thead>
+        <tbody>{% for r in perfiles.filas %}<tr><td class="left">{{ r.perfil }}</td><td><strong>{{ r.cantidad }}</strong></td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  {% else %}{{ empty("Todavía no hay entrevistas concretadas para este período.") }}{% endif %}
+{% endif %}
+</div>

@@ -1,0 +1,143 @@
+{% from "partials/human_capital_indicadores_macros.html" import empty, date_note, kpi, bar_rows, seg_row %}
+{# human_capital_indicadores_panel.html — cuerpo de GET /cchh/indicadores: 6 KPI + 10 tarjetas, en el orden y con la jerarquía de `/metricas` de la app de referencia. Presenta `page` (resultado de
+   `human_capital_indicators.build_page`); no calcula nada de negocio. C6 y C9 son fragmentos HTMX independientes (`human_capital_indicadores_perfiles.html` / `_canales.html`). Responsive: la grilla de
+   KPI se adapta sola (`auto-fit`), los pares de tarjetas usan `.activity-grid-2` (una columna en angosto) y las tablas largas scrollean DENTRO de su contenedor. #}
+{% set k = page.kpis %}
+{% set ing = k.tiempo_contratacion.fechas %}
+{# Advertencias de fecha: solo cuando hay registros afectados (el motor devuelve los conteos). #}
+{% set ingreso_limits = ([("La fecha de ingreso es la primera vez que la candidatura llegó a Finalizado; el historial no registra cuándo se asignó el resultado.")] if ing.ingresos > 0 else [])
+   + ([ing.desde_ultimo_movimiento ~ " de " ~ ing.ingresos ~ " ingresos usan la fecha del último movimiento (sin historial de etapas)."] if ing.desde_ultimo_movimiento > 0 else [])
+   + ([ing.sin_fecha ~ " de " ~ ing.ingresos ~ " ingresos no tienen una fecha utilizable y quedan fuera de este cálculo."] if ing.sin_fecha > 0 else []) %}
+{% macro entrevistas_limits(f) %}
+  {%- if f.estimadas > 0 %}{{ date_note(f.estimadas ~ " de " ~ f.total ~ " entrevistas usan una fecha estimada (no tienen fecha de entrevista cargada).") }}{% endif %}
+  {%- if f.sin_fecha > 0 %}{{ date_note(f.sin_fecha ~ " entrevistas sin fecha utilizable no figuran en este desglose.") }}{% endif %}
+{% endmacro %}
+
+<div class="activity-kpi-grid activity-kpi-grid--notes" data-indicadores="kpis">
+  {{ kpi("—" if k.tiempo_cobertura.valor is none else k.tiempo_cobertura.valor ~ " días", "Tiempo de cobertura prom.", "Días entre apertura y cierre, promedio solo de búsquedas ya cerradas — las activas todavía no suman a este número.") }}
+  {{ kpi("—" if k.tiempo_contratacion.valor is none else k.tiempo_contratacion.valor ~ " días", "Tiempo de contratación prom.", "Días entre el alta de la candidatura en la búsqueda y la primera llegada a Finalizado con resultado Ingreso. Solo contempla candidaturas ya contratadas.", ingreso_limits) }}
+  {{ kpi(k.tasa_conversion.valor ~ "%", "Tasa de conversión", "Ingresos sobre el total de candidaturas cargadas en alguna búsqueda (activas y cerradas). Las que siguen en proceso hoy cuentan en la base, aunque todavía no se decidieron.") }}
+  {{ kpi(k.total_contratados.valor, "Total contratados", "Candidaturas marcadas como Ingreso, en cualquier búsqueda — total histórico, sin filtro de período.") }}
+  {{ kpi(k.total_descartados.valor, "Total descartados", "Suma rechazadas y desistidas: candidaturas que la empresa descartó y las que se bajaron del proceso por su cuenta.") }}
+  {{ kpi(k.entrevistas_realizadas.valor, "Entrevistas realizadas", "Entrevistas marcadas como concretadas — total histórico, no cuenta las agendadas que no se llegaron a hacer.") }}
+</div>
+
+<div class="activity-grid-2">
+  <details class="dashboard-section" open data-indicador="c1-postulantes">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Postulantes por búsqueda</span></summary>
+    <div class="dashboard-section__body">
+      <p class="field-hint">Top 10 por cantidad de candidaturas.</p>
+      {% if page.postulantes_por_busqueda.filas %}{{ bar_rows(page.postulantes_por_busqueda.filas, "nombre_puesto", "cantidad") }}{% else %}{{ empty("Todavía no hay datos suficientes.") }}{% endif %}
+    </div>
+  </details>
+  <details class="dashboard-section" open data-indicador="c2-busquedas-por-mes">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Búsquedas abiertas vs cerradas por mes</span></summary>
+    <div class="dashboard-section__body">
+      <p class="field-hint">Últimos 6 meses con movimiento.</p>
+      {% if page.busquedas_por_mes.filas %}
+        {% for r in page.busquedas_por_mes.filas %}
+          {{ seg_row(r.etiqueta, [{"clave": "Abiertas", "valor": r.abiertas, "ancho_pct": r.ancho_abiertas_pct}, {"clave": "Cerradas", "valor": r.cerradas, "ancho_pct": r.ancho_cerradas_pct, "muted": true}]) }}
+        {% endfor %}
+      {% else %}{{ empty("Todavía no hay datos suficientes.") }}{% endif %}
+    </div>
+  </details>
+</div>
+
+<details class="dashboard-section" open data-indicador="c3-ingresos-por-mes">
+  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Ingresos efectivos por mes</span></summary>
+  <div class="dashboard-section__body">
+    <p class="field-hint">Contrataciones confirmadas, discriminadas por modalidad. Últimos 6 meses con ingresos.</p>
+    {% for l in ingreso_limits %}{{ date_note(l) }}{% endfor %}
+    {% if page.ingresos_por_mes.filas %}
+      {% for r in page.ingresos_por_mes.filas %}{{ seg_row(r.etiqueta, r.segmentos, r.total, true) }}{% endfor %}
+    {% else %}{{ empty("Todavía no hay datos suficientes.") }}{% endif %}
+  </div>
+</details>
+
+<div class="activity-grid-2">
+  <details class="dashboard-section" open data-indicador="c4-entrevistas-por-anio">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Entrevistas realizadas por año</span></summary>
+    <div class="dashboard-section__body">
+      <p class="field-hint">Concretadas vs. no concretadas, según la fecha efectiva de cada entrevista.</p>
+      {{ entrevistas_limits(page.entrevistas_por_anio.fechas) }}
+      {% if page.entrevistas_por_anio.filas %}
+      <div class="matrix-scroll">
+        <table class="dashboard-table">
+          <colgroup><col style="width:32%"><col style="width:23%"><col style="width:27%"><col style="width:18%"></colgroup>
+          <thead><tr><th class="left">Año</th><th>Realizadas</th><th>No concretadas</th><th>Total</th></tr></thead>
+          <tbody>{% for r in page.entrevistas_por_anio.filas %}<tr><td class="left">{{ r.anio }}</td><td>{{ r.realizadas }}</td><td>{{ r.no_realizadas }}</td><td><strong>{{ r.total }}</strong></td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+      {% else %}{{ empty("Todavía no hay datos suficientes.") }}{% endif %}
+    </div>
+  </details>
+  <details class="dashboard-section" open data-indicador="c5-entrevistas-por-periodo">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Entrevistas realizadas por período</span></summary>
+    <div class="dashboard-section__body">
+      <p class="field-hint">Detalle mes a mes, historial completo.</p>
+      {{ entrevistas_limits(page.entrevistas_por_mes.fechas) }}
+      {% if page.entrevistas_por_mes.filas %}
+      <div class="matrix-scroll matrix-scroll--contained">
+        <table class="dashboard-table">
+          <colgroup><col style="width:32%"><col style="width:23%"><col style="width:27%"><col style="width:18%"></colgroup>
+          <thead><tr><th class="left">Período</th><th>Realizadas</th><th>No concretadas</th><th>Total</th></tr></thead>
+          <tbody>{% for r in page.entrevistas_por_mes.filas %}<tr><td class="left">{{ r.etiqueta }}</td><td>{{ r.realizadas }}</td><td>{{ r.no_realizadas }}</td><td><strong>{{ r.total }}</strong></td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+      {% else %}{{ empty("Todavía no hay datos suficientes.") }}{% endif %}
+    </div>
+  </details>
+</div>
+
+{# C6 — filtro de período PROPIO (fragmento HTMX independiente de C9). #}
+<details class="dashboard-section" open data-indicador="c6-perfiles">
+  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Perfiles más entrevistados</span></summary>
+  <div class="dashboard-section__body">{% set perfiles = page.perfiles_entrevistados %}{% include "partials/human_capital_indicadores_perfiles.html" %}</div>
+</details>
+
+<div class="activity-grid-2">
+  <details class="dashboard-section" open data-indicador="c7-fuente">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Efectividad por fuente</span></summary>
+    <div class="dashboard-section__body">
+      <p class="field-hint">Fuente heredada del banco de CVs de origen de cada candidatura.</p>
+      {% if page.efectividad_por_fuente.filas %}
+      <div class="matrix-scroll">
+        <table class="dashboard-table" style="min-width:26rem">
+          <colgroup><col style="width:34%"><col style="width:22%"><col style="width:22%"><col style="width:22%"></colgroup>
+          <thead><tr><th class="left">Fuente</th><th>Postulantes</th><th>Contratados</th><th>Conversión</th></tr></thead>
+          <tbody>{% for r in page.efectividad_por_fuente.filas %}<tr><td class="left">{{ r.fuente }}</td><td>{{ r.postulantes }}</td><td>{{ r.contratados }}</td><td><strong>{{ r.conversion }}%</strong></td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+      {% else %}{{ empty("Todavía no hay datos suficientes.") }}{% endif %}
+    </div>
+  </details>
+  <details class="dashboard-section" open data-indicador="c8-tiempo-cobertura">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Tiempo de cobertura por búsqueda cerrada</span></summary>
+    <div class="dashboard-section__body">
+      <p class="field-hint">Días entre apertura y cierre.</p>
+      {% if page.tiempo_cobertura_por_busqueda.filas %}{{ bar_rows(page.tiempo_cobertura_por_busqueda.filas, "nombre_puesto", "dias", " días") }}{% else %}{{ empty("Todavía no hay búsquedas cerradas para calcular este indicador.") }}{% endif %}
+    </div>
+  </details>
+</div>
+
+{# C9 — filtro de período PROPIO (fragmento HTMX independiente de C6). #}
+<details class="dashboard-section" open data-indicador="c9-canales">
+  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Efectividad por canal de aviso</span></summary>
+  <div class="dashboard-section__body">{% set canales = page.canales_aviso %}{% include "partials/human_capital_indicadores_canales.html" %}</div>
+</details>
+
+<details class="dashboard-section" open data-indicador="c10-estancadas">
+  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Búsquedas vencidas o estancadas</span></summary>
+  <div class="dashboard-section__body">
+    <p class="field-hint">Activas con {{ page.busquedas_estancadas.umbral_dias }} días o más sin que ninguna candidatura cambie de etapa.</p>
+    {% if page.busquedas_estancadas.filas %}
+    <div class="matrix-scroll">
+      <table class="dashboard-table">
+        <colgroup><col style="width:70%"><col style="width:30%"></colgroup>
+        <thead><tr><th class="left">Búsqueda</th><th>Sin movimiento</th></tr></thead>
+        <tbody>{% for r in page.busquedas_estancadas.filas %}<tr><td class="left">{{ r.nombre_puesto }}</td><td><strong>{{ r.dias }} días</strong></td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+    {% else %}{{ empty("No hay búsquedas activas estancadas por el momento.", "Sin estancadas") }}{% endif %}
+  </div>
+</details>

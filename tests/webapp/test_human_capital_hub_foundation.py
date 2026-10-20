@@ -191,8 +191,9 @@ def test_content_never_lists_functional_capabilities_as_if_available():
     assert "<strong>Entrevistas</strong>" in text  # nav real, no un placeholder (ver test_human_capital_entrevistas.py)
     assert "<strong>Onboarding</strong>" in text  # nav real, no un placeholder (ver test_human_capital_onboarding.py)
     assert "<strong>Avisos</strong>" in text  # nav real, no un placeholder (ver test_human_capital_publicaciones.py)
+    assert "<strong>Indicadores</strong>" in text  # nav real, no un placeholder (ver test_human_capital_indicadores_view.py)
     for capability in (
-        "Indicadores", "Administración", "Inicio", "Perfiles",
+        "Administración", "Inicio", "Perfiles",
     ):
         assert f"<strong>{capability}</strong>" not in text
 
