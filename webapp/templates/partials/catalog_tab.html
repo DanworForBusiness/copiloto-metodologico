@@ -49,12 +49,15 @@
 {# Filtro del SEGUNDO dropdown + buscador en vivo (`dwCatalogBrowse`, app.js): elegido el valor del 2.º dropdown este se reemplaza por «Buscar…» + «Limpiar» y aparece la leyenda
    «Filtrado por <catálogo> ✕» (primitivo `.dashboard-subhead__filter/__reset` de Métricas de uso). El buscador filtra en el cliente los tiles YA renderizados (cualquier texto del tile,
    sin distinguir mayúsculas ni tildes); nunca recarga ni cambia el contenido del catálogo. Data Products no tiene 2.º dropdown: su buscador está disponible desde el inicio. #}
-{% macro search_row() %}
-<div class="whatsnew-filters whatsnew-filters--inline" x-show="showSearch" x-cloak>
-  <label class="whatsnew-filter whatsnew-filter--fill">
-    <input type="search" data-catalog-search x-model="q" @input="search()" @keydown.escape="clearSearch()" aria-label="Buscar en el catálogo" placeholder="Buscar..." autocomplete="off">
-  </label>
-  <button type="button" class="whatsnew-filter__clear" @click="clearSearch()">Limpiar</button>
+{% macro search_row(sid) %}
+<div x-show="showSearch" x-cloak>
+  <label for="{{ sid }}">Buscar</label>
+  <div class="whatsnew-filters whatsnew-filters--inline">
+    <div class="whatsnew-filter whatsnew-filter--fill">
+      <input type="search" id="{{ sid }}" data-catalog-search x-model="q" @input="search()" @keydown.escape="clearSearch()" aria-label="Buscar en el catálogo" placeholder="Buscar..." autocomplete="off">
+    </div>
+    <button type="button" class="whatsnew-filter__clear" @click="clearSearch()">✕ Limpiar</button>
+  </div>
 </div>
 {% endmacro %}
 {% macro no_match() %}
@@ -66,6 +69,11 @@
   <div class="tree-picker catalog-picker--kind" :class="catalogView === 'publish' && 'catalog-picker--bare'">
     <div class="tree-picker-head">
       <label for="catalog-kind">Catálogo de datos</label>
+      <p class="dashboard-subhead catalog-filter-legend" x-show="hasPick && catalogView !== 'publish'" x-cloak>
+        <span class="dashboard-subhead__filter">Filtrado por <strong x-text="pickedLabel" :title="'Filtrado por ' + pickedLabel"></strong>
+          <button type="button" class="dashboard-subhead__reset" @click="clearPick()" :title="'Quitar el filtro: ' + pickedLabel" :aria-label="'Quitar el filtro por ' + kindLabel + ': ' + pickedLabel">✕</button>
+        </span>
+      </p>
       {% if pub.can_execute %}
       <button type="button" class="table-action-btn chart-tooltip-anchor tree-picker-head__action" x-show="catalogView !== 'publish'" @click="catalogView = 'publish'" aria-label="Publicar en el catálogo">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
@@ -92,11 +100,6 @@
   {% endif %}
 
   <div x-show="catalogView !== 'publish'" x-cloak>
-  <p class="dashboard-subhead catalog-filter-legend" x-show="hasPick" x-cloak>
-    <span class="dashboard-subhead__filter">Filtrado por <strong x-text="kindLabel"></strong>
-      <button type="button" class="dashboard-subhead__reset" @click="clearPick()" :title="'Quitar el filtro: ' + pickedLabel" :aria-label="'Quitar el filtro por ' + kindLabel + ': ' + pickedLabel">✕</button>
-    </span>
-  </p>
   <div x-show="!catalogKind" x-cloak id="catalog-flows-empty" class="catalog-flows">
     <div class="tool-empty">
       <span>4 catálogos disponibles</span>
@@ -105,7 +108,7 @@
   </div>
 
   <div x-show="catalogKind === 'domains'" x-cloak data-catalog-kind="domains">
-    <div class="tree-picker catalog-picker--secondary">
+    <div class="tree-picker catalog-picker--secondary" :class="picked && 'catalog-picker--search'">
       <div x-show="!picked">
       <label for="catalog-dominio">Modelo</label>
       <div class="tree-picker-row">
@@ -116,9 +119,9 @@
         </select>
       </div>
       </div>
-      {{ search_row() }}
+      {{ search_row('catalog-search-domains') }}
     </div>
-    <div id="catalog-flows" class="catalog-flows" data-catalog-results>
+    <div id="catalog-flows" class="catalog-flows" data-catalog-results x-show="!noMatch">
       <div class="tool-empty">
         {% set _models = catalog_models if catalog_models is defined else catalog_domains %}
         <span>{{ _models|length }} {{ "modelo disponible" if _models|length == 1 else "modelos disponibles" }}</span>
@@ -130,7 +133,7 @@
 
   <div x-show="catalogKind === 'lob'" x-cloak data-catalog-kind="lob">
     {# Tercera modalidad: agrupa los MISMOS flujos por línea de negocio (clasificación v2 PERSISTIDA, manual > automática alta > sin clasificar). Independiente de Dominios. #}
-    <div class="tree-picker catalog-picker--secondary">
+    <div class="tree-picker catalog-picker--secondary" :class="picked && 'catalog-picker--search'">
       <div x-show="!picked">
       <label for="catalog-lob">Línea de negocio</label>
       <div class="tree-picker-row">
@@ -144,11 +147,11 @@
         </select>
       </div>
       </div>
-      {{ search_row() }}
+      {{ search_row('catalog-search-lob') }}
     </div>
     <div id="catalog-lob-region" class="catalog-region">
       <div class="catalog-loading section-analysis-loading" role="status" aria-live="polite"><span class="section-analysis-spinner" aria-hidden="true"></span><span class="section-analysis-loading-copy">Cargando modelos…</span></div>
-      <div id="catalog-lob-flows" class="catalog-flows" data-catalog-results>
+      <div id="catalog-lob-flows" class="catalog-flows" data-catalog-results x-show="!noMatch">
         <div class="tool-empty">
           <span>{{ (catalog_lobs or [])|length }} opciones</span>
           <p>Elegí la línea de negocio (Finanzas, Ventas, Cadena de suministro…) para ver los modelos agrupados con ese criterio.</p>
@@ -160,7 +163,7 @@
 
   <div x-show="catalogKind === 'clients'" x-cloak data-catalog-kind="clients">
     {# Cuarta modalidad: TODOS los modelos de un cliente (mismas tarjetas y navegación). Independiente de Modelos y de Líneas de negocio. #}
-    <div class="tree-picker catalog-picker--secondary">
+    <div class="tree-picker catalog-picker--secondary" :class="picked && 'catalog-picker--search'">
       <div x-show="!picked">
       <label for="catalog-client">Cliente</label>
       <div class="tree-picker-row">
@@ -172,11 +175,11 @@
         </select>
       </div>
       </div>
-      {{ search_row() }}
+      {{ search_row('catalog-search-clients') }}
     </div>
     <div id="catalog-client-region" class="catalog-region">
       <div class="catalog-loading section-analysis-loading" role="status" aria-live="polite"><span class="section-analysis-spinner" aria-hidden="true"></span><span class="section-analysis-loading-copy">Cargando modelos…</span></div>
-      <div id="catalog-client-flows" class="catalog-flows" data-catalog-results>
+      <div id="catalog-client-flows" class="catalog-flows" data-catalog-results x-show="!noMatch">
         <div class="tool-empty">
           <span>{{ (catalog_clients or [])|length }} {{ "cliente disponible" if (catalog_clients or [])|length == 1 else "clientes disponibles" }}</span>
           <p>Elegí el cliente para ver todos sus modelos publicados.</p>
@@ -188,8 +191,8 @@
 
   <div x-show="catalogKind === 'data_products'" x-cloak class="catalog-flows" data-catalog-kind="data_products">
     {% if catalog_data_products %}
-    <div class="catalog-picker--secondary">{{ search_row() }}</div>
-    <ul class="catalog-flows-list" data-catalog-results>
+    <div class="tree-picker catalog-picker--secondary catalog-picker--search">{{ search_row('catalog-search-dp') }}</div>
+    <ul class="catalog-flows-list" data-catalog-results x-show="!noMatch">
       {% for dp in catalog_data_products %}
       <li class="catalog-card catalog-card--{{ dp.veredicto|catalog_verdict_tone }}"
           role="link" tabindex="0" title="Ver detalle del Data Product"

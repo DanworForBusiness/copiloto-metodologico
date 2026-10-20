@@ -50,23 +50,51 @@ def test_the_catalog_bar_is_one_component_and_the_first_dropdown_is_untouched():
 @pytest.mark.parametrize("kind,select_id,label", [("domains", "catalog-dominio", "Modelo"), ("lob", "catalog-lob", "Línea de negocio"), ("clients", "catalog-client", "Cliente")])
 def test_each_secondary_dropdown_is_replaced_by_search_and_clear_once_a_value_is_chosen(kind, select_id, label):
     sec = section(render(), kind)
-    wrap = sec[sec.index('<div x-show="!picked">'): sec.index('<div class="whatsnew-filters whatsnew-filters--inline" x-show="showSearch"')]   # el dropdown 2 vive en un contenedor que se oculta al elegir
+    wrap = sec[sec.index('<div x-show="!picked">'): sec.index('<div x-show="showSearch" x-cloak>')]   # el dropdown 2 vive en un contenedor que se oculta al elegir
     assert f'<label for="{select_id}">{label}</label>' in wrap and f'<select id="{select_id}"' in wrap and '@change="pick($event)"' in wrap
     assert 'hx-get="/catalog/' in wrap and 'hx-trigger="change"' in wrap                                           # la carga de tiles sigue siendo la de siempre (htmx)
-    row = sec[sec.index('<div class="whatsnew-filters whatsnew-filters--inline" x-show="showSearch"'):]
-    row = row[: row.index("</div>") + len("</div>")]
-    assert 'type="search"' in row and 'placeholder="Buscar..."' in row and 'aria-label="Buscar en el catálogo"' in row and 'x-model="q"' in row and '@input="search()"' in row
-    assert '<button type="button" class="whatsnew-filter__clear" @click="clearSearch()">Limpiar</button>' in row    # patrón del Hub para «Limpiar»
+    row = sec[sec.index('<div x-show="showSearch" x-cloak>'):]
+    row = row[: row.index("</button>") + len("</button>")]
+    sid = re.search(r'<label for="(catalog-search-[a-z]+)">Buscar</label>', row).group(1)                         # etiqueta «Buscar» con la misma gramática que «Cliente»/«Modelo»
+    assert f'id="{sid}"' in row and 'type="search"' in row and 'placeholder="Buscar..."' in row and 'aria-label="Buscar en el catálogo"' in row and 'x-model="q"' in row and '@input="search()"' in row
+    assert '<button type="button" class="whatsnew-filter__clear" @click="clearSearch()">✕ Limpiar</button>' in row   # patrón del Hub para «✕ Limpiar»
+    assert "<label class=\"whatsnew-filter" not in row                                                              # el contenedor del input NO es un <label>: dentro de `.tree-picker` heredaba display:block y margen inferior
     assert sec.count("data-catalog-results") == 1 and 'x-show="noMatch"' in sec and "Sin coincidencias" in sec    # estado vacío del Hub (`catalog_state.html`), no un hueco
 
 
-def test_the_gold_legend_uses_the_shared_hub_primitive_and_restores_the_dropdown():
+def test_the_gold_legend_sits_on_the_catalog_title_row_before_the_plus_and_uses_the_shared_hub_primitive():
     html = render()
     legend = html[html.index('<p class="dashboard-subhead catalog-filter-legend"'): html.index("</p>", html.index('<p class="dashboard-subhead catalog-filter-legend"'))]
-    assert 'x-show="hasPick"' in legend and '<span class="dashboard-subhead__filter">Filtrado por <strong x-text="kindLabel"></strong>' in legend
+    assert "x-show=\"hasPick && catalogView !== 'publish'\"" in legend and '<span class="dashboard-subhead__filter">Filtrado por <strong x-text="pickedLabel"' in legend
     assert 'class="dashboard-subhead__reset"' in legend and '@click="clearPick()"' in legend and ">✕</button>" in legend
-    assert ':aria-label="\'Quitar el filtro por \' + kindLabel + \': \' + pickedLabel"' in legend                    # nombre accesible: qué filtro y con qué valor
-    assert html.index('id="catalog-kind"') < html.index("catalog-filter-legend") < html.index('data-catalog-kind="domains"')   # bajo el selector de catálogo, sobre el contenido
+    assert ':aria-label="\'Quitar el filtro por \' + kindLabel + \': \' + pickedLabel"' in legend                    # nombre accesible: qué filtro y con qué valor (la leyenda muestra el valor elegido: «Filtrado por Finanzas»)
+    head = html[html.index('<div class="tree-picker-head'): html.index('<div class="tree-picker-row"')]
+    assert 'for="catalog-kind">Catálogo de datos</label>' in head and "catalog-filter-legend" in head                # en la MISMA fila que «CATÁLOGO DE DATOS»
+    assert html.index("catalog-filter-legend") < html.index('id="catalog-kind"') < html.index('data-catalog-kind="domains"')
+    # el «+» es absoluto (no agranda la fila); la leyenda queda a continuación del título y el «+» es absoluto
+    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    assert ".catalog-picker--kind .tree-picker-head { display: flex; flex-wrap: nowrap;" in css and ".catalog-filter-legend { margin: 0;" in css
+
+
+def test_legend_stays_on_one_line_and_truncates_the_value_keeping_the_x_visible():
+    html = render()
+    legend = html[html.index('<p class="dashboard-subhead catalog-filter-legend"'): html.index("</p>", html.index('<p class="dashboard-subhead catalog-filter-legend"'))]
+    assert 'x-text="pickedLabel" :title="\'Filtrado por \' + pickedLabel"' in legend                              # texto íntegro en el DOM y en el tooltip
+    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    assert ".catalog-filter-legend { margin: 0; flex: 0 1 auto; min-width: 0; white-space: nowrap; }" in css
+    strong = re.search(r"\.catalog-filter-legend strong \{([^}]*)\}", css).group(1)
+    assert "min-width: 0" in strong and "overflow: hidden" in strong and "text-overflow: ellipsis" in strong and "white-space: nowrap" in strong
+    assert ".catalog-filter-legend .dashboard-subhead__reset { flex: 0 0 auto;" in css                         # la ✕ nunca se achica ni queda fuera
+    assert ".tree-picker-head:has(.tree-picker-head__action) { padding-right: 35px; }" in css                  # nunca bajo el «+»
+    assert "flex-wrap: nowrap" in re.search(r"\.catalog-picker--kind \.tree-picker-head \{([^}]*)\}", css).group(1)   # sin salto de línea
+
+
+def test_search_mode_has_no_extra_space_before_the_first_tile():
+    """Causa del hueco de ~50px: el picker conservaba relleno + separador inferiores y `.whatsnew-filters` aportaba 18px de margen. En modo búsqueda el picker los pierde."""
+    html = render()
+    assert html.count(":class=\"picked && 'catalog-picker--search'\"") == 3 and 'class="tree-picker catalog-picker--secondary catalog-picker--search"' in html   # los 3 pickers + Data Products
+    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    assert ".catalog-picker--search { padding-bottom: 0; border-bottom: 0; }" in css and ".catalog-picker--search .whatsnew-filters { margin: 0; }" in css
 
 
 def test_data_products_have_no_second_dropdown_so_search_is_available_from_the_start():
