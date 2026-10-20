@@ -80,6 +80,12 @@ def html_escape(text: str) -> str:
     return _h.escape(text, quote=True)
 
 
+def _without_nd(html: str) -> str:
+    """El HTML sin el bloque de impedimentos de «No determinable» (tabla + disclosures `asr-nd-N`): tiene su propia acción icónica y su X."""
+    html = re.sub(r'<table data-block="nd-blockers">.*?</table>', "", html, flags=re.S)
+    return re.sub(r'<details class="dashboard-section" id="asr-nd-\d+">.*?</details>', "", html, flags=re.S)
+
+
 def _dom(html: str) -> _Dom:
     d = _Dom()
     d.feed(html)
@@ -154,7 +160,8 @@ def test_catalog_report_has_one_integrated_table_per_area_and_no_redundant_findi
     for m in re.finditer(r'<tr id="asr-r-[^"]+">(.*?)</tr>', html, re.S):
         if "table-action-btn" in m.group(1):
             assert re.search(r'<td class="asr-col-action"><span class="dw-row-actions"><a href="#asr-g-', m.group(1))   # la acción vive en SU celda, no pegada al texto de ocurrencias
-    actions = len(re.findall(r'class="table-action-btn chart-tooltip-anchor"', html))
+    html_wo_nd = _without_nd(html)
+    actions = len(re.findall(r'class="table-action-btn chart-tooltip-anchor"', html_wo_nd))
     assert actions == sum(1 for a in v["areas"] for r in a["rules"] if r["finding"])                            # cardinalidad: una acción por regla con hallazgo
     assert "<code>Ver detalle</code>" not in html and ">Ver detalle<" not in html
 
@@ -187,7 +194,7 @@ def test_each_finding_detail_closes_with_a_single_svg_x_in_its_header_and_has_no
         assert x.group(1) == html_escape(f'Cerrar el detalle del hallazgo «{g["title"]}»')
         assert '<svg viewBox="0 0 24 24" aria-hidden="true">' in x.group(2) and "&times;" not in x.group(2)
         assert '<span class="chart-tooltip" aria-hidden="true"><p>Cerrar detalle</p></span>' in x.group(2)
-    assert html.count("data-asr-close") == len(groups)
+    assert _without_nd(html).count("data-asr-close") == len(groups)                                           # (el bloque de impedimentos de ND tiene sus propias X: test_nd_blockers_navigation)
 
 
 def test_panel_close_is_one_shared_primitive_and_hidden_while_the_container_is_closed():

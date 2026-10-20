@@ -235,10 +235,10 @@
      Sin perfil legible o sin detalle, queda la tabla por contrato de siempre (``j.nd.dimensions``): una sola explicación por pantalla, nunca las dos. #}
   {% if j.nd and j.nd.blockers %}
   <h3>Por qué no hay un nivel · {{ j.nd.label }}</h3>
-  <table data-block="nd-blockers"><thead><tr><th>Contrato</th><th>Situación</th><th>Tipo de impedimento</th></tr></thead><tbody>{% for b in j.nd.blockers %}<tr><td>{{ b.dimension }}</td><td>{{ b.state_text }}</td><td>{{ b.category_text }}</td></tr>{% endfor %}</tbody></table>
+  <table data-block="nd-blockers"><thead><tr><th>Contrato</th><th>Situación</th><th>Tipo de impedimento</th><th>Para resolverlo</th><th class="asr-col-action">Acciones</th></tr></thead><tbody>{% for b in j.nd.blockers %}<tr id="{{ b.dom_id }}-row"><td>{{ b.dimension }}</td><td>{{ b.state_text }}</td><td>{{ b.category_text }}</td><td>{{ b.resolution_text }}</td><td class="asr-col-action"><span class="dw-row-actions">{{ table_action_link("#" ~ b.dom_id, "Ver causa, evidencia y resolución", "Ver el detalle del impedimento de «" ~ b.dimension ~ "»") }}</span></td></tr>{% endfor %}</tbody></table>
   {% for b in j.nd.blockers %}
   <details class="dashboard-section" id="{{ b.dom_id }}">
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Detalle del impedimento · {{ b.dimension }}</span><span class="dashboard-section__count">{{ b.category_text }}</span></summary>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Detalle del impedimento · {{ b.dimension }}</span><span class="dashboard-section__count">{{ b.category_text }}</span>{{ panel_close("Cerrar el detalle del impedimento de «" ~ b.dimension ~ "»") }}</summary>
     <div class="dashboard-section__body">
       <table><thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead><tbody>
         <tr><td>Qué lo impide</td><td>{{ b.why }}</td></tr>
@@ -247,6 +247,7 @@
         <tr><td>Qué hace falta</td><td>{{ b.resolution_text }}{% if b.hint %} — {{ b.hint }}{% endif %}</td></tr>
         <tr><td>Certeza del diagnóstico</td><td>{{ b.confidence_text }}{% if b.corroborated %} · confirmada por el motor sobre el perfil{% endif %}</td></tr>
         {% if b.evidence_refs %}<tr><td>Evidencia canónica</td><td>{% for r in b.evidence_refs %}<span class="catalog-note__ev">{{ r }}</span> {% endfor %}</td></tr>{% endif %}
+        {% if b.areas %}<tr><td>Áreas del informe relacionadas</td><td>{% for a in b.areas %}<a href="#{{ a.dom_id }}"><code>{{ a.title }}</code></a>{% if not loop.last %} · {% endif %}{% endfor %}</td></tr>{% endif %}
         <tr><td>Identificador de la condición (trazabilidad)</td><td><span class="catalog-note__ev">{{ b.rule_id }} · {{ b.condition_id }}</span></td></tr>
       </tbody></table>
     </div>

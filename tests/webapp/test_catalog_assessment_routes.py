@@ -863,7 +863,7 @@ def test_every_content_link_in_the_report_uses_the_one_hub_content_link_treatmen
     kinds = {"content": 0, "support": 0, "back": 0, "action": 0}
     for attrs, inner in anchors:
         if 'class="table-action-btn chart-tooltip-anchor"' in attrs:                                   # acción ICÓNICA de fila (patrón CCHH; ver test_assessment_contextual_navigation)
-            assert 'aria-label="Ver evidencia del hallazgo «' in attrs and inner.lstrip().startswith("<svg")
+            assert re.search(r'aria-label="Ver (evidencia del hallazgo|el detalle del impedimento de) «', attrs) and inner.lstrip().startswith("<svg")
             kinds["action"] += 1
         elif 'class="support-link"' in attrs:
             kinds["support"] += 1

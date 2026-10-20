@@ -472,7 +472,7 @@ def nd_explanation(judgment: dict | None, profile: dict | None = None) -> dict |
         cause, text = ND_UNSPECIFIED, "El Juicio no llegó a un nivel" + (f" (motivo registrado: {code})." if code else ".")
     out = {"cause": cause, "label": _JDG_ND_LABEL[cause], "text": text, "dimensions": dims, "reason_code": code or None, "level_rule": rule}
     if profile is not None:
-        out.update(_nd_blockers_view(explain_determination(judgment, profile)))
+        out.update(_nd_blockers_view(explain_determination(judgment, profile), frozenset(a.get("id") for a in (profile or {}).get("areas") or [])))
     return out
 
 
@@ -585,7 +585,7 @@ def _nd_why(b: dict) -> str:
     return _JDG_ND_CAUSE.get(c) or "El Juicio no registró un detalle suficiente para identificar el impedimento."
 
 
-def _nd_blockers_view(exp: dict | None) -> dict:
+def _nd_blockers_view(exp: dict | None, area_ids: frozenset = frozenset()) -> dict:
     """Filas de presentacion de ``explain_determination`` (solo vocabulario y orden; ningun hecho se recalcula)."""
     if not exp:
         return {}
@@ -595,7 +595,7 @@ def _nd_blockers_view(exp: dict | None) -> dict:
         arts = list(b.get("artifacts") or [])
         why = _nd_why(b)
         rows.append({
-            "dom_id": f"asr-nd-{i}", "dimension": _DIM_LABEL.get(dim or "", "Juicio global"), "area_id": (C.CONTRACT_AREAS.get(dim or "", (None,))[-1] if dim else None),
+            "dom_id": f"asr-nd-{i}", "dimension": _DIM_LABEL.get(dim or "", "Juicio global"), "areas": [{"dom_id": f"asr-a-{a}", "title": P.area_title(a)} for a in C.CONTRACT_AREAS.get(dim or "", ()) if a in area_ids],
             "state_text": _ND_STATE.get(b["state"], b["state"]), "category_text": _ND_CATEGORY.get(b["category"], b["category"]), "why": why, "short": why.split(". ")[0].rstrip("."),
             "artifacts": arts[:8], "artifacts_more": max(0, len(arts) - 8), "required": [_ND_REQUIRED.get(k, k) for k in b.get("required_evidence") or []],
             "resolution_text": _ND_RESOLUTION.get(b["resolution_type"], b["resolution_type"]), "hint": _ND_HINT.get(b.get("resolution_hint_key") or ""),
