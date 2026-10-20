@@ -70,7 +70,7 @@
     <div class="tree-picker-head">
       <label for="catalog-kind">Catálogo de datos</label>
       <p class="dashboard-subhead catalog-filter-legend" x-show="hasPick && catalogView !== 'publish'" x-cloak>
-        <span class="dashboard-subhead__filter">Filtrado por <strong x-text="pickedLabel"></strong>
+        <span class="dashboard-subhead__filter">Filtrado por <strong x-text="pickedLabel" :title="'Filtrado por ' + pickedLabel"></strong>
           <button type="button" class="dashboard-subhead__reset" @click="clearPick()" :title="'Quitar el filtro: ' + pickedLabel" :aria-label="'Quitar el filtro por ' + kindLabel + ': ' + pickedLabel">✕</button>
         </span>
       </p>

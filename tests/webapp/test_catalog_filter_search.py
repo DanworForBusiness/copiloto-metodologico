@@ -65,7 +65,7 @@ def test_each_secondary_dropdown_is_replaced_by_search_and_clear_once_a_value_is
 def test_the_gold_legend_sits_on_the_catalog_title_row_before_the_plus_and_uses_the_shared_hub_primitive():
     html = render()
     legend = html[html.index('<p class="dashboard-subhead catalog-filter-legend"'): html.index("</p>", html.index('<p class="dashboard-subhead catalog-filter-legend"'))]
-    assert "x-show=\"hasPick && catalogView !== 'publish'\"" in legend and '<span class="dashboard-subhead__filter">Filtrado por <strong x-text="pickedLabel"></strong>' in legend
+    assert "x-show=\"hasPick && catalogView !== 'publish'\"" in legend and '<span class="dashboard-subhead__filter">Filtrado por <strong x-text="pickedLabel"' in legend
     assert 'class="dashboard-subhead__reset"' in legend and '@click="clearPick()"' in legend and ">✕</button>" in legend
     assert ':aria-label="\'Quitar el filtro por \' + kindLabel + \': \' + pickedLabel"' in legend                    # nombre accesible: qué filtro y con qué valor (la leyenda muestra el valor elegido: «Filtrado por Finanzas»)
     head = html[html.index('<div class="tree-picker-head'): html.index('<div class="tree-picker-row"')]
@@ -73,7 +73,20 @@ def test_the_gold_legend_sits_on_the_catalog_title_row_before_the_plus_and_uses_
     assert html.index("catalog-filter-legend") < html.index('id="catalog-kind"') < html.index('data-catalog-kind="domains"')
     # el «+» es absoluto (no agranda la fila); la leyenda queda a continuación del título y el «+» es absoluto
     css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
-    assert ".catalog-picker--kind .tree-picker-head { display: flex; flex-wrap: wrap;" in css and ".catalog-filter-legend { margin: 0;" in css
+    assert ".catalog-picker--kind .tree-picker-head { display: flex; flex-wrap: nowrap;" in css and ".catalog-filter-legend { margin: 0;" in css
+
+
+def test_legend_stays_on_one_line_and_truncates_the_value_keeping_the_x_visible():
+    html = render()
+    legend = html[html.index('<p class="dashboard-subhead catalog-filter-legend"'): html.index("</p>", html.index('<p class="dashboard-subhead catalog-filter-legend"'))]
+    assert 'x-text="pickedLabel" :title="\'Filtrado por \' + pickedLabel"' in legend                              # texto íntegro en el DOM y en el tooltip
+    css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")
+    assert ".catalog-filter-legend { margin: 0; flex: 0 1 auto; min-width: 0; white-space: nowrap; }" in css
+    strong = re.search(r"\.catalog-filter-legend strong \{([^}]*)\}", css).group(1)
+    assert "min-width: 0" in strong and "overflow: hidden" in strong and "text-overflow: ellipsis" in strong and "white-space: nowrap" in strong
+    assert ".catalog-filter-legend .dashboard-subhead__reset { flex: 0 0 auto;" in css                         # la ✕ nunca se achica ni queda fuera
+    assert ".tree-picker-head:has(.tree-picker-head__action) { padding-right: 35px; }" in css                  # nunca bajo el «+»
+    assert "flex-wrap: nowrap" in re.search(r"\.catalog-picker--kind \.tree-picker-head \{([^}]*)\}", css).group(1)   # sin salto de línea
 
 
 def test_search_mode_has_no_extra_space_before_the_first_tile():

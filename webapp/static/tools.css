@@ -2381,9 +2381,14 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 /* Catálogo — buscador en vivo. La leyenda «Filtrado por <catálogo> ✕» (primitivo `.dashboard-subhead__filter/__reset`) vive en la MISMA fila que «CATÁLOGO DE DATOS»: a continuación
    del título (7px) y antes del «+», que es absoluto y queda a la derecha. Con el valor elegido el dropdown 2 se reemplaza por «Buscar» + input +
    «✕ Limpiar» en el mismo hueco (sin separador ni relleno inferior: el primer tile arranca a la distancia normal de una lista). Los tiles que no coinciden usan `hidden`. */
-.catalog-picker--kind .tree-picker-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-start; column-gap: 7px; margin-bottom: 7px; }   /* solo el selector de catálogo; el «+» sigue absoluto: no hace crecer la fila. El margen del título ya no colapsa hacia afuera en un bloque flex: se reubica aquí */
-.catalog-picker--kind .tree-picker-head label { white-space: nowrap; margin-bottom: 0; }   /* el título nunca se parte en dos líneas: si la leyenda no cabe, baja ella */
-.catalog-filter-legend { margin: 0; white-space: nowrap; }   /* a continuación del título (7px, como la referencia); el «+» es absoluto y queda a la derecha */
+.catalog-picker--kind .tree-picker-head { display: flex; flex-wrap: nowrap; align-items: baseline; justify-content: flex-start; column-gap: 7px; margin-bottom: 7px; min-width: 0; }   /* solo el selector de catálogo; el «+» sigue absoluto: no hace crecer la fila. El margen del título ya no colapsa hacia afuera en un bloque flex: se reubica aquí */
+.catalog-picker--kind .tree-picker-head:has(.tree-picker-head__action) { padding-right: 35px; }   /* hueco del «+» (28px, absoluto) + 7px: la leyenda se acota a lo que queda, nunca debajo del botón */
+.catalog-picker--kind .tree-picker-head label { flex: 0 0 auto; white-space: nowrap; margin-bottom: 0; }   /* el título nunca se parte ni se achica */
+/* Leyenda en UNA línea: «Filtrado por» y la ✕ no se achican; el valor cede el espacio con «…» (el texto íntegro queda en el DOM y en su tooltip). Una sola línea, sin saltos ni desplazamientos verticales. */
+.catalog-filter-legend { margin: 0; flex: 0 1 auto; min-width: 0; white-space: nowrap; }
+.catalog-filter-legend .dashboard-subhead__filter { display: flex; align-items: baseline; min-width: 0; column-gap: .35em; }
+.catalog-filter-legend strong { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-filter-legend .dashboard-subhead__reset { flex: 0 0 auto; margin-left: 0; }
 .catalog-picker--search { padding-bottom: 0; border-bottom: 0; }
 /* `.whatsnew-filters` trae margen inferior de 18px pensado para un bloque dentro de un panel con relleno; en el picker sin relleno se escapaba y sumaba al margen de la lista (hueco de ~50px
    en total con el relleno y el separador anteriores). Sin margen propio, el primer tile arranca a los 14px normales de una lista. */
