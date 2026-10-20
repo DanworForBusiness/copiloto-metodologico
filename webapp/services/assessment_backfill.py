@@ -100,7 +100,10 @@ REEVALUACIÓN GENÉRICA OFFLINE DE EXISTENTES (modo explícito y SEPARADO; recon
       python -m webapp.services.assessment_backfill --regenerate-stale-evidence evidence_leaf_materialization_v4 --apply --confirm-migration evidence_leaf_materialization_v4 \
           --approval aprobacion.json --operator <id> --backup-dir <dir vacio fuera del almacen> [--waves "Pampa,Loma,Illolay;Kensing;Biogenesis"] [--allow-local-only]
   Sin aprobacion valida del plan EXACTO (digest recalculado ahora) => ``outcome=DENIED`` y exit 4 (jamas un dry-run "exitoso"). Antes de escribir se verifica el respaldo (``governed_backup``; sin el, exit 4); luego olas por
-  cliente con confirmacion remota por BYTES; la primera falla/abstencion/pendiente remoto DETIENE las olas siguientes (exit 5). Restauracion por objeto: ``--restore-backup <dir> [--object <clave>] --dry-run|--apply --confirm-restore <sello>``.
+  cliente con confirmacion remota por BYTES; la primera falla/abstencion/pendiente remoto DETIENE las olas siguientes (exit 5). ABSTENCIONES CONOCIDAS: el ``--dry-run`` informa ``abstentions`` (cliente, AM, causa, sha256 del sobre) y su
+  ``abstentions.digest``; con ``--accept-known-abstentions <digest>`` el operador reconoce ESE conjunto exacto: los abstenidos (jamas se escriben, no estan en el plan firmado) dejan de detener las olas, pero cualquier otra abstencion,
+  falla, divergencia del plan o pendiente remoto sigue deteniendo; si el conjunto de ahora difiere del reconocido => ``ABSTENTIONS_CHANGED`` (exit 4, cero escrituras). El resultado distingue ``APPLIED`` (``completion=COMPLETE``) de
+  ``APPLIED_WITH_ABSTENTIONS`` (``completion=INCOMPLETE_PENDING_ABSTENTIONS``, exit 3): una migracion que conserva pendientes NUNCA se declara completa. Restauracion por objeto: ``--restore-backup <dir> [--object <clave>] --dry-run|--apply --confirm-restore <sello>``.
   REINICIO: el proceso web conserva el sobre viejo en memoria; el refresco es un reinicio CONTROLADO, y solo cuando TODO lo regenerado está en
   ``remote``. Si algún registro quedó ``local`` (PUT a Spaces sin confirmar) el resultado dice ``RESTART_BLOCKED_PENDING_REMOTE``: reiniciar antes
   dejaría que ``restore()`` baje el objeto remoto viejo sobre el archivo local nuevo.
@@ -163,6 +166,7 @@ WOULD_REGENERATE, REGENERATED, SKIP, FAILED_ACTION = "WOULD_REGENERATE", "REGENE
 ABSTAINED = "ABSTAINED"      # solo ``evidence_leaf_materialization_v4``: la migracion se ABSTIENE (falta el pool, difiere su firma, referencias irresolubles, cierre/metodologia distintos): perfil anterior intacto
 SKIPPED_ALREADY_ENRICHED, SKIPPED_NON_CURRENT, SKIPPED_NOT_YET_ASSESSED = "skipped_already_enriched", "skipped_non_current", "skipped_not_yet_assessed"
 RESTART_SAFE, RESTART_BLOCKED, RESTART_NOT_NEEDED, RESTART_DRY_RUN = "RESTART_SAFE", "RESTART_BLOCKED_PENDING_REMOTE", "NO_RESTART_NEEDED", "NOT_APPLICABLE_DRY_RUN"
+COMPLETE, INCOMPLETE_PENDING_ABSTENTIONS, INCOMPLETE, NOT_APPLIED = "COMPLETE", "INCOMPLETE_PENDING_ABSTENTIONS", "INCOMPLETE", "NOT_APPLIED"      # ``completion``: solo COMPLETE declara terminada la migracion
 
 
 def compare_profiles(old: dict | None, new: dict | None, required: Iterable[str]) -> dict:
@@ -294,6 +298,8 @@ def _restart_contract(out: dict, counts: dict, apply: bool, remote_enabled: Call
         out["restart"] = RESTART_DRY_RUN if not apply else RESTART_NOT_NEEDED
     out["restart_safe"] = out["restart"] == RESTART_SAFE
     out["complete"] = apply and counts["failed"] == 0 and counts["pending_remote"] == 0 and counts.get("abstained", 0) == 0
+    out["completion"] = (COMPLETE if out["complete"] else NOT_APPLIED if not apply
+                         else INCOMPLETE_PENDING_ABSTENTIONS if counts["failed"] == 0 and counts["pending_remote"] == 0 and counts.get("abstained", 0) else INCOMPLETE)
 
 
 def _record_for(seen: dict, out: dict, status: svc.AssessmentStatus, eid: str, client: str, **extra: Any) -> tuple[dict, bool]:
@@ -672,6 +678,20 @@ def _plan_item(candidate: Any) -> dict:
             "judgment_action": (getattr(candidate, "notes", None) or {}).get("judgment_action")}
 
 
+def _sha_of(client: str, root: Any) -> "str | None":
+    p = svc.governed_path(client, root) if root else None
+    return hashlib.sha256(p.read_bytes()).hexdigest() if p is not None and p.is_file() else None
+
+
+def _abstention_report(migration: str, recs: list[dict]) -> dict:
+    """Abstenciones de esta corrida (objetos que la migracion NO escribe y que NO estan en el plan firmado): identidad (cliente, AM, causa) + sha256 de los bytes ACTUALES del sobre. El ``digest`` es lo que el operador
+    reconoce (``--accept-known-abstentions``) para que ese conjunto exacto no detenga las olas. NO es una aprobacion ni autoriza escritura alguna: un abstenido jamas se escribe."""
+    items = sorted(({"client": r["client"], "root": r["root"], "reason": r["reason"], "sha256": _sha_of(r["client"], r["root"])} for r in recs if r.get("action") == ABSTAINED),
+                   key=lambda i: (str(i["client"]), str(i["root"])))
+    digest = hashlib.sha256(ma.canonical({"kind": "known-abstentions/v1", "migration": migration, "environment": ma.environment_fingerprint(svc.governed_dir()), "items": items})).hexdigest()
+    return {"count": len(items), "items": items, "digest": digest}
+
+
 def build_plan(migration: str, items: list[dict]) -> dict:
     items = sorted(items, key=lambda i: (str(i["client"]), str(i["root"])))
     return {"migration": migration, "environment": ma.environment_fingerprint(svc.governed_dir()), "items": items,
@@ -822,6 +842,7 @@ def migrate_stale_evidence(entries: Iterable[Any], migration: str, *, apply: boo
         rec.pop("_plan_item", None)
     out["plan"] = build_plan(migration, plan_items)
     out["counts"] = _migration_counts(out["records"])
+    out["abstentions"] = _abstention_report(migration, out["records"])
     _environment_warnings(out, entries, states, apply, governed_state_present, remote_enabled)
     _restart_contract(out, out["counts"], apply, remote_enabled, "already_current_remote_confirmed")
     return out
@@ -842,6 +863,7 @@ def _store_key(candidate: Any) -> str:
 EXIT_DENIED, EXIT_WAVE_STOPPED = 4, 5
 DENIED, BACKUP_NOT_GUARANTEED, REMOTE_REQUIRED, STOPPED_AT_WAVE, APPLIED, RECOVERY_ONLY, WAVES_INVALID = (
     "DENIED", "BACKUP_NOT_GUARANTEED", "REMOTE_REQUIRED", "STOPPED_AT_WAVE", "APPLIED", "RECOVERY_ONLY", "WAVES_INVALID")
+APPLIED_WITH_ABSTENTIONS, ABSTENTIONS_CHANGED = "APPLIED_WITH_ABSTENTIONS", "ABSTENTIONS_CHANGED"    # APPLIED (completion=COMPLETE) != APPLIED_WITH_ABSTENTIONS (completion=INCOMPLETE_PENDING_ABSTENTIONS)
 
 
 def _refusal(plan_report: dict, outcome: str, **extra: Any) -> dict:
@@ -868,10 +890,13 @@ def parse_waves(spec: str, plan: dict) -> list[list[str]]:
 
 
 def secured_migrate(entries: Iterable[Any], migration: str, *, authorizer: Callable[[str, dict], "ma.Authorization"], backup_dir: Any, allow_local_only: bool = False,
-                    waves: list[list[str]] | None = None, run_id: str | None = None, **kw: Any) -> dict:
+                    waves: list[list[str]] | None = None, run_id: str | None = None, known_abstentions: str | None = None, **kw: Any) -> dict:
     """Aplica ``migration`` SOLO si: (1) hay autorizacion valida del plan EXACTO recalculado ahora (``plan_digest``), (2) el remoto esta disponible (salvo ``allow_local_only`` explicito),
     (3) el respaldo verificable del conjunto afectado quedo garantizado, y (4) cada ola (cliente) cierra limpia: sin fallas, abstenciones ni pendientes remotos, con confirmacion remota por bytes.
-    Cualquier incumplimiento deja ``outcome`` explicito (exit 4/5) y NO escribe nada mas. Sin items en el plan: solo recupera pendientes remotos (``RECOVERY_ONLY``), sin regenerar."""
+    Cualquier incumplimiento deja ``outcome`` explicito (exit 4/5) y NO escribe nada mas. Sin items en el plan: solo recupera pendientes remotos (``RECOVERY_ONLY``), sin regenerar.
+    ``known_abstentions`` (digest de ``plan_report["abstentions"]``, lo que el operador vio en el dry-run): SIN el, CUALQUIER abstencion detiene la ola (comportamiento original). CON el, solo las abstenciones de ESE conjunto exacto
+    (cliente, AM, causa, bytes del sobre) quedan toleradas: se saltean sin escribirse, su sobre se verifica intacto tras cada ola, y cualquier otra abstencion/falla/divergencia sigue deteniendo. Si el conjunto de ahora difiere del
+    reconocido => ``ABSTENTIONS_CHANGED`` sin escrituras. Con abstenciones el resultado es ``APPLIED_WITH_ABSTENTIONS`` y ``completion`` NUNCA es ``COMPLETE``."""
     entries = list(entries)
     remote_enabled = kw.get("remote_enabled", lambda: svc.remote_store.enabled())
     read_kw = {k: v for k, v in kw.items() if k not in ("commit",)}
@@ -880,10 +905,17 @@ def secured_migrate(entries: Iterable[Any], migration: str, *, authorizer: Calla
     if not plan["items"]:
         out = migrate_stale_evidence(entries, migration, apply=True, plan_guard={}, **kw)      # nada que regenerar: solo reintento/verificacion remota de lo ya hecho
         out.update(secured=True, outcome=RECOVERY_ONLY, applied=False)
+        if out["counts"]["abstained"]:
+            out["environment_warnings"].append(f"MIGRATION_NOT_COMPLETE: {out['counts']['abstained']} abstencion(es) permanecen pendientes (perfil anterior intacto)")
         return out
     auth = authorizer(migration, plan)
     if not auth.granted:
         return _refusal(plan_report, DENIED, authorization=auth.as_dict())
+    ab = plan_report["abstentions"]
+    if known_abstentions is not None and known_abstentions != ab["digest"]:                 # el conjunto de abstenciones de AHORA no es el que el operador reconocio: cero escrituras
+        return _refusal(plan_report, ABSTENTIONS_CHANGED, authorization=auth.as_dict(), abstentions=ab, accepted_digest=known_abstentions)
+    known = {(i["client"], i["root"], i["reason"]) for i in ab["items"]} if known_abstentions is not None else set()
+    abst_before = {(i["client"], i["root"]): i["sha256"] for i in ab["items"]} if known else {}
     if not remote_enabled() and not allow_local_only:
         return _refusal(plan_report, REMOTE_REQUIRED, authorization=auth.as_dict())
     governed = svc.governed_dir()
@@ -941,9 +973,14 @@ def secured_migrate(entries: Iterable[Any], migration: str, *, authorizer: Calla
             if r.get("action") == REGENERATED:
                 journal({"event": "REMOTE_CONFIRMED" if r.get("remote_state") == svc.REMOTE_CONFIRMED else "REMOTE_PENDING", "key": _key_of(r)})
         c = res["counts"]
-        clean = not (c["failed"] or c["abstained"] or jfail or (remote_enabled() and c["pending_remote"]))      # sin remoto (solo con allow_local_only) lo local es lo maximo alcanzable
+        unexpected = [r for r in recs if r.get("action") == ABSTAINED and (r["client"], r["root"], r["reason"]) not in known]       # abstencion NUEVA (o con otra causa): detiene
+        modified = sorted(f"{k[0]}/{k[1]}" for k, sha in abst_before.items() if _sha_of(*k) != sha)                                     # un abstenido conocido JAMAS cambia
+        clean = not (c["failed"] or unexpected or modified or jfail or (remote_enabled() and c["pending_remote"]))      # sin remoto (solo con allow_local_only) lo local es lo maximo alcanzable
         sec["waves"].append({"wave": n, "clients": wave, "status": "CLEAN" if clean else "STOPPED", "regenerated": c["regenerated_remote"] + c["regenerated_local"],
-                             "failed": c["failed"], "abstained": c["abstained"], "pending_remote": c["pending_remote"]})
+                             "failed": c["failed"], "abstained": c["abstained"], "abstained_known": c["abstained"] - len(unexpected), "abstained_unexpected": len(unexpected),
+                             "pending_remote": c["pending_remote"], **({"known_abstained_modified": modified} if modified else {})})
+        if modified:
+            out["environment_warnings"].append(f"KNOWN_ABSTAINED_OBJECT_MODIFIED: {modified}")
         if not clean:
             stopped = n
             break
@@ -957,16 +994,24 @@ def secured_migrate(entries: Iterable[Any], migration: str, *, authorizer: Calla
             sec["recovery_pass"] = {"records": len(res["records"]), "pending_remote": res["counts"]["pending_remote"], "failed": res["counts"]["failed"]}
     sec["not_attempted_waves"] = [w for w in order[(stopped or len(order)):]]
     sec["journal_remote_failures"] = list(jfail)
+    sec["abstentions"] = {"acknowledged_digest": known_abstentions, "known": len(known), "unexpected": sorted(f"{r['client']}/{r['root']}:{r['reason']}" for r in out["records"]
+                                                                                                           if r.get("action") == ABSTAINED and (r["client"], r["root"], r["reason"]) not in known)}
     out["secured_apply"] = sec
     out["plan"] = {"digest": plan["digest"], "clients": plan["clients"], "items": len(plan["items"])}
     out["counts"] = _migration_counts(out["records"])
+    out["abstentions"] = _abstention_report(migration, out["records"])
     _restart_contract(out, out["counts"], True, remote_enabled, "already_current_remote_confirmed")
-    out["outcome"] = STOPPED_AT_WAVE if stopped else APPLIED
+    out["outcome"] = STOPPED_AT_WAVE if stopped else (APPLIED_WITH_ABSTENTIONS if out["counts"]["abstained"] else APPLIED)
     out["applied"] = True
     out["complete"] = bool(out["complete"]) and not stopped
     if stopped:
+        out["completion"] = INCOMPLETE
         out["restart"], out["restart_safe"] = RESTART_BLOCKED, False
         out["environment_warnings"].append(f"STOPPED_AT_WAVE_{stopped}: las olas siguientes NO se ejecutaron; resolver, regenerar el plan y volver a autorizar")
+    elif out["outcome"] == APPLIED_WITH_ABSTENTIONS:
+        out["environment_warnings"].append(f"MIGRATION_NOT_COMPLETE: {out['counts']['abstained']} abstencion(es) permanecen pendientes (perfil anterior intacto); estado final APPLIED_WITH_ABSTENTIONS, NO COMPLETE")
+        if sec["abstentions"]["unexpected"]:
+            out["environment_warnings"].append(f"UNEXPECTED_ABSTENTION: {sec['abstentions']['unexpected']} (no estaban en el conjunto reconocido)")
     return out
 
 
@@ -1640,6 +1685,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--operator", default="", metavar="ID", help="identidad de quien ejecuta; debe ser el operador autorizado en la aprobacion y distinto del aprobador")
     ap.add_argument("--backup-dir", default="", metavar="DIR", help="directorio VACIO, fuera del almacen gobernado, donde se guarda el respaldo verificable previo al --apply")
     ap.add_argument("--waves", default="", metavar="A,B;C", help="olas de clientes (por defecto un cliente por ola, de menos a mas sobres); debe cubrir los clientes del plan")
+    ap.add_argument("--accept-known-abstentions", default="", metavar="DIGEST",
+                    help="con --regenerate-stale-evidence --apply (migracion sensible): reconoce el conjunto EXACTO de abstenciones que informo el --dry-run (``abstentions.digest``); solo esas dejan de detener las olas (se saltean sin escribirse). "
+                         "Otra abstencion/falla/divergencia sigue deteniendo; si el conjunto cambio => ABSTENTIONS_CHANGED (exit 4). Con abstenciones el resultado es APPLIED_WITH_ABSTENTIONS (exit 3), nunca COMPLETE")
     ap.add_argument("--allow-local-only", action="store_true", help="permite aplicar SIN Spaces habilitado (por defecto el --apply de una migracion sensible exige remoto confirmado por bytes)")
     ap.add_argument("--restore-backup", default="", metavar="DIR", help="modo de RESTAURACION por objeto desde un respaldo local (--dry-run para simular; --apply exige --confirm-restore Y una --approval firmada de 'restore:<migracion>'); no pisa cambios concurrentes")
     ap.add_argument("--restore-remote-run", default="", metavar="MIGRACION/RUN_ID", help="igual que --restore-backup pero desde el respaldo DURABLE sellado en Spaces; requiere --backup-dir (directorio vacio de staging)")
@@ -1687,6 +1735,8 @@ def main(argv: list[str] | None = None) -> int:
         ap.error(f"--apply de --backfill-judgment exige --confirm-migration {JUDGMENT_ADOPTION_MIGRATION} (control explícito; cero escrituras)")
     if args.regenerate_selected and args.apply and args.confirm_migration != SELECTIVE_MIGRATION:
         ap.error(f"--apply de --regenerate-selected exige --confirm-migration {SELECTIVE_MIGRATION} (control explícito; cero escrituras)")
+    if args.accept_known_abstentions and not (args.apply and args.regenerate_stale_evidence in SECURED_MIGRATIONS):
+        ap.error("--accept-known-abstentions solo existe con --regenerate-stale-evidence <migracion sensible> --apply (cero escrituras)")
     if args.confirm_migration and args.confirm_migration != (JUDGMENT_ADOPTION_MIGRATION if args.backfill_judgment else SELECTIVE_MIGRATION if args.regenerate_selected else args.regenerate_stale_evidence):
         ap.error("--confirm-migration solo confirma la migración indicada (--regenerate-stale-evidence, " + JUDGMENT_ADOPTION_MIGRATION + " con --backfill-judgment, o " + SELECTIVE_MIGRATION + " con --regenerate-selected)")
     if args.decisions != "registry" and not (args.backfill_judgment or args.regenerate_selected):
@@ -1708,8 +1758,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.regenerate_stale_evidence:
         if args.apply and args.regenerate_stale_evidence in SECURED_MIGRATIONS:
             report = secured_migrate(entries, args.regenerate_stale_evidence, authorizer=ma.authorizer_from_file(args.approval or None, args.operator or None),
-                                     backup_dir=args.backup_dir or None, allow_local_only=args.allow_local_only, waves=_cli_waves(ap, args, entries))
-            code = (EXIT_DENIED if report.get("outcome") in (DENIED, BACKUP_NOT_GUARANTEED, REMOTE_REQUIRED) else EXIT_WAVE_STOPPED if report.get("outcome") == STOPPED_AT_WAVE
+                                     backup_dir=args.backup_dir or None, allow_local_only=args.allow_local_only, waves=_cli_waves(ap, args, entries),
+                                     known_abstentions=args.accept_known_abstentions or None)
+            code = (EXIT_DENIED if report.get("outcome") in (DENIED, BACKUP_NOT_GUARANTEED, REMOTE_REQUIRED, ABSTENTIONS_CHANGED) else EXIT_WAVE_STOPPED if report.get("outcome") == STOPPED_AT_WAVE
                     else 1 if report["counts"]["failed"] else (3 if report["counts"].get("abstained") else (2 if report["environment_warnings"] else 0)))
         else:
             report = migrate_stale_evidence(entries, args.regenerate_stale_evidence, apply=args.apply)
