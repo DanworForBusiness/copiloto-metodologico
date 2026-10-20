@@ -289,8 +289,9 @@ def delete_document(*, profile_id: str, document_id: str, access_token: str) -> 
 # URLs de Graph (identidad ESTABLE vía config, nunca una URL de sharing).
 # ---------------------------------------------------------------------------
 
-def _drive_items_base() -> str:
-    return f"{GRAPH_BASE}/sites/{config.HC_SHAREPOINT_SITE_ID}/drives/{config.HC_SHAREPOINT_DRIVE_ID}/items"
+def _drive_items_base(site_id: str | None = None, drive_id: str | None = None) -> str:
+    """Por defecto site/drive de la CONFIG; los parametros opcionales existen solo para la prueba de escritura de diagnostico (destino de control), nunca para el uploader."""
+    return f"{GRAPH_BASE}/sites/{site_id or config.HC_SHAREPOINT_SITE_ID}/drives/{drive_id or config.HC_SHAREPOINT_DRIVE_ID}/items"
 
 
 def _folder_by_path_url(profile_id: str) -> str:
@@ -301,8 +302,8 @@ def _cv_root_children_url() -> str:
     return f"{_drive_items_base()}/{config.HC_CV_ROOT_ITEM_ID}/children"
 
 
-def upload_content_url(folder_item_id: str, remote_filename: str) -> str:
-    return f"{_drive_items_base()}/{folder_item_id}:/{remote_filename}:/content"
+def upload_content_url(folder_item_id: str, remote_filename: str, *, site_id: str | None = None, drive_id: str | None = None) -> str:
+    return f"{_drive_items_base(site_id, drive_id)}/{folder_item_id}:/{remote_filename}:/content"
 
 
 def _folder_create_body(profile_id: str) -> dict:

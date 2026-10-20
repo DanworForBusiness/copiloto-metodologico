@@ -51,6 +51,24 @@
           <pre class="admin-result-output" id="dw-sp-output" hidden></pre>
         </div>
       </details>
+      <details class="dashboard-section" open>
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Prueba de escritura (carpeta de CONTROL)</span></summary>
+        <div class="dashboard-section__body">
+          <p class="field-hint">Crea <strong>un</strong> archivo de texto inocuo, de nombre único (<code>cchh-sharepoint-upload-test-&lt;UTC&gt;-&lt;UUID&gt;.txt</code>), en la carpeta de control, con el mismo token y el mismo transporte que la subida de CVs. Un solo intento, sin reintentos; no crea carpetas ni registros. Solo localhost y solo owner. Se rechaza si el destino coincide con CURRENT (sitio, drive o ítem). El archivo creado se borra a mano.</p>
+          <form id="dw-sp-write" class="hc-profile-form">
+            <div class="feedback-field">
+              <label for="dw-sp-wcontrol">Link de uso compartido de la carpeta de control</label>
+              <input id="dw-sp-wcontrol" type="text" placeholder="https://danwor.sharepoint.com/:f:/s/…" required>
+            </div>
+            <div class="feedback-field">
+              <label for="dw-sp-wconfirm">Confirmación: escribí <code>{{ write_phrase }}</code></label>
+              <input id="dw-sp-wconfirm" type="text" autocomplete="off" required>
+            </div>
+            <div class="hc-profile-form__actions"><button type="submit" class="btn-danger" id="dw-sp-wrun">Escribir archivo de prueba</button></div>
+          </form>
+          <p class="field-hint" id="dw-sp-wstatus" role="status"></p>
+        </div>
+      </details>
     </div>
   </main>
 </div>
@@ -89,6 +107,36 @@
     } finally {
       btn.disabled = false;
       token = null;
+    }
+  });
+  var wform = document.getElementById("dw-sp-write");
+  var wstatus = document.getElementById("dw-sp-wstatus");
+  wform.addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    var wbtn = document.getElementById("dw-sp-wrun");
+    wbtn.disabled = true; out.hidden = true; copyRow.hidden = true;
+    wstatus.textContent = "Obteniendo token de Microsoft 365…";
+    var wtoken = "";
+    try {
+      wtoken = typeof window.dwHumanCapitalDocumentWriteToken === "function" ? await window.dwHumanCapitalDocumentWriteToken({ interactive: true }) : "";
+      if (!wtoken) {
+        wstatus.textContent = "El navegador no pudo obtener el token.";
+        show({ ok: false, step: "browser_token", diagnostic: typeof window.dwLastTokenFailureDiagnostic === "function" ? window.dwLastTokenFailureDiagnostic() : null });
+        return;
+      }
+      wstatus.textContent = "Enviando UN PUT a la carpeta de control…";
+      var wbody = new URLSearchParams();
+      wbody.append("graph_token", wtoken);
+      wbody.append("control_url", document.getElementById("dw-sp-wcontrol").value || "");
+      wbody.append("confirm", document.getElementById("dw-sp-wconfirm").value || "");
+      var wres = await fetch("/cchh/diagnostico/sharepoint/escritura", { method: "POST", body: wbody, credentials: "same-origin" });
+      show(await wres.json());
+      wstatus.textContent = "Listo (HTTP " + wres.status + "). Copiá el resultado completo; el archivo creado se borra a mano.";
+    } catch (e) {
+      wstatus.textContent = "Falló la prueba: " + (e && e.message ? e.message : e);
+    } finally {
+      wbtn.disabled = false;
+      wtoken = null;
     }
   });
 })();

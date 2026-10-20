@@ -17,6 +17,8 @@ import json
 import logging
 import urllib.error
 import urllib.parse
+import uuid
+from datetime import datetime, timezone
 
 import config
 from core import microsoft365
@@ -312,4 +314,77 @@ def run_probe(token: str, *, control_sharing_url: str = "") -> dict:
     result["app_grants"] = {"current": (result["current_target"] or {}).get("app_grant"), "control": (result["control_target"] or {}).get("app_grant")}
     control_with_grant = result["control_target"] if (result["control_target"] or {}).get("app_grant") else None
     result["next_step"] = decision_case(claims, result["current_target"], control_with_grant)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# PRUEBA DE ESCRITURA CONTROLADA (solo APP_OWNER y solo localhost; ver el router). UN archivo de texto inocuo en la carpeta de CONTROL.
+# ---------------------------------------------------------------------------
+WRITE_TEST_PHRASE = "ESCRIBIR ARCHIVO DE PRUEBA"
+WRITE_TEST_CONTENT = b"cchh-sharepoint-upload-test: archivo de diagnostico sin datos personales. Se puede borrar.\n"
+WRITE_TEST_CONTENT_TYPE = "text/plain"
+_CONFLICT_FAIL_QUERY = "?@microsoft.graph.conflictBehavior=fail"        # proteccion ADICIONAL: la documentacion no garantiza por si sola que evite sobrescrituras en este PUT; la garantia real es el nombre unico
+
+
+def unique_test_filename(now: datetime | None = None, uid: uuid.UUID | None = None) -> str:
+    """`cchh-sharepoint-upload-test-<UTC>-<UUID>.txt`, generado del lado del servidor inmediatamente antes del PUT: nunca coincide con un archivo existente."""
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return f"cchh-sharepoint-upload-test-{now.strftime('%Y%m%dT%H%M%SZ')}-{uid or uuid.uuid4()}.txt"
+
+
+def _site_components(site_id: str | None) -> set[str]:
+    """Componentes comparables de un id de sitio: `host,coleccion,web` -> {coleccion, web}; un id simple -> {id}. El hostname NO cuenta (todos los sitios del tenant lo comparten)."""
+    parts = [p.strip().lower() for p in str(site_id or "").split(",") if p.strip()]
+    if len(parts) >= 2 and "." in parts[0]:
+        parts = parts[1:]
+    return set(parts)
+
+
+def control_matches_current(control: dict, current: dict) -> list[str]:
+    """Motivos por los que el destino de control COINCIDE con el CURRENT, comparando IDENTIFICADORES REALES (sitio, drive, item), nunca URLs ni nombres. Una coincidencia en cualquiera rechaza la prueba."""
+    reasons = []
+    if _site_components(control.get("site_id")) & _site_components(current.get("site_id")):
+        reasons.append("site_id")
+    if control.get("drive_id") and str(control["drive_id"]).lower() == str(current.get("drive_id") or "").lower():
+        reasons.append("drive_id")
+    if control.get("item_id") and str(control["item_id"]).lower() == str(current.get("item_id") or "").lower():
+        reasons.append("item_id")
+    return reasons
+
+
+def _write_result(ok: bool, stage: str, **extra) -> dict:
+    return {"operation": "write_test", "ok": ok, "stage": stage, "attempts": 0, **extra}
+
+
+def write_test(token: str, control_sharing_url: str, *, now: datetime | None = None, uid: uuid.UUID | None = None) -> dict:
+    """Escribe UN archivo de texto fijo e inocuo, con nombre unico, en la carpeta de CONTROL resuelta desde el sharing link. Exactamente UN PUT (sin reintentos), con el MISMO request builder y el MISMO
+    transporte (`microsoft365.graph_put_bytes`) que el uploader de CVs. No crea carpetas, no toca ProfileDocument ni la config, y nunca incluye el token en lo que devuelve o registra. Rechaza (sin PUT) todo
+    destino que no sea una carpeta resuelta de un sitio DISTINTO al CURRENT: se comparan site id, drive id e item id."""
+    from webapp.services import profile_document_service           # perezoso: ese modulo importa este (evita el ciclo)
+    url = (control_sharing_url or "").strip()
+    parsed = urllib.parse.urlsplit(url)
+    if not url or parsed.scheme != "https" or not parsed.netloc.lower().endswith(".sharepoint.com"):
+        return _write_result(False, "control_invalid", reason="El link de control tiene que ser https://*.sharepoint.com/…")
+    record, found = discover_sharing_link(url, token)
+    if not found or not (found.get("site_id") and found.get("drive_id") and found.get("item_id")):
+        return _write_result(False, "control_unresolved", reason="No se pudo resolver el sharing link a site/drive/item.", discovery={k: record.get(k) for k in ("ok", "status", "code", "message", "request_id")})
+    control = {"site_id": found["site_id"], "drive_id": found["drive_id"], "item_id": found["item_id"], "folder": found.get("name")}
+    if not found.get("is_folder"):
+        return _write_result(False, "control_not_a_folder", reason="El destino de control no es una carpeta.", control=control)
+    clash = control_matches_current(control, current_target())
+    if clash:
+        return _write_result(False, "control_is_current", reason=f"El destino de control coincide con el CURRENT ({', '.join(clash)}): no se escribe.", control=control, matches=clash)
+    filename = unique_test_filename(now, uid)                                                         # inmediatamente antes del PUT
+    put_url = profile_document_service.upload_content_url(control["item_id"], filename, site_id=control["site_id"], drive_id=control["drive_id"]) + _CONFLICT_FAIL_QUERY
+    result = _write_result(False, "put", control=control, filename=filename, attempts=1,
+                           put={"method": "PUT", "endpoint": sanitize_endpoint(put_url), "content_type": WRITE_TEST_CONTENT_TYPE, "bytes": len(WRITE_TEST_CONTENT)})
+    try:
+        item = microsoft365.graph_put_bytes(put_url, token, WRITE_TEST_CONTENT, content_type=WRITE_TEST_CONTENT_TYPE)       # UNICO intento: sin reintentos
+    except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+        detail = log_graph_failure("write_test.put", "PUT", put_url, exc)
+        result["put"].update({"ok": False, "status": detail.get("status"), "code": detail.get("code"), "message": detail.get("message"), "inner_code": detail.get("inner_code"),
+                              "request_id": detail.get("request_id"), "client_request_id": detail.get("client_request_id"), "kind": detail.get("kind"), "reason": detail.get("reason")})
+        return result
+    result["ok"] = True
+    result["put"].update({"ok": True, "status": "2xx", "item": {"id": (item or {}).get("id"), "name": (item or {}).get("name"), "size": (item or {}).get("size"), "web_url": (item or {}).get("webUrl")}})
     return result

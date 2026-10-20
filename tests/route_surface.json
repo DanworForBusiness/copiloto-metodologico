@@ -144,6 +144,7 @@
   "POST /cchh/candidatos/{profile_id}/editar",
   "POST /cchh/candidatos/{profile_id}/eliminar",
   "POST /cchh/catalogos/refresh",
+  "POST /cchh/diagnostico/sharepoint/escritura",
   "POST /cchh/diagnostico/sharepoint/sonda",
   "POST /cchh/entrevistas/nueva",
   "POST /cchh/entrevistas/{entrevista_id}/editar",
