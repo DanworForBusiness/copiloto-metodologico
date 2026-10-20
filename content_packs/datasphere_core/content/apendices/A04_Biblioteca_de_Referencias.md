@@ -190,6 +190,9 @@ intent_assets:
   - keywords: ["automatizar alertas", "alertas automaticas", "health-check automatizado", "monitoreo automatizado"]
     description: "How-to Danwor: Guia de automatizacion alerta memoria HANA Datasphere"
     asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQBeg98nVm1FR6k73lLVFdTEASMcDTe0NjkzmUiqEHStHaI?e=uEZUA0"
+  - keywords: ["migracion SAC", "SAC private a public", "migracion SAC a BDC", "migrar SAC"]
+    description: "How-to Danwor: Guia de migración SAC private a public (BDC)"
+    asset: "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQCyHxDjpFDcSbmQ9OG1rFDNAbRTDxbHeowVAAqviDs2WNo?e=1JYLtn"    
   - keywords: ["nota 3498095", "3498095", "abap on-premise datasphere"]
     description: "Nota SAP 3498095: SAP Datasphere notes on source ABAP-based On-premise"
     asset: "https://me.sap.com/notes/3498095"
@@ -347,6 +350,7 @@ key_topics:
 - Acelerador de relevamiento tecnico BW via metadata & recursos tecnicos | [Link](https://danwor.sharepoint.com/:x:/s/PrcticaAnalytics/IQACMCP05dVHTbcYyOHkziLzAcaUsp2fZCUH7mAFx9iEnqA?e=8wxPOx)
 - Instalar y operar CLI en Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQCsU_lo4usOS78fIeWBXeu7AVn3an4_a3LxgQtfdmgWAPQ?e=4q7lFj)
 - Guia de automatizacion alerta memoria HANA Datasphere | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQBeg98nVm1FR6k73lLVFdTEASMcDTe0NjkzmUiqEHStHaI?e=uEZUA0)
+- Guia para migrar SAC private a public (BDC) | [Link](https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQCyHxDjpFDcSbmQ9OG1rFDNAbRTDxbHeowVAAqviDs2WNo?e=1JYLtn)
 
 ## {dw-black}Notas {dw-gold}SAP
 {{section_meta: keywords="notas sap, sap notes, kba, nota 3498095, nota 3100673, nota 3154420, nota 3117800, nota 3141688, nota 3417440, nota 3579966, nota 3590400, nota 3220622, nota 1732157, nota 2180165, restricciones datasphere, bw bridge notes, hana troubleshooting, expensive statements, release schedule hana cloud"}}
