@@ -1459,5 +1459,6 @@ def test_adhoc_report_has_the_same_integrated_controls_table_and_contextual_navi
     ids = set(re.findall(r'\sid="([^"]+)"', t))
     hrefs = re.findall(r'<a href="#(asr-[^"]+)"', t)
     assert hrefs and [h for h in hrefs if h not in ids] == []                                                    # sin enlaces huérfanos en la página ad-hoc
-    assert "Ver detalle" in t and "data-asr-return" in t                                                         # ida y vuelta presentes
+    assert 'class="table-action-btn chart-tooltip-anchor" aria-label="Ver evidencia del hallazgo «' in t and "Ver detalle" not in t   # acción icónica (patrón CCHH)
+    assert "data-asr-return" in t                                                                                # ida y vuelta presentes
     assert "DwAssessmentNav" in (REPO / "webapp/static/app.js").read_text(encoding="utf-8")                      # el cliente que los resuelve se sirve con la app

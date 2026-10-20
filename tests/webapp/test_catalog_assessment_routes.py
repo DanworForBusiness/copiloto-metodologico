@@ -860,9 +860,12 @@ def test_every_content_link_in_the_report_uses_the_one_hub_content_link_treatmen
     html = _post(client_for()).text
     anchors = re.findall(r"<a\b([^>]*)>(.*?)</a>", html, re.S)
     assert anchors
-    kinds = {"content": 0, "support": 0, "back": 0}
+    kinds = {"content": 0, "support": 0, "back": 0, "action": 0}
     for attrs, inner in anchors:
-        if 'class="support-link"' in attrs:
+        if 'class="table-action-btn chart-tooltip-anchor"' in attrs:                                   # acción ICÓNICA de fila (patrón CCHH; ver test_assessment_contextual_navigation)
+            assert 'aria-label="Ver evidencia del hallazgo «' in attrs and inner.lstrip().startswith("<svg")
+            kinds["action"] += 1
+        elif 'class="support-link"' in attrs:
             kinds["support"] += 1
         elif 'class="catalog-back"' in attrs:
             kinds["back"] += 1
@@ -871,7 +874,7 @@ def test_every_content_link_in_the_report_uses_the_one_hub_content_link_treatmen
             assert inner.strip().startswith("<code>") and inner.strip().endswith("</code>"), inner      # mismo tratamiento en TODOS
             assert "<strong>" not in inner and "<b>" not in inner and "style=" not in attrs
             kinds["content"] += 1
-    assert kinds["content"] >= 10 and kinds["support"] >= 2 and kinds["back"] == 1
+    assert kinds["content"] >= 10 and kinds["support"] >= 2 and kinds["back"] == 1 and kinds["action"] >= 1
     kinds_of_text = {m for m in re.findall(r"<a href=\"#asr-g-[^\"]+\"><code>([^<]+)</code></a>", html)}
     assert len(kinds_of_text) >= 5                                                                    # preguntas + hallazgos usan el mismo marcado
     css = (REPO / "webapp/static/tools.css").read_text(encoding="utf-8")

@@ -64,6 +64,15 @@ const g1sum = g1.append(new El("summary"));
 const linkBack = g1.append(new El("a", { href: "#asr-r-R1", "data-asr-return": "" }));
 const g2 = sec06.append(new El("details", { id: "asr-g-DESC" }));
 g2.append(new El("summary"));
+// Caso de producción: el hallazgo vive dentro de VARIOS contenedores colapsables, todos cerrados al cargar (informe > dimensión > subárea > hallazgo).
+const lvl1 = report.append(new El("details", { id: "asr-m-lvl1" }));
+const lvl2 = lvl1.append(new El("details", { id: "asr-m-lvl2" }));
+lvl2.append(new El("summary"));
+const lvl3 = lvl2.append(new El("details", { id: "asr-m-lvl3" }));
+const gDeep = lvl3.append(new El("details", { id: "asr-g-DEEP" }));
+const gDeepSum = gDeep.append(new El("summary"));
+const iconLink = report.append(new El("a", { href: "#asr-g-DEEP", class: "table-action-btn chart-tooltip-anchor", "aria-label": "Ver evidencia del hallazgo" }));
+const iconSvg = iconLink.append(new El("svg"));                                        // el clic real cae sobre el <svg>/<path> hijo del enlace
 const alien = content.append(new El("details", { id: "ajeno" }));
 const alienLink = content.append(new El("a", { href: "#ajeno" }));
 const all = body.all();
@@ -85,7 +94,7 @@ check(!/pushState|replaceState/.test(snippet), "el módulo no debe usar un siste
 check(win.DwAssessmentNav && typeof win.DwAssessmentNav.go === "function", "DwAssessmentNav expuesto en window");
 
 const fire = (kind, type, ev) => (listeners[kind][type] || []).forEach((fn) => fn(ev));
-const resetState = () => { all.forEach((e) => { e.scrolled = 0; e.focused = 0; e.cls.delete("is-nav-target"); }); [area, outer06, g1, g2, alien].forEach((d) => { d.open = false; }); doc.activeElement = null; win.location.hash = ""; };
+const resetState = () => { all.forEach((e) => { e.scrolled = 0; e.focused = 0; e.cls.delete("is-nav-target"); }); [area, outer06, g1, g2, alien, lvl1, lvl2, lvl3, gDeep].forEach((d) => { d.open = false; }); doc.activeElement = null; win.location.hash = ""; };
 const navigate = (hash) => { win.location.hash = hash; fire("window", "hashchange", {}); };                       // lo que haría el navegador al seguir un enlace
 const click = (el, extra = {}) => { const ev = { target: el, button: 0, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra }; fire("document", "click", ev); return ev; };
 
@@ -145,14 +154,30 @@ content.cls.delete("catalog-detail-open");
 ev = click(alienLink);
 check(ev.defaultPrevented === false, "sin detalle abierto el handler heredado no interviene");
 
-// 10. deep link: al cargarse el informe (htmx:load) se resuelve el hash que ya traía la URL; sin hash o sin informe en el fragmento no hace nada
+// 10. deep link: SOLO en la carga de página completa (target === body); un informe que llega por HTMX NO resuelve el hash que quedó de un salto anterior
+resetState(); win.location.hash = "#asr-g-R1";
+fire("body", "htmx:load", { target: doc.body });
+check(g1.open && outer06.open && g1.scrolled === 1, "deep link: revela el hallazgo al cargar la página");
 resetState(); win.location.hash = "#asr-g-R1";
 fire("body", "htmx:load", { target: report });
-check(g1.open && outer06.open && g1.scrolled === 1, "deep link: revela el hallazgo al cargar el informe");
-resetState(); win.location.hash = "#asr-g-R1";
-fire("body", "htmx:load", { target: alien }); check(g1.scrolled === 0 && !g1.open, "un fragmento sin informe no dispara el deep link");
-fire("body", "htmx:load", { target: body }); check(g1.scrolled === 1 && g1.open, "la carga de página completa (body contiene el informe) sí lo resuelve");
-resetState(); fire("body", "htmx:load", { target: report }); check(g1.scrolled === 0, "sin hash no hay navegación");
+fire("body", "htmx:load", { target: content });
+fire("body", "htmx:load", { target: alien });
+check(g1.scrolled === 0 && !g1.open && !outer06.open && doc.activeElement === null, "regresión: un informe nuevo por HTMX con hash viejo en la URL NO se abre ni se desplaza solo");
+resetState(); fire("body", "htmx:load", { target: doc.body }); check(g1.scrolled === 0, "sin hash no hay navegación");
+
+// 12. caso de producción: hallazgo dentro de múltiples contenedores cerrados; el clic cae sobre el <svg> del ícono (no sobre el <a>)
+resetState();
+ev = click(iconSvg);
+check(ev.defaultPrevented === false && !gDeep.open, "clic en el ícono: navegación nativa (no se previene) y sin apertura prematura");
+navigate("#asr-g-DEEP");
+check(lvl1.open && lvl2.open && lvl3.open && gDeep.open, "abre TODOS los ancestros colapsables y el propio detalle");
+check(gDeep.scrolled === 1 && gDeep.cls.has("is-nav-target") && doc.activeElement === gDeepSum, "desplaza, resalta y enfoca el hallazgo concreto");
+gDeep.open = false; lvl3.open = false; lvl2.open = false; lvl1.open = false; gDeep.scrolled = 0;
+ev = click(iconSvg, { _hash: "#asr-g-DEEP" });
+check(ev.defaultPrevented === true && lvl1.open && lvl2.open && lvl3.open && gDeep.open && gDeep.scrolled === 1, "mismo hash otra vez desde el ícono: revela todo y desplaza igual");
+// Atrás/Adelante nativos: el hash vuelve a un destino anterior → hashchange lo revela de nuevo
+resetState(); navigate("#asr-g-R1"); navigate("#asr-g-DEEP"); navigate("#asr-g-R1");
+check(g1.open && outer06.open && g1.cls.has("is-nav-target") && !gDeep.cls.has("is-nav-target"), "navegar atrás (hashchange a un destino previo) vuelve a revelarlo y resaltarlo");
 
 // 11. hash codificado y residual
 resetState();

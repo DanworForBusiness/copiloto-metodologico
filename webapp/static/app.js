@@ -681,11 +681,11 @@ const DwAssessmentNav = {
 };
 window.DwAssessmentNav = DwAssessmentNav;
 window.addEventListener("hashchange", () => { DwAssessmentNav.go(document, window.location.hash); });
-// Deep link (#asr-g-…): al cargarse el informe (página propia o fragmento HTMX) se resuelve el hash que ya traía la URL.
+// Deep link (#asr-g-…): SOLO en la carga de la PÁGINA completa (informe ad-hoc con el hash en la URL). Un informe que llega por HTMX no lo resuelve: el
+// hash que quedó de un salto anterior pertenece al informe anterior, y aplicarlo al nuevo lo abría y desplazaba sin que nadie lo pidiera.
 document.body.addEventListener("htmx:load", event => {
-  const root = event.target;
-  if (!window.location.hash || !root || !root.querySelector) return;
-  if (root.matches("[data-asr-report]") || root.querySelector("[data-asr-report]")) DwAssessmentNav.go(document, window.location.hash);
+  if (event.target !== document.body || !window.location.hash) return;
+  DwAssessmentNav.go(document, window.location.hash);
 });
 document.addEventListener("click", event => {
   const a = event.target.closest('a[href^="#"]');

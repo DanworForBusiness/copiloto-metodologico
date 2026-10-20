@@ -1,0 +1,12 @@
+{# Acción de fila ICÓNICA — patrón de Capital Humano (editar / eliminar / publicar) y de Comercial («detalle» = ojo), generalizado a macro Jinja.
+   NO hay estilo nuevo: el aspecto lo dan los primitivos compartidos de tools.css —
+     · `.table-action-btn`    botón de ícono compacto (28×28, trazo sin relleno `currentColor`, foco dorado `:focus-visible`, claro/oscuro)
+     · `.chart-tooltip-anchor` + `.chart-tooltip`   tooltip CSS puro en hover y foco (anclado a la derecha: la acción vive en la última columna)
+   Accesibilidad: es un elemento interactivo semántico (`<a href>` para navegar), el nombre accesible es `label` (NO depende del tooltip: el tooltip
+   es `aria-hidden` y repite/abrevia el mismo sentido) y el SVG es decorativo (`aria-hidden`). `label` debe ser ESPECÍFICO (incluir a qué objeto
+   apunta) para que una tabla con N acciones iguales no ofrezca N nombres idénticos.
+   Un ícono por SEMÁNTICA: no reutilizar `view` para acciones distintas de «ver el detalle/evidencia de esta fila».
+   Solo para etiquetas genéricas de acción («Ver detalle», «Ver más», «Abrir»…). Un enlace cuyo texto ES el objeto (nombre de vista, tabla, modelo,
+   Data Product, documento…) conserva su texto: ver `<a><code>nombre</code></a>`. #}
+{% macro table_action_icon(name) %}{% if name == "view" %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>{% endif %}{% endmacro %}
+{% macro table_action_link(href, tooltip, label, icon="view") %}<a href="{{ href }}" class="table-action-btn chart-tooltip-anchor" aria-label="{{ label }}">{{ table_action_icon(icon) }}<span class="chart-tooltip" aria-hidden="true"><p>{{ tooltip }}</p></span></a>{% endmacro %}
