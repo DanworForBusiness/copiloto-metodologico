@@ -1450,3 +1450,14 @@ def test_other_report_navigation_is_unchanged(owner, fake_export):
     assert router_src.count('"tool": "assessment"') == 1                                                      # un único cambio: el back del informe ad-hoc
     cat = (REPO / "webapp/templates/partials/catalog_assessment_report.html").read_text(encoding="utf-8")
     assert "hx-get" in cat and "tool=assessment" not in cat                                                   # el Volver del Catálogo no se tocó
+
+def test_adhoc_report_has_the_same_integrated_controls_table_and_contextual_navigation(owner, fake_export):
+    rid = _rid(_post(owner))
+    t = owner.get(f"/modules/{STEM}/datasphere-assessment/result/{rid}?pack=datasphere_core").text
+    assert " data-asr-report" in t and "Hallazgos en esta área" not in t                                          # marca de informe + lista redundante integrada
+    assert "<th>Regla</th><th>Resultado</th><th>Hallazgos</th>" in t
+    ids = set(re.findall(r'\sid="([^"]+)"', t))
+    hrefs = re.findall(r'<a href="#(asr-[^"]+)"', t)
+    assert hrefs and [h for h in hrefs if h not in ids] == []                                                    # sin enlaces huérfanos en la página ad-hoc
+    assert "Ver detalle" in t and "data-asr-return" in t                                                         # ida y vuelta presentes
+    assert "DwAssessmentNav" in (REPO / "webapp/static/app.js").read_text(encoding="utf-8")                      # el cliente que los resuelve se sirve con la app

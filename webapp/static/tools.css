@@ -2883,6 +2883,12 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .module-hero.asr-hero + * { margin-top: 32px; }
 /* IDs técnicos largos (AM_…) sin cortes naturales: a la escala del h1 del Hub (hasta 4.5rem) no caben ni parten bien. */
 .asr-title { font-size: clamp(1.5rem, 3vw, 2.4rem); line-height: 1.1; letter-spacing: -.03em; overflow-wrap: anywhere; }
+/* Navegación contextual dentro del informe (`DwAssessmentNav`, app.js): el destino al que se llega por un enlace interno se resalta un instante
+   con el acento del Hub (--gold) y deja aire arriba al desplazarse. Sin componente nuevo: es un estado transitorio sobre filas/disclosures existentes. */
+[data-asr-report] [id] { scroll-margin-top: 16px; }
+[data-asr-report] .is-nav-target { animation: asr-nav-target 2.4s ease-out; }
+@keyframes asr-nav-target { from { background-color: color-mix(in srgb, var(--gold) 26%, transparent); } to { background-color: transparent; } }
+@media (prefers-reduced-motion: reduce) { [data-asr-report] .is-nav-target { animation: none; background-color: color-mix(in srgb, var(--gold) 14%, transparent); } }
 
 /* ── Gate UX.1/UX.2 (pulido de producto): jerarquía del hero, Juicio "resultado primero", carga integrada, chips y
    contraste de evidencia. Reusa tokens/animaciones del Hub (--gold/--soft/--ink/--line, `analysis-spin`,
