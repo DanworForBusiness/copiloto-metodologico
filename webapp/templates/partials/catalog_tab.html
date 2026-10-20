@@ -46,7 +46,21 @@
    (`?tab=catalogo&catalog_action=publish`). El navegador solo pide MOSTRAR el formulario; la publicación la decide el servidor (ruta
    propia con `mode="publish"` forzado, solo dueño). Sin pestaña "Publicar" aparte. #}
 {% set pub = dsp_pub_tool(request, document.summary.stem) if (document is defined and document) else {"can_execute": False} %}
-<div x-data="{ catalogKind: '' }">
+{# Filtro del SEGUNDO dropdown + buscador en vivo (`dwCatalogBrowse`, app.js): elegido el valor del 2.º dropdown este se reemplaza por «Buscar…» + «Limpiar» y aparece la leyenda
+   «Filtrado por <catálogo> ✕» (primitivo `.dashboard-subhead__filter/__reset` de Métricas de uso). El buscador filtra en el cliente los tiles YA renderizados (cualquier texto del tile,
+   sin distinguir mayúsculas ni tildes); nunca recarga ni cambia el contenido del catálogo. Data Products no tiene 2.º dropdown: su buscador está disponible desde el inicio. #}
+{% macro search_row() %}
+<div class="whatsnew-filters whatsnew-filters--inline" x-show="showSearch" x-cloak>
+  <label class="whatsnew-filter whatsnew-filter--fill">
+    <input type="search" data-catalog-search x-model="q" @input="search()" @keydown.escape="clearSearch()" aria-label="Buscar en el catálogo" placeholder="Buscar..." autocomplete="off">
+  </label>
+  <button type="button" class="whatsnew-filter__clear" @click="clearSearch()">Limpiar</button>
+</div>
+{% endmacro %}
+{% macro no_match() %}
+<div x-show="noMatch" x-cloak>{% with state_kind="empty", state_title="Sin coincidencias", state_text="Ningún tile coincide con la búsqueda. Probá con otra palabra o presioná Limpiar." %}{% include "partials/catalog_state.html" %}{% endwith %}</div>
+{% endmacro %}
+<div x-data="dwCatalogBrowse()" @htmx:after-swap.camel="search()">
   {# UN solo encabezado para los dos estados (mismo primitivo de fila): título a la izquierda y, a la derecha, la acción propia del estado
      — browse: "+" (publicar) · publish: "← Volver" (a browse). Ambas son acciones neutras (`.table-action-btn`), sin caja ni dorado. #}
   <div class="tree-picker catalog-picker--kind" :class="catalogView === 'publish' && 'catalog-picker--bare'">
@@ -61,7 +75,7 @@
       {% endif %}
     </div>
     <div class="tree-picker-row" x-show="catalogView !== 'publish'">
-      <select id="catalog-kind" x-model="catalogKind">
+      <select id="catalog-kind" x-model="catalogKind" @change="resetPick()">
         <option value="">Elegí un catálogo...</option>
         <option value="domains">Modelos</option>
         <option value="data_products">Data Products</option>
@@ -78,6 +92,11 @@
   {% endif %}
 
   <div x-show="catalogView !== 'publish'" x-cloak>
+  <p class="dashboard-subhead catalog-filter-legend" x-show="hasPick" x-cloak>
+    <span class="dashboard-subhead__filter">Filtrado por <strong x-text="kindLabel"></strong>
+      <button type="button" class="dashboard-subhead__reset" @click="clearPick()" :title="'Quitar el filtro: ' + pickedLabel" :aria-label="'Quitar el filtro por ' + kindLabel + ': ' + pickedLabel">✕</button>
+    </span>
+  </p>
   <div x-show="!catalogKind" x-cloak id="catalog-flows-empty" class="catalog-flows">
     <div class="tool-empty">
       <span>4 catálogos disponibles</span>
@@ -85,79 +104,92 @@
     </div>
   </div>
 
-  <div x-show="catalogKind === 'domains'" x-cloak>
+  <div x-show="catalogKind === 'domains'" x-cloak data-catalog-kind="domains">
     <div class="tree-picker catalog-picker--secondary">
+      <div x-show="!picked">
       <label for="catalog-dominio">Modelo</label>
       <div class="tree-picker-row">
-        <select id="catalog-dominio" name="dominio"
+        <select id="catalog-dominio" name="dominio" @change="pick($event)"
                 hx-get="/catalog/domain?modulo={{ document.summary.number }}&pack={{ pack }}" hx-target="#catalog-flows" hx-swap="innerHTML" hx-trigger="change">
           <option value="">Elegí un modelo...</option>
           {% for d in (catalog_models if catalog_models is defined else catalog_domains) %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
         </select>
       </div>
+      </div>
+      {{ search_row() }}
     </div>
-    <div id="catalog-flows" class="catalog-flows">
+    <div id="catalog-flows" class="catalog-flows" data-catalog-results>
       <div class="tool-empty">
         {% set _models = catalog_models if catalog_models is defined else catalog_domains %}
         <span>{{ _models|length }} {{ "modelo disponible" if _models|length == 1 else "modelos disponibles" }}</span>
         <p>Elegí el modelo que mejor represente el flujo que necesitás resolver.</p>
       </div>
     </div>
+    {{ no_match() }}
   </div>
 
-  <div x-show="catalogKind === 'lob'" x-cloak>
+  <div x-show="catalogKind === 'lob'" x-cloak data-catalog-kind="lob">
     {# Tercera modalidad: agrupa los MISMOS flujos por línea de negocio (clasificación v2 PERSISTIDA, manual > automática alta > sin clasificar). Independiente de Dominios. #}
     <div class="tree-picker catalog-picker--secondary">
+      <div x-show="!picked">
       <label for="catalog-lob">Línea de negocio</label>
       <div class="tree-picker-row">
         {# Carga NATIVA de htmx: `hx-indicator` marca la región (`.htmx-request`: oculta las tarjetas anteriores y muestra el loader) y `hx-sync="this:replace"`
            aborta la solicitud anterior del selector (una respuesta tardía jamás pisa una selección posterior). Error/cancelación/aria-busy: DwCatalogNav (app.js). #}
-        <select id="catalog-lob" name="lob"
+        <select id="catalog-lob" name="lob" @change="pick($event)"
                 hx-get="/catalog/lob?pack={{ pack }}" hx-target="#catalog-lob-flows" hx-swap="innerHTML" hx-trigger="change"
                 hx-sync="this:replace" hx-indicator="#catalog-lob-region" data-dw-nav-region="#catalog-lob-region">
           <option value="">Elegí una línea de negocio...</option>
           {% for o in catalog_lobs or [] %}<option value="{{ o.id }}">{{ o.label }}</option>{% endfor %}
         </select>
       </div>
+      </div>
+      {{ search_row() }}
     </div>
     <div id="catalog-lob-region" class="catalog-region">
       <div class="catalog-loading section-analysis-loading" role="status" aria-live="polite"><span class="section-analysis-spinner" aria-hidden="true"></span><span class="section-analysis-loading-copy">Cargando modelos…</span></div>
-      <div id="catalog-lob-flows" class="catalog-flows">
+      <div id="catalog-lob-flows" class="catalog-flows" data-catalog-results>
         <div class="tool-empty">
           <span>{{ (catalog_lobs or [])|length }} opciones</span>
           <p>Elegí la línea de negocio (Finanzas, Ventas, Cadena de suministro…) para ver los modelos agrupados con ese criterio.</p>
         </div>
       </div>
+      {{ no_match() }}
     </div>
   </div>
 
-  <div x-show="catalogKind === 'clients'" x-cloak>
+  <div x-show="catalogKind === 'clients'" x-cloak data-catalog-kind="clients">
     {# Cuarta modalidad: TODOS los modelos de un cliente (mismas tarjetas y navegación). Independiente de Modelos y de Líneas de negocio. #}
     <div class="tree-picker catalog-picker--secondary">
+      <div x-show="!picked">
       <label for="catalog-client">Cliente</label>
       <div class="tree-picker-row">
-        <select id="catalog-client" name="cliente"
+        <select id="catalog-client" name="cliente" @change="pick($event)"
                 hx-get="/catalog/client?pack={{ pack }}" hx-target="#catalog-client-flows" hx-swap="innerHTML" hx-trigger="change"
                 hx-sync="this:replace" hx-indicator="#catalog-client-region" data-dw-nav-region="#catalog-client-region">
           <option value="">Elegí el cliente...</option>
           {% for c in catalog_clients or [] %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
         </select>
       </div>
+      </div>
+      {{ search_row() }}
     </div>
     <div id="catalog-client-region" class="catalog-region">
       <div class="catalog-loading section-analysis-loading" role="status" aria-live="polite"><span class="section-analysis-spinner" aria-hidden="true"></span><span class="section-analysis-loading-copy">Cargando modelos…</span></div>
-      <div id="catalog-client-flows" class="catalog-flows">
+      <div id="catalog-client-flows" class="catalog-flows" data-catalog-results>
         <div class="tool-empty">
           <span>{{ (catalog_clients or [])|length }} {{ "cliente disponible" if (catalog_clients or [])|length == 1 else "clientes disponibles" }}</span>
           <p>Elegí el cliente para ver todos sus modelos publicados.</p>
         </div>
       </div>
+      {{ no_match() }}
     </div>
   </div>
 
-  <div x-show="catalogKind === 'data_products'" x-cloak class="catalog-flows">
+  <div x-show="catalogKind === 'data_products'" x-cloak class="catalog-flows" data-catalog-kind="data_products">
     {% if catalog_data_products %}
-    <ul class="catalog-flows-list">
+    <div class="catalog-picker--secondary">{{ search_row() }}</div>
+    <ul class="catalog-flows-list" data-catalog-results>
       {% for dp in catalog_data_products %}
       <li class="catalog-card catalog-card--{{ dp.veredicto|catalog_verdict_tone }}"
           role="link" tabindex="0" title="Ver detalle del Data Product"
@@ -191,6 +223,7 @@
       </li>
       {% endfor %}
     </ul>
+    {{ no_match() }}
     {% else %}
     <div class="tool-empty">
       <span>Data Products</span>

@@ -2378,6 +2378,11 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 /* Estado de PUBLICACIÓN (solo: la clase se aplica únicamente con catalogView === 'publish'): el encabezado queda SOLO con el título (sin el selector
    debajo), así que el espacio hasta la línea separadora y hasta el primer grupo del formulario se compacta. El estado de exploración no la usa. */
 .catalog-picker--bare { padding-bottom: 6px; }
+/* Leyenda «Filtrado por <catálogo> ✕» del Catálogo (primitivo `.dashboard-subhead__filter/__reset`): pegada bajo el selector de catálogo. Los tiles que no coinciden con el buscador usan `hidden`. */
+.catalog-filter-legend { margin: 12px 0 0; }
+.catalog-flows-list > li[hidden] { display: none; }
+/* El buscador ocupa el espacio que libera el 2.º dropdown (el `.whatsnew-filter--fill` solo estira al <label>; el input se ajusta a él). */
+.catalog-picker--secondary .whatsnew-filter--fill input[type="search"] { width: 100%; }
 .catalog-picker--bare + #catalog-publish-state form > input[type="hidden"] + .tree-picker { margin-top: 14px; }
 /* Variante con texto del primitivo neutro `.table-action-btn` (p. ej. "← Volver" del estado de publicación): sin caja, ancho por contenido. */
 .table-action-btn.table-action-btn--text { width: auto; padding: 0 8px; white-space: nowrap; font: 600 .72rem var(--sans); letter-spacing: .02em; }

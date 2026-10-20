@@ -937,6 +937,81 @@ const DwCatalogNav = (() => {
   return { onBeforeRequest, onAfterRequest, onAfterSwap, onFailure, onClick, cancelDetail, closeDetail };
 })();
 window.DwCatalogNav = DwCatalogNav;
+
+// ── Catálogo: filtro del 2.º dropdown + buscador en vivo ────────────────────────────────────────────────────────────────────────────────────
+// `DwCatalogSearch` filtra en el cliente los tiles YA renderizados (`li.catalog-card`) por CUALQUIER texto del tile (título, consumo, artefactos, notas, badges…, también lo que está
+// dentro de los <details> plegados), sin distinguir mayúsculas ni tildes; varias palabras = todas deben aparecer (en cualquier orden). Nunca pide nada al servidor ni toca el contenido.
+const DwCatalogSearch = {
+  fold(text) { return String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); },
+  apply(host, query) {
+    const cards = host ? Array.from(host.querySelectorAll("li.catalog-card")) : [];
+    const tokens = this.fold(query).split(/\s+/).filter(Boolean);
+    let shown = 0;
+    cards.forEach(li => {
+      if (li._dwFolded === undefined) li._dwFolded = this.fold(li.textContent);   // los tiles se reemplazan en cada carga: no hay caché obsoleta
+      const ok = tokens.every(t => li._dwFolded.includes(t));
+      li.hidden = !ok;
+      if (ok) shown++;
+    });
+    return { total: cards.length, shown };
+  },
+};
+window.DwCatalogSearch = DwCatalogSearch;
+
+// Estado de la barra del Catálogo (Alpine, `x-data="dwCatalogBrowse()"` en catalog_tab.html): dropdown 1 (`catalogKind`) → dropdown 2 (`picked`) → buscador (`q`).
+// Elegido el valor del 2.º dropdown este se reemplaza por «Buscar...» + «Limpiar» y aparece la leyenda «Filtrado por <catálogo> ✕». La ✕ restaura el 2.º dropdown (lo vuelve a «Elegí…»
+// y dispara su `change`, así htmx repinta el estado inicial); «Limpiar» solo vacía el texto; cambiar el dropdown 1 resetea todo. Data Products no tiene 2.º dropdown: solo buscador.
+function dwCatalogBrowse() {
+  const KIND_LABEL = { domains: "Modelos", lob: "Líneas de negocio", clients: "Clientes" };
+  return {
+    catalogKind: "", picked: "", pickedLabel: "", q: "", noMatch: false,
+    get kindLabel() { return KIND_LABEL[this.catalogKind] || ""; },
+    get hasPick() { return !!this.picked && this.catalogKind in KIND_LABEL; },
+    get showSearch() { return this.hasPick || this.catalogKind === "data_products"; },
+    init() { this.resetPick(); },                                 // el navegador puede restaurar valores de los <select> al volver a la página
+    section() { return this.$root.querySelector(`[data-catalog-kind="${this.catalogKind}"]`); },
+    search() {
+      const section = this.section();
+      const r = DwCatalogSearch.apply(section && section.querySelector("[data-catalog-results]"), this.q);
+      this.noMatch = r.total > 0 && r.shown === 0;
+    },
+    // El control recién mostrado (x-show) puede no estar visible todavía en el primer tick: se reintenta cada 50 ms (hasta ~2 s) hasta que lo esté.
+    focusWhenVisible(find) {
+      let tries = 0;
+      const go = () => {
+        const el = find();
+        if (el && el.offsetParent !== null) { el.focus(); return; }
+        if (++tries < 40) setTimeout(go, 50);
+      };
+      this.$nextTick(go);
+    },
+    focusSearch() { this.focusWhenVisible(() => this.section() && this.section().querySelector("[data-catalog-search]")); },
+    pick(event) {
+      const sel = event.target;
+      this.picked = sel.value;
+      this.pickedLabel = sel.value ? sel.options[sel.selectedIndex].text : "";
+      this.q = ""; this.noMatch = false;
+      if (this.picked) this.focusSearch();
+    },
+    clearSearch() { this.q = ""; this.search(); this.focusSearch(); },
+    // ✕ de la leyenda: quita el filtro del 2.º dropdown (vuelve a «Elegí…» con su `change` para que el servidor devuelva el estado inicial) y el foco vuelve al dropdown.
+    clearPick() {
+      const section = this.section();
+      const sel = section && section.querySelector(".catalog-picker--secondary select");
+      this.picked = ""; this.pickedLabel = ""; this.q = ""; this.noMatch = false;
+      if (sel && sel.value) { sel.value = ""; sel.dispatchEvent(new Event("change", { bubbles: true })); }
+      this.focusWhenVisible(() => sel);
+    },
+    // Cambio del dropdown 1 (o carga inicial): todos los 2.º dropdown vuelven a «Elegí…», sin buscador ni leyenda.
+    resetPick() {
+      this.picked = ""; this.pickedLabel = ""; this.q = ""; this.noMatch = false;
+      this.$root.querySelectorAll(".catalog-picker--secondary select").forEach(sel => {
+        if (sel.value) { sel.value = ""; sel.dispatchEvent(new Event("change", { bubbles: true })); }
+      });
+      this.$root.querySelectorAll("li.catalog-card[hidden]").forEach(li => { li.hidden = false; });
+    },
+  };
+}
 document.body.addEventListener("htmx:load", syncAssistantFeedbackState);
 
 // Reordenamiento drag-and-drop de grupos colapsables dentro de un dashboard.
