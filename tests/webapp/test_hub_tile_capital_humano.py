@@ -4,7 +4,9 @@ Valida el copy definitivo (título, subtítulo, descripción y las tres capacida
 """
 from __future__ import annotations
 
-from bs4 import BeautifulSoup
+import re
+from html import unescape
+
 from fastapi.testclient import TestClient
 
 from webapp import workspaces
@@ -44,8 +46,11 @@ def test_the_selector_renders_the_tile_with_the_common_markup(monkeypatch):
     client.cookies.set(auth_service.COOKIE_NAME, auth_service.create_session({"email": "tile-hc@danwor.com", "name": "T", "first_name": "T", "family_name": "T"}))
     response = client.get("/onedanwor")
     assert response.status_code == 200
-    tile = next(a for a in BeautifulSoup(response.text, "html.parser").select("a.workspace-tile") if a["href"] == workspaces.HUMAN_CAPITAL.home_url)
-    assert tile.select_one("h2").get_text(" ", strip=True) == "Capital Humano Selección e Incorporación"
-    assert tile.select_one("h2 > span").get_text(strip=True) == "Selección e Incorporación"
-    assert tile.select_one("p").get_text(strip=True) == DESCRIPTION
-    assert [li.get_text(strip=True).lstrip("✓").strip() for li in tile.select("ul.access-list > li")] == FEATURES
+    # Sin parser HTML externo (como el resto de los tests del landing): se aísla el <a> del tile por su href y se verifica el markup común de `platform_selector.html`.
+    tiles = re.findall(r'<a class="glass workspace-tile" href="([^"]+)">(.*?)</a>', response.text, re.S)
+    block = next(inner for href, inner in tiles if href == workspaces.HUMAN_CAPITAL.home_url)
+    assert "<h2>Capital Humano<span>Selección e Incorporación</span></h2>" in block                    # título blanco + acento gold: MISMO componente que las otras cards
+    assert re.findall(r"<p>(.*?)</p>", block, re.S) == [DESCRIPTION]
+    items = re.findall(r'<li><span class="access-check">&#10003;</span>(.*?)</li>', block, re.S)
+    assert [unescape(i).strip() for i in items] == FEATURES
+    assert block.count("<li>") == 3 and "<ul class=\"access-list\">" in block
