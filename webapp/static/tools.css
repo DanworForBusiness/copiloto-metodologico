@@ -2854,6 +2854,33 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    mismo criterio en Comercial, que tiene la MISMA columna de acción al
    final y se beneficia igual aunque nunca lo haya expuesto visiblemente. */
 .table-action-btn .chart-tooltip { left: auto; right: 0; transform: none; }
+/* CIERRE DE CONTENEDOR (`.panel-close`) — primitivo compartido, PROMOVIDO desde commercial.css (mismas 5 reglas, sin cambios) para que lo use también el
+   Catálogo: botón × discreto como último ítem flex del `<summary class="dashboard-section__head">` (el `gap` del primitivo lo separa del conteo y el
+   `align-items:center` lo centra, sin márgenes calibrados). Variante SVG (Assessment): el trazo de `.table-action-btn svg`; con tooltip (`.chart-tooltip`) debajo del
+   encabezado (el `<details>` es `overflow:hidden`: por arriba se recortaría) y anclado a la derecha; solo visible con el contenedor abierto. */
+.panel-close {
+  width: 26px; height: 26px; flex-shrink: 0;
+  display: grid; place-items: center; border: 0; border-radius: 6px;
+  background: transparent; color: #7a7a82; font-size: 1.1rem; line-height: 1;
+  cursor: pointer;
+}
+.content-theme-dark .panel-close { color: #9a9aa2; }
+.panel-close:hover { color: inherit; background: rgba(128,128,128,.16); }
+.panel-close:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.panel-close svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.panel-close .chart-tooltip { bottom: auto; top: calc(100% + 7px); left: auto; right: 0; transform: none; min-width: 0; width: max-content; max-width: 240px; }
+details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
+
+/* TOOLTIP DE LA ACCIÓN DE FILA — mismo primitivo (`.chart-tooltip`), pero tematizado: el negro fijo (#1f1f24) sobre tarjeta blanca/oscura rompía el
+   look del Hub y, dentro del contenido de prosa del informe el `p` heredaba su gris del tema claro (#54545b, ~2:1 sobre el negro) y 14,4 px.
+   Superficie de tarjeta + texto de tinta + borde + sombra por tema (tokens de :root; claro con los mismos valores que `.assistant-message--assistant`).
+   Acotado a las acciones de fila: los tooltips de KPI/gráficos (`.activity-kpi`, barras) no cambian. */
+.table-action-btn .chart-tooltip, .panel-close .chart-tooltip {
+  background: color-mix(in srgb, var(--card) 86%, #fff); color: var(--ink); border: 1px solid rgba(226,232,245,.22);
+  box-shadow: 0 8px 22px rgba(0,0,0,.5);
+}
+.content-theme-light .table-action-btn .chart-tooltip, .content-theme-light .panel-close .chart-tooltip { background: #fff; color: #26262a; border-color: #dfe3e8; box-shadow: 0 6px 18px rgba(32,33,36,.16); }
+.table-action-btn.chart-tooltip-anchor .chart-tooltip p, .panel-close.chart-tooltip-anchor .chart-tooltip p { margin: 0; color: inherit; font-size: inherit; line-height: 1.35; }
 .content-theme-dark .ln-edge-legend { fill: #9a9aa2; }
 
 /* ═══ Assessment de modelado en el Catálogo (cabecera del flujo + informe + foco de linaje) ═══
@@ -2886,6 +2913,9 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 /* Navegación contextual dentro del informe (`DwAssessmentNav`, app.js): el destino al que se llega por un enlace interno se resalta un instante
    con el acento del Hub (--gold) y deja aire arriba al desplazarse. Sin componente nuevo: es un estado transitorio sobre filas/disclosures existentes. */
 [data-asr-report] [id] { scroll-margin-top: 16px; }
+/* Celda de acción INDEPENDIENTE de la tabla de controles (como «Acciones» de CCHH): se ajusta a su contenido (1% + nowrap, sin ancho fijo) y alinea el ícono
+   al extremo derecho de la celda; la cantidad de ocurrencias queda en su propia columna. */
+[data-asr-report] th.asr-col-action, [data-asr-report] td.asr-col-action { width: 1%; white-space: nowrap; text-align: right; }
 [data-asr-report] .is-nav-target { animation: asr-nav-target 2.4s ease-out; }
 @keyframes asr-nav-target { from { background-color: color-mix(in srgb, var(--gold) 26%, transparent); } to { background-color: transparent; } }
 @media (prefers-reduced-motion: reduce) { [data-asr-report] .is-nav-target { animation: none; background-color: color-mix(in srgb, var(--gold) 14%, transparent); } }

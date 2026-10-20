@@ -125,7 +125,10 @@ def test_close_button_lives_in_summary_aligned_with_the_count():
     assert summary_block.index("dashboard-section__count") < summary_block.index("data-commercial-close-analysis"), (
         "el botón va DESPUÉS del conteo, en el MISMO flex row de <summary>"
     )
-    panel_close_rule = re.search(r"\.panel-close\s*\{([^}]*)\}", commercial_css).group(1)
+    # `.panel-close` es ahora un primitivo COMPARTIDO (tools.css, lo carga todo el Hub; lo usa también el Assessment del Catálogo): mismas reglas, ya no vive en commercial.css.
+    tools_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert not re.search(r"^\.panel-close\s*\{", commercial_css, re.M)
+    panel_close_rule = re.search(r"^\.panel-close\s*\{([^}]*)\}", tools_css, re.M).group(1)
     assert "position: absolute" not in panel_close_rule
     assert "top:" not in panel_close_rule and "right:" not in panel_close_rule
     assert '[data-section-id="activas-analisis"] { position: relative; }' not in commercial_css

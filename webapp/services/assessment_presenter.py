@@ -573,7 +573,7 @@ def _focus_link(entry: Any, pack: str, names: list[str]) -> str | None:
     return flow_url(entry, pack, names) if names else None
 
 
-def _group_view(g: dict, entry: Any, pack: str, origins: dict[str, dict] | None = None) -> dict:
+def _group_view(g: dict, entry: Any, pack: str) -> dict:
     occurrences = []
     for o in g["occurrences"]:
         try:
@@ -589,7 +589,7 @@ def _group_view(g: dict, entry: Any, pack: str, origins: dict[str, dict] | None 
                           f"({P.reason_text(state['reason'])}); pueden existir más ocurrencias fuera de la evidencia que pudo evaluarse.")
     return {
         "dom_id": f"asr-g-{g['id']}", "id": g["id"], "title": g["title"], "kind": g["kind"], "kind_text": P.finding_kind_text(g["kind"]),
-        "area_title": P.area_title(g["area"]), "origin": (origins or {}).get(g["id"]), "explanation": g["explanation"], "why_shown": g["why_shown"],
+        "area_title": P.area_title(g["area"]), "explanation": g["explanation"], "why_shown": g["why_shown"],
         "question": (g.get("context_required") or {}).get("question") if g["kind"] != "DESCRIPTIVE" else None,
         "legitimate_reasons": g.get("legitimate_reasons") or [], "interpretation_limits": g.get("interpretation_limits") or [],
         "occurrence_count": g["occurrence_count"], "occurrence_unit": g["occurrence_unit"],
@@ -877,20 +877,6 @@ def _rule_view(r: dict, area_groups: dict[str, dict] | None = None) -> dict:
             "finding": finding, "dom_id": f"asr-r-{r['rule']}" if r.get("rule") else None}
 
 
-def _group_origins(areas: list[dict]) -> dict[str, dict]:
-    """Origen de navegación de cada grupo de hallazgos: la fila de control (``asr-r-…``) o el ítem residual (``asr-f-…``) del área que lo
-    enlaza, para el enlace «Volver a …» del detalle. Solo se emite si el origen existe en el informe."""
-    origins: dict[str, dict] = {}
-    for a in areas:
-        label = f"Volver a «{a['title']}»"
-        for r in a["rules"]:
-            if r["finding"]:
-                origins[r["rule"]] = {"dom_id": r["dom_id"], "label": label}
-        for f in a["findings_residual"]:
-            origins[f["dom_id"][len("asr-g-"):]] = {"dom_id": "asr-f-" + f["dom_id"][len("asr-g-"):], "label": label}
-    return origins
-
-
 def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, list[dict]], doc: dict | None = None) -> dict:
     rs = a["required_surfaces"]
     rules = rules_by_area.get(a["id"], [])
@@ -976,7 +962,6 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     for r in doc["rule_results"]:
         rules_by_area.setdefault(r["area"], []).append(r)
     areas = [_area_view(a, groups_by_id, rules_by_area, doc) for a in doc["areas"]]
-    origins = _group_origins(areas)
     lim = conf["main_limitation"]
     _rev_head, _rev_detail = P.review_required_text(sum(g["occurrence_count"] for g in doc["review_required"]), len(doc["review_required"]))
     view.update({
@@ -1013,9 +998,9 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
             _kpi("review_required", "Casos a revisar", sum(g["occurrence_count"] for g in doc["review_required"])),
             _kpi("context_open", "Preguntas abiertas", ctx["open_questions"]),
         ],
-        "observations": [_group_view(g, link_entry, pack, origins) for g in doc["observations"]],
-        "review_required": [_group_view(g, link_entry, pack, origins) for g in doc["review_required"]],
-        "descriptive": [_group_view(g, link_entry, pack, origins) for g in doc["descriptive_signals"]],
+        "observations": [_group_view(g, link_entry, pack) for g in doc["observations"]],
+        "review_required": [_group_view(g, link_entry, pack) for g in doc["review_required"]],
+        "descriptive": [_group_view(g, link_entry, pack) for g in doc["descriptive_signals"]],
         "limitations": [{"title": s["title"], "surface_id": s["surface_id"], "area": P.area_title(s["area"]),
                          "state": P.assessability_text(s["assessability"]), "reason": P.reason_text(s["reason"]) if s["reason"] else "",
                          "reason_code": s["reason"]["reason_code"] if s["reason"] else "",

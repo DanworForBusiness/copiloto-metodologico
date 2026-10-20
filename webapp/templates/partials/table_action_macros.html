@@ -10,3 +10,7 @@
    Data Product, documento…) conserva su texto: ver `<a><code>nombre</code></a>`. #}
 {% macro table_action_icon(name) %}{% if name == "view" %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>{% endif %}{% endmacro %}
 {% macro table_action_link(href, tooltip, label, icon="view") %}<a href="{{ href }}" class="table-action-btn chart-tooltip-anchor" aria-label="{{ label }}">{{ table_action_icon(icon) }}<span class="chart-tooltip" aria-hidden="true"><p>{{ tooltip }}</p></span></a>{% endmacro %}
+{# Cierre de un contenedor colapsable (X): MISMO `.panel-close` de Comercial (ahora compartido en tools.css) como último ítem flex del `<summary class="dashboard-section__head">`,
+   con la X en SVG (mismo trazo que `.table-action-btn svg`) y el tooltip del primitivo `.chart-tooltip` (debajo del encabezado: el `<details>` recorta lo que sale por arriba).
+   `data-asr-close` lo resuelve `DwAssessmentNav.close` (app.js). Solo se muestra con el contenedor abierto (ver tools.css). `label` debe nombrar el objeto que cierra. #}
+{% macro panel_close(label, tooltip="Cerrar detalle") %}<button type="button" class="panel-close chart-tooltip-anchor" data-asr-close aria-label="{{ label }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg><span class="chart-tooltip" aria-hidden="true"><p>{{ tooltip }}</p></span></button>{% endmacro %}

@@ -21,7 +21,7 @@
   </button>
 </div>{% endif %}{% endmacro %}
 {% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, contracts_evaluated, tile_grid, evaluation_table, compatibility_block %}
-{% from "partials/table_action_macros.html" import table_action_link %}
+{% from "partials/table_action_macros.html" import table_action_link, panel_close %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
 {% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}
 {# Hallazgo = FILA de disclosure del Hub (la misma gramática que las subáreas de Arquitectura): izquierda el título de negocio; derecha la metadata legible
@@ -29,9 +29,8 @@
    lectura funcional: queda en el detalle técnico del cuerpo. Presentación únicamente: ningún dato se recalcula. #}
 {% macro group(g, level) %}
 <details class="dashboard-section" id="{{ g.dom_id }}">
-  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ g.title }}</span><span class="dashboard-section__count">{{ g.area_title }} · {{ n_occ(g.occurrence_count) }} · {{ g.artifacts|length }} artefacto{{ "s" if g.artifacts|length != 1 }}</span></summary>
+  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ g.title }}</span><span class="dashboard-section__count">{{ g.area_title }} · {{ n_occ(g.occurrence_count) }} · {{ g.artifacts|length }} artefacto{{ "s" if g.artifacts|length != 1 }}</span>{{ panel_close("Cerrar el detalle del hallazgo «" ~ g.title ~ "»") }}</summary>
   <div class="dashboard-section__body">
-    {% if g.origin %}<p><a href="#{{ g.origin.dom_id }}" data-asr-return><code>{{ g.origin.label }}</code></a></p>{% endif %}
     <p>{{ g.why_shown }}</p>
     <table>
       <thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead>
@@ -59,11 +58,11 @@
 </details>
 {% endmacro %}
 {# Controles del área en UNA tabla integrada: resultado + cantidad de hallazgos + acceso al detalle. El enlace sale de la identidad canónica regla↔grupo
-   (presenter); sin grupo renderizado no hay acción. La acción es ICÓNICA (`table_action_link`, patrón CCHH). El detalle del grupo (en [06]) trae su enlace de regreso a esta fila. #}
+   (presenter); sin grupo renderizado no hay acción. La acción es ICÓNICA (`table_action_link`, patrón CCHH). El detalle del grupo (en [06]) se cierra con su X (`panel_close`), que devuelve el foco a esta acción. #}
 {% macro rules_table(rules) %}
   <table>
-    <thead><tr><th>Regla</th><th>Resultado</th><th>Hallazgos</th></tr></thead>
-    <tbody>{% for r in rules %}<tr id="{{ r.dom_id }}"><td>{{ r.title }}</td><td>{{ r.result_text }}{% if r.reason %} ({{ r.reason }}){% endif %}</td><td>{% if r.finding %}<span class="dw-row-actions">{{ n_occ(r.finding.count) }} ({{ r.finding.kind_text }}) {{ table_action_link("#" ~ r.finding.dom_id, "Ver evidencia del hallazgo", "Ver evidencia del hallazgo «" ~ r.title ~ "»") }}</span>{% else %}—{% endif %}</td></tr>{% endfor %}</tbody>
+    <thead><tr><th>Regla</th><th>Resultado</th><th>Hallazgos</th><th class="asr-col-action">Acciones</th></tr></thead>
+    <tbody>{% for r in rules %}<tr id="{{ r.dom_id }}"><td>{{ r.title }}</td><td>{{ r.result_text }}{% if r.reason %} ({{ r.reason }}){% endif %}</td><td>{% if r.finding %}{{ n_occ(r.finding.count) }} ({{ r.finding.kind_text }}){% else %}—{% endif %}</td><td class="asr-col-action">{% if r.finding %}<span class="dw-row-actions">{{ table_action_link("#" ~ r.finding.dom_id, "Ver evidencia del hallazgo", "Ver evidencia del hallazgo «" ~ r.title ~ "»") }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
   </table>
 {% endmacro %}
 {# Cuerpo de un área, en orden de lectura: contexto de evidencia → titulares (≤4 tiles KPI) → evidencia de apoyo (tablas compactas)
