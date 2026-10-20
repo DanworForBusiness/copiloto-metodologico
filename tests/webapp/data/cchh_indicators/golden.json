@@ -1,0 +1,615 @@
+{
+ "provenance": {
+  "source": "app-seleccion lib/metricas.ts (funciones originales, sin cambios de cálculo)",
+  "sha256": {
+   "metricas.ts": "b4d0c2c02a04c2530fa79ec5ab2794055858c196a584508adc902688e59be012",
+   "types.ts": "559dfb0cfe3070d45e9953a39c9192372c0045b6c05453accaa5c467ec8c3abc",
+   "publicaciones.ts": "eb9ddfaa793771abdbd2889b16066d2d59e5b5c6ade4ccfa0b5aeff11c11a247"
+  },
+  "node": "v22.14.0",
+  "tz": "UTC",
+  "dataset_seed": 20261020,
+  "excluded": [
+   "busquedasEstancadas (depende del reloj)"
+  ]
+ },
+ "results": {
+  "kpis": {
+   "timeToFill": 89,
+   "timeToHire": 25,
+   "conversion": 13,
+   "contratados": 7,
+   "descartados": 6,
+   "entrevistasRealizadas": 32
+  },
+  "candidatosPorProceso": [
+   {
+    "nombrePuesto": "Puesto 06 Analista Finanzas",
+    "cantidad": 8
+   },
+   {
+    "nombrePuesto": "Puesto 13 Diseñador",
+    "cantidad": 8
+   },
+   {
+    "nombrePuesto": "Puesto 02 Arquitecto SAP",
+    "cantidad": 6
+   },
+   {
+    "nombrePuesto": "Puesto 03 Desarrollador",
+    "cantidad": 5
+   },
+   {
+    "nombrePuesto": "Puesto 05 PM",
+    "cantidad": 5
+   },
+   {
+    "nombrePuesto": "Puesto 09 DevOps",
+    "cantidad": 4
+   },
+   {
+    "nombrePuesto": "Puesto 11 RRHH Generalista",
+    "cantidad": 4
+   },
+   {
+    "nombrePuesto": "Puesto 01 Analista Data",
+    "cantidad": 3
+   },
+   {
+    "nombrePuesto": "Puesto 10 Líder Comercial",
+    "cantidad": 3
+   },
+   {
+    "nombrePuesto": "Puesto 00 Contador",
+    "cantidad": 2
+   }
+  ],
+  "busquedasPorMes": [
+   {
+    "mes": "2026-01",
+    "abiertas": 0,
+    "cerradas": 1
+   },
+   {
+    "mes": "2026-02",
+    "abiertas": 1,
+    "cerradas": 0
+   },
+   {
+    "mes": "2026-03",
+    "abiertas": 1,
+    "cerradas": 0
+   },
+   {
+    "mes": "2026-04",
+    "abiertas": 2,
+    "cerradas": 0
+   },
+   {
+    "mes": "2026-05",
+    "abiertas": 1,
+    "cerradas": 0
+   },
+   {
+    "mes": "2026-07",
+    "abiertas": 0,
+    "cerradas": 1
+   }
+  ],
+  "ingresosPorMes": [
+   {
+    "mes": "2025-05",
+    "fullTime": 0,
+    "partTime": 0,
+    "sinEspecificar": 1,
+    "total": 1
+   },
+   {
+    "mes": "2025-06",
+    "fullTime": 0,
+    "partTime": 0,
+    "sinEspecificar": 1,
+    "total": 1
+   },
+   {
+    "mes": "2025-10",
+    "fullTime": 1,
+    "partTime": 0,
+    "sinEspecificar": 0,
+    "total": 1
+   },
+   {
+    "mes": "2025-11",
+    "fullTime": 0,
+    "partTime": 0,
+    "sinEspecificar": 1,
+    "total": 1
+   },
+   {
+    "mes": "2026-04",
+    "fullTime": 0,
+    "partTime": 0,
+    "sinEspecificar": 2,
+    "total": 2
+   },
+   {
+    "mes": "2026-06",
+    "fullTime": 0,
+    "partTime": 0,
+    "sinEspecificar": 1,
+    "total": 1
+   }
+  ],
+  "entrevistasPorAnio": [
+   {
+    "anio": "2025",
+    "realizadas": 19,
+    "noRealizadas": 3,
+    "total": 22
+   },
+   {
+    "anio": "2026",
+    "realizadas": 13,
+    "noRealizadas": 3,
+    "total": 16
+   }
+  ],
+  "entrevistasPorMes": [
+   {
+    "mes": "2025-01",
+    "realizadas": 1,
+    "noRealizadas": 0,
+    "total": 1
+   },
+   {
+    "mes": "2025-02",
+    "realizadas": 6,
+    "noRealizadas": 0,
+    "total": 6
+   },
+   {
+    "mes": "2025-03",
+    "realizadas": 2,
+    "noRealizadas": 0,
+    "total": 2
+   },
+   {
+    "mes": "2025-04",
+    "realizadas": 1,
+    "noRealizadas": 1,
+    "total": 2
+   },
+   {
+    "mes": "2025-05",
+    "realizadas": 2,
+    "noRealizadas": 0,
+    "total": 2
+   },
+   {
+    "mes": "2025-06",
+    "realizadas": 1,
+    "noRealizadas": 0,
+    "total": 1
+   },
+   {
+    "mes": "2025-07",
+    "realizadas": 1,
+    "noRealizadas": 0,
+    "total": 1
+   },
+   {
+    "mes": "2025-08",
+    "realizadas": 1,
+    "noRealizadas": 1,
+    "total": 2
+   },
+   {
+    "mes": "2025-10",
+    "realizadas": 3,
+    "noRealizadas": 1,
+    "total": 4
+   },
+   {
+    "mes": "2025-12",
+    "realizadas": 1,
+    "noRealizadas": 0,
+    "total": 1
+   },
+   {
+    "mes": "2026-02",
+    "realizadas": 1,
+    "noRealizadas": 1,
+    "total": 2
+   },
+   {
+    "mes": "2026-03",
+    "realizadas": 1,
+    "noRealizadas": 0,
+    "total": 1
+   },
+   {
+    "mes": "2026-04",
+    "realizadas": 3,
+    "noRealizadas": 2,
+    "total": 5
+   },
+   {
+    "mes": "2026-05",
+    "realizadas": 5,
+    "noRealizadas": 0,
+    "total": 5
+   },
+   {
+    "mes": "2026-06",
+    "realizadas": 3,
+    "noRealizadas": 0,
+    "total": 3
+   }
+  ],
+  "periodosEntrevistas": [
+   "2026-Q2",
+   "2026-Q1",
+   "2025-Q4",
+   "2025-Q3",
+   "2025-Q2",
+   "2025-Q1"
+  ],
+  "perfiles": {
+   "todos": [
+    {
+     "perfil": "Puesto 06 Analista Finanzas",
+     "cantidad": 5
+    },
+    {
+     "perfil": "Puesto 13 Diseñador",
+     "cantidad": 5
+    },
+    {
+     "perfil": "Puesto 02 Arquitecto SAP",
+     "cantidad": 3
+    },
+    {
+     "perfil": "Puesto 03 Desarrollador",
+     "cantidad": 3
+    },
+    {
+     "perfil": "Puesto 09 DevOps",
+     "cantidad": 3
+    },
+    {
+     "perfil": "Puesto 01 Analista Data",
+     "cantidad": 2
+    },
+    {
+     "perfil": "Puesto 05 PM",
+     "cantidad": 2
+    },
+    {
+     "perfil": "Sin especificar",
+     "cantidad": 2
+    },
+    {
+     "perfil": "Contador Sr",
+     "cantidad": 2
+    },
+    {
+     "perfil": "Puesto 04 Consultor BW",
+     "cantidad": 1
+    },
+    {
+     "perfil": "Puesto 10 Líder Comercial",
+     "cantidad": 1
+    },
+    {
+     "perfil": "Puesto 11 RRHH Generalista",
+     "cantidad": 1
+    },
+    {
+     "perfil": "Puesto 12 Soporte",
+     "cantidad": 1
+    },
+    {
+     "perfil": "Puesto 00 Contador",
+     "cantidad": 1
+    }
+   ],
+   "2026-Q2": [
+    {
+     "perfil": "Puesto 06 Analista Finanzas",
+     "cantidad": 5
+    },
+    {
+     "perfil": "Puesto 09 DevOps",
+     "cantidad": 3
+    },
+    {
+     "perfil": "Puesto 10 Líder Comercial",
+     "cantidad": 1
+    },
+    {
+     "perfil": "Sin especificar",
+     "cantidad": 1
+    },
+    {
+     "perfil": "Puesto 02 Arquitecto SAP",
+     "cantidad": 1
+    }
+   ],
+   "2026-Q1": [
+    {
+     "perfil": "Puesto 01 Analista Data",
+     "cantidad": 1
+    },
+    {
+     "perfil": "Puesto 00 Contador",
+     "cantidad": 1
+    }
+   ],
+   "2025-Q4": [
+    {
+     "perfil": "Puesto 03 Desarrollador",
+     "cantidad": 3
+    },
+    {
+     "perfil": "Sin especificar",
+     "cantidad": 1
+    }
+   ],
+   "2025-Q3": [
+    {
+     "perfil": "Puesto 05 PM",
+     "cantidad": 2
+    }
+   ],
+   "2025-Q2": [
+    {
+     "perfil": "Puesto 02 Arquitecto SAP",
+     "cantidad": 2
+    },
+    {
+     "perfil": "Puesto 04 Consultor BW",
+     "cantidad": 1
+    },
+    {
+     "perfil": "Contador Sr",
+     "cantidad": 1
+    }
+   ],
+   "2025-Q1": [
+    {
+     "perfil": "Puesto 13 Diseñador",
+     "cantidad": 5
+    },
+    {
+     "perfil": "Puesto 11 RRHH Generalista",
+     "cantidad": 1
+    },
+    {
+     "perfil": "Puesto 12 Soporte",
+     "cantidad": 1
+    },
+    {
+     "perfil": "Contador Sr",
+     "cantidad": 1
+    },
+    {
+     "perfil": "Puesto 01 Analista Data",
+     "cantidad": 1
+    }
+   ]
+  },
+  "efectividadPorFuente": [
+   {
+    "fuente": "Flyer",
+    "postulantes": 16,
+    "contratados": 5,
+    "conversion": 31
+   },
+   {
+    "fuente": "LinkedIn",
+    "postulantes": 14,
+    "contratados": 1,
+    "conversion": 7
+   },
+   {
+    "fuente": "Sin especificar",
+    "postulantes": 8,
+    "contratados": 1,
+    "conversion": 13
+   },
+   {
+    "fuente": "Referido",
+    "postulantes": 8,
+    "contratados": 0,
+    "conversion": 0
+   },
+   {
+    "fuente": "Hunting",
+    "postulantes": 6,
+    "contratados": 0,
+    "conversion": 0
+   }
+  ],
+  "timeToFillPorProceso": [
+   {
+    "nombrePuesto": "Puesto 00 Contador",
+    "dias": 83
+   },
+   {
+    "nombrePuesto": "Puesto 04 Consultor BW",
+    "dias": 75
+   },
+   {
+    "nombrePuesto": "Puesto 07 Tech Lead",
+    "dias": 93
+   },
+   {
+    "nombrePuesto": "Puesto 08 QA",
+    "dias": 112
+   },
+   {
+    "nombrePuesto": "Puesto 12 Soporte",
+    "dias": 79
+   },
+   {
+    "nombrePuesto": "Puesto 13 Diseñador",
+    "dias": 89
+   }
+  ],
+  "periodosCanal": [
+   "2026-Q3",
+   "2026-Q2",
+   "2026-Q1",
+   "2025-Q4",
+   "2025-Q3",
+   "2025-Q2",
+   "2025-Q1"
+  ],
+  "canales": {
+   "todos": [
+    {
+     "canal": "LinkedIn",
+     "avisos": 16,
+     "candidatos": 14,
+     "contratados": 1,
+     "conversion": 7,
+     "contratacionesPorAviso": 0.063
+    },
+    {
+     "canal": "Flyer",
+     "avisos": 21,
+     "candidatos": 16,
+     "contratados": 5,
+     "conversion": 31,
+     "contratacionesPorAviso": 0.238
+    }
+   ],
+   "2026-Q3": [
+    {
+     "canal": "LinkedIn",
+     "avisos": 4,
+     "candidatos": 0,
+     "contratados": 0,
+     "conversion": 0,
+     "contratacionesPorAviso": 0
+    },
+    {
+     "canal": "Flyer",
+     "avisos": 8,
+     "candidatos": 0,
+     "contratados": 0,
+     "conversion": 0,
+     "contratacionesPorAviso": 0
+    }
+   ],
+   "2026-Q2": [
+    {
+     "canal": "LinkedIn",
+     "avisos": 5,
+     "candidatos": 1,
+     "contratados": 0,
+     "conversion": 0,
+     "contratacionesPorAviso": 0
+    },
+    {
+     "canal": "Flyer",
+     "avisos": 3,
+     "candidatos": 8,
+     "contratados": 1,
+     "conversion": 13,
+     "contratacionesPorAviso": 0.333
+    }
+   ],
+   "2026-Q1": [
+    {
+     "canal": "LinkedIn",
+     "avisos": 4,
+     "candidatos": 3,
+     "contratados": 0,
+     "conversion": 0,
+     "contratacionesPorAviso": 0
+    },
+    {
+     "canal": "Flyer",
+     "avisos": 0,
+     "candidatos": 1,
+     "contratados": 1,
+     "conversion": 100,
+     "contratacionesPorAviso": null
+    }
+   ],
+   "2025-Q4": [
+    {
+     "canal": "LinkedIn",
+     "avisos": 0,
+     "candidatos": 0,
+     "contratados": 0,
+     "conversion": 0,
+     "contratacionesPorAviso": null
+    },
+    {
+     "canal": "Flyer",
+     "avisos": 0,
+     "candidatos": 3,
+     "contratados": 2,
+     "conversion": 67,
+     "contratacionesPorAviso": null
+    }
+   ],
+   "2025-Q3": [
+    {
+     "canal": "LinkedIn",
+     "avisos": 1,
+     "candidatos": 2,
+     "contratados": 0,
+     "conversion": 0,
+     "contratacionesPorAviso": 0
+    },
+    {
+     "canal": "Flyer",
+     "avisos": 4,
+     "candidatos": 2,
+     "contratados": 0,
+     "conversion": 0,
+     "contratacionesPorAviso": 0
+    }
+   ],
+   "2025-Q2": [
+    {
+     "canal": "LinkedIn",
+     "avisos": 1,
+     "candidatos": 3,
+     "contratados": 1,
+     "conversion": 33,
+     "contratacionesPorAviso": 1
+    },
+    {
+     "canal": "Flyer",
+     "avisos": 2,
+     "candidatos": 1,
+     "contratados": 1,
+     "conversion": 100,
+     "contratacionesPorAviso": 0.5
+    }
+   ],
+   "2025-Q1": [
+    {
+     "canal": "LinkedIn",
+     "avisos": 1,
+     "candidatos": 5,
+     "contratados": 0,
+     "conversion": 0,
+     "contratacionesPorAviso": 0
+    },
+    {
+     "canal": "Flyer",
+     "avisos": 4,
+     "candidatos": 1,
+     "contratados": 0,
+     "conversion": 0,
+     "contratacionesPorAviso": 0
+    }
+   ]
+  }
+ }
+}
