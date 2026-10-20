@@ -4,7 +4,7 @@
 
 ## Qué hace
 
-Concede el rol `write` a **una** aplicación Entra (la app LOCAL) sobre **una** carpeta concreta (`Hub` de CONTROL; nunca el sitio completo ni `CCHH HUB`), con el endpoint oficial de Graph v1.0:
+Concede el rol `write` a **una** aplicación Entra (la app LOCAL) sobre **una** carpeta concreta (nunca el sitio completo), con el endpoint oficial de Graph v1.0. Hay dos perfiles cerrados en código: `control-local` (app LOCAL → carpeta `Hub` de CONTROL: check, dry-run, apply, rollback) y `production-do` (app de DigitalOcean → `CCHH HUB` de Comunicaciones: **sólo check y dry-run**; apply/rollback/`--request-write-scope` rechazados antes de autenticar, hasta un GO independiente). Ver `tools/SHAREPOINT_CCHH_RUNBOOK.md`.
 
 ```
 POST /drives/{drive-id}/items/{item-id}/permissions
@@ -26,7 +26,7 @@ Códigos de salida: `0` ok · `1` error de Graph/red · `2` validación, allowli
 
 ## Compuertas de `--apply` (en este orden; cualquier falla = sin POST)
 
-1. **Allowlist estricta**: tenant, app destinataria, site, drive e item deben coincidir exactamente con la fila `control-local`. La app de producción `eeca6df8-…` está reservada y se rechaza. Cualquier otro destino (p. ej. `CCHH HUB`) se rechaza sin tocar la red.
+1. **Allowlist estricta**: tenant, app destinataria, site, drive e item deben coincidir exactamente con la fila `control-local`. Una combinación mixta entre perfiles (p. ej. la app de producción sobre CONTROL, o la app LOCAL sobre `CCHH HUB`) o cualquier otro destino se rechaza sin tocar la red. El perfil `production-do` no habilita `--apply` (compuerta de perfil previa a todo lo demás).
 2. **Banderas explícitas del owner** (antes de autenticar): `--confirm-apply "CONCEDER GRANT WRITE"`, `--acknowledge-undetermined`, `--acknowledge-inheritance-break`, `--admin-client-id`, `--expect-user`.
 3. **TTY interactivo**: sin consola interactiva se detiene (un agente o un pipe no pueden aplicar).
 4. **Token**: tenant correcto, app administrativa = `--admin-client-id` (nunca una app del Hub), audiencia Graph, delegado, no vencido y scope de escritura de sitios (`Sites.ReadWrite.All`). Los errores OAuth conservan el código `AADSTS`, los `error_codes` y una pista (`consent_not_granted`, `consent_rejected_by_user`, `scope_not_requestable_by_this_client`).

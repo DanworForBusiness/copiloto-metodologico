@@ -9,6 +9,7 @@ import ast
 import base64
 import io
 import json
+import socket
 import sys
 import time
 from pathlib import Path
@@ -25,6 +26,21 @@ SECRET = "SECRET-ACCESS-TOKEN-VALUE"
 OTHER_GUID = "11111111-2222-3333-4444-555555555555"
 YES = lambda text: sg.CONFIRM_PHRASE  # noqa: E731
 YES_ROLLBACK = lambda text: sg.ROLLBACK_PHRASE  # noqa: E731
+
+
+class RealNetworkAttempt(BaseException):
+    """BaseException a propósito: ningún `except Exception` de la herramienta puede tragarse un intento de red real durante los tests."""
+
+
+@pytest.fixture(autouse=True)
+def _no_real_network(monkeypatch):
+    """Red de seguridad de TODO este módulo: cualquier operación real (transporte por defecto, urlopen o sockets) falla el test. Los tests sólo usan transportes simulados."""
+    def boom(*a, **k):
+        raise RealNetworkAttempt("un test intentó una operación de red real")
+    monkeypatch.setattr(sg, "_http_transport", boom)
+    monkeypatch.setattr(sg.urllib.request, "urlopen", boom)
+    monkeypatch.setattr(socket.socket, "connect", boom)
+    monkeypatch.setattr(socket, "create_connection", boom)
 
 
 def _b64(obj) -> str:
@@ -169,15 +185,15 @@ def test_a_productive_destination_is_rejected_by_the_allowlist_in_every_mode(tmp
         assert code == 2 and report["stage"] == "config_rejected" and graph.requests == [] and _audit_files(tmp_path) == []
 
 
-def test_the_production_app_is_reserved_and_never_an_executable_target(tmp_path):
+def test_the_production_app_is_never_combinable_with_the_control_destination(tmp_path):
     with pytest.raises(sg.ToolError) as e:
-        sg.resolve_grant(sg.TENANT_ID, PROD, SITE, DRIVE, ITEM)
-    assert e.value.stage == "config_rejected" and "RESERVADA" in e.value.message
+        sg.resolve_grant(sg.TENANT_ID, PROD, SITE, DRIVE, ITEM)  # app de producción + carpeta de CONTROL
+    assert e.value.stage == "config_rejected" and e.value.detail["fields"] == ["combination"]
     for argv in (_argv(**{"--client-id": PROD}), _apply_argv(tmp_path, **{"--client-id": PROD})):
         graph = FakeGraph()
         code, report, _ = _go(argv, graph, prompt=YES)
         assert code == 2 and report["stage"] == "config_rejected" and graph.requests == []
-    assert all(row["client_id"] != PROD for row in sg.ALLOWED_GRANTS)
+    assert [row["name"] for row in sg.ALLOWED_GRANTS if row["client_id"] == PROD] == ["production-do"]
 
 
 @pytest.mark.parametrize("field,value", [("--tenant-id", "not-a-guid"), ("--site-id", "xyz"), ("--drive-id", "no-bang"), ("--item-id", "has space")])
@@ -842,3 +858,161 @@ def test_secrets_never_reach_the_report_nor_the_streams_in_any_mode(tmp_path):
     assert SECRET not in text
     _, report, text = _apply(FakeGraph(post=_err(403, "accessDenied")), tmp_path)
     assert SECRET not in text and all(SECRET not in p.read_text(encoding="utf-8") for p in (tmp_path / "audit").iterdir())
+
+
+# ── perfil production-do: aislamiento y sólo lectura ─────────────────────────────────────────────────────────
+DO_COLL, DO_WEB = "65c64790-f933-46b9-823f-8e4ad57e69b1", "b9b7da7d-8f67-46a9-be27-5f176394718a"
+DO_SITE = f"danwor.sharepoint.com,{DO_COLL},{DO_WEB}"
+DO_DRIVE = "b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE"
+DO_ITEM = "01ULA425ONX3YLUO3XTNDI46FMF43PFL4X"
+
+
+def _do_argv(mode="--dry-run", **over):
+    return _argv(mode, **{"--client-id": PROD, "--site-id": DO_SITE, "--drive-id": DO_DRIVE, "--item-id": DO_ITEM, **over})
+
+
+def _do_meta(**over):
+    body = {"id": DO_ITEM, "name": "CCHH HUB", "folder": {"childCount": 9}, "parentReference": {"driveId": DO_DRIVE},
+            "sharepointIds": {"siteId": DO_COLL, "webId": DO_WEB, "listId": "LISTDO", "listItemId": "11"}}
+    body.update(over)
+    return body
+
+
+def test_the_control_profile_is_exactly_the_one_that_was_already_approved():
+    control = sg.ALLOWED_GRANTS[0]
+    assert {k: control[k] for k in ("name", "tenant_id", "client_id", "site_id", "drive_id", "item_id", "folder_name")} == {
+        "name": "control-local", "tenant_id": "f287b953-5428-4a5e-ae17-bd9c4cfaedbe", "client_id": "ad98b5cd-71d0-451f-8d70-e8581a4788fa", "site_id": SITE, "drive_id": DRIVE, "item_id": ITEM, "folder_name": "Hub"}
+    assert control["modes"] == ("check", "dry-run", "apply", "rollback")
+
+
+def test_the_production_profile_has_the_approved_identifiers_and_is_read_only():
+    rows = {r["name"]: r for r in sg.ALLOWED_GRANTS}
+    assert list(rows) == ["control-local", "production-do"]  # sólo estos dos destinos; sin parámetros genéricos
+    do = rows["production-do"]
+    assert (do["client_id"], do["site_id"], do["drive_id"], do["item_id"], do["folder_name"]) == (PROD, DO_SITE, DO_DRIVE, DO_ITEM, "CCHH HUB")
+    assert do["modes"] == ("check", "dry-run") and "apply" not in do["modes"] and "rollback" not in do["modes"]
+    control = rows["control-local"]
+    for key in ("client_id", "site_id", "drive_id", "item_id"):
+        assert control[key] != do[key]  # ningún identificador compartido entre perfiles
+    assert sg.resolve_grant(sg.TENANT_ID, PROD, DO_SITE.upper(), DO_DRIVE, DO_ITEM)["name"] == "production-do"
+
+
+@pytest.mark.parametrize("site,ok", [(SITE, True), (DO_SITE, True), (DO_SITE.upper(), True), ("danwor.sharepoint.com," + DO_COLL, False), ("danwor.sharepoint.com,x,y", False), ("," + DO_COLL + "," + DO_WEB, False), ("not a site", False)])
+def test_the_site_id_accepts_a_collection_guid_or_the_composite_graph_id_only(site, ok):
+    if ok:
+        assert sg._norm("site", site) == site.lower()
+    else:
+        with pytest.raises(sg.ToolError) as e:
+            sg._norm("site", site)
+        assert e.value.stage == "config_invalid"
+
+
+@pytest.mark.parametrize("ids", [
+    {"client": LOCAL, "site": DO_SITE, "drive": DO_DRIVE, "item": DO_ITEM},      # app LOCAL sobre el destino productivo
+    {"client": PROD, "site": SITE, "drive": DRIVE, "item": ITEM},                # app productiva sobre CONTROL
+    {"client": PROD, "site": DO_SITE, "drive": DRIVE, "item": ITEM},             # sitio productivo + drive/item de CONTROL
+    {"client": PROD, "site": SITE, "drive": DO_DRIVE, "item": DO_ITEM},          # sitio de CONTROL + drive/item productivos
+    {"client": PROD, "site": DO_SITE, "drive": DO_DRIVE, "item": ITEM},          # item de CONTROL en el drive productivo
+    {"client": LOCAL, "site": SITE, "drive": DO_DRIVE, "item": ITEM},
+])
+def test_mixed_profile_combinations_are_rejected_in_every_mode_without_network(tmp_path, ids):
+    for mode in ("--check", "--dry-run", "--apply", "--rollback"):
+        graph = FakeGraph()
+        argv = _with(_argv(mode, **{"--client-id": ids["client"], "--site-id": ids["site"], "--drive-id": ids["drive"], "--item-id": ids["item"]}),
+                     {"--audit-dir": str(tmp_path / "audit"), "--admin-client-id": ADMIN_APP, "--expect-user": USER, "--acknowledge-undetermined": True, "--acknowledge-inheritance-break": True,
+                      "--confirm-apply": sg.CONFIRM_PHRASE, "--permission-id": "perm-1", "--audit-file": "x.json", "--confirm-rollback": sg.ROLLBACK_PHRASE})
+        code, report, _ = _go(argv, graph, prompt=lambda t: pytest.fail("sin prompt"))
+        assert code == 2 and report["stage"] == "config_rejected" and graph.requests == [] and _audit_files(tmp_path) == []
+
+
+@pytest.mark.parametrize("mode", ["--check", "--dry-run"])
+def test_production_check_and_dry_run_read_only_the_production_destination_and_never_touch_control(mode, tmp_path, monkeypatch):
+    monkeypatch.setattr(sg, "_write_audit", lambda *a, **k: pytest.fail("lectura: no debe haber auditoría"))
+    graph = FakeGraph(meta=(200, {}, _do_meta()))
+    argv = _with(_do_argv(mode), {"--audit-dir": str(tmp_path / "audit"), "--acknowledge-undetermined": True, "--acknowledge-inheritance-break": True, "--confirm-apply": sg.CONFIRM_PHRASE})
+    code, report, text = _go(argv, graph)
+    assert code == 0 and report["ok"] is True and set(graph.methods) == {"GET"} and not (tmp_path / "audit").exists()
+    assert report["allowlist"] == "production-do" and report["profile"] == {"name": "production-do", "enabled_modes": ["check", "dry-run"], "folder_name": "CCHH HUB"}
+    assert report["target"]["name"] == "CCHH HUB" and report["preview"]["url"] == f"https://graph.microsoft.com/v1.0/drives/{DO_DRIVE}/items/{DO_ITEM}/permissions"
+    assert report["preview"]["body"] == {"grantedToV2": {"application": {"id": PROD}}, "roles": ["write"]}
+    urls = [r["url"] for r in graph.requests]
+    assert not any(DRIVE in u or ITEM in u or SITE in u for u in urls) and any(DO_DRIVE in u for u in urls)
+    assert any(u.startswith(f"https://graph.microsoft.com/v1.0/sites/danwor.sharepoint.com,{DO_COLL},{DO_WEB}/lists/LISTDO/items/11/permissions") for u in urls)  # id compuesto, sin resolver otro web
+    assert "apply_disabled_for_profile" in report["blockers"] and report["would_apply"] is False  # aun con todos los reconocimientos y un token con escritura
+    notes = " ".join(report["notes"])
+    assert "Comunicaciones" in notes and "CONTROL" in notes and "herencia" in notes and "no garantiza restaurarla" in notes
+    if mode == "--dry-run":
+        assert any("deshabilitado" in p for p in report["pending_at_apply"])
+    assert SECRET not in text
+
+
+@pytest.mark.parametrize("mode", ["--apply", "--rollback"])
+def test_production_apply_and_rollback_are_disabled_before_authenticating_confirming_or_calling_graph(mode, tmp_path):
+    graph = FakeGraph(meta=(200, {}, _do_meta()))
+    argv = _with(_do_argv(mode), {"--audit-dir": str(tmp_path / "audit"), "--admin-client-id": ADMIN_APP, "--expect-user": USER, "--acknowledge-undetermined": True, "--acknowledge-inheritance-break": True,
+                                  "--confirm-apply": sg.CONFIRM_PHRASE, "--permission-id": "perm-1", "--audit-file": "x.json", "--confirm-rollback": sg.ROLLBACK_PHRASE})
+    code, report, text = _go(argv, graph, prompt=lambda t: pytest.fail("no debe preguntarse nada"))
+    assert code == 3 and report["stage"] == "mode_disabled_for_profile" and report["enabled_modes"] == ["check", "dry-run"]
+    assert graph.requests == [] and _audit_files(tmp_path) == [] and "token" not in report and SECRET not in text
+
+
+def test_production_does_not_even_ask_for_a_write_scope():
+    graph = FakeGraph(meta=(200, {}, _do_meta()))
+    code, report, _ = _go(_with(_do_argv("--dry-run"), {"--request-write-scope": True}), graph)
+    assert code == 3 and report["stage"] == "write_scope_disabled_for_profile" and graph.requests == []
+    login = _Login()
+    code, report, _ = _go_device(_do_argv("--check", **{"--admin-client-id": ADMIN_APP}), login, FakeGraph(meta=(200, {}, _do_meta())))
+    assert code == 0 and "Sites.ReadWrite.All" not in login.requests[0][2] and "Sites.Read.All" in login.requests[0][2]
+
+
+@pytest.mark.parametrize("meta,fields", [
+    (_meta(), ["item_id", "drive_id", "site_id", "web_id", "name"]),                                   # lo que hay en CONTROL no pasa por producción
+    (_do_meta(name="Hub"), ["name"]),
+    (_do_meta(sharepointIds={"siteId": DO_COLL, "listId": "L", "listItemId": "1"}), ["web_id"]),   # sin webId = fail closed
+    (_do_meta(sharepointIds={"siteId": DO_COLL, "webId": SITE, "listId": "L", "listItemId": "1"}), ["web_id"]),
+    (_do_meta(sharepointIds={"siteId": SITE, "webId": DO_WEB}), ["site_id"]),
+    (_do_meta(parentReference={"driveId": DRIVE}), ["drive_id"]),
+    (_do_meta(id=ITEM), ["item_id"]),
+])
+def test_the_production_destination_is_verified_by_ids_and_nothing_from_control_is_accepted(meta, fields):
+    graph = FakeGraph(meta=(200, {}, meta))
+    code, report, _ = _go(_do_argv("--dry-run"), graph)
+    assert code == 2 and report["stage"] == "target_mismatch" and sorted(report["fields"]) == sorted(fields) and graph.methods == ["GET"] and "preview" not in report
+
+
+def test_production_authorization_is_never_inferred_from_what_the_user_can_do_on_control():
+    graph = FakeGraph(meta=_err(403, "accessDenied"))  # el usuario puede todo en CONTROL, pero Comunicaciones lo rechaza
+    code, report, _ = _go(_do_argv("--check"), graph)
+    assert code == 1 and report["stage"] == "target_unreadable" and report["graph"]["status"] == 403
+    assert len(graph.requests) == 1 and DO_DRIVE in graph.requests[0]["url"]  # sin reintento ni consulta alternativa a CONTROL
+    graph = FakeGraph(meta=(200, {}, _do_meta()), drive_perms=_err(403, "accessDenied"))
+    code, report, _ = _go(_do_argv("--check"), graph)
+    assert code == 0 and report["duplicate_state"]["state"] == "UNDETERMINED" and "evidence_incomplete" in report["blockers"]  # 403 de enumeración ≠ ausencia ≠ autorización
+
+
+def test_a_control_audit_record_cannot_be_used_against_the_production_profile(tmp_path):
+    _, audit_file = _applied(tmp_path)
+    do_grant = sg.resolve_grant(sg.TENANT_ID, PROD, DO_SITE, DO_DRIVE, DO_ITEM)
+    with pytest.raises(sg.ToolError) as e:
+        sg._load_audit(str(audit_file), do_grant)
+    assert e.value.stage == "rollback_audit_mismatch"
+    with pytest.raises(sg.ToolError):
+        sg.build_rollback_request(do_grant, "../x")  # y la forma del request sigue validándose
+
+
+def test_the_control_profile_still_runs_all_modes_unchanged(tmp_path):
+    code, report, _ = _go(_argv("--dry-run"), FakeGraph())
+    assert code == 0 and report["profile"]["enabled_modes"] == ["check", "dry-run", "apply", "rollback"] and "apply_disabled_for_profile" not in report["blockers"]
+    code, _, _ = _apply(FakeGraph(), tmp_path)
+    assert code == 0
+
+
+def test_the_network_guard_really_blocks_real_operations():
+    with pytest.raises(RealNetworkAttempt):
+        sg.Graph("t").get("https://graph.microsoft.com/v1.0/x")
+    with pytest.raises(RealNetworkAttempt):
+        sg.Graph("t").post_permission({"url": "https://graph.microsoft.com/v1.0/x", "body": {}})
+    with pytest.raises(RealNetworkAttempt):
+        sg.Graph("t").delete_permission({"url": "https://graph.microsoft.com/v1.0/x"})
+    with pytest.raises(RealNetworkAttempt):
+        socket.create_connection(("graph.microsoft.com", 443))

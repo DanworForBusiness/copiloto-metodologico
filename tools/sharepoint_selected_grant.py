@@ -6,6 +6,12 @@ Operación de fondo (Graph v1.0, doc oficial `driveitem-post-permissions`):
     POST /drives/{drive-id}/items/{item-id}/permissions
     {"grantedToV2": {"application": {"id": "<client id>"}}, "roles": ["write"]}
 
+Perfiles (filas de la allowlist, cerradas en código; no hay parámetros genéricos para otros destinos):
+  control-local  app LOCAL → carpeta `Hub` de CONTROL: check, dry-run, apply y rollback.
+  production-do  app de DigitalOcean → carpeta `CCHH HUB` (sitio Comunicaciones): SÓLO check y dry-run. `--apply`/`--rollback` productivos quedan deshabilitados en código hasta un GO independiente;
+                 tampoco se admite `--request-write-scope` (no se pide un scope de escritura sobre producción).
+Los perfiles son independientes: ningún identificador se comparte ni se infiere de otro, y los permisos personales del usuario sobre CONTROL NO equivalen a permisos sobre Comunicaciones.
+
 Modos (exactamente uno):
   --check     SOLO LECTURA: valida allowlist + token, lee la metadata del destino (debe ser CARPETA) y enumera lo que Graph deja ver. Nunca emite POST/DELETE ni escribe archivos.
   --dry-run   Lo de --check + identidad + preview EXACTO del request y veredicto de las compuertas (`would_apply`). Nunca emite POST/DELETE ni escribe archivos.
@@ -58,12 +64,22 @@ EXIT_OUTCOME_UNKNOWN = 4
 # ── allowlist ───────────────────────────────────────────────────────────────────────────────────────────────
 TENANT_ID = "f287b953-5428-4a5e-ae17-bd9c4cfaedbe"
 LOCAL_APP_ID = "ad98b5cd-71d0-451f-8d70-e8581a4788fa"
-PRODUCTION_APP_ID = "eeca6df8-2436-422f-a1b8-05ff9e8ff653"  # RESERVADA: NO es destino ejecutable
+PRODUCTION_APP_ID = "eeca6df8-2436-422f-a1b8-05ff9e8ff653"  # app de DigitalOcean: sólo existe en el perfil `production-do`, con modos de SÓLO LECTURA
 HUB_APP_IDS = frozenset({LOCAL_APP_ID, PRODUCTION_APP_ID})
-# Agregar una fila (p. ej. la carpeta `CCHH HUB` del sitio Comunicaciones + la app de producción) requiere un cambio de código y un GO explícito del owner.
-ALLOWED_GRANTS: tuple[dict[str, str], ...] = (
+ALL_MODES = ("check", "dry-run", "apply", "rollback")
+READ_ONLY_MODES = ("check", "dry-run")
+# Agregar o ampliar un perfil (p. ej. habilitar apply/rollback en producción) requiere un cambio de código revisado y un GO explícito e independiente del owner.
+ALLOWED_GRANTS: tuple[dict[str, Any], ...] = (
     {"name": "control-local", "tenant_id": TENANT_ID, "client_id": LOCAL_APP_ID, "site_id": "a129a1d0-a4ee-4438-8de8-9e39e7007764",
-     "drive_id": "b!0KEpoe6kOESN6J455wB3ZLYmlHEbGsZPlL4_LU8lfDroKl3b1Ti0RYJfK4nkJLM3", "item_id": "01U7IMSJOGXNT3ZNP5NVAKDFLQWY3L6OMQ", "folder_name": "Hub"},
+     "drive_id": "b!0KEpoe6kOESN6J455wB3ZLYmlHEbGsZPlL4_LU8lfDroKl3b1Ti0RYJfK4nkJLM3", "item_id": "01U7IMSJOGXNT3ZNP5NVAKDFLQWY3L6OMQ", "folder_name": "Hub",
+     "modes": ALL_MODES, "notes": ()},
+    {"name": "production-do", "tenant_id": TENANT_ID, "client_id": PRODUCTION_APP_ID,
+     "site_id": "danwor.sharepoint.com,65c64790-f933-46b9-823f-8e4ad57e69b1,b9b7da7d-8f67-46a9-be27-5f176394718a",
+     "drive_id": "b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE", "item_id": "01ULA425ONX3YLUO3XTNDI46FMF43PFL4X", "folder_name": "CCHH HUB",
+     "modes": READ_ONLY_MODES,
+     "notes": ("perfil PRODUCCIÓN (sitio Comunicaciones, carpeta CCHH HUB): sólo --check y --dry-run; --apply y --rollback están deshabilitados hasta un GO independiente",
+               "los permisos personales del usuario sobre CONTROL no equivalen a permisos sobre Comunicaciones: la autorización efectiva se verifica sólo con las lecturas contra este destino",
+               "aplicar un grant sobre CCHH HUB rompería la herencia de la carpeta productiva (CVs): los cambios futuros de permisos de la biblioteca dejarían de propagarse a ella y borrar el grant no garantiza restaurarla")},
 )
 GRANT_ROLE = "write"
 EQUIVALENT_ROLES = frozenset({"write", "owner", "fullcontrol"})
@@ -75,6 +91,7 @@ WRITE_SCOPES = frozenset({"Sites.ReadWrite.All", "Sites.Manage.All", "Sites.Full
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _DRIVE = re.compile(r"^b![A-Za-z0-9_-]+$")
 _ITEM = re.compile(r"^[A-Za-z0-9!_-]+$")
+_SITE_COMPOSITE = re.compile(r"^[A-Za-z0-9.-]+,[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12},[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _PERM_ID = re.compile(r"^[A-Za-z0-9_=.-]{1,200}$")
 _AADSTS = re.compile(r"AADSTS\d{4,7}")
 _MAX_PAGES = 10
@@ -95,18 +112,29 @@ class ToolError(Exception):
 # ── allowlist ───────────────────────────────────────────────────────────────────────────────────────────────
 def _norm(kind: str, value: str) -> str:
     value = (value or "").strip()
+    if kind == "site":  # GUID del site collection (CONTROL) o id compuesto `host,siteCollectionId,webId` (Graph)
+        if not (_GUID.match(value) or _SITE_COMPOSITE.match(value)):
+            raise ToolError("config_invalid", "formato inválido para site")
+        return value.lower()
     pattern = {"guid": _GUID, "drive": _DRIVE, "item": _ITEM}[kind]
     if not pattern.match(value):
         raise ToolError("config_invalid", f"formato inválido para {kind}")
     return value.lower() if kind == "guid" else value
 
 
-def resolve_grant(tenant_id: str, client_id: str, site_id: str, drive_id: str, item_id: str) -> dict[str, str]:
-    """Devuelve la fila de la allowlist que coincide EXACTAMENTE con los 5 identificadores, o falla. Sin red."""
-    wanted = {"tenant_id": _norm("guid", tenant_id), "client_id": _norm("guid", client_id), "site_id": _norm("guid", site_id),
+def _site_collection_id(site_id: str) -> str:
+    """GUID del site collection (lo que Graph devuelve en `sharepointIds.siteId`), tanto desde un GUID como desde el id compuesto."""
+    return site_id.split(",")[1].lower() if "," in site_id else site_id.lower()
+
+
+def _site_web_id(site_id: str) -> "str | None":
+    return site_id.split(",")[2].lower() if "," in site_id else None
+
+
+def resolve_grant(tenant_id: str, client_id: str, site_id: str, drive_id: str, item_id: str) -> dict[str, Any]:
+    """Devuelve la fila de la allowlist que coincide EXACTAMENTE con los 5 identificadores (una combinación mixta entre perfiles no coincide con ninguna fila), o falla. Sin red."""
+    wanted = {"tenant_id": _norm("guid", tenant_id), "client_id": _norm("guid", client_id), "site_id": _norm("site", site_id),
               "drive_id": _norm("drive", drive_id), "item_id": _norm("item", item_id)}
-    if wanted["client_id"] == PRODUCTION_APP_ID.lower():
-        raise ToolError("config_rejected", "la aplicación de producción está RESERVADA y no es destino ejecutable")
     for row in ALLOWED_GRANTS:
         if all(row[k].lower() == wanted[k].lower() if k not in ("drive_id", "item_id") else row[k] == wanted[k] for k in wanted):
             return dict(row)
@@ -115,7 +143,7 @@ def resolve_grant(tenant_id: str, client_id: str, site_id: str, drive_id: str, i
 
 
 def _q(segment: str) -> str:
-    return urllib.parse.quote(segment, safe="!")
+    return urllib.parse.quote(segment, safe="!,")
 
 
 def _item_permissions_url(grant: dict[str, str]) -> str:
@@ -330,8 +358,10 @@ def check_target(graph: Graph, grant: dict[str, str]) -> dict[str, Any]:
         problems.append("item_id")
     if (body.get("parentReference") or {}).get("driveId") != grant["drive_id"]:
         problems.append("drive_id")
-    if str(ids.get("siteId", "")).lower() != grant["site_id"].lower():
+    if str(ids.get("siteId", "")).lower() != _site_collection_id(grant["site_id"]):
         problems.append("site_id")
+    if _site_web_id(grant["site_id"]) and str(ids.get("webId", "")).lower() != _site_web_id(grant["site_id"]):
+        problems.append("web_id")
     if body.get("name") != grant["folder_name"]:  # defensa en profundidad: la identidad es por IDs; el nombre sólo se suma, nunca la reemplaza
         problems.append("name")
     if problems:
@@ -391,7 +421,7 @@ def _enumerate(graph: Graph, source: str, url: "str | None", client_id: str) -> 
 
 
 def enumerate_grants(graph: Graph, grant: dict[str, str], meta: dict[str, Any]) -> list[dict[str, Any]]:
-    ids = (meta.get("site_id"), meta.get("list_id"), meta.get("list_item_id"))
+    ids = (grant["site_id"] if "," in grant["site_id"] else meta.get("site_id"), meta.get("list_id"), meta.get("list_item_id"))  # id compuesto del perfil si lo hay (no resolver otro web)
     item_url = f"{GRAPH_ROOT}/sites/{_q(str(ids[0]))}/lists/{_q(str(ids[1]))}/items/{_q(str(ids[2]))}/permissions" if all(ids) else None
     return [_enumerate(graph, "driveItem.permissions", _item_permissions_url(grant), grant["client_id"]), _enumerate(graph, "listItem.permissions", item_url, grant["client_id"])]
 
@@ -473,7 +503,7 @@ def _write_audit(directory: str, grant_name: str, kind: str, payload: dict[str, 
     return path
 
 
-def _grant_ids(grant: dict[str, str]) -> dict[str, str]:
+def _grant_ids(grant: dict[str, Any]) -> dict[str, str]:
     return {k: grant[k] for k in ("name", "tenant_id", "client_id", "site_id", "drive_id", "item_id", "folder_name")}
 
 
@@ -676,6 +706,12 @@ def run(args: argparse.Namespace, *, env: dict, transport=None, device_transport
     try:
         grant = resolve_grant(args.tenant_id, args.client_id, args.site_id, args.drive_id, args.item_id)
         report["allowlist"] = grant["name"]
+        report["profile"] = {"name": grant["name"], "enabled_modes": list(grant["modes"]), "folder_name": grant["folder_name"]}
+        if mode not in grant["modes"]:  # compuerta de perfil: ANTES de autenticar, de pedir confirmaciones o de llamar a Graph
+            raise ToolError("mode_disabled_for_profile", f"el perfil {grant['name']} no habilita --{mode} (sólo: {', '.join('--' + m for m in grant['modes'])}); habilitarlo requiere un cambio de código y un GO independiente",
+                            exit_code=3, enabled_modes=list(grant["modes"]))
+        if args.request_write_scope and "apply" not in grant["modes"]:
+            raise ToolError("write_scope_disabled_for_profile", f"el perfil {grant['name']} es de sólo lectura: no se pide un scope de escritura", exit_code=3)
         if mode == "rollback":
             return _run_rollback(args, report, grant, env, kw, prompt, now), report
         if mode == "apply":
@@ -690,10 +726,14 @@ def run(args: argparse.Namespace, *, env: dict, transport=None, device_transport
         user = verify_identity(graph, args.expect_user, required=(mode == "apply"))
         preview = build_grant_request(grant)
         blockers = gate(state, info, evidence, acks)
+        if "apply" not in grant["modes"]:
+            blockers.append("apply_disabled_for_profile")
         report.update({"target": meta, "user": user, "evidence": evidence, "duplicate_state": state, "preview": preview, "blockers": blockers, "would_apply": not blockers,
-                       "notes": ["Sites.ReadWrite.All es condición necesaria según esta herramienta, pero NO está probado suficiente para administrar grants Selected: la prueba real es la respuesta del POST"]})
+                       "notes": ["Sites.ReadWrite.All es condición necesaria según esta herramienta, pero NO está probado suficiente para administrar grants Selected: la prueba real es la respuesta del POST", *grant["notes"]]})
         if mode in ("check", "dry-run"):
-            if mode == "dry-run":
+            if mode == "dry-run" and "apply" not in grant["modes"]:
+                report["pending_at_apply"] = ["apply deshabilitado para este perfil: requiere un cambio de código y un GO independiente"]
+            elif mode == "dry-run":
                 report["pending_at_apply"] = ["--confirm-apply", "--admin-client-id", "--expect-user", "confirmación interactiva (TTY)", "relectura de permisos inmediatamente antes del POST"]
             report["ok"] = True
             return 0, report
