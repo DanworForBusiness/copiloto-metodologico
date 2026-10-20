@@ -779,7 +779,8 @@ def test_rule_evaluation_is_a_table_not_bullets(world):
     html = _post(client_for()).text
     assert html.count("<th>Regla</th><th>Resultado</th>") >= 6                                          # una por área
     sec = html[html.index('id="asr-m-architecture_modeling"'):html.index('id="asr-observaciones"')]
-    assert not re.search(r"<li>[^<]*(ausencia|patrón|evaluad)[^<]*</li>", sec.split("Hallazgos en esta área")[0])
+    assert "Hallazgos en esta área" not in sec                                                          # la lista redundante se integró a la tabla (ver test_assessment_contextual_navigation)
+    assert not re.search(r"<li>[^<]*(ausencia|patrón|evaluad)[^<]*</li>", sec)
 
 
 def test_question_links_use_the_hub_content_link(world):

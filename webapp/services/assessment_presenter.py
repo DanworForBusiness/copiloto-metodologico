@@ -573,7 +573,7 @@ def _focus_link(entry: Any, pack: str, names: list[str]) -> str | None:
     return flow_url(entry, pack, names) if names else None
 
 
-def _group_view(g: dict, entry: Any, pack: str) -> dict:
+def _group_view(g: dict, entry: Any, pack: str, origins: dict[str, dict] | None = None) -> dict:
     occurrences = []
     for o in g["occurrences"]:
         try:
@@ -589,7 +589,7 @@ def _group_view(g: dict, entry: Any, pack: str) -> dict:
                           f"({P.reason_text(state['reason'])}); pueden existir más ocurrencias fuera de la evidencia que pudo evaluarse.")
     return {
         "dom_id": f"asr-g-{g['id']}", "id": g["id"], "title": g["title"], "kind": g["kind"], "kind_text": P.finding_kind_text(g["kind"]),
-        "area_title": P.area_title(g["area"]), "explanation": g["explanation"], "why_shown": g["why_shown"],
+        "area_title": P.area_title(g["area"]), "origin": (origins or {}).get(g["id"]), "explanation": g["explanation"], "why_shown": g["why_shown"],
         "question": (g.get("context_required") or {}).get("question") if g["kind"] != "DESCRIPTIVE" else None,
         "legitimate_reasons": g.get("legitimate_reasons") or [], "interpretation_limits": g.get("interpretation_limits") or [],
         "occurrence_count": g["occurrence_count"], "occurrence_unit": g["occurrence_unit"],
@@ -866,15 +866,37 @@ def _area_extras(a: dict, doc: dict) -> dict | None:
     return None
 
 
-def _rule_view(r: dict) -> dict:
+def _rule_view(r: dict, area_groups: dict[str, dict] | None = None) -> dict:
+    """Fila de control. El enlace al detalle sale de la identidad canónica (``rule`` == ``id`` del grupo de hallazgos del área), nunca del
+    título; si el grupo no está entre los que el informe renderiza, la fila NO ofrece enlace."""
+    g = (area_groups or {}).get(r.get("rule"))
+    finding = ({"dom_id": f"asr-g-{g['id']}", "count": g["occurrence_count"], "kind_text": P.finding_kind_text(g["kind"])}
+               if g is not None else None)
     return {"rule": r.get("rule"), "title": r["title"], "result": r["result"], "result_text": P.rule_result_text(r["result"]),
-            "reason": P.reason_text(r["reason"]) if r["reason"] else None, "population": r.get("population")}
+            "reason": P.reason_text(r["reason"]) if r["reason"] else None, "population": r.get("population"),
+            "finding": finding, "dom_id": f"asr-r-{r['rule']}" if r.get("rule") else None}
+
+
+def _group_origins(areas: list[dict]) -> dict[str, dict]:
+    """Origen de navegación de cada grupo de hallazgos: la fila de control (``asr-r-…``) o el ítem residual (``asr-f-…``) del área que lo
+    enlaza, para el enlace «Volver a …» del detalle. Solo se emite si el origen existe en el informe."""
+    origins: dict[str, dict] = {}
+    for a in areas:
+        label = f"Volver a «{a['title']}»"
+        for r in a["rules"]:
+            if r["finding"]:
+                origins[r["rule"]] = {"dom_id": r["dom_id"], "label": label}
+        for f in a["findings_residual"]:
+            origins[f["dom_id"][len("asr-g-"):]] = {"dom_id": "asr-f-" + f["dom_id"][len("asr-g-"):], "label": label}
+    return origins
 
 
 def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, list[dict]], doc: dict | None = None) -> dict:
     rs = a["required_surfaces"]
     rules = rules_by_area.get(a["id"], [])
     split = AQ.split_rules(doc, a["id"], rules) if doc is not None else None
+    area_groups = {gid: groups_by_id[gid] for gid in a["finding_groups"] if gid in groups_by_id}
+    rule_ids = {r.get("rule") for r in rules}
     return {
         "id": a["id"], "dom_id": f"asr-a-{a['id']}", "title": P.area_title(a["id"]), "macro": P.macro_dimension_title(a["macro_dimension"]),
         "state": a["assessability"], "state_text": P.assessability_text(a["assessability"]),
@@ -884,10 +906,14 @@ def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, 
         "facts": _facts_view(a["id"], a["highlights"], _area_extras(a, doc) if doc is not None else None), "macro_id": a["macro_dimension"],
         "findings": [{"title": groups_by_id[gid]["title"], "dom_id": f"asr-g-{gid}", "count": groups_by_id[gid]["occurrence_count"],
                       "kind_text": P.finding_kind_text(groups_by_id[gid]["kind"])} for gid in a["finding_groups"]],
-        "rules": [_rule_view(r) for r in rules],
+        # Hallazgos del área SIN regla que los produzca (p. ej. señales descriptivas): sección residual compacta; con la tabla integrada
+        # los demás ya están representados en su fila de control, así que no se repiten en una lista aparte.
+        "findings_residual": [{"title": g["title"], "dom_id": f"asr-g-{gid}", "count": g["occurrence_count"], "kind_text": P.finding_kind_text(g["kind"])}
+                              for gid, g in area_groups.items() if gid not in rule_ids],
+        "rules": [_rule_view(r, area_groups) for r in rules],
         "rules_split": split is not None,
-        "rules_open": [_rule_view(r) for r in split[0]] if split else [],
-        "rules_clean": [_rule_view(r) for r in split[1]] if split else [],
+        "rules_open": [_rule_view(r, area_groups) for r in split[0]] if split else [],
+        "rules_clean": [_rule_view(r, area_groups) for r in split[1]] if split else [],
         "limitations_not_observable": bool(a["limitations_not_observable"]),
     }
 
@@ -949,6 +975,8 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     rules_by_area: dict[str, list[dict]] = {}
     for r in doc["rule_results"]:
         rules_by_area.setdefault(r["area"], []).append(r)
+    areas = [_area_view(a, groups_by_id, rules_by_area, doc) for a in doc["areas"]]
+    origins = _group_origins(areas)
     lim = conf["main_limitation"]
     _rev_head, _rev_detail = P.review_required_text(sum(g["occurrence_count"] for g in doc["review_required"]), len(doc["review_required"]))
     view.update({
@@ -978,16 +1006,16 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
             "observation_occurrences": sum(g["occurrence_count"] for g in doc["observations"]),
             "review_occurrences": sum(g["occurrence_count"] for g in doc["review_required"]),
         },
-        "areas": [_area_view(a, groups_by_id, rules_by_area, doc) for a in doc["areas"]],
+        "areas": areas,
         "kpis": [
             _kpi("coverage_strict", "Cobertura estricta", P.percent_text(cov["strict"])),
             _kpi("confidence", "Confianza", P.confidence_level_text(conf["level"])),
             _kpi("review_required", "Casos a revisar", sum(g["occurrence_count"] for g in doc["review_required"])),
             _kpi("context_open", "Preguntas abiertas", ctx["open_questions"]),
         ],
-        "observations": [_group_view(g, link_entry, pack) for g in doc["observations"]],
-        "review_required": [_group_view(g, link_entry, pack) for g in doc["review_required"]],
-        "descriptive": [_group_view(g, link_entry, pack) for g in doc["descriptive_signals"]],
+        "observations": [_group_view(g, link_entry, pack, origins) for g in doc["observations"]],
+        "review_required": [_group_view(g, link_entry, pack, origins) for g in doc["review_required"]],
+        "descriptive": [_group_view(g, link_entry, pack, origins) for g in doc["descriptive_signals"]],
         "limitations": [{"title": s["title"], "surface_id": s["surface_id"], "area": P.area_title(s["area"]),
                          "state": P.assessability_text(s["assessability"]), "reason": P.reason_text(s["reason"]) if s["reason"] else "",
                          "reason_code": s["reason"]["reason_code"] if s["reason"] else "",

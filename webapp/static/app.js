@@ -650,10 +650,53 @@ document.addEventListener("click", async event => {
 // saltan a su sección con scrollIntoView. El salto nativo por #hash es poco fiable
 // dentro de un fragmento swapeado con contenedor de scroll ambiguo. behavior:"auto"
 // (instantáneo, sin animación) para EMULAR el índice de módulos y ser consistente.
+//
+// Informe de Assessment (`[data-asr-report]`): sus enlaces internos usan el #hash NATIVO (cada salto es una entrada del historial: Atrás/Adelante
+// vuelven al origen; sin pushState propio) y `DwAssessmentNav` hace lo que el navegador no puede: abrir los <details> ancestros del destino,
+// desplazar, resaltar y mover el foco. Un destino que no existe en el informe no hace nada (nunca se emite un enlace huérfano).
+const DwAssessmentNav = {
+  target(doc, hash) {
+    let id = String(hash || "").replace(/^#/, "");
+    if (!id) return null;
+    try { id = decodeURIComponent(id); } catch (e) { /* hash mal formado: se usa tal cual */ }
+    const el = doc.getElementById(id);
+    return el && el.closest("[data-asr-report]") ? el : null;
+  },
+  reveal(el) {
+    for (let n = el; n; n = n.parentElement) if (n.tagName === "DETAILS" && !n.open) n.open = true;
+  },
+  go(doc, hash) {
+    const el = this.target(doc, hash);
+    if (!el) return false;
+    this.reveal(el);
+    doc.querySelectorAll(".is-nav-target").forEach(n => n.classList.remove("is-nav-target"));
+    void el.offsetWidth;                                  // reinicia la animación de resaltado si se vuelve al mismo destino
+    el.classList.add("is-nav-target");
+    el.scrollIntoView({ behavior: "auto", block: "start" });
+    const focusable = el.tagName === "DETAILS" ? el.querySelector(":scope > summary") || el : el;
+    if (!focusable.matches("a, button, summary, input, select, textarea, [tabindex]")) focusable.setAttribute("tabindex", "-1");
+    focusable.focus({ preventScroll: true });
+    return true;
+  },
+};
+window.DwAssessmentNav = DwAssessmentNav;
+window.addEventListener("hashchange", () => { DwAssessmentNav.go(document, window.location.hash); });
+// Deep link (#asr-g-…): al cargarse el informe (página propia o fragmento HTMX) se resuelve el hash que ya traía la URL.
+document.body.addEventListener("htmx:load", event => {
+  const root = event.target;
+  if (!window.location.hash || !root || !root.querySelector) return;
+  if (root.matches("[data-asr-report]") || root.querySelector("[data-asr-report]")) DwAssessmentNav.go(document, window.location.hash);
+});
 document.addEventListener("click", event => {
+  const a = event.target.closest('a[href^="#"]');
+  if (a && a.closest("[data-asr-report]")) {
+    // Navegación nativa (nueva entrada de historial → hashchange). Solo si el hash NO cambia (mismo destino otra vez) no habría hashchange: se resuelve acá.
+    if (event.button === 0 && !(event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) && a.getAttribute("href") === window.location.hash
+        && DwAssessmentNav.go(document, a.getAttribute("href"))) event.preventDefault();
+    return;
+  }
   const content = document.getElementById("content");
   if (!content || !content.classList.contains("catalog-detail-open")) return;
-  const a = event.target.closest('a[href^="#"]');
   if (!a || !content.contains(a)) return;
   const el = document.getElementById(a.getAttribute("href").slice(1));
   if (!el) return;

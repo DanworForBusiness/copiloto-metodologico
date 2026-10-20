@@ -30,6 +30,7 @@
 <details class="dashboard-section" id="{{ g.dom_id }}">
   <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ g.title }}</span><span class="dashboard-section__count">{{ g.area_title }} · {{ n_occ(g.occurrence_count) }} · {{ g.artifacts|length }} artefacto{{ "s" if g.artifacts|length != 1 }}</span></summary>
   <div class="dashboard-section__body">
+    {% if g.origin %}<p><a href="#{{ g.origin.dom_id }}" data-asr-return><code>{{ g.origin.label }}</code></a></p>{% endif %}
     <p>{{ g.why_shown }}</p>
     <table>
       <thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead>
@@ -56,8 +57,16 @@
   </div>
 </details>
 {% endmacro %}
+{# Controles del área en UNA tabla integrada: resultado + cantidad de hallazgos + acceso al detalle. El enlace sale de la identidad canónica regla↔grupo
+   (presenter); sin grupo renderizado no hay enlace. El detalle del grupo (en [06]) trae su enlace de regreso a esta fila. #}
+{% macro rules_table(rules) %}
+  <table>
+    <thead><tr><th>Regla</th><th>Resultado</th><th>Hallazgos</th></tr></thead>
+    <tbody>{% for r in rules %}<tr id="{{ r.dom_id }}"><td>{{ r.title }}</td><td>{{ r.result_text }}{% if r.reason %} ({{ r.reason }}){% endif %}</td><td>{% if r.finding %}{{ n_occ(r.finding.count) }} ({{ r.finding.kind_text }}) · <a href="#{{ r.finding.dom_id }}"><code>Ver detalle</code></a>{% else %}—{% endif %}</td></tr>{% endfor %}</tbody>
+  </table>
+{% endmacro %}
 {# Cuerpo de un área, en orden de lectura: contexto de evidencia → titulares (≤4 tiles KPI) → evidencia de apoyo (tablas compactas)
-   → evaluación de reglas (tabla) → hallazgos. `lvl`: nivel de los rótulos (h3 en sección propia, h4 dentro de un disclosure). #}
+   → evaluación de reglas (tabla integrada con hallazgos y acceso al detalle) → otros hallazgos sin regla. `lvl`: nivel de los rótulos (h3 en sección propia, h4 dentro de un disclosure). #}
 {% macro area_body(a, lvl) %}
   <p>Superficies de evidencia requeridas: {{ a.surfaces }}.{% if a.reason %} {{ a.reason }}.{% endif %}</p>
   {% if a.facts.headline %}
@@ -79,10 +88,7 @@
   {% if a.rules_split %}{# Fuente / Ingesta: la tabla muestra solo reglas con hallazgos o con ausencia NO establecida; los controles sin hallazgos quedan accesibles, plegados, con su población evaluada #}
   {% if a.rules_open %}
   <h{{ lvl }}>Evaluación de reglas</h{{ lvl }}>
-  <table>
-    <thead><tr><th>Regla</th><th>Resultado</th></tr></thead>
-    <tbody>{% for r in a.rules_open %}<tr><td>{{ r.title }}</td><td>{{ r.result_text }}{% if r.reason %} ({{ r.reason }}){% endif %}</td></tr>{% endfor %}</tbody>
-  </table>
+  {{ rules_table(a.rules_open) }}
   {% endif %}
   {% if a.rules_clean %}
   <details class="dashboard-section">
@@ -90,21 +96,18 @@
     <div class="dashboard-section__body">
       <table>
         <thead><tr><th>Regla</th><th>Resultado</th><th>Población evaluada</th></tr></thead>
-        <tbody>{% for r in a.rules_clean %}<tr><td>{{ r.title }}</td><td>{{ r.result_text }}{% if r.reason %} ({{ r.reason }}){% endif %}</td><td>{{ r.population }}</td></tr>{% endfor %}</tbody>
+        <tbody>{% for r in a.rules_clean %}<tr id="{{ r.dom_id }}"><td>{{ r.title }}</td><td>{{ r.result_text }}{% if r.reason %} ({{ r.reason }}){% endif %}</td><td>{{ r.population }}</td></tr>{% endfor %}</tbody>
       </table>
     </div>
   </details>
   {% endif %}
   {% elif a.rules %}
   <h{{ lvl }}>Evaluación de reglas</h{{ lvl }}>
-  <table>
-    <thead><tr><th>Regla</th><th>Resultado</th></tr></thead>
-    <tbody>{% for r in a.rules %}<tr><td>{{ r.title }}</td><td>{{ r.result_text }}{% if r.reason %} ({{ r.reason }}){% endif %}</td></tr>{% endfor %}</tbody>
-  </table>
+  {{ rules_table(a.rules) }}
   {% endif %}
-  {% if a.findings %}
-  <h{{ lvl }}>Hallazgos en esta área</h{{ lvl }}>
-  <ul>{% for f in a.findings %}<li><a href="#{{ f.dom_id }}"><code>{{ f.title }}</code></a> — {{ n_occ(f.count) }} ({{ f.kind_text }})</li>{% endfor %}</ul>
+  {% if a.findings_residual %}{# hallazgos del área que ninguna regla de la tabla produce (p. ej. señales descriptivas): lista compacta y navegable #}
+  <h{{ lvl }}>Otros hallazgos del área</h{{ lvl }}>
+  <ul>{% for f in a.findings_residual %}<li id="asr-f-{{ f.dom_id[6:] }}"><a href="#{{ f.dom_id }}"><code>{{ f.title }}</code></a> — {{ n_occ(f.count) }} ({{ f.kind_text }})</li>{% endfor %}</ul>
   {% endif %}
   {% if a.limitations_not_observable %}<p>Parte de la evidencia de esta área no es observable en la exportación estándar de Modelado; no reduce la cobertura, pero limita lo que puede concluirse.</p>{% endif %}
 {% endmacro %}
@@ -174,7 +177,7 @@
   </div>
 </details>
 
-<article class="methodology catalog-detail">
+<article class="methodology catalog-detail" data-asr-report>
 {# Recorrido del informe (misma gramática Hub en todas las secciones: `heading()` [NN] + h2 + subtítulo → tiles → tablas / disclosures →
    cierre → divisor `.content-section`): [01] Resumen · [02] Adopción metodológica · [03] Arquitectura & Modelado · [04] Gobierno & estándares ·
    [05] Portabilidad & preparación BDC · [06] Casos a revisar y preguntas abiertas · [07] Cierre. Tres lecturas INDEPENDIENTES (no se consumen
