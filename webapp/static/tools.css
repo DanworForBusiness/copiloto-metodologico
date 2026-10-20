@@ -2844,7 +2844,7 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    (nunca en `.chart-tooltip` genérico, que sigue sirviendo texto más largo
    en otros consumidores como el KPI info) -- ancho al contenido real de
    una etiqueta de acción, nunca forzado a 200px. */
-.table-action-btn .chart-tooltip { min-width: 0; width: max-content; max-width: 180px; }
+.table-action-btn .chart-tooltip { min-width: 0; width: max-content; max-width: 240px; }   /* 240: «Ver evidencia del hallazgo» cabe en una línea (con 180 partía en dos) */
 /* El botón de acción es SIEMPRE la última columna (Comercial y CCHH
    coinciden en esto) -- centrado (`left:50%; transform:translateX(-50%)`,
    .chart-tooltip base) hace que la MITAD del tooltip se proyecte a la

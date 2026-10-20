@@ -210,15 +210,15 @@
    entre secciones/módulos. Acotado a esos contenedores a propósito: NO debe
    alcanzar a otros <a> del área de contenido que no son texto escrito, como
    los botones .support-link (con su propio --soft) o cualquier otro chip/CTA
-   que a futuro viva dentro de .methodology. reference-text-link/sap-note-link
+   que a futuro viva dentro de .methodology (`.table-action-btn`, ícono de acción de fila, tiene su propio color neutro y foco). reference-text-link/sap-note-link
    quedan afuera porque son subtiles a propósito y solo pasan a gold en hover. */
-.methodology :is(p, li, blockquote, td, th) a:not(.reference-text-link):not(.sap-note-link) {
+.methodology :is(p, li, blockquote, td, th) a:not(.reference-text-link):not(.sap-note-link):not(.table-action-btn) {
   color: var(--gold);
   text-decoration: none;
   transition: text-decoration-color .16s ease;
 }
-.methodology :is(p, li, blockquote, td, th) a:not(.reference-text-link):not(.sap-note-link):hover,
-.methodology :is(p, li, blockquote, td, th) a:not(.reference-text-link):not(.sap-note-link):focus-visible {
+.methodology :is(p, li, blockquote, td, th) a:not(.reference-text-link):not(.sap-note-link):not(.table-action-btn):hover,
+.methodology :is(p, li, blockquote, td, th) a:not(.reference-text-link):not(.sap-note-link):not(.table-action-btn):focus-visible {
   text-decoration: underline;
   text-decoration-color: currentColor;
   text-underline-offset: 3px;

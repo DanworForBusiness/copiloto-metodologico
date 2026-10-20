@@ -75,6 +75,11 @@ class _Dom(HTMLParser):
             self.links.append({"href": a["href"], "ret": "data-asr-return" in a, "class": a.get("class"), "style": a.get("style")})
 
 
+def html_escape(text: str) -> str:
+    import html as _h
+    return _h.escape(text, quote=True)
+
+
 def _dom(html: str) -> _Dom:
     d = _Dom()
     d.feed(html)
@@ -141,13 +146,22 @@ def test_catalog_report_has_one_integrated_table_per_area_and_no_redundant_findi
             assert row, r["rule"]
             if r["finding"]:
                 n = r["finding"]["count"]
-                assert f'{n} ocurrencia{"s" if n != 1 else ""} ({r["finding"]["kind_text"]}) · <a href="#{r["finding"]["dom_id"]}"><code>Ver detalle</code></a>' in row.group(1)
+                cell = row.group(1)
+                assert f'{n} ocurrencia{"s" if n != 1 else ""} ({r["finding"]["kind_text"]})' in cell
+                # acción ICÓNICA (patrón CCHH): <a href> semántico + primitivos compartidos + nombre accesible específico + tooltip contextual + SVG decorativo
+                act = re.search(r'<a href="#asr-g-[^"]+" class="table-action-btn chart-tooltip-anchor" aria-label="([^"]+)">(.*?)</a>', cell, re.S)
+                assert act and f'href="#{r["finding"]["dom_id"]}"' in cell, r["rule"]
+                assert act.group(1) == html_escape(f'Ver evidencia del hallazgo «{r["title"]}»')                  # el nombre accesible NO depende del tooltip y es único por fila
+                assert '<svg viewBox="0 0 24 24" aria-hidden="true">' in act.group(2)
+                assert '<span class="chart-tooltip" aria-hidden="true"><p>Ver evidencia del hallazgo</p></span>' in act.group(2)
+                assert "Ver detalle" not in cell                                                                       # la etiqueta de texto genérica ya no se muestra
             else:
-                assert "Ver detalle" not in row.group(1)                                                       # sin destino no hay enlace
+                assert "table-action-btn" not in row.group(1)                                                       # sin destino no hay acción
     for t in re.findall(r"<table>\s*<thead><tr><th>Regla</th><th>Resultado</th><th>Hallazgos</th></tr>", html):
         assert t                                                                                               # tabla integrada de 3 columnas
-    detail_links = len(re.findall(r"<code>Ver detalle</code>", html))
-    assert detail_links == sum(1 for a in v["areas"] for r in a["rules"] if r["finding"])                       # cardinalidad: un «Ver detalle» por regla con hallazgo
+    actions = len(re.findall(r'class="table-action-btn chart-tooltip-anchor"', html))
+    assert actions == sum(1 for a in v["areas"] for r in a["rules"] if r["finding"])                            # cardinalidad: una acción por regla con hallazgo
+    assert "<code>Ver detalle</code>" not in html and ">Ver detalle<" not in html
 
 
 def test_every_group_is_reachable_from_its_area_and_nothing_is_orphaned(world):
@@ -158,7 +172,9 @@ def test_every_group_is_reachable_from_its_area_and_nothing_is_orphaned(world):
     inbound = {l["href"][len("#asr-g-"):] for l in d.links if l["href"].startswith("#asr-g-") and not l["ret"]}
     assert from_area <= gids and gids <= inbound                                                                # todo hallazgo del informe se alcanza desde su área
     assert [l["href"] for l in d.links if l["href"][1:] not in d.ids] == []                                     # ni un solo enlace huérfano
-    assert all(l["class"] is None and l["style"] is None for l in d.links)                                      # mismo enlace de contenido del Hub: sin clase ni estilo propios
+    content = [l for l in d.links if l["class"] != "table-action-btn chart-tooltip-anchor"]
+    assert content and all(l["class"] is None and l["style"] is None for l in content)                          # enlaces de CONTENIDO (nombre/objeto): sin clase ni estilo propios
+    assert all(l["style"] is None for l in d.links)
 
 
 def test_each_finding_detail_links_back_to_its_origin_and_the_origin_links_forward(world):
@@ -207,6 +223,37 @@ def test_exports_are_unchanged_by_the_presentation(world):
     assert "data-asr" not in md and "asr-r-" not in md and "asr-f-" not in md
     js = c.get("/catalog/flow/assessment.json?flow=acme-4am").text
     assert "asr-r-" not in js and "data-asr" not in js
+
+
+def test_every_finding_target_sits_only_inside_native_details_containers(world):
+    """Los destinos `asr-g-*` solo pueden estar dentro de contenedores colapsables que `DwAssessmentNav.reveal` sabe abrir (<details>): ni `hidden`, ni
+    Alpine `x-show`, ni ARIA `aria-expanded` sobre un ancestro. Si algún día aparece otro tipo de colapsable en el camino, este test lo señala."""
+    html, status, v = _report(world)
+
+    class Chain(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.stack, self.bad, self.targets = [], [], 0
+
+        def handle_starttag(self, tag, attrs):
+            a = dict(attrs)
+            if tag in ("br", "img", "input", "meta", "link", "hr", "path", "circle"):
+                return
+            self.stack.append((tag, a))
+            if (a.get("id") or "").startswith("asr-g-"):
+                self.targets += 1
+                for t, aa in self.stack[:-1]:
+                    if t != "details" and ("hidden" in aa or "x-show" in aa or "aria-expanded" in aa or "data-collapsed" in aa):
+                        self.bad.append((a["id"], t, sorted(aa)))
+
+        def handle_endtag(self, tag):
+            while self.stack:
+                if self.stack.pop()[0] == tag:
+                    break
+
+    c = Chain()
+    c.feed(html)
+    assert c.targets and c.bad == []
 
 
 # ── cliente: arnés de Node (sin jsdom; mismo patrón que catalog_nav_states) ────────────────────────────────────────────────────────────────────

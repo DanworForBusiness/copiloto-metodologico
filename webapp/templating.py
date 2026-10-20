@@ -24,6 +24,7 @@ lógica de negocio.
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
@@ -37,18 +38,30 @@ templates = Jinja2Templates(directory=WEB_DIR / "templates")
 
 
 class _StaticVersion:
-    """Cache-busting de estáticos: se recalcula en cada render (mtime actual de
-    /static). Así, tras editar un .css/.js, un simple refresh trae la versión
-    nueva sin reiniciar el server (antes se fijaba al importar el módulo → los
-    cambios locales quedaban cacheados con la URL vieja)."""
+    """Cache-busting de estáticos: huella del CONTENIDO de /static (no de su mtime).
+
+    Antes era el máx. mtime: en producción el build normaliza los mtimes (``last-modified: 1980-01-01``), así que ``?v=`` no cambiaba entre
+    deploys y los navegadores seguían con ``app.js``/``tools.css`` viejos (frescura heurística). La huella cambia si y solo si cambia algún
+    archivo de primer nivel. Se recalcula en cada render, pero cada archivo se vuelve a leer solo si cambió su (mtime, tamaño): un refresh
+    local tras editar un .css/.js sigue trayendo la versión nueva sin reiniciar el server, y el costo por render es un ``stat`` por archivo."""
+
+    def __init__(self) -> None:
+        self._digests: dict[str, tuple[tuple[int, int], str]] = {}
 
     def __str__(self) -> str:
         try:
-            return str(max(
-                path.stat().st_mtime_ns
-                for path in (WEB_DIR / "static").iterdir() if path.is_file()
-            ))
-        except ValueError:
+            overall = hashlib.sha1()
+            for path in sorted(p for p in (WEB_DIR / "static").iterdir() if p.is_file()):
+                st = path.stat()
+                key = (st.st_mtime_ns, st.st_size)
+                cached = self._digests.get(path.name)
+                if cached is None or cached[0] != key:
+                    cached = (key, hashlib.sha1(path.read_bytes()).hexdigest())
+                    self._digests[path.name] = cached
+                overall.update(path.name.encode("utf-8"))
+                overall.update(cached[1].encode("ascii"))
+            return overall.hexdigest()[:12]
+        except OSError:
             return "0"
 
 
