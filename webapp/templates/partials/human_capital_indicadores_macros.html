@@ -1,55 +1,69 @@
 {# human_capital_indicadores_macros.html — piezas de presentación de 06 Indicadores. SOLO formatean lo que devuelve el motor (`human_capital_indicators`): ningún cálculo de negocio.
-   Primitivos del Hub reutilizados tal cual: `.activity-kpi-grid`/`.activity-kpi`, `.activity-bar-row`/`.activity-bar` (ranking), `.dashboard-section`, `table.dashboard-table` dentro de `.matrix-scroll`,
-   `.dashboard-empty`, `.field-hint`, `.hc-profile-filters`/`.feedback-field`. Extensiones mínimas y genéricas en tools.css: `.activity-kpi__note`, `.activity-bar--segmented` (+ `.activity-seg*`) y
-   `.matrix-scroll--contained`. #}
+   Primitivos del Hub reutilizados tal cual (ver cada macro): tile KPI con (i) (`kpi_tile` de assessment_report_macros: `.activity-kpi` + `.activity-kpi__info` + `.chart-tooltip`, el MISMO tile que Avisos), ranking
+   `.bar-row`/`.bar-track`/`.bar-fill`/`.bar-value`, leyenda única `.category-plot-legend` + `.swatch-bar` (CRM; promovidos a tools.css), tooltip por fila `.chart-tooltip-anchor` + `.chart-tooltip` (patrón de
+   `category-plot__col` del CRM), `.dashboard-subhead` (+ `__hint`), `.whatsnew-filters`/`.whatsnew-filter`, `.dashboard-empty`, `.field-hint`. Única extensión de primitivo: `.bar-track--segmented` + `.bar-seg`
+   (composición de partes de un total; tools.css). #}
 
 {# Estado vacío con el texto original de cada tarjeta. #}
 {% macro empty(text, label="Sin datos") %}<div class="dashboard-empty" data-empty-kind="no_data"><span class="dashboard-empty__label">{{ label }}</span><p>{{ text }}</p></div>{% endmacro %}
 
-{# Advertencia contextual (fechas estimadas/derivadas): el llamador decide cuándo mostrarla (solo con registros afectados). #}
+{# Advertencia contextual de fechas estimadas/derivadas: el llamador decide cuándo mostrarla (solo con registros afectados). #}
 {% macro date_note(text) %}<p class="field-hint field-hint--warn" data-date-note>{{ text }}</p>{% endmacro %}
 
-{# KPI: valor + rótulo + NOTA VISIBLE (el original la muestra debajo del número, no en un tooltip). `limits` = advertencias de fecha ya decididas por el llamador. #}
-{% macro kpi(value, label, note, limits=[]) %}<div class="activity-kpi"><span class="activity-kpi__value">{{ value }}</span><span class="activity-kpi__label">{{ label }}</span><p class="activity-kpi__note">{{ note }}</p>{% for l in limits %}<p class="activity-kpi__note activity-kpi__note--warn" data-date-note>{{ l }}</p>{% endfor %}</div>{% endmacro %}
+{# (i) del encabezado de una card, JUNTO al título: la advertencia de fechas estimadas/derivadas vive en su tooltip (no impresa en el cuerpo). Mismo (i) del Hub (botón `.activity-kpi__info` + `.chart-tooltip` hermano, envueltos en
+   `.chart-tooltip-anchor`). Solo se renderiza con `help` (solo hay advertencia si hay registros afectados). `id` permite reemplazarlo por OOB cuando el cuerpo de la card se recarga con su filtro (C6). #}
+{% macro help_info(label, help, id=none, oob=false) %}{% if help or id %}<span{% if id %} id="{{ id }}"{% endif %}{% if oob %} hx-swap-oob="true"{% endif %}{% if help %} class="chart-tooltip-anchor"{% endif %}>
+  {%- if help %}<button type="button" class="activity-kpi__info" aria-label="Información sobre {{ label }}: {{ help|join(' ') }}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg></button><span class="chart-tooltip">{% for l in help %}<p>{{ l }}</p>{% endfor %}</span>{% endif -%}
+</span>{% endif %}{% endmacro %}
 
-{# Ranking de barras horizontales (`.activity-bar-row`); el ancho viene calculado por el motor (`ancho_pct`). #}
-{% macro bar_rows(rows, label_key, value_key, suffix="") %}<div class="activity-bar-list activity-bar-list--fixed">{% for row in rows %}
-  <div class="activity-bar-row">
-    <span class="activity-bar-label" title="{{ row[label_key] }}">{{ row[label_key] }}</span>
-    <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.ancho_pct }}%"></span></div>
-    <span class="activity-bar-count">{{ row[value_key] }}{{ suffix }}</span>
-  </div>{% endfor %}
+{# Encabezado de card: caret + título (+ (i) con las advertencias de fechas) + contador `.dashboard-section__count` a la derecha. #}
+{% macro section_head(title, count=none, help=[], help_id=none) %}<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ title }}</span>{{ help_info(title, help, help_id) }}{% if count %}<span class="dashboard-section__count">{{ count }}</span>{% endif %}</summary>{% endmacro %}
+
+{# «N unidad(es)» del contador del encabezado de una tarjeta (`.dashboard-section__count`). #}
+{% macro count_label(n, one, many) %}{{ n }} {{ one if n == 1 else many }}{% endmacro %}
+
+{# Subtítulo de tarjeta: `.dashboard-subhead` + `__hint`. `help` (lista de líneas, opcional) agrega el (i) del Hub (botón `.activity-kpi__info` + `.chart-tooltip` hermano, envueltos en `.chart-tooltip-anchor`): la copy
+   larga vive ahí, no impresa. #}
+{% macro subhead(title, hint=none, help=[]) %}<p class="dashboard-subhead">{{ title }}{% if hint %} <span class="dashboard-subhead__hint">· {{ hint }}</span>{% endif %}
+  {%- if help %} <span class="chart-tooltip-anchor"><button type="button" class="activity-kpi__info" aria-label="Información sobre {{ title }}: {{ help|join(' ') }}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg></button><span class="chart-tooltip">{% for l in help %}<p>{{ l }}</p>{% endfor %}</span></span>{% endif %}</p>{% endmacro %}
+
+{# Ranking de barras: `.bar-row` canónico (etiqueta con elipsis y `title`, apilado en angosto); el ancho de la barra viene calculado por el motor (`ancho_pct`). #}
+{% macro rank_rows(rows, label_key, value_key, suffix="") %}{% for row in rows %}
+  <div class="bar-row">
+    <span class="bar-label" title="{{ row[label_key] }}">{{ row[label_key] }}</span>
+    <div class="bar-track"><span class="bar-fill" style="width:{{ row.ancho_pct }}%"></span></div>
+    <span class="bar-value">{{ row[value_key] }}{{ suffix }}</span>
+  </div>{% endfor %}{% endmacro %}
+
+{# LEYENDA ÚNICA del gráfico (CRM `.category-plot-legend`): explica colores y series UNA sola vez, antes de las barras. Las series toman su tono por posición (`data-seg` 0..5, cíclico); `tail` es el complemento neutro. #}
+{% macro legend(series, tail=none) %}<div class="category-plot-legend" data-chart-legend>
+  {%- for s in series %}<b><i class="swatch-bar" data-seg="{{ loop.index0 % 6 }}"></i>{{ s }}</b>{% endfor -%}
+  {%- if tail %}<b><i class="swatch-bar" data-seg="muted"></i>{{ tail }}</b>{% endif %}
 </div>{% endmacro %}
 
-{# Fila de barra SEGMENTADA de cardinalidad dinámica. `segs`: [{clave, valor, ancho_pct, sin_especificar?, muted?}]. El tono de cada segmento sale de su posición (`data-seg` 0..5, cíclico); «Sin especificar»
-   y los segmentos `muted` usan el neutro. «Sin especificar» solo se lista en la leyenda cuando es > 0 (como el original); con `hide_zero` la leyenda omite TODA serie en 0 (útil cuando la cardinalidad es
-   dinámica y alta: la barra sigue siendo proporcional y el tono de cada serie no cambia). El mismo `data-seg` pinta la barra y su clave. #}
+{# Fila de barra SEGMENTADA (extensión `.bar-track--segmented` del `.bar-track` canónico: composición de partes de un total). Fila = mes + barra + valor compacto (`caller()`); SIN leyenda ni nombres de serie propios. El
+   desglose por serie vive en el tooltip compartido y en el `aria-label` (un solo punto de foco/hover por fila, como `category-plot__col`). `segs`: [{clave, valor, ancho_pct, sin_especificar?, muted?}]; con `hide_zero` el
+   desglose omite las series en 0. #}
 {% macro seg_row(label, segs, total=none, hide_zero=false) %}
-<div class="activity-segrow">
-  <div class="activity-segrow__head">
-    <span class="activity-segrow__label">{{ label }}</span>
-    <span class="activity-segrow__legend">
-      {%- for s in segs if not ((s.sin_especificar or hide_zero) and s.valor == 0) %}
-      <span class="activity-seg-key" data-seg="{{ 'muted' if (s.sin_especificar or s.muted) else (loop.index0 % 6) }}">{{ s.clave }}: {{ s.valor }}</span>
-      {%- endfor %}
-      {%- if total is not none %}<strong class="activity-segrow__total">· Total: {{ total }}</strong>{% endif %}
-    </span>
+<div class="bar-row chart-tooltip-anchor" tabindex="0" data-seg-row aria-label="{{ label }}: {% for s in segs if not (hide_zero and s.valor == 0) %}{{ s.clave }} {{ s.valor }}, {% endfor %}{% if total is not none %}total {{ total }}{% endif %}">
+  <span class="bar-label">{{ label }}</span>
+  <div class="bar-track bar-track--segmented">
+    {%- for s in segs %}<span class="bar-seg" data-seg="{{ 'muted' if (s.sin_especificar or s.muted) else (loop.index0 % 6) }}" style="width:{{ s.ancho_pct }}%"></span>{% endfor -%}
   </div>
-  <div class="activity-bar activity-bar--segmented" role="img" aria-label="{{ label }}: {% for s in segs %}{{ s.clave }} {{ s.valor }}{{ ', ' if not loop.last }}{% endfor %}">
-    {%- for s in segs %}<span class="activity-bar__seg" data-seg="{{ 'muted' if (s.sin_especificar or s.muted) else (loop.index0 % 6) }}" style="width:{{ s.ancho_pct }}%"></span>{% endfor -%}
-  </div>
+  <span class="bar-value">{{ caller() }}</span>
+  <span class="chart-tooltip">{% for s in segs if not (hide_zero and s.valor == 0) %}<p>{{ s.clave }}: {{ s.valor }}</p>{% endfor %}{% if total is not none %}<p>Total: {{ total }}</p>{% endif %}</span>
 </div>
 {% endmacro %}
 
-{# Selector de período LOCAL de una tarjeta (C6/C9): independiente de la otra y de los KPI; solo recarga su propia tarjeta (HTMX, sin JS nuevo). #}
+{# Selector de período LOCAL de una tarjeta (C6/C9): `.whatsnew-filters` (el mismo bloque de filtros dentro de una sección que usa el CRM); independiente de la otra y de los KPI; solo recarga su propia tarjeta (HTMX, sin JS nuevo). #}
 {% macro periodo_select(card, current, options) %}
-<form class="hc-profile-filters" hx-get="/cchh/indicadores/tarjetas/{{ card }}" hx-target="#hc-ind-{{ card }}" hx-swap="outerHTML" hx-trigger="change">
-  <div class="feedback-field feedback-field--auto">
-    <label for="hc-ind-{{ card }}-periodo">Período</label>
+<form class="whatsnew-filters" hx-get="/cchh/indicadores/tarjetas/{{ card }}" hx-target="#hc-ind-{{ card }}" hx-swap="outerHTML" hx-trigger="change">
+  <label class="whatsnew-filter">
+    <span>Período</span>
     <select id="hc-ind-{{ card }}-periodo" name="periodo">
       <option value="todos" {% if current == "todos" %}selected{% endif %}>Histórico completo</option>
       {% for opt in options %}<option value="{{ opt }}" {% if current == opt %}selected{% endif %}>{{ opt }}</option>{% endfor %}
     </select>
-  </div>
+  </label>
 </form>
 {% endmacro %}

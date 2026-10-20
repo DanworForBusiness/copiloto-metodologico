@@ -152,7 +152,10 @@ def test_internal_funnel_gaps_match_the_detail_table_rhythm():
     # barra del `<summary>`.
     commercial_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
     assert ".category-plot-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }" in commercial_css
-    assert ".category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px;" in commercial_css
+    # La leyenda se PROMOVIÓ a tools.css (segundo consumidor: CCHH Indicadores): mismas reglas, mismos valores, ahora compartidas.
+    tools_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert ".category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px;" in tools_css
+    assert ".category-plot-legend {" not in commercial_css
     assert '[data-commercial-analysis-filters] { margin: 0 0 12px;' in commercial_css
 
 
@@ -261,4 +264,7 @@ def test_axis_and_swatch_colors_are_theme_aware_not_hardcoded_hex_only():
     # theme-aware, nunca un hex propio que pueda desalinearse del tile.
     commercial_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
     assert ".category-plot__axis--left span { right: 7px; color: var(--commercial-neutral-ink); }" in commercial_css
-    assert ".category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; background: var(--commercial-neutral-ink); }" in commercial_css
+    # Estructura del swatch (tamaño/radio) promovida a tools.css; el COLOR de dominio del CRM (neutral-ink) permanece en commercial.css.
+    tools_css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert ".category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; }" in tools_css
+    assert ".category-plot-legend .swatch-bar { background: var(--commercial-neutral-ink); }" in commercial_css

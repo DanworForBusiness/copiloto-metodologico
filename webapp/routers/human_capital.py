@@ -2279,7 +2279,7 @@ def human_capital_indicadores_card(request: Request, tarjeta: str, periodo: str 
         data = getattr(human_capital_indicators, builder)(_indicadores_facts(), periodo)
     except _INDICADORES_STORAGE_ERRORS as exc:
         source_error = str(exc)
-    return templates.TemplateResponse(request=request, name=f"partials/human_capital_indicadores_{tarjeta}.html", context={"request": request, tarjeta: data, "source_error": source_error})
+    return templates.TemplateResponse(request=request, name=f"partials/human_capital_indicadores_{tarjeta}.html", context={"request": request, tarjeta: data, "source_error": source_error, "hx_oob": True})
 
 
 @router.get("/cchh/catalogos", response_class=HTMLResponse, include_in_schema=False)

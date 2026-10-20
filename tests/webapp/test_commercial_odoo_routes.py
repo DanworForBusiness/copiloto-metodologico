@@ -1030,9 +1030,12 @@ def test_no_commercial_specific_chart_css_or_class_was_invented():
     for rule in (".category-plot {", ".category-plot__area {", ".category-plot__bar {",
                  ".category-plot__bar--count {", ".category-plot__bar--hours {",
                  ".category-plot__bar--weighted {",
-                 ".category-plot__axis {", ".category-plot-legend {"):
+                 ".category-plot__axis {"):
         assert rule in commercial_css, rule
         assert rule not in tools_css, rule
+    # `.category-plot-legend` se PROMOVIÓ a tools.css (segundo consumidor real: CCHH Indicadores); en commercial.css solo queda el color de dominio de sus swatches.
+    assert ".category-plot-legend {" in tools_css and ".category-plot-legend {" not in commercial_css
+    assert ".category-plot-legend .swatch-bar { background: var(--commercial-neutral-ink); }" in commercial_css
     crm_html = (Path(__file__).resolve().parents[2] / "webapp" / "templates" / "commercial" / "crm.html").read_text(encoding="utf-8")
     assert "path='commercial.css'" in crm_html
     base_html = (Path(__file__).resolve().parents[2] / "webapp" / "templates" / "base.html").read_text(encoding="utf-8")
