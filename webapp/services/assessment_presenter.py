@@ -24,6 +24,7 @@ from urllib.parse import quote, urlencode
 from tools.catalog.modeling_assessment import presentation as P
 
 from tools.catalog.methodological_judgment import contract as C
+from tools.catalog.methodological_judgment import explain_determination
 from webapp.services import assessment_service as svc
 
 canonical_signal_id = P.canonical_signal_id        # los consumidores normalizan ids historicos por aca (API publica de presentacion)
@@ -408,14 +409,16 @@ def _plural_es(n: int, one: str, many: str) -> str:
     return one if n == 1 else many
 
 
-def nd_explanation(judgment: dict | None) -> dict | None:
+def nd_explanation(judgment: dict | None, profile: dict | None = None) -> dict | None:
     """T2: ¿POR QUÉ el Juicio no llegó a un nivel? ``None`` si hay nivel (o no hay Juicio). Complementaria: el valor oficial sigue siendo «No determinable».
 
     Devuelve ``{cause, label, text, dimensions: [{dimension, state_text, cause_text}], reason_code, level_rule}``. Causas (cada una con su propio texto):
       · SUFFICIENT_EVIDENCE_NO_STRENGTH — LVL-06 y TODAS las dimensiones sin fortaleza se evaluaron (``NO_STRENGTH``): no hay desvíos ni debilidades relevantes; falta evidencia AFIRMATIVA de fortaleza.
       · INSUFFICIENT_EVIDENCE / PARTIALLY_INSUFFICIENT_EVIDENCE — LVL-06 con dimensiones ``INSUFFICIENT_EVIDENCE`` (todas / solo algunas): falta evidencia para poder afirmar.
       · NO_AFFIRMATIVE_EVIDENCE_UNDETAILED — LVL-06 de un Juicio persistido SIN detalle: no se puede decir si la evidencia alcanzaba; no se afirma nada que el Juicio no registró.
-      · CONTRACT_NOT_EVALUABLE (LVL-01) · EXTERNAL_SOURCE_CLASS_UNDETERMINED (LVL-05) · ASSESSMENT_NOT_JUDGEABLE / CANONICAL_EVIDENCE_V3_REQUIRED (sin Juicio emitido)."""
+      · CONTRACT_NOT_EVALUABLE (LVL-01) · EXTERNAL_SOURCE_CLASS_UNDETERMINED (LVL-05) · ASSESSMENT_NOT_JUDGEABLE / CANONICAL_EVIDENCE_V3_REQUIRED (sin Juicio emitido).
+    ``profile`` (opcional): con el perfil persistido se agrega ``blockers`` (impedimentos concretos por dimension: artefactos, evidencia requerida, tipo de resolucion; proyeccion de
+    ``explain_determination``, sin recalcular el nivel). Sin perfil la salida es exactamente la de siempre."""
     if not judgment or (judgment.get("status") == "DETERMINED" and judgment.get("level") is not None):
         return None
     code = judgment.get("not_determinable_reason") or ""
@@ -467,7 +470,140 @@ def nd_explanation(judgment: dict | None) -> dict | None:
         cause, text = ND_EVIDENCE_V3_REQUIRED, "El Assessment no tiene la evidencia canónica v3 que el Juicio requiere; hay que regenerarlo con la versión vigente para poder juzgarlo."
     else:
         cause, text = ND_UNSPECIFIED, "El Juicio no llegó a un nivel" + (f" (motivo registrado: {code})." if code else ".")
-    return {"cause": cause, "label": _JDG_ND_LABEL[cause], "text": text, "dimensions": dims, "reason_code": code or None, "level_rule": rule}
+    out = {"cause": cause, "label": _JDG_ND_LABEL[cause], "text": text, "dimensions": dims, "reason_code": code or None, "level_rule": rule}
+    if profile is not None:
+        out.update(_nd_blockers_view(explain_determination(judgment, profile)))
+    return out
+
+
+def _plural_n(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
+# Explicabilidad de «No determinable» (``explain_determination``): categorias, tipos de resolucion y estados en lenguaje de negocio. El motor entrega CLAVES estables; el texto vive aqui.
+_ND_CATEGORY = {"EVIDENCE_NOT_ACQUIRED": "Evidencia no adquirida", "EVIDENCE_NOT_INTERPRETABLE": "Evidencia existente pero no interpretable",
+                "SOURCE_CONTRACT_UNDETERMINED": "Contrato de origen sin determinar", "ARCHITECTURAL_RESPONSIBILITY_UNPROVEN": "Responsabilidad arquitectónica sin demostrar",
+                "GOVERNANCE_DECISION_PENDING": "Decisión de gobierno pendiente", "ASSESSMENT_PRECONDITION": "Assessment no apto para juzgar", "UNDETERMINED_CAUSE": "Causa no registrada"}
+_ND_RESOLUTION = {"TECHNICAL_EVIDENCE": "Evidencia técnica", "GOVERNANCE_DECISION": "Decisión de gobierno", "METHODOLOGICAL_REVIEW": "Revisión metodológica", "MODEL_REMEDIATION": "Remediación del modelo"}
+_ND_STATE = {"NOT_EVALUABLE": "No evaluable (falta evidencia)", "UNRESOLVED_NO_POSITIVE_EVIDENCE": "Sin resolver (evidencia suficiente, sin veredicto positivo)"}
+_ND_CONFIDENCE = {"HIGH": "Alta", "MEDIUM": "Media", "LOW": "Baja"}
+_ND_REQUIRED = {
+    "SOURCE_CONTACT_EVIDENCE": "Evidencia del contacto con la fuente", "SOURCE_CONTRACT_CLASS": "Clase explícita (gobernada o cruda) del contrato de la fuente",
+    "SOURCE_CONTRACT_CLASS_DECISION": "Clase del contrato de la fuente, definida por una decisión de gobierno",
+    "GOVERNED_ACQUISITION_OF_EVERY_SOURCE_CONTACT": "Adquisición gobernada de todo contacto con la fuente", "HARMONIZATION_ATTRIBUTE_MAPPING": "Mapeo de atributos de la carga que produce el candidato",
+    "FIELD_LABEL_ORIGIN_OF_THE_CANDIDATE": "Origen de la etiqueta de cada campo del candidato", "REUSABLE_HARMONIZATION_BOUNDARY_OR_JUSTIFIED_NOT_APPLICABLE": "Una frontera de armonización reutilizable o su justificación de «no aplica»",
+    "REUSABLE_HARMONIZATION_BOUNDARY": "Una frontera de armonización técnica reutilizable sobre un contrato gobernado", "PRODUCT_POSITION_NODE": "Un nodo de producto identificable",
+    "PRODUCT_COMPOSES_ONLY_RESOLVED_CONTRACTS": "Evidencia de que el producto compone solo contratos ya resueltos", "PUBLISHED_FIELD_LINEAGE": "Linaje completo de cada campo publicado",
+    "PUBLISHED_CONTRACT_WITHOUT_UNRESOLVED_VOCABULARY": "Contrato publicado sin vocabulario sin resolver", "PUBLISHED_CONTRACT_AFFIRMATIVE_FAMILY": "Evidencia afirmativa propia del contrato publicado",
+    "PUBLISHED_CONTRACT_CONSUMPTION_SUBSTANCE": "Sustancia de consumo del contrato publicado", "AFFIRMATIVE_EVIDENCE_OF_THE_DIMENSION": "Evidencia afirmativa de la dimensión",
+    "AT_LEAST_ONE_AFFIRMATIVE_STRENGTH": "Al menos una fortaleza demostrada", "ASSESSED_AREA_EVIDENCE": "Evidencia evaluada en las áreas del contrato", "ASSESSED_ASSESSMENT": "Un Assessment en estado evaluado",
+    "CANONICAL_EVIDENCE_V3": "Evidencia canónica v3 (regenerar el Assessment)"}
+_ND_HINT = {
+    "HARMONIZATION_CANDIDATE_CHARACTER_NOT_DETERMINABLE": "Verificar el origen de las etiquetas de los campos del candidato —en especial los derivados, que no tienen un campo proveedor con el cual compararlas— y completar esa evidencia.",
+    "HARMONIZATION_MAPPING_NOT_OBSERVABLE": "Adquirir la carga (flujo) que produce cada candidato indicado o su mapeo de atributos, o confirmar que no existe.",
+    "SOURCE_CLASS_RATIFICATION_HAS_NO_EFFECT_OUTSIDE_LVL05": "Una ratificación de gobierno no resuelve este caso hoy: la clase de estas fuentes no es decisión-crítica para este modelo. Se necesita una revisión metodológica de cómo se reconoce su clase.",
+    "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL": "Decidir si el contrato de cada fuente indicada es gobernado (ratificación de gobierno con su justificación) o crudo; la decisión es del owner, no del Assessment.",
+    "PUBLISHED_LINEAGE_INCOMPLETE": "Completar la evidencia de linaje de los campos indicados (re-extracción o consulta que permita rastrearlos hasta la fuente).",
+    "NO_SOURCE_CONTACT_OBSERVED": "Verificar que la extracción incluya las hojas de origen del modelo.",
+    "NO_PRODUCT_NODE_OBSERVED": "Verificar que la extracción incluya el nodo que compone el modelo analítico.",
+    "CONTRACT_NOT_EVALUABLE": "Completar la evidencia de las áreas indicadas y regenerar el Assessment.",
+    "ASSESSMENT_NOT_JUDGEABLE": "Regenerar el Assessment hasta que quede evaluado.", "CANONICAL_EVIDENCE_V3_REQUIRED": "Regenerar el Assessment con la versión vigente de la evidencia."}
+_ND_UNMET = {"measures_business_identity": "medidas con identidad de negocio", "no_source_column_names": "ausencia de nombres técnicos de columna de la fuente",
+             "lineage_complete": "linaje completo de los campos", "no_vocabulary_leak": "ausencia de vocabulario sin resolver", "field_level_affirmative_family": "una familia afirmativa a nivel de campo"}
+_ND_REASON_UNKNOWN = {"NO_ACQUIRED_PRODUCER": "no se adquirió ninguna carga que lo produzca", "NO_ATTRIBUTE_MAPPINGS_EXPORTED": "la carga no exportó el mapeo de atributos",
+                       "MAPPING_NOT_DETERMINABLE": "el mapeo no es determinable", "NO_QUERY_EVIDENCE": "sin evidencia de la consulta", "NO_FIELDS": "sin campos",
+                       "LABELS_NOT_DETERMINABLE": "las etiquetas de sus campos no son atribuibles a un proveedor"}
+_ND_LIMIT = {"UNKNOWN_LABEL_FIELDS_NOT_PERSISTED": "El perfil registra cuántos campos tienen etiqueta indeterminada, no cuáles; identificarlos exige volver a ejecutar el motor sobre el pool.",
+             "HISTORICAL_JUDGMENT_WITHOUT_DIMENSION_STATES": "Juicio anterior a judgment-rules/v4: los estados por dimensión se derivan del detalle persistido; el diagnóstico es menos preciso.",
+             "NO_VERIFIABLE_CAUSE_PERSISTED": "El Juicio no registró un detalle suficiente para identificar el impedimento; no se infiere una causa.",
+             "CAUSE_NOT_RECOGNIZED": "El Juicio registró una causa que esta versión del explicador no reconoce.", "PROFILE_NOT_READABLE": "No se pudo leer el perfil: solo se informa lo que registró el Juicio.",
+             "DETAIL_NOT_RECOVERABLE": "No se pudo recuperar el detalle de un impedimento.", "CONTRACTS_NOT_EVALUABLE_NOT_LISTED": "El Juicio no registró cuáles contratos no pudieron evaluarse."}
+_ND_FOOTNOTE = "Resolver un impedimento no garantiza un nivel concreto: habilita que el Juicio se determine con el resto de la evidencia."
+
+
+def _first(names: list, n: int = 4) -> str:
+    shown = [str(x) for x in names[:n]]
+    return ", ".join(shown) + (f" (+{len(names) - n})" if len(names) > n else "")
+
+
+def _nd_why(b: dict) -> str:
+    """Texto concreto de un impedimento, SOLO desde la causa estable y los hechos del bloqueo (sin inferencias nuevas)."""
+    c, f, arts = b["condition_id"], b.get("facts") or {}, b.get("artifacts") or []
+    if c == "SOURCE_CONTRACT_CLASS_UNDETERMINED":
+        return f"La clase del contrato de {_plural_n(len(arts), 'fuente externa', 'fuentes externas')} no está determinada ({_first(arts)}): no se puede afirmar si son contratos gobernados o crudos."
+    if c == "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL":
+        n = sum(len(x.get("exposed_published_fields") or []) for x in f.get("leaves") or [])
+        return (f"La clase del contrato de {_plural_n(len(arts), 'fuente externa', 'fuentes externas')} ({_first(arts)}) no está determinada y su vocabulario llega al contrato publicado "
+                f"({_plural_n(n, 'campo', 'campos')}): decide cómo se lee el contrato publicado.")
+    if c == "HARMONIZATION_MAPPING_NOT_OBSERVABLE":
+        why = sorted({_ND_REASON_UNKNOWN.get(x.get("reason_unknown") or "", "") for x in f.get("candidates") or [] if x.get("reason_unknown")} - {""})
+        return f"No se puede observar el mapeo de {_plural_n(len(arts), 'candidato', 'candidatos')} de armonización ({_first(arts)})" + (f": {'; '.join(why)}." if why else ".")
+    if c == "HARMONIZATION_CANDIDATE_CHARACTER_NOT_DETERMINABLE":
+        parts = []
+        for x in f.get("candidates") or []:
+            s = f"No se puede determinar el carácter del candidato de armonización {x['artifact']}: {_plural_n(x.get('unknown_label_field_count') or 0, 'campo', 'campos')}"
+            s += f" de {x['field_count']}" if x.get("field_count") else ""
+            s += " con etiqueta de origen no atribuible a un proveedor."
+            s += (f" Alimenta al producto ({_first(x['consumed_by'])})." if x.get("feeds_product") else (f" Lo consume {_first(x['consumed_by'])}." if x.get("consumed_by") else " No tiene consumidores en el cierre."))
+            if x.get("derived_fields"):
+                s += f" Tiene {_plural_n(len(x['derived_fields']), 'campo derivado', 'campos derivados')}: {_first([d['field'] for d in x['derived_fields']])} ({', '.join(sorted(set(x.get('transformation_classes') or [])))})."
+                if x.get("unknown_labels_equal_derived_fields"):
+                    s += " La cantidad de etiquetas indeterminadas coincide con la de campos derivados; el perfil no indica cuál es."
+            parts.append(s)
+        return " ".join(parts) or (_JDG_ND_CAUSE[c][:1].upper() + _JDG_ND_CAUSE[c][1:] + ".")
+    if c == "HARMONIZATION_NOT_A_LEGITIMATE_REUSABLE_BOUNDARY":
+        cs = f.get("candidates") or []
+        kinds = ", ".join(f"{x['artifact']} ({(x.get('character') or 'sin carácter').lower().replace('_', ' ')})" for x in cs[:4])
+        return f"Hay {_plural_n(len(cs), 'candidato', 'candidatos')} de armonización, pero ninguno se reconoce como frontera técnica reutilizable legítima sobre un contrato gobernado: {kinds}" + (f" (+{len(cs) - 4})." if len(cs) > 4 else ".")
+    if c == "NO_HARMONIZATION_BOUNDARY_OBSERVED":
+        v = f.get("views_with_joins_or_unions") or []
+        return "No se observa una capa de armonización y no se puede justificar que no aplique" + (f": {_first(v)} integra{'n' if len(v) > 1 else ''} varias entradas." if v else ".")
+    if c == "PRODUCT_DOES_NOT_COMPOSE_RESOLVED_CONTRACTS":
+        rows = f.get("product_nodes") or []
+        reads = "; ".join(f"{r['node']} lee {', '.join(_first(v) for v in r['providers_by_kind'].values())}" for r in rows[:3])
+        return "El producto no compone solo contratos ya resueltos" + (f" ({reads})." if reads else ".")
+    if c == "PUBLISHED_LINEAGE_INCOMPLETE":
+        return f"El linaje de {_plural_n(f.get('incomplete_field_count') or 0, 'campo publicado', 'campos publicados')} no llega a la fuente ({_first(f.get('incomplete_fields') or [])})."
+    if c in ("PUBLISHED_CONTRACT_SUBSTANCE_NOT_ESTABLISHED", "NO_AFFIRMATIVE_PUBLISHED_FAMILY", "UNRESOLVED_VOCABULARY_REACHES_THE_CONSUMER"):
+        unmet = ", ".join(_ND_UNMET.get(u, u) for u in f.get("unmet_conditions") or [])
+        return "El contrato publicado no acredita" + (f" {unmet}." if unmet else " evidencia afirmativa propia.")
+    if c == "CONTRACT_NOT_EVALUABLE":
+        areas = ", ".join(f"{P.area_title(a)} ({P.assessability_text(s)})" for a, s in sorted((f.get("areas") or {}).items()) if s)
+        return "El área del contrato no está evaluada" + (f": {areas}." if areas else ".")
+    if c == "NO_STRENGTH_ANCHOR":
+        return "Las cuatro dimensiones tienen veredicto, pero ninguna es una fortaleza demostrada: el nivel exige al menos una."
+    if c == "NO_SOURCE_CONTACT_OBSERVED":
+        return "No se observó contacto con una fuente: el cierre no incluye hojas de origen que permitan evaluar la ingesta."
+    if c == "NO_PRODUCT_NODE_OBSERVED":
+        return "No se identificó un nodo de producto entre las fuentes y el modelo analítico."
+    if c == "SOURCE_CONTACT_NOT_ALL_GOVERNED":
+        return "No todo contacto con la fuente es un contrato gobernado y no hay evidencia afirmativa que lo compense."
+    if c == "ASSESSMENT_NOT_JUDGEABLE":
+        return "El Assessment todavía no está en un estado que permita juzgarlo."
+    if c == "CANONICAL_EVIDENCE_V3_REQUIRED":
+        return "El Assessment no tiene la evidencia canónica v3 que el Juicio requiere."
+    return _JDG_ND_CAUSE.get(c) or "El Juicio no registró un detalle suficiente para identificar el impedimento."
+
+
+def _nd_blockers_view(exp: dict | None) -> dict:
+    """Filas de presentacion de ``explain_determination`` (solo vocabulario y orden; ningun hecho se recalcula)."""
+    if not exp:
+        return {}
+    rows = []
+    for i, b in enumerate(exp["blockers"], 1):
+        dim = b.get("dimension")
+        arts = list(b.get("artifacts") or [])
+        why = _nd_why(b)
+        rows.append({
+            "dom_id": f"asr-nd-{i}", "dimension": _DIM_LABEL.get(dim or "", "Juicio global"), "area_id": (C.CONTRACT_AREAS.get(dim or "", (None,))[-1] if dim else None),
+            "state_text": _ND_STATE.get(b["state"], b["state"]), "category_text": _ND_CATEGORY.get(b["category"], b["category"]), "why": why, "short": why.split(". ")[0].rstrip("."),
+            "artifacts": arts[:8], "artifacts_more": max(0, len(arts) - 8), "required": [_ND_REQUIRED.get(k, k) for k in b.get("required_evidence") or []],
+            "resolution_text": _ND_RESOLUTION.get(b["resolution_type"], b["resolution_type"]), "hint": _ND_HINT.get(b.get("resolution_hint_key") or ""),
+            "confidence_text": _ND_CONFIDENCE.get(b["confidence"], b["confidence"]), "corroborated": b.get("corroborated"), "evidence_refs": list(b.get("evidence_refs") or []),
+            "condition_id": b["condition_id"], "rule_id": b.get("rule_id"), "lineage_url": None})
+    return {"blockers": rows, "blockers_summary": "; ".join(f"{r['dimension']}: {r['short']}" for r in rows[:3]) + (f" (+{len(rows) - 3} más)" if len(rows) > 3 else ""),
+            "blockers_resolved": [{"dimension": _DIM_LABEL.get(r["dimension"] or "", r["dimension"]), "state_text": {"STRENGTH": "Fortaleza", "RESPONSIBILITY_MET": "Responsabilidad cumplida", "DEFICIENCY_DEMONSTRATED": "Deficiencia demostrada (con efecto local)", "NOT_APPLICABLE": "No aplica"}.get(r["state"], r["state"])} for r in exp["resolved_dimensions"]],
+            "diagnosis_limits": [_ND_LIMIT.get(l["key"], l["key"]) for l in exp["diagnosis_limits"]], "corroboration": exp["corroboration"]["status"], "blockers_footnote": _ND_FOOTNOTE}
 
 
 def _jdg_statement_text(item: dict) -> str:
@@ -477,7 +613,7 @@ def _jdg_statement_text(item: dict) -> str:
 _DIM_LABEL = dict(_JDG_DIMENSIONS)
 
 
-def judgment_view(judgment: dict | None) -> dict | None:
+def judgment_view(judgment: dict | None, profile: dict | None = None) -> dict | None:
     """View-model del Juicio metodológico PERSISTIDO. Solo presentación: lee el resultado ya decidido (status/level,
     razones, fortalezas, motivo de no-determinación) y lo traduce. Devuelve ``None`` si no hay Juicio (estado sin perfil)."""
     if not judgment:
@@ -506,7 +642,7 @@ def judgment_view(judgment: dict | None) -> dict | None:
     for dim, label in _JDG_DIMENSIONS:
         state = "attention" if dim in weak_dims else ("positive" if dim in strong_dims else "neutral")
         contracts.append({"label": label, "state": state, "state_text": _JDG_CONTRACT_STATE_TEXT[state], "tone": _CONTRACT_TONE[state]})
-    nd = nd_explanation(judgment)
+    nd = nd_explanation(judgment, profile)
     nd_reason = None if determined else (nd["label"] if nd else "No determinable")
     nd_detail = (judgment.get("not_determinable_detail") or {}) if not determined else {}
     nd_missing = [{"dimension": _DIM_LABEL.get(d.get("dimension") or "", d.get("dimension") or ""), "state": d.get("state"),
@@ -515,6 +651,8 @@ def judgment_view(judgment: dict | None) -> dict | None:
     headline = (_JDG_LEVEL_HEADLINE.get(level or "") or _JDG_GENERIC_HEADLINE) if determined else (_JDG_ND_HEADLINE + (" " + nd_reason if nd_reason else ""))
     if nd:
         headline = nd["text"]                      # T2: texto propio de la causa real (ver ``nd_explanation``); el nivel oficial sigue siendo «No determinable»
+        if nd.get("blockers"):                     # con el perfil: el resumen CONCRETO de los impedimentos reemplaza (no se suma a) el texto por dimensiones: una sola explicación por pantalla
+            headline = f"{_JDG_ND_HEADLINE} {nd['blockers_summary']}."
     return {
         "determined": determined,
         "level": level,
@@ -948,8 +1086,10 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         "md_url": adhoc.md_url if adhoc else "/catalog/flow/assessment.md?" + urlencode({"flow": entry.entry_id}),
         "has_profile": doc is not None,
         "adhoc": adhoc is not None,
-        "judgment": judgment_view(status.judgment),   # Juicio metodológico persistido (distinto de la vigencia del Assessment)
+        "judgment": judgment_view(status.judgment, doc),   # Juicio metodológico persistido (distinto de la vigencia del Assessment); el perfil habilita los impedimentos concretos de «No determinable»
     }
+    for _b in ((view["judgment"] or {}).get("nd") or {}).get("blockers") or []:        # enlace «Ver en linaje» por impedimento (mismo mecanismo que los hallazgos)
+        _b["lineage_url"] = _focus_link(link_entry, pack, _b["artifacts"])
     view["title_desc"], view["title_id"] = terminal_titles(status, entry, doc, adhoc is not None)     # canónico → Catálogo → nombre técnico legible; sin modelo terminal: neutro
     view["module_label"] = MODULE_LABEL
     if doc is None:

@@ -1,0 +1,218 @@
+{
+ "nd_lvl05_external_class_critical_hojobar": {
+  "blockers": [
+   {
+    "blocker_id": "SOURCE_INGESTION:EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL",
+    "category": "SOURCE_CONTRACT_UNDETERMINED",
+    "confidence": "HIGH",
+    "corroborated": true,
+    "n_artifacts": 1,
+    "resolution_type": "GOVERNANCE_DECISION",
+    "state": "NOT_EVALUABLE"
+   }
+  ],
+  "closure_size": 39,
+  "corroboration": "CORROBORATED",
+  "level_rule": "LVL-05",
+  "limits": [],
+  "not_determinable_reason": "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL",
+  "resolved_dimensions": []
+ },
+ "nd_lvl05_external_class_critical_one_source": {
+  "blockers": [
+   {
+    "blocker_id": "SOURCE_INGESTION:EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL",
+    "category": "SOURCE_CONTRACT_UNDETERMINED",
+    "confidence": "HIGH",
+    "corroborated": true,
+    "n_artifacts": 1,
+    "resolution_type": "GOVERNANCE_DECISION",
+    "state": "NOT_EVALUABLE"
+   }
+  ],
+  "closure_size": 37,
+  "corroboration": "CORROBORATED",
+  "level_rule": "LVL-05",
+  "limits": [],
+  "not_determinable_reason": "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL",
+  "resolved_dimensions": []
+ },
+ "nd_lvl05_resolvable_by_ratification": {
+  "blockers": [
+   {
+    "blocker_id": "SOURCE_INGESTION:EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL",
+    "category": "SOURCE_CONTRACT_UNDETERMINED",
+    "confidence": "HIGH",
+    "corroborated": true,
+    "n_artifacts": 1,
+    "resolution_type": "GOVERNANCE_DECISION",
+    "state": "NOT_EVALUABLE"
+   }
+  ],
+  "closure_size": 46,
+  "corroboration": "CORROBORATED",
+  "level_rule": "LVL-05",
+  "limits": [],
+  "not_determinable_reason": "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL",
+  "resolved_dimensions": []
+ },
+ "nd_lvl06_harmonization_label_unknown": {
+  "blockers": [
+   {
+    "blocker_id": "HARMONIZATION:HARMONIZATION_CANDIDATE_CHARACTER_NOT_DETERMINABLE",
+    "category": "EVIDENCE_NOT_INTERPRETABLE",
+    "confidence": "HIGH",
+    "corroborated": true,
+    "n_artifacts": 1,
+    "resolution_type": "TECHNICAL_EVIDENCE",
+    "state": "NOT_EVALUABLE"
+   }
+  ],
+  "closure_size": 34,
+  "corroboration": "CORROBORATED",
+  "level_rule": "LVL-06",
+  "limits": [
+   "UNKNOWN_LABEL_FIELDS_NOT_PERSISTED"
+  ],
+  "not_determinable_reason": "INSUFFICIENT_AFFIRMATIVE_EVIDENCE",
+  "resolved_dimensions": [
+   "PROPAGATION",
+   "PUBLISHED_CONTRACT",
+   "SOURCE_INGESTION"
+  ]
+ },
+ "nd_lvl06_harmonization_label_unknown_unconsumed": {
+  "blockers": [
+   {
+    "blocker_id": "HARMONIZATION:HARMONIZATION_CANDIDATE_CHARACTER_NOT_DETERMINABLE",
+    "category": "EVIDENCE_NOT_INTERPRETABLE",
+    "confidence": "HIGH",
+    "corroborated": true,
+    "n_artifacts": 1,
+    "resolution_type": "TECHNICAL_EVIDENCE",
+    "state": "NOT_EVALUABLE"
+   }
+  ],
+  "closure_size": 47,
+  "corroboration": "CORROBORATED",
+  "level_rule": "LVL-06",
+  "limits": [
+   "UNKNOWN_LABEL_FIELDS_NOT_PERSISTED"
+  ],
+  "not_determinable_reason": "INSUFFICIENT_AFFIRMATIVE_EVIDENCE",
+  "resolved_dimensions": [
+   "PROPAGATION",
+   "PUBLISHED_CONTRACT",
+   "SOURCE_INGESTION"
+  ]
+ },
+ "nd_lvl06_mapping_lineage_and_class_not_observable": {
+  "blockers": [
+   {
+    "blocker_id": "SOURCE_INGESTION:SOURCE_CONTRACT_CLASS_UNDETERMINED",
+    "category": "SOURCE_CONTRACT_UNDETERMINED",
+    "confidence": "HIGH",
+    "corroborated": true,
+    "n_artifacts": 13,
+    "resolution_type": "METHODOLOGICAL_REVIEW",
+    "state": "NOT_EVALUABLE"
+   },
+   {
+    "blocker_id": "HARMONIZATION:HARMONIZATION_MAPPING_NOT_OBSERVABLE",
+    "category": "EVIDENCE_NOT_ACQUIRED",
+    "confidence": "HIGH",
+    "corroborated": true,
+    "n_artifacts": 5,
+    "resolution_type": "TECHNICAL_EVIDENCE",
+    "state": "NOT_EVALUABLE"
+   },
+   {
+    "blocker_id": "PUBLISHED_CONTRACT:PUBLISHED_LINEAGE_INCOMPLETE",
+    "category": "EVIDENCE_NOT_INTERPRETABLE",
+    "confidence": "HIGH",
+    "corroborated": true,
+    "n_artifacts": 0,
+    "resolution_type": "TECHNICAL_EVIDENCE",
+    "state": "NOT_EVALUABLE"
+   }
+  ],
+  "closure_size": 138,
+  "corroboration": "CORROBORATED",
+  "level_rule": "LVL-06",
+  "limits": [],
+  "not_determinable_reason": "INSUFFICIENT_AFFIRMATIVE_EVIDENCE",
+  "resolved_dimensions": [
+   "PROPAGATION"
+  ]
+ },
+ "nd_lvl06_source_class_and_harmonization_unresolved": {
+  "blockers": [
+   {
+    "blocker_id": "SOURCE_INGESTION:SOURCE_CONTRACT_CLASS_UNDETERMINED",
+    "category": "SOURCE_CONTRACT_UNDETERMINED",
+    "confidence": "HIGH",
+    "corroborated": true,
+    "n_artifacts": 3,
+    "resolution_type": "METHODOLOGICAL_REVIEW",
+    "state": "NOT_EVALUABLE"
+   },
+   {
+    "blocker_id": "HARMONIZATION:HARMONIZATION_NOT_A_LEGITIMATE_REUSABLE_BOUNDARY",
+    "category": "ARCHITECTURAL_RESPONSIBILITY_UNPROVEN",
+    "confidence": "HIGH",
+    "corroborated": null,
+    "n_artifacts": 6,
+    "resolution_type": "METHODOLOGICAL_REVIEW",
+    "state": "UNRESOLVED_NO_POSITIVE_EVIDENCE"
+   }
+  ],
+  "closure_size": 31,
+  "corroboration": "CORROBORATED",
+  "level_rule": "LVL-06",
+  "limits": [],
+  "not_determinable_reason": "INSUFFICIENT_AFFIRMATIVE_EVIDENCE",
+  "resolved_dimensions": [
+   "PROPAGATION",
+   "PUBLISHED_CONTRACT"
+  ]
+ },
+ "nd_lvl06_unresolved_three_dimensions": {
+  "blockers": [
+   {
+    "blocker_id": "HARMONIZATION:NO_HARMONIZATION_BOUNDARY_OBSERVED",
+    "category": "ARCHITECTURAL_RESPONSIBILITY_UNPROVEN",
+    "confidence": "HIGH",
+    "corroborated": null,
+    "n_artifacts": 1,
+    "resolution_type": "METHODOLOGICAL_REVIEW",
+    "state": "UNRESOLVED_NO_POSITIVE_EVIDENCE"
+   },
+   {
+    "blocker_id": "PROPAGATION:PRODUCT_DOES_NOT_COMPOSE_RESOLVED_CONTRACTS",
+    "category": "ARCHITECTURAL_RESPONSIBILITY_UNPROVEN",
+    "confidence": "HIGH",
+    "corroborated": null,
+    "n_artifacts": 1,
+    "resolution_type": "METHODOLOGICAL_REVIEW",
+    "state": "UNRESOLVED_NO_POSITIVE_EVIDENCE"
+   },
+   {
+    "blocker_id": "PUBLISHED_CONTRACT:PUBLISHED_CONTRACT_SUBSTANCE_NOT_ESTABLISHED",
+    "category": "ARCHITECTURAL_RESPONSIBILITY_UNPROVEN",
+    "confidence": "HIGH",
+    "corroborated": null,
+    "n_artifacts": 1,
+    "resolution_type": "METHODOLOGICAL_REVIEW",
+    "state": "UNRESOLVED_NO_POSITIVE_EVIDENCE"
+   }
+  ],
+  "closure_size": 4,
+  "corroboration": "CORROBORATED",
+  "level_rule": "LVL-06",
+  "limits": [],
+  "not_determinable_reason": "INSUFFICIENT_AFFIRMATIVE_EVIDENCE",
+  "resolved_dimensions": [
+   "SOURCE_INGESTION"
+  ]
+ }
+}

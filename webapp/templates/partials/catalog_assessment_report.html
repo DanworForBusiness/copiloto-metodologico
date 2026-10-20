@@ -231,7 +231,31 @@
   <table><thead><tr><th>Contrato</th><th>Tipo</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.reasons_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.kind }}</td><td>{{ it.text }}</td></tr>{% endfor %}{% endfor %}</tbody></table>
   {% endif %}
   {# T2 — «No determinable» sigue siendo el valor oficial; esta tabla EXPLICA la causa real desde hechos del Juicio (``presenter.nd_explanation``), por contrato. #}
-  {% if j.nd and j.nd.dimensions %}
+  {# Impedimentos CONCRETOS (``explain_determination``: proyección del Juicio persistido + su perfil; no recalcula nada): resumen en la tabla, detalle bajo demanda por impedimento (disclosure del Hub).
+     Sin perfil legible o sin detalle, queda la tabla por contrato de siempre (``j.nd.dimensions``): una sola explicación por pantalla, nunca las dos. #}
+  {% if j.nd and j.nd.blockers %}
+  <h3>Por qué no hay un nivel · {{ j.nd.label }}</h3>
+  <table data-block="nd-blockers"><thead><tr><th>Contrato</th><th>Situación</th><th>Tipo de impedimento</th></tr></thead><tbody>{% for b in j.nd.blockers %}<tr><td>{{ b.dimension }}</td><td>{{ b.state_text }}</td><td>{{ b.category_text }}</td></tr>{% endfor %}</tbody></table>
+  {% for b in j.nd.blockers %}
+  <details class="dashboard-section" id="{{ b.dom_id }}">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Detalle del impedimento · {{ b.dimension }}</span><span class="dashboard-section__count">{{ b.category_text }}</span></summary>
+    <div class="dashboard-section__body">
+      <table><thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead><tbody>
+        <tr><td>Qué lo impide</td><td>{{ b.why }}</td></tr>
+        {% if b.artifacts %}<tr><td>Artefactos involucrados</td><td>{% for a in b.artifacts %}<code>{{ a }}</code> {% endfor %}{% if b.artifacts_more %}… (+{{ b.artifacts_more }}){% endif %} {{ lineage_link(b.lineage_url) }}</td></tr>{% endif %}
+        <tr><td>Evidencia que falta o hay que validar</td><td>{% for r in b.required %}{{ r }}{% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
+        <tr><td>Qué hace falta</td><td>{{ b.resolution_text }}{% if b.hint %} — {{ b.hint }}{% endif %}</td></tr>
+        <tr><td>Certeza del diagnóstico</td><td>{{ b.confidence_text }}{% if b.corroborated %} · confirmada por el motor sobre el perfil{% endif %}</td></tr>
+        {% if b.evidence_refs %}<tr><td>Evidencia canónica</td><td>{% for r in b.evidence_refs %}<span class="catalog-note__ev">{{ r }}</span> {% endfor %}</td></tr>{% endif %}
+        <tr><td>Identificador de la condición (trazabilidad)</td><td><span class="catalog-note__ev">{{ b.rule_id }} · {{ b.condition_id }}</span></td></tr>
+      </tbody></table>
+    </div>
+  </details>
+  {% endfor %}
+  {% if j.nd.blockers_resolved %}<p>Contratos que sí tienen veredicto: {% for r in j.nd.blockers_resolved %}{{ r.dimension }} ({{ r.state_text }}){% if not loop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
+  {% for l in j.nd.diagnosis_limits %}<p class="catalog-note__ev">Límite del diagnóstico: {{ l }}</p>{% endfor %}
+  <p class="catalog-note__ev">{{ j.nd.blockers_footnote }}</p>
+  {% elif j.nd and j.nd.dimensions %}
   <h3>Por qué no hay un nivel · {{ j.nd.label }}</h3>
   <table><thead><tr><th>Contrato</th><th>Situación</th><th>Causa</th></tr></thead><tbody>{% for d in j.nd.dimensions %}<tr><td>{{ d.dimension }}</td><td>{{ d.state_text }}</td><td>{{ d.cause_text }}</td></tr>{% endfor %}</tbody></table>
   {% endif %}
