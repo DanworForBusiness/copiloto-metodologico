@@ -34,11 +34,12 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
+from . import layer_evidence
 from .model import (
     Area, Assessability, Fact, Observation, ObservationId, ReviewId, ReviewItem, Signal, SignalKind, _ensure_jsonable,
 )
 
-SIGNALS_RULESET = "signal-rules/v3"                       # v2 (M8, parche 1): PASS_THROUGH_REVIEW solo evalua aristas internas modelado->modelado; v3 (G3): CROSS_LAYER_REDERIVATION -> REPEATED_DERIVATION_IN_LINEAGE + relacion estructural
+SIGNALS_RULESET = "signal-rules/v4"                       # v2 (M8, parche 1): PASS_THROUGH_REVIEW solo evalua aristas internas modelado->modelado; v3 (G3): CROSS_LAYER_REDERIVATION -> REPEATED_DERIVATION_IN_LINEAGE + relacion estructural; v4 (LAYER_BOUNDARY_REVIEW): evalua el primer consumidor FUNCIONAL (atraviesa vistas de paso), solo con capa respaldada por evidencia (rol declarado / nomenclatura de capas) y sin fuentes de contrato gobernado
 
 _USABLE = (Assessability.ASSESSED, Assessability.PARTIALLY_ASSESSED)
 
@@ -244,21 +245,86 @@ def _numeric_layer(layer: str) -> int | None:
     return int(layer) if str(layer).isdigit() and layer != "9" else None
 
 
+_MAX_PASS_THROUGH_DEPTH = 8                    # misma cota que el colapso de vistas de paso del Juicio
+
+
+def _lineage_edges_between_modeled_artifacts(idx: FactIndex) -> dict[str, dict[str, tuple[dict, Fact]]]:
+    """proveedor -> {consumidor: (capa inferida del consumidor, hecho de la arista)} para las aristas de linaje entre artefactos modelados (incluida la que llega al modelo analitico)."""
+    out: dict[str, dict[str, tuple[dict, Fact]]] = {}
+    for fact_id in ("propagation.contract_delta", "am.contract_delta"):
+        for f in idx.usable(fact_id):
+            provider, consumer = _edge_ends(f.subject)
+            out.setdefault(provider, {})[consumer] = (f.value.get("consumer_layer_inference") or {}, f)
+    return out
+
+
+def _functional_consumers(consumer: str, layer: dict, views: dict[str, Fact], edges: dict[str, dict[str, tuple[dict, Fact]]],
+                          via: tuple[str, ...] = ()) -> tuple[list[dict], list[Fact]] | None:
+    """Primer consumidor FUNCIONALMENTE relevante a partir de ``consumer``: si es una vista de paso (``layer_evidence.is_pass_through_view``, la MISMA definicion que usa el Juicio)
+    se atraviesa hacia sus consumidores de linaje; si no, es el propio consumidor. ``None`` = linaje incompleto o ambiguo (vista de paso sin consumidor conocido o cadena demasiado larga):
+    no se afirma nada."""
+    view = views.get(consumer)
+    if not layer_evidence.is_pass_through_view(view.value if view is not None else None):
+        return [{"consumer": consumer, "inferred_layer": layer.get("inferred_layer"), "inferred_layer_basis": layer.get("inferred_layer_basis"), "reached_through": list(via)}], \
+            ([view] if view is not None else [])
+    nxt = edges.get(consumer)
+    if not nxt or len(via) >= _MAX_PASS_THROUGH_DEPTH:
+        return None
+    found: list[dict] = []
+    used: list[Fact] = [view]
+    for name in sorted(nxt):
+        sub = _functional_consumers(name, nxt[name][0], views, edges, (*via, consumer))
+        if sub is None:
+            return None
+        found.extend(sub[0])
+        used.extend([nxt[name][1], *sub[1]])
+    return found, used
+
+
 def _rule_layer_boundary(idx: FactIndex) -> list[Finding]:
+    """Fuente remota cuyo primer consumidor FUNCIONAL ya esta en capa >= 3. Tres condiciones de rigor (signal-rules/v4):
+      (a) el consumidor inmediato puede ser una vista de paso que solo proyecta la fuente: se atraviesa y se evalua el primer consumidor que no es de paso;
+      (b) la capa de cada consumidor funcional debe estar RESPALDADA POR EVIDENCIA (rol declarado o nomenclatura explicita de capas): ``NAME_PREFIX``/``UNKNOWN`` no alcanzan;
+      (c) una fuente con contrato de origen gobernado (``source.contract_class``) no genera esta revision solo por carecer de una frontera intermedia de armonizacion (sigue sujeta a las demas reglas).
+    Sin evidencia suficiente (linaje incompleto, capa no respaldada) NO se emite: la regla nunca fabrica ni asume una capa."""
     boundary_fact = idx.usable_get("ingestion.boundary_artifacts", "closure")
     if boundary_fact is None:
         return []
     remote_leaves = {a["artifact"] for a in boundary_fact.value["artifacts"] if a["has_remote_entity"]}
+    views = {f.subject: f for f in idx.usable("harmonization.view_complexity")}
+    edges = _lineage_edges_between_modeled_artifacts(idx)
     out = []
     for f in idx.usable("ingestion.first_consumers"):
         if f.subject not in remote_leaves:
             continue
         cons = f.value["lineage_consumers"]
-        if cons and all((_numeric_layer(c["inferred_layer"]) or 0) >= 3 for c in cons):
-            out.append(Finding("LAYER_BOUNDARY_REVIEW", (f.subject, *sorted(c["consumer"] for c in cons)), _keys(f, boundary_fact),
-                               {"source": f.subject, "lineage_consumers": [{"consumer": c["consumer"], "inferred_layer": c["inferred_layer"],
-                                                                            "inferred_layer_basis": c["inferred_layer_basis"]} for c in cons],
-                                "association_consumer_count": len(f.value["association_consumers"])}))
+        if not cons:
+            continue
+        contract_class = idx.usable_get("source.contract_class", f.subject)
+        if contract_class is not None and contract_class.value.get("contract_class") in layer_evidence.GOVERNED_CONTRACT_CLASSES:
+            continue                                                       # (c) la pregunta «¿falta armonizacion?» ya esta respondida por el contrato de origen gobernado
+        functional: list[dict] = []
+        used: list[Fact] = []
+        for c in cons:
+            sub = _functional_consumers(c["consumer"], c, views, edges)
+            if sub is None:
+                functional = []
+                break
+            functional.extend(sub[0])
+            used.extend(sub[1])
+        if not functional:
+            continue                                                       # linaje incompleto/ambiguo: no se afirma
+        if not all(c["inferred_layer_basis"] in layer_evidence.LAYER_EVIDENCE_BASES and (_numeric_layer(c["inferred_layer"]) or 0) >= 3 for c in functional):
+            continue                                                       # (b) la capa del consumidor funcional no esta respaldada por evidencia, o es < 3
+        immediate = sorted({c["consumer"] for c in cons})
+        functional = sorted({(c["consumer"], c["inferred_layer"], c["inferred_layer_basis"], tuple(c["reached_through"])) for c in functional})
+        subjects = (f.subject, *sorted({*immediate, *(c[0] for c in functional)}))
+        out.append(Finding("LAYER_BOUNDARY_REVIEW", subjects, tuple(dict.fromkeys(_keys(f, boundary_fact, contract_class, *sorted(used, key=lambda x: x.key)))),
+                           {"source": f.subject,
+                            "lineage_consumers": [{"consumer": c["consumer"], "inferred_layer": c["inferred_layer"], "inferred_layer_basis": c["inferred_layer_basis"]} for c in cons],
+                            "functional_consumers": [{"consumer": n, "inferred_layer": layer, "inferred_layer_basis": basis, "reached_through": list(through)}
+                                                     for n, layer, basis, through in functional],
+                            "association_consumer_count": len(f.value["association_consumers"])}))
     return out
 
 
@@ -428,9 +494,12 @@ SIGNAL_REGISTRY: tuple[SignalSpec, ...] = (
         missing_context="Reason for importing the same remote entity under several local identities."),
     SignalSpec(
         ReviewId.LAYER_BOUNDARY_REVIEW.value, SignalKind.REVIEW, Area.INGESTION, ("remote_bearing_artifact",),
-        ("ingestion.first_consumers", "ingestion.boundary_artifacts"),
-        "a remote-bearing boundary leaf with at least one lineage consumer and ALL its lineage consumers at inferred layer >= 3 -> one review item per leaf",
-        ("not a penalty per occurrence", "the inferred layer is not proven responsibility", "a direct shortcut can be legitimate"),
+        ("ingestion.first_consumers", "ingestion.boundary_artifacts", "harmonization.view_complexity", "propagation.contract_delta", "am.contract_delta", "source.contract_class"),
+        "a remote-bearing boundary leaf WITHOUT a governed source contract whose first FUNCTIONAL lineage consumers (looking through pass-through views that only project the source) "
+        "are ALL at layer >= 3 backed by evidence (declared role or explicit section 28 layer naming; NAME_PREFIX / UNKNOWN never suffice) -> one review item per leaf",
+        ("not a penalty per occurrence", "the layer is not proven responsibility", "a direct shortcut can be legitimate",
+         "the immediate consumer can be a pass-through view that only projects the source: the functional consumer is reported separately and no direct connection to it is implied",
+         "no signal when the lineage is incomplete or the layer is not backed by evidence"),
         _rule_layer_boundary,
         legitimate_reasons=("source already harmonized (for example a governed CDS view)", "reference or text table consumed once",
                             "harmonization intentionally performed in the consuming view"),

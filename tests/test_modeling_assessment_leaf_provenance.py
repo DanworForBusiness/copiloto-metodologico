@@ -279,5 +279,5 @@ def test_old_profiles_without_canonical_evidence_stay_valid_and_the_generic_root
 def test_the_versions_block_carries_the_evidence_contract_so_old_profiles_become_stale():
     doc = _doc(_pool())
     assert doc["versions"]["canonical_evidence"] == "canonical-evidence/v4" and doc["versions"]["closure"] == "closure-rules/v1"
-    assert doc["versions"]["assessability"] == "assessability-rules/v4" and doc["versions"]["signals"] == "signal-rules/v3"
+    assert doc["versions"]["assessability"] == "assessability-rules/v4" and doc["versions"]["signals"] == "signal-rules/v4"
     assert doc["versions"]["finding_evidence"] == "finding-evidence/v2"

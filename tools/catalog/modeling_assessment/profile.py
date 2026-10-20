@@ -144,7 +144,8 @@ _VALUE_MAP: dict[str, tuple[tuple[str, str, Callable[[Any], Any] | None], ...]] 
         ("remote_entity", "remote_entity", None), ("local_artifacts", "local_artifacts", None), ("in_closure", "in_closure", None),
         ("spans_outside_closure", "spans_outside_closure", None), ("duplicated_inside_closure", "duplicated_inside_closure", None)),
     "LAYER_BOUNDARY_REVIEW": (
-        ("source", "source", None), ("lineage_consumers", "lineage_consumers", None), ("association_consumer_count", "association_consumer_count", None)),
+        ("source", "source", None), ("lineage_consumers", "lineage_consumers", None), ("functional_consumers", "functional_consumers", None),
+        ("association_consumer_count", "association_consumer_count", None)),
     "FLAT_CENTRAL_ASSEMBLY_REVIEW": (
         ("artifact", "artifact", None), ("fan_in", "fan_in", None), ("boundary_providers", "boundary_providers", None),
         ("lineage_consumer_count", "lineage_consumer_count", None), ("declared_pattern", "declared_pattern", None),
@@ -185,8 +186,9 @@ DISPLAY: dict[str, tuple[str, str]] = {
     "ROLE_LAYER_DIVERGENCE": ("La capa del nombre difiere de la posición estructural o del rol declarado",
                               "La capa codificada en el nombre del artefacto no coincide con el lugar que ocupa ni con lo que declara."),
     "DUPLICATED_REMOTE_IMPORT": ("Entidad remota importada más de una vez", "La misma entidad remota existe bajo varias identidades locales."),
-    "LAYER_BOUNDARY_REVIEW": ("Fuente remota consumida directamente por la capa 3 o superior",
-                              "Todos los consumidores de una fuente remota ya están en la tercera capa o en una superior."),
+    "LAYER_BOUNDARY_REVIEW": ("Primer consumidor funcional de una fuente remota en la capa 3 o superior",
+                              "El primer consumidor con función propia de una fuente remota —tras atravesar las vistas de paso que solo la proyectan— ya está en la tercera capa o en una superior, "
+                              "y no hay una capa de armonización entre ambos."),
     "FLAT_CENTRAL_ASSEMBLY_REVIEW": ("Ensamble central plano", "Un ensamble con muchos proveedores no declara asociaciones, medidas ni dimensiones (detector provisional)."),
     "FIELD_VOCABULARY_MIX": ("Etiqueta compartida entre vocabularios técnicos distintos",
                              "Nombres técnicos de formas distintas comparten una misma etiqueta de negocio, declarados juntos o expuestos por el modelo analítico."),
@@ -224,7 +226,7 @@ OCCURRENCE_UNIT: dict[str, str] = {
     "REPEATED_DERIVATION_IN_LINEAGE": "par proveedor→consumidor con campos derivados de nuevo",
     "ROLE_LAYER_DIVERGENCE": "artefacto",
     "DUPLICATED_REMOTE_IMPORT": "entidad remota repetida",
-    "LAYER_BOUNDARY_REVIEW": "relación fuente→consumidor",
+    "LAYER_BOUNDARY_REVIEW": "relación fuente→consumidor funcional",
     "FLAT_CENTRAL_ASSEMBLY_REVIEW": "ensamble",
     "FIELD_VOCABULARY_MIX": "grupo de etiqueta compartida",
     "OPAQUE_FIELD_NAME": "campo con su etiqueta",
@@ -239,7 +241,8 @@ WHY_SHOWN: dict[str, str] = {
     "REPEATED_DERIVATION_IN_LINEAGE": "Se muestra porque el mismo campo se deriva en un artefacto y otra vez en un ancestro del linaje.",
     "ROLE_LAYER_DIVERGENCE": "Se muestra porque la capa codificada en el nombre del artefacto difiere de su posición estructural o de la capa de su rol declarado.",
     "DUPLICATED_REMOTE_IMPORT": "Se muestra porque una entidad remota se importa bajo más de una identidad local y al menos una de ellas está dentro del alcance evaluado.",
-    "LAYER_BOUNDARY_REVIEW": "Se muestra porque todos los consumidores de linaje de esta fuente remota están en la capa inferida 3 o superior.",
+    "LAYER_BOUNDARY_REVIEW": ("Se muestra porque el primer consumidor funcional de esta fuente remota (el consumidor inmediato o, si este es una vista de paso que solo la proyecta, el primero que no lo es) "
+                              "está en la capa 3 o superior, respaldada por su rol declarado o por la nomenclatura explícita de capas, y la fuente no tiene un contrato de origen gobernado."),
     "FLAT_CENTRAL_ASSEMBLY_REVIEW": "Se muestra porque un ensamble con muchos proveedores no declara asociaciones, medidas ni dimensiones (el corte de proveedores es un parámetro provisional del detector).",
     "FIELD_VOCABULARY_MIX": "Se muestra porque nombres técnicos de formas distintas comparten una misma etiqueta de negocio y aparecen juntos en un artefacto o llegan al modelo analítico terminal.",
     "OPAQUE_FIELD_NAME": "Se muestra porque un nombre técnico con prefijo propio tiene una etiqueta que no comparte ninguna palabra con él.",
@@ -304,8 +307,10 @@ INTERPRETATION_LIMITS: dict[str, tuple[str, ...]] = {
         "el alcance (dentro del cierre o en el universo del cliente) es contexto, no severidad"),
     "LAYER_BOUNDARY_REVIEW": (
         "cada ocurrencia es un elemento a revisar, no un conteo de defectos",
-        "la capa inferida no es una responsabilidad demostrada",
-        "un atajo directo puede ser legítimo"),
+        "la capa no es una responsabilidad demostrada",
+        "un atajo directo puede ser legítimo",
+        "el consumidor inmediato puede ser una vista de paso que solo proyecta la fuente: el consumidor funcional se informa aparte y no se afirma una conexión directa con él",
+        "sin linaje completo o sin capa respaldada por evidencia no se emite la revisión"),
     "FLAT_CENTRAL_ASSEMBLY_REVIEW": (
         "un ensamble central plano no es necesariamente un mal diseño",
         "la cantidad de proveedores por sí sola no es evidencia de un defecto",
@@ -344,7 +349,7 @@ LEGITIMATE_REASONS: dict[str, tuple[str, ...]] = {
         "fuentes ECC y S/4 en paralelo durante una migración", "filtros o proyecciones distintos por consumidor",
         "necesidades de seguridad o de actualización separadas", "copias mantenidas por dominio de negocio"),
     "LAYER_BOUNDARY_REVIEW": (
-        "fuente ya armonizada (por ejemplo, una vista CDS gobernada)", "tabla de referencia o de textos consumida una sola vez",
+        "fuente ya armonizada por un contrato que la evidencia no clasifica como gobernado", "tabla de referencia o de textos consumida una sola vez",
         "armonización realizada intencionalmente en la vista consumidora"),
     "FLAT_CENTRAL_ASSEMBLY_REVIEW": ("vista técnica de integración cuya semántica vive aguas abajo", "contrato declarado en la capa consumidora"),
     "FIELD_VOCABULARY_MIX": (

@@ -21,8 +21,10 @@ def _versions(**over) -> dict:
 
 
 # ───────────────────────────── clasificador puro: estricto ─────────────────────────────
-def test_only_the_leaf_materialization_migration_is_transitional():
-    assert {n for n, m in svc.EVIDENCE_MIGRATIONS.items() if m.transitional} == {MIG}          # ampliar la compatibilidad exige editar este test a conciencia
+def test_only_the_leaf_materialization_and_the_layer_boundary_migrations_are_transitional():
+    # ampliar la compatibilidad exige editar este test a conciencia: ``signals_layer_boundary_v4`` (signal-rules v3 -> v4, solo LAYER_BOUNDARY_REVIEW) es transicional A PROPOSITO: subir el ruleset NO debe volver STALE
+    # a los assessments gobernados vigentes ni obligar a regenerarlos; se adopta con la migracion asegurada (plan, aprobacion firmada, respaldo y olas).
+    assert {n for n, m in svc.EVIDENCE_MIGRATIONS.items() if m.transitional} == {MIG, "signals_layer_boundary_v4"}
 
 
 def test_the_single_canonical_evidence_v3_to_v4_difference_with_the_same_pool_is_current_but_pending():

@@ -283,6 +283,16 @@ Rutas (+6, `route_surface.json` 205→211): `GET /cchh/publicaciones`, `GET/POST
 
 ---
 
+# ASSESSMENT · LAYER_BOUNDARY_REVIEW (signal-rules/v4) — hotfix metodológico (2026-10-19, branch `fix/layer-boundary-review-evidence`, SIN push/merge/deploy/migración)
+
+**Diagnóstico (Biogenesis / AM_Lista_Precios):** la revisión decidía «fuente remota consumida directamente por la capa ≥3» con la capa INFERIDA del consumidor inmediato; `VR_A004`/`VR_KONP` son proyecciones 1:1 cuya capa 3 salía del último recurso de la heurística (`NAME_PREFIX`) y `ZDSP_KONP` es una CDS gobernada. **Fix genérico (sin excepciones por cliente/modelo):** (a) se atraviesan las vistas de paso (misma definición que el Juicio, compartida en `tools/catalog/layer_semantics.py`) y se evalúa el primer consumidor FUNCIONAL; (b) sólo cuenta una capa respaldada por evidencia (`SECTION_28_NAME`/`DECLARED_ROLE`; `NAME_PREFIX`/`UNKNOWN` no); (c) una fuente con contrato de origen gobernado no genera la revisión sólo por carecer de frontera de armonización (sigue sujeta a las demás reglas). Sin evidencia suficiente (linaje incompleto, capa no respaldada) no se emite. Texto actualizado: distingue consumidor inmediato de consumidor funcional (`functional_consumers`, `reached_through`) y no afirma una conexión directa inexistente.
+
+**Versionado y adopción controlada:** `SIGNALS_RULESET` = `signal-rules/v4`. Migración registrada `signals_layer_boundary_v4` (framework existente de `--regenerate-stale-evidence`: transicional → los perfiles v3 siguen CURRENT con `pending_migration`, `assessment_versions` NO se toca; SENSIBLE: plan+digest, aprobación firmada, respaldo, olas, confirmación por bytes). Postchecks: CLOSURE_EQUAL, perfil idéntico salvo la revisión y lo derivado de ella, Juicio REVALIDADO (misma metodología) o abstención, y la confianza no puede cambiar de nivel (`CONFIDENCE_LEVEL_CHANGED`). Comandos: ver docstring de `webapp/services/assessment_backfill.py`. NO modifica canonical evidence ni el Juicio v4; no escribe en Spaces.
+
+**Simulación sobre los 34 Assessments gobernados locales (motor viejo vs nuevo, en memoria):** ocurrencias 264 → 10; modelos con la revisión 26 → 7; Juicio idéntico en los 34 (niveles, reglas, razones, CTAs); fuera de la revisión sólo cambia la parte «insumos completos de las reglas» de la confianza en 5 modelos (1 cambia de nivel MEDIUM→HIGH y se abstiene).
+
+---
+
 # CCHH · ESTADO DEL SLICE ACTUAL — OWNER QA PASS (2026-10-19)
 
 Candidatos = OWNER QA PASS · Búsquedas = OWNER QA PASS · Entrevistas = OWNER QA PASS · Onboarding = OWNER QA PASS. Branch `work/cchh-onboarding-core` (Onboarding core + homologaciones CCHH: filtros, status-badge, paginación estándar, return_to). Próxima sección: **Publicaciones / Avisos** — NO sobre esta branch: primero PR → merge → `main` actualizado, y recién ahí `work/cchh-publicaciones-core` desde main (mapear desde `app-seleccion`: publicaciones/avisos/canales/estados/relación con Búsquedas/cierre/expiración/métricas; la terminología final sale de la referencia).

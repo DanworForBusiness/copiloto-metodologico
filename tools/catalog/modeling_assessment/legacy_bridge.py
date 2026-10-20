@@ -27,7 +27,8 @@ from tools.catalog.dsp_view_type import (  # noqa: F401 — fuente ÚNICA del ti
 # ── Modulos NEUTROS compartidos con el Juicio (derivacion de materializacion de hojas locales) ──
 # ``tools.catalog.leaf_materialization`` / ``leaf_materialization_evidence`` son hermanos de ``business_classification``: no importan este paquete ni el de Juicio, y son la FUENTE UNICA de la logica
 # de materializacion (el Assessment la persiste, el Juicio la lee). Acceso unico por el bridge (R-I3): ningun otro modulo del paquete importa nada fuera de stdlib/intra-paquete.
-from tools.catalog import leaf_materialization, leaf_materialization_evidence  # noqa: E402,F401
+from tools.catalog import layer_semantics, leaf_materialization, leaf_materialization_evidence  # noqa: E402,F401
+# ``layer_semantics``: definiciones PURAS (vista de paso, contrato de origen gobernado, bases de capa con evidencia) que el Juicio y las senales del Assessment NO pueden divergir en usar.
 
 # ── Loader y modelo de entidad ─────────────────────────────────────────────
 load_folder = _gc.load_folder
