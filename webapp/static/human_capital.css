@@ -214,8 +214,10 @@
 .hc-catalog-refresh-feedback--topbar .callout__title { font-size: .85rem; }
 .hc-catalog-refresh-feedback--topbar .callout__body,
 .hc-catalog-refresh-feedback--topbar .dashboard-empty p { font-size: .78rem; line-height: 1.5; }
-.hc-profiles-hero-actions .btn-primary, .hc-profiles-hero-actions .btn-secondary {
-  height: 38px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center;
+.hc-profiles-hero-actions .btn-primary, .hc-profiles-hero-actions .btn-secondary,
+[data-hc-profile-new-form] .callout[data-advisory-kind="possible_duplicate"] .feedback-form-actions .btn-primary,
+[data-hc-profile-new-form] .callout[data-advisory-kind="possible_duplicate"] .feedback-form-actions .btn-secondary {
+  height: 38px; min-height: 38px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center;
 }
 /* `.btn-secondary` trae `border-color: var(--line)` (app.css) — un token
    pensado para el fondo OSCURO de `--bg` (9% de opacidad, casi invisible
@@ -225,9 +227,20 @@
    nunca tocar `--line` global (rompería el resto del Hub, que SÍ vive
    sobre fondo oscuro). */
 .hc-profiles-hero-actions .btn-secondary,
-.hc-import-actions .btn-secondary { border-color: rgba(128,128,128,.35); }
+.hc-import-actions .btn-secondary,
+[data-hc-profile-new-form] .callout[data-advisory-kind="possible_duplicate"] .btn-secondary { border-color: rgba(128,128,128,.35); }
 .content-theme-dark .hc-profiles-hero-actions .btn-secondary,
-.content-theme-dark .hc-import-actions .btn-secondary { border-color: rgba(128,128,128,.4); }
+.content-theme-dark .hc-import-actions .btn-secondary,
+.content-theme-dark [data-hc-profile-new-form] .callout[data-advisory-kind="possible_duplicate"] .btn-secondary { border-color: rgba(128,128,128,.4); }
+/* Advertencia de candidato duplicado (alta): advertencia INLINE compacta con el componente `.callout--punch` del Hub (no modal). Tipografía compacta como el aviso del topbar
+   (`.hc-catalog-refresh-feedback--topbar`), y el grupo de acciones deja de ser la grilla 1fr/1.4fr de `.feedback-form-actions` (pensada para formularios de ancho completo): botones con el
+   tamaño/borde de las acciones del hero (arriba), ancho natural, alineados a la izquierda y con apilamiento (flex-wrap) en anchos chicos. Sólo aplica al form de alta. */
+[data-hc-profile-new-form] .callout[data-advisory-kind="possible_duplicate"] { margin: 14px 0; padding: 13px 16px; }
+[data-hc-profile-new-form] .callout[data-advisory-kind="possible_duplicate"] .callout__head { gap: 8px; margin-bottom: 6px; }
+[data-hc-profile-new-form] .callout[data-advisory-kind="possible_duplicate"] .callout__icon { font-size: 1rem; }
+[data-hc-profile-new-form] .callout[data-advisory-kind="possible_duplicate"] .callout__title { font-size: .85rem; }
+[data-hc-profile-new-form] .callout[data-advisory-kind="possible_duplicate"] .callout__body p { font-size: .8rem; line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
+[data-hc-profile-new-form] .callout[data-advisory-kind="possible_duplicate"] .feedback-form-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 9px; margin-top: 10px; }
 /* `.hc-import-actions .btn-secondary` (Carga masiva, "Descargar modelo"):
    MISMO fix de borde visible que arriba -- es un `<a>`, no un `<button>`,
    así que necesita además el tamaño/alineación inline-flex que `.btn-

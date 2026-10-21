@@ -77,13 +77,14 @@
     {{ profile_fields("hc", form_values, valid_seniority, valid_sources, cv_html=cv_html, as_dashboard_sections=true, valid_potencial=valid_potencial) }}
   </div>
   {% if duplicate_advisory %}
-  <div class="callout callout--punch" data-advisory-kind="possible_duplicate">
+  {#- Advertencia INLINE compacta (no modal): MISMO componente `.callout--punch` del Hub; el tamaño y el grupo de acciones se ajustan con CSS acotado a este form (human_capital.css, «Advertencia de candidato duplicado»). -#}
+  <div class="callout callout--punch" data-advisory-kind="possible_duplicate" role="group" aria-labelledby="hc-duplicate-title">
     <div class="callout__head">
-      <span class="callout__icon">⚠️</span>
-      <span class="callout__title">Posible candidato duplicado</span>
+      <span class="callout__icon" aria-hidden="true">⚠️</span>
+      <span class="callout__title" id="hc-duplicate-title">Posible candidato duplicado</span>
     </div>
     <div class="callout__body">
-      <p>Ya existe un candidato posiblemente duplicado: <strong>{{ duplicate_advisory.first_name }} {{ duplicate_advisory.last_name }}</strong>{% if duplicate_advisory.email %} — {{ duplicate_advisory.email }}{% endif %}. Podés cancelar o cargarlo de todos modos.</p>
+      <p>Ya existe un candidato con datos coincidentes: <strong>{{ duplicate_advisory.first_name }} {{ duplicate_advisory.last_name }}</strong>{% if duplicate_advisory.email %} — {{ duplicate_advisory.email }}{% endif %}. Podés cancelar o continuar igualmente.</p>
       <div class="feedback-form-actions">
         <a href="/cchh/candidatos" class="btn-secondary">Cancelar</a>
         <button type="submit" form="hc-profile-form" name="duplicate_confirmed" value="true" class="btn-primary asr-generate" aria-live="polite">
