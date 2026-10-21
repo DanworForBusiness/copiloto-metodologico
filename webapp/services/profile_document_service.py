@@ -17,21 +17,25 @@ PATCH, sin DELETE (ticket §9). Se llama SIEMPRE vía el módulo
 (`microsoft365.graph_x(...)`), nunca con `from core.microsoft365 import
 graph_x`, para que los tests puedan monkeypatchear el símbolo del módulo.
 
-IDENTIDAD DE CARPETA/ARCHIVO (§8): la carpeta de un Profile es
-determinística (`<CV root>/<profile_id>` — nunca nombre/email de la
-persona) y el archivo remoto es `<document_id>__<nombre-sanitizado>` —
-nunca el nombre original solo, para que dos uploads del mismo nombre de
-archivo (p. ej. "CV.pdf" subido por dos personas distintas) nunca
-colisionen de path en la MISMA carpeta.
+IDENTIDAD DE CARPETA/ARCHIVO (§8, ACTUALIZADO — convención legible, ver HANDOFF «Carpetas legibles de candidatos»): las carpetas NUEVAS se llaman
+`Apellido, Nombre [id8]` (`<CV root>/Apellido, Nombre [a1b2c3d4]`); el `[id8]` (primeros 8 caracteres del `profile_id`) es INFORMATIVO: NO es la identidad. La identidad
+estable de la carpeta es su `driveItem.id`, que se persiste completo en el campo OPCIONAL `folder_item_id` de cada ProfileDocument. Las carpetas históricas `<CV root>/<profile_id>`
+(UUID) siguen siendo válidas y NUNCA se renombran; una carpeta tampoco se renombra automáticamente cuando cambian el nombre o el apellido del candidato (los documentos nuevos siguen yendo
+a la carpeta existente por id). Antes de reutilizar una carpeta se VERIFICA que corresponde al candidato: es una carpeta, cuelga directo de la raíz de CVs, su nombre es el legible actual,
+el UUID heredado o termina con el marcador `[id8]` de ESE candidato, y ningún documento de OTRO candidato la referencia. Si no se verifica, no se reutiliza (se sigue la resolución por
+ruta o se crea una carpeta nueva; nunca se escribe en una carpeta no verificada). El archivo remoto sigue siendo `<document_id>__<nombre-sanitizado>` — nunca el nombre original solo,
+para que dos uploads del mismo nombre de archivo (p. ej. "CV.pdf" subido por dos personas distintas) nunca colisionen de path en la MISMA carpeta.
 
-FOLDER-ENSURE (§10): lookup por PATH relativo al item raíz
-(`.../items/{root}:/{profile_id}`, sintaxis estándar de Graph para
-direccionar un hijo por path) — 200 existe, 404 ausente. Ausente → POST a
-`.../items/{root}/children` con `conflictBehavior=fail` (nunca `rename`/
-`replace`: un 409 de una carrera concurrente se RESUELVE re-leyendo la
-carpeta ya creada por el otro request, nunca creando una segunda carpeta
-con nombre distinto). Nunca persiste el `item_id` de la carpeta dentro del
-Profile (§10, explícito) — se resuelve en cada upload.
+EXPOSICIÓN DE DATOS PERSONALES (decisión explícita): el nombre y apellido del candidato pasan a formar parte del NOMBRE DE CARPETA y, por lo tanto, de la ruta y de los `web_url` de SharePoint:
+son visibles en la navegación de SharePoint (intencional, es el objetivo), en los links/URLs, en el historial del navegador, en el índice de búsqueda y en la auditoría del tenant, y se espejan en
+el `web_url` de la metadata local/Spaces. NO se escriben en logs técnicos de la aplicación (`sharepoint_graph_diagnostics.sanitize_endpoint` enmascara los segmentos de nombre). Un cambio de
+nombre del candidato NO se propaga a la carpeta (no hay renombrado automático): la rectificación del nombre en SharePoint es una acción manual.
+
+FOLDER-ENSURE (§10): resolución por candidato, en este orden (sin renombrar nunca): (1) `folder_item_id` guardado en sus documentos (se verifica por id); (2) lookup por PATH relativo
+al item raíz (`.../items/{root}:/{nombre}`, sintaxis estándar de Graph) con el nombre legible actual y con el UUID heredado (el UUID primero si el candidato ya tiene documentos sin
+`folder_item_id`); (3) ausente → POST a `.../items/{root}/children` con `conflictBehavior=fail` (nunca `rename`/`replace`: un 409 de una carrera concurrente se RESUELVE re-leyendo la
+carpeta por el MISMO nombre — que se calcula UNA sola vez por operación — y verificándola). Sin nombres de candidato (`first_name`/`last_name` ausentes) rige el contrato original:
+carpeta `<CV root>/<profile_id>`. El `item_id` de la carpeta NO se guarda en el Profile: vive en cada ProfileDocument (`folder_item_id`, opcional).
 
 UPLOAD CONTRACT (§15): intento 1, si NO confirma (`HTTPError`/`URLError`
 que NO sea 403 — un 403 es una clasificación DEFINITIVA de permiso, nunca
@@ -53,7 +57,9 @@ import hashlib
 import logging
 import re
 import time
+import unicodedata
 import urllib.error
+import urllib.parse
 from uuid import uuid4
 
 from jose import JWTError, jwt
@@ -63,6 +69,7 @@ from core import microsoft365
 from webapp.services import profile_document_repository, profile_document_validation, sharepoint_graph_diagnostics
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+_logger = logging.getLogger("danwor.cchh.profile_document")      # sin nombres de candidatos en ningún mensaje
 
 # Acotado (nunca indefinido) — MISMO criterio que
 # profile_import_service._ROW_TOKEN_MAX_AGE_S. 30 min (ticket §16,
@@ -294,8 +301,13 @@ def _drive_items_base(site_id: str | None = None, drive_id: str | None = None) -
     return f"{GRAPH_BASE}/sites/{site_id or config.HC_SHAREPOINT_SITE_ID}/drives/{drive_id or config.HC_SHAREPOINT_DRIVE_ID}/items"
 
 
-def _folder_by_path_url(profile_id: str) -> str:
-    return f"{_drive_items_base()}/{config.HC_CV_ROOT_ITEM_ID}:/{profile_id}"
+def _folder_by_path_url(folder_name: str) -> str:
+    # el nombre (legible: espacios, coma, corchetes, acentos) se codifica como UN segmento de path; los UUID/ids no cambian
+    return f"{_drive_items_base()}/{config.HC_CV_ROOT_ITEM_ID}:/{urllib.parse.quote(folder_name, safe='')}"
+
+
+def _folder_by_id_url(folder_item_id: str) -> str:
+    return f"{_drive_items_base()}/{urllib.parse.quote(folder_item_id, safe='')}?$select=id,name,folder,parentReference"
 
 
 def _cv_root_children_url() -> str:
@@ -306,12 +318,12 @@ def upload_content_url(folder_item_id: str, remote_filename: str, *, site_id: st
     return f"{_drive_items_base(site_id, drive_id)}/{folder_item_id}:/{remote_filename}:/content"
 
 
-def _folder_create_body(profile_id: str) -> dict:
+def _folder_create_body(folder_name: str) -> dict:
     # `conflictBehavior=fail` a propósito (§10): un 409 se maneja
     # explícitamente re-leyendo la carpeta existente — NUNCA se delega a
     # Graph un rename/replace automático que crearía una carpeta con
     # nombre distinto al determinístico esperado.
-    return {"name": profile_id, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"}
+    return {"name": folder_name, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"}
 
 
 def require_graph_config() -> None:
@@ -356,43 +368,129 @@ def build_remote_filename(document_id: str, original_filename: str) -> str:
 # Folder-ensure (§10).
 # ---------------------------------------------------------------------------
 
-def ensure_profile_folder(profile_id: str, access_token: str) -> str:
-    """Devuelve el `item_id` de la carpeta `<CV root>/<profile_id>`,
-    creándola si hace falta. Contrato EXACTO del ticket §9 (Fase 4.1.1,
-    corrective):
-      1. nombre determinístico = `profile_id`;
-      2. GET por path bajo la raíz configurada — 200 existe, 404 ausente
-         confirmado (una respuesta HTTP real en ambos casos);
-      3. ausente → intenta crear (`_create_folder_with_retry`, ver abajo):
-         confirmado (201/409) resuelve de inmediato; AMBIGUO (fallo de
-         transporte, sin respuesta HTTP) → UN único reintento antes de
-         rendirse;
-      4. devuelve el `item_id`.
+# Convención legible `Apellido, Nombre [id8]`. Se eliminan los caracteres que SharePoint rechaza o que complican el direccionamiento por path (`" * : < > ? / \\ | # % ~ { }` y controles),
+# se colapsan espacios, se quitan puntos/espacios finales y se acota cada parte. NO se cambia mayúsculas/acentos (el nombre se ve como se cargó).
+_FOLDER_FORBIDDEN = re.compile(r'["*:<>?/\\|#%~{}\x00-\x1f\x7f]+')
+_FOLDER_NAME_PART_MAX = 60
 
-    El GET inicial es de solo LECTURA — un fallo de transporte ahí NUNCA
-    es ambiguo sobre "¿se creó algo?" (nada se intentó escribir todavía),
-    así que se clasifica de inmediato como `ProfileDocumentGraphSourceError`,
-    sin retry. La ambigüedad real (§8) vive exclusivamente en el POST de
-    creación, ver `_create_folder_with_retry`."""
-    url = _folder_by_path_url(profile_id)
+
+def _clean_name_part(value) -> str:
+    text = unicodedata.normalize("NFC", str(value or ""))
+    text = _FOLDER_FORBIDDEN.sub(" ", text)
+    text = re.sub(r"\s+", " ", text).strip(" .")
+    return text[:_FOLDER_NAME_PART_MAX].strip(" .")
+
+
+def folder_marker(profile_id: str) -> str:
+    """`id8`: primeros 8 caracteres del profile_id (sin guiones). INFORMATIVO — la identidad de la carpeta es su `driveItem.id`, nunca este marcador."""
+    return _FOLDER_FORBIDDEN.sub("", str(profile_id)).replace("-", "")[:8]
+
+
+def build_folder_name(profile_id: str, first_name, last_name) -> str | None:
+    """`Apellido, Nombre [id8]`; `None` si no hay ni nombre ni apellido (se usa entonces la carpeta UUID del contrato original)."""
+    last, first = _clean_name_part(last_name), _clean_name_part(first_name)
+    if not (last or first):
+        return None
+    base = f"{last}, {first}" if last and first else (last or first)
+    return f"{base} [{folder_marker(profile_id)}]"
+
+
+def _lookup_folder_by_path(folder_name: str, access_token: str) -> dict | None:
+    """GET por path bajo la raíz. `None` = 404 CONFIRMADO (ausente). 403 → permission denied; cualquier otro fallo → GraphSourceError (un fallo de lectura NUNCA es ambiguo sobre «¿se creó algo?»:
+    todavía no se intentó escribir nada)."""
+    url = _folder_by_path_url(folder_name)
     try:
-        existing = microsoft365.graph_get_json(url, access_token)
-        return existing["id"]
+        return microsoft365.graph_get_json(url, access_token)
     except urllib.error.HTTPError as exc:
-        # Diagnóstico (sólo observabilidad): el cuerpo real de Graph (code/message/innerError) se registraba nunca. Un 404 es el caso NORMAL «carpeta aún no existe» → INFO.
+        # Diagnóstico (sólo observabilidad): el cuerpo real de Graph (code/message/innerError). Un 404 es el caso NORMAL «carpeta aún no existe» → INFO. `sanitize_endpoint` enmascara el nombre.
         sharepoint_graph_diagnostics.log_graph_failure("ensure_folder.lookup", "GET", url, exc, level=logging.INFO if exc.code == 404 else logging.WARNING)
         if exc.code == 403:
             raise ProfileDocumentPermissionDeniedError(_PERMISSION_DENIED_MESSAGE) from exc
         if exc.code != 404:
             raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+        return None
     except urllib.error.URLError as exc:
         sharepoint_graph_diagnostics.log_graph_failure("ensure_folder.lookup", "GET", url, exc)
         raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
 
+
+def _get_folder_by_id(folder_item_id: str, access_token: str) -> dict | None:
+    """GET por id de una carpeta guardada en un documento. `None` = 404 (el id quedó obsoleto: se sigue por ruta). Otros fallos NO se interpretan como «no existe»: se propagan para no crear una
+    carpeta duplicada ante un error transitorio."""
+    url = _folder_by_id_url(folder_item_id)
+    try:
+        return microsoft365.graph_get_json(url, access_token)
+    except urllib.error.HTTPError as exc:
+        sharepoint_graph_diagnostics.log_graph_failure("ensure_folder.verify_by_id", "GET", url, exc, level=logging.INFO if exc.code == 404 else logging.WARNING)
+        if exc.code == 403:
+            raise ProfileDocumentPermissionDeniedError(_PERMISSION_DENIED_MESSAGE) from exc
+        if exc.code != 404:
+            raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+        return None
+    except urllib.error.URLError as exc:
+        sharepoint_graph_diagnostics.log_graph_failure("ensure_folder.verify_by_id", "GET", url, exc)
+        raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+
+
+def _claimed_by_other_profile(folder_item_id: str, profile_id: str) -> bool:
+    try:
+        return any(d.get("profile_id") != profile_id for d in profile_document_repository.find_by_folder_item_id(folder_item_id))
+    except profile_document_repository.ProfileDocumentStorageError:
+        return True        # fail-closed: si no se puede comprobar, no se reutiliza
+
+
+def _folder_matches(item, profile_id: str, accepted_names: set) -> bool:
+    """¿La carpeta corresponde a ESTE candidato? Es carpeta, cuelga DIRECTO de la raíz de CVs, su nombre es uno de los esperados (legible actual / UUID heredado) o termina con el marcador `[id8]`
+    de este candidato, y ningún documento de OTRO candidato la referencia. El marcador es una verificación de cordura, no la identidad."""
+    if not isinstance(item, dict) or not item.get("id") or not isinstance(item.get("folder"), dict):
+        return False
+    if (item.get("parentReference") or {}).get("id") != config.HC_CV_ROOT_ITEM_ID:
+        return False
+    name = str(item.get("name") or "")
+    marker = f"[{folder_marker(profile_id)}]".casefold()
+    if name.casefold() not in {n.casefold() for n in accepted_names} and not name.casefold().endswith(marker):
+        return False
+    return not _claimed_by_other_profile(str(item["id"]), profile_id)
+
+
+def _ensure_named_folder(profile_id: str, folder_name: str, access_token: str) -> str:
+    try:
+        docs = profile_document_repository.list_for_profile(profile_id)
+    except profile_document_repository.ProfileDocumentStorageError:
+        docs = []
+    docs = sorted(docs, key=lambda d: str(d.get("uploaded_at") or ""), reverse=True)
+    accepted = {folder_name, profile_id}
+    seen: set[str] = set()
+    for doc in docs:                                                   # (1) id guardado en sus documentos
+        folder_item_id = doc.get("folder_item_id")
+        if not folder_item_id or folder_item_id in seen:
+            continue
+        seen.add(folder_item_id)
+        item = _get_folder_by_id(folder_item_id, access_token)
+        if _folder_matches(item, profile_id, accepted):
+            return item["id"]
+        _logger.info("human_capital.profile_folder_unverified via=stored_id")        # sin nombres: id obsoleto o que no corresponde -> ruta
+    has_legacy_docs = any(not d.get("folder_item_id") for d in docs)
+    for name in ((profile_id, folder_name) if has_legacy_docs else (folder_name, profile_id)):   # (2) por ruta: UUID heredado y nombre legible
+        item = _lookup_folder_by_path(name, access_token)
+        if _folder_matches(item, profile_id, accepted):
+            return item["id"]
+    return _create_folder_with_retry(folder_name, access_token, verify=lambda item: _folder_matches(item, profile_id, accepted))     # (3) crear
+
+
+def ensure_profile_folder(profile_id: str, access_token: str, *, first_name=None, last_name=None) -> str:
+    """Devuelve el `item_id` de la carpeta del candidato, creándola si hace falta (resolución en el docstring del módulo). Sin `first_name`/`last_name` (o ambos vacíos) rige el contrato
+    ORIGINAL: carpeta `<CV root>/<profile_id>`, nombre determinístico, GET por path (200 existe / 404 ausente), POST con `conflictBehavior=fail`, un único reintento ante ambigüedad."""
+    folder_name = build_folder_name(profile_id, first_name, last_name) if (first_name is not None or last_name is not None) else None
+    if folder_name is not None:
+        return _ensure_named_folder(profile_id, folder_name, access_token)
+    existing = _lookup_folder_by_path(profile_id, access_token)
+    if existing is not None:
+        return existing["id"]
     return _create_folder_with_retry(profile_id, access_token)
 
 
-def _attempt_create_folder(profile_id: str, access_token: str) -> tuple[str | None, bool]:
+def _attempt_create_folder(folder_name: str, access_token: str) -> tuple[str | None, bool]:
     """UN intento de POST de creación. Devuelve `(item_id, confirmed)`:
       - `(item_id, True)`: 201 confirmado, carpeta recién creada.
       - `(None, True)`: 409 CONFIRMADO — otro request ya la creó; el
@@ -407,7 +505,7 @@ def _attempt_create_folder(profile_id: str, access_token: str) -> tuple[str | No
     o no"."""
     url = _cv_root_children_url()
     try:
-        created = microsoft365.graph_post_json(url, access_token, _folder_create_body(profile_id))
+        created = microsoft365.graph_post_json(url, access_token, _folder_create_body(folder_name))
         return created["id"], True
     except urllib.error.HTTPError as exc:
         sharepoint_graph_diagnostics.log_graph_failure("ensure_folder.create", "POST", url, exc, level=logging.INFO if exc.code == 409 else logging.WARNING)
@@ -421,17 +519,17 @@ def _attempt_create_folder(profile_id: str, access_token: str) -> tuple[str | No
         return None, False
 
 
-def _reread_folder_after_conflict(profile_id: str, access_token: str) -> str:
+def _reread_folder_after_conflict(folder_name: str, access_token: str, verify=None) -> str:
     """Re-lee tras un 409 CONFIRMADO — en ese punto ya se sabe que la
     carpeta existe (la creó otro request), así que un fallo de transporte
     ACÁ es un problema de LECTURA pura, no de "¿se creó algo?" — se
     clasifica de inmediato (403 → permission denied, cualquier otra cosa →
     GRAPH_SOURCE_ERROR), sin un tercer intento de creación ni un retry
-    anidado."""
-    url = _folder_by_path_url(profile_id)
+    anidado. Con `verify` (convención legible) la carpeta releída se VERIFICA: si no corresponde
+    al candidato NO se usa (GRAPH_SOURCE_ERROR)."""
+    url = _folder_by_path_url(folder_name)
     try:
         existing = microsoft365.graph_get_json(url, access_token)
-        return existing["id"]
     except urllib.error.HTTPError as exc:
         sharepoint_graph_diagnostics.log_graph_failure("ensure_folder.reread_after_conflict", "GET", url, exc)
         if exc.code == 403:
@@ -440,20 +538,24 @@ def _reread_folder_after_conflict(profile_id: str, access_token: str) -> str:
     except urllib.error.URLError as exc:
         sharepoint_graph_diagnostics.log_graph_failure("ensure_folder.reread_after_conflict", "GET", url, exc)
         raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+    if verify is not None and not verify(existing):
+        _logger.warning("human_capital.profile_folder_conflict_unverified")
+        raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE)
+    return existing["id"]
 
 
-def _create_folder_with_retry(profile_id: str, access_token: str) -> str:
+def _create_folder_with_retry(folder_name: str, access_token: str, verify=None) -> str:
     """Contrato de creación con UN único reintento ante ambigüedad (ticket
-    §9) — MISMO `profile_id`/payload/parent en AMBOS intentos, nunca una
-    segunda carpeta con nombre distinto. Ambos intentos ambiguos (ninguna
+    §9) — MISMO nombre/payload/parent en AMBOS intentos (el nombre se calcula UNA vez por operación),
+    nunca una segunda carpeta con nombre distinto. Ambos intentos ambiguos (ninguna
     respuesta HTTP confirmada en ninguno) → `ProfileDocumentFolderOutcomeUnknownError`."""
-    item_id, confirmed = _attempt_create_folder(profile_id, access_token)
+    item_id, confirmed = _attempt_create_folder(folder_name, access_token)
     if confirmed:
-        return item_id if item_id is not None else _reread_folder_after_conflict(profile_id, access_token)
+        return item_id if item_id is not None else _reread_folder_after_conflict(folder_name, access_token, verify)
 
-    item_id, confirmed = _attempt_create_folder(profile_id, access_token)
+    item_id, confirmed = _attempt_create_folder(folder_name, access_token)
     if confirmed:
-        return item_id if item_id is not None else _reread_folder_after_conflict(profile_id, access_token)
+        return item_id if item_id is not None else _reread_folder_after_conflict(folder_name, access_token, verify)
 
     raise ProfileDocumentFolderOutcomeUnknownError(
         "No pudimos confirmar si la carpeta de este candidato se creó en SharePoint. "
@@ -551,7 +653,7 @@ def verify_upload_retry_token(token: str) -> dict:
 def sign_commit_retry_token(
     *, document_id: str, profile_id: str, provider: str, site_id: str, drive_id: str, item_id: str,
     web_url: str | None, filename: str, content_type: str, size_bytes: int, uploaded_at: str,
-    uploaded_by: str, initiated_by: str,
+    uploaded_by: str, initiated_by: str, folder_item_id: str | None = None,
 ) -> str:
     claims = {
         "purpose": _COMMIT_RETRY_PURPOSE,
@@ -570,6 +672,8 @@ def sign_commit_retry_token(
         "initiated_by": initiated_by,
         "exp": int(time.time()) + _RETRY_TOKEN_MAX_AGE_S,
     }
+    if folder_item_id:
+        claims["folder_item_id"] = folder_item_id
     return jwt.encode(claims, config.SESSION_SECRET, algorithm="HS256")
 
 
@@ -583,7 +687,7 @@ def verify_commit_retry_token(token: str) -> dict:
 
 def _commit_uploaded_document(
     *, document_id: str, profile_id: str, drive_item: dict, filename: str, content_type: str,
-    size_bytes: int, uploaded_at: str, uploaded_by: str,
+    size_bytes: int, uploaded_at: str, uploaded_by: str, folder_item_id: str | None = None,
 ) -> dict:
     fields = {
         "profile_id": profile_id,
@@ -598,6 +702,8 @@ def _commit_uploaded_document(
         "uploaded_at": uploaded_at,
         "uploaded_by": uploaded_by,
     }
+    if folder_item_id:
+        fields["folder_item_id"] = folder_item_id     # campo OPCIONAL (identidad estable de la carpeta, ver docstring del módulo); no es campo canónico
     try:
         document, _created = profile_document_repository.create_with_explicit_id(document_id, fields)
         return document
@@ -607,19 +713,19 @@ def _commit_uploaded_document(
             site_id=config.HC_SHAREPOINT_SITE_ID, drive_id=config.HC_SHAREPOINT_DRIVE_ID,
             item_id=drive_item.get("id"), web_url=drive_item.get("webUrl"), filename=filename,
             content_type=content_type, size_bytes=size_bytes, uploaded_at=uploaded_at, uploaded_by=uploaded_by,
-            initiated_by=uploaded_by,
+            initiated_by=uploaded_by, folder_item_id=folder_item_id,
         )
         raise ProfileDocumentCommitRetryRequired(retry_token) from None
 
 
-def upload_document(*, profile_id: str, filename: str, data: bytes, access_token: str, uploaded_by: str) -> dict:
+def upload_document(*, profile_id: str, filename: str, data: bytes, access_token: str, uploaded_by: str, first_name=None, last_name=None) -> dict:
     """Camino de alta de UN documento nuevo (§6-§15/§20). Orden estricto:
     validación de formato → config de Graph → ensure-folder → mint
     `document_id` → upload con reintento → commit de metadata (con su
     propio camino de reintento, ver `_commit_uploaded_document`)."""
     _ext, content_type = profile_document_validation.validate_upload(filename, data)
     require_graph_config()
-    folder_item_id = ensure_profile_folder(profile_id, access_token)
+    folder_item_id = ensure_profile_folder(profile_id, access_token, first_name=first_name, last_name=last_name)
     document_id = str(uuid4())
     remote_filename = build_remote_filename(document_id, filename)
     sha256 = hashlib.sha256(data).hexdigest()
@@ -638,6 +744,7 @@ def upload_document(*, profile_id: str, filename: str, data: bytes, access_token
     return _commit_uploaded_document(
         document_id=document_id, profile_id=profile_id, drive_item=drive_item, filename=filename,
         content_type=content_type, size_bytes=len(data), uploaded_at=uploaded_at, uploaded_by=uploaded_by,
+        folder_item_id=folder_item_id,
     )
 
 
@@ -673,7 +780,7 @@ def retry_upload_document(
     return _commit_uploaded_document(
         document_id=claims["document_id"], profile_id=claims["profile_id"], drive_item=drive_item,
         filename=claims["original_filename"], content_type=content_type, size_bytes=len(data),
-        uploaded_at=uploaded_at, uploaded_by=requesting_user_sub,
+        uploaded_at=uploaded_at, uploaded_by=requesting_user_sub, folder_item_id=claims.get("folder_item_id"),
     )
 
 
@@ -699,6 +806,8 @@ def retry_commit_document(*, token: str, requesting_user_sub: str) -> tuple[dict
         "uploaded_at": claims["uploaded_at"],
         "uploaded_by": claims["uploaded_by"],
     }
+    if claims.get("folder_item_id"):
+        fields["folder_item_id"] = claims["folder_item_id"]
     try:
         return profile_document_repository.create_with_explicit_id(claims["document_id"], fields)
     except profile_document_repository.ProfileDocumentRemoteOutcomeUnknownError:
@@ -707,7 +816,7 @@ def retry_commit_document(*, token: str, requesting_user_sub: str) -> tuple[dict
             site_id=claims["site_id"], drive_id=claims["drive_id"], item_id=claims["item_id"],
             web_url=claims["web_url"], filename=claims["filename"], content_type=claims["content_type"],
             size_bytes=claims["size_bytes"], uploaded_at=claims["uploaded_at"], uploaded_by=claims["uploaded_by"],
-            initiated_by=requesting_user_sub,
+            initiated_by=requesting_user_sub, folder_item_id=claims.get("folder_item_id"),
         )
         raise ProfileDocumentCommitRetryRequired(retry_token) from None
 

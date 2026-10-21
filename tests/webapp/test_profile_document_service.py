@@ -674,7 +674,8 @@ def test_ensure_profile_folder_never_accepts_a_caller_supplied_root_or_parent_id
     import inspect
 
     params = list(inspect.signature(svc.ensure_profile_folder).parameters)
-    assert params == ["profile_id", "access_token"]
+    assert params == ["profile_id", "access_token", "first_name", "last_name"]            # sólo identidad del candidato + nombres para el rótulo; ningún root/parent/site/drive
+    assert not [p for p in params if "root" in p or "parent" in p or "site" in p or "drive" in p]
 
 
 def test_delete_document_signature_never_accepts_a_caller_supplied_site_or_drive_id():

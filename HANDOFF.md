@@ -10722,3 +10722,30 @@ Aceptación localhost (ver §11 del return): `uvicorn webapp.main:app --port 850
 (`/catalog/flow/assessment?flow=<id>`). Preview visual estático generado para BUENA/PARCIAL/ND.
 
 Branch `feat/judgment-persistence-ui` (sobre el commit de 8D.2). SIN push/PR.
+
+## CCHH — Carpetas legibles de candidatos en SharePoint (2026-10-21)
+
+**Qué cambió.** Las carpetas NUEVAS de candidatos en SharePoint pasan de `<CV root>/<profile_id>` a `<CV root>/Apellido, Nombre [id8]` (`id8` = primeros 8 caracteres del `profile_id`, **informativo**: no es la identidad).
+Implementado en `profile_document_service` (`build_folder_name`, `folder_marker`, `ensure_profile_folder(..., first_name, last_name)`), `profile_document_repository` (`find_by_folder_item_id`), `sharepoint_graph_diagnostics`
+(`sanitize_endpoint` enmascara nombres) y los dos puntos del router que suben documentos (alta con CV y panel de Documentos).
+
+**Identidad.** El `driveItem.id` completo de la carpeta se guarda en el campo OPCIONAL `folder_item_id` de cada ProfileDocument (no es campo canónico: no genera conflictos de idempotencia). No se guarda en el Profile.
+
+**Resolución por candidato (sin renombrar nunca):** (1) `folder_item_id` de sus documentos, verificado por id; (2) GET por ruta con el nombre legible actual y con el UUID heredado (el UUID primero si el candidato ya tiene documentos sin
+`folder_item_id`); (3) crear (`conflictBehavior=fail`; un 409 se resuelve releyendo el MISMO nombre y verificándolo; el nombre se calcula una vez por operación). Sin nombres (`first_name`/`last_name` vacíos) rige el contrato UUID original.
+
+**Verificación antes de reutilizar** (`_folder_matches`): es carpeta, cuelga DIRECTO de la raíz de CVs, su nombre es el legible actual / el UUID heredado / termina en el marcador `[id8]` de ese candidato, y ningún documento de OTRO
+candidato la referencia. Si no se verifica NO se reutiliza (nunca se escribe en una carpeta no verificada).
+
+**Compatibilidad.** Carpetas UUID existentes: siguen funcionando y no se tocan (el primer documento nuevo registra su `folder_item_id`). Cambio de nombre del candidato: la carpeta NO se renombra; los documentos nuevos siguen yendo a la existente por id.
+Tokens de reintento: el de subida ya llevaba `folder_item_id`; el de commit lo suma de forma opcional (los emitidos antes del cambio siguen siendo válidos).
+
+**Límites conocidos (fail-safe).** (a) Dos candidatos con los MISMOS nombres y el MISMO `id8` (prácticamente imposible) colisionan en la ruta: el segundo recibe un error y no escribe en la carpeta del primero. (b) Una carpeta renombrada a mano en SharePoint
+sin el marcador `[id8]` al final no se reutiliza automáticamente (puede aparecer una carpeta adicional). (c) Si se borran todos los documentos de un candidato y además cambia su nombre, la próxima subida crea una carpeta nueva.
+
+**Exposición de datos personales (decisión explícita).** El nombre y apellido pasan a formar parte del nombre de carpeta, de la ruta y de los `web_url`: visibles en la navegación de SharePoint (intencional), en links/URLs, historial del navegador, búsqueda e
+índices del tenant y auditoría; se espejan en el `web_url` de la metadata local/Spaces. No se escriben en logs técnicos de la aplicación (`sanitize_endpoint` enmascara los segmentos de nombre de carpeta y de archivo). No se rectifican solos: un cambio
+de nombre en el Hub no cambia la carpeta (acción manual). Sin cambios de grants, scopes ni permisos.
+
+**Tests.** `tests/webapp/test_profile_document_folder_naming.py` (35: convención/saneamiento, primer documento, adicionales por id, cambio de nombre, homónimos, colisión de marcador, verificación, carpeta UUID, 409/reintentos, tokens, logs sin nombres,
+routers) + fixtures de Graph realistas en los tests de rutas. El sandbox de prueba CONTROL (fuera del repo) se adaptó a la convención.

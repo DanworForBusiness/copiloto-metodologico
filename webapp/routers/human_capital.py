@@ -422,6 +422,7 @@ async def human_capital_profile_new_submit(
         profile_document_service.upload_document(
             profile_id=profile["profile_id"], filename=file.filename, data=file_bytes,
             access_token=graph_token, uploaded_by=uploaded_by,
+            first_name=profile.get("first_name") or "", last_name=profile.get("last_name") or "",
         )
     except profile_document_validation.ProfileDocumentValidationError as exc:
         return _render_profile_edit_with_documents(
@@ -910,6 +911,7 @@ async def human_capital_profile_documents_upload(
         profile_document_service.upload_document(
             profile_id=profile_id, filename=file.filename, data=data, access_token=graph_token,
             uploaded_by=uploaded_by,
+            first_name=profile.get("first_name") or "", last_name=profile.get("last_name") or "",
         )
     except profile_document_validation.ProfileDocumentValidationError as exc:
         return _render_profile_edit_with_documents(

@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import urllib.error
 import urllib.parse
 import uuid
@@ -32,10 +33,26 @@ _WRITE_ROLES = {"write", "owner", "sp.full control"}                 # roles de 
 _SELECTED_SCOPE = "Files.SelectedOperations.Selected"
 
 
+_PATH_SEGMENT = re.compile(r":/([^:/]+)")
+_ID_LIKE = re.compile(r"^[A-Za-z0-9_-]+$")
+_DOC_PREFIX = re.compile(r"^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})__")
+
+
+def _mask_path_segment(match) -> str:
+    """Los segmentos de direccionamiento por path (`...:/<segmento>`) pueden contener NOMBRES de personas (carpeta legible `Apellido, Nombre [id8]`, o el nombre del archivo del CV): se enmascaran.
+    Se conservan los identificadores puros (UUID/ids) y el prefijo `<document_id>__` de los archivos."""
+    segment = urllib.parse.unquote(match.group(1))
+    if _ID_LIKE.match(segment):
+        return ":/" + segment
+    prefix = _DOC_PREFIX.match(segment)
+    return ":/" + (prefix.group(1) + "__<archivo>" if prefix else "<nombre>")
+
+
 def sanitize_endpoint(url: str) -> str:
-    """URL sin query string ni fragmento (nunca viaja un token ni un parámetro sensible); se conservan los ids de site/drive/item, que no son secretos."""
+    """URL sin query string ni fragmento (nunca viaja un token ni un parámetro sensible); se conservan los ids de site/drive/item, que no son secretos. Los nombres de carpeta/archivo (datos personales)
+    se enmascaran: ningún log técnico de la aplicación debe contener nombres de candidatos."""
     parts = urllib.parse.urlsplit(url or "")
-    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, _PATH_SEGMENT.sub(_mask_path_segment, parts.path), "", ""))
 
 
 def graph_error_detail(exc: BaseException) -> dict:
