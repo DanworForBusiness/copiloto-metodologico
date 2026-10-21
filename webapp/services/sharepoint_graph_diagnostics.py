@@ -341,7 +341,7 @@ WRITE_TEST_PHRASE = "ESCRIBIR ARCHIVO DE PRUEBA"
 WRITE_TEST_CONTENT = b"cchh-sharepoint-upload-test: archivo de diagnostico sin datos personales. Se puede borrar.\n"
 WRITE_TEST_CONTENT_TYPE = "text/plain"
 # Destino y aplicación ÚNICOS permitidos para la prueba de escritura: la carpeta `Hub` de CONTROL y la app LOCAL (el grant Selected `write` se creó sólo ahí). Identificadores reales (drive e item), nunca URLs ni nombres:
-# un sharing link que resuelva a cualquier otra carpeta (p. ej. `CCHH HUB` de producción) o un token de cualquier otra app (la herramienta administrativa, la app de producción) se rechazan SIN PUT.
+# un sharing link que resuelva a cualquier otra carpeta (p. ej. `CCHH HUB` o `CCHH HUB/Busqueda y Seleccion/CVs` de producción) o un token de cualquier otra app (la herramienta administrativa, la app de producción) se rechazan SIN PUT.
 # Ampliar esto requiere un cambio de código revisado y un GO explícito del owner.
 WRITE_TEST_ALLOWED = {"app_id": "ad98b5cd-71d0-451f-8d70-e8581a4788fa",
                       "drive_id": "b!0KEpoe6kOESN6J455wB3ZLYmlHEbGsZPlL4_LU8lfDroKl3b1Ti0RYJfK4nkJLM3",

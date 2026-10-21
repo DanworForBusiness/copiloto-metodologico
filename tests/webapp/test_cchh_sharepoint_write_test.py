@@ -253,6 +253,7 @@ def test_the_real_allowed_target_is_the_control_hub_folder_and_the_local_app_and
 
 @pytest.mark.parametrize("ids", [
     dict(site=PROD_DO["site"], drive=PROD_DO["drive"], item=PROD_DO["item"]),                  # CCHH HUB de producción
+    dict(site=PROD_DO["site"], drive=PROD_DO["drive"], item="01ULA425KSLK6LZAFFEVHKUSCO32CH64JG"),  # CCHH HUB/Busqueda y Seleccion/CVs de producción
     dict(site=CTRL["site"], drive=CTRL["drive"], item="OTHERFOLDER"),                           # otra carpeta (p. ej. una subcarpeta) del mismo drive de CONTROL
     dict(site=CTRL["site"], drive="b!OTHERDRIVE", item=CTRL["item"]),                           # mismo item id en otro drive
     dict(site="danwor.sharepoint.com,X,Y", drive="b!OTHERDRIVE", item="OTHERITEM"),             # cualquier otro sitio

@@ -8,7 +8,7 @@ Operación de fondo (Graph v1.0, doc oficial `driveitem-post-permissions`):
 
 Perfiles (filas de la allowlist, cerradas en código; no hay parámetros genéricos para otros destinos):
   control-local  app LOCAL → carpeta `Hub` de CONTROL: check, dry-run, apply y rollback.
-  production-do  app de DigitalOcean → carpeta `CCHH HUB` (sitio Comunicaciones): SÓLO check y dry-run. `--apply`/`--rollback` productivos quedan deshabilitados en código hasta un GO independiente;
+  production-do  app de DigitalOcean → carpeta `CCHH HUB/Busqueda y Seleccion/CVs` (sitio Comunicaciones; NUNCA `CCHH HUB`): SÓLO check y dry-run. `--apply`/`--rollback` productivos quedan deshabilitados en código hasta un GO independiente;
                  tampoco se admite `--request-write-scope` (no se pide un scope de escritura sobre producción).
 Los perfiles son independientes: ningún identificador se comparte ni se infiere de otro, y los permisos personales del usuario sobre CONTROL NO equivalen a permisos sobre Comunicaciones.
 
@@ -75,11 +75,12 @@ ALLOWED_GRANTS: tuple[dict[str, Any], ...] = (
      "modes": ALL_MODES, "notes": ()},
     {"name": "production-do", "tenant_id": TENANT_ID, "client_id": PRODUCTION_APP_ID,
      "site_id": "danwor.sharepoint.com,65c64790-f933-46b9-823f-8e4ad57e69b1,b9b7da7d-8f67-46a9-be27-5f176394718a",
-     "drive_id": "b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE", "item_id": "01ULA425ONX3YLUO3XTNDI46FMF43PFL4X", "folder_name": "CCHH HUB",
+     "drive_id": "b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE", "item_id": "01ULA425KSLK6LZAFFEVHKUSCO32CH64JG", "folder_name": "CVs",
+     "parent_item_id": "01ULA425KHEKK4PGEOKFGKQKDWCUDFQEGV",  # `CCHH HUB/Busqueda y Seleccion`: el padre real también se verifica (defensa en profundidad sobre un nombre genérico como `CVs`)
      "modes": READ_ONLY_MODES,
-     "notes": ("perfil PRODUCCIÓN (sitio Comunicaciones, carpeta CCHH HUB): sólo --check y --dry-run; --apply y --rollback están deshabilitados hasta un GO independiente",
+     "notes": ("perfil PRODUCCIÓN (sitio Comunicaciones, carpeta CCHH HUB/Busqueda y Seleccion/CVs): sólo --check y --dry-run; --apply y --rollback están deshabilitados hasta un GO independiente",
                "los permisos personales del usuario sobre CONTROL no equivalen a permisos sobre Comunicaciones: la autorización efectiva se verifica sólo con las lecturas contra este destino",
-               "aplicar un grant sobre CCHH HUB rompería la herencia de la carpeta productiva (CVs): los cambios futuros de permisos de la biblioteca dejarían de propagarse a ella y borrar el grant no garantiza restaurarla")},
+               "aplicar un grant sobre CVs rompería la herencia de esa carpeta (sólo de ella y su contenido; CCHH HUB, Configuracion y el workbook de catálogos quedan fuera): los cambios futuros de permisos de la biblioteca dejarían de propagarse a CVs y borrar el grant no garantiza restaurarla")},
 )
 GRANT_ROLE = "write"
 EQUIVALENT_ROLES = frozenset({"write", "owner", "fullcontrol"})
@@ -362,13 +363,18 @@ def check_target(graph: Graph, grant: dict[str, str]) -> dict[str, Any]:
         problems.append("site_id")
     if _site_web_id(grant["site_id"]) and str(ids.get("webId", "")).lower() != _site_web_id(grant["site_id"]):
         problems.append("web_id")
+    if grant.get("parent_item_id") and (body.get("parentReference") or {}).get("id") != grant["parent_item_id"]:  # sólo perfiles que lo declaran (production-do)
+        problems.append("parent_item_id")
     if body.get("name") != grant["folder_name"]:  # defensa en profundidad: la identidad es por IDs; el nombre sólo se suma, nunca la reemplaza
         problems.append("name")
     if problems:
         raise ToolError("target_mismatch", "la metadata real del destino no coincide con la allowlist", fields=problems)
     if not isinstance(body.get("folder"), dict) or "file" in body:
         raise ToolError("target_not_a_folder", "el destino no es una carpeta: no se prepara ningún grant")
-    return {"name": body.get("name"), "site_id": ids.get("siteId"), "list_id": ids.get("listId"), "list_item_id": ids.get("listItemId")}
+    meta = {"name": body.get("name"), "site_id": ids.get("siteId"), "list_id": ids.get("listId"), "list_item_id": ids.get("listItemId")}
+    if grant.get("parent_item_id"):
+        meta["parent_item_id"] = (body.get("parentReference") or {}).get("id")
+    return meta
 
 
 def verify_identity(graph: Graph, expect_user: "str | None", *, required: bool) -> dict[str, Any]:
@@ -409,6 +415,9 @@ def _enumerate(graph: Graph, source: str, url: "str | None", client_id: str) -> 
         entry["status"] = res["status"]
         for perm in res["body"].get("value") or []:
             entry["count"] += 1
+            if source == "driveItem.permissions":  # informativo (herencia): `inheritedFrom` presente = hereda de un ancestro; ausente = permiso propio del ítem (o link de compartir)
+                key = "inherited_count" if perm.get("inheritedFrom") else "direct_count"
+                entry[key] = entry.get(key, 0) + 1
             for app_id, roles in _app_grants(perm):
                 if app_id == client_id.lower():
                     entry["matches"].append({"roles": roles, "permission_id": perm.get("id")})

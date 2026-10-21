@@ -864,7 +864,9 @@ def test_secrets_never_reach_the_report_nor_the_streams_in_any_mode(tmp_path):
 DO_COLL, DO_WEB = "65c64790-f933-46b9-823f-8e4ad57e69b1", "b9b7da7d-8f67-46a9-be27-5f176394718a"
 DO_SITE = f"danwor.sharepoint.com,{DO_COLL},{DO_WEB}"
 DO_DRIVE = "b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE"
-DO_ITEM = "01ULA425ONX3YLUO3XTNDI46FMF43PFL4X"
+DO_ITEM = "01ULA425KSLK6LZAFFEVHKUSCO32CH64JG"            # CCHH HUB/Busqueda y Seleccion/CVs (verificado con GET independientes)
+DO_PARENT = "01ULA425KHEKK4PGEOKFGKQKDWCUDFQEGV"          # CCHH HUB/Busqueda y Seleccion
+DO_HUB_OLD = "01ULA425ONX3YLUO3XTNDI46FMF43PFL4X"         # CCHH HUB: destino anterior, YA NO permitido
 
 
 def _do_argv(mode="--dry-run", **over):
@@ -872,7 +874,7 @@ def _do_argv(mode="--dry-run", **over):
 
 
 def _do_meta(**over):
-    body = {"id": DO_ITEM, "name": "CCHH HUB", "folder": {"childCount": 9}, "parentReference": {"driveId": DO_DRIVE},
+    body = {"id": DO_ITEM, "name": "CVs", "folder": {"childCount": 0}, "parentReference": {"driveId": DO_DRIVE, "id": DO_PARENT},
             "sharepointIds": {"siteId": DO_COLL, "webId": DO_WEB, "listId": "LISTDO", "listItemId": "11"}}
     body.update(over)
     return body
@@ -889,7 +891,7 @@ def test_the_production_profile_has_the_approved_identifiers_and_is_read_only():
     rows = {r["name"]: r for r in sg.ALLOWED_GRANTS}
     assert list(rows) == ["control-local", "production-do"]  # sólo estos dos destinos; sin parámetros genéricos
     do = rows["production-do"]
-    assert (do["client_id"], do["site_id"], do["drive_id"], do["item_id"], do["folder_name"]) == (PROD, DO_SITE, DO_DRIVE, DO_ITEM, "CCHH HUB")
+    assert (do["client_id"], do["site_id"], do["drive_id"], do["item_id"], do["folder_name"], do["parent_item_id"]) == (PROD, DO_SITE, DO_DRIVE, DO_ITEM, "CVs", DO_PARENT)
     assert do["modes"] == ("check", "dry-run") and "apply" not in do["modes"] and "rollback" not in do["modes"]
     control = rows["control-local"]
     for key in ("client_id", "site_id", "drive_id", "item_id"):
@@ -932,8 +934,8 @@ def test_production_check_and_dry_run_read_only_the_production_destination_and_n
     argv = _with(_do_argv(mode), {"--audit-dir": str(tmp_path / "audit"), "--acknowledge-undetermined": True, "--acknowledge-inheritance-break": True, "--confirm-apply": sg.CONFIRM_PHRASE})
     code, report, text = _go(argv, graph)
     assert code == 0 and report["ok"] is True and set(graph.methods) == {"GET"} and not (tmp_path / "audit").exists()
-    assert report["allowlist"] == "production-do" and report["profile"] == {"name": "production-do", "enabled_modes": ["check", "dry-run"], "folder_name": "CCHH HUB"}
-    assert report["target"]["name"] == "CCHH HUB" and report["preview"]["url"] == f"https://graph.microsoft.com/v1.0/drives/{DO_DRIVE}/items/{DO_ITEM}/permissions"
+    assert report["allowlist"] == "production-do" and report["profile"] == {"name": "production-do", "enabled_modes": ["check", "dry-run"], "folder_name": "CVs"}
+    assert report["target"]["name"] == "CVs" and report["target"]["parent_item_id"] == DO_PARENT and report["preview"]["url"] == f"https://graph.microsoft.com/v1.0/drives/{DO_DRIVE}/items/{DO_ITEM}/permissions"
     assert report["preview"]["body"] == {"grantedToV2": {"application": {"id": PROD}}, "roles": ["write"]}
     urls = [r["url"] for r in graph.requests]
     assert not any(DRIVE in u or ITEM in u or SITE in u for u in urls) and any(DO_DRIVE in u for u in urls)
@@ -944,6 +946,49 @@ def test_production_check_and_dry_run_read_only_the_production_destination_and_n
     if mode == "--dry-run":
         assert any("deshabilitado" in p for p in report["pending_at_apply"])
     assert SECRET not in text
+
+
+# ── production-do apunta a CVs (no a CCHH HUB) ──────────────────────────────────────────────────────────────
+def test_the_previous_cchh_hub_destination_is_no_longer_in_the_allowlist_in_any_mode(tmp_path):
+    assert all(row["item_id"] != DO_HUB_OLD for row in sg.ALLOWED_GRANTS) and all(row.get("parent_item_id") != DO_HUB_OLD for row in sg.ALLOWED_GRANTS)
+    with pytest.raises(sg.ToolError) as e:
+        sg.resolve_grant(sg.TENANT_ID, PROD, DO_SITE, DO_DRIVE, DO_HUB_OLD)
+    assert e.value.stage == "config_rejected" and "item_id" in e.value.detail["fields"]
+    for mode in ("--check", "--dry-run", "--apply", "--rollback"):
+        graph = FakeGraph()
+        code, report, _ = _go(_do_argv(mode, **{"--item-id": DO_HUB_OLD}), graph, prompt=lambda t: pytest.fail("sin prompt"))
+        assert code == 2 and report["stage"] == "config_rejected" and graph.requests == []
+
+
+def test_the_parent_folder_is_verified_for_production_and_a_wrong_parent_aborts_before_any_enumeration():
+    graph = FakeGraph(meta=(200, {}, _do_meta(parentReference={"driveId": DO_DRIVE, "id": "OTHERPARENT"})))
+    code, report, _ = _go(_do_argv("--check"), graph)
+    assert code == 2 and report["stage"] == "target_mismatch" and report["fields"] == ["parent_item_id"]
+    assert all("/permissions" not in r["url"] for r in graph.requests) and set(graph.methods) == {"GET"}
+
+
+def test_a_wrong_name_or_a_non_folder_in_production_is_rejected():
+    for meta, stage in ((_do_meta(name="CCHH HUB"), "target_mismatch"), (_do_meta(folder=None, file={"mimeType": "x"}), "target_not_a_folder")):
+        meta = {k: v for k, v in meta.items() if v is not None}
+        code, report, _ = _go(_do_argv("--check"), FakeGraph(meta=(200, {}, meta)))
+        assert code == 2 and report["stage"] == stage
+
+
+def test_the_control_target_is_not_subject_to_the_parent_pin_and_reports_no_parent_field():
+    assert "parent_item_id" not in sg.ALLOWED_GRANTS[0]
+    code, report, _ = _go(_argv("--check"), FakeGraph(meta=(200, {}, _meta())))
+    assert code == 0 and "parent_item_id" not in report["target"]
+
+
+def test_the_permission_evidence_reports_inherited_vs_direct_entries_without_changing_the_gates():
+    perms = {"value": [{"id": "a", "roles": ["read"], "inheritedFrom": {"id": DO_PARENT}, "grantedToV2": {"user": {"displayName": "x"}}},
+                       {"id": "b", "roles": ["read"], "inheritedFrom": {"id": DO_PARENT}},
+                       {"id": "c", "roles": ["read"], "link": {"type": "view"}}]}
+    graph = FakeGraph(meta=(200, {}, _do_meta()), drive_perms=(200, {}, perms))
+    code, report, _ = _go(_do_argv("--check"), graph)
+    item = next(e for e in report["evidence"] if e["source"] == "driveItem.permissions")
+    assert code == 0 and item["count"] == 3 and item["inherited_count"] == 2 and item["direct_count"] == 1 and item["matches"] == []
+    assert report["duplicate_state"]["state"] == "UNDETERMINED" and set(graph.methods) == {"GET"}
 
 
 @pytest.mark.parametrize("mode", ["--apply", "--rollback"])
@@ -966,12 +1011,12 @@ def test_production_does_not_even_ask_for_a_write_scope():
 
 
 @pytest.mark.parametrize("meta,fields", [
-    (_meta(), ["item_id", "drive_id", "site_id", "web_id", "name"]),                                   # lo que hay en CONTROL no pasa por producción
+    (_meta(), ["item_id", "drive_id", "site_id", "web_id", "parent_item_id", "name"]),                                   # lo que hay en CONTROL no pasa por producción
     (_do_meta(name="Hub"), ["name"]),
     (_do_meta(sharepointIds={"siteId": DO_COLL, "listId": "L", "listItemId": "1"}), ["web_id"]),   # sin webId = fail closed
     (_do_meta(sharepointIds={"siteId": DO_COLL, "webId": SITE, "listId": "L", "listItemId": "1"}), ["web_id"]),
     (_do_meta(sharepointIds={"siteId": SITE, "webId": DO_WEB}), ["site_id"]),
-    (_do_meta(parentReference={"driveId": DRIVE}), ["drive_id"]),
+    (_do_meta(parentReference={"driveId": DRIVE}), ["drive_id", "parent_item_id"]),
     (_do_meta(id=ITEM), ["item_id"]),
 ])
 def test_the_production_destination_is_verified_by_ids_and_nothing_from_control_is_accepted(meta, fields):

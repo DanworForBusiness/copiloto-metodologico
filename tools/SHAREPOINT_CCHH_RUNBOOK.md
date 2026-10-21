@@ -8,10 +8,10 @@
 |---|---|---|
 | Perfil de la herramienta | `control-local` | `production-do` |
 | Aplicación receptora | `ad98b5cd-71d0-451f-8d70-e8581a4788fa` | `eeca6df8-2436-422f-a1b8-05ff9e8ff653` |
-| Sitio / carpeta | sitio de CONTROL / `Hub` | `Comunicaciones` / `CCHH HUB` |
+| Sitio / carpeta | sitio de CONTROL / `Hub` | `Comunicaciones` / `CCHH HUB/Busqueda y Seleccion/CVs` (destino fijado; **no** `CCHH HUB`) |
 | Site ID | `a129a1d0-a4ee-4438-8de8-9e39e7007764` | `danwor.sharepoint.com,65c64790-f933-46b9-823f-8e4ad57e69b1,b9b7da7d-8f67-46a9-be27-5f176394718a` |
 | Drive ID | `b!0KEpoe6kOESN6J455wB3ZLYmlHEbGsZPlL4_LU8lfDroKl3b1Ti0RYJfK4nkJLM3` | `b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE` |
-| Item ID | `01U7IMSJOGXNT3ZNP5NVAKDFLQWY3L6OMQ` | `01ULA425ONX3YLUO3XTNDI46FMF43PFL4X` |
+| Item ID | `01U7IMSJOGXNT3ZNP5NVAKDFLQWY3L6OMQ` | `01ULA425KSLK6LZAFFEVHKUSCO32CH64JG` (carpeta `CVs`; padre `Busqueda y Seleccion` = `01ULA425KHEKK4PGEOKFGKQKDWCUDFQEGV`) |
 | Modos habilitados hoy | check, dry-run, apply, rollback | **sólo check y dry-run** (apply/rollback/`--request-write-scope` rechazados en código) |
 | Rol a conceder | `write` (un grant) | `write`, **sin GO todavía** |
 | Estado del grant | no creado (el PUT de prueba da 403) | no creado ni verificado |
@@ -19,7 +19,7 @@
 
 Cliente administrativo (identidad de la herramienta, **no** es una app del Hub): Microsoft Graph Command Line Tools `14d82eec-204b-4c2f-b7e8-296a70dab67e`. Tenant `f287b953-5428-4a5e-ae17-bd9c4cfaedbe`. Los permisos personales del usuario sobre CONTROL **no** equivalen a permisos sobre Comunicaciones: cada destino se verifica con sus propias lecturas.
 
-Variables del Hub a contrastar en DO (sólo lectura; no se cambian acá): `HC_SHAREPOINT_SITE_ID`, `HC_SHAREPOINT_DRIVE_ID`, `HC_CV_ROOT_ITEM_ID`, `HC_DOCUMENT_WRITE_SCOPE`. `HC_SHAREPOINT_DRIVE_ID` debe ser el drive de arriba y `HC_CV_ROOT_ITEM_ID` el item `CCHH HUB` o un **descendiente** suyo (el grant se hereda hacia abajo). La pantalla `/cchh/diagnostico/sharepoint` (owner) muestra el destino actual.
+Variables del Hub a contrastar en DO (sólo lectura; no se cambian acá): `HC_SHAREPOINT_SITE_ID`, `HC_SHAREPOINT_DRIVE_ID`, `HC_CV_ROOT_ITEM_ID`, `HC_DOCUMENT_WRITE_SCOPE`. `HC_SHAREPOINT_DRIVE_ID` debe ser el drive de arriba y, al desplegar el destino definitivo, `HC_CV_ROOT_ITEM_ID` el item de `CVs` (`01ULA425KSLK6LZAFFEVHKUSCO32CH64JG`); `HC_CATALOG_ITEM_ID` y la lectura de catálogos no cambian (§9.4). La pantalla `/cchh/diagnostico/sharepoint` (owner) muestra el destino actual.
 
 ## 2. Consentimientos administrativos pendientes
 
@@ -29,7 +29,7 @@ Variables del Hub a contrastar en DO (sólo lectura; no se cambian acá): `HC_SH
 | 2 | Contingencia: `Sites.FullControl.All` | Brian | Sólo si el POST da 403 con un usuario que **sí** es Propietario/Control total y `Sites.ReadWrite.All` ya consentido (la doc de Selected lo menciona). No se pide ahora. | No solicitar todavía |
 | 3 | Permiso Selected de la app LOCAL en Entra | Admin de Entra | Verificar que exista y esté consentido (si falta, el grant no alcanza). Sólo verificar. | A verificar |
 | 4 | Permiso Selected de la app DO (`eeca6df8…`) en Entra | Admin de Entra | Igual que el anterior, para producción. | A verificar (antes de habilitar DO) |
-| 5 | Persona con Propietario/Control total de `CCHH HUB` | Owner del sitio Comunicaciones | Autorización efectiva para crear el grant productivo. | Sin verificar; GO independiente |
+| 5 | Persona con Propietario/Control total de `CVs` | Owner del sitio Comunicaciones | Autorización efectiva para crear el grant productivo. | Sin verificar; GO independiente |
 
 ## 3. Diagnóstico (sólo lectura)
 
@@ -40,7 +40,7 @@ $TENANT='f287b953-5428-4a5e-ae17-bd9c4cfaedbe'; $ADMIN='14d82eec-204b-4c2f-b7e8-
 $LOCAL_APP='ad98b5cd-71d0-451f-8d70-e8581a4788fa'; $CTRL_SITE='a129a1d0-a4ee-4438-8de8-9e39e7007764'
 $CTRL_DRIVE='b!0KEpoe6kOESN6J455wB3ZLYmlHEbGsZPlL4_LU8lfDroKl3b1Ti0RYJfK4nkJLM3'; $CTRL_ITEM='01U7IMSJOGXNT3ZNP5NVAKDFLQWY3L6OMQ'
 $DO_APP='eeca6df8-2436-422f-a1b8-05ff9e8ff653'; $DO_SITE='danwor.sharepoint.com,65c64790-f933-46b9-823f-8e4ad57e69b1,b9b7da7d-8f67-46a9-be27-5f176394718a'
-$DO_DRIVE='b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE'; $DO_ITEM='01ULA425ONX3YLUO3XTNDI46FMF43PFL4X'
+$DO_DRIVE='b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE'; $DO_ITEM='01ULA425KSLK6LZAFFEVHKUSCO32CH64JG'   # CCHH HUB/Busqueda y Seleccion/CVs; padre: 01ULA425KHEKK4PGEOKFGKQKDWCUDFQEGV
 ```
 
 **LOCAL** — `--check` y `--dry-run` (cambiar el modo; con `--request-write-scope` el `--dry-run` también ensaya el consentimiento de `Sites.ReadWrite.All` sin escribir nada y mostrará `consent_not_granted`/`AADSTS65001`/`AADSTS90094` mientras Brian no lo conceda):
@@ -56,7 +56,7 @@ python tools/sharepoint_selected_grant.py --check --tenant-id $TENANT --client-i
 python tools/sharepoint_selected_grant.py --dry-run --tenant-id $TENANT --client-id $DO_APP --site-id $DO_SITE --drive-id $DO_DRIVE --item-id $DO_ITEM --admin-client-id $ADMIN --expect-user $ME
 ```
 
-Lectura del resultado de producción: `target.name = CCHH HUB` y `web_id` verificado; `evidence` completa en las dos fuentes; `user.upn` = tu cuenta; `would_apply` siempre `false` con el bloqueo `apply_disabled_for_profile` (esperado). `duplicate_state = UNDETERMINED` no es evidencia de ausencia ni de autorización. Un 403 en el destino productivo significa que **ese** usuario no ve Comunicaciones, sin importar CONTROL.
+Lectura del resultado de producción: `target.name = CVs`, `target.parent_item_id = 01ULA425KHEKK4PGEOKFGKQKDWCUDFQEGV` y `web_id` verificado; `evidence` completa en las dos fuentes; `user.upn` = tu cuenta; `would_apply` siempre `false` con el bloqueo `apply_disabled_for_profile` (esperado). `duplicate_state = UNDETERMINED` no es evidencia de ausencia ni de autorización. Un 403 en el destino productivo significa que **ese** usuario no ve Comunicaciones, sin importar CONTROL.
 
 Pantalla del Hub (owner): `/cchh/diagnostico/sharepoint` → «Sonda de lectura» (`app_grant_state`: PRESENT / ABSENT sólo si el llamador es owner del item / UNKNOWN). En DO es sólo lectura; la «Prueba de escritura» funciona únicamente en localhost.
 
@@ -88,8 +88,8 @@ Todos, con evidencia guardada en el handoff:
 
 - [ ] CONTROL: grant creado (`result.json`), permiso `write` no heredado, prueba de escritura 201 y subida real de CV correcta (§5).
 - [ ] Rollback ensayado en CONTROL o decisión explícita de no ensayarlo; se comprobó qué pasa con la herencia de `Hub`.
-- [ ] El owner del sitio Comunicaciones acepta la **ruptura de herencia** de `CCHH HUB` (la carpeta productiva con los CVs pasaría a permisos propios; los cambios futuros de permisos de la biblioteca ya no se propagarían a ella; borrar el grant no garantiza restaurarla).
-- [ ] `--check`/`--dry-run` de `production-do` limpios (§3) y el usuario que aplicará es Propietario/Control total de `CCHH HUB` (verificado en ese destino, no inferido de CONTROL).
+- [ ] El owner del sitio Comunicaciones acepta la **ruptura de herencia** de `CVs` (la carpeta productiva con los CVs pasaría a permisos propios; los cambios futuros de permisos de la biblioteca ya no se propagarían a ella; borrar el grant no garantiza restaurarla).
+- [ ] `--check`/`--dry-run` de `production-do` limpios (§3) y el usuario que aplicará es Propietario/Control total de `CVs` (verificado en ese destino, no inferido de CONTROL).
 - [ ] Permiso Selected de la app DO verificado en Entra (§2 #4) y variables `HC_*` de DO consistentes con el perfil (§1).
 - [ ] **GO independiente** para habilitar producción: cambio de código revisado (`modes` de `production-do`) con tests, nunca una bandera.
 
@@ -114,12 +114,14 @@ Sólo borra un `permission_id` registrado por un apply previo y que siga siendo 
 
 ## 8. Condiciones previas a cualquier grant productivo e impacto de romper la herencia de `CCHH HUB`
 
+> **Actualización — destino fijado en `CVs`.** La decisión de alcance (condición 3) está tomada: `production-do` apunta a `CCHH HUB/Busqueda y Seleccion/CVs` (`01ULA425KSLK6LZAFFEVHKUSCO32CH64JG`), no a `CCHH HUB`. Lo de este apartado que habla de `CCHH HUB` describe el **peor caso** (grant sobre toda la carpeta) y se conserva como referencia; para `CVs` aplican las mismas condiciones con el radio acotado de §9.3.
+
 `production-do` queda en `--check` y `--dry-run`: `--apply` y `--rollback` siguen rechazados en código. Habilitar el grant productivo requiere un **GO independiente** y un cambio de código revisado (`modes` de `production-do`); este apartado lista lo que debe estar verificado **antes** de pedirlo.
 
 ### Condiciones (todas)
 1. El código de esta rama está desplegado y estable en DigitalOcean, y `--check`/`--dry-run` de `production-do` (usuario `joconnor@danwor.com`) dan lo esperado: `target.name = CCHH HUB`, `webId` verificado, evidencia completa, `would_apply: false` con `apply_disabled_for_profile`.
 2. Hay una persona con Propietario/Control total de `CCHH HUB` identificada y **aprobación expresa del owner del sitio Comunicaciones** de la ruptura de herencia (ver abajo).
-3. **Decisión de alcance** (pendiente del owner): hoy `HC_CV_ROOT_ITEM_ID` apunta a la propia carpeta `CCHH HUB`, o sea que las carpetas de candidatos cuelgan de la misma raíz que `Configuracion/Catalogos_CCHH.xlsx`. Un grant `write` sobre `CCHH HUB` alcanza a **todo el árbol** (CVs y el workbook de catálogos). Alternativa recomendada: una subcarpeta dedicada (p. ej. `CCHH HUB/CVs`) como raíz de CVs y grant sólo ahí (menor radio de impacto, no toca el workbook; los `driveItem.id` se conservan al mover). Requiere cambiar `HC_CV_ROOT_ITEM_ID` y mover las carpetas existentes: **no está incluido en esta rama**.
+3. **Decisión de alcance** (RESUELTA: destino `CVs`, ver §9; texto original conservado): hoy `HC_CV_ROOT_ITEM_ID` apunta a la propia carpeta `CCHH HUB`, o sea que las carpetas de candidatos cuelgan de la misma raíz que `Configuracion/Catalogos_CCHH.xlsx`. Un grant `write` sobre `CCHH HUB` alcanza a **todo el árbol** (CVs y el workbook de catálogos). Alternativa recomendada: una subcarpeta dedicada (p. ej. `CCHH HUB/CVs`) como raíz de CVs y grant sólo ahí (menor radio de impacto, no toca el workbook; los `driveItem.id` se conservan al mover). Requiere cambiar `HC_CV_ROOT_ITEM_ID` y mover las carpetas existentes: **no está incluido en esta rama**.
 4. **Snapshot previo de permisos** de `CCHH HUB` (`GET /drives/{drive}/items/{item}/permissions` y la lista de usuarios/grupos con acceso desde la UI de SharePoint) y lista de quién debe conservar acceso; ventana de cambio acordada.
 5. Verificación **antes y después** con al menos dos usuarios de CCHH que no sean owner: abrir un CV, refrescar el catálogo (lectura de `Catalogos_CCHH.xlsx`), subir un CV.
 6. El permiso Selected de la app DO (`Files.SelectedOperations.Selected`) está consentido en Entra (sólo verificar; no se modifica).
@@ -140,51 +142,63 @@ Sólo borra un `permission_id` registrado por un apply previo y que siga siendo 
 2. El administrador del sitio restaura la herencia y reaplica/verifica los permisos del snapshot.
 3. Reverificar con los dos usuarios no-owner de la condición 5.
 
-## 9. Estrategia `CCHH HUB/CVs` (carpeta productiva dedicada) — preparación, sin ejecutar
+## 9. Destino productivo `CCHH HUB/Busqueda y Seleccion/CVs` — fijado, sólo lectura
 
-**Objetivo.** Que el grant productivo y las escrituras de la app caigan sólo en una subcarpeta `CVs` y no en toda la carpeta `CCHH HUB` (que también aloja `Configuracion/Catalogos_CCHH.xlsx`). Es la alternativa recomendada de la condición 3 del §8. **Estado: no se verificó contra SharePoint productivo** (no hubo autenticación administrativa en esta sesión); todo lo de abajo es análisis de código y diseño, más los comandos para confirmarlo.
+**Estado.** El perfil `production-do` apunta a la carpeta `CVs` (ya no a `CCHH HUB`). Sigue **sólo `--check` y `--dry-run`**: `--apply`, `--rollback` y `--request-write-scope` están rechazados en código. No se concedió ningún permiso ni se tocó Entra ni DigitalOcean. El perfil `control-local` no cambió.
 
-### 9.1 Identificadores (qué está verificado y qué no)
-| Dato | Valor | Verificación |
-|---|---|---|
-| `site_id` | `danwor.sharepoint.com,65c64790-f933-46b9-823f-8e4ad57e69b1,b9b7da7d-8f67-46a9-be27-5f176394718a` | Perfil `production-do` + §1; formato y coherencia validados por el código/tests de la herramienta (170). **No** releído en vivo. |
-| `drive_id` | `b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE` | Ídem. |
-| `item_id` de `CCHH HUB` | `01ULA425ONX3YLUO3XTNDI46FMF43PFL4X` | Ídem. |
-| `item_id` de `CCHH HUB/CVs` | **desconocido** | Requiere el GET de §9.3. Si `CVs` no existe, hay que crearla (§9.2) y volver a leerlo. |
+### 9.1 Identificadores verificados
+Verificados por el owner con consultas GET independientes (resolución por sharing link y lectura por ruta dentro de la biblioteca productiva, cruzadas; 19 comprobaciones OK; carpeta vacía). Los ids **no** se tomaron del sharing link: salieron de las respuestas de Graph.
 
-### 9.2 Si `CVs` no existe
-No la crea el Hub ni esta herramienta. La crea una persona con permiso de edición sobre `CCHH HUB`, desde SharePoint (**carpeta vacía**, nombre exacto `CVs`), y **se hace antes de cualquier grant y antes de que se suba el primer CV** (con la carpeta vacía el costo de cualquier cambio de permisos es mínimo). Crear la carpeta es una escritura productiva: requiere el GO que corresponda.
+| Dato | Valor |
+|---|---|
+| Ruta | `CCHH HUB/Busqueda y Seleccion/CVs` (sitio Comunicaciones) |
+| Site ID | `danwor.sharepoint.com,65c64790-f933-46b9-823f-8e4ad57e69b1,b9b7da7d-8f67-46a9-be27-5f176394718a` |
+| Drive ID | `b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE` |
+| **`CVs` Item ID** | `01ULA425KSLK6LZAFFEVHKUSCO32CH64JG` |
+| Padre (`Busqueda y Seleccion`) Item ID | `01ULA425KHEKK4PGEOKFGKQKDWCUDFQEGV` |
+| Destino anterior (ya **no** permitido) | `CCHH HUB` = `01ULA425ONX3YLUO3XTNDI46FMF43PFL4X` |
 
-### 9.3 Diagnóstico de sólo lectura (lo corre el owner; ningún comando escribe)
-Se necesita un token Graph de lectura (`Sites.Read.All`) del propio owner: en el Hub productivo ya logueado, consola del navegador, `await window.dwGraphToken()`. No se pega en chats ni se guarda; usarlo desde una variable de sesión.
+La herramienta no depende de la ruta: valida los cinco identificadores de la allowlist y **además** lee la metadata real del destino y exige: `id` exacto, `driveId`, `siteId`/`webId` del sitio, nombre `CVs`, que sea carpeta y que su padre (`parentReference.id`) sea `01ULA425KHEKK4PGEOKFGKQKDWCUDFQEGV`.
+
+### 9.2 Comandos definitivos de diagnóstico (sólo lectura; los corre el owner)
+Abren un login device code interactivo (https://microsoft.com/devicelogin) con `joconnor@danwor.com`; piden sólo `Sites.Read.All` + `User.Read`. Ningún modo emite POST/PUT/PATCH/DELETE ni escribe archivos.
 
 ```powershell
-$TOKEN = Read-Host 'Graph token (lectura)' -AsSecureString | ConvertFrom-SecureString -AsPlainText   # PowerShell 7+
-$H = @{ Authorization = "Bearer $TOKEN" }
-$DO_DRIVE = 'b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE'; $DO_ITEM = '01ULA425ONX3YLUO3XTNDI46FMF43PFL4X'
+cd C:\Users\Joe\ArquitectoDanwor-cvsp
+$TENANT='f287b953-5428-4a5e-ae17-bd9c4cfaedbe'; $ADMIN='14d82eec-204b-4c2f-b7e8-296a70dab67e'; $ME='joconnor@danwor.com'
+$DO_APP='eeca6df8-2436-422f-a1b8-05ff9e8ff653'
+$DO_SITE='danwor.sharepoint.com,65c64790-f933-46b9-823f-8e4ad57e69b1,b9b7da7d-8f67-46a9-be27-5f176394718a'
+$DO_DRIVE='b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE'; $DO_ITEM='01ULA425KSLK6LZAFFEVHKUSCO32CH64JG'
 
-# 1) ¿Existe CCHH HUB/CVs? (200 = existe, 404 = no existe -> §9.2)
-Invoke-RestMethod -Headers $H -Uri "https://graph.microsoft.com/v1.0/drives/$DO_DRIVE/root:/CCHH%20HUB/CVs?`$select=id,name,folder,parentReference,webUrl"
-
-# 2) Contenido directo de CCHH HUB (sólo nombre/id/tipo; si hay carpetas de candidatos ya subidas aparecen acá)
-(Invoke-RestMethod -Headers $H -Uri "https://graph.microsoft.com/v1.0/drives/$DO_DRIVE/items/$DO_ITEM/children?`$select=id,name,folder&`$top=200").value | Select-Object name, id, @{n='isFolder';e={[bool]$_.folder}}
+python tools/sharepoint_selected_grant.py --check   --tenant-id $TENANT --client-id $DO_APP --site-id $DO_SITE --drive-id $DO_DRIVE --item-id $DO_ITEM --admin-client-id $ADMIN --expect-user $ME
+python tools/sharepoint_selected_grant.py --dry-run --tenant-id $TENANT --client-id $DO_APP --site-id $DO_SITE --drive-id $DO_DRIVE --item-id $DO_ITEM --admin-client-id $ADMIN --expect-user $ME
 ```
-Alternativa con la herramienta existente (sólo lectura): `HC_SHAREPOINT_DRIVE_ID` seteado a `$DO_DRIVE` y `python tools/human_capital/resolve_catalog_workbook_ids.py --token <token> --file-path "CCHH HUB/CVs"`. **Ojo:** imprime la etiqueta `HC_CATALOG_ITEM_ID`, pero el valor es el id de `CVs`: no debe pegarse como `HC_CATALOG_ITEM_ID`.
 
-Qué hay que registrar: `id` y `parentReference.id` de `CVs` (el padre debe ser `01ULA425ONX3YLUO3XTNDI46FMF43PFL4X`), `folder` presente, y si el punto 2 muestra carpetas de candidatos (UUID o `Apellido, Nombre [id8]`) ya existentes bajo `CCHH HUB`.
+Resultado esperado: `ok: true`; `allowlist = production-do`; `target.name = CVs` y `target.parent_item_id = 01ULA425KHEKK4PGEOKFGKQKDWCUDFQEGV`; `user.verified = true`, `user.upn = joconnor@danwor.com`, `matches_expected = true`; `evidence` con las dos fuentes (`driveItem.permissions`, `listItem.permissions`) y, en la primera, `inherited_count` / `direct_count`; `duplicate_state = UNDETERMINED`; `blockers` incluye `apply_disabled_for_profile` y `would_apply: false`. Guardar las dos salidas como evidencia previa al grant.
 
-### 9.4 Alcance de herencia y permisos (análisis; confirmar con 9.3 y el `--check`)
-- **Qué cambia respecto de §8.** El grant se hace sobre `CVs`, no sobre `CCHH HUB`: sólo `CVs` y su contenido pasan a tener permisos propios. `CCHH HUB`, `Configuracion` y `Catalogos_CCHH.xlsx` siguen heredando de la biblioteca como hoy. Desaparecen los riesgos 1 y 3 del §8 para el workbook; el riesgo 4 (revertir la herencia es manual) queda acotado a `CVs`.
-- **Catálogos intactos.** El workbook se identifica por `HC_SHAREPOINT_DRIVE_ID` + `HC_CATALOG_ITEM_ID` (ids estables, no ruta), se **lee** con el token delegado de lectura y la app no escribe ahí: ni el grant ni el cambio de `HC_CV_ROOT_ITEM_ID` lo tocan. `HC_CATALOG_ITEM_ID` no cambia.
-- **Quién ve `CVs` después del grant.** Pasa a depender de los permisos propios de la carpeta (la doc de Selected no garantiza que se copien los de `CCHH HUB`). Con la carpeta vacía y recién creada, se compara antes/después la lista de principales y se verifica con dos usuarios de CCHH no-owner (abrir un CV, subir un CV) y una persona sin rol CCHH (no debe abrir `CVs`).
-- **Acceso efectivo** = app ∩ usuario delegado: el rol `write` de la app sólo alcanza el árbol de `CVs`.
+### 9.3 Controles previos al grant (revisión)
+| Control | Qué cubre | Límite | Qué hacer |
+|---|---|---|---|
+| **Identidad exacta del destino** | Allowlist cerrada (tenant, app, site, drive, item) + metadata real: `id`, `driveId`, `siteId`, `webId`, nombre, carpeta y **padre** (agregado ahora para `production-do`). Una combinación mixta o el destino anterior (`CCHH HUB`) se rechazan **sin red**. | Si `CVs` se borrara y recreara, tendría otro `id` y la herramienta lo rechazaría (correcto: hay que revisar y actualizar la allowlist con un cambio de código). | Nada: fail-closed. |
+| **Identidad del usuario** | `--expect-user` compara el UPN real (`GET /me`) con el esperado; en `--apply` sería obligatorio. | En check/dry-run es opcional: por eso los comandos lo incluyen siempre. | Usar siempre `--expect-user $ME`. |
+| **Estado de permisos de `CVs`** | `--check` enumera `driveItem.permissions` y `listItem.permissions`: cantidad, coincidencias de la app DO y, nuevo, cuántos permisos se **heredan** (`inherited_count`, tienen `inheritedFrom`) y cuántos son **propios** (`direct_count`). | `driveItem.permissions` expone permisos efectivos **de compartir**, no es una ACL exhaustiva ni distingue por sí solo «hereda» de «ya tiene permisos únicos». | En una carpeta recién creada y vacía se espera `direct_count = 0` (salvo links de compartir). Un `direct_count > 0` se explica antes de seguir. Complementar con «Administrar acceso» de `CVs` en SharePoint y guardar una captura como snapshot. |
+| **¿Ya existe un grant Selected?** | Sólo la **presencia** de un grant equivalente es autoritativa (`ALREADY_GRANTED`); `--apply` relee justo antes del POST y aborta ante cualquier coincidencia observable. | La **ausencia no se puede probar** (`UNDETERMINED`, por diseño) y un grant **heredado de un ancestro** (`CCHH HUB` o `Busqueda y Seleccion`) cubriría `CVs` sin aparecer en la enumeración. | El owner reconoce el estado (`--acknowledge-undetermined`) sabiendo esto. Indicio, no prueba: si el 403 original de producción fue contra `CCHH HUB`, entonces no había grant efectivo sobre `CCHH HUB` ni ancestros en ese momento. La verificación real es la prueba funcional posterior al grant (§9.5). |
+| **Impacto sobre herencia** | El grant se hace sobre `CVs`: sólo `CVs` y su contenido pasan a tener permisos propios; `CCHH HUB`, `Configuracion` y el workbook quedan heredando de la biblioteca. Hoy `CVs` está **vacía**: no hay contenido cuyo acceso se pueda perder. | Quién ve `CVs` después depende de sus permisos propios; borrar el grant no garantiza restaurar la herencia (manual, §8 riesgo 4). | Snapshot previo; verificación antes/después con dos usuarios de CCHH que no sean owner (abrir y subir un CV) y una persona sin rol CCHH (no debe abrir `CVs`). Hacerlo **antes** de la primera subida real. |
+| **Habilitación** | `--apply`/`--rollback` rechazados para `production-do` antes de autenticar. | — | Habilitar `apply` sólo para este destino = cambio de código revisado + GO independiente. |
 
-### 9.5 Cómo se actualizaría la configuración (cuando exista el `item_id` real y haya GO)
-1. **Variable del Hub en DigitalOcean:** `HC_CV_ROOT_ITEM_ID=<item_id de CVs>`. El resto (`HC_SHAREPOINT_SITE_ID`, `HC_SHAREPOINT_DRIVE_ID`, `HC_CATALOG_ITEM_ID`, `HC_DOCUMENT_WRITE_SCOPE`) no cambia. Se aplica **después** de verificar el grant y **antes** de la primera subida; cambiar la variable reinicia la app.
-2. **Allowlist `production-do`** (`tools/sharepoint_selected_grant.py`, cambio de código revisado, aparte): reemplazar el destino por `CVs` (`item_id`, `folder_name: "CVs"`) en lugar de sumar un perfil: así la herramienta no puede apuntar nunca a `CCHH HUB`. Se mantienen `modes = READ_ONLY_MODES` (`--apply`/`--rollback` siguen deshabilitados hasta un GO independiente), el aviso de herencia ajustado a `CVs`, y los tests se actualizan (ids nuevos + un test que impide que el item de `CCHH HUB` figure como destino con apply habilitado).
-3. `--check` y `--dry-run` con el nuevo destino: `target.name = CVs`, `would_apply: false`.
-4. Habilitar `apply` para ese único destino = otro cambio de código con GO; recién ahí el grant.
-5. **Carpetas ya existentes bajo `CCHH HUB`** (el punto 2 de §9.3 las muestra; en producción debería no haber ninguna porque la subida siempre dio 403): el Hub sólo reutiliza una carpeta si su padre es el `HC_CV_ROOT_ITEM_ID` vigente. Si existieran, hay que **moverlas** a `CVs` desde SharePoint (el `driveItem.id` se conserva y siguen válidas); si no se mueven, la próxima subida del candidato crea una carpeta nueva en `CVs` y la anterior queda huérfana (sus `web_url` siguen abriendo). El Hub no mueve ni borra nada.
+### 9.4 Configuración cuando se despliegue
+- **`HC_CV_ROOT_ITEM_ID = 01ULA425KSLK6LZAFFEVHKUSCO32CH64JG`** en DigitalOcean (cambia de `CCHH HUB` a `CVs`). Se aplica **después** de verificar el grant y **antes** de la primera subida; cambiar la variable reinicia la app. No se modificó nada en DigitalOcean con este cambio.
+- **Sin cambios:** `HC_SHAREPOINT_SITE_ID`, `HC_SHAREPOINT_DRIVE_ID`, `HC_DOCUMENT_WRITE_SCOPE` y **`HC_CATALOG_ITEM_ID`**. La lectura de `Catalogos_CCHH.xlsx` (`CCHH HUB/Configuracion/…`) sigue usando drive + `HC_CATALOG_ITEM_ID` con el token delegado de lectura; está fuera de `CVs` y la app no escribe ahí.
+- Las carpetas de candidatos (`Apellido, Nombre [id8]`) se crearán bajo `CVs`. Como `CVs` está vacía no hay migración; el Hub sólo reutiliza una carpeta si su padre es el `HC_CV_ROOT_ITEM_ID` vigente.
+- La prueba de escritura del diagnóstico sigue fijada a CONTROL + app LOCAL: ni `CCHH HUB` ni `CVs` de producción están permitidos (tests).
+
+### 9.5 Secuencia hasta poder subir CVs en producción (cada paso con su GO)
+1. Desplegar el código de la rama (sin permisos ni variables nuevas).
+2. `--check` y `--dry-run` de §9.2; revisar la tabla de §9.3.
+3. Aprobación del owner del sitio + snapshot de permisos de `CVs`.
+4. Cambio de código aparte: habilitar `apply` para `production-do` (sólo `CVs`).
+5. `--apply` interactivo (un POST) y comparación de permisos antes/después.
+6. `HC_CV_ROOT_ITEM_ID = 01ULA425KSLK6LZAFFEVHKUSCO32CH64JG` en DO y prueba funcional con un candidato ficticio y un PDF inocuo (carpeta `Apellido, Nombre [id8]`, un archivo, `folder_item_id`, `web_url` que abre).
 
 ### 9.6 Qué sigue sin cambiar
-`--apply` y `--rollback` de `production-do` siguen rechazados en código; no se concede ningún permiso ni se modifica Entra ni variables de producción con este apartado.
+`--apply` y `--rollback` de `production-do` siguen rechazados en código; `control-local` intacto; ningún permiso concedido ni configuración de producción modificada.
