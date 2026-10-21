@@ -102,15 +102,16 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import config
 from core.content_registry import DEFAULT_PACK
+from webapp import access as app_access
 from webapp import human_capital_access, workspaces
 from webapp.services import (
     auth_service, busqueda_repository, entrevista_repository, human_capital_catalog_repository,
     human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
-    profile_document_validation, profile_import_service,
+    profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
@@ -421,6 +422,7 @@ async def human_capital_profile_new_submit(
         profile_document_service.upload_document(
             profile_id=profile["profile_id"], filename=file.filename, data=file_bytes,
             access_token=graph_token, uploaded_by=uploaded_by,
+            first_name=profile.get("first_name") or "", last_name=profile.get("last_name") or "",
         )
     except profile_document_validation.ProfileDocumentValidationError as exc:
         return _render_profile_edit_with_documents(
@@ -909,6 +911,7 @@ async def human_capital_profile_documents_upload(
         profile_document_service.upload_document(
             profile_id=profile_id, filename=file.filename, data=data, access_token=graph_token,
             uploaded_by=uploaded_by,
+            first_name=profile.get("first_name") or "", last_name=profile.get("last_name") or "",
         )
     except profile_document_validation.ProfileDocumentValidationError as exc:
         return _render_profile_edit_with_documents(
@@ -2325,3 +2328,69 @@ def human_capital_legacy_import_redirect() -> RedirectResponse:
 @router.get("/human-capital/profiles/{profile_id}/edit", include_in_schema=False)
 def human_capital_legacy_edit_redirect(profile_id: str) -> RedirectResponse:
     return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar", status_code=308)
+
+
+# ── DIAGNÓSTICO SharePoint (CV upload) — sonda de SOLO LECTURA, sólo APP_OWNER ────────────────────────────────────────────────────────
+# Instrumento temporal del troubleshooting «CV upload → SharePoint»: con el MISMO token delegado que usa el uploader (`dwHumanCapitalDocumentWriteToken`, scopes base + HC_DOCUMENT_WRITE_SCOPE)
+# ejecuta SÓLO GET contra el destino actual (config) y, opcionalmente, contra un destino de CONTROL descubierto desde un sharing link. No escribe nada, no persiste ni loguea el token.
+# Ver `webapp/services/sharepoint_graph_diagnostics.py`. NO está en el nav.
+
+def _require_owner_for_diagnostics(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    if not app_access.is_owner(request):
+        raise HTTPException(403, "Sólo el dueño de la app puede usar el diagnóstico de SharePoint")
+    return None
+
+
+@router.get("/cchh/diagnostico/sharepoint", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_sharepoint_diagnostics_page(request: Request):
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    ctx = {
+        "current_workspace": workspaces.HUMAN_CAPITAL,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack": DEFAULT_PACK, "user": user, "active_page": "diagnostico",
+        "current_target": sharepoint_graph_diagnostics.current_target(),
+        "write_scope": config.HC_DOCUMENT_WRITE_SCOPE, "client_id": config.AZURE_CLIENT_ID,
+        "write_phrase": sharepoint_graph_diagnostics.WRITE_TEST_PHRASE,
+    }
+    return templates.TemplateResponse(request=request, name="human_capital/diagnostico_sharepoint.html", context=ctx)
+
+
+@router.post("/cchh/diagnostico/sharepoint/sonda", include_in_schema=False)
+def human_capital_sharepoint_diagnostics_probe(request: Request, graph_token: str = Form(""), control_url: str = Form("")):
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    if not graph_token:
+        return JSONResponse({"ok": False, "error": "Sin token de Microsoft 365 (el navegador no pudo obtenerlo)."}, status_code=400, headers={"Cache-Control": "no-store"})
+    result = sharepoint_graph_diagnostics.run_probe(graph_token, control_sharing_url=control_url)
+    return JSONResponse({"ok": True, **result}, headers={"Cache-Control": "no-store"})
+
+
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _is_local_request(request: Request) -> bool:
+    """Exclusivamente localhost: el Host Y la direccion del cliente deben ser loopback (detras del proxy de DigitalOcean ninguna de las dos lo es)."""
+    return (request.url.hostname or "").lower() in _LOCAL_HOSTS and (request.client.host if request.client else "") in _LOCAL_HOSTS
+
+
+@router.post("/cchh/diagnostico/sharepoint/escritura", include_in_schema=False)
+def human_capital_sharepoint_diagnostics_write_test(request: Request, graph_token: str = Form(""), control_url: str = Form(""), confirm: str = Form("")):
+    """Prueba de escritura CONTROLADA: un PUT de un archivo de texto inocuo y de nombre unico en la carpeta de CONTROL. Solo APP_OWNER, solo localhost y con la frase de confirmacion exacta."""
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    no_store = {"Cache-Control": "no-store"}
+    if not _is_local_request(request):
+        return JSONResponse({"ok": False, "error": "La prueba de escritura solo está disponible en localhost."}, status_code=403, headers=no_store)
+    if (confirm or "").strip() != sharepoint_graph_diagnostics.WRITE_TEST_PHRASE:
+        return JSONResponse({"ok": False, "error": f"Falta la confirmación explícita: escribí exactamente «{sharepoint_graph_diagnostics.WRITE_TEST_PHRASE}»."}, status_code=400, headers=no_store)
+    if not graph_token:
+        return JSONResponse({"ok": False, "error": "Sin token de Microsoft 365 (el navegador no pudo obtenerlo)."}, status_code=400, headers=no_store)
+    return JSONResponse(sharepoint_graph_diagnostics.write_test(graph_token, control_url), headers=no_store)

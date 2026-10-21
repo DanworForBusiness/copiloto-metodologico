@@ -33,6 +33,7 @@ test_human_capital_profile_documents_routes.py, nunca HTTP real."""
 from __future__ import annotations
 
 import urllib.error
+import urllib.parse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -49,6 +50,20 @@ _PDF_BYTES = b"%PDF-1.4\n%test content\n"
 
 def _http_error(code: int) -> urllib.error.HTTPError:
     return urllib.error.HTTPError("https://graph.microsoft.com/v1.0/x", code, "err", None, None)
+
+_FOLDER_NAMES: dict = {}
+
+
+def _graph_get_folder(url, token, **kw):
+    """Graph realista para el lookup de carpeta del uploader: por PATH devuelve una carpeta bajo la raíz (`root-1`) con el nombre pedido; por ID devuelve la misma carpeta (nombre recordado)."""
+    tail = url.split("/items/", 1)[1] if "/items/" in url else ""
+    if ":/" in tail:
+        name = urllib.parse.unquote(tail.split(":/", 1)[1].split("?")[0])
+        _FOLDER_NAMES["folder-1"] = name
+    else:
+        name = _FOLDER_NAMES.get("folder-1", "")
+    return {"id": "folder-1", "name": name, "folder": {}, "parentReference": {"id": "root-1"}}
+
 
 
 @pytest.fixture(autouse=True)
@@ -70,7 +85,7 @@ def _authorized_and_isolated(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _graph_happy_path(monkeypatch):
-    monkeypatch.setattr(profile_document_service.microsoft365, "graph_get_json", lambda url, token: {"id": "folder-1"})
+    monkeypatch.setattr(profile_document_service.microsoft365, "graph_get_json", _graph_get_folder)
     monkeypatch.setattr(
         profile_document_service.microsoft365, "graph_put_bytes",
         lambda *a, **k: {"id": "item-1", "webUrl": "https://danwor.sharepoint.com/x"},

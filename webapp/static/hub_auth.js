@@ -357,27 +357,30 @@
     // (persistir el Profile + subir el CV luego desde Documentos, con gesto real).
     const interactive = !(opts && opts.interactive === false);
     let app;
-    try { app = await getApp(); } catch (e) { return ""; }
+    try { app = await getApp(); } catch (e) { recordTokenFailure("hc_write_get_app_failed", false, e); return ""; }
 
     const writeScope = cachedConfig && cachedConfig.hc_document_write_scope;
-    if (!writeScope) return "";   // CONFIG_INCOMPLETE -- fail closed, sin pedir Graph con un scope vacío.
+    if (!writeScope) { recordTokenFailure("hc_write_scope_not_configured", false, null); return ""; }   // CONFIG_INCOMPLETE -- fail closed, sin pedir Graph con un scope vacío.
     const scopes = GRAPH_SCOPES.concat([writeScope]);
 
     const account = activeAccount(app);
-    if (!account) return "";      // Sin cuenta: nada silencioso que intentar (mismo criterio que dwGraphToken).
+    if (!account) { recordTokenFailure("hc_write_no_account", false, null); return ""; }      // Sin cuenta: nada silencioso que intentar (mismo criterio que dwGraphToken).
 
     try {
       const res = await app.acquireTokenSilent({ scopes, account });
+      lastTokenDiagnostic = null;
       return (res && res.accessToken) || "";
     } catch (e) {
-      if (!(e instanceof msal.InteractionRequiredAuthError)) return "";
-      if (!interactive) return "";  // silent-only (create-with-CV): sin popup, cae a partial-success.
+      if (!(e instanceof msal.InteractionRequiredAuthError)) { recordTokenFailure("hc_write_silent_error", true, e); return ""; }
+      if (!interactive) { recordTokenFailure("hc_write_interaction_required_silent_only", true, e); return ""; }  // silent-only (create-with-CV): sin popup, cae a partial-success.
       const reauthenticated = await window.dwGraphReauthenticate([writeScope]);
-      if (!reauthenticated) return "";
+      if (!reauthenticated) { recordTokenFailure("hc_write_reauth_failed", true, e); return ""; }
       try {
         const res2 = await app.acquireTokenSilent({ scopes, account: activeAccount(app) });
+        lastTokenDiagnostic = null;
         return (res2 && res2.accessToken) || "";
       } catch (e2) {
+        recordTokenFailure("hc_write_after_reauth_silent_error", true, e2);
         return "";
       }
     }
