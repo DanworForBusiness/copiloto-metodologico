@@ -243,3 +243,9 @@ python tools/sharepoint_selected_grant.py --apply --tenant-id $TENANT --client-i
 - No se prueba por adelantado que `Sites.ReadWrite.All` + Control total alcancen para administrar el grant: lo decide la respuesta real del POST.
 - Un grant mal ubicado no se deshace desde la herramienta; el rollback es manual.
 - El candado vive en el equipo del operador: otro equipo no lo ve (no ejecutar el apply desde dos máquinas).
+
+### 9.8 Estado actual y limitación conocida (2026-10-21)
+- **Intento del grant productivo:** el único `--apply` real sobre `CVs` terminó en **HTTP 403 `accessDenied`** (request-id `99bb874e-e043-4f6f-a222-5038cfd23fd6`; auditoría local `reports/sharepoint_selected_grant/production-do-20261021T193756Z-{intent,result}.json`). Fue una respuesta definitiva: **el grant no se creó**, el candado se liberó y no se reintentó. No se modificaron permisos ni DigitalOcean.
+- **Decisión del owner:** la investigación de la autorización queda **diferida**; se prioriza desplegar las mejoras de CCHH. El apply productivo no se vuelve a ejecutar sin un nuevo GO.
+- **Limitación conocida del despliegue:** «Subida de CV en DigitalOcean pendiente de autorización Selected `write` sobre `CVs`». Mientras tanto, el alta de candidatos **sin CV** funciona con normalidad; con CV, el candidato se guarda, la UI informa el permiso (sin registrar ningún documento) y la subida se reintenta desde el panel de Documentos cuando exista el grant. El contrato está fijado por `tests/webapp/test_human_capital_cv_403_contract.py`.
+- **`HC_CV_ROOT_ITEM_ID`:** en la documentación de despliegue apunta al item de `CVs` (`01ULA425KSLK6LZAFFEVHKUSCO32CH64JG`), pero **no se cambia en DigitalOcean todavía** (§9.4): se fija junto con el grant, antes de la primera subida.
