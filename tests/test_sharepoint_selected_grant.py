@@ -887,12 +887,14 @@ def test_the_control_profile_is_exactly_the_one_that_was_already_approved():
     assert control["modes"] == ("check", "dry-run", "apply", "rollback")
 
 
-def test_the_production_profile_has_the_approved_identifiers_and_is_read_only():
+def test_the_production_profile_has_the_approved_identifiers_and_enables_only_apply_beyond_read():
     rows = {r["name"]: r for r in sg.ALLOWED_GRANTS}
     assert list(rows) == ["control-local", "production-do"]  # sólo estos dos destinos; sin parámetros genéricos
     do = rows["production-do"]
     assert (do["client_id"], do["site_id"], do["drive_id"], do["item_id"], do["folder_name"], do["parent_item_id"]) == (PROD, DO_SITE, DO_DRIVE, DO_ITEM, "CVs", DO_PARENT)
-    assert do["modes"] == ("check", "dry-run") and "apply" not in do["modes"] and "rollback" not in do["modes"]
+    assert do["modes"] == ("check", "dry-run", "apply") and "rollback" not in do["modes"]
+    assert do["strict_apply"] is True and do["required_user"] == "joconnor@danwor.com" and do["required_admin_client_id"] == ADMIN_APP
+    assert "strict_apply" not in rows["control-local"] and "required_user" not in rows["control-local"]
     control = rows["control-local"]
     for key in ("client_id", "site_id", "drive_id", "item_id"):
         assert control[key] != do[key]  # ningún identificador compartido entre perfiles
@@ -934,17 +936,17 @@ def test_production_check_and_dry_run_read_only_the_production_destination_and_n
     argv = _with(_do_argv(mode), {"--audit-dir": str(tmp_path / "audit"), "--acknowledge-undetermined": True, "--acknowledge-inheritance-break": True, "--confirm-apply": sg.CONFIRM_PHRASE})
     code, report, text = _go(argv, graph)
     assert code == 0 and report["ok"] is True and set(graph.methods) == {"GET"} and not (tmp_path / "audit").exists()
-    assert report["allowlist"] == "production-do" and report["profile"] == {"name": "production-do", "enabled_modes": ["check", "dry-run"], "folder_name": "CVs"}
+    assert report["allowlist"] == "production-do" and report["profile"] == {"name": "production-do", "enabled_modes": ["check", "dry-run", "apply"], "folder_name": "CVs"}
     assert report["target"]["name"] == "CVs" and report["target"]["parent_item_id"] == DO_PARENT and report["preview"]["url"] == f"https://graph.microsoft.com/v1.0/drives/{DO_DRIVE}/items/{DO_ITEM}/permissions"
     assert report["preview"]["body"] == {"grantedToV2": {"application": {"id": PROD}}, "roles": ["write"]}
     urls = [r["url"] for r in graph.requests]
     assert not any(DRIVE in u or ITEM in u or SITE in u for u in urls) and any(DO_DRIVE in u for u in urls)
     assert any(u.startswith(f"https://graph.microsoft.com/v1.0/sites/danwor.sharepoint.com,{DO_COLL},{DO_WEB}/lists/LISTDO/items/11/permissions") for u in urls)  # id compuesto, sin resolver otro web
-    assert "apply_disabled_for_profile" in report["blockers"] and report["would_apply"] is False  # aun con todos los reconocimientos y un token con escritura
+    assert "apply_disabled_for_profile" not in report["blockers"] and "unique_permissions_not_acknowledged" in report["blockers"] and report["would_apply"] is False  # falta el reconocimiento de permisos únicos
     notes = " ".join(report["notes"])
     assert "Comunicaciones" in notes and "CONTROL" in notes and "herencia" in notes and "no garantiza restaurarla" in notes
     if mode == "--dry-run":
-        assert any("deshabilitado" in p for p in report["pending_at_apply"])
+        assert any("acknowledge-existing-unique-permissions" in p for p in report["pending_at_apply"])
     assert SECRET not in text
 
 
@@ -991,23 +993,23 @@ def test_the_permission_evidence_reports_inherited_vs_direct_entries_without_cha
     assert report["duplicate_state"]["state"] == "UNDETERMINED" and set(graph.methods) == {"GET"}
 
 
-@pytest.mark.parametrize("mode", ["--apply", "--rollback"])
-def test_production_apply_and_rollback_are_disabled_before_authenticating_confirming_or_calling_graph(mode, tmp_path):
+@pytest.mark.parametrize("mode", ["--rollback"])
+def test_production_rollback_is_disabled_before_authenticating_confirming_or_calling_graph(mode, tmp_path):
     graph = FakeGraph(meta=(200, {}, _do_meta()))
     argv = _with(_do_argv(mode), {"--audit-dir": str(tmp_path / "audit"), "--admin-client-id": ADMIN_APP, "--expect-user": USER, "--acknowledge-undetermined": True, "--acknowledge-inheritance-break": True,
                                   "--confirm-apply": sg.CONFIRM_PHRASE, "--permission-id": "perm-1", "--audit-file": "x.json", "--confirm-rollback": sg.ROLLBACK_PHRASE})
     code, report, text = _go(argv, graph, prompt=lambda t: pytest.fail("no debe preguntarse nada"))
-    assert code == 3 and report["stage"] == "mode_disabled_for_profile" and report["enabled_modes"] == ["check", "dry-run"]
+    assert code == 3 and report["stage"] == "mode_disabled_for_profile" and report["enabled_modes"] == ["check", "dry-run", "apply"]
     assert graph.requests == [] and _audit_files(tmp_path) == [] and "token" not in report and SECRET not in text
 
 
-def test_production_does_not_even_ask_for_a_write_scope():
-    graph = FakeGraph(meta=(200, {}, _do_meta()))
-    code, report, _ = _go(_with(_do_argv("--dry-run"), {"--request-write-scope": True}), graph)
-    assert code == 3 and report["stage"] == "write_scope_disabled_for_profile" and graph.requests == []
+def test_production_check_does_not_ask_for_a_write_scope_and_dry_run_only_asks_for_it_on_demand():
     login = _Login()
     code, report, _ = _go_device(_do_argv("--check", **{"--admin-client-id": ADMIN_APP}), login, FakeGraph(meta=(200, {}, _do_meta())))
     assert code == 0 and "Sites.ReadWrite.All" not in login.requests[0][2] and "Sites.Read.All" in login.requests[0][2]
+    graph = FakeGraph(meta=(200, {}, _do_meta()))  # con apply habilitado, el dry-run puede ensayar el consentimiento (sin escribir nada)
+    code, report, _ = _go(_with(_do_argv("--dry-run"), {"--request-write-scope": True}), graph)
+    assert code == 0 and set(graph.methods) == {"GET"} and report["token"]["can_write"] is True
 
 
 @pytest.mark.parametrize("meta,fields", [
@@ -1061,3 +1063,286 @@ def test_the_network_guard_really_blocks_real_operations():
         sg.Graph("t").delete_permission({"url": "https://graph.microsoft.com/v1.0/x"})
     with pytest.raises(RealNetworkAttempt):
         socket.create_connection(("graph.microsoft.com", 443))
+
+
+# ── production-do: --apply estricto (un único destino: CVs) ─────────────────────────────────────────────────
+PROD_USER = "joconnor@danwor.com"
+PROD_ME = (200, {}, {"id": "u-prod", "userPrincipalName": PROD_USER, "displayName": "Jose"})
+OTHER_ME = (200, {}, {"id": "u-x", "userPrincipalName": "otra.persona@danwor.com", "displayName": "X"})
+DO_PREVIEW_URL = f"https://graph.microsoft.com/v1.0/drives/{DO_DRIVE}/items/{DO_ITEM}/permissions"
+SENSITIVE_NAME = "Nombre Sensible Del Principal"
+UNIQUE_PERMS = (200, {}, {"value": [{"id": "perm-owner", "roles": ["owner"], "grantedToV2": {"user": {"displayName": SENSITIVE_NAME}}},
+                                    {"id": "perm-grp", "roles": ["write"], "grantedToV2": {"siteGroup": {"displayName": "Miembros"}}}]})
+DO_POST_OK = (201, {"request-id": "req-post-do", "client-request-id": "cli-do"}, {"id": "perm-do-1", "roles": ["write"], "grantedToV2": {"application": {"id": PROD}}})
+
+
+def _dog(**kw):
+    kw.setdefault("meta", (200, {}, _do_meta()))
+    kw.setdefault("me", PROD_ME)
+    kw.setdefault("drive_perms", UNIQUE_PERMS)
+    kw.setdefault("post", DO_POST_OK)
+    return FakeGraph(**kw)
+
+
+def _do_apply_argv(tmp_path, **over):
+    opts = {"--admin-client-id": ADMIN_APP, "--expect-user": PROD_USER, "--acknowledge-undetermined": True, "--acknowledge-inheritance-break": True,
+            "--acknowledge-existing-unique-permissions": True, "--confirm-apply": sg.CONFIRM_PHRASE, "--audit-dir": str(tmp_path / "audit"), **over}
+    return _with(_do_argv("--apply"), opts)
+
+
+def _do_apply(graph, tmp_path, token=None, prompt=YES, argv_over=None, **kw):
+    return _go(_do_apply_argv(tmp_path, **(argv_over or {})), graph, token=token, prompt=prompt, **kw)
+
+
+def _lock_file(tmp_path):
+    return tmp_path / "audit" / "production-do.apply.lock"
+
+
+def _everything_written(tmp_path):
+    d = tmp_path / "audit"
+    return "".join(p.read_text(encoding="utf-8") for p in d.iterdir()) if d.exists() else ""
+
+
+def test_production_apply_rereads_target_identity_and_permissions_before_a_single_post_and_records_everything(tmp_path):
+    seen = []
+    graph = _dog()
+    code, report, text = _do_apply(graph, tmp_path, prompt=lambda t: seen.append(t) or sg.CONFIRM_PHRASE)
+    posts = [r for r in graph.requests if r["method"] == "POST"]
+    assert code == 0 and report["ok"] is True and len(posts) == 1 and posts[0]["url"] == DO_PREVIEW_URL
+    assert json.loads(posts[0]["data"]) == {"grantedToV2": {"application": {"id": PROD}}, "roles": ["write"]}
+    # target, drive, item, /me | (confirmación) target, /me, drive, item (RELECTURA estricta) | POST | verificación drive, item
+    assert graph.methods == ["GET"] * 8 + ["POST"] + ["GET"] * 2 and "DELETE" not in graph.methods
+    assert report["post"]["status"] == 201 and report["post"]["request_id"] == "req-post-do" and report["post"]["permission_id"] == "perm-do-1" and report["post"]["response_matches_request"] is True
+    # auditoría de intención + resultado + candado; estado previo de permisos sin identidades
+    files = _audit_files(tmp_path)
+    assert any(f.endswith("-intent.json") for f in files) and any(f.endswith("-result.json") for f in files) and "production-do.apply.lock" in files
+    intent = json.loads(next(p for p in (tmp_path / "audit").iterdir() if p.name.endswith("-intent.json")).read_text(encoding="utf-8"))
+    assert intent["expected_user"] == PROD_USER and intent["admin_client_id"] == ADMIN_APP and intent["acknowledgements"]["existing_unique_permissions_attested_by_operator"] is True
+    state = intent["permission_state_before"]
+    assert state["count"] == 2 and state["direct_count"] == 2 and state["inherited_count"] == 0 and state["automatic_unique_permissions_evidence"] == "indicative_all_entries_are_direct" and state["provable_automatically"] is False
+    assert [(e["id"], e["inherited"], e["kind"]) for e in state["entries"]] == [("perm-owner", False, "user"), ("perm-grp", False, "siteGroup")]
+    assert intent["permission_state_before_post"]["count"] == 2
+    result = json.loads(_result_file(tmp_path).read_text(encoding="utf-8"))
+    assert result["post"]["permission_id"] == "perm-do-1" and result["post"]["status"] == 201 and result["post"]["request_id"] == "req-post-do" and result["ids"]["item_id"] == DO_ITEM
+    assert json.loads(_lock_file(tmp_path).read_text(encoding="utf-8"))["state"] == "created"
+    assert report["rollback_hint"].startswith("rollback DESHABILITADO")
+    # el prompt muestra lo que se va a hacer
+    t = seen[0]
+    assert PROD_USER in t and ADMIN_APP in t and DO_ITEM in t and PROD in t and DO_PREVIEW_URL in t and "CVs" in t and "DECLARÓ" in t and "DESHABILITADO" in t and sg.CONFIRM_PHRASE in t and "indicative_all_entries_are_direct" in t
+    blob = text + _everything_written(tmp_path) + t
+    assert SECRET not in blob and "Authorization" not in blob and SENSITIVE_NAME not in blob
+
+
+def test_production_apply_only_touches_the_cvs_item_never_the_parent_the_old_hub_or_the_catalog(tmp_path):
+    graph = _dog()
+    code, _, _ = _do_apply(graph, tmp_path)
+    assert code == 0
+    for r in graph.requests:
+        u = r["url"]
+        assert u.startswith("https://graph.microsoft.com/v1.0/me?") or (DO_DRIVE in u and DO_ITEM in u) or f"/sites/danwor.sharepoint.com,{DO_COLL},{DO_WEB}/lists/LISTDO/items/11/permissions" in u, u
+        assert DO_PARENT not in u and DO_HUB_OLD not in u and DRIVE not in u and "Catalogos" not in u and "/root" not in u and "/children" not in u
+    assert [r["method"] for r in graph.requests].count("POST") == 1 and {r["method"] for r in graph.requests} == {"GET", "POST"}
+
+
+def test_only_the_two_allowlisted_profiles_can_apply_and_production_apply_is_pinned_to_cvs():
+    capable = {row["name"]: row for row in sg.ALLOWED_GRANTS if "apply" in row["modes"]}
+    assert set(capable) == {"control-local", "production-do"} and capable["production-do"]["item_id"] == DO_ITEM and capable["production-do"]["folder_name"] == "CVs"
+    assert [row["name"] for row in sg.ALLOWED_GRANTS if "rollback" in row["modes"]] == ["control-local"]            # rollback productivo sigue deshabilitado
+    assert sg.build_grant_request(capable["production-do"])["url"] == DO_PREVIEW_URL
+
+
+@pytest.mark.parametrize("ids", [
+    {"client": PROD, "site": DO_SITE, "drive": DO_DRIVE, "item": DO_HUB_OLD},     # destino anterior: CCHH HUB
+    {"client": PROD, "site": DO_SITE, "drive": DO_DRIVE, "item": DO_PARENT},      # carpeta superior: Busqueda y Seleccion
+    {"client": PROD, "site": DO_SITE, "drive": DO_DRIVE, "item": "01ULA425OTHERFOLDERID"},  # cualquier otra carpeta (p. ej. el workbook o un hermano)
+    {"client": PROD, "site": SITE, "drive": DRIVE, "item": ITEM},                 # la app de producción sobre CONTROL
+    {"client": LOCAL, "site": DO_SITE, "drive": DO_DRIVE, "item": DO_ITEM},       # la app LOCAL sobre CVs
+])
+def test_production_apply_is_rejected_for_every_destination_other_than_cvs_before_any_call(tmp_path, ids):
+    graph = _dog()
+    argv = _do_apply_argv(tmp_path, **{"--client-id": ids["client"], "--site-id": ids["site"], "--drive-id": ids["drive"], "--item-id": ids["item"]})
+    code, report, _ = _go(argv, graph, prompt=lambda t: pytest.fail("sin prompt"))
+    assert code == 2 and report["stage"] == "config_rejected" and graph.requests == [] and _audit_files(tmp_path) == []
+
+
+@pytest.mark.parametrize("flag", ["--confirm-apply", "--acknowledge-undetermined", "--acknowledge-inheritance-break", "--acknowledge-existing-unique-permissions"])
+def test_production_apply_needs_every_explicit_confirmation_including_the_unique_permissions_one(tmp_path, flag):
+    graph = _dog()
+    argv = _do_apply_argv(tmp_path)
+    i = argv.index(flag)
+    argv = argv[:i] + argv[i + (2 if flag == "--confirm-apply" else 1):]
+    code, report, _ = _go(argv, graph, prompt=lambda t: pytest.fail("sin prompt"))
+    assert code == 3 and report["stage"] == "apply_not_confirmed" and report["missing"] == [flag] and graph.requests == [] and _audit_files(tmp_path) == []
+
+
+@pytest.mark.parametrize("over,stage", [({"--expect-user": "jose@danwor.com"}, "expect_user_not_allowed"), ({"--expect-user": "joconnor@danwor.com.evil.example"}, "expect_user_not_allowed"),
+                                        ({"--admin-client-id": OTHER_GUID}, "admin_client_not_allowed"), ({"--admin-client-id": LOCAL}, "admin_client_not_allowed")])
+def test_production_apply_only_accepts_the_fixed_user_and_the_fixed_administrative_app_before_authenticating(tmp_path, over, stage):
+    graph = _dog()
+    code, report, text = _do_apply(graph, tmp_path, argv_over=over, prompt=lambda t: pytest.fail("sin prompt"))
+    assert code == 2 and report["stage"] == stage and graph.requests == [] and _audit_files(tmp_path) == [] and "token" not in report and SECRET not in text
+
+
+def test_production_apply_accepts_the_fixed_user_regardless_of_case(tmp_path):
+    code, _, _ = _do_apply(_dog(), tmp_path, argv_over={"--expect-user": PROD_USER.upper()})
+    assert code == 0
+
+
+def test_production_apply_rejects_an_authenticated_user_that_is_not_the_expected_one_without_posting(tmp_path):
+    graph = _dog(me=OTHER_ME)
+    code, report, _ = _do_apply(graph, tmp_path)
+    assert code == 2 and report["stage"] == "identity_mismatch" and "POST" not in graph.methods and _audit_files(tmp_path) == []
+
+
+@pytest.mark.parametrize("token,problem", [(_jwt(tid=OTHER_GUID), "tenant_mismatch"), (_jwt(azp=PROD), "token_is_a_hub_app"), (_jwt(azp=LOCAL), "token_is_a_hub_app"), (_jwt(azp=OTHER_GUID), "admin_client_mismatch")])
+def test_production_apply_rejects_a_token_from_another_tenant_or_application(tmp_path, token, problem):
+    graph = _dog()
+    code, report, _ = _do_apply(graph, tmp_path, token=token)
+    assert code == 2 and report["stage"] == "token_rejected" and problem in report["problems"] and graph.requests == [] and _audit_files(tmp_path) == []
+
+
+def test_production_apply_with_a_read_only_token_is_blocked_without_posting(tmp_path):
+    graph = _dog()
+    code, report, _ = _do_apply(graph, tmp_path, token=_jwt(scp="Sites.Read.All User.Read"))
+    assert code == 3 and report["stage"] == "apply_blocked" and "token_scope_insufficient_for_apply" in report["blockers"] and "POST" not in graph.methods and _audit_files(tmp_path) == []
+
+
+@pytest.mark.parametrize("answer", ["", "si", sg.CONFIRM_PHRASE.lower(), sg.ROLLBACK_PHRASE, sg.CONFIRM_PHRASE + " ahora"])
+def test_production_apply_requires_the_exact_interactive_phrase_and_otherwise_writes_nothing(tmp_path, answer):
+    graph = _dog()
+    code, report, _ = _do_apply(graph, tmp_path, prompt=lambda t: answer)
+    assert code == 3 and report["stage"] == "apply_not_confirmed" and "POST" not in graph.methods and _audit_files(tmp_path) == []
+
+
+def test_production_apply_refuses_to_run_without_an_interactive_terminal(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    graph = _dog()
+    code, report, _ = _go(_do_apply_argv(tmp_path), graph)
+    assert code == 3 and report["stage"] == "interactive_required" and graph.requests == [] and _audit_files(tmp_path) == []
+
+
+def test_production_apply_aborts_if_the_destination_changed_between_the_first_read_and_the_post(tmp_path):
+    moved = _do_meta(sharepointIds={"siteId": DO_COLL, "webId": DO_WEB, "listId": "LISTDO", "listItemId": "99"})              # mismo item, otra identidad de lista
+    cases = ((moved, "target_changed_before_post", 3), (_do_meta(name="CVs2"), "target_mismatch", 2),
+             (_do_meta(parentReference={"driveId": DO_DRIVE, "id": "OTHERPARENT"}), "target_mismatch", 2), (_do_meta(id=DO_HUB_OLD), "target_mismatch", 2))
+    for n, (second, stage, code_) in enumerate(cases):
+        graph = _dog(meta=[(200, {}, _do_meta()), (200, {}, second)])
+        base = tmp_path / str(n)
+        code, report, _ = _do_apply(graph, base)
+        assert code == code_ and report["stage"] == stage and "POST" not in graph.methods and not (base / "audit").exists()
+
+
+def test_production_apply_aborts_if_the_identity_changed_between_the_first_read_and_the_post(tmp_path):
+    graph = _dog(me=[PROD_ME, OTHER_ME])
+    code, report, _ = _do_apply(graph, tmp_path)
+    assert code == 2 and report["stage"] == "identity_mismatch" and "POST" not in graph.methods and _audit_files(tmp_path) == []
+
+
+def test_production_apply_aborts_if_the_folder_permissions_changed_or_a_grant_appeared_before_the_post(tmp_path):
+    more = (200, {}, {"value": UNIQUE_PERMS[2]["value"] + [{"id": "perm-new", "roles": ["read"], "grantedToV2": {"user": {"displayName": "Nuevo"}}}]})
+    graph = _dog(drive_perms=[UNIQUE_PERMS, more])
+    code, report, _ = _do_apply(graph, tmp_path / "a")
+    assert code == 3 and report["stage"] == "permissions_changed_before_post" and "POST" not in graph.methods and not (tmp_path / "a" / "audit").exists()
+    appeared = (200, {}, {"value": UNIQUE_PERMS[2]["value"] + [_app_perm(PROD, ["write"], pid="perm-raced")]})
+    graph = _dog(drive_perms=[UNIQUE_PERMS, appeared])
+    code, report, _ = _do_apply(graph, tmp_path / "b")
+    assert code == 3 and report["stage"] in ("permissions_changed_before_post", "duplicate_observed_before_post") and "POST" not in graph.methods and not _lock_file(tmp_path / "b").exists()
+    graph = _dog(item_perms=[(200, {}, {"value": []}), (200, {}, {"value": [_app_perm(PROD, ["read"])]})])
+    code, report, _ = _do_apply(graph, tmp_path / "c")
+    assert code == 3 and report["stage"] == "duplicate_observed_before_post" and "POST" not in graph.methods and not _lock_file(tmp_path / "c").exists()
+    graph = _dog(item_perms=[(200, {}, {"value": []}), _err(403, "accessDenied")])
+    code, report, _ = _do_apply(graph, tmp_path / "d")
+    assert code == 3 and report["stage"] == "evidence_incomplete_before_post" and "POST" not in graph.methods and not _lock_file(tmp_path / "d").exists()
+
+
+def test_production_apply_aborts_without_a_lock_when_the_audit_record_cannot_be_written(tmp_path):
+    (tmp_path / "audit").write_text("un archivo, no una carpeta", encoding="utf-8")
+    graph = _dog()
+    code, report, _ = _do_apply(graph, tmp_path)
+    assert code == 2 and report["stage"] == "audit_unwritable" and "POST" not in graph.methods
+
+
+def test_production_apply_201_leaves_a_lock_and_a_second_apply_is_refused_before_any_call(tmp_path):
+    code, _, _ = _do_apply(_dog(), tmp_path)
+    assert code == 0 and json.loads(_lock_file(tmp_path).read_text(encoding="utf-8"))["state"] == "created"
+    graph = _dog()
+    code, report, _ = _do_apply(graph, tmp_path, now=time.time() + 60, prompt=lambda t: pytest.fail("sin prompt"))
+    assert code == 3 and report["stage"] == "apply_locked" and report["lock_state"] == "created" and graph.requests == []
+
+
+@pytest.mark.parametrize("status,code_", [(401, "InvalidAuthenticationToken"), (403, "accessDenied"), (404, "itemNotFound"), (409, "nameAlreadyExists"), (429, "tooManyRequests")])
+def test_production_apply_definitive_http_failures_are_reported_once_release_the_lock_and_are_never_retried(tmp_path, status, code_):
+    graph = _dog(post=_err(status, code_, "denied", rid="req-post-do"))
+    code, report, text = _do_apply(graph, tmp_path)
+    assert code == 1 and report["stage"] == "post" and graph.methods.count("POST") == 1 and "DELETE" not in graph.methods
+    assert (report["post"]["status"], report["post"]["code"], report["post"]["request_id"]) == (status, code_, "req-post-do")
+    assert not _lock_file(tmp_path).exists()                                              # no se creó: un nuevo intento es una decisión explícita (nuevo apply completo)
+    saved = json.loads(_result_file(tmp_path).read_text(encoding="utf-8"))
+    assert saved["stage"] == "post" and saved["post"]["status"] == status and SECRET not in text + _everything_written(tmp_path)
+    if status in (401, 403):
+        assert len(report["diagnosis"]) == 2
+
+
+@pytest.mark.parametrize("failure", [TimeoutError("timed out"), ConnectionResetError("reset"), sg.ToolError("network_error", "sin respuesta completa", exit_code=1),
+                                     _err(500, "generalException"), _err(502, "badGateway"), _err(503, "serviceNotAvailable"), _err(504, "gatewayTimeout")])
+def test_production_apply_an_ambiguous_outcome_stops_keeps_the_lock_and_demands_a_manual_review(tmp_path, failure):
+    graph = _dog(post=failure)
+    code, report, _ = _do_apply(graph, tmp_path)
+    assert code == sg.EXIT_OUTCOME_UNKNOWN == 4 and report["stage"] == "post_outcome_unknown" and report["ok"] is False and graph.methods.count("POST") == 1 and "DELETE" not in graph.methods
+    assert report["post"]["outcome"] == "UNKNOWN" and "REVISIÓN MANUAL OBLIGATORIA" in report["next_step"] and "evidence_after" in report and "permission_id" not in report["post"]
+    assert json.loads(_lock_file(tmp_path).read_text(encoding="utf-8"))["state"] == "outcome_unknown"
+    assert json.loads(_result_file(tmp_path).read_text(encoding="utf-8"))["stage"] == "post_outcome_unknown"
+    # ninguna operación nueva hasta que el operador revise y borre el candado a mano
+    graph2 = _dog()
+    code2, report2, _ = _do_apply(graph2, tmp_path, now=time.time() + 60, prompt=lambda t: pytest.fail("sin prompt"))
+    assert code2 == 3 and report2["stage"] == "apply_locked" and report2["lock_state"] == "outcome_unknown" and graph2.requests == []
+    _lock_file(tmp_path).unlink()
+    code3, _, _ = _do_apply(_dog(), tmp_path, now=time.time() + 120)
+    assert code3 == 0
+
+
+def test_production_apply_a_response_that_does_not_match_the_request_is_not_success_and_keeps_the_lock(tmp_path):
+    graph = _dog(post=(201, {}, {"id": "perm-odd", "roles": ["read"], "grantedToV2": {"application": {"id": PROD}}}))
+    code, report, _ = _do_apply(graph, tmp_path)
+    assert code == 1 and report["stage"] == "post_response_mismatch" and report["ok"] is False and report["post"]["permission_id"] == "perm-odd"
+    assert json.loads(_lock_file(tmp_path).read_text(encoding="utf-8"))["state"] == "response_mismatch"
+
+
+def test_production_apply_never_retries_on_any_outcome(tmp_path):
+    for i, post in enumerate((_err(500, "generalException"), _err(429, "tooManyRequests"), TimeoutError(), DO_POST_OK)):
+        graph = _dog(post=post)
+        _do_apply(graph, tmp_path / str(i))
+        assert graph.methods.count("POST") == 1 and "DELETE" not in graph.methods
+
+
+def test_production_apply_never_alters_or_recreates_existing_permissions_and_never_deletes(tmp_path):
+    graph = _dog()
+    _do_apply(graph, tmp_path)
+    assert {r["method"] for r in graph.requests} == {"GET", "POST"}
+    assert [r["url"] for r in graph.requests if r["method"] == "POST"] == [DO_PREVIEW_URL]                    # un único POST de un grant nuevo; ningún permiso existente se toca
+
+
+def test_production_dry_run_with_all_acknowledgements_reports_what_apply_would_do_without_doing_it(tmp_path):
+    graph = _dog()
+    argv = _with(_do_argv("--dry-run"), {"--request-write-scope": True, "--acknowledge-undetermined": True, "--acknowledge-inheritance-break": True, "--acknowledge-existing-unique-permissions": True,
+                                         "--admin-client-id": ADMIN_APP, "--expect-user": PROD_USER, "--audit-dir": str(tmp_path / "audit")})
+    code, report, _ = _go(argv, graph)
+    assert code == 0 and report["blockers"] == [] and report["would_apply"] is True and set(graph.methods) == {"GET"} and _audit_files(tmp_path) == []
+    assert report["permission_state_before"]["direct_count"] == 2 and report["user"]["upn"] == PROD_USER
+
+
+def test_the_control_profile_apply_is_unchanged_no_lock_no_strict_checks_and_no_extra_reads(tmp_path):
+    graph = FakeGraph()
+    code, report, _ = _apply(graph, tmp_path)
+    assert code == 0 and graph.methods == ["GET"] * 6 + ["POST"] + ["GET"] * 2 and "permission_state_before" not in report and "lock" not in report
+    intent = json.loads(next(p for p in (tmp_path / "audit").iterdir() if p.name.endswith("-intent.json")).read_text(encoding="utf-8"))
+    assert not any(f.endswith(".lock") for f in _audit_files(tmp_path)) and "acknowledgements" not in intent
+    code, report, _ = _go(_argv("--dry-run"), FakeGraph())          # el control no exige el reconocimiento de permisos únicos
+    assert code == 0 and "unique_permissions_not_acknowledged" not in report["blockers"]
+
+
+def test_production_secrets_never_reach_reports_streams_audit_or_the_lock_in_any_outcome(tmp_path):
+    for i, post in enumerate((DO_POST_OK, _err(403, "accessDenied"), TimeoutError())):
+        code, report, text = _do_apply(_dog(post=post), tmp_path / str(i))
+        blob = text + _everything_written(tmp_path / str(i))
+        assert SECRET not in blob and "Bearer" not in blob and "Authorization" not in blob

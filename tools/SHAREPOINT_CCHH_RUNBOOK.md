@@ -12,7 +12,7 @@
 | Site ID | `a129a1d0-a4ee-4438-8de8-9e39e7007764` | `danwor.sharepoint.com,65c64790-f933-46b9-823f-8e4ad57e69b1,b9b7da7d-8f67-46a9-be27-5f176394718a` |
 | Drive ID | `b!0KEpoe6kOESN6J455wB3ZLYmlHEbGsZPlL4_LU8lfDroKl3b1Ti0RYJfK4nkJLM3` | `b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE` |
 | Item ID | `01U7IMSJOGXNT3ZNP5NVAKDFLQWY3L6OMQ` | `01ULA425KSLK6LZAFFEVHKUSCO32CH64JG` (carpeta `CVs`; padre `Busqueda y Seleccion` = `01ULA425KHEKK4PGEOKFGKQKDWCUDFQEGV`) |
-| Modos habilitados hoy | check, dry-run, apply, rollback | **sólo check y dry-run** (apply/rollback/`--request-write-scope` rechazados en código) |
+| Modos habilitados hoy | check, dry-run, apply, rollback | check, dry-run y **apply estricto** (§9.7); **rollback rechazado en código** |
 | Rol a conceder | `write` (un grant) | `write`, **sin GO todavía** |
 | Estado del grant | no creado (el PUT de prueba da 403) | no creado ni verificado |
 | Permiso Selected de la app en Entra (`Files.SelectedOperations.Selected`) | el token del Hub ya lo trae según el diagnóstico; confirmar en Entra | **no verificado** |
@@ -49,14 +49,14 @@ $DO_DRIVE='b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE'; 
 python tools/sharepoint_selected_grant.py --dry-run --tenant-id $TENANT --client-id $LOCAL_APP --site-id $CTRL_SITE --drive-id $CTRL_DRIVE --item-id $CTRL_ITEM --admin-client-id $ADMIN --expect-user $ME --request-write-scope --acknowledge-undetermined --acknowledge-inheritance-break
 ```
 
-**DigitalOcean (producción, sólo lectura)** — `--check` y `--dry-run`; no admiten `--request-write-scope`:
+**DigitalOcean (producción)** — `--check` y `--dry-run` son de sólo lectura (el `--check` no pide scope de escritura); el apply productivo está en §9.7:
 
 ```powershell
 python tools/sharepoint_selected_grant.py --check --tenant-id $TENANT --client-id $DO_APP --site-id $DO_SITE --drive-id $DO_DRIVE --item-id $DO_ITEM --admin-client-id $ADMIN --expect-user $ME
 python tools/sharepoint_selected_grant.py --dry-run --tenant-id $TENANT --client-id $DO_APP --site-id $DO_SITE --drive-id $DO_DRIVE --item-id $DO_ITEM --admin-client-id $ADMIN --expect-user $ME
 ```
 
-Lectura del resultado de producción: `target.name = CVs`, `target.parent_item_id = 01ULA425KHEKK4PGEOKFGKQKDWCUDFQEGV` y `web_id` verificado; `evidence` completa en las dos fuentes; `user.upn` = tu cuenta; `would_apply` siempre `false` con el bloqueo `apply_disabled_for_profile` (esperado). `duplicate_state = UNDETERMINED` no es evidencia de ausencia ni de autorización. Un 403 en el destino productivo significa que **ese** usuario no ve Comunicaciones, sin importar CONTROL.
+Lectura del resultado de producción: `target.name = CVs`, `target.parent_item_id = 01ULA425KHEKK4PGEOKFGKQKDWCUDFQEGV` y `web_id` verificado; `evidence` completa en las dos fuentes; `user.upn` = tu cuenta; `would_apply = false` mientras falten los reconocimientos del apply (esperado en `--check`; ver §9.7 para el `--dry-run` completo). `duplicate_state = UNDETERMINED` no es evidencia de ausencia ni de autorización. Un 403 en el destino productivo significa que **ese** usuario no ve Comunicaciones, sin importar CONTROL.
 
 Pantalla del Hub (owner): `/cchh/diagnostico/sharepoint` → «Sonda de lectura» (`app_grant_state`: PRESENT / ABSENT sólo si el llamador es owner del item / UNKNOWN). En DO es sólo lectura; la «Prueba de escritura» funciona únicamente en localhost.
 
@@ -116,7 +116,7 @@ Sólo borra un `permission_id` registrado por un apply previo y que siga siendo 
 
 > **Actualización — destino fijado en `CVs`.** La decisión de alcance (condición 3) está tomada: `production-do` apunta a `CCHH HUB/Busqueda y Seleccion/CVs` (`01ULA425KSLK6LZAFFEVHKUSCO32CH64JG`), no a `CCHH HUB`. Lo de este apartado que habla de `CCHH HUB` describe el **peor caso** (grant sobre toda la carpeta) y se conserva como referencia; para `CVs` aplican las mismas condiciones con el radio acotado de §9.3.
 
-`production-do` queda en `--check` y `--dry-run`: `--apply` y `--rollback` siguen rechazados en código. Habilitar el grant productivo requiere un **GO independiente** y un cambio de código revisado (`modes` de `production-do`); este apartado lista lo que debe estar verificado **antes** de pedirlo.
+`production-do` admite `--check`, `--dry-run` y `--apply` estricto (§9.7, **sólo `CVs`**); `--rollback` sigue rechazado en código. Ejecutar el grant productivo requiere un **GO explícito** del owner; este apartado lista lo que debe estar verificado **antes** de pedirlo.
 
 ### Condiciones (todas)
 1. El código de esta rama está desplegado y estable en DigitalOcean, y `--check`/`--dry-run` de `production-do` (usuario `joconnor@danwor.com`) dan lo esperado: `target.name = CCHH HUB`, `webId` verificado, evidencia completa, `would_apply: false` con `apply_disabled_for_profile`.
@@ -144,7 +144,7 @@ Sólo borra un `permission_id` registrado por un apply previo y que siga siendo 
 
 ## 9. Destino productivo `CCHH HUB/Busqueda y Seleccion/CVs` — fijado, sólo lectura
 
-**Estado.** El perfil `production-do` apunta a la carpeta `CVs` (ya no a `CCHH HUB`). Sigue **sólo `--check` y `--dry-run`**: `--apply`, `--rollback` y `--request-write-scope` están rechazados en código. No se concedió ningún permiso ni se tocó Entra ni DigitalOcean. El perfil `control-local` no cambió.
+**Estado.** El perfil `production-do` apunta a la carpeta `CVs` (ya no a `CCHH HUB`). Admite `--check`, `--dry-run` y `--apply` **estricto** (§9.7); `--rollback` sigue rechazado en código. **El POST productivo NO se ejecutó**: no se concedió ningún permiso ni se tocó Entra ni DigitalOcean. El perfil `control-local` no cambió.
 
 ### 9.1 Identificadores verificados
 Verificados por el owner con consultas GET independientes (resolución por sharing link y lectura por ruta dentro de la biblioteca productiva, cruzadas; 19 comprobaciones OK; carpeta vacía). Los ids **no** se tomaron del sharing link: salieron de las respuestas de Graph.
@@ -184,7 +184,7 @@ Resultado esperado: `ok: true`; `allowlist = production-do`; `target.name = CVs`
 | **Estado de permisos de `CVs`** | `--check` enumera `driveItem.permissions` y `listItem.permissions`: cantidad, coincidencias de la app DO y, nuevo, cuántos permisos se **heredan** (`inherited_count`, tienen `inheritedFrom`) y cuántos son **propios** (`direct_count`). | `driveItem.permissions` expone permisos efectivos **de compartir**, no es una ACL exhaustiva ni distingue por sí solo «hereda» de «ya tiene permisos únicos». | En una carpeta recién creada y vacía se espera `direct_count = 0` (salvo links de compartir). Un `direct_count > 0` se explica antes de seguir. Complementar con «Administrar acceso» de `CVs` en SharePoint y guardar una captura como snapshot. |
 | **¿Ya existe un grant Selected?** | Sólo la **presencia** de un grant equivalente es autoritativa (`ALREADY_GRANTED`); `--apply` relee justo antes del POST y aborta ante cualquier coincidencia observable. | La **ausencia no se puede probar** (`UNDETERMINED`, por diseño) y un grant **heredado de un ancestro** (`CCHH HUB` o `Busqueda y Seleccion`) cubriría `CVs` sin aparecer en la enumeración. | El owner reconoce el estado (`--acknowledge-undetermined`) sabiendo esto. Indicio, no prueba: si el 403 original de producción fue contra `CCHH HUB`, entonces no había grant efectivo sobre `CCHH HUB` ni ancestros en ese momento. La verificación real es la prueba funcional posterior al grant (§9.5). |
 | **Impacto sobre herencia** | El grant se hace sobre `CVs`: sólo `CVs` y su contenido pasan a tener permisos propios; `CCHH HUB`, `Configuracion` y el workbook quedan heredando de la biblioteca. Hoy `CVs` está **vacía**: no hay contenido cuyo acceso se pueda perder. | Quién ve `CVs` después depende de sus permisos propios; borrar el grant no garantiza restaurar la herencia (manual, §8 riesgo 4). | Snapshot previo; verificación antes/después con dos usuarios de CCHH que no sean owner (abrir y subir un CV) y una persona sin rol CCHH (no debe abrir `CVs`). Hacerlo **antes** de la primera subida real. |
-| **Habilitación** | `--apply`/`--rollback` rechazados para `production-do` antes de autenticar. | — | Habilitar `apply` sólo para este destino = cambio de código revisado + GO independiente. |
+| **Habilitación** | `--apply` habilitado sólo para `production-do → CVs` con compuertas estrictas (§9.7); `--rollback` rechazado antes de autenticar. | El rollback productivo no existe: revertir es manual. | Ejecutar el apply requiere GO explícito del owner. |
 
 ### 9.4 Configuración cuando se despliegue
 - **`HC_CV_ROOT_ITEM_ID = 01ULA425KSLK6LZAFFEVHKUSCO32CH64JG`** en DigitalOcean (cambia de `CCHH HUB` a `CVs`). Se aplica **después** de verificar el grant y **antes** de la primera subida; cambiar la variable reinicia la app. No se modificó nada en DigitalOcean con este cambio.
@@ -196,9 +196,50 @@ Resultado esperado: `ok: true`; `allowlist = production-do`; `target.name = CVs`
 1. Desplegar el código de la rama (sin permisos ni variables nuevas).
 2. `--check` y `--dry-run` de §9.2; revisar la tabla de §9.3.
 3. Aprobación del owner del sitio + snapshot de permisos de `CVs`.
-4. Cambio de código aparte: habilitar `apply` para `production-do` (sólo `CVs`).
-5. `--apply` interactivo (un POST) y comparación de permisos antes/después.
+4. (Hecho en código, sin ejecutar) `apply` habilitado para `production-do` (sólo `CVs`): §9.7.
+5. `--apply` interactivo (un POST) con GO explícito, y comparación de permisos antes/después.
 6. `HC_CV_ROOT_ITEM_ID = 01ULA425KSLK6LZAFFEVHKUSCO32CH64JG` en DO y prueba funcional con un candidato ficticio y un PDF inocuo (carpeta `Apellido, Nombre [id8]`, un archivo, `folder_item_id`, `web_url` que abre).
 
 ### 9.6 Qué sigue sin cambiar
-`--apply` y `--rollback` de `production-do` siguen rechazados en código; `control-local` intacto; ningún permiso concedido ni configuración de producción modificada.
+`--rollback` de `production-do` sigue rechazado en código; `control-local` intacto; ningún permiso concedido ni configuración de producción modificada.
+
+### 9.7 Apply productivo (`production-do → CVs`) — preparado, NO ejecutado
+**Qué cambió en código.** `production-do` habilita `apply` con la política `strict_apply` (sólo ese perfil; `control-local` conserva su flujo). Con el apply se concede **un** grant `write` a la app DO (`eeca6df8-…`) sobre `CVs` (`01ULA425KSLK6LZAFFEVHKUSCO32CH64JG`); el POST va a `…/drives/{drive}/items/{CVs}/permissions` y a nada más.
+
+**Compuertas, en orden.**
+1. Allowlist cerrada: tenant, app, site, drive, item (+ padre real verificado). Cualquier otro destino —`CCHH HUB`, `Busqueda y Seleccion`, el workbook, CONTROL— se rechaza **antes de cualquier llamada**.
+2. Antes de autenticar: `--confirm-apply "CONCEDER GRANT WRITE"`, `--acknowledge-undetermined`, `--acknowledge-inheritance-break`, **`--acknowledge-existing-unique-permissions`** (el operador declara que `CVs` ya tiene permisos únicos; Graph no lo expone), `--admin-client-id` = Graph Command Line Tools (`14d82eec-…`), `--expect-user` = `joconnor@danwor.com` (otro usuario u otra app administrativa se rechazan), terminal interactiva real y ausencia de un candado previo.
+3. Token delegado con `Sites.ReadWrite.All` del tenant correcto y de la app administrativa; identidad verificada con `GET /me`.
+4. Lectura del destino (ids, padre, nombre, carpeta), de los permisos (se registra el estado previo: cantidad, heredados/propios, id/roles/tipo de cada entrada, **sin nombres ni correos**) y del grant de la app (la ausencia sigue sin poder probarse: `UNDETERMINED`).
+5. Confirmación interactiva: se muestra operación, usuario, carpeta, cuerpo, estado de permisos y riesgos; hay que escribir exactamente `CONCEDER GRANT WRITE`.
+6. **Relectura inmediata antes del POST** de destino, identidad y permisos: si cambió el destino, el usuario, el conjunto de permisos, apareció un grant de la app o la lectura es incompleta → **se aborta sin escribir**.
+7. Candado de un solo uso (`production-do.apply.lock` en el directorio de auditoría) + auditoría de **intención** (antes del POST) y de **resultado** (HTTP, request-id, `permission_id`).
+8. **Un único POST, sin reintentos.** No se altera, recrea ni borra ningún permiso existente; no hay DELETE en este perfil.
+
+**Evidencia previa recomendada (sólo lectura).** El `--dry-run` con todo lo anterior debe dar `ok: true`, `blockers: []`, `would_apply: true` y `permission_state_before`:
+
+```powershell
+python tools/sharepoint_selected_grant.py --dry-run --tenant-id $TENANT --client-id $DO_APP --site-id $DO_SITE --drive-id $DO_DRIVE --item-id $DO_ITEM --admin-client-id $ADMIN --expect-user $ME --request-write-scope --acknowledge-undetermined --acknowledge-inheritance-break --acknowledge-existing-unique-permissions
+```
+
+**Comando `--apply` (terminal interactiva real; sólo con GO explícito).**
+
+```powershell
+python tools/sharepoint_selected_grant.py --apply --tenant-id $TENANT --client-id $DO_APP --site-id $DO_SITE --drive-id $DO_DRIVE --item-id $DO_ITEM --admin-client-id $ADMIN --expect-user $ME --acknowledge-undetermined --acknowledge-inheritance-break --acknowledge-existing-unique-permissions --confirm-apply "CONCEDER GRANT WRITE"
+```
+(Las variables son las de §9.2.) La herramienta se niega sin TTY: no puede correr desde un agente. Guardar la salida y `reports/sharepoint_selected_grant/production-do-*-intent.json` / `-result.json` (traen `permission_id`, estado HTTP y request-id).
+
+**Después de un 201.** Queda el candado en estado `created` (un segundo `--apply` se rechaza). Verificar: relectura de permisos (el `--check` debe mostrar la coincidencia de la app), «Administrar acceso» de `CVs` sin cambios salvo el grant, los dos usuarios no-owner y la persona sin rol CCHH (§9.3), y recién entonces fijar `HC_CV_ROOT_ITEM_ID` y probar un candidato ficticio (§9.5).
+
+**Si falla.**
+- **Respuesta definitiva 4xx** (401/403/404/409/429…): el grant **no** se creó; el candado se libera. Causas habituales de 401/403: el token no alcanza para administrar grants Selected (la doc habla de `Sites.FullControl.All` o Selected + Owner/FullControl) o el usuario no es Propietario/Control total de `CVs`. No se reintenta solo: un nuevo intento es un `--apply` completo, con su propio GO, después de entender la causa.
+- **Resultado ambiguo** (timeout/corte, 5xx, sin respuesta; código de salida 4): **no reintentar**. El POST pudo haberse ejecutado. La herramienta relee y deja `evidence_after`; el **candado queda puesto** y bloquea cualquier `--apply` nuevo. Revisión manual obligatoria: (1) `--check` y «Administrar acceso» de `CVs` para ver si existe el grant de la app DO; (2) si existe, tratarlo como creado (anotar su `permission_id`); (3) si no existe, recién entonces el owner decide un nuevo intento. **Sólo después de esa revisión** se borra el candado a mano.
+- **Respuesta 201 que no coincide** con lo pedido (`post_response_mismatch`): el candado queda; revisar el `permission_id` registrado antes de cualquier acción.
+- **Rollback.** No hay rollback productivo en la herramienta. Revertir es manual: un administrador borra el permiso por su `permission_id` (Graph `DELETE …/permissions/{id}` o desde SharePoint) y restaura la herencia **sabiendo el snapshot previo** (la auditoría de intención guarda el estado previo, sin identidades; el snapshot completo de usuarios/grupos sale de «Administrar acceso»).
+
+**Riesgos residuales.**
+- La ausencia previa de un grant (o uno heredado de `CCHH HUB`/`Busqueda y Seleccion`) **no es demostrable** (`UNDETERMINED`): se mitiga con el reconocimiento explícito, la relectura y la verificación funcional posterior.
+- «La carpeta ya tiene permisos únicos» es una **afirmación del operador** (Graph no lo expone); la evidencia automática es sólo indicativa y queda registrada con su carácter.
+- No se prueba por adelantado que `Sites.ReadWrite.All` + Control total alcancen para administrar el grant: lo decide la respuesta real del POST.
+- Un grant mal ubicado no se deshace desde la herramienta; el rollback es manual.
+- El candado vive en el equipo del operador: otro equipo no lo ve (no ejecutar el apply desde dos máquinas).

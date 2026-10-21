@@ -8,8 +8,8 @@ Operación de fondo (Graph v1.0, doc oficial `driveitem-post-permissions`):
 
 Perfiles (filas de la allowlist, cerradas en código; no hay parámetros genéricos para otros destinos):
   control-local  app LOCAL → carpeta `Hub` de CONTROL: check, dry-run, apply y rollback.
-  production-do  app de DigitalOcean → carpeta `CCHH HUB/Busqueda y Seleccion/CVs` (sitio Comunicaciones; NUNCA `CCHH HUB`): SÓLO check y dry-run. `--apply`/`--rollback` productivos quedan deshabilitados en código hasta un GO independiente;
-                 tampoco se admite `--request-write-scope` (no se pide un scope de escritura sobre producción).
+  production-do  app de DigitalOcean → carpeta `CCHH HUB/Busqueda y Seleccion/CVs` (sitio Comunicaciones; NUNCA `CCHH HUB`): check, dry-run y apply con compuertas ESTRICTAS (`strict_apply`: usuario y app administrativa
+                 fijados, confirmación explícita de que la carpeta ya tiene permisos únicos, relectura de destino/identidad/permisos antes del POST, candado de un solo uso). `--rollback` productivo sigue DESHABILITADO en código.
 Los perfiles son independientes: ningún identificador se comparte ni se infiere de otro, y los permisos personales del usuario sobre CONTROL NO equivalen a permisos sobre Comunicaciones.
 
 Modos (exactamente uno):
@@ -68,6 +68,9 @@ PRODUCTION_APP_ID = "eeca6df8-2436-422f-a1b8-05ff9e8ff653"  # app de DigitalOcea
 HUB_APP_IDS = frozenset({LOCAL_APP_ID, PRODUCTION_APP_ID})
 ALL_MODES = ("check", "dry-run", "apply", "rollback")
 READ_ONLY_MODES = ("check", "dry-run")
+PRODUCTION_MODES = ("check", "dry-run", "apply")  # sin rollback: revertir un grant productivo requiere un cambio de código y un GO independientes
+PRODUCTION_USER = "joconnor@danwor.com"           # único usuario que puede ejecutar el apply productivo
+ADMIN_GRAPH_CLI_ID = "14d82eec-204b-4c2f-b7e8-296a70dab67e"  # Microsoft Graph Command Line Tools (cliente público administrativo): única identidad administrativa aceptada en producción
 # Agregar o ampliar un perfil (p. ej. habilitar apply/rollback en producción) requiere un cambio de código revisado y un GO explícito e independiente del owner.
 ALLOWED_GRANTS: tuple[dict[str, Any], ...] = (
     {"name": "control-local", "tenant_id": TENANT_ID, "client_id": LOCAL_APP_ID, "site_id": "a129a1d0-a4ee-4438-8de8-9e39e7007764",
@@ -77,8 +80,9 @@ ALLOWED_GRANTS: tuple[dict[str, Any], ...] = (
      "site_id": "danwor.sharepoint.com,65c64790-f933-46b9-823f-8e4ad57e69b1,b9b7da7d-8f67-46a9-be27-5f176394718a",
      "drive_id": "b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE", "item_id": "01ULA425KSLK6LZAFFEVHKUSCO32CH64JG", "folder_name": "CVs",
      "parent_item_id": "01ULA425KHEKK4PGEOKFGKQKDWCUDFQEGV",  # `CCHH HUB/Busqueda y Seleccion`: el padre real también se verifica (defensa en profundidad sobre un nombre genérico como `CVs`)
-     "modes": READ_ONLY_MODES,
-     "notes": ("perfil PRODUCCIÓN (sitio Comunicaciones, carpeta CCHH HUB/Busqueda y Seleccion/CVs): sólo --check y --dry-run; --apply y --rollback están deshabilitados hasta un GO independiente",
+     "modes": PRODUCTION_MODES,
+     "strict_apply": True, "required_user": PRODUCTION_USER, "required_admin_client_id": ADMIN_GRAPH_CLI_ID,   # compuertas estrictas de --apply (sólo este perfil)
+     "notes": ("perfil PRODUCCIÓN (sitio Comunicaciones, carpeta CCHH HUB/Busqueda y Seleccion/CVs): --check, --dry-run y --apply (estricto, un solo POST); --rollback está deshabilitado hasta un GO independiente",
                "los permisos personales del usuario sobre CONTROL no equivalen a permisos sobre Comunicaciones: la autorización efectiva se verifica sólo con las lecturas contra este destino",
                "aplicar un grant sobre CVs rompería la herencia de esa carpeta (sólo de ella y su contenido; CCHH HUB, Configuracion y el workbook de catálogos quedan fuera): los cambios futuros de permisos de la biblioteca dejarían de propagarse a CVs y borrar el grant no garantiza restaurarla")},
 )
@@ -96,6 +100,7 @@ _SITE_COMPOSITE = re.compile(r"^[A-Za-z0-9.-]+,[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-
 _PERM_ID = re.compile(r"^[A-Za-z0-9_=.-]{1,200}$")
 _AADSTS = re.compile(r"AADSTS\d{4,7}")
 _MAX_PAGES = 10
+_MAX_ENTRIES = 200
 _TIMEOUT = 30
 
 Transport = Callable[[str, str, dict, "bytes | None"], "tuple[int, dict, bytes]"]
@@ -403,6 +408,39 @@ def _app_grants(perm: dict) -> list[tuple[str, list[str]]]:
     return out
 
 
+def _perm_kind(perm: dict) -> str:
+    if perm.get("link"):
+        return "link"
+    for ident in [perm.get("grantedToV2"), perm.get("grantedTo")] + (perm.get("grantedToIdentitiesV2") or []) + (perm.get("grantedToIdentities") or []):
+        if isinstance(ident, dict):
+            for kind in ("application", "user", "group", "siteGroup", "siteUser"):
+                if isinstance(ident.get(kind), dict):
+                    return kind
+    return "other"
+
+
+def permission_state(evidence: list[dict[str, Any]]) -> dict[str, Any]:
+    """Estado de permisos de la carpeta tal como lo ve Graph (driveItem.permissions: permisos efectivos de COMPARTIR, no una ACL exhaustiva). La evidencia automática de «permisos únicos» es sólo INDICATIVA: Graph no expone `HasUniqueRoleAssignments`,
+    así que la afirmación «la carpeta ya tiene permisos únicos» debe ser CONFIRMADA por el operador (`--acknowledge-existing-unique-permissions`) y queda registrada como tal."""
+    src = next((e for e in evidence if e["source"] == "driveItem.permissions"), None) or {}
+    inherited, direct = src.get("inherited_count", 0), src.get("direct_count", 0)
+    if not src.get("complete"):
+        auto = "unavailable_incomplete_read"
+    elif direct and not inherited:
+        auto = "indicative_all_entries_are_direct"
+    elif inherited and not direct:
+        auto = "contradicts_all_entries_report_inheritance"
+    else:
+        auto = "inconclusive"
+    return {"source": "driveItem.permissions", "complete": bool(src.get("complete")), "count": src.get("count", 0), "inherited_count": inherited, "direct_count": direct, "entries": src.get("entries", []),
+            "automatic_unique_permissions_evidence": auto, "provable_automatically": False,
+            "note": "Graph no expone si la carpeta tiene permisos únicos: la evidencia automática es indicativa y la afirmación debe confirmarla el operador"}
+
+
+def _permission_ids(state: dict[str, Any]) -> list[str]:
+    return sorted(str(e.get("id")) for e in state.get("entries", []))
+
+
 def _enumerate(graph: Graph, source: str, url: "str | None", client_id: str) -> dict[str, Any]:
     entry: dict[str, Any] = {"source": source, "complete": False, "count": 0, "matches": []}
     if url is None:
@@ -418,6 +456,8 @@ def _enumerate(graph: Graph, source: str, url: "str | None", client_id: str) -> 
             if source == "driveItem.permissions":  # informativo (herencia): `inheritedFrom` presente = hereda de un ancestro; ausente = permiso propio del ítem (o link de compartir)
                 key = "inherited_count" if perm.get("inheritedFrom") else "direct_count"
                 entry[key] = entry.get(key, 0) + 1
+                if len(entry.setdefault("entries", [])) < _MAX_ENTRIES:  # snapshot sin identidades (sin nombres ni correos): id, roles, heredado?, tipo
+                    entry["entries"].append({"id": perm.get("id"), "roles": [str(r).lower() for r in perm.get("roles") or []], "inherited": bool(perm.get("inheritedFrom")), "kind": _perm_kind(perm)})
             for app_id, roles in _app_grants(perm):
                 if app_id == client_id.lower():
                     entry["matches"].append({"roles": roles, "permission_id": perm.get("id")})
@@ -480,6 +520,8 @@ def gate(state: dict[str, Any], token: dict[str, Any], evidence: list[dict[str, 
         blockers.append("token_scope_insufficient_for_apply")
     if not acks.get("inheritance"):
         blockers.append("inheritance_break_not_acknowledged")
+    if not acks.get("unique_permissions", True):  # sólo perfiles estrictos lo exigen (production-do); el resto no define la clave
+        blockers.append("unique_permissions_not_acknowledged")
     return blockers
 
 
@@ -512,21 +554,73 @@ def _write_audit(directory: str, grant_name: str, kind: str, payload: dict[str, 
     return path
 
 
+def _lock_path(directory: str, grant: dict[str, Any]) -> str:
+    return os.path.join(directory, f"{grant['name']}.apply.lock")
+
+
+def _lock_blocked(path: str) -> ToolError:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            state = json.load(fh).get("state")
+    except (OSError, ValueError):
+        state = "unreadable"
+    return ToolError("apply_locked", "hay un apply previo de este perfil sin revisar (candado presente): NO se envía nada. Revisá manualmente el resultado y la carpeta en SharePoint; sólo después de esa revisión borrá el candado a mano",
+                     exit_code=3, lock=path, lock_state=state)
+
+
+def _acquire_lock(directory: str, grant: dict[str, Any], info: dict[str, Any], *, now: float) -> str:
+    path = _lock_path(directory, grant)
+    unwritable = lambda exc: ToolError("audit_unwritable", f"no se pudo crear el candado de apply ({type(exc).__name__}): no se ejecuta la operación", exit_code=2)  # noqa: E731
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except OSError as exc:
+        raise unwritable(exc) from exc
+    try:
+        with open(path, "x", encoding="utf-8") as fh:  # exclusivo: dos corridas no pueden pasar a la vez
+            json.dump({"tool": TOOL_ID, "state": "in_progress", "utc": _utc(now), **info}, fh, indent=2, ensure_ascii=False)
+    except FileExistsError as exc:
+        raise _lock_blocked(path) from exc
+    except OSError as exc:
+        raise unwritable(exc) from exc
+    return path
+
+
+def _set_lock(path: str, state: str, **info: Any) -> None:
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"tool": TOOL_ID, "state": state, **info}, fh, indent=2, ensure_ascii=False)
+    except OSError:
+        pass  # el candado ya existe (estado previo); el reporte por stdout y la auditoría son el respaldo
+
+
+def _release_lock(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 def _grant_ids(grant: dict[str, Any]) -> dict[str, str]:
     return {k: grant[k] for k in ("name", "tenant_id", "client_id", "site_id", "drive_id", "item_id", "folder_name")}
 
 
-def _apply_prompt_text(grant: dict[str, str], meta: dict[str, Any], user: dict[str, Any], admin_client: str, preview: dict[str, Any], state: dict[str, Any]) -> str:
+def _apply_prompt_text(grant: dict[str, str], meta: dict[str, Any], user: dict[str, Any], admin_client: str, preview: dict[str, Any], state: dict[str, Any], pstate: "dict[str, Any] | None" = None) -> str:
+    extra = []
+    if pstate is not None:  # perfiles estrictos: se muestra lo que Graph ve y lo que el operador declaró
+        extra = [f"Permisos de la carpeta : {pstate['count']} entradas (heredadas {pstate['inherited_count']}, propias {pstate['direct_count']}); evidencia automática de permisos únicos: {pstate['automatic_unique_permissions_evidence']} (indicativa).",
+                 "Permisos únicos       : el operador DECLARÓ que la carpeta ya tiene permisos únicos (Graph no lo expone). No se altera ni se recrea ningún permiso existente: el POST sólo agrega UN grant de la app.",
+                 "Después del POST      : rollback productivo DESHABILITADO; revertir sería manual (DELETE del permission_id registrado + restauración de herencia por el admin del sitio)."]
     return "\n".join([
         "=== CONFIRMACIÓN: crear UN grant Selected ===",
         f"Usuario autenticado  : {user.get('upn')}",
         f"App administrativa   : {admin_client}",
         f"Carpeta destino      : {meta.get('name')}  (item {grant['item_id']}, site {grant['site_id']})",
-        f"App receptora (LOCAL): {grant['client_id']}   rol: {GRANT_ROLE}",
+        f"App receptora      : {grant['client_id']}   rol: {GRANT_ROLE}",
         f"Operación            : POST {preview['url']}",
         f"Cuerpo               : {json.dumps(preview['body'], separators=(',', ':'))}",
         f"Duplicados           : {state['state']} (reconocido): la ausencia no se puede probar; se relee antes del POST y se aborta ante cualquier coincidencia.",
         "Herencia             : la carpeta pasará a tener permisos propios (se rompe la herencia). Borrar el grant NO garantiza restaurarla.",
+        *extra,
         "Un solo POST, sin reintentos.",
         f"Para continuar escribí exactamente: {CONFIRM_PHRASE}"])
 
@@ -554,6 +648,8 @@ def acquire_token(args: argparse.Namespace, grant: dict[str, str], env: dict, *,
     if admin:
         got = device_code_token(grant["tenant_id"], admin, need, transport=device_transport, sleep=sleep, clock=clock, out=out)
         claims = _decode_claims(got["access_token"])  # best-effort: si es legible, tenant y app deben coincidir con lo esperado
+        if claims is None and grant.get("strict_apply") and write:
+            raise ToolError("token_rejected", "el token no es legible como JWT: en un perfil estricto no se puede verificar tenant/app administrativa")
         if claims is not None:
             problems = []
             if str(claims.get("tid", "")).lower() != grant["tenant_id"].lower():
@@ -566,16 +662,28 @@ def acquire_token(args: argparse.Namespace, grant: dict[str, str], env: dict, *,
     raise ToolError("auth_missing", f"sin credencial administrativa: definir {TOKEN_ENV} o pasar --admin-client-id (device code)")
 
 
-def _require_apply_inputs(args: argparse.Namespace, prompt: "Prompt | None") -> None:
+def _require_apply_inputs(args: argparse.Namespace, prompt: "Prompt | None", grant: "dict[str, Any] | None" = None) -> None:
     """Compuertas que se evalúan ANTES de autenticar o llamar a Graph."""
-    missing = [flag for flag, ok in (("--confirm-apply", args.confirm_apply == CONFIRM_PHRASE), ("--acknowledge-undetermined", args.acknowledge_undetermined),
-                                     ("--acknowledge-inheritance-break", args.acknowledge_inheritance_break)) if not ok]
+    grant = grant or {}
+    checks = [("--confirm-apply", args.confirm_apply == CONFIRM_PHRASE), ("--acknowledge-undetermined", args.acknowledge_undetermined),
+              ("--acknowledge-inheritance-break", args.acknowledge_inheritance_break)]
+    if grant.get("strict_apply"):
+        checks.append(("--acknowledge-existing-unique-permissions", args.acknowledge_existing_unique_permissions))
+    missing = [flag for flag, ok in checks if not ok]
     if missing:
         raise ToolError("apply_not_confirmed", "faltan confirmaciones explícitas del owner", exit_code=3, missing=missing)
     if not args.admin_client_id:
         raise ToolError("admin_client_required", "--apply exige --admin-client-id (se valida la app administrativa del token)")
     if not args.expect_user:
         raise ToolError("expect_user_required", "--apply exige --expect-user (UPN del usuario que debe estar autenticado)")
+    if grant.get("strict_apply"):  # identidades fijadas en la allowlist del perfil, no sólo «consistentes entre sí»
+        if args.expect_user.strip().lower() != str(grant["required_user"]).lower():
+            raise ToolError("expect_user_not_allowed", "este perfil sólo admite el usuario esperado fijado en la allowlist", expected=grant["required_user"], actual=args.expect_user.strip())
+        if _norm("guid", args.admin_client_id).lower() != str(grant["required_admin_client_id"]).lower():
+            raise ToolError("admin_client_not_allowed", "este perfil sólo admite la aplicación administrativa fijada en la allowlist", expected=grant["required_admin_client_id"])
+        lock = _lock_path(args.audit_dir, grant)
+        if os.path.exists(lock):
+            raise _lock_blocked(lock)
     _require_interactive(prompt)
 
 
@@ -593,34 +701,73 @@ def _record_result(report: dict[str, Any], args: argparse.Namespace, grant: dict
         report["audit_error"] = exc.message
 
 
+def _reread_strict(args, report, graph, grant, meta, user, before_state) -> dict[str, Any]:
+    """Perfiles estrictos: INMEDIATAMENTE antes del POST se vuelven a leer destino, identidad y permisos de la carpeta; si algo cambió respecto de lo que el operador vio y confirmó, se aborta sin escribir."""
+    meta_now = check_target(graph, grant)  # ids/padre/nombre/carpeta contra la allowlist (lanza target_mismatch si cambió)
+    if meta_now != meta:
+        raise ToolError("target_changed_before_post", "el destino cambió entre la lectura inicial y el POST: no se envía nada", exit_code=3)
+    user_now = verify_identity(graph, args.expect_user, required=True)
+    if str(user_now.get("upn", "")).lower() != str(user.get("upn", "")).lower():
+        raise ToolError("identity_changed_before_post", "la identidad autenticada cambió antes del POST: no se envía nada", exit_code=3)
+    fresh = enumerate_grants(graph, grant, meta_now)
+    after_state = permission_state(fresh)
+    report["permission_state_before_post"] = after_state
+    if after_state["complete"] and before_state["complete"] and _permission_ids(after_state) != _permission_ids(before_state):
+        raise ToolError("permissions_changed_before_post", "los permisos de la carpeta cambiaron entre la lectura inicial y el POST: no se envía nada", exit_code=3)
+    return {"fresh": fresh}
+
+
 def _run_apply_tail(args, report, graph, grant, meta, evidence, state, user, preview, prompt, now) -> int:
-    answer = (prompt or _tty_prompt)(_apply_prompt_text(grant, meta, user, args.admin_client_id, preview, state))
+    strict = bool(grant.get("strict_apply"))
+    before_state = permission_state(evidence) if strict else None
+    answer = (prompt or _tty_prompt)(_apply_prompt_text(grant, meta, user, args.admin_client_id, preview, state, before_state))
     if (answer or "").strip() != CONFIRM_PHRASE:
         raise ToolError("apply_not_confirmed", "la confirmación interactiva no coincide con la frase exacta", exit_code=3)
-    fresh = enumerate_grants(graph, grant, meta)  # RELECTURA inmediatamente antes del POST
+    pre = _reread_strict(args, report, graph, grant, meta, user, before_state) if strict else {}
+    fresh = pre.get("fresh") or enumerate_grants(graph, grant, meta)  # RELECTURA inmediatamente antes del POST
     report["evidence_before_post"] = fresh
     seen = _matches(fresh)
     if seen:
         report["observed_before_post"] = seen
-        raise ToolError("duplicate_observed_before_post", "la relectura previa al POST muestra un grant de la app: no se envía nada", exit_code=3)
+        raise ToolError("duplicate_observed_before_post", "la relectura previa al POST muestra un grant de la app: no se envía nada", exit_code=3, observed=seen)
     if _incomplete(fresh):
         raise ToolError("evidence_incomplete_before_post", "la relectura previa al POST no pudo completarse: no se envía nada", exit_code=3, incomplete=_incomplete(fresh))
-    report["audit"] = {"intent": _write_audit(args.audit_dir, grant["name"], "intent", {"ids": _grant_ids(grant), "user": user, "token": report["token"], "preview": preview,
-                                                                                         "evidence_before": evidence, "evidence_before_post": fresh}, now=now)}
+    lock = _acquire_lock(args.audit_dir, grant, {"ids": _grant_ids(grant), "operator": user.get("upn")}, now=now) if strict else None
+    intent = {"ids": _grant_ids(grant), "user": user, "token": report["token"], "preview": preview, "evidence_before": evidence, "evidence_before_post": fresh}
+    if strict:
+        intent.update({"acknowledgements": {"undetermined_duplicate_state": args.acknowledge_undetermined, "inheritance_break": args.acknowledge_inheritance_break,
+                                            "existing_unique_permissions_attested_by_operator": args.acknowledge_existing_unique_permissions},
+                       "expected_user": args.expect_user, "admin_client_id": args.admin_client_id, "permission_state_before": before_state,
+                       "permission_state_before_post": report.get("permission_state_before_post")})
+    try:
+        report["audit"] = {"intent": _write_audit(args.audit_dir, grant["name"], "intent", intent, now=now)}
+    except ToolError:
+        if lock:
+            _release_lock(lock)  # nada se envió: el candado no debe quedar
+        raise
     res = graph.post_permission(preview)  # ÚNICO POST; sin reintentos
     report["post"] = _graph_error(res)
-    if res.get("outcome_unknown"):
+    ambiguous = bool(res.get("outcome_unknown")) or (strict and (res.get("status") is None or int(res["status"]) >= 500))
+    if ambiguous:
         report["stage"] = "post_outcome_unknown"
-        report["error"] = "el POST pudo haberse ejecutado (corte/timeout sin respuesta): NO se reintenta; verificar manualmente antes de cualquier otra acción"
+        if not res.get("outcome_unknown"):
+            report["post"]["outcome"] = "UNKNOWN"
+        report["error"] = "el POST pudo haberse ejecutado (corte/timeout/5xx sin confirmación): NO se reintenta; verificar manualmente antes de cualquier otra acción"
         _tail_reread(report, graph, grant, meta)
-        report["next_step"] = "revisar evidence_after y el portal de SharePoint; si aparece el grant, usar su permission_id con --rollback si hace falta revertir"
+        report["next_step"] = ("REVISIÓN MANUAL OBLIGATORIA: revisar evidence_after y el portal de SharePoint; el candado de apply queda puesto y bloquea cualquier nuevo --apply hasta que lo borres a mano tras esa revisión"
+                               if strict else "revisar evidence_after y el portal de SharePoint; si aparece el grant, usar su permission_id con --rollback si hace falta revertir")
+        if lock:
+            _set_lock(lock, "outcome_unknown", ids=_grant_ids(grant), post=report["post"])
+            report["lock"] = lock
         _record_result(report, args, grant, "result", now)
         return EXIT_OUTCOME_UNKNOWN
     if not res["ok"]:
         report["stage"] = "post"
         if res["status"] in (401, 403):
             report["diagnosis"] = ["scope del token insuficiente para administrar grants Selected (la doc de Selected habla de Sites.FullControl.All o Sites.Selected + Owner/FullControl)",
-                                   "el usuario no es Propietario/Control total de la carpeta Hub (autorización efectiva)"]
+                                   "el usuario no es Propietario/Control total de la carpeta destino (autorización efectiva)"]
+        if lock:
+            _release_lock(lock)  # respuesta definitiva (4xx): el grant NO se creó; un nuevo intento será una decisión explícita
         _record_result(report, args, grant, "result", now)
         return 1
     granted = (res["body"].get("grantedToV2") or {}).get("application") or {}
@@ -631,7 +778,11 @@ def _run_apply_tail(args, report, graph, grant, meta, evidence, state, user, pre
     if not report["ok"]:
         report["stage"] = "post_response_mismatch"
     if report["post"].get("permission_id"):
-        report["rollback_hint"] = f"--rollback --permission-id {report['post']['permission_id']} --audit-file <archivo result de auditoría> (nunca automático)"
+        report["rollback_hint"] = (f"--rollback --permission-id {report['post']['permission_id']} --audit-file <archivo result de auditoría> (nunca automático)" if "rollback" in grant["modes"]
+                                   else f"rollback DESHABILITADO para este perfil: revertir es manual (DELETE de {report['post']['permission_id']} por un administrador + restauración de herencia en SharePoint)")
+    if lock:  # el candado queda SIEMPRE tras un POST con respuesta: un segundo apply exige revisión manual
+        _set_lock(lock, "created" if report["ok"] else "response_mismatch", ids=_grant_ids(grant), post=report["post"])
+        report["lock"] = lock
     _record_result(report, args, grant, "result", now)
     return 0 if report["ok"] else 1
 
@@ -724,8 +875,10 @@ def run(args: argparse.Namespace, *, env: dict, transport=None, device_transport
         if mode == "rollback":
             return _run_rollback(args, report, grant, env, kw, prompt, now), report
         if mode == "apply":
-            _require_apply_inputs(args, prompt)
+            _require_apply_inputs(args, prompt, grant)
         acks = {"undetermined": args.acknowledge_undetermined, "inheritance": args.acknowledge_inheritance_break}
+        if grant.get("strict_apply"):
+            acks["unique_permissions"] = args.acknowledge_existing_unique_permissions
         token, info = acquire_token(args, grant, env, write=(mode == "apply" or args.request_write_scope), now=now, **kw)
         report["token"] = {k: info[k] for k in ("source", "client_id", "tenant_id", "scopes", "can_write")}
         graph = Graph(token, transport)
@@ -737,13 +890,16 @@ def run(args: argparse.Namespace, *, env: dict, transport=None, device_transport
         blockers = gate(state, info, evidence, acks)
         if "apply" not in grant["modes"]:
             blockers.append("apply_disabled_for_profile")
+        if grant.get("strict_apply"):
+            report["permission_state_before"] = permission_state(evidence)
         report.update({"target": meta, "user": user, "evidence": evidence, "duplicate_state": state, "preview": preview, "blockers": blockers, "would_apply": not blockers,
                        "notes": ["Sites.ReadWrite.All es condición necesaria según esta herramienta, pero NO está probado suficiente para administrar grants Selected: la prueba real es la respuesta del POST", *grant["notes"]]})
         if mode in ("check", "dry-run"):
             if mode == "dry-run" and "apply" not in grant["modes"]:
                 report["pending_at_apply"] = ["apply deshabilitado para este perfil: requiere un cambio de código y un GO independiente"]
             elif mode == "dry-run":
-                report["pending_at_apply"] = ["--confirm-apply", "--admin-client-id", "--expect-user", "confirmación interactiva (TTY)", "relectura de permisos inmediatamente antes del POST"]
+                report["pending_at_apply"] = ["--confirm-apply", "--admin-client-id", "--expect-user", "confirmación interactiva (TTY)", "relectura de permisos inmediatamente antes del POST",
+                                              *(["--acknowledge-existing-unique-permissions", "relectura de destino e identidad antes del POST", "candado de un solo uso"] if grant.get("strict_apply") else [])]
             report["ok"] = True
             return 0, report
         if blockers:
@@ -769,6 +925,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--expect-user", help="UPN que debe estar autenticado (obligatorio en --apply/--rollback; opcional en check/dry-run)")
     p.add_argument("--acknowledge-undetermined", action="store_true", help="el owner reconoce que la ausencia de un grant previo NO se puede probar (estado UNDETERMINED)")
     p.add_argument("--acknowledge-inheritance-break", action="store_true", help="el owner reconoce que el grant rompe la herencia de permisos de la carpeta y que borrarlo no la restaura")
+    p.add_argument("--acknowledge-existing-unique-permissions", action="store_true", help="perfiles estrictos (production-do): el operador confirma que la carpeta destino YA tiene permisos únicos (Graph no lo expone: no se puede comprobar automáticamente)")
     p.add_argument("--confirm-apply", default="", help="frase exacta requerida por --apply")
     p.add_argument("--confirm-rollback", default="", help="frase exacta requerida por --rollback")
     p.add_argument("--permission-id", help="--rollback: permission_id registrado por un --apply previo")
