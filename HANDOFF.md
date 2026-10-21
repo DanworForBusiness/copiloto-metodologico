@@ -10749,3 +10749,71 @@ de nombre en el Hub no cambia la carpeta (acción manual). Sin cambios de grants
 
 **Tests.** `tests/webapp/test_profile_document_folder_naming.py` (35: convención/saneamiento, primer documento, adicionales por id, cambio de nombre, homónimos, colisión de marcador, verificación, carpeta UUID, 409/reintentos, tokens, logs sin nombres,
 routers) + fixtures de Graph realistas en los tests de rutas. El sandbox de prueba CONTROL (fuera del repo) se adaptó a la convención.
+
+## CCHH SharePoint Uploader — estado de entrega y punto de reanudación (2026-10-21)
+
+Handoff para continuidad entre agentes. Es el único documento de estado de este frente (el detalle técnico vive en `tools/SHAREPOINT_CCHH_RUNBOOK.md` §1–§9 y en la sección anterior «Carpetas legibles»; no se duplica acá). Separa **HECHOS VERIFICADOS**, **LIMITACIONES CONOCIDAS** y **PENDIENTES**.
+
+### 1. Estado del repositorio (HECHOS)
+- Worktree `C:\Users\Joe\ArquitectoDanwor-cvsp`, rama `fix/cchh-cv-sharepoint-upload`, creada desde `main` `4c6fcf5`. 19 commits de código/tests/docs hasta `ece4971`; **`origin/fix/cchh-cv-sharepoint-upload` = `ece4971`** al publicarse (push normal, sin force). Este apartado se agregó en un commit documental posterior (el SHA final lo informa la entrega).
+- Base `origin/main` = `238d6ff` (20 commits propios desde `4c6fcf5`): **merge limpio** (`git merge-tree --write-tree`, verificado tras `git fetch`).
+- **PR: pendiente de crear** (`gh` no está instalado; no se instaló nada). URL: https://github.com/DanworForBusiness/copiloto-metodologico/pull/new/fix/cchh-cv-sharepoint-upload · base `main` · cuerpo listo en `C:\Users\Joe\ArquitectoDanwor\_handoffs\PR_CCHH_SHAREPOINT_UPLOAD_BODY.md` (fuera del repo). CI: sin información hasta que exista el PR.
+- Árbol de trabajo limpio. Sin cambios pendientes salvo los archivos ignorados de runtime (`reports/`, `reporting_cache/`, `human-capital/`), que NUNCA se commitean.
+
+### 2. Funcionalidad implementada
+| Tema | Implementación | Tests |
+|---|---|---|
+| Alta de candidatos con/sin CV | `webapp/routers/human_capital.py` (POST `/cchh/candidatos/nuevo`), `partials/human_capital_profile_new_form.html`. Sin CV no toca Graph; con CV el Profile se crea primero y nunca se «deshace». | `test_human_capital_profile_new_cv_upload.py`, `test_human_capital_cv_403_contract.py` |
+| MSAL + Graph | Token delegado del navegador (`dwHumanCapitalDocumentWriteToken`, scope `Files.SelectedOperations.Selected`); silent-only con tope de espera. `webapp/static/hub_auth.js`, `core/microsoft365.py`, `profile_document_service.py`. | `test_cchh_sharepoint_diagnostics.py` |
+| Carpetas legibles | `Apellido, Nombre [id8]`; identidad = `folder_item_id` (opcional en ProfileDocument), verificación antes de reutilizar, compat. con carpetas UUID, sin renombrado, logs sin nombres. `profile_document_service.py`, `profile_document_repository.py`, `sharepoint_graph_diagnostics.py`. | `test_profile_document_folder_naming.py` (35) |
+| Asociación y recuperación | Un ProfileDocument se registra sólo tras escribir el archivo; reintentos por token firmado (subida/commit); el reintento reutiliza la carpeta. | `test_profile_document_service.py`, `test_human_capital_profile_documents_routes.py` |
+| 403 y reintentos | 403 → UI 200 con «No tenés permiso para escribir documentos en SharePoint…», candidato guardado, **ningún documento**, un solo POST, sin PUT/DELETE; recuperable desde el panel de Documentos. | `test_human_capital_cv_403_contract.py` (6) |
+| Baja lógica | «Dar de baja» (antes «Eliminar candidato»); `deleted_at` intacto; documentos y carpeta se conservan y la confirmación lo dice. `profile_edit.html`, `human_capital_profiles_panel.html`. | `test_human_capital_baja_logica_texts.py`, `test_human_capital_soft_delete.py` |
+| Loader y duplicados | Loader `.asr-generate` + anti doble envío; `duplicate_confirmed` preservado con CV; advertencia de duplicado inline y compacta. `human_capital_profile_new_form.html`, `human_capital.css`. | `test_human_capital_new_profile_submit_loader.py` (+ `.node.js`), `test_human_capital_duplicate_advisory.py` |
+| Rutas y diagnósticos protegidos | `/cchh/diagnostico/sharepoint` owner-only; «Prueba de escritura» sólo owner + localhost, fijada a CONTROL + app LOCAL (rechaza `CCHH HUB` y `CVs` de producción). `+3 rutas` (`tests/route_surface.json`; dos pines 211→214). | `test_cchh_sharepoint_diagnostics.py`, `test_cchh_sharepoint_write_test.py` |
+| Herramienta del grant | `tools/sharepoint_selected_grant.py` (perfiles `control-local` y `production-do`; `production-do` = check/dry-run/**apply estricto** sólo hacia `CVs`, **sin rollback**; candado `production-do.apply.lock`). Runbook §9.7. | `tests/test_sharepoint_selected_grant.py` (226) |
+
+### 3. Validaciones (HECHOS)
+- **End-to-end exitoso sobre CONTROL** (validado por el owner): grant 201, PUT 2xx verificado, alta con CV de punta a punta. La revalidación real de carpetas legibles en CONTROL quedó pendiente de GO (cubierta por tests con SharePoint simulado).
+- **498 tests focalizados** (alta con CV/documentos/carpetas/403, baja, loader, duplicado, diagnóstico, prueba de escritura, herramienta) y **738 de contratos/rutas**: verdes.
+- **Suite completa anterior: 8570 passed, 23 skipped, 0 failed**, sobre el resultado del merge con `origin/main` y la rama en `4bab071`.
+- **NO cubiertos por una nueva suite completa:** `1562a6a` (Dar de baja), `e99cb77` (runbook §9), `f8fccba` (production-do → CVs), `83629e3` (apply estricto) y `ece4971` (tests del 403 + runbook §9.8). Sólo tuvieron las regresiones focalizadas de arriba. El PR debe mostrar CI completo antes del merge.
+
+### 4. SharePoint y seguridad
+**Separación estricta:** CONTROL usa la app **LOCAL**; producción usa la app **DO**. Ningún identificador se comparte entre perfiles y los permisos del usuario sobre CONTROL no equivalen a permisos sobre Comunicaciones. Tenant `f287b953-5428-4a5e-ae17-bd9c4cfaedbe`; cliente administrativo de la herramienta (no es app del Hub): Graph Command Line Tools `14d82eec-204b-4c2f-b7e8-296a70dab67e`.
+
+| | CONTROL (app LOCAL `ad98b5cd-71d0-451f-8d70-e8581a4788fa`) | PRODUCCIÓN (app DO `eeca6df8-2436-422f-a1b8-05ff9e8ff653`) |
+|---|---|---|
+| Site | `a129a1d0-a4ee-4438-8de8-9e39e7007764` | `danwor.sharepoint.com,65c64790-f933-46b9-823f-8e4ad57e69b1,b9b7da7d-8f67-46a9-be27-5f176394718a` (Comunicaciones) |
+| Drive | `b!0KEpoe6kOESN6J455wB3ZLYmlHEbGsZPlL4_LU8lfDroKl3b1Ti0RYJfK4nkJLM3` | `b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE` |
+| Carpeta destino | `Hub` `01U7IMSJOGXNT3ZNP5NVAKDFLQWY3L6OMQ` | `CCHH HUB/Busqueda y Seleccion/CVs` `01ULA425KSLK6LZAFFEVHKUSCO32CH64JG` (padre `01ULA425KHEKK4PGEOKFGKQKDWCUDFQEGV`; verificada por Graph, 19 comprobaciones, vacía) |
+| Grant Selected `write` | **Creado: HTTP 201** | **NO existe.** Único intento: `--apply` → **HTTP 403 `accessDenied`**, request-id `99bb874e-e043-4f6f-a222-5038cfd23fd6` |
+
+- **Auditorías** (locales, ignoradas por git; NO borrar): `C:\Users\Joe\ArquitectoDanwor-cvsp\reports\sharepoint_selected_grant\` → `control-local-20261021T132358Z-{intent,result}.json` (201, trae el `permission_id`) y `production-do-20261021T193756Z-{intent,result}.json` (403; siete permisos previos registrados).
+- **`production-do.apply.lock`: liberado** (el 403 es un rechazo definitivo; el grant no se creó). No hay candado pendiente.
+- La carpeta productiva `CVs` **ya tenía permisos únicos preexistentes** (confirmado visualmente por el owner; Graph no lo expone) y `joconnor@danwor.com` tiene Control total.
+- Reglas: **no repetir el POST productivo sin un nuevo GO explícito del owner**; no ampliar scopes ni pedirle nuevos consentimientos a Brian; no modificar permisos automáticamente; no implementar workarounds que eludan `Files.SelectedOperations.Selected`; sin acciones destructivas sobre SharePoint (el Hub nunca borra carpetas ni CVs en la baja).
+
+### 5. Estado del despliegue
+- **Implementado y probado:** todo lo de §2 (en CONTROL y con SharePoint simulado en tests). **Pendiente de merge/deploy:** toda la rama.
+- **LIMITACIÓN CONOCIDA: «Subida de CV en DigitalOcean pendiente de autorización Selected `write` sobre `CVs`».** La escritura productiva de CVs **no está habilitada**. El éxito en CONTROL **no** es una validación funcional en DigitalOcean. Tras el deploy: alta sin CV funciona; con CV el candidato se guarda y se informa el permiso (403) sin registrar documentos.
+- **`HC_CV_ROOT_ITEM_ID`** productivo = `01ULA425KSLK6LZAFFEVHKUSCO32CH64JG` (`CVs`), **todavía NO cambiado en DigitalOcean**: se fija junto con el grant verificado y antes de la primera subida (reinicia la app). **`HC_CATALOG_ITEM_ID` y la lectura de `Catalogos_CCHH.xlsx` no cambian** (ids estables, fuera de `CVs`, sólo lectura). Sin variables nuevas.
+
+### 6. Próximos pasos operativos (PENDIENTES)
+1. Abrir el PR (URL de §1) con el cuerpo preparado; revisar CI y conflictos.
+2. **Merge sólo con GO del owner.** Despliegue controlado (`main` auto-deploya a DigitalOcean).
+3. Checklist `C:\Users\Joe\ArquitectoDanwor\_handoffs\CCHH_SHAREPOINT_POST_DEPLOY_CHECKLIST.md`: smoke test del alta **sin CV**, «Dar de baja», diagnóstico owner-only y navegación CCHH; el alta con CV debe mostrar el aviso de permiso sin registrar documento ni crear carpeta.
+4. **Grant Selected productivo = tarea independiente y futura** (causa del 403 sin investigar, diferida): no repetir el POST a ciegas; primero resolver la autorización con evidencia (runbook §9.7/§9.8) y un GO nuevo.
+5. **Primera subida real en DO** sólo con la autorización verificada: fijar `HC_CV_ROOT_ITEM_ID`, probar con un candidato ficticio y un PDF inocuo.
+
+### 7. Decisiones explícitas del owner
+- Priorizar la entrega funcional sobre una investigación profunda del 403.
+- Ningún workaround de autenticación ni ampliación de scopes; no pedir nuevos scopes a Brian.
+- Mantener la separación CONTROL / producción; el apply productivo sólo hacia `CVs`, sin rollback productivo en la herramienta.
+- Preservar las auditorías; no ejecutar acciones destructivas sobre SharePoint.
+- Evitar nuevas investigaciones y cambios fuera de alcance; el Frente B (vigencia automática de catálogos: TTL/eTag) NO se implementó y es una iniciativa separada.
+
+### Artefactos locales fuera del repo (no versionados)
+`C:\Users\Joe\ArquitectoDanwor\_handoffs\`: `PR_CCHH_SHAREPOINT_UPLOAD_BODY.md`, `CCHH_SHAREPOINT_POST_DEPLOY_CHECKLIST.md`, `CCHH_SHAREPOINT_LOCAL_ACCEPTANCE.md`, evidencias visuales `cchh_submit_loader/` y `cchh_duplicate_warning/`. Los scripts de sesión (sandbox e2e de CONTROL, consulta de `CVs`) viven en el directorio temporal de la sesión y pueden no existir.
+
+**Punto exacto de reanudación:** abrir el PR → CI verde → esperar el GO de merge del owner. Nada más se hace sobre SharePoint ni DigitalOcean sin una autorización nueva.
