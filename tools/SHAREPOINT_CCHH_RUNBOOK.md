@@ -111,3 +111,31 @@ python tools/sharepoint_selected_grant.py --rollback --tenant-id $TENANT --clien
 Sólo borra un `permission_id` registrado por un apply previo y que siga siendo un grant `write` no heredado de la app LOCAL en ese ítem. No hay rollback productivo habilitado.
 
 **Resultado desconocido (código de salida 4: timeout/corte tras el POST o el DELETE).** No reintentar. La herramienta ya relee y deja `evidence_after`. (1) Esperar unos minutos y correr `--check`; (2) si aparece un grant de la app, usar su `permission_id` (figura en `evidence_after`) con `--rollback` sólo si hay que revertir; (3) si no aparece, tratarlo como no creado y decidir un nuevo intento con GO; (4) conservar el `result.json` en el handoff.
+
+## 8. Condiciones previas a cualquier grant productivo e impacto de romper la herencia de `CCHH HUB`
+
+`production-do` queda en `--check` y `--dry-run`: `--apply` y `--rollback` siguen rechazados en código. Habilitar el grant productivo requiere un **GO independiente** y un cambio de código revisado (`modes` de `production-do`); este apartado lista lo que debe estar verificado **antes** de pedirlo.
+
+### Condiciones (todas)
+1. El código de esta rama está desplegado y estable en DigitalOcean, y `--check`/`--dry-run` de `production-do` (usuario `joconnor@danwor.com`) dan lo esperado: `target.name = CCHH HUB`, `webId` verificado, evidencia completa, `would_apply: false` con `apply_disabled_for_profile`.
+2. Hay una persona con Propietario/Control total de `CCHH HUB` identificada y **aprobación expresa del owner del sitio Comunicaciones** de la ruptura de herencia (ver abajo).
+3. **Decisión de alcance** (pendiente del owner): hoy `HC_CV_ROOT_ITEM_ID` apunta a la propia carpeta `CCHH HUB`, o sea que las carpetas de candidatos cuelgan de la misma raíz que `Configuracion/Catalogos_CCHH.xlsx`. Un grant `write` sobre `CCHH HUB` alcanza a **todo el árbol** (CVs y el workbook de catálogos). Alternativa recomendada: una subcarpeta dedicada (p. ej. `CCHH HUB/CVs`) como raíz de CVs y grant sólo ahí (menor radio de impacto, no toca el workbook; los `driveItem.id` se conservan al mover). Requiere cambiar `HC_CV_ROOT_ITEM_ID` y mover las carpetas existentes: **no está incluido en esta rama**.
+4. **Snapshot previo de permisos** de `CCHH HUB` (`GET /drives/{drive}/items/{item}/permissions` y la lista de usuarios/grupos con acceso desde la UI de SharePoint) y lista de quién debe conservar acceso; ventana de cambio acordada.
+5. Verificación **antes y después** con al menos dos usuarios de CCHH que no sean owner: abrir un CV, refrescar el catálogo (lectura de `Catalogos_CCHH.xlsx`), subir un CV.
+6. El permiso Selected de la app DO (`Files.SelectedOperations.Selected`) está consentido en Entra (sólo verificar; no se modifica).
+7. La revalidación completa en CONTROL (sección 5) pasó con el mismo código que se despliega, incluida la convención de carpetas legibles.
+8. Plan de rollback acordado (abajo) y responsable de ejecutarlo.
+
+### Impacto de romper la herencia en `CCHH HUB` (evaluación; **no verificada contra el servicio productivo**)
+- **Qué ocurre.** Según la documentación de Selected permissions de Microsoft, un grant sobre una carpeta rompe la herencia en ese recurso: `CCHH HUB` y todo lo que cuelga (CVs, `Configuracion`, el workbook de catálogos) pasan a tener permisos propios.
+- **Riesgo 1 — pérdida de acceso inesperada.** Si la copia de los permisos existentes no incluye a todos los principales que hoy acceden por herencia, usuarios de CCHH podrían perder acceso a CVs o al catálogo (el refresh del catálogo daría 403 y los dropdowns quedarían sin actualizarse). Mitigación: snapshot previo y verificación con usuarios no-owner antes/después (condiciones 4 y 5); probar el mismo efecto en CONTROL comparando el listado de permisos antes/después del grant.
+- **Riesgo 2 — deriva futura de permisos.** Los cambios que se hagan después a nivel de sitio/biblioteca (altas, bajas, grupos, offboarding) **dejan de propagarse** a `CCHH HUB`: las revisiones de acceso deben mirar esa carpeta explícitamente. Un usuario agregado directamente a la carpeta antes de la ruptura conserva acceso aunque se lo saque del grupo del sitio.
+- **Riesgo 3 — alcance del grant.** El rol `write` de la app alcanza a todo el árbol, incluido el workbook de catálogos (fuente de verdad gobernada). El acceso efectivo en delegado es la intersección app ∩ usuario, pero un compromiso de la app expondría más de lo necesario: de ahí la recomendación de la condición 3.
+- **Riesgo 4 — reversión incompleta.** Borrar el grant (`DELETE` del `permission_id`) **no garantiza** restaurar la herencia (la documentación no lo establece). Restaurarla es una acción manual del administrador del sitio en SharePoint («eliminar permisos únicos»), que además descarta cualquier otro permiso único de la carpeta: debe hacerse sabiendo el snapshot previo.
+- **Riesgo 5 — gobernanza.** Aparecen permisos únicos en la carpeta (informes de acceso, revisiones periódicas, auditoría). No cambian retención, etiquetas de sensibilidad ni DLP.
+- **Datos personales.** Las carpetas de candidatos incluyen el nombre en la ruta (ver sección 5): el grant no cambia eso, pero amplía quién (la app, en intersección con el usuario) puede escribir en ellas.
+
+### Rollback del grant productivo (sólo si hiciera falta)
+1. `--rollback` productivo (requeriría habilitarlo con GO) o `DELETE` manual del `permission_id` registrado en la auditoría.
+2. El administrador del sitio restaura la herencia y reaplica/verifica los permisos del snapshot.
+3. Reverificar con los dos usuarios no-owner de la condición 5.
