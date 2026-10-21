@@ -139,3 +139,52 @@ Sólo borra un `permission_id` registrado por un apply previo y que siga siendo 
 1. `--rollback` productivo (requeriría habilitarlo con GO) o `DELETE` manual del `permission_id` registrado en la auditoría.
 2. El administrador del sitio restaura la herencia y reaplica/verifica los permisos del snapshot.
 3. Reverificar con los dos usuarios no-owner de la condición 5.
+
+## 9. Estrategia `CCHH HUB/CVs` (carpeta productiva dedicada) — preparación, sin ejecutar
+
+**Objetivo.** Que el grant productivo y las escrituras de la app caigan sólo en una subcarpeta `CVs` y no en toda la carpeta `CCHH HUB` (que también aloja `Configuracion/Catalogos_CCHH.xlsx`). Es la alternativa recomendada de la condición 3 del §8. **Estado: no se verificó contra SharePoint productivo** (no hubo autenticación administrativa en esta sesión); todo lo de abajo es análisis de código y diseño, más los comandos para confirmarlo.
+
+### 9.1 Identificadores (qué está verificado y qué no)
+| Dato | Valor | Verificación |
+|---|---|---|
+| `site_id` | `danwor.sharepoint.com,65c64790-f933-46b9-823f-8e4ad57e69b1,b9b7da7d-8f67-46a9-be27-5f176394718a` | Perfil `production-do` + §1; formato y coherencia validados por el código/tests de la herramienta (170). **No** releído en vivo. |
+| `drive_id` | `b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE` | Ídem. |
+| `item_id` de `CCHH HUB` | `01ULA425ONX3YLUO3XTNDI46FMF43PFL4X` | Ídem. |
+| `item_id` de `CCHH HUB/CVs` | **desconocido** | Requiere el GET de §9.3. Si `CVs` no existe, hay que crearla (§9.2) y volver a leerlo. |
+
+### 9.2 Si `CVs` no existe
+No la crea el Hub ni esta herramienta. La crea una persona con permiso de edición sobre `CCHH HUB`, desde SharePoint (**carpeta vacía**, nombre exacto `CVs`), y **se hace antes de cualquier grant y antes de que se suba el primer CV** (con la carpeta vacía el costo de cualquier cambio de permisos es mínimo). Crear la carpeta es una escritura productiva: requiere el GO que corresponda.
+
+### 9.3 Diagnóstico de sólo lectura (lo corre el owner; ningún comando escribe)
+Se necesita un token Graph de lectura (`Sites.Read.All`) del propio owner: en el Hub productivo ya logueado, consola del navegador, `await window.dwGraphToken()`. No se pega en chats ni se guarda; usarlo desde una variable de sesión.
+
+```powershell
+$TOKEN = Read-Host 'Graph token (lectura)' -AsSecureString | ConvertFrom-SecureString -AsPlainText   # PowerShell 7+
+$H = @{ Authorization = "Bearer $TOKEN" }
+$DO_DRIVE = 'b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE'; $DO_ITEM = '01ULA425ONX3YLUO3XTNDI46FMF43PFL4X'
+
+# 1) ¿Existe CCHH HUB/CVs? (200 = existe, 404 = no existe -> §9.2)
+Invoke-RestMethod -Headers $H -Uri "https://graph.microsoft.com/v1.0/drives/$DO_DRIVE/root:/CCHH%20HUB/CVs?`$select=id,name,folder,parentReference,webUrl"
+
+# 2) Contenido directo de CCHH HUB (sólo nombre/id/tipo; si hay carpetas de candidatos ya subidas aparecen acá)
+(Invoke-RestMethod -Headers $H -Uri "https://graph.microsoft.com/v1.0/drives/$DO_DRIVE/items/$DO_ITEM/children?`$select=id,name,folder&`$top=200").value | Select-Object name, id, @{n='isFolder';e={[bool]$_.folder}}
+```
+Alternativa con la herramienta existente (sólo lectura): `HC_SHAREPOINT_DRIVE_ID` seteado a `$DO_DRIVE` y `python tools/human_capital/resolve_catalog_workbook_ids.py --token <token> --file-path "CCHH HUB/CVs"`. **Ojo:** imprime la etiqueta `HC_CATALOG_ITEM_ID`, pero el valor es el id de `CVs`: no debe pegarse como `HC_CATALOG_ITEM_ID`.
+
+Qué hay que registrar: `id` y `parentReference.id` de `CVs` (el padre debe ser `01ULA425ONX3YLUO3XTNDI46FMF43PFL4X`), `folder` presente, y si el punto 2 muestra carpetas de candidatos (UUID o `Apellido, Nombre [id8]`) ya existentes bajo `CCHH HUB`.
+
+### 9.4 Alcance de herencia y permisos (análisis; confirmar con 9.3 y el `--check`)
+- **Qué cambia respecto de §8.** El grant se hace sobre `CVs`, no sobre `CCHH HUB`: sólo `CVs` y su contenido pasan a tener permisos propios. `CCHH HUB`, `Configuracion` y `Catalogos_CCHH.xlsx` siguen heredando de la biblioteca como hoy. Desaparecen los riesgos 1 y 3 del §8 para el workbook; el riesgo 4 (revertir la herencia es manual) queda acotado a `CVs`.
+- **Catálogos intactos.** El workbook se identifica por `HC_SHAREPOINT_DRIVE_ID` + `HC_CATALOG_ITEM_ID` (ids estables, no ruta), se **lee** con el token delegado de lectura y la app no escribe ahí: ni el grant ni el cambio de `HC_CV_ROOT_ITEM_ID` lo tocan. `HC_CATALOG_ITEM_ID` no cambia.
+- **Quién ve `CVs` después del grant.** Pasa a depender de los permisos propios de la carpeta (la doc de Selected no garantiza que se copien los de `CCHH HUB`). Con la carpeta vacía y recién creada, se compara antes/después la lista de principales y se verifica con dos usuarios de CCHH no-owner (abrir un CV, subir un CV) y una persona sin rol CCHH (no debe abrir `CVs`).
+- **Acceso efectivo** = app ∩ usuario delegado: el rol `write` de la app sólo alcanza el árbol de `CVs`.
+
+### 9.5 Cómo se actualizaría la configuración (cuando exista el `item_id` real y haya GO)
+1. **Variable del Hub en DigitalOcean:** `HC_CV_ROOT_ITEM_ID=<item_id de CVs>`. El resto (`HC_SHAREPOINT_SITE_ID`, `HC_SHAREPOINT_DRIVE_ID`, `HC_CATALOG_ITEM_ID`, `HC_DOCUMENT_WRITE_SCOPE`) no cambia. Se aplica **después** de verificar el grant y **antes** de la primera subida; cambiar la variable reinicia la app.
+2. **Allowlist `production-do`** (`tools/sharepoint_selected_grant.py`, cambio de código revisado, aparte): reemplazar el destino por `CVs` (`item_id`, `folder_name: "CVs"`) en lugar de sumar un perfil: así la herramienta no puede apuntar nunca a `CCHH HUB`. Se mantienen `modes = READ_ONLY_MODES` (`--apply`/`--rollback` siguen deshabilitados hasta un GO independiente), el aviso de herencia ajustado a `CVs`, y los tests se actualizan (ids nuevos + un test que impide que el item de `CCHH HUB` figure como destino con apply habilitado).
+3. `--check` y `--dry-run` con el nuevo destino: `target.name = CVs`, `would_apply: false`.
+4. Habilitar `apply` para ese único destino = otro cambio de código con GO; recién ahí el grant.
+5. **Carpetas ya existentes bajo `CCHH HUB`** (el punto 2 de §9.3 las muestra; en producción debería no haber ninguna porque la subida siempre dio 403): el Hub sólo reutiliza una carpeta si su padre es el `HC_CV_ROOT_ITEM_ID` vigente. Si existieran, hay que **moverlas** a `CVs` desde SharePoint (el `driveItem.id` se conserva y siguen válidas); si no se mueven, la próxima subida del candidato crea una carpeta nueva en `CVs` y la anterior queda huérfana (sus `web_url` siguen abriendo). El Hub no mueve ni borra nada.
+
+### 9.6 Qué sigue sin cambiar
+`--apply` y `--rollback` de `production-do` siguen rechazados en código; no se concede ningún permiso ni se modifica Entra ni variables de producción con este apartado.
