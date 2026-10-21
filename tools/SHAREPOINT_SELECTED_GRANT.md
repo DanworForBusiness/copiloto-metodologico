@@ -54,7 +54,7 @@ SITE=a129a1d0-a4ee-4438-8de8-9e39e7007764
 DRIVE='b!0KEpoe6kOESN6J455wB3ZLYmlHEbGsZPlL4_LU8lfDroKl3b1Ti0RYJfK4nkJLM3'
 ITEM=01U7IMSJOGXNT3ZNP5NVAKDFLQWY3L6OMQ
 ADMIN=14d82eec-204b-4c2f-b7e8-296a70dab67e   # Microsoft Graph Command Line Tools (cliente público)
-ME=jose@danwor.com
+ME=joconnor@danwor.com
 ```
 
 1) Ensayo de consentimiento y preview (no escribe nada; pide `Sites.ReadWrite.All` para ver si el tenant lo permite):

@@ -36,7 +36,7 @@ Variables del Hub a contrastar en DO (sólo lectura; no se cambian acá): `HC_SH
 Variables (PowerShell; en bash son equivalentes con comillas simples):
 
 ```powershell
-$TENANT='f287b953-5428-4a5e-ae17-bd9c4cfaedbe'; $ADMIN='14d82eec-204b-4c2f-b7e8-296a70dab67e'; $ME='jose@danwor.com'
+$TENANT='f287b953-5428-4a5e-ae17-bd9c4cfaedbe'; $ADMIN='14d82eec-204b-4c2f-b7e8-296a70dab67e'; $ME='joconnor@danwor.com'
 $LOCAL_APP='ad98b5cd-71d0-451f-8d70-e8581a4788fa'; $CTRL_SITE='a129a1d0-a4ee-4438-8de8-9e39e7007764'
 $CTRL_DRIVE='b!0KEpoe6kOESN6J455wB3ZLYmlHEbGsZPlL4_LU8lfDroKl3b1Ti0RYJfK4nkJLM3'; $CTRL_ITEM='01U7IMSJOGXNT3ZNP5NVAKDFLQWY3L6OMQ'
 $DO_APP='eeca6df8-2436-422f-a1b8-05ff9e8ff653'; $DO_SITE='danwor.sharepoint.com,65c64790-f933-46b9-823f-8e4ad57e69b1,b9b7da7d-8f67-46a9-be27-5f176394718a'
@@ -78,6 +78,8 @@ La herramienta muestra operación, cuerpo, usuario, carpeta y riesgos; tipear `C
    - **Limpieza controlada:** a mano en SharePoint, borrando **sólo** el archivo cuyo nombre sea exactamente `filename` del resultado (único por UTC+UUID); va a la papelera del sitio, recuperable. No hay DELETE automatizado a propósito.
    - **Si falla:** `403` otra vez → revisar el permiso Selected de la app LOCAL en Entra y que el usuario tenga escritura propia en `Hub` (app ∩ usuario); `put_unverified` → el archivo existe pero la respuesta no coincide: limpiar a mano y reportar.
 3. Subida real de un CV desde la UI local apuntando a CONTROL (variables `HC_*` locales hacia `Hub`, no producción): el archivo aparece en la carpeta del candidato (descendiente de `Hub`) y el perfil queda con su documento.
+   - **Carpeta legible** (convención `Apellido, Nombre [id8]`): la carpeta del candidato se crea como `Hub/Apellido, Nombre [id8]` (el `[id8]` son los 8 primeros caracteres del `profile_id`, **informativo**); la identidad estable es el `driveItem.id`, guardado completo en `folder_item_id` de cada documento. Un segundo documento va a la misma carpeta por id (sin buscar ni crear); si cambia el nombre del candidato la carpeta **no** se renombra; las carpetas UUID históricas se siguen usando tal cual. Revalidar en CONTROL: carpeta legible nueva · segundo documento en la misma carpeta · cambio de nombre y nuevo documento · dos homónimos (dos carpetas) · carpeta UUID previa · reintento ambiguo sin duplicados.
+   - **Exposición de datos personales:** el nombre del candidato queda en el nombre de carpeta, o sea en la navegación, las URLs/`web_url`, el historial del navegador, la búsqueda e índices del tenant y la auditoría de SharePoint (y en la metadata local/Spaces vía `web_url`). Los logs técnicos de la aplicación enmascaran esos nombres. Rectificar un nombre en SharePoint es una acción manual.
 4. Repetir 2–3 con un segundo usuario con permiso de escritura propio sobre `Hub` (acceso efectivo = intersección app ∩ usuario).
 
 ## 6. Criterio de aceptación antes de habilitar DigitalOcean
