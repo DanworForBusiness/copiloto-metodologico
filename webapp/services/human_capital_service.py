@@ -44,6 +44,7 @@ memoria la lista YA leída por el caller — nunca vuelve a tocar disco, y
 duplicados (nunca si `duplicate_confirmed=True`, ver abajo)."""
 from __future__ import annotations
 
+import copy
 import logging
 import re
 from datetime import date, datetime
@@ -73,6 +74,8 @@ __all__ = [
     "list_busquedas", "get_busqueda", "create_busqueda", "update_busqueda",
     "add_candidate_to_busqueda", "move_application_stage", "remove_application", "close_busqueda",
     "busqueda_is_placeholder", "delete_busqueda",
+    "create_solicitud", "edit_solicitud", "resubmit_solicitud", "cancel_solicitud",
+    "observe_solicitud", "take_solicitud", "get_solicitud_view", "list_solicitudes_view", "solicitud_view",
     "profiles_available_for_busqueda", "busqueda_candidates_view",
     "validate_source_for_import",
     "list_entrevistas", "get_entrevista", "create_entrevista_manual", "update_entrevista",
@@ -616,8 +619,10 @@ def _shape_busqueda_fields(fields: dict, *, existing: dict | None = None) -> dic
     }
 
 
-def create_busqueda(fields: dict) -> dict:
-    return busqueda_repository.create(_shape_busqueda_fields(fields))
+def create_busqueda(fields: dict, *, actor: str | None = None) -> dict:
+    """Alta directa de CCHH. `actor` (opcional hasta que el router lo pase) queda
+    en `origen.creado_por`; el `origen` se identifica SIEMPRE."""
+    return busqueda_repository.create(_shape_busqueda_fields(fields), actor=(actor or "").strip().lower() or None)
 
 
 def update_busqueda(busqueda_id: str, expected_revision: int, fields: dict) -> dict:
@@ -649,6 +654,8 @@ def busqueda_is_placeholder(busqueda: dict) -> bool:
     renderiza el botón "Eliminar", y `delete_busqueda` (abajo) la vuelve a
     exigir server-side (defensa en profundidad: nunca confiar sólo en que
     el botón esté oculto)."""
+    if busqueda_repository.solicitud_of(busqueda) is not None:
+        return False  # una solicitud de Operaciones NUNCA es un placeholder: se cancela, no se borra
     if busqueda.get("candidatos"):
         return False
     return not any(e.get("busqueda_id") == busqueda["busqueda_id"] for e in entrevista_repository.list())
@@ -662,12 +669,301 @@ def delete_busqueda(busqueda_id: str) -> None:
     busqueda = busqueda_repository.get(busqueda_id)
     if busqueda is None:
         raise busqueda_repository.BusquedaNotFoundError(f"La búsqueda {busqueda_id} no existe.")
+    if busqueda_repository.solicitud_of(busqueda) is not None:
+        raise ValueError(
+            "Una solicitud originada en Operaciones no se puede eliminar: se cancela y queda en el historial."
+        )
     if not busqueda_is_placeholder(busqueda):
         raise ValueError(
             "Esta búsqueda ya tiene candidatos o entrevistas registradas -- no se puede eliminar. "
             "Usá Cerrar proceso en su lugar."
         )
     busqueda_repository.delete(busqueda_id)
+
+
+# ── Solicitudes de Operaciones (REG-CH-01) ───────────────────────────────────
+# El service es DUEÑO de la validación/normalización (los routers futuros NO
+# validan) y de la proyección segura hacia Operaciones. La autorización
+# (`operations_access.is_operations_authorized` / acceso CCHH) vive en los routers.
+
+TIPOS_BUSQUEDA = ("interna", "proyecto")
+TIPOS_CONTRATO = ("FTE", "PTE")
+INGLES_NIVELES = ("No requerido", "Básico", "Intermedio", "Avanzado")
+DURACION_TIPOS = ("meses", "indefinida")
+DURACION_MESES_MAX = 120
+# unidad explícita de la dedicación -> tope del valor (sin unidad implícita).
+DEDICACION_UNIDADES = {
+    "horas_por_mes": 744,
+    "horas_por_semana": 168,
+    "horas_por_dia": 24,
+    "porcentaje_jornada": 100,
+}
+CANTIDAD_RECURSOS_MAX = 99
+_MODALIDADES_PRESENCIALES = ("Híbrido", "On site")
+_TEXT_SHORT = 200
+_TEXT_LONG = 4000
+_MOTIVO_MAX = 1000
+
+
+def _req_text(fields: dict, key: str, label: str, *, required: bool, max_len: int = _TEXT_SHORT) -> str | None:
+    value = fields.get(key)
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"{label} tiene un formato inválido.")
+    text = " ".join((value or "").split()) if max_len <= _TEXT_SHORT else (value or "").strip()
+    if not text:
+        if required:
+            raise ValueError(f"Completá {label}.")
+        return None
+    if len(text) > max_len:
+        raise ValueError(f"{label} supera el máximo de {max_len} caracteres.")
+    return text
+
+
+def _req_int(value, label: str, *, lo: int, hi: int) -> int:
+    if isinstance(value, bool) or value is None:
+        raise ValueError(f"Completá {label}.")
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError(f"{label} tiene que ser un número entero.")
+        value = int(value)
+    if isinstance(value, str):
+        raw = value.strip()
+        if not re.fullmatch(r"\d{1,6}", raw):
+            raise ValueError(f"{label} tiene que ser un número entero.")
+        value = int(raw)
+    if not isinstance(value, int) or not lo <= value <= hi:
+        raise ValueError(f"{label} tiene que estar entre {lo} y {hi}.")
+    return value
+
+
+def _req_number(value, label: str, *, hi: int) -> int | float:
+    if isinstance(value, bool) or value is None:
+        raise ValueError(f"Completá {label}.")
+    if isinstance(value, str):
+        raw = value.strip().replace(",", ".")
+        if not re.fullmatch(r"\d{1,6}(\.\d{1,2})?", raw):
+            raise ValueError(f"{label} tiene que ser un número.")
+        value = float(raw)
+    if not isinstance(value, (int, float)) or value <= 0 or value > hi:
+        raise ValueError(f"{label} tiene que ser mayor que 0 y hasta {hi}.")
+    return int(value) if float(value).is_integer() else round(float(value), 2)
+
+
+def _req_seniority(value, existing: list[str]) -> list[str]:
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("Elegí al menos un seniority.")
+    out: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError("Seniority tiene un formato inválido.")
+        v = item.strip()
+        if v and v not in out:
+            out.append(v)
+    if not out:
+        raise ValueError("Elegí al menos un seniority.")
+    for v in out:  # catálogo gobernado, migration-safe: un valor legacy ya guardado se preserva
+        _validate_seniority_governed(v, existing_value=v if v in existing else None)
+    return out
+
+
+def _shape_requerimiento(fields: dict, *, existing: dict | None = None) -> dict:
+    """Valida y normaliza el REG-CH-01 completo. Devuelve el `requerimiento` canónico
+    (lo único que se persiste como lo pedido y lo que se huellea para idempotencia).
+    `existing` = requerimiento ya guardado (edición/reenvío): preserva valores
+    gobernados legacy que cambiaron de catálogo."""
+    if not isinstance(fields, dict):
+        raise ValueError("Datos de la solicitud inválidos.")
+    existing = existing or {}
+    nombre = _req_text(fields, "nombre_puesto", "el nombre del perfil requerido", required=True, max_len=150)
+    tipo = (fields.get("tipo_busqueda") or "").strip() if isinstance(fields.get("tipo_busqueda"), str) else ""
+    if tipo not in TIPOS_BUSQUEDA:
+        raise ValueError("Indicá si la búsqueda es interna o para un proyecto.")
+    proyecto = _req_text(fields, "proyecto", "el proyecto", required=(tipo == "proyecto"))
+    if tipo != "proyecto":
+        proyecto = None
+    cantidad = _req_int(fields.get("cantidad_recursos"), "La cantidad de recursos", lo=1, hi=CANTIDAD_RECURSOS_MAX)
+    unidad = (fields.get("dedicacion_unidad") or "").strip() if isinstance(fields.get("dedicacion_unidad"), str) else ""
+    if unidad not in DEDICACION_UNIDADES:
+        raise ValueError("Elegí la unidad de la dedicación (horas por mes, por semana, por día o % de jornada).")
+    dedicacion = _req_number(fields.get("dedicacion_valor"), "La dedicación", hi=DEDICACION_UNIDADES[unidad])
+    d_tipo = (fields.get("duracion_tipo") or "").strip() if isinstance(fields.get("duracion_tipo"), str) else ""
+    if d_tipo not in DURACION_TIPOS:
+        raise ValueError("Indicá la duración: en meses o indefinida.")
+    d_meses = _req_int(fields.get("duracion_meses"), "La duración en meses", lo=1, hi=DURACION_MESES_MAX) \
+        if d_tipo == "meses" else None
+    area = _req_text(fields, "area_consultora", "el área a la que pertenecerá", required=True)
+    _validate_area_consultora_governed(area, existing_value=existing.get("area_consultora"))
+    modalidad = _req_text(fields, "modalidad", "la modalidad", required=True)
+    if modalidad not in busqueda_repository.MODALIDADES:
+        raise ValueError(f"Modalidad inválida. Elegí: {', '.join(busqueda_repository.MODALIDADES)}.")
+    presencialidad = None
+    if modalidad in _MODALIDADES_PRESENCIALES:
+        presencialidad = {
+            "dias": _req_int(fields.get("dias_presenciales"), "La cantidad de días presenciales", lo=1, hi=7),
+            "lugar": _req_text(fields, "lugar_trabajo", "el lugar exacto de trabajo", required=True),
+        }
+    seniority = _req_seniority(fields.get("seniority"), list(existing.get("seniority") or []))
+    ingles = _req_text(fields, "ingles", "el nivel de inglés", required=True)
+    if ingles not in INGLES_NIVELES:
+        raise ValueError(f"Nivel de inglés inválido. Elegí: {', '.join(INGLES_NIVELES)}.")
+    contrato = _req_text(fields, "tipo_contrato", "el tipo de contrato", required=True)
+    if contrato not in TIPOS_CONTRATO:
+        raise ValueError("Tipo de contrato inválido. Elegí FTE o PTE.")
+    inicio_raw = _req_text(fields, "fecha_inicio_prevista", "la fecha de inicio prevista", required=True)
+    try:
+        inicio = date.fromisoformat(inicio_raw).isoformat()
+    except ValueError:
+        raise ValueError("La fecha de inicio prevista no es una fecha válida (AAAA-MM-DD).") from None
+    return {
+        "nombre_puesto": nombre,
+        "tipo_busqueda": tipo,
+        "proyecto": proyecto,
+        "cantidad_recursos": cantidad,
+        "dedicacion": {"valor": dedicacion, "unidad": unidad},
+        "duracion": {"tipo": d_tipo, "meses": d_meses},
+        "area_consultora": area,
+        "ubicacion": _req_text(fields, "ubicacion", "la ubicación requerida", required=True),
+        "seniority": seniority,
+        "modalidad": modalidad,
+        "presencialidad": presencialidad,
+        "responsabilidades": _req_text(fields, "responsabilidades", "las responsabilidades del puesto", required=True, max_len=_TEXT_LONG),
+        "skills_excluyentes": _req_text(fields, "skills_excluyentes", "los skills técnicos excluyentes", required=True, max_len=_TEXT_LONG),
+        "habilidades_blandas": _req_text(fields, "habilidades_blandas", "las habilidades blandas", required=False, max_len=_TEXT_LONG),
+        "ingles": ingles,
+        "certificaciones": _req_text(fields, "certificaciones", "las certificaciones", required=False, max_len=_TEXT_LONG),
+        "tipo_contrato": contrato,
+        "fecha_inicio_prevista": inicio,
+        "comentarios": _req_text(fields, "comentarios", "los comentarios", required=False, max_len=_TEXT_LONG),
+    }
+
+
+def _shape_motivo(motivo, *, required: bool, label: str) -> str | None:
+    if motivo is not None and not isinstance(motivo, str):
+        raise ValueError(f"{label} tiene un formato inválido.")
+    text = (motivo or "").strip()
+    if not text:
+        if required:
+            raise ValueError(f"Indicá {label}.")
+        return None
+    if len(text) > _MOTIVO_MAX:
+        raise ValueError(f"{label[0].upper()}{label[1:]} supera el máximo de {_MOTIVO_MAX} caracteres.")
+    return text
+
+
+def _require_actor(actor) -> str:
+    if not isinstance(actor, str) or not actor.strip():
+        raise ValueError("Falta identificar quién realiza la operación.")
+    return actor.strip().lower()
+
+
+def solicitud_view(doc: dict) -> dict | None:
+    """Proyección SEGURA de una solicitud para Operaciones (lista blanca).
+    NUNCA incluye candidatos/postulaciones, ni datos del Banco de CVs, ni el
+    JD/palabras clave/descripción internos de CCHH, ni el `origen` completo.
+    Los emails sólo se muestran para actores de Operaciones. `None` si la
+    búsqueda no es una solicitud (históricas y altas directas de CCHH)."""
+    sol = busqueda_repository.solicitud_of(doc)
+    if sol is None:
+        return None
+    estado = sol.get("estado")
+    obs = sol.get("observacion") if isinstance(sol.get("observacion"), dict) else None
+    historial = []
+    for h in sol.get("historial") or []:
+        row = {k: h.get(k) for k in ("transicion", "desde", "hasta", "fecha", "actor_tipo", "motivo")}
+        if h.get("actor_tipo") == busqueda_repository.ORIGEN_OPERACIONES:
+            row["actor"] = h.get("actor")
+        historial.append(row)
+    return {
+        "busqueda_id": doc.get("busqueda_id"),
+        "solicitud_id": sol.get("submission_id") or doc.get("busqueda_id"),
+        "revision": doc.get("revision", 1),
+        "estado_solicitud": estado,
+        "estado": doc.get("estado"),
+        "fecha_apertura": doc.get("fecha_apertura"),
+        "fecha_cierre": doc.get("fecha_cierre"),
+        "nombre_puesto": doc.get("nombre_puesto"),
+        "area_consultora": doc.get("area_consultora"),
+        "modalidad": doc.get("modalidad"),
+        "solicitante": sol.get("solicitante"),
+        "enviada_en": sol.get("enviada_en"),
+        "ultimo_envio_en": sol.get("ultimo_envio_en"),
+        "observacion": {"motivo": obs.get("motivo"), "en": obs.get("en")} if obs else None,
+        "tomada_en": sol.get("tomada_en"),
+        "cancelada_en": sol.get("cancelada_en"),
+        "motivo_cancelacion": sol.get("motivo_cancelacion"),
+        "requerimiento": copy.deepcopy(doc.get("requerimiento") or {}),
+        "historial": historial,
+        # Qué puede hacer Operaciones HOY (el router lo usa para habilitar acciones; la regla real vive en el repositorio).
+        "puede_editar": estado == busqueda_repository.SOLICITUD_ENVIADA,
+        "puede_corregir": estado == busqueda_repository.SOLICITUD_OBSERVADA,
+        "puede_cancelar": estado in (busqueda_repository.SOLICITUD_ENVIADA, busqueda_repository.SOLICITUD_OBSERVADA),
+        "solo_lectura": estado in (busqueda_repository.SOLICITUD_EN_GESTION, busqueda_repository.SOLICITUD_CANCELADA),
+    }
+
+
+def get_solicitud_view(busqueda_id: str) -> dict | None:
+    doc = busqueda_repository.get(busqueda_id)
+    return solicitud_view(doc) if doc is not None else None
+
+
+def list_solicitudes_view() -> list[dict]:
+    """Todas las solicitudes originadas en Operaciones (cualquier usuario autorizado de
+    Operaciones las ve y gestiona), más recientes primero. Las búsquedas sin solicitud
+    (históricas / alta directa de CCHH) NO aparecen."""
+    rows = [v for v in (solicitud_view(d) for d in busqueda_repository.list()) if v is not None]
+    return sorted(rows, key=lambda r: (r.get("enviada_en") or "", r["busqueda_id"]), reverse=True)
+
+
+def _existing_requerimiento(busqueda_id: str) -> dict:
+    doc = busqueda_repository.get(busqueda_id)
+    if doc is None:
+        raise busqueda_repository.BusquedaNotFoundError(f"La búsqueda {busqueda_id} no existe.")
+    return doc.get("requerimiento") if isinstance(doc.get("requerimiento"), dict) else {}
+
+
+def create_solicitud(submission_id: str, fields: dict, actor: str) -> dict:
+    """Operaciones crea y envía una solicitud. Idempotente por `submission_id`
+    (UUID): el mismo envío repetido devuelve la misma solicitud; el mismo id con
+    otro contenido → `BusquedaSubmissionConflictError`. Devuelve la proyección segura."""
+    sid = busqueda_repository.normalize_submission_id(submission_id)
+    actor = _require_actor(actor)
+    doc = busqueda_repository.create_solicitud(sid, _shape_requerimiento(fields), actor)
+    return solicitud_view(doc)
+
+
+def edit_solicitud(busqueda_id: str, expected_revision: int, fields: dict, actor: str) -> dict:
+    """Operaciones edita una solicitud `enviada` (aún no tomada). Proyección segura."""
+    actor = _require_actor(actor)
+    req = _shape_requerimiento(fields, existing=_existing_requerimiento(busqueda_id))
+    return solicitud_view(busqueda_repository.edit_solicitud(busqueda_id, expected_revision, req, actor))
+
+
+def resubmit_solicitud(busqueda_id: str, expected_revision: int, fields: dict, actor: str) -> dict:
+    """Operaciones corrige una solicitud `observada` y la reenvía. Proyección segura."""
+    actor = _require_actor(actor)
+    req = _shape_requerimiento(fields, existing=_existing_requerimiento(busqueda_id))
+    return solicitud_view(busqueda_repository.resubmit_solicitud(busqueda_id, expected_revision, req, actor))
+
+
+def cancel_solicitud(busqueda_id: str, expected_revision: int, actor: str, motivo: str | None = None) -> dict:
+    """Operaciones cancela antes de que CCHH la tome (motivo opcional). Proyección segura."""
+    actor = _require_actor(actor)
+    motivo = _shape_motivo(motivo, required=False, label="el motivo de la cancelación")
+    return solicitud_view(busqueda_repository.cancel_solicitud(busqueda_id, expected_revision, motivo, actor))
+
+
+def observe_solicitud(busqueda_id: str, expected_revision: int, motivo: str, actor: str) -> dict:
+    """CCHH observa una solicitud `enviada` (motivo OBLIGATORIO). Devuelve la búsqueda completa."""
+    actor = _require_actor(actor)
+    motivo = _shape_motivo(motivo, required=True, label="el motivo de la observación")
+    return busqueda_repository.observe_solicitud(busqueda_id, expected_revision, motivo, actor)
+
+
+def take_solicitud(busqueda_id: str, expected_revision: int, actor: str) -> dict:
+    """CCHH toma explícitamente la solicitud en gestión. Devuelve la búsqueda completa."""
+    return busqueda_repository.take_solicitud(busqueda_id, expected_revision, _require_actor(actor))
 
 
 def add_candidate_to_busqueda(busqueda_id: str, profile_id: str) -> dict:
