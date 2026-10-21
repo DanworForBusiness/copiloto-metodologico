@@ -19,15 +19,17 @@ let failures = 0;
 function check(cond, label) { if (!cond) { failures++; console.log("FAIL: " + label); } }
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function makeButton(name) {
-  const b = { name, disabled: false, _classes: new Set() };
+function makeButton(label, name, value) {
+  const b = { label, name: name || "", value: value || "", disabled: false, _classes: new Set() };
   b.classList = { add(c) { b._classes.add(c); }, remove(c) { b._classes.delete(c); }, contains(c) { return b._classes.has(c); } };
   return b;
 }
 
 function setup({ withFile, tokenFn }) {
-  const main = makeButton("main");
-  const dup = makeButton("dup");
+  const main = makeButton("main");                                          // submit principal: sin name/value
+  const dup = makeButton("dup", "duplicate_confirmed", "true");              // «Cargar de todos modos»
+  const hiddens = [];
+  const submitSnapshots = [];
   const attrs = {};
   const graphTokenField = { value: "" };
   const fileInput = { files: withFile ? [{ name: "cv.pdf" }] : [] };
@@ -41,15 +43,27 @@ function setup({ withFile, tokenFn }) {
     setAttribute(name, value) { attrs[name] = String(value); },
     removeAttribute(name) { delete attrs[name]; },
     addEventListener(type, fn) { if (type === "submit") this._handler = fn; },
-    submit() { this._submitCalls++; },
+    submit() { this._submitCalls++; submitSnapshots.push(hiddens.map((h) => h.name + "=" + h.value)); },
+    appendChild(node) { hiddens.push(node); return node; },
     querySelector(sel) {
       if (sel.indexOf('type="file"') !== -1) return fileInput;
       if (sel.indexOf('name="graph_token"') !== -1) return graphTokenField;
       return null;
     },
-    querySelectorAll(sel) { return sel.indexOf('button[type="submit"]') !== -1 ? [dup, main] : []; },
+    querySelectorAll(sel) {
+      if (sel.indexOf('button[type="submit"]') !== -1) return [dup, main];
+      if (sel.indexOf("input[data-hc-submitter]") !== -1) return hiddens.slice();
+      return [];
+    },
   };
-  const document = { querySelectorAll(sel) { return sel.indexOf("data-hc-profile-new-form") !== -1 ? [form] : []; } };
+  const document = {
+    querySelectorAll(sel) { return sel.indexOf("data-hc-profile-new-form") !== -1 ? [form] : []; },
+    createElement(tag) {
+      const attrs = {};
+      const n = { tag, name: "", value: "", type: "", setAttribute(k, v) { attrs[k] = v; }, remove() { const i = hiddens.indexOf(n); if (i !== -1) hiddens.splice(i, 1); }, attrs };
+      return n;
+    },
+  };
   const win = { dwHumanCapitalDocumentWriteToken: tokenFn, addEventListener(type, fn) { windowListeners[type] = fn; } };
   const sandbox = { document, window: win, Promise, setTimeout, console };
   vm.createContext(sandbox);
@@ -59,7 +73,7 @@ function setup({ withFile, tokenFn }) {
     form._handler(ev);
     return ev;
   }
-  return { form, main, dup, fire, attrs, graphTokenField, pageshow: (persisted) => windowListeners.pageshow({ persisted }) };
+  return { form, main, dup, fire, attrs, graphTokenField, hiddens, submitSnapshots, pageshow: (persisted) => windowListeners.pageshow({ persisted }) };
 }
 
 function busyUi(ctx, button) { return button.classList.contains("htmx-request"); }
@@ -130,6 +144,58 @@ function busyUi(ctx, button) { return button.classList.contains("htmx-request");
     c.fire(c.main);
     await wait(BOUND_MS + 60);
     check(c.form._submitCalls === before + 1 && busyUi(c, c.main), "tras restaurar: un nuevo envío vuelve a mostrar la carga y a enviar una vez");
+  }
+
+  // 7. alta NORMAL con CV (botón principal, sin name): un solo submit, ningún hidden extra, con el token
+  {
+    const c = setup({ withFile: true, tokenFn: () => Promise.resolve("TOK") });
+    c.fire(c.main);
+    await wait(BOUND_MS + 60);
+    check(c.form._submitCalls === 1 && c.graphTokenField.value === "TOK", "alta normal con CV: un submit con el token");
+    check(c.hiddens.length === 0 && c.submitSnapshots[0].length === 0, "alta normal con CV: el submitter sin name no agrega campos");
+  }
+
+  // 8. confirmación de DUPLICADO con CV: form.submit() conserva name/value del submitter ANTES de enviar, una sola vez
+  {
+    const c = setup({ withFile: true, tokenFn: () => Promise.resolve("TOK") });
+    c.fire(c.dup);
+    check(busyUi(c, c.dup) && !busyUi(c, c.main), "duplicado con CV: el botón alternativo muestra la carga");
+    await wait(BOUND_MS + 60);
+    check(c.form._submitCalls === 1, "duplicado con CV: exactamente un submit efectivo");
+    check(c.submitSnapshots.length === 1 && c.submitSnapshots[0].length === 1 && c.submitSnapshots[0][0] === "duplicate_confirmed=true", "duplicado con CV: duplicate_confirmed=true viaja en ese submit");
+    check(c.hiddens.length === 1 && c.hiddens[0].attrs["data-hc-submitter"] === "true" && c.hiddens[0].type === "hidden", "duplicado con CV: un único hidden marcado");
+    // envíos repetidos mientras está ocupado: ni segundo submit ni segundo hidden
+    const again = c.fire(c.dup);
+    await wait(20);
+    check(again.prevented === true && c.form._submitCalls === 1 && c.hiddens.length === 1, "duplicado con CV: reintentos manuales bloqueados (una sola solicitud efectiva)");
+  }
+
+  // 9. duplicado con CV y token que falla/vacío (MSAL sin sesión): igual un submit, con el submitter preservado y graph_token vacío
+  {
+    const c = setup({ withFile: true, tokenFn: () => Promise.reject(new Error("boom")) });
+    c.fire(c.dup);
+    await wait(BOUND_MS + 60);
+    check(c.form._submitCalls === 1 && c.graphTokenField.value === "" && c.submitSnapshots[0][0] === "duplicate_confirmed=true", "duplicado con CV y token rechazado: un submit, token vacío, submitter preservado");
+  }
+
+  // 10. errores y restauración: pageshow quita el hidden, restaura los botones y un nuevo envío vuelve a preservar UNA sola vez
+  {
+    const c = setup({ withFile: true, tokenFn: () => Promise.resolve("T2") });
+    c.fire(c.dup);
+    await wait(BOUND_MS + 60);
+    c.pageshow(true);
+    check(c.hiddens.length === 0 && !busyUi(c, c.dup) && c.dup.disabled === false && c.attrs["aria-busy"] === undefined, "restauración: sin hidden residual, botones interactivos");
+    c.fire(c.dup);
+    await wait(BOUND_MS + 60);
+    check(c.form._submitCalls === 2 && c.hiddens.length === 1 && c.submitSnapshots[1].length === 1, "tras restaurar: nuevo envío con un único hidden (sin acumulación)");
+  }
+
+  // 11. sin CV el submitter viaja de forma nativa: el script NO agrega hidden (el navegador lo incluye solo)
+  {
+    const c = setup({ withFile: false, tokenFn: () => Promise.resolve("T") });
+    const ev = c.fire(c.dup);
+    await wait(5);
+    check(ev.prevented === false && c.hiddens.length === 0 && c.form._submitCalls === 0, "sin CV: submit nativo, el script no replica campos");
   }
 
   if (failures === 0) { console.log("ALL CCHH NEW-PROFILE SUBMIT LOADER INVARIANTS PASSED"); process.exit(0); }

@@ -138,9 +138,21 @@
       buttons.forEach(function (b) { b.disabled = true; });
     }, 0);
   }
+  // `form.submit()` (el envío programático que ocurre con CV, tras obtener el token) NO incluye el botón que envió: se replica su name/value en un hidden, para que el servidor reciba lo mismo
+  // que en un submit nativo (p. ej. `duplicate_confirmed=true` de «Cargar de todos modos»). Un solo hidden, marcado para poder quitarlo al restaurar el estado.
+  function preserveSubmitter(form, submitter) {
+    if (!submitter || !submitter.name || !document.createElement || !form.appendChild) return;
+    var hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.name = submitter.name;
+    hidden.value = submitter.value || "";
+    hidden.setAttribute("data-hc-submitter", "true");
+    form.appendChild(hidden);
+  }
   function clearBusy(form) {
     delete form.dataset.hcBusy;
     delete form.dataset.hcTokenReady;
+    if (form.querySelectorAll) form.querySelectorAll("input[data-hc-submitter]").forEach(function (n) { if (n.remove) n.remove(); });
     if (form.removeAttribute) form.removeAttribute("aria-busy");
     submitButtons(form).forEach(function (b) {
       if (b.classList) b.classList.remove("htmx-request");
@@ -174,12 +186,14 @@
       if (!fileInput || !fileInput.files || fileInput.files.length === 0) return; // sin CV: submit normal
       event.preventDefault();
       var submitted = false;
+      var submitter = event.submitter || null;   // el botón que envió (p. ej. «Cargar de todos modos»): form.submit() lo pierde, ver preserveSubmitter
       function submitOnce(token) {
         if (submitted) return;   // exactly-one: bound + resolución tardía no duplican el submit
         submitted = true;
         var tokenField = form.querySelector('input[name="graph_token"]');
         if (tokenField) tokenField.value = token || "";
         form.dataset.hcTokenReady = "true";
+        preserveSubmitter(form, submitter);
         form.submit();
       }
       var boundMs = parseInt(form.getAttribute("data-hc-token-bound-ms"), 10) || 8000;

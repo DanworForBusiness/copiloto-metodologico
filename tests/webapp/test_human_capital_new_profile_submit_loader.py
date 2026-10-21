@@ -104,3 +104,44 @@ def test_submit_loader_behaviour_contract_holds():
 # ── alcance: la edición NO cambia ─────────────────────────────────────────────────────────────────────────────
 def test_the_edit_form_is_untouched():
     assert "asr-generate" not in _EDIT and "Guardando candidato" not in _EDIT and "hcBusy" not in _EDIT
+
+
+# ── confirmación de duplicado CON CV: el submitter se preserva en el submit programático ─────────────────────────
+def test_the_script_replicates_the_submitter_name_and_value_before_the_programmatic_submit():
+    script = re.search(r"<script>([\s\S]*?)</script>", _FORM).group(1)
+    assert "function preserveSubmitter(form, submitter)" in script and 'hidden.setAttribute("data-hc-submitter", "true")' in script
+    assert script.index("preserveSubmitter(form, submitter);") < script.index("form.submit();")          # el hidden entra ANTES del envío
+    assert 'input[data-hc-submitter]' in script                                                          # y se limpia al restaurar el estado
+    assert "var submitter = event.submitter || null;" in script
+
+
+def _dup_form(**over):
+    return {"first_name": "Ana", "last_name": "Lopez", "email": "ana.lopez@example.invalid", **over}
+
+
+def test_backend_contract_a_confirmed_duplicate_with_cv_is_created_and_the_cv_is_uploaded_once(monkeypatch):
+    """Lo que el navegador envía ahora con CV tras «Cargar de todos modos» (el hidden `duplicate_confirmed=true`): el backend (sin cambios) acepta el duplicado y sube el CV UNA vez."""
+    from webapp.services import profile_document_service
+    calls = []
+    monkeypatch.setattr(profile_document_service, "upload_document", lambda **kw: calls.append(kw) or {})
+    client = _client()
+    pdf = {"file": ("cv.pdf", b"%PDF-1.4\n%x\n", "application/pdf")}
+    assert client.post("/cchh/candidatos/nuevo", data=_dup_form(), follow_redirects=False).status_code == 303                      # primer alta
+    advisory = client.post("/cchh/candidatos/nuevo", data=_dup_form(graph_token="tok"), files=pdf, follow_redirects=False)
+    assert advisory.status_code == 200 and "possible_duplicate" in advisory.text and calls == []          # sin confirmar: aviso, nada creado ni subido
+    n_before = len(profile_repository.list())
+    ok = client.post("/cchh/candidatos/nuevo", data=_dup_form(graph_token="tok", duplicate_confirmed="true"), files=pdf, follow_redirects=False)
+    assert ok.status_code == 303
+    assert len(profile_repository.list()) == n_before + 1 and len(calls) == 1 and calls[0]["filename"] == "cv.pdf"
+
+
+def test_without_the_confirmation_field_the_duplicate_is_not_created_even_with_cv(monkeypatch):
+    """Es el defecto que corrige el hidden: sin `duplicate_confirmed` (lo que enviaba `form.submit()` antes) el alta duplicada se rechaza."""
+    from webapp.services import profile_document_service
+    calls = []
+    monkeypatch.setattr(profile_document_service, "upload_document", lambda **kw: calls.append(kw) or {})
+    client = _client()
+    client.post("/cchh/candidatos/nuevo", data=_dup_form())
+    before = len(profile_repository.list())
+    r = client.post("/cchh/candidatos/nuevo", data=_dup_form(graph_token="tok"), files={"file": ("cv.pdf", b"%PDF-1.4\n%x\n", "application/pdf")})
+    assert r.status_code == 200 and len(profile_repository.list()) == before and calls == []
