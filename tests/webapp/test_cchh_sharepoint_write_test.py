@@ -26,6 +26,7 @@ from tests.webapp.test_cchh_sharepoint_diagnostics import (  # noqa: F401  (_cfg
 
 CONTROL_URL = "https://danwor.sharepoint.com/:f:/s/Operaciones-IniciativasOperacionesDanworTransversal/IgABC?e=xyz"
 CTRL = {"site": "danwor.sharepoint.com,CTRLSITE,CTRLWEB", "drive": "b!CTRLDRIVE", "item": "CTRLITEM"}
+DEFAULT_ALLOWED = dict(diag.WRITE_TEST_ALLOWED)                 # los valores REALES (antes de que el fixture los reemplace por los de prueba)
 NAME_RE = re.compile(r"^cchh-sharepoint-upload-test-\d{8}T\d{6}Z-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.txt$")
 
 
@@ -51,16 +52,20 @@ class _Put:
     def __init__(self, error=None):
         self.calls: list[dict] = []
         self.error = error
+        self.response_override: dict = {}
 
     def __call__(self, url, token, data, *, content_type="application/octet-stream", timeout=30):
         self.calls.append({"url": url, "token": token, "data": data, "content_type": content_type})
         if self.error is not None:
             raise self.error
-        return {"id": "NEWITEM", "name": _name_of(url), "size": len(data), "webUrl": "https://danwor.sharepoint.com/x"}
+        item = {"id": "NEWITEM", "name": _name_of(url), "size": len(data), "webUrl": "https://danwor.sharepoint.com/x", "parentReference": {"driveId": CTRL["drive"], "id": CTRL["item"]}}
+        item.update(self.response_override)
+        return item
 
 
 @pytest.fixture
 def world(monkeypatch):
+    monkeypatch.setattr(diag, "WRITE_TEST_ALLOWED", {"app_id": APP_ID, "drive_id": CTRL["drive"], "item_id": CTRL["item"]})      # destino/app de prueba (los reales están en DEFAULT_ALLOWED)
     put = _Put()
     monkeypatch.setattr(microsoft365, "graph_get_json", _shares())
     monkeypatch.setattr(microsoft365, "graph_put_bytes", put)
@@ -228,3 +233,66 @@ def test_the_write_never_touches_the_sharepoint_config_or_scopes(monkeypatch, wo
     before = (config.HC_SHAREPOINT_SITE_ID, config.HC_SHAREPOINT_DRIVE_ID, config.HC_CV_ROOT_ITEM_ID, config.HC_DOCUMENT_WRITE_SCOPE, config.AZURE_CLIENT_ID)
     diag.write_test(_tok(), CONTROL_URL)
     assert before == (config.HC_SHAREPOINT_SITE_ID, config.HC_SHAREPOINT_DRIVE_ID, config.HC_CV_ROOT_ITEM_ID, config.HC_DOCUMENT_WRITE_SCOPE, config.AZURE_CLIENT_ID)
+
+
+# ── destino y aplicación FIJOS (CONTROL + LOCAL) y verificación de la respuesta ─────────────────────────────
+PROD_DO = {"app": "eeca6df8-2436-422f-a1b8-05ff9e8ff653", "drive": "b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE", "item": "01ULA425ONX3YLUO3XTNDI46FMF43PFL4X",
+           "site": "danwor.sharepoint.com,65c64790-f933-46b9-823f-8e4ad57e69b1,b9b7da7d-8f67-46a9-be27-5f176394718a"}
+ADMIN_TOOL_APP = "14d82eec-204b-4c2f-b7e8-296a70dab67e"
+
+
+def _tok_for(app_id: str) -> str:
+    from tests.webapp.test_cchh_sharepoint_diagnostics import _fake_jwt
+    return _fake_jwt({"aud": "https://graph.microsoft.com", "tid": "tenant-1", "appid": app_id, "scp": "User.Read Sites.Read.All Files.SelectedOperations.Selected"})
+
+
+def test_the_real_allowed_target_is_the_control_hub_folder_and_the_local_app_and_never_production():
+    assert DEFAULT_ALLOWED == {"app_id": "ad98b5cd-71d0-451f-8d70-e8581a4788fa", "drive_id": "b!0KEpoe6kOESN6J455wB3ZLYmlHEbGsZPlL4_LU8lfDroKl3b1Ti0RYJfK4nkJLM3", "item_id": "01U7IMSJOGXNT3ZNP5NVAKDFLQWY3L6OMQ"}
+    assert PROD_DO["drive"] != DEFAULT_ALLOWED["drive_id"] and PROD_DO["item"] != DEFAULT_ALLOWED["item_id"] and PROD_DO["app"] != DEFAULT_ALLOWED["app_id"]
+
+
+@pytest.mark.parametrize("ids", [
+    dict(site=PROD_DO["site"], drive=PROD_DO["drive"], item=PROD_DO["item"]),                  # CCHH HUB de producción
+    dict(site=CTRL["site"], drive=CTRL["drive"], item="OTHERFOLDER"),                           # otra carpeta (p. ej. una subcarpeta) del mismo drive de CONTROL
+    dict(site=CTRL["site"], drive="b!OTHERDRIVE", item=CTRL["item"]),                           # mismo item id en otro drive
+    dict(site="danwor.sharepoint.com,X,Y", drive="b!OTHERDRIVE", item="OTHERITEM"),             # cualquier otro sitio
+])
+def test_a_folder_other_than_the_allowed_control_hub_is_rejected_without_any_put(monkeypatch, world, ids):
+    monkeypatch.setattr(microsoft365, "graph_get_json", _shares(**ids))
+    r = diag.write_test(_tok(), CONTROL_URL)
+    assert r["ok"] is False and r["stage"] == "control_not_allowlisted" and r["attempts"] == 0 and not world.calls
+
+
+def test_the_route_also_rejects_a_foreign_folder_with_the_real_allowlist(monkeypatch, world):
+    monkeypatch.setattr(diag, "WRITE_TEST_ALLOWED", dict(DEFAULT_ALLOWED, app_id=APP_ID))                 # allowlist REAL de destino; sólo la app de prueba
+    monkeypatch.setattr(microsoft365, "graph_get_json", _shares(site=PROD_DO["site"], drive=PROD_DO["drive"], item=PROD_DO["item"]))
+    r = _post(_client(OWNER, monkeypatch))
+    assert r.status_code == 200 and r.json()["stage"] == "control_not_allowlisted" and not world.calls
+
+
+@pytest.mark.parametrize("app", [ADMIN_TOOL_APP, PROD_DO["app"], "99999999-0000-0000-0000-000000000000"])
+def test_a_token_from_any_app_other_than_local_is_rejected_before_any_graph_call(monkeypatch, world, app):
+    monkeypatch.setattr(microsoft365, "graph_get_json", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no debe llamar a Graph")))
+    r = diag.write_test(_tok_for(app), CONTROL_URL)
+    assert r["ok"] is False and r["stage"] == "token_app_not_allowed" and r["token_app"] == app and r["attempts"] == 0 and not world.calls
+
+
+def test_an_undecodable_token_is_rejected_and_the_allowed_local_app_token_passes(monkeypatch, world):
+    monkeypatch.setattr(microsoft365, "graph_get_json", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no debe llamar a Graph")))
+    assert diag.write_test("not-a-jwt", CONTROL_URL)["stage"] == "token_app_not_allowed"
+    monkeypatch.setattr(microsoft365, "graph_get_json", _shares())
+    assert diag.write_test(_tok_for(APP_ID), CONTROL_URL)["ok"] is True and len(world.calls) == 1
+
+
+def test_a_successful_put_is_verified_against_the_expected_file_and_folder(world):
+    r = diag.write_test(_tok(), CONTROL_URL)
+    assert r["ok"] is True and r["stage"] == "put" and r["verification"] == {"name_matches": True, "size_matches": True, "drive_matches": True, "parent_is_control_folder": True, "all_ok": True}
+
+
+@pytest.mark.parametrize("override,failed", [({"name": "otro-archivo.txt"}, "name_matches"), ({"size": 1}, "size_matches"), ({"parentReference": {"driveId": "b!OTHER", "id": CTRL["item"]}}, "drive_matches"),
+                                             ({"parentReference": {"driveId": CTRL["drive"], "id": "ELSEWHERE"}}, "parent_is_control_folder"), ({"parentReference": None}, "drive_matches")])
+def test_a_put_response_that_does_not_match_is_not_reported_as_ok_and_keeps_the_filename_for_cleanup(world, override, failed):
+    world.response_override = override
+    r = diag.write_test(_tok(), CONTROL_URL)
+    assert r["ok"] is False and r["stage"] == "put_unverified" and r["verification"][failed] is False and r["verification"]["all_ok"] is False
+    assert NAME_RE.match(r["filename"]) and len(world.calls) == 1 and r["attempts"] == 1                 # un solo PUT, y el nombre queda a la vista para la limpieza

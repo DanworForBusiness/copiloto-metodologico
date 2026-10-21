@@ -323,6 +323,12 @@ def run_probe(token: str, *, control_sharing_url: str = "") -> dict:
 WRITE_TEST_PHRASE = "ESCRIBIR ARCHIVO DE PRUEBA"
 WRITE_TEST_CONTENT = b"cchh-sharepoint-upload-test: archivo de diagnostico sin datos personales. Se puede borrar.\n"
 WRITE_TEST_CONTENT_TYPE = "text/plain"
+# Destino y aplicación ÚNICOS permitidos para la prueba de escritura: la carpeta `Hub` de CONTROL y la app LOCAL (el grant Selected `write` se creó sólo ahí). Identificadores reales (drive e item), nunca URLs ni nombres:
+# un sharing link que resuelva a cualquier otra carpeta (p. ej. `CCHH HUB` de producción) o un token de cualquier otra app (la herramienta administrativa, la app de producción) se rechazan SIN PUT.
+# Ampliar esto requiere un cambio de código revisado y un GO explícito del owner.
+WRITE_TEST_ALLOWED = {"app_id": "ad98b5cd-71d0-451f-8d70-e8581a4788fa",
+                      "drive_id": "b!0KEpoe6kOESN6J455wB3ZLYmlHEbGsZPlL4_LU8lfDroKl3b1Ti0RYJfK4nkJLM3",
+                      "item_id": "01U7IMSJOGXNT3ZNP5NVAKDFLQWY3L6OMQ"}
 _CONFLICT_FAIL_QUERY = "?@microsoft.graph.conflictBehavior=fail"        # proteccion ADICIONAL: la documentacion no garantiza por si sola que evite sobrescrituras en este PUT; la garantia real es el nombre unico
 
 
@@ -359,12 +365,16 @@ def _write_result(ok: bool, stage: str, **extra) -> dict:
 def write_test(token: str, control_sharing_url: str, *, now: datetime | None = None, uid: uuid.UUID | None = None) -> dict:
     """Escribe UN archivo de texto fijo e inocuo, con nombre unico, en la carpeta de CONTROL resuelta desde el sharing link. Exactamente UN PUT (sin reintentos), con el MISMO request builder y el MISMO
     transporte (`microsoft365.graph_put_bytes`) que el uploader de CVs. No crea carpetas, no toca ProfileDocument ni la config, y nunca incluye el token en lo que devuelve o registra. Rechaza (sin PUT) todo
-    destino que no sea una carpeta resuelta de un sitio DISTINTO al CURRENT: se comparan site id, drive id e item id."""
+    destino que no sea una carpeta resuelta de un sitio DISTINTO al CURRENT: se comparan site id, drive id e item id. Además fija el destino (drive e item de CONTROL) y la aplicación del token (LOCAL)
+    con `WRITE_TEST_ALLOWED`, y verifica que la respuesta del PUT corresponda al archivo y a la carpeta esperados."""
     from webapp.services import profile_document_service           # perezoso: ese modulo importa este (evita el ciclo)
     url = (control_sharing_url or "").strip()
     parsed = urllib.parse.urlsplit(url)
     if not url or parsed.scheme != "https" or not parsed.netloc.lower().endswith(".sharepoint.com"):
         return _write_result(False, "control_invalid", reason="El link de control tiene que ser https://*.sharepoint.com/…")
+    token_app = str(token_claims_summary(token).get("client_application_id") or "").lower()
+    if token_app != WRITE_TEST_ALLOWED["app_id"].lower():                                              # antes de cualquier llamada a Graph
+        return _write_result(False, "token_app_not_allowed", reason="El token no es de la aplicación LOCAL permitida para esta prueba (¿token de la herramienta administrativa o de producción?).", token_app=token_app or None)
     record, found = discover_sharing_link(url, token)
     if not found or not (found.get("site_id") and found.get("drive_id") and found.get("item_id")):
         return _write_result(False, "control_unresolved", reason="No se pudo resolver el sharing link a site/drive/item.", discovery={k: record.get(k) for k in ("ok", "status", "code", "message", "request_id")})
@@ -374,6 +384,8 @@ def write_test(token: str, control_sharing_url: str, *, now: datetime | None = N
     clash = control_matches_current(control, current_target())
     if clash:
         return _write_result(False, "control_is_current", reason=f"El destino de control coincide con el CURRENT ({', '.join(clash)}): no se escribe.", control=control, matches=clash)
+    if control["drive_id"] != WRITE_TEST_ALLOWED["drive_id"] or control["item_id"] != WRITE_TEST_ALLOWED["item_id"]:
+        return _write_result(False, "control_not_allowlisted", reason="La carpeta resuelta no es la carpeta `Hub` de CONTROL permitida (drive/item): no se escribe.", control=control)
     filename = unique_test_filename(now, uid)                                                         # inmediatamente antes del PUT
     put_url = profile_document_service.upload_content_url(control["item_id"], filename, site_id=control["site_id"], drive_id=control["drive_id"]) + _CONFLICT_FAIL_QUERY
     result = _write_result(False, "put", control=control, filename=filename, attempts=1,
@@ -385,6 +397,12 @@ def write_test(token: str, control_sharing_url: str, *, now: datetime | None = N
         result["put"].update({"ok": False, "status": detail.get("status"), "code": detail.get("code"), "message": detail.get("message"), "inner_code": detail.get("inner_code"),
                               "request_id": detail.get("request_id"), "client_request_id": detail.get("client_request_id"), "kind": detail.get("kind"), "reason": detail.get("reason")})
         return result
-    result["ok"] = True
-    result["put"].update({"ok": True, "status": "2xx", "item": {"id": (item or {}).get("id"), "name": (item or {}).get("name"), "size": (item or {}).get("size"), "web_url": (item or {}).get("webUrl")}})
+    item = item if isinstance(item, dict) else {}
+    parent = item.get("parentReference") if isinstance(item.get("parentReference"), dict) else {}
+    checks = {"name_matches": item.get("name") == filename, "size_matches": item.get("size") == len(WRITE_TEST_CONTENT),
+              "drive_matches": parent.get("driveId") == control["drive_id"], "parent_is_control_folder": parent.get("id") == control["item_id"]}
+    result["verification"] = {**checks, "all_ok": all(checks.values())}
+    result["ok"] = result["verification"]["all_ok"]                                                    # PUT 2xx pero respuesta que no corresponde: ok=False (el archivo existe: limpiar a mano)
+    result["stage"] = "put" if result["ok"] else "put_unverified"
+    result["put"].update({"ok": True, "status": "2xx", "item": {"id": item.get("id"), "name": item.get("name"), "size": item.get("size"), "web_url": item.get("webUrl")}})
     return result
