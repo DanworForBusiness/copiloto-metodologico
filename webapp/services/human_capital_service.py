@@ -76,6 +76,7 @@ __all__ = [
     "busqueda_is_placeholder", "delete_busqueda",
     "create_solicitud", "edit_solicitud", "resubmit_solicitud", "cancel_solicitud",
     "observe_solicitud", "take_solicitud", "get_solicitud_view", "list_solicitudes_view", "solicitud_view",
+    "list_busquedas_gestionadas", "resumen_solicitudes",
     "profiles_available_for_busqueda", "busqueda_candidates_view",
     "validate_source_for_import",
     "list_entrevistas", "get_entrevista", "create_entrevista_manual", "update_entrevista",
@@ -695,7 +696,6 @@ DURACION_MESES_MAX = 120
 DEDICACION_UNIDADES = {
     "horas_por_mes": 744,
     "horas_por_semana": 168,
-    "horas_por_dia": 24,
     "porcentaje_jornada": 100,
 }
 CANTIDAD_RECURSOS_MAX = 99
@@ -749,7 +749,7 @@ def _req_number(value, label: str, *, hi: int) -> int | float:
     return int(value) if float(value).is_integer() else round(float(value), 2)
 
 
-def _req_seniority(value, existing: list[str]) -> list[str]:
+def _req_seniority(value, existing: list[str], *, check_catalogs: bool = True) -> list[str]:
     if isinstance(value, str):
         value = [value]
     if not isinstance(value, (list, tuple)):
@@ -763,16 +763,18 @@ def _req_seniority(value, existing: list[str]) -> list[str]:
             out.append(v)
     if not out:
         raise ValueError("Elegí al menos un seniority.")
-    for v in out:  # catálogo gobernado, migration-safe: un valor legacy ya guardado se preserva
-        _validate_seniority_governed(v, existing_value=v if v in existing else None)
+    if check_catalogs:
+        for v in out:  # catálogo gobernado, migration-safe: un valor legacy ya guardado se preserva
+            _validate_seniority_governed(v, existing_value=v if v in existing else None)
     return out
 
 
-def _shape_requerimiento(fields: dict, *, existing: dict | None = None) -> dict:
+def _shape_requerimiento(fields: dict, *, existing: dict | None = None, check_catalogs: bool = True) -> dict:
     """Valida y normaliza el REG-CH-01 completo. Devuelve el `requerimiento` canónico
     (lo único que se persiste como lo pedido y lo que se huellea para idempotencia).
     `existing` = requerimiento ya guardado (edición/reenvío): preserva valores
-    gobernados legacy que cambiaron de catálogo."""
+    gobernados legacy que cambiaron de catálogo. `check_catalogs=False` hace SOLO la normalización estructural (sin consultar catálogos gobernados): lo usa el reenvío de un
+    `submission_id` ya aceptado, que se decide por identidad/equivalencia ANTES de cualquier validación sujeta a cambios de catálogo."""
     if not isinstance(fields, dict):
         raise ValueError("Datos de la solicitud inválidos.")
     existing = existing or {}
@@ -794,7 +796,8 @@ def _shape_requerimiento(fields: dict, *, existing: dict | None = None) -> dict:
     d_meses = _req_int(fields.get("duracion_meses"), "La duración en meses", lo=1, hi=DURACION_MESES_MAX) \
         if d_tipo == "meses" else None
     area = _req_text(fields, "area_consultora", "el área a la que pertenecerá", required=True)
-    _validate_area_consultora_governed(area, existing_value=existing.get("area_consultora"))
+    if check_catalogs:
+        _validate_area_consultora_governed(area, existing_value=existing.get("area_consultora"))
     modalidad = _req_text(fields, "modalidad", "la modalidad", required=True)
     if modalidad not in busqueda_repository.MODALIDADES:
         raise ValueError(f"Modalidad inválida. Elegí: {', '.join(busqueda_repository.MODALIDADES)}.")
@@ -804,7 +807,7 @@ def _shape_requerimiento(fields: dict, *, existing: dict | None = None) -> dict:
             "dias": _req_int(fields.get("dias_presenciales"), "La cantidad de días presenciales", lo=1, hi=7),
             "lugar": _req_text(fields, "lugar_trabajo", "el lugar exacto de trabajo", required=True),
         }
-    seniority = _req_seniority(fields.get("seniority"), list(existing.get("seniority") or []))
+    seniority = _req_seniority(fields.get("seniority"), list(existing.get("seniority") or []), check_catalogs=check_catalogs)
     ingles = _req_text(fields, "ingles", "el nivel de inglés", required=True)
     if ingles not in INGLES_NIVELES:
         raise ValueError(f"Nivel de inglés inválido. Elegí: {', '.join(INGLES_NIVELES)}.")
@@ -895,12 +898,35 @@ def solicitud_view(doc: dict) -> dict | None:
         "motivo_cancelacion": sol.get("motivo_cancelacion"),
         "requerimiento": copy.deepcopy(doc.get("requerimiento") or {}),
         "historial": historial,
+        # Indicadores DERIVADOS (no son estados ni se persisten): para la futura bandeja de CCHH (I3) y los listados.
+        "categoria": busqueda_repository.solicitud_categoria(doc),
+        "reenviada": busqueda_repository.solicitud_reenviada(doc),
+        "reenvios": busqueda_repository.solicitud_reenvios(doc),
         # Qué puede hacer Operaciones HOY (el router lo usa para habilitar acciones; la regla real vive en el repositorio).
         "puede_editar": estado == busqueda_repository.SOLICITUD_ENVIADA,
         "puede_corregir": estado == busqueda_repository.SOLICITUD_OBSERVADA,
         "puede_cancelar": estado in (busqueda_repository.SOLICITUD_ENVIADA, busqueda_repository.SOLICITUD_OBSERVADA),
         "solo_lectura": estado in (busqueda_repository.SOLICITUD_EN_GESTION, busqueda_repository.SOLICITUD_CANCELADA),
     }
+
+
+def list_busquedas_gestionadas() -> list[dict]:
+    """Búsquedas que CCHH efectivamente gestiona: históricas, altas directas y solicitudes ya tomadas (excluye pendientes, observadas y canceladas). `list_busquedas()` NO cambia
+    (sigue devolviendo todo); I3 decidirá qué superficie usa cada una."""
+    return [b for b in busqueda_repository.list() if busqueda_repository.es_gestionada(b)]
+
+
+def resumen_solicitudes() -> dict:
+    """Conteo de solicitudes de Operaciones por categoría (`pendiente`/`observada`/`gestionada`/`cancelada`) + cuántas pendientes son reenvíos. Derivado; sin escrituras."""
+    out = {"pendiente": 0, "observada": 0, "gestionada": 0, "cancelada": 0, "reenviadas": 0, "total": 0}
+    for doc in busqueda_repository.list():
+        cat = busqueda_repository.solicitud_categoria(doc)
+        if cat is None:
+            continue
+        out[cat] += 1
+        out["total"] += 1
+        out["reenviadas"] += int(busqueda_repository.solicitud_reenviada(doc))
+    return out
 
 
 def get_solicitud_view(busqueda_id: str) -> dict | None:
@@ -929,6 +955,20 @@ def create_solicitud(submission_id: str, fields: dict, actor: str) -> dict:
     otro contenido → `BusquedaSubmissionConflictError`. Devuelve la proyección segura."""
     sid = busqueda_repository.normalize_submission_id(submission_id)
     actor = _require_actor(actor)
+    existing = busqueda_repository.find_submission(sid)
+    if existing is not None:
+        # Envío ya aceptado: se decide por IDENTIDAD y EQUIVALENCIA del contenido original (huella), con normalización solo estructural, ANTES de cualquier validación
+        # sujeta a catálogos que pudieron cambiar. Un contenido distinto con el mismo identificador NUNCA se acepta en silencio.
+        sol = busqueda_repository.solicitud_of(existing)
+        same_identity = (sol is not None and busqueda_repository.origen_tipo(existing) == busqueda_repository.ORIGEN_OPERACIONES
+                         and sol.get("submission_id") == sid and existing.get("busqueda_id") == sid)
+        try:
+            fingerprint = busqueda_repository.content_fingerprint(_shape_requerimiento(fields, check_catalogs=False), actor)
+        except ValueError:
+            fingerprint = None
+        if same_identity and fingerprint is not None and sol.get("submission_fingerprint") == fingerprint:
+            return solicitud_view(existing)
+        raise busqueda_repository.BusquedaSubmissionConflictError("Ese identificador de envío ya se usó con un contenido distinto.")
     doc = busqueda_repository.create_solicitud(sid, _shape_requerimiento(fields), actor)
     return solicitud_view(doc)
 

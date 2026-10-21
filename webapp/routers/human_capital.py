@@ -1139,6 +1139,15 @@ _BUSQUEDA_SHELL_ERRORS = (
 )
 
 
+# Errores de NEGOCIO esperables al actuar sobre una solicitud de Operaciones (transición inválida, conflicto de idempotencia, id inválido): nunca deben llegar como HTTP 500.
+# Se distinguen de la concurrencia (`BusquedaConcurrentModificationError`) y de la persistencia (`_BUSQUEDA_SHELL_ERRORS`).
+_BUSQUEDA_SOLICITUD_ERRORS = (
+    busqueda_repository.BusquedaInvalidTransitionError,
+    busqueda_repository.BusquedaSubmissionConflictError,
+    busqueda_repository.BusquedaInvalidSubmissionIdError,
+)
+
+
 _BUSQUEDA_ATENCION_FILTERS = ("todas", "estancadas", "sin_requerimiento", "onboarding_pendiente")
 
 
@@ -1304,8 +1313,9 @@ def human_capital_busqueda_new_submit(
     form_values = _busqueda_form_from_request(
         nombre_puesto, fecha_apertura, descripcion, area_departamento, modalidad,
         area_consultora, jd_texto, palabras_clave, pedido_formal_recibido)
+    actor = str((auth_service.session_user(request) or {}).get("sub") or "").strip().lower() or None   # autoría: el actor autenticado (claim `sub`; no se inventa uno)
     try:
-        busqueda = human_capital_service.create_busqueda(form_values)
+        busqueda = human_capital_service.create_busqueda(form_values, actor=actor)
     except ValueError as exc:
         return templates.TemplateResponse(
             request=request, name="human_capital/busqueda_form.html",
@@ -1327,6 +1337,8 @@ def human_capital_busqueda_edit_page(request: Request, busqueda_id: str):
     busqueda = human_capital_service.get_busqueda(busqueda_id)
     if busqueda is None:
         raise HTTPException(404, "Búsqueda no encontrada")
+    if busqueda_repository.solicitud_estado(busqueda) not in (None, busqueda_repository.SOLICITUD_EN_GESTION):
+        return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)   # solicitud aún no tomada: sin edición por CCHH
     form_values = dict(busqueda)
     form_values["expected_revision"] = busqueda.get("revision", 1)
     return templates.TemplateResponse(
@@ -1369,6 +1381,8 @@ def human_capital_busqueda_edit_submit(
         return _render(error=str(exc))
     except busqueda_repository.BusquedaConcurrentModificationError:
         return _render(concurrent_modification=True)
+    except _BUSQUEDA_SOLICITUD_ERRORS as exc:
+        return _render(error=str(exc))
     except _BUSQUEDA_SHELL_ERRORS as exc:
         return _render(error=str(exc))
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
@@ -1409,7 +1423,7 @@ def human_capital_busqueda_add_candidate(request: Request, busqueda_id: str, pro
         human_capital_service.add_candidate_to_busqueda(busqueda_id, profile_id)
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
-    except (ValueError, *_BUSQUEDA_SHELL_ERRORS):
+    except (ValueError, *_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
         pass  # el body se re-renderiza igual; un fallo de durabilidad no rompe la vista
     if request.headers.get("HX-Request"):
         return _busqueda_detail_body(request, busqueda_id)
@@ -1429,7 +1443,7 @@ def human_capital_busqueda_move_stage(
         human_capital_service.move_application_stage(busqueda_id, application_id, etapa, resultado_final)
     except (busqueda_repository.BusquedaNotFoundError, busqueda_repository.ApplicationNotFoundError):
         raise HTTPException(404, "No encontrado") from None
-    except (ValueError, *_BUSQUEDA_SHELL_ERRORS):
+    except (ValueError, *_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
         pass
     if request.headers.get("HX-Request"):
         return _busqueda_detail_body(request, busqueda_id)
@@ -1446,7 +1460,7 @@ def human_capital_busqueda_remove_candidate(request: Request, busqueda_id: str, 
         human_capital_service.remove_application(busqueda_id, application_id)
     except (busqueda_repository.BusquedaNotFoundError, busqueda_repository.ApplicationNotFoundError):
         pass
-    except _BUSQUEDA_SHELL_ERRORS:
+    except (*_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
         pass
     if request.headers.get("HX-Request"):
         return _busqueda_detail_body(request, busqueda_id)
@@ -1464,7 +1478,7 @@ async def human_capital_busqueda_close(request: Request, busqueda_id: str):
         human_capital_service.close_busqueda(busqueda_id, finalize_ids)
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
-    except _BUSQUEDA_SHELL_ERRORS:
+    except (*_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
         pass
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
 
@@ -1486,7 +1500,7 @@ def human_capital_busqueda_delete(request: Request, busqueda_id: str):
         human_capital_service.delete_busqueda(busqueda_id)
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
-    except (ValueError, *_BUSQUEDA_SHELL_ERRORS):
+    except (ValueError, *_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
         return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
     return RedirectResponse(url="/cchh/busquedas", status_code=303)
 

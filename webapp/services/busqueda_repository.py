@@ -32,7 +32,7 @@ import re
 import tempfile
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -165,6 +165,18 @@ def _now_iso() -> str:
 
 def _today_iso() -> str:
     return datetime.now(timezone.utc).date().isoformat()
+
+
+try:                                                        # fechas de NEGOCIO: America/Argentina/Buenos_Aires (los timestamps técnicos siguen en UTC)
+    from zoneinfo import ZoneInfo
+    _BUSINESS_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+except Exception:                                           # noqa: BLE001 — sin base tz (p. ej. Windows sin tzdata): Argentina no tiene horario de verano desde 2009 -> UTC-3 fijo
+    _BUSINESS_TZ = timezone(timedelta(hours=-3))
+
+
+def _business_today() -> str:
+    """Fecha de negocio (AAAA-MM-DD) en Buenos Aires: `fecha_apertura` / `fecha_cierre`. Entre 21:00 y 24:00 ART la fecha UTC ya es la del día siguiente."""
+    return datetime.now(_BUSINESS_TZ).date().isoformat()
 
 
 def _write_atomic(path: Path, payload: dict) -> None:
@@ -330,13 +342,24 @@ def _mutate(busqueda_id: str, mutator, *, expected_revision: int | None = None) 
         return _persist(_busqueda_path(busqueda_id), candidate, previous=current)
 
 
+# Campos que NINGUNA edición general de CCHH puede cambiar cuando la búsqueda nació en Operaciones: la fecha de apertura se genera al enviar (fija desde el primer envío) y el
+# pedido formal ya fue recibido por definición (REG-CH-01). El servidor los CONSERVA aunque el formulario envíe otro valor (no rompe el form; el cambio simplemente no aplica).
+OPERATIONS_LOCKED_FIELDS = ("fecha_apertura", "pedido_formal_recibido")
+
+
+def is_operations_originated(doc: dict) -> bool:
+    return origen_tipo(doc) == ORIGEN_OPERACIONES or solicitud_of(doc) is not None
+
+
 def update(busqueda_id: str, expected_revision: int, fields: dict) -> dict:
     """Edita los campos de una búsqueda (form de edición). Concurrencia
-    optimista por `revision`. NO toca estado/fecha_cierre/candidatos."""
+    optimista por `revision`. NO toca estado/fecha_cierre/candidatos. En una
+    búsqueda originada en Operaciones `OPERATIONS_LOCKED_FIELDS` no se modifican."""
     def _apply(doc: dict) -> None:
         _require_managed(doc, "editar")
+        locked = is_operations_originated(doc)
         for k in EDITABLE_FIELDS:
-            if k in fields:
+            if k in fields and not (locked and k in OPERATIONS_LOCKED_FIELDS):
                 doc[k] = fields[k]
     return _mutate(busqueda_id, _apply, expected_revision=expected_revision)
 
@@ -377,6 +400,7 @@ def move_stage(busqueda_id: str, application_id: str, etapa: str, resultado_fina
     """Mueve una postulación a `etapa` (registrando la transición en historial).
     `resultado_final` se fuerza a None salvo que etapa == Finalizado."""
     def _apply(doc: dict) -> None:
+        _require_managed(doc, "mover candidatos de")
         app = _find_app(doc, application_id)
         now = _now_iso()
         app["etapa"] = etapa
@@ -389,6 +413,7 @@ def move_stage(busqueda_id: str, application_id: str, etapa: str, resultado_fina
 def remove_candidate(busqueda_id: str, application_id: str) -> dict:
     """Quita una postulación de la búsqueda (el Profile del Banco no se toca)."""
     def _apply(doc: dict) -> None:
+        _require_managed(doc, "quitar candidatos de")
         before = doc.get("candidatos", [])
         after = [a for a in before if a.get("application_id") != application_id]
         if len(after) == len(before):
@@ -449,7 +474,7 @@ def close(busqueda_id: str, finalize_application_ids: list[str] | None = None) -
                 app["fecha_cambio_etapa"] = now
                 app.setdefault("historial", []).append({"etapa": ETAPA_FINAL, "fecha": now})
         doc["estado"] = "cerrado"
-        doc["fecha_cierre"] = _today_iso()
+        doc["fecha_cierre"] = _business_today()
     return _mutate(busqueda_id, _apply)
 
 
@@ -477,6 +502,46 @@ def origen_tipo(doc: dict) -> str | None:
     """`operaciones` | `cchh` | None (histórica, sin `origen`)."""
     origen = doc.get("origen")
     return origen.get("tipo") if isinstance(origen, dict) else None
+
+
+SOLICITUD_CATEGORIAS = {
+    SOLICITUD_ENVIADA: "pendiente", SOLICITUD_OBSERVADA: "observada",
+    SOLICITUD_EN_GESTION: "gestionada", SOLICITUD_CANCELADA: "cancelada",
+}
+
+
+def solicitud_categoria(doc: dict) -> str | None:
+    """Categoría para listados/métricas: `pendiente` (enviada, a la espera de CCHH) | `observada` | `gestionada` (tomada por CCHH) | `cancelada`. None si NO es una solicitud
+    (histórica o alta directa de CCHH). Es una lectura derivada: no se persiste."""
+    return SOLICITUD_CATEGORIAS.get(solicitud_estado(doc))
+
+
+def es_gestionada(doc: dict) -> bool:
+    """True para lo que CCHH efectivamente gestiona: búsquedas sin solicitud (históricas / alta directa) y solicitudes ya tomadas en gestión. False para pendientes, observadas y canceladas."""
+    return solicitud_estado(doc) in (None, SOLICITUD_EN_GESTION)
+
+
+def solicitud_reenvios(doc: dict) -> int:
+    sol = solicitud_of(doc)
+    return sum(1 for h in ((sol or {}).get("historial") or []) if h.get("transicion") == "reenviar")
+
+
+def solicitud_reenviada(doc: dict) -> bool:
+    """Indicador DERIVADO (no es un estado): la solicitud está `enviada` de nuevo tras haber sido observada y corregida por Operaciones."""
+    return solicitud_estado(doc) == SOLICITUD_ENVIADA and solicitud_reenvios(doc) > 0
+
+
+def find_submission(submission_id: str) -> dict | None:
+    """La solicitud ya aceptada con ese `submission_id` (local o, si hay remoto, reconciliada con el bucket) o None. Sirve para decidir la idempotencia ANTES de validar contra catálogos
+    que pueden haber cambiado. Remoto indeterminable -> `BusquedaRemoteOutcomeUnknownError` (nunca se asume que no existe)."""
+    _ensure_restored()
+    busqueda_id = normalize_submission_id(submission_id)
+    path = _busqueda_path(busqueda_id)
+    with _write_lock:
+        existing = get(busqueda_id)
+        if existing is None:
+            existing = _read_remote_if_any(path, busqueda_id)
+        return existing
 
 
 def normalize_submission_id(value) -> str:
@@ -628,7 +693,7 @@ def create_solicitud(submission_id: str, requerimiento: dict, actor: str) -> dic
             "estado": "activo",
             "fecha_cierre": None,
             **{k: None for k in EDITABLE_FIELDS},
-            "fecha_apertura": _today_iso(),
+            "fecha_apertura": _business_today(),
             "pedido_formal_recibido": True,
             "candidatos": [],
             "origen": {"tipo": ORIGEN_OPERACIONES, "creado_por": actor, "creado_en": now},
@@ -709,5 +774,5 @@ def cancel_solicitud(busqueda_id: str, expected_revision: int, motivo: str | Non
         sol["cancelada_en"] = now
         sol["motivo_cancelacion"] = motivo
         doc["estado"] = "cerrado"
-        doc["fecha_cierre"] = _today_iso()
+        doc["fecha_cierre"] = _business_today()
     return _transition(busqueda_id, expected_revision, "cancelar", actor, _apply, motivo=motivo)
