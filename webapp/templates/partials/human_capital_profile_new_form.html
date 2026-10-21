@@ -86,7 +86,10 @@
       <p>Ya existe un candidato posiblemente duplicado: <strong>{{ duplicate_advisory.first_name }} {{ duplicate_advisory.last_name }}</strong>{% if duplicate_advisory.email %} — {{ duplicate_advisory.email }}{% endif %}. Podés cancelar o cargarlo de todos modos.</p>
       <div class="feedback-form-actions">
         <a href="/cchh/candidatos" class="btn-secondary">Cancelar</a>
-        <button type="submit" form="hc-profile-form" name="duplicate_confirmed" value="true" class="btn-primary">Cargar de todos modos</button>
+        <button type="submit" form="hc-profile-form" name="duplicate_confirmed" value="true" class="btn-primary asr-generate" aria-live="polite">
+          <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Guardando candidato…</span>
+          <span class="asr-generate__label">Cargar de todos modos</span>
+        </button>
       </div>
     </div>
   </div>
@@ -106,10 +109,50 @@
   </div>
   {% endif %}
 
-  <button type="submit" class="btn-primary">Cargar CV</button>
+  <button type="submit" class="btn-primary asr-generate" aria-live="polite">
+    <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Guardando candidato…</span>
+    <span class="asr-generate__label">Cargar CV</span>
+  </button>
 </form>
 <script>
 (function () {
+  // ESTADO DE CARGA del submit (UX): reusa el patrón del Hub «botón con carga INTEGRADA» (`.asr-generate`, tools.css): el botón que envía recibe `.htmx-request` (muestra spinner +
+  // «Guardando candidato…» y oculta el label), igual que el resto del Hub; acá lo activa este script porque el form es un POST plano (sin htmx). Se activa en el evento `submit`
+  // (el navegador ya validó el form: un campo inválido NO dispara `submit`, así que no queda ningún estado de carga) y dura toda la operación: espera del token + subida del CV +
+  // respuesta, hasta que el navegador reemplaza la página. Si el servidor responde con errores, la página se re-renderiza (estado interactivo nuevo, mensajes y datos preservados por
+  // el servidor); si se vuelve atrás desde el historial (bfcache) `pageshow` restaura el estado interactivo.
+  // `disabled` se aplica DESPUÉS del evento (setTimeout 0): un submitter deshabilitado antes de que el navegador arme los datos perdería su name/value (`duplicate_confirmed`).
+  function submitButtons(form) {
+    var own = form.querySelectorAll ? Array.prototype.slice.call(form.querySelectorAll('button[type="submit"]')) : [];
+    var ext = (form.id && document.querySelectorAll) ? Array.prototype.slice.call(document.querySelectorAll('button[type="submit"][form="' + form.id + '"]')) : [];
+    return own.concat(ext.filter(function (b) { return own.indexOf(b) === -1; }));
+  }
+  function setBusy(form, submitter) {
+    var buttons = submitButtons(form);
+    var active = (submitter && buttons.indexOf(submitter) !== -1) ? submitter : buttons[0];
+    form.dataset.hcBusy = "true";
+    if (form.setAttribute) form.setAttribute("aria-busy", "true");
+    if (active && active.classList) active.classList.add("htmx-request");
+    setTimeout(function () {
+      if (form.dataset.hcBusy !== "true") return;
+      buttons.forEach(function (b) { b.disabled = true; });
+    }, 0);
+  }
+  function clearBusy(form) {
+    delete form.dataset.hcBusy;
+    delete form.dataset.hcTokenReady;
+    if (form.removeAttribute) form.removeAttribute("aria-busy");
+    submitButtons(form).forEach(function (b) {
+      if (b.classList) b.classList.remove("htmx-request");
+      b.disabled = false;
+    });
+  }
+  if (typeof window.addEventListener === "function") {
+    window.addEventListener("pageshow", function (event) {
+      if (!event.persisted) return;
+      document.querySelectorAll("[data-hc-profile-new-form]").forEach(clearBusy);
+    });
+  }
   // CONTRATO de outcome terminal ACOTADO (owner, CCHH create-with-CV): el
   // primer submit se intercepta SOLO si hay un archivo elegido; sin archivo el
   // submit va directo (el alta sin CV es lo común, sin round-trip de Graph).
@@ -124,7 +167,9 @@
   // token tras el bound NO puede causar un segundo submit.
   document.querySelectorAll("[data-hc-profile-new-form]").forEach(function (form) {
     form.addEventListener("submit", function (event) {
+      if (form.dataset.hcBusy === "true") { event.preventDefault(); return; } // anti doble envío: ya hay una operación en curso (incluso tras el submit programático con token)
       if (form.dataset.hcTokenReady === "true") return; // segundo submit real, dejar pasar
+      setBusy(form, event.submitter);
       var fileInput = form.querySelector('input[type="file"]');
       if (!fileInput || !fileInput.files || fileInput.files.length === 0) return; // sin CV: submit normal
       event.preventDefault();

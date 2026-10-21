@@ -316,6 +316,12 @@
    Comercial, Reporting) que NUNCA es hijo directo de `.hc-profile-form` en
    ningún otro lugar -- cero riesgo de afectar esos otros consumidores. */
 .hc-profile-form > button[type="submit"] { justify-self: start; margin-top: 8px; }
+/* Submit con estado de carga (alta de candidato): reusa el patrón `.asr-generate` (tools.css: spinner + label, ancho estable, deshabilitado legible sin fade). Sólo se adapta el color del
+   spinner al fondo dorado de `.btn-primary` (el spinner base es dorado sobre fondo oscuro y no se vería) y se respeta `prefers-reduced-motion`: sin rotación (el texto comunica el estado). */
+.hc-profile-form .btn-primary.asr-generate .asr-generate__spinner { border-color: rgba(12, 12, 13, .28); border-top-color: #0c0c0d; }
+@media (prefers-reduced-motion: reduce) {
+  .hc-profile-form .btn-primary.asr-generate .asr-generate__spinner { animation: none; border-color: #0c0c0d; }
+}
 /* Botonera de acciones del form de Búsquedas (`<div>` con Crear/Cancelar):
    ocupa el ancho completo de la grilla y se separa del último campo con el MISMO
    separador que entre secciones (margin+padding+borde-top) — sin esto quedaba
