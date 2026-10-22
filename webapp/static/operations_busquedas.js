@@ -1,7 +1,10 @@
 /* Operaciones / Búsquedas (I2) — mejora progresiva de los formularios (REG-CH-01 y cancelación).
    Sin framework nuevo y SIN estilos propios (todo el aspecto es del core del Hub). El servidor valida TODO igual:
    - campos condicionales (`[data-when-field]`): se ocultan y se deshabilitan según otro campo;
-   - doble envío: el segundo submit se ignora y el botón queda en «Enviando…»;
+   - estado de carga del envío: MISMO patrón del Hub que «Cargar CV» de CCHH (botón con carga integrada `.asr-generate`): el botón que envía recibe `.htmx-request` (spinner + texto de
+     carga) y se deshabilita DESPUÉS del evento (un submitter deshabilitado antes perdería su name/value). El segundo submit se ignora (la idempotencia real sigue en el servidor);
+   - la confirmación de éxito NO la pinta este script: llega recién con la redirección que confirma el servidor (`?ok=`). Si el servidor responde con errores la página se re-renderiza con los
+     datos preservados; si se vuelve atrás desde el historial (bfcache) `pageshow` restaura el estado interactivo;
    - sin JS la página funciona igual (todo visible; el servidor descarta lo que no aplica). */
 (function () {
   "use strict";
@@ -23,24 +26,31 @@
     });
   }
 
+  function submitButtons(form) {
+    return Array.prototype.slice.call(form.querySelectorAll('button[type="submit"]'));
+  }
+
   function lockOnSubmit(form) {
     form.addEventListener("submit", function (ev) {
       var submitter = ev.submitter;
       if (submitter && submitter.getAttribute("formmethod") === "dialog") return;   // «Volver» del modal: no envía nada
-      if (form.getAttribute("data-submitting") === "1") { ev.preventDefault(); return; }
-      form.setAttribute("data-submitting", "1");
-      var button = form.querySelector('button[type="submit"][data-busy-label]');
-      var status = form.querySelector("[data-status]");
-      var label = button && button.getAttribute("data-busy-label");
-      if (button && !button.hasAttribute("data-label")) button.setAttribute("data-label", button.textContent.trim());
-      if (label && status) status.textContent = label;
-      if (button) {
-        button.setAttribute("aria-busy", "true");
-        if (label) button.textContent = label;
-        // Se deshabilita DESPUÉS de que el navegador arma el envío (evita perder el submit).
-        window.setTimeout(function () { button.disabled = true; }, 0);
-      }
+      if (form.dataset.opsbBusy === "true") { ev.preventDefault(); return; }
+      var buttons = submitButtons(form);
+      var active = (submitter && buttons.indexOf(submitter) !== -1) ? submitter : buttons.filter(function (b) { return b.classList.contains("asr-generate"); })[0];
+      form.dataset.opsbBusy = "true";
+      form.setAttribute("aria-busy", "true");
+      if (active) active.classList.add("htmx-request");
+      window.setTimeout(function () {
+        if (form.dataset.opsbBusy !== "true") return;
+        buttons.forEach(function (b) { b.disabled = true; });
+      }, 0);
     });
+  }
+
+  function restore(form) {
+    delete form.dataset.opsbBusy;
+    form.removeAttribute("aria-busy");
+    submitButtons(form).forEach(function (b) { b.disabled = false; b.classList.remove("htmx-request"); });
   }
 
   function init() {
@@ -53,19 +63,9 @@
     });
   }
 
-  // Volver atrás con bfcache: el formulario no debe quedar bloqueado.
   window.addEventListener("pageshow", function (ev) {
     if (!ev.persisted) return;
-    document.querySelectorAll("form[data-opsb-form][data-submitting]").forEach(function (form) {
-      form.removeAttribute("data-submitting");
-      var button = form.querySelector('button[type="submit"][data-busy-label]');
-      if (button) {
-        button.disabled = false; button.removeAttribute("aria-busy");
-        if (button.hasAttribute("data-label")) button.textContent = button.getAttribute("data-label");
-      }
-      var status = form.querySelector("[data-status]");
-      if (status) status.textContent = "";
-    });
+    document.querySelectorAll("form[data-opsb-form]").forEach(restore);
   });
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

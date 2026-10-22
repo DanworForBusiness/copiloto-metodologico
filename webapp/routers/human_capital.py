@@ -1205,7 +1205,7 @@ def _busquedas_list_context(atencion: str = "todas") -> dict:
 
 # ---------------------------------------------------------------------------
 # Solicitudes recibidas (I3): bandeja de CCHH con los requerimientos que Operaciones envía (REG-CH-01). Datos = la proyección segura de I1 (`solicitud_view`); las solicitudes ya tomadas
-# NO se listan acá (pasaron a «Procesos activos»). Las canceladas se consultan con su filtro (trazabilidad), sin acciones y sin contarse como pendientes ni como procesos.
+# NO se listan acá (pasaron a «Procesos activos»). Las canceladas se consultan con su filtro (trazabilidad), sin acciones y sin contarse como pendientes ni como procesos. Orden: última recepción desc.
 # ---------------------------------------------------------------------------
 _SOLICITUD_FILTROS = ("recibidas", "enviadas", "observadas", "canceladas")
 _SOLICITUD_OK = {
@@ -1229,6 +1229,16 @@ def _solicitud_badge(view: dict) -> tuple[str, str]:
     return ("Reenviada" if view.get("reenviada") else "Enviada"), "otro"
 
 
+def _solicitud_recepcion_key(r: dict) -> tuple[str, str, str]:
+    """Clave de orden de la bandeja: (última recepción, primer envío, id). Las canceladas ordenan por su fecha de cancelación."""
+    enviada = r.get("enviada_en") or ""
+    if r.get("estado_solicitud") == busqueda_repository.SOLICITUD_CANCELADA:
+        ultima = r.get("cancelada_en") or r.get("ultimo_envio_en") or enviada
+    else:
+        ultima = r.get("ultimo_envio_en") or enviada
+    return (ultima, enviada, r["busqueda_id"])
+
+
 def _solicitudes_context(filtro: str = "recibidas", page=1, page_size=None) -> dict:
     filtro = filtro if filtro in _SOLICITUD_FILTROS else "recibidas"
     rows: list[dict] = []
@@ -1244,8 +1254,9 @@ def _solicitudes_context(filtro: str = "recibidas", page=1, page_size=None) -> d
     counts = {"enviadas": len(by["enviada"]), "observadas": len(by["observada"]), "canceladas": len(by["cancelada"])}
     counts["recibidas"] = counts["enviadas"] + counts["observadas"]
     visible = {"recibidas": by["enviada"] + by["observada"], "enviadas": by["enviada"], "observadas": by["observada"], "canceladas": by["cancelada"]}[filtro]
-    # Orden: fecha de inicio prevista DESCENDENTE (sin fecha al final), desempate por apertura e id; ANTES de paginar (paginador compartido, desde la fila 50).
-    visible = sorted(visible, key=lambda r: ((r.get("requerimiento") or {}).get("fecha_inicio_prevista") or "", r.get("fecha_apertura") or "", r["busqueda_id"]), reverse=True)
+    # Orden: ÚLTIMA RECEPCIÓN descendente, ANTES de paginar (paginador compartido, desde la fila 50). Nuevas = `enviada_en`; reenviadas y observadas = `ultimo_envio_en` (la observación no cambia
+    # cuándo CCHH recibió la solicitud); canceladas = `cancelada_en`. Desempate determinístico: primer envío y luego id.
+    visible = sorted(visible, key=_solicitud_recepcion_key, reverse=True)
     pager = pagination.paginate(visible, page=page, page_size=page_size, base_url="/cchh/solicitudes", params={"solicitud": filtro})
     return {"solicitudes": pager["items"], "solicitudes_total": pager["total"], "solicitudes_pager": pager, "solicitud_filtro": filtro, "solicitud_counts": counts,
             "solicitudes_source_error": source_error}

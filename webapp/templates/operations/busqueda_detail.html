@@ -88,7 +88,10 @@
         </div>
         <div class="dw-confirm__actions">
           <button type="submit" formmethod="dialog" class="btn-secondary" value="cancel">Volver</button>
-          <button type="submit" class="btn-danger" data-busy-label="Cancelando…">Cancelar solicitud</button>
+          <button type="submit" class="btn-danger asr-generate" aria-live="polite">
+            <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Cancelando solicitud…</span>
+            <span class="asr-generate__label">Cancelar solicitud</span>
+          </button>
         </div>
       </form>
     </dialog>

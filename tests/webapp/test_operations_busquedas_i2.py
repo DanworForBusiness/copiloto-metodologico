@@ -174,6 +174,24 @@ def test_new_form_has_a_server_generated_submission_id_and_the_reg_ch_01_structu
     assert "horas_por_dia" not in html and "Indistinto" in html
 
 
+@pytest.mark.parametrize("mode, busy, label", [("nueva", "Enviando solicitud…", "Enviar a Capital Humano"), ("editar", "Guardando cambios…", "Guardar cambios"),
+                                               ("corregir", "Reenviando solicitud…", "Corregir y reenviar a Capital Humano")])
+def test_submit_buttons_use_the_hub_integrated_loading_pattern(mode, busy, label):
+    if mode != "nueva":
+        to_state("observada" if mode == "corregir" else "enviada")
+    html = text(ops().get(f"{BASE}/nueva" if mode == "nueva" else f"{BASE}/{SID}/editar"))
+    assert 'class="btn-primary asr-generate"' in html and 'class="asr-generate__busy htmx-indicator"' in html and 'class="asr-generate__spinner"' in html
+    assert busy in html and f'<span class="asr-generate__label">{label}</span>' in html and "data-status" not in html and "data-busy-label" not in html
+
+
+def test_the_cancel_dialog_uses_the_same_loading_pattern_and_the_script_only_toggles_the_hub_class():
+    send()
+    html = text(ops().get(f"{BASE}/{SID}"))
+    assert "asr-generate__spinner" in html and "Cancelando solicitud…" in html
+    js = ops().get("/static/operations_busquedas.js").text
+    assert "htmx-request" in js and 'opsbBusy === "true"' in js and "textContent" not in js            # no pinta textos ni estilos propios; el éxito lo confirma el servidor con la redirección
+
+
 def test_new_form_offers_the_governed_catalogs_only():
     html = text(ops().get(f"{BASE}/nueva"))
     assert '<option value="SAP"' in html and '<option value="Cloud"' in html and 'value="SSR"' in html and 'value="JR"' in html

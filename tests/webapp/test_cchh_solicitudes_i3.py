@@ -190,15 +190,53 @@ def test_a_storage_error_on_take_is_a_controlled_503(monkeypatch):
     assert r.status_code == 503 and "secreto" not in r.text and doc()["solicitud"]["estado"] == "enviada"
 
 
-def test_the_inbox_is_ordered_by_planned_start_date_descending_and_paginated_from_row_50():
+def _names(html: str) -> list[str]:
+    return [r.split("</a>")[0].rsplit(">", 1)[-1] for r in html.split('<span class="dw-idcell__name"><a href=')[1:]]
+
+
+def test_inbox_order_is_last_reception_descending_a_new_request_comes_first():
+    send(SID, nombre_puesto="Primera"); send(SID2, nombre_puesto="Segunda"); send(SID3, nombre_puesto="Tercera")
+    assert _names(cchh().get("/cchh/busquedas").text) == ["Tercera", "Segunda", "Primera"]
+
+
+def test_a_resubmitted_request_returns_to_the_first_position_and_an_observation_does_not_move_it():
+    send(SID, nombre_puesto="Primera"); send(SID2, nombre_puesto="Segunda"); send(SID3, nombre_puesto="Tercera")
+    svc.observe_solicitud(SID, rev(SID), "Falta algo", CCHH_EMAIL)                                        # observar NO cambia la fecha de recepción
+    assert _names(cchh().get("/cchh/busquedas").text) == ["Tercera", "Segunda", "Primera"]
+    svc.resubmit_solicitud(SID, rev(SID), req(nombre_puesto="Primera", comentarios="corregido"), OPS_A)   # reenviar = nueva recepción
+    assert _names(cchh().get("/cchh/busquedas").text) == ["Primera", "Tercera", "Segunda"]
+    assert doc(SID)["solicitud"]["ultimo_envio_en"] > doc(SID3)["solicitud"]["ultimo_envio_en"]
+
+
+def test_cancelled_requests_are_ordered_by_cancellation_date_inside_their_filter():
+    send(SID, nombre_puesto="Primera"); send(SID2, nombre_puesto="Segunda"); send(SID3, nombre_puesto="Tercera")
+    svc.cancel_solicitud(SID2, rev(SID2), OPS_A)
+    svc.cancel_solicitud(SID, rev(SID), OPS_A)                                                             # la última en cancelarse va primero aunque se haya enviado antes
+    canc = cchh().get("/cchh/solicitudes", params={"solicitud": "canceladas"}, headers=HX).text
+    assert _names(canc) == ["Primera", "Segunda"]
+    assert _names(cchh().get("/cchh/busquedas").text) == ["Tercera"]                                       # «Por atender» no incluye canceladas
+
+
+def test_ties_are_broken_deterministically():
+    from webapp.routers.human_capital import _solicitud_recepcion_key
+    same = {"enviada_en": "2026-10-22T10:00:00+00:00", "ultimo_envio_en": "2026-10-22T10:00:00+00:00", "estado_solicitud": "enviada"}
+    rows = [{**same, "busqueda_id": "b"}, {**same, "busqueda_id": "c"}, {**same, "busqueda_id": "a"}, {**same, "enviada_en": "2026-10-22T09:00:00+00:00", "busqueda_id": "z"}]
+    assert [r["busqueda_id"] for r in sorted(rows, key=_solicitud_recepcion_key, reverse=True)] == ["c", "b", "a", "z"]
+    assert sorted(rows, key=_solicitud_recepcion_key, reverse=True) == sorted(reversed(rows), key=_solicitud_recepcion_key, reverse=True)
+
+
+def test_the_order_is_applied_before_paginating_and_the_pager_starts_at_row_50():
     for i in range(52):
-        send(str(__import__("uuid").uuid4()), nombre_puesto=f"Perfil {i:02d}", fecha_inicio_prevista=f"2026-{(i % 12) + 1:02d}-{(i % 27) + 1:02d}")
+        send(str(__import__("uuid").uuid4()), nombre_puesto=f"Perfil {i:02d}")
     c = cchh()
-    html = c.get("/cchh/busquedas").text
-    rows = html.split('<tr data-solicitud-id=')[1:]
-    dates = [re.findall(r"\d\d-\d\d-\d{4}", r)[-1] for r in rows]                 # la última fecha de cada fila = inicio previsto
-    assert len(dates) == 50 and "52 solicitudes" in html and 'class="activity-pager"' in html
-    as_iso = [d[6:] + d[3:5] + d[:2] for d in dates]
-    assert as_iso == sorted(as_iso, reverse=True)
-    page2 = c.get("/cchh/solicitudes", params={"solicitud": "recibidas", "page": "2", "page_size": "50"}, headers=HX).text
-    assert len(_rows(page2)) == 2 and "52 solicitudes" in page2
+    page1 = c.get("/cchh/busquedas").text
+    names1 = _names(page1)
+    assert len(names1) == 50 and names1[0] == "Perfil 51" and names1[-1] == "Perfil 02" and "52 solicitudes" in page1 and 'class="activity-pager"' in page1
+    assert _names(c.get("/cchh/solicitudes", params={"solicitud": "recibidas", "page": "2", "page_size": "50"}, headers=HX).text) == ["Perfil 01", "Perfil 00"]
+
+
+def test_active_processes_keep_their_own_order_by_opening_date():
+    for name, apertura in (("Proceso Vieja", "2026-01-10"), ("Proceso Reciente", "2026-09-10")):
+        svc.create_busqueda({"nombre_puesto": name, "fecha_apertura": apertura, "area_consultora": "SAP"}, actor=CCHH_EMAIL)
+    html = cchh().get("/cchh/busquedas").text
+    assert html.index("Proceso Reciente") < html.index("Proceso Vieja")                                    # Procesos activos: fecha de apertura desc, sin cambios

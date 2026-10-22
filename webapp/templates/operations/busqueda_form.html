@@ -192,11 +192,12 @@
       </section>
 
       <div class="hc-profile-form__actions">
-        <button type="submit" class="btn-primary" data-busy-label="{{ 'Enviando…' if mode != 'editar' else 'Guardando…' }}">
-          {% if mode == 'nueva' %}Enviar a Capital Humano{% elif mode == 'corregir' %}Corregir y reenviar a Capital Humano{% else %}Guardar cambios{% endif %}
+        {# Botón con carga INTEGRADA del Hub (`.asr-generate`, tools.css; MISMO patrón que «Cargar CV» de CCHH): al enviar recibe `.htmx-request` (spinner + texto de carga, oculta el label). #}
+        <button type="submit" class="btn-primary asr-generate" aria-live="polite">
+          <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>{% if mode == 'nueva' %}Enviando solicitud…{% elif mode == 'corregir' %}Reenviando solicitud…{% else %}Guardando cambios…{% endif %}</span>
+          <span class="asr-generate__label">{% if mode == 'nueva' %}Enviar a Capital Humano{% elif mode == 'corregir' %}Corregir y reenviar a Capital Humano{% else %}Guardar cambios{% endif %}</span>
         </button>
         <a class="btn-secondary" href="/operaciones/busquedas">Cancelar</a>
-        <span data-status role="status" aria-live="polite"></span>
       </div>
     </form>
   </main>
