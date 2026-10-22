@@ -104,6 +104,7 @@ from datetime import datetime
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+import urllib.parse
 import config
 from core.content_registry import DEFAULT_PACK
 from webapp import access as app_access
@@ -1390,9 +1391,33 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
         "solicitud": human_capital_service.solicitud_view(busqueda, include_cchh_actors=True),
         "solicitud_gestion": busqueda_repository.solicitud_estado(busqueda) in (None, busqueda_repository.SOLICITUD_EN_GESTION),
         "solicitud_badge": _solicitud_badge(human_capital_service.solicitud_view(busqueda)) if human_capital_service.solicitud_view(busqueda) else None,
+        # Acceso directo a Entrevistas desde las tarjetas del pipeline (solo `Entrevista CCHH` / `Entrevista Líder`): ver `_entrevista_links`.
+        "entrevista_links": _entrevista_links(busqueda),
         # Historial UNIFICADO del proceso (solicitud + movimientos de candidatos): dentro del cuerpo que se re-renderiza tras cada mutación del pipeline, para que no quede desactualizado.
         "busqueda_historial": human_capital_service.solicitud_view(busqueda, include_cchh_actors=True) or human_capital_service.proceso_historial_view(busqueda),
     }
+
+
+_ENTREVISTA_ETAPAS = {"Entrevista CCHH": "Ir a entrevista CCHH", "Entrevista Líder": "Ir a entrevista técnica"}
+
+
+def _entrevista_links(busqueda: dict) -> dict:
+    """`application_id` -> `{url, label}` para las postulaciones en etapa de entrevista. Si YA existe la entrevista de ese (candidato, proceso) se va a SU edición (flujo vigente); si no, al alta de Entrevistas con el
+    candidato y el puesto/área del proceso precargados (el alta sigue siendo manual: navegar NO crea nada). Un fallo de lectura degrada al listado de Entrevistas (nunca a un alta que pudiera duplicar)."""
+    links: dict = {}
+    bid = busqueda.get("busqueda_id")
+    for app in busqueda.get("candidatos", []):
+        label = _ENTREVISTA_ETAPAS.get(app.get("etapa"))
+        if not label or not app.get("profile_id"):
+            continue
+        try:
+            existing = entrevista_repository.find_by_profile_and_busqueda(app["profile_id"], bid)
+            url = (f"/cchh/entrevistas/{existing['entrevista_id']}/editar" if existing
+                   else "/cchh/entrevistas/nueva?" + urllib.parse.urlencode({"profile_id": app["profile_id"], "busqueda_id": bid}))
+        except entrevista_repository.EntrevistaStorageError:
+            url = "/cchh/entrevistas"
+        links[app["application_id"]] = {"url": url, "label": label}
+    return links
 
 
 def _pipeline_actor(request: Request) -> str | None:
@@ -1860,13 +1885,22 @@ def human_capital_entrevistas_page(request: Request, origen: str = Query(""), pu
 
 
 @router.get("/cchh/entrevistas/nueva", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_entrevista_new_page(request: Request):
+def human_capital_entrevista_new_page(request: Request, profile_id: str = Query(""), busqueda_id: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    # Precarga SOLO si el contexto viene del pipeline y es verificable: el candidato existe y (si se indica el proceso) participa en él. MISMA derivación de puesto/área que la entrevista automática. No escribe nada.
+    form_values: dict = {}
+    profile = human_capital_service.get_profile(profile_id) if profile_id else None
+    if profile is not None and not profile.get("deleted_at"):
+        form_values["profile_id"] = profile_id
+        busqueda = human_capital_service.get_busqueda(busqueda_id) if busqueda_id else None
+        if busqueda is not None and any(a.get("profile_id") == profile_id for a in busqueda.get("candidatos", [])):
+            form_values["puesto_evaluado"] = busqueda.get("nombre_puesto")
+            form_values["area"] = busqueda.get("area_consultora")
     return templates.TemplateResponse(
         request=request, name="human_capital/entrevista_form.html",
-        context=_entrevistas_shell(request, _entrevista_form_context(form_values={}, is_edit=False)),
+        context=_entrevistas_shell(request, _entrevista_form_context(form_values=form_values, is_edit=False)),
     )
 
 

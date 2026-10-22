@@ -57,7 +57,7 @@
           <select id="ent-profile" name="profile_id" required>
             <option value="">Elegí un candidato…</option>
             {% for p in profiles %}
-            <option value="{{ p.profile_id }}">{{ p.first_name }} {{ p.last_name }}{% if p.source %} · {{ p.source }}{% endif %}</option>
+            <option value="{{ p.profile_id }}"{% if form_values.profile_id == p.profile_id %} selected{% endif %}>{{ p.first_name }} {{ p.last_name }}{% if p.source %} · {{ p.source }}{% endif %}</option>
             {% endfor %}
           </select>
         </div>

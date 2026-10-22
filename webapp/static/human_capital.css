@@ -539,6 +539,8 @@
 .busqueda-cand__result { margin-top: 4px; align-self: flex-start; }
 .busqueda-cand__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 .busqueda-cand__actions select { flex: 1 1 auto; min-width: 0; padding: 5px 7px; border: 1px solid rgba(128,128,128,.35); border-radius: 6px; background: transparent; color: inherit; font-size: .72rem; }
+/* Con el acceso a Entrevistas (solo etapas de entrevista) el selector cede ancho (base 0) para que selector + entrevista + quitar entren en una sola fila, sin desbordar la tarjeta. */
+.busqueda-cand__actions--interview select { flex: 1 1 0; }
 
 .busqueda-dialog { max-width: 640px; width: calc(100% - 32px); }
 .busqueda-picker { max-height: 52vh; overflow: auto; padding: 0 24px; }

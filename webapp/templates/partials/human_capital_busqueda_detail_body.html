@@ -55,7 +55,8 @@
           {% if app.resultado_final %}<span class="status-badge busqueda-cand__result busqueda-cand__result--{{ app.resultado_final|lower }}">{{ app.resultado_final }}</span>{% endif %}
         </div>
         {% if busqueda.estado == 'activo' %}
-        <div class="busqueda-cand__actions busqueda-move">
+        {% set _ent = entrevista_links.get(app.application_id) %}
+        <div class="busqueda-cand__actions busqueda-move{% if _ent %} busqueda-cand__actions--interview{% endif %}">
           <select name="etapa" aria-label="Etapa"
                   hx-post="/cchh/busquedas/{{ bid }}/candidatos/{{ app.application_id }}/etapa"
                   hx-target="#busqueda-detail-body" hx-swap="innerHTML"
@@ -70,6 +71,13 @@
             <option value="" {% if not app.resultado_final %}selected{% endif %}>Resultado…</option>
             {% for r in resultados %}<option value="{{ r }}" {% if r == app.resultado_final %}selected{% endif %}>{{ r }}</option>{% endfor %}
           </select>
+          {% endif %}
+          {% if _ent %}
+          {# Acceso directo a Entrevistas (solo etapas de entrevista), entre el selector de etapa y «Quitar»: a la entrevista existente o, si todavía no hay, al alta con el candidato precargado. Navegar no crea nada. #}
+          <a href="{{ _ent.url }}" class="table-action-btn chart-tooltip-anchor busqueda-cand__interview" aria-label="{{ _ent.label }}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h5"/><path d="M17.5 17.5 16 16.3V14"/><circle cx="16" cy="16" r="6"/></svg>
+            <span class="chart-tooltip" aria-hidden="true"><p>{{ _ent.label }}</p></span>
+          </a>
           {% endif %}
           {# `hx-trigger="confirmed"` es OBLIGATORIO con `data-dw-confirm`: el
              delegado compartido (app.js) hace preventDefault en el click y sólo
