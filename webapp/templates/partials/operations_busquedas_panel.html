@@ -31,9 +31,18 @@
     </summary>
     <div class="dashboard-section__body">
       {% if not rows and has_any %}
-      <div class="dashboard-empty" data-empty-kind="no_matches"><span class="dashboard-empty__label">Sin resultados</span><p>No se encontraron solicitudes para los filtros seleccionados.</p></div>
+      <div class="dashboard-empty" data-empty-kind="no_matches"><span class="dashboard-empty__label">Sin resultados</span><p>No se encontraron búsquedas con los filtros seleccionados.</p></div>
       {% elif not rows %}
-      <div class="dashboard-empty" data-empty-kind="dataset_empty"><span class="dashboard-empty__label">Sin solicitudes</span><p>Todavía no enviaste ninguna búsqueda a Capital Humano. Creá la primera con "+ Nueva búsqueda".</p></div>
+      <div class="dashboard-empty" data-empty-kind="dataset_empty">
+        <span class="dashboard-empty__label">Sin solicitudes</span>
+        <p>Todavía no enviaste ninguna búsqueda a Capital Humano.</p>
+        {# MISMO formato que la acción contextual de los estados vacíos de CCHH (Preselección vacía de una búsqueda): ícono «+» con el primitivo compartido `.table-action-btn` + tooltip
+           `.chart-tooltip` y el realce `.busqueda-col__empty-add`. MISMO destino que el botón superior (`new_url`); solo en el estado inicial, nunca como sustituto de un resultado filtrado. #}
+        <a href="{{ new_url }}" class="table-action-btn chart-tooltip-anchor busqueda-col__empty-add" data-empty-new aria-label="Nueva búsqueda">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          <span class="chart-tooltip" aria-hidden="true"><p>Nueva búsqueda</p></span>
+        </a>
+      </div>
       {% else %}
       <div class="matrix-scroll">
         <table class="dashboard-table" id="opsb-table">
