@@ -29,12 +29,12 @@
     </section>
 
     {% if mode == 'corregir' and view and view.observacion %}
-    <div class="callout callout--warn" data-observacion><div class="callout__head"><strong class="callout__title">Observación de Capital Humano</strong></div><div class="callout__body"><p>{{ view.observacion.motivo }}</p></div></div>
+    <div class="methodology"><div class="callout callout--warn" data-observacion><div class="callout__head"><strong class="callout__title">Observación de Capital Humano</strong></div><div class="callout__body"><p>{{ view.observacion.motivo }}</p></div></div></div>
     {% endif %}
     {% if error %}<div class="dashboard-empty" data-error-kind="validation" role="alert"><span class="dashboard-empty__label">No se envió</span><p>{{ error }}</p></div>{% endif %}
-    {% if warning %}<div class="callout callout--warn" role="alert"><div class="callout__body"><p>{{ warning }}</p></div></div>{% endif %}
+    {% if warning %}<div class="methodology"><div class="callout callout--warn" role="alert"><div class="callout__body"><p>{{ warning }}</p></div></div></div>{% endif %}
     {% if catalog_areas_missing or catalog_seniority_missing %}
-    <div class="callout callout--warn"><div class="callout__body"><p>Los catálogos de {% if catalog_areas_missing %}áreas{% endif %}{% if catalog_areas_missing and catalog_seniority_missing %} y {% endif %}{% if catalog_seniority_missing %}seniority{% endif %} todavía no están disponibles, así que no se puede completar este dato. Avisá a Capital Humano para que los actualice.</p></div></div>
+    <div class="methodology"><div class="callout callout--warn"><div class="callout__body"><p>Los catálogos de {% if catalog_areas_missing %}áreas{% endif %}{% if catalog_areas_missing and catalog_seniority_missing %} y {% endif %}{% if catalog_seniority_missing %}seniority{% endif %} todavía no están disponibles, así que no se puede completar este dato. Avisá a Capital Humano para que los actualice.</p></div></div></div>
     {% endif %}
 
     <form method="post" action="{{ '/operaciones/busquedas/nueva' if mode == 'nueva' else '/operaciones/busquedas/' ~ view.busqueda_id ~ '/editar' }}"
@@ -194,7 +194,7 @@
         <button type="submit" class="btn-primary" data-busy-label="{{ 'Enviando…' if mode != 'editar' else 'Guardando…' }}">
           {% if mode == 'nueva' %}Enviar a Capital Humano{% elif mode == 'corregir' %}Corregir y reenviar a Capital Humano{% else %}Guardar cambios{% endif %}
         </button>
-        <a class="btn-secondary" href="{{ '/operaciones/busquedas/' ~ view.busqueda_id if view else '/operaciones/busquedas' }}">Cancelar</a>
+        <a class="btn-secondary" href="/operaciones/busquedas">Cancelar</a>
         <span data-status role="status" aria-live="polite"></span>
       </div>
     </form>

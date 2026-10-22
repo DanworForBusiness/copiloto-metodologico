@@ -93,7 +93,7 @@ def test_screens_use_the_hub_primitives_and_no_custom_styles_or_typography(path)
     assert "human_capital.css" in html                                                       # mismas hojas que CCHH
     assert not re.search(r'class="[^"]*\bopsb-(?!hero|checks)', html)                              # ninguna clase de estilo propia salvo la cabecera estándar de Operaciones
     assert "font-family" not in html and "font-size" not in html and "font:" not in html     # ni tipografía propia inline
-    assert 'class="module-hero opsb-hero"' in html and ("hero-lead full-page-subtitle" in html or path.endswith(SID))
+    assert re.search(r'class="module-hero [^"]*opsb-hero"', html) and ("hero-lead full-page-subtitle" in html or "catalog-verdict-line" in html)   # detalle = cabecera del informe del Catálogo
 
 
 # ═══════════════════════ autorización server-side en TODAS las rutas ═══════════════════════
@@ -417,11 +417,12 @@ def test_list_only_contains_operaciones_requests_and_never_candidate_data():
     assert "Secreto" not in html and "secreto@candidato.com" not in html and pid not in html
 
 
-def test_list_orders_most_recent_first_and_reports_totals():
-    send(SID, nombre_puesto="Primera")
-    send(SID2, nombre_puesto="Segunda")
+def test_list_is_ordered_by_planned_start_date_descending_and_reports_totals():
+    send(SID, nombre_puesto="Temprana", fecha_inicio_prevista="2026-11-02")
+    send(SID2, nombre_puesto="Tardía", fecha_inicio_prevista="2027-03-15")
+    send(SID3, nombre_puesto="Intermedia", fecha_inicio_prevista="2026-12-20")
     html = ops().get(BASE).text
-    assert html.index("Segunda") < html.index("Primera") and "2 solicitudes" in html
+    assert html.index("Tardía") < html.index("Intermedia") < html.index("Temprana") and "3 solicitudes" in html
 
 
 def test_list_survives_a_storage_failure(monkeypatch):
@@ -467,7 +468,7 @@ def test_detail_of_an_observed_request_shows_the_observation_and_the_correct_act
     to_state("observada")
     html = ops().get(f"{BASE}/{SID}").text
     assert "data-observacion" in html and "Falta el proyecto" in html and "Corregir y reenviar" in html and ">Editar<" not in html
-    assert CCHH_EMAIL not in html and "Observada por Capital Humano" in html and 'data-indicador="observada"' in html
+    assert CCHH_EMAIL not in html and "Corrección solicitada por Capital Humano" in html and 'data-indicador="observada"' in html
 
 
 @pytest.mark.parametrize("estado", ["en_gestion", "cancelada"])

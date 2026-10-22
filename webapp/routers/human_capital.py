@@ -107,7 +107,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import config
 from core.content_registry import DEFAULT_PACK
 from webapp import access as app_access
-from webapp import human_capital_access, workspaces
+from webapp import human_capital_access, same_origin_guard, workspaces
 from webapp.services import (
     auth_service, busqueda_repository, entrevista_repository, human_capital_catalog_repository,
     human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
@@ -1155,7 +1155,9 @@ def _busquedas_list_context(atencion: str = "todas") -> dict:
     all_b: list[dict] = []
     source_error: str | None = None
     try:
-        all_b = human_capital_service.list_busquedas()
+        # SOLO búsquedas que CCHH gestiona (históricas, altas directas de CCHH y solicitudes ya tomadas): las solicitudes pendientes, observadas o canceladas de Operaciones NO son procesos
+        # de selección y no cuentan en activas/cerradas, señales ni contadores (viven en la bandeja «Solicitudes recibidas»).
+        all_b = human_capital_service.list_busquedas_gestionadas()
     except busqueda_repository.BusquedaStorageError as exc:
         source_error = str(exc)
     if atencion not in _BUSQUEDA_ATENCION_FILTERS:
@@ -1197,7 +1199,67 @@ def _busquedas_list_context(atencion: str = "todas") -> dict:
         "atencion_counts": {"todas": len(activas), "estancadas": estancadas_n, "sin_requerimiento": sin_req_n,
                             "onboarding_pendiente": onb_pend_n},
         "source_error": source_error,
+        **_solicitudes_context(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Solicitudes recibidas (I3): bandeja de CCHH con los requerimientos que Operaciones envía (REG-CH-01). Datos = la proyección segura de I1 (`solicitud_view`); las solicitudes ya tomadas
+# NO se listan acá (pasaron a «Procesos activos»). Las canceladas se consultan con su filtro (trazabilidad), sin acciones y sin contarse como pendientes ni como procesos.
+# ---------------------------------------------------------------------------
+_SOLICITUD_FILTROS = ("recibidas", "enviadas", "observadas", "canceladas")
+_SOLICITUD_OK = {
+    "tomada": "Solicitud tomada en gestión: la búsqueda ya figura entre los procesos activos.",
+    "correccion": "Se solicitó la corrección a Operaciones. La solicitud queda «Observada» hasta que la reenvíen.",
+}
+_MSG_SOLICITUD_CONCURRENT = "La solicitud cambió desde que abriste la pantalla (por ejemplo, Operaciones la editó o la canceló). Revisá su estado actual antes de actuar."
+_MSG_SOLICITUD_STORAGE = "No pudimos guardar el cambio en este momento. Reintentá en unos minutos."
+_MSG_SOLICITUD_SOURCE = "No pudimos leer las solicitudes en este momento. Reintentá en unos minutos."
+
+
+def _solicitud_badge(view: dict) -> tuple[str, str]:
+    """(rótulo, tono del `.status-badge` del Hub). Derivado del contrato de I1; sin estados nuevos."""
+    estado = view.get("estado_solicitud")
+    if estado == busqueda_repository.SOLICITUD_CANCELADA:
+        return "Cancelada", "inactivo"
+    if estado == busqueda_repository.SOLICITUD_OBSERVADA:
+        return "Observada", "tentativo"
+    if estado == busqueda_repository.SOLICITUD_EN_GESTION:
+        return "En gestión", "activo"
+    return ("Reenviada" if view.get("reenviada") else "Enviada"), "otro"
+
+
+def _solicitudes_context(filtro: str = "recibidas", page=1, page_size=None) -> dict:
+    filtro = filtro if filtro in _SOLICITUD_FILTROS else "recibidas"
+    rows: list[dict] = []
+    source_error: str | None = None
+    try:
+        rows = [r for r in human_capital_service.list_solicitudes_view()
+                if r["estado_solicitud"] in (busqueda_repository.SOLICITUD_ENVIADA, busqueda_repository.SOLICITUD_OBSERVADA, busqueda_repository.SOLICITUD_CANCELADA)]
+    except _BUSQUEDA_SHELL_ERRORS:
+        source_error = _MSG_SOLICITUD_SOURCE
+    for r in rows:
+        r["badge_label"], r["badge_tone"] = _solicitud_badge(r)
+    by = {k: [r for r in rows if r["estado_solicitud"] == k] for k in ("enviada", "observada", "cancelada")}
+    counts = {"enviadas": len(by["enviada"]), "observadas": len(by["observada"]), "canceladas": len(by["cancelada"])}
+    counts["recibidas"] = counts["enviadas"] + counts["observadas"]
+    visible = {"recibidas": by["enviada"] + by["observada"], "enviadas": by["enviada"], "observadas": by["observada"], "canceladas": by["cancelada"]}[filtro]
+    # Orden: fecha de inicio prevista DESCENDENTE (sin fecha al final), desempate por apertura e id; ANTES de paginar (paginador compartido, desde la fila 50).
+    visible = sorted(visible, key=lambda r: ((r.get("requerimiento") or {}).get("fecha_inicio_prevista") or "", r.get("fecha_apertura") or "", r["busqueda_id"]), reverse=True)
+    pager = pagination.paginate(visible, page=page, page_size=page_size, base_url="/cchh/solicitudes", params={"solicitud": filtro})
+    return {"solicitudes": pager["items"], "solicitudes_total": pager["total"], "solicitudes_pager": pager, "solicitud_filtro": filtro, "solicitud_counts": counts,
+            "solicitudes_source_error": source_error}
+
+
+@router.get("/cchh/solicitudes", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_solicitudes_panel(request: Request, solicitud: str = Query("recibidas"), page: str = Query(""), page_size: str = Query("")):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    if not request.headers.get("HX-Request"):
+        return RedirectResponse(url="/cchh/busquedas", status_code=303)       # el panel es un fragmento HTMX de la pantalla de Búsquedas
+    return templates.TemplateResponse(request=request, name="partials/human_capital_solicitudes_panel.html",
+                                      context={"request": request, **_solicitudes_context(solicitud, page, page_size)})
 
 
 def _busqueda_form_context(*, form_values, is_edit, error=None, concurrent_modification=False) -> dict:
@@ -1238,6 +1300,11 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
         # `delete_busqueda` server-side (única fuente de verdad, ver
         # `busqueda_is_placeholder`), acá sólo decide si el botón se muestra.
         "busqueda_is_deletable": human_capital_service.busqueda_is_placeholder(busqueda),
+        # Solicitud de Operaciones (None para históricas/altas directas). Mientras no esté `en_gestion` (enviada/observada/cancelada) el detalle muestra SOLO el requerimiento:
+        # sin pipeline ni acciones de candidatos (el servidor ya las rechaza; acá además se ocultan).
+        "solicitud": human_capital_service.solicitud_view(busqueda),
+        "solicitud_gestion": busqueda_repository.solicitud_estado(busqueda) in (None, busqueda_repository.SOLICITUD_EN_GESTION),
+        "solicitud_badge": _solicitud_badge(human_capital_service.solicitud_view(busqueda)) if human_capital_service.solicitud_view(busqueda) else None,
     }
 
 
@@ -1389,7 +1456,7 @@ def human_capital_busqueda_edit_submit(
 
 
 @router.get("/cchh/busquedas/{busqueda_id}", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_busqueda_detail_page(request: Request, busqueda_id: str):
+def human_capital_busqueda_detail_page(request: Request, busqueda_id: str, ok: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
@@ -1398,7 +1465,7 @@ def human_capital_busqueda_detail_page(request: Request, busqueda_id: str):
         raise HTTPException(404, "Búsqueda no encontrada")
     return templates.TemplateResponse(
         request=request, name="human_capital/busqueda_detail.html",
-        context=_busqueda_shell(request, _busqueda_detail_context(busqueda)),
+        context=_busqueda_shell(request, {**_busqueda_detail_context(busqueda), "solicitud_ok": _SOLICITUD_OK.get(ok)}),
     )
 
 
@@ -1465,6 +1532,63 @@ def human_capital_busqueda_remove_candidate(request: Request, busqueda_id: str, 
     if request.headers.get("HX-Request"):
         return _busqueda_detail_body(request, busqueda_id)
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
+
+
+def _solicitud_actor(request: Request) -> tuple[object | None, str]:
+    """(redirect|None, actor). Sesión + autorización de CCHH (`_require_human_capital_session`), mismo origen en la escritura y actor = claim `sub` de la sesión."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect, ""
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen del request no verificado")
+    actor = str((auth_service.session_user(request) or {}).get("sub") or "").strip().lower()
+    if not actor:
+        raise HTTPException(403, "La sesión no identifica al usuario")
+    return None, actor
+
+
+def _solicitud_error_page(request: Request, busqueda_id: str, message: str, status_code: int):
+    busqueda = human_capital_service.get_busqueda(busqueda_id)
+    if busqueda is None:
+        raise HTTPException(404, "Búsqueda no encontrada")
+    return templates.TemplateResponse(
+        request=request, name="human_capital/busqueda_detail.html",
+        context=_busqueda_shell(request, {**_busqueda_detail_context(busqueda), "solicitud_error": message}), status_code=status_code)
+
+
+async def _solicitud_transition(request: Request, busqueda_id: str, action: str):
+    redirect, actor = _solicitud_actor(request)
+    if redirect is not None:
+        return redirect
+    form = await request.form()
+    try:
+        revision = int(str(form.get("expected_revision") or "").strip())
+    except ValueError:
+        raise HTTPException(400, "expected_revision inválido") from None
+    try:
+        if action == "tomar":
+            human_capital_service.take_solicitud(busqueda_id, revision, actor)
+        else:
+            human_capital_service.observe_solicitud(busqueda_id, revision, form.get("motivo") if isinstance(form.get("motivo"), str) else "", actor)
+    except busqueda_repository.BusquedaNotFoundError:
+        raise HTTPException(404, "Búsqueda no encontrada") from None
+    except (busqueda_repository.BusquedaConcurrentModificationError, *_BUSQUEDA_SOLICITUD_ERRORS):
+        return _solicitud_error_page(request, busqueda_id, _MSG_SOLICITUD_CONCURRENT, 409)
+    except _BUSQUEDA_SHELL_ERRORS:
+        return _solicitud_error_page(request, busqueda_id, _MSG_SOLICITUD_STORAGE, 503)
+    except ValueError as exc:                                                  # motivo obligatorio al solicitar corrección
+        return _solicitud_error_page(request, busqueda_id, str(exc), 422)
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?ok={'tomada' if action == 'tomar' else 'correccion'}", status_code=303)
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/tomar", response_class=HTMLResponse, include_in_schema=False)
+async def human_capital_solicitud_take(request: Request, busqueda_id: str):
+    return await _solicitud_transition(request, busqueda_id, "tomar")
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/solicitar-correccion", response_class=HTMLResponse, include_in_schema=False)
+async def human_capital_solicitud_request_correction(request: Request, busqueda_id: str):
+    return await _solicitud_transition(request, busqueda_id, "correccion")
 
 
 @router.post("/cchh/busquedas/{busqueda_id}/cerrar", response_class=HTMLResponse, include_in_schema=False)
@@ -2026,7 +2150,7 @@ def _publicaciones_list_context(periodo: str = "", canal: str = "", q: str = "",
 
 
 def _publicacion_form_context(*, form_values, is_edit, publicacion=None, error=None, concurrent_modification=False) -> dict:
-    busquedas = sorted(human_capital_service.list_busquedas(), key=lambda b: b.get("fecha_apertura") or "", reverse=True)
+    busquedas = sorted(human_capital_service.list_busquedas_gestionadas(), key=lambda b: b.get("fecha_apertura") or "", reverse=True)
     current_periodo = (form_values.get("periodo") or "").strip()
     window = human_capital_service.periodos_disponibles()
     historical = bool(current_periodo) and current_periodo not in window

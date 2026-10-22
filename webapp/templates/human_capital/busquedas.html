@@ -27,6 +27,8 @@
       </div>
     </section>
 
+    {% include "partials/human_capital_solicitudes_panel.html" %}
+
     {% if source_error %}
     <div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>{{ source_error }}</p></div>
     {% elif total_busquedas == 0 %}

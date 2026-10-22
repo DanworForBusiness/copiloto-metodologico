@@ -5,8 +5,6 @@
 {% block body %}
 {% set req = view.requerimiento %}
 {% set pres = req.presencialidad %}
-{# Valor de solo lectura: MISMO `.feedback-field` (label + valor) que usa CCHH en sus fichas/formularios. #}
-{% macro ro(label, value) %}<div class="feedback-field feedback-field--medium"><label>{{ label }}</label><p>{{ value if value not in (none, '') else '—' }}</p></div>{% endmacro %}
 <div x-data="copilotLayout('operations-busquedas')" x-init="init()" class="app-shell no-copilot">
   {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.OPERATIONS_APP_TITLE | urlencode }}&subtitle={{ config.OPERATIONS_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
   {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}
@@ -20,42 +18,47 @@
 
   <main id="content" class="module-content">
     {# Composición espejo del detalle de proceso de CCHH: `.catalog-back`, hero con `.hero-meta` + título + fila de estado (`.status-badge`) y acciones a la derecha, secciones `dashboard-section`. Sin CSS propio. #}
-    <a class="catalog-back" href="/operaciones/busquedas">← Volver a Búsquedas</a>
-    <section class="module-hero opsb-hero">
+    {# MISMA cabecera que el detalle de un informe del Catálogo: `.catalog-actionbar` (← Volver a la izquierda, acciones a la derecha, misma línea) + `.module-hero.asr-hero`
+       (eyebrow, título, `.hero-meta > .catalog-verdict-line` con el badge `.catalog-card__verdict` y los datos en mono). Sin CSS propio de aspecto. #}
+    <div class="catalog-actionbar">
+      <a class="catalog-back" href="/operaciones/busquedas">← Volver a Búsquedas</a>
+      <div class="support-links catalog-actionbar__actions">
+        {% if view.puede_editar %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-secondary">Editar</a>{% endif %}
+        {% if view.puede_corregir %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-primary">Corregir y reenviar</a>{% endif %}
+        {% if view.puede_cancelar %}<button type="button" class="btn-danger" data-dialog-open="opsb-cancel-dialog">Cancelar solicitud</button>{% endif %}
+      </div>
+    </div>
+    <section class="module-hero asr-hero opsb-hero">
       <p class="eyebrow">Staffing · Solicitud de perfil</p>
-      <h1>{{ req.nombre_puesto }}</h1>
-      {% set _meta = [] %}
-      {% if req.area_consultora %}{% set _ = _meta.append(req.area_consultora) %}{% endif %}
-      {% if req.modalidad %}{% set _ = _meta.append(req.modalidad) %}{% endif %}
-      {% set _ = _meta.append('Abierta el ' ~ (view.fecha_apertura | ops_date)) %}
-      <p class="hero-lead full-page-subtitle">{{ _meta | join(' · ') }}</p>
+      <h1 class="asr-title">{{ req.nombre_puesto }}</h1>
+      <div class="hero-meta">
+        <span class="catalog-verdict-line">
+          <span class="catalog-card__verdict catalog-card__verdict--{{ veredicto_tonos[view.indicador] }}" data-indicador="{{ view.indicador }}">{{ indicadores[view.indicador] }}</span>
+          {% set _meta = [] %}
+          {% if req.area_consultora %}{% set _ = _meta.append(req.area_consultora) %}{% endif %}
+          {% if req.modalidad %}{% set _ = _meta.append(req.modalidad) %}{% endif %}
+          {% set _ = _meta.append('Abierta el ' ~ (view.fecha_apertura | ops_date)) %}
+          {% if view.indicador == 'reenviada' and view.reenvios %}{% set _ = _meta.append(view.reenvios ~ (' reenvío' if view.reenvios == 1 else ' reenvíos')) %}{% endif %}
+          {% if view.fecha_cierre %}{% set _ = _meta.append('Cerrada el ' ~ (view.fecha_cierre | ops_date)) %}{% endif %}
+          <span>{{ _meta | join(' · ') }}</span>
+        </span>
+      </div>
     </section>
 
     <div id="opsb-detail">
-      {# Estado y acciones: MISMA fila flex que la cabecera de las listas de CCHH (`.hc-profiles-hero*`), usada acá solo como layout (sin título). #}
-      <div class="hc-profiles-hero">
-        <div class="hc-profiles-hero-text busqueda-status-row">
-          <span class="status-badge status-badge--{{ badge_tonos[view.indicador] }}" data-indicador="{{ view.indicador }}">{{ indicadores[view.indicador] }}</span>
-          {% if view.indicador == 'reenviada' and view.reenvios %}<span class="status-badge status-badge--inactivo">{{ view.reenvios }} reenvío{{ '' if view.reenvios == 1 else 's' }}</span>{% endif %}
-          {% if view.fecha_cierre %}<span class="status-badge status-badge--inactivo">Cerrada el {{ view.fecha_cierre | ops_date }}</span>{% endif %}
-        </div>
-        <div class="hc-profiles-hero-actions">
-          {% if view.puede_editar %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-secondary">Editar</a>{% endif %}
-          {% if view.puede_corregir %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-primary">Corregir y reenviar</a>{% endif %}
-          {% if view.puede_cancelar %}<button type="button" class="btn-danger" data-dialog-open="opsb-cancel-dialog">Cancelar solicitud</button>{% endif %}
-        </div>
-      </div>
 
-    {% if ok_message %}<div class="callout callout--success" role="status"><div class="callout__body"><p>{{ ok_message }}</p></div></div>{% endif %}
+    {% if ok_message %}<div class="methodology"><div class="callout callout--success" role="status"><div class="callout__body"><p>{{ ok_message }}</p></div></div></div>{% endif %}
     {% if error %}<div class="dashboard-empty" data-error-kind="action" role="alert"><span class="dashboard-empty__label">No se pudo completar</span><p>{{ error }}</p></div>{% endif %}
 
     {% if view.estado_solicitud == 'observada' and view.observacion %}
+    <div class="methodology">
     <div class="callout callout--warn" data-observacion>
       <div class="callout__head"><strong class="callout__title">Capital Humano observó esta solicitud{% if view.observacion.en %} · {{ view.observacion.en | ops_datetime }}{% endif %}</strong></div>
       <div class="callout__body">
         <p>{{ view.observacion.motivo }}</p>
         <p>Corregí los datos y reenviala: vuelve a quedar «Enviada».</p>
       </div>
+    </div>
     </div>
     {% elif view.estado_solicitud == 'enviada' %}
     <p class="field-hint">Enviada a Capital Humano{% if view.reenviada %} (reenvío {{ view.reenvios }}){% endif %}. Podés editarla o cancelarla hasta que Capital Humano la tome.</p>
@@ -65,87 +68,7 @@
     <p class="field-hint" data-readonly>Solicitud cancelada{% if view.cancelada_en %} el {{ view.cancelada_en | ops_datetime }}{% endif %}{% if view.motivo_cancelacion %}. Motivo: {{ view.motivo_cancelacion }}{% endif %}. Es de solo lectura.</p>
     {% endif %}
 
-    <div class="dashboard-sections" data-dashboard-key="ops-busqueda-detalle">
-      <details class="dashboard-section" data-section-id="perfil" data-persist-collapse open>
-        <summary class="dashboard-section__head" draggable="true"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Perfil</span></summary>
-        <div class="dashboard-section__body">
-          <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-            {{ ro('Tipo de búsqueda', tipo_labels[req.tipo_busqueda] or req.tipo_busqueda) }}
-            {% if req.tipo_busqueda == 'proyecto' %}{{ ro('Proyecto', req.proyecto) }}{% endif %}
-            {{ ro('Cantidad de recursos', req.cantidad_recursos) }}
-            {{ ro('Área a la que pertenecerá', req.area_consultora) }}
-            {{ ro('Seniority', req.seniority | join(', ')) }}
-          </div>
-        </div>
-      </details>
-
-      <details class="dashboard-section" data-section-id="condiciones" data-persist-collapse open>
-        <summary class="dashboard-section__head" draggable="true"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Dedicación, ubicación y modalidad</span></summary>
-        <div class="dashboard-section__body">
-          <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-            {{ ro('Dedicación', (req.dedicacion.valor ~ ' · ' ~ (dedicacion_labels[req.dedicacion.unidad] or req.dedicacion.unidad))) }}
-            {{ ro('Duración', (req.duracion.meses ~ ' meses') if req.duracion.tipo == 'meses' else 'Indefinida') }}
-            {{ ro('Ubicación', req.ubicacion) }}
-            {{ ro('Modalidad', req.modalidad) }}
-            {% if pres %}
-            {% if pres.dias %}{{ ro('Días presenciales', pres.dias ~ ' por semana') }}{% endif %}
-            {{ ro('Lugar de trabajo', pres.lugar) }}
-            {% endif %}
-          </div>
-        </div>
-      </details>
-
-      <details class="dashboard-section" data-section-id="requisitos" data-persist-collapse open>
-        <summary class="dashboard-section__head" draggable="true"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Requisitos</span></summary>
-        <div class="dashboard-section__body">
-          <div class="feedback-field"><label>Responsabilidades</label><p style="white-space:pre-wrap">{{ req.responsabilidades }}</p></div>
-          <div class="feedback-field"><label>Skills técnicos excluyentes</label><p style="white-space:pre-wrap">{{ req.skills_excluyentes }}</p></div>
-          {% if req.habilidades_blandas %}<div class="feedback-field"><label>Habilidades blandas</label><p style="white-space:pre-wrap">{{ req.habilidades_blandas }}</p></div>{% endif %}
-          <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-            {{ ro('Nivel de inglés', req.ingles) }}
-            {% if req.certificaciones %}{{ ro('Certificaciones', req.certificaciones) }}{% endif %}
-          </div>
-        </div>
-      </details>
-
-      <details class="dashboard-section" data-section-id="contratacion" data-persist-collapse open>
-        <summary class="dashboard-section__head" draggable="true"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Contratación</span></summary>
-        <div class="dashboard-section__body">
-          <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-            {{ ro('Tipo de contrato', req.tipo_contrato) }}
-            {{ ro('Fecha de inicio prevista', req.fecha_inicio_prevista | ops_date) }}
-            {{ ro('Solicitante', view.solicitante) }}
-          </div>
-          {% if req.comentarios %}<div class="feedback-field"><label>Observaciones</label><p style="white-space:pre-wrap">{{ req.comentarios }}</p></div>{% endif %}
-        </div>
-      </details>
-
-      <details class="dashboard-section" data-section-id="historial" data-persist-collapse open data-historial>
-        <summary class="dashboard-section__head" draggable="true">
-          <span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span>
-          <span class="dashboard-section__count">{{ view.historial | length }} movimiento{{ '' if view.historial | length == 1 else 's' }}</span>
-        </summary>
-        <div class="dashboard-section__body">
-          <div class="matrix-scroll">
-            <table class="dashboard-table">
-              <colgroup><col style="width:30%"><col style="width:20%"><col style="width:25%"><col style="width:25%"></colgroup>
-              <thead><tr><th class="left">Movimiento</th><th class="left">Fecha</th><th class="left">Realizado por</th><th class="left">Detalle</th></tr></thead>
-              <tbody>
-                {% for h in view.historial | reverse %}
-                <tr>
-                  <td class="left">{{ transicion_labels[h.transicion] or h.transicion }}</td>
-                  <td class="left">{{ h.fecha | ops_datetime }}</td>
-                  <td class="left">{% if h.actor_tipo == 'operaciones' and h.actor %}{{ h.actor }}{% elif h.actor_tipo == 'cchh' %}Capital Humano{% else %}—{% endif %}</td>
-                  <td class="left">{{ h.motivo or '—' }}</td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </details>
-    </div>
-
+    {% include "partials/solicitud_requerimiento_sections.html" %}
     </div>
 
     {% if view.puede_cancelar %}

@@ -16,12 +16,15 @@
 
   <main id="content" class="module-content">
     <section class="module-hero opsb-hero">
-      <p class="eyebrow">Staffing</p>
+      <div class="catalog-actionbar">
+        <p class="eyebrow">Staffing</p>
+        <div class="support-links catalog-actionbar__actions"><a href="/operaciones/busquedas/nueva" class="btn-primary">+ Nueva búsqueda</a></div>
+      </div>
       <h1>Búsquedas</h1>
       <p class="hero-lead full-page-subtitle">Pedidos de perfiles a Capital Humano: creá una solicitud y seguí su estado.</p>
     </section>
 
-    {% if ok_message %}<div class="callout callout--success" role="status"><div class="callout__body"><p>{{ ok_message }}</p></div></div>{% endif %}
+    {% if ok_message %}<div class="methodology"><div class="callout callout--success" role="status"><div class="callout__body"><p>{{ ok_message }}</p></div></div></div>{% endif %}
 
     {% include "partials/operations_busquedas_panel.html" %}
   </main>

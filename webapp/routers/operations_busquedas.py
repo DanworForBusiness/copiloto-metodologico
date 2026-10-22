@@ -62,6 +62,8 @@ INDICADORES = {
 FILTRO_ESTADOS = tuple(INDICADORES.items())
 # Badge: primitivo del Hub (`.status-badge`, tools.css) con SU paleta restringida (neutro / ámbar / verde / gris); la distinción fina la da el rótulo.
 BADGE_TONOS = {"nueva": "otro", "reenviada": "otro", "observada": "tentativo", "en_gestion": "activo", "cancelada": "inactivo", "cerrada": "inactivo"}
+# Cabecera del detalle: MISMO badge que los informes del Catálogo (`.catalog-card__verdict--*`: plena = verde, buena = ámbar, parcial = naranja, neutra = gris).
+VEREDICTO_TONOS = {"nueva": "neutra", "reenviada": "neutra", "observada": "parcial", "en_gestion": "plena", "cancelada": "neutra", "cerrada": "neutra"}
 _OK_MESSAGES = {
     "enviada": "Solicitud enviada a Capital Humano. Quedó registrada con estado «Enviada».",
     "editada": "Cambios guardados. La solicitud sigue en estado «Enviada».",
@@ -259,6 +261,8 @@ def _list_context(estado: str, q: str, page, page_size) -> dict:
         if (not estado or r["indicador"] == estado)
         and (not needle or needle in _fold(r["requerimiento"].get("nombre_puesto")) or needle in _fold(r["requerimiento"].get("proyecto")))
     ]
+    # Orden: fecha de inicio prevista DESCENDENTE (las sin fecha al final), desempate por apertura y luego por id; ANTES de paginar.
+    visible.sort(key=lambda r: (r["requerimiento"].get("fecha_inicio_prevista") or "", r.get("fecha_apertura") or "", r["busqueda_id"]), reverse=True)
     pager = pagination.paginate(visible, page=page, page_size=page_size, base_url=BASE_PATH, params={"estado": estado, "q": q})
     return {
         "rows": pager["items"], "total_rows": pager["total"], "pager": pager,     # total FILTRADO (contador del dashboard-section), nunca el tamaño de la página
@@ -337,7 +341,7 @@ def _render_detail(request: Request, user: dict, view: dict, status_code: int = 
     return templates.TemplateResponse(
         request=request, name="operations/busqueda_detail.html",
         context=_base_context(
-            request, user, view=view, indicadores=INDICADORES, badge_tonos=BADGE_TONOS, tipo_labels=TIPO_LABELS, dedicacion_labels=DEDICACION_LABELS,
+            request, user, view=view, indicadores=INDICADORES, badge_tonos=BADGE_TONOS, veredicto_tonos=VEREDICTO_TONOS, tipo_labels=TIPO_LABELS, dedicacion_labels=DEDICACION_LABELS,
             transicion_labels=TRANSICION_LABELS, **extra),
         status_code=status_code,
     )

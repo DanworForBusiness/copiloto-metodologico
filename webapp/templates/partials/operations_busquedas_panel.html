@@ -20,7 +20,6 @@
     <input id="opsb-q" name="q" type="text" value="{{ q or '' }}" placeholder="Perfil o proyecto..." hx-get="/operaciones/busquedas" hx-target="#opsb-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
   </div>
   <button type="button" class="whatsnew-filter__clear" hx-get="{{ pager.urls.reset }}" hx-target="#opsb-panel" hx-swap="outerHTML">✕ Limpiar</button>
-  <a href="/operaciones/busquedas/nueva" class="btn-primary">+ Nueva búsqueda</a>
 </form>
 
 <div class="dashboard-sections" data-dashboard-key="ops-busquedas">
