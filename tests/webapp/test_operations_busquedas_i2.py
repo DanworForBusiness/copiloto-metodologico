@@ -459,7 +459,7 @@ def test_detail_shows_the_full_request_and_its_history():
     post_new(c)
     html = c.get(f"{BASE}/{SID}").text
     for fragment in ("Consultor SAP FI", "Migración S/4", "SSR, SR", "40 · Horas por semana", "6 meses", "Buenos Aires", "Híbrido", "2 por semana", "Oficina del cliente, CABA", "Configurar FI.",
-                     "SAP FI, S/4HANA", "Comunicación", "Intermedio", "FTE", "02/11/2026", OPS_A, "Enviada a Capital Humano", "data-historial"):
+                     "SAP FI, S/4HANA", "Comunicación", "Intermedio", "Full-Time", "02/11/2026", OPS_A, "Enviada a Capital Humano", "data-historial"):
         assert fragment in html, fragment
     assert f'href="{BASE}/{SID}/editar"' in html and 'data-dialog-open="opsb-cancel-dialog"' in html and 'data-indicador="nueva"' in html
 

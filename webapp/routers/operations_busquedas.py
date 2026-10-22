@@ -196,6 +196,7 @@ def _form_context(request: Request, user: dict, *, mode: str, values: dict, subm
     seniorities = human_capital_catalog_repository.catalog_values("seniority")
     saved_seniority = list(values.get("seniority") or [])
     legacy_seniority = [s for s in saved_seniority if s not in seniorities]
+    modalidades_contrato = human_capital_catalog_repository.catalog_values("modalidad_contratacion")
     return _base_context(
         request, user,
         mode=mode, values=values, submission_id=submission_id, view=view, error=error, warning=warning, status_note=status_note,
@@ -208,7 +209,8 @@ def _form_context(request: Request, user: dict, *, mode: str, values: dict, subm
         duracion_meses_max=human_capital_service.DURACION_MESES_MAX, cantidad_max=human_capital_service.CANTIDAD_RECURSOS_MAX,
         dias_hibrido_max=human_capital_service.DIAS_PRESENCIALES_HIBRIDO_MAX,
         modalidades=busqueda_repository.MODALIDADES, ingles_niveles=human_capital_service.INGLES_NIVELES,
-        tipos_contrato=human_capital_service.TIPOS_CONTRATO,
+        modalidades_contrato=modalidades_contrato, contrato_is_legacy=_legacy_option(values.get("tipo_contrato"), modalidades_contrato),
+        catalog_contrato_missing=not modalidades_contrato,
     )
 
 

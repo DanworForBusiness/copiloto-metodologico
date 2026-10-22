@@ -814,9 +814,9 @@ def _shape_requerimiento(fields: dict, *, existing: dict | None = None, check_ca
     ingles = _req_text(fields, "ingles", "el nivel de inglés", required=True)
     if ingles not in INGLES_NIVELES:
         raise ValueError(f"Nivel de inglés inválido. Elegí: {', '.join(INGLES_NIVELES)}.")
-    contrato = _req_text(fields, "tipo_contrato", "el tipo de contrato", required=True)
-    if contrato not in TIPOS_CONTRATO:
-        raise ValueError("Tipo de contrato inválido. Elegí FTE o PTE.")
+    contrato = _req_text(fields, "tipo_contrato", "la modalidad de contratación", required=True)       # clave histórica `tipo_contrato`; es la Modalidad de contratación (Full-Time / Part-Time)
+    if check_catalogs:
+        _validate_modalidad_contratacion_governed(contrato, existing_value=existing.get("tipo_contrato"))   # catálogo gobernado; un valor legacy ya guardado se preserva
     inicio_raw = _req_text(fields, "fecha_inicio_prevista", "la fecha de inicio prevista", required=True)
     try:
         inicio = date.fromisoformat(inicio_raw).isoformat()

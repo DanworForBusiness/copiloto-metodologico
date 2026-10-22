@@ -19,7 +19,7 @@
   <main id="content" class="module-content">
     {# MISMOS primitivos que los formularios de CCHH (busqueda_form/entrevista_form): `.catalog-back`, `.module-hero.hc-profiles-hero`, `.hc-profile-form` + `.hc-profile-section` con grilla fluida
        (`.hc-profile-section__grid--fluid`, campos `--compact/--medium/--wide`), `.feedback-field`, `.dashboard-checkbox-*`, `.hc-profile-form__actions`. Sin CSS ni tipografía propios. #}
-    <a class="catalog-back" href="{{ '/operaciones/busquedas/' ~ view.busqueda_id if view else '/operaciones/busquedas' }}">← {{ 'Volver a la solicitud' if view else 'Volver a Búsquedas' }}</a>
+    <a class="catalog-back" href="/operaciones/busquedas">← Volver a Búsquedas</a>
     <section class="module-hero opsb-hero">
       <p class="eyebrow">Staffing</p>
       <h1>{{ _titles[mode] }}</h1>
@@ -33,8 +33,8 @@
     {% endif %}
     {% if error %}<div class="dashboard-empty" data-error-kind="validation" role="alert"><span class="dashboard-empty__label">No se envió</span><p>{{ error }}</p></div>{% endif %}
     {% if warning %}<div class="methodology"><div class="callout callout--warn" role="alert"><div class="callout__body"><p>{{ warning }}</p></div></div></div>{% endif %}
-    {% if catalog_areas_missing or catalog_seniority_missing %}
-    <div class="methodology"><div class="callout callout--warn"><div class="callout__body"><p>Los catálogos de {% if catalog_areas_missing %}áreas{% endif %}{% if catalog_areas_missing and catalog_seniority_missing %} y {% endif %}{% if catalog_seniority_missing %}seniority{% endif %} todavía no están disponibles, así que no se puede completar este dato. Avisá a Capital Humano para que los actualice.</p></div></div></div>
+    {% if catalog_areas_missing or catalog_seniority_missing or catalog_contrato_missing %}
+    <div class="methodology"><div class="callout callout--warn"><div class="callout__body"><p>Los catálogos de {{ ([('áreas' if catalog_areas_missing else ''), ('seniority' if catalog_seniority_missing else ''), ('modalidad de contratación' if catalog_contrato_missing else '')] | select | join(', ')) }} todavía no están disponibles, así que no se puede completar este dato. Avisá a Capital Humano para que los actualice.</p></div></div></div>
     {% endif %}
 
     <form method="post" action="{{ '/operaciones/busquedas/nueva' if mode == 'nueva' else '/operaciones/busquedas/' ~ view.busqueda_id ~ '/editar' }}"
@@ -173,10 +173,11 @@
         <h2>Contratación</h2>
         <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
           <div class="feedback-field feedback-field--compact">
-            <label for="f-contr">Tipo de contrato</label>
+            <label for="f-contr">Modalidad de contratación</label>
             <select id="f-contr" name="tipo_contrato" required>
               <option value="">Elegí…</option>
-              {% for c in tipos_contrato %}<option value="{{ c }}" {% if v.tipo_contrato == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+              {% for c in modalidades_contrato %}<option value="{{ c }}" {% if v.tipo_contrato == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+              {% if contrato_is_legacy %}<option value="{{ v.tipo_contrato }}" selected>{{ v.tipo_contrato }} (fuera de catálogo)</option>{% endif %}
             </select>
           </div>
           <div class="feedback-field feedback-field--compact">

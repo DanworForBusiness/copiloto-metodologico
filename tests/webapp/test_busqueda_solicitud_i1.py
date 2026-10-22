@@ -72,7 +72,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(rs, "read_object_bytes", fake.read_object_bytes)
     monkeypatch.setattr(rs, "delete_path", fake.delete_path)
     monkeypatch.setattr(rs, "await_restore", lambda timeout: "completed")
-    seed_catalog(area_consultora=["SAP", "Cloud"], seniority=["SSR", "SR", "JR"])
+    seed_catalog(area_consultora=["SAP", "Cloud"], seniority=["SSR", "SR", "JR"], modalidad_contratacion=["Full-Time", "Part-Time"])
     return fake
 
 
@@ -95,7 +95,7 @@ def req(**over) -> dict:
         "dedicacion_valor": "40", "dedicacion_unidad": "horas_por_semana", "duracion_tipo": "meses", "duracion_meses": 6,
         "area_consultora": "SAP", "ubicacion": "Buenos Aires", "seniority": ["SSR", "SR"], "modalidad": "Híbrido", "dias_presenciales": 2,
         "lugar_trabajo": "Oficina del cliente, CABA", "responsabilidades": "Configurar FI.", "skills_excluyentes": "SAP FI, S/4HANA",
-        "habilidades_blandas": "Comunicación", "ingles": "Intermedio", "certificaciones": "", "tipo_contrato": "FTE",
+        "habilidades_blandas": "Comunicación", "ingles": "Intermedio", "certificaciones": "", "tipo_contrato": "Full-Time",
         "fecha_inicio_prevista": "2026-11-02", "comentarios": "",
     }
     base.update(over)
@@ -155,7 +155,7 @@ def test_a_valid_submission_persists_the_full_contract_in_the_single_busqueda_en
     assert [h["transicion"] for h in s["historial"]] == ["enviar"] and s["historial"][0]["actor_tipo"] == "operaciones" and s["historial"][0]["desde"] is None
     r = d["requerimiento"]
     assert r["dedicacion"] == {"valor": 40, "unidad": "horas_por_semana"} and r["duracion"] == {"tipo": "meses", "meses": 6} and r["seniority"] == ["SSR", "SR"]
-    assert r["presencialidad"] == {"dias": 2, "lugar": "Oficina del cliente, CABA"} and r["cantidad_recursos"] == 2 and r["tipo_contrato"] == "FTE" and r["ingles"] == "Intermedio"
+    assert r["presencialidad"] == {"dias": 2, "lugar": "Oficina del cliente, CABA"} and r["cantidad_recursos"] == 2 and r["tipo_contrato"] == "Full-Time" and r["ingles"] == "Intermedio"
     assert (d["nombre_puesto"], d["area_consultora"], d["modalidad"]) == (r["nombre_puesto"], r["area_consultora"], r["modalidad"]) == ("Consultor SAP FI", "SAP", "Híbrido")   # espejo
     assert view["busqueda_id"] == SID and view["estado_solicitud"] == "enviada" and view["puede_editar"] and not view["solo_lectura"]
     assert len(files()) == 1
@@ -253,7 +253,7 @@ def test_every_required_field_is_enforced(field):
 @pytest.mark.parametrize("over", [
     {"tipo_busqueda": "otro"}, {"tipo_busqueda": "proyecto", "proyecto": ""}, {"cantidad_recursos": 0}, {"cantidad_recursos": 100}, {"cantidad_recursos": "x"}, {"cantidad_recursos": True},
     {"cantidad_recursos": 1.5}, {"dedicacion_valor": 0}, {"dedicacion_valor": -3}, {"dedicacion_valor": "abc"}, {"duracion_meses": 0}, {"duracion_meses": 121}, {"duracion_tipo": "años"},
-    {"modalidad": "Presencial"}, {"ingles": "Nativo"}, {"tipo_contrato": "XTE"}, {"fecha_inicio_prevista": "2026-13-01"}, {"fecha_inicio_prevista": "02/11/2026"},
+    {"modalidad": "Presencial"}, {"ingles": "Nativo"}, {"tipo_contrato": "Temporal"}, {"fecha_inicio_prevista": "2026-13-01"}, {"fecha_inicio_prevista": "02/11/2026"},
     {"area_consultora": "Fantasía"}, {"seniority": ["Senior Extremo"]}, {"dias_presenciales": 0}, {"dias_presenciales": 6}, {"dias_presenciales": 8}, {"nombre_puesto": "x" * 151},
     {"responsabilidades": "x" * 4001}, {"nombre_puesto": 123}, {"seniority": [3]},
 ])

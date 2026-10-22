@@ -4,7 +4,8 @@
    son los del Hub sin tocar. Respiro de 24px entre el divisor y el primer bloque de la lista: MISMA convención por-panel que CCHH (`.module-hero + #hc-…-panel`). */
 .opsb-hero { padding-bottom: 44px; }
 .opsb-hero h1 { margin: 12px 0 22px; font-size: clamp(2.4rem, 5vw, 4.5rem); letter-spacing: -.055em; }
-.opsb-hero > .catalog-actionbar { margin-bottom: 0; }   /* CTA en la línea del eyebrow sin correr el título respecto de Asignaciones */
+.opsb-hero > .catalog-actionbar { position: relative; margin-bottom: 0; }   /* la fila mide solo lo que el eyebrow: el título queda donde en Asignaciones */
+.opsb-hero > .catalog-actionbar > .catalog-actionbar__actions { position: absolute; right: 0; top: 50%; transform: translateY(-50%); margin: 0; }   /* CTA centrado en la línea del eyebrow, fuera del flujo (sin efecto de salto) */
 .module-hero + #opsb-panel { margin-top: 24px; }
 /* Seniority (multi-selección): opciones en una fila que envuelve, en vez de columnas separadas al ancho completo. */
 .opsb-checks { flex-direction: row; flex-wrap: wrap; gap: 8px 28px; }

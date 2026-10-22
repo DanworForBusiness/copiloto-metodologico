@@ -90,7 +90,7 @@ def test_the_inbox_fragment_is_only_for_htmx_and_requires_cchh():
 def test_a_sent_request_shows_the_structured_requirement_and_only_take_or_request_correction():
     send()
     html = cchh().get(f"/cchh/busquedas/{SID}").text
-    for fragment in ("Consultor SAP FI", "Migración S/4", "SSR, SR", "40 · Horas por semana", "Oficina del cliente, CABA", "Configurar FI.", "Intermedio", "FTE", "Historial"):
+    for fragment in ("Consultor SAP FI", "Migración S/4", "SSR, SR", "40 · Horas por semana", "Oficina del cliente, CABA", "Configurar FI.", "Intermedio", "Full-Time", "Historial"):
         assert fragment in html, fragment
     assert "Tomar en gestión" in html and "Solicitar corrección" in html and f'action="/cchh/busquedas/{SID}/tomar"' in html
     assert 'data-solicitud-badge>Enviada<' in html and "status-badge--activo" not in html.split("data-solicitud-badge")[0].split("busqueda-status-row")[-1]      # no se rotula «Activo» una solicitud pendiente
