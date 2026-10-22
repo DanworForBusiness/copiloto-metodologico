@@ -13,19 +13,19 @@
     {# "← Volver": primitivo transversal del Hub (`.catalog-back`, tools.css),
        MISMO exacto que profile_edit.html — nunca un eyebrow gold propio. #}
     <a class="catalog-back" href="/cchh/busquedas">← Volver a Búsquedas</a>
-    {# Composición espejo del detalle de proceso (app de referencia): meta gris
-       ARRIBA del título (`.hero-meta`, primitivo compartido — separador "·" lo
-       pone el CSS), luego el título, la descripción, y una fila de estado
-       (pill de estado + área de la consultora + aviso de requerimiento). Las
-       acciones van a la derecha, EN LA MISMA fila del hero. #}
+    {# Composición del detalle de proceso: eyebrow → título → descripción → meta gris (`.hero-meta`, primitivo compartido — separador "·" lo pone el CSS) y una fila de estado (pill de estado + área de la
+       consultora + aviso de requerimiento). Las acciones van a la derecha, en su contenedor propio (`.hc-profiles-hero-actions`), sin alterar la posición del bloque de identificación. #}
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
+        {# MISMA estructura que el resto de CCHH (Cargar CV, Editar candidato, formularios): eyebrow «Capital Humano» → título → subtítulo → metadatos complementarios (`.hero-meta`, como en Editar candidato).
+           Antes la meta gris iba ARRIBA del título y no había eyebrow: todo el bloque de identificación quedaba desplazado ~22px respecto de las demás pantallas. #}
+        <p class="eyebrow">Capital Humano</p>
         {% set _meta = [] %}
         {% if busqueda.area_departamento %}{% set _ = _meta.append(busqueda.area_departamento) %}{% endif %}
         {% if busqueda.modalidad %}{% set _ = _meta.append(busqueda.modalidad) %}{% endif %}
-        {% if _meta %}<div class="hero-meta">{% for p in _meta %}<span>{{ p }}</span>{% endfor %}</div>{% endif %}
         <h1>{{ busqueda.nombre_puesto }}</h1>
         {% if busqueda.descripcion %}<p>{{ busqueda.descripcion }}</p>{% endif %}
+        {% if _meta %}<div class="hero-meta">{% for p in _meta %}<span>{{ p }}</span>{% endfor %}</div>{% endif %}
         <div class="busqueda-status-row">
           {% if solicitud and not solicitud_gestion %}
           {# Solicitud de Operaciones aún no tomada: NO es un proceso activo/cerrado; el badge muestra su estado de solicitud. #}
@@ -118,6 +118,12 @@
     {# Requerimiento original de Operaciones (REG-CH-01): sigue consultable una vez tomada la solicitud, debajo del pipeline. #}
     {% set view = solicitud %}
     {% include "partials/solicitud_requerimiento_sections.html" %}
+    {% else %}
+    {# Proceso de alta directa de CCHH (sin solicitud): su historial de movimientos de candidatos va al final, MISMA tabla y posición que en los procesos con solicitud. #}
+    <div class="dashboard-sections" data-dashboard-key="cchh-proceso-historial">
+      {% set view = busqueda_historial %}
+      {% include "partials/human_capital_historial_section.html" %}
+    </div>
     {% endif %}
     {% endif %}
   </main>

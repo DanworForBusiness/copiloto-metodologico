@@ -119,6 +119,26 @@ class ProfileDocumentDeleteOutcomeUnknownError(Exception):
     remota primero."""
 
 
+def _persistence_mode() -> str:
+    """Modo de persistencia EXPLÍCITO (`DANWOR_PERSISTENCE`, ver config.py): nunca se infiere de credenciales ni de `remote_store.enabled()`. MISMO criterio que
+    `profile_repository`."""
+    return str(getattr(config, "PERSISTENCE_MODE", "local"))
+
+
+def _local_only() -> bool:
+    """`local`: la fuente de verdad es el disco (escritura atómica / unlink). NO se requiere ni se intenta ninguna operación contra Spaces (ni push, ni delete_path),
+    aunque haya credenciales en el entorno. `remote` conserva íntegro su contrato de confirmación y compensación."""
+    return _persistence_mode() == "local"
+
+
+def _require_writable_mode() -> None:
+    """`read-only` NO habilita escrituras de negocio: se rechaza ANTES de tocar el disco (sin efectos parciales) con el mismo error determinístico de "no configurado"."""
+    if _persistence_mode() == "read-only":
+        raise ProfileDocumentConfigIncompleteError(
+            "El almacenamiento de documentos está en modo de solo lectura en este entorno: no se pueden guardar cambios."
+        )
+
+
 def _document_delete_orphan_cleanup(path: Path) -> None:
     """Best-effort: intenta limpiar un objeto remoto huérfano (de un
     `delete()` previo que haya confirmado el borrado remoto pero se haya
@@ -234,6 +254,29 @@ def list_for_profile(profile_id: str) -> list[dict]:
     return documents
 
 
+def count_by_profile() -> dict[str, int]:
+    """Cantidad de documentos activos por `profile_id` (UNA pasada por el directorio, mismo criterio fail-soft que `list_for_profile`). Solo lectura."""
+    _ensure_restored()
+    directory = _documents_dir()
+    counts: dict[str, int] = {}
+    if not directory.exists():
+        return counts
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError as exc:
+        raise ProfileDocumentStorageError(f"No se pudo listar los documentos: {exc}") from exc
+    for entry in entries:
+        if not entry.is_file() or entry.suffix != ".json":
+            continue
+        try:
+            payload = json.loads(entry.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(payload, dict) and payload.get("profile_id"):
+            counts[payload["profile_id"]] = counts.get(payload["profile_id"], 0) + 1
+    return counts
+
+
 def find_by_folder_item_id(folder_item_id: str) -> list[dict]:
     """Documentos (de CUALQUIER candidato) que referencian esta carpeta de SharePoint por `folder_item_id`. Lo usa el uploader para no reutilizar una carpeta que ya pertenece a OTRO candidato.
     Mismo criterio fail-soft que `list_for_profile`: un archivo corrupto se saltea."""
@@ -275,7 +318,10 @@ def _create_locked(document_id: str, document: dict) -> dict:
         **document,
     }
     path = _document_path(document_id)
+    _require_writable_mode()
     _write_atomic(path, payload)
+    if _local_only():
+        return payload                                   # `local`: escritura física local atómica; sin sincronización con Spaces
     if remote_store.push_path(path):
         return payload
     if not remote_store.enabled():
@@ -343,9 +389,11 @@ def delete(document_id: str) -> bool:
     with _write_lock:
         path = _document_path(document_id)
         if not path.exists():
-            _document_delete_orphan_cleanup(path)
+            if not _local_only():                        # `local`: no hay objeto remoto que limpiar ni se contacta a Spaces
+                _document_delete_orphan_cleanup(path)
             return False
-        if remote_store.enabled():
+        _require_writable_mode()                         # `read-only`: ni borrado local ni remoto (sin efectos parciales)
+        if not _local_only() and remote_store.enabled():
             if not remote_store.delete_path(path):
                 if not remote_store.delete_path(path):
                     raise ProfileDocumentDeleteOutcomeUnknownError(

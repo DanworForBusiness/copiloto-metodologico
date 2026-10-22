@@ -80,6 +80,21 @@ def enabled() -> bool:
     return bool(config.PERSIST_ENABLED)
 
 
+def persistence_mode() -> str:
+    """Modo EXPLÍCITO (`DANWOR_PERSISTENCE`): `local` | `read-only` | `remote`. Nunca se infiere de credenciales."""
+    return str(getattr(config, "PERSISTENCE_MODE", "local"))
+
+
+def local_only() -> bool:
+    """`local`: la fuente de verdad es el disco. Los repositorios persisten con escritura atómica local y NO requieren ni intentan push/delete remotos (aunque haya credenciales)."""
+    return persistence_mode() == "local"
+
+
+def read_only_mode() -> bool:
+    """`read-only`: ninguna escritura de negocio (se rechaza ANTES de tocar el disco, sin efectos parciales)."""
+    return persistence_mode() == "read-only"
+
+
 def read_enabled() -> bool:
     """Se permite LEER del bucket (``restore`` explícito, ``read_object_bytes``): modo ``remote`` o ``read-only`` con credenciales."""
     return bool(config.PERSIST_ENABLED) or bool(getattr(config, "PERSIST_READ_ONLY", False))

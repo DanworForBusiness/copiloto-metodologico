@@ -104,6 +104,7 @@ from datetime import datetime
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+import urllib.parse
 import config
 from core.content_registry import DEFAULT_PACK
 from webapp import access as app_access
@@ -113,6 +114,7 @@ from webapp.services import (
     human_capital_indicators, human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
+from webapp.services import human_capital_contact
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
@@ -193,6 +195,7 @@ def _profiles_panel_context(*, query: dict | None = None, page=1, page_size=None
         "total_profiles": pager["total"],
         "pager": pager,
         "dataset_has_any_profiles": bool(all_profiles),
+        "doc_counts": profile_document_service.count_documents_by_profile(),
         "source_error": source_error,
         "config_incomplete": False,
         "valid_sources": human_capital_catalog_repository.catalog_values("fuente"),
@@ -659,6 +662,8 @@ def human_capital_profile_delete(
     q: str = Form(""), seniority: str = Form(""), source: str = Form(""),
     location: str = Form(""), potential_mark: str = Form(""),
     page: str = Form(""), page_size: str = Form(""),
+    # Solo con documentos activos: el diálogo contextual ofrece (desmarcado) «Eliminar también los documentos de SharePoint». Sin la casilla, el contrato de la baja NO cambia.
+    delete_documents: str = Form(""), graph_token: str = Form(""),
 ):
     """Borrado LÓGICO del candidato — UNA sola operación de servicio
     (`soft_delete_profile`), compartida por los dos puntos de entrada de UI
@@ -672,6 +677,32 @@ def human_capital_profile_delete(
     user = auth_service.session_user(request)
     actor = (user or {}).get("sub") or ""
     delete_error: str | None = None
+    folder_notice = ""
+    docs_deleted = 0
+    if (delete_documents or "").strip().lower() in ("1", "true", "on", "yes"):
+        # Flujo CONTROLADO con eliminación física: (1) documentos en SharePoint (cada uno confirmado antes de su metadata) y carpeta solo si quedó vacía; (2) recién entonces la baja lógica.
+        # Si algo no se confirma, el candidato NO se da de baja y nunca se informa una eliminación física no confirmada. El reintento es idempotente (solo procesa lo que queda).
+        profile = human_capital_service.get_profile(profile_id)
+        if profile is not None:
+            if not graph_token:
+                return _render_profile_edit_with_documents(request, profile_id, profile, document_state={
+                    "kind": "GRAPH_PERMISSION_DENIED",
+                    "message": "No pudimos obtener autorización de Microsoft 365 para borrar los documentos. El candidato NO fue dado de baja. Volvé a iniciar sesión."})
+            try:
+                summary = profile_document_service.delete_profile_documents(profile_id=profile_id, access_token=graph_token)
+                docs_deleted = summary["deleted"]
+                kept_msgs = [m for m in (profile_document_service.folder_kept_message(s) for s in summary["folders"].values()) if m]
+                folder_notice = " ".join(dict.fromkeys(kept_msgs))
+            except profile_document_service.ProfileDocumentConfigIncompleteError as exc:
+                return _render_profile_edit_with_documents(request, profile_id, profile, document_state={"kind": "CONFIG_INCOMPLETE", "message": f"{exc} El candidato NO fue dado de baja."})
+            except profile_document_service.ProfileDocumentsBulkDeleteIncompleteError as exc:
+                kind = {"permission": "GRAPH_PERMISSION_DENIED", "graph": "GRAPH_SOURCE_ERROR"}.get(exc.kind, "DELETE_OUTCOME_UNKNOWN")
+                return _render_profile_edit_with_documents(request, profile_id, profile, document_state={
+                    "kind": kind,
+                    "message": f"{exc} Se eliminaron {exc.deleted} documento(s) y quedan {exc.remaining} sin confirmar. El candidato NO fue dado de baja: podés reintentar."})
+            except profile_document_repository.ProfileDocumentStorageError:
+                return _render_profile_edit_with_documents(request, profile_id, profile, document_state={
+                    "kind": "GRAPH_SOURCE_ERROR", "message": "No pudimos leer los documentos del candidato. No se cambió nada: probá de nuevo en unos minutos."})
     try:
         human_capital_service.soft_delete_profile(profile_id, actor)
     except ProfileNotFoundError:
@@ -681,6 +712,18 @@ def human_capital_profile_delete(
     except (ProfileConfigIncompleteError, ProfileRemoteOutcomeUnknownError,
             ProfileStorageError, ProfileConcurrentModificationError) as exc:
         delete_error = str(exc)
+        if docs_deleted:
+            # Resultado PARCIAL: los documentos ya se eliminaron de SharePoint pero la baja lógica no se confirmó. Se dice tal cual.
+            delete_error += f" Atención: sus {docs_deleted} documento(s) YA fueron eliminados de SharePoint."
+
+    if folder_notice and not delete_error:
+        # Éxito PARCIAL: baja lógica + documentos eliminados, pero la carpeta se conservó. Se muestra el listado con el aviso (en vez de la redirección silenciosa).
+        context = {
+            "current_workspace": workspaces.HUMAN_CAPITAL, "available_workspaces": workspaces.available_workspaces(user), "pack": DEFAULT_PACK, "user": user, "active_page": "perfiles",
+            **_profiles_panel_context(query={}, page="", page_size=""),
+            "delete_notice": f"El candidato fue dado de baja y sus {docs_deleted} documento(s) se eliminaron de SharePoint. {folder_notice}",
+        }
+        return templates.TemplateResponse(request=request, name="human_capital/profiles.html", context=context)
 
     if request.headers.get("HX-Request"):
         # Desde el listado: re-render del panel filtrado -> el candidato
@@ -1098,8 +1141,8 @@ async def human_capital_profile_documents_delete(
             },
         )
     try:
-        profile_document_service.delete_document(
-            profile_id=profile_id, document_id=document_id, access_token=graph_token,
+        outcome = profile_document_service.delete_document(
+            profile_id=profile_id, document_id=document_id, access_token=graph_token, remove_empty_folder=True,
         )
     except profile_document_service.ProfileDocumentNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
@@ -1122,6 +1165,12 @@ async def human_capital_profile_documents_delete(
     except profile_document_service.ProfileDocumentMetadataDeleteOutcomeUnknownError as exc:
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DELETE_OUTCOME_UNKNOWN", "message": str(exc)},
+        )
+    kept = profile_document_service.folder_kept_message(outcome["folder"]) if outcome.get("last_document") else ""
+    if kept:
+        # El documento SÍ se eliminó (físico + registro) pero la carpeta quedó: nunca un éxito completo silencioso.
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "FOLDER_KEPT", "message": "El documento se eliminó de SharePoint. " + kept},
         )
     return _edit_redirect(request, profile_id)
 
@@ -1226,7 +1275,9 @@ def _wants_html(request: Request) -> bool:
 
 
 def _solicitud_badge(view: dict) -> tuple[str, str]:
-    """(rótulo, tono del `.status-badge` del Hub). Derivado del contrato de I1; sin estados nuevos."""
+    """(rótulo, tono del `.status-badge` del Hub). Derivado del contrato de I1; sin estados nuevos. Vocabulario de CAPITAL HUMANO (el de Operaciones es otro y no se toca: allí «Nueva/Reenviada»):
+    el estado interno `enviada` es «enviada POR Operaciones», una solicitud RECIBIDA y pendiente de que CCHH la tome; se rotula «Pendiente» (la misma categoría `pendiente` de `solicitud_categoria`),
+    nunca «Enviada», que en CCHH sugeriría una búsqueda enviada/gestionada por Capital Humano."""
     estado = view.get("estado_solicitud")
     if estado == busqueda_repository.SOLICITUD_CANCELADA:
         return "Cancelada", "inactivo"
@@ -1234,7 +1285,7 @@ def _solicitud_badge(view: dict) -> tuple[str, str]:
         return "Observada", "tentativo"
     if estado == busqueda_repository.SOLICITUD_EN_GESTION:
         return "En gestión", "activo"
-    return ("Reenviada" if view.get("reenviada") else "Enviada"), "otro"
+    return ("Reenviada" if view.get("reenviada") else "Pendiente"), "otro"
 
 
 def _solicitud_recepcion_key(r: dict) -> tuple[str, str, str]:
@@ -1268,10 +1319,14 @@ def _solicitudes_context(filtro: str = "recibidas", page=1, page_size=None) -> d
         source_error = _MSG_SOLICITUD_SOURCE
     for r in rows:
         r["badge_label"], r["badge_tone"] = _solicitud_badge(r)
+    # POBLACIÓN de cada indicador (todas son DEMANDA RECIBIDA, ninguna es un proceso gestionado por CCHH: al tomarla sale de esta bandeja y pasa a «Procesos activos»):
+    #   «Pendientes» (clave `enviadas`) = estado `enviada` (nuevas + reenviadas): esperan que CCHH las tome u observe;  «Observadas» = esperan una acción de OPERACIONES (la corrección): ya no son trabajo de CCHH;
+    #   «Por atender» (clave `recibidas`, la vista por defecto) = lo que CCHH tiene que accionar = estado `enviada` (incluye reenviadas), SIN observadas;  «Canceladas» = solo consulta.
+    #   Una observada vuelve a «Por atender» / «Pendientes» cuando Operaciones la corrige y la reenvía (transición `reenviar`).
     by = {k: [r for r in rows if r["estado_solicitud"] == k] for k in ("enviada", "observada", "cancelada")}
     counts = {"enviadas": len(by["enviada"]), "observadas": len(by["observada"]), "canceladas": len(by["cancelada"])}
-    counts["recibidas"] = counts["enviadas"] + counts["observadas"]
-    visible = {"recibidas": by["enviada"] + by["observada"], "enviadas": by["enviada"], "observadas": by["observada"], "canceladas": by["cancelada"]}[filtro]
+    counts["recibidas"] = counts["enviadas"]
+    visible = {"recibidas": by["enviada"], "enviadas": by["enviada"], "observadas": by["observada"], "canceladas": by["cancelada"]}[filtro]
     # Orden: ÚLTIMA RECEPCIÓN descendente, ANTES de paginar (paginador compartido, desde la fila 50). Nuevas = `enviada_en`; reenviadas y observadas = `ultimo_envio_en` (la observación no cambia
     # cuándo CCHH recibió la solicitud); canceladas = `cancelada_en`. Desempate determinístico: primer envío y luego id.
     visible = sorted(visible, key=_solicitud_recepcion_key, reverse=True)
@@ -1334,10 +1389,41 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
         "busqueda_is_deletable": human_capital_service.busqueda_is_placeholder(busqueda),
         # Solicitud de Operaciones (None para históricas/altas directas). Mientras no esté `en_gestion` (enviada/observada/cancelada) el detalle muestra SOLO el requerimiento:
         # sin pipeline ni acciones de candidatos (el servidor ya las rechaza; acá además se ocultan).
-        "solicitud": human_capital_service.solicitud_view(busqueda),
+        "solicitud": human_capital_service.solicitud_view(busqueda, include_cchh_actors=True),
         "solicitud_gestion": busqueda_repository.solicitud_estado(busqueda) in (None, busqueda_repository.SOLICITUD_EN_GESTION),
         "solicitud_badge": _solicitud_badge(human_capital_service.solicitud_view(busqueda)) if human_capital_service.solicitud_view(busqueda) else None,
+        # Acceso directo a Entrevistas desde las tarjetas del pipeline (solo `Entrevista CCHH` / `Entrevista Líder`): ver `_entrevista_links`.
+        "entrevista_links": _entrevista_links(busqueda),
+        # Historial UNIFICADO del proceso (solicitud + movimientos de candidatos): dentro del cuerpo que se re-renderiza tras cada mutación del pipeline, para que no quede desactualizado.
+        "busqueda_historial": human_capital_service.solicitud_view(busqueda, include_cchh_actors=True) or human_capital_service.proceso_historial_view(busqueda),
     }
+
+
+_ENTREVISTA_ETAPAS = {"Entrevista CCHH": "Ir a entrevista CCHH", "Entrevista Líder": "Ir a entrevista técnica"}
+
+
+def _entrevista_links(busqueda: dict) -> dict:
+    """`application_id` -> `{url, label}` para las postulaciones en etapa de entrevista. Si YA existe la entrevista de ese (candidato, proceso) se va a SU edición (flujo vigente); si no, al alta de Entrevistas con el
+    candidato y el puesto/área del proceso precargados (el alta sigue siendo manual: navegar NO crea nada). Un fallo de lectura degrada al listado de Entrevistas (nunca a un alta que pudiera duplicar)."""
+    links: dict = {}
+    bid = busqueda.get("busqueda_id")
+    for app in busqueda.get("candidatos", []):
+        label = _ENTREVISTA_ETAPAS.get(app.get("etapa"))
+        if not label or not app.get("profile_id"):
+            continue
+        try:
+            existing = entrevista_repository.find_by_profile_and_busqueda(app["profile_id"], bid)
+            url = (f"/cchh/entrevistas/{existing['entrevista_id']}/editar" if existing
+                   else "/cchh/entrevistas/nueva?" + urllib.parse.urlencode({"profile_id": app["profile_id"], "busqueda_id": bid}))
+        except entrevista_repository.EntrevistaStorageError:
+            url = "/cchh/entrevistas"
+        links[app["application_id"]] = {"url": url, "label": label}
+    return links
+
+
+def _pipeline_actor(request: Request) -> str | None:
+    """Ejecutor de un movimiento del pipeline = claim `sub` de la sesión autenticada (normalizado), MISMA fuente que las transiciones de la solicitud. `None` si la sesión no lo trae."""
+    return str((auth_service.session_user(request) or {}).get("sub") or "").strip().lower() or None
 
 
 def _busqueda_shell(request, extra: dict) -> dict:
@@ -1509,7 +1595,7 @@ def _busqueda_detail_body(request, busqueda_id: str):
         raise HTTPException(404, "Búsqueda no encontrada")
     return templates.TemplateResponse(
         request=request, name="partials/human_capital_busqueda_detail_body.html",
-        context={"request": request, **_busqueda_detail_context(busqueda)},
+        context={"request": request, **_busqueda_detail_context(busqueda), "oob_historial": True},
     )
 
 
@@ -1519,7 +1605,7 @@ def human_capital_busqueda_add_candidate(request: Request, busqueda_id: str, pro
     if redirect is not None:
         return redirect
     try:
-        human_capital_service.add_candidate_to_busqueda(busqueda_id, profile_id)
+        human_capital_service.add_candidate_to_busqueda(busqueda_id, profile_id, actor=_pipeline_actor(request))
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
     except (ValueError, *_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
@@ -1539,7 +1625,7 @@ def human_capital_busqueda_move_stage(
     if redirect is not None:
         return redirect
     try:
-        human_capital_service.move_application_stage(busqueda_id, application_id, etapa, resultado_final)
+        human_capital_service.move_application_stage(busqueda_id, application_id, etapa, resultado_final, actor=_pipeline_actor(request))
     except (busqueda_repository.BusquedaNotFoundError, busqueda_repository.ApplicationNotFoundError):
         raise HTTPException(404, "No encontrado") from None
     except (ValueError, *_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
@@ -1556,7 +1642,7 @@ def human_capital_busqueda_remove_candidate(request: Request, busqueda_id: str, 
     if redirect is not None:
         return redirect
     try:
-        human_capital_service.remove_application(busqueda_id, application_id)
+        human_capital_service.remove_application(busqueda_id, application_id, actor=_pipeline_actor(request))
     except (busqueda_repository.BusquedaNotFoundError, busqueda_repository.ApplicationNotFoundError):
         pass
     except (*_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
@@ -1564,6 +1650,57 @@ def human_capital_busqueda_remove_candidate(request: Request, busqueda_id: str, 
     if request.headers.get("HX-Request"):
         return _busqueda_detail_body(request, busqueda_id)
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
+
+
+@router.get("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/contacto", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_candidate_contact(request: Request, busqueda_id: str, application_id: str):
+    """Contenido del diálogo «Contactar» de UNA postulación del proceso: solo lectura (no cambia etapas, no crea entrevistas, no registra envíos). Misma autorización que el resto del pipeline de CCHH; el candidato se
+    resuelve SIEMPRE por la postulación del proceso indicado, así que no hay forma de pedir los datos de contacto de un candidato ajeno a ese proceso."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    busqueda = human_capital_service.get_busqueda(busqueda_id)
+    if busqueda is None:
+        raise HTTPException(404, "Búsqueda no encontrada")
+    application = next((a for a in busqueda.get("candidatos", []) if a.get("application_id") == application_id), None)
+    if application is None:
+        raise HTTPException(404, "Postulación no encontrada")
+    profile = human_capital_service.get_profile(application.get("profile_id")) if application.get("profile_id") else None
+    view = human_capital_contact.contact_view(profile, busqueda, application) if profile and not profile.get("deleted_at") else None
+    return templates.TemplateResponse(
+        request=request, name="partials/human_capital_contact_dialog_content.html",
+        context={"request": request, "view": view, "event_url": f"/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/contacto/evento"}, headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/contacto/evento", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_candidate_contact_event(
+    request: Request, busqueda_id: str, application_id: str,
+    accion: str = Form(""), situacion: str = Form(""), canal: str = Form(""), event_id: str = Form(""),
+):
+    """Trazabilidad de la comunicación (historial existente del proceso): el navegador avisa SOLO después de una copia exitosa o de ejecutar la apertura del canal. Registra situación, canal, acción, candidato/postulación,
+    ejecutor autenticado y fecha; jamás el texto del mensaje ni datos de contacto, y jamás «enviado/entregado». Responde con la tabla de Historial actualizada (`X-Contact-Recorded`: 1 nuevo / 0 duplicado ignorado)."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        busqueda, recorded = human_capital_service.register_candidate_contact(
+            busqueda_id, application_id, accion, situacion, canal, actor=_pipeline_actor(request), event_id=event_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(409 if "no tiene cargado" in str(exc) or "no está activo" in str(exc) else 400, str(exc)) from None
+    except (busqueda_repository.BusquedaNotFoundError, busqueda_repository.ApplicationNotFoundError):
+        raise HTTPException(404, "No encontrado") from None
+    except (busqueda_repository.BusquedaInvalidTransitionError, *_BUSQUEDA_SOLICITUD_ERRORS) as exc:
+        raise HTTPException(409, str(exc)) from None
+    except _BUSQUEDA_SHELL_ERRORS:
+        raise HTTPException(503, "No se pudo registrar en el historial: reintentá en unos instantes.") from None
+    ctx = _busqueda_detail_context(busqueda)
+    return templates.TemplateResponse(
+        request=request, name="partials/human_capital_historial_section.html",
+        context={"request": request, "view": ctx["busqueda_historial"]}, headers={"X-Contact-Recorded": "1" if recorded else "0", "Cache-Control": "no-store"},
+    )
 
 
 def _solicitud_actor(request: Request) -> tuple[object | None, str]:
@@ -1639,7 +1776,7 @@ async def human_capital_busqueda_close(request: Request, busqueda_id: str):
     form = await request.form()
     finalize_ids = form.getlist("finalize_application_id")
     try:
-        human_capital_service.close_busqueda(busqueda_id, finalize_ids)
+        human_capital_service.close_busqueda(busqueda_id, finalize_ids, actor=_pipeline_actor(request))
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
     except (*_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
@@ -1800,13 +1937,23 @@ def human_capital_entrevistas_page(request: Request, origen: str = Query(""), pu
 
 
 @router.get("/cchh/entrevistas/nueva", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_entrevista_new_page(request: Request):
+def human_capital_entrevista_new_page(request: Request, profile_id: str = Query(""), busqueda_id: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    # Precarga SOLO si el contexto viene del pipeline y es verificable: el candidato existe y (si se indica el proceso) participa en él. MISMA derivación de puesto/área que la entrevista automática. No escribe nada.
+    form_values: dict = {}
+    profile = human_capital_service.get_profile(profile_id) if profile_id else None
+    if profile is not None and not profile.get("deleted_at"):
+        form_values["profile_id"] = profile_id
+        busqueda = human_capital_service.get_busqueda(busqueda_id) if busqueda_id else None
+        if busqueda is not None and any(a.get("profile_id") == profile_id for a in busqueda.get("candidatos", [])):
+            form_values["puesto_evaluado"] = busqueda.get("nombre_puesto")
+            form_values["area"] = busqueda.get("area_consultora")
+            form_values["modalidad_contratacion"] = human_capital_service.resolve_entrevista_modalidad(None, busqueda)[0]
     return templates.TemplateResponse(
         request=request, name="human_capital/entrevista_form.html",
-        context=_entrevistas_shell(request, _entrevista_form_context(form_values={}, is_edit=False)),
+        context=_entrevistas_shell(request, _entrevista_form_context(form_values=form_values, is_edit=False)),
     )
 
 
@@ -1849,10 +1996,15 @@ def human_capital_entrevista_edit_page(request: Request, entrevista_id: str):
     view = human_capital_service.entrevista_view(entrevista, allow)
     form_values = _form_without_protected_compensation(dict(entrevista), allow)
     form_values["expected_revision"] = entrevista.get("revision", 1)
+    # Modalidad: valor guardado > (candidato: no aplica) > requerimiento del proceso > sin especificar. SOLO precarga el formulario (no escribe): una entrevista ya editada (revision > 1) conserva su vacío tal cual.
+    modalidad, origen = human_capital_service.resolve_entrevista_modalidad(
+        entrevista.get("modalidad_contratacion"), view.get("busqueda"), edited=entrevista.get("revision", 1) > 1)
+    form_values["modalidad_contratacion"] = modalidad
+    ctx = _entrevista_form_context(form_values=form_values, is_edit=True, entrevista=view)
+    ctx["modalidad_prefilled"] = origen == "busqueda"
     return templates.TemplateResponse(
         request=request, name="human_capital/entrevista_form.html",
-        context=_entrevistas_shell(request, _entrevista_form_context(
-            form_values=form_values, is_edit=True, entrevista=view)),
+        context=_entrevistas_shell(request, ctx),
     )
 
 
@@ -2383,6 +2535,7 @@ def _fecha_dmy(value: str | None) -> str:
 
 
 templates.env.filters["fecha_dmy"] = _fecha_dmy
+templates.env.filters["hc_profile_search"] = human_capital_service.profile_search_haystack          # haystack del buscador de candidatos (diálogo «Agregar candidato desde el Banco»)
 # Contexto de listado para las páginas de edición (ver `pagination.list_return_context`): `{% set rc = list_return(request, "/cchh/…") %}` → `rc.back_url` / `rc.qs`.
 templates.env.globals["list_return"] = lambda request, list_path: pagination.list_return_context(request.query_params, list_path)
 

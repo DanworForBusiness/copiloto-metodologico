@@ -1,7 +1,8 @@
 {% from "partials/pager.html" import render_pager %}
+{% from "partials/human_capital_solicitud_take.html" import solicitud_take_form %}
 {# human_capital_solicitudes_panel.html — bandeja «Solicitudes recibidas» (I3): requerimientos REG-CH-01 que Operaciones envía a CCHH. Fragmento compartido por GET /cchh/busquedas (embebido) y los filtros
    (swap HTMX sobre `#hc-solicitudes-panel`, GET /cchh/solicitudes). MISMOS primitivos que el resto de CCHH: `dashboard-section` con contador, chips `.dashboard-view-switch` (como los de atención de
-   Procesos activos), `matrix-scroll` + `dashboard-table`, badges `.status-badge`, acciones `.table-action-btn`. Por defecto muestra enviadas + observadas; las CANCELADAS se consultan con su filtro
+   Procesos activos), `matrix-scroll` + `dashboard-table`, badges `.status-badge`, acciones `.table-action-btn`. Por defecto («Por atender») muestra las enviadas (incluidas reenviadas) que CCHH debe accionar; las observadas esperan a Operaciones y se consultan en su pestaña; las CANCELADAS se consultan con su filtro
    (trazabilidad: sin acciones y fuera de «pendientes», de Procesos activos/cerrados y de los contadores). Las ya tomadas pasaron a Procesos activos. #}
 <div id="hc-solicitudes-panel">
 <div class="dashboard-sections" data-dashboard-key="cchh-solicitudes-recibidas">
@@ -13,8 +14,8 @@
     </summary>
     <div class="dashboard-section__body">
       <div class="dashboard-view-switch busqueda-atencion" role="group" aria-label="Filtrar solicitudes recibidas">
-        {% for key, label in (("recibidas", "Por atender"), ("enviadas", "Enviadas"), ("observadas", "Observadas"), ("canceladas", "Canceladas")) %}
-        <button type="button" class="{{ 'is-active' if solicitud_filtro == key else '' }}" data-solicitud-filtro="{{ key }}"
+        {% for key, label in (("recibidas", "Por atender"), ("enviadas", "Pendientes"), ("observadas", "Observadas"), ("canceladas", "Canceladas")) %}
+        <button type="button" class="{{ 'is-active' if solicitud_filtro == key else '' }}" data-solicitud-filtro="{{ key }}"{% if key == 'recibidas' %} title="Solicitudes enviadas por Operaciones (incluye reenviadas) que esperan que Capital Humano las tome u observe. Las observadas esperan una acción de Operaciones y están en su propia pestaña."{% endif %}
                 hx-get="/cchh/solicitudes?solicitud={{ key }}" hx-target="#hc-solicitudes-panel" hx-swap="outerHTML">{{ label }} · {{ solicitud_counts[key] }}</button>
         {% endfor %}
       </div>
@@ -70,6 +71,10 @@
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
                     <span class="chart-tooltip" aria-hidden="true"><p>Ver</p></span>
                   </a>
+                  {% if r.estado_solicitud == 'enviada' and r.estado == 'activo' %}
+                  {# Orden ESTÁNDAR de acciones en los listados del Hub: ver, editar, eliminar (cuando existan) y, al final, tomar. Atajo «Tomar»: MISMA acción, ícono y regla de disponibilidad que «Solicitudes disponibles para tomar» de «+ Nuevo proceso» (macro único). #}
+                  {{ solicitud_take_form(r) }}
+                  {% endif %}
                 </div>
               </td>
             </tr>

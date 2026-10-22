@@ -33,6 +33,7 @@ def _configured_graph(monkeypatch):
 @pytest.fixture(autouse=True)
 def _isolated_base_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "remote")     # estos tests simulan fallos/confirmaciones de Spaces: ejercitan el contrato REMOTE (el modo es explícito)
 
 
 @pytest.fixture(autouse=True)
@@ -686,7 +687,7 @@ def test_delete_document_signature_never_accepts_a_caller_supplied_site_or_drive
     import inspect
 
     params = list(inspect.signature(svc.delete_document).parameters)
-    assert params == ["profile_id", "document_id", "access_token"]
+    assert params == ["profile_id", "document_id", "access_token", "remove_empty_folder"]       # nunca site/drive/item: solo la opción (bool) de limpiar la carpeta vacía
 
 
 def test_delete_physical_document_url_is_built_purely_from_its_arguments():

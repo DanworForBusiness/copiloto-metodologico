@@ -156,8 +156,17 @@ def list() -> list[dict]:  # noqa: A001 — nombre del contrato, no el builtin
     return out
 
 
+def _require_writable() -> None:
+    """`read-only` no habilita escrituras de negocio: rechazo ANTES de tocar el disco (sin efectos parciales). `local` persiste solo en disco; `remote` conserva su contrato."""
+    if remote_store.read_only_mode():
+        raise PublicacionConfigIncompleteError("La sección de Publicaciones está en modo de solo lectura en este entorno: no se pueden guardar cambios.")
+
+
 def _persist(path: Path, payload: dict, *, previous: dict | None) -> dict:
+    _require_writable()
     _write_atomic(path, payload)
+    if remote_store.local_only():
+        return payload                                   # `local`: escritura física local atómica; sin sincronización con Spaces
     if remote_store.push_path(path):
         return payload
     if not remote_store.enabled():
@@ -219,14 +228,15 @@ def delete(publicacion_id: str) -> None:
     previous = get(publicacion_id)
     if previous is None:
         raise PublicacionNotFoundError(f"La publicación {publicacion_id} no existe.")
+    _require_writable()
     try:
         path.unlink()
     except FileNotFoundError:
         raise PublicacionNotFoundError(f"La publicación {publicacion_id} no existe.") from None
     except OSError as exc:
         raise PublicacionStorageError(f"No se pudo eliminar la publicación: {exc}") from exc
-    if remote_store.delete_path(path):
-        return
+    if remote_store.local_only() or remote_store.delete_path(path):
+        return                                           # `local`: el borrado físico local es el resultado final (sin llamar a Spaces)
     if not remote_store.enabled():
         raise PublicacionConfigIncompleteError("La sección de Publicaciones todavía no está configurada para este entorno.")
     _write_atomic(path, previous)  # rollback: local vuelve a existir

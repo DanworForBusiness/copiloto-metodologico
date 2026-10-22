@@ -371,11 +371,28 @@ def test_unknown_outcome_preserves_the_same_token_for_retry(monkeypatch):
     data = _workbook_bytes(_ALL_HEADERS, [_row()])
     preview = pis.build_preview(pis.parse_workbook(data))
     token = preview[0].token
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "remote")     # simula fallos/confirmaciones de Spaces: contrato REMOTE explícito (en `local` no hay push remoto)
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
     results = pis.confirm_rows([token], [token])
     assert results[0].status == "REMOTE_OUTCOME_UNKNOWN"
     assert results[0].token == token  # MISMO token, para reintentar esta fila puntual
+
+
+def test_local_mode_import_creates_the_profile_on_disk_without_any_remote_call(monkeypatch):
+    """Contrato nuevo (DANWOR_PERSISTENCE=local): el import persiste en disco y NUNCA toca Spaces, aunque haya credenciales; el modo REMOTE (tests vecinos) conserva push + incertidumbre + reintento idempotente."""
+    data = _workbook_bytes(_ALL_HEADERS, [_row()])
+    preview = pis.build_preview(pis.parse_workbook(data))
+    token = preview[0].token
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "local")
+    monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)             # credenciales presentes: no autorizan el write-through en `local`
+
+    def _boom(path):
+        raise AssertionError("local no debe llamar a Spaces")
+    monkeypatch.setattr(profile_repository.remote_store, "push_path", _boom)
+    results = pis.confirm_rows([token], [token])
+    assert results[0].status == "CREATED"
+    assert [p["profile_id"] for p in profile_repository.list()] == [preview[0].profile_id]
 
 
 def test_retrying_an_unknown_row_with_the_same_token_never_mints_a_new_uuid(monkeypatch):
@@ -384,6 +401,7 @@ def test_retrying_an_unknown_row_with_the_same_token_never_mints_a_new_uuid(monk
     token = preview[0].token
     profile_id_before = preview[0].profile_id
 
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "remote")     # simula fallos/confirmaciones de Spaces: contrato REMOTE explícito (en `local` no hay push remoto)
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: False)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: True)
     first = pis.confirm_rows([token], [token])[0]
@@ -412,6 +430,8 @@ def test_no_batch_stop_when_one_row_is_unknown(monkeypatch):
     def _push(path):
         calls["n"] += 1
         return calls["n"] != 1  # solo la 1ra fila falla (y su reintento -- ver abajo)
+
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "remote")     # simula fallos/confirmaciones de Spaces: contrato REMOTE explícito (en `local` no hay push remoto)
 
     # Fuerza a que la PRIMERA fila falle en ambos intentos (push+retry) y
     # la segunda tenga éxito -- confirma que el batch sigue procesando la

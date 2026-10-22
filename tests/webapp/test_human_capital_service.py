@@ -24,6 +24,7 @@ _VALID_SOURCES = ("LinkedIn", "Referido", "Hunting", "Flyer", "Otro")
 def _isolated_base_dir(tmp_path, monkeypatch):
     import config
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "remote")     # estos tests simulan fallos de Spaces: ejercitan el contrato REMOTE (el modo es explícito, no se infiere)
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
     snap = catalog_repo.build_snapshot(

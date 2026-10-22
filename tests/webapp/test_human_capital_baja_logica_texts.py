@@ -23,7 +23,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 _EDIT = (_ROOT / "webapp" / "templates" / "human_capital" / "profile_edit.html").read_text(encoding="utf-8")
 _PANEL = (_ROOT / "webapp" / "templates" / "partials" / "human_capital_profiles_panel.html").read_text(encoding="utf-8")
 _EMAIL = "hc-baja-texts-test@danwor.com"
-_KEEP = "Sus documentos (el CV y la carpeta) permanecen en SharePoint y no se eliminan."
+_KEEP = "No tiene documentos cargados."          # sin documentos: solo se informa la baja lógica (con documentos: diálogo contextual, ver test_cchh_baja_contextual_documents.py)
 
 
 def _top_level_block(src: str, header: str) -> str:
@@ -129,5 +129,6 @@ def test_the_baja_code_path_does_not_reference_graph_delete():
     router = (_ROOT / "webapp" / "routers" / "human_capital.py").read_text(encoding="utf-8")
     route = _top_level_block(router, "def human_capital_profile_delete(")
     # (la rama de error re-renderiza Editar y LEE los documentos locales; no escribe ni borra nada)
-    assert "graph_" not in route and "microsoft365" not in route and "upload_document" not in route and "delete_document" not in route
+    # (la eliminación física es OPT-IN con la casilla «Eliminar también los documentos de SharePoint»: va por el servicio, nunca por helpers de Graph en la ruta)
+    assert "microsoft365" not in route and "upload_document" not in route and "delete_profile_documents" in route
     assert "soft_delete_profile(profile_id, actor)" in route

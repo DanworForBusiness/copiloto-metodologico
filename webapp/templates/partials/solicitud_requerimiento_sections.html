@@ -4,7 +4,6 @@
 {% set pres = req.presencialidad %}
 {% set tipo_labels = {"interna": "Necesidad interna", "proyecto": "Proyecto"} %}
 {% set dedicacion_labels = {"horas_por_mes": "Horas por mes", "horas_por_semana": "Horas por semana", "porcentaje_jornada": "% de jornada"} %}
-{% set transicion_labels = {"enviar": "Enviada a Capital Humano", "editar": "Editada por Operaciones", "observar": "Corrección solicitada por Capital Humano", "reenviar": "Corregida y reenviada", "tomar": "Tomada por Capital Humano", "cancelar": "Cancelada por Operaciones"} %}
 {# Valor de solo lectura: MISMO `.feedback-field` (label + valor) que usa CCHH en sus fichas/formularios. #}
 {% macro ro(label, value) %}<div class="feedback-field feedback-field--medium"><label>{{ label }}</label><p class="hc-field-value">{{ value if value not in (none, '') else '—' }}</p></div>{% endmacro %}
 <div class="dashboard-sections" data-dashboard-key="ops-busqueda-detalle">
@@ -62,28 +61,5 @@
     </div>
   </details>
 
-  <details class="dashboard-section" data-section-id="historial" data-persist-collapse open data-historial>
-    <summary class="dashboard-section__head" draggable="true">
-      <span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span>
-      <span class="dashboard-section__count">{{ view.historial | length }} movimiento{{ '' if view.historial | length == 1 else 's' }}</span>
-    </summary>
-    <div class="dashboard-section__body">
-      <div class="matrix-scroll">
-        <table class="dashboard-table">
-          <colgroup><col style="width:30%"><col style="width:20%"><col style="width:25%"><col style="width:25%"></colgroup>
-          <thead><tr><th class="left">Movimiento</th><th class="left">Fecha</th><th class="left">Realizado por</th><th class="left">Detalle</th></tr></thead>
-          <tbody>
-            {% for h in view.historial | reverse %}
-            <tr>
-              <td class="left">{{ transicion_labels[h.transicion] or h.transicion }}</td>
-              <td class="left">{{ h.fecha | ops_datetime }}</td>
-              <td class="left">{% if h.actor_tipo == 'operaciones' and h.actor %}{{ h.actor }}{% elif h.actor_tipo == 'cchh' %}Capital Humano{% else %}—{% endif %}</td>
-              <td class="left">{{ h.motivo or '—' }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </details>
+  {% include "partials/human_capital_historial_section.html" %}
 </div>

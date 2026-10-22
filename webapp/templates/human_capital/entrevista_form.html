@@ -57,7 +57,7 @@
           <select id="ent-profile" name="profile_id" required>
             <option value="">Elegí un candidato…</option>
             {% for p in profiles %}
-            <option value="{{ p.profile_id }}">{{ p.first_name }} {{ p.last_name }}{% if p.source %} · {{ p.source }}{% endif %}</option>
+            <option value="{{ p.profile_id }}"{% if form_values.profile_id == p.profile_id %} selected{% endif %}>{{ p.first_name }} {{ p.last_name }}{% if p.source %} · {{ p.source }}{% endif %}</option>
             {% endfor %}
           </select>
         </div>
@@ -115,6 +115,7 @@
               <option value="{{ m }}" {% if form_values.modalidad_contratacion == m %}selected{% endif %}>{{ m }}{% if modalidad_contratacion_is_legacy and form_values.modalidad_contratacion == m %} (fuera de catálogo){% endif %}</option>
               {% endfor %}
             </select>
+            {% if modalidad_prefilled %}<p class="field-hint">Precargada desde las condiciones del requerimiento del proceso. Se guarda al confirmar; podés cambiarla.</p>{% endif %}
             {% if modalidad_contratacion_is_legacy %}<p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>{% endif %}
           </div>
           <div class="feedback-field feedback-field--medium">

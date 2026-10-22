@@ -263,12 +263,21 @@ def list() -> list[dict]:  # noqa: A001 — nombre del contrato, no el builtin
 
 # ── Escritura durable (write-through, MISMO contrato que profile_repository) ──
 
+def _require_writable() -> None:
+    """`read-only` no habilita escrituras de negocio: rechazo ANTES de tocar el disco (sin efectos parciales). `local` persiste solo en disco; `remote` conserva su contrato."""
+    if remote_store.read_only_mode():
+        raise BusquedaConfigIncompleteError("La sección de Búsquedas está en modo de solo lectura en este entorno: no se pueden guardar cambios.")
+
+
 def _persist(path: Path, payload: dict, *, previous: dict | None) -> dict:
     """Escribe `payload` local atómico y confirma durabilidad remota.
     `previous` = el estado anterior a restaurar si la compensación aplica
     (None en un create). Devuelve `payload` en éxito; levanta la excepción de
     clasificación que corresponda si la durabilidad no se confirma."""
+    _require_writable()
     _write_atomic(path, payload)
+    if remote_store.local_only():
+        return payload                                   # `local`: escritura física local atómica; sin sincronización con Spaces
     if remote_store.push_path(path):
         return payload
     if not remote_store.enabled():
@@ -321,11 +330,13 @@ def create(fields: dict, *, actor: str | None = None) -> dict:
     return _persist(_busqueda_path(busqueda_id), payload, previous=None)
 
 
-def _mutate(busqueda_id: str, mutator, *, expected_revision: int | None = None) -> dict:
+def _mutate(busqueda_id: str, mutator, *, expected_revision: int | None = None, bump_revision: bool = True) -> dict:
     """Read-modify-write durable bajo el lock global. `mutator(doc)` recibe una
     COPIA mutable del documento actual y la modifica in-place (o levanta). Se le
     bumpea `revision`+`updated_at` y se persiste con compensación. Si
-    `expected_revision` se pasa, se valida concurrencia optimista ANTES de mutar."""
+    `expected_revision` se pasa, se valida concurrencia optimista ANTES de mutar.
+    `bump_revision=False` (solo AUDITORÍA que no cambia el contenido funcional, p. ej. el registro de un contacto): se escribe con el MISMO lock/atomicidad/compensación y `updated_at`, pero NO se
+    invalida la `revision` que un formulario abierto espera. No pierde cambios: toda mutación relee el documento vigente bajo el lock y aplica su cambio sobre él."""
     with _write_lock:
         current = get(busqueda_id)
         if current is None:
@@ -339,7 +350,7 @@ def _mutate(busqueda_id: str, mutator, *, expected_revision: int | None = None) 
         candidate["busqueda_id"] = busqueda_id
         candidate["schema_version"] = _SCHEMA_VERSION
         candidate["created_at"] = current.get("created_at")
-        candidate["revision"] = current.get("revision", 1) + 1
+        candidate["revision"] = current.get("revision", 1) + (1 if bump_revision else 0)
         candidate["updated_at"] = _now_iso()
         return _persist(_busqueda_path(busqueda_id), candidate, previous=current)
 
@@ -375,18 +386,92 @@ def _find_app(doc: dict, application_id: str) -> dict:
     raise ApplicationNotFoundError(f"La postulación {application_id} no existe en esta búsqueda.")
 
 
-def add_candidate(busqueda_id: str, profile_id: str) -> dict:
+# ── Historial del PROCESO: movimientos de candidatos ────────────────────────────────────────────────────────────
+# MISMO historial y MISMA persistencia que las transiciones de la solicitud: las entradas usan el esquema de `_record` (`transicion`, `desde`, `hasta`, `actor`, `actor_tipo`, `fecha`) y viven en
+# `solicitud.historial` cuando la búsqueda nació de una solicitud de Operaciones; una búsqueda de alta directa de CCHH (sin bloque `solicitud`, que cambiaría su clasificación) las guarda en
+# `historial` a nivel documento. Se escriben DENTRO de la MISMA mutación atómica que el cambio del pipeline (`_mutate`): si la persistencia no se confirma, no queda ni el cambio ni el evento, y
+# una operación sin efecto (reintento, doble envío) no registra nada. Cada evento guarda el ejecutor autenticado y una FOTO del nombre visible (el Banco puede cambiar o eliminar al candidato después).
+CANDIDATO_ASOCIADO, CANDIDATO_ETAPA, CANDIDATO_FINALIZADO, CANDIDATO_DESVINCULADO = "candidato_asociado", "candidato_etapa", "candidato_finalizado", "candidato_desvinculado"
+CANDIDATO_CONTACTO = "candidato_contacto"      # trazabilidad de comunicaciones preparadas desde el diálogo «Contactar» (NO es un movimiento del pipeline ni un envío)
+CANDIDATO_EVENTOS = (CANDIDATO_ASOCIADO, CANDIDATO_ETAPA, CANDIDATO_FINALIZADO, CANDIDATO_DESVINCULADO, CANDIDATO_CONTACTO)
+CONTACTO_ACCIONES = ("mensaje_copiado", "canal_abierto", "apertura_solicitada")
+_CONTACTO_VENTANA_DUPLICADO_S = 3        # misma acción (mismo ejecutor/candidato/situación/canal) dentro de esta ventana = doble clic / reintento: no se vuelve a registrar
+
+
+class _EventoDuplicado(Exception):
+    """Señal interna: el evento ya está registrado; aborta la mutación SIN escribir (ni revisión ni historial)."""
+
+
+def historial_proceso_of(doc: dict) -> list:
+    """La lista de historial del proceso (solo lectura): la de la solicitud si existe; si no, la de nivel documento; `[]` si no hay."""
+    sol = solicitud_of(doc)
+    h = sol.get("historial") if sol is not None else doc.get("historial")
+    return h or []                                            # (`list` está sombreado en este módulo por `list()`: sin isinstance)
+
+
+def _log_candidate_event(doc: dict, transicion: str, *, actor, now: str, application: dict, names, desde=None, hasta=None, resultado=None) -> None:
+    profile_id = application.get("profile_id")
+    try:
+        nombre = (names(profile_id) if names is not None else None) or None
+    except Exception:  # noqa: BLE001 — el nombre es solo presentación: nunca bloquea el movimiento
+        nombre = None
+    entry = {"transicion": transicion, "desde": desde, "hasta": hasta, "actor": (str(actor).strip().lower() or None) if actor else None, "actor_tipo": ORIGEN_CCHH, "fecha": now,
+             "profile_id": profile_id, "candidato": nombre, "application_id": application.get("application_id")}
+    if resultado:
+        entry["resultado"] = resultado
+    sol = solicitud_of(doc)
+    (sol.setdefault("historial", []) if sol is not None else doc.setdefault("historial", [])).append(entry)
+
+
+def _parse_iso(value) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def log_candidate_contact(busqueda_id: str, application_id: str, *, accion: str, situacion: str, canal: str, actor: str | None, event_id: str | None = None, names=None) -> tuple[dict, bool]:
+    """Registra en el historial del proceso (MISMO historial y MISMA mutación atómica que el resto de los movimientos de candidatos) que CCHH preparó una comunicación con la candidatura: `accion` en
+    {mensaje_copiado, canal_abierto, apertura_solicitada}, con la `situacion` y el `canal` elegidos. Guarda SOLO datos estructurados (candidato/postulación, situación, canal, acción, ejecutor, fecha, `event_id`):
+    nunca el cuerpo del mensaje, ni teléfonos/emails, ni URLs. NO implica que el mensaje se haya enviado, recibido ni entregado. Idempotente: un `event_id` ya registrado, o la misma acción del mismo ejecutor sobre la misma
+    candidatura/situación/canal dentro de pocos segundos (doble clic, reintento), no registra nada. -> `(doc, registrado)`."""
+    if accion not in CONTACTO_ACCIONES:
+        raise ValueError("Acción de contacto inválida.")
+    def _apply(doc: dict) -> None:
+        _require_managed(doc, "registrar contactos de")
+        app = _find_app(doc, application_id)
+        now = _now_iso()
+        who = (str(actor).strip().lower() or None) if actor else None
+        now_dt = _parse_iso(now)
+        for h in historial_proceso_of(doc):
+            if h.get("transicion") != CANDIDATO_CONTACTO or h.get("application_id") != application_id:
+                continue
+            if event_id and h.get("event_id") == event_id:
+                raise _EventoDuplicado
+            prev = _parse_iso(h.get("fecha"))
+            if (h.get("accion"), h.get("situacion"), h.get("canal"), h.get("actor")) == (accion, situacion, canal, who) and prev and now_dt and 0 <= (now_dt - prev).total_seconds() <= _CONTACTO_VENTANA_DUPLICADO_S:
+                raise _EventoDuplicado
+        _log_candidate_event(doc, CANDIDATO_CONTACTO, actor=actor, now=now, application=app, names=names)
+        entry = historial_proceso_of(doc)[-1]
+        entry.update({"accion": accion, "situacion": situacion, "canal": canal, "event_id": event_id or None})
+    try:
+        return _mutate(busqueda_id, _apply, bump_revision=False), True       # auditoría: no invalida la revisión de un formulario de edición abierto
+    except _EventoDuplicado:
+        return get(busqueda_id), False
+
+
+def add_candidate(busqueda_id: str, profile_id: str, *, actor: str | None = None, names=None) -> dict:
     """Asocia un Profile del Banco a la búsqueda (nueva postulación en
     Preselección, con su primera fila de historial). Idempotente-ish: si el
     profile ya tiene una postulación ACTIVA (no finalizada) en ESTA búsqueda,
-    no la duplica."""
+    no la duplica (y entonces TAMPOCO registra un evento). `actor`/`names`: ver el bloque de historial."""
     def _apply(doc: dict) -> None:
         _require_managed(doc, "agregar candidatos a")
         for app in doc.get("candidatos", []):
             if app.get("profile_id") == profile_id and app.get("etapa") != ETAPA_FINAL:
                 return  # ya está en la búsqueda, no duplicar
         now = _now_iso()
-        doc.setdefault("candidatos", []).append({
+        application = {
             "application_id": str(uuid4()),
             "profile_id": profile_id,
             "etapa": ETAPA_INICIAL,
@@ -394,33 +479,42 @@ def add_candidate(busqueda_id: str, profile_id: str) -> dict:
             "fecha_cambio_etapa": now,
             "historial": [{"etapa": ETAPA_INICIAL, "fecha": now}],
             "created_at": now,
-        })
+        }
+        doc.setdefault("candidatos", []).append(application)
+        _log_candidate_event(doc, CANDIDATO_ASOCIADO, actor=actor, now=now, application=application, names=names, hasta=ETAPA_INICIAL)
     return _mutate(busqueda_id, _apply)
 
 
-def move_stage(busqueda_id: str, application_id: str, etapa: str, resultado_final: str | None) -> dict:
+def move_stage(busqueda_id: str, application_id: str, etapa: str, resultado_final: str | None, *, actor: str | None = None, names=None) -> dict:
     """Mueve una postulación a `etapa` (registrando la transición en historial).
-    `resultado_final` se fuerza a None salvo que etapa == Finalizado."""
+    `resultado_final` se fuerza a None salvo que etapa == Finalizado. Un movimiento SIN EFECTO (misma etapa y mismo resultado: reintento / doble envío) no escribe historial ni evento."""
     def _apply(doc: dict) -> None:
         _require_managed(doc, "mover candidatos de")
         app = _find_app(doc, application_id)
+        nuevo_resultado = resultado_final if etapa == ETAPA_FINAL else None
+        if app.get("etapa") == etapa and app.get("resultado_final") == nuevo_resultado:
+            return
+        desde = app.get("etapa")
         now = _now_iso()
         app["etapa"] = etapa
-        app["resultado_final"] = resultado_final if etapa == ETAPA_FINAL else None
+        app["resultado_final"] = nuevo_resultado
         app["fecha_cambio_etapa"] = now
         app.setdefault("historial", []).append({"etapa": etapa, "fecha": now})
+        _log_candidate_event(doc, CANDIDATO_FINALIZADO if etapa == ETAPA_FINAL else CANDIDATO_ETAPA, actor=actor, now=now, application=app, names=names,
+                             desde=desde, hasta=etapa, resultado=nuevo_resultado)
     return _mutate(busqueda_id, _apply)
 
 
-def remove_candidate(busqueda_id: str, application_id: str) -> dict:
-    """Quita una postulación de la búsqueda (el Profile del Banco no se toca)."""
+def remove_candidate(busqueda_id: str, application_id: str, *, actor: str | None = None, names=None) -> dict:
+    """Quita una postulación de la búsqueda (el Profile del Banco no se toca). Registra el evento de desvinculación (con la etapa de origen)."""
     def _apply(doc: dict) -> None:
         _require_managed(doc, "quitar candidatos de")
         before = doc.get("candidatos", [])
-        after = [a for a in before if a.get("application_id") != application_id]
-        if len(after) == len(before):
+        removed = next((a for a in before if a.get("application_id") == application_id), None)
+        if removed is None:
             raise ApplicationNotFoundError(f"La postulación {application_id} no existe en esta búsqueda.")
-        doc["candidatos"] = after
+        doc["candidatos"] = [a for a in before if a.get("application_id") != application_id]
+        _log_candidate_event(doc, CANDIDATO_DESVINCULADO, actor=actor, now=_now_iso(), application=removed, names=names, desde=removed.get("etapa"), resultado=removed.get("resultado_final"))
     return _mutate(busqueda_id, _apply)
 
 
@@ -448,14 +542,15 @@ def delete(busqueda_id: str) -> None:
 def _delete_file(busqueda_id: str, previous: dict) -> None:
     """Borrado físico durable (local + remoto) con rollback local si el remoto no se confirma."""
     path = _busqueda_path(busqueda_id)
+    _require_writable()
     try:
         path.unlink()
     except FileNotFoundError:
         raise BusquedaNotFoundError(f"La búsqueda {busqueda_id} no existe.") from None
     except OSError as exc:
         raise BusquedaStorageError(f"No se pudo eliminar la búsqueda: {exc}") from exc
-    if remote_store.delete_path(path):
-        return
+    if remote_store.local_only() or remote_store.delete_path(path):
+        return                                           # `local`: el borrado físico local es el resultado final (sin llamar a Spaces)
     _write_atomic(path, previous)  # rollback: local vuelve a existir (también sin Spaces configurado: nunca queda un borrado local sin confirmar)
     if not remote_store.enabled():
         raise BusquedaConfigIncompleteError(
@@ -466,7 +561,7 @@ def _delete_file(busqueda_id: str, previous: dict) -> None:
     )
 
 
-def close(busqueda_id: str, finalize_application_ids: list[str] | None = None) -> dict:
+def close(busqueda_id: str, finalize_application_ids: list[str] | None = None, *, actor: str | None = None, names=None) -> dict:
     """Cierra la búsqueda: las postulaciones pendientes indicadas pasan a
     Finalizado · Rechazado, y la búsqueda queda `estado='cerrado'` con
     `fecha_cierre`=hoy."""
@@ -476,10 +571,12 @@ def close(busqueda_id: str, finalize_application_ids: list[str] | None = None) -
         now = _now_iso()
         for app in doc.get("candidatos", []):
             if app.get("application_id") in finalize and app.get("etapa") != ETAPA_FINAL:
+                desde = app.get("etapa")
                 app["etapa"] = ETAPA_FINAL
                 app["resultado_final"] = "Rechazado"
                 app["fecha_cambio_etapa"] = now
                 app.setdefault("historial", []).append({"etapa": ETAPA_FINAL, "fecha": now})
+                _log_candidate_event(doc, CANDIDATO_FINALIZADO, actor=actor, now=now, application=app, names=names, desde=desde, hasta=ETAPA_FINAL, resultado="Rechazado")
         doc["estado"] = "cerrado"
         doc["fecha_cierre"] = _business_today()
     return _mutate(busqueda_id, _apply)

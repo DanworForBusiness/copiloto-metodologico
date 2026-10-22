@@ -1,0 +1,26 @@
+{# human_capital_historial_section.html — tabla ÚNICA del historial de un proceso (movimientos de la solicitud de Operaciones + movimientos de candidatos del pipeline), compartida por el detalle de CCHH y por Operaciones (que solo recibe los movimientos de la solicitud). Espera `view.historial` (filas de `human_capital_service._historial_rows`) y `view.ejecutores_cchh_visibles`. #}
+{% set transicion_labels = {"enviar": "Enviada a Capital Humano", "editar": "Editada por Operaciones", "observar": "Corrección solicitada por Capital Humano", "reenviar": "Corregida y reenviada", "tomar": "Tomada por Capital Humano", "cancelar": "Cancelada por Operaciones", "candidato_asociado": "Candidato asociado", "candidato_etapa": "Cambio de etapa", "candidato_finalizado": "Candidato finalizado", "candidato_desvinculado": "Candidato desvinculado"} %}
+  <details class="dashboard-section" id="busqueda-historial" data-section-id="historial" data-persist-collapse open data-historial{% if oob_historial %} hx-swap-oob="true"{% endif %}>
+    <summary class="dashboard-section__head" draggable="true">
+      <span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span>
+      <span class="dashboard-section__count">{{ view.historial | length }} movimiento{{ '' if view.historial | length == 1 else 's' }}</span>
+    </summary>
+    <div class="dashboard-section__body">
+      <div class="matrix-scroll">
+        <table class="dashboard-table">
+          <colgroup><col style="width:30%"><col style="width:20%"><col style="width:25%"><col style="width:25%"></colgroup>
+          <thead><tr><th class="left">Movimiento</th><th class="left">Fecha</th><th class="left">Realizado por</th><th class="left">Detalle</th></tr></thead>
+          <tbody>
+            {% for h in view.historial | reverse %}
+            <tr>
+              <td class="left">{{ h.movimiento or transicion_labels[h.transicion] or h.transicion }}</td>
+              <td class="left">{{ h.fecha | ops_datetime }}</td>
+              <td class="left">{% if h.actor %}{{ h.actor }}{% elif h.actor_tipo == 'cchh' and view.ejecutores_cchh_visibles %}Usuario no identificado{% elif h.actor_tipo == 'cchh' %}Capital Humano{% else %}—{% endif %}</td>
+              <td class="left">{% if h.transicion.startswith('candidato_') %}{% set _c = h.candidato or 'Candidato (nombre no disponible)' %}{% if h.transicion == 'candidato_contacto' %}{{ _c }} — {{ h.detalle_contacto }}{% elif h.transicion == 'candidato_asociado' %}{{ _c }} → {{ h.hasta }}{% elif h.transicion == 'candidato_desvinculado' %}{{ _c }} (estaba en {{ h.desde or '—' }}){% elif h.transicion == 'candidato_finalizado' %}{{ _c }}: {{ h.desde or '—' }} → Finalizado · {{ h.resultado or 'sin resultado' }}{% else %}{{ _c }}: {{ h.desde or '—' }} → {{ h.hasta }}{% endif %}{% else %}{{ h.motivo or '—' }}{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>

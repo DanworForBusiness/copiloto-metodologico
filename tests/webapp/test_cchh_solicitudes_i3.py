@@ -4,15 +4,17 @@ Tests focalizados (autorización, privacidad, integridad, persistencia). La pers
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
 from webapp.services import busqueda_repository as repo, human_capital_service as svc, profile_repository
-from tests.webapp.test_busqueda_solicitud_i1 import CCHH_EMAIL, OPS_A, SID, SID2, doc, env, files, remote, req, rev, seed_catalog, send, to_state   # noqa: F401
-from tests.webapp.test_operations_busquedas_i2 import ORIGIN, operations_users, ops, session_client                                        # noqa: F401
+from tests.webapp.test_busqueda_solicitud_i1 import CCHH_EMAIL, OPS_A, OPS_B, SID, SID2, doc, env, files, remote, req, rev, seed_catalog, send, to_state   # noqa: F401
+from tests.webapp.test_operations_busquedas_i2 import ORIGIN, form_payload, operations_users, ops, post_new, session_client                                        # noqa: F401
 
 SID3 = "0b6c1d2e-7a44-4f0e-8c35-9d2f5e1a7b21"
 HX = {"HX-Request": "true"}
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def cchh():
@@ -60,15 +62,15 @@ def test_publicaciones_only_offers_managed_busquedas():
 
 
 # ═══════════════════ bandeja Solicitudes recibidas ═══════════════════
-def test_the_inbox_shows_sent_and_observed_by_default_and_cancelled_only_under_its_filter():
+def test_the_inbox_shows_only_sent_by_default_observed_under_its_tab_and_cancelled_only_under_its_filter():
     send(SID); send(SID2); svc.observe_solicitud(SID2, rev(SID2), "Falta algo", CCHH_EMAIL)
     send(SID3); svc.cancel_solicitud(SID3, rev(SID3), OPS_A)
     c = cchh()
-    assert sorted(_rows(c.get("/cchh/busquedas").text)) == sorted([SID, SID2])                           # por defecto: enviadas + observadas
+    assert _rows(c.get("/cchh/busquedas").text) == [SID]                                                   # por defecto («Por atender»): solo enviadas; la observada espera a Operaciones
     assert _rows(c.get("/cchh/solicitudes", params={"solicitud": "enviadas"}, headers=HX).text) == [SID]
     assert _rows(c.get("/cchh/solicitudes", params={"solicitud": "observadas"}, headers=HX).text) == [SID2]
     canc = c.get("/cchh/solicitudes", params={"solicitud": "canceladas"}, headers=HX).text
-    assert _rows(canc) == [SID3] and "Cancelada" in canc and "Por atender · 2" in canc                    # no cuentan como pendientes
+    assert _rows(canc) == [SID3] and "Cancelada" in canc and "Por atender · 1" in canc                    # no cuentan como pendientes
     assert _rows(c.get("/cchh/solicitudes", params={"solicitud": "inventado"}, headers=HX).text) == _rows(c.get("/cchh/busquedas").text)
 
 
@@ -93,7 +95,7 @@ def test_a_sent_request_shows_the_structured_requirement_and_only_take_or_reques
     for fragment in ("Consultor SAP FI", "Migración S/4", "SSR, SR", "40 · Horas por semana", "Oficina del cliente, CABA", "Configurar FI.", "Intermedio", "Full-Time", "Historial"):
         assert fragment in html, fragment
     assert "Tomar en gestión" in html and "Solicitar corrección" in html and f'action="/cchh/busquedas/{SID}/tomar"' in html
-    assert 'data-solicitud-badge>Enviada<' in html and "status-badge--activo" not in html.split("data-solicitud-badge")[0].split("busqueda-status-row")[-1]      # no se rotula «Activo» una solicitud pendiente
+    assert 'data-solicitud-badge>Pendiente<' in html and "status-badge--activo" not in html.split("data-solicitud-badge")[0].split("busqueda-status-row")[-1]      # no se rotula «Activo» una solicitud pendiente
     for hidden in ("+ Agregar candidato", "Cerrar proceso", "busqueda-add-dialog", "busqueda-close-dialog", "busqueda-pipeline-bar", ">Editar<"):
         assert hidden not in html, hidden
 
@@ -202,9 +204,12 @@ def test_inbox_order_is_last_reception_descending_a_new_request_comes_first():
 def test_a_resubmitted_request_returns_to_the_first_position_and_an_observation_does_not_move_it():
     send(SID, nombre_puesto="Primera"); send(SID2, nombre_puesto="Segunda"); send(SID3, nombre_puesto="Tercera")
     svc.observe_solicitud(SID, rev(SID), "Falta algo", CCHH_EMAIL)                                        # observar NO cambia la fecha de recepción
-    assert _names(cchh().get("/cchh/busquedas").text) == ["Tercera", "Segunda", "Primera"]
+    svc.observe_solicitud(SID2, rev(SID2), "Falta algo", CCHH_EMAIL)
+    assert _names(cchh().get("/cchh/busquedas").text) == ["Tercera"]                                       # «Por atender»: las observadas esperan a Operaciones y salen de la vista por defecto
+    obs = lambda: _names(cchh().get("/cchh/solicitudes", params={"solicitud": "observadas"}, headers=HX).text)   # noqa: E731
+    assert obs() == ["Segunda", "Primera"]                                                                 # su pestaña conserva el orden de recepción (la observación no lo mueve)
     svc.resubmit_solicitud(SID, rev(SID), req(nombre_puesto="Primera", comentarios="corregido"), OPS_A)   # reenviar = nueva recepción
-    assert _names(cchh().get("/cchh/busquedas").text) == ["Primera", "Tercera", "Segunda"]
+    assert _names(cchh().get("/cchh/busquedas").text) == ["Primera", "Tercera"] and obs() == ["Segunda"]
     assert doc(SID)["solicitud"]["ultimo_envio_en"] > doc(SID3)["solicitud"]["ultimo_envio_en"]
 
 
@@ -262,6 +267,163 @@ def test_new_process_lists_only_sent_or_resent_untaken_requests_with_the_minimum
     for hidden in ("Observada", "Cancelada", "Tomada", "Alta directa"):
         assert f"{hidden}</a>" not in html, hidden                                                          # no reutilizables
     assert 'name="expected_revision"' in html and 'name="desde" value="nuevo"' in html
+
+
+def test_new_process_explains_taking_a_request_as_a_tooltip_on_the_collapsible_not_as_section_text():
+    help_text = "Si el requerimiento ya fue enviado desde Operaciones, tomalo desde acá en vez de crear un proceso nuevo: conserva su requerimiento y su historial."
+    send(SID)
+    html = cchh().get("/cchh/busquedas/nueva").text
+    summary = re.search(r'data-section-id="solicitudes-disponibles".*?<summary class="dashboard-section__head"[^>]*>(.*?)</summary>', html, re.S).group(1)
+    assert "Solicitudes disponibles para tomar" in summary and 'class="chart-tooltip-anchor"' in summary and 'class="activity-kpi__info"' in summary   # (i) a nivel del colapsable
+    assert f'aria-label="{help_text}"' in summary and f'<span class="chart-tooltip"><p>{help_text}</p></span>' in summary
+    assert "chart-tooltip-anchor" not in re.search(r"<h1>(.*?)</h1>", html, re.S).group(1)                                          # no en el encabezado de la página
+    assert html.count(help_text) == 2 and 'class="field-hint">Si el requerimiento' not in html                                    # solo aria-label + tooltip: ya no es texto dentro de la sección
+
+
+def test_the_take_shortcut_is_the_same_icon_action_in_the_landing_and_in_new_process_and_only_for_takeable_requests():
+    send(SID, nombre_puesto="Enviada")
+    send(SID2, nombre_puesto="Observada"); svc.observe_solicitud(SID2, rev(SID2), "x", CCHH_EMAIL)
+    take = lambda html, sid: re.search(rf'<form method="post" action="/cchh/busquedas/{sid}/tomar" class="dw-inline-form" data-solicitud-take>(.*?)</form>', html, re.S)   # noqa: E731
+    landing, fragment, nuevo = (cchh().get("/cchh/busquedas").text, cchh().get("/cchh/solicitudes", headers=HX).text, cchh().get("/cchh/busquedas/nueva").text)
+    for html in (landing, fragment):
+        assert take(html, SID) and SID2 not in _rows(html)                                                    # «Por atender»: solo la enviada trae el atajo «Tomar» (+ «Ver»); la observada espera a Operaciones
+    observed = cchh().get("/cchh/solicitudes", params={"solicitud": "observadas"}, headers=HX).text
+    assert not take(observed, SID2) and 'aria-label="Ver solicitud"' in observed                              # observada: solo «Ver»
+    inner = lambda m: re.sub(r"\s+", " ", re.sub(r'<input type="hidden" name="desde" value="nuevo">', "", m.group(1))).strip()   # noqa: E731
+    assert inner(take(landing, SID)) == inner(take(nuevo, SID))                                               # MISMO ícono + tooltip en las dos superficies (macro único)
+    row = re.search(rf'<tr data-solicitud-id="{SID}".*?</tr>', landing, re.S).group(0)
+    assert row.index('aria-label="Ver solicitud"') < row.index("data-solicitud-take")                         # orden estándar de acciones: ver primero, tomar al final
+    body = take(landing, SID).group(1)
+    assert 'class="table-action-btn chart-tooltip-anchor" aria-label="Tomar solicitud"' in body and "<svg" in body and "<p>Tomar</p>" in body
+    assert "table-action-btn--text" not in nuevo and ">Tomar</button>" not in nuevo                         # la palabra «Tomar» ya no es el botón
+    assert 'name="desde" value="nuevo"' in nuevo and 'name="desde"' not in body                                # solo «+ Nuevo proceso» conserva su aviso de retorno
+    revision = re.search(r'name="expected_revision" value="(\d+)"', body).group(1)
+    r = cchh().post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": revision}, headers=ORIGIN)       # el atajo del landing = la misma acción
+    assert r.status_code == 303 and r.headers["location"] == f"/cchh/busquedas/{SID}?ok=tomada" and doc()["solicitud"]["estado"] == "en_gestion"
+
+
+def _chips(html: str) -> dict:
+    return {k: (label.strip(), int(n)) for k, label, n in re.findall(r'data-solicitud-filtro="(\w+)"[^>]*>\s*([^<]*?) · (\d+)</button>', html, re.S)}
+
+
+def test_indicator_semantics_pending_is_received_demand_never_a_managed_or_cchh_sent_search_taken_and_processed_leave_the_inbox():
+    ops_state = lambda: re.search(r'data-indicador="(\w+)"', ops().get(f"/operaciones/busquedas/{SID}").text).group(1)   # noqa: E731  (semántica propia de Operaciones)
+    inbox = lambda: cchh().get("/cchh/solicitudes", headers=HX).text                                                      # noqa: E731
+    # 1) PENDIENTE: demanda recibida (Por atender ⊃ Pendientes); no se llama «Enviada» en CCHH y NO es una búsqueda gestionada
+    send(SID)
+    html = inbox()
+    assert _chips(html) == {"recibidas": ("Por atender", 1), "enviadas": ("Pendientes", 1), "observadas": ("Observadas", 0), "canceladas": ("Canceladas", 0)}
+    assert "Enviadas" not in html and ">Enviada<" not in html and ">Pendiente<" in html and "Las observadas esperan una acción de Operaciones" in html
+    assert SID not in [b["busqueda_id"] for b in svc.list_busquedas_gestionadas()] and svc.resumen_solicitudes()["pendiente"] == 1 and svc.resumen_solicitudes()["gestionada"] == 0
+    assert 'data-solicitud-badge>Pendiente<' in cchh().get(f"/cchh/busquedas/{SID}").text
+    assert ops_state() == "nueva"                                                                                          # Operaciones conserva su vocabulario («Nueva»)
+    # 2) TOMADA: sale de la bandeja (demanda atendida) y pasa a la población gestionada
+    svc.take_solicitud(SID, rev(), CCHH_EMAIL)
+    assert _chips(inbox()) == {"recibidas": ("Por atender", 0), "enviadas": ("Pendientes", 0), "observadas": ("Observadas", 0), "canceladas": ("Canceladas", 0)}
+    assert SID in [b["busqueda_id"] for b in svc.list_busquedas_gestionadas()] and svc.resumen_solicitudes()["gestionada"] == 1 and svc.resumen_solicitudes()["pendiente"] == 0
+    assert ops_state() == "en_gestion"
+    # 3) PROCESADA (proceso cerrado): sigue gestionada, jamás reaparece como pendiente
+    svc.close_busqueda(SID)
+    assert _chips(inbox())["recibidas"] == ("Por atender", 0) and _chips(inbox())["enviadas"] == ("Pendientes", 0)
+    assert [b["estado"] for b in svc.list_busquedas_gestionadas() if b["busqueda_id"] == SID] == ["cerrado"] and ops_state() == "cerrada"
+
+
+def test_por_atender_counts_and_lists_only_sent_requests_including_resent_and_never_observed_ones():
+    chips = lambda: _chips(cchh().get("/cchh/solicitudes", headers=HX).text)                                              # noqa: E731
+    rows = lambda key: _rows(cchh().get("/cchh/solicitudes", params={"solicitud": key}, headers=HX).text)                # noqa: E731
+    send(SID, nombre_puesto="Nueva")
+    send(SID2, nombre_puesto="Observada"); svc.observe_solicitud(SID2, rev(SID2), "Falta el proyecto", CCHH_EMAIL)
+    send(SID3, nombre_puesto="Reenviada"); svc.observe_solicitud(SID3, rev(SID3), "x", CCHH_EMAIL); svc.resubmit_solicitud(SID3, rev(SID3), req(nombre_puesto="Reenviada", comentarios="ok"), OPS_A)
+    # conteo: «Por atender» = enviadas (incluye reenviadas), SIN observadas; «Pendientes» = enviadas; «Observadas» independiente
+    assert chips() == {"recibidas": ("Por atender", 2), "enviadas": ("Pendientes", 2), "observadas": ("Observadas", 1), "canceladas": ("Canceladas", 0)}
+    # filtrado: la vista por defecto y su pestaña listan solo enviadas; la observada solo aparece en su pestaña
+    assert sorted(rows("recibidas")) == sorted([SID, SID3]) == sorted(rows("enviadas")) and rows("observadas") == [SID2]
+    assert sorted(_rows(cchh().get("/cchh/busquedas").text)) == sorted([SID, SID3]) and SID2 not in _rows(cchh().get("/cchh/busquedas").text)
+    assert 'title="Solicitudes enviadas por Operaciones (incluye reenviadas)' in cchh().get("/cchh/solicitudes", headers=HX).text
+
+
+def test_observed_to_resent_moves_a_request_out_of_and_back_into_por_atender_without_touching_states_or_history():
+    chips = lambda: _chips(cchh().get("/cchh/solicitudes", headers=HX).text)                                              # noqa: E731
+    send(SID)
+    assert chips()["recibidas"] == ("Por atender", 1)
+    svc.observe_solicitud(SID, rev(), "Falta el proyecto", CCHH_EMAIL)                                                    # observada: espera a Operaciones
+    assert chips() == {"recibidas": ("Por atender", 0), "enviadas": ("Pendientes", 0), "observadas": ("Observadas", 1), "canceladas": ("Canceladas", 0)}
+    assert doc()["solicitud"]["estado"] == "observada"
+    svc.resubmit_solicitud(SID, rev(), req(comentarios="corregido"), OPS_A)                                               # Operaciones corrige y reenvía
+    html = cchh().get("/cchh/solicitudes", headers=HX).text
+    assert _chips(html) == {"recibidas": ("Por atender", 1), "enviadas": ("Pendientes", 1), "observadas": ("Observadas", 0), "canceladas": ("Canceladas", 0)} and ">Reenviada<" in html
+    s = doc()["solicitud"]
+    assert s["estado"] == "enviada" and [h["transicion"] for h in s["historial"]] == ["enviar", "observar", "reenviar"]     # estados y transiciones intactos
+
+
+def test_process_detail_header_has_the_same_structure_as_the_rest_of_cchh_with_actions_in_their_own_container():
+    send(SID)
+    pending = cchh().get(f"/cchh/busquedas/{SID}").text
+    svc.take_solicitud(SID, rev(), CCHH_EMAIL)
+    taken = cchh().get(f"/cchh/busquedas/{SID}").text
+    for html in (pending, taken):
+        hero = re.search(r'<section class="module-hero hc-profiles-hero">(.*?)</section>', html, re.S).group(1)
+        text = re.search(r'<div class="hc-profiles-hero-text">(.*?)</div>\s*<div class="hc-profiles-hero-actions">(.*?)</div>\s*$', hero, re.S)
+        assert text, "texto y acciones deben ser contenedores hermanos independientes"
+        ident, actions = text.group(1), text.group(2)
+        order = [ident.index('<p class="eyebrow">Capital Humano</p>'), ident.index("<h1>")]                         # eyebrow → título (como Cargar CV / Editar candidato)
+        assert order == sorted(order) and ident.lstrip().startswith('<p class="eyebrow">Capital Humano</p>')
+        assert "hero-meta" not in ident[: ident.index("<h1>")]                                                      # la meta ya no precede al título
+        assert "btn-" in actions and "<h1>" not in actions and "eyebrow" not in actions
+        assert html.index('class="catalog-back"') < html.index('class="module-hero hc-profiles-hero"')            # «← Volver» antes del hero
+    css = (ROOT / "webapp/static/human_capital.css").read_text(encoding="utf-8")
+    assert re.search(r"\.hc-profiles-hero \{ margin-bottom: 24px; \}", css)                                      # separación estándar con lo que sigue, sin reglas por pantalla
+
+
+def _history_actors(html: str) -> list[tuple[str, str]]:
+    """(movimiento, «Realizado por») de la tabla de historial, del más reciente al más antiguo."""
+    block = re.search(r"data-historial.*?</tbody>", html, re.S).group(0)
+    return [(re.sub(r"<[^>]+>", "", m[0]).strip(), re.sub(r"<[^>]+>", "", m[1]).strip()) for m in re.findall(r'<tr>\s*<td class="left">(.*?)</td>\s*<td class="left">.*?</td>\s*<td class="left">(.*?)</td>', block, re.S)]
+
+
+def test_history_registers_the_real_executor_of_every_movement_for_the_same_user_across_operaciones_and_cchh(monkeypatch):
+    from webapp.services import auth_service
+    both = "ambas.areas@danwor.com"
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", f"{OPS_A},{both}")
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", f"{CCHH_EMAIL},{both}")
+    c_ops, c_hc = session_client(both), session_client(both)
+    assert post_new(c_ops).status_code == 303                                                                  # envía desde Operaciones
+    assert c_hc.post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": str(rev())}, headers=ORIGIN).status_code == 303   # toma desde CCHH, MISMA persona
+    page = c_hc.get(f"/cchh/busquedas/{SID}").text
+    assert _history_actors(page) == [("Tomada por Capital Humano", both), ("Enviada a Capital Humano", both)]    # el ejecutor es siempre la identidad autenticada; el área sigue en el rótulo del movimiento
+    assert [h["actor"] for h in doc()["solicitud"]["historial"]] == [both, both]                                 # el registro persistido es la fuente: sin rótulos genéricos
+
+
+def test_history_attributes_each_movement_to_its_own_executor_with_different_users(monkeypatch):
+    from webapp.services import auth_service
+    cchh_b = "cchh.segunda@danwor.com"
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", f"{OPS_A},{OPS_B}")
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", f"{CCHH_EMAIL},{cchh_b}")
+    a_ops, b_ops, a_hc, b_hc = session_client(OPS_A), session_client(OPS_B), session_client(CCHH_EMAIL), session_client(cchh_b)
+    assert post_new(a_ops).status_code == 303                                                                   # envía OPS_A
+    assert a_hc.post(f"/cchh/busquedas/{SID}/solicitar-correccion", data={"expected_revision": str(rev()), "motivo": "Falta el proyecto"}, headers=ORIGIN).status_code == 303   # observa CCHH_EMAIL
+    assert b_ops.post(f"/operaciones/busquedas/{SID}/editar", data={"expected_revision": str(rev()), **form_payload(SID, comentarios="corregido")}, headers=ORIGIN).status_code == 303   # reenvía OPS_B
+    assert b_hc.post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": str(rev())}, headers=ORIGIN).status_code == 303                                          # toma cchh_b
+    page = b_hc.get(f"/cchh/busquedas/{SID}").text
+    assert _history_actors(page) == [("Tomada por Capital Humano", cchh_b), ("Corregida y reenviada", OPS_B), ("Corrección solicitada por Capital Humano", CCHH_EMAIL), ("Enviada a Capital Humano", OPS_A)]
+    # Operaciones conserva su frontera de privacidad: ve a sus propias personas y el ÁREA de CCHH, nunca a quienes la integran
+    ops_page = session_client(OPS_A).get(f"/operaciones/busquedas/{SID}").text
+    assert _history_actors(ops_page) == [("Tomada por Capital Humano", "Capital Humano"), ("Corregida y reenviada", OPS_B), ("Corrección solicitada por Capital Humano", "Capital Humano"), ("Enviada a Capital Humano", OPS_A)]
+    assert CCHH_EMAIL not in ops_page and cchh_b not in ops_page
+
+
+def test_legacy_history_with_only_the_area_label_is_not_promoted_to_an_identity_and_is_never_rewritten():
+    import json
+    send(SID)
+    svc.take_solicitud(SID, rev(), CCHH_EMAIL)
+    path = [f for f in files() if f.name == f"{SID}.json"][0]
+    d = json.loads(path.read_text(encoding="utf-8"))
+    d["solicitud"]["historial"][-1]["actor"] = "Capital Humano"                                                     # registro histórico: solo el rótulo del área
+    path.write_text(json.dumps(d), encoding="utf-8")
+    before = path.read_text(encoding="utf-8")
+    page = cchh().get(f"/cchh/busquedas/{SID}").text
+    assert _history_actors(page)[0] == ("Tomada por Capital Humano", "Usuario no identificado") and _history_actors(page)[1][1] == OPS_A     # no se inventa un ejecutor
+    assert path.read_text(encoding="utf-8") == before                                                             # leer no reescribe el histórico
 
 
 def test_taking_from_new_process_reuses_the_same_busqueda_without_creating_another():

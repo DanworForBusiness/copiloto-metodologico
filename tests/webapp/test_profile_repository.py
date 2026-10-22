@@ -43,6 +43,9 @@ def _push_path_succeeds_by_default(monkeypatch):
     # gana). Nunca toca Spaces real bajo ninguna circunstancia (§19)."""
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
+    # Este archivo prueba el contrato REMOTE (push obligatorio, compensación, clasificación de fallo): el modo es explícito. Los modos local/read-only se prueban en
+    # `test_profile_repository_persistence_modes.py`.
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "remote")
 
 
 def _minimal_profile(**overrides) -> dict:

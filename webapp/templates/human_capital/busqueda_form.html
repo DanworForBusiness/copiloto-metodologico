@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% from "partials/human_capital_solicitud_take.html" import solicitud_take_form %}
 {% block title %}{{ 'Editar proceso' if is_edit else 'Nuevo proceso' }} · Capital Humano · Danwor{% endblock %}
 {% block body %}
 <div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
@@ -37,11 +38,19 @@
         <summary class="dashboard-section__head" draggable="true">
           <span class="dashboard-section__caret"></span>
           <span class="dashboard-section__title">Solicitudes disponibles para tomar</span>
+          {# Ayuda contextual como TOOLTIP a nivel del colapsable (en vez del texto dentro de la sección): MISMO primitivo `(i)` del Hub que usan Entrevistas/«Requerimiento formal recibido» (`.chart-tooltip-anchor` +
+             `.activity-kpi__info` + `.chart-tooltip`); el copy va también en `aria-label` (hover y foco de teclado). #}
+          {% set _take_help = "Si el requerimiento ya fue enviado desde Operaciones, tomalo desde acá en vez de crear un proceso nuevo: conserva su requerimiento y su historial." %}
+          <span class="chart-tooltip-anchor">
+            <button type="button" class="activity-kpi__info" aria-label="{{ _take_help }}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
+            </button>
+            <span class="chart-tooltip"><p>{{ _take_help }}</p></span>
+          </span>
           <span class="dashboard-section__count">{{ solicitudes_disponibles | length }} solicitud{{ '' if solicitudes_disponibles | length == 1 else 'es' }}</span>
         </summary>
         <div class="dashboard-section__body">
           {% if solicitudes_disponibles %}
-          <p class="field-hint">Si el requerimiento ya fue enviado desde Operaciones, tomalo desde acá en vez de crear un proceso nuevo: conserva su requerimiento y su historial.</p>
           <div class="matrix-scroll">
             <table class="dashboard-table" id="hc-solicitudes-disponibles-table">
               <colgroup><col style="width:26%"><col style="width:22%"><col style="width:14%"><col style="width:10%"><col style="width:16%"><col style="width:12%"></colgroup>
@@ -56,11 +65,7 @@
                   <td class="left">{{ req.cantidad_recursos }}</td>
                   <td class="left">{{ ((r.ultimo_envio_en or r.enviada_en) | fecha_dmy) or "—" }}</td>
                   <td class="center">
-                    <form method="post" action="/cchh/busquedas/{{ r.busqueda_id }}/tomar" data-solicitud-take>
-                      <input type="hidden" name="expected_revision" value="{{ r.revision }}">
-                      <input type="hidden" name="desde" value="nuevo">
-                      <button type="submit" class="table-action-btn table-action-btn--text">Tomar</button>
-                    </form>
+                    {{ solicitud_take_form(r, "nuevo") }}
                   </td>
                 </tr>
                 {% endfor %}

@@ -11,10 +11,6 @@
   {% for etapa in etapas %}<span class="busqueda-pipeline-bar__stage">{{ 'Finalizados' if etapa == etapa_final else etapa }}: <strong>{{ board[etapa] | length }}</strong></span>{% endfor %}
 </div>
 
-{% if total_candidatos == 0 %}
-<div class="dashboard-empty busqueda-empty"><span class="dashboard-empty__label">Sin candidatos</span><p>Todavía no hay candidatos en este proceso.{% if busqueda.estado == 'activo' %} Sumá desde el Banco de CVs con “+ Agregar candidato”.{% endif %}</p></div>
-{% endif %}
-
 {# Copy de estado vacío por etapa (owner): cada columna sin candidatos muestra
    su propio empty-state DENTRO de la caja (altura natural ≈ una tarjeta, ver
    `.busqueda-col__empty`), así la etapa vacía no queda ni muy chica ni estirada. #}
@@ -59,7 +55,8 @@
           {% if app.resultado_final %}<span class="status-badge busqueda-cand__result busqueda-cand__result--{{ app.resultado_final|lower }}">{{ app.resultado_final }}</span>{% endif %}
         </div>
         {% if busqueda.estado == 'activo' %}
-        <div class="busqueda-cand__actions busqueda-move">
+        {% set _ent = entrevista_links.get(app.application_id) %}
+        <div class="busqueda-cand__actions busqueda-move{% if _ent %} busqueda-cand__actions--interview{% endif %}">
           <select name="etapa" aria-label="Etapa"
                   hx-post="/cchh/busquedas/{{ bid }}/candidatos/{{ app.application_id }}/etapa"
                   hx-target="#busqueda-detail-body" hx-swap="innerHTML"
@@ -74,6 +71,22 @@
             <option value="" {% if not app.resultado_final %}selected{% endif %}>Resultado…</option>
             {% for r in resultados %}<option value="{{ r }}" {% if r == app.resultado_final %}selected{% endif %}>{{ r }}</option>{% endfor %}
           </select>
+          {% endif %}
+          {# Contactar (TODAS las etapas): ícono de sobre entre el selector de etapa y el resto de acciones; abre el diálogo único de contacto, cuyo contenido (solo el de ESTE candidato) se pide por demanda. No cambia estados ni registra envíos. #}
+          {% if app.profile and not app.profile.deleted_at %}
+          <button type="button" class="table-action-btn chart-tooltip-anchor busqueda-cand__contact" aria-label="Contactar al candidato"
+                  data-dialog-open="busqueda-contact-dialog" data-contact-open-dialog
+                  hx-get="/cchh/busquedas/{{ bid }}/candidatos/{{ app.application_id }}/contacto" hx-trigger="click" hx-target="#busqueda-contact-content" hx-swap="innerHTML">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            <span class="chart-tooltip" aria-hidden="true"><p>Contactar al candidato</p></span>
+          </button>
+          {% endif %}
+          {% if _ent %}
+          {# Acceso directo a Entrevistas (solo etapas de entrevista), entre el selector de etapa y «Quitar»: a la entrevista existente o, si todavía no hay, al alta con el candidato precargado. Navegar no crea nada. #}
+          <a href="{{ _ent.url }}" class="table-action-btn chart-tooltip-anchor busqueda-cand__interview" aria-label="{{ _ent.label }}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h5"/><path d="M17.5 17.5 16 16.3V14"/><circle cx="16" cy="16" r="6"/></svg>
+            <span class="chart-tooltip" aria-hidden="true"><p>{{ _ent.label }}</p></span>
+          </a>
           {% endif %}
           {# `hx-trigger="confirmed"` es OBLIGATORIO con `data-dw-confirm`: el
              delegado compartido (app.js) hace preventDefault en el click y sólo
@@ -98,13 +111,31 @@
 </div>
 
 {% if busqueda.estado == 'activo' %}
+{# El Historial NO vive acá: está en su lugar de siempre, al final de la pantalla (una sola tabla). Cuando este cuerpo se devuelve como fragmento HTMX tras una mutación, se lo reenvía además FUERA DE BANDA
+   (`oob_historial`) para reemplazar esa tabla por id y que muestre al instante el movimiento recién registrado. En el render completo de la página no se emite. #}
+{% if oob_historial and solicitud_gestion %}
+{% set view = busqueda_historial %}
+{% include "partials/human_capital_historial_section.html" %}
+{% endif %}
+
 {# Modal: Agregar candidato desde el Banco de CVs (sólo disponibles = sin
    postulación activa en curso). "Asociar" = crear la postulación en Preselección. #}
 <dialog class="dw-confirm busqueda-dialog" id="busqueda-add-dialog" aria-labelledby="busqueda-add-title">
   <div class="dw-confirm__body">
     <h2 class="dw-confirm__title" id="busqueda-add-title">Agregar candidato desde el Banco</h2>
-    <p class="dw-confirm__msg">Sólo aparecen los candidatos disponibles (sin una postulación activa en curso).</p>
   </div>
+  {% if available_profiles %}
+  {# Buscador libre: MISMO patrón visual/UX que el landing de Base de CVs (`.hc-profile-filters`, campo «Buscar» `--wide`, mismo placeholder), SIN el recuadro de la tarjeta de filtros (`.filter-toolbar-card`). El filtrado es EN VIVO en el navegador sobre los
+     candidatos DISPONIBLES ya listados (cada fila trae su `data-search`, el haystack del buscador de Base de CVs: nombre, email, skills, ubicación…); no cambia qué candidatos se ofrecen ni la acción «Asociar». #}
+  <div class="busqueda-picker busqueda-picker--search">
+    <form class="hc-profile-filters" role="search" data-picker-search onsubmit="return false">
+      <div class="feedback-field feedback-field--wide">
+        <label for="busqueda-picker-q">Buscar</label>
+        <input id="busqueda-picker-q" type="text" autocomplete="off" placeholder="Nombre, email, skills, ubicación…" data-picker-q>
+      </div>
+    </form>
+  </div>
+  {% endif %}
   <div class="busqueda-picker">
     {% if available_profiles %}
     <table class="dashboard-table">
@@ -112,7 +143,7 @@
       <thead><tr><th class="left">Nombre</th><th class="left">Perfil · Nivel</th><th class="center">Acción</th></tr></thead>
       <tbody>
         {% for p in available_profiles %}
-        <tr>
+        <tr data-picker-row data-search="{{ p | hc_profile_search }}">
           <td class="left"><div class="dw-idcell"><span class="dw-idcell__name">{{ p.first_name }} {{ p.last_name }}</span></div></td>
           <td class="left">{{ p.profile_skills or '—' }}{% if p.seniority %} · {{ p.seniority }}{% endif %}</td>
           <td class="center">
@@ -124,6 +155,26 @@
         {% endfor %}
       </tbody>
     </table>
+    <p class="field-hint" data-picker-empty hidden>No encontramos candidatos con ese criterio.</p>
+    <script>
+    (function () {
+      if (window.__hcPickerWired) return;       // el cuerpo del detalle se re-renderiza por HTMX: un único wiring global (delegado)
+      window.__hcPickerWired = true;
+      function norm(v) { return String(v || "").toLowerCase().split(/\s+/).filter(Boolean).join(" "); }   // MISMA normalización que `_normalize_text` (minúsculas + espacios colapsados)
+      document.addEventListener("input", function (ev) {
+        var input = ev.target.closest && ev.target.closest("[data-picker-q]");
+        if (!input) return;
+        var dlg = input.closest("dialog"), q = norm(input.value), shown = 0;
+        dlg.querySelectorAll("[data-picker-row]").forEach(function (row) {
+          var ok = !q || (row.getAttribute("data-search") || "").indexOf(q) !== -1;
+          row.hidden = !ok;
+          if (ok) shown += 1;
+        });
+        var empty = dlg.querySelector("[data-picker-empty]");
+        if (empty) empty.hidden = shown !== 0;
+      });
+    })();
+    </script>
     {% else %}
     <p class="field-hint">No hay candidatos disponibles en el Banco. Todos ya están en este proceso o el Banco está vacío.</p>
     {% endif %}
@@ -132,6 +183,112 @@
     <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>
   </div>
 </dialog>
+
+{# Diálogo ÚNICO de contacto (todas las etapas): MISMO `<dialog class="dw-confirm busqueda-dialog">` + opener `[data-dialog-open]` del Hub. Su contenido se pide por demanda al abrirlo (hx-get del ícono de la tarjeta) y solo trae al candidato elegido.
+   Abrirlo NO cambia el pipeline, NO crea entrevistas y NO registra nada: el envío es siempre una acción explícita (enlace `wa.me`/`mailto:` o copiar) del usuario. #}
+<dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog" id="busqueda-contact-dialog" aria-labelledby="busqueda-contact-title">
+  <div id="busqueda-contact-content"></div>
+</dialog>
+<script>
+(function () {
+  if (window.__hcContactWired) return;       // el cuerpo del detalle se re-renderiza por HTMX: un único wiring global (delegado)
+  window.__hcContactWired = true;
+  var CONTENT = "busqueda-contact-content";
+  function root() { var c = document.getElementById(CONTENT); return c && c.querySelector("[data-contact-root]"); }
+  function q(sel) { var c = document.getElementById(CONTENT); return c && c.querySelector(sel); }
+  function messages() { var s = q("[data-contact-messages]"); try { return s ? JSON.parse(s.textContent) : null; } catch (e) { return null; } }
+  function canal() { var s = q("[data-contact-canal]"); return s ? s.value : "mail"; }
+  function fill() {                                                   // regenera el texto sugerido (situación/canal); lo editado a mano se pisa al cambiar de situación o canal, como en la referencia
+    var r = root(), m = messages(); if (!r || !m) return;
+    var msg = (m[q("[data-contact-tipo]").value] || {})[canal()] || {};
+    q("[data-contact-asunto]").value = msg.asunto || "";
+    q("[data-contact-mensaje]").value = msg.cuerpo || "";
+    refresh();
+  }
+  function refresh() {                                                // visibilidad por canal, avisos de datos faltantes y enlaces de apertura
+    var r = root(); if (!r) return;
+    var c = canal(), hasWa = r.dataset.hasWhatsapp === "1", hasMail = r.dataset.hasEmail === "1";
+    var subj = q("[data-contact-asunto]").value, body = q("[data-contact-mensaje]").value;
+    q("[data-contact-subject-field]").hidden = c !== "mail";
+    var wa = q('[data-contact-open="whatsapp"]'), ml = q('[data-contact-open="mail"]');
+    wa.hidden = !(c === "whatsapp" && hasWa);
+    ml.hidden = !(c === "mail" && hasMail);
+    if (hasWa) wa.href = "https://wa.me/" + r.dataset.whatsappDigits + "?text=" + encodeURIComponent(body);
+    if (hasMail) ml.href = "mailto:" + r.dataset.email + "?subject=" + encodeURIComponent(subj) + "&body=" + encodeURIComponent(body.replace(/\n/g, "\r\n"));
+    var note = q("[data-contact-note]"), text = "";
+    if (c === "whatsapp" && !hasWa) text = "Este candidato no tiene teléfono cargado: no se puede abrir WhatsApp. " + (hasMail ? "Elegí Mail o copiá el mensaje" : "Copiá el mensaje") + " y enviáselo por otro medio.";
+    else if (c === "mail" && !hasMail) text = "Este candidato no tiene un email válido cargado: no se puede abrir el correo. " + (hasWa ? "Elegí WhatsApp o copiá el mensaje" : "Copiá el mensaje") + " y enviáselo por otro medio.";
+    else if (c === "whatsapp") text = "WhatsApp necesita el número con código de país; si el cargado no lo trae, el enlace puede no abrir la conversación correcta.";
+    note.textContent = text; note.hidden = !text;
+  }
+  // Trazabilidad (historial del proceso): SOLO se avisa al servidor tras una copia exitosa del mensaje o tras ejecutar la apertura del canal; abrir el diálogo, cambiar situación/canal o cancelar no registran nada. Nunca se envía
+  // el texto del mensaje ni datos de contacto: solo acción, situación y canal. «Registrado» NO significa enviado/entregado.
+  var recent = {};
+  function note(msg) { var n = q("[data-contact-log-note]"); if (!n) return; n.textContent = msg || ""; n.hidden = !msg; }
+  function newId() { return (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2); }
+  function swapHistory(html) {                                        // reemplaza la tabla de Historial de la página por la actualizada (conserva si estaba abierta o plegada)
+    var old = document.getElementById("busqueda-historial"); if (!old) return;
+    var tmp = document.createElement("div"); tmp.innerHTML = html.trim();
+    var fresh = tmp.querySelector("#busqueda-historial"); if (!fresh) return;
+    fresh.open = old.open; old.replaceWith(fresh);
+    if (window.htmx) window.htmx.process(fresh);
+  }
+  function logEvent(accion) {
+    var r = root(); if (!r || !r.dataset.eventUrl) return;
+    var sit = q("[data-contact-tipo]").value, can = canal(), key = accion + "|" + sit + "|" + can, now = Date.now();
+    if (recent[key] && now - recent[key] < 1500) return;              // doble clic: un solo evento
+    recent[key] = now;
+    fetch(r.dataset.eventUrl, { method: "POST", credentials: "same-origin", keepalive: true, body: new URLSearchParams({ accion: accion, situacion: sit, canal: can, event_id: newId() }) })
+      .then(function (res) {
+        return res.text().then(function (t) {
+          if (!res.ok) { var d = t; try { d = JSON.parse(t).detail || t; } catch (e) {} throw new Error(d || ("HTTP " + res.status)); }
+          return t;
+        });
+      })
+      .then(function (html) { note(""); swapHistory(html); })
+      .catch(function (e) { note("No se pudo registrar en el historial (" + (e.message || "error") + "). La acción se realizó igual."); });
+  }
+  function copy(text, btn, onOk) {
+    function done() { var old = btn.getAttribute("data-label") || btn.textContent; btn.setAttribute("data-label", old); btn.textContent = "¡Copiado!"; setTimeout(function () { btn.textContent = old; }, 2000); if (onOk) onOk(); }
+    function fail() { note("No se pudo copiar: el navegador bloqueó el portapapeles. Seleccioná el texto y copialo a mano."); }
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done, fail); return; }
+    var t = document.createElement("textarea"); t.value = text; t.style.position = "fixed"; t.style.opacity = "0"; document.body.appendChild(t); t.select();
+    try { if (document.execCommand("copy")) done(); else fail(); } catch (e) { fail(); } document.body.removeChild(t);
+  }
+  document.addEventListener("click", function (ev) {
+    var opener = ev.target.closest && ev.target.closest("[data-contact-open-dialog]");
+    if (opener) { var c = document.getElementById(CONTENT); if (c) c.innerHTML = '<div class="dw-confirm__body"><p class="field-hint" role="status">Cargando…</p></div>'; return; }   // sin restos del candidato anterior mientras llega el contenido
+    var btn = ev.target.closest && ev.target.closest("[data-contact-copy]");
+    if (!btn || !document.getElementById(CONTENT).contains(btn)) return;
+    var what = btn.getAttribute("data-contact-copy"), r = root(); if (!r) return;
+    var text = what === "mensaje" ? q("[data-contact-mensaje]").value : what === "asunto" ? q("[data-contact-asunto]").value : (q('[data-contact-value="' + what + '"]') || {}).textContent;
+    if (text) copy(text, btn, what === "mensaje" ? function () { logEvent("mensaje_copiado"); } : null);     // solo «Copiar mensaje» es una comunicación; copiar email/teléfono/asunto no se registra
+  });
+  document.addEventListener("click", function (ev) {
+    var a = ev.target.closest && ev.target.closest("[data-contact-open]");
+    if (!a || !document.getElementById(CONTENT).contains(a)) return;
+    var href = a.getAttribute("href"); if (a.hidden || !href || href === "#") return;
+    ev.preventDefault();
+    if (a.getAttribute("data-contact-open") === "whatsapp") {
+      var w = window.open(href, "_blank");                              // con ventana verificable: si el navegador la bloquea, no se registra nada
+      if (w) { try { w.opener = null; } catch (e) {} logEvent("canal_abierto"); }
+      else note("El navegador bloqueó la apertura de WhatsApp: permití las ventanas emergentes o copiá el mensaje.");
+    } else {
+      logEvent("apertura_solicitada");                                  // `mailto:` no se puede verificar desde el navegador: solo se registra que se solicitó la apertura
+      window.location.href = href;
+    }
+  });
+  document.addEventListener("change", function (ev) {
+    if (ev.target.closest && ev.target.closest("[data-contact-tipo], [data-contact-canal]") && root()) fill();
+  });
+  document.addEventListener("input", function (ev) {
+    if (ev.target.closest && ev.target.closest("[data-contact-asunto], [data-contact-mensaje]") && root()) refresh();
+  });
+  document.body.addEventListener("htmx:afterSwap", function (ev) {
+    if (ev.detail && ev.detail.target && ev.detail.target.id === CONTENT && root()) fill();
+  });
+})();
+</script>
 
 {# Modal: Cerrar búsqueda. Las postulaciones NO finalizadas tildadas pasan a
    Finalizado · Rechazado; la búsqueda queda cerrada. POST full-page (recarga). #}

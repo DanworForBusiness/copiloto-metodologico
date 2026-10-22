@@ -69,7 +69,7 @@ __all__ = [
     "ProfileConcurrentModificationError", "ProfileConfigIncompleteError",
     "ProfileDuplicateAdvisory", "ProfileIdConflictError", "ProfileNotFoundError",
     "ProfileRemoteOutcomeUnknownError", "ProfileStorageError",
-    "list_profiles", "get_profile", "create_profile", "update_profile", "soft_delete_profile", "filter_profiles",
+    "list_profiles", "get_profile", "create_profile", "update_profile", "soft_delete_profile", "filter_profiles", "profile_search_haystack",
     "validate_and_shape_fields", "find_duplicate", "create_profile_for_import",
     "list_busquedas", "get_busqueda", "create_busqueda", "update_busqueda",
     "add_candidate_to_busqueda", "move_application_stage", "remove_application", "close_busqueda",
@@ -158,12 +158,17 @@ def _matches_search_text(profile: dict, q_normalized: str) -> bool:
     suelto)."""
     if not q_normalized:
         return True
+    return q_normalized in profile_search_haystack(profile)
+
+
+def profile_search_haystack(profile: dict) -> str:
+    """Texto normalizado contra el que se busca un candidato (nombre, email, skills, ubicación, tags, notas y «nombre apellido»). ÚNICA definición: el buscador del landing de Base de CVs
+    (`_matches_search_text`) y el del diálogo «Agregar candidato desde el Banco» (filtro en vivo en el navegador, que normaliza la consulta igual que `_normalize_text`) la comparten."""
     first = profile.get("first_name") or ""
     last = profile.get("last_name") or ""
     haystack_values = [profile.get(field) for field in _SEARCH_TEXT_FIELDS]
     haystack_values.append(f"{first} {last}")
-    haystack = " ".join(_normalize_text(value) for value in haystack_values if value)
-    return q_normalized in haystack
+    return " ".join(_normalize_text(value) for value in haystack_values if value)
 
 
 def _matches_structured_filters(profile: dict, query: dict) -> bool:
@@ -633,8 +638,16 @@ def update_busqueda(busqueda_id: str, expected_revision: int, fields: dict) -> d
         busqueda_id, expected_revision, _shape_busqueda_fields(fields, existing=existing))
 
 
-def close_busqueda(busqueda_id: str, finalize_application_ids: list[str] | None = None) -> dict:
-    busqueda = busqueda_repository.close(busqueda_id, finalize_application_ids)
+def _candidate_display_name(profile_id) -> str | None:
+    """Nombre visible del candidato para la FOTO del historial del proceso (nunca bloquea un movimiento)."""
+    profile = profile_repository.get(profile_id) if profile_id else None
+    if not profile:
+        return None
+    return " ".join(p for p in (str(profile.get("first_name") or "").strip(), str(profile.get("last_name") or "").strip()) if p) or None
+
+
+def close_busqueda(busqueda_id: str, finalize_application_ids: list[str] | None = None, *, actor: str | None = None) -> dict:
+    busqueda = busqueda_repository.close(busqueda_id, finalize_application_ids, actor=actor, names=_candidate_display_name)
     sync_onboardings_for_busqueda(busqueda)             # misma condición central tras CUALQUIER mutación de candidaturas
     return busqueda
 
@@ -865,7 +878,76 @@ def _require_actor(actor) -> str:
     return actor.strip().lower()
 
 
-def solicitud_view(doc: dict) -> dict | None:
+_GENERIC_ACTORS = frozenset({"", "capital humano", "cchh", "operaciones"})       # rótulos de ÁREA (dato legado), nunca una identidad de usuario
+
+
+def register_candidate_contact(busqueda_id: str, application_id: str, accion: str, situacion: str, canal: str, *, actor: str | None, event_id: str | None = None) -> tuple[dict, bool]:
+    """Trazabilidad de la comunicación con un candidato desde el pipeline (ver `busqueda_repository.log_candidate_contact`). Valida la situación/canal contra el diálogo de contacto, que el candidato exista y que el canal
+    sea utilizable cuando se registra una APERTURA (no se registra abrir WhatsApp/correo si el dato de contacto no existe). `ValueError` = pedido inválido; `LookupError` = no encontrado."""
+    from webapp.services import human_capital_contact as contact   # import diferido: el módulo de plantillas no depende del servicio
+    if accion not in busqueda_repository.CONTACTO_ACCIONES:
+        raise ValueError("Acción de contacto inválida.")
+    if situacion not in dict(contact.TIPOS_MENSAJE) or canal not in dict(contact.CANALES_MENSAJE):
+        raise ValueError("Situación o canal inválidos.")
+    event_id = (event_id or "").strip()[:64] or None
+    busqueda = busqueda_repository.get(busqueda_id)
+    if busqueda is None:
+        raise LookupError("Búsqueda no encontrada.")
+    app = next((a for a in busqueda.get("candidatos", []) if a.get("application_id") == application_id), None)
+    if app is None:
+        raise LookupError("Postulación no encontrada.")
+    if busqueda.get("estado") != "activo":
+        raise ValueError("El proceso no está activo.")
+    profile = profile_repository.get(app.get("profile_id")) if app.get("profile_id") else None
+    if profile is None or profile.get("deleted_at"):
+        raise LookupError("El candidato ya no está disponible.")
+    if accion != "mensaje_copiado" and not (contact.whatsapp_digits(profile.get("phone")) if canal == "whatsapp" else contact.valid_email(profile.get("email"))):
+        raise ValueError("El candidato no tiene cargado el dato de contacto de ese canal.")
+    return busqueda_repository.log_candidate_contact(
+        busqueda_id, application_id, accion=accion, situacion=situacion, canal=canal, actor=actor, event_id=event_id, names=_candidate_display_name)
+
+
+def _contact_row_texts(h: dict) -> dict:
+    """Textos visibles del evento de contacto: «Movimiento» = situación elegida + canal («Primer contacto por WhatsApp», «Actualización del proceso por mail»); «Detalle» distingue copiar de abrir sin afirmar el envío."""
+    from webapp.services import human_capital_contact as contact
+    base = str(dict(contact.TIPOS_MENSAJE).get(h.get("situacion")) or "Contacto").split(" (")[0]
+    canal = h.get("canal")
+    canal_mov = {"whatsapp": "WhatsApp", "mail": "mail"}.get(canal, canal or "—")
+    canal_det = {"whatsapp": "WhatsApp", "mail": "correo"}.get(canal, canal or "—")
+    accion = h.get("accion")
+    detalle = ("Mensaje copiado" if accion == "mensaje_copiado"
+               else f"Apertura de {canal_det}" if accion == "canal_abierto"
+               else f"Apertura solicitada ({canal_det})")
+    return {"movimiento": f"{base} por {canal_mov}", "detalle_contacto": detalle}
+
+
+def _historial_rows(entries, *, include_cchh_actors: bool) -> list[dict]:
+    """Filas (lista blanca) del historial del proceso. Los movimientos de CANDIDATOS (`candidato_*`) son información interna de Capital Humano: SOLO se proyectan en las pantallas de CCHH
+    (`include_cchh_actors=True`), nunca hacia Operaciones. «Realizado por» = la identidad registrada del ejecutor; un legado que solo guarda el rótulo de área no se promueve a identidad."""
+    rows = []
+    for h in entries or []:
+        is_candidate = str(h.get("transicion") or "").startswith("candidato_")
+        if is_candidate and not include_cchh_actors:
+            continue
+        row = {k: h.get(k) for k in ("transicion", "desde", "hasta", "fecha", "actor_tipo", "motivo")}
+        if h.get("actor_tipo") == busqueda_repository.ORIGEN_OPERACIONES:
+            row["actor"] = h.get("actor")
+        elif include_cchh_actors and str(h.get("actor") or "").strip().lower() not in _GENERIC_ACTORS:
+            row["actor"] = h.get("actor")
+        if is_candidate:
+            row.update({"candidato": h.get("candidato"), "profile_id": h.get("profile_id"), "resultado": h.get("resultado")})
+            if h.get("transicion") == busqueda_repository.CANDIDATO_CONTACTO:
+                row.update({"accion": h.get("accion"), "situacion": h.get("situacion"), "canal": h.get("canal"), **_contact_row_texts(h)})
+        rows.append(row)
+    return rows
+
+
+def proceso_historial_view(doc: dict) -> dict:
+    """Historial del proceso para las pantallas de CCHH: el de la solicitud si la hay, o el de nivel documento (alta directa de CCHH). Mismo esquema de filas que `solicitud_view`."""
+    return {"historial": _historial_rows(busqueda_repository.historial_proceso_of(doc), include_cchh_actors=True), "ejecutores_cchh_visibles": True}
+
+
+def solicitud_view(doc: dict, *, include_cchh_actors: bool = False) -> dict | None:
     """Proyección SEGURA de una solicitud para Operaciones (lista blanca).
     NUNCA incluye candidatos/postulaciones, ni datos del Banco de CVs, ni el
     JD/palabras clave/descripción internos de CCHH, ni el `origen` completo.
@@ -876,13 +958,8 @@ def solicitud_view(doc: dict) -> dict | None:
         return None
     estado = sol.get("estado")
     obs = sol.get("observacion") if isinstance(sol.get("observacion"), dict) else None
-    historial = []
-    for h in sol.get("historial") or []:
-        row = {k: h.get(k) for k in ("transicion", "desde", "hasta", "fecha", "actor_tipo", "motivo")}
-        if h.get("actor_tipo") == busqueda_repository.ORIGEN_OPERACIONES:
-            row["actor"] = h.get("actor")
-        historial.append(row)
-    return {
+    historial = _historial_rows(sol.get("historial"), include_cchh_actors=include_cchh_actors)
+    view = {
         "busqueda_id": doc.get("busqueda_id"),
         "solicitud_id": sol.get("submission_id") or doc.get("busqueda_id"),
         "revision": doc.get("revision", 1),
@@ -913,6 +990,9 @@ def solicitud_view(doc: dict) -> dict | None:
         "puede_eliminar": busqueda_repository.solicitud_puede_eliminar(doc),
         "solo_lectura": estado in (busqueda_repository.SOLICITUD_EN_GESTION, busqueda_repository.SOLICITUD_CANCELADA),
     }
+    if include_cchh_actors:                                       # solo la vista de Capital Humano agrega esta clave (la proyección segura para Operaciones conserva su lista blanca exacta)
+        view["ejecutores_cchh_visibles"] = True
+    return view
 
 
 def list_busquedas_gestionadas() -> list[dict]:
@@ -1025,15 +1105,15 @@ def take_solicitud(busqueda_id: str, expected_revision: int, actor: str) -> dict
     return busqueda_repository.take_solicitud(busqueda_id, expected_revision, _require_actor(actor))
 
 
-def add_candidate_to_busqueda(busqueda_id: str, profile_id: str) -> dict:
+def add_candidate_to_busqueda(busqueda_id: str, profile_id: str, *, actor: str | None = None) -> dict:
     profile = profile_repository.get(profile_id)
     if profile is None or profile.get("deleted_at"):
         raise ValueError("El candidato no existe o fue eliminado del Banco de CVs.")
-    return busqueda_repository.add_candidate(busqueda_id, profile_id)
+    return busqueda_repository.add_candidate(busqueda_id, profile_id, actor=actor, names=_candidate_display_name)
 
 
-def remove_application(busqueda_id: str, application_id: str) -> dict:
-    return busqueda_repository.remove_candidate(busqueda_id, application_id)
+def remove_application(busqueda_id: str, application_id: str, *, actor: str | None = None) -> dict:
+    return busqueda_repository.remove_candidate(busqueda_id, application_id, actor=actor, names=_candidate_display_name)
 
 
 # Etapas que implican que "hubo entrevista" -- MISMO gate que
@@ -1045,7 +1125,7 @@ _ETAPAS_QUE_DISPARAN_ENTREVISTA = ("Entrevista CCHH", "Entrevista Líder", "Deci
 
 
 def move_application_stage(busqueda_id: str, application_id: str, etapa: str,
-                           resultado_final: str | None) -> dict:
+                           resultado_final: str | None, *, actor: str | None = None) -> dict:
     if etapa not in busqueda_repository.ETAPAS:
         raise ValueError("Etapa inválida.")
     resultado = (resultado_final or "").strip() or None
@@ -1054,7 +1134,7 @@ def move_application_stage(busqueda_id: str, application_id: str, etapa: str,
             raise ValueError("Resultado final inválido.")
     else:
         resultado = None  # el repo también lo fuerza; se valida acá el contrato
-    busqueda = busqueda_repository.move_stage(busqueda_id, application_id, etapa, resultado)
+    busqueda = busqueda_repository.move_stage(busqueda_id, application_id, etapa, resultado, actor=actor, names=_candidate_display_name)
     sync_onboardings_for_busqueda(busqueda)             # Finalizado + Ingreso => Onboarding (en una sola operación o con el resultado asignado después)
     if etapa in _ETAPAS_QUE_DISPARAN_ENTREVISTA:
         app = next((a for a in busqueda.get("candidatos", []) if a.get("application_id") == application_id), None)
@@ -1174,6 +1254,36 @@ def get_entrevista(entrevista_id: str) -> dict | None:
     return entrevista_repository.get(entrevista_id)
 
 
+def _norm_catalog_key(value) -> str:
+    return re.sub(r"[\s_\-]+", "", str(value or "").casefold())
+
+
+def busqueda_modalidad_contratacion(busqueda: dict | None) -> str | None:
+    """Modalidad de contratación (Full-Time / Part-Time) definida en el requerimiento ORIGINAL de Operaciones (`requerimiento.tipo_contrato`: clave histórica de ese campo, validada contra el MISMO catálogo
+    gobernado `modalidad_contratacion` que usa la Entrevista), devuelta con la grafía del catálogo vigente. Solo se acepta un valor COMPATIBLE (presente en el catálogo, sin distinguir mayúsculas/guiones/espacios);
+    cualquier otro (legacy, vacío, catálogo no disponible) => None. NO se deriva de `dedicacion` (carga horaria: 40 h/semana, etc.) ni de `modalidad` (Híbrido/Remoto/On site): son atributos distintos."""
+    raw = ((busqueda or {}).get("requerimiento") or {}).get("tipo_contrato")
+    wanted = _norm_catalog_key(raw)
+    if not wanted:
+        return None
+    return next((v for v in catalog_repo.catalog_values("modalidad_contratacion") if _norm_catalog_key(v) == wanted), None)
+
+
+def resolve_entrevista_modalidad(stored, busqueda: dict | None, *, edited: bool = False) -> tuple[str | None, str | None]:
+    """Precedencia de la Modalidad de contratación de una entrevista -> `(valor, origen)`:
+      1. el valor GUARDADO en la entrevista (jamás se pisa);
+      2. el valor específico del candidato — hoy NO aplica: el Banco de CVs no tiene ese atributo (no se inventa);
+      3. el valor compatible del requerimiento del proceso (`busqueda_modalidad_contratacion`);
+      4. sin especificar.
+    `edited=True` (la entrevista ya se editó alguna vez) tratan el vacío como decisión del usuario: no se precarga nada. Es una resolución de LECTURA: no persiste ni modifica retroactivamente."""
+    if str(stored or "").strip():
+        return str(stored).strip(), "entrevista"
+    if edited:
+        return None, None
+    value = busqueda_modalidad_contratacion(busqueda)
+    return (value, "busqueda") if value else (None, None)
+
+
 def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None, allow_compensation: bool = False) -> dict:
     """Ningún campo de Entrevista es obligatorio (MISMO contrato que la
     referencia: EntrevistaFormInput es enteramente opcional salvo elegir un
@@ -1242,6 +1352,7 @@ def crear_entrevista_automatica_si_no_existe(profile_id: str, busqueda_id: str, 
     fields = {
         "puesto_evaluado": (busqueda or {}).get("nombre_puesto"),
         "area": (busqueda or {}).get("area_consultora"),
+        "modalidad_contratacion": resolve_entrevista_modalidad(None, busqueda)[0],   # condiciones del requerimiento (si son compatibles)
     }
     try:
         entrevista_repository.create(

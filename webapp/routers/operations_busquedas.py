@@ -270,7 +270,7 @@ def _list_context(estado: str, q: str, page, page_size) -> dict:
     pager = pagination.paginate(visible, page=page, page_size=page_size, base_url=BASE_PATH, params={"estado": estado, "q": q})
     return {
         "rows": pager["items"], "total_rows": pager["total"], "pager": pager,     # total FILTRADO (contador del dashboard-section), nunca el tamaño de la página
-        "has_any": bool(rows), "filtro_estado": estado, "q": q, "estado_options": FILTRO_ESTADOS,
+        "has_any": bool(rows), "filtro_estado": estado, "q": q, "estado_options": FILTRO_ESTADOS, "new_url": f"{BASE_PATH}/nueva",   # destino único de «+ Nueva búsqueda» (botón superior y estado vacío)
         "indicadores": INDICADORES, "badge_tonos": BADGE_TONOS, "tipo_labels": TIPO_LABELS, "source_error": source_error,
     }
 

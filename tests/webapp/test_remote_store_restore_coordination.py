@@ -72,6 +72,7 @@ def _enable_persistence(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "SPACES_KEY", "fake-key")
     monkeypatch.setattr(config, "SPACES_SECRET", "fake-secret")
     monkeypatch.setattr(config, "PERSIST_ENABLED", True)
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "remote")      # PERSIST_ENABLED == persistencia remota completa: los repositorios (write-through, firmas, compensación) solo la ejercen en modo REMOTE explícito
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     monkeypatch.setattr(config, "PERSIST_PATHS", ["reporting_cache"])
 

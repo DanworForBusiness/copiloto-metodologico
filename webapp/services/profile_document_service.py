@@ -218,6 +218,15 @@ class ProfileDocumentDeletePhysicalOutcomeUnknownError(Exception):
     MISMA acción "Eliminar" — idempotente por diseño (ver arriba)."""
 
 
+class ProfileDocumentsBulkDeleteIncompleteError(Exception):
+    """La eliminación de TODOS los documentos de un candidato no se completó: `deleted` documentos confirmados (físico + metadata), `remaining` sin confirmar. `kind` = causa del primer
+    fallo (`permission` | `graph` | `physical_unknown` | `metadata_unknown`). El candidato NO se da de baja; el reintento es idempotente (solo procesa lo que queda)."""
+
+    def __init__(self, message: str, *, kind: str, deleted: int, remaining: int):
+        super().__init__(message)
+        self.kind, self.deleted, self.remaining = kind, deleted, remaining
+
+
 class ProfileDocumentMetadataDeleteOutcomeUnknownError(Exception):
     """El físico SÍ se confirmó borrado (204 o 404) pero
     `profile_document_repository.delete()` no pudo confirmar el borrado
@@ -258,7 +267,96 @@ def _delete_physical_document(*, site_id: str, drive_id: str, item_id: str, acce
         ) from exc
 
 
-def delete_document(*, profile_id: str, document_id: str, access_token: str) -> None:
+FOLDER_DELETED, FOLDER_ABSENT, FOLDER_NOT_REQUESTED = "deleted", "already_absent", "not_requested"
+FOLDER_KEPT_PREFIX = "kept_"          # kept_has_content | kept_shared_metadata | kept_unverified | kept_changed | kept_permission | kept_error
+FOLDER_KEPT_MESSAGES = {
+    "kept_has_content": "la carpeta contiene otros archivos",
+    "kept_shared_metadata": "otros registros del Hub siguen apuntando a esa carpeta",
+    "kept_unverified": "no se pudo verificar con certeza que fuera la carpeta de este candidato y que estuviera vacía",
+    "kept_changed": "la carpeta cambió mientras se verificaba (posible subida concurrente)",
+    "kept_permission": "no hay permiso para eliminar la carpeta",
+    "kept_error": "SharePoint no confirmó el borrado de la carpeta",
+}
+
+
+def folder_kept_message(status: str) -> str:
+    """Texto para informar al usuario que los documentos se eliminaron pero la carpeta QUEDÓ en SharePoint (y por qué). `""` si no hay nada que avisar (carpeta borrada / ya ausente / no solicitada)."""
+    if not str(status).startswith(FOLDER_KEPT_PREFIX):
+        return ""
+    return "La carpeta del candidato se conservó en SharePoint: " + FOLDER_KEPT_MESSAGES.get(status, "no se pudo confirmar su estado") + ". Revisala manualmente si corresponde."
+
+
+def _folder_tags(folder_item_id: str, access_token: str) -> tuple | None:
+    """`(cTag, eTag)` de la carpeta, o `None` si no se pueden leer con certeza (la ausencia de etiquetas se trata como incierto, nunca como «sin cambios»)."""
+    url = f"{_drive_items_base()}/{urllib.parse.quote(folder_item_id, safe='')}?$select=id,cTag,eTag"
+    try:
+        item = microsoft365.graph_get_json(url, access_token)
+    except (urllib.error.HTTPError, urllib.error.URLError):
+        return None
+    if not isinstance(item, dict) or not item.get("cTag") or not item.get("eTag"):
+        return None
+    return item["cTag"], item["eTag"]
+
+
+def cleanup_empty_profile_folder(*, profile_id: str, folder_item_id: str | None, site_id: str | None, drive_id: str | None, access_token: str) -> str:
+    """Elimina la carpeta SharePoint de un candidato SOLO si es seguro, e IDEMPOTENTE. NUNCA lanza ni toca la metadata (el llamador ya la resolvió): un resultado incierto = la carpeta se
+    CONSERVA. Orden de verificación (cualquier duda corta sin borrar):
+      1. identidad guardada: el site/drive del documento deben ser los de la config vigente (los helpers de lectura usan la config);
+      2. ningún ProfileDocument (de este ni de otro candidato) referencia todavía la carpeta;
+      3. por Graph: la carpeta existe (404 => `already_absent`), es carpeta, cuelga DIRECTO de la raíz de CVs y su nombre es el legible `[id8]` de ESTE candidato o el UUID heredado;
+      4. por Graph: sus `children` están vacíos (sin archivos ni subcarpetas ni paginación pendiente);
+      5. DELETE de la carpeta (404 => ya ausente; 401/403 => `kept_permission`; otro fallo/transporte => `kept_error`).
+    Devuelve un estado: `deleted` | `already_absent` | `kept_*` | `not_requested`."""
+    if not folder_item_id:
+        return FOLDER_NOT_REQUESTED
+    if site_id != config.HC_SHAREPOINT_SITE_ID or drive_id != config.HC_SHAREPOINT_DRIVE_ID:
+        return FOLDER_KEPT_PREFIX + "unverified"
+    try:
+        if profile_document_repository.find_by_folder_item_id(folder_item_id):
+            return FOLDER_KEPT_PREFIX + "shared_metadata"
+    except profile_document_repository.ProfileDocumentStorageError:
+        return FOLDER_KEPT_PREFIX + "unverified"
+    try:
+        item = _get_folder_by_id(folder_item_id, access_token)
+    except ProfileDocumentPermissionDeniedError:
+        return FOLDER_KEPT_PREFIX + "permission"
+    except ProfileDocumentGraphSourceError:
+        return FOLDER_KEPT_PREFIX + "error"
+    if item is None:
+        return FOLDER_ABSENT
+    if not _folder_matches(item, profile_id, {str(profile_id)}):
+        return FOLDER_KEPT_PREFIX + "unverified"
+    tags_before = _folder_tags(folder_item_id, access_token)
+    if tags_before is None:
+        return FOLDER_KEPT_PREFIX + "unverified"
+    children_url = f"{_drive_items_base()}/{urllib.parse.quote(folder_item_id, safe='')}/children?$select=id,name&$top=2"
+    try:
+        listing = microsoft365.graph_get_json(children_url, access_token)
+    except urllib.error.HTTPError as exc:
+        return FOLDER_KEPT_PREFIX + ("permission" if exc.code in (401, 403) else "error")
+    except urllib.error.URLError:
+        return FOLDER_KEPT_PREFIX + "error"
+    if not isinstance(listing, dict) or not isinstance(listing.get("value"), list):
+        return FOLDER_KEPT_PREFIX + "unverified"                       # respuesta irreconocible: incierto
+    if listing["value"] or listing.get("@odata.nextLink"):
+        return FOLDER_KEPT_PREFIX + "has_content"
+    tags_after = _folder_tags(folder_item_id, access_token)         # concurrencia DETECTABLE: si la carpeta cambió mientras se listaba, no se borra
+    if tags_after is None:
+        return FOLDER_KEPT_PREFIX + "unverified"
+    if tags_after != tags_before:
+        return FOLDER_KEPT_PREFIX + "changed"
+    try:
+        microsoft365.graph_delete(_document_item_url(site_id, drive_id, folder_item_id), access_token)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return FOLDER_ABSENT
+        return FOLDER_KEPT_PREFIX + ("permission" if exc.code in (401, 403) else "error")
+    except urllib.error.URLError:
+        return FOLDER_KEPT_PREFIX + "error"                            # ambiguo: puede haberse borrado; un reintento lo resuelve (404 => ya ausente)
+    return FOLDER_DELETED
+
+
+def delete_document(*, profile_id: str, document_id: str, access_token: str, remove_empty_folder: bool = False) -> dict:
     """Camino de borrado de UN ProfileDocument. Orden ESTRICTO (ver
     comentario de sección):
       1. resuelve la metadata por `profile_id`+`document_id` — NUNCA
@@ -290,6 +388,44 @@ def delete_document(*, profile_id: str, document_id: str, access_token: str) -> 
             "El archivo se borró de SharePoint pero no pudimos confirmar el borrado del registro. "
             "Podés reintentar la eliminación."
         ) from exc
+    # La metadata ya está resuelta: la limpieza de la carpeta es un paso POSTERIOR y best-effort (nunca compromete la consistencia ni lanza). Si la carpeta no se puede borrar con certeza, se conserva.
+    folder, last = FOLDER_NOT_REQUESTED, False
+    if remove_empty_folder:
+        try:
+            last = not [d for d in profile_document_repository.find_by_folder_item_id(str(document.get("folder_item_id"))) if d.get("profile_id") == profile_id]
+        except profile_document_repository.ProfileDocumentStorageError:
+            last = False
+        folder = cleanup_empty_profile_folder(profile_id=profile_id, folder_item_id=document.get("folder_item_id"), site_id=document.get("site_id"),
+                                              drive_id=document.get("drive_id"), access_token=access_token)
+    return {"folder": folder, "last_document": last}
+
+
+def delete_profile_documents(*, profile_id: str, access_token: str) -> dict:
+    """Elimina FÍSICAMENTE (SharePoint) y luego la metadata de TODOS los documentos activos de un candidato, y por último la carpeta si quedó realmente vacía. Cada documento sigue el MISMO camino
+    estricto de `delete_document` (físico confirmado antes que metadata). Al primer documento que no se confirma se corta con `ProfileDocumentsBulkDeleteIncompleteError` (cuántos se borraron y
+    cuántos quedan): el llamador NO da de baja al candidato. Idempotente: un reintento procesa solo lo que queda. Devuelve `{"deleted": n, "folders": {estado,...}}`."""
+    require_graph_config()
+    docs = profile_document_repository.list_for_profile(profile_id)
+    total, deleted, folders = len(docs), 0, {}
+    for doc in docs:
+        try:
+            delete_document(profile_id=profile_id, document_id=doc["document_id"], access_token=access_token)
+        except ProfileDocumentDeletePermissionDeniedError as exc:
+            raise ProfileDocumentsBulkDeleteIncompleteError(str(exc), kind="permission", deleted=deleted, remaining=total - deleted) from exc
+        except ProfileDocumentDeleteGraphSourceError as exc:
+            raise ProfileDocumentsBulkDeleteIncompleteError(str(exc), kind="graph", deleted=deleted, remaining=total - deleted) from exc
+        except ProfileDocumentDeletePhysicalOutcomeUnknownError as exc:
+            raise ProfileDocumentsBulkDeleteIncompleteError(str(exc), kind="physical_unknown", deleted=deleted, remaining=total - deleted) from exc
+        except ProfileDocumentMetadataDeleteOutcomeUnknownError as exc:
+            raise ProfileDocumentsBulkDeleteIncompleteError(str(exc), kind="metadata_unknown", deleted=deleted, remaining=total - deleted) from exc
+        except ProfileDocumentNotFoundError:
+            continue                                                    # ya borrado por otro camino (idempotente)
+        deleted += 1
+        folders[doc.get("folder_item_id")] = (doc.get("site_id"), doc.get("drive_id"))
+    results = {}
+    for folder_item_id, (site_id, drive_id) in folders.items():
+        results[folder_item_id] = cleanup_empty_profile_folder(profile_id=profile_id, folder_item_id=folder_item_id, site_id=site_id, drive_id=drive_id, access_token=access_token)
+    return {"deleted": deleted, "folders": results}
 
 
 # ---------------------------------------------------------------------------
@@ -819,6 +955,14 @@ def retry_commit_document(*, token: str, requesting_user_sub: str) -> tuple[dict
             initiated_by=requesting_user_sub, folder_item_id=claims.get("folder_item_id"),
         )
         raise ProfileDocumentCommitRetryRequired(retry_token) from None
+
+
+def count_documents_by_profile() -> dict[str, int]:
+    """Documentos activos por candidato (para el diálogo contextual de baja del listado). Fail-soft: si no se puede leer, `{}` (el diálogo cae al texto sin documentos solo cuando de verdad no hay)."""
+    try:
+        return profile_document_repository.count_by_profile()
+    except profile_document_repository.ProfileDocumentStorageError:
+        return {}
 
 
 def list_documents_for_profile(profile_id: str) -> list[dict]:

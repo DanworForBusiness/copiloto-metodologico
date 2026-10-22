@@ -47,6 +47,14 @@ class CommercialLicensingPriorityStorageError(Exception):
     un contrato HTTP explícito (mismo criterio que ProfileStorageError)."""
 
 
+def _require_writable() -> None:
+    """`read-only` no habilita escrituras de negocio: rechazo ANTES de tocar el disco (sin efectos parciales). `local` persiste solo en disco; `remote` conserva su contrato."""
+    if remote_store.read_only_mode():
+        raise CommercialLicensingPriorityStorageError(
+            "La clasificación de prioridad está en modo de solo lectura en este entorno: no se pueden guardar cambios."
+        )
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -157,7 +165,10 @@ def defer(account_id: int, *, by: str) -> None:
     path = _record_path(account_id)
     previo = _leer_previo(path)
     payload = {"account_id": account_id, "deferred_at": _now_iso(), "deferred_by": by}
+    _require_writable()
     _write_atomic(path, payload)
+    if remote_store.local_only():
+        return                                           # `local`: escritura física local atómica; sin sincronización con Spaces
     if not remote_store.push_path(path):
         _rollback(path, previo)
         if not remote_store.enabled():
@@ -189,12 +200,15 @@ def restore(account_id: int) -> None:
     if not path.exists():
         return
     previo = _leer_previo(path)
+    _require_writable()
     try:
         path.unlink()
     except OSError as exc:
         raise CommercialLicensingPriorityStorageError(
             f"No se pudo borrar la clasificación de prioridad en disco: {exc}"
         ) from exc
+    if remote_store.local_only():
+        return                                           # `local`: el borrado físico local es el resultado final (sin llamar a Spaces)
     if not remote_store.delete_path(path):
         # La cuenta vuelve a estar diferida: es lo que sigue siendo cierto en
         # el estado compartido.

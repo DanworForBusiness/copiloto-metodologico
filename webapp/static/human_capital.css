@@ -179,6 +179,11 @@
    nunca un form embebido acá — ver profile_new.html. */
 .hc-profiles-hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px; }
 .hc-profiles-hero-text { flex: 1 1 320px; }
+/* Separación ESTÁNDAR entre el divisor del hero y el contenido siguiente (24px) para TODA pantalla con este hero, sea cual sea el elemento que sigue (form, callout, vistas, secciones): el margen inferior
+   colapsa con el superior del siguiente (max, nunca suma), así que las reglas por-adyacencia de abajo siguen dando exactamente 24px. */
+.hc-profiles-hero { margin-bottom: 24px; }
+/* La barra de vistas del proceso es `inline-flex` (nivel inline): su margen NO colapsa con el del hero y sumaría sus 4px propios a los 24px estándar. */
+.module-hero + .busqueda-views { margin-top: 0; }
 /* `max-width:100%`: sin esto, `flex:0 0 auto` mantiene la botonera en su ancho
    de max-content (una sola línea) aunque quede sola bajo el título en viewports
    angostos, desbordando la página horizontalmente (visto en vivo: el detalle de
@@ -335,9 +340,11 @@
 .hc-profile-form > button[type="submit"] { justify-self: start; margin-top: 8px; }
 /* Submit con estado de carga (alta de candidato): reusa el patrón `.asr-generate` (tools.css: spinner + label, ancho estable, deshabilitado legible sin fade). Sólo se adapta el color del
    spinner al fondo dorado de `.btn-primary` (el spinner base es dorado sobre fondo oscuro y no se vería) y se respeta `prefers-reduced-motion`: sin rotación (el texto comunica el estado). */
-.hc-profile-form .btn-primary.asr-generate .asr-generate__spinner { border-color: rgba(12, 12, 13, .28); border-top-color: #0c0c0d; }
+.hc-profile-form .btn-primary.asr-generate .asr-generate__spinner,
+.hc-document-upload-form .btn-primary.asr-generate .asr-generate__spinner { border-color: rgba(12, 12, 13, .28); border-top-color: #0c0c0d; }
 @media (prefers-reduced-motion: reduce) {
-  .hc-profile-form .btn-primary.asr-generate .asr-generate__spinner { animation: none; border-color: #0c0c0d; }
+  .hc-profile-form .btn-primary.asr-generate .asr-generate__spinner,
+  .hc-document-upload-form .btn-primary.asr-generate .asr-generate__spinner { animation: none; border-color: #0c0c0d; }
 }
 /* Botonera de acciones del form de Búsquedas (`<div>` con Crear/Cancelar):
    ocupa el ancho completo de la grilla y se separa del último campo con el MISMO
@@ -496,10 +503,6 @@
    `.dashboard-view-switch` (tools.css); acá sólo su ubicación/scroll. */
 .busqueda-views { margin: 4px 0 16px; max-width: 100%; overflow-x: auto; }
 
-/* Estado vacío del proceso (sin candidatos): separación explícita del board
-   vacío que lo sigue, con tokens/spacing compartidos (no microparche pixel). */
-.busqueda-empty { margin: 4px 0 16px; }
-
 .busqueda-pipeline-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 4px 0 14px; color: #55555c; font: 500 .72rem var(--mono); }
 .content-theme-dark .busqueda-pipeline-bar { color: #b2b2bc; }
 .busqueda-pipeline-bar__total { color: #1f1f24; font-weight: 700; }
@@ -535,11 +538,33 @@
 .busqueda-cand__meta { color: #7a7a82; font-size: .7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .busqueda-cand__result { margin-top: 4px; align-self: flex-start; }
 .busqueda-cand__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
-.busqueda-cand__actions select { flex: 1 1 auto; min-width: 0; padding: 5px 7px; border: 1px solid rgba(128,128,128,.35); border-radius: 6px; background: transparent; color: inherit; font-size: .72rem; }
+.busqueda-cand__actions select { flex: 1 1 0; min-width: 0; padding: 5px 7px; border: 1px solid rgba(128,128,128,.35); border-radius: 6px; background: transparent; color: inherit; font-size: .72rem; }
+/* La fila de controles es: etapa → contactar → [entrevista] → quitar. El selector de etapa cede ancho (base 0) para que todo entre en UNA fila sin desbordar la tarjeta; el «Resultado» de Finalizados (select extra) va debajo, a todo el ancho. */
+.busqueda-cand__actions select[name="resultado_final"] { flex-basis: 100%; order: 1; }
 
 .busqueda-dialog { max-width: 640px; width: calc(100% - 32px); }
+/* Diálogo «Contactar»: datos de contacto con «Copiar», situación/canal en dos columnas (una en angosto), asunto/mensaje editables y acciones que se acomodan en filas. */
+.busqueda-contact__context { margin: 0 0 12px; }
+.busqueda-contact__data { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid rgba(128,128,128,.28); border-radius: 8px; }
+.busqueda-contact__row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.busqueda-contact__label { flex: 0 0 64px; color: #55555c; font-size: .72rem; font-weight: 650; }
+.content-theme-dark .busqueda-contact__label { color: #b2b2bc; }
+.busqueda-contact__value { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: .8rem; font-weight: 600; }
+.busqueda-contact__value--missing { color: #7a7a82; font-weight: 500; font-style: italic; }
+.busqueda-contact__copy { flex: 0 0 auto; padding: 4px 10px; font-size: .72rem; }
+.busqueda-contact__pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 560px) { .busqueda-contact__pair { grid-template-columns: 1fr; } }
+.busqueda-contact__inline { display: flex; gap: 8px; align-items: center; }
+.busqueda-contact__inline input { flex: 1 1 auto; min-width: 0; }
+.busqueda-contact-dialog .feedback-field input, .busqueda-contact-dialog .feedback-field select, .busqueda-contact-dialog .feedback-field textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid rgba(128,128,128,.35); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: .8rem; }
+.busqueda-contact-dialog .feedback-field textarea { resize: vertical; line-height: 1.45; }
+/* Las acciones quedan siempre a la vista aunque el diálogo scrollee (pantallas angostas). */
+.busqueda-contact__actions { flex-wrap: wrap; position: sticky; bottom: 0; background: #fff; border-radius: 0 0 14px 14px; }
+.content-theme-dark .busqueda-contact__actions { background: #181819; }
 .busqueda-picker { max-height: 52vh; overflow: auto; padding: 0 24px; }
 .busqueda-picker .dashboard-table { font-size: .78rem; }
+/* Buscador del diálogo: sin scroll propio (no recorta el aro de foco del campo) y con un respiro antes del listado. */
+.busqueda-picker--search { overflow: visible; padding-bottom: 12px; }
 .busqueda-picker .dashboard-checkbox-group { gap: 6px; }
 
 /* Formulario de búsqueda: layout APILADO (una columna), MISMO orden de campos

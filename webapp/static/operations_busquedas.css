@@ -9,3 +9,5 @@
 .module-hero + #opsb-panel { margin-top: 24px; }
 /* Seniority (multi-selección): opciones en una fila que envuelve, en vez de columnas separadas al ancho completo. */
 .opsb-checks { flex-direction: row; flex-wrap: wrap; gap: 8px 28px; }
+/* Estado vacío de Búsquedas: la acción «+» (formato de los estados vacíos de CCHH, primitivos compartidos) respira bajo el texto. */
+.dashboard-empty [data-empty-new] { margin-top: 8px; }

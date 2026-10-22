@@ -73,17 +73,27 @@
            el diálogo compartido (data-dw-confirm-form -> submit intercept).
            `display:contents` (`.dw-inline-form`) para que el botón participe de
            la MISMA botonera flex, sin romper la fila. #}
+        {% if documents %}
+        {# CON documentos activos: diálogo contextual (casilla desmarcada «Eliminar también los documentos de SharePoint»). #}
+        <button type="button" class="btn-danger" data-hc-baja-open data-dialog-open="hc-baja-dialog" data-action="/cchh/candidatos/{{ form_values.profile_id }}/eliminar{{ rc.qs }}"
+                data-name="{{ form_values.first_name }} {{ form_values.last_name }}" data-count="{{ documents | length }}">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          Dar de baja
+        </button>
+        {% else %}
         <form method="post" action="/cchh/candidatos/{{ form_values.profile_id }}/eliminar{{ rc.qs }}" class="dw-inline-form"
               data-dw-confirm-form data-dw-confirm-title="Dar de baja al candidato" data-dw-confirm-ok="Dar de baja"
-              data-dw-confirm-message="¿Querés dar de baja a {{ form_values.first_name }} {{ form_values.last_name }}?&#10;El candidato dejará de verse en el Hub. Sus documentos (el CV y la carpeta) permanecen en SharePoint y no se eliminan.">
+              data-dw-confirm-message="¿Querés dar de baja a {{ form_values.first_name }} {{ form_values.last_name }}?&#10;El candidato dejará de verse en el Hub (baja lógica). No tiene documentos cargados.">
           <button type="submit" class="btn-danger">
             <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
             Dar de baja
           </button>
         </form>
+        {% endif %}
       </div>
     </section>
 
+    {% if documents %}{% include "partials/human_capital_baja_dialog.html" %}{% endif %}
     {% include "partials/human_capital_profile_edit_form.html" %}
     {% include "partials/human_capital_profile_documents_panel.html" %}
   </main>

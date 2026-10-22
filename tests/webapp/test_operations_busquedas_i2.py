@@ -380,7 +380,24 @@ def _make_all_states():
 
 def test_list_empty_state():
     html = ops().get(BASE).text
-    assert 'data-empty-kind="dataset_empty"' in html and "Todavía no enviaste ninguna búsqueda" in html and "Nueva búsqueda" in html and "<table" not in html
+    assert 'data-empty-kind="dataset_empty"' in html and "Sin solicitudes" in html and "Todavía no enviaste ninguna búsqueda a Capital Humano." in html and "<table" not in html
+    assert "Creá la primera" not in html and 'no_matches' not in html and "No se encontraron" not in html           # no se mezcla con el estado «sin resultados del filtro»
+    # DOS accesos de alta con el MISMO destino: el superior (sin cambios) y el del estado vacío, en el FORMATO de los estados vacíos de CCHH (ícono «+» `.table-action-btn` + tooltip)
+    top = re.findall(r'<a href="([^"]+)" class="btn-primary">\+ Nueva búsqueda</a>', html)
+    empty = re.search(r'<a href="([^"]+)" class="table-action-btn chart-tooltip-anchor busqueda-col__empty-add" data-empty-new aria-label="Nueva búsqueda">\s*<svg[^>]*><path d="M12 5v14"/><path d="M5 12h14"/></svg>\s*<span class="chart-tooltip" aria-hidden="true"><p>Nueva búsqueda</p></span>', html)
+    assert top == [f"{BASE}/nueva"] and empty and empty.group(1) == f"{BASE}/nueva"
+    assert "btn-primary\" data-empty-new" not in html                                                              # no es un botón de texto
+    assert ops().get(top[0]).status_code == ops().get(empty.group(1)).status_code == 200                           # ambos navegan al mismo formulario
+
+
+def test_filtered_empty_state_is_not_the_initial_state_and_offers_no_create_button():
+    send(SID)
+    html = ops().get(BASE, params={"q": "zzz-sin-coincidencias"}).text
+    assert 'data-empty-kind="no_matches"' in html and "No se encontraron búsquedas con los filtros seleccionados." in html
+    assert "Todavía no enviaste" not in html and "data-empty-new" not in html and "dataset_empty" not in html
+    assert len(re.findall(r'>\+ Nueva búsqueda</a>', html)) == 1                                                       # solo el botón superior (HTMX: el fragmento no repite el alta)
+    frag = ops().get(BASE, params={"q": "zzz"}, headers={"HX-Request": "true"}).text
+    assert "No se encontraron búsquedas con los filtros seleccionados." in frag and "data-empty-new" not in frag
 
 
 def test_list_shows_the_requested_columns_and_the_six_derived_indicators_without_new_states():

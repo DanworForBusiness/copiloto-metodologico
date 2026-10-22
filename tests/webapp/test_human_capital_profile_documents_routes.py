@@ -51,6 +51,7 @@ def _authorized_and_isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
     monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "")
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "remote")     # estos tests simulan fallos/confirmaciones de Spaces: ejercitan el contrato REMOTE (el modo es explícito)
     monkeypatch.setattr(config, "HC_SHAREPOINT_SITE_ID", "site-1")
     monkeypatch.setattr(config, "HC_SHAREPOINT_DRIVE_ID", "drive-1")
     monkeypatch.setattr(config, "HC_CV_ROOT_ITEM_ID", "root-1")
@@ -527,6 +528,7 @@ def test_delete_missing_graph_token_shows_permission_denied_state():
 
 def test_delete_success_redirects_and_removes_the_document_from_the_list(monkeypatch):
     client = _client_as(_AUTHORIZED_EMAIL)
+    monkeypatch.setattr(profile_document_service, "cleanup_empty_profile_folder", lambda **k: "deleted")     # la limpieza de carpeta tiene sus propios tests (test_hotfix_cchh_integral.py)
     profile = _create_profile(client)
     _upload(client, profile["profile_id"])
     document_id = _uploaded_document_id(client, profile["profile_id"])
@@ -540,6 +542,7 @@ def test_delete_success_redirects_and_removes_the_document_from_the_list(monkeyp
 
 def test_delete_graph_404_still_succeeds_and_removes_metadata(monkeypatch):
     client = _client_as(_AUTHORIZED_EMAIL)
+    monkeypatch.setattr(profile_document_service, "cleanup_empty_profile_folder", lambda **k: "deleted")     # la limpieza de carpeta tiene sus propios tests (test_hotfix_cchh_integral.py)
     profile = _create_profile(client)
     _upload(client, profile["profile_id"])
     document_id = _uploaded_document_id(client, profile["profile_id"])
@@ -627,6 +630,7 @@ def test_delete_retry_after_transport_ambiguity_succeeds(monkeypatch):
     # una ambigüedad de transporte termina borrando el documento igual --
     # sin token propio, el usuario simplemente reenvía el mismo form.
     client = _client_as(_AUTHORIZED_EMAIL)
+    monkeypatch.setattr(profile_document_service, "cleanup_empty_profile_folder", lambda **k: "deleted")     # la limpieza de carpeta tiene sus propios tests (test_hotfix_cchh_integral.py)
     profile = _create_profile(client)
     _upload(client, profile["profile_id"])
     document_id = _uploaded_document_id(client, profile["profile_id"])
