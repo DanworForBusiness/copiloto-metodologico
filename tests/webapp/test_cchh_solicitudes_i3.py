@@ -264,6 +264,37 @@ def test_new_process_lists_only_sent_or_resent_untaken_requests_with_the_minimum
     assert 'name="expected_revision"' in html and 'name="desde" value="nuevo"' in html
 
 
+def test_new_process_explains_taking_a_request_as_a_tooltip_on_the_collapsible_not_as_section_text():
+    help_text = "Si el requerimiento ya fue enviado desde Operaciones, tomalo desde acá en vez de crear un proceso nuevo: conserva su requerimiento y su historial."
+    send(SID)
+    html = cchh().get("/cchh/busquedas/nueva").text
+    summary = re.search(r'data-section-id="solicitudes-disponibles".*?<summary class="dashboard-section__head"[^>]*>(.*?)</summary>', html, re.S).group(1)
+    assert "Solicitudes disponibles para tomar" in summary and 'class="chart-tooltip-anchor"' in summary and 'class="activity-kpi__info"' in summary   # (i) a nivel del colapsable
+    assert f'aria-label="{help_text}"' in summary and f'<span class="chart-tooltip"><p>{help_text}</p></span>' in summary
+    assert "chart-tooltip-anchor" not in re.search(r"<h1>(.*?)</h1>", html, re.S).group(1)                                          # no en el encabezado de la página
+    assert html.count(help_text) == 2 and 'class="field-hint">Si el requerimiento' not in html                                    # solo aria-label + tooltip: ya no es texto dentro de la sección
+
+
+def test_the_take_shortcut_is_the_same_icon_action_in_the_landing_and_in_new_process_and_only_for_takeable_requests():
+    send(SID, nombre_puesto="Enviada")
+    send(SID2, nombre_puesto="Observada"); svc.observe_solicitud(SID2, rev(SID2), "x", CCHH_EMAIL)
+    take = lambda html, sid: re.search(rf'<form method="post" action="/cchh/busquedas/{sid}/tomar" class="dw-inline-form" data-solicitud-take>(.*?)</form>', html, re.S)   # noqa: E731
+    landing, fragment, nuevo = (cchh().get("/cchh/busquedas").text, cchh().get("/cchh/solicitudes", headers=HX).text, cchh().get("/cchh/busquedas/nueva").text)
+    for html in (landing, fragment):
+        assert take(html, SID) and not take(html, SID2) and f'/cchh/busquedas/{SID2}"' in html                  # observada: solo «Ver»; enviada: atajo «Tomar» + «Ver»
+    inner = lambda m: re.sub(r"\s+", " ", re.sub(r'<input type="hidden" name="desde" value="nuevo">', "", m.group(1))).strip()   # noqa: E731
+    assert inner(take(landing, SID)) == inner(take(nuevo, SID))                                               # MISMO ícono + tooltip en las dos superficies (macro único)
+    row = re.search(rf'<tr data-solicitud-id="{SID}".*?</tr>', landing, re.S).group(0)
+    assert row.index('aria-label="Ver solicitud"') < row.index("data-solicitud-take")                         # orden estándar de acciones: ver primero, tomar al final
+    body = take(landing, SID).group(1)
+    assert 'class="table-action-btn chart-tooltip-anchor" aria-label="Tomar solicitud"' in body and "<svg" in body and "<p>Tomar</p>" in body
+    assert "table-action-btn--text" not in nuevo and ">Tomar</button>" not in nuevo                         # la palabra «Tomar» ya no es el botón
+    assert 'name="desde" value="nuevo"' in nuevo and 'name="desde"' not in body                                # solo «+ Nuevo proceso» conserva su aviso de retorno
+    revision = re.search(r'name="expected_revision" value="(\d+)"', body).group(1)
+    r = cchh().post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": revision}, headers=ORIGIN)       # el atajo del landing = la misma acción
+    assert r.status_code == 303 and r.headers["location"] == f"/cchh/busquedas/{SID}?ok=tomada" and doc()["solicitud"]["estado"] == "en_gestion"
+
+
 def test_taking_from_new_process_reuses_the_same_busqueda_without_creating_another():
     send(SID)
     before_files, before_hist = len(files()), [h["transicion"] for h in doc()["solicitud"]["historial"]]

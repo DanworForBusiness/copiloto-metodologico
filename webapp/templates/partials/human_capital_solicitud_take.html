@@ -1,0 +1,13 @@
+{# human_capital_solicitud_take.html — acción «Tomar» de una solicitud de Operaciones, ÚNICA definición (ícono + tooltip) para que el usuario la reconozca en todos los lugares donde aparece: la bandeja «Solicitudes
+   recibidas» (Acciones del landing de Búsquedas) y «Solicitudes disponibles para tomar» de «+ Nuevo proceso». Mismo POST (`/cchh/busquedas/<id>/tomar`) con la revisión esperada (concurrencia optimista); tomada, va al
+   detalle del proceso. `desde="nuevo"` solo cambia a dónde vuelve el aviso si hubo conflicto. Primitivos compartidos: `.table-action-btn` + `.chart-tooltip` dentro de un form `.dw-inline-form`. #}
+{% macro solicitud_take_form(r, desde="") %}
+<form method="post" action="/cchh/busquedas/{{ r.busqueda_id }}/tomar" class="dw-inline-form" data-solicitud-take>
+  <input type="hidden" name="expected_revision" value="{{ r.revision }}">
+  {% if desde %}<input type="hidden" name="desde" value="{{ desde }}">{% endif %}
+  <button type="submit" class="table-action-btn chart-tooltip-anchor" aria-label="Tomar solicitud">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.7 4H7.3a2 2 0 0 0-1.8 1.1Z"/></svg>
+    <span class="chart-tooltip" aria-hidden="true"><p>Tomar</p></span>
+  </button>
+</form>
+{% endmacro %}
