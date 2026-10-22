@@ -62,7 +62,10 @@
    `.dashboard-section` colapsa con éste (24 > 12), así que el resultado es exactamente 24px. */
 .module-hero + #hc-entrevistas-panel,
 .module-hero + #hc-onboarding-panel,
-.module-hero + #hc-publicaciones-panel { margin-top: 24px; }
+.module-hero + #hc-publicaciones-panel,
+.module-hero + #hc-solicitudes-panel,
+.module-hero + #hc-solicitud-conflict,
+.module-hero + .dashboard-sections[data-dashboard-key="cchh-solicitudes-disponibles"] { margin-top: 24px; }
 
 /* /cchh/catalogos: MISMO criterio de respiro post-divisor que arriba (24px)
    -- acá el hero puede ir seguido de un callout de resultado, un
@@ -388,6 +391,11 @@
    necesitar el ancho dominante de `--wide`. MISMO primitivo `--fluid`, sin
    inventar una grilla nueva para Entrevistas. */
 .hc-profile-section__grid--fluid > .feedback-field--medium { flex: 1.6 1 200px; }
+
+/* Valor de solo lectura (`.feedback-field` + `<p class="hc-field-value">`, detalle de solicitudes de Operaciones/CCHH): MISMA familia y tamaño que los campos de formulario
+   (`.hc-profile-form input`, .82rem) para que fichas y tablas del detalle no mezclen tamaños. */
+.feedback-field > p.hc-field-value { margin: 0; font: .82rem var(--sans); color: #54545b; white-space: pre-wrap; overflow-wrap: anywhere; }
+.content-theme-dark .feedback-field > p.hc-field-value { color: #b2b2bc; }
 
 /* `.field-hint`/`.field-hint--warn` -- usadas por los forms de alta/edición
    desde el merge de Seniority (CCHH Catalog Foundation) pero NUNCA

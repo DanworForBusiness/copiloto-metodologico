@@ -1,8 +1,8 @@
 {# Nav izquierdo de Operaciones — mismo idioma visual que copilot_nav.html
    (.module-nav/.nav-kicker/.module-link), sin acordeón: áreas planas y
-   productivas (Asignaciones/Reporting/[Métricas de uso]), no hace falta
+   productivas (Asignaciones/Búsquedas/Reporting/[Métricas de uso]), no hace falta
    colapsar nada.
-   `active_page` ("staffing"|"reporting"|"metrics") lo pasa cada router —
+   `active_page` ("staffing"|"busquedas"|"reporting"|"metrics") lo pasa cada router —
    mismo criterio que `active_stem` en copilot_nav.html, nunca un segundo
    parseo de `request.url.path` acá.
    La bienvenida de sesión reusa el MISMO macro compartido que
@@ -10,7 +10,7 @@
    identidad (auth_service/session), nunca un segundo parseo de claims ni
    una segunda copia del formateo de nombre. Sin `readonly`: Operaciones
    no tiene el tier academy del Copiloto.
-   "03 Métricas de uso" (owner ticket "HUB METRICS — CENTRALIZE ACCESS AND
+   "04 Métricas de uso" (antes 03; "03 Búsquedas" se insertó debajo de Reporting en I2) (owner ticket "HUB METRICS — CENTRALIZE ACCESS AND
    ENABLE BY VERTICAL" §9): SOLO se imprime cuando `can_hub_metrics` es
    True — cada router que incluye este partial lo calcula server-side
    (`hub_metrics_access.is_vertical_metrics_enabled("operations") and
@@ -29,12 +29,15 @@
     <a href="/operaciones/staffing/asignaciones" class="module-link {% if active_page == 'staffing' %}is-active{% endif %}">
       <span>01</span><strong>Asignaciones</strong>
     </a>
+    <a href="/operaciones/busquedas" class="module-link {% if active_page == 'busquedas' %}is-active{% endif %}">
+      <span>02</span><strong>Búsquedas</strong>
+    </a>
     <a href="/operaciones/reporting/integral" class="module-link {% if active_page == 'reporting' %}is-active{% endif %}">
-      <span>02</span><strong>Reporting</strong>
+      <span>03</span><strong>Reporting</strong>
     </a>
     {% if can_hub_metrics %}
     <a href="/operaciones/metricas" class="module-link {% if active_page == 'metrics' %}is-active{% endif %}">
-      <span>03</span><strong>Métricas de uso</strong>
+      <span>04</span><strong>Métricas de uso</strong>
     </a>
     {% endif %}
   </nav>
