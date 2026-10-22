@@ -11,10 +11,6 @@
   {% for etapa in etapas %}<span class="busqueda-pipeline-bar__stage">{{ 'Finalizados' if etapa == etapa_final else etapa }}: <strong>{{ board[etapa] | length }}</strong></span>{% endfor %}
 </div>
 
-{% if total_candidatos == 0 %}
-<div class="dashboard-empty busqueda-empty"><span class="dashboard-empty__label">Sin candidatos</span><p>Todavía no hay candidatos en este proceso.{% if busqueda.estado == 'activo' %} Sumá desde el Banco de CVs con “+ Agregar candidato”.{% endif %}</p></div>
-{% endif %}
-
 {# Copy de estado vacío por etapa (owner): cada columna sin candidatos muestra
    su propio empty-state DENTRO de la caja (altura natural ≈ una tarjeta, ver
    `.busqueda-col__empty`), así la etapa vacía no queda ni muy chica ni estirada. #}

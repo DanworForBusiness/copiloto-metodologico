@@ -402,6 +402,21 @@ def test_detail_remove_button_declares_confirmed_trigger():
     assert '/eliminar' in html and 'hx-trigger="confirmed"' in html and 'data-dw-confirm' in html
 
 
+def test_the_redundant_top_empty_block_is_gone_with_zero_candidates_and_with_candidates_while_the_pipeline_keeps_working():
+    c = _client()
+    b = human_capital_service.create_busqueda({"nombre_puesto": "Academy", "fecha_apertura": "2026-09-01"})
+    bid = b["busqueda_id"]
+    empty = c.get(f"/cchh/busquedas/{bid}").text
+    assert "Sin candidatos" not in empty and "busqueda-empty" not in empty and "Todavía no hay candidatos en este proceso." not in empty        # sin el bloque horizontal superior
+    assert "0 candidatos" in empty and empty.count('class="busqueda-col"') == 5 and empty.count("busqueda-col__empty-add") == 1                  # resumen, 5 columnas y «+» de Preselección
+    assert "Todavía no hay candidatos en preselección." in empty and "+ Agregar candidato" in empty and 'data-dialog-open="busqueda-add-dialog"' in empty
+    human_capital_service.add_candidate_to_busqueda(bid, _profile())
+    full = c.get(f"/cchh/busquedas/{bid}").text
+    assert "Sin candidatos" not in full and "busqueda-empty" not in full and "1 candidato" in full and "0 candidatos" not in full
+    assert "busqueda-cand" in full and full.count('class="busqueda-col"') == 5 and "Preselección: <strong>1</strong>" in full                 # el pipeline conserva su presentación con datos
+    assert ".busqueda-empty" not in (Path(__file__).resolve().parents[2] / "webapp/static/human_capital.css").read_text(encoding="utf-8")        # sin CSS muerto
+
+
 def test_empty_preseleccion_shows_add_action_only_when_active():
     # "+ Agregar candidato" contextual SÓLO en la etapa inicial (Preselección) de
     # un proceso activo; ni en otras etapas ni en un proceso cerrado.
