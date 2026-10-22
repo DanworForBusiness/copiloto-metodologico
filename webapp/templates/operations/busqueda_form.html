@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% set _titles = {'nueva': 'Nueva búsqueda', 'editar': 'Editar solicitud', 'corregir': 'Corregir solicitud'} %}
+{% block title %}{{ _titles[mode] }} · Búsquedas · Operaciones · Danwor{% endblock %}
+{% block body %}
+{% set v = values %}
+<div x-data="copilotLayout('operations-busquedas')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.OPERATIONS_APP_TITLE | urlencode }}&subtitle={{ config.OPERATIONS_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}
+    <select class="pack-select" aria-label="Área operativa" disabled>
+      <option selected>Búsquedas</option>
+    </select>
+  {% endcall %}
+
+  {% include "partials/operations_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    {# MISMOS primitivos que los formularios de CCHH (busqueda_form/entrevista_form): `.catalog-back`, `.module-hero.hc-profiles-hero`, `.hc-profile-form` + `.hc-profile-section` con grilla fluida
+       (`.hc-profile-section__grid--fluid`, campos `--compact/--medium/--wide`), `.feedback-field`, `.dashboard-checkbox-*`, `.hc-profile-form__actions`. Sin CSS ni tipografía propios. #}
+    <a class="catalog-back" href="{{ '/operaciones/busquedas/' ~ view.busqueda_id if view else '/operaciones/busquedas' }}">← {{ 'Volver a la solicitud' if view else 'Volver a Búsquedas' }}</a>
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Operaciones</p>
+        <h1>{{ _titles[mode] }}</h1>
+        <p>{% if mode == 'nueva' %}Describí el perfil que necesitás. Al enviarla, Capital Humano recibe la solicitud con la fecha de hoy como fecha de apertura.
+           {% elif mode == 'editar' %}Podés modificar la solicitud mientras Capital Humano no la tome. Se conserva su fecha de apertura.
+           {% else %}Capital Humano observó la solicitud. Corregí lo que corresponda y reenviala.{% endif %}</p>
+      </div>
+    </section>
+
+    {% if mode == 'corregir' and view and view.observacion %}
+    <div class="callout callout--warn" data-observacion><div class="callout__body"><p><strong>Observación de Capital Humano</strong></p><p>{{ view.observacion.motivo }}</p></div></div>
+    {% endif %}
+    {% if error %}<div class="dashboard-empty" data-error-kind="validation" role="alert"><span class="dashboard-empty__label">No se envió</span><p>{{ error }}</p></div>{% endif %}
+    {% if warning %}<div class="callout callout--warn" role="alert"><div class="callout__body"><p>{{ warning }}</p></div></div>{% endif %}
+    {% if catalog_areas_missing or catalog_seniority_missing %}
+    <div class="callout callout--warn"><div class="callout__body"><p>Los catálogos de {% if catalog_areas_missing %}áreas{% endif %}{% if catalog_areas_missing and catalog_seniority_missing %} y {% endif %}{% if catalog_seniority_missing %}seniority{% endif %} todavía no están disponibles, así que no se puede completar este dato. Avisá a Capital Humano para que los actualice.</p></div></div>
+    {% endif %}
+
+    <form method="post" action="{{ '/operaciones/busquedas/nueva' if mode == 'nueva' else '/operaciones/busquedas/' ~ view.busqueda_id ~ '/editar' }}"
+          class="hc-profile-form" id="opsb-form" data-opsb-form data-mode="{{ mode }}">
+      {% if mode == 'nueva' %}<input type="hidden" name="submission_id" value="{{ submission_id }}">{% else %}<input type="hidden" name="expected_revision" value="{{ view.revision }}">{% endif %}
+
+      <section class="hc-profile-section">
+        <h2>Perfil requerido</h2>
+        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+          <div class="feedback-field feedback-field--wide">
+            <label for="f-nombre">Nombre del perfil</label>
+            <input id="f-nombre" name="nombre_puesto" type="text" value="{{ v.nombre_puesto or '' }}" maxlength="150" required>
+          </div>
+          <div class="feedback-field feedback-field--medium">
+            <label for="f-tipo">Tipo de búsqueda</label>
+            <select id="f-tipo" name="tipo_busqueda" required>
+              <option value="">Elegí…</option>
+              {% for t in tipos_busqueda %}<option value="{{ t }}" {% if v.tipo_busqueda == t %}selected{% endif %}>{{ tipo_labels[t] }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="feedback-field feedback-field--medium" data-when-field="tipo_busqueda" data-when-values="proyecto">
+            <label for="f-proyecto">Proyecto</label>
+            <input id="f-proyecto" name="proyecto" type="text" value="{{ v.proyecto or '' }}" maxlength="200" data-required-when-visible>
+          </div>
+          <div class="feedback-field feedback-field--compact">
+            <label for="f-cant">Cantidad de recursos</label>
+            <input id="f-cant" name="cantidad_recursos" type="number" inputmode="numeric" min="1" max="{{ cantidad_max }}" step="1" value="{{ v.cantidad_recursos if v.cantidad_recursos is not none else '' }}" required>
+          </div>
+          <div class="feedback-field feedback-field--medium">
+            <label for="f-area">Área a la que pertenecerá</label>
+            <select id="f-area" name="area_consultora" required>
+              <option value="">Elegí…</option>
+              {% for a in areas %}<option value="{{ a }}" {% if v.area_consultora == a %}selected{% endif %}>{{ a }}</option>{% endfor %}
+              {% if area_is_legacy %}<option value="{{ v.area_consultora }}" selected>{{ v.area_consultora }} (fuera de catálogo)</option>{% endif %}
+            </select>
+            {% if area_is_legacy %}<p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>{% endif %}
+          </div>
+        </div>
+        <div class="feedback-field">
+          <label id="f-seniority-label">Seniority <span>podés elegir más de uno</span></label>
+          <div class="dashboard-checkbox-group dashboard-checkbox-group--grid-2" role="group" aria-labelledby="f-seniority-label">
+            {% for s in seniorities %}
+            <label class="dashboard-checkbox-option">
+              <input type="checkbox" name="seniority" value="{{ s }}" {% if s in (v.seniority or []) %}checked{% endif %}>
+              <span>{{ s }}{% if s in legacy_seniority %} (fuera de catálogo){% endif %}</span>
+            </label>
+            {% else %}<p class="field-hint">Sin catálogo de seniority disponible.</p>{% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="hc-profile-section">
+        <h2>Dedicación y duración</h2>
+        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+          <div class="feedback-field feedback-field--compact">
+            <label for="f-ded-v">Dedicación</label>
+            <input id="f-ded-v" name="dedicacion_valor" type="number" inputmode="decimal" min="0" step="any" value="{{ v.dedicacion_valor if v.dedicacion_valor is not none else '' }}" required>
+          </div>
+          <div class="feedback-field feedback-field--medium">
+            <label for="f-ded-u">Unidad de dedicación</label>
+            <select id="f-ded-u" name="dedicacion_unidad" required>
+              <option value="">Elegí…</option>
+              {% for u in dedicacion_unidades %}<option value="{{ u }}" {% if v.dedicacion_unidad == u %}selected{% endif %}>{{ dedicacion_labels[u] }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="feedback-field feedback-field--medium">
+            <label for="f-dur-t">Duración</label>
+            <select id="f-dur-t" name="duracion_tipo" required>
+              <option value="">Elegí…</option>
+              {% for d in duracion_tipos %}<option value="{{ d }}" {% if v.duracion_tipo == d %}selected{% endif %}>{{ duracion_labels[d] }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="feedback-field feedback-field--compact" data-when-field="duracion_tipo" data-when-values="meses">
+            <label for="f-dur-m">Cantidad de meses</label>
+            <input id="f-dur-m" name="duracion_meses" type="number" inputmode="numeric" min="1" max="{{ duracion_meses_max }}" step="1" value="{{ v.duracion_meses if v.duracion_meses is not none else '' }}" data-required-when-visible>
+          </div>
+        </div>
+      </section>
+
+      <section class="hc-profile-section">
+        <h2>Ubicación y modalidad</h2>
+        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+          <div class="feedback-field feedback-field--medium">
+            <label for="f-ubic">Ubicación <span>también en remoto; podés indicar «Indistinto»</span></label>
+            <input id="f-ubic" name="ubicacion" type="text" list="f-ubic-list" value="{{ v.ubicacion or '' }}" maxlength="200" required>
+            <datalist id="f-ubic-list"><option value="Indistinto"></option></datalist>
+          </div>
+          <div class="feedback-field feedback-field--medium">
+            <label for="f-mod">Modalidad de trabajo</label>
+            <select id="f-mod" name="modalidad" required>
+              <option value="">Elegí…</option>
+              {% for m in modalidades %}<option value="{{ m }}" {% if v.modalidad == m %}selected{% endif %}>{{ m }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="feedback-field feedback-field--compact" data-when-field="modalidad" data-when-values="Híbrido">
+            <label for="f-dias">Días presenciales <span>de 1 a {{ dias_hibrido_max }} por semana</span></label>
+            <input id="f-dias" name="dias_presenciales" type="number" inputmode="numeric" min="1" max="{{ dias_hibrido_max }}" step="1" value="{{ v.dias_presenciales if v.dias_presenciales is not none else '' }}" data-required-when-visible>
+          </div>
+          <div class="feedback-field feedback-field--wide" data-when-field="modalidad" data-when-values="Híbrido|On site">
+            <label for="f-lugar">Lugar de trabajo</label>
+            <input id="f-lugar" name="lugar_trabajo" type="text" value="{{ v.lugar_trabajo or '' }}" maxlength="200" data-required-when-visible>
+          </div>
+        </div>
+      </section>
+
+      <section class="hc-profile-section">
+        <h2>Requisitos del perfil</h2>
+        <div class="feedback-field">
+          <label for="f-resp">Responsabilidades</label>
+          <textarea id="f-resp" name="responsabilidades" rows="4" maxlength="4000" required>{{ v.responsabilidades or '' }}</textarea>
+        </div>
+        <div class="feedback-field">
+          <label for="f-skills">Skills técnicos excluyentes</label>
+          <textarea id="f-skills" name="skills_excluyentes" rows="3" maxlength="4000" required>{{ v.skills_excluyentes or '' }}</textarea>
+        </div>
+        <div class="feedback-field">
+          <label for="f-soft">Habilidades blandas <span>opcional</span></label>
+          <textarea id="f-soft" name="habilidades_blandas" rows="2" maxlength="4000">{{ v.habilidades_blandas or '' }}</textarea>
+        </div>
+        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+          <div class="feedback-field feedback-field--medium">
+            <label for="f-ing">Nivel de inglés</label>
+            <select id="f-ing" name="ingles" required>
+              <option value="">Elegí…</option>
+              {% for n in ingles_niveles %}<option value="{{ n }}" {% if v.ingles == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="feedback-field feedback-field--wide">
+            <label for="f-cert">Certificaciones <span>opcional</span></label>
+            <input id="f-cert" name="certificaciones" type="text" value="{{ v.certificaciones or '' }}" maxlength="4000">
+          </div>
+        </div>
+      </section>
+
+      <section class="hc-profile-section">
+        <h2>Contratación</h2>
+        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+          <div class="feedback-field feedback-field--compact">
+            <label for="f-contr">Tipo de contrato</label>
+            <select id="f-contr" name="tipo_contrato" required>
+              <option value="">Elegí…</option>
+              {% for c in tipos_contrato %}<option value="{{ c }}" {% if v.tipo_contrato == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="feedback-field feedback-field--compact">
+            <label for="f-inicio">Fecha de inicio prevista</label>
+            <input id="f-inicio" name="fecha_inicio_prevista" type="date" value="{{ v.fecha_inicio_prevista or '' }}" required>
+          </div>
+        </div>
+        <div class="feedback-field">
+          <label for="f-obs">Observaciones <span>opcional</span></label>
+          <textarea id="f-obs" name="comentarios" rows="3" maxlength="4000">{{ v.comentarios or '' }}</textarea>
+        </div>
+      </section>
+
+      <div class="hc-profile-form__actions">
+        <button type="submit" class="btn-primary" data-busy-label="{{ 'Enviando…' if mode != 'editar' else 'Guardando…' }}">
+          {% if mode == 'nueva' %}Enviar a Capital Humano{% elif mode == 'corregir' %}Corregir y reenviar a Capital Humano{% else %}Guardar cambios{% endif %}
+        </button>
+        <a class="btn-secondary" href="{{ '/operaciones/busquedas/' ~ view.busqueda_id if view else '/operaciones/busquedas' }}">Cancelar</a>
+        <span data-status role="status" aria-live="polite"></span>
+      </div>
+    </form>
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+<script src="{{ url_for('static', path='operations_busquedas.js') }}?v={{ static_version }}" defer></script>
+{% endblock %}

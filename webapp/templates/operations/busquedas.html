@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Búsquedas · Operaciones · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('operations-busquedas')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.OPERATIONS_APP_TITLE | urlencode }}&subtitle={{ config.OPERATIONS_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}
+    <select class="pack-select" aria-label="Área operativa" disabled>
+      <option selected>Búsquedas</option>
+    </select>
+  {% endcall %}
+
+  {% include "partials/operations_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Operaciones</p>
+        <h1>Búsquedas</h1>
+        <p>Pedidos de perfiles a Capital Humano: creá una solicitud, seguí su estado y corregila si Capital Humano la observa.</p>
+      </div>
+      <div class="hc-profiles-hero-actions">
+        <a href="/operaciones/busquedas/nueva" class="btn-primary">+ Nueva búsqueda</a>
+      </div>
+    </section>
+
+    {% if ok_message %}<div class="callout callout--success" role="status"><div class="callout__body"><p>{{ ok_message }}</p></div></div>{% endif %}
+
+    {% include "partials/operations_busquedas_panel.html" %}
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{% endblock %}

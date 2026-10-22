@@ -173,6 +173,8 @@ try:                                                        # fechas de NEGOCIO:
 except Exception:                                           # noqa: BLE001 — sin base tz (p. ej. Windows sin tzdata): Argentina no tiene horario de verano desde 2009 -> UTC-3 fijo
     _BUSINESS_TZ = timezone(timedelta(hours=-3))
 
+BUSINESS_TZ = _BUSINESS_TZ   # público: la presentación de timestamps (UTC → hora de negocio) reutiliza la MISMA zona
+
 
 def _business_today() -> str:
     """Fecha de negocio (AAAA-MM-DD) en Buenos Aires: `fecha_apertura` / `fecha_cierre`. Entre 21:00 y 24:00 ART la fecha UTC ya es la del día siguiente."""
