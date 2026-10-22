@@ -54,14 +54,14 @@ def text(resp) -> str:
 
 
 # ═══════════════════════ navegación ═══════════════════════
-def test_nav_has_busquedas_as_03_right_below_reporting_and_metrics_become_04(monkeypatch):
+def test_nav_has_busquedas_as_02_right_below_asignaciones_and_reporting_and_metrics_shift_down(monkeypatch):
     from webapp import hub_metrics_access
     monkeypatch.setattr(hub_metrics_access, "is_vertical_metrics_enabled", lambda vertical: True)
     monkeypatch.setattr(hub_metrics_access, "can_access_hub_metrics", lambda user: True)
     html = text(ops().get(BASE))
-    order = [html.index(x) for x in ("<strong>Asignaciones</strong>", "<strong>Reporting</strong>", "<strong>Búsquedas</strong>", "<strong>Métricas de uso</strong>")]
+    order = [html.index(x) for x in ("<strong>Asignaciones</strong>", "<strong>Búsquedas</strong>", "<strong>Reporting</strong>", "<strong>Métricas de uso</strong>")]
     assert order == sorted(order)
-    assert re.search(r"<span>03</span><strong>Búsquedas</strong>", html) and re.search(r"<span>04</span><strong>Métricas de uso</strong>", html)
+    assert re.search(r"<span>02</span><strong>Búsquedas</strong>", html) and re.search(r"<span>03</span><strong>Reporting</strong>", html) and re.search(r"<span>04</span><strong>Métricas de uso</strong>", html)
     assert re.search(r'href="/operaciones/busquedas" class="module-link is-active"', html)
 
 
@@ -75,22 +75,25 @@ def test_metrics_link_is_absent_without_hub_metrics_access(monkeypatch):
     from webapp import hub_metrics_access
     monkeypatch.setattr(hub_metrics_access, "can_access_hub_metrics", lambda user: False)
     html = text(ops().get(BASE))
-    assert "Métricas de uso" not in html and "<span>03</span><strong>Búsquedas</strong>" in html
+    assert "Métricas de uso" not in html and "<span>02</span><strong>Búsquedas</strong>" in html
 
 
-def test_the_progressive_enhancement_script_is_served_and_no_own_stylesheet_exists():
+def test_the_script_is_served_and_the_stylesheet_is_only_the_minimal_hub_adjustment():
     assert ops().get("/static/operations_busquedas.js").status_code == 200
-    assert ops().get("/static/operations_busquedas.css").status_code == 404          # sin CSS propio: todo el aspecto es del core del Hub
+    css = ops().get("/static/operations_busquedas.css")
+    assert css.status_code == 200
+    declared = " ".join(re.findall(r"\{([^}]*)\}", re.sub(r"/\*.*?\*/", "", css.text, flags=re.S)))        # solo las declaraciones
+    assert "font-family" not in declared and "#" not in declared and "rgb" not in declared and "background" not in declared   # sin tipografía ni colores propios (solo tokens del Hub)     # solo cabecera estándar de Operaciones + respiro post-divisor
 
 
 @pytest.mark.parametrize("path", [BASE, f"{BASE}/nueva", f"{BASE}/{SID}", f"{BASE}/{SID}/editar"])
 def test_screens_use_the_hub_primitives_and_no_custom_styles_or_typography(path):
     send()
     html = ops().get(path).text
-    assert "human_capital.css" in html and "operations_busquedas.css" not in html            # mismas hojas que CCHH
-    assert not re.search(r'class="[^"]*opsb-(?!panel|table|form)', html)                  # ninguna clase de estilo propia (los `opsb-*` restantes son solo ids de enlace/JS)
+    assert "human_capital.css" in html                                                       # mismas hojas que CCHH
+    assert not re.search(r'class="[^"]*\bopsb-(?!hero|checks)', html)                              # ninguna clase de estilo propia salvo la cabecera estándar de Operaciones
     assert "font-family" not in html and "font-size" not in html and "font:" not in html     # ni tipografía propia inline
-    assert "module-hero hc-profiles-hero" in html and 'class="catalog-back"' in html or path == BASE
+    assert 'class="module-hero opsb-hero"' in html and ("hero-lead full-page-subtitle" in html or path.endswith(SID))
 
 
 # ═══════════════════════ autorización server-side en TODAS las rutas ═══════════════════════

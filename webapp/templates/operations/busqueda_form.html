@@ -2,7 +2,7 @@
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% set _titles = {'nueva': 'Nueva búsqueda', 'editar': 'Editar solicitud', 'corregir': 'Corregir solicitud'} %}
-{% block title %}{{ _titles[mode] }} · Búsquedas · Operaciones · Danwor{% endblock %}
+{% block title %}{{ _titles[mode] }} · Búsquedas · Staffing · Operaciones · Danwor{% endblock %}
 {% block body %}
 {% set v = values %}
 <div x-data="copilotLayout('operations-busquedas')" x-init="init()" class="app-shell no-copilot">
@@ -20,18 +20,16 @@
     {# MISMOS primitivos que los formularios de CCHH (busqueda_form/entrevista_form): `.catalog-back`, `.module-hero.hc-profiles-hero`, `.hc-profile-form` + `.hc-profile-section` con grilla fluida
        (`.hc-profile-section__grid--fluid`, campos `--compact/--medium/--wide`), `.feedback-field`, `.dashboard-checkbox-*`, `.hc-profile-form__actions`. Sin CSS ni tipografía propios. #}
     <a class="catalog-back" href="{{ '/operaciones/busquedas/' ~ view.busqueda_id if view else '/operaciones/busquedas' }}">← {{ 'Volver a la solicitud' if view else 'Volver a Búsquedas' }}</a>
-    <section class="module-hero hc-profiles-hero">
-      <div class="hc-profiles-hero-text">
-        <p class="eyebrow">Operaciones</p>
-        <h1>{{ _titles[mode] }}</h1>
-        <p>{% if mode == 'nueva' %}Describí el perfil que necesitás. Al enviarla, Capital Humano recibe la solicitud con la fecha de hoy como fecha de apertura.
+    <section class="module-hero opsb-hero">
+      <p class="eyebrow">Staffing</p>
+      <h1>{{ _titles[mode] }}</h1>
+      <p class="hero-lead full-page-subtitle">{% if mode == 'nueva' %}Describí el perfil que necesitás. Al enviarla, Capital Humano recibe la solicitud con la fecha de hoy como fecha de apertura.
            {% elif mode == 'editar' %}Podés modificar la solicitud mientras Capital Humano no la tome. Se conserva su fecha de apertura.
            {% else %}Capital Humano observó la solicitud. Corregí lo que corresponda y reenviala.{% endif %}</p>
-      </div>
     </section>
 
     {% if mode == 'corregir' and view and view.observacion %}
-    <div class="callout callout--warn" data-observacion><div class="callout__body"><p><strong>Observación de Capital Humano</strong></p><p>{{ view.observacion.motivo }}</p></div></div>
+    <div class="callout callout--warn" data-observacion><div class="callout__head"><strong class="callout__title">Observación de Capital Humano</strong></div><div class="callout__body"><p>{{ view.observacion.motivo }}</p></div></div>
     {% endif %}
     {% if error %}<div class="dashboard-empty" data-error-kind="validation" role="alert"><span class="dashboard-empty__label">No se envió</span><p>{{ error }}</p></div>{% endif %}
     {% if warning %}<div class="callout callout--warn" role="alert"><div class="callout__body"><p>{{ warning }}</p></div></div>{% endif %}
@@ -77,7 +75,7 @@
         </div>
         <div class="feedback-field">
           <label id="f-seniority-label">Seniority <span>podés elegir más de uno</span></label>
-          <div class="dashboard-checkbox-group dashboard-checkbox-group--grid-2" role="group" aria-labelledby="f-seniority-label">
+          <div class="dashboard-checkbox-group opsb-checks" role="group" aria-labelledby="f-seniority-label">
             {% for s in seniorities %}
             <label class="dashboard-checkbox-option">
               <input type="checkbox" name="seniority" value="{{ s }}" {% if s in (v.seniority or []) %}checked{% endif %}>
@@ -204,5 +202,6 @@
 </div>
 
 <link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', path='operations_busquedas.css') }}?v={{ static_version }}">
 <script src="{{ url_for('static', path='operations_busquedas.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}

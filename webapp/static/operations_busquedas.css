@@ -1,0 +1,11 @@
+/* Operaciones / Búsquedas — ajuste mínimo sobre las hojas del Hub (sin tipografía ni colores propios).
+   `human_capital.css` (cargada por sus primitivos hc-*) redefine `.module-hero` para CCHH (título más chico, menos respiro); acá se restaura la cabecera
+   estándar de Staffing/Operaciones (valores de app.css: título, respiro bajo el divisor). El subtítulo (`.hero-lead`, hijo directo del hero) y el eyebrow
+   son los de Asignaciones sin tocar. Respiro de 24px entre el divisor y el primer bloque: MISMA convención por-panel que CCHH (`.module-hero + #hc-…-panel`). */
+.opsb-hero { padding-bottom: 44px; }
+.opsb-hero h1 { margin: 12px 0 22px; font-size: clamp(2.4rem, 5vw, 4.5rem); letter-spacing: -.055em; }
+.module-hero + #opsb-panel, .module-hero + #opsb-detail { margin-top: 24px; }
+/* CTA «+ Nueva búsqueda» dentro de la barra de filtros: mismo alto/comportamiento que los botones de esa barra (`.hc-profile-filters > button`). */
+.hc-profile-filters > a.btn-primary { flex: 0 0 auto; height: 40px; display: inline-flex; align-items: center; }
+/* Seniority (multi-selección): opciones en una fila que envuelve, en vez de columnas separadas al ancho completo. */
+.opsb-checks { flex-direction: row; flex-wrap: wrap; gap: 8px 28px; }

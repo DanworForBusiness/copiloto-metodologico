@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
-{% block title %}{{ view.requerimiento.nombre_puesto }} · Búsquedas · Operaciones · Danwor{% endblock %}
+{% block title %}{{ view.requerimiento.nombre_puesto }} · Búsquedas · Staffing · Operaciones · Danwor{% endblock %}
 {% block body %}
 {% set req = view.requerimiento %}
 {% set pres = req.presencialidad %}
@@ -21,34 +21,38 @@
   <main id="content" class="module-content">
     {# Composición espejo del detalle de proceso de CCHH: `.catalog-back`, hero con `.hero-meta` + título + fila de estado (`.status-badge`) y acciones a la derecha, secciones `dashboard-section`. Sin CSS propio. #}
     <a class="catalog-back" href="/operaciones/busquedas">← Volver a Búsquedas</a>
-    <section class="module-hero hc-profiles-hero">
-      <div class="hc-profiles-hero-text">
-        {% set _meta = [] %}
-        {% if req.area_consultora %}{% set _ = _meta.append(req.area_consultora) %}{% endif %}
-        {% if req.modalidad %}{% set _ = _meta.append(req.modalidad) %}{% endif %}
-        {% set _ = _meta.append('Abierta el ' ~ (view.fecha_apertura | ops_date)) %}
-        <div class="hero-meta">{% for p in _meta %}<span>{{ p }}</span>{% endfor %}</div>
-        <h1>{{ req.nombre_puesto }}</h1>
-        <div class="busqueda-status-row">
+    <section class="module-hero opsb-hero">
+      <p class="eyebrow">Staffing · Solicitud de perfil</p>
+      <h1>{{ req.nombre_puesto }}</h1>
+      {% set _meta = [] %}
+      {% if req.area_consultora %}{% set _ = _meta.append(req.area_consultora) %}{% endif %}
+      {% if req.modalidad %}{% set _ = _meta.append(req.modalidad) %}{% endif %}
+      {% set _ = _meta.append('Abierta el ' ~ (view.fecha_apertura | ops_date)) %}
+      <p class="hero-lead full-page-subtitle">{{ _meta | join(' · ') }}</p>
+    </section>
+
+    <div id="opsb-detail">
+      {# Estado y acciones: MISMA fila flex que la cabecera de las listas de CCHH (`.hc-profiles-hero*`), usada acá solo como layout (sin título). #}
+      <div class="hc-profiles-hero">
+        <div class="hc-profiles-hero-text busqueda-status-row">
           <span class="status-badge status-badge--{{ badge_tonos[view.indicador] }}" data-indicador="{{ view.indicador }}">{{ indicadores[view.indicador] }}</span>
           {% if view.indicador == 'reenviada' and view.reenvios %}<span class="status-badge status-badge--inactivo">{{ view.reenvios }} reenvío{{ '' if view.reenvios == 1 else 's' }}</span>{% endif %}
           {% if view.fecha_cierre %}<span class="status-badge status-badge--inactivo">Cerrada el {{ view.fecha_cierre | ops_date }}</span>{% endif %}
         </div>
+        <div class="hc-profiles-hero-actions">
+          {% if view.puede_editar %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-secondary">Editar</a>{% endif %}
+          {% if view.puede_corregir %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-primary">Corregir y reenviar</a>{% endif %}
+          {% if view.puede_cancelar %}<button type="button" class="btn-danger" data-dialog-open="opsb-cancel-dialog">Cancelar solicitud</button>{% endif %}
+        </div>
       </div>
-      <div class="hc-profiles-hero-actions">
-        {% if view.puede_editar %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-secondary">Editar</a>{% endif %}
-        {% if view.puede_corregir %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-primary">Corregir y reenviar</a>{% endif %}
-        {% if view.puede_cancelar %}<button type="button" class="btn-danger" data-dialog-open="opsb-cancel-dialog">Cancelar solicitud</button>{% endif %}
-      </div>
-    </section>
 
     {% if ok_message %}<div class="callout callout--success" role="status"><div class="callout__body"><p>{{ ok_message }}</p></div></div>{% endif %}
     {% if error %}<div class="dashboard-empty" data-error-kind="action" role="alert"><span class="dashboard-empty__label">No se pudo completar</span><p>{{ error }}</p></div>{% endif %}
 
     {% if view.estado_solicitud == 'observada' and view.observacion %}
     <div class="callout callout--warn" data-observacion>
+      <div class="callout__head"><strong class="callout__title">Capital Humano observó esta solicitud{% if view.observacion.en %} · {{ view.observacion.en | ops_datetime }}{% endif %}</strong></div>
       <div class="callout__body">
-        <p><strong>Capital Humano observó esta solicitud</strong>{% if view.observacion.en %} · {{ view.observacion.en | ops_datetime }}{% endif %}</p>
         <p>{{ view.observacion.motivo }}</p>
         <p>Corregí los datos y reenviala: vuelve a quedar «Enviada».</p>
       </div>
@@ -142,6 +146,8 @@
       </details>
     </div>
 
+    </div>
+
     {% if view.puede_cancelar %}
     {# Modal de cancelación: MISMO `<dialog class="dw-confirm busqueda-dialog">` + opener `[data-dialog-open]` que «Cerrar proceso» de CCHH. Motivo opcional. #}
     <dialog class="dw-confirm busqueda-dialog" id="opsb-cancel-dialog" aria-labelledby="opsb-cancel-title">
@@ -168,5 +174,6 @@
 </div>
 
 <link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', path='operations_busquedas.css') }}?v={{ static_version }}">
 <script src="{{ url_for('static', path='operations_busquedas.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}
