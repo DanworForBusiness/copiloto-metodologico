@@ -94,6 +94,14 @@
 </div>
 
 {% if busqueda.estado == 'activo' %}
+{# Historial del proceso (solicitud + movimientos de candidatos): UNA tabla, dentro del cuerpo que se re-renderiza tras cada mutación. Solo para procesos gestionados (con pipeline). #}
+{% if solicitud_gestion and busqueda_historial and busqueda_historial.historial %}
+<div class="dashboard-sections" data-dashboard-key="cchh-proceso-historial">
+  {% set view = busqueda_historial %}
+  {% include "partials/human_capital_historial_section.html" %}
+</div>
+{% endif %}
+
 {# Modal: Agregar candidato desde el Banco de CVs (sólo disponibles = sin
    postulación activa en curso). "Asociar" = crear la postulación en Preselección. #}
 <dialog class="dw-confirm busqueda-dialog" id="busqueda-add-dialog" aria-labelledby="busqueda-add-title">

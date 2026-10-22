@@ -638,8 +638,16 @@ def update_busqueda(busqueda_id: str, expected_revision: int, fields: dict) -> d
         busqueda_id, expected_revision, _shape_busqueda_fields(fields, existing=existing))
 
 
-def close_busqueda(busqueda_id: str, finalize_application_ids: list[str] | None = None) -> dict:
-    busqueda = busqueda_repository.close(busqueda_id, finalize_application_ids)
+def _candidate_display_name(profile_id) -> str | None:
+    """Nombre visible del candidato para la FOTO del historial del proceso (nunca bloquea un movimiento)."""
+    profile = profile_repository.get(profile_id) if profile_id else None
+    if not profile:
+        return None
+    return " ".join(p for p in (str(profile.get("first_name") or "").strip(), str(profile.get("last_name") or "").strip()) if p) or None
+
+
+def close_busqueda(busqueda_id: str, finalize_application_ids: list[str] | None = None, *, actor: str | None = None) -> dict:
+    busqueda = busqueda_repository.close(busqueda_id, finalize_application_ids, actor=actor, names=_candidate_display_name)
     sync_onboardings_for_busqueda(busqueda)             # misma condición central tras CUALQUIER mutación de candidaturas
     return busqueda
 
@@ -873,6 +881,30 @@ def _require_actor(actor) -> str:
 _GENERIC_ACTORS = frozenset({"", "capital humano", "cchh", "operaciones"})       # rótulos de ÁREA (dato legado), nunca una identidad de usuario
 
 
+def _historial_rows(entries, *, include_cchh_actors: bool) -> list[dict]:
+    """Filas (lista blanca) del historial del proceso. Los movimientos de CANDIDATOS (`candidato_*`) son información interna de Capital Humano: SOLO se proyectan en las pantallas de CCHH
+    (`include_cchh_actors=True`), nunca hacia Operaciones. «Realizado por» = la identidad registrada del ejecutor; un legado que solo guarda el rótulo de área no se promueve a identidad."""
+    rows = []
+    for h in entries or []:
+        is_candidate = str(h.get("transicion") or "").startswith("candidato_")
+        if is_candidate and not include_cchh_actors:
+            continue
+        row = {k: h.get(k) for k in ("transicion", "desde", "hasta", "fecha", "actor_tipo", "motivo")}
+        if h.get("actor_tipo") == busqueda_repository.ORIGEN_OPERACIONES:
+            row["actor"] = h.get("actor")
+        elif include_cchh_actors and str(h.get("actor") or "").strip().lower() not in _GENERIC_ACTORS:
+            row["actor"] = h.get("actor")
+        if is_candidate:
+            row.update({"candidato": h.get("candidato"), "profile_id": h.get("profile_id"), "resultado": h.get("resultado")})
+        rows.append(row)
+    return rows
+
+
+def proceso_historial_view(doc: dict) -> dict:
+    """Historial del proceso para las pantallas de CCHH: el de la solicitud si la hay, o el de nivel documento (alta directa de CCHH). Mismo esquema de filas que `solicitud_view`."""
+    return {"historial": _historial_rows(busqueda_repository.historial_proceso_of(doc), include_cchh_actors=True), "ejecutores_cchh_visibles": True}
+
+
 def solicitud_view(doc: dict, *, include_cchh_actors: bool = False) -> dict | None:
     """Proyección SEGURA de una solicitud para Operaciones (lista blanca).
     NUNCA incluye candidatos/postulaciones, ni datos del Banco de CVs, ni el
@@ -884,16 +916,7 @@ def solicitud_view(doc: dict, *, include_cchh_actors: bool = False) -> dict | No
         return None
     estado = sol.get("estado")
     obs = sol.get("observacion") if isinstance(sol.get("observacion"), dict) else None
-    historial = []
-    for h in sol.get("historial") or []:
-        row = {k: h.get(k) for k in ("transicion", "desde", "hasta", "fecha", "actor_tipo", "motivo")}
-        if h.get("actor_tipo") == busqueda_repository.ORIGEN_OPERACIONES:
-            row["actor"] = h.get("actor")
-        elif include_cchh_actors and str(h.get("actor") or "").strip().lower() not in _GENERIC_ACTORS:
-            # Pantallas de CAPITAL HUMANO: «Realizado por» = la identidad REAL registrada (claim `sub` de la sesión que ejecutó la acción). Un legado que solo guarda el rótulo de área («Capital Humano») NO se
-            # promueve a identidad: sin `actor` la plantilla muestra «Usuario no identificado». La vista para Operaciones nunca expone a las personas de CCHH (frontera de privacidad).
-            row["actor"] = h.get("actor")
-        historial.append(row)
+    historial = _historial_rows(sol.get("historial"), include_cchh_actors=include_cchh_actors)
     view = {
         "busqueda_id": doc.get("busqueda_id"),
         "solicitud_id": sol.get("submission_id") or doc.get("busqueda_id"),
@@ -1040,15 +1063,15 @@ def take_solicitud(busqueda_id: str, expected_revision: int, actor: str) -> dict
     return busqueda_repository.take_solicitud(busqueda_id, expected_revision, _require_actor(actor))
 
 
-def add_candidate_to_busqueda(busqueda_id: str, profile_id: str) -> dict:
+def add_candidate_to_busqueda(busqueda_id: str, profile_id: str, *, actor: str | None = None) -> dict:
     profile = profile_repository.get(profile_id)
     if profile is None or profile.get("deleted_at"):
         raise ValueError("El candidato no existe o fue eliminado del Banco de CVs.")
-    return busqueda_repository.add_candidate(busqueda_id, profile_id)
+    return busqueda_repository.add_candidate(busqueda_id, profile_id, actor=actor, names=_candidate_display_name)
 
 
-def remove_application(busqueda_id: str, application_id: str) -> dict:
-    return busqueda_repository.remove_candidate(busqueda_id, application_id)
+def remove_application(busqueda_id: str, application_id: str, *, actor: str | None = None) -> dict:
+    return busqueda_repository.remove_candidate(busqueda_id, application_id, actor=actor, names=_candidate_display_name)
 
 
 # Etapas que implican que "hubo entrevista" -- MISMO gate que
@@ -1060,7 +1083,7 @@ _ETAPAS_QUE_DISPARAN_ENTREVISTA = ("Entrevista CCHH", "Entrevista Líder", "Deci
 
 
 def move_application_stage(busqueda_id: str, application_id: str, etapa: str,
-                           resultado_final: str | None) -> dict:
+                           resultado_final: str | None, *, actor: str | None = None) -> dict:
     if etapa not in busqueda_repository.ETAPAS:
         raise ValueError("Etapa inválida.")
     resultado = (resultado_final or "").strip() or None
@@ -1069,7 +1092,7 @@ def move_application_stage(busqueda_id: str, application_id: str, etapa: str,
             raise ValueError("Resultado final inválido.")
     else:
         resultado = None  # el repo también lo fuerza; se valida acá el contrato
-    busqueda = busqueda_repository.move_stage(busqueda_id, application_id, etapa, resultado)
+    busqueda = busqueda_repository.move_stage(busqueda_id, application_id, etapa, resultado, actor=actor, names=_candidate_display_name)
     sync_onboardings_for_busqueda(busqueda)             # Finalizado + Ingreso => Onboarding (en una sola operación o con el resultado asignado después)
     if etapa in _ETAPAS_QUE_DISPARAN_ENTREVISTA:
         app = next((a for a in busqueda.get("candidatos", []) if a.get("application_id") == application_id), None)

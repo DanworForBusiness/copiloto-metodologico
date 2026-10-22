@@ -1390,7 +1390,14 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
         "solicitud": human_capital_service.solicitud_view(busqueda, include_cchh_actors=True),
         "solicitud_gestion": busqueda_repository.solicitud_estado(busqueda) in (None, busqueda_repository.SOLICITUD_EN_GESTION),
         "solicitud_badge": _solicitud_badge(human_capital_service.solicitud_view(busqueda)) if human_capital_service.solicitud_view(busqueda) else None,
+        # Historial UNIFICADO del proceso (solicitud + movimientos de candidatos): dentro del cuerpo que se re-renderiza tras cada mutación del pipeline, para que no quede desactualizado.
+        "busqueda_historial": human_capital_service.solicitud_view(busqueda, include_cchh_actors=True) or human_capital_service.proceso_historial_view(busqueda),
     }
+
+
+def _pipeline_actor(request: Request) -> str | None:
+    """Ejecutor de un movimiento del pipeline = claim `sub` de la sesión autenticada (normalizado), MISMA fuente que las transiciones de la solicitud. `None` si la sesión no lo trae."""
+    return str((auth_service.session_user(request) or {}).get("sub") or "").strip().lower() or None
 
 
 def _busqueda_shell(request, extra: dict) -> dict:
@@ -1572,7 +1579,7 @@ def human_capital_busqueda_add_candidate(request: Request, busqueda_id: str, pro
     if redirect is not None:
         return redirect
     try:
-        human_capital_service.add_candidate_to_busqueda(busqueda_id, profile_id)
+        human_capital_service.add_candidate_to_busqueda(busqueda_id, profile_id, actor=_pipeline_actor(request))
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
     except (ValueError, *_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
@@ -1592,7 +1599,7 @@ def human_capital_busqueda_move_stage(
     if redirect is not None:
         return redirect
     try:
-        human_capital_service.move_application_stage(busqueda_id, application_id, etapa, resultado_final)
+        human_capital_service.move_application_stage(busqueda_id, application_id, etapa, resultado_final, actor=_pipeline_actor(request))
     except (busqueda_repository.BusquedaNotFoundError, busqueda_repository.ApplicationNotFoundError):
         raise HTTPException(404, "No encontrado") from None
     except (ValueError, *_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
@@ -1609,7 +1616,7 @@ def human_capital_busqueda_remove_candidate(request: Request, busqueda_id: str, 
     if redirect is not None:
         return redirect
     try:
-        human_capital_service.remove_application(busqueda_id, application_id)
+        human_capital_service.remove_application(busqueda_id, application_id, actor=_pipeline_actor(request))
     except (busqueda_repository.BusquedaNotFoundError, busqueda_repository.ApplicationNotFoundError):
         pass
     except (*_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
@@ -1692,7 +1699,7 @@ async def human_capital_busqueda_close(request: Request, busqueda_id: str):
     form = await request.form()
     finalize_ids = form.getlist("finalize_application_id")
     try:
-        human_capital_service.close_busqueda(busqueda_id, finalize_ids)
+        human_capital_service.close_busqueda(busqueda_id, finalize_ids, actor=_pipeline_actor(request))
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
     except (*_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):

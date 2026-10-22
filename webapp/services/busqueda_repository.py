@@ -384,18 +384,48 @@ def _find_app(doc: dict, application_id: str) -> dict:
     raise ApplicationNotFoundError(f"La postulación {application_id} no existe en esta búsqueda.")
 
 
-def add_candidate(busqueda_id: str, profile_id: str) -> dict:
+# ── Historial del PROCESO: movimientos de candidatos ────────────────────────────────────────────────────────────
+# MISMO historial y MISMA persistencia que las transiciones de la solicitud: las entradas usan el esquema de `_record` (`transicion`, `desde`, `hasta`, `actor`, `actor_tipo`, `fecha`) y viven en
+# `solicitud.historial` cuando la búsqueda nació de una solicitud de Operaciones; una búsqueda de alta directa de CCHH (sin bloque `solicitud`, que cambiaría su clasificación) las guarda en
+# `historial` a nivel documento. Se escriben DENTRO de la MISMA mutación atómica que el cambio del pipeline (`_mutate`): si la persistencia no se confirma, no queda ni el cambio ni el evento, y
+# una operación sin efecto (reintento, doble envío) no registra nada. Cada evento guarda el ejecutor autenticado y una FOTO del nombre visible (el Banco puede cambiar o eliminar al candidato después).
+CANDIDATO_ASOCIADO, CANDIDATO_ETAPA, CANDIDATO_FINALIZADO, CANDIDATO_DESVINCULADO = "candidato_asociado", "candidato_etapa", "candidato_finalizado", "candidato_desvinculado"
+CANDIDATO_EVENTOS = (CANDIDATO_ASOCIADO, CANDIDATO_ETAPA, CANDIDATO_FINALIZADO, CANDIDATO_DESVINCULADO)
+
+
+def historial_proceso_of(doc: dict) -> list:
+    """La lista de historial del proceso (solo lectura): la de la solicitud si existe; si no, la de nivel documento; `[]` si no hay."""
+    sol = solicitud_of(doc)
+    h = sol.get("historial") if sol is not None else doc.get("historial")
+    return h or []                                            # (`list` está sombreado en este módulo por `list()`: sin isinstance)
+
+
+def _log_candidate_event(doc: dict, transicion: str, *, actor, now: str, application: dict, names, desde=None, hasta=None, resultado=None) -> None:
+    profile_id = application.get("profile_id")
+    try:
+        nombre = (names(profile_id) if names is not None else None) or None
+    except Exception:  # noqa: BLE001 — el nombre es solo presentación: nunca bloquea el movimiento
+        nombre = None
+    entry = {"transicion": transicion, "desde": desde, "hasta": hasta, "actor": (str(actor).strip().lower() or None) if actor else None, "actor_tipo": ORIGEN_CCHH, "fecha": now,
+             "profile_id": profile_id, "candidato": nombre, "application_id": application.get("application_id")}
+    if resultado:
+        entry["resultado"] = resultado
+    sol = solicitud_of(doc)
+    (sol.setdefault("historial", []) if sol is not None else doc.setdefault("historial", [])).append(entry)
+
+
+def add_candidate(busqueda_id: str, profile_id: str, *, actor: str | None = None, names=None) -> dict:
     """Asocia un Profile del Banco a la búsqueda (nueva postulación en
     Preselección, con su primera fila de historial). Idempotente-ish: si el
     profile ya tiene una postulación ACTIVA (no finalizada) en ESTA búsqueda,
-    no la duplica."""
+    no la duplica (y entonces TAMPOCO registra un evento). `actor`/`names`: ver el bloque de historial."""
     def _apply(doc: dict) -> None:
         _require_managed(doc, "agregar candidatos a")
         for app in doc.get("candidatos", []):
             if app.get("profile_id") == profile_id and app.get("etapa") != ETAPA_FINAL:
                 return  # ya está en la búsqueda, no duplicar
         now = _now_iso()
-        doc.setdefault("candidatos", []).append({
+        application = {
             "application_id": str(uuid4()),
             "profile_id": profile_id,
             "etapa": ETAPA_INICIAL,
@@ -403,33 +433,42 @@ def add_candidate(busqueda_id: str, profile_id: str) -> dict:
             "fecha_cambio_etapa": now,
             "historial": [{"etapa": ETAPA_INICIAL, "fecha": now}],
             "created_at": now,
-        })
+        }
+        doc.setdefault("candidatos", []).append(application)
+        _log_candidate_event(doc, CANDIDATO_ASOCIADO, actor=actor, now=now, application=application, names=names, hasta=ETAPA_INICIAL)
     return _mutate(busqueda_id, _apply)
 
 
-def move_stage(busqueda_id: str, application_id: str, etapa: str, resultado_final: str | None) -> dict:
+def move_stage(busqueda_id: str, application_id: str, etapa: str, resultado_final: str | None, *, actor: str | None = None, names=None) -> dict:
     """Mueve una postulación a `etapa` (registrando la transición en historial).
-    `resultado_final` se fuerza a None salvo que etapa == Finalizado."""
+    `resultado_final` se fuerza a None salvo que etapa == Finalizado. Un movimiento SIN EFECTO (misma etapa y mismo resultado: reintento / doble envío) no escribe historial ni evento."""
     def _apply(doc: dict) -> None:
         _require_managed(doc, "mover candidatos de")
         app = _find_app(doc, application_id)
+        nuevo_resultado = resultado_final if etapa == ETAPA_FINAL else None
+        if app.get("etapa") == etapa and app.get("resultado_final") == nuevo_resultado:
+            return
+        desde = app.get("etapa")
         now = _now_iso()
         app["etapa"] = etapa
-        app["resultado_final"] = resultado_final if etapa == ETAPA_FINAL else None
+        app["resultado_final"] = nuevo_resultado
         app["fecha_cambio_etapa"] = now
         app.setdefault("historial", []).append({"etapa": etapa, "fecha": now})
+        _log_candidate_event(doc, CANDIDATO_FINALIZADO if etapa == ETAPA_FINAL else CANDIDATO_ETAPA, actor=actor, now=now, application=app, names=names,
+                             desde=desde, hasta=etapa, resultado=nuevo_resultado)
     return _mutate(busqueda_id, _apply)
 
 
-def remove_candidate(busqueda_id: str, application_id: str) -> dict:
-    """Quita una postulación de la búsqueda (el Profile del Banco no se toca)."""
+def remove_candidate(busqueda_id: str, application_id: str, *, actor: str | None = None, names=None) -> dict:
+    """Quita una postulación de la búsqueda (el Profile del Banco no se toca). Registra el evento de desvinculación (con la etapa de origen)."""
     def _apply(doc: dict) -> None:
         _require_managed(doc, "quitar candidatos de")
         before = doc.get("candidatos", [])
-        after = [a for a in before if a.get("application_id") != application_id]
-        if len(after) == len(before):
+        removed = next((a for a in before if a.get("application_id") == application_id), None)
+        if removed is None:
             raise ApplicationNotFoundError(f"La postulación {application_id} no existe en esta búsqueda.")
-        doc["candidatos"] = after
+        doc["candidatos"] = [a for a in before if a.get("application_id") != application_id]
+        _log_candidate_event(doc, CANDIDATO_DESVINCULADO, actor=actor, now=_now_iso(), application=removed, names=names, desde=removed.get("etapa"), resultado=removed.get("resultado_final"))
     return _mutate(busqueda_id, _apply)
 
 
@@ -476,7 +515,7 @@ def _delete_file(busqueda_id: str, previous: dict) -> None:
     )
 
 
-def close(busqueda_id: str, finalize_application_ids: list[str] | None = None) -> dict:
+def close(busqueda_id: str, finalize_application_ids: list[str] | None = None, *, actor: str | None = None, names=None) -> dict:
     """Cierra la búsqueda: las postulaciones pendientes indicadas pasan a
     Finalizado · Rechazado, y la búsqueda queda `estado='cerrado'` con
     `fecha_cierre`=hoy."""
@@ -486,10 +525,12 @@ def close(busqueda_id: str, finalize_application_ids: list[str] | None = None) -
         now = _now_iso()
         for app in doc.get("candidatos", []):
             if app.get("application_id") in finalize and app.get("etapa") != ETAPA_FINAL:
+                desde = app.get("etapa")
                 app["etapa"] = ETAPA_FINAL
                 app["resultado_final"] = "Rechazado"
                 app["fecha_cambio_etapa"] = now
                 app.setdefault("historial", []).append({"etapa": ETAPA_FINAL, "fecha": now})
+                _log_candidate_event(doc, CANDIDATO_FINALIZADO, actor=actor, now=now, application=app, names=names, desde=desde, hasta=ETAPA_FINAL, resultado="Rechazado")
         doc["estado"] = "cerrado"
         doc["fecha_cierre"] = _business_today()
     return _mutate(busqueda_id, _apply)

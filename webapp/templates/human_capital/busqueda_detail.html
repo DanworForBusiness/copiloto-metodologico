@@ -117,6 +117,7 @@
     {% if solicitud %}
     {# Requerimiento original de Operaciones (REG-CH-01): sigue consultable una vez tomada la solicitud, debajo del pipeline. #}
     {% set view = solicitud %}
+    {% set hide_historial = true %}{# el historial (con los movimientos de candidatos) ya va dentro del cuerpo del pipeline, que se actualiza tras cada mutación #}
     {% include "partials/solicitud_requerimiento_sections.html" %}
     {% endif %}
     {% endif %}
