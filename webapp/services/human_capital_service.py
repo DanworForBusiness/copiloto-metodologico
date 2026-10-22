@@ -81,6 +81,7 @@ __all__ = [
     "validate_source_for_import",
     "list_entrevistas", "get_entrevista", "create_entrevista_manual", "update_entrevista",
     "marcar_entrevista_no_concretada", "delete_entrevista", "entrevista_view", "list_entrevistas_view",
+    "COMPENSATION_MASK", "mask_entrevista_compensation",
 ]
 
 _logger = logging.getLogger("danwor.human_capital")
@@ -1138,6 +1139,18 @@ def busqueda_with_attention(busqueda: dict, onboarding_pendiente: int = 0) -> di
 # Dominio verbatim de la referencia (ver entrevista_repository.py, module
 # docstring, para las citas exactas de schema.sql/lib/entrevistaAutomatica.ts).
 
+# «Remuneración pretendida» es un dato SENSIBLE (ver `human_capital_access.can_view_sensitive_data`). Todo lo que sale hacia una vista pasa por `mask_entrevista_compensation`;
+# toda escritura exige `allow_compensation=True` (default False = fail-closed: el valor persistido se conserva y lo enviado se descarta).
+COMPENSATION_MASK = "****"
+
+
+def mask_entrevista_compensation(entrevista: dict, allow: bool) -> dict:
+    """Copia de la entrevista con el importe enmascarado (`****`, SIEMPRE, haya o no valor: no se revela ni su presencia) si `allow` es False. No toca el dato persistido."""
+    if allow:
+        return entrevista
+    return {**entrevista, "remuneracion_pretendida": COMPENSATION_MASK}
+
+
 def list_entrevistas() -> list[dict]:
     return entrevista_repository.list()
 
@@ -1146,7 +1159,7 @@ def get_entrevista(entrevista_id: str) -> dict | None:
     return entrevista_repository.get(entrevista_id)
 
 
-def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None) -> dict:
+def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None, allow_compensation: bool = False) -> dict:
     """Ningún campo de Entrevista es obligatorio (MISMO contrato que la
     referencia: EntrevistaFormInput es enteramente opcional salvo elegir un
     candidato al CREAR, que se valida aparte con profile_id). `area` y
@@ -1162,13 +1175,14 @@ def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None) -> d
         "puesto_evaluado": (fields.get("puesto_evaluado") or "").strip() or None,
         "area": area,
         "modalidad_contratacion": modalidad,
-        "remuneracion_pretendida": (fields.get("remuneracion_pretendida") or "").strip() or None,
+        # Sin permiso: el importe enviado se DESCARTA y se conserva el persistido (None en un alta); jamás se sobrescribe ni se borra indirectamente.
+        "remuneracion_pretendida": ((fields.get("remuneracion_pretendida") or "").strip() or None) if allow_compensation else (existing or {}).get("remuneracion_pretendida"),
         "observaciones": (fields.get("observaciones") or "").strip() or None,
         "resumen_entrevista_tecnica": (fields.get("resumen_entrevista_tecnica") or "").strip() or None,
     }
 
 
-def create_entrevista_manual(profile_id: str, fields: dict) -> dict:
+def create_entrevista_manual(profile_id: str, fields: dict, *, allow_compensation: bool = False) -> dict:
     """Alta manual (candidato del Banco todavía sin ninguna Búsqueda) -- MISMO
     caso que `crearEntrevistaManual` en la referencia (banco_cv_id, sin
     proceso_id/candidato_id)."""
@@ -1176,13 +1190,13 @@ def create_entrevista_manual(profile_id: str, fields: dict) -> dict:
     if profile is None or profile.get("deleted_at"):
         raise ValueError("Elegí un candidato del Banco de CVs.")
     return entrevista_repository.create(
-        _shape_entrevista_fields(fields), profile_id=profile_id, busqueda_id=None, application_id=None)
+        _shape_entrevista_fields(fields, allow_compensation=allow_compensation), profile_id=profile_id, busqueda_id=None, application_id=None)
 
 
-def update_entrevista(entrevista_id: str, expected_revision: int, fields: dict) -> dict:
+def update_entrevista(entrevista_id: str, expected_revision: int, fields: dict, *, allow_compensation: bool = False) -> dict:
     existing = entrevista_repository.get(entrevista_id)
     updated = entrevista_repository.update(
-        entrevista_id, expected_revision, _shape_entrevista_fields(fields, existing=existing))
+        entrevista_id, expected_revision, _shape_entrevista_fields(fields, existing=existing, allow_compensation=allow_compensation))
     sync_onboarding_area_from_entrevista(updated)
     return updated
 
@@ -1227,7 +1241,7 @@ def crear_entrevista_automatica_si_no_existe(profile_id: str, busqueda_id: str, 
                          profile_id, busqueda_id)
 
 
-def entrevista_view(entrevista: dict) -> dict:
+def entrevista_view(entrevista: dict, allow_compensation: bool = False) -> dict:
     """Enriquece una entrevista con Profile (maestro de datos personales +
     `source`, del que se deriva SIEMPRE el origen mostrado -- MISMA prioridad
     que `origenDeEntrevista` de la referencia, pero sin duplicar el campo) y
@@ -1237,7 +1251,7 @@ def entrevista_view(entrevista: dict) -> dict:
     busqueda = busqueda_repository.get(entrevista["busqueda_id"]) if entrevista.get("busqueda_id") else None
     puesto = (busqueda or {}).get("nombre_puesto") or entrevista.get("puesto_evaluado")
     return {
-        **entrevista,
+        **mask_entrevista_compensation(entrevista, allow_compensation),
         "profile": profile,
         "busqueda": busqueda,
         "origen": (profile or {}).get("source"),
@@ -1246,8 +1260,8 @@ def entrevista_view(entrevista: dict) -> dict:
     }
 
 
-def list_entrevistas_view() -> list[dict]:
-    return [entrevista_view(e) for e in list_entrevistas()]
+def list_entrevistas_view(allow_compensation: bool = False) -> list[dict]:
+    return [entrevista_view(e, allow_compensation) for e in list_entrevistas()]
 
 
 # ── ONBOARDING ───────────────────────────────────────────────────────────────
@@ -1374,7 +1388,7 @@ def filter_onboardings(rows: list[dict], *, estado: str = "todos", area: str = "
     return out
 
 
-def _entrevista_search_haystack(row: dict) -> str:
+def _entrevista_search_haystack(row: dict, include_compensation: bool = True) -> str:
     """Texto sobre el que busca el campo Buscar del listado de Entrevistas: el contenido VISIBLE de la fila (candidato, origen, puesto, área, fecha de entrevista en DD-MM-YYYY y ISO,
     modalidad, remuneración y la marca «No concretada»). Nunca ids técnicos. MISMA normalización que Candidatos/Onboarding."""
     profile = row.get("profile") or {}
@@ -1382,11 +1396,11 @@ def _entrevista_search_haystack(row: dict) -> str:
     parts = fecha.split("-")
     fecha_dmy = "-".join(reversed(parts)) if len(parts) == 3 else fecha
     values = [f"{profile.get('first_name') or ''} {profile.get('last_name') or ''}", row.get("origen"), row.get("puesto_mostrado"), row.get("area"), fecha, fecha_dmy,
-              row.get("modalidad_contratacion"), row.get("remuneracion_pretendida"), None if row.get("concretada", True) else "No concretada"]
+              row.get("modalidad_contratacion"), row.get("remuneracion_pretendida") if include_compensation else None, None if row.get("concretada", True) else "No concretada"]
     return " ".join(_normalize_text(v) for v in values if v)
 
 
-def filter_entrevistas(rows: list[dict], *, origen: str = "", puesto: str = "", area: str = "", q: str = "") -> list[dict]:
+def filter_entrevistas(rows: list[dict], *, origen: str = "", puesto: str = "", area: str = "", q: str = "", include_compensation: bool = True) -> list[dict]:
     """AND entre Origen (igualdad EXACTA sobre el origen EFECTIVO de la fila = Profile.source; `ENTREVISTA_SIN_ORIGEN` = sin origen), Puesto (igualdad exacta sobre el puesto mostrado;
     `ENTREVISTA_SIN_PUESTO` = sin puesto), Área (igualdad exacta, incluido un legacy fuera de catálogo; `SIN_AREA` = sin área) y Buscar (substring normalizado sobre
     `_entrevista_search_haystack`). Un filtro vacío no restringe."""
@@ -1399,7 +1413,7 @@ def filter_entrevistas(rows: list[dict], *, origen: str = "", puesto: str = "", 
     out = []
     for row in rows:
         if (matches(row.get("origen"), origen, ENTREVISTA_SIN_ORIGEN) and matches(row.get("puesto_mostrado"), puesto, ENTREVISTA_SIN_PUESTO)
-                and matches(row.get("area"), area, SIN_AREA) and (not wanted_q or wanted_q in _entrevista_search_haystack(row))):
+                and matches(row.get("area"), area, SIN_AREA) and (not wanted_q or wanted_q in _entrevista_search_haystack(row, include_compensation))):
             out.append(row)
     return out
 

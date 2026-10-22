@@ -131,7 +131,13 @@
 
           <div class="feedback-field feedback-field--compact">
             <label for="ent-remuneracion">Remuneración pretendida</label>
+            {# Dato RESTRINGIDO (`HC_SENSITIVE_DATA_ALLOWED_USERS`): sin permiso NO hay input con nombre ni valor real en el HTML; solo la máscara. El backend además descarta cualquier importe enviado. #}
+            {% if can_see_compensation %}
             <input id="ent-remuneracion" name="remuneracion_pretendida" type="text" value="{{ form_values.remuneracion_pretendida or '' }}">
+            {% else %}
+            <input id="ent-remuneracion" type="text" value="****" readonly disabled aria-describedby="ent-remuneracion-hint">
+            <p class="field-hint" id="ent-remuneracion-hint">Dato restringido: solo lo ven y editan las personas autorizadas.</p>
+            {% endif %}
           </div>
         </div>
 
