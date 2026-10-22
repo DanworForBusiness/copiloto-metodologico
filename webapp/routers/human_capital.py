@@ -1318,12 +1318,13 @@ def _solicitudes_context(filtro: str = "recibidas", page=1, page_size=None) -> d
     for r in rows:
         r["badge_label"], r["badge_tone"] = _solicitud_badge(r)
     # POBLACIÓN de cada indicador (todas son DEMANDA RECIBIDA, ninguna es un proceso gestionado por CCHH: al tomarla sale de esta bandeja y pasa a «Procesos activos»):
-    #   «Pendientes» (clave `enviadas`) = estado `enviada` (nuevas + reenviadas): esperan que CCHH las tome u observe;  «Observadas» = esperan la corrección de Operaciones;
-    #   «Por atender» (clave `recibidas`) = Pendientes + Observadas: la demanda abierta, por eso INCLUYE a las otras dos (no es un doble conteo, es la unión);  «Canceladas» = solo consulta.
+    #   «Pendientes» (clave `enviadas`) = estado `enviada` (nuevas + reenviadas): esperan que CCHH las tome u observe;  «Observadas» = esperan una acción de OPERACIONES (la corrección): ya no son trabajo de CCHH;
+    #   «Por atender» (clave `recibidas`, la vista por defecto) = lo que CCHH tiene que accionar = estado `enviada` (incluye reenviadas), SIN observadas;  «Canceladas» = solo consulta.
+    #   Una observada vuelve a «Por atender» / «Pendientes» cuando Operaciones la corrige y la reenvía (transición `reenviar`).
     by = {k: [r for r in rows if r["estado_solicitud"] == k] for k in ("enviada", "observada", "cancelada")}
     counts = {"enviadas": len(by["enviada"]), "observadas": len(by["observada"]), "canceladas": len(by["cancelada"])}
-    counts["recibidas"] = counts["enviadas"] + counts["observadas"]
-    visible = {"recibidas": by["enviada"] + by["observada"], "enviadas": by["enviada"], "observadas": by["observada"], "canceladas": by["cancelada"]}[filtro]
+    counts["recibidas"] = counts["enviadas"]
+    visible = {"recibidas": by["enviada"], "enviadas": by["enviada"], "observadas": by["observada"], "canceladas": by["cancelada"]}[filtro]
     # Orden: ÚLTIMA RECEPCIÓN descendente, ANTES de paginar (paginador compartido, desde la fila 50). Nuevas = `enviada_en`; reenviadas y observadas = `ultimo_envio_en` (la observación no cambia
     # cuándo CCHH recibió la solicitud); canceladas = `cancelada_en`. Desempate determinístico: primer envío y luego id.
     visible = sorted(visible, key=_solicitud_recepcion_key, reverse=True)

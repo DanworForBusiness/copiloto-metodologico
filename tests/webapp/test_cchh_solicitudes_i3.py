@@ -62,15 +62,15 @@ def test_publicaciones_only_offers_managed_busquedas():
 
 
 # ═══════════════════ bandeja Solicitudes recibidas ═══════════════════
-def test_the_inbox_shows_sent_and_observed_by_default_and_cancelled_only_under_its_filter():
+def test_the_inbox_shows_only_sent_by_default_observed_under_its_tab_and_cancelled_only_under_its_filter():
     send(SID); send(SID2); svc.observe_solicitud(SID2, rev(SID2), "Falta algo", CCHH_EMAIL)
     send(SID3); svc.cancel_solicitud(SID3, rev(SID3), OPS_A)
     c = cchh()
-    assert sorted(_rows(c.get("/cchh/busquedas").text)) == sorted([SID, SID2])                           # por defecto: enviadas + observadas
+    assert _rows(c.get("/cchh/busquedas").text) == [SID]                                                   # por defecto («Por atender»): solo enviadas; la observada espera a Operaciones
     assert _rows(c.get("/cchh/solicitudes", params={"solicitud": "enviadas"}, headers=HX).text) == [SID]
     assert _rows(c.get("/cchh/solicitudes", params={"solicitud": "observadas"}, headers=HX).text) == [SID2]
     canc = c.get("/cchh/solicitudes", params={"solicitud": "canceladas"}, headers=HX).text
-    assert _rows(canc) == [SID3] and "Cancelada" in canc and "Por atender · 2" in canc                    # no cuentan como pendientes
+    assert _rows(canc) == [SID3] and "Cancelada" in canc and "Por atender · 1" in canc                    # no cuentan como pendientes
     assert _rows(c.get("/cchh/solicitudes", params={"solicitud": "inventado"}, headers=HX).text) == _rows(c.get("/cchh/busquedas").text)
 
 
@@ -204,9 +204,12 @@ def test_inbox_order_is_last_reception_descending_a_new_request_comes_first():
 def test_a_resubmitted_request_returns_to_the_first_position_and_an_observation_does_not_move_it():
     send(SID, nombre_puesto="Primera"); send(SID2, nombre_puesto="Segunda"); send(SID3, nombre_puesto="Tercera")
     svc.observe_solicitud(SID, rev(SID), "Falta algo", CCHH_EMAIL)                                        # observar NO cambia la fecha de recepción
-    assert _names(cchh().get("/cchh/busquedas").text) == ["Tercera", "Segunda", "Primera"]
+    svc.observe_solicitud(SID2, rev(SID2), "Falta algo", CCHH_EMAIL)
+    assert _names(cchh().get("/cchh/busquedas").text) == ["Tercera"]                                       # «Por atender»: las observadas esperan a Operaciones y salen de la vista por defecto
+    obs = lambda: _names(cchh().get("/cchh/solicitudes", params={"solicitud": "observadas"}, headers=HX).text)   # noqa: E731
+    assert obs() == ["Segunda", "Primera"]                                                                 # su pestaña conserva el orden de recepción (la observación no lo mueve)
     svc.resubmit_solicitud(SID, rev(SID), req(nombre_puesto="Primera", comentarios="corregido"), OPS_A)   # reenviar = nueva recepción
-    assert _names(cchh().get("/cchh/busquedas").text) == ["Primera", "Tercera", "Segunda"]
+    assert _names(cchh().get("/cchh/busquedas").text) == ["Primera", "Tercera"] and obs() == ["Segunda"]
     assert doc(SID)["solicitud"]["ultimo_envio_en"] > doc(SID3)["solicitud"]["ultimo_envio_en"]
 
 
@@ -283,7 +286,9 @@ def test_the_take_shortcut_is_the_same_icon_action_in_the_landing_and_in_new_pro
     take = lambda html, sid: re.search(rf'<form method="post" action="/cchh/busquedas/{sid}/tomar" class="dw-inline-form" data-solicitud-take>(.*?)</form>', html, re.S)   # noqa: E731
     landing, fragment, nuevo = (cchh().get("/cchh/busquedas").text, cchh().get("/cchh/solicitudes", headers=HX).text, cchh().get("/cchh/busquedas/nueva").text)
     for html in (landing, fragment):
-        assert take(html, SID) and not take(html, SID2) and f'/cchh/busquedas/{SID2}"' in html                  # observada: solo «Ver»; enviada: atajo «Tomar» + «Ver»
+        assert take(html, SID) and SID2 not in _rows(html)                                                    # «Por atender»: solo la enviada trae el atajo «Tomar» (+ «Ver»); la observada espera a Operaciones
+    observed = cchh().get("/cchh/solicitudes", params={"solicitud": "observadas"}, headers=HX).text
+    assert not take(observed, SID2) and 'aria-label="Ver solicitud"' in observed                              # observada: solo «Ver»
     inner = lambda m: re.sub(r"\s+", " ", re.sub(r'<input type="hidden" name="desde" value="nuevo">', "", m.group(1))).strip()   # noqa: E731
     assert inner(take(landing, SID)) == inner(take(nuevo, SID))                                               # MISMO ícono + tooltip en las dos superficies (macro único)
     row = re.search(rf'<tr data-solicitud-id="{SID}".*?</tr>', landing, re.S).group(0)
@@ -308,7 +313,7 @@ def test_indicator_semantics_pending_is_received_demand_never_a_managed_or_cchh_
     send(SID)
     html = inbox()
     assert _chips(html) == {"recibidas": ("Por atender", 1), "enviadas": ("Pendientes", 1), "observadas": ("Observadas", 0), "canceladas": ("Canceladas", 0)}
-    assert "Enviadas" not in html and ">Enviada<" not in html and ">Pendiente<" in html and 'title="Demanda abierta: Pendientes + Observadas"' in html
+    assert "Enviadas" not in html and ">Enviada<" not in html and ">Pendiente<" in html and "Las observadas esperan una acción de Operaciones" in html
     assert SID not in [b["busqueda_id"] for b in svc.list_busquedas_gestionadas()] and svc.resumen_solicitudes()["pendiente"] == 1 and svc.resumen_solicitudes()["gestionada"] == 0
     assert 'data-solicitud-badge>Pendiente<' in cchh().get(f"/cchh/busquedas/{SID}").text
     assert ops_state() == "nueva"                                                                                          # Operaciones conserva su vocabulario («Nueva»)
@@ -323,13 +328,32 @@ def test_indicator_semantics_pending_is_received_demand_never_a_managed_or_cchh_
     assert [b["estado"] for b in svc.list_busquedas_gestionadas() if b["busqueda_id"] == SID] == ["cerrado"] and ops_state() == "cerrada"
 
 
-def test_an_observed_request_is_open_demand_but_not_pending_and_a_resubmission_is_pending_again():
+def test_por_atender_counts_and_lists_only_sent_requests_including_resent_and_never_observed_ones():
+    chips = lambda: _chips(cchh().get("/cchh/solicitudes", headers=HX).text)                                              # noqa: E731
+    rows = lambda key: _rows(cchh().get("/cchh/solicitudes", params={"solicitud": key}, headers=HX).text)                # noqa: E731
+    send(SID, nombre_puesto="Nueva")
+    send(SID2, nombre_puesto="Observada"); svc.observe_solicitud(SID2, rev(SID2), "Falta el proyecto", CCHH_EMAIL)
+    send(SID3, nombre_puesto="Reenviada"); svc.observe_solicitud(SID3, rev(SID3), "x", CCHH_EMAIL); svc.resubmit_solicitud(SID3, rev(SID3), req(nombre_puesto="Reenviada", comentarios="ok"), OPS_A)
+    # conteo: «Por atender» = enviadas (incluye reenviadas), SIN observadas; «Pendientes» = enviadas; «Observadas» independiente
+    assert chips() == {"recibidas": ("Por atender", 2), "enviadas": ("Pendientes", 2), "observadas": ("Observadas", 1), "canceladas": ("Canceladas", 0)}
+    # filtrado: la vista por defecto y su pestaña listan solo enviadas; la observada solo aparece en su pestaña
+    assert sorted(rows("recibidas")) == sorted([SID, SID3]) == sorted(rows("enviadas")) and rows("observadas") == [SID2]
+    assert sorted(_rows(cchh().get("/cchh/busquedas").text)) == sorted([SID, SID3]) and SID2 not in _rows(cchh().get("/cchh/busquedas").text)
+    assert 'title="Solicitudes enviadas por Operaciones (incluye reenviadas)' in cchh().get("/cchh/solicitudes", headers=HX).text
+
+
+def test_observed_to_resent_moves_a_request_out_of_and_back_into_por_atender_without_touching_states_or_history():
+    chips = lambda: _chips(cchh().get("/cchh/solicitudes", headers=HX).text)                                              # noqa: E731
     send(SID)
-    svc.observe_solicitud(SID, rev(), "Falta el proyecto", CCHH_EMAIL)
-    assert _chips(cchh().get("/cchh/solicitudes", headers=HX).text) == {"recibidas": ("Por atender", 1), "enviadas": ("Pendientes", 0), "observadas": ("Observadas", 1), "canceladas": ("Canceladas", 0)}
-    svc.resubmit_solicitud(SID, rev(), req(comentarios="corregido"), OPS_A)
+    assert chips()["recibidas"] == ("Por atender", 1)
+    svc.observe_solicitud(SID, rev(), "Falta el proyecto", CCHH_EMAIL)                                                    # observada: espera a Operaciones
+    assert chips() == {"recibidas": ("Por atender", 0), "enviadas": ("Pendientes", 0), "observadas": ("Observadas", 1), "canceladas": ("Canceladas", 0)}
+    assert doc()["solicitud"]["estado"] == "observada"
+    svc.resubmit_solicitud(SID, rev(), req(comentarios="corregido"), OPS_A)                                               # Operaciones corrige y reenvía
     html = cchh().get("/cchh/solicitudes", headers=HX).text
     assert _chips(html) == {"recibidas": ("Por atender", 1), "enviadas": ("Pendientes", 1), "observadas": ("Observadas", 0), "canceladas": ("Canceladas", 0)} and ">Reenviada<" in html
+    s = doc()["solicitud"]
+    assert s["estado"] == "enviada" and [h["transicion"] for h in s["historial"]] == ["enviar", "observar", "reenviar"]     # estados y transiciones intactos
 
 
 def test_process_detail_header_has_the_same_structure_as_the_rest_of_cchh_with_actions_in_their_own_container():
