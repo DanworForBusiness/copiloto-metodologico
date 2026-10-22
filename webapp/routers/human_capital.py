@@ -1669,7 +1669,37 @@ def human_capital_busqueda_candidate_contact(request: Request, busqueda_id: str,
     view = human_capital_contact.contact_view(profile, busqueda, application) if profile and not profile.get("deleted_at") else None
     return templates.TemplateResponse(
         request=request, name="partials/human_capital_contact_dialog_content.html",
-        context={"request": request, "view": view}, headers={"Cache-Control": "no-store"},
+        context={"request": request, "view": view, "event_url": f"/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/contacto/evento"}, headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/contacto/evento", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_candidate_contact_event(
+    request: Request, busqueda_id: str, application_id: str,
+    accion: str = Form(""), situacion: str = Form(""), canal: str = Form(""), event_id: str = Form(""),
+):
+    """Trazabilidad de la comunicación (historial existente del proceso): el navegador avisa SOLO después de una copia exitosa o de ejecutar la apertura del canal. Registra situación, canal, acción, candidato/postulación,
+    ejecutor autenticado y fecha; jamás el texto del mensaje ni datos de contacto, y jamás «enviado/entregado». Responde con la tabla de Historial actualizada (`X-Contact-Recorded`: 1 nuevo / 0 duplicado ignorado)."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        busqueda, recorded = human_capital_service.register_candidate_contact(
+            busqueda_id, application_id, accion, situacion, canal, actor=_pipeline_actor(request), event_id=event_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(409 if "no tiene cargado" in str(exc) or "no está activo" in str(exc) else 400, str(exc)) from None
+    except (busqueda_repository.BusquedaNotFoundError, busqueda_repository.ApplicationNotFoundError):
+        raise HTTPException(404, "No encontrado") from None
+    except (busqueda_repository.BusquedaInvalidTransitionError, *_BUSQUEDA_SOLICITUD_ERRORS) as exc:
+        raise HTTPException(409, str(exc)) from None
+    except _BUSQUEDA_SHELL_ERRORS:
+        raise HTTPException(503, "No se pudo registrar en el historial: reintentá en unos instantes.") from None
+    ctx = _busqueda_detail_context(busqueda)
+    return templates.TemplateResponse(
+        request=request, name="partials/human_capital_historial_section.html",
+        context={"request": request, "view": ctx["busqueda_historial"]}, headers={"X-Contact-Recorded": "1" if recorded else "0", "Cache-Control": "no-store"},
     )
 
 

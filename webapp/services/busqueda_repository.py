@@ -390,7 +390,14 @@ def _find_app(doc: dict, application_id: str) -> dict:
 # `historial` a nivel documento. Se escriben DENTRO de la MISMA mutación atómica que el cambio del pipeline (`_mutate`): si la persistencia no se confirma, no queda ni el cambio ni el evento, y
 # una operación sin efecto (reintento, doble envío) no registra nada. Cada evento guarda el ejecutor autenticado y una FOTO del nombre visible (el Banco puede cambiar o eliminar al candidato después).
 CANDIDATO_ASOCIADO, CANDIDATO_ETAPA, CANDIDATO_FINALIZADO, CANDIDATO_DESVINCULADO = "candidato_asociado", "candidato_etapa", "candidato_finalizado", "candidato_desvinculado"
-CANDIDATO_EVENTOS = (CANDIDATO_ASOCIADO, CANDIDATO_ETAPA, CANDIDATO_FINALIZADO, CANDIDATO_DESVINCULADO)
+CANDIDATO_CONTACTO = "candidato_contacto"      # trazabilidad de comunicaciones preparadas desde el diálogo «Contactar» (NO es un movimiento del pipeline ni un envío)
+CANDIDATO_EVENTOS = (CANDIDATO_ASOCIADO, CANDIDATO_ETAPA, CANDIDATO_FINALIZADO, CANDIDATO_DESVINCULADO, CANDIDATO_CONTACTO)
+CONTACTO_ACCIONES = ("mensaje_copiado", "canal_abierto", "apertura_solicitada")
+_CONTACTO_VENTANA_DUPLICADO_S = 3        # misma acción (mismo ejecutor/candidato/situación/canal) dentro de esta ventana = doble clic / reintento: no se vuelve a registrar
+
+
+class _EventoDuplicado(Exception):
+    """Señal interna: el evento ya está registrado; aborta la mutación SIN escribir (ni revisión ni historial)."""
 
 
 def historial_proceso_of(doc: dict) -> list:
@@ -412,6 +419,43 @@ def _log_candidate_event(doc: dict, transicion: str, *, actor, now: str, applica
         entry["resultado"] = resultado
     sol = solicitud_of(doc)
     (sol.setdefault("historial", []) if sol is not None else doc.setdefault("historial", [])).append(entry)
+
+
+def _parse_iso(value) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def log_candidate_contact(busqueda_id: str, application_id: str, *, accion: str, situacion: str, canal: str, actor: str | None, event_id: str | None = None, names=None) -> tuple[dict, bool]:
+    """Registra en el historial del proceso (MISMO historial y MISMA mutación atómica que el resto de los movimientos de candidatos) que CCHH preparó una comunicación con la candidatura: `accion` en
+    {mensaje_copiado, canal_abierto, apertura_solicitada}, con la `situacion` y el `canal` elegidos. Guarda SOLO datos estructurados (candidato/postulación, situación, canal, acción, ejecutor, fecha, `event_id`):
+    nunca el cuerpo del mensaje, ni teléfonos/emails, ni URLs. NO implica que el mensaje se haya enviado, recibido ni entregado. Idempotente: un `event_id` ya registrado, o la misma acción del mismo ejecutor sobre la misma
+    candidatura/situación/canal dentro de pocos segundos (doble clic, reintento), no registra nada. -> `(doc, registrado)`."""
+    if accion not in CONTACTO_ACCIONES:
+        raise ValueError("Acción de contacto inválida.")
+    def _apply(doc: dict) -> None:
+        _require_managed(doc, "registrar contactos de")
+        app = _find_app(doc, application_id)
+        now = _now_iso()
+        who = (str(actor).strip().lower() or None) if actor else None
+        now_dt = _parse_iso(now)
+        for h in historial_proceso_of(doc):
+            if h.get("transicion") != CANDIDATO_CONTACTO or h.get("application_id") != application_id:
+                continue
+            if event_id and h.get("event_id") == event_id:
+                raise _EventoDuplicado
+            prev = _parse_iso(h.get("fecha"))
+            if (h.get("accion"), h.get("situacion"), h.get("canal"), h.get("actor")) == (accion, situacion, canal, who) and prev and now_dt and 0 <= (now_dt - prev).total_seconds() <= _CONTACTO_VENTANA_DUPLICADO_S:
+                raise _EventoDuplicado
+        _log_candidate_event(doc, CANDIDATO_CONTACTO, actor=actor, now=now, application=app, names=names)
+        entry = historial_proceso_of(doc)[-1]
+        entry.update({"accion": accion, "situacion": situacion, "canal": canal, "event_id": event_id or None})
+    try:
+        return _mutate(busqueda_id, _apply), True
+    except _EventoDuplicado:
+        return get(busqueda_id), False
 
 
 def add_candidate(busqueda_id: str, profile_id: str, *, actor: str | None = None, names=None) -> dict:

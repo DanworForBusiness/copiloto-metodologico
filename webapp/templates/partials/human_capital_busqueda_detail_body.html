@@ -221,11 +221,39 @@
     else if (c === "whatsapp") text = "WhatsApp necesita el número con código de país; si el cargado no lo trae, el enlace puede no abrir la conversación correcta.";
     note.textContent = text; note.hidden = !text;
   }
-  function copy(text, btn) {
-    function done() { var old = btn.getAttribute("data-label") || btn.textContent; btn.setAttribute("data-label", old); btn.textContent = "¡Copiado!"; setTimeout(function () { btn.textContent = old; }, 2000); }
-    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done, function () {}); return; }
+  // Trazabilidad (historial del proceso): SOLO se avisa al servidor tras una copia exitosa del mensaje o tras ejecutar la apertura del canal; abrir el diálogo, cambiar situación/canal o cancelar no registran nada. Nunca se envía
+  // el texto del mensaje ni datos de contacto: solo acción, situación y canal. «Registrado» NO significa enviado/entregado.
+  var recent = {};
+  function note(msg) { var n = q("[data-contact-log-note]"); if (!n) return; n.textContent = msg || ""; n.hidden = !msg; }
+  function newId() { return (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2); }
+  function swapHistory(html) {                                        // reemplaza la tabla de Historial de la página por la actualizada (conserva si estaba abierta o plegada)
+    var old = document.getElementById("busqueda-historial"); if (!old) return;
+    var tmp = document.createElement("div"); tmp.innerHTML = html.trim();
+    var fresh = tmp.querySelector("#busqueda-historial"); if (!fresh) return;
+    fresh.open = old.open; old.replaceWith(fresh);
+    if (window.htmx) window.htmx.process(fresh);
+  }
+  function logEvent(accion) {
+    var r = root(); if (!r || !r.dataset.eventUrl) return;
+    var sit = q("[data-contact-tipo]").value, can = canal(), key = accion + "|" + sit + "|" + can, now = Date.now();
+    if (recent[key] && now - recent[key] < 1500) return;              // doble clic: un solo evento
+    recent[key] = now;
+    fetch(r.dataset.eventUrl, { method: "POST", credentials: "same-origin", keepalive: true, body: new URLSearchParams({ accion: accion, situacion: sit, canal: can, event_id: newId() }) })
+      .then(function (res) {
+        return res.text().then(function (t) {
+          if (!res.ok) { var d = t; try { d = JSON.parse(t).detail || t; } catch (e) {} throw new Error(d || ("HTTP " + res.status)); }
+          return t;
+        });
+      })
+      .then(function (html) { note(""); swapHistory(html); })
+      .catch(function (e) { note("No se pudo registrar en el historial (" + (e.message || "error") + "). La acción se realizó igual."); });
+  }
+  function copy(text, btn, onOk) {
+    function done() { var old = btn.getAttribute("data-label") || btn.textContent; btn.setAttribute("data-label", old); btn.textContent = "¡Copiado!"; setTimeout(function () { btn.textContent = old; }, 2000); if (onOk) onOk(); }
+    function fail() { note("No se pudo copiar: el navegador bloqueó el portapapeles. Seleccioná el texto y copialo a mano."); }
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done, fail); return; }
     var t = document.createElement("textarea"); t.value = text; t.style.position = "fixed"; t.style.opacity = "0"; document.body.appendChild(t); t.select();
-    try { if (document.execCommand("copy")) done(); } catch (e) {} document.body.removeChild(t);
+    try { if (document.execCommand("copy")) done(); else fail(); } catch (e) { fail(); } document.body.removeChild(t);
   }
   document.addEventListener("click", function (ev) {
     var opener = ev.target.closest && ev.target.closest("[data-contact-open-dialog]");
@@ -234,7 +262,21 @@
     if (!btn || !document.getElementById(CONTENT).contains(btn)) return;
     var what = btn.getAttribute("data-contact-copy"), r = root(); if (!r) return;
     var text = what === "mensaje" ? q("[data-contact-mensaje]").value : what === "asunto" ? q("[data-contact-asunto]").value : (q('[data-contact-value="' + what + '"]') || {}).textContent;
-    if (text) copy(text, btn);
+    if (text) copy(text, btn, what === "mensaje" ? function () { logEvent("mensaje_copiado"); } : null);     // solo «Copiar mensaje» es una comunicación; copiar email/teléfono/asunto no se registra
+  });
+  document.addEventListener("click", function (ev) {
+    var a = ev.target.closest && ev.target.closest("[data-contact-open]");
+    if (!a || !document.getElementById(CONTENT).contains(a)) return;
+    var href = a.getAttribute("href"); if (a.hidden || !href || href === "#") return;
+    ev.preventDefault();
+    if (a.getAttribute("data-contact-open") === "whatsapp") {
+      var w = window.open(href, "_blank");                              // con ventana verificable: si el navegador la bloquea, no se registra nada
+      if (w) { try { w.opener = null; } catch (e) {} logEvent("canal_abierto"); }
+      else note("El navegador bloqueó la apertura de WhatsApp: permití las ventanas emergentes o copiá el mensaje.");
+    } else {
+      logEvent("apertura_solicitada");                                  // `mailto:` no se puede verificar desde el navegador: solo se registra que se solicitó la apertura
+      window.location.href = href;
+    }
   });
   document.addEventListener("change", function (ev) {
     if (ev.target.closest && ev.target.closest("[data-contact-tipo], [data-contact-canal]") && root()) fill();

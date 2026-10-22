@@ -13,10 +13,10 @@
           <tbody>
             {% for h in view.historial | reverse %}
             <tr>
-              <td class="left">{{ transicion_labels[h.transicion] or h.transicion }}</td>
+              <td class="left">{{ h.movimiento or transicion_labels[h.transicion] or h.transicion }}</td>
               <td class="left">{{ h.fecha | ops_datetime }}</td>
               <td class="left">{% if h.actor %}{{ h.actor }}{% elif h.actor_tipo == 'cchh' and view.ejecutores_cchh_visibles %}Usuario no identificado{% elif h.actor_tipo == 'cchh' %}Capital Humano{% else %}—{% endif %}</td>
-              <td class="left">{% if h.transicion.startswith('candidato_') %}{% set _c = h.candidato or 'Candidato (nombre no disponible)' %}{% if h.transicion == 'candidato_asociado' %}{{ _c }} → {{ h.hasta }}{% elif h.transicion == 'candidato_desvinculado' %}{{ _c }} (estaba en {{ h.desde or '—' }}){% elif h.transicion == 'candidato_finalizado' %}{{ _c }}: {{ h.desde or '—' }} → Finalizado · {{ h.resultado or 'sin resultado' }}{% else %}{{ _c }}: {{ h.desde or '—' }} → {{ h.hasta }}{% endif %}{% else %}{{ h.motivo or '—' }}{% endif %}</td>
+              <td class="left">{% if h.transicion.startswith('candidato_') %}{% set _c = h.candidato or 'Candidato (nombre no disponible)' %}{% if h.transicion == 'candidato_contacto' %}{{ _c }} — {{ h.detalle_contacto }}{% elif h.transicion == 'candidato_asociado' %}{{ _c }} → {{ h.hasta }}{% elif h.transicion == 'candidato_desvinculado' %}{{ _c }} (estaba en {{ h.desde or '—' }}){% elif h.transicion == 'candidato_finalizado' %}{{ _c }}: {{ h.desde or '—' }} → Finalizado · {{ h.resultado or 'sin resultado' }}{% else %}{{ _c }}: {{ h.desde or '—' }} → {{ h.hasta }}{% endif %}{% else %}{{ h.motivo or '—' }}{% endif %}</td>
             </tr>
             {% endfor %}
           </tbody>

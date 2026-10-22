@@ -881,6 +881,46 @@ def _require_actor(actor) -> str:
 _GENERIC_ACTORS = frozenset({"", "capital humano", "cchh", "operaciones"})       # rótulos de ÁREA (dato legado), nunca una identidad de usuario
 
 
+def register_candidate_contact(busqueda_id: str, application_id: str, accion: str, situacion: str, canal: str, *, actor: str | None, event_id: str | None = None) -> tuple[dict, bool]:
+    """Trazabilidad de la comunicación con un candidato desde el pipeline (ver `busqueda_repository.log_candidate_contact`). Valida la situación/canal contra el diálogo de contacto, que el candidato exista y que el canal
+    sea utilizable cuando se registra una APERTURA (no se registra abrir WhatsApp/correo si el dato de contacto no existe). `ValueError` = pedido inválido; `LookupError` = no encontrado."""
+    from webapp.services import human_capital_contact as contact   # import diferido: el módulo de plantillas no depende del servicio
+    if accion not in busqueda_repository.CONTACTO_ACCIONES:
+        raise ValueError("Acción de contacto inválida.")
+    if situacion not in dict(contact.TIPOS_MENSAJE) or canal not in dict(contact.CANALES_MENSAJE):
+        raise ValueError("Situación o canal inválidos.")
+    event_id = (event_id or "").strip()[:64] or None
+    busqueda = busqueda_repository.get(busqueda_id)
+    if busqueda is None:
+        raise LookupError("Búsqueda no encontrada.")
+    app = next((a for a in busqueda.get("candidatos", []) if a.get("application_id") == application_id), None)
+    if app is None:
+        raise LookupError("Postulación no encontrada.")
+    if busqueda.get("estado") != "activo":
+        raise ValueError("El proceso no está activo.")
+    profile = profile_repository.get(app.get("profile_id")) if app.get("profile_id") else None
+    if profile is None or profile.get("deleted_at"):
+        raise LookupError("El candidato ya no está disponible.")
+    if accion != "mensaje_copiado" and not (contact.whatsapp_digits(profile.get("phone")) if canal == "whatsapp" else contact.valid_email(profile.get("email"))):
+        raise ValueError("El candidato no tiene cargado el dato de contacto de ese canal.")
+    return busqueda_repository.log_candidate_contact(
+        busqueda_id, application_id, accion=accion, situacion=situacion, canal=canal, actor=actor, event_id=event_id, names=_candidate_display_name)
+
+
+def _contact_row_texts(h: dict) -> dict:
+    """Textos visibles del evento de contacto: «Movimiento» = situación elegida + canal («Primer contacto por WhatsApp», «Actualización del proceso por mail»); «Detalle» distingue copiar de abrir sin afirmar el envío."""
+    from webapp.services import human_capital_contact as contact
+    base = str(dict(contact.TIPOS_MENSAJE).get(h.get("situacion")) or "Contacto").split(" (")[0]
+    canal = h.get("canal")
+    canal_mov = {"whatsapp": "WhatsApp", "mail": "mail"}.get(canal, canal or "—")
+    canal_det = {"whatsapp": "WhatsApp", "mail": "correo"}.get(canal, canal or "—")
+    accion = h.get("accion")
+    detalle = ("Mensaje copiado" if accion == "mensaje_copiado"
+               else f"Apertura de {canal_det}" if accion == "canal_abierto"
+               else f"Apertura solicitada ({canal_det})")
+    return {"movimiento": f"{base} por {canal_mov}", "detalle_contacto": detalle}
+
+
 def _historial_rows(entries, *, include_cchh_actors: bool) -> list[dict]:
     """Filas (lista blanca) del historial del proceso. Los movimientos de CANDIDATOS (`candidato_*`) son información interna de Capital Humano: SOLO se proyectan en las pantallas de CCHH
     (`include_cchh_actors=True`), nunca hacia Operaciones. «Realizado por» = la identidad registrada del ejecutor; un legado que solo guarda el rótulo de área no se promueve a identidad."""
@@ -896,6 +936,8 @@ def _historial_rows(entries, *, include_cchh_actors: bool) -> list[dict]:
             row["actor"] = h.get("actor")
         if is_candidate:
             row.update({"candidato": h.get("candidato"), "profile_id": h.get("profile_id"), "resultado": h.get("resultado")})
+            if h.get("transicion") == busqueda_repository.CANDIDATO_CONTACTO:
+                row.update({"accion": h.get("accion"), "situacion": h.get("situacion"), "canal": h.get("canal"), **_contact_row_texts(h)})
         rows.append(row)
     return rows
 

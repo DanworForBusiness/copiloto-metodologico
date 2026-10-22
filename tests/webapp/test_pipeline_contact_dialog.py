@@ -196,6 +196,6 @@ def test_the_channel_links_are_explicit_user_actions_and_the_dialog_says_nothing
     bid = _manual()
     _, app_id = _candidate(bid)
     html = c.get(f"/cchh/busquedas/{bid}/candidatos/{app_id}/contacto").text
-    assert 'target="_blank" rel="noopener noreferrer"' in html and "no envía nada ni se registra como enviado" in html
+    assert 'target="_blank" rel="noopener noreferrer"' in html and "nunca como enviado" in html
     body = c.get(f"/cchh/busquedas/{bid}").text
     assert "https://wa.me/" in body and "mailto:" in body and "__hcContactWired" in body                     # los enlaces se arman en el navegador con el texto editado; nunca se envían solos

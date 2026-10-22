@@ -11,7 +11,7 @@
 </div>
 {% else %}
 <div class="dw-confirm__body busqueda-contact" data-contact-root data-has-whatsapp="{{ '1' if view.has_whatsapp else '0' }}" data-has-email="{{ '1' if view.has_email else '0' }}"
-     data-whatsapp-digits="{{ view.whatsapp_digits }}" data-email="{{ view.email }}" data-default-channel="{{ view.default_channel }}">
+     data-whatsapp-digits="{{ view.whatsapp_digits }}" data-email="{{ view.email }}" data-default-channel="{{ view.default_channel }}" data-event-url="{{ event_url }}">
   <h2 class="dw-confirm__title" id="busqueda-contact-title">Contactar a {{ view.nombre }}</h2>
   <p class="field-hint busqueda-contact__context">{% if view.puesto %}Proceso: <strong>{{ view.puesto }}</strong>{% endif %}{% if view.etapa %} · Etapa: {{ view.etapa }}{% endif %}</p>
 
@@ -61,9 +61,10 @@
   <div class="feedback-field">
     <label for="busqueda-contact-mensaje">Mensaje</label>
     <textarea id="busqueda-contact-mensaje" rows="9" data-contact-mensaje></textarea>
-    <p class="field-hint">Es un texto sugerido: revisalo y completalo antes de enviarlo. Abrir WhatsApp o el correo no envía nada ni se registra como enviado.</p>
+    <p class="field-hint">Es un texto sugerido: revisalo y completalo antes de enviarlo. Abrir WhatsApp o el correo no envía nada: en el historial queda solo que copiaste el mensaje o abriste el canal, nunca como enviado.</p>
   </div>
   <p class="field-hint field-hint--warn" data-contact-note hidden></p>
+  <p class="field-hint field-hint--warn" data-contact-log-note role="status" hidden></p>
 </div>
 <div class="dw-confirm__actions busqueda-contact__actions">
   <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>
