@@ -438,10 +438,15 @@ def delete(busqueda_id: str) -> None:
     if previous is None:
         raise BusquedaNotFoundError(f"La búsqueda {busqueda_id} no existe.")
     if isinstance(previous.get("solicitud"), dict):
-        # Una solicitud de Operaciones NO se borra físicamente: se cancela (queda trazable).
+        # Una solicitud de Operaciones NO se borra por esta vía (la de CCHH): tiene su propia operación con guardas (`delete_solicitud`).
         raise BusquedaInvalidTransitionError(
-            "Una solicitud originada en Operaciones no se puede eliminar; se cancela y queda en el historial."
+            "Una solicitud originada en Operaciones no se puede eliminar desde Capital Humano; se cancela y queda en el historial."
         )
+    _delete_file(busqueda_id, previous)
+
+
+def _delete_file(busqueda_id: str, previous: dict) -> None:
+    """Borrado físico durable (local + remoto) con rollback local si el remoto no se confirma."""
     path = _busqueda_path(busqueda_id)
     try:
         path.unlink()
@@ -451,11 +456,11 @@ def delete(busqueda_id: str) -> None:
         raise BusquedaStorageError(f"No se pudo eliminar la búsqueda: {exc}") from exc
     if remote_store.delete_path(path):
         return
+    _write_atomic(path, previous)  # rollback: local vuelve a existir (también sin Spaces configurado: nunca queda un borrado local sin confirmar)
     if not remote_store.enabled():
         raise BusquedaConfigIncompleteError(
             "La sección de Búsquedas todavía no está configurada para este entorno."
         )
-    _write_atomic(path, previous)  # rollback: local vuelve a existir
     raise BusquedaRemoteOutcomeUnknownError(
         "No pudimos confirmar si el borrado se sincronizó. Revisá el listado antes de reintentar."
     )
@@ -521,6 +526,28 @@ def solicitud_categoria(doc: dict) -> str | None:
 def es_gestionada(doc: dict) -> bool:
     """True para lo que CCHH efectivamente gestiona: búsquedas sin solicitud (históricas / alta directa) y solicitudes ya tomadas en gestión. False para pendientes, observadas y canceladas."""
     return solicitud_estado(doc) in (None, SOLICITUD_EN_GESTION)
+
+
+def solicitud_fue_tomada(doc: dict) -> bool:
+    """True si CCHH tomó esta solicitud en gestión ALGUNA VEZ: estado actual `en_gestion`, marcas `tomada_por/tomada_en` o una transición `tomar` en el historial. Es el criterio de
+    autorización de Operaciones (eliminar/cancelar/editar): una vez tomada, nunca se recupera, aunque el estado visible vuelva a ser otro."""
+    sol = solicitud_of(doc)
+    if sol is None:
+        return False
+    if sol.get("estado") == SOLICITUD_EN_GESTION or sol.get("tomada_por") or sol.get("tomada_en"):
+        return True
+    return any(isinstance(h, dict) and h.get("transicion") == "tomar" for h in (sol.get("historial") or []))
+
+
+def solicitud_puede_eliminar(doc: dict) -> bool:
+    """Operaciones puede ELIMINAR (no cancelar) solo una solicitud propia que CCHH no tomó nunca, todavía pendiente (enviada / observada, incluida la reenviada tras una
+    observación) y sin candidatos. Las canceladas ya cerraron su ciclo y se conservan como historial."""
+    sol = solicitud_of(doc)
+    if sol is None or origen_tipo(doc) != ORIGEN_OPERACIONES:
+        return False
+    if sol.get("estado") not in (SOLICITUD_ENVIADA, SOLICITUD_OBSERVADA) or solicitud_fue_tomada(doc):
+        return False
+    return not doc.get("candidatos")
 
 
 def solicitud_reenvios(doc: dict) -> int:
@@ -590,6 +617,9 @@ def _require_transition(doc: dict, nombre: str) -> dict:
     sol = solicitud_of(doc)
     if sol is None:
         raise BusquedaInvalidTransitionError("Esta búsqueda no es una solicitud originada en Operaciones.")
+    if SOLICITUD_TRANSICIONES[nombre]["actor"] == ORIGEN_OPERACIONES and solicitud_fue_tomada(doc):
+        # El HISTORIAL manda, no solo el estado visible: una solicitud que CCHH tomó alguna vez deja de ser del ciclo de vida de Operaciones, aunque hoy figure en otro estado.
+        raise BusquedaInvalidTransitionError(f"No se puede '{nombre}': la solicitud ya fue tomada en gestión por Capital Humano.")
     estado = sol.get("estado")
     if estado not in SOLICITUD_TRANSICIONES[nombre]["desde"]:
         if estado == SOLICITUD_CANCELADA:
@@ -730,6 +760,30 @@ def _transition(busqueda_id: str, expected_revision, nombre: str, actor: str, ap
         apply(doc, sol, now)
         _record(sol, nombre, desde, actor, now, motivo)
     return _mutate(busqueda_id, _apply, expected_revision=expected_revision)
+
+
+def delete_solicitud(busqueda_id: str, expected_revision: int, actor: str) -> dict:
+    """Operaciones ELIMINA una solicitud que CCHH todavía no tomó (borrado físico durable: no queda ni en Operaciones ni en la bandeja de CCHH). Todo se re-valida BAJO EL LOCK de
+    escritura contra el documento actual: revisión esperada (si CCHH la tomó o la observó entre medio, la revisión cambió → concurrencia), historial de toma, estado, origen y
+    candidatos. Devuelve un resumen mínimo del documento eliminado (para auditoría); nunca el contenido."""
+    expected_revision = _check_revision(expected_revision)
+    actor = _check_actor(actor)
+    with _write_lock:
+        current = get(busqueda_id)
+        if current is None:
+            raise BusquedaNotFoundError(f"La búsqueda {busqueda_id} no existe.")
+        if current.get("revision", 1) != expected_revision:
+            raise BusquedaConcurrentModificationError("Esta solicitud cambió desde que abriste la pantalla.")
+        if solicitud_of(current) is None or origen_tipo(current) != ORIGEN_OPERACIONES:
+            raise BusquedaInvalidTransitionError("Esta búsqueda no es una solicitud originada en Operaciones.")
+        if solicitud_fue_tomada(current):
+            raise BusquedaInvalidTransitionError("La solicitud ya fue tomada en gestión por Capital Humano: Operaciones no puede eliminarla.")
+        if not solicitud_puede_eliminar(current):
+            raise BusquedaInvalidTransitionError("Esta solicitud no se puede eliminar en su estado actual.")
+        _delete_file(busqueda_id, current)
+    _logger.info("human_capital.solicitud_deleted busqueda_id=%s actor=%s estado=%s revision=%s",
+                 busqueda_id, actor, solicitud_estado(current), current.get("revision", 1))
+    return {"busqueda_id": busqueda_id, "estado_solicitud": solicitud_estado(current), "revision": current.get("revision", 1)}
 
 
 def edit_solicitud(busqueda_id: str, expected_revision: int, requerimiento: dict, actor: str) -> dict:

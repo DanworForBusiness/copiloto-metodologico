@@ -69,7 +69,9 @@ _OK_MESSAGES = {
     "editada": "Cambios guardados. La solicitud sigue en estado «Enviada».",
     "reenviada": "Solicitud corregida y reenviada a Capital Humano.",
     "cancelada": "Solicitud cancelada.",
+    "eliminada": "Solicitud eliminada.",
 }
+_MSG_NOT_DELETABLE = "Esta solicitud ya no se puede eliminar: Capital Humano la tomó en gestión o tiene un proceso asociado. Volvé a abrirla para ver su estado actual."
 
 DEDICACION_LABELS = {"horas_por_mes": "Horas por mes", "horas_por_semana": "Horas por semana", "porcentaje_jornada": "% de jornada"}
 TIPO_LABELS = {"interna": "Necesidad interna", "proyecto": "Proyecto"}
@@ -398,6 +400,30 @@ async def operations_busqueda_edit_submit(request: Request, busqueda_id: str):
 
 
 # ---- Cancelación -----------------------------------------------------------------------------------------------------------------------------------------------------------------
+# ---- Eliminación (solo antes de que CCHH la tome) ----------------------------------------------------------------------------------------------------------
+@router.post(BASE_PATH + "/{busqueda_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
+async def operations_busqueda_delete(request: Request, busqueda_id: str):
+    user, actor = _authorize_write(request)
+    view = _solicitud_or_404(busqueda_id)
+    form = await request.form()
+    revision = _parse_revision(form.get("expected_revision"))
+    try:
+        human_capital_service.delete_solicitud(busqueda_id, revision, actor)
+    except busqueda_repository.BusquedaNotFoundError:
+        raise HTTPException(404, "Solicitud no encontrada") from None
+    except busqueda_repository.BusquedaConcurrentModificationError:
+        return _render_detail(request, user, _solicitud_or_404(busqueda_id), 409, error=_MSG_CONCURRENT)
+    except busqueda_repository.BusquedaInvalidTransitionError:
+        return _render_detail(request, user, _solicitud_or_404(busqueda_id), 409, error=_MSG_NOT_DELETABLE)
+    except busqueda_repository.BusquedaRemoteOutcomeUnknownError:
+        return _render_detail(request, user, view, 503, error=_MSG_UNKNOWN_OUTCOME)
+    except _STORAGE_ERRORS:
+        return _render_detail(request, user, view, 503, error=_MSG_STORAGE)
+    except ValueError as exc:
+        return _render_detail(request, user, view, 422, error=str(exc))
+    return RedirectResponse(url=f"{BASE_PATH}?ok=eliminada", status_code=303)
+
+
 @router.post(BASE_PATH + "/{busqueda_id}/cancelar", response_class=HTMLResponse, include_in_schema=False)
 async def operations_busqueda_cancel(request: Request, busqueda_id: str):
     user, actor = _authorize_write(request)

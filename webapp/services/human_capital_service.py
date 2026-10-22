@@ -907,9 +907,10 @@ def solicitud_view(doc: dict) -> dict | None:
         "reenviada": busqueda_repository.solicitud_reenviada(doc),
         "reenvios": busqueda_repository.solicitud_reenvios(doc),
         # Qué puede hacer Operaciones HOY (el router lo usa para habilitar acciones; la regla real vive en el repositorio).
-        "puede_editar": estado == busqueda_repository.SOLICITUD_ENVIADA,
-        "puede_corregir": estado == busqueda_repository.SOLICITUD_OBSERVADA,
-        "puede_cancelar": estado in (busqueda_repository.SOLICITUD_ENVIADA, busqueda_repository.SOLICITUD_OBSERVADA),
+        "puede_editar": estado == busqueda_repository.SOLICITUD_ENVIADA and not busqueda_repository.solicitud_fue_tomada(doc),
+        "puede_corregir": estado == busqueda_repository.SOLICITUD_OBSERVADA and not busqueda_repository.solicitud_fue_tomada(doc),
+        "puede_cancelar": estado in (busqueda_repository.SOLICITUD_ENVIADA, busqueda_repository.SOLICITUD_OBSERVADA) and not busqueda_repository.solicitud_fue_tomada(doc),
+        "puede_eliminar": busqueda_repository.solicitud_puede_eliminar(doc),
         "solo_lectura": estado in (busqueda_repository.SOLICITUD_EN_GESTION, busqueda_repository.SOLICITUD_CANCELADA),
     }
 
@@ -996,6 +997,20 @@ def cancel_solicitud(busqueda_id: str, expected_revision: int, actor: str, motiv
     actor = _require_actor(actor)
     motivo = _shape_motivo(motivo, required=False, label="el motivo de la cancelación")
     return solicitud_view(busqueda_repository.cancel_solicitud(busqueda_id, expected_revision, motivo, actor))
+
+
+def delete_solicitud(busqueda_id: str, expected_revision: int, actor: str) -> dict:
+    """Operaciones elimina una solicitud que CCHH NO tomó nunca (≠ cancelar: la cancelación conserva el registro; esto lo borra). Además de las guardas del repositorio (historial de toma,
+    estado, origen, candidatos, revisión bajo lock) exige que no cuelgue nada de ella: entrevistas, onboarding ni publicaciones vinculadas."""
+    actor = _require_actor(actor)
+    doc = busqueda_repository.get(busqueda_id)
+    if doc is None:
+        raise busqueda_repository.BusquedaNotFoundError(f"La búsqueda {busqueda_id} no existe.")
+    if busqueda_repository.solicitud_of(doc) is not None and not busqueda_repository.solicitud_fue_tomada(doc):
+        linked = (entrevista_repository.list() + onboarding_repository.list() + publicacion_repository.list())
+        if any(x.get("busqueda_id") == busqueda_id for x in linked):
+            raise busqueda_repository.BusquedaInvalidTransitionError("La solicitud tiene entrevistas o procesos asociados: no se puede eliminar.")
+    return busqueda_repository.delete_solicitud(busqueda_id, expected_revision, actor)
 
 
 def observe_solicitud(busqueda_id: str, expected_revision: int, motivo: str, actor: str) -> dict:

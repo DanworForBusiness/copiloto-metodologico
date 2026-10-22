@@ -771,7 +771,7 @@ def test_services_distinguish_pending_observed_cancelled_and_effectively_managed
 # ═══════════════════════ proyección segura hacia Operaciones ═══════════════════════
 VIEW_KEYS = {"busqueda_id", "solicitud_id", "revision", "estado_solicitud", "estado", "fecha_apertura", "fecha_cierre", "nombre_puesto", "area_consultora", "modalidad", "solicitante",
              "enviada_en", "ultimo_envio_en", "observacion", "tomada_en", "cancelada_en", "motivo_cancelacion", "requerimiento", "historial", "categoria", "reenviada", "reenvios",
-             "puede_editar", "puede_corregir", "puede_cancelar", "solo_lectura"}
+             "puede_editar", "puede_corregir", "puede_cancelar", "puede_eliminar", "solo_lectura"}
 
 
 def test_the_operations_projection_is_an_exact_whitelist_without_candidates_or_internal_data():
@@ -799,11 +799,11 @@ def test_the_operations_projection_hides_who_in_cchh_observed_and_exposes_only_t
     assert "actor" not in obs and obs["actor_tipo"] == "cchh" and obs["motivo"] == "Falta el proyecto"
 
 
-@pytest.mark.parametrize("estado, flags", [("enviada", (True, False, True, False)), ("observada", (False, True, True, False)), ("en_gestion", (False, False, False, True)), ("cancelada", (False, False, False, True))])
+@pytest.mark.parametrize("estado, flags", [("enviada", (True, False, True, True, False)), ("observada", (False, True, True, True, False)), ("en_gestion", (False, False, False, False, True)), ("cancelada", (False, False, False, False, True))])
 def test_the_projection_tells_operations_what_it_may_do_today(estado, flags):
     to_state(estado)
     v = svc.get_solicitud_view(SID)
-    assert (v["puede_editar"], v["puede_corregir"], v["puede_cancelar"], v["solo_lectura"]) == flags
+    assert (v["puede_editar"], v["puede_corregir"], v["puede_cancelar"], v["puede_eliminar"], v["solo_lectura"]) == flags
 
 
 def test_a_request_originated_projection_is_none_for_non_requests_and_missing_ids():

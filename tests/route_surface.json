@@ -197,6 +197,7 @@
   "POST /modules/{stem}/trees/start",
   "POST /operaciones/busquedas/nueva",
   "POST /operaciones/busquedas/{busqueda_id}/cancelar",
+  "POST /operaciones/busquedas/{busqueda_id}/eliminar",
   "POST /operaciones/busquedas/{busqueda_id}/editar",
   "POST /operaciones/reporting/integral/data/batch-a",
   "POST /operaciones/reporting/integral/data/batch-b",
