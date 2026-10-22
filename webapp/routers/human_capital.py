@@ -1920,6 +1920,7 @@ def human_capital_entrevista_new_page(request: Request, profile_id: str = Query(
         if busqueda is not None and any(a.get("profile_id") == profile_id for a in busqueda.get("candidatos", [])):
             form_values["puesto_evaluado"] = busqueda.get("nombre_puesto")
             form_values["area"] = busqueda.get("area_consultora")
+            form_values["modalidad_contratacion"] = human_capital_service.resolve_entrevista_modalidad(None, busqueda)[0]
     return templates.TemplateResponse(
         request=request, name="human_capital/entrevista_form.html",
         context=_entrevistas_shell(request, _entrevista_form_context(form_values=form_values, is_edit=False)),
@@ -1965,10 +1966,15 @@ def human_capital_entrevista_edit_page(request: Request, entrevista_id: str):
     view = human_capital_service.entrevista_view(entrevista, allow)
     form_values = _form_without_protected_compensation(dict(entrevista), allow)
     form_values["expected_revision"] = entrevista.get("revision", 1)
+    # Modalidad: valor guardado > (candidato: no aplica) > requerimiento del proceso > sin especificar. SOLO precarga el formulario (no escribe): una entrevista ya editada (revision > 1) conserva su vacío tal cual.
+    modalidad, origen = human_capital_service.resolve_entrevista_modalidad(
+        entrevista.get("modalidad_contratacion"), view.get("busqueda"), edited=entrevista.get("revision", 1) > 1)
+    form_values["modalidad_contratacion"] = modalidad
+    ctx = _entrevista_form_context(form_values=form_values, is_edit=True, entrevista=view)
+    ctx["modalidad_prefilled"] = origen == "busqueda"
     return templates.TemplateResponse(
         request=request, name="human_capital/entrevista_form.html",
-        context=_entrevistas_shell(request, _entrevista_form_context(
-            form_values=form_values, is_edit=True, entrevista=view)),
+        context=_entrevistas_shell(request, ctx),
     )
 
 

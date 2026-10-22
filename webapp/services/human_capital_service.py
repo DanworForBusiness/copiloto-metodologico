@@ -1212,6 +1212,36 @@ def get_entrevista(entrevista_id: str) -> dict | None:
     return entrevista_repository.get(entrevista_id)
 
 
+def _norm_catalog_key(value) -> str:
+    return re.sub(r"[\s_\-]+", "", str(value or "").casefold())
+
+
+def busqueda_modalidad_contratacion(busqueda: dict | None) -> str | None:
+    """Modalidad de contratación (Full-Time / Part-Time) definida en el requerimiento ORIGINAL de Operaciones (`requerimiento.tipo_contrato`: clave histórica de ese campo, validada contra el MISMO catálogo
+    gobernado `modalidad_contratacion` que usa la Entrevista), devuelta con la grafía del catálogo vigente. Solo se acepta un valor COMPATIBLE (presente en el catálogo, sin distinguir mayúsculas/guiones/espacios);
+    cualquier otro (legacy, vacío, catálogo no disponible) => None. NO se deriva de `dedicacion` (carga horaria: 40 h/semana, etc.) ni de `modalidad` (Híbrido/Remoto/On site): son atributos distintos."""
+    raw = ((busqueda or {}).get("requerimiento") or {}).get("tipo_contrato")
+    wanted = _norm_catalog_key(raw)
+    if not wanted:
+        return None
+    return next((v for v in catalog_repo.catalog_values("modalidad_contratacion") if _norm_catalog_key(v) == wanted), None)
+
+
+def resolve_entrevista_modalidad(stored, busqueda: dict | None, *, edited: bool = False) -> tuple[str | None, str | None]:
+    """Precedencia de la Modalidad de contratación de una entrevista -> `(valor, origen)`:
+      1. el valor GUARDADO en la entrevista (jamás se pisa);
+      2. el valor específico del candidato — hoy NO aplica: el Banco de CVs no tiene ese atributo (no se inventa);
+      3. el valor compatible del requerimiento del proceso (`busqueda_modalidad_contratacion`);
+      4. sin especificar.
+    `edited=True` (la entrevista ya se editó alguna vez) tratan el vacío como decisión del usuario: no se precarga nada. Es una resolución de LECTURA: no persiste ni modifica retroactivamente."""
+    if str(stored or "").strip():
+        return str(stored).strip(), "entrevista"
+    if edited:
+        return None, None
+    value = busqueda_modalidad_contratacion(busqueda)
+    return (value, "busqueda") if value else (None, None)
+
+
 def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None, allow_compensation: bool = False) -> dict:
     """Ningún campo de Entrevista es obligatorio (MISMO contrato que la
     referencia: EntrevistaFormInput es enteramente opcional salvo elegir un
@@ -1280,6 +1310,7 @@ def crear_entrevista_automatica_si_no_existe(profile_id: str, busqueda_id: str, 
     fields = {
         "puesto_evaluado": (busqueda or {}).get("nombre_puesto"),
         "area": (busqueda or {}).get("area_consultora"),
+        "modalidad_contratacion": resolve_entrevista_modalidad(None, busqueda)[0],   # condiciones del requerimiento (si son compatibles)
     }
     try:
         entrevista_repository.create(
