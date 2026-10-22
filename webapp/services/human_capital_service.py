@@ -69,7 +69,7 @@ __all__ = [
     "ProfileConcurrentModificationError", "ProfileConfigIncompleteError",
     "ProfileDuplicateAdvisory", "ProfileIdConflictError", "ProfileNotFoundError",
     "ProfileRemoteOutcomeUnknownError", "ProfileStorageError",
-    "list_profiles", "get_profile", "create_profile", "update_profile", "soft_delete_profile", "filter_profiles",
+    "list_profiles", "get_profile", "create_profile", "update_profile", "soft_delete_profile", "filter_profiles", "profile_search_haystack",
     "validate_and_shape_fields", "find_duplicate", "create_profile_for_import",
     "list_busquedas", "get_busqueda", "create_busqueda", "update_busqueda",
     "add_candidate_to_busqueda", "move_application_stage", "remove_application", "close_busqueda",
@@ -158,12 +158,17 @@ def _matches_search_text(profile: dict, q_normalized: str) -> bool:
     suelto)."""
     if not q_normalized:
         return True
+    return q_normalized in profile_search_haystack(profile)
+
+
+def profile_search_haystack(profile: dict) -> str:
+    """Texto normalizado contra el que se busca un candidato (nombre, email, skills, ubicación, tags, notas y «nombre apellido»). ÚNICA definición: el buscador del landing de Base de CVs
+    (`_matches_search_text`) y el del diálogo «Agregar candidato desde el Banco» (filtro en vivo en el navegador, que normaliza la consulta igual que `_normalize_text`) la comparten."""
     first = profile.get("first_name") or ""
     last = profile.get("last_name") or ""
     haystack_values = [profile.get(field) for field in _SEARCH_TEXT_FIELDS]
     haystack_values.append(f"{first} {last}")
-    haystack = " ".join(_normalize_text(value) for value in haystack_values if value)
-    return q_normalized in haystack
+    return " ".join(_normalize_text(value) for value in haystack_values if value)
 
 
 def _matches_structured_filters(profile: dict, query: dict) -> bool:

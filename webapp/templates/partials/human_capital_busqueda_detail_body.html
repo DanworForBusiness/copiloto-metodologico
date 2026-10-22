@@ -99,8 +99,19 @@
 <dialog class="dw-confirm busqueda-dialog" id="busqueda-add-dialog" aria-labelledby="busqueda-add-title">
   <div class="dw-confirm__body">
     <h2 class="dw-confirm__title" id="busqueda-add-title">Agregar candidato desde el Banco</h2>
-    <p class="dw-confirm__msg">Sólo aparecen los candidatos disponibles (sin una postulación activa en curso).</p>
   </div>
+  {% if available_profiles %}
+  {# Buscador libre: MISMO patrón visual/UX que el landing de Base de CVs (`.hc-profile-filters`, campo «Buscar» `--wide`, mismo placeholder), SIN el recuadro de la tarjeta de filtros (`.filter-toolbar-card`). El filtrado es EN VIVO en el navegador sobre los
+     candidatos DISPONIBLES ya listados (cada fila trae su `data-search`, el haystack del buscador de Base de CVs: nombre, email, skills, ubicación…); no cambia qué candidatos se ofrecen ni la acción «Asociar». #}
+  <div class="busqueda-picker busqueda-picker--search">
+    <form class="hc-profile-filters" role="search" data-picker-search onsubmit="return false">
+      <div class="feedback-field feedback-field--wide">
+        <label for="busqueda-picker-q">Buscar</label>
+        <input id="busqueda-picker-q" type="text" autocomplete="off" placeholder="Nombre, email, skills, ubicación…" data-picker-q>
+      </div>
+    </form>
+  </div>
+  {% endif %}
   <div class="busqueda-picker">
     {% if available_profiles %}
     <table class="dashboard-table">
@@ -108,7 +119,7 @@
       <thead><tr><th class="left">Nombre</th><th class="left">Perfil · Nivel</th><th class="center">Acción</th></tr></thead>
       <tbody>
         {% for p in available_profiles %}
-        <tr>
+        <tr data-picker-row data-search="{{ p | hc_profile_search }}">
           <td class="left"><div class="dw-idcell"><span class="dw-idcell__name">{{ p.first_name }} {{ p.last_name }}</span></div></td>
           <td class="left">{{ p.profile_skills or '—' }}{% if p.seniority %} · {{ p.seniority }}{% endif %}</td>
           <td class="center">
@@ -120,6 +131,26 @@
         {% endfor %}
       </tbody>
     </table>
+    <p class="field-hint" data-picker-empty hidden>No encontramos candidatos con ese criterio.</p>
+    <script>
+    (function () {
+      if (window.__hcPickerWired) return;       // el cuerpo del detalle se re-renderiza por HTMX: un único wiring global (delegado)
+      window.__hcPickerWired = true;
+      function norm(v) { return String(v || "").toLowerCase().split(/\s+/).filter(Boolean).join(" "); }   // MISMA normalización que `_normalize_text` (minúsculas + espacios colapsados)
+      document.addEventListener("input", function (ev) {
+        var input = ev.target.closest && ev.target.closest("[data-picker-q]");
+        if (!input) return;
+        var dlg = input.closest("dialog"), q = norm(input.value), shown = 0;
+        dlg.querySelectorAll("[data-picker-row]").forEach(function (row) {
+          var ok = !q || (row.getAttribute("data-search") || "").indexOf(q) !== -1;
+          row.hidden = !ok;
+          if (ok) shown += 1;
+        });
+        var empty = dlg.querySelector("[data-picker-empty]");
+        if (empty) empty.hidden = shown !== 0;
+      });
+    })();
+    </script>
     {% else %}
     <p class="field-hint">No hay candidatos disponibles en el Banco. Todos ya están en este proceso o el Banco está vacío.</p>
     {% endif %}

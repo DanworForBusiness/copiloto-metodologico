@@ -7,6 +7,7 @@ patrón de aislamiento/durabilidad-en-test que el resto de CCHH."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import re
 from pathlib import Path
 
 import pytest
@@ -415,6 +416,35 @@ def test_the_redundant_top_empty_block_is_gone_with_zero_candidates_and_with_can
     assert "Sin candidatos" not in full and "busqueda-empty" not in full and "1 candidato" in full and "0 candidatos" not in full
     assert "busqueda-cand" in full and full.count('class="busqueda-col"') == 5 and "Preselección: <strong>1</strong>" in full                 # el pipeline conserva su presentación con datos
     assert ".busqueda-empty" not in (Path(__file__).resolve().parents[2] / "webapp/static/human_capital.css").read_text(encoding="utf-8")        # sin CSS muerto
+
+
+def test_add_candidate_dialog_has_a_live_search_over_available_candidates_without_the_old_subtext():
+    c = _client()
+    b = human_capital_service.create_busqueda({"nombre_puesto": "Picker", "fecha_apertura": "2026-09-01"})
+    bid = b["busqueda_id"]
+    ana = _profile(first_name="Ana", last_name="Pérez", email="ana@danwor.com", profile_skills="SAP FI", location="Córdoba")
+    luis = _profile(first_name="Luis", last_name="Gómez", email="luis@danwor.com", profile_skills="Java", location="Rosario")
+    taken = _profile(first_name="Yaestá", last_name="Asociado", email="ya@danwor.com")
+    human_capital_service.add_candidate_to_busqueda(bid, taken)                                                # no disponible: ya tiene postulación activa en este proceso
+    html = c.get(f"/cchh/busquedas/{bid}").text
+    dialog = re.search(r'<dialog class="dw-confirm busqueda-dialog" id="busqueda-add-dialog".*?</dialog>', html, re.S).group(0)
+    assert "Sólo aparecen los candidatos disponibles" not in dialog                                            # subtexto eliminado
+    assert 'placeholder="Nombre, email, skills, ubicación…"' in dialog and "data-picker-q" in dialog and "No encontramos candidatos con ese criterio." in dialog
+    assert 'class="hc-profile-filters"' in dialog and "filter-toolbar-card" not in dialog                      # patrón del landing de Base de CVs, sin recuadro
+    rows = dict(re.findall(r'<tr data-picker-row data-search="([^"]*)">.*?"profile_id": "([0-9a-f-]+)"', dialog, re.S))
+    assert sorted(rows.values()) == sorted([ana, luis]) and taken not in dialog                                # solo disponibles; la acción «Asociar» (hx-post + profile_id) no cambia
+    assert 'hx-post="/cchh/busquedas/%s/candidatos"' % bid in dialog and dialog.count("Asociar") == 2
+    # el haystack de cada fila es EL del buscador de Base de CVs: nombre, email, skills y ubicación (misma definición que el filtro del landing)
+    hay = {pid: s for s, pid in rows.items()}
+    for term, pid in (("ana pérez", ana), ("luis@danwor", luis), ("sap fi", ana), ("rosario", luis)):
+        assert term in hay[pid]
+        assert [p["profile_id"] for p in human_capital_service.filter_profiles(human_capital_service.list_profiles(), {"q": term})] == [pid]       # coincide con el landing
+    assert hay[ana] == human_capital_service.profile_search_haystack(human_capital_service.get_profile(ana))
+    # sin candidatos disponibles: ni buscador ni mensaje de «sin resultados»
+    for pid in (ana, luis):
+        human_capital_service.add_candidate_to_busqueda(bid, pid)
+    empty = re.search(r'<dialog class="dw-confirm busqueda-dialog" id="busqueda-add-dialog".*?</dialog>', c.get(f"/cchh/busquedas/{bid}").text, re.S).group(0)
+    assert "data-picker-q" not in empty and "No hay candidatos disponibles en el Banco" in empty
 
 
 def test_empty_preseleccion_shows_add_action_only_when_active():

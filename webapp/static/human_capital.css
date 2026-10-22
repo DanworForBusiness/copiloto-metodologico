@@ -543,6 +543,8 @@
 .busqueda-dialog { max-width: 640px; width: calc(100% - 32px); }
 .busqueda-picker { max-height: 52vh; overflow: auto; padding: 0 24px; }
 .busqueda-picker .dashboard-table { font-size: .78rem; }
+/* Buscador del diálogo: sin scroll propio (no recorta el aro de foco del campo) y con un respiro antes del listado. */
+.busqueda-picker--search { overflow: visible; padding-bottom: 12px; }
 .busqueda-picker .dashboard-checkbox-group { gap: 6px; }
 
 /* Formulario de búsqueda: layout APILADO (una columna), MISMO orden de campos

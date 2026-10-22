@@ -2436,6 +2436,7 @@ def _fecha_dmy(value: str | None) -> str:
 
 
 templates.env.filters["fecha_dmy"] = _fecha_dmy
+templates.env.filters["hc_profile_search"] = human_capital_service.profile_search_haystack          # haystack del buscador de candidatos (diálogo «Agregar candidato desde el Banco»)
 # Contexto de listado para las páginas de edición (ver `pagination.list_return_context`): `{% set rc = list_return(request, "/cchh/…") %}` → `rc.back_url` / `rc.qs`.
 templates.env.globals["list_return"] = lambda request, list_path: pagination.list_return_context(request.query_params, list_path)
 
