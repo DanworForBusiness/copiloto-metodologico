@@ -72,6 +72,15 @@
             {% for r in resultados %}<option value="{{ r }}" {% if r == app.resultado_final %}selected{% endif %}>{{ r }}</option>{% endfor %}
           </select>
           {% endif %}
+          {# Contactar (TODAS las etapas): ícono de sobre entre el selector de etapa y el resto de acciones; abre el diálogo único de contacto, cuyo contenido (solo el de ESTE candidato) se pide por demanda. No cambia estados ni registra envíos. #}
+          {% if app.profile and not app.profile.deleted_at %}
+          <button type="button" class="table-action-btn chart-tooltip-anchor busqueda-cand__contact" aria-label="Contactar al candidato"
+                  data-dialog-open="busqueda-contact-dialog" data-contact-open-dialog
+                  hx-get="/cchh/busquedas/{{ bid }}/candidatos/{{ app.application_id }}/contacto" hx-trigger="click" hx-target="#busqueda-contact-content" hx-swap="innerHTML">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            <span class="chart-tooltip" aria-hidden="true"><p>Contactar al candidato</p></span>
+          </button>
+          {% endif %}
           {% if _ent %}
           {# Acceso directo a Entrevistas (solo etapas de entrevista), entre el selector de etapa y «Quitar»: a la entrevista existente o, si todavía no hay, al alta con el candidato precargado. Navegar no crea nada. #}
           <a href="{{ _ent.url }}" class="table-action-btn chart-tooltip-anchor busqueda-cand__interview" aria-label="{{ _ent.label }}">
@@ -174,6 +183,70 @@
     <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>
   </div>
 </dialog>
+
+{# Diálogo ÚNICO de contacto (todas las etapas): MISMO `<dialog class="dw-confirm busqueda-dialog">` + opener `[data-dialog-open]` del Hub. Su contenido se pide por demanda al abrirlo (hx-get del ícono de la tarjeta) y solo trae al candidato elegido.
+   Abrirlo NO cambia el pipeline, NO crea entrevistas y NO registra nada: el envío es siempre una acción explícita (enlace `wa.me`/`mailto:` o copiar) del usuario. #}
+<dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog" id="busqueda-contact-dialog" aria-labelledby="busqueda-contact-title">
+  <div id="busqueda-contact-content"></div>
+</dialog>
+<script>
+(function () {
+  if (window.__hcContactWired) return;       // el cuerpo del detalle se re-renderiza por HTMX: un único wiring global (delegado)
+  window.__hcContactWired = true;
+  var CONTENT = "busqueda-contact-content";
+  function root() { var c = document.getElementById(CONTENT); return c && c.querySelector("[data-contact-root]"); }
+  function q(sel) { var c = document.getElementById(CONTENT); return c && c.querySelector(sel); }
+  function messages() { var s = q("[data-contact-messages]"); try { return s ? JSON.parse(s.textContent) : null; } catch (e) { return null; } }
+  function canal() { var s = q("[data-contact-canal]"); return s ? s.value : "mail"; }
+  function fill() {                                                   // regenera el texto sugerido (situación/canal); lo editado a mano se pisa al cambiar de situación o canal, como en la referencia
+    var r = root(), m = messages(); if (!r || !m) return;
+    var msg = (m[q("[data-contact-tipo]").value] || {})[canal()] || {};
+    q("[data-contact-asunto]").value = msg.asunto || "";
+    q("[data-contact-mensaje]").value = msg.cuerpo || "";
+    refresh();
+  }
+  function refresh() {                                                // visibilidad por canal, avisos de datos faltantes y enlaces de apertura
+    var r = root(); if (!r) return;
+    var c = canal(), hasWa = r.dataset.hasWhatsapp === "1", hasMail = r.dataset.hasEmail === "1";
+    var subj = q("[data-contact-asunto]").value, body = q("[data-contact-mensaje]").value;
+    q("[data-contact-subject-field]").hidden = c !== "mail";
+    var wa = q('[data-contact-open="whatsapp"]'), ml = q('[data-contact-open="mail"]');
+    wa.hidden = !(c === "whatsapp" && hasWa);
+    ml.hidden = !(c === "mail" && hasMail);
+    if (hasWa) wa.href = "https://wa.me/" + r.dataset.whatsappDigits + "?text=" + encodeURIComponent(body);
+    if (hasMail) ml.href = "mailto:" + r.dataset.email + "?subject=" + encodeURIComponent(subj) + "&body=" + encodeURIComponent(body.replace(/\n/g, "\r\n"));
+    var note = q("[data-contact-note]"), text = "";
+    if (c === "whatsapp" && !hasWa) text = "Este candidato no tiene teléfono cargado: no se puede abrir WhatsApp. " + (hasMail ? "Elegí Mail o copiá el mensaje" : "Copiá el mensaje") + " y enviáselo por otro medio.";
+    else if (c === "mail" && !hasMail) text = "Este candidato no tiene un email válido cargado: no se puede abrir el correo. " + (hasWa ? "Elegí WhatsApp o copiá el mensaje" : "Copiá el mensaje") + " y enviáselo por otro medio.";
+    else if (c === "whatsapp") text = "WhatsApp necesita el número con código de país; si el cargado no lo trae, el enlace puede no abrir la conversación correcta.";
+    note.textContent = text; note.hidden = !text;
+  }
+  function copy(text, btn) {
+    function done() { var old = btn.getAttribute("data-label") || btn.textContent; btn.setAttribute("data-label", old); btn.textContent = "¡Copiado!"; setTimeout(function () { btn.textContent = old; }, 2000); }
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done, function () {}); return; }
+    var t = document.createElement("textarea"); t.value = text; t.style.position = "fixed"; t.style.opacity = "0"; document.body.appendChild(t); t.select();
+    try { if (document.execCommand("copy")) done(); } catch (e) {} document.body.removeChild(t);
+  }
+  document.addEventListener("click", function (ev) {
+    var opener = ev.target.closest && ev.target.closest("[data-contact-open-dialog]");
+    if (opener) { var c = document.getElementById(CONTENT); if (c) c.innerHTML = '<div class="dw-confirm__body"><p class="field-hint" role="status">Cargando…</p></div>'; return; }   // sin restos del candidato anterior mientras llega el contenido
+    var btn = ev.target.closest && ev.target.closest("[data-contact-copy]");
+    if (!btn || !document.getElementById(CONTENT).contains(btn)) return;
+    var what = btn.getAttribute("data-contact-copy"), r = root(); if (!r) return;
+    var text = what === "mensaje" ? q("[data-contact-mensaje]").value : what === "asunto" ? q("[data-contact-asunto]").value : (q('[data-contact-value="' + what + '"]') || {}).textContent;
+    if (text) copy(text, btn);
+  });
+  document.addEventListener("change", function (ev) {
+    if (ev.target.closest && ev.target.closest("[data-contact-tipo], [data-contact-canal]") && root()) fill();
+  });
+  document.addEventListener("input", function (ev) {
+    if (ev.target.closest && ev.target.closest("[data-contact-asunto], [data-contact-mensaje]") && root()) refresh();
+  });
+  document.body.addEventListener("htmx:afterSwap", function (ev) {
+    if (ev.detail && ev.detail.target && ev.detail.target.id === CONTENT && root()) fill();
+  });
+})();
+</script>
 
 {# Modal: Cerrar búsqueda. Las postulaciones NO finalizadas tildadas pasan a
    Finalizado · Rechazado; la búsqueda queda cerrada. POST full-page (recarga). #}

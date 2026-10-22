@@ -1,0 +1,75 @@
+{# Contenido del diálogo «Contactar al candidato» (pipeline de un proceso): se carga POR DEMANDA al abrirlo (GET .../candidatos/{application_id}/contacto), así el navegador solo recibe los datos de contacto del candidato elegido — nunca los de los demás.
+   Es una AYUDA para redactar: nada se envía ni se registra desde acá. Abrir WhatsApp/correo (enlaces `wa.me`/`mailto:`) y copiar son acciones explícitas del usuario; el envío ocurre en su propio correo/WhatsApp. El comportamiento (cambio de situación/canal, copiar, armado de enlaces)
+   lo da el script único del diálogo (human_capital_busqueda_detail_body.html). Plantillas: `services/human_capital_contact.py` (las de la app de referencia). #}
+{% if not view %}
+<div class="dw-confirm__body">
+  <h2 class="dw-confirm__title" id="busqueda-contact-title">Contactar al candidato</h2>
+  <p class="dw-confirm__msg">Este candidato ya no está disponible en el Banco de CVs, así que no hay datos de contacto para mostrar.</p>
+</div>
+<div class="dw-confirm__actions">
+  <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>
+</div>
+{% else %}
+<div class="dw-confirm__body busqueda-contact" data-contact-root data-has-whatsapp="{{ '1' if view.has_whatsapp else '0' }}" data-has-email="{{ '1' if view.has_email else '0' }}"
+     data-whatsapp-digits="{{ view.whatsapp_digits }}" data-email="{{ view.email }}" data-default-channel="{{ view.default_channel }}">
+  <h2 class="dw-confirm__title" id="busqueda-contact-title">Contactar a {{ view.nombre }}</h2>
+  <p class="field-hint busqueda-contact__context">{% if view.puesto %}Proceso: <strong>{{ view.puesto }}</strong>{% endif %}{% if view.etapa %} · Etapa: {{ view.etapa }}{% endif %}</p>
+
+  <div class="busqueda-contact__data">
+    <div class="busqueda-contact__row">
+      <span class="busqueda-contact__label">Email</span>
+      {% if view.email %}
+      <span class="busqueda-contact__value" data-contact-value="email">{{ view.email }}</span>
+      <button type="button" class="btn-secondary busqueda-contact__copy" data-contact-copy="email">Copiar</button>
+      {% else %}
+      <span class="busqueda-contact__value busqueda-contact__value--missing">Sin email cargado</span>
+      {% endif %}
+    </div>
+    <div class="busqueda-contact__row">
+      <span class="busqueda-contact__label">Teléfono</span>
+      {% if view.phone %}
+      <span class="busqueda-contact__value" data-contact-value="phone">{{ view.phone }}</span>
+      <button type="button" class="btn-secondary busqueda-contact__copy" data-contact-copy="phone">Copiar</button>
+      {% else %}
+      <span class="busqueda-contact__value busqueda-contact__value--missing">Sin teléfono cargado</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="busqueda-contact__pair">
+    <div class="feedback-field">
+      <label for="busqueda-contact-tipo">Situación</label>
+      <select id="busqueda-contact-tipo" data-contact-tipo>
+        {% for value, label in view.tipos %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="feedback-field">
+      <label for="busqueda-contact-canal">Canal</label>
+      <select id="busqueda-contact-canal" data-contact-canal>
+        {% for value, label in view.canales %}<option value="{{ value }}"{% if value == view.default_channel %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="feedback-field" data-contact-subject-field>
+    <label for="busqueda-contact-asunto">Asunto</label>
+    <div class="busqueda-contact__inline">
+      <input id="busqueda-contact-asunto" type="text" data-contact-asunto autocomplete="off">
+      <button type="button" class="btn-secondary busqueda-contact__copy" data-contact-copy="asunto">Copiar</button>
+    </div>
+  </div>
+  <div class="feedback-field">
+    <label for="busqueda-contact-mensaje">Mensaje</label>
+    <textarea id="busqueda-contact-mensaje" rows="9" data-contact-mensaje></textarea>
+    <p class="field-hint">Es un texto sugerido: revisalo y completalo antes de enviarlo. Abrir WhatsApp o el correo no envía nada ni se registra como enviado.</p>
+  </div>
+  <p class="field-hint field-hint--warn" data-contact-note hidden></p>
+</div>
+<div class="dw-confirm__actions busqueda-contact__actions">
+  <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>
+  <button type="button" class="btn-secondary" data-contact-copy="mensaje">Copiar mensaje</button>
+  <a class="btn-primary" data-contact-open="whatsapp" href="#" target="_blank" rel="noopener noreferrer" hidden>Abrir en WhatsApp</a>
+  <a class="btn-primary" data-contact-open="mail" href="#" hidden>Abrir en correo</a>
+</div>
+<script type="application/json" data-contact-messages>{{ view.messages | tojson }}</script>
+{% endif %}

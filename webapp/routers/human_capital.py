@@ -114,6 +114,7 @@ from webapp.services import (
     human_capital_indicators, human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
+from webapp.services import human_capital_contact
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
@@ -1649,6 +1650,27 @@ def human_capital_busqueda_remove_candidate(request: Request, busqueda_id: str, 
     if request.headers.get("HX-Request"):
         return _busqueda_detail_body(request, busqueda_id)
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
+
+
+@router.get("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/contacto", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_candidate_contact(request: Request, busqueda_id: str, application_id: str):
+    """Contenido del diálogo «Contactar» de UNA postulación del proceso: solo lectura (no cambia etapas, no crea entrevistas, no registra envíos). Misma autorización que el resto del pipeline de CCHH; el candidato se
+    resuelve SIEMPRE por la postulación del proceso indicado, así que no hay forma de pedir los datos de contacto de un candidato ajeno a ese proceso."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    busqueda = human_capital_service.get_busqueda(busqueda_id)
+    if busqueda is None:
+        raise HTTPException(404, "Búsqueda no encontrada")
+    application = next((a for a in busqueda.get("candidatos", []) if a.get("application_id") == application_id), None)
+    if application is None:
+        raise HTTPException(404, "Postulación no encontrada")
+    profile = human_capital_service.get_profile(application.get("profile_id")) if application.get("profile_id") else None
+    view = human_capital_contact.contact_view(profile, busqueda, application) if profile and not profile.get("deleted_at") else None
+    return templates.TemplateResponse(
+        request=request, name="partials/human_capital_contact_dialog_content.html",
+        context={"request": request, "view": view}, headers={"Cache-Control": "no-store"},
+    )
 
 
 def _solicitud_actor(request: Request) -> tuple[object | None, str]:
