@@ -330,11 +330,13 @@ def create(fields: dict, *, actor: str | None = None) -> dict:
     return _persist(_busqueda_path(busqueda_id), payload, previous=None)
 
 
-def _mutate(busqueda_id: str, mutator, *, expected_revision: int | None = None) -> dict:
+def _mutate(busqueda_id: str, mutator, *, expected_revision: int | None = None, bump_revision: bool = True) -> dict:
     """Read-modify-write durable bajo el lock global. `mutator(doc)` recibe una
     COPIA mutable del documento actual y la modifica in-place (o levanta). Se le
     bumpea `revision`+`updated_at` y se persiste con compensación. Si
-    `expected_revision` se pasa, se valida concurrencia optimista ANTES de mutar."""
+    `expected_revision` se pasa, se valida concurrencia optimista ANTES de mutar.
+    `bump_revision=False` (solo AUDITORÍA que no cambia el contenido funcional, p. ej. el registro de un contacto): se escribe con el MISMO lock/atomicidad/compensación y `updated_at`, pero NO se
+    invalida la `revision` que un formulario abierto espera. No pierde cambios: toda mutación relee el documento vigente bajo el lock y aplica su cambio sobre él."""
     with _write_lock:
         current = get(busqueda_id)
         if current is None:
@@ -348,7 +350,7 @@ def _mutate(busqueda_id: str, mutator, *, expected_revision: int | None = None) 
         candidate["busqueda_id"] = busqueda_id
         candidate["schema_version"] = _SCHEMA_VERSION
         candidate["created_at"] = current.get("created_at")
-        candidate["revision"] = current.get("revision", 1) + 1
+        candidate["revision"] = current.get("revision", 1) + (1 if bump_revision else 0)
         candidate["updated_at"] = _now_iso()
         return _persist(_busqueda_path(busqueda_id), candidate, previous=current)
 
@@ -453,7 +455,7 @@ def log_candidate_contact(busqueda_id: str, application_id: str, *, accion: str,
         entry = historial_proceso_of(doc)[-1]
         entry.update({"accion": accion, "situacion": situacion, "canal": canal, "event_id": event_id or None})
     try:
-        return _mutate(busqueda_id, _apply), True
+        return _mutate(busqueda_id, _apply, bump_revision=False), True       # auditoría: no invalida la revisión de un formulario de edición abierto
     except _EventoDuplicado:
         return get(busqueda_id), False
 

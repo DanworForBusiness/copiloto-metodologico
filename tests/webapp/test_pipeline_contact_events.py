@@ -215,3 +215,92 @@ def test_contact_events_on_a_solicitud_process_live_in_the_same_history_and_stay
     assert any(h["transicion"] == "candidato_contacto" for h in doc["solicitud"]["historial"]) and not doc.get("historial")   # MISMA lista de la solicitud, no una paralela
     assert all(r["transicion"] != "candidato_contacto" for r in svc.solicitud_view(doc, include_cchh_actors=False)["historial"])                  # Operaciones no ve comunicaciones con candidatos
     assert "Primer contacto por WhatsApp" in c.get(f"/cchh/busquedas/{SID}").text
+
+
+# ═══════════════════ endurecimiento: la auditoría no invalida la revisión del proceso ═══════════════════
+def _form_revision(c, bid) -> int:
+    import re
+    return int(re.search(r'name="expected_revision" value="(\d+)"', c.get(f"/cchh/busquedas/{bid}/editar").text).group(1))
+
+
+def _edit(c, bid, revision, **over):
+    return c.post(f"/cchh/busquedas/{bid}/editar", data={"nombre_puesto": "Solution Architect", "fecha_apertura": "2026-10-01", "expected_revision": str(revision), **over})
+
+
+def test_a_contact_event_does_not_bump_the_revision_but_functional_changes_still_do(c):
+    bid = _manual()
+    pid, app_id = _candidate(bid)
+    rev = brepo.get(bid)["revision"]
+    assert _post(c, bid, app_id, "mensaje_copiado", event_id="a").headers["x-contact-recorded"] == "1"
+    assert brepo.get(bid)["revision"] == rev and len(_events(bid)) == 1                                       # evento escrito, revisión intacta
+    svc.move_application_stage(bid, app_id, "Entrevista CCHH", None, actor=CCHH_EMAIL)
+    assert brepo.get(bid)["revision"] == rev + 1                                                              # el contrato del pipeline no cambia
+
+
+def test_an_open_edit_form_survives_a_contact_event_and_the_event_is_not_lost(c):
+    bid = _manual()
+    _, app_id = _candidate(bid)
+    rev = _form_revision(c, bid)                                                                              # el usuario abre la edición...
+    _post(c, bid, app_id, "canal_abierto", "primer_contacto", "whatsapp", "e1")                               # ...mientras otro registra un contacto
+    r = _edit(c, bid, rev, descripcion="Descripción editada")
+    assert r.status_code == 303                                                                               # sin falso conflicto de edición
+    doc = brepo.get(bid)
+    assert doc["descripcion"] == "Descripción editada" and [e["event_id"] for e in _events(bid)] == ["e1"]    # la edición se aplicó y el evento sigue en el historial
+    assert doc["revision"] == rev + 1                                                                         # la edición sí avanza la revisión
+
+
+def test_a_real_concurrent_edit_is_still_detected_and_contacts_after_it_do_not_disturb(c):
+    bid = _manual()
+    _, app_id = _candidate(bid)
+    stale = _form_revision(c, bid)
+    assert _edit(c, bid, stale, descripcion="primera").status_code == 303                                     # otro usuario guarda primero
+    _post(c, bid, app_id, "mensaje_copiado", event_id="e2")
+    after = brepo.get(bid)["revision"]
+    r = _edit(c, bid, stale, descripcion="segunda")                                                           # el formulario viejo SIGUE chocando (cambio funcional real)
+    assert r.status_code == 200 and "cambió desde que abriste" in r.text and brepo.get(bid)["descripcion"] == "primera" and brepo.get(bid)["revision"] == after
+    assert _edit(c, bid, after, descripcion="tercera").status_code == 303                                     # con la revisión vigente (que los contactos no movieron) se guarda
+
+
+def test_contacts_do_not_move_the_revision_that_operations_sees_on_a_solicitud(c):
+    from tests.webapp.test_busqueda_solicitud_i1 import OPS_A, SID, req
+    svc.create_solicitud(SID, req(), OPS_A)
+    svc.take_solicitud(SID, 1, CCHH_EMAIL)
+    _, app_id = _candidate(SID)
+    rev = svc.solicitud_view(brepo.get(SID))["revision"]
+    _post(c, SID, app_id, "mensaje_copiado", event_id="s1")
+    assert svc.solicitud_view(brepo.get(SID))["revision"] == rev
+
+
+def test_concurrent_contacts_and_an_edit_lose_nothing_and_never_conflict(c):
+    from concurrent.futures import ThreadPoolExecutor
+    bid = _manual()
+    _, app_id = _candidate(bid)
+    rev = _form_revision(c, bid)
+    combos = [(a, s, k) for a in ("mensaje_copiado", "canal_abierto") for s in ("primer_contacto", "actualizacion", "cierre") for k in ("whatsapp",)]   # 6 eventos distintos (sin ventana de duplicado)
+
+    def contact(i_combo):
+        i, (a, s, k) = i_combo
+        return _post(session_client(CCHH_EMAIL), bid, app_id, a, s, k, f"c{i}").status_code
+
+    def edit():
+        return _edit(session_client(CCHH_EMAIL), bid, rev, descripcion="editada en paralelo").status_code
+
+    with ThreadPoolExecutor(max_workers=7) as ex:
+        futures = [ex.submit(contact, x) for x in enumerate(combos)] + [ex.submit(edit)]
+        codes = [f.result() for f in futures]
+    assert codes[:-1] == [200] * 6 and codes[-1] == 303                                                       # ningún contacto falla y la edición no choca por ellos
+    doc = brepo.get(bid)
+    assert doc["descripcion"] == "editada en paralelo" and sorted(e["event_id"] for e in _events(bid)) == sorted(f"c{i}" for i in range(6))   # ni un evento ni la edición se pierden
+    assert doc["revision"] == rev + 1
+
+
+def test_a_failed_write_leaves_neither_event_nor_revision_change(c, monkeypatch):
+    bid = _manual()
+    _, app_id = _candidate(bid)
+    before = brepo.get(bid)
+    def boom(*a, **k):
+        raise brepo.BusquedaStorageError("disco")
+    with monkeypatch.context() as m:
+        m.setattr(brepo, "_persist", boom)
+        assert _post(c, bid, app_id).status_code == 503
+    assert brepo.get(bid) == before                                                                           # documento idéntico: sin evento, sin revisión nueva, sin updated_at nuevo
