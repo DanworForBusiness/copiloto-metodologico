@@ -117,7 +117,8 @@
         {{ hub_icon() }}
       </summary>
       <nav class="workspace-switch-menu" aria-label="Cambiar de espacio de trabajo">
-        {% for ws in available_workspaces %}{% if ws.key != current_workspace.key %}<a href="{{ ws.home_url }}">{{ ws.label }}</a>{% endif %}{% endfor %}
+        {# TODAS las verticales autorizadas (misma fuente que el landing: `available_workspaces(user)`), INCLUIDA la actual, marcada como activa: omitirla hacía que, dentro de una vertical, esa vertical «desapareciera» del selector. #}
+        {% for ws in available_workspaces %}<a href="{{ ws.home_url }}"{% if current_workspace and ws.key == current_workspace.key %} class="is-active" aria-current="page"{% endif %}>{{ ws.label }}</a>{% endfor %}
         <a class="workspace-switch-platform" href="/onedanwor">Todos los espacios</a>
       </nav>
     </details>
