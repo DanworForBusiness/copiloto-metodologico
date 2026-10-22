@@ -3,3 +3,5 @@
 # Mantener separado de requirements.txt (solo dependencias de runtime).
 # La GitHub Action instala: pip install -r requirements.txt -r requirements-dev.txt
 pytest==9.1.1
+# Parser HTML de las pruebas de vistas (CCHH Indicadores: tests/webapp/test_human_capital_indicadores_view.py).
+beautifulsoup4==4.15.0
