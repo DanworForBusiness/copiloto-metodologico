@@ -56,11 +56,11 @@ def test_the_deletion_confirmation_is_shown_and_the_request_is_gone_from_the_ope
 def test_a_deleted_request_disappears_from_the_cchh_inbox_and_counts(estado):
     to_state(estado)
     to_state("enviada", SID2)
-    inbox_before = cchh().get("/cchh/solicitudes", headers=HX).text
-    assert SID in inbox_before
+    tab = {"enviada": "recibidas", "observada": "observadas"}[estado]                      # la observada vive en su propia pestaña (no en «Por atender»)
+    inbox_of = lambda t: cchh().get("/cchh/solicitudes", params={"solicitud": t}, headers=HX).text   # noqa: E731
+    assert SID in inbox_of(tab)
     assert delete(ops()).status_code == 303
-    inbox = cchh().get("/cchh/solicitudes", headers=HX).text
-    assert SID not in inbox and SID2 in inbox
+    assert SID not in inbox_of(tab) and SID not in inbox_of("recibidas") and SID2 in inbox_of("recibidas")
     assert svc.resumen_solicitudes()["total"] == 1 and [v["busqueda_id"] for v in svc.list_solicitudes_view()] == [SID2]
 
 

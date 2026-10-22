@@ -77,7 +77,7 @@
             <tr>
               <td class="left">{{ transicion_labels[h.transicion] or h.transicion }}</td>
               <td class="left">{{ h.fecha | ops_datetime }}</td>
-              <td class="left">{% if h.actor_tipo == 'operaciones' and h.actor %}{{ h.actor }}{% elif h.actor_tipo == 'cchh' %}Capital Humano{% else %}—{% endif %}</td>
+              <td class="left">{% if h.actor %}{{ h.actor }}{% elif h.actor_tipo == 'cchh' and view.ejecutores_cchh_visibles %}Usuario no identificado{% elif h.actor_tipo == 'cchh' %}Capital Humano{% else %}—{% endif %}</td>
               <td class="left">{{ h.motivo or '—' }}</td>
             </tr>
             {% endfor %}

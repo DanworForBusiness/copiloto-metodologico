@@ -1387,7 +1387,7 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
         "busqueda_is_deletable": human_capital_service.busqueda_is_placeholder(busqueda),
         # Solicitud de Operaciones (None para históricas/altas directas). Mientras no esté `en_gestion` (enviada/observada/cancelada) el detalle muestra SOLO el requerimiento:
         # sin pipeline ni acciones de candidatos (el servidor ya las rechaza; acá además se ocultan).
-        "solicitud": human_capital_service.solicitud_view(busqueda),
+        "solicitud": human_capital_service.solicitud_view(busqueda, include_cchh_actors=True),
         "solicitud_gestion": busqueda_repository.solicitud_estado(busqueda) in (None, busqueda_repository.SOLICITUD_EN_GESTION),
         "solicitud_badge": _solicitud_badge(human_capital_service.solicitud_view(busqueda)) if human_capital_service.solicitud_view(busqueda) else None,
     }

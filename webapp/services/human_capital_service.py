@@ -870,7 +870,10 @@ def _require_actor(actor) -> str:
     return actor.strip().lower()
 
 
-def solicitud_view(doc: dict) -> dict | None:
+_GENERIC_ACTORS = frozenset({"", "capital humano", "cchh", "operaciones"})       # rótulos de ÁREA (dato legado), nunca una identidad de usuario
+
+
+def solicitud_view(doc: dict, *, include_cchh_actors: bool = False) -> dict | None:
     """Proyección SEGURA de una solicitud para Operaciones (lista blanca).
     NUNCA incluye candidatos/postulaciones, ni datos del Banco de CVs, ni el
     JD/palabras clave/descripción internos de CCHH, ni el `origen` completo.
@@ -886,8 +889,12 @@ def solicitud_view(doc: dict) -> dict | None:
         row = {k: h.get(k) for k in ("transicion", "desde", "hasta", "fecha", "actor_tipo", "motivo")}
         if h.get("actor_tipo") == busqueda_repository.ORIGEN_OPERACIONES:
             row["actor"] = h.get("actor")
+        elif include_cchh_actors and str(h.get("actor") or "").strip().lower() not in _GENERIC_ACTORS:
+            # Pantallas de CAPITAL HUMANO: «Realizado por» = la identidad REAL registrada (claim `sub` de la sesión que ejecutó la acción). Un legado que solo guarda el rótulo de área («Capital Humano») NO se
+            # promueve a identidad: sin `actor` la plantilla muestra «Usuario no identificado». La vista para Operaciones nunca expone a las personas de CCHH (frontera de privacidad).
+            row["actor"] = h.get("actor")
         historial.append(row)
-    return {
+    view = {
         "busqueda_id": doc.get("busqueda_id"),
         "solicitud_id": sol.get("submission_id") or doc.get("busqueda_id"),
         "revision": doc.get("revision", 1),
@@ -918,6 +925,9 @@ def solicitud_view(doc: dict) -> dict | None:
         "puede_eliminar": busqueda_repository.solicitud_puede_eliminar(doc),
         "solo_lectura": estado in (busqueda_repository.SOLICITUD_EN_GESTION, busqueda_repository.SOLICITUD_CANCELADA),
     }
+    if include_cchh_actors:                                       # solo la vista de Capital Humano agrega esta clave (la proyección segura para Operaciones conserva su lista blanca exacta)
+        view["ejecutores_cchh_visibles"] = True
+    return view
 
 
 def list_busquedas_gestionadas() -> list[dict]:

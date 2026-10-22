@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from webapp.services import busqueda_repository as repo, human_capital_service as svc, profile_repository
-from tests.webapp.test_busqueda_solicitud_i1 import CCHH_EMAIL, OPS_A, SID, SID2, doc, env, files, remote, req, rev, seed_catalog, send, to_state   # noqa: F401
-from tests.webapp.test_operations_busquedas_i2 import ORIGIN, operations_users, ops, session_client                                        # noqa: F401
+from tests.webapp.test_busqueda_solicitud_i1 import CCHH_EMAIL, OPS_A, OPS_B, SID, SID2, doc, env, files, remote, req, rev, seed_catalog, send, to_state   # noqa: F401
+from tests.webapp.test_operations_busquedas_i2 import ORIGIN, form_payload, operations_users, ops, post_new, session_client                                        # noqa: F401
 
 SID3 = "0b6c1d2e-7a44-4f0e-8c35-9d2f5e1a7b21"
 HX = {"HX-Request": "true"}
@@ -373,6 +373,57 @@ def test_process_detail_header_has_the_same_structure_as_the_rest_of_cchh_with_a
         assert html.index('class="catalog-back"') < html.index('class="module-hero hc-profiles-hero"')            # «← Volver» antes del hero
     css = (ROOT / "webapp/static/human_capital.css").read_text(encoding="utf-8")
     assert re.search(r"\.hc-profiles-hero \{ margin-bottom: 24px; \}", css)                                      # separación estándar con lo que sigue, sin reglas por pantalla
+
+
+def _history_actors(html: str) -> list[tuple[str, str]]:
+    """(movimiento, «Realizado por») de la tabla de historial, del más reciente al más antiguo."""
+    block = re.search(r"data-historial.*?</tbody>", html, re.S).group(0)
+    return [(re.sub(r"<[^>]+>", "", m[0]).strip(), re.sub(r"<[^>]+>", "", m[1]).strip()) for m in re.findall(r'<tr>\s*<td class="left">(.*?)</td>\s*<td class="left">.*?</td>\s*<td class="left">(.*?)</td>', block, re.S)]
+
+
+def test_history_registers_the_real_executor_of_every_movement_for_the_same_user_across_operaciones_and_cchh(monkeypatch):
+    from webapp.services import auth_service
+    both = "ambas.areas@danwor.com"
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", f"{OPS_A},{both}")
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", f"{CCHH_EMAIL},{both}")
+    c_ops, c_hc = session_client(both), session_client(both)
+    assert post_new(c_ops).status_code == 303                                                                  # envía desde Operaciones
+    assert c_hc.post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": str(rev())}, headers=ORIGIN).status_code == 303   # toma desde CCHH, MISMA persona
+    page = c_hc.get(f"/cchh/busquedas/{SID}").text
+    assert _history_actors(page) == [("Tomada por Capital Humano", both), ("Enviada a Capital Humano", both)]    # el ejecutor es siempre la identidad autenticada; el área sigue en el rótulo del movimiento
+    assert [h["actor"] for h in doc()["solicitud"]["historial"]] == [both, both]                                 # el registro persistido es la fuente: sin rótulos genéricos
+
+
+def test_history_attributes_each_movement_to_its_own_executor_with_different_users(monkeypatch):
+    from webapp.services import auth_service
+    cchh_b = "cchh.segunda@danwor.com"
+    monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", f"{OPS_A},{OPS_B}")
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", f"{CCHH_EMAIL},{cchh_b}")
+    a_ops, b_ops, a_hc, b_hc = session_client(OPS_A), session_client(OPS_B), session_client(CCHH_EMAIL), session_client(cchh_b)
+    assert post_new(a_ops).status_code == 303                                                                   # envía OPS_A
+    assert a_hc.post(f"/cchh/busquedas/{SID}/solicitar-correccion", data={"expected_revision": str(rev()), "motivo": "Falta el proyecto"}, headers=ORIGIN).status_code == 303   # observa CCHH_EMAIL
+    assert b_ops.post(f"/operaciones/busquedas/{SID}/editar", data={"expected_revision": str(rev()), **form_payload(SID, comentarios="corregido")}, headers=ORIGIN).status_code == 303   # reenvía OPS_B
+    assert b_hc.post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": str(rev())}, headers=ORIGIN).status_code == 303                                          # toma cchh_b
+    page = b_hc.get(f"/cchh/busquedas/{SID}").text
+    assert _history_actors(page) == [("Tomada por Capital Humano", cchh_b), ("Corregida y reenviada", OPS_B), ("Corrección solicitada por Capital Humano", CCHH_EMAIL), ("Enviada a Capital Humano", OPS_A)]
+    # Operaciones conserva su frontera de privacidad: ve a sus propias personas y el ÁREA de CCHH, nunca a quienes la integran
+    ops_page = session_client(OPS_A).get(f"/operaciones/busquedas/{SID}").text
+    assert _history_actors(ops_page) == [("Tomada por Capital Humano", "Capital Humano"), ("Corregida y reenviada", OPS_B), ("Corrección solicitada por Capital Humano", "Capital Humano"), ("Enviada a Capital Humano", OPS_A)]
+    assert CCHH_EMAIL not in ops_page and cchh_b not in ops_page
+
+
+def test_legacy_history_with_only_the_area_label_is_not_promoted_to_an_identity_and_is_never_rewritten():
+    import json
+    send(SID)
+    svc.take_solicitud(SID, rev(), CCHH_EMAIL)
+    path = [f for f in files() if f.name == f"{SID}.json"][0]
+    d = json.loads(path.read_text(encoding="utf-8"))
+    d["solicitud"]["historial"][-1]["actor"] = "Capital Humano"                                                     # registro histórico: solo el rótulo del área
+    path.write_text(json.dumps(d), encoding="utf-8")
+    before = path.read_text(encoding="utf-8")
+    page = cchh().get(f"/cchh/busquedas/{SID}").text
+    assert _history_actors(page)[0] == ("Tomada por Capital Humano", "Usuario no identificado") and _history_actors(page)[1][1] == OPS_A     # no se inventa un ejecutor
+    assert path.read_text(encoding="utf-8") == before                                                             # leer no reescribe el histórico
 
 
 def test_taking_from_new_process_reuses_the_same_busqueda_without_creating_another():
