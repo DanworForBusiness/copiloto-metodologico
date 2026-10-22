@@ -76,9 +76,12 @@ def test_the_text_and_markup_are_the_existing_pattern_not_a_new_component():
 
 # ── CSS específico mínimo ─────────────────────────────────────────────────────────────────────────────────────
 def test_css_only_adapts_the_spinner_color_and_respects_reduced_motion():
-    assert re.search(r"\.hc-profile-form \.btn-primary\.asr-generate \.asr-generate__spinner \{[^}]*border-top-color: #0c0c0d", _HC_CSS)    # visible sobre el dorado de .btn-primary
-    media = re.search(r"@media \(prefers-reduced-motion: reduce\) \{\s*\.hc-profile-form \.btn-primary\.asr-generate \.asr-generate__spinner \{([^}]*)\}", _HC_CSS)
-    assert media and "animation: none" in media.group(1)
+    # La regla se AGRUPA con la del formulario de subida de documentos de Editar (`.hc-document-upload-form`): MISMO componente `.asr-generate`, MISMO color y MISMA regla de movimiento reducido
+    # (el selector ya no termina en `{` justo después de `.hc-profile-form ...`, sino en una lista de selectores). El estilo y la accesibilidad son equivalentes.
+    spinner = r"\.hc-profile-form \.btn-primary\.asr-generate \.asr-generate__spinner,\s*\.hc-document-upload-form \.btn-primary\.asr-generate \.asr-generate__spinner"
+    assert re.search(spinner + r" \{[^}]*border-top-color: #0c0c0d", _HC_CSS)                                                              # visible sobre el dorado de .btn-primary
+    media = re.search(r"@media \(prefers-reduced-motion: reduce\) \{\s*" + spinner + r" \{([^}]*)\}", _HC_CSS)
+    assert media and "animation: none" in media.group(1)                                                                                    # sin animación con movimiento reducido (ambos formularios)
 
 
 # ── accesibilidad y flujo en el script ────────────────────────────────────────────────────────────────────────
