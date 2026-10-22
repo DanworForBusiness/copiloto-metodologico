@@ -34,6 +34,7 @@ def _authorized_and_isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
     monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "")
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "remote")     # estos tests simulan fallos de Spaces: ejercitan el contrato REMOTE (el modo es explícito, no se infiere)
     monkeypatch.setattr(profile_repository.remote_store, "push_path", lambda path: True)
     monkeypatch.setattr(profile_repository.remote_store, "enabled", lambda: False)
     # Este archivo predata los catálogos GOBERNADOS de Seniority y Fuente

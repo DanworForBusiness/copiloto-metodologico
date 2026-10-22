@@ -321,6 +321,26 @@ def _profile_path(profile_id: str) -> Path:
     return _profiles_dir() / f"{profile_id}.json"
 
 
+def _persistence_mode() -> str:
+    """Modo de persistencia EXPLÍCITO (`DANWOR_PERSISTENCE`, ver config.py): nunca se infiere de credenciales ni de `remote_store.enabled()`."""
+    return str(getattr(config, "PERSISTENCE_MODE", "local"))
+
+
+def _local_only() -> bool:
+    """`local`: la fuente de verdad es el disco (escritura atómica). NO se requiere ni se intenta sincronizar con Spaces — aunque haya credenciales en el entorno —,
+    así que la durabilidad "remota" no aplica y la escritura local ES el resultado final (sin push, sin compensación, sin rollback)."""
+    return _persistence_mode() == "local"
+
+
+def _require_writable_mode() -> None:
+    """`read-only` NO habilita escrituras de negocio (sería un fallback accidental a escritura local sin respaldo): se rechaza ANTES de tocar el disco, con el mismo
+    error determinístico de "no configurado para este entorno" que ya conoce la UI. `remote` sigue su contrato completo (push obligatorio + compensación)."""
+    if _persistence_mode() == "read-only":
+        raise ProfileConfigIncompleteError(
+            "La Base de CVs está en modo de solo lectura en este entorno: no se pueden guardar cambios."
+        )
+
+
 def _ensure_restored() -> None:
     """Espera (acotado, nunca indefinido) a que el restore de arranque
     contra Spaces termine, SOLO si genuinamente sigue en curso — MISMO
@@ -434,7 +454,10 @@ def _create_locked(profile_id: str, profile: dict) -> dict:
         "updated_at": now,
     }
     path = _profile_path(profile_id)
+    _require_writable_mode()
     _write_atomic(path, payload)
+    if _local_only():
+        return payload                                   # `local`: escritura física local atómica; sin sincronización con Spaces
     if remote_store.push_path(path):
         return payload
     if not remote_store.enabled():
@@ -634,7 +657,10 @@ def update(profile_id: str, expected_revision: int, fields: dict) -> dict:
             "revision": current_revision + 1,
             "updated_at": _now_iso(),
         }
+        _require_writable_mode()
         _write_atomic(path, candidate)
+        if _local_only():
+            return candidate                             # `local`: escritura física local atómica; sin sincronización con Spaces (ni compensación: no hay remoto que compensar)
         if remote_store.push_path(path):
             return candidate
         # B no confirmado.
