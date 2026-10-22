@@ -131,21 +131,24 @@ _WORKSPACE_CARD_COPY = {
             "Indicadores y analítica CRM",
         ],
     },
-    # Capital Humano Phase 3 (First Profile Slice): SOLO se anuncia la
-    # capability que YA existe (Banco de Perfiles) — nunca
-    # Procesos/Entrevistas/Onboarding/Indicadores/CV, que todavía no están
-    # implementados (ver Phase 3 §23, MISMO criterio que el resto de este
-    # dict: presentación pura, nunca una promesa de funcionalidad).
+    # Capital Humano: se anuncian SOLO las capacidades ya integradas en main
+    # (Base de CVs/Candidatos, Búsquedas, Entrevistas, Onboarding y Avisos),
+    # agrupadas en tres frases al estilo de los demás tiles (descripción de una
+    # oración + 3 capacidades). Indicadores NO se menciona mientras no esté
+    # publicado en main: este dict es presentación pura, nunca una promesa de
+    # funcionalidad (MISMO criterio que el resto de las entradas).
     "human-capital": {
         "eyebrow": None,
         "title": "Capital Humano",
         "accent": "Selección e Incorporación",
         "description": (
-            "Gestión integral del ciclo de selección e incorporación, empezando por "
-            "el banco de CVs."
+            "Un espacio para gestionar el ciclo de selección: banco de CVs, "
+            "búsquedas, entrevistas e incorporación."
         ),
         "features": [
-            "Base de CVs",
+            "Banco de CVs y candidatos",
+            "Búsquedas y entrevistas",
+            "Onboarding y avisos",
         ],
     },
 }

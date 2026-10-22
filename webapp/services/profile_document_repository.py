@@ -234,6 +234,30 @@ def list_for_profile(profile_id: str) -> list[dict]:
     return documents
 
 
+def find_by_folder_item_id(folder_item_id: str) -> list[dict]:
+    """Documentos (de CUALQUIER candidato) que referencian esta carpeta de SharePoint por `folder_item_id`. Lo usa el uploader para no reutilizar una carpeta que ya pertenece a OTRO candidato.
+    Mismo criterio fail-soft que `list_for_profile`: un archivo corrupto se saltea."""
+    _ensure_restored()
+    directory = _documents_dir()
+    if not directory.exists() or not folder_item_id:
+        return []
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError as exc:
+        raise ProfileDocumentStorageError(f"No se pudo listar los documentos: {exc}") from exc
+    found: list[dict] = []
+    for entry in entries:
+        if not entry.is_file() or entry.suffix != ".json":
+            continue
+        try:
+            payload = json.loads(entry.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(payload, dict) and payload.get("folder_item_id") == folder_item_id:
+            found.append(payload)
+    return found
+
+
 def _create_locked(document_id: str, document: dict) -> dict:
     """Cuerpo de `create_with_explicit_id` bajo `_write_lock` — MISMA
     secuencia de fallo/reintento que `profile_repository._create_locked`

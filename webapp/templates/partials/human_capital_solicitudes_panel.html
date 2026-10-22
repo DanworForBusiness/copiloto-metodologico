@@ -1,0 +1,85 @@
+{% from "partials/pager.html" import render_pager %}
+{# human_capital_solicitudes_panel.html — bandeja «Solicitudes recibidas» (I3): requerimientos REG-CH-01 que Operaciones envía a CCHH. Fragmento compartido por GET /cchh/busquedas (embebido) y los filtros
+   (swap HTMX sobre `#hc-solicitudes-panel`, GET /cchh/solicitudes). MISMOS primitivos que el resto de CCHH: `dashboard-section` con contador, chips `.dashboard-view-switch` (como los de atención de
+   Procesos activos), `matrix-scroll` + `dashboard-table`, badges `.status-badge`, acciones `.table-action-btn`. Por defecto muestra enviadas + observadas; las CANCELADAS se consultan con su filtro
+   (trazabilidad: sin acciones y fuera de «pendientes», de Procesos activos/cerrados y de los contadores). Las ya tomadas pasaron a Procesos activos. #}
+<div id="hc-solicitudes-panel">
+<div class="dashboard-sections" data-dashboard-key="cchh-solicitudes-recibidas">
+  <details class="dashboard-section" data-section-id="solicitudes-recibidas" data-persist-collapse open>
+    <summary class="dashboard-section__head" draggable="true">
+      <span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title">Solicitudes recibidas</span>
+      <span class="dashboard-section__count">{{ solicitudes_total }} solicitud{{ '' if solicitudes_total == 1 else 'es' }}</span>
+    </summary>
+    <div class="dashboard-section__body">
+      <div class="dashboard-view-switch busqueda-atencion" role="group" aria-label="Filtrar solicitudes recibidas">
+        {% for key, label in (("recibidas", "Por atender"), ("enviadas", "Enviadas"), ("observadas", "Observadas"), ("canceladas", "Canceladas")) %}
+        <button type="button" class="{{ 'is-active' if solicitud_filtro == key else '' }}" data-solicitud-filtro="{{ key }}"
+                hx-get="/cchh/solicitudes?solicitud={{ key }}" hx-target="#hc-solicitudes-panel" hx-swap="outerHTML">{{ label }} · {{ solicitud_counts[key] }}</button>
+        {% endfor %}
+      </div>
+
+      {% if solicitudes_source_error %}
+      <div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>{{ solicitudes_source_error }}</p></div>
+      {% elif not solicitudes %}
+      <div class="dashboard-empty" data-empty-kind="{{ 'filtered' if solicitud_filtro != 'recibidas' or solicitud_counts.canceladas else 'none' }}"><span class="dashboard-empty__label">Sin solicitudes</span><p>{% if solicitud_filtro == 'canceladas' %}No hay solicitudes canceladas.{% elif solicitud_filtro == 'observadas' %}No hay solicitudes observadas: ninguna está esperando corrección de Operaciones.{% elif solicitud_filtro == 'enviadas' %}No hay solicitudes enviadas pendientes de toma.{% else %}No hay solicitudes pendientes de atención.{% endif %}</p></div>
+      {% else %}
+      <div class="matrix-scroll">
+        <table class="dashboard-table" id="hc-solicitudes-table">
+          <colgroup>
+            <col style="width:21%">
+            <col style="width:16%">
+            <col style="width:9%">
+            <col style="width:9%">
+            <col style="width:11%">
+            <col style="width:15%">
+            <col style="width:11%">
+            <col style="width:76px">
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="left">Perfil solicitado</th>
+              <th class="left">Proyecto / necesidad</th>
+              <th class="left">Área</th>
+              <th class="left">Recursos</th>
+              <th class="left">Apertura</th>
+              <th class="left">Estado</th>
+              <th class="left">Inicio previsto</th>
+              <th class="center">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in solicitudes %}
+            {% set req = r.requerimiento %}
+            <tr data-solicitud-id="{{ r.busqueda_id }}" data-estado="{{ r.estado_solicitud }}">
+              <td class="left">
+                <div class="dw-idcell">
+                  <span class="dw-idcell__name"><a href="/cchh/busquedas/{{ r.busqueda_id }}">{{ req.nombre_puesto }}</a></span>
+                  {% if r.reenviada and r.reenvios %}<span class="field-hint">{{ r.reenvios }} reenvío{{ '' if r.reenvios == 1 else 's' }}</span>{% endif %}
+                </div>
+              </td>
+              <td class="left">{% if req.tipo_busqueda == 'proyecto' %}{{ req.proyecto }}{% else %}Necesidad interna{% endif %}</td>
+              <td class="left">{{ req.area_consultora or "—" }}</td>
+              <td class="left">{{ req.cantidad_recursos }}</td>
+              <td class="left">{{ (r.fecha_apertura | fecha_dmy) if r.fecha_apertura else "—" }}</td>
+              <td class="left"><span class="status-badge status-badge--{{ r.badge_tone }}">{{ r.badge_label }}</span></td>
+              <td class="left">{{ (req.fecha_inicio_prevista | fecha_dmy) if req.fecha_inicio_prevista else "—" }}</td>
+              <td class="center">
+                <div class="dw-row-actions">
+                  <a href="/cchh/busquedas/{{ r.busqueda_id }}" class="table-action-btn chart-tooltip-anchor" aria-label="Ver solicitud">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    <span class="chart-tooltip" aria-hidden="true"><p>Ver</p></span>
+                  </a>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {{ render_pager(solicitudes_pager, "#hc-solicitudes-panel", "Paginación de solicitudes recibidas", "Solicitudes por página") }}
+      {% endif %}
+    </div>
+  </details>
+</div>
+</div>

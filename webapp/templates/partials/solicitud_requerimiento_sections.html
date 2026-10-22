@@ -1,0 +1,89 @@
+{# solicitud_requerimiento_sections.html — detalle ESTRUCTURADO del requerimiento REG-CH-01 (+ historial), SOLO LECTURA. Compartido por Operaciones (Staffing → Búsquedas) y por la
+   bandeja de CCHH (Solicitudes recibidas): una sola fuente del markup. Espera `view` = `human_capital_service.solicitud_view(...)` (proyección segura: sin candidatos ni datos internos). #}
+{% set req = view.requerimiento %}
+{% set pres = req.presencialidad %}
+{% set tipo_labels = {"interna": "Necesidad interna", "proyecto": "Proyecto"} %}
+{% set dedicacion_labels = {"horas_por_mes": "Horas por mes", "horas_por_semana": "Horas por semana", "porcentaje_jornada": "% de jornada"} %}
+{% set transicion_labels = {"enviar": "Enviada a Capital Humano", "editar": "Editada por Operaciones", "observar": "Corrección solicitada por Capital Humano", "reenviar": "Corregida y reenviada", "tomar": "Tomada por Capital Humano", "cancelar": "Cancelada por Operaciones"} %}
+{# Valor de solo lectura: MISMO `.feedback-field` (label + valor) que usa CCHH en sus fichas/formularios. #}
+{% macro ro(label, value) %}<div class="feedback-field feedback-field--medium"><label>{{ label }}</label><p class="hc-field-value">{{ value if value not in (none, '') else '—' }}</p></div>{% endmacro %}
+<div class="dashboard-sections" data-dashboard-key="ops-busqueda-detalle">
+  <details class="dashboard-section" data-section-id="perfil" data-persist-collapse open>
+    <summary class="dashboard-section__head" draggable="true"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Perfil</span></summary>
+    <div class="dashboard-section__body">
+      <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+        {{ ro('Tipo de búsqueda', tipo_labels[req.tipo_busqueda] or req.tipo_busqueda) }}
+        {% if req.tipo_busqueda == 'proyecto' %}{{ ro('Proyecto', req.proyecto) }}{% endif %}
+        {{ ro('Cantidad de recursos', req.cantidad_recursos) }}
+        {{ ro('Área a la que pertenecerá', req.area_consultora) }}
+        {{ ro('Seniority', req.seniority | join(', ')) }}
+      </div>
+    </div>
+  </details>
+
+  <details class="dashboard-section" data-section-id="condiciones" data-persist-collapse open>
+    <summary class="dashboard-section__head" draggable="true"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Dedicación, ubicación y modalidad</span></summary>
+    <div class="dashboard-section__body">
+      <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+        {{ ro('Dedicación', (req.dedicacion.valor ~ ' · ' ~ (dedicacion_labels[req.dedicacion.unidad] or req.dedicacion.unidad))) }}
+        {{ ro('Duración', (req.duracion.meses ~ ' meses') if req.duracion.tipo == 'meses' else 'Indefinida') }}
+        {{ ro('Ubicación', req.ubicacion) }}
+        {{ ro('Modalidad', req.modalidad) }}
+        {% if pres %}
+        {% if pres.dias %}{{ ro('Días presenciales', pres.dias ~ ' por semana') }}{% endif %}
+        {{ ro('Lugar de trabajo', pres.lugar) }}
+        {% endif %}
+      </div>
+    </div>
+  </details>
+
+  <details class="dashboard-section" data-section-id="requisitos" data-persist-collapse open>
+    <summary class="dashboard-section__head" draggable="true"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Requisitos</span></summary>
+    <div class="dashboard-section__body">
+      <div class="feedback-field"><label>Responsabilidades</label><p class="hc-field-value">{{ req.responsabilidades }}</p></div>
+      <div class="feedback-field"><label>Skills técnicos excluyentes</label><p class="hc-field-value">{{ req.skills_excluyentes }}</p></div>
+      {% if req.habilidades_blandas %}<div class="feedback-field"><label>Habilidades blandas</label><p class="hc-field-value">{{ req.habilidades_blandas }}</p></div>{% endif %}
+      <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+        {{ ro('Nivel de inglés', req.ingles) }}
+        {% if req.certificaciones %}{{ ro('Certificaciones', req.certificaciones) }}{% endif %}
+      </div>
+    </div>
+  </details>
+
+  <details class="dashboard-section" data-section-id="contratacion" data-persist-collapse open>
+    <summary class="dashboard-section__head" draggable="true"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Contratación</span></summary>
+    <div class="dashboard-section__body">
+      <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+        {{ ro('Modalidad de contratación', req.tipo_contrato) }}
+        {{ ro('Fecha de inicio prevista', req.fecha_inicio_prevista | ops_date) }}
+        {{ ro('Solicitante', view.solicitante) }}
+      </div>
+      {% if req.comentarios %}<div class="feedback-field"><label>Observaciones</label><p class="hc-field-value">{{ req.comentarios }}</p></div>{% endif %}
+    </div>
+  </details>
+
+  <details class="dashboard-section" data-section-id="historial" data-persist-collapse open data-historial>
+    <summary class="dashboard-section__head" draggable="true">
+      <span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span>
+      <span class="dashboard-section__count">{{ view.historial | length }} movimiento{{ '' if view.historial | length == 1 else 's' }}</span>
+    </summary>
+    <div class="dashboard-section__body">
+      <div class="matrix-scroll">
+        <table class="dashboard-table">
+          <colgroup><col style="width:30%"><col style="width:20%"><col style="width:25%"><col style="width:25%"></colgroup>
+          <thead><tr><th class="left">Movimiento</th><th class="left">Fecha</th><th class="left">Realizado por</th><th class="left">Detalle</th></tr></thead>
+          <tbody>
+            {% for h in view.historial | reverse %}
+            <tr>
+              <td class="left">{{ transicion_labels[h.transicion] or h.transicion }}</td>
+              <td class="left">{{ h.fecha | ops_datetime }}</td>
+              <td class="left">{% if h.actor_tipo == 'operaciones' and h.actor %}{{ h.actor }}{% elif h.actor_tipo == 'cchh' %}Capital Humano{% else %}—{% endif %}</td>
+              <td class="left">{{ h.motivo or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+</div>

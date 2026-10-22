@@ -482,8 +482,28 @@ def test_the_panel_wrapper_follows_the_hero_like_the_other_cchh_sections(tmp_pat
     panel = s.find(id="hc-indicadores-panel")
     assert hero.find_next_sibling() is panel and panel.find(class_="activity-kpi-grid", recursive=False) is not None      # el wrapper sigue al hero y los KPI son su primer hijo
     hc = (ROOT / "webapp/static/human_capital.css").read_text(encoding="utf-8")
-    group = next(g for g in re.findall(r"((?:\.module-hero \+ #hc-[a-z]+-panel,?\s*)+)\{ margin-top: 24px; \}", hc) if "indicadores" in g)
+    group = next(g for g in re.findall(r"((?:\.module-hero \+ [^,{]+,?\s*)+)\{ margin-top: 24px; \}", hc) if "indicadores" in g)
     assert all(f"#hc-{n}-panel" in group for n in ("entrevistas", "onboarding", "publicaciones", "indicadores"))        # MISMO selector-grupo de 24 px que las demás secciones
+
+def test_requerimientos_not_taken_by_cchh_are_not_counted_as_selection_processes(tmp_path):
+    """Compatibilidad con Operaciones -> CCHH (PR #213): una solicitud enviada / observada / cancelada es un REQUERIMIENTO recibido, no un proceso de selección; solo cuentan las históricas,
+    las altas directas de CCHH y las solicitudes ya tomadas (`en_gestion`). Misma fuente que el resto de CCHH: `list_busquedas_gestionadas()`."""
+    def req(busqueda_id, nombre, estado, **kw):
+        doc = make_busqueda(busqueda_id, nombre, candidatos=[make_app(f"app-{busqueda_id}", f"p-{busqueda_id}")], **kw)
+        doc["origen"] = {"tipo": "operaciones"}
+        doc["solicitud"] = {"estado": estado, "historial": []}
+        return doc
+    historica = make_busqueda("b-hist", "Historica", candidatos=[make_app("app-hist", "p-hist")])
+    directa = make_busqueda("b-dir", "Alta directa", candidatos=[make_app("app-dir", "p-dir")])
+    directa["origen"] = {"tipo": "cchh"}
+    docs = [historica, directa, req("b-tomada", "Tomada", "en_gestion"), req("b-env", "Solo enviada", "enviada"), req("b-obs", "Solo observada", "observada"), req("b-can", "Solo cancelada", "cancelada")]
+    seed(tmp_path, busquedas=docs)
+    facts = ind.build_facts(ind.load_snapshot())
+    assert sorted(b.busqueda_id for b in facts.busquedas) == ["b-dir", "b-hist", "b-tomada"]
+    assert sorted(c.busqueda_id for c in facts.candidaturas) == ["b-dir", "b-hist", "b-tomada"]
+    html = client().get(PAGE).text
+    assert "Tomada" in html and "Historica" in html and "Alta directa" in html
+    assert not any(name in html for name in ("Solo enviada", "Solo observada", "Solo cancelada"))
 
 
 def test_every_card_lives_in_a_persisted_collapse_container_with_its_section_id(tmp_path):

@@ -129,7 +129,7 @@ class Snapshot:
 
 def load_snapshot() -> Snapshot:
     """ÚNICA función con I/O del motor. Solo lecturas (una por colección); sin escrituras ni consultas por candidatura."""
-    busquedas = busqueda_repository.list()
+    busquedas = hc.list_busquedas_gestionadas()    # solo procesos de selección que CCHH gestiona: las solicitudes de Operaciones enviadas / observadas / canceladas NO son búsquedas
     entrevistas = entrevista_repository.list()
     publicaciones = publicacion_repository.list()
     fuentes: dict[str, str | None] = {}

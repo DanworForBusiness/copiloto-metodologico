@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Diagnóstico SharePoint · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% include "partials/human_capital_catalog_refresh_topbar.html" %}{% endcall %}
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    {# Instrumento TEMPORAL del troubleshooting «CV upload → SharePoint». Sólo APP_OWNER, fuera del nav, sólo lectura (GET a Graph). #}
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano</p>
+        <h1>Diagnóstico SharePoint</h1>
+        <p>Sonda de solo lectura con el mismo token que usa la subida de CVs. No escribe nada y no guarda ni registra el token. Muestra scopes efectivos del token, el destino actual y, si pegás un link de uso compartido, un destino de control.</p>
+      </div>
+    </section>
+
+    <div class="dashboard-sections">
+      <details class="dashboard-section" open>
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Configuración actual</span></summary>
+        <div class="dashboard-section__body">
+          <table class="dashboard-table"><tbody>
+            <tr><td class="left">Site ID</td><td class="left">{{ current_target.site_id or "—" }}</td></tr>
+            <tr><td class="left">Drive ID</td><td class="left">{{ current_target.drive_id or "—" }}</td></tr>
+            <tr><td class="left">Carpeta raíz de CVs (item ID)</td><td class="left">{{ current_target.item_id or "—" }}</td></tr>
+            <tr><td class="left">Scope de escritura (HC_DOCUMENT_WRITE_SCOPE)</td><td class="left">{{ write_scope or "— (no configurado)" }}</td></tr>
+            <tr><td class="left">App (client_id)</td><td class="left">{{ client_id or "—" }}</td></tr>
+          </tbody></table>
+        </div>
+      </details>
+
+      <details class="dashboard-section" open>
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Sonda de lectura</span></summary>
+        <div class="dashboard-section__body">
+          <form id="dw-sp-probe" class="hc-profile-form">
+            <div class="feedback-field">
+              <label for="dw-sp-control">Link de uso compartido del destino de control <span>opcional</span></label>
+              <input id="dw-sp-control" name="control_url" type="text" placeholder="https://danwor.sharepoint.com/:f:/s/…">
+            </div>
+            <div class="hc-profile-form__actions">
+              <button type="submit" class="btn-primary" id="dw-sp-run">Ejecutar sonda de lectura</button>
+            </div>
+          </form>
+          <p class="field-hint">Cómo leerlo: <code>app_grant_state</code> = PRESENT (se vio el grant de la app), ABSENT (no está y la enumeración es autoritativa: el llamador es owner del item) o UNKNOWN (no se vio, pero Graph a un no-owner sólo le muestra los permisos que le aplican: <strong>no es evidencia de ausencia</strong>).</p>
+          <p class="field-hint" id="dw-sp-status" role="status"></p>
+          <div class="hc-profile-form__actions" id="dw-sp-copy-row" hidden><button type="button" class="btn-secondary" id="dw-sp-copy">Copiar JSON</button></div>
+          <pre class="admin-result-output" id="dw-sp-output" hidden></pre>
+        </div>
+      </details>
+      <details class="dashboard-section" open>
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Prueba de escritura (carpeta de CONTROL)</span></summary>
+        <div class="dashboard-section__body">
+          <p class="field-hint">Crea <strong>un</strong> archivo de texto inocuo, de nombre único (<code>cchh-sharepoint-upload-test-&lt;UTC&gt;-&lt;UUID&gt;.txt</code>), en la carpeta de control, con el mismo token y el mismo transporte que la subida de CVs. Un solo intento, sin reintentos; no crea carpetas ni registros. Solo localhost y solo owner. Se rechaza si el destino coincide con CURRENT (sitio, drive o ítem). El archivo creado se borra a mano.</p>
+          <form id="dw-sp-write" class="hc-profile-form">
+            <div class="feedback-field">
+              <label for="dw-sp-wcontrol">Link de uso compartido de la carpeta de control</label>
+              <input id="dw-sp-wcontrol" type="text" placeholder="https://danwor.sharepoint.com/:f:/s/…" required>
+            </div>
+            <div class="feedback-field">
+              <label for="dw-sp-wconfirm">Confirmación: escribí <code>{{ write_phrase }}</code></label>
+              <input id="dw-sp-wconfirm" type="text" autocomplete="off" required>
+            </div>
+            <div class="hc-profile-form__actions"><button type="submit" class="btn-danger" id="dw-sp-wrun">Escribir archivo de prueba</button></div>
+          </form>
+          <p class="field-hint" id="dw-sp-wstatus" role="status"></p>
+        </div>
+      </details>
+    </div>
+  </main>
+</div>
+<script>
+(function () {
+  var form = document.getElementById("dw-sp-probe");
+  var out = document.getElementById("dw-sp-output");
+  var status = document.getElementById("dw-sp-status");
+  var btn = document.getElementById("dw-sp-run");
+  var copyRow = document.getElementById("dw-sp-copy-row");
+  function show(obj) { out.hidden = false; out.textContent = JSON.stringify(obj, null, 2); copyRow.hidden = false; }
+  document.getElementById("dw-sp-copy").addEventListener("click", function () {
+    if (navigator.clipboard && out.textContent) navigator.clipboard.writeText(out.textContent).then(function () { status.textContent = "JSON copiado (no contiene token ni usuarios)."; });
+  });
+  form.addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    btn.disabled = true; out.hidden = true; copyRow.hidden = true;
+    status.textContent = "Obteniendo token de Microsoft 365…";
+    try {
+      // MISMO token del uploader: scopes base + HC_DOCUMENT_WRITE_SCOPE (puede abrir el popup de consentimiento; este submit ES el gesto del usuario).
+      var token = typeof window.dwHumanCapitalDocumentWriteToken === "function" ? await window.dwHumanCapitalDocumentWriteToken({ interactive: true }) : "";
+      if (!token) {
+        status.textContent = "El navegador no pudo obtener el token (este es el mismo paso que falla antes de llegar a SharePoint en la subida).";
+        show({ ok: false, step: "browser_token", diagnostic: typeof window.dwLastTokenFailureDiagnostic === "function" ? window.dwLastTokenFailureDiagnostic() : null });
+        return;
+      }
+      status.textContent = "Token obtenido. Ejecutando sonda de lectura…";
+      var body = new URLSearchParams();
+      body.append("graph_token", token);
+      body.append("control_url", document.getElementById("dw-sp-control").value || "");
+      var res = await fetch("/cchh/diagnostico/sharepoint/sonda", { method: "POST", body: body, credentials: "same-origin" });
+      show(await res.json());
+      status.textContent = "Listo (HTTP " + res.status + "). Copiá el resultado completo.";
+    } catch (e) {
+      status.textContent = "Falló la sonda: " + (e && e.message ? e.message : e);
+    } finally {
+      btn.disabled = false;
+      token = null;
+    }
+  });
+  var wform = document.getElementById("dw-sp-write");
+  var wstatus = document.getElementById("dw-sp-wstatus");
+  wform.addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    var wbtn = document.getElementById("dw-sp-wrun");
+    wbtn.disabled = true; out.hidden = true; copyRow.hidden = true;
+    wstatus.textContent = "Obteniendo token de Microsoft 365…";
+    var wtoken = "";
+    try {
+      wtoken = typeof window.dwHumanCapitalDocumentWriteToken === "function" ? await window.dwHumanCapitalDocumentWriteToken({ interactive: true }) : "";
+      if (!wtoken) {
+        wstatus.textContent = "El navegador no pudo obtener el token.";
+        show({ ok: false, step: "browser_token", diagnostic: typeof window.dwLastTokenFailureDiagnostic === "function" ? window.dwLastTokenFailureDiagnostic() : null });
+        return;
+      }
+      wstatus.textContent = "Enviando UN PUT a la carpeta de control…";
+      var wbody = new URLSearchParams();
+      wbody.append("graph_token", wtoken);
+      wbody.append("control_url", document.getElementById("dw-sp-wcontrol").value || "");
+      wbody.append("confirm", document.getElementById("dw-sp-wconfirm").value || "");
+      var wres = await fetch("/cchh/diagnostico/sharepoint/escritura", { method: "POST", body: wbody, credentials: "same-origin" });
+      show(await wres.json());
+      wstatus.textContent = "Listo (HTTP " + wres.status + "). Copiá el resultado completo; el archivo creado se borra a mano.";
+    } catch (e) {
+      wstatus.textContent = "Falló la prueba: " + (e && e.message ? e.message : e);
+    } finally {
+      wbtn.disabled = false;
+      wtoken = null;
+    }
+  });
+})();
+</script>
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{% endblock %}
