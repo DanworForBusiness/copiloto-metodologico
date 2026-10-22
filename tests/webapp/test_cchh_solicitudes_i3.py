@@ -240,3 +240,93 @@ def test_active_processes_keep_their_own_order_by_opening_date():
         svc.create_busqueda({"nombre_puesto": name, "fecha_apertura": apertura, "area_consultora": "SAP"}, actor=CCHH_EMAIL)
     html = cchh().get("/cchh/busquedas").text
     assert html.index("Proceso Reciente") < html.index("Proceso Vieja")                                    # Procesos activos: fecha de apertura desc, sin cambios
+
+
+# ═══════════════════ «+ Nuevo proceso»: tomar una solicitud en vez de crear un proceso manual ═══════════════════
+def _available_ids(html: str) -> list[str]:
+    return re.findall(r'<tr data-solicitud-id="([0-9a-f-]+)"', html.split("hc-solicitudes-disponibles-table")[-1]) if "hc-solicitudes-disponibles-table" in html else []
+
+
+def test_new_process_lists_only_sent_or_resent_untaken_requests_with_the_minimum_data():
+    send(SID, nombre_puesto="Enviada")
+    send(SID2, nombre_puesto="Reenviada"); svc.observe_solicitud(SID2, rev(SID2), "x", CCHH_EMAIL); svc.resubmit_solicitud(SID2, rev(SID2), req(nombre_puesto="Reenviada", comentarios="ok"), OPS_A)
+    send(SID3, nombre_puesto="Observada"); svc.observe_solicitud(SID3, rev(SID3), "x", CCHH_EMAIL)
+    cancelled = "a1111111-1111-4111-8111-111111111111"; send(cancelled, nombre_puesto="Cancelada"); svc.cancel_solicitud(cancelled, rev(cancelled), OPS_A)
+    taken = "b2222222-2222-4222-8222-222222222222"; send(taken, nombre_puesto="Tomada"); svc.take_solicitud(taken, rev(taken), CCHH_EMAIL)
+    svc.create_busqueda({"nombre_puesto": "Alta directa", "fecha_apertura": "2026-09-01", "area_consultora": "SAP"}, actor=CCHH_EMAIL)
+    html = cchh().get("/cchh/busquedas/nueva").text
+    assert "Solicitudes disponibles para tomar" in html
+    assert sorted(_available_ids(html)) == sorted([SID, SID2])                                              # solo enviadas y reenviadas
+    for minimum in ("Migración S/4", "SAP", "Enviada", "Reenviada", "1 reenvío", "Tomar", "Recepción"):
+        assert minimum in html, minimum
+    for hidden in ("Observada", "Cancelada", "Tomada", "Alta directa"):
+        assert f"{hidden}</a>" not in html, hidden                                                          # no reutilizables
+    assert 'name="expected_revision"' in html and 'name="desde" value="nuevo"' in html
+
+
+def test_taking_from_new_process_reuses_the_same_busqueda_without_creating_another():
+    send(SID)
+    before_files, before_hist = len(files()), [h["transicion"] for h in doc()["solicitud"]["historial"]]
+    c = cchh()
+    page = c.get("/cchh/busquedas/nueva").text
+    revision = re.search(rf'/cchh/busquedas/{SID}/tomar".*?name="expected_revision" value="(\d+)"', page, re.S).group(1)
+    r = c.post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": revision, "desde": "nuevo"}, headers=ORIGIN)
+    assert r.status_code == 303 and r.headers["location"] == f"/cchh/busquedas/{SID}?ok=tomada"          # al detalle de CCHH con el pipeline habilitado
+    d = doc()
+    assert len(files()) == before_files == 1 and d["busqueda_id"] == SID and d["solicitud"]["estado"] == "en_gestion"      # mismo busqueda_id, ninguna búsqueda nueva
+    assert [h["transicion"] for h in d["solicitud"]["historial"]] == before_hist + ["tomar"] and d["requerimiento"]["nombre_puesto"] == "Consultor SAP FI" and d["origen"]["tipo"] == "operaciones"
+    assert "+ Agregar candidato" in c.get(r.headers["location"]).text
+    assert _available_ids(c.get("/cchh/busquedas/nueva").text) == [] and SID in _active_ids()               # desaparece de disponibles y figura en Procesos activos
+
+
+def test_taking_an_already_taken_request_reports_the_conflict_and_refreshes_the_list():
+    send(SID, nombre_puesto="Primera"); send(SID2, nombre_puesto="Segunda")
+    stale = rev(SID)
+    svc.take_solicitud(SID, stale, CCHH_EMAIL)                                                              # otra persona la tomó mientras tanto
+    r = cchh().post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": str(stale), "desde": "nuevo"}, headers=ORIGIN)
+    assert r.status_code == 409 and "data-solicitud-conflict" in r.text and "ya fue tomada" in r.text
+    assert _available_ids(r.text) == [SID2]                                                                 # lista actualizada: sin la tomada
+    assert len(files()) == 2 and doc()["solicitud"]["estado"] == "en_gestion"
+
+
+def test_two_people_taking_the_same_request_never_duplicate_anything():
+    from concurrent.futures import ThreadPoolExecutor
+    send()
+    revision = str(rev())
+
+    def take(_):
+        return cchh().post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": revision, "desde": "nuevo"}, headers=ORIGIN).status_code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        statuses = sorted(pool.map(take, range(2)))
+    assert statuses == [303, 409]                                                                           # una gana, la otra recibe el conflicto
+    assert len(files()) == 1 and [h["transicion"] for h in doc()["solicitud"]["historial"]].count("tomar") == 1
+
+
+def test_only_cchh_can_take_from_the_new_process_screen():
+    send()
+    before = doc()
+    assert ops().post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": "1", "desde": "nuevo"}, headers=ORIGIN).status_code == 403
+    assert ops().get("/cchh/busquedas/nueva").status_code == 403
+    assert doc() == before
+
+
+def test_manual_creation_still_works_and_the_checkbox_is_clarified():
+    send()
+    c = cchh()
+    html = c.get("/cchh/busquedas/nueva").text
+    assert "por otros medios" in html and "No lo vincula con una solicitud digital" in html and 'name="pedido_formal_recibido"' in html
+    r = c.post("/cchh/busquedas/nueva", data={"nombre_puesto": "Manual urgente", "fecha_apertura": "2026-10-01", "area_consultora": "SAP", "pedido_formal_recibido": "on"})
+    assert r.status_code == 303
+    created = [b for b in svc.list_busquedas() if b["nombre_puesto"] == "Manual urgente"]
+    assert len(created) == 1 and "solicitud" not in created[0] and created[0]["estado"] == "activo"          # búsqueda común, sin vínculo con ninguna solicitud
+    assert doc(SID)["solicitud"]["estado"] == "enviada" and len(files()) == 2
+
+
+def test_new_process_screen_survives_a_read_error_and_edit_has_no_available_list(monkeypatch):
+    send()
+    direct = svc.create_busqueda({"nombre_puesto": "Directa", "fecha_apertura": "2026-09-01", "area_consultora": "SAP"}, actor=CCHH_EMAIL)
+    with monkeypatch.context() as m:
+        m.setattr(svc, "list_solicitudes_view", lambda: (_ for _ in ()).throw(repo.BusquedaStorageError("x")))
+        page = cchh().get("/cchh/busquedas/nueva")
+    assert page.status_code == 200 and "No hay solicitudes de Operaciones pendientes de tomar" in page.text and 'name="nombre_puesto"' in page.text   # la creación manual no depende de la lista
+    assert "cchh-solicitudes-disponibles" not in cchh().get(f"/cchh/busquedas/{direct['busqueda_id']}/editar").text      # la sección existe solo en el alta

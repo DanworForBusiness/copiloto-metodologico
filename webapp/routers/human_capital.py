@@ -1214,6 +1214,7 @@ _SOLICITUD_OK = {
 }
 _MSG_SOLICITUD_CONCURRENT = "La solicitud cambió desde que abriste la pantalla (por ejemplo, Operaciones la editó o la canceló). Revisá su estado actual antes de actuar."
 _MSG_SOLICITUD_STORAGE = "No pudimos guardar el cambio en este momento. Reintentá en unos minutos."
+_MSG_SOLICITUD_TAKEN = "Esa solicitud ya fue tomada por otra persona o cambió (por ejemplo, Operaciones la editó o la canceló). Actualizamos la lista de solicitudes disponibles."
 _MSG_SOLICITUD_SOURCE = "No pudimos leer las solicitudes en este momento. Reintentá en unos minutos."
 
 
@@ -1237,6 +1238,16 @@ def _solicitud_recepcion_key(r: dict) -> tuple[str, str, str]:
     else:
         ultima = r.get("ultimo_envio_en") or enviada
     return (ultima, enviada, r["busqueda_id"])
+
+
+def _solicitudes_disponibles() -> list[dict]:
+    """Solicitudes que CCHH puede TOMAR desde «+ Nuevo proceso»: solo `enviada` (incluye reenviadas), de Operaciones, todavía no tomadas ni observadas ni canceladas. Misma proyección segura de I1
+    (con `revision` para la toma con control optimista); última recepción primero. Un error de lectura devuelve lista vacía: la creación manual no debe depender de esto."""
+    try:
+        rows = [r for r in human_capital_service.list_solicitudes_view() if r["estado_solicitud"] == busqueda_repository.SOLICITUD_ENVIADA and r.get("estado") == "activo"]
+    except _BUSQUEDA_SHELL_ERRORS:
+        return []
+    return sorted(rows, key=_solicitud_recepcion_key, reverse=True)
 
 
 def _solicitudes_context(filtro: str = "recibidas", page=1, page_size=None) -> dict:
@@ -1273,7 +1284,7 @@ def human_capital_solicitudes_panel(request: Request, solicitud: str = Query("re
                                       context={"request": request, **_solicitudes_context(solicitud, page, page_size)})
 
 
-def _busqueda_form_context(*, form_values, is_edit, error=None, concurrent_modification=False) -> dict:
+def _busqueda_form_context(*, form_values, is_edit, error=None, concurrent_modification=False, solicitud_conflict=None) -> dict:
     # Área/Departamento y Área de la consultora son GOBERNADAS por catálogo
     # (mismo contrato migration-safe que Seniority/Fuente en el alta de
     # candidatos): el <select> ofrece el catálogo activo, más el valor legacy
@@ -1285,6 +1296,9 @@ def _busqueda_form_context(*, form_values, is_edit, error=None, concurrent_modif
         "is_edit": is_edit,
         "form_error": error,
         "concurrent_modification": concurrent_modification,
+        # «+ Nuevo proceso»: solicitudes de Operaciones que se pueden tomar en vez de crear un proceso manual (solo en el alta).
+        "solicitudes_disponibles": [] if is_edit else _solicitudes_disponibles(),
+        "solicitud_conflict": solicitud_conflict,
         "modalidades": busqueda_repository.MODALIDADES,
         "areas_consultora": _governed_edit_options("area_consultora", form_values.get("area_consultora")),
         "areas_departamento": _governed_edit_options("area", form_values.get("area_departamento")),
@@ -1572,10 +1586,20 @@ async def _solicitud_transition(request: Request, busqueda_id: str, action: str)
     if redirect is not None:
         return redirect
     form = await request.form()
+    desde_nuevo = action == "tomar" and form.get("desde") == "nuevo"          # tomada desde «+ Nuevo proceso»
     try:
         revision = int(str(form.get("expected_revision") or "").strip())
     except ValueError:
         raise HTTPException(400, "expected_revision inválido") from None
+
+    def _fail(message: str, status_code: int):
+        if desde_nuevo:                                                        # informa el conflicto y muestra la lista ya actualizada
+            return templates.TemplateResponse(
+                request=request, name="human_capital/busqueda_form.html", status_code=status_code,
+                context=_busqueda_shell(request, _busqueda_form_context(
+                    form_values={"fecha_apertura": datetime.now().date().isoformat(), "pedido_formal_recibido": False}, is_edit=False, solicitud_conflict=message)))
+        return _solicitud_error_page(request, busqueda_id, message, status_code)
+
     try:
         if action == "tomar":
             human_capital_service.take_solicitud(busqueda_id, revision, actor)
@@ -1584,9 +1608,9 @@ async def _solicitud_transition(request: Request, busqueda_id: str, action: str)
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
     except (busqueda_repository.BusquedaConcurrentModificationError, *_BUSQUEDA_SOLICITUD_ERRORS):
-        return _solicitud_error_page(request, busqueda_id, _MSG_SOLICITUD_CONCURRENT, 409)
+        return _fail(_MSG_SOLICITUD_TAKEN if desde_nuevo else _MSG_SOLICITUD_CONCURRENT, 409)
     except _BUSQUEDA_SHELL_ERRORS:
-        return _solicitud_error_page(request, busqueda_id, _MSG_SOLICITUD_STORAGE, 503)
+        return _fail(_MSG_SOLICITUD_STORAGE, 503)
     except ValueError as exc:                                                  # motivo obligatorio al solicitar corrección
         return _solicitud_error_page(request, busqueda_id, str(exc), 422)
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?ok={'tomada' if action == 'tomar' else 'correccion'}", status_code=303)

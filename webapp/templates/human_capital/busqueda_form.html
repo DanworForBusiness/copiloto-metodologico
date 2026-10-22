@@ -28,6 +28,54 @@
     <div class="dashboard-empty" data-error-kind="validation"><span class="dashboard-empty__label">No se guardó</span><p>{{ form_error }}</p></div>
     {% endif %}
 
+    {% if not is_edit %}
+    {% if solicitud_conflict %}<div class="methodology" id="hc-solicitud-conflict"><div class="callout callout--warn" role="alert" data-solicitud-conflict><div class="callout__body"><p>{{ solicitud_conflict }}</p></div></div></div>{% endif %}
+    {# «Solicitudes disponibles para tomar»: requerimientos digitales de Operaciones (enviados o reenviados, aún sin tomar). Tomar una REUTILIZA la solicitud (mismo `busqueda_id`, requerimiento e
+       historial) con la transición `tomar` de I1: no se crea otra búsqueda. Misma estructura que la bandeja de «Solicitudes recibidas». #}
+    <div class="dashboard-sections" data-dashboard-key="cchh-solicitudes-disponibles">
+      <details class="dashboard-section" data-section-id="solicitudes-disponibles" data-persist-collapse open>
+        <summary class="dashboard-section__head" draggable="true">
+          <span class="dashboard-section__caret"></span>
+          <span class="dashboard-section__title">Solicitudes disponibles para tomar</span>
+          <span class="dashboard-section__count">{{ solicitudes_disponibles | length }} solicitud{{ '' if solicitudes_disponibles | length == 1 else 'es' }}</span>
+        </summary>
+        <div class="dashboard-section__body">
+          {% if solicitudes_disponibles %}
+          <p class="field-hint">Si el requerimiento ya fue enviado desde Operaciones, tomalo desde acá en vez de crear un proceso nuevo: conserva su requerimiento y su historial.</p>
+          <div class="matrix-scroll">
+            <table class="dashboard-table" id="hc-solicitudes-disponibles-table">
+              <colgroup><col style="width:26%"><col style="width:22%"><col style="width:14%"><col style="width:10%"><col style="width:16%"><col style="width:12%"></colgroup>
+              <thead><tr><th class="left">Perfil solicitado</th><th class="left">Proyecto / necesidad</th><th class="left">Área</th><th class="left">Recursos</th><th class="left">Recepción</th><th class="center">Acción</th></tr></thead>
+              <tbody>
+                {% for r in solicitudes_disponibles %}
+                {% set req = r.requerimiento %}
+                <tr data-solicitud-id="{{ r.busqueda_id }}">
+                  <td class="left"><div class="dw-idcell"><span class="dw-idcell__name"><a href="/cchh/busquedas/{{ r.busqueda_id }}">{{ req.nombre_puesto }}</a></span>{% if r.reenviada and r.reenvios %}<span class="field-hint">{{ r.reenvios }} reenvío{{ '' if r.reenvios == 1 else 's' }}</span>{% endif %}</div></td>
+                  <td class="left">{% if req.tipo_busqueda == 'proyecto' %}{{ req.proyecto }}{% else %}Necesidad interna{% endif %}</td>
+                  <td class="left">{{ req.area_consultora or "—" }}</td>
+                  <td class="left">{{ req.cantidad_recursos }}</td>
+                  <td class="left">{{ ((r.ultimo_envio_en or r.enviada_en) | fecha_dmy) or "—" }}</td>
+                  <td class="center">
+                    <form method="post" action="/cchh/busquedas/{{ r.busqueda_id }}/tomar" data-solicitud-take>
+                      <input type="hidden" name="expected_revision" value="{{ r.revision }}">
+                      <input type="hidden" name="desde" value="nuevo">
+                      <button type="submit" class="table-action-btn table-action-btn--text">Tomar</button>
+                    </form>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <p class="field-hint">¿No está en la lista, es una urgencia o llegó por otro medio? Creá el proceso manualmente más abajo.</p>
+          {% else %}
+          <p class="field-hint" data-solicitudes-disponibles-vacio>No hay solicitudes de Operaciones pendientes de tomar. Podés crear el proceso manualmente.</p>
+          {% endif %}
+        </div>
+      </details>
+    </div>
+    {% endif %}
+
     {# Layout apilado (una sola columna), MISMO orden de campos que el
        ProcesoForm de la app de referencia: identidad → descripción → JD →
        palabras clave → (Área/Departamento + Modalidad en 2 columnas) → Área de
@@ -101,11 +149,11 @@
            hermano adyacente, envueltos en `.chart-tooltip-anchor` para anclar la
            caja. Cero SVG/CSS propio de CCHH. Copy en `aria-label` (accesible en
            hover y foco de teclado). #}
-        {% set _formal_help = "Tildalo si Operaciones ya formalizó el requerimiento. Si todavía no llegó, podés crear el proceso igual y tildarlo después." %}
+        {% set _formal_help = "Tildalo si Operaciones ya formalizó el requerimiento por otro medio (mail, reunión, etc.), fuera del Hub. No lo vincula con una solicitud digital: si el pedido se envió desde Operaciones, tomalo desde «Solicitudes disponibles para tomar». Si todavía no llegó, podés crear el proceso igual y tildarlo después." %}
         <label class="dashboard-checkbox-option hc-busqueda-formal">
           <input type="checkbox" name="pedido_formal_recibido" {% if form_values.pedido_formal_recibido %}checked{% endif %}>
           <span class="hc-busqueda-formal__text">
-            Requerimiento formal recibido de Operaciones
+            Requerimiento formal recibido de Operaciones por otros medios
             <span class="chart-tooltip-anchor hc-busqueda-formal__info">
               <button type="button" class="activity-kpi__info" aria-label="{{ _formal_help }}">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>

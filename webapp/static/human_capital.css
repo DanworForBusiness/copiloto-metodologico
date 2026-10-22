@@ -63,7 +63,9 @@
 .module-hero + #hc-entrevistas-panel,
 .module-hero + #hc-onboarding-panel,
 .module-hero + #hc-publicaciones-panel,
-.module-hero + #hc-solicitudes-panel { margin-top: 24px; }
+.module-hero + #hc-solicitudes-panel,
+.module-hero + #hc-solicitud-conflict,
+.module-hero + .dashboard-sections[data-dashboard-key="cchh-solicitudes-disponibles"] { margin-top: 24px; }
 
 /* /cchh/catalogos: MISMO criterio de respiro post-divisor que arriba (24px)
    -- acá el hero puede ir seguido de un callout de resultado, un
