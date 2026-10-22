@@ -215,13 +215,15 @@
 
 .content-theme-light .module-content,
 .content-theme-light .academy-stage {
-  background: #fff;
+  --content-surface: #fff;                       /* superficie de contenido: la consumen las cabeceras fijas (`.dashboard-sticky-header`, `.matrix-scroll--contained`) */
+  background: var(--content-surface);
   border-color: #e4e4e0;
   box-shadow: 0 2px 10px rgba(20,22,28,.04);     /* casi imperceptible; separa el borde */
 }
 .content-theme-dark .module-content,
 .content-theme-dark .academy-stage {
-  background: #181819;                            /* card elevado sobre el canvas negro */
+  --content-surface: #181819;
+  background: var(--content-surface);             /* card elevado sobre el canvas negro */
 }
 .copilot-panel { background: var(--card); }       /* #fff en claro, #181819 en oscuro */
 
@@ -639,8 +641,8 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    termina pegado al header apenas avanzás un poco — el padding en cambio queda
    siempre pintado con el fondo del header, así el contenido nunca lo toca. */
 .dashboard-sticky-header { position: sticky; top: -48px; z-index: 6; padding: 10px 0 4px; }
-.content-theme-light .dashboard-sticky-header { background: #fff; }
-.content-theme-dark .dashboard-sticky-header { background: #181819; }
+.content-theme-light .dashboard-sticky-header { background: var(--content-surface, #fff); }
+.content-theme-dark .dashboard-sticky-header { background: var(--content-surface, #181819); }
 .dashboard-sticky-header .catalog-back { position: static; margin: 0; background: none; }
 .dashboard-sticky-header .whatsnew-filters { margin: 10px 0 4px; }
 /* El botón "Actualizar" traía min-height:42px (base de .btn-primary), más alto
@@ -1004,6 +1006,7 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .activity-bar-row:nth-of-type(10) .activity-bar__fill { background: hsl(48,71%,73%); }
 .activity-bar-count { min-width: 28px; text-align: right; font: .72rem var(--mono); color: #55555c; }
 .content-theme-dark .activity-bar-count { color: #b2b2bc; }
+
 
 /* Chip del panel desde donde se abrió el árbol (árbol / diagnóstico / etc.). */
 .tree-panel-chip { display: inline-block; margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: rgba(128,128,128,.16); color: #7a7a82; font: 600 .6rem var(--mono); text-transform: uppercase; letter-spacing: .04em; vertical-align: middle; }
@@ -1595,6 +1598,10 @@ table.dashboard-table tr.depth-2 td.row-label { font-weight: 400; color: #55555c
    `overflow` recorte la tabla en silencio. Comportamiento de Reporting sin
    cambios (misma regla, mismo efecto, ahora sin scope). */
 .matrix-scroll { overflow-x: auto; }
+/* Variante CONTENIDA de `.matrix-scroll` (extensión mínima y genérica): tablas largas scrollean DENTRO de su contenedor (altura máxima) y mantienen visible la cabecera; nunca scroll de página. El fondo opaco de la cabecera
+   fija sale de `--content-surface` (la superficie real de `.module-content`, definida más arriba), igual en claro y oscuro. */
+.matrix-scroll--contained { max-height: 16rem; overflow-y: auto; }
+.matrix-scroll--contained table.dashboard-table th { position: sticky; top: 0; z-index: 1; background: var(--content-surface, #fff); box-shadow: inset 0 -1px 0 rgba(128,128,128,.25); }
 /* Redimensionado de columnas — primitivo compartido (initResizableColumns,
    app.js), opt-in vía [data-resizable-columns-key]. `position: relative`
    sobre CUALQUIER <th data-column-key> (lo usa también el reorder,
@@ -2766,6 +2773,9 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    DOS bloques independientes (small multiples), cada uno con su propia
    escala — nunca dos `.bar-fill` dentro de un mismo `.bar-track`.
 
+   EXCEPCIÓN EXPLÍCITA — COMPOSICIÓN (CCHH Indicadores): `.bar-track--segmented` (más abajo) expresa las PARTES de UN mismo total (p. ej. ingresos por modalidad) con `.bar-seg` hijos del
+   track; NO son series independientes comparadas entre sí, así que no contradice la regla de arriba. Para comparar magnitudes distintas se siguen componiendo small multiples.
+
    TEMA: Reporting fija su propia superficie clara SIEMPRE (ver el bloque de
    tokens de `.reporting-integral-preview`), pero un consumidor Hub normal
    vive en `.module-content`, que es #fff en tema claro y #181819 en oscuro.
@@ -2787,6 +2797,30 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .bar-value { width: 92px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-soft, var(--soft)); flex-shrink: 0; white-space: nowrap; }
 .perspective-label { color: var(--ink-faint, var(--soft)); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
 .content-theme-dark { --bar-track-bg: rgba(255,255,255,.10); }
+/* BARRA SEGMENTADA — variante del `.bar-track` canónico para COMPOSICIÓN de cardinalidad dinámica: N `.bar-seg` proporcionales (ancho en % ya calculado por quien la usa) dentro del track. El tono sale de `data-seg`
+   (0..5, cíclico por posición; `muted` = neutro para «sin dato»/complementos). El MISMO `data-seg` pinta el segmento, la clave de la leyenda (`.swatch-bar`) y el número del valor (`.bar-value > b`), así la
+   leyenda ÚNICA del gráfico y las barras no se desincronizan. Igual en claro y oscuro (tonos medios de la paleta canónica de acentos KPI). */
+.bar-track--segmented { display: flex; gap: 2px; }
+.bar-seg { display: block; flex: 0 0 auto; height: 100%; min-width: 0; background: var(--seg-color, var(--gold)); }
+:is(.bar-seg, .swatch-bar, .bar-value > b)[data-seg="0"] { --seg-color: #2f6fbd; }
+:is(.bar-seg, .swatch-bar, .bar-value > b)[data-seg="1"] { --seg-color: #2e9e5b; }
+:is(.bar-seg, .swatch-bar, .bar-value > b)[data-seg="2"] { --seg-color: #c89100; }
+:is(.bar-seg, .swatch-bar, .bar-value > b)[data-seg="3"] { --seg-color: #d06f1f; }
+:is(.bar-seg, .swatch-bar, .bar-value > b)[data-seg="4"] { --seg-color: #8a63c9; }
+:is(.bar-seg, .swatch-bar, .bar-value > b)[data-seg="5"] { --seg-color: #2b9aa6; }
+:is(.bar-seg, .swatch-bar, .bar-value > b)[data-seg="muted"] { --seg-color: #8b8b96; }
+.bar-value > b[data-seg] { color: var(--seg-color); font-weight: 700; }
+.category-plot-legend .swatch-bar[data-seg] { background: var(--seg-color); }
+
+/* LEYENDA ÚNICA DE GRÁFICO — PROMOVIDA desde commercial.css al ganar su SEGUNDO consumidor real (CCHH Indicadores; commercial.css ya lo anticipaba: «se promoverá el día que exista un segundo consumidor»). TRASLADADO sin
+   cambiar valores: `.category-plot-legend` (+ `b`, `em`, variantes oscuras) y la ESTRUCTURA de `.swatch-bar` (tamaño/radio). PERMANECE en commercial.css (dominio CRM): el COLOR del swatch (`--commercial-neutral-ink`, `--hours`,
+   `--weighted` y su par oscuro), el eje y todo `.category-plot*` del funnel/forecast. */
+.category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px; font: 500 .68rem var(--sans); color: #55555c; align-items: center; }
+.category-plot-legend b { font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+.category-plot-legend em { font-style: normal; color: #7a7a82; }
+.category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; }
+.content-theme-dark .category-plot-legend { color: #b6b6c0; }
+.content-theme-dark .category-plot-legend em { color: #8b8b96; }
 /* Viewport angosto: `.bar-label`/`.bar-value` fijos (190px + 60px) dejaban el
    track sin ancho útil — se descubrió con el SEGUNDO consumidor, así que la
    regla es del primitivo, no un parche de Comercial. La fila pasa a 2 líneas
@@ -2819,6 +2853,9 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 }
 .chart-tooltip p { margin: 0 0 3px; white-space: normal; }
 .chart-tooltip p:last-child { margin-bottom: 0; }
+/* (i) en el ENCABEZADO de una card (`.dashboard-section__head`): el tooltip abre HACIA ABAJO, porque `.dashboard-section` recorta (`overflow:hidden`) lo que salga por encima de su borde superior. */
+.dashboard-section__head .chart-tooltip { bottom: auto; top: calc(100% + 7px); }
+.dashboard-section__head .chart-tooltip-anchor { display: inline-flex; align-items: center; }
 .chart-tooltip-anchor:hover .chart-tooltip,
 .chart-tooltip-anchor:focus .chart-tooltip,
 .chart-tooltip-anchor:focus-within .chart-tooltip { opacity: 1; visibility: visible; }

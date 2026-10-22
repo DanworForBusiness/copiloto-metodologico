@@ -110,7 +110,7 @@ from webapp import access as app_access
 from webapp import human_capital_access, same_origin_guard, workspaces
 from webapp.services import (
     auth_service, busqueda_repository, entrevista_repository, human_capital_catalog_repository,
-    human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
+    human_capital_indicators, human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
 from webapp.services.human_capital_service import (
@@ -2403,6 +2403,64 @@ def _catalogos_context(request: Request, *, refresh_result: dict | None, refresh
         "refresh_result": refresh_result,
         "refresh_error": refresh_error,
     }
+
+
+# ── INDICADORES (06) ─────────────────────────────────────────────────────────────────────────────────────
+# Paridad con `/metricas` de la app de referencia (spec `_handoffs/CCHH_06_INDICADORES_SPEC.md`). TODO el cálculo vive en `human_capital_indicators` (motor puro, Bloque A): el router solo arma UN snapshot por
+# request (lectura de solo lectura), delega y entrega el resultado a las plantillas, que no calculan nada de negocio. Los selectores de período de C6 y C9 son independientes: cada uno recarga SOLO su tarjeta.
+_INDICADORES_STORAGE_ERRORS = (
+    busqueda_repository.BusquedaStorageError, entrevista_repository.EntrevistaStorageError, publicacion_repository.PublicacionStorageError, ProfileStorageError,
+)
+_INDICADORES_TARJETAS = {"perfiles": "build_perfiles", "canales": "build_canales"}
+
+
+def _indicadores_shell(request, extra: dict) -> dict:
+    user = auth_service.session_user(request)
+    return {
+        "current_workspace": workspaces.HUMAN_CAPITAL,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack": DEFAULT_PACK, "user": user, "active_page": "indicadores",
+        **extra,
+    }
+
+
+def _indicadores_facts() -> "human_capital_indicators.IndicatorFacts":
+    """UN snapshot consistente por request: lectura única + hechos normalizados (sin consultas por candidatura)."""
+    return human_capital_indicators.build_facts(human_capital_indicators.load_snapshot())
+
+
+@router.get("/cchh/indicadores", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_indicadores_page(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    page: dict | None = None
+    source_error: str | None = None
+    try:
+        page = human_capital_indicators.build_page(_indicadores_facts())
+    except _INDICADORES_STORAGE_ERRORS as exc:
+        source_error = str(exc)
+    return templates.TemplateResponse(request=request, name="human_capital/indicadores.html", context=_indicadores_shell(request, {"page": page, "source_error": source_error}))
+
+
+@router.get("/cchh/indicadores/tarjetas/{tarjeta}", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_indicadores_card(request: Request, tarjeta: str, periodo: str = Query("")):
+    """Fragmento HTMX de UNA tarjeta con filtro local (C6 `perfiles`, C9 `canales`). Un período desconocido degrada a «Histórico completo» (lo resuelve el motor). Sin HTMX → la página completa."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    builder = _INDICADORES_TARJETAS.get(tarjeta)
+    if builder is None:
+        raise HTTPException(404, "Tarjeta de indicadores inexistente")
+    if not request.headers.get("HX-Request"):
+        return RedirectResponse("/cchh/indicadores", status_code=303)
+    data: dict | None = None
+    source_error: str | None = None
+    try:
+        data = getattr(human_capital_indicators, builder)(_indicadores_facts(), periodo)
+    except _INDICADORES_STORAGE_ERRORS as exc:
+        source_error = str(exc)
+    return templates.TemplateResponse(request=request, name=f"partials/human_capital_indicadores_{tarjeta}.html", context={"request": request, tarjeta: data, "source_error": source_error, "hx_oob": True})
 
 
 @router.get("/cchh/catalogos", response_class=HTMLResponse, include_in_schema=False)

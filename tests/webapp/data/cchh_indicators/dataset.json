@@ -1,0 +1,1719 @@
+{
+ "busquedas": [
+  {
+   "busqueda_id": "b00",
+   "nombre_puesto": "Puesto 00 Contador",
+   "estado": "cerrado",
+   "fecha_apertura": "2026-04-19",
+   "fecha_cierre": "2026-07-11",
+   "candidatos": [
+    {
+     "application_id": "a0000",
+     "profile_id": "p019",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-05-08T04:00:00+00:00",
+     "created_at": "2026-05-08T04:00:00+00:00"
+    },
+    {
+     "application_id": "a0001",
+     "profile_id": "p002",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-04-30T12:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-04-30T12:00:00+00:00"
+      }
+     ],
+     "created_at": "2026-04-30T12:00:00+00:00"
+    }
+   ],
+   "revision": 1,
+   "created_at": "2026-04-19T09:00:00+00:00"
+  },
+  {
+   "busqueda_id": "b01",
+   "nombre_puesto": "Puesto 01 Analista Data",
+   "estado": "activo",
+   "fecha_apertura": "2026-02-16",
+   "fecha_cierre": null,
+   "candidatos": [
+    {
+     "application_id": "a0100",
+     "profile_id": "p000",
+     "etapa": "Finalizado",
+     "resultado_final": "Desistió",
+     "fecha_cambio_etapa": "2026-04-05T17:41:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-03-06T08:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2026-03-15T04:33:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2026-03-17T09:59:00+00:00"
+      },
+      {
+       "etapa": "Decisión Final",
+       "fecha": "2026-03-29T06:11:00+00:00"
+      },
+      {
+       "etapa": "Finalizado",
+       "fecha": "2026-04-05T17:41:00+00:00"
+      }
+     ],
+     "created_at": "2026-03-06T08:00:00+00:00"
+    },
+    {
+     "application_id": "a0101",
+     "profile_id": "p034",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-03-05T13:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-03-05T13:00:00+00:00"
+      }
+     ],
+     "created_at": "2026-03-05T13:00:00+00:00"
+    },
+    {
+     "application_id": "a0102",
+     "profile_id": "p007",
+     "etapa": "Finalizado",
+     "resultado_final": "Ingreso",
+     "fecha_cambio_etapa": "2026-04-01T13:52:00+00:00",
+     "created_at": "2026-03-09T05:00:00+00:00"
+    }
+   ],
+   "revision": 1,
+   "created_at": "2026-02-16T09:00:00+00:00"
+  },
+  {
+   "busqueda_id": "b02",
+   "nombre_puesto": "Puesto 02 Arquitecto SAP",
+   "estado": "activo",
+   "fecha_apertura": "2025-04-28",
+   "fecha_cierre": null,
+   "candidatos": [
+    {
+     "application_id": "a0200",
+     "profile_id": "p035",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-05-21T21:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-05-21T21:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-05-21T21:00:00+00:00"
+    },
+    {
+     "application_id": "a0201",
+     "profile_id": "p014",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-05-26T23:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-05-26T23:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-05-26T23:00:00+00:00"
+    },
+    {
+     "application_id": "a0202",
+     "profile_id": "p027",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-05-08T00:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-05-08T00:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-05-08T00:00:00+00:00"
+    },
+    {
+     "application_id": "a0203",
+     "profile_id": "p002",
+     "etapa": "Finalizado",
+     "resultado_final": "Ingreso",
+     "fecha_cambio_etapa": "2025-06-14T10:38:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-05-11T19:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-05-20T04:27:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2025-05-27T23:36:00+00:00"
+      },
+      {
+       "etapa": "Decisión Final",
+       "fecha": "2025-06-07T00:49:00+00:00"
+      },
+      {
+       "etapa": "Finalizado",
+       "fecha": "2025-06-12T12:38:00+00:00"
+      },
+      {
+       "etapa": "Finalizado",
+       "fecha": "2025-06-14T10:38:00+00:00"
+      }
+     ],
+     "created_at": "2025-05-11T19:00:00+00:00"
+    },
+    {
+     "application_id": "a0204",
+     "profile_id": "p006",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-05-02T18:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-05-02T18:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-05-02T18:00:00+00:00"
+    },
+    {
+     "application_id": "a0205",
+     "profile_id": "p021",
+     "etapa": "Entrevista CCHH",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-06-07T16:03:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-05-28T05:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-06-07T16:03:00+00:00"
+      }
+     ],
+     "created_at": "2025-05-28T05:00:00+00:00"
+    }
+   ],
+   "revision": 1,
+   "created_at": "2025-04-28T09:00:00+00:00"
+  },
+  {
+   "busqueda_id": "b03",
+   "nombre_puesto": "Puesto 03 Desarrollador",
+   "estado": "activo",
+   "fecha_apertura": "2025-10-13",
+   "fecha_cierre": null,
+   "candidatos": [
+    {
+     "application_id": "a0300",
+     "profile_id": "p029",
+     "etapa": "Finalizado",
+     "resultado_final": "Ingreso",
+     "fecha_cambio_etapa": "2025-11-24T05:38:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-10-14T22:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-10-27T14:11:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2025-10-29T18:18:00+00:00"
+      },
+      {
+       "etapa": "Decisión Final",
+       "fecha": "2025-11-11T13:23:00+00:00"
+      },
+      {
+       "etapa": "Finalizado",
+       "fecha": "2025-11-24T05:38:00+00:00"
+      }
+     ],
+     "created_at": "2025-10-14T22:00:00+00:00"
+    },
+    {
+     "application_id": "a0301",
+     "profile_id": "p001",
+     "etapa": "Entrevista Líder",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-11-04T05:55:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-10-23T12:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-10-29T13:47:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2025-11-04T05:55:00+00:00"
+      }
+     ],
+     "created_at": "2025-10-23T12:00:00+00:00"
+    },
+    {
+     "application_id": "a0302",
+     "profile_id": "p016",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-11-09T11:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-11-09T11:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-11-09T11:00:00+00:00"
+    },
+    {
+     "application_id": "a0303",
+     "profile_id": "p025",
+     "etapa": "Entrevista Líder",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-10-25T01:48:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-10-13T22:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-10-14T01:24:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2025-10-25T01:48:00+00:00"
+      }
+     ],
+     "created_at": "2025-10-13T22:00:00+00:00"
+    },
+    {
+     "application_id": "a0304",
+     "profile_id": "p023",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-10-23T03:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-10-23T03:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-10-23T03:00:00+00:00"
+    }
+   ],
+   "revision": 1,
+   "created_at": "2025-10-13T09:00:00+00:00"
+  },
+  {
+   "busqueda_id": "b04",
+   "nombre_puesto": "Puesto 04 Consultor BW",
+   "estado": "cerrado",
+   "fecha_apertura": "2025-04-01",
+   "fecha_cierre": "2025-06-15",
+   "candidatos": [
+    {
+     "application_id": "a0400",
+     "profile_id": "p010",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-04-26T13:00:00+00:00",
+     "created_at": "2025-04-26T13:00:00+00:00"
+    },
+    {
+     "application_id": "a0401",
+     "profile_id": "p034",
+     "etapa": "Finalizado",
+     "resultado_final": "Ingreso",
+     "fecha_cambio_etapa": "2025-05-01T02:01:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-04-13T12:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-04-19T07:19:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2025-04-24T17:09:00+00:00"
+      },
+      {
+       "etapa": "Decisión Final",
+       "fecha": "2025-04-26T13:08:00+00:00"
+      },
+      {
+       "etapa": "Finalizado",
+       "fecha": "2025-05-01T02:01:00+00:00"
+      }
+     ],
+     "created_at": "2025-04-13T12:00:00+00:00"
+    }
+   ],
+   "revision": 1,
+   "created_at": "2025-04-01T09:00:00+00:00"
+  },
+  {
+   "busqueda_id": "b05",
+   "nombre_puesto": "Puesto 05 PM",
+   "estado": "activo",
+   "fecha_apertura": "2025-07-11",
+   "fecha_cierre": null,
+   "candidatos": [
+    {
+     "application_id": "a0500",
+     "profile_id": "p015",
+     "etapa": "Entrevista CCHH",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-08-19T17:11:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-08-07T05:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-08-19T17:11:00+00:00"
+      }
+     ],
+     "created_at": "2025-08-07T05:00:00+00:00"
+    },
+    {
+     "application_id": "a0501",
+     "profile_id": "p038",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-07-21T18:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-07-21T18:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-07-21T18:00:00+00:00"
+    },
+    {
+     "application_id": "a0502",
+     "profile_id": "p011",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-07-25T18:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-07-25T18:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-07-25T18:00:00+00:00"
+    },
+    {
+     "application_id": "a0503",
+     "profile_id": "p004",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-07-27T20:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-07-27T20:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-07-27T20:00:00+00:00"
+    },
+    {
+     "application_id": "a0504",
+     "profile_id": "p033",
+     "etapa": "Entrevista CCHH",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-07-28T13:03:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-07-19T18:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-07-28T13:03:00+00:00"
+      }
+     ],
+     "created_at": "2025-07-19T18:00:00+00:00"
+    }
+   ],
+   "revision": 1,
+   "created_at": "2025-07-11T09:00:00+00:00"
+  },
+  {
+   "busqueda_id": "b06",
+   "nombre_puesto": "Puesto 06 Analista Finanzas",
+   "estado": "activo",
+   "fecha_apertura": "2026-04-18",
+   "fecha_cierre": null,
+   "candidatos": [
+    {
+     "application_id": "a0600",
+     "profile_id": "p006",
+     "etapa": "Entrevista CCHH",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-05-16T22:48:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-05-05T20:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2026-05-16T22:48:00+00:00"
+      }
+     ],
+     "created_at": "2026-05-05T20:00:00+00:00"
+    },
+    {
+     "application_id": "a0601",
+     "profile_id": "p019",
+     "etapa": "Finalizado",
+     "resultado_final": "Ingreso",
+     "fecha_cambio_etapa": "2026-06-12T04:55:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-05-12T23:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2026-05-14T18:33:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2026-05-17T10:05:00+00:00"
+      },
+      {
+       "etapa": "Decisión Final",
+       "fecha": "2026-05-30T00:01:00+00:00"
+      },
+      {
+       "etapa": "Finalizado",
+       "fecha": "2026-06-11T16:55:00+00:00"
+      },
+      {
+       "etapa": "Finalizado",
+       "fecha": "2026-06-12T04:55:00+00:00"
+      }
+     ],
+     "created_at": "2026-05-12T23:00:00+00:00"
+    },
+    {
+     "application_id": "a0602",
+     "profile_id": "p009",
+     "etapa": "Entrevista CCHH",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-05-13T17:40:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-05-02T10:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2026-05-13T17:40:00+00:00"
+      }
+     ],
+     "created_at": "2026-05-02T10:00:00+00:00"
+    },
+    {
+     "application_id": "a0603",
+     "profile_id": "p032",
+     "etapa": "Entrevista Líder",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-05-09T14:24:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-04-18T16:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2026-05-01T10:22:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2026-05-09T14:24:00+00:00"
+      }
+     ],
+     "created_at": "2026-04-18T16:00:00+00:00"
+    },
+    {
+     "application_id": "a0604",
+     "profile_id": "p019",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-05-12T05:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-05-12T05:00:00+00:00"
+      }
+     ],
+     "created_at": "2026-05-12T05:00:00+00:00"
+    },
+    {
+     "application_id": "a0605",
+     "profile_id": "p007",
+     "etapa": "Entrevista CCHH",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-04-25T10:13:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-04-22T07:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2026-04-25T10:13:00+00:00"
+      }
+     ],
+     "created_at": "2026-04-22T07:00:00+00:00"
+    },
+    {
+     "application_id": "a0606",
+     "profile_id": "p000",
+     "etapa": "Entrevista CCHH",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-05-02T03:05:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-04-26T11:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2026-05-02T03:05:00+00:00"
+      }
+     ],
+     "created_at": "2026-04-26T11:00:00+00:00"
+    },
+    {
+     "application_id": "a0607",
+     "profile_id": "p025",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-05-09T01:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-05-09T01:00:00+00:00"
+      }
+     ],
+     "created_at": "2026-05-09T01:00:00+00:00"
+    }
+   ],
+   "revision": 1,
+   "created_at": "2026-04-18T09:00:00+00:00"
+  },
+  {
+   "busqueda_id": "b07",
+   "nombre_puesto": "Puesto 07 Tech Lead",
+   "estado": "cerrado",
+   "fecha_apertura": "2025-03-10",
+   "fecha_cierre": "2025-06-11",
+   "candidatos": [],
+   "revision": 1,
+   "created_at": "2025-03-10T09:00:00+00:00"
+  },
+  {
+   "busqueda_id": "b08",
+   "nombre_puesto": "Puesto 08 QA",
+   "estado": "cerrado",
+   "fecha_apertura": "2025-09-13",
+   "fecha_cierre": "2026-01-03",
+   "candidatos": [
+    {
+     "application_id": "a0800",
+     "profile_id": "p023",
+     "etapa": "Finalizado",
+     "resultado_final": "Ingreso",
+     "fecha_cambio_etapa": "2025-10-25T20:04:00+00:00",
+     "created_at": "2025-10-10T13:00:00+00:00"
+    }
+   ],
+   "revision": 1,
+   "created_at": "2025-09-13T09:00:00+00:00"
+  },
+  {
+   "busqueda_id": "b09",
+   "nombre_puesto": "Puesto 09 DevOps",
+   "estado": "activo",
+   "fecha_apertura": "2026-03-17",
+   "fecha_cierre": null,
+   "candidatos": [
+    {
+     "application_id": "a0900",
+     "profile_id": "p024",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-03-28T22:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-03-28T22:00:00+00:00"
+      }
+     ],
+     "created_at": "2026-03-28T22:00:00+00:00"
+    },
+    {
+     "application_id": "a0901",
+     "profile_id": "p038",
+     "etapa": "Finalizado",
+     "resultado_final": "Ingreso",
+     "fecha_cambio_etapa": "2026-04-28T21:54:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-04-13T01:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2026-04-20T07:29:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2026-04-24T22:12:00+00:00"
+      },
+      {
+       "etapa": "Decisión Final",
+       "fecha": "2026-04-28T03:39:00+00:00"
+      },
+      {
+       "etapa": "Finalizado",
+       "fecha": "2026-04-28T21:54:00+00:00"
+      }
+     ],
+     "created_at": "2026-04-13T01:00:00+00:00"
+    },
+    {
+     "application_id": "a0902",
+     "profile_id": "p007",
+     "etapa": "Entrevista CCHH",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-04-14T17:41:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-04-09T12:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2026-04-14T17:41:00+00:00"
+      }
+     ],
+     "created_at": "2026-04-09T12:00:00+00:00"
+    },
+    {
+     "application_id": "a0903",
+     "profile_id": "p037",
+     "etapa": "Finalizado",
+     "resultado_final": "Rechazado",
+     "fecha_cambio_etapa": "2026-04-21T22:13:00+00:00",
+     "created_at": "2026-03-26T19:00:00+00:00"
+    }
+   ],
+   "revision": 1,
+   "created_at": "2026-03-17T09:00:00+00:00"
+  },
+  {
+   "busqueda_id": "b10",
+   "nombre_puesto": "Puesto 10 Líder Comercial",
+   "estado": "activo",
+   "fecha_apertura": "2026-05-11",
+   "fecha_cierre": null,
+   "candidatos": [
+    {
+     "application_id": "a1000",
+     "profile_id": "p013",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-05-11T17:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-05-11T17:00:00+00:00"
+      }
+     ],
+     "created_at": "2026-05-11T17:00:00+00:00"
+    },
+    {
+     "application_id": "a1001",
+     "profile_id": "p039",
+     "etapa": "Entrevista Líder",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-06-23T07:52:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-06-08T05:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2026-06-19T12:10:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2026-06-23T07:52:00+00:00"
+      }
+     ],
+     "created_at": "2026-06-08T05:00:00+00:00"
+    },
+    {
+     "application_id": "a1002",
+     "profile_id": "p035",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2026-05-21T03:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2026-05-21T03:00:00+00:00"
+      }
+     ],
+     "created_at": "2026-05-21T03:00:00+00:00"
+    }
+   ],
+   "revision": 1,
+   "created_at": "2026-05-11T09:00:00+00:00"
+  },
+  {
+   "busqueda_id": "b11",
+   "nombre_puesto": "Puesto 11 RRHH Generalista",
+   "estado": "activo",
+   "fecha_apertura": "2025-02-18",
+   "fecha_cierre": null,
+   "candidatos": [
+    {
+     "application_id": "a1100",
+     "profile_id": "p038",
+     "etapa": "Entrevista Líder",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-04-11T21:58:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-03-21T04:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-03-30T21:07:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2025-04-11T21:58:00+00:00"
+      }
+     ],
+     "created_at": "2025-03-21T04:00:00+00:00"
+    },
+    {
+     "application_id": "a1101",
+     "profile_id": "p025",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-02-18T15:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-02-18T15:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-02-18T15:00:00+00:00"
+    },
+    {
+     "application_id": "a1102",
+     "profile_id": "p021",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-02-21T09:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-02-21T09:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-02-21T09:00:00+00:00"
+    },
+    {
+     "application_id": "a1103",
+     "profile_id": "p024",
+     "etapa": "Finalizado",
+     "resultado_final": "Rechazado",
+     "fecha_cambio_etapa": "2025-04-06T22:19:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-03-01T23:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-03-13T02:41:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2025-03-22T20:17:00+00:00"
+      },
+      {
+       "etapa": "Decisión Final",
+       "fecha": "2025-03-29T02:56:00+00:00"
+      },
+      {
+       "etapa": "Finalizado",
+       "fecha": "2025-04-06T22:19:00+00:00"
+      }
+     ],
+     "created_at": "2025-03-01T23:00:00+00:00"
+    }
+   ],
+   "revision": 1,
+   "created_at": "2025-02-18T09:00:00+00:00"
+  },
+  {
+   "busqueda_id": "b12",
+   "nombre_puesto": "Puesto 12 Soporte",
+   "estado": "cerrado",
+   "fecha_apertura": "2025-01-16",
+   "fecha_cierre": "2025-04-05",
+   "candidatos": [
+    {
+     "application_id": "a1200",
+     "profile_id": "p027",
+     "etapa": "Finalizado",
+     "resultado_final": "Rechazado",
+     "fecha_cambio_etapa": "2025-02-22T03:07:00+00:00",
+     "created_at": "2025-02-02T09:00:00+00:00"
+    }
+   ],
+   "revision": 1,
+   "created_at": "2025-01-16T09:00:00+00:00"
+  },
+  {
+   "busqueda_id": "b13",
+   "nombre_puesto": "Puesto 13 Diseñador",
+   "estado": "cerrado",
+   "fecha_apertura": "2025-01-22",
+   "fecha_cierre": "2025-04-21",
+   "candidatos": [
+    {
+     "application_id": "a1300",
+     "profile_id": "p016",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-02-19T21:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-02-19T21:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-02-19T21:00:00+00:00"
+    },
+    {
+     "application_id": "a1301",
+     "profile_id": "p025",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-02-09T08:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-02-09T08:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-02-09T08:00:00+00:00"
+    },
+    {
+     "application_id": "a1302",
+     "profile_id": "p025",
+     "etapa": "Finalizado",
+     "resultado_final": "Rechazado",
+     "fecha_cambio_etapa": "2025-03-19T06:33:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-02-12T06:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-02-24T08:52:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2025-03-03T11:58:00+00:00"
+      },
+      {
+       "etapa": "Decisión Final",
+       "fecha": "2025-03-12T12:09:00+00:00"
+      },
+      {
+       "etapa": "Finalizado",
+       "fecha": "2025-03-18T17:33:00+00:00"
+      },
+      {
+       "etapa": "Finalizado",
+       "fecha": "2025-03-19T06:33:00+00:00"
+      }
+     ],
+     "created_at": "2025-02-12T06:00:00+00:00"
+    },
+    {
+     "application_id": "a1303",
+     "profile_id": "p012",
+     "etapa": "Entrevista CCHH",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-02-21T10:19:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-02-18T23:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-02-21T10:19:00+00:00"
+      }
+     ],
+     "created_at": "2025-02-18T23:00:00+00:00"
+    },
+    {
+     "application_id": "a1304",
+     "profile_id": "p026",
+     "etapa": "Entrevista CCHH",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-02-23T06:49:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-02-11T14:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-02-23T06:49:00+00:00"
+      }
+     ],
+     "created_at": "2025-02-11T14:00:00+00:00"
+    },
+    {
+     "application_id": "a1305",
+     "profile_id": "p015",
+     "etapa": "Finalizado",
+     "resultado_final": "Rechazado",
+     "fecha_cambio_etapa": "2025-02-24T03:29:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-01-24T08:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-01-26T14:05:00+00:00"
+      },
+      {
+       "etapa": "Entrevista Líder",
+       "fecha": "2025-02-07T05:39:00+00:00"
+      },
+      {
+       "etapa": "Decisión Final",
+       "fecha": "2025-02-12T11:35:00+00:00"
+      },
+      {
+       "etapa": "Finalizado",
+       "fecha": "2025-02-24T03:29:00+00:00"
+      }
+     ],
+     "created_at": "2025-01-24T08:00:00+00:00"
+    },
+    {
+     "application_id": "a1306",
+     "profile_id": "p031",
+     "etapa": "Preselección",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-02-01T12:00:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-02-01T12:00:00+00:00"
+      }
+     ],
+     "created_at": "2025-02-01T12:00:00+00:00"
+    },
+    {
+     "application_id": "a1307",
+     "profile_id": "p023",
+     "etapa": "Entrevista CCHH",
+     "resultado_final": null,
+     "fecha_cambio_etapa": "2025-02-11T09:58:00+00:00",
+     "historial": [
+      {
+       "etapa": "Preselección",
+       "fecha": "2025-01-31T02:00:00+00:00"
+      },
+      {
+       "etapa": "Entrevista CCHH",
+       "fecha": "2025-02-11T09:58:00+00:00"
+      }
+     ],
+     "created_at": "2025-01-31T02:00:00+00:00"
+    }
+   ],
+   "revision": 1,
+   "created_at": "2025-01-22T09:00:00+00:00"
+  }
+ ],
+ "entrevistas": [
+  {
+   "entrevista_id": "e0100",
+   "profile_id": "p000",
+   "busqueda_id": "b01",
+   "application_id": "a0100",
+   "fecha_entrevista": "2026-03-15",
+   "concretada": true,
+   "modalidad_contratacion": "Full time",
+   "puesto_evaluado": null,
+   "created_at": "2026-03-15T04:33:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0102",
+   "profile_id": "p007",
+   "busqueda_id": "b01",
+   "application_id": "a0102",
+   "fecha_entrevista": null,
+   "concretada": false,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2026-03-10T05:00:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0203",
+   "profile_id": "p002",
+   "busqueda_id": "b02",
+   "application_id": "a0203",
+   "fecha_entrevista": "2025-05-23",
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-05-20T04:27:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0205",
+   "profile_id": "p021",
+   "busqueda_id": "b02",
+   "application_id": "a0205",
+   "fecha_entrevista": "2025-06-12",
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-06-07T16:03:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0300",
+   "profile_id": "p029",
+   "busqueda_id": "b03",
+   "application_id": "a0300",
+   "fecha_entrevista": "2025-10-27",
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-10-27T14:11:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0301",
+   "profile_id": "p001",
+   "busqueda_id": "b03",
+   "application_id": "a0301",
+   "fecha_entrevista": "2025-10-30",
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-10-29T13:47:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0303",
+   "profile_id": "p025",
+   "busqueda_id": "b03",
+   "application_id": "a0303",
+   "fecha_entrevista": "2025-10-18",
+   "concretada": true,
+   "modalidad_contratacion": "Full time",
+   "puesto_evaluado": null,
+   "created_at": "2025-10-14T01:24:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0401",
+   "profile_id": "p034",
+   "busqueda_id": "b04",
+   "application_id": "a0401",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-04-19T07:19:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0500",
+   "profile_id": "p015",
+   "busqueda_id": "b05",
+   "application_id": "a0500",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": "Part time",
+   "puesto_evaluado": null,
+   "created_at": "2025-08-19T17:11:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0504",
+   "profile_id": "p033",
+   "busqueda_id": "b05",
+   "application_id": "a0504",
+   "fecha_entrevista": "2025-07-31",
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-07-28T13:03:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0600",
+   "profile_id": "p006",
+   "busqueda_id": "b06",
+   "application_id": "a0600",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2026-05-16T22:48:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0601",
+   "profile_id": "p019",
+   "busqueda_id": "b06",
+   "application_id": "a0601",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2026-05-14T18:33:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0602",
+   "profile_id": "p009",
+   "busqueda_id": "b06",
+   "application_id": "a0602",
+   "fecha_entrevista": "2026-05-14",
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2026-05-13T17:40:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0603",
+   "profile_id": "p032",
+   "busqueda_id": "b06",
+   "application_id": "a0603",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": "Full time",
+   "puesto_evaluado": null,
+   "created_at": "2026-05-01T10:22:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0605",
+   "profile_id": "p007",
+   "busqueda_id": "b06",
+   "application_id": "a0605",
+   "fecha_entrevista": null,
+   "concretada": false,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2026-04-25T10:13:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0606",
+   "profile_id": "p000",
+   "busqueda_id": "b06",
+   "application_id": "a0606",
+   "fecha_entrevista": "2026-05-07",
+   "concretada": true,
+   "modalidad_contratacion": "Full time",
+   "puesto_evaluado": null,
+   "created_at": "2026-05-02T03:05:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0800",
+   "profile_id": "p023",
+   "busqueda_id": "b08",
+   "application_id": "a0800",
+   "fecha_entrevista": "2025-10-14",
+   "concretada": false,
+   "modalidad_contratacion": "Full time",
+   "puesto_evaluado": null,
+   "created_at": "2025-10-11T13:00:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0901",
+   "profile_id": "p038",
+   "busqueda_id": "b09",
+   "application_id": "a0901",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2026-04-20T07:29:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0902",
+   "profile_id": "p007",
+   "busqueda_id": "b09",
+   "application_id": "a0902",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": "Full time",
+   "puesto_evaluado": null,
+   "created_at": "2026-04-14T17:41:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e0903",
+   "profile_id": "p037",
+   "busqueda_id": "b09",
+   "application_id": "a0903",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": "Part time",
+   "puesto_evaluado": null,
+   "created_at": "2026-03-27T19:00:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e1001",
+   "profile_id": "p039",
+   "busqueda_id": "b10",
+   "application_id": "a1001",
+   "fecha_entrevista": "2026-06-21",
+   "concretada": true,
+   "modalidad_contratacion": "Full time",
+   "puesto_evaluado": null,
+   "created_at": "2026-06-19T12:10:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e1100",
+   "profile_id": "p038",
+   "busqueda_id": "b11",
+   "application_id": "a1100",
+   "fecha_entrevista": "2025-03-30",
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-03-30T21:07:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e1103",
+   "profile_id": "p024",
+   "busqueda_id": "b11",
+   "application_id": "a1103",
+   "fecha_entrevista": null,
+   "concretada": false,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-03-13T02:41:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e1200",
+   "profile_id": "p027",
+   "busqueda_id": "b12",
+   "application_id": "a1200",
+   "fecha_entrevista": "2025-02-06",
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-02-03T09:00:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e1302",
+   "profile_id": "p025",
+   "busqueda_id": "b13",
+   "application_id": "a1302",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-02-24T08:52:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e1303",
+   "profile_id": "p012",
+   "busqueda_id": "b13",
+   "application_id": "a1303",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": "Full time",
+   "puesto_evaluado": null,
+   "created_at": "2025-02-21T10:19:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e1304",
+   "profile_id": "p026",
+   "busqueda_id": "b13",
+   "application_id": "a1304",
+   "fecha_entrevista": "2025-02-24",
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-02-23T06:49:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e1305",
+   "profile_id": "p015",
+   "busqueda_id": "b13",
+   "application_id": "a1305",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": "Full time",
+   "puesto_evaluado": null,
+   "created_at": "2025-01-26T14:05:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "e1307",
+   "profile_id": "p023",
+   "busqueda_id": "b13",
+   "application_id": "a1307",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-02-11T09:58:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "em00",
+   "profile_id": "p021",
+   "busqueda_id": null,
+   "application_id": null,
+   "fecha_entrevista": "2025-12-26",
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-12-26T09:00:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "em01",
+   "profile_id": "p039",
+   "busqueda_id": null,
+   "application_id": null,
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": "Contador Sr",
+   "created_at": "2025-04-26T09:00:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "em02",
+   "profile_id": "p013",
+   "busqueda_id": null,
+   "application_id": null,
+   "fecha_entrevista": "2026-05-24",
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2026-05-24T09:00:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "em03",
+   "profile_id": "p031",
+   "busqueda_id": null,
+   "application_id": null,
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": "Contador Sr",
+   "created_at": "2025-02-10T09:00:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "em04",
+   "profile_id": "p037",
+   "busqueda_id": null,
+   "application_id": null,
+   "fecha_entrevista": "2025-08-23",
+   "concretada": false,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": "Contador",
+   "created_at": "2025-08-23T09:00:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "em05",
+   "profile_id": "p020",
+   "busqueda_id": null,
+   "application_id": null,
+   "fecha_entrevista": null,
+   "concretada": false,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": "Contador",
+   "created_at": "2026-02-09T09:00:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "eg00",
+   "profile_id": "ghostp0",
+   "busqueda_id": "b00",
+   "application_id": "ghost0",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2026-02-26T09:00:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "eg01",
+   "profile_id": "ghostp1",
+   "busqueda_id": "b01",
+   "application_id": "ghost1",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": null,
+   "puesto_evaluado": null,
+   "created_at": "2025-01-18T09:00:00+00:00",
+   "revision": 1
+  },
+  {
+   "entrevista_id": "eg02",
+   "profile_id": "ghostp2",
+   "busqueda_id": "b02",
+   "application_id": "ghost2",
+   "fecha_entrevista": null,
+   "concretada": true,
+   "modalidad_contratacion": "Full time",
+   "puesto_evaluado": null,
+   "created_at": "2026-06-21T09:00:00+00:00",
+   "revision": 1
+  }
+ ],
+ "publicaciones": [
+  {
+   "publicacion_id": "pub00",
+   "canal": "Flyer",
+   "cantidad_avisos": 3,
+   "periodo": "2025-Q3",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub01",
+   "canal": "LinkedIn",
+   "cantidad_avisos": 1,
+   "periodo": "2026-Q2",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub02",
+   "canal": "LinkedIn",
+   "cantidad_avisos": 1,
+   "periodo": "2025-Q1",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub03",
+   "canal": "LinkedIn",
+   "cantidad_avisos": 1,
+   "periodo": "2025-Q2",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub04",
+   "canal": "Flyer",
+   "cantidad_avisos": 2,
+   "periodo": "2025-Q2",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub05",
+   "canal": "Flyer",
+   "cantidad_avisos": 4,
+   "periodo": "2026-Q3",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub06",
+   "canal": "LinkedIn",
+   "cantidad_avisos": 4,
+   "periodo": "2026-Q3",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub07",
+   "canal": "LinkedIn",
+   "cantidad_avisos": 1,
+   "periodo": "2025-Q3",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub08",
+   "canal": "Flyer",
+   "cantidad_avisos": 3,
+   "periodo": "2026-Q2",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub09",
+   "canal": "LinkedIn",
+   "cantidad_avisos": 4,
+   "periodo": "2026-Q2",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub10",
+   "canal": "Flyer",
+   "cantidad_avisos": 1,
+   "periodo": "2025-Q3",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub11",
+   "canal": "Flyer",
+   "cantidad_avisos": 4,
+   "periodo": "2025-Q1",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub12",
+   "canal": "Flyer",
+   "cantidad_avisos": 2,
+   "periodo": "2026-Q3",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub13",
+   "canal": "Flyer",
+   "cantidad_avisos": 1,
+   "periodo": "2026-Q3",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub14",
+   "canal": "LinkedIn",
+   "cantidad_avisos": 4,
+   "periodo": "2026-Q1",
+   "posicion": "x",
+   "busqueda_id": null
+  },
+  {
+   "publicacion_id": "pub15",
+   "canal": "Flyer",
+   "cantidad_avisos": 1,
+   "periodo": "2026-Q3",
+   "posicion": "x",
+   "busqueda_id": null
+  }
+ ],
+ "fuentes": {
+  "p000": "Hunting",
+  "p001": "Referido",
+  "p002": "Flyer",
+  "p003": "Hunting",
+  "p004": "LinkedIn",
+  "p005": "Hunting",
+  "p006": "LinkedIn",
+  "p007": "Flyer",
+  "p008": "LinkedIn",
+  "p009": "Referido",
+  "p010": null,
+  "p011": "Flyer",
+  "p012": "LinkedIn",
+  "p013": "Flyer",
+  "p014": "Hunting",
+  "p015": "LinkedIn",
+  "p016": null,
+  "p017": "Flyer",
+  "p018": null,
+  "p019": "Flyer",
+  "p020": "Flyer",
+  "p021": "LinkedIn",
+  "p022": "LinkedIn",
+  "p023": "Flyer",
+  "p024": "LinkedIn",
+  "p025": "Referido",
+  "p026": "Hunting",
+  "p027": "Hunting",
+  "p028": "Referido",
+  "p029": "Flyer",
+  "p030": "Hunting",
+  "p031": "LinkedIn",
+  "p032": "Referido",
+  "p033": "Flyer",
+  "p034": "LinkedIn",
+  "p035": null,
+  "p036": null,
+  "p037": "LinkedIn",
+  "p038": null,
+  "p039": "Flyer"
+ }
+}

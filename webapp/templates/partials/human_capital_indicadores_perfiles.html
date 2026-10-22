@@ -1,0 +1,25 @@
+{% from "partials/human_capital_indicadores_macros.html" import empty, date_note, subhead, rank_rows, periodo_select, help_info %}
+{# human_capital_indicadores_perfiles.html — C6 «Perfiles más entrevistados»: fragmento compartido por la página completa y por el selector de período PROPIO de esta tarjeta (HTMX, GET
+   /cchh/indicadores/tarjetas/perfiles). Independiente de C9 y de los KPI. `perfiles` = `human_capital_indicators.build_perfiles(...)`: el motor resuelve el período (uno desconocido degrada a
+   «Histórico completo»); acá solo se presenta. #}
+<div id="hc-ind-perfiles">
+{% if source_error %}
+<div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>No se pudieron cargar las métricas: {{ source_error }}</p></div>
+{% else %}
+  {{ periodo_select("perfiles", perfiles.periodo, perfiles.periodos) }}
+  {{ subhead("Entrevistas concretadas por puesto evaluado", "top 10 en el gráfico, listado completo abajo", ["Puesto evaluado: el de la búsqueda o, en entrevistas manuales, el texto cargado."]) }}
+  {% if not perfiles.periodo_valido %}{{ date_note("El período pedido no está disponible: se muestra el histórico completo.") }}{% endif %}
+  {% if perfiles.filas %}
+    {{ rank_rows(perfiles.top, "perfil", "cantidad") }}
+    <div class="matrix-scroll matrix-scroll--contained">
+      <table class="dashboard-table">
+        <colgroup><col style="width:78%"><col style="width:22%"></colgroup>
+        <thead><tr><th class="left">Perfil</th><th>Cantidad</th></tr></thead>
+        <tbody>{% for r in perfiles.filas %}<tr><td class="left">{{ r.perfil }}</td><td><strong>{{ r.cantidad }}</strong></td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  {% else %}{{ empty("Todavía no hay entrevistas concretadas para este período.") }}{% endif %}
+{% endif %}
+</div>
+{# La advertencia de fechas estimadas vive en el (i) del ENCABEZADO de la card (fuera de este fragmento): al filtrar por período se reemplaza por OOB (`hx-swap-oob`, HTMX nativo) para que refleje el período elegido. #}
+{% if hx_oob and perfiles %}{{ help_info("Perfiles más entrevistados", ([perfiles.fechas.estimadas ~ " de " ~ perfiles.fechas.total ~ " entrevistas usan una fecha estimada (no tienen fecha de entrevista cargada)."] if perfiles.fechas.estimadas > 0 else []), "hc-ind-perfiles-help", true) }}{% endif %}

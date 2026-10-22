@@ -63,6 +63,7 @@
 .module-hero + #hc-entrevistas-panel,
 .module-hero + #hc-onboarding-panel,
 .module-hero + #hc-publicaciones-panel,
+.module-hero + #hc-indicadores-panel,
 .module-hero + #hc-solicitudes-panel,
 .module-hero + #hc-solicitud-conflict,
 .module-hero + .dashboard-sections[data-dashboard-key="cchh-solicitudes-disponibles"] { margin-top: 24px; }
@@ -553,3 +554,8 @@
    light/dark los aporta el primitivo compartido (.activity-kpi__info +
    .chart-tooltip + .chart-tooltip-anchor). Cero estilo de ícono propio. */
 .hc-busqueda-formal__info { display: inline-flex; align-items: center; }
+
+/* 06 Indicadores: tablas de varias columnas (C7, C9) con ANCHO MÍNIMO en pantallas angostas — scrollean dentro de su `.matrix-scroll` (nunca la página) en vez de solapar encabezados. Mismo criterio que el `min-width` de
+   `[data-commercial-opportunities] table.dashboard-table` (commercial.css). El gancho es `data-min-width` (rem). */
+#hc-indicadores-panel table.dashboard-table[data-min-width="26"] { min-width: 26rem; }
+#hc-indicadores-panel table.dashboard-table[data-min-width="34"] { min-width: 34rem; }

@@ -1,0 +1,23 @@
+{% from "partials/human_capital_indicadores_macros.html" import empty, date_note, subhead, periodo_select %}
+{# human_capital_indicadores_canales.html — C9 «Efectividad por canal de aviso»: fragmento compartido por la página completa y por el selector de período PROPIO de esta tarjeta (HTMX, GET
+   /cchh/indicadores/tarjetas/canales). Independiente de C6 y de los KPI. `canales` = `human_capital_indicators.build_canales(...)`. La coincidencia canal↔fuente es solo de NOMBRE exacto: es una
+   aproximación por canal y período, nunca una atribución aviso por aviso ni una causa comprobada (el copy lo dice, VISIBLE, y no se debe reescribir en términos causales). #}
+<div id="hc-ind-canales">
+{% if source_error %}
+<div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>No se pudieron cargar las métricas: {{ source_error }}</p></div>
+{% else %}
+  {{ periodo_select("canales", canales.periodo, canales.periodos) }}
+  {{ subhead("Avisos publicados por canal vs. candidaturas con esa misma fuente", "y cuántas terminaron contratadas") }}
+  <p class="field-hint" data-approximation-note>Es una aproximación por canal y período (Publicaciones no está enlazada a una candidatura puntual) y la coincidencia es solo de <strong>nombre</strong> entre el canal y la fuente: no es una atribución aviso por aviso ni una causa comprobada.</p>
+  {% if not canales.periodo_valido %}{{ date_note("El período pedido no está disponible: se muestra el histórico completo.") }}{% endif %}
+  {% if canales.sin_datos %}{{ empty("Todavía no hay avisos ni candidaturas para este período.") }}{% else %}
+  <div class="matrix-scroll">
+    <table class="dashboard-table" data-min-width="34">
+      <colgroup><col style="width:24%"><col style="width:13%"><col style="width:17%"><col style="width:16%"><col style="width:14%"><col style="width:16%"></colgroup>
+      <thead><tr><th class="left">Canal</th><th>Avisos</th><th>Candidaturas</th><th>Contratados</th><th>Conversión</th><th>Contrat. / aviso</th></tr></thead>
+      <tbody>{% for r in canales.filas %}<tr><td class="left">{{ r.canal }}</td><td>{{ r.avisos }}</td><td>{{ r.candidatos }}</td><td><strong>{{ r.contratados }}</strong></td><td>{{ r.conversion }}%</td><td><strong>{{ "—" if r.contrataciones_por_aviso is none else ("%g"|format(r.contrataciones_por_aviso)) }}</strong></td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% endif %}
+{% endif %}
+</div>

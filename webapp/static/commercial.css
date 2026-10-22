@@ -235,15 +235,11 @@
    que antes vivía como `margin-top` de la barra de filtros (ver
    `[data-commercial-analysis-filters]`) se trasladó ACÁ — 12px — en vez de
    separar la barra del `<summary>`, separa la leyenda del plot en sí. */
-.category-plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px; font: 500 .68rem var(--sans); color: #55555c; align-items: center; }
-.category-plot-legend b { font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
-.category-plot-legend em { font-style: normal; color: #7a7a82; }
-.category-plot-legend .swatch-bar { width: 11px; height: 11px; border-radius: 2px; background: var(--commercial-neutral-ink); }
+/* La leyenda (`.category-plot-legend`, `b`, `em` y la estructura de `.swatch-bar`) se PROMOVIÓ a tools.css (segundo consumidor: CCHH Indicadores). Acá queda lo propio del CRM: el COLOR de cada swatch (por dominio) y el eje/xlab. */
+.category-plot-legend .swatch-bar { background: var(--commercial-neutral-ink); }
 .category-plot-legend .swatch-bar--hours { background: var(--gold); }
 .category-plot-legend .swatch-bar--weighted { background: #a67c00; }
 .content-theme-dark .category-plot-legend .swatch-bar--weighted { background: #e8820a; }
-.content-theme-dark .category-plot-legend { color: #b6b6c0; }
-.content-theme-dark .category-plot-legend em,
 .content-theme-dark .category-plot__xlab span { color: #8b8b96; }
 .content-theme-dark .category-plot__axis--right span { color: #e8820a; }
 
