@@ -117,14 +117,17 @@
       <div class="callout__body">
         <p>{{ document_state.message }}</p>
         {% if document_state.retry_kind == "upload" %}
-        <form class="hc-document-retry-form" method="post" action="/cchh/candidatos/{{ profile_id }}/documentos/retry-upload{{ list_return(request, '/cchh/candidatos').qs }}" enctype="multipart/form-data" data-hc-document-upload-form>
+        <form class="hc-document-retry-form hc-document-upload-form" method="post" action="/cchh/candidatos/{{ profile_id }}/documentos/retry-upload{{ list_return(request, '/cchh/candidatos').qs }}" enctype="multipart/form-data" data-hc-document-upload-form>
           <input type="hidden" name="token" value="{{ document_state.retry_token }}">
           <input type="hidden" name="graph_token" value="">
           <div class="feedback-field">
             <label for="hc-document-retry-file">Volvé a elegir el mismo archivo</label>
             <input id="hc-document-retry-file" name="file" type="file" accept=".pdf,.doc,.docx" required>
           </div>
-          <button type="submit" class="btn-primary">Reintentar subida</button>
+          <button type="submit" class="btn-primary asr-generate" aria-live="polite">
+            <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Subiendo documento…</span>
+            <span class="asr-generate__label">Reintentar subida</span>
+          </button>
         </form>
         {% elif document_state.retry_kind == "commit" %}
         <form method="post" action="/cchh/candidatos/{{ profile_id }}/documentos/retry-commit{{ list_return(request, '/cchh/candidatos').qs }}">
@@ -153,22 +156,68 @@
       <label for="hc-document-file">Nuevo documento (PDF, DOC o DOCX)</label>
       <input id="hc-document-file" name="file" type="file" accept=".pdf,.doc,.docx" required>
     </div>
-    <button type="submit" class="btn-primary">Subir documento</button>
+    <button type="submit" class="btn-primary asr-generate" aria-live="polite">
+      <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Subiendo documento…</span>
+      <span class="asr-generate__label">Subir documento</span>
+    </button>
   </form>
   </div>
 </details>
 </div>
 <script>
 (function () {
+  // ESTADO DE CARGA de la subida (UX): MISMO patrón que el alta de candidato — «botón con carga INTEGRADA» `.asr-generate` (tools.css): el botón que envía recibe `.htmx-request` (spinner +
+  // «Subiendo documento…», label oculto) y queda deshabilitado. Cubre TODA la operación: obtención del token de Microsoft 365, subida y confirmación (hasta que el navegador reemplaza la
+  // página con la respuesta). Anti doble envío (`hcBusy`). Si el token falla (promesa rechazada) el estado se RESTABLECE y se avisa; si el servidor responde con error, la página se re-renderiza
+  // con estado interactivo nuevo; si se vuelve atrás desde el historial (bfcache) `pageshow` lo restaura. `disabled` se aplica DESPUÉS del evento (setTimeout 0) para no perder name/value del submitter.
+  function buttons(form) { return Array.prototype.slice.call(form.querySelectorAll('button[type="submit"]')); }
+  function setBusy(form) {
+    form.dataset.hcBusy = "true";
+    form.setAttribute("aria-busy", "true");
+    buttons(form).forEach(function (b) { b.classList.add("htmx-request"); });
+    setTimeout(function () { if (form.dataset.hcBusy === "true") buttons(form).forEach(function (b) { b.disabled = true; }); }, 0);
+  }
+  function clearBusy(form) {
+    delete form.dataset.hcBusy;
+    delete form.dataset.hcTokenReady;
+    form.removeAttribute("aria-busy");
+    buttons(form).forEach(function (b) { b.classList.remove("htmx-request"); b.disabled = false; });
+  }
+  function tokenFailed(form) {
+    clearBusy(form);
+    var note = form.previousElementSibling;
+    if (!note || !note.hasAttribute("data-hc-token-error")) {
+      note = document.createElement("p");
+      note.className = "feedback-error";
+      note.setAttribute("role", "alert");
+      note.setAttribute("data-hc-token-error", "true");
+      note.textContent = "No pudimos obtener el permiso de Microsoft 365. No se subió nada: reintentá.";
+      form.parentNode.insertBefore(note, form);
+    }
+  }
+  window.addEventListener("pageshow", function (event) {
+    if (event.persisted) document.querySelectorAll("[data-hc-document-upload-form]").forEach(clearBusy);
+  });
   document.querySelectorAll("[data-hc-document-upload-form]").forEach(function (form) {
     form.addEventListener("submit", function (event) {
+      if (form.dataset.hcBusy === "true" && form.dataset.hcTokenReady !== "true") { event.preventDefault(); return; }   // anti doble envío
       if (form.dataset.hcTokenReady === "true") return; // segundo submit real, dejar pasar sin interceptar
       event.preventDefault();
-      Promise.resolve(typeof window.dwHumanCapitalDocumentWriteToken === "function" ? window.dwHumanCapitalDocumentWriteToken() : "").then(function (token) {
+      setBusy(form);
+      var done = false;
+      Promise.resolve().then(function () {
+        return typeof window.dwHumanCapitalDocumentWriteToken === "function" ? window.dwHumanCapitalDocumentWriteToken() : "";
+      }).then(function (token) {
+        if (done) return;
+        done = true;
         var tokenField = form.querySelector("input[name=graph_token]");
         if (tokenField) tokenField.value = token || "";
         form.dataset.hcTokenReady = "true";
         form.submit();
+      }, function () {
+        if (done) return;
+        done = true;
+        tokenFailed(form);
       });
     });
   });
