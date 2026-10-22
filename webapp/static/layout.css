@@ -95,6 +95,8 @@
   padding: 9px 10px; color: var(--soft); font-size: .78rem;
 }
 .workspace-switch-menu a:hover, .workspace-switch-menu a:focus-visible { color: var(--ink); background: #ffffff08; }
+/* Vertical ACTIVA dentro del selector (mismo idioma que `.module-link.is-active`): se muestra, identificada, en vez de omitirse. */
+.workspace-switch-menu a.is-active { color: var(--ink); background: #e7b00818; box-shadow: inset 2px 0 0 var(--gold); }
 .workspace-switch-menu a.workspace-switch-platform {
   margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line);
   color: var(--dim); font-size: .7rem;

@@ -119,7 +119,7 @@ def _seed_candidatos(monkeypatch, n):
 
 def _seed_entrevistas(monkeypatch, n):
     rows = [_entrevista(i) for i in range(n)]
-    monkeypatch.setattr(human_capital_service, "list_entrevistas_view", lambda: list(rows))
+    monkeypatch.setattr(human_capital_service, "list_entrevistas_view", lambda allow_compensation=False: [human_capital_service.mask_entrevista_compensation(r, allow_compensation) for r in rows])
 
 
 def _seed_onboarding(monkeypatch, n):

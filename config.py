@@ -279,6 +279,10 @@ COMMERCIAL_ALLOWED_USERS = _env("COMMERCIAL_ALLOWED_USERS", "")
 # esto es solo la frontera de admisión al workspace, no autorización de
 # capacidad.
 HUMAN_CAPITAL_ALLOWED_USERS = _env("HUMAN_CAPITAL_ALLOWED_USERS", "")
+# Datos SENSIBLES de Capital Humano (hoy: «Remuneración pretendida» de Entrevistas). Lista de correos separados por coma (p. ej.
+# `joconnor@danwor.com,otra.persona@danwor.com`; se aceptan el alias compacto `usuario` y mayúsculas/espacios). Falta o vacía = NADIE ve ni edita el importe (fail-closed);
+# `ALL` NO abre nada; el rol de owner NO es una excepción implícita.
+HC_SENSITIVE_DATA_ALLOWED_USERS = _env("HC_SENSITIVE_DATA_ALLOWED_USERS", "")
 # Capital Humano Phase 4.1 — Profile Documents (SharePoint, primer slice
 # CV). Identidad ESTABLE de Graph (site_id/drive_id/item_id de la carpeta
 # raíz de CVs) — NUNCA una URL de sharing (esas son solo insumo de

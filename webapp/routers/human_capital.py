@@ -1693,16 +1693,22 @@ def _entrevistas_shell(request, extra: dict) -> dict:
         "current_workspace": workspaces.HUMAN_CAPITAL,
         "available_workspaces": workspaces.available_workspaces(user),
         "pack": DEFAULT_PACK, "user": user, "active_page": "entrevistas",
+        "can_see_compensation": human_capital_access.can_view_sensitive_data(user),     # «Remuneración pretendida»: política central; jamás un dato del navegador
         **extra,
     }
 
 
-def _entrevistas_list_context(origen: str = "", puesto: str = "", area: str = "", q: str = "", page=1, page_size=None) -> dict:
+def _form_without_protected_compensation(form_values: dict, allow: bool) -> dict:
+    """Sin permiso, el importe (persistido o enviado) NO viaja a ninguna plantilla ni se reenvía: se descarta antes de renderizar o de llamar al servicio."""
+    return form_values if allow else {**form_values, "remuneracion_pretendida": None}
+
+
+def _entrevistas_list_context(origen: str = "", puesto: str = "", area: str = "", q: str = "", page=1, page_size=None, allow_compensation: bool = False) -> dict:
     origen, puesto, area, q = (origen or "").strip(), (puesto or "").strip(), (area or "").strip(), (q or "").strip()
     entrevistas: list[dict] = []
     source_error: str | None = None
     try:
-        entrevistas = human_capital_service.list_entrevistas_view()
+        entrevistas = human_capital_service.list_entrevistas_view(allow_compensation)           # sin permiso: el importe sale enmascarado (`****`) desde el servicio
     except entrevista_repository.EntrevistaStorageError as exc:
         source_error = str(exc)
     dataset_has_any = bool(entrevistas)
@@ -1711,7 +1717,7 @@ def _entrevistas_list_context(origen: str = "", puesto: str = "", area: str = ""
     origen_options = _governed_filter_options("fuente", [e.get("origen") for e in entrevistas], origen, human_capital_service.ENTREVISTA_SIN_ORIGEN, "Sin origen")
     puesto_options = _governed_filter_options(None, [e.get("puesto_mostrado") for e in entrevistas], puesto, human_capital_service.ENTREVISTA_SIN_PUESTO, "Sin puesto")
     area_options = _governed_filter_options("area_consultora", [e.get("area") for e in entrevistas], area, human_capital_service.SIN_AREA, "Sin área")
-    entrevistas = human_capital_service.filter_entrevistas(entrevistas, origen=origen, puesto=puesto, area=area, q=q)      # filtros + búsqueda ANTES de paginar
+    entrevistas = human_capital_service.filter_entrevistas(entrevistas, origen=origen, puesto=puesto, area=area, q=q, include_compensation=allow_compensation)      # filtros + búsqueda ANTES de paginar (sin permiso, la búsqueda NO indexa el importe)
     entrevistas.sort(key=lambda e: e.get("created_at") or "", reverse=True)                                                # orden ANTES de paginar
     pager = pagination.paginate(entrevistas, page=page, page_size=page_size, base_url="/cchh/entrevistas",
                                 params={"origen": origen, "puesto": puesto, "area": area, "q": q})
@@ -1781,7 +1787,7 @@ def human_capital_entrevistas_page(request: Request, origen: str = Query(""), pu
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    ctx = _entrevistas_list_context(origen, puesto, area, q, page, page_size)
+    ctx = _entrevistas_list_context(origen, puesto, area, q, page, page_size, human_capital_access.can_view_sensitive_data_request(request))
     # Paginación (HTMX): sólo se re-renderiza el panel (`#hc-entrevistas-panel`), MISMO criterio de fragmento que Candidatos/Onboarding.
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
@@ -1814,11 +1820,12 @@ def human_capital_entrevista_new_submit(
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    form_values = _entrevista_form_from_request(
+    allow = human_capital_access.can_view_sensitive_data_request(request)
+    form_values = _form_without_protected_compensation(_entrevista_form_from_request(
         fecha_entrevista, puesto_evaluado, area, modalidad_contratacion,
-        remuneracion_pretendida, observaciones, resumen_entrevista_tecnica)
+        remuneracion_pretendida, observaciones, resumen_entrevista_tecnica), allow)
     try:
-        entrevista = human_capital_service.create_entrevista_manual(profile_id, form_values)
+        entrevista = human_capital_service.create_entrevista_manual(profile_id, form_values, allow_compensation=allow)
     except (ValueError, *_ENTREVISTA_SHELL_ERRORS) as exc:
         return templates.TemplateResponse(
             request=request, name="human_capital/entrevista_form.html",
@@ -1838,8 +1845,9 @@ def human_capital_entrevista_edit_page(request: Request, entrevista_id: str):
     entrevista = human_capital_service.get_entrevista(entrevista_id)
     if entrevista is None:
         raise HTTPException(404, "Entrevista no encontrada")
-    view = human_capital_service.entrevista_view(entrevista)
-    form_values = dict(entrevista)
+    allow = human_capital_access.can_view_sensitive_data_request(request)
+    view = human_capital_service.entrevista_view(entrevista, allow)
+    form_values = _form_without_protected_compensation(dict(entrevista), allow)
     form_values["expected_revision"] = entrevista.get("revision", 1)
     return templates.TemplateResponse(
         request=request, name="human_capital/entrevista_form.html",
@@ -1859,9 +1867,10 @@ def human_capital_entrevista_edit_submit(
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    form_values = _entrevista_form_from_request(
+    allow = human_capital_access.can_view_sensitive_data_request(request)
+    form_values = _form_without_protected_compensation(_entrevista_form_from_request(
         fecha_entrevista, puesto_evaluado, area, modalidad_contratacion,
-        remuneracion_pretendida, observaciones, resumen_entrevista_tecnica)
+        remuneracion_pretendida, observaciones, resumen_entrevista_tecnica), allow)
     try:
         revision_int = int(expected_revision)
     except ValueError:
@@ -1870,14 +1879,14 @@ def human_capital_entrevista_edit_submit(
     def _render(**extra):
         fv = dict(form_values); fv["expected_revision"] = revision_int
         entrevista = human_capital_service.get_entrevista(entrevista_id)
-        view = human_capital_service.entrevista_view(entrevista) if entrevista else None
+        view = human_capital_service.entrevista_view(entrevista, allow) if entrevista else None
         return templates.TemplateResponse(
             request=request, name="human_capital/entrevista_form.html",
             context=_entrevistas_shell(request, _entrevista_form_context(
                 form_values=fv, is_edit=True, entrevista=view, **extra)))
 
     try:
-        human_capital_service.update_entrevista(entrevista_id, revision_int, form_values)
+        human_capital_service.update_entrevista(entrevista_id, revision_int, form_values, allow_compensation=allow)
     except entrevista_repository.EntrevistaNotFoundError:
         raise HTTPException(404, "Entrevista no encontrada") from None
     except ValueError as exc:
@@ -1903,9 +1912,10 @@ def human_capital_entrevista_no_concretada(
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    form_values = _entrevista_form_from_request(
+    allow = human_capital_access.can_view_sensitive_data_request(request)
+    form_values = _form_without_protected_compensation(_entrevista_form_from_request(
         fecha_entrevista, puesto_evaluado, area, modalidad_contratacion,
-        remuneracion_pretendida, observaciones, resumen_entrevista_tecnica)
+        remuneracion_pretendida, observaciones, resumen_entrevista_tecnica), allow)
     try:
         revision_int = int(expected_revision)
     except ValueError:
@@ -1914,14 +1924,14 @@ def human_capital_entrevista_no_concretada(
     def _render(**extra):
         fv = dict(form_values); fv["expected_revision"] = revision_int
         entrevista = human_capital_service.get_entrevista(entrevista_id)
-        view = human_capital_service.entrevista_view(entrevista) if entrevista else None
+        view = human_capital_service.entrevista_view(entrevista, allow) if entrevista else None
         return templates.TemplateResponse(
             request=request, name="human_capital/entrevista_form.html",
             context=_entrevistas_shell(request, _entrevista_form_context(
                 form_values=fv, is_edit=True, entrevista=view, **extra)))
 
     try:
-        updated = human_capital_service.update_entrevista(entrevista_id, revision_int, form_values)
+        updated = human_capital_service.update_entrevista(entrevista_id, revision_int, form_values, allow_compensation=allow)
         human_capital_service.marcar_entrevista_no_concretada(entrevista_id, updated["revision"])
     except entrevista_repository.EntrevistaNotFoundError:
         raise HTTPException(404, "Entrevista no encontrada") from None

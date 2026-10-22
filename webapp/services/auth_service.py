@@ -25,6 +25,7 @@ from config import (
     COMMERCIAL_ALLOWED_USERS,
     CONTENT_OWNER,
     HUB_METRICS_ALLOWED_USERS,
+    HC_SENSITIVE_DATA_ALLOWED_USERS,
     HUMAN_CAPITAL_ALLOWED_USERS,
     OPERATIONS_ALLOWED_USERS,
     SESSION_MAX_AGE,
@@ -176,6 +177,22 @@ def is_human_capital_user(email: str) -> bool:
     if not email:
         return False
     return email in _human_capital_set()
+
+
+def _hc_sensitive_set() -> set[str]:
+    """Allowlist EXPLÍCITA de datos sensibles de Capital Humano (`HC_SENSITIVE_DATA_ALLOWED_USERS`) — MISMO parser y normalización que `_human_capital_set()` (minúsculas, espacios,
+    alias compacto `usuario@` + `AUTH_DEFAULT_DOMAIN`). SIEMPRE un `set[str]` concreto: variable ausente/vacía ⇒ set() (nadie); el literal "ALL" queda rechazado."""
+    result = _csv_users(HC_SENSITIVE_DATA_ALLOWED_USERS, empty_is_all=False)
+    return result if result is not None else set()
+
+
+def is_hc_sensitive_data_user(email: str) -> bool:
+    """True si `email` está en `HC_SENSITIVE_DATA_ALLOWED_USERS`. SOLO lista: no incluye al owner ni a nadie por rol; un caller debe exigir además la admisión a Capital Humano
+    (ver `webapp.human_capital_access.can_view_sensitive_data`)."""
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    return email in _hc_sensitive_set()
 
 
 def _content_owner_set() -> set[str]:

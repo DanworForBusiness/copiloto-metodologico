@@ -740,6 +740,8 @@ def test_operaciones_cannot_touch_the_candidate_pipeline_through_the_new_routes(
     svc.add_candidate_to_busqueda(SID, pid)
     before = doc()
     c = ops()
-    for path in (f"{BASE}/{SID}/candidatos", f"{BASE}/{SID}/cerrar", f"{BASE}/{SID}/eliminar"):
+    for path in (f"{BASE}/{SID}/candidatos", f"{BASE}/{SID}/cerrar"):
         assert c.post(path, data={"profile_id": pid}, headers=ORIGIN).status_code in (404, 405)
+    # `/eliminar` SÍ existe (bloque «eliminar solicitud no gestionada»), pero una solicitud ya tomada con candidatos jamás se elimina
+    assert c.post(f"{BASE}/{SID}/eliminar", data={"expected_revision": str(rev())}, headers=ORIGIN).status_code == 409
     assert doc() == before and doc()["candidatos"]

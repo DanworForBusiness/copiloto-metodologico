@@ -58,7 +58,7 @@ def _row(i, *, origen="LinkedIn", puesto="Analista BI", area="Consultoria", firs
 
 
 def _patch(monkeypatch, rows):
-    monkeypatch.setattr(human_capital_service, "list_entrevistas_view", lambda: list(rows))
+    monkeypatch.setattr(human_capital_service, "list_entrevistas_view", lambda allow_compensation=False: [human_capital_service.mask_entrevista_compensation(r, allow_compensation) for r in rows])
 
 
 def _get(**params):
@@ -162,6 +162,7 @@ def test_the_three_dropdowns_and_search_combine_with_and(monkeypatch):
 def test_search_covers_the_visible_columns_case_insensitive_and_never_technical_ids(monkeypatch):
     _seed_catalogs(fuente=["LinkedIn", "Referido"], area_consultora=["Consultoria", "RRHH"])
     _patch(monkeypatch, MIXED())
+    monkeypatch.setattr(auth_service, "HC_SENSITIVE_DATA_ALLOWED_USERS", _AUTHORIZED_EMAIL)      # la remuneración solo es «contenido visible» (y buscable) para quien tiene permiso (ver test_hc_sensitive_remuneration.py)
     n = lambda q: _names(_get(q=q))
     assert n("ana li") == ["Ana Li"] and n("  BETO   gomez ") == ["Beto Gomez"]               # candidato: case + trim + espacios colapsados
     assert n("referido") == ["Beto Gomez"] and n("full-stack") == ["Beto Gomez"] and n("consultoria") == ["Ana Li"] and n("operaciones") == ["Carla Diaz"]   # origen, puesto, área

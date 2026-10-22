@@ -77,6 +77,20 @@ def is_human_capital_authorized_user(user: dict | None) -> bool:
     return auth_service.is_authorized(email) and auth_service.is_human_capital_user(email)
 
 
+def can_view_sensitive_data(user: dict | None) -> bool:
+    """POLÍTICA ÚNICA de datos sensibles de Capital Humano (hoy: «Remuneración pretendida»): True solo si `user` (claims de sesión validados por el SERVIDOR, nunca algo que mande el
+    navegador) está autenticado, tiene admisión a Capital Humano Y figura en `HC_SENSITIVE_DATA_ALLOWED_USERS`. Sin sesión, con la variable ausente/vacía, o fuera de la lista ⇒ False.
+    NO hay excepción implícita para el owner. Predicado puro (sin `Request`) para poder probarlo y reusarlo."""
+    if not user or not is_human_capital_authorized_user(user):
+        return False
+    return auth_service.is_hc_sensitive_data_user(str(user.get("sub") or ""))
+
+
+def can_view_sensitive_data_request(request: Request) -> bool:
+    """Wrapper HTTP de `can_view_sensitive_data`: la identidad sale SIEMPRE de la sesión del servidor."""
+    return can_view_sensitive_data(auth_service.session_user(request))
+
+
 def is_human_capital_authorized(request: Request) -> bool:
     """True si hay sesión válida y `is_human_capital_authorized_user` la
     autoriza. Frontera de seguridad real de Capital Humano — cualquier

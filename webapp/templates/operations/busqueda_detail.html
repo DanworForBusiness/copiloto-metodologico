@@ -26,6 +26,7 @@
         {% if view.puede_editar %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-secondary">Editar</a>{% endif %}
         {% if view.puede_corregir %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-primary">Corregir y reenviar</a>{% endif %}
         {% if view.puede_cancelar %}<button type="button" class="btn-danger" data-dialog-open="opsb-cancel-dialog">Cancelar solicitud</button>{% endif %}
+        {% if view.puede_eliminar %}<button type="button" class="btn-danger" data-dialog-open="opsb-delete-dialog">Eliminar solicitud</button>{% endif %}
       </div>
     </div>
     <section class="module-hero asr-hero opsb-hero">
@@ -61,7 +62,7 @@
     </div>
     </div>
     {% elif view.estado_solicitud == 'enviada' %}
-    <p class="field-hint">Enviada a Capital Humano{% if view.reenviada %} (reenvío {{ view.reenvios }}){% endif %}. Podés editarla o cancelarla hasta que Capital Humano la tome.</p>
+    <p class="field-hint">Enviada a Capital Humano{% if view.reenviada %} (reenvío {{ view.reenvios }}){% endif %}. Podés editarla, cancelarla o eliminarla hasta que Capital Humano la tome.</p>
     {% elif view.estado_solicitud == 'en_gestion' %}
     <p class="field-hint" data-readonly>Capital Humano ya está gestionando esta búsqueda{% if view.estado == 'cerrado' %} y el proceso está cerrado{% endif %}. Esta solicitud es de solo lectura.</p>
     {% elif view.estado_solicitud == 'cancelada' %}
@@ -91,6 +92,27 @@
           <button type="submit" class="btn-danger asr-generate" aria-live="polite">
             <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Cancelando solicitud…</span>
             <span class="asr-generate__label">Cancelar solicitud</span>
+          </button>
+        </div>
+      </form>
+    </dialog>
+    {% endif %}
+
+    {% if view.puede_eliminar %}
+    {# Modal de eliminación: MISMO `<dialog class="dw-confirm busqueda-dialog">` que la cancelación. Eliminar BORRA la solicitud (cancelar la conserva como historial); solo existe mientras CCHH no la tomó. #}
+    <dialog class="dw-confirm busqueda-dialog" id="opsb-delete-dialog" aria-labelledby="opsb-delete-title">
+      <form method="post" action="/operaciones/busquedas/{{ view.busqueda_id }}/eliminar" data-opsb-form>
+        <input type="hidden" name="expected_revision" value="{{ view.revision }}">
+        <div class="dw-confirm__body">
+          <h2 class="dw-confirm__title" id="opsb-delete-title">Eliminar solicitud</h2>
+          <p class="dw-confirm__msg">La solicitud se <strong>elimina definitivamente</strong> y desaparece también de la bandeja de Capital Humano. Esta acción no se puede deshacer.</p>
+          <p class="field-hint">Solo se puede eliminar mientras Capital Humano no la haya tomado en gestión. Si preferís conservar el registro, cancelala.</p>
+        </div>
+        <div class="dw-confirm__actions">
+          <button type="submit" formmethod="dialog" class="btn-secondary" value="cancel">Volver</button>
+          <button type="submit" class="btn-danger asr-generate" aria-live="polite">
+            <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Eliminando solicitud…</span>
+            <span class="asr-generate__label">Eliminar solicitud</span>
           </button>
         </div>
       </form>
