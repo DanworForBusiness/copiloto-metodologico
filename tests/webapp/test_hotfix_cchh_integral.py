@@ -114,8 +114,9 @@ def test_the_documents_panel_upload_forms_reuse_the_hub_loader_with_double_submi
 
 # ═══════════════════════ C. baja de documento + carpeta segura ═══════════════════════
 class Graph:
-    def __init__(self, folder=None, children=None, get_error=None, delete_error=None, children_error=None, fail_items=()):
+    def __init__(self, folder=None, children=None, get_error=None, delete_error=None, children_error=None, fail_items=(), tags=None):
         self.fail_items = set(fail_items)
+        self.tags = list(tags) if tags is not None else None          # secuencia de (cTag, eTag) por lectura; None = estable ("c1", "e1")
         self.folder = folder if folder is not None else {"id": FOLDER, "name": "Pérez, Ana [abcd1234]", "folder": {}, "parentReference": {"id": "root-1"}}
         self.children = children if children is not None else {"value": []}
         self.get_error, self.delete_error, self.children_error = get_error, delete_error, children_error
@@ -123,6 +124,13 @@ class Graph:
 
     def get(self, url, token):
         self.calls.append(("GET", url))
+        if "cTag" in url:                                              # lectura de etiquetas de la carpeta
+            if self.get_error:
+                raise self.get_error
+            if self.tags is None:
+                return {"id": FOLDER, "cTag": "c1", "eTag": "e1"}
+            tag = self.tags.pop(0) if len(self.tags) > 1 else self.tags[0]
+            return {"id": FOLDER, "cTag": tag[0], "eTag": tag[1]} if tag else {"id": FOLDER}
         if "/children" in url:
             if self.children_error:
                 raise self.children_error
@@ -170,7 +178,7 @@ def test_deleting_the_last_document_deletes_the_physical_file_then_the_metadata_
     g = hc(Graph())
     _doc("d1", "item-1")
     out = svc.delete_document(profile_id=PID, document_id="d1", access_token="t", remove_empty_folder=True)
-    assert out == {"folder": "deleted"} and drepo.get("d1") is None
+    assert out == {"folder": "deleted", "last_document": True} and drepo.get("d1") is None
     kinds = [(m, u.split("/items/")[1].split("?")[0]) for m, u in g.calls]
     assert kinds[0] == ("DELETE", "item-1") and ("GET", FOLDER) in kinds and ("GET", f"{FOLDER}/children") in kinds and kinds[-1] == ("DELETE", FOLDER)   # físico → verificación → carpeta
 
@@ -179,7 +187,7 @@ def test_the_folder_is_kept_when_other_documents_or_other_candidates_reference_i
     g = hc(Graph())
     _doc("d1", "item-1")
     _doc("d2", "item-2")                                                                  # otro documento del MISMO candidato en la carpeta
-    assert svc.delete_document(profile_id=PID, document_id="d1", access_token="t", remove_empty_folder=True) == {"folder": "kept_shared_metadata"}
+    assert svc.delete_document(profile_id=PID, document_id="d1", access_token="t", remove_empty_folder=True) == {"folder": "kept_shared_metadata", "last_document": False}
     assert g.folder_deletes() == [] and not any("/children" in u for m, u in g.calls)    # ni siquiera consulta Graph
 
 
@@ -187,7 +195,8 @@ def test_the_folder_is_kept_when_a_document_of_another_candidate_references_it(h
     g = hc(Graph())
     _doc("d1", "item-1")
     _doc("dx", "item-9", profile="otro-candidato")                                         # referencia de OTRO candidato a la misma carpeta
-    assert svc.delete_document(profile_id=PID, document_id="d1", access_token="t", remove_empty_folder=True) == {"folder": "kept_shared_metadata"}
+    out = svc.delete_document(profile_id=PID, document_id="d1", access_token="t", remove_empty_folder=True)
+    assert out["folder"] == "kept_shared_metadata" and out["last_document"] is True        # último DEL CANDIDATO, pero otro registro referencia la carpeta
     assert g.folder_deletes() == [] and drepo.get("dx") is not None
 
 
@@ -201,6 +210,8 @@ def test_the_folder_is_kept_when_a_document_of_another_candidate_references_it(h
     ({"folder": {"id": FOLDER, "name": "Otra carpeta", "folder": {}, "parentReference": {"id": "root-1"}}}, "kept_unverified"),            # identidad: nombre no corresponde
     ({"folder": {"id": FOLDER, "name": "Pérez, Ana [abcd1234]", "folder": {}, "parentReference": {"id": "otra-raiz"}}}, "kept_unverified"),  # ubicación distinta
     ({"folder": {"id": FOLDER, "name": "Pérez, Ana [abcd1234]", "parentReference": {"id": "root-1"}}}, "kept_unverified"),                   # no es carpeta
+    ({"tags": [("c1", "e1"), ("c2", "e2")]}, "kept_changed"),                                              # la carpeta cambió mientras se verificaba: concurrencia detectada
+    ({"tags": [None]}, "kept_unverified"),                                                                 # sin etiquetas = incierto (nunca «sin cambios»)
     ({"get_error": _http(404)}, "already_absent"),
     ({"get_error": _http(403)}, "kept_permission"),
     ({"get_error": _http(500)}, "kept_error"),
@@ -231,7 +242,7 @@ def test_folder_cleanup_is_idempotent_and_requires_the_stored_identity_to_match_
 def test_the_default_service_delete_does_not_touch_the_folder(hc):
     g = hc(Graph())
     _doc("d1", "item-1")
-    assert svc.delete_document(profile_id=PID, document_id="d1", access_token="t") == {"folder": "not_requested"}
+    assert svc.delete_document(profile_id=PID, document_id="d1", access_token="t") == {"folder": "not_requested", "last_document": False}
     assert [m for m, u in g.calls] == ["DELETE"]
 
 
@@ -314,12 +325,24 @@ def test_a_partial_failure_keeps_the_candidate_active_reports_the_counts_and_the
     assert r2.status_code == 303 and prepo.get(pid)["deleted_at"] and drepo.list_for_profile(pid) == [] and len(g.folder_deletes()) == 1
 
 
-def test_a_folder_that_cannot_be_verified_does_not_block_the_baja_nor_is_deleted(hc, client):
+def test_a_kept_folder_after_the_baja_is_reported_as_a_partial_success_never_a_silent_redirect(hc, client):
     g = hc(Graph(children={"value": [{"id": "x"}]}))                                          # la carpeta tiene un archivo ajeno: se conserva
     pid = _profile()
     _doc("d1", "item-1", profile=pid)
     r = client.post(f"/cchh/candidatos/{pid}/eliminar", data={"delete_documents": "true", "graph_token": "tok"})
-    assert r.status_code == 303 and prepo.get(pid)["deleted_at"] and drepo.list_for_profile(pid) == [] and g.folder_deletes() == []
+    assert r.status_code == 200 and "data-delete-notice" in r.text and "se conservó en SharePoint" in r.text and "contiene otros archivos" in r.text
+    assert "fue dado de baja y sus 1 documento(s) se eliminaron de SharePoint" in r.text
+    assert prepo.get(pid)["deleted_at"] and drepo.list_for_profile(pid) == [] and g.folder_deletes() == []
+
+
+def test_a_baja_that_fails_after_the_documents_were_deleted_says_so(hc, client, monkeypatch):
+    hc(Graph())
+    pid = _profile()
+    _doc("d1", "item-1", profile=pid)
+    monkeypatch.setattr(hcs, "soft_delete_profile", lambda *a, **k: (_ for _ in ()).throw(prepo.ProfileStorageError("disco lleno")))
+    r = client.post(f"/cchh/candidatos/{pid}/eliminar", data={"delete_documents": "true", "graph_token": "tok"})
+    assert r.status_code == 200 and "disco lleno" in r.text and "YA fueron eliminados de SharePoint" in r.text
+    assert not prepo.get(pid).get("deleted_at") and drepo.list_for_profile(pid) == []
 
 
 def test_the_individual_document_delete_route_also_removes_the_verified_empty_folder(hc, client):
@@ -328,3 +351,16 @@ def test_the_individual_document_delete_route_also_removes_the_verified_empty_fo
     _doc("d1", "item-1", profile=pid)
     r = client.post(f"/cchh/candidatos/{pid}/documentos/d1/delete", data={"graph_token": "tok"})
     assert r.status_code == 303 and drepo.get("d1") is None and len(g.folder_deletes()) == 1
+
+
+def test_the_individual_delete_reports_a_kept_folder_after_the_last_document_but_not_when_others_remain(hc, client):
+    g = hc(Graph(children={"value": [{"id": "x"}]}))
+    pid = _profile()
+    _doc("d1", "item-1", profile=pid)
+    r = client.post(f"/cchh/candidatos/{pid}/documentos/d1/delete", data={"graph_token": "tok"})
+    assert r.status_code == 200 and 'data-document-error-kind="FOLDER_KEPT"' in r.text and "El documento se eliminó de SharePoint." in r.text and "contiene otros archivos" in r.text
+    assert drepo.get("d1") is None and g.folder_deletes() == []
+    _doc("d2", "item-1", profile=pid)
+    _doc("d3", "item-2", profile=pid)                                                         # queda otro documento en la misma carpeta: no es un caso a informar
+    r2 = client.post(f"/cchh/candidatos/{pid}/documentos/d2/delete", data={"graph_token": "tok"})
+    assert r2.status_code == 303 and drepo.get("d3") is not None

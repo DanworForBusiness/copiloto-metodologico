@@ -268,7 +268,34 @@ def _delete_physical_document(*, site_id: str, drive_id: str, item_id: str, acce
 
 
 FOLDER_DELETED, FOLDER_ABSENT, FOLDER_NOT_REQUESTED = "deleted", "already_absent", "not_requested"
-FOLDER_KEPT_PREFIX = "kept_"          # kept_has_content | kept_shared_metadata | kept_unverified | kept_permission | kept_error
+FOLDER_KEPT_PREFIX = "kept_"          # kept_has_content | kept_shared_metadata | kept_unverified | kept_changed | kept_permission | kept_error
+FOLDER_KEPT_MESSAGES = {
+    "kept_has_content": "la carpeta contiene otros archivos",
+    "kept_shared_metadata": "otros registros del Hub siguen apuntando a esa carpeta",
+    "kept_unverified": "no se pudo verificar con certeza que fuera la carpeta de este candidato y que estuviera vacía",
+    "kept_changed": "la carpeta cambió mientras se verificaba (posible subida concurrente)",
+    "kept_permission": "no hay permiso para eliminar la carpeta",
+    "kept_error": "SharePoint no confirmó el borrado de la carpeta",
+}
+
+
+def folder_kept_message(status: str) -> str:
+    """Texto para informar al usuario que los documentos se eliminaron pero la carpeta QUEDÓ en SharePoint (y por qué). `""` si no hay nada que avisar (carpeta borrada / ya ausente / no solicitada)."""
+    if not str(status).startswith(FOLDER_KEPT_PREFIX):
+        return ""
+    return "La carpeta del candidato se conservó en SharePoint: " + FOLDER_KEPT_MESSAGES.get(status, "no se pudo confirmar su estado") + ". Revisala manualmente si corresponde."
+
+
+def _folder_tags(folder_item_id: str, access_token: str) -> tuple | None:
+    """`(cTag, eTag)` de la carpeta, o `None` si no se pueden leer con certeza (la ausencia de etiquetas se trata como incierto, nunca como «sin cambios»)."""
+    url = f"{_drive_items_base()}/{urllib.parse.quote(folder_item_id, safe='')}?$select=id,cTag,eTag"
+    try:
+        item = microsoft365.graph_get_json(url, access_token)
+    except (urllib.error.HTTPError, urllib.error.URLError):
+        return None
+    if not isinstance(item, dict) or not item.get("cTag") or not item.get("eTag"):
+        return None
+    return item["cTag"], item["eTag"]
 
 
 def cleanup_empty_profile_folder(*, profile_id: str, folder_item_id: str | None, site_id: str | None, drive_id: str | None, access_token: str) -> str:
@@ -299,6 +326,9 @@ def cleanup_empty_profile_folder(*, profile_id: str, folder_item_id: str | None,
         return FOLDER_ABSENT
     if not _folder_matches(item, profile_id, {str(profile_id)}):
         return FOLDER_KEPT_PREFIX + "unverified"
+    tags_before = _folder_tags(folder_item_id, access_token)
+    if tags_before is None:
+        return FOLDER_KEPT_PREFIX + "unverified"
     children_url = f"{_drive_items_base()}/{urllib.parse.quote(folder_item_id, safe='')}/children?$select=id,name&$top=2"
     try:
         listing = microsoft365.graph_get_json(children_url, access_token)
@@ -310,6 +340,11 @@ def cleanup_empty_profile_folder(*, profile_id: str, folder_item_id: str | None,
         return FOLDER_KEPT_PREFIX + "unverified"                       # respuesta irreconocible: incierto
     if listing["value"] or listing.get("@odata.nextLink"):
         return FOLDER_KEPT_PREFIX + "has_content"
+    tags_after = _folder_tags(folder_item_id, access_token)         # concurrencia DETECTABLE: si la carpeta cambió mientras se listaba, no se borra
+    if tags_after is None:
+        return FOLDER_KEPT_PREFIX + "unverified"
+    if tags_after != tags_before:
+        return FOLDER_KEPT_PREFIX + "changed"
     try:
         microsoft365.graph_delete(_document_item_url(site_id, drive_id, folder_item_id), access_token)
     except urllib.error.HTTPError as exc:
@@ -354,11 +389,15 @@ def delete_document(*, profile_id: str, document_id: str, access_token: str, rem
             "Podés reintentar la eliminación."
         ) from exc
     # La metadata ya está resuelta: la limpieza de la carpeta es un paso POSTERIOR y best-effort (nunca compromete la consistencia ni lanza). Si la carpeta no se puede borrar con certeza, se conserva.
-    folder = FOLDER_NOT_REQUESTED
+    folder, last = FOLDER_NOT_REQUESTED, False
     if remove_empty_folder:
+        try:
+            last = not [d for d in profile_document_repository.find_by_folder_item_id(str(document.get("folder_item_id"))) if d.get("profile_id") == profile_id]
+        except profile_document_repository.ProfileDocumentStorageError:
+            last = False
         folder = cleanup_empty_profile_folder(profile_id=profile_id, folder_item_id=document.get("folder_item_id"), site_id=document.get("site_id"),
                                               drive_id=document.get("drive_id"), access_token=access_token)
-    return {"folder": folder}
+    return {"folder": folder, "last_document": last}
 
 
 def delete_profile_documents(*, profile_id: str, access_token: str) -> dict:

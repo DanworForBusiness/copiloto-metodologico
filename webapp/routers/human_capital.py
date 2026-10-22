@@ -675,6 +675,8 @@ def human_capital_profile_delete(
     user = auth_service.session_user(request)
     actor = (user or {}).get("sub") or ""
     delete_error: str | None = None
+    folder_notice = ""
+    docs_deleted = 0
     if (delete_documents or "").strip().lower() in ("1", "true", "on", "yes"):
         # Flujo CONTROLADO con eliminación física: (1) documentos en SharePoint (cada uno confirmado antes de su metadata) y carpeta solo si quedó vacía; (2) recién entonces la baja lógica.
         # Si algo no se confirma, el candidato NO se da de baja y nunca se informa una eliminación física no confirmada. El reintento es idempotente (solo procesa lo que queda).
@@ -685,7 +687,10 @@ def human_capital_profile_delete(
                     "kind": "GRAPH_PERMISSION_DENIED",
                     "message": "No pudimos obtener autorización de Microsoft 365 para borrar los documentos. El candidato NO fue dado de baja. Volvé a iniciar sesión."})
             try:
-                profile_document_service.delete_profile_documents(profile_id=profile_id, access_token=graph_token)
+                summary = profile_document_service.delete_profile_documents(profile_id=profile_id, access_token=graph_token)
+                docs_deleted = summary["deleted"]
+                kept_msgs = [m for m in (profile_document_service.folder_kept_message(s) for s in summary["folders"].values()) if m]
+                folder_notice = " ".join(dict.fromkeys(kept_msgs))
             except profile_document_service.ProfileDocumentConfigIncompleteError as exc:
                 return _render_profile_edit_with_documents(request, profile_id, profile, document_state={"kind": "CONFIG_INCOMPLETE", "message": f"{exc} El candidato NO fue dado de baja."})
             except profile_document_service.ProfileDocumentsBulkDeleteIncompleteError as exc:
@@ -705,6 +710,18 @@ def human_capital_profile_delete(
     except (ProfileConfigIncompleteError, ProfileRemoteOutcomeUnknownError,
             ProfileStorageError, ProfileConcurrentModificationError) as exc:
         delete_error = str(exc)
+        if docs_deleted:
+            # Resultado PARCIAL: los documentos ya se eliminaron de SharePoint pero la baja lógica no se confirmó. Se dice tal cual.
+            delete_error += f" Atención: sus {docs_deleted} documento(s) YA fueron eliminados de SharePoint."
+
+    if folder_notice and not delete_error:
+        # Éxito PARCIAL: baja lógica + documentos eliminados, pero la carpeta se conservó. Se muestra el listado con el aviso (en vez de la redirección silenciosa).
+        context = {
+            "current_workspace": workspaces.HUMAN_CAPITAL, "available_workspaces": workspaces.available_workspaces(user), "pack": DEFAULT_PACK, "user": user, "active_page": "perfiles",
+            **_profiles_panel_context(query={}, page="", page_size=""),
+            "delete_notice": f"El candidato fue dado de baja y sus {docs_deleted} documento(s) se eliminaron de SharePoint. {folder_notice}",
+        }
+        return templates.TemplateResponse(request=request, name="human_capital/profiles.html", context=context)
 
     if request.headers.get("HX-Request"):
         # Desde el listado: re-render del panel filtrado -> el candidato
@@ -1122,7 +1139,7 @@ async def human_capital_profile_documents_delete(
             },
         )
     try:
-        profile_document_service.delete_document(
+        outcome = profile_document_service.delete_document(
             profile_id=profile_id, document_id=document_id, access_token=graph_token, remove_empty_folder=True,
         )
     except profile_document_service.ProfileDocumentNotFoundError as exc:
@@ -1146,6 +1163,12 @@ async def human_capital_profile_documents_delete(
     except profile_document_service.ProfileDocumentMetadataDeleteOutcomeUnknownError as exc:
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DELETE_OUTCOME_UNKNOWN", "message": str(exc)},
+        )
+    kept = profile_document_service.folder_kept_message(outcome["folder"]) if outcome.get("last_document") else ""
+    if kept:
+        # El documento SÍ se eliminó (físico + registro) pero la carpeta quedó: nunca un éxito completo silencioso.
+        return _render_profile_edit_with_documents(
+            request, profile_id, profile, document_state={"kind": "FOLDER_KEPT", "message": "El documento se eliminó de SharePoint. " + kept},
         )
     return _edit_redirect(request, profile_id)
 

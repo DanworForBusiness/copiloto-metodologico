@@ -137,6 +137,8 @@
         {% endif %}
       </div>
     </div>
+    {% elif document_state.kind == "FOLDER_KEPT" %}
+    <div class="callout callout--warn" data-document-error-kind="FOLDER_KEPT"><div class="callout__body"><p>{{ document_state.message }}</p></div></div>
     {% elif document_state.kind == "DELETE_OUTCOME_UNKNOWN" %}
     <div class="callout callout--warn" data-document-error-kind="{{ document_state.kind }}">
       <div class="callout__head">
