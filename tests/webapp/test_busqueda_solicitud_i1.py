@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -176,12 +177,49 @@ def test_normalization_of_text_numbers_units_and_conditional_fields():
 
 
 @pytest.mark.parametrize("modalidad", ["Híbrido", "On site"])
-def test_presencial_modalities_require_days_and_exact_place_and_remote_does_not(modalidad):
-    with pytest.raises(ValueError):
-        send(modalidad=modalidad, dias_presenciales=None)
-    with pytest.raises(ValueError):
-        send(modalidad=modalidad, lugar_trabajo="")
-    assert send(modalidad=modalidad)["requerimiento"]["presencialidad"]["dias"] == 2
+def test_presencial_modalities_require_the_exact_place(modalidad):
+    for empty in (None, "", "   "):
+        with pytest.raises(ValueError):
+            send(modalidad=modalidad, lugar_trabajo=empty)
+    assert files() == []
+
+
+def test_hybrid_requires_1_to_5_presencial_days_and_the_place():
+    for bad in (None, "", 0, 6, 7, 8, -1, "x", 2.5, True):
+        with pytest.raises(ValueError):
+            send(modalidad="Híbrido", dias_presenciales=bad)
+    assert files() == []
+    for n in (1, 5, "3"):
+        sid = str(uuid.uuid4())
+        assert send(sid=sid, modalidad="Híbrido", dias_presenciales=n, lugar_trabajo="Oficina CABA")["requerimiento"]["presencialidad"] == {"dias": int(n), "lugar": "Oficina CABA"}
+
+
+@pytest.mark.parametrize("dias", [None, "", 0, 3, 7, 99, "x"])
+def test_on_site_requires_the_place_but_not_the_presencial_days(dias):
+    v = send(modalidad="On site", dias_presenciales=dias, lugar_trabajo="Planta del cliente")
+    assert v["requerimiento"]["presencialidad"] == {"dias": None, "lugar": "Planta del cliente"}
+    assert doc()["requerimiento"]["presencialidad"] == {"dias": None, "lugar": "Planta del cliente"}
+
+
+def test_on_site_days_do_not_change_the_idempotency_fingerprint():
+    send(modalidad="On site", dias_presenciales=3, lugar_trabajo="Planta")
+    again = send(modalidad="On site", dias_presenciales=None, lugar_trabajo="Planta")   # mismo contenido normalizado: replay, no conflicto
+    assert again["busqueda_id"] == SID and len(files()) == 1
+
+
+@pytest.mark.parametrize("ubicacion", ["Indistinto", "indistinto", "Buenos Aires", "Remoto LATAM"])
+@pytest.mark.parametrize("modalidad", ["Remoto", "Híbrido", "On site"])
+def test_ubicacion_is_required_in_every_modality_and_indistinto_is_accepted(modalidad, ubicacion):
+    v = send(modalidad=modalidad, ubicacion=ubicacion)
+    assert v["requerimiento"]["ubicacion"] == ubicacion and doc()["requerimiento"]["ubicacion"] == ubicacion
+
+
+@pytest.mark.parametrize("modalidad", ["Remoto", "Híbrido", "On site"])
+@pytest.mark.parametrize("empty", [None, "", "   "])
+def test_ubicacion_cannot_be_empty_even_when_remote(modalidad, empty):
+    with pytest.raises(ValueError, match="ubicación"):
+        send(modalidad=modalidad, ubicacion=empty)
+    assert files() == []
 
 
 def test_remote_needs_no_presencialidad_inputs():
@@ -216,7 +254,7 @@ def test_every_required_field_is_enforced(field):
     {"tipo_busqueda": "otro"}, {"tipo_busqueda": "proyecto", "proyecto": ""}, {"cantidad_recursos": 0}, {"cantidad_recursos": 100}, {"cantidad_recursos": "x"}, {"cantidad_recursos": True},
     {"cantidad_recursos": 1.5}, {"dedicacion_valor": 0}, {"dedicacion_valor": -3}, {"dedicacion_valor": "abc"}, {"duracion_meses": 0}, {"duracion_meses": 121}, {"duracion_tipo": "años"},
     {"modalidad": "Presencial"}, {"ingles": "Nativo"}, {"tipo_contrato": "XTE"}, {"fecha_inicio_prevista": "2026-13-01"}, {"fecha_inicio_prevista": "02/11/2026"},
-    {"area_consultora": "Fantasía"}, {"seniority": ["Senior Extremo"]}, {"dias_presenciales": 0}, {"dias_presenciales": 8}, {"nombre_puesto": "x" * 151},
+    {"area_consultora": "Fantasía"}, {"seniority": ["Senior Extremo"]}, {"dias_presenciales": 0}, {"dias_presenciales": 6}, {"dias_presenciales": 8}, {"nombre_puesto": "x" * 151},
     {"responsabilidades": "x" * 4001}, {"nombre_puesto": 123}, {"seniority": [3]},
 ])
 def test_invalid_values_are_rejected_before_anything_is_written(over):

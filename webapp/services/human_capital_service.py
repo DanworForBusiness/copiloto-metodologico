@@ -700,6 +700,7 @@ DEDICACION_UNIDADES = {
 }
 CANTIDAD_RECURSOS_MAX = 99
 _MODALIDADES_PRESENCIALES = ("Híbrido", "On site")
+DIAS_PRESENCIALES_HIBRIDO_MAX = 5
 _TEXT_SHORT = 200
 _TEXT_LONG = 4000
 _MOTIVO_MAX = 1000
@@ -803,8 +804,10 @@ def _shape_requerimiento(fields: dict, *, existing: dict | None = None, check_ca
         raise ValueError(f"Modalidad inválida. Elegí: {', '.join(busqueda_repository.MODALIDADES)}.")
     presencialidad = None
     if modalidad in _MODALIDADES_PRESENCIALES:
+        # Híbrido: 1 a 5 días presenciales + lugar. On site: solo lugar (los días no se exigen ni se guardan).
+        dias = _req_int(fields.get("dias_presenciales"), "La cantidad de días presenciales", lo=1, hi=DIAS_PRESENCIALES_HIBRIDO_MAX)             if modalidad == "Híbrido" else None
         presencialidad = {
-            "dias": _req_int(fields.get("dias_presenciales"), "La cantidad de días presenciales", lo=1, hi=7),
+            "dias": dias,
             "lugar": _req_text(fields, "lugar_trabajo", "el lugar exacto de trabajo", required=True),
         }
     seniority = _req_seniority(fields.get("seniority"), list(existing.get("seniority") or []), check_catalogs=check_catalogs)
