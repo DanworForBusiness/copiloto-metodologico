@@ -279,14 +279,51 @@ def test_taking_from_new_process_reuses_the_same_busqueda_without_creating_anoth
     assert _available_ids(c.get("/cchh/busquedas/nueva").text) == [] and SID in _active_ids()               # desaparece de disponibles y figura en Procesos activos
 
 
-def test_taking_an_already_taken_request_reports_the_conflict_and_refreshes_the_list():
+BROWSER = {**ORIGIN, "Accept": "text/html,application/xhtml+xml"}
+
+
+def test_conflict_taking_from_new_process_follows_post_redirect_get_and_shows_the_refreshed_list():
     send(SID, nombre_puesto="Primera"); send(SID2, nombre_puesto="Segunda")
     stale = rev(SID)
     svc.take_solicitud(SID, stale, CCHH_EMAIL)                                                              # otra persona la tomó mientras tanto
-    r = cchh().post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": str(stale), "desde": "nuevo"}, headers=ORIGIN)
-    assert r.status_code == 409 and "data-solicitud-conflict" in r.text and "ya fue tomada" in r.text
-    assert _available_ids(r.text) == [SID2]                                                                 # lista actualizada: sin la tomada
-    assert len(files()) == 2 and doc()["solicitud"]["estado"] == "en_gestion"
+    c = cchh()
+    r = c.post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": str(stale), "desde": "nuevo"}, headers=BROWSER)
+    assert r.status_code == 303 and r.headers["location"] == "/cchh/busquedas/nueva?aviso=tomada"          # el navegador NO queda en la URL del POST
+    page = c.get(r.headers["location"])                                                                     # el aviso y la lista actualizada salen de un GET
+    assert page.status_code == 200 and "data-solicitud-conflict" in page.text and "ya fue tomada" in page.text and _available_ids(page.text) == [SID2]
+    assert len(files()) == 2 and doc()["solicitud"]["estado"] == "en_gestion"                               # la protección por revisión se mantiene: no hubo segunda toma ni duplicados
+
+
+def test_non_html_consumers_get_the_conflict_status_and_message_instead_of_a_redirect():
+    send()
+    stale = rev()
+    svc.take_solicitud(SID, stale, CCHH_EMAIL)
+    r = cchh().post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": str(stale), "desde": "nuevo"}, headers={**ORIGIN, "Accept": "application/json"})
+    assert r.status_code == 409 and "location" not in r.headers and "ya fue tomada" in r.json()["detail"]
+    other = cchh().post(f"/cchh/busquedas/{SID}/solicitar-correccion", data={"expected_revision": str(stale), "motivo": "x"}, headers={**ORIGIN, "Accept": "application/json"})
+    assert other.status_code == 409 and "cambió" in other.json()["detail"] and doc()["solicitud"]["estado"] == "en_gestion"
+
+
+def test_conflict_from_the_detail_screen_also_redirects_and_storage_errors_follow_the_same_pattern(monkeypatch):
+    send()
+    stale = rev()
+    svc.edit_solicitud(SID, stale, req(comentarios="otro"), OPS_A)                                          # Operaciones editó: revisión vieja
+    c = cchh()
+    r = c.post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": str(stale)}, headers=BROWSER)
+    assert r.status_code == 303 and r.headers["location"] == f"/cchh/busquedas/{SID}?aviso=cambio"
+    page = c.get(r.headers["location"])
+    assert page.status_code == 200 and "cambió desde que abriste la pantalla" in page.text and doc()["solicitud"]["estado"] == "enviada"
+    monkeypatch.setattr(svc, "take_solicitud", lambda *a, **k: (_ for _ in ()).throw(repo.BusquedaStorageError("x /secreto")))
+    err = c.post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": str(rev()), "desde": "nuevo"}, headers=BROWSER)
+    assert err.status_code == 303 and err.headers["location"] == "/cchh/busquedas/nueva?aviso=error"
+    assert "No pudimos guardar el cambio" in c.get(err.headers["location"]).text and "secreto" not in err.text
+
+
+def test_the_notice_comes_from_a_whitelist_never_from_free_text_in_the_url():
+    send()
+    page = cchh().get("/cchh/busquedas/nueva", params={"aviso": "<script>alert(1)</script>"}).text
+    assert "data-solicitud-conflict" not in page and "<script>alert(1)</script>" not in page
+    assert "data-solicitud-conflict" not in cchh().get("/cchh/busquedas/nueva").text                         # sin aviso: sin banner
 
 
 def test_two_people_taking_the_same_request_never_duplicate_anything():
@@ -315,11 +352,15 @@ def test_manual_creation_still_works_and_the_checkbox_is_clarified():
     c = cchh()
     html = c.get("/cchh/busquedas/nueva").text
     assert "por otros medios" in html and "No lo vincula con una solicitud digital" in html and 'name="pedido_formal_recibido"' in html
+    assert "tomalo desde «Solicitudes disponibles para tomar»" in html                                       # en el alta la ayuda remite a la sección que existe ahí
+    direct = svc.create_busqueda({"nombre_puesto": "Directa", "fecha_apertura": "2026-09-01", "area_consultora": "SAP"}, actor=CCHH_EMAIL)
+    edit = c.get(f"/cchh/busquedas/{direct['busqueda_id']}/editar").text
+    assert "por otros medios" in edit and "No lo vincula con una solicitud digital" in edit and "Solicitudes disponibles para tomar" not in edit      # en edición no menciona una sección que no está
     r = c.post("/cchh/busquedas/nueva", data={"nombre_puesto": "Manual urgente", "fecha_apertura": "2026-10-01", "area_consultora": "SAP", "pedido_formal_recibido": "on"})
     assert r.status_code == 303
     created = [b for b in svc.list_busquedas() if b["nombre_puesto"] == "Manual urgente"]
     assert len(created) == 1 and "solicitud" not in created[0] and created[0]["estado"] == "activo"          # búsqueda común, sin vínculo con ninguna solicitud
-    assert doc(SID)["solicitud"]["estado"] == "enviada" and len(files()) == 2
+    assert doc(SID)["solicitud"]["estado"] == "enviada" and len(files()) == 3        # solicitud + proceso manual + alta directa del chequeo de edición
 
 
 def test_new_process_screen_survives_a_read_error_and_edit_has_no_available_list(monkeypatch):

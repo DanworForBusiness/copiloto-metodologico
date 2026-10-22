@@ -149,7 +149,11 @@
            hermano adyacente, envueltos en `.chart-tooltip-anchor` para anclar la
            caja. Cero SVG/CSS propio de CCHH. Copy en `aria-label` (accesible en
            hover y foco de teclado). #}
+        {% if is_edit %}
+        {% set _formal_help = "Tildalo si Operaciones ya formalizó el requerimiento por otro medio (mail, reunión, etc.), fuera del Hub. No lo vincula con una solicitud digital. Si todavía no llegó, podés tildarlo después." %}
+        {% else %}
         {% set _formal_help = "Tildalo si Operaciones ya formalizó el requerimiento por otro medio (mail, reunión, etc.), fuera del Hub. No lo vincula con una solicitud digital: si el pedido se envió desde Operaciones, tomalo desde «Solicitudes disponibles para tomar». Si todavía no llegó, podés crear el proceso igual y tildarlo después." %}
+        {% endif %}
         <label class="dashboard-checkbox-option hc-busqueda-formal">
           <input type="checkbox" name="pedido_formal_recibido" {% if form_values.pedido_formal_recibido %}checked{% endif %}>
           <span class="hc-busqueda-formal__text">

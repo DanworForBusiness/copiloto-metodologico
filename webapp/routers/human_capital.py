@@ -1216,6 +1216,13 @@ _MSG_SOLICITUD_CONCURRENT = "La solicitud cambió desde que abriste la pantalla 
 _MSG_SOLICITUD_STORAGE = "No pudimos guardar el cambio en este momento. Reintentá en unos minutos."
 _MSG_SOLICITUD_TAKEN = "Esa solicitud ya fue tomada por otra persona o cambió (por ejemplo, Operaciones la editó o la canceló). Actualizamos la lista de solicitudes disponibles."
 _MSG_SOLICITUD_SOURCE = "No pudimos leer las solicitudes en este momento. Reintentá en unos minutos."
+# Post/Redirect/Get: ante un conflicto/error de persistencia al tomar o pedir corrección, un navegador (Accept: text/html) recibe 303 hacia la pantalla con `?aviso=<clave>` (lista blanca; nunca texto libre
+# en la URL) y el aviso se muestra en un GET; un consumidor NO HTML recibe el 409/503 con el mensaje (`HTTPException`, JSON).
+_SOLICITUD_AVISOS = {"tomada": _MSG_SOLICITUD_TAKEN, "cambio": _MSG_SOLICITUD_CONCURRENT, "error": _MSG_SOLICITUD_STORAGE}
+
+
+def _wants_html(request: Request) -> bool:
+    return "text/html" in (request.headers.get("accept") or "")
 
 
 def _solicitud_badge(view: dict) -> tuple[str, str]:
@@ -1368,7 +1375,7 @@ def human_capital_busquedas_page(request: Request, atencion: str = Query("todas"
 
 
 @router.get("/cchh/busquedas/nueva", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_busqueda_new_page(request: Request):
+def human_capital_busqueda_new_page(request: Request, aviso: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
@@ -1376,7 +1383,7 @@ def human_capital_busqueda_new_page(request: Request):
     return templates.TemplateResponse(
         request=request, name="human_capital/busqueda_form.html",
         context=_busqueda_shell(request, _busqueda_form_context(
-            form_values={"fecha_apertura": today, "pedido_formal_recibido": False}, is_edit=False)),
+            form_values={"fecha_apertura": today, "pedido_formal_recibido": False}, is_edit=False, solicitud_conflict=_SOLICITUD_AVISOS.get(aviso))),
     )
 
 
@@ -1481,7 +1488,7 @@ def human_capital_busqueda_edit_submit(
 
 
 @router.get("/cchh/busquedas/{busqueda_id}", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_busqueda_detail_page(request: Request, busqueda_id: str, ok: str = Query("")):
+def human_capital_busqueda_detail_page(request: Request, busqueda_id: str, ok: str = Query(""), aviso: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
@@ -1490,7 +1497,7 @@ def human_capital_busqueda_detail_page(request: Request, busqueda_id: str, ok: s
         raise HTTPException(404, "Búsqueda no encontrada")
     return templates.TemplateResponse(
         request=request, name="human_capital/busqueda_detail.html",
-        context=_busqueda_shell(request, {**_busqueda_detail_context(busqueda), "solicitud_ok": _SOLICITUD_OK.get(ok)}),
+        context=_busqueda_shell(request, {**_busqueda_detail_context(busqueda), "solicitud_ok": _SOLICITUD_OK.get(ok), "solicitud_error": _SOLICITUD_AVISOS.get(aviso)}),
     )
 
 
@@ -1592,13 +1599,11 @@ async def _solicitud_transition(request: Request, busqueda_id: str, action: str)
     except ValueError:
         raise HTTPException(400, "expected_revision inválido") from None
 
-    def _fail(message: str, status_code: int):
-        if desde_nuevo:                                                        # informa el conflicto y muestra la lista ya actualizada
-            return templates.TemplateResponse(
-                request=request, name="human_capital/busqueda_form.html", status_code=status_code,
-                context=_busqueda_shell(request, _busqueda_form_context(
-                    form_values={"fecha_apertura": datetime.now().date().isoformat(), "pedido_formal_recibido": False}, is_edit=False, solicitud_conflict=message)))
-        return _solicitud_error_page(request, busqueda_id, message, status_code)
+    def _fail(aviso: str, status_code: int):
+        if not _wants_html(request):                                           # consumidor no HTML: la respuesta de conflicto/error apropiada (409/503 + mensaje)
+            raise HTTPException(status_code, _SOLICITUD_AVISOS[aviso])
+        target = "/cchh/busquedas/nueva" if desde_nuevo else f"/cchh/busquedas/{busqueda_id}"
+        return RedirectResponse(url=f"{target}?aviso={aviso}", status_code=303)    # PRG: el aviso y la lista actualizada salen de un GET
 
     try:
         if action == "tomar":
@@ -1608,9 +1613,9 @@ async def _solicitud_transition(request: Request, busqueda_id: str, action: str)
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
     except (busqueda_repository.BusquedaConcurrentModificationError, *_BUSQUEDA_SOLICITUD_ERRORS):
-        return _fail(_MSG_SOLICITUD_TAKEN if desde_nuevo else _MSG_SOLICITUD_CONCURRENT, 409)
+        return _fail("tomada" if desde_nuevo else "cambio", 409)
     except _BUSQUEDA_SHELL_ERRORS:
-        return _fail(_MSG_SOLICITUD_STORAGE, 503)
+        return _fail("error", 503)
     except ValueError as exc:                                                  # motivo obligatorio al solicitar corrección
         return _solicitud_error_page(request, busqueda_id, str(exc), 422)
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?ok={'tomada' if action == 'tomar' else 'correccion'}", status_code=303)
