@@ -93,7 +93,7 @@ def test_a_sent_request_shows_the_structured_requirement_and_only_take_or_reques
     for fragment in ("Consultor SAP FI", "Migración S/4", "SSR, SR", "40 · Horas por semana", "Oficina del cliente, CABA", "Configurar FI.", "Intermedio", "Full-Time", "Historial"):
         assert fragment in html, fragment
     assert "Tomar en gestión" in html and "Solicitar corrección" in html and f'action="/cchh/busquedas/{SID}/tomar"' in html
-    assert 'data-solicitud-badge>Enviada<' in html and "status-badge--activo" not in html.split("data-solicitud-badge")[0].split("busqueda-status-row")[-1]      # no se rotula «Activo» una solicitud pendiente
+    assert 'data-solicitud-badge>Pendiente<' in html and "status-badge--activo" not in html.split("data-solicitud-badge")[0].split("busqueda-status-row")[-1]      # no se rotula «Activo» una solicitud pendiente
     for hidden in ("+ Agregar candidato", "Cerrar proceso", "busqueda-add-dialog", "busqueda-close-dialog", "busqueda-pipeline-bar", ">Editar<"):
         assert hidden not in html, hidden
 
@@ -293,6 +293,41 @@ def test_the_take_shortcut_is_the_same_icon_action_in_the_landing_and_in_new_pro
     revision = re.search(r'name="expected_revision" value="(\d+)"', body).group(1)
     r = cchh().post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": revision}, headers=ORIGIN)       # el atajo del landing = la misma acción
     assert r.status_code == 303 and r.headers["location"] == f"/cchh/busquedas/{SID}?ok=tomada" and doc()["solicitud"]["estado"] == "en_gestion"
+
+
+def _chips(html: str) -> dict:
+    return {k: (label.strip(), int(n)) for k, label, n in re.findall(r'data-solicitud-filtro="(\w+)"[^>]*>\s*([^<]*?) · (\d+)</button>', html, re.S)}
+
+
+def test_indicator_semantics_pending_is_received_demand_never_a_managed_or_cchh_sent_search_taken_and_processed_leave_the_inbox():
+    ops_state = lambda: re.search(r'data-indicador="(\w+)"', ops().get(f"/operaciones/busquedas/{SID}").text).group(1)   # noqa: E731  (semántica propia de Operaciones)
+    inbox = lambda: cchh().get("/cchh/solicitudes", headers=HX).text                                                      # noqa: E731
+    # 1) PENDIENTE: demanda recibida (Por atender ⊃ Pendientes); no se llama «Enviada» en CCHH y NO es una búsqueda gestionada
+    send(SID)
+    html = inbox()
+    assert _chips(html) == {"recibidas": ("Por atender", 1), "enviadas": ("Pendientes", 1), "observadas": ("Observadas", 0), "canceladas": ("Canceladas", 0)}
+    assert "Enviadas" not in html and ">Enviada<" not in html and ">Pendiente<" in html and 'title="Demanda abierta: Pendientes + Observadas"' in html
+    assert SID not in [b["busqueda_id"] for b in svc.list_busquedas_gestionadas()] and svc.resumen_solicitudes()["pendiente"] == 1 and svc.resumen_solicitudes()["gestionada"] == 0
+    assert 'data-solicitud-badge>Pendiente<' in cchh().get(f"/cchh/busquedas/{SID}").text
+    assert ops_state() == "nueva"                                                                                          # Operaciones conserva su vocabulario («Nueva»)
+    # 2) TOMADA: sale de la bandeja (demanda atendida) y pasa a la población gestionada
+    svc.take_solicitud(SID, rev(), CCHH_EMAIL)
+    assert _chips(inbox()) == {"recibidas": ("Por atender", 0), "enviadas": ("Pendientes", 0), "observadas": ("Observadas", 0), "canceladas": ("Canceladas", 0)}
+    assert SID in [b["busqueda_id"] for b in svc.list_busquedas_gestionadas()] and svc.resumen_solicitudes()["gestionada"] == 1 and svc.resumen_solicitudes()["pendiente"] == 0
+    assert ops_state() == "en_gestion"
+    # 3) PROCESADA (proceso cerrado): sigue gestionada, jamás reaparece como pendiente
+    svc.close_busqueda(SID)
+    assert _chips(inbox())["recibidas"] == ("Por atender", 0) and _chips(inbox())["enviadas"] == ("Pendientes", 0)
+    assert [b["estado"] for b in svc.list_busquedas_gestionadas() if b["busqueda_id"] == SID] == ["cerrado"] and ops_state() == "cerrada"
+
+
+def test_an_observed_request_is_open_demand_but_not_pending_and_a_resubmission_is_pending_again():
+    send(SID)
+    svc.observe_solicitud(SID, rev(), "Falta el proyecto", CCHH_EMAIL)
+    assert _chips(cchh().get("/cchh/solicitudes", headers=HX).text) == {"recibidas": ("Por atender", 1), "enviadas": ("Pendientes", 0), "observadas": ("Observadas", 1), "canceladas": ("Canceladas", 0)}
+    svc.resubmit_solicitud(SID, rev(), req(comentarios="corregido"), OPS_A)
+    html = cchh().get("/cchh/solicitudes", headers=HX).text
+    assert _chips(html) == {"recibidas": ("Por atender", 1), "enviadas": ("Pendientes", 1), "observadas": ("Observadas", 0), "canceladas": ("Canceladas", 0)} and ">Reenviada<" in html
 
 
 def test_taking_from_new_process_reuses_the_same_busqueda_without_creating_another():

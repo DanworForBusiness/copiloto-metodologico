@@ -14,8 +14,8 @@
     </summary>
     <div class="dashboard-section__body">
       <div class="dashboard-view-switch busqueda-atencion" role="group" aria-label="Filtrar solicitudes recibidas">
-        {% for key, label in (("recibidas", "Por atender"), ("enviadas", "Enviadas"), ("observadas", "Observadas"), ("canceladas", "Canceladas")) %}
-        <button type="button" class="{{ 'is-active' if solicitud_filtro == key else '' }}" data-solicitud-filtro="{{ key }}"
+        {% for key, label in (("recibidas", "Por atender"), ("enviadas", "Pendientes"), ("observadas", "Observadas"), ("canceladas", "Canceladas")) %}
+        <button type="button" class="{{ 'is-active' if solicitud_filtro == key else '' }}" data-solicitud-filtro="{{ key }}"{% if key == 'recibidas' %} title="Demanda abierta: Pendientes + Observadas"{% endif %}
                 hx-get="/cchh/solicitudes?solicitud={{ key }}" hx-target="#hc-solicitudes-panel" hx-swap="outerHTML">{{ label }} · {{ solicitud_counts[key] }}</button>
         {% endfor %}
       </div>

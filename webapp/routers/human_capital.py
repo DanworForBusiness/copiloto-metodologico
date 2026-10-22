@@ -1273,7 +1273,9 @@ def _wants_html(request: Request) -> bool:
 
 
 def _solicitud_badge(view: dict) -> tuple[str, str]:
-    """(rótulo, tono del `.status-badge` del Hub). Derivado del contrato de I1; sin estados nuevos."""
+    """(rótulo, tono del `.status-badge` del Hub). Derivado del contrato de I1; sin estados nuevos. Vocabulario de CAPITAL HUMANO (el de Operaciones es otro y no se toca: allí «Nueva/Reenviada»):
+    el estado interno `enviada` es «enviada POR Operaciones», una solicitud RECIBIDA y pendiente de que CCHH la tome; se rotula «Pendiente» (la misma categoría `pendiente` de `solicitud_categoria`),
+    nunca «Enviada», que en CCHH sugeriría una búsqueda enviada/gestionada por Capital Humano."""
     estado = view.get("estado_solicitud")
     if estado == busqueda_repository.SOLICITUD_CANCELADA:
         return "Cancelada", "inactivo"
@@ -1281,7 +1283,7 @@ def _solicitud_badge(view: dict) -> tuple[str, str]:
         return "Observada", "tentativo"
     if estado == busqueda_repository.SOLICITUD_EN_GESTION:
         return "En gestión", "activo"
-    return ("Reenviada" if view.get("reenviada") else "Enviada"), "otro"
+    return ("Reenviada" if view.get("reenviada") else "Pendiente"), "otro"
 
 
 def _solicitud_recepcion_key(r: dict) -> tuple[str, str, str]:
@@ -1315,6 +1317,9 @@ def _solicitudes_context(filtro: str = "recibidas", page=1, page_size=None) -> d
         source_error = _MSG_SOLICITUD_SOURCE
     for r in rows:
         r["badge_label"], r["badge_tone"] = _solicitud_badge(r)
+    # POBLACIÓN de cada indicador (todas son DEMANDA RECIBIDA, ninguna es un proceso gestionado por CCHH: al tomarla sale de esta bandeja y pasa a «Procesos activos»):
+    #   «Pendientes» (clave `enviadas`) = estado `enviada` (nuevas + reenviadas): esperan que CCHH las tome u observe;  «Observadas» = esperan la corrección de Operaciones;
+    #   «Por atender» (clave `recibidas`) = Pendientes + Observadas: la demanda abierta, por eso INCLUYE a las otras dos (no es un doble conteo, es la unión);  «Canceladas» = solo consulta.
     by = {k: [r for r in rows if r["estado_solicitud"] == k] for k in ("enviada", "observada", "cancelada")}
     counts = {"enviadas": len(by["enviada"]), "observadas": len(by["observada"]), "canceladas": len(by["cancelada"])}
     counts["recibidas"] = counts["enviadas"] + counts["observadas"]
