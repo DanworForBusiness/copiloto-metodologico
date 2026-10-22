@@ -61,6 +61,5 @@
     </div>
   </details>
 
-  <details class="dashboard-section" data-section-id="historial" data-persist-collapse open data-historial>
-    <summary class="dashboard-section__head" draggable="true">
-      <span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span>  {% if not hide_historial %}{% include "partials/human_capital_historial_section.html" %}{% endif %}
+  {% include "partials/human_capital_historial_section.html" %}
+</div>

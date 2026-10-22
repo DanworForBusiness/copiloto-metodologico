@@ -94,12 +94,11 @@
 </div>
 
 {% if busqueda.estado == 'activo' %}
-{# Historial del proceso (solicitud + movimientos de candidatos): UNA tabla, dentro del cuerpo que se re-renderiza tras cada mutación. Solo para procesos gestionados (con pipeline). #}
-{% if solicitud_gestion and busqueda_historial and busqueda_historial.historial %}
-<div class="dashboard-sections" data-dashboard-key="cchh-proceso-historial">
-  {% set view = busqueda_historial %}
-  {% include "partials/human_capital_historial_section.html" %}
-</div>
+{# El Historial NO vive acá: está en su lugar de siempre, al final de la pantalla (una sola tabla). Cuando este cuerpo se devuelve como fragmento HTMX tras una mutación, se lo reenvía además FUERA DE BANDA
+   (`oob_historial`) para reemplazar esa tabla por id y que muestre al instante el movimiento recién registrado. En el render completo de la página no se emite. #}
+{% if oob_historial and solicitud_gestion %}
+{% set view = busqueda_historial %}
+{% include "partials/human_capital_historial_section.html" %}
 {% endif %}
 
 {# Modal: Agregar candidato desde el Banco de CVs (sólo disponibles = sin

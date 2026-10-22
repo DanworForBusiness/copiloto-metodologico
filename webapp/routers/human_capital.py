@@ -1569,7 +1569,7 @@ def _busqueda_detail_body(request, busqueda_id: str):
         raise HTTPException(404, "Búsqueda no encontrada")
     return templates.TemplateResponse(
         request=request, name="partials/human_capital_busqueda_detail_body.html",
-        context={"request": request, **_busqueda_detail_context(busqueda)},
+        context={"request": request, **_busqueda_detail_context(busqueda), "oob_historial": True},
     )
 
 

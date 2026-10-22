@@ -144,6 +144,39 @@ def test_events_keep_chronological_order_and_the_table_lists_the_newest_first(bi
 
 
 # ═══════════════════ contratos que no cambian ═══════════════════
+def test_there_is_a_single_history_table_in_its_usual_place_and_htmx_mutations_refresh_it_out_of_band(bid):
+    c = session_client(CCHH_EMAIL)
+    page = c.get(f"/cchh/busquedas/{bid}").text
+    assert page.count('data-section-id="historial"') == 1 and "hx-swap-oob" not in page                          # una sola tabla; el render completo no emite el fragmento fuera de banda
+    pipeline, historial = page.index('id="busqueda-detail-body"'), page.index('id="busqueda-historial"')
+    assert historial > pipeline                                                                                      # sigue DEBAJO del pipeline (no se subió)
+    if "Perfil</span>" in page:                                                                                      # con solicitud: al final de las secciones del requerimiento (su lugar de siempre)
+        assert historial > page.index("Contratación</span>")
+    from html.parser import HTMLParser
+
+    class Depth(HTMLParser):                                                                                          # el Historial es UN colapsable de primer nivel, nunca anidado dentro de otro
+        def __init__(self):
+            super().__init__()
+            self.depth, self.at_historial = 0, None
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "details":
+                if dict(attrs).get("id") == "busqueda-historial":
+                    self.at_historial = self.depth
+                self.depth += 1
+
+        def handle_endtag(self, tag):
+            if tag == "details":
+                self.depth -= 1
+    d = Depth()
+    d.feed(page)
+    assert d.at_historial == 0 and d.depth == 0
+    pid = _profile()
+    r = c.post(f"/cchh/busquedas/{bid}/candidatos", data={"profile_id": pid}, headers={**ORIGIN, "HX-Request": "true"})
+    assert r.status_code == 200 and "data-detail-fragment" not in r.text
+    assert r.text.count('id="busqueda-historial"') == 1 and 'hx-swap-oob="true"' in r.text and "Ana Pérez → Preselección" in r.text and "Candidato asociado" in r.text   # tabla actualizada al instante
+
+
 def test_solicitud_transitions_stay_intact_and_candidate_events_never_reach_operaciones():
     bid = _taken()
     c = session_client(CCHH_EMAIL)

@@ -117,8 +117,13 @@
     {% if solicitud %}
     {# Requerimiento original de Operaciones (REG-CH-01): sigue consultable una vez tomada la solicitud, debajo del pipeline. #}
     {% set view = solicitud %}
-    {% set hide_historial = true %}{# el historial (con los movimientos de candidatos) ya va dentro del cuerpo del pipeline, que se actualiza tras cada mutación #}
     {% include "partials/solicitud_requerimiento_sections.html" %}
+    {% else %}
+    {# Proceso de alta directa de CCHH (sin solicitud): su historial de movimientos de candidatos va al final, MISMA tabla y posición que en los procesos con solicitud. #}
+    <div class="dashboard-sections" data-dashboard-key="cchh-proceso-historial">
+      {% set view = busqueda_historial %}
+      {% include "partials/human_capital_historial_section.html" %}
+    </div>
     {% endif %}
     {% endif %}
   </main>
