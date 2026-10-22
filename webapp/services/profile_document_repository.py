@@ -119,6 +119,26 @@ class ProfileDocumentDeleteOutcomeUnknownError(Exception):
     remota primero."""
 
 
+def _persistence_mode() -> str:
+    """Modo de persistencia EXPLÍCITO (`DANWOR_PERSISTENCE`, ver config.py): nunca se infiere de credenciales ni de `remote_store.enabled()`. MISMO criterio que
+    `profile_repository`."""
+    return str(getattr(config, "PERSISTENCE_MODE", "local"))
+
+
+def _local_only() -> bool:
+    """`local`: la fuente de verdad es el disco (escritura atómica / unlink). NO se requiere ni se intenta ninguna operación contra Spaces (ni push, ni delete_path),
+    aunque haya credenciales en el entorno. `remote` conserva íntegro su contrato de confirmación y compensación."""
+    return _persistence_mode() == "local"
+
+
+def _require_writable_mode() -> None:
+    """`read-only` NO habilita escrituras de negocio: se rechaza ANTES de tocar el disco (sin efectos parciales) con el mismo error determinístico de "no configurado"."""
+    if _persistence_mode() == "read-only":
+        raise ProfileDocumentConfigIncompleteError(
+            "El almacenamiento de documentos está en modo de solo lectura en este entorno: no se pueden guardar cambios."
+        )
+
+
 def _document_delete_orphan_cleanup(path: Path) -> None:
     """Best-effort: intenta limpiar un objeto remoto huérfano (de un
     `delete()` previo que haya confirmado el borrado remoto pero se haya
@@ -275,7 +295,10 @@ def _create_locked(document_id: str, document: dict) -> dict:
         **document,
     }
     path = _document_path(document_id)
+    _require_writable_mode()
     _write_atomic(path, payload)
+    if _local_only():
+        return payload                                   # `local`: escritura física local atómica; sin sincronización con Spaces
     if remote_store.push_path(path):
         return payload
     if not remote_store.enabled():
@@ -343,9 +366,11 @@ def delete(document_id: str) -> bool:
     with _write_lock:
         path = _document_path(document_id)
         if not path.exists():
-            _document_delete_orphan_cleanup(path)
+            if not _local_only():                        # `local`: no hay objeto remoto que limpiar ni se contacta a Spaces
+                _document_delete_orphan_cleanup(path)
             return False
-        if remote_store.enabled():
+        _require_writable_mode()                         # `read-only`: ni borrado local ni remoto (sin efectos parciales)
+        if not _local_only() and remote_store.enabled():
             if not remote_store.delete_path(path):
                 if not remote_store.delete_path(path):
                     raise ProfileDocumentDeleteOutcomeUnknownError(

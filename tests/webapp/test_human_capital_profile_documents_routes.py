@@ -51,6 +51,7 @@ def _authorized_and_isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
     monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "")
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "remote")     # estos tests simulan fallos/confirmaciones de Spaces: ejercitan el contrato REMOTE (el modo es explícito)
     monkeypatch.setattr(config, "HC_SHAREPOINT_SITE_ID", "site-1")
     monkeypatch.setattr(config, "HC_SHAREPOINT_DRIVE_ID", "drive-1")
     monkeypatch.setattr(config, "HC_CV_ROOT_ITEM_ID", "root-1")
