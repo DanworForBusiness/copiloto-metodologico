@@ -193,6 +193,7 @@ def _profiles_panel_context(*, query: dict | None = None, page=1, page_size=None
         "total_profiles": pager["total"],
         "pager": pager,
         "dataset_has_any_profiles": bool(all_profiles),
+        "doc_counts": profile_document_service.count_documents_by_profile(),
         "source_error": source_error,
         "config_incomplete": False,
         "valid_sources": human_capital_catalog_repository.catalog_values("fuente"),
@@ -659,6 +660,8 @@ def human_capital_profile_delete(
     q: str = Form(""), seniority: str = Form(""), source: str = Form(""),
     location: str = Form(""), potential_mark: str = Form(""),
     page: str = Form(""), page_size: str = Form(""),
+    # Solo con documentos activos: el diálogo contextual ofrece (desmarcado) «Eliminar también los documentos de SharePoint». Sin la casilla, el contrato de la baja NO cambia.
+    delete_documents: str = Form(""), graph_token: str = Form(""),
 ):
     """Borrado LÓGICO del candidato — UNA sola operación de servicio
     (`soft_delete_profile`), compartida por los dos puntos de entrada de UI
@@ -672,6 +675,27 @@ def human_capital_profile_delete(
     user = auth_service.session_user(request)
     actor = (user or {}).get("sub") or ""
     delete_error: str | None = None
+    if (delete_documents or "").strip().lower() in ("1", "true", "on", "yes"):
+        # Flujo CONTROLADO con eliminación física: (1) documentos en SharePoint (cada uno confirmado antes de su metadata) y carpeta solo si quedó vacía; (2) recién entonces la baja lógica.
+        # Si algo no se confirma, el candidato NO se da de baja y nunca se informa una eliminación física no confirmada. El reintento es idempotente (solo procesa lo que queda).
+        profile = human_capital_service.get_profile(profile_id)
+        if profile is not None:
+            if not graph_token:
+                return _render_profile_edit_with_documents(request, profile_id, profile, document_state={
+                    "kind": "GRAPH_PERMISSION_DENIED",
+                    "message": "No pudimos obtener autorización de Microsoft 365 para borrar los documentos. El candidato NO fue dado de baja. Volvé a iniciar sesión."})
+            try:
+                profile_document_service.delete_profile_documents(profile_id=profile_id, access_token=graph_token)
+            except profile_document_service.ProfileDocumentConfigIncompleteError as exc:
+                return _render_profile_edit_with_documents(request, profile_id, profile, document_state={"kind": "CONFIG_INCOMPLETE", "message": f"{exc} El candidato NO fue dado de baja."})
+            except profile_document_service.ProfileDocumentsBulkDeleteIncompleteError as exc:
+                kind = {"permission": "GRAPH_PERMISSION_DENIED", "graph": "GRAPH_SOURCE_ERROR"}.get(exc.kind, "DELETE_OUTCOME_UNKNOWN")
+                return _render_profile_edit_with_documents(request, profile_id, profile, document_state={
+                    "kind": kind,
+                    "message": f"{exc} Se eliminaron {exc.deleted} documento(s) y quedan {exc.remaining} sin confirmar. El candidato NO fue dado de baja: podés reintentar."})
+            except profile_document_repository.ProfileDocumentStorageError:
+                return _render_profile_edit_with_documents(request, profile_id, profile, document_state={
+                    "kind": "GRAPH_SOURCE_ERROR", "message": "No pudimos leer los documentos del candidato. No se cambió nada: probá de nuevo en unos minutos."})
     try:
         human_capital_service.soft_delete_profile(profile_id, actor)
     except ProfileNotFoundError:
@@ -1099,7 +1123,7 @@ async def human_capital_profile_documents_delete(
         )
     try:
         profile_document_service.delete_document(
-            profile_id=profile_id, document_id=document_id, access_token=graph_token,
+            profile_id=profile_id, document_id=document_id, access_token=graph_token, remove_empty_folder=True,
         )
     except profile_document_service.ProfileDocumentNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc

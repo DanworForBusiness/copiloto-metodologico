@@ -254,6 +254,29 @@ def list_for_profile(profile_id: str) -> list[dict]:
     return documents
 
 
+def count_by_profile() -> dict[str, int]:
+    """Cantidad de documentos activos por `profile_id` (UNA pasada por el directorio, mismo criterio fail-soft que `list_for_profile`). Solo lectura."""
+    _ensure_restored()
+    directory = _documents_dir()
+    counts: dict[str, int] = {}
+    if not directory.exists():
+        return counts
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError as exc:
+        raise ProfileDocumentStorageError(f"No se pudo listar los documentos: {exc}") from exc
+    for entry in entries:
+        if not entry.is_file() or entry.suffix != ".json":
+            continue
+        try:
+            payload = json.loads(entry.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(payload, dict) and payload.get("profile_id"):
+            counts[payload["profile_id"]] = counts.get(payload["profile_id"], 0) + 1
+    return counts
+
+
 def find_by_folder_item_id(folder_item_id: str) -> list[dict]:
     """Documentos (de CUALQUIER candidato) que referencian esta carpeta de SharePoint por `folder_item_id`. Lo usa el uploader para no reutilizar una carpeta que ya pertenece a OTRO candidato.
     Mismo criterio fail-soft que `list_for_profile`: un archivo corrupto se saltea."""

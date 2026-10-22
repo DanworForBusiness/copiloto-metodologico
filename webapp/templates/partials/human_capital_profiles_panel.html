@@ -242,16 +242,26 @@
                  (el candidato desaparece, el conteo se recalcula, los filtros
                  se conservan vía hx-include del form de filtros). Confirmación
                  vía el diálogo compartido (data-dw-confirm -> htmx:confirm). #}
+              {% if doc_counts.get(profile.profile_id) %}
+              {# CON documentos activos: diálogo contextual (casilla desmarcada «Eliminar también los documentos de SharePoint»), POST full-page. #}
+              <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" data-hc-baja-open data-hc-baja-return data-dialog-open="hc-baja-dialog"
+                      data-action="/cchh/candidatos/{{ profile.profile_id }}/eliminar" data-name="{{ profile.first_name }} {{ profile.last_name }}" data-count="{{ doc_counts.get(profile.profile_id) }}"
+                      aria-label="Dar de baja al candidato">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                <span class="chart-tooltip" aria-hidden="true"><p>Dar de baja</p></span>
+              </button>
+              {% else %}
               <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor"
                       hx-post="/cchh/candidatos/{{ profile.profile_id }}/eliminar"
                       hx-trigger="confirmed"
                       hx-include=".hc-profile-filters" hx-vals='{"page": {{ pager.page }}}' hx-target="#hc-profiles-panel" hx-swap="outerHTML"
                       data-dw-confirm data-dw-confirm-title="Dar de baja al candidato" data-dw-confirm-ok="Dar de baja"
-                      data-dw-confirm-message="¿Querés dar de baja a {{ profile.first_name }} {{ profile.last_name }}?&#10;El candidato dejará de verse en el Hub. Sus documentos (el CV y la carpeta) permanecen en SharePoint y no se eliminan."
+                      data-dw-confirm-message="¿Querés dar de baja a {{ profile.first_name }} {{ profile.last_name }}?&#10;El candidato dejará de verse en el Hub (baja lógica). No tiene documentos cargados."
                       aria-label="Dar de baja al candidato">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
                 <span class="chart-tooltip" aria-hidden="true"><p>Dar de baja</p></span>
               </button>
+              {% endif %}
             </div>
           </td>
         </tr>
@@ -259,6 +269,7 @@
       </tbody>
     </table>
   </div>
+  {% include "partials/human_capital_baja_dialog.html" %}
   {# Paginación estándar CCHH: el MISMO paginador del Hub que «Uso de métricas» (partials/pager.html → `.activity-pager`). Los filtros/búsqueda ya se aplicaron ARRIBA (antes del slice). #}
   {{ render_pager(pager, "#hc-profiles-panel", "Paginación de candidatos", "Candidatos por página") }}
   {% endif %}

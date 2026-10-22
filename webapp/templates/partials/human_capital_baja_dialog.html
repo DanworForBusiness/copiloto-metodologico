@@ -1,0 +1,89 @@
+{# human_capital_baja_dialog.html — diálogo CONTEXTUAL de «Dar de baja al candidato» (solo para candidatos CON documentos activos; sin documentos se conserva el diálogo compartido de siempre).
+   MISMO `<dialog class="dw-confirm busqueda-dialog">` + opener `[data-dialog-open]` del Hub (app.js) que «Cerrar proceso»/«Eliminar solicitud». El opener (`[data-hc-baja-open]`) trae por data-attrs la acción,
+   el nombre y la cantidad de documentos: este diálogo es único por página. La casilla «Eliminar también los documentos de SharePoint» viene DESMARCADA; sin marcarla el POST es exactamente la baja lógica
+   de siempre (los documentos permanecen en SharePoint). Marcada, el navegador obtiene primero el token de escritura de Microsoft 365 (mismo helper que Documentos) y el servidor ejecuta el flujo controlado
+   (documentos → carpeta solo si quedó vacía → baja lógica); si algo no se confirma, el candidato NO se da de baja y se muestra el error. #}
+<dialog class="dw-confirm busqueda-dialog" id="hc-baja-dialog" aria-labelledby="hc-baja-title" data-hc-baja-dialog>
+  <form method="post" action="" data-hc-baja-form>
+    <input type="hidden" name="graph_token" value="">
+    <div class="dw-confirm__body">
+      <h2 class="dw-confirm__title" id="hc-baja-title">Dar de baja al candidato</h2>
+      <p class="dw-confirm__msg" data-hc-baja-msg></p>
+      <div class="feedback-field">
+        <label><input type="checkbox" name="delete_documents" value="true" data-hc-baja-check> Eliminar también los documentos de SharePoint</label>
+        <p class="field-hint">Sin marcar, los documentos permanecen en SharePoint. Marcada, se eliminan de SharePoint (y su carpeta, solo si queda vacía). Esa eliminación no se puede deshacer.</p>
+      </div>
+    </div>
+    <div class="dw-confirm__actions">
+      <button type="submit" formmethod="dialog" class="btn-secondary" value="cancel">Volver</button>
+      <button type="submit" class="btn-danger asr-generate" aria-live="polite" data-hc-baja-submit>
+        <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Dando de baja…</span>
+        <span class="asr-generate__label">Dar de baja</span>
+      </button>
+    </div>
+  </form>
+</dialog>
+<script>
+(function () {
+  if (window.__hcBajaWired) return;       // el panel del listado se re-renderiza por HTMX: un único wiring global
+  window.__hcBajaWired = true;
+  function dialog() { return document.getElementById("hc-baja-dialog"); }
+  function clearBusy(form) {
+    delete form.dataset.hcBusy;
+    delete form.dataset.hcTokenReady;
+    form.removeAttribute("aria-busy");
+    form.querySelectorAll('button[type="submit"]').forEach(function (b) { b.classList.remove("htmx-request"); b.disabled = false; });
+    var note = form.querySelector("[data-hc-baja-error]");
+    if (note) note.remove();
+  }
+  document.addEventListener("click", function (ev) {
+    var opener = ev.target.closest && ev.target.closest("[data-hc-baja-open]");
+    if (!opener) return;
+    var dlg = dialog();
+    if (!dlg || typeof dlg.showModal !== "function") return;
+    var form = dlg.querySelector("[data-hc-baja-form]");
+    clearBusy(form);
+    var action = opener.getAttribute("data-action") || "";
+    if (opener.hasAttribute("data-hc-baja-return")) action += "?return_to=" + encodeURIComponent(location.pathname + location.search);
+    form.setAttribute("action", action);
+    form.querySelector("[data-hc-baja-check]").checked = false;                         // SIEMPRE desmarcada al abrir
+    var n = parseInt(opener.getAttribute("data-count"), 10) || 0;
+    dlg.querySelector("[data-hc-baja-msg]").textContent = "¿Querés dar de baja a " + (opener.getAttribute("data-name") || "este candidato") + "? El candidato dejará de verse en el Hub (baja lógica). " +
+      "Tiene " + n + (n === 1 ? " documento" : " documentos") + " en SharePoint, que permanece" + (n === 1 ? "" : "n") + " allí salvo que marques la casilla.";
+    dlg.showModal();
+  });
+  document.addEventListener("submit", function (ev) {
+    var form = ev.target.closest && ev.target.closest("[data-hc-baja-form]");
+    if (!form) return;
+    var submitter = ev.submitter;
+    if (submitter && submitter.getAttribute("formmethod") === "dialog") return;          // «Volver»
+    if (form.dataset.hcTokenReady === "true") return;                                      // segundo submit real (con token)
+    if (form.dataset.hcBusy === "true") { ev.preventDefault(); return; }                   // anti doble envío
+    form.dataset.hcBusy = "true";
+    form.setAttribute("aria-busy", "true");
+    var btn = form.querySelector("[data-hc-baja-submit]");
+    btn.classList.add("htmx-request");
+    setTimeout(function () { if (form.dataset.hcBusy === "true") form.querySelectorAll('button[type="submit"]').forEach(function (b) { b.disabled = true; }); }, 0);
+    if (!form.querySelector("[data-hc-baja-check]").checked) return;                       // baja lógica simple: submit nativo, sin token ni Graph
+    ev.preventDefault();
+    Promise.resolve().then(function () {
+      return typeof window.dwHumanCapitalDocumentWriteToken === "function" ? window.dwHumanCapitalDocumentWriteToken() : "";
+    }).then(function (token) {
+      form.querySelector('input[name="graph_token"]').value = token || "";
+      form.dataset.hcTokenReady = "true";
+      form.submit();
+    }, function () {
+      clearBusy(form);                                                                      // sin token no se elimina nada: estado restablecido y aviso
+      var note = document.createElement("p");
+      note.className = "feedback-error";
+      note.setAttribute("role", "alert");
+      note.setAttribute("data-hc-baja-error", "true");
+      note.textContent = "No pudimos obtener el permiso de Microsoft 365. No se eliminó ni se dio de baja nada: reintentá.";
+      form.querySelector(".dw-confirm__body").appendChild(note);
+    });
+  });
+  window.addEventListener("pageshow", function (event) {
+    if (event.persisted && dialog()) clearBusy(dialog().querySelector("[data-hc-baja-form]"));
+  });
+})();
+</script>
