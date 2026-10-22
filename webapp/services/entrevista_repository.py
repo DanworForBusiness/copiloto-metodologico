@@ -199,8 +199,17 @@ def find_by_profile_and_busqueda(profile_id: str, busqueda_id: str) -> dict | No
     return None
 
 
+def _require_writable() -> None:
+    """`read-only` no habilita escrituras de negocio: rechazo ANTES de tocar el disco (sin efectos parciales). `local` persiste solo en disco; `remote` conserva su contrato."""
+    if remote_store.read_only_mode():
+        raise EntrevistaConfigIncompleteError("La sección de Entrevistas está en modo de solo lectura en este entorno: no se pueden guardar cambios.")
+
+
 def _persist(path: Path, payload: dict, *, previous: dict | None) -> dict:
+    _require_writable()
     _write_atomic(path, payload)
+    if remote_store.local_only():
+        return payload                                   # `local`: escritura física local atómica; sin sincronización con Spaces
     if remote_store.push_path(path):
         return payload
     if not remote_store.enabled():
@@ -313,14 +322,15 @@ def delete(entrevista_id: str) -> None:
     previous = get(entrevista_id)
     if previous is None:
         raise EntrevistaNotFoundError(f"La entrevista {entrevista_id} no existe.")
+    _require_writable()
     try:
         path.unlink()
     except FileNotFoundError:
         raise EntrevistaNotFoundError(f"La entrevista {entrevista_id} no existe.") from None
     except OSError as exc:
         raise EntrevistaStorageError(f"No se pudo eliminar la entrevista: {exc}") from exc
-    if remote_store.delete_path(path):
-        return
+    if remote_store.local_only() or remote_store.delete_path(path):
+        return                                           # `local`: el borrado físico local es el resultado final (sin llamar a Spaces)
     if not remote_store.enabled():
         raise EntrevistaConfigIncompleteError(
             "La sección de Entrevistas todavía no está configurada para este entorno."

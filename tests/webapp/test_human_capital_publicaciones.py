@@ -34,6 +34,7 @@ def _authorized_and_isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
     monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "")
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "remote")     # estos tests simulan fallos/confirmaciones de Spaces: ejercitan el contrato REMOTE (el modo es explícito)
     monkeypatch.setattr(os, "fsync", lambda fd: None)
     for mod in (publicacion_repository, onboarding_repository, entrevista_repository, busqueda_repository, profile_repository):
         monkeypatch.setattr(mod.remote_store, "push_path", lambda path: True)

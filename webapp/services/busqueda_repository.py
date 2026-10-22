@@ -263,12 +263,21 @@ def list() -> list[dict]:  # noqa: A001 — nombre del contrato, no el builtin
 
 # ── Escritura durable (write-through, MISMO contrato que profile_repository) ──
 
+def _require_writable() -> None:
+    """`read-only` no habilita escrituras de negocio: rechazo ANTES de tocar el disco (sin efectos parciales). `local` persiste solo en disco; `remote` conserva su contrato."""
+    if remote_store.read_only_mode():
+        raise BusquedaConfigIncompleteError("La sección de Búsquedas está en modo de solo lectura en este entorno: no se pueden guardar cambios.")
+
+
 def _persist(path: Path, payload: dict, *, previous: dict | None) -> dict:
     """Escribe `payload` local atómico y confirma durabilidad remota.
     `previous` = el estado anterior a restaurar si la compensación aplica
     (None en un create). Devuelve `payload` en éxito; levanta la excepción de
     clasificación que corresponda si la durabilidad no se confirma."""
+    _require_writable()
     _write_atomic(path, payload)
+    if remote_store.local_only():
+        return payload                                   # `local`: escritura física local atómica; sin sincronización con Spaces
     if remote_store.push_path(path):
         return payload
     if not remote_store.enabled():
@@ -448,14 +457,15 @@ def delete(busqueda_id: str) -> None:
 def _delete_file(busqueda_id: str, previous: dict) -> None:
     """Borrado físico durable (local + remoto) con rollback local si el remoto no se confirma."""
     path = _busqueda_path(busqueda_id)
+    _require_writable()
     try:
         path.unlink()
     except FileNotFoundError:
         raise BusquedaNotFoundError(f"La búsqueda {busqueda_id} no existe.") from None
     except OSError as exc:
         raise BusquedaStorageError(f"No se pudo eliminar la búsqueda: {exc}") from exc
-    if remote_store.delete_path(path):
-        return
+    if remote_store.local_only() or remote_store.delete_path(path):
+        return                                           # `local`: el borrado físico local es el resultado final (sin llamar a Spaces)
     _write_atomic(path, previous)  # rollback: local vuelve a existir (también sin Spaces configurado: nunca queda un borrado local sin confirmar)
     if not remote_store.enabled():
         raise BusquedaConfigIncompleteError(

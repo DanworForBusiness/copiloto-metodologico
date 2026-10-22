@@ -20,6 +20,7 @@ from webapp.services import commercial_licensing_priority_repository as repo
 @pytest.fixture(autouse=True)
 def _isolated_base_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "remote")     # estos tests simulan fallos/confirmaciones de Spaces: ejercitan el contrato REMOTE (el modo es explícito)
 
 
 @pytest.fixture(autouse=True)

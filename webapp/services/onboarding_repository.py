@@ -161,8 +161,17 @@ def list() -> list[dict]:  # noqa: A001 — nombre del contrato, no el builtin
     return out
 
 
+def _require_writable() -> None:
+    """`read-only` no habilita escrituras de negocio: rechazo ANTES de tocar el disco (sin efectos parciales). `local` persiste solo en disco; `remote` conserva su contrato."""
+    if remote_store.read_only_mode():
+        raise OnboardingConfigIncompleteError("La sección de Onboarding está en modo de solo lectura en este entorno: no se pueden guardar cambios.")
+
+
 def _persist(path: Path, payload: dict, *, previous: dict | None) -> dict:
+    _require_writable()
     _write_atomic(path, payload)
+    if remote_store.local_only():
+        return payload                                   # `local`: escritura física local atómica; sin sincronización con Spaces
     if remote_store.push_path(path):
         return payload
     if not remote_store.enabled():
