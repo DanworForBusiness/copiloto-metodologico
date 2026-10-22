@@ -179,6 +179,11 @@
    nunca un form embebido acá — ver profile_new.html. */
 .hc-profiles-hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px; }
 .hc-profiles-hero-text { flex: 1 1 320px; }
+/* Separación ESTÁNDAR entre el divisor del hero y el contenido siguiente (24px) para TODA pantalla con este hero, sea cual sea el elemento que sigue (form, callout, vistas, secciones): el margen inferior
+   colapsa con el superior del siguiente (max, nunca suma), así que las reglas por-adyacencia de abajo siguen dando exactamente 24px. */
+.hc-profiles-hero { margin-bottom: 24px; }
+/* La barra de vistas del proceso es `inline-flex` (nivel inline): su margen NO colapsa con el del hero y sumaría sus 4px propios a los 24px estándar. */
+.module-hero + .busqueda-views { margin-top: 0; }
 /* `max-width:100%`: sin esto, `flex:0 0 auto` mantiene la botonera en su ancho
    de max-content (una sola línea) aunque quede sola bajo el título en viewports
    angostos, desbordando la página horizontalmente (visto en vivo: el detalle de

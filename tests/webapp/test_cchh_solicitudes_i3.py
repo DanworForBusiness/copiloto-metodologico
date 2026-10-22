@@ -4,6 +4,7 @@ Tests focalizados (autorización, privacidad, integridad, persistencia). La pers
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +14,7 @@ from tests.webapp.test_operations_busquedas_i2 import ORIGIN, operations_users, 
 
 SID3 = "0b6c1d2e-7a44-4f0e-8c35-9d2f5e1a7b21"
 HX = {"HX-Request": "true"}
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def cchh():
@@ -328,6 +330,25 @@ def test_an_observed_request_is_open_demand_but_not_pending_and_a_resubmission_i
     svc.resubmit_solicitud(SID, rev(), req(comentarios="corregido"), OPS_A)
     html = cchh().get("/cchh/solicitudes", headers=HX).text
     assert _chips(html) == {"recibidas": ("Por atender", 1), "enviadas": ("Pendientes", 1), "observadas": ("Observadas", 0), "canceladas": ("Canceladas", 0)} and ">Reenviada<" in html
+
+
+def test_process_detail_header_has_the_same_structure_as_the_rest_of_cchh_with_actions_in_their_own_container():
+    send(SID)
+    pending = cchh().get(f"/cchh/busquedas/{SID}").text
+    svc.take_solicitud(SID, rev(), CCHH_EMAIL)
+    taken = cchh().get(f"/cchh/busquedas/{SID}").text
+    for html in (pending, taken):
+        hero = re.search(r'<section class="module-hero hc-profiles-hero">(.*?)</section>', html, re.S).group(1)
+        text = re.search(r'<div class="hc-profiles-hero-text">(.*?)</div>\s*<div class="hc-profiles-hero-actions">(.*?)</div>\s*$', hero, re.S)
+        assert text, "texto y acciones deben ser contenedores hermanos independientes"
+        ident, actions = text.group(1), text.group(2)
+        order = [ident.index('<p class="eyebrow">Capital Humano</p>'), ident.index("<h1>")]                         # eyebrow → título (como Cargar CV / Editar candidato)
+        assert order == sorted(order) and ident.lstrip().startswith('<p class="eyebrow">Capital Humano</p>')
+        assert "hero-meta" not in ident[: ident.index("<h1>")]                                                      # la meta ya no precede al título
+        assert "btn-" in actions and "<h1>" not in actions and "eyebrow" not in actions
+        assert html.index('class="catalog-back"') < html.index('class="module-hero hc-profiles-hero"')            # «← Volver» antes del hero
+    css = (ROOT / "webapp/static/human_capital.css").read_text(encoding="utf-8")
+    assert re.search(r"\.hc-profiles-hero \{ margin-bottom: 24px; \}", css)                                      # separación estándar con lo que sigue, sin reglas por pantalla
 
 
 def test_taking_from_new_process_reuses_the_same_busqueda_without_creating_another():
