@@ -108,6 +108,31 @@ def _error(scope: str, kind: str, *, folder: str | None = None, depth: int | Non
             "status": detail.get("status"), "code": detail.get("code"), "reason": (detail.get("reason") or None), "request_id": detail.get("request_id")}
 
 
+def call_with_retry(call, *, sleep, on_retry=None):
+    """Ejecuta `call()` con reintento ACOTADO ante 429/5xx/red respetando `Retry-After` (tope `RETRY_AFTER_CAP_S`). Lanza el último error si no se resuelve. Compartido con la descarga controlada del piloto."""
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return call()
+        except urllib.error.HTTPError as exc:
+            if exc.code not in TRANSIENT_STATUSES or attempt >= MAX_ATTEMPTS:
+                raise
+            retry_after = None
+            try:
+                retry_after = float((exc.headers or {}).get("Retry-After"))
+            except (TypeError, ValueError):
+                pass
+            delay = min(retry_after if retry_after is not None else BACKOFF_S[min(attempt - 1, len(BACKOFF_S) - 1)], RETRY_AFTER_CAP_S)
+        except urllib.error.URLError:
+            if attempt >= MAX_ATTEMPTS:
+                raise
+            delay = BACKOFF_S[min(attempt - 1, len(BACKOFF_S) - 1)]
+        if on_retry:
+            on_retry()
+        sleep(delay)
+
+
 class _Walker:
     def __init__(self, token: str, *, clock, sleep, time_budget: float, max_items: int, max_folders: int):
         self.token, self.clock, self.sleep = token, clock, sleep
@@ -120,33 +145,18 @@ class _Walker:
         return (self.clock() - self.started) >= self.time_budget
 
     def get(self, url: str) -> dict:
-        """UN GET con reintento acotado ante 429/5xx/red. Lanza el último error si no se resuelve; jamás registra URL ni token."""
-        attempt = 0
-        while True:
-            attempt += 1
+        """UN GET con reintento acotado (ver `call_with_retry`). Lanza el último error si no se resuelve; jamás registra URL ni token."""
+        def once():
             self.calls += 1
-            try:
-                return microsoft365.graph_get_json(url, self.token)
-            except urllib.error.HTTPError as exc:
-                if exc.code not in TRANSIENT_STATUSES or attempt >= MAX_ATTEMPTS:
-                    raise
-                retry_after = None
-                try:
-                    retry_after = float((exc.headers or {}).get("Retry-After"))
-                except (TypeError, ValueError):
-                    pass
-                self.throttled += 1
-                self.sleep(min(retry_after if retry_after is not None else BACKOFF_S[min(attempt - 1, len(BACKOFF_S) - 1)], RETRY_AFTER_CAP_S))
-            except urllib.error.URLError:
-                if attempt >= MAX_ATTEMPTS:
-                    raise
-                self.throttled += 1
-                self.sleep(BACKOFF_S[min(attempt - 1, len(BACKOFF_S) - 1)])
+            return microsoft365.graph_get_json(url, self.token)
+        return call_with_retry(once, sleep=self.sleep, on_retry=lambda: setattr(self, "throttled", self.throttled + 1))
 
 
 def run_inventory(token: str, share_url: str, *, clock=time.monotonic, sleep=time.sleep, time_budget: float = TIME_BUDGET_S,
-                  max_items: int = MAX_ITEMS, max_folders: int = MAX_FOLDERS) -> dict:
-    """Inventario completo (ver docstring del módulo). Nunca lanza por fallas de Graph: las informa en `errors`. Lanza `InventoryInputError` solo ante un link inválido."""
+                  max_items: int = MAX_ITEMS, max_folders: int = MAX_FOLDERS, items_out: list | None = None) -> dict:
+    """Inventario completo (ver docstring del módulo). Nunca lanza por fallas de Graph: las informa en `errors`. Lanza `InventoryInputError` solo ante un link inválido.
+    `items_out` (uso INTERNO del piloto de extracción): si se pasa una lista, se le agrega un dict por archivo (`item_id`, `drive_id`, `name`, `size`, `specialty`, `hash_algo`, `hash`, `cls`) para poder
+    seleccionar y descargar luego; NUNCA forma parte del informe devuelto ni se renderiza (los nombres de archivo quedan solo en memoria del llamador)."""
     url = _validate_share_url(share_url)
     walker = _Walker(token, clock=clock, sleep=sleep, time_budget=time_budget, max_items=max_items, max_folders=max_folders)
     report: dict = {"ok": False, "complete": False, "stopped_reason": None, "root": None, "errors": walker.errors}
@@ -263,6 +273,10 @@ def run_inventory(token: str, share_url: str, *, clock=time.monotonic, sleep=tim
                     ext = _ext(name) or "(sin extensión)"
                     by_ext[ext][0] += 1
                     by_ext[ext][1] += size
+                    if items_out is not None:
+                        hashes_ = (item.get("file") or {}).get("hashes") or {}
+                        algo_ = next((a for a in ("sha256Hash", "quickXorHash", "sha1Hash") if hashes_.get(a)), None)
+                        items_out.append({"item_id": iid, "drive_id": drive_id, "name": name, "size": size, "specialty": label_spec, "hash_algo": algo_, "hash": hashes_.get(algo_) if algo_ else None, "cls": cls})
                     if cls not in (IGNORED, EMPTY):
                         sizes.append(size)
                         buckets[_bucket(size)] += 1

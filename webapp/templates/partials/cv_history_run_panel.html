@@ -1,0 +1,93 @@
+{# Panel de un lote del PILOTO de extracción (conteos y tasas; SIN datos personales). El aviso (`notice`) es parte del contenido: SIEMPRE se entrega con 200 porque HTMX no pinta 4xx. #}
+<div id="cvrun-panel" data-run-state="{{ report.state if report else 'none' }}">
+{% if notice %}
+  {% if notice.kind == 'processed' %}
+  {% set res = notice.result %}
+  <p class="callout callout--info" data-pilot-result><span class="callout__body">Procesados {{ res.processed }} · con error {{ res.failed }} · pendientes {{ res.remaining }}{% if res.stopped_reason %} · corte: {{ res.stopped_reason }} (reanudable: volvé a procesar){% endif %}.</span></p>
+  {% elif notice.kind == 'discarded' %}
+  <p class="callout callout--info" data-pilot-discarded><span class="callout__body">{{ notice.message }}</span></p>
+  {% elif notice.kind == 'created' %}
+  <p class="callout callout--info" data-pilot-created><span class="callout__body">{{ notice.message }}</span></p>
+  {% else %}
+  <div class="dashboard-empty" data-error-kind="{{ notice.kind }}"><span class="dashboard-empty__label">No se pudo completar</span><p>{{ notice.message }}</p></div>
+  {% endif %}
+{% endif %}
+{% if report %}
+  {% set d = report.documents %}{% set pop = report.population %}
+  <p>
+    <span class="status-badge {{ 'status-badge--activo' if report.state == 'DONE' else 'status-badge--tentativo' }}">Lote {{ report.state }}</span>
+    <span class="field-hint">{{ report.run_id }} · <a href="/cchh/diagnostico/cvs-historicos/{{ run_id }}">Ver resultados individuales (datos personales, solo owner)</a></span>
+  </p>
+  {% if d.pending %}
+  <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/procesar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-dw-graph-token>
+    <div class="hc-profile-form__actions"><button type="submit" class="btn-primary">Procesar muestra ({{ d.pending }} pendiente{{ '' if d.pending == 1 else 's' }})</button>
+    <span class="field-hint">Descarga los documentos pendientes (solo lectura), extrae los datos localmente y concilia. Reanudable.</span></div>
+  </form>
+  {% endif %}
+
+  {% set st = report.staging %}
+  <p class="field-hint" data-pilot-retention>
+    {% if st.state == 'DISCARDED' %}Datos personales del lote <strong>eliminados</strong>{% if st.discarded_at %} el {{ st.discarded_at }}{% endif %}; se conservan la auditoría y este reporte.
+    {% else %}Los datos personales extraídos se guardan solo en un área temporal protegida, con vigencia hasta <strong>{{ st.retention_until }}</strong> ({{ st.retention_days }} días). No se eliminan solos: los elimina el owner con la confirmación de abajo.
+    {% if st.expired %}<span class="status-badge status-badge--tentativo" data-pilot-expired>Vigencia vencida: eliminá los datos personales</span>{% endif %}{% endif %}
+  </p>
+  {% if st.state != 'DISCARDED' %}
+  <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/descartar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-pilot-discard-form>
+    <div class="feedback-field">
+      <label for="cvrun-discard">Eliminar los datos personales del lote: escribí <code>{{ discard_phrase }}</code></label>
+      <input id="cvrun-discard" name="confirm" type="text" autocomplete="off" required>
+    </div>
+    <div class="hc-profile-form__actions"><button type="submit" class="btn-danger">Eliminar datos personales del lote</button></div>
+  </form>
+  {% endif %}
+
+  <h3>Población del origen</h3>
+  <table class="dashboard-table" data-pilot-population><tbody>
+    <tr><td class="left">Archivos compatibles</td><td class="left">{{ pop.compatible_files }}</td><td class="left">Contenidos únicos</td><td class="left">{{ pop.content_groups }}</td></tr>
+    <tr><td class="left">Copias redundantes</td><td class="left">{{ pop.redundant_copies }}</td><td class="left">Contenidos en varias especialidades</td><td class="left">{{ pop.cross_specialty_groups }}</td></tr>
+    <tr><td class="left">Sin hash en Graph</td><td class="left">{{ pop.items_without_hash }}</td><td class="left">Especialidades</td><td class="left">{{ pop.specialties }}</td></tr>
+  </tbody></table>
+
+  <h3>Muestra</h3>
+  <table class="dashboard-table" data-pilot-documents><tbody>
+    <tr><td class="left">En la muestra</td><td class="left">{{ d.in_sample }}</td><td class="left">Extraídos</td><td class="left">{{ d.extracted }}</td></tr>
+    <tr><td class="left">Legibles (con texto)</td><td class="left">{{ d.readable }}</td><td class="left">Con error de descarga/formato</td><td class="left">{{ d.failed }}</td></tr>
+    <tr><td class="left">Alias (mismo contenido)</td><td class="left">{{ d.alias }}</td><td class="left">Pendientes</td><td class="left">{{ d.pending }}</td></tr>
+    <tr><td class="left">Con varias especialidades</td><td class="left">{{ d.multi_specialty }}</td><td class="left"></td><td class="left"></td></tr>
+  </tbody></table>
+
+  <h3>Calidad de la extracción</h3>
+  <table class="dashboard-table" data-pilot-rates><tbody>
+    <tr><td class="left">Nombre y apellido obtenidos</td><td class="left">{{ report.field_rates_pct.name if report.field_rates_pct.name is not none else '—' }} %</td>
+        <td class="left">Email obtenido</td><td class="left">{{ report.field_rates_pct.email if report.field_rates_pct.email is not none else '—' }} %</td>
+        <td class="left">Celular obtenido</td><td class="left">{{ report.field_rates_pct.phone if report.field_rates_pct.phone is not none else '—' }} %</td></tr>
+    <tr><td class="left">Requieren revisión</td><td class="left">{{ report.review.required }} ({{ report.review.required_pct if report.review.required_pct is not none else '—' }} %)</td>
+        <td class="left">Completos sin revisión</td><td class="left">{{ report.review.complete_without_review }}</td><td class="left"></td><td class="left"></td></tr>
+  </tbody></table>
+  {% if report.review.by_reason or report.failures %}
+  <table class="dashboard-table" data-pilot-reasons>
+    <thead><tr><th class="left">Motivo</th><th>Documentos</th></tr></thead>
+    <tbody>
+    {% for code, n in report.review.by_reason.items() %}<tr><td class="left">{{ code }}</td><td>{{ n }}</td></tr>{% endfor %}
+    {% for code, n in report.failures.items() %}<tr><td class="left">{{ code }} (descarga/formato)</td><td>{{ n }}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <h3>Conciliación de identidad</h3>
+  {% set rc = report.reconciliation %}
+  <table class="dashboard-table" data-pilot-reconciliation><tbody>
+    <tr><td class="left">Coincidencia FUERTE con un perfil existente</td><td class="left">{{ rc.strong_existing }}</td><td class="left">Coincidencia PROBABLE con un perfil existente</td><td class="left">{{ rc.probable_existing }}</td></tr>
+    <tr><td class="left">Misma persona sugerida dentro del lote</td><td class="left">{{ rc.same_person_in_run }}</td><td class="left" colspan="2"><span class="field-hint">Solo sugerencias: nunca se fusiona ni se vincula automáticamente.</span></td></tr>
+  </tbody></table>
+
+  <h3>Por especialidad (heredada de la carpeta)</h3>
+  <table class="dashboard-table" data-pilot-specialties>
+    <thead><tr><th class="left">Especialidad</th><th>Documentos</th><th>Requieren atención</th></tr></thead>
+    <tbody>{% for s in report.by_specialty %}<tr><td class="left">{{ s.specialty }}</td><td>{{ s.documents }}</td><td>{{ s.needs_review }}</td></tr>{% endfor %}</tbody>
+  </table>
+
+  {% set se = report.scale_estimate %}
+  <p class="field-hint" data-pilot-scale>Para decidir si se escala a {{ se.unique_contents if se.unique_contents is not none else '—' }} contenidos únicos: tasa de revisión o error de la muestra {{ se.sample_review_or_failure_rate_pct if se.sample_review_or_failure_rate_pct is not none else '—' }} %{% if se.estimated_records_needing_attention is not none %} → ~{{ se.estimated_records_needing_attention }} registros con atención manual{% endif %}. {{ se.note }}</p>
+{% endif %}
+</div>

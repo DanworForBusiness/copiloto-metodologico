@@ -114,7 +114,7 @@ from webapp.services import (
     human_capital_indicators, human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
-from webapp.services import cv_history_inventory
+from webapp.services import cv_history_inventory, cv_history_manifest, cv_history_pilot
 from webapp.services import human_capital_contact
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
@@ -3030,6 +3030,113 @@ def human_capital_cv_history_inventory(request: Request, graph_token: str = Form
         message = {"not_a_folder": "El link no es una carpeta: pegá el link de la carpeta histórica."}.get(kind, "No se pudo resolver el link a una carpeta de SharePoint con tus permisos actuales.")
         return _render({"error": {"kind": kind, "message": message}})
     return _render(result)
+
+
+# ── PILOTO de extracción mínima y conciliación (incremento 2 de la importación histórica de CVs) — sólo APP_OWNER, fuera del nav ───────────────────────────────────────────────────────────────
+# Descarga una muestra chica, extrae localmente nombre/apellido/email/celular y concilia contra el Banco. NO crea perfiles, NO copia a `CVs`, NO usa servicios externos. Los datos personales extraídos solo se
+# muestran en la vista de detalle del owner (`no-store`); el resto de las respuestas son conteos. Ver `webapp/services/cv_history_pilot.py`.
+_NO_STORE = {"Cache-Control": "no-store"}
+
+
+def _pilot_context(request: Request, **extra) -> dict:
+    user = auth_service.session_user(request)
+    return {"current_workspace": workspaces.HUMAN_CAPITAL, "available_workspaces": workspaces.available_workspaces(user), "pack": DEFAULT_PACK, "user": user, "active_page": "diagnostico",
+            "authorization_phrase": cv_history_pilot.AUTHORIZATION_PHRASE, "sample_min": cv_history_pilot.SAMPLE_MIN, "sample_max": cv_history_pilot.SAMPLE_MAX, **extra}
+
+
+def _pilot_panel(request: Request, run_id: str, notice: dict | None = None):
+    """Panel de un lote (conteos, sin datos personales). SIEMPRE 200: HTMX no pinta 4xx y el aviso ES el contenido."""
+    try:
+        report = cv_history_pilot.run_report(run_id)
+    except cv_history_manifest.ManifestError:
+        raise HTTPException(404, "Lote inexistente") from None
+    return templates.TemplateResponse(request=request, name="partials/cv_history_run_panel.html", context={"request": request, "report": report, "notice": notice, "run_id": run_id, "discard_phrase": cv_history_pilot.discard_phrase(run_id)}, headers=_NO_STORE)
+
+
+@router.get("/cchh/diagnostico/cvs-historicos", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_page(request: Request):
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    runs = [{"run_id": r["run_id"], "state": r.get("state"), "created_at": r.get("created_at"), "counters": r.get("counters") or {}} for r in cv_history_manifest.list_runs()]
+    return templates.TemplateResponse(request=request, name="human_capital/cv_history_pilot.html", context=_pilot_context(request, runs=runs), headers=_NO_STORE)
+
+
+@router.post("/cchh/diagnostico/cvs-historicos/piloto", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_start(request: Request, graph_token: str = Form(""), share_url: str = Form(""), sample_size: str = Form(""), authorization: str = Form("")):
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+
+    def _notice(kind: str, message: str):
+        return templates.TemplateResponse(request=request, name="partials/cv_history_run_panel.html", context={"request": request, "report": None, "run_id": None, "notice": {"kind": kind, "message": message}}, headers=_NO_STORE)
+
+    if not graph_token:
+        return _notice("missing_token", "Sin token de Microsoft 365 (el navegador no pudo obtenerlo). Volvé a iniciar sesión.")
+    try:
+        size = int(sample_size)
+    except ValueError:
+        return _notice("invalid_sample", f"La muestra inicial es de {cv_history_pilot.SAMPLE_MIN} a {cv_history_pilot.SAMPLE_MAX} documentos.")
+    try:
+        run = cv_history_pilot.start_run(graph_token, share_url, sample_size=size, authorization=authorization, actor=str((auth_service.session_user(request) or {}).get("email") or ""))
+    except (cv_history_pilot.PilotInputError, cv_history_inventory.InventoryInputError) as exc:
+        return _notice("invalid_input", str(exc))
+    except cv_history_manifest.ManifestError:
+        return _notice("persistence_error", "No se pudo guardar el manifiesto del lote (persistencia no confirmada). No se descargó nada.")
+    return _pilot_panel(request, run["run_id"], {"kind": "created", "message": "Lote creado. Todavía no se descargó ningún documento: usá «Procesar muestra»."})
+
+
+@router.post("/cchh/diagnostico/cvs-historicos/{run_id}/procesar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_process(request: Request, run_id: str, graph_token: str = Form("")):
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    if not cv_history_manifest.RUN_ID_RE.match(run_id):
+        raise HTTPException(404, "Lote inexistente")
+    if not graph_token:
+        return _pilot_panel(request, run_id, {"kind": "missing_token", "message": "Sin token de Microsoft 365 (el navegador no pudo obtenerlo). Volvé a iniciar sesión."})
+    try:
+        result = cv_history_pilot.process_run(run_id, graph_token)
+    except cv_history_manifest.ManifestNotFoundError:
+        raise HTTPException(404, "Lote inexistente") from None
+    except cv_history_manifest.ManifestError:
+        return _pilot_panel(request, run_id, {"kind": "persistence_error", "message": "No se pudo guardar el avance (persistencia no confirmada). Reintentá: el proceso es reanudable."})
+    return _pilot_panel(request, run_id, {"kind": "processed", "result": result})
+
+
+@router.post("/cchh/diagnostico/cvs-historicos/{run_id}/descartar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_discard(request: Request, run_id: str, confirm: str = Form("")):
+    """Eliminación EXPLÍCITA del área temporal con datos personales del lote (política de retención): exige la frase `ELIMINAR-DATOS-<run_id>`; la auditoría se conserva."""
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    if not cv_history_manifest.RUN_ID_RE.match(run_id):
+        raise HTTPException(404, "Lote inexistente")
+    try:
+        cv_history_pilot.discard_staging(run_id, confirm=confirm, actor=str((auth_service.session_user(request) or {}).get("email") or ""))
+    except cv_history_pilot.PilotInputError as exc:
+        return _pilot_panel(request, run_id, {"kind": "invalid_confirmation", "message": str(exc)})
+    except cv_history_manifest.ManifestNotFoundError:
+        raise HTTPException(404, "Lote inexistente") from None
+    except cv_history_manifest.ManifestError:
+        return _pilot_panel(request, run_id, {"kind": "persistence_error", "message": "No se pudo completar la eliminación (borrado no confirmado). Nada se perdió: reintentá, es reanudable."})
+    return _pilot_panel(request, run_id, {"kind": "discarded", "message": "Datos personales del lote eliminados. La auditoría y el reporte final se conservan."})
+
+
+@router.get("/cchh/diagnostico/cvs-historicos/{run_id}", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_detail(request: Request, run_id: str):
+    """Vista del owner con los resultados INDIVIDUALES (contiene datos personales: solo APP_OWNER, `no-store`, fuera del nav)."""
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    if not cv_history_manifest.RUN_ID_RE.match(run_id):
+        raise HTTPException(404, "Lote inexistente")
+    try:
+        report = cv_history_pilot.run_report(run_id)
+        rows = cv_history_pilot.review_view(run_id)
+    except cv_history_manifest.ManifestNotFoundError:
+        raise HTTPException(404, "Lote inexistente") from None
+    return templates.TemplateResponse(request=request, name="human_capital/cv_history_run.html", context=_pilot_context(request, report=report, rows=rows, run_id=run_id, notice=None, discard_phrase=cv_history_pilot.discard_phrase(run_id)), headers=_NO_STORE)
 
 
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}

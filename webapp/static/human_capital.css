@@ -586,6 +586,11 @@
 .dashboard-table.scoring-ranking { table-layout: auto; min-width: 680px; width: 100%; }
 .dashboard-table.scoring-ranking :is(th, td):is(.left, .right, .center) { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; overflow-wrap: break-word; max-width: none; }   /* gana a `.dashboard-table td.left` (truncado con «…») */
 .scoring-ranking td:first-child + td { min-width: 240px; }
+/* Piloto de CVs históricos (vista del owner): tabla de resultados individuales legible (sin truncar con «…»), con desplazamiento horizontal propio en pantallas chicas. */
+.dashboard-table[data-pilot-rows] { table-layout: auto; min-width: 1240px; width: 100%; }
+.dashboard-table[data-pilot-rows] :is(th, td) { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; overflow-wrap: anywhere; max-width: none; }
+.dashboard-table[data-pilot-rows] th { min-width: 84px; }
+.dashboard-table[data-pilot-rows] td .status-badge { margin: 0 4px 4px 0; display: inline-block; }
 .scoring-ranking td:last-child .btn-secondary { white-space: nowrap; }
 .scoring-eval p, .scoring-eval li { overflow-wrap: anywhere; }
 .scoring-dispersion { display: block; margin: 4px 0 0; font-size: .7rem; color: #8a6300; font-weight: 700; }

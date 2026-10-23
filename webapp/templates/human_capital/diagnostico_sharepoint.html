@@ -69,6 +69,12 @@
         </div>
       </details>
       <details class="dashboard-section" open>
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Piloto de extracción de CVs históricos</span></summary>
+        <div class="dashboard-section__body">
+          <p class="field-hint">Descarga una muestra chica, extrae localmente nombre, apellido, email y celular, y los concilia contra el Banco. No crea candidatos ni copia documentos. <a href="/cchh/diagnostico/cvs-historicos">Abrir el piloto</a>.</p>
+        </div>
+      </details>
+      <details class="dashboard-section" open>
         <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Prueba de escritura (carpeta de CONTROL)</span></summary>
         <div class="dashboard-section__body">
           <p class="field-hint">Crea <strong>un</strong> archivo de texto inocuo, de nombre único (<code>cchh-sharepoint-upload-test-&lt;UTC&gt;-&lt;UUID&gt;.txt</code>), en la carpeta de control, con el mismo token y el mismo transporte que la subida de CVs. Un solo intento, sin reintentos; no crea carpetas ni registros. Solo localhost y solo owner. Se rechaza si el destino coincide con CURRENT (sitio, drive o ítem). El archivo creado se borra a mano.</p>
