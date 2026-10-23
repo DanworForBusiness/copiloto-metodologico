@@ -1402,6 +1402,7 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
         "solicitud_badge": _solicitud_badge(human_capital_service.solicitud_view(busqueda)) if human_capital_service.solicitud_view(busqueda) else None,
         # Acceso directo a Entrevistas desde las tarjetas del pipeline (solo `Entrevista CCHH` / `Entrevista Líder`): ver `_entrevista_links`.
         "entrevista_links": _entrevista_links(busqueda),
+        "onboarding_links": _onboarding_links(busqueda),
         # Historial UNIFICADO del proceso (solicitud + movimientos de candidatos): dentro del cuerpo que se re-renderiza tras cada mutación del pipeline, para que no quede desactualizado.
         "busqueda_historial": human_capital_service.solicitud_view(busqueda, include_cchh_actors=True) or human_capital_service.proceso_historial_view(busqueda),
     }
@@ -1434,6 +1435,21 @@ def _entrevista_links(busqueda: dict) -> dict:
             links[app["application_id"]] = {"url": f"/cchh/busquedas/{bid}/candidatos/{app['application_id']}/evaluacion-cchh", "label": "Evaluación CCHH"}
             continue
         links[app["application_id"]] = {"url": _registro_entrevista_url(app, bid), "label": label}      # Entrevista Líder: registro administrativo (hasta implementar la evaluación técnica)
+    return links
+
+
+def _onboarding_links(busqueda: dict) -> dict:
+    """`application_id` -> URL del Onboarding EXISTENTE, solo para postulaciones Finalizado · Ingreso. Es una lectura: no crea ningún Onboarding (nace al finalizar con Ingreso, ver `ensure_onboarding_for_application`). Si no existe o
+    la lectura falla, no se ofrece el acceso (nunca un enlace a algo que no está)."""
+    links: dict = {}
+    for app in busqueda.get("candidatos", []):
+        if app.get("etapa") != busqueda_repository.ETAPA_FINAL or app.get("resultado_final") != "Ingreso" or not app.get("application_id"):
+            continue
+        try:
+            if onboarding_repository.get(app["application_id"]) is not None:
+                links[app["application_id"]] = f"/cchh/onboarding/{app['application_id']}/editar"
+        except onboarding_repository.OnboardingStorageError:
+            continue
     return links
 
 
