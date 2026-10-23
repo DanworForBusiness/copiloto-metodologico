@@ -124,7 +124,7 @@ def _seed_entrevistas(monkeypatch, n):
 
 def _seed_onboarding(monkeypatch, n):
     rows = [_onboarding(i) for i in range(n)]
-    monkeypatch.setattr(human_capital_service, "list_onboardings_view", lambda: list(rows))
+    monkeypatch.setattr(human_capital_service, "list_onboardings_view", lambda *a, **k: list(rows))
 
 
 SURFACES = [
@@ -256,7 +256,7 @@ def test_filters_apply_before_pagination_and_the_counter_is_the_filtered_total_o
 def test_the_issue_example_68_filtered_of_120_gives_50_and_18_rows(monkeypatch):
     s = SURFACES[2]
     rows = [{**_onboarding(i), "area": "Consultoria" if i < 68 else "RRHH"} for i in range(120)]
-    monkeypatch.setattr(human_capital_service, "list_onboardings_view", lambda: list(rows))
+    monkeypatch.setattr(human_capital_service, "list_onboardings_view", lambda *a, **k: list(rows))
     p1, p2 = s.get(area="Consultoria"), s.get(area="Consultoria", page="2")
     assert (s.total_text(p1), len(s.names(p1)), s.total_text(p2), len(s.names(p2))) == ("68", 50, "68", 18)
 
@@ -274,7 +274,7 @@ def test_sorting_happens_before_the_slice(monkeypatch):
     """Onboarding ordena por fecha de ingreso desc y Entrevistas por created_at desc: la página 2 continúa el orden GLOBAL, no ordena sólo la página visible."""
     s = SURFACES[2]
     rows = [_onboarding(i) for i in range(120)]
-    monkeypatch.setattr(human_capital_service, "list_onboardings_view", lambda: list(rows))
+    monkeypatch.setattr(human_capital_service, "list_onboardings_view", lambda *a, **k: list(rows))
     expected = [f"Nombre{o['profile']['first_name'][6:]} Apellido" for o in sorted(rows, key=lambda o: (o["fecha_ingreso"], o["created_at"]), reverse=True)]
     got = s.names(s.get(page_size="50")) + s.names(s.get(page_size="50", page="2")) + s.names(s.get(page_size="50", page="3"))
     assert got == expected

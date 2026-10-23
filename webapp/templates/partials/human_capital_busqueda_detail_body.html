@@ -6,6 +6,7 @@
    se leen en vivo del Banco (app.profile), nunca se copian acá. #}
 {% set bid = busqueda.busqueda_id %}
 
+{% if pipeline_notice %}<div class="dashboard-empty" data-error-kind="eligibility" role="alert"><span class="dashboard-empty__label">No se pudo agregar</span><p>{{ pipeline_notice }}</p></div>{% endif %}
 <div class="busqueda-pipeline-bar">
   <span class="busqueda-pipeline-bar__total">{{ total_candidatos }} candidato{{ '' if total_candidatos == 1 else 's' }}</span>
   {% for etapa in etapas %}<span class="busqueda-pipeline-bar__stage">{{ 'Finalizados' if etapa == etapa_final else etapa }}: <strong>{{ board[etapa] | length }}</strong></span>{% endfor %}
@@ -54,6 +55,7 @@
           {% endif %}
           {% if app.resultado_final %}<span class="status-badge busqueda-cand__result busqueda-cand__result--{{ app.resultado_final|lower }}">{{ app.resultado_final }}</span>{% endif %}
         </div>
+        {% set _onb = onboarding_links.get(app.application_id) %}
         {% if busqueda.estado == 'activo' %}
         {% set _ent = entrevista_links.get(app.application_id) %}
         <div class="busqueda-cand__actions busqueda-move{% if _ent %} busqueda-cand__actions--interview{% endif %}">
@@ -81,6 +83,13 @@
             <span class="chart-tooltip" aria-hidden="true"><p>Contactar al candidato</p></span>
           </button>
           {% endif %}
+          {% if _onb %}
+          {# Finalizado · Ingreso: acceso contextual al Onboarding EXISTENTE de esta postulación (solo lectura de navegación: no crea nada). #}
+          <a href="{{ _onb }}" class="table-action-btn chart-tooltip-anchor busqueda-cand__onboarding" aria-label="Ir al Onboarding">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>
+            <span class="chart-tooltip" aria-hidden="true"><p>Ir al Onboarding</p></span>
+          </a>
+          {% endif %}
           {% if _ent %}
           {# Acceso directo a Entrevistas (solo etapas de entrevista), entre el selector de etapa y «Quitar»: a la entrevista existente o, si todavía no hay, al alta con el candidato precargado. Navegar no crea nada. #}
           <a href="{{ _ent.url }}" class="table-action-btn chart-tooltip-anchor busqueda-cand__interview" aria-label="{{ _ent.label }}">
@@ -97,10 +106,18 @@
           <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Quitar del proceso"
                   hx-post="/cchh/busquedas/{{ bid }}/candidatos/{{ app.application_id }}/eliminar"
                   hx-trigger="confirmed" hx-target="#busqueda-detail-body" hx-swap="innerHTML"
-                  data-dw-confirm data-dw-confirm-title="Quitar candidato" data-dw-confirm-message="¿Quitar a este candidato del proceso? El CV del Banco no se elimina." data-dw-confirm-ok="Quitar">
+                  data-dw-confirm data-dw-confirm-title="Quitar candidato" data-dw-confirm-message="¿Quitar a este candidato del proceso?{% if _onb %} También se eliminará su Onboarding (checklist y datos de ingreso).{% endif %} El CV del Banco no se elimina." data-dw-confirm-ok="Quitar">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
             <span class="chart-tooltip" aria-hidden="true"><p>Quitar del proceso</p></span>
           </button>
+        </div>
+        {% elif _onb %}
+        {# Proceso cerrado: las acciones del pipeline no se ofrecen, pero el acceso al Onboarding del ingresante sigue disponible. #}
+        <div class="busqueda-cand__actions">
+          <a href="{{ _onb }}" class="table-action-btn chart-tooltip-anchor busqueda-cand__onboarding" aria-label="Ir al Onboarding">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>
+            <span class="chart-tooltip" aria-hidden="true"><p>Ir al Onboarding</p></span>
+          </a>
         </div>
         {% endif %}
       </div>
@@ -156,6 +173,7 @@
       </tbody>
     </table>
     <p class="field-hint" data-picker-empty hidden>No encontramos candidatos con ese criterio.</p>
+    {% if blocked_profiles_count %}<p class="field-hint" data-picker-blocked>{{ blocked_profiles_count }} candidato{{ '' if blocked_profiles_count == 1 else 's' }} marcado{{ '' if blocked_profiles_count == 1 else 's' }} «No reconsiderar» no se ofrece{{ '' if blocked_profiles_count == 1 else 'n' }} para nuevos procesos.</p>{% endif %}
     <script>
     (function () {
       if (window.__hcPickerWired) return;       // el cuerpo del detalle se re-renderiza por HTMX: un único wiring global (delegado)

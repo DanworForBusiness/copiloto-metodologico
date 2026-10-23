@@ -51,6 +51,7 @@ from datetime import date, datetime
 
 from webapp.services import human_capital_catalog_repository as catalog_repo
 from webapp.services import busqueda_repository
+from webapp.services import candidate_eligibility
 from webapp.services import entrevista_repository
 from webapp.services import onboarding_checklist
 from webapp.services import onboarding_repository
@@ -1105,15 +1106,38 @@ def take_solicitud(busqueda_id: str, expected_revision: int, actor: str) -> dict
     return busqueda_repository.take_solicitud(busqueda_id, expected_revision, _require_actor(actor))
 
 
+class CandidateNotEligibleError(ValueError):
+    """El candidato no puede recibir NUEVAS postulaciones (regla transversal de elegibilidad: hoy, marca «No reconsiderar»). `reason` es la clave semántica del bloqueo."""
+    def __init__(self, reason: str):
+        super().__init__(candidate_eligibility.message_for(reason))
+        self.reason = reason
+
+
 def add_candidate_to_busqueda(busqueda_id: str, profile_id: str, *, actor: str | None = None) -> dict:
     profile = profile_repository.get(profile_id)
     if profile is None or profile.get("deleted_at"):
         raise ValueError("El candidato no existe o fue eliminado del Banco de CVs.")
+    reason = candidate_eligibility.blocked_reason(profile)         # misma regla que filtra el selector: se exige TAMBIÉN en el servidor (nunca solo en la vista)
+    if reason:
+        raise CandidateNotEligibleError(reason)
     return busqueda_repository.add_candidate(busqueda_id, profile_id, actor=actor, names=_candidate_display_name)
 
 
 def remove_application(busqueda_id: str, application_id: str, *, actor: str | None = None) -> dict:
-    return busqueda_repository.remove_candidate(busqueda_id, application_id, actor=actor, names=_candidate_display_name)
+    busqueda = busqueda_repository.remove_candidate(busqueda_id, application_id, actor=actor, names=_candidate_display_name)
+    discard_onboarding_of_application(application_id)
+    return busqueda
+
+
+def discard_onboarding_of_application(application_id: str) -> bool:
+    """Quitar del proceso a un candidato que ya tenía Onboarding (Finalizado · Ingreso) elimina ese Onboarding: no debe quedar huérfano. Se ejecuta DESPUÉS de que la postulación se quitó (si el quitado se rechaza
+    —búsqueda no gestionable, postulación inexistente— no se toca nada). Best-effort, como la creación automática: un fallo de persistencia no revierte el quitado ya confirmado; el Onboarding sobrante se
+    informa en el log (el borrado es idempotente y el rollback local/remoto lo protege). La Entrevista y el Perfil del Banco NO se tocan."""
+    try:
+        return onboarding_repository.delete(application_id)
+    except (onboarding_repository.OnboardingStorageError, onboarding_repository.OnboardingRemoteOutcomeUnknownError):
+        _logger.warning("human_capital.onboarding_huerfano_no_eliminado application_id=%s", application_id)
+        return False
 
 
 # Etapas que implican que "hubo entrevista" -- MISMO gate que
@@ -1158,7 +1182,13 @@ def profiles_available_for_busqueda(busqueda: dict) -> list[dict]:
         app.get("profile_id") for app in busqueda.get("candidatos", [])
         if app.get("etapa") != busqueda_repository.ETAPA_FINAL
     }
-    return [p for p in list_profiles() if p["profile_id"] not in in_this_search]
+    return [p for p in list_profiles() if p["profile_id"] not in in_this_search and candidate_eligibility.is_eligible(p)]
+
+
+def profiles_blocked_for_busqueda_count(busqueda: dict) -> int:
+    """Cuántos perfiles del Banco NO se ofrecen para este proceso por la regla de elegibilidad («No reconsiderar»). Solo un conteo: el selector no nombra a esas personas."""
+    in_this_search = {app.get("profile_id") for app in busqueda.get("candidatos", []) if app.get("etapa") != busqueda_repository.ETAPA_FINAL}
+    return sum(1 for p in list_profiles() if p["profile_id"] not in in_this_search and not candidate_eligibility.is_eligible(p))
 
 
 def busqueda_candidates_view(busqueda: dict) -> list[dict]:
@@ -1318,6 +1348,25 @@ def create_entrevista_manual(profile_id: str, fields: dict, *, allow_compensatio
         _shape_entrevista_fields(fields, allow_compensation=allow_compensation), profile_id=profile_id, busqueda_id=None, application_id=None)
 
 
+def create_entrevista_for_application(profile_id: str, busqueda_id: str, fields: dict, *, allow_compensation: bool = False) -> tuple[dict, bool]:
+    """Alta desde `nueva` cuando el origen es una postulación del Pipeline: el registro queda ligado a la Búsqueda y a la postulación (`busqueda_id`/`application_id`, MISMA forma que la entrevista
+    automática) y respeta el contrato de UNA entrevista por (candidato, proceso): si ya existe devuelve la existente (`creada=False`) en vez de duplicar. El vínculo se VERIFICA en servidor: el candidato
+    debe existir y participar de esa Búsqueda; la `application_id` se resuelve acá, nunca viene del navegador. Devuelve `(entrevista, creada)`."""
+    profile = profile_repository.get(profile_id)
+    if profile is None or profile.get("deleted_at"):
+        raise ValueError("Elegí un candidato del Banco de CVs.")
+    try:
+        busqueda = busqueda_repository.get(busqueda_id)
+    except busqueda_repository.BusquedaStorageError:
+        raise ValueError("No pudimos leer la Búsqueda de origen; reintentá en unos segundos.") from None
+    application = next((a for a in (busqueda or {}).get("candidatos", []) if a.get("profile_id") == profile_id and a.get("application_id")), None)
+    if application is None:
+        raise ValueError("El candidato no participa de la Búsqueda de origen.")
+    return entrevista_repository.create_if_absent(
+        _shape_entrevista_fields(fields, allow_compensation=allow_compensation),
+        profile_id=profile_id, busqueda_id=busqueda_id, application_id=application["application_id"])
+
+
 def update_entrevista(entrevista_id: str, expected_revision: int, fields: dict, *, allow_compensation: bool = False) -> dict:
     existing = entrevista_repository.get(entrevista_id)
     updated = entrevista_repository.update(
@@ -1453,22 +1502,31 @@ def get_onboarding(application_id: str) -> dict | None:
     return onboarding_repository.get(application_id)
 
 
-def onboarding_view(onboarding: dict) -> dict:
-    """Enriquece un Onboarding con el Profile (maestro de datos personales, leído en vivo), la Búsqueda (puesto/proceso) y el progreso derivado del checklist."""
+def mask_onboarding_offer(onboarding: dict, allow: bool) -> dict:
+    """«Oferta cerrada» es un dato SENSIBLE (misma política que «Remuneración pretendida»: `HC_SENSITIVE_DATA_ALLOWED_USERS`). Copia del Onboarding con el valor enmascarado (`****`, SIEMPRE, haya o no valor: no se revela ni su presencia)
+    si `allow` es False. No toca el persistido."""
+    if allow:
+        return onboarding
+    return {**onboarding, "oferta_cerrada": COMPENSATION_MASK}
+
+
+def onboarding_view(onboarding: dict, allow_sensitive: bool = False) -> dict:
+    """Enriquece un Onboarding con el Profile (maestro de datos personales, leído en vivo), la Búsqueda (puesto/proceso) y el progreso derivado del checklist. Sin permiso (default, fail-closed) la oferta cerrada sale enmascarada."""
     profile = profile_repository.get(onboarding.get("profile_id"))
     busqueda = busqueda_repository.get(onboarding["busqueda_id"]) if onboarding.get("busqueda_id") else None
     return {
-        **onboarding,
+        **mask_onboarding_offer(onboarding, allow_sensitive),
         "profile": profile,
         "busqueda": busqueda,
         "puesto_mostrado": (busqueda or {}).get("nombre_puesto"),
         "progress": onboarding_checklist.progress(onboarding.get("checklist")),
         "checklist_items": onboarding_checklist.items_view(onboarding.get("checklist")),
+        "checklist_groups": onboarding_checklist.groups_view(onboarding.get("checklist")),
     }
 
 
-def list_onboardings_view() -> list[dict]:
-    return [onboarding_view(o) for o in list_onboardings()]
+def list_onboardings_view(allow_sensitive: bool = False) -> list[dict]:
+    return [onboarding_view(o, allow_sensitive) for o in list_onboardings()]
 
 
 SIN_AREA = "__sin_area__"                  # valor de un filtro Área para las filas SIN área (no es una taxonomía: es la ausencia de valor)
@@ -1477,7 +1535,7 @@ ENTREVISTA_SIN_ORIGEN = "__sin_origen__"   # ídem para Origen / Puesto en el li
 ENTREVISTA_SIN_PUESTO = "__sin_puesto__"
 
 
-def _onboarding_search_haystack(row: dict) -> str:
+def _onboarding_search_haystack(row: dict, include_offer: bool = False) -> str:
     """Texto sobre el que busca el campo Buscar del listado: lo VISIBLE de la fila (candidato, puesto, área, fecha de ingreso en su formato de presentación DD-MM-YYYY
     y en ISO, y el texto de progreso tal cual se muestra) + la oferta cerrada (dato relevante de la fila). MISMA normalización que la búsqueda de Candidatos."""
     profile = row.get("profile") or {}
@@ -1487,11 +1545,11 @@ def _onboarding_search_haystack(row: dict) -> str:
     prog = row.get("progress") or {}
     progreso = "Completado" if row.get("completado") else f"{prog.get('hechos', 0)}/{prog.get('total', 0)} · {prog.get('porcentaje', 0)}%"
     values = [f"{profile.get('first_name') or ''} {profile.get('last_name') or ''}", row.get("puesto_mostrado"), row.get("area"), fecha, fecha_dmy, progreso,
-              row.get("oferta_cerrada")]
+              row.get("oferta_cerrada") if include_offer else None]            # dato sensible: sin permiso NO es buscable (ni siquiera enmascarado)
     return " ".join(_normalize_text(v) for v in values if v)
 
 
-def filter_onboardings(rows: list[dict], *, estado: str = "todos", area: str = "", q: str = "") -> list[dict]:
+def filter_onboardings(rows: list[dict], *, estado: str = "todos", area: str = "", q: str = "", include_offer: bool = False) -> list[dict]:
     """AND entre Estado (pendientes/completos por `completado`), Área (igualdad EXACTA sobre el área EFECTIVA de la fila, incluido un valor legacy fuera de catálogo;
     `ONBOARDING_SIN_AREA` = filas sin área) y Buscar (substring normalizado, case-insensitive, sobre `_onboarding_search_haystack`). Un filtro vacío no restringe."""
     wanted_q = _normalize_text(q)
@@ -1508,7 +1566,7 @@ def filter_onboardings(rows: list[dict], *, estado: str = "todos", area: str = "
                     continue
             elif effective != area:
                 continue
-        if wanted_q and wanted_q not in _onboarding_search_haystack(row):
+        if wanted_q and wanted_q not in _onboarding_search_haystack(row, include_offer):
             continue
         out.append(row)
     return out
@@ -1544,7 +1602,7 @@ def filter_entrevistas(rows: list[dict], *, origen: str = "", puesto: str = "", 
     return out
 
 
-def _shape_onboarding_fields(fields: dict, *, existing: dict | None = None) -> dict:
+def _shape_onboarding_fields(fields: dict, *, existing: dict | None = None, allow_sensitive: bool = False) -> dict:
     """`fecha_ingreso` es obligatoria (NOT NULL en la referencia); `oferta_cerrada` es texto libre opcional; `area` está GOBERNADA por `area_consultora` (MISMA
     taxonomía que Entrevista.area/Búsqueda.area_consultora: es la que se hereda de la entrevista y se sincroniza), con el contrato migration-safe habitual."""
     fecha = (fields.get("fecha_ingreso") or "").strip()
@@ -1554,13 +1612,15 @@ def _shape_onboarding_fields(fields: dict, *, existing: dict | None = None) -> d
         raise ValueError("La fecha de ingreso es obligatoria y tiene que ser una fecha válida.") from None
     area = (fields.get("area") or "").strip() or None
     _validate_area_consultora_governed(area, existing_value=(existing or {}).get("area"))
-    return {"fecha_ingreso": fecha, "oferta_cerrada": (fields.get("oferta_cerrada") or "").strip() or None, "area": area}
+    # «Oferta cerrada» es sensible: sin permiso el valor enviado se DESCARTA y se conserva el persistido (nunca se pisa ni se borra indirectamente).
+    oferta = ((fields.get("oferta_cerrada") or "").strip() or None) if allow_sensitive else (existing or {}).get("oferta_cerrada")
+    return {"fecha_ingreso": fecha, "oferta_cerrada": oferta, "area": area}
 
 
-def update_onboarding(application_id: str, expected_revision: int, fields: dict) -> dict:
+def update_onboarding(application_id: str, expected_revision: int, fields: dict, *, allow_sensitive: bool = False) -> dict:
     existing = onboarding_repository.get(application_id)
     return onboarding_repository.update(
-        application_id, expected_revision, _shape_onboarding_fields(fields, existing=existing))
+        application_id, expected_revision, _shape_onboarding_fields(fields, existing=existing, allow_sensitive=allow_sensitive))
 
 
 def set_onboarding_item(application_id: str, key: str, checked: bool) -> dict:

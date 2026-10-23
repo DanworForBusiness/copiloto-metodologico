@@ -60,7 +60,7 @@ def test_return_context_builds_back_url_and_a_query_suffix_that_roundtrips():
     ctx = pagination.list_return_context({"return_to": url}, "/cchh/onboarding")
     assert ctx["back_url"] == url and ctx["qs"] == f"?return_to={quote(url, safe='')}"
     assert parse_qs(ctx["qs"][1:])["return_to"] == [url]
-    assert pagination.list_return_context({}, "/cchh/onboarding") == {"return_to": "", "back_url": "/cchh/onboarding", "qs": ""}
+    assert pagination.list_return_context({}, "/cchh/onboarding") == {"return_to": "", "back_url": "/cchh/onboarding", "qs": "", "kind": None, "back_label": None}
     assert pagination.list_return_context({"return_to": "//evil"}, "/cchh/onboarding")["back_url"] == "/cchh/onboarding"
 
 

@@ -350,7 +350,8 @@
    ocupa el ancho completo de la grilla y se separa del último campo con el MISMO
    separador que entre secciones (margin+padding+borde-top) — sin esto quedaba
    pegada al checkbox porque la grilla usa `row-gap:0` (owner: "falta margen"). */
-.hc-profile-form > .hc-profile-form__actions {
+.hc-profile-form > .hc-profile-form__actions,
+.module-content > .hc-profile-form__actions {            /* Onboarding: la acción primaria va al final de la página (fuera del `<form>`, asociada con `form="…"`), con el MISMO separador */
   grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
   margin-top: 22px; padding-top: 20px; border-top: 1px solid rgba(128,128,128,.24);
 }
@@ -509,6 +510,101 @@
 /* Barra de vistas del detalle: usa el primitivo compartido
    `.dashboard-view-switch` (tools.css); acá sólo su ubicación/scroll. */
 .busqueda-views { margin: 4px 0 16px; max-width: 100%; overflow-x: auto; }
+
+/* Barra de vistas con enlaces (`Vista pipeline` / `Scoring (JD)`): MISMO aspecto que los botones del primitivo `.dashboard-view-switch` (tools.css), que solo estiliza `button`. */
+.busqueda-views a { display: inline-flex; align-items: center; background: #ffffff; border-right: 1px solid rgba(128,128,128,.28); padding: 8px 16px; font: 600 .78rem var(--sans); color: #55555c; text-decoration: none; cursor: pointer; }
+.content-theme-dark .busqueda-views a { background: #181819; color: #b2b2bc; }
+.busqueda-views a:hover { color: #1f1f24; }
+.content-theme-dark .busqueda-views a:hover { color: #e4e4ec; }
+.busqueda-views a.is-active { background: var(--gold); color: #1f1f24; }
+.busqueda-views a:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+
+/* Scoring CCHH (pestaña «Scoring (JD)»): pasos, bloques de criterios y filas de la grilla; mismos primitivos de formulario del Hub. */
+.scoring-panel { display: flex; flex-direction: column; gap: 14px; }
+.scoring-panel__head h2 { margin: 0 0 4px; }
+.scoring-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.scoring-steps__sep { color: #7a7a82; }
+.scoring-step { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid rgba(128,128,128,.32); border-radius: 999px; font: 600 .78rem var(--sans); color: #55555c; text-decoration: none; }
+.content-theme-dark .scoring-step { color: #b2b2bc; }
+.scoring-step.is-active { background: #1f1f24; border-color: #1f1f24; color: #fff; }
+.content-theme-dark .scoring-step.is-active { background: #e4e4ec; border-color: #e4e4ec; color: #1f1f24; }
+.scoring-step.is-disabled { opacity: .5; cursor: not-allowed; }
+.scoring-step__n { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: rgba(128,128,128,.25); font-size: .7rem; }
+.scoring-step small { font-weight: 500; }
+.hc-profile-form.scoring-form { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 14px; }
+.scoring-form > .feedback-field { width: 100%; margin-top: 0; }
+.scoring-form textarea { width: 100%; box-sizing: border-box; }
+.scoring-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.scoring-block { border: 1px solid rgba(128,128,128,.28); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.scoring-block h3 { margin: 0; font-size: .9rem; }
+.scoring-rows { display: flex; flex-direction: column; gap: 10px; }
+.scoring-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px auto; gap: 8px 12px; align-items: end; padding: 10px; border: 1px solid rgba(128,128,128,.2); border-radius: 8px; }
+.scoring-row .feedback-field { margin-top: 0; }
+.scoring-row[data-bloque="excluyente"] { grid-template-columns: minmax(0, 1fr) auto; }
+.scoring-row[data-bloque="excluyente"] .scoring-row__peso { display: none; }
+.scoring-row__more { grid-column: 1 / -1; }
+.scoring-row__more summary { cursor: pointer; font-size: .74rem; color: #55555c; }
+.content-theme-dark .scoring-row__more summary { color: #b2b2bc; }
+.scoring-row__anchors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.scoring-add { align-self: flex-start; }
+/* Checklist de Onboarding en contenedores colapsables: reutiliza `.dashboard-section` (tools.css); solo ajusta el encabezado para que título, progreso y estado envuelvan en pantallas angostas. */
+.hc-onb-autosave { margin: -4px 0 10px; }                                                                    /* aviso discreto: el checklist guarda por ítem (no usa «Guardar cambios») */
+.module-content > .hc-profile-form__actions > [data-onb-dirty][hidden] { display: none; }
+.hc-onb-checklist { margin-top: 28px; }                                                                  /* aire entre la tarjeta «Datos del ingreso» y el checklist */
+.hc-onb-checklist > h2 { margin: 0 0 12px; font-family: var(--sans); font-size: .96rem; font-weight: 700; color: #1f1f24; }    /* MISMA tipografía que el título de cada contenedor (`.dashboard-section__head`) */
+.content-theme-dark .hc-onb-checklist > h2 { color: #e4e4ec; }
+.hc-onb-group .dashboard-checkbox-group--grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }    /* columnas IGUALES: la segunda columna alinea en todos los grupos (el primitivo las dimensiona por contenido) */
+.hc-onb-group .dashboard-checkbox-option { align-items: flex-start; }
+@media (max-width: 560px) { .hc-onb-group .dashboard-checkbox-group--grid-2 { grid-template-columns: minmax(0, 1fr); } }
+.hc-onb-group > .dashboard-section__head { flex-wrap: wrap; row-gap: 6px; }
+.hc-onb-group .dashboard-section__title { flex: 1 1 auto; min-width: 0; }
+.hc-onb-group .dashboard-section__count { margin-left: 0; }
+.hc-onb-group .dashboard-section__state { margin-left: 0; }
+.hc-onb-group .dashboard-section__body { padding-top: 10px; }
+/* Evaluación CCHH y ranking */
+.scoring-eval-criterion { border: 1px solid rgba(128,128,128,.2); border-radius: 8px; padding: 10px 12px; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.scoring-eval-criterion legend { font-weight: 650; font-size: .84rem; padding: 0 6px; }
+.scoring-eval-criterion legend small { font-weight: 500; color: #7a7a82; }
+.scoring-guide { margin: 0; padding-left: 18px; font-size: .76rem; color: #55555c; }
+.content-theme-dark .scoring-guide { color: #b2b2bc; }
+.scoring-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.scoring-opt { flex: 1 1 200px; display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid rgba(128,128,128,.28); border-radius: 8px; cursor: pointer; font-size: .78rem; }
+.scoring-opt:has(input:checked) { border-color: var(--gold); background: rgba(231,176,8,.12); }
+.scoring-opt em { display: block; font-style: normal; color: #7a7a82; font-size: .72rem; }
+.scoring-coverage { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.scoring-estado, .scoring-tier { display: inline-block; padding: 2px 9px; border-radius: 999px; font: 700 .7rem var(--sans); border: 1px solid rgba(128,128,128,.32); }
+.scoring-estado--vigente { background: rgba(29,127,78,.12); color: #1d7f4e; border-color: rgba(29,127,78,.4); }
+.scoring-estado--sin_evaluar { color: #55555c; }
+.content-theme-dark .scoring-estado--sin_evaluar { color: #b2b2bc; }
+.scoring-estado--desactualizada { background: rgba(231,176,8,.15); color: #8a6300; border-color: rgba(231,176,8,.5); }
+.content-theme-dark .scoring-estado--desactualizada { color: #e7b008; }
+.scoring-tier--a { background: rgba(29,127,78,.14); color: #1d7f4e; border-color: rgba(29,127,78,.4); }
+.scoring-tier--b { background: rgba(231,176,8,.15); color: #8a6300; border-color: rgba(231,176,8,.5); }
+.scoring-tier--c { background: rgba(230,126,34,.14); color: #b35a00; border-color: rgba(230,126,34,.45); }
+.scoring-tier--na { background: rgba(192,57,43,.12); color: #b34b4b; border-color: rgba(192,57,43,.4); }
+/* El ranking muestra frases largas (excluyentes no cumplidos, etapa, alerta de dispersión): las celdas envuelven en vez de truncarse con «…». */
+.dashboard-table.scoring-ranking { table-layout: auto; min-width: 680px; width: 100%; }
+.dashboard-table.scoring-ranking :is(th, td):is(.left, .right, .center) { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; overflow-wrap: break-word; max-width: none; }   /* gana a `.dashboard-table td.left` (truncado con «…») */
+.scoring-ranking td:first-child + td { min-width: 240px; }
+.scoring-ranking td:last-child .btn-secondary { white-space: nowrap; }
+.scoring-eval p, .scoring-eval li { overflow-wrap: anywhere; }
+.scoring-dispersion { display: block; margin: 4px 0 0; font-size: .7rem; color: #8a6300; font-weight: 700; }
+.content-theme-dark .scoring-dispersion { color: #e7b008; }
+.scoring-incumple { color: #b34b4b; margin: 4px 0 0; }
+.scoring-evals { margin-top: 4px; font-size: .76rem; }
+.scoring-evals summary { cursor: pointer; color: #55555c; }
+.content-theme-dark .scoring-evals summary { color: #b2b2bc; }
+.scoring-eval { padding: 6px 0; border-top: 1px solid rgba(128,128,128,.2); }
+.scoring-eval.is-outdated { opacity: .65; }
+.scoring-eval p { margin: 0 0 4px; }
+.scoring-eval ul { margin: 0; padding-left: 18px; }
+.scoring-sum { margin: 0; font-size: .82rem; }
+.scoring-sum__state { color: #1d7f4e; font-weight: 700; }
+@media (max-width: 640px) {
+  .scoring-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .scoring-row__peso { grid-column: 1 / 2; }
+  .scoring-row__anchors { grid-template-columns: 1fr; }
+}
 
 .busqueda-pipeline-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 4px 0 14px; color: #55555c; font: 500 .72rem var(--mono); }
 .content-theme-dark .busqueda-pipeline-bar { color: #b2b2bc; }

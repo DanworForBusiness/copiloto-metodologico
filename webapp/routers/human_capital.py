@@ -115,6 +115,7 @@ from webapp.services import (
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
 from webapp.services import human_capital_contact
+from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
@@ -1272,7 +1273,8 @@ _MSG_SOLICITUD_TAKEN = "Esa solicitud ya fue tomada por otra persona o cambió (
 _MSG_SOLICITUD_SOURCE = "No pudimos leer las solicitudes en este momento. Reintentá en unos minutos."
 # Post/Redirect/Get: ante un conflicto/error de persistencia al tomar o pedir corrección, un navegador (Accept: text/html) recibe 303 hacia la pantalla con `?aviso=<clave>` (lista blanca; nunca texto libre
 # en la URL) y el aviso se muestra en un GET; un consumidor NO HTML recibe el 409/503 con el mensaje (`HTTPException`, JSON).
-_SOLICITUD_AVISOS = {"tomada": _MSG_SOLICITUD_TAKEN, "cambio": _MSG_SOLICITUD_CONCURRENT, "error": _MSG_SOLICITUD_STORAGE}
+_SOLICITUD_AVISOS = {"tomada": _MSG_SOLICITUD_TAKEN, "cambio": _MSG_SOLICITUD_CONCURRENT, "error": _MSG_SOLICITUD_STORAGE,
+                     "no_elegible": "No se pudo agregar al candidato: no es elegible para nuevos procesos (marca «No reconsiderar»)."}
 
 
 def _wants_html(request: Request) -> bool:
@@ -1336,8 +1338,10 @@ def _solicitudes_context(filtro: str = "recibidas", page=1, page_size=None) -> d
     # cuándo CCHH recibió la solicitud); canceladas = `cancelada_en`. Desempate determinístico: primer envío y luego id.
     visible = sorted(visible, key=_solicitud_recepcion_key, reverse=True)
     pager = pagination.paginate(visible, page=page, page_size=page_size, base_url="/cchh/solicitudes", params={"solicitud": filtro})
+    # Estado inicial del colapsable: ABIERTO solo si hay solicitudes por atender o pendientes (> 0) —o si hubo un error de lectura, para que se vea—; con 0 queda COLAPSADO. La preferencia manual de la persona (sessionStorage,
+    # `data-persist-collapse`) sigue prevaleciendo sobre este valor por defecto.
     return {"solicitudes": pager["items"], "solicitudes_total": pager["total"], "solicitudes_pager": pager, "solicitud_filtro": filtro, "solicitud_counts": counts,
-            "solicitudes_source_error": source_error}
+            "solicitudes_source_error": source_error, "solicitudes_open": bool(source_error) or counts["recibidas"] > 0 or counts["enviadas"] > 0}
 
 
 @router.get("/cchh/solicitudes", response_class=HTMLResponse, include_in_schema=False)
@@ -1347,8 +1351,9 @@ def human_capital_solicitudes_panel(request: Request, solicitud: str = Query("re
         return redirect
     if not request.headers.get("HX-Request"):
         return RedirectResponse(url="/cchh/busquedas", status_code=303)       # el panel es un fragmento HTMX de la pantalla de Búsquedas
+    # El fragmento HTMX lo pide un filtro/paginador DENTRO del panel ya abierto: se devuelve siempre abierto (colapsarlo por un filtro sin resultados escondería los propios chips).
     return templates.TemplateResponse(request=request, name="partials/human_capital_solicitudes_panel.html",
-                                      context={"request": request, **_solicitudes_context(solicitud, page, page_size)})
+                                      context={"request": request, **_solicitudes_context(solicitud, page, page_size), "solicitudes_open": True})
 
 
 def _busqueda_form_context(*, form_values, is_edit, error=None, concurrent_modification=False, solicitud_conflict=None) -> dict:
@@ -1387,6 +1392,7 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
         "etapa_final": busqueda_repository.ETAPA_FINAL,
         "total_candidatos": len(view),
         "available_profiles": human_capital_service.profiles_available_for_busqueda(busqueda),
+        "blocked_profiles_count": human_capital_service.profiles_blocked_for_busqueda_count(busqueda),
         # "Eliminar" (owner request, diálogo Cerrar proceso): sólo visible para
         # una búsqueda placeholder/dummy -- MISMA regla que valida
         # `delete_busqueda` server-side (única fuente de verdad, ver
@@ -1399,12 +1405,25 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
         "solicitud_badge": _solicitud_badge(human_capital_service.solicitud_view(busqueda)) if human_capital_service.solicitud_view(busqueda) else None,
         # Acceso directo a Entrevistas desde las tarjetas del pipeline (solo `Entrevista CCHH` / `Entrevista Líder`): ver `_entrevista_links`.
         "entrevista_links": _entrevista_links(busqueda),
+        "onboarding_links": _onboarding_links(busqueda),
         # Historial UNIFICADO del proceso (solicitud + movimientos de candidatos): dentro del cuerpo que se re-renderiza tras cada mutación del pipeline, para que no quede desactualizado.
         "busqueda_historial": human_capital_service.solicitud_view(busqueda, include_cchh_actors=True) or human_capital_service.proceso_historial_view(busqueda),
     }
 
 
 _ENTREVISTA_ETAPAS = {"Entrevista CCHH": "Ir a entrevista CCHH", "Entrevista Líder": "Ir a entrevista técnica"}
+
+
+def _registro_entrevista_url(app: dict, busqueda_id: str, *, return_to: str = "") -> str:
+    """URL del REGISTRO ADMINISTRATIVO de entrevista de un (candidato, proceso): su edición si ya existe; si no, el alta con candidato y puesto/área precargados (navegar no crea nada). Un fallo de lectura degrada al listado.
+    `return_to`: contexto explícito de origen (Pipeline de ESA búsqueda o Evaluación CCHH del candidato) para que «Volver» regrese a él."""
+    ctx = return_to
+    try:
+        existing = entrevista_repository.find_by_profile_and_busqueda(app["profile_id"], busqueda_id)
+        return (pagination.with_return_to(f"/cchh/entrevistas/{existing['entrevista_id']}/editar", ctx) if existing
+                else pagination.with_return_to("/cchh/entrevistas/nueva?" + urllib.parse.urlencode({"profile_id": app["profile_id"], "busqueda_id": busqueda_id}), ctx))
+    except entrevista_repository.EntrevistaStorageError:
+        return "/cchh/entrevistas"
 
 
 def _entrevista_links(busqueda: dict) -> dict:
@@ -1416,13 +1435,27 @@ def _entrevista_links(busqueda: dict) -> dict:
         label = _ENTREVISTA_ETAPAS.get(app.get("etapa"))
         if not label or not app.get("profile_id"):
             continue
+        if app.get("etapa") == "Entrevista CCHH":
+            # Entrevista CCHH: el ícono abre la EVALUACIÓN CCHH del candidato (scoring); el registro administrativo queda como acceso secundario dentro de esa pantalla. Navegar no crea nada.
+            links[app["application_id"]] = {"url": f"/cchh/busquedas/{bid}/candidatos/{app['application_id']}/evaluacion-cchh", "label": "Evaluación CCHH"}
+            continue
+        links[app["application_id"]] = {"url": _registro_entrevista_url(app, bid, return_to=pagination.pipeline_return_url(bid)), "label": label}      # Entrevista Líder: registro administrativo (hasta implementar la evaluación técnica)
+    return links
+
+
+def _onboarding_links(busqueda: dict) -> dict:
+    """`application_id` -> URL del Onboarding EXISTENTE, solo para postulaciones Finalizado · Ingreso. Es una lectura: no crea ningún Onboarding (nace al finalizar con Ingreso, ver `ensure_onboarding_for_application`). Si no existe o
+    la lectura falla, no se ofrece el acceso (nunca un enlace a algo que no está)."""
+    links: dict = {}
+    ctx = pagination.pipeline_return_url(busqueda.get("busqueda_id"))
+    for app in busqueda.get("candidatos", []):
+        if app.get("etapa") != busqueda_repository.ETAPA_FINAL or app.get("resultado_final") != "Ingreso" or not app.get("application_id"):
+            continue
         try:
-            existing = entrevista_repository.find_by_profile_and_busqueda(app["profile_id"], bid)
-            url = (f"/cchh/entrevistas/{existing['entrevista_id']}/editar" if existing
-                   else "/cchh/entrevistas/nueva?" + urllib.parse.urlencode({"profile_id": app["profile_id"], "busqueda_id": bid}))
-        except entrevista_repository.EntrevistaStorageError:
-            url = "/cchh/entrevistas"
-        links[app["application_id"]] = {"url": url, "label": label}
+            if onboarding_repository.get(app["application_id"]) is not None:
+                links[app["application_id"]] = pagination.with_return_to(f"/cchh/onboarding/{app['application_id']}/editar", ctx)
+        except onboarding_repository.OnboardingStorageError:
+            continue
     return links
 
 
@@ -1579,28 +1612,170 @@ def human_capital_busqueda_edit_submit(
 
 
 @router.get("/cchh/busquedas/{busqueda_id}", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_busqueda_detail_page(request: Request, busqueda_id: str, ok: str = Query(""), aviso: str = Query("")):
+def human_capital_busqueda_detail_page(request: Request, busqueda_id: str, ok: str = Query(""), aviso: str = Query(""), vista: str = Query(""), paso: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
     busqueda = human_capital_service.get_busqueda(busqueda_id)
     if busqueda is None:
         raise HTTPException(404, "Búsqueda no encontrada")
-    return templates.TemplateResponse(
-        request=request, name="human_capital/busqueda_detail.html",
-        context=_busqueda_shell(request, {**_busqueda_detail_context(busqueda), "solicitud_ok": _SOLICITUD_OK.get(ok), "solicitud_error": _SOLICITUD_AVISOS.get(aviso)}),
-    )
+    if vista == _VISTA_LEGACY_SCORING:
+        # Compatibilidad: la pestaña «Scoring (JD)» pasó a llamarse «Evaluación»; los enlaces viejos conservan el resto de la consulta (paso, ok, …).
+        query = urllib.parse.urlencode([(k, _VISTA_EVALUACION if (k == "vista") else v) for k, v in request.query_params.multi_items()])
+        return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?{query}", status_code=307)
+    ctx = {**_busqueda_detail_context(busqueda), "solicitud_ok": _SOLICITUD_OK.get(ok), "solicitud_error": _SOLICITUD_AVISOS.get(aviso)}
+    if vista == _VISTA_EVALUACION and busqueda_repository.es_gestionada(busqueda):
+        ctx.update(_scoring_context(busqueda, paso, ok=ok, actor=_pipeline_actor(request)))
+    return templates.TemplateResponse(request=request, name="human_capital/busqueda_detail.html", context=_busqueda_shell(request, ctx))
 
 
-def _busqueda_detail_body(request, busqueda_id: str):
+# ── Pestaña «Evaluación» (antes «Scoring (JD)») — scoring CCHH: Job Description + grilla de evaluación + evaluación por candidato y ranking ──
+_VISTA_EVALUACION, _VISTA_LEGACY_SCORING = "evaluacion", "scoring"
+_SCORING_OK = {"jd": "Job Description guardada.", "grilla": "Grilla guardada: se creó una nueva versión.", "grilla_sin_cambios": "La grilla no tenía cambios: se mantiene la misma versión.",
+               "evaluacion": "Evaluación CCHH guardada.", "evaluacion_sin_cambios": "La evaluación no tenía cambios: no se modificó."}
+_SCORING_FORM_FIELDS = ("criterio_id", "bloque", "nombre", "peso", "descripcion", "ancla_1", "ancla_3", "ancla_5", "preguntas_guia")
+
+
+def _scoring_context(busqueda: dict, paso: str = "", *, ok: str = "", errors: list[str] | None = None, rows: list[dict] | None = None, jd: tuple[str, str] | None = None, actor: str | None = None) -> dict:
+    """Contexto del panel «Scoring CCHH» (pestaña «Evaluación» del detalle del proceso). Ante un error de validación se vuelve a mostrar lo que la persona escribió (`rows`/`jd`), no lo guardado."""
+    try:
+        data = scoring_service.panel(busqueda)
+    except (scoring_grid_repository.GridStorageError, ValueError) as exc:
+        return {"vista": _VISTA_EVALUACION, "scoring": {"storage_error": str(exc), "paso": "jd", "editable": False, "bloques": scoring_engine.BLOQUES, "errors": []}}
+    paso = paso if paso in ("jd", "grilla", "ranking") else ("ranking" if data["grilla_valida"] else ("grilla" if data["jd_cargada"] else "jd"))
+    if paso == "ranking" and not data["grilla_valida"]:
+        paso = "grilla"                                                                               # sin grilla válida no hay ranking: se vuelve al paso que falta
+    if paso == "ranking":
+        try:
+            data["ranking"] = scoring_service.ranking_view(busqueda, actor)
+        except (scoring_grid_repository.GridStorageError, ValueError) as exc:
+            return {"vista": _VISTA_EVALUACION, "scoring": {"storage_error": str(exc), "paso": "jd", "editable": False, "bloques": scoring_engine.BLOQUES, "errors": []}}
+    if rows is not None:
+        data["criterios_por_bloque"] = {b["key"]: [r for r in rows if r.get("bloque") == b["key"]] for b in scoring_engine.BLOQUES}
+        data["suma_pesos"] = scoring_engine.suma_pesos(scoring_engine.normalizar_criterios(rows)[0])
+    if jd is not None:
+        data["jd_texto"], data["palabras_clave"] = jd
+    return {"vista": _VISTA_EVALUACION, "scoring": {**data, "paso": paso, "ok": _SCORING_OK.get(ok), "errors": errors or []}}
+
+
+def _render_scoring(request: Request, busqueda_id: str, paso: str, *, errors: list[str], rows: list[dict] | None = None, jd: tuple[str, str] | None = None):
+    busqueda = human_capital_service.get_busqueda(busqueda_id)
+    if busqueda is None:
+        raise HTTPException(404, "Búsqueda no encontrada")
+    ctx = {**_busqueda_detail_context(busqueda), **_scoring_context(busqueda, paso, errors=errors, rows=rows, jd=jd, actor=_pipeline_actor(request))}
+    return templates.TemplateResponse(request=request, name="human_capital/busqueda_detail.html", context=_busqueda_shell(request, ctx))
+
+
+_SCORING_SHELL_ERRORS = (*_BUSQUEDA_SHELL_ERRORS, scoring_grid_repository.GridStorageError, scoring_grid_repository.GridRemoteOutcomeUnknownError)
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/scoring/jd", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_scoring_jd(request: Request, busqueda_id: str, jd_texto: str = Form(""), palabras_clave: str = Form("")):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        scoring_service.save_jd(busqueda_id, jd_texto, palabras_clave)
+    except LookupError:
+        raise HTTPException(404, "Búsqueda no encontrada") from None
+    except (ValueError, busqueda_repository.BusquedaInvalidTransitionError, busqueda_repository.BusquedaNotFoundError, *_SCORING_SHELL_ERRORS) as exc:
+        return _render_scoring(request, busqueda_id, "jd", errors=[str(exc)], jd=(jd_texto, palabras_clave))
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?vista=evaluacion&paso=grilla&ok=jd", status_code=303)
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/scoring/grilla", response_class=HTMLResponse, include_in_schema=False)
+async def human_capital_busqueda_scoring_grid(request: Request, busqueda_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form = await request.form()
+    columns = {k: [str(v) for v in form.getlist(k)] for k in _SCORING_FORM_FIELDS}
+    count = len(columns["bloque"])
+    rows = [{k: (columns[k][i] if i < len(columns[k]) else "") for k in _SCORING_FORM_FIELDS} for i in range(count)]
+    try:
+        _, changed = scoring_service.save_grid(busqueda_id, form.get("expected_revision"), rows, actor=_pipeline_actor(request))
+    except LookupError:
+        raise HTTPException(404, "Búsqueda no encontrada") from None
+    except scoring_engine.ScoringValidationError as exc:
+        return _render_scoring(request, busqueda_id, "grilla", errors=exc.errors, rows=rows)
+    except scoring_grid_repository.GridConcurrentModificationError as exc:
+        return _render_scoring(request, busqueda_id, "grilla", errors=[str(exc)])
+    except (ValueError, busqueda_repository.BusquedaNotFoundError, *_SCORING_SHELL_ERRORS) as exc:
+        return _render_scoring(request, busqueda_id, "grilla", errors=[str(exc)], rows=rows)
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?vista=evaluacion&paso=grilla&ok={'grilla' if changed else 'grilla_sin_cambios'}", status_code=303)
+
+
+# ── Evaluación CCHH de un candidato (instrumento del scoring) ──
+def _evaluation_values(form: dict, campos) -> dict:
+    """Valores a mostrar por criterio: lo que la persona acaba de enviar (re-render por error) o, si no, su evaluación previa. Solo lectura."""
+    values = {}
+    for cid, prev in (form.get("previous") or {}).items():
+        values[cid] = {"nota": str(prev.get("nota") or ""), "cumple": "si" if prev.get("cumple") is True else ("no" if prev.get("cumple") is False else ""), "comentario": prev.get("comentario") or ""}
+    if campos is not None:
+        for blq in form["criterios_por_bloque"].values():
+            for c in blq:
+                cid = c["criterio_id"]
+                values[cid] = {"nota": str(campos.get(f"nota_{cid}") or ""), "cumple": str(campos.get(f"cumple_{cid}") or ""), "comentario": str(campos.get(f"comentario_{cid}") or "")}
+    return values
+
+
+def _render_evaluation(request: Request, busqueda_id: str, application_id: str, *, errors: list[str] | None = None, campos=None, ok: str = ""):
+    busqueda = human_capital_service.get_busqueda(busqueda_id)
+    if busqueda is None or not busqueda_repository.es_gestionada(busqueda):
+        raise HTTPException(404, "Búsqueda no encontrada")
+    try:
+        form = scoring_service.evaluation_form(busqueda, application_id, _pipeline_actor(request))
+    except LookupError:
+        raise HTTPException(404, "Postulación no encontrada") from None
+    except (scoring_grid_repository.GridStorageError, ValueError) as exc:
+        form, errors = None, [str(exc)]
+    ctx = {"busqueda": busqueda, "application_id": application_id, "form": form, "errors": errors or [], "ok": _SCORING_OK.get(ok),
+           "values": _evaluation_values(form, campos) if form else {}, "comentario_general": (str(campos.get("comentario_general") or "") if campos is not None else (form or {}).get("comentario_general", "")),
+           "registro_url": _registro_entrevista_url(form["application"], busqueda_id, return_to=pagination.evaluation_return_url(busqueda_id, application_id)) if form and form["application"].get("profile_id") else "/cchh/entrevistas",
+           "back_url": f"/cchh/busquedas/{busqueda_id}?vista=evaluacion&paso=ranking", "grid_url": f"/cchh/busquedas/{busqueda_id}?vista=evaluacion&paso=grilla"}
+    return templates.TemplateResponse(request=request, name="human_capital/busqueda_evaluacion_cchh.html", context=_busqueda_shell(request, ctx))
+
+
+@router.get("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/evaluacion-cchh", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_cchh_evaluation_page(request: Request, busqueda_id: str, application_id: str):
+    """Formulario de evaluación CCHH del candidato. Solo lectura: abrirlo NO crea ningún registro (se persiste únicamente al guardar)."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    return _render_evaluation(request, busqueda_id, application_id)
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/evaluacion-cchh", response_class=HTMLResponse, include_in_schema=False)
+async def human_capital_busqueda_cchh_evaluation_save(request: Request, busqueda_id: str, application_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form = await request.form()
+    campos = {k: str(v) for k, v in form.items()}
+    try:
+        _, changed = scoring_service.save_evaluation(busqueda_id, application_id, recorded_by=_pipeline_actor(request), campos=campos, expected_revision=campos.get("expected_revision"))
+    except LookupError:
+        raise HTTPException(404, "No encontrado") from None
+    except scoring_engine.ScoringValidationError as exc:
+        return _render_evaluation(request, busqueda_id, application_id, errors=exc.errors, campos=campos)
+    except scoring_engine.ScoringIdentityError as exc:
+        return _render_evaluation(request, busqueda_id, application_id, errors=[str(exc)], campos=campos)
+    except scoring_evaluation_repository.EvaluationConcurrentModificationError as exc:
+        return _render_evaluation(request, busqueda_id, application_id, errors=[str(exc)])
+    except (ValueError, busqueda_repository.BusquedaNotFoundError, *_SCORING_SHELL_ERRORS) as exc:
+        return _render_evaluation(request, busqueda_id, application_id, errors=[str(exc)], campos=campos)
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?vista=evaluacion&paso=ranking&ok={'evaluacion' if changed else 'evaluacion_sin_cambios'}", status_code=303)
+
+
+def _busqueda_detail_body(request, busqueda_id: str, notice: str | None = None):
     """Fragmento del cuerpo del detalle (pipeline + agregar candidato), usado
-    para el swap HTMX tras cada mutación de pipeline."""
+    para el swap HTMX tras cada mutación de pipeline. `notice`: aviso visible cuando la acción pedida no se aplicó (p. ej. candidato no elegible)."""
     busqueda = human_capital_service.get_busqueda(busqueda_id)
     if busqueda is None:
         raise HTTPException(404, "Búsqueda no encontrada")
     return templates.TemplateResponse(
         request=request, name="partials/human_capital_busqueda_detail_body.html",
-        context={"request": request, **_busqueda_detail_context(busqueda), "oob_historial": True},
+        context={"request": request, **_busqueda_detail_context(busqueda), "oob_historial": True, "pipeline_notice": notice},
     )
 
 
@@ -1609,15 +1784,18 @@ def human_capital_busqueda_add_candidate(request: Request, busqueda_id: str, pro
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    notice = None
     try:
         human_capital_service.add_candidate_to_busqueda(busqueda_id, profile_id, actor=_pipeline_actor(request))
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
+    except human_capital_service.CandidateNotEligibleError as exc:
+        notice = str(exc)                                              # regla de elegibilidad: no se incorpora y se AVISA (no es un fallo silencioso)
     except (ValueError, *_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
         pass  # el body se re-renderiza igual; un fallo de durabilidad no rompe la vista
     if request.headers.get("HX-Request"):
-        return _busqueda_detail_body(request, busqueda_id)
-    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
+        return _busqueda_detail_body(request, busqueda_id, notice=notice)
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}" + ("?aviso=no_elegible" if notice else ""), status_code=303)
 
 
 @router.post("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/etapa",
@@ -1953,6 +2131,11 @@ def human_capital_entrevista_new_page(request: Request, profile_id: str = Query(
         form_values["profile_id"] = profile_id
         busqueda = human_capital_service.get_busqueda(busqueda_id) if busqueda_id else None
         if busqueda is not None and any(a.get("profile_id") == profile_id for a in busqueda.get("candidatos", [])):
+            # Una entrevista por (candidato, proceso): si ya existe (enlace viejo, otra pestaña) se va a ella en vez de ofrecer un alta que la duplicaría.
+            existing = entrevista_repository.find_by_profile_and_busqueda(profile_id, busqueda_id)
+            if existing is not None:
+                return RedirectResponse(url=f"/cchh/entrevistas/{existing['entrevista_id']}/editar" + _return_context(request.query_params, "/cchh/entrevistas", existing)["qs"], status_code=303)
+            form_values["busqueda_id"] = busqueda_id                       # el alta queda ligada a la postulación (el servidor resuelve `application_id`)
             form_values["puesto_evaluado"] = busqueda.get("nombre_puesto")
             form_values["area"] = busqueda.get("area_consultora")
             form_values["modalidad_contratacion"] = human_capital_service.resolve_entrevista_modalidad(None, busqueda)[0]
@@ -1964,7 +2147,7 @@ def human_capital_entrevista_new_page(request: Request, profile_id: str = Query(
 
 @router.post("/cchh/entrevistas/nueva", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_entrevista_new_submit(
-    request: Request, profile_id: str = Form(""),
+    request: Request, profile_id: str = Form(""), busqueda_id: str = Form(""),
     fecha_entrevista: str = Form(""), puesto_evaluado: str = Form(""), area: str = Form(""),
     modalidad_contratacion: str = Form(""), remuneracion_pretendida: str = Form(""),
     observaciones: str = Form(""), resumen_entrevista_tecnica: str = Form(""),
@@ -1977,16 +2160,19 @@ def human_capital_entrevista_new_submit(
         fecha_entrevista, puesto_evaluado, area, modalidad_contratacion,
         remuneracion_pretendida, observaciones, resumen_entrevista_tecnica), allow)
     try:
-        entrevista = human_capital_service.create_entrevista_manual(profile_id, form_values, allow_compensation=allow)
+        if busqueda_id:          # origen = postulación del Pipeline: ligada a la Búsqueda/postulación y única por (candidato, proceso)
+            entrevista, _created = human_capital_service.create_entrevista_for_application(profile_id, busqueda_id, form_values, allow_compensation=allow)
+        else:
+            entrevista = human_capital_service.create_entrevista_manual(profile_id, form_values, allow_compensation=allow)
     except (ValueError, *_ENTREVISTA_SHELL_ERRORS) as exc:
         return templates.TemplateResponse(
             request=request, name="human_capital/entrevista_form.html",
             context=_entrevistas_shell(request, _entrevista_form_context(
-                form_values=form_values, is_edit=False, error=str(exc))))
+                form_values={**form_values, **({"profile_id": profile_id, "busqueda_id": busqueda_id} if busqueda_id else {})}, is_edit=False, error=str(exc))))
     # Sin vista de detalle standalone (owner UX pass 1: "la experiencia de
     # producto no la necesita" -- ver Editar mismo, que ya muestra todos los
     # campos): después de crear, se sigue editando directo.
-    return RedirectResponse(url=f"/cchh/entrevistas/{entrevista['entrevista_id']}/editar", status_code=303)
+    return RedirectResponse(url=f"/cchh/entrevistas/{entrevista['entrevista_id']}/editar" + _return_context(request.query_params, "/cchh/entrevistas", entrevista)["qs"], status_code=303)
 
 
 @router.get("/cchh/entrevistas/{entrevista_id}/editar", response_class=HTMLResponse, include_in_schema=False)
@@ -2052,7 +2238,7 @@ def human_capital_entrevista_edit_submit(
         return _render(concurrent_modification=True)
     except _ENTREVISTA_SHELL_ERRORS as exc:
         return _render(error=str(exc))
-    return _return_redirect(request, "/cchh/entrevistas")
+    return _return_redirect(request, "/cchh/entrevistas", subject=human_capital_service.get_entrevista(entrevista_id))
 
 
 @router.post("/cchh/entrevistas/{entrevista_id}/no-concretada", response_class=HTMLResponse, include_in_schema=False)
@@ -2098,7 +2284,7 @@ def human_capital_entrevista_no_concretada(
         return _render(concurrent_modification=True)
     except _ENTREVISTA_SHELL_ERRORS as exc:
         return _render(error=str(exc))
-    return _return_redirect(request, "/cchh/entrevistas")
+    return _return_redirect(request, "/cchh/entrevistas", subject=human_capital_service.get_entrevista(entrevista_id))
 
 
 @router.post("/cchh/entrevistas/{entrevista_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
@@ -2106,13 +2292,14 @@ def human_capital_entrevista_delete(request: Request, entrevista_id: str):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    subject = human_capital_service.get_entrevista(entrevista_id)          # el contexto se valida contra el registro ANTES de borrarlo
     try:
         human_capital_service.delete_entrevista(entrevista_id)
     except entrevista_repository.EntrevistaNotFoundError:
         pass
     except _ENTREVISTA_SHELL_ERRORS:
         pass
-    return _return_redirect(request, "/cchh/entrevistas")
+    return _return_redirect(request, "/cchh/entrevistas", subject=subject)
 
 
 # ---------------------------------------------------------------------------
@@ -2137,6 +2324,7 @@ def _onboarding_shell(request, extra: dict) -> dict:
         "current_workspace": workspaces.HUMAN_CAPITAL,
         "available_workspaces": workspaces.available_workspaces(user),
         "pack": DEFAULT_PACK, "user": user, "active_page": "onboarding",
+        "can_see_offer": human_capital_access.can_view_sensitive_data(user),            # «Oferta cerrada»: MISMA política central que «Remuneración pretendida»; jamás un dato del navegador
         **extra,
     }
 
@@ -2162,7 +2350,7 @@ def _onboarding_area_filter_options(rows: list[dict], selected: str) -> list[dic
     return _governed_filter_options("area_consultora", [o.get("area") for o in rows], selected, human_capital_service.SIN_AREA, "Sin área")
 
 
-def _onboarding_list_context(estado: str = "todos", area: str = "", q: str = "", page=1, page_size=None) -> dict:
+def _onboarding_list_context(estado: str = "todos", area: str = "", q: str = "", page=1, page_size=None, allow_sensitive: bool = False) -> dict:
     if estado not in _ONBOARDING_ESTADO_FILTERS:
         estado = "todos"
     area, q = (area or "").strip(), (q or "").strip()
@@ -2171,12 +2359,12 @@ def _onboarding_list_context(estado: str = "todos", area: str = "", q: str = "",
     try:
         # GET de navegación = SOLO LECTURA: nunca crea/repone onboardings. El backfill de ingresos históricos es un paso operativo explícito y separado
         # (`human_capital_service.reconcile_onboardings`, DEFERRED: Historical onboarding backfill = deferred operational step).
-        rows = human_capital_service.list_onboardings_view()
+        rows = human_capital_service.list_onboardings_view(allow_sensitive)
     except (onboarding_repository.OnboardingStorageError, busqueda_repository.BusquedaStorageError) as exc:
         source_error = str(exc)
     dataset_has_any = bool(rows)
     area_options = _onboarding_area_filter_options(rows, area)         # sobre el dataset COMPLETO: las opciones no desaparecen al filtrar
-    rows = human_capital_service.filter_onboardings(rows, estado=estado, area=area, q=q)
+    rows = human_capital_service.filter_onboardings(rows, estado=estado, area=area, q=q, include_offer=allow_sensitive)
     rows.sort(key=lambda o: (o.get("fecha_ingreso") or "", o.get("created_at") or ""), reverse=True)      # orden ANTES de paginar
     pager = pagination.paginate(rows, page=page, page_size=page_size, base_url="/cchh/onboarding",
                                 params={"estado": estado if estado != "todos" else "", "area": area, "q": q})
@@ -2214,7 +2402,7 @@ def human_capital_onboarding_page(request: Request, estado: str = Query("todos")
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    ctx = _onboarding_list_context(estado, area, q, page, page_size)
+    ctx = _onboarding_list_context(estado, area, q, page, page_size, human_capital_access.can_view_sensitive_data_request(request))
     # Filtro reactivo (HTMX): sólo se re-renderiza el panel (`#hc-onboarding-panel`) — MISMO criterio de fragmento que Candidatos.
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
@@ -2229,7 +2417,10 @@ def human_capital_onboarding_page(request: Request, estado: str = Query("todos")
 
 def _onboarding_edit_response(request: Request, application_id: str, form_values: dict, **extra):
     onboarding = human_capital_service.get_onboarding(application_id)
-    view = human_capital_service.onboarding_view(onboarding) if onboarding else None
+    allow = human_capital_access.can_view_sensitive_data_request(request)
+    view = human_capital_service.onboarding_view(onboarding, allow) if onboarding else None
+    if not allow:
+        form_values = {**form_values, "oferta_cerrada": None}                      # sin permiso, la oferta (persistida o enviada) no viaja a la plantilla
     return templates.TemplateResponse(
         request=request, name="human_capital/onboarding_form.html",
         context=_onboarding_shell(request, _onboarding_form_context(
@@ -2259,14 +2450,15 @@ def human_capital_onboarding_edit_submit(
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    form_values = {"fecha_ingreso": fecha_ingreso, "oferta_cerrada": oferta_cerrada, "area": area}
+    allow = human_capital_access.can_view_sensitive_data_request(request)
+    form_values = {"fecha_ingreso": fecha_ingreso, "oferta_cerrada": oferta_cerrada if allow else None, "area": area}      # sin permiso, lo enviado se descarta antes de todo
     try:
         revision_int = int(expected_revision)
     except ValueError:
         raise HTTPException(400, "expected_revision inválido") from None
     fv = {**form_values, "expected_revision": revision_int, "application_id": application_id}
     try:
-        human_capital_service.update_onboarding(application_id, revision_int, form_values)
+        human_capital_service.update_onboarding(application_id, revision_int, form_values, allow_sensitive=allow)
     except onboarding_repository.OnboardingNotFoundError:
         raise HTTPException(404, "Onboarding no encontrado") from None
     except ValueError as exc:
@@ -2275,7 +2467,7 @@ def human_capital_onboarding_edit_submit(
         return _onboarding_edit_response(request, application_id, fv, concurrent_modification=True)
     except _ONBOARDING_SHELL_ERRORS as exc:
         return _onboarding_edit_response(request, application_id, fv, error=str(exc))
-    return _return_redirect(request, "/cchh/onboarding")
+    return _return_redirect(request, "/cchh/onboarding", subject=human_capital_service.get_onboarding(application_id), kinds=(pagination.CONTEXT_PIPELINE,))
 
 
 @router.post("/cchh/onboarding/{application_id}/checklist/{item_key}", response_class=HTMLResponse, include_in_schema=False)
@@ -2299,7 +2491,7 @@ def human_capital_onboarding_toggle_item(request: Request, application_id: str, 
         raise HTTPException(404, "Onboarding no encontrado")
     return templates.TemplateResponse(
         request=request, name="partials/human_capital_onboarding_checklist.html",
-        context={"request": request, "onboarding": human_capital_service.onboarding_view(onboarding), "checklist_error": error},
+        context={"request": request, "onboarding": human_capital_service.onboarding_view(onboarding, human_capital_access.can_view_sensitive_data_request(request)), "checklist_error": error},
     )
 
 
@@ -2542,7 +2734,7 @@ def _fecha_dmy(value: str | None) -> str:
 templates.env.filters["fecha_dmy"] = _fecha_dmy
 templates.env.filters["hc_profile_search"] = human_capital_service.profile_search_haystack          # haystack del buscador de candidatos (diálogo «Agregar candidato desde el Banco»)
 # Contexto de listado para las páginas de edición (ver `pagination.list_return_context`): `{% set rc = list_return(request, "/cchh/…") %}` → `rc.back_url` / `rc.qs`.
-templates.env.globals["list_return"] = lambda request, list_path: pagination.list_return_context(request.query_params, list_path)
+templates.env.globals["list_return"] = lambda request, list_path, subject=None, kinds=None: _return_context(request.query_params, list_path, subject, kinds)
 
 
 def _edit_redirect(request: Request, profile_id: str) -> RedirectResponse:
@@ -2550,9 +2742,46 @@ def _edit_redirect(request: Request, profile_id: str) -> RedirectResponse:
     return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar" + pagination.list_return_context(request.query_params, "/cchh/candidatos")["qs"], status_code=303)
 
 
-def _return_redirect(request: Request, list_path: str) -> RedirectResponse:
-    """303 al listado EN EL MISMO CONTEXTO (filtros/página/tamaño) si la acción vino de él (`?return_to=`); si no, al listado base."""
-    return RedirectResponse(url=pagination.list_return_url(request.query_params.get("return_to"), list_path) or list_path, status_code=303)
+def _process_context_matches(parts: dict | None, subject: dict | None) -> bool:
+    """El contexto de proceso (`return_to` = Pipeline de una búsqueda o Evaluación CCHH de un candidato) solo vale si CORRESPONDE al registro que se está editando: la búsqueda existe (y, para la Evaluación, está
+    en gestión), el registro pertenece a ESA búsqueda y a una postulación que sigue en su pipeline (la de la Evaluación, si el contexto la nombra). `subject`: dict con `busqueda_id` y `application_id`/`profile_id`
+    del registro (entrevista, onboarding o alta en curso). Sin `subject` o con cualquier inconsistencia → no vale (se cae al destino independiente)."""
+    if not parts or not subject or subject.get("busqueda_id") != parts["busqueda_id"]:
+        return False
+    try:
+        busqueda = busqueda_repository.get(parts["busqueda_id"])
+    except busqueda_repository.BusquedaStorageError:
+        return False
+    if busqueda is None or (parts["kind"] == pagination.CONTEXT_EVALUACION and not busqueda_repository.es_gestionada(busqueda)):
+        return False
+    apps = busqueda.get("candidatos") or []
+    wanted = parts["application_id"] or subject.get("application_id")
+    if wanted:
+        app = next((a for a in apps if a.get("application_id") == wanted), None)
+        if app is None or (subject.get("application_id") and subject["application_id"] != wanted):
+            return False
+    elif subject.get("profile_id"):
+        app = next((a for a in apps if a.get("profile_id") == subject["profile_id"]), None)
+        if app is None:
+            return False
+    else:
+        return False
+    return not subject.get("profile_id") or app.get("profile_id") == subject["profile_id"]
+
+
+def _return_context(query_params, list_path: str, subject: dict | None = None, kinds=None) -> dict:
+    """`pagination.list_return_context` + validación EN SERVIDOR del contexto de proceso contra el registro (`subject`). Las pantallas de edición independientes sin `subject` solo aceptan su listado.
+    `kinds`: orígenes de proceso admitidos por la pantalla (default: Pipeline y Evaluación CCHH; el Onboarding solo se abre desde el Pipeline)."""
+    ctx = pagination.list_return_context(query_params, list_path, allow_process=subject is not None)
+    if ctx["kind"] and (ctx["kind"] not in (kinds or (pagination.CONTEXT_PIPELINE, pagination.CONTEXT_EVALUACION))
+                        or not _process_context_matches(pagination.process_context(ctx["return_to"]), subject)):
+        return pagination.list_return_context({}, list_path)
+    return ctx
+
+
+def _return_redirect(request: Request, list_path: str, *, subject: dict | None = None, kinds=None) -> RedirectResponse:
+    """303 al listado EN EL MISMO CONTEXTO (filtros/página/tamaño) si la acción vino de él (`?return_to=`); si no, al listado base. Con `subject`, también vuelve al Pipeline/Evaluación de origen (validado)."""
+    return RedirectResponse(url=_return_context(request.query_params, list_path, subject, kinds)["return_to"] or list_path, status_code=303)
 
 
 def _catalogos_context(request: Request, *, refresh_result: dict | None, refresh_error: dict | None) -> dict:

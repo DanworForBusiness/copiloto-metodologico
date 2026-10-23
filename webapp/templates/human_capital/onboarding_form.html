@@ -11,7 +11,7 @@
 
   <main id="content" class="module-content">
     {# Sin vista de detalle: Editar vuelve directo al listado (MISMO primitivo `.catalog-back` que Búsquedas/Candidatos/Entrevistas). #}
-    {% set rc = list_return(request, "/cchh/onboarding") %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver a Onboarding</a>
+    {% set rc = list_return(request, "/cchh/onboarding", onboarding, ["pipeline"]) %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver a {{ rc.back_label or 'Onboarding' }}</a>
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
         <p class="eyebrow">Capital Humano</p>
@@ -26,30 +26,47 @@
     <div class="dashboard-empty" data-error-kind="validation"><span class="dashboard-empty__label">No se guardó</span><p>{{ form_error }}</p></div>
     {% endif %}
 
-    <form method="post" action="/cchh/onboarding/{{ form_values.application_id }}/editar{{ rc.qs }}" class="hc-profile-form">
+    <form method="post" action="/cchh/onboarding/{{ form_values.application_id }}/editar{{ rc.qs }}" id="onb-form" class="hc-profile-form hc-profile-form--plain">
       <input type="hidden" name="expected_revision" value="{{ form_values.expected_revision }}">
 
-      <section class="hc-profile-section">
-        <h2>
-          Datos del ingreso
-          {# `(i)` transversal del Hub (`.chart-tooltip-anchor` / `.activity-kpi__info` / `.chart-tooltip`). #}
-          {% set _datos_help = "El onboarding se crea solo cuando el candidato queda como Ingreso en la Búsqueda. La fecha de ingreso arranca en el día en que se marcó el ingreso y se puede corregir. El área se completa desde la entrevista y se mantiene sincronizada si se edita ahí." %}
-          <span class="chart-tooltip-anchor">
-            <button type="button" class="activity-kpi__info" aria-label="{{ _datos_help }}">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
-            </button>
-            <span class="chart-tooltip"><p>{{ _datos_help }}</p></span>
-          </span>
-        </h2>
-
+      {# «Datos del ingreso» en un contenedor colapsable (`dashboard-section`, el MISMO de los grupos del checklist y de Editar candidato), abierto por defecto; el `(i)` transversal va en el encabezado como en Búsquedas. #}
+      <div class="dashboard-sections">
+        <details class="dashboard-section" data-section-id="datos-ingreso" open>
+          <summary class="dashboard-section__head">
+            <span class="dashboard-section__caret"></span>
+            <span class="dashboard-section__title">Datos del ingreso</span>
+            {% set _datos_help = "El onboarding se crea solo cuando el candidato queda como Ingreso en la Búsqueda. La fecha de ingreso arranca en el día en que se marcó el ingreso y se puede corregir. El área se completa desde la entrevista y se mantiene sincronizada si se edita ahí. Estos datos se guardan con «Guardar cambios»; el checklist se guarda aparte, al tildar cada ítem." %}
+            <span class="chart-tooltip-anchor">
+              <button type="button" class="activity-kpi__info" aria-label="{{ _datos_help }}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
+              </button>
+              <span class="chart-tooltip"><p>{{ _datos_help }}</p></span>
+            </span>
+          </summary>
+          <div class="dashboard-section__body">
         <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
           <div class="feedback-field feedback-field--compact">
             <label for="onb-fecha">Fecha de ingreso</label>
             <input id="onb-fecha" name="fecha_ingreso" type="date" required value="{{ form_values.fecha_ingreso or '' }}">
           </div>
           <div class="feedback-field feedback-field--medium">
-            <label for="onb-oferta">Oferta cerrada</label>
+            {% set _restricted_help = "Dato restringido: solo lo ven y editan las personas autorizadas." %}
+            <label for="onb-oferta">Oferta cerrada
+              {% if not can_see_offer %}
+              <span class="chart-tooltip-anchor">
+                <button type="button" class="activity-kpi__info" aria-label="{{ _restricted_help }}">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
+                </button>
+                <span class="chart-tooltip"><p id="onb-oferta-hint">{{ _restricted_help }}</p></span>
+              </span>
+              {% endif %}
+            </label>
+            {# Dato RESTRINGIDO (`HC_SENSITIVE_DATA_ALLOWED_USERS`, MISMA política que «Remuneración pretendida»): sin permiso NO hay input con nombre ni valor real en el HTML; solo la máscara. El backend además descarta cualquier importe enviado. #}
+            {% if can_see_offer %}
             <input id="onb-oferta" name="oferta_cerrada" type="text" value="{{ form_values.oferta_cerrada or '' }}">
+            {% else %}
+            <input id="onb-oferta" type="text" value="****" readonly disabled aria-describedby="onb-oferta-hint">
+            {% endif %}
           </div>
           <div class="feedback-field feedback-field--medium">
             <label for="onb-area">Área</label>
@@ -62,16 +79,35 @@
             {% if area_is_legacy %}<p class="field-hint field-hint--warn">Valor legacy fuera del catálogo vigente. Se conserva; si lo cambiás, tenés que elegir uno del catálogo.</p>{% endif %}
           </div>
         </div>
-      </section>
-
-      <div class="hc-profile-form__actions">
-        <button type="submit" class="btn-primary">Guardar cambios</button>
+          </div>
+        </details>
       </div>
     </form>
 
     {% if onboarding %}{% include "partials/human_capital_onboarding_checklist.html" %}{% endif %}
+
+    {# Acción primaria AL FINAL de la página (no entre «Datos del ingreso» y el checklist). El checklist guarda por ítem con HTMX y no puede vivir dentro del `<form>`, por eso el botón se asocia al formulario con `form="onb-form"`. #}
+    <div class="hc-profile-form__actions">
+      <button type="submit" form="onb-form" class="btn-primary">Guardar cambios</button>
+      {# Dos mecanismos de guardado, dos señales: este botón guarda SOLO «Datos del ingreso» (el aviso «Cambios sin guardar» aparece mientras haya algo editado y sin guardar); el checklist se guarda al tildar cada ítem. #}
+      <span class="status-badge status-badge--tentativo" data-onb-dirty hidden>Cambios sin guardar en «Datos del ingreso»</span>
+      <p class="field-hint" data-onb-save-hint>Guarda los datos del ingreso (fecha, oferta y área). El checklist no lo necesita: se guarda al tildar cada ítem.</p>
+    </div>
+    <script>
+      (function () {
+        var form = document.getElementById("onb-form"), badge = document.querySelector("[data-onb-dirty]");
+        if (!form || !badge || form.__hcDirtyWired) return;
+        form.__hcDirtyWired = true;
+        var snap = function () { return new URLSearchParams(new FormData(form)).toString(); }, initial = snap();
+        var sync = function () { badge.hidden = snap() === initial; };
+        form.addEventListener("input", sync); form.addEventListener("change", sync);
+        form.addEventListener("submit", function () { badge.hidden = true; });
+      })();
+    </script>
   </main>
 </div>
 
 <link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{# Preferencia manual de los contenedores del checklist: módulo externo (las plantillas no llevan lógica de storage). Una sola carga; el fragmento HTMX del checklist no trae scripts. #}
+<script src="{{ url_for('static', path='human_capital_onboarding.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}

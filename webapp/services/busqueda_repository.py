@@ -377,6 +377,15 @@ def update(busqueda_id: str, expected_revision: int, fields: dict) -> dict:
     return _mutate(busqueda_id, _apply, expected_revision=expected_revision)
 
 
+def update_jd(busqueda_id: str, jd_texto: str | None, palabras_clave: str | None) -> dict:
+    """Actualiza SOLO la Job Description y las palabras clave (Scoring (JD)): cambio funcional del proceso (sube la `revision`), a nivel de campo — no pisa el resto del documento porque relee el vigente bajo el lock."""
+    def _apply(doc: dict) -> None:
+        _require_managed(doc, "editar la JD de")
+        doc["jd_texto"] = jd_texto
+        doc["palabras_clave"] = palabras_clave
+    return _mutate(busqueda_id, _apply)
+
+
 # ── Mutaciones del pipeline (candidatos embebidos) ──────────────────────────
 
 def _find_app(doc: dict, application_id: str) -> dict:

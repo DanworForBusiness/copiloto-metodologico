@@ -407,7 +407,7 @@ def test_fecha_help_is_a_shared_info_tooltip_not_an_inline_helper():
     # Sigue siendo el MISMO primitivo, no una copia -- ambos usos de
     # `.activity-kpi__info` en esta página (Pipeline + Fecha) reusan
     # `.chart-tooltip-anchor`, cero SVG/CSS nuevo por consumidor.
-    assert html.count('class="activity-kpi__info"') == 1  # sólo Fecha acá (entrevista manual, sin disclaimer de Pipeline)
+    assert html.count('class="activity-kpi__info"') == 2  # Fecha + «Remuneración pretendida» restringida (este cliente no tiene permiso); sin disclaimer de Pipeline
 
 
 def test_edit_form_has_only_guardar_no_cancelar():

@@ -1,0 +1,188 @@
+{# human_capital_scoring_panel.html — pestaña «Evaluación» del detalle de un proceso. ALCANCE de esta etapa: SCORING CCHH (Job Description + grilla de evaluación de la fase CCHH). La evaluación por candidato y el ranking llegan en el siguiente
+   incremento; la fase técnica y cualquier consolidado CCHH/técnico NO existen todavía y no se presentan. Constantes (umbrales, bloques, peso total) vienen del motor (`scoring_engine`): acá no se repite ninguna. #}
+{% macro scoring_row(c, bloque) %}
+<div class="scoring-row" data-scoring-row data-bloque="{{ bloque }}">
+  <input type="hidden" name="criterio_id" value="{{ c.criterio_id or '' }}">
+  <input type="hidden" name="bloque" value="{{ bloque }}">
+  <div class="feedback-field scoring-row__name">
+    <label>Criterio</label>
+    <input name="nombre" type="text" maxlength="200" value="{{ c.nombre or '' }}" placeholder="{{ 'Ej.: ¿Usó Datasphere en un proyecto real?' if bloque == 'excluyente' else 'Ej.: SAP Datasphere' }}">
+  </div>
+  <div class="feedback-field scoring-row__peso">
+    <label>Peso (%)</label>
+    {% if bloque == 'excluyente' %}<input name="peso" type="number" value="0" readonly tabindex="-1">{% else %}{% set p = c.get('peso') %}<input name="peso" type="number" min="0" max="100" step="0.01" value="{{ '' if p in (none, '') else (p if p is string else ('%g' % p)) }}">{% endif %}
+  </div>
+  <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor scoring-row__remove" data-scoring-remove aria-label="Quitar criterio">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+    <span class="chart-tooltip" aria-hidden="true"><p>Quitar criterio</p></span>
+  </button>
+  <details class="scoring-row__more">
+    <summary>Descripción, anclas y preguntas guía</summary>
+    <div class="feedback-field"><label>Descripción</label><textarea name="descripcion" rows="2" maxlength="2000">{{ c.descripcion or '' }}</textarea></div>
+    {% if bloque != 'excluyente' %}
+    <div class="scoring-row__anchors">
+      <div class="feedback-field"><label>Ancla nota 1</label><input name="ancla_1" type="text" maxlength="2000" value="{{ c.ancla_1 or '' }}"></div>
+      <div class="feedback-field"><label>Ancla nota 3</label><input name="ancla_3" type="text" maxlength="2000" value="{{ c.ancla_3 or '' }}"></div>
+      <div class="feedback-field"><label>Ancla nota 5</label><input name="ancla_5" type="text" maxlength="2000" value="{{ c.ancla_5 or '' }}"></div>
+    </div>
+    {% else %}
+    <input type="hidden" name="ancla_1" value=""><input type="hidden" name="ancla_3" value=""><input type="hidden" name="ancla_5" value="">
+    {% endif %}
+    <div class="feedback-field"><label>Preguntas guía <span>una por línea</span></label><textarea name="preguntas_guia" rows="3" maxlength="2000">{{ c.preguntas_guia or '' }}</textarea></div>
+  </details>
+</div>
+{% endmacro %}
+
+{% set sc = scoring %}
+{% set base = '/cchh/busquedas/' ~ busqueda.busqueda_id %}
+<section class="scoring-panel" data-scoring-panel>
+  <div class="scoring-panel__head">
+    <h2>Scoring CCHH</h2>
+    <p class="field-hint">Puntaje de la <strong>entrevista CCHH</strong> a partir de la Job Description del proceso (Tier A ≥ {{ sc.tier_a_min }}, B ≥ {{ sc.tier_b_min }}). Es el scoring de la fase CCHH: no es un consolidado CCHH / técnico.</p>
+  </div>
+
+  {% if sc.storage_error %}
+  <div class="dashboard-empty" data-error-kind="storage" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ sc.storage_error }}</p></div>
+  {% else %}
+  <nav class="scoring-steps" aria-label="Pasos del scoring">
+    <a class="scoring-step{% if sc.paso == 'jd' %} is-active{% endif %}" href="{{ base }}?vista=evaluacion&paso=jd" {% if sc.paso == 'jd' %}aria-current="step"{% endif %}><span class="scoring-step__n">{{ '✓' if sc.jd_cargada else '1' }}</span>Job Description</a>
+    <span class="scoring-steps__sep" aria-hidden="true">›</span>
+    <a class="scoring-step{% if sc.paso == 'grilla' %} is-active{% endif %}" href="{{ base }}?vista=evaluacion&paso=grilla" {% if sc.paso == 'grilla' %}aria-current="step"{% endif %}><span class="scoring-step__n">{{ '✓' if sc.grilla_valida else '2' }}</span>Grilla de evaluación CCHH{% if sc.grid_version %} <small>· v{{ sc.grid_version }}</small>{% endif %}</a>
+    <span class="scoring-steps__sep" aria-hidden="true">›</span>
+    {% if sc.grilla_valida %}
+    <a class="scoring-step{% if sc.paso == 'ranking' %} is-active{% endif %}" href="{{ base }}?vista=evaluacion&paso=ranking" {% if sc.paso == 'ranking' %}aria-current="step"{% endif %}><span class="scoring-step__n">3</span>Evaluación CCHH y ranking</a>
+    {% else %}
+    <span class="scoring-step is-disabled" aria-disabled="true" title="Primero la grilla de evaluación tiene que estar completa"><span class="scoring-step__n">3</span>Evaluación CCHH y ranking <small>· requiere la grilla</small></span>
+    {% endif %}
+  </nav>
+
+  {% if sc.ok %}<div class="callout callout--success" role="status"><div class="callout__body"><p>{{ sc.ok }}</p></div></div>{% endif %}
+  {% if sc.errors %}<div class="dashboard-empty" data-error-kind="validation" role="alert"><span class="dashboard-empty__label">No se guardó</span>{% for e in sc.errors %}<p>{{ e }}</p>{% endfor %}</div>{% endif %}
+  {% if not sc.editable %}<p class="field-hint">El proceso está cerrado: el scoring queda en solo lectura.</p>{% endif %}
+
+  {% if sc.paso == 'jd' %}
+  <form class="hc-profile-form hc-profile-form--plain scoring-form" method="post" action="{{ base }}/scoring/jd">
+    <div class="feedback-field">
+      <label for="scoring-jd">Job Description</label>
+      <textarea id="scoring-jd" name="jd_texto" rows="14" maxlength="30000" placeholder="Pegá la JD completa: responsabilidades, requisitos excluyentes, deseables y competencias." {% if not sc.editable %}readonly{% endif %}>{{ sc.jd_texto }}</textarea>
+      <p class="field-hint">Es la misma JD del formulario de edición del proceso: acá y allá se guarda en el mismo campo.</p>
+    </div>
+    <div class="feedback-field">
+      <label for="scoring-kw">Palabras clave <span>separadas por coma</span></label>
+      <input id="scoring-kw" name="palabras_clave" type="text" maxlength="500" value="{{ sc.palabras_clave }}" {% if not sc.editable %}readonly{% endif %}>
+    </div>
+    {% if sc.editable %}<div class="hc-profile-form__actions"><button type="submit" class="btn-primary">Guardar y seguir a la grilla</button></div>{% endif %}
+  </form>
+  {% elif sc.paso == 'ranking' and sc.ranking %}
+  {% set rk = sc.ranking %}
+  <p class="field-hint">Ranking de <strong>scoring CCHH</strong> (grilla v{{ rk.grid_version }}): el puntaje es el promedio de las evaluaciones <strong>vigentes</strong> de la fase CCHH. No incluye la entrevista técnica ni es un consolidado entre fases.</p>
+  <p class="scoring-coverage" data-scoring-coverage>
+    <span class="scoring-estado scoring-estado--vigente">{{ rk.conteos.vigente }} con evaluación vigente</span>
+    <span class="scoring-estado scoring-estado--sin_evaluar">{{ rk.conteos.sin_evaluar }} sin evaluar</span>
+    <span class="scoring-estado scoring-estado--desactualizada">{{ rk.conteos.desactualizada }} con evaluación desactualizada</span>
+  </p>
+  {% if not rk.filas %}
+  <div class="dashboard-empty"><span class="dashboard-empty__label">Sin candidatos</span><p>Todavía no hay candidatos en este proceso para evaluar.</p></div>
+  {% else %}
+  <div class="matrix-scroll">
+    <table class="dashboard-table scoring-ranking" data-scoring-ranking>
+      <thead><tr><th class="center">#</th><th class="left">Candidato</th><th class="left">Etapa</th><th class="right">Puntaje</th><th class="left">Tier</th><th class="left">Estado</th><th class="center">Acción</th></tr></thead>
+      <tbody>
+        {% for r in rk.filas %}
+        <tr data-application-id="{{ r.application_id }}" data-estado="{{ r.estado }}">
+          <td class="center">{{ r.posicion or '–' }}</td>
+          <td class="left">
+            {% if r.profile_id and not r.persona_eliminada %}<a href="/cchh/candidatos/{{ r.profile_id }}/editar">{{ r.nombre }}</a>{% else %}<span class="busqueda-cand__name--gone">{{ r.nombre }}</span>{% endif %}
+            {% if r.incumplidos %}<p class="field-hint scoring-incumple">✗ No cumple: {{ r.incumplidos | join(', ') }}</p>{% endif %}
+            {% if r.evaluaciones %}
+            <details class="scoring-evals">
+              <summary>{{ r.evaluaciones | length }} {{ 'evaluación' if r.evaluaciones | length == 1 else 'evaluaciones' }}</summary>
+              {% for e in r.evaluaciones %}
+              <div class="scoring-eval{% if not e.vigente %} is-outdated{% endif %}">
+                <p><strong>{{ e.evaluator }}</strong>{% if e.recorded_by and e.recorded_by != e.evaluator %} <em>(registrada por {{ e.recorded_by }})</em>{% endif %} · {{ '%.1f' % e.puntaje if e.puntaje is not none else '–' }} pts · {{ e.recorded_at | ops_datetime }} · grilla v{{ e.grid_version }}{% if not e.vigente %} · <strong>desactualizada</strong>{% endif %}</p>
+                {% if e.vigente %}
+                <ul>{% for a in e.respuestas %}<li>{{ a.criterio }}: <strong>{% if a.cumple is not none %}{{ 'Cumple' if a.cumple else 'No cumple' }}{% else %}{{ a.nota if a.nota is not none else '–' }}{% endif %}</strong>{% if a.comentario %} — {{ a.comentario }}{% endif %}</li>{% endfor %}</ul>
+                {% if e.comentario_general %}<p class="field-hint">“{{ e.comentario_general }}”</p>{% endif %}
+                {% endif %}
+              </div>
+              {% endfor %}
+            </details>
+            {% endif %}
+          </td>
+          <td class="left">{{ r.etapa }}</td>
+          <td class="right"><strong>{{ '%.1f' % r.puntaje if r.puntaje is not none else '–' }}</strong></td>
+          <td class="left">
+            {% if r.tier %}<span class="scoring-tier scoring-tier--{{ {'A': 'a', 'B': 'b', 'C': 'c', 'No aplica': 'na'}[r.tier] }}">{{ r.tier }}</span>{% else %}<span class="scoring-tier">Sin evaluar</span>{% endif %}
+            {% if r.alerta_dispersion %}<span class="scoring-dispersion" title="Los evaluadores difieren en más de {{ rk.dispersion_alerta }} puntos: conviene revisar">⚠ Dif. {{ '%.0f' % r.dispersion }} pts</span>{% endif %}
+          </td>
+          <td class="left"><span class="scoring-estado scoring-estado--{{ r.estado }}">{{ {'sin_evaluar': 'Sin evaluar', 'desactualizada': 'Desactualizada (' ~ r.evaluaciones_desactualizadas ~ ')', 'vigente': 'Vigente'}[r.estado] }}</span></td>
+          <td class="center">{% if sc.editable and not r.persona_eliminada %}<a class="btn-secondary" href="{{ base }}/candidatos/{{ r.application_id }}/evaluacion-cchh">{{ 'Editar mi evaluación' if r.mi_evaluacion else 'Evaluar' }}</a>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% else %}
+  {% if not sc.jd_cargada %}<p class="field-hint field-hint--warn">Todavía no cargaste la Job Description: la grilla se arma a partir de ella (paso 1).</p>{% endif %}
+  <form class="hc-profile-form hc-profile-form--plain scoring-form" method="post" action="{{ base }}/scoring/grilla" data-scoring-form>
+    <input type="hidden" name="expected_revision" value="{{ sc.grid_revision }}">
+    <p class="field-hint">Esta grilla es la <strong>instancia de este proceso</strong>{% if sc.grid_version %} (versión {{ sc.grid_version }}){% endif %}. Cada cambio guardado crea una versión nueva: las evaluaciones hechas con versiones anteriores quedan <strong>desactualizadas</strong> y no cuentan hasta re-evaluar.</p>
+    <fieldset class="scoring-fieldset" {% if not sc.editable %}disabled{% endif %}>
+    {% for b in sc.bloques %}
+    <section class="scoring-block" data-scoring-block="{{ b.key }}">
+      <h3>{{ b.label }}</h3>
+      <p class="field-hint">{{ b.ayuda }}</p>
+      <div class="scoring-rows" data-scoring-rows>
+        {% for c in sc.criterios_por_bloque[b.key] %}{{ scoring_row(c, b.key) }}{% endfor %}
+      </div>
+      {% if sc.editable %}<button type="button" class="btn-secondary scoring-add" data-scoring-add="{{ b.key }}">+ Agregar criterio</button>{% endif %}
+    </section>
+    {% endfor %}
+    </fieldset>
+    <p class="scoring-sum" data-scoring-sum-wrap>Ponderación (técnico + deseables + competencias): <strong data-scoring-sum>{{ '%g' % sc.suma_pesos }}</strong>% de {{ sc.peso_total }}% <span class="scoring-sum__state" data-scoring-sum-state>{{ '✓' if sc.suma_pesos == sc.peso_total else '' }}</span></p>
+    {% if sc.editable %}<div class="hc-profile-form__actions"><button type="submit" class="btn-primary">Guardar grilla</button></div>{% endif %}
+    {% if sc.editable %}
+    <template data-scoring-row-template>{{ scoring_row({}, '__BLOQUE__') }}</template>
+    {% endif %}
+  </form>
+  <script>
+  (function () {
+    if (window.__hcScoringWired) return;
+    window.__hcScoringWired = true;
+    var TOTAL = {{ sc.peso_total }};
+    function recompute(form) {
+      var total = 0;
+      form.querySelectorAll('[data-scoring-row]').forEach(function (row) {
+        if (row.getAttribute("data-bloque") === "excluyente") return;
+        var v = parseFloat(String(row.querySelector('input[name="peso"]').value).replace(",", "."));
+        if (!isNaN(v)) total += v;
+      });
+      total = Math.round(total * 100) / 100;
+      form.querySelector("[data-scoring-sum]").textContent = String(total);
+      form.querySelector("[data-scoring-sum-state]").textContent = Math.abs(total - TOTAL) < 0.01 ? "✓" : "";
+    }
+    document.addEventListener("click", function (ev) {
+      var add = ev.target.closest && ev.target.closest("[data-scoring-add]");
+      if (add) {
+        var form = add.closest("[data-scoring-form]"), tpl = form.querySelector("[data-scoring-row-template]");
+        var holder = document.createElement("div");
+        holder.innerHTML = tpl.innerHTML.split("__BLOQUE__").join(add.getAttribute("data-scoring-add"));
+        var row = holder.firstElementChild;
+        add.closest("[data-scoring-block]").querySelector("[data-scoring-rows]").appendChild(row);
+        var first = row.querySelector('input[name="nombre"]'); if (first) first.focus();
+        recompute(form);
+        return;
+      }
+      var rm = ev.target.closest && ev.target.closest("[data-scoring-remove]");
+      if (rm) { var f = rm.closest("[data-scoring-form]"); rm.closest("[data-scoring-row]").remove(); recompute(f); }
+    });
+    document.addEventListener("input", function (ev) {
+      var form = ev.target.closest && ev.target.closest("[data-scoring-form]");
+      if (form && ev.target.name === "peso") recompute(form);
+    });
+  })();
+  </script>
+  {% endif %}
+  {% endif %}
+</section>

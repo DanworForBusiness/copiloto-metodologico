@@ -194,6 +194,29 @@ def _persist(path: Path, payload: dict, *, previous: dict | None) -> dict:
         "No pudimos confirmar el estado remoto de este onboarding tras un fallo de guardado.")
 
 
+def delete(application_id: str) -> bool:
+    """Borrado físico durable (local + remoto) del Onboarding de una postulación. `True` si existía y se borró; `False` si no había Onboarding (idempotente). MISMO contrato que
+    `entrevista_repository.delete`: si el borrado remoto no se confirma, ROLLBACK del borrado local (se reescribe el contenido previo) para que local y remoto nunca diverjan."""
+    with _write_lock:
+        previous = get(application_id)
+        if previous is None:
+            return False
+        _require_writable()
+        path = _onboarding_path(application_id)
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return False
+        except OSError as exc:
+            raise OnboardingStorageError(f"No se pudo eliminar el onboarding: {exc}") from exc
+        if remote_store.local_only() or remote_store.delete_path(path):
+            return True                                  # `local`: el borrado físico local es el resultado final (sin llamar a Spaces)
+        _write_atomic(path, previous)                    # rollback: local vuelve a existir
+        if not remote_store.enabled():
+            raise OnboardingConfigIncompleteError("La sección de Onboarding todavía no está configurada para este entorno.")
+        raise OnboardingRemoteOutcomeUnknownError("No pudimos confirmar si el borrado del onboarding se sincronizó. Revisá el listado antes de reintentar.")
+
+
 def create_if_absent(*, application_id: str, profile_id: str, busqueda_id: str, area: str | None = None,
                      fecha_ingreso: str | None = None) -> tuple[dict, bool]:
     """Crea el Onboarding de esa candidatura SI NO EXISTE (idempotente; `(doc, creado)`). `fecha_ingreso` default = hoy (MISMO default que la referencia:

@@ -61,7 +61,7 @@
        resuelta con el primitivo compartido `.dashboard-view-switch` (tools.css)
        — `.is-active` (gold) para la activa, `:disabled` (atenuado) para las que
        todavía no están implementadas. En este slice sólo Pipeline es funcional;
-       Evaluación / Scoring (JD) / Sugeridos del banco / Reportes existen
+       Evaluación / Sugeridos / Reportes existen
        visualmente y quedan marcadas como pendientes (title="Próximamente"),
        nunca ausentes. #}
     {% if solicitud_ok %}<div class="methodology"><div class="callout callout--success" role="status"><div class="callout__body"><p>{{ solicitud_ok }}</p></div></div></div>{% endif %}
@@ -100,13 +100,18 @@
     </dialog>
     {% endif %}
     {% else %}
+    {# Pestañas definitivas del proceso: Pipeline / Evaluación / Sugeridos / Reportes. «Pipeline» y «Evaluación» son funcionales (enlaces del mismo detalle: `?vista=evaluacion`; el enlace viejo `?vista=scoring` redirige acá);
+       «Sugeridos» y «Reportes» siguen pendientes. La antigua «Vista evaluación» (estrellas) se descartó. #}
     <div class="dashboard-view-switch busqueda-views" role="group" aria-label="Vistas del proceso">
-      <button type="button" class="is-active" aria-pressed="true">Vista pipeline</button>
-      <button type="button" disabled title="Próximamente">Vista evaluación</button>
-      <button type="button" disabled title="Próximamente">Scoring (JD)</button>
-      <button type="button" disabled title="Próximamente">Sugeridos del banco</button>
+      <a href="/cchh/busquedas/{{ busqueda.busqueda_id }}" class="{% if vista != 'evaluacion' %}is-active{% endif %}"{% if vista != 'evaluacion' %} aria-current="page"{% endif %}>Pipeline</a>
+      <a href="/cchh/busquedas/{{ busqueda.busqueda_id }}?vista=evaluacion" class="{% if vista == 'evaluacion' %}is-active{% endif %}"{% if vista == 'evaluacion' %} aria-current="page"{% endif %}>Evaluación</a>
+      <button type="button" disabled title="Próximamente">Sugeridos</button>
       <button type="button" disabled title="Próximamente">Reportes</button>
     </div>
+
+    {% if vista == 'evaluacion' and scoring %}
+    {% include "partials/human_capital_scoring_panel.html" %}
+    {% else %}
 
     {# Cuerpo (pipeline + modales de agregar/cerrar): se re-renderiza vía HTMX
        tras cada mutación de pipeline para mantener board y disponibilidad en
@@ -124,6 +129,7 @@
       {% set view = busqueda_historial %}
       {% include "partials/human_capital_historial_section.html" %}
     </div>
+    {% endif %}
     {% endif %}
     {% endif %}
   </main>

@@ -258,6 +258,17 @@ def create(fields: dict, *, profile_id: str, busqueda_id: str | None, applicatio
     return _persist(_entrevista_path(entrevista_id), payload, previous=None)
 
 
+def create_if_absent(fields: dict, *, profile_id: str, busqueda_id: str, application_id: str | None) -> tuple[dict, bool]:
+    """Alta ÚNICA por (profile_id, busqueda_id) -- el contrato de `find_by_profile_and_busqueda` -- bajo el MISMO lock de escritura: dos altas simultáneas (doble clic, dos pestañas) no pueden crear dos
+    registros. Devuelve `(entrevista, creada)`; si ya existía, la devuelve SIN tocarla."""
+    _ensure_restored()
+    with _write_lock:
+        existing = find_by_profile_and_busqueda(profile_id, busqueda_id)
+        if existing is not None:
+            return existing, False
+        return create(fields, profile_id=profile_id, busqueda_id=busqueda_id, application_id=application_id), True
+
+
 def _mutate(entrevista_id: str, mutator, *, expected_revision: int | None = None) -> dict:
     with _write_lock:
         current = get(entrevista_id)
