@@ -133,11 +133,17 @@ def test_the_manual_open_close_preference_script_is_wired_per_onboarding_and_sur
     app_id = _onboarding()
     html = _page(c, app_id)
     assert f'data-onboarding-application="{app_id}"' in html
-    script = next(s.split("</script>")[0] for s in html.split("<script>") if "__hcOnbGroupsWired" in s.split("</script>")[0])
+    assert "sessionStorage" not in html and "<script>" not in html.split('id="hc-onboarding-checklist"')[1].split("</section>")[0]      # la plantilla no lleva lógica de storage (guard transversal de credenciales)
+    src = re.search(r'<script src="(?:https?://[^/"]+)?(/static/human_capital_onboarding\.js\?v=[^"]+)" defer></script>', html)
+    assert src, "la página carga el módulo externo"
+    asset = c.get(src.group(1))
+    assert asset.status_code == 200 and "javascript" in asset.headers["content-type"]
+    script = asset.text
     assert "sessionStorage" in script and '"dw-onb-collapse:"' in script and 'htmx:afterSwap' in script and "__hcOnbGroupsWired" in script
     assert 'closest("#hc-onboarding-checklist summary")' in script                                                # solo el click de la persona es preferencia manual (un reemplazo no)
+    assert "getItem(key(app))" in script and "graph_token" not in script and "dwGraphToken" not in script          # sin acceso a credenciales
     frag = c.post(f"/cchh/onboarding/{app_id}/checklist/dni", data={"checked": "1"}, headers={"HX-Request": "true"}).text
-    assert "__hcOnbGroupsWired" in frag and f'data-onboarding-application="{app_id}"' in frag                    # el fragmento reemplazado también lo trae
+    assert "<script" not in frag and f'data-onboarding-application="{app_id}"' in frag                            # el fragmento reemplazado no trae scripts: el módulo ya está cargado y delega en `document`
 
 
 def test_authorization_and_the_data_form_are_unchanged(c):
