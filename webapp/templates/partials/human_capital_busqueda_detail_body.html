@@ -106,7 +106,7 @@
           <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Quitar del proceso"
                   hx-post="/cchh/busquedas/{{ bid }}/candidatos/{{ app.application_id }}/eliminar"
                   hx-trigger="confirmed" hx-target="#busqueda-detail-body" hx-swap="innerHTML"
-                  data-dw-confirm data-dw-confirm-title="Quitar candidato" data-dw-confirm-message="¿Quitar a este candidato del proceso? El CV del Banco no se elimina." data-dw-confirm-ok="Quitar">
+                  data-dw-confirm data-dw-confirm-title="Quitar candidato" data-dw-confirm-message="¿Quitar a este candidato del proceso?{% if _onb %} También se eliminará su Onboarding (checklist y datos de ingreso).{% endif %} El CV del Banco no se elimina." data-dw-confirm-ok="Quitar">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
             <span class="chart-tooltip" aria-hidden="true"><p>Quitar del proceso</p></span>
           </button>

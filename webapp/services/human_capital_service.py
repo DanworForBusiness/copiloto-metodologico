@@ -1124,7 +1124,20 @@ def add_candidate_to_busqueda(busqueda_id: str, profile_id: str, *, actor: str |
 
 
 def remove_application(busqueda_id: str, application_id: str, *, actor: str | None = None) -> dict:
-    return busqueda_repository.remove_candidate(busqueda_id, application_id, actor=actor, names=_candidate_display_name)
+    busqueda = busqueda_repository.remove_candidate(busqueda_id, application_id, actor=actor, names=_candidate_display_name)
+    discard_onboarding_of_application(application_id)
+    return busqueda
+
+
+def discard_onboarding_of_application(application_id: str) -> bool:
+    """Quitar del proceso a un candidato que ya tenía Onboarding (Finalizado · Ingreso) elimina ese Onboarding: no debe quedar huérfano. Se ejecuta DESPUÉS de que la postulación se quitó (si el quitado se rechaza
+    —búsqueda no gestionable, postulación inexistente— no se toca nada). Best-effort, como la creación automática: un fallo de persistencia no revierte el quitado ya confirmado; el Onboarding sobrante se
+    informa en el log (el borrado es idempotente y el rollback local/remoto lo protege). La Entrevista y el Perfil del Banco NO se tocan."""
+    try:
+        return onboarding_repository.delete(application_id)
+    except (onboarding_repository.OnboardingStorageError, onboarding_repository.OnboardingRemoteOutcomeUnknownError):
+        _logger.warning("human_capital.onboarding_huerfano_no_eliminado application_id=%s", application_id)
+        return False
 
 
 # Etapas que implican que "hubo entrevista" -- MISMO gate que
