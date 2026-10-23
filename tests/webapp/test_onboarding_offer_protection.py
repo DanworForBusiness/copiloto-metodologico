@@ -74,7 +74,7 @@ def test_datos_del_ingreso_is_a_collapsible_container_open_by_default_like_the_c
     assert re.search(r'<summary class="dashboard-section__head">\s*<span class="dashboard-section__caret"></span>\s*<span class="dashboard-section__title">Datos del ingreso</span>', page)
     body = page.split('data-section-id="datos-ingreso"', 1)[1].split("</details>", 1)[0]
     assert 'name="fecha_ingreso"' in body and 'id="onb-oferta"' in body and 'name="area"' in body                         # los tres campos viven dentro del contenedor
-    assert page.index('form="onb-form" class="btn-primary">Guardar cambios') > page.index('id="hc-onboarding-checklist"') and page.count("Guardar cambios") == 1       # el botón queda al final de todo, asociado al formulario
+    assert page.index('form="onb-form" class="btn-primary">Guardar cambios') > page.index('id="hc-onboarding-checklist"') and page.count('class="btn-primary">Guardar cambios') == 1       # el botón queda al final de todo, asociado al formulario
     assert 'id="onb-form"' in page and 'class="hc-profile-section"' not in page.split('id="hc-onboarding-checklist"')[0]
 
 

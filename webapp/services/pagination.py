@@ -55,14 +55,32 @@ def _qs(params: dict[str, Any], **extra: Any) -> str:
     return urlencode(merged)
 
 
-_PIPELINE_PATH_RE = re.compile(r"^/cchh/busquedas/[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
-PIPELINE_RETURN_LABEL = "Pipeline de la búsqueda"
+_UUID = r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
+_PIPELINE_PATH_RE = re.compile(rf"^/cchh/busquedas/(?P<busqueda_id>{_UUID})$")
+_EVALUACION_PATH_RE = re.compile(rf"^/cchh/busquedas/(?P<busqueda_id>{_UUID})/candidatos/(?P<application_id>{_UUID})/evaluacion-cchh$")
+CONTEXT_PIPELINE, CONTEXT_EVALUACION = "pipeline", "evaluacion"
+CONTEXT_LABELS = {CONTEXT_PIPELINE: "Pipeline de la búsqueda", CONTEXT_EVALUACION: "Evaluación CCHH"}
 
 
 def pipeline_return_url(busqueda_id: str | None) -> str:
     """Contexto «vengo del Pipeline de esta búsqueda» (para anexar como `?return_to=` a los accesos de las tarjetas): el path del detalle de la búsqueda, o `""` si el id no es un uuid canónico."""
     url = f"/cchh/busquedas/{busqueda_id}"
     return url if _PIPELINE_PATH_RE.match(url) else ""
+
+
+def evaluation_return_url(busqueda_id: str | None, application_id: str | None) -> str:
+    """Contexto «vengo de la Evaluación CCHH de este candidato» (acceso secundario «Registro de entrevista»): path de esa evaluación, o `""` si algún id no es un uuid canónico."""
+    url = f"/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/evaluacion-cchh"
+    return url if _EVALUACION_PATH_RE.match(url) else ""
+
+
+def process_context(url: str | None) -> dict | None:
+    """Descompone un contexto de proceso ya normalizado: `{kind, busqueda_id, application_id}` (application_id solo en Evaluación) o `None` si no es ninguno de los dos."""
+    for kind, rx in ((CONTEXT_PIPELINE, _PIPELINE_PATH_RE), (CONTEXT_EVALUACION, _EVALUACION_PATH_RE)):
+        m = rx.match(url or "")
+        if m:
+            return {"kind": kind, "busqueda_id": m.group("busqueda_id"), "application_id": m.groupdict().get("application_id")}
+    return None
 
 
 def with_return_to(url: str, return_to: str) -> str:
@@ -72,24 +90,25 @@ def with_return_to(url: str, return_to: str) -> str:
     return f"{url}{'&' if '?' in url else '?'}return_to={quote(return_to, safe='')}"
 
 
-def list_return_url(value: str | None, list_path: str, *, allow_pipeline: bool = False) -> str:
+def list_return_url(value: str | None, list_path: str, *, allow_process: bool = False) -> str:
     """Contexto de LISTADO para volver desde una acción de fila (Editar / Guardar / Cancelar / Eliminar): la URL del listado con su estado (filtros, búsqueda, página, tamaño).
     Se acepta SOLO un destino interno (`safe_internal_next`, autoridad única) cuyo PATH sea exactamente `list_path`; cualquier otra cosa → `""` (el caller cae a su default). La
-    página guardada puede ya no existir (p. ej. se borró la última fila de la última página): `paginate` la acota a la última válida al renderizar el listado."""
+    página guardada puede ya no existir (p. ej. se borró la última fila de la última página): `paginate` la acota a la última válida al renderizar el listado.
+    Opt-in `allow_process`: también el Pipeline de una búsqueda (`/cchh/busquedas/<uuid>`) o la Evaluación CCHH de un candidato (`…/candidatos/<uuid>/evaluacion-cchh`), paths EXACTOS sin query ni
+    fragmento, para las pantallas que se abren desde ellos (Entrevista / Onboarding). Acá solo se valida el FORMATO; que la búsqueda/postulación existan y correspondan lo exige el router."""
     url = safe_internal_next(value)
     if url and urlparse(url).path == list_path:
         return url
-    # Opt-in: el Pipeline de una búsqueda (path EXACTO `/cchh/busquedas/<uuid>`, sin query ni fragmento) como segundo destino válido para las pantallas que se abren desde sus tarjetas (Entrevista / Onboarding).
-    return url if allow_pipeline and url and _PIPELINE_PATH_RE.match(url) else ""
+    return url if allow_process and url and process_context(url) else ""
 
 
-def list_return_context(query_params: Mapping[str, str], list_path: str, *, allow_pipeline: bool = False) -> dict:
+def list_return_context(query_params: Mapping[str, str], list_path: str, *, allow_process: bool = False) -> dict:
     """Para plantillas/rutas de edición: `return_to` validado, `back_url` (return_to o el listado base) y `qs` (`?return_to=…` para anexar a TODA acción/form de la página de edición,
-    de modo que Guardar/Eliminar/documentos vuelvan al mismo contexto; vacío si no hay)."""
-    url = list_return_url(query_params.get("return_to"), list_path, allow_pipeline=allow_pipeline)
-    from_pipeline = bool(url) and urlparse(url).path != list_path
-    return {"return_to": url, "back_url": url or list_path, "qs": f"?return_to={quote(url, safe='')}" if url else "",
-            "from_pipeline": from_pipeline, "back_label": PIPELINE_RETURN_LABEL if from_pipeline else None}
+    de modo que Guardar/Eliminar/documentos vuelvan al mismo contexto; vacío si no hay). `kind`/`back_label`: tipo de contexto de proceso (o `None` si es el listado)."""
+    url = list_return_url(query_params.get("return_to"), list_path, allow_process=allow_process)
+    parts = process_context(url) if url and urlparse(url).path != list_path else None
+    kind = parts["kind"] if parts else None
+    return {"return_to": url, "back_url": url or list_path, "qs": f"?return_to={quote(url, safe='')}" if url else "", "kind": kind, "back_label": CONTEXT_LABELS.get(kind)}
 
 
 def paginate(items: Sequence[Any], *, page: Any = 1, page_size: Any = None, base_url: str = "", params: dict[str, Any] | None = None,

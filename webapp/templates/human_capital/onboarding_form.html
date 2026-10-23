@@ -11,7 +11,7 @@
 
   <main id="content" class="module-content">
     {# Sin vista de detalle: Editar vuelve directo al listado (MISMO primitivo `.catalog-back` que Búsquedas/Candidatos/Entrevistas). #}
-    {% set rc = list_return(request, "/cchh/onboarding", true) %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver a {{ rc.back_label or 'Onboarding' }}</a>
+    {% set rc = list_return(request, "/cchh/onboarding", onboarding, ["pipeline"]) %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver a {{ rc.back_label or 'Onboarding' }}</a>
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
         <p class="eyebrow">Capital Humano</p>
@@ -35,7 +35,7 @@
           <summary class="dashboard-section__head">
             <span class="dashboard-section__caret"></span>
             <span class="dashboard-section__title">Datos del ingreso</span>
-            {% set _datos_help = "El onboarding se crea solo cuando el candidato queda como Ingreso en la Búsqueda. La fecha de ingreso arranca en el día en que se marcó el ingreso y se puede corregir. El área se completa desde la entrevista y se mantiene sincronizada si se edita ahí." %}
+            {% set _datos_help = "El onboarding se crea solo cuando el candidato queda como Ingreso en la Búsqueda. La fecha de ingreso arranca en el día en que se marcó el ingreso y se puede corregir. El área se completa desde la entrevista y se mantiene sincronizada si se edita ahí. Estos datos se guardan con «Guardar cambios»; el checklist se guarda aparte, al tildar cada ítem." %}
             <span class="chart-tooltip-anchor">
               <button type="button" class="activity-kpi__info" aria-label="{{ _datos_help }}">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
@@ -89,7 +89,21 @@
     {# Acción primaria AL FINAL de la página (no entre «Datos del ingreso» y el checklist). El checklist guarda por ítem con HTMX y no puede vivir dentro del `<form>`, por eso el botón se asocia al formulario con `form="onb-form"`. #}
     <div class="hc-profile-form__actions">
       <button type="submit" form="onb-form" class="btn-primary">Guardar cambios</button>
+      {# Dos mecanismos de guardado, dos señales: este botón guarda SOLO «Datos del ingreso» (el aviso «Cambios sin guardar» aparece mientras haya algo editado y sin guardar); el checklist se guarda al tildar cada ítem. #}
+      <span class="status-badge status-badge--tentativo" data-onb-dirty hidden>Cambios sin guardar en «Datos del ingreso»</span>
+      <p class="field-hint" data-onb-save-hint>Guarda los datos del ingreso (fecha, oferta y área). El checklist no lo necesita: se guarda al tildar cada ítem.</p>
     </div>
+    <script>
+      (function () {
+        var form = document.getElementById("onb-form"), badge = document.querySelector("[data-onb-dirty]");
+        if (!form || !badge || form.__hcDirtyWired) return;
+        form.__hcDirtyWired = true;
+        var snap = function () { return new URLSearchParams(new FormData(form)).toString(); }, initial = snap();
+        var sync = function () { badge.hidden = snap() === initial; };
+        form.addEventListener("input", sync); form.addEventListener("change", sync);
+        form.addEventListener("submit", function () { badge.hidden = true; });
+      })();
+    </script>
   </main>
 </div>
 

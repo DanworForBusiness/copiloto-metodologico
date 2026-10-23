@@ -548,6 +548,8 @@
 .scoring-row__anchors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .scoring-add { align-self: flex-start; }
 /* Checklist de Onboarding en contenedores colapsables: reutiliza `.dashboard-section` (tools.css); solo ajusta el encabezado para que título, progreso y estado envuelvan en pantallas angostas. */
+.hc-onb-autosave { margin: -4px 0 10px; }                                                                    /* aviso discreto: el checklist guarda por ítem (no usa «Guardar cambios») */
+.module-content > .hc-profile-form__actions > [data-onb-dirty][hidden] { display: none; }
 .hc-onb-checklist { margin-top: 28px; }                                                                  /* aire entre la tarjeta «Datos del ingreso» y el checklist */
 .hc-onb-checklist > h2 { margin: 0 0 12px; font-family: var(--sans); font-size: .96rem; font-weight: 700; color: #1f1f24; }    /* MISMA tipografía que el título de cada contenedor (`.dashboard-section__head`) */
 .content-theme-dark .hc-onb-checklist > h2 { color: #e4e4ec; }

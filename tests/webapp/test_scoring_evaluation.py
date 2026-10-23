@@ -5,6 +5,7 @@ Fixtures de I1 (persistencia aislada)."""
 from __future__ import annotations
 
 import re
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -124,14 +125,15 @@ def test_opening_the_evaluation_creates_nothing_and_offers_the_administrative_re
     assert page.status_code == 200 and "<h1>Evaluación CCHH</h1>" in page.text and "Mateo Biasotto · Solution Architect" in page.text and "Grilla v1" in page.text
     assert not (config.BASE_DIR / "human-capital" / "scoring-evaluations").exists() and len(erepo.list()) == interviews          # leer no crea evaluaciones ni entrevistas
     pid = brepo.get(bid)["candidatos"][0]["profile_id"]
-    assert f'<a class="btn-secondary" href="/cchh/entrevistas/nueva?profile_id={pid}&amp;busqueda_id={bid}">Registro de entrevista</a>' in page.text
+    back = quote(f"/cchh/busquedas/{bid}/candidatos/{app_id}/evaluacion-cchh", safe="")                                               # contexto explícito: «Volver» del registro regresa a ESTA evaluación
+    assert f'<a class="btn-secondary" href="/cchh/entrevistas/nueva?profile_id={pid}&amp;busqueda_id={bid}&amp;return_to={back}">Registro de entrevista</a>' in page.text
     for crit in grid["criterios"]:
         assert crit["nombre"] in page.text
     assert "SAP Datasphere" in page.text and "¿Cuántos proyectos?" in page.text and "Sin experiencia" in page.text and "Experiencia sólida" in page.text and "No cumple" in page.text
     assert "no forma parte de este resultado" in page.text and "consolidado" not in page.text.lower().replace("no es un consolidado", "")
     svc.move_application_stage(bid, app_id, "Entrevista CCHH", None, actor=CCHH_EMAIL)                                           # al existir el registro administrativo, el acceso lleva a SU edición
     existing = erepo.find_by_profile_and_busqueda(pid, bid)
-    assert f'href="/cchh/entrevistas/{existing["entrevista_id"]}/editar">Registro de entrevista</a>' in c.get(_url(bid, app_id)).text
+    assert f'href="/cchh/entrevistas/{existing["entrevista_id"]}/editar?return_to={back}">Registro de entrevista</a>' in c.get(_url(bid, app_id)).text
 
 
 def test_without_a_ready_grid_the_evaluation_explains_it_and_links_to_the_grid(c):

@@ -13,12 +13,12 @@
     {# Sin vista de detalle: Editar vuelve directo al listado, MISMO primitivo
        compartido `.catalog-back` que Búsquedas/Candidatos -- nunca un eyebrow
        gold propio. #}
-    {% set rc = list_return(request, "/cchh/entrevistas", true) %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver a {{ rc.back_label or 'Entrevistas' }}</a>
+    {% set rc = list_return(request, "/cchh/entrevistas", entrevista if is_edit else form_values) %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver a {{ rc.back_label or 'Entrevistas' }}</a>
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
         <p class="eyebrow">Capital Humano</p>
         <h1>{{ 'Editar entrevista' if is_edit else 'Nueva entrevista' }}</h1>
-        {% if is_edit and entrevista %}<p>{% if entrevista.profile %}{{ entrevista.profile.first_name }} {{ entrevista.profile.last_name }}{% endif %}</p>{% else %}<p>Para un candidato del Banco de CVs que todavía no está en ninguna Búsqueda.</p>{% endif %}
+        {% if is_edit and entrevista %}<p>{% if entrevista.profile %}{{ entrevista.profile.first_name }} {{ entrevista.profile.last_name }}{% endif %}</p>{% elif form_values.busqueda_id %}<p>Registro administrativo de la entrevista de este candidato en la Búsqueda de origen.</p>{% else %}<p>Para un candidato del Banco de CVs que todavía no está en ninguna Búsqueda.</p>{% endif %}
       </div>
     </section>
 
@@ -54,7 +54,9 @@
         {% if not is_edit %}
         <div class="feedback-field">
           <label for="ent-profile">Candidato <span>del Banco de CVs</span></label>
-          <select id="ent-profile" name="profile_id" required>
+          {# Alta desde una postulación del Pipeline: el candidato y la Búsqueda vienen fijos (el servidor verifica el vínculo y resuelve la postulación). #}
+          {% if form_values.busqueda_id %}<input type="hidden" name="profile_id" value="{{ form_values.profile_id }}"><input type="hidden" name="busqueda_id" value="{{ form_values.busqueda_id }}">{% endif %}
+          <select id="ent-profile" name="profile_id" required{% if form_values.busqueda_id %} disabled{% endif %}>
             <option value="">Elegí un candidato…</option>
             {% for p in profiles %}
             <option value="{{ p.profile_id }}"{% if form_values.profile_id == p.profile_id %} selected{% endif %}>{{ p.first_name }} {{ p.last_name }}{% if p.source %} · {{ p.source }}{% endif %}</option>

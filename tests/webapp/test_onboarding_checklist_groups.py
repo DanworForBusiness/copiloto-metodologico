@@ -133,7 +133,7 @@ def test_the_manual_open_close_preference_script_is_wired_per_onboarding_and_sur
     app_id = _onboarding()
     html = _page(c, app_id)
     assert f'data-onboarding-application="{app_id}"' in html
-    script = html.split("<script>")[-1].split("</script>")[0]
+    script = next(s.split("</script>")[0] for s in html.split("<script>") if "__hcOnbGroupsWired" in s.split("</script>")[0])
     assert "sessionStorage" in script and '"dw-onb-collapse:"' in script and 'htmx:afterSwap' in script and "__hcOnbGroupsWired" in script
     assert 'closest("#hc-onboarding-checklist summary")' in script                                                # solo el click de la persona es preferencia manual (un reemplazo no)
     frag = c.post(f"/cchh/onboarding/{app_id}/checklist/dni", data={"checked": "1"}, headers={"HX-Request": "true"}).text

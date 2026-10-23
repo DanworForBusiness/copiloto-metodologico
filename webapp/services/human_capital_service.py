@@ -1335,6 +1335,25 @@ def create_entrevista_manual(profile_id: str, fields: dict, *, allow_compensatio
         _shape_entrevista_fields(fields, allow_compensation=allow_compensation), profile_id=profile_id, busqueda_id=None, application_id=None)
 
 
+def create_entrevista_for_application(profile_id: str, busqueda_id: str, fields: dict, *, allow_compensation: bool = False) -> tuple[dict, bool]:
+    """Alta desde `nueva` cuando el origen es una postulación del Pipeline: el registro queda ligado a la Búsqueda y a la postulación (`busqueda_id`/`application_id`, MISMA forma que la entrevista
+    automática) y respeta el contrato de UNA entrevista por (candidato, proceso): si ya existe devuelve la existente (`creada=False`) en vez de duplicar. El vínculo se VERIFICA en servidor: el candidato
+    debe existir y participar de esa Búsqueda; la `application_id` se resuelve acá, nunca viene del navegador. Devuelve `(entrevista, creada)`."""
+    profile = profile_repository.get(profile_id)
+    if profile is None or profile.get("deleted_at"):
+        raise ValueError("Elegí un candidato del Banco de CVs.")
+    try:
+        busqueda = busqueda_repository.get(busqueda_id)
+    except busqueda_repository.BusquedaStorageError:
+        raise ValueError("No pudimos leer la Búsqueda de origen; reintentá en unos segundos.") from None
+    application = next((a for a in (busqueda or {}).get("candidatos", []) if a.get("profile_id") == profile_id and a.get("application_id")), None)
+    if application is None:
+        raise ValueError("El candidato no participa de la Búsqueda de origen.")
+    return entrevista_repository.create_if_absent(
+        _shape_entrevista_fields(fields, allow_compensation=allow_compensation),
+        profile_id=profile_id, busqueda_id=busqueda_id, application_id=application["application_id"])
+
+
 def update_entrevista(entrevista_id: str, expected_revision: int, fields: dict, *, allow_compensation: bool = False) -> dict:
     existing = entrevista_repository.get(entrevista_id)
     updated = entrevista_repository.update(

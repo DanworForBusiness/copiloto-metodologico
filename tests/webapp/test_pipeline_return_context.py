@@ -61,7 +61,7 @@ def test_interview_opened_from_the_pipeline_returns_to_that_pipeline_before_and_
     page = c.get(link).text
     assert _back(page) == (ctx, "Pipeline de la búsqueda")
     assert f'action="/cchh/entrevistas/nueva?return_to={quote(ctx, safe="")}"' in page and f'<a href="{ctx}" class="btn-secondary">Cancelar</a>' in page
-    r = c.post(f"/cchh/entrevistas/nueva?return_to={quote(ctx, safe='')}", data={"profile_id": pid, "fecha_entrevista": "2026-10-20", "puesto_evaluado": "SA", "area": "SAP"})
+    r = c.post(f"/cchh/entrevistas/nueva?return_to={quote(ctx, safe='')}", data={"profile_id": pid, "busqueda_id": bid, "fecha_entrevista": "2026-10-20", "puesto_evaluado": "SA", "area": "SAP"})
     assert r.status_code == 303 and r.headers["location"].endswith(f"/editar?return_to={quote(ctx, safe='')}")      # tras crear sigue editando CON el contexto
     edit_url = r.headers["location"]
     assert _back(c.get(edit_url).text) == (ctx, "Pipeline de la búsqueda")
@@ -76,8 +76,7 @@ def test_interview_not_concretada_and_validation_error_keep_the_pipeline_context
     _leader(bid)
     ctx = f"/cchh/busquedas/{bid}"
     pid = erepo and svc.get_busqueda(bid)["candidatos"][0]["profile_id"]
-    svc.create_entrevista_manual(pid, {"fecha_entrevista": "2026-10-20", "puesto_evaluado": "SA", "area": "SAP"})
-    e = erepo.list()[0]
+    e = erepo.find_by_profile_and_busqueda(pid, bid)                                                                  # la entrevista automática de Entrevista Líder (ligada a la búsqueda)
     url = f"/cchh/entrevistas/{e['entrevista_id']}/editar?return_to={quote(ctx, safe='')}"
     bad = c.post(url, data={"fecha_entrevista": "2026-10-20", "puesto_evaluado": "SA", "area": "Inexistente", "expected_revision": str(e["revision"])})
     assert bad.status_code == 200 and _back(bad.text) == (ctx, "Pipeline de la búsqueda") and f"/editar?return_to={quote(ctx, safe='')}" in bad.text        # el re-render conserva el contexto
@@ -106,8 +105,7 @@ def test_standalone_sections_keep_their_current_back_destination(c):
     bid = _manual()
     pid, _ = _leader(bid)
     app_id = _ingreso(bid)
-    svc.create_entrevista_manual(pid, {"fecha_entrevista": "2026-10-20", "puesto_evaluado": "SA", "area": "SAP"})
-    e = erepo.list()[0]
+    e = erepo.find_by_profile_and_busqueda(pid, bid)                                                                  # la entrevista automática de Entrevista Líder (ligada a la búsqueda)
     listed = "/cchh/entrevistas?page=2&page_size=25"
     ctx_qs = f"?return_to={quote(listed, safe='')}"
     assert _back(c.get(f"/cchh/entrevistas/{e['entrevista_id']}/editar{ctx_qs}").text) == (listed, "Entrevistas")      # desde el listado (con su estado)
@@ -153,8 +151,7 @@ def test_invalid_contexts_fall_back_to_the_default_destination_and_never_redirec
     _leader(bid)
     app_id = _ingreso(bid)
     pid = svc.get_busqueda(bid)["candidatos"][0]["profile_id"]
-    svc.create_entrevista_manual(pid, {"fecha_entrevista": "2026-10-20", "puesto_evaluado": "SA", "area": "SAP"})
-    e = erepo.list()[0]
+    e = erepo.find_by_profile_and_busqueda(pid, bid)                                                                  # la entrevista automática de Entrevista Líder (ligada a la búsqueda)
     q = f"?return_to={quote(bad, safe='')}"
     assert _back(c.get(f"/cchh/entrevistas/{e['entrevista_id']}/editar{q}").text) == ("/cchh/entrevistas", "Entrevistas")
     assert _back(c.get(f"/cchh/onboarding/{app_id}/editar{q}").text) == ("/cchh/onboarding", "Onboarding")
@@ -168,6 +165,6 @@ def test_invalid_contexts_fall_back_to_the_default_destination_and_never_redirec
 def test_the_pipeline_context_is_opt_in_so_other_lists_do_not_accept_it():
     ctx = f"/cchh/busquedas/{OTHER_BID}"
     assert pagination.list_return_url(ctx, "/cchh/candidatos") == "" and pagination.list_return_url(ctx, "/cchh/entrevistas") == ""
-    assert pagination.list_return_url(ctx, "/cchh/entrevistas", allow_pipeline=True) == ctx
+    assert pagination.list_return_url(ctx, "/cchh/entrevistas", allow_process=True) == ctx
     assert pagination.pipeline_return_url("no-es-uuid") == "" and pagination.pipeline_return_url(OTHER_BID) == ctx
     assert pagination.with_return_to("/x?a=1", ctx) == f"/x?a=1&return_to={quote(ctx, safe='')}" and pagination.with_return_to("/x", "") == "/x"
