@@ -45,6 +45,31 @@ def progress(checklist: dict | None) -> dict:
     return {"hechos": hechos, "total": total, "porcentaje": round(hechos * 100 / total) if total else 100, "completo": hechos == total}
 
 
+# AGRUPACIÓN de los 17 ítems en contenedores colapsables: es SOLO presentación. No cambia los ítems, sus claves ni su orden canónico (`CHECKLIST_ITEMS`), el estado `{clave: bool}`, `progress()`, `completado` ni los endpoints. Cada ítem
+# pertenece a exactamente UN grupo (lo garantiza un test). El orden dentro de cada grupo es el de la propuesta aprobada por Capital Humano.
+CHECKLIST_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("documentacion_personal", "Documentación personal", ("dni", "foto", "ddjj_domicilio", "titulos_certificados")),
+    ("contratacion_alta_legal", "Contratación y alta legal", ("oferta_empleo", "nda", "nota_convenio_colectivo", "preocupacional", "alta_arca")),
+    ("perfil_verificacion", "Perfil y verificación", ("cv_formato_danwor", "requerimiento_perfil", "verificacion_referencias")),
+    ("induccion_comunicacion", "Inducción y comunicación", ("nota_herramientas", "sensibilizacion_iso", "comunidad_wp")),
+    ("altas_sistemas_internos", "Altas en sistemas internos", ("alta_legajo_diamo", "alta_timenotes")),
+)
+
+
+def groups_view(checklist: dict | None) -> list[dict]:
+    """Los grupos con sus ítems (mismo estado tildado de `items_view`), su progreso `hechos/total`, un estado visual (`completo` | `en_curso` | `sin_empezar`) y `abierto_por_defecto`: se abren los grupos con tareas
+    pendientes y quedan colapsados los completos (la preferencia manual de la persona, guardada en el navegador, prevalece sobre esto)."""
+    by_key = {it["key"]: it for it in items_view(checklist)}
+    out = []
+    for key, label, item_keys in CHECKLIST_GROUPS:
+        items = [by_key[k] for k in item_keys]
+        hechos = sum(1 for it in items if it["checked"])
+        total = len(items)
+        out.append({"key": key, "label": label, "tareas": items, "hechos": hechos, "total": total,
+                    "estado": "completo" if hechos == total else ("sin_empezar" if hechos == 0 else "en_curso"), "abierto_por_defecto": hechos < total})
+    return out
+
+
 def items_view(checklist: dict | None) -> list[dict]:
     state = checklist or {}
     return [{"key": k, "label": label, "checked": state.get(k) is True} for k, label in CHECKLIST_ITEMS]

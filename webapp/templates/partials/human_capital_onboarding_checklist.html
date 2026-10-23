@@ -3,7 +3,7 @@
    envía el campo `checked`, por eso el server interpreta `checked == "1"`. Primitivos compartidos del Hub: `.dashboard-checkbox-group` / `.dashboard-checkbox-option`,
    `.status-badge` (badge de estado del Hub), `(i)` transversal; cero CSS propio. #}
 {% set _p = onboarding.progress %}
-<section class="hc-profile-section" id="hc-onboarding-checklist">
+<section class="hc-profile-section hc-onb-checklist" id="hc-onboarding-checklist" data-onboarding-application="{{ onboarding.application_id }}">
   <h2>
     Checklist de ingreso
     {% set _check_help = "Cada casillero se guarda al tildarlo. El onboarding queda completo cuando están tildados los 17 ítems." %}
@@ -18,14 +18,64 @@
     {% else %}<span class="status-badge status-badge--tentativo" data-onboarding-progress>{{ _p.hechos }}/{{ _p.total }} · {{ _p.porcentaje }}%</span>{% endif %}
   </h2>
   {% if checklist_error %}<div class="dashboard-empty" data-error-kind="validation"><span class="dashboard-empty__label">No se guardó</span><p>{{ checklist_error }}</p></div>{% endif %}
-  <div class="dashboard-checkbox-group dashboard-checkbox-group--grid-2">
-    {% for it in onboarding.checklist_items %}
-    <label class="dashboard-checkbox-option">
-      <input type="checkbox" name="checked" value="1" data-onboarding-item="{{ it.key }}" {% if it.checked %}checked{% endif %}
-             hx-post="/cchh/onboarding/{{ onboarding.application_id }}/checklist/{{ it.key }}" hx-trigger="change" hx-include="this"
-             hx-target="#hc-onboarding-checklist" hx-swap="outerHTML">
-      <span>{{ it.label }}</span>
-    </label>
+  {# Los 17 ítems, AGRUPADOS en contenedores colapsables (`dashboard-section`, el mismo componente de Editar candidato; solo presentación: ver `onboarding_checklist.CHECKLIST_GROUPS`). Se abren por defecto los grupos con tareas pendientes y
+     quedan colapsados los completos. Cada encabezado muestra `hechos/total` y su estado. El tildado conserva EXACTAMENTE el guardado inmediato por ítem (mismo endpoint y mismo reemplazo de `#hc-onboarding-checklist`). Sin reordenamiento
+     (no hay `draggable`). La preferencia MANUAL de abrir/cerrar un grupo se recuerda por onboarding y se reaplica tras cada reemplazo HTMX (script al final). #}
+  <div class="dashboard-sections" data-onboarding-groups>
+    {% for g in onboarding.checklist_groups %}
+    <details class="dashboard-section hc-onb-group hc-onb-group--{{ g.estado }}" data-section-id="{{ g.key }}" data-onboarding-group="{{ g.key }}" data-group-estado="{{ g.estado }}"{% if g.abierto_por_defecto %} open{% endif %}>
+      <summary class="dashboard-section__head">
+        <span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ g.label }}</span>
+        <span class="dashboard-section__count" data-group-progress>{{ g.hechos }}/{{ g.total }}</span>
+        <span class="dashboard-section__state">
+          {% if g.estado == 'completo' %}<span class="status-badge status-badge--activo">Completo</span>
+          {% elif g.estado == 'en_curso' %}<span class="status-badge status-badge--tentativo">En curso</span>
+          {% else %}<span class="status-badge status-badge--inactivo">Sin empezar</span>{% endif %}
+        </span>
+      </summary>
+      <div class="dashboard-section__body">
+        <div class="dashboard-checkbox-group dashboard-checkbox-group--grid-2">
+          {% for it in g.tareas %}
+          <label class="dashboard-checkbox-option">
+            <input type="checkbox" name="checked" value="1" data-onboarding-item="{{ it.key }}" {% if it.checked %}checked{% endif %}
+                   hx-post="/cchh/onboarding/{{ onboarding.application_id }}/checklist/{{ it.key }}" hx-trigger="change" hx-include="this"
+                   hx-target="#hc-onboarding-checklist" hx-swap="outerHTML">
+            <span>{{ it.label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+    </details>
     {% endfor %}
   </div>
 </section>
+<script>
+(function () {
+  if (window.__hcOnbGroupsWired) return;                      // el fragmento se reemplaza por HTMX tras cada tildado: un único wiring global (delegado)
+  window.__hcOnbGroupsWired = true;
+  function wrap() { return document.getElementById("hc-onboarding-checklist"); }
+  function key(app) { return "dw-onb-collapse:" + app; }
+  function read(app) { try { return JSON.parse(sessionStorage.getItem(key(app)) || "{}") || {}; } catch (e) { return {}; } }
+  function write(app, state) { try { sessionStorage.setItem(key(app), JSON.stringify(state)); } catch (e) { /* storage deshabilitado: el valor por defecto sigue valiendo */ } }
+  function apply() {                                          // reaplica SOLO lo que la persona abrió/cerró a mano; el resto conserva el valor por defecto del servidor
+    var w = wrap(); if (!w) return;
+    var state = read(w.getAttribute("data-onboarding-application"));
+    w.querySelectorAll("details[data-section-id]").forEach(function (d) {
+      var id = d.getAttribute("data-section-id");
+      if (Object.prototype.hasOwnProperty.call(state, id)) { if (state[id]) d.setAttribute("open", ""); else d.removeAttribute("open"); }
+    });
+  }
+  document.addEventListener("click", function (ev) {          // solo el click de la persona sobre un encabezado cuenta como preferencia manual (un cambio automático por reemplazo no)
+    var summary = ev.target.closest && ev.target.closest("#hc-onboarding-checklist summary");
+    if (!summary) return;
+    var d = summary.parentElement, w = wrap();
+    setTimeout(function () {
+      var app = w.getAttribute("data-onboarding-application"), state = read(app);
+      state[d.getAttribute("data-section-id")] = d.hasAttribute("open");
+      write(app, state);
+    }, 0);
+  });
+  document.body.addEventListener("htmx:afterSwap", apply);   // antes de pintar: sin parpadeo
+  apply();
+})();
+</script>

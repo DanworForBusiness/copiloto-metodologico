@@ -1481,6 +1481,7 @@ def onboarding_view(onboarding: dict) -> dict:
         "puesto_mostrado": (busqueda or {}).get("nombre_puesto"),
         "progress": onboarding_checklist.progress(onboarding.get("checklist")),
         "checklist_items": onboarding_checklist.items_view(onboarding.get("checklist")),
+        "checklist_groups": onboarding_checklist.groups_view(onboarding.get("checklist")),
     }
 
 
