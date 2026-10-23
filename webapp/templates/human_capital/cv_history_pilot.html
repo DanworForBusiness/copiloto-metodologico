@@ -53,7 +53,7 @@
           {% if runs %}
           <table class="dashboard-table" data-pilot-runs>
             <thead><tr><th class="left">Lote</th><th class="left">Estado</th><th>Muestra</th><th>Extraídos</th><th>Con error</th><th>Alias</th></tr></thead>
-            <tbody>{% for r in runs %}<tr><td class="left"><a href="/cchh/diagnostico/cvs-historicos/{{ r.run_id }}">{{ r.run_id }}</a></td><td class="left">{{ r.state }}</td><td>{{ r.counters.selected or 0 }}</td><td>{{ r.counters.extracted or 0 }}</td><td>{{ r.counters.failed or 0 }}</td><td>{{ r.counters.alias or 0 }}</td></tr>{% endfor %}</tbody>
+            <tbody>{% for r in runs %}<tr><td class="left"><a href="/cchh/diagnostico/cvs-historicos/{{ r.run_id }}">{{ r.run_id }}</a>{% if r.kind == 'rearbitration' %} <span class="field-hint">derivado de {{ r.derived_from_run_id }}</span>{% endif %}</td><td class="left">{{ r.state }}</td><td>{{ r.counters.selected or 0 }}</td><td>{{ r.counters.extracted or 0 }}</td><td>{{ r.counters.failed or 0 }}</td><td>{{ r.counters.alias or 0 }}</td></tr>{% endfor %}</tbody>
           </table>
           {% else %}<p class="field-hint" data-pilot-no-runs>Todavía no hay lotes.</p>{% endif %}
         </div>

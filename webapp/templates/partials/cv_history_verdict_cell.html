@@ -1,0 +1,26 @@
+{# Celda de dictamen del owner de UN documento (datos personales: solo en la vista del owner). Se responde con este bloque y, por OOB, el panel de métricas. Los errores van adentro con 200 (HTMX no pinta 4xx). #}
+<div class="hc-verdict" data-verdict-box data-content-key="{{ r.content_key }}" data-verdict="{{ r.verdict.status if r.verdict else 'PENDING' }}">
+  {% if verdict_error %}<p class="callout callout--warn" data-error-kind="verdict_invalid"><span class="callout__body">{{ verdict_error }}</span></p>{% endif %}
+  {% if r.verdict %}
+    {% set v = r.verdict %}
+    <span class="status-badge {{ 'status-badge--activo' if v.status == 'CORRECT' else 'status-badge--tentativo' if v.status == 'CORRECTED' else 'status-badge--inactivo' }}" data-verdict-status>{{ {'CORRECT': 'Propuesta correcta', 'CORRECTED': 'Corrección manual', 'UNDETERMINED': 'Identidad no determinada'}[v.status] }}</span>
+    {% if v.corrected %}<span class="field-hint">{{ v.corrected.first_name }} {{ v.corrected.last_name }}</span>{% endif %}
+    <span class="field-hint">{% if r.verdict_count > 1 %}{{ r.verdict_count }} dictámenes (vigente: el último){% else %}1 dictamen{% endif %}</span>
+  {% else %}<span class="status-badge status-badge--inactivo" data-verdict-status>Pendiente</span>{% endif %}
+  {% if r.reference_identity %}<p class="field-hint" data-reference-identity>Identidad confirmada en el lote original: <strong>{{ r.reference_identity.first_name }} {{ r.reference_identity.last_name }}</strong></p>{% endif %}
+  {% if r.can_verdict and staging_present is not false %}
+  <form class="hc-verdict__form" hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/veredicto" hx-target="closest [data-verdict-box]" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <input type="hidden" name="content_key" value="{{ r.content_key }}">
+    <div class="hc-verdict__names">
+      <input name="first_name" type="text" autocomplete="off" aria-label="Nombre correcto" placeholder="Nombre" maxlength="60" value="{{ (r.verdict.corrected.first_name if r.verdict and r.verdict.corrected else (r.reference_identity.first_name if r.reference_identity else '')) }}">
+      <input name="last_name" type="text" autocomplete="off" aria-label="Apellido correcto" placeholder="Apellido" maxlength="60" value="{{ (r.verdict.corrected.last_name if r.verdict and r.verdict.corrected else (r.reference_identity.last_name if r.reference_identity else '')) }}">
+    </div>
+    <div class="hc-verdict__actions">
+      {% if r.proposal %}<button type="submit" name="status" value="CORRECT" class="btn-secondary">Propuesta correcta</button>{% endif %}
+      <button type="submit" name="status" value="CORRECTED" class="btn-secondary">Corrección manual</button>
+      <button type="submit" name="status" value="UNDETERMINED" class="btn-secondary">No determinada</button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% if oob_report %}{% with report=oob_report, notice=none, oob=true %}{% include "partials/cv_history_run_panel.html" %}{% endwith %}{% endif %}
