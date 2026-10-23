@@ -3053,12 +3053,17 @@ def _pilot_panel(request: Request, run_id: str, notice: dict | None = None):
     return templates.TemplateResponse(request=request, name="partials/cv_history_run_panel.html", context={"request": request, "report": report, "notice": notice, "run_id": run_id, "discard_phrase": cv_history_pilot.discard_phrase(run_id)}, headers=_NO_STORE)
 
 
+def _pilot_actor(request: Request) -> str:
+    """El actor autenticado es el claim `sub` de la sesión (no existe un claim `email`): queda en la autorización del lote y en la autoría de cada dictamen."""
+    return str((auth_service.session_user(request) or {}).get("sub") or "").strip().lower()
+
+
 @router.get("/cchh/diagnostico/cvs-historicos", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_cv_history_page(request: Request):
     redirect = _require_owner_for_diagnostics(request)
     if redirect is not None:
         return redirect
-    runs = [{"run_id": r["run_id"], "state": r.get("state"), "created_at": r.get("created_at"), "counters": r.get("counters") or {}} for r in cv_history_manifest.list_runs()]
+    runs = [{"run_id": r["run_id"], "state": r.get("state"), "created_at": r.get("created_at"), "counters": r.get("counters") or {}, "kind": r.get("kind", "pilot"), "derived_from_run_id": (r.get("derived_from") or {}).get("run_id")} for r in cv_history_manifest.list_runs()]
     return templates.TemplateResponse(request=request, name="human_capital/cv_history_pilot.html", context=_pilot_context(request, runs=runs), headers=_NO_STORE)
 
 
@@ -3078,7 +3083,7 @@ def human_capital_cv_history_start(request: Request, graph_token: str = Form("")
     except ValueError:
         return _notice("invalid_sample", f"La muestra inicial es de {cv_history_pilot.SAMPLE_MIN} a {cv_history_pilot.SAMPLE_MAX} documentos.")
     try:
-        run = cv_history_pilot.start_run(graph_token, share_url, sample_size=size, authorization=authorization, actor=str((auth_service.session_user(request) or {}).get("email") or ""))
+        run = cv_history_pilot.start_run(graph_token, share_url, sample_size=size, authorization=authorization, actor=_pilot_actor(request))
     except (cv_history_pilot.PilotInputError, cv_history_inventory.InventoryInputError) as exc:
         return _notice("invalid_input", str(exc))
     except cv_history_manifest.ManifestError:
@@ -3113,7 +3118,7 @@ def human_capital_cv_history_discard(request: Request, run_id: str, confirm: str
     if not cv_history_manifest.RUN_ID_RE.match(run_id):
         raise HTTPException(404, "Lote inexistente")
     try:
-        cv_history_pilot.discard_staging(run_id, confirm=confirm, actor=str((auth_service.session_user(request) or {}).get("email") or ""))
+        cv_history_pilot.discard_staging(run_id, confirm=confirm, actor=_pilot_actor(request))
     except cv_history_pilot.PilotInputError as exc:
         return _pilot_panel(request, run_id, {"kind": "invalid_confirmation", "message": str(exc)})
     except cv_history_manifest.ManifestNotFoundError:
@@ -3121,6 +3126,49 @@ def human_capital_cv_history_discard(request: Request, run_id: str, confirm: str
     except cv_history_manifest.ManifestError:
         return _pilot_panel(request, run_id, {"kind": "persistence_error", "message": "No se pudo completar la eliminación (borrado no confirmado). Nada se perdió: reintentá, es reanudable."})
     return _pilot_panel(request, run_id, {"kind": "discarded", "message": "Datos personales del lote eliminados. La auditoría y el reporte final se conservan."})
+
+
+@router.post("/cchh/diagnostico/cvs-historicos/{run_id}/reevaluar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_rearbitrate(request: Request, run_id: str):
+    """Crea un lote DERIVADO que reevalúa la identidad con las reglas vigentes SOLO desde lo ya guardado: no descarga ni lee documentos (sin token de Graph) y no modifica el lote original."""
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    if not cv_history_manifest.RUN_ID_RE.match(run_id):
+        raise HTTPException(404, "Lote inexistente")
+    try:
+        derived = cv_history_pilot.start_rearbitration(run_id, actor=_pilot_actor(request))
+    except cv_history_pilot.PilotInputError as exc:
+        return _pilot_panel(request, run_id, {"kind": "invalid_input", "message": str(exc)})
+    except cv_history_manifest.ManifestNotFoundError:
+        raise HTTPException(404, "Lote inexistente") from None
+    except cv_history_manifest.ManifestError:
+        return _pilot_panel(request, run_id, {"kind": "persistence_error", "message": "No se pudo guardar el lote derivado (persistencia no confirmada). El lote original no se modificó."})
+    return _pilot_panel(request, derived["run_id"], {"kind": "created", "message": "Lote derivado creado desde los datos ya guardados (no se leyó ningún documento). El lote original no se modificó."})
+
+
+@router.post("/cchh/diagnostico/cvs-historicos/{run_id}/veredicto", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_verdict(request: Request, run_id: str, content_key: str = Form(""), status: str = Form(""), first_name: str = Form(""), last_name: str = Form("")):
+    """Dictamen del owner sobre un documento del lote (propuesta correcta / corrección manual / identidad no determinada). Responde la celda del documento y refresca el panel de métricas por OOB; los errores
+    son 200 con aviso en la celda (HTMX no pinta 4xx)."""
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    if not cv_history_manifest.RUN_ID_RE.match(run_id) or not cv_history_manifest.KEY_RE.match(content_key or ""):
+        raise HTTPException(404, "Lote inexistente")
+    error = None
+    try:
+        cv_history_pilot.record_verdict(run_id, content_key, status, actor=_pilot_actor(request), first_name=first_name, last_name=last_name)
+    except cv_history_pilot.PilotInputError as exc:
+        error = str(exc)
+    except cv_history_manifest.ManifestNotFoundError:
+        raise HTTPException(404, "Lote inexistente") from None
+    except cv_history_manifest.ManifestError:
+        error = "No se pudo guardar el dictamen (persistencia no confirmada). Reintentá."
+    row = next((r for r in cv_history_pilot.review_view(run_id) if r["content_key"] == content_key), None)
+    if row is None:
+        raise HTTPException(404, "Documento inexistente")
+    return templates.TemplateResponse(request=request, name="partials/cv_history_verdict_cell.html", context={"request": request, "r": row, "run_id": run_id, "verdict_error": error, "oob_report": cv_history_pilot.run_report(run_id), "discard_phrase": cv_history_pilot.discard_phrase(run_id)}, headers=_NO_STORE)
 
 
 @router.get("/cchh/diagnostico/cvs-historicos/{run_id}", response_class=HTMLResponse, include_in_schema=False)

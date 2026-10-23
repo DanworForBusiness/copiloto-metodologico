@@ -591,6 +591,21 @@
 .dashboard-table[data-pilot-rows] :is(th, td) { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; overflow-wrap: anywhere; max-width: none; }
 .dashboard-table[data-pilot-rows] th { min-width: 84px; }
 .dashboard-table[data-pilot-rows] td .status-badge { margin: 0 4px 4px 0; display: inline-block; }
+#cvrun-panel .dashboard-table :is(th, td) { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; }
+@media (max-width: 640px) {
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation]) { display: block; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation]) tbody { display: block; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation]) tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation]) td[colspan] { grid-column: 1 / -1; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation]) td.hc-kv-value { text-align: right; font-weight: 600; }
+}
+.dashboard-table[data-pilot-rows] td[data-verdict-col] { min-width: 270px; }
+.hc-verdict { display: grid; gap: 6px; justify-items: start; }
+.hc-verdict__form { display: grid; gap: 6px; width: 100%; }
+.hc-verdict__names { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.hc-verdict__names input { min-width: 0; width: 100%; padding: 4px 6px; font: inherit; color: inherit; background: transparent; border: 1px solid rgba(128, 128, 140, .55); border-radius: 4px; }
+.hc-verdict__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.hc-verdict__actions .btn-secondary { padding: 4px 8px; font-size: .74rem; white-space: nowrap; }
 .scoring-ranking td:last-child .btn-secondary { white-space: nowrap; }
 .scoring-eval p, .scoring-eval li { overflow-wrap: anywhere; }
 .scoring-dispersion { display: block; margin: 4px 0 0; font-size: .7rem; color: #8a6300; font-weight: 700; }

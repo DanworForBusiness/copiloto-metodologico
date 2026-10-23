@@ -1,5 +1,6 @@
 {# Panel de un lote del PILOTO de extracción (conteos y tasas; SIN datos personales). El aviso (`notice`) es parte del contenido: SIEMPRE se entrega con 200 porque HTMX no pinta 4xx. #}
-<div id="cvrun-panel" data-run-state="{{ report.state if report else 'none' }}">
+{% set STATE_LABEL = {"CORROBORATED": "Corroborada (R1/R2)", "DECLARED": "Declarada, sin corroborar (R3)", "CONFLICT": "Conflicto (R4)", "UNCORROBORATED": "Sin corroboración (R5)", "PARTIAL": "Coincidencia parcial débil (R5)", "MISSING": "Sin candidato (R6)", "LEGACY_V1": "Versión 1 (sin arbitraje)"} %}
+<div id="cvrun-panel" data-run-state="{{ report.state if report else 'none' }}"{% if oob %} hx-swap-oob="true"{% endif %}>
 {% if notice %}
   {% if notice.kind == 'processed' %}
   {% set res = notice.result %}
@@ -18,6 +19,14 @@
     <span class="status-badge {{ 'status-badge--activo' if report.state == 'DONE' else 'status-badge--tentativo' }}">Lote {{ report.state }}</span>
     <span class="field-hint">{{ report.run_id }} · <a href="/cchh/diagnostico/cvs-historicos/{{ run_id }}">Ver resultados individuales (datos personales, solo owner)</a></span>
   </p>
+  {% if report.kind == 'rearbitration' %}
+  <p class="callout callout--info" data-pilot-derived><span class="callout__body">Lote <strong>derivado</strong> de <a href="/cchh/diagnostico/cvs-historicos/{{ report.derived_from.run_id }}">{{ report.derived_from.run_id }}</a>: reevalúa la identidad con las reglas actuales (extractor v{{ report.derived_from.to_extractor_version }}) usando solo los datos ya guardados. No se leyó ningún documento y el lote original no se modificó.</span></p>
+  {% elif report.staging.state == 'PRESENT' and report.documents.extracted %}
+  <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/reevaluar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-pilot-rearbitrate-form>
+    <div class="hc-profile-form__actions"><button type="submit" class="btn-secondary">Crear lote derivado (reevaluar identidad)</button>
+    <span class="field-hint">Recalcula la identidad con las reglas actuales sin releer ningún documento ni tocar este lote. Permite comparar contra tus dictámenes.</span></div>
+  </form>
+  {% endif %}
   {% if d.pending %}
   <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/procesar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-dw-graph-token>
     <div class="hc-profile-form__actions"><button type="submit" class="btn-primary">Procesar muestra ({{ d.pending }} pendiente{{ '' if d.pending == 1 else 's' }})</button>
@@ -43,27 +52,28 @@
 
   <h3>Población del origen</h3>
   <table class="dashboard-table" data-pilot-population><tbody>
-    <tr><td class="left">Archivos compatibles</td><td class="left">{{ pop.compatible_files }}</td><td class="left">Contenidos únicos</td><td class="left">{{ pop.content_groups }}</td></tr>
-    <tr><td class="left">Copias redundantes</td><td class="left">{{ pop.redundant_copies }}</td><td class="left">Contenidos en varias especialidades</td><td class="left">{{ pop.cross_specialty_groups }}</td></tr>
-    <tr><td class="left">Sin hash en Graph</td><td class="left">{{ pop.items_without_hash }}</td><td class="left">Especialidades</td><td class="left">{{ pop.specialties }}</td></tr>
+    <tr><td class="left">Archivos compatibles</td><td class="left hc-kv-value">{{ pop.compatible_files }}</td><td class="left">Contenidos únicos</td><td class="left hc-kv-value">{{ pop.content_groups }}</td></tr>
+    <tr><td class="left">Copias redundantes</td><td class="left hc-kv-value">{{ pop.redundant_copies }}</td><td class="left">Contenidos en varias especialidades</td><td class="left hc-kv-value">{{ pop.cross_specialty_groups }}</td></tr>
+    <tr><td class="left">Sin hash en Graph</td><td class="left hc-kv-value">{{ pop.items_without_hash }}</td><td class="left">Especialidades</td><td class="left hc-kv-value">{{ pop.specialties }}</td></tr>
   </tbody></table>
 
   <h3>Muestra</h3>
   <table class="dashboard-table" data-pilot-documents><tbody>
-    <tr><td class="left">En la muestra</td><td class="left">{{ d.in_sample }}</td><td class="left">Extraídos</td><td class="left">{{ d.extracted }}</td></tr>
-    <tr><td class="left">Legibles (con texto)</td><td class="left">{{ d.readable }}</td><td class="left">Con error de descarga/formato</td><td class="left">{{ d.failed }}</td></tr>
-    <tr><td class="left">Alias (mismo contenido)</td><td class="left">{{ d.alias }}</td><td class="left">Pendientes</td><td class="left">{{ d.pending }}</td></tr>
-    <tr><td class="left">Con varias especialidades</td><td class="left">{{ d.multi_specialty }}</td><td class="left"></td><td class="left"></td></tr>
+    <tr><td class="left">En la muestra</td><td class="left hc-kv-value">{{ d.in_sample }}</td><td class="left">Extraídos</td><td class="left hc-kv-value">{{ d.extracted }}</td></tr>
+    <tr><td class="left">Legibles (con texto)</td><td class="left hc-kv-value">{{ d.readable }}</td><td class="left">Con error de descarga/formato</td><td class="left hc-kv-value">{{ d.failed }}</td></tr>
+    <tr><td class="left">Alias (mismo contenido)</td><td class="left hc-kv-value">{{ d.alias }}</td><td class="left">Pendientes</td><td class="left hc-kv-value">{{ d.pending }}</td></tr>
+    <tr><td class="left">Con varias especialidades</td><td class="left hc-kv-value">{{ d.multi_specialty }}</td><td class="left"></td><td class="left hc-kv-value"></td></tr>
   </tbody></table>
 
-  <h3>Calidad de la extracción</h3>
+  <h3>Cobertura de la extracción</h3>
   <table class="dashboard-table" data-pilot-rates><tbody>
-    <tr><td class="left">Nombre y apellido obtenidos</td><td class="left">{{ report.field_rates_pct.name if report.field_rates_pct.name is not none else '—' }} %</td>
-        <td class="left">Email obtenido</td><td class="left">{{ report.field_rates_pct.email if report.field_rates_pct.email is not none else '—' }} %</td>
-        <td class="left">Celular obtenido</td><td class="left">{{ report.field_rates_pct.phone if report.field_rates_pct.phone is not none else '—' }} %</td></tr>
-    <tr><td class="left">Requieren revisión</td><td class="left">{{ report.review.required }} ({{ report.review.required_pct if report.review.required_pct is not none else '—' }} %)</td>
-        <td class="left">Completos sin revisión</td><td class="left">{{ report.review.complete_without_review }}</td><td class="left"></td><td class="left"></td></tr>
+    <tr><td class="left">Nombre y apellido propuestos</td><td class="left hc-kv-value">{{ report.coverage_pct.name if report.coverage_pct.name is not none else '—' }} %</td>
+        <td class="left">Email obtenido</td><td class="left hc-kv-value">{{ report.coverage_pct.email if report.coverage_pct.email is not none else '—' }} %</td>
+        <td class="left">Celular obtenido</td><td class="left hc-kv-value">{{ report.coverage_pct.phone if report.coverage_pct.phone is not none else '—' }} %</td></tr>
+    <tr><td class="left">Requieren revisión</td><td class="left hc-kv-value">{{ report.review.required }} ({{ report.review.required_pct if report.review.required_pct is not none else '—' }} %)</td>
+        <td class="left">Completos sin revisión</td><td class="left hc-kv-value">{{ report.review.complete_without_review }}</td><td class="left"></td><td class="left hc-kv-value"></td></tr>
   </tbody></table>
+  <p class="field-hint">La cobertura mide cuántos documentos tienen un dato; <strong>no mide si el dato es correcto</strong> (eso lo miden los dictámenes de abajo).</p>
   {% if report.review.by_reason or report.failures %}
   <table class="dashboard-table" data-pilot-reasons>
     <thead><tr><th class="left">Motivo</th><th>Documentos</th></tr></thead>
@@ -74,11 +84,50 @@
   </table>
   {% endif %}
 
+  {% set idn = report.identity %}{% set pq = idn.proposal_quality %}{% set vd = idn.verdicts %}{% set und = idn.undetermined %}
+  <h3>Identidad: estado automático</h3>
+  <table class="dashboard-table" data-pilot-identity>
+    <thead><tr><th class="left">Estado de la identidad (automático)</th><th>Documentos</th></tr></thead>
+    <tbody>{% for state, n in idn.by_state.items() %}<tr data-identity-state="{{ state }}"><td class="left">{{ STATE_LABEL.get(state, state) }}</td><td>{{ n }}</td></tr>{% else %}<tr><td class="left" colspan="2">Sin documentos extraídos.</td></tr>{% endfor %}</tbody>
+  </table>
+  <p class="field-hint">Una propuesta automática <strong>nunca es una identidad verificada</strong>: «declarada» significa que el documento dice ese nombre, no que algo independiente lo confirme. Extractor: {% for v, n in idn.extractor_versions.items() %}v{{ v }} ({{ n }}){% if not loop.last %}, {% endif %}{% else %}—{% endfor %}.</p>
+
+  <h3>Dictámenes del owner y precisión</h3>
+  <table class="dashboard-table" data-pilot-verdicts><tbody>
+    <tr><td class="left">Pendientes de dictamen</td><td class="left hc-kv-value" data-verdict-pending>{{ vd.pending }}</td><td class="left">Propuesta correcta</td><td class="left hc-kv-value" data-verdict-correct>{{ vd.correct }}</td></tr>
+    <tr><td class="left">Corrección manual</td><td class="left hc-kv-value" data-verdict-corrected>{{ vd.corrected }}</td><td class="left">Identidad no determinada</td><td class="left hc-kv-value" data-verdict-undetermined>{{ vd.undetermined }}</td></tr>
+    <tr><td class="left">Cobertura (con propuesta / legibles)</td><td class="left hc-kv-value">{{ idn.coverage.with_proposal }} / {{ idn.readable }}{% if idn.coverage.coverage_pct is not none %} ({{ idn.coverage.coverage_pct }} %){% endif %}</td>
+        <td class="left">Precisión de propuestas evaluadas</td><td class="left hc-kv-value" data-proposal-precision>{% if pq.precision_pct is not none %}{{ pq.precision_pct }} % ({{ pq.correct }} de {{ pq.evaluated }}){% else %}— (sin propuestas evaluadas){% endif %}</td></tr>
+    <tr><td class="left">Propuestas sin dictamen</td><td class="left hc-kv-value">{{ pq.unevaluated }}</td><td class="left">Propuestas «no determinadas»</td><td class="left hc-kv-value">{{ pq.undetermined }}</td></tr>
+    <tr><td class="left">Sin propuesta, resueltas a mano</td><td class="left hc-kv-value">{{ und.without_proposal_resolved_manually }}</td><td class="left">Sin propuesta, no determinadas</td><td class="left hc-kv-value">{{ und.without_proposal_undetermined }}</td></tr>
+    <tr><td class="left">Sin propuesta, sin dictamen</td><td class="left hc-kv-value">{{ und.without_proposal_unevaluated }}</td><td class="left"></td><td class="left hc-kv-value"></td></tr>
+  </tbody></table>
+  {% if pq.by_state %}
+  <table class="dashboard-table" data-pilot-precision-by-state>
+    <thead><tr><th class="left">Precisión por estado automático</th><th>Correctas</th><th>Incorrectas</th><th>Precisión</th></tr></thead>
+    <tbody>{% for state, q in pq.by_state.items() %}<tr><td class="left">{{ STATE_LABEL.get(state, state) }}</td><td>{{ q.correct }}</td><td>{{ q.wrong }}</td><td>{{ q.precision_pct if q.precision_pct is not none else '—' }}{% if q.precision_pct is not none %} %{% endif %}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+  <p class="field-hint">Tres medidas separadas: <strong>cobertura</strong> (hay propuesta), <strong>precisión</strong> (de las propuestas dictaminadas, cuántas eran correctas) y <strong>no determinados</strong> (falta de datos: no cuenta como error de identidad).</p>
+
+  {% if report.comparison %}
+  {% set cmp = report.comparison %}
+  <h3>Comparación con el lote original</h3>
+  <table class="dashboard-table" data-pilot-comparison><tbody>
+    <tr><td class="left">Propuesta sin cambios</td><td class="left hc-kv-value">{{ cmp.moves.get('unchanged', 0) }}</td><td class="left">Propuesta retirada</td><td class="left hc-kv-value">{{ cmp.moves.get('removed', 0) }}</td></tr>
+    <tr><td class="left">Propuesta distinta</td><td class="left hc-kv-value">{{ cmp.moves.get('changed', 0) }}</td><td class="left">Propuesta nueva</td><td class="left hc-kv-value">{{ cmp.moves.get('added', 0) }}</td></tr>
+    <tr><td class="left">Originales incorrectas (dictaminadas)</td><td class="left hc-kv-value">{{ cmp.original_wrong_proposals.total }}</td><td class="left">…retiradas / cambiadas / iguales</td><td class="left hc-kv-value">{{ cmp.original_wrong_proposals.removed }} / {{ cmp.original_wrong_proposals.changed }} / {{ cmp.original_wrong_proposals.still_same }}</td></tr>
+    <tr><td class="left">Originales correctas (dictaminadas)</td><td class="left hc-kv-value">{{ cmp.original_correct_proposals.total }}</td><td class="left">…conservadas / perdidas / cambiadas</td><td class="left hc-kv-value">{{ cmp.original_correct_proposals.kept }} / {{ cmp.original_correct_proposals.lost }} / {{ cmp.original_correct_proposals.changed }}</td></tr>
+    <tr><td class="left">Identidades confirmadas en el original</td><td class="left hc-kv-value">{{ cmp.against_confirmed_identity.known }}</td><td class="left">…coinciden / se abstiene / contradicen</td><td class="left hc-kv-value">{{ cmp.against_confirmed_identity.matches }} / {{ cmp.against_confirmed_identity.abstains }} / {{ cmp.against_confirmed_identity.contradicts }}</td></tr>
+  </tbody></table>
+  <p class="field-hint">{{ cmp.note }}</p>
+  {% endif %}
+
   <h3>Conciliación de identidad</h3>
   {% set rc = report.reconciliation %}
   <table class="dashboard-table" data-pilot-reconciliation><tbody>
-    <tr><td class="left">Coincidencia FUERTE con un perfil existente</td><td class="left">{{ rc.strong_existing }}</td><td class="left">Coincidencia PROBABLE con un perfil existente</td><td class="left">{{ rc.probable_existing }}</td></tr>
-    <tr><td class="left">Misma persona sugerida dentro del lote</td><td class="left">{{ rc.same_person_in_run }}</td><td class="left" colspan="2"><span class="field-hint">Solo sugerencias: nunca se fusiona ni se vincula automáticamente.</span></td></tr>
+    <tr><td class="left">Coincidencia FUERTE con un perfil existente</td><td class="left hc-kv-value">{{ rc.strong_existing }}</td><td class="left">Coincidencia PROBABLE con un perfil existente</td><td class="left hc-kv-value">{{ rc.probable_existing }}</td></tr>
+    <tr><td class="left">Misma persona sugerida dentro del lote</td><td class="left hc-kv-value">{{ rc.same_person_in_run }}</td><td class="left" colspan="2"><span class="field-hint">Solo sugerencias: nunca se fusiona ni se vincula automáticamente.</span></td></tr>
   </tbody></table>
 
   <h3>Por especialidad (heredada de la carpeta)</h3>

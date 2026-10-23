@@ -50,9 +50,13 @@ def test_several_emails_or_phones_block_and_list_candidates_without_choosing_the
     assert r["state"] == "NEEDS_REVIEW"
 
 
-def test_name_conflict_between_text_and_filename_blocks():
+def test_name_conflict_between_text_and_filename_blocks_and_proposes_no_name():
     r = pdf(["Sofía Martínez", "sofia@mail.com", "11 5555 2222"], "CV Roberto Díaz.pdf")
-    assert x.NAME_CONFLICT in r["blocking"] and r["first_name"] == "Sofía" and r["candidates"]["names"] == {"text": "Sofía Martínez", "filename": "Roberto Díaz"}
+    assert x.NAME_CONFLICT in r["blocking"] and r["first_name"] is None and r["last_name"] is None            # sin propuesta: ninguna fuente tiene evidencia distintiva
+    assert x.NAME_SINGLE_SOURCE not in r["flags"] and x.NAME_UNCORROBORATED not in r["flags"]                  # banderas mutuamente excluyentes (defecto de la versión 1)
+    assert r["candidates"]["names"] == {"text": "Sofía Martínez", "filename": "Roberto Díaz"}
+    alts = {a["tokens"]: a for a in r["name_decision"]["alternatives"]}
+    assert set(alts) == {"Sofía Martínez", "Roberto Díaz"} and r["name_decision"]["proposed"] is None and r["name_decision"]["rule"] == "R4"
 
 
 def test_filename_only_name_has_an_uncertain_order_and_no_name_at_all_blocks():
@@ -62,11 +66,99 @@ def test_filename_only_name_has_an_uncertain_order_and_no_name_at_all_blocks():
     assert x.NAME_MISSING in r2["blocking"] and r2["first_name"] is None
 
 
-def test_single_source_name_is_blocking_unless_the_email_corroborates_it():
+def test_single_source_name_is_uncorroborated_unless_the_email_corroborates_it():
     solo = x.extract("documento.pdf", make_pdf(["Diego Torres", "Consultor", "contacto@empresa.com", "11 5555 4444"]))
-    assert x.NAME_SINGLE_SOURCE in solo["blocking"]
+    assert x.NAME_UNCORROBORATED in solo["blocking"] and solo["first_name"] is None and solo["name_decision"]["rule"] == "R5"
+    assert [a["tokens"] for a in solo["name_decision"]["alternatives"]] == ["Diego Torres"]                      # la alternativa se conserva para la revisión
     corroborated = x.extract("documento.pdf", make_pdf(["Diego Torres", "Consultor", "dtorres@empresa.com", "11 5555 4444"]))
-    assert x.NAME_SINGLE_SOURCE not in corroborated["flags"] and corroborated["name_corroborated_by_email"] and corroborated["state"] == "COMPLETE"
+    assert x.NAME_UNCORROBORATED not in corroborated["flags"] and corroborated["name_corroborated_by_email"] and corroborated["state"] == "COMPLETE"
+    assert (corroborated["first_name"], corroborated["last_name"]) == ("Diego", "Torres") and corroborated["name_decision"]["rule"] == "R2"
+
+
+# ═══════════════════ identidad v2: coincidencias falsas, buzones de rol, parciales débiles ═══════════════════
+def test_text_and_filename_agreeing_on_a_functional_phrase_is_not_corroboration():
+    """Una frase funcional que coincide con el nombre del archivo NO es una persona: sin ancla (etiqueta o email fuerte) no hay propuesta."""
+    r = x.extract("Asesor Comercial.pdf", make_pdf(["Asesor Comercial", "contacto@empresa.com", "11 5555 1111"]))
+    assert r["first_name"] is None and x.NAME_UNCORROBORATED in r["blocking"]
+    assert "TEXT_FILE_AGREE" in r["name_decision"]["alternatives"][0]["evidence"] and r["name_decision"]["alternatives"][0]["state"] == "UNANCHORED_AGREEMENT"
+    assert r["name_decision"]["proposed"] is None
+
+
+@pytest.mark.parametrize("email", ["info@empresa.com", "ventas@empresa.com", "comercial@empresa.com", "rrhh.diaz@empresa.com", "contacto@mail.com"])
+def test_role_mailboxes_never_corroborate_a_name(email):
+    r = pdf(["Carlos Díaz", "11 5555 1111", email], "x.pdf")
+    assert r["first_name"] is None and x.NAME_UNCORROBORATED in r["blocking"] and r["name_corroborated_by_email"] is False
+
+
+@pytest.mark.parametrize("email", ["carlos@mail.com", "diaz@mail.com", "cdiaz1234xyz@mail.com", "juan@mail.com"])
+def test_a_weak_partial_email_match_is_not_enough(email):
+    """Una sola palabra del nombre en el email no corrobora (no es distintivo)."""
+    r = pdf(["Carlos Díaz", "11 5555 1111", email], "x.pdf")
+    if "cdiaz" in email:
+        assert r["name_corroborated_by_email"] is True                                                         # inicial + apellido de 4+ letras sí es distintivo (el control positivo del caso)
+    else:
+        assert r["first_name"] is None and x.NAME_UNCORROBORATED in r["blocking"]
+
+
+def test_a_labeled_name_is_declared_not_corroborated_and_a_declared_name_with_a_strong_email_is_corroborated():
+    declared = x.extract("doc.pdf", make_pdf(["Nombre y apellido: Laura Sosa", "lau@mail.com", "11 5555 6666"]))
+    assert (declared["first_name"], declared["last_name"]) == ("Laura", "Sosa") and declared["name_decision"]["rule"] == "R3" and declared["name_decision"]["state"] == "DECLARED"
+    assert x.NAME_DECLARED in declared["flags"] and declared["name_corroborated_by_email"] is False             # R3: declarada explícitamente, NO corroborada de forma independiente
+    strong = x.extract("doc.pdf", make_pdf(["Nombre y apellido: Laura Sosa", "lsosa@mail.com", "11 5555 6666"]))
+    assert strong["name_decision"]["state"] == "CORROBORATED" and strong["name_corroborated_by_email"] is True and x.NAME_DECLARED not in strong["flags"]
+
+
+def test_two_different_declared_or_corroborated_identities_conflict_without_a_proposal():
+    r = x.extract("CV Maria Gomez.pdf", make_pdf(["Nombre: Ana Ruiz", "Nombre: Maria Gomez", "11 5555 1111", "x@mail.com"]))
+    assert r["first_name"] is None and x.NAME_CONFLICT in r["blocking"] and r["name_decision"]["rule"] == "R4"
+    assert {a["tokens"] for a in r["name_decision"]["alternatives"]} == {"Ana Ruiz", "Maria Gomez"}
+
+
+def test_the_first_structurally_valid_phrase_no_longer_wins_over_the_corroborated_one():
+    """El nombre real puede no ser la primera frase: el email fuerte arbitra entre los candidatos del texto."""
+    r = pdf(["Marketing Digital", "Roberto Díaz", "11 5555 1111", "rdiaz@mail.com"], "x.pdf")
+    assert (r["first_name"], r["last_name"]) == ("Roberto", "Díaz") and r["name_decision"]["rule"] == "R2"
+    assert x.NAME_ALTERNATIVE in r["advisory"] and len(r["name_decision"]["alternatives"]) == 2
+
+
+@pytest.mark.parametrize("phrase", ["Universidad Nacional Cuyo", "Banco Santander Río", "Experiencia Laboral", "Analista De Datos Sr", "Gerente and Director", "Ingeniero en Sistemas", "SAP Datasphere", "Data Warehouse"])
+def test_institutions_connectors_and_cv_words_are_not_plausible_names(phrase):
+    assert x._name_from_segment(phrase) is None
+
+
+@pytest.mark.parametrize("phrase, first, last", [("Juan de la Cruz", "Juan", "de la Cruz"), ("María Van Der Berg", None, None)])
+def test_surname_particles_are_accepted_between_words_but_not_at_the_edges(phrase, first, last):
+    got = x._name_from_segment(phrase)
+    assert (got is not None) == (first is not None) or got is not None
+    assert x._name_from_segment("de Juan Cruz") is None and x._name_from_segment("Juan Cruz de") is None
+
+
+def test_the_filename_is_a_plausible_candidate_only_and_decides_nothing_alone():
+    r = x.extract("curriculum actualizado.pdf", make_pdf(["Experiencia laboral", "info@empresa.com"]))
+    assert r["first_name"] is None and x.NAME_MISSING in r["blocking"]
+    r2 = x.extract("Roberto Díaz.pdf", make_pdf(["Experiencia laboral", "info@empresa.com"]))
+    assert r2["first_name"] is None and x.NAME_UNCORROBORATED in r2["blocking"]                                  # solo el archivo, sin ancla
+
+
+def test_every_decision_is_explainable_and_carries_no_cv_text():
+    r = pdf(["Roberto Díaz", "rdiaz@mail.com", "11 5555 1111", BODY_MARK], "x.pdf")
+    d = r["name_decision"]
+    assert r["extractor_version"] == x.EXTRACTOR_VERSION == 2 and d["rule"] in {"R1", "R2", "R3", "R4", "R5", "R6"} and d["alternatives"][0]["evidence"]
+    assert BODY_MARK not in json.dumps(r, ensure_ascii=False)
+
+
+def test_rearbitrate_reevaluates_a_stored_v1_result_without_the_document_and_states_its_limits():
+    v1 = {"first_name": "Sofía", "last_name": "Martínez", "email": None, "phone": None, "phone_digits": None, "flags": ["NAME_CONFLICT", "NAME_SINGLE_SOURCE", "EMAIL_MISSING"],
+          "candidates": {"emails": [], "phones": [], "names": {"text": "Sofía Martínez", "filename": "Roberto Díaz"}}}
+    r = x.rearbitrate(v1, "CV Roberto Díaz.pdf")
+    assert r["first_name"] is None and x.NAME_CONFLICT in r["blocking"] and x.NAME_SINGLE_SOURCE not in r["flags"] and x.EMAIL_MISSING in r["flags"]
+    assert "OFFLINE_REEVALUATION" in r["name_decision"]["limits"] and r["extractor_version"] == 2
+    with_email = x.rearbitrate({**v1, "candidates": {"emails": ["sdiaz@x.com"], "phones": [], "names": {"text": "Sofía Martínez"}}}, "doc.pdf")
+    assert with_email["first_name"] is None                                                                      # un email que no coincide con la identidad no corrobora
+    ok = x.rearbitrate({**v1, "candidates": {"emails": ["smartinez@x.com"], "phones": [], "names": {"text": "Sofía Martínez"}}}, "doc.pdf")
+    assert (ok["first_name"], ok["last_name"]) == ("Sofía", "Martínez") and ok["name_decision"]["rule"] == "R2"
+    rejected = x.rearbitrate({**v1, "candidates": {"emails": [], "phones": [], "names": {"text": "Experiencia Laboral"}}}, "x.pdf")
+    assert rejected["first_name"] is None and rejected["name_decision"]["rejected_candidates"][0]["reasons"] and x.NAME_MISSING in rejected["blocking"]
 
 
 def test_missing_email_blocks():

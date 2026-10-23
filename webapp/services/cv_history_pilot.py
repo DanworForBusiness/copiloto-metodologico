@@ -12,10 +12,16 @@ Identidades distintas:
 La especialidad es la subcarpeta de primer nivel (heredada, sin inferir puesto). Su valor propuesto para `profile_skills` es el texto libre «Esp1, Esp2» (el campo es texto libre sin separadores ni validación
 propios: ver `human_capital_service.validate_and_shape_fields`); aquí solo se PROPONE, no se escribe en ningún perfil.
 
-AUTORIZACIÓN: crear el lote exige la frase de autorización del owner para procesar datos personales; queda registrada (quién y cuándo) en el lote."""
+AUTORIZACIÓN: crear el lote exige la frase de autorización del owner para procesar datos personales; queda registrada (quién y cuándo) en el lote.
+
+CALIDAD DE LA IDENTIDAD (incremento 2.1): la tasa de «nombre obtenido» mide COBERTURA, no exactitud. El owner dictamina cada documento (propuesta correcta / corrección manual / identidad no determinada) y el reporte
+separa tres cosas: cobertura (cuántos documentos tienen propuesta), precisión de las propuestas EVALUADAS (correctas / correctas + incorrectas) y casos no determinados (la ausencia de datos no es un error de identidad).
+Los dictámenes son por lote y append-only, en archivos aparte: nunca reescriben el resultado de la extracción ni se pisan entre lotes. Un lote DERIVADO («reevaluación») recalcula la identidad de un lote original con las
+reglas vigentes SOLO desde lo ya guardado —sin descargar ni releer ningún documento— y deja el original intacto; permite comparar contra los dictámenes del original y reutilizar su identidad confirmada como referencia."""
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
 import time
 import urllib.error
@@ -36,6 +42,11 @@ PENDING_STATES = (SELECTED, FAILED)
 DOWNLOAD_FORBIDDEN, DOWNLOAD_NOT_FOUND, DOWNLOAD_ERROR, FORMAT_INVALID, SIZE_MISMATCH, CONTENT_CHANGED = (
     "DOWNLOAD_FORBIDDEN", "DOWNLOAD_NOT_FOUND", "DOWNLOAD_ERROR", "FORMAT_INVALID", "SIZE_MISMATCH", "CONTENT_CHANGED")
 SAME_PERSON_IN_RUN, RECONCILIATION_UNAVAILABLE = "SAME_PERSON_IN_RUN", "RECONCILIATION_UNAVAILABLE"
+KIND_PILOT, KIND_REARBITRATION = "pilot", "rearbitration"
+V_CORRECT, V_CORRECTED, V_UNDETERMINED = "CORRECT", "CORRECTED", "UNDETERMINED"
+VERDICTS = (V_CORRECT, V_CORRECTED, V_UNDETERMINED)
+LEGACY_V1 = "LEGACY_V1"
+_NAME_FIELD = re.compile(r"^[^\W\d_]+(?:[ '\-.][^\W\d_]+)*$", re.UNICODE)
 
 
 class PilotInputError(ValueError):
@@ -173,6 +184,8 @@ def process_run(run_id: str, token: str, *, clock=time.monotonic, sleep=time.sle
     """Procesa los documentos pendientes (SELECTED/FAILED) dentro de un presupuesto de tiempo. Reanudable e idempotente: lo ya EXTRAÍDO no se vuelve a descargar. Un error por documento se registra y el
     lote sigue; un token vencido (401) detiene el lote sin marcar nada como fallido."""
     run = manifest.get_run(run_id)
+    if run.get("kind", KIND_PILOT) != KIND_PILOT:                                          # un lote derivado se calcula solo con lo guardado: jamás descarga ni lee documentos
+        return {"processed": 0, "failed": 0, "remaining": 0, "stopped_reason": "NOT_A_PILOT_RUN"}
     started = clock()
     try:
         profiles = profile_repository.list()
@@ -239,6 +252,220 @@ def process_run(run_id: str, token: str, *, clock=time.monotonic, sleep=time.sle
         _recompute_in_run(run_id)
     _refresh_counters(run_id, stopped)
     return {"processed": processed, "failed": failed, "remaining": _pending(run_id), "stopped_reason": stopped}
+
+
+# ═══════════════════ identidad: propuesta, dictamen del owner y lote derivado ═══════════════════
+def _proposal(extraction: dict | None) -> dict | None:
+    """La propuesta automática de identidad de una extracción (None si no hay). Una propuesta NO es una identidad verificada. Para datos de la versión 1 (sin `name_decision`) la regla es `V1`."""
+    ext = extraction or {}
+    if ext.get("failure") or not ext.get("first_name"):
+        return None
+    decision = ext.get("name_decision") or {}
+    return {"first_name": ext.get("first_name"), "last_name": ext.get("last_name"), "rule": decision.get("rule") or "V1", "state": decision.get("state") or LEGACY_V1,
+            "extractor_version": ext.get("extractor_version", 1)}
+
+
+def _identity_key(first: str | None, last: str | None) -> frozenset:
+    """Clave para comparar identidades: conjunto de palabras sin tildes ni mayúsculas (el orden nombre/apellido no cambia a la persona)."""
+    return frozenset(cv_extract.fold(w) for w in f"{first or ''} {last or ''}".split())
+
+
+def _current_verdict(doc: dict | None) -> dict | None:
+    return (doc or {}).get("current")
+
+
+def confirmed_identity(verdict: dict | None) -> dict | None:
+    """La identidad que el owner confirmó (propuesta correcta → la propuesta evaluada; corrección manual → la corrección); None si no hay o fue «no determinada»."""
+    cur = _current_verdict(verdict) if verdict and "current" in verdict else verdict
+    if not cur:
+        return None
+    if cur["status"] == V_CORRECT and cur.get("evaluated_proposal"):
+        return {"first_name": cur["evaluated_proposal"]["first_name"], "last_name": cur["evaluated_proposal"]["last_name"]}
+    if cur["status"] == V_CORRECTED and cur.get("corrected"):
+        return dict(cur["corrected"])
+    return None
+
+
+def _clean_name(value: str, label: str) -> str:
+    value = " ".join((value or "").split())
+    if not value or len(value) > 60 or not _NAME_FIELD.match(value):
+        raise PilotInputError(f"{label} inválido: solo letras, espacios, guion o apóstrofo (hasta 60 caracteres).")
+    return value
+
+
+def record_verdict(run_id: str, content_key: str, status: str, *, actor: str, first_name: str = "", last_name: str = "") -> dict:
+    """Dictamen del owner sobre UN documento de ESTE lote. Queda en un archivo aparte (append-only); el resultado de la extracción no se toca. CORRECT exige que haya una propuesta que evaluar; CORRECTED exige
+    nombre y apellido; UNDETERMINED no lleva datos. Se guarda la propuesta evaluada (o su ausencia) para que el dictamen siga siendo interpretable aunque las reglas cambien."""
+    if status not in VERDICTS:
+        raise PilotInputError("Dictamen inválido.")
+    run = manifest.get_run(run_id)
+    if (run.get("staging") or {}).get("state") != "PRESENT":
+        raise PilotInputError("Los datos personales del lote ya no están disponibles: no se puede dictaminar.")
+    group = manifest.get_group(run_id, content_key)
+    if group is None or group.get("state") != EXTRACTED or (group.get("extraction") or {}).get("failure"):
+        raise PilotInputError("Solo se dictamina un documento extraído y legible.")
+    proposal = _proposal(group["extraction"])
+    entry: dict = {"status": status, "actor": actor, "evaluated_proposal": proposal, "corrected": None}
+    if status == V_CORRECT:
+        if proposal is None:
+            raise PilotInputError("El documento no tiene una propuesta que confirmar: cargá la corrección manual o marcalo como no determinado.")
+    elif status == V_CORRECTED:
+        entry["corrected"] = {"first_name": _clean_name(first_name, "Nombre"), "last_name": _clean_name(last_name, "Apellido")}
+    doc = manifest.append_verdict(run_id, content_key, entry)
+    manifest.append_audit(run_id, content_key, "VERDICT", code=status, had_proposal=proposal is not None, seq=doc["current"]["seq"])
+    return doc
+
+
+def _quality(groups: list[dict], verdicts: dict[str, dict]) -> dict:
+    """Cobertura, precisión de las propuestas EVALUADAS y casos no determinados — por separado: que falte el dato no es un error de identidad, y una propuesta sin dictamen no cuenta ni a favor ni en contra."""
+    readable = [g for g in groups if g["state"] == EXTRACTED and not (g.get("extraction") or {}).get("failure")]
+    q = Counter()
+    by_state: dict[str, Counter] = {}
+    for g in readable:
+        proposal = _proposal(g["extraction"])
+        cur = _current_verdict(verdicts.get(g["content_key"]))
+        status = cur["status"] if cur else None
+        state = (proposal or {}).get("state") or "—"
+        if proposal:
+            q["proposals"] += 1
+            if status == V_CORRECT:
+                q["correct"] += 1
+                by_state.setdefault(state, Counter())["correct"] += 1
+            elif status == V_CORRECTED:
+                q["wrong"] += 1
+                by_state.setdefault(state, Counter())["wrong"] += 1
+            elif status == V_UNDETERMINED:
+                q["proposals_undetermined"] += 1
+            else:
+                q["proposals_unevaluated"] += 1
+        else:
+            q["without_proposal"] += 1
+            if status == V_CORRECTED:
+                q["without_proposal_resolved_manually"] += 1
+            elif status == V_UNDETERMINED:
+                q["without_proposal_undetermined"] += 1
+            elif status is None:
+                q["without_proposal_unevaluated"] += 1
+        q["verdict_" + (status or "PENDING")] += 1
+    pct = lambda n, d: round(100.0 * n / d, 1) if d else None            # noqa: E731
+    evaluated = q["correct"] + q["wrong"]
+    return {
+        "readable": len(readable),
+        "coverage": {"with_proposal": q["proposals"], "without_proposal": q["without_proposal"], "coverage_pct": pct(q["proposals"], len(readable))},
+        "verdicts": {"pending": q["verdict_PENDING"], "correct": q["verdict_" + V_CORRECT], "corrected": q["verdict_" + V_CORRECTED], "undetermined": q["verdict_" + V_UNDETERMINED],
+                     "evaluated_documents": len(readable) - q["verdict_PENDING"]},
+        "proposal_quality": {"evaluated": evaluated, "correct": q["correct"], "wrong": q["wrong"], "precision_pct": pct(q["correct"], evaluated),
+                             "unevaluated": q["proposals_unevaluated"], "undetermined": q["proposals_undetermined"],
+                             "by_state": {s: {"correct": c["correct"], "wrong": c["wrong"], "precision_pct": pct(c["correct"], c["correct"] + c["wrong"])} for s, c in sorted(by_state.items())}},
+        "undetermined": {"with_proposal": q["proposals_undetermined"], "without_proposal_undetermined": q["without_proposal_undetermined"],
+                         "without_proposal_resolved_manually": q["without_proposal_resolved_manually"], "without_proposal_unevaluated": q["without_proposal_unevaluated"]},
+    }
+
+
+def _identity_states(groups: list[dict]) -> dict:
+    states = Counter()
+    versions = Counter()
+    for g in groups:
+        ext = g.get("extraction") or {}
+        if g["state"] != EXTRACTED or ext.get("failure"):
+            continue
+        states[ext.get("name_state") or LEGACY_V1] += 1
+        versions[str(ext.get("extractor_version", 1))] += 1
+    return {"by_state": dict(sorted(states.items())), "extractor_versions": dict(sorted(versions.items()))}
+
+
+def start_rearbitration(source_run_id: str, *, actor: str) -> dict:
+    """Lote DERIVADO: reevalúa la identidad de un lote original con las reglas vigentes SOLO desde lo ya guardado (candidatos, nombre de archivo y emails). NO descarga ni lee ningún documento (no usa token de
+    Graph) y NO modifica nada del lote original. Cada documento conserva su `content_key` y apunta a su origen (`derived_from`). Lo que el extractor no guardó (candidatos de texto adicionales, etiquetas) queda
+    declarado como límite en cada decisión: por eso la reevaluación es una APROXIMACIÓN, no un reemplazo de releer los documentos."""
+    source = manifest.get_run(source_run_id)
+    if source.get("kind", KIND_PILOT) != KIND_PILOT:
+        raise PilotInputError("Solo se reevalúa un lote original del piloto.")
+    if (source.get("staging") or {}).get("state") != "PRESENT":
+        raise PilotInputError("Los datos personales del lote original ya no están disponibles: no hay de dónde reevaluar.")
+    groups = manifest.list_groups(source_run_id)
+    extracted = [g for g in groups if g["state"] == EXTRACTED and g.get("extraction")]
+    if not extracted:
+        raise PilotInputError("El lote no tiene documentos extraídos para reevaluar.")
+    try:
+        profiles = profile_repository.list()
+    except profile_repository.ProfileStorageError:
+        raise PilotInputError("No se pudo leer el Banco para conciliar.") from None
+    run_id = manifest.new_run_id(suffix=secrets.token_hex(2))
+    until = (datetime.now(timezone.utc) + timedelta(days=manifest.STAGING_RETENTION_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    versions = sorted({int((g["extraction"] or {}).get("extractor_version", 1)) for g in extracted})
+    manifest.create_run(run_id, {
+        "staging": {"state": "PRESENT", "retention_days": manifest.STAGING_RETENTION_DAYS, "retention_until": until, "auto_delete": False,
+                    "policy": "Área temporal con datos personales (derivada del lote original): vigencia hasta la fecha indicada y eliminación por acción explícita del owner; la auditoría se conserva."},
+        "kind": KIND_REARBITRATION, "state": "DONE", "created_by": actor, "source": source.get("source"),
+        "derived_from": {"run_id": source_run_id, "extractor_versions": versions, "to_extractor_version": cv_extract.EXTRACTOR_VERSION, "mode": "OFFLINE_FROM_STORED_DATA"},
+        "authorization": {"inherited_from": source_run_id, "confirmed_by": (source.get("authorization") or {}).get("confirmed_by"), "derived_by": actor, "derived_at": manifest.now_iso()},
+        "params": {"sample_size": len(extracted)}, "population": source.get("population") or {}, "counters": {"selected": 0, "extracted": 0, "failed": 0, "alias": 0}})
+    for g in groups:
+        if g["state"] not in (EXTRACTED, ALIAS):
+            continue                                                                       # los FAILED no tienen datos que reevaluar y reintentarlos exigiría descargar
+        base = {k: g.get(k) for k in ("content_key", "size", "hash", "members", "specialties", "representative", "profile_skills_proposal", "sha256", "alias_of")}
+        derived = {**base, "state": g["state"], "failure": None, "derived_from": {"run_id": source_run_id, "content_key": g["content_key"]}, "review": None, "reconciliation": None, "extraction": None}
+        if g["state"] == EXTRACTED:
+            extraction = cv_extract.rearbitrate(g["extraction"], g["representative"]["name"])
+            matches = cv_reconcile.reconcile_with_profiles(extraction, profiles)
+            derived.update({"extraction": extraction, "reconciliation": {"profiles": matches, "in_run": []}, "review": _review(extraction, matches, []), "processed_at": manifest.now_iso(),
+                            "source_extractor_version": (g["extraction"] or {}).get("extractor_version", 1)})
+        manifest.put_group(run_id, g["content_key"], derived)
+        manifest.append_audit(run_id, g["content_key"], "REARBITRATED" if g["state"] == EXTRACTED else "ALIAS", code=((derived["extraction"] or {}).get("name_decision") or {}).get("rule"), from_run=source_run_id)
+    _recompute_in_run(run_id)
+    _refresh_counters(run_id, None)
+    return manifest.get_run(run_id)
+
+
+def _comparison(run: dict, groups: list[dict]) -> dict | None:
+    """Comparación de un lote derivado contra su ORIGEN: qué pasó con cada propuesta anterior y cómo queda frente a las identidades que el owner confirmó en el original. Sin datos personales (solo conteos).
+    None si el origen ya no está disponible (se descartó su área temporal)."""
+    src = (run.get("derived_from") or {}).get("run_id")
+    if not src:
+        return None
+    try:
+        source = manifest.get_run(src)
+        if (source.get("staging") or {}).get("state") != "PRESENT":
+            return None
+        src_groups = {g["content_key"]: g for g in manifest.list_groups(src)}
+        src_verdicts = manifest.list_verdicts(src)
+    except manifest.ManifestError:
+        return None
+    c = Counter()
+    wrong, right = Counter(), Counter()
+    ref = Counter()
+    for g in groups:
+        if g["state"] != EXTRACTED or (g.get("extraction") or {}).get("failure"):
+            continue
+        origin = src_groups.get(g["content_key"])
+        if not origin or not origin.get("extraction"):
+            continue
+        before, after = _proposal(origin["extraction"]), _proposal(g["extraction"])
+        if before and after:
+            same = _identity_key(before["first_name"], before["last_name"]) == _identity_key(after["first_name"], after["last_name"])
+            move = "unchanged" if same else "changed"
+        else:
+            move = "removed" if before else "added" if after else "none"
+        c[move] += 1
+        cur = _current_verdict(src_verdicts.get(g["content_key"]))
+        if before and cur and cur["status"] == V_CORRECTED:
+            wrong[move] += 1                                                               # el original proponía algo y el owner lo corrigió
+        elif before and cur and cur["status"] == V_CORRECT:
+            right[move] += 1
+        known = confirmed_identity(cur)
+        if known:
+            if not after:
+                ref["abstains"] += 1
+            elif _identity_key(after["first_name"], after["last_name"]) == _identity_key(known["first_name"], known["last_name"]):
+                ref["matches"] += 1
+            else:
+                ref["contradicts"] += 1
+    return {"source_run_id": src, "moves": dict(c),
+            "original_wrong_proposals": {"total": sum(wrong.values()), "removed": wrong["removed"], "changed": wrong["changed"], "still_same": wrong["unchanged"]},
+            "original_correct_proposals": {"total": sum(right.values()), "kept": right["unchanged"], "lost": right["removed"], "changed": right["changed"]},
+            "against_confirmed_identity": {"known": sum(ref.values()), "matches": ref["matches"], "abstains": ref["abstains"], "contradicts": ref["contradicts"]},
+            "note": "Reevaluación sin releer los documentos: usa solo los datos guardados. Una propuesta que desaparece no es un error (falta evidencia); una que contradice la identidad confirmada sí lo es."}
 
 
 def _fail(run_id: str, group: dict, code: str) -> None:
@@ -314,6 +541,8 @@ def run_report(run_id: str) -> dict:
     groups = manifest.list_groups(run_id)
     extracted = [g for g in groups if g["state"] == EXTRACTED]
     ok = [g for g in extracted if not (g["extraction"] or {}).get("failure")]
+    verdicts = manifest.list_verdicts(run_id)
+    quality = _quality(groups, verdicts)
     codes = Counter(c for g in extracted for c in (g.get("review") or {}).get("reasons", []))
     failures = Counter(g.get("failure") for g in groups if g["state"] == FAILED)
     readable = len(ok)
@@ -329,10 +558,12 @@ def run_report(run_id: str) -> dict:
             e["documents"] += 1
             e["needs_review"] += int(bool((g.get("review") or {}).get("required")) or g["state"] == FAILED)
     return {
-        "run_id": run_id, "state": run.get("state"), "population": pop, "counters": run.get("counters"), "staging": _staging_view(run),
+        "run_id": run_id, "kind": run.get("kind", KIND_PILOT), "derived_from": run.get("derived_from"), "state": run.get("state"), "population": pop, "counters": run.get("counters"), "staging": _staging_view(run),
         "documents": {"in_sample": len(groups), "extracted": len(extracted), "readable": readable, "failed": sum(failures.values()), "alias": sum(1 for g in groups if g["state"] == ALIAS),
                       "pending": sum(1 for g in groups if g["state"] in PENDING_STATES), "multi_specialty": sum(1 for g in groups if len(g["specialties"]) > 1)},
-        "field_rates_pct": {"name": pct(fields["first_name"], readable), "email": pct(fields["email"], readable), "phone": pct(fields["phone"], readable)},
+        "coverage_pct": {"name": pct(fields["first_name"], readable), "email": pct(fields["email"], readable), "phone": pct(fields["phone"], readable)},
+        "identity": {**_identity_states(groups), **{k: quality[k] for k in ("coverage", "verdicts", "proposal_quality", "undetermined")}, "readable": quality["readable"]},
+        "comparison": _comparison(run, groups) if run.get("kind") == KIND_REARBITRATION else None,
         "review": {"required": review, "required_pct": pct(review, len(extracted)), "complete_without_review": len(extracted) - review, "by_reason": dict(sorted(codes.items()))},
         "failures": dict(sorted((k, v) for k, v in failures.items() if k)),
         "reconciliation": {"strong_existing": sum(1 for g in extracted if any(m["strength"] == "STRONG" for m in (g.get("reconciliation") or {}).get("profiles", []))),
@@ -348,8 +579,16 @@ def run_report(run_id: str) -> dict:
 def review_view(run_id: str) -> list[dict]:
     """Resultados INDIVIDUALES para la vista del owner (CONTIENE datos personales: solo se llama desde la ruta protegida). Resuelve los perfiles coincidentes a un nombre visible."""
     out = []
+    run = manifest.get_run(run_id)
+    verdicts = manifest.list_verdicts(run_id)
+    origin = (run.get("derived_from") or {}).get("run_id")
+    origin_groups = {g["content_key"]: g for g in manifest.list_groups(origin)} if origin else {}
+    origin_verdicts = manifest.list_verdicts(origin) if origin else {}
     for g in manifest.list_groups(run_id):
         extraction = g.get("extraction") or {}
+        verdict_doc = verdicts.get(g["content_key"])
+        before = _proposal((origin_groups.get(g["content_key"]) or {}).get("extraction")) if origin else None
+        reference = confirmed_identity(origin_verdicts.get(g["content_key"])) if origin else None
         matches = []
         for m in (g.get("reconciliation") or {}).get("profiles", []):
             profile = profile_repository.get(m["profile_id"]) or {}
@@ -359,6 +598,9 @@ def review_view(run_id: str) -> list[dict]:
                     "review": g.get("review") or {"required": g["state"] == FAILED, "reasons": [g["failure"]] if g.get("failure") else []},
                     "first_name": extraction.get("first_name"), "last_name": extraction.get("last_name"), "email": extraction.get("email"), "phone": extraction.get("phone"),
                     "candidates": extraction.get("candidates") or {}, "evidence": extraction.get("evidence") or {}, "advisory": extraction.get("advisory") or [],
+                    "name_state": extraction.get("name_state") or (LEGACY_V1 if extraction else None), "decision": extraction.get("name_decision") or {}, "proposal": _proposal(extraction),
+                    "verdict": _current_verdict(verdict_doc), "verdict_count": len((verdict_doc or {}).get("history") or []), "can_verdict": g["state"] == EXTRACTED and bool(extraction) and not extraction.get("failure"),
+                    "original_proposal": before, "reference_identity": reference,
                     "matches": matches, "in_run": (g.get("reconciliation") or {}).get("in_run") or []})
     out.sort(key=lambda r: (not r["review"]["required"], r["content_key"]))
     return out

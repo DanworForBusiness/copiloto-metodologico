@@ -164,6 +164,8 @@
   "POST /cchh/diagnostico/cvs-historicos/piloto",
   "POST /cchh/diagnostico/cvs-historicos/{run_id}/descartar",
   "POST /cchh/diagnostico/cvs-historicos/{run_id}/procesar",
+  "POST /cchh/diagnostico/cvs-historicos/{run_id}/reevaluar",
+  "POST /cchh/diagnostico/cvs-historicos/{run_id}/veredicto",
   "POST /cchh/diagnostico/sharepoint/escritura",
   "POST /cchh/diagnostico/sharepoint/inventario",
   "POST /cchh/diagnostico/sharepoint/sonda",

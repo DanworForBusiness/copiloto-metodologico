@@ -6,6 +6,9 @@ segundo mecanismo. Separa por diseño lo personal de lo auditable:
   run.json                  metadatos del lote (origen sin nombres, autorización del owner, población, contadores). SIN datos personales de candidatos.
   staging/<content_key>.json  ÁREA TEMPORAL PROTEGIDA: por contenido de documento, los datos extraídos (nombre, email, celular), nombre de archivo, candidatos y coincidencias. CONTIENE datos personales:
                             solo se lee desde la vista del owner; no se registra en logs ni en reportes generales; está pensada para descartarse al cerrar la importación.
+  verdicts/<content_key>.json DICTAMEN DEL OWNER por documento y POR LOTE (propuesta correcta / corrección manual / identidad no determinada), con historial append-only y la propuesta evaluada. Es un archivo
+                            APARTE de `staging/`: el resultado de la extracción nunca se reescribe al dictaminar. Una corrección manual contiene datos personales: vive en el área temporal protegida y se
+                            elimina junto con ella al descartar el lote.
   audit/<content_key>.json    AUDITORÍA: una lista de eventos (estado, código de excepción, hora). SIN datos personales: sobrevive al descarte del área temporal.
 
 Una unidad = un CONTENIDO de documento (`content_key`, derivado del hash de contenido que informa Graph, o del id Graph si no hay hash). Un mismo contenido que aparece en varias carpetas es UN registro con TODAS
@@ -170,15 +173,10 @@ def list_groups(run_id: str) -> list[dict]:
     return out
 
 
-def delete_staging_files(run_id: str) -> int:
-    """Elimina, UNO por UNO (nunca un borrado de directorio), los archivos del área temporal con datos personales: local y Spaces, con rollback local si el remoto no se confirma. Idempotente (lo ya
-    eliminado no cuenta). Devuelve cuántos archivos eliminó en esta llamada. La auditoría y `run.json` NO se tocan."""
-    if remote_store.read_only_mode():
-        raise ManifestDurabilityError("modo de solo lectura")
-    directory = _run_dir(run_id) / "staging"
+def _delete_dir_files(directory: Path) -> int:
+    removed = 0
     if not directory.is_dir():
         return 0
-    removed = 0
     for entry in sorted(directory.iterdir()):
         if not (entry.is_file() and entry.suffix == ".json" and KEY_RE.match(entry.stem)):
             continue
@@ -191,10 +189,53 @@ def delete_staging_files(run_id: str) -> int:
     return removed
 
 
+def delete_staging_files(run_id: str) -> int:
+    """Elimina, UNO por UNO (nunca un borrado de directorio), los archivos con datos personales del lote —el área temporal y los dictámenes con correcciones manuales—: local y Spaces, con rollback local si el
+    remoto no se confirma. Idempotente (lo ya eliminado no cuenta). Devuelve cuántos archivos eliminó en esta llamada. La auditoría y `run.json` NO se tocan."""
+    if remote_store.read_only_mode():
+        raise ManifestDurabilityError("modo de solo lectura")
+    return _delete_dir_files(_run_dir(run_id) / "staging") + _delete_dir_files(_run_dir(run_id) / "verdicts")
+
+
 def staging_files_present(run_id: str) -> int:
     _ensure_restored()
-    directory = _run_dir(run_id) / "staging"
-    return sum(1 for e in directory.iterdir() if e.is_file() and e.suffix == ".json" and KEY_RE.match(e.stem)) if directory.is_dir() else 0
+    total = 0
+    for sub in ("staging", "verdicts"):
+        directory = _run_dir(run_id) / sub
+        if directory.is_dir():
+            total += sum(1 for e in directory.iterdir() if e.is_file() and e.suffix == ".json" and KEY_RE.match(e.stem))
+    return total
+
+
+# ── dictámenes del owner (por lote; append-only; NUNCA reescriben el resultado de la extracción) ──────────────
+def get_verdict(run_id: str, key: str) -> dict | None:
+    return _read(_run_dir(run_id) / "verdicts" / f"{_key_ok(key)}.json")
+
+
+def append_verdict(run_id: str, key: str, entry: dict) -> dict:
+    """Agrega un dictamen al historial del documento EN ESTE LOTE y lo deja como vigente. El historial no se edita ni se borra (salvo el descarte del lote). Los dictámenes de otro lote son otro archivo."""
+    path = _run_dir(run_id) / "verdicts" / f"{_key_ok(key)}.json"
+    with _lock:
+        doc = _read(path) or {"schema": SCHEMA, "run_id": run_id, "content_key": key, "history": []}
+        stamped = {**entry, "ts": now_iso(), "seq": len(doc["history"]) + 1}
+        doc["history"].append(stamped)
+        doc["current"] = stamped
+    _write(path, doc)
+    return doc
+
+
+def list_verdicts(run_id: str) -> dict[str, dict]:
+    _ensure_restored()
+    directory = _run_dir(run_id) / "verdicts"
+    out: dict[str, dict] = {}
+    if not directory.is_dir():
+        return out
+    for entry in sorted(directory.iterdir()):
+        if entry.is_file() and entry.suffix == ".json" and KEY_RE.match(entry.stem):
+            doc = _read(entry)
+            if doc:
+                out[entry.stem] = doc
+    return out
 
 
 # ── auditoría (sin datos personales) ──────────────────────────────────────────

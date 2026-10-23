@@ -179,7 +179,7 @@ def test_process_downloads_only_representatives_extracts_reconciles_and_flags_re
     assert lucia["review"]["reasons"] == ["DUP_EXISTING_STRONG"] and lucia["reconciliation"]["profiles"][0]["signals"] == ["EMAIL_EXACT", "NAME_EXACT"]
     assert juan["review"]["reasons"] == [pilot.SAME_PERSON_IN_RUN]                                                 # dos versiones del CV de la misma persona: se SUGIERE, no se fusiona
     multi = next(g for g in mf.list_groups(run["run_id"]) if g["state"] == pilot.EXTRACTED and g["extraction"]["first_name"] == "Pablo")
-    assert set(multi["review"]["reasons"]) == {"EMAIL_MULTIPLE", "PHONE_MULTIPLE", "NAME_SINGLE_SOURCE", "DUP_EXISTING_PROBABLE"} and multi["specialties"] and {"Databricks", "IA"} <= set(multi["specialties"])
+    assert set(multi["review"]["reasons"]) == {"EMAIL_MULTIPLE", "PHONE_MULTIPLE", "DUP_EXISTING_PROBABLE"} and multi["specialties"] and {"Databricks", "IA"} <= set(multi["specialties"])
     scanned = next(g for g in mf.list_groups(run["run_id"]) if (g.get("extraction") or {}).get("failure") == "NO_TEXT")
     assert scanned["review"]["reasons"] == ["NO_TEXT"] and scanned["extraction"]["first_name"] is None
 
@@ -206,7 +206,7 @@ def test_report_has_counts_rates_and_a_scale_estimate_and_no_personal_data(sp):
     r = pilot.run_report(run["run_id"])
     assert r["documents"] == {"in_sample": 7, "extracted": 6, "readable": 5, "failed": 0, "alias": 1, "pending": 0, "multi_specialty": 2}
     assert r["review"]["required"] == 5 and r["review"]["complete_without_review"] == 1 and r["review"]["by_reason"]["NO_TEXT"] == 1
-    assert r["field_rates_pct"] == {"name": 100.0, "email": 80.0, "phone": 100.0}                                   # sobre los 5 documentos legibles (el de varios emails no aporta email)
+    assert r["coverage_pct"] == {"name": 100.0, "email": 80.0, "phone": 100.0}                                   # sobre los 5 documentos legibles (el de varios emails no aporta email)
     assert r["reconciliation"]["strong_existing"] == 1 and r["reconciliation"]["probable_existing"] == 1 and r["reconciliation"]["same_person_in_run"] == 2
     assert r["scale_estimate"]["unique_contents"] == 7 and set(r["staging"]) >= {"state", "retention_until", "expired"}
     blob = json.dumps(r, ensure_ascii=False)
@@ -477,7 +477,8 @@ def test_every_route_is_owner_only_and_hidden_from_the_nav(sp, monkeypatch):
     anon = TestClient(app, follow_redirects=False)
     regular = client_for(HC_USER, monkeypatch)
     calls = [("get", BASE, {}), ("get", f"{BASE}/{rid}", {}), ("post", f"{BASE}/piloto", {"data": {"graph_token": TOKEN, "share_url": SHARE, "sample_size": "10", "authorization": PHRASE}}),
-             ("post", f"{BASE}/{rid}/procesar", {"data": {"graph_token": TOKEN}}), ("post", f"{BASE}/{rid}/descartar", {"data": {"confirm": pilot.discard_phrase(rid)}})]
+             ("post", f"{BASE}/{rid}/procesar", {"data": {"graph_token": TOKEN}}), ("post", f"{BASE}/{rid}/descartar", {"data": {"confirm": pilot.discard_phrase(rid)}}),
+             ("post", f"{BASE}/{rid}/reevaluar", {}), ("post", f"{BASE}/{rid}/veredicto", {"data": {"content_key": "0" * 16, "status": "UNDETERMINED"}})]
     for method, url, kw in calls:
         assert getattr(anon, method)(url, **kw).status_code in (302, 303, 307), url
         assert getattr(regular, method)(url, **kw).status_code == 403, url
