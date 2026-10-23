@@ -1338,8 +1338,10 @@ def _solicitudes_context(filtro: str = "recibidas", page=1, page_size=None) -> d
     # cuándo CCHH recibió la solicitud); canceladas = `cancelada_en`. Desempate determinístico: primer envío y luego id.
     visible = sorted(visible, key=_solicitud_recepcion_key, reverse=True)
     pager = pagination.paginate(visible, page=page, page_size=page_size, base_url="/cchh/solicitudes", params={"solicitud": filtro})
+    # Estado inicial del colapsable: ABIERTO solo si hay solicitudes por atender o pendientes (> 0) —o si hubo un error de lectura, para que se vea—; con 0 queda COLAPSADO. La preferencia manual de la persona (sessionStorage,
+    # `data-persist-collapse`) sigue prevaleciendo sobre este valor por defecto.
     return {"solicitudes": pager["items"], "solicitudes_total": pager["total"], "solicitudes_pager": pager, "solicitud_filtro": filtro, "solicitud_counts": counts,
-            "solicitudes_source_error": source_error}
+            "solicitudes_source_error": source_error, "solicitudes_open": bool(source_error) or counts["recibidas"] > 0 or counts["enviadas"] > 0}
 
 
 @router.get("/cchh/solicitudes", response_class=HTMLResponse, include_in_schema=False)
@@ -1349,8 +1351,9 @@ def human_capital_solicitudes_panel(request: Request, solicitud: str = Query("re
         return redirect
     if not request.headers.get("HX-Request"):
         return RedirectResponse(url="/cchh/busquedas", status_code=303)       # el panel es un fragmento HTMX de la pantalla de Búsquedas
+    # El fragmento HTMX lo pide un filtro/paginador DENTRO del panel ya abierto: se devuelve siempre abierto (colapsarlo por un filtro sin resultados escondería los propios chips).
     return templates.TemplateResponse(request=request, name="partials/human_capital_solicitudes_panel.html",
-                                      context={"request": request, **_solicitudes_context(solicitud, page, page_size)})
+                                      context={"request": request, **_solicitudes_context(solicitud, page, page_size), "solicitudes_open": True})
 
 
 def _busqueda_form_context(*, form_values, is_edit, error=None, concurrent_modification=False, solicitud_conflict=None) -> dict:

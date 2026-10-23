@@ -6,7 +6,7 @@
    (trazabilidad: sin acciones y fuera de «pendientes», de Procesos activos/cerrados y de los contadores). Las ya tomadas pasaron a Procesos activos. #}
 <div id="hc-solicitudes-panel">
 <div class="dashboard-sections" data-dashboard-key="cchh-solicitudes-recibidas">
-  <details class="dashboard-section" data-section-id="solicitudes-recibidas" data-persist-collapse open>
+  <details class="dashboard-section" data-section-id="solicitudes-recibidas" data-persist-collapse{% if solicitudes_open %} open{% endif %}>
     <summary class="dashboard-section__head" draggable="true">
       <span class="dashboard-section__caret"></span>
       <span class="dashboard-section__title">Solicitudes recibidas</span>
