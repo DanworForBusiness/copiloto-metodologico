@@ -411,10 +411,11 @@ def email_strong(core_tokens: list[str], emails: list[str]) -> bool:
 
 def _edge_review(ident: dict, emails: list[str]) -> None:
     """Revisa los tokens de BORDE de una identidad corroborada por email (no cambia su regla ni su estado; solo registra `edge_token`, que `decide_name` convierte en bandera bloqueante si la identidad se propone):
-      * AMBIGUO («RC»): si el email corrobora con fuerza las palabras restantes se ofrece la variante SIN el token (el token original queda en `edge_token`);
+      * AMBIGUO («RC»): si el email corrobora con fuerza las palabras restantes se ofrece la variante SIN el token (el token original queda en `edge_token`), también cuando el nombre viene de una línea con etiqueta: la etiqueta
+        declara el texto, no explica un token ambiguo;
       * SIN EXPLICAR: identidad que viene SOLO del nombre de archivo y corroborada SOLO por el email, con un token de borde de 2–3 letras que el email no explica: la propuesta se mantiene tal cual."""
     toks = ident["tokens"]
-    if "EMAIL_STRONG" not in ident["evidence"] or "LABEL" in ident["evidence"]:
+    if "EMAIL_STRONG" not in ident["evidence"]:
         return
     for position, tok in (("START", toks[0]), ("END", toks[-1])):
         folded = fold(tok.strip("."))

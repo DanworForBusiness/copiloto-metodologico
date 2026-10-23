@@ -216,3 +216,48 @@ def test_edge_token_diagnostic_is_bounded_and_ignores_long_tokens_particles_and_
     assert rep["tokens"] == [] and rep["considered_files"] == 14                                                     # largos, con dígitos o partículas: nada que informar
     many = [f"T{chr(97 + i)}{chr(97 + j)} Persona Uno.pdf" for i in range(6) for j in range(6) for _ in range(3)]
     assert len(x.filename_edge_tokens(many, limit=5)["tokens"]) == 5
+
+
+# ═══════════════════ candidatos textuales con etiqueta («Nombre: …») ═══════════════════
+def labeled(line, emails, filename="doc.pdf"):
+    return x.extract(filename, make_pdf([line, *PAD, *emails]))
+
+
+@pytest.mark.parametrize("line, email, original, token, rule, state", [
+    ("Nombre: Dr. Juan Perez", "info@empresa.com", "Dr. Juan Perez", "Dr.", "R3", "DECLARED"),
+    ("Nombre y apellido: Lic. Pedro Diaz", "pedro@empresa.com", "Lic. Pedro Diaz", "Lic.", "R3", "DECLARED"),
+    ("Nombre: Dra Maria Gomez", "maria.gomez@empresa.com", "Dra Maria Gomez", "Dra", "R2", "CORROBORATED"),
+    ("Nombre: Ing Juan Perez", "juan.perez@empresa.com", "Ing Juan Perez", "Ing", "R2", "CORROBORATED"),
+])
+def test_professional_titles_in_labeled_lines_are_removed_from_the_declared_name_keeping_the_original(line, email, original, token, rule, state):
+    r = labeled(line, [email])
+    name = f"{r['first_name']} {r['last_name']}"
+    assert token.strip(".").lower() not in name.lower().split() and (r["name_decision"]["rule"], r["name_decision"]["state"]) == (rule, state)
+    norm = next(a for a in r["name_decision"]["alternatives"] if a["tokens"] == name)["normalization"]
+    assert norm["original"] == original and norm["stripped"][0]["token"] == token and norm["stripped"][0]["kind"] == "TITLE"
+    assert x.NAME_EDGE_TOKEN_UNEXPLAINED not in r["flags"] and "LABEL" in next(a for a in r["name_decision"]["alternatives"] if a["tokens"] == name)["evidence"]
+    assert (state == "DECLARED") == (x.NAME_DECLARED in r["flags"])                                                  # la identidad declarada sigue siendo «declarada», no corroborada
+
+
+def test_a_title_stuck_to_a_single_surname_in_a_labeled_line_is_kept_not_stripped():
+    r = labeled("Nombre: Mg Perez", ["info@empresa.com"])                                                          # quedaría una sola palabra: no se quita nada
+    assert r["name_decision"]["rule"] == "R3" and f"{r['first_name']} {r['last_name']}" == "Mg Perez"
+    assert "normalization" not in alt(r, "Mg Perez")
+
+
+def test_an_ambiguous_token_in_a_labeled_line_is_offered_without_it_only_when_the_email_corroborates_the_rest():
+    r = labeled("Nombre: RC Eliana Ojeda", ["eliana.ojeda@gmail.com"])
+    assert (r["first_name"], r["last_name"]) == ("Eliana", "Ojeda") and x.NAME_EDGE_TOKEN_UNEXPLAINED in r["blocking"]
+    assert (r["name_decision"]["rule"], r["name_decision"]["state"]) == ("R2", "CORROBORATED") and alt(r, "Eliana Ojeda")["edge_token"]["original"] == "Rc Eliana Ojeda"
+    declared = labeled("Nombre: RC Eliana Ojeda", ["info@empresa.com"])                                           # sin email que corrobore: queda como lo declara el documento, sin variante
+    assert declared["name_decision"]["rule"] == "R3" and "edge_token" not in json.dumps(declared) and x.NAME_EDGE_TOKEN_UNEXPLAINED not in declared["flags"]
+
+
+# ═══════════════════ el diagnóstico es informativo: no alimenta al extractor ═══════════════════
+def test_the_edge_token_diagnostic_never_changes_the_extractor():
+    before = (x.TITLE_PREFIXES, x.DOC_PREFIXES, x.AMBIGUOUS_EDGE, json.dumps(doc("XYZ Eliana Ojeda.pdf", ["eliana.ojeda@gmail.com"]), sort_keys=True))
+    x.filename_edge_tokens([f"XYZ Persona{chr(97 + i)} Uno.pdf" for i in range(10)])                              # «XYZ» aparece 10 veces: frecuente, pero eso no lo vuelve prefijo
+    after = (x.TITLE_PREFIXES, x.DOC_PREFIXES, x.AMBIGUOUS_EDGE, json.dumps(doc("XYZ Eliana Ojeda.pdf", ["eliana.ojeda@gmail.com"]), sort_keys=True))
+    assert before == after and isinstance(x.TITLE_PREFIXES, frozenset) and isinstance(x.AMBIGUOUS_EDGE, frozenset) and "xyz" not in x.TITLE_PREFIXES | x.DOC_PREFIXES | x.AMBIGUOUS_EDGE
+    r = doc("XYZ Eliana Ojeda.pdf", ["eliana.ojeda@gmail.com"])
+    assert (r["first_name"], r["last_name"]) == ("Xyz", "Eliana Ojeda") and x.NAME_EDGE_TOKEN_UNEXPLAINED in r["blocking"]     # un token frecuente sin clasificar solo se señala para revisión
