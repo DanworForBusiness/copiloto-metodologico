@@ -26,7 +26,7 @@
        falla), copy distinto aclarando que es por los filtros --
        distinguibles en tests vía `data-empty-kind`. #}
 <div id="hc-profiles-panel">
-  {% if delete_notice %}<div class="callout callout--warn" role="status" data-delete-notice><div class="callout__body"><p>{{ delete_notice }}</p></div></div>{% endif %}
+  {% if delete_notice %}<div class="callout {{ 'callout--note' if delete_notice_neutral else 'callout--warn' }}" role="status" data-delete-notice><div class="callout__body"><p>{{ delete_notice }}</p></div></div>{% endif %}
   {# Owner UX correction (post-#107 QA): los filtros de Candidatos son
      PÁGINA/GLOBALES (aplican a la lista entera, no a "una parte" del
      panel) -- MISMA regla de composición que el resto del Hub (Staffing:

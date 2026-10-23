@@ -276,7 +276,24 @@ FOLDER_KEPT_MESSAGES = {
     "kept_changed": "la carpeta cambió mientras se verificaba (posible subida concurrente)",
     "kept_permission": "no hay permiso para eliminar la carpeta",
     "kept_error": "SharePoint no confirmó el borrado de la carpeta",
+    "kept_policy_disabled": "la limpieza automática de carpetas está deshabilitada por política de seguridad",
 }
+FOLDER_KEPT_POLICY = FOLDER_KEPT_PREFIX + "policy_disabled"
+
+# POLÍTICA DE SEGURIDAD: el borrado AUTOMÁTICO de la carpeta del candidato está DESHABILITADO. Microsoft Graph no ofrece «borrar solo si está vacía» (el DELETE de una carpeta es recursivo y `If-Match: eTag` no cambia cuando entra
+# un hijo), así que un archivo subido en el último viaje HTTP no se detectaría. Se conservan intactos la verificación (`cleanup_empty_profile_folder`) y sus tests para una eventual operación EXPLÍCITA de mantenimiento; habilitarlo
+# acá es una decisión de código revisada (no una variable de entorno que pueda cambiarse por error en producción). La baja del documento (archivo + registro) y la baja contextual del candidato NO cambian: solo conservan la carpeta.
+FOLDER_AUTO_CLEANUP_ENABLED = False
+
+
+def _automatic_folder_cleanup(*, profile_id: str, folder_item_id: str | None, site_id: str | None, drive_id: str | None, access_token: str, deleted_item_ids=()) -> str:
+    """Punto único por el que las bajas (documento individual / baja contextual de candidato) piden la limpieza de la carpeta: con la política vigente la carpeta SE CONSERVA y queda registrado el motivo."""
+    if not folder_item_id:
+        return FOLDER_NOT_REQUESTED
+    if not FOLDER_AUTO_CLEANUP_ENABLED:
+        _logger.info("profile_folder_cleanup outcome=%s stage=policy http_status=- attempt=0", FOLDER_KEPT_POLICY)
+        return FOLDER_KEPT_POLICY
+    return cleanup_empty_profile_folder(profile_id=profile_id, folder_item_id=folder_item_id, site_id=site_id, drive_id=drive_id, access_token=access_token, deleted_item_ids=deleted_item_ids)
 
 
 def folder_kept_message(status: str) -> str:
@@ -286,74 +303,129 @@ def folder_kept_message(status: str) -> str:
     return "La carpeta del candidato se conservó en SharePoint: " + FOLDER_KEPT_MESSAGES.get(status, "no se pudo confirmar su estado") + ". Revisala manualmente si corresponde."
 
 
-def _folder_tags(folder_item_id: str, access_token: str) -> tuple | None:
-    """`(cTag, eTag)` de la carpeta, o `None` si no se pueden leer con certeza (la ausencia de etiquetas se trata como incierto, nunca como «sin cambios»)."""
-    url = f"{_drive_items_base()}/{urllib.parse.quote(folder_item_id, safe='')}?$select=id,cTag,eTag"
-    try:
-        item = microsoft365.graph_get_json(url, access_token)
-    except (urllib.error.HTTPError, urllib.error.URLError):
-        return None
-    if not isinstance(item, dict) or not item.get("cTag") or not item.get("eTag"):
-        return None
-    return item["cTag"], item["eTag"]
+# Estado de la carpeta para detectar cambios mientras se verifica. SharePoint NO devuelve `cTag` en carpetas (docs de Microsoft: «the cTag property isn't returned if the driveItem has a folder facet»), así que se usan los
+# metadatos que SÍ devuelve: `eTag` (propiedades de la carpeta) + `lastModifiedDateTime`/`size`/`folder.childCount` (derivados de los descendientes, cambian si entra o sale un hijo).
+_FOLDER_STATE_SELECT = "id,eTag,lastModifiedDateTime,size,folder"
+_FOLDER_RETRY_DELAY_S = 1.0             # única re-verificación (desde cero) ante «cambió», por consistencia eventual tras el DELETE del archivo; nunca reintenta el DELETE de la carpeta sin volver a verificar
+_FOLDER_CHILDREN_PAGE = 20
 
 
-def cleanup_empty_profile_folder(*, profile_id: str, folder_item_id: str | None, site_id: str | None, drive_id: str | None, access_token: str) -> str:
-    """Elimina la carpeta SharePoint de un candidato SOLO si es seguro, e IDEMPOTENTE. NUNCA lanza ni toca la metadata (el llamador ya la resolvió): un resultado incierto = la carpeta se
-    CONSERVA. Orden de verificación (cualquier duda corta sin borrar):
-      1. identidad guardada: el site/drive del documento deben ser los de la config vigente (los helpers de lectura usan la config);
-      2. ningún ProfileDocument (de este ni de otro candidato) referencia todavía la carpeta;
-      3. por Graph: la carpeta existe (404 => `already_absent`), es carpeta, cuelga DIRECTO de la raíz de CVs y su nombre es el legible `[id8]` de ESTE candidato o el UUID heredado;
-      4. por Graph: sus `children` están vacíos (sin archivos ni subcarpetas ni paginación pendiente);
-      5. DELETE de la carpeta (404 => ya ausente; 401/403 => `kept_permission`; otro fallo/transporte => `kept_error`).
-    Devuelve un estado: `deleted` | `already_absent` | `kept_*` | `not_requested`."""
-    if not folder_item_id:
-        return FOLDER_NOT_REQUESTED
-    if site_id != config.HC_SHAREPOINT_SITE_ID or drive_id != config.HC_SHAREPOINT_DRIVE_ID:
-        return FOLDER_KEPT_PREFIX + "unverified"
+class _FolderResult(Exception):
+    """Corte anticipado y SIN excepción hacia el llamador de `cleanup_empty_profile_folder`: `status` es el resultado y `stage`/`http_status` solo alimentan el log estructurado."""
+    def __init__(self, status: str, stage: str, http_status: int | None = None):
+        super().__init__(status)
+        self.status, self.stage, self.http_status = status, stage, http_status
+
+
+def _graph_get_checked(url: str, access_token: str, stage: str) -> dict:
+    """GET que nunca lanza hacia afuera: 404 => carpeta ausente; 401/403 => permiso; cualquier otro fallo (HTTP, transporte, timeout, JSON ilegible) => se conserva por error."""
     try:
-        if profile_document_repository.find_by_folder_item_id(folder_item_id):
-            return FOLDER_KEPT_PREFIX + "shared_metadata"
-    except profile_document_repository.ProfileDocumentStorageError:
-        return FOLDER_KEPT_PREFIX + "unverified"
-    try:
-        item = _get_folder_by_id(folder_item_id, access_token)
-    except ProfileDocumentPermissionDeniedError:
-        return FOLDER_KEPT_PREFIX + "permission"
-    except ProfileDocumentGraphSourceError:
-        return FOLDER_KEPT_PREFIX + "error"
-    if item is None:
-        return FOLDER_ABSENT
-    if not _folder_matches(item, profile_id, {str(profile_id)}):
-        return FOLDER_KEPT_PREFIX + "unverified"
-    tags_before = _folder_tags(folder_item_id, access_token)
-    if tags_before is None:
-        return FOLDER_KEPT_PREFIX + "unverified"
-    children_url = f"{_drive_items_base()}/{urllib.parse.quote(folder_item_id, safe='')}/children?$select=id,name&$top=2"
-    try:
-        listing = microsoft365.graph_get_json(children_url, access_token)
-    except urllib.error.HTTPError as exc:
-        return FOLDER_KEPT_PREFIX + ("permission" if exc.code in (401, 403) else "error")
-    except urllib.error.URLError:
-        return FOLDER_KEPT_PREFIX + "error"
-    if not isinstance(listing, dict) or not isinstance(listing.get("value"), list):
-        return FOLDER_KEPT_PREFIX + "unverified"                       # respuesta irreconocible: incierto
-    if listing["value"] or listing.get("@odata.nextLink"):
-        return FOLDER_KEPT_PREFIX + "has_content"
-    tags_after = _folder_tags(folder_item_id, access_token)         # concurrencia DETECTABLE: si la carpeta cambió mientras se listaba, no se borra
-    if tags_after is None:
-        return FOLDER_KEPT_PREFIX + "unverified"
-    if tags_after != tags_before:
-        return FOLDER_KEPT_PREFIX + "changed"
-    try:
-        microsoft365.graph_delete(_document_item_url(site_id, drive_id, folder_item_id), access_token)
+        return microsoft365.graph_get_json(url, access_token)
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
-            return FOLDER_ABSENT
-        return FOLDER_KEPT_PREFIX + ("permission" if exc.code in (401, 403) else "error")
-    except urllib.error.URLError:
-        return FOLDER_KEPT_PREFIX + "error"                            # ambiguo: puede haberse borrado; un reintento lo resuelve (404 => ya ausente)
-    return FOLDER_DELETED
+            raise _FolderResult(FOLDER_ABSENT, stage, 404) from exc
+        raise _FolderResult(FOLDER_KEPT_PREFIX + ("permission" if exc.code in (401, 403) else "error"), stage, exc.code) from exc
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise _FolderResult(FOLDER_KEPT_PREFIX + "error", stage) from exc
+
+
+def _folder_state(folder_item_id: str, access_token: str, stage: str) -> tuple:
+    """`(eTag, lastModifiedDateTime, size, childCount)` de la carpeta. Se exige `id` igual al pedido, `eTag` y `folder.childCount` numérico: una respuesta incompleta o ambigua es «no verificado»."""
+    item = _graph_get_checked(f"{_drive_items_base()}/{urllib.parse.quote(folder_item_id, safe='')}?$select={_FOLDER_STATE_SELECT}", access_token, stage)
+    folder = item.get("folder") if isinstance(item, dict) else None
+    count = folder.get("childCount") if isinstance(folder, dict) else None
+    if (not isinstance(item, dict) or str(item.get("id")) != str(folder_item_id) or not item.get("eTag")
+            or isinstance(count, bool) or not isinstance(count, int)):
+        raise _FolderResult(FOLDER_KEPT_PREFIX + "unverified", stage)
+    return item["eTag"], item.get("lastModifiedDateTime"), item.get("size"), count
+
+
+def _assert_folder_empty(folder_item_id: str, access_token: str, deleted_item_ids: frozenset) -> None:
+    """Consulta los hijos DIRECTAMENTE en Graph. Solo se tolera la referencia a un archivo cuyo DELETE se acaba de confirmar (puede seguir listado por consistencia eventual); cualquier otro hijo, un elemento sin
+    identidad legible, paginación sin resolver o una respuesta irreconocible => se conserva."""
+    listing = _graph_get_checked(f"{_drive_items_base()}/{urllib.parse.quote(folder_item_id, safe='')}/children?$select=id,name&$top={_FOLDER_CHILDREN_PAGE}", access_token, "children")
+    value = listing.get("value") if isinstance(listing, dict) else None
+    if not isinstance(value, list):
+        raise _FolderResult(FOLDER_KEPT_PREFIX + "unverified", "children")              # respuesta irreconocible: incierto
+    if listing.get("@odata.nextLink"):
+        raise _FolderResult(FOLDER_KEPT_PREFIX + "has_content", "children")             # hay más páginas: no está vacía
+    if [c for c in value if not (isinstance(c, dict) and c.get("id") and str(c["id"]) in deleted_item_ids)]:
+        raise _FolderResult(FOLDER_KEPT_PREFIX + "has_content", "children")
+
+
+def _cleanup_attempt(*, profile_id: str, folder_item_id: str, site_id: str | None, drive_id: str | None, access_token: str, deleted_item_ids: frozenset) -> None:
+    """UN intento completo de verificación + borrado. Siempre termina con `_FolderResult` (nunca devuelve ni lanza otra cosa). Orden (cualquier duda corta sin borrar):
+      1. identidad guardada: el site/drive del documento deben ser los de la config vigente;
+      2. ningún ProfileDocument (de este ni de otro candidato) referencia todavía la carpeta;
+      3. por Graph: la carpeta existe (404 => ausente), es carpeta, cuelga DIRECTO de la raíz de CVs y su nombre es el legible `[id8]` de ESTE candidato o el UUID heredado;
+      4. estado de la carpeta (eTag + metadatos derivados de los hijos) ANTES de listar;
+      5. hijos listados directamente en Graph: vacía (salvo el archivo recién borrado), sin paginación pendiente;
+      6. estado DESPUÉS de listar: si cambió, se conserva (cambio concurrente);
+      7. DELETE condicionado con `If-Match: <eTag>` (412 => cambió; 404 => ya ausente; 401/403 => permiso; otro fallo/transporte => error)."""
+    if site_id != config.HC_SHAREPOINT_SITE_ID or drive_id != config.HC_SHAREPOINT_DRIVE_ID:
+        raise _FolderResult(FOLDER_KEPT_PREFIX + "unverified", "identity")
+    try:
+        if profile_document_repository.find_by_folder_item_id(folder_item_id):
+            raise _FolderResult(FOLDER_KEPT_PREFIX + "shared_metadata", "metadata")
+    except profile_document_repository.ProfileDocumentStorageError as exc:
+        raise _FolderResult(FOLDER_KEPT_PREFIX + "unverified", "metadata") from exc
+    try:
+        item = _get_folder_by_id(folder_item_id, access_token)
+    except ProfileDocumentPermissionDeniedError as exc:
+        raise _FolderResult(FOLDER_KEPT_PREFIX + "permission", "identity") from exc
+    except ProfileDocumentGraphSourceError as exc:
+        raise _FolderResult(FOLDER_KEPT_PREFIX + "error", "identity") from exc
+    except (OSError, ValueError) as exc:                                    # timeout / JSON ilegible: `_get_folder_by_id` solo normaliza HTTPError/URLError
+        raise _FolderResult(FOLDER_KEPT_PREFIX + "error", "identity") from exc
+    if item is None:
+        raise _FolderResult(FOLDER_ABSENT, "identity", 404)
+    if not _folder_matches(item, profile_id, {str(profile_id)}):
+        raise _FolderResult(FOLDER_KEPT_PREFIX + "unverified", "identity")
+    state_before = _folder_state(folder_item_id, access_token, "state_before")
+    _assert_folder_empty(folder_item_id, access_token, deleted_item_ids)
+    state_after = _folder_state(folder_item_id, access_token, "state_after")   # concurrencia DETECTABLE: si la carpeta cambió mientras se listaba, no se borra
+    if state_after != state_before:
+        raise _FolderResult(FOLDER_KEPT_PREFIX + "changed", "state_after")
+    try:
+        microsoft365.graph_delete(_document_item_url(site_id, drive_id, folder_item_id), access_token, extra_headers={"If-Match": state_after[0]})
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise _FolderResult(FOLDER_ABSENT, "delete", 404) from exc
+        if exc.code == 412:
+            raise _FolderResult(FOLDER_KEPT_PREFIX + "changed", "delete", 412) from exc
+        raise _FolderResult(FOLDER_KEPT_PREFIX + ("permission" if exc.code in (401, 403) else "error"), "delete", exc.code) from exc
+    except (urllib.error.URLError, OSError) as exc:
+        raise _FolderResult(FOLDER_KEPT_PREFIX + "error", "delete") from exc   # ambiguo: puede haberse borrado; un reintento lo resuelve (404 => ya ausente)
+    raise _FolderResult(FOLDER_DELETED, "delete")
+
+
+def cleanup_empty_profile_folder(*, profile_id: str, folder_item_id: str | None, site_id: str | None, drive_id: str | None, access_token: str, deleted_item_ids=()) -> str:
+    """Elimina la carpeta SharePoint de un candidato SOLO si es seguro, e IDEMPOTENTE. NUNCA lanza ni toca la metadata (el llamador ya la resolvió): un resultado incierto = la carpeta se CONSERVA (la integridad de los
+    documentos tiene prioridad sobre la limpieza). Devuelve un estado: `deleted` | `already_absent` | `kept_*` | `not_requested`. Ver `_cleanup_attempt` para el orden de verificaciones.
+
+    `deleted_item_ids`: ids de archivos cuyo DELETE se acaba de CONFIRMAR (204/404) en esta operación; son los únicos hijos que se toleran en el listado (consistencia eventual). Ante «cambió» se re-verifica UNA vez desde cero
+    tras una pausa breve. LÍMITE DE SEGURIDAD: Graph no ofrece «borrar solo si está vacía»; el `If-Match` con `eTag` no cambia cuando entra un hijo (solo con propiedades de la carpeta), de modo que un archivo subido en el instante
+    entre la última lectura y el DELETE no se detecta (el DELETE de SharePoint es recursivo y va a la papelera de reciclaje, recuperable). La ventana es de un único viaje HTTP."""
+    if not folder_item_id:
+        return FOLDER_NOT_REQUESTED
+    ids = frozenset(str(i) for i in deleted_item_ids if i)
+    result = None
+    for attempt in (1, 2):
+        try:
+            _cleanup_attempt(profile_id=profile_id, folder_item_id=str(folder_item_id), site_id=site_id, drive_id=drive_id, access_token=access_token, deleted_item_ids=ids)
+        except _FolderResult as res:
+            result = res
+        if result is not None and result.status == FOLDER_KEPT_PREFIX + "changed" and attempt == 1:
+            time.sleep(_FOLDER_RETRY_DELAY_S)                      # consistencia eventual tras el DELETE del archivo: una única re-verificación completa
+            result = None
+            continue
+        break
+    if result is None:                                             # inalcanzable (todo intento termina en `_FolderResult`): ante la duda, se conserva
+        result = _FolderResult(FOLDER_KEPT_PREFIX + "error", "unexpected")
+    # Observabilidad: motivo estructurado, SIN datos personales, tokens ni URLs (solo resultado, etapa, código HTTP e intento).
+    level = logging.INFO if result.status in (FOLDER_DELETED, FOLDER_ABSENT, FOLDER_KEPT_PREFIX + "has_content", FOLDER_KEPT_PREFIX + "shared_metadata") else logging.WARNING
+    _logger.log(level, "profile_folder_cleanup outcome=%s stage=%s http_status=%s attempt=%s", result.status, result.stage, result.http_status if result.http_status is not None else "-", attempt)
+    return result.status
 
 
 def delete_document(*, profile_id: str, document_id: str, access_token: str, remove_empty_folder: bool = False) -> dict:
@@ -395,8 +467,8 @@ def delete_document(*, profile_id: str, document_id: str, access_token: str, rem
             last = not [d for d in profile_document_repository.find_by_folder_item_id(str(document.get("folder_item_id"))) if d.get("profile_id") == profile_id]
         except profile_document_repository.ProfileDocumentStorageError:
             last = False
-        folder = cleanup_empty_profile_folder(profile_id=profile_id, folder_item_id=document.get("folder_item_id"), site_id=document.get("site_id"),
-                                              drive_id=document.get("drive_id"), access_token=access_token)
+        folder = _automatic_folder_cleanup(profile_id=profile_id, folder_item_id=document.get("folder_item_id"), site_id=document.get("site_id"),
+                                           drive_id=document.get("drive_id"), access_token=access_token, deleted_item_ids=(document.get("item_id"),))
     return {"folder": folder, "last_document": last}
 
 
@@ -421,10 +493,11 @@ def delete_profile_documents(*, profile_id: str, access_token: str) -> dict:
         except ProfileDocumentNotFoundError:
             continue                                                    # ya borrado por otro camino (idempotente)
         deleted += 1
-        folders[doc.get("folder_item_id")] = (doc.get("site_id"), doc.get("drive_id"))
+        folders.setdefault(doc.get("folder_item_id"), (doc.get("site_id"), doc.get("drive_id"), set()))[2].add(doc.get("item_id"))
     results = {}
-    for folder_item_id, (site_id, drive_id) in folders.items():
-        results[folder_item_id] = cleanup_empty_profile_folder(profile_id=profile_id, folder_item_id=folder_item_id, site_id=site_id, drive_id=drive_id, access_token=access_token)
+    for folder_item_id, (site_id, drive_id, item_ids) in folders.items():
+        results[folder_item_id] = _automatic_folder_cleanup(profile_id=profile_id, folder_item_id=folder_item_id, site_id=site_id, drive_id=drive_id, access_token=access_token,
+                                                            deleted_item_ids=item_ids)
     return {"deleted": deleted, "folders": results}
 
 

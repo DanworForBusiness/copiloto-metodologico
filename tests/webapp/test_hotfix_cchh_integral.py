@@ -113,24 +113,32 @@ def test_the_documents_panel_upload_forms_reuse_the_hub_loader_with_double_submi
 
 
 # ═══════════════════════ C. baja de documento + carpeta segura ═══════════════════════
+def _st(etag="E1", lm="2026-10-23T10:00:00Z", size=0, count=0) -> dict:
+    return {"eTag": etag, "lastModifiedDateTime": lm, "size": size, "childCount": count}
+
+
 class Graph:
-    def __init__(self, folder=None, children=None, get_error=None, delete_error=None, children_error=None, fail_items=(), tags=None):
+    """Graph simulado con la forma REAL de una carpeta de SharePoint: `id` + `eTag` + `folder.childCount`, y NUNCA `cTag` (Microsoft: «the cTag property isn't returned if the driveItem has a folder facet»)."""
+    def __init__(self, folder=None, children=None, get_error=None, delete_error=None, children_error=None, fail_items=(), states=None, state_error=None):
         self.fail_items = set(fail_items)
-        self.tags = list(tags) if tags is not None else None          # secuencia de (cTag, eTag) por lectura; None = estable ("c1", "e1")
+        self.states = list(states) if states is not None else None    # secuencia de estados por lectura (None = sin eTag); None global = estable
+        self.state_error = state_error
         self.folder = folder if folder is not None else {"id": FOLDER, "name": "Pérez, Ana [abcd1234]", "folder": {}, "parentReference": {"id": "root-1"}}
         self.children = children if children is not None else {"value": []}
         self.get_error, self.delete_error, self.children_error = get_error, delete_error, children_error
-        self.calls = []
+        self.calls, self.delete_headers = [], []
 
     def get(self, url, token):
         self.calls.append(("GET", url))
-        if "cTag" in url:                                              # lectura de etiquetas de la carpeta
+        if "$select=id,eTag" in url:                                   # lectura del estado de la carpeta
+            if self.state_error:
+                raise self.state_error
             if self.get_error:
                 raise self.get_error
-            if self.tags is None:
-                return {"id": FOLDER, "cTag": "c1", "eTag": "e1"}
-            tag = self.tags.pop(0) if len(self.tags) > 1 else self.tags[0]
-            return {"id": FOLDER, "cTag": tag[0], "eTag": tag[1]} if tag else {"id": FOLDER}
+            st = _st() if self.states is None else (self.states.pop(0) if len(self.states) > 1 else self.states[0])
+            if st is None:
+                return {"id": FOLDER}                                  # respuesta sin eTag
+            return {"id": FOLDER, "eTag": st["eTag"], "lastModifiedDateTime": st["lastModifiedDateTime"], "size": st["size"], "folder": {"childCount": st["childCount"]}}
         if "/children" in url:
             if self.children_error:
                 raise self.children_error
@@ -139,8 +147,9 @@ class Graph:
             raise self.get_error
         return self.folder
 
-    def delete(self, url, token):
+    def delete(self, url, token, **kw):
         self.calls.append(("DELETE", url))
+        self.delete_headers.append((kw.get("extra_headers") or {}).get("If-Match"))
         if any(url.endswith(f"/items/{i}") for i in self.fail_items):
             raise _http(403)
         if url.endswith("/items/item-1") or url.endswith("/items/item-2"):
@@ -160,6 +169,10 @@ def hc(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "HC_SHAREPOINT_DRIVE_ID", "drive-1")
     monkeypatch.setattr(config, "HC_CV_ROOT_ITEM_ID", "root-1")
     monkeypatch.setattr(config, "HC_DOCUMENT_WRITE_SCOPE", "https://danwor.sharepoint.com/Sites.Selected")
+    monkeypatch.setattr(svc, "_FOLDER_RETRY_DELAY_S", 0)
+    # POLÍTICA: por defecto la limpieza AUTOMÁTICA de carpetas está deshabilitada (`FOLDER_AUTO_CLEANUP_ENABLED = False`). Estos tests ejercitan la lógica de verificación y borrado conservada para una futura operación
+    # explícita de mantenimiento, así que la habilitan expresamente; el comportamiento por defecto se prueba con `hc_default`.
+    monkeypatch.setattr(svc, "FOLDER_AUTO_CLEANUP_ENABLED", True)
 
     def install(graph):
         monkeypatch.setattr(svc.microsoft365, "graph_get_json", graph.get)
@@ -210,13 +223,26 @@ def test_the_folder_is_kept_when_a_document_of_another_candidate_references_it(h
     ({"folder": {"id": FOLDER, "name": "Otra carpeta", "folder": {}, "parentReference": {"id": "root-1"}}}, "kept_unverified"),            # identidad: nombre no corresponde
     ({"folder": {"id": FOLDER, "name": "Pérez, Ana [abcd1234]", "folder": {}, "parentReference": {"id": "otra-raiz"}}}, "kept_unverified"),  # ubicación distinta
     ({"folder": {"id": FOLDER, "name": "Pérez, Ana [abcd1234]", "parentReference": {"id": "root-1"}}}, "kept_unverified"),                   # no es carpeta
-    ({"tags": [("c1", "e1"), ("c2", "e2")]}, "kept_changed"),                                              # la carpeta cambió mientras se verificaba: concurrencia detectada
-    ({"tags": [None]}, "kept_unverified"),                                                                 # sin etiquetas = incierto (nunca «sin cambios»)
+    ({"states": [_st("E1"), _st("E1", lm="t2"), _st("E3", lm="t3"), _st("E4", lm="t4")]}, "kept_changed"),   # cambió mientras se listaba (en ambos intentos): concurrencia detectada
+    ({"states": [_st(count=0), _st(count=1), _st(count=2), _st(count=3)]}, "kept_changed"),                  # entró un hijo mientras se verificaba
+    ({"states": [None]}, "kept_unverified"),                                                               # sin eTag = incierto (nunca «sin cambios»)
+    ({"states": [{**_st(), "childCount": None}]}, "kept_unverified"),                                       # sin `folder.childCount` numérico = ambiguo
+    ({"state_error": _http(403)}, "kept_permission"),
+    ({"state_error": _http(500)}, "kept_error"),
+    ({"state_error": urllib.error.URLError("net")}, "kept_error"),
+    ({"state_error": TimeoutError("timeout")}, "kept_error"),                                              # un timeout de lectura no debe escapar como excepción
+    ({"children_error": TimeoutError("timeout")}, "kept_error"),
+    ({"children_error": ValueError("json ilegible")}, "kept_error"),
+    ({"children": {"value": [{"id": "item-1"}, {"id": "ajeno"}]}}, "kept_has_content"),                    # el archivo recién borrado + uno ajeno: se conserva
+    ({"children": {"value": [{"name": "sin-id.pdf"}]}}, "kept_has_content"),                              # hijo sin identidad legible: no se puede descartar
+    ({"children": {"value": ["raro"]}}, "kept_has_content"),
+    ({"delete_error": _http(412)}, "kept_changed"),                                                        # DELETE condicionado: la carpeta cambió (precondición fallida)
     ({"get_error": _http(404)}, "already_absent"),
     ({"get_error": _http(403)}, "kept_permission"),
     ({"get_error": _http(500)}, "kept_error"),
     ({"delete_error": _http(403)}, "kept_permission"),
     ({"delete_error": _http(404)}, "already_absent"),                                                      # idempotente: otro proceso ya la borró
+    ({"delete_error": _http(500)}, "kept_error"),
     ({"delete_error": urllib.error.URLError("net")}, "kept_error"),                                          # ambiguo: se conserva el estado «incierto»
 ])
 def test_folder_cleanup_only_deletes_when_identity_location_and_emptiness_are_verified(hc, graph_kw, expected):
@@ -237,6 +263,86 @@ def test_folder_cleanup_is_idempotent_and_requires_the_stored_identity_to_match_
     g2 = hc(Graph())
     assert svc.cleanup_empty_profile_folder(profile_id=PID, folder_item_id=FOLDER, site_id="site-OLD", drive_id="drive-1", access_token="t") == "kept_unverified" and g2.calls == []
     assert svc.cleanup_empty_profile_folder(profile_id=PID, folder_item_id=None, site_id="site-1", drive_id="drive-1", access_token="t") == "not_requested"
+
+
+def test_a_real_shaped_folder_response_without_ctag_is_deleted_with_a_conditional_delete(hc):
+    """Defecto de producción: SharePoint no devuelve `cTag` en carpetas; con `id` + `eTag` la carpeta vacía SÍ se elimina, con `If-Match: <eTag>`, y jamás se pide ni se compara un cTag."""
+    g = hc(Graph(states=[_st(etag='"{ABC-1},4"')]))
+    _doc("d1", "item-1")
+    out = svc.delete_document(profile_id=PID, document_id="d1", access_token="t", remove_empty_folder=True)
+    assert out == {"folder": "deleted", "last_document": True}
+    assert g.delete_headers[-1] == '"{ABC-1},4"' and len(g.folder_deletes()) == 1                    # DELETE condicionado con el eTag leído
+    assert all("cTag" not in u for _, u in g.calls)
+
+
+def test_only_the_just_deleted_file_is_tolerated_in_the_listing_never_a_foreign_one(hc):
+    g = hc(Graph(children={"value": [{"id": "item-1"}]}))                                            # consistencia eventual: el archivo recién borrado aún figura
+    _doc("d1", "item-1")
+    assert svc.delete_document(profile_id=PID, document_id="d1", access_token="t", remove_empty_folder=True)["folder"] == "deleted"
+    g2 = hc(Graph(children={"value": [{"id": "item-1"}, {"id": "item-ajeno"}]}))
+    _doc("d2", "item-1", profile=PID)
+    assert svc.delete_document(profile_id=PID, document_id="d2", access_token="t", remove_empty_folder=True)["folder"] == "kept_has_content" and g2.folder_deletes() == []
+    g3 = hc(Graph(children={"value": [{"id": "item-1"}]}))                                           # un id recién borrado de OTRO documento no se tolera si no se pasó como borrado ahora
+    assert svc.cleanup_empty_profile_folder(profile_id=PID, folder_item_id=FOLDER, site_id="site-1", drive_id="drive-1", access_token="t") == "kept_has_content" and g3.folder_deletes() == []
+
+
+def test_pagination_pending_or_an_over_full_listing_keeps_the_folder(hc):
+    g = hc(Graph(children={"value": [], "@odata.nextLink": "https://graph.microsoft.com/next"}))
+    assert svc.cleanup_empty_profile_folder(profile_id=PID, folder_item_id=FOLDER, site_id="site-1", drive_id="drive-1", access_token="t") == "kept_has_content" and g.folder_deletes() == []
+
+
+def test_a_transient_state_lag_is_resolved_by_one_full_reverification_and_a_persistent_change_is_not(hc, monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(svc.time, "sleep", lambda s: sleeps.append(s))
+    lag = hc(Graph(states=[_st("E1", lm="t1"), _st("E2", lm="t2"), _st("E2", lm="t2")]))                # 1er intento: cambió; 2do (re-verificación desde cero): estable
+    assert svc.cleanup_empty_profile_folder(profile_id=PID, folder_item_id=FOLDER, site_id="site-1", drive_id="drive-1", access_token="t") == "deleted"
+    assert len(sleeps) == 1 and len(lag.folder_deletes()) == 1
+    sleeps.clear()
+    busy = hc(Graph(states=[_st("E1", lm="t1"), _st("E2", lm="t2"), _st("E3", lm="t3"), _st("E4", lm="t4")]))
+    assert svc.cleanup_empty_profile_folder(profile_id=PID, folder_item_id=FOLDER, site_id="site-1", drive_id="drive-1", access_token="t") == "kept_changed"
+    assert len(sleeps) == 1 and busy.folder_deletes() == []                                          # una única re-verificación; nunca se borra si sigue cambiando
+
+
+def test_a_412_precondition_failed_keeps_the_folder_as_a_concurrent_change(hc):
+    g = hc(Graph(delete_error=_http(412)))
+    assert svc.cleanup_empty_profile_folder(profile_id=PID, folder_item_id=FOLDER, site_id="site-1", drive_id="drive-1", access_token="t") == "kept_changed"
+    assert g.delete_headers and all(h == "E1" for h in g.delete_headers)                              # siempre condicionado al eTag leído
+
+
+def test_identity_checks_are_unchanged_root_parent_and_name_discrepancies_keep_the_folder(hc):
+    for folder in ({"id": FOLDER, "name": "Pérez, Ana [abcd1234]", "folder": {}, "parentReference": {"id": "ROOT-1"}},          # la raíz se compara EXACTA (sin normalizar mayúsculas)
+                   {"id": FOLDER, "name": "Pérez, Ana [abcd1234]", "folder": {}, "parentReference": {}},
+                   {"id": FOLDER, "name": "Otra [zzzz9999]", "folder": {}, "parentReference": {"id": "root-1"}}):
+        g = hc(Graph(folder=folder))
+        assert svc.cleanup_empty_profile_folder(profile_id=PID, folder_item_id=FOLDER, site_id="site-1", drive_id="drive-1", access_token="t") == "kept_unverified"
+        assert g.folder_deletes() == [] and not any("/children" in u for m, u in g.calls)              # sin identidad verificada ni siquiera se listan los hijos
+
+
+def test_the_bulk_delete_tolerates_all_of_its_own_confirmed_files_and_deletes_the_folder_once(hc):
+    g = hc(Graph(children={"value": [{"id": "item-1"}, {"id": "item-2"}]}))
+    _doc("d1", "item-1")
+    _doc("d2", "item-2")
+    out = svc.delete_profile_documents(profile_id=PID, access_token="t")
+    assert out == {"deleted": 2, "folders": {FOLDER: "deleted"}} and len(g.folder_deletes()) == 1
+    g2 = hc(Graph(children={"value": [{"id": "item-1"}, {"id": "ajeno"}]}))
+    _doc("d3", "item-1")
+    assert svc.delete_profile_documents(profile_id=PID, access_token="t")["folders"] == {FOLDER: "kept_has_content"} and g2.folder_deletes() == []
+
+
+def test_the_keep_reason_is_logged_structured_without_personal_data_tokens_or_urls(hc, caplog):
+    import logging
+    hc(Graph(children={"value": [{"id": "x"}]}))
+    with caplog.at_level(logging.INFO, logger="danwor.cchh.profile_document"):
+        svc.cleanup_empty_profile_folder(profile_id=PID, folder_item_id=FOLDER, site_id="site-1", drive_id="drive-1", access_token="SECRET-TOKEN")
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "profile_folder_cleanup outcome=kept_has_content stage=children" in text and "attempt=1" in text
+    for leak in ("SECRET-TOKEN", "Pérez", "Ana", "graph.microsoft.com", FOLDER, PID, "http"):
+        assert leak not in text.replace("http_status", "")
+    caplog.clear()
+    hc(Graph(delete_error=_http(403)))
+    with caplog.at_level(logging.INFO, logger="danwor.cchh.profile_document"):
+        svc.cleanup_empty_profile_folder(profile_id=PID, folder_item_id=FOLDER, site_id="site-1", drive_id="drive-1", access_token="t")
+    assert "outcome=kept_permission stage=delete http_status=403" in " ".join(r.getMessage() for r in caplog.records)
 
 
 def test_the_default_service_delete_does_not_touch_the_folder(hc):
@@ -323,6 +429,69 @@ def test_a_partial_failure_keeps_the_candidate_active_reports_the_counts_and_the
     g.fail_items.clear()                                                                   # permisos resueltos: el reintento es idempotente y completa
     r2 = client.post(f"/cchh/candidatos/{pid}/eliminar", data={"delete_documents": "true", "graph_token": "tok"})
     assert r2.status_code == 303 and prepo.get(pid)["deleted_at"] and drepo.list_for_profile(pid) == [] and len(g.folder_deletes()) == 1
+
+
+# ═══════════════════════ política de seguridad: sin DELETE automático de carpetas ═══════════════════════
+@pytest.fixture()
+def hc_default(hc, monkeypatch):
+    """Como `hc` pero con la política POR DEFECTO (limpieza automática de carpetas deshabilitada)."""
+    monkeypatch.setattr(svc, "FOLDER_AUTO_CLEANUP_ENABLED", svc.__dict__["FOLDER_AUTO_CLEANUP_ENABLED"] and False)
+    return hc
+
+
+def test_the_shipped_default_disables_the_automatic_folder_cleanup():
+    import importlib
+    assert importlib.reload(svc).FOLDER_AUTO_CLEANUP_ENABLED is False                              # valor de fábrica del módulo (no depende de fixtures)
+
+
+def test_deleting_the_last_document_removes_file_and_metadata_but_keeps_the_folder_and_never_touches_it(hc_default, caplog):
+    import logging
+    g = hc_default(Graph())
+    _doc("d1", "item-1")
+    with caplog.at_level(logging.INFO, logger="danwor.cchh.profile_document"):
+        out = svc.delete_document(profile_id=PID, document_id="d1", access_token="SECRET", remove_empty_folder=True)
+    assert out == {"folder": "kept_policy_disabled", "last_document": True} and drepo.get("d1") is None
+    assert [m for m, u in g.calls] == ["DELETE"] and g.calls[0][1].endswith("/items/item-1")        # solo el archivo: ni GET de la carpeta, ni listado, ni DELETE de carpeta
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "profile_folder_cleanup outcome=kept_policy_disabled stage=policy" in text and "SECRET" not in text and FOLDER not in text
+    assert "deshabilitada por política de seguridad" in svc.folder_kept_message(out["folder"])
+
+
+def test_the_policy_outcome_is_not_an_error_in_the_individual_delete_screen(hc_default, client):
+    g = hc_default(Graph())
+    pid = _profile()
+    _doc("d1", "item-1", profile=pid)
+    r = client.post(f"/cchh/candidatos/{pid}/documentos/d1/delete", data={"graph_token": "tok"})
+    assert r.status_code == 200 and drepo.get("d1") is None and g.folder_deletes() == [] and [m for m, u in g.calls] == ["DELETE"]
+    assert 'data-document-error-kind="FOLDER_RETAINED_POLICY"' in r.text and "callout--note" in r.text                  # aviso informativo, no advertencia ni error
+    assert "El documento se eliminó de SharePoint." in r.text and "deshabilitada por política de seguridad" in r.text
+    assert 'data-document-error-kind="FOLDER_KEPT"' not in r.text and "GRAPH_SOURCE_ERROR" not in r.text and "No se pudo" not in r.text
+
+
+def test_a_non_last_document_delete_shows_no_notice_at_all(hc_default, client):
+    hc_default(Graph())
+    pid = _profile()
+    _doc("d1", "item-1", profile=pid)
+    _doc("d2", "item-2", profile=pid)
+    r = client.post(f"/cchh/candidatos/{pid}/documentos/d1/delete", data={"graph_token": "tok"})
+    assert r.status_code == 303 and drepo.get("d1") is None and drepo.get("d2") is not None
+
+
+def test_the_contextual_baja_deletes_all_documents_soft_deletes_and_keeps_the_folder(hc_default, client):
+    g = hc_default(Graph())
+    pid = _profile()
+    _doc("d1", "item-1", profile=pid)
+    _doc("d2", "item-2", profile=pid)
+    r = client.post(f"/cchh/candidatos/{pid}/eliminar", data={"delete_documents": "true", "graph_token": "tok"})
+    assert r.status_code == 200 and prepo.get(pid)["deleted_at"] and drepo.list_for_profile(pid) == []        # documentos eliminados y candidato dado de baja
+    assert g.folder_deletes() == [] and [u.split("/items/")[1] for m, u in g.calls] == ["item-1", "item-2"]      # solo los dos archivos; la carpeta no se toca
+    assert "data-delete-notice" in r.text and "sus 2 documento(s) se eliminaron de SharePoint" in r.text and "deshabilitada por política de seguridad" in r.text
+    assert "callout--note" in r.text.split("data-delete-notice")[0][-120:] and "NO fue dado de baja" not in r.text   # informativo (no advertencia) y no es un fallo de la baja
+
+
+def test_the_baja_dialog_text_no_longer_promises_the_folder_removal():
+    html = (ROOT / "webapp/templates/partials/human_capital_baja_dialog.html").read_text(encoding="utf-8")
+    assert "la carpeta del candidato se conserva" in html and "solo si queda vacía" not in html
 
 
 def test_a_kept_folder_after_the_baja_is_reported_as_a_partial_success_never_a_silent_redirect(hc, client):

@@ -121,7 +121,7 @@ def graph_put_bytes(
 
 
 def graph_delete(
-    url: str, access_token: str, *, timeout: int = DEFAULT_TIMEOUT,
+    url: str, access_token: str, *, timeout: int = DEFAULT_TIMEOUT, extra_headers: dict[str, str] | None = None,
 ) -> None:
     """DELETE a Graph -- no devuelve nada (Graph responde 204 sin body para
     un `driveItem` eliminado). MISMO idioma que el resto (urllib crudo, sin
@@ -129,8 +129,13 @@ def graph_delete(
     para Capital Humano Phase 4.1.2 (Profile Documents delete): la ÚNICA
     operación DELETE que el Hub necesita hoy (borrar el `driveItem` físico
     de un ProfileDocument, ver
-    `webapp/services/profile_document_service.py::delete_document`)."""
-    request = urllib.request.Request(url, headers=graph_headers(access_token), method="DELETE")
+    `webapp/services/profile_document_service.py::delete_document`).
+
+    `extra_headers` (opcional): p. ej. `If-Match: <eTag>` para un DELETE condicionado (412 si el elemento cambió). `None` (default) preserva el comportamiento exacto de siempre."""
+    headers = graph_headers(access_token)
+    if extra_headers:
+        headers.update(extra_headers)
+    request = urllib.request.Request(url, headers=headers, method="DELETE")
     with urllib.request.urlopen(request, timeout=timeout) as response:
         response.read()
 

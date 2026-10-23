@@ -528,6 +528,7 @@ def test_delete_missing_graph_token_shows_permission_denied_state():
 
 def test_delete_success_redirects_and_removes_the_document_from_the_list(monkeypatch):
     client = _client_as(_AUTHORIZED_EMAIL)
+    monkeypatch.setattr(profile_document_service, "FOLDER_AUTO_CLEANUP_ENABLED", True)                      # política por defecto: sin limpieza automática (ver test_hotfix_cchh_integral.py); acá se ejercita el camino «carpeta eliminada»
     monkeypatch.setattr(profile_document_service, "cleanup_empty_profile_folder", lambda **k: "deleted")     # la limpieza de carpeta tiene sus propios tests (test_hotfix_cchh_integral.py)
     profile = _create_profile(client)
     _upload(client, profile["profile_id"])
@@ -542,6 +543,7 @@ def test_delete_success_redirects_and_removes_the_document_from_the_list(monkeyp
 
 def test_delete_graph_404_still_succeeds_and_removes_metadata(monkeypatch):
     client = _client_as(_AUTHORIZED_EMAIL)
+    monkeypatch.setattr(profile_document_service, "FOLDER_AUTO_CLEANUP_ENABLED", True)                      # política por defecto: sin limpieza automática (ver test_hotfix_cchh_integral.py); acá se ejercita el camino «carpeta eliminada»
     monkeypatch.setattr(profile_document_service, "cleanup_empty_profile_folder", lambda **k: "deleted")     # la limpieza de carpeta tiene sus propios tests (test_hotfix_cchh_integral.py)
     profile = _create_profile(client)
     _upload(client, profile["profile_id"])
@@ -630,6 +632,7 @@ def test_delete_retry_after_transport_ambiguity_succeeds(monkeypatch):
     # una ambigüedad de transporte termina borrando el documento igual --
     # sin token propio, el usuario simplemente reenvía el mismo form.
     client = _client_as(_AUTHORIZED_EMAIL)
+    monkeypatch.setattr(profile_document_service, "FOLDER_AUTO_CLEANUP_ENABLED", True)                      # política por defecto: sin limpieza automática (ver test_hotfix_cchh_integral.py); acá se ejercita el camino «carpeta eliminada»
     monkeypatch.setattr(profile_document_service, "cleanup_empty_profile_folder", lambda **k: "deleted")     # la limpieza de carpeta tiene sus propios tests (test_hotfix_cchh_integral.py)
     profile = _create_profile(client)
     _upload(client, profile["profile_id"])

@@ -161,6 +161,18 @@ def test_graph_delete_calls_urlopen_with_delete_method_and_expected_headers(monk
     assert captured["timeout"] == microsoft365.DEFAULT_TIMEOUT
 
 
+def test_graph_delete_adds_extra_headers_such_as_if_match_without_changing_the_defaults(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout=None):
+        captured["headers"] = dict(request.headers)
+        return _FakeEmptyResponse()
+
+    monkeypatch.setattr(microsoft365.urllib.request, "urlopen", fake_urlopen)
+    microsoft365.graph_delete("https://graph.microsoft.com/v1.0/sites/x/drives/y/items/z", "tok-abc", extra_headers={"If-Match": '"{E},1"'})
+    assert captured["headers"] == {"Authorization": "Bearer tok-abc", "Accept": "application/json", "If-match": '"{E},1"'}      # urllib capitaliza el nombre; los headers estándar se conservan
+
+
 def test_graph_delete_propagates_urllib_errors_without_normalizing(monkeypatch):
     def fake_urlopen(request, timeout=None):
         raise urllib.error.HTTPError("https://graph.microsoft.com/v1.0/x", 404, "not found", None, None)

@@ -67,10 +67,13 @@
      sólo decide la ubicación. Reusa el estilo existente `.hc-profile-form
      input[type="file"]`; sin primitivo visual nuevo. -#}
   {% set cv_html %}
-      <div class="feedback-field">
+      <div class="feedback-field feedback-field--cv">
         <label for="hc-new-cv-file">CV</label>
-        <input id="hc-new-cv-file" name="file" type="file" accept=".pdf,.doc,.docx">
-        <p class="dashboard-empty__hint">Adjuntar archivo — PDF, DOC o DOCX, máx. 10 MB.</p>
+        {#- Selector + aclaración en UNA fila (la aclaración pasa debajo solo en pantallas angostas): el input nativo, su validación, el límite y el preloader no cambian. -#}
+        <div class="hc-cv-field__row">
+          <input id="hc-new-cv-file" name="file" type="file" accept=".pdf,.doc,.docx">
+          <p class="dashboard-empty__hint hc-cv-field__hint">Adjuntar archivo — PDF, DOC o DOCX, máx. 10 MB.</p>
+        </div>
       </div>
   {% endset %}
   <div class="dashboard-sections" data-dashboard-key="cchh-candidate-new" data-persist-collapse>
