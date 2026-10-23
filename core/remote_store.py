@@ -28,6 +28,7 @@ import logging
 import os
 import threading
 import time
+from datetime import timezone
 from pathlib import Path
 
 import config
@@ -821,6 +822,61 @@ def delete_path(local_path: str | Path) -> bool:
             log.warning("remote_store.delete_path: fallo borrando '%s': %s", path, exc)
             return False
     return False
+
+
+def list_persisted_objects(name: str) -> dict[str, dict]:
+    """INVENTARIO de solo lectura de los objetos remotos de un directorio persistido (`name` debe figurar en `PERSIST_PATHS`): `{ruta_relativa_posix: {size, etag, last_modified}}`, con el prefijo de
+    ambiente ya resuelto. Nunca escribe ni borra. `RemoteReadError` si la lectura no está autorizada, `name` no es un directorio persistido o el listado no se puede completar (un listado parcial
+    jamás se devuelve como completo). Lo usan las herramientas de mantenimiento (`tools/human_capital/purge_test_data.py`)."""
+    if not read_enabled():
+        raise RemoteReadError("lectura remota no autorizada")
+    if name not in {n for n, _ in _persist_dirs()}:
+        raise RemoteReadError("directorio no persistido")
+    root_key = _key(name)
+    out: dict[str, dict] = {}
+    try:
+        client = _get_client()
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=config.SPACES_BUCKET, Prefix=root_key + "/"):
+            for obj in page.get("Contents", []) or []:
+                key = obj["Key"]
+                rel = key[len(root_key) + 1:]
+                if not rel or key.endswith("/"):
+                    continue
+                lm = obj.get("LastModified")
+                out[rel] = {"size": obj.get("Size"), "etag": str(obj.get("ETag") or "").strip('"'),
+                            "last_modified": lm.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if hasattr(lm, "astimezone") else (str(lm) if lm else None)}
+    except RemoteReadError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise RemoteReadError(f"listado fallo: {type(exc).__name__}") from exc
+    return out
+
+
+def persisted_object_exists(local_path: str | Path) -> bool:
+    """HEAD de UN objeto remoto (mismo mapeo local→key que `push_path`/`delete_path`): True si existe, False si hay ausencia confirmada (404). `RemoteReadError` si no se puede determinar. Solo lectura."""
+    if not read_enabled():
+        raise RemoteReadError("lectura remota no autorizada")
+    path = Path(local_path).resolve()
+    key = None
+    for name, local in _persist_dirs():
+        try:
+            rel = path.relative_to(local.resolve()).as_posix()
+        except ValueError:
+            continue
+        key = f"{_key(name)}/{rel}"
+        break
+    if key is None:
+        raise RemoteReadError("la ruta no cae bajo ningún directorio persistido")
+    try:
+        _get_client().head_object(Bucket=config.SPACES_BUCKET, Key=key)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        resp = getattr(exc, "response", None) or {}
+        code = str(resp.get("Error", {}).get("Code", ""))
+        status = str(resp.get("ResponseMetadata", {}).get("HTTPStatusCode", ""))
+        if code in {"NoSuchKey", "404", "NotFound"} or status == "404":
+            return False
+        raise RemoteReadError(f"HEAD fallo: {type(exc).__name__}") from exc
 
 
 # ── namespace EXCLUSIVO de respaldos de migracion (escrituras DIRIGIDAS, fuera de PERSIST_PATHS) ─────────────────────────────────────────────────────────
