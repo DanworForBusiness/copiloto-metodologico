@@ -694,61 +694,71 @@ def do_restore(deps: dict, args) -> tuple[dict, int]:
         rep["required_confirmation"] = None if execute else confirm_phrase
         root = _root(deps)
         fetched = work / "fetched"
-        tally = {"restore_local": 0, "restore_remote": 0, "already_present": 0, "conflicts": 0, "remote_version_not_restored": 0, "failed": 0}
+        tally = {"restore_local": 0, "restore_remote": 0, "already_present": 0, "conflicts": 0, "failed": 0}
+        stop: str | None = None
+
+        def sides_of(rel: str, want: dict) -> list[tuple[str, str, Path]]:
+            out = []                                                                             # (lado, sha aprobado, archivo del respaldo con ESOS bytes)
+            if want["local"] is not None:
+                out.append(("local", want["local"], fetched / "objects" / rel))
+            if want["remote"] is not None:                                                       # la versión remota vive en `objects_remote/` si difería de la local; si no, es la de `objects/`
+                remote_file = fetched / "objects_remote" / rel
+                out.append(("remote", want["remote"], remote_file if remote_file.is_file() else fetched / "objects" / rel))
+            return out
+
+        for rel, want in approval["objects"].items():                                           # PRE-VERIFICACIÓN: todos los bytes del respaldo contra el manifiesto sellado ANTES de escribir nada
+            for side, sha, source in sides_of(rel, want):
+                if not source.is_file() or _sha(source.read_bytes()) != sha:
+                    stop = "BACKUP_BYTES_MISMATCH"                                              # el respaldo no coincide con el manifiesto: no se puede garantizar → no se restaura NADA
+        if stop:
+            rep.update(error=stop, complete=False, rollback_performed=False)                     # también en el plan sin --confirm: un respaldo no garantizado no se ofrece como restaurable
+            return rep, EXIT_FAILED
         for rel, want in sorted(approval["objects"].items()):
-            data = (fetched / "objects" / rel).read_bytes()
-            sha = _sha(data)
             path = root / rel
-            local_sha = want["local"]
-            remote_sha = want["remote"]
-            # lado local: si el original lo tenía, o si era SOLO remoto (se repone el local para poder empujar el remoto)
-            if path.is_file():
-                if local_sha is not None and _sha(path.read_bytes()) == local_sha or (local_sha is None and _sha(path.read_bytes()) == sha):
-                    tally["already_present"] += 1
-                else:
-                    tally["conflicts"] += 1                                                      # existe con otro contenido: NO se sobrescribe
+            for side, sha, source in sides_of(rel, want):
+                data = source.read_bytes()
+                try:
+                    existing = (path.read_bytes() if path.is_file() else None) if side == "local" else rs.read_object_bytes(path)
+                except Exception:                                                                # noqa: BLE001
+                    stop = "READ_FAILED"
+                    break
+                if existing is not None:
+                    tally["already_present" if _sha(existing) == sha else "conflicts"] += 1      # existe: idéntico = nada que hacer; distinto = NO se sobrescribe
                     continue
-            else:
-                tally["restore_local"] += 1
-                if execute:
-                    try:
+                tally["restore_" + side] += 1
+                if not execute:
+                    continue
+                try:
+                    if side == "local":
                         path.parent.mkdir(parents=True, exist_ok=True)
                         tmp = path.with_name(path.name + ".restore.tmp")
                         tmp.write_bytes(data)
                         os.replace(tmp, path)
-                    except OSError:
-                        tally["failed"] += 1
-                        continue
-            if remote_sha is None:
-                continue
-            if remote_sha != sha:
-                tally["remote_version_not_restored"] += 1                                         # la versión remota distinta queda en el respaldo (`objects_remote/`); este modo no la sobrescribe
-                continue
-            try:
-                existing = rs.read_object_bytes(path)
-            except Exception:                                                                    # noqa: BLE001
-                tally["failed"] += 1
-                continue
-            if existing is not None:
-                tally["already_present" if _sha(existing) == remote_sha else "conflicts"] += 1
-                continue
-            tally["restore_remote"] += 1
-            if execute:
-                try:
-                    if not rs.push_path(path) or rs.read_object_bytes(path) is None or _sha(rs.read_object_bytes(path)) != remote_sha:
-                        tally["failed"] += 1
-                except Exception:                                                                # noqa: BLE001
+                        written = path.read_bytes()
+                    else:
+                        rs.put_persisted_object(path, data)
+                        written = rs.read_object_bytes(path)
+                    if written is None or _sha(written) != sha:
+                        raise ValueError("hash distinto tras escribir")
+                except Exception:                                                                # noqa: BLE001 — sin detalle: puede traer rutas
                     tally["failed"] += 1
+                    stop = f"{side.upper()}_RESTORE_FAILED"
+                    break
+            if stop:
+                break
+        complete = not stop and not tally["conflicts"]
         rep["restore" if execute else "would_restore"] = tally
         rep["rollback_performed"] = False
+        rep["complete"] = complete
         if execute:
             try:
-                _journal(deps, args.backup_run, {"event": "restore_executed", "at": _iso(deps["now"]()), **tally})
+                _journal(deps, args.backup_run, {"event": "restore_executed", "at": _iso(deps["now"]()), "complete": complete, **tally})
             except Exception:                                                                    # noqa: BLE001 — el diario no revierte lo restaurado
                 rep["journal_failed"] = True
-        if execute and (tally["failed"] or tally["conflicts"]):
-            rep["error"] = "RESTORE_INCOMPLETE"
-            return rep, EXIT_FAILED
+            if stop or tally["conflicts"]:
+                rep["error"] = stop or "RESTORE_INCOMPLETE"                                      # nunca se declara una restauración parcial como completa; lo restaurado antes NO se revierte
+                rep["stopped_at_first_failure"] = bool(stop)
+                return rep, EXIT_FAILED
         return rep, EXIT_OK
     finally:
         shutil.rmtree(work, ignore_errors=True)

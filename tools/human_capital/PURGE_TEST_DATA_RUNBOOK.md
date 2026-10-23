@@ -34,7 +34,7 @@ Quietud de **10 min** · dos inventarios separados **20 s** · ventana de manten
 
 ## Restauración (solo si hace falta; no hay rollback automático)
 - Plan sin cambios: `python -m tools.human_capital.purge_test_data --restore --backup-run <run_id>` (informa y muestra la frase requerida).
-- Ejecutar: `... --restore --backup-run <run_id> --confirm RESTORE-CCHH-<env8>-<digest12>`. Solo desde un respaldo sellado del MISMO entorno; **no sobrescribe** nada existente (los conflictos se informan). Una versión remota distinta del local queda únicamente en el respaldo (`objects_remote/`).
+- Ejecutar: `... --restore --backup-run <run_id> --confirm RESTORE-CCHH-<env8>-<digest12>`. Solo desde un respaldo sellado del MISMO entorno; **no sobrescribe** nada existente (los conflictos se informan). Cada lado se recupera en su propio almacenamiento con SU contenido original (si la versión remota difería de la local, se restaura la remota en Spaces y la local en disco), verificando el hash de cada uno contra el manifiesto sellado; ante cualquier falla se detiene con un error explícito y NO declara éxito parcial (lo ya restaurado no se revierte; reintentar es idempotente).
 
 ## Códigos de salida
 0 ok · 2 bloqueado · 3 verificación pendiente · 4 confirmación faltante/inválida (cero cambios) · 5 falla (reanudable) · 6 deriva o escrituras concurrentes · 7 verificación fallida.

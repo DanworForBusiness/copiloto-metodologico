@@ -879,6 +879,29 @@ def persisted_object_exists(local_path: str | Path) -> bool:
         raise RemoteReadError(f"HEAD fallo: {type(exc).__name__}") from exc
 
 
+class RemoteObjectExists(Exception):
+    """El objeto remoto YA existe: `put_persisted_object` jamás sobrescribe."""
+
+
+def put_persisted_object(local_path: str | Path, data: bytes) -> None:
+    """PUT dirigido de los bytes EXACTOS `data` al key remoto de `local_path` (mismo mapeo local→key que `push_path`), SIN sobrescribir: si el objeto ya existe lanza `RemoteObjectExists`. A diferencia de `push_path`
+    no sube el archivo local: permite restaurar en Spaces una versión que difiere de la local (p. ej. desde un respaldo). Requiere capacidad de ESCRITURA; cualquier falla lanza (el llamador no debe presumir éxito).
+    Nota: check-then-PUT (Spaces no ofrece PUT condicional fiable); la herramienta de mantenimiento que lo usa corre en una ventana acordada y verifica por bytes después."""
+    if not write_enabled():
+        raise RemoteReadError("escritura remota no autorizada (DANWOR_PERSISTENCE != remote)")
+    if persisted_object_exists(local_path):
+        raise RemoteObjectExists("el objeto remoto ya existe")
+    path = Path(local_path).resolve()
+    for name, local in _persist_dirs():
+        try:
+            rel = path.relative_to(local.resolve()).as_posix()
+        except ValueError:
+            continue
+        _get_client().put_object(Bucket=config.SPACES_BUCKET, Key=f"{_key(name)}/{rel}", Body=bytes(data))
+        return
+    raise RemoteReadError("la ruta no cae bajo ningún directorio persistido")
+
+
 # ── namespace EXCLUSIVO de respaldos de migracion (escrituras DIRIGIDAS, fuera de PERSIST_PATHS) ─────────────────────────────────────────────────────────
 # ``migration-backups/<migracion>/<run_id>/...``: NO es un directorio persistido, asi que ``restore``/``mirror_up``/``push_path``/``delete_path`` jamas lo tocan (todos parten de
 # ``_persist_dirs()``) y nada aqui borra: el respaldo solo se ESCRIBE (una vez por clave, jamas se sobrescribe) y se LEE. Lo usa ``webapp/services/durable_backup``.

@@ -52,6 +52,8 @@ class FakeSpaces:
         self.fail_delete: set[str] = set()
         self.ghost_after_delete: set[str] = set()
         self.fail_push: set[str] = set()
+        self.fail_put: set[str] = set()
+        self.put_log: list[str] = []
         self.fail_list = False
         self.on_delete = None
         self.collision = None
@@ -93,6 +95,16 @@ class FakeSpaces:
         self.objects[rel] = Path(path).read_bytes()
         self.lm[rel] = OLD_ISO
         return True
+
+    def put_persisted_object(self, path, data):
+        rel = self._rel(path)
+        if rel in self.objects:
+            raise remote_store.RemoteObjectExists(rel)
+        if rel in self.fail_put:
+            raise RuntimeError("PUT simulado fallido")
+        self.put_log.append(rel)
+        self.objects[rel] = bytes(data)
+        self.lm[rel] = OLD_ISO
 
     def put_backup_object(self, rel, data):
         if rel in self.backup:
@@ -608,43 +620,45 @@ def test_restore_without_confirmation_only_reports_and_changes_nothing(w):
     w.execute(run)
     before = snapshot(w)
     rep, code = w.restore(run, confirm=None)
-    assert code == 0 and rep["required_confirmation"].startswith("RESTORE-CCHH-") and rep["would_restore"]["restore_local"] == len(PURGE_RELS) and snapshot(w) == before and rep["rollback_performed"] is False
+    local_objs = len(PURGE_RELS) - 1                                                                                     # p4 era SOLO remoto
+    remote_objs = len(PURGE_RELS) - 2                                                                                    # p3 y el temporal eran SOLO locales
+    assert code == 0 and rep["required_confirmation"].startswith("RESTORE-CCHH-") and snapshot(w) == before and rep["rollback_performed"] is False
+    assert rep["would_restore"] == {"restore_local": local_objs, "restore_remote": remote_objs, "already_present": 0, "conflicts": 0, "failed": 0} and w.spaces.put_log == []
 
 
-def test_restore_rebuilds_local_and_spaces_without_overwriting_and_reports_what_it_cannot_restore(w):
+def test_restore_rebuilds_each_side_with_its_own_original_content_including_the_local_remote_difference(w):
     seed(w)
     originals_local = {rel: (w.root / rel).read_bytes() for rel in PURGE_RELS if (w.root / rel).is_file()}
-    originals_remote = dict(w.spaces.objects)
+    originals_remote = {rel: data for rel, data in w.spaces.objects.items() if rel in PURGE_RELS}
+    assert originals_local["profiles/p5.json"] != originals_remote["profiles/p5.json"]                                  # el caso de diferencia local/remoto
     run = full_cycle(w)
     w.execute(run)
+    assert not (set(w.local_files()) | set(w.spaces.objects)) & PURGE_RELS
     rep, code = w.restore(run, confirm=True)
-    assert code == 0 and rep["restore"]["failed"] == 0 and rep["restore"]["conflicts"] == 0
+    assert code == 0 and rep["complete"] is True and rep["restore"] == {"restore_local": len(originals_local), "restore_remote": len(originals_remote), "already_present": 0, "conflicts": 0, "failed": 0}
     for rel, data in originals_local.items():
-        assert (w.root / rel).read_bytes() == data, rel                                                                   # el disco vuelve a ser idéntico
+        assert (w.root / rel).read_bytes() == data, rel                                                                   # cada archivo local vuelve a ser idéntico
     for rel, data in originals_remote.items():
-        if rel in PURGE_RELS and rel != "profiles/p5.json":
-            assert w.spaces.objects[rel] == data, rel                                                                     # Spaces también, byte a byte
-    assert (w.root / "profiles/p4.json").read_bytes() == originals_remote["profiles/p4.json"] and w.spaces.objects["profiles/p4.json"] == originals_remote["profiles/p4.json"]       # solo-remoto: se repone en ambos
-    assert rep["restore"]["remote_version_not_restored"] == 1 and "profiles/p5.json" not in w.spaces.objects and (w.root / "profiles/p5.json").read_bytes() == originals_local["profiles/p5.json"]   # la versión remota distinta queda SOLO en el respaldo (`objects_remote/`); no se inventa otra
-    again, code2 = w.restore(run, confirm=True)
-    assert code2 == 0 and again["restore"]["restore_local"] == 0 and again["restore"]["restore_remote"] == 0                 # idempotente
+        assert w.spaces.objects[rel] == data, rel                                                                         # y cada objeto de Spaces, byte a byte (la versión remota de p5 incluida)
+    assert (w.root / "profiles/p5.json").read_bytes() != w.spaces.objects["profiles/p5.json"]                            # las DOS versiones distintas siguen siendo distintas, cada una en su lugar
+    assert not (w.root / "profiles/p4.json").exists() and "profiles/p4.json" in w.spaces.objects                          # el objeto SOLO remoto sigue siendo solo remoto (no se inventa copia local)
+    assert "profiles/p3.json" not in w.spaces.objects and (w.root / "profiles/p3.json").is_file()                        # y el solo-local, solo local
+    assert set(w.spaces.put_log) == set(originals_remote)                                                                # todo lo remoto se escribió con PUT dirigido de bytes del respaldo
 
 
-def test_restore_never_overwrites_existing_data_and_never_rolls_back(w):
+def test_restore_never_overwrites_existing_objects_on_either_side(w):
     seed(w)
     run = full_cycle(w)
     w.execute(run)
-    w.put("profiles/p1.json", {"profile_id": "p1", "datos": "nuevos y distintos"})                                         # alguien ya creó algo con ese nombre
-    w.spaces.fail_push = {"entrevistas/e1.json"}
+    other = json.dumps({"profile_id": "p5", "creado": "después de la purga"}).encode()
+    w.put("profiles/p5.json", other, remote=False)                                                                       # local ya recreado con OTRO contenido
+    w.spaces.objects["profiles/p1.json"] = b'{"remoto": "nuevo y distinto"}'                                             # remoto ya recreado con OTRO contenido
     rep, code = w.restore(run, confirm=True)
-    assert code == 5 and rep["error"] == "RESTORE_INCOMPLETE" and rep["rollback_performed"] is False
-    assert json.loads((w.root / "profiles/p1.json").read_text())["datos"] == "nuevos y distintos" and json.loads(w.spaces.objects["profiles/p1.json"].decode())["datos"] == "nuevos y distintos"
-    assert rep["restore"]["conflicts"] >= 1 and rep["restore"]["failed"] == 1
-    assert (w.root / "entrevistas/e1.json").is_file() and (w.root / "profiles/p2.json").is_file()                          # lo restaurado antes del fallo NO se revierte
-    assert w.spaces.delete_log and all(r in PURGE_RELS for r in w.spaces.delete_log)                                       # (los borrados son solo los de la ejecución previa; restaurar no borra)
-    n = len(w.spaces.delete_log)
-    w.restore(run, confirm=True)
-    assert len(w.spaces.delete_log) == n
+    assert code == 5 and rep["error"] == "RESTORE_INCOMPLETE" and rep["complete"] is False and rep["stopped_at_first_failure"] is False
+    assert rep["restore"]["conflicts"] == 2 and rep["restore"]["failed"] == 0
+    assert (w.root / "profiles/p5.json").read_bytes() == other and w.spaces.objects["profiles/p1.json"] == b'{"remoto": "nuevo y distinto"}'            # no se sobrescribió ninguno
+    assert w.spaces.objects["profiles/p5.json"] and json.loads(w.spaces.objects["profiles/p5.json"].decode())["notes"] == "versión remota distinta"          # el OTRO lado de p5 sí se restauró
+    assert (w.root / "profiles/p1.json").is_file() and "profiles/p1.json" in w.spaces.objects and w.spaces.delete_log == w.spaces.delete_log[:len(PURGE_RELS)]    # (restaurar no borra nada)
 
 
 def test_restore_is_protected_by_environment_confirmation_and_a_sealed_backup(w):
@@ -760,3 +774,112 @@ def test_persisted_object_exists_distinguishes_present_absent_and_undeterminable
     with pytest.raises(remote_store.RemoteReadError):
         remote_store.persisted_object_exists(tmp_path / "fuera-de-lo-persistido" / "x.json")
     assert [c[0] for c in client.calls] == ["HEAD", "HEAD", "HEAD"]                                                      # solo lecturas (HEAD)
+
+
+# ═══════════════════ restauración: fallo parcial, reintento idempotente e integridad respecto del manifiesto sellado ═══════════════════
+def test_a_remote_restore_failure_stops_with_an_explicit_error_and_never_claims_partial_success(w):
+    seed(w)
+    run = full_cycle(w)
+    w.execute(run)
+    w.spaces.fail_put = {"entrevistas/e1.json"}                                                                          # el PUT remoto de este objeto falla a mitad de la restauración
+    rep, code = w.restore(run, confirm=True)
+    assert code == 5 and rep["error"] == "REMOTE_RESTORE_FAILED" and rep["complete"] is False and rep["stopped_at_first_failure"] is True and rep["restore"]["failed"] == 1
+    assert rep["rollback_performed"] is False and "profiles/p2.json" not in w.spaces.objects and not (w.root / "profiles/p2.json").exists()          # se DETIENE: nada posterior se restauró
+    assert (w.root / "busquedas/b1.json").is_file() and "busquedas/b1.json" in w.spaces.objects                          # lo restaurado ANTES del fallo no se revierte
+    assert "entrevistas/e1.json" not in w.spaces.objects                                                                  # y el objeto fallido no quedó a medias
+    events = [json.loads(v) for k, v in w.spaces.backup.items() if "/journal/" in k]
+    assert any(e["event"] == "restore_executed" and e["complete"] is False for e in events)                              # el diario también deja constancia de que NO fue completa
+
+
+def test_retrying_after_a_partial_restore_completes_idempotently_without_touching_what_is_already_restored(w):
+    seed(w)
+    originals_local = {rel: (w.root / rel).read_bytes() for rel in PURGE_RELS if (w.root / rel).is_file()}
+    originals_remote = {rel: d for rel, d in w.spaces.objects.items() if rel in PURGE_RELS}
+    run = full_cycle(w)
+    w.execute(run)
+    w.spaces.fail_put = {"entrevistas/e1.json"}
+    assert w.restore(run, confirm=True)[1] == 5
+    puts_before = list(w.spaces.put_log)
+    w.spaces.fail_put.clear()
+    rep, code = w.restore(run, confirm=True)
+    assert code == 0 and rep["complete"] is True and rep["restore"]["failed"] == 0 and rep["restore"]["conflicts"] == 0
+    assert rep["restore"]["already_present"] > 0 and not (set(w.spaces.put_log[:len(puts_before)]) - set(puts_before))        # lo ya restaurado no se vuelve a escribir
+    assert len(w.spaces.put_log) == len(set(w.spaces.put_log)) == len(originals_remote)                                   # cada objeto remoto se escribió UNA sola vez en total
+    for rel, data in originals_local.items():
+        assert (w.root / rel).read_bytes() == data
+    for rel, data in originals_remote.items():
+        assert w.spaces.objects[rel] == data
+    again, code2 = w.restore(run, confirm=True)                                                                          # y una tercera vez no hace nada
+    assert code2 == 0 and again["restore"]["restore_local"] == 0 and again["restore"]["restore_remote"] == 0 and len(w.spaces.put_log) == len(originals_remote)
+
+
+def test_both_restored_contents_match_the_sealed_manifest_hashes(w):
+    seed(w)
+    run = full_cycle(w)
+    base = f"{remote_store.BACKUP_NAMESPACE}/{purge.MIGRATION}/{run}/"
+    approval = json.loads(w.spaces.backup[base + "approval.json"])
+    manifest = json.loads(w.spaces.backup[base + "manifest.json"])
+    by_key = {o["key"]: o for o in manifest["objects"]}
+    want = approval["objects"]["profiles/p5.json"]
+    assert want["local"] != want["remote"] and by_key["profiles/p5.json"]["sha256"] == want["local"] and by_key["profiles/p5.json"]["remote_sha256"] == want["remote"]
+    assert purge._sha(w.spaces.backup[base + "objects/profiles/p5.json"]) == want["local"] and purge._sha(w.spaces.backup[base + "objects_remote/profiles/p5.json"]) == want["remote"]
+    w.execute(run)
+    assert w.restore(run, confirm=True)[1] == 0
+    assert purge._sha((w.root / "profiles/p5.json").read_bytes()) == want["local"] and purge._sha(w.spaces.objects["profiles/p5.json"]) == want["remote"]
+    for rel, wanted in approval["objects"].items():                                                                       # TODOS los objetos, ambos lados, contra el manifiesto sellado
+        if wanted["local"]:
+            assert purge._sha((w.root / rel).read_bytes()) == wanted["local"], rel
+        if wanted["remote"]:
+            assert purge._sha(w.spaces.objects[rel]) == wanted["remote"], rel
+
+
+def test_a_backup_that_cannot_be_guaranteed_against_the_manifest_stops_before_writing_anything(w, monkeypatch):
+    seed(w)
+    run = full_cycle(w)
+    w.execute(run)
+    real_load = purge._load_run
+
+    def tampered(deps, run_id, work):
+        manifest, approval = real_load(deps, run_id, work)
+        approval["objects"]["busquedas/b1.json"] = {**approval["objects"]["busquedas/b1.json"], "remote": "0" * 64}              # la aprobación ya no coincide con los bytes sellados
+        return manifest, approval
+    monkeypatch.setattr(purge, "_load_run", tampered)
+    before = snapshot(w)
+    rep, code = w.restore(run, confirm=True)
+    assert code == 5 and rep["error"] == "BACKUP_BYTES_MISMATCH" and rep["complete"] is False and snapshot(w) == before and w.spaces.put_log == []
+    monkeypatch.undo()
+
+
+def test_a_corrupted_remote_version_in_the_backup_is_rejected_by_the_seal(w):
+    seed(w)
+    run = full_cycle(w)
+    w.execute(run)
+    base = f"{remote_store.BACKUP_NAMESPACE}/{purge.MIGRATION}/{run}/"
+    w.spaces.backup[base + "objects_remote/profiles/p5.json"] = b"versi\xc3\xb3n remota corrompida"
+    before = snapshot(w)
+    rep, code = w.restore(run, confirm=True)
+    assert code == 4 and "BACKUP_NOT_SEALED_OR_INVALID" in rep["error"] and snapshot(w) == before and w.spaces.put_log == []     # el sello detecta la alteración: no se restaura nada
+
+
+def test_put_persisted_object_writes_exact_bytes_at_the_mapped_key_and_never_overwrites(real_rs, tmp_path):
+    class Client(_Client):
+        def __init__(self):
+            super().__init__(head={"prod/human-capital/profiles/existe.json": True})
+            self.puts = []
+
+        def put_object(self, Bucket, Key, Body):
+            self.puts.append((Bucket, Key, Body))
+
+    client = Client()
+    real_rs.setattr(remote_store, "_get_client", lambda: client)
+    remote_store.put_persisted_object(tmp_path / "human-capital" / "profiles" / "nuevo.json", "versión remota".encode("utf-8"))
+    assert client.puts == [("bkt", "prod/human-capital/profiles/nuevo.json", "versión remota".encode("utf-8"))]                 # bytes EXACTOS, prefijo de ambiente resuelto
+    with pytest.raises(remote_store.RemoteObjectExists):
+        remote_store.put_persisted_object(tmp_path / "human-capital" / "profiles" / "existe.json", b"x")                         # jamás sobrescribe
+    with pytest.raises(remote_store.RemoteReadError):
+        remote_store.put_persisted_object(tmp_path / "fuera" / "x.json", b"x")
+    assert len(client.puts) == 1
+    real_rs.setattr(config, "PERSIST_ENABLED", False)
+    with pytest.raises(remote_store.RemoteReadError):
+        remote_store.put_persisted_object(tmp_path / "human-capital" / "profiles" / "otro.json", b"x")                           # sin escritura remota autorizada no hay PUT
+    assert len(client.puts) == 1
