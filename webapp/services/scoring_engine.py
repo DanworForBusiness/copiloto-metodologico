@@ -256,3 +256,31 @@ def cobertura(grilla: dict | None, application_ids, evaluaciones, fase: str = FA
         else:
             estados[app_id] = "desactualizada"
     return estados
+
+
+def ordenar_ranking(items) -> list[dict]:
+    """Ordena los resultados de scoring CCHH de un proceso y asigna `posicion` (1, 2, 3…) SOLO a quienes tienen tier A/B/C (cumplen los excluyentes y tienen puntaje): primero ellos por puntaje descendente; luego «No aplica» (falló un
+    excluyente); luego los que no tienen resultado vigente (sin evaluar o desactualizados). Desempate estable por nombre. No es un consolidado entre fases."""
+    def grupo(i):
+        return 0 if i.get("tier") in ("A", "B", "C") else (1 if i.get("tier") == "No aplica" else 2)
+    ordenados = sorted(items, key=lambda i: (grupo(i), -(i.get("puntaje") or 0) if grupo(i) == 0 else 0, str(i.get("nombre") or "").casefold()))
+    pos = 0
+    for i in ordenados:
+        if grupo(i) == 0:
+            pos += 1
+            i["posicion"] = pos
+        else:
+            i["posicion"] = None
+    return ordenados
+
+
+def parsear_formulario_evaluacion(criterios, campos) -> dict:
+    """Detalles de una evaluación desde los campos de un formulario (`nota_<id>` 1-5, `cumple_<id>` si/no, `comentario_<id>`): lo no interpretable queda en `None` y el motor lo rechaza como faltante."""
+    detalles = {}
+    for c in criterios:
+        cid = c["criterio_id"]
+        nota = str(campos.get(f"nota_{cid}") or "").strip()
+        cumple = str(campos.get(f"cumple_{cid}") or "").strip().lower()
+        detalles[cid] = {"nota": int(nota) if nota.isdigit() else None, "cumple": True if cumple == "si" else (False if cumple == "no" else None),
+                         "comentario": str(campos.get(f"comentario_{cid}") or "").strip()[:TEXTO_LARGO_MAX] or None}
+    return detalles

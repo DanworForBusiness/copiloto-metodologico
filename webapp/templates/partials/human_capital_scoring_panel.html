@@ -49,7 +49,11 @@
     <span class="scoring-steps__sep" aria-hidden="true">›</span>
     <a class="scoring-step{% if sc.paso == 'grilla' %} is-active{% endif %}" href="{{ base }}?vista=scoring&paso=grilla" {% if sc.paso == 'grilla' %}aria-current="step"{% endif %}><span class="scoring-step__n">{{ '✓' if sc.grilla_valida else '2' }}</span>Grilla de evaluación CCHH{% if sc.grid_version %} <small>· v{{ sc.grid_version }}</small>{% endif %}</a>
     <span class="scoring-steps__sep" aria-hidden="true">›</span>
-    <span class="scoring-step is-disabled" aria-disabled="true"><span class="scoring-step__n">3</span>Evaluación CCHH y ranking <small>· próximamente</small></span>
+    {% if sc.grilla_valida %}
+    <a class="scoring-step{% if sc.paso == 'ranking' %} is-active{% endif %}" href="{{ base }}?vista=scoring&paso=ranking" {% if sc.paso == 'ranking' %}aria-current="step"{% endif %}><span class="scoring-step__n">3</span>Evaluación CCHH y ranking</a>
+    {% else %}
+    <span class="scoring-step is-disabled" aria-disabled="true" title="Primero la grilla de evaluación tiene que estar completa"><span class="scoring-step__n">3</span>Evaluación CCHH y ranking <small>· requiere la grilla</small></span>
+    {% endif %}
   </nav>
 
   {% if sc.ok %}<div class="callout callout--success" role="status"><div class="callout__body"><p>{{ sc.ok }}</p></div></div>{% endif %}
@@ -69,6 +73,56 @@
     </div>
     {% if sc.editable %}<div class="hc-profile-form__actions"><button type="submit" class="btn-primary">Guardar y seguir a la grilla</button></div>{% endif %}
   </form>
+  {% elif sc.paso == 'ranking' and sc.ranking %}
+  {% set rk = sc.ranking %}
+  <p class="field-hint">Ranking de <strong>scoring CCHH</strong> (grilla v{{ rk.grid_version }}): el puntaje es el promedio de las evaluaciones <strong>vigentes</strong> de la fase CCHH. No incluye la entrevista técnica ni es un consolidado entre fases.</p>
+  <p class="scoring-coverage" data-scoring-coverage>
+    <span class="scoring-estado scoring-estado--vigente">{{ rk.conteos.vigente }} con evaluación vigente</span>
+    <span class="scoring-estado scoring-estado--sin_evaluar">{{ rk.conteos.sin_evaluar }} sin evaluar</span>
+    <span class="scoring-estado scoring-estado--desactualizada">{{ rk.conteos.desactualizada }} con evaluación desactualizada</span>
+  </p>
+  {% if not rk.filas %}
+  <div class="dashboard-empty"><span class="dashboard-empty__label">Sin candidatos</span><p>Todavía no hay candidatos en este proceso para evaluar.</p></div>
+  {% else %}
+  <div class="matrix-scroll">
+    <table class="dashboard-table scoring-ranking" data-scoring-ranking>
+      <thead><tr><th class="center">#</th><th class="left">Candidato</th><th class="left">Etapa</th><th class="right">Puntaje</th><th class="left">Tier</th><th class="left">Estado</th><th class="center">Acción</th></tr></thead>
+      <tbody>
+        {% for r in rk.filas %}
+        <tr data-application-id="{{ r.application_id }}" data-estado="{{ r.estado }}">
+          <td class="center">{{ r.posicion or '–' }}</td>
+          <td class="left">
+            {% if r.profile_id and not r.persona_eliminada %}<a href="/cchh/candidatos/{{ r.profile_id }}/editar">{{ r.nombre }}</a>{% else %}<span class="busqueda-cand__name--gone">{{ r.nombre }}</span>{% endif %}
+            {% if r.incumplidos %}<p class="field-hint scoring-incumple">✗ No cumple: {{ r.incumplidos | join(', ') }}</p>{% endif %}
+            {% if r.evaluaciones %}
+            <details class="scoring-evals">
+              <summary>{{ r.evaluaciones | length }} {{ 'evaluación' if r.evaluaciones | length == 1 else 'evaluaciones' }}</summary>
+              {% for e in r.evaluaciones %}
+              <div class="scoring-eval{% if not e.vigente %} is-outdated{% endif %}">
+                <p><strong>{{ e.evaluator }}</strong>{% if e.recorded_by and e.recorded_by != e.evaluator %} <em>(registrada por {{ e.recorded_by }})</em>{% endif %} · {{ '%.1f' % e.puntaje if e.puntaje is not none else '–' }} pts · {{ e.recorded_at | ops_datetime }} · grilla v{{ e.grid_version }}{% if not e.vigente %} · <strong>desactualizada</strong>{% endif %}</p>
+                {% if e.vigente %}
+                <ul>{% for a in e.respuestas %}<li>{{ a.criterio }}: <strong>{% if a.cumple is not none %}{{ 'Cumple' if a.cumple else 'No cumple' }}{% else %}{{ a.nota if a.nota is not none else '–' }}{% endif %}</strong>{% if a.comentario %} — {{ a.comentario }}{% endif %}</li>{% endfor %}</ul>
+                {% if e.comentario_general %}<p class="field-hint">“{{ e.comentario_general }}”</p>{% endif %}
+                {% endif %}
+              </div>
+              {% endfor %}
+            </details>
+            {% endif %}
+          </td>
+          <td class="left">{{ r.etapa }}</td>
+          <td class="right"><strong>{{ '%.1f' % r.puntaje if r.puntaje is not none else '–' }}</strong></td>
+          <td class="left">
+            {% if r.tier %}<span class="scoring-tier scoring-tier--{{ {'A': 'a', 'B': 'b', 'C': 'c', 'No aplica': 'na'}[r.tier] }}">{{ r.tier }}</span>{% else %}<span class="scoring-tier">Sin evaluar</span>{% endif %}
+            {% if r.alerta_dispersion %}<span class="scoring-dispersion" title="Los evaluadores difieren en más de {{ rk.dispersion_alerta }} puntos: conviene revisar">⚠ Dif. {{ '%.0f' % r.dispersion }} pts</span>{% endif %}
+          </td>
+          <td class="left"><span class="scoring-estado scoring-estado--{{ r.estado }}">{{ {'sin_evaluar': 'Sin evaluar', 'desactualizada': 'Desactualizada (' ~ r.evaluaciones_desactualizadas ~ ')', 'vigente': 'Vigente'}[r.estado] }}</span></td>
+          <td class="center">{% if sc.editable and not r.persona_eliminada %}<a class="btn-secondary" href="{{ base }}/candidatos/{{ r.application_id }}/evaluacion-cchh">{{ 'Editar mi evaluación' if r.mi_evaluacion else 'Evaluar' }}</a>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
   {% else %}
   {% if not sc.jd_cargada %}<p class="field-hint field-hint--warn">Todavía no cargaste la Job Description: la grilla se arma a partir de ella (paso 1).</p>{% endif %}
   <form class="hc-profile-form hc-profile-form--plain scoring-form" method="post" action="{{ base }}/scoring/grilla" data-scoring-form>

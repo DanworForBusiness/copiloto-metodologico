@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Evaluación CCHH{% if form %} · {{ form.nombre }}{% endif %} · Capital Humano · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% include "partials/human_capital_catalog_refresh_topbar.html" %}{% endcall %}
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    {# Evaluación CCHH de UN candidato: instrumento del scoring (alcance: fase CCHH; NO es un resultado consolidado técnico). Abrirla no crea nada: el registro se persiste solo al guardar. El «Registro de entrevista» (administrativo,
+       único por candidato/proceso) es un acceso SECUNDARIO y no guarda respuestas puntuadas. #}
+    <a class="catalog-back" href="{{ back_url }}">← Volver al ranking de Scoring</a>
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano</p>
+        <h1>Evaluación CCHH</h1>
+        <p>{% if form %}{{ form.nombre }} · {% endif %}{{ busqueda.nombre_puesto }}</p>
+        {% if form %}
+        <div class="hero-meta"><span>Etapa: {{ form.application.etapa }}</span>{% if form.grid_version %}<span>Grilla v{{ form.grid_version }}</span>{% endif %}<span>Evaluador: {{ form.evaluator or '—' }}</span></div>
+        {% endif %}
+      </div>
+      <div class="hc-profiles-hero-actions">
+        <a class="btn-secondary" href="{{ registro_url }}">Registro de entrevista</a>
+      </div>
+    </section>
+
+    {% if errors %}<div class="dashboard-empty" data-error-kind="validation" role="alert"><span class="dashboard-empty__label">No se guardó</span>{% for e in errors %}<p>{{ e }}</p>{% endfor %}</div>{% endif %}
+
+    {% if not form %}
+    {# fallo de lectura: ya se informó arriba #}
+    {% elif not form.ready %}
+    <div class="dashboard-empty" data-error-kind="grid-not-ready"><span class="dashboard-empty__label">Grilla no disponible</span><p>La grilla de evaluación CCHH de este proceso todavía no está lista (la ponderación tiene que sumar 100%). <a href="{{ grid_url }}">Configurar la grilla</a>.</p></div>
+    {% else %}
+    {% if form.outdated %}<div class="callout callout--warn" role="status" data-evaluation-outdated><div class="callout__body"><p>Tu evaluación anterior corresponde a la versión {{ form.evaluation.grid_version }} de la grilla; la vigente es la {{ form.grid_version }}. Revisá tus respuestas y guardá para actualizarla: mientras tanto no cuenta en el ranking.</p></div></div>{% endif %}
+    {% if not form.editable %}<p class="field-hint">El proceso está cerrado: la evaluación queda en solo lectura.</p>{% endif %}
+
+    <form class="hc-profile-form hc-profile-form--plain scoring-form" method="post" action="/cchh/busquedas/{{ busqueda.busqueda_id }}/candidatos/{{ application_id }}/evaluacion-cchh" data-scoring-evaluation-form>
+      <input type="hidden" name="expected_revision" value="{{ form.revision }}">
+      <p class="field-hint">Se registra a nombre de <strong>{{ form.evaluator }}</strong> sobre la versión {{ form.grid_version }} de la grilla. El puntaje y el tier se calculan al guardar; la entrevista técnica no forma parte de este resultado.</p>
+      <fieldset class="scoring-fieldset" {% if not form.editable %}disabled{% endif %}>
+      {% for b in form.bloques %}
+      {% set crits = form.criterios_por_bloque[b.key] %}
+      {% if crits %}
+      <section class="scoring-block">
+        <h3>{{ b.label }}</h3>
+        <p class="field-hint">{{ b.ayuda }}</p>
+        {% for c in crits %}
+        {% set v = values.get(c.criterio_id, {}) %}
+        <fieldset class="scoring-eval-criterion" data-criterio="{{ c.criterio_id }}">
+          <legend>{{ c.nombre }}{% if b.key != 'excluyente' %} <small>· {{ '%g' % c.peso }}%</small>{% endif %}</legend>
+          {% if c.descripcion %}<p class="field-hint">{{ c.descripcion }}</p>{% endif %}
+          {% if c.preguntas_guia %}<ul class="scoring-guide">{% for q in c.preguntas_guia.splitlines() if q.strip() %}<li>{{ q.strip() }}</li>{% endfor %}</ul>{% endif %}
+          <div class="scoring-opts" role="radiogroup" aria-label="{{ c.nombre }}">
+            {% if b.key == 'excluyente' %}
+            <label class="scoring-opt"><input type="radio" name="cumple_{{ c.criterio_id }}" value="si" {% if v.get('cumple') == 'si' %}checked{% endif %}> <span><strong>Cumple</strong></span></label>
+            <label class="scoring-opt"><input type="radio" name="cumple_{{ c.criterio_id }}" value="no" {% if v.get('cumple') == 'no' %}checked{% endif %}> <span><strong>No cumple</strong> <em>(queda en «No aplica»)</em></span></label>
+            {% else %}
+            {% for o in form.opciones[b.key] %}
+            {% set anchor = c.get('ancla_' ~ o.nota) %}
+            <label class="scoring-opt"><input type="radio" name="nota_{{ c.criterio_id }}" value="{{ o.nota }}" {% if v.get('nota') == (o.nota|string) %}checked{% endif %}> <span><strong>{{ o.label }}</strong> <em>{{ anchor or o.ayuda }}</em></span></label>
+            {% endfor %}
+            {% endif %}
+          </div>
+          <div class="feedback-field"><label for="com-{{ c.criterio_id }}">Comentario <span>opcional</span></label><input id="com-{{ c.criterio_id }}" name="comentario_{{ c.criterio_id }}" type="text" maxlength="2000" value="{{ v.get('comentario', '') }}"></div>
+        </fieldset>
+        {% endfor %}
+      </section>
+      {% endif %}
+      {% endfor %}
+      <div class="feedback-field"><label for="eval-general">Comentario general <span>opcional</span></label><textarea id="eval-general" name="comentario_general" rows="3" maxlength="2000">{{ comentario_general }}</textarea></div>
+      </fieldset>
+      {% if form.editable %}
+      <div class="hc-profile-form__actions">
+        <button type="submit" class="btn-primary">{{ 'Actualizar evaluación' if form.evaluation else 'Guardar evaluación' }}</button>
+        <a class="btn-secondary" href="{{ back_url }}">Cancelar</a>
+      </div>
+      {% endif %}
+    </form>
+    {% endif %}
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+{% endblock %}

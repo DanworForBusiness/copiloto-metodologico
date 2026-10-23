@@ -51,7 +51,7 @@ def test_the_interview_icon_appears_only_in_the_two_interview_stages_with_the_co
     html = c.get(f"/cchh/busquedas/{bid}").text
     with_icon = {n for n in results if "busqueda-cand__interview" in _card(html, f"{n} Test")}
     assert with_icon == {"Bruno", "Carla"}                                                                           # solo Entrevista CCHH y Entrevista Líder
-    assert 'aria-label="Ir a entrevista CCHH"' in _card(html, "Bruno Test") and "<p>Ir a entrevista CCHH</p>" in _card(html, "Bruno Test")
+    assert 'aria-label="Evaluación CCHH"' in _card(html, "Bruno Test") and "<p>Evaluación CCHH</p>" in _card(html, "Bruno Test")      # Entrevista CCHH: abre la EVALUACIÓN CCHH
     assert 'aria-label="Ir a entrevista técnica"' in _card(html, "Carla Test") and "<p>Ir a entrevista técnica</p>" in _card(html, "Carla Test")
     card = _card(html, "Bruno Test")
     assert card.index("<select") < card.index("busqueda-cand__interview") < card.index('aria-label="Quitar del proceso"')   # dropdown → entrevista → eliminar
@@ -67,7 +67,7 @@ def test_the_stage_selector_and_the_unlink_button_keep_working_inside_the_interv
     card = _card(html, "Mateo Biasotto")
     assert f'hx-post="/cchh/busquedas/{bid}/candidatos/{app_id}/etapa"' in card and f'hx-post="/cchh/busquedas/{bid}/candidatos/{app_id}/eliminar"' in card
     r = c.post(f"/cchh/busquedas/{bid}/candidatos/{app_id}/etapa", data={"etapa": "Entrevista Líder", "resultado_final": ""}, headers={"HX-Request": "true"})
-    assert r.status_code == 200 and 'aria-label="Ir a entrevista técnica"' in r.text and "Ir a entrevista CCHH" not in r.text    # el fragmento HTMX actualiza el tooltip de la nueva columna
+    assert r.status_code == 200 and 'aria-label="Ir a entrevista técnica"' in r.text and "Evaluación CCHH" not in r.text    # el fragmento HTMX actualiza el tooltip de la nueva columna
     assert c.post(f"/cchh/busquedas/{bid}/candidatos/{app_id}/eliminar", headers={"HX-Request": "true"}).status_code == 200
     assert brepo.get(bid)["candidatos"] == []
 
@@ -81,18 +81,20 @@ def test_a_closed_process_shows_no_card_actions_so_no_interview_icon():
 
 
 # ═══════════════════ destino: entrevista existente / alta precargada, sin crear nada ═══════════════════
-def test_with_an_existing_interview_the_icon_goes_to_that_interview_for_both_stages_without_creating_anything(c):
+def test_cchh_stage_opens_the_cchh_evaluation_and_leader_stage_keeps_the_administrative_record_without_creating_anything(c):
     bid = _manual()
     pid, app_id = _candidate(bid)
     svc.move_application_stage(bid, app_id, "Entrevista CCHH", None, actor=CCHH_EMAIL)                              # la entrevista se crea al ENTRAR a la etapa (flujo vigente), no por navegar
     existing = erepo.find_by_profile_and_busqueda(pid, bid)
     assert existing and existing["profile_id"] == pid and existing["busqueda_id"] == bid and existing["application_id"] == app_id
     before = _interview_count()
-    for etapa, label in (("Entrevista CCHH", "Ir a entrevista CCHH"), ("Entrevista Líder", "Ir a entrevista técnica")):
+    expected = (("Entrevista CCHH", "Evaluación CCHH", f"/cchh/busquedas/{bid}/candidatos/{app_id}/evaluacion-cchh"),
+                ("Entrevista Líder", "Ir a entrevista técnica", f"/cchh/entrevistas/{existing['entrevista_id']}/editar"))
+    for etapa, label, url in expected:
         svc.move_application_stage(bid, app_id, etapa, None, actor=CCHH_EMAIL)
         card = _card(c.get(f"/cchh/busquedas/{bid}").text, "Mateo Biasotto")
         m = re.search(r'<a href="([^"]+)" class="table-action-btn chart-tooltip-anchor busqueda-cand__interview" aria-label="([^"]+)"', card)
-        assert m and m.group(1) == f"/cchh/entrevistas/{existing['entrevista_id']}/editar" and m.group(2) == label      # candidato + proceso identificados por la propia entrevista
+        assert m and m.group(1) == url and m.group(2) == label
         assert c.get(m.group(1)).status_code == 200
     assert _interview_count() == before == 1                                                                           # navegar no crea entrevistas
 
@@ -132,7 +134,7 @@ def test_a_candidate_outside_the_process_is_preselected_but_the_process_data_is_
 def test_a_read_failure_degrades_to_the_interviews_list_never_to_a_creating_form(c, monkeypatch):
     bid = _manual()
     _, app_id = _candidate(bid)
-    svc.move_application_stage(bid, app_id, "Entrevista CCHH", None, actor=CCHH_EMAIL)
+    svc.move_application_stage(bid, app_id, "Entrevista Líder", None, actor=CCHH_EMAIL)
     monkeypatch.setattr(erepo, "find_by_profile_and_busqueda", lambda *a: (_ for _ in ()).throw(erepo.EntrevistaStorageError("boom")))
     card = _card(c.get(f"/cchh/busquedas/{bid}").text, "Mateo Biasotto")
     assert re.search(r'<a href="/cchh/entrevistas" class="table-action-btn chart-tooltip-anchor busqueda-cand__interview"', card)

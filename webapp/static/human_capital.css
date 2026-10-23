@@ -546,6 +546,43 @@
 .content-theme-dark .scoring-row__more summary { color: #b2b2bc; }
 .scoring-row__anchors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .scoring-add { align-self: flex-start; }
+/* Evaluación CCHH y ranking */
+.scoring-eval-criterion { border: 1px solid rgba(128,128,128,.2); border-radius: 8px; padding: 10px 12px; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.scoring-eval-criterion legend { font-weight: 650; font-size: .84rem; padding: 0 6px; }
+.scoring-eval-criterion legend small { font-weight: 500; color: #7a7a82; }
+.scoring-guide { margin: 0; padding-left: 18px; font-size: .76rem; color: #55555c; }
+.content-theme-dark .scoring-guide { color: #b2b2bc; }
+.scoring-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.scoring-opt { flex: 1 1 200px; display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid rgba(128,128,128,.28); border-radius: 8px; cursor: pointer; font-size: .78rem; }
+.scoring-opt:has(input:checked) { border-color: var(--gold); background: rgba(231,176,8,.12); }
+.scoring-opt em { display: block; font-style: normal; color: #7a7a82; font-size: .72rem; }
+.scoring-coverage { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.scoring-estado, .scoring-tier { display: inline-block; padding: 2px 9px; border-radius: 999px; font: 700 .7rem var(--sans); border: 1px solid rgba(128,128,128,.32); }
+.scoring-estado--vigente { background: rgba(29,127,78,.12); color: #1d7f4e; border-color: rgba(29,127,78,.4); }
+.scoring-estado--sin_evaluar { color: #55555c; }
+.content-theme-dark .scoring-estado--sin_evaluar { color: #b2b2bc; }
+.scoring-estado--desactualizada { background: rgba(231,176,8,.15); color: #8a6300; border-color: rgba(231,176,8,.5); }
+.content-theme-dark .scoring-estado--desactualizada { color: #e7b008; }
+.scoring-tier--a { background: rgba(29,127,78,.14); color: #1d7f4e; border-color: rgba(29,127,78,.4); }
+.scoring-tier--b { background: rgba(231,176,8,.15); color: #8a6300; border-color: rgba(231,176,8,.5); }
+.scoring-tier--c { background: rgba(230,126,34,.14); color: #b35a00; border-color: rgba(230,126,34,.45); }
+.scoring-tier--na { background: rgba(192,57,43,.12); color: #b34b4b; border-color: rgba(192,57,43,.4); }
+/* El ranking muestra frases largas (excluyentes no cumplidos, etapa, alerta de dispersión): las celdas envuelven en vez de truncarse con «…». */
+.dashboard-table.scoring-ranking { table-layout: auto; min-width: 680px; width: 100%; }
+.dashboard-table.scoring-ranking :is(th, td):is(.left, .right, .center) { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; overflow-wrap: break-word; max-width: none; }   /* gana a `.dashboard-table td.left` (truncado con «…») */
+.scoring-ranking td:first-child + td { min-width: 240px; }
+.scoring-ranking td:last-child .btn-secondary { white-space: nowrap; }
+.scoring-eval p, .scoring-eval li { overflow-wrap: anywhere; }
+.scoring-dispersion { display: block; margin: 4px 0 0; font-size: .7rem; color: #8a6300; font-weight: 700; }
+.content-theme-dark .scoring-dispersion { color: #e7b008; }
+.scoring-incumple { color: #b34b4b; margin: 4px 0 0; }
+.scoring-evals { margin-top: 4px; font-size: .76rem; }
+.scoring-evals summary { cursor: pointer; color: #55555c; }
+.content-theme-dark .scoring-evals summary { color: #b2b2bc; }
+.scoring-eval { padding: 6px 0; border-top: 1px solid rgba(128,128,128,.2); }
+.scoring-eval.is-outdated { opacity: .65; }
+.scoring-eval p { margin: 0 0 4px; }
+.scoring-eval ul { margin: 0; padding-left: 18px; }
 .scoring-sum { margin: 0; font-size: .82rem; }
 .scoring-sum__state { color: #1d7f4e; font-weight: 700; }
 @media (max-width: 640px) {

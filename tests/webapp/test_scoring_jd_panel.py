@@ -112,7 +112,7 @@ def test_the_scoring_view_shows_the_cchh_panel_instead_of_the_pipeline_and_never
     assert "data-scoring-panel" in page and "<h2>Scoring CCHH</h2>" in page and 'id="busqueda-detail-body"' not in page
     assert "no es un consolidado CCHH / técnico" in page and f"Tier A ≥ {se.TIER_A_MIN}, B ≥ {se.TIER_B_MIN}" in page
     assert re.search(r'<a href="/cchh/busquedas/%s\?vista=scoring" class="is-active" aria-current="page">Scoring \(JD\)</a>' % bid, page)
-    assert 'aria-current="step"' in page and "Evaluación CCHH y ranking" in page and 'aria-disabled="true"' in page and "próximamente" in page
+    assert 'aria-current="step"' in page and "Evaluación CCHH y ranking" in page and 'aria-disabled="true"' in page and "requiere la grilla" in page      # sin grilla válida el paso 3 no está disponible
     assert "Todavía no cargaste la Job Description" not in page and 'name="jd_texto"' in page                # sin JD: abre en el paso 1
 
 

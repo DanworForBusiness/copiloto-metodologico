@@ -115,7 +115,7 @@ from webapp.services import (
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
 from webapp.services import human_capital_contact
-from webapp.services import scoring_engine, scoring_grid_repository, scoring_service
+from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
@@ -1408,6 +1408,16 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
 _ENTREVISTA_ETAPAS = {"Entrevista CCHH": "Ir a entrevista CCHH", "Entrevista Líder": "Ir a entrevista técnica"}
 
 
+def _registro_entrevista_url(app: dict, busqueda_id: str) -> str:
+    """URL del REGISTRO ADMINISTRATIVO de entrevista de un (candidato, proceso): su edición si ya existe; si no, el alta con candidato y puesto/área precargados (navegar no crea nada). Un fallo de lectura degrada al listado."""
+    try:
+        existing = entrevista_repository.find_by_profile_and_busqueda(app["profile_id"], busqueda_id)
+        return (f"/cchh/entrevistas/{existing['entrevista_id']}/editar" if existing
+                else "/cchh/entrevistas/nueva?" + urllib.parse.urlencode({"profile_id": app["profile_id"], "busqueda_id": busqueda_id}))
+    except entrevista_repository.EntrevistaStorageError:
+        return "/cchh/entrevistas"
+
+
 def _entrevista_links(busqueda: dict) -> dict:
     """`application_id` -> `{url, label}` para las postulaciones en etapa de entrevista. Si YA existe la entrevista de ese (candidato, proceso) se va a SU edición (flujo vigente); si no, al alta de Entrevistas con el
     candidato y el puesto/área del proceso precargados (el alta sigue siendo manual: navegar NO crea nada). Un fallo de lectura degrada al listado de Entrevistas (nunca a un alta que pudiera duplicar)."""
@@ -1417,13 +1427,11 @@ def _entrevista_links(busqueda: dict) -> dict:
         label = _ENTREVISTA_ETAPAS.get(app.get("etapa"))
         if not label or not app.get("profile_id"):
             continue
-        try:
-            existing = entrevista_repository.find_by_profile_and_busqueda(app["profile_id"], bid)
-            url = (f"/cchh/entrevistas/{existing['entrevista_id']}/editar" if existing
-                   else "/cchh/entrevistas/nueva?" + urllib.parse.urlencode({"profile_id": app["profile_id"], "busqueda_id": bid}))
-        except entrevista_repository.EntrevistaStorageError:
-            url = "/cchh/entrevistas"
-        links[app["application_id"]] = {"url": url, "label": label}
+        if app.get("etapa") == "Entrevista CCHH":
+            # Entrevista CCHH: el ícono abre la EVALUACIÓN CCHH del candidato (scoring); el registro administrativo queda como acceso secundario dentro de esa pantalla. Navegar no crea nada.
+            links[app["application_id"]] = {"url": f"/cchh/busquedas/{bid}/candidatos/{app['application_id']}/evaluacion-cchh", "label": "Evaluación CCHH"}
+            continue
+        links[app["application_id"]] = {"url": _registro_entrevista_url(app, bid), "label": label}      # Entrevista Líder: registro administrativo (hasta implementar la evaluación técnica)
     return links
 
 
@@ -1589,22 +1597,30 @@ def human_capital_busqueda_detail_page(request: Request, busqueda_id: str, ok: s
         raise HTTPException(404, "Búsqueda no encontrada")
     ctx = {**_busqueda_detail_context(busqueda), "solicitud_ok": _SOLICITUD_OK.get(ok), "solicitud_error": _SOLICITUD_AVISOS.get(aviso)}
     if vista == "scoring" and busqueda_repository.es_gestionada(busqueda):
-        ctx.update(_scoring_context(busqueda, paso, ok=ok))
+        ctx.update(_scoring_context(busqueda, paso, ok=ok, actor=_pipeline_actor(request)))
     return templates.TemplateResponse(request=request, name="human_capital/busqueda_detail.html", context=_busqueda_shell(request, ctx))
 
 
 # ── Scoring (JD) — scoring CCHH: Job Description + grilla de evaluación (la evaluación por candidato llega en el siguiente incremento) ──
-_SCORING_OK = {"jd": "Job Description guardada.", "grilla": "Grilla guardada: se creó una nueva versión.", "grilla_sin_cambios": "La grilla no tenía cambios: se mantiene la misma versión."}
+_SCORING_OK = {"jd": "Job Description guardada.", "grilla": "Grilla guardada: se creó una nueva versión.", "grilla_sin_cambios": "La grilla no tenía cambios: se mantiene la misma versión.",
+               "evaluacion": "Evaluación CCHH guardada.", "evaluacion_sin_cambios": "La evaluación no tenía cambios: no se modificó."}
 _SCORING_FORM_FIELDS = ("criterio_id", "bloque", "nombre", "peso", "descripcion", "ancla_1", "ancla_3", "ancla_5", "preguntas_guia")
 
 
-def _scoring_context(busqueda: dict, paso: str = "", *, ok: str = "", errors: list[str] | None = None, rows: list[dict] | None = None, jd: tuple[str, str] | None = None) -> dict:
+def _scoring_context(busqueda: dict, paso: str = "", *, ok: str = "", errors: list[str] | None = None, rows: list[dict] | None = None, jd: tuple[str, str] | None = None, actor: str | None = None) -> dict:
     """Contexto del panel «Scoring CCHH» (pestaña «Scoring (JD)» del detalle del proceso). Ante un error de validación se vuelve a mostrar lo que la persona escribió (`rows`/`jd`), no lo guardado."""
     try:
         data = scoring_service.panel(busqueda)
     except (scoring_grid_repository.GridStorageError, ValueError) as exc:
         return {"vista": "scoring", "scoring": {"storage_error": str(exc), "paso": "jd", "editable": False, "bloques": scoring_engine.BLOQUES, "errors": []}}
-    paso = paso if paso in ("jd", "grilla") else ("grilla" if data["jd_cargada"] else "jd")
+    paso = paso if paso in ("jd", "grilla", "ranking") else ("ranking" if data["grilla_valida"] else ("grilla" if data["jd_cargada"] else "jd"))
+    if paso == "ranking" and not data["grilla_valida"]:
+        paso = "grilla"                                                                               # sin grilla válida no hay ranking: se vuelve al paso que falta
+    if paso == "ranking":
+        try:
+            data["ranking"] = scoring_service.ranking_view(busqueda, actor)
+        except (scoring_grid_repository.GridStorageError, ValueError) as exc:
+            return {"vista": "scoring", "scoring": {"storage_error": str(exc), "paso": "jd", "editable": False, "bloques": scoring_engine.BLOQUES, "errors": []}}
     if rows is not None:
         data["criterios_por_bloque"] = {b["key"]: [r for r in rows if r.get("bloque") == b["key"]] for b in scoring_engine.BLOQUES}
         data["suma_pesos"] = scoring_engine.suma_pesos(scoring_engine.normalizar_criterios(rows)[0])
@@ -1617,7 +1633,7 @@ def _render_scoring(request: Request, busqueda_id: str, paso: str, *, errors: li
     busqueda = human_capital_service.get_busqueda(busqueda_id)
     if busqueda is None:
         raise HTTPException(404, "Búsqueda no encontrada")
-    ctx = {**_busqueda_detail_context(busqueda), **_scoring_context(busqueda, paso, errors=errors, rows=rows, jd=jd)}
+    ctx = {**_busqueda_detail_context(busqueda), **_scoring_context(busqueda, paso, errors=errors, rows=rows, jd=jd, actor=_pipeline_actor(request))}
     return templates.TemplateResponse(request=request, name="human_capital/busqueda_detail.html", context=_busqueda_shell(request, ctx))
 
 
@@ -1658,6 +1674,68 @@ async def human_capital_busqueda_scoring_grid(request: Request, busqueda_id: str
     except (ValueError, busqueda_repository.BusquedaNotFoundError, *_SCORING_SHELL_ERRORS) as exc:
         return _render_scoring(request, busqueda_id, "grilla", errors=[str(exc)], rows=rows)
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?vista=scoring&paso=grilla&ok={'grilla' if changed else 'grilla_sin_cambios'}", status_code=303)
+
+
+# ── Evaluación CCHH de un candidato (instrumento del scoring) ──
+def _evaluation_values(form: dict, campos) -> dict:
+    """Valores a mostrar por criterio: lo que la persona acaba de enviar (re-render por error) o, si no, su evaluación previa. Solo lectura."""
+    values = {}
+    for cid, prev in (form.get("previous") or {}).items():
+        values[cid] = {"nota": str(prev.get("nota") or ""), "cumple": "si" if prev.get("cumple") is True else ("no" if prev.get("cumple") is False else ""), "comentario": prev.get("comentario") or ""}
+    if campos is not None:
+        for blq in form["criterios_por_bloque"].values():
+            for c in blq:
+                cid = c["criterio_id"]
+                values[cid] = {"nota": str(campos.get(f"nota_{cid}") or ""), "cumple": str(campos.get(f"cumple_{cid}") or ""), "comentario": str(campos.get(f"comentario_{cid}") or "")}
+    return values
+
+
+def _render_evaluation(request: Request, busqueda_id: str, application_id: str, *, errors: list[str] | None = None, campos=None, ok: str = ""):
+    busqueda = human_capital_service.get_busqueda(busqueda_id)
+    if busqueda is None or not busqueda_repository.es_gestionada(busqueda):
+        raise HTTPException(404, "Búsqueda no encontrada")
+    try:
+        form = scoring_service.evaluation_form(busqueda, application_id, _pipeline_actor(request))
+    except LookupError:
+        raise HTTPException(404, "Postulación no encontrada") from None
+    except (scoring_grid_repository.GridStorageError, ValueError) as exc:
+        form, errors = None, [str(exc)]
+    ctx = {"busqueda": busqueda, "application_id": application_id, "form": form, "errors": errors or [], "ok": _SCORING_OK.get(ok),
+           "values": _evaluation_values(form, campos) if form else {}, "comentario_general": (str(campos.get("comentario_general") or "") if campos is not None else (form or {}).get("comentario_general", "")),
+           "registro_url": _registro_entrevista_url(form["application"], busqueda_id) if form and form["application"].get("profile_id") else "/cchh/entrevistas",
+           "back_url": f"/cchh/busquedas/{busqueda_id}?vista=scoring&paso=ranking", "grid_url": f"/cchh/busquedas/{busqueda_id}?vista=scoring&paso=grilla"}
+    return templates.TemplateResponse(request=request, name="human_capital/busqueda_evaluacion_cchh.html", context=_busqueda_shell(request, ctx))
+
+
+@router.get("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/evaluacion-cchh", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_cchh_evaluation_page(request: Request, busqueda_id: str, application_id: str):
+    """Formulario de evaluación CCHH del candidato. Solo lectura: abrirlo NO crea ningún registro (se persiste únicamente al guardar)."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    return _render_evaluation(request, busqueda_id, application_id)
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/evaluacion-cchh", response_class=HTMLResponse, include_in_schema=False)
+async def human_capital_busqueda_cchh_evaluation_save(request: Request, busqueda_id: str, application_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form = await request.form()
+    campos = {k: str(v) for k, v in form.items()}
+    try:
+        _, changed = scoring_service.save_evaluation(busqueda_id, application_id, recorded_by=_pipeline_actor(request), campos=campos, expected_revision=campos.get("expected_revision"))
+    except LookupError:
+        raise HTTPException(404, "No encontrado") from None
+    except scoring_engine.ScoringValidationError as exc:
+        return _render_evaluation(request, busqueda_id, application_id, errors=exc.errors, campos=campos)
+    except scoring_engine.ScoringIdentityError as exc:
+        return _render_evaluation(request, busqueda_id, application_id, errors=[str(exc)], campos=campos)
+    except scoring_evaluation_repository.EvaluationConcurrentModificationError as exc:
+        return _render_evaluation(request, busqueda_id, application_id, errors=[str(exc)])
+    except (ValueError, busqueda_repository.BusquedaNotFoundError, *_SCORING_SHELL_ERRORS) as exc:
+        return _render_evaluation(request, busqueda_id, application_id, errors=[str(exc)], campos=campos)
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?vista=scoring&paso=ranking&ok={'evaluacion' if changed else 'evaluacion_sin_cambios'}", status_code=303)
 
 
 def _busqueda_detail_body(request, busqueda_id: str):
