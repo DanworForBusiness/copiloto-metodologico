@@ -1,0 +1,72 @@
+{# Resultado del INVENTARIO histórico de CVs (solo lectura). Solo agregados: sin nombres de archivo, sin datos personales, sin token ni link. Primitivos del Hub: `dashboard-table`, `status-badge`, `dashboard-empty`. #}
+<div id="dw-cvinv-body" data-inventory-state="{{ 'error' if inv.error else ('complete' if inv.complete else 'partial') }}">
+{% if inv.error %}
+  <div class="dashboard-empty" data-error-kind="{{ inv.error.kind }}"><span class="dashboard-empty__label">No se pudo inventariar</span><p>{{ inv.error.message }}</p></div>
+{% else %}
+  {% set t = inv.totals %}
+  <p>
+    {% if inv.complete %}<span class="status-badge status-badge--activo">Inventario completo</span>
+    {% else %}<span class="status-badge status-badge--tentativo" data-inventory-partial>Inventario INCOMPLETO{% if inv.stopped_reason %} · {{ inv.stopped_reason }}{% endif %}</span>{% endif %}
+    <span class="field-hint">{{ inv.stats.graph_calls }} llamadas a Graph · {{ inv.stats.pages }} páginas · {{ inv.stats.throttled_retries }} reintentos · {{ inv.stats.elapsed_s }} s. Solo lectura: no se descargó ni se guardó nada.</span>
+  </p>
+  <table class="dashboard-table" data-inventory-totals><tbody>
+    <tr><td class="left">Carpetas</td><td class="left">{{ t.folders }}</td><td class="left">Archivos</td><td class="left">{{ t.files }}</td></tr>
+    <tr><td class="left">Profundidad máxima</td><td class="left">{{ t.max_depth }}</td><td class="left">Carpetas vacías</td><td class="left">{{ t.empty_folders }}</td></tr>
+    <tr><td class="left">Accesos directos (no seguidos)</td><td class="left">{{ t.shortcuts }}</td><td class="left">Otros elementos</td><td class="left">{{ t.other_items }}</td></tr>
+    <tr><td class="left">Tamaño total</td><td class="left">{{ (t.bytes / 1048576) | round(1) }} MB</td><td class="left">Carpetas sin recorrer</td><td class="left">{{ t.pending_folders }}</td></tr>
+  </tbody></table>
+
+  <h3>Compatibilidad con el alta de CVs</h3>
+  {% set c = inv.classification %}
+  <table class="dashboard-table" data-inventory-classes><tbody>
+    <tr><td class="left">Compatibles (PDF/DOCX ≤ {{ (inv.sizes.limit_bytes / 1048576) | round | int }} MB)</td><td class="left">{{ c.compatible }}</td></tr>
+    <tr><td class="left">DOC binario (revisión manual)</td><td class="left">{{ c.doc_manual }}</td></tr>
+    <tr><td class="left">Formato no soportado</td><td class="left">{{ c.unsupported }}</td></tr>
+    <tr><td class="left">Superan el tamaño máximo</td><td class="left">{{ c.too_large }}</td></tr>
+    <tr><td class="left">Vacíos</td><td class="left">{{ c.empty }}</td></tr>
+    <tr><td class="left">Temporales / de sistema (ignorados)</td><td class="left">{{ c.ignored }}</td></tr>
+  </tbody></table>
+
+  <h3>Distribución por especialidad <span class="field-hint">(subcarpeta de primer nivel)</span></h3>
+  {% if inv.specialties %}
+  <div class="matrix-scroll"><table class="dashboard-table" data-inventory-specialties>
+    <thead><tr><th class="left">Especialidad</th><th>Archivos</th><th>Compat.</th><th>DOC</th><th>No sop.</th><th>Grandes</th><th>Vacíos</th><th>Ign.</th><th>MB</th><th>Subcarpetas</th></tr></thead>
+    <tbody>
+    {% for s in inv.specialties %}
+    <tr><td class="left">{{ s.name }}</td><td>{{ s.files }}</td><td>{{ s.compatible }}</td><td>{{ s.doc_manual }}</td><td>{{ s.unsupported }}</td><td>{{ s.too_large }}</td><td>{{ s.empty }}</td><td>{{ s.ignored }}</td><td>{{ (s.bytes / 1048576) | round(1) }}</td><td>{{ s.subfolders }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% if inv.specialty_variants %}<p class="field-hint" data-inventory-variants>Rótulos que difieren solo en mayúsculas, acentos o espacios (a unificar al mapear especialidades): {% for group in inv.specialty_variants %}{{ group | join(" / ") }}{% if not loop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
+  {% else %}<p class="field-hint">Sin carpetas ni archivos en el origen.</p>{% endif %}
+
+  <h3>Formatos y tamaños</h3>
+  <table class="dashboard-table" data-inventory-formats>
+    <thead><tr><th class="left">Extensión</th><th>Archivos</th><th>MB</th></tr></thead>
+    <tbody>{% for f in inv.formats %}<tr><td class="left">{{ f.ext }}</td><td>{{ f.files }}</td><td>{{ (f.bytes / 1048576) | round(1) }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% set sz = inv.sizes %}
+  <p class="field-hint" data-inventory-sizes>Considerados {{ sz.considered_files }} archivos (sin vacíos ni temporales) · mínimo {{ (sz.min / 1024) | round | int }} KB · mediana {{ (sz.median / 1024) | round | int }} KB · máximo {{ (sz.max / 1048576) | round(1) }} MB.
+    {% for label, n in sz.buckets.items() %}{{ label }}: {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+
+  <h3>Repetidos y posibles duplicados</h3>
+  {% set d = inv.duplicates %}
+  <table class="dashboard-table" data-inventory-duplicates><tbody>
+    <tr><td class="left">Elementos repetidos por identidad Graph</td><td class="left">{{ d.graph_identity_repeated }}</td></tr>
+    <tr><td class="left">Accesos directos repetidos</td><td class="left">{{ d.remote_item_repeated }}</td></tr>
+    <tr><td class="left">Archivos con hash disponible / sin hash</td><td class="left">{{ d.hash.with_hash }} / {{ d.hash.without_hash }}</td></tr>
+    <tr><td class="left">Grupos de contenido idéntico (mismo hash y tamaño)</td><td class="left">{{ d.hash.groups }}</td></tr>
+    <tr><td class="left">Archivos dentro de esos grupos · copias sobrantes</td><td class="left">{{ d.hash.files_in_groups }} · {{ d.hash.surplus_copies }}</td></tr>
+    <tr><td class="left">Grupos repartidos en más de una especialidad</td><td class="left">{{ d.hash.cross_specialty_groups }}</td></tr>
+  </tbody></table>
+
+  <h3>Errores de acceso o paginación</h3>
+  {% if inv.errors %}
+  <table class="dashboard-table" data-inventory-errors>
+    <thead><tr><th class="left">Ámbito</th><th class="left">Tipo</th><th class="left">Carpeta (especialidad)</th><th>Prof.</th><th>Pág.</th><th>HTTP</th><th class="left">Código</th></tr></thead>
+    <tbody>{% for e in inv.errors %}<tr><td class="left">{{ e.scope }}</td><td class="left">{{ e.kind }}</td><td class="left">{{ e.folder or "—" }}</td><td>{{ e.depth if e.depth is not none else "—" }}</td><td>{{ e.page or "—" }}</td><td>{{ e.status or "—" }}</td><td class="left">{{ e.code or e.reason or "—" }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% else %}<p class="field-hint" data-inventory-no-errors>Sin errores de acceso ni de paginación.</p>{% endif %}
+  <ul class="field-hint">{% for n in inv.notes %}<li>{{ n }}</li>{% endfor %}</ul>
+{% endif %}
+</div>

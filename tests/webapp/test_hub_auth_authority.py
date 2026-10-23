@@ -264,6 +264,8 @@ def test_the_marker_is_declarative_and_carries_no_credential():
     APROBADOS por archivo (no un número mágico suelto) para que sumar/quitar un
     consumidor sea una decisión explícita, no un conteo silencioso:
       - operations/staffing.html    -> asignaciones (1)
+      - human_capital/diagnostico_sharepoint.html -> inventario histórico de CVs, SOLO LECTURA (1): usa el token base de lectura (`Sites.Read.All`) que inyecta el MISMO hook;
+        no obtiene ni guarda credenciales
       - partials/admin_panel.html   -> diagnóstico/refresh (3) + «Sincronizar solo APIs/CDS» (1)
       - partials/admin_apis_sync.html -> aplicar sincronización (1) y reintentar rollback (1) del modo APIS_ONLY (formularios que devuelve el
         preflight: el token Graph delegado lo inyecta el MISMO hook en cada POST; nada se guarda ni viaja en el markup)
@@ -275,6 +277,7 @@ def test_the_marker_is_declarative_and_carries_no_credential():
         la credencial).
     """
     approved = {
+        "human_capital/diagnostico_sharepoint.html": 1,
         "operations/staffing.html": 1,
         "partials/admin_apis_sync.html": 2,
         "partials/admin_panel.html": 4,

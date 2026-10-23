@@ -114,6 +114,7 @@ from webapp.services import (
     human_capital_indicators, human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
+from webapp.services import cv_history_inventory
 from webapp.services import human_capital_contact
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
@@ -3003,6 +3004,32 @@ def human_capital_sharepoint_diagnostics_probe(request: Request, graph_token: st
         return JSONResponse({"ok": False, "error": "Sin token de Microsoft 365 (el navegador no pudo obtenerlo)."}, status_code=400, headers={"Cache-Control": "no-store"})
     result = sharepoint_graph_diagnostics.run_probe(graph_token, control_sharing_url=control_url)
     return JSONResponse({"ok": True, **result}, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/cchh/diagnostico/sharepoint/inventario", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_inventory(request: Request, graph_token: str = Form(""), share_url: str = Form("")):
+    """INVENTARIO de SOLO LECTURA del histórico de CVs (ver `cv_history_inventory`): resuelve el link y recorre la carpeta con GET; muestra agregados (sin nombres de archivo ni datos personales),
+    no descarga, no guarda y no crea nada. Solo APP_OWNER. El token de LECTURA lo inyecta el hook compartido (`data-dw-graph-token`): jamás viaja en la plantilla ni se registra."""
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+
+    def _render(inv: dict):
+        # SIEMPRE 200: HTMX no reemplaza el contenido ante 4xx/5xx, y el estado de error ES el contenido que la persona tiene que ver (el `data-error-kind` lo distingue).
+        return templates.TemplateResponse(request=request, name="partials/cv_history_inventory_result.html", context={"request": request, "inv": inv},
+                                          headers={"Cache-Control": "no-store"})
+
+    if not graph_token:
+        return _render({"error": {"kind": "missing_token", "message": "Sin token de Microsoft 365 (el navegador no pudo obtenerlo). Volvé a iniciar sesión."}})
+    try:
+        result = cv_history_inventory.run_inventory(graph_token, share_url)
+    except cv_history_inventory.InventoryInputError as exc:
+        return _render({"error": {"kind": "invalid_link", "message": str(exc)}})
+    if not result.get("ok"):
+        kind = (result.get("errors") or [{}])[0].get("kind", "unresolved")
+        message = {"not_a_folder": "El link no es una carpeta: pegá el link de la carpeta histórica."}.get(kind, "No se pudo resolver el link a una carpeta de SharePoint con tus permisos actuales.")
+        return _render({"error": {"kind": kind, "message": message}})
+    return _render(result)
 
 
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}

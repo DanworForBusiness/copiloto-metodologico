@@ -52,6 +52,23 @@
         </div>
       </details>
       <details class="dashboard-section" open>
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Inventario histórico de CVs (solo lectura)</span></summary>
+        <div class="dashboard-section__body">
+          <p class="field-hint">Recorre la carpeta histórica con el token de LECTURA del Hub (<code>Sites.Read.All</code>) y muestra solo agregados: carpetas, archivos, especialidades (subcarpetas de primer nivel), formatos, tamaños, compatibilidad, repetidos y posibles duplicados por hash. No descarga archivos, no extrae datos personales, no guarda nada y no crea perfiles.</p>
+          <form id="dw-cvinv-form" class="hc-profile-form" hx-post="/cchh/diagnostico/sharepoint/inventario" hx-target="#dw-cvinv-result" hx-swap="innerHTML" hx-disabled-elt="find button[type='submit']" hx-indicator="#dw-cvinv-status" data-dw-graph-token>
+            <div class="feedback-field">
+              <label for="dw-cvinv-url">Link de uso compartido de la carpeta histórica</label>
+              <input id="dw-cvinv-url" name="share_url" type="text" autocomplete="off" placeholder="https://danwor.sharepoint.com/:f:/s/…" required>
+            </div>
+            <div class="hc-profile-form__actions">
+              <button type="submit" class="btn-primary">Inventariar (solo lectura)</button>
+              <span class="field-hint htmx-indicator" id="dw-cvinv-status" role="status">Recorriendo la carpeta… puede tardar hasta un minuto.</span>
+            </div>
+          </form>
+          <div id="dw-cvinv-result" aria-live="polite"></div>
+        </div>
+      </details>
+      <details class="dashboard-section" open>
         <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Prueba de escritura (carpeta de CONTROL)</span></summary>
         <div class="dashboard-section__body">
           <p class="field-hint">Crea <strong>un</strong> archivo de texto inocuo, de nombre único (<code>cchh-sharepoint-upload-test-&lt;UTC&gt;-&lt;UUID&gt;.txt</code>), en la carpeta de control, con el mismo token y el mismo transporte que la subida de CVs. Un solo intento, sin reintentos; no crea carpetas ni registros. Solo localhost y solo owner. Se rechaza si el destino coincide con CURRENT (sitio, drive o ítem). El archivo creado se borra a mano.</p>
