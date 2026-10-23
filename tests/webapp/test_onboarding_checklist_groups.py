@@ -146,7 +146,7 @@ def test_authorization_and_the_data_form_are_unchanged(c):
     assert anon.get(f"/cchh/onboarding/{app_id}/editar").status_code == 403 and anon.post(f"/cchh/onboarding/{app_id}/checklist/dni", data={"checked": "1"}).status_code == 403
     assert orepo.get(app_id)["checklist"] == {}
     html = _page(c, app_id)
-    assert 'name="fecha_ingreso"' in html and 'name="oferta_cerrada"' in html and 'name="area"' in html and "Checklist de ingreso" in html and "Guardar cambios" in html
+    assert 'name="fecha_ingreso"' in html and 'id="onb-oferta"' in html and 'name="area"' in html and "Checklist de ingreso" in html and "Guardar cambios" in html
 
 
 def test_layout_rules_align_the_second_column_match_the_hub_title_and_add_breathing_room():

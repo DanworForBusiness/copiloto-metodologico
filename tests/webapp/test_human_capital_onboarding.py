@@ -36,6 +36,7 @@ REFERENCE_ITEMS = [
 def _authorized_and_isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", "ALL")
     monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", _AUTHORIZED_EMAIL)
+    monkeypatch.setattr(auth_service, "HC_SENSITIVE_DATA_ALLOWED_USERS", _AUTHORIZED_EMAIL)       # «Oferta cerrada» es dato sensible: estos tests ejercitan el camino AUTORIZADO (el restringido vive en test_onboarding_offer_protection.py)
     monkeypatch.setattr(auth_service, "OPERATIONS_ALLOWED_USERS", "")
     monkeypatch.setattr(auth_service, "COMMERCIAL_ALLOWED_USERS", "")
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
@@ -241,7 +242,7 @@ def test_completado_is_persisted_and_stable_when_the_definition_changes(monkeypa
 def test_form_edits_use_optimistic_concurrency_and_validate_fecha():
     bid = _busqueda()
     _pid, aid = _hire(bid)
-    o = human_capital_service.update_onboarding(aid, 1, {"fecha_ingreso": "2026-10-05", "oferta_cerrada": "  USD 2.400  ", "area": ""})
+    o = human_capital_service.update_onboarding(aid, 1, {"fecha_ingreso": "2026-10-05", "oferta_cerrada": "  USD 2.400  ", "area": ""}, allow_sensitive=True)
     assert (o["fecha_ingreso"], o["oferta_cerrada"], o["area"], o["revision"]) == ("2026-10-05", "USD 2.400", None, 2)
     with pytest.raises(onboarding_repository.OnboardingConcurrentModificationError):
         human_capital_service.update_onboarding(aid, 1, {"fecha_ingreso": "2026-10-06"})
@@ -258,7 +259,7 @@ def test_area_is_governed_by_area_consultora_with_the_migration_safe_contract():
     _pid, aid = _hire(bid)
     onboarding_repository.set_area(aid, "OPERACIONES")                                   # legacy heredado de una entrevista vieja, fuera de catálogo
     o = onboarding_repository.get(aid)
-    kept = human_capital_service.update_onboarding(aid, o["revision"], {"fecha_ingreso": o["fecha_ingreso"], "area": "OPERACIONES", "oferta_cerrada": "x"})
+    kept = human_capital_service.update_onboarding(aid, o["revision"], {"fecha_ingreso": o["fecha_ingreso"], "area": "OPERACIONES", "oferta_cerrada": "x"}, allow_sensitive=True)
     assert kept["area"] == "OPERACIONES"                                                  # legacy preservado si no se toca
     with pytest.raises(ValueError):
         human_capital_service.update_onboarding(aid, kept["revision"], {"fecha_ingreso": o["fecha_ingreso"], "area": "Otra Cosa"})
@@ -387,7 +388,7 @@ def test_a_stale_open_form_never_overwrites_the_checklist_ticked_meanwhile():
 def test_ticking_after_a_form_save_also_preserves_the_form_fields():
     bid = _busqueda()
     _pid, aid = _hire(bid)
-    human_capital_service.update_onboarding(aid, 1, {"fecha_ingreso": "2026-10-12", "oferta_cerrada": "X", "area": ""})
+    human_capital_service.update_onboarding(aid, 1, {"fecha_ingreso": "2026-10-12", "oferta_cerrada": "X", "area": ""}, allow_sensitive=True)
     onboarding_repository.set_item(aid, "dni", True)
     o = onboarding_repository.get(aid)
     assert (o["fecha_ingreso"], o["oferta_cerrada"], o["checklist"], o["revision"]) == ("2026-10-12", "X", {"dni": True}, 2)
@@ -573,7 +574,7 @@ def _fixture_rows():
     _p2, a2 = _hire(bid, "Joaquin", "Martinez")         # completo  · RRHH
     _p3, a3 = _hire(bid2, "Hernan", "Lopez")            # pendiente · legacy OPERACIONES
     _p4, a4 = _hire(bid2, "Maria", "Gonzalez")          # pendiente · sin área
-    human_capital_service.update_onboarding(a1, 1, {"fecha_ingreso": "2026-09-14", "oferta_cerrada": "USD 2.400", "area": "Consultoria"})
+    human_capital_service.update_onboarding(a1, 1, {"fecha_ingreso": "2026-09-14", "oferta_cerrada": "USD 2.400", "area": "Consultoria"}, allow_sensitive=True)
     human_capital_service.update_onboarding(a2, 1, {"fecha_ingreso": "2026-08-31", "oferta_cerrada": "", "area": "RRHH"})
     human_capital_service.update_onboarding(a3, 1, {"fecha_ingreso": "2026-10-05", "oferta_cerrada": "", "area": ""})
     onboarding_repository.set_area(a3, "OPERACIONES")                                       # legacy heredado de una entrevista vieja

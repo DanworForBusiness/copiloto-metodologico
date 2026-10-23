@@ -1470,12 +1470,20 @@ def get_onboarding(application_id: str) -> dict | None:
     return onboarding_repository.get(application_id)
 
 
-def onboarding_view(onboarding: dict) -> dict:
-    """Enriquece un Onboarding con el Profile (maestro de datos personales, leído en vivo), la Búsqueda (puesto/proceso) y el progreso derivado del checklist."""
+def mask_onboarding_offer(onboarding: dict, allow: bool) -> dict:
+    """«Oferta cerrada» es un dato SENSIBLE (misma política que «Remuneración pretendida»: `HC_SENSITIVE_DATA_ALLOWED_USERS`). Copia del Onboarding con el valor enmascarado (`****`, SIEMPRE, haya o no valor: no se revela ni su presencia)
+    si `allow` es False. No toca el persistido."""
+    if allow:
+        return onboarding
+    return {**onboarding, "oferta_cerrada": COMPENSATION_MASK}
+
+
+def onboarding_view(onboarding: dict, allow_sensitive: bool = False) -> dict:
+    """Enriquece un Onboarding con el Profile (maestro de datos personales, leído en vivo), la Búsqueda (puesto/proceso) y el progreso derivado del checklist. Sin permiso (default, fail-closed) la oferta cerrada sale enmascarada."""
     profile = profile_repository.get(onboarding.get("profile_id"))
     busqueda = busqueda_repository.get(onboarding["busqueda_id"]) if onboarding.get("busqueda_id") else None
     return {
-        **onboarding,
+        **mask_onboarding_offer(onboarding, allow_sensitive),
         "profile": profile,
         "busqueda": busqueda,
         "puesto_mostrado": (busqueda or {}).get("nombre_puesto"),
@@ -1485,8 +1493,8 @@ def onboarding_view(onboarding: dict) -> dict:
     }
 
 
-def list_onboardings_view() -> list[dict]:
-    return [onboarding_view(o) for o in list_onboardings()]
+def list_onboardings_view(allow_sensitive: bool = False) -> list[dict]:
+    return [onboarding_view(o, allow_sensitive) for o in list_onboardings()]
 
 
 SIN_AREA = "__sin_area__"                  # valor de un filtro Área para las filas SIN área (no es una taxonomía: es la ausencia de valor)
@@ -1495,7 +1503,7 @@ ENTREVISTA_SIN_ORIGEN = "__sin_origen__"   # ídem para Origen / Puesto en el li
 ENTREVISTA_SIN_PUESTO = "__sin_puesto__"
 
 
-def _onboarding_search_haystack(row: dict) -> str:
+def _onboarding_search_haystack(row: dict, include_offer: bool = False) -> str:
     """Texto sobre el que busca el campo Buscar del listado: lo VISIBLE de la fila (candidato, puesto, área, fecha de ingreso en su formato de presentación DD-MM-YYYY
     y en ISO, y el texto de progreso tal cual se muestra) + la oferta cerrada (dato relevante de la fila). MISMA normalización que la búsqueda de Candidatos."""
     profile = row.get("profile") or {}
@@ -1505,11 +1513,11 @@ def _onboarding_search_haystack(row: dict) -> str:
     prog = row.get("progress") or {}
     progreso = "Completado" if row.get("completado") else f"{prog.get('hechos', 0)}/{prog.get('total', 0)} · {prog.get('porcentaje', 0)}%"
     values = [f"{profile.get('first_name') or ''} {profile.get('last_name') or ''}", row.get("puesto_mostrado"), row.get("area"), fecha, fecha_dmy, progreso,
-              row.get("oferta_cerrada")]
+              row.get("oferta_cerrada") if include_offer else None]            # dato sensible: sin permiso NO es buscable (ni siquiera enmascarado)
     return " ".join(_normalize_text(v) for v in values if v)
 
 
-def filter_onboardings(rows: list[dict], *, estado: str = "todos", area: str = "", q: str = "") -> list[dict]:
+def filter_onboardings(rows: list[dict], *, estado: str = "todos", area: str = "", q: str = "", include_offer: bool = False) -> list[dict]:
     """AND entre Estado (pendientes/completos por `completado`), Área (igualdad EXACTA sobre el área EFECTIVA de la fila, incluido un valor legacy fuera de catálogo;
     `ONBOARDING_SIN_AREA` = filas sin área) y Buscar (substring normalizado, case-insensitive, sobre `_onboarding_search_haystack`). Un filtro vacío no restringe."""
     wanted_q = _normalize_text(q)
@@ -1526,7 +1534,7 @@ def filter_onboardings(rows: list[dict], *, estado: str = "todos", area: str = "
                     continue
             elif effective != area:
                 continue
-        if wanted_q and wanted_q not in _onboarding_search_haystack(row):
+        if wanted_q and wanted_q not in _onboarding_search_haystack(row, include_offer):
             continue
         out.append(row)
     return out
@@ -1562,7 +1570,7 @@ def filter_entrevistas(rows: list[dict], *, origen: str = "", puesto: str = "", 
     return out
 
 
-def _shape_onboarding_fields(fields: dict, *, existing: dict | None = None) -> dict:
+def _shape_onboarding_fields(fields: dict, *, existing: dict | None = None, allow_sensitive: bool = False) -> dict:
     """`fecha_ingreso` es obligatoria (NOT NULL en la referencia); `oferta_cerrada` es texto libre opcional; `area` está GOBERNADA por `area_consultora` (MISMA
     taxonomía que Entrevista.area/Búsqueda.area_consultora: es la que se hereda de la entrevista y se sincroniza), con el contrato migration-safe habitual."""
     fecha = (fields.get("fecha_ingreso") or "").strip()
@@ -1572,13 +1580,15 @@ def _shape_onboarding_fields(fields: dict, *, existing: dict | None = None) -> d
         raise ValueError("La fecha de ingreso es obligatoria y tiene que ser una fecha válida.") from None
     area = (fields.get("area") or "").strip() or None
     _validate_area_consultora_governed(area, existing_value=(existing or {}).get("area"))
-    return {"fecha_ingreso": fecha, "oferta_cerrada": (fields.get("oferta_cerrada") or "").strip() or None, "area": area}
+    # «Oferta cerrada» es sensible: sin permiso el valor enviado se DESCARTA y se conserva el persistido (nunca se pisa ni se borra indirectamente).
+    oferta = ((fields.get("oferta_cerrada") or "").strip() or None) if allow_sensitive else (existing or {}).get("oferta_cerrada")
+    return {"fecha_ingreso": fecha, "oferta_cerrada": oferta, "area": area}
 
 
-def update_onboarding(application_id: str, expected_revision: int, fields: dict) -> dict:
+def update_onboarding(application_id: str, expected_revision: int, fields: dict, *, allow_sensitive: bool = False) -> dict:
     existing = onboarding_repository.get(application_id)
     return onboarding_repository.update(
-        application_id, expected_revision, _shape_onboarding_fields(fields, existing=existing))
+        application_id, expected_revision, _shape_onboarding_fields(fields, existing=existing, allow_sensitive=allow_sensitive))
 
 
 def set_onboarding_item(application_id: str, key: str, checked: bool) -> dict:

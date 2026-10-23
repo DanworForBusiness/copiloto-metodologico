@@ -2309,6 +2309,7 @@ def _onboarding_shell(request, extra: dict) -> dict:
         "current_workspace": workspaces.HUMAN_CAPITAL,
         "available_workspaces": workspaces.available_workspaces(user),
         "pack": DEFAULT_PACK, "user": user, "active_page": "onboarding",
+        "can_see_offer": human_capital_access.can_view_sensitive_data(user),            # «Oferta cerrada»: MISMA política central que «Remuneración pretendida»; jamás un dato del navegador
         **extra,
     }
 
@@ -2334,7 +2335,7 @@ def _onboarding_area_filter_options(rows: list[dict], selected: str) -> list[dic
     return _governed_filter_options("area_consultora", [o.get("area") for o in rows], selected, human_capital_service.SIN_AREA, "Sin área")
 
 
-def _onboarding_list_context(estado: str = "todos", area: str = "", q: str = "", page=1, page_size=None) -> dict:
+def _onboarding_list_context(estado: str = "todos", area: str = "", q: str = "", page=1, page_size=None, allow_sensitive: bool = False) -> dict:
     if estado not in _ONBOARDING_ESTADO_FILTERS:
         estado = "todos"
     area, q = (area or "").strip(), (q or "").strip()
@@ -2343,12 +2344,12 @@ def _onboarding_list_context(estado: str = "todos", area: str = "", q: str = "",
     try:
         # GET de navegación = SOLO LECTURA: nunca crea/repone onboardings. El backfill de ingresos históricos es un paso operativo explícito y separado
         # (`human_capital_service.reconcile_onboardings`, DEFERRED: Historical onboarding backfill = deferred operational step).
-        rows = human_capital_service.list_onboardings_view()
+        rows = human_capital_service.list_onboardings_view(allow_sensitive)
     except (onboarding_repository.OnboardingStorageError, busqueda_repository.BusquedaStorageError) as exc:
         source_error = str(exc)
     dataset_has_any = bool(rows)
     area_options = _onboarding_area_filter_options(rows, area)         # sobre el dataset COMPLETO: las opciones no desaparecen al filtrar
-    rows = human_capital_service.filter_onboardings(rows, estado=estado, area=area, q=q)
+    rows = human_capital_service.filter_onboardings(rows, estado=estado, area=area, q=q, include_offer=allow_sensitive)
     rows.sort(key=lambda o: (o.get("fecha_ingreso") or "", o.get("created_at") or ""), reverse=True)      # orden ANTES de paginar
     pager = pagination.paginate(rows, page=page, page_size=page_size, base_url="/cchh/onboarding",
                                 params={"estado": estado if estado != "todos" else "", "area": area, "q": q})
@@ -2386,7 +2387,7 @@ def human_capital_onboarding_page(request: Request, estado: str = Query("todos")
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    ctx = _onboarding_list_context(estado, area, q, page, page_size)
+    ctx = _onboarding_list_context(estado, area, q, page, page_size, human_capital_access.can_view_sensitive_data_request(request))
     # Filtro reactivo (HTMX): sólo se re-renderiza el panel (`#hc-onboarding-panel`) — MISMO criterio de fragmento que Candidatos.
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
@@ -2401,7 +2402,10 @@ def human_capital_onboarding_page(request: Request, estado: str = Query("todos")
 
 def _onboarding_edit_response(request: Request, application_id: str, form_values: dict, **extra):
     onboarding = human_capital_service.get_onboarding(application_id)
-    view = human_capital_service.onboarding_view(onboarding) if onboarding else None
+    allow = human_capital_access.can_view_sensitive_data_request(request)
+    view = human_capital_service.onboarding_view(onboarding, allow) if onboarding else None
+    if not allow:
+        form_values = {**form_values, "oferta_cerrada": None}                      # sin permiso, la oferta (persistida o enviada) no viaja a la plantilla
     return templates.TemplateResponse(
         request=request, name="human_capital/onboarding_form.html",
         context=_onboarding_shell(request, _onboarding_form_context(
@@ -2431,14 +2435,15 @@ def human_capital_onboarding_edit_submit(
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    form_values = {"fecha_ingreso": fecha_ingreso, "oferta_cerrada": oferta_cerrada, "area": area}
+    allow = human_capital_access.can_view_sensitive_data_request(request)
+    form_values = {"fecha_ingreso": fecha_ingreso, "oferta_cerrada": oferta_cerrada if allow else None, "area": area}      # sin permiso, lo enviado se descarta antes de todo
     try:
         revision_int = int(expected_revision)
     except ValueError:
         raise HTTPException(400, "expected_revision inválido") from None
     fv = {**form_values, "expected_revision": revision_int, "application_id": application_id}
     try:
-        human_capital_service.update_onboarding(application_id, revision_int, form_values)
+        human_capital_service.update_onboarding(application_id, revision_int, form_values, allow_sensitive=allow)
     except onboarding_repository.OnboardingNotFoundError:
         raise HTTPException(404, "Onboarding no encontrado") from None
     except ValueError as exc:
@@ -2471,7 +2476,7 @@ def human_capital_onboarding_toggle_item(request: Request, application_id: str, 
         raise HTTPException(404, "Onboarding no encontrado")
     return templates.TemplateResponse(
         request=request, name="partials/human_capital_onboarding_checklist.html",
-        context={"request": request, "onboarding": human_capital_service.onboarding_view(onboarding), "checklist_error": error},
+        context={"request": request, "onboarding": human_capital_service.onboarding_view(onboarding, human_capital_access.can_view_sensitive_data_request(request)), "checklist_error": error},
     )
 
 

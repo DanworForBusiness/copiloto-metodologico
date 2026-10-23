@@ -49,7 +49,13 @@
           </div>
           <div class="feedback-field feedback-field--medium">
             <label for="onb-oferta">Oferta cerrada</label>
+            {# Dato RESTRINGIDO (`HC_SENSITIVE_DATA_ALLOWED_USERS`, MISMA política que «Remuneración pretendida»): sin permiso NO hay input con nombre ni valor real en el HTML; solo la máscara. El backend además descarta cualquier importe enviado. #}
+            {% if can_see_offer %}
             <input id="onb-oferta" name="oferta_cerrada" type="text" value="{{ form_values.oferta_cerrada or '' }}">
+            {% else %}
+            <input id="onb-oferta" type="text" value="****" readonly disabled aria-describedby="onb-oferta-hint">
+            <p class="field-hint" id="onb-oferta-hint">Dato restringido: solo lo ven y editan las personas autorizadas.</p>
+            {% endif %}
           </div>
           <div class="feedback-field feedback-field--medium">
             <label for="onb-area">Área</label>
