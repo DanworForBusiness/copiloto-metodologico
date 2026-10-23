@@ -51,6 +51,7 @@ from datetime import date, datetime
 
 from webapp.services import human_capital_catalog_repository as catalog_repo
 from webapp.services import busqueda_repository
+from webapp.services import candidate_eligibility
 from webapp.services import entrevista_repository
 from webapp.services import onboarding_checklist
 from webapp.services import onboarding_repository
@@ -1105,10 +1106,20 @@ def take_solicitud(busqueda_id: str, expected_revision: int, actor: str) -> dict
     return busqueda_repository.take_solicitud(busqueda_id, expected_revision, _require_actor(actor))
 
 
+class CandidateNotEligibleError(ValueError):
+    """El candidato no puede recibir NUEVAS postulaciones (regla transversal de elegibilidad: hoy, marca «No reconsiderar»). `reason` es la clave semántica del bloqueo."""
+    def __init__(self, reason: str):
+        super().__init__(candidate_eligibility.message_for(reason))
+        self.reason = reason
+
+
 def add_candidate_to_busqueda(busqueda_id: str, profile_id: str, *, actor: str | None = None) -> dict:
     profile = profile_repository.get(profile_id)
     if profile is None or profile.get("deleted_at"):
         raise ValueError("El candidato no existe o fue eliminado del Banco de CVs.")
+    reason = candidate_eligibility.blocked_reason(profile)         # misma regla que filtra el selector: se exige TAMBIÉN en el servidor (nunca solo en la vista)
+    if reason:
+        raise CandidateNotEligibleError(reason)
     return busqueda_repository.add_candidate(busqueda_id, profile_id, actor=actor, names=_candidate_display_name)
 
 
@@ -1158,7 +1169,13 @@ def profiles_available_for_busqueda(busqueda: dict) -> list[dict]:
         app.get("profile_id") for app in busqueda.get("candidatos", [])
         if app.get("etapa") != busqueda_repository.ETAPA_FINAL
     }
-    return [p for p in list_profiles() if p["profile_id"] not in in_this_search]
+    return [p for p in list_profiles() if p["profile_id"] not in in_this_search and candidate_eligibility.is_eligible(p)]
+
+
+def profiles_blocked_for_busqueda_count(busqueda: dict) -> int:
+    """Cuántos perfiles del Banco NO se ofrecen para este proceso por la regla de elegibilidad («No reconsiderar»). Solo un conteo: el selector no nombra a esas personas."""
+    in_this_search = {app.get("profile_id") for app in busqueda.get("candidatos", []) if app.get("etapa") != busqueda_repository.ETAPA_FINAL}
+    return sum(1 for p in list_profiles() if p["profile_id"] not in in_this_search and not candidate_eligibility.is_eligible(p))
 
 
 def busqueda_candidates_view(busqueda: dict) -> list[dict]:

@@ -1273,7 +1273,8 @@ _MSG_SOLICITUD_TAKEN = "Esa solicitud ya fue tomada por otra persona o cambió (
 _MSG_SOLICITUD_SOURCE = "No pudimos leer las solicitudes en este momento. Reintentá en unos minutos."
 # Post/Redirect/Get: ante un conflicto/error de persistencia al tomar o pedir corrección, un navegador (Accept: text/html) recibe 303 hacia la pantalla con `?aviso=<clave>` (lista blanca; nunca texto libre
 # en la URL) y el aviso se muestra en un GET; un consumidor NO HTML recibe el 409/503 con el mensaje (`HTTPException`, JSON).
-_SOLICITUD_AVISOS = {"tomada": _MSG_SOLICITUD_TAKEN, "cambio": _MSG_SOLICITUD_CONCURRENT, "error": _MSG_SOLICITUD_STORAGE}
+_SOLICITUD_AVISOS = {"tomada": _MSG_SOLICITUD_TAKEN, "cambio": _MSG_SOLICITUD_CONCURRENT, "error": _MSG_SOLICITUD_STORAGE,
+                     "no_elegible": "No se pudo agregar al candidato: no es elegible para nuevos procesos (marca «No reconsiderar»)."}
 
 
 def _wants_html(request: Request) -> bool:
@@ -1388,6 +1389,7 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
         "etapa_final": busqueda_repository.ETAPA_FINAL,
         "total_candidatos": len(view),
         "available_profiles": human_capital_service.profiles_available_for_busqueda(busqueda),
+        "blocked_profiles_count": human_capital_service.profiles_blocked_for_busqueda_count(busqueda),
         # "Eliminar" (owner request, diálogo Cerrar proceso): sólo visible para
         # una búsqueda placeholder/dummy -- MISMA regla que valida
         # `delete_busqueda` server-side (única fuente de verdad, ver
@@ -1743,15 +1745,15 @@ async def human_capital_busqueda_cchh_evaluation_save(request: Request, busqueda
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?vista=evaluacion&paso=ranking&ok={'evaluacion' if changed else 'evaluacion_sin_cambios'}", status_code=303)
 
 
-def _busqueda_detail_body(request, busqueda_id: str):
+def _busqueda_detail_body(request, busqueda_id: str, notice: str | None = None):
     """Fragmento del cuerpo del detalle (pipeline + agregar candidato), usado
-    para el swap HTMX tras cada mutación de pipeline."""
+    para el swap HTMX tras cada mutación de pipeline. `notice`: aviso visible cuando la acción pedida no se aplicó (p. ej. candidato no elegible)."""
     busqueda = human_capital_service.get_busqueda(busqueda_id)
     if busqueda is None:
         raise HTTPException(404, "Búsqueda no encontrada")
     return templates.TemplateResponse(
         request=request, name="partials/human_capital_busqueda_detail_body.html",
-        context={"request": request, **_busqueda_detail_context(busqueda), "oob_historial": True},
+        context={"request": request, **_busqueda_detail_context(busqueda), "oob_historial": True, "pipeline_notice": notice},
     )
 
 
@@ -1760,15 +1762,18 @@ def human_capital_busqueda_add_candidate(request: Request, busqueda_id: str, pro
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    notice = None
     try:
         human_capital_service.add_candidate_to_busqueda(busqueda_id, profile_id, actor=_pipeline_actor(request))
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
+    except human_capital_service.CandidateNotEligibleError as exc:
+        notice = str(exc)                                              # regla de elegibilidad: no se incorpora y se AVISA (no es un fallo silencioso)
     except (ValueError, *_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
         pass  # el body se re-renderiza igual; un fallo de durabilidad no rompe la vista
     if request.headers.get("HX-Request"):
-        return _busqueda_detail_body(request, busqueda_id)
-    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
+        return _busqueda_detail_body(request, busqueda_id, notice=notice)
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}" + ("?aviso=no_elegible" if notice else ""), status_code=303)
 
 
 @router.post("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/etapa",

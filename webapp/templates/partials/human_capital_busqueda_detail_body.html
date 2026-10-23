@@ -6,6 +6,7 @@
    se leen en vivo del Banco (app.profile), nunca se copian acá. #}
 {% set bid = busqueda.busqueda_id %}
 
+{% if pipeline_notice %}<div class="dashboard-empty" data-error-kind="eligibility" role="alert"><span class="dashboard-empty__label">No se pudo agregar</span><p>{{ pipeline_notice }}</p></div>{% endif %}
 <div class="busqueda-pipeline-bar">
   <span class="busqueda-pipeline-bar__total">{{ total_candidatos }} candidato{{ '' if total_candidatos == 1 else 's' }}</span>
   {% for etapa in etapas %}<span class="busqueda-pipeline-bar__stage">{{ 'Finalizados' if etapa == etapa_final else etapa }}: <strong>{{ board[etapa] | length }}</strong></span>{% endfor %}
@@ -156,6 +157,7 @@
       </tbody>
     </table>
     <p class="field-hint" data-picker-empty hidden>No encontramos candidatos con ese criterio.</p>
+    {% if blocked_profiles_count %}<p class="field-hint" data-picker-blocked>{{ blocked_profiles_count }} candidato{{ '' if blocked_profiles_count == 1 else 's' }} marcado{{ '' if blocked_profiles_count == 1 else 's' }} «No reconsiderar» no se ofrece{{ '' if blocked_profiles_count == 1 else 'n' }} para nuevos procesos.</p>{% endif %}
     <script>
     (function () {
       if (window.__hcPickerWired) return;       // el cuerpo del detalle se re-renderiza por HTMX: un único wiring global (delegado)
