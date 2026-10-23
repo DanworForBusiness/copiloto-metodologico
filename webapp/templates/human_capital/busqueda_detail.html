@@ -100,13 +100,18 @@
     </dialog>
     {% endif %}
     {% else %}
+    {# «Vista pipeline» y «Scoring (JD)» son funcionales (enlaces del mismo detalle: `?vista=scoring`); «Scoring (JD)» solo existe con JD y grilla efectivamente operables (scoring CCHH). Las demás siguen pendientes. #}
     <div class="dashboard-view-switch busqueda-views" role="group" aria-label="Vistas del proceso">
-      <button type="button" class="is-active" aria-pressed="true">Vista pipeline</button>
+      <a href="/cchh/busquedas/{{ busqueda.busqueda_id }}" class="{% if vista != 'scoring' %}is-active{% endif %}"{% if vista != 'scoring' %} aria-current="page"{% endif %}>Vista pipeline</a>
       <button type="button" disabled title="Próximamente">Vista evaluación</button>
-      <button type="button" disabled title="Próximamente">Scoring (JD)</button>
+      <a href="/cchh/busquedas/{{ busqueda.busqueda_id }}?vista=scoring" class="{% if vista == 'scoring' %}is-active{% endif %}"{% if vista == 'scoring' %} aria-current="page"{% endif %}>Scoring (JD)</a>
       <button type="button" disabled title="Próximamente">Sugeridos del banco</button>
       <button type="button" disabled title="Próximamente">Reportes</button>
     </div>
+
+    {% if vista == 'scoring' and scoring %}
+    {% include "partials/human_capital_scoring_panel.html" %}
+    {% else %}
 
     {# Cuerpo (pipeline + modales de agregar/cerrar): se re-renderiza vía HTMX
        tras cada mutación de pipeline para mantener board y disponibilidad en
@@ -124,6 +129,7 @@
       {% set view = busqueda_historial %}
       {% include "partials/human_capital_historial_section.html" %}
     </div>
+    {% endif %}
     {% endif %}
     {% endif %}
   </main>

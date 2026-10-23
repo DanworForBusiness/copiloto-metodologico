@@ -510,6 +510,50 @@
    `.dashboard-view-switch` (tools.css); acá sólo su ubicación/scroll. */
 .busqueda-views { margin: 4px 0 16px; max-width: 100%; overflow-x: auto; }
 
+/* Barra de vistas con enlaces (`Vista pipeline` / `Scoring (JD)`): MISMO aspecto que los botones del primitivo `.dashboard-view-switch` (tools.css), que solo estiliza `button`. */
+.busqueda-views a { display: inline-flex; align-items: center; background: #ffffff; border-right: 1px solid rgba(128,128,128,.28); padding: 8px 16px; font: 600 .78rem var(--sans); color: #55555c; text-decoration: none; cursor: pointer; }
+.content-theme-dark .busqueda-views a { background: #181819; color: #b2b2bc; }
+.busqueda-views a:hover { color: #1f1f24; }
+.content-theme-dark .busqueda-views a:hover { color: #e4e4ec; }
+.busqueda-views a.is-active { background: var(--gold); color: #1f1f24; }
+.busqueda-views a:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+
+/* Scoring CCHH (pestaña «Scoring (JD)»): pasos, bloques de criterios y filas de la grilla; mismos primitivos de formulario del Hub. */
+.scoring-panel { display: flex; flex-direction: column; gap: 14px; }
+.scoring-panel__head h2 { margin: 0 0 4px; }
+.scoring-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.scoring-steps__sep { color: #7a7a82; }
+.scoring-step { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid rgba(128,128,128,.32); border-radius: 999px; font: 600 .78rem var(--sans); color: #55555c; text-decoration: none; }
+.content-theme-dark .scoring-step { color: #b2b2bc; }
+.scoring-step.is-active { background: #1f1f24; border-color: #1f1f24; color: #fff; }
+.content-theme-dark .scoring-step.is-active { background: #e4e4ec; border-color: #e4e4ec; color: #1f1f24; }
+.scoring-step.is-disabled { opacity: .5; cursor: not-allowed; }
+.scoring-step__n { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: rgba(128,128,128,.25); font-size: .7rem; }
+.scoring-step small { font-weight: 500; }
+.hc-profile-form.scoring-form { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 14px; }
+.scoring-form > .feedback-field { width: 100%; margin-top: 0; }
+.scoring-form textarea { width: 100%; box-sizing: border-box; }
+.scoring-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.scoring-block { border: 1px solid rgba(128,128,128,.28); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.scoring-block h3 { margin: 0; font-size: .9rem; }
+.scoring-rows { display: flex; flex-direction: column; gap: 10px; }
+.scoring-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px auto; gap: 8px 12px; align-items: end; padding: 10px; border: 1px solid rgba(128,128,128,.2); border-radius: 8px; }
+.scoring-row .feedback-field { margin-top: 0; }
+.scoring-row[data-bloque="excluyente"] { grid-template-columns: minmax(0, 1fr) auto; }
+.scoring-row[data-bloque="excluyente"] .scoring-row__peso { display: none; }
+.scoring-row__more { grid-column: 1 / -1; }
+.scoring-row__more summary { cursor: pointer; font-size: .74rem; color: #55555c; }
+.content-theme-dark .scoring-row__more summary { color: #b2b2bc; }
+.scoring-row__anchors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.scoring-add { align-self: flex-start; }
+.scoring-sum { margin: 0; font-size: .82rem; }
+.scoring-sum__state { color: #1d7f4e; font-weight: 700; }
+@media (max-width: 640px) {
+  .scoring-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .scoring-row__peso { grid-column: 1 / 2; }
+  .scoring-row__anchors { grid-template-columns: 1fr; }
+}
+
 .busqueda-pipeline-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 4px 0 14px; color: #55555c; font: 500 .72rem var(--mono); }
 .content-theme-dark .busqueda-pipeline-bar { color: #b2b2bc; }
 .busqueda-pipeline-bar__total { color: #1f1f24; font-weight: 700; }

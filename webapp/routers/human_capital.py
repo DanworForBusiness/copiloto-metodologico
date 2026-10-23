@@ -115,6 +115,7 @@ from webapp.services import (
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
 from webapp.services import human_capital_contact
+from webapp.services import scoring_engine, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
@@ -1579,17 +1580,84 @@ def human_capital_busqueda_edit_submit(
 
 
 @router.get("/cchh/busquedas/{busqueda_id}", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_busqueda_detail_page(request: Request, busqueda_id: str, ok: str = Query(""), aviso: str = Query("")):
+def human_capital_busqueda_detail_page(request: Request, busqueda_id: str, ok: str = Query(""), aviso: str = Query(""), vista: str = Query(""), paso: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
     busqueda = human_capital_service.get_busqueda(busqueda_id)
     if busqueda is None:
         raise HTTPException(404, "Búsqueda no encontrada")
-    return templates.TemplateResponse(
-        request=request, name="human_capital/busqueda_detail.html",
-        context=_busqueda_shell(request, {**_busqueda_detail_context(busqueda), "solicitud_ok": _SOLICITUD_OK.get(ok), "solicitud_error": _SOLICITUD_AVISOS.get(aviso)}),
-    )
+    ctx = {**_busqueda_detail_context(busqueda), "solicitud_ok": _SOLICITUD_OK.get(ok), "solicitud_error": _SOLICITUD_AVISOS.get(aviso)}
+    if vista == "scoring" and busqueda_repository.es_gestionada(busqueda):
+        ctx.update(_scoring_context(busqueda, paso, ok=ok))
+    return templates.TemplateResponse(request=request, name="human_capital/busqueda_detail.html", context=_busqueda_shell(request, ctx))
+
+
+# ── Scoring (JD) — scoring CCHH: Job Description + grilla de evaluación (la evaluación por candidato llega en el siguiente incremento) ──
+_SCORING_OK = {"jd": "Job Description guardada.", "grilla": "Grilla guardada: se creó una nueva versión.", "grilla_sin_cambios": "La grilla no tenía cambios: se mantiene la misma versión."}
+_SCORING_FORM_FIELDS = ("criterio_id", "bloque", "nombre", "peso", "descripcion", "ancla_1", "ancla_3", "ancla_5", "preguntas_guia")
+
+
+def _scoring_context(busqueda: dict, paso: str = "", *, ok: str = "", errors: list[str] | None = None, rows: list[dict] | None = None, jd: tuple[str, str] | None = None) -> dict:
+    """Contexto del panel «Scoring CCHH» (pestaña «Scoring (JD)» del detalle del proceso). Ante un error de validación se vuelve a mostrar lo que la persona escribió (`rows`/`jd`), no lo guardado."""
+    try:
+        data = scoring_service.panel(busqueda)
+    except (scoring_grid_repository.GridStorageError, ValueError) as exc:
+        return {"vista": "scoring", "scoring": {"storage_error": str(exc), "paso": "jd", "editable": False, "bloques": scoring_engine.BLOQUES, "errors": []}}
+    paso = paso if paso in ("jd", "grilla") else ("grilla" if data["jd_cargada"] else "jd")
+    if rows is not None:
+        data["criterios_por_bloque"] = {b["key"]: [r for r in rows if r.get("bloque") == b["key"]] for b in scoring_engine.BLOQUES}
+        data["suma_pesos"] = scoring_engine.suma_pesos(scoring_engine.normalizar_criterios(rows)[0])
+    if jd is not None:
+        data["jd_texto"], data["palabras_clave"] = jd
+    return {"vista": "scoring", "scoring": {**data, "paso": paso, "ok": _SCORING_OK.get(ok), "errors": errors or []}}
+
+
+def _render_scoring(request: Request, busqueda_id: str, paso: str, *, errors: list[str], rows: list[dict] | None = None, jd: tuple[str, str] | None = None):
+    busqueda = human_capital_service.get_busqueda(busqueda_id)
+    if busqueda is None:
+        raise HTTPException(404, "Búsqueda no encontrada")
+    ctx = {**_busqueda_detail_context(busqueda), **_scoring_context(busqueda, paso, errors=errors, rows=rows, jd=jd)}
+    return templates.TemplateResponse(request=request, name="human_capital/busqueda_detail.html", context=_busqueda_shell(request, ctx))
+
+
+_SCORING_SHELL_ERRORS = (*_BUSQUEDA_SHELL_ERRORS, scoring_grid_repository.GridStorageError, scoring_grid_repository.GridRemoteOutcomeUnknownError)
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/scoring/jd", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_scoring_jd(request: Request, busqueda_id: str, jd_texto: str = Form(""), palabras_clave: str = Form("")):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        scoring_service.save_jd(busqueda_id, jd_texto, palabras_clave)
+    except LookupError:
+        raise HTTPException(404, "Búsqueda no encontrada") from None
+    except (ValueError, busqueda_repository.BusquedaInvalidTransitionError, busqueda_repository.BusquedaNotFoundError, *_SCORING_SHELL_ERRORS) as exc:
+        return _render_scoring(request, busqueda_id, "jd", errors=[str(exc)], jd=(jd_texto, palabras_clave))
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?vista=scoring&paso=grilla&ok=jd", status_code=303)
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/scoring/grilla", response_class=HTMLResponse, include_in_schema=False)
+async def human_capital_busqueda_scoring_grid(request: Request, busqueda_id: str):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    form = await request.form()
+    columns = {k: [str(v) for v in form.getlist(k)] for k in _SCORING_FORM_FIELDS}
+    count = len(columns["bloque"])
+    rows = [{k: (columns[k][i] if i < len(columns[k]) else "") for k in _SCORING_FORM_FIELDS} for i in range(count)]
+    try:
+        _, changed = scoring_service.save_grid(busqueda_id, form.get("expected_revision"), rows, actor=_pipeline_actor(request))
+    except LookupError:
+        raise HTTPException(404, "Búsqueda no encontrada") from None
+    except scoring_engine.ScoringValidationError as exc:
+        return _render_scoring(request, busqueda_id, "grilla", errors=exc.errors, rows=rows)
+    except scoring_grid_repository.GridConcurrentModificationError as exc:
+        return _render_scoring(request, busqueda_id, "grilla", errors=[str(exc)])
+    except (ValueError, busqueda_repository.BusquedaNotFoundError, *_SCORING_SHELL_ERRORS) as exc:
+        return _render_scoring(request, busqueda_id, "grilla", errors=[str(exc)], rows=rows)
+    return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?vista=scoring&paso=grilla&ok={'grilla' if changed else 'grilla_sin_cambios'}", status_code=303)
 
 
 def _busqueda_detail_body(request, busqueda_id: str):
