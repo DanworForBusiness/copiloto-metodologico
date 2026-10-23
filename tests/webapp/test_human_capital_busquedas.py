@@ -351,9 +351,9 @@ def test_detail_view_switch_has_pipeline_default_and_pending_disabled():
     html = c.get(f"/cchh/busquedas/{b['busqueda_id']}").text
     # Botonera de vistas con el primitivo compartido; Pipeline activa por defecto.
     assert "dashboard-view-switch" in html
-    assert "Vista pipeline" in html and "is-active" in html
+    assert ">Pipeline</a>" in html and "is-active" in html
     # Las diferidas EXISTEN visualmente pero deshabilitadas (no ausentes).
-    for pending in ("Vista evaluación", "Scoring (JD)", "Sugeridos del banco", "Reportes"):
+    for pending in ("Evaluación", "Sugeridos", "Reportes"):
         assert pending in html
     assert "disabled" in html
 

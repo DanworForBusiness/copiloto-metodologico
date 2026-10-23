@@ -61,7 +61,7 @@ def _all(bid):
 
 
 def _ranking(c, bid) -> str:
-    return c.get(f"/cchh/busquedas/{bid}?vista=scoring&paso=ranking").text
+    return c.get(f"/cchh/busquedas/{bid}?vista=evaluacion&paso=ranking").text
 
 
 # ═══════════════════ motor ═══════════════════
@@ -138,7 +138,7 @@ def test_without_a_ready_grid_the_evaluation_explains_it_and_links_to_the_grid(c
     bid = _manual()
     app_id = _candidate(bid)
     page = c.get(_url(bid, app_id)).text
-    assert "Grilla no disponible" in page and f"/cchh/busquedas/{bid}?vista=scoring&amp;paso=grilla" in page and "<form" not in page.split("</section>")[-1].split("Grilla no disponible")[0]
+    assert "Grilla no disponible" in page and f"/cchh/busquedas/{bid}?vista=evaluacion&amp;paso=grilla" in page and "<form" not in page.split("</section>")[-1].split("Grilla no disponible")[0]
     r = c.post(_url(bid, app_id), data={"expected_revision": "0"})
     assert r.status_code == 200 and "todavía no hay una grilla" in r.text.lower() and _all(bid) == []
 
@@ -158,7 +158,7 @@ def test_saving_records_the_real_identity_the_grid_version_and_ignores_a_forged_
     bid, grid = _ready(c)
     app_id = _candidate(bid)
     r = c.post(_url(bid, app_id), data=_form(grid, notas=(5, 3, 1), evaluator="otro@danwor.com", recorded_by="falso@danwor.com", comentario_general="  Buen perfil  ", **{f"comentario_{_ids(grid)['tecnico']}": "Sólido"}))
-    assert r.status_code == 303 and r.headers["location"] == f"/cchh/busquedas/{bid}?vista=scoring&paso=ranking&ok=evaluacion"
+    assert r.status_code == 303 and r.headers["location"] == f"/cchh/busquedas/{bid}?vista=evaluacion&paso=ranking&ok=evaluacion"
     [e] = _all(bid)
     assert (e["evaluator"], e["recorded_by"], e["grid_id"], e["grid_version"], e["fase"], e["application_id"]) == (CCHH_EMAIL, CCHH_EMAIL, grid["grid_id"], 1, "cchh", app_id)
     assert e["puntaje"] == pytest.approx(60 + 7.5 + 0) and e["cumple_excluyentes"] is True and e["comentario_general"] == "Buen perfil" and "otro@danwor.com" not in str(e) and "falso@" not in str(e)
@@ -266,7 +266,7 @@ def test_the_pipeline_icon_of_the_cchh_stage_opens_the_evaluation_and_other_stag
 
 def test_step_three_opens_by_default_with_a_valid_grid_and_the_evaluations_never_touch_the_administrative_interview(c):
     bid = _manual()
-    page = c.get(f"/cchh/busquedas/{bid}?vista=scoring").text
+    page = c.get(f"/cchh/busquedas/{bid}?vista=evaluacion").text
     assert 'aria-current="step"' in page and "requiere la grilla" in page and "data-scoring-ranking" not in page
     _, grid = _ready(c, bid)
     app_id = _candidate(bid)
@@ -276,8 +276,8 @@ def test_step_three_opens_by_default_with_a_valid_grid_and_the_evaluations_never
     assert erepo.find_by_profile_and_busqueda(brepo.get(bid)["candidatos"][0]["profile_id"], bid) == entrevista_before          # el registro administrativo único no se modifica
     for forbidden in ("puntaje", "grid_version", "detalles", "tier"):
         assert forbidden not in entrevista_before
-    default = c.get(f"/cchh/busquedas/{bid}?vista=scoring").text
-    assert "data-scoring-ranking" in default and f'href="/cchh/busquedas/{bid}?vista=scoring&paso=ranking"' in default
+    default = c.get(f"/cchh/busquedas/{bid}?vista=evaluacion").text
+    assert "data-scoring-ranking" in default and f'href="/cchh/busquedas/{bid}?vista=evaluacion&paso=ranking"' in default
 
 
 # ═══════════════════ procesos cerrados, candidatos eliminados, autorización ═══════════════════

@@ -99,27 +99,42 @@ def test_read_only_mode_rejects_writes_before_touching_the_disk(monkeypatch):
 def test_only_pipeline_and_scoring_tabs_are_enabled_and_the_others_stay_pending(c):
     bid = _manual()
     page = c.get(f"/cchh/busquedas/{bid}").text
-    assert re.search(r'<a href="/cchh/busquedas/%s" class="is-active" aria-current="page">Vista pipeline</a>' % bid, page)
-    assert f'<a href="/cchh/busquedas/{bid}?vista=scoring" class="">Scoring (JD)</a>' in page
-    for pending in ("Vista evaluación", "Sugeridos del banco", "Reportes"):
+    assert re.search(r'<a href="/cchh/busquedas/%s" class="is-active" aria-current="page">Pipeline</a>' % bid, page)
+    assert f'<a href="/cchh/busquedas/{bid}?vista=evaluacion" class="">Evaluación</a>' in page
+    for pending in ("Sugeridos", "Reportes"):
         assert f'<button type="button" disabled title="Próximamente">{pending}</button>' in page
+    assert [t for t in re.findall(r'<(?:a|button)[^>]*>(Pipeline|Evaluación|Sugeridos|Reportes|Vista [a-z]+|Scoring \(JD\)|Sugeridos del banco)</(?:a|button)>', page)] == ["Pipeline", "Evaluación", "Sugeridos", "Reportes"]
+    assert "Vista evaluación" not in page and "Scoring (JD)" not in page and "Vista pipeline" not in page             # la antigua «Vista evaluación» se descartó y los nombres viejos ya no aparecen
     assert 'id="busqueda-detail-body"' in page and "data-scoring-panel" not in page                         # por defecto, el pipeline de siempre
 
 
 def test_the_scoring_view_shows_the_cchh_panel_instead_of_the_pipeline_and_never_claims_a_consolidated_result(c):
     bid = _manual()
-    page = c.get(f"/cchh/busquedas/{bid}?vista=scoring").text
+    page = c.get(f"/cchh/busquedas/{bid}?vista=evaluacion").text
     assert "data-scoring-panel" in page and "<h2>Scoring CCHH</h2>" in page and 'id="busqueda-detail-body"' not in page
     assert "no es un consolidado CCHH / técnico" in page and f"Tier A ≥ {se.TIER_A_MIN}, B ≥ {se.TIER_B_MIN}" in page
-    assert re.search(r'<a href="/cchh/busquedas/%s\?vista=scoring" class="is-active" aria-current="page">Scoring \(JD\)</a>' % bid, page)
+    assert re.search(r'<a href="/cchh/busquedas/%s\?vista=evaluacion" class="is-active" aria-current="page">Evaluación</a>' % bid, page)
     assert 'aria-current="step"' in page and "Evaluación CCHH y ranking" in page and 'aria-disabled="true"' in page and "requiere la grilla" in page      # sin grilla válida el paso 3 no está disponible
     assert "Todavía no cargaste la Job Description" not in page and 'name="jd_texto"' in page                # sin JD: abre en el paso 1
 
 
+def test_the_legacy_scoring_url_redirects_to_the_evaluation_tab_keeping_the_rest_of_the_query(c):
+    bid = _manual()
+    r = c.get(f"/cchh/busquedas/{bid}?vista=scoring&paso=grilla&ok=jd")
+    assert r.status_code == 307 and r.headers["location"] == f"/cchh/busquedas/{bid}?vista=evaluacion&paso=grilla&ok=jd"
+    assert c.get(f"/cchh/busquedas/{bid}?vista=scoring").headers["location"] == f"/cchh/busquedas/{bid}?vista=evaluacion"
+    followed = TestClient(app, follow_redirects=True)
+    followed.cookies.update(c.cookies)
+    page = followed.get(f"/cchh/busquedas/{bid}?vista=scoring&paso=jd").text                                   # un enlace guardado sigue funcionando
+    assert "data-scoring-panel" in page and 'aria-current="step"' in page
+    unknown = c.get(f"/cchh/busquedas/{bid}?vista=reportes")                                                   # una vista desconocida o aún no habilitada cae en el Pipeline
+    assert unknown.status_code == 200 and "data-scoring-panel" not in unknown.text and 'id="busqueda-detail-body"' in unknown.text
+
+
 def test_an_unmanaged_solicitud_has_no_scoring_view(c):
     svc.create_solicitud(SID, req(), OPS_A)                                                                  # solicitud enviada: aún no es un proceso de CCHH
-    page = c.get(f"/cchh/busquedas/{SID}?vista=scoring").text
-    assert "data-scoring-panel" not in page and "Scoring (JD)" not in page
+    page = c.get(f"/cchh/busquedas/{SID}?vista=evaluacion").text
+    assert "data-scoring-panel" not in page and 'aria-label="Vistas del proceso"' not in page                  # sin gestión de CCHH no hay pestañas del proceso
     assert c.post(f"/cchh/busquedas/{SID}/scoring/jd", data={"jd_texto": "x"}).status_code == 200 and not brepo.get(SID).get("jd_texto")
 
 
@@ -128,7 +143,7 @@ def test_saving_the_jd_uses_the_process_fields_and_leads_to_the_grid_step(c):
     bid = _manual()
     rev = brepo.get(bid)["revision"]
     r = c.post(f"/cchh/busquedas/{bid}/scoring/jd", data={"jd_texto": "  Responsabilidades: modelar en Datasphere.  ", "palabras_clave": "SAP, Datasphere"})
-    assert r.status_code == 303 and r.headers["location"] == f"/cchh/busquedas/{bid}?vista=scoring&paso=grilla&ok=jd"
+    assert r.status_code == 303 and r.headers["location"] == f"/cchh/busquedas/{bid}?vista=evaluacion&paso=grilla&ok=jd"
     doc = brepo.get(bid)
     assert doc["jd_texto"] == "Responsabilidades: modelar en Datasphere." and doc["palabras_clave"] == "SAP, Datasphere" and doc["revision"] == rev + 1
     assert doc["nombre_puesto"] == "Solution Architect"                                                      # el resto del proceso no se toca
@@ -148,7 +163,7 @@ def test_an_overlong_jd_is_rejected_keeping_what_the_user_typed(c):
 def test_a_valid_grid_is_saved_as_version_1_and_shown_in_the_editor(c):
     bid = _manual()
     r = _grid_post(c, bid, 0, _rows(*VALID))
-    assert r.status_code == 303 and r.headers["location"] == f"/cchh/busquedas/{bid}?vista=scoring&paso=grilla&ok=grilla"
+    assert r.status_code == 303 and r.headers["location"] == f"/cchh/busquedas/{bid}?vista=evaluacion&paso=grilla&ok=grilla"
     g = grepo.get(bid)
     assert (g["version"], g["revision"]) == (1, 1) and [(x["bloque"], x["nombre"], x["peso"]) for x in g["criterios"]] == [("excluyente", "¿Usó Datasphere?", 0.0), ("tecnico", "SAP Datasphere", 60.0),
                                                                                                                        ("deseable", "Certificación", 15.0), ("competencia", "Comunicación", 25.0)]
@@ -201,7 +216,7 @@ def test_the_excluding_blocks_have_no_weight_and_the_editor_reads_the_engine_con
     bid = _manual()
     _grid_post(c, bid, 0, _rows(("excluyente", "Filtro", "40"), ("tecnico", "SQL", "100")))
     assert [x["peso"] for x in grepo.get(bid)["criterios"]] == [0.0, 100.0]
-    page = c.get(f"/cchh/busquedas/{bid}?vista=scoring&paso=grilla").text
+    page = c.get(f"/cchh/busquedas/{bid}?vista=evaluacion&paso=grilla").text
     for b in se.BLOQUES:
         assert b["label"] in page
     tpl = __import__("pathlib").Path(__file__).resolve().parents[2] / "webapp/templates/partials/human_capital_scoring_panel.html"
@@ -213,7 +228,7 @@ def test_a_closed_process_is_read_only(c):
     bid = _manual()
     _grid_post(c, bid, 0, _rows(*VALID))
     svc.close_busqueda(bid, [], actor=CCHH_EMAIL)
-    page = c.get(f"/cchh/busquedas/{bid}?vista=scoring&paso=grilla").text
+    page = c.get(f"/cchh/busquedas/{bid}?vista=evaluacion&paso=grilla").text
     assert "El proceso está cerrado: el scoring queda en solo lectura." in page and "Guardar grilla" not in page and "+ Agregar criterio" not in page and "<fieldset class=\"scoring-fieldset\" disabled>" in page
     g = grepo.get(bid)
     r = _grid_post(c, bid, g["revision"], _rows(("tecnico", "X", "100")))
@@ -227,7 +242,7 @@ def test_storage_failures_show_a_controlled_error_not_a_500(c, monkeypatch):
     def boom(*a, **k):
         raise grepo.GridStorageError("disco lleno")
     monkeypatch.setattr(grepo, "get", boom)
-    page = c.get(f"/cchh/busquedas/{bid}?vista=scoring")
+    page = c.get(f"/cchh/busquedas/{bid}?vista=evaluacion")
     assert page.status_code == 200 and "disco lleno" in page.text
     monkeypatch.undo()
 
@@ -236,7 +251,7 @@ def test_storage_failures_show_a_controlled_error_not_a_500(c, monkeypatch):
 def test_scoring_requires_the_cchh_session_and_authorization():
     bid = _manual()
     anon = TestClient(app, follow_redirects=False)
-    assert anon.get(f"/cchh/busquedas/{bid}?vista=scoring").status_code in (302, 303, 307)
+    assert anon.get(f"/cchh/busquedas/{bid}?vista=evaluacion").status_code in (302, 303, 307)
     for url, data in ((f"/cchh/busquedas/{bid}/scoring/jd", {"jd_texto": "x"}), (f"/cchh/busquedas/{bid}/scoring/grilla", {"expected_revision": "0"})):
         assert anon.post(url, data=data).status_code in (302, 303, 307)
     assert brepo.get(bid).get("jd_texto") is None and grepo.get(bid) is None

@@ -1,4 +1,4 @@
-{# human_capital_scoring_panel.html — pestaña «Scoring (JD)» del detalle de un proceso. ALCANCE de esta etapa: SCORING CCHH (Job Description + grilla de evaluación de la fase CCHH). La evaluación por candidato y el ranking llegan en el siguiente
+{# human_capital_scoring_panel.html — pestaña «Evaluación» del detalle de un proceso. ALCANCE de esta etapa: SCORING CCHH (Job Description + grilla de evaluación de la fase CCHH). La evaluación por candidato y el ranking llegan en el siguiente
    incremento; la fase técnica y cualquier consolidado CCHH/técnico NO existen todavía y no se presentan. Constantes (umbrales, bloques, peso total) vienen del motor (`scoring_engine`): acá no se repite ninguna. #}
 {% macro scoring_row(c, bloque) %}
 <div class="scoring-row" data-scoring-row data-bloque="{{ bloque }}">
@@ -45,12 +45,12 @@
   <div class="dashboard-empty" data-error-kind="storage" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ sc.storage_error }}</p></div>
   {% else %}
   <nav class="scoring-steps" aria-label="Pasos del scoring">
-    <a class="scoring-step{% if sc.paso == 'jd' %} is-active{% endif %}" href="{{ base }}?vista=scoring&paso=jd" {% if sc.paso == 'jd' %}aria-current="step"{% endif %}><span class="scoring-step__n">{{ '✓' if sc.jd_cargada else '1' }}</span>Job Description</a>
+    <a class="scoring-step{% if sc.paso == 'jd' %} is-active{% endif %}" href="{{ base }}?vista=evaluacion&paso=jd" {% if sc.paso == 'jd' %}aria-current="step"{% endif %}><span class="scoring-step__n">{{ '✓' if sc.jd_cargada else '1' }}</span>Job Description</a>
     <span class="scoring-steps__sep" aria-hidden="true">›</span>
-    <a class="scoring-step{% if sc.paso == 'grilla' %} is-active{% endif %}" href="{{ base }}?vista=scoring&paso=grilla" {% if sc.paso == 'grilla' %}aria-current="step"{% endif %}><span class="scoring-step__n">{{ '✓' if sc.grilla_valida else '2' }}</span>Grilla de evaluación CCHH{% if sc.grid_version %} <small>· v{{ sc.grid_version }}</small>{% endif %}</a>
+    <a class="scoring-step{% if sc.paso == 'grilla' %} is-active{% endif %}" href="{{ base }}?vista=evaluacion&paso=grilla" {% if sc.paso == 'grilla' %}aria-current="step"{% endif %}><span class="scoring-step__n">{{ '✓' if sc.grilla_valida else '2' }}</span>Grilla de evaluación CCHH{% if sc.grid_version %} <small>· v{{ sc.grid_version }}</small>{% endif %}</a>
     <span class="scoring-steps__sep" aria-hidden="true">›</span>
     {% if sc.grilla_valida %}
-    <a class="scoring-step{% if sc.paso == 'ranking' %} is-active{% endif %}" href="{{ base }}?vista=scoring&paso=ranking" {% if sc.paso == 'ranking' %}aria-current="step"{% endif %}><span class="scoring-step__n">3</span>Evaluación CCHH y ranking</a>
+    <a class="scoring-step{% if sc.paso == 'ranking' %} is-active{% endif %}" href="{{ base }}?vista=evaluacion&paso=ranking" {% if sc.paso == 'ranking' %}aria-current="step"{% endif %}><span class="scoring-step__n">3</span>Evaluación CCHH y ranking</a>
     {% else %}
     <span class="scoring-step is-disabled" aria-disabled="true" title="Primero la grilla de evaluación tiene que estar completa"><span class="scoring-step__n">3</span>Evaluación CCHH y ranking <small>· requiere la grilla</small></span>
     {% endif %}
