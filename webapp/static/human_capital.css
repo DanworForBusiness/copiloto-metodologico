@@ -391,6 +391,13 @@
 .hc-profile-section__grid--fluid { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: start; margin-top: 14px; }
 .hc-profile-section__grid--fluid > .feedback-field { margin-top: 0; flex: 1 1 200px; min-width: 0; }
 .hc-profile-section__grid--fluid > .feedback-field--wide { flex: 2.4 1 260px; }
+/* Campo CV del alta: ocupa TODA la fila de la sección (el nombre del archivo ya no se trunca), con el selector a la izquierda y la aclaración (tipografía secundaria de `.dashboard-empty__hint`) a la derecha; en
+   angosto la aclaración baja debajo del selector sin desborde horizontal. El input nativo conserva su estilo (`.hc-profile-form input[type="file"]`), solo cambia su ancho. */
+.hc-profile-section__grid > .feedback-field--cv { grid-column: 1 / -1; }          /* grilla de 2 columnas del alta: el CV ocupa las dos */
+.hc-profile-section__grid--fluid > .feedback-field--cv { flex: 1 1 100%; }
+.hc-cv-field__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; min-width: 0; }
+.hc-profile-form .hc-cv-field__row input[type="file"] { flex: 4 1 340px; width: auto; min-width: 0; }
+.hc-cv-field__hint { flex: 1 1 11rem; max-width: 16rem; margin: 0; min-width: 0; }      /* la aclaración cede ancho al selector (puede ocupar dos líneas) */
 .hc-profile-section__grid--fluid > .feedback-field--compact { flex: 1 1 150px; }
 /* `--medium` (Entrevistas, owner audit observación C): tercer escalón entre
    `--compact` (Fecha/Remuneración, campos cortos) y `--wide` (texto libre
