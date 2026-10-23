@@ -1414,12 +1414,14 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
 _ENTREVISTA_ETAPAS = {"Entrevista CCHH": "Ir a entrevista CCHH", "Entrevista Líder": "Ir a entrevista técnica"}
 
 
-def _registro_entrevista_url(app: dict, busqueda_id: str) -> str:
-    """URL del REGISTRO ADMINISTRATIVO de entrevista de un (candidato, proceso): su edición si ya existe; si no, el alta con candidato y puesto/área precargados (navegar no crea nada). Un fallo de lectura degrada al listado."""
+def _registro_entrevista_url(app: dict, busqueda_id: str, *, from_pipeline: bool = False) -> str:
+    """URL del REGISTRO ADMINISTRATIVO de entrevista de un (candidato, proceso): su edición si ya existe; si no, el alta con candidato y puesto/área precargados (navegar no crea nada). Un fallo de lectura degrada al listado.
+    `from_pipeline`: anexa el contexto explícito `return_to` (Pipeline de ESA búsqueda) para que «Volver» regrese a él."""
+    ctx = pagination.pipeline_return_url(busqueda_id) if from_pipeline else ""
     try:
         existing = entrevista_repository.find_by_profile_and_busqueda(app["profile_id"], busqueda_id)
-        return (f"/cchh/entrevistas/{existing['entrevista_id']}/editar" if existing
-                else "/cchh/entrevistas/nueva?" + urllib.parse.urlencode({"profile_id": app["profile_id"], "busqueda_id": busqueda_id}))
+        return (pagination.with_return_to(f"/cchh/entrevistas/{existing['entrevista_id']}/editar", ctx) if existing
+                else pagination.with_return_to("/cchh/entrevistas/nueva?" + urllib.parse.urlencode({"profile_id": app["profile_id"], "busqueda_id": busqueda_id}), ctx))
     except entrevista_repository.EntrevistaStorageError:
         return "/cchh/entrevistas"
 
@@ -1437,7 +1439,7 @@ def _entrevista_links(busqueda: dict) -> dict:
             # Entrevista CCHH: el ícono abre la EVALUACIÓN CCHH del candidato (scoring); el registro administrativo queda como acceso secundario dentro de esa pantalla. Navegar no crea nada.
             links[app["application_id"]] = {"url": f"/cchh/busquedas/{bid}/candidatos/{app['application_id']}/evaluacion-cchh", "label": "Evaluación CCHH"}
             continue
-        links[app["application_id"]] = {"url": _registro_entrevista_url(app, bid), "label": label}      # Entrevista Líder: registro administrativo (hasta implementar la evaluación técnica)
+        links[app["application_id"]] = {"url": _registro_entrevista_url(app, bid, from_pipeline=True), "label": label}      # Entrevista Líder: registro administrativo (hasta implementar la evaluación técnica)
     return links
 
 
@@ -1445,12 +1447,13 @@ def _onboarding_links(busqueda: dict) -> dict:
     """`application_id` -> URL del Onboarding EXISTENTE, solo para postulaciones Finalizado · Ingreso. Es una lectura: no crea ningún Onboarding (nace al finalizar con Ingreso, ver `ensure_onboarding_for_application`). Si no existe o
     la lectura falla, no se ofrece el acceso (nunca un enlace a algo que no está)."""
     links: dict = {}
+    ctx = pagination.pipeline_return_url(busqueda.get("busqueda_id"))
     for app in busqueda.get("candidatos", []):
         if app.get("etapa") != busqueda_repository.ETAPA_FINAL or app.get("resultado_final") != "Ingreso" or not app.get("application_id"):
             continue
         try:
             if onboarding_repository.get(app["application_id"]) is not None:
-                links[app["application_id"]] = f"/cchh/onboarding/{app['application_id']}/editar"
+                links[app["application_id"]] = pagination.with_return_to(f"/cchh/onboarding/{app['application_id']}/editar", ctx)
         except onboarding_repository.OnboardingStorageError:
             continue
     return links
@@ -2161,7 +2164,7 @@ def human_capital_entrevista_new_submit(
     # Sin vista de detalle standalone (owner UX pass 1: "la experiencia de
     # producto no la necesita" -- ver Editar mismo, que ya muestra todos los
     # campos): después de crear, se sigue editando directo.
-    return RedirectResponse(url=f"/cchh/entrevistas/{entrevista['entrevista_id']}/editar", status_code=303)
+    return RedirectResponse(url=f"/cchh/entrevistas/{entrevista['entrevista_id']}/editar" + pagination.list_return_context(request.query_params, "/cchh/entrevistas", allow_pipeline=True)["qs"], status_code=303)
 
 
 @router.get("/cchh/entrevistas/{entrevista_id}/editar", response_class=HTMLResponse, include_in_schema=False)
@@ -2227,7 +2230,7 @@ def human_capital_entrevista_edit_submit(
         return _render(concurrent_modification=True)
     except _ENTREVISTA_SHELL_ERRORS as exc:
         return _render(error=str(exc))
-    return _return_redirect(request, "/cchh/entrevistas")
+    return _return_redirect(request, "/cchh/entrevistas", allow_pipeline=True)
 
 
 @router.post("/cchh/entrevistas/{entrevista_id}/no-concretada", response_class=HTMLResponse, include_in_schema=False)
@@ -2273,7 +2276,7 @@ def human_capital_entrevista_no_concretada(
         return _render(concurrent_modification=True)
     except _ENTREVISTA_SHELL_ERRORS as exc:
         return _render(error=str(exc))
-    return _return_redirect(request, "/cchh/entrevistas")
+    return _return_redirect(request, "/cchh/entrevistas", allow_pipeline=True)
 
 
 @router.post("/cchh/entrevistas/{entrevista_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
@@ -2287,7 +2290,7 @@ def human_capital_entrevista_delete(request: Request, entrevista_id: str):
         pass
     except _ENTREVISTA_SHELL_ERRORS:
         pass
-    return _return_redirect(request, "/cchh/entrevistas")
+    return _return_redirect(request, "/cchh/entrevistas", allow_pipeline=True)
 
 
 # ---------------------------------------------------------------------------
@@ -2455,7 +2458,7 @@ def human_capital_onboarding_edit_submit(
         return _onboarding_edit_response(request, application_id, fv, concurrent_modification=True)
     except _ONBOARDING_SHELL_ERRORS as exc:
         return _onboarding_edit_response(request, application_id, fv, error=str(exc))
-    return _return_redirect(request, "/cchh/onboarding")
+    return _return_redirect(request, "/cchh/onboarding", allow_pipeline=True)
 
 
 @router.post("/cchh/onboarding/{application_id}/checklist/{item_key}", response_class=HTMLResponse, include_in_schema=False)
@@ -2722,7 +2725,7 @@ def _fecha_dmy(value: str | None) -> str:
 templates.env.filters["fecha_dmy"] = _fecha_dmy
 templates.env.filters["hc_profile_search"] = human_capital_service.profile_search_haystack          # haystack del buscador de candidatos (diálogo «Agregar candidato desde el Banco»)
 # Contexto de listado para las páginas de edición (ver `pagination.list_return_context`): `{% set rc = list_return(request, "/cchh/…") %}` → `rc.back_url` / `rc.qs`.
-templates.env.globals["list_return"] = lambda request, list_path: pagination.list_return_context(request.query_params, list_path)
+templates.env.globals["list_return"] = lambda request, list_path, allow_pipeline=False: pagination.list_return_context(request.query_params, list_path, allow_pipeline=allow_pipeline)
 
 
 def _edit_redirect(request: Request, profile_id: str) -> RedirectResponse:
@@ -2730,9 +2733,9 @@ def _edit_redirect(request: Request, profile_id: str) -> RedirectResponse:
     return RedirectResponse(url=f"/cchh/candidatos/{profile_id}/editar" + pagination.list_return_context(request.query_params, "/cchh/candidatos")["qs"], status_code=303)
 
 
-def _return_redirect(request: Request, list_path: str) -> RedirectResponse:
-    """303 al listado EN EL MISMO CONTEXTO (filtros/página/tamaño) si la acción vino de él (`?return_to=`); si no, al listado base."""
-    return RedirectResponse(url=pagination.list_return_url(request.query_params.get("return_to"), list_path) or list_path, status_code=303)
+def _return_redirect(request: Request, list_path: str, *, allow_pipeline: bool = False) -> RedirectResponse:
+    """303 al listado EN EL MISMO CONTEXTO (filtros/página/tamaño) si la acción vino de él (`?return_to=`); si no, al listado base. `allow_pipeline`: también acepta volver al Pipeline de la búsqueda de origen."""
+    return RedirectResponse(url=pagination.list_return_url(request.query_params.get("return_to"), list_path, allow_pipeline=allow_pipeline) or list_path, status_code=303)
 
 
 def _catalogos_context(request: Request, *, refresh_result: dict | None, refresh_error: dict | None) -> dict:

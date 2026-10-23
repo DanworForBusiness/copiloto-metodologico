@@ -350,7 +350,8 @@
    ocupa el ancho completo de la grilla y se separa del último campo con el MISMO
    separador que entre secciones (margin+padding+borde-top) — sin esto quedaba
    pegada al checkbox porque la grilla usa `row-gap:0` (owner: "falta margen"). */
-.hc-profile-form > .hc-profile-form__actions {
+.hc-profile-form > .hc-profile-form__actions,
+.module-content > .hc-profile-form__actions {            /* Onboarding: la acción primaria va al final de la página (fuera del `<form>`, asociada con `form="…"`), con el MISMO separador */
   grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
   margin-top: 22px; padding-top: 20px; border-top: 1px solid rgba(128,128,128,.24);
 }

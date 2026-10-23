@@ -57,6 +57,27 @@ def test_without_permission_the_offer_is_masked_and_never_reaches_the_html(plain
     assert OFFER not in listing and "2.400" not in listing
 
 
+def test_the_restriction_notice_is_an_info_tooltip_on_the_label_not_a_static_hint(plain, privileged):
+    app_id = _onboarding()
+    page = plain.get(f"/cchh/onboarding/{app_id}/editar").text
+    msg = "Dato restringido: solo lo ven y editan las personas autorizadas."
+    assert re.search(r'<label for="onb-oferta">Oferta cerrada\s*<span class="chart-tooltip-anchor">\s*<button type="button" class="activity-kpi__info" aria-label="' + re.escape(msg) + '"', page)
+    assert f'<span class="chart-tooltip"><p id="onb-oferta-hint">{msg}</p></span>' in page and '<p class="field-hint" id="onb-oferta-hint">' not in page
+    assert 'aria-describedby="onb-oferta-hint"' in page
+    assert msg not in privileged.get(f"/cchh/onboarding/{app_id}/editar").text                                          # con permiso no hay aviso ni (i)
+
+
+def test_datos_del_ingreso_is_a_collapsible_container_open_by_default_like_the_checklist_groups(plain):
+    app_id = _onboarding()
+    page = plain.get(f"/cchh/onboarding/{app_id}/editar").text
+    assert '<details class="dashboard-section" data-section-id="datos-ingreso" open>' in page and 'class="hc-profile-form hc-profile-form--plain"' in page
+    assert re.search(r'<summary class="dashboard-section__head">\s*<span class="dashboard-section__caret"></span>\s*<span class="dashboard-section__title">Datos del ingreso</span>', page)
+    body = page.split('data-section-id="datos-ingreso"', 1)[1].split("</details>", 1)[0]
+    assert 'name="fecha_ingreso"' in body and 'id="onb-oferta"' in body and 'name="area"' in body                         # los tres campos viven dentro del contenedor
+    assert page.index('form="onb-form" class="btn-primary">Guardar cambios') > page.index('id="hc-onboarding-checklist"') and page.count("Guardar cambios") == 1       # el botón queda al final de todo, asociado al formulario
+    assert 'id="onb-form"' in page and 'class="hc-profile-section"' not in page.split('id="hc-onboarding-checklist"')[0]
+
+
 def test_the_mask_does_not_reveal_whether_there_is_a_value_at_all(plain):
     empty = _onboarding(offer=None)
     assert 'value="****" readonly disabled' in plain.get(f"/cchh/onboarding/{empty}/editar").text                    # igual con o sin valor guardado

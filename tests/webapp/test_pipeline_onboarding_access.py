@@ -45,7 +45,7 @@ def test_only_finalizado_with_ingreso_shows_the_onboarding_access_pointing_to_th
     _finish(bid, apps["Diego"])                                                                              # Finalizado sin resultado todavía
     _finish(bid, apps["Elena"], etapa="Decisión Final")
     page = c.get(f"/cchh/busquedas/{bid}").text
-    assert _link(_card(page, "Ana Test")) == f"/cchh/onboarding/{apps['Ana']}/editar"
+    assert _link(_card(page, "Ana Test")) == f"/cchh/onboarding/{apps['Ana']}/editar?return_to=%2Fcchh%2Fbusquedas%2F{bid}"
     for name in ("Bruno", "Carla", "Diego", "Elena", "Fede"):
         assert "busqueda-cand__onboarding" not in _card(page, f"{name} Test"), name                           # ni otros resultados, ni otras etapas
     card = _card(page, "Ana Test")
@@ -85,7 +85,7 @@ def test_the_access_survives_htmx_refreshes_and_leaves_the_existing_actions_in_p
     _finish(bid, app_id, resultado="Ingreso")
     r = c.post(f"/cchh/busquedas/{bid}/candidatos/{app_id}/etapa", data={"etapa": "Finalizado", "resultado_final": "Ingreso"}, headers={"HX-Request": "true"})   # sin cambios: el fragmento HTMX también lo trae
     card = _card(r.text, "Ana Test")
-    assert _link(card) == f"/cchh/onboarding/{app_id}/editar" and 'name="resultado_final"' in card and 'aria-label="Contactar al candidato"' in card and 'aria-label="Quitar del proceso"' in card
+    assert _link(card) == f"/cchh/onboarding/{app_id}/editar?return_to=%2Fcchh%2Fbusquedas%2F{bid}" and 'name="resultado_final"' in card and 'aria-label="Contactar al candidato"' in card and 'aria-label="Quitar del proceso"' in card
     moved = c.post(f"/cchh/busquedas/{bid}/candidatos/{app_id}/etapa", data={"etapa": "Decisión Final", "resultado_final": ""}, headers={"HX-Request": "true"})
     assert "busqueda-cand__onboarding" not in moved.text                                                      # si deja de estar Finalizado · Ingreso, el acceso desaparece (el Onboarding no se toca)
     assert len(orepo.list()) == 1
@@ -99,5 +99,5 @@ def test_a_closed_process_keeps_only_the_onboarding_access_of_its_entrants(c):
     svc.close_busqueda(bid, [], actor=CCHH_EMAIL)
     page = c.get(f"/cchh/busquedas/{bid}").text
     ana_card, bruno_card = _card(page, "Ana Test"), _card(page, "Bruno Test")
-    assert _link(ana_card) == f"/cchh/onboarding/{ana}/editar" and "<select" not in ana_card and "Quitar del proceso" not in ana_card and "busqueda-cand__contact" not in ana_card
+    assert _link(ana_card) == f"/cchh/onboarding/{ana}/editar?return_to=%2Fcchh%2Fbusquedas%2F{bid}" and "<select" not in ana_card and "Quitar del proceso" not in ana_card and "busqueda-cand__contact" not in ana_card
     assert "busqueda-cand__onboarding" not in bruno_card and "busqueda-cand__actions" not in bruno_card

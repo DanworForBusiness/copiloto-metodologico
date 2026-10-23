@@ -13,7 +13,7 @@
     {# Sin vista de detalle: Editar vuelve directo al listado, MISMO primitivo
        compartido `.catalog-back` que Búsquedas/Candidatos -- nunca un eyebrow
        gold propio. #}
-    {% set rc = list_return(request, "/cchh/entrevistas") %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver a Entrevistas</a>
+    {% set rc = list_return(request, "/cchh/entrevistas", true) %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver a {{ rc.back_label or 'Entrevistas' }}</a>
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
         <p class="eyebrow">Capital Humano</p>
@@ -28,7 +28,7 @@
     <div class="dashboard-empty" data-error-kind="validation"><span class="dashboard-empty__label">No se guardó</span><p>{{ form_error }}</p></div>
     {% endif %}
 
-    <form method="post" action="{{ '/cchh/entrevistas/' ~ form_values.entrevista_id ~ '/editar' ~ rc.qs if is_edit else '/cchh/entrevistas/nueva' }}" class="hc-profile-form">
+    <form method="post" action="{{ '/cchh/entrevistas/' ~ form_values.entrevista_id ~ '/editar' ~ rc.qs if is_edit else '/cchh/entrevistas/nueva' ~ rc.qs }}" class="hc-profile-form">
       {% if is_edit %}<input type="hidden" name="expected_revision" value="{{ form_values.expected_revision }}">{% endif %}
 
       <section class="hc-profile-section">
@@ -131,13 +131,22 @@
           </div>
 
           <div class="feedback-field feedback-field--compact">
-            <label for="ent-remuneracion">Remuneración pretendida</label>
+            {% set _restricted_help = "Dato restringido: solo lo ven y editan las personas autorizadas." %}
+            <label for="ent-remuneracion">Remuneración pretendida
+              {% if not can_see_compensation %}
+              <span class="chart-tooltip-anchor">
+                <button type="button" class="activity-kpi__info" aria-label="{{ _restricted_help }}">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
+                </button>
+                <span class="chart-tooltip"><p id="ent-remuneracion-hint">{{ _restricted_help }}</p></span>
+              </span>
+              {% endif %}
+            </label>
             {# Dato RESTRINGIDO (`HC_SENSITIVE_DATA_ALLOWED_USERS`): sin permiso NO hay input con nombre ni valor real en el HTML; solo la máscara. El backend además descarta cualquier importe enviado. #}
             {% if can_see_compensation %}
             <input id="ent-remuneracion" name="remuneracion_pretendida" type="text" value="{{ form_values.remuneracion_pretendida or '' }}">
             {% else %}
             <input id="ent-remuneracion" type="text" value="****" readonly disabled aria-describedby="ent-remuneracion-hint">
-            <p class="field-hint" id="ent-remuneracion-hint">Dato restringido: solo lo ven y editan las personas autorizadas.</p>
             {% endif %}
           </div>
         </div>
@@ -169,7 +178,7 @@
         {% endif %}
         <button type="submit" class="btn-primary">{{ 'Guardar cambios' if is_edit else 'Crear entrevista' }}</button>
         {% if not is_edit %}
-        <a href="/cchh/entrevistas" class="btn-secondary">Cancelar</a>
+        <a href="{{ rc.back_url }}" class="btn-secondary">Cancelar</a>
         {% endif %}
       </div>
     </form>

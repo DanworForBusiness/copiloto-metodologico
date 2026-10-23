@@ -8,6 +8,7 @@ Contrato de orden (lo garantiza quien llama): dataset completo → filtros → b
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping, Sequence
 from urllib.parse import quote, urlencode, urlparse
 
@@ -54,19 +55,41 @@ def _qs(params: dict[str, Any], **extra: Any) -> str:
     return urlencode(merged)
 
 
-def list_return_url(value: str | None, list_path: str) -> str:
+_PIPELINE_PATH_RE = re.compile(r"^/cchh/busquedas/[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
+PIPELINE_RETURN_LABEL = "Pipeline de la búsqueda"
+
+
+def pipeline_return_url(busqueda_id: str | None) -> str:
+    """Contexto «vengo del Pipeline de esta búsqueda» (para anexar como `?return_to=` a los accesos de las tarjetas): el path del detalle de la búsqueda, o `""` si el id no es un uuid canónico."""
+    url = f"/cchh/busquedas/{busqueda_id}"
+    return url if _PIPELINE_PATH_RE.match(url) else ""
+
+
+def with_return_to(url: str, return_to: str) -> str:
+    """`url` con `return_to` anexado (respetando una query previa); sin contexto devuelve `url` intacta."""
+    if not return_to:
+        return url
+    return f"{url}{'&' if '?' in url else '?'}return_to={quote(return_to, safe='')}"
+
+
+def list_return_url(value: str | None, list_path: str, *, allow_pipeline: bool = False) -> str:
     """Contexto de LISTADO para volver desde una acción de fila (Editar / Guardar / Cancelar / Eliminar): la URL del listado con su estado (filtros, búsqueda, página, tamaño).
     Se acepta SOLO un destino interno (`safe_internal_next`, autoridad única) cuyo PATH sea exactamente `list_path`; cualquier otra cosa → `""` (el caller cae a su default). La
     página guardada puede ya no existir (p. ej. se borró la última fila de la última página): `paginate` la acota a la última válida al renderizar el listado."""
     url = safe_internal_next(value)
-    return url if url and urlparse(url).path == list_path else ""
+    if url and urlparse(url).path == list_path:
+        return url
+    # Opt-in: el Pipeline de una búsqueda (path EXACTO `/cchh/busquedas/<uuid>`, sin query ni fragmento) como segundo destino válido para las pantallas que se abren desde sus tarjetas (Entrevista / Onboarding).
+    return url if allow_pipeline and url and _PIPELINE_PATH_RE.match(url) else ""
 
 
-def list_return_context(query_params: Mapping[str, str], list_path: str) -> dict:
+def list_return_context(query_params: Mapping[str, str], list_path: str, *, allow_pipeline: bool = False) -> dict:
     """Para plantillas/rutas de edición: `return_to` validado, `back_url` (return_to o el listado base) y `qs` (`?return_to=…` para anexar a TODA acción/form de la página de edición,
     de modo que Guardar/Eliminar/documentos vuelvan al mismo contexto; vacío si no hay)."""
-    url = list_return_url(query_params.get("return_to"), list_path)
-    return {"return_to": url, "back_url": url or list_path, "qs": f"?return_to={quote(url, safe='')}" if url else ""}
+    url = list_return_url(query_params.get("return_to"), list_path, allow_pipeline=allow_pipeline)
+    from_pipeline = bool(url) and urlparse(url).path != list_path
+    return {"return_to": url, "back_url": url or list_path, "qs": f"?return_to={quote(url, safe='')}" if url else "",
+            "from_pipeline": from_pipeline, "back_label": PIPELINE_RETURN_LABEL if from_pipeline else None}
 
 
 def paginate(items: Sequence[Any], *, page: Any = 1, page_size: Any = None, base_url: str = "", params: dict[str, Any] | None = None,

@@ -89,7 +89,7 @@ def test_cchh_stage_opens_the_cchh_evaluation_and_leader_stage_keeps_the_adminis
     assert existing and existing["profile_id"] == pid and existing["busqueda_id"] == bid and existing["application_id"] == app_id
     before = _interview_count()
     expected = (("Entrevista CCHH", "Evaluación CCHH", f"/cchh/busquedas/{bid}/candidatos/{app_id}/evaluacion-cchh"),
-                ("Entrevista Líder", "Ir a entrevista técnica", f"/cchh/entrevistas/{existing['entrevista_id']}/editar"))
+                ("Entrevista Líder", "Ir a entrevista técnica", f"/cchh/entrevistas/{existing['entrevista_id']}/editar?return_to=%2Fcchh%2Fbusquedas%2F{bid}"))   # con contexto explícito: «Volver» regresa a este Pipeline
     for etapa, label, url in expected:
         svc.move_application_stage(bid, app_id, etapa, None, actor=CCHH_EMAIL)
         card = _card(c.get(f"/cchh/busquedas/{bid}").text, "Mateo Biasotto")
@@ -107,7 +107,7 @@ def test_without_an_interview_the_icon_opens_the_new_form_with_candidate_and_pro
     assert _interview_count() == 0
     html = c.get(f"/cchh/busquedas/{bid}").text
     href = re.search(r'<a href="([^"]+)" class="table-action-btn chart-tooltip-anchor busqueda-cand__interview"', _card(html, "Mateo Biasotto")).group(1).replace("&amp;", "&")
-    assert href == f"/cchh/entrevistas/nueva?profile_id={pid}&busqueda_id={bid}"
+    assert href == f"/cchh/entrevistas/nueva?profile_id={pid}&busqueda_id={bid}&return_to=%2Fcchh%2Fbusquedas%2F{bid}"
     page = c.get(href).text
     assert re.search(rf'<option value="{pid}" selected>', page) and 'value="Solution Architect"' in page             # candidato y puesto del proceso precargados
     assert _interview_count() == 0 and c.get(f"/cchh/busquedas/{bid}").status_code == 200 and _interview_count() == 0   # ni abrir el alta ni el detalle crean la entrevista
