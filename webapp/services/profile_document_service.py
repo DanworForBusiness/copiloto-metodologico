@@ -276,7 +276,24 @@ FOLDER_KEPT_MESSAGES = {
     "kept_changed": "la carpeta cambió mientras se verificaba (posible subida concurrente)",
     "kept_permission": "no hay permiso para eliminar la carpeta",
     "kept_error": "SharePoint no confirmó el borrado de la carpeta",
+    "kept_policy_disabled": "la limpieza automática de carpetas está deshabilitada por política de seguridad",
 }
+FOLDER_KEPT_POLICY = FOLDER_KEPT_PREFIX + "policy_disabled"
+
+# POLÍTICA DE SEGURIDAD: el borrado AUTOMÁTICO de la carpeta del candidato está DESHABILITADO. Microsoft Graph no ofrece «borrar solo si está vacía» (el DELETE de una carpeta es recursivo y `If-Match: eTag` no cambia cuando entra
+# un hijo), así que un archivo subido en el último viaje HTTP no se detectaría. Se conservan intactos la verificación (`cleanup_empty_profile_folder`) y sus tests para una eventual operación EXPLÍCITA de mantenimiento; habilitarlo
+# acá es una decisión de código revisada (no una variable de entorno que pueda cambiarse por error en producción). La baja del documento (archivo + registro) y la baja contextual del candidato NO cambian: solo conservan la carpeta.
+FOLDER_AUTO_CLEANUP_ENABLED = False
+
+
+def _automatic_folder_cleanup(*, profile_id: str, folder_item_id: str | None, site_id: str | None, drive_id: str | None, access_token: str, deleted_item_ids=()) -> str:
+    """Punto único por el que las bajas (documento individual / baja contextual de candidato) piden la limpieza de la carpeta: con la política vigente la carpeta SE CONSERVA y queda registrado el motivo."""
+    if not folder_item_id:
+        return FOLDER_NOT_REQUESTED
+    if not FOLDER_AUTO_CLEANUP_ENABLED:
+        _logger.info("profile_folder_cleanup outcome=%s stage=policy http_status=- attempt=0", FOLDER_KEPT_POLICY)
+        return FOLDER_KEPT_POLICY
+    return cleanup_empty_profile_folder(profile_id=profile_id, folder_item_id=folder_item_id, site_id=site_id, drive_id=drive_id, access_token=access_token, deleted_item_ids=deleted_item_ids)
 
 
 def folder_kept_message(status: str) -> str:
@@ -450,8 +467,8 @@ def delete_document(*, profile_id: str, document_id: str, access_token: str, rem
             last = not [d for d in profile_document_repository.find_by_folder_item_id(str(document.get("folder_item_id"))) if d.get("profile_id") == profile_id]
         except profile_document_repository.ProfileDocumentStorageError:
             last = False
-        folder = cleanup_empty_profile_folder(profile_id=profile_id, folder_item_id=document.get("folder_item_id"), site_id=document.get("site_id"),
-                                              drive_id=document.get("drive_id"), access_token=access_token, deleted_item_ids=(document.get("item_id"),))
+        folder = _automatic_folder_cleanup(profile_id=profile_id, folder_item_id=document.get("folder_item_id"), site_id=document.get("site_id"),
+                                           drive_id=document.get("drive_id"), access_token=access_token, deleted_item_ids=(document.get("item_id"),))
     return {"folder": folder, "last_document": last}
 
 
@@ -479,8 +496,8 @@ def delete_profile_documents(*, profile_id: str, access_token: str) -> dict:
         folders.setdefault(doc.get("folder_item_id"), (doc.get("site_id"), doc.get("drive_id"), set()))[2].add(doc.get("item_id"))
     results = {}
     for folder_item_id, (site_id, drive_id, item_ids) in folders.items():
-        results[folder_item_id] = cleanup_empty_profile_folder(profile_id=profile_id, folder_item_id=folder_item_id, site_id=site_id, drive_id=drive_id, access_token=access_token,
-                                                               deleted_item_ids=item_ids)
+        results[folder_item_id] = _automatic_folder_cleanup(profile_id=profile_id, folder_item_id=folder_item_id, site_id=site_id, drive_id=drive_id, access_token=access_token,
+                                                            deleted_item_ids=item_ids)
     return {"deleted": deleted, "folders": results}
 
 

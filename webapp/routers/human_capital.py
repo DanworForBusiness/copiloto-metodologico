@@ -678,6 +678,7 @@ def human_capital_profile_delete(
     actor = (user or {}).get("sub") or ""
     delete_error: str | None = None
     folder_notice = ""
+    folder_notice_policy_only = False
     docs_deleted = 0
     if (delete_documents or "").strip().lower() in ("1", "true", "on", "yes"):
         # Flujo CONTROLADO con eliminación física: (1) documentos en SharePoint (cada uno confirmado antes de su metadata) y carpeta solo si quedó vacía; (2) recién entonces la baja lógica.
@@ -693,6 +694,7 @@ def human_capital_profile_delete(
                 docs_deleted = summary["deleted"]
                 kept_msgs = [m for m in (profile_document_service.folder_kept_message(s) for s in summary["folders"].values()) if m]
                 folder_notice = " ".join(dict.fromkeys(kept_msgs))
+                folder_notice_policy_only = bool(kept_msgs) and all(s == profile_document_service.FOLDER_KEPT_POLICY for s in summary["folders"].values() if str(s).startswith(profile_document_service.FOLDER_KEPT_PREFIX))
             except profile_document_service.ProfileDocumentConfigIncompleteError as exc:
                 return _render_profile_edit_with_documents(request, profile_id, profile, document_state={"kind": "CONFIG_INCOMPLETE", "message": f"{exc} El candidato NO fue dado de baja."})
             except profile_document_service.ProfileDocumentsBulkDeleteIncompleteError as exc:
@@ -722,6 +724,7 @@ def human_capital_profile_delete(
             "current_workspace": workspaces.HUMAN_CAPITAL, "available_workspaces": workspaces.available_workspaces(user), "pack": DEFAULT_PACK, "user": user, "active_page": "perfiles",
             **_profiles_panel_context(query={}, page="", page_size=""),
             "delete_notice": f"El candidato fue dado de baja y sus {docs_deleted} documento(s) se eliminaron de SharePoint. {folder_notice}",
+            "delete_notice_neutral": folder_notice_policy_only,     # carpeta conservada solo por la política de seguridad: aviso informativo, no advertencia
         }
         return templates.TemplateResponse(request=request, name="human_capital/profiles.html", context=context)
 
@@ -1168,9 +1171,11 @@ async def human_capital_profile_documents_delete(
         )
     kept = profile_document_service.folder_kept_message(outcome["folder"]) if outcome.get("last_document") else ""
     if kept:
-        # El documento SÍ se eliminó (físico + registro) pero la carpeta quedó: nunca un éxito completo silencioso.
+        # El documento SÍ se eliminó (físico + registro) pero la carpeta quedó: nunca un éxito completo silencioso. Si se conserva por la POLÍTICA de seguridad (limpieza automática deshabilitada) no es un fallo:
+        # aviso informativo (`FOLDER_RETAINED_POLICY`), no una advertencia.
+        policy = outcome["folder"] == profile_document_service.FOLDER_KEPT_POLICY
         return _render_profile_edit_with_documents(
-            request, profile_id, profile, document_state={"kind": "FOLDER_KEPT", "message": "El documento se eliminó de SharePoint. " + kept},
+            request, profile_id, profile, document_state={"kind": "FOLDER_RETAINED_POLICY" if policy else "FOLDER_KEPT", "message": "El documento se eliminó de SharePoint. " + kept},
         )
     return _edit_redirect(request, profile_id)
 

@@ -2,7 +2,7 @@
    MISMO `<dialog class="dw-confirm busqueda-dialog">` + opener `[data-dialog-open]` del Hub (app.js) que «Cerrar proceso»/«Eliminar solicitud». El opener (`[data-hc-baja-open]`) trae por data-attrs la acción,
    el nombre y la cantidad de documentos: este diálogo es único por página. La casilla «Eliminar también los documentos de SharePoint» viene DESMARCADA; sin marcarla el POST es exactamente la baja lógica
    de siempre (los documentos permanecen en SharePoint). Marcada, el navegador obtiene primero el token de escritura de Microsoft 365 (mismo helper que Documentos) y el servidor ejecuta el flujo controlado
-   (documentos → carpeta solo si quedó vacía → baja lógica); si algo no se confirma, el candidato NO se da de baja y se muestra el error. #}
+   (documentos → baja lógica; la carpeta se conserva por política de seguridad); si algo no se confirma, el candidato NO se da de baja y se muestra el error. #}
 <dialog class="dw-confirm busqueda-dialog" id="hc-baja-dialog" aria-labelledby="hc-baja-title" data-hc-baja-dialog>
   <form method="post" action="" data-hc-baja-form>
     <input type="hidden" name="graph_token" value="">
@@ -11,7 +11,7 @@
       <p class="dw-confirm__msg" data-hc-baja-msg></p>
       <div class="feedback-field">
         <label><input type="checkbox" name="delete_documents" value="true" data-hc-baja-check> Eliminar también los documentos de SharePoint</label>
-        <p class="field-hint">Sin marcar, los documentos permanecen en SharePoint. Marcada, se eliminan de SharePoint (y su carpeta, solo si queda vacía). Esa eliminación no se puede deshacer.</p>
+        <p class="field-hint">Sin marcar, los documentos permanecen en SharePoint. Marcada, se eliminan los documentos de SharePoint; la carpeta del candidato se conserva (la limpieza automática de carpetas está deshabilitada por política de seguridad). Esa eliminación no se puede deshacer.</p>
       </div>
     </div>
     <div class="dw-confirm__actions">

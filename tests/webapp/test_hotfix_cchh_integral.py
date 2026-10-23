@@ -170,6 +170,9 @@ def hc(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "HC_CV_ROOT_ITEM_ID", "root-1")
     monkeypatch.setattr(config, "HC_DOCUMENT_WRITE_SCOPE", "https://danwor.sharepoint.com/Sites.Selected")
     monkeypatch.setattr(svc, "_FOLDER_RETRY_DELAY_S", 0)
+    # POLÍTICA: por defecto la limpieza AUTOMÁTICA de carpetas está deshabilitada (`FOLDER_AUTO_CLEANUP_ENABLED = False`). Estos tests ejercitan la lógica de verificación y borrado conservada para una futura operación
+    # explícita de mantenimiento, así que la habilitan expresamente; el comportamiento por defecto se prueba con `hc_default`.
+    monkeypatch.setattr(svc, "FOLDER_AUTO_CLEANUP_ENABLED", True)
 
     def install(graph):
         monkeypatch.setattr(svc.microsoft365, "graph_get_json", graph.get)
@@ -426,6 +429,69 @@ def test_a_partial_failure_keeps_the_candidate_active_reports_the_counts_and_the
     g.fail_items.clear()                                                                   # permisos resueltos: el reintento es idempotente y completa
     r2 = client.post(f"/cchh/candidatos/{pid}/eliminar", data={"delete_documents": "true", "graph_token": "tok"})
     assert r2.status_code == 303 and prepo.get(pid)["deleted_at"] and drepo.list_for_profile(pid) == [] and len(g.folder_deletes()) == 1
+
+
+# ═══════════════════════ política de seguridad: sin DELETE automático de carpetas ═══════════════════════
+@pytest.fixture()
+def hc_default(hc, monkeypatch):
+    """Como `hc` pero con la política POR DEFECTO (limpieza automática de carpetas deshabilitada)."""
+    monkeypatch.setattr(svc, "FOLDER_AUTO_CLEANUP_ENABLED", svc.__dict__["FOLDER_AUTO_CLEANUP_ENABLED"] and False)
+    return hc
+
+
+def test_the_shipped_default_disables_the_automatic_folder_cleanup():
+    import importlib
+    assert importlib.reload(svc).FOLDER_AUTO_CLEANUP_ENABLED is False                              # valor de fábrica del módulo (no depende de fixtures)
+
+
+def test_deleting_the_last_document_removes_file_and_metadata_but_keeps_the_folder_and_never_touches_it(hc_default, caplog):
+    import logging
+    g = hc_default(Graph())
+    _doc("d1", "item-1")
+    with caplog.at_level(logging.INFO, logger="danwor.cchh.profile_document"):
+        out = svc.delete_document(profile_id=PID, document_id="d1", access_token="SECRET", remove_empty_folder=True)
+    assert out == {"folder": "kept_policy_disabled", "last_document": True} and drepo.get("d1") is None
+    assert [m for m, u in g.calls] == ["DELETE"] and g.calls[0][1].endswith("/items/item-1")        # solo el archivo: ni GET de la carpeta, ni listado, ni DELETE de carpeta
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "profile_folder_cleanup outcome=kept_policy_disabled stage=policy" in text and "SECRET" not in text and FOLDER not in text
+    assert "deshabilitada por política de seguridad" in svc.folder_kept_message(out["folder"])
+
+
+def test_the_policy_outcome_is_not_an_error_in_the_individual_delete_screen(hc_default, client):
+    g = hc_default(Graph())
+    pid = _profile()
+    _doc("d1", "item-1", profile=pid)
+    r = client.post(f"/cchh/candidatos/{pid}/documentos/d1/delete", data={"graph_token": "tok"})
+    assert r.status_code == 200 and drepo.get("d1") is None and g.folder_deletes() == [] and [m for m, u in g.calls] == ["DELETE"]
+    assert 'data-document-error-kind="FOLDER_RETAINED_POLICY"' in r.text and "callout--note" in r.text                  # aviso informativo, no advertencia ni error
+    assert "El documento se eliminó de SharePoint." in r.text and "deshabilitada por política de seguridad" in r.text
+    assert 'data-document-error-kind="FOLDER_KEPT"' not in r.text and "GRAPH_SOURCE_ERROR" not in r.text and "No se pudo" not in r.text
+
+
+def test_a_non_last_document_delete_shows_no_notice_at_all(hc_default, client):
+    hc_default(Graph())
+    pid = _profile()
+    _doc("d1", "item-1", profile=pid)
+    _doc("d2", "item-2", profile=pid)
+    r = client.post(f"/cchh/candidatos/{pid}/documentos/d1/delete", data={"graph_token": "tok"})
+    assert r.status_code == 303 and drepo.get("d1") is None and drepo.get("d2") is not None
+
+
+def test_the_contextual_baja_deletes_all_documents_soft_deletes_and_keeps_the_folder(hc_default, client):
+    g = hc_default(Graph())
+    pid = _profile()
+    _doc("d1", "item-1", profile=pid)
+    _doc("d2", "item-2", profile=pid)
+    r = client.post(f"/cchh/candidatos/{pid}/eliminar", data={"delete_documents": "true", "graph_token": "tok"})
+    assert r.status_code == 200 and prepo.get(pid)["deleted_at"] and drepo.list_for_profile(pid) == []        # documentos eliminados y candidato dado de baja
+    assert g.folder_deletes() == [] and [u.split("/items/")[1] for m, u in g.calls] == ["item-1", "item-2"]      # solo los dos archivos; la carpeta no se toca
+    assert "data-delete-notice" in r.text and "sus 2 documento(s) se eliminaron de SharePoint" in r.text and "deshabilitada por política de seguridad" in r.text
+    assert "callout--note" in r.text.split("data-delete-notice")[0][-120:] and "NO fue dado de baja" not in r.text   # informativo (no advertencia) y no es un fallo de la baja
+
+
+def test_the_baja_dialog_text_no_longer_promises_the_folder_removal():
+    html = (ROOT / "webapp/templates/partials/human_capital_baja_dialog.html").read_text(encoding="utf-8")
+    assert "la carpeta del candidato se conserva" in html and "solo si queda vacía" not in html
 
 
 def test_a_kept_folder_after_the_baja_is_reported_as_a_partial_success_never_a_silent_redirect(hc, client):
