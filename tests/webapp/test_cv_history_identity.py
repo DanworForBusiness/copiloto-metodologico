@@ -94,7 +94,7 @@ def test_report_separates_coverage_precision_and_undetermined_cases(sp):
     keys["pablo.pdf"] = next(g["content_key"] for g in mf.list_groups(rid) if (g.get("extraction") or {}).get("first_name") == "Pablo")      # su representante es uno de dos alias del mismo contenido
     r0 = pilot.run_report(rid)["identity"]
     assert r0["readable"] == 5 and r0["coverage"]["with_proposal"] == 5 and r0["verdicts"]["pending"] == 5 and r0["proposal_quality"]["precision_pct"] is None
-    assert r0["proposal_quality"]["unevaluated"] == 5 and r0["by_state"] == {"CORROBORATED": 5} and r0["extractor_versions"] == {"2": 5}
+    assert r0["proposal_quality"]["unevaluated"] == 5 and r0["by_state"] == {"CORROBORATED": 5} and r0["extractor_versions"] == {"3": 5}
     pilot.record_verdict(rid, keys["Maria Fernandez.docx"], V.V_CORRECT, actor=OWNER)
     pilot.record_verdict(rid, keys["lucia.pdf"], V.V_CORRECT, actor=OWNER)
     pilot.record_verdict(rid, keys["CV Juan Perez v2.pdf"], V.V_CORRECTED, actor=OWNER, first_name="Juan", last_name="Perez")     # propuesta incorrecta
@@ -152,7 +152,7 @@ def test_the_derived_batch_reevaluates_from_stored_data_without_touching_the_ori
     groups = {g["content_key"]: g for g in mf.list_groups(did)}
     assert set(groups) == src_keys and all(g["derived_from"] == {"run_id": rid, "content_key": g["content_key"]} for g in groups.values())          # trazable por content_key
     maria = groups[k["maria"]]["extraction"]
-    assert maria["extractor_version"] == 2 and maria["first_name"] is None and "NAME_UNCORROBORATED" in maria["blocking"]                       # la frase funcional ya no es una propuesta
+    assert maria["extractor_version"] == 3 and maria["first_name"] is None and "NAME_UNCORROBORATED" in maria["blocking"]                       # la frase funcional ya no es una propuesta
     assert maria["name_decision"]["rejected_candidates"][0]["tokens"] == "Experiencia Laboral" and "OFFLINE_REEVALUATION" in maria["name_decision"]["limits"]
     assert (groups[k["lucia"]]["extraction"]["first_name"], groups[k["lucia"]]["extraction"]["name_decision"]["rule"]) == ("Lucía", "R2")
     conflict = groups[k["juan"]]["extraction"]
@@ -305,3 +305,53 @@ def test_routes_record_the_authenticated_actor_from_the_session_subject(sp, monk
     res = owner.post(f"{BASE}/piloto", data={"graph_token": TOKEN, "share_url": SHARE, "sample_size": "10", "authorization": pilot.AUTHORIZATION_PHRASE})
     rid = [r["run_id"] for r in mf.list_runs()][0]
     assert rid in res.text and mf.get_run(rid)["authorization"]["confirmed_by"] == OWNER and mf.get_run(rid)["created_by"] == OWNER
+
+
+# ═══════════════════ extractor v3: variante normalizada en el lote derivado ═══════════════════
+def rc_source(sp):
+    """Lote original con el defecto reportado: v1 propuso «Nacional Experimental»; el archivo se llama «RC Eliana Ojeda»; el owner confirmó «Eliana Ojeda»."""
+    world, rid = processed(sp)
+    key = make_legacy(rid, key_of(rid, "Maria Fernandez.docx"), first="Nacional", last="Experimental", text_name="Nacional Experimental", emails=["eliana.ojeda@gmail.com"])
+    group = mf.get_group(rid, key)
+    group["representative"] = {**group["representative"], "name": "RC Eliana Ojeda.pdf"}
+    mf.put_group(rid, key, group)
+    pilot.record_verdict(rid, key, V.V_CORRECTED, actor=OWNER, first_name="Eliana", last_name="Ojeda")
+    return world, rid, key
+
+
+def test_the_derived_batch_offers_the_normalized_variant_from_persisted_data_and_requires_review(sp, monkeypatch):
+    world, rid, key = rc_source(sp)
+    before, downloads = snapshot(rid), list(world.downloads)
+    monkeypatch.setattr(microsoft365, "graph_get_bytes", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("la reevaluación no descarga")))
+    did = pilot.start_rearbitration(rid, actor=OWNER)["run_id"]
+    ext = mf.get_group(did, key)["extraction"]
+    assert (ext["first_name"], ext["last_name"], ext["extractor_version"]) == ("Eliana", "Ojeda", 3) and "NAME_EDGE_TOKEN_UNEXPLAINED" in ext["blocking"]
+    assert (ext["name_decision"]["rule"], ext["name_decision"]["state"]) == ("R2", "CORROBORATED")
+    edge = next(a for a in ext["name_decision"]["alternatives"] if "edge_token" in a)["edge_token"]
+    assert edge["original"] == "Rc Eliana Ojeda" and edge["token"] == "Rc"                                           # se conserva el valor original
+    assert mf.get_group(did, key)["review"]["required"] is True and "NAME_EDGE_TOKEN_UNEXPLAINED" in mf.get_group(did, key)["review"]["reasons"]
+    assert snapshot(rid) == before and world.downloads == downloads                                                    # el lote original y sus dictámenes no se tocan
+    cmp = pilot.run_report(did)["comparison"]
+    assert cmp["against_confirmed_identity"] == {"known": 1, "matches": 1, "abstains": 0, "contradicts": 0}            # ya no contradice la identidad confirmada por el owner
+    assert cmp["original_wrong_proposals"]["changed"] == 1
+
+
+def test_earlier_derived_batches_stay_intact_when_a_new_one_is_created(sp):
+    _, rid, key = rc_source(sp)
+    first = pilot.start_rearbitration(rid, actor=OWNER)["run_id"]
+    group = mf.get_group(first, key)
+    group["extraction"] = {**group["extraction"], "extractor_version": 2, "first_name": "Rc Eliana", "last_name": "Ojeda"}               # lote derivado con datos v2 (el defecto reportado)
+    mf.put_group(first, key, group)
+    pilot.record_verdict(first, key, V.V_CORRECTED, actor=OWNER, first_name="Eliana", last_name="Ojeda")
+    frozen = {"first": snapshot(first), "verdicts": json.dumps(mf.get_verdict(first, key), sort_keys=True), "original": snapshot(rid)}
+    second = pilot.start_rearbitration(rid, actor=OWNER)["run_id"]
+    assert second != first and mf.get_group(second, key)["extraction"]["first_name"] == "Eliana"
+    assert snapshot(first) == frozen["first"] and json.dumps(mf.get_verdict(first, key), sort_keys=True) == frozen["verdicts"] and snapshot(rid) == frozen["original"]
+    assert pilot.run_report(first)["identity"]["extractor_versions"] != pilot.run_report(second)["identity"]["extractor_versions"]            # los lotes v2 y v3 se distinguen en el reporte
+
+
+def test_the_owner_view_shows_the_edge_token_and_the_original_value(sp, monkeypatch):
+    _, rid, key = rc_source(sp)
+    did = pilot.start_rearbitration(rid, actor=OWNER)["run_id"]
+    html = client_for(OWNER, monkeypatch).get(f"{BASE}/{did}").text
+    assert "data-edge-token" in html and "token de borde «Rc» (inicio) en «Rc Eliana Ojeda»" in html and "NAME_EDGE_TOKEN_UNEXPLAINED" in html and "Eliana" in html

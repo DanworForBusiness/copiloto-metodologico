@@ -27,6 +27,7 @@ import urllib.parse
 from collections import Counter, defaultdict
 
 from core import microsoft365
+from webapp.services import cv_extract
 from webapp.services import profile_document_validation as validation
 from webapp.services import sharepoint_graph_diagnostics as diag
 
@@ -184,6 +185,7 @@ def run_inventory(token: str, share_url: str, *, clock=time.monotonic, sleep=tim
     specialties: dict[str, dict] = {}
     spec_subfolders: Counter = Counter()
     hash_groups: dict[tuple, list[str]] = defaultdict(list)
+    compatible_names: list[str] = []
     dup_ids = dup_remote = with_hash = without_hash = 0
     max_depth = 0
     empty_folders = 0
@@ -273,6 +275,8 @@ def run_inventory(token: str, share_url: str, *, clock=time.monotonic, sleep=tim
                     ext = _ext(name) or "(sin extensión)"
                     by_ext[ext][0] += 1
                     by_ext[ext][1] += size
+                    if cls == COMPATIBLE:
+                        compatible_names.append(name)                       # solo en memoria, para el diagnóstico de tokens de borde: el informe nunca devuelve nombres de archivo
                     if items_out is not None:
                         hashes_ = (item.get("file") or {}).get("hashes") or {}
                         algo_ = next((a for a in ("sha256Hash", "quickXorHash", "sha1Hash") if hashes_.get(a)), None)
@@ -324,6 +328,7 @@ def run_inventory(token: str, share_url: str, *, clock=time.monotonic, sleep=tim
             "hash": {"with_hash": with_hash, "without_hash": without_hash, "groups": len(dup_groups), "files_in_groups": sum(len(v) for v in dup_groups.values()),
                      "surplus_copies": sum(len(v) - 1 for v in dup_groups.values()), "cross_specialty_groups": sum(1 for v in dup_groups.values() if len(set(v)) > 1)},
         },
+        "filename_edge_tokens": cv_extract.filename_edge_tokens(compatible_names),
         "stats": _stats(walker, folders_listed=folders_listed),
         "notes": ["Clasificación por extensión y tamaño: el formato real se verifica al descargar (fase siguiente).",
                   "Sin descarga ni extracción de datos personales; no se guardó nada."],

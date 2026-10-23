@@ -60,6 +60,16 @@
     <tr><td class="left">Grupos repartidos en más de una especialidad</td><td class="left">{{ d.hash.cross_specialty_groups }}</td></tr>
   </tbody></table>
 
+  {% set et = inv.filename_edge_tokens %}
+  <h3>Tokens de borde frecuentes en los nombres de archivo</h3>
+  {% if et.tokens %}
+  <table class="dashboard-table" data-inventory-edge-tokens>
+    <thead><tr><th class="left">Token</th><th class="left">Posición</th><th>Archivos</th><th>% de los considerados</th><th class="left">Clasificación</th></tr></thead>
+    <tbody>{% for t in et.tokens %}<tr><td class="left">{{ t.token }}</td><td class="left">{{ 'inicio' if t.position == 'START' else 'final' }}</td><td>{{ t.files }}</td><td>{{ t.share_pct }}</td><td class="left">{{ t.classification }}</td></tr>{% endfor %}</tbody>
+  </table>
+  <p class="field-hint">Tokens de hasta {{ et.max_len }} letras que encabezan o cierran el nombre de {{ et.min_files }} archivos o más (sobre {{ et.considered_files }} compatibles). Sirve para detectar prefijos o títulos antes de procesar; los «UNKNOWN» que no sean nombres de pila son candidatos a revisar. Solo metadatos: no se muestran nombres de archivo ni de personas.</p>
+  {% else %}<p class="field-hint" data-inventory-no-edge-tokens>Ningún token corto se repite como inicio o final en {{ et.min_files }} archivos o más ({{ et.considered_files }} considerados).</p>{% endif %}
+
   <h3>Errores de acceso o paginación</h3>
   {% if inv.errors %}
   <table class="dashboard-table" data-inventory-errors>

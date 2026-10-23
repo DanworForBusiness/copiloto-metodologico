@@ -143,7 +143,7 @@ def test_the_filename_is_a_plausible_candidate_only_and_decides_nothing_alone():
 def test_every_decision_is_explainable_and_carries_no_cv_text():
     r = pdf(["Roberto Díaz", "rdiaz@mail.com", "11 5555 1111", BODY_MARK], "x.pdf")
     d = r["name_decision"]
-    assert r["extractor_version"] == x.EXTRACTOR_VERSION == 2 and d["rule"] in {"R1", "R2", "R3", "R4", "R5", "R6"} and d["alternatives"][0]["evidence"]
+    assert r["extractor_version"] == x.EXTRACTOR_VERSION == 3 and d["rule"] in {"R1", "R2", "R3", "R4", "R5", "R6"} and d["alternatives"][0]["evidence"]
     assert BODY_MARK not in json.dumps(r, ensure_ascii=False)
 
 
@@ -152,7 +152,7 @@ def test_rearbitrate_reevaluates_a_stored_v1_result_without_the_document_and_sta
           "candidates": {"emails": [], "phones": [], "names": {"text": "Sofía Martínez", "filename": "Roberto Díaz"}}}
     r = x.rearbitrate(v1, "CV Roberto Díaz.pdf")
     assert r["first_name"] is None and x.NAME_CONFLICT in r["blocking"] and x.NAME_SINGLE_SOURCE not in r["flags"] and x.EMAIL_MISSING in r["flags"]
-    assert "OFFLINE_REEVALUATION" in r["name_decision"]["limits"] and r["extractor_version"] == 2
+    assert "OFFLINE_REEVALUATION" in r["name_decision"]["limits"] and r["extractor_version"] == 3
     with_email = x.rearbitrate({**v1, "candidates": {"emails": ["sdiaz@x.com"], "phones": [], "names": {"text": "Sofía Martínez"}}}, "doc.pdf")
     assert with_email["first_name"] is None                                                                      # un email que no coincide con la identidad no corrobora
     ok = x.rearbitrate({**v1, "candidates": {"emails": ["smartinez@x.com"], "phones": [], "names": {"text": "Sofía Martínez"}}}, "doc.pdf")
