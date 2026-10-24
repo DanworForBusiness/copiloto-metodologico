@@ -2,6 +2,7 @@
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% block title %}{{ 'Editar entrevista' if is_edit else 'Nueva entrevista' }} · Capital Humano · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">{% endblock %}
 {% block body %}
 <div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
   {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
@@ -153,15 +154,19 @@
           </div>
         </div>
 
-        <div class="feedback-field">
-          <label for="ent-obs">Observaciones</label>
-          <textarea id="ent-obs" name="observaciones" rows="3">{{ form_values.observaciones or '' }}</textarea>
+        {# Contexto de acceso (`foco`: «Evaluación CCHH» / «Evaluación técnica» desde el Pipeline): el resumen del contexto lleva el foco y el OTRO queda grisado y de solo lectura (deshabilitado: no viaja). El servidor además
+           descarta ese campo y conserva el persistido (`locked_fields`): el guardado de un resumen nunca pisa al otro. Sin contexto (Entrevistas → Editar) ambos se editan como siempre. #}
+        {% if foco %}<input type="hidden" name="foco" value="{{ foco }}">{% endif %}
+        <div class="feedback-field{% if locked_field == 'observaciones' %} is-locked{% endif %}">
+          <label for="ent-obs">Resumen de la entrevista CCHH</label>
+          <textarea id="ent-obs" name="observaciones" rows="3"{% if foco_field == 'observaciones' %} autofocus data-initial-focus{% endif %}{% if locked_field == 'observaciones' %} disabled aria-readonly="true" aria-describedby="ent-locked-hint"{% endif %}>{{ form_values.observaciones or '' }}</textarea>
         </div>
 
-        <div class="feedback-field">
+        <div class="feedback-field{% if locked_field == 'resumen_entrevista_tecnica' %} is-locked{% endif %}">
           <label for="ent-resumen">Resumen de la entrevista técnica</label>
-          <textarea id="ent-resumen" name="resumen_entrevista_tecnica" rows="3" placeholder="Lo que carga el entrevistador técnico sobre esta persona…">{{ form_values.resumen_entrevista_tecnica or '' }}</textarea>
+          <textarea id="ent-resumen" name="resumen_entrevista_tecnica" rows="3" placeholder="Lo que carga el entrevistador técnico sobre esta persona…"{% if foco_field == 'resumen_entrevista_tecnica' %} autofocus data-initial-focus{% endif %}{% if locked_field == 'resumen_entrevista_tecnica' %} disabled aria-readonly="true" aria-describedby="ent-locked-hint"{% endif %}>{{ form_values.resumen_entrevista_tecnica or '' }}</textarea>
         </div>
+        {% if locked_field %}<p class="field-hint" id="ent-locked-hint" data-locked-hint>Estás en la {{ 'Evaluación CCHH' if foco == 'cchh' else 'Evaluación técnica' }}: el resumen de la entrevista {{ 'técnica' if foco == 'cchh' else 'CCHH' }} se muestra solo para lectura y no se modifica al guardar.</p>{% endif %}
       </section>
 
       {# Homologado contra los forms owner-approved del Hub (auditoría UX pass
@@ -186,6 +191,9 @@
     </form>
   </main>
 </div>
+{% if foco_field %}
+{# Foco inicial del contexto de acceso (el atributo `autofocus` solo no alcanza cuando la página se abre con otra cosa enfocada): el cursor queda al final del resumen que corresponde. #}
+<script>(function () { var f = document.querySelector("[data-initial-focus]"); if (f && !f.disabled) { f.focus(); if (f.setSelectionRange) { f.setSelectionRange(f.value.length, f.value.length); } } })();</script>
+{% endif %}
 
-<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
 {% endblock %}

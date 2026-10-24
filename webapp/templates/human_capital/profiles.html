@@ -2,6 +2,7 @@
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% block title %}Base de CVs · Capital Humano · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">{% endblock %}
 {% block body %}
 <div
   x-data="copilotLayout('human-capital')"
@@ -35,5 +36,4 @@
 {# CSS propio de la vertical (ver human_capital.css) — MISMO mecanismo que
    commercial.css/reporting.css: base.html solo carga los stylesheets del
    Hub, lo específico de un workspace lo linkea su propia página. #}
-<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
 {% endblock %}

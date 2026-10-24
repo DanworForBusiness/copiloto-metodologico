@@ -69,9 +69,11 @@
   <form class="hc-profile-filters filter-toolbar-card" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML">
     {# Tamaño de página vigente: viaja con TODO cambio de filtro/búsqueda (que vuelve a la página 1, porque `page` nunca se incluye). #}
     <input type="hidden" name="page_size" value="{{ pager.page_size }}">
+    {# Orden vigente: viaja con todo cambio de filtro/búsqueda (que vuelve a la página 1). #}
+    <input type="hidden" name="sort" value="{{ sort_state.key }}"><input type="hidden" name="dir" value="{{ sort_state.dir if sort_state.key else '' }}">
     <div class="feedback-field feedback-field--wide">
       <label for="hc-search-q">Buscar</label>
-      <input id="hc-search-q" name="q" type="text" value="{{ query.q or '' }}" placeholder="Nombre, email, skills, ubicación..." hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
+      <input id="hc-search-q" autocomplete="off" name="q" type="text" value="{{ query.q or '' }}" placeholder="Nombre, email, skills, ubicación..." hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
     </div>
     <div class="feedback-field feedback-field--compact">
       <label for="hc-filter-seniority">Seniority</label>
@@ -99,7 +101,7 @@
     </div>
     <div class="feedback-field feedback-field--medium">
       <label for="hc-filter-location">Ubicación</label>
-      <input id="hc-filter-location" name="location" type="text" value="{{ query.location or '' }}" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
+      <input id="hc-filter-location" autocomplete="off" name="location" type="text" value="{{ query.location or '' }}" hx-get="/cchh/candidatos" hx-target="#hc-profiles-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
     </div>
     <div class="feedback-field feedback-field--compact">
       <label for="hc-filter-potential-mark">Marca de potencial</label>
@@ -217,11 +219,11 @@
       </colgroup>
       <thead>
         <tr>
-          <th class="left" data-column-key="nombre" draggable="true">Nombre completo</th>
-          <th class="left" data-column-key="skills" draggable="true">Perfil / Skills</th>
-          <th class="left" data-column-key="seniority" draggable="true">Seniority</th>
-          <th class="left" data-column-key="ubicacion" draggable="true">Ubicación</th>
-          <th class="left" data-column-key="fuente" draggable="true">Fuente</th>
+          {# Cabeceras ordenables: patrón de las tablas del Hub (`dashboard-table-th--sortable`, ▲/▼ en la columna activa). El orden se aplica en el servidor sobre el resultado completo, antes de paginar. #}
+          {% for key, label in (('nombre', 'Nombre completo'), ('skills', 'Perfil / Skills'), ('seniority', 'Seniority'), ('ubicacion', 'Ubicación'), ('fuente', 'Fuente')) %}
+          <th class="left dashboard-table-th--sortable" data-column-key="{{ key }}" draggable="true" data-sort-key="{{ key }}" hx-get="{{ sort_state.urls[key] }}" hx-target="#hc-profiles-panel" hx-swap="outerHTML"
+              aria-sort="{{ ('ascending' if sort_state.dir == 'asc' else 'descending') if sort_state.key == key else 'none' }}" title="Ordenar por {{ label }}">{{ label }}{% if sort_state.key == key %} {{ sort_state.arrow[key] }}{% endif %}</th>
+          {% endfor %}
           <th class="center">Acciones</th>
         </tr>
       </thead>

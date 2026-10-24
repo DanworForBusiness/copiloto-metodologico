@@ -717,3 +717,6 @@
 .hc-exc-form :is(input, select) { min-width: 0; width: 100%; padding: 4px 6px; font: inherit; color: inherit; background: transparent; border: 1px solid rgba(128, 128, 140, .55); border-radius: 4px; }
 .hc-exc-form__pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .hc-exc-form .btn-primary, .hc-exc-form .btn-secondary { justify-self: start; padding: 4px 10px; font-size: .78rem; }
+
+/* Campo bloqueado por el contexto de acceso (Entrevista: resumen CCHH ↔ técnico): grisado y de solo lectura. El servidor además conserva su valor al guardar. */
+.feedback-field.is-locked textarea { opacity: .55; cursor: not-allowed; background: rgba(128, 128, 140, .14); }

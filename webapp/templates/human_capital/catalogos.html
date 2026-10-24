@@ -2,6 +2,7 @@
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% block title %}Catálogos · Capital Humano · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">{% endblock %}
 {% block body %}
 <div
   x-data="copilotLayout('human-capital')"
@@ -69,7 +70,6 @@
   </main>
 </div>
 
-<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
 <script>
 (function () {
   function submitWithToken(form) {

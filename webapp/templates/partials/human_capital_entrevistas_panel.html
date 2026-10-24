@@ -32,7 +32,7 @@
   </div>
   <div class="feedback-field feedback-field--wide">
     <label for="hc-entrevistas-q">Buscar</label>
-    <input id="hc-entrevistas-q" name="q" type="text" value="{{ q or '' }}" placeholder="Candidato, origen, puesto, área, fecha, modalidad..." hx-get="/cchh/entrevistas" hx-target="#hc-entrevistas-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
+    <input id="hc-entrevistas-q" autocomplete="off" name="q" type="text" value="{{ q or '' }}" placeholder="Candidato, origen, puesto, área, fecha, modalidad..." hx-get="/cchh/entrevistas" hx-target="#hc-entrevistas-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
   </div>
   <button type="button" class="whatsnew-filter__clear" hx-get="{{ pager.urls.reset }}" hx-target="#hc-entrevistas-panel" hx-swap="outerHTML">✕ Limpiar</button>
 </form>

@@ -31,7 +31,7 @@
     </div>
     <div class="feedback-field feedback-field--wide">
       <label for="hc-onboarding-q">Buscar</label>
-      <input id="hc-onboarding-q" name="q" type="text" value="{{ q or '' }}" placeholder="Candidato, puesto, área, fecha, progreso..." hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
+      <input id="hc-onboarding-q" autocomplete="off" name="q" type="text" value="{{ q or '' }}" placeholder="Candidato, puesto, área, fecha, progreso..." hx-get="/cchh/onboarding" hx-target="#hc-onboarding-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="keyup changed delay:500ms">
     </div>
     <button type="button" class="whatsnew-filter__clear" hx-get="{{ pager.urls.reset }}" hx-target="#hc-onboarding-panel" hx-swap="outerHTML">✕ Limpiar</button>
   </form>

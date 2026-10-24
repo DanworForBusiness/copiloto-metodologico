@@ -51,8 +51,8 @@ def test_the_interview_icon_appears_only_in_the_two_interview_stages_with_the_co
     html = c.get(f"/cchh/busquedas/{bid}").text
     with_icon = {n for n in results if "busqueda-cand__interview" in _card(html, f"{n} Test")}
     assert with_icon == {"Bruno", "Carla"}                                                                           # solo Entrevista CCHH y Entrevista Líder
-    assert 'aria-label="Evaluación CCHH"' in _card(html, "Bruno Test") and "<p>Evaluación CCHH</p>" in _card(html, "Bruno Test")      # Entrevista CCHH: abre la EVALUACIÓN CCHH
-    assert 'aria-label="Ir a entrevista técnica"' in _card(html, "Carla Test") and "<p>Ir a entrevista técnica</p>" in _card(html, "Carla Test")
+    assert 'aria-label="Evaluación CCHH"' in _card(html, "Bruno Test") and "<p>Evaluación CCHH</p>" in _card(html, "Bruno Test")      # Entrevista CCHH: «Evaluación CCHH» (abre la edición de la entrevista, con contexto)
+    assert 'aria-label="Evaluación técnica"' in _card(html, "Carla Test") and "<p>Evaluación técnica</p>" in _card(html, "Carla Test")       # Entrevista Líder: «Evaluación técnica»
     card = _card(html, "Bruno Test")
     assert card.index("<select") < card.index("busqueda-cand__interview") < card.index('aria-label="Quitar del proceso"')   # dropdown → entrevista → eliminar
     assert "busqueda-cand__actions--interview" in card and "calendar" not in card and 'd="M17.5 17.5 16 16.3V14"' in card   # ícono calendar-clock
@@ -67,7 +67,7 @@ def test_the_stage_selector_and_the_unlink_button_keep_working_inside_the_interv
     card = _card(html, "Mateo Biasotto")
     assert f'hx-post="/cchh/busquedas/{bid}/candidatos/{app_id}/etapa"' in card and f'hx-post="/cchh/busquedas/{bid}/candidatos/{app_id}/eliminar"' in card
     r = c.post(f"/cchh/busquedas/{bid}/candidatos/{app_id}/etapa", data={"etapa": "Entrevista Líder", "resultado_final": ""}, headers={"HX-Request": "true"})
-    assert r.status_code == 200 and 'aria-label="Ir a entrevista técnica"' in r.text and "Evaluación CCHH" not in r.text    # el fragmento HTMX actualiza el tooltip de la nueva columna
+    assert r.status_code == 200 and 'aria-label="Evaluación técnica"' in r.text and 'aria-label="Evaluación CCHH"' not in r.text    # el fragmento HTMX actualiza el tooltip de la nueva columna
     assert c.post(f"/cchh/busquedas/{bid}/candidatos/{app_id}/eliminar", headers={"HX-Request": "true"}).status_code == 200
     assert brepo.get(bid)["candidatos"] == []
 
@@ -81,21 +81,21 @@ def test_a_closed_process_shows_no_card_actions_so_no_interview_icon():
 
 
 # ═══════════════════ destino: entrevista existente / alta precargada, sin crear nada ═══════════════════
-def test_cchh_stage_opens_the_cchh_evaluation_and_leader_stage_keeps_the_administrative_record_without_creating_anything(c):
+def test_both_interview_stages_open_the_interview_edit_with_their_context_without_creating_anything(c):
     bid = _manual()
     pid, app_id = _candidate(bid)
     svc.move_application_stage(bid, app_id, "Entrevista CCHH", None, actor=CCHH_EMAIL)                              # la entrevista se crea al ENTRAR a la etapa (flujo vigente), no por navegar
     existing = erepo.find_by_profile_and_busqueda(pid, bid)
     assert existing and existing["profile_id"] == pid and existing["busqueda_id"] == bid and existing["application_id"] == app_id
     before = _interview_count()
-    expected = (("Entrevista CCHH", "Evaluación CCHH", f"/cchh/busquedas/{bid}/candidatos/{app_id}/evaluacion-cchh"),
-                ("Entrevista Líder", "Ir a entrevista técnica", f"/cchh/entrevistas/{existing['entrevista_id']}/editar?return_to=%2Fcchh%2Fbusquedas%2F{bid}"))   # con contexto explícito: «Volver» regresa a este Pipeline
+    expected = (("Entrevista CCHH", "Evaluación CCHH", f"/cchh/entrevistas/{existing['entrevista_id']}/editar?foco=cchh&return_to=%2Fcchh%2Fbusquedas%2F{bid}"),
+                ("Entrevista Líder", "Evaluación técnica", f"/cchh/entrevistas/{existing['entrevista_id']}/editar?foco=tecnica&return_to=%2Fcchh%2Fbusquedas%2F{bid}"))   # con contexto explícito: «Volver» regresa a este Pipeline
     for etapa, label, url in expected:
         svc.move_application_stage(bid, app_id, etapa, None, actor=CCHH_EMAIL)
         card = _card(c.get(f"/cchh/busquedas/{bid}").text, "Mateo Biasotto")
         m = re.search(r'<a href="([^"]+)" class="table-action-btn chart-tooltip-anchor busqueda-cand__interview" aria-label="([^"]+)"', card)
-        assert m and m.group(1) == url and m.group(2) == label
-        assert c.get(m.group(1)).status_code == 200
+        assert m and m.group(1).replace("&amp;", "&") == url and m.group(2) == label
+        assert c.get(m.group(1).replace("&amp;", "&")).status_code == 200
     assert _interview_count() == before == 1                                                                           # navegar no crea entrevistas
 
 
@@ -107,7 +107,7 @@ def test_without_an_interview_the_icon_opens_the_new_form_with_candidate_and_pro
     assert _interview_count() == 0
     html = c.get(f"/cchh/busquedas/{bid}").text
     href = re.search(r'<a href="([^"]+)" class="table-action-btn chart-tooltip-anchor busqueda-cand__interview"', _card(html, "Mateo Biasotto")).group(1).replace("&amp;", "&")
-    assert href == f"/cchh/entrevistas/nueva?profile_id={pid}&busqueda_id={bid}&return_to=%2Fcchh%2Fbusquedas%2F{bid}"
+    assert href == f"/cchh/entrevistas/nueva?profile_id={pid}&busqueda_id={bid}&foco=tecnica&return_to=%2Fcchh%2Fbusquedas%2F{bid}"
     page = c.get(href).text
     assert re.search(rf'<option value="{pid}" selected>', page) and 'value="Solution Architect"' in page             # candidato y puesto del proceso precargados
     assert _interview_count() == 0 and c.get(f"/cchh/busquedas/{bid}").status_code == 200 and _interview_count() == 0   # ni abrir el alta ni el detalle crean la entrevista

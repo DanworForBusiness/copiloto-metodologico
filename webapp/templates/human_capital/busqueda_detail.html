@@ -2,6 +2,7 @@
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% block title %}{{ busqueda.nombre_puesto }} · Búsquedas · Capital Humano · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">{% endblock %}
 {% block body %}
 <div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
   {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
@@ -104,7 +105,12 @@
        «Sugeridos» y «Reportes» siguen pendientes. La antigua «Vista evaluación» (estrellas) se descartó. #}
     <div class="dashboard-view-switch busqueda-views" role="group" aria-label="Vistas del proceso">
       <a href="/cchh/busquedas/{{ busqueda.busqueda_id }}" class="{% if vista != 'evaluacion' %}is-active{% endif %}"{% if vista != 'evaluacion' %} aria-current="page"{% endif %}>Pipeline</a>
+      {% if can_use_evaluation %}
       <a href="/cchh/busquedas/{{ busqueda.busqueda_id }}?vista=evaluacion" class="{% if vista == 'evaluacion' %}is-active{% endif %}"{% if vista == 'evaluacion' %} aria-current="page"{% endif %}>Evaluación</a>
+      {% else %}
+      {# En desarrollo: solo el dueño de la app (APP_OWNER) la usa; para el resto queda visible pero deshabilitada, igual que Sugeridos/Reportes (sin navegación ni acción; el servidor además protege sus endpoints). #}
+      <button type="button" disabled title="En desarrollo: disponible solo para el dueño de la app" data-evaluation-locked>Evaluación</button>
+      {% endif %}
       <button type="button" disabled title="Próximamente">Sugeridos</button>
       <button type="button" disabled title="Próximamente">Reportes</button>
     </div>
@@ -135,5 +141,4 @@
   </main>
 </div>
 
-<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
 {% endblock %}

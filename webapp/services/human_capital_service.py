@@ -202,6 +202,27 @@ def _matches_structured_filters(profile: dict, query: dict) -> bool:
     return True
 
 
+# Orden de columnas del Banco de CVs (cabeceras clickeables). La clave es lo que se VE en la columna; los valores vacíos van siempre al final, sea cual sea la dirección.
+PROFILE_SORT_KEYS = {
+    "nombre": lambda p: _normalize_text(f"{p.get('first_name') or ''} {p.get('last_name') or ''}"),
+    "skills": lambda p: _normalize_text(p.get("profile_skills")),
+    "seniority": lambda p: _normalize_text(p.get("seniority")),
+    "ubicacion": lambda p: _normalize_text(p.get("location")),
+    "fuente": lambda p: _normalize_text(p.get("source")),
+}
+
+
+def sort_profiles(profiles: list[dict], sort: str | None, direction: str | None = "asc") -> list[dict]:
+    """Orden por columna sobre la lista YA filtrada, ANTES de paginar (el caller pagina el resultado completo, nunca solo la página visible). Estable; los vacíos al final en ambas direcciones.
+    Sin columna válida devuelve una copia en el orden de origen."""
+    key = PROFILE_SORT_KEYS.get(sort or "")
+    if key is None:
+        return list(profiles)
+    filled = [p for p in profiles if key(p)]
+    empty = [p for p in profiles if not key(p)]
+    return sorted(filled, key=key, reverse=(direction == "desc")) + empty
+
+
 def filter_profiles(profiles: list[dict], query: dict | None) -> list[dict]:
     """Filtrado EN MEMORIA sobre una lista YA leída por el caller (Phase
     3.2 §14/§6): sin índice/cache, sin I/O propio — el router llama
@@ -1314,7 +1335,10 @@ def resolve_entrevista_modalidad(stored, busqueda: dict | None, *, edited: bool 
     return (value, "busqueda") if value else (None, None)
 
 
-def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None, allow_compensation: bool = False) -> dict:
+ENTREVISTA_LOCKABLE_FIELDS = ("observaciones", "resumen_entrevista_tecnica")
+
+
+def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None, allow_compensation: bool = False, locked_fields: tuple = ()) -> dict:
     """Ningún campo de Entrevista es obligatorio (MISMO contrato que la
     referencia: EntrevistaFormInput es enteramente opcional salvo elegir un
     candidato al CREAR, que se valida aparte con profile_id). `area` y
@@ -1325,7 +1349,7 @@ def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None, allo
     modalidad = (fields.get("modalidad_contratacion") or "").strip() or None
     _validate_modalidad_contratacion_governed(
         modalidad, existing_value=(existing or {}).get("modalidad_contratacion"))
-    return {
+    shaped = {
         "fecha_entrevista": (fields.get("fecha_entrevista") or "").strip() or None,
         "puesto_evaluado": (fields.get("puesto_evaluado") or "").strip() or None,
         "area": area,
@@ -1335,6 +1359,12 @@ def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None, allo
         "observaciones": (fields.get("observaciones") or "").strip() or None,
         "resumen_entrevista_tecnica": (fields.get("resumen_entrevista_tecnica") or "").strip() or None,
     }
+    # CAMPOS BLOQUEADOS por el contexto de acceso (Evaluación CCHH ↔ Evaluación técnica): lo que llegue en el formulario para ellos se DESCARTA y se conserva el persistido (None en un alta). El contrato vive acá, en el backend:
+    # no depende de que el navegador haya deshabilitado el campo (un campo deshabilitado ni siquiera viaja, y uno manipulado no se acepta).
+    for name in locked_fields:
+        if name in ENTREVISTA_LOCKABLE_FIELDS:
+            shaped[name] = (existing or {}).get(name)
+    return shaped
 
 
 def create_entrevista_manual(profile_id: str, fields: dict, *, allow_compensation: bool = False) -> dict:
@@ -1367,10 +1397,10 @@ def create_entrevista_for_application(profile_id: str, busqueda_id: str, fields:
         profile_id=profile_id, busqueda_id=busqueda_id, application_id=application["application_id"])
 
 
-def update_entrevista(entrevista_id: str, expected_revision: int, fields: dict, *, allow_compensation: bool = False) -> dict:
+def update_entrevista(entrevista_id: str, expected_revision: int, fields: dict, *, allow_compensation: bool = False, locked_fields: tuple = ()) -> dict:
     existing = entrevista_repository.get(entrevista_id)
     updated = entrevista_repository.update(
-        entrevista_id, expected_revision, _shape_entrevista_fields(fields, existing=existing, allow_compensation=allow_compensation))
+        entrevista_id, expected_revision, _shape_entrevista_fields(fields, existing=existing, allow_compensation=allow_compensation, locked_fields=locked_fields))
     sync_onboarding_area_from_entrevista(updated)
     return updated
 

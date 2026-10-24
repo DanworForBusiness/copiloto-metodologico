@@ -253,7 +253,7 @@ def test_a_grid_change_makes_the_evaluations_outdated_visibly_and_reevaluating_m
 
 
 # ═══════════════════ pipeline, paso 3 del panel y separación del registro administrativo ═══════════════════
-def test_the_pipeline_icon_of_the_cchh_stage_opens_the_evaluation_and_other_stages_keep_their_access(c):
+def test_the_pipeline_icons_of_the_interview_stages_open_the_interview_edit_while_the_evaluation_tab_is_in_development(c):
     bid, grid = _ready(c)
     ids = {n: _candidate(bid, n) for n in ("Ana", "Bruno", "Carla", "Diego")}
     svc.move_application_stage(bid, ids["Bruno"], "Entrevista CCHH", None, actor=CCHH_EMAIL)
@@ -261,8 +261,8 @@ def test_the_pipeline_icon_of_the_cchh_stage_opens_the_evaluation_and_other_stag
     svc.move_application_stage(bid, ids["Diego"], "Decisión Final", None, actor=CCHH_EMAIL)
     page = c.get(f"/cchh/busquedas/{bid}").text
     bruno, carla = _card(page, "Bruno Test"), _card(page, "Carla Test")
-    assert f'href="{_url(bid, ids["Bruno"])}" class="table-action-btn chart-tooltip-anchor busqueda-cand__interview" aria-label="Evaluación CCHH"' in bruno
-    assert 'aria-label="Ir a entrevista técnica"' in carla and "/cchh/entrevistas/" in carla and "evaluacion-cchh" not in carla      # Líder: registro administrativo, sin cambios
+    assert 'aria-label="Evaluación CCHH"' in bruno and "/cchh/entrevistas/" in bruno and "foco=cchh" in bruno and "evaluacion-cchh" not in bruno      # hasta terminar la pestaña Evaluación: abre la edición de la entrevista (contexto CCHH)
+    assert 'aria-label="Evaluación técnica"' in carla and "/cchh/entrevistas/" in carla and "foco=tecnica" in carla and "evaluacion-cchh" not in carla      # Líder: la misma pantalla con contexto técnico
     assert "busqueda-cand__interview" not in _card(page, "Ana Test") and "busqueda-cand__interview" not in _card(page, "Diego Test")
 
 
@@ -326,3 +326,10 @@ def test_a_storage_failure_shows_a_controlled_error_and_leaves_no_record(c, monk
         m.setattr(erepo_s, "save", boom)
         r = c.post(_url(bid, app_id), data=_form(grid))
     assert r.status_code == 200 and "disco lleno" in r.text and _all(bid) == []
+
+@pytest.fixture(autouse=True)
+def _evaluation_is_app_owner_only(monkeypatch):
+    """La pestaña Evaluación está en desarrollo y solo la usa el dueño de la app (APP_OWNER): estos tests ejercitan SU funcionamiento, así que el usuario CCHH de prueba es el dueño."""
+    from webapp import access
+    monkeypatch.setattr(access, "APP_OWNER", f"{CCHH_EMAIL},{OTHER}")           # APP_OWNER admite varios dueños (lista)
+

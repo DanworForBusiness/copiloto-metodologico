@@ -257,3 +257,10 @@ def test_scoring_requires_the_cchh_session_and_authorization():
     assert brepo.get(bid).get("jd_texto") is None and grepo.get(bid) is None
     outsider = session_client("ops.sin.cchh@danwor.com")
     assert outsider.post(f"/cchh/busquedas/{bid}/scoring/jd", data={"jd_texto": "x"}).status_code == 403 and brepo.get(bid).get("jd_texto") is None
+
+@pytest.fixture(autouse=True)
+def _evaluation_is_app_owner_only(monkeypatch):
+    """La pestaña Evaluación está en desarrollo y solo la usa el dueño de la app (APP_OWNER): estos tests ejercitan SU funcionamiento, así que el usuario CCHH de prueba es el dueño."""
+    from webapp import access
+    monkeypatch.setattr(access, "APP_OWNER", CCHH_EMAIL)
+
