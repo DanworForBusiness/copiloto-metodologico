@@ -116,7 +116,7 @@
             {% if r.alerta_dispersion %}<span class="scoring-dispersion" title="Los evaluadores difieren en más de {{ rk.dispersion_alerta }} puntos: conviene revisar">⚠ Dif. {{ '%.0f' % r.dispersion }} pts</span>{% endif %}
           </td>
           <td class="left"><span class="scoring-estado scoring-estado--{{ r.estado }}">{{ {'sin_evaluar': 'Sin evaluar', 'desactualizada': 'Desactualizada (' ~ r.evaluaciones_desactualizadas ~ ')', 'vigente': 'Vigente'}[r.estado] }}</span></td>
-          <td class="center">{% if sc.editable and not r.persona_eliminada %}<a class="btn-secondary" href="{{ base }}/candidatos/{{ r.application_id }}/evaluacion-cchh">{{ 'Editar mi evaluación' if r.mi_evaluacion else 'Evaluar' }}</a>{% else %}—{% endif %}</td>
+          <td class="center">{% if sc.editable and not r.persona_eliminada %}{% set _evl = 'Editar mi evaluación' if r.mi_evaluacion else 'Evaluar' %}<a class="table-action-btn chart-tooltip-anchor" href="{{ base }}/candidatos/{{ r.application_id }}/evaluacion-cchh" aria-label="{{ _evl }}: {{ r.nombre }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="chart-tooltip" aria-hidden="true"><p>{{ _evl }}</p></span></a>{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>

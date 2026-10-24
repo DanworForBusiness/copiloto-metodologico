@@ -164,9 +164,13 @@
           <td class="left"><div class="dw-idcell"><span class="dw-idcell__name">{{ p.first_name }} {{ p.last_name }}</span></div></td>
           <td class="left">{{ p.profile_skills or '—' }}{% if p.seniority %} · {{ p.seniority }}{% endif %}</td>
           <td class="center">
-            <button type="button" class="btn-secondary busqueda-picker__add"
+            {# Acción de fila icónica (MISMO primitivo `.table-action-btn` + `.chart-tooltip`): «Asociar al proceso». Mismo `hx-post`/`hx-vals`/destino que antes. #}
+            <button type="button" class="table-action-btn chart-tooltip-anchor busqueda-picker__add" aria-label="Asociar {{ p.first_name }} {{ p.last_name }} al proceso"
                     hx-post="/cchh/busquedas/{{ bid }}/candidatos" hx-vals='{"profile_id": "{{ p.profile_id }}"}'
-                    hx-target="#busqueda-detail-body" hx-swap="innerHTML">Asociar</button>
+                    hx-target="#busqueda-detail-body" hx-swap="innerHTML">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+              <span class="chart-tooltip" aria-hidden="true"><p>Asociar al proceso</p></span>
+            </button>
           </td>
         </tr>
         {% endfor %}

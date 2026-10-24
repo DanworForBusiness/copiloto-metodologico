@@ -65,8 +65,7 @@
         <th class="left">Tamaño</th>
         <th class="left">Subido</th>
         <th class="left">Subido por</th>
-        <th></th>
-        <th></th>
+        <th class="center">Acciones</th>
       </tr>
     </thead>
     <tbody>
@@ -76,16 +75,23 @@
         <td class="left">{{ doc.size_bytes | filesizeformat }}</td>
         <td class="left">{{ doc.uploaded_at }}</td>
         <td class="left">{{ doc.uploaded_by }}</td>
-        <td>
-          {% if doc.web_url %}
-          <a href="{{ doc.web_url }}" target="_blank" rel="noopener noreferrer">Abrir en SharePoint</a>
-          {% endif %}
-        </td>
-        <td>
-          <form method="post" action="/cchh/candidatos/{{ profile_id }}/documentos/{{ doc.document_id }}/delete{{ list_return(request, '/cchh/candidatos').qs }}" data-hc-document-delete-form>
-            <input type="hidden" name="graph_token" value="">
-            <button type="submit" class="btn-secondary" data-hc-document-delete-button>Eliminar</button>
-          </form>
+        <td class="center">
+          {# Acciones compactas del documento: MISMO primitivo icónico (`.table-action-btn` + `.chart-tooltip`) que Candidatos/Entrevistas. «Abrir en SharePoint» = ícono de enlace externo (el del Hub); «Eliminar documento» = papelera con el tinte destructivo `--danger`. Mismo comportamiento: el enlace abre SharePoint en otra pestaña y el form conserva su confirmación y su token de escritura. #}
+          <div class="dw-row-actions">
+            {% if doc.web_url %}
+            <a href="{{ doc.web_url }}" target="_blank" rel="noopener noreferrer" class="table-action-btn chart-tooltip-anchor" aria-label="Abrir {{ doc.filename }} en SharePoint">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+              <span class="chart-tooltip" aria-hidden="true"><p>Abrir en SharePoint</p></span>
+            </a>
+            {% endif %}
+            <form method="post" action="/cchh/candidatos/{{ profile_id }}/documentos/{{ doc.document_id }}/delete{{ list_return(request, '/cchh/candidatos').qs }}" class="dw-row-actions__form" data-hc-document-delete-form>
+              <input type="hidden" name="graph_token" value="">
+              <button type="submit" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" data-hc-document-delete-button aria-label="Eliminar documento {{ doc.filename }}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                <span class="chart-tooltip" aria-hidden="true"><p>Eliminar documento</p></span>
+              </button>
+            </form>
+          </div>
         </td>
       </tr>
       {% endfor %}

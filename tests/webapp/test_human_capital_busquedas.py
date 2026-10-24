@@ -433,7 +433,7 @@ def test_add_candidate_dialog_has_a_live_search_over_available_candidates_withou
     assert 'class="hc-profile-filters"' in dialog and "filter-toolbar-card" not in dialog                      # patrón del landing de Base de CVs, sin recuadro
     rows = dict(re.findall(r'<tr data-picker-row data-search="([^"]*)">.*?"profile_id": "([0-9a-f-]+)"', dialog, re.S))
     assert sorted(rows.values()) == sorted([ana, luis]) and taken not in dialog                                # solo disponibles; la acción «Asociar» (hx-post + profile_id) no cambia
-    assert 'hx-post="/cchh/busquedas/%s/candidatos"' % bid in dialog and dialog.count("Asociar") == 2
+    assert 'hx-post="/cchh/busquedas/%s/candidatos"' % bid in dialog and dialog.count("<p>Asociar al proceso</p>") == 2 and dialog.count('aria-label="Asociar ') == 2
     # el haystack de cada fila es EL del buscador de Base de CVs: nombre, email, skills y ubicación (misma definición que el filtro del landing)
     hay = {pid: s for s, pid in rows.items()}
     for term, pid in (("ana pérez", ana), ("luis@danwor", luis), ("sap fi", ana), ("rosario", luis)):
