@@ -41,6 +41,11 @@ def _tokens(first, last) -> set[str]:
     return {t for t in _full(first, last).split() if len(t) > 1}
 
 
+def token_key(first, last) -> frozenset:
+    """Conjunto de palabras del nombre (sin tildes ni mayúsculas): clave de índice. Toda coincidencia de nombre FUERTE o PROBABLE (`NAME_EXACT`, `NAME_SWAPPED`, `NAME_TOKENS_EQUAL`) implica la misma clave."""
+    return frozenset(_tokens(first, last))
+
+
 def signals_between(a: dict, b: dict) -> list[str]:
     """Señales entre dos personas con `first_name`, `last_name`, `email`, `phone` (cualquiera puede faltar)."""
     out: list[str] = []

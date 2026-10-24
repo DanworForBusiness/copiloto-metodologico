@@ -42,7 +42,7 @@ PENDING_STATES = (SELECTED, FAILED)
 DOWNLOAD_FORBIDDEN, DOWNLOAD_NOT_FOUND, DOWNLOAD_ERROR, FORMAT_INVALID, SIZE_MISMATCH, CONTENT_CHANGED = (
     "DOWNLOAD_FORBIDDEN", "DOWNLOAD_NOT_FOUND", "DOWNLOAD_ERROR", "FORMAT_INVALID", "SIZE_MISMATCH", "CONTENT_CHANGED")
 SAME_PERSON_IN_RUN, RECONCILIATION_UNAVAILABLE = "SAME_PERSON_IN_RUN", "RECONCILIATION_UNAVAILABLE"
-KIND_PILOT, KIND_REARBITRATION = "pilot", "rearbitration"
+KIND_PILOT, KIND_REARBITRATION, KIND_IMPORT = "pilot", "rearbitration", "import"
 V_CORRECT, V_CORRECTED, V_UNDETERMINED = "CORRECT", "CORRECTED", "UNDETERMINED"
 VERDICTS = (V_CORRECT, V_CORRECTED, V_UNDETERMINED)
 LEGACY_V1 = "LEGACY_V1"
@@ -180,11 +180,28 @@ def _recompute_in_run(run_id: str) -> None:
             manifest.put_group(run_id, key, g)
 
 
-def process_run(run_id: str, token: str, *, clock=time.monotonic, sleep=time.sleep, time_budget: float = PROCESS_TIME_BUDGET_S) -> dict:
-    """Procesa los documentos pendientes (SELECTED/FAILED) dentro de un presupuesto de tiempo. Reanudable e idempotente: lo ya EXTRAÍDO no se vuelve a descargar. Un error por documento se registra y el
-    lote sigue; un token vencido (401) detiene el lote sin marcar nada como fallido."""
+def _import_groups(run_id: str) -> dict[str, dict]:
+    """Lote de IMPORTACIÓN: los contenidos pendientes se materializan desde el índice (los registros por contenido se escriben al procesarlos, no todos de una vez)."""
+    index = manifest.get_index(run_id) or {"groups": []}
+    persisted = {g["content_key"]: g for g in manifest.list_groups(run_id)}
+    out = {}
+    for entry in sorted(index["groups"], key=lambda g: g["content_key"]):
+        out[entry["content_key"]] = persisted.get(entry["content_key"]) or {
+            **entry, "state": SELECTED, "sha256": None, "extraction": None, "reconciliation": None, "review": None, "alias_of": None, "profile_skills_proposal": ", ".join(entry["specialties"])}
+    return out
+
+
+def _pending_groups(run_id: str, kind: str) -> list[dict]:
+    groups = list(_import_groups(run_id).values()) if kind == KIND_IMPORT else manifest.list_groups(run_id)
+    return [g for g in groups if g["state"] in PENDING_STATES]
+
+
+def process_run(run_id: str, token: str, *, clock=time.monotonic, sleep=time.sleep, time_budget: float = PROCESS_TIME_BUDGET_S, max_documents: int | None = None) -> dict:
+    """Procesa los documentos pendientes (SELECTED/FAILED) dentro de un presupuesto de tiempo y, opcionalmente, de un máximo de documentos por tanda (`max_documents`). Reanudable e idempotente: lo ya EXTRAÍDO
+    no se vuelve a descargar. Un error por documento se registra y el lote sigue; un token vencido (401) detiene el lote sin marcar nada como fallido. Sirve a los lotes del piloto y a los de importación."""
     run = manifest.get_run(run_id)
-    if run.get("kind", KIND_PILOT) != KIND_PILOT:                                          # un lote derivado se calcula solo con lo guardado: jamás descarga ni lee documentos
+    kind = run.get("kind", KIND_PILOT)
+    if kind not in (KIND_PILOT, KIND_IMPORT):                                              # un lote derivado se calcula solo con lo guardado: jamás descarga ni lee documentos
         return {"processed": 0, "failed": 0, "remaining": 0, "stopped_reason": "NOT_A_PILOT_RUN"}
     started = clock()
     try:
@@ -193,65 +210,70 @@ def process_run(run_id: str, token: str, *, clock=time.monotonic, sleep=time.sle
         return {"processed": 0, "failed": 0, "remaining": _pending(run_id), "stopped_reason": "PROFILES_UNAVAILABLE"}
     processed = failed = 0
     stopped: str | None = None
-    for group in manifest.list_groups(run_id):
-        if group["state"] not in PENDING_STATES:
-            continue
+    for group in _pending_groups(run_id, kind):
         if clock() - started >= time_budget:
             stopped = "TIME_BUDGET"
             break
-        key = group["content_key"]
-        rep = group["representative"]
+        if max_documents is not None and processed + failed >= max_documents:
+            stopped = "BATCH_LIMIT"
+            break
         try:
-            try:
-                data = _download(rep["item_id"], rep["drive_id"], token, sleep)
-            except urllib.error.HTTPError as exc:
-                if exc.code == 401:
-                    stopped = "TOKEN_EXPIRED"
-                    break
-                code = DOWNLOAD_FORBIDDEN if exc.code == 403 else DOWNLOAD_NOT_FOUND if exc.code == 404 else DOWNLOAD_ERROR
-                _fail(run_id, group, code)
-                failed += 1
-                continue
-            except (urllib.error.URLError, OSError, ValueError):
-                _fail(run_id, group, DOWNLOAD_ERROR)
-                failed += 1
-                continue
-            digest = hashlib.sha256(data).hexdigest()
-            if group.get("sha256") and group["sha256"] != digest:
-                _fail(run_id, group, CONTENT_CHANGED)                                          # nunca se pisa en silencio un contenido ya registrado
-                failed += 1
-                continue
-            if len(data) != int(group["size"]):
-                _fail(run_id, group, SIZE_MISMATCH)
-                failed += 1
-                continue
-            try:
-                profile_document_validation.validate_upload(rep["name"], data)
-            except profile_document_validation.ProfileDocumentValidationError:
-                _fail(run_id, group, FORMAT_INVALID)
-                failed += 1
-                continue
-            manifest.append_audit(run_id, key, "DOWNLOADED", size=len(data))
-            primary = next((g for g in manifest.list_groups(run_id) if g["content_key"] != key and g.get("sha256") == digest and g["state"] == EXTRACTED), None)
-            if primary is not None:                                                            # mismo contenido que otro registro del lote: identidad DOCUMENTAL repetida
-                _make_alias(run_id, group, primary, digest)
-                processed += 1
-                continue
-            extraction = cv_extract.extract(rep["name"], data)
-            del data
-            matches = cv_reconcile.reconcile_with_profiles(extraction, profiles)
-            group.update({"state": EXTRACTED, "sha256": digest, "extraction": extraction, "reconciliation": {"profiles": matches, "in_run": []},
-                          "review": _review(extraction, matches, []), "processed_at": manifest.now_iso()})
-            manifest.put_group(run_id, key, group)
-            manifest.append_audit(run_id, key, "EXTRACTED", code=extraction.get("failure"), review=group["review"]["required"], reasons=",".join(group["review"]["reasons"]))
-            processed += 1
+            outcome = _process_one(run_id, group, token, profiles, sleep)
         except manifest.ManifestDurabilityError:
             stopped = "PERSISTENCE_ERROR"
             break
-    if stopped != "PERSISTENCE_ERROR":
+        if outcome == "TOKEN_EXPIRED":
+            stopped = "TOKEN_EXPIRED"
+            break
+        if outcome == "failed":
+            failed += 1
+        else:
+            processed += 1
+    if stopped != "PERSISTENCE_ERROR" and kind == KIND_PILOT:
         _recompute_in_run(run_id)
     _refresh_counters(run_id, stopped)
     return {"processed": processed, "failed": failed, "remaining": _pending(run_id), "stopped_reason": stopped}
+
+
+def _process_one(run_id: str, group: dict, token: str, profiles: list[dict], sleep) -> str:
+    """Descarga (solo lectura), valida, extrae y concilia UN contenido. Devuelve `processed`, `failed` o `TOKEN_EXPIRED`. `ManifestDurabilityError` se deja propagar."""
+    key = group["content_key"]
+    rep = group["representative"]
+    try:
+        data = _download(rep["item_id"], rep["drive_id"], token, sleep)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            return "TOKEN_EXPIRED"
+        _fail(run_id, group, DOWNLOAD_FORBIDDEN if exc.code == 403 else DOWNLOAD_NOT_FOUND if exc.code == 404 else DOWNLOAD_ERROR)
+        return "failed"
+    except (urllib.error.URLError, OSError, ValueError):
+        _fail(run_id, group, DOWNLOAD_ERROR)
+        return "failed"
+    digest = hashlib.sha256(data).hexdigest()
+    if group.get("sha256") and group["sha256"] != digest:
+        _fail(run_id, group, CONTENT_CHANGED)                                              # nunca se pisa en silencio un contenido ya registrado
+        return "failed"
+    if len(data) != int(group["size"]):
+        _fail(run_id, group, SIZE_MISMATCH)
+        return "failed"
+    try:
+        profile_document_validation.validate_upload(rep["name"], data)
+    except profile_document_validation.ProfileDocumentValidationError:
+        _fail(run_id, group, FORMAT_INVALID)
+        return "failed"
+    manifest.append_audit(run_id, key, "DOWNLOADED", size=len(data))
+    primary = next((g for g in manifest.list_groups(run_id) if g["content_key"] != key and g.get("sha256") == digest and g["state"] == EXTRACTED), None)
+    if primary is not None:                                                                # mismo contenido que otro registro del lote: identidad DOCUMENTAL repetida
+        _make_alias(run_id, group, primary, digest)
+        return "processed"
+    extraction = cv_extract.extract(rep["name"], data)
+    del data
+    matches = cv_reconcile.reconcile_with_profiles(extraction, profiles)
+    group.update({"state": EXTRACTED, "sha256": digest, "extraction": extraction, "reconciliation": {"profiles": matches, "in_run": []},
+                  "review": _review(extraction, matches, []), "processed_at": manifest.now_iso()})
+    manifest.put_group(run_id, key, group)
+    manifest.append_audit(run_id, key, "EXTRACTED", code=extraction.get("failure"), review=group["review"]["required"], reasons=",".join(group["review"]["reasons"]))
+    return "processed"
 
 
 # ═══════════════════ identidad: propuesta, dictamen del owner y lote derivado ═══════════════════
@@ -489,12 +511,19 @@ def _make_alias(run_id: str, group: dict, primary: dict, digest: str) -> None:
     manifest.append_audit(run_id, primary["content_key"], "SPECIALTIES_MERGED", specialties=len(primary["specialties"]))
 
 
+def _groups_of(run_id: str, run: dict) -> list[dict]:
+    """Los registros del lote; en uno de IMPORTACIÓN incluye los contenidos todavía sin analizar (materializados desde el índice) para que los pendientes se cuenten bien."""
+    return list(_import_groups(run_id).values()) if run.get("kind") == KIND_IMPORT else manifest.list_groups(run_id)
+
+
 def _pending(run_id: str) -> int:
-    return sum(1 for g in manifest.list_groups(run_id) if g["state"] in PENDING_STATES)
+    return len(_pending_groups(run_id, manifest.get_run(run_id).get("kind", KIND_PILOT)))
 
 
 def _refresh_counters(run_id: str, stopped: str | None) -> None:
-    states = Counter(g["state"] for g in manifest.list_groups(run_id))
+    kind = manifest.get_run(run_id).get("kind", KIND_PILOT)
+    groups = list(_import_groups(run_id).values()) if kind == KIND_IMPORT else manifest.list_groups(run_id)
+    states = Counter(g["state"] for g in groups)
 
     def mutate(doc: dict) -> None:
         doc["counters"] = {"selected": sum(states.values()), "extracted": states.get(EXTRACTED, 0), "failed": states.get(FAILED, 0), "alias": states.get(ALIAS, 0)}
@@ -538,7 +567,7 @@ def run_report(run_id: str) -> dict:
     run = manifest.get_run(run_id)
     if (run.get("staging") or {}).get("state") == "DISCARDED" and run.get("final_report"):
         return {**run["final_report"], "staging": _staging_view(run)}
-    groups = manifest.list_groups(run_id)
+    groups = _groups_of(run_id, run)
     extracted = [g for g in groups if g["state"] == EXTRACTED]
     ok = [g for g in extracted if not (g["extraction"] or {}).get("failure")]
     verdicts = manifest.list_verdicts(run_id)
@@ -558,7 +587,7 @@ def run_report(run_id: str) -> dict:
             e["documents"] += 1
             e["needs_review"] += int(bool((g.get("review") or {}).get("required")) or g["state"] == FAILED)
     return {
-        "run_id": run_id, "kind": run.get("kind", KIND_PILOT), "derived_from": run.get("derived_from"), "state": run.get("state"), "population": pop, "counters": run.get("counters"), "staging": _staging_view(run),
+        "run_id": run_id, "kind": run.get("kind", KIND_PILOT), "derived_from": run.get("derived_from"), "plan": run.get("plan"), "state": run.get("state"), "population": pop, "counters": run.get("counters"), "staging": _staging_view(run),
         "documents": {"in_sample": len(groups), "extracted": len(extracted), "readable": readable, "failed": sum(failures.values()), "alias": sum(1 for g in groups if g["state"] == ALIAS),
                       "pending": sum(1 for g in groups if g["state"] in PENDING_STATES), "multi_specialty": sum(1 for g in groups if len(g["specialties"]) > 1)},
         "coverage_pct": {"name": pct(fields["first_name"], readable), "email": pct(fields["email"], readable), "phone": pct(fields["phone"], readable)},
@@ -580,11 +609,13 @@ def review_view(run_id: str) -> list[dict]:
     """Resultados INDIVIDUALES para la vista del owner (CONTIENE datos personales: solo se llama desde la ruta protegida). Resuelve los perfiles coincidentes a un nombre visible."""
     out = []
     run = manifest.get_run(run_id)
+    is_import = run.get("kind") == KIND_IMPORT
+    plan = ((manifest.get_plan(run_id) or {}).get("decisions") or {}) if is_import else {}
     verdicts = manifest.list_verdicts(run_id)
     origin = (run.get("derived_from") or {}).get("run_id")
     origin_groups = {g["content_key"]: g for g in manifest.list_groups(origin)} if origin else {}
     origin_verdicts = manifest.list_verdicts(origin) if origin else {}
-    for g in manifest.list_groups(run_id):
+    for g in _groups_of(run_id, run):
         extraction = g.get("extraction") or {}
         verdict_doc = verdicts.get(g["content_key"])
         before = _proposal((origin_groups.get(g["content_key"]) or {}).get("extraction")) if origin else None
@@ -599,7 +630,8 @@ def review_view(run_id: str) -> list[dict]:
                     "first_name": extraction.get("first_name"), "last_name": extraction.get("last_name"), "email": extraction.get("email"), "phone": extraction.get("phone"),
                     "candidates": extraction.get("candidates") or {}, "evidence": extraction.get("evidence") or {}, "advisory": extraction.get("advisory") or [],
                     "name_state": extraction.get("name_state") or (LEGACY_V1 if extraction else None), "decision": extraction.get("name_decision") or {}, "proposal": _proposal(extraction),
-                    "verdict": _current_verdict(verdict_doc), "verdict_count": len((verdict_doc or {}).get("history") or []), "can_verdict": g["state"] == EXTRACTED and bool(extraction) and not extraction.get("failure"),
+                    "verdict": _current_verdict(verdict_doc), "verdict_count": len((verdict_doc or {}).get("history") or []), "can_verdict": (not is_import) and g["state"] == EXTRACTED and bool(extraction) and not extraction.get("failure"),
+                    "plan": plan.get(g["content_key"]),
                     "original_proposal": before, "reference_identity": reference,
                     "matches": matches, "in_run": (g.get("reconciliation") or {}).get("in_run") or []})
     out.sort(key=lambda r: (not r["review"]["required"], r["content_key"]))
