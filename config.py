@@ -29,6 +29,11 @@ OPERATIONS_APP_SUBTITLE = _env("DANWOR_OPERATIONS_APP_SUBTITLE", "Analítica y g
 COMMERCIAL_APP_TITLE    = _env("DANWOR_COMMERCIAL_APP_TITLE", "Gestión Comercial · CRM Danwor")
 COMMERCIAL_APP_SUBTITLE = _env("DANWOR_COMMERCIAL_APP_SUBTITLE", "Gestión y analítica comercial | Danwor Transversal")
 
+# App identity — workspace Capital Humano: MISMO componente de banner y MISMA forma que los de Operaciones/Comercial (título «Vertical · Área», subtítulo «Qué hace | Danwor Transversal»). A diferencia de aquéllos
+# NO se lee del entorno: es una constante del código, así que el cambio no exige tocar la configuración del despliegue.
+HUMAN_CAPITAL_APP_TITLE    = "Capital Humano · Selección e Incorporación"
+HUMAN_CAPITAL_APP_SUBTITLE = "Talento en acción | Danwor Transversal"
+
 # Paths
 BASE_DIR          = Path(__file__).parent
 CONTENT_PACKS_DIR = BASE_DIR / "content_packs"
