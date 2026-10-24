@@ -45,7 +45,6 @@ FINAL = {DONE, BLOCKED, FAILED, DISMISSED}
 MANUAL_CREATE, MANUAL_LINK = "MANUAL_CREATE", "MANUAL_LINK"
 DISMISS_REASONS = ("NOT_A_CV", "NOT_A_CANDIDATE", "OTHER")
 _ACTION_RANK = {planning.CREATE: 0, MANUAL_CREATE: 0, planning.LINK: 1, MANUAL_LINK: 1, planning.ATTACH: 2}
-EXCEPTIONS_PAGE_SIZE = 25
 
 
 class ExecutionError(ValueError):
@@ -540,8 +539,8 @@ def _exception_index(plan: dict, ledgers: dict[str, dict]) -> list[dict]:
     return rows
 
 
-def exceptions_overview(run_id: str, *, status: str = "open", reason: str | None = None, page: int = 1) -> dict:
-    """Listado paginado de excepciones. `status`: open (por resolver: abiertas, en curso, bloqueadas y con error) | resolved | dismissed | all. Solo códigos y `content_key`: los datos personales se agregan aparte (`exception_details`)."""
+def exceptions_overview(run_id: str, *, status: str = "open", reason: str | None = None) -> dict:
+    """Listado de excepciones filtrado (la PAGINACIÓN la hace el paginador canónico del Hub en el router, después de filtrar). `status`: open (por resolver: abiertas, en curso, bloqueadas y con error) | resolved | dismissed | all. Solo códigos y `content_key`: los datos personales se agregan aparte (`exception_details`)."""
     run = _import_run(run_id)
     plan = manifest.get_plan(run_id)
     ledgers = manifest.list_ledgers(run_id)
@@ -550,9 +549,7 @@ def exceptions_overview(run_id: str, *, status: str = "open", reason: str | None
     in_scope = [r for r in rows if r["status"] in group_of]
     by_reason = Counter(r["reason"] or "—" for r in in_scope)
     filtered = [r for r in in_scope if reason in (None, "", r["reason"])]
-    pages = max(1, -(-len(filtered) // EXCEPTIONS_PAGE_SIZE))
-    page = min(max(1, int(page or 1)), pages)
-    return {"rows": filtered[(page - 1) * EXCEPTIONS_PAGE_SIZE: page * EXCEPTIONS_PAGE_SIZE], "total": len(filtered), "page": page, "pages": pages, "by_reason": dict(sorted(by_reason.items())),
+    return {"rows": filtered, "total": len(filtered), "by_reason": dict(sorted(by_reason.items())),
             "counts": dict(Counter(r["status"] for r in rows)), "staging_present": (run.get("staging") or {}).get("state") == "PRESENT"}
 
 

@@ -3199,21 +3199,26 @@ def human_capital_cv_history_import_run(request: Request, run_id: str, graph_tok
 
 
 @router.get("/cchh/diagnostico/cvs-historicos/{run_id}/excepciones", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_cv_history_exceptions(request: Request, run_id: str, estado: str = "open", motivo: str = "", pagina: int = 1):
-    """Excepciones de la importación (pendientes del plan y bloqueados al ejecutar): contiene datos personales, solo owner, `no-store`."""
+def human_capital_cv_history_exceptions(request: Request, run_id: str, estado: str = Query("open"), motivo: str = Query(""), page: str = Query(""), page_size: str = Query("")):
+    """Excepciones de la importación (pendientes del plan y bloqueados al ejecutar): contiene datos personales, solo owner, `no-store`. Paginación CANÓNICA del Hub (`pagination.paginate` + `partials/pager.html`):
+    filtros ANTES de paginar; un filtro o el paginador dentro del panel (HTMX) re-renderizan solo el fragmento."""
     redirect = _require_owner_for_diagnostics(request)
     if redirect is not None:
         return redirect
     if not cv_history_manifest.RUN_ID_RE.match(run_id):
         raise HTTPException(404, "Lote inexistente")
     try:
-        overview = cv_history_import_exec.exceptions_overview(run_id, status=estado, reason=motivo or None, page=pagina)
-        rows = cv_history_import_exec.exception_details(run_id, overview["rows"]) if overview["staging_present"] else [{**r, "available": False, "ledger": {}, "suggestions": [], "alternatives": [], "emails": [], "specialties": []} for r in overview["rows"]]
+        overview = cv_history_import_exec.exceptions_overview(run_id, status=estado, reason=motivo or None)
+        pager = pagination.paginate(overview["rows"], page=page, page_size=page_size, base_url=f"/cchh/diagnostico/cvs-historicos/{run_id}/excepciones",
+                                    params={"estado": estado if estado != "open" else "", "motivo": motivo})
+        rows = cv_history_import_exec.exception_details(run_id, pager["items"]) if overview["staging_present"] else [{**r, "available": False, "ledger": {}, "suggestions": [], "alternatives": [], "emails": [], "specialties": []} for r in pager["items"]]
         execution = cv_history_import_exec.execution_report(run_id)
     except (cv_history_manifest.ManifestNotFoundError, cv_history_import_exec.ExecutionError):
         raise HTTPException(404, "Lote inexistente") from None
-    return templates.TemplateResponse(request=request, name="human_capital/cv_history_exceptions.html", context=_pilot_context(request, run_id=run_id, overview=overview, rows=rows, execution=execution, estado=estado, motivo=motivo,
-                                                                                                                          dismiss_reasons=cv_history_import_exec.DISMISS_REASONS), headers=_NO_STORE)
+    context = {"run_id": run_id, "overview": overview, "pager": pager, "rows": rows, "execution": execution, "estado": estado, "motivo": motivo}
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(request=request, name="partials/cv_history_exceptions_panel.html", context={"request": request, **context}, headers=_NO_STORE)
+    return templates.TemplateResponse(request=request, name="human_capital/cv_history_exceptions.html", context=_pilot_context(request, **context), headers=_NO_STORE)
 
 
 @router.post("/cchh/diagnostico/cvs-historicos/{run_id}/excepciones/{content_key}/{accion}", response_class=HTMLResponse, include_in_schema=False)

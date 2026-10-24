@@ -717,4 +717,3 @@
 .hc-exc-form :is(input, select) { min-width: 0; width: 100%; padding: 4px 6px; font: inherit; color: inherit; background: transparent; border: 1px solid rgba(128, 128, 140, .55); border-radius: 4px; }
 .hc-exc-form__pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .hc-exc-form .btn-primary, .hc-exc-form .btn-secondary { justify-self: start; padding: 4px 10px; font-size: .78rem; }
-.hc-pager { display: flex; gap: 12px; align-items: center; margin: 12px 0; }

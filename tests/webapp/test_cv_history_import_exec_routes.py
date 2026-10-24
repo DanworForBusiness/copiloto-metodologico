@@ -113,12 +113,7 @@ def test_the_exceptions_page_lists_filters_and_paginates_with_personal_data_only
     assert only.count("data-exception-row") == 1 and "READ_FAILURE (1)</option>" in only
     resolved = owner.get(f"{BASE}/{rid}/excepciones?estado=resolved").text
     assert resolved.count("data-exception-row") == 0 and "data-exceptions-empty" in resolved
-    ex.EXCEPTIONS_PAGE_SIZE = 1
-    try:
-        assert "página 1 de 2" in owner.get(f"{BASE}/{rid}/excepciones").text and "Siguiente" in owner.get(f"{BASE}/{rid}/excepciones").text
-        assert owner.get(f"{BASE}/{rid}/excepciones?pagina=2").text.count("data-exception-row") == 1
-    finally:
-        ex.EXCEPTIONS_PAGE_SIZE = 25
+    assert "activity-pager" not in html and 'data-exceptions-total>2 excepciones<' in squash(html)                           # con 2 filas el paginador canónico no se muestra
     assert owner.get(f"{BASE}/ch-20200101T000000Z/excepciones").status_code == 404
 
 
@@ -201,3 +196,35 @@ def test_the_panel_reports_what_blocks_the_discard_and_offers_no_discard_form_un
     assert 'data-error-kind="invalid_confirmation"' in wrong.text and mf.staging_files_present(rid) > 0
     done = owner.post(f"{BASE}/{rid}/descartar", data={"confirm": pilot.discard_phrase(rid)})
     assert "data-pilot-discarded" in done.text and mf.staging_files_present(rid) == 0 and ex.execution_report(rid)["documents_uploaded"] == 4
+
+def test_the_exceptions_page_uses_the_canonical_hub_paginator_and_its_fragment(env, monkeypatch):
+    rid = planned_run(env)
+    owner = client_for(OWNER, monkeypatch)
+    post_run(owner, rid, batch="100")
+    real = ex.exceptions_overview(rid)
+    fake_rows = [{"content_key": f"{i:016x}", "status": "open", "reason": "NO_EMAIL" if i % 2 else "MULTIPLE_EMAILS", "plan_action": "PENDING", "plan_reasons": ["NO_EMAIL"], "candidates": []} for i in range(1, 121)]
+    monkeypatch.setattr(ex, "exceptions_overview", lambda run_id, **kw: {**real, "rows": [r for r in fake_rows if kw.get("reason") in (None, "", r["reason"])], "total": len(fake_rows), "staging_present": True})
+    page = owner.get(f"{BASE}/{rid}/excepciones")
+    html = page.text
+    assert page.status_code == 200 and html.count("data-exception-row") == 50                                              # tamaño por defecto del estándar CCHH: 50
+    nav = html.split('<nav class="activity-pager"', 1)[1].split("</nav>", 1)[0]
+    assert 'aria-label="Paginación de excepciones"' in html and "activity-pager__btn" in nav and "activity-pager__page" in nav and "activity-pager__size" in nav and 'data-pager-pages="3"' in html and 'data-pager-size="50"' in html
+    assert [int(o) for o in re.findall(r"<option value=\"(\d+)\"", nav)] == [50, 100, 200, 300]                           # 50/100/200/300 como el resto de CCHH
+    assert "hc-pager" not in html and 'hx-target="#cvexc-panel"' in nav and "hx-swap=\"outerHTML\"" in nav
+    fragment = owner.get(f"{BASE}/{rid}/excepciones?page=2&motivo=MULTIPLE_EMAILS&page_size=100", headers={"HX-Request": "true"})
+    assert "<html" not in fragment.text and fragment.text.lstrip().startswith("<div id=\"cvexc-panel\">") and fragment.headers["cache-control"] == "no-store"
+    assert fragment.text.count("data-exception-row") == 60 and 'data-pager-pages="1"' in fragment.text and 'data-pager-size="100"' in fragment.text      # 60 filtradas con tamaño 100: una sola página
+    second = owner.get(f"{BASE}/{rid}/excepciones?page=2", headers={"HX-Request": "true"})
+    assert 'data-pager-page="2"' in second.text and second.text.count("data-exception-row") == 50
+    import html as _h
+    keep = owner.get(f"{BASE}/{rid}/excepciones?estado=all&motivo=NO_EMAIL&page_size=50", headers={"HX-Request": "true"})
+    nav = keep.text.split('<nav class="activity-pager"', 1)[1].split("</nav>", 1)[0]
+    links = [_h.unescape(u) for u in re.findall(r'hx-get="([^"]+)"', nav)]
+    assert links and all("estado=all" in u and "motivo=NO_EMAIL" in u for u in links)                                       # cada enlace conserva el estado de la consulta
+    size_link = _h.unescape(re.search(r'<select[^>]*activity-pager__size[^>]*hx-get="([^"]+)"', nav).group(1))
+    assert "page=" not in size_link and "estado=all" in size_link                                                           # el selector de tamaño vuelve a la página 1 y conserva los filtros
+
+
+def test_exceptions_css_has_no_pagination_of_its_own():
+    text = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "human_capital.css").read_text(encoding="utf-8").lower()
+    assert "pager" not in text and "pagination" not in text
