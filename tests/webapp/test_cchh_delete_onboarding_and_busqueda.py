@@ -333,3 +333,95 @@ def test_deletion_plan_counts_only_what_belongs_to_the_busqueda():
     w = _world()
     assert svc.busqueda_deletion_plan(brepo.get(w["a"])) == {"postulaciones": 2, "entrevistas": 2, "onboardings": 1, "evaluaciones": 1, "grilla": 1, "publicaciones_desvinculadas": 1}
     assert svc.busqueda_deletion_plan(brepo.get(w["b"]))["onboardings"] == 1 and svc.busqueda_deletion_plan(brepo.get(w["b"]))["publicaciones_desvinculadas"] == 0
+
+
+# ═══════════════════ 8 (corrección): también los procesos nacidos de una solicitud de Operaciones ya tomada ═══════════════════
+SOLICITUD_SID = "66666666-6666-4666-8666-666666666666"
+
+
+def _process(origin: str, closed: bool) -> str:
+    """Proceso `directo` (alta de CCHH) o `solicitud` (enviada por Operaciones y TOMADA por CCHH), activo o cerrado, con datos en cada dependiente."""
+    if origin == "directo":
+        bid = _manual(nombre_puesto=f"Proceso {origin}")
+    else:
+        bid = send_solicitud(sid=SOLICITUD_SID)["busqueda_id"]
+        svc.take_solicitud(bid, brepo.get(bid)["revision"], CCHH_EMAIL)
+    pid, app_id = _ingreso(bid, first="Ana")
+    solo_pid, solo_app = _candidate(bid, "Bruno")
+    svc.move_application_stage(bid, solo_app, "Entrevista CCHH", None, actor=CCHH_EMAIL)
+    _seed_scoring(bid, solo_app, solo_pid)
+    if closed:
+        svc.close_busqueda(bid, [], actor=CCHH_EMAIL)
+        assert brepo.get(bid)["estado"] == "cerrado"
+    return bid
+
+
+@pytest.mark.parametrize("closed", [False, True], ids=["activo", "cerrado"])
+@pytest.mark.parametrize("origin", ["directo", "solicitud"])
+def test_every_process_can_be_deleted_whatever_its_origin_or_state(c, operations_users, origin, closed):
+    bid = _process(origin, closed)
+    other = _manual(nombre_puesto="Otro")
+    other_pid, other_app = _ingreso(other, first="Zoe")
+    page = c.get(f"/cchh/busquedas/{bid}").text
+    form = re.search(rf'<form method="post" action="/cchh/busquedas/{bid}/eliminar-completa"[^>]*>', page)
+    assert form and 'class="btn-danger btn-danger--strong"' in page[form.end():form.end() + 200] and "TODOS los registros asociados" in form.group(0)      # botón visible y conectado a la acción real
+    assert ("La solicitud original de Operaciones no se borra" in form.group(0)) == (origin == "solicitud")                                            # la advertencia extra solo donde aplica
+    other_before, profiles_before = brepo.get(other), {p["profile_id"]: p for p in profile_repository.list()}
+    r = _del_bus(c, bid)
+    assert r.status_code == 303 and r.headers["location"] == "/cchh/busquedas"
+    assert [e for e in erepo.list() if e.get("busqueda_id") == bid] == [] and [o for o in orepo.list() if o.get("busqueda_id") == bid] == [] and grepo.get(bid) is None and evrepo.list_for_busqueda(bid) == []
+    assert brepo.get(other) == other_before and orepo.get(other_app) is not None and {p["profile_id"]: p for p in profile_repository.list()} == profiles_before   # nada ajeno, perfiles intactos
+    doc = brepo.get(bid)
+    if origin == "directo":
+        assert doc is None
+    else:
+        sol = doc["solicitud"]                                                                                              # la solicitud original SE CONSERVA y se actualiza según su contrato
+        assert doc["candidatos"] == [] and doc["estado"] == "cerrado" and doc["requerimiento"]["nombre_puesto"]
+        assert sol["estado"] == "cancelada" and sol["cancelada_por"] == CCHH_EMAIL and sol["motivo_cancelacion"] == brepo.MOTIVO_PROCESO_ELIMINADO and sol["proceso_eliminado"]["por"] == CCHH_EMAIL
+        assert sol["historial"][-1]["transicion"] == "proceso_eliminado" and sol["historial"][-1]["actor_tipo"] == "cchh"
+        assert not any(str(h["transicion"]).startswith("candidato_") for h in sol["historial"]) and any(h["transicion"] == "tomar" for h in sol["historial"])    # sin datos de candidatos; el ciclo de recepción queda
+        assert [b["busqueda_id"] for b in svc.list_busquedas_gestionadas()] == [other]                                      # ya no es un proceso de CCHH
+        view = svc.solicitud_view(doc)                                                                                      # lo que ve Operaciones
+        assert view["estado_solicitud"] == "cancelada" and view["solo_lectura"] and view["motivo_cancelacion"] == brepo.MOTIVO_PROCESO_ELIMINADO
+        assert "proceso_eliminado" not in view and "candidatos" not in view and not any(h["transicion"].startswith("candidato_") for h in view["historial"])      # la proyección conserva su lista blanca
+        page = c.get(f"/cchh/busquedas/{bid}").text
+        assert "Proceso eliminado por Capital Humano" in page and "/eliminar-completa" not in page                         # el aviso de CCHH y sin botón (ya no hay proceso)
+    again = _del_bus(c, bid)                                                                                                # repetición idempotente
+    assert again.status_code in (303, 404) and (origin == "directo" or again.status_code == 303)
+    assert jrepo.get(bid)["estado"] == "completada"
+
+
+def test_a_solicitud_that_cchh_never_took_or_already_cancelled_is_not_a_process(c, operations_users):
+    pending = send_solicitud(sid="77777777-7777-4777-8777-777777777777")["busqueda_id"]
+    before = brepo.get(pending)
+    r = _del_bus(c, pending)
+    assert r.status_code == 303 and r.headers["location"] == f"/cchh/busquedas/{pending}?aviso=eliminacion_no_permitida" and brepo.get(pending) == before and jrepo.get(pending) is None
+    assert "/eliminar-completa" not in c.get(f"/cchh/busquedas/{pending}").text
+
+
+def test_the_retired_solicitud_cannot_be_reached_by_operations_actions(c, operations_users):
+    bid = _process("solicitud", False)
+    assert _del_bus(c, bid).status_code == 303
+    sol_before = brepo.get(bid)
+    with pytest.raises(brepo.BusquedaInvalidTransitionError):
+        svc.cancel_solicitud(bid, sol_before["revision"], "ops@danwor.com")                                                  # Operaciones no puede (re)cancelarla: CCHH la tomó
+    assert brepo.get(bid) == sol_before
+
+
+def test_the_authorization_of_the_endpoint_is_the_same_for_every_origin(c, operations_users):
+    bid = _process("solicitud", False)
+    assert session_client("stranger@danwor.com").post(f"/cchh/busquedas/{bid}/eliminar-completa").status_code in (302, 303, 401, 403)
+    assert TestClient(app, follow_redirects=False).post(f"/cchh/busquedas/{bid}/eliminar-completa").status_code in (302, 303, 401, 403)
+    assert brepo.get(bid)["solicitud"]["estado"] == "en_gestion" and jrepo.get(bid) is None
+
+
+def test_a_partial_failure_on_a_solicitud_process_keeps_it_visible_and_resumable(c, operations_users, monkeypatch):
+    bid = _process("solicitud", False)
+    real = brepo.retire_solicitud_process
+    monkeypatch.setattr(brepo, "retire_solicitud_process", lambda *a, **k: (_ for _ in ()).throw(brepo.BusquedaStorageError("falla simulada")))
+    r = _del_bus(c, bid)
+    assert r.status_code == 303 and r.headers["location"].endswith("aviso=eliminacion_incompleta")
+    assert brepo.get(bid)["solicitud"]["estado"] == "en_gestion" and jrepo.get(bid)["estado"] == "fallida" and jrepo.get(bid)["falla"]["paso"] == "busqueda"
+    monkeypatch.setattr(brepo, "retire_solicitud_process", real)
+    assert _del_bus(c, bid).status_code == 303
+    assert brepo.get(bid)["solicitud"]["estado"] == "cancelada" and jrepo.get(bid)["estado"] == "completada" and jrepo.get(bid)["intentos"] == 2

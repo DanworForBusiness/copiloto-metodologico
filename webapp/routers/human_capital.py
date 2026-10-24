@@ -1299,7 +1299,7 @@ _MSG_SOLICITUD_SOURCE = "No pudimos leer las solicitudes en este momento. Reinte
 _SOLICITUD_AVISOS = {"tomada": _MSG_SOLICITUD_TAKEN, "cambio": _MSG_SOLICITUD_CONCURRENT, "error": _MSG_SOLICITUD_STORAGE,
                      "no_elegible": "No se pudo agregar al candidato: no es elegible para nuevos procesos (marca «No reconsiderar»).",
                      "eliminacion_incompleta": "No se pudo completar la eliminación de la búsqueda: sigue existiendo y la operación quedó registrada. Reintentá en unos minutos (se retoma donde quedó).",
-                     "eliminacion_no_permitida": "Esta búsqueda no se puede eliminar desde Capital Humano: una solicitud originada en Operaciones se cancela y queda en el historial."}
+                     "eliminacion_no_permitida": "No hay un proceso para eliminar: la solicitud de Operaciones todavía no fue tomada en gestión por Capital Humano (o ya está cancelada)."}
 
 
 def _wants_html(request: Request) -> bool:

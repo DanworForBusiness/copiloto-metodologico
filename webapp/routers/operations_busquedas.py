@@ -78,6 +78,7 @@ DURACION_LABELS = {"meses": "Meses", "indefinida": "Indefinida"}
 TRANSICION_LABELS = {
     "enviar": "Enviada a Capital Humano", "editar": "Editada por Operaciones", "observar": "Observada por Capital Humano",
     "reenviar": "Corregida y reenviada", "tomar": "Tomada por Capital Humano", "cancelar": "Cancelada por Operaciones",
+    "proceso_eliminado": "Proceso eliminado por Capital Humano",
 }
 
 

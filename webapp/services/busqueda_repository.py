@@ -527,6 +527,40 @@ def remove_candidate(busqueda_id: str, application_id: str, *, actor: str | None
     return _mutate(busqueda_id, _apply)
 
 
+PROCESO_ELIMINADO = "proceso_eliminado"
+MOTIVO_PROCESO_ELIMINADO = "Proceso de selección eliminado por Capital Humano."
+
+
+def retire_solicitud_process(busqueda_id: str, *, actor: str | None = None) -> dict:
+    """Elimina el PROCESO de selección de una solicitud de Operaciones YA TOMADA conservando la solicitud original (el contrato no deja borrar lo que Operaciones envió): la búsqueda queda sin postulaciones ni datos
+    internos del proceso (JD, palabras clave, historial de candidatos) y la solicitud pasa a `cancelada` con la constancia `proceso_eliminado` (quién y cuándo) y su evento en el historial. Operaciones la ve como cancelada
+    con el motivo; CCHH y los Indicadores ya excluyen las canceladas del universo de procesos. Idempotente: si ya fue retirada no cambia nada. Solo desde `en_gestion`."""
+    def _apply(doc: dict) -> None:
+        sol = solicitud_of(doc)
+        if sol is None:
+            raise BusquedaInvalidTransitionError("Esta búsqueda no es una solicitud originada en Operaciones.")
+        if sol.get("estado") == SOLICITUD_CANCELADA and sol.get("proceso_eliminado"):
+            return
+        _require_managed(doc, "eliminar el proceso de")
+        if sol.get("estado") != SOLICITUD_EN_GESTION:
+            raise BusquedaInvalidTransitionError("Solo se puede eliminar el proceso de una solicitud que Capital Humano tomó en gestión.")
+        now = _now_iso()
+        who = (str(actor).strip().lower() or None) if actor else None
+        sol["estado"] = SOLICITUD_CANCELADA
+        sol["cancelada_por"] = who
+        sol["cancelada_en"] = now
+        sol["motivo_cancelacion"] = MOTIVO_PROCESO_ELIMINADO
+        sol["proceso_eliminado"] = {"por": who, "en": now}
+        sol["historial"] = [h for h in (sol.get("historial") or []) if not str(h.get("transicion") or "").startswith("candidato_")] + [
+            {"transicion": PROCESO_ELIMINADO, "desde": SOLICITUD_EN_GESTION, "hasta": SOLICITUD_CANCELADA, "actor": who, "actor_tipo": ORIGEN_CCHH, "fecha": now, "motivo": MOTIVO_PROCESO_ELIMINADO}]
+        doc["candidatos"] = []
+        doc["jd_texto"] = None
+        doc["palabras_clave"] = None
+        doc["estado"] = "cerrado"
+        doc["fecha_cierre"] = doc.get("fecha_cierre") or _business_today()
+    return _mutate(busqueda_id, _apply)
+
+
 def delete(busqueda_id: str) -> None:
     """Hard delete -- MISMO patrón/contrato de durabilidad exacto que
     `entrevista_repository.delete` (sin precedente en la referencia: `procesos`

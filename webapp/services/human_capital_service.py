@@ -777,20 +777,27 @@ def delete_busqueda_completa(busqueda_id: str, *, actor: str | None = None) -> d
 
     CONSISTENCIA: orden dependientes → búsqueda (la búsqueda se borra AL FINAL, así que un fallo parcial deja la búsqueda visible y la operación REANUDABLE: cada paso es idempotente y recalcula lo que falta). Cada borrado
     usa el contrato de durabilidad de SU repositorio (rollback local si Spaces no confirma). AUDITORÍA: `busqueda_deletion_repository` (quién, cuándo, conteos, paso fallido); un fallo al registrarla aborta ANTES de borrar.
-    Idempotente: si ya se eliminó (registro `completada`) devuelve `{"ya_eliminada": True}`. Una solicitud de Operaciones NO se elimina por esta vía (se cancela y queda en el historial): `ValueError`."""
+    Idempotente: si ya se eliminó (registro `completada`) devuelve `{"ya_eliminada": True}`. Un proceso nacido de una solicitud de Operaciones YA TOMADA también se elimina, pero la solicitud original se CONSERVA (el contrato no deja borrar lo
+    que Operaciones envió): ver `busqueda_repository.retire_solicitud_process` (queda cancelada con constancia de quién eliminó el proceso). Una solicitud sin tomar (pendiente/observada) o ya cancelada no es un proceso: `ValueError`."""
     busqueda = busqueda_repository.get(busqueda_id)
     if busqueda is None:
         journal = busqueda_deletion_repository.get(busqueda_id)
         if journal is not None and journal.get("estado") == busqueda_deletion_repository.COMPLETADA:
             return {"ya_eliminada": True, "plan": journal.get("plan") or {}}
         raise busqueda_repository.BusquedaNotFoundError(f"La búsqueda {busqueda_id} no existe.")
-    if busqueda_repository.solicitud_of(busqueda) is not None:
-        raise ValueError("Una solicitud originada en Operaciones no se puede eliminar: se cancela y queda en el historial.")
+    sol = busqueda_repository.solicitud_of(busqueda)
+    if sol is not None:
+        if sol.get("estado") == busqueda_repository.SOLICITUD_CANCELADA and sol.get("proceso_eliminado"):
+            return {"ya_eliminada": True, "plan": (busqueda_deletion_repository.get(busqueda_id) or {}).get("plan") or {}}
+        if not busqueda_repository.es_gestionada(busqueda):
+            raise ValueError("Esta solicitud de Operaciones todavía no es un proceso de Capital Humano (pendiente, observada o cancelada): no hay proceso para eliminar.")
     step = "registro"
     try:
         ids = _busqueda_deletion_ids(busqueda)
         plan = {"postulaciones": ids["postulaciones"], "entrevistas": len(ids["entrevistas"]), "onboardings": len(ids["onboardings"]), "evaluaciones": ids["evaluaciones"],
                 "grilla": 1 if ids["grilla"] else 0, "publicaciones_desvinculadas": len(ids["publicaciones"])}
+        if sol is not None:
+            plan["solicitud_conservada"] = 1                               # la solicitud original de Operaciones no se borra: queda cancelada con constancia
         busqueda_deletion_repository.begin(busqueda_id, puesto=busqueda.get("nombre_puesto"), actor=actor, plan=plan)
         step = "onboardings"
         done = sum(1 for application_id in ids["onboardings"] if onboarding_repository.delete(application_id))
@@ -811,7 +818,10 @@ def delete_busqueda_completa(busqueda_id: str, *, actor: str | None = None) -> d
         done = sum(1 for publicacion_id in ids["publicaciones"] if _detach_publicacion(publicacion_id))
         busqueda_deletion_repository.record_step(busqueda_id, step, done)
         step = "busqueda"
-        busqueda_repository.delete(busqueda_id)
+        if sol is not None:
+            busqueda_repository.retire_solicitud_process(busqueda_id, actor=actor)     # conserva y actualiza la solicitud según su contrato
+        else:
+            busqueda_repository.delete(busqueda_id)
         step = "cierre"
         busqueda_deletion_repository.finish(busqueda_id)
     except busqueda_repository.BusquedaNotFoundError:
@@ -1122,6 +1132,8 @@ def solicitud_view(doc: dict, *, include_cchh_actors: bool = False) -> dict | No
     }
     if include_cchh_actors:                                       # solo la vista de Capital Humano agrega esta clave (la proyección segura para Operaciones conserva su lista blanca exacta)
         view["ejecutores_cchh_visibles"] = True
+        if sol.get("proceso_eliminado"):                          # constancia de que CCHH eliminó el proceso de esta solicitud (clave solo de CCHH: la proyección para Operaciones conserva su lista blanca exacta)
+            view["proceso_eliminado"] = dict(sol["proceso_eliminado"])
     return view
 
 
