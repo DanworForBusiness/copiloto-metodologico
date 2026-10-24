@@ -896,7 +896,7 @@ def verify_commit_retry_token(token: str) -> dict:
 
 def _commit_uploaded_document(
     *, document_id: str, profile_id: str, drive_item: dict, filename: str, content_type: str,
-    size_bytes: int, uploaded_at: str, uploaded_by: str, folder_item_id: str | None = None,
+    size_bytes: int, uploaded_at: str, uploaded_by: str, folder_item_id: str | None = None, extra_fields: dict | None = None,
 ) -> dict:
     fields = {
         "profile_id": profile_id,
@@ -913,6 +913,8 @@ def _commit_uploaded_document(
     }
     if folder_item_id:
         fields["folder_item_id"] = folder_item_id     # campo OPCIONAL (identidad estable de la carpeta, ver docstring del módulo); no es campo canónico
+    for key, value in (extra_fields or {}).items():   # campos OPCIONALES no canónicos (p. ej. la procedencia de una importación): nunca pisan los del contrato
+        fields.setdefault(key, value)
     try:
         document, _created = profile_document_repository.create_with_explicit_id(document_id, fields)
         return document
@@ -927,15 +929,20 @@ def _commit_uploaded_document(
         raise ProfileDocumentCommitRetryRequired(retry_token) from None
 
 
-def upload_document(*, profile_id: str, filename: str, data: bytes, access_token: str, uploaded_by: str, first_name=None, last_name=None) -> dict:
+def upload_document(*, profile_id: str, filename: str, data: bytes, access_token: str, uploaded_by: str, first_name=None, last_name=None,
+                    document_id: str | None = None, extra_fields: dict | None = None) -> dict:
     """Camino de alta de UN documento nuevo (§6-§15/§20). Orden estricto:
     validación de formato → config de Graph → ensure-folder → mint
     `document_id` → upload con reintento → commit de metadata (con su
-    propio camino de reintento, ver `_commit_uploaded_document`)."""
+    propio camino de reintento, ver `_commit_uploaded_document`).
+
+    `document_id` y `extra_fields` son OPCIONALES y existen para la importación histórica: un `document_id` DETERMINÍSTICO hace que el nombre remoto (`<document_id>__<nombre>`) sea el mismo en cada
+    intento —un reintento sobrescribe ese mismo archivo en vez de crear otro— y `extra_fields` agrega campos no canónicos a la metadata (procedencia). Sin ellos el comportamiento es el de siempre
+    (uuid4 nuevo por alta)."""
     _ext, content_type = profile_document_validation.validate_upload(filename, data)
     require_graph_config()
     folder_item_id = ensure_profile_folder(profile_id, access_token, first_name=first_name, last_name=last_name)
-    document_id = str(uuid4())
+    document_id = document_id or str(uuid4())
     remote_filename = build_remote_filename(document_id, filename)
     sha256 = hashlib.sha256(data).hexdigest()
     uploaded_at = _now_iso()
@@ -953,8 +960,77 @@ def upload_document(*, profile_id: str, filename: str, data: bytes, access_token
     return _commit_uploaded_document(
         document_id=document_id, profile_id=profile_id, drive_item=drive_item, filename=filename,
         content_type=content_type, size_bytes=len(data), uploaded_at=uploaded_at, uploaded_by=uploaded_by,
-        folder_item_id=folder_item_id,
+        folder_item_id=folder_item_id, extra_fields=extra_fields,
     )
+
+
+def find_remote_document(folder_item_id: str, remote_filename: str, access_token: str) -> dict | None:
+    """Conciliación con SharePoint ANTES de reintentar una subida: GET por ruta del archivo remoto dentro de la carpeta del candidato. `None` = 404 CONFIRMADO (ausente); devuelve el `driveItem` (con `size` y
+    `file.hashes`) si existe. 403 → permission denied; cualquier otro fallo → GraphSourceError (un fallo de lectura nunca se interpreta como «no existe»)."""
+    url = f"{_drive_items_base()}/{urllib.parse.quote(folder_item_id, safe='')}:/{urllib.parse.quote(remote_filename, safe='')}"
+    try:
+        return microsoft365.graph_get_json(url, access_token)
+    except urllib.error.HTTPError as exc:
+        sharepoint_graph_diagnostics.log_graph_failure("reconcile.lookup", "GET", url, exc, level=logging.INFO if exc.code == 404 else logging.WARNING)
+        if exc.code == 403:
+            raise ProfileDocumentPermissionDeniedError(_PERMISSION_DENIED_MESSAGE) from exc
+        if exc.code != 404:
+            raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+        return None
+    except urllib.error.URLError as exc:
+        sharepoint_graph_diagnostics.log_graph_failure("reconcile.lookup", "GET", url, exc)
+        raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+
+
+def read_remote_document_bytes(item_id: str, access_token: str) -> bytes:
+    """Contenido de un archivo remoto de la raíz de CVs (solo lectura), para verificar por sha256 cuando Graph no informa un hash comparable."""
+    url = f"{_drive_items_base()}/{urllib.parse.quote(item_id, safe='')}/content"
+    try:
+        return microsoft365.graph_get_bytes(url, access_token, timeout=60)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403:
+            raise ProfileDocumentPermissionDeniedError(_PERMISSION_DENIED_MESSAGE) from exc
+        raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+    except urllib.error.URLError as exc:
+        raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+
+
+def adopt_remote_document(
+    *, document_id: str, profile_id: str, drive_item: dict, filename: str, content_type: str, size_bytes: int, uploaded_by: str,
+    folder_item_id: str | None = None, extra_fields: dict | None = None,
+) -> dict:
+    """Registra la metadata de un archivo que YA está en SharePoint y que el llamador verificó (mismo contenido): CERO PUT. Mismo contrato de commit y de reintento que una subida normal."""
+    return _commit_uploaded_document(
+        document_id=document_id, profile_id=profile_id, drive_item=drive_item, filename=filename, content_type=content_type,
+        size_bytes=size_bytes, uploaded_at=_now_iso(), uploaded_by=uploaded_by, folder_item_id=folder_item_id, extra_fields=extra_fields,
+    )
+
+
+def probe_write_access(access_token: str, label: str) -> dict:
+    """Valida el permiso EFECTIVO de escritura sobre la carpeta administrada de CVs con el MISMO token que usará la subida: PUT de un archivo diminuto en la raíz de CVs y borrado inmediato. El nombre es ÚNICO
+    por ejecución (nunca sobrescribe una sonda anterior). Un 403 → permission denied; un fallo de transporte o 5xx → GraphSourceError. Devuelve `{ok, cleaned, file}`: si `cleaned` es False el archivo `file`
+    quedó en la carpeta de CVs y el llamador debe informarlo (no se vuelve a usar ese nombre)."""
+    require_graph_config()
+    name = f"__dw_write_probe__{re.sub(r'[^A-Za-z0-9._-]+', '-', label)[:40]}-{uuid4().hex[:12]}.txt"
+    url = f"{_drive_items_base()}/{config.HC_CV_ROOT_ITEM_ID}:/{urllib.parse.quote(name, safe='')}:/content"
+    try:
+        item = microsoft365.graph_put_bytes(url, access_token, b"dw-write-probe", content_type="text/plain")
+    except urllib.error.HTTPError as exc:
+        sharepoint_graph_diagnostics.log_graph_failure("write_probe.put", "PUT", url, exc)
+        if exc.code == 403:
+            raise ProfileDocumentPermissionDeniedError(_PERMISSION_DENIED_MESSAGE) from exc
+        raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+    except urllib.error.URLError as exc:
+        sharepoint_graph_diagnostics.log_graph_failure("write_probe.put", "PUT", url, exc)
+        raise ProfileDocumentGraphSourceError(_GRAPH_SOURCE_ERROR_MESSAGE) from exc
+    cleaned = False
+    if isinstance(item, dict) and item.get("id"):
+        try:
+            _delete_physical_document(site_id=config.HC_SHAREPOINT_SITE_ID, drive_id=config.HC_SHAREPOINT_DRIVE_ID, item_id=item["id"], access_token=access_token)
+            cleaned = True
+        except (ProfileDocumentDeletePermissionDeniedError, ProfileDocumentDeleteGraphSourceError, ProfileDocumentDeletePhysicalOutcomeUnknownError):
+            cleaned = False
+    return {"ok": True, "cleaned": cleaned, "file": name}
 
 
 def retry_upload_document(

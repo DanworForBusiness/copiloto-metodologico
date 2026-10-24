@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Excepciones de la importación {{ run_id }} · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% include "partials/human_capital_catalog_refresh_topbar.html" %}{% endcall %}
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <a class="catalog-back" href="/cchh/diagnostico/cvs-historicos/{{ run_id }}">← Volver al lote</a>
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano</p>
+        <h1>Excepciones de la importación</h1>
+        <p>{{ run_id }}</p>
+      </div>
+    </section>
+
+    <p class="callout callout--warn"><span class="callout__body">Esta página contiene datos personales (nombre, email, celular). Solo la ve el owner. «Completar identidad» crea un perfil con el nombre y apellido que escribas (nunca uno inventado) y sube el CV; «Vincular» agrega el CV a un perfil existente sin modificarlo. Nada se fusiona solo.</span></p>
+    <p><button type="button" class="btn-secondary" data-hc-authorize-write>Autorizar escritura en CVs</button> <span class="field-hint" data-hc-authorize-status role="status"></span></p>
+
+    <h3>Resumen</h3>
+    <p class="field-hint" data-exceptions-summary>Por resolver: {{ overview.counts.get('open', 0) + overview.counts.get('in_progress', 0) + overview.counts.get('blocked', 0) + overview.counts.get('error', 0) }}
+      (abiertas {{ overview.counts.get('open', 0) }} · bloqueadas {{ overview.counts.get('blocked', 0) }} · con error {{ overview.counts.get('error', 0) }} · en curso {{ overview.counts.get('in_progress', 0) }}) · resueltas {{ overview.counts.get('resolved', 0) }} · descartadas {{ overview.counts.get('dismissed', 0) }}.
+      {% if not execution.started %}<strong>La importación todavía no comenzó:</strong> las excepciones se gestionan una vez iniciada.{% endif %}
+      {% if not overview.staging_present %}<strong>Los datos temporales ya no están disponibles:</strong> no se pueden gestionar.{% endif %}</p>
+
+    <form class="hc-exc-filters" method="get" action="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones" data-exceptions-filters>
+      <div class="feedback-field feedback-field--compact"><label for="exc-estado">Estado</label>
+        <select id="exc-estado" name="estado">{% for code, label in (('open', 'Por resolver'), ('resolved', 'Resueltas'), ('dismissed', 'Descartadas'), ('all', 'Todas')) %}<option value="{{ code }}" {{ 'selected' if estado == code }}>{{ label }}</option>{% endfor %}</select></div>
+      <div class="feedback-field feedback-field--compact"><label for="exc-motivo">Motivo</label>
+        <select id="exc-motivo" name="motivo"><option value="">Todos</option>{% for code, n in overview.by_reason.items() %}<option value="{{ code }}" {{ 'selected' if motivo == code }}>{{ code }} ({{ n }})</option>{% endfor %}</select></div>
+      <button type="submit" class="btn-secondary">Filtrar</button>
+    </form>
+
+    <div class="matrix-scroll"><table class="dashboard-table" data-exceptions-rows>
+      <thead><tr><th class="left">Contenido</th><th class="left">Estado y motivo</th><th class="left">Datos extraídos</th><th class="left">Perfiles sugeridos</th><th class="left">Acciones</th></tr></thead>
+      <tbody>
+      {% for r in rows %}{% set result = none %}{% set form = none %}{% include "partials/cv_history_exception_row.html" %}
+      {% else %}<tr><td class="left" colspan="5"><span class="field-hint" data-exceptions-empty>No hay excepciones con este filtro.</span></td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+    <p class="hc-pager" data-exceptions-pager>
+      <span class="field-hint">{{ overview.total }} excepciones · página {{ overview.page }} de {{ overview.pages }}</span>
+      {% if overview.page > 1 %}<a href="?estado={{ estado }}&motivo={{ motivo | urlencode }}&pagina={{ overview.page - 1 }}">← Anterior</a>{% endif %}
+      {% if overview.page < overview.pages %}<a href="?estado={{ estado }}&motivo={{ motivo | urlencode }}&pagina={{ overview.page + 1 }}">Siguiente →</a>{% endif %}
+    </p>
+  </main>
+</div>
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+<script src="{{ url_for('static', path='human_capital_import.js') }}?v={{ static_version }}" defer></script>
+{% endblock %}

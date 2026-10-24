@@ -7,6 +7,10 @@
   <p class="callout callout--info" data-pilot-result><span class="callout__body">Procesados {{ res.processed }} · con error {{ res.failed }} · pendientes {{ res.remaining }}{% if res.stopped_reason %} · corte: {{ res.stopped_reason }} (reanudable: volvé a procesar){% endif %}.</span></p>
   {% elif notice.kind == 'discarded' %}
   <p class="callout callout--info" data-pilot-discarded><span class="callout__body">{{ notice.message }}</span></p>
+  {% elif notice.kind == 'imported' %}
+  {% set res = notice.result %}
+  <p class="callout callout--info" data-import-result><span class="callout__body">Procesados {{ res.processed }} · hechos {{ res.done or 0 }} · bloqueados {{ res.blocked or 0 }} · con error {{ res.failed or 0 }} · reintentables {{ res.retry or 0 }} · pendientes {{ res.remaining }}{% if res.stopped_reason %} · corte: {{ res.stopped_reason }}{% endif %}.
+    {% if res.stopped_reason == 'PERMISSION_DENIED' %}Sin permiso de escritura sobre la carpeta de CVs con tu sesión: autorizá la escritura y reanudá. No se perdió nada.{% elif res.stopped_reason == 'TOKEN_EXPIRED' %}La sesión de Microsoft venció: reanudá (no se perdió nada).{% elif res.stopped_reason == 'ERRORS_STREAK' %}Varios errores seguidos: se frenó para no insistir. Reanudá más tarde; lo incierto se concilia con SharePoint antes de reintentar.{% elif res.stopped_reason == 'PERSISTENCE_ERROR' or res.stopped_reason == 'CONFIG_INCOMPLETE' %}El almacenamiento no confirmó la escritura: reanudá cuando esté disponible.{% endif %}</span></p>
   {% elif notice.kind == 'planned' %}
   <p class="callout callout--info" data-pilot-planned><span class="callout__body">{{ notice.message }}</span></p>
   {% elif notice.kind == 'created' %}
@@ -58,7 +62,10 @@
     {% else %}Los datos personales extraídos se guardan solo en un área temporal protegida, con vigencia hasta <strong>{{ st.retention_until }}</strong> ({{ st.retention_days }} días). No se eliminan solos: los elimina el owner con la confirmación de abajo.
     {% if st.expired %}<span class="status-badge status-badge--tentativo" data-pilot-expired>Vigencia vencida: eliminá los datos personales</span>{% endif %}{% endif %}
   </p>
-  {% if st.state != 'DISCARDED' %}
+  {% if st.state != 'DISCARDED' and discard_block %}
+  <p class="callout callout--warn" data-discard-blocked><span class="callout__body">No se pueden eliminar los datos temporales todavía: quedan <strong>{{ discard_block.remaining }}</strong> contenidos sin terminar y <strong>{{ discard_block.exceptions_open }}</strong> excepciones abiertas que dependen de ellos.
+    Resolvelas desde <a href="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones">Gestionar excepciones</a> (completar, vincular o descartar); después podrás eliminarlos con la confirmación explícita.</span></p>
+  {% elif st.state != 'DISCARDED' %}
   <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/descartar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-pilot-discard-form>
     <div class="feedback-field">
       <label for="cvrun-discard">Eliminar los datos personales del lote: escribí <code>{{ discard_phrase }}</code></label>
@@ -154,6 +161,58 @@
     <thead><tr><th class="left">Especialidad</th><th>Contenidos</th><th>Crear</th><th>Adjuntar</th><th>Vincular</th><th>Pendientes</th><th>Duplicados</th><th>Errores</th></tr></thead>
     <tbody>{% for s in pl.by_specialty %}<tr><td class="left">{{ s.specialty }}</td><td>{{ s.documents }}</td><td>{{ s.create }}</td><td>{{ s.attach }}</td><td>{{ s.link }}</td><td>{{ s.pending }}</td><td>{{ s.duplicate }}</td><td>{{ s.error }}</td></tr>{% endfor %}</tbody>
   </table></div>
+  {% endif %}
+
+  {% if report.kind == 'import' and report.plan %}
+  <h3>Importación al Banco</h3>
+  {% if not (execution and execution.started) %}
+    {% if report.staging.state == 'PRESENT' %}
+    <p class="callout callout--warn" data-import-warning><span class="callout__body">Al confirmar se <strong>escribe</strong> en el Banco (perfiles nuevos, nunca se modifica uno existente) y en la carpeta administrada <strong>CVs</strong> (carpetas y archivos nuevos). El origen histórico de SharePoint no se modifica ni se elimina. Antes de empezar se valida con tu sesión el permiso de escritura y el plan queda congelado. Se puede detener y reanudar sin duplicar nada.</span></p>
+    <p><button type="button" class="btn-secondary" data-hc-authorize-write>Autorizar escritura en CVs</button> <span class="field-hint" data-hc-authorize-status role="status"></span></p>
+    {% set pl = report.plan.summary %}
+    <table class="dashboard-table" data-import-scope><tbody>
+      <tr><td class="left">Plan revisión</td><td class="left hc-kv-value" data-scope-revision>{{ report.plan.revision }}</td><td class="left">Perfiles nuevos a crear</td><td class="left hc-kv-value" data-scope-profiles>{{ pl.profiles_to_create }}</td></tr>
+      <tr><td class="left">Documentos de esos perfiles (incluye los adicionales)</td><td class="left hc-kv-value">{{ pl.actions.CREATE + pl.actions.ATTACH }}</td><td class="left">Documentos a vincular a perfiles existentes</td><td class="left hc-kv-value">{{ pl.actions.LINK }}</td></tr>
+      <tr><td class="left">Documentos a subir en total</td><td class="left hc-kv-value" data-scope-documents>{{ pl.documents_to_upload }}</td><td class="left">Pendientes que NO se importan ahora</td><td class="left hc-kv-value">{{ pl.actions.PENDING }}</td></tr>
+    </tbody></table>
+    {% if execution and execution.probe_residue %}<p class="callout callout--warn" data-probe-residue><span class="callout__body">Quedó en la carpeta de CVs un archivo residual de una sonda de escritura: <strong>{{ execution.probe_residue | join(', ') }}</strong>. Eliminalo en SharePoint; mientras siga ahí, no se puede iniciar.</span></p>{% endif %}
+    <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/importar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-hc-write-token data-import-start-form>
+      <input type="hidden" name="plan_revision" value="{{ report.plan.revision }}"><input type="hidden" name="expect_profiles" value="{{ pl.profiles_to_create }}"><input type="hidden" name="expect_documents" value="{{ pl.documents_to_upload }}">
+      <div class="feedback-field">
+        <label for="cvrun-import-confirm">Confirmación del owner: escribí <code>{{ import_phrase }}</code></label>
+        <input id="cvrun-import-confirm" name="confirm" type="text" autocomplete="off" required>
+      </div>
+      <div class="feedback-field feedback-field--compact">
+        <label for="cvrun-import-batch">Contenidos por tanda</label>
+        <input id="cvrun-import-batch" name="batch" type="number" min="1" max="100" value="20">
+      </div>
+      <div class="hc-profile-form__actions"><button type="submit" class="btn-primary" data-import-start>Iniciar importación (plan revisión {{ report.plan.revision }}: {{ report.plan.summary.profiles_to_create }} perfiles nuevos · {{ report.plan.summary.documents_to_upload }} documentos)</button></div>
+    </form>
+    {% else %}<p class="field-hint">Los datos temporales del lote ya no están disponibles: no se puede ejecutar el plan.</p>{% endif %}
+  {% else %}
+    {% set ex = execution %}{% set resi = notice.result if (notice and notice.kind == 'imported') else none %}
+    <table class="dashboard-table" data-import-progress><tbody>
+      <tr><td class="left">Estado</td><td class="left hc-kv-value" data-import-state>{{ ex.state }}</td><td class="left">Contenidos por importar</td><td class="left hc-kv-value" data-import-remaining>{{ ex.remaining }}</td></tr>
+      <tr><td class="left">Perfiles creados</td><td class="left hc-kv-value" data-import-profiles>{{ ex.profiles_created }}</td><td class="left">…con advertencia (marcados «Revisar identidad»)</td><td class="left hc-kv-value">{{ ex.profiles_with_warnings }}</td></tr>
+      <tr><td class="left">Documentos subidos</td><td class="left hc-kv-value" data-import-documents>{{ ex.documents_uploaded }}</td><td class="left">…conciliados con SharePoint sin volver a subir</td><td class="left hc-kv-value">{{ ex.documents_reconciled }}</td></tr>
+      <tr><td class="left">Vinculados a perfiles existentes</td><td class="left hc-kv-value">{{ ex.linked_documents }}</td><td class="left">Resueltos a mano</td><td class="left hc-kv-value">{{ ex.manual_completed }}</td></tr>
+      <tr><td class="left">Bloqueados (el Banco cambió)</td><td class="left hc-kv-value" data-import-blocked>{{ ex.states.BLOCKED }}</td><td class="left">Con error</td><td class="left hc-kv-value" data-import-failed>{{ ex.states.FAILED }}</td></tr>
+      <tr><td class="left">Descartados</td><td class="left hc-kv-value">{{ ex.dismissed }}</td><td class="left">Excepciones por resolver</td><td class="left hc-kv-value" data-import-exceptions>{{ ex.exceptions_open }}</td></tr>
+    </tbody></table>
+    {% if ex.blocked_by_reason or ex.failed_by_reason %}<p class="field-hint" data-import-reasons>{% for code, n in ex.blocked_by_reason.items() %}{{ code }} ({{ n }}){% if not loop.last or ex.failed_by_reason %}, {% endif %}{% endfor %}{% for code, n in ex.failed_by_reason.items() %}{{ code }} ({{ n }}){% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+    {% if ex.remaining and report.staging.state == 'PRESENT' %}
+    <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/importar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-hc-write-token data-import-continue-form
+          {% if resi and resi.processed and resi.remaining and resi.stopped_reason in (none, 'TIME_BUDGET', 'BATCH_LIMIT') %}hx-trigger="load delay:700ms, submit" data-import-autocontinue{% endif %}>
+      <div class="feedback-field feedback-field--compact"><label for="cvrun-import-batch2">Contenidos por tanda</label><input id="cvrun-import-batch2" name="batch" type="number" min="1" max="100" value="20"></div>
+      <div class="hc-profile-form__actions"><button type="button" class="btn-secondary" data-hc-authorize-write>Autorizar escritura en CVs</button> <span class="field-hint" data-hc-authorize-status role="status"></span>
+        <button type="submit" class="btn-primary" data-import-continue>{{ 'Reanudar' if ex.last_stop else 'Continuar' }} importación ({{ ex.remaining }} pendiente{{ '' if ex.remaining == 1 else 's' }})</button></div>
+    </form>
+    {% endif %}
+  {% endif %}
+  <p class="field-hint" data-import-links>
+    {% if execution and execution.started %}<a href="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones" data-import-exceptions-link>Gestionar excepciones ({{ execution.exceptions_open }})</a> ·
+    <a href="/cchh/candidatos?q=Hist%C3%B3rico%20SharePoint">Perfiles históricos en el Banco</a> · <a href="/cchh/candidatos?q=Revisar%20identidad">Perfiles con advertencia</a>{% endif %}
+  </p>
   {% endif %}
 
   {% if report.comparison %}
