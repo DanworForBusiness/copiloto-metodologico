@@ -3051,7 +3051,9 @@ def _pilot_panel(request: Request, run_id: str, notice: dict | None = None):
     except cv_history_manifest.ManifestError:
         raise HTTPException(404, "Lote inexistente") from None
     execution = cv_history_import_exec.execution_report(run_id) if report.get("kind") == "import" else None
-    return templates.TemplateResponse(request=request, name="partials/cv_history_run_panel.html", context={"request": request, "report": report, "notice": notice, "run_id": run_id, "execution": execution, "import_phrase": cv_history_import_exec.confirm_phrase(run_id), "discard_phrase": cv_history_pilot.discard_phrase(run_id)}, headers=_NO_STORE)
+    discard_block = cv_history_import_exec.discard_blockers(run_id) if report.get("kind") == "import" else None
+    return templates.TemplateResponse(request=request, name="partials/cv_history_run_panel.html", context={"request": request, "report": report, "notice": notice, "run_id": run_id, "execution": execution, "import_phrase": cv_history_import_exec.confirm_phrase(run_id),
+                                                                                                            "discard_block": discard_block, "discard_phrase": cv_history_pilot.discard_phrase(run_id)}, headers=_NO_STORE)
 
 
 def _pilot_actor(request: Request) -> str:
@@ -3174,7 +3176,7 @@ def human_capital_cv_history_import_plan(request: Request, run_id: str):
 
 
 @router.post("/cchh/diagnostico/cvs-historicos/{run_id}/importar", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_cv_history_import_run(request: Request, run_id: str, graph_token: str = Form(""), confirm: str = Form(""), batch: str = Form("")):
+def human_capital_cv_history_import_run(request: Request, run_id: str, graph_token: str = Form(""), confirm: str = Form(""), batch: str = Form(""), plan_revision: str = Form(""), expect_profiles: str = Form(""), expect_documents: str = Form("")):
     """EJECUTA el plan de importación: crea/vincula perfiles en el Banco y sube los CV a la carpeta administrada de CVs, por tandas. El inicio exige la frase `IMPORTAR-<run_id>` y valida el permiso efectivo de
     escritura; después cada llamada es una tanda reanudable. Token con alcance de escritura (lo inyecta `human_capital_import.js`); los errores son 200 con aviso (HTMX no pinta 4xx)."""
     redirect = _require_owner_for_diagnostics(request)
@@ -3185,7 +3187,7 @@ def human_capital_cv_history_import_run(request: Request, run_id: str, graph_tok
     if not graph_token:
         return _pilot_panel(request, run_id, {"kind": "missing_token", "message": "Sin token con permiso de escritura (el navegador no pudo obtenerlo). Usá «Autorizar escritura en CVs» y reintentá."})
     try:
-        cv_history_import_exec.start_execution(run_id, graph_token, actor=_pilot_actor(request), confirm=confirm)
+        cv_history_import_exec.start_execution(run_id, graph_token, actor=_pilot_actor(request), confirm=confirm, expected={"revision": plan_revision, "profiles": expect_profiles, "documents": expect_documents})
         result = cv_history_import_exec.execute_batch(run_id, graph_token, actor=_pilot_actor(request), max_units=int(batch) if batch.strip().isdigit() else None)
     except cv_history_import_exec.ExecutionError as exc:
         return _pilot_panel(request, run_id, {"kind": "invalid_input", "message": str(exc)})
@@ -3312,7 +3314,9 @@ def human_capital_cv_history_detail(request: Request, run_id: str):
     except cv_history_manifest.ManifestNotFoundError:
         raise HTTPException(404, "Lote inexistente") from None
     execution = cv_history_import_exec.execution_report(run_id) if report.get("kind") == "import" else None
-    return templates.TemplateResponse(request=request, name="human_capital/cv_history_run.html", context=_pilot_context(request, report=report, rows=rows, run_id=run_id, notice=None, execution=execution, import_phrase=cv_history_import_exec.confirm_phrase(run_id), discard_phrase=cv_history_pilot.discard_phrase(run_id)), headers=_NO_STORE)
+    discard_block = cv_history_import_exec.discard_blockers(run_id) if report.get("kind") == "import" else None
+    return templates.TemplateResponse(request=request, name="human_capital/cv_history_run.html", context=_pilot_context(request, report=report, rows=rows, run_id=run_id, notice=None, execution=execution, import_phrase=cv_history_import_exec.confirm_phrase(run_id),
+                                                                                                                       discard_block=discard_block, discard_phrase=cv_history_pilot.discard_phrase(run_id)), headers=_NO_STORE)
 
 
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}

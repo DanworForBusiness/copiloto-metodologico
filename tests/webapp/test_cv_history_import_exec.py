@@ -33,6 +33,7 @@ class CVStore:
         self.lost_ack: set[str] = set()                           # nombres de archivo (subcadena): el PUT SE GUARDA pero el cliente recibe un error de red
         self.deny_put = False
         self.deny_probe = False
+        self.fail_delete = False
         self.fail_lookup: set[str] = set()
         self.n = 0
 
@@ -50,6 +51,9 @@ class CVStore:
             for fid, fname in self.folders.items():
                 if fname == name:
                     return {"id": fid, "name": fname, "folder": {}, "parentReference": {"id": "root-1"}}
+            for fid, f in self.files.items():                      # archivo directamente en la raíz de CVs (p. ej. una sonda residual)
+                if f["folder"] == "root-1" and f["name"] == name:
+                    return self._item(fid)
             raise http_error(404)
         if ":/" in rest:                                           # archivo por ruta dentro de una carpeta
             folder, name = rest.split(":/", 1)
@@ -102,6 +106,8 @@ class CVStore:
     def delete(self, url, token):
         fid = self._decode(url)
         self.deletes.append(fid)
+        if self.fail_delete:
+            raise http_error(500)
         self.files.pop(fid, None)
 
     def names(self, folder_name):
@@ -143,7 +149,11 @@ def planned_run(sp_env, **kw):
 
 
 def begin(rid, **kw):
-    return ex.start_execution(rid, TOKEN, actor=OWNER, confirm=ex.confirm_phrase(rid), **kw)
+    return ex.start_execution(rid, TOKEN, actor=OWNER, confirm=ex.confirm_phrase(rid), expected=ex.plan_scope(mf.get_plan(rid)), **kw)
+
+
+def probe_files(store):
+    return [n for n in store.puts if n.startswith("__dw_write_probe__")]
 
 
 def run_all(rid, **kw):
@@ -190,7 +200,9 @@ def test_nothing_is_written_until_the_owner_confirms_and_the_write_permission_is
     store.deny_probe = False
     run = begin(rid)
     assert run["execution"]["state"] == "RUNNING" and run["execution"]["started_by"] == OWNER and run["execution"]["write_check"]["ok"] and run["execution"]["write_check"]["cleaned"]
-    assert store.puts == [f"__dw_write_probe__{rid}.txt"] * 2 and len(store.deletes) == 1 and store.real_files() == {} and seeded_snapshot() == before        # la sonda se borró
+    probes = probe_files(store)
+    assert len(probes) == 2 and len(set(probes)) == 2 and all(n.startswith(f"__dw_write_probe__{rid}-") for n in probes)       # un nombre ÚNICO por ejecución (el intento denegado y el exitoso no comparten archivo)
+    assert len(store.deletes) == 1 and store.real_files() == {} and seeded_snapshot() == before and not any(f["name"].startswith("__dw_write_probe__") for f in store.files.values())        # la sonda se borró
     assert begin(rid)["execution"]["started_at"] == run["execution"]["started_at"] and len(store.puts) == 2                 # iniciar de nuevo no repite nada
 
 
@@ -246,7 +258,7 @@ def test_the_source_is_only_read_and_every_write_goes_to_the_managed_cv_root(env
     rid = planned_run(env)
     begin(rid)
     run_all(rid)
-    assert set(store.puts) - {f"__dw_write_probe__{rid}.txt"} == {f["name"] for f in store.real_files().values()}
+    assert {n for n in store.puts if not n.startswith("__dw_write_probe__")} == {f["name"] for f in store.real_files().values()}
     assert all(item in world.data for item in world.downloads)                                                           # solo se descargó (GET) del origen; las escrituras del fixture exigen la raíz de CVs
 
 
@@ -518,20 +530,27 @@ def test_the_ledger_and_report_carry_no_personal_data_and_survive_the_discard_wh
     rid = planned_run(env)
     begin(rid)
     ex.execute_batch(rid, TOKEN, actor=OWNER, max_units=1, sleep=lambda s: None)
-    with pytest.raises(pilot.PilotInputError, match="sin terminar"):
+    with pytest.raises(pilot.PilotInputError, match="3 contenidos sin terminar y 2 excepciones abiertas"):
         ex.assert_can_discard(rid)
     run_all(rid)
+    with pytest.raises(pilot.PilotInputError, match="0 contenidos sin terminar y 2 excepciones abiertas"):                 # las excepciones abiertas también impiden el descarte normal
+        ex.assert_can_discard(rid)
+    assert ex.discard_blockers(rid) == {"remaining": 0, "exceptions_open": 2}
+    for key, d in mf.get_plan(rid)["decisions"].items():
+        if d["action"] == planning.PENDING:
+            assert ex.dismiss(rid, key, actor=OWNER, reason="NOT_A_CV")["ok"]                                              # se resuelven desde la interfaz (aquí, descartando)
+    assert ex.discard_blockers(rid) is None
     ex.assert_can_discard(rid)
     ledger_dir = config.BASE_DIR / "human-capital" / "import-history" / rid / "ledger"
     text = "".join(p.read_text(encoding="utf-8") for p in ledger_dir.glob("*.json"))
     assert text and not [p for p in PII if p in text] and "@" not in text.replace(OWNER, "")
     before = ex.execution_report(rid)
     pilot.discard_staging(rid, confirm=pilot.discard_phrase(rid), actor=OWNER)
-    assert mf.staging_files_present(rid) == 0 and len(list(ledger_dir.glob("*.json"))) == 4                                # el libro (sin datos personales) sobrevive
+    assert mf.staging_files_present(rid) == 0 and len(list(ledger_dir.glob("*.json"))) == 6                                # el libro (sin datos personales) sobrevive: 4 importados + 2 descartados
     assert ex.execution_report(rid) == before
     assert not [p for p in PII if p in json.dumps(before, ensure_ascii=False)]
     assert before["documents_uploaded"] == 4 and before["profiles_created"] == 2 and before["profiles_with_warnings"] == 1 and before["linked_documents"] == 1 and before["remaining"] == 0
-    assert before["write_check"]["ok"] and before["states"]["DONE"] == 4 and before["exceptions_open"] == 2                  # los 2 pendientes del plan siguen por resolver
+    assert before["write_check"]["ok"] and before["states"]["DONE"] == 4 and before["exceptions_open"] == 0 and before["dismissed"] == 2
 
 
 def test_deterministic_identities_do_not_depend_on_the_order_or_the_run_state(env):
@@ -570,7 +589,9 @@ def test_remote_lookup_classifies_failures_and_never_reads_an_error_as_absent(en
 
 def test_the_write_probe_validates_the_effective_permission_and_cleans_up(env):
     store, world = env
-    assert docsvc.probe_write_access(TOKEN, "lote-1") == {"ok": True, "cleaned": True} and store.files == {}
+    first = docsvc.probe_write_access(TOKEN, "lote-1")
+    second = docsvc.probe_write_access(TOKEN, "lote-1")
+    assert first["ok"] and first["cleaned"] and store.files == {} and first["file"] != second["file"] and first["file"].startswith("__dw_write_probe__lote-1-")      # nombre único por ejecución
     store.deny_probe = True
     with pytest.raises(docsvc.ProfileDocumentPermissionDeniedError):
         docsvc.probe_write_access(TOKEN, "lote-1")
@@ -640,3 +661,73 @@ def test_a_blocked_item_resolved_by_hand_stays_visible_as_resolved_and_rectifica
     assert updated["import_origin"]["run_id"] == rid and updated["tags"] == created["tags"] and len(profile_document_repository.list_for_profile(created["profile_id"])) == 2
     with pytest.raises(ValueError):
         human_capital_service.update_profile(created["profile_id"], updated["revision"], {"first_name": "", "last_name": "Pérez"}, duplicate_confirmed=True)   # el contrato nombre + apellido sigue vigente
+
+# ═══════════════════ sonda con nombre único y limpieza fallida; alcance confirmado; descarte ═══════════════════
+def test_a_failed_probe_cleanup_reports_the_residual_file_blocks_the_start_and_never_reuses_the_name(env):
+    store, world = env
+    rid = planned_run(env)
+    before = seeded_snapshot()
+    store.fail_delete = True
+    with pytest.raises(ex.ExecutionError) as caught:
+        begin(rid)
+    residue = mf.get_run(rid)["probe_residue"]
+    assert len(residue) == 1 and f"«{residue[0]}»" in str(caught.value) and "no se inició la importación" in str(caught.value)
+    assert "execution" not in mf.get_run(rid) and any(f["name"] == residue[0] for f in store.files.values()) and seeded_snapshot() == before and store.real_files() == {}
+    assert ex.execution_report(rid)["probe_residue"] == residue                                                            # visible en el reporte y en el panel
+    puts_before = len(store.puts)
+    with pytest.raises(ex.ExecutionError, match="residual de una sonda anterior"):                                           # mientras el archivo siga ahí, ni siquiera se vuelve a probar
+        begin(rid)
+    assert len(store.puts) == puts_before and mf.get_run(rid)["probe_residue"] == residue
+    store.fail_delete = False
+    with pytest.raises(ex.ExecutionError, match="residual de una sonda anterior"):                                           # arreglar el borrado no alcanza: hay que eliminar el residuo
+        begin(rid)
+    residual_id = next(fid for fid, f in store.files.items() if f["name"] == residue[0])
+    del store.files[residual_id]                                                                                           # el owner lo elimina en SharePoint
+    run = begin(rid)
+    assert run["execution"]["state"] == "RUNNING" and "probe_residue" not in mf.get_run(rid) and run["execution"]["write_check"]["cleaned"]
+    names = probe_files(store)
+    assert len(names) == 2 and len(set(names)) == 2 and residue[0] in names                                                # la sonda nueva usó OTRO nombre
+    assert not any(f["name"].startswith("__dw_write_probe__") for f in store.files.values())
+
+
+def test_a_previous_probe_is_never_overwritten(env):
+    store, world = env
+    store.fail_delete = True
+    first = docsvc.probe_write_access(TOKEN, "lote-x")
+    assert first["cleaned"] is False
+    store.fail_delete = False
+    second = docsvc.probe_write_access(TOKEN, "lote-x")
+    assert second["cleaned"] and second["file"] != first["file"] and [f["name"] for f in store.files.values()] == [first["file"]]     # la sonda residual sigue intacta
+
+
+def test_the_start_requires_the_exact_scope_the_owner_saw_and_a_plan_change_never_starts_silently(env):
+    store, world = env
+    rid = planned_run(env)
+    scope = ex.plan_scope(mf.get_plan(rid))
+    assert scope == {"revision": 1, "profiles": 2, "documents": 4}
+    for bad in (None, {}, {"revision": 1, "profiles": 2}, {"revision": "x", "profiles": 2, "documents": 4}):
+        with pytest.raises(ex.ExecutionError, match="Falta el alcance"):
+            ex.start_execution(rid, TOKEN, actor=OWNER, confirm=ex.confirm_phrase(rid), expected=bad)
+    planning.generate_plan(rid, actor=OWNER)                                                                               # el plan se regenera (otra revisión) mientras el owner tenía la pantalla abierta
+    assert mf.get_plan(rid)["revision"] == 2
+    with pytest.raises(ex.ExecutionError, match="El plan cambió desde que lo revisaste") as stale:
+        ex.start_execution(rid, TOKEN, actor=OWNER, confirm=ex.confirm_phrase(rid), expected=scope)
+    assert "revisión 1" in str(stale.value) and "revisión 2" in str(stale.value) and "execution" not in mf.get_run(rid) and store.puts == [] and store.real_files() == {}
+    for wrong in ({**scope, "revision": 2, "profiles": 3}, {**scope, "revision": 2, "documents": 5}):                          # mismo número de revisión pero otro alcance
+        with pytest.raises(ex.ExecutionError, match="El plan cambió"):
+            ex.start_execution(rid, TOKEN, actor=OWNER, confirm=ex.confirm_phrase(rid), expected=wrong)
+    assert store.puts == []
+    run = ex.start_execution(rid, TOKEN, actor=OWNER, confirm=ex.confirm_phrase(rid), expected={**scope, "revision": 2})
+    assert run["execution"]["plan_revision"] == 2
+
+
+def test_the_discard_stays_explicit_and_is_only_allowed_once_nothing_depends_on_the_temporary_area(env):
+    store, world = env
+    rid = planned_run(env)
+    begin(rid)
+    run_all(rid)
+    with pytest.raises(pilot.PilotInputError, match="2 excepciones abiertas"):
+        ex.assert_can_discard(rid)
+    with pytest.raises(pilot.PilotInputError, match="Falta la confirmación"):                                                # incluso sin bloqueos, la frase explícita sigue siendo obligatoria
+        pilot.discard_staging(rid, confirm="ELIMINAR", actor=OWNER)
+    assert mf.staging_files_present(rid) > 0

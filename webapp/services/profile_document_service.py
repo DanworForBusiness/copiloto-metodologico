@@ -1007,11 +1007,11 @@ def adopt_remote_document(
 
 
 def probe_write_access(access_token: str, label: str) -> dict:
-    """Valida el permiso EFECTIVO de escritura sobre la carpeta administrada de CVs con el MISMO token que usará la subida: PUT de un archivo diminuto de nombre fijo en la raíz de CVs y borrado inmediato.
-    Un 403 → permission denied; un fallo de transporte o 5xx → GraphSourceError. Devuelve `{ok, cleaned}`: `cleaned` False si no se pudo borrar la sonda (queda un archivo de pocos bytes con nombre fijo,
-    que el siguiente intento sobrescribe)."""
+    """Valida el permiso EFECTIVO de escritura sobre la carpeta administrada de CVs con el MISMO token que usará la subida: PUT de un archivo diminuto en la raíz de CVs y borrado inmediato. El nombre es ÚNICO
+    por ejecución (nunca sobrescribe una sonda anterior). Un 403 → permission denied; un fallo de transporte o 5xx → GraphSourceError. Devuelve `{ok, cleaned, file}`: si `cleaned` es False el archivo `file`
+    quedó en la carpeta de CVs y el llamador debe informarlo (no se vuelve a usar ese nombre)."""
     require_graph_config()
-    name = f"__dw_write_probe__{re.sub(r'[^A-Za-z0-9._-]+', '-', label)[:60]}.txt"
+    name = f"__dw_write_probe__{re.sub(r'[^A-Za-z0-9._-]+', '-', label)[:40]}-{uuid4().hex[:12]}.txt"
     url = f"{_drive_items_base()}/{config.HC_CV_ROOT_ITEM_ID}:/{urllib.parse.quote(name, safe='')}:/content"
     try:
         item = microsoft365.graph_put_bytes(url, access_token, b"dw-write-probe", content_type="text/plain")
@@ -1030,7 +1030,7 @@ def probe_write_access(access_token: str, label: str) -> dict:
             cleaned = True
         except (ProfileDocumentDeletePermissionDeniedError, ProfileDocumentDeleteGraphSourceError, ProfileDocumentDeletePhysicalOutcomeUnknownError):
             cleaned = False
-    return {"ok": True, "cleaned": cleaned}
+    return {"ok": True, "cleaned": cleaned, "file": name}
 
 
 def retry_upload_document(

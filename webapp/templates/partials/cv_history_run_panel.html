@@ -62,7 +62,10 @@
     {% else %}Los datos personales extraídos se guardan solo en un área temporal protegida, con vigencia hasta <strong>{{ st.retention_until }}</strong> ({{ st.retention_days }} días). No se eliminan solos: los elimina el owner con la confirmación de abajo.
     {% if st.expired %}<span class="status-badge status-badge--tentativo" data-pilot-expired>Vigencia vencida: eliminá los datos personales</span>{% endif %}{% endif %}
   </p>
-  {% if st.state != 'DISCARDED' %}
+  {% if st.state != 'DISCARDED' and discard_block %}
+  <p class="callout callout--warn" data-discard-blocked><span class="callout__body">No se pueden eliminar los datos temporales todavía: quedan <strong>{{ discard_block.remaining }}</strong> contenidos sin terminar y <strong>{{ discard_block.exceptions_open }}</strong> excepciones abiertas que dependen de ellos.
+    Resolvelas desde <a href="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones">Gestionar excepciones</a> (completar, vincular o descartar); después podrás eliminarlos con la confirmación explícita.</span></p>
+  {% elif st.state != 'DISCARDED' %}
   <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/descartar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-pilot-discard-form>
     <div class="feedback-field">
       <label for="cvrun-discard">Eliminar los datos personales del lote: escribí <code>{{ discard_phrase }}</code></label>
@@ -166,7 +169,15 @@
     {% if report.staging.state == 'PRESENT' %}
     <p class="callout callout--warn" data-import-warning><span class="callout__body">Al confirmar se <strong>escribe</strong> en el Banco (perfiles nuevos, nunca se modifica uno existente) y en la carpeta administrada <strong>CVs</strong> (carpetas y archivos nuevos). El origen histórico de SharePoint no se modifica ni se elimina. Antes de empezar se valida con tu sesión el permiso de escritura y el plan queda congelado. Se puede detener y reanudar sin duplicar nada.</span></p>
     <p><button type="button" class="btn-secondary" data-hc-authorize-write>Autorizar escritura en CVs</button> <span class="field-hint" data-hc-authorize-status role="status"></span></p>
+    {% set pl = report.plan.summary %}
+    <table class="dashboard-table" data-import-scope><tbody>
+      <tr><td class="left">Plan revisión</td><td class="left hc-kv-value" data-scope-revision>{{ report.plan.revision }}</td><td class="left">Perfiles nuevos a crear</td><td class="left hc-kv-value" data-scope-profiles>{{ pl.profiles_to_create }}</td></tr>
+      <tr><td class="left">Documentos de esos perfiles (incluye los adicionales)</td><td class="left hc-kv-value">{{ pl.actions.CREATE + pl.actions.ATTACH }}</td><td class="left">Documentos a vincular a perfiles existentes</td><td class="left hc-kv-value">{{ pl.actions.LINK }}</td></tr>
+      <tr><td class="left">Documentos a subir en total</td><td class="left hc-kv-value" data-scope-documents>{{ pl.documents_to_upload }}</td><td class="left">Pendientes que NO se importan ahora</td><td class="left hc-kv-value">{{ pl.actions.PENDING }}</td></tr>
+    </tbody></table>
+    {% if execution and execution.probe_residue %}<p class="callout callout--warn" data-probe-residue><span class="callout__body">Quedó en la carpeta de CVs un archivo residual de una sonda de escritura: <strong>{{ execution.probe_residue | join(', ') }}</strong>. Eliminalo en SharePoint; mientras siga ahí, no se puede iniciar.</span></p>{% endif %}
     <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/importar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-hc-write-token data-import-start-form>
+      <input type="hidden" name="plan_revision" value="{{ report.plan.revision }}"><input type="hidden" name="expect_profiles" value="{{ pl.profiles_to_create }}"><input type="hidden" name="expect_documents" value="{{ pl.documents_to_upload }}">
       <div class="feedback-field">
         <label for="cvrun-import-confirm">Confirmación del owner: escribí <code>{{ import_phrase }}</code></label>
         <input id="cvrun-import-confirm" name="confirm" type="text" autocomplete="off" required>
@@ -175,7 +186,7 @@
         <label for="cvrun-import-batch">Contenidos por tanda</label>
         <input id="cvrun-import-batch" name="batch" type="number" min="1" max="100" value="20">
       </div>
-      <div class="hc-profile-form__actions"><button type="submit" class="btn-primary" data-import-start>Iniciar importación ({{ report.plan.summary.profiles_to_create }} perfiles nuevos · {{ report.plan.summary.documents_to_upload }} documentos)</button></div>
+      <div class="hc-profile-form__actions"><button type="submit" class="btn-primary" data-import-start>Iniciar importación (plan revisión {{ report.plan.revision }}: {{ report.plan.summary.profiles_to_create }} perfiles nuevos · {{ report.plan.summary.documents_to_upload }} documentos)</button></div>
     </form>
     {% else %}<p class="field-hint">Los datos temporales del lote ya no están disponibles: no se puede ejecutar el plan.</p>{% endif %}
   {% else %}

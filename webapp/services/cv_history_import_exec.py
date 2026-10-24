@@ -4,7 +4,8 @@ Parte del PLAN persistido de I3.1 (`import-plan.json`): no repite el análisis. 
 (alta con id preasignado, solo-crea), `profile_document_service` (carpeta por candidato, subida, metadata) y el manifiesto protegido. Escribe SOLO en el Banco y en la carpeta administrada de CVs (archivos y carpetas NUEVOS); el origen
 histórico de SharePoint se lee y nunca se modifica ni se borra.
 
-CONFIRMACIÓN: nada se escribe hasta que el owner confirma con la frase `IMPORTAR-<run_id>`; el inicio valida además el permiso EFECTIVO de escritura sobre la carpeta de CVs con el mismo token (sonda: PUT de un archivo diminuto y borrado).
+CONFIRMACIÓN: nada se escribe hasta que el owner confirma con la frase `IMPORTAR-<run_id>` Y el alcance que vio (revisión del plan, perfiles y documentos): si el plan cambió desde entonces, no se inicia. El inicio valida además el
+permiso EFECTIVO de escritura sobre la carpeta de CVs con el mismo token (sonda con nombre ÚNICO: PUT de un archivo diminuto y borrado; si el borrado falla se informa el archivo residual y se BLOQUEA el inicio hasta que ya no esté).
 Desde ese momento el plan queda CONGELADO (no se puede regenerar).
 
 IDENTIDADES DETERMINÍSTICAS (base de la idempotencia): `profile_id = uuid5(lote, grupo)` y `document_id = uuid5(profile_id, content_key)`. El nombre remoto de un archivo es `<document_id>__<nombre>`, así que repetir una subida apunta al MISMO
@@ -27,6 +28,8 @@ import time
 import urllib.error
 import uuid
 from collections import Counter, defaultdict
+
+import config
 
 from webapp.services import (cv_extract, cv_history_import as planning, cv_history_manifest as manifest, cv_history_pilot as pilot, cv_reconcile, human_capital_service, profile_document_repository,
                              profile_document_service as docsvc, profile_document_validation, profile_repository)
@@ -85,8 +88,46 @@ def _executable_decisions(plan: dict) -> dict[str, dict]:
     return {k: d for k, d in (plan or {}).get("decisions", {}).items() if d["action"] in (planning.CREATE, planning.ATTACH, planning.LINK)}
 
 
-def start_execution(run_id: str, token: str, *, actor: str, confirm: str) -> dict:
-    """Comienza la ejecución: exige la frase de confirmación, el plan y el análisis completos y el permiso EFECTIVO de escritura sobre la carpeta de CVs. Idempotente: si ya comenzó devuelve el lote sin repetir nada."""
+def plan_scope(plan: dict) -> dict:
+    """Alcance EFECTIVO de un plan: lo que la confirmación del owner debe mostrar y lo que el inicio vuelve a comprobar."""
+    return {"revision": plan["revision"], "profiles": len(plan.get("clusters") or {}), "documents": len(_executable_decisions(plan))}
+
+
+def _clear_probe_residue(run: dict, token: str) -> None:
+    """Un archivo residual de una sonda anterior BLOQUEA el inicio mientras siga en la carpeta de CVs; si el owner ya lo eliminó, se limpia el aviso."""
+    names = list(run.get("probe_residue") or [])
+    if not names:
+        return
+    try:
+        still = [n for n in names if docsvc.find_remote_document(config.HC_CV_ROOT_ITEM_ID, n, token) is not None]
+    except docsvc.ProfileDocumentPermissionDeniedError:
+        raise ExecutionError("Sin permiso para comprobar la carpeta de CVs con tu sesión actual: autorizá la escritura y reintentá. No se escribió nada.") from None
+    except docsvc.ProfileDocumentGraphSourceError:
+        raise ExecutionError("SharePoint no respondió al comprobar los archivos residuales de la sonda. No se escribió nada: reintentá.") from None
+    if still:
+        raise ExecutionError(f"Quedó en la carpeta de CVs un archivo residual de una sonda anterior: {', '.join(still)}. Eliminalo en SharePoint y reintentá. No se inició la importación.")
+    manifest.update_run(run["run_id"], lambda d: d.pop("probe_residue", None))
+
+
+def _run_write_probe(run_id: str, token: str) -> dict:
+    """Sonda de escritura con nombre único por ejecución. Si no se puede borrar, se registra el archivo residual y se bloquea (nunca se reutiliza ese nombre)."""
+    try:
+        check = docsvc.probe_write_access(token, run_id)
+    except docsvc.ProfileDocumentPermissionDeniedError:
+        raise ExecutionError("Sin permiso de escritura sobre la carpeta de CVs con tu sesión actual: autorizá la escritura y reintentá. No se escribió nada.") from None
+    except docsvc.ProfileDocumentConfigIncompleteError:
+        raise ExecutionError("La integración de documentos con SharePoint no está configurada en este entorno. No se escribió nada.") from None
+    except docsvc.ProfileDocumentGraphSourceError:
+        raise ExecutionError("SharePoint no respondió al validar el permiso de escritura. No se escribió nada: reintentá.") from None
+    if not check.get("cleaned"):
+        manifest.update_run(run_id, lambda d: d.__setitem__("probe_residue", sorted({*(d.get("probe_residue") or []), check["file"]})))
+        raise ExecutionError(f"El permiso de escritura es válido, pero no se pudo borrar el archivo de sonda «{check['file']}» de la carpeta de CVs. Eliminalo en SharePoint y reintentá: no se inició la importación.")
+    return check
+
+
+def start_execution(run_id: str, token: str, *, actor: str, confirm: str, expected: dict | None = None) -> dict:
+    """Comienza la ejecución: exige la frase de confirmación, el ALCANCE que el owner vio (`expected`: revisión del plan, perfiles y documentos; si el plan cambió desde entonces no se inicia), el plan y el análisis
+    completos y el permiso EFECTIVO de escritura sobre la carpeta de CVs. Idempotente: si ya comenzó devuelve el lote sin repetir nada."""
     run = _import_run(run_id)
     if run.get("execution"):
         return run
@@ -101,14 +142,16 @@ def start_execution(run_id: str, token: str, *, actor: str, confirm: str) -> dic
         raise ExecutionError("El análisis no está completo.")
     if not _executable_decisions(plan):
         raise ExecutionError("El plan no tiene contenidos para importar.")
+    actual = plan_scope(plan)
     try:
-        check = docsvc.probe_write_access(token, run_id)
-    except docsvc.ProfileDocumentPermissionDeniedError:
-        raise ExecutionError("Sin permiso de escritura sobre la carpeta de CVs con tu sesión actual: autorizá la escritura y reintentá. No se escribió nada.") from None
-    except docsvc.ProfileDocumentConfigIncompleteError:
-        raise ExecutionError("La integración de documentos con SharePoint no está configurada en este entorno. No se escribió nada.") from None
-    except docsvc.ProfileDocumentGraphSourceError:
-        raise ExecutionError("SharePoint no respondió al validar el permiso de escritura. No se escribió nada: reintentá.") from None
+        confirmed = {k: int((expected or {})[k]) for k in ("revision", "profiles", "documents")}
+    except (KeyError, TypeError, ValueError):
+        raise ExecutionError("Falta el alcance del plan que confirmaste: recargá la página y revisá los conteos.") from None
+    if confirmed != actual:
+        raise ExecutionError(f"El plan cambió desde que lo revisaste (confirmaste revisión {confirmed['revision']}: {confirmed['profiles']} perfiles y {confirmed['documents']} documentos; ahora es la revisión {actual['revision']}: "
+                             f"{actual['profiles']} perfiles y {actual['documents']} documentos). Recargá la página, revisá los conteos y confirmá de nuevo. No se escribió nada.")
+    _clear_probe_residue(run, token)
+    check = _run_write_probe(run_id, token)
     execution = {"state": "RUNNING", "started_at": manifest.now_iso(), "started_by": actor, "plan_revision": plan["revision"], "write_check": {**check, "at": manifest.now_iso()}, "last_stop": None}
     return manifest.update_run(run_id, lambda d: d.update({"execution": execution}))
 
@@ -373,11 +416,12 @@ def execute_batch(run_id: str, token: str, *, actor: str, max_units: int | None 
     stopped: str | None = None
     if execution.get("state") == "PERMISSION_DENIED":
         try:
-            docsvc.probe_write_access(token, run_id)
-        except docsvc.ProfileDocumentPermissionDeniedError:
-            return {**_progress(run_id, plan), "processed": 0, "stopped_reason": "PERMISSION_DENIED"}
-        except docsvc.ProfileDocumentGraphSourceError:
-            return {**_progress(run_id, plan), "processed": 0, "stopped_reason": "WRITE_CHECK_UNAVAILABLE"}
+            _clear_probe_residue(run, token)
+            _run_write_probe(run_id, token)
+        except ExecutionError as exc:
+            if "Sin permiso" in str(exc):
+                return {**_progress(run_id, plan), "processed": 0, "stopped_reason": "PERMISSION_DENIED"}
+            raise
     try:
         banco = _Banco(profile_repository.list())
     except profile_repository.ProfileStorageError:
@@ -438,7 +482,7 @@ def execution_report(run_id: str) -> dict | None:
     executable = _executable_decisions(plan)
     return {
         "started": bool(execution), "state": (execution or {}).get("state"), "started_at": (execution or {}).get("started_at"), "plan_revision": (execution or {}).get("plan_revision"),
-        "write_check": (execution or {}).get("write_check"), "last_stop": (execution or {}).get("last_stop"),
+        "write_check": (execution or {}).get("write_check"), "last_stop": (execution or {}).get("last_stop"), "probe_residue": list(run.get("probe_residue") or []),
         "units": len(executable) + sum(1 for k, e in ledgers.items() if e.get("source") == "manual" and k not in executable),
         "remaining": len(_pending_units(plan, ledgers)) if plan else 0,
         "states": {s: states.get(s, 0) for s in (PLANNED, PROFILE_READY, UPLOADING, DONE, BLOCKED, FAILED, DISMISSED)},
@@ -450,14 +494,23 @@ def execution_report(run_id: str) -> dict | None:
     }
 
 
-def assert_can_discard(run_id: str) -> None:
-    """No se descartan los datos temporales mientras la ejecución tenga contenidos sin terminar: sin ellos no se puede completar el alta ni la subida."""
+def discard_blockers(run_id: str) -> dict | None:
+    """Qué impide el descarte normal de los datos temporales de una importación en curso: contenidos sin terminar y excepciones abiertas (ambos dependen del área temporal para resolverse). None si no hay bloqueo."""
     run = manifest.get_run(run_id)
-    if run.get("kind") == pilot.KIND_IMPORT and run.get("execution"):
-        plan = manifest.get_plan(run_id)
-        remaining = len(_pending_units(plan, manifest.list_ledgers(run_id))) if plan else 0
-        if remaining:
-            raise pilot.PilotInputError(f"La importación tiene {remaining} contenidos sin terminar: completala antes de eliminar los datos temporales.")
+    if run.get("kind") != pilot.KIND_IMPORT or not run.get("execution"):
+        return None
+    report = execution_report(run_id)
+    blockers = {"remaining": report["remaining"], "exceptions_open": report["exceptions_open"]}
+    return blockers if blockers["remaining"] or blockers["exceptions_open"] else None
+
+
+def assert_can_discard(run_id: str) -> None:
+    """No se descartan los datos temporales mientras la importación (ya iniciada) tenga contenidos sin terminar o excepciones abiertas: sin ellos no se puede completar el alta ni la subida. La eliminación sigue siendo
+    explícita (frase de confirmación) y nunca automática; las excepciones se resuelven (completar, vincular o descartar) desde la interfaz."""
+    blockers = discard_blockers(run_id)
+    if blockers:
+        raise pilot.PilotInputError(f"No se pueden eliminar los datos temporales: quedan {blockers['remaining']} contenidos sin terminar y {blockers['exceptions_open']} excepciones abiertas que dependen de ellos. "
+                                    "Resolvelas desde «Gestionar excepciones» (completar, vincular o descartar) y volvé a intentarlo.")
 
 
 # ═══════════════════ excepciones ═══════════════════

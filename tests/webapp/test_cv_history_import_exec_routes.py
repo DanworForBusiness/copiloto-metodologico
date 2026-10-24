@@ -13,8 +13,13 @@ from webapp.main import app
 squash = lambda html: html.replace("\r", "").replace("\n", "")      # noqa: E731
 
 
+def scope_fields(rid):
+    s = ex.plan_scope(mf.get_plan(rid))
+    return {"plan_revision": str(s["revision"]), "expect_profiles": str(s["profiles"]), "expect_documents": str(s["documents"])}
+
+
 def post_run(c, rid, **over):
-    return c.post(f"{BASE}/{rid}/importar", data={"graph_token": TOKEN, "confirm": ex.confirm_phrase(rid), "batch": "20", **over})
+    return c.post(f"{BASE}/{rid}/importar", data={"graph_token": TOKEN, "confirm": ex.confirm_phrase(rid), "batch": "20", **scope_fields(rid), **over})
 
 
 def act_row(c, rid, key, accion, **data):
@@ -35,7 +40,10 @@ def test_the_panel_asks_for_the_explicit_confirmation_before_any_write_and_uses_
     store, world = env
     rid = planned_run(env)
     page = client_for(OWNER, monkeypatch).get(f"{BASE}/{rid}").text
-    assert "data-import-start-form" in page and "data-import-warning" in page and ex.confirm_phrase(rid) in page and "Iniciar importación (2 perfiles nuevos · 4 documentos)" in page and "data-hc-authorize-write" in page
+    assert "data-import-start-form" in page and "data-import-warning" in page and ex.confirm_phrase(rid) in page and "Iniciar importación (plan revisión 1: 2 perfiles nuevos · 4 documentos)" in page and "data-hc-authorize-write" in page
+    flat = squash(page)
+    assert "data-scope-revision>1<" in flat and "data-scope-profiles>2<" in flat and "data-scope-documents>4<" in flat and "Pendientes que NO se importan ahora" in page          # los conteos efectivos del plan aprobado
+    assert 'name="plan_revision" value="1"' in page and 'name="expect_profiles" value="2"' in page and 'name="expect_documents" value="4"' in page
     forms = re.findall(r"<form[^>]*data-import-start-form[^>]*>", page)
     assert forms and all("data-hc-write-token" in f and "data-dw-graph-token" not in f for f in forms)                    # un solo hook por formulario: el de ESCRITURA
     assert "human_capital_import.js" in page and "graph_token:" not in page and TOKEN not in page
@@ -146,3 +154,50 @@ def test_the_static_script_only_defers_the_request_for_the_authority_and_never_o
     assert "dwHumanCapitalDocumentWriteToken" in text and "data-hc-write-token" in text and "interactive: !!interactive" in text
     for banned in ("acquireToken", "localStorage", "sessionStorage", "refresh_token", "Authorization"):
         assert banned not in text, banned
+
+def test_a_stale_confirmation_form_cannot_start_the_import_after_the_plan_changed(env, monkeypatch):
+    store, world = env
+    rid = planned_run(env)
+    owner = client_for(OWNER, monkeypatch)
+    stale = scope_fields(rid)
+    planning.generate_plan(rid, actor=OWNER)                                                                               # el plan cambia de revisión con el formulario ya abierto
+    refused = owner.post(f"{BASE}/{rid}/importar", data={"graph_token": TOKEN, "confirm": ex.confirm_phrase(rid), **stale})
+    assert 'data-error-kind="invalid_input"' in refused.text and "El plan cambió desde que lo revisaste" in refused.text and "execution" not in mf.get_run(rid) and store.puts == []
+    assert "data-scope-revision>2<" in squash(refused.text)                                                                # la pantalla ya muestra la revisión vigente
+    missing = owner.post(f"{BASE}/{rid}/importar", data={"graph_token": TOKEN, "confirm": ex.confirm_phrase(rid)})
+    assert "Falta el alcance" in missing.text and store.puts == []
+    started = post_run(owner, rid)                                                                                          # con el alcance vigente sí inicia
+    assert "data-import-state>DONE<" in squash(started.text) and mf.get_run(rid)["execution"]["plan_revision"] == 2
+
+
+def test_a_residual_probe_file_is_shown_in_the_panel_and_blocks_the_start(env, monkeypatch):
+    store, world = env
+    rid = planned_run(env)
+    owner = client_for(OWNER, monkeypatch)
+    store.fail_delete = True
+    blocked = post_run(owner, rid)
+    residue = mf.get_run(rid)["probe_residue"][0]
+    assert 'data-error-kind="invalid_input"' in blocked.text and residue in blocked.text and "no se inició la importación" in blocked.text and "execution" not in mf.get_run(rid)
+    panel = owner.get(f"{BASE}/{rid}").text
+    assert "data-probe-residue" in panel and residue in panel and "data-import-start-form" in panel
+
+
+def test_the_panel_reports_what_blocks_the_discard_and_offers_no_discard_form_until_it_is_resolved(env, monkeypatch):
+    store, world = env
+    rid = planned_run(env)
+    owner = client_for(OWNER, monkeypatch)
+    post_run(owner, rid, batch="100")
+    panel = owner.get(f"{BASE}/{rid}").text
+    assert "data-discard-blocked" in panel and "<strong>0</strong> contenidos sin terminar" in panel and "<strong>2</strong> excepciones abiertas" in panel and "data-pilot-discard-form" not in panel
+    assert f"/cchh/diagnostico/cvs-historicos/{rid}/excepciones" in panel
+    refused = owner.post(f"{BASE}/{rid}/descartar", data={"confirm": pilot.discard_phrase(rid)})
+    assert 'data-error-kind="invalid_confirmation"' in refused.text and "2 excepciones abiertas" in refused.text and mf.staging_files_present(rid) > 0
+    for key, d in mf.get_plan(rid)["decisions"].items():                                                                   # se resuelven desde la interfaz
+        if d["action"] == planning.PENDING:
+            assert 'data-status="dismissed"' in act_row(owner, rid, key, "descartar", reason="NOT_A_CV").text
+    free = owner.get(f"{BASE}/{rid}").text
+    assert "data-discard-blocked" not in free and "data-pilot-discard-form" in free                                          # el descarte sigue siendo explícito: formulario con frase
+    wrong = owner.post(f"{BASE}/{rid}/descartar", data={"confirm": "ELIMINAR"})
+    assert 'data-error-kind="invalid_confirmation"' in wrong.text and mf.staging_files_present(rid) > 0
+    done = owner.post(f"{BASE}/{rid}/descartar", data={"confirm": pilot.discard_phrase(rid)})
+    assert "data-pilot-discarded" in done.text and mf.staging_files_present(rid) == 0 and ex.execution_report(rid)["documents_uploaded"] == 4
