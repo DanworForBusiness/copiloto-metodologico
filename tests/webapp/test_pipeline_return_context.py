@@ -168,3 +168,10 @@ def test_the_pipeline_context_is_opt_in_so_other_lists_do_not_accept_it():
     assert pagination.list_return_url(ctx, "/cchh/entrevistas", allow_process=True) == ctx
     assert pagination.pipeline_return_url("no-es-uuid") == "" and pagination.pipeline_return_url(OTHER_BID) == ctx
     assert pagination.with_return_to("/x?a=1", ctx) == f"/x?a=1&return_to={quote(ctx, safe='')}" and pagination.with_return_to("/x", "") == "/x"
+
+@pytest.fixture(autouse=True)
+def _evaluation_is_app_owner_only(monkeypatch):
+    """La pestaña Evaluación está en desarrollo y solo la usa el dueño de la app (APP_OWNER): estos tests ejercitan SU funcionamiento, así que el usuario CCHH de prueba es el dueño."""
+    from webapp import access
+    monkeypatch.setattr(access, "APP_OWNER", CCHH_EMAIL)
+

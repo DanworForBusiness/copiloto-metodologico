@@ -55,7 +55,7 @@ def test_new_from_a_pipeline_application_is_bound_to_the_busqueda_and_the_applic
     assert erepo.find_by_profile_and_busqueda(pid, bid)["entrevista_id"] == rows[0]["entrevista_id"]
     link = _card_link(c.get(ctx).text, "Carla Test", "busqueda-cand__interview")                                        # el Pipeline ahora la encuentra: va a su edición, no a un alta
     assert link.startswith(f"/cchh/entrevistas/{rows[0]['entrevista_id']}/editar") and "nueva" not in link
-    assert r.headers["location"] == link.replace("&amp;", "&")                                                           # y el alta redirige a esa misma edición, con contexto
+    assert r.headers["location"] == link.replace("&amp;", "&").replace("foco=tecnica&", "")                              # y el alta redirige a esa misma edición, con el contexto de regreso (este alta se envió sin foco)
 
 
 def test_double_submit_and_concurrent_submits_create_exactly_one_interview_and_never_overwrite_it(c):
@@ -213,3 +213,10 @@ def test_onboarding_marks_the_two_save_mechanisms_without_changing_either(c):
     after = orepo.get(app_id)
     assert "data-onb-autosave-hint" in frag and after["checklist"]["dni"] is True                                       # el ítem se guarda al instante…
     assert after["fecha_ingreso"] == before["fecha_ingreso"] and after["oferta_cerrada"] == before["oferta_cerrada"] and after["area"] == before["area"]   # …y NO toca los datos generales
+
+@pytest.fixture(autouse=True)
+def _evaluation_is_app_owner_only(monkeypatch):
+    """La pestaña Evaluación está en desarrollo y solo la usa el dueño de la app (APP_OWNER): estos tests ejercitan SU funcionamiento, así que el usuario CCHH de prueba es el dueño."""
+    from webapp import access
+    monkeypatch.setattr(access, "APP_OWNER", CCHH_EMAIL)
+

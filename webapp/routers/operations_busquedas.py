@@ -22,7 +22,6 @@ Clasificación: OPERATIONS / BÚSQUEDAS HTTP. NO toca las pantallas de CCHH (I3)
 from __future__ import annotations
 
 import logging
-import unicodedata
 import uuid
 from datetime import datetime, timezone
 
@@ -31,7 +30,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import hub_metrics_access, operations_access, same_origin_guard, workspaces
-from webapp.services import auth_service, busqueda_repository, human_capital_catalog_repository, human_capital_service, pagination
+from webapp.services import auth_service, busqueda_repository, human_capital_catalog_repository, human_capital_service, pagination, search_text
 from webapp.templating import templates
 
 router = APIRouter()
@@ -79,6 +78,7 @@ DURACION_LABELS = {"meses": "Meses", "indefinida": "Indefinida"}
 TRANSICION_LABELS = {
     "enviar": "Enviada a Capital Humano", "editar": "Editada por Operaciones", "observar": "Observada por Capital Humano",
     "reenviar": "Corregida y reenviada", "tomar": "Tomada por Capital Humano", "cancelar": "Cancelada por Operaciones",
+    "proceso_eliminado": "Proceso eliminado por Capital Humano",
 }
 
 
@@ -95,7 +95,7 @@ def indicador_of(view: dict) -> str:
 
 
 def _fold(text) -> str:
-    return "".join(c for c in unicodedata.normalize("NFKD", str(text or "").lower()) if not unicodedata.combining(c))
+    return search_text.fold(text)                       # UNA sola normalización de búsqueda libre para toda la vertical (sin mayúsculas ni tildes)
 
 
 def _fmt_date(value) -> str:

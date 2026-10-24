@@ -1434,6 +1434,13 @@ document.body.addEventListener("htmx:load", () => initStarRatings(document));
 // pattern"). `dwConfirm({title,message,confirmLabel,cancelLabel}) -> Promise
 // <boolean>`. El <dialog> (base.html) aporta focus-trap/Escape/backdrop
 // nativos; enfoca "Cancelar" por default (seguro para acciones destructivas).
+// <dw-search-fold>
+// Normalización de BÚSQUEDA LIBRE de Capital Humano (sin mayúsculas ni diacríticos; `ñ` ≡ `n`): MISMOS pasos y orden que `webapp/services/search_text.py::fold` (NFD → quitar marcas U+0300–U+036F → minúsculas → colapsar espacios).
+// Solo compara lo tipeado contra lo mostrado; no altera ningún valor. Un test corre ambas implementaciones sobre el mismo corpus.
+function dwSearchFold(value) {
+  return String(value == null ? "" : value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/\s+/).filter(Boolean).join(" ");
+}
+// </dw-search-fold>
 function dwConfirm(opts) {
   opts = opts || {};
   const dlg = document.getElementById("dwConfirm");

@@ -50,6 +50,7 @@ import re
 from datetime import date, datetime
 
 from webapp.services import human_capital_catalog_repository as catalog_repo
+from webapp.services import busqueda_deletion_repository
 from webapp.services import busqueda_repository
 from webapp.services import candidate_eligibility
 from webapp.services import entrevista_repository
@@ -57,6 +58,9 @@ from webapp.services import onboarding_checklist
 from webapp.services import onboarding_repository
 from webapp.services import profile_repository
 from webapp.services import publicacion_repository
+from webapp.services import scoring_evaluation_repository
+from webapp.services import search_text
+from webapp.services import scoring_grid_repository
 from webapp.services.profile_repository import (  # re-exportados para el router
     ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
@@ -74,7 +78,7 @@ __all__ = [
     "validate_and_shape_fields", "find_duplicate", "create_profile_for_import",
     "list_busquedas", "get_busqueda", "create_busqueda", "update_busqueda",
     "add_candidate_to_busqueda", "move_application_stage", "remove_application", "close_busqueda",
-    "busqueda_is_placeholder", "delete_busqueda",
+    "busqueda_is_placeholder", "delete_busqueda", "delete_busqueda_completa", "busqueda_deletion_plan", "BusquedaDeletionError", "delete_onboarding",
     "create_solicitud", "edit_solicitud", "resubmit_solicitud", "cancel_solicitud",
     "observe_solicitud", "take_solicitud", "get_solicitud_view", "list_solicitudes_view", "solicitud_view",
     "list_busquedas_gestionadas", "resumen_solicitudes",
@@ -136,7 +140,10 @@ def _normalize_text(value) -> str:
     espacios/tabs/newlines, no solo espacios simples). Sin librería
     externa — alcanza con `str.split()`/`str.join()`. `None`/`""` ->
     `""` (nunca revienta con valores opcionales ausentes, que son la
-    mayoría de los campos de Profile)."""
+    mayoría de los campos de Profile).
+
+    NO es la normalización de la BÚSQUEDA LIBRE: ésta es identidad (duplicados, igualdad exacta de filtros/catálogos) y distingue tildes (`Díaz` ≠ `Diaz`).
+    Los buscadores de texto libre usan `search_text.fold` (sin mayúsculas ni diacríticos, `ñ` ≡ `n`)."""
     if not value:
         return ""
     return " ".join(str(value).lower().split())
@@ -164,12 +171,12 @@ def _matches_search_text(profile: dict, q_normalized: str) -> bool:
 
 def profile_search_haystack(profile: dict) -> str:
     """Texto normalizado contra el que se busca un candidato (nombre, email, skills, ubicación, tags, notas y «nombre apellido»). ÚNICA definición: el buscador del landing de Base de CVs
-    (`_matches_search_text`) y el del diálogo «Agregar candidato desde el Banco» (filtro en vivo en el navegador, que normaliza la consulta igual que `_normalize_text`) la comparten."""
+    (`_matches_search_text`) y el del diálogo «Agregar candidato desde el Banco» (filtro en vivo en el navegador, que normaliza la consulta igual que `search_text.fold`: sin mayúsculas ni tildes) la comparten."""
     first = profile.get("first_name") or ""
     last = profile.get("last_name") or ""
     haystack_values = [profile.get(field) for field in _SEARCH_TEXT_FIELDS]
     haystack_values.append(f"{first} {last}")
-    return " ".join(_normalize_text(value) for value in haystack_values if value)
+    return " ".join(search_text.fold(value) for value in haystack_values if value)
 
 
 def _matches_structured_filters(profile: dict, query: dict) -> bool:
@@ -196,10 +203,31 @@ def _matches_structured_filters(profile: dict, query: dict) -> bool:
         wanted = _normalize_text(query.get(field))
         if wanted and _normalize_text(profile.get(field)) != wanted:
             return False
-    wanted_location = _normalize_text(query.get("location"))
-    if wanted_location and wanted_location not in _normalize_text(profile.get("location")):
+    wanted_location = search_text.fold(query.get("location"))              # texto libre: búsqueda sin mayúsculas ni tildes (no es una clave de identidad)
+    if wanted_location and wanted_location not in search_text.fold(profile.get("location")):
         return False
     return True
+
+
+# Orden de columnas del Banco de CVs (cabeceras clickeables). La clave es lo que se VE en la columna; los valores vacíos van siempre al final, sea cual sea la dirección.
+PROFILE_SORT_KEYS = {
+    "nombre": lambda p: _normalize_text(f"{p.get('first_name') or ''} {p.get('last_name') or ''}"),
+    "skills": lambda p: _normalize_text(p.get("profile_skills")),
+    "seniority": lambda p: _normalize_text(p.get("seniority")),
+    "ubicacion": lambda p: _normalize_text(p.get("location")),
+    "fuente": lambda p: _normalize_text(p.get("source")),
+}
+
+
+def sort_profiles(profiles: list[dict], sort: str | None, direction: str | None = "asc") -> list[dict]:
+    """Orden por columna sobre la lista YA filtrada, ANTES de paginar (el caller pagina el resultado completo, nunca solo la página visible). Estable; los vacíos al final en ambas direcciones.
+    Sin columna válida devuelve una copia en el orden de origen."""
+    key = PROFILE_SORT_KEYS.get(sort or "")
+    if key is None:
+        return list(profiles)
+    filled = [p for p in profiles if key(p)]
+    empty = [p for p in profiles if not key(p)]
+    return sorted(filled, key=key, reverse=(direction == "desc")) + empty
 
 
 def filter_profiles(profiles: list[dict], query: dict | None) -> list[dict]:
@@ -211,7 +239,7 @@ def filter_profiles(profiles: list[dict], query: dict | None) -> list[dict]:
     AND (§20)."""
     if not query:
         return list(profiles)
-    q_normalized = _normalize_text(query.get("q"))
+    q_normalized = search_text.fold(query.get("q"))
     return [
         profile for profile in profiles
         if _matches_search_text(profile, q_normalized) and _matches_structured_filters(profile, query)
@@ -697,6 +725,117 @@ def delete_busqueda(busqueda_id: str) -> None:
     busqueda_repository.delete(busqueda_id)
 
 
+class BusquedaDeletionError(Exception):
+    """«Eliminar búsqueda» no pudo completarse: la búsqueda SIGUE existiendo (se borra al final) y la operación se puede reintentar (los pasos son idempotentes). `step` = paso que falló (sin datos personales)."""
+
+    def __init__(self, message: str, *, step: str):
+        super().__init__(message)
+        self.step = step
+
+
+def _busqueda_deletion_ids(busqueda: dict) -> dict:
+    """Lo que depende REALMENTE de esta búsqueda, por llaves fuertes (nunca por nombre): onboardings = los de sus postulaciones (`application_id`) o con su `busqueda_id`; entrevistas = las que referencian su
+    `busqueda_id` (las manuales y las de OTRAS búsquedas del mismo candidato no se tocan); publicaciones = las vinculadas por `busqueda_id`."""
+    bid = busqueda["busqueda_id"]
+    app_ids = {a["application_id"] for a in busqueda.get("candidatos", []) if a.get("application_id")}
+    onboardings = sorted({o["application_id"] for o in onboarding_repository.list() if o.get("busqueda_id") == bid or o.get("application_id") in app_ids})
+    return {
+        "onboardings": onboardings,
+        "entrevistas": sorted(e["entrevista_id"] for e in entrevista_repository.list() if e.get("busqueda_id") == bid),
+        "evaluaciones": len(scoring_evaluation_repository.list_for_busqueda(bid)),
+        "grilla": scoring_grid_repository.get(bid) is not None,
+        "publicaciones": sorted(p["publicacion_id"] for p in publicacion_repository.list() if p.get("busqueda_id") == bid),
+        "postulaciones": len(app_ids),
+    }
+
+
+def busqueda_deletion_plan(busqueda: dict) -> dict:
+    """Conteos de lo que eliminaría «Eliminar búsqueda» (solo lectura): `{postulaciones, entrevistas, onboardings, evaluaciones, grilla, publicaciones_desvinculadas}`."""
+    ids = _busqueda_deletion_ids(busqueda)
+    return {"postulaciones": ids["postulaciones"], "entrevistas": len(ids["entrevistas"]), "onboardings": len(ids["onboardings"]), "evaluaciones": ids["evaluaciones"],
+            "grilla": 1 if ids["grilla"] else 0, "publicaciones_desvinculadas": len(ids["publicaciones"])}
+
+
+def _detach_publicacion(publicacion_id: str) -> bool:
+    """La Publicación es un registro histórico que pertenece a 0..1 Búsqueda (FK `on delete set null` en la referencia): al eliminar la búsqueda se DESVINCULA (`busqueda_id` → null) y se conserva con su `posicion`
+    (snapshot de lo que decía el aviso). Reintenta una vez ante una edición concurrente."""
+    for _attempt in (1, 2):
+        current = publicacion_repository.get(publicacion_id)
+        if current is None or not current.get("busqueda_id"):
+            return False
+        try:
+            publicacion_repository.update(publicacion_id, current.get("revision", 1), {"busqueda_id": None})
+            return True
+        except publicacion_repository.PublicacionConcurrentModificationError:
+            continue
+    raise publicacion_repository.PublicacionStorageError("La publicación cambió mientras se desvinculaba de la búsqueda.")
+
+
+def delete_busqueda_completa(busqueda_id: str, *, actor: str | None = None) -> dict:
+    """«Eliminar búsqueda» (acción manual del owner de CCHH): elimina la búsqueda y TODO lo que depende de ella —onboardings, entrevistas, evaluaciones y grilla de scoring— y desvincula sus publicaciones. Las
+    postulaciones viven DENTRO del documento de la búsqueda. NO toca: perfiles del Banco, CVs/documentos (ni SharePoint), entrevistas/onboardings/postulaciones de OTRAS búsquedas, catálogos ni otras verticales.
+
+    CONSISTENCIA: orden dependientes → búsqueda (la búsqueda se borra AL FINAL, así que un fallo parcial deja la búsqueda visible y la operación REANUDABLE: cada paso es idempotente y recalcula lo que falta). Cada borrado
+    usa el contrato de durabilidad de SU repositorio (rollback local si Spaces no confirma). AUDITORÍA: `busqueda_deletion_repository` (quién, cuándo, conteos, paso fallido); un fallo al registrarla aborta ANTES de borrar.
+    Idempotente: si ya se eliminó (registro `completada`) devuelve `{"ya_eliminada": True}`. Un proceso nacido de una solicitud de Operaciones YA TOMADA también se elimina, pero la solicitud original se CONSERVA (el contrato no deja borrar lo
+    que Operaciones envió): ver `busqueda_repository.retire_solicitud_process` (queda cancelada con constancia de quién eliminó el proceso). Una solicitud sin tomar (pendiente/observada) o ya cancelada no es un proceso: `ValueError`."""
+    busqueda = busqueda_repository.get(busqueda_id)
+    if busqueda is None:
+        journal = busqueda_deletion_repository.get(busqueda_id)
+        if journal is not None and journal.get("estado") == busqueda_deletion_repository.COMPLETADA:
+            return {"ya_eliminada": True, "plan": journal.get("plan") or {}}
+        raise busqueda_repository.BusquedaNotFoundError(f"La búsqueda {busqueda_id} no existe.")
+    sol = busqueda_repository.solicitud_of(busqueda)
+    if sol is not None:
+        if sol.get("estado") == busqueda_repository.SOLICITUD_CANCELADA and sol.get("proceso_eliminado"):
+            return {"ya_eliminada": True, "plan": (busqueda_deletion_repository.get(busqueda_id) or {}).get("plan") or {}}
+        if not busqueda_repository.es_gestionada(busqueda):
+            raise ValueError("Esta solicitud de Operaciones todavía no es un proceso de Capital Humano (pendiente, observada o cancelada): no hay proceso para eliminar.")
+    step = "registro"
+    try:
+        ids = _busqueda_deletion_ids(busqueda)
+        plan = {"postulaciones": ids["postulaciones"], "entrevistas": len(ids["entrevistas"]), "onboardings": len(ids["onboardings"]), "evaluaciones": ids["evaluaciones"],
+                "grilla": 1 if ids["grilla"] else 0, "publicaciones_desvinculadas": len(ids["publicaciones"])}
+        if sol is not None:
+            plan["solicitud_conservada"] = 1                               # la solicitud original de Operaciones no se borra: queda cancelada con constancia
+        busqueda_deletion_repository.begin(busqueda_id, puesto=busqueda.get("nombre_puesto"), actor=actor, plan=plan)
+        step = "onboardings"
+        done = sum(1 for application_id in ids["onboardings"] if onboarding_repository.delete(application_id))
+        busqueda_deletion_repository.record_step(busqueda_id, step, done)
+        step = "entrevistas"
+        done = 0
+        for entrevista_id in ids["entrevistas"]:
+            try:
+                entrevista_repository.delete(entrevista_id)
+                done += 1
+            except entrevista_repository.EntrevistaNotFoundError:
+                pass                                                       # ya borrada en un intento anterior
+        busqueda_deletion_repository.record_step(busqueda_id, step, done)
+        step = "scoring"
+        done = scoring_evaluation_repository.delete_for_busqueda(busqueda_id) + (1 if scoring_grid_repository.delete(busqueda_id) else 0)
+        busqueda_deletion_repository.record_step(busqueda_id, step, done)
+        step = "publicaciones"
+        done = sum(1 for publicacion_id in ids["publicaciones"] if _detach_publicacion(publicacion_id))
+        busqueda_deletion_repository.record_step(busqueda_id, step, done)
+        step = "busqueda"
+        if sol is not None:
+            busqueda_repository.retire_solicitud_process(busqueda_id, actor=actor)     # conserva y actualiza la solicitud según su contrato
+        else:
+            busqueda_repository.delete(busqueda_id)
+        step = "cierre"
+        busqueda_deletion_repository.finish(busqueda_id)
+    except busqueda_repository.BusquedaNotFoundError:
+        busqueda_deletion_repository.finish(busqueda_id)                  # otro intento la borró entre medio: queda completada
+        return {"ya_eliminada": True, "plan": plan}
+    except Exception as exc:  # noqa: BLE001 — cualquier fallo deja el registro `fallida` y la búsqueda visible/reanudable
+        _logger.warning("human_capital.busqueda_eliminacion_fallo busqueda_id=%s step=%s error=%s", busqueda_id, step, type(exc).__name__)
+        if step != "registro":
+            busqueda_deletion_repository.fail(busqueda_id, step=step, error=type(exc).__name__)
+        raise BusquedaDeletionError("No se pudo completar la eliminación de la búsqueda; sigue existiendo y se puede reintentar.", step=step) from exc
+    _logger.info("human_capital.busqueda_eliminada busqueda_id=%s actor=%s plan=%s", busqueda_id, (actor or "").strip().lower() or None, plan)
+    return {"ya_eliminada": False, "plan": plan}
+
+
 # ── Solicitudes de Operaciones (REG-CH-01) ───────────────────────────────────
 # El service es DUEÑO de la validación/normalización (los routers futuros NO
 # validan) y de la proyección segura hacia Operaciones. La autorización
@@ -993,6 +1132,8 @@ def solicitud_view(doc: dict, *, include_cchh_actors: bool = False) -> dict | No
     }
     if include_cchh_actors:                                       # solo la vista de Capital Humano agrega esta clave (la proyección segura para Operaciones conserva su lista blanca exacta)
         view["ejecutores_cchh_visibles"] = True
+        if sol.get("proceso_eliminado"):                          # constancia de que CCHH eliminó el proceso de esta solicitud (clave solo de CCHH: la proyección para Operaciones conserva su lista blanca exacta)
+            view["proceso_eliminado"] = dict(sol["proceso_eliminado"])
     return view
 
 
@@ -1138,6 +1279,26 @@ def discard_onboarding_of_application(application_id: str) -> bool:
     except (onboarding_repository.OnboardingStorageError, onboarding_repository.OnboardingRemoteOutcomeUnknownError):
         _logger.warning("human_capital.onboarding_huerfano_no_eliminado application_id=%s", application_id)
         return False
+
+
+def delete_onboarding(application_id: str, *, actor: str | None = None) -> dict:
+    """«Eliminar onboarding» (acción manual). El vínculo REAL es onboarding.`application_id` ↔ postulación de su búsqueda (mismo `application_id` y mismo `profile_id`; nunca por nombre). Contrato vigente: quitar una postulación
+    del proceso YA descarta su Onboarding (`remove_application`), así que si la postulación sigue en el pipeline como Finalizado · Ingreso se la RETIRA de esa búsqueda por ese mismo camino (queda el evento «desvinculado» en el
+    historial del proceso, con el ejecutor); eliminar solo el Onboarding la dejaría en Ingreso y un movimiento posterior lo volvería a crear. NO toca: el perfil del Banco ni su CV, las postulaciones del candidato en OTRAS
+    búsquedas, ninguna entrevista. Si la postulación ya no está (huérfano) o dejó de ser Ingreso, se elimina solo el Onboarding. Idempotente: sin Onboarding devuelve `deleted=False`."""
+    onboarding = onboarding_repository.get(application_id)
+    if onboarding is None:
+        return {"deleted": False, "application_removed": False}
+    busqueda = busqueda_repository.get(onboarding["busqueda_id"]) if onboarding.get("busqueda_id") else None
+    application = next((a for a in (busqueda or {}).get("candidatos", []) if a.get("application_id") == application_id and a.get("profile_id") == onboarding.get("profile_id")), None)
+    removed = False
+    if application is not None and is_ingreso_application(application):
+        remove_application(busqueda["busqueda_id"], application_id, actor=actor)
+        removed = True
+    onboarding_repository.delete(application_id)                           # no-op si `remove_application` ya lo descartó; si ese descarte (best-effort) falló, acá el error SÍ se propaga
+    _logger.info("human_capital.onboarding_eliminado application_id=%s busqueda_id=%s actor=%s application_removed=%s", application_id, onboarding.get("busqueda_id"),
+                 (actor or "").strip().lower() or None, removed)
+    return {"deleted": True, "application_removed": removed}
 
 
 # Etapas que implican que "hubo entrevista" -- MISMO gate que
@@ -1314,7 +1475,10 @@ def resolve_entrevista_modalidad(stored, busqueda: dict | None, *, edited: bool 
     return (value, "busqueda") if value else (None, None)
 
 
-def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None, allow_compensation: bool = False) -> dict:
+ENTREVISTA_LOCKABLE_FIELDS = ("observaciones", "resumen_entrevista_tecnica")
+
+
+def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None, allow_compensation: bool = False, locked_fields: tuple = ()) -> dict:
     """Ningún campo de Entrevista es obligatorio (MISMO contrato que la
     referencia: EntrevistaFormInput es enteramente opcional salvo elegir un
     candidato al CREAR, que se valida aparte con profile_id). `area` y
@@ -1325,7 +1489,7 @@ def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None, allo
     modalidad = (fields.get("modalidad_contratacion") or "").strip() or None
     _validate_modalidad_contratacion_governed(
         modalidad, existing_value=(existing or {}).get("modalidad_contratacion"))
-    return {
+    shaped = {
         "fecha_entrevista": (fields.get("fecha_entrevista") or "").strip() or None,
         "puesto_evaluado": (fields.get("puesto_evaluado") or "").strip() or None,
         "area": area,
@@ -1335,6 +1499,12 @@ def _shape_entrevista_fields(fields: dict, *, existing: dict | None = None, allo
         "observaciones": (fields.get("observaciones") or "").strip() or None,
         "resumen_entrevista_tecnica": (fields.get("resumen_entrevista_tecnica") or "").strip() or None,
     }
+    # CAMPOS BLOQUEADOS por el contexto de acceso (Evaluación CCHH ↔ Evaluación técnica): lo que llegue en el formulario para ellos se DESCARTA y se conserva el persistido (None en un alta). El contrato vive acá, en el backend:
+    # no depende de que el navegador haya deshabilitado el campo (un campo deshabilitado ni siquiera viaja, y uno manipulado no se acepta).
+    for name in locked_fields:
+        if name in ENTREVISTA_LOCKABLE_FIELDS:
+            shaped[name] = (existing or {}).get(name)
+    return shaped
 
 
 def create_entrevista_manual(profile_id: str, fields: dict, *, allow_compensation: bool = False) -> dict:
@@ -1367,10 +1537,10 @@ def create_entrevista_for_application(profile_id: str, busqueda_id: str, fields:
         profile_id=profile_id, busqueda_id=busqueda_id, application_id=application["application_id"])
 
 
-def update_entrevista(entrevista_id: str, expected_revision: int, fields: dict, *, allow_compensation: bool = False) -> dict:
+def update_entrevista(entrevista_id: str, expected_revision: int, fields: dict, *, allow_compensation: bool = False, locked_fields: tuple = ()) -> dict:
     existing = entrevista_repository.get(entrevista_id)
     updated = entrevista_repository.update(
-        entrevista_id, expected_revision, _shape_entrevista_fields(fields, existing=existing, allow_compensation=allow_compensation))
+        entrevista_id, expected_revision, _shape_entrevista_fields(fields, existing=existing, allow_compensation=allow_compensation, locked_fields=locked_fields))
     sync_onboarding_area_from_entrevista(updated)
     return updated
 
@@ -1546,13 +1716,13 @@ def _onboarding_search_haystack(row: dict, include_offer: bool = False) -> str:
     progreso = "Completado" if row.get("completado") else f"{prog.get('hechos', 0)}/{prog.get('total', 0)} · {prog.get('porcentaje', 0)}%"
     values = [f"{profile.get('first_name') or ''} {profile.get('last_name') or ''}", row.get("puesto_mostrado"), row.get("area"), fecha, fecha_dmy, progreso,
               row.get("oferta_cerrada") if include_offer else None]            # dato sensible: sin permiso NO es buscable (ni siquiera enmascarado)
-    return " ".join(_normalize_text(v) for v in values if v)
+    return " ".join(search_text.fold(v) for v in values if v)
 
 
 def filter_onboardings(rows: list[dict], *, estado: str = "todos", area: str = "", q: str = "", include_offer: bool = False) -> list[dict]:
     """AND entre Estado (pendientes/completos por `completado`), Área (igualdad EXACTA sobre el área EFECTIVA de la fila, incluido un valor legacy fuera de catálogo;
     `ONBOARDING_SIN_AREA` = filas sin área) y Buscar (substring normalizado, case-insensitive, sobre `_onboarding_search_haystack`). Un filtro vacío no restringe."""
-    wanted_q = _normalize_text(q)
+    wanted_q = search_text.fold(q)
     out = []
     for row in rows:
         if estado == "pendientes" and row.get("completado"):
@@ -1581,7 +1751,7 @@ def _entrevista_search_haystack(row: dict, include_compensation: bool = True) ->
     fecha_dmy = "-".join(reversed(parts)) if len(parts) == 3 else fecha
     values = [f"{profile.get('first_name') or ''} {profile.get('last_name') or ''}", row.get("origen"), row.get("puesto_mostrado"), row.get("area"), fecha, fecha_dmy,
               row.get("modalidad_contratacion"), row.get("remuneracion_pretendida") if include_compensation else None, None if row.get("concretada", True) else "No concretada"]
-    return " ".join(_normalize_text(v) for v in values if v)
+    return " ".join(search_text.fold(v) for v in values if v)
 
 
 def filter_entrevistas(rows: list[dict], *, origen: str = "", puesto: str = "", area: str = "", q: str = "", include_compensation: bool = True) -> list[dict]:
@@ -1593,7 +1763,7 @@ def filter_entrevistas(rows: list[dict], *, origen: str = "", puesto: str = "", 
         if not wanted:
             return True
         return not effective if wanted == sentinel else effective == wanted
-    wanted_q = _normalize_text(q)
+    wanted_q = search_text.fold(q)
     out = []
     for row in rows:
         if (matches(row.get("origen"), origen, ENTREVISTA_SIN_ORIGEN) and matches(row.get("puesto_mostrado"), puesto, ENTREVISTA_SIN_PUESTO)
@@ -1652,29 +1822,31 @@ def periodo_desde_fecha(d: date) -> str:
     return f"{d.year}-Q{(d.month - 1) // 3 + 1}"
 
 
+def hoy_negocio() -> date:
+    """Fecha de HOY en la zona de negocio (America/Argentina/Buenos_Aires, la misma de `fecha_apertura`/`fecha_cierre`): entre 21:00 y 24:00 ART la fecha UTC ya es la del día siguiente."""
+    return datetime.now(busqueda_repository.BUSINESS_TZ).date()
+
+
 def periodo_actual(today: date | None = None) -> str:
-    return periodo_desde_fecha(today or date.today())
+    return periodo_desde_fecha(today or hoy_negocio())
 
 
-def periodos_disponibles(today: date | None = None) -> list[str]:
-    """Opciones de período de un ALTA (MISMA ventana que `periodosDisponibles` de la referencia): año actual y el siguiente, trimestres 4→1, más recientes primero."""
-    year = (today or date.today()).year
-    return [f"{y}-Q{q}" for y in (year + 1, year) for q in (4, 3, 2, 1)]
+def _parse_fecha_publicacion(value) -> date | None:
+    """`AAAA-MM-DD` válida -> `date`; vacío/ilegible -> `None` (nunca inventa una fecha)."""
+    try:
+        return datetime.strptime(str(value or "").strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
-def _validate_periodo(value: str | None, *, existing_value: str | None, today: date | None = None) -> str:
-    """`YYYY-Qn` obligatorio. Un ALTA acepta sólo la ventana calculada; una EDICIÓN conserva sin cambios un período histórico (fuera de la ventana) ya guardado y exige la ventana
-    sólo si se CAMBIA (history-safe: no se vuelve imposible editar un registro viejo porque cambió el año)."""
-    v = (value or "").strip()
-    if not v:
-        raise ValueError("Elegí un período.")
-    if not _PERIODO_RE.match(v):
-        raise ValueError("El período tiene que tener el formato AAAA-Tn (por ejemplo 2026-Q3).")
-    if v == existing_value:
-        return v
-    if v not in periodos_disponibles(today):
-        raise ValueError("Elegí un período de la lista.")
-    return v
+def periodo_efectivo(publicacion: dict) -> str:
+    """Trimestre «AAAA-Tn» de una Publicación = el que usan el listado, los filtros, el resumen y los Indicadores. La FECHA es la fuente de verdad (`periodo_desde_fecha`, la ÚNICA derivación): aunque el `periodo`
+    almacenado difiera, manda la fecha. Compatibilidad histórica: una publicación SIN fecha válida conserva su `periodo` almacenado (no se inventa ni se reescribe nada); sin ninguno de los dos, `""`."""
+    fecha = _parse_fecha_publicacion(publicacion.get("fecha"))
+    if fecha is not None:
+        return periodo_desde_fecha(fecha)
+    legado = str(publicacion.get("periodo") or "").strip()
+    return legado if _PERIODO_RE.match(legado) else ""
 
 
 def _validate_canal_publicacion_governed(new_value: str | None, *, existing_value: str | None) -> None:
@@ -1688,7 +1860,7 @@ def _validate_canal_publicacion_governed(new_value: str | None, *, existing_valu
     raise ValueError("El catálogo de Canales de publicación todavía no está disponible. Refrescá el catálogo antes de cargar una publicación.")
 
 
-def _shape_publicacion_fields(fields: dict, *, existing: dict | None = None, today: date | None = None) -> dict:
+def _shape_publicacion_fields(fields: dict, *, existing: dict | None = None) -> dict:
     """Valida y arma los campos persistibles. SNAPSHOT de `posicion`: con una Búsqueda NUEVA (alta, o edición que cambia el vínculo) se COPIA su `nombre_puesto`; con el MISMO vínculo se
     conserva la `posicion` ya guardada (nunca se re-deriva ni se sincroniza si la Búsqueda cambió de nombre); sin Búsqueda la `posicion` es texto libre OBLIGATORIO."""
     busqueda_id = (fields.get("busqueda_id") or "").strip() or None
@@ -1715,13 +1887,14 @@ def _shape_publicacion_fields(fields: dict, *, existing: dict | None = None, tod
         cantidad = 0
     if cantidad < 1:
         raise ValueError("La cantidad de avisos tiene que ser al menos 1.")
-    periodo = _validate_periodo(fields.get("periodo"), existing_value=(existing or {}).get("periodo"), today=today)
-    fecha = (fields.get("fecha") or "").strip() or None
-    if fecha is not None:
-        try:
-            datetime.strptime(fecha, "%Y-%m-%d")
-        except ValueError:
-            raise ValueError("La fecha no es válida.") from None
+    # La FECHA es obligatoria y el trimestre se DERIVA acá (backend): un `periodo` enviado por el navegador se ignora, nunca se acepta ni se contrasta.
+    raw_fecha = (fields.get("fecha") or "").strip()
+    if not raw_fecha:
+        raise ValueError("Ingresá la fecha de publicación.")
+    parsed = _parse_fecha_publicacion(raw_fecha)
+    if parsed is None:
+        raise ValueError("La fecha no es válida.")
+    fecha, periodo = parsed.isoformat(), periodo_desde_fecha(parsed)
     return {"busqueda_id": busqueda_id, "posicion": posicion, "canal": canal, "cantidad_avisos": cantidad, "periodo": periodo, "fecha": fecha,
             "observacion": (fields.get("observacion") or "").strip() or None}
 
@@ -1746,7 +1919,7 @@ def get_publicacion(publicacion_id: str) -> dict | None:
 def publicacion_view(publicacion: dict) -> dict:
     """Publicación + la Búsqueda vinculada leída EN VIVO sólo para mostrar/buscar su nombre actual (la `posicion` mostrada es SIEMPRE el snapshot persistido)."""
     busqueda = busqueda_repository.get(publicacion["busqueda_id"]) if publicacion.get("busqueda_id") else None
-    return {**publicacion, "busqueda": busqueda, "busqueda_nombre": (busqueda or {}).get("nombre_puesto")}
+    return {**publicacion, "periodo": periodo_efectivo(publicacion), "busqueda": busqueda, "busqueda_nombre": (busqueda or {}).get("nombre_puesto")}
 
 
 def list_publicaciones_view() -> list[dict]:
@@ -1760,12 +1933,12 @@ def _publicacion_search_haystack(row: dict) -> str:
     parts = fecha.split("-")
     fecha_dmy = "-".join(reversed(parts)) if len(parts) == 3 else fecha
     values = [row.get("posicion"), row.get("canal"), row.get("periodo"), fecha, fecha_dmy, row.get("observacion"), row.get("busqueda_nombre")]
-    return " ".join(_normalize_text(v) for v in values if v)
+    return " ".join(search_text.fold(v) for v in values if v)
 
 
 def filter_publicaciones(rows: list[dict], *, periodo: str = "", canal: str = "", q: str = "") -> list[dict]:
     """AND entre Período (igualdad exacta), Canal (igualdad exacta, incluido un valor histórico fuera de catálogo) y Buscar (substring normalizado). Un filtro vacío no restringe."""
-    wanted_q = _normalize_text(q)
+    wanted_q = search_text.fold(q)
     return [r for r in rows
             if (not periodo or (r.get("periodo") or "") == periodo) and (not canal or (r.get("canal") or "") == canal)
             and (not wanted_q or wanted_q in _publicacion_search_haystack(r))]

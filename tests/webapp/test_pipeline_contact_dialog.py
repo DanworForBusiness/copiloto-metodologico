@@ -75,7 +75,7 @@ def test_existing_actions_are_preserved_and_the_contact_icon_survives_a_stage_ch
     card = _card(c.get(f"/cchh/busquedas/{bid}").text, "Mateo Biasotto")
     assert f'hx-post="/cchh/busquedas/{bid}/candidatos/{app_id}/etapa"' in card and f'hx-post="/cchh/busquedas/{bid}/candidatos/{app_id}/eliminar"' in card
     r = c.post(f"/cchh/busquedas/{bid}/candidatos/{app_id}/etapa", data={"etapa": "Entrevista Líder", "resultado_final": ""}, headers={"HX-Request": "true"})
-    assert r.status_code == 200 and "busqueda-cand__contact" in r.text and 'aria-label="Ir a entrevista técnica"' in r.text      # fragmento HTMX: contacto + entrevista conviven
+    assert r.status_code == 200 and "busqueda-cand__contact" in r.text and 'aria-label="Evaluación técnica"' in r.text      # fragmento HTMX: contacto + entrevista conviven
     assert c.post(f"/cchh/busquedas/{bid}/candidatos/{app_id}/eliminar", headers={"HX-Request": "true"}).status_code == 200
     assert brepo.get(bid)["candidatos"] == []
 

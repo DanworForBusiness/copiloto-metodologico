@@ -261,7 +261,7 @@ def build_facts(snapshot: Snapshot) -> IndicatorFacts:
             if clave not in por_par or orden[:2] >= por_par[clave][:2]:
                 por_par[clave] = orden                          # (profile, búsqueda) es único en el Hub; ante un duplicado gana el más reciente (determinista)
     publicaciones = tuple(
-        PublicacionFact(canal=_norm(p.get("canal")), avisos=_as_int(p.get("cantidad_avisos")), periodo=_norm(p.get("periodo")))
+        PublicacionFact(canal=_norm(p.get("canal")), avisos=_as_int(p.get("cantidad_avisos")), periodo=hc.periodo_efectivo(p))      # trimestre = el de la FECHA (única derivación del servicio); sin fecha, el período legado
         for p in sorted(snapshot.publicaciones, key=lambda p: str(p.get("publicacion_id"))))
     return IndicatorFacts(
         busquedas=tuple(busquedas), candidaturas=tuple(candidaturas), entrevistas=tuple(entrevistas), publicaciones=publicaciones,

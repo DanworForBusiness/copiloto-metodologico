@@ -155,7 +155,25 @@ def human_capital_page(request: Request):
     return RedirectResponse(url="/cchh/candidatos", status_code=307)
 
 
-def _profiles_panel_context(*, query: dict | None = None, page=1, page_size=None) -> dict:
+_PROFILE_SORT_COLUMNS = tuple(human_capital_service.PROFILE_SORT_KEYS)
+
+
+def _profile_sort_state(query: dict, sort, direction, page_size) -> dict:
+    """Estado del orden del Banco + la URL de cada cabecera: la MISMA columna invierte la dirección, otra vuelve a ascendente (contrato de las tablas ordenables del Hub). Cada URL conserva búsqueda, filtros y tamaño de
+    página, y vuelve a la página 1 (ordenar cambia qué filas caen en cada página)."""
+    sort = sort if sort in _PROFILE_SORT_COLUMNS else ""
+    direction = "desc" if (sort and direction == "desc") else "asc"
+    base = {k: v for k, v in (query or {}).items() if v not in (None, "")}
+    if page_size not in (None, ""):
+        base["page_size"] = page_size
+    urls = {}
+    for column in _PROFILE_SORT_COLUMNS:
+        next_dir = "desc" if (column == sort and direction == "asc") else "asc"
+        urls[column] = "/cchh/candidatos?" + urllib.parse.urlencode({**base, "sort": column, "dir": next_dir})
+    return {"key": sort, "dir": direction, "urls": urls, "arrow": {c: ("▲" if direction == "asc" else "▼") if c == sort else "" for c in _PROFILE_SORT_COLUMNS}}
+
+
+def _profiles_panel_context(*, query: dict | None = None, page=1, page_size=None, sort="", direction="") -> dict:
     """Contexto del fragmento `human_capital_profiles_panel.html` —
     listado + filtros ÚNICAMENTE (Fase de paridad funcional: el alta se
     mudó a su propia página/ruta, `GET/POST /cchh/candidatos/nuevo`,
@@ -190,9 +208,13 @@ def _profiles_panel_context(*, query: dict | None = None, page=1, page_size=None
     except ProfileStorageError as exc:
         source_error = str(exc)
     profiles = human_capital_service.filter_profiles(all_profiles, query) if query else all_profiles
-    # Paginación estándar CCHH (HANDOFF «CCHH TABLE PAGINATION STANDARD»): dataset → filtros/búsqueda (arriba) → TOTAL filtrado → slice. El contador del panel es `total_profiles`.
-    pager = pagination.paginate(profiles, page=page, page_size=page_size, base_url="/cchh/candidatos", params=query or {})
+    # Orden por columna: sobre el resultado COMPLETO (filtrado), ANTES de paginar — nunca solo la página visible.
+    sort_state = _profile_sort_state(query or {}, sort, direction, page_size)
+    profiles = human_capital_service.sort_profiles(profiles, sort_state["key"], sort_state["dir"])
+    # Paginación estándar CCHH (HANDOFF «CCHH TABLE PAGINATION STANDARD»): dataset → filtros/búsqueda (arriba) → orden → TOTAL filtrado → slice. El contador del panel es `total_profiles`.
+    pager = pagination.paginate(profiles, page=page, page_size=page_size, base_url="/cchh/candidatos", params={**(query or {}), "sort": sort_state["key"], "dir": sort_state["dir"] if sort_state["key"] else ""})
     return {
+        "sort_state": sort_state,
         "profiles": pager["items"],
         "total_profiles": pager["total"],
         "pager": pager,
@@ -219,7 +241,7 @@ def human_capital_profiles_page(
     request: Request,
     q: str = Query(""), seniority: str = Query(""), source: str = Query(""),
     location: str = Query(""), potential_mark: str = Query(""),
-    page: str = Query(""), page_size: str = Query(""),
+    page: str = Query(""), page_size: str = Query(""), sort: str = Query(""), dir: str = Query(""),
 ):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
@@ -235,7 +257,7 @@ def human_capital_profiles_page(
         "pack": DEFAULT_PACK,
         "user": user,
         "active_page": "perfiles",
-        **_profiles_panel_context(query=query, page=page, page_size=page_size),
+        **_profiles_panel_context(query=query, page=page, page_size=page_size, sort=sort, direction=dir),
     }
     # BUG real encontrado con el Visual QA Harness (owner post-#107 audit):
     # este GET nunca distinguía HTMX de navegación directa -- el filtro
@@ -1275,7 +1297,9 @@ _MSG_SOLICITUD_SOURCE = "No pudimos leer las solicitudes en este momento. Reinte
 # Post/Redirect/Get: ante un conflicto/error de persistencia al tomar o pedir corrección, un navegador (Accept: text/html) recibe 303 hacia la pantalla con `?aviso=<clave>` (lista blanca; nunca texto libre
 # en la URL) y el aviso se muestra en un GET; un consumidor NO HTML recibe el 409/503 con el mensaje (`HTTPException`, JSON).
 _SOLICITUD_AVISOS = {"tomada": _MSG_SOLICITUD_TAKEN, "cambio": _MSG_SOLICITUD_CONCURRENT, "error": _MSG_SOLICITUD_STORAGE,
-                     "no_elegible": "No se pudo agregar al candidato: no es elegible para nuevos procesos (marca «No reconsiderar»)."}
+                     "no_elegible": "No se pudo agregar al candidato: no es elegible para nuevos procesos (marca «No reconsiderar»).",
+                     "eliminacion_incompleta": "No se pudo completar la eliminación de la búsqueda: sigue existiendo y la operación quedó registrada. Reintentá en unos minutos (se retoma donde quedó).",
+                     "eliminacion_no_permitida": "No hay un proceso para eliminar: la solicitud de Operaciones todavía no fue tomada en gestión por Capital Humano (o ya está cancelada)."}
 
 
 def _wants_html(request: Request) -> bool:
@@ -1412,17 +1436,34 @@ def _busqueda_detail_context(busqueda: dict) -> dict:
     }
 
 
-_ENTREVISTA_ETAPAS = {"Entrevista CCHH": "Ir a entrevista CCHH", "Entrevista Líder": "Ir a entrevista técnica"}
+_ENTREVISTA_ETAPAS = {"Entrevista CCHH": "Evaluación CCHH", "Entrevista Líder": "Evaluación técnica"}
+_ENTREVISTA_FOCO_POR_ETAPA = {"Entrevista CCHH": "cchh", "Entrevista Líder": "tecnica"}
+# Contexto de acceso a la edición de Entrevistas → (campo con el foco, campo BLOQUEADO). Sin contexto (Entrevistas → Editar) no hay foco ni bloqueo: comportamiento general.
+_ENTREVISTA_FOCOS = {"cchh": ("observaciones", "resumen_entrevista_tecnica"), "tecnica": ("resumen_entrevista_tecnica", "observaciones")}
 
 
-def _registro_entrevista_url(app: dict, busqueda_id: str, *, return_to: str = "") -> str:
+def _normalize_foco(value) -> str:
+    value = str(value or "").strip().lower()
+    return value if value in _ENTREVISTA_FOCOS else ""
+
+
+def _locked_fields(foco) -> tuple:
+    return (_ENTREVISTA_FOCOS[_normalize_foco(foco)][1],) if _normalize_foco(foco) else ()
+
+
+def _append_foco(url: str, foco) -> str:
+    foco = _normalize_foco(foco)
+    return f"{url}{'&' if '?' in url else '?'}foco={foco}" if foco else url
+
+
+def _registro_entrevista_url(app: dict, busqueda_id: str, *, return_to: str = "", foco: str = "") -> str:
     """URL del REGISTRO ADMINISTRATIVO de entrevista de un (candidato, proceso): su edición si ya existe; si no, el alta con candidato y puesto/área precargados (navegar no crea nada). Un fallo de lectura degrada al listado.
     `return_to`: contexto explícito de origen (Pipeline de ESA búsqueda o Evaluación CCHH del candidato) para que «Volver» regrese a él."""
     ctx = return_to
     try:
         existing = entrevista_repository.find_by_profile_and_busqueda(app["profile_id"], busqueda_id)
-        return (pagination.with_return_to(f"/cchh/entrevistas/{existing['entrevista_id']}/editar", ctx) if existing
-                else pagination.with_return_to("/cchh/entrevistas/nueva?" + urllib.parse.urlencode({"profile_id": app["profile_id"], "busqueda_id": busqueda_id}), ctx))
+        return (pagination.with_return_to(_append_foco(f"/cchh/entrevistas/{existing['entrevista_id']}/editar", foco), ctx) if existing
+                else pagination.with_return_to(_append_foco("/cchh/entrevistas/nueva?" + urllib.parse.urlencode({"profile_id": app["profile_id"], "busqueda_id": busqueda_id}), foco), ctx))
     except entrevista_repository.EntrevistaStorageError:
         return "/cchh/entrevistas"
 
@@ -1436,11 +1477,9 @@ def _entrevista_links(busqueda: dict) -> dict:
         label = _ENTREVISTA_ETAPAS.get(app.get("etapa"))
         if not label or not app.get("profile_id"):
             continue
-        if app.get("etapa") == "Entrevista CCHH":
-            # Entrevista CCHH: el ícono abre la EVALUACIÓN CCHH del candidato (scoring); el registro administrativo queda como acceso secundario dentro de esa pantalla. Navegar no crea nada.
-            links[app["application_id"]] = {"url": f"/cchh/busquedas/{bid}/candidatos/{app['application_id']}/evaluacion-cchh", "label": "Evaluación CCHH"}
-            continue
-        links[app["application_id"]] = {"url": _registro_entrevista_url(app, bid, return_to=pagination.pipeline_return_url(bid)), "label": label}      # Entrevista Líder: registro administrativo (hasta implementar la evaluación técnica)
+        # Hasta que la pestaña Evaluación esté terminada, AMBOS íconos abren la edición de la entrevista de ese (candidato, proceso) —la misma pantalla de Entrevistas → Editar— con el contexto de origen (`foco`):
+        # «Evaluación CCHH» pone el foco en el resumen CCHH y «Evaluación técnica» en el técnico. Navegar no crea nada ni duplica la entrevista.
+        links[app["application_id"]] = {"url": _registro_entrevista_url(app, bid, return_to=pagination.pipeline_return_url(bid), foco=_ENTREVISTA_FOCO_POR_ETAPA[app["etapa"]]), "label": label}
     return links
 
 
@@ -1465,12 +1504,20 @@ def _pipeline_actor(request: Request) -> str | None:
     return str((auth_service.session_user(request) or {}).get("sub") or "").strip().lower() or None
 
 
+def _require_evaluation_owner(request: Request) -> None:
+    """La pestaña «Evaluación» de Búsquedas (JD, grilla, ranking y evaluación CCHH por candidato) está en DESARROLLO: durante esa etapa solo la usa el dueño de la app (config `APP_OWNER`, predicado único
+    `access.is_owner`; NO es `CONTENT_OWNER` ni la autorización de datos sensibles). Protección SERVER-SIDE de cada endpoint propio de la pestaña; el resto de las Búsquedas y Entrevistas no se ve afectado."""
+    if not app_access.is_owner(request):
+        raise HTTPException(403, "La pestaña Evaluación está en desarrollo y solo está disponible para el dueño de la app")
+
+
 def _busqueda_shell(request, extra: dict) -> dict:
     user = auth_service.session_user(request)
     return {
         "current_workspace": workspaces.HUMAN_CAPITAL,
         "available_workspaces": workspaces.available_workspaces(user),
         "pack": DEFAULT_PACK, "user": user, "active_page": "busquedas",
+        "can_use_evaluation": app_access.is_owner_user(user),
         **extra,
     }
 
@@ -1625,7 +1672,7 @@ def human_capital_busqueda_detail_page(request: Request, busqueda_id: str, ok: s
         query = urllib.parse.urlencode([(k, _VISTA_EVALUACION if (k == "vista") else v) for k, v in request.query_params.multi_items()])
         return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?{query}", status_code=307)
     ctx = {**_busqueda_detail_context(busqueda), "solicitud_ok": _SOLICITUD_OK.get(ok), "solicitud_error": _SOLICITUD_AVISOS.get(aviso)}
-    if vista == _VISTA_EVALUACION and busqueda_repository.es_gestionada(busqueda):
+    if vista == _VISTA_EVALUACION and busqueda_repository.es_gestionada(busqueda) and app_access.is_owner(request):     # el resto de los usuarios sigue viendo el Pipeline (la pestaña no existe para ellos)
         ctx.update(_scoring_context(busqueda, paso, ok=ok, actor=_pipeline_actor(request)))
     return templates.TemplateResponse(request=request, name="human_capital/busqueda_detail.html", context=_busqueda_shell(request, ctx))
 
@@ -1675,6 +1722,7 @@ def human_capital_busqueda_scoring_jd(request: Request, busqueda_id: str, jd_tex
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    _require_evaluation_owner(request)
     try:
         scoring_service.save_jd(busqueda_id, jd_texto, palabras_clave)
     except LookupError:
@@ -1689,6 +1737,7 @@ async def human_capital_busqueda_scoring_grid(request: Request, busqueda_id: str
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    _require_evaluation_owner(request)
     form = await request.form()
     columns = {k: [str(v) for v in form.getlist(k)] for k in _SCORING_FORM_FIELDS}
     count = len(columns["bloque"])
@@ -1743,6 +1792,7 @@ def human_capital_busqueda_cchh_evaluation_page(request: Request, busqueda_id: s
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    _require_evaluation_owner(request)
     return _render_evaluation(request, busqueda_id, application_id)
 
 
@@ -1751,6 +1801,7 @@ async def human_capital_busqueda_cchh_evaluation_save(request: Request, busqueda
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    _require_evaluation_owner(request)
     form = await request.form()
     campos = {k: str(v) for k, v in form.items()}
     try:
@@ -1990,6 +2041,24 @@ def human_capital_busqueda_delete(request: Request, busqueda_id: str):
     return RedirectResponse(url="/cchh/busquedas", status_code=303)
 
 
+@router.post("/cchh/busquedas/{busqueda_id}/eliminar-completa", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_delete_full(request: Request, busqueda_id: str):
+    """«Eliminar búsqueda» con TODO lo asociado (postulaciones, entrevistas, onboardings, grilla y evaluaciones; las publicaciones se desvinculan). Misma autorización que el resto de las acciones de la búsqueda (sesión de
+    Capital Humano); la confirmación la pide el diálogo corporativo en el navegador y el servidor valida por su cuenta (solicitud de Operaciones → no se elimina). Un fallo parcial deja la búsqueda visible y reanudable."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        human_capital_service.delete_busqueda_completa(busqueda_id, actor=_pipeline_actor(request))
+    except busqueda_repository.BusquedaNotFoundError:
+        raise HTTPException(404, "Búsqueda no encontrada") from None
+    except ValueError:
+        return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?aviso=eliminacion_no_permitida", status_code=303)
+    except human_capital_service.BusquedaDeletionError:
+        return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?aviso=eliminacion_incompleta", status_code=303)
+    return RedirectResponse(url="/cchh/busquedas", status_code=303)
+
+
 # ---------------------------------------------------------------------------
 # Entrevistas — listado / alta manual / edición / detalle / "no se concretó" /
 # eliminar. Dominio verbatim de la referencia (app-seleccion,
@@ -2051,6 +2120,14 @@ def _entrevistas_list_context(origen: str = "", puesto: str = "", area: str = ""
         "origen_options": origen_options, "puesto_options": puesto_options, "area_options": area_options,
         "source_error": source_error,
     }
+
+
+def _entrevista_form_context_foco(ctx: dict, foco) -> dict:
+    """Agrega el contexto de acceso (foco y campo bloqueado) al contexto del formulario de Entrevista."""
+    foco = _normalize_foco(foco)
+    ctx["foco"] = foco
+    ctx["foco_field"], ctx["locked_field"] = _ENTREVISTA_FOCOS.get(foco, ("", ""))
+    return ctx
 
 
 def _entrevista_form_context(*, form_values, is_edit, entrevista=None, error=None,
@@ -2121,7 +2198,7 @@ def human_capital_entrevistas_page(request: Request, origen: str = Query(""), pu
 
 
 @router.get("/cchh/entrevistas/nueva", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_entrevista_new_page(request: Request, profile_id: str = Query(""), busqueda_id: str = Query("")):
+def human_capital_entrevista_new_page(request: Request, profile_id: str = Query(""), busqueda_id: str = Query(""), foco: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
@@ -2135,14 +2212,14 @@ def human_capital_entrevista_new_page(request: Request, profile_id: str = Query(
             # Una entrevista por (candidato, proceso): si ya existe (enlace viejo, otra pestaña) se va a ella en vez de ofrecer un alta que la duplicaría.
             existing = entrevista_repository.find_by_profile_and_busqueda(profile_id, busqueda_id)
             if existing is not None:
-                return RedirectResponse(url=f"/cchh/entrevistas/{existing['entrevista_id']}/editar" + _return_context(request.query_params, "/cchh/entrevistas", existing)["qs"], status_code=303)
+                return RedirectResponse(url=_append_foco(f"/cchh/entrevistas/{existing['entrevista_id']}/editar" + _return_context(request.query_params, "/cchh/entrevistas", existing)["qs"], foco), status_code=303)
             form_values["busqueda_id"] = busqueda_id                       # el alta queda ligada a la postulación (el servidor resuelve `application_id`)
             form_values["puesto_evaluado"] = busqueda.get("nombre_puesto")
             form_values["area"] = busqueda.get("area_consultora")
             form_values["modalidad_contratacion"] = human_capital_service.resolve_entrevista_modalidad(None, busqueda)[0]
     return templates.TemplateResponse(
         request=request, name="human_capital/entrevista_form.html",
-        context=_entrevistas_shell(request, _entrevista_form_context(form_values=form_values, is_edit=False)),
+        context=_entrevistas_shell(request, _entrevista_form_context_foco(_entrevista_form_context(form_values=form_values, is_edit=False), foco)),
     )
 
 
@@ -2151,7 +2228,7 @@ def human_capital_entrevista_new_submit(
     request: Request, profile_id: str = Form(""), busqueda_id: str = Form(""),
     fecha_entrevista: str = Form(""), puesto_evaluado: str = Form(""), area: str = Form(""),
     modalidad_contratacion: str = Form(""), remuneracion_pretendida: str = Form(""),
-    observaciones: str = Form(""), resumen_entrevista_tecnica: str = Form(""),
+    observaciones: str = Form(""), resumen_entrevista_tecnica: str = Form(""), foco: str = Form(""),
 ):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
@@ -2160,6 +2237,8 @@ def human_capital_entrevista_new_submit(
     form_values = _form_without_protected_compensation(_entrevista_form_from_request(
         fecha_entrevista, puesto_evaluado, area, modalidad_contratacion,
         remuneracion_pretendida, observaciones, resumen_entrevista_tecnica), allow)
+    for locked in _locked_fields(foco):                                       # en un alta el campo bloqueado por el contexto no se escribe: lo que llegue se descarta
+        form_values[locked] = ""
     try:
         if busqueda_id:          # origen = postulación del Pipeline: ligada a la Búsqueda/postulación y única por (candidato, proceso)
             entrevista, _created = human_capital_service.create_entrevista_for_application(profile_id, busqueda_id, form_values, allow_compensation=allow)
@@ -2168,16 +2247,16 @@ def human_capital_entrevista_new_submit(
     except (ValueError, *_ENTREVISTA_SHELL_ERRORS) as exc:
         return templates.TemplateResponse(
             request=request, name="human_capital/entrevista_form.html",
-            context=_entrevistas_shell(request, _entrevista_form_context(
-                form_values={**form_values, **({"profile_id": profile_id, "busqueda_id": busqueda_id} if busqueda_id else {})}, is_edit=False, error=str(exc))))
+            context=_entrevistas_shell(request, _entrevista_form_context_foco(_entrevista_form_context(
+                form_values={**form_values, **({"profile_id": profile_id, "busqueda_id": busqueda_id} if busqueda_id else {})}, is_edit=False, error=str(exc)), foco)))
     # Sin vista de detalle standalone (owner UX pass 1: "la experiencia de
     # producto no la necesita" -- ver Editar mismo, que ya muestra todos los
     # campos): después de crear, se sigue editando directo.
-    return RedirectResponse(url=f"/cchh/entrevistas/{entrevista['entrevista_id']}/editar" + _return_context(request.query_params, "/cchh/entrevistas", entrevista)["qs"], status_code=303)
+    return RedirectResponse(url=_append_foco(f"/cchh/entrevistas/{entrevista['entrevista_id']}/editar" + _return_context(request.query_params, "/cchh/entrevistas", entrevista)["qs"], foco), status_code=303)
 
 
 @router.get("/cchh/entrevistas/{entrevista_id}/editar", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_entrevista_edit_page(request: Request, entrevista_id: str):
+def human_capital_entrevista_edit_page(request: Request, entrevista_id: str, foco: str = Query("")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
@@ -2192,7 +2271,7 @@ def human_capital_entrevista_edit_page(request: Request, entrevista_id: str):
     modalidad, origen = human_capital_service.resolve_entrevista_modalidad(
         entrevista.get("modalidad_contratacion"), view.get("busqueda"), edited=entrevista.get("revision", 1) > 1)
     form_values["modalidad_contratacion"] = modalidad
-    ctx = _entrevista_form_context(form_values=form_values, is_edit=True, entrevista=view)
+    ctx = _entrevista_form_context_foco(_entrevista_form_context(form_values=form_values, is_edit=True, entrevista=view), foco)
     ctx["modalidad_prefilled"] = origen == "busqueda"
     return templates.TemplateResponse(
         request=request, name="human_capital/entrevista_form.html",
@@ -2205,7 +2284,7 @@ def human_capital_entrevista_edit_submit(
     request: Request, entrevista_id: str,
     fecha_entrevista: str = Form(""), puesto_evaluado: str = Form(""), area: str = Form(""),
     modalidad_contratacion: str = Form(""), remuneracion_pretendida: str = Form(""),
-    observaciones: str = Form(""), resumen_entrevista_tecnica: str = Form(""),
+    observaciones: str = Form(""), resumen_entrevista_tecnica: str = Form(""), foco: str = Form(""),
     expected_revision: str = Form(""),
 ):
     redirect = _require_human_capital_session(request)
@@ -2220,17 +2299,21 @@ def human_capital_entrevista_edit_submit(
     except ValueError:
         raise HTTPException(400, "expected_revision inválido") from None
 
+    locked = _locked_fields(foco)
+
     def _render(**extra):
         fv = dict(form_values); fv["expected_revision"] = revision_int
         entrevista = human_capital_service.get_entrevista(entrevista_id)
         view = human_capital_service.entrevista_view(entrevista, allow) if entrevista else None
+        for name in locked:                                                   # el campo bloqueado se muestra con lo PERSISTIDO (un campo deshabilitado no viaja en el formulario)
+            fv[name] = (entrevista or {}).get(name)
         return templates.TemplateResponse(
             request=request, name="human_capital/entrevista_form.html",
-            context=_entrevistas_shell(request, _entrevista_form_context(
-                form_values=fv, is_edit=True, entrevista=view, **extra)))
+            context=_entrevistas_shell(request, _entrevista_form_context_foco(_entrevista_form_context(
+                form_values=fv, is_edit=True, entrevista=view, **extra), foco)))
 
     try:
-        human_capital_service.update_entrevista(entrevista_id, revision_int, form_values, allow_compensation=allow)
+        human_capital_service.update_entrevista(entrevista_id, revision_int, form_values, allow_compensation=allow, locked_fields=locked)
     except entrevista_repository.EntrevistaNotFoundError:
         raise HTTPException(404, "Entrevista no encontrada") from None
     except ValueError as exc:
@@ -2247,7 +2330,7 @@ def human_capital_entrevista_no_concretada(
     request: Request, entrevista_id: str,
     fecha_entrevista: str = Form(""), puesto_evaluado: str = Form(""), area: str = Form(""),
     modalidad_contratacion: str = Form(""), remuneracion_pretendida: str = Form(""),
-    observaciones: str = Form(""), resumen_entrevista_tecnica: str = Form(""),
+    observaciones: str = Form(""), resumen_entrevista_tecnica: str = Form(""), foco: str = Form(""),
     expected_revision: str = Form(""),
 ):
     # MISMO botón que la referencia (EntrevistaModal.tsx "No se concretó"):
@@ -2265,17 +2348,21 @@ def human_capital_entrevista_no_concretada(
     except ValueError:
         raise HTTPException(400, "expected_revision inválido") from None
 
+    locked = _locked_fields(foco)
+
     def _render(**extra):
         fv = dict(form_values); fv["expected_revision"] = revision_int
         entrevista = human_capital_service.get_entrevista(entrevista_id)
         view = human_capital_service.entrevista_view(entrevista, allow) if entrevista else None
+        for name in locked:                                                   # el campo bloqueado se muestra con lo PERSISTIDO (un campo deshabilitado no viaja en el formulario)
+            fv[name] = (entrevista or {}).get(name)
         return templates.TemplateResponse(
             request=request, name="human_capital/entrevista_form.html",
-            context=_entrevistas_shell(request, _entrevista_form_context(
-                form_values=fv, is_edit=True, entrevista=view, **extra)))
+            context=_entrevistas_shell(request, _entrevista_form_context_foco(_entrevista_form_context(
+                form_values=fv, is_edit=True, entrevista=view, **extra), foco)))
 
     try:
-        updated = human_capital_service.update_entrevista(entrevista_id, revision_int, form_values, allow_compensation=allow)
+        updated = human_capital_service.update_entrevista(entrevista_id, revision_int, form_values, allow_compensation=allow, locked_fields=locked)
         human_capital_service.marcar_entrevista_no_concretada(entrevista_id, updated["revision"])
     except entrevista_repository.EntrevistaNotFoundError:
         raise HTTPException(404, "Entrevista no encontrada") from None
@@ -2429,6 +2516,20 @@ def _onboarding_edit_response(request: Request, application_id: str, form_values
     )
 
 
+@router.post("/cchh/onboarding/{application_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_onboarding_delete(request: Request, application_id: str):
+    """«Eliminar onboarding» (diálogo corporativo de confirmación en el navegador). El servicio resuelve el vínculo real (application_id + búsqueda) y retira la postulación Ingreso de su búsqueda por el contrato vigente."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        human_capital_service.delete_onboarding(application_id, actor=_pipeline_actor(request))
+    except (busqueda_repository.BusquedaNotFoundError, busqueda_repository.ApplicationNotFoundError, *_BUSQUEDA_SOLICITUD_ERRORS,
+            *_BUSQUEDA_SHELL_ERRORS, *_ONBOARDING_SHELL_ERRORS):
+        pass                                                                # la fila sigue en el listado (nada a medias: ver el servicio); misma convención silenciosa que Quitar del proceso
+    return _return_redirect(request, "/cchh/onboarding")
+
+
 @router.get("/cchh/onboarding/{application_id}/editar", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_onboarding_edit_page(request: Request, application_id: str):
     redirect = _require_human_capital_session(request)
@@ -2551,9 +2652,6 @@ def _publicaciones_list_context(periodo: str = "", canal: str = "", q: str = "",
 
 def _publicacion_form_context(*, form_values, is_edit, publicacion=None, error=None, concurrent_modification=False) -> dict:
     busquedas = sorted(human_capital_service.list_busquedas_gestionadas(), key=lambda b: b.get("fecha_apertura") or "", reverse=True)
-    current_periodo = (form_values.get("periodo") or "").strip()
-    window = human_capital_service.periodos_disponibles()
-    historical = bool(current_periodo) and current_periodo not in window
     current_bid = (form_values.get("busqueda_id") or "").strip()
     return {
         "form_values": form_values, "is_edit": is_edit, "publicacion": publicacion, "form_error": error, "concurrent_modification": concurrent_modification,
@@ -2564,14 +2662,17 @@ def _publicacion_form_context(*, form_values, is_edit, publicacion=None, error=N
         "canales": _governed_edit_options("canal_publicacion", form_values.get("canal")),
         "canal_is_legacy": _is_legacy_governed_value("canal_publicacion", form_values.get("canal")),
         "canal_catalog_empty": not human_capital_catalog_repository.catalog_values("canal_publicacion"),
-        # Período: ventana calculada del alta; una edición conserva SELECCIONADO un período histórico fuera de la ventana (history-safe).
-        "periodos": ([current_periodo, *window] if historical else window),
-        "periodo_is_historical": historical,
+        # El período ya no se elige: se deriva de la fecha. Una publicación histórica SIN fecha muestra su período guardado (sin asignarle una fecha) y pide fecha para guardarse.
+        "periodo_legado": (publicacion or {}).get("periodo") if is_edit and not _fecha_valida(form_values.get("fecha")) else None,
     }
 
 
-def _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, periodo, fecha, observacion) -> dict:
-    return {"busqueda_id": busqueda_id, "posicion": posicion, "canal": canal, "cantidad_avisos": cantidad_avisos, "periodo": periodo, "fecha": fecha, "observacion": observacion}
+def _fecha_valida(value) -> bool:
+    return bool(value) and human_capital_service._parse_fecha_publicacion(value) is not None
+
+
+def _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, fecha, observacion) -> dict:
+    return {"busqueda_id": busqueda_id, "posicion": posicion, "canal": canal, "cantidad_avisos": cantidad_avisos, "fecha": fecha, "observacion": observacion}
 
 
 @router.get("/cchh/publicaciones", response_class=HTMLResponse, include_in_schema=False)
@@ -2594,7 +2695,7 @@ def human_capital_publicacion_new_page(request: Request):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    form_values = {"periodo": human_capital_service.periodo_actual(), "cantidad_avisos": 1}
+    form_values = {"fecha": human_capital_service.hoy_negocio().isoformat(), "cantidad_avisos": 1}          # hoy en la zona de negocio (Argentina); editable
     return templates.TemplateResponse(
         request=request, name="human_capital/publicacion_form.html",
         context=_publicaciones_shell(request, _publicacion_form_context(form_values=form_values, is_edit=False)),
@@ -2604,12 +2705,12 @@ def human_capital_publicacion_new_page(request: Request):
 @router.post("/cchh/publicaciones/nueva", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_publicacion_new_submit(
     request: Request, busqueda_id: str = Form(""), posicion: str = Form(""), canal: str = Form(""), cantidad_avisos: str = Form(""),
-    periodo: str = Form(""), fecha: str = Form(""), observacion: str = Form(""),
+    fecha: str = Form(""), observacion: str = Form(""),
 ):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    form_values = _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, periodo, fecha, observacion)
+    form_values = _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, fecha, observacion)
 
     def _render(**extra):
         return templates.TemplateResponse(
@@ -2644,12 +2745,12 @@ def human_capital_publicacion_edit_page(request: Request, publicacion_id: str):
 @router.post("/cchh/publicaciones/{publicacion_id}/editar", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_publicacion_edit_submit(
     request: Request, publicacion_id: str, busqueda_id: str = Form(""), posicion: str = Form(""), canal: str = Form(""), cantidad_avisos: str = Form(""),
-    periodo: str = Form(""), fecha: str = Form(""), observacion: str = Form(""), expected_revision: str = Form(""),
+    fecha: str = Form(""), observacion: str = Form(""), expected_revision: str = Form(""),
 ):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    form_values = _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, periodo, fecha, observacion)
+    form_values = _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, fecha, observacion)
     try:
         revision_int = int(expected_revision)
     except ValueError:
@@ -2756,18 +2857,20 @@ def _process_context_matches(parts: dict | None, subject: dict | None) -> bool:
     if busqueda is None or (parts["kind"] == pagination.CONTEXT_EVALUACION and not busqueda_repository.es_gestionada(busqueda)):
         return False
     apps = busqueda.get("candidatos") or []
-    wanted = parts["application_id"] or subject.get("application_id")
-    if wanted:
+    profile = subject.get("profile_id")
+    wanted = parts["application_id"]
+    if wanted:                                                                    # la Evaluación nombra una postulación concreta: debe seguir en el pipeline y ser del MISMO candidato que el registro
         app = next((a for a in apps if a.get("application_id") == wanted), None)
-        if app is None or (subject.get("application_id") and subject["application_id"] != wanted):
-            return False
-    elif subject.get("profile_id"):
-        app = next((a for a in apps if a.get("profile_id") == subject["profile_id"]), None)
         if app is None:
             return False
-    else:
+        return app.get("profile_id") == profile if profile else (not subject.get("application_id") or subject["application_id"] == wanted)
+    sub_app = subject.get("application_id")
+    app = next((a for a in apps if a.get("application_id") == sub_app), None) if sub_app else None
+    if app is None and profile:                                                   # la entrevista es única por (candidato, proceso): si el candidato fue quitado y vuelto a agregar conserva el `application_id` anterior; vale por candidato
+        app = next((a for a in apps if a.get("profile_id") == profile), None)
+    if app is None:
         return False
-    return not subject.get("profile_id") or app.get("profile_id") == subject["profile_id"]
+    return not profile or app.get("profile_id") == profile
 
 
 def _return_context(query_params, list_path: str, subject: dict | None = None, kinds=None) -> dict:

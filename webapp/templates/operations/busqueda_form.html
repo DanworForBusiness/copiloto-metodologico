@@ -3,6 +3,7 @@
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% set _titles = {'nueva': 'Nueva búsqueda', 'editar': 'Editar solicitud', 'corregir': 'Corregir solicitud'} %}
 {% block title %}{{ _titles[mode] }} · Búsquedas · Staffing · Operaciones · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_busquedas.css') }}?v={{ static_version }}">{% endblock %}
 {% block body %}
 {% set v = values %}
 <div x-data="copilotLayout('operations-busquedas')" x-init="init()" class="app-shell no-copilot">
@@ -203,7 +204,5 @@
   </main>
 </div>
 
-<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
-<link rel="stylesheet" href="{{ url_for('static', path='operations_busquedas.css') }}?v={{ static_version }}">
 <script src="{{ url_for('static', path='operations_busquedas.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}

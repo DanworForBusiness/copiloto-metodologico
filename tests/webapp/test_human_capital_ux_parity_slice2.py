@@ -7,6 +7,8 @@ marca_potencial junto a la identidad. Solo el semántico de marca_potencial
 existente; sin star-rating, sin columna nueva."""
 from __future__ import annotations
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -135,13 +137,13 @@ def test_d2_text_columns_left_actions_center_by_class():
     html = _client().get("/cchh/candidatos").text
     # columnas de texto -> clase semántica left (no first-child)
     for key in ("skills", "seniority", "ubicacion", "fuente"):
-        assert f'<th class="left" data-column-key="{key}"' in html, f"th {key} debe ser left por clase"
+        assert re.search(rf'<th class="left(?: dashboard-table-th--sortable)?" data-column-key="{key}"', html), f"th {key} debe ser left por clase"      # cabecera ordenable: `left` + el modificador corporativo de orden
         assert f'<td class="left" data-column-key="{key}"' in html, f"td {key} debe ser left por clase"
     # Nombre = columna de texto normal `.left` (owner closure: se sacó el
     # tratamiento especial `row-label`/`row-label-col` de la primera columna
     # -- ése fue el fix final del "split de dos tablas"; la identidad es una
     # celda de tabla común, con un wrapper interno `.dw-idcell`). Acciones = center.
-    assert '<th class="left" data-column-key="nombre"' in html
+    assert re.search(r'<th class="left(?: dashboard-table-th--sortable)?" data-column-key="nombre"', html)
     assert '<td class="left" data-column-key="nombre"' in html
     assert '<th class="center">Acciones</th>' in html
     assert '<td class="center">' in html

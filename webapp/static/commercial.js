@@ -1736,7 +1736,7 @@ function commercialCreadasControlsHtml(months) {
       </label>
       <label class="whatsnew-filter whatsnew-filter--fill">
         <span>Buscar</span>
-        <input type="search" data-commercial-creadas-search aria-label="Buscar oportunidades creadas"
+        <input type="search" autocomplete="off" data-commercial-creadas-search aria-label="Buscar oportunidades creadas"
                placeholder="Buscar…" value="${commercialEsc(commercialState.creadasSearch)}">
       </label>
       <button type="button" class="whatsnew-filter__clear" data-commercial-creadas-clear>✕ Limpiar</button>
@@ -2617,7 +2617,7 @@ function commercialProspectsFiltersHtml(sellerOptions) {
       </label>
       <label class="whatsnew-filter whatsnew-filter--fill">
         <span>Buscar</span>
-        <input type="search" data-commercial-prospects-search aria-label="Buscar prospectos" placeholder="Buscar…" value="${commercialEsc(commercialState.prospectsSearchText)}">
+        <input type="search" data-commercial-prospects-search autocomplete="off" aria-label="Buscar prospectos" placeholder="Buscar…" value="${commercialEsc(commercialState.prospectsSearchText)}">
       </label>
       <button type="button" class="whatsnew-filter__clear" data-commercial-prospects-clear>✕ Limpiar</button>
       ${commercialProspectRatioFieldHtml("data-commercial-prospects-ratio")}
@@ -3731,7 +3731,7 @@ function commercialLicenciasFiltersHtml() {
   return `<div class="whatsnew-filters" data-commercial-licencias-filters>
       <label class="whatsnew-filter">
         <span>Buscar</span>
-        <input type="search" data-commercial-licencias-search aria-label="Buscar en licencias"
+        <input type="search" autocomplete="off" data-commercial-licencias-search aria-label="Buscar en licencias"
           placeholder="Buscar…" value="${commercialEsc(commercialState.licSearchText)}">
       </label>
       <label class="whatsnew-filter">
@@ -4133,7 +4133,7 @@ function commercialLicensingProfileFiltersHtml() {
   return `<div class="whatsnew-filters" data-commercial-licprofile-filters>
       <label class="whatsnew-filter">
         <span>Cliente</span>
-        <input type="search" data-commercial-licprofile-search aria-label="Buscar cliente"
+        <input type="search" autocomplete="off" data-commercial-licprofile-search aria-label="Buscar cliente"
           placeholder="Buscar…" value="${commercialEsc(commercialState.licProfileSearchText)}">
       </label>
       <label class="whatsnew-filter">
@@ -4570,7 +4570,7 @@ function commercialDetalleFiltersHtml() {
   return `<div class="whatsnew-filters" data-commercial-detalle-filters>
       <label class="whatsnew-filter">
         <span>Buscar</span>
-        <input type="search" data-commercial-detalle-search aria-label="Buscar en detalle de oportunidades"
+        <input type="search" autocomplete="off" data-commercial-detalle-search aria-label="Buscar en detalle de oportunidades"
           placeholder="Buscar…" value="${commercialEsc(commercialState.detSearchText)}">
       </label>
       <label class="whatsnew-filter">
@@ -4676,7 +4676,7 @@ function commercialLostHistoryFiltersHtml() {
   return `<div class="whatsnew-filters" data-commercial-historial-filters>
       <label class="whatsnew-filter">
         <span>Buscar</span>
-        <input type="search" data-commercial-historial-search aria-label="Buscar en historial de perdidas"
+        <input type="search" autocomplete="off" data-commercial-historial-search aria-label="Buscar en historial de perdidas"
           placeholder="Buscar…" value="${commercialEsc(commercialState.histSearchText)}">
       </label>
       <label class="whatsnew-filter">
@@ -4803,7 +4803,7 @@ function commercialLeadsFiltersHtml() {
   return `<div class="whatsnew-filters" data-commercial-leads-filters>
       <label class="whatsnew-filter">
         <span>Buscar</span>
-        <input type="search" data-commercial-leads-search aria-label="Buscar empresa o lead"
+        <input type="search" autocomplete="off" data-commercial-leads-search aria-label="Buscar empresa o lead"
           placeholder="Buscar…" value="${commercialEsc(commercialState.leadsSearchText)}">
       </label>
       <button type="button" class="whatsnew-filter__clear" data-commercial-leads-clear>✕ Limpiar</button>
@@ -4954,7 +4954,7 @@ function commercialClientesFiltersHtml() {
   return `<div class="whatsnew-filters" data-commercial-clientes-filters>
       <label class="whatsnew-filter">
         <span>Buscar</span>
-        <input type="search" data-commercial-clientes-search aria-label="Buscar cliente"
+        <input type="search" autocomplete="off" data-commercial-clientes-search aria-label="Buscar cliente"
           placeholder="Buscar…" value="${commercialEsc(commercialState.clientesSearchText)}">
       </label>
       <label class="whatsnew-filter">
@@ -5130,7 +5130,7 @@ function commercialExClientesFiltersHtml() {
   return `<div class="whatsnew-filters" data-commercial-ex-clientes-filters>
       <label class="whatsnew-filter">
         <span>Buscar</span>
-        <input type="search" data-commercial-ex-clientes-search aria-label="Buscar ex cliente"
+        <input type="search" autocomplete="off" data-commercial-ex-clientes-search aria-label="Buscar ex cliente"
           placeholder="Buscar…" value="${commercialEsc(commercialState.exClientesSearchText)}">
       </label>
       <label class="whatsnew-filter">
@@ -5710,7 +5710,7 @@ function commercialLeadConversionFiltersHtml() {
   return `<div class="whatsnew-filters" data-commercial-lead-conversion-filters>
       <label class="whatsnew-filter">
         <span>Buscar</span>
-        <input type="search" data-commercial-lead-conversion-search aria-label="Buscar en conversión de leads"
+        <input type="search" autocomplete="off" data-commercial-lead-conversion-search aria-label="Buscar en conversión de leads"
           placeholder="Buscar…" value="${commercialEsc(commercialState.leadConversionSearchText)}">
       </label>
       <label class="whatsnew-filter">
@@ -6325,7 +6325,7 @@ function commercialAnalysisFiltersHtml(stageOptions, sellerOptions) {
       </label>
       <label class="whatsnew-filter whatsnew-filter--fill">
         <span>Buscar</span>
-        <input type="search" data-commercial-search aria-label="Buscar oportunidades" placeholder="Buscar…" value="${commercialEsc(commercialState.oppSearchText)}">
+        <input type="search" data-commercial-search autocomplete="off" aria-label="Buscar oportunidades" placeholder="Buscar…" value="${commercialEsc(commercialState.oppSearchText)}">
       </label>
       <button type="button" class="whatsnew-filter__clear" data-commercial-clear-filters>✕ Limpiar</button>
     </div>`;
@@ -6688,7 +6688,7 @@ function commercialActivitiesControlsHtml() {
       </label>
       <label class="whatsnew-filter whatsnew-filter--fill">
         <span>Buscar</span>
-        <input type="search" data-commercial-act-search aria-label="Buscar actividades" placeholder="Buscar…" value="${commercialEsc(commercialState.actSearchText)}">
+        <input type="search" data-commercial-act-search autocomplete="off" aria-label="Buscar actividades" placeholder="Buscar…" value="${commercialEsc(commercialState.actSearchText)}">
       </label>
       <button type="button" class="whatsnew-filter__clear" data-commercial-act-clear>✕ Limpiar</button>
     </div>`;

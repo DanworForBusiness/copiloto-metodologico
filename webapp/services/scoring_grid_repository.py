@@ -133,6 +133,58 @@ def _persist(path: Path, payload: dict, *, previous: dict | None) -> dict:
     raise GridRemoteOutcomeUnknownError("No pudimos confirmar el estado remoto de la grilla tras un fallo de guardado.")
 
 
+def delete_file_durable(path: Path) -> bool:
+    """Borrado físico durable (local + remoto) de UN archivo de scoring (grilla o evaluación) -> `True` si existía; `False` si no (idempotente). MISMO contrato que `onboarding_repository.delete`/`entrevista_repository.delete`: si
+    el borrado remoto no se confirma se hace ROLLBACK del borrado local (se reescribe el contenido previo, byte a byte) para que local y remoto nunca diverjan."""
+    try:
+        previous = path.read_bytes()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise GridStorageError(f"No se pudo leer el scoring a eliminar: {exc}") from exc
+    _require_writable()
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise GridStorageError(f"No se pudo eliminar el scoring: {exc}") from exc
+    if remote_store.local_only() or remote_store.delete_path(path):
+        return True                                      # `local`: el borrado físico local es el resultado final (sin llamar a Spaces)
+    _restore_bytes(path, previous)                       # rollback: local vuelve a existir
+    if not remote_store.enabled():
+        raise GridConfigIncompleteError("El scoring todavía no está configurado para este entorno.")
+    raise GridRemoteOutcomeUnknownError("No pudimos confirmar si el borrado del scoring se sincronizó. Reintentá la operación.")
+
+
+def _restore_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_name: str | None = None
+    try:
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".json")
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, path)
+        tmp_name = None
+    except OSError as exc:
+        raise GridStorageError(f"No se pudo restaurar el scoring tras un borrado no confirmado: {exc}") from exc
+    finally:
+        if tmp_name is not None:
+            try:
+                os.remove(tmp_name)
+            except OSError:
+                pass
+
+
+def delete(busqueda_id: str) -> bool:
+    """Elimina la grilla de scoring de UNA búsqueda (cascada de «Eliminar búsqueda»). `True` si existía."""
+    _ensure_restored()
+    with _write_lock:
+        return delete_file_durable(_path(busqueda_id))
+
+
 def get(busqueda_id: str) -> dict | None:
     _ensure_restored()
     path = _path(busqueda_id)

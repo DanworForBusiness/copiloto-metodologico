@@ -10,6 +10,7 @@ nivel de `core.microsoft365` vía `webapp.services.profile_document_service`
 from __future__ import annotations
 
 import hashlib
+import re
 import urllib.error
 import urllib.parse
 
@@ -416,6 +417,23 @@ def test_edit_page_lists_uploaded_documents_with_web_url_link():
     assert "cv.pdf" in response.text
     assert 'href="https://danwor.sharepoint.com/x"' in response.text
     assert "Abrir en SharePoint" in response.text
+
+
+def test_document_row_actions_are_icons_with_tooltip_aria_label_and_the_destructive_tint():
+    """Acciones compactas del documento = SVG del Hub (enlace externo / papelera), con tooltip, `aria-label` con el archivo y sin texto de acción suelto; el comportamiento (target, form, confirmación, token) no cambia."""
+    client = _client_as(_AUTHORIZED_EMAIL)
+    profile = _create_profile(client)
+    _upload(client, profile["profile_id"])
+    page = client.get(f"/cchh/candidatos/{profile['profile_id']}/editar").text
+    link = re.search(r'<a href="https://danwor\.sharepoint\.com/x"[^>]*>', page).group(0)
+    assert 'target="_blank"' in link and 'rel="noopener noreferrer"' in link and "table-action-btn chart-tooltip-anchor" in link and 'aria-label="Abrir cv.pdf en SharePoint"' in link
+    assert "<p>Abrir en SharePoint</p>" in page and ">Abrir en SharePoint</a>" not in page                                       # sin enlace textual
+    form = re.search(r'<form method="post" action="/cchh/candidatos/[^"]+/documentos/[^"]+/delete[^"]*"[^>]*data-hc-document-delete-form>', page).group(0)
+    assert 'name="graph_token"' in page and form                                                                              # mismo endpoint, mismo form y mismo token de escritura
+    button = re.search(r'<button type="submit" class="([^"]+)" data-hc-document-delete-button aria-label="([^"]+)">', page)
+    assert "table-action-btn--danger" in button.group(1) and "chart-tooltip-anchor" in button.group(1) and button.group(2) == "Eliminar documento cv.pdf"
+    assert "<p>Eliminar documento</p>" in page and 'data-hc-document-delete-button>Eliminar</button>' not in page and 'class="btn-secondary" data-hc-document-delete-button' not in page
+    assert "window.confirm(" in page                                                                                           # la confirmación existente se conserva
 
 
 def test_edit_page_shows_empty_state_with_no_documents():

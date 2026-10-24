@@ -2,6 +2,7 @@
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% block title %}Búsquedas · Staffing · Operaciones · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_busquedas.css') }}?v={{ static_version }}">{% endblock %}
 {% block body %}
 <div x-data="copilotLayout('operations-busquedas')" x-init="init()" class="app-shell no-copilot">
   {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.OPERATIONS_APP_TITLE | urlencode }}&subtitle={{ config.OPERATIONS_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
@@ -30,6 +31,4 @@
   </main>
 </div>
 
-<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
-<link rel="stylesheet" href="{{ url_for('static', path='operations_busquedas.css') }}?v={{ static_version }}">
 {% endblock %}

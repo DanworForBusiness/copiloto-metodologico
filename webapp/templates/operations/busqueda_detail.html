@@ -2,6 +2,7 @@
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% block title %}{{ view.requerimiento.nombre_puesto }} · Búsquedas · Staffing · Operaciones · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_busquedas.css') }}?v={{ static_version }}">{% endblock %}
 {% block body %}
 {% set req = view.requerimiento %}
 {% set pres = req.presencialidad %}
@@ -121,7 +122,5 @@
   </main>
 </div>
 
-<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
-<link rel="stylesheet" href="{{ url_for('static', path='operations_busquedas.css') }}?v={{ static_version }}">
 <script src="{{ url_for('static', path='operations_busquedas.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}

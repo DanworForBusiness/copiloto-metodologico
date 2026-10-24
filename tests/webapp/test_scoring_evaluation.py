@@ -212,8 +212,8 @@ def test_the_ranking_orders_by_score_with_tiers_coverage_and_explicit_missing_ev
     assert "<strong>100.0</strong>" in page and "<strong>50.0</strong>" in page and "✗ No cumple: ¿Usó Datasphere?" in page
     assert "3 con evaluación vigente" in page and "1 sin evaluar" in page and "0 con evaluación desactualizada" in page
     assert "no es un consolidado entre fases" in page.lower() or "No incluye la entrevista técnica ni es un consolidado entre fases" in page
-    assert page.count("Evaluar</a>") == 1 and page.count("Editar mi evaluación</a>") == 3                     # acceso directo desde el ranking a abrir/editar cada evaluación
-    assert f'href="/cchh/busquedas/{bid}/candidatos/{z}/evaluacion-cchh">Evaluar</a>' in page and f'href="/cchh/busquedas/{bid}/candidatos/{a}/evaluacion-cchh">Editar mi evaluación</a>' in page
+    assert page.count("<p>Evaluar</p>") == 1 and page.count("<p>Editar mi evaluación</p>") == 3                     # acceso directo (ícono + tooltip) desde el ranking a abrir/editar cada evaluación
+    assert re.search(rf'href="/cchh/busquedas/{bid}/candidatos/{z}/evaluacion-cchh" aria-label="Evaluar: [^"]+"', page) and re.search(rf'href="/cchh/busquedas/{bid}/candidatos/{a}/evaluacion-cchh" aria-label="Editar mi evaluación: [^"]+"', page)
 
 
 def test_a_second_evaluator_adds_their_own_record_and_a_large_gap_raises_the_dispersion_warning(c):
@@ -253,7 +253,7 @@ def test_a_grid_change_makes_the_evaluations_outdated_visibly_and_reevaluating_m
 
 
 # ═══════════════════ pipeline, paso 3 del panel y separación del registro administrativo ═══════════════════
-def test_the_pipeline_icon_of_the_cchh_stage_opens_the_evaluation_and_other_stages_keep_their_access(c):
+def test_the_pipeline_icons_of_the_interview_stages_open_the_interview_edit_while_the_evaluation_tab_is_in_development(c):
     bid, grid = _ready(c)
     ids = {n: _candidate(bid, n) for n in ("Ana", "Bruno", "Carla", "Diego")}
     svc.move_application_stage(bid, ids["Bruno"], "Entrevista CCHH", None, actor=CCHH_EMAIL)
@@ -261,8 +261,8 @@ def test_the_pipeline_icon_of_the_cchh_stage_opens_the_evaluation_and_other_stag
     svc.move_application_stage(bid, ids["Diego"], "Decisión Final", None, actor=CCHH_EMAIL)
     page = c.get(f"/cchh/busquedas/{bid}").text
     bruno, carla = _card(page, "Bruno Test"), _card(page, "Carla Test")
-    assert f'href="{_url(bid, ids["Bruno"])}" class="table-action-btn chart-tooltip-anchor busqueda-cand__interview" aria-label="Evaluación CCHH"' in bruno
-    assert 'aria-label="Ir a entrevista técnica"' in carla and "/cchh/entrevistas/" in carla and "evaluacion-cchh" not in carla      # Líder: registro administrativo, sin cambios
+    assert 'aria-label="Evaluación CCHH"' in bruno and "/cchh/entrevistas/" in bruno and "foco=cchh" in bruno and "evaluacion-cchh" not in bruno      # hasta terminar la pestaña Evaluación: abre la edición de la entrevista (contexto CCHH)
+    assert 'aria-label="Evaluación técnica"' in carla and "/cchh/entrevistas/" in carla and "foco=tecnica" in carla and "evaluacion-cchh" not in carla      # Líder: la misma pantalla con contexto técnico
     assert "busqueda-cand__interview" not in _card(page, "Ana Test") and "busqueda-cand__interview" not in _card(page, "Diego Test")
 
 
@@ -290,7 +290,7 @@ def test_a_closed_process_keeps_the_ranking_readable_but_rejects_evaluations(c):
     svc.close_busqueda(bid, [], actor=CCHH_EMAIL)
     before = _all(bid)
     page = _ranking(c, bid)
-    assert "data-scoring-ranking" in page and "Evaluar</a>" not in page and "Editar mi evaluación" not in page and "El proceso está cerrado" in page
+    assert "data-scoring-ranking" in page and "<p>Evaluar</p>" not in page and "Editar mi evaluación" not in page and "El proceso está cerrado" in page
     form = c.get(_url(bid, app_id)).text
     assert "El proceso está cerrado: la evaluación queda en solo lectura." in form and "Actualizar evaluación" not in form
     r = c.post(_url(bid, app_id), data=_form(grid, notas=(1, 1, 1), revision=1))
@@ -304,7 +304,7 @@ def test_a_removed_candidate_cannot_be_evaluated_and_has_no_action_in_the_rankin
     profile_repository.soft_delete(pid, actor=CCHH_EMAIL)
     assert c.post(_url(bid, app_id), data=_form(grid)).status_code == 404 and _all(bid) == []
     page = _ranking(c, bid)
-    assert "Candidato eliminado del Banco" in page and "Evaluar</a>" not in page
+    assert "Candidato eliminado del Banco" in page and "<p>Evaluar</p>" not in page
 
 
 def test_evaluations_require_the_cchh_session_and_authorization(c):
@@ -326,3 +326,10 @@ def test_a_storage_failure_shows_a_controlled_error_and_leaves_no_record(c, monk
         m.setattr(erepo_s, "save", boom)
         r = c.post(_url(bid, app_id), data=_form(grid))
     assert r.status_code == 200 and "disco lleno" in r.text and _all(bid) == []
+
+@pytest.fixture(autouse=True)
+def _evaluation_is_app_owner_only(monkeypatch):
+    """La pestaña Evaluación está en desarrollo y solo la usa el dueño de la app (APP_OWNER): estos tests ejercitan SU funcionamiento, así que el usuario CCHH de prueba es el dueño."""
+    from webapp import access
+    monkeypatch.setattr(access, "APP_OWNER", f"{CCHH_EMAIL},{OTHER}")           # APP_OWNER admite varios dueños (lista)
+
