@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Excepciones de la importación {{ run_id }} · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ current_workspace.label | urlencode }}&subtitle={{ current_workspace.subtitle | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% include "partials/human_capital_catalog_refresh_topbar.html" %}{% endcall %}
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <a class="catalog-back" href="/cchh/diagnostico/cvs-historicos/{{ run_id }}">← Volver al lote</a>
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano</p>
+        <h1>Excepciones de la importación</h1>
+        <p>{{ run_id }}</p>
+      </div>
+    </section>
+
+    <p class="callout callout--warn"><span class="callout__body">Esta página contiene datos personales (nombre, email, celular). Solo la ve el owner. «Completar identidad» crea un perfil con el nombre y apellido que escribas (nunca uno inventado) y sube el CV; «Vincular» agrega el CV a un perfil existente sin modificarlo. Nada se fusiona solo.</span></p>
+    <p><button type="button" class="btn-secondary" data-hc-authorize-write>Autorizar escritura en CVs</button> <span class="field-hint" data-hc-authorize-status role="status"></span></p>
+
+    {% include "partials/cv_history_exceptions_panel.html" %}
+  </main>
+</div>
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+<script src="{{ url_for('static', path='human_capital_import.js') }}?v={{ static_version }}" defer></script>
+{% endblock %}

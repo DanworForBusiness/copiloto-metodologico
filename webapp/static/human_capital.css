@@ -593,11 +593,11 @@
 .dashboard-table[data-pilot-rows] td .status-badge { margin: 0 4px 4px 0; display: inline-block; }
 #cvrun-panel .dashboard-table :is(th, td) { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; }
 @media (max-width: 640px) {
-  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions]) { display: block; }
-  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions]) tbody { display: block; }
-  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions]) tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
-  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions]) td[colspan] { grid-column: 1 / -1; }
-  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions]) td.hc-kv-value { text-align: right; font-weight: 600; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions], [data-import-progress]) { display: block; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions], [data-import-progress]) tbody { display: block; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions], [data-import-progress]) tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions], [data-import-progress]) td[colspan] { grid-column: 1 / -1; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions], [data-import-progress]) td.hc-kv-value { text-align: right; font-weight: 600; }
 }
 .dashboard-table[data-pilot-rows] td[data-verdict-col] { min-width: 270px; }
 .hc-verdict { display: grid; gap: 6px; justify-items: start; }
@@ -707,3 +707,13 @@
    `[data-commercial-opportunities] table.dashboard-table` (commercial.css). El gancho es `data-min-width` (rem). */
 #hc-indicadores-panel table.dashboard-table[data-min-width="26"] { min-width: 26rem; }
 #hc-indicadores-panel table.dashboard-table[data-min-width="34"] { min-width: 34rem; }
+
+.hc-exc-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 8px 0 12px; }
+.dashboard-table[data-exceptions-rows] { table-layout: auto; min-width: 980px; width: 100%; }
+.dashboard-table[data-exceptions-rows] :is(th, td) { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; overflow-wrap: anywhere; max-width: none; }
+.hc-exc-actions { min-width: 300px; }
+.hc-exc-actions summary { cursor: pointer; font-weight: 600; }
+.hc-exc-form { display: grid; gap: 6px; margin: 8px 0; padding-top: 8px; border-top: 1px solid rgba(128, 128, 140, .35); }
+.hc-exc-form :is(input, select) { min-width: 0; width: 100%; padding: 4px 6px; font: inherit; color: inherit; background: transparent; border: 1px solid rgba(128, 128, 140, .55); border-radius: 4px; }
+.hc-exc-form__pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.hc-exc-form .btn-primary, .hc-exc-form .btn-secondary { justify-self: start; padding: 4px 10px; font-size: .78rem; }
