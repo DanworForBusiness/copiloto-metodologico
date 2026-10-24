@@ -1297,7 +1297,9 @@ _MSG_SOLICITUD_SOURCE = "No pudimos leer las solicitudes en este momento. Reinte
 # Post/Redirect/Get: ante un conflicto/error de persistencia al tomar o pedir corrección, un navegador (Accept: text/html) recibe 303 hacia la pantalla con `?aviso=<clave>` (lista blanca; nunca texto libre
 # en la URL) y el aviso se muestra en un GET; un consumidor NO HTML recibe el 409/503 con el mensaje (`HTTPException`, JSON).
 _SOLICITUD_AVISOS = {"tomada": _MSG_SOLICITUD_TAKEN, "cambio": _MSG_SOLICITUD_CONCURRENT, "error": _MSG_SOLICITUD_STORAGE,
-                     "no_elegible": "No se pudo agregar al candidato: no es elegible para nuevos procesos (marca «No reconsiderar»)."}
+                     "no_elegible": "No se pudo agregar al candidato: no es elegible para nuevos procesos (marca «No reconsiderar»).",
+                     "eliminacion_incompleta": "No se pudo completar la eliminación de la búsqueda: sigue existiendo y la operación quedó registrada. Reintentá en unos minutos (se retoma donde quedó).",
+                     "eliminacion_no_permitida": "Esta búsqueda no se puede eliminar desde Capital Humano: una solicitud originada en Operaciones se cancela y queda en el historial."}
 
 
 def _wants_html(request: Request) -> bool:
@@ -2039,6 +2041,24 @@ def human_capital_busqueda_delete(request: Request, busqueda_id: str):
     return RedirectResponse(url="/cchh/busquedas", status_code=303)
 
 
+@router.post("/cchh/busquedas/{busqueda_id}/eliminar-completa", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_busqueda_delete_full(request: Request, busqueda_id: str):
+    """«Eliminar búsqueda» con TODO lo asociado (postulaciones, entrevistas, onboardings, grilla y evaluaciones; las publicaciones se desvinculan). Misma autorización que el resto de las acciones de la búsqueda (sesión de
+    Capital Humano); la confirmación la pide el diálogo corporativo en el navegador y el servidor valida por su cuenta (solicitud de Operaciones → no se elimina). Un fallo parcial deja la búsqueda visible y reanudable."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        human_capital_service.delete_busqueda_completa(busqueda_id, actor=_pipeline_actor(request))
+    except busqueda_repository.BusquedaNotFoundError:
+        raise HTTPException(404, "Búsqueda no encontrada") from None
+    except ValueError:
+        return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?aviso=eliminacion_no_permitida", status_code=303)
+    except human_capital_service.BusquedaDeletionError:
+        return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}?aviso=eliminacion_incompleta", status_code=303)
+    return RedirectResponse(url="/cchh/busquedas", status_code=303)
+
+
 # ---------------------------------------------------------------------------
 # Entrevistas — listado / alta manual / edición / detalle / "no se concretó" /
 # eliminar. Dominio verbatim de la referencia (app-seleccion,
@@ -2494,6 +2514,20 @@ def _onboarding_edit_response(request: Request, application_id: str, form_values
         context=_onboarding_shell(request, _onboarding_form_context(
             form_values=form_values, onboarding=view, **extra)),
     )
+
+
+@router.post("/cchh/onboarding/{application_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_onboarding_delete(request: Request, application_id: str):
+    """«Eliminar onboarding» (diálogo corporativo de confirmación en el navegador). El servicio resuelve el vínculo real (application_id + búsqueda) y retira la postulación Ingreso de su búsqueda por el contrato vigente."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        human_capital_service.delete_onboarding(application_id, actor=_pipeline_actor(request))
+    except (busqueda_repository.BusquedaNotFoundError, busqueda_repository.ApplicationNotFoundError, *_BUSQUEDA_SOLICITUD_ERRORS,
+            *_BUSQUEDA_SHELL_ERRORS, *_ONBOARDING_SHELL_ERRORS):
+        pass                                                                # la fila sigue en el listado (nada a medias: ver el servicio); misma convención silenciosa que Quitar del proceso
+    return _return_redirect(request, "/cchh/onboarding")
 
 
 @router.get("/cchh/onboarding/{application_id}/editar", response_class=HTMLResponse, include_in_schema=False)

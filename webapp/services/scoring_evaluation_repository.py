@@ -82,6 +82,29 @@ def list_for_busqueda(busqueda_id: str) -> list[dict]:
     return sorted(out, key=lambda e: str(e.get("recorded_at") or ""))
 
 
+def delete_for_busqueda(busqueda_id: str) -> int:
+    """Elimina TODAS las evaluaciones de UNA búsqueda (cascada de «Eliminar búsqueda»; cada archivo con el contrato de durabilidad de `scoring_grid_repository.delete_file_durable`) -> cuántas borró. Idempotente:
+    sin carpeta no hace nada. Un archivo ilegible también se borra (es de esa búsqueda: no debe quedar residuo)."""
+    _grid._ensure_restored()
+    directory = _dir(busqueda_id)
+    if not directory.exists():
+        return 0
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError as exc:
+        raise GridStorageError(f"No se pudo listar las evaluaciones: {exc}") from exc
+    deleted = 0
+    with _write_lock:
+        for entry in entries:
+            if entry.is_file() and entry.suffix == ".json" and not entry.name.startswith(".tmp-"):
+                deleted += 1 if _grid.delete_file_durable(entry) else 0
+        try:
+            directory.rmdir()                            # carpeta vacía: orden local (en Spaces no existen carpetas, solo objetos)
+        except OSError:
+            pass
+    return deleted
+
+
 def save(record: dict, expected_revision: int) -> tuple[dict, bool]:
     """Upsert de la evaluación -> `(evaluación, cambió)`. `expected_revision` = 0 para crear. Si el contenido (notas, comentarios, versión de grilla, identidades) no cambia NO se escribe. Cualquier otra diferencia sube la `revision`."""
     _grid._ensure_restored()

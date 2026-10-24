@@ -296,7 +296,7 @@ def test_list_empty_state_header_and_nav():
     assert 'data-dashboard-key="cchh-onboarding-list"' in html and 'id="hc-onboarding-table"' not in html     # sin filas no hay tabla
 
 
-def test_list_renders_the_reference_columns_rows_progress_and_no_delete_action():
+def test_list_renders_the_reference_columns_rows_progress_and_the_confirmed_delete_action():
     bid = _busqueda("Analista BI")
     pid, aid = _hire(bid, "Ana", "Li")
     human_capital_service.update_onboarding(aid, 1, {"fecha_ingreso": "2026-10-05", "oferta_cerrada": "", "area": ""})
@@ -312,7 +312,7 @@ def test_list_renders_the_reference_columns_rows_progress_and_no_delete_action()
     assert 'data-draggable-columns-key="cchh-onboarding"' in html and 'data-resizable-columns-key="cchh-onboarding"' in html
     for col in ("candidato", "puesto", "area", "ingreso", "progreso"):
         assert f'data-column-key="{col}"' in html
-    assert f"/cchh/onboarding/{aid}/editar" in html and "/eliminar" not in html            # sólo Editar: la referencia no tiene delete
+    assert f"/cchh/onboarding/{aid}/editar" in html and f'action="/cchh/onboarding/{aid}/eliminar?' in html and "data-dw-confirm-form" in html      # Editar + Eliminar (hotfix de eliminación manual: solo POST y con el diálogo corporativo)
 
 
 def test_list_filter_is_reactive_and_serves_only_the_panel_fragment():
@@ -424,7 +424,8 @@ def test_edit_page_404_for_unknown_onboarding_and_no_manual_creation_route():
     assert c.get("/cchh/onboarding/no-existe/editar").status_code == 404
     assert c.get("/cchh/onboarding/nuevo").status_code == 404 and c.post("/cchh/onboarding/nuevo").status_code in (404, 405)
     paths = {r.path for r in app.routes if "onboarding" in getattr(r, "path", "")}
-    assert not any("eliminar" in p or "nuevo" in p or "nueva" in p for p in paths)         # sin alta manual ni delete
+    assert not any("nuevo" in p or "nueva" in p for p in paths)                            # sin alta manual (el borrado manual existe: POST .../eliminar, ver test_cchh_delete_onboarding_and_busqueda)
+    assert c.get("/cchh/onboarding/no-existe/eliminar").status_code == 405                  # el borrado nunca por GET
 
 
 def test_toggle_route_persists_and_returns_the_checklist_fragment_with_derived_progress():

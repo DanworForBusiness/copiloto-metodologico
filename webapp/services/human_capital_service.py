@@ -50,6 +50,7 @@ import re
 from datetime import date, datetime
 
 from webapp.services import human_capital_catalog_repository as catalog_repo
+from webapp.services import busqueda_deletion_repository
 from webapp.services import busqueda_repository
 from webapp.services import candidate_eligibility
 from webapp.services import entrevista_repository
@@ -57,6 +58,8 @@ from webapp.services import onboarding_checklist
 from webapp.services import onboarding_repository
 from webapp.services import profile_repository
 from webapp.services import publicacion_repository
+from webapp.services import scoring_evaluation_repository
+from webapp.services import scoring_grid_repository
 from webapp.services.profile_repository import (  # re-exportados para el router
     ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
@@ -74,7 +77,7 @@ __all__ = [
     "validate_and_shape_fields", "find_duplicate", "create_profile_for_import",
     "list_busquedas", "get_busqueda", "create_busqueda", "update_busqueda",
     "add_candidate_to_busqueda", "move_application_stage", "remove_application", "close_busqueda",
-    "busqueda_is_placeholder", "delete_busqueda",
+    "busqueda_is_placeholder", "delete_busqueda", "delete_busqueda_completa", "busqueda_deletion_plan", "BusquedaDeletionError", "delete_onboarding",
     "create_solicitud", "edit_solicitud", "resubmit_solicitud", "cancel_solicitud",
     "observe_solicitud", "take_solicitud", "get_solicitud_view", "list_solicitudes_view", "solicitud_view",
     "list_busquedas_gestionadas", "resumen_solicitudes",
@@ -718,6 +721,107 @@ def delete_busqueda(busqueda_id: str) -> None:
     busqueda_repository.delete(busqueda_id)
 
 
+class BusquedaDeletionError(Exception):
+    """«Eliminar búsqueda» no pudo completarse: la búsqueda SIGUE existiendo (se borra al final) y la operación se puede reintentar (los pasos son idempotentes). `step` = paso que falló (sin datos personales)."""
+
+    def __init__(self, message: str, *, step: str):
+        super().__init__(message)
+        self.step = step
+
+
+def _busqueda_deletion_ids(busqueda: dict) -> dict:
+    """Lo que depende REALMENTE de esta búsqueda, por llaves fuertes (nunca por nombre): onboardings = los de sus postulaciones (`application_id`) o con su `busqueda_id`; entrevistas = las que referencian su
+    `busqueda_id` (las manuales y las de OTRAS búsquedas del mismo candidato no se tocan); publicaciones = las vinculadas por `busqueda_id`."""
+    bid = busqueda["busqueda_id"]
+    app_ids = {a["application_id"] for a in busqueda.get("candidatos", []) if a.get("application_id")}
+    onboardings = sorted({o["application_id"] for o in onboarding_repository.list() if o.get("busqueda_id") == bid or o.get("application_id") in app_ids})
+    return {
+        "onboardings": onboardings,
+        "entrevistas": sorted(e["entrevista_id"] for e in entrevista_repository.list() if e.get("busqueda_id") == bid),
+        "evaluaciones": len(scoring_evaluation_repository.list_for_busqueda(bid)),
+        "grilla": scoring_grid_repository.get(bid) is not None,
+        "publicaciones": sorted(p["publicacion_id"] for p in publicacion_repository.list() if p.get("busqueda_id") == bid),
+        "postulaciones": len(app_ids),
+    }
+
+
+def busqueda_deletion_plan(busqueda: dict) -> dict:
+    """Conteos de lo que eliminaría «Eliminar búsqueda» (solo lectura): `{postulaciones, entrevistas, onboardings, evaluaciones, grilla, publicaciones_desvinculadas}`."""
+    ids = _busqueda_deletion_ids(busqueda)
+    return {"postulaciones": ids["postulaciones"], "entrevistas": len(ids["entrevistas"]), "onboardings": len(ids["onboardings"]), "evaluaciones": ids["evaluaciones"],
+            "grilla": 1 if ids["grilla"] else 0, "publicaciones_desvinculadas": len(ids["publicaciones"])}
+
+
+def _detach_publicacion(publicacion_id: str) -> bool:
+    """La Publicación es un registro histórico que pertenece a 0..1 Búsqueda (FK `on delete set null` en la referencia): al eliminar la búsqueda se DESVINCULA (`busqueda_id` → null) y se conserva con su `posicion`
+    (snapshot de lo que decía el aviso). Reintenta una vez ante una edición concurrente."""
+    for _attempt in (1, 2):
+        current = publicacion_repository.get(publicacion_id)
+        if current is None or not current.get("busqueda_id"):
+            return False
+        try:
+            publicacion_repository.update(publicacion_id, current.get("revision", 1), {"busqueda_id": None})
+            return True
+        except publicacion_repository.PublicacionConcurrentModificationError:
+            continue
+    raise publicacion_repository.PublicacionStorageError("La publicación cambió mientras se desvinculaba de la búsqueda.")
+
+
+def delete_busqueda_completa(busqueda_id: str, *, actor: str | None = None) -> dict:
+    """«Eliminar búsqueda» (acción manual del owner de CCHH): elimina la búsqueda y TODO lo que depende de ella —onboardings, entrevistas, evaluaciones y grilla de scoring— y desvincula sus publicaciones. Las
+    postulaciones viven DENTRO del documento de la búsqueda. NO toca: perfiles del Banco, CVs/documentos (ni SharePoint), entrevistas/onboardings/postulaciones de OTRAS búsquedas, catálogos ni otras verticales.
+
+    CONSISTENCIA: orden dependientes → búsqueda (la búsqueda se borra AL FINAL, así que un fallo parcial deja la búsqueda visible y la operación REANUDABLE: cada paso es idempotente y recalcula lo que falta). Cada borrado
+    usa el contrato de durabilidad de SU repositorio (rollback local si Spaces no confirma). AUDITORÍA: `busqueda_deletion_repository` (quién, cuándo, conteos, paso fallido); un fallo al registrarla aborta ANTES de borrar.
+    Idempotente: si ya se eliminó (registro `completada`) devuelve `{"ya_eliminada": True}`. Una solicitud de Operaciones NO se elimina por esta vía (se cancela y queda en el historial): `ValueError`."""
+    busqueda = busqueda_repository.get(busqueda_id)
+    if busqueda is None:
+        journal = busqueda_deletion_repository.get(busqueda_id)
+        if journal is not None and journal.get("estado") == busqueda_deletion_repository.COMPLETADA:
+            return {"ya_eliminada": True, "plan": journal.get("plan") or {}}
+        raise busqueda_repository.BusquedaNotFoundError(f"La búsqueda {busqueda_id} no existe.")
+    if busqueda_repository.solicitud_of(busqueda) is not None:
+        raise ValueError("Una solicitud originada en Operaciones no se puede eliminar: se cancela y queda en el historial.")
+    step = "registro"
+    try:
+        ids = _busqueda_deletion_ids(busqueda)
+        plan = {"postulaciones": ids["postulaciones"], "entrevistas": len(ids["entrevistas"]), "onboardings": len(ids["onboardings"]), "evaluaciones": ids["evaluaciones"],
+                "grilla": 1 if ids["grilla"] else 0, "publicaciones_desvinculadas": len(ids["publicaciones"])}
+        busqueda_deletion_repository.begin(busqueda_id, puesto=busqueda.get("nombre_puesto"), actor=actor, plan=plan)
+        step = "onboardings"
+        done = sum(1 for application_id in ids["onboardings"] if onboarding_repository.delete(application_id))
+        busqueda_deletion_repository.record_step(busqueda_id, step, done)
+        step = "entrevistas"
+        done = 0
+        for entrevista_id in ids["entrevistas"]:
+            try:
+                entrevista_repository.delete(entrevista_id)
+                done += 1
+            except entrevista_repository.EntrevistaNotFoundError:
+                pass                                                       # ya borrada en un intento anterior
+        busqueda_deletion_repository.record_step(busqueda_id, step, done)
+        step = "scoring"
+        done = scoring_evaluation_repository.delete_for_busqueda(busqueda_id) + (1 if scoring_grid_repository.delete(busqueda_id) else 0)
+        busqueda_deletion_repository.record_step(busqueda_id, step, done)
+        step = "publicaciones"
+        done = sum(1 for publicacion_id in ids["publicaciones"] if _detach_publicacion(publicacion_id))
+        busqueda_deletion_repository.record_step(busqueda_id, step, done)
+        step = "busqueda"
+        busqueda_repository.delete(busqueda_id)
+        step = "cierre"
+        busqueda_deletion_repository.finish(busqueda_id)
+    except busqueda_repository.BusquedaNotFoundError:
+        busqueda_deletion_repository.finish(busqueda_id)                  # otro intento la borró entre medio: queda completada
+        return {"ya_eliminada": True, "plan": plan}
+    except Exception as exc:  # noqa: BLE001 — cualquier fallo deja el registro `fallida` y la búsqueda visible/reanudable
+        _logger.warning("human_capital.busqueda_eliminacion_fallo busqueda_id=%s step=%s error=%s", busqueda_id, step, type(exc).__name__)
+        if step != "registro":
+            busqueda_deletion_repository.fail(busqueda_id, step=step, error=type(exc).__name__)
+        raise BusquedaDeletionError("No se pudo completar la eliminación de la búsqueda; sigue existiendo y se puede reintentar.", step=step) from exc
+    _logger.info("human_capital.busqueda_eliminada busqueda_id=%s actor=%s plan=%s", busqueda_id, (actor or "").strip().lower() or None, plan)
+    return {"ya_eliminada": False, "plan": plan}
+
+
 # ── Solicitudes de Operaciones (REG-CH-01) ───────────────────────────────────
 # El service es DUEÑO de la validación/normalización (los routers futuros NO
 # validan) y de la proyección segura hacia Operaciones. La autorización
@@ -1159,6 +1263,26 @@ def discard_onboarding_of_application(application_id: str) -> bool:
     except (onboarding_repository.OnboardingStorageError, onboarding_repository.OnboardingRemoteOutcomeUnknownError):
         _logger.warning("human_capital.onboarding_huerfano_no_eliminado application_id=%s", application_id)
         return False
+
+
+def delete_onboarding(application_id: str, *, actor: str | None = None) -> dict:
+    """«Eliminar onboarding» (acción manual). El vínculo REAL es onboarding.`application_id` ↔ postulación de su búsqueda (mismo `application_id` y mismo `profile_id`; nunca por nombre). Contrato vigente: quitar una postulación
+    del proceso YA descarta su Onboarding (`remove_application`), así que si la postulación sigue en el pipeline como Finalizado · Ingreso se la RETIRA de esa búsqueda por ese mismo camino (queda el evento «desvinculado» en el
+    historial del proceso, con el ejecutor); eliminar solo el Onboarding la dejaría en Ingreso y un movimiento posterior lo volvería a crear. NO toca: el perfil del Banco ni su CV, las postulaciones del candidato en OTRAS
+    búsquedas, ninguna entrevista. Si la postulación ya no está (huérfano) o dejó de ser Ingreso, se elimina solo el Onboarding. Idempotente: sin Onboarding devuelve `deleted=False`."""
+    onboarding = onboarding_repository.get(application_id)
+    if onboarding is None:
+        return {"deleted": False, "application_removed": False}
+    busqueda = busqueda_repository.get(onboarding["busqueda_id"]) if onboarding.get("busqueda_id") else None
+    application = next((a for a in (busqueda or {}).get("candidatos", []) if a.get("application_id") == application_id and a.get("profile_id") == onboarding.get("profile_id")), None)
+    removed = False
+    if application is not None and is_ingreso_application(application):
+        remove_application(busqueda["busqueda_id"], application_id, actor=actor)
+        removed = True
+    onboarding_repository.delete(application_id)                           # no-op si `remove_application` ya lo descartó; si ese descarte (best-effort) falló, acá el error SÍ se propaga
+    _logger.info("human_capital.onboarding_eliminado application_id=%s busqueda_id=%s actor=%s application_removed=%s", application_id, onboarding.get("busqueda_id"),
+                 (actor or "").strip().lower() or None, removed)
+    return {"deleted": True, "application_removed": removed}
 
 
 # Etapas que implican que "hubo entrevista" -- MISMO gate que
