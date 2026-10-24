@@ -29,11 +29,11 @@ modificación concurrente o rechazo de validación (volver a correr)."""
 from __future__ import annotations
 
 import argparse
-import contextlib
 import hashlib
 import json
 import sys
-from pathlib import Path
+
+from tools.human_capital.spaces_sync import sync_from_spaces      # restauración compartida con los demás CLI de mantenimiento
 
 TARGET_TOKEN = "Contador SR"
 REPLACEMENT_TOKEN = "Contador"
@@ -200,49 +200,6 @@ def check_seniority_catalog(deps: dict, wanted_seniority: str) -> tuple[list[str
 
 
 # ═══════════════════ fuente de datos: restauración desde Spaces ═══════════════════
-@contextlib.contextmanager
-def _persisting_only(cfg, names: list[str]):
-    """Acota SOLO durante la restauración los directorios persistidos del proceso (`restore()` y `list_persisted_objects()` los leen de `config.PERSIST_PATHS`): este CLI no necesita bajar catálogos de casos, reportes ni
-    el resto de `human-capital`. Se restaura el valor original al salir, así `push_path` y el resto de la ejecución ven la configuración completa."""
-    saved = cfg.PERSIST_PATHS
-    cfg.PERSIST_PATHS = list(names)
-    try:
-        yield
-    finally:
-        cfg.PERSIST_PATHS = saved
-
-
-def sync_from_spaces(deps: dict, directory: str) -> dict:
-    """Trae al disco local lo persistido en Spaces bajo `directory` con el mecanismo existente (`remote_store.restore`, sin sobrescribir lo local) y lo verifica contra el inventario remoto. Solo lectura del bucket. Devuelve el
-    informe (`aplica=False` si no hay lectura remota autorizada: modo `local` o sin credenciales, donde la fuente de verdad es el disco) y `bloqueos`."""
-    rs, cfg = deps["remote_store"], deps["config"]
-    info: dict = {"aplica": False, "bloqueos": []}
-    if not rs.read_enabled():
-        return info
-    local_dir = Path(cfg.BASE_DIR) / directory
-
-    def local_count() -> int:
-        return sum(1 for f in local_dir.rglob("*") if f.is_file() and not f.name.startswith(".tmp-")) if local_dir.exists() else 0
-
-    info.update(aplica=True, locales_antes=local_count())
-    with _persisting_only(cfg, [directory]):
-        try:
-            remote = rs.list_persisted_objects(directory)
-        except rs.RemoteReadError:
-            info["bloqueos"].append("RESTORE_LISTADO_REMOTO_FALLIDO")
-            return info
-        info["remotos"] = len(remote)
-        rs.restore()                                                       # MISMA función que el arranque de la app web; overwrite=False: nunca pisa un archivo local distinto
-    report = dict(rs.last_restore_report)
-    info.update(descargados=report.get("downloaded", 0), identicos=report.get("reconciled", 0), locales_distintos=report.get("skipped_existing", 0), fallidos=report.get("failed", 0),
-                estado=rs.restore_status(), locales_despues=local_count())
-    if rs.restore_status() != "completed" or report.get("failed") or report.get("listing_failed") or info["locales_despues"] < info["remotos"]:
-        info["bloqueos"].append("RESTORE_INCOMPLETO")
-    if report.get("skipped_existing"):
-        info["bloqueos"].append("RESTORE_LOCAL_DISTINTO_DEL_REMOTO")
-    return info
-
-
 def sync_profiles_from_spaces(deps: dict) -> dict:
     return sync_from_spaces(deps, PROFILES_DIR)
 
