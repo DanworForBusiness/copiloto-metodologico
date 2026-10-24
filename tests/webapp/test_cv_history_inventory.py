@@ -329,3 +329,28 @@ def test_page_exposes_the_read_only_inventory_form_with_the_shared_token_hook(mo
     assert "Inventario histórico de CVs (solo lectura)" in page and "dwHumanCapitalDocumentWriteToken" in page                  # la sonda existente sigue ahí
     assert TOKEN not in page and "sessionStorage.getItem" not in page
     assert _client(HC_USER, monkeypatch).get("/cchh/diagnostico/sharepoint").status_code == 403
+
+
+# ═══════════════════ diagnóstico de tokens de borde (solo metadatos de nombre) ═══════════════════
+def edge_tree():
+    names = ["RC Ana Gomez.pdf", "RC Luis Paz.pdf", "RC Eva Sol.pdf", "Dr Mario Diaz.pdf", "Julia Ramos.pdf"]
+    return {"ROOT": [[folder("F-A", "Datasphere")]], "F-A": [[file(f"E{i}", n, 100 * KB, qx=f"HE{i}") for i, n in enumerate(names)]]}
+
+
+def test_inventory_reports_frequent_edge_tokens_without_file_or_person_names(graph, caplog):
+    graph(edge_tree())
+    with caplog.at_level(logging.DEBUG):
+        r = inv.run_inventory(TOKEN, SHARE)
+    et = r["filename_edge_tokens"]
+    assert et["considered_files"] == 5 and [(t["token"], t["position"], t["files"], t["classification"]) for t in et["tokens"]] == [("RC", "START", 3, "AMBIGUOUS")]
+    blob = json.dumps(r, ensure_ascii=False) + caplog.text
+    assert not [n for n in ("Gomez", "Paz", "Sol", "Diaz", "Ramos", "RC Ana", "Mario") if n in blob]
+
+
+def test_route_renders_the_edge_token_table_and_the_empty_state(monkeypatch, graph):
+    owner = _client(OWNER, monkeypatch)
+    graph(edge_tree())
+    html = owner.post(URL, data={"graph_token": TOKEN, "share_url": SHARE}).text
+    assert "data-inventory-edge-tokens" in html and "AMBIGUOUS" in html and ">RC<" in html and not [n for n in ("Gomez", "Paz", "Diaz", "Ramos", "RC Ana") if n in html]
+    graph(standard_tree())
+    assert "data-inventory-no-edge-tokens" in owner.post(URL, data={"graph_token": TOKEN, "share_url": SHARE}).text
