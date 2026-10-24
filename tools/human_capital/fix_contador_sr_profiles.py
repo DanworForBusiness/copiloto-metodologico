@@ -15,8 +15,10 @@ REGLAS
     Los campos que no se tocan (documentos, `import_origin`, tags, notas, fuente, potencial…) se conservan: el repositorio fusiona sobre el registro actual (el servicio solo explicita como `null` los campos
     de negocio que faltaban en el registro, sin cambiar su significado).
   * FUENTE DE DATOS: `profile_repository.list()` lee SOLO el disco local; en producción ese disco lo puebla `remote_store.restore()` al arrancar la APP WEB (lifespan), no un proceso aparte. Por eso este CLI, que corre en
-    otro proceso, restaura los perfiles desde Spaces con ese mismo mecanismo (acotado a `human-capital/profiles`, sin sobrescribir) y VERIFICA contra el inventario remoto antes de leer: si el listado remoto falla, la
-    restauración queda incompleta, un archivo local difiere del remoto o hay menos perfiles locales que objetos remotos, se bloquea sin leer ni escribir. El informe muestra remotos / locales antes / descargados / idénticos.
+    otro proceso, restaura desde Spaces con ese mismo mecanismo (acotado a `human-capital/catalogs` y `human-capital/profiles`, sin sobrescribir) y VERIFICA contra el inventario remoto antes de leer: si el listado remoto falla, la
+    restauración queda incompleta, un archivo local difiere del remoto o hay menos archivos locales que objetos remotos, se bloquea sin leer ni escribir. El informe muestra remotos / locales antes / descargados / idénticos.
+    El catálogo gobernado se restaura ANTES de validar `Senior`, y la validación distingue «catálogo no disponible» (sin snapshot, ilegible o sin el catálogo Seniority) de «valor inexistente» (el catálogo existe pero no trae
+    `Senior` exacto). Nunca se crea un valor de catálogo ni se omite la validación.
   * `--execute` exige `--confirm` con la frase derivada del ENTORNO y del PLAN exacto (perfil, revisión y valores nuevos): si algo cambió desde el dry-run, la frase deja de valer y no se escribe nada.
   * Revisión optimista por perfil: ante una modificación concurrente se vuelve a leer ese perfil (una vez) y se re-evalúa; si persiste se informa y se sigue. Ante un fallo de persistencia (Spaces) el programa se DETIENE con el estado
     exacto (hechos / pendientes). Es IDEMPOTENTE y REANUDABLE sin estado propio: un perfil ya corregido deja de seleccionarse, así que repetirlo solo procesa lo que falta.
@@ -39,6 +41,7 @@ SENIORITY_VALUE = "Senior"
 CONFIRM_PREFIX = "SANEAR-CONTADOR"
 CONCURRENT_RETRIES = 1
 PROFILES_DIR = "human-capital/profiles"            # directorio persistido que este CLI lee y escribe (misma clave remota que usa el Hub)
+CATALOGS_DIR = "human-capital/catalogs"            # catálogos gobernados de CCHH (`catalogos.json`): el CLI los necesita para validar `Senior`
 EXIT_OK, EXIT_BLOCKED, EXIT_NOT_CONFIRMED, EXIT_FAILED, EXIT_INCOMPLETE = 0, 2, 4, 5, 6
 
 _BUSINESS_FIELDS = ("first_name", "last_name", "email", "phone", "linkedin_url", "location", "profile_skills", "seniority", "source", "tags", "notes", "potential_rating", "potential_mark")
@@ -172,8 +175,8 @@ def default_deps() -> dict:
     return {"config": config, "remote_store": remote_store, "service": service, "repo": profile_repository, "catalog": catalog_repo}
 
 
-def preflight(deps: dict, wanted_seniority: str, *, need_write: bool) -> list[str]:
-    """Bloqueos ANTES de leer o escribir nada: modo de persistencia y valor EXACTO de seniority en el catálogo gobernado vigente."""
+def preflight(deps: dict, *, need_write: bool) -> list[str]:
+    """Bloqueos ANTES de leer o escribir nada: modo de persistencia. El catálogo gobernado se valida después de restaurarlo (`check_seniority_catalog`)."""
     blockers: list[str] = []
     mode = str(getattr(deps["config"], "PERSISTENCE_MODE", ""))
     rs = deps["remote_store"]
@@ -181,9 +184,19 @@ def preflight(deps: dict, wanted_seniority: str, *, need_write: bool) -> list[st
         blockers.append("MODE_READ_ONLY")
     if mode == "remote" and not rs.enabled():
         blockers.append("REMOTE_NOT_CONFIGURED")
-    if wanted_seniority not in deps["catalog"].catalog_values("seniority"):
-        blockers.append("SENIORITY_NOT_IN_GOVERNED_CATALOG")
     return blockers
+
+
+def check_seniority_catalog(deps: dict, wanted_seniority: str) -> tuple[list[str], list[str]]:
+    """`(bloqueos, valores vigentes)`. `CATALOG_NOT_AVAILABLE`: no hay snapshot del catálogo CCHH (ausente o ilegible) o no trae valores de Seniority. `SENIORITY_NOT_IN_GOVERNED_CATALOG`: el catálogo existe y
+    tiene valores pero NO el valor exacto pedido. Solo lectura: no crea ni modifica valores."""
+    catalog = deps["catalog"]
+    values = catalog.catalog_values("seniority")
+    if catalog.snapshot_meta() is None or not values:
+        return ["CATALOG_NOT_AVAILABLE"], []
+    if wanted_seniority not in values:
+        return ["SENIORITY_NOT_IN_GOVERNED_CATALOG"], values
+    return [], values
 
 
 # ═══════════════════ fuente de datos: restauración desde Spaces ═══════════════════
@@ -199,26 +212,26 @@ def _persisting_only(cfg, names: list[str]):
         cfg.PERSIST_PATHS = saved
 
 
-def sync_profiles_from_spaces(deps: dict) -> dict:
-    """Trae al disco local los perfiles persistidos en Spaces con el mecanismo existente (`remote_store.restore`, sin sobrescribir lo local) y los verifica contra el inventario remoto. Solo lectura del bucket. Devuelve el
+def sync_from_spaces(deps: dict, directory: str) -> dict:
+    """Trae al disco local lo persistido en Spaces bajo `directory` con el mecanismo existente (`remote_store.restore`, sin sobrescribir lo local) y lo verifica contra el inventario remoto. Solo lectura del bucket. Devuelve el
     informe (`aplica=False` si no hay lectura remota autorizada: modo `local` o sin credenciales, donde la fuente de verdad es el disco) y `bloqueos`."""
     rs, cfg = deps["remote_store"], deps["config"]
     info: dict = {"aplica": False, "bloqueos": []}
     if not rs.read_enabled():
         return info
-    local_dir = Path(cfg.BASE_DIR) / PROFILES_DIR
+    local_dir = Path(cfg.BASE_DIR) / directory
 
     def local_count() -> int:
-        return sum(1 for _ in local_dir.glob("*.json")) if local_dir.exists() else 0
+        return sum(1 for f in local_dir.rglob("*") if f.is_file() and not f.name.startswith(".tmp-")) if local_dir.exists() else 0
 
     info.update(aplica=True, locales_antes=local_count())
-    with _persisting_only(cfg, [PROFILES_DIR]):
+    with _persisting_only(cfg, [directory]):
         try:
-            remote = rs.list_persisted_objects(PROFILES_DIR)
+            remote = rs.list_persisted_objects(directory)
         except rs.RemoteReadError:
             info["bloqueos"].append("RESTORE_LISTADO_REMOTO_FALLIDO")
             return info
-        info["remotos"] = sum(1 for rel in remote if rel.endswith(".json"))
+        info["remotos"] = len(remote)
         rs.restore()                                                       # MISMA función que el arranque de la app web; overwrite=False: nunca pisa un archivo local distinto
     report = dict(rs.last_restore_report)
     info.update(descargados=report.get("downloaded", 0), identicos=report.get("reconciled", 0), locales_distintos=report.get("skipped_existing", 0), fallidos=report.get("failed", 0),
@@ -228,6 +241,14 @@ def sync_profiles_from_spaces(deps: dict) -> dict:
     if report.get("skipped_existing"):
         info["bloqueos"].append("RESTORE_LOCAL_DISTINTO_DEL_REMOTO")
     return info
+
+
+def sync_profiles_from_spaces(deps: dict) -> dict:
+    return sync_from_spaces(deps, PROFILES_DIR)
+
+
+def sync_catalogs_from_spaces(deps: dict) -> dict:
+    return sync_from_spaces(deps, CATALOGS_DIR)
 
 
 # ═══════════════════ ejecución ═══════════════════
@@ -291,25 +312,47 @@ def run(argv: list[str] | None = None, deps: dict | None = None, out=None) -> in
     def say(text: str = "") -> None:
         print(text, file=out)
 
-    blockers = preflight(deps, args.seniority, need_write=execute_mode)
+    blockers = preflight(deps, need_write=execute_mode)
     if blockers:
         say(f"BLOQUEADO: {', '.join(blockers)}")
-        if "SENIORITY_NOT_IN_GOVERNED_CATALOG" in blockers:
-            say(f"  El valor '{args.seniority}' no existe tal cual en el catálogo gobernado de Seniority (valores vigentes: {', '.join(deps['catalog'].catalog_values('seniority')) or 'catálogo no disponible'}). No se leyó ni se escribió nada.")
         return EXIT_BLOCKED
     env = environment(deps)
-    sync = sync_profiles_from_spaces(deps)
-    if sync["aplica"]:
-        say(f"Perfiles en Spaces: {sync.get('remotos', '?')} · locales antes: {sync['locales_antes']} · descargados: {sync.get('descargados', 0)} · ya idénticos: {sync.get('identicos', 0)} · "
-            f"locales distintos del remoto: {sync.get('locales_distintos', 0)} · fallidos: {sync.get('fallidos', 0)} · locales después: {sync.get('locales_despues', sync['locales_antes'])}")
-    if sync["bloqueos"]:
-        say(f"BLOQUEADO: {', '.join(sync['bloqueos'])}")
+
+    def sync_line(label: str, info: dict) -> None:
+        if info["aplica"]:
+            say(f"{label} en Spaces: {info.get('remotos', '?')} · locales antes: {info['locales_antes']} · descargados: {info.get('descargados', 0)} · ya idénticos: {info.get('identicos', 0)} · "
+                f"locales distintos del remoto: {info.get('locales_distintos', 0)} · fallidos: {info.get('fallidos', 0)} · locales después: {info.get('locales_despues', info['locales_antes'])}")
+
+    def blocked_by(info: dict) -> bool:
+        if not info["bloqueos"]:
+            return False
+        say(f"BLOQUEADO: {', '.join(info['bloqueos'])}")
         say("  No se pudo dejar el disco local fiel a Spaces (ver cifras de arriba): no se leyó ningún perfil ni se escribió nada. Reintentá; si persiste, no ejecutar.")
+        return True
+
+    # 1) catálogos gobernados: se restauran ANTES de validar `Senior` (este proceso no pasó por el arranque de la app web, que es quien los restaura)
+    catalogs = sync_catalogs_from_spaces(deps)
+    sync_line("Catálogos", catalogs)
+    if blocked_by(catalogs):
+        return EXIT_BLOCKED
+    catalog_blockers, values = check_seniority_catalog(deps, args.seniority)
+    if catalog_blockers:
+        say(f"BLOQUEADO: {', '.join(catalog_blockers)}")
+        if "CATALOG_NOT_AVAILABLE" in catalog_blockers:
+            say("  El catálogo gobernado de CCHH no está disponible: no hay snapshot (ausente o ilegible, también tras restaurar desde Spaces) o no trae valores de Seniority. No se creó ningún valor ni se omitió la validación; "
+                "no se leyó ningún perfil ni se escribió nada.")
+        else:
+            say(f"  El catálogo de Seniority existe pero no trae el valor exacto '{args.seniority}' (valores vigentes: {', '.join(values)}). No se leyó ningún perfil ni se escribió nada.")
+        return EXIT_BLOCKED
+    # 2) perfiles
+    sync = sync_profiles_from_spaces(deps)
+    sync_line("Perfiles", sync)
+    if blocked_by(sync):
         return EXIT_BLOCKED
     plan = build_plan(deps["repo"].list(), wanted_seniority=args.seniority)
     summary = summarize(plan)
     phrase = confirmation_phrase(env, plan)
-    report = {"modo": "ejecucion" if execute_mode else "dry-run", "entorno": {"persistencia": env["mode"], "env8": env["env8"]}, "restauracion": sync, "resumen": summary}
+    report = {"modo": "ejecucion" if execute_mode else "dry-run", "entorno": {"persistencia": env["mode"], "env8": env["env8"]}, "restauracion": {"catalogos": catalogs, "perfiles": sync}, "resumen": summary}
     say(f"Modo: {report['modo']}  |  persistencia: {env['mode']} ({env['env8']})")
     for key, value in summary.items():
         say(f"  {key}: {value}")
