@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 import config
 from webapp.main import app
 from webapp.routers.human_capital import _fecha_dmy
-from webapp.services import auth_service, busqueda_repository, human_capital_service, profile_repository
+from webapp.services import auth_service, busqueda_repository, human_capital_service, profile_repository, search_text
 from webapp.services import human_capital_catalog_repository as catalog_repo
 
 _AUTHORIZED_EMAIL = "hc-busquedas-test@danwor.com"
@@ -437,7 +437,7 @@ def test_add_candidate_dialog_has_a_live_search_over_available_candidates_withou
     # el haystack de cada fila es EL del buscador de Base de CVs: nombre, email, skills y ubicación (misma definición que el filtro del landing)
     hay = {pid: s for s, pid in rows.items()}
     for term, pid in (("ana pérez", ana), ("luis@danwor", luis), ("sap fi", ana), ("rosario", luis)):
-        assert term in hay[pid]
+        assert search_text.fold(term) in hay[pid]                      # el haystack llega plegado (sin tildes); el navegador pliega la consulta igual
         assert [p["profile_id"] for p in human_capital_service.filter_profiles(human_capital_service.list_profiles(), {"q": term})] == [pid]       # coincide con el landing
     assert hay[ana] == human_capital_service.profile_search_haystack(human_capital_service.get_profile(ana))
     # sin candidatos disponibles: ni buscador ni mensaje de «sin resultados»

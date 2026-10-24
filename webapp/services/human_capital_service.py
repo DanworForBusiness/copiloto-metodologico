@@ -59,6 +59,7 @@ from webapp.services import onboarding_repository
 from webapp.services import profile_repository
 from webapp.services import publicacion_repository
 from webapp.services import scoring_evaluation_repository
+from webapp.services import search_text
 from webapp.services import scoring_grid_repository
 from webapp.services.profile_repository import (  # re-exportados para el router
     ProfileConcurrentModificationError,
@@ -139,7 +140,10 @@ def _normalize_text(value) -> str:
     espacios/tabs/newlines, no solo espacios simples). Sin librería
     externa — alcanza con `str.split()`/`str.join()`. `None`/`""` ->
     `""` (nunca revienta con valores opcionales ausentes, que son la
-    mayoría de los campos de Profile)."""
+    mayoría de los campos de Profile).
+
+    NO es la normalización de la BÚSQUEDA LIBRE: ésta es identidad (duplicados, igualdad exacta de filtros/catálogos) y distingue tildes (`Díaz` ≠ `Diaz`).
+    Los buscadores de texto libre usan `search_text.fold` (sin mayúsculas ni diacríticos, `ñ` ≡ `n`)."""
     if not value:
         return ""
     return " ".join(str(value).lower().split())
@@ -167,12 +171,12 @@ def _matches_search_text(profile: dict, q_normalized: str) -> bool:
 
 def profile_search_haystack(profile: dict) -> str:
     """Texto normalizado contra el que se busca un candidato (nombre, email, skills, ubicación, tags, notas y «nombre apellido»). ÚNICA definición: el buscador del landing de Base de CVs
-    (`_matches_search_text`) y el del diálogo «Agregar candidato desde el Banco» (filtro en vivo en el navegador, que normaliza la consulta igual que `_normalize_text`) la comparten."""
+    (`_matches_search_text`) y el del diálogo «Agregar candidato desde el Banco» (filtro en vivo en el navegador, que normaliza la consulta igual que `search_text.fold`: sin mayúsculas ni tildes) la comparten."""
     first = profile.get("first_name") or ""
     last = profile.get("last_name") or ""
     haystack_values = [profile.get(field) for field in _SEARCH_TEXT_FIELDS]
     haystack_values.append(f"{first} {last}")
-    return " ".join(_normalize_text(value) for value in haystack_values if value)
+    return " ".join(search_text.fold(value) for value in haystack_values if value)
 
 
 def _matches_structured_filters(profile: dict, query: dict) -> bool:
@@ -199,8 +203,8 @@ def _matches_structured_filters(profile: dict, query: dict) -> bool:
         wanted = _normalize_text(query.get(field))
         if wanted and _normalize_text(profile.get(field)) != wanted:
             return False
-    wanted_location = _normalize_text(query.get("location"))
-    if wanted_location and wanted_location not in _normalize_text(profile.get("location")):
+    wanted_location = search_text.fold(query.get("location"))              # texto libre: búsqueda sin mayúsculas ni tildes (no es una clave de identidad)
+    if wanted_location and wanted_location not in search_text.fold(profile.get("location")):
         return False
     return True
 
@@ -235,7 +239,7 @@ def filter_profiles(profiles: list[dict], query: dict | None) -> list[dict]:
     AND (§20)."""
     if not query:
         return list(profiles)
-    q_normalized = _normalize_text(query.get("q"))
+    q_normalized = search_text.fold(query.get("q"))
     return [
         profile for profile in profiles
         if _matches_search_text(profile, q_normalized) and _matches_structured_filters(profile, query)
@@ -1700,13 +1704,13 @@ def _onboarding_search_haystack(row: dict, include_offer: bool = False) -> str:
     progreso = "Completado" if row.get("completado") else f"{prog.get('hechos', 0)}/{prog.get('total', 0)} · {prog.get('porcentaje', 0)}%"
     values = [f"{profile.get('first_name') or ''} {profile.get('last_name') or ''}", row.get("puesto_mostrado"), row.get("area"), fecha, fecha_dmy, progreso,
               row.get("oferta_cerrada") if include_offer else None]            # dato sensible: sin permiso NO es buscable (ni siquiera enmascarado)
-    return " ".join(_normalize_text(v) for v in values if v)
+    return " ".join(search_text.fold(v) for v in values if v)
 
 
 def filter_onboardings(rows: list[dict], *, estado: str = "todos", area: str = "", q: str = "", include_offer: bool = False) -> list[dict]:
     """AND entre Estado (pendientes/completos por `completado`), Área (igualdad EXACTA sobre el área EFECTIVA de la fila, incluido un valor legacy fuera de catálogo;
     `ONBOARDING_SIN_AREA` = filas sin área) y Buscar (substring normalizado, case-insensitive, sobre `_onboarding_search_haystack`). Un filtro vacío no restringe."""
-    wanted_q = _normalize_text(q)
+    wanted_q = search_text.fold(q)
     out = []
     for row in rows:
         if estado == "pendientes" and row.get("completado"):
@@ -1735,7 +1739,7 @@ def _entrevista_search_haystack(row: dict, include_compensation: bool = True) ->
     fecha_dmy = "-".join(reversed(parts)) if len(parts) == 3 else fecha
     values = [f"{profile.get('first_name') or ''} {profile.get('last_name') or ''}", row.get("origen"), row.get("puesto_mostrado"), row.get("area"), fecha, fecha_dmy,
               row.get("modalidad_contratacion"), row.get("remuneracion_pretendida") if include_compensation else None, None if row.get("concretada", True) else "No concretada"]
-    return " ".join(_normalize_text(v) for v in values if v)
+    return " ".join(search_text.fold(v) for v in values if v)
 
 
 def filter_entrevistas(rows: list[dict], *, origen: str = "", puesto: str = "", area: str = "", q: str = "", include_compensation: bool = True) -> list[dict]:
@@ -1747,7 +1751,7 @@ def filter_entrevistas(rows: list[dict], *, origen: str = "", puesto: str = "", 
         if not wanted:
             return True
         return not effective if wanted == sentinel else effective == wanted
-    wanted_q = _normalize_text(q)
+    wanted_q = search_text.fold(q)
     out = []
     for row in rows:
         if (matches(row.get("origen"), origen, ENTREVISTA_SIN_ORIGEN) and matches(row.get("puesto_mostrado"), puesto, ENTREVISTA_SIN_PUESTO)
@@ -1914,12 +1918,12 @@ def _publicacion_search_haystack(row: dict) -> str:
     parts = fecha.split("-")
     fecha_dmy = "-".join(reversed(parts)) if len(parts) == 3 else fecha
     values = [row.get("posicion"), row.get("canal"), row.get("periodo"), fecha, fecha_dmy, row.get("observacion"), row.get("busqueda_nombre")]
-    return " ".join(_normalize_text(v) for v in values if v)
+    return " ".join(search_text.fold(v) for v in values if v)
 
 
 def filter_publicaciones(rows: list[dict], *, periodo: str = "", canal: str = "", q: str = "") -> list[dict]:
     """AND entre Período (igualdad exacta), Canal (igualdad exacta, incluido un valor histórico fuera de catálogo) y Buscar (substring normalizado). Un filtro vacío no restringe."""
-    wanted_q = _normalize_text(q)
+    wanted_q = search_text.fold(q)
     return [r for r in rows
             if (not periodo or (r.get("periodo") or "") == periodo) and (not canal or (r.get("canal") or "") == canal)
             and (not wanted_q or wanted_q in _publicacion_search_haystack(r))]

@@ -182,7 +182,7 @@
     (function () {
       if (window.__hcPickerWired) return;       // el cuerpo del detalle se re-renderiza por HTMX: un único wiring global (delegado)
       window.__hcPickerWired = true;
-      function norm(v) { return String(v || "").toLowerCase().split(/\s+/).filter(Boolean).join(" "); }   // MISMA normalización que `_normalize_text` (minúsculas + espacios colapsados)
+      var norm = window.dwSearchFold || function (v) { return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/\s+/).filter(Boolean).join(" "); };   // MISMA normalización que el servidor (`search_text.fold`): sin mayúsculas ni tildes
       document.addEventListener("input", function (ev) {
         var input = ev.target.closest && ev.target.closest("[data-picker-q]");
         if (!input) return;
