@@ -14,25 +14,31 @@ REGLAS
   * Toda escritura pasa por `human_capital_service.update_profile` (validación compartida, catálogos gobernados, revisión optimista y escritura/compensación de `profile_repository`): este programa NO escribe archivos JSON ni objetos de Spaces.
     Los campos que no se tocan (documentos, `import_origin`, tags, notas, fuente, potencial…) se conservan: el repositorio fusiona sobre el registro actual (el servicio solo explicita como `null` los campos
     de negocio que faltaban en el registro, sin cambiar su significado).
+  * FUENTE DE DATOS: `profile_repository.list()` lee SOLO el disco local; en producción ese disco lo puebla `remote_store.restore()` al arrancar la APP WEB (lifespan), no un proceso aparte. Por eso este CLI, que corre en
+    otro proceso, restaura los perfiles desde Spaces con ese mismo mecanismo (acotado a `human-capital/profiles`, sin sobrescribir) y VERIFICA contra el inventario remoto antes de leer: si el listado remoto falla, la
+    restauración queda incompleta, un archivo local difiere del remoto o hay menos perfiles locales que objetos remotos, se bloquea sin leer ni escribir. El informe muestra remotos / locales antes / descargados / idénticos.
   * `--execute` exige `--confirm` con la frase derivada del ENTORNO y del PLAN exacto (perfil, revisión y valores nuevos): si algo cambió desde el dry-run, la frase deja de valer y no se escribe nada.
   * Revisión optimista por perfil: ante una modificación concurrente se vuelve a leer ese perfil (una vez) y se re-evalúa; si persiste se informa y se sigue. Ante un fallo de persistencia (Spaces) el programa se DETIENE con el estado
     exacto (hechos / pendientes). Es IDEMPOTENTE y REANUDABLE sin estado propio: un perfil ya corregido deja de seleccionarse, así que repetirlo solo procesa lo que falta.
 
 SALIDA: sin nombres, emails ni teléfonos: solo un identificador corto del perfil (8 caracteres del id opaco), especialidades y seniority antes/después, y conteos.
-Códigos: 0 ok · 2 bloqueado (modo/catálogo) · 4 confirmación faltante o inválida (cero cambios) · 5 falla de persistencia durante la ejecución (reanudable) · 6 terminó pero quedaron perfiles por
+Códigos: 0 ok · 2 bloqueado (modo/catálogo/restauración) · 4 confirmación faltante o inválida (cero cambios) · 5 falla de persistencia durante la ejecución (reanudable) · 6 terminó pero quedaron perfiles por
 modificación concurrente o rechazo de validación (volver a correr)."""
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import sys
+from pathlib import Path
 
 TARGET_TOKEN = "Contador SR"
 REPLACEMENT_TOKEN = "Contador"
 SENIORITY_VALUE = "Senior"
 CONFIRM_PREFIX = "SANEAR-CONTADOR"
 CONCURRENT_RETRIES = 1
+PROFILES_DIR = "human-capital/profiles"            # directorio persistido que este CLI lee y escribe (misma clave remota que usa el Hub)
 EXIT_OK, EXIT_BLOCKED, EXIT_NOT_CONFIRMED, EXIT_FAILED, EXIT_INCOMPLETE = 0, 2, 4, 5, 6
 
 _BUSINESS_FIELDS = ("first_name", "last_name", "email", "phone", "linkedin_url", "location", "profile_skills", "seniority", "source", "tags", "notes", "potential_rating", "potential_mark")
@@ -180,6 +186,50 @@ def preflight(deps: dict, wanted_seniority: str, *, need_write: bool) -> list[st
     return blockers
 
 
+# ═══════════════════ fuente de datos: restauración desde Spaces ═══════════════════
+@contextlib.contextmanager
+def _persisting_only(cfg, names: list[str]):
+    """Acota SOLO durante la restauración los directorios persistidos del proceso (`restore()` y `list_persisted_objects()` los leen de `config.PERSIST_PATHS`): este CLI no necesita bajar catálogos de casos, reportes ni
+    el resto de `human-capital`. Se restaura el valor original al salir, así `push_path` y el resto de la ejecución ven la configuración completa."""
+    saved = cfg.PERSIST_PATHS
+    cfg.PERSIST_PATHS = list(names)
+    try:
+        yield
+    finally:
+        cfg.PERSIST_PATHS = saved
+
+
+def sync_profiles_from_spaces(deps: dict) -> dict:
+    """Trae al disco local los perfiles persistidos en Spaces con el mecanismo existente (`remote_store.restore`, sin sobrescribir lo local) y los verifica contra el inventario remoto. Solo lectura del bucket. Devuelve el
+    informe (`aplica=False` si no hay lectura remota autorizada: modo `local` o sin credenciales, donde la fuente de verdad es el disco) y `bloqueos`."""
+    rs, cfg = deps["remote_store"], deps["config"]
+    info: dict = {"aplica": False, "bloqueos": []}
+    if not rs.read_enabled():
+        return info
+    local_dir = Path(cfg.BASE_DIR) / PROFILES_DIR
+
+    def local_count() -> int:
+        return sum(1 for _ in local_dir.glob("*.json")) if local_dir.exists() else 0
+
+    info.update(aplica=True, locales_antes=local_count())
+    with _persisting_only(cfg, [PROFILES_DIR]):
+        try:
+            remote = rs.list_persisted_objects(PROFILES_DIR)
+        except rs.RemoteReadError:
+            info["bloqueos"].append("RESTORE_LISTADO_REMOTO_FALLIDO")
+            return info
+        info["remotos"] = sum(1 for rel in remote if rel.endswith(".json"))
+        rs.restore()                                                       # MISMA función que el arranque de la app web; overwrite=False: nunca pisa un archivo local distinto
+    report = dict(rs.last_restore_report)
+    info.update(descargados=report.get("downloaded", 0), identicos=report.get("reconciled", 0), locales_distintos=report.get("skipped_existing", 0), fallidos=report.get("failed", 0),
+                estado=rs.restore_status(), locales_despues=local_count())
+    if rs.restore_status() != "completed" or report.get("failed") or report.get("listing_failed") or info["locales_despues"] < info["remotos"]:
+        info["bloqueos"].append("RESTORE_INCOMPLETO")
+    if report.get("skipped_existing"):
+        info["bloqueos"].append("RESTORE_LOCAL_DISTINTO_DEL_REMOTO")
+    return info
+
+
 # ═══════════════════ ejecución ═══════════════════
 def _fields_for_update(profile: dict, after: dict) -> dict:
     """Campos de negocio que espera `update_profile` (texto): los actuales, con solo los dos que cambian. El potencial en estrellas se pasa como texto (el servicio lo vuelve a validar)."""
@@ -248,13 +298,23 @@ def run(argv: list[str] | None = None, deps: dict | None = None, out=None) -> in
             say(f"  El valor '{args.seniority}' no existe tal cual en el catálogo gobernado de Seniority (valores vigentes: {', '.join(deps['catalog'].catalog_values('seniority')) or 'catálogo no disponible'}). No se leyó ni se escribió nada.")
         return EXIT_BLOCKED
     env = environment(deps)
+    sync = sync_profiles_from_spaces(deps)
+    if sync["aplica"]:
+        say(f"Perfiles en Spaces: {sync.get('remotos', '?')} · locales antes: {sync['locales_antes']} · descargados: {sync.get('descargados', 0)} · ya idénticos: {sync.get('identicos', 0)} · "
+            f"locales distintos del remoto: {sync.get('locales_distintos', 0)} · fallidos: {sync.get('fallidos', 0)} · locales después: {sync.get('locales_despues', sync['locales_antes'])}")
+    if sync["bloqueos"]:
+        say(f"BLOQUEADO: {', '.join(sync['bloqueos'])}")
+        say("  No se pudo dejar el disco local fiel a Spaces (ver cifras de arriba): no se leyó ningún perfil ni se escribió nada. Reintentá; si persiste, no ejecutar.")
+        return EXIT_BLOCKED
     plan = build_plan(deps["repo"].list(), wanted_seniority=args.seniority)
     summary = summarize(plan)
     phrase = confirmation_phrase(env, plan)
-    report = {"modo": "ejecucion" if execute_mode else "dry-run", "entorno": {"persistencia": env["mode"], "env8": env["env8"]}, "resumen": summary}
+    report = {"modo": "ejecucion" if execute_mode else "dry-run", "entorno": {"persistencia": env["mode"], "env8": env["env8"]}, "restauracion": sync, "resumen": summary}
     say(f"Modo: {report['modo']}  |  persistencia: {env['mode']} ({env['env8']})")
     for key, value in summary.items():
         say(f"  {key}: {value}")
+    if sync["aplica"] and summary["perfiles_leidos"] == 0:
+        say("ATENCIÓN: 0 perfiles leídos aunque la persistencia es remota: verificá el bucket/prefijo (env8) antes de seguir.")
     shown = plan["items"] if args.limit == 0 else plan["items"][: args.limit]
     if shown:
         say("Antes -> después (identificador corto del perfil; sin datos personales):")
