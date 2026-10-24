@@ -9,6 +9,8 @@ segundo mecanismo. Separa por diseño lo personal de lo auditable:
   verdicts/<content_key>.json DICTAMEN DEL OWNER por documento y POR LOTE (propuesta correcta / corrección manual / identidad no determinada), con historial append-only y la propuesta evaluada. Es un archivo
                             APARTE de `staging/`: el resultado de la extracción nunca se reescribe al dictaminar. Una corrección manual contiene datos personales: vive en el área temporal protegida y se
                             elimina junto con ella al descartar el lote.
+  import-index.json         (solo lotes de IMPORTACIÓN) índice de los contenidos del origen con su procedencia (incluye NOMBRES DE ARCHIVO, que suelen llevar el nombre de la persona): área protegida, se elimina con el descarte.
+  import-plan.json          (solo lotes de IMPORTACIÓN) plan de importación: decisión por contenido (acción, motivos, grupo, perfil destino). SIN datos personales: sobrevive al descarte como registro técnico durable.
   audit/<content_key>.json    AUDITORÍA: una lista de eventos (estado, código de excepción, hora). SIN datos personales: sobrevive al descarte del área temporal.
 
 Una unidad = un CONTENIDO de documento (`content_key`, derivado del hash de contenido que informa Graph, o del id Graph si no hay hash). Un mismo contenido que aparece en varias carpetas es UN registro con TODAS
@@ -189,22 +191,59 @@ def _delete_dir_files(directory: Path) -> int:
     return removed
 
 
+def _delete_file(path: Path) -> int:
+    if not path.is_file():
+        return 0
+    previous = path.read_bytes()
+    path.unlink()
+    if not (remote_store.local_only() or remote_store.delete_path(path)):
+        path.write_bytes(previous)                                        # rollback: local y remoto nunca divergen
+        raise ManifestDurabilityError("borrado no confirmado en Spaces")
+    return 1
+
+
 def delete_staging_files(run_id: str) -> int:
     """Elimina, UNO por UNO (nunca un borrado de directorio), los archivos con datos personales del lote —el área temporal y los dictámenes con correcciones manuales—: local y Spaces, con rollback local si el
     remoto no se confirma. Idempotente (lo ya eliminado no cuenta). Devuelve cuántos archivos eliminó en esta llamada. La auditoría y `run.json` NO se tocan."""
     if remote_store.read_only_mode():
         raise ManifestDurabilityError("modo de solo lectura")
-    return _delete_dir_files(_run_dir(run_id) / "staging") + _delete_dir_files(_run_dir(run_id) / "verdicts")
+    return _delete_dir_files(_run_dir(run_id) / "staging") + _delete_dir_files(_run_dir(run_id) / "verdicts") + _delete_file(_run_dir(run_id) / "import-index.json")
 
 
 def staging_files_present(run_id: str) -> int:
     _ensure_restored()
-    total = 0
+    total = 1 if (_run_dir(run_id) / "import-index.json").is_file() else 0
     for sub in ("staging", "verdicts"):
         directory = _run_dir(run_id) / sub
         if directory.is_dir():
             total += sum(1 for e in directory.iterdir() if e.is_file() and e.suffix == ".json" and KEY_RE.match(e.stem))
     return total
+
+
+# ── lotes de IMPORTACIÓN: índice de contenidos (protegido) y plan (sin datos personales) ───────────────────
+def put_index(run_id: str, doc: dict) -> dict:
+    """Índice de los contenidos del origen (uno por `content_key`, con su procedencia). Contiene nombres de archivo: va en el área protegida. Se escribe UNA vez al crear el lote; los registros por contenido
+    se materializan al procesarlos (un lote de ~800 contenidos no puede escribir 800 archivos en una sola petición)."""
+    doc = {**doc, "schema": SCHEMA, "run_id": run_id, "created_at": now_iso()}
+    _write(_run_dir(run_id) / "import-index.json", doc)
+    return doc
+
+
+def get_index(run_id: str) -> dict | None:
+    return _read(_run_dir(run_id) / "import-index.json")
+
+
+def put_plan(run_id: str, doc: dict) -> dict:
+    """Plan de importación: decisión por contenido. SIN datos personales (solo códigos, `content_key` y el `profile_id` de perfiles existentes). Reemplaza al anterior y suma `revision`."""
+    path = _run_dir(run_id) / "import-plan.json"
+    previous = _read(path)
+    doc = {**doc, "schema": SCHEMA, "run_id": run_id, "revision": int((previous or {}).get("revision", 0)) + 1}
+    _write(path, doc)
+    return doc
+
+
+def get_plan(run_id: str) -> dict | None:
+    return _read(_run_dir(run_id) / "import-plan.json")
 
 
 # ── dictámenes del owner (por lote; append-only; NUNCA reescriben el resultado de la extracción) ──────────────

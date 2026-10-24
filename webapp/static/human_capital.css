@@ -593,11 +593,11 @@
 .dashboard-table[data-pilot-rows] td .status-badge { margin: 0 4px 4px 0; display: inline-block; }
 #cvrun-panel .dashboard-table :is(th, td) { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; }
 @media (max-width: 640px) {
-  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation]) { display: block; }
-  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation]) tbody { display: block; }
-  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation]) tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
-  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation]) td[colspan] { grid-column: 1 / -1; }
-  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation]) td.hc-kv-value { text-align: right; font-weight: 600; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions]) { display: block; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions]) tbody { display: block; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions]) tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions]) td[colspan] { grid-column: 1 / -1; }
+  #cvrun-panel :is([data-pilot-population], [data-pilot-documents], [data-pilot-rates], [data-pilot-verdicts], [data-pilot-comparison], [data-pilot-reconciliation], [data-plan-actions]) td.hc-kv-value { text-align: right; font-weight: 600; }
 }
 .dashboard-table[data-pilot-rows] td[data-verdict-col] { min-width: 270px; }
 .hc-verdict { display: grid; gap: 6px; justify-items: start; }

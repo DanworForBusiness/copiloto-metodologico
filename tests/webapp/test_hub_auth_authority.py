@@ -263,8 +263,8 @@ def test_the_marker_is_declarative_and_carries_no_credential():
     hook (hub_auth.js), nunca viaja en el markup. Se enumeran los sitios
     APROBADOS por archivo (no un número mágico suelto) para que sumar/quitar un
     consumidor sea una decisión explícita, no un conteo silencioso:
-      - human_capital/cv_history_pilot.html + partials/cv_history_run_panel.html -> piloto de extracción de CVs históricos (1 + 1): token base de LECTURA (`Sites.Read.All`) que
-        inyecta el MISMO hook para crear el lote y para descargar la muestra (solo lectura); no obtienen ni guardan credenciales
+      - human_capital/cv_history_pilot.html + partials/cv_history_run_panel.html -> piloto y análisis de importación de CVs históricos (2 + 2): token base de LECTURA (`Sites.Read.All`) que
+        inyecta el MISMO hook para crear el lote (piloto o importación) y para descargar los documentos (solo lectura); no obtienen ni guardan credenciales
       - operations/staffing.html    -> asignaciones (1)
       - human_capital/diagnostico_sharepoint.html -> inventario histórico de CVs, SOLO LECTURA (1): usa el token base de lectura (`Sites.Read.All`) que inyecta el MISMO hook;
         no obtiene ni guarda credenciales
@@ -279,9 +279,9 @@ def test_the_marker_is_declarative_and_carries_no_credential():
         la credencial).
     """
     approved = {
-        "human_capital/cv_history_pilot.html": 1,
+        "human_capital/cv_history_pilot.html": 2,
         "human_capital/diagnostico_sharepoint.html": 1,
-        "partials/cv_history_run_panel.html": 1,
+        "partials/cv_history_run_panel.html": 2,
         "operations/staffing.html": 1,
         "partials/admin_apis_sync.html": 2,
         "partials/admin_panel.html": 4,

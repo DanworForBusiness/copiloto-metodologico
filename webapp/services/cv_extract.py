@@ -380,6 +380,12 @@ def _local_part(email: str) -> tuple[str, list[str]]:
     return re.sub(r"[^a-z]", "", fold(raw)), parts
 
 
+def is_role_mailbox(email: str) -> bool:
+    """Buzón de rol o genérico («info», «ventas», «rrhh»…): el usuario o alguno de sus componentes es un rol. No identifica a una persona."""
+    local, parts = _local_part(email)
+    return not local or local in ROLE_MAILBOXES or any(p in ROLE_MAILBOXES for p in parts)
+
+
 def email_explained(core_tokens: list[str], emails: list[str]) -> set[str]:
     """Palabras del nombre (en minúscula, sin acentos) que explica la coincidencia DISTINTIVA con el usuario de algún email; vacío si ningún email es fuerte. Coincidencia fuerte: (a) dos palabras distintas del nombre
     (3+ letras) aparecen en el usuario —explica esas más las de hasta 3 letras que sean un componente exacto del usuario—, o (b) las iniciales de las demás palabras + una palabra de 4+ letras, al principio o al final del

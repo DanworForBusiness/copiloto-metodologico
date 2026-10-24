@@ -7,6 +7,8 @@
   <p class="callout callout--info" data-pilot-result><span class="callout__body">Procesados {{ res.processed }} · con error {{ res.failed }} · pendientes {{ res.remaining }}{% if res.stopped_reason %} · corte: {{ res.stopped_reason }} (reanudable: volvé a procesar){% endif %}.</span></p>
   {% elif notice.kind == 'discarded' %}
   <p class="callout callout--info" data-pilot-discarded><span class="callout__body">{{ notice.message }}</span></p>
+  {% elif notice.kind == 'planned' %}
+  <p class="callout callout--info" data-pilot-planned><span class="callout__body">{{ notice.message }}</span></p>
   {% elif notice.kind == 'created' %}
   <p class="callout callout--info" data-pilot-created><span class="callout__body">{{ notice.message }}</span></p>
   {% else %}
@@ -21,13 +23,29 @@
   </p>
   {% if report.kind == 'rearbitration' %}
   <p class="callout callout--info" data-pilot-derived><span class="callout__body">Lote <strong>derivado</strong> de <a href="/cchh/diagnostico/cvs-historicos/{{ report.derived_from.run_id }}">{{ report.derived_from.run_id }}</a>: reevalúa la identidad con las reglas actuales (extractor v{{ report.derived_from.to_extractor_version }}) usando solo los datos ya guardados. No se leyó ningún documento y el lote original no se modificó.</span></p>
-  {% elif report.staging.state == 'PRESENT' and report.documents.extracted %}
+  {% elif report.kind == 'pilot' and report.staging.state == 'PRESENT' and report.documents.extracted %}
   <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/reevaluar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-pilot-rearbitrate-form>
     <div class="hc-profile-form__actions"><button type="submit" class="btn-secondary">Crear lote derivado (reevaluar identidad)</button>
     <span class="field-hint">Recalcula la identidad con las reglas actuales sin releer ningún documento ni tocar este lote. Permite comparar contra tus dictámenes.</span></div>
   </form>
   {% endif %}
-  {% if d.pending %}
+  {% if d.pending and report.kind == 'import' %}
+  {% set res = notice.result if (notice and notice.kind == 'processed') else none %}
+  <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/procesar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']"
+        {% if res and res.processed and res.remaining and res.stopped_reason in (none, 'TIME_BUDGET', 'BATCH_LIMIT') %}hx-trigger="load delay:700ms, submit" data-pilot-autocontinue{% endif %} data-dw-graph-token>
+    <div class="feedback-field feedback-field--compact">
+      <label for="cvrun-batch">Documentos por tanda</label>
+      <input id="cvrun-batch" name="batch" type="number" min="1" max="200" value="50">
+    </div>
+    <div class="hc-profile-form__actions"><button type="submit" class="btn-primary" data-pilot-analyze>Analizar ({{ d.pending }} pendiente{{ '' if d.pending == 1 else 's' }})</button>
+    <span class="field-hint">Descarga cada contenido una sola vez (solo lectura), extrae y concilia. Continúa solo hasta terminar; si se corta (token, red), se reanuda desde donde quedó. No escribe en el Banco ni en SharePoint.</span></div>
+  </form>
+  {% elif report.kind == 'import' and report.staging.state == 'PRESENT' and d.in_sample %}
+  <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/plan" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-pilot-plan-form>
+    <div class="hc-profile-form__actions"><button type="submit" class="btn-primary" data-pilot-plan>{{ 'Regenerar plan' if report.plan else 'Generar plan' }}</button>
+    <span class="field-hint">Decide, con el estado actual del Banco, qué haría la importación con cada contenido. Es solo una previsión: no crea ni vincula nada.</span></div>
+  </form>
+  {% elif d.pending %}
   <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/procesar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-dw-graph-token>
     <div class="hc-profile-form__actions"><button type="submit" class="btn-primary">Procesar muestra ({{ d.pending }} pendiente{{ '' if d.pending == 1 else 's' }})</button>
     <span class="field-hint">Descarga los documentos pendientes (solo lectura), extrae los datos localmente y concilia. Reanudable.</span></div>
@@ -92,6 +110,7 @@
   </table>
   <p class="field-hint">Una propuesta automática <strong>nunca es una identidad verificada</strong>: «declarada» significa que el documento dice ese nombre, no que algo independiente lo confirme. Extractor: {% for v, n in idn.extractor_versions.items() %}v{{ v }} ({{ n }}){% if not loop.last %}, {% endif %}{% else %}—{% endfor %}.</p>
 
+  {% if report.kind != 'import' %}
   <h3>Dictámenes del owner y precisión</h3>
   <table class="dashboard-table" data-pilot-verdicts><tbody>
     <tr><td class="left">Pendientes de dictamen</td><td class="left hc-kv-value" data-verdict-pending>{{ vd.pending }}</td><td class="left">Propuesta correcta</td><td class="left hc-kv-value" data-verdict-correct>{{ vd.correct }}</td></tr>
@@ -109,6 +128,33 @@
   </table>
   {% endif %}
   <p class="field-hint">Tres medidas separadas: <strong>cobertura</strong> (hay propuesta), <strong>precisión</strong> (de las propuestas dictaminadas, cuántas eran correctas) y <strong>no determinados</strong> (falta de datos: no cuenta como error de identidad).</p>
+
+  {% endif %}
+
+  {% if report.kind == 'import' and report.plan %}
+  {% set pl = report.plan.summary %}{% set pa = pl.actions %}
+  <h3>Plan de importación</h3>
+  <p class="field-hint" data-plan-meta>Generado {{ report.plan.generated_at }} (revisión {{ report.plan.revision }}) con el estado del Banco de ese momento. <strong>Es una previsión: todavía no se creó ni se vinculó ningún perfil ni se subió ningún documento.</strong></p>
+  <table class="dashboard-table" data-plan-actions><tbody>
+    <tr><td class="left">Contenidos únicos analizados</td><td class="left hc-kv-value">{{ pl.contents }}</td><td class="left">Documentos a subir en total</td><td class="left hc-kv-value">{{ pl.documents_to_upload }}</td></tr>
+    <tr><td class="left">Perfiles nuevos a crear</td><td class="left hc-kv-value" data-plan-create>{{ pl.profiles_to_create }}</td><td class="left">…con advertencia a revisar</td><td class="left hc-kv-value">{{ pl.created_with_warnings }}</td></tr>
+    <tr><td class="left">Documentos adicionales de esos perfiles</td><td class="left hc-kv-value" data-plan-attach>{{ pa.ATTACH }}</td><td class="left">Documentos a vincular a perfiles existentes</td><td class="left hc-kv-value" data-plan-link>{{ pa.LINK }}</td></tr>
+    <tr><td class="left">Perfiles existentes involucrados</td><td class="left hc-kv-value">{{ pl.existing_profiles_to_link }}</td><td class="left">Pendientes de completar</td><td class="left hc-kv-value" data-plan-pending>{{ pa.PENDING }}</td></tr>
+    <tr><td class="left">Duplicados de contenido</td><td class="left hc-kv-value" data-plan-duplicate>{{ pa.DUPLICATE }}</td><td class="left">Errores</td><td class="left hc-kv-value" data-plan-error>{{ pa.ERROR }}</td></tr>
+  </tbody></table>
+  {% if pl.pending_by_reason %}
+  <table class="dashboard-table" data-plan-reasons>
+    <thead><tr><th class="left">Motivo principal de los pendientes y errores</th><th>Contenidos</th></tr></thead>
+    <tbody>{% for code, n in pl.pending_by_reason.items() %}<tr><td class="left">{{ code }}</td><td>{{ n }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+  {% if pl.warnings %}<p class="field-hint" data-plan-warnings>Altas con advertencia: {% for code, n in pl.warnings.items() %}{{ code }} ({{ n }}){% if not loop.last %}, {% endif %}{% endfor %}. Se crearían igual y quedarían marcadas para revisar.</p>{% endif %}
+  <h3>Plan por especialidad <span class="field-hint">(un contenido en varias especialidades cuenta en cada una)</span></h3>
+  <div class="matrix-scroll"><table class="dashboard-table" data-plan-specialties>
+    <thead><tr><th class="left">Especialidad</th><th>Contenidos</th><th>Crear</th><th>Adjuntar</th><th>Vincular</th><th>Pendientes</th><th>Duplicados</th><th>Errores</th></tr></thead>
+    <tbody>{% for s in pl.by_specialty %}<tr><td class="left">{{ s.specialty }}</td><td>{{ s.documents }}</td><td>{{ s.create }}</td><td>{{ s.attach }}</td><td>{{ s.link }}</td><td>{{ s.pending }}</td><td>{{ s.duplicate }}</td><td>{{ s.error }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
 
   {% if report.comparison %}
   {% set cmp = report.comparison %}

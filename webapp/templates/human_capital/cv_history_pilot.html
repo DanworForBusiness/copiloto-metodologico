@@ -47,13 +47,35 @@
         </div>
       </details>
 
+      <details class="dashboard-section">
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Importación completa del histórico</span></summary>
+        <div class="dashboard-section__body">
+          <p class="field-hint">Toma <strong>todos</strong> los contenidos únicos del origen (no una muestra). Primero se analizan por tandas y se genera un <strong>plan</strong>; en esta etapa no se crea ni se vincula ningún perfil y no se sube ningún documento. Un origen con el inventario incompleto se rechaza.</p>
+          <form id="dw-cvimport-form" class="hc-profile-form" hx-post="/cchh/diagnostico/cvs-historicos/importacion" hx-target="#dw-cvimport-result" hx-swap="innerHTML" hx-disabled-elt="find button[type='submit']" hx-indicator="#dw-cvimport-status" data-dw-graph-token>
+            <div class="feedback-field">
+              <label for="dw-cvimport-url">Link de uso compartido de la carpeta histórica</label>
+              <input id="dw-cvimport-url" name="share_url" type="text" autocomplete="off" placeholder="https://danwor.sharepoint.com/:f:/s/…" required>
+            </div>
+            <div class="feedback-field">
+              <label for="dw-cvimport-auth">Autorización para procesar datos personales: escribí <code>{{ authorization_phrase }}</code></label>
+              <input id="dw-cvimport-auth" name="authorization" type="text" autocomplete="off" required>
+            </div>
+            <div class="hc-profile-form__actions">
+              <button type="submit" class="btn-primary">Crear lote de importación</button>
+              <span class="field-hint htmx-indicator" id="dw-cvimport-status" role="status">Recorriendo el origen… puede tardar hasta un minuto.</span>
+            </div>
+          </form>
+          <div id="dw-cvimport-result" aria-live="polite"></div>
+        </div>
+      </details>
+
       <details class="dashboard-section" open>
         <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Lotes existentes</span><span class="dashboard-section__count">{{ runs | length }}</span></summary>
         <div class="dashboard-section__body">
           {% if runs %}
           <table class="dashboard-table" data-pilot-runs>
             <thead><tr><th class="left">Lote</th><th class="left">Estado</th><th>Muestra</th><th>Extraídos</th><th>Con error</th><th>Alias</th></tr></thead>
-            <tbody>{% for r in runs %}<tr><td class="left"><a href="/cchh/diagnostico/cvs-historicos/{{ r.run_id }}">{{ r.run_id }}</a>{% if r.kind == 'rearbitration' %} <span class="field-hint">derivado de {{ r.derived_from_run_id }}</span>{% endif %}</td><td class="left">{{ r.state }}</td><td>{{ r.counters.selected or 0 }}</td><td>{{ r.counters.extracted or 0 }}</td><td>{{ r.counters.failed or 0 }}</td><td>{{ r.counters.alias or 0 }}</td></tr>{% endfor %}</tbody>
+            <tbody>{% for r in runs %}<tr><td class="left"><a href="/cchh/diagnostico/cvs-historicos/{{ r.run_id }}">{{ r.run_id }}</a>{% if r.kind == 'rearbitration' %} <span class="field-hint">derivado de {{ r.derived_from_run_id }}</span>{% elif r.kind == 'import' %} <span class="field-hint">importación</span>{% endif %}</td><td class="left">{{ r.state }}</td><td>{{ r.counters.selected or 0 }}</td><td>{{ r.counters.extracted or 0 }}</td><td>{{ r.counters.failed or 0 }}</td><td>{{ r.counters.alias or 0 }}</td></tr>{% endfor %}</tbody>
           </table>
           {% else %}<p class="field-hint" data-pilot-no-runs>Todavía no hay lotes.</p>{% endif %}
         </div>

@@ -114,7 +114,7 @@ from webapp.services import (
     human_capital_indicators, human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
-from webapp.services import cv_history_inventory, cv_history_manifest, cv_history_pilot
+from webapp.services import cv_history_import, cv_history_inventory, cv_history_manifest, cv_history_pilot
 from webapp.services import human_capital_contact
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
@@ -3092,7 +3092,7 @@ def human_capital_cv_history_start(request: Request, graph_token: str = Form("")
 
 
 @router.post("/cchh/diagnostico/cvs-historicos/{run_id}/procesar", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_cv_history_process(request: Request, run_id: str, graph_token: str = Form("")):
+def human_capital_cv_history_process(request: Request, run_id: str, graph_token: str = Form(""), batch: str = Form("")):
     redirect = _require_owner_for_diagnostics(request)
     if redirect is not None:
         return redirect
@@ -3101,7 +3101,10 @@ def human_capital_cv_history_process(request: Request, run_id: str, graph_token:
     if not graph_token:
         return _pilot_panel(request, run_id, {"kind": "missing_token", "message": "Sin token de Microsoft 365 (el navegador no pudo obtenerlo). Volvé a iniciar sesión."})
     try:
-        result = cv_history_pilot.process_run(run_id, graph_token)
+        if cv_history_manifest.get_run(run_id).get("kind") == cv_history_pilot.KIND_IMPORT:      # lote de importación: tandas configurables (documentos por tanda)
+            result = cv_history_import.analyze(run_id, graph_token, max_documents=int(batch) if batch.strip().isdigit() else None)
+        else:
+            result = cv_history_pilot.process_run(run_id, graph_token)
     except cv_history_manifest.ManifestNotFoundError:
         raise HTTPException(404, "Lote inexistente") from None
     except cv_history_manifest.ManifestError:
@@ -3126,6 +3129,46 @@ def human_capital_cv_history_discard(request: Request, run_id: str, confirm: str
     except cv_history_manifest.ManifestError:
         return _pilot_panel(request, run_id, {"kind": "persistence_error", "message": "No se pudo completar la eliminación (borrado no confirmado). Nada se perdió: reintentá, es reanudable."})
     return _pilot_panel(request, run_id, {"kind": "discarded", "message": "Datos personales del lote eliminados. La auditoría y el reporte final se conservan."})
+
+
+@router.post("/cchh/diagnostico/cvs-historicos/importacion", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_import_start(request: Request, graph_token: str = Form(""), share_url: str = Form(""), authorization: str = Form("")):
+    """Crea un lote de IMPORTACIÓN (todos los contenidos del origen): inventario de solo lectura e índice. No descarga ni escribe en el Banco ni en SharePoint; el análisis se ejecuta por tandas."""
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+
+    def _notice(kind: str, message: str):
+        return templates.TemplateResponse(request=request, name="partials/cv_history_run_panel.html", context={"request": request, "report": None, "run_id": None, "notice": {"kind": kind, "message": message}}, headers=_NO_STORE)
+
+    if not graph_token:
+        return _notice("missing_token", "Sin token de Microsoft 365 (el navegador no pudo obtenerlo). Volvé a iniciar sesión.")
+    try:
+        run = cv_history_import.start_import(graph_token, share_url, actor=_pilot_actor(request), authorization=authorization)
+    except (cv_history_pilot.PilotInputError, cv_history_inventory.InventoryInputError) as exc:
+        return _notice("invalid_input", str(exc))
+    except cv_history_manifest.ManifestError:
+        return _notice("persistence_error", "No se pudo guardar el manifiesto del lote (persistencia no confirmada). No se descargó nada.")
+    return _pilot_panel(request, run["run_id"], {"kind": "created", "message": f"Lote de importación creado: {run['counters']['selected']} contenidos únicos. Todavía no se analizó ni se escribió nada: usá «Analizar»."})
+
+
+@router.post("/cchh/diagnostico/cvs-historicos/{run_id}/plan", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_import_plan(request: Request, run_id: str):
+    """Genera el PLAN de importación (decisión por contenido) con el estado actual del Banco. Solo escribe en el manifiesto: ni el Banco ni SharePoint."""
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    if not cv_history_manifest.RUN_ID_RE.match(run_id):
+        raise HTTPException(404, "Lote inexistente")
+    try:
+        cv_history_import.generate_plan(run_id, actor=_pilot_actor(request))
+    except cv_history_pilot.PilotInputError as exc:
+        return _pilot_panel(request, run_id, {"kind": "invalid_input", "message": str(exc)})
+    except cv_history_manifest.ManifestNotFoundError:
+        raise HTTPException(404, "Lote inexistente") from None
+    except cv_history_manifest.ManifestError:
+        return _pilot_panel(request, run_id, {"kind": "persistence_error", "message": "No se pudo guardar el plan (persistencia no confirmada). No se modificó nada más."})
+    return _pilot_panel(request, run_id, {"kind": "planned", "message": "Plan generado. Es solo una previsión: todavía no se creó ni se vinculó ningún perfil ni se subió ningún documento."})
 
 
 @router.post("/cchh/diagnostico/cvs-historicos/{run_id}/reevaluar", response_class=HTMLResponse, include_in_schema=False)
