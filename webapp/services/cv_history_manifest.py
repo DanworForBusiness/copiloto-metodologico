@@ -11,6 +11,8 @@ segundo mecanismo. Separa por diseño lo personal de lo auditable:
                             elimina junto con ella al descartar el lote.
   import-index.json         (solo lotes de IMPORTACIÓN) índice de los contenidos del origen con su procedencia (incluye NOMBRES DE ARCHIVO, que suelen llevar el nombre de la persona): área protegida, se elimina con el descarte.
   import-plan.json          (solo lotes de IMPORTACIÓN) plan de importación: decisión por contenido (acción, motivos, grupo, perfil destino). SIN datos personales: sobrevive al descarte como registro técnico durable.
+  ledger/<content_key>.json   (solo lotes de IMPORTACIÓN) LIBRO DE EJECUCIÓN: correspondencia durable `content_key → profile_id → document_id` y estado de cada contenido (con el id del archivo en SharePoint y su sha256).
+                            SIN datos personales (solo identificadores y códigos): sobrevive al descarte como registro técnico y es la base de la idempotencia de la importación.
   audit/<content_key>.json    AUDITORÍA: una lista de eventos (estado, código de excepción, hora). SIN datos personales: sobrevive al descarte del área temporal.
 
 Una unidad = un CONTENIDO de documento (`content_key`, derivado del hash de contenido que informa Graph, o del id Graph si no hay hash). Un mismo contenido que aparece en varias carpetas es UN registro con TODAS
@@ -244,6 +246,34 @@ def put_plan(run_id: str, doc: dict) -> dict:
 
 def get_plan(run_id: str) -> dict | None:
     return _read(_run_dir(run_id) / "import-plan.json")
+
+
+# ── libro de ejecución de una importación (durable, sin datos personales) ───────────────────────────────────
+def put_ledger(run_id: str, key: str, entry: dict) -> dict:
+    path = _run_dir(run_id) / "ledger" / f"{_key_ok(key)}.json"
+    previous = _read(path)
+    doc = {**entry, "schema": SCHEMA, "run_id": run_id, "content_key": key, "revision": int((previous or {}).get("revision", 0)) + 1, "updated_at": now_iso()}
+    doc.setdefault("created_at", (previous or {}).get("created_at") or now_iso())
+    _write(path, doc)
+    return doc
+
+
+def get_ledger(run_id: str, key: str) -> dict | None:
+    return _read(_run_dir(run_id) / "ledger" / f"{_key_ok(key)}.json")
+
+
+def list_ledgers(run_id: str) -> dict[str, dict]:
+    _ensure_restored()
+    directory = _run_dir(run_id) / "ledger"
+    out: dict[str, dict] = {}
+    if not directory.is_dir():
+        return out
+    for entry in sorted(directory.iterdir()):
+        if entry.is_file() and entry.suffix == ".json" and KEY_RE.match(entry.stem):
+            doc = _read(entry)
+            if doc:
+                out[entry.stem] = doc
+    return out
 
 
 # ── dictámenes del owner (por lote; append-only; NUNCA reescriben el resultado de la extracción) ──────────────

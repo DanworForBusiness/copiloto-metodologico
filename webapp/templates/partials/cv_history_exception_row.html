@@ -1,0 +1,66 @@
+{# Fila de UNA excepción de la importación histórica (datos personales: solo en la vista del owner, `no-store`). Se responde completa tras cada acción; los errores van adentro con 200 (HTMX no pinta 4xx). #}
+{% if r %}
+{% set tag = {'open': 'Por resolver', 'in_progress': 'En curso', 'blocked': 'Bloqueado', 'error': 'Con error', 'resolved': 'Resuelto', 'dismissed': 'Descartado'} %}
+<tr id="exc-{{ r.content_key }}" data-exception-row data-content-key="{{ r.content_key }}" data-status="{{ r.status }}">
+  <td class="left">{{ r.content_key[:8] }}<br><span class="field-hint">{{ r.filename or '—' }}</span><br><span class="field-hint">{{ r.specialties | join(', ') }}</span></td>
+  <td class="left">
+    <span class="status-badge {{ 'status-badge--activo' if r.status == 'resolved' else 'status-badge--inactivo' if r.status == 'dismissed' else 'status-badge--tentativo' }}" data-exception-status>{{ tag[r.status] }}</span>
+    {% if r.reason %}<br><span class="field-hint" data-exception-reason>{{ r.reason }}</span>{% endif %}
+    {% for code in r.plan_reasons[1:] %}<br><span class="field-hint">{{ code }}</span>{% endfor %}
+    {% if r.ledger and r.ledger.profile_id and r.status == 'resolved' %}<br><a href="/cchh/candidatos/{{ r.ledger.profile_id }}/editar">Ver perfil</a>{% endif %}
+  </td>
+  <td class="left">
+    {% if r.emails %}{{ r.emails | join(', ') }}{% else %}<span class="field-hint">sin email</span>{% endif %}{% if r.phone %}<br>{{ r.phone }}{% endif %}
+    {% for alt in r.alternatives %}<br><span class="field-hint">«{{ alt }}»</span>{% endfor %}
+  </td>
+  <td class="left">{% for s in r.suggestions %}<a href="/cchh/candidatos/{{ s.profile_id }}/editar">{{ s.name }}</a> <span class="field-hint">{{ s.why }}{% if s.email %} · {{ s.email }}{% endif %}</span><br>{% else %}<span class="field-hint">—</span>{% endfor %}</td>
+  <td class="left">
+    {% if result %}
+      {% if result.error %}<p class="callout callout--warn" data-error-kind="exception_action"><span class="callout__body">{{ result.error }}</span></p>
+      {% elif result.advisory %}
+      <p class="callout callout--warn" data-duplicate-advisory><span class="callout__body">Ya existe <strong>{{ result.advisory.name }}</strong>{% if result.advisory.email %} ({{ result.advisory.email }}){% endif %}. Podés vincular este CV a ese perfil o crear uno nuevo igual.</span></p>
+      <form class="hc-exc-form" hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/vincular" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
+        <input type="hidden" name="profile_id" value="{{ result.advisory.profile_id }}"><button type="submit" class="btn-secondary">Vincular a ese perfil</button>
+      </form>
+      <form class="hc-exc-form" hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/completar" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
+        <input type="hidden" name="first_name" value="{{ form.first_name }}"><input type="hidden" name="last_name" value="{{ form.last_name }}"><input type="hidden" name="email" value="{{ form.email }}"><input type="hidden" name="phone" value="{{ form.phone }}">
+        <input type="hidden" name="duplicate_confirmed" value="true"><button type="submit" class="btn-secondary">Crear perfil nuevo igual</button>
+      </form>
+      {% elif result.ok %}
+      <p class="callout callout--info" data-exception-done><span class="callout__body">{% if result.outcome == 'DONE' or accion in ('descartar', 'reabrir', 'reintentar') %}Listo.{% elif result.outcome and result.outcome.startswith('STOP:') %}Se detuvo ({{ result.outcome[5:] }}): reintentá.{% else %}Quedó pendiente de reintento ({{ result.outcome }}); el perfil ya está creado y no se duplicará.{% endif %}</span></p>
+      {% endif %}
+    {% endif %}
+    {% if r.status in ('open', 'in_progress', 'blocked', 'error') and r.available %}
+    <details class="hc-exc-actions" {% if result and (result.error or result.advisory) %}open{% endif %}>
+      <summary>Gestionar</summary>
+      <form class="hc-exc-form" data-exc-complete hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/completar" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
+        <strong>Completar identidad</strong> <span class="field-hint">nombre y apellido reales; se crea el perfil y se sube el CV</span>
+        <div class="hc-exc-form__pair"><input name="first_name" type="text" required maxlength="60" placeholder="Nombre" aria-label="Nombre" value="{{ form.first_name if form else '' }}"><input name="last_name" type="text" required maxlength="60" placeholder="Apellido" aria-label="Apellido" value="{{ form.last_name if form else '' }}"></div>
+        <div class="hc-exc-form__pair"><input name="email" type="email" placeholder="Email (opcional)" aria-label="Email" value="{{ (form.email if form and form.email else r.email) or '' }}"><input name="phone" type="text" placeholder="Celular (opcional)" aria-label="Celular" value="{{ (form.phone if form and form.phone else r.phone) or '' }}"></div>
+        <button type="submit" class="btn-primary">Crear perfil y subir CV</button>
+      </form>
+      <form class="hc-exc-form" data-exc-link hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/vincular" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
+        <strong>Vincular a un perfil existente</strong> <span class="field-hint">no modifica el perfil</span>
+        {% if r.suggestions %}<select name="profile_id" aria-label="Perfil sugerido"><option value="">— elegir sugerencia —</option>{% for s in r.suggestions %}<option value="{{ s.profile_id }}">{{ s.name }}{% if s.email %} · {{ s.email }}{% endif %}</option>{% endfor %}</select>{% endif %}
+        <input name="profile_id" type="text" placeholder="o el ID del perfil (de la URL «editar»)" aria-label="ID del perfil" autocomplete="off">
+        <button type="submit" class="btn-secondary">Vincular</button>
+      </form>
+      <form class="hc-exc-form" data-exc-dismiss hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/descartar" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button">
+        <strong>Descartar</strong>
+        <select name="reason" aria-label="Motivo">{% for code, label in (('NOT_A_CV', 'No es un CV'), ('NOT_A_CANDIDATE', 'No es un candidato'), ('OTHER', 'Otro motivo')) %}<option value="{{ code }}">{{ label }}</option>{% endfor %}</select>
+        <button type="submit" class="btn-secondary">Descartar</button>
+      </form>
+      {% if r.status in ('blocked', 'error') %}
+      <form class="hc-exc-form" data-exc-retry hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/reintentar" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button">
+        <button type="submit" class="btn-secondary">Reintentar en la próxima tanda</button>
+      </form>
+      {% endif %}
+    </details>
+    {% elif r.status == 'dismissed' %}
+    <form class="hc-exc-form" hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/reabrir" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button"><button type="submit" class="btn-secondary">Reabrir</button></form>
+    {% elif not r.available %}<span class="field-hint">Sin datos temporales: no se puede gestionar.</span>{% endif %}
+  </td>
+</tr>
+{% else %}
+<tr id="exc-{{ content_key }}" data-exception-row data-status="gone"><td class="left" colspan="5"><span class="field-hint">Este contenido ya no es una excepción.</span></td></tr>
+{% endif %}

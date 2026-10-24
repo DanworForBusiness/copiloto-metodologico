@@ -91,6 +91,8 @@ def generate_plan(run_id: str, *, actor: str) -> dict:
     run = manifest.get_run(run_id)
     if run.get("kind") != pilot.KIND_IMPORT:
         raise pilot.PilotInputError("No es un lote de importación.")
+    if run.get("execution"):
+        raise pilot.PilotInputError("La ejecución ya comenzó: el plan quedó congelado.")
     if (run.get("staging") or {}).get("state") != "PRESENT":
         raise pilot.PilotInputError("Los datos personales del lote ya no están disponibles: no se puede generar un plan.")
     pending = pilot._pending(run_id)

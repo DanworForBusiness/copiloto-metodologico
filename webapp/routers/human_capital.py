@@ -114,7 +114,7 @@ from webapp.services import (
     human_capital_indicators, human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
-from webapp.services import cv_history_import, cv_history_inventory, cv_history_manifest, cv_history_pilot
+from webapp.services import cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot
 from webapp.services import human_capital_contact
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
@@ -3050,7 +3050,8 @@ def _pilot_panel(request: Request, run_id: str, notice: dict | None = None):
         report = cv_history_pilot.run_report(run_id)
     except cv_history_manifest.ManifestError:
         raise HTTPException(404, "Lote inexistente") from None
-    return templates.TemplateResponse(request=request, name="partials/cv_history_run_panel.html", context={"request": request, "report": report, "notice": notice, "run_id": run_id, "discard_phrase": cv_history_pilot.discard_phrase(run_id)}, headers=_NO_STORE)
+    execution = cv_history_import_exec.execution_report(run_id) if report.get("kind") == "import" else None
+    return templates.TemplateResponse(request=request, name="partials/cv_history_run_panel.html", context={"request": request, "report": report, "notice": notice, "run_id": run_id, "execution": execution, "import_phrase": cv_history_import_exec.confirm_phrase(run_id), "discard_phrase": cv_history_pilot.discard_phrase(run_id)}, headers=_NO_STORE)
 
 
 def _pilot_actor(request: Request) -> str:
@@ -3121,6 +3122,7 @@ def human_capital_cv_history_discard(request: Request, run_id: str, confirm: str
     if not cv_history_manifest.RUN_ID_RE.match(run_id):
         raise HTTPException(404, "Lote inexistente")
     try:
+        cv_history_import_exec.assert_can_discard(run_id)
         cv_history_pilot.discard_staging(run_id, confirm=confirm, actor=_pilot_actor(request))
     except cv_history_pilot.PilotInputError as exc:
         return _pilot_panel(request, run_id, {"kind": "invalid_confirmation", "message": str(exc)})
@@ -3169,6 +3171,88 @@ def human_capital_cv_history_import_plan(request: Request, run_id: str):
     except cv_history_manifest.ManifestError:
         return _pilot_panel(request, run_id, {"kind": "persistence_error", "message": "No se pudo guardar el plan (persistencia no confirmada). No se modificó nada más."})
     return _pilot_panel(request, run_id, {"kind": "planned", "message": "Plan generado. Es solo una previsión: todavía no se creó ni se vinculó ningún perfil ni se subió ningún documento."})
+
+
+@router.post("/cchh/diagnostico/cvs-historicos/{run_id}/importar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_import_run(request: Request, run_id: str, graph_token: str = Form(""), confirm: str = Form(""), batch: str = Form("")):
+    """EJECUTA el plan de importación: crea/vincula perfiles en el Banco y sube los CV a la carpeta administrada de CVs, por tandas. El inicio exige la frase `IMPORTAR-<run_id>` y valida el permiso efectivo de
+    escritura; después cada llamada es una tanda reanudable. Token con alcance de escritura (lo inyecta `human_capital_import.js`); los errores son 200 con aviso (HTMX no pinta 4xx)."""
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    if not cv_history_manifest.RUN_ID_RE.match(run_id):
+        raise HTTPException(404, "Lote inexistente")
+    if not graph_token:
+        return _pilot_panel(request, run_id, {"kind": "missing_token", "message": "Sin token con permiso de escritura (el navegador no pudo obtenerlo). Usá «Autorizar escritura en CVs» y reintentá."})
+    try:
+        cv_history_import_exec.start_execution(run_id, graph_token, actor=_pilot_actor(request), confirm=confirm)
+        result = cv_history_import_exec.execute_batch(run_id, graph_token, actor=_pilot_actor(request), max_units=int(batch) if batch.strip().isdigit() else None)
+    except cv_history_import_exec.ExecutionError as exc:
+        return _pilot_panel(request, run_id, {"kind": "invalid_input", "message": str(exc)})
+    except cv_history_manifest.ManifestNotFoundError:
+        raise HTTPException(404, "Lote inexistente") from None
+    except cv_history_manifest.ManifestError:
+        return _pilot_panel(request, run_id, {"kind": "persistence_error", "message": "No se pudo guardar el avance (persistencia no confirmada). Reintentá: la importación es reanudable y no duplica nada."})
+    return _pilot_panel(request, run_id, {"kind": "imported", "result": result})
+
+
+@router.get("/cchh/diagnostico/cvs-historicos/{run_id}/excepciones", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_exceptions(request: Request, run_id: str, estado: str = "open", motivo: str = "", pagina: int = 1):
+    """Excepciones de la importación (pendientes del plan y bloqueados al ejecutar): contiene datos personales, solo owner, `no-store`."""
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    if not cv_history_manifest.RUN_ID_RE.match(run_id):
+        raise HTTPException(404, "Lote inexistente")
+    try:
+        overview = cv_history_import_exec.exceptions_overview(run_id, status=estado, reason=motivo or None, page=pagina)
+        rows = cv_history_import_exec.exception_details(run_id, overview["rows"]) if overview["staging_present"] else [{**r, "available": False, "ledger": {}, "suggestions": [], "alternatives": [], "emails": [], "specialties": []} for r in overview["rows"]]
+        execution = cv_history_import_exec.execution_report(run_id)
+    except (cv_history_manifest.ManifestNotFoundError, cv_history_import_exec.ExecutionError):
+        raise HTTPException(404, "Lote inexistente") from None
+    return templates.TemplateResponse(request=request, name="human_capital/cv_history_exceptions.html", context=_pilot_context(request, run_id=run_id, overview=overview, rows=rows, execution=execution, estado=estado, motivo=motivo,
+                                                                                                                          dismiss_reasons=cv_history_import_exec.DISMISS_REASONS), headers=_NO_STORE)
+
+
+@router.post("/cchh/diagnostico/cvs-historicos/{run_id}/excepciones/{content_key}/{accion}", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_exception_action(
+    request: Request, run_id: str, content_key: str, accion: str, graph_token: str = Form(""), first_name: str = Form(""), last_name: str = Form(""), email: str = Form(""), phone: str = Form(""),
+    duplicate_confirmed: str = Form(""), profile_id: str = Form(""), reason: str = Form(""),
+):
+    """Gestiona UNA excepción: completar identidad (alta con nombre y apellido reales), vincular a un perfil existente (sin modificarlo), descartar, reabrir o reintentar. Responde la fila; los errores son 200 con aviso."""
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    if not cv_history_manifest.RUN_ID_RE.match(run_id) or not cv_history_manifest.KEY_RE.match(content_key or "") or accion not in ("completar", "vincular", "descartar", "reabrir", "reintentar"):
+        raise HTTPException(404, "Excepción inexistente")
+    try:
+        cv_history_manifest.get_run(run_id)
+    except cv_history_manifest.ManifestNotFoundError:
+        raise HTTPException(404, "Lote inexistente") from None
+    actor = _pilot_actor(request)
+    result: dict = {}
+    try:
+        if accion in ("completar", "vincular") and not graph_token:
+            result = {"ok": False, "error": "Sin token con permiso de escritura (el navegador no pudo obtenerlo). Usá «Autorizar escritura en CVs» y reintentá."}
+        elif accion == "completar":
+            result = cv_history_import_exec.complete_identity(run_id, content_key, graph_token, actor=actor, first_name=first_name, last_name=last_name, email=email, phone=phone, duplicate_confirmed=duplicate_confirmed.strip().lower() == "true")
+        elif accion == "vincular":
+            result = cv_history_import_exec.link_existing(run_id, content_key, graph_token, actor=actor, profile_id=profile_id)
+        elif accion == "descartar":
+            result = cv_history_import_exec.dismiss(run_id, content_key, actor=actor, reason=reason)
+        elif accion == "reabrir":
+            result = cv_history_import_exec.reopen(run_id, content_key, actor=actor)
+        else:
+            result = cv_history_import_exec.retry(run_id, content_key, actor=actor)
+    except cv_history_import_exec.ExecutionError as exc:
+        result = {"ok": False, "error": str(exc)}
+    except cv_history_manifest.ManifestNotFoundError:
+        raise HTTPException(404, "Lote inexistente") from None
+    except cv_history_manifest.ManifestError:
+        result = {"ok": False, "error": "No se pudo guardar el cambio (persistencia no confirmada). Reintentá: no se duplicó nada."}
+    row = cv_history_import_exec.exception_row(run_id, content_key)
+    return templates.TemplateResponse(request=request, name="partials/cv_history_exception_row.html", context={"request": request, "r": row, "run_id": run_id, "result": result, "accion": accion, "form": {"first_name": first_name, "last_name": last_name, "email": email, "phone": phone},
+                                                                                                                 "dismiss_reasons": cv_history_import_exec.DISMISS_REASONS, "content_key": content_key}, headers=_NO_STORE)
 
 
 @router.post("/cchh/diagnostico/cvs-historicos/{run_id}/reevaluar", response_class=HTMLResponse, include_in_schema=False)
@@ -3227,7 +3311,8 @@ def human_capital_cv_history_detail(request: Request, run_id: str):
         rows = cv_history_pilot.review_view(run_id)
     except cv_history_manifest.ManifestNotFoundError:
         raise HTTPException(404, "Lote inexistente") from None
-    return templates.TemplateResponse(request=request, name="human_capital/cv_history_run.html", context=_pilot_context(request, report=report, rows=rows, run_id=run_id, notice=None, discard_phrase=cv_history_pilot.discard_phrase(run_id)), headers=_NO_STORE)
+    execution = cv_history_import_exec.execution_report(run_id) if report.get("kind") == "import" else None
+    return templates.TemplateResponse(request=request, name="human_capital/cv_history_run.html", context=_pilot_context(request, report=report, rows=rows, run_id=run_id, notice=None, execution=execution, import_phrase=cv_history_import_exec.confirm_phrase(run_id), discard_phrase=cv_history_pilot.discard_phrase(run_id)), headers=_NO_STORE)
 
 
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
