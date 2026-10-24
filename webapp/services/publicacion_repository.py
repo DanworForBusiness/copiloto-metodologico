@@ -7,7 +7,8 @@ SEMÁNTICA DE DOMINIO (verbatim de la referencia app-seleccion; `supabase/schema
   - Es un REGISTRO HISTÓRICO plano de avisos publicados (crear / editar / eliminar). SIN estados ni lifecycle (no hay borrador/publicada/cerrada/expirada, ni publicar/despublicar/
     cerrar/duplicar): la referencia no los tiene y acá no se inventan.
   - Campos: `posicion` (texto OBLIGATORIO), `canal` (taxonomía gobernada `canal_publicacion`), `cantidad_avisos` (entero >= 1: una fila puede agrupar varios avisos de una misma posición),
-    `periodo` (trimestre "YYYY-Qn" elegido a mano), `fecha` (opcional), `observacion` (opcional), `busqueda_id` (opcional).
+    `fecha` (OBLIGATORIA al guardar; AAAA-MM-DD), `periodo` (trimestre "YYYY-Qn" DERIVADO de la fecha por el service: `human_capital_service.periodo_desde_fecha`; ya no se elige; un registro histórico sin fecha conserva el suyo y los
+    lectores usan `periodo_efectivo`), `observacion` (opcional), `busqueda_id` (opcional).
   - `busqueda_id` OPCIONAL (en la referencia `proceso_id`, FK `on delete set null`): Búsqueda 1 → 0..N Publicaciones; una Publicación pertenece a 0..1 Búsqueda; sin relación con
     CandidateApplication/Profile. `posicion` es un SNAPSHOT: al elegir una Búsqueda se COPIA su `nombre_puesto` y se persiste junto con el vínculo; después NO se re-deriva ni se sincroniza
     si la Búsqueda cambia de nombre (representa «qué posición decía el aviso cuando se publicó»). Esa regla vive en `human_capital_service`; este repositorio sólo persiste lo ya validado.

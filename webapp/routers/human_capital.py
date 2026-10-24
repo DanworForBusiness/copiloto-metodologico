@@ -2652,9 +2652,6 @@ def _publicaciones_list_context(periodo: str = "", canal: str = "", q: str = "",
 
 def _publicacion_form_context(*, form_values, is_edit, publicacion=None, error=None, concurrent_modification=False) -> dict:
     busquedas = sorted(human_capital_service.list_busquedas_gestionadas(), key=lambda b: b.get("fecha_apertura") or "", reverse=True)
-    current_periodo = (form_values.get("periodo") or "").strip()
-    window = human_capital_service.periodos_disponibles()
-    historical = bool(current_periodo) and current_periodo not in window
     current_bid = (form_values.get("busqueda_id") or "").strip()
     return {
         "form_values": form_values, "is_edit": is_edit, "publicacion": publicacion, "form_error": error, "concurrent_modification": concurrent_modification,
@@ -2665,14 +2662,17 @@ def _publicacion_form_context(*, form_values, is_edit, publicacion=None, error=N
         "canales": _governed_edit_options("canal_publicacion", form_values.get("canal")),
         "canal_is_legacy": _is_legacy_governed_value("canal_publicacion", form_values.get("canal")),
         "canal_catalog_empty": not human_capital_catalog_repository.catalog_values("canal_publicacion"),
-        # Período: ventana calculada del alta; una edición conserva SELECCIONADO un período histórico fuera de la ventana (history-safe).
-        "periodos": ([current_periodo, *window] if historical else window),
-        "periodo_is_historical": historical,
+        # El período ya no se elige: se deriva de la fecha. Una publicación histórica SIN fecha muestra su período guardado (sin asignarle una fecha) y pide fecha para guardarse.
+        "periodo_legado": (publicacion or {}).get("periodo") if is_edit and not _fecha_valida(form_values.get("fecha")) else None,
     }
 
 
-def _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, periodo, fecha, observacion) -> dict:
-    return {"busqueda_id": busqueda_id, "posicion": posicion, "canal": canal, "cantidad_avisos": cantidad_avisos, "periodo": periodo, "fecha": fecha, "observacion": observacion}
+def _fecha_valida(value) -> bool:
+    return bool(value) and human_capital_service._parse_fecha_publicacion(value) is not None
+
+
+def _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, fecha, observacion) -> dict:
+    return {"busqueda_id": busqueda_id, "posicion": posicion, "canal": canal, "cantidad_avisos": cantidad_avisos, "fecha": fecha, "observacion": observacion}
 
 
 @router.get("/cchh/publicaciones", response_class=HTMLResponse, include_in_schema=False)
@@ -2695,7 +2695,7 @@ def human_capital_publicacion_new_page(request: Request):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    form_values = {"periodo": human_capital_service.periodo_actual(), "cantidad_avisos": 1}
+    form_values = {"fecha": human_capital_service.hoy_negocio().isoformat(), "cantidad_avisos": 1}          # hoy en la zona de negocio (Argentina); editable
     return templates.TemplateResponse(
         request=request, name="human_capital/publicacion_form.html",
         context=_publicaciones_shell(request, _publicacion_form_context(form_values=form_values, is_edit=False)),
@@ -2705,12 +2705,12 @@ def human_capital_publicacion_new_page(request: Request):
 @router.post("/cchh/publicaciones/nueva", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_publicacion_new_submit(
     request: Request, busqueda_id: str = Form(""), posicion: str = Form(""), canal: str = Form(""), cantidad_avisos: str = Form(""),
-    periodo: str = Form(""), fecha: str = Form(""), observacion: str = Form(""),
+    fecha: str = Form(""), observacion: str = Form(""),
 ):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    form_values = _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, periodo, fecha, observacion)
+    form_values = _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, fecha, observacion)
 
     def _render(**extra):
         return templates.TemplateResponse(
@@ -2745,12 +2745,12 @@ def human_capital_publicacion_edit_page(request: Request, publicacion_id: str):
 @router.post("/cchh/publicaciones/{publicacion_id}/editar", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_publicacion_edit_submit(
     request: Request, publicacion_id: str, busqueda_id: str = Form(""), posicion: str = Form(""), canal: str = Form(""), cantidad_avisos: str = Form(""),
-    periodo: str = Form(""), fecha: str = Form(""), observacion: str = Form(""), expected_revision: str = Form(""),
+    fecha: str = Form(""), observacion: str = Form(""), expected_revision: str = Form(""),
 ):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
-    form_values = _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, periodo, fecha, observacion)
+    form_values = _publicacion_form_from_request(busqueda_id, posicion, canal, cantidad_avisos, fecha, observacion)
     try:
         revision_int = int(expected_revision)
     except ValueError:

@@ -24,6 +24,7 @@ from webapp.services import (
 from webapp.services import human_capital_catalog_repository as catalog_repo
 
 _AUTHORIZED_EMAIL = "hc-publicaciones-test@danwor.com"
+TODAY_FECHA = human_capital_service.hoy_negocio().isoformat()
 TODAY_PERIODO = human_capital_service.periodo_actual()
 
 
@@ -59,8 +60,18 @@ def _busqueda(nombre="Analista BI", **over) -> dict:
     return human_capital_service.create_busqueda({"nombre_puesto": nombre, "fecha_apertura": "2026-09-01", **over})
 
 
+def _fecha_de(periodo: str) -> str:
+    """Una fecha DENTRO del trimestre pedido (mitad del trimestre): el período ya no se elige, se deriva de la fecha."""
+    year, quarter = periodo.split("-Q")
+    return f"{year}-{(int(quarter) - 1) * 3 + 2:02d}-15"
+
+
 def _pub(**over) -> dict:
-    base = {"busqueda_id": "", "posicion": "Account Executive", "canal": "LinkedIn Jobs", "cantidad_avisos": 1, "periodo": TODAY_PERIODO, "fecha": "", "observacion": ""}
+    """Alta por el servicio. `periodo=` es solo un atajo de estos tests para elegir el trimestre: se traduce a una fecha de ese trimestre (el servicio nunca recibe un período)."""
+    periodo = over.pop("periodo", None)
+    if periodo and "fecha" not in over:
+        over["fecha"] = _fecha_de(periodo)
+    base = {"busqueda_id": "", "posicion": "Account Executive", "canal": "LinkedIn Jobs", "cantidad_avisos": 1, "fecha": TODAY_FECHA, "observacion": ""}
     base.update(over)
     return human_capital_service.create_publicacion(base)
 
@@ -70,7 +81,7 @@ def _pub(**over) -> dict:
 def test_a_publication_without_busqueda_keeps_the_free_text_position_and_has_no_lifecycle_fields():
     p = _pub(posicion="  Account Executive  ", observacion="  nota  ")
     assert (p["posicion"], p["busqueda_id"], p["canal"], p["cantidad_avisos"], p["periodo"], p["fecha"], p["observacion"], p["revision"]) == (
-        "Account Executive", None, "LinkedIn Jobs", 1, TODAY_PERIODO, None, "nota", 1)
+        "Account Executive", None, "LinkedIn Jobs", 1, TODAY_PERIODO, TODAY_FECHA, "nota", 1)
     assert p["publicacion_id"] and p["created_at"] and p["updated_at"]
     assert not {"estado", "status", "publicada", "cerrada", "expira", "vigencia"} & set(p)                      # no se inventan estados ni vigencia
     assert human_capital_service.get_publicacion(p["publicacion_id"]) == p
@@ -87,7 +98,7 @@ def test_one_busqueda_has_many_publications_and_a_publication_belongs_to_at_most
 
 def test_required_fields_and_quantity_rules():
     for bad, msg in (({"posicion": ""}, "posición"), ({"canal": ""}, "canal"), ({"cantidad_avisos": 0}, "al menos 1"), ({"cantidad_avisos": "x"}, "al menos 1"),
-                     ({"cantidad_avisos": -2}, "al menos 1"), ({"periodo": ""}, "período"), ({"fecha": "31/12/2026"}, "fecha"), ({"busqueda_id": "no-existe"}, "no existe")):
+                     ({"cantidad_avisos": -2}, "al menos 1"), ({"fecha": ""}, "fecha"), ({"fecha": "  "}, "fecha"), ({"fecha": "31/12/2026"}, "fecha"), ({"busqueda_id": "no-existe"}, "no existe")):
         with pytest.raises(ValueError, match=msg):
             _pub(**bad)
     assert publicacion_repository.list() == []
@@ -110,14 +121,14 @@ def test_a_later_rename_of_the_busqueda_never_alters_the_publication_even_after_
     view = human_capital_service.publicacion_view(human_capital_service.get_publicacion(p["publicacion_id"]))
     assert view["posicion"] == "Analista BI" and view["busqueda_nombre"] == "Analista BI Senior"               # se muestra el snapshot; la Búsqueda se lee en vivo sólo para identificarla
     edited = human_capital_service.update_publicacion(p["publicacion_id"], 1, {"busqueda_id": b["busqueda_id"], "posicion": "otra cosa", "canal": "Bumeran", "cantidad_avisos": 2,
-                                                                                 "periodo": TODAY_PERIODO, "fecha": "", "observacion": "x"})
+                                                                                 "fecha": TODAY_FECHA, "observacion": "x"})
     assert edited["posicion"] == "Analista BI" and edited["canal"] == "Bumeran"                              # editar con el MISMO vínculo conserva el snapshot histórico
 
 
 def test_explicitly_changing_the_busqueda_refreshes_the_snapshot_and_clearing_it_requires_free_text():
     b1, b2 = _busqueda("Analista BI"), _busqueda("Desarrollador Full-Stack")
     p = _pub(busqueda_id=b1["busqueda_id"])
-    common = {"canal": "LinkedIn Jobs", "cantidad_avisos": 1, "periodo": TODAY_PERIODO, "fecha": "", "observacion": ""}
+    common = {"canal": "LinkedIn Jobs", "cantidad_avisos": 1, "fecha": TODAY_FECHA, "observacion": ""}
     moved = human_capital_service.update_publicacion(p["publicacion_id"], 1, {"busqueda_id": b2["busqueda_id"], "posicion": "", **common})
     assert (moved["busqueda_id"], moved["posicion"]) == (b2["busqueda_id"], "Desarrollador Full-Stack")       # cambio explícito => puesto de la nueva Búsqueda
     with pytest.raises(ValueError, match="posición"):
@@ -131,7 +142,7 @@ def test_a_publication_whose_busqueda_disappeared_keeps_its_position_and_stays_e
     p = _pub(busqueda_id=b["busqueda_id"])
     busqueda_repository._busqueda_path(b["busqueda_id"]).unlink()
     out = human_capital_service.update_publicacion(p["publicacion_id"], 1, {"busqueda_id": b["busqueda_id"], "posicion": "", "canal": "LinkedIn Jobs", "cantidad_avisos": 1,
-                                                                             "periodo": TODAY_PERIODO, "fecha": "", "observacion": "sigue editable"})
+                                                                             "fecha": TODAY_FECHA, "observacion": "sigue editable"})
     assert out["posicion"] == "Analista BI" and out["observacion"] == "sigue editable"
     page = _client().get(f"/cchh/publicaciones/{p['publicacion_id']}/editar").text
     assert "Búsqueda no disponible" in page
@@ -156,7 +167,7 @@ def test_canal_is_the_governed_catalog_active_values_only_on_create_and_there_is
 def test_a_legacy_channel_is_preserved_on_unrelated_edits_but_a_change_needs_an_active_value():
     p = _pub()
     legacy = publicacion_repository.update(p["publicacion_id"], 1, {"canal": "Flyer"})                          # histórico fuera de catálogo (como cargado antes)
-    base = {"busqueda_id": "", "posicion": "Account Executive", "cantidad_avisos": 1, "periodo": TODAY_PERIODO, "fecha": "", "observacion": ""}
+    base = {"busqueda_id": "", "posicion": "Account Executive", "cantidad_avisos": 1, "fecha": TODAY_FECHA, "observacion": ""}
     kept = human_capital_service.update_publicacion(p["publicacion_id"], legacy["revision"], {**base, "canal": "Flyer", "observacion": "edición no relacionada"})
     assert kept["canal"] == "Flyer" and kept["observacion"] == "edición no relacionada"
     with pytest.raises(ValueError, match="Canal inválido"):
@@ -179,32 +190,12 @@ def test_the_form_offers_the_active_catalog_and_flags_a_legacy_value():
 
 # ── período ──────────────────────────────────────────────────────────────────
 
-def test_periodo_format_default_window_and_quarter_rule():
+def test_periodo_is_derived_from_the_fecha_and_the_form_no_longer_offers_it():
+    """El período ya no se elige: se deriva de la fecha (reglas de límites, edición, histórico y KPIs: test_cchh_publicaciones_periodo_from_fecha.py)."""
     assert human_capital_service.periodo_desde_fecha(date(2026, 3, 31)) == "2026-Q1" and human_capital_service.periodo_desde_fecha(date(2026, 10, 1)) == "2026-Q4"
     assert human_capital_service.periodo_actual(date(2026, 10, 19)) == "2026-Q4"
-    assert human_capital_service.periodos_disponibles(date(2026, 10, 19)) == ["2027-Q4", "2027-Q3", "2027-Q2", "2027-Q1", "2026-Q4", "2026-Q3", "2026-Q2", "2026-Q1"]
-    for bad in ("2026-Q5", "2026Q3", "26-Q3", "2026-q3", "Q3-2026", "2026-Q0"):
-        with pytest.raises(ValueError, match="formato"):
-            _pub(periodo=bad)
-    with pytest.raises(ValueError, match="de la lista"):
-        _pub(periodo="2019-Q1")                                                                                 # un alta sólo acepta la ventana calculada
     page = _client().get("/cchh/publicaciones/nueva").text
-    assert f'<option value="{TODAY_PERIODO}" selected>' in page and 'value="2019-Q1"' not in page            # default = trimestre actual
-
-
-def test_a_historical_period_is_preserved_selected_and_editable_but_cannot_be_chosen_again_on_a_change():
-    p = _pub()
-    old = publicacion_repository.update(p["publicacion_id"], 1, {"periodo": "2024-Q2"})                       # registro histórico fuera de la ventana
-    base = {"busqueda_id": "", "posicion": "Account Executive", "canal": "LinkedIn Jobs", "cantidad_avisos": 1, "fecha": "", "observacion": ""}
-    kept = human_capital_service.update_publicacion(p["publicacion_id"], old["revision"], {**base, "periodo": "2024-Q2", "observacion": "histórico"})
-    assert kept["periodo"] == "2024-Q2" and kept["observacion"] == "histórico"
-    with pytest.raises(ValueError, match="de la lista"):
-        human_capital_service.update_publicacion(p["publicacion_id"], kept["revision"], {**base, "periodo": "2023-Q1"})
-    html = _client().get(f"/cchh/publicaciones/{p['publicacion_id']}/editar").text
-    assert '<option value="2024-Q2" selected>2024-Q2</option>' in html and "Período histórico fuera de la ventana actual" in html
-    r = _client(follow=False).post(f"/cchh/publicaciones/{p['publicacion_id']}/editar", data={**base, "busqueda_id": "", "posicion": "Account Executive", "periodo": "2024-Q2", "cantidad_avisos": "1",
-                                                                                              "expected_revision": str(kept["revision"])})
-    assert r.status_code == 303 and human_capital_service.get_publicacion(p["publicacion_id"])["periodo"] == "2024-Q2"
+    assert 'name="periodo"' not in page and 'id="pub-periodo"' not in page and f'name="fecha" type="date" required value="{TODAY_FECHA}"' in page
 
 
 # ── listado / filtros ────────────────────────────────────────────────────────
@@ -232,7 +223,7 @@ def _seed_mixed():
     _pub(posicion="Account Executive", canal="Bumeran", periodo="2026-Q4", observacion="")
     _pub(posicion="Pasante de RRHH", canal="Bumeran", periodo="2026-Q3", fecha="2026-09-12", observacion="repost semanal")
     legacy = _pub(posicion="Cadete", canal="Computrabajo", periodo="2026-Q3")
-    publicacion_repository.update(legacy["publicacion_id"], 1, {"canal": "Flyer", "periodo": "2024-Q2"})      # canal histórico + período fuera de la ventana
+    publicacion_repository.update(legacy["publicacion_id"], 1, {"canal": "Flyer", "periodo": "2024-Q2", "fecha": None})      # registro HISTÓRICO: canal fuera de catálogo + período guardado sin fecha
     return b
 
 
@@ -353,7 +344,7 @@ def test_return_to_preserves_periodo_canal_q_page_and_page_size_through_edit_sav
     assert page.count(f'href="{return_to}"') >= 1                                                           # ← Volver a Publicaciones
     action = re.search(r'<form method="post" action="(/cchh/publicaciones/[^"]+/editar\?return_to=[^"]+)"', page).group(1)
     rev = re.search(r'name="expected_revision" value="(\d+)"', page).group(1)
-    saved = c.post(action, data={"busqueda_id": "", "posicion": "Editada", "canal": "Bumeran", "cantidad_avisos": "2", "periodo": "2026-Q3", "fecha": "", "observacion": "retorno", "expected_revision": rev})
+    saved = c.post(action, data={"busqueda_id": "", "posicion": "Editada", "canal": "Bumeran", "cantidad_avisos": "2", "fecha": "2026-08-20", "observacion": "retorno", "expected_revision": rev})
     assert saved.status_code == 303 and saved.headers["location"] == return_to
     back = c.get(saved.headers["location"]).text
     assert 'data-pager-page="3"' in back and 'value="2026-Q3" selected' in back and 'value="Bumeran" selected' in back and 'value="retorno"' in back and 'data-pager-size="50"' in back
@@ -380,9 +371,9 @@ def test_create_form_posts_with_a_busqueda_and_redirects_to_the_list_with_the_sn
     b = _busqueda("Analista BI")
     c = _client(follow=False)
     page = c.get("/cchh/publicaciones/nueva").text
-    assert 'name="busqueda_id"' in page and "Analista BI" in page and 'name="posicion"' in page and 'name="canal"' in page and 'name="cantidad_avisos"' in page and 'name="periodo"' in page
+    assert 'name="busqueda_id"' in page and "Analista BI" in page and 'name="posicion"' in page and 'name="canal"' in page and 'name="cantidad_avisos"' in page and 'name="periodo"' not in page and 'name="fecha"' in page
     assert "<optgroup label=\"Activas\">" in page and "Cancelar" in page and "Crear publicación" in page
-    r = c.post("/cchh/publicaciones/nueva", data={"busqueda_id": b["busqueda_id"], "posicion": "", "canal": "Bumeran", "cantidad_avisos": "2", "periodo": TODAY_PERIODO, "fecha": "2026-10-02", "observacion": "ok"})
+    r = c.post("/cchh/publicaciones/nueva", data={"busqueda_id": b["busqueda_id"], "posicion": "", "canal": "Bumeran", "cantidad_avisos": "2", "fecha": "2026-10-02", "observacion": "ok"})
     assert r.status_code == 303 and r.headers["location"] == "/cchh/publicaciones"
     (p,) = publicacion_repository.list()
     assert (p["posicion"], p["busqueda_id"], p["canal"], p["cantidad_avisos"], p["fecha"]) == ("Analista BI", b["busqueda_id"], "Bumeran", 2, "2026-10-02")
@@ -390,10 +381,10 @@ def test_create_form_posts_with_a_busqueda_and_redirects_to_the_list_with_the_sn
 
 def test_create_and_edit_validation_errors_rerender_with_the_typed_values_and_concurrency_is_optimistic():
     c = _client(follow=False)
-    bad = c.post("/cchh/publicaciones/nueva", data={"busqueda_id": "", "posicion": "", "canal": "Bumeran", "cantidad_avisos": "1", "periodo": TODAY_PERIODO})
+    bad = c.post("/cchh/publicaciones/nueva", data={"busqueda_id": "", "posicion": "", "canal": "Bumeran", "cantidad_avisos": "1", "fecha": TODAY_FECHA})
     assert bad.status_code == 200 and "No se guardó" in bad.text and "Completá la posición" in bad.text and publicacion_repository.list() == []
     p = _pub()
-    data = {"busqueda_id": "", "posicion": "Otra", "canal": "Bumeran", "cantidad_avisos": "1", "periodo": TODAY_PERIODO, "fecha": "", "observacion": "", "expected_revision": "1"}
+    data = {"busqueda_id": "", "posicion": "Otra", "canal": "Bumeran", "cantidad_avisos": "1", "fecha": TODAY_FECHA, "observacion": "", "expected_revision": "1"}
     ok = c.post(f"/cchh/publicaciones/{p['publicacion_id']}/editar", data=data)
     assert ok.status_code == 303 and human_capital_service.get_publicacion(p["publicacion_id"])["revision"] == 2
     stale = c.post(f"/cchh/publicaciones/{p['publicacion_id']}/editar", data=data)

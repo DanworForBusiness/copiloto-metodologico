@@ -1822,29 +1822,31 @@ def periodo_desde_fecha(d: date) -> str:
     return f"{d.year}-Q{(d.month - 1) // 3 + 1}"
 
 
+def hoy_negocio() -> date:
+    """Fecha de HOY en la zona de negocio (America/Argentina/Buenos_Aires, la misma de `fecha_apertura`/`fecha_cierre`): entre 21:00 y 24:00 ART la fecha UTC ya es la del día siguiente."""
+    return datetime.now(busqueda_repository.BUSINESS_TZ).date()
+
+
 def periodo_actual(today: date | None = None) -> str:
-    return periodo_desde_fecha(today or date.today())
+    return periodo_desde_fecha(today or hoy_negocio())
 
 
-def periodos_disponibles(today: date | None = None) -> list[str]:
-    """Opciones de período de un ALTA (MISMA ventana que `periodosDisponibles` de la referencia): año actual y el siguiente, trimestres 4→1, más recientes primero."""
-    year = (today or date.today()).year
-    return [f"{y}-Q{q}" for y in (year + 1, year) for q in (4, 3, 2, 1)]
+def _parse_fecha_publicacion(value) -> date | None:
+    """`AAAA-MM-DD` válida -> `date`; vacío/ilegible -> `None` (nunca inventa una fecha)."""
+    try:
+        return datetime.strptime(str(value or "").strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
-def _validate_periodo(value: str | None, *, existing_value: str | None, today: date | None = None) -> str:
-    """`YYYY-Qn` obligatorio. Un ALTA acepta sólo la ventana calculada; una EDICIÓN conserva sin cambios un período histórico (fuera de la ventana) ya guardado y exige la ventana
-    sólo si se CAMBIA (history-safe: no se vuelve imposible editar un registro viejo porque cambió el año)."""
-    v = (value or "").strip()
-    if not v:
-        raise ValueError("Elegí un período.")
-    if not _PERIODO_RE.match(v):
-        raise ValueError("El período tiene que tener el formato AAAA-Tn (por ejemplo 2026-Q3).")
-    if v == existing_value:
-        return v
-    if v not in periodos_disponibles(today):
-        raise ValueError("Elegí un período de la lista.")
-    return v
+def periodo_efectivo(publicacion: dict) -> str:
+    """Trimestre «AAAA-Tn» de una Publicación = el que usan el listado, los filtros, el resumen y los Indicadores. La FECHA es la fuente de verdad (`periodo_desde_fecha`, la ÚNICA derivación): aunque el `periodo`
+    almacenado difiera, manda la fecha. Compatibilidad histórica: una publicación SIN fecha válida conserva su `periodo` almacenado (no se inventa ni se reescribe nada); sin ninguno de los dos, `""`."""
+    fecha = _parse_fecha_publicacion(publicacion.get("fecha"))
+    if fecha is not None:
+        return periodo_desde_fecha(fecha)
+    legado = str(publicacion.get("periodo") or "").strip()
+    return legado if _PERIODO_RE.match(legado) else ""
 
 
 def _validate_canal_publicacion_governed(new_value: str | None, *, existing_value: str | None) -> None:
@@ -1858,7 +1860,7 @@ def _validate_canal_publicacion_governed(new_value: str | None, *, existing_valu
     raise ValueError("El catálogo de Canales de publicación todavía no está disponible. Refrescá el catálogo antes de cargar una publicación.")
 
 
-def _shape_publicacion_fields(fields: dict, *, existing: dict | None = None, today: date | None = None) -> dict:
+def _shape_publicacion_fields(fields: dict, *, existing: dict | None = None) -> dict:
     """Valida y arma los campos persistibles. SNAPSHOT de `posicion`: con una Búsqueda NUEVA (alta, o edición que cambia el vínculo) se COPIA su `nombre_puesto`; con el MISMO vínculo se
     conserva la `posicion` ya guardada (nunca se re-deriva ni se sincroniza si la Búsqueda cambió de nombre); sin Búsqueda la `posicion` es texto libre OBLIGATORIO."""
     busqueda_id = (fields.get("busqueda_id") or "").strip() or None
@@ -1885,13 +1887,14 @@ def _shape_publicacion_fields(fields: dict, *, existing: dict | None = None, tod
         cantidad = 0
     if cantidad < 1:
         raise ValueError("La cantidad de avisos tiene que ser al menos 1.")
-    periodo = _validate_periodo(fields.get("periodo"), existing_value=(existing or {}).get("periodo"), today=today)
-    fecha = (fields.get("fecha") or "").strip() or None
-    if fecha is not None:
-        try:
-            datetime.strptime(fecha, "%Y-%m-%d")
-        except ValueError:
-            raise ValueError("La fecha no es válida.") from None
+    # La FECHA es obligatoria y el trimestre se DERIVA acá (backend): un `periodo` enviado por el navegador se ignora, nunca se acepta ni se contrasta.
+    raw_fecha = (fields.get("fecha") or "").strip()
+    if not raw_fecha:
+        raise ValueError("Ingresá la fecha de publicación.")
+    parsed = _parse_fecha_publicacion(raw_fecha)
+    if parsed is None:
+        raise ValueError("La fecha no es válida.")
+    fecha, periodo = parsed.isoformat(), periodo_desde_fecha(parsed)
     return {"busqueda_id": busqueda_id, "posicion": posicion, "canal": canal, "cantidad_avisos": cantidad, "periodo": periodo, "fecha": fecha,
             "observacion": (fields.get("observacion") or "").strip() or None}
 
@@ -1916,7 +1919,7 @@ def get_publicacion(publicacion_id: str) -> dict | None:
 def publicacion_view(publicacion: dict) -> dict:
     """Publicación + la Búsqueda vinculada leída EN VIVO sólo para mostrar/buscar su nombre actual (la `posicion` mostrada es SIEMPRE el snapshot persistido)."""
     busqueda = busqueda_repository.get(publicacion["busqueda_id"]) if publicacion.get("busqueda_id") else None
-    return {**publicacion, "busqueda": busqueda, "busqueda_nombre": (busqueda or {}).get("nombre_puesto")}
+    return {**publicacion, "periodo": periodo_efectivo(publicacion), "busqueda": busqueda, "busqueda_nombre": (busqueda or {}).get("nombre_puesto")}
 
 
 def list_publicaciones_view() -> list[dict]:

@@ -86,15 +86,10 @@
             <input id="pub-cantidad" name="cantidad_avisos" type="number" min="1" step="1" required value="{{ form_values.cantidad_avisos if form_values.cantidad_avisos is not none else 1 }}">
           </div>
           <div class="feedback-field feedback-field--compact">
-            <label for="pub-periodo">Período</label>
-            <select id="pub-periodo" name="periodo" required>
-              {% for p in periodos %}<option value="{{ p }}" {% if form_values.periodo == p %}selected{% endif %}>{{ p }}</option>{% endfor %}
-            </select>
-            {% if periodo_is_historical %}<p class="field-hint">Período histórico fuera de la ventana actual: se conserva si no lo cambiás.</p>{% endif %}
-          </div>
-          <div class="feedback-field feedback-field--compact">
-            <label for="pub-fecha">Fecha <span>opcional</span></label>
-            <input id="pub-fecha" name="fecha" type="date" value="{{ form_values.fecha or '' }}">
+            <label for="pub-fecha">Fecha de publicación</label>
+            <input id="pub-fecha" name="fecha" type="date" required value="{{ form_values.fecha or '' }}" aria-describedby="pub-fecha-hint">
+            <p class="field-hint" id="pub-fecha-hint">El trimestre se calcula solo a partir de esta fecha.</p>
+            {% if periodo_legado %}<p class="field-hint field-hint--warn">Publicación histórica sin fecha (período guardado: {{ periodo_legado }}). Ingresá la fecha de publicación para guardar los cambios.</p>{% endif %}
           </div>
         </div>
 
