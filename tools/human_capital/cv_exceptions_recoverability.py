@@ -2,6 +2,7 @@
 
     python -m tools.human_capital.cv_exceptions_recoverability --run ch-20261024T014615Z-6827                       # informe agregado (sin datos personales ni identificadores) por stdout
     python -m tools.human_capital.cv_exceptions_recoverability --run <lote> --json                                  # además, el agregado como JSON
+    python -m tools.human_capital.cv_exceptions_recoverability --run <lote> --corroboradas                          # además, el desglose agregado de las altas asistidas con identidad corroborada (niveles de precarga A/B/C/D)
     python -m tools.human_capital.cv_exceptions_recoverability --run <lote> --detail-out /ruta/local/detalle.json   # detalle PROTEGIDO por content_key (ids opacos, códigos y señales; nunca nombres, emails ni teléfonos)
 
 ESTRICTAMENTE DE SOLO LECTURA sobre los datos del negocio: no crea, edita, vincula, descarta ni reintenta nada; no descarga los CV; no toca el manifiesto, el libro de ejecución, el staging, el Banco, los catálogos ni SharePoint. La única escritura posible es
@@ -87,6 +88,21 @@ def render(agg: dict) -> list[str]:
     return lines
 
 
+def render_corroborated(b: dict) -> list[str]:
+    c = b["conciliacion"]
+    lines = ["", "ALTAS ASISTIDAS CON IDENTIDAD CORROBORADA (opción --corroboradas · solo conteos y códigos)",
+             f"  altas asistidas: {b['altas_asistidas']} · corroboradas: {b['corroboradas']} · según el informe: {c['corroboradas_segun_el_informe']} · diferencia: {c['diferencia']} · suma de niveles: {c['suma_de_niveles']} · ejes que no suman: {c['ejes_que_no_suman'] or 'ninguno'}",
+             "  NIVEL DE PRECARGA DEL NOMBRE"]
+    lines += [f"    {lv}: {b['niveles'][lv]} — {b['significado_de_los_niveles'][lv]}" for lv in b["niveles"]]
+    lines += ["  NIVEL POR MOTIVO ORIGINAL (" + " | ".join(b["niveles"]) + ")"] + [f"    {reason}: " + " | ".join(str(counts[lv]) for lv in b["niveles"]) for reason, counts in b["niveles_por_motivo_original"].items()]
+    for name, counts in b["ejes"].items():
+        lines.append(f"  {name}: {counts}")
+    lines += ["  CRUCE motivo original | razones adicionales | evidencia del ancla | emails/explican | nivel"]
+    lines += [f"    {x['documentos']:3d}  {x['motivo_original']} | {x['razones_adicionales']} | {x['evidencia_del_ancla']} | {x['emails']}/{x['emails_que_explican']} | {x['nivel']}" for x in b["cruce"]]
+    lines.append(f"  {b['aviso']}")
+    return lines
+
+
 def run(argv: list[str] | None = None, deps: dict | None = None, out=None) -> int:
     out = out or sys.stdout
     args = _parser().parse_args(argv)
@@ -115,7 +131,8 @@ def run(argv: list[str] | None = None, deps: dict | None = None, out=None) -> in
             say("  No se pudo dejar el disco local fiel a Spaces: no se leyó nada ni se informó nada. Reintentá; si persiste, no usar el informe.")
             return EXIT_BLOCKED
     try:
-        report = recoverability.build_report(recoverability.load_inputs(args.run))
+        inputs = recoverability.load_inputs(args.run)
+        report = recoverability.build_report(inputs)
     except manifest.ManifestNotFoundError:
         say("BLOQUEADO: LOTE_INEXISTENTE (tras restaurar desde Spaces el lote no existe en este entorno)")
         return EXIT_BLOCKED
@@ -125,8 +142,12 @@ def run(argv: list[str] | None = None, deps: dict | None = None, out=None) -> in
     agg = report["aggregate"]
     for line in render(agg):
         say(line)
+    corroborated = recoverability.corroborated_breakdown(inputs, report) if args.corroboradas else None
+    if corroborated:
+        for line in render_corroborated(corroborated):
+            say(line)
     if args.json:
-        say(json.dumps(agg, ensure_ascii=False, indent=2))
+        say(json.dumps({**agg, "altas_corroboradas": corroborated} if corroborated else agg, ensure_ascii=False, indent=2))
     if detail_path is not None:
         with open(detail_path, "x", encoding="utf-8") as handle:                         # ÚNICA escritura del CLI: archivo local nuevo y explícito (modo exclusivo)
             json.dump({"lote": agg["lote"], "aviso": "DETALLE PROTEGIDO: content_key y profile_id opacos; sin nombres, emails ni teléfonos. Las propuestas no son identidades verificadas.", "detalle": report["detail"]},
@@ -135,6 +156,9 @@ def run(argv: list[str] | None = None, deps: dict | None = None, out=None) -> in
     if agg["conciliacion"]["diferencia"] != 0 or sum(agg["categorias"].values()) != agg["conciliacion"]["abiertas_segun_manifiesto"]:
         say("ATENCIÓN: el informe NO concilia exactamente con las excepciones abiertas del manifiesto.")
         return EXIT_NO_RECONCILE
+    if corroborated and (corroborated["conciliacion"]["diferencia"] != 0 or corroborated["conciliacion"]["ejes_que_no_suman"] or corroborated["conciliacion"]["suma_de_niveles"] != corroborated["corroboradas"]):
+        say("ATENCIÓN: el desglose de altas corroboradas NO concilia con el informe.")
+        return EXIT_NO_RECONCILE
     return EXIT_OK
 
 
@@ -142,6 +166,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cv_exceptions_recoverability", description="Diagnóstico de SOLO LECTURA de la recuperabilidad de las excepciones abiertas de una importación histórica de CVs.")
     parser.add_argument("--run", required=True, help="id del lote de importación (ch-AAAAMMDDTHHMMSSZ-xxxx)")
     parser.add_argument("--json", action="store_true", help="agrega el informe agregado en JSON")
+    parser.add_argument("--corroboradas", action="store_true", help="agrega el desglose AGREGADO de las altas asistidas con identidad corroborada (motivo, ancla, dato a confirmar, nivel de precarga A/B/C/D)")
     parser.add_argument("--detail-out", default="", help="ruta local NUEVA donde escribir el detalle protegido por content_key (fuera de los directorios persistidos)")
     return parser
 
