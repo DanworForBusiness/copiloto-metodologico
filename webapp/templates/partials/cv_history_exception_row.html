@@ -13,6 +13,10 @@
   <td class="left" data-label="Estado y categoría">
     <span class="status-badge {{ 'status-badge--activo' if r.status == 'resolved' else 'status-badge--inactivo' if r.status == 'dismissed' else 'status-badge--tentativo' }}" data-exception-status>{{ tag[r.status] }}</span>
     {% if r.review %}<br><span class="status-badge {{ r.review.badge }}" data-recoverability="{{ r.review.category }}">{{ r.review.label }}</span><br><span class="field-hint" data-recoverability-hint>{{ r.review.hint }}</span>{% endif %}
+    {% if r.status in ('open', 'in_progress', 'blocked', 'error') %}
+    {% if r.draft %}<br><span class="status-badge status-badge--activo" data-draft-state="saved">Borrador guardado</span><br><span class="field-hint" data-draft-meta>Rev. {{ r.draft.revision }} · {{ r.draft.updated_by }} · {{ r.draft.updated_at }}{% if r.draft.name %} · «{{ r.draft.name }}»{% endif %}</span>
+    {% else %}<br><span class="status-badge status-badge--inactivo" data-draft-state="none">Sin revisar</span>{% endif %}
+    {% endif %}
     {% if r.reason %}<br><span class="field-hint" data-exception-reason>{{ r.reason }}</span>{% endif %}
     {% for code in r.plan_reasons[1:] %}<br><span class="field-hint">{{ code }}</span>{% endfor %}
     {% if r.ledger and r.ledger.profile_id and r.status == 'resolved' %}<br><a href="/cchh/candidatos/{{ r.ledger.profile_id }}/editar">Ver perfil</a>{% endif %}
@@ -39,6 +43,10 @@
   <td class="left" data-label="Acciones">
     {% if result %}
       {% if result.error %}<p class="callout callout--warn" data-error-kind="exception_action"><span class="callout__body">{{ result.error }}</span></p>
+      {% elif result.draft_conflict %}<div class="callout callout--warn" data-draft-conflict><span class="callout__body">Otro guardado se adelantó: el borrador ya está en la revisión {{ result.draft_conflict.revision }}{% if not result.draft_conflict.deleted %} (por {{ result.draft_conflict.by }}, {{ result.draft_conflict.at }}){% endif %}.
+        <strong>No se guardó nada y tus datos siguen en el formulario.</strong> Revisá las diferencias y, si querés, volvé a guardar.
+        {% if result.draft_conflict.differs %}<ul data-draft-conflict-differs>{% for label, saved_value in result.draft_conflict.differs %}<li>{{ label }} guardado: «{{ saved_value or '(vacío)' }}»</li>{% endfor %}</ul>{% endif %}</span></div>
+      {% elif result.draft_saved %}<p class="callout callout--info" data-draft-done><span class="callout__body">{% if not result.changed %}Sin cambios: el borrador ya tenía estos datos.{% else %}Borrador guardado (revisión {{ result.revision }}).{% endif %} No se creó ningún perfil ni se tocó el Banco.</span></p>
       {% elif result.advisory %}
       <p class="callout callout--warn" data-duplicate-advisory><span class="callout__body">Ya existe <strong>{{ result.advisory.name }}</strong>{% if result.advisory.email %} ({{ result.advisory.email }}){% endif %}. Podés vincular este CV a ese perfil o crear uno nuevo igual.</span></p>
       <form class="hc-exc-form" hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/vincular" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
@@ -53,8 +61,31 @@
       {% endif %}
     {% endif %}
     {% if r.status in ('open', 'in_progress', 'blocked', 'error') and r.available %}
-    <details class="hc-exc-actions" {% if result and (result.error or result.advisory) %}open{% endif %}>
+    {% set saved = r.draft %}
+    {% set dv = draft_form if (draft_form is defined and draft_form) else (saved.fields if saved else ((r.review.prefill if r.review else none) or {})) %}
+    {% set drev = draft_revision if (draft_revision is defined and draft_revision is not none) else (saved.revision if saved else 0) %}
+    <details class="hc-exc-actions" {% if result and (result.error or result.advisory or result.draft_conflict or result.draft_saved) %}open{% endif %}>
       <summary>Gestionar</summary>
+      <form class="hc-exc-form" data-exc-draft hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/borrador" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
+        <strong>Borrador</strong> <span class="field-hint">guarda tu trabajo; no crea perfiles ni toca el Banco</span>
+        {% if saved %}<span class="field-hint" data-draft-saved-meta>Guardado por {{ saved.updated_by }} el {{ saved.updated_at }} (revisión {{ saved.revision }}).</span>{% endif %}
+        {% if not saved and r.review and r.review.prefill %}
+          {% if r.review.prefill.first_name %}<span class="field-hint" data-draft-prefilled>Nombre precargado del documento (evidencia corroborada): revisalo antes de guardar.</span>
+          {% else %}<span class="field-hint" data-draft-noprefill>No se precargó el nombre: {{ r.review.prefill.why }}{% if r.review.prefill.names %} Alternativas del documento (sin elegir): {% for n in r.review.prefill.names %}«{{ n }}»{{ ', ' if not loop.last else '.' }}{% endfor %}{% endif %}</span>{% endif %}
+          {% if r.review.prefill.emails | length > 1 %}<span class="field-hint" data-draft-emails>El documento trae varios emails (sin elegir): {{ r.review.prefill.emails | join(', ') }}.</span>{% endif %}
+        {% endif %}
+        <input type="hidden" name="revision" value="{{ drev }}">
+        <div class="hc-exc-form__pair"><input name="first_name" type="text" maxlength="60" placeholder="Nombre" aria-label="Nombre del borrador" value="{{ dv.first_name or '' }}"><input name="last_name" type="text" maxlength="60" placeholder="Apellido" aria-label="Apellido del borrador" value="{{ dv.last_name or '' }}"></div>
+        <div class="hc-exc-form__pair"><input name="email" type="email" maxlength="254" placeholder="Email" aria-label="Email del borrador" value="{{ dv.email or '' }}"><input name="phone" type="text" maxlength="40" placeholder="Teléfono" aria-label="Teléfono del borrador" value="{{ dv.phone or '' }}"></div>
+        <textarea name="notes" rows="3" maxlength="2000" placeholder="Observaciones" aria-label="Observaciones del borrador">{{ dv.notes or '' }}</textarea>
+        <button type="submit" class="btn-secondary">Guardar borrador</button>
+        {% if saved and saved.history %}
+        <details class="hc-exc-evidence" data-draft-history>
+          <summary>Historial del borrador ({{ saved.history | length }}{% if saved.history_dropped %} + {{ saved.history_dropped }} anteriores{% endif %})</summary>
+          <ul>{% for h in saved.history %}<li>Rev. {{ h.revision }} · {{ h.by }} · {{ h.at }} — cambió: {{ h.changed | join(', ') or '—' }}{% for label, old in h.before %}{% if old %}<br><span class="field-hint">antes, {{ label }}: «{{ old }}»</span>{% endif %}{% endfor %}</li>{% endfor %}</ul>
+        </details>
+        {% endif %}
+      </form>
       <form class="hc-exc-form" data-exc-complete hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/completar" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
         <strong>Completar identidad</strong> <span class="field-hint">nombre y apellido reales; se crea el perfil y se sube el CV</span>
         <div class="hc-exc-form__pair"><input name="first_name" type="text" required maxlength="60" placeholder="Nombre" aria-label="Nombre" value="{{ form.first_name if form else '' }}"><input name="last_name" type="text" required maxlength="60" placeholder="Apellido" aria-label="Apellido" value="{{ form.last_name if form else '' }}"></div>

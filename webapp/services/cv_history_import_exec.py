@@ -493,14 +493,33 @@ def execution_report(run_id: str) -> dict | None:
     }
 
 
+UNRESOLVED_STATUSES = ("open", "in_progress", "blocked", "error")
+
+
+def active_drafts(run_id: str) -> int:
+    """Borradores guardados (`cv_history_drafts`) de excepciones que SIGUEN SIN RESOLVER: dependen del área temporal (evidencia y «Ver CV original») para seguir trabajándose. Solo cuenta: no lee su contenido. Los de excepciones
+    ya resueltas o descartadas no son «activos» (y tampoco se borran)."""
+    keys = manifest.draft_keys(run_id)
+    if not keys:
+        return 0
+    status = {r["content_key"]: r["status"] for r in _exception_index(manifest.get_plan(run_id), manifest.list_ledgers(run_id))}
+    return sum(1 for k in keys if status.get(k) in UNRESOLVED_STATUSES)
+
+
 def discard_blockers(run_id: str) -> dict | None:
-    """Qué impide el descarte normal de los datos temporales de una importación en curso: contenidos sin terminar y excepciones abiertas (ambos dependen del área temporal para resolverse). None si no hay bloqueo."""
+    """Qué impide el descarte normal de los datos temporales de una importación: contenidos sin terminar y excepciones abiertas (ambos dependen del área temporal para resolverse) y, mientras no se defina la política de
+    retención, los borradores activos (clave `drafts`, presente solo si hay). None si no hay bloqueo."""
     run = manifest.get_run(run_id)
-    if run.get("kind") != pilot.KIND_IMPORT or not run.get("execution"):
+    if run.get("kind") != pilot.KIND_IMPORT:
         return None
-    report = execution_report(run_id)
-    blockers = {"remaining": report["remaining"], "exceptions_open": report["exceptions_open"]}
-    return blockers if blockers["remaining"] or blockers["exceptions_open"] else None
+    blockers = {"remaining": 0, "exceptions_open": 0}
+    if run.get("execution"):
+        report = execution_report(run_id)
+        blockers = {"remaining": report["remaining"], "exceptions_open": report["exceptions_open"]}
+    drafts = active_drafts(run_id)
+    if drafts:
+        blockers["drafts"] = drafts
+    return blockers if any(blockers.values()) else None
 
 
 def assert_can_discard(run_id: str) -> None:
@@ -508,7 +527,8 @@ def assert_can_discard(run_id: str) -> None:
     explícita (frase de confirmación) y nunca automática; las excepciones se resuelven (completar, vincular o descartar) desde la interfaz."""
     blockers = discard_blockers(run_id)
     if blockers:
-        raise pilot.PilotInputError(f"No se pueden eliminar los datos temporales: quedan {blockers['remaining']} contenidos sin terminar y {blockers['exceptions_open']} excepciones abiertas que dependen de ellos. "
+        drafts = f" y {blockers['drafts']} borradores guardados de excepciones sin resolver (no se borran solos: la política de retención está pendiente)" if blockers.get("drafts") else ""
+        raise pilot.PilotInputError(f"No se pueden eliminar los datos temporales: quedan {blockers['remaining']} contenidos sin terminar y {blockers['exceptions_open']} excepciones abiertas{drafts} que dependen de ellos. "
                                     "Resolvelas desde «Históricos sin validación» (completar, vincular o descartar) y volvé a intentarlo.")
 
 

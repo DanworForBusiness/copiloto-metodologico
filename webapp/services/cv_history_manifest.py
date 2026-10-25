@@ -14,6 +14,9 @@ segundo mecanismo. Separa por diseño lo personal de lo auditable:
   ledger/<content_key>.json   (solo lotes de IMPORTACIÓN) LIBRO DE EJECUCIÓN: correspondencia durable `content_key → profile_id → document_id` y estado de cada contenido (con el id del archivo en SharePoint y su sha256).
                             SIN datos personales (solo identificadores y códigos): sobrevive al descarte como registro técnico y es la base de la idempotencia de la importación.
   audit/<content_key>.json    AUDITORÍA: una lista de eventos (estado, código de excepción, hora). SIN datos personales: sobrevive al descarte del área temporal.
+  drafts/<content_key>.json   (solo lotes de IMPORTACIÓN) BORRADOR del owner por excepción («Históricos sin validación»): nombre, apellido, email, teléfono y observaciones que el owner va completando, con `revision`
+                            (control optimista), autor, fechas e historial de cambios. CONTIENE datos personales (área protegida, junto al lote; NUNCA en `human-capital/profiles/`). No es un perfil ni crea nada en
+                            el Banco. NO se borra solo ni lo borra el descarte del área temporal: la política de retención está pendiente de definición.
 
 Una unidad = un CONTENIDO de documento (`content_key`, derivado del hash de contenido que informa Graph, o del id Graph si no hay hash). Un mismo contenido que aparece en varias carpetas es UN registro con TODAS
 sus especialidades. Cada registro lleva `revision`; el estado por documento y las excepciones quedan persistidos tras cada paso, de modo que un corte (token vencido, tiempo, error) se reanuda sin repetir trabajo.
@@ -22,9 +25,14 @@ DURABILIDAD: en modo `remote`, si Spaces no confirma una escritura se lanza `Man
 disco. En `read-only` no se escribe."""
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import json
+import os
 import re
+import tempfile
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -54,6 +62,10 @@ class ManifestDurabilityError(ManifestError):
 
 class ManifestInvalidIdError(ManifestError):
     pass
+
+
+class ManifestBusyError(ManifestError):
+    """Otro proceso tiene tomado el candado del recurso y no lo soltó a tiempo: no se escribió nada; reintentar es seguro."""
 
 
 def now_iso() -> str:
@@ -305,6 +317,130 @@ def list_verdicts(run_id: str) -> dict[str, dict]:
             if doc:
                 out[entry.stem] = doc
     return out
+
+
+# ── borradores del owner por excepción (área protegida del lote; NO son perfiles ni tocan el Banco) ─────────────────
+DRAFT_SCHEMA = "cv-history-draft/v1"
+_draft_lock = threading.Lock()
+_DRAFT_LOCK_TIMEOUT_S = 10.0
+_LOCK_POLL_S = 0.02
+
+
+@contextlib.contextmanager
+def _interprocess_lock(path: Path, timeout: float | None = None):
+    """Candado EXCLUSIVO entre procesos que comparten el disco (varios workers del mismo servidor) sobre el recurso `path`: el del sistema operativo (`fcntl.flock` / `msvcrt.locking`, de la biblioteca estándar), sobre un
+    archivo de candado aparte —en el directorio temporal, NUNCA bajo los directorios persistidos, así que no se sincroniza con Spaces—. Lo suelta el sistema operativo si el proceso muere (no quedan candados huérfanos).
+    Si no se obtiene en `timeout` segundos lanza `ManifestBusyError` sin haber escrito nada. Se toma SIEMPRE después del candado del hilo (mismo orden en todos lados: sin interbloqueos)."""
+    directory = Path(tempfile.gettempdir()) / "danwor-manifest-locks"
+    directory.mkdir(parents=True, exist_ok=True)
+    handle = open(directory / (hashlib.sha256(str(Path(path).resolve()).encode("utf-8")).hexdigest()[:32] + ".lock"), "a+b")
+    deadline = time.monotonic() + (_DRAFT_LOCK_TIMEOUT_S if timeout is None else timeout)
+    try:
+        while True:
+            try:
+                _lock_handle(handle)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise ManifestBusyError("el recurso está siendo modificado por otro proceso") from None
+                time.sleep(_LOCK_POLL_S)
+        try:
+            yield
+        finally:
+            _unlock_handle(handle)
+    finally:
+        handle.close()
+
+
+if os.name == "nt":
+    import msvcrt
+
+    def _lock_handle(handle) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+
+    def _unlock_handle(handle) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _lock_handle(handle) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock_handle(handle) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def get_draft(run_id: str, key: str) -> dict | None:
+    return _read(_run_dir(run_id) / "drafts" / f"{_key_ok(key)}.json")
+
+
+def list_drafts(run_id: str) -> dict[str, dict]:
+    _ensure_restored()
+    directory = _run_dir(run_id) / "drafts"
+    out: dict[str, dict] = {}
+    if not directory.is_dir():
+        return out
+    for entry in sorted(directory.iterdir()):
+        if entry.is_file() and entry.suffix == ".json" and KEY_RE.match(entry.stem):
+            doc = _read(entry)
+            if doc:
+                out[entry.stem] = doc
+    return out
+
+
+def draft_keys(run_id: str) -> list[str]:
+    """`content_key` de los borradores guardados del lote (solo nombres de archivo: no lee ni expone su contenido)."""
+    _ensure_restored()
+    directory = _run_dir(run_id) / "drafts"
+    return sorted(e.stem for e in directory.iterdir() if e.is_file() and e.suffix == ".json" and KEY_RE.match(e.stem)) if directory.is_dir() else []
+
+
+def count_drafts(run_id: str) -> int:
+    """Cantidad de borradores guardados del lote (solo cuenta archivos: no lee ni expone su contenido)."""
+    _ensure_restored()
+    directory = _run_dir(run_id) / "drafts"
+    return sum(1 for e in directory.iterdir() if e.is_file() and e.suffix == ".json" and KEY_RE.match(e.stem)) if directory.is_dir() else 0
+
+
+def update_draft(run_id: str, key: str, build) -> dict | None:
+    """Lee el borrador vigente (o None), llama `build(previous)` y persiste lo que devuelva, TODO bajo un mismo candado —el del hilo y, encima, uno ENTRE PROCESOS del mismo disco (`_interprocess_lock`)—: la comparación de
+    revisión que hace `build` y la escritura no se pisan entre peticiones ni entre workers: una revisión obsoleta nunca pisa a una más nueva (la pierde con conflicto). Alcance: procesos que comparten disco; réplicas con
+    discos propios siguen gateadas por `App Platform replica count == 1`, igual que `profile_repository`.
+    `build` puede lanzar (validación o conflicto de revisión): en ese caso no se escribe nada. Devuelve el documento escrito, o el vigente si `build` devuelve None (sin cambios).
+
+    Errores parciales: si la escritura local se hizo pero Spaces no la confirmó (`ManifestDurabilityError`), se RESTAURA el contenido anterior (local y remoto nunca divergen) y se relanza: el llamador informa que NO se guardó, y
+    reintentar con la misma revisión funciona. Tras escribir se relee el archivo: si otro proceso del mismo disco lo pisó en el medio, falla en vez de informar un éxito falso. Escribe SOLO `drafts/<content_key>.json`: ni
+    `run.json`, ni el libro, ni el staging, ni la auditoría, ni el Banco. No hay borrado: el historial vive dentro del borrador."""
+    path = _run_dir(run_id) / "drafts" / f"{_key_ok(key)}.json"
+    if remote_store.read_only_mode():
+        raise ManifestDurabilityError("modo de solo lectura")
+    with _draft_lock, _interprocess_lock(path):
+        previous = _read(path)
+        built = build(previous)
+        if built is None:
+            return previous
+        doc = {**built, "schema": DRAFT_SCHEMA, "run_id": run_id, "content_key": key}
+        try:
+            _write(path, doc)
+        except ManifestDurabilityError:
+            _restore_draft(path, previous)
+            raise
+        again = _read(path) or {}
+        if (again.get("revision"), again.get("updated_at"), again.get("updated_by")) != (doc.get("revision"), doc.get("updated_at"), doc.get("updated_by")):
+            raise ManifestError("el borrador cambió durante el guardado")
+        return doc
+
+
+def _restore_draft(path: Path, previous: dict | None) -> None:
+    try:
+        if previous is None:
+            path.unlink(missing_ok=True)
+        else:
+            remote_store.write_through(path, json.dumps(previous, ensure_ascii=False, sort_keys=True, indent=1))
+    except OSError:
+        pass                                                                                     # si ni siquiera se puede restaurar, el error original (no confirmado) ya informa que NO se guardó
 
 
 # ── auditoría (sin datos personales) ──────────────────────────────────────────

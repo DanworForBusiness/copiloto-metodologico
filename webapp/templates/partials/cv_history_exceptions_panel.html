@@ -3,7 +3,7 @@
 <div id="cvexc-panel">
     <h3>Resumen</h3>
     <p class="field-hint" data-exceptions-summary>Por resolver: {{ overview.counts.get('open', 0) + overview.counts.get('in_progress', 0) + overview.counts.get('blocked', 0) + overview.counts.get('error', 0) }}
-      (abiertas {{ overview.counts.get('open', 0) }} · bloqueadas {{ overview.counts.get('blocked', 0) }} · con error {{ overview.counts.get('error', 0) }} · en curso {{ overview.counts.get('in_progress', 0) }}) · resueltas {{ overview.counts.get('resolved', 0) }} · descartadas {{ overview.counts.get('dismissed', 0) }}.
+      (abiertas {{ overview.counts.get('open', 0) }} · bloqueadas {{ overview.counts.get('blocked', 0) }} · con error {{ overview.counts.get('error', 0) }} · en curso {{ overview.counts.get('in_progress', 0) }}) · resueltas {{ overview.counts.get('resolved', 0) }} · descartadas {{ overview.counts.get('dismissed', 0) }}. <span data-drafts-count>Con borrador guardado: {{ drafts_count or 0 }}.</span>
       {% if not execution.started %}<strong>La importación todavía no comenzó:</strong> las excepciones se gestionan una vez iniciada.{% endif %}
       {% if not overview.staging_present %}<strong>Los datos temporales ya no están disponibles:</strong> no se pueden gestionar.{% endif %}</p>
 
@@ -19,7 +19,7 @@
     <div class="matrix-scroll"><table class="dashboard-table" data-exceptions-rows>
       <thead><tr><th scope="col" class="left">Contenido</th><th scope="col" class="left">Estado y categoría</th><th scope="col" class="left">Datos extraídos y evidencia</th><th scope="col" class="left">Perfiles sugeridos</th><th scope="col" class="left">Acciones</th></tr></thead>
       <tbody>
-      {% for r in rows %}{% set result = none %}{% set form = none %}{% include "partials/cv_history_exception_row.html" %}
+      {% for r in rows %}{% set result = none %}{% set form = none %}{% set draft_form = none %}{% set draft_revision = none %}{% include "partials/cv_history_exception_row.html" %}
       {% else %}<tr><td class="left" colspan="5"><span class="field-hint" data-exceptions-empty>No hay excepciones con este filtro.</span></td></tr>{% endfor %}
       </tbody>
     </table></div>

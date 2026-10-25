@@ -63,7 +63,7 @@
     {% if st.expired %}<span class="status-badge status-badge--tentativo" data-pilot-expired>Vigencia vencida: eliminá los datos personales</span>{% endif %}{% endif %}
   </p>
   {% if st.state != 'DISCARDED' and discard_block %}
-  <p class="callout callout--warn" data-discard-blocked><span class="callout__body">No se pueden eliminar los datos temporales todavía: quedan <strong>{{ discard_block.remaining }}</strong> contenidos sin terminar y <strong>{{ discard_block.exceptions_open }}</strong> excepciones abiertas que dependen de ellos.
+  <p class="callout callout--warn" data-discard-blocked><span class="callout__body">No se pueden eliminar los datos temporales todavía: quedan <strong>{{ discard_block.remaining }}</strong> contenidos sin terminar y <strong>{{ discard_block.exceptions_open }}</strong> excepciones abiertas{% if discard_block.drafts %} y <strong data-discard-drafts>{{ discard_block.drafts }}</strong> borradores guardados de excepciones sin resolver (no se borran solos: la política de retención está pendiente){% endif %} que dependen de ellos.
     Resolvelas desde <a href="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones">Históricos sin validación</a> (completar, vincular o descartar); después podrás eliminarlos con la confirmación explícita.</span></p>
   {% elif st.state != 'DISCARDED' %}
   <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/descartar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-pilot-discard-form>

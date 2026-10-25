@@ -540,15 +540,30 @@ def discard_staging(run_id: str, *, confirm: str, actor: str) -> dict:
         raise PilotInputError("Falta la confirmación explícita para eliminar los datos personales del lote.")
     run = manifest.get_run(run_id)
     if (run.get("staging") or {}).get("state") != "DISCARDED":
+        _assert_no_active_drafts(run_id)                                                   # 1) antes de escribir nada
         if "final_report" not in run:
             report = run_report(run_id)
-            manifest.update_run(run_id, lambda d: d.update({"final_report": report, "staging": {**d["staging"], "state": "DISCARDING"}}))
+            manifest.update_run(run_id, lambda d: d.update({"final_report": report, "staging": {**d["staging"], "state": "DISCARDING"}}))   # desde acá no se aceptan borradores nuevos
+            try:
+                _assert_no_active_drafts(run_id)                                           # 2) con el área ya marcada: cierra la carrera con un guardado simultáneo
+            except PilotInputError:
+                manifest.update_run(run_id, lambda d: (d.pop("final_report", None), d.update({"staging": {**d["staging"], "state": "PRESENT"}})))
+                raise
         removed = manifest.delete_staging_files(run_id)
         audit_dir = manifest._run_dir(run_id) / "audit"
         for entry in sorted(audit_dir.glob("*.json")) if audit_dir.is_dir() else []:          # la auditoría por contenido se conserva; se agrega el evento de cierre
             manifest.append_audit(run_id, entry.stem, "STAGING_DISCARDED")
         manifest.update_run(run_id, lambda d: d.update({"staging": {**d["staging"], "state": "DISCARDED", "discarded_at": manifest.now_iso(), "discarded_by": actor, "files_removed": removed}}))
     return manifest.get_run(run_id)["staging"]
+
+
+def _assert_no_active_drafts(run_id: str) -> None:
+    """Mientras no se defina la política de retención, el área temporal NO se elimina si hay borradores guardados de excepciones sin resolver que dependen de ella. Nunca se borra un borrador."""
+    from webapp.services import cv_history_import_exec as exec_service                     # import diferido: ese módulo importa este
+    active = exec_service.active_drafts(run_id)
+    if active:
+        raise PilotInputError(f"No se pueden eliminar los datos temporales: hay {active} borradores guardados de excepciones sin resolver que dependen de ellos. Los borradores no se borran solos (la política de retención "
+                              "está pendiente). Resolvé o descartá esas excepciones desde «Históricos sin validación» y volvé a intentarlo.")
 
 
 def discard_phrase(run_id: str) -> str:
