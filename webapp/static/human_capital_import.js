@@ -45,4 +45,10 @@
       if (status) status.textContent = token ? "Escritura autorizada." : "No se pudo obtener la autorización: reintentá o volvé a iniciar sesión.";
     });
   });
+  // «Históricos sin validación»: tras guardar un borrador el servidor avisa (HX-Trigger `cvexc-drafts`) cuántos hay; se actualiza el contador del panel sin recargar. Solo muestra un número.
+  document.addEventListener("cvexc-drafts", function (event) {
+    var total = event.detail && event.detail.value;
+    var label = document.querySelector("[data-drafts-count]");
+    if (label && typeof total === "number") label.textContent = "Con borrador guardado: " + total + ".";
+  });
 })();

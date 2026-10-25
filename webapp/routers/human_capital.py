@@ -114,7 +114,7 @@ from webapp.services import (
     human_capital_indicators, human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
-from webapp.services import cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
+from webapp.services import cv_history_drafts, cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
 from webapp.services import human_capital_contact
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
@@ -3316,10 +3316,12 @@ def human_capital_cv_history_exceptions(request: Request, run_id: str, estado: s
                                     params={"estado": estado if estado != "open" else "", "motivo": motivo})
         rows = cv_history_import_exec.exception_details(run_id, pager["items"]) if overview["staging_present"] else [{**r, "available": False, "ledger": {}, "suggestions": [], "alternatives": [], "emails": [], "specialties": []} for r in pager["items"]]
         cv_history_review.annotate(run_id, rows)                                                          # categoría de recuperabilidad y evidencia legible: SOLO de las filas de esta página
+        cv_history_drafts.attach(run_id, rows)                                                            # borrador guardado (si lo hay) de las filas de esta página
+        drafts_count = cv_history_drafts.count(run_id)
         execution = cv_history_import_exec.execution_report(run_id)
     except (cv_history_manifest.ManifestNotFoundError, cv_history_import_exec.ExecutionError):
         raise HTTPException(404, "Lote inexistente") from None
-    context = {"run_id": run_id, "overview": overview, "pager": pager, "rows": rows, "execution": execution, "estado": estado, "motivo": motivo}
+    context = {"run_id": run_id, "overview": overview, "pager": pager, "rows": rows, "execution": execution, "estado": estado, "motivo": motivo, "drafts_count": drafts_count}
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(request=request, name="partials/cv_history_exceptions_panel.html", context={"request": request, **context}, headers=_NO_STORE)
     return templates.TemplateResponse(request=request, name="human_capital/cv_history_exceptions.html", context=_pilot_context(request, **context), headers=_NO_STORE)
@@ -3328,13 +3330,14 @@ def human_capital_cv_history_exceptions(request: Request, run_id: str, estado: s
 @router.post("/cchh/diagnostico/cvs-historicos/{run_id}/excepciones/{content_key}/{accion}", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_cv_history_exception_action(
     request: Request, run_id: str, content_key: str, accion: str, graph_token: str = Form(""), first_name: str = Form(""), last_name: str = Form(""), email: str = Form(""), phone: str = Form(""),
-    duplicate_confirmed: str = Form(""), profile_id: str = Form(""), reason: str = Form(""),
+    duplicate_confirmed: str = Form(""), profile_id: str = Form(""), reason: str = Form(""), notes: str = Form(""), revision: str = Form(""),
 ):
-    """Gestiona UNA excepción: completar identidad (alta con nombre y apellido reales), vincular a un perfil existente (sin modificarlo), descartar, reabrir o reintentar. Responde la fila; los errores son 200 con aviso."""
+    """Gestiona UNA excepción: guardar borrador (Entrega B: nombre, apellido, email, teléfono y observaciones con control de revisión; NO crea, vincula ni modifica nada del Banco), completar identidad (alta con nombre y apellido
+    reales), vincular a un perfil existente (sin modificarlo), descartar, reabrir o reintentar. Responde la fila; los errores son 200 con aviso."""
     redirect = _require_owner_for_diagnostics(request)
     if redirect is not None:
         return redirect
-    if not cv_history_manifest.RUN_ID_RE.match(run_id) or not cv_history_manifest.KEY_RE.match(content_key or "") or accion not in ("completar", "vincular", "descartar", "reabrir", "reintentar"):
+    if not cv_history_manifest.RUN_ID_RE.match(run_id) or not cv_history_manifest.KEY_RE.match(content_key or "") or accion not in ("borrador", "completar", "vincular", "descartar", "reabrir", "reintentar"):
         raise HTTPException(404, "Excepción inexistente")
     try:
         cv_history_manifest.get_run(run_id)
@@ -3342,9 +3345,28 @@ def human_capital_cv_history_exception_action(
         raise HTTPException(404, "Lote inexistente") from None
     actor = _pilot_actor(request)
     result: dict = {}
+    draft_form: dict | None = None
+    draft_revision: int | None = None
     try:
-        if accion in ("completar", "vincular") and not graph_token:
+        if accion in ("borrador", "completar", "vincular") and not graph_token:
             result = {"ok": False, "error": "Sin token con permiso de escritura (el navegador no pudo obtenerlo). Usá «Autorizar escritura en CVs» y reintentá."}
+            if accion == "borrador":
+                draft_form = cv_history_drafts.clean({"first_name": first_name, "last_name": last_name, "email": email, "phone": phone, "notes": notes})
+        elif accion == "borrador":
+            draft_form = cv_history_drafts.clean({"first_name": first_name, "last_name": last_name, "email": email, "phone": phone, "notes": notes})
+            try:
+                saved = cv_history_drafts.save(run_id, content_key, draft_form, actor=actor, expected_revision=revision)
+                result = {"ok": True, "draft_saved": True, "revision": saved["doc"]["revision"], "changed": saved["changed"], "created": saved["created"]}
+                draft_form = None                                                                                      # lo guardado manda: la fila vuelve a mostrar el borrador vigente
+            except cv_history_drafts.DraftConflict as conflict:
+                result = {"ok": False, "draft_conflict": cv_history_drafts.conflict_view(conflict.current, draft_form)}
+                draft_revision = int((conflict.current or {}).get("revision") or 0)                                    # al reenviar, el owner ya vio lo vigente
+            except cv_history_drafts.DraftError as exc:
+                result = {"ok": False, "error": str(exc)}
+            except cv_history_manifest.ManifestNotFoundError:
+                raise
+            except cv_history_manifest.ManifestError:
+                result = {"ok": False, "error": "No se pudo guardar el borrador (persistencia no confirmada). No se guardó nada: tus datos siguen en el formulario. Reintentá."}
         elif accion == "completar":
             result = cv_history_import_exec.complete_identity(run_id, content_key, graph_token, actor=actor, first_name=first_name, last_name=last_name, email=email, phone=phone, duplicate_confirmed=duplicate_confirmed.strip().lower() == "true")
         elif accion == "vincular":
@@ -3363,8 +3385,12 @@ def human_capital_cv_history_exception_action(
         result = {"ok": False, "error": "No se pudo guardar el cambio (persistencia no confirmada). Reintentá: no se duplicó nada."}
     row = cv_history_import_exec.exception_row(run_id, content_key)
     cv_history_review.annotate(run_id, [row])
-    return templates.TemplateResponse(request=request, name="partials/cv_history_exception_row.html", context={"request": request, "r": row, "run_id": run_id, "result": result, "accion": accion, "form": {"first_name": first_name, "last_name": last_name, "email": email, "phone": phone},
-                                                                                                                 "dismiss_reasons": cv_history_import_exec.DISMISS_REASONS, "content_key": content_key}, headers=_NO_STORE)
+    cv_history_drafts.attach(run_id, [row])
+    headers = dict(_NO_STORE)
+    if result.get("draft_saved"):
+        headers["HX-Trigger"] = '{"cvexc-drafts": %d}' % cv_history_drafts.count(run_id)                      # el contador «Con borrador guardado» del panel se actualiza sin recargar (lo escucha `human_capital_import.js`)
+    return templates.TemplateResponse(request=request, name="partials/cv_history_exception_row.html", context={"request": request, "r": row, "run_id": run_id, "result": result, "accion": accion, "form": {} if accion == "borrador" else {"first_name": first_name, "last_name": last_name, "email": email, "phone": phone},
+                                                                                                                 "draft_form": draft_form, "draft_revision": draft_revision, "dismiss_reasons": cv_history_import_exec.DISMISS_REASONS, "content_key": content_key}, headers=headers)
 
 
 @router.post("/cchh/diagnostico/cvs-historicos/{run_id}/cv-fuente/{content_key}", response_class=HTMLResponse, include_in_schema=False)

@@ -16,7 +16,7 @@ import urllib.error
 import urllib.parse
 
 from core import microsoft365
-from webapp.services import cv_history_inventory as inventory, cv_history_manifest as manifest, cv_history_recoverability as rec, profile_repository
+from webapp.services import cv_extract, cv_history_inventory as inventory, cv_history_manifest as manifest, cv_history_recoverability as rec, profile_repository
 from webapp.services.cv_history_candidate_index import CandidateIndex
 
 _log = logging.getLogger(__name__)
@@ -96,7 +96,35 @@ def _review(row: dict, group: dict | None, detail: dict | None) -> dict | None:
     why_conflict = [CONFLICT_LABEL.get(c, c) for c in detail["evidencia"]] if detail["categoria"] == rec.CONFLICT else []
     return {"category": detail["categoria"], "label": label, "badge": badge, "hint": hint, "failure": failure, "identities": identities, "warnings": flags, "conflicts": why_conflict,
             "risks": [RISK_LABEL[r] for r in detail["riesgos"] if r in RISK_LABEL], "confirm": list(detail["confirmar"]),
-            "proposal": f"{extraction.get('first_name')} {extraction.get('last_name') or ''}".strip() if extraction.get("first_name") else None}
+            "proposal": f"{extraction.get('first_name')} {extraction.get('last_name') or ''}".strip() if extraction.get("first_name") else None, "prefill": _prefill(extraction)}
+
+
+_NOT_SAFE_FLAGS = {"NAME_ALTERNATIVE", "NAME_CONFLICT", "NAME_PARTIAL_MATCH", "NAME_UNCORROBORATED", "NAME_MISSING"}
+
+
+def _prefill(extraction: dict) -> dict:
+    """Qué se puede PRECARGAR en el formulario de borrador sin elegir por el owner. El nombre y el apellido solo con la evidencia más fuerte: nivel A de precarga (sin advertencias de partición, orden ni token de borde)
+    Y identidad corroborada por evidencia independiente Y sin otras identidades en juego. El email solo si el documento trae exactamente uno que identifique a una persona (no de rol); el celular solo si hay uno.
+    En cualquier otro caso no se elige nada: se informan las alternativas y por qué no se precargó."""
+    flags = set(extraction.get("flags") or [])
+    level = rec.preload_level(extraction)
+    safe_name = level == "A" and extraction.get("name_state") == "CORROBORATED" and not (flags & _NOT_SAFE_FLAGS)
+    emails = rec._usable_emails(extraction)
+    out = {"level": level, "first_name": "", "last_name": "", "email": "", "phone": "", "emails": emails, "why": "",
+           "names": [a.get("tokens") for a in (extraction.get("name_decision") or {}).get("alternatives") or [] if a.get("tokens")]}
+    if safe_name:
+        out["first_name"], out["last_name"] = extraction.get("first_name") or "", extraction.get("last_name") or ""
+    elif extraction.get("failure"):
+        out["why"] = "el documento no se pudo leer."
+    elif level == "A":
+        out["why"] = "la identidad no está corroborada por evidencia independiente."
+    else:
+        out["why"] = rec.PRELOAD_MEANING[level].split(" (")[0] + "."
+    if len(emails) == 1:
+        out["email"] = emails[0]
+    if extraction.get("phone") and cv_extract.PHONE_MULTIPLE not in flags:
+        out["phone"] = extraction["phone"]
+    return out
 
 
 def annotate(run_id: str, rows: list[dict | None]) -> list[dict | None]:
