@@ -7,10 +7,13 @@ escritura atómica + write-through a Spaces).
 Qué guarda: nombre, apellido, email, teléfono y observaciones; `revision` (control optimista), autor y fechas de creación y de última modificación, e HISTORIAL de cambios (por revisión: quién, cuándo, qué campos y su valor anterior;
 acotado a las últimas `MAX_HISTORY`). Contiene datos personales: nada de esto se escribe en logs (los avisos llevan solo códigos).
 
-Concurrencia: `save` compara la revisión que el formulario cargó con la vigente DENTRO del mismo candado que la escritura; si no coinciden devuelve el conflicto (con lo guardado) y no escribe nada. Errores parciales de persistencia
+Concurrencia: `save` compara la revisión que el formulario cargó con la vigente DENTRO del mismo candado que la escritura —el del hilo y uno entre procesos del mismo disco (`cv_history_manifest._interprocess_lock`)—; si no coinciden
+devuelve el conflicto (con lo guardado) y no escribe nada: una revisión obsoleta nunca pisa a una más nueva, ni entre hilos ni entre workers. Si otro proceso retiene el candado más de 10 s, no se guarda nada y se pide reintentar. Errores parciales de persistencia
 (Spaces no confirma): se restaura lo anterior y se informa que NO se guardó, así que reintentar con la misma revisión funciona y el formulario conserva lo escrito.
 
-Retención: sin borrado automático y sin conservación indefinida por diseño — la política está pendiente de definición del owner; el descarte del área temporal NO borra los borradores."""
+Ciclo de vida y retención: sin borrado automático y sin conservación indefinida por diseño — la política está pendiente de definición del owner. Mientras exista un borrador de una excepción SIN RESOLVER no se puede eliminar el área temporal
+(`cv_history_import_exec.active_drafts` + `cv_history_pilot.discard_staging`): sin ese staging se perdería el contexto (evidencia, «Ver CV original») del que depende. Resuelta o descartada la excepción el borrador deja de ser
+«activo»: el descarte ya no se bloquea y el borrador se CONSERVA intacto (nada lo borra). Pasado el descarte no se aceptan borradores nuevos."""
 from __future__ import annotations
 
 import logging
@@ -24,7 +27,7 @@ FIELDS = ("first_name", "last_name", "email", "phone", "notes")
 LABELS = {"first_name": "nombre", "last_name": "apellido", "email": "email", "phone": "teléfono", "notes": "observaciones"}
 LIMITS = {"first_name": 60, "last_name": 60, "email": 254, "phone": 40, "notes": 2000}
 MAX_HISTORY = 50
-EDITABLE_STATUSES = ("open", "in_progress", "blocked", "error")
+EDITABLE_STATUSES = ex.UNRESOLVED_STATUSES                                              # un borrador solo existe mientras la excepción sigue sin resolver
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE = re.compile(r"^[\d+()\-.\s]+$")
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -86,7 +89,9 @@ def count(run_id: str) -> int:
 def save(run_id: str, key: str, raw: dict, *, actor: str, expected_revision) -> dict:
     """Guarda (crea o actualiza) el borrador de UNA excepción. Devuelve `{doc, created, changed}`. Lanza `DraftError` (datos o acción inválidos), `DraftConflict` (la revisión cargada ya no es la vigente) o `ManifestError`
     (persistencia no confirmada; no se guardó nada)."""
-    manifest.get_run(run_id)                                                              # lote inexistente: ManifestNotFoundError (la ruta lo traduce a 404)
+    run = manifest.get_run(run_id)                                                        # lote inexistente: ManifestNotFoundError (la ruta lo traduce a 404)
+    if (run.get("staging") or {}).get("state") != "PRESENT":
+        raise DraftError("Los datos temporales del lote ya no están disponibles (o se están eliminando): no se pueden guardar borradores nuevos.")
     row = ex.exception_row(run_id, key)
     if row is None or row["status"] not in EDITABLE_STATUSES:
         raise DraftError("Este contenido ya no es una excepción por resolver: no se puede guardar un borrador.")
@@ -116,6 +121,8 @@ def save(run_id: str, key: str, raw: dict, *, actor: str, expected_revision) -> 
 
     try:
         doc = manifest.update_draft(run_id, key, build)
+    except manifest.ManifestBusyError:
+        raise DraftError("Otro proceso está guardando este borrador en este momento. No se guardó nada: reintentá en unos segundos.") from None
     except manifest.ManifestError as exc:
         if not isinstance(exc, manifest.ManifestNotFoundError):
             _log.warning("cv_history_drafts: guardado no confirmado run=%s key=%s causa=%s", run_id, key, type(exc).__name__)

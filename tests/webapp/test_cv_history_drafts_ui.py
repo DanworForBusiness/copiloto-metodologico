@@ -281,3 +281,38 @@ def test_a_draft_never_feeds_the_complete_identity_form_that_creates_profiles(mo
         text = res if isinstance(res, str) else res.text
         form = re.search(r"<form[^>]*data-exc-complete[^>]*>(.*?)</form>", row_of(text, key) if "<tr id=" in text else text, flags=re.S).group(1)
         assert re.search(r'name="first_name"[^>]*value=""', form) and re.search(r'name="last_name"[^>]*value=""', form)             # «Completar identidad» no hereda nada del borrador: la aceptación llega en otra entrega
+
+
+# ═══════════════════ ciclo de vida desde la interfaz ═══════════════════
+def test_the_run_page_blocks_discarding_the_temporary_area_while_drafts_are_active_and_the_route_refuses(monkeypatch):
+    from webapp.services import cv_history_pilot as pilot
+    key, other = two_docs()
+    owner = client_for(OWNER, monkeypatch)
+    free = owner.get(f"{BASE}/{RUN}").text
+    assert "data-discard-blocked" not in free and "data-pilot-discard-form" in free                                                  # sin borradores el descarte sigue disponible (explicito)
+    post_draft(owner, key)
+    blocked = owner.get(f"{BASE}/{RUN}").text
+    assert "data-discard-blocked" in blocked and 'data-discard-drafts>1<' in blocked.replace("\r", "").replace("\n", "") and "no se borran solos" in blocked and "política de retención está pendiente" in blocked
+    assert "data-pilot-discard-form" not in blocked
+    before = digest(skip="__none__")
+    staging = mf.staging_files_present(RUN)
+    res = owner.post(f"{BASE}/{RUN}/descartar", data={"confirm": pilot.discard_phrase(RUN)})                                         # aunque se fuerce el POST con la frase correcta
+    assert res.status_code == 200 and "borradores guardados de excepciones sin resolver" in res.text and "Datos personales del lote eliminados" not in res.text
+    assert digest(skip="__none__") == before and mf.staging_files_present(RUN) == staging and mf.get_draft(RUN, key)["fields"]["first_name"] == "Zulema"     # no se perdio nada
+    assert res.headers["cache-control"] == "no-store" and mf.get_run(RUN)["staging"]["state"] == "PRESENT"
+
+
+def test_after_resolving_the_exception_the_owner_can_discard_and_the_draft_with_its_corrections_remains(monkeypatch):
+    from webapp.services import cv_history_pilot as pilot
+    key, other = two_docs()
+    owner = client_for(OWNER, monkeypatch)
+    post_draft(owner, key)
+    post_draft(owner, key, revision="1", notes="correccion que no se debe perder")
+    saved = mf.get_draft(RUN, key)
+    for k in (key, other):
+        mf.put_ledger(RUN, k, {"source": "manual", "action": "MANUAL_CREATE", "profile_id": "p", "document_id": "d", "attempts": 0, "history": [], "state": "DONE"})       # ambas resueltas
+    ok = owner.post(f"{BASE}/{RUN}/descartar", data={"confirm": pilot.discard_phrase(RUN)})
+    assert "Datos personales del lote eliminados" in ok.text and mf.staging_files_present(RUN) == 0 and mf.get_run(RUN)["staging"]["state"] == "DISCARDED"
+    assert mf.get_draft(RUN, key) == saved and mf.get_draft(RUN, key)["fields"]["notes"] == "correccion que no se debe perder" and len(saved["history"]) == 2          # el borrador y su historial siguen intactos
+    refused = post_draft(owner, key, revision="2", notes="otra")
+    assert mf.get_draft(RUN, key) == saved and mf.get_draft(RUN, other) is None

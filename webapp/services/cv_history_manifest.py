@@ -25,9 +25,14 @@ DURABILIDAD: en modo `remote`, si Spaces no confirma una escritura se lanza `Man
 disco. En `read-only` no se escribe."""
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import json
+import os
 import re
+import tempfile
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -57,6 +62,10 @@ class ManifestDurabilityError(ManifestError):
 
 class ManifestInvalidIdError(ManifestError):
     pass
+
+
+class ManifestBusyError(ManifestError):
+    """Otro proceso tiene tomado el candado del recurso y no lo soltó a tiempo: no se escribió nada; reintentar es seguro."""
 
 
 def now_iso() -> str:
@@ -313,6 +322,54 @@ def list_verdicts(run_id: str) -> dict[str, dict]:
 # ── borradores del owner por excepción (área protegida del lote; NO son perfiles ni tocan el Banco) ─────────────────
 DRAFT_SCHEMA = "cv-history-draft/v1"
 _draft_lock = threading.Lock()
+_DRAFT_LOCK_TIMEOUT_S = 10.0
+_LOCK_POLL_S = 0.02
+
+
+@contextlib.contextmanager
+def _interprocess_lock(path: Path, timeout: float | None = None):
+    """Candado EXCLUSIVO entre procesos que comparten el disco (varios workers del mismo servidor) sobre el recurso `path`: el del sistema operativo (`fcntl.flock` / `msvcrt.locking`, de la biblioteca estándar), sobre un
+    archivo de candado aparte —en el directorio temporal, NUNCA bajo los directorios persistidos, así que no se sincroniza con Spaces—. Lo suelta el sistema operativo si el proceso muere (no quedan candados huérfanos).
+    Si no se obtiene en `timeout` segundos lanza `ManifestBusyError` sin haber escrito nada. Se toma SIEMPRE después del candado del hilo (mismo orden en todos lados: sin interbloqueos)."""
+    directory = Path(tempfile.gettempdir()) / "danwor-manifest-locks"
+    directory.mkdir(parents=True, exist_ok=True)
+    handle = open(directory / (hashlib.sha256(str(Path(path).resolve()).encode("utf-8")).hexdigest()[:32] + ".lock"), "a+b")
+    deadline = time.monotonic() + (_DRAFT_LOCK_TIMEOUT_S if timeout is None else timeout)
+    try:
+        while True:
+            try:
+                _lock_handle(handle)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise ManifestBusyError("el recurso está siendo modificado por otro proceso") from None
+                time.sleep(_LOCK_POLL_S)
+        try:
+            yield
+        finally:
+            _unlock_handle(handle)
+    finally:
+        handle.close()
+
+
+if os.name == "nt":
+    import msvcrt
+
+    def _lock_handle(handle) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+
+    def _unlock_handle(handle) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _lock_handle(handle) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock_handle(handle) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def get_draft(run_id: str, key: str) -> dict | None:
@@ -333,6 +390,13 @@ def list_drafts(run_id: str) -> dict[str, dict]:
     return out
 
 
+def draft_keys(run_id: str) -> list[str]:
+    """`content_key` de los borradores guardados del lote (solo nombres de archivo: no lee ni expone su contenido)."""
+    _ensure_restored()
+    directory = _run_dir(run_id) / "drafts"
+    return sorted(e.stem for e in directory.iterdir() if e.is_file() and e.suffix == ".json" and KEY_RE.match(e.stem)) if directory.is_dir() else []
+
+
 def count_drafts(run_id: str) -> int:
     """Cantidad de borradores guardados del lote (solo cuenta archivos: no lee ni expone su contenido)."""
     _ensure_restored()
@@ -341,7 +405,9 @@ def count_drafts(run_id: str) -> int:
 
 
 def update_draft(run_id: str, key: str, build) -> dict | None:
-    """Lee el borrador vigente (o None), llama `build(previous)` y persiste lo que devuelva, TODO bajo un mismo candado: la comparación de revisión que hace `build` y la escritura no se pisan entre peticiones.
+    """Lee el borrador vigente (o None), llama `build(previous)` y persiste lo que devuelva, TODO bajo un mismo candado —el del hilo y, encima, uno ENTRE PROCESOS del mismo disco (`_interprocess_lock`)—: la comparación de
+    revisión que hace `build` y la escritura no se pisan entre peticiones ni entre workers: una revisión obsoleta nunca pisa a una más nueva (la pierde con conflicto). Alcance: procesos que comparten disco; réplicas con
+    discos propios siguen gateadas por `App Platform replica count == 1`, igual que `profile_repository`.
     `build` puede lanzar (validación o conflicto de revisión): en ese caso no se escribe nada. Devuelve el documento escrito, o el vigente si `build` devuelve None (sin cambios).
 
     Errores parciales: si la escritura local se hizo pero Spaces no la confirmó (`ManifestDurabilityError`), se RESTAURA el contenido anterior (local y remoto nunca divergen) y se relanza: el llamador informa que NO se guardó, y
@@ -350,7 +416,7 @@ def update_draft(run_id: str, key: str, build) -> dict | None:
     path = _run_dir(run_id) / "drafts" / f"{_key_ok(key)}.json"
     if remote_store.read_only_mode():
         raise ManifestDurabilityError("modo de solo lectura")
-    with _draft_lock:
+    with _draft_lock, _interprocess_lock(path):
         previous = _read(path)
         built = build(previous)
         if built is None:

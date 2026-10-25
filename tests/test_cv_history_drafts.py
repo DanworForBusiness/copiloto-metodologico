@@ -304,3 +304,102 @@ def test_the_module_never_calls_import_actions_profile_writers_or_microsoft_grap
     for forbidden in ("complete_identity", "link_existing", "dismiss(", "retry(", "reopen(", "execute_batch", "profile_repository", "microsoft365", "graph_", "put_ledger", "put_group", "put_plan", "update_run", "append_audit", "delete_",
                       "unlink", "open(", ".write_text"):
         assert forbidden not in code, forbidden
+
+
+# ═══════════════════ ciclo de vida: el staging no se elimina con borradores activos ═══════════════════
+def _discard(run=RUN):
+    from webapp.services import cv_history_pilot as pilot
+    return pilot.discard_staging(run, confirm=pilot.discard_phrase(run), actor=ACTOR)
+
+
+def _everything() -> dict:
+    return digest(skip="__none__")
+
+
+def test_an_active_draft_blocks_discarding_the_temporary_area_and_nothing_is_lost():
+    from webapp.services import cv_history_pilot as pilot
+    key, other = world()
+    save(key)
+    before = _everything()
+    staging_before = mf.staging_files_present(RUN)
+    assert ex.active_drafts(RUN) == 1 and ex.discard_blockers(RUN) == {"remaining": 0, "exceptions_open": 0, "drafts": 1}            # aun sin haber iniciado la importacion
+    with pytest.raises(pilot.PilotInputError, match="1 borradores guardados de excepciones sin resolver"):
+        _discard()
+    with pytest.raises(pilot.PilotInputError, match="borradores guardados"):
+        ex.assert_can_discard(RUN)
+    assert _everything() == before and mf.staging_files_present(RUN) == staging_before and mf.get_run(RUN)["staging"]["state"] == "PRESENT" and "final_report" not in mf.get_run(RUN)    # ni un byte cambio
+    assert drafts.get(RUN, key)["fields"] == drafts.clean(FIELDS) and mf.get_group(RUN, key) and mf.get_group(RUN, other)               # el borrador y los datos de los que depende siguen ahi
+
+
+def test_the_block_message_never_contains_personal_data_and_says_why_and_what_to_do():
+    from webapp.services import cv_history_pilot as pilot
+    key, _ = world()
+    save(key)
+    with pytest.raises(pilot.PilotInputError) as err:
+        _discard()
+    text = str(err.value)
+    assert "no se borran solos" in text and "política de retención está pendiente" in text and "Históricos sin validación" in text and all(secret not in text for secret in PRIVATE)
+
+
+def test_discarding_works_again_once_the_exception_is_resolved_or_dismissed_and_the_draft_is_kept_intact():
+    key, other = world()
+    save(key)
+    save(other, {"first_name": "Otra", "notes": "correccion que no se debe perder"})
+    keep = {k: drafts.get(RUN, k) for k in (key, other)}
+    mf.put_ledger(RUN, key, {"source": "manual", "action": "MANUAL_CREATE", "profile_id": "p", "document_id": "d", "attempts": 0, "history": [], "state": "DONE"})        # resuelta
+    assert ex.active_drafts(RUN) == 1
+    with pytest.raises(Exception, match="1 borradores"):
+        _discard()                                                                                                              # la otra sigue sin resolver
+    mf.put_ledger(RUN, other, {"source": "manual", "action": "DISMISS", "profile_id": None, "document_id": None, "attempts": 0, "history": [], "state": "DISMISSED", "reason": "OTHER"})  # descartada
+    assert ex.active_drafts(RUN) == 0 and ex.discard_blockers(RUN) is None
+    staging = _discard()
+    assert staging["state"] == "DISCARDED" and mf.staging_files_present(RUN) == 0
+    assert {k: drafts.get(RUN, k) for k in (key, other)} == keep and drafts.count(RUN) == 2                                      # nada borra los borradores: datos y correcciones intactos, con su historial
+
+
+def test_a_draft_saved_while_the_area_is_being_marked_for_discard_aborts_the_discard_and_restores_the_state(monkeypatch):
+    from webapp.services import cv_history_pilot as pilot
+    key, _ = world()
+    real = mf.update_run
+    injected = {"done": False}
+
+    def racing(run_id, mutate):
+        doc = real(run_id, mutate)
+        if doc["staging"]["state"] == "DISCARDING" and not injected["done"]:
+            injected["done"] = True                                                                                              # un guardado «simultáneo» que ya paso la verificacion de estado
+            mf.update_draft(RUN, key, lambda previous: {"revision": 1, "created_at": "t", "created_by": ACTOR, "updated_at": "t", "updated_by": ACTOR, "fields": drafts.clean(FIELDS), "history": [], "history_dropped": 0})
+        return doc
+    monkeypatch.setattr(mf, "update_run", racing)
+    staging_before = mf.staging_files_present(RUN)
+    with pytest.raises(pilot.PilotInputError, match="borradores guardados"):
+        _discard()
+    run = mf.get_run(RUN)
+    assert run["staging"]["state"] == "PRESENT" and "final_report" not in run and mf.staging_files_present(RUN) == staging_before         # el area vuelve a estar disponible y no se borro nada
+    assert drafts.get(RUN, key)["fields"] == drafts.clean(FIELDS)
+    monkeypatch.setattr(mf, "update_run", real)
+    with pytest.raises(pilot.PilotInputError, match="borradores guardados"):
+        _discard()                                                                                                              # y el bloqueo sigue vigente en el siguiente intento
+
+
+def test_new_drafts_are_refused_while_the_area_is_discarding_and_after_it_was_discarded():
+    key, other = world()
+    mf.update_run(RUN, lambda d: d.update({"staging": {**d["staging"], "state": "DISCARDING"}}))
+    with pytest.raises(drafts.DraftError, match="ya no están disponibles"):
+        save(key)
+    mf.update_run(RUN, lambda d: d.update({"staging": {**d["staging"], "state": "PRESENT"}}))
+    save(key)
+    assert drafts.count(RUN) == 1
+    mf.put_ledger(RUN, key, {"source": "manual", "action": "MANUAL_CREATE", "profile_id": "p", "document_id": "d", "attempts": 0, "history": [], "state": "DONE"})
+    _discard()
+    assert mf.get_run(RUN)["staging"]["state"] == "DISCARDED"
+    with pytest.raises(drafts.DraftError, match="ya no están disponibles"):
+        save(other)
+    assert drafts.get(RUN, other) is None and drafts.get(RUN, key) is not None                                                  # el anterior se conserva; no nacen otros
+
+
+def test_the_manifest_level_deletion_never_touches_drafts():
+    key, _ = world()
+    save(key)
+    before = mf.get_draft(RUN, key)
+    assert mf.delete_staging_files(RUN) > 0 and mf.staging_files_present(RUN) == 0
+    assert mf.get_draft(RUN, key) == before and drafts.count(RUN) == 1                                                           # el borrado de bajo nivel solo alcanza staging, dictamenes e indice: nunca los borradores
