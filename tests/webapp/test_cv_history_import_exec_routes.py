@@ -108,7 +108,9 @@ def test_the_exceptions_page_lists_filters_and_paginates_with_personal_data_only
     assert page.status_code == 200 and page.headers["cache-control"] == "no-store" and "datos personales" in html and html.count("data-exception-row") == 2
     assert "pablo.ruiz@a.com" in html and "MULTIPLE_EMAILS" in html and "READ_FAILURE" in html and "data-exceptions-summary" in html and "human_capital_import.js" in html
     assert "Pablo Ruiz" in html and "data-exc-complete" in html and "data-exc-link" in html and "data-exc-dismiss" in html
-    assert all("data-dw-graph-token" not in f for f in re.findall(r"<form[^>]*>", html))
+    forms = re.findall(r"<form[^>]*>", html)
+    assert all("data-dw-graph-token" not in f for f in forms if "data-hc-write-token" in f)                                 # nunca los dos hooks (lectura y escritura) en un mismo formulario
+    assert [f for f in forms if "data-dw-graph-token" in f] and all("data-original-cv-form" in f and "/cv-fuente/" in f for f in forms if "data-dw-graph-token" in f)   # el de LECTURA es solo «Ver CV original»
     only = owner.get(f"{BASE}/{rid}/excepciones?motivo=MULTIPLE_EMAILS").text
     assert only.count("data-exception-row") == 1 and "READ_FAILURE (1)</option>" in only
     resolved = owner.get(f"{BASE}/{rid}/excepciones?estado=resolved").text

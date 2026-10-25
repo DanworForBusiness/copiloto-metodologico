@@ -165,6 +165,7 @@
   "POST /cchh/catalogos/refresh",
   "POST /cchh/diagnostico/cvs-historicos/importacion",
   "POST /cchh/diagnostico/cvs-historicos/piloto",
+  "POST /cchh/diagnostico/cvs-historicos/{run_id}/cv-fuente/{content_key}",
   "POST /cchh/diagnostico/cvs-historicos/{run_id}/descartar",
   "POST /cchh/diagnostico/cvs-historicos/{run_id}/excepciones/{content_key}/{accion}",
   "POST /cchh/diagnostico/cvs-historicos/{run_id}/importar",

@@ -509,7 +509,7 @@ def assert_can_discard(run_id: str) -> None:
     blockers = discard_blockers(run_id)
     if blockers:
         raise pilot.PilotInputError(f"No se pueden eliminar los datos temporales: quedan {blockers['remaining']} contenidos sin terminar y {blockers['exceptions_open']} excepciones abiertas que dependen de ellos. "
-                                    "Resolvelas desde «Gestionar excepciones» (completar, vincular o descartar) y volvé a intentarlo.")
+                                    "Resolvelas desde «Históricos sin validación» (completar, vincular o descartar) y volvé a intentarlo.")
 
 
 # ═══════════════════ excepciones ═══════════════════

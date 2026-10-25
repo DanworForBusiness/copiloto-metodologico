@@ -64,7 +64,7 @@
   </p>
   {% if st.state != 'DISCARDED' and discard_block %}
   <p class="callout callout--warn" data-discard-blocked><span class="callout__body">No se pueden eliminar los datos temporales todavía: quedan <strong>{{ discard_block.remaining }}</strong> contenidos sin terminar y <strong>{{ discard_block.exceptions_open }}</strong> excepciones abiertas que dependen de ellos.
-    Resolvelas desde <a href="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones">Gestionar excepciones</a> (completar, vincular o descartar); después podrás eliminarlos con la confirmación explícita.</span></p>
+    Resolvelas desde <a href="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones">Históricos sin validación</a> (completar, vincular o descartar); después podrás eliminarlos con la confirmación explícita.</span></p>
   {% elif st.state != 'DISCARDED' %}
   <form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/descartar" hx-target="#cvrun-panel" hx-swap="outerHTML" hx-disabled-elt="find button[type='submit']" data-pilot-discard-form>
     <div class="feedback-field">
@@ -210,7 +210,7 @@
     {% endif %}
   {% endif %}
   <p class="field-hint" data-import-links>
-    {% if execution and execution.started %}<a href="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones" data-import-exceptions-link>Gestionar excepciones ({{ execution.exceptions_open }})</a> ·
+    {% if execution and execution.started %}<a href="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones" data-import-exceptions-link>Históricos sin validación ({{ execution.exceptions_open }})</a> ·
     <a href="/cchh/candidatos?q=Hist%C3%B3rico%20SharePoint">Perfiles históricos en el Banco</a> · <a href="/cchh/candidatos?q=Revisar%20identidad">Perfiles con advertencia</a>{% endif %}
   </p>
   {% endif %}

@@ -83,11 +83,12 @@ def _persons(group: dict, facts: dict) -> list[dict]:
     return variants
 
 
-def _match_profiles(variants: list[dict], live: list[dict]) -> dict[str, dict]:
-    """Por perfil vivo: la MEJOR fuerza entre todas las variantes y la unión de señales (`cv_reconcile`, sin umbrales nuevos)."""
+def _match_profiles(variants: list[dict], live: list[dict], index=None) -> dict[str, dict]:
+    """Por perfil vivo: la MEJOR fuerza entre todas las variantes y la unión de señales (`cv_reconcile`, sin umbrales nuevos). `index` (opcional, `CandidateIndex` de ESTE request sobre `live`) solo acota los perfiles que se
+    comparan: el resultado es idéntico al de comparar contra todos."""
     found: dict[str, dict] = {}
     for person in variants:
-        for m in cv_reconcile.reconcile_with_profiles(person, live):
+        for m in (index.reconcile(person) if index is not None else cv_reconcile.reconcile_with_profiles(person, live)):
             slot = found.setdefault(m["profile_id"], {"strength": m["strength"], "signals": set()})
             slot["signals"] |= set(m["signals"])
             if _RANK[m["strength"]] < _RANK[slot["strength"]]:
@@ -102,8 +103,8 @@ def _identity_candidates(extraction: dict, facts: dict) -> list[dict]:
     return [{"state": a["state"], "words": planning._words(a["tokens"], "")} for a in ((extraction.get("name_decision") or {}).get("alternatives") or []) if a.get("state") in planning._CLAIMING_STATES]
 
 
-def classify(row: dict, group: dict | None, ledger: dict | None, live: list[dict], run_id: str) -> tuple[dict, list[dict]]:
-    """Clasifica UNA excepción abierta. Devuelve `(detalle, variantes de persona)` (las variantes sirven para agrupar). PURA."""
+def classify(row: dict, group: dict | None, ledger: dict | None, live: list[dict], run_id: str, index=None) -> tuple[dict, list[dict]]:
+    """Clasifica UNA excepción abierta. Devuelve `(detalle, variantes de persona)` (las variantes sirven para agrupar). PURA. `index`: ver `_match_profiles` (misma clasificación, menos comparaciones)."""
     reasons = list(row.get("plan_reasons") or [])
     detail = {"content_key": row["content_key"], "estado": row["status"], "motivo_original": row.get("reason"), "razones_plan": reasons, "accion_plan": row.get("plan_action"), "estado_ledger": (ledger or {}).get("state"),
               "regla": None, "estado_nombre": None, "categoria": None, "subcategoria": None, "evidencia": [], "fuerza": None, "senales": [], "perfiles": [], "confirmar": [], "riesgos": []}
@@ -118,7 +119,7 @@ def classify(row: dict, group: dict | None, ledger: dict | None, live: list[dict
 
     facts = planning._facts(group)
     variants = _persons(group, facts)
-    matches = _match_profiles(variants, live)
+    matches = _match_profiles(variants, live, index)
     by_id = {p["profile_id"]: p for p in live}
     strong_enough = {pid: m for pid, m in matches.items() if _RANK[m["strength"]] <= _RANK[cv_reconcile.PROBABLE]}
     weak = {pid: m for pid, m in matches.items() if m["strength"] == cv_reconcile.WEAK}

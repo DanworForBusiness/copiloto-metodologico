@@ -1,0 +1,6 @@
+{# Resultado de «Ver CV original» (fragmento HTMX, `no-store`). El enlace viene de Microsoft Graph con el token delegado del usuario y ya validado (https://*.sharepoint.com): NO se guarda ni se copia el archivo. #}
+{% if result.ok %}
+<a href="{{ result.url }}" target="_blank" rel="noopener noreferrer" data-original-cv-link>Abrir «{{ result.name or 'CV original' }}» en SharePoint</a> <span class="field-hint">Se abre en una pestaña nueva con tus propios permisos.</span>
+{% else %}
+<p class="callout callout--warn" data-error-kind="original_cv" data-error-code="{{ result.code }}"><span class="callout__body">{{ result.message }}</span></p>
+{% endif %}
