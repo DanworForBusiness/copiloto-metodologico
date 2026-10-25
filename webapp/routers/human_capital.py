@@ -114,7 +114,7 @@ from webapp.services import (
     human_capital_indicators, human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
-from webapp.services import cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot
+from webapp.services import cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
 from webapp.services import human_capital_contact
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
@@ -3315,6 +3315,7 @@ def human_capital_cv_history_exceptions(request: Request, run_id: str, estado: s
         pager = pagination.paginate(overview["rows"], page=page, page_size=page_size, base_url=f"/cchh/diagnostico/cvs-historicos/{run_id}/excepciones",
                                     params={"estado": estado if estado != "open" else "", "motivo": motivo})
         rows = cv_history_import_exec.exception_details(run_id, pager["items"]) if overview["staging_present"] else [{**r, "available": False, "ledger": {}, "suggestions": [], "alternatives": [], "emails": [], "specialties": []} for r in pager["items"]]
+        cv_history_review.annotate(run_id, rows)                                                          # categoría de recuperabilidad y evidencia legible: SOLO de las filas de esta página
         execution = cv_history_import_exec.execution_report(run_id)
     except (cv_history_manifest.ManifestNotFoundError, cv_history_import_exec.ExecutionError):
         raise HTTPException(404, "Lote inexistente") from None
@@ -3361,8 +3362,25 @@ def human_capital_cv_history_exception_action(
     except cv_history_manifest.ManifestError:
         result = {"ok": False, "error": "No se pudo guardar el cambio (persistencia no confirmada). Reintentá: no se duplicó nada."}
     row = cv_history_import_exec.exception_row(run_id, content_key)
+    cv_history_review.annotate(run_id, [row])
     return templates.TemplateResponse(request=request, name="partials/cv_history_exception_row.html", context={"request": request, "r": row, "run_id": run_id, "result": result, "accion": accion, "form": {"first_name": first_name, "last_name": last_name, "email": email, "phone": phone},
                                                                                                                  "dismiss_reasons": cv_history_import_exec.DISMISS_REASONS, "content_key": content_key}, headers=_NO_STORE)
+
+
+@router.post("/cchh/diagnostico/cvs-historicos/{run_id}/cv-fuente/{content_key}", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_original_cv(request: Request, run_id: str, content_key: str, graph_token: str = Form("")):
+    """«Ver CV original»: resuelve con Microsoft Graph el enlace de SharePoint del CV de una excepción, con el token DELEGADO del usuario (sus propios permisos; lo inyecta `hub_auth.js` vía `data-dw-graph-token`).
+    SOLO LECTURA: no descarga ni copia el archivo y no guarda la URL; la respuesta es `no-store`. POST para que el token viaje en el cuerpo y no en la URL; los errores de Graph son 200 con un aviso claro (HTMX no pinta 4xx)."""
+    redirect = _require_owner_for_diagnostics(request)
+    if redirect is not None:
+        return redirect
+    if not cv_history_manifest.RUN_ID_RE.match(run_id) or not cv_history_manifest.KEY_RE.match(content_key or ""):
+        raise HTTPException(404, "Excepción inexistente")
+    try:
+        result = cv_history_review.resolve_original(run_id, content_key, graph_token)
+    except cv_history_manifest.ManifestNotFoundError:
+        raise HTTPException(404, "Lote inexistente") from None
+    return templates.TemplateResponse(request=request, name="partials/cv_history_original_link.html", context={"request": request, "result": result, "content_key": content_key}, headers=_NO_STORE)
 
 
 @router.post("/cchh/diagnostico/cvs-historicos/{run_id}/reevaluar", response_class=HTMLResponse, include_in_schema=False)

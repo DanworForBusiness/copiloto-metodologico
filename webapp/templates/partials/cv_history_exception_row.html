@@ -2,19 +2,41 @@
 {% if r %}
 {% set tag = {'open': 'Por resolver', 'in_progress': 'En curso', 'blocked': 'Bloqueado', 'error': 'Con error', 'resolved': 'Resuelto', 'dismissed': 'Descartado'} %}
 <tr id="exc-{{ r.content_key }}" data-exception-row data-content-key="{{ r.content_key }}" data-status="{{ r.status }}">
-  <td class="left">{{ r.content_key[:8] }}<br><span class="field-hint">{{ r.filename or '—' }}</span><br><span class="field-hint">{{ r.specialties | join(', ') }}</span></td>
-  <td class="left">
+  <td class="left" data-label="Contenido">{{ r.content_key[:8] }}<br><span class="field-hint">{{ r.filename or '—' }}</span><br><span class="field-hint">{{ r.specialties | join(', ') }}</span>
+    {% if r.available %}
+    <form class="hc-exc-form" data-original-cv-form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/cv-fuente/{{ r.content_key }}" hx-target="#cvorig-{{ r.content_key }}" hx-swap="innerHTML" hx-disabled-elt="find button" data-dw-graph-token>
+      <button type="submit" class="btn-secondary" aria-describedby="cvorig-{{ r.content_key }}">Ver CV original</button>
+    </form>
+    <div id="cvorig-{{ r.content_key }}" role="status" aria-live="polite"></div>
+    {% endif %}
+  </td>
+  <td class="left" data-label="Estado y categoría">
     <span class="status-badge {{ 'status-badge--activo' if r.status == 'resolved' else 'status-badge--inactivo' if r.status == 'dismissed' else 'status-badge--tentativo' }}" data-exception-status>{{ tag[r.status] }}</span>
+    {% if r.review %}<br><span class="status-badge {{ r.review.badge }}" data-recoverability="{{ r.review.category }}">{{ r.review.label }}</span><br><span class="field-hint" data-recoverability-hint>{{ r.review.hint }}</span>{% endif %}
     {% if r.reason %}<br><span class="field-hint" data-exception-reason>{{ r.reason }}</span>{% endif %}
     {% for code in r.plan_reasons[1:] %}<br><span class="field-hint">{{ code }}</span>{% endfor %}
     {% if r.ledger and r.ledger.profile_id and r.status == 'resolved' %}<br><a href="/cchh/candidatos/{{ r.ledger.profile_id }}/editar">Ver perfil</a>{% endif %}
   </td>
-  <td class="left">
+  <td class="left" data-label="Datos extraídos y evidencia">
     {% if r.emails %}{{ r.emails | join(', ') }}{% else %}<span class="field-hint">sin email</span>{% endif %}{% if r.phone %}<br>{{ r.phone }}{% endif %}
     {% for alt in r.alternatives %}<br><span class="field-hint">«{{ alt }}»</span>{% endfor %}
+    {% if r.review %}
+    <details class="hc-exc-evidence" data-exception-evidence>
+      <summary>Evidencia de identidad</summary>
+      <p class="field-hint">Propuesta automática: no es una identidad verificada.</p>
+      {% if r.review.failure %}<p data-evidence-failure>{{ r.review.failure }}</p>{% endif %}
+      {% if r.review.proposal %}<p data-evidence-proposal><strong>Nombre propuesto:</strong> {{ r.review.proposal }}</p>{% elif not r.review.failure %}<p class="field-hint">El sistema no propone ningún nombre.</p>{% endif %}
+      {% if r.review.identities %}<p><strong>Nombres encontrados en el documento</strong></p>
+      <ul data-evidence-identities>{% for i in r.review.identities %}<li>«{{ i.name }}»{% if i.proposed %} <em>(es la propuesta)</em>{% endif %} — {{ i.state }}. Aparece en {{ i.found_in | join(' y ') or '—' }}{% if i.evidence %}; {{ i.evidence | join('; ') }}{% endif %}.{% for n in i.notes %} {{ n }}{% endfor %}</li>{% endfor %}</ul>{% endif %}
+      {% if r.review.conflicts %}<p><strong>Por qué hay conflicto</strong></p><ul data-evidence-conflicts>{% for c in r.review.conflicts %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
+      {% if r.review.warnings %}<p><strong>Advertencias</strong></p><ul data-evidence-warnings>{% for w in r.review.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+      {% if r.review.risks %}<ul data-evidence-risks>{% for w in r.review.risks %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+      {% if r.review.confirm %}<p><strong>Para incorporarlo al Banco hay que confirmar</strong></p><ul data-evidence-confirm>{% for c in r.review.confirm %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
+    </details>
+    {% endif %}
   </td>
-  <td class="left">{% for s in r.suggestions %}<a href="/cchh/candidatos/{{ s.profile_id }}/editar">{{ s.name }}</a> <span class="field-hint">{{ s.why }}{% if s.email %} · {{ s.email }}{% endif %}</span><br>{% else %}<span class="field-hint">—</span>{% endfor %}</td>
-  <td class="left">
+  <td class="left" data-label="Perfiles sugeridos">{% for s in r.suggestions %}<a href="/cchh/candidatos/{{ s.profile_id }}/editar">{{ s.name }}</a> <span class="field-hint">{{ s.why }}{% if s.email %} · {{ s.email }}{% endif %}</span><br>{% else %}<span class="field-hint">—</span>{% endfor %}</td>
+  <td class="left" data-label="Acciones">
     {% if result %}
       {% if result.error %}<p class="callout callout--warn" data-error-kind="exception_action"><span class="callout__body">{{ result.error }}</span></p>
       {% elif result.advisory %}

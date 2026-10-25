@@ -265,6 +265,8 @@ def test_the_marker_is_declarative_and_carries_no_credential():
     consumidor sea una decisión explícita, no un conteo silencioso:
       - human_capital/cv_history_pilot.html + partials/cv_history_run_panel.html -> piloto y análisis de importación de CVs históricos (2 + 2): token base de LECTURA (`Sites.Read.All`) que
         inyecta el MISMO hook para crear el lote (piloto o importación) y para descargar los documentos (solo lectura); no obtienen ni guardan credenciales
+      - partials/cv_history_exception_row.html -> «Ver CV original» de «Históricos sin validación» (1 por fila): token base de LECTURA (`Sites.Read.All`) que inyecta el MISMO hook para pedir a Graph
+        solo el enlace de SharePoint del CV; no obtiene ni guarda credenciales, no descarga el archivo ni guarda la URL
       - operations/staffing.html    -> asignaciones (1)
       - human_capital/diagnostico_sharepoint.html -> inventario histórico de CVs, SOLO LECTURA (1): usa el token base de lectura (`Sites.Read.All`) que inyecta el MISMO hook;
         no obtiene ni guarda credenciales
@@ -282,6 +284,7 @@ def test_the_marker_is_declarative_and_carries_no_credential():
         "human_capital/cv_history_pilot.html": 2,
         "human_capital/diagnostico_sharepoint.html": 1,
         "partials/cv_history_run_panel.html": 2,
+        "partials/cv_history_exception_row.html": 1,
         "operations/staffing.html": 1,
         "partials/admin_apis_sync.html": 2,
         "partials/admin_panel.html": 4,

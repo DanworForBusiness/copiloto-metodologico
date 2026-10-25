@@ -17,7 +17,7 @@
     </form>
 
     <div class="matrix-scroll"><table class="dashboard-table" data-exceptions-rows>
-      <thead><tr><th class="left">Contenido</th><th class="left">Estado y motivo</th><th class="left">Datos extraídos</th><th class="left">Perfiles sugeridos</th><th class="left">Acciones</th></tr></thead>
+      <thead><tr><th scope="col" class="left">Contenido</th><th scope="col" class="left">Estado y categoría</th><th scope="col" class="left">Datos extraídos y evidencia</th><th scope="col" class="left">Perfiles sugeridos</th><th scope="col" class="left">Acciones</th></tr></thead>
       <tbody>
       {% for r in rows %}{% set result = none %}{% set form = none %}{% include "partials/cv_history_exception_row.html" %}
       {% else %}<tr><td class="left" colspan="5"><span class="field-hint" data-exceptions-empty>No hay excepciones con este filtro.</span></td></tr>{% endfor %}
