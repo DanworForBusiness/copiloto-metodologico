@@ -28,6 +28,7 @@ STRENGTHS = (cv_reconcile.STRONG, cv_reconcile.PROBABLE, cv_reconcile.WEAK)
 _RANK = {cv_reconcile.STRONG: 0, cv_reconcile.PROBABLE: 1, cv_reconcile.WEAK: 2}
 _CONFLICT_REASONS = {planning.NAME_CONFLICT, planning.EMAIL_CONFLICT, planning.EXISTING_NAME_CONFLICT, planning.EMAIL_NAME_MISMATCH, planning.MULTIPLE_EXISTING_MATCH, planning.EXISTING_DELETED}
 _ANCHOR_BY_STATE = {"CORROBORATED": "CORROBORADA", "DECLARED": "DECLARADA", "UNANCHORED_AGREEMENT": "TEXTO_Y_ARCHIVO_COINCIDEN"}
+_CORROBORATED_ANCHOR = _ANCHOR_BY_STATE["CORROBORATED"]
 _PHONE_ONLY = {cv_reconcile.PHONE_MATCH}
 
 
@@ -354,3 +355,87 @@ def build_report(inputs: dict) -> dict:
         "limitaciones": LIMITATIONS,
     }
     return {"aggregate": aggregate, "detail": detail}
+
+
+# ═══════════════════ altas asistidas con identidad CORROBORADA (diagnóstico agregado, opcional) ═══════════════════
+PRELOAD_LEVELS = ("A", "B", "C", "D")
+PRELOAD_MEANING = {"A": "nombre y apellido sin advertencias (precarga editable)", "B": "partición nombre/apellido incierta (sugerir, no precargar)",
+                   "C": "orden incierto: el nombre sale solo del archivo (no precargar)", "D": "token de borde sin explicar o sin nombre y apellido (no precargar)"}
+
+
+def _proposed_identity(extraction: dict) -> dict:
+    """La identidad que el extractor propone (o, sin propuesta, la primera alternativa CORROBORATED)."""
+    decision = extraction.get("name_decision") or {}
+    alternatives = decision.get("alternatives") or []
+    proposed = decision.get("proposed")
+    if isinstance(proposed, int) and 0 <= proposed < len(alternatives):
+        return alternatives[proposed]
+    return next((a for a in alternatives if a.get("state") == "CORROBORATED"), {})
+
+
+def preload_level(extraction: dict) -> str:
+    """Nivel de precarga del nombre, de la evidencia YA extraída (no se infiere nada): D token de borde o sin nombre y apellido · C orden incierto · B partición incierta · A sin advertencias. Gana el más restrictivo."""
+    flags = set(extraction.get("flags") or [])
+    if not (extraction.get("first_name") and extraction.get("last_name")) or _proposed_identity(extraction).get("edge_token") or cv_extract.NAME_EDGE_TOKEN_UNEXPLAINED in flags:
+        return "D"
+    if cv_extract.NAME_ORDER_UNCERTAIN in flags:
+        return "C"
+    return "B" if cv_extract.NAME_SPLIT_AMBIGUOUS in flags else "A"
+
+
+def corroborated_breakdown(inputs: dict, report: dict) -> dict:
+    """Desglose AGREGADO (solo conteos y códigos: ni nombres, emails, teléfonos ni identificadores) de las altas asistidas con identidad CORROBORADA: impedimento original, ancla de la corroboración, calidad de la propuesta de nombre,
+    contactos y nivel de precarga A/B/C/D. PURA: reutiliza el informe y la evidencia ya leídos; no escribe nada. La conciliación exige que cada eje sume exactamente las corroboradas del informe."""
+    selected = [d for d in report["detail"] if d["categoria"] == ASSISTED and d["subcategoria"] == _CORROBORATED_ANCHOR]
+    axes: dict[str, Counter] = defaultdict(Counter)
+    cross: Counter = Counter()
+    by_reason_level: dict[str, Counter] = defaultdict(Counter)
+    for d in selected:
+        extraction = inputs["groups"][d["content_key"]]["extraction"]
+        flags = set(extraction.get("flags") or [])
+        chosen = _proposed_identity(extraction)
+        tokens = (chosen.get("tokens") or "").split()
+        emails = (extraction.get("candidates") or {}).get("emails") or []
+        explaining = sum(1 for x in emails if cv_extract.email_strong(cv_extract._core(tokens), [x]))
+        level = preload_level(extraction)
+        reason = d["motivo_original"] or "—"
+        extra = "+".join(r for r in d["razones_plan"] if r != d["motivo_original"]) or "—"
+        evidence = "|".join(sorted(chosen.get("evidence") or [])) or "—"
+        cross[(reason, extra, evidence, len(emails), explaining, level)] += 1
+        by_reason_level[reason][level] += 1
+        axes["nivel"][level] += 1
+        axes["motivo_original"][reason] += 1
+        axes["razones_del_plan"]["+".join(d["razones_plan"]) or "—"] += 1
+        axes["estado"][d["estado"]] += 1
+        axes["estado_en_el_libro"][d["estado_ledger"] or "SIN_LIBRO"] += 1
+        axes["regla_del_extractor"][d["regla"] or "—"] += 1
+        axes["evidencia_del_ancla"][evidence] += 1
+        axes["fuente_del_nombre"]["+".join(sorted(chosen.get("sources") or [])) or "—"] += 1
+        axes["bloqueantes_del_extractor"]["+".join(sorted(extraction.get("blocking") or [])) or "ninguno"] += 1
+        axes["advertencias_del_nombre"]["+".join(sorted(flags & {cv_extract.NAME_SPLIT_AMBIGUOUS, cv_extract.NAME_ORDER_UNCERTAIN, cv_extract.NAME_EDGE_TOKEN_UNEXPLAINED, cv_extract.NAME_ALTERNATIVE})) or "ninguna"] += 1
+        axes["palabras_del_nombre"][str(len(tokens)) if len(tokens) < 4 else "4+"] += 1
+        axes["otras_identidades_en_el_documento"][str(max(len((extraction.get("name_decision") or {}).get("alternatives") or []) - 1, 0))] += 1
+        axes["adornos_quitados_del_nombre"]["si" if chosen.get("normalization") else "no"] += 1
+        axes["token_de_borde"][(chosen.get("edge_token") or {}).get("kind", "ninguno")] += 1
+        axes["emails_en_el_documento"][str(len(emails))] += 1
+        axes["emails_que_explican_el_nombre"][str(explaining)] += 1
+        axes["emails_de_rol_o_genericos"][str(sum(1 for x in emails if cv_extract.is_role_mailbox(x)))] += 1
+        axes["celular"]["varios" if cv_extract.PHONE_MULTIPLE in flags else "uno" if extraction.get("phone") else "ninguno"] += 1
+        axes["dato_a_confirmar"]["; ".join(d["confirmar"])] += 1
+        axes["mejor_coincidencia_con_el_banco"][d["fuerza"] or "NINGUNA"] += 1
+        axes["riesgos"]["+".join(d["riesgos"]) or "ninguno"] += 1
+        axes["en_grupo_tentativo_de_cv"]["si" if d.get("grupo") else "no"] += 1
+    total = len(selected)
+    expected = report["aggregate"]["alta_asistida"]["por_ancla"].get(_CORROBORATED_ANCHOR, 0)
+    sums = {name: sum(counter.values()) for name, counter in axes.items()}
+    return {
+        "lote": report["aggregate"]["lote"], "altas_asistidas": report["aggregate"]["alta_asistida"]["documentos"], "corroboradas": total,
+        "conciliacion": {"corroboradas_segun_el_informe": expected, "corroboradas_desglosadas": total, "suma_de_niveles": sum(axes["nivel"].values()), "ejes_que_no_suman": sorted(n for n, s in sums.items() if s != total),
+                         "diferencia": expected - total},
+        "niveles": {lv: axes["nivel"].get(lv, 0) for lv in PRELOAD_LEVELS}, "significado_de_los_niveles": PRELOAD_MEANING,
+        "niveles_por_motivo_original": {r: {lv: by_reason_level[r].get(lv, 0) for lv in PRELOAD_LEVELS} for r in sorted(by_reason_level)},
+        "ejes": {name: dict(sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))) for name, counter in sorted(axes.items()) if name != "nivel"},
+        "cruce": [{"motivo_original": k[0], "razones_adicionales": k[1], "evidencia_del_ancla": k[2], "emails": k[3], "emails_que_explican": k[4], "nivel": k[5], "documentos": n}
+                  for k, n in sorted(cross.items(), key=lambda kv: (-kv[1], kv[0]))],
+        "aviso": "Propuestas NO verificadas: el nivel solo indica qué parte del nombre podría precargarse sin riesgo de partir mal una identidad.",
+    }

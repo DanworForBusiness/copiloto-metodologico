@@ -342,3 +342,115 @@ def test_it_refuses_a_run_that_is_not_an_import_without_plan_or_without_staging(
     with pytest.raises(rec.RecoverabilityError) as e:
         rec.load_inputs(RUN)
     assert e.value.code == "STAGING_NOT_AVAILABLE"
+
+
+# ═══════════════════ altas asistidas con identidad CORROBORADA: niveles de precarga A/B/C/D (opción --corroboradas) ═══════════════════
+_FIRST = ("Abel", "Bruno", "Celia", "Dario", "Elena", "Fabio")
+_LAST = ("Aguirre", "Benitez", "Castro", "Duarte")
+
+
+def _corroborated(i: int, level: str):
+    first, last = _FIRST[i % 6], _LAST[i // 6]
+    email = f"{first}.{last}@sintetico.test".lower()
+    tokens = f"{first} {last}"
+    emails, flags, sources, evidence, extra = [email], [], ["text", "filename"], ["TEXT_FILE_AGREE"], {}
+    if level == "A":
+        emails, flags = ([], ["EMAIL_MISSING"]) if i % 2 else ([email, f"alt.{email}"], ["EMAIL_MULTIPLE"])
+    elif level == "B":
+        flags = ["NAME_SPLIT_AMBIGUOUS"]
+    elif level == "C":
+        flags, sources, evidence = ["NAME_ORDER_UNCERTAIN"], ["filename"], ["EMAIL_STRONG"]
+    elif level == "D":
+        flags, extra = ["NAME_EDGE_TOKEN_UNEXPLAINED"], {"edge_token": {"token": "RC", "kind": "UNEXPLAINED"}}
+    e = _ext(first=first, last=last, emails=emails, rule="R1", state="CORROBORATED", alts=[(tokens, "CORROBORATED")], flags=flags)
+    e["name_decision"]["alternatives"][0].update(sources=sources, evidence=evidence, **extra)
+    return e, first, last, email
+
+
+def _corroborated_world(distribution=(("A", 9), ("B", 6), ("C", 5), ("D", 4))) -> tuple[World, list[tuple[str, str, str]]]:
+    w, private, i = World(), [], 0
+    for level, n in distribution:
+        for _ in range(n):
+            e, first, last, email = _corroborated(i, level)
+            w.doc(e)
+            private += [first, last, email]
+            i += 1
+    return w, private
+
+
+def test_the_24_corroborated_altas_reconcile_across_the_four_preload_levels_and_exclude_other_anchors():
+    w, _ = _corroborated_world()
+    w.doc(_ext(emails=["laura.mendez@sintetico.test"], alts=[("Laura Mendez", "UNANCHORED_AGREEMENT")], flags=["NAME_UNCORROBORATED"]))                      # alta, pero NO corroborada
+    w.doc(_ext(rule="R3", state="DECLARED", first="Diego", last="Paz", alts=[("Diego Paz", "DECLARED")], flags=["NAME_DECLARED", "EMAIL_MISSING"]))          # alta DECLARADA
+    w.doc(_ext(failure="NO_TEXT", rule="R6", state="MISSING"))
+    w.build()
+    inputs = rec.load_inputs(RUN)
+    report = rec.build_report(inputs)
+    b = rec.corroborated_breakdown(inputs, report)
+    assert report["aggregate"]["alta_asistida"]["por_ancla"] == {"CORROBORADA": 24, "DECLARADA": 1, "TEXTO_Y_ARCHIVO_COINCIDEN": 1}
+    assert b["altas_asistidas"] == 26 and b["corroboradas"] == 24
+    assert b["niveles"] == {"A": 9, "B": 6, "C": 5, "D": 4} and set(b["significado_de_los_niveles"]) == set("ABCD")
+    assert b["conciliacion"] == {"corroboradas_segun_el_informe": 24, "corroboradas_desglosadas": 24, "suma_de_niveles": 24, "ejes_que_no_suman": [], "diferencia": 0}
+    assert all(sum(counter.values()) == 24 for counter in b["ejes"].values())
+    assert sum(x["documentos"] for x in b["cruce"]) == 24 and sum(sum(c.values()) for c in b["niveles_por_motivo_original"].values()) == 24
+
+
+def test_the_breakdown_crosses_original_reason_anchor_evidence_and_the_data_to_confirm_per_level():
+    w, _ = _corroborated_world()
+    w.build()
+    inputs = rec.load_inputs(RUN)
+    b = rec.corroborated_breakdown(inputs, rec.build_report(inputs))
+    ejes = b["ejes"]
+    assert ejes["regla_del_extractor"] == {"R1": 24} and ejes["evidencia_del_ancla"] == {"TEXT_FILE_AGREE": 19, "EMAIL_STRONG": 5}
+    assert ejes["fuente_del_nombre"] == {"filename+text": 19, "filename": 5} or ejes["fuente_del_nombre"] == {"text+filename": 19, "filename": 5}
+    assert ejes["advertencias_del_nombre"]["NAME_SPLIT_AMBIGUOUS"] == 6 and ejes["advertencias_del_nombre"]["NAME_ORDER_UNCERTAIN"] == 5 and ejes["advertencias_del_nombre"]["NAME_EDGE_TOKEN_UNEXPLAINED"] == 4
+    assert ejes["token_de_borde"] == {"ninguno": 20, "UNEXPLAINED": 4} and ejes["estado"] == {"open": 24}
+    assert sum(ejes["motivo_original"].values()) == 24 and set(ejes["motivo_original"]) <= {"NO_EMAIL", "MULTIPLE_EMAILS", "NAME_NOT_EMAIL_CORROBORATED", "NAME_EDGE_TOKEN", "NAME_ORDER_UNCERTAIN"}
+    assert any("nombre y apellido" in k for k in ejes["dato_a_confirmar"]) and "orden nombre/apellido" in " ".join(ejes["dato_a_confirmar"])
+    d_rows = [x for x in b["cruce"] if x["nivel"] == "D"]
+    assert sum(x["documentos"] for x in d_rows) == 4 and all(x["emails"] == 1 for x in d_rows)
+    assert sum(b["niveles_por_motivo_original"][r]["D"] for r in b["niveles_por_motivo_original"]) == 4
+
+
+@pytest.mark.parametrize("flags, edge, names, expected", [
+    ([], None, ("Ana", "Soto"), "A"), (["NAME_SPLIT_AMBIGUOUS"], None, ("Ana", "Soto Rey"), "B"), (["NAME_ORDER_UNCERTAIN"], None, ("Ana", "Soto"), "C"),
+    (["NAME_EDGE_TOKEN_UNEXPLAINED"], None, ("Ana", "Soto"), "D"), ([], {"kind": "AMBIGUOUS", "token": "RC"}, ("Ana", "Soto"), "D"), ([], None, ("Ana", None), "D"), ([], None, (None, None), "D"),
+    (["NAME_SPLIT_AMBIGUOUS", "NAME_ORDER_UNCERTAIN"], None, ("Ana", "Soto Rey"), "C"), (["NAME_ORDER_UNCERTAIN", "NAME_EDGE_TOKEN_UNEXPLAINED"], None, ("Ana", "Soto"), "D"),
+])
+def test_preload_level_takes_the_most_restrictive_condition(flags, edge, names, expected):
+    e = _ext(first=names[0], last=names[1], rule="R1", state="CORROBORATED", alts=[("Ana Soto", "CORROBORATED")], flags=flags)
+    e["name_decision"]["proposed"] = 0
+    if edge:
+        e["name_decision"]["alternatives"][0]["edge_token"] = edge
+    assert rec.preload_level(e) == expected
+
+
+def test_the_proposed_identity_is_the_one_whose_edge_token_or_sources_count_not_a_secondary_alternative():
+    e = _ext(first="Ana", last="Soto", rule="R1", state="CORROBORATED", alts=[("Pedro Gil", "UNANCHORED_AGREEMENT"), ("Ana Soto", "CORROBORATED")])
+    e["name_decision"]["proposed"] = 1
+    e["name_decision"]["alternatives"][0]["edge_token"] = {"kind": "UNEXPLAINED", "token": "RC"}
+    assert rec.preload_level(e) == "A"                                                                         # el token de borde es de la alternativa NO propuesta
+    e["name_decision"]["proposed"] = 0
+    assert rec.preload_level(e) == "D"
+
+
+def test_the_corroborated_breakdown_has_no_personal_data_or_identifiers():
+    w, private = _corroborated_world()
+    w.profile("Valeria", "Ibarra", email="ibarra.v@sintetico.test", phone="5491155550001")
+    w.build()
+    inputs = rec.load_inputs(RUN)
+    raw = json.dumps(rec.corroborated_breakdown(inputs, rec.build_report(inputs)), ensure_ascii=False)
+    for item in private + list(PII) + ["sintetico.test", "@"]:
+        assert item not in raw, item
+    assert not re.search(r"[0-9a-f]{16}", raw.replace(RUN, "")) and not re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-", raw)
+
+
+def test_the_corroborated_breakdown_is_empty_and_reconciled_when_there_are_none_and_never_writes():
+    w = World()
+    w.doc(_ext(emails=["laura.mendez@sintetico.test"], alts=[("Laura Mendez", "UNANCHORED_AGREEMENT")], flags=["NAME_UNCORROBORATED"]))
+    w.build()
+    before = _files_digest()
+    inputs = rec.load_inputs(RUN)
+    b = rec.corroborated_breakdown(inputs, rec.build_report(inputs))
+    assert b["corroboradas"] == 0 and b["niveles"] == {"A": 0, "B": 0, "C": 0, "D": 0} and b["conciliacion"]["diferencia"] == 0 and b["cruce"] == []
+    assert _files_digest() == before
