@@ -17,6 +17,7 @@ import urllib.parse
 
 from core import microsoft365
 from webapp.services import cv_history_inventory as inventory, cv_history_manifest as manifest, cv_history_recoverability as rec, profile_repository
+from webapp.services.cv_history_candidate_index import CandidateIndex
 
 _log = logging.getLogger(__name__)
 
@@ -104,10 +105,11 @@ def annotate(run_id: str, rows: list[dict | None]) -> list[dict | None]:
     if not todo:
         return rows
     live = [p for p in profile_repository.list() if not p.get("deleted_at")]
+    index = CandidateIndex(live)                                                      # temporal, de ESTE request: acota las comparaciones sin cambiar ningún resultado (ver cv_history_candidate_index)
     for r in todo:
         try:
             group = manifest.get_group(run_id, r["content_key"])
-            detail, _variants = rec.classify(r, group, manifest.get_ledger(run_id, r["content_key"]), live, run_id)
+            detail, _variants = rec.classify(r, group, manifest.get_ledger(run_id, r["content_key"]), live, run_id, index)
             r["review"] = _review(r, group, detail)
         except Exception:                                                              # una fila rara no debe romper la pantalla: sin revisión y sin datos personales en el log
             _log.warning("cv_history_review: no se pudo clasificar run=%s key=%s", run_id, r.get("content_key"))
