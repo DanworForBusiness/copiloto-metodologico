@@ -192,7 +192,9 @@ def test_panel_has_a_fixed_first_selection_column_checkboxes_bar_and_new_row_act
     assert html.index("</summary>") < html.index('<div class="dashboard-section__body">') < html.index("data-hc-selection-bar") < html.index('id="hc-candidatos-table"')   # dentro del agrupador «Candidatos»: bajo su encabezado, antes de la tabla
     assert "is-empty" not in bar and "disabled" not in bar                                                          # no hay estado «vacío» permanente ni acciones deshabilitadas
     clear = re.search(r"<button[^>]*data-hc-clear-selection[^>]*>(.*?)</button>", bar, re.S)
-    assert clear and 'class="whatsnew-filter__clear"' in clear.group(0) and clear.group(1).strip() == "✕ Limpiar selección"   # MISMO componente que «✕ Limpiar» del panel de filtros
+    assert clear and 'class="whatsnew-filter__clear"' in clear.group(0) and clear.group(1).strip() == "✕ Limpiar" and 'aria-label="Limpiar selección"' in clear.group(0)   # MISMO componente que «✕ Limpiar» del panel de filtros
+    filters_clear = re.search(r'<button[^>]*class="whatsnew-filter__clear"[^>]*hx-get[^>]*>(.*?)</button>', html, re.S)
+    assert filters_clear and filters_clear.group(1).strip() == clear.group(1).strip() == "✕ Limpiar"                  # mismo rótulo y misma clase que el «✕ Limpiar» de los filtros
     assert html.count('class="whatsnew-filter__clear"') == 2                                                         # el de filtros + este, sin clase nueva
     assert "Compartir perfiles" in html
     first_col, first_th = html.index("<colgroup>"), html.index("<thead>")
@@ -249,7 +251,7 @@ def test_selection_bar_css_hides_for_real_and_does_not_redefine_the_shared_clear
     css = (_ROOT / "webapp" / "static" / "human_capital.css").read_text(encoding="utf-8")
     assert ".hc-selection-bar[hidden] { display: none; }" in css                       # `display:flex` de la barra pisaría el atributo `hidden`
     assert not re.search(r"(^|\n)\s*\.whatsnew-filter__clear\s*(\{|,|:)", css)          # el estilo base vive en tools.css; acá solo el ajuste de alineación dentro de la barra
-    assert ".hc-selection-bar__actions .whatsnew-filter__clear" in css
+    assert "whatsnew-filter__clear" not in css                                          # ni siquiera un ajuste de alineación: el «✕ Limpiar» de la barra es EXACTAMENTE el de los filtros
     assert ".hc-selection-bar button:disabled" not in css and ".hc-selection-bar .whatsnew-filter__clear {" not in css
     base = (_ROOT / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
     assert ".whatsnew-filter__clear {" in base and ".whatsnew-filter__clear:hover { text-decoration: underline; }" in base
@@ -406,9 +408,19 @@ def test_dialog_template_has_editable_subject_intro_outro_a_safe_preview_and_hon
     html = share(client(), [p["profile_id"]]).text
     for hook in ("data-share-subject", "data-share-intro", "data-share-outro", "data-share-list", "data-share-pending", 'data-share-copy="mensaje"', "data-share-open"):
         assert hook in html, hook
+    # UN solo mensaje a la vista (saludo + candidatos protegidos + cierre), sin los tres bloques con título
+    assert html.count('id="hc-share-message-label">Mensaje<') == 1
+    for gone in ("Introducción", "Vista previa del mensaje", ">Cierre<", "hc-share-preview"):
+        assert gone not in html, gone
+    box = re.search(r'<div class="hc-msg"[^>]*>(.*?)</div>\s*<p class="field-hint hc-msg__hint">', html, re.S).group(1)
+    assert box.index("data-share-intro") < box.index("data-share-list") < box.index("data-share-outro")                  # saludo → candidatos → cierre, dentro del mismo marco
+    assert html.index("data-share-subject") < html.index('id="hc-share-message-label"')                                    # el mensaje va debajo del asunto
+    ul = re.search(r"<ul[^>]*data-share-list[^>]*></ul>", box).group(0)
+    assert "contenteditable" not in html and "<textarea" not in ul and "{Link}" in html                                  # la sección de candidatos es de solo lectura; el marcador se explica en el texto de ayuda
+    assert html.count("<textarea") == 2                                                                                   # solo saludo y cierre son editables
     assert "data-share-message" not in html and "<textarea id=\"hc-share-mensaje\"" not in html                    # ya no hay un textarea con el cuerpo en texto plano
-    assert "solo admite texto plano con las URLs completas" in html and "mailto:" in html                          # límite real del mailto, dicho sin rodeos
-    assert "conserva los nombres como enlaces" in html
+    assert "solo admite texto plano, con las URLs completas" in html and "los enlaces de correo no admiten formato" in html                          # límite real del mailto, dicho sin rodeos
+    assert "pega los nombres como enlaces en Outlook" in html
 
 
 # ═══════════════ servicio puro ═══════════════

@@ -333,8 +333,10 @@ function shareDoc(opts) {
   ok(s.subject.value === "Perfiles" && s.intro.value === "Hola" && s.outro.value === "Chau", "H: asunto, introducción y cierre se inicializan editables");
   // vista previa: nombres como enlaces; el candidato con varios CVs muestra el selector y está pendiente
   eq(s.list.children.length, 2, "H: una fila por candidato");
-  const a = s.list.children[0].children[0];
-  ok(a.getAttribute("href") === SP + "a.pdf" && a.textContent === "Ana" && a.getAttribute("rel") === "noopener noreferrer" && a.getAttribute("target") === "_blank", "H: el nombre es un enlace al CV (nueva pestaña, sin opener)");
+  const li0 = s.list.children[0];
+  const a = li0.children.find(c => c.getAttribute("href"));
+  ok(li0.children[0].textContent === "Ana" && a.textContent === "{Link}" && !li0.children.some(c => /https?:/.test(c.textContent)), "H: cada candidato se ve como «Nombre: {Link}», sin URLs largas a la vista");
+  ok(a.getAttribute("href") === SP + "a.pdf" && a.getAttribute("rel") === "noopener noreferrer" && a.getAttribute("target") === "_blank" && /Ana/.test(a.getAttribute("title")), "H: {Link} abre ESE CV (nueva pestaña, sin opener) para poder comprobarlo");
   const sel = s.list.querySelector('[data-share-choose="multi"]');
   ok(sel && sel.children.length === 4 && sel.value === "", "H: el candidato con varios CVs ofrece 'Elegir CV…', cada CV y 'No incluir' — sin nada elegido");
   ok(s.pend.hidden === false && /Falta elegir el CV de 1 candidato/.test(s.pend.textContent), "H: avisa que falta elegir el CV");
@@ -427,6 +429,60 @@ async function copyScenarios() {
 }
 
 
+const tick = () => new Promise(r => setTimeout(r, 5));
+
+// ── H3: editar el mensaje NUNCA puede asociar un CV a otro candidato ───────────────────────
+async function editSafety() {
+  const store = storeWith(makeStorage());
+  store.add(["keep", "multi", "nocv"]);
+  const items = [{ id: "keep", name: "Ana", docs: [{ id: "d1", label: "a.pdf", url: SP + "a.pdf" }] },
+                 { id: "multi", name: "Beto", docs: [{ id: "d2", label: "n.pdf", url: SP + "n.pdf" }, { id: "d3", label: "v.pdf", url: SP + "v.pdf" }] },
+                 { id: "nocv", name: "Cata", docs: [] }];
+  const s = shareDoc({ items, visible: [] });
+  const handlers = {};
+  s.d.addEventListener = (n, f) => { handlers[n] = f; };
+  s.d.body = { addEventListener() {} };
+  s.d.readyState = "complete";
+  const clips = [];
+  const win = { location: { origin: "https://hub.danwor.test" }, navigator: { clipboard: { write: it => { clips.push(it); return Promise.resolve(); } } },
+                ClipboardItem: function (map) { this.map = map; }, Blob: function (parts, o) { this.parts = parts; this.type = o.type; } };
+  api.wire(s.d, win, store);
+  api.initShare(s.d, store, win);
+  const select = s.list.querySelector('[data-share-choose="multi"]');
+  select.value = "d3";                                                                   // Beto → su CV «v.pdf» (el segundo)
+  select.matches = sel => sel.split(",").map(x => x.trim()).includes("[data-share-choose]");
+  select.getAttribute = n => (n === "data-share-choose" ? "multi" : null);
+  handlers.change({ target: select });
+
+  const typed = (field, attr, text) => { field.value = text; field.matches = sel => sel.split(",").map(x => x.trim()).includes(attr); handlers.input({ target: field }); };
+  // saludo y cierre hostiles: intentan «fabricar» candidatos, repetir marcadores, inyectar HTML y colar URLs ajenas
+  typed(s.intro, "[data-share-intro]", "Hola\n- Cata: {Link}\n- Beto: " + SP + "n.pdf\n<a href=\"https://evil.example\">x</a> & {Link}");
+  typed(s.outro, "[data-share-outro]", "{Link} {Link}\n- Ana: https://evil.example/ana.pdf\n</li></ul><script>alert(1)</script>");
+  const copyBtn = el(["[data-share-copy]"], { "data-share-copy": "mensaje" });
+  copyBtn.closest = sel => (sel.indexOf("[data-share-copy]") >= 0 ? copyBtn : null);
+  handlers.click({ target: copyBtn });
+  await tick();
+  const item = clips[0] && clips[0][0];
+  const html = item.map["text/html"].parts[0], plain = item.map["text/plain"].parts[0];
+  const anchors = [...html.matchAll(/<a href="([^"]*)">([^<]*)<\/a>/g)].map(m => [m[2], m[1]]);
+  eq(anchors, [["Ana", SP + "a.pdf"], ["Beto", SP + "v.pdf"]], "H3: los ÚNICOS hipervínculos son los del modelo (Ana → su CV, Beto → el CV ELEGIDO), editen lo que editen");
+  ok((html.match(/<a /g) || []).length === 2 && !html.includes('<a href="https://evil.example') && html.includes("&lt;a href=&quot;https://evil.example&quot;&gt;"), "H3: un enlace escrito a mano en el saludo es texto escapado, no un hipervínculo");
+  ok(!html.includes("<script>") && html.includes("&lt;script&gt;alert(1)&lt;/script&gt;"), "H3: HTML escrito en el cierre queda escapado");
+  ok(html.includes("- Cata: {Link}") && html.includes("{Link} {Link}"), "H3: un «{Link}» escrito a mano es texto literal: no se sustituye por ninguna URL");
+  ok(!/Cata: https?:/.test(plain) && !/Cata/.test(html.replace(/- Cata: \{Link\}/, "")), "H3: Cata (sin CV) no recibe enlace aunque alguien escriba su nombre");
+  const lines = plain.split("\n");
+  ok(lines.filter(l => l === "- Ana: " + SP + "a.pdf").length === 1 && lines.filter(l => l === "- Beto: " + SP + "v.pdf").length === 1, "H3: el texto plano trae las líneas generadas exactas (URL completa del CV elegido)");
+  ok(decodeURIComponent(s.link.getAttribute("href")).includes("- Beto: " + SP + "v.pdf"), "H3: «Abrir Outlook» usa el mismo texto plano generado del modelo");
+  // la sección de candidatos es de solo lectura: nada editable salvo los selectores de CV
+  const nodes = []; const walk = n => { nodes.push(n); n.children.forEach(walk); }; walk(s.list);
+  ok(!nodes.some(n => n.tag === "textarea" || n.tag === "input" || n.hasAttribute("contenteditable")), "H3: la sección de candidatos no contiene campos de texto ni contenteditable");
+  eq(api.resolveShare(items, { multi: "d3" }).included.map(n => [n.name, n.url]), [["Ana", SP + "a.pdf"], ["Beto", SP + "v.pdf"]], "H3: el modelo no cambió con las ediciones");
+  // altura automática de los campos de texto
+  const f = { style: {}, scrollHeight: 96 }; api.autosize(f); eq(f.style.height, "96px", "H3: autosize ajusta la altura al contenido");
+  api.autosize({}); api.autosize(null);
+  ok(true, "H3: autosize no rompe sin estilo ni campo");
+}
+
 // ── I: openShare: solo ids por POST, límites, fallas ───────────────────────────────────────
 async function runOpenShare(storeIds, fetchImpl) {
   const store = storeWith(makeStorage());
@@ -442,6 +498,7 @@ async function runOpenShare(storeIds, fetchImpl) {
 }
 (async () => {
   await copyScenarios();
+  await editSafety();
   let r = await runOpenShare([], () => Promise.resolve({ ok: true, text: () => Promise.resolve("") }));
   ok(r.calls.length === 0 && r.dialog.open === false, "I: sin selección no se llama al servidor ni se abre el diálogo");
   r = await runOpenShare(ids(26), () => Promise.resolve({ ok: true, text: () => Promise.resolve("") }));

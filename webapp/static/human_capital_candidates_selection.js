@@ -5,7 +5,7 @@
      localStorage). Persiste entre páginas y filtros: el panel del listado se reemplaza entero en cada filtro/orden/página (HTMX), así que el estado vive AFUERA del fragmento y
      después de cada swap se re-marcan las casillas visibles.
    · Casilla de encabezado: selecciona/deselecciona SOLO las filas de la página visible; es tri-estado (marcada / indeterminada / vacía).
-   · Barra contextual (oculta con 0 seleccionados; el desplazamiento al aparecer/desaparecer se compensa para no desviar el clic siguiente): contador, «Compartir perfiles» y «✕ Limpiar selección».
+   · Barra contextual (oculta con 0 seleccionados; el desplazamiento al aparecer/desaparecer se compensa para no desviar el clic siguiente): contador, «Compartir perfiles», «Descargar CVs» y «✕ Limpiar» (el mismo componente que el de los filtros).
    · «Compartir perfiles»: pide al servidor (POST, solo ids) el contenido del diálogo —nombres y rutas de las FICHAS resueltos en servidor— y arma el mensaje con el origen del
      propio navegador. «Copiar» y «Abrir Outlook» (`mailto:`) son acciones explícitas del usuario; no se envía ni se registra nada.
 
@@ -221,15 +221,22 @@
     while (list.firstChild) list.removeChild(list.firstChild);
     rows.forEach(function (row) {
       var li = doc.createElement("li");
+      var name = doc.createElement("span");
+      name.textContent = row.name;
+      li.appendChild(name);
       if (row.kind === "linked") {
+        // El enlace real no se muestra (URLs largas): se ve el marcador {Link}, que abre ESE CV para poder comprobarlo. Es de solo lectura: viene del modelo, nunca de lo que se escriba en el mensaje.
+        var colon = doc.createElement("span");
+        colon.textContent = ": ";
+        li.appendChild(colon);
         var a = doc.createElement("a");
-        a.textContent = row.name; a.setAttribute("href", row.url); a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener noreferrer");
+        a.textContent = "{Link}";
+        a.setAttribute("href", row.url); a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener noreferrer");
+        a.setAttribute("title", "Abrir el CV de " + row.name + " en SharePoint (nueva pestaña)");
+        if (a.classList) a.classList.add("hc-link-marker");
         li.appendChild(a);
-      } else {
-        var name = doc.createElement("span");
-        name.textContent = row.name;
-        li.appendChild(name);
-        if (li.classList) li.classList.add("is-muted");
+      } else if (li.classList) {
+        li.classList.add("is-muted");
       }
       if (NOTE[row.kind]) {
         var note = doc.createElement("span");
@@ -255,6 +262,13 @@
       list.appendChild(li);
     });
     if (focusId) { var again = list.querySelector('[data-share-choose="' + focusId + '"]'); if (again && again.focus) again.focus(); }
+  }
+
+  // Altura de un campo de texto según su contenido (sin barras de desplazamiento internas: el mensaje se ve completo).
+  function autosize(field) {
+    if (!field || !field.style) return;
+    field.style.height = "auto";
+    if (field.scrollHeight) field.style.height = field.scrollHeight + "px";
   }
 
   function setNote(node, text) { if (node) { node.hidden = !text; node.textContent = text || ""; } }
@@ -307,6 +321,8 @@
     shareField(doc, "data-share-subject").value = root.getAttribute("data-default-subject") || "";
     shareField(doc, "data-share-intro").value = root.getAttribute("data-intro") || "";
     shareField(doc, "data-share-outro").value = root.getAttribute("data-outro") || "";
+    autosize(shareField(doc, "data-share-intro"));
+    autosize(shareField(doc, "data-share-outro"));
     refreshShare(doc);
   }
 
@@ -393,7 +409,7 @@
     });
     doc.addEventListener("input", function (event) {
       var t = event.target;
-      if (t && t.matches && t.matches("[data-share-subject], [data-share-intro], [data-share-outro]")) refreshMailto(doc);
+      if (t && t.matches && t.matches("[data-share-subject], [data-share-intro], [data-share-outro]")) { if (!t.matches("[data-share-subject]")) autosize(t); refreshMailto(doc); }
     });
     doc.addEventListener("click", function (event) {
       var t = event.target, el = t && t.closest ? t.closest("[data-hc-clear-selection], [data-hc-share-open], [data-share-copy], [data-share-open]") : null;
@@ -425,7 +441,7 @@
     if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", resync); else resync();
   }
 
-  var api = { STORAGE_KEY: STORAGE_KEY, MAX_SHARE: MAX_SHARE, MAILTO_MAX: MAILTO_MAX, SKIP: SKIP, createStore: createStore, escapeHtml: escapeHtml, safeCvUrl: safeCvUrl, rowsModel: rowsModel, resolveShare: resolveShare,
+  var api = { STORAGE_KEY: STORAGE_KEY, MAX_SHARE: MAX_SHARE, MAILTO_MAX: MAILTO_MAX, SKIP: SKIP, createStore: createStore, escapeHtml: escapeHtml, safeCvUrl: safeCvUrl, rowsModel: rowsModel, resolveShare: resolveShare, autosize: autosize,
               buildPlain: buildPlain, buildHtml: buildHtml, copyRich: copyRich, refreshShare: refreshShare, renderList: renderList, mailtoUrl: mailtoUrl,
               mailtoFits: mailtoFits, syncUI: syncUI, keepInPlace: keepInPlace, refreshMailto: refreshMailto, initShare: initShare, openShare: openShare, wire: wire };
   if (typeof window !== "undefined") {
