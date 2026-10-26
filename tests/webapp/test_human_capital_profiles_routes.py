@@ -376,9 +376,10 @@ def test_profiles_templates_add_no_own_js():
     # `test_profiles_page_links_its_own_stylesheet_same_pattern_as_commercial`
     # más abajo) — nunca justificaba mantenerlo sin estilos por consistencia
     # con un contrato que otros workspaces ya rompieron legítimamente. JS
-    # propio SIGUE sin hacer falta (cero interactividad nueva) — eso no cambió.
-    for surface in (_PROFILES_HTML, _PANEL_HTML):
-        assert "<script src=" not in surface
+    # propio SIGUE sin hacer falta (cero interactividad nueva) — eso cambió SOLO con la selección múltiple de Candidatos (Fase 1B): la PÁGINA completa carga UN script propio
+    # (`human_capital_candidates_selection.js`, con el mismo mecanismo de `human_capital_import.js`) y el fragmento HTMX-swapped sigue SIN `<script src=` (se reemplaza en cada filtro).
+    assert "<script src=" not in _PANEL_HTML
+    assert _PROFILES_HTML.count("<script src=") == 1 and "human_capital_candidates_selection.js" in _PROFILES_HTML
 
 
 def test_profiles_page_links_its_own_stylesheet_same_pattern_as_commercial():

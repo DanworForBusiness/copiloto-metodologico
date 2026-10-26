@@ -115,7 +115,7 @@ from webapp.services import (
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
 from webapp.services import cv_history_acceptance, cv_history_drafts, cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
-from webapp.services import human_capital_contact
+from webapp.services import human_capital_contact, human_capital_share
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
@@ -950,6 +950,60 @@ def _profile_or_404(profile_id: str) -> dict:
     if profile is None:
         raise HTTPException(404, "Candidato no encontrado")
     return profile
+
+
+@router.get("/cchh/candidatos/{profile_id}", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profile_detail_page(request: Request, profile_id: str):
+    """FICHA de consulta (solo lectura) de un candidato: la URL ESTABLE que se comparte (nunca `/editar`). Misma autorización que el resto de Capital Humano (sin sesión → login; sin
+    autorización CCHH → 403); un candidato dado de baja se comporta como inexistente (404). Reusa el modelo y el listado de documentos existentes: no crea entidades ni lógica nueva,
+    no escribe nada. Se declara DESPUÉS de `/cchh/candidatos/nuevo` y `/importar` (rutas fijas del mismo nivel) para no ensombrecerlas. Datos personales ⇒ `no-store`."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    profile = human_capital_service.get_profile(profile_id)
+    if profile is None or profile.get("deleted_at"):
+        raise HTTPException(404, "Candidato no encontrado")
+    documents: list[dict] | None
+    try:
+        documents = profile_document_service.list_documents_for_profile(profile_id)
+    except profile_document_repository.ProfileDocumentStorageError:
+        documents = None                                           # la ficha se muestra igual; Documentos dice «No disponible»
+    user = auth_service.session_user(request)
+    return templates.TemplateResponse(
+        request=request, name="human_capital/profile_detail.html",
+        context={
+            "current_workspace": workspaces.HUMAN_CAPITAL,
+            "available_workspaces": workspaces.available_workspaces(user),
+            "pack": DEFAULT_PACK,
+            "user": user,
+            "active_page": "perfiles",
+            "profile": profile,
+            "documents": documents,
+        },
+        headers=_NO_STORE,
+    )
+
+
+@router.post("/cchh/candidatos/compartir", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profiles_share_dialog(request: Request, profile_ids: list[str] = Form([])):
+    """Contenido del diálogo «Compartir perfiles» (se pide por demanda al accionar, como «Contactar al candidato» del Pipeline). POST con SOLO ids (no viajan por la URL ni quedan en el
+    registro de accesos); mismo origen obligatorio (las cookies son SameSite=None). El servidor es la autoridad del límite (``MAX_SHARE_PROFILES``) y resuelve nombres y rutas de las
+    fichas: el navegador no confía en nada que haya guardado. Es una AYUDA para redactar: no envía ni registra nada, no incluye datos de contacto ni enlaces a SharePoint."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    try:
+        selection = human_capital_share.resolve(profile_ids, human_capital_service.get_profile)
+    except ProfileStorageError:
+        selection = human_capital_share.ShareSelection(reason=human_capital_share.REASON_SOURCE_ERROR)
+    return templates.TemplateResponse(
+        request=request, name="partials/human_capital_share_dialog_content.html",
+        context={"selection": selection, "subject": human_capital_share.DEFAULT_SUBJECT, "intro": human_capital_share.INTRO, "outro": human_capital_share.OUTRO,
+                 "max_profiles": human_capital_share.MAX_SHARE_PROFILES},
+        headers=_NO_STORE,
+    )
 
 
 @router.post("/cchh/candidatos/{profile_id}/documentos", response_class=HTMLResponse, include_in_schema=False)

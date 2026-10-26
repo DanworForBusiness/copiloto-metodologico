@@ -359,6 +359,29 @@ function buildRealSandbox(readyState) {
     "F: ...y resize también -- cierra el bug de orden de carga que escapó a PR #104");
 }
 
+// ── G: columna de SELECCIÓN fija al inicio (Fase 1B): `data-column-fixed="start"`, sin data-column-key. El adapter la mantiene PRIMERA (antes del orden
+//    guardado) y «Acciones» sigue ÚLTIMA; sin la rama de «fijas», una celda sin key caía en el grupo «resto» y terminaba al FINAL. ──
+{
+  const adapter = loadAdapter({ storedOrder: validKeys => [...validKeys].reverse() });
+  const container = buildContainer([{ nombre: "Ana", skills: "SAP", seniority: "Senior", ubicacion: "BA", fuente: "LinkedIn" }]);
+  container.querySelectorAll("tr").forEach(row => {
+    const cell = makeNode(row.children[0].tag, { "data-column-fixed": "start" });
+    cell.attrs["data-label"] = row.children[0].tag === "th" ? "select" : cell.attrs["data-label"];
+    cell.attrs["data-value"] = "select-box";
+    row.children.unshift(cell);
+    cell.parent = row;
+  });
+  const headerRow = container.querySelector("table > thead > tr");
+  const bodyRow = container.querySelector("table > tbody > tr");
+  adapter.applyStoredColumnOrder(container);
+  const head = orderOf(headerRow), body = orderOf(bodyRow);
+  ok(head[0] === "select", "G: tras aplicar un orden guardado (invertido), la celda FIJA del encabezado sigue primera");
+  ok(body[0] === "select-box", "G: ...y la de cada fila también");
+  ok(JSON.stringify(head.slice(1, 6)) === JSON.stringify(["fuente", "ubicacion", "seniority", "skills", "nombre"]), "G: las columnas con key quedan en el orden guardado, a continuación");
+  ok(head[head.length - 1] === "acciones" && body[body.length - 1] === "editar-link", "G: «Acciones» (sin key, no fija) sigue siempre ÚLTIMA");
+  ok(head.length === 7 && body.length === 7, "G: ninguna celda se pierde ni se duplica al reubicar");
+}
+
 if (failures > 0) {
   console.log(`${failures} Human Capital candidates table ergonomics invariant(s) FAILED`);
   process.exit(1);
