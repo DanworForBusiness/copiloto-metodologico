@@ -98,12 +98,13 @@ def run_publication(
         log_activity("datasphere_publication_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
                      client=values.client, space=values.space, root_object=values.root_object,
                      state=outcome.state, error_code=outcome.error_code, stage=outcome.stage, duration_s=outcome.duration_s,
-                     operation_id=outcome.operation_id)
+                     operation_id=outcome.operation_id, status=getattr(outcome, "status", ""), durability=getattr(outcome, "durability", ""))
         # Éxito → abrir la pestaña Catálogo del módulo (el nuevo dominio ya figura tras invalidar la caché).
         result_url = (f"/modules/{stem}?" + urlencode({"pack": selected, "tab": "catalogo"})) if outcome.state == "SUCCESS" else None
         events.put({"t": "done", "state": outcome.state, "error_code": outcome.error_code, "message": outcome.message,
                     "title": outcome.title, "errors": outcome.errors, "operation_id": outcome.operation_id,
-                    "duration_s": outcome.duration_s, "result_url": result_url})
+                    "duration_s": outcome.duration_s, "result_url": result_url,
+                    "status": getattr(outcome, "status", ""), "durability": getattr(outcome, "durability", ""), "stages": getattr(outcome, "stages", {})})
         events.put(None)
 
     threading.Thread(target=worker, name="datasphere-publication", daemon=True).start()

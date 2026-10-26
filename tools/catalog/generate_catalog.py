@@ -884,6 +884,16 @@ def _fm(auto: dict, manual: dict) -> str:
             f"{body}---\n")
 
 
+def _write_text(path: Path, text: str) -> None:
+    """Escritura ATÓMICA (temporal en el mismo directorio + fsync + replace): una caída deja el contenido viejo completo o el nuevo completo, nunca uno truncado."""
+    try:                               # el generador también corre como script con otro sys.path
+        from core import atomic_io
+    except ImportError:                # pragma: no cover
+        Path(path).write_text(text, encoding="utf-8")
+        return
+    atomic_io.write_text(path, text)
+
+
 def _read_manual(path: Path) -> dict:
     """Lee el bloque `manual:` de un .md existente (para no pisarlo al regenerar)."""
     if not path.exists():
@@ -1544,7 +1554,10 @@ def _load_catalog_manifest(out_root: Path) -> dict:
 def _save_catalog_manifest(out_root: Path, manifest: dict) -> None:
     path = _catalog_manifest_path(out_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    text = json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True)
+    if _same_text(path, text):
+        return                                      # idéntico: no se reescribe (un mtime nuevo no es un cambio)
+    _write_text(path, text)
 
 
 def _catalog_leaf_key(leaf: Path, inbound_root: Path) -> str:
@@ -1596,6 +1609,7 @@ def _prune_stale_domain_outputs(
     expected_dirs: set[tuple[str, str]],
     explicit_client_dirs: set[str],
     current_client_dirs: set[str],
+    only_clients: set[str] | None = None,
 ) -> int:
     """Elimina salidas viejas de dominios que ya no existen en el inbound actual.
 
@@ -1612,6 +1626,8 @@ def _prune_stale_domain_outputs(
         client_key = client_dir.name
         if client_key.lower() in CATALOG_RESERVED_OUTPUT_DIRS or client_key.startswith("."):
             continue
+        if only_clients is not None and client_key not in only_clients:
+            continue                                # generación acotada: jamás se poda a un cliente ajeno a la operación
         remove_all_client_domains = client_key not in current_client_dirs
         prune_to_expected = client_key in explicit_client_dirs
         if not remove_all_client_domains and not prune_to_expected:
@@ -1664,8 +1680,11 @@ def _sync_apis(inbound_root: Path, out_root: Path, *, folder: str | None = None,
     return count
 
 
-def generate_all(inbound_root, out_root) -> str:
+def generate_all(inbound_root, out_root, *, only_clients: set[str] | None = None) -> str:
     """Procesa las carpetas hoja con .json bajo inbound_root.
+
+    ``only_clients`` (opcional, aditivo): nombres de carpeta de cliente (``cliente.replace(" ", "_")``). Si se pasa, SOLO se regeneran y podan esos clientes; los demás
+    conservan sus salidas y sus entradas del manifiesto (una publicación no toca el Catálogo de otros clientes). Sin él, comportamiento de siempre.
 
     Usa un manifest local por flujo para evitar regenerar dominios sin cambios.
     Si cambia este generador, se invalida el manifest completo para no dejar
@@ -1728,6 +1747,10 @@ def generate_all(inbound_root, out_root) -> str:
             explicit_client_dirs.add(client_dir_key)
             expected_dirs.add((client_dir_key, dominio.replace(" ", "_")))
         key = f"{cliente_dir}/{dominio_dir}"
+        if only_clients is not None and client_dir_key not in only_clients:
+            if key in entries:
+                next_entries[key] = entries[key]              # cliente ajeno a la operación: se conserva tal cual
+            continue
         signature = _files_signature(g["jsons"] + g["txts"], inbound_root)
         previous = entries.get(key, {})
 
@@ -1751,7 +1774,7 @@ def generate_all(inbound_root, out_root) -> str:
         }
 
     apis = _sync_apis(inbound_root, out_root)
-    pruned = _prune_stale_domain_outputs(out_root, expected_dirs, explicit_client_dirs, current_client_dirs)
+    pruned = _prune_stale_domain_outputs(out_root, expected_dirs, explicit_client_dirs, current_client_dirs, only_clients)
     next_manifest = dict(manifest)
     next_manifest.update({
         "generator_sha256": generator_sig,

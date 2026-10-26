@@ -34,7 +34,9 @@ def test_legacy_list_tile_template_and_scoring_modules_are_untouched_by_the_asse
     # Tercera excepción admitida (modo «solo APIs/CDS» del panel): la DESCARGA de la carpeta CSN de SharePoint y la copia de las APIs (`fetch_csn_folder`, `_sync_apis`, `_same_text`)
     # ganaron parámetros de alcance y no reescriben lo idéntico. Es entrada/sincronización del catálogo, no scoring: esas tres funciones se excluyen de la comparación; TODO lo demás
     # del generador (evaluación de cumplimiento, veredicto, portabilidad) se sigue vigilando con las reglas de abajo.
-    exempt = {"fetch_csn_folder", "_sync_apis", "_same_text"}
+    # Cuarta excepción admitida (publicación segura, fase 0): escritura atómica del manifiesto del catálogo y generación/poda ACOTADAS a un cliente (`generate_all(only_clients=…)`,
+    # `_prune_stale_domain_outputs`, `_save_catalog_manifest`, `_write_text`). Es orquestación/E-S del catálogo, no scoring: `evaluate_compliance`, `_write_flow` y el veredicto no se tocan.
+    exempt = {"fetch_csn_folder", "_sync_apis", "_same_text", "generate_all", "_prune_stale_domain_outputs", "_save_catalog_manifest", "_write_text"}
 
     def without_exempt(src: str) -> list[str]:
         kept, skipping = [], False
