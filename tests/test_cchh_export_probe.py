@@ -421,3 +421,41 @@ def test_the_run_never_writes_inside_the_documents_directory_or_the_working_dire
     monkeypatch.chdir(cwd)
     probe.real_run(document_ids=["doc-a"], documents_dir=docs_dir, token=TOKEN, graph_base=graph.base, cap=1_000_000, compression="stored", socket_timeout=2, deadline_s=5)
     assert sorted(p.name for p in docs_dir.iterdir()) == before and list(cwd.iterdir()) == []
+
+
+# ───────────────────────── precondiciones: no afectar la instancia (disco y RAM) ─────────────────────────
+class _Usage:
+    def __init__(self, free_mb):
+        self.free, self.total, self.used = free_mb * 1024 * 1024, 10**12, 0
+
+
+def test_the_bench_refuses_to_start_when_disk_would_leave_less_than_the_margin_and_writes_nothing(capsys, monkeypatch, tmp_path):
+    monkeypatch.setattr(probe.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(probe.shutil, "disk_usage", lambda _p: _Usage(300))                    # 4 archivos de 25 MB necesitan 125 + 200 de colchón = 325 MB
+    code = probe.main(["--synthetic-bench", "--bench-files", "4", "--bench-mb", "25"])
+    report = json.loads(capsys.readouterr().out)
+    assert code == 3 and "espacio temporal insuficiente" in report["error"] and "libres 300 MB" in report["error"] and "zip_bench" not in report
+    assert list(tmp_path.iterdir()) == []                                                      # ni un archivo escrito
+    monkeypatch.setattr(probe.shutil, "disk_usage", lambda _p: _Usage(326))
+    assert probe.main(["--synthetic-bench", "--bench-files", "1", "--bench-mb", "1", "--disk-bench-mb", "0"]) == 0
+
+
+def test_the_bench_and_the_real_run_refuse_a_memory_backed_temp_dir_unless_forced(capsys, monkeypatch, tmp_path, graph, docs_dir):
+    monkeypatch.setattr(probe.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(probe, "tmp_fstype", lambda _d: "tmpfs")
+    before = set(tmp_path.iterdir())                                                           # incluye el directorio de documentos del fixture
+    code = probe.main(["--synthetic-bench", "--bench-files", "1", "--bench-mb", "1", "--disk-bench-mb", "0"])
+    assert code == 3 and "tmpfs" in json.loads(capsys.readouterr().out)["error"] and set(tmp_path.iterdir()) == before
+    monkeypatch.setenv(probe.TOKEN_ENV, TOKEN)
+    code = probe.main(real_args(graph, docs_dir, "doc-a"))
+    assert code == 3 and "tmpfs" in json.loads(capsys.readouterr().out)["error"] and graph.hits == []
+    assert probe.main(["--synthetic-bench", "--bench-files", "1", "--bench-mb", "1", "--disk-bench-mb", "0", "--allow-tmpfs"]) == 0
+
+
+def test_tmp_fstype_picks_the_longest_matching_mount(monkeypatch, tmp_path):
+    mounts = "overlay / overlay rw 0 0\ntmpfs /tmp tmpfs rw 0 0\nproc /proc proc rw 0 0\n/dev/sda1 /tmp/disk ext4 rw 0 0\n"
+    monkeypatch.setattr(probe, "_read_text", lambda path: mounts if path == "/proc/mounts" else None)
+    monkeypatch.setattr(probe.os.path, "realpath", lambda p: p)
+    assert probe.tmp_fstype("/tmp") == "tmpfs" and probe.tmp_fstype("/tmp/x/y") == "tmpfs" and probe.tmp_fstype("/tmp/disk/a") == "ext4" and probe.tmp_fstype("/var/tmp") == "overlay"
+    monkeypatch.setattr(probe, "_read_text", lambda path: None)
+    assert probe.tmp_fstype("/tmp") is None                                                    # sin /proc/mounts (p. ej. Windows) no bloquea

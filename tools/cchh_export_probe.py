@@ -43,6 +43,8 @@ CHUNK = 64 * 1024
 DEFAULT_SOCKET_TIMEOUT_S = 30.0
 DEFAULT_DOC_DEADLINE_S = 60.0
 DEFAULT_TOTAL_DEADLINE_S = 120.0
+PREFLIGHT_MARGIN_MB = 200                      # colchón de disco que NUNCA se toca (la aplicación comparte el disco efímero de la instancia)
+_MEMORY_FS = {"tmpfs", "ramfs"}
 RETRY_AFTER_CAP_S = 120
 DOC_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 GRAPH_ID_RE = re.compile(r"^[A-Za-z0-9!_,.\-]{1,256}$")
@@ -105,6 +107,37 @@ def tmp_write_benchmark(directory: str, megabytes: int) -> dict:
         return {"ok": False, "error": type(exc).__name__}
     elapsed = time.perf_counter() - started
     return {"ok": True, "megabytes": megabytes, "ms": _ms(elapsed), "mb_per_s": round(megabytes / elapsed, 1) if elapsed > 0 else None}
+
+
+def tmp_fstype(directory: str) -> str | None:
+    """Tipo de sistema de archivos que respalda `directory` (Linux, /proc/mounts); None si no se puede saber."""
+    mounts = _read_text("/proc/mounts")
+    if not mounts:
+        return None
+    target = os.path.realpath(directory)
+    best_mount, best_type = "", None
+    for line in mounts.splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        mount = parts[1].replace("\\040", " ")
+        if (target == mount or target.startswith(mount.rstrip("/") + "/")) and len(mount) > len(best_mount):
+            best_mount, best_type = mount, parts[2]
+    return best_type
+
+
+def tmp_preflight(need_mb: int, *, allow_tmpfs: bool = False) -> None:
+    """Antes de escribir NADA: el temporal no debe estar en memoria (usaría la RAM de la instancia) ni quedarse sin disco para la aplicación. Falla con un motivo claro y sin crear archivos."""
+    tmp = tempfile.gettempdir()
+    if tmp_fstype(tmp) in _MEMORY_FS and not allow_tmpfs:
+        raise ProbeInputError("el directorio temporal está en memoria (tmpfs): la prueba usaría RAM de la instancia (--allow-tmpfs para forzarlo bajo tu responsabilidad)")
+    try:
+        free_mb = shutil.disk_usage(tmp).free // (1024 * 1024)
+    except OSError:
+        raise ProbeInputError("no se pudo medir el espacio libre del directorio temporal") from None
+    required = need_mb + PREFLIGHT_MARGIN_MB
+    if free_mb < required:
+        raise ProbeInputError(f"espacio temporal insuficiente: libres {free_mb} MB, se requieren {required} MB (incluye {PREFLIGHT_MARGIN_MB} MB de colchón para la aplicación)")
 
 
 def environment_snapshot(*, disk_bench_mb: int = 32) -> dict:
@@ -350,6 +383,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bench-files", type=int, default=4)
     parser.add_argument("--bench-mb", type=int, default=25)
     parser.add_argument("--disk-bench-mb", type=int, default=32)
+    parser.add_argument("--allow-tmpfs", action="store_true", help="permite un temporal en memoria (no recomendado en la instancia de producción)")
     parser.add_argument("--document-id", action="append", default=[], help="document_id interno (repetible, máx. 3); el registro se lee de --documents-dir")
     parser.add_argument("--documents-dir", default="human-capital/profile-documents")
     parser.add_argument("--confirm", default="", help=f"frase de autorización: {CONFIRM_PHRASE}")
@@ -386,6 +420,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.synthetic_bench:
             if not (1 <= args.bench_files <= 8 and 1 <= args.bench_mb <= 50):
                 raise ProbeInputError("bench fuera de rango (1-8 archivos, 1-50 MB)")
+            tmp_preflight((args.bench_files + 1) * args.bench_mb, allow_tmpfs=args.allow_tmpfs)      # pico: ZIP acumulado + un archivo de origen
             report["environment"] = environment_snapshot(disk_bench_mb=args.disk_bench_mb)
             report["zip_bench"] = synthetic_bench(files=args.bench_files, megabytes=args.bench_mb)
         else:
@@ -396,6 +431,7 @@ def main(argv: list[str] | None = None) -> int:
             token = os.environ.get(TOKEN_ENV, "")
             if not token:
                 raise ProbeInputError(f"falta el token delegado en la variable de entorno {TOKEN_ENV} (nunca por argumento)")
+            tmp_preflight(TOTAL_CAP_BYTES // (1024 * 1024) + DEFAULT_CAP_BYTES // (1024 * 1024), allow_tmpfs=args.allow_tmpfs)   # pico: ZIP (≤ 75 MB) + una parte (≤ 25 MB)
             report["environment"] = environment_snapshot(disk_bench_mb=args.disk_bench_mb)
             report["run"] = real_run(document_ids=args.document_id, documents_dir=Path(args.documents_dir), token=token, graph_base=args.graph_base, cap=int(args.cap_mb * 1024 * 1024),
                                      compression=args.compression, socket_timeout=args.socket_timeout, deadline_s=args.doc_deadline, total_deadline_s=args.total_deadline)
