@@ -66,6 +66,18 @@ python tools/cchh_export_probe.py --real --document-id <id1> --document-id <id2>
 Terminada la corrida: `unset DW_GRAPH_TOKEN`, y pegar en el chat **solo** el JSON de salida (ya no contiene datos personales). Código de salida: 0 todo ok · 2 algún documento falló (el JSON dice cuál por número y por qué) · 3 argumentos/autorización inválidos.
 Recomendado repetir 2–3 veces en momentos distintos del día (la latencia de Graph varía) y, si hay, repetir con un documento grande.
 
+#### Procedimiento exacto en DigitalOcean (sin deploy), un paso por vez
+La sonda viaja a la consola como texto (líneas `printf … >> archivo`, cada una un comando independiente, sin heredoc ni `set -e`) y se verifica por sha256 antes de usarse; vive en un directorio NUEVO de `/tmp` (`DWD`) hasta el paso 6. Nada se escribe en el directorio de la aplicación.
+
+1. **Transferir y verificar** (no ejecuta la sonda): pegar el bloque de líneas; debe imprimir `SONDA OK sha256 2e0f6242…a246`. Si imprime `SONDA CORRUPTA`, no se usa y se repite el pegado.
+2. **Bench sintético** (sin token): `PY=$(command -v python3 || command -v python); nice -n 19 "$PY" -I "$DWD/probe.py" --synthetic-bench --bench-files 4 --bench-mb 25; echo "RC=$?"`.
+3. **Elegir 3 `document_id` sin ver datos personales:** un listado de solo lectura que imprime únicamente `document_id` y `size_bytes` (≤ 25 MB, con `drive_id`/`item_id`) y propone uno pequeño, uno mediano y uno grande de `/workspace/human-capital/profile-documents` (el `BASE_DIR` de la app).
+4. **Token delegado propio, sin eco, sin argumentos:** en una pestaña del Hub con la sesión iniciada, en la consola del navegador `copy(await dwGraphToken())` (no lo imprime; queda en el portapapeles); en la consola de DO: `stty -echo && { printf 'Token: '; IFS= read -r T; stty echo; echo; echo "token cargado: ${#T} caracteres"; }`. `T` es una variable de shell **no exportada**: no queda en el historial (el comando guarda `$T`, no el valor) ni en argumentos.
+5. **Lectura controlada (máx. 3 CVs):** `DW_GRAPH_TOKEN="$T" nice -n 19 "$PY" -I "$DWD/probe.py" --real --documents-dir /workspace/human-capital/profile-documents --document-id <id1> --document-id <id2> --document-id <id3> --confirm AUTORIZADO-POR-EL-OWNER; echo "RC=$?"; unset T`. El prefijo hace que el token exista solo para ese comando.
+6. **Limpieza:** `unset T; ls -d /tmp/dwprobe-* 2>/dev/null || echo "sin residuos"; rm -rf "$DWD"; unset DWD` y, en el navegador, `copy('')` para vaciar el portapapeles. El token vence solo (≈ 1 h).
+
+La salida de los pasos 2 y 5 es el JSON descrito en §2 (tiempos, tamaños, códigos). Un solo pase por documento: repetir la lectura o ampliar la muestra requiere una nueva autorización.
+
 ### Etapa 2 — condicional (solo con nuevo GO y despliegue): proxy y tiempo HTTP
 Solo si la Etapa 1 deja poco margen. Un endpoint sintético, solo para el owner y apagado por defecto, que responda tras una espera configurable (sin datos reales) para fijar el límite real del proxy desde el navegador. No se construye ahora.
 
