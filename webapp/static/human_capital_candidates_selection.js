@@ -192,6 +192,11 @@
         if (total > MAX_SHARE) parts.push("Compartir admite hasta " + MAX_SHARE + " perfiles");
         hint.textContent = parts.join(" · ");
       }
+      var download = bar.querySelector("[data-hc-download-open]");
+      if (download) {
+        download.disabled = total === 0 || total > MAX_SHARE;
+        download.setAttribute("title", total > MAX_SHARE ? "Se pueden descargar CVs de hasta " + MAX_SHARE + " candidatos por vez" : "");
+      }
       var share = bar.querySelector("[data-hc-share-open]");
       if (share) {
         share.disabled = total === 0 || total > MAX_SHARE;
@@ -429,7 +434,9 @@
       var storage = null;
       try { storage = window.sessionStorage; } catch (e) { storage = null; }
       window.__cchhSelectionWired = true;
-      wire(document, window, createStore(storage));
+      var activeStore = createStore(storage);
+      api.store = activeStore;                                                              // lo usa `human_capital_candidates_download.js` (solo lectura de los ids)
+      wire(document, window, activeStore);
     }
   }
 })();

@@ -250,7 +250,7 @@ def test_selection_bar_css_hides_for_real_and_does_not_redefine_the_shared_clear
     assert ".hc-selection-bar[hidden] { display: none; }" in css                       # `display:flex` de la barra pisaría el atributo `hidden`
     assert not re.search(r"(^|\n)\s*\.whatsnew-filter__clear\s*(\{|,|:)", css)          # el estilo base vive en tools.css; acá solo el ajuste de alineación dentro de la barra
     assert ".hc-selection-bar__actions .whatsnew-filter__clear" in css
-    assert ".hc-selection-bar .btn-secondary" not in css and ".hc-selection-bar button:disabled" not in css
+    assert ".hc-selection-bar button:disabled" not in css and ".hc-selection-bar .whatsnew-filter__clear {" not in css
     base = (_ROOT / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
     assert ".whatsnew-filter__clear {" in base and ".whatsnew-filter__clear:hover { text-decoration: underline; }" in base
 
@@ -396,8 +396,8 @@ def test_share_never_writes_anything_and_does_not_log_or_audit():
     share(client(), [p["profile_id"]])
     assert data_digest() == before
     src = (_ROOT / "webapp/routers/human_capital.py").read_text(encoding="utf-8")
-    body = src[src.index("def human_capital_profiles_share_dialog"):src.index('@router.post("/cchh/candidatos/{profile_id}/documentos"')]
-    assert "log_activity" not in body and "log_verbose" not in body                                                  # sin auditoría en esta fase (ver docs de la Fase 2)
+    body = src[src.index("def human_capital_profiles_share_dialog"):src.index("_export_logger = logging.getLogger")]
+    assert "log_activity" not in body and "log_verbose" not in body and "human_capital_export" not in body          # «Compartir» no audita: solo ayuda a redactar (la auditoría durable es de «Descargar CVs»)
     assert "graph" not in body.lower() and "microsoft365" not in body                                                # no toca Graph: solo la metadata ya guardada
 
 
@@ -432,13 +432,12 @@ def test_safe_cv_url_never_accepts_what_the_historic_original_cv_rule_rejects():
 
 
 # ═══════════════ fuera de alcance: la Fase 2 NO existe todavía ═══════════════
-def test_no_zip_download_export_or_select_all_surface_exists_in_this_phase():
-    paths = [getattr(r, "path", "") for r in app.routes]
-    for p in paths:
-        if p.startswith("/cchh/candidatos"):
-            assert not re.search(r"zip|descarg|download|export|todos|select-all", p, re.I), p
-    html = client().get("/cchh/candidatos").text + (_ROOT / "webapp/static/human_capital_candidates_selection.js").read_text(encoding="utf-8")
-    assert not re.search(r"\bzip\b|descargar cvs|seleccionar todos los resultados|select-all|exportar", html, re.I)
+def test_download_surface_is_exactly_the_two_phase_two_routes_and_there_is_still_no_select_all_or_batching():
+    surface = json.loads((_ROOT / "tests" / "route_surface.json").read_text(encoding="utf-8"))               # las rutas de CCHH viven en un router anidado: se usa el contrato congelado (y su test lo mantiene al día)
+    paths = sorted(entry for entry in surface if " /cchh/candidatos" in entry and re.search(r"zip|descarg|download|export|todos|select-all|lote|tanda|batch", entry, re.I))
+    assert paths == ["POST /cchh/candidatos/descargar", "POST /cchh/candidatos/descargar/resumen"]            # sin rutas de ZIP por tandas, ni de «todos los resultados del filtro»
+    sel_js = (_ROOT / "webapp/static/human_capital_candidates_selection.js").read_text(encoding="utf-8")
+    assert not re.search(r"seleccionar todos los resultados|select-all|exportar", client().get("/cchh/candidatos").text + sel_js, re.I)
 
 
 def test_phase_two_requirements_are_documented():

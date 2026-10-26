@@ -47,7 +47,7 @@ function storeWith(storage) { return api.createStore({ getItem: k => storage.get
 
 function barEl() {
   const bar = el(["[data-hc-selection-bar]"]);
-  ["[data-hc-selection-count]", "[data-hc-selection-label]", "[data-hc-selection-hint]", "[data-hc-share-open]", "[data-hc-clear-selection]"].forEach(s => { bar.q[s] = el([s]); });
+  ["[data-hc-selection-count]", "[data-hc-selection-label]", "[data-hc-selection-hint]", "[data-hc-share-open]", "[data-hc-download-open]", "[data-hc-clear-selection]"].forEach(s => { bar.q[s] = el([s]); });
   return bar;
 }
 function pageDoc(ids) {
@@ -137,6 +137,7 @@ const ids = n => Array.from({ length: n }, (_, i) => `id-${String(i).padStart(3,
   api.syncUI(d, store);
   ok(/2 fuera de la vista actual/.test(d.bar.q["[data-hc-selection-hint]"].textContent), "E: la barra avisa cuántos seleccionados no se ven (otras páginas o filtros)");
   ok(d.bar.q["[data-hc-share-open]"].disabled === false, "E: con 3 seleccionados «Compartir» está habilitado");
+  ok(d.bar.q["[data-hc-download-open]"].disabled === false, "E: con 3 seleccionados «Descargar CVs» está habilitado");
   store.clear();
   store.add(ids(25));
   api.syncUI(d, store);
@@ -144,6 +145,7 @@ const ids = n => Array.from({ length: n }, (_, i) => `id-${String(i).padStart(3,
   store.add("id-extra");
   api.syncUI(d, store);
   ok(d.bar.q["[data-hc-share-open]"].disabled === true, "E: con 26 «Compartir» se deshabilita");
+  ok(d.bar.q["[data-hc-download-open]"].disabled === true && /hasta 25 candidatos/.test(d.bar.q["[data-hc-download-open]"].getAttribute("title")), "E: con 26 «Descargar CVs» se deshabilita y explica el límite");
   ok(/hasta 25 perfiles/.test(d.bar.q["[data-hc-selection-hint]"].textContent) && /hasta 25/.test(d.bar.q["[data-hc-share-open]"].getAttribute("title")), "E: y se explica el motivo (texto + title)");
 }
 
