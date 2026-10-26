@@ -95,6 +95,8 @@ def save(run_id: str, key: str, raw: dict, *, actor: str, expected_revision) -> 
     row = ex.exception_row(run_id, key)
     if row is None or row["status"] not in EDITABLE_STATUSES:
         raise DraftError("Este contenido ya no es una excepción por resolver: no se puede guardar un borrador.")
+    if ex._accepted_committed(manifest.get_ledger(run_id, key)):                           # el estado «Aceptado» lo dice el libro: ese borrador queda inmutable
+        raise DraftError("Este borrador ya fue aceptado (la aceptación está en curso o terminada): no se puede modificar.")
     fields = clean(raw)
     validate(fields)
     expected = _parse_revision(expected_revision)
@@ -153,6 +155,21 @@ def conflict_view(current: dict | None, submitted: dict[str, str]) -> dict:
     values = (saved or {}).get("fields") or {name: "" for name in FIELDS}
     return {"revision": (saved or {}).get("revision", 0), "by": (saved or {}).get("updated_by", "—"), "at": (saved or {}).get("updated_at", "—"),
             "differs": [(LABELS[name], values[name]) for name in FIELDS if values[name] != submitted.get(name, "")], "deleted": saved is None}
+
+
+def accepted_drafts(run_id: str) -> list[dict]:
+    """SOLO LECTURA y sin datos personales: los borradores cuya aceptación TERMINÓ según el libro (única fuente de verdad), con la revisión aceptada, la actual y a qué perfil quedó asociado el CV. Es la base de una futura política de
+    retención y purga de borradores aceptados; no borra ni modifica nada."""
+    ledgers = manifest.list_ledgers(run_id)
+    out = []
+    for key in manifest.draft_keys(run_id):
+        ledger = ledgers.get(key) or {}
+        accepted = ledger.get("accepted")
+        if accepted and ledger.get("state") == ex.DONE:
+            draft = manifest.get_draft(run_id, key) or {}
+            out.append({"content_key": key, "op": accepted.get("op"), "profile_id": accepted.get("profile_id"), "accepted_by": accepted.get("by"), "accepted_at": accepted.get("at"), "accepted_revision": accepted.get("draft_revision"),
+                        "draft_revision": draft.get("revision"), "unchanged_since_acceptance": draft.get("revision") == accepted.get("draft_revision")})
+    return out
 
 
 def attach(run_id: str, rows: list[dict | None]) -> list[dict | None]:

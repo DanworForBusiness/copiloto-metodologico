@@ -23,6 +23,7 @@ SUBIDAS INCIERTAS: se concilian contra el estado REAL antes de reintentar, en es
 EXCEPCIONES (los pendientes del plan y los bloqueados al ejecutar): completar identidad (alta con nombre y apellido reales; nunca un nombre ficticio), vincular a un perfil existente (sin modificarlo), descartar, reintentar. Sin fusiones automáticas."""
 from __future__ import annotations
 
+import functools
 import hashlib
 import time
 import urllib.error
@@ -200,7 +201,8 @@ def _save(run_id: str, key: str, entry: dict, event: str | None = None) -> dict:
         entry["history"] = [*entry.get("history", []), {"at": manifest.now_iso(), "event": event, "state": entry["state"], **({"reason": entry["reason"]} if entry.get("reason") else {})}][-20:]
     saved = manifest.put_ledger(run_id, key, entry)
     if entry["state"] in FINAL:
-        manifest.append_audit(run_id, key, "IMPORT_" + entry["state"], code=entry.get("reason"), action=entry.get("action"))
+        extra = {"draft_revision": entry["accepted"].get("draft_revision")} if entry.get("accepted") else {}
+        manifest.append_audit(run_id, key, "IMPORT_" + entry["state"], code=entry.get("reason"), action=entry.get("action"), **extra)
     return saved
 
 
@@ -428,6 +430,7 @@ def execute_batch(run_id: str, token: str, *, actor: str, max_units: int | None 
     ledgers = manifest.list_ledgers(run_id)
     outcomes: Counter = Counter()
     streak = 0
+    deferred = 0
     for key, _action in _pending_units(plan, ledgers):
         if clock() - started >= time_budget:
             stopped = "TIME_BUDGET"
@@ -436,7 +439,16 @@ def execute_batch(run_id: str, token: str, *, actor: str, max_units: int | None 
             stopped = "BATCH_LIMIT"
             break
         try:
-            outcome = _run_unit(run, key, ledgers.get(key), plan, banco, ledgers, token, actor, sleep)
+            with manifest.ledger_lock(run_id, key, timeout=0):                      # MISMA exclusión que las acciones manuales y la aceptación: no se corre una unidad que otro está resolviendo
+                fresh = manifest.get_ledger(run_id, key)                            # el libro puede haber cambiado desde que se armó la lista (p. ej. resuelto a mano)
+                if fresh is not None:
+                    ledgers[key] = fresh
+                if _effective(fresh) in FINAL:
+                    continue
+                outcome = _run_unit(run, key, ledgers.get(key), plan, banco, ledgers, token, actor, sleep)
+        except manifest.ManifestBusyError:
+            deferred += 1                                                           # queda sin terminar: la próxima tanda lo toma
+            continue
         except _Stop as stop:
             stopped = stop.reason
             break
@@ -451,7 +463,7 @@ def execute_batch(run_id: str, token: str, *, actor: str, max_units: int | None 
         manifest.update_run(run_id, lambda d: d["execution"].update({"state": state, "last_stop": stopped, "last_batch_at": manifest.now_iso()}))
     except manifest.ManifestError:
         stopped = stopped or "PERSISTENCE_ERROR"
-    return {**progress, "processed": sum(outcomes.values()), "done": outcomes[DONE], "blocked": outcomes[BLOCKED], "failed": outcomes[FAILED], "retry": outcomes["RETRY"], "stopped_reason": stopped}
+    return {**progress, "processed": sum(outcomes.values()), "done": outcomes[DONE], "blocked": outcomes[BLOCKED], "failed": outcomes[FAILED], "retry": outcomes["RETRY"], "deferred": deferred, "stopped_reason": stopped}
 
 
 # ═══════════════════ reporte (sin datos personales) ═══════════════════
@@ -587,7 +599,7 @@ def exception_details(run_id: str, rows: list[dict]) -> list[dict]:
         for m in cv_reconcile.reconcile_with_profiles(person, profiles):
             suggested.setdefault(m["profile_id"], "+".join(m["signals"]))
         ledger = manifest.get_ledger(run_id, r["content_key"]) or {}
-        out.append({**r, "ledger": {"state": ledger.get("state"), "reason": ledger.get("reason"), "profile_id": ledger.get("profile_id"), "action": ledger.get("action")},
+        out.append({**r, "ledger": {"state": ledger.get("state"), "reason": ledger.get("reason"), "profile_id": ledger.get("profile_id"), "action": ledger.get("action"), "accepted": ledger.get("accepted")},
                     "available": bool(group), "filename": (group.get("representative") or {}).get("name"), "specialties": group.get("specialties") or [], "email": e.get("email"), "emails": (e.get("candidates") or {}).get("emails") or [],
                     "phone": e.get("phone"), "failure": e.get("failure"), "alternatives": [a["tokens"] for a in (e.get("name_decision") or {}).get("alternatives", [])],
                     "proposal": proposal, "suggestions": [{"profile_id": pid, "why": why, "name": f"{by_id[pid].get('first_name')} {by_id[pid].get('last_name')}", "email": by_id[pid].get("email"), "deleted": bool(by_id[pid].get("deleted_at"))}
@@ -631,56 +643,122 @@ def _finish_manual(run: dict, plan: dict, key: str, entry: dict, token: str, act
     return outcome
 
 
-def complete_identity(run_id: str, key: str, token: str, *, actor: str, first_name: str, last_name: str, email: str = "", phone: str = "", duplicate_confirmed: bool = False, sleep=time.sleep) -> dict:
-    """Alta MANUAL con nombre y apellido reales que escribe el owner (nunca uno ficticio) y subida del CV. Pasa por la misma validación del Banco y por el mismo aviso de duplicado; no fusiona nada."""
+def _exclusive(fn):
+    """Toda acción manual sobre un contenido corre con el candado COMÚN del libro de ese `content_key` (`manifest.ledger_lock`): la misma exclusión que usa la tanda de importación y la aceptación de borradores. Reentrante."""
+    @functools.wraps(fn)
+    def wrapper(run_id, key, *args, **kwargs):
+        with manifest.ledger_lock(run_id, key):
+            return fn(run_id, key, *args, **kwargs)
+    return wrapper
+
+
+def _manual_profile_fields(group: dict, first_name: str, last_name: str, email: str, phone: str) -> dict:
+    """Campos del perfil que crea una alta MANUAL (los mismos para «Completar identidad» y para la aceptación de un borrador). Lanza `ValueError` si falta nombre o apellido."""
+    return _profile_fields({"first_name": first_name, "last_name": last_name, "email": email, "phone": phone, "profile_skills": ", ".join(group.get("specialties") or []), "tags": TAG_HISTORICO})
+
+
+def _accepted_committed(ledger: dict | None) -> bool:
+    """¿El libro ya tiene una aceptación con efectos? (hecha y terminada, o con el perfil creado o la subida en curso). Una aceptación bloqueada antes de producir efectos deja decidir de nuevo."""
+    if not ledger or not ledger.get("accepted"):
+        return False
+    return ledger.get("state") == DONE or bool(ledger.get("profile_created")) or ledger.get("state") in (PROFILE_READY, UPLOADING)
+
+
+def _same_decision(prior: dict, accepted: dict) -> bool:
+    """Misma operación, mismo perfil objetivo y mismo hash de los datos confirmados."""
+    return all(prior.get(k) == accepted.get(k) for k in ("op", "profile_id", "confirmed_sha256"))
+
+
+def _accepted_guard(previous: dict | None, accepted: dict | None) -> dict | None:
+    """Una resolución distinta de la ya aceptada NUNCA se acepta ni se toma por éxito: devuelve un CONFLICTO. Las acciones manuales viejas (sin `accepted`) tampoco pisan una aceptación pendiente."""
+    if not _accepted_committed(previous):
+        return None
+    prior = previous["accepted"]
+    if accepted is None:
+        return {"ok": False, "error": "Este contenido ya fue aceptado desde «Revisar para aceptar» y está pendiente de completarse: reintentá esa aceptación."}
+    if _same_decision(prior, accepted):
+        return None
+    return {"ok": False, "conflict": {"reason": "ALREADY_ACCEPTED_DIFFERENTLY", "op": prior.get("op"), "profile_id": prior.get("profile_id"), "draft_revision": prior.get("draft_revision"), "by": prior.get("by"), "at": prior.get("at"),
+                                      "state": previous.get("state")}}
+
+
+@_exclusive
+def complete_identity(run_id: str, key: str, token: str, *, actor: str, first_name: str, last_name: str, email: str = "", phone: str = "", duplicate_confirmed: bool = False, accepted: dict | None = None, sleep=time.sleep) -> dict:
+    """Alta MANUAL con nombre y apellido reales que escribe el owner (nunca uno inventado) y subida del CV. Pasa por la misma validación del Banco y por el mismo aviso de duplicado; no fusiona nada.
+    `accepted` (aditivo; lo pasa `cv_history_acceptance`): el registro de la aceptación de un borrador (sin datos personales). Con él la alta es ESTRICTAMENTE idempotente —repetirla con los mismos datos es un reintento; con otros datos
+    es un conflicto, nunca un éxito— y el libro y el perfil registran quién aceptó y qué revisión del borrador. Sin él, el comportamiento es el de siempre."""
     run, plan, decision, group = _manual_unit(run_id, key)
+    blocked = _accepted_guard(manifest.get_ledger(run_id, key), accepted)
+    if blocked:
+        return blocked
     try:
-        shaped = _profile_fields({"first_name": first_name, "last_name": last_name, "email": email, "phone": phone, "profile_skills": ", ".join(group.get("specialties") or []), "tags": TAG_HISTORICO})
+        shaped = _manual_profile_fields(group, first_name, last_name, email, phone)
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     pid = manual_profile_id(run_id, key)
-    if profile_repository.get(pid) is None:
-        duplicate = None if duplicate_confirmed else human_capital_service.find_duplicate(shaped, profile_repository.list())
-        if duplicate is not None:
-            return {"ok": False, "advisory": {"profile_id": duplicate["profile_id"], "name": f"{duplicate.get('first_name')} {duplicate.get('last_name')}", "email": duplicate.get("email")}}
+    exists = profile_repository.get(pid) is not None
+    if not exists or accepted is not None:
+        if not exists:
+            duplicate = None if duplicate_confirmed else human_capital_service.find_duplicate(shaped, profile_repository.list())
+            if duplicate is not None:
+                return {"ok": False, "advisory": {"profile_id": duplicate["profile_id"], "name": f"{duplicate.get('first_name')} {duplicate.get('last_name')}", "email": duplicate.get("email")}}
+        origin = {"manual": True, "content_key": key, "completed_by": actor, **({"accepted_draft_revision": accepted.get("draft_revision"), "confirmed_sha256": accepted.get("confirmed_sha256")} if accepted else {})}
         try:
-            human_capital_service.create_profile_for_import(pid, {**shaped, "import_origin": _origin(run, manual=True, content_key=key, completed_by=actor)})
-        except (profile_repository.ProfileStorageError, profile_repository.ProfileRemoteOutcomeUnknownError, profile_repository.ProfileIdConflictError):
+            human_capital_service.create_profile_for_import(pid, {**shaped, "import_origin": _origin(run, **origin)})
+        except profile_repository.ProfileIdConflictError:
+            if accepted is not None:                                                   # el perfil ya existe con OTROS datos: no se pisa ni se da por bueno
+                return {"ok": False, "conflict": {"reason": "PROFILE_EXISTS_WITH_OTHER_DATA", "profile_id": pid}}
             return {"ok": False, "error": "No se pudo guardar el perfil (persistencia no confirmada). No se creó nada: reintentá."}
-    entry = _manual_entry(run_id, key, MANUAL_CREATE, pid, actor)
+        except (profile_repository.ProfileStorageError, profile_repository.ProfileRemoteOutcomeUnknownError):
+            return {"ok": False, "error": "No se pudo guardar el perfil (persistencia no confirmada). No se creó nada: reintentá."}
+    entry = _manual_entry(run_id, key, MANUAL_CREATE, pid, actor, accepted)
     outcome = _finish_manual(run, plan, key, entry, token, actor, sleep)
     return {"ok": True, "outcome": outcome, "profile_id": pid}
 
 
-def link_existing(run_id: str, key: str, token: str, *, actor: str, profile_id: str, sleep=time.sleep) -> dict:
-    """Vincula el CV a un perfil EXISTENTE elegido por el owner, sin modificar ninguno de sus campos."""
+@_exclusive
+def link_existing(run_id: str, key: str, token: str, *, actor: str, profile_id: str, accepted: dict | None = None, expected_target_revision: int | None = None, sleep=time.sleep) -> dict:
+    """Vincula el CV a un perfil EXISTENTE elegido por el owner, sin modificar ninguno de sus campos. `accepted` / `expected_target_revision` (aditivos; los pasa `cv_history_acceptance`): registro de la aceptación y revisión del
+    perfil que el owner CONFIRMÓ; si el perfil cambió desde entonces no se vincula (hace falta una revisión nueva)."""
     run, plan, decision, group = _manual_unit(run_id, key)
+    blocked = _accepted_guard(manifest.get_ledger(run_id, key), accepted)
+    if blocked:
+        return blocked
     target = profile_repository.get((profile_id or "").strip())
     if target is None or target.get("deleted_at"):
         return {"ok": False, "error": "El perfil elegido no existe o está dado de baja."}
-    entry = _manual_entry(run_id, key, MANUAL_LINK, target["profile_id"], actor)
+    if expected_target_revision is not None and int(target.get("revision") or 1) != int(expected_target_revision):
+        return {"ok": False, "stale": True, "error": "El perfil elegido cambió desde la revisión: volvé a revisar antes de confirmar."}
+    entry = _manual_entry(run_id, key, MANUAL_LINK, target["profile_id"], actor, accepted)
     outcome = _finish_manual(run, plan, key, entry, token, actor, sleep)
     return {"ok": True, "outcome": outcome, "profile_id": target["profile_id"]}
 
 
-def _manual_entry(run_id: str, key: str, action: str, profile_id: str, actor: str) -> dict:
+def _manual_entry(run_id: str, key: str, action: str, profile_id: str, actor: str, accepted: dict | None = None) -> dict:
     previous = manifest.get_ledger(run_id, key) or {}
     entry = {"source": "manual", "action": action, "cluster": None, "profile_id": profile_id, "document_id": document_id_for(profile_id, key), "state": PLANNED, "attempts": 0,
              "profile_created": action == MANUAL_CREATE, "reason": None, "last_error": None, "resolved_by": actor, "history": previous.get("history", [])}
+    if accepted is not None:
+        prior = previous.get("accepted")
+        entry["accepted"] = prior if (prior and _same_decision(prior, accepted)) else accepted        # un reintento de la MISMA decisión conserva quién y cuándo aceptó la primera vez
     return _save(run_id, key, entry, action)
 
 
+@_exclusive
 def dismiss(run_id: str, key: str, *, actor: str, reason: str) -> dict:
     if reason not in DISMISS_REASONS:
         return {"ok": False, "error": "Motivo inválido."}
     run, plan, decision, group = _manual_unit(run_id, key)
     previous = manifest.get_ledger(run_id, key) or {}
+    if _accepted_committed(previous):
+        return {"ok": False, "error": "Este contenido ya fue aceptado y está pendiente de completarse: no se puede descartar. Reintentá la aceptación."}
     entry = {"source": "manual", "action": "DISMISS", "cluster": None, "profile_id": None, "document_id": None, "state": DISMISSED, "attempts": 0, "profile_created": False, "reason": reason,
              "last_error": None, "resolved_by": actor, "history": previous.get("history", [])}
     _save(run_id, key, entry, "DISMISSED")
     return {"ok": True}
 
 
+@_exclusive
 def reopen(run_id: str, key: str, *, actor: str) -> dict:
     """Deshace un descarte (solo DISMISSED): el contenido vuelve a quedar por resolver."""
     ledger = manifest.get_ledger(run_id, key)
@@ -690,6 +768,7 @@ def reopen(run_id: str, key: str, *, actor: str) -> dict:
     return {"ok": True}
 
 
+@_exclusive
 def retry(run_id: str, key: str, *, actor: str) -> dict:
     """Reintenta un contenido BLOQUEADO o con error: vuelve a PLANNED (se revalida contra el Banco al ejecutarse)."""
     ledger = manifest.get_ledger(run_id, key)

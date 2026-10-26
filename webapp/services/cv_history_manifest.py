@@ -323,7 +323,9 @@ def list_verdicts(run_id: str) -> dict[str, dict]:
 DRAFT_SCHEMA = "cv-history-draft/v1"
 _draft_lock = threading.Lock()
 _DRAFT_LOCK_TIMEOUT_S = 10.0
+LEDGER_LOCK_TIMEOUT_S = 45.0                                     # una unidad completa (alta + descarga + subida) puede tardar: quien espera no debe rendirse a los 10 s de un borrador
 _LOCK_POLL_S = 0.02
+_held = threading.local()
 
 
 @contextlib.contextmanager
@@ -431,6 +433,26 @@ def update_draft(run_id: str, key: str, build) -> dict | None:
         if (again.get("revision"), again.get("updated_at"), again.get("updated_by")) != (doc.get("revision"), doc.get("updated_at"), doc.get("updated_by")):
             raise ManifestError("el borrador cambió durante el guardado")
         return doc
+
+
+@contextlib.contextmanager
+def ledger_lock(run_id: str, key: str, timeout: float | None = None):
+    """EXCLUSIÓN COMÚN por `content_key` para todo lo que lee-decide-escribe el LIBRO de ese contenido: la ejecución del plan (`execute_batch`), las acciones manuales (completar, vincular, descartar, reabrir, reintentar) y la
+    aceptación de un borrador. Es el candado entre procesos de `_interprocess_lock` sobre el archivo del libro (cubre también hilos). REENTRANTE por hilo: una operación que ya lo tiene puede llamar a otra que lo pide.
+    `timeout`: `None` → `LEDGER_LOCK_TIMEOUT_S`; `0` → un solo intento (la tanda de importación NO espera: difiere la unidad ocupada). Si no se obtiene lanza `ManifestBusyError`, sin haber escrito nada."""
+    path = _run_dir(run_id) / "ledger" / f"{_key_ok(key)}.json"
+    held = getattr(_held, "paths", None)
+    if held is None:
+        held = _held.paths = set()
+    if path in held:
+        yield
+        return
+    with _interprocess_lock(path, LEDGER_LOCK_TIMEOUT_S if timeout is None else timeout):
+        held.add(path)
+        try:
+            yield
+        finally:
+            held.discard(path)
 
 
 def _restore_draft(path: Path, previous: dict | None) -> None:
