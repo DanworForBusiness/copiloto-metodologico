@@ -108,6 +108,10 @@ class ExportAuditUnavailable(Exception):
     """La auditoría durable no se pudo confirmar: la exportación no empieza (o no se entrega)."""
 
 
+class ExportAuditResultUnavailable(ExportAuditUnavailable):
+    """Los CVs se leyeron pero el RESULTADO no se pudo confirmar de forma durable: no se entrega el ZIP (a diferencia de la intención, que impide incluso empezar)."""
+
+
 class ExportInputError(Exception):
     """Falta algo obligatorio en la solicitud (p. ej. el token delegado)."""
 
@@ -478,7 +482,7 @@ def _run(operation_id, actor, plan, workdir: Path, token, allow_partial, ack_fai
         write_result(operation_id, outcome=audit_outcome, results=results, files_ok=files_ok, bytes_ok=bytes_ok, zip_bytes=zip_size, elapsed_ms=elapsed_ms)
     except ExportAuditUnavailable:
         if delivering:
-            raise                                                                    # el resultado no quedó confirmado: NO se entrega (fail-closed)
+            raise ExportAuditResultUnavailable("resultado no confirmado") from None  # el resultado no quedó confirmado: NO se entrega (fail-closed)
         _logger.warning("cv_export %s: no se pudo confirmar el registro de resultado (%s); no se entregó nada", operation_id, status)
     _logger.info("cv_export %s status=%s files_ok=%d failed=%d bytes=%d elapsed_ms=%d", operation_id, status, files_ok, len(failed), bytes_ok, elapsed_ms)
     if delivering:

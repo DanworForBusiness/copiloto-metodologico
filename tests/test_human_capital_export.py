@@ -309,9 +309,9 @@ def test_if_the_result_cannot_be_confirmed_the_zip_is_not_delivered_and_the_temp
             raise PermissionError("sin espacio")
         return real(path, data, **k)
     monkeypatch.setattr(remote_store, "write_through", flaky)
-    with pytest.raises(ex.ExportAuditUnavailable):
+    with pytest.raises(ex.ExportAuditResultUnavailable):                                   # subclase de ExportAuditUnavailable: se distingue de «no pudo ni empezar»
         run(standard_store(), Graph(), ["p1", "p2"])
-    assert calls[0] == "intent.json" and temp_dirs(env) == []
+    assert issubclass(ex.ExportAuditResultUnavailable, ex.ExportAuditUnavailable) and calls[0] == "intent.json" and temp_dirs(env) == []
 
 
 # ───────────────────────── errores parciales y segunda confirmación ─────────────────────────
