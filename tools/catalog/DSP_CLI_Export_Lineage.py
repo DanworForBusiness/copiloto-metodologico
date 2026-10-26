@@ -177,6 +177,14 @@ class DatasphereCliError(RuntimeError):
     pass
 
 
+class ExtractionIncompleteError(DatasphereCliError):
+    """La extracción tuvo fallos de lectura o de listado (o violó un invariante de completitud): jamás se publica. ``failures``: ``[{kind, object_type, technical_name, code}]``."""
+
+    def __init__(self, failures: list[dict]):
+        super().__init__(f"EXTRACTION_INCOMPLETE - {len(failures)} fallo(s) de lectura/listado/consistencia.")
+        self.failures = list(failures)
+
+
 class RootTypeConstraintError(DatasphereCliError):
     pass
 
@@ -550,6 +558,7 @@ class DatasphereCli:
         page_size = 200
         skip = 0
         rows: list[dict[str, Any]] = []
+        self.last_list_incomplete = False
         while True:
             data = self._run(
                 [
@@ -561,6 +570,7 @@ class DatasphereCli:
                 expect_json=True,
             )
             if not isinstance(data, list):
+                self.last_list_incomplete = True            # respuesta inesperada: el listado puede estar truncado (lo registra el exportador)
                 break
             rows.extend(row for row in data if isinstance(row, dict))
             if len(data) < page_size:
@@ -695,6 +705,7 @@ class LineageExporter:
         self.edges: set[Edge] = set()
         self.external_sources: set[str] = set()
         self.read_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
+        self.failures: list[dict[str, Any]] = []     # fallos de lectura/listado (códigos estables, sin texto crudo del CLI)
 
     def ensure_inventory(self, object_type: str) -> set[str]:
         if object_type in self.inventory:
@@ -703,8 +714,11 @@ class LineageExporter:
         self.diagnostics.record_inventory_request(object_type, cache_hit=False)
         try:
             rows = self.cli.list_objects(self.space, object_type)
+            if getattr(self.cli, "last_list_incomplete", False):
+                self.failures.append({"kind": "inventory", "object_type": object_type, "technical_name": None, "code": "INVENTORY_INCOMPLETE"})
         except DatasphereCliError as exc:
             _say(f"WARN inventory {object_type}: {exc}", file=sys.stderr)
+            self.failures.append({"kind": "inventory", "object_type": object_type, "technical_name": None, "code": "INVENTORY_FAILED"})
             rows = []
         self.inventory_rows[object_type] = rows
         names = {
@@ -826,6 +840,7 @@ class LineageExporter:
             data = self.cli.read_object(self.space, object_type, technical_name)
         except DatasphereCliError as exc:
             _say(f"WARN read {object_type}/{technical_name}: {exc}", file=sys.stderr)
+            self.failures.append({"kind": "read", "object_type": object_type, "technical_name": technical_name, "code": "READ_FAILED"})
             self.read_cache[key] = None
             return None
         self.read_cache[key] = data
@@ -1179,7 +1194,44 @@ class LineageExporter:
         _say("==========================================")
         return client_cache_dir
 
-    def run(self) -> Path:
+    def render_outputs(self) -> tuple[dict[tuple[str, str], str], list[tuple[str, str]]]:
+        """Texto EXACTO que ``write_outputs`` escribiría por objeto (sin escribir nada), y los objetos sin contenido. Usa lo ya leído (``read_cache``)."""
+        texts: dict[tuple[str, str], str] = {}
+        missing: list[tuple[str, str]] = []
+        for node in sorted(self.nodes.values(), key=lambda n: (n.object_type, n.technical_name)):
+            if node.object_type not in OBJECT_TYPES:
+                continue
+            data = self.safe_read(node.object_type, node.technical_name)
+            if data is None:
+                missing.append((node.object_type, node.technical_name))
+                continue
+            output_data = data
+            if node.object_type == "views":
+                output_data = dict(data)
+                output_data["viewType"] = self.classify_view_type(data, node.technical_name)
+            texts[(node.object_type, node.technical_name)] = json.dumps(output_data, indent=2, ensure_ascii=False)
+        return texts, missing
+
+    def assert_complete(self) -> None:
+        """Compuerta de completitud (H1): lanza ``ExtractionIncompleteError`` si hubo CUALQUIER fallo de lectura o listado, si un nodo quedó sin contenido, si una arista
+        apunta a un objeto que no está en el plan o si falta la raíz. Se invoca ANTES de escribir nada."""
+        problems = list(self.failures)
+        keys = set(self.nodes)
+        for (otype, name) in sorted(keys):
+            if otype in OBJECT_TYPES and self.read_cache.get((otype, name)) is None:
+                problems.append({"kind": "read", "object_type": otype, "technical_name": name, "code": "NODE_WITHOUT_CONTENT"})
+        for edge in sorted(self.edges, key=lambda e: (e.source_type, e.source_name, e.relation, e.target_type, e.target_name)):
+            for t, n in ((edge.source_type, edge.source_name), (edge.target_type, edge.target_name)):
+                if t in OBJECT_TYPES and (t, n) not in keys:
+                    problems.append({"kind": "edge", "object_type": t, "technical_name": n, "code": "EDGE_TARGET_NOT_IN_PLAN"})
+        if not self.root_type or (ROOT_TYPE_TO_OBJECT_TYPE[self.root_type], self.root_object) not in keys:
+            problems.append({"kind": "root", "object_type": ROOT_TYPE_TO_OBJECT_TYPE.get(self.root_type or "", ""), "technical_name": self.root_object, "code": "ROOT_MISSING"})
+        unique = {(p["kind"], p["object_type"], p["technical_name"], p["code"]): p for p in problems}
+        if unique:
+            raise ExtractionIncompleteError(list(unique.values()))
+
+    def extract(self) -> Path:
+        """Las fases de ADQUISICIÓN (sin escribir nada). ``run()`` = ``extract()`` + exportar al pool (camino de siempre)."""
         with self.diagnostics.phase("ROOT / INVENTORY"):
             self.detect_root_type()
             self.normalize_scope()
@@ -1195,6 +1247,10 @@ class LineageExporter:
             self.discover_producers()
         with self.diagnostics.phase("TASK CHAINS"):
             self.discover_task_chains()
+        return self.output_dir
+
+    def run(self) -> Path:
+        self.extract()
         with self.diagnostics.phase("WRITE / EXPORT"):
             return self.write_outputs()
 
@@ -1437,6 +1493,7 @@ class ExportRequest:
     mode: str = "assessment"
     allowed_root_types: str | Iterable[str] | None = None
     diagnostics: bool = False
+    safe: bool | None = None          # publicación SEGURA (fase 0); None = según DANWOR_PUBLICATION_SAFE. Solo aplica al modo PUBLISH
 
 
 @dataclass
@@ -1468,6 +1525,15 @@ class ExportResult:
     mirrored_files: int | None = None
     diagnostics: dict[str, Any] | None = None
     exit_code: int = 0
+    # ── contrato de la publicación segura (vacío en el camino anterior) ──
+    status: str = ""                  # COMPLETED | FAILED_NO_CHANGE | ROLLED_BACK | COMMITTED_UNCONFIRMED | COMMITTED_CLEANUP_DEFERRED | RECOVERY_REQUIRED
+    operation_id: str = ""
+    durability: str = ""
+    failures: list[dict[str, Any]] = field(default_factory=list)
+    stages: dict[str, str] = field(default_factory=dict)
+    applied: dict[str, Any] = field(default_factory=dict)
+    observations: dict[str, Any] = field(default_factory=dict)
+    deferred_reasons: list[str] = field(default_factory=list)
 
 
 _PRECHECK_CODES = (
@@ -1483,6 +1549,7 @@ _PRECHECK_CODES = (
     ("AMBIGUOUS_ROOT_OBJECT_TYPE", "AMBIGUOUS_ROOT_OBJECT_TYPE"),
     ("INVALID_FEATURE_SCOPE", "INVALID_FEATURE_SCOPE"),
     ("ROOT_ARGUMENT_CONFLICT", "ROOT_ARGUMENT_CONFLICT"),
+    ("EXTRACTION_INCOMPLETE", "EXTRACTION_INCOMPLETE"),
     ("ROOT_TYPE_CONSTRAINT_FAILED", "ROOT_TYPE_CONSTRAINT_FAILED"),
     ("INVALID_ROOT_TYPE_CONSTRAINT", "INVALID_ROOT_TYPE_CONSTRAINT"),
 )
@@ -1495,12 +1562,14 @@ def classify_error(message: str) -> str:
     return "EXTRACTION_FAILED"
 
 
-def regenerate_catalog_from_pool(csn_cache_root: Path, catalog_root: Path) -> str:
+def regenerate_catalog_from_pool(csn_cache_root: Path, catalog_root: Path, only_clients: set[str] | None = None) -> str:
     project_root = Path(__file__).resolve().parents[2]
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
     from tools.catalog.generate_catalog import generate_all
 
+    if only_clients is not None:
+        return str(generate_all(csn_cache_root, catalog_root, only_clients=only_clients))
     return str(generate_all(csn_cache_root, catalog_root))
 
 
@@ -1513,6 +1582,387 @@ def format_runtime(seconds: float) -> str:
     return f"{minutes:02d}m {int(total - 60 * minutes):02d}s ({total:.1f} s)"
 
 
+
+# ════════════════════════════════════════════════════════════════════════════════════════
+# PUBLICACIÓN SEGURA (fase 0: H1/H3/H5/H6) — se usa SOLO con ``DANWOR_PUBLICATION_SAFE`` activo (o ``ExportRequest.safe=True``) y modo PUBLISH.
+# Diseño: docs/audit/CATALOG_REPUBLICATION_PHASE0_DESIGN_20261026.md. Con el interruptor apagado ``run_export`` sigue exactamente el camino anterior.
+#   EXTRACT (sin candado) → VALIDATE (completitud) → [hold] → candado de ESCRITOR ÚNICO → recuperar pendientes → REVALIDAR manifiestos/precondiciones (bajo candado)
+#   → journal + undo → APPLY atómico → VERIFY → COMMIT (journal) → confirmación remota (persist_changed) → resultado con ``status`` explícito.
+# ════════════════════════════════════════════════════════════════════════════════════════
+_SAFE_LOCK_TIMEOUT_S = 30.0
+
+
+def _txn():
+    """Import diferido: el exportador puede correr como script antes del bootstrap de ``sys.path``."""
+    root = str(Path(__file__).resolve().parents[2])
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from tools.catalog import publication_txn
+    return publication_txn
+
+
+def _tenant_id(host: str) -> str:
+    from urllib.parse import urlparse
+    return (urlparse(host if "://" in host else "https://" + host).hostname or "").lower()
+
+
+def _safe_failure(req: "ExportRequest", base: "ExportResult", finish, status: str, code: str, message: str, *, operation_id: str = "",
+                  stages: dict | None = None, failures: list | None = None, exit_code: int = 1) -> "ExportResult":
+    _say(f"ERROR: {code} - {message}", file=sys.stderr)
+    _say("\nESTADO DE LA PUBLICACIÓN: " + status + " (no se modificó el Catálogo)" if status == "FAILED_NO_CHANGE" else "\nESTADO DE LA PUBLICACIÓN: " + status)
+    base.ok = False
+    base.error_code = code
+    base.message = message
+    base.status = status
+    base.operation_id = operation_id
+    base.failures = list(failures or [])
+    base.stages = dict(stages or {})
+    base.exit_code = exit_code
+    return finish(base)
+
+
+def _publish_safe(req: "ExportRequest", exporter: "LineageExporter", *, base: "ExportResult", client_dir_name: str, catalog_root: Path,
+                  csn_cache_root: Path, client_cache_dir: Path, diagnostics: Any, finish) -> "ExportResult":
+    txn = _txn()
+    op_id = txn.new_operation_id()
+    base.root_type = exporter.root_type
+    base.requested_features = sorted(exporter.requested_features)
+    base.effective_features = sorted(exporter.effective_features)
+    stages: dict[str, str] = {"extraction": "OK"}
+    _say("\n==========================================")
+    _say("PUBLICACION SEGURA (DANWOR_PUBLICATION_SAFE)")
+    _say("==========================================")
+
+    # ── VALIDATE: una extracción incompleta NO llega a tocar nada ──
+    try:
+        exporter.assert_complete()
+        planned, missing = exporter.render_outputs()
+        if missing:
+            raise ExtractionIncompleteError([{"kind": "render", "object_type": t, "technical_name": n, "code": "NO_CONTENT"} for t, n in missing])
+    except ExtractionIncompleteError as exc:
+        stages["extraction"] = "INCOMPLETE"
+        _say(f"Objetos con lectura/listado incompleto: {len(exc.failures)}")
+        for f in exc.failures[:20]:
+            _say(f"  - {f.get('kind')}: {f.get('object_type') or '-'}/{f.get('technical_name') or '-'} ({f.get('code')})")
+        return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "EXTRACTION_INCOMPLETE",
+                             "La extracción quedó incompleta (falló la lectura o el listado de algún objeto): no se modificó el Catálogo.",
+                             operation_id=op_id, stages=stages, failures=exc.failures)
+    planned_sha = {key: txn.sha256_text(text) for key, text in planned.items()}
+    current_objects = set(planned)
+    stages["validation"] = "OK"
+    txn.fault("after_validate")
+
+    from core import remote_store
+    want_remote = bool(req.mirror_up)
+    hold_cm = remote_store.hold_publication(("catalog_local",)) if (want_remote and remote_store.write_enabled()) else contextlib.nullcontext(None)
+    try:
+        with hold_cm as hold:
+            if hold is not None and not hold.exclusive:
+                return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "CATALOG_BUSY",
+                                     "Hay una publicación periódica en curso sobre el Catálogo: no se modificó nada. Reintentá en unos minutos.",
+                                     operation_id=op_id, stages=stages)
+            with txn.writer_lock(_SAFE_LOCK_TIMEOUT_S):
+                return _apply_locked(req, exporter, base=base, txn=txn, op_id=op_id, stages=stages, planned=planned, planned_sha=planned_sha,
+                                     current_objects=current_objects, client_dir_name=client_dir_name, catalog_root=catalog_root,
+                                     csn_cache_root=csn_cache_root, client_cache_dir=client_cache_dir, remote_store=remote_store, hold=hold, finish=finish,
+                                     diagnostics=diagnostics)
+    except txn.CatalogBusyError:
+        return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "CATALOG_BUSY",
+                             "Hay otra operación sobre el Catálogo en curso: no se modificó nada. Reintentá en unos minutos.", operation_id=op_id, stages=stages)
+
+
+def _pool_path(client_cache_dir: Path, key: tuple[str, str]) -> Path:
+    return client_cache_dir / key[0] / f"{LineageExporter._safe_filename(key[1])}.json"
+
+
+def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_sha, current_objects, client_dir_name, catalog_root,
+                  csn_cache_root, client_cache_dir, remote_store, hold, finish, diagnostics) -> "ExportResult":
+    from core import atomic_io
+    # ── 0. recuperar cualquier operación a medias ANTES de decidir nada ──
+    try:
+        recovered = txn.recover_pending(catalog_root)
+    except txn.RecoveryError as exc:
+        return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "RECOVERY_REQUIRED",
+                             "Hay una operación anterior a medias que no pudo recuperarse: no se publica hasta resolverla.", operation_id=op_id, stages=stages)
+    for item in recovered:
+        _say(f"Recuperación previa: operación {item['operation_id']} {item['from']} → {item['action']}")
+    txn.fault("after_lock")
+
+    # ── 1. REVALIDAR bajo el candado: manifiestos y precondiciones se calculan ACÁ (nada calculado antes de adquirirlo se da por válido) ──
+    space = req.space
+    diag_dir = _canonical_run_dir(catalog_root, client_dir_name, space, exporter.root_type, exporter.root_object)
+    manifest_path = diag_dir / "lineage-manifest.json"
+    own = txn.load_manifest(manifest_path)
+    migrated_from: Path | None = None
+    legacy_problem: str | None = None
+    if own.state == txn.M_ABSENT and exporter.root_type == "analytic-model":
+        for cand in (_v1_space_manifest(catalog_root, client_dir_name, space, exporter.root_object),
+                     _legacy_run_manifest(catalog_root, client_dir_name, exporter.root_object)):
+            if not cand.exists():
+                continue
+            loaded = txn.load_manifest(cand)
+            if not loaded.usable:
+                legacy_problem = f"legacy_manifest_{loaded.state.lower()}"
+                continue
+            if str(loaded.data.get("space") or "") == space and str(loaded.data.get("analyticModel") or loaded.data.get("rootObject") or "") == exporter.root_object:
+                _say(f"  Previous ownership: V1 manifest {cand}")
+                own, migrated_from = loaded, cand
+                break
+    runs_root = catalog_root / ".lineage_runs" / client_dir_name
+    excluded = {manifest_path.resolve()} | ({migrated_from.resolve()} if migrated_from else set())
+    other_owned: set[tuple[str, str]] = set()
+    claims: dict[tuple[str, str], list[dict]] = {}
+    unusable: list[str] = []
+    if runs_root.exists():
+        for mp in sorted(runs_root.rglob("lineage-manifest.json")):
+            try:
+                if mp.resolve() in excluded:
+                    continue
+            except OSError:
+                pass
+            loaded = txn.load_manifest(mp)
+            if not loaded.usable:
+                unusable.append(f"{mp.parent.name}:{loaded.state}")
+                continue
+            for key in _manifest_object_keys(loaded.data):
+                other_owned.add(key)
+                claims.setdefault(key, []).append(loaded.data)
+
+    reasons: list[str] = []
+    if own.state in (txn.M_UNREADABLE, txn.M_INVALID_SCHEMA, txn.M_DIGEST_MISMATCH):
+        reasons.append("previous_manifest_" + own.state.lower())
+    if legacy_problem:
+        reasons.append(legacy_problem)
+    if unusable:
+        reasons.append("other_manifest_unusable")
+    if remote_store.read_enabled() and remote_store.sync_blocked_reason():
+        reasons.append("restore_incomplete")
+    deletes_allowed = not reasons
+    own_unknown = own.state in (txn.M_UNREADABLE, txn.M_INVALID_SCHEMA, txn.M_DIGEST_MISMATCH) or bool(legacy_problem)
+    previous_objects = _manifest_object_keys(own.data) if own.usable else set()
+    pending_prev = {(o.get("object_type"), o.get("technical_name")) for o in (own.data.get("pendingCleanup") or []) if isinstance(o, dict)} if own.usable else set()
+    stale = (previous_objects | pending_prev) - current_objects      # lo que un cleanup DIFERIDO anterior dejó pendiente se retoma acá (no queda huérfano)
+    retained_shared = sorted(k for k in stale if k in other_owned)
+    deletable = sorted(k for k in stale if k not in other_owned and _pool_path(client_cache_dir, k).exists()) if deletes_allowed else []
+    pending_next = sorted(k for k in stale if k not in other_owned and _pool_path(client_cache_dir, k).exists()) if not deletes_allowed else []
+    if stale and not deletes_allowed:
+        _say(f"\nLimpieza DIFERIDA (no se borra nada): {', '.join(reasons)}")
+        if unusable:
+            _say("  Manifiestos no utilizables: " + ", ".join(unusable))
+
+    # observabilidad (sin bloqueo): contracción fuerte del conjunto de objetos
+    observations: dict[str, Any] = {}
+    if len(previous_objects) >= 4 and len(current_objects) * 2 < len(previous_objects):
+        observations["contraction"] = {"previous": len(previous_objects), "current": len(current_objects)}
+        _say(f"OBSERVACION: el modelo pasó de {len(previous_objects)} a {len(current_objects)} objetos (contracción > 50 %); revisá que sea un cambio real del Space.")
+
+    # guardia de identidad (red de seguridad transitoria): no pisar un objeto de OTRO Space/tenant con contenido distinto
+    tenant = _tenant_id(req.host)
+    for key in sorted(current_objects):
+        path = _pool_path(client_cache_dir, key)
+        if not path.exists():
+            continue
+        existing = txn.sha256_text_file(path)
+        if existing == planned_sha[key]:
+            continue
+        for claim in claims.get(key, []):
+            c_space, c_tenant = str(claim.get("space") or ""), str(claim.get("tenantId") or "")
+            if c_space != space or (c_tenant and tenant and c_tenant != tenant):
+                return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "POOL_IDENTITY_CONFLICT",
+                                     f"El objeto {key[0]}/{key[1]} ya está publicado desde otro Space/tenant con contenido distinto: no se modificó nada.",
+                                     operation_id=op_id, stages=stages)
+
+    writes = [(key, _pool_path(client_cache_dir, key), planned[key]) for key in sorted(current_objects)
+              if not (_pool_path(client_cache_dir, key).exists() and txn.sha256_text_file(_pool_path(client_cache_dir, key)) == planned_sha[key])]
+    new_manifest = txn.seal_manifest({
+        "schemaVersion": 3, "extractorVersion": EXTRACTOR_VERSION, "createdAt": txn.now_iso(), "operationId": op_id, "hostId": txn.host_id(),
+        "client": req.client, "space": space, "tenantId": tenant, "rootObject": exporter.root_object, "rootType": exporter.root_type, "mode": req.mode.upper(),
+        "requestedFeatures": sorted(exporter.requested_features), "effectiveFeatures": sorted(exporter.effective_features),
+        "objects": [{**asdict(n), "sha256": planned_sha[(n.object_type, n.technical_name)]}
+                    for n in sorted(exporter.nodes.values(), key=lambda n: (n.object_type, n.technical_name)) if (n.object_type, n.technical_name) in planned_sha],
+        "edges": [asdict(e) for e in sorted(exporter.edges, key=lambda e: (e.source_type, e.source_name, e.relation, e.target_type, e.target_name))],
+        "externalSources": sorted(exporter.external_sources),
+        "cleanup": {"deletedStaleObjects": len(deletable), "retainedSharedObjects": len(retained_shared)},
+        **({"pendingCleanup": [{"object_type": t, "technical_name": n} for t, n in pending_next]} if pending_next else {}),
+    })
+    if exporter.root_type == "analytic-model":
+        new_manifest = txn.seal_manifest({**{k: v for k, v in new_manifest.items() if k != "integrity"}, "analyticModel": exporter.root_object})
+    same_manifest = own.usable and migrated_from is None and own.state == txn.M_OK and txn.semantic_signature(new_manifest) == txn.semantic_signature(own.data) and "integrity" in own.data
+    write_manifest = not same_manifest
+    changed = bool(writes or deletable or write_manifest)
+
+    # ── 2. journal + undo ──
+    client_catalog_dir = catalog_root / client_dir_name
+    catalog_manifest = catalog_root / ".catalog_manifest.json"
+    journal = txn.Journal(catalog_root, op_id, {
+        "operation_id": op_id, "mode": "publish", "client_dir": client_dir_name, "space": space, "root_object": exporter.root_object,
+        "root_type": exporter.root_type, "catalog_root": str(catalog_root), "csn_cache_root": str(csn_cache_root), "host_id": txn.host_id(),
+        "started_at": txn.now_iso(), "planned_writes": [f"{k[0]}/{k[1]}" for k, _, _ in writes], "planned_deletes": [f"{k[0]}/{k[1]}" for k in deletable],
+        "touched_dirs": [str(client_cache_dir), str(client_catalog_dir), str(diag_dir)]})
+    journal.update(txn.J_PLANNED)
+    undo = txn.UndoLog(txn.undo_dir(catalog_root, op_id))
+    stage = "snapshot"
+    catalog_generated = False
+    try:
+        txn.fault("after_journal_planned")
+        for _key, path, _text in writes:
+            undo.capture(path)
+        for key in deletable:
+            undo.capture(_pool_path(client_cache_dir, key))
+        undo.capture(manifest_path)
+        if migrated_from is not None:
+            undo.capture(migrated_from)
+        undo.capture(client_catalog_dir)
+        undo.capture(catalog_manifest)
+        undo.save()
+        journal.update(txn.J_APPLYING)
+        txn.fault("after_undo_snapshot")
+        # ── 3. APPLY (atómico por archivo) → VERIFY ──
+        stage = "apply"
+        for index, (key, path, text) in enumerate(writes):
+            txn.fault("mid_pool_write", index=index, key=key)
+            atomic_io.write_text(path, text)
+        txn.fault("after_pool")
+        for key in deletable:
+            _pool_path(client_cache_dir, key).unlink(missing_ok=True)
+        for child in sorted(client_cache_dir.iterdir()) if client_cache_dir.exists() else []:
+            if child.is_dir():
+                try:
+                    child.rmdir()
+                except OSError:
+                    pass
+        txn.fault("after_cleanup")
+        txn.fault("before_manifest")
+        if write_manifest:
+            atomic_io.write_text(manifest_path, json.dumps(new_manifest, indent=2, ensure_ascii=False))
+        txn.fault("after_manifest")
+        if migrated_from is not None and migrated_from != manifest_path:
+            migrated_from.unlink(missing_ok=True)
+            try:
+                migrated_from.parent.rmdir()
+            except OSError:
+                pass
+        if req.generate_catalog:
+            stage = "catalog"
+            _say("\n==========================================")
+            _say("REGENERANDO CATALOGO (acotado al cliente)")
+            _say("==========================================")
+            _say(regenerate_catalog_from_pool(csn_cache_root, catalog_root, only_clients={client_dir_name}))
+            catalog_generated = True
+        txn.fault("after_catalog")
+        stage = "verify"
+        txn.fault("before_verify")
+        problems = _verify_applied(txn, planned_sha, client_cache_dir, manifest_path, client_catalog_dir, require_flows=bool(req.generate_catalog and planned))
+        if problems:
+            raise RuntimeError("VERIFY_FAILED: " + "; ".join(problems[:5]))
+    except Exception as exc:                     # noqa: BLE001 — una caída real (BaseException) NO pasa por acá: la recupera el journal
+        code = {"catalog": "CATALOG_GENERATION_FAILED", "verify": "VERIFY_FAILED"}.get(stage, "APPLY_FAILED")
+        _say(f"ERROR: {code} - {type(exc).__name__}", file=sys.stderr)
+        stages.update({"apply": "FAILED", "catalog": "FAILED" if stage == "catalog" else "SKIPPED"})
+        residue = undo.restore()
+        if residue:
+            return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "RECOVERY_REQUIRED",
+                                 "La publicación falló y la restauración no pudo verificarse por completo: no se publica hasta resolverlo.", operation_id=op_id, stages=stages)
+        journal.update(txn.J_ROLLED_BACK, error_code=code)
+        shutil.rmtree(txn.undo_dir(catalog_root, op_id), ignore_errors=True)
+        _say("Estado anterior RESTAURADO y verificado.")
+        return _safe_failure(req, base, finish, txn.ROLLED_BACK, code,
+                             "La publicación falló y se restauró el estado anterior del Catálogo." if code != "CATALOG_GENERATION_FAILED"
+                             else "La extracción terminó, pero falló la regeneración del catálogo: se restauró el estado anterior.", operation_id=op_id, stages=stages)
+    stages.update({"apply": "OK", "catalog": "OK" if catalog_generated else "SKIPPED"})
+    journal.update(txn.J_LOCAL_COMMITTED, changed=changed)
+    shutil.rmtree(txn.undo_dir(catalog_root, op_id), ignore_errors=True)
+    txn.fault("after_local_commit")
+
+    # ── 4. confirmación REMOTA (solo si se pidió): contrato de persist_changed, nunca «OK» por no haber fallado ──
+    durability = txn.DURABILITY_NOT_REQUESTED
+    remote_status = "not_requested"
+    if req.mirror_up:
+        txn.fault("before_remote")
+        _say("\n==========================================")
+        _say("PERSISTIENCIA EN DIGITALOCEAN SPACES")
+        _say("==========================================")
+        try:
+            out = remote_store.persist_changed(("catalog_local",), last=(".catalog_manifest.json",))
+            remote_status = str(out.get("status"))
+        except Exception as exc:                 # noqa: BLE001 — la persistencia nunca rompe lo ya aplicado, pero tampoco se confirma
+            remote_status = "failed"
+            _say(f"WARN persistencia: {type(exc).__name__}", file=sys.stderr)
+        base.storage_enabled = bool(remote_store.write_enabled())
+        if remote_status == "remote":
+            durability = txn.DURABILITY_REMOTE
+        elif remote_status == "disabled" and remote_store.local_only():
+            durability = txn.DURABILITY_LOCAL_BY_CONFIG
+        else:
+            durability = txn.DURABILITY_UNCONFIRMED
+            if hold is not None:
+                hold.fail()
+        stages["remote"] = {"remote": "OK", "disabled": "SKIPPED"}.get(remote_status, "PARTIAL" if remote_status == "partial" else "FAILED")
+        journal.update({txn.DURABILITY_REMOTE: txn.J_REMOTE_CONFIRMED, txn.DURABILITY_UNCONFIRMED: txn.J_REMOTE_PENDING}.get(durability, txn.J_LOCAL_COMMITTED),
+                       durability=durability, remote_status=remote_status)
+    else:
+        stages["remote"] = "SKIPPED"
+
+    # ── 5. resultado: SUCCESS ⇔ COMPLETED ──
+    files_by_type = {t: sum(1 for _ in (client_cache_dir / t).glob("*.json")) if (client_cache_dir / t).is_dir() else 0 for t in OBJECT_TYPES}
+    base.ok = False
+    base.client, base.space, base.analytic_model = req.client, space, req.analytic_model
+    base.root_object, base.root_type = exporter.root_object, exporter.root_type
+    base.objects, base.edges, base.external_sources = len(exporter.nodes), len(exporter.edges), len(exporter.external_sources)
+    base.exported_files, base.files_by_type = sum(files_by_type.values()), {k: v for k, v in files_by_type.items() if v}
+    base.deleted_stale, base.retained_shared = len(deletable), len(retained_shared)
+    base.pool_dir, base.manifest_path, base.catalog_generated = client_cache_dir, manifest_path, catalog_generated
+    base.operation_id, base.durability, base.stages, base.observations = op_id, durability, stages, observations
+    base.deferred_reasons = list(reasons) if ((stale and not deletes_allowed) or own_unknown) else []
+    base.applied = {"added": [f"{k[0]}/{k[1]}" for k, _, _ in writes if k not in previous_objects],
+                    "modified": [f"{k[0]}/{k[1]}" for k, _, _ in writes if k in previous_objects],
+                    "removed": [f"{k[0]}/{k[1]}" for k in deletable], "retained_shared": [f"{k[0]}/{k[1]}" for k in retained_shared], "changed": changed}
+    base.diagnostics = diagnostics.snapshot() if diagnostics.enabled else None
+    unconfirmed = bool(req.mirror_up and durability == txn.DURABILITY_UNCONFIRMED)
+    if unconfirmed:
+        base.status, base.error_code, base.exit_code = txn.COMMITTED_UNCONFIRMED, "PERSISTENCE_UNCONFIRMED", 3
+        base.message = "Publicado en el Catálogo local; la persistencia en Spaces NO está confirmada."
+    elif base.deferred_reasons:
+        base.status, base.error_code, base.exit_code = txn.COMMITTED_CLEANUP_DEFERRED, "CLEANUP_DEFERRED", 3
+        base.message = "Publicado, pero no se limpiaron objetos obsoletos (no se pudo verificar la propiedad): no se borró nada."
+    else:
+        base.status, base.ok, base.exit_code = txn.COMPLETED, True, 0
+    _say("\nEXTRACCION DE LINAJE FINALIZADA")
+    _say(f"Cliente: {req.client}")
+    _say(f"Space: {space}")
+    _say(f"Objeto raíz: {exporter.root_object}")
+    _say(f"Tipo raíz: {exporter.root_type}")
+    _say(f"Objetos incluidos: {len(exporter.nodes)}")
+    _say(f"Obsoletos eliminados: {len(deletable)}")
+    _say(f"Compartidos retenidos: {len(retained_shared)}")
+    _say(f"Catálogo materializado: {'SI' if catalog_generated else 'NO'}")
+    _say(f"Persistencia canónica: {'OK' if durability == txn.DURABILITY_REMOTE else 'NO CONFIRMADA (' + durability + ')'}")
+    _say(f"ESTADO DE LA PUBLICACIÓN: {base.status}")
+    _say("STATUS: SUCCESS" if base.status == txn.COMPLETED else f"STATUS: {base.status}")
+    return finish(base)
+
+
+def _verify_applied(txn, planned_sha: dict, client_cache_dir: Path, manifest_path: Path, client_catalog_dir: Path, *, require_flows: bool) -> list[str]:
+    problems: list[str] = []
+    for key, sha in planned_sha.items():
+        path = _pool_path(client_cache_dir, key)
+        if not path.is_file() or txn.sha256_text_file(path) != sha:
+            problems.append(f"objeto {key[0]}/{key[1]}")
+    loaded = txn.load_manifest(manifest_path)
+    if not loaded.usable:
+        problems.append(f"manifiesto {loaded.state}")
+    else:
+        for obj in loaded.data.get("objects") or []:
+            sha = obj.get("sha256")
+            key = (obj.get("object_type"), obj.get("technical_name"))
+            if sha and key in planned_sha and planned_sha[key] != sha:
+                problems.append(f"manifiesto≠pool {key[0]}/{key[1]}")
+    if require_flows and not any(client_catalog_dir.rglob("flujo_*.md")):
+        problems.append("catálogo sin flujos")
+    return problems
+
+
+
 def run_export(req: ExportRequest) -> ExportResult:
     """Run one extraction without reading argv or exiting the process.
 
@@ -1522,9 +1972,12 @@ def run_export(req: ExportRequest) -> ExportResult:
     orchestration decisions and are not inferred by lineage traversal.
     """
     started_at = time.perf_counter()
+    safe_flag = {"on": False}
 
     def finish(result: ExportResult) -> ExportResult:
         result.duration_s = round(time.perf_counter() - started_at, 1)
+        if safe_flag["on"] and not result.ok and not result.status:
+            result.status = "FAILED_NO_CHANGE"          # publicación segura: una falla previa a APPLY no modificó nada
         return result
 
     list_spaces_only = req.space.strip().lower() == SPACE_LIST_SENTINEL
@@ -1647,6 +2100,8 @@ def run_export(req: ExportRequest) -> ExportResult:
         base.exit_code = 2
         return finish(base)
 
+    safe = bool(req.mode == "publish" and (req.safe if req.safe is not None else _txn().safe_mode_enabled()))
+    safe_flag["on"] = safe
     with tempfile.TemporaryDirectory(prefix="dsp-lineage-") as tmp:
         cli = DatasphereCli(
             host=req.host, client_id=req.client_id, client_secret=req.client_secret,
@@ -1677,7 +2132,7 @@ def run_export(req: ExportRequest) -> ExportResult:
                 allowed_root_types=req.allowed_root_types,
                 diagnostics=diagnostics,
             )
-            exported_pool = exporter.run()
+            exported_pool = exporter.extract() if safe else exporter.run()
         except RootTypeConstraintError as exc:
             _say(f"ERROR: {exc}")
             base.error_code = "ROOT_TYPE_CONSTRAINT_FAILED"
@@ -1693,11 +2148,18 @@ def run_export(req: ExportRequest) -> ExportResult:
         except DatasphereCliError as exc:
             _say(f"ERROR: {exc}")
             base.error_code = classify_error(str(exc))
+            if safe and base.error_code in ("ROOT_OBJECT_NOT_FOUND", "AMBIGUOUS_ROOT_OBJECT_TYPE") and "exporter" in locals() and exporter.failures:
+                base.error_code = "EXTRACTION_INCOMPLETE"             # el «no existe» es consecuencia de un listado fallido, no del Space
+                base.failures = list(exporter.failures)
             base.message = str(exc)
             base.exit_code = 1
             if diagnostics.enabled:
                 base.diagnostics = diagnostics.snapshot()
             return finish(base)
+
+    if safe:
+        return _publish_safe(req, exporter, base=base, client_dir_name=client_dir_name, catalog_root=catalog_root, csn_cache_root=csn_cache_root,
+                             client_cache_dir=client_cache_dir, diagnostics=diagnostics, finish=finish)
 
     assert exporter.root_type
     base.root_type = exporter.root_type

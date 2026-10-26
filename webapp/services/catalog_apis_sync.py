@@ -20,6 +20,7 @@ contenido local difiere de su copia en caché NO se sobrescribe jamás: se infor
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -32,6 +33,27 @@ from pathlib import Path
 
 import config
 from core import remote_store
+
+
+class _BusyHold:
+    """Hold ficticio: otro proceso tiene el candado de escritor de ``catalog_local``; ``exclusive=False`` hace que el llamador aborte SIN modificar nada."""
+    exclusive = False
+
+    def fail(self) -> None:
+        pass
+
+
+@contextlib.contextmanager
+def _hold_and_guard():
+    """``hold_publication`` + (solo con ``DANWOR_PUBLICATION_SAFE`` activo) el candado de escritor ENTRE PROCESOS de la publicación. Sin interruptor: idéntico a antes."""
+    from tools.catalog import publication_txn as txn
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(txn.external_writer_guard(0))
+        except txn.CatalogBusyError:
+            yield _BusyHold()
+            return
+        yield stack.enter_context(remote_store.hold_publication(("catalog_local",)))
 
 log = logging.getLogger("danwor.catalog_apis_sync")
 
@@ -339,7 +361,7 @@ def apply(graph_token: str, plan_id: str, confirm: str) -> Outcome:
     if not admin_tools._CATALOG_REGEN_LOCK.acquire(blocking=False):
         return Outcome("aborted", ["No se aplicó nada: ya hay una regeneración o sincronización en curso. Esperá unos segundos y volvé a intentar."])
     try:
-        with remote_store.hold_publication(("catalog_local",)) as hold:          # el ciclo periódico no publica nada de catalog_local mientras dura
+        with _hold_and_guard() as hold:          # el ciclo periódico no publica nada de catalog_local mientras dura
             if not hold.exclusive:                                               # un ciclo de mirror_up sigue publicando catalog_local: nada se modifica hasta que termine
                 return Outcome("aborted", ["No se aplicó nada: hay una publicación periódica en curso sobre catalog_local que no terminó a tiempo. No se modificó ningún archivo; reintentá en unos minutos."])
             outcome = _apply_locked(graph_token, plan_id)
@@ -632,7 +654,7 @@ def rollback(journal_id: str, confirm: str) -> Outcome:
     if not admin_tools._CATALOG_REGEN_LOCK.acquire(blocking=False):
         return Outcome("aborted", ["Ya hay una regeneración o sincronización en curso."])
     try:
-        with remote_store.hold_publication(("catalog_local",)) as hold:
+        with _hold_and_guard() as hold:
             if not hold.exclusive:
                 return Outcome("aborted", ["No se hizo nada: hay una publicación periódica en curso sobre catalog_local que no terminó a tiempo. Reintentá en unos minutos."])
             try:

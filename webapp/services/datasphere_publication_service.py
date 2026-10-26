@@ -28,6 +28,7 @@ import os
 import threading
 import urllib.parse
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -125,6 +126,72 @@ def register_assessment(values: asd.FormValues) -> list[tuple[str, str]]:
     return out
 
 
+
+# ───────────────────────────── contrato de resultado de la publicación SEGURA (fase 0) ─────────────────────────────
+@dataclass
+class PublicationOutcome(asd.Outcome):
+    """``Outcome`` + el estado explícito de la publicación segura. ``state``: SUCCESS solo con ``status == COMPLETED``; PARTIAL (publicado con advertencias) para
+    ``COMMITTED_UNCONFIRMED`` / ``COMMITTED_CLEANUP_DEFERRED``; FAILED para el resto. Nunca hay SUCCESS ante un estado degradado."""
+    status: str = ""
+    durability: str = ""
+    stages: dict = field(default_factory=dict)
+    deferred_reasons: list = field(default_factory=list)
+    failures: list = field(default_factory=list)
+
+
+STATE_PARTIAL = "PARTIAL"
+TITLE_PARTIAL = "Publicación parcial"
+# Mensajes estables (códigos del contrato). Jamás texto crudo del CLI, rutas ni secretos.
+PUBLICATION_MESSAGES = {
+    "EXTRACTION_INCOMPLETE": "La extracción desde Datasphere quedó incompleta (falló la lectura o el listado de algún objeto). No se modificó el Catálogo. Reintentá; si persiste, revisá la conexión y los permisos.",
+    "POOL_IDENTITY_CONFLICT": "Un objeto ya está publicado desde otro Space o tenant con contenido distinto. No se modificó nada. Revisá el cliente, el Space y el tenant.",
+    "CATALOG_BUSY": "Hay otra operación sobre el Catálogo en curso. No se modificó nada; reintentá en unos minutos.",
+    "RECOVERY_REQUIRED": "Hay una operación anterior a medias que no pudo recuperarse. No se publica hasta resolverla; avisá al equipo técnico.",
+    "CATALOG_GENERATION_FAILED": "La extracción terminó, pero falló la regeneración del catálogo. Se restauró el estado anterior del Catálogo.",
+    "VERIFY_FAILED": "La publicación no pasó la verificación posterior. Se restauró el estado anterior del Catálogo.",
+    "APPLY_FAILED": "La publicación falló al aplicarse. Se restauró el estado anterior del Catálogo.",
+    "PERSISTENCE_UNCONFIRMED": "Publicado en el Catálogo local, pero la persistencia en Spaces NO está confirmada. Reintentá la publicación (es idempotente) para confirmarla.",
+    "CLEANUP_DEFERRED": "Publicado, pero no se limpiaron los objetos obsoletos porque no se pudo verificar la propiedad (manifiesto ilegible o restauración incompleta). No se borró nada; reintentá más tarde.",
+}
+
+
+def _safe_outcome(values: asd.FormValues, result, trace: list, secrets: tuple, roots: dict, started: datetime, user_email: str, on_line, on_phase) -> "PublicationOutcome":
+    """Traduce el ``ExportResult`` de la publicación segura al ``Outcome`` de la UI. SUCCESS ⇔ ``status == COMPLETED``."""
+    from tools.catalog import publication_txn as txn
+    code = result.error_code or ""
+    common = dict(trace=trace, operation_id=result.operation_id, duration_s=result.duration_s, status=result.status, durability=result.durability,
+                  stages=dict(result.stages), deferred_reasons=list(result.deferred_reasons), failures=list(result.failures))
+    if result.status in txn.SUCCESS_STATUSES or result.status in txn.PARTIAL_STATUSES:
+        try:                                        # el Catálogo local YA está confirmado: se invalida la caché y recién ahora se registra el assessment (post-commit)
+            from webapp import main as hub_main
+            hub_main._invalidate_catalog_cache()
+        except Exception:                           # noqa: BLE001
+            log.warning("datasphere_publication op=%s no se pudo invalidar el caché del catálogo", result.operation_id)
+        if on_phase is not None:
+            on_phase(PHASE_REGISTERING)
+        registered = register_assessment(values)
+        if on_line is not None:
+            for _eid, state in registered:
+                on_line(f"Assessment del modelo registrado: {state}")
+        common["stages"]["assessment"] = ",".join(sorted({s for _e, s in registered})) or "SKIPPED"
+        if on_phase is not None:
+            on_phase(PHASE_PUBLISHED)
+        duration = round((datetime.now(timezone.utc) - started).total_seconds(), 1)
+        common["duration_s"] = duration
+        if result.status in txn.SUCCESS_STATUSES:
+            log.info("datasphere_publication op=%s user=%s client=%s space=%s model=%s status=COMPLETED durability=%s duration=%.1fs files=%s",
+                     result.operation_id, user_email, values.client, values.space, values.root_object, result.durability, duration, result.exported_files)
+            return PublicationOutcome("SUCCESS", stage="publish", terminal_am=values.root_object, **common)
+        log.warning("datasphere_publication op=%s user=%s client=%s space=%s model=%s status=%s code=%s", result.operation_id, user_email, values.client, values.space,
+                    values.root_object, result.status, code)
+        return PublicationOutcome(STATE_PARTIAL, code, PUBLICATION_MESSAGES.get(code, "Publicación parcial."), stage="publish", title=TITLE_PARTIAL,
+                                  terminal_am=values.root_object, **common)
+    log.warning("datasphere_publication op=%s user=%s client=%s space=%s model=%s status=%s code=%s", result.operation_id, user_email, values.client, values.space,
+                values.root_object, result.status, code)
+    message = PUBLICATION_MESSAGES.get(code) or asd.ERROR_MESSAGES.get(code) or asd.ERROR_MESSAGES["EXTRACTION_FAILED"]
+    return PublicationOutcome("FAILED", code or "EXTRACTION_FAILED", message, stage="publish", title=TITLE_PUBLISH, **common)
+
+
 # ───────────────────────────── ejecución (PUBLICAR) ─────────────────────────────
 def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_line=None, on_phase=None) -> asd.Outcome:
     """Valida y ejecuta la PUBLICACIÓN: extracción + regeneración del Catálogo (MISMA función que el CLI, ``mode="publish"``,
@@ -152,14 +219,22 @@ def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_
         catalog_root, csn_cache = _canonical_roots()
         catalog_root.mkdir(parents=True, exist_ok=True)
         csn_cache.mkdir(parents=True, exist_ok=True)
+        from tools.catalog import publication_txn as txn
+        safe = txn.safe_mode_enabled()                                   # el interruptor se lee UNA vez por operación
+        try:                                                             # con o sin interruptor: un journal a medias nunca se pisa (apagar el interruptor no deja estados mixtos)
+            txn.recover_pending(catalog_root)
+        except txn.RecoveryError:
+            return PublicationOutcome("FAILED", "RECOVERY_REQUIRED", PUBLICATION_MESSAGES["RECOVERY_REQUIRED"], operation_id=op_id, stage="publish", title=TITLE_PUBLISH,
+                                      status=txn.RECOVERY_REQUIRED)
         roots = {str(catalog_root): "<catalog_local>", str(csn_cache): "<pool>", str(config.BASE_DIR): "<app>"}
         request = dsp.ExportRequest(
             host=values.host, client_id=values.client_id, client_secret=client_secret, token_url=values.token_url,
             space=values.space, root_object=values.root_object, client=values.client,
             catalog_root=catalog_root, csn_cache_dir=csn_cache,         # raíces CANÓNICAS: acá SÍ se escribe el Catálogo
-            generate_catalog=True, mirror_up=_mirror_up_enabled(),      # publicar: regenerar el Catálogo (Spaces solo si se habilita)
+            generate_catalog=True, mirror_up=(True if safe else _mirror_up_enabled()),   # seguro: la confirmación remota es OBLIGATORIA; si no, Spaces solo si se habilita
             mode="publish",                                             # forzado en el servidor: la UI no elige el modo
             features_requested=asd.requested_features(values),         # SOLO lo pedido: las dependencias las resuelve el extractor
+            safe=safe,
         )
 
         def live(line: str) -> None:
@@ -172,6 +247,8 @@ def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_
         with dsp.capture_output(on_line=live) as cap:
             result = dsp.run_export(request)
         trace = asd._trace(cap.lines, secrets, roots)
+        if safe:
+            return _safe_outcome(values, result, trace, secrets, roots, started, user_email, on_line, on_phase)
         if not result.ok:
             code = result.error_code or "EXTRACTION_FAILED"
             log.warning("datasphere_publication op=%s user=%s client=%s space=%s model=%s status=FAILED code=%s duration=%.1fs",
