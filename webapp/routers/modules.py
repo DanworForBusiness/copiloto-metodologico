@@ -113,7 +113,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
         initial_tab = ""
     # Herramienta inicial del panel derecho vía URL: abre el panel ya posicionado en esa herramienta (mismo espíritu que ?tab=). Lista
     # blanca; solo aplica a módulos que la ofrecen. NO salta ninguna regla de acceso (el formulario sigue mostrando "Acceso restringido"
-    # a quien no es dueño). `assessment` → grupo "diagnóstico" (ver app.js TOOL_GROUP). La publicación NO es una herramienta: es un subestado del Catálogo (abajo).
+    # a quien no tiene perfil completo del Hub). `assessment` → grupo "diagnóstico" (ver app.js TOOL_GROUP). La publicación NO es una herramienta: es un subestado del Catálogo (abajo).
     _tool = (tool or "").strip().lower()
     if _tool == "assessment" and _dsa.tool_enabled(document.summary.stem):
         initial_tool = "assessment"

@@ -54,9 +54,10 @@ def tool_enabled(stem: str) -> bool:
 
 
 def can_execute(request) -> bool:
-    """Publicar en el Catálogo gobernado es una operación de dueño, igual que ejecutar una extracción (mismo predicado
-    ``access.is_owner`` que ya usa el Assessment; no se introduce un RBAC nuevo)."""
-    return asd.can_execute(request)
+    """Publicar en el Catálogo gobernado es una operación de dueño (``access.is_owner``). NO comparte la política del Assessment
+    ad-hoc, que se abrió a los consultores: este predicado es propio y no se deriva de ``asd.can_execute``."""
+    from webapp import access
+    return access.is_owner(request)
 
 
 def tool_context(request, stem: str) -> dict:
