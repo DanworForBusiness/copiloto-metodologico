@@ -765,13 +765,12 @@ table.dashboard-table[data-exceptions-rows] th:is(:nth-child(2), :nth-child(3)) 
 #hc-candidatos-table th.hc-select-col, #hc-candidatos-table td.hc-select-col { padding-left: 10px; padding-right: 6px; }
 #hc-candidatos-table tbody tr.is-selected > td { background: rgba(231, 176, 8, .07); }
 .hc-selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; padding: 10px 16px; }
-.hc-selection-bar.is-empty .hc-selection-bar__count { opacity: .6; }
-.hc-selection-bar button:disabled { cursor: not-allowed; }
+.hc-selection-bar[hidden] { display: none; }                   /* `display:flex` de la barra pisaría el atributo hidden: sin esto reservaría altura y márgenes con 0 seleccionados */
 .hc-selection-bar__count { font-size: .85rem; }
 .hc-selection-bar__hint { margin: 0; flex: 1 1 200px; min-width: 0; }
 .hc-selection-bar__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
-.hc-selection-bar .btn-primary, .hc-selection-bar .btn-secondary { display: inline-flex; align-items: center; gap: 6px; min-height: 0; padding: 6px 12px; font-size: .78rem; }
-.hc-selection-bar .btn-primary:disabled { cursor: not-allowed; }
+.hc-selection-bar .btn-primary { display: inline-flex; align-items: center; gap: 6px; min-height: 0; padding: 6px 12px; font-size: .78rem; }
+.hc-selection-bar__actions .whatsnew-filter__clear { align-self: center; white-space: nowrap; }   /* el «✕ Limpiar» compartido se alinea al fondo (barra de filtros): acá, al centro de la barra */
 @media (max-width: 640px) {
   .hc-selection-bar__actions { margin-left: 0; width: 100%; }
   .hc-select-col input[type="checkbox"] { width: 22px; height: 22px; }

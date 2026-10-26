@@ -111,14 +111,13 @@ const ids = n => Array.from({ length: n }, (_, i) => `id-${String(i).padStart(3,
   const store = storeWith(makeStorage());
   const d = pageDoc(["p1", "p2", "p3"]);
   api.syncUI(d, store);
-  ok(d.bar.hidden === false && d.bar.classList.contains("is-empty"), "D: sin selección la barra sigue VISIBLE (no desplaza la tabla) en estado vacío");
-  ok(d.bar.q["[data-hc-share-open]"].disabled === true && d.bar.q["[data-hc-clear-selection]"].disabled === true && /Marcá las casillas/.test(d.bar.q["[data-hc-selection-hint]"].textContent), "D: en estado vacío «Compartir» y «Limpiar» están deshabilitados y la barra explica qué hacer");
+  ok(d.bar.hidden === true, "D: sin selección la barra está OCULTA (no ocupa lugar)");
   ok(d.head.checked === false && d.head.indeterminate === false && d.head.disabled === false, "D: encabezado vacío con filas visibles");
   store.add(["p2"]);
   api.syncUI(d, store);
   ok(d.boxes[1].checked && !d.boxes[0].checked, "D: se marca solo la fila seleccionada");
   ok(d.head.indeterminate === true && d.head.checked === false, "D: encabezado indeterminado con selección parcial");
-  ok(!d.bar.classList.contains("is-empty") && d.bar.q["[data-hc-clear-selection]"].disabled === false && d.bar.q["[data-hc-selection-count]"].textContent === "1" && d.bar.q["[data-hc-selection-label]"].textContent === "seleccionado", "D: contador visible, singular");
+  ok(d.bar.hidden === false && d.bar.q["[data-hc-selection-count]"].textContent === "1" && d.bar.q["[data-hc-selection-label]"].textContent === "seleccionado", "D: contador visible, singular");
   store.add(["p1", "p3"]);
   api.syncUI(d, store);
   ok(d.head.checked === true && d.head.indeterminate === false, "D: encabezado marcado cuando TODAS las visibles están seleccionadas");
@@ -191,7 +190,48 @@ function wired(initialIds) {
   const clear = el(["[data-hc-clear-selection]"], { "data-hc-clear-selection": "" });
   clear.closest = sel => (sel.indexOf("[data-hc-clear-selection]") >= 0 ? clear : null);
   w.fire("click", clear);
-  ok(w.store.size() === 0 && w.doc.bar.classList.contains("is-empty") && w.doc.bar.q["[data-hc-selection-count]"].textContent === "0", "F: «Limpiar selección» vacía el almacén y deja la barra en estado vacío");
+  ok(w.store.size() === 0 && w.doc.bar.hidden === true, "F: «Limpiar selección» vacía el almacén y oculta la barra otra vez");
+}
+
+// ── F2: al aparecer/desaparecer la barra, el control accionado queda donde estaba (no se desvía el clic siguiente) ─────────────
+{
+  const BAR_H = 72;
+  const scrollBox = { scrollTop: 0, scrollHeight: 5000, clientHeight: 700 };
+  function world(startTop) {
+    const store = storeWith(makeStorage());
+    const doc = pageDoc(["p1", "p2", "p3"]);
+    scrollBox.scrollTop = startTop;
+    const b = doc.boxes[1];
+    b.isConnected = true; b.parentElement = { parentElement: null, __scroll: scrollBox };
+    // el alto de la barra empuja la tabla (y la casilla) hacia abajo mientras está visible; el desplazamiento del contenedor la sube de vuelta
+    b.getBoundingClientRect = () => ({ top: 400 + (doc.bar.hidden ? 0 : BAR_H) - (scrollBox.scrollTop - startTop) });
+    doc.defaultView = { getComputedStyle: n => ({ overflowY: n === b.parentElement ? "auto" : "visible" }) };
+    b.parentElement.scrollHeight = 5000; b.parentElement.clientHeight = 700;
+    Object.defineProperty(b.parentElement, "scrollTop", { get: () => scrollBox.scrollTop, set: v => { scrollBox.scrollTop = v; } });
+    api.syncUI(doc, store);
+    return { store, doc, b };
+  }
+  let w = world(0);
+  const top0 = w.b.getBoundingClientRect().top;
+  api.keepInPlace(w.doc, w.b, () => { w.store.add("p2"); api.syncUI(w.doc, w.store); });
+  ok(w.doc.bar.hidden === false && scrollBox.scrollTop === BAR_H && w.b.getBoundingClientRect().top === top0, "F2: al mostrarse la barra el contenedor se desplaza su alto y la casilla accionada NO se mueve");
+  const top1 = w.b.getBoundingClientRect().top;
+  api.keepInPlace(w.doc, w.b, () => { w.store.remove("p2"); api.syncUI(w.doc, w.store); });
+  ok(w.doc.bar.hidden === true && scrollBox.scrollTop === 0 && w.b.getBoundingClientRect().top === top1, "F2: al ocultarse (último deseleccionado) se revierte y tampoco se mueve");
+  w = world(300);
+  api.keepInPlace(w.doc, w.b, () => { w.store.add("p2"); api.syncUI(w.doc, w.store); });
+  ok(scrollBox.scrollTop === 300 + BAR_H, "F2: con la página ya desplazada compensa igual");
+  // un cambio que no mueve nada no toca el desplazamiento
+  w = world(0);
+  w.store.add("p1"); api.syncUI(w.doc, w.store);
+  scrollBox.scrollTop = 123;
+  api.keepInPlace(w.doc, w.b, () => { w.store.add("p3"); api.syncUI(w.doc, w.store); });
+  ok(scrollBox.scrollTop === 123 + 0, "F2: sin cambio de altura (la barra ya estaba) no se altera el desplazamiento");
+  // robustez: un DOM sin getBoundingClientRect no rompe la selección
+  const bare = el(["[data-hc-select]"]);
+  let ran = false;
+  api.keepInPlace({}, bare, () => { ran = true; });
+  ok(ran, "F2: sin medición posible se ejecuta el cambio igual");
 }
 
 // ── G: mensaje y mailto ────────────────────────────────────────────────────────────────────

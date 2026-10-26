@@ -188,9 +188,13 @@ def test_panel_has_a_fixed_first_selection_column_checkboxes_bar_and_new_row_act
     assert sorted(page_ids(html)) == sorted(r["profile_id"] for r in rows)
     assert 'aria-label="Seleccionar a Cand000 Prueba"' in html
     bar = re.search(r'<div class="hc-selection-bar[^>]*>.*?</div>\s*</div>', html, re.S).group(0)
-    assert "data-hc-selection-bar" in html and "is-empty" in bar and " hidden" not in bar.split(">")[0]             # siempre visible: aparecer al seleccionar desplazaría la tabla
-    assert re.search(r"data-hc-share-open\s+disabled", bar) and re.search(r"data-hc-clear-selection\s+disabled", bar)    # en estado vacío las acciones están deshabilitadas
-    assert "Compartir perfiles" in html and "Limpiar selección" in html
+    assert "data-hc-selection-bar" in bar and re.search(r"\shidden>", bar.split(">", 1)[0] + ">")                       # sin selección la barra está OCULTA: no reserva altura ni márgenes
+    assert html.index("</summary>") < html.index('<div class="dashboard-section__body">') < html.index("data-hc-selection-bar") < html.index('id="hc-candidatos-table"')   # dentro del agrupador «Candidatos»: bajo su encabezado, antes de la tabla
+    assert "is-empty" not in bar and "disabled" not in bar                                                          # no hay estado «vacío» permanente ni acciones deshabilitadas
+    clear = re.search(r"<button[^>]*data-hc-clear-selection[^>]*>(.*?)</button>", bar, re.S)
+    assert clear and 'class="whatsnew-filter__clear"' in clear.group(0) and clear.group(1).strip() == "✕ Limpiar selección"   # MISMO componente que «✕ Limpiar» del panel de filtros
+    assert html.count('class="whatsnew-filter__clear"') == 2                                                         # el de filtros + este, sin clase nueva
+    assert "Compartir perfiles" in html
     first_col, first_th = html.index("<colgroup>"), html.index("<thead>")
     colgroup = html[first_col:first_th]
     assert re.search(r"<colgroup>\s*<col style=\"width:44px\">", colgroup) and colgroup.count("<col ") == 7        # columna de selección sin data-column-key + 5 de negocio + acciones
@@ -239,6 +243,16 @@ def test_panel_without_results_still_renders_the_bar_so_a_cross_filter_selection
     seed(2)
     html = client().get("/cchh/candidatos", params={"q": "zzz-sin-coincidencias"}).text
     assert 'data-empty-kind="no_matches"' in html and "data-hc-selection-bar" in html and page_ids(html) == []
+
+
+def test_selection_bar_css_hides_for_real_and_does_not_redefine_the_shared_clear_component():
+    css = (_ROOT / "webapp" / "static" / "human_capital.css").read_text(encoding="utf-8")
+    assert ".hc-selection-bar[hidden] { display: none; }" in css                       # `display:flex` de la barra pisaría el atributo `hidden`
+    assert not re.search(r"(^|\n)\s*\.whatsnew-filter__clear\s*(\{|,|:)", css)          # el estilo base vive en tools.css; acá solo el ajuste de alineación dentro de la barra
+    assert ".hc-selection-bar__actions .whatsnew-filter__clear" in css
+    assert ".hc-selection-bar .btn-secondary" not in css and ".hc-selection-bar button:disabled" not in css
+    base = (_ROOT / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    assert ".whatsnew-filter__clear {" in base and ".whatsnew-filter__clear:hover { text-decoration: underline; }" in base
 
 
 def test_adapter_and_css_support_the_fixed_column_light_dark_and_mobile():

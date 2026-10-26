@@ -157,21 +157,6 @@
     <button type="button" class="whatsnew-filter__clear" hx-get="{{ pager.urls.reset }}" hx-target="#hc-profiles-panel" hx-swap="outerHTML">✕ Limpiar</button>
   </form>
 
-  {# Barra contextual de SELECCIÓN (CCHH → Candidatos): entre la barra de filtros y el listado; SIEMPRE visible (con 0 seleccionados queda en estado vacío, tenue y con las acciones deshabilitadas): si apareciera al marcar la primera casilla desplazaría la tabla bajo el cursor. El estado (solo `profile_id`) vive en el cliente
-     (`human_capital_candidates_selection.js`, sessionStorage) porque este panel se reemplaza entero en cada filtro/orden/página. Reusa `.filter-toolbar-card` (borde/padding del Hub) y
-     `.btn-primary/.btn-secondary`. «Compartir perfiles» abre el diálogo de `profiles.html`; no hay exportación ni descarga de documentos. #}
-  <div class="hc-selection-bar filter-toolbar-card is-empty" data-hc-selection-bar role="region" aria-label="Selección de candidatos">
-    <span class="hc-selection-bar__count" role="status" aria-live="polite"><strong data-hc-selection-count>0</strong> <span data-hc-selection-label>seleccionados</span></span>
-    <span class="field-hint hc-selection-bar__hint" data-hc-selection-hint>Marcá las casillas de la tabla para compartir perfiles.</span>
-    <div class="hc-selection-bar__actions">
-      <button type="button" class="btn-primary" data-hc-share-open disabled>
-        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>
-        Compartir perfiles
-      </button>
-      <button type="button" class="btn-secondary" data-hc-clear-selection disabled>Limpiar selección</button>
-    </div>
-  </div>
-
   {# El listado en sí (filtros EXCLUIDOS, ver arriba) sigue viviendo en el
      primitivo compartido de paneles (`initDashboardSections` /
      `<details class="dashboard-section">`) -- colapsable/reordenable, con
@@ -189,6 +174,22 @@
         {% if not source_error %}<span class="dashboard-section__count">{{ total_profiles }} candidato{{ '' if total_profiles == 1 else 's' }}</span>{% endif %}
       </summary>
       <div class="dashboard-section__body">
+  {# Barra contextual de SELECCIÓN (CCHH → Candidatos): DENTRO del agrupador «Candidatos», debajo de su encabezado y antes de la tabla. OCULTA por completo (`hidden`, sin altura ni márgenes) mientras no haya nada seleccionado; el JS la muestra al marcar el
+     primero y la oculta al quitar el último, compensando el desplazamiento de la tabla para que el clic siguiente no caiga en otra fila. El estado (solo `profile_id`) vive en el cliente
+     (`human_capital_candidates_selection.js`, sessionStorage) porque este panel se reemplaza entero en cada filtro/orden/página. Reusa `.filter-toolbar-card` (borde/padding del Hub),
+     `.btn-primary` y el «✕ Limpiar» compartido (`.whatsnew-filter__clear`, tools.css). «Compartir perfiles» abre el diálogo de `profiles.html`; no hay exportación ni descarga de documentos. #}
+  <div class="hc-selection-bar filter-toolbar-card" data-hc-selection-bar role="region" aria-label="Selección de candidatos" hidden>
+    <span class="hc-selection-bar__count" role="status" aria-live="polite"><strong data-hc-selection-count>0</strong> <span data-hc-selection-label>seleccionados</span></span>
+    <span class="field-hint hc-selection-bar__hint" data-hc-selection-hint></span>
+    <div class="hc-selection-bar__actions">
+      <button type="button" class="btn-primary" data-hc-share-open>
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>
+        Compartir perfiles
+      </button>
+      <button type="button" class="whatsnew-filter__clear" data-hc-clear-selection>✕ Limpiar selección</button>
+    </div>
+  </div>
+
   {% if source_error %}
   <div class="dashboard-empty" data-error-kind="{{ 'config_incomplete' if config_incomplete else 'source_error' }}">
     <span class="dashboard-empty__label">No disponible</span>

@@ -5,7 +5,7 @@
      localStorage). Persiste entre páginas y filtros: el panel del listado se reemplaza entero en cada filtro/orden/página (HTMX), así que el estado vive AFUERA del fragmento y
      después de cada swap se re-marcan las casillas visibles.
    · Casilla de encabezado: selecciona/deselecciona SOLO las filas de la página visible; es tri-estado (marcada / indeterminada / vacía).
-   · Barra contextual (siempre visible; con 0 seleccionados queda tenue y con las acciones deshabilitadas): contador, «Compartir perfiles» y «Limpiar selección».
+   · Barra contextual (oculta con 0 seleccionados; el desplazamiento al aparecer/desaparecer se compensa para no desviar el clic siguiente): contador, «Compartir perfiles» y «✕ Limpiar selección».
    · «Compartir perfiles»: pide al servidor (POST, solo ids) el contenido del diálogo —nombres y rutas de las FICHAS resueltos en servidor— y arma el mensaje con el origen del
      propio navegador. «Copiar» y «Abrir Outlook» (`mailto:`) son acciones explícitas del usuario; no se envía ni se registra nada.
 
@@ -89,6 +89,27 @@
   function mailtoFits(subject, body) { return mailtoUrl(subject, body).length <= MAILTO_MAX; }
 
   // ───────────────────────── sincronización de la interfaz ─────────────────────────
+  // Al aparecer/desaparecer la barra, todo lo que está debajo (la tabla) se corre su alto: el próximo clic caería en otra fila. `keepInPlace` mide dónde estaba el control accionado, aplica el
+  // cambio y reubica el desplazamiento del contenedor para que ese control quede exactamente donde estaba (si no hay nada que compensar, no hace nada).
+  function scroller(doc, el) {
+    var win = doc.defaultView;
+    for (var node = el && el.parentElement; node && win && win.getComputedStyle; node = node.parentElement) {
+      var oy = win.getComputedStyle(node).overflowY;
+      if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight) return node;
+    }
+    return doc.scrollingElement || doc.documentElement || null;
+  }
+
+  function keepInPlace(doc, anchor, change) {
+    var canMeasure = anchor && anchor.getBoundingClientRect;
+    var before = canMeasure ? anchor.getBoundingClientRect().top : 0;
+    change();
+    if (!canMeasure || !anchor.isConnected) return;
+    var delta = anchor.getBoundingClientRect().top - before;
+    var box = delta ? scroller(doc, anchor) : null;
+    if (box) box.scrollTop += delta;
+  }
+
   function syncUI(doc, store) {
     var boxes = [].slice.call(doc.querySelectorAll("[data-hc-select]"));
     var visibleSelected = 0;
@@ -106,8 +127,7 @@
     });
     var total = store.size();
     [].slice.call(doc.querySelectorAll("[data-hc-selection-bar]")).forEach(function (bar) {
-      bar.hidden = false;                                                                   // siempre visible: aparecer al marcar la primera casilla desplazaría la tabla
-      if (bar.classList) { if (total === 0) bar.classList.add("is-empty"); else bar.classList.remove("is-empty"); }
+      bar.hidden = total === 0;                                                             // sin selección no ocupa lugar; el desplazamiento al aparecer/desaparecer lo compensa `keepInPlace`
       var count = bar.querySelector("[data-hc-selection-count]");
       if (count) count.textContent = String(total);
       var label = bar.querySelector("[data-hc-selection-label]");
@@ -116,13 +136,10 @@
       if (hint) {
         var outside = total - visibleSelected;
         var parts = [];
-        if (total === 0) parts.push("Marcá las casillas de la tabla para compartir perfiles.");
         if (outside > 0) parts.push(outside + (outside === 1 ? " fuera de la vista actual (otra página o filtro)" : " fuera de la vista actual (otras páginas o filtros)"));
         if (total > MAX_SHARE) parts.push("Compartir admite hasta " + MAX_SHARE + " perfiles");
         hint.textContent = parts.join(" · ");
       }
-      var clear = bar.querySelector("[data-hc-clear-selection]");
-      if (clear) clear.disabled = total === 0;
       var share = bar.querySelector("[data-hc-share-open]");
       if (share) {
         share.disabled = total === 0 || total > MAX_SHARE;
@@ -214,12 +231,10 @@
       if (!t || !t.matches) return;
       if (t.matches("[data-hc-select]")) {
         var id = t.getAttribute("data-hc-select");
-        if (t.checked) store.add(id); else store.remove(id);
-        syncUI(doc, store);
+        keepInPlace(doc, t, function () { if (t.checked) store.add(id); else store.remove(id); syncUI(doc, store); });
       } else if (t.matches("[data-hc-select-page]")) {
         var visible = [].slice.call(doc.querySelectorAll("[data-hc-select]")).map(function (b) { return b.getAttribute("data-hc-select"); });
-        if (t.checked) store.add(visible); else store.remove(visible);                              // SOLO la página visible
-        syncUI(doc, store);
+        keepInPlace(doc, t, function () { if (t.checked) store.add(visible); else store.remove(visible); syncUI(doc, store); });     // SOLO la página visible
       }
     });
     doc.addEventListener("input", function (event) {
@@ -247,7 +262,7 @@
   }
 
   var api = { STORAGE_KEY: STORAGE_KEY, MAX_SHARE: MAX_SHARE, MAILTO_MAX: MAILTO_MAX, createStore: createStore, buildMessage: buildMessage, mailtoUrl: mailtoUrl,
-              mailtoFits: mailtoFits, syncUI: syncUI, refreshMailto: refreshMailto, initShare: initShare, openShare: openShare, wire: wire };
+              mailtoFits: mailtoFits, syncUI: syncUI, keepInPlace: keepInPlace, refreshMailto: refreshMailto, initShare: initShare, openShare: openShare, wire: wire };
   if (typeof window !== "undefined") {
     window.__cchhSelection = api;
     if (typeof document !== "undefined" && document.body && !window.__cchhSelectionWired) {
