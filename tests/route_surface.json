@@ -155,6 +155,7 @@
   "POST /cchh/busquedas/{busqueda_id}/scoring/jd",
   "POST /cchh/busquedas/{busqueda_id}/solicitar-correccion",
   "POST /cchh/busquedas/{busqueda_id}/tomar",
+  "POST /cchh/candidatos/compartir",
   "POST /cchh/candidatos/importar/confirm",
   "POST /cchh/candidatos/importar/preview",
   "POST /cchh/candidatos/nuevo",

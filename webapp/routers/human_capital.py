@@ -115,7 +115,7 @@ from webapp.services import (
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
 from webapp.services import cv_history_acceptance, cv_history_drafts, cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
-from webapp.services import human_capital_contact
+from webapp.services import human_capital_contact, human_capital_share
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
@@ -980,6 +980,28 @@ def human_capital_profile_detail_page(request: Request, profile_id: str):
             "profile": profile,
             "documents": documents,
         },
+        headers=_NO_STORE,
+    )
+
+
+@router.post("/cchh/candidatos/compartir", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profiles_share_dialog(request: Request, profile_ids: list[str] = Form([])):
+    """Contenido del diálogo «Compartir perfiles» (se pide por demanda al accionar, como «Contactar al candidato» del Pipeline). POST con SOLO ids (no viajan por la URL ni quedan en el
+    registro de accesos); mismo origen obligatorio (las cookies son SameSite=None). El servidor es la autoridad del límite (``MAX_SHARE_PROFILES``) y resuelve nombres y rutas de las
+    fichas: el navegador no confía en nada que haya guardado. Es una AYUDA para redactar: no envía ni registra nada, no incluye datos de contacto ni enlaces a SharePoint."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    try:
+        selection = human_capital_share.resolve(profile_ids, human_capital_service.get_profile)
+    except ProfileStorageError:
+        selection = human_capital_share.ShareSelection(reason=human_capital_share.REASON_SOURCE_ERROR)
+    return templates.TemplateResponse(
+        request=request, name="partials/human_capital_share_dialog_content.html",
+        context={"selection": selection, "subject": human_capital_share.DEFAULT_SUBJECT, "intro": human_capital_share.INTRO, "outro": human_capital_share.OUTRO,
+                 "max_profiles": human_capital_share.MAX_SHARE_PROFILES},
         headers=_NO_STORE,
     )
 

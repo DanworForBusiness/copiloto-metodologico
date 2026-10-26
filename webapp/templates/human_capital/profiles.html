@@ -33,6 +33,13 @@
   </main>
 </div>
 
+{# Diálogo ÚNICO de «Compartir perfiles»: MISMO `<dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog">` que «Contactar al candidato» (Pipeline). Vive FUERA del panel (que se
+   reemplaza en cada filtro); su contenido se pide por demanda al accionar y solo trae a los candidatos elegidos. #}
+<dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog hc-share-dialog" id="hc-share-dialog" aria-labelledby="hc-share-title">
+  <div id="hc-share-content"></div>
+</dialog>
+<script src="{{ url_for('static', path='human_capital_candidates_selection.js') }}?v={{ static_version }}" defer></script>
+
 {# CSS propio de la vertical (ver human_capital.css) — MISMO mecanismo que
    commercial.css/reporting.css: base.html solo carga los stylesheets del
    Hub, lo específico de un workspace lo linkea su propia página. #}

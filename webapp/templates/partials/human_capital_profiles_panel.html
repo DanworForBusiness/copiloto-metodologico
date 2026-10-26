@@ -157,6 +157,21 @@
     <button type="button" class="whatsnew-filter__clear" hx-get="{{ pager.urls.reset }}" hx-target="#hc-profiles-panel" hx-swap="outerHTML">✕ Limpiar</button>
   </form>
 
+  {# Barra contextual de SELECCIÓN (CCHH → Candidatos): entre la barra de filtros y el listado; SIEMPRE visible (con 0 seleccionados queda en estado vacío, tenue y con las acciones deshabilitadas): si apareciera al marcar la primera casilla desplazaría la tabla bajo el cursor. El estado (solo `profile_id`) vive en el cliente
+     (`human_capital_candidates_selection.js`, sessionStorage) porque este panel se reemplaza entero en cada filtro/orden/página. Reusa `.filter-toolbar-card` (borde/padding del Hub) y
+     `.btn-primary/.btn-secondary`. «Compartir perfiles» abre el diálogo de `profiles.html`; no hay exportación ni descarga de documentos. #}
+  <div class="hc-selection-bar filter-toolbar-card is-empty" data-hc-selection-bar role="region" aria-label="Selección de candidatos">
+    <span class="hc-selection-bar__count" role="status" aria-live="polite"><strong data-hc-selection-count>0</strong> <span data-hc-selection-label>seleccionados</span></span>
+    <span class="field-hint hc-selection-bar__hint" data-hc-selection-hint>Marcá las casillas de la tabla para compartir perfiles.</span>
+    <div class="hc-selection-bar__actions">
+      <button type="button" class="btn-primary" data-hc-share-open disabled>
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>
+        Compartir perfiles
+      </button>
+      <button type="button" class="btn-secondary" data-hc-clear-selection disabled>Limpiar selección</button>
+    </div>
+  </div>
+
   {# El listado en sí (filtros EXCLUIDOS, ver arriba) sigue viviendo en el
      primitivo compartido de paneles (`initDashboardSections` /
      `<details class="dashboard-section">`) -- colapsable/reordenable, con
@@ -210,15 +225,18 @@
          preferencia guardada -- este es sólo el default de la primera
          carga, nunca un tope. #}
       <colgroup>
+        <col style="width:44px">
         <col data-column-key="nombre" style="width:28%">
         <col data-column-key="skills" style="width:23%">
         <col data-column-key="seniority" style="width:12%">
         <col data-column-key="ubicacion" style="width:17%">
         <col data-column-key="fuente" style="width:14%">
-        <col style="width:76px">
+        <col style="width:112px">
       </colgroup>
       <thead>
         <tr>
+          {# Selección: columna FIJA al inicio (`data-column-fixed="start"`: ni reordenable ni redimensionable; el adapter de abajo la mantiene primera). La casilla del encabezado afecta SOLO a las filas de esta página. #}
+          <th class="center hc-select-col" data-column-fixed="start"><input type="checkbox" data-hc-select-page aria-label="Seleccionar todos los candidatos de esta página"></th>
           {# Cabeceras ordenables: patrón de las tablas del Hub (`dashboard-table-th--sortable`, ▲/▼ en la columna activa). El orden se aplica en el servidor sobre el resultado completo, antes de paginar. #}
           {% for key, label in (('nombre', 'Nombre completo'), ('skills', 'Perfil / Skills'), ('seniority', 'Seniority'), ('ubicacion', 'Ubicación'), ('fuente', 'Fuente')) %}
           <th class="left dashboard-table-th--sortable" data-column-key="{{ key }}" draggable="true" data-sort-key="{{ key }}" hx-get="{{ sort_state.urls[key] }}" hx-target="#hc-profiles-panel" hx-swap="outerHTML"
@@ -230,6 +248,7 @@
       <tbody>
         {% for profile in profiles %}
         <tr>
+          <td class="center hc-select-col" data-column-fixed="start"><input type="checkbox" data-hc-select="{{ profile.profile_id }}" aria-label="Seleccionar a {{ profile.first_name }} {{ profile.last_name }}"></td>
           <td class="left" data-column-key="nombre"><div class="dw-idcell"><span class="hc-candidate-name dw-idcell__name">{{ profile.first_name }} {{ profile.last_name }}</span>{% if profile.potential_mark %}<span class="status-badge status-badge--potential dw-idcell__meta" title="Marca de potencial" data-indicator="potencial">{{ profile.potential_mark }}</span>{% endif %}{% if profile.potential_rating %}<span class="hc-candidate-scoring dw-idcell__meta" data-indicator="scoring" title="Scoring {{ profile.potential_rating }}/5">{{ star_rating(value=profile.potential_rating, readonly=true, label="Scoring", size="sm") }}</span>{% endif %}</div></td>
           <td class="left" data-column-key="skills">{{ profile.profile_skills or "—" }}</td>
           <td class="left" data-column-key="seniority">{{ profile.seniority or "—" }}</td>
@@ -304,19 +323,14 @@
     const order = readStoredColumnOrder(orderKey, validKeys);
     if (!order) return; // sin preferencia (o inválida) -> el orden default del SSR queda tal cual
     container.querySelectorAll("tr").forEach(function (row) {
-      // 1) mueve cada celda reordenable a la posición guardada, en secuencia.
-      order.forEach(function (key) {
-        const cell = row.querySelector('[data-column-key="' + key + '"]');
-        if (cell) row.appendChild(cell);
-      });
-      // 2) "Acciones" (y cualquier otra celda sin data-column-key) NUNCA
-      //    entra al array reordenable -- se re-empuja al final SIEMPRE,
-      //    mismo criterio que la celda de acción fija de Comercial. Sin
-      //    este segundo paso, el paso 1 la dejaría PRIMERA (nunca se la
-      //    tocó, así que quedó relativamente antes que las que sí se
-      //    movieron al fondo).
-      [...row.children].filter(function (cell) { return !cell.dataset.columnKey; })
-        .forEach(function (cell) { row.appendChild(cell); });
+      // Orden final de la fila = [celdas FIJAS al inicio (`data-column-fixed="start"`, la casilla de selección)] + [celdas reordenables en el orden guardado] +
+      // [el resto sin data-column-key, p. ej. "Acciones", SIEMPRE al final -- mismo criterio que la celda de acción fija de Comercial]. Se reubican con `appendChild` en ese
+      // orden (mueve el nodo existente): sin la rama "fijas", la casilla -sin key- caía en el grupo "resto" y terminaba al FINAL.
+      const cells = [...row.children];
+      const fixed = cells.filter(function (cell) { return cell.dataset.columnFixed === "start"; });
+      const keyed = order.map(function (key) { return row.querySelector('[data-column-key="' + key + '"]'); }).filter(Boolean);
+      const rest = cells.filter(function (cell) { return !cell.dataset.columnKey && cell.dataset.columnFixed !== "start"; });
+      fixed.concat(keyed, rest).forEach(function (cell) { row.appendChild(cell); });
     });
   }
   function applyStoredColumnWidths(container) {

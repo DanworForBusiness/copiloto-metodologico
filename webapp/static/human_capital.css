@@ -757,8 +757,27 @@ table.dashboard-table[data-exceptions-rows] th:is(:nth-child(2), :nth-child(3)) 
 /* Campo bloqueado por el contexto de acceso (Entrevista: resumen CCHH ↔ técnico): grisado y de solo lectura. El servidor además conserva su valor al guardar. */
 .feedback-field.is-locked textarea { opacity: .55; cursor: not-allowed; background: rgba(128, 128, 140, .14); }
 
-/* ═══ CCHH · Candidatos: ficha de consulta (solo lectura) ═══
-   Valores de solo lectura con los neutros del Hub (mismos bordes/colores que los campos). */
+/* ═══ CCHH · Candidatos: selección múltiple, «Compartir perfiles» y ficha de consulta ═══
+   Casilla del Hub (accent = --gold), barra contextual sobre el MISMO `.filter-toolbar-card`, valores de solo lectura con los neutros del Hub (mismos bordes/colores que los campos). */
+.hc-select-col { text-align: center; }
+.hc-select-col input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--gold); cursor: pointer; vertical-align: middle; }
+.hc-select-col input[type="checkbox"]:disabled { cursor: default; }
+#hc-candidatos-table th.hc-select-col, #hc-candidatos-table td.hc-select-col { padding-left: 10px; padding-right: 6px; }
+#hc-candidatos-table tbody tr.is-selected > td { background: rgba(231, 176, 8, .07); }
+.hc-selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; padding: 10px 16px; }
+.hc-selection-bar.is-empty .hc-selection-bar__count { opacity: .6; }
+.hc-selection-bar button:disabled { cursor: not-allowed; }
+.hc-selection-bar__count { font-size: .85rem; }
+.hc-selection-bar__hint { margin: 0; flex: 1 1 200px; min-width: 0; }
+.hc-selection-bar__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.hc-selection-bar .btn-primary, .hc-selection-bar .btn-secondary { display: inline-flex; align-items: center; gap: 6px; min-height: 0; padding: 6px 12px; font-size: .78rem; }
+.hc-selection-bar .btn-primary:disabled { cursor: not-allowed; }
+@media (max-width: 640px) {
+  .hc-selection-bar__actions { margin-left: 0; width: 100%; }
+  .hc-select-col input[type="checkbox"] { width: 22px; height: 22px; }
+  #hc-candidatos-table { min-width: 640px; }                      /* con la columna de casillas la tabla no entra en ~275px: desplaza horizontalmente dentro de `.matrix-scroll` en vez de aplastar las columnas */
+}
+.hc-share-dialog a.btn-primary.is-disabled { opacity: .45; pointer-events: none; }
 .hc-readonly-value { min-height: 38px; padding: 8px 11px; border: 1px solid rgba(128, 128, 128, .28); border-radius: 8px; background: transparent; color: #1f1f24; font-size: .85rem; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
 .content-theme-dark .hc-readonly-value { color: #e4e4ec; }
 .hc-readonly-value--empty { color: #7a7a82; }

@@ -1,0 +1,41 @@
+{# Contenido del diálogo «Compartir perfiles» (CCHH → Candidatos): se pide POR DEMANDA al accionar (POST /cchh/candidatos/compartir, solo ids) y trae nombres y rutas de las FICHAS de consulta
+   resueltos en servidor. Es una AYUDA para redactar —MISMO patrón que «Contactar al candidato» del Pipeline (`busqueda-contact*`)—: nada se envía ni se registra desde acá; «Copiar mensaje» y
+   «Abrir Outlook» (`mailto:`) son acciones explícitas del usuario. El mensaje lleva SOLO nombre y enlace a la ficha del Hub (jamás email/teléfono, ni `/editar`, ni enlaces a SharePoint); los
+   enlaces son internos: quien los abra necesita sesión con autorización de Capital Humano. El comportamiento (armado del mensaje con el origen del navegador, copiar, límite del `mailto:`)
+   lo da `human_capital_candidates_selection.js`. #}
+{% if not selection.ok %}
+<div class="dw-confirm__body">
+  <h2 class="dw-confirm__title" id="hc-share-title">Compartir perfiles</h2>
+  <p class="dw-confirm__msg" data-share-error="{{ selection.reason }}">{{ selection.message }}</p>
+</div>
+<div class="dw-confirm__actions">
+  <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>
+</div>
+{% else %}
+<div class="dw-confirm__body busqueda-contact" data-share-root data-default-subject="{{ subject }}" data-intro="{{ intro }}" data-outro="{{ outro }}">
+  <h2 class="dw-confirm__title" id="hc-share-title">Compartir {{ selection.items | length }} perfil{{ '' if selection.items | length == 1 else 'es' }}</h2>
+  <p class="field-hint busqueda-contact__context">Los enlaces abren la ficha del candidato en el Hub; quien los reciba necesita acceso a Capital Humano. No se incluyen datos de contacto ni enlaces a SharePoint.</p>
+  {% if selection.unavailable %}<p class="field-hint field-hint--warn" data-share-unavailable-note>{{ selection.unavailable | length }} candidato{{ ' ya no está disponible y se quitó' if selection.unavailable | length == 1 else 's ya no están disponibles y se quitaron' }} de la selección.</p>{% endif %}
+  <div class="feedback-field">
+    <label for="hc-share-asunto">Asunto</label>
+    <div class="busqueda-contact__inline">
+      <input id="hc-share-asunto" type="text" data-share-subject autocomplete="off">
+      <button type="button" class="btn-secondary busqueda-contact__copy" data-share-copy="asunto">Copiar</button>
+    </div>
+  </div>
+  <div class="feedback-field">
+    <label for="hc-share-mensaje">Mensaje</label>
+    <textarea id="hc-share-mensaje" rows="{{ [16, 7 + 2 * (selection.items | length)] | min }}" data-share-message></textarea>
+    <p class="field-hint">Es un texto sugerido: revisalo antes de enviarlo. «Abrir Outlook» no envía nada, solo abre un correo con este texto en tu cliente de correo.</p>
+  </div>
+  <p class="field-hint field-hint--warn" data-share-note hidden></p>
+  <p class="field-hint" data-share-status role="status" hidden></p>
+</div>
+<div class="dw-confirm__actions busqueda-contact__actions">
+  <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>
+  <button type="button" class="btn-secondary" data-share-copy="mensaje">Copiar mensaje</button>
+  <a class="btn-primary" data-share-open href="#">Abrir Outlook</a>
+</div>
+<script type="application/json" data-share-items>{{ selection.items | tojson }}</script>
+<script type="application/json" data-share-unavailable>{{ selection.unavailable | tojson }}</script>
+{% endif %}
