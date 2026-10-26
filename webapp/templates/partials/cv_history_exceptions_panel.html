@@ -19,7 +19,7 @@
     <div class="matrix-scroll"><table class="dashboard-table" data-exceptions-rows>
       <thead><tr><th scope="col" class="left">Contenido</th><th scope="col" class="left">Estado y categoría</th><th scope="col" class="left">Datos extraídos y evidencia</th><th scope="col" class="left">Perfiles sugeridos</th><th scope="col" class="left">Acciones</th></tr></thead>
       <tbody>
-      {% for r in rows %}{% set result = none %}{% set form = none %}{% set draft_form = none %}{% set draft_revision = none %}{% include "partials/cv_history_exception_row.html" %}
+      {% for r in rows %}{% set result = none %}{% set form = none %}{% set draft_form = none %}{% set draft_revision = none %}{% set accept_preview = none %}{% include "partials/cv_history_exception_row.html" %}
       {% else %}<tr><td class="left" colspan="5"><span class="field-hint" data-exceptions-empty>No hay excepciones con este filtro.</span></td></tr>{% endfor %}
       </tbody>
     </table></div>

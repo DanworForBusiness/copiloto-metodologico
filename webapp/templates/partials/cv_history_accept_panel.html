@@ -1,0 +1,56 @@
+{# Panel «Revisar para aceptar» (Entrega C). Es la REVISIÓN de solo lectura calculada contra el Banco de este momento: nada de lo que se ve acá escribe algo. Cada formulario de confirmación lleva la huella de esta revisión; si algo cambia antes de confirmar, el servidor no escribe nada y pide revisar de nuevo. Datos personales: solo el owner, `no-store`. #}
+{% set pending = pre.accepted and pre.ledger_state != 'DONE' %}
+<div class="hc-exc-accept" data-accept-panel data-accept-fingerprint="{{ pre.fingerprint or '' }}">
+  {% if pre.blockers %}
+    <p class="callout callout--warn" data-accept-blocked><span class="callout__body">{% for b in pre.blockers %}{{ b }} {% endfor %}</span></p>
+  {% else %}
+    <p class="field-hint" data-accept-draft>Se revisa la <strong>revisión {{ pre.draft.revision }}</strong> del borrador (guardada por {{ pre.draft.updated_by }}, {{ pre.draft.updated_at[:16].replace('T', ' ') }} UTC). Si editaste el formulario sin guardar, guardalo primero y volvé a revisar.</p>
+    <ul data-accept-fields>
+      <li>Nombre: {{ pre.draft.fields.first_name or '—' }} · Apellido: {{ pre.draft.fields.last_name or '—' }}</li>
+      <li>Email: {{ pre.draft.fields.email or 'sin email' }} · Teléfono: {{ pre.draft.fields.phone or '—' }}</li>
+      <li class="field-hint">Las observaciones del borrador no se copian al perfil.</li>
+    </ul>
+    <p class="callout callout--warn" data-accept-irreversible><span class="callout__body"><strong>Esto no se puede deshacer desde esta pantalla.</strong> Crear un perfil agrega una persona real al Banco (visible en Candidatos y búsquedas) y sube el CV a su carpeta; vincular agrega el CV a un perfil existente sin modificar sus datos.</span></p>
+
+    {% if pending %}
+    <div class="callout callout--info" data-accept-pending><span class="callout__body">Hay una aceptación <strong>en curso</strong> ({{ 'perfil nuevo' if pre.accepted.op == 'create' else 'vincular a un perfil existente' }}, aceptada por {{ pre.accepted.by }}) que no terminó de subir el CV. Solo se puede completar esa misma decisión.</span></div>
+    <form class="hc-exc-form" data-accept-resume hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ content_key }}/aceptar" hx-target="#exc-{{ content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
+      <input type="hidden" name="op" value="{{ pre.accepted.op }}"><input type="hidden" name="revision" value="{{ pre.draft.revision }}"><input type="hidden" name="fingerprint" value="{{ pre.fingerprint }}">
+      {% if pre.accepted.op == 'link' %}<input type="hidden" name="profile_id" value="{{ pre.accepted.profile_id }}">{% endif %}
+      <button type="submit" class="btn-primary">Completar la aceptación en curso</button>
+    </form>
+    {% else %}
+
+    <p><strong>Coincidencias con el Banco</strong> <span class="field-hint">({{ pre.relevant_total }} fuerte{{ 's' if pre.relevant_total != 1 }} o probable{{ 's' if pre.relevant_total != 1 }}; nunca se vincula solo)</span></p>
+    {% if pre.matches %}
+    <ul data-accept-matches>
+      {% for m in pre.matches %}
+      <li data-match-strength="{{ m.strength }}"><strong>{{ strength_label[m.strength] }}</strong>: {{ m.name or '(sin nombre)' }} · {{ m.email or 'sin email' }} · <a href="/cchh/candidatos/{{ m.profile_id }}/editar" target="_blank" rel="noopener noreferrer">ver perfil</a> — {% for s in m.signals %}{{ signal_label.get(s, s) }}{{ ', ' if not loop.last }}{% endfor %}{% if m.phone_only %} <em>(solo celular: no confirma identidad)</em>{% endif %}{% if m.deleted %} <em>(dado de baja: no se puede vincular)</em>{% endif %}
+        {% if m.selectable %}
+        <form class="hc-exc-form" data-accept-link hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ content_key }}/aceptar" hx-target="#exc-{{ content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
+          <input type="hidden" name="op" value="link"><input type="hidden" name="profile_id" value="{{ m.profile_id }}"><input type="hidden" name="target_revision" value="{{ m.revision }}"><input type="hidden" name="revision" value="{{ pre.draft.revision }}"><input type="hidden" name="fingerprint" value="{{ pre.fingerprint }}">
+          {% for code in pre.link.acks %}<label class="hc-exc-ack"><input type="checkbox" name="ack" value="{{ code }}"> <span>{{ ack_labels[code] }}</span></label>{% endfor %}
+          {% if not m.relevant %}<label class="hc-exc-ack"><input type="checkbox" name="ack" value="weak_link"> <span>{{ ack_labels['weak_link'] }}</span></label>{% endif %}
+          <button type="submit" class="btn-secondary">Vincular el CV a este perfil</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="field-hint" data-accept-no-matches>No hay coincidencias en el Banco.</p>{% endif %}
+
+    <p><strong>Crear un perfil nuevo</strong></p>
+    {% if pre.create.allowed %}
+    {% if pre.create.duplicate %}<p class="callout callout--warn" data-accept-duplicate><span class="callout__body">Ya existe <strong>{{ pre.create.duplicate.name }}</strong>{% if pre.create.duplicate.email %} ({{ pre.create.duplicate.email }}){% endif %} con el mismo {{ 'email' if pre.draft.fields.email else 'nombre' }}. Podés vincular el CV a ese perfil o crear uno nuevo igual (con tu confirmación).</span></p>{% endif %}
+    {% if pre.create.email_missing %}<p class="callout callout--warn" data-accept-no-email><span class="callout__body">El borrador no tiene email: el perfil se crearía sin email y los duplicados se detectan solo por nombre.</span></p>{% endif %}
+    <form class="hc-exc-form" data-accept-create hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ content_key }}/aceptar" hx-target="#exc-{{ content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
+      <input type="hidden" name="op" value="create"><input type="hidden" name="revision" value="{{ pre.draft.revision }}"><input type="hidden" name="fingerprint" value="{{ pre.fingerprint }}">
+      {% for code in pre.create.acks %}<label class="hc-exc-ack"><input type="checkbox" name="ack" value="{{ code }}"> <span>{{ ack_labels[code] }}</span></label>{% endfor %}
+      <button type="submit" class="btn-primary">Aceptar y crear el perfil nuevo</button>
+    </form>
+    {% else %}
+    <p class="callout callout--warn" data-accept-create-blocked><span class="callout__body">{% for b in pre.create.blockers %}{{ b }} {% endfor %}</span></p>
+    {% endif %}
+    {% endif %}
+  {% endif %}
+</div>
