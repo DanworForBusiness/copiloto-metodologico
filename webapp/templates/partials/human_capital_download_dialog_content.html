@@ -1,0 +1,76 @@
+{# Contenido del diálogo «Descargar CVs» (CCHH → Candidatos, Fase 2). Se pide POR DEMANDA y se reemplaza según el estado (`state`):
+   summary (resumen previo + confirmación) · partial (algunos CVs no se obtuvieron: NO se entregó nada y se pide una SEGUNDA confirmación) · failed · cancelled · stale · busy ·
+   audit_unavailable · no_token · source_error · error. El estado «preparando…» y el de «listo» los dibuja el navegador (`human_capital_candidates_download.js`).
+   Los nombres y archivos que se muestran son del propio Banco de CVs y se escapan; el servidor revalida todo (límites, digest del plan) al confirmar. #}
+{% macro mb(n) %}{{ ('%.1f' | format(n / 1048576)) | replace('.', ',') }} MB{% endmacro %}
+{% macro close_button() %}<form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>{% endmacro %}
+
+{% if state == "summary" and plan.ok %}
+<div class="dw-confirm__body busqueda-contact hc-dl" data-dl-root data-plan-digest="{{ plan.digest }}" data-has-omitted="{{ 1 if plan.omitted else 0 }}">
+  <h2 class="dw-confirm__title" id="hc-download-title">Descargar CVs</h2>
+  <p class="field-hint busqueda-contact__context">Los CVs se leen de SharePoint con tus permisos de Microsoft y se entregan en un único ZIP temporal: no se guarda ninguna copia en el Hub y los originales no se modifican. Queda un registro de la operación (quién, cuándo y qué documentos, sin datos personales).</p>
+  <dl class="hc-dl-stats">
+    <div><dt>Candidatos seleccionados</dt><dd data-dl-count="candidates">{{ plan.candidates | length }}</dd></div>
+    <div><dt>CVs a descargar</dt><dd data-dl-count="documents">{{ plan.docs | length }}</dd></div>
+    <div><dt>Tamaño total</dt><dd data-dl-count="size">{{ mb(plan.declared_bytes) }}</dd></div>
+    <div><dt>Tiempo estimado</dt><dd>~{{ plan.estimate_s | round | int }} s</dd></div>
+  </dl>
+  <p class="field-hint">Límites por descarga: {{ limits.MAX_CANDIDATES }} candidatos, {{ limits.MAX_FILES }} archivos, {{ limits.MAX_TOTAL_BYTES // 1048576 }} MB en total y {{ limits.MAX_FILE_BYTES // 1048576 }} MB por archivo.</p>
+  {% set without_cv = plan.candidates | selectattr('docs_included', 'equalto', 0) | list %}
+  {% if without_cv %}
+  <details class="hc-dl-detail"><summary>{{ without_cv | length }} candidato{{ '' if without_cv | length == 1 else 's' }} sin CVs para descargar</summary>
+    <ul class="hc-share-list">{% for c in without_cv %}<li>{{ c.name }}</li>{% endfor %}</ul></details>
+  {% endif %}
+  {% if plan.omitted %}
+  <div class="hc-dl-warn" data-dl-omitted>
+    <p class="field-hint field-hint--warn"><strong>{{ plan.omitted | length }} documento{{ '' if plan.omitted | length == 1 else 's' }} no se puede{{ '' if plan.omitted | length == 1 else 'n' }} incluir</strong> (al confirmar aceptás que quedan fuera):</p>
+    <ul class="hc-share-list">{% for o in plan.omitted %}<li>{{ o.candidate }} — {{ o.filename }}: {{ limits.OMIT_MESSAGES.get(o.reason, o.reason) }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if plan.unavailable %}<p class="field-hint field-hint--warn">{{ plan.unavailable | length }} candidato{{ ' ya no está disponible y no se incluye' if plan.unavailable | length == 1 else 's ya no están disponibles y no se incluyen' }}.</p>{% endif %}
+  {% if plan.risk_time %}<p class="field-hint field-hint--warn" data-dl-risk>Con esta cantidad de archivos la descarga podría no completarse en {{ limits.TIME_BUDGET_S | int }} s. Si queda incompleta no se entrega nada sin que lo confirmes. Podés dividir la selección.</p>{% endif %}
+  <p class="field-hint">Si algún CV no se puede obtener (sin permiso, no encontrado, límite de Microsoft o tiempo), <strong>no se descarga nada</strong> hasta que confirmes explícitamente una descarga parcial.</p>
+</div>
+<div class="dw-confirm__actions busqueda-contact__actions">
+  {{ close_button() }}
+  <button type="button" class="btn-primary" data-dl-confirm>Descargar ZIP ({{ plan.docs | length }} archivo{{ '' if plan.docs | length == 1 else 's' }})</button>
+</div>
+
+{% elif state == "summary" %}
+<div class="dw-confirm__body"><h2 class="dw-confirm__title" id="hc-download-title">Descargar CVs</h2><p class="dw-confirm__msg" data-dl-error="{{ plan.reason }}">{{ plan.message }}</p></div>
+<div class="dw-confirm__actions">{{ close_button() }}</div>
+
+{% elif state == "partial" or state == "failed" %}
+<div class="dw-confirm__body busqueda-contact hc-dl" data-dl-root data-plan-digest="{{ plan.digest }}" data-has-omitted="{{ 1 if plan.omitted else 0 }}">
+  <h2 class="dw-confirm__title" id="hc-download-title">{{ 'No se pudieron obtener algunos CVs' if state == 'partial' else 'No se pudo obtener ningún CV' }}</h2>
+  <p class="field-hint field-hint--warn" data-dl-withheld>
+    {% if state == "partial" %}<strong>No se entregó ningún archivo.</strong> Se obtuvieron {{ outcome.files_ok }} de {{ plan.docs | length }} CVs; faltan {{ outcome.failed | length }}. Si querés, podés descargar un ZIP parcial <strong>sin</strong> los documentos de abajo (queda un LEEME dentro del ZIP con lo omitido).
+    {% else %}Ningún CV se pudo obtener, así que no hay nada para descargar.{% endif %}
+  </p>
+  <ul class="hc-share-list" data-dl-failed>{% for f in outcome.failed %}<li>{{ f.candidate }} — {{ f.filename }}: {{ f.message }}</li>{% endfor %}</ul>
+  <p class="field-hint">Operación <code>{{ outcome.operation_id }}</code> (registrada).</p>
+</div>
+<div class="dw-confirm__actions busqueda-contact__actions">
+  {{ close_button() }}
+  <button type="button" class="btn-secondary" data-dl-confirm>Reintentar</button>
+  {% if state == "partial" %}<button type="button" class="btn-primary" data-dl-partial data-ack-failed="{{ outcome.failed | map(attribute='document_id') | join(' ') }}" data-parent-op="{{ outcome.operation_id }}">Descargar sin esos {{ outcome.failed | length }} documento{{ '' if outcome.failed | length == 1 else 's' }}</button>{% endif %}
+</div>
+
+{% else %}
+{% set messages = {
+  "cancelled": ("Descarga cancelada", "La descarga se canceló y no se entregó ningún archivo."),
+  "stale": ("La selección cambió", "La selección o los CVs de los candidatos cambiaron desde el resumen que confirmaste, así que no se descargó nada. Volvé a revisar el resumen."),
+  "busy": ("Ya hay una descarga en curso", "Hay una descarga en curso (tuya o el máximo que admite el servidor a la vez). Esperá unos segundos y reintentá."),
+  "audit_unavailable": ("No se pudo iniciar la descarga", "No se pudo dejar el registro de la operación de forma segura, así que la descarga no empezó y no se leyó ningún CV. Reintentá en unos instantes; si persiste, avisá a soporte."),
+  "audit_result_unavailable": ("No se entregó el ZIP", "Se leyeron los CVs, pero no se pudo confirmar el registro del resultado de forma segura, así que el ZIP no se entregó y no quedó ninguna copia. Reintentá en unos instantes; si persiste, avisá a soporte."),
+  "no_token": ("Falta el permiso de Microsoft", "No se pudo obtener tu permiso de Microsoft (la sesión pudo vencer). Volvé a iniciar sesión y repetí la descarga."),
+  "source_error": ("No se pudo leer el Banco de CVs", "No se pudo leer el Banco de CVs en este momento. Reintentá en unos instantes."),
+  "error": ("Ocurrió un error", "Ocurrió un error inesperado y no se entregó ningún archivo. Reintentá en unos instantes."),
+} %}
+{% set msg = messages.get(state, messages["error"]) %}
+<div class="dw-confirm__body"><h2 class="dw-confirm__title" id="hc-download-title">{{ msg[0] }}</h2><p class="dw-confirm__msg" data-dl-state="{{ state }}">{{ msg[1] }}</p></div>
+<div class="dw-confirm__actions busqueda-contact__actions">
+  {{ close_button() }}
+  {% if state in ("stale", "busy") %}<button type="button" class="btn-primary" data-dl-reopen>Volver a revisar</button>{% endif %}
+</div>
+{% endif %}

@@ -101,8 +101,13 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import asyncio
+import logging
+import threading
+
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 import urllib.parse
 import config
@@ -115,7 +120,7 @@ from webapp.services import (
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
 from webapp.services import cv_history_acceptance, cv_history_drafts, cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
-from webapp.services import human_capital_contact, human_capital_share
+from webapp.services import human_capital_contact, human_capital_export, human_capital_share
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
@@ -987,16 +992,17 @@ def human_capital_profile_detail_page(request: Request, profile_id: str):
 @router.post("/cchh/candidatos/compartir", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_profiles_share_dialog(request: Request, profile_ids: list[str] = Form([])):
     """Contenido del diálogo «Compartir perfiles» (se pide por demanda al accionar, como «Contactar al candidato» del Pipeline). POST con SOLO ids (no viajan por la URL ni quedan en el
-    registro de accesos); mismo origen obligatorio (las cookies son SameSite=None). El servidor es la autoridad del límite (``MAX_SHARE_PROFILES``) y resuelve nombres y rutas de las
-    fichas: el navegador no confía en nada que haya guardado. Es una AYUDA para redactar: no envía ni registra nada, no incluye datos de contacto ni enlaces a SharePoint."""
+    registro de accesos); mismo origen obligatorio (las cookies son SameSite=None). El servidor es la autoridad del límite (``MAX_SHARE_PROFILES``) y resuelve nombres y
+    CVs asociados (URL de SharePoint tomada de la metadata ya guardada de cada documento: no se construye ni se infiere ninguna): el navegador no confía en nada que haya guardado. Es una AYUDA para
+    redactar: no envía ni registra nada, no incluye datos de contacto, no crea enlaces ni toca permisos."""
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
     if not same_origin_guard.is_same_origin_write(request):
         raise HTTPException(403, "Origen no permitido")
     try:
-        selection = human_capital_share.resolve(profile_ids, human_capital_service.get_profile)
-    except ProfileStorageError:
+        selection = human_capital_share.resolve(profile_ids, human_capital_service.get_profile, profile_document_service.list_documents_for_profile)
+    except (ProfileStorageError, profile_document_repository.ProfileDocumentStorageError):
         selection = human_capital_share.ShareSelection(reason=human_capital_share.REASON_SOURCE_ERROR)
     return templates.TemplateResponse(
         request=request, name="partials/human_capital_share_dialog_content.html",
@@ -1004,6 +1010,104 @@ def human_capital_profiles_share_dialog(request: Request, profile_ids: list[str]
                  "max_profiles": human_capital_share.MAX_SHARE_PROFILES},
         headers=_NO_STORE,
     )
+
+
+_export_logger = logging.getLogger("danwor.human_capital")
+
+
+def _export_actor(request: Request) -> str:
+    """Quién exporta, para la auditoría durable: el claim `sub` de la sesión (identificador estable); sin él, el email. Nunca nombres de candidatos."""
+    user = auth_service.session_user(request) or {}
+    return str(user.get("sub") or user.get("email") or "").strip().lower()
+
+
+def _download_dialog(request: Request, state: str, status_code: int = 200, **context) -> HTMLResponse:
+    response = templates.TemplateResponse(request=request, name="partials/human_capital_download_dialog_content.html", context={"state": state, "limits": human_capital_export, **context},
+                                          headers=_NO_STORE)
+    response.status_code = status_code
+    return response
+
+
+@router.post("/cchh/candidatos/descargar/resumen", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profiles_download_summary(request: Request, profile_ids: list[str] = Form([])):
+    """Resumen PREVIO de «Descargar CVs»: candidatos, documentos disponibles y tamaño, con los límites aplicados en el servidor. Solo metadata local: NO habla con Graph, no lee ningún CV y no
+    audita (la auditoría empieza con la confirmación). POST con solo ids; mismo origen obligatorio; `no-store`."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    try:
+        plan = human_capital_export.build_plan(profile_ids)
+    except human_capital_export.ExportSourceError:
+        return _download_dialog(request, "source_error")
+    return _download_dialog(request, "summary", plan=plan)
+
+
+@router.post("/cchh/candidatos/descargar", include_in_schema=False)
+async def human_capital_profiles_download(
+    request: Request, profile_ids: list[str] = Form([]), graph_token: str = Form(""), plan_digest: str = Form(""), ack_omitted: str = Form(""), allow_partial: str = Form(""),
+    ack_failed: list[str] = Form([]), parent_operation_id: str = Form(""),
+):
+    """«Descargar CVs»: UNA solicitud que audita (fail-closed), lee cada CV por Graph con el token DELEGADO del usuario (sus permisos reales), arma un ZIP temporal y lo entrega. Nunca entrega un
+    ZIP parcial sin la segunda confirmación explícita (`allow_partial` + `ack_failed`). Si el cliente se desconecta, se cancela la lectura. Detalle y límites: `human_capital_export`."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    cancel = threading.Event()
+
+    async def watch_disconnect() -> None:
+        while not cancel.is_set():
+            if await request.is_disconnected():
+                cancel.set()
+                return
+            await asyncio.sleep(0.5)
+
+    watcher = asyncio.create_task(watch_disconnect())
+    try:
+        outcome = await run_in_threadpool(
+            human_capital_export.execute, actor=_export_actor(request), raw_ids=profile_ids, token=graph_token, expected_digest=plan_digest, ack_omitted=ack_omitted == "1",
+            allow_partial=allow_partial == "1", ack_failed=ack_failed, parent_operation_id=parent_operation_id or None, cancel=cancel)
+    except human_capital_export.ExportInputError:
+        return _download_dialog(request, "no_token")
+    except human_capital_export.ExportBusy:
+        response = _download_dialog(request, "busy", 429)
+        response.headers["Retry-After"] = "5"
+        return response
+    except human_capital_export.ExportAuditResultUnavailable:
+        return _download_dialog(request, "audit_result_unavailable", 503)
+    except human_capital_export.ExportAuditUnavailable:
+        return _download_dialog(request, "audit_unavailable", 503)
+    except human_capital_export.ExportSourceError:
+        return _download_dialog(request, "source_error")
+    except Exception as exc:  # noqa: BLE001 — sin detalle hacia el usuario ni en el log (solo la clase)
+        _export_logger.error("cv_export: fallo inesperado (%s)", type(exc).__name__)
+        return _download_dialog(request, "error", 500)
+    finally:
+        cancel.set()
+        watcher.cancel()
+    if outcome.status == "blocked":
+        return _download_dialog(request, "summary", plan=outcome.plan)
+    if outcome.status == "stale_plan":
+        return _download_dialog(request, "stale")
+    if outcome.status in ("withheld_partial", "failed", "cancelled"):
+        return _download_dialog(request, "partial" if outcome.status == "withheld_partial" else outcome.status, outcome=outcome, plan=outcome.plan)
+
+    def stream():
+        try:
+            while True:
+                chunk = outcome.zip_stream.read(256 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            outcome.cleanup()                                                        # también si el cliente corta la descarga a medias
+
+    headers = {**_NO_STORE, "Content-Disposition": f'attachment; filename="{outcome.zip_name}"', "Content-Length": str(outcome.zip_size), "X-Content-Type-Options": "nosniff",
+               "X-Export-Operation": outcome.operation_id, "X-Export-Status": "partial" if outcome.status == "delivered_partial" else "full", "X-Export-Files": str(outcome.files_ok)}
+    return StreamingResponse(stream(), media_type="application/zip", headers=headers)
 
 
 @router.post("/cchh/candidatos/{profile_id}/documentos", response_class=HTMLResponse, include_in_schema=False)

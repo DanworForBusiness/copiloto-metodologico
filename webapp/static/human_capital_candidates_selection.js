@@ -5,7 +5,7 @@
      localStorage). Persiste entre páginas y filtros: el panel del listado se reemplaza entero en cada filtro/orden/página (HTMX), así que el estado vive AFUERA del fragmento y
      después de cada swap se re-marcan las casillas visibles.
    · Casilla de encabezado: selecciona/deselecciona SOLO las filas de la página visible; es tri-estado (marcada / indeterminada / vacía).
-   · Barra contextual (siempre visible; con 0 seleccionados queda tenue y con las acciones deshabilitadas): contador, «Compartir perfiles» y «Limpiar selección».
+   · Barra contextual (oculta con 0 seleccionados; el desplazamiento al aparecer/desaparecer se compensa para no desviar el clic siguiente): contador, «Compartir perfiles», «Descargar CVs» y «✕ Limpiar» (el mismo componente que el de los filtros).
    · «Compartir perfiles»: pide al servidor (POST, solo ids) el contenido del diálogo —nombres y rutas de las FICHAS resueltos en servidor— y arma el mensaje con el origen del
      propio navegador. «Copiar» y «Abrir Outlook» (`mailto:`) son acciones explícitas del usuario; no se envía ni se registra nada.
 
@@ -72,16 +72,68 @@
     };
   }
 
-  // ───────────────────────── mensaje y mailto ─────────────────────────
-  function buildMessage(items, origin, intro, outro) {
-    // ASCII para el marcador y el separador: cada carácter no ASCII se codifica en 9 caracteres dentro del `mailto:` y el límite práctico de longitud es lo que acota cuántos perfiles entran.
-    var lines = (items || []).map(function (item) { return "- " + item.name + ": " + String(origin || "") + item.path; });
+  // ───────────────────────── mensaje (HTML + texto plano) y mailto ─────────────────────────
+  var SKIP = "__skip";
+
+  function escapeHtml(text) {
+    return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  // Misma regla que `human_capital_share.safe_cv_url` (servidor): https + *.sharepoint.com, sin credenciales ni caracteres peligrosos. El servidor ya valida; acá se vuelve a validar antes de armar un href.
+  function safeCvUrl(url) {
+    if (typeof url !== "string" || !url || url.length > 2048 || /[\s\x00-\x1f\x7f<>"'`\\]/.test(url)) return null;
+    var m = /^https:\/\/([^\/?#]+)/i.exec(url);
+    if (!m || m[1].indexOf("@") >= 0) return null;
+    var host = m[1].replace(/:\d+$/, "").toLowerCase();
+    return host.length > 15 && host.slice(-15) === ".sharepoint.com" && host.charAt(0) !== "." ? url : null;
+  }
+
+  // Filas de la vista previa. ÚNICA fuente de verdad de qué se comparte: con VARIOS CVs nunca se elige uno por cuenta propia (hay que elegir, o «No incluir»); con un único CV con enlace válido no hay
+  // ambigüedad; sin CV o sin enlace válido el candidato se informa y no se incluye.
+  function rowsModel(items, choice) {
+    return (items || []).map(function (item) {
+      var docs = item.docs || [];
+      var linkable = docs.filter(function (d) { return safeCvUrl(d.url); });
+      var row = { id: item.id, name: item.name, multi: docs.length > 1 && linkable.length > 0, options: [], selected: "", url: null, kind: "" };
+      if (linkable.length === 0) { row.kind = docs.length ? "no_link" : "no_cv"; return row; }
+      if (docs.length === 1) { row.kind = "linked"; row.url = linkable[0].url; return row; }
+      row.options = docs.map(function (d) { return { id: d.id, label: d.label, disabled: !safeCvUrl(d.url) }; });
+      var picked = choice && choice[item.id];
+      if (picked === SKIP) { row.kind = "skipped"; row.selected = SKIP; return row; }
+      var doc = linkable.filter(function (d) { return d.id === picked; })[0];
+      if (doc) { row.kind = "linked"; row.url = doc.url; row.selected = doc.id; } else { row.kind = "pending"; }
+      return row;
+    });
+  }
+
+  function resolveShare(items, choice) {
+    var rows = rowsModel(items, choice), model = { included: [], excluded: [], pending: [] };
+    rows.forEach(function (r) {
+      if (r.kind === "linked") model.included.push({ name: r.name, url: r.url });
+      else if (r.kind === "pending") model.pending.push(r.name);
+      else model.excluded.push({ name: r.name, reason: r.kind });
+    });
+    return model;
+  }
+
+  function paragraph(text) { return "<p>" + escapeHtml(text).replace(/\r?\n/g, "<br>") + "</p>"; }
+
+  // Texto plano (fallback del portapapeles y cuerpo del `mailto:`): nombre y URL COMPLETA de cada CV.
+  function buildPlain(model, intro, outro) {
+    var lines = model.included.map(function (n) { return "- " + n.name + ": " + n.url; });
     return [String(intro || "")].concat([""], lines, [""], [String(outro || "")]).join("\n");
+  }
+
+  // HTML (portapapeles `text/html`): el nombre es el hipervínculo al CV; sin URLs largas a la vista. Todo valor va escapado (nombres y atributos).
+  function buildHtml(model, intro, outro) {
+    var list = model.included.map(function (n) { return '<li><a href="' + escapeHtml(n.url) + '">' + escapeHtml(n.name) + "</a></li>"; }).join("");
+    return (intro ? paragraph(intro) : "") + "<ul>" + list + "</ul>" + (outro ? paragraph(outro) : "");
   }
 
   // `:` y `/` son válidos sin codificar en un mailto (RFC 6068); codificarlos duplicaba el largo de cada enlace y acortaba de más el límite práctico.
   function encodeMail(text) { return encodeURIComponent(text).replace(/%3A/g, ":").replace(/%2F/g, "/"); }
 
+  // El cuerpo de un `mailto:` es texto SIN formato (RFC 6068): no admite hipervínculos con nombre. «Abrir Outlook» usa el texto plano con las URLs completas.
   function mailtoUrl(subject, body) {
     return "mailto:?subject=" + encodeMail(subject || "") + "&body=" + encodeMail(String(body || "").replace(/\r?\n/g, "\r\n"));
   }
@@ -89,6 +141,27 @@
   function mailtoFits(subject, body) { return mailtoUrl(subject, body).length <= MAILTO_MAX; }
 
   // ───────────────────────── sincronización de la interfaz ─────────────────────────
+  // Al aparecer/desaparecer la barra, todo lo que está debajo (la tabla) se corre su alto: el próximo clic caería en otra fila. `keepInPlace` mide dónde estaba el control accionado, aplica el
+  // cambio y reubica el desplazamiento del contenedor para que ese control quede exactamente donde estaba (si no hay nada que compensar, no hace nada).
+  function scroller(doc, el) {
+    var win = doc.defaultView;
+    for (var node = el && el.parentElement; node && win && win.getComputedStyle; node = node.parentElement) {
+      var oy = win.getComputedStyle(node).overflowY;
+      if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight) return node;
+    }
+    return doc.scrollingElement || doc.documentElement || null;
+  }
+
+  function keepInPlace(doc, anchor, change) {
+    var canMeasure = anchor && anchor.getBoundingClientRect;
+    var before = canMeasure ? anchor.getBoundingClientRect().top : 0;
+    change();
+    if (!canMeasure || !anchor.isConnected) return;
+    var delta = anchor.getBoundingClientRect().top - before;
+    var box = delta ? scroller(doc, anchor) : null;
+    if (box) box.scrollTop += delta;
+  }
+
   function syncUI(doc, store) {
     var boxes = [].slice.call(doc.querySelectorAll("[data-hc-select]"));
     var visibleSelected = 0;
@@ -106,8 +179,7 @@
     });
     var total = store.size();
     [].slice.call(doc.querySelectorAll("[data-hc-selection-bar]")).forEach(function (bar) {
-      bar.hidden = false;                                                                   // siempre visible: aparecer al marcar la primera casilla desplazaría la tabla
-      if (bar.classList) { if (total === 0) bar.classList.add("is-empty"); else bar.classList.remove("is-empty"); }
+      bar.hidden = total === 0;                                                             // sin selección no ocupa lugar; el desplazamiento al aparecer/desaparecer lo compensa `keepInPlace`
       var count = bar.querySelector("[data-hc-selection-count]");
       if (count) count.textContent = String(total);
       var label = bar.querySelector("[data-hc-selection-label]");
@@ -116,13 +188,15 @@
       if (hint) {
         var outside = total - visibleSelected;
         var parts = [];
-        if (total === 0) parts.push("Marcá las casillas de la tabla para compartir perfiles.");
         if (outside > 0) parts.push(outside + (outside === 1 ? " fuera de la vista actual (otra página o filtro)" : " fuera de la vista actual (otras páginas o filtros)"));
         if (total > MAX_SHARE) parts.push("Compartir admite hasta " + MAX_SHARE + " perfiles");
         hint.textContent = parts.join(" · ");
       }
-      var clear = bar.querySelector("[data-hc-clear-selection]");
-      if (clear) clear.disabled = total === 0;
+      var download = bar.querySelector("[data-hc-download-open]");
+      if (download) {
+        download.disabled = total === 0 || total > MAX_SHARE;
+        download.setAttribute("title", total > MAX_SHARE ? "Se pueden descargar CVs de hasta " + MAX_SHARE + " candidatos por vez" : "");
+      }
       var share = bar.querySelector("[data-hc-share-open]");
       if (share) {
         share.disabled = total === 0 || total > MAX_SHARE;
@@ -132,17 +206,87 @@
   }
 
   // ───────────────────────── diálogo de compartir ─────────────────────────
+  var shareState = { items: [], choice: {} };
+
   function shareRoot(doc) { var c = doc.getElementById("hc-share-content"); return c && c.querySelector("[data-share-root]"); }
   // Los campos se buscan en TODO el contenedor del diálogo (no solo en `data-share-root`): las acciones —«Copiar mensaje», «Abrir Outlook»— y los JSON de datos viven fuera del bloque `root`.
   function shareField(doc, name) { var c = doc.getElementById("hc-share-content"); return c && shareRoot(doc) ? c.querySelector("[" + name + "]") : null; }
+  function fieldValue(doc, name) { var f = shareField(doc, name); return f ? f.value : ""; }
 
+  var NOTE = { no_cv: "sin CV cargado (no se incluye)", no_link: "su CV no tiene enlace disponible (no se incluye)", skipped: "omitido (no se incluye)", pending: "elegí qué CV compartir" };
+
+  function renderList(doc, rows, focusId) {
+    var list = shareField(doc, "data-share-list");
+    if (!list) return;
+    while (list.firstChild) list.removeChild(list.firstChild);
+    rows.forEach(function (row) {
+      var li = doc.createElement("li");
+      var name = doc.createElement("span");
+      name.textContent = row.name;
+      li.appendChild(name);
+      if (row.kind === "linked") {
+        // El enlace real no se muestra (URLs largas): se ve el marcador {Link}, que abre ESE CV para poder comprobarlo. Es de solo lectura: viene del modelo, nunca de lo que se escriba en el mensaje.
+        var colon = doc.createElement("span");
+        colon.textContent = ": ";
+        li.appendChild(colon);
+        var a = doc.createElement("a");
+        a.textContent = "{Link}";
+        a.setAttribute("href", row.url); a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener noreferrer");
+        a.setAttribute("title", "Abrir el CV de " + row.name + " en SharePoint (nueva pestaña)");
+        if (a.classList) a.classList.add("hc-link-marker");
+        li.appendChild(a);
+      } else if (li.classList) {
+        li.classList.add("is-muted");
+      }
+      if (NOTE[row.kind]) {
+        var note = doc.createElement("span");
+        note.textContent = " — " + NOTE[row.kind];
+        if (note.classList) note.classList.add("hc-share-note");
+        li.appendChild(note);
+      }
+      if (row.multi) {
+        var select = doc.createElement("select");
+        select.setAttribute("data-share-choose", row.id);
+        select.setAttribute("aria-label", "CV a compartir de " + row.name);
+        var opts = [{ id: "", label: "Elegir CV…", disabled: false }].concat(row.options, [{ id: SKIP, label: "No incluir a este candidato", disabled: false }]);
+        opts.forEach(function (o) {
+          var opt = doc.createElement("option");
+          opt.setAttribute("value", o.id);
+          opt.textContent = o.label + (o.disabled ? " (sin enlace disponible)" : "");
+          if (o.disabled) opt.disabled = true;
+          select.appendChild(opt);
+        });
+        select.value = row.selected;
+        li.appendChild(select);
+      }
+      list.appendChild(li);
+    });
+    if (focusId) { var again = list.querySelector('[data-share-choose="' + focusId + '"]'); if (again && again.focus) again.focus(); }
+  }
+
+  // Altura de un campo de texto según su contenido (sin barras de desplazamiento internas: el mensaje se ve completo).
+  function autosize(field) {
+    if (!field || !field.style) return;
+    field.style.height = "auto";
+    if (field.scrollHeight) field.style.height = field.scrollHeight + "px";
+  }
+
+  function setNote(node, text) { if (node) { node.hidden = !text; node.textContent = text || ""; } }
+
+  function shareReady(model) { return model.pending.length === 0 && model.included.length > 0; }
+
+  // Enlace «Abrir Outlook»: texto plano con URLs completas; se deshabilita si no está listo o si el `mailto:` excede el límite práctico (entonces «Copiar mensaje» es el camino).
   function refreshMailto(doc) {
-    var subject = shareField(doc, "data-share-subject"), message = shareField(doc, "data-share-message");
-    var link = shareField(doc, "data-share-open"), note = shareField(doc, "data-share-note");
-    if (!subject || !message || !link) return;
-    var fits = mailtoFits(subject.value, message.value);
+    var model = resolveShare(shareState.items, shareState.choice);
+    var ready = shareReady(model);
+    var link = shareField(doc, "data-share-open"), note = shareField(doc, "data-share-note"), copy = shareField(doc, 'data-share-copy="mensaje"');
+    if (copy) copy.disabled = !ready;
+    if (!link) return;
+    var subject = fieldValue(doc, "data-share-subject");
+    var plain = buildPlain(model, fieldValue(doc, "data-share-intro"), fieldValue(doc, "data-share-outro"));
+    var fits = ready && mailtoFits(subject, plain);
     if (fits) {
-      link.setAttribute("href", mailtoUrl(subject.value, message.value));
+      link.setAttribute("href", mailtoUrl(subject, plain));
       link.removeAttribute("aria-disabled");
       if (link.classList) link.classList.remove("is-disabled");
     } else {
@@ -150,10 +294,17 @@
       link.setAttribute("aria-disabled", "true");
       if (link.classList) link.classList.add("is-disabled");
     }
-    if (note) {
-      note.hidden = fits;
-      note.textContent = fits ? "" : "El mensaje es demasiado largo para abrirlo en Outlook (límite práctico de los enlaces de correo): usá «Copiar mensaje» y pegalo en tu correo.";
-    }
+    setNote(note, ready && !fits ? "El mensaje es demasiado largo para abrirlo en Outlook (límite práctico de los enlaces de correo, que solo admiten texto plano con las URLs completas): usá «Copiar mensaje» y pegalo en tu correo." : "");
+  }
+
+  function refreshShare(doc, focusId) {
+    var model = resolveShare(shareState.items, shareState.choice);
+    renderList(doc, rowsModel(shareState.items, shareState.choice), focusId);
+    var pending = shareField(doc, "data-share-pending");
+    if (model.pending.length) setNote(pending, "Falta elegir el CV de " + model.pending.length + (model.pending.length === 1 ? " candidato" : " candidatos") + " (o «No incluir a este candidato»).");
+    else if (model.included.length === 0) setNote(pending, "Ningún candidato tiene un CV con enlace disponible para compartir.");
+    else setNote(pending, "");
+    refreshMailto(doc);
   }
 
   function status(doc, text) { var s = shareField(doc, "data-share-status"); if (s) { s.textContent = text || ""; s.hidden = !text; } }
@@ -166,10 +317,41 @@
     var unavailable = [];
     try { var u = shareField(doc, "data-share-unavailable"); unavailable = u ? JSON.parse(u.textContent) : []; } catch (e) { unavailable = []; }
     if (unavailable.length) { store.remove(unavailable); syncUI(doc, store); }                    // un perfil dado de baja se saca de la selección: el contador no miente
-    var origin = (win && win.location && win.location.origin) || "";
+    shareState = { items: items, choice: {} };
     shareField(doc, "data-share-subject").value = root.getAttribute("data-default-subject") || "";
-    shareField(doc, "data-share-message").value = buildMessage(items, origin, root.getAttribute("data-intro"), root.getAttribute("data-outro"));
-    refreshMailto(doc);
+    shareField(doc, "data-share-intro").value = root.getAttribute("data-intro") || "";
+    shareField(doc, "data-share-outro").value = root.getAttribute("data-outro") || "";
+    autosize(shareField(doc, "data-share-intro"));
+    autosize(shareField(doc, "data-share-outro"));
+    refreshShare(doc);
+  }
+
+  // Copia el mensaje con DOS representaciones (text/html con los nombres como hipervínculos y text/plain con las URLs completas) si el navegador lo permite; si no, copia la selección renderizada
+  // (también conserva el formato) y, como último recurso, solo el texto plano. `done(modo)`: "rich" | "plain".
+  function copyRich(win, doc, html, plain, done, fail) {
+    var nav = win.navigator;
+    function asPlain() { copyText(win, doc, plain, function () { done("plain"); }, fail); }
+    function viaSelection() {
+      try {
+        var holder = doc.createElement("div");
+        holder.innerHTML = html;                                                                 // `html` lo armó `buildHtml`: todo valor ya viene escapado
+        holder.style.position = "fixed"; holder.style.opacity = "0"; holder.style.pointerEvents = "none";
+        doc.body.appendChild(holder);
+        var range = doc.createRange(); range.selectNodeContents(holder);
+        var sel = win.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        var ok = doc.execCommand && doc.execCommand("copy");
+        sel.removeAllRanges(); doc.body.removeChild(holder);
+        if (ok) done("rich"); else asPlain();
+      } catch (e) { asPlain(); }
+    }
+    if (nav && nav.clipboard && nav.clipboard.write && typeof win.ClipboardItem === "function" && typeof win.Blob === "function") {
+      try {
+        var item = new win.ClipboardItem({ "text/html": new win.Blob([html], { type: "text/html" }), "text/plain": new win.Blob([plain], { type: "text/plain" }) });
+        nav.clipboard.write([item]).then(function () { done("rich"); }, viaSelection);
+        return;
+      } catch (e) { /* cae al método siguiente */ }
+    }
+    viaSelection();
   }
 
   function copyText(win, doc, text, done, fail) {
@@ -212,19 +394,22 @@
     doc.addEventListener("change", function (event) {
       var t = event.target;
       if (!t || !t.matches) return;
+      if (t.matches("[data-share-choose]")) {
+        shareState.choice[t.getAttribute("data-share-choose")] = t.value;
+        refreshShare(doc, t.getAttribute("data-share-choose"));
+        return;
+      }
       if (t.matches("[data-hc-select]")) {
         var id = t.getAttribute("data-hc-select");
-        if (t.checked) store.add(id); else store.remove(id);
-        syncUI(doc, store);
+        keepInPlace(doc, t, function () { if (t.checked) store.add(id); else store.remove(id); syncUI(doc, store); });
       } else if (t.matches("[data-hc-select-page]")) {
         var visible = [].slice.call(doc.querySelectorAll("[data-hc-select]")).map(function (b) { return b.getAttribute("data-hc-select"); });
-        if (t.checked) store.add(visible); else store.remove(visible);                              // SOLO la página visible
-        syncUI(doc, store);
+        keepInPlace(doc, t, function () { if (t.checked) store.add(visible); else store.remove(visible); syncUI(doc, store); });     // SOLO la página visible
       }
     });
     doc.addEventListener("input", function (event) {
       var t = event.target;
-      if (t && t.matches && t.matches("[data-share-subject], [data-share-message]")) refreshMailto(doc);
+      if (t && t.matches && t.matches("[data-share-subject], [data-share-intro], [data-share-outro]")) { if (!t.matches("[data-share-subject]")) autosize(t); refreshMailto(doc); }
     });
     doc.addEventListener("click", function (event) {
       var t = event.target, el = t && t.closest ? t.closest("[data-hc-clear-selection], [data-hc-share-open], [data-share-copy], [data-share-open]") : null;
@@ -232,8 +417,18 @@
       if (el.hasAttribute("data-hc-clear-selection")) { store.clear(); syncUI(doc, store); return; }
       if (el.hasAttribute("data-hc-share-open")) { openShare(doc, win, store); return; }
       if (el.hasAttribute("data-share-copy")) {
-        var what = el.getAttribute("data-share-copy"), source = shareField(doc, what === "asunto" ? "data-share-subject" : "data-share-message");
-        if (source) copyText(win, doc, source.value, function () { status(doc, "Copiado al portapapeles."); }, function () { status(doc, "No se pudo copiar: seleccioná el texto y copialo a mano."); });
+        var what = el.getAttribute("data-share-copy"), failed = function () { status(doc, "No se pudo copiar: seleccioná el texto y copialo a mano."); };
+        if (what === "asunto") {
+          var subject = shareField(doc, "data-share-subject");
+          if (subject) copyText(win, doc, subject.value, function () { status(doc, "Copiado al portapapeles."); }, failed);
+          return;
+        }
+        var model = resolveShare(shareState.items, shareState.choice);
+        if (!shareReady(model)) return;                                                          // sin CVs elegidos no se copia un mensaje incompleto
+        var intro = fieldValue(doc, "data-share-intro"), outro = fieldValue(doc, "data-share-outro");
+        copyRich(win, doc, buildHtml(model, intro, outro), buildPlain(model, intro, outro), function (mode) {
+          status(doc, mode === "rich" ? "Copiado: al pegarlo en Outlook los nombres quedan como enlaces al CV." : "Copiado como texto plano con las URLs completas (este navegador no permite copiar con formato).");
+        }, failed);
         return;
       }
       if (el.hasAttribute("data-share-open") && el.getAttribute("aria-disabled") === "true") event.preventDefault();      // Outlook deshabilitado por longitud
@@ -246,15 +441,18 @@
     if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", resync); else resync();
   }
 
-  var api = { STORAGE_KEY: STORAGE_KEY, MAX_SHARE: MAX_SHARE, MAILTO_MAX: MAILTO_MAX, createStore: createStore, buildMessage: buildMessage, mailtoUrl: mailtoUrl,
-              mailtoFits: mailtoFits, syncUI: syncUI, refreshMailto: refreshMailto, initShare: initShare, openShare: openShare, wire: wire };
+  var api = { STORAGE_KEY: STORAGE_KEY, MAX_SHARE: MAX_SHARE, MAILTO_MAX: MAILTO_MAX, SKIP: SKIP, createStore: createStore, escapeHtml: escapeHtml, safeCvUrl: safeCvUrl, rowsModel: rowsModel, resolveShare: resolveShare, autosize: autosize,
+              buildPlain: buildPlain, buildHtml: buildHtml, copyRich: copyRich, refreshShare: refreshShare, renderList: renderList, mailtoUrl: mailtoUrl,
+              mailtoFits: mailtoFits, syncUI: syncUI, keepInPlace: keepInPlace, refreshMailto: refreshMailto, initShare: initShare, openShare: openShare, wire: wire };
   if (typeof window !== "undefined") {
     window.__cchhSelection = api;
     if (typeof document !== "undefined" && document.body && !window.__cchhSelectionWired) {
       var storage = null;
       try { storage = window.sessionStorage; } catch (e) { storage = null; }
       window.__cchhSelectionWired = true;
-      wire(document, window, createStore(storage));
+      var activeStore = createStore(storage);
+      api.store = activeStore;                                                              // lo usa `human_capital_candidates_download.js` (solo lectura de los ids)
+      wire(document, window, activeStore);
     }
   }
 })();
