@@ -19,5 +19,8 @@ La Fase 1 (ficha de consulta + selección + «Compartir perfiles») no incluye Z
 6. **Confirmación explícita** previa con resumen (candidatos, con/sin CV, archivos, tamaño) para evitar descargas masivas accidentales.
 7. **Acceso:** decisión pendiente del owner sobre si exige el nivel CCHH habitual o el nivel de datos sensibles.
 
+## Medición previa a construir
+El presupuesto de tiempo y los límites se fijan con evidencia: ver `CCHH_EXPORTACION_CVS_MEDICION.md` (sonda `tools/cchh_export_probe.py`, procedimiento y criterios). La exportación definitiva debe leer los documentos con **lectura acotada** (tamaño controlado antes y durante la transferencia), no con `graph_get_bytes` sin tope.
+
 ## Fuera de esta fase por decisión del owner
 ZIP · descarga de documentos · auditoría de exportación · selección de todos los resultados del filtro.
