@@ -70,7 +70,7 @@ def test_saving_a_draft_is_owner_only_requires_the_write_token_and_is_never_cach
     key, _ = two_docs()
     url = f"{BASE}/{RUN}/excepciones/{key}/borrador"
     assert TestClient(app, follow_redirects=False).post(url, data={"graph_token": WRITE_TOKEN}).status_code in (302, 303, 307)
-    assert client_for(HC_USER, monkeypatch).post(url, data={"graph_token": WRITE_TOKEN, **DRAFT}).status_code == 403
+    assert client_for("fuera-de-cchh@danwor.com", monkeypatch).post(url, data={"graph_token": WRITE_TOKEN, **DRAFT}).status_code == 403          # autenticado pero sin autorización de Capital Humano
     assert mf.get_draft(RUN, key) is None
     owner = client_for(OWNER, monkeypatch)
     no_token = post_draft(owner, key, token="")

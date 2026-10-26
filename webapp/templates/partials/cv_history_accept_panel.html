@@ -10,7 +10,7 @@
       <li>Email: {{ pre.draft.fields.email or 'sin email' }} · Teléfono: {{ pre.draft.fields.phone or '—' }}</li>
       <li class="field-hint">Las observaciones del borrador no se copian al perfil.</li>
     </ul>
-    <p class="callout callout--warn" data-accept-irreversible><span class="callout__body"><strong>Esto no se puede deshacer desde esta pantalla.</strong> Crear un perfil agrega una persona real al Banco (visible en Candidatos y búsquedas) y sube el CV a su carpeta; vincular agrega el CV a un perfil existente sin modificar sus datos.</span></p>
+    <p class="callout callout--warn" data-accept-irreversible><span class="callout__body"><strong>Esto no se puede deshacer desde esta pantalla.</strong> Crear agrega una persona real al Banco y sube el CV; vincular agrega el CV a un perfil existente sin modificar sus datos.</span></p>
 
     {% if pending %}
     <div class="callout callout--info" data-accept-pending><span class="callout__body">Hay una aceptación <strong>en curso</strong> ({{ 'perfil nuevo' if pre.accepted.op == 'create' else 'vincular a un perfil existente' }}, aceptada por {{ pre.accepted.by }}) que no terminó de subir el CV. Solo se puede completar esa misma decisión.</span></div>
@@ -41,8 +41,8 @@
 
     <p><strong>Crear un perfil nuevo</strong></p>
     {% if pre.create.allowed %}
-    {% if pre.create.duplicate %}<p class="callout callout--warn" data-accept-duplicate><span class="callout__body">Ya existe <strong>{{ pre.create.duplicate.name }}</strong>{% if pre.create.duplicate.email %} ({{ pre.create.duplicate.email }}){% endif %} con el mismo {{ 'email' if pre.draft.fields.email else 'nombre' }}. Podés vincular el CV a ese perfil o crear uno nuevo igual (con tu confirmación).</span></p>{% endif %}
-    {% if pre.create.email_missing %}<p class="callout callout--warn" data-accept-no-email><span class="callout__body">El borrador no tiene email: el perfil se crearía sin email y los duplicados se detectan solo por nombre.</span></p>{% endif %}
+    {% if pre.create.duplicate %}<p class="hc-hist-warn" data-accept-duplicate><strong>Ya existe {{ pre.create.duplicate.name }}</strong>{% if pre.create.duplicate.email %} ({{ pre.create.duplicate.email }}){% endif %} con el mismo {{ 'email' if pre.draft.fields.email else 'nombre' }}. Podés vincular el CV a ese perfil o crear uno nuevo igual (con tu confirmación).</p>{% endif %}
+    {% if pre.create.email_missing %}<p class="hc-hist-warn" data-accept-no-email><strong>Sin email:</strong> el perfil se crearía sin email y los duplicados se detectan solo por nombre.</p>{% endif %}
     <form class="hc-exc-form" data-accept-create hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ content_key }}/aceptar" hx-target="#exc-{{ content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
       <input type="hidden" name="op" value="create"><input type="hidden" name="revision" value="{{ pre.draft.revision }}"><input type="hidden" name="fingerprint" value="{{ pre.fingerprint }}">
       {% for code in pre.create.acks %}<label class="hc-exc-ack"><input type="checkbox" name="ack" value="{{ code }}"> <span>{{ ack_labels[code] }}</span></label>{% endfor %}

@@ -49,6 +49,7 @@
   "GET /cchh/entrevistas",
   "GET /cchh/entrevistas/nueva",
   "GET /cchh/entrevistas/{entrevista_id}/editar",
+  "GET /cchh/historicos",
   "GET /cchh/indicadores",
   "GET /cchh/indicadores/tarjetas/{tarjeta}",
   "GET /cchh/onboarding",

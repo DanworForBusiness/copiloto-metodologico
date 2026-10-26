@@ -1,13 +1,13 @@
 {% from "partials/pager.html" import render_pager %}
-{# Panel de excepciones de la importación (fragmento HTMX; datos personales: solo owner). Paginación CANÓNICA del Hub: `partials/pager.html` (`.activity-pager`) con `pagination.paginate`. #}
+{# Panel de excepciones de la importación (fragmento HTMX; datos personales: solo CCHH autorizado). Paginación CANÓNICA del Hub: `partials/pager.html` (`.activity-pager`) con `pagination.paginate`. Mismo esquema que Candidatos: tarjeta
+   de filtros (`.filter-toolbar-card`) y sección colapsable del Hub (`.dashboard-section`) con la tabla. #}
 <div id="cvexc-panel">
-    <h3>Resumen</h3>
     <p class="field-hint" data-exceptions-summary>Por resolver: {{ overview.counts.get('open', 0) + overview.counts.get('in_progress', 0) + overview.counts.get('blocked', 0) + overview.counts.get('error', 0) }}
       (abiertas {{ overview.counts.get('open', 0) }} · bloqueadas {{ overview.counts.get('blocked', 0) }} · con error {{ overview.counts.get('error', 0) }} · en curso {{ overview.counts.get('in_progress', 0) }}) · resueltas {{ overview.counts.get('resolved', 0) }} · descartadas {{ overview.counts.get('dismissed', 0) }}. <span data-drafts-count>Con borrador guardado: {{ drafts_count or 0 }}.</span>
       {% if not execution.started %}<strong>La importación todavía no comenzó:</strong> las excepciones se gestionan una vez iniciada.{% endif %}
       {% if not overview.staging_present %}<strong>Los datos temporales ya no están disponibles:</strong> no se pueden gestionar.{% endif %}</p>
 
-    <form class="hc-exc-filters" method="get" action="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones" data-exceptions-filters>
+    <form class="hc-exc-filters hc-profile-filters filter-toolbar-card" method="get" action="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones" data-exceptions-filters>
       <input type="hidden" name="page_size" value="{{ pager.page_size }}">
       <div class="feedback-field feedback-field--compact"><label for="exc-estado">Estado</label>
         <select id="exc-estado" name="estado" hx-get="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones" hx-target="#cvexc-panel" hx-swap="outerHTML" hx-include="closest form" hx-trigger="change">{% for code, label in (('open', 'Por resolver'), ('resolved', 'Resueltas'), ('dismissed', 'Descartadas'), ('all', 'Todas')) %}<option value="{{ code }}" {{ 'selected' if estado == code }}>{{ label }}</option>{% endfor %}</select></div>
@@ -16,13 +16,24 @@
       <button type="submit" class="btn-secondary">Filtrar</button>
     </form>
 
-    <div class="matrix-scroll"><table class="dashboard-table" data-exceptions-rows>
-      <thead><tr><th scope="col" class="left">Contenido</th><th scope="col" class="left">Estado y categoría</th><th scope="col" class="left">Datos extraídos y evidencia</th><th scope="col" class="left">Perfiles sugeridos</th><th scope="col" class="left">Acciones</th></tr></thead>
-      <tbody>
-      {% for r in rows %}{% set result = none %}{% set form = none %}{% set draft_form = none %}{% set draft_revision = none %}{% set accept_preview = none %}{% include "partials/cv_history_exception_row.html" %}
-      {% else %}<tr><td class="left" colspan="5"><span class="field-hint" data-exceptions-empty>No hay excepciones con este filtro.</span></td></tr>{% endfor %}
-      </tbody>
-    </table></div>
-    <p class="field-hint" data-exceptions-total>{{ overview.total }} excepciones</p>
+    <div class="dashboard-sections">
+      <details class="dashboard-section" data-section-id="historicos" open>
+        <summary class="dashboard-section__head">
+          <span class="dashboard-section__caret"></span>
+          <span class="dashboard-section__title">Excepciones</span>
+          <span class="dashboard-section__count">{{ overview.total }} excepci{{ 'ón' if overview.total == 1 else 'ones' }}</span>
+        </summary>
+        <div class="dashboard-section__body">
+          <div class="matrix-scroll"><table class="dashboard-table" data-exceptions-rows>
+            <thead><tr><th scope="col" class="left">Contenido</th><th scope="col" class="left">Estado y categoría</th><th scope="col" class="left">Datos extraídos y evidencia</th><th scope="col" class="left">Perfiles sugeridos</th><th scope="col" class="left">Acciones</th></tr></thead>
+            <tbody>
+            {% for r in rows %}{% set result = none %}{% set form = none %}{% set draft_form = none %}{% set draft_revision = none %}{% set accept_preview = none %}{% include "partials/cv_history_exception_row.html" %}
+            {% else %}<tr><td class="left" colspan="5"><span class="field-hint" data-exceptions-empty>No hay excepciones con este filtro.</span></td></tr>{% endfor %}
+            </tbody>
+          </table></div>
+          <p class="field-hint" data-exceptions-total>{{ overview.total }} excepciones</p>
+        </div>
+      </details>
+    </div>
     {{ render_pager(pager, "#cvexc-panel", "Paginación de excepciones", "Excepciones por página") }}
 </div>

@@ -708,33 +708,51 @@
 #hc-indicadores-panel table.dashboard-table[data-min-width="26"] { min-width: 26rem; }
 #hc-indicadores-panel table.dashboard-table[data-min-width="34"] { min-width: 34rem; }
 
-.hc-exc-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 8px 0 12px; }
-.dashboard-table[data-exceptions-rows] { table-layout: auto; min-width: 980px; width: 100%; }
+/* «Históricos sin validación» (CCHH): MISMO lenguaje que Candidatos —hero, tarjeta de filtros `.filter-toolbar-card`, sección `.dashboard-section`, `.status-badge`, `.field-hint`, campos como los de `.hc-profile-form`— con lo mínimo propio.
+   Sin colores nuevos: neutros del Hub (`rgba(128,128,128,.35)`), `.field-hint` para lo secundario, `--gold` como acento y los mismos grises de texto por tema que el resto de la vertical. */
+.hc-hist-note { margin: 14px 0 6px; font-size: .84rem; line-height: 1.5; }
+.hc-hist-help { margin: 0 0 14px; font-size: .78rem; }
+.hc-hist-help summary { cursor: pointer; font-weight: 600; opacity: .8; }
+.hc-hist-help ul { margin: 6px 0 0; padding-left: 1.2rem; line-height: 1.5; }
+.hc-hist-warn { margin: 6px 0; padding-left: 10px; border-left: 2px solid var(--gold); font-size: .78rem; line-height: 1.5; }
+/* Filtros: el MISMO toolbar de Candidatos (`.hc-profile-filters` + `.filter-toolbar-card`: layout y look de los controles ya definidos arriba y en tools.css). */
+.hc-exc-filters { margin: 10px 0 14px; }
+.dashboard-table[data-exceptions-rows] { table-layout: auto; min-width: 860px; width: 100%; }
 table.dashboard-table[data-exceptions-rows] :is(th, td).left { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; overflow-wrap: anywhere; max-width: none; }
-table.dashboard-table[data-exceptions-rows] th:is(:first-child, :nth-child(4)) { min-width: 9rem; }
-table.dashboard-table[data-exceptions-rows] th:is(:nth-child(2), :nth-child(3)) { min-width: 15rem; }
-.hc-exc-actions { min-width: 300px; }
+table.dashboard-table[data-exceptions-rows] th:is(:first-child, :nth-child(4)) { min-width: 7rem; }
+table.dashboard-table[data-exceptions-rows] th:is(:nth-child(2), :nth-child(3)) { min-width: 11rem; }
+.hc-exc-file { font-weight: 600; }
+.hc-exc-badges { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-bottom: 6px; }
+.hc-exc-actions { min-width: 16rem; }
 /* Móvil: cada excepción se apila como una ficha (rótulo + valor) en vez de obligar a desplazar una tabla de 980px. El encabezado queda para lectores de pantalla. */
 @media (max-width: 640px) {
   table.dashboard-table[data-exceptions-rows] { min-width: 0; }
   table.dashboard-table[data-exceptions-rows] thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   table.dashboard-table[data-exceptions-rows] :is(tbody, tr, td) { display: block; width: auto; }
-  table.dashboard-table[data-exceptions-rows] tr { padding: 10px 0; border-bottom: 1px solid rgba(128, 128, 140, .35); }
+  table.dashboard-table[data-exceptions-rows] tr { padding: 10px 0; border-bottom: 1px solid rgba(128, 128, 128, .35); }
   table.dashboard-table[data-exceptions-rows] td.left { border-bottom: 0; padding: 6px 0; }
-  table.dashboard-table[data-exceptions-rows] td.left[data-label]::before { content: attr(data-label); display: block; margin-bottom: 2px; font-size: .68rem; letter-spacing: .04em; text-transform: uppercase; color: #7a7a82; }
+  table.dashboard-table[data-exceptions-rows] td.left[data-label]::before { content: attr(data-label); display: block; margin-bottom: 2px; font: 500 .64rem var(--mono); letter-spacing: .08em; text-transform: uppercase; opacity: .65; }
   .hc-exc-actions { min-width: 0; }
 }
-.hc-exc-actions summary, .hc-exc-evidence summary { cursor: pointer; font-weight: 600; }
+.hc-exc-actions summary, .hc-exc-evidence summary, .hc-exc-more summary { cursor: pointer; font-weight: 600; }
+.hc-exc-more { margin-top: 8px; }
+.hc-exc-more summary { font-weight: 500; opacity: .85; }
 .hc-exc-evidence { margin-top: 8px; }
 .hc-exc-evidence ul { margin: 4px 0 8px; padding-left: 1.2rem; }
-.hc-exc-form { display: grid; gap: 6px; margin: 8px 0; padding-top: 8px; border-top: 1px solid rgba(128, 128, 140, .35); }
-.hc-exc-form :is(input, select, textarea) { min-width: 0; width: 100%; padding: 4px 6px; font: inherit; color: inherit; background: transparent; border: 1px solid rgba(128, 128, 140, .55); border-radius: 4px; }
+.hc-exc-form { display: grid; gap: 6px; margin: 10px 0; padding-top: 10px; border-top: 1px solid rgba(128, 128, 128, .35); }
+.hc-exc-form--bare { margin: 8px 0 0; padding-top: 0; border-top: 0; }
+.hc-exc-form :is(input, select, textarea) { min-width: 0; width: 100%; padding: 7px 10px; border: 1px solid rgba(128, 128, 128, .35); border-radius: 8px; background: transparent; color: #1f1f24; font: .8rem var(--sans); }
+.content-theme-dark .hc-exc-form :is(input, select, textarea) { color: #e4e4ec; }
+.hc-exc-form :is(input, select, textarea):focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(231, 176, 8, .18); }
 .hc-exc-form textarea { resize: vertical; }
 .hc-exc-form input[type="checkbox"] { width: auto; margin-top: 3px; flex: none; }
-.hc-exc-ack { display: flex; gap: 6px; align-items: flex-start; font-size: .78rem; }
+.hc-exc-ack { display: flex; gap: 6px; align-items: flex-start; font-size: .78rem; line-height: 1.45; }
 .hc-exc-accept ul { margin: 4px 0 8px; padding-left: 1.2rem; }
 .hc-exc-form__pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.hc-exc-form .btn-primary, .hc-exc-form .btn-secondary { justify-self: start; padding: 4px 10px; font-size: .78rem; }
+.hc-exc-form .btn-primary, .hc-exc-form .btn-secondary { justify-self: start; padding: 6px 12px; font-size: .78rem; }
+/* Avisos dentro de la fila y del panel de aceptación: el MISMO `.callout` del Hub, compacto (como el aviso de duplicado del alta) para que no dominen la tabla. */
+.hc-exc-actions-cell .callout, .hc-exc-accept .callout { margin: 8px 0; padding: 10px 12px; border-radius: 8px; font-size: .78rem; line-height: 1.5; }
+.hc-exc-actions-cell .callout__body { font-size: inherit; }
 
 /* Campo bloqueado por el contexto de acceso (Entrevista: resumen CCHH ↔ técnico): grisado y de solo lectura. El servidor además conserva su valor al guardar. */
 .feedback-field.is-locked textarea { opacity: .55; cursor: not-allowed; background: rgba(128, 128, 140, .14); }

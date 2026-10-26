@@ -1,25 +1,26 @@
-{# Fila de UNA excepción de la importación histórica (datos personales: solo en la vista del owner, `no-store`). Se responde completa tras cada acción; los errores van adentro con 200 (HTMX no pinta 4xx). #}
+{# Fila de UNA excepción de la importación histórica (datos personales: solo en la vista de CCHH autorizado, `no-store`). Se responde completa tras cada acción; los errores van adentro con 200 (HTMX no pinta 4xx).
+   Jerarquía: el estado se lee de un vistazo (insignias en una línea), el trabajo principal es «Borrador» y «Aceptar» y las demás acciones están plegadas en «Otras acciones». #}
 {% if r %}
 {% set tag = {'open': 'Por resolver', 'in_progress': 'En curso', 'blocked': 'Bloqueado', 'error': 'Con error', 'resolved': 'Resuelto', 'dismissed': 'Descartado'} %}
 <tr id="exc-{{ r.content_key }}" data-exception-row data-content-key="{{ r.content_key }}" data-status="{{ r.status }}">
-  <td class="left" data-label="Contenido">{{ r.content_key[:8] }}<br><span class="field-hint">{{ r.filename or '—' }}</span><br><span class="field-hint">{{ r.specialties | join(', ') }}</span>
+  <td class="left" data-label="Contenido"><span class="hc-exc-file">{{ r.filename or '—' }}</span><br><span class="field-hint">{{ r.content_key[:8] }}{% if r.specialties %} · {{ r.specialties | join(', ') }}{% endif %}</span>
     {% if r.available %}
-    <form class="hc-exc-form" data-original-cv-form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/cv-fuente/{{ r.content_key }}" hx-target="#cvorig-{{ r.content_key }}" hx-swap="innerHTML" hx-disabled-elt="find button" data-dw-graph-token>
+    <form class="hc-exc-form hc-exc-form--bare" data-original-cv-form hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/cv-fuente/{{ r.content_key }}" hx-target="#cvorig-{{ r.content_key }}" hx-swap="innerHTML" hx-disabled-elt="find button" data-dw-graph-token>
       <button type="submit" class="btn-secondary" aria-describedby="cvorig-{{ r.content_key }}">Ver CV original</button>
     </form>
     <div id="cvorig-{{ r.content_key }}" role="status" aria-live="polite"></div>
     {% endif %}
   </td>
   <td class="left" data-label="Estado y categoría">
-    <span class="status-badge {{ 'status-badge--activo' if r.status == 'resolved' else 'status-badge--inactivo' if r.status == 'dismissed' else 'status-badge--tentativo' }}" data-exception-status>{{ tag[r.status] }}</span>
-    {% if r.review %}<br><span class="status-badge {{ r.review.badge }}" data-recoverability="{{ r.review.category }}">{{ r.review.label }}</span><br><span class="field-hint" data-recoverability-hint>{{ r.review.hint }}</span>{% endif %}
-    {% if r.ledger and r.ledger.accepted %}<br><span class="status-badge {{ 'status-badge--activo' if r.ledger.state == 'DONE' else 'status-badge--tentativo' }}" data-accepted-state="{{ 'done' if r.ledger.state == 'DONE' else 'pending' }}">{{ 'Aceptado' if r.ledger.state == 'DONE' else 'Aceptación en curso' }}</span><br><span class="field-hint" data-accepted-meta>{{ 'Perfil nuevo' if r.ledger.accepted.op == 'create' else 'CV vinculado a un perfil existente' }} · borrador rev. {{ r.ledger.accepted.draft_revision }} · {{ r.ledger.accepted.by }} · {{ (r.ledger.accepted.at or '')[:16].replace('T', ' ') }} UTC</span>{% endif %}
-    {% if r.status in ('open', 'in_progress', 'blocked', 'error') %}
-    {% if r.draft %}<br><span class="status-badge status-badge--activo" data-draft-state="saved">Borrador guardado</span><br><span class="field-hint" data-draft-meta>Rev. {{ r.draft.revision }} · {{ r.draft.updated_by }} · {{ r.draft.updated_at }}{% if r.draft.name %} · «{{ r.draft.name }}»{% endif %}</span>
-    {% else %}<br><span class="status-badge status-badge--inactivo" data-draft-state="none">Sin revisar</span>{% endif %}
-    {% endif %}
-    {% if r.reason %}<br><span class="field-hint" data-exception-reason>{{ r.reason }}</span>{% endif %}
-    {% for code in r.plan_reasons[1:] %}<br><span class="field-hint">{{ code }}</span>{% endfor %}
+    <div class="hc-exc-badges">
+      <span class="status-badge {{ 'status-badge--activo' if r.status == 'resolved' else 'status-badge--inactivo' if r.status == 'dismissed' else 'status-badge--tentativo' }}" data-exception-status>{{ tag[r.status] }}</span>
+      {% if r.review %}<span class="status-badge {{ r.review.badge }}" data-recoverability="{{ r.review.category }}">{{ r.review.label }}</span>{% endif %}
+      {% if r.status in ('open', 'in_progress', 'blocked', 'error') %}{% if r.draft %}<span class="status-badge status-badge--activo" data-draft-state="saved">Borrador guardado</span>{% else %}<span class="status-badge status-badge--inactivo" data-draft-state="none">Sin revisar</span>{% endif %}{% endif %}
+      {% if r.ledger and r.ledger.accepted %}<span class="status-badge {{ 'status-badge--activo' if r.ledger.state == 'DONE' else 'status-badge--tentativo' }}" data-accepted-state="{{ 'done' if r.ledger.state == 'DONE' else 'pending' }}">{{ 'Aceptado' if r.ledger.state == 'DONE' else 'Aceptación en curso' }}</span>{% endif %}
+    </div>
+    {% if r.ledger and r.ledger.accepted %}<span class="field-hint" data-accepted-meta>{{ 'Perfil nuevo' if r.ledger.accepted.op == 'create' else 'CV vinculado a un perfil existente' }} · borrador rev. {{ r.ledger.accepted.draft_revision }} · {{ r.ledger.accepted.by }} · {{ (r.ledger.accepted.at or '')[:16].replace('T', ' ') }} UTC</span><br>{% endif %}
+    {% if r.status in ('open', 'in_progress', 'blocked', 'error') and r.draft %}<span class="field-hint" data-draft-meta>Borrador rev. {{ r.draft.revision }} · {{ r.draft.updated_by }} · {{ r.draft.updated_at }}{% if r.draft.name %} · «{{ r.draft.name }}»{% endif %}</span><br>{% endif %}
+    {% if r.reason %}<span class="field-hint" data-exception-reason>Motivo: {{ r.reason }}{% for code in r.plan_reasons[1:] %} · {{ code }}{% endfor %}</span>{% endif %}
     {% if r.ledger and r.ledger.profile_id and r.status == 'resolved' %}<br><a href="/cchh/candidatos/{{ r.ledger.profile_id }}/editar">Ver perfil</a>{% endif %}
   </td>
   <td class="left" data-label="Datos extraídos y evidencia">
@@ -28,6 +29,7 @@
     {% if r.review %}
     <details class="hc-exc-evidence" data-exception-evidence>
       <summary>Evidencia de identidad</summary>
+      <p class="field-hint" data-recoverability-hint>{{ r.review.hint }}</p>
       <p class="field-hint">Propuesta automática: no es una identidad verificada.</p>
       {% if r.review.failure %}<p data-evidence-failure>{{ r.review.failure }}</p>{% endif %}
       {% if r.review.proposal %}<p data-evidence-proposal><strong>Nombre propuesto:</strong> {{ r.review.proposal }}</p>{% elif not r.review.failure %}<p class="field-hint">El sistema no propone ningún nombre.</p>{% endif %}
@@ -41,7 +43,7 @@
     {% endif %}
   </td>
   <td class="left" data-label="Perfiles sugeridos">{% for s in r.suggestions %}<a href="/cchh/candidatos/{{ s.profile_id }}/editar">{{ s.name }}</a> <span class="field-hint">{{ s.why }}{% if s.email %} · {{ s.email }}{% endif %}</span><br>{% else %}<span class="field-hint">—</span>{% endfor %}</td>
-  <td class="left" data-label="Acciones">
+  <td class="left hc-exc-actions-cell" data-label="Acciones">
     {% if result %}
       {% if result.error %}<p class="callout callout--warn" data-error-kind="exception_action"><span class="callout__body">{{ result.error }}</span></p>
       {% elif result.conflict %}<div class="callout callout--warn" data-accept-conflict><span class="callout__body"><strong>Conflicto: este contenido ya fue aceptado con otra decisión</strong> ({{ 'perfil nuevo' if result.conflict.op == 'create' else 'vincular a un perfil existente' }}{% if result.conflict.by %}, por {{ result.conflict.by }}{% endif %}{% if result.conflict.draft_revision %}, borrador rev. {{ result.conflict.draft_revision }}{% endif %}). No se cambió nada.</span></div>
@@ -90,7 +92,7 @@
         {% endif %}
       </form>
       <div class="hc-exc-form" data-exc-accept>
-        <strong>Aceptar el borrador</strong> <span class="field-hint">incorpora este borrador al Banco (crear un perfil o vincular el CV a uno existente); no hay deshacer</span>
+        <strong>Aceptar el borrador</strong> <span class="field-hint">lo incorpora al Banco (perfil nuevo o CV vinculado); no hay deshacer</span>
         {% if saved %}
         <form data-accept-review hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/aceptar-revisar" hx-target="#acc-{{ r.content_key }}" hx-swap="innerHTML" hx-disabled-elt="find button">
           <button type="submit" class="btn-secondary" aria-describedby="acc-{{ r.content_key }}">Revisar para aceptar</button>
@@ -98,28 +100,31 @@
         {% else %}<span class="field-hint" data-accept-needs-draft>Guardá un borrador con nombre y apellido para poder revisarlo y aceptarlo.</span>{% endif %}
         <div id="acc-{{ r.content_key }}" role="region" aria-live="polite" aria-label="Revisión para aceptar">{% if accept_preview is defined and accept_preview %}{% with pre = accept_preview %}{% include "partials/cv_history_accept_panel.html" %}{% endwith %}{% endif %}</div>
       </div>
-      <form class="hc-exc-form" data-exc-complete hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/completar" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
-        <strong>Completar identidad</strong> <span class="field-hint">nombre y apellido reales; se crea el perfil y se sube el CV</span>
-        <div class="hc-exc-form__pair"><input name="first_name" type="text" required maxlength="60" placeholder="Nombre" aria-label="Nombre" value="{{ form.first_name if form else '' }}"><input name="last_name" type="text" required maxlength="60" placeholder="Apellido" aria-label="Apellido" value="{{ form.last_name if form else '' }}"></div>
-        <div class="hc-exc-form__pair"><input name="email" type="email" placeholder="Email (opcional)" aria-label="Email" value="{{ (form.email if form and form.email else r.email) or '' }}"><input name="phone" type="text" placeholder="Celular (opcional)" aria-label="Celular" value="{{ (form.phone if form and form.phone else r.phone) or '' }}"></div>
-        <button type="submit" class="btn-primary">Crear perfil y subir CV</button>
-      </form>
-      <form class="hc-exc-form" data-exc-link hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/vincular" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
-        <strong>Vincular a un perfil existente</strong> <span class="field-hint">no modifica el perfil</span>
-        {% if r.suggestions %}<select name="profile_id" aria-label="Perfil sugerido"><option value="">— elegir sugerencia —</option>{% for s in r.suggestions %}<option value="{{ s.profile_id }}">{{ s.name }}{% if s.email %} · {{ s.email }}{% endif %}</option>{% endfor %}</select>{% endif %}
-        <input name="profile_id" type="text" placeholder="o el ID del perfil (de la URL «editar»)" aria-label="ID del perfil" autocomplete="off">
-        <button type="submit" class="btn-secondary">Vincular</button>
-      </form>
-      <form class="hc-exc-form" data-exc-dismiss hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/descartar" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button">
-        <strong>Descartar</strong>
-        <select name="reason" aria-label="Motivo">{% for code, label in (('NOT_A_CV', 'No es un CV'), ('NOT_A_CANDIDATE', 'No es un candidato'), ('OTHER', 'Otro motivo')) %}<option value="{{ code }}">{{ label }}</option>{% endfor %}</select>
-        <button type="submit" class="btn-secondary">Descartar</button>
-      </form>
-      {% if r.status in ('blocked', 'error') %}
-      <form class="hc-exc-form" data-exc-retry hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/reintentar" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button">
-        <button type="submit" class="btn-secondary">Reintentar en la próxima tanda</button>
-      </form>
-      {% endif %}
+      <details class="hc-exc-more" data-exc-more>
+        <summary>Otras acciones</summary>
+        <form class="hc-exc-form" data-exc-complete hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/completar" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
+          <strong>Completar identidad</strong> <span class="field-hint">nombre y apellido reales; se crea el perfil y se sube el CV</span>
+          <div class="hc-exc-form__pair"><input name="first_name" type="text" required maxlength="60" placeholder="Nombre" aria-label="Nombre" value="{{ form.first_name if form else '' }}"><input name="last_name" type="text" required maxlength="60" placeholder="Apellido" aria-label="Apellido" value="{{ form.last_name if form else '' }}"></div>
+          <div class="hc-exc-form__pair"><input name="email" type="email" placeholder="Email (opcional)" aria-label="Email" value="{{ (form.email if form and form.email else r.email) or '' }}"><input name="phone" type="text" placeholder="Celular (opcional)" aria-label="Celular" value="{{ (form.phone if form and form.phone else r.phone) or '' }}"></div>
+          <button type="submit" class="btn-primary">Crear perfil y subir CV</button>
+        </form>
+        <form class="hc-exc-form" data-exc-link hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/vincular" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
+          <strong>Vincular a un perfil existente</strong> <span class="field-hint">no modifica el perfil</span>
+          {% if r.suggestions %}<select name="profile_id" aria-label="Perfil sugerido"><option value="">— elegir sugerencia —</option>{% for s in r.suggestions %}<option value="{{ s.profile_id }}">{{ s.name }}{% if s.email %} · {{ s.email }}{% endif %}</option>{% endfor %}</select>{% endif %}
+          <input name="profile_id" type="text" placeholder="o el ID del perfil (de la URL «editar»)" aria-label="ID del perfil" autocomplete="off">
+          <button type="submit" class="btn-secondary">Vincular</button>
+        </form>
+        <form class="hc-exc-form" data-exc-dismiss hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/descartar" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button">
+          <strong>Descartar</strong>
+          <select name="reason" aria-label="Motivo">{% for code, label in (('NOT_A_CV', 'No es un CV'), ('NOT_A_CANDIDATE', 'No es un candidato'), ('OTHER', 'Otro motivo')) %}<option value="{{ code }}">{{ label }}</option>{% endfor %}</select>
+          <button type="submit" class="btn-secondary">Descartar</button>
+        </form>
+        {% if r.status in ('blocked', 'error') %}
+        <form class="hc-exc-form" data-exc-retry hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/reintentar" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button">
+          <button type="submit" class="btn-secondary">Reintentar en la próxima tanda</button>
+        </form>
+        {% endif %}
+      </details>
     </details>
     {% elif r.status == 'dismissed' %}
     <form class="hc-exc-form" hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/reabrir" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button"><button type="submit" class="btn-secondary">Reabrir</button></form>

@@ -62,7 +62,8 @@ def test_the_page_is_owner_only_no_store_and_reads_as_historicos_sin_validacion(
     mixed_world().build()
     for method, url, kw in (("get", f"{BASE}/{RUN}/excepciones", {}), ("post", f"{BASE}/{RUN}/cv-fuente/{'0' * 16}", {"data": {"graph_token": TOKEN}})):
         assert getattr(TestClient(app, follow_redirects=False), method)(url, **kw).status_code in (302, 303, 307), url
-        assert getattr(client_for(HC_USER, monkeypatch), method)(url, **kw).status_code == 403, url
+        assert getattr(client_for("fuera-de-cchh@danwor.com", monkeypatch), method)(url, **kw).status_code == 403, url                  # autenticado pero sin autorización de Capital Humano
+    assert client_for(HC_USER, monkeypatch).get(f"{BASE}/{RUN}/excepciones").status_code == 200                                         # un usuario autorizado de CCHH entra (ver test_cv_history_access)
     page = client_for(OWNER, monkeypatch).get(f"{BASE}/{RUN}/excepciones")
     html = page.text
     assert page.status_code == 200 and page.headers["cache-control"] == "no-store"

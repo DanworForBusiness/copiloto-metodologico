@@ -3112,7 +3112,7 @@ def human_capital_sharepoint_diagnostics_probe(request: Request, graph_token: st
 @router.post("/cchh/diagnostico/sharepoint/inventario", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_cv_history_inventory(request: Request, graph_token: str = Form(""), share_url: str = Form("")):
     """INVENTARIO de SOLO LECTURA del histórico de CVs (ver `cv_history_inventory`): resuelve el link y recorre la carpeta con GET; muestra agregados (sin nombres de archivo ni datos personales),
-    no descarga, no guarda y no crea nada. Solo APP_OWNER. El token de LECTURA lo inyecta el hook compartido (`data-dw-graph-token`): jamás viaja en la plantilla ni se registra."""
+    no descarga, no guarda y no crea nada. CCHH autorizado (APP_OWNER o HUMAN_CAPITAL_ALLOWED_USERS). El token de LECTURA lo inyecta el hook compartido (`data-dw-graph-token`): jamás viaja en la plantilla ni se registra."""
     redirect = _require_owner_for_diagnostics(request)
     if redirect is not None:
         return redirect
@@ -3301,11 +3301,27 @@ def human_capital_cv_history_import_run(request: Request, run_id: str, graph_tok
     return _pilot_panel(request, run_id, {"kind": "imported", "result": result})
 
 
+@router.get("/cchh/historicos", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_history_entry(request: Request):
+    """Entrada de «Históricos sin validación» desde el menú de Capital Humano (CCHH autorizado: el esquema de siempre). Lleva a la importación histórica vigente —la más reciente cuyos datos temporales siguen disponibles— o, si
+    no hay ninguna, muestra un aviso. No lee datos personales: solo mira el estado de los lotes."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    try:
+        runs = [r for r in cv_history_manifest.list_runs() if r.get("kind") == cv_history_pilot.KIND_IMPORT and (r.get("staging") or {}).get("state") == "PRESENT"]
+    except cv_history_manifest.ManifestError:
+        runs = []
+    if runs:
+        return RedirectResponse(url=f"/cchh/diagnostico/cvs-historicos/{runs[0]['run_id']}/excepciones", status_code=307)
+    return templates.TemplateResponse(request=request, name="human_capital/cv_history_empty.html", context=_pilot_context(request, active_page="historicos"), headers=_NO_STORE)
+
+
 @router.get("/cchh/diagnostico/cvs-historicos/{run_id}/excepciones", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_cv_history_exceptions(request: Request, run_id: str, estado: str = Query("open"), motivo: str = Query(""), page: str = Query(""), page_size: str = Query("")):
-    """Excepciones de la importación (pendientes del plan y bloqueados al ejecutar): contiene datos personales, solo owner, `no-store`. Paginación CANÓNICA del Hub (`pagination.paginate` + `partials/pager.html`):
+    """Excepciones de la importación (pendientes del plan y bloqueados al ejecutar): contiene datos personales, solo CCHH autorizado, `no-store`. Paginación CANÓNICA del Hub (`pagination.paginate` + `partials/pager.html`):
     filtros ANTES de paginar; un filtro o el paginador dentro del panel (HTMX) re-renderizan solo el fragmento."""
-    redirect = _require_owner_for_diagnostics(request)
+    redirect = _require_human_capital_session(request)                                                              # CCHH autorizado (APP_OWNER o HUMAN_CAPITAL_ALLOWED_USERS): el esquema de siempre; lo sensible de la importación sigue siendo solo del owner
     if redirect is not None:
         return redirect
     if not cv_history_manifest.RUN_ID_RE.match(run_id):
@@ -3324,7 +3340,7 @@ def human_capital_cv_history_exceptions(request: Request, run_id: str, estado: s
     context = {"run_id": run_id, "overview": overview, "pager": pager, "rows": rows, "execution": execution, "estado": estado, "motivo": motivo, "drafts_count": drafts_count}
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(request=request, name="partials/cv_history_exceptions_panel.html", context={"request": request, **context}, headers=_NO_STORE)
-    return templates.TemplateResponse(request=request, name="human_capital/cv_history_exceptions.html", context=_pilot_context(request, **context), headers=_NO_STORE)
+    return templates.TemplateResponse(request=request, name="human_capital/cv_history_exceptions.html", context=_pilot_context(request, active_page="historicos", is_owner=app_access.is_owner(request), **context), headers=_NO_STORE)
 
 
 @router.post("/cchh/diagnostico/cvs-historicos/{run_id}/excepciones/{content_key}/{accion}", response_class=HTMLResponse, include_in_schema=False)
@@ -3336,7 +3352,7 @@ def human_capital_cv_history_exception_action(
     """Gestiona UNA excepción: guardar borrador (Entrega B: nombre, apellido, email, teléfono y observaciones con control de revisión; NO crea, vincula ni modifica nada del Banco), revisar para aceptar (Entrega C: SOLO LECTURA,
     devuelve el panel de revisión) y aceptar (Entrega C: confirma una operación elegida —crear o vincular— sobre la revisión que vio el owner, por el circuito de `complete_identity`/`link_existing`), completar identidad (alta con
     nombre y apellido reales), vincular a un perfil existente (sin modificarlo), descartar, reabrir o reintentar. Responde la fila; los errores son 200 con aviso."""
-    redirect = _require_owner_for_diagnostics(request)
+    redirect = _require_human_capital_session(request)                                                              # CCHH autorizado (APP_OWNER o HUMAN_CAPITAL_ALLOWED_USERS): el esquema de siempre; lo sensible de la importación sigue siendo solo del owner
     if redirect is not None:
         return redirect
     if not cv_history_manifest.RUN_ID_RE.match(run_id) or not cv_history_manifest.KEY_RE.match(content_key or "") or accion not in ("borrador", "aceptar-revisar", "aceptar", "completar", "vincular", "descartar", "reabrir", "reintentar"):
@@ -3411,7 +3427,7 @@ def human_capital_cv_history_exception_action(
 def human_capital_cv_history_original_cv(request: Request, run_id: str, content_key: str, graph_token: str = Form("")):
     """«Ver CV original»: resuelve con Microsoft Graph el enlace de SharePoint del CV de una excepción, con el token DELEGADO del usuario (sus propios permisos; lo inyecta `hub_auth.js` vía `data-dw-graph-token`).
     SOLO LECTURA: no descarga ni copia el archivo y no guarda la URL; la respuesta es `no-store`. POST para que el token viaje en el cuerpo y no en la URL; los errores de Graph son 200 con un aviso claro (HTMX no pinta 4xx)."""
-    redirect = _require_owner_for_diagnostics(request)
+    redirect = _require_human_capital_session(request)                                                              # CCHH autorizado (APP_OWNER o HUMAN_CAPITAL_ALLOWED_USERS): el esquema de siempre; lo sensible de la importación sigue siendo solo del owner
     if redirect is not None:
         return redirect
     if not cv_history_manifest.RUN_ID_RE.match(run_id) or not cv_history_manifest.KEY_RE.match(content_key or ""):
