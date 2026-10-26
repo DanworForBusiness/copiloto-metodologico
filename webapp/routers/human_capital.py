@@ -114,7 +114,7 @@ from webapp.services import (
     human_capital_indicators, human_capital_service, onboarding_repository, pagination, profile_document_repository, profile_document_service, publicacion_repository,
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
-from webapp.services import cv_history_drafts, cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
+from webapp.services import cv_history_acceptance, cv_history_drafts, cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
 from webapp.services import human_capital_contact
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
@@ -3330,25 +3330,32 @@ def human_capital_cv_history_exceptions(request: Request, run_id: str, estado: s
 @router.post("/cchh/diagnostico/cvs-historicos/{run_id}/excepciones/{content_key}/{accion}", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_cv_history_exception_action(
     request: Request, run_id: str, content_key: str, accion: str, graph_token: str = Form(""), first_name: str = Form(""), last_name: str = Form(""), email: str = Form(""), phone: str = Form(""),
-    duplicate_confirmed: str = Form(""), profile_id: str = Form(""), reason: str = Form(""), notes: str = Form(""), revision: str = Form(""),
+    duplicate_confirmed: str = Form(""), profile_id: str = Form(""), reason: str = Form(""), notes: str = Form(""), revision: str = Form(""), op: str = Form(""), target_revision: str = Form(""), fingerprint: str = Form(""),
+    ack: list[str] = Form([]),
 ):
-    """Gestiona UNA excepción: guardar borrador (Entrega B: nombre, apellido, email, teléfono y observaciones con control de revisión; NO crea, vincula ni modifica nada del Banco), completar identidad (alta con nombre y apellido
-    reales), vincular a un perfil existente (sin modificarlo), descartar, reabrir o reintentar. Responde la fila; los errores son 200 con aviso."""
+    """Gestiona UNA excepción: guardar borrador (Entrega B: nombre, apellido, email, teléfono y observaciones con control de revisión; NO crea, vincula ni modifica nada del Banco), revisar para aceptar (Entrega C: SOLO LECTURA,
+    devuelve el panel de revisión) y aceptar (Entrega C: confirma una operación elegida —crear o vincular— sobre la revisión que vio el owner, por el circuito de `complete_identity`/`link_existing`), completar identidad (alta con
+    nombre y apellido reales), vincular a un perfil existente (sin modificarlo), descartar, reabrir o reintentar. Responde la fila; los errores son 200 con aviso."""
     redirect = _require_owner_for_diagnostics(request)
     if redirect is not None:
         return redirect
-    if not cv_history_manifest.RUN_ID_RE.match(run_id) or not cv_history_manifest.KEY_RE.match(content_key or "") or accion not in ("borrador", "completar", "vincular", "descartar", "reabrir", "reintentar"):
+    if not cv_history_manifest.RUN_ID_RE.match(run_id) or not cv_history_manifest.KEY_RE.match(content_key or "") or accion not in ("borrador", "aceptar-revisar", "aceptar", "completar", "vincular", "descartar", "reabrir", "reintentar"):
         raise HTTPException(404, "Excepción inexistente")
     try:
         cv_history_manifest.get_run(run_id)
     except cv_history_manifest.ManifestNotFoundError:
         raise HTTPException(404, "Lote inexistente") from None
     actor = _pilot_actor(request)
+    if accion == "aceptar-revisar":                                                                                      # SOLO LECTURA: calcula la revisión contra el Banco de este momento y devuelve el panel (no escribe nada)
+        return templates.TemplateResponse(request=request, name="partials/cv_history_accept_panel.html", headers=_NO_STORE, context={"request": request, "run_id": run_id, "content_key": content_key,
+                                          "pre": cv_history_acceptance.preflight(run_id, content_key), "ack_labels": cv_history_acceptance.ACK_LABELS, "signal_label": cv_history_acceptance.SIGNAL_LABEL,
+                                          "strength_label": cv_history_acceptance.STRENGTH_LABEL})
     result: dict = {}
     draft_form: dict | None = None
     draft_revision: int | None = None
+    accept_preview: dict | None = None
     try:
-        if accion in ("borrador", "completar", "vincular") and not graph_token:
+        if accion in ("borrador", "aceptar", "completar", "vincular") and not graph_token:
             result = {"ok": False, "error": "Sin token con permiso de escritura (el navegador no pudo obtenerlo). Usá «Autorizar escritura en CVs» y reintentá."}
             if accion == "borrador":
                 draft_form = cv_history_drafts.clean({"first_name": first_name, "last_name": last_name, "email": email, "phone": phone, "notes": notes})
@@ -3367,6 +3374,8 @@ def human_capital_cv_history_exception_action(
                 raise
             except cv_history_manifest.ManifestError:
                 result = {"ok": False, "error": "No se pudo guardar el borrador (persistencia no confirmada). No se guardó nada: tus datos siguen en el formulario. Reintentá."}
+        elif accion == "aceptar":
+            result = cv_history_acceptance.confirm(run_id, content_key, graph_token, actor=actor, op=op, target_profile_id=profile_id, target_revision=target_revision, fingerprint=fingerprint, draft_revision=revision, acks=ack)
         elif accion == "completar":
             result = cv_history_import_exec.complete_identity(run_id, content_key, graph_token, actor=actor, first_name=first_name, last_name=last_name, email=email, phone=phone, duplicate_confirmed=duplicate_confirmed.strip().lower() == "true")
         elif accion == "vincular":
@@ -3381,8 +3390,12 @@ def human_capital_cv_history_exception_action(
         result = {"ok": False, "error": str(exc)}
     except cv_history_manifest.ManifestNotFoundError:
         raise HTTPException(404, "Lote inexistente") from None
+    except cv_history_manifest.ManifestBusyError:
+        result = {"ok": False, "error": "Otro proceso está trabajando con este contenido en este momento. No se guardó nada: reintentá en unos segundos."}
     except cv_history_manifest.ManifestError:
         result = {"ok": False, "error": "No se pudo guardar el cambio (persistencia no confirmada). Reintentá: no se duplicó nada."}
+    if accion == "aceptar" and not result.get("accepted"):                                                              # sin aceptación: la fila vuelve con la revisión VIGENTE para decidir de nuevo
+        accept_preview = result.get("preflight") or cv_history_acceptance.preflight(run_id, content_key)
     row = cv_history_import_exec.exception_row(run_id, content_key)
     cv_history_review.annotate(run_id, [row])
     cv_history_drafts.attach(run_id, [row])
@@ -3390,7 +3403,8 @@ def human_capital_cv_history_exception_action(
     if result.get("draft_saved"):
         headers["HX-Trigger"] = '{"cvexc-drafts": %d}' % cv_history_drafts.count(run_id)                      # el contador «Con borrador guardado» del panel se actualiza sin recargar (lo escucha `human_capital_import.js`)
     return templates.TemplateResponse(request=request, name="partials/cv_history_exception_row.html", context={"request": request, "r": row, "run_id": run_id, "result": result, "accion": accion, "form": {} if accion == "borrador" else {"first_name": first_name, "last_name": last_name, "email": email, "phone": phone},
-                                                                                                                 "draft_form": draft_form, "draft_revision": draft_revision, "dismiss_reasons": cv_history_import_exec.DISMISS_REASONS, "content_key": content_key}, headers=headers)
+                                                                                                                 "draft_form": draft_form, "draft_revision": draft_revision, "accept_preview": accept_preview, "ack_labels": cv_history_acceptance.ACK_LABELS,
+                                                                                                                 "signal_label": cv_history_acceptance.SIGNAL_LABEL, "strength_label": cv_history_acceptance.STRENGTH_LABEL, "dismiss_reasons": cv_history_import_exec.DISMISS_REASONS, "content_key": content_key}, headers=headers)
 
 
 @router.post("/cchh/diagnostico/cvs-historicos/{run_id}/cv-fuente/{content_key}", response_class=HTMLResponse, include_in_schema=False)

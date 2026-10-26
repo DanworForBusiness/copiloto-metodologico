@@ -13,6 +13,7 @@
   <td class="left" data-label="Estado y categoría">
     <span class="status-badge {{ 'status-badge--activo' if r.status == 'resolved' else 'status-badge--inactivo' if r.status == 'dismissed' else 'status-badge--tentativo' }}" data-exception-status>{{ tag[r.status] }}</span>
     {% if r.review %}<br><span class="status-badge {{ r.review.badge }}" data-recoverability="{{ r.review.category }}">{{ r.review.label }}</span><br><span class="field-hint" data-recoverability-hint>{{ r.review.hint }}</span>{% endif %}
+    {% if r.ledger and r.ledger.accepted %}<br><span class="status-badge {{ 'status-badge--activo' if r.ledger.state == 'DONE' else 'status-badge--tentativo' }}" data-accepted-state="{{ 'done' if r.ledger.state == 'DONE' else 'pending' }}">{{ 'Aceptado' if r.ledger.state == 'DONE' else 'Aceptación en curso' }}</span><br><span class="field-hint" data-accepted-meta>{{ 'Perfil nuevo' if r.ledger.accepted.op == 'create' else 'CV vinculado a un perfil existente' }} · borrador rev. {{ r.ledger.accepted.draft_revision }} · {{ r.ledger.accepted.by }} · {{ (r.ledger.accepted.at or '')[:16].replace('T', ' ') }} UTC</span>{% endif %}
     {% if r.status in ('open', 'in_progress', 'blocked', 'error') %}
     {% if r.draft %}<br><span class="status-badge status-badge--activo" data-draft-state="saved">Borrador guardado</span><br><span class="field-hint" data-draft-meta>Rev. {{ r.draft.revision }} · {{ r.draft.updated_by }} · {{ r.draft.updated_at }}{% if r.draft.name %} · «{{ r.draft.name }}»{% endif %}</span>
     {% else %}<br><span class="status-badge status-badge--inactivo" data-draft-state="none">Sin revisar</span>{% endif %}
@@ -43,6 +44,8 @@
   <td class="left" data-label="Acciones">
     {% if result %}
       {% if result.error %}<p class="callout callout--warn" data-error-kind="exception_action"><span class="callout__body">{{ result.error }}</span></p>
+      {% elif result.conflict %}<div class="callout callout--warn" data-accept-conflict><span class="callout__body"><strong>Conflicto: este contenido ya fue aceptado con otra decisión</strong> ({{ 'perfil nuevo' if result.conflict.op == 'create' else 'vincular a un perfil existente' }}{% if result.conflict.by %}, por {{ result.conflict.by }}{% endif %}{% if result.conflict.draft_revision %}, borrador rev. {{ result.conflict.draft_revision }}{% endif %}). No se cambió nada.</span></div>
+      {% elif result.accepted %}<p class="callout callout--info" data-accept-done><span class="callout__body">{% if result.idempotent %}Este contenido ya estaba aceptado con esa misma decisión: no se hizo nada más.{% elif result.outcome == 'DONE' %}Aceptado: {{ 'se creó el perfil y se subió el CV.' if result.op == 'create' else 'el CV quedó vinculado al perfil, sin modificarlo.' }}{% elif result.outcome and result.outcome.startswith('STOP:') %}Aceptación registrada, pero se detuvo ({{ result.outcome[5:] }}). El CV todavía no se subió: volvé a «Revisar para aceptar» y completá la aceptación en curso.{% else %}Aceptación registrada, pero la subida del CV quedó pendiente ({{ result.outcome }}): volvé a «Revisar para aceptar» y completala. No se duplicará nada.{% endif %}</span></p>
       {% elif result.draft_conflict %}<div class="callout callout--warn" data-draft-conflict><span class="callout__body">Otro guardado se adelantó: el borrador ya está en la revisión {{ result.draft_conflict.revision }}{% if not result.draft_conflict.deleted %} (por {{ result.draft_conflict.by }}, {{ result.draft_conflict.at }}){% endif %}.
         <strong>No se guardó nada y tus datos siguen en el formulario.</strong> Revisá las diferencias y, si querés, volvé a guardar.
         {% if result.draft_conflict.differs %}<ul data-draft-conflict-differs>{% for label, saved_value in result.draft_conflict.differs %}<li>{{ label }} guardado: «{{ saved_value or '(vacío)' }}»</li>{% endfor %}</ul>{% endif %}</span></div>
@@ -64,7 +67,7 @@
     {% set saved = r.draft %}
     {% set dv = draft_form if (draft_form is defined and draft_form) else (saved.fields if saved else ((r.review.prefill if r.review else none) or {})) %}
     {% set drev = draft_revision if (draft_revision is defined and draft_revision is not none) else (saved.revision if saved else 0) %}
-    <details class="hc-exc-actions" {% if result and (result.error or result.advisory or result.draft_conflict or result.draft_saved) %}open{% endif %}>
+    <details class="hc-exc-actions" {% if (result and (result.error or result.advisory or result.draft_conflict or result.draft_saved or result.conflict or result.accepted)) or (accept_preview is defined and accept_preview) %}open{% endif %}>
       <summary>Gestionar</summary>
       <form class="hc-exc-form" data-exc-draft hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/borrador" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
         <strong>Borrador</strong> <span class="field-hint">guarda tu trabajo; no crea perfiles ni toca el Banco</span>
@@ -86,6 +89,15 @@
         </details>
         {% endif %}
       </form>
+      <div class="hc-exc-form" data-exc-accept>
+        <strong>Aceptar el borrador</strong> <span class="field-hint">incorpora este borrador al Banco (crear un perfil o vincular el CV a uno existente); no hay deshacer</span>
+        {% if saved %}
+        <form data-accept-review hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/aceptar-revisar" hx-target="#acc-{{ r.content_key }}" hx-swap="innerHTML" hx-disabled-elt="find button">
+          <button type="submit" class="btn-secondary" aria-describedby="acc-{{ r.content_key }}">Revisar para aceptar</button>
+        </form>
+        {% else %}<span class="field-hint" data-accept-needs-draft>Guardá un borrador con nombre y apellido para poder revisarlo y aceptarlo.</span>{% endif %}
+        <div id="acc-{{ r.content_key }}" role="region" aria-live="polite" aria-label="Revisión para aceptar">{% if accept_preview is defined and accept_preview %}{% with pre = accept_preview %}{% include "partials/cv_history_accept_panel.html" %}{% endwith %}{% endif %}</div>
+      </div>
       <form class="hc-exc-form" data-exc-complete hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ r.content_key }}/completar" hx-target="#exc-{{ r.content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
         <strong>Completar identidad</strong> <span class="field-hint">nombre y apellido reales; se crea el perfil y se sube el CV</span>
         <div class="hc-exc-form__pair"><input name="first_name" type="text" required maxlength="60" placeholder="Nombre" aria-label="Nombre" value="{{ form.first_name if form else '' }}"><input name="last_name" type="text" required maxlength="60" placeholder="Apellido" aria-label="Apellido" value="{{ form.last_name if form else '' }}"></div>
