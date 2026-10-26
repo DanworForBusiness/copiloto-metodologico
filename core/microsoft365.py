@@ -26,6 +26,12 @@ jerarquía de errores propia, `HTTPError`/`URLError` se propagan tal cual).
 Sigue sin existir PATCH genérico ni un cliente HTTP arbitrario — cada
 capability nueva declara explícitamente qué verbos necesita.
 
+Capital Humano Fase 2 (descarga múltiple de CVs) agregó `graph_download_capped`:
+el MISMO GET binario, pero con lectura ACOTADA (tope de bytes y plazo total
+aplicados DURANTE la transferencia, cancelación cooperativa) hacia un archivo, en
+lugar de `response.read()` sin tope en memoria. Sigue sin retry/backoff propio: la
+política de reintentos vive en el consumidor (que conoce su presupuesto de tiempo).
+
 NO importa `webapp` ni `webapp.main` (evita crear una dependencia
 `tools`/`core` → `webapp`). NO contiene lógica de negocio, rutas, templates
 ni estado mutable de aplicación.
@@ -33,6 +39,9 @@ ni estado mutable de aplicación.
 from __future__ import annotations
 
 import json
+import socket
+import time
+import urllib.error
 import urllib.request
 from typing import Callable
 
@@ -79,6 +88,88 @@ def graph_get_bytes(
     request = urllib.request.Request(url, headers=graph_headers(access_token))
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read()
+
+
+def graph_download_capped(
+    url: str, access_token: str, sink, *, cap_bytes: int, socket_timeout: float = 15.0, deadline_s: float = 30.0,
+    cancel=None, chunk: int = 64 * 1024, declared_size: int | None = None,
+) -> dict:
+    """GET binario de Graph hacia `sink` (archivo abierto en binario) con LECTURA ACOTADA. A diferencia de `graph_get_bytes` (que lee todo en memoria sin tope), el tamaño se controla
+    ANTES (`declared_size`: si excede, ni se pide), al recibir los encabezados (`Content-Length`) y DURANTE la transferencia (se corta al superar `cap_bytes`), y el tiempo con un plazo
+    total (`deadline_s`) además del timeout de socket. `cancel` (objeto con `is_set()`, p. ej. `threading.Event`) se consulta entre trozos. Mismo redirect a la URL de descarga
+    pre-autenticada que `graph_get_bytes` (urllib lo sigue). Devuelve SOLO códigos y números (jamás texto de excepciones, URLs ni tokens):
+    `outcome`: ok · oversize_declared (no se pidió) · oversize_header · oversize_stream · deadline · cancelled · short_read · timeout · url_error · http_<código> (con
+    `retry_after_s` si viene el encabezado) · error_<Clase>. NO persiste nada fuera de `sink` y NO reintenta."""
+    result = {"outcome": "", "http_status": None, "bytes": 0, "ttfb_ms": None, "total_ms": None, "retry_after_s": None, "content_length": None}
+    if declared_size is not None and declared_size > cap_bytes:
+        result["outcome"] = "oversize_declared"
+        result["total_ms"] = 0
+        return result
+    started = time.perf_counter()
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {access_token}", "Accept": "application/octet-stream"})
+    response = None
+    try:
+        if cancel is not None and cancel.is_set():
+            result["outcome"] = "cancelled"
+            return result
+        response = urllib.request.urlopen(request, timeout=socket_timeout)  # noqa: S310 (el llamador construye la URL con la base de Graph y ids validados)
+        result["ttfb_ms"] = int(round((time.perf_counter() - started) * 1000))
+        result["http_status"] = getattr(response, "status", None) or response.getcode()
+        length = response.headers.get("Content-Length")
+        if length is not None and length.isdigit():
+            result["content_length"] = int(length)
+            if int(length) > cap_bytes:
+                result["outcome"] = "oversize_header"
+                return result
+        received = 0
+        reader = getattr(response, "read1", None) or response.read                  # `read1` devuelve lo disponible: un `read(n)` bloquea hasta juntar n bytes y no dejaría respetar el plazo
+        while True:
+            if cancel is not None and cancel.is_set():
+                result["outcome"] = "cancelled"
+                return result
+            if time.perf_counter() - started > deadline_s:
+                result["outcome"] = "deadline"
+                return result
+            block = reader(min(chunk, cap_bytes - received + 1))
+            if not block:
+                break
+            received += len(block)
+            if received > cap_bytes:
+                result["outcome"] = "oversize_stream"
+                result["bytes"] = received
+                return result
+            sink.write(block)
+        result["bytes"] = received
+        expected = result["content_length"]
+        result["outcome"] = "short_read" if expected is not None and received != expected else "ok"
+        return result
+    except urllib.error.HTTPError as exc:
+        result["http_status"] = exc.code
+        result["outcome"] = f"http_{exc.code}"
+        try:
+            retry_after = exc.headers.get("Retry-After") if exc.headers else None
+            if retry_after is not None:
+                result["retry_after_s"] = min(int(float(retry_after)), 120)
+        except (TypeError, ValueError):
+            pass
+        return result
+    except (socket.timeout, TimeoutError):
+        result["outcome"] = "timeout"
+        return result
+    except urllib.error.URLError as exc:
+        result["outcome"] = "timeout" if isinstance(getattr(exc, "reason", None), (socket.timeout, TimeoutError)) else "url_error"
+        return result
+    except Exception as exc:  # noqa: BLE001 — IncompleteRead, ConnectionReset, etc.: solo el nombre de la clase
+        name = type(exc).__name__
+        result["outcome"] = "short_read" if name == "IncompleteRead" else f"error_{name}"
+        return result
+    finally:
+        result["total_ms"] = int(round((time.perf_counter() - started) * 1000))
+        if response is not None:
+            try:
+                response.close()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def graph_post_json(
