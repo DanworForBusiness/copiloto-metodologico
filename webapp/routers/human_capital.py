@@ -987,16 +987,17 @@ def human_capital_profile_detail_page(request: Request, profile_id: str):
 @router.post("/cchh/candidatos/compartir", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_profiles_share_dialog(request: Request, profile_ids: list[str] = Form([])):
     """Contenido del diálogo «Compartir perfiles» (se pide por demanda al accionar, como «Contactar al candidato» del Pipeline). POST con SOLO ids (no viajan por la URL ni quedan en el
-    registro de accesos); mismo origen obligatorio (las cookies son SameSite=None). El servidor es la autoridad del límite (``MAX_SHARE_PROFILES``) y resuelve nombres y rutas de las
-    fichas: el navegador no confía en nada que haya guardado. Es una AYUDA para redactar: no envía ni registra nada, no incluye datos de contacto ni enlaces a SharePoint."""
+    registro de accesos); mismo origen obligatorio (las cookies son SameSite=None). El servidor es la autoridad del límite (``MAX_SHARE_PROFILES``) y resuelve nombres y
+    CVs asociados (URL de SharePoint tomada de la metadata ya guardada de cada documento: no se construye ni se infiere ninguna): el navegador no confía en nada que haya guardado. Es una AYUDA para
+    redactar: no envía ni registra nada, no incluye datos de contacto, no crea enlaces ni toca permisos."""
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
     if not same_origin_guard.is_same_origin_write(request):
         raise HTTPException(403, "Origen no permitido")
     try:
-        selection = human_capital_share.resolve(profile_ids, human_capital_service.get_profile)
-    except ProfileStorageError:
+        selection = human_capital_share.resolve(profile_ids, human_capital_service.get_profile, profile_document_service.list_documents_for_profile)
+    except (ProfileStorageError, profile_document_repository.ProfileDocumentStorageError):
         selection = human_capital_share.ShareSelection(reason=human_capital_share.REASON_SOURCE_ERROR)
     return templates.TemplateResponse(
         request=request, name="partials/human_capital_share_dialog_content.html",

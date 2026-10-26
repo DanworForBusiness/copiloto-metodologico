@@ -777,6 +777,16 @@ table.dashboard-table[data-exceptions-rows] th:is(:nth-child(2), :nth-child(3)) 
   #hc-candidatos-table { min-width: 640px; }                      /* con la columna de casillas la tabla no entra en ~275px: desplaza horizontalmente dentro de `.matrix-scroll` en vez de aplastar las columnas */
 }
 .hc-share-dialog a.btn-primary.is-disabled { opacity: .45; pointer-events: none; }
+.hc-share-label { display: block; margin: 0 0 6px; font-size: .78rem; font-weight: 650; }
+.hc-share-preview { padding: 10px 14px; border: 1px solid rgba(128, 128, 128, .28); border-radius: 8px; background: rgba(128, 128, 128, .06); max-height: 260px; overflow-y: auto; }
+.hc-share-list { margin: 0; padding-left: 18px; display: grid; gap: 8px; font-size: .85rem; line-height: 1.4; }
+.hc-share-list a { font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.hc-share-list .hc-share-note { color: #7a7a82; font-size: .78rem; }
+.content-theme-dark .hc-share-list .hc-share-note { color: #9a9aa6; }
+.hc-share-list li.is-muted { color: #7a7a82; }
+.content-theme-dark .hc-share-list li.is-muted { color: #9a9aa6; }
+.hc-share-list select { display: block; width: 100%; max-width: 100%; margin-top: 4px; box-sizing: border-box; padding: 6px 8px; border: 1px solid rgba(128, 128, 128, .35); border-radius: 8px; background: transparent; color: inherit; font-size: .8rem; }
+.hc-share-dialog button:disabled { opacity: .5; cursor: not-allowed; }
 .hc-readonly-value { min-height: 38px; padding: 8px 11px; border: 1px solid rgba(128, 128, 128, .28); border-radius: 8px; background: transparent; color: #1f1f24; font-size: .85rem; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
 .content-theme-dark .hc-readonly-value { color: #e4e4ec; }
 .hc-readonly-value--empty { color: #7a7a82; }

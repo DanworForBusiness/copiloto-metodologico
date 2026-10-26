@@ -1,7 +1,7 @@
 """test_human_capital_candidates_selection.py — CCHH → Candidatos: selección múltiple, «Compartir perfiles» y ficha de consulta (Fases 1A y 1B).
 
 Cubre: la FICHA de solo lectura (permisos, contenido, CV original, contexto de retorno, 404, sin escrituras), el marcado del panel (columna fija, casillas, barra, acciones), la paginación y
-los filtros con selección, el endpoint del diálogo (permisos, mismo origen, límite de 25, privacidad: solo nombre + enlace a la ficha, nunca /editar ni SharePoint ni datos de contacto), el módulo
+los filtros con selección, el endpoint del diálogo (permisos, mismo origen, límite de 25, privacidad: solo nombre + enlace al CV en SharePoint tomado de la metadata guardada, sin datos de contacto; varios CVs ⇒ se elige, nunca se asume), el módulo
 JS (vía node) y las superficies que NO existen en esta fase (ZIP, descarga, auditoría de exportación, selección de todo el filtro)."""
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ import config
 from webapp import access
 from webapp.main import app
 from webapp.services import auth_service, human_capital_service, human_capital_share, profile_document_repository, profile_repository
+from webapp.services import profile_document_service as profile_document_service_module
 
 _ROOT = Path(__file__).resolve().parents[2]
 _HARNESS = Path(__file__).resolve().parent / "human_capital_candidates_selection.node.js"
@@ -51,7 +52,7 @@ def make_profile(first="Ana", last="Sintetica", **extra) -> dict:
     return profile_repository.create(data)
 
 
-def add_doc(profile_id: str, document_id="doc-1", filename="cv.pdf", web_url="https://tenant.sharepoint.example/cv.pdf", **extra) -> dict:
+def add_doc(profile_id: str, document_id="doc-1", filename="cv.pdf", web_url="https://danwor.sharepoint.com/sites/cchh/cv.pdf", **extra) -> dict:
     doc = {"document_id": document_id, "profile_id": profile_id, "provider": "sharepoint", "site_id": "s", "drive_id": "d", "item_id": f"i-{document_id}", "filename": filename,
            "content_type": "application/pdf", "size_bytes": 2048, "uploaded_at": "2026-10-01T00:00:00+00:00", "uploaded_by": "rrhh@test", "web_url": web_url, **extra}
     return profile_document_repository.create_with_explicit_id(document_id, doc)[0]
@@ -104,17 +105,16 @@ def test_detail_is_the_stable_shareable_url_and_never_the_edit_screen():
     p = make_profile()
     r = client().get(f"/cchh/candidatos/{p['profile_id']}")
     assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
-    assert human_capital_share.profile_path(p["profile_id"]) == f"/cchh/candidatos/{p['profile_id']}"
-    assert "/editar" not in human_capital_share.profile_path(p["profile_id"])
+    assert r.url.path == f"/cchh/candidatos/{p['profile_id']}" and "/editar" not in r.url.path                      # la URL de la ficha es estable y jamás la de edición
 
 
 def test_detail_documents_open_the_original_cv_in_sharepoint_with_a_plain_link():
     p = make_profile()
-    add_doc(p["profile_id"], "d1", "cv-ana.pdf", "https://tenant.sharepoint.example/ana.pdf")
+    add_doc(p["profile_id"], "d1", "cv-ana.pdf", "https://danwor.sharepoint.com/sites/cchh/ana.pdf")
     add_doc(p["profile_id"], "d2", "sin-enlace.docx", "")
     html = client().get(f"/cchh/candidatos/{p['profile_id']}").text
     assert "cv-ana.pdf" in html and "sin-enlace.docx" in html and "2.0 kB" in html
-    assert 'href="https://tenant.sharepoint.example/ana.pdf"' in html and 'target="_blank"' in html and "Abrir cv-ana.pdf en SharePoint" in html
+    assert 'href="https://danwor.sharepoint.com/sites/cchh/ana.pdf"' in html and 'target="_blank"' in html and "Abrir cv-ana.pdf en SharePoint" in html
     assert "el Hub no descarga ni copia el archivo" in html                                                           # no hay ruta de descarga del Hub
 
 
@@ -264,9 +264,16 @@ def test_adapter_and_css_support_the_fixed_column_light_dark_and_mobile():
     assert "pager" not in css.lower() and "pagination" not in css.lower()                                           # contrato de CSS del módulo
 
 
-# ═══════════════ 1B · endpoint del diálogo «Compartir perfiles» ═══════════════
+# ═══════════════ 1B · endpoint del diálogo «Compartir perfiles» (enlaces al CV en SharePoint) ═══════════════
 def share(c: TestClient, ids, origin=True):
     return c.post("/cchh/candidatos/compartir", data={"profile_ids": ids}, headers=_ORIGIN if origin else {})
+
+
+def items_of(html: str) -> list[dict]:
+    return json.loads(re.search(r'<script type="application/json" data-share-items>(.*?)</script>', html, re.S).group(1))
+
+
+SP = "https://danwor.sharepoint.com/sites/cchh/Shared%20Documents/"
 
 
 def test_share_dialog_requires_session_cchh_authorization_and_same_origin():
@@ -280,15 +287,49 @@ def test_share_dialog_requires_session_cchh_authorization_and_same_origin():
     assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
 
 
-def test_share_message_has_only_names_and_links_to_the_detail_pages():
-    a, b = make_profile(first="Ana", last="Pérez"), make_profile(first="Luis", last="Gómez")
-    add_doc(a["profile_id"], web_url="https://tenant.sharepoint.example/secreto.pdf")
-    html = share(client(), [a["profile_id"], b["profile_id"]]).text
-    items = json.loads(re.search(r'<script type="application/json" data-share-items>(.*?)</script>', html, re.S).group(1))
-    assert items == [{"id": a["profile_id"], "name": "Ana Pérez", "path": f"/cchh/candidatos/{a['profile_id']}"}, {"id": b["profile_id"], "name": "Luis Gómez", "path": f"/cchh/candidatos/{b['profile_id']}"}]
-    assert "Compartir 2 perfiles" in html and "data-share-copy" in html and "Abrir Outlook" in html
-    for leak in (a["email"], b["email"], "+54 11 5555-0000", "nota privada", "tag-uno", "sharepoint", "secreto.pdf", "/editar", "linkedin.example", "href=\"http"):
+def test_single_cv_links_to_the_stored_sharepoint_url_exactly_and_never_to_the_hub():
+    a = make_profile(first="Ana", last="Pérez")
+    stored = SP + "carpeta-rara/otro-nombre-que-no-sale-del-archivo.pdf?web=1"             # NO derivable del nombre del archivo: si se construyera, no coincidiría
+    add_doc(a["profile_id"], "d-ana", "cv.pdf", stored, uploaded_at="2026-10-01T10:00:00+00:00")
+    html = share(client(), [a["profile_id"]]).text
+    assert items_of(html) == [{"id": a["profile_id"], "name": "Ana Pérez", "docs": [{"id": "d-ana", "label": "cv.pdf · 2026-10-01", "url": stored}]}]
+    assert "Compartir 1 perfil" in html and "data-share-copy" in html and "Abrir Outlook" in html
+    for leak in (a["email"], "+54 11 5555-0000", "nota privada", "tag-uno", "/editar", "linkedin.example", f"/cchh/candidatos/{a['profile_id']}"):
         assert leak not in html, leak
+
+
+def test_several_cvs_are_all_listed_newest_first_and_none_is_preselected():
+    a, b = make_profile(first="Ana", last="Pérez"), make_profile(first="Luis", last="Gómez")
+    add_doc(a["profile_id"], "d-viejo", "cv-2025.pdf", SP + "2025.pdf", uploaded_at="2025-03-01T00:00:00+00:00")
+    add_doc(a["profile_id"], "d-nuevo", "cv-2026.pdf", SP + "2026.pdf", uploaded_at="2026-09-01T00:00:00+00:00")
+    html = share(client(), [a["profile_id"], b["profile_id"]]).text
+    items = items_of(html)
+    assert [d["id"] for d in items[0]["docs"]] == ["d-nuevo", "d-viejo"] and items[1]["docs"] == []                  # orden de presentación (no una elección); sin CV = lista vacía
+    blob = json.dumps(items)
+    for marker in ("selected", "default", "primary", "preferred", "current"):
+        assert marker not in blob                                                                                  # el servidor nunca marca un CV como elegido: lo resuelve el usuario
+
+
+def test_missing_or_invalid_urls_are_never_offered_as_links():
+    p = make_profile()
+    bad = {"d-none": None, "d-js": "javascript:alert(1)", "d-http": "http://danwor.sharepoint.com/x", "d-evil": "https://evil.example.com/x", "d-cred": "https://u:pw@danwor.sharepoint.com/x",
+           "d-space": "https://danwor.sharepoint.com/a b", "d-dot": "https://.sharepoint.com/x", "d-tld": "https://sharepoint.com.evil.io/x", "d-quote": 'https://danwor.sharepoint.com/x"onmouseover="1',
+           "d-big": "https://danwor.sharepoint.com/" + "a" * 3000, "d-rel": "/sites/cchh/cv.pdf", "d-empty": ""}
+    for number, (doc_id, url) in enumerate(bad.items()):
+        add_doc(p["profile_id"], doc_id, f"f{number}.pdf", url, uploaded_at=f"2026-01-{number + 1:02d}T00:00:00+00:00")
+    html = share(client(), [p["profile_id"]]).text
+    docs = items_of(html)[0]["docs"]
+    assert len(docs) == len(bad) and all(d["url"] is None for d in docs)
+    for raw in ("javascript:alert", "evil.example.com", "u:pw@", "onmouseover", "sharepoint.com.evil.io"):
+        assert raw not in html, raw
+
+
+def test_a_cv_without_stored_url_is_not_rebuilt_from_its_filename():
+    p = make_profile()
+    add_doc(p["profile_id"], "d1", "Ana Perez CV.pdf", None)
+    html = share(client(), [p["profile_id"]]).text
+    assert items_of(html)[0]["docs"] == [{"id": "d1", "label": "Ana Perez CV.pdf · 2026-10-01", "url": None}]
+    assert "sharepoint.com" not in html.replace("Los enlaces", "")
 
 
 def test_share_limit_is_25_and_enforced_by_the_server_before_reading_any_profile(monkeypatch):
@@ -303,33 +344,49 @@ def test_share_limit_is_25_and_enforced_by_the_server_before_reading_any_profile
     assert human_capital_share.MAX_SHARE_PROFILES == 25
 
 
-def test_share_handles_empty_unavailable_deleted_duplicate_and_malformed_ids_without_echoing_them():
+def test_share_handles_empty_unavailable_deleted_duplicate_and_malformed_ids_without_echoing_them(monkeypatch):
     live, gone = make_profile(first="Viva"), make_profile(first="Baja")
+    add_doc(gone["profile_id"], "d-gone", "baja.pdf", SP + "baja.pdf")
     profile_repository.soft_delete(gone["profile_id"])
     assert 'data-share-error="empty"' in share(client(), []).text
     only_bad = share(client(), ["no-existe-1", gone["profile_id"]]).text
-    assert 'data-share-error="none_available"' in only_bad and "Baja" not in only_bad
+    assert 'data-share-error="none_available"' in only_bad and "Baja" not in only_bad and "baja.pdf" not in only_bad
+    read = []
+    original = human_capital_share.resolve
+
+    def spy(ids, get_profile, list_documents):
+        return original(ids, get_profile, lambda pid: (read.append(pid), list_documents(pid))[1])
+    monkeypatch.setattr(human_capital_share, "resolve", spy)
     mixed = share(client(), [live["profile_id"], live["profile_id"], "no-existe-1", gone["profile_id"], "../etc/passwd", "<script>alert(1)</script>", " "]).text
-    items = json.loads(re.search(r"data-share-items>(.*?)</script>", mixed, re.S).group(1))
     unavailable = json.loads(re.search(r"data-share-unavailable>(.*?)</script>", mixed, re.S).group(1))
-    assert [i["name"] for i in items] == ["Viva Sintetica"] and set(unavailable) == {"no-existe-1", gone["profile_id"]}
-    assert "etc/passwd" not in mixed and "<script>alert(1)" not in mixed and "Baja" not in mixed
+    assert [i["name"] for i in items_of(mixed)] == ["Viva Sintetica"] and set(unavailable) == {"no-existe-1", gone["profile_id"]}
+    assert read == [live["profile_id"]]                                                                              # los documentos de un perfil dado de baja ni se consultan
+    assert "etc/passwd" not in mixed and "<script>alert(1)" not in mixed and "Baja" not in mixed and "baja.pdf" not in mixed
 
 
-def test_share_escapes_hostile_names_in_attributes_and_json():
+def test_share_escapes_hostile_names_and_filenames_in_html_and_json():
     p = make_profile(first="O'Hara <b>x</b>", last='"Q"')
+    add_doc(p["profile_id"], "d1", '"><img src=x onerror=alert(1)>.pdf', SP + "x.pdf")
     html = share(client(), [p["profile_id"]]).text
-    assert "<b>x</b>" not in html and "\\u003cb\\u003e" in html
+    assert "<b>x</b>" not in html and "<img src=x" not in html and "\\u003cb\\u003e" in html and "\\u003cimg" in html
 
 
-def test_share_reports_an_unreadable_bank_without_leaking_details(monkeypatch):
+def test_share_reports_an_unreadable_bank_or_document_store_without_leaking_details(monkeypatch):
     p = make_profile()
 
     def boom(_pid):
         raise human_capital_service.ProfileStorageError("detalle interno de Spaces")
-    monkeypatch.setattr(human_capital_service, "get_profile", boom)
-    r = share(client(), [p["profile_id"]])
+    with monkeypatch.context() as m:
+        m.setattr(human_capital_service, "get_profile", boom)
+        r = share(client(), [p["profile_id"]])
     assert r.status_code == 200 and 'data-share-error="source_error"' in r.text and "detalle interno" not in r.text
+
+    def boom_docs(_pid):
+        raise profile_document_repository.ProfileDocumentStorageError("detalle interno de documentos")
+    with monkeypatch.context() as m:
+        m.setattr(profile_document_service_module, "list_documents_for_profile", boom_docs)
+        r2 = share(client(), [p["profile_id"]])
+    assert r2.status_code == 200 and 'data-share-error="source_error"' in r2.text and "detalle interno" not in r2.text
 
 
 def test_share_never_writes_anything_and_does_not_log_or_audit():
@@ -341,16 +398,37 @@ def test_share_never_writes_anything_and_does_not_log_or_audit():
     src = (_ROOT / "webapp/routers/human_capital.py").read_text(encoding="utf-8")
     body = src[src.index("def human_capital_profiles_share_dialog"):src.index('@router.post("/cchh/candidatos/{profile_id}/documentos"')]
     assert "log_activity" not in body and "log_verbose" not in body                                                  # sin auditoría en esta fase (ver docs de la Fase 2)
+    assert "graph" not in body.lower() and "microsoft365" not in body                                                # no toca Graph: solo la metadata ya guardada
+
+
+def test_dialog_template_has_editable_subject_intro_outro_a_safe_preview_and_honest_outlook_note():
+    p = make_profile()
+    html = share(client(), [p["profile_id"]]).text
+    for hook in ("data-share-subject", "data-share-intro", "data-share-outro", "data-share-list", "data-share-pending", 'data-share-copy="mensaje"', "data-share-open"):
+        assert hook in html, hook
+    assert "data-share-message" not in html and "<textarea id=\"hc-share-mensaje\"" not in html                    # ya no hay un textarea con el cuerpo en texto plano
+    assert "solo admite texto plano con las URLs completas" in html and "mailto:" in html                          # límite real del mailto, dicho sin rodeos
+    assert "conserva los nombres como enlaces" in html
 
 
 # ═══════════════ servicio puro ═══════════════
 def test_share_service_rules_are_pure_and_deterministic():
     ids, invalid = human_capital_share.normalize_ids(["a1", "a1", " b2 ", "bad id", "", None, "x" * 65, "c3"])
     assert ids == ["a1", "b2", "c3"] and invalid == 4
-    sel = human_capital_share.resolve(["a1", "b2"], lambda pid: {"first_name": "Ana", "last_name": ""} if pid == "a1" else {"deleted_at": "x"})
-    assert sel.ok and [i["name"] for i in sel.items] == ["Ana"] and sel.unavailable == ["b2"]
+    docs = {"a1": [{"document_id": "z", "filename": "a.pdf", "uploaded_at": "2026-02-02T00:00:00+00:00", "web_url": SP + "a.pdf"}]}
+    sel = human_capital_share.resolve(["a1", "b2"], lambda pid: {"first_name": "Ana", "last_name": ""} if pid == "a1" else {"deleted_at": "x"}, lambda pid: docs.get(pid, []))
+    assert sel.ok and [i["name"] for i in sel.items] == ["Ana"] and sel.unavailable == ["b2"] and sel.items[0]["docs"][0]["url"] == SP + "a.pdf"
     assert human_capital_share.full_name({}) == "Candidato sin nombre"
-    assert human_capital_share.profile_path("a b/c") == "/cchh/candidatos/a%20b%2Fc"
+    assert not hasattr(human_capital_share, "profile_path")                                                          # el enlace ya no apunta a la ficha del Hub
+
+
+def test_safe_cv_url_never_accepts_what_the_historic_original_cv_rule_rejects():
+    from webapp.services import cv_history_review
+    samples = [SP + "a.pdf", "https://danwor-my.sharepoint.com/personal/x/y.pdf", "https://DANWOR.SHAREPOINT.COM/x", " https://danwor.sharepoint.com/x ", "http://danwor.sharepoint.com/x",
+               "https://evil.com/x", "https://u@danwor.sharepoint.com/x", "https://sharepoint.com/x", "https://.sharepoint.com/x", "https://danwor.sharepoint.com.evil.io/x", "javascript:alert(1)", None, 5, ""]
+    for value in samples:
+        mine, theirs = human_capital_share.safe_cv_url(value), cv_history_review._safe_web_url(value)
+        assert mine is None or mine == theirs, value                                                               # nunca más permisiva que la regla ya vigente
 
 
 # ═══════════════ fuera de alcance: la Fase 2 NO existe todavía ═══════════════

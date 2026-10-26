@@ -1,8 +1,8 @@
-{# Contenido del diálogo «Compartir perfiles» (CCHH → Candidatos): se pide POR DEMANDA al accionar (POST /cchh/candidatos/compartir, solo ids) y trae nombres y rutas de las FICHAS de consulta
-   resueltos en servidor. Es una AYUDA para redactar —MISMO patrón que «Contactar al candidato» del Pipeline (`busqueda-contact*`)—: nada se envía ni se registra desde acá; «Copiar mensaje» y
-   «Abrir Outlook» (`mailto:`) son acciones explícitas del usuario. El mensaje lleva SOLO nombre y enlace a la ficha del Hub (jamás email/teléfono, ni `/editar`, ni enlaces a SharePoint); los
-   enlaces son internos: quien los abra necesita sesión con autorización de Capital Humano. El comportamiento (armado del mensaje con el origen del navegador, copiar, límite del `mailto:`)
-   lo da `human_capital_candidates_selection.js`. #}
+{# Contenido del diálogo «Compartir perfiles» (CCHH → Candidatos): se pide POR DEMANDA al accionar (POST /cchh/candidatos/compartir, solo ids) y trae, resueltos en servidor, el nombre y los CVs asociados de
+   cada candidato (`selection.items`: {id, name, docs:[{id, label, url}]}). Es una AYUDA para redactar —MISMO patrón que «Contactar al candidato» del Pipeline (`busqueda-contact*`)—: nada se envía ni se
+   registra desde acá; «Copiar mensaje» y «Abrir Outlook» (`mailto:`) son acciones explícitas del usuario. Los enlaces apuntan al CV físico en SharePoint (la `web_url` ya guardada de cada documento; nunca una
+   ruta construida ni un enlace anónimo); con VARIOS CVs el usuario elige cuál compartir. La vista previa se arma en el navegador con `createElement`/`textContent` (sin `innerHTML` con datos); el comportamiento
+   (elección de CV, HTML + texto plano al copiar, límite del `mailto:`) lo da `human_capital_candidates_selection.js`. #}
 {% if not selection.ok %}
 <div class="dw-confirm__body">
   <h2 class="dw-confirm__title" id="hc-share-title">Compartir perfiles</h2>
@@ -14,7 +14,7 @@
 {% else %}
 <div class="dw-confirm__body busqueda-contact" data-share-root data-default-subject="{{ subject }}" data-intro="{{ intro }}" data-outro="{{ outro }}">
   <h2 class="dw-confirm__title" id="hc-share-title">Compartir {{ selection.items | length }} perfil{{ '' if selection.items | length == 1 else 'es' }}</h2>
-  <p class="field-hint busqueda-contact__context">Los enlaces abren la ficha del candidato en el Hub; quien los reciba necesita acceso a Capital Humano. No se incluyen datos de contacto ni enlaces a SharePoint.</p>
+  <p class="field-hint busqueda-contact__context">Cada nombre enlaza al CV en SharePoint. Quien lo reciba lo abre con sus propios permisos de SharePoint: no se crean enlaces nuevos ni se cambian permisos. No se incluyen datos de contacto.</p>
   {% if selection.unavailable %}<p class="field-hint field-hint--warn" data-share-unavailable-note>{{ selection.unavailable | length }} candidato{{ ' ya no está disponible y se quitó' if selection.unavailable | length == 1 else 's ya no están disponibles y se quitaron' }} de la selección.</p>{% endif %}
   <div class="feedback-field">
     <label for="hc-share-asunto">Asunto</label>
@@ -24,10 +24,21 @@
     </div>
   </div>
   <div class="feedback-field">
-    <label for="hc-share-mensaje">Mensaje</label>
-    <textarea id="hc-share-mensaje" rows="{{ [16, 7 + 2 * (selection.items | length)] | min }}" data-share-message></textarea>
-    <p class="field-hint">Es un texto sugerido: revisalo antes de enviarlo. «Abrir Outlook» no envía nada, solo abre un correo con este texto en tu cliente de correo.</p>
+    <label for="hc-share-intro">Introducción</label>
+    <textarea id="hc-share-intro" rows="2" data-share-intro></textarea>
   </div>
+  <div class="feedback-field">
+    <span class="hc-share-label" id="hc-share-preview-label">Vista previa del mensaje</span>
+    <div class="hc-share-preview" role="group" aria-labelledby="hc-share-preview-label">
+      <ul class="hc-share-list" data-share-list></ul>
+    </div>
+  </div>
+  <p class="field-hint field-hint--warn" data-share-pending role="status" hidden></p>
+  <div class="feedback-field">
+    <label for="hc-share-outro">Cierre</label>
+    <textarea id="hc-share-outro" rows="2" data-share-outro></textarea>
+  </div>
+  <p class="field-hint">«Copiar mensaje» conserva los nombres como enlaces al pegarlo en Outlook (y, si tu navegador no lo permite, copia texto plano con las URLs completas). «Abrir Outlook» solo admite texto plano con las URLs completas, porque los enlaces de correo (`mailto:`) no admiten formato. Ninguna de las dos envía nada.</p>
   <p class="field-hint field-hint--warn" data-share-note hidden></p>
   <p class="field-hint" data-share-status role="status" hidden></p>
 </div>

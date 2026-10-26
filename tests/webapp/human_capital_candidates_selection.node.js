@@ -2,7 +2,7 @@
 //
 // Prueba el módulo `webapp/static/human_capital_candidates_selection.js` (CCHH · Candidatos: selección múltiple + «Compartir perfiles») contra un DOM mínimo propio (no hay jsdom en el
 // repo): almacén de ids en sessionStorage (solo ids, sin datos personales), casilla de encabezado SOLO sobre la página visible (tri-estado), persistencia entre «páginas» (re-render del
-// panel), contador y «Limpiar», límite de 25, armado del mensaje, límite práctico del `mailto:` y flujo del diálogo.
+// panel), contador y «Limpiar», límite de 25, enlaces al CV (validación, elección entre varios), mensaje HTML/texto plano, copiado con formato, límite práctico del `mailto:` y flujo del diálogo.
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -234,50 +234,196 @@ function wired(initialIds) {
   ok(ran, "F2: sin medición posible se ejecuta el cambio igual");
 }
 
-// ── G: mensaje y mailto ────────────────────────────────────────────────────────────────────
+// ── G: enlaces al CV (validación), filas, mensaje HTML/plano y mailto ──────────────────────
+const SP = "https://danwor.sharepoint.com/sites/cchh/Shared%20Documents/";
 {
-  const items = [{ name: "Ana Pérez", path: "/cchh/candidatos/abc-1" }, { name: "Luis Gómez", path: "/cchh/candidatos/def-2" }];
-  const msg = api.buildMessage(items, "https://hub.danwor.test", "Hola:", "Saludos.");
-  eq(msg, "Hola:\n\n- Ana Pérez: https://hub.danwor.test/cchh/candidatos/abc-1\n- Luis Gómez: https://hub.danwor.test/cchh/candidatos/def-2\n\nSaludos.", "G: formato exacto del mensaje (nombre + enlace de la ficha)");
-  ok(!/editar|sharepoint|@|\+\d/.test(msg), "G: ni /editar ni SharePoint ni emails/teléfonos en el mensaje");
+  // validación de URL: solo https://*.sharepoint.com sin credenciales ni caracteres peligrosos
+  ["https://danwor.sharepoint.com/x", "https://danwor-my.sharepoint.com/personal/a/b.pdf", "https://DANWOR.SHAREPOINT.COM:443/x"].forEach(u => ok(api.safeCvUrl(u) === u, "G: URL válida aceptada: " + u));
+  ["javascript:alert(1)", "http://danwor.sharepoint.com/x", "https://evil.com/x", "https://u:pw@danwor.sharepoint.com/x", "https://danwor.sharepoint.com@evil.com/x", "https://sharepoint.com/x", "https://.sharepoint.com/x",
+   "https://danwor.sharepoint.com.evil.io/x", "https://danwor.sharepoint.com/a b", 'https://danwor.sharepoint.com/x"y', "https://danwor.sharepoint.com/x<y", "https://danwor.sharepoint.com/" + "a".repeat(2100), "/sites/x", "", null, undefined, 5]
+    .forEach(u => ok(api.safeCvUrl(u) === null, "G: URL inválida rechazada: " + String(u).slice(0, 40)));
+
+  // filas: un CV con enlace ⇒ incluido; varios ⇒ hay que elegir (nunca se elige solo); sin CV / sin enlace ⇒ informado y excluido
+  const items = [
+    { id: "u1", name: "Ana Uno", docs: [{ id: "d1", label: "a.pdf · 2026-01-01", url: SP + "a.pdf" }] },
+    { id: "m1", name: "Beto Multi", docs: [{ id: "d2", label: "nuevo.pdf", url: SP + "n.pdf" }, { id: "d3", label: "viejo.pdf", url: SP + "v.pdf" }, { id: "d4", label: "roto.pdf", url: null }] },
+    { id: "n1", name: "Cata Sin", docs: [] },
+    { id: "l1", name: "Dani SinLink", docs: [{ id: "d5", label: "x.pdf", url: "javascript:alert(1)" }] },
+    { id: "l2", name: "Eli TodosSinLink", docs: [{ id: "d6", label: "y.pdf", url: null }, { id: "d7", label: "z.pdf", url: "http://x.sharepoint.com/z" }] },
+  ];
+  let rows = api.rowsModel(items, {});
+  eq(rows.map(r => r.kind), ["linked", "pending", "no_cv", "no_link", "no_link"], "G: un CV con enlace ⇒ incluido; varios sin elección ⇒ PENDIENTE; sin CV ⇒ no_cv; sin enlace válido ⇒ no_link");
+  ok(rows[1].multi === true && rows[0].multi === false && rows[4].multi === false, "G: solo con varios CVs (con algún enlace) se ofrece elegir");
+  ok(rows[1].options.length === 3 && rows[1].options[2].disabled === true && rows[1].options[0].disabled === false, "G: se listan TODOS los CVs; el que no tiene enlace queda deshabilitado");
+  ok(rows[1].selected === "" && rows[1].url === null, "G: sin elección no hay URL ni CV preseleccionado (nunca se elige uno arbitrariamente)");
+  let m = api.resolveShare(items, {});
+  eq(m.included.map(n => n.name), ["Ana Uno"], "G: sin resolver el CV múltiple, solo está incluido el candidato sin ambigüedad");
+  eq(m.pending, ["Beto Multi"], "G: Beto queda pendiente");
+  eq(m.excluded.map(n => n.reason), ["no_cv", "no_link", "no_link"], "G: excluidos con su motivo");
+  m = api.resolveShare(items, { m1: "d3" });
+  eq(m.included.map(n => [n.name, n.url]), [["Ana Uno", SP + "a.pdf"], ["Beto Multi", SP + "v.pdf"]], "G: al elegir, se incluye ESE CV (y solo ese)");
+  ok(m.pending.length === 0, "G: ya no hay pendientes");
+  m = api.resolveShare(items, { m1: "d4" });
+  eq(m.pending, ["Beto Multi"], "G: elegir un CV sin enlace NO resuelve (sigue pendiente)");
+  m = api.resolveShare(items, { m1: "no-existe" });
+  eq(m.pending, ["Beto Multi"], "G: una elección que no corresponde a ningún CV no se acepta");
+  m = api.resolveShare(items, { m1: api.SKIP });
+  ok(m.pending.length === 0 && m.excluded.some(n => n.name === "Beto Multi" && n.reason === "skipped") && !m.included.some(n => n.name === "Beto Multi"), "G: «No incluir» omite al candidato explícitamente");
+
+  // mensaje: texto plano con URL completa; HTML con el nombre como hipervínculo y sin URL visible
+  const model = { included: [{ name: "Ana Pérez", url: SP + "a.pdf" }, { name: "Luis Gómez", url: SP + "l.pdf?x=1&y=2" }], excluded: [], pending: [] };
+  eq(api.buildPlain(model, "Hola:", "Saludos."), "Hola:\n\n- Ana Pérez: " + SP + "a.pdf\n- Luis Gómez: " + SP + "l.pdf?x=1&y=2\n\nSaludos.", "G: texto plano = «- Nombre: URL completa» (fallback con URLs completas)");
+  const html = api.buildHtml(model, "Hola:\nsegunda línea", "Saludos.");
+  eq(html, "<p>Hola:<br>segunda línea</p><ul><li><a href=\"" + SP + "a.pdf\">Ana Pérez</a></li><li><a href=\"" + SP + "l.pdf?x=1&amp;y=2\">Luis Gómez</a></li></ul><p>Saludos.</p>", "G: HTML: el nombre es el enlace, la URL solo va en el href (escapada)");
+  ok(!/>https?:/.test(html) && !html.includes(">" + SP), "G: ninguna URL larga queda visible como texto en el HTML");
+  const hostile = api.buildHtml({ included: [{ name: "O'Hara <img src=x onerror=1>", url: SP + "x.pdf" }], excluded: [], pending: [] }, "<script>alert(1)</script>", "a & b");
+  ok(!hostile.includes("<script>") && !hostile.includes("<img") && hostile.includes("&lt;script&gt;") && hostile.includes("O&#39;Hara &lt;img src=x onerror=1&gt;") && hostile.includes("a &amp; b"), "G: nombres, intro y cierre se escapan en el HTML");
+  eq(api.escapeHtml('<>&"\''), "&lt;&gt;&amp;&quot;&#39;", "G: escape de los cinco caracteres");
+
+  // mailto: texto plano
   const url = api.mailtoUrl("Asunto & más", "linea 1\nlinea 2 100% #ok https://x/y");
   ok(url.startsWith("mailto:?subject=Asunto%20%26%20m%C3%A1s&body="), "G: el asunto se codifica");
   ok(url.includes("linea%201%0D%0Alinea%202%20100%25%20%23ok%20https://x/y"), "G: saltos de línea CRLF, %, # y & codificados; ':' y '/' sin inflar");
-  const fits = i => api.mailtoFits("Perfiles", api.buildMessage(Array.from({ length: i }, (_, k) => ({ name: `Candidato Numero ${k}`, path: "/cchh/candidatos/3f2b8c1e-9d4a-4c1e-8b7a-0123456789ab" })), "https://hub.danwor.com", "Intro", "Fin"));
-  ok(fits(5) === true && fits(25) === false, "G: pocos perfiles entran en el límite práctico del mailto; 25 no");
+  const fitsFor = n => api.mailtoFits("Perfiles", api.buildPlain({ included: Array.from({ length: n }, (_, k) => ({ name: `Candidato Numero ${k}`, url: SP + `Carpeta%20de%20candidato%20${k}/CV_Candidato_Numero_${k}_2026.pdf` })) }, "Intro", "Fin"));
+  ok(fitsFor(2) === true && fitsFor(25) === false, "G: pocos CVs entran en el límite práctico del mailto (URLs completas de SharePoint); 25 no");
   ok(api.mailtoUrl("a", "b").length < api.MAILTO_MAX, "G: el límite práctico está declarado (≈1900)");
 }
 
-// ── H: diálogo: Outlook se deshabilita por longitud y se rehabilita; inicialización con ids no disponibles ──
+// ── H: diálogo: DOM, elección de CV, Outlook, copiado ──────────────────────────────────────
+function mini(tag) {   // DOM mínimo con árbol, para renderList/refreshShare
+  const n = el([]);
+  n.tag = tag; n.children = []; n.style = {}; n.innerHTML = "";
+  n.appendChild = c => { n.children.push(c); c.parent = n; return c; };
+  n.removeChild = c => { n.children.splice(n.children.indexOf(c), 1); return c; };
+  Object.defineProperty(n, "firstChild", { get: () => n.children[0] || null });
+  n.focus = () => { n.focused = true; };
+  n.querySelector = sel => {
+    const m = /^\[([\w-]+)(?:="([^"]*)")?\]$/.exec(sel);
+    const walk = node => { for (const c of node.children) { if (m && (m[2] === undefined ? c.hasAttribute(m[1]) : c.getAttribute(m[1]) === m[2])) return c; const r = walk(c); if (r) return r; } return null; };
+    return n.q[sel] || walk(n);
+  };
+  return n;
+}
 function shareDoc(opts) {
   const root = el(["[data-share-root]"], { "data-default-subject": "Perfiles", "data-intro": "Hola", "data-outro": "Chau" });
-  const subject = el(["[data-share-subject]"]), message = el(["[data-share-message]"]);
-  const link = el(["[data-share-open]"], { href: "#" });
-  const note = el(["[data-share-note]"]), stat = el(["[data-share-status]"]);
+  const subject = el(["[data-share-subject]"]), intro = el(["[data-share-intro]"]), outro = el(["[data-share-outro]"]);
+  const list = mini("ul"), note = el(["[data-share-note]"]), pend = el(["[data-share-pending]"]), stat = el(["[data-share-status]"]);
+  const link = el(["[data-share-open]"], { href: "#" }), copy = el(["[data-share-copy]"], { "data-share-copy": "mensaje" });
   const itemsEl = el([]); itemsEl.textContent = JSON.stringify(opts.items);
   const unavEl = el([]); unavEl.textContent = JSON.stringify(opts.unavailable || []);
-  // Estructura REAL de la plantilla: subject/message/note/status viven dentro de `data-share-root`; el enlace «Abrir Outlook» y los JSON de datos quedan FUERA (en las acciones / al final).
-  root.q = { "[data-share-subject]": subject, "[data-share-message]": message, "[data-share-note]": note, "[data-share-status]": stat };
-  const content = el([]); content.q = { "[data-share-root]": root, "[data-share-subject]": subject, "[data-share-message]": message, "[data-share-note]": note, "[data-share-status]": stat, "[data-share-open]": link, "[data-share-items]": itemsEl, "[data-share-unavailable]": unavEl };
-  const d = Object.assign(pageDoc(opts.visible || []), { getElementById: id => (id === "hc-share-content" ? content : null) });
-  return { d, subject, message, link, note, stat };
+  // Estructura REAL de la plantilla: asunto/intro/lista/cierre/notas viven dentro de `data-share-root`; las acciones («Copiar mensaje», «Abrir Outlook») y los JSON quedan FUERA.
+  root.q = { "[data-share-subject]": subject, "[data-share-intro]": intro, "[data-share-outro]": outro, "[data-share-list]": list, "[data-share-note]": note, "[data-share-pending]": pend, "[data-share-status]": stat };
+  const content = mini("div");
+  content.q = Object.assign({}, root.q, { "[data-share-root]": root, "[data-share-open]": link, '[data-share-copy="mensaje"]': copy, "[data-share-items]": itemsEl, "[data-share-unavailable]": unavEl });
+  content.querySelector = sel => content.q[sel] || list.querySelector(sel);
+  const base = pageDoc(opts.visible || []);
+  const d = Object.assign(base, { getElementById: id => (id === "hc-share-content" ? content : null), createElement: tag => mini(tag) });
+  return { d, subject, intro, outro, list, link, copy, note, pend, stat };
 }
 {
   const store = storeWith(makeStorage());
-  store.add(["u1", "u2", "keep"]);
-  const s = shareDoc({ items: [{ name: "Ana", path: "/cchh/candidatos/keep" }], unavailable: ["u1", "u2"], visible: ["keep"] });
+  store.add(["u1", "u2", "keep", "multi"]);
+  const items = [{ id: "keep", name: "Ana", docs: [{ id: "d1", label: "a.pdf", url: SP + "a.pdf" }] },
+                 { id: "multi", name: "Beto", docs: [{ id: "d2", label: "n.pdf · 2026-09-01", url: SP + "n.pdf" }, { id: "d3", label: "v.pdf · 2025-03-01", url: SP + "v.pdf" }] }];
+  const s = shareDoc({ items, unavailable: ["u1", "u2"], visible: ["keep"] });
   api.initShare(s.d, store, { location: { origin: "https://hub.danwor.test" } });
-  eq(store.ids(), ["keep"], "H: los ids que el servidor marcó como no disponibles se sacan de la selección (el contador no miente)");
-  ok(s.subject.value === "Perfiles" && s.message.value === "Hola\n\n- Ana: https://hub.danwor.test/cchh/candidatos/keep\n\nChau", "H: asunto y mensaje prearmados con el origen del propio navegador");
-  ok(s.link.getAttribute("href").startsWith("mailto:?subject=Perfiles&body=") && s.note.hidden === true, "H: con mensaje corto «Abrir Outlook» apunta a un mailto");
-  s.message.value = "x".repeat(2200);
-  api.refreshMailto(s.d);
+  eq(store.ids(), ["keep", "multi"], "H: los ids que el servidor marcó como no disponibles se sacan de la selección (el contador no miente)");
+  ok(s.subject.value === "Perfiles" && s.intro.value === "Hola" && s.outro.value === "Chau", "H: asunto, introducción y cierre se inicializan editables");
+  // vista previa: nombres como enlaces; el candidato con varios CVs muestra el selector y está pendiente
+  eq(s.list.children.length, 2, "H: una fila por candidato");
+  const a = s.list.children[0].children[0];
+  ok(a.getAttribute("href") === SP + "a.pdf" && a.textContent === "Ana" && a.getAttribute("rel") === "noopener noreferrer" && a.getAttribute("target") === "_blank", "H: el nombre es un enlace al CV (nueva pestaña, sin opener)");
+  const sel = s.list.querySelector('[data-share-choose="multi"]');
+  ok(sel && sel.children.length === 4 && sel.value === "", "H: el candidato con varios CVs ofrece 'Elegir CV…', cada CV y 'No incluir' — sin nada elegido");
+  ok(s.pend.hidden === false && /Falta elegir el CV de 1 candidato/.test(s.pend.textContent), "H: avisa que falta elegir el CV");
+  ok(s.copy.disabled === true && s.link.getAttribute("aria-disabled") === "true" && s.link.getAttribute("href") === "#", "H: mientras falte elegir, «Copiar mensaje» y «Abrir Outlook» están deshabilitados");
+  // textContent, nunca innerHTML con datos
+  ok(!s.list.children.some(li => li.innerHTML), "H: la vista previa no usa innerHTML");
+}
+{
+  // cableado completo del diálogo (elección, copiar, edición de campos)
+  const store = storeWith(makeStorage());
+  store.add(["multi"]);
+  const items = [{ id: "keep", name: "Ana", docs: [{ id: "d1", label: "a.pdf", url: SP + "a.pdf" }] },
+                 { id: "multi", name: "Beto", docs: [{ id: "d2", label: "n.pdf", url: SP + "n.pdf" }, { id: "d3", label: "v.pdf", url: SP + "v.pdf" }] }];
+  const s = shareDoc({ items, visible: [] });
+  const handlers = {};
+  s.d.addEventListener = (n, f) => { handlers[n] = f; };
+  s.d.body = { addEventListener() {} };
+  s.d.readyState = "complete";
+  const clips = [];
+  const win = { location: { origin: "https://hub.danwor.test" }, navigator: {}, Blob: function (parts, opts) { this.parts = parts; this.type = opts.type; } };
+  api.wire(s.d, win, store);
+  api.initShare(s.d, store, win);
+  const choose = value => {
+    const select = s.list.querySelector('[data-share-choose="multi"]');
+    select.value = value;
+    select.matches = sel => sel.split(",").map(x => x.trim()).includes("[data-share-choose]");
+    select.getAttribute = n => (n === "data-share-choose" ? "multi" : null);
+    handlers.change({ target: select });
+  };
+  choose("d3");
+  ok(s.copy.disabled === false && s.pend.hidden === true && s.link.getAttribute("href").startsWith("mailto:?subject=Perfiles&body="), "H: al elegir el CV se habilitan las acciones");
+  const body = decodeURIComponent(s.link.getAttribute("href").split("&body=")[1]).replace(/\r\n/g, "\n");
+  ok(body.includes("- Beto: " + SP + "v.pdf") && body.includes("- Ana: " + SP + "a.pdf") && !body.includes("n.pdf"), "H: «Abrir Outlook» usa texto plano con las URLs completas del CV ELEGIDO (y de ningún otro)");
+  const chosen = s.list.querySelector('[data-share-choose="multi"]');
+  ok(chosen.focused === true, "H: tras elegir se conserva el foco en el selector");
+  choose(api.SKIP);
+  ok(s.pend.hidden === true && !decodeURIComponent(s.link.getAttribute("href")).includes("Beto"), "H: «No incluir» saca al candidato del mensaje");
+  choose("");
+  ok(s.copy.disabled === true, "H: volver a «Elegir CV…» deja el mensaje otra vez incompleto");
+  choose("d2");
+  // editar el asunto/introducción actualiza el mailto
+  s.intro.value = "Intro nueva";
+  s.intro.matches = sel => sel.split(",").map(x => x.trim()).includes("[data-share-intro]");
+  handlers.input({ target: s.intro });
+  ok(decodeURIComponent(s.link.getAttribute("href")).includes("Intro nueva"), "H: la introducción editada se refleja en el mensaje");
+  // Outlook se deshabilita por longitud (con nota que manda a «Copiar mensaje»)
+  s.intro.value = "x".repeat(2200);
+  handlers.input({ target: s.intro });
   ok(s.link.getAttribute("href") === "#" && s.link.getAttribute("aria-disabled") === "true" && s.link.classList.contains("is-disabled"), "H: si el mensaje es demasiado largo «Abrir Outlook» se deshabilita");
-  ok(s.note.hidden === false && /Copiar mensaje/.test(s.note.textContent), "H: con una nota que manda a «Copiar mensaje»");
-  s.message.value = "corto";
-  api.refreshMailto(s.d);
+  ok(s.note.hidden === false && /Copiar mensaje/.test(s.note.textContent) && /texto plano/.test(s.note.textContent) && s.copy.disabled === false, "H: con una nota honesta (el mailto es texto plano) y «Copiar mensaje» sigue disponible");
+  s.intro.value = "corto";
+  handlers.input({ target: s.intro });
   ok(s.link.getAttribute("aria-disabled") === null && s.link.getAttribute("href").startsWith("mailto:") && s.note.hidden === true, "H: al acortar el mensaje se rehabilita");
 }
+
+// ── H2: copiado del mensaje: text/html + text/plain y degradaciones ──────────────────────────
+function clipEnv(opts) {
+  const copied = [];
+  const doc = {
+    createElement: tag => mini(tag), body: { appendChild() {}, removeChild() {} }, createRange: () => ({ selectNodeContents() {} }),
+    execCommand: cmd => (cmd === "copy" ? (opts.execCommand !== false) : false),
+  };
+  const win = { navigator: {}, getSelection: () => ({ removeAllRanges() {}, addRange() {} }), Blob: function (parts, o) { this.parts = parts; this.type = o.type; } };
+  if (opts.clipboardItem !== false) {
+    win.ClipboardItem = function (map) { this.map = map; };
+    win.navigator.clipboard = { write: items => { copied.push(items); return opts.writeFails ? Promise.reject(new Error("no")) : Promise.resolve(); }, writeText: t => { copied.push(t); return opts.textFails ? Promise.reject(new Error("no")) : Promise.resolve(); } };
+  } else if (opts.writeText) {
+    win.navigator.clipboard = { writeText: t => { copied.push(t); return opts.textFails ? Promise.reject(new Error("no")) : Promise.resolve(); } };
+  }
+  return { doc, win, copied };
+}
+function runCopy(opts) {
+  const env = clipEnv(opts);
+  return new Promise(resolve => api.copyRich(env.win, env.doc, "<ul><li><a href=\"" + SP + "a.pdf\">Ana</a></li></ul>", "- Ana: " + SP + "a.pdf", mode => resolve({ mode, env }), () => resolve({ mode: "fail", env })));
+}
+async function copyScenarios() {
+  let r = await runCopy({});
+  const item = r.env.copied[0][0];
+  ok(r.mode === "rich" && Object.keys(item.map).sort().join() === "text/html,text/plain", "H2: con Clipboard API se ofrecen text/html Y text/plain a la vez");
+  ok(item.map["text/html"].type === "text/html" && item.map["text/html"].parts[0].includes('<a href="' + SP + 'a.pdf">Ana</a>'), "H2: el text/html lleva el nombre como hipervínculo");
+  ok(item.map["text/plain"].type === "text/plain" && item.map["text/plain"].parts[0] === "- Ana: " + SP + "a.pdf", "H2: el text/plain conserva la URL completa como fallback");
+  r = await runCopy({ writeFails: true });
+  ok(r.mode === "rich", "H2: si `clipboard.write` falla se copia la selección renderizada (también conserva el formato)");
+  r = await runCopy({ clipboardItem: false });
+  ok(r.mode === "rich", "H2: sin ClipboardItem se usa la selección renderizada con execCommand('copy')");
+  r = await runCopy({ clipboardItem: false, execCommand: false, writeText: true });
+  ok(r.mode === "plain" && r.env.copied[0] === "- Ana: " + SP + "a.pdf", "H2: sin copiado con formato se degrada a texto plano con las URLs completas");
+  r = await runCopy({ clipboardItem: false, execCommand: false, writeText: true, textFails: true });
+  ok(r.mode === "fail", "H2: si nada funciona se informa el fallo (no se afirma haber copiado)");
+}
+
 
 // ── I: openShare: solo ids por POST, límites, fallas ───────────────────────────────────────
 async function runOpenShare(storeIds, fetchImpl) {
@@ -293,6 +439,7 @@ async function runOpenShare(storeIds, fetchImpl) {
   return { calls, content, dialog };
 }
 (async () => {
+  await copyScenarios();
   let r = await runOpenShare([], () => Promise.resolve({ ok: true, text: () => Promise.resolve("") }));
   ok(r.calls.length === 0 && r.dialog.open === false, "I: sin selección no se llama al servidor ni se abre el diálogo");
   r = await runOpenShare(ids(26), () => Promise.resolve({ ok: true, text: () => Promise.resolve("") }));
