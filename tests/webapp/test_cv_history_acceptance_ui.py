@@ -50,7 +50,8 @@ def test_review_is_owner_only_no_store_and_changes_nothing(env, monkeypatch):
     draft(rid, pablo)
     url = f"{BASE}/{rid}/excepciones/{pablo}/aceptar-revisar"
     assert TestClient(app, follow_redirects=False).post(url, data={}).status_code in (302, 303, 307)
-    assert client_for(HC_USER, monkeypatch).post(url, data={}).status_code == 403
+    assert client_for("fuera-de-cchh@danwor.com", monkeypatch).post(url, data={}).status_code == 403                                      # autenticado pero sin autorización de Capital Humano
+    assert client_for(HC_USER, monkeypatch).post(url, data={}).status_code == 200                                                          # CCHH autorizado: puede revisar (solo lectura)
     owner = client_for(OWNER, monkeypatch)
     before, profiles, puts = digest(), seeded_snapshot(), list(store.puts)
     res = review(owner, rid, pablo)

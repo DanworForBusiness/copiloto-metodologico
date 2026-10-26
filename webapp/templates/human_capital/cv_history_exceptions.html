@@ -11,18 +11,31 @@
   {{ sidebar_resize_handle() }}
 
   <main id="content" class="module-content">
-    <a class="catalog-back" href="/cchh/diagnostico/cvs-historicos/{{ run_id }}">← Volver al lote</a>
+    {# La página del lote (iniciar y ejecutar la importación) es solo del owner: para el resto de Capital Humano no hay a dónde «volver». #}
+    {% if is_owner %}<a class="catalog-back" href="/cchh/diagnostico/cvs-historicos/{{ run_id }}">← Volver al lote</a>{% endif %}
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
         <p class="eyebrow">Capital Humano</p>
         <h1>Históricos sin validación</h1>
-        <p>Currículums de la importación histórica que todavía no pasaron al Banco de Capital Humano · lote {{ run_id }}</p>
+        <p>Currículums de la importación histórica que todavía no pasaron al Banco.</p>
+        <p class="field-hint">Lote {{ run_id }}</p>
+      </div>
+      <div class="hc-profiles-hero-actions">
+        <button type="button" class="btn-secondary" data-hc-authorize-write>Autorizar escritura en CVs</button>
+        <span class="field-hint" data-hc-authorize-status role="status"></span>
       </div>
     </section>
 
-    <p class="callout callout--info" data-historicos-intro><span class="callout__body">Estos documentos <strong>todavía no son perfiles del Banco</strong>: no aparecen en candidatos, búsquedas ni publicaciones hasta que se incorporen. Acá podés abrir el CV original, ver qué evidencia de identidad encontró el sistema y qué falta confirmar. Las propuestas son automáticas y <strong>no son identidades verificadas</strong>. «Ver CV original» abre el archivo en SharePoint con tus propios permisos; no se copia ni se guarda el enlace, y solo está disponible mientras existan los datos temporales del lote.</span></p>
-    <p class="callout callout--warn"><span class="callout__body">Esta página contiene datos personales (nombre, email, celular). Solo la ve el owner. En «Gestionar», «Completar identidad» crea un perfil con el nombre y apellido que escribas (nunca uno inventado) y sube el CV; «Vincular» agrega el CV a un perfil existente sin modificarlo. Nada se fusiona solo.</span></p>
-    <p><button type="button" class="btn-secondary" data-hc-authorize-write>Autorizar escritura en CVs</button> <span class="field-hint" data-hc-authorize-status role="status"></span></p>
+    {# Una sola nota visible con lo importante; el resto de la explicación está plegado. #}
+    <p class="hc-hist-note" data-historicos-intro><strong>Estos documentos todavía no son perfiles del Banco.</strong> Las propuestas son automáticas y no son identidades verificadas. Esta página contiene datos personales.</p>
+    <details class="hc-hist-help" data-historicos-help>
+      <summary>Cómo funciona</summary>
+      <ul>
+        <li>«Ver CV original» abre el archivo en SharePoint con tus propios permisos; no se copia ni se guarda el enlace, y solo está disponible mientras existan los datos temporales del lote.</li>
+        <li>«Borrador» guarda tu trabajo sin crear perfiles ni tocar el Banco. «Aceptar el borrador» lo incorpora (perfil nuevo o CV vinculado) y no se puede deshacer desde esta pantalla.</li>
+        <li>En «Otras acciones», «Completar identidad» crea un perfil con el nombre y apellido que escribas (nunca uno inventado) y sube el CV; «Vincular» agrega el CV a un perfil existente sin modificarlo. Nada se fusiona solo.</li>
+      </ul>
+    </details>
 
     {% include "partials/cv_history_exceptions_panel.html" %}
   </main>

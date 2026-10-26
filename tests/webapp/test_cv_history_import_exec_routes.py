@@ -29,7 +29,7 @@ def act_row(c, rid, key, accion, **data):
 def test_import_routes_are_owner_only(env, monkeypatch):
     rid = planned_run(env)
     key = by_name(rid)["escaneado.pdf"]
-    calls = (("post", f"{BASE}/{rid}/importar", {"data": {"graph_token": TOKEN, "confirm": ex.confirm_phrase(rid)}}), ("get", f"{BASE}/{rid}/excepciones", {}), ("post", f"{BASE}/{rid}/excepciones/{key}/descartar", {"data": {"reason": "NOT_A_CV"}}))
+    calls = (("post", f"{BASE}/{rid}/importar", {"data": {"graph_token": TOKEN, "confirm": ex.confirm_phrase(rid)}}), ("get", f"{BASE}/{rid}", {}), ("post", f"{BASE}/{rid}/plan", {}))      # iniciar/planificar: solo el owner (la pantalla de excepciones es de CCHH: ver test_cv_history_access)
     for method, url, kw in calls:
         assert getattr(TestClient(app, follow_redirects=False), method)(url, **kw).status_code in (302, 303, 307), url
         assert getattr(client_for(HC_USER, monkeypatch), method)(url, **kw).status_code == 403, url
