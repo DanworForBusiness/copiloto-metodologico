@@ -756,3 +756,10 @@ table.dashboard-table[data-exceptions-rows] th:is(:nth-child(2), :nth-child(3)) 
 
 /* Campo bloqueado por el contexto de acceso (Entrevista: resumen CCHH ↔ técnico): grisado y de solo lectura. El servidor además conserva su valor al guardar. */
 .feedback-field.is-locked textarea { opacity: .55; cursor: not-allowed; background: rgba(128, 128, 140, .14); }
+
+/* ═══ CCHH · Candidatos: ficha de consulta (solo lectura) ═══
+   Valores de solo lectura con los neutros del Hub (mismos bordes/colores que los campos). */
+.hc-readonly-value { min-height: 38px; padding: 8px 11px; border: 1px solid rgba(128, 128, 128, .28); border-radius: 8px; background: transparent; color: #1f1f24; font-size: .85rem; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+.content-theme-dark .hc-readonly-value { color: #e4e4ec; }
+.hc-readonly-value--empty { color: #7a7a82; }
+.hc-readonly-value a { text-decoration: underline; text-underline-offset: 2px; }

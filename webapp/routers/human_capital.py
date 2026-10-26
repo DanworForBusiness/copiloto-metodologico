@@ -952,6 +952,38 @@ def _profile_or_404(profile_id: str) -> dict:
     return profile
 
 
+@router.get("/cchh/candidatos/{profile_id}", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profile_detail_page(request: Request, profile_id: str):
+    """FICHA de consulta (solo lectura) de un candidato: la URL ESTABLE que se comparte (nunca `/editar`). Misma autorización que el resto de Capital Humano (sin sesión → login; sin
+    autorización CCHH → 403); un candidato dado de baja se comporta como inexistente (404). Reusa el modelo y el listado de documentos existentes: no crea entidades ni lógica nueva,
+    no escribe nada. Se declara DESPUÉS de `/cchh/candidatos/nuevo` y `/importar` (rutas fijas del mismo nivel) para no ensombrecerlas. Datos personales ⇒ `no-store`."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    profile = human_capital_service.get_profile(profile_id)
+    if profile is None or profile.get("deleted_at"):
+        raise HTTPException(404, "Candidato no encontrado")
+    documents: list[dict] | None
+    try:
+        documents = profile_document_service.list_documents_for_profile(profile_id)
+    except profile_document_repository.ProfileDocumentStorageError:
+        documents = None                                           # la ficha se muestra igual; Documentos dice «No disponible»
+    user = auth_service.session_user(request)
+    return templates.TemplateResponse(
+        request=request, name="human_capital/profile_detail.html",
+        context={
+            "current_workspace": workspaces.HUMAN_CAPITAL,
+            "available_workspaces": workspaces.available_workspaces(user),
+            "pack": DEFAULT_PACK,
+            "user": user,
+            "active_page": "perfiles",
+            "profile": profile,
+            "documents": documents,
+        },
+        headers=_NO_STORE,
+    )
+
+
 @router.post("/cchh/candidatos/{profile_id}/documentos", response_class=HTMLResponse, include_in_schema=False)
 @router.post("/human-capital/profiles/{profile_id}/documents", response_class=HTMLResponse, include_in_schema=False)  # legacy compat alias
 async def human_capital_profile_documents_upload(

@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% from "partials/star_rating.html" import star_rating %}
+{% block title %}{{ profile.first_name }} {{ profile.last_name }} · Capital Humano · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">{% endblock %}
+{% block body %}
+{# Ficha de CONSULTA de un candidato (solo lectura): la URL estable `/cchh/candidatos/{id}` que se comparte entre usuarios autorizados de Capital Humano. Reusa la composición de la
+   pantalla de edición (hero + `dashboard-section` colapsables, MISMOS bloques y campos) pero sin formularios ni controles de escritura: no hay ni un <form>/<input> acá. «Editar» es un
+   enlace a la pantalla de edición; el «← Volver» conserva el contexto del listado (`return_to` validado en servidor). El CV original se abre en SharePoint con `web_url` (enlace plano: lo
+   resuelve SharePoint con los permisos propios de quien lo abre; el Hub no transmite el archivo). #}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.HUMAN_CAPITAL_APP_TITLE | urlencode }}&subtitle={{ config.HUMAN_CAPITAL_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% include "partials/human_capital_catalog_refresh_topbar.html" %}{% endcall %}
+
+  {% include "partials/human_capital_nav.html" %}
+
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content" data-hc-profile-detail data-profile-id="{{ profile.profile_id }}">
+    {% set rc = list_return(request, "/cchh/candidatos") %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver al listado</a>
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano · Ficha del candidato</p>
+        <h1>{{ profile.first_name }} {{ profile.last_name }}</h1>
+        {% set hero_meta_parts = [] %}
+        {% if profile.profile_skills %}{% set _ = hero_meta_parts.append(profile.profile_skills) %}{% endif %}
+        {% if profile.seniority %}{% set _ = hero_meta_parts.append(profile.seniority) %}{% endif %}
+        {% if hero_meta_parts %}
+        <div class="hero-meta">{% for part in hero_meta_parts %}<span>{{ part }}</span>{% endfor %}</div>
+        {% endif %}
+      </div>
+      <div class="hc-profiles-hero-actions">
+        <button type="button" class="btn-secondary" data-dashboard-expand-all data-dashboard-target="cchh-candidate-view">Expandir</button>
+        <button type="button" class="btn-secondary" data-dashboard-collapse-all data-dashboard-target="cchh-candidate-view">Contraer</button>
+        <a class="btn-secondary" data-hc-detail-edit href="/cchh/candidatos/{{ profile.profile_id }}/editar{{ rc.qs }}">Editar</a>
+      </div>
+    </section>
+
+    {% macro value(text) %}{% if text %}<div class="hc-readonly-value">{{ text }}</div>{% else %}<div class="hc-readonly-value hc-readonly-value--empty">—</div>{% endif %}{% endmacro %}
+
+    <div class="dashboard-sections" data-dashboard-key="cchh-candidate-view" data-persist-collapse>
+      <details class="dashboard-section" data-section-id="datos-candidato" open>
+        <summary class="dashboard-section__head" draggable="true"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Datos del candidato</span></summary>
+        <div class="dashboard-section__body">
+          <div class="hc-profile-section__grid">
+            <div class="feedback-field"><label>Nombre</label>{{ value(profile.first_name) }}</div>
+            <div class="feedback-field"><label>Apellido</label>{{ value(profile.last_name) }}</div>
+            <div class="feedback-field"><label>Email</label>{% if profile.email %}<div class="hc-readonly-value"><a href="mailto:{{ profile.email }}">{{ profile.email }}</a></div>{% else %}{{ value("") }}{% endif %}</div>
+            <div class="feedback-field"><label>Teléfono</label>{{ value(profile.phone) }}</div>
+            <div class="feedback-field"><label>LinkedIn</label>{% if profile.linkedin_url and (profile.linkedin_url.startswith("http://") or profile.linkedin_url.startswith("https://")) %}<div class="hc-readonly-value"><a href="{{ profile.linkedin_url }}" target="_blank" rel="noopener noreferrer">{{ profile.linkedin_url }}</a></div>{% else %}{{ value(profile.linkedin_url) }}{% endif %}</div>
+            <div class="feedback-field"><label>Ubicación</label>{{ value(profile.location) }}</div>
+          </div>
+        </div>
+      </details>
+
+      <details class="dashboard-section" data-section-id="clasificacion" open>
+        <summary class="dashboard-section__head" draggable="true"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Clasificación</span></summary>
+        <div class="dashboard-section__body">
+          <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+            <div class="feedback-field feedback-field--wide"><label>Perfil / Skills</label>{{ value(profile.profile_skills) }}</div>
+            <div class="feedback-field feedback-field--compact"><label>Seniority</label>{{ value(profile.seniority) }}</div>
+            <div class="feedback-field feedback-field--compact"><label>Fuente</label>{{ value(profile.source) }}</div>
+            <div class="feedback-field feedback-field--wide"><label>Tags</label>{{ value(profile.tags) }}</div>
+          </div>
+        </div>
+      </details>
+
+      <details class="dashboard-section" data-section-id="notas" open>
+        <summary class="dashboard-section__head" draggable="true"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Notas</span></summary>
+        <div class="dashboard-section__body">{{ value(profile.notes) }}</div>
+      </details>
+
+      <details class="dashboard-section" data-section-id="potencial" open>
+        <summary class="dashboard-section__head" draggable="true"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Potencial a futuro</span></summary>
+        <div class="dashboard-section__body">
+          <div class="hc-profile-section__grid">
+            <div class="feedback-field"><label>Potencial (1-5)</label>{% if profile.potential_rating %}<div class="hc-readonly-value">{{ star_rating(value=profile.potential_rating, readonly=true, label="Potencial a futuro", size="sm") }}</div>{% else %}{{ value("") }}{% endif %}</div>
+            <div class="feedback-field"><label>Marca de potencial</label>{% if profile.potential_mark %}<div class="hc-readonly-value"><span class="status-badge status-badge--potential">{{ profile.potential_mark }}</span></div>{% else %}{{ value("") }}{% endif %}</div>
+          </div>
+        </div>
+      </details>
+
+      <details class="dashboard-section" data-section-id="documentos" data-hc-detail-documents open>
+        <summary class="dashboard-section__head" draggable="true"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Documentos</span></summary>
+        <div class="dashboard-section__body">
+          {% if documents is none %}
+          <div class="dashboard-empty" data-error-kind="source_error">
+            <span class="dashboard-empty__label">No disponible</span>
+            <p>No se pudo leer el listado de documentos en este momento. Reintentá en unos instantes.</p>
+          </div>
+          {% elif documents %}
+          <div class="matrix-scroll">
+            <table class="dashboard-table hc-documents-table">
+              <thead><tr><th class="left">Archivo</th><th class="left">Tamaño</th><th class="left">Subido</th><th class="left">Subido por</th><th class="center">CV original</th></tr></thead>
+              <tbody>
+                {% for doc in documents %}
+                <tr>
+                  <td class="left">{{ doc.filename }}</td>
+                  <td class="left">{{ doc.size_bytes | filesizeformat }}</td>
+                  <td class="left">{{ doc.uploaded_at }}</td>
+                  <td class="left">{{ doc.uploaded_by }}</td>
+                  <td class="center">
+                    {% if doc.web_url %}
+                    <div class="dw-row-actions">
+                      <a href="{{ doc.web_url }}" target="_blank" rel="noopener noreferrer" class="table-action-btn chart-tooltip-anchor" aria-label="Abrir {{ doc.filename }} en SharePoint">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                        <span class="chart-tooltip" aria-hidden="true"><p>Abrir en SharePoint</p></span>
+                      </a>
+                    </div>
+                    {% else %}—{% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <p class="field-hint">El CV se abre en SharePoint con tus propios permisos; el Hub no descarga ni copia el archivo.</p>
+          {% else %}
+          <div class="dashboard-empty" data-empty-kind="no_documents">
+            <span class="dashboard-empty__label">Sin documentos</span>
+            <p>Este candidato no tiene documentos cargados.</p>
+          </div>
+          {% endif %}
+        </div>
+      </details>
+    </div>
+  </main>
+</div>
+{% endblock %}

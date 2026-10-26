@@ -40,6 +40,7 @@
   "GET /cchh/candidatos",
   "GET /cchh/candidatos/importar",
   "GET /cchh/candidatos/nuevo",
+  "GET /cchh/candidatos/{profile_id}",
   "GET /cchh/candidatos/{profile_id}/editar",
   "GET /cchh/catalogos",
   "GET /cchh/diagnostico/cvs-historicos",
