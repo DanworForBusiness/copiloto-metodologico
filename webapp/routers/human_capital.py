@@ -3112,7 +3112,7 @@ def human_capital_sharepoint_diagnostics_probe(request: Request, graph_token: st
 @router.post("/cchh/diagnostico/sharepoint/inventario", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_cv_history_inventory(request: Request, graph_token: str = Form(""), share_url: str = Form("")):
     """INVENTARIO de SOLO LECTURA del histórico de CVs (ver `cv_history_inventory`): resuelve el link y recorre la carpeta con GET; muestra agregados (sin nombres de archivo ni datos personales),
-    no descarga, no guarda y no crea nada. Solo APP_OWNER. El token de LECTURA lo inyecta el hook compartido (`data-dw-graph-token`): jamás viaja en la plantilla ni se registra."""
+    no descarga, no guarda y no crea nada. CCHH autorizado (APP_OWNER o HUMAN_CAPITAL_ALLOWED_USERS). El token de LECTURA lo inyecta el hook compartido (`data-dw-graph-token`): jamás viaja en la plantilla ni se registra."""
     redirect = _require_owner_for_diagnostics(request)
     if redirect is not None:
         return redirect
@@ -3319,7 +3319,7 @@ def human_capital_cv_history_entry(request: Request):
 
 @router.get("/cchh/diagnostico/cvs-historicos/{run_id}/excepciones", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_cv_history_exceptions(request: Request, run_id: str, estado: str = Query("open"), motivo: str = Query(""), page: str = Query(""), page_size: str = Query("")):
-    """Excepciones de la importación (pendientes del plan y bloqueados al ejecutar): contiene datos personales, solo owner, `no-store`. Paginación CANÓNICA del Hub (`pagination.paginate` + `partials/pager.html`):
+    """Excepciones de la importación (pendientes del plan y bloqueados al ejecutar): contiene datos personales, solo CCHH autorizado, `no-store`. Paginación CANÓNICA del Hub (`pagination.paginate` + `partials/pager.html`):
     filtros ANTES de paginar; un filtro o el paginador dentro del panel (HTMX) re-renderizan solo el fragmento."""
     redirect = _require_human_capital_session(request)                                                              # CCHH autorizado (APP_OWNER o HUMAN_CAPITAL_ALLOWED_USERS): el esquema de siempre; lo sensible de la importación sigue siendo solo del owner
     if redirect is not None:
