@@ -296,3 +296,128 @@ def test_synthetic_bench_reports_environment_and_zip_cost_without_network_or_tok
     env = report["environment"]
     assert env["cpu_count"] and "cgroup" in env and "free_mb" in env["tmp"]
     assert probe.main(["--synthetic-bench", "--bench-mb", "999"]) == 3
+
+
+# ───────────────────────── endurecimiento: secretos, trazas, interrupciones, limpieza ─────────────────────────
+def write_docs(tmp_path, items):
+    d = tmp_path / "docs-extra"
+    d.mkdir(exist_ok=True)
+    for doc_id, item, size in items:
+        (d / f"{doc_id}.json").write_text(json.dumps({"document_id": doc_id, "drive_id": "b!drive", "item_id": item, "size_bytes": size, "filename": SECRET_NAME}), encoding="utf-8")
+    return d
+
+
+def real_args(graph, docs_dir, *docs, extra=()):
+    argv = ["--real", "--documents-dir", str(docs_dir), "--graph-base", graph.base, "--disk-bench-mb", "0", "--socket-timeout", "2", "--doc-deadline", "5", "--confirm", probe.CONFIRM_PHRASE]
+    for d in docs:
+        argv += ["--document-id", d]
+    return argv + list(extra)
+
+
+def test_a_misspelled_secret_argument_is_never_echoed_to_stderr(capsys):
+    for argv in (["--real", "--token", "tok-secreto-123"], ["--real", "--compression", "valor-secreto-xyz"], ["--synthetic-bench", "--bench-mb", "valor-secreto-xyz"]):
+        with pytest.raises(SystemExit) as exit_info:
+            probe.main(argv)
+        captured = capsys.readouterr()
+        assert exit_info.value.code == 3
+        assert "secreto" not in captured.err and "secreto" not in captured.out and "tok-" not in captured.err
+
+
+def test_an_unexpected_error_prints_only_the_exception_class_never_a_traceback_url_token_or_path(capsys, monkeypatch, graph, docs_dir):
+    monkeypatch.setenv(probe.TOKEN_ENV, TOKEN)
+
+    def explode(**_kwargs):
+        raise RuntimeError(f"fallo en https://leak.example/{TOKEN} C:\ruta\secreta\doc-a.json")
+    monkeypatch.setattr(probe, "real_run", explode)
+    code = probe.main(real_args(graph, docs_dir, "doc-a"))
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert code == 4 and report["error"] == "inesperado" and report["type"] == "RuntimeError" and "run" not in report
+    for text in (captured.out, captured.err):
+        for forbidden in ("leak.example", TOKEN, "secreta", "doc-a", "Traceback", "File \""):
+            assert forbidden not in text, forbidden
+
+
+def test_partial_and_oversize_responses_leave_no_temporary_files(monkeypatch, graph, tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setattr(probe.tempfile, "tempdir", str(work))
+    docs = write_docs(tmp_path, [("p1", "short", None), ("p2", "nolen", None), ("p3", "big", None), ("p4", "hang", None), ("p5", "ok", len(PAYLOAD))])
+    report = probe.real_run(document_ids=["p1", "p2", "p3", "p4", "p5"][:3], documents_dir=docs, token=TOKEN, graph_base=graph.base, cap=1_000_000, compression="stored", socket_timeout=2, deadline_s=5)
+    assert [d["outcome"] for d in report["documents"]] == ["short_read", "oversize_stream", "oversize_header"] and report["zip"]["files"] == 0 and report["zip"]["output_bytes"] > 0
+    assert list(work.iterdir()) == []
+
+
+def test_an_error_while_building_the_zip_cleans_up_and_reports_only_a_class(capsys, monkeypatch, graph, docs_dir, tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setattr(probe.tempfile, "tempdir", str(work))
+    monkeypatch.setenv(probe.TOKEN_ENV, TOKEN)
+
+    def disk_full(self, *a, **k):
+        raise OSError("No space left on device: /app/secreto/archivo.zip")
+    monkeypatch.setattr(probe.zipfile.ZipFile, "write", disk_full)
+    code = probe.main(real_args(graph, docs_dir, "doc-a", "doc-b"))
+    out = capsys.readouterr()
+    assert code == 4 and json.loads(out.out)["type"] == "OSError" and "secreto" not in out.out + out.err
+    assert list(work.iterdir()) == []
+
+
+def test_ctrl_c_in_the_middle_of_a_download_cleans_up_and_exits_130(capsys, monkeypatch, graph, docs_dir, tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setattr(probe.tempfile, "tempdir", str(work))
+    monkeypatch.setenv(probe.TOKEN_ENV, TOKEN)
+    seen = {}
+
+    def interrupted(url, token, sink, **_kw):
+        sink.write(b"bytes parciales de un CV")
+        seen["tmp_during"] = [p.name for p in work.rglob("*")]
+        raise KeyboardInterrupt
+    monkeypatch.setattr(probe, "read_capped", interrupted)
+    code = probe.main(real_args(graph, docs_dir, "doc-a"))
+    report = json.loads(capsys.readouterr().out)
+    assert code == 130 and report["error"] == "interrumpido" and report["signal"] == "SIGINT" and "run" not in report
+    assert seen["tmp_during"] and list(work.iterdir()) == []                          # había temporal con contenido parcial y se borró
+
+
+def test_sigterm_is_turned_into_a_clean_unwind_and_the_previous_handler_is_restored(capsys, monkeypatch, graph, docs_dir, tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setattr(probe.tempfile, "tempdir", str(work))
+    monkeypatch.setenv(probe.TOKEN_ENV, TOKEN)
+    installed = []
+    previous = object()
+
+    def fake_signal(signum, handler):
+        installed.append((signum, handler))
+        return previous
+    monkeypatch.setattr(probe.signal, "signal", fake_signal)
+
+    def terminated(url, token, sink, **_kw):
+        sink.write(b"bytes parciales")
+        installed[0][1](probe.signal.SIGTERM, None)                                    # el sistema entrega SIGTERM en medio de la descarga
+    monkeypatch.setattr(probe, "read_capped", terminated)
+    code = probe.main(real_args(graph, docs_dir, "doc-a"))
+    report = json.loads(capsys.readouterr().out)
+    assert code == 143 and report["signal"] == "SIGTERM" and list(work.iterdir()) == []
+    assert installed[0][0] == probe.signal.SIGTERM and installed[-1] == (probe.signal.SIGTERM, previous)       # restaurado al terminar
+
+
+def test_total_deadline_bounds_the_whole_run_during_the_read_not_only_before(graph, tmp_path):
+    docs = write_docs(tmp_path, [("t1", "slow", None), ("t2", "ok", len(PAYLOAD))])
+    started = time.perf_counter()
+    report = probe.real_run(document_ids=["t1", "t2"], documents_dir=docs, token=TOKEN, graph_base=graph.base, cap=1_000_000, compression="stored", socket_timeout=2, deadline_s=30,
+                            total_deadline_s=0.5)
+    assert time.perf_counter() - started < 4
+    assert [d["outcome"] for d in report["documents"]] == ["deadline", "total_deadline"]
+    assert not any("ok" in h for h in graph.hits)                                       # el segundo documento ni se pidió
+
+
+def test_the_run_never_writes_inside_the_documents_directory_or_the_working_directory(monkeypatch, graph, docs_dir, tmp_path):
+    before = sorted(p.name for p in docs_dir.iterdir())
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    probe.real_run(document_ids=["doc-a"], documents_dir=docs_dir, token=TOKEN, graph_base=graph.base, cap=1_000_000, compression="stored", socket_timeout=2, deadline_s=5)
+    assert sorted(p.name for p in docs_dir.iterdir()) == before and list(cwd.iterdir()) == []

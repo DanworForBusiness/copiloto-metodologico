@@ -21,6 +21,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import socket
 import sys
 import tempfile
@@ -41,6 +42,7 @@ TOTAL_CAP_BYTES = 75 * 1024 * 1024
 CHUNK = 64 * 1024
 DEFAULT_SOCKET_TIMEOUT_S = 30.0
 DEFAULT_DOC_DEADLINE_S = 60.0
+DEFAULT_TOTAL_DEADLINE_S = 120.0
 RETRY_AFTER_CAP_S = 120
 DOC_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 GRAPH_ID_RE = re.compile(r"^[A-Za-z0-9!_,.\-]{1,256}$")
@@ -272,7 +274,8 @@ def content_url(base: str, drive_id: str, item_id: str) -> str:
     return f"{base}/drives/{urllib.parse.quote(drive_id, safe='!,')}/items/{urllib.parse.quote(item_id, safe='')}/content"
 
 
-def real_run(*, document_ids: list[str], documents_dir: Path, token: str, graph_base: str, cap: int, compression: str, socket_timeout: float, deadline_s: float) -> dict:
+def real_run(*, document_ids: list[str], documents_dir: Path, token: str, graph_base: str, cap: int, compression: str, socket_timeout: float, deadline_s: float,
+             total_deadline_s: float = DEFAULT_TOTAL_DEADLINE_S) -> dict:
     started = time.perf_counter()
     docs = [_load_document(documents_dir, document_id) for document_id in document_ids]
     base = _validate_graph_base(graph_base)
@@ -284,15 +287,16 @@ def real_run(*, document_ids: list[str], documents_dir: Path, token: str, graph_
         with zipfile.ZipFile(zpath, "w", _zip_mode(compression)) as archive:
             for number, doc in enumerate(docs, start=1):
                 remaining_total = TOTAL_CAP_BYTES - total_bytes
+                time_left = total_deadline_s - (time.perf_counter() - started)
                 entry = {"n": number, "declared_size": doc["declared_size"]}
-                if remaining_total <= 0:
-                    entry.update(outcome="total_cap_reached", bytes=0)
+                if remaining_total <= 0 or time_left <= 0:
+                    entry.update(outcome="total_cap_reached" if remaining_total <= 0 else "total_deadline", bytes=0)
                     report["documents"].append(entry)
                     continue
                 part = Path(work) / f"part-{number}.bin"
                 with open(part, "wb") as sink:
                     result = read_capped(content_url(base, doc["drive_id"], doc["item_id"]), token, sink, cap=min(cap, remaining_total), declared_size=doc["declared_size"],
-                                         socket_timeout=socket_timeout, deadline_s=deadline_s)
+                                         socket_timeout=socket_timeout, deadline_s=min(deadline_s, time_left))
                 entry.update(result)
                 if result["outcome"] == "ok":
                     total_bytes += result["bytes"]
@@ -330,8 +334,16 @@ def projection(documents: list[dict]) -> dict:
 
 
 # ───────────────────────── CLI ─────────────────────────
+class _QuietParser(argparse.ArgumentParser):
+    """argparse repite en el error los argumentos recibidos («unrecognized arguments: --token abc»): acá nunca, para que un secreto mal pasado no llegue a stderr ni al historial."""
+
+    def error(self, message):
+        sys.stderr.write("cchh_export_probe: argumentos inválidos (ver --help)\n")
+        raise SystemExit(3)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="cchh_export_probe", description=__doc__.split("\n\n")[0])
+    parser = _QuietParser(prog="cchh_export_probe", description=__doc__.split("\n\n")[0])
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--synthetic-bench", action="store_true", help="entorno + ZIP sintético; sin red, sin token, sin CVs")
     mode.add_argument("--real", action="store_true", help="descarga 1-3 CVs reales (requiere autorización explícita del owner)")
@@ -346,12 +358,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--compression", choices=("stored", "deflated"), default="deflated")
     parser.add_argument("--socket-timeout", type=float, default=DEFAULT_SOCKET_TIMEOUT_S)
     parser.add_argument("--doc-deadline", type=float, default=DEFAULT_DOC_DEADLINE_S)
+    parser.add_argument("--total-deadline", type=float, default=DEFAULT_TOTAL_DEADLINE_S)
     return parser
+
+
+class _Terminated(BaseException):
+    """SIGTERM: por defecto Python muere sin ejecutar `finally`/`with` (quedaría el temporal con CVs). Se convierte en una excepción para que el directorio temporal se borre."""
+
+
+def _on_sigterm(_signum, _frame):
+    raise _Terminated()
+
+
+def _emit(report: dict) -> None:
+    print(json.dumps(report, indent=2, sort_keys=True))
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     report: dict = {"schema": SCHEMA, "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "mode": "synthetic" if args.synthetic_bench else "real"}
+    previous = None
+    try:
+        previous = signal.signal(signal.SIGTERM, _on_sigterm)
+    except (ValueError, OSError, AttributeError):              # fuera del hilo principal o plataforma sin SIGTERM: sigue sin el manejador
+        previous = None
     try:
         if args.synthetic_bench:
             if not (1 <= args.bench_files <= 8 and 1 <= args.bench_mb <= 50):
@@ -368,13 +398,31 @@ def main(argv: list[str] | None = None) -> int:
                 raise ProbeInputError(f"falta el token delegado en la variable de entorno {TOKEN_ENV} (nunca por argumento)")
             report["environment"] = environment_snapshot(disk_bench_mb=args.disk_bench_mb)
             report["run"] = real_run(document_ids=args.document_id, documents_dir=Path(args.documents_dir), token=token, graph_base=args.graph_base, cap=int(args.cap_mb * 1024 * 1024),
-                                     compression=args.compression, socket_timeout=args.socket_timeout, deadline_s=args.doc_deadline)
+                                     compression=args.compression, socket_timeout=args.socket_timeout, deadline_s=args.doc_deadline, total_deadline_s=args.total_deadline)
             report["all_ok"] = all(d.get("outcome") == "ok" for d in report["run"]["documents"])
     except ProbeInputError as exc:
         report["error"] = str(exc)
-        print(json.dumps(report, indent=2, sort_keys=True))
+        _emit(report)
         return 3
-    print(json.dumps(report, indent=2, sort_keys=True))
+    except (KeyboardInterrupt, _Terminated) as exc:           # el `with` del directorio temporal ya se desenrolló: no queda nada en disco
+        report.pop("run", None)
+        report["error"] = "interrumpido"
+        report["signal"] = "SIGTERM" if isinstance(exc, _Terminated) else "SIGINT"
+        _emit(report)
+        return 143 if isinstance(exc, _Terminated) else 130
+    except Exception as exc:  # noqa: BLE001 — sin traza: podría incluir rutas, URLs o ids; solo el nombre de la clase
+        report.pop("run", None)
+        report["error"] = "inesperado"
+        report["type"] = type(exc).__name__
+        _emit(report)
+        return 4
+    finally:
+        if previous is not None:
+            try:
+                signal.signal(signal.SIGTERM, previous)
+            except (ValueError, OSError):
+                pass
+    _emit(report)
     return 0 if report.get("all_ok", True) else 2
 
 

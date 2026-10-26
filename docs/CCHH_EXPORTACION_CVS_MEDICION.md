@@ -3,7 +3,7 @@
 Estado: **procedimiento y sonda listos y validados con Graph simulado; NO ejecutados contra datos reales.** La exportación definitiva (Fase 2, ver `CCHH_EXPORTACION_CVS_FASE2_REQUISITOS.md`) **no está implementada**: este documento fija cómo
 medir, con evidencia y sin riesgo, el presupuesto de tiempo y los límites antes de construirla.
 
-Herramienta: `tools/cchh_export_probe.py` (un solo archivo, solo stdlib; se puede copiar tal cual a la consola de DigitalOcean, sin desplegar). Pruebas: `tests/test_cchh_export_probe.py` (18, con un servidor Graph simulado en localhost y archivos sintéticos).
+Herramienta: `tools/cchh_export_probe.py` (un solo archivo, solo stdlib; se puede copiar tal cual a la consola de DigitalOcean, sin desplegar). Pruebas: `tests/test_cchh_export_probe.py` (26, con un servidor Graph simulado en localhost y archivos sintéticos).
 
 ## 1. Qué se mide y qué no
 
@@ -34,6 +34,9 @@ Los bytes de los CVs solo pasan por un directorio temporal que se borra siempre 
 - **El token solo puede ir al Graph oficial o a localhost** (para pruebas): cualquier otro `--graph-base` se rechaza.
 - **Lectura acotada** (a diferencia de `graph_get_bytes`, que lee todo en memoria sin tope): el tamaño se controla **antes** (tamaño declarado del registro; si excede, ni se pide), **al recibir los encabezados** (`Content-Length`) y **durante** la transferencia (se corta al superar el tope), con
   **plazo total por documento** además del timeout de socket (`read1` evita que un `read(n)` bloquee más allá del plazo). Va a un archivo temporal por trozos de 64 KB: memoria O(trozo).
+- **Sin secretos en salida, errores ni trazas:** el analizador de argumentos no repite lo recibido (un `--token` mal escrito no llega a stderr), un error inesperado imprime solo el nombre de la clase (sin traza, rutas, URLs ni ids) y la salida nunca incluye identificadores.
+- **Limpieza ante errores, Ctrl+C, SIGTERM y respuestas parciales:** el temporal (CVs parciales y ZIP) vive en un `TemporaryDirectory`; SIGTERM se convierte en una excepción para que se desenrolle (si no, Python muere sin limpiar) y el manejador previo se restaura. Probado con cortes, tope excedido, error al armar el ZIP, interrupción y SIGTERM en medio de la descarga.
+- **Plazo total de la corrida** (`--total-deadline`, 120 s por defecto) aplicado también DURANTE cada lectura (acota el plazo de cada documento), además del plazo por documento y el timeout de socket.
 - Solo lectura contra Graph (`GET .../drives/{drive}/items/{item}/content`, el mismo camino que ya usan el piloto histórico y la conciliación de documentos), con el token delegado del propio usuario (`User.Read` + `Sites.Read.All`): se respetan sus permisos reales.
 
 ## 4. Procedimiento
