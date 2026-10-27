@@ -23,6 +23,7 @@ salvo que se habilite explícitamente por entorno (``DANWOR_PUBLICATION_MIRROR_U
 from __future__ import annotations
 
 import base64
+import importlib
 import logging
 import os
 import threading
@@ -77,7 +78,9 @@ def publication_guarantees_active() -> bool:
     """¿Están ACTIVAS las garantías de integridad de la publicación (publicación segura: completitud, persistencia confirmada, candado, manifiestos íntegros)? Falla cerrado: sin el módulo o con el
     interruptor apagado, ``False``."""
     try:
-        from tools.catalog import publication_txn
+        # `importlib` (no `from tools.catalog import publication_txn`): resuelve SIEMPRE por `sys.modules`, no por el atributo que el paquete conserva del submódulo ya importado (con P1 integrado otro código
+        # lo importa antes y ese atributo ocultaba cualquier sustitución del módulo, p. ej. la de las pruebas de esta capacidad).
+        publication_txn = importlib.import_module("tools.catalog.publication_txn")
     except Exception:                                                   # noqa: BLE001 — este despliegue no trae la publicación segura
         return False
     check = getattr(publication_txn, "safe_mode_enabled", None)
