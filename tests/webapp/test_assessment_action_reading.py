@@ -214,3 +214,51 @@ def test_the_analisis_vencimiento_acceptance_case():
     assert "no cambia por sí solo el nivel" in guide["Puntos de atención"]["help"] and "no necesariamente cambian el nivel" in html     # tooltip específico + frase visible única
     # Puntos de atención: los artefactos del desvío material ya no se descartan
     assert any(r["artifacts"] for g in view["judgment"]["reasons_grouped"] for r in g["rows"])
+
+
+# ═══════════════════════════ verificaciones de los documentos de propuesta ═══════════════════════════
+def test_the_cta_matrix_lists_exactly_the_32_playbook_keys_and_the_playbook_states_are_documented():
+    from tools.catalog.methodological_judgment.cta import PLAYBOOK
+    keys = {k for v in PLAYBOOK.values() for k in v[3]}
+    assert len(keys) == 32
+    doc = (REPO / "docs" / "ASSESSMENT_CTA_MATRIX.md").read_text(encoding="utf-8")
+    assert all(f"`{k}`" in doc for k in keys)
+    assert {r for r in PLAYBOOK} <= set(re.findall(r"\| ([A-Z]{3}-[A-Z]{3,4}-\d\d) \|", doc))                      # las 15 reglas causa están en la tabla §2
+
+
+def test_only_material_and_relevant_reasons_decide_the_level_as_the_cta_matrix_states():
+    from tools.catalog.methodological_judgment import contract as C
+    from tools.catalog.methodological_judgment import engine as E
+    def reason(cls, state=C.OPEN_CANDIDATE):
+        return {"classification": cls, "state": state, "reason_id": cls, "rule_id": "X"}
+    strengths = [{"rule_id": rid} for ids in E._STRENGTH_BY_DIM.values() for rid in ids[:1]]
+    assert E._decide([reason(C.MATERIAL_DEVIATION)], [], [])[1] == C.PARCIAL
+    assert E._decide([reason(C.RELEVANT_WEAKNESS)], [], [])[1] == C.ADECUADA
+    assert E._decide([reason(C.LOCAL_WEAKNESS)], [], [])[0] == C.NOT_DETERMINABLE                              # LOCAL no decide nada (sin fortalezas: LVL-06)
+    assert E._decide([reason(C.LOCAL_WEAKNESS)], strengths, [])[1] == C.BUENA                                  # ...ni impide BUENA
+    assert E._decide([reason(C.MATERIAL_DEVIATION, C.GOVERNED_EXCEPTION)], [], [])[1] is None                  # la excepción gobernada retira la razón
+    assert E._decide([reason(C.MATERIAL_DEVIATION, C.ACCEPTED_AS_DESIGNED)], [], [])[1] == C.PARCIAL          # «aceptado como diseñado» NO la retira
+    assert set(C.REMOVING_STATES) == {C.GOVERNED_EXCEPTION, C.NOT_APPLICABLE}
+
+
+def test_source_state_definitions_proposed_for_the_pending_vocabulary_match_the_engine():
+    from tools.catalog.modeling_assessment.facts_source import source_state_of
+    got = {e: source_state_of(e).value for e in ("ABAP_CDS.X", "SAPI.0MATERIAL", "ABAPTABLES.MARC", "ABAPTABLES.NSDM_V_MKPF", "CONNX.BWBRIDGE.T", "SQLSERVER.T", "")}
+    assert got == {"ABAP_CDS.X": "CDS_VIEW", "SAPI.0MATERIAL": "SAPI_ODP", "ABAPTABLES.MARC": "RAW_PHYSICAL_TABLE", "ABAPTABLES.NSDM_V_MKPF": "STANDARD_VIEW_ON_PHYSICAL_TABLE",
+                   "CONNX.BWBRIDGE.T": "BW_BRIDGE", "SQLSERVER.T": "OTHER_ORIGIN", "": "NO_REMOTE_ORIGIN"}
+    assert "ya no" not in AL.REGISTRY and "CDS_VIEW" not in AL.REGISTRY and "OTHER_ORIGIN" not in AL.REGISTRY      # propuestas SIN registrar hasta aceptación del owner
+
+
+# ═══════════════════════════ sin afirmaciones de exhaustividad sobre agregados ═══════════════════════════
+def test_a_partially_attributed_naming_view_never_claims_to_list_everything():
+    from webapp.services import asset_evaluation as AE
+    doc = _doc([{"identity": "A", "non_compliant_artifacts": ["x1", "x2", "y1"],
+                 "violation_family_histogram": [{"key": "MISSING_LAYER_PREFIX", "count": 2}, {"key": "NO_RECOGNIZED_PATTERN", "count": 1}], "distinct_violation_families": 2}],
+               [{"key": "MISSING_LAYER_PREFIX", "count": 2}, {"key": "NO_RECOGNIZED_PATTERN", "count": 1}], ["x1", "x2", "y1"])
+    nv = AL.naming_view(doc)
+    s28 = doc["canonical_evidence"]["naming_evidence"]["hygiene"]["artifact_name_populations"]["section_28"]
+    row = AE.governed_findings([], s28, None, nv)[0]
+    assert "por familia" not in row["link"]["text"] and "familia" not in row["evidence"].split(":")[-1]          # ni el enlace ni el texto prometen el reparto por familia
+    html = templates.get_template("partials/assessment_report_macros.html").module.naming_families(nv, 4)
+    assert html.count("solo el conteo agregado") == 2 and "no permite identificar cuáles" in html
+    assert "Sin atribución por familia" in html and "x1" in html and "y1" in html                               # los artefactos se listan, sin repartirlos
