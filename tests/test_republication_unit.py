@@ -190,8 +190,8 @@ def test_the_activation_marker_is_uploaded_last_and_removals_are_deleted_before_
     res, _ = ctx.publish(mirror=True)
     ops = remote.log[start:]
     assert res.status == txn.COMPLETED and not any(k.endswith("1VR_LP_EXTRA.json") for k in remote.objects)    # el objeto retirado NO queda en Spaces (no resucita en un restore)
-    assert {o for o, _k in ops[:2]} == {"delete"} and ops[-1][1].endswith(MARKER) and ops[-2][1].endswith(".catalog_manifest.json") or ops[-2][1].endswith(MARKER)
-    assert [k for o, k in ops if o == "put"][-1].endswith(MARKER) or [k for o, k in ops if o == "put"][-2].endswith(MARKER)
+    assert {o for o, _k in ops[:2]} == {"delete"}                                                             # lo retirado se borra ANTES de subir lo nuevo
+    assert {k.rsplit("/", 1)[-1] for o, k in ops[-2:]} == {MARKER, ".catalog_manifest.json"} and all(o == "put" for o, _k in ops[-2:])   # y los marcadores van AL FINAL
 
 
 def test_a_lost_response_after_a_successful_write_is_verified_not_reverted(ctx, remote):                      # noqa: F811

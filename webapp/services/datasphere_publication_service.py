@@ -34,6 +34,7 @@ from pathlib import Path
 
 import config
 from webapp.services import datasphere_assessment_service as asd
+from webapp.services import republication_stage
 
 log = logging.getLogger("danwor.datasphere_publication")
 
@@ -77,6 +78,36 @@ def tool_context(request, stem: str) -> dict:
     from webapp.services import datasphere_profiles
     return {"enabled": enabled, "can_execute": can, "stem": stem, "form": values, "feature_options": options,
             "owner_profiles_url": datasphere_profiles.selector_url(stem, can)}
+
+
+# ───────────────────────────── recuperación: confirmar o deshacer lo que quedó a medias, con la compuerta de lectores ─────────────────────────────
+def resolve_pending(root=None) -> list[dict]:
+    """Resuelve (VERIFICANDO Spaces) las publicaciones a medias o sin confirmar y descarta las cachés si algo cambió. Lo usa la compuerta de lectores (cada ≤30 s mientras haya un
+    bloqueo), el arranque y el servicio antes de publicar. Nunca lanza."""
+    from tools.catalog import publication_txn as txn
+    try:
+        base = Path(root) if root else _canonical_roots()[0]
+        results = txn.recover_pending(base, timeout=0)
+    except Exception:                                                   # noqa: BLE001 — sin candado o sin poder restaurar: sigue pendiente (la compuerta no se abre)
+        log.warning("datasphere_publication: la recuperación no pudo completarse", exc_info=True)
+        return []
+    if results:
+        republication_stage.AssessmentStage().finished(None)
+    return results
+
+
+def boot_recover() -> None:
+    """Arranque (después del restore): completa o deshace una publicación que la caída del proceso dejó a medias. Solo con la publicación segura encendida."""
+    from tools.catalog import publication_txn as txn
+    if txn.safe_mode_enabled():
+        resolve_pending()
+
+
+try:                                                                    # la compuerta de lectores intenta resolver un bloqueo (UNCERTAIN) sin esperar a la próxima publicación
+    from core import publication_gate as _gate
+    _gate.set_resolver(resolve_pending)
+except Exception:                                                       # noqa: BLE001
+    log.warning("datasphere_publication: no se pudo registrar el resolvedor de la compuerta")
 
 
 # ───────────────────────────── single-flight (espacio de claves propio) ─────────────────────────────
@@ -137,6 +168,8 @@ class PublicationOutcome(asd.Outcome):
     stages: dict = field(default_factory=dict)
     deferred_reasons: list = field(default_factory=list)
     failures: list = field(default_factory=list)
+    change: str = ""                                          # CHANGED | NO_CHANGE (una republicación idéntica no escribe nada)
+    assessment: dict = field(default_factory=dict)           # resumen: regenerados / conservados / inciertos / retirados (P1)
 
 
 STATE_PARTIAL = "PARTIAL"
@@ -145,6 +178,15 @@ TITLE_PARTIAL = "Publicación parcial"
 PUBLICATION_MESSAGES = {
     "EXTRACTION_INCOMPLETE": "La extracción desde Datasphere quedó incompleta (falló la lectura o el listado de algún objeto). No se modificó el Catálogo. Reintentá; si persiste, revisá la conexión y los permisos.",
     "POOL_IDENTITY_CONFLICT": "Un objeto ya está publicado desde otro Space o tenant con contenido distinto. No se modificó nada. Revisá el cliente, el Space y el tenant.",
+    "ASSESSMENT_FAILED": "No se pudo preparar el assessment de los modelos afectados por esta publicación. No se activó nada: se conserva la última versión válida del Catálogo y de sus assessments.",
+    "PERSISTENCE_FAILED": "Spaces no aceptó la versión nueva. Se mantuvo la última versión confirmada (en el servidor y en Spaces). Reintentá la publicación.",
+    "PERSISTENCE_UNCERTAIN": "No se pudo verificar en Spaces si la publicación quedó guardada. La lectura del Catálogo queda bloqueada temporalmente hasta resolverlo; se reintenta solo.",
+    "PERSISTENCE_DIVERGED": "Se mantuvo la última versión confirmada en el servidor, pero Spaces todavía no la refleja. No se puede publicar hasta resolverlo; se reintenta solo.",
+    "PERSISTENCE_NOT_AVAILABLE": "La persistencia en Spaces no está disponible en este modo. No se modificó nada.",
+    "REMOTE_NOT_READY": "Spaces todavía no terminó de restaurar el estado (o lo hizo de forma incompleta). No se modificó nada; reintentá en unos minutos.",
+    "REMOTE_LISTING_FAILED": "No se pudo leer el inventario de Spaces para verificar la publicación. No se modificó nada; reintentá en unos minutos.",
+    "REMOTE_NOT_RECONCILED": "Hay archivos locales de este cliente que difieren de Spaces y no se reconciliaron. No se modificó nada; avisá al equipo técnico.",
+    "POOL_ROOT_MISMATCH": "El assessment leería un pool distinto del que se está publicando. No se modificó nada; avisá al equipo técnico.",
     "CLIENT_KEY_CONFLICT": "El Catálogo ya tiene más de una variante del nombre de este cliente que solo difiere en mayúsculas o minúsculas. No se modificó nada; pedí a un administrador que unifique los directorios del cliente.",
     "CATALOG_BUSY": "Hay otra operación sobre el Catálogo en curso. No se modificó nada; reintentá en unos minutos.",
     "RECOVERY_REQUIRED": "Hay una operación anterior a medias que no pudo recuperarse. No se publica hasta resolverla; avisá al equipo técnico.",
@@ -163,25 +205,20 @@ def _safe_outcome(values: asd.FormValues, result, trace: list, secrets: tuple, r
     common = dict(trace=trace, operation_id=result.operation_id, duration_s=result.duration_s, status=result.status, durability=result.durability,
                   stages=dict(result.stages), deferred_reasons=list(result.deferred_reasons), failures=list(result.failures))
     if result.status in txn.SUCCESS_STATUSES or result.status in txn.PARTIAL_STATUSES:
-        try:                                        # el Catálogo local YA está confirmado: se invalida la caché y recién ahora se registra el assessment (post-commit)
-            from webapp import main as hub_main
-            hub_main._invalidate_catalog_cache()
-        except Exception:                           # noqa: BLE001
-            log.warning("datasphere_publication op=%s no se pudo invalidar el caché del catálogo", result.operation_id)
-        if on_phase is not None:
-            on_phase(PHASE_REGISTERING)
-        registered = register_assessment(values)
-        if on_line is not None:
-            for _eid, state in registered:
-                on_line(f"Assessment del modelo registrado: {state}")
-        common["stages"]["assessment"] = ",".join(sorted({s for _e, s in registered})) or "SKIPPED"
+        # P1: el assessment YA es parte de la unidad activada (se preparó, validó y escribió ANTES de activar, y las cachés se descartaron antes de abrir la compuerta): no hay registro posterior.
         if on_phase is not None:
             on_phase(PHASE_PUBLISHED)
+        summary = dict((result.applied or {}).get("assessment") or {})
+        common["change"] = result.outcome or ""
+        common["assessment"] = summary
+        if on_line is not None:
+            changes = ", ".join(f"{k} {len(v)}" for k, v in summary.items() if v)
+            on_line("Assessment: " + (changes or "sin cambios"))
         duration = round((datetime.now(timezone.utc) - started).total_seconds(), 1)
         common["duration_s"] = duration
         if result.status in txn.SUCCESS_STATUSES:
-            log.info("datasphere_publication op=%s user=%s client=%s space=%s model=%s status=COMPLETED durability=%s duration=%.1fs files=%s",
-                     result.operation_id, user_email, values.client, values.space, values.root_object, result.durability, duration, result.exported_files)
+            log.info("datasphere_publication op=%s user=%s client=%s space=%s model=%s status=COMPLETED change=%s durability=%s duration=%.1fs files=%s",
+                     result.operation_id, user_email, values.client, values.space, values.root_object, result.outcome, result.durability, duration, result.exported_files)
             return PublicationOutcome("SUCCESS", stage="publish", terminal_am=values.root_object, **common)
         log.warning("datasphere_publication op=%s user=%s client=%s space=%s model=%s status=%s code=%s", result.operation_id, user_email, values.client, values.space,
                     values.root_object, result.status, code)
@@ -236,6 +273,7 @@ def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_
             mode="publish",                                             # forzado en el servidor: la UI no elige el modo
             features_requested=asd.requested_features(values),         # SOLO lo pedido: las dependencias las resuelve el extractor
             safe=safe,
+            stage_hooks=(republication_stage.AssessmentStage() if safe else None),     # P1: el assessment gobernado forma parte de la unidad (preparar → validar → activar)
         )
 
         def live(line: str) -> None:

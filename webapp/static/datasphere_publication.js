@@ -4,7 +4,7 @@
 //
 // Contrato (ver webapp/routers/datasphere_publication.py): POST (cuerpo urlencoded, jamás query string) → respuesta NDJSON:
 //   {"t":"start"} · {"t":"line","v":"<línea del extractor>"}* · {"t":"phase","phase":"<id>","v":"<hito>"}* ·
-//   {"t":"done","state","error_code","message","title","errors","result_url"}
+//   {"t":"done","state","error_code","message","title","errors","result_url"}  (+ publicación segura: "status","durability","stages","change" CHANGED|NO_CHANGE,"assessment" {regenerated,rebased,kept,uncertain,removed: cantidad})
 // Todo texto externo entra con textContent (nunca como HTML). El Client Secret se lee del formulario, se limpia del campo ANTES de
 // enviar y no se guarda en ningún lado. Éxito = el backend entrega `result_url` (pestaña Catálogo) y el navegador la abre.
 (function () {

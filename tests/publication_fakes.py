@@ -208,10 +208,14 @@ class Ctx:
         self.pool = self.catalog / ".csn_cache"
         self.catalog.mkdir(parents=True, exist_ok=True)
 
-    def request(self, root="AM_Lista_Precios", *, space=SPACE, client=CLIENT, features=None, mirror=False, safe=True, host=HOST):
+    def request(self, root="AM_Lista_Precios", *, space=SPACE, client=CLIENT, features=None, mirror=False, safe=True, host=HOST, stage=False):
+        hooks = None
+        if stage:                                                          # el assessment gobernado como etapa de la unidad (lo que arma el servicio real)
+            from webapp.services import republication_stage
+            hooks = republication_stage.AssessmentStage()
         return dsp.ExportRequest(host=host, client_id="id", client_secret="not-a-real-secret", token_url="https://t.authentication.eu10.hana.ondemand.com/oauth/token",
                                  space=space, root_object=root, client=client, catalog_root=self.catalog, csn_cache_dir=self.pool, generate_catalog=True,
-                                 mirror_up=mirror, mode="publish", features_requested=features, safe=safe)
+                                 mirror_up=mirror, mode="publish", features_requested=features, safe=safe, stage_hooks=hooks)
 
     def publish(self, root="AM_Lista_Precios", **kw):
         with dsp.capture_output() as cap:
