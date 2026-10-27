@@ -217,8 +217,11 @@
      desde un array cuando el orden cambia) el "adapter" de abajo sólo
      MUEVE los nodos DOM ya renderizados a la posición guardada -- nunca
      un render function nuevo que mire commercial.js. `cchh-candidatos` es
-     un namespace propio: independiente de cualquier key de Comercial. #}
-  <div class="matrix-scroll" data-draggable-columns-key="cchh-candidatos" data-resizable-columns-key="cchh-candidatos" data-indicator-scope="cchh-candidatos-list">
+     un namespace propio: independiente de cualquier key de Comercial.
+     data-layout-version="2": la estructura cambió al incorporar la columna de selección (v1 = sin ella). Los anchos guardados
+     por la versión anterior (sin firma estructural, tratados como v1) describen una tabla que ya no existe: se descartan una
+     vez y la tabla usa sus anchos default (app.js, "COMPATIBILIDAD ESTRUCTURAL"). #}
+  <div class="matrix-scroll" data-draggable-columns-key="cchh-candidatos" data-resizable-columns-key="cchh-candidatos" data-layout-version="2" data-indicator-scope="cchh-candidatos-list">
     <table class="dashboard-table" id="hc-candidatos-table">
       {# Anchos default explícitos por columna (MISMO criterio que Comercial:
          `%` para las columnas de negocio, `px` fijo para Acciones) -- sin

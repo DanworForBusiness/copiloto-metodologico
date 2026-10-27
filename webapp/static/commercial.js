@@ -3827,7 +3827,8 @@ function commercialLicenciasCompactColumnOrder() {
 // gana el `width` default declarado en el catálogo — nunca hace falta que
 // TODAS las columnas tengan un override guardado.
 function commercialColumnWidthsFor(storageKey, columns) {
-  const stored = readStoredColumnWidths(storageKey) || {};
+  // Estructura vigente de la tabla (las columnas del catálogo + la columna fija de acción, sin key; reordenables): un registro de otra estructura se descarta (app.js).
+  const stored = readStoredColumnWidths(storageKey, { tokens: [...columns.map(c => c.key), ""], reorderable: true }) || {};
   return Object.fromEntries(columns.map(c => [c.key, stored[c.key] || c.width]));
 }
 
