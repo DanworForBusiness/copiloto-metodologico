@@ -1534,6 +1534,7 @@ class ExportResult:
     applied: dict[str, Any] = field(default_factory=dict)
     observations: dict[str, Any] = field(default_factory=dict)
     deferred_reasons: list[str] = field(default_factory=list)
+    client_dir: str = ""              # directorio canónico del cliente con el que se publicó (una sola identidad por cliente)
 
 
 _PRECHECK_CODES = (
@@ -2083,6 +2084,19 @@ def run_export(req: ExportRequest) -> ExportResult:
         base.exit_code = 2
         return finish(base)
 
+    safe = bool(req.mode == "publish" and (req.safe if req.safe is not None else _txn().safe_mode_enabled()))
+    safe_flag["on"] = safe
+    if safe:                                          # un cliente es UNA identidad aunque se escriba con otra capitalización (P1): se reusa el directorio existente o se rechaza el conflicto
+        txn = _txn()
+        try:
+            client_dir_name = txn.canonical_client_dir(client_dir_name, txn.existing_client_dirs(catalog_root, csn_cache_root))
+        except txn.ClientKeyConflict as exc:
+            _say("ERROR: CLIENT_KEY_CONFLICT - el Catálogo tiene más de una variante del cliente: " + ", ".join(exc.variants), file=sys.stderr)
+            base.error_code, base.message, base.exit_code = "CLIENT_KEY_CONFLICT", "CLIENT_KEY_CONFLICT", 1
+            base.failures = [{"kind": "client_key", "object_type": "", "technical_name": v, "code": "CASE_VARIANT"} for v in exc.variants]
+            return finish(base)
+    base.client_dir = client_dir_name
+
     client_cache_dir = csn_cache_root / client_dir_name
     _say("Extraction integration:")
     _say(f"  Client:       {req.client}")
@@ -2100,8 +2114,6 @@ def run_export(req: ExportRequest) -> ExportResult:
         base.exit_code = 2
         return finish(base)
 
-    safe = bool(req.mode == "publish" and (req.safe if req.safe is not None else _txn().safe_mode_enabled()))
-    safe_flag["on"] = safe
     with tempfile.TemporaryDirectory(prefix="dsp-lineage-") as tmp:
         cli = DatasphereCli(
             host=req.host, client_id=req.client_id, client_secret=req.client_secret,

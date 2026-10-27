@@ -179,6 +179,43 @@ def external_writer_guard(timeout: float = 0.0):
         yield
 
 
+# ═════════════════════════ clave canónica del cliente (P1) ═════════════════════════
+class ClientKeyConflict(RuntimeError):
+    """El Catálogo ya tiene DOS identidades de cliente que solo difieren en mayúsculas/minúsculas (p. ej. «Acme» y «ACME»): el Assessment las trata como UNA (llave en minúsculas) y
+    publicar sobre cualquiera mezclaría evidencia. No se escribe nada hasta que el dueño unifique los directorios."""
+
+    def __init__(self, variants: list[str]):
+        super().__init__("CLIENT_KEY_CONFLICT")
+        self.variants = sorted(variants)
+
+
+def canonical_client_dir(requested: str, existing: "list[str] | set[str] | tuple[str, ...]") -> str:
+    """Nombre de directorio con el que se publica ``requested`` (ya saneado). Un cliente es UNA identidad aunque se escriba con otra capitalización: si ya existe exactamente una
+    variante (sin distinguir mayúsculas) se REUSA, para no abrir un segundo catálogo del mismo cliente en un sistema de archivos que distingue mayúsculas (Linux). Sin variantes previas
+    se usa el nombre pedido. Con dos o más variantes distintas existentes → ``ClientKeyConflict`` (nunca se elige una al azar)."""
+    folded = requested.casefold()
+    variants = sorted({name for name in existing if name.casefold() == folded})
+    if not variants:
+        return requested
+    if len(variants) > 1:
+        raise ClientKeyConflict(variants)
+    return variants[0]
+
+
+def existing_client_dirs(catalog_root: str | Path, csn_cache_root: str | Path) -> set[str]:
+    """Nombres de cliente que ya existen en el pool, en el Catálogo materializado o en los manifiestos de linaje (los tres lugares donde el nombre del cliente se vuelve directorio)."""
+    names: set[str] = set()
+    root = Path(catalog_root)
+    for base, skip_dot in ((Path(csn_cache_root), False), (root / ".lineage_runs", False), (root, True)):
+        try:
+            for child in base.iterdir():
+                if child.is_dir() and not (skip_dot and child.name.startswith(".")):
+                    names.add(child.name)
+        except OSError:
+            continue
+    return names
+
+
 # ═════════════════════════ manifiestos: integridad y carga tri-estado ═════════════════════════
 M_ABSENT, M_OK, M_UNREADABLE, M_INVALID_SCHEMA, M_DIGEST_MISMATCH = "ABSENT", "OK", "UNREADABLE", "INVALID_SCHEMA", "DIGEST_MISMATCH"
 _VOLATILE_KEYS = ("createdAt", "operationId", "hostId", "integrity", "cleanup")
