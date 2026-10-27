@@ -362,6 +362,7 @@ def _make_old(world, *, old_versions=True, input_changed=False, extra=None):
             _downgrade(env)
         if input_changed:
             env["input_pool_signature"] = "0" * 64
+            env.pop("input_closure_signature", None)                 # sobre previo a la firma de dependencias: incierto => STALE explícito
         if extra:
             extra(env)
     _rewrite(path, mutate)
@@ -955,6 +956,7 @@ def _make_v2(world, *, input_changed=False):
         _downgrade_v2(env)
         if input_changed:
             env["input_pool_signature"] = "0" * 64
+            env.pop("input_closure_signature", None)                 # sobre previo a la firma de dependencias: incierto => STALE explícito
     _rewrite(path, mutate)
     restart()
     return path

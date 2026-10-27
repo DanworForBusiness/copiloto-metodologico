@@ -151,7 +151,7 @@ def test_a_v3_governed_profile_is_current_but_pending_the_migration(kworld):
 
 
 @pytest.mark.parametrize("tag, mutate, bucket", [
-    ("entrada cambiada", lambda e: e.update(input_pool_signature="0" * 64), bf.VERSION_AND_INPUT_CHANGED),
+    ("entrada cambiada", lambda e: (e.update(input_pool_signature="0" * 64), e.pop("input_closure_signature", None)), bf.VERSION_AND_INPUT_CHANGED),
     ("v2 (otra migracion)", lambda e: (e["profile_json"]["canonical_evidence"].pop("published_field_lineage"), e["profile_json"]["canonical_evidence"].pop("source_contract_classes"),
                                        e["profile_json"]["canonical_evidence"].update(version="canonical-evidence/v2"),
                                        e["profile_json"]["versions"].update(canonical_evidence="canonical-evidence/v2", assessability="assessability-rules/v3"),
