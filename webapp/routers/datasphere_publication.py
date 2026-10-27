@@ -10,9 +10,9 @@ Ruta (SOLO el POST ejecuta):
   POST /modules/{stem}/datasphere-publication/run    valida + publica y transmite el avance en tiempo real (NDJSON, vía fetch);
                                                      al terminar entrega la URL de la pestaña Catálogo del módulo.
 
-Seguridad: sesión obligatoria (401); el POST exige mismo origen (``same_origin_guard``); publicar exige ser el dueño de la app
-(``access.is_owner`` vía ``svc.can_execute``). El modo ``publish`` lo fuerza el SERVIDOR (``datasphere_publication_service.run``):
-la UI nunca lo elige. El Client Secret llega solo por el cuerpo del POST, se pasa al servicio y NO se devuelve, no se guarda, no se
+Seguridad: sesión obligatoria (401); el POST exige mismo origen (``same_origin_guard``); publicar exige ``svc.can_execute``: el dueño, o un consultor con perfil completo SOLO si la capacidad para consultores está disponible
+(interruptor + garantías de la publicación segura + clientes autorizados; apagada por defecto) y, además, ``svc.client_authorized`` sobre el cliente pedido. Los perfiles de clientes compartidos (``profile_id``) son SOLO del dueño. El modo
+``publish`` lo fuerza el SERVIDOR (``datasphere_publication_service.run``): la UI nunca lo elige. El Client Secret llega solo por el cuerpo del POST, se pasa al servicio y NO se devuelve, no se guarda, no se
 registra.
 """
 from __future__ import annotations
@@ -70,6 +70,11 @@ def run_publication(
         {"t":"done","state","error_code","message","title","errors","result_url"}
     Al terminar con éxito, ``result_url`` apunta a la pestaña Catálogo del módulo (el nuevo dominio ya está disponible)."""
     user = _authorize(request, stem)
+    if profile_id.strip() and not svc.can_use_client_profiles(request):      # el secreto de un perfil de cliente es del dueño: jamás se resuelve para otro usuario
+        raise HTTPException(403, "No autorizado")
+    if not svc.client_authorized(request, client):                            # un consultor solo publica sobre los clientes autorizados explícitamente
+        return StreamingResponse(iter([svc.denied_run_events("CLIENT_NOT_AUTHORIZED", svc.CLIENT_NOT_AUTHORIZED_MESSAGE)]), media_type="application/x-ndjson",
+                                 headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
     selected = resolve_pack(pack)
     values = svc.FormValues.from_mapping({"host": host, "token_url": token_url, "client_id": client_id, "space": space,
                                           "root_object": root_object, "client": client,

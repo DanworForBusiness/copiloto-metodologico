@@ -55,11 +55,90 @@ def tool_enabled(stem: str) -> bool:
     return stem in PUBLICATION_MODULES
 
 
+# ── capacidad «Publicar» para consultores (apagada por defecto) ──
+# Publicar ESCRIBE en el Catálogo gobernado (pool, manifiestos, Catálogo materializado, assessments): una escritura potencialmente destructiva. Abrirla a los consultores exige TRES condiciones, todas a la vez,
+# y por eso cada una tiene su propio interruptor/garantía (ver docs/PUBLISH_CONSULTANT_ACCESS.md):
+#   1. ``DANWOR_PUBLICATION_CONSULTANTS`` encendida (decisión explícita del dueño; apagada = comportamiento de siempre: solo el dueño);
+#   2. las garantías de integridad de la publicación segura ACTIVAS (``DANWOR_PUBLICATION_SAFE``, fase 0 / P1): sin ellas no se concede, aunque 1 esté encendida (falla cerrado). Si el código de la publicación
+#      segura no está presente en este despliegue, la garantía no puede estar activa;
+#   3. clientes autorizados EXPLÍCITAMENTE para consultores (``DANWOR_PUBLICATION_CONSULTANT_CLIENTS``, lista separada por comas): un consultor solo publica sobre esos clientes. Lista vacía ⇒ no se concede.
+# No se distingue «primera publicación» de «republicación»: la identidad vigente no permite demostrarla de forma confiable (ver el documento); lo acota la lista de clientes y lo protege la publicación segura.
+CONSULTANTS_ENV = "DANWOR_PUBLICATION_CONSULTANTS"
+CONSULTANT_CLIENTS_ENV = "DANWOR_PUBLICATION_CONSULTANT_CLIENTS"
+CLIENT_NOT_AUTHORIZED_TITLE = "No se pudo publicar el modelo"
+CLIENT_NOT_AUTHORIZED_MESSAGE = ("Tu usuario no está autorizado para publicar en ese cliente. Pedile al administrador que lo habilite o elegí uno de los clientes autorizados.")
+
+
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def publication_guarantees_active() -> bool:
+    """¿Están ACTIVAS las garantías de integridad de la publicación (publicación segura: completitud, persistencia confirmada, candado, manifiestos íntegros)? Falla cerrado: sin el módulo o con el
+    interruptor apagado, ``False``."""
+    try:
+        from tools.catalog import publication_txn
+    except Exception:                                                   # noqa: BLE001 — este despliegue no trae la publicación segura
+        return False
+    check = getattr(publication_txn, "safe_mode_enabled", None)
+    try:
+        return bool(callable(check) and check())
+    except Exception:                                                   # noqa: BLE001
+        return False
+
+
+def _client_key(name: str) -> str:
+    return " ".join(str(name or "").split()).casefold()
+
+
+def consultant_clients() -> tuple[str, ...]:
+    """Clientes que el dueño autorizó EXPLÍCITAMENTE para publicación por consultores (``DANWOR_PUBLICATION_CONSULTANT_CLIENTS``). Sin comodines."""
+    seen: dict[str, str] = {}
+    for raw in os.getenv(CONSULTANT_CLIENTS_ENV, "").split(","):
+        name = " ".join(raw.split())
+        if name and name != "*":
+            seen.setdefault(_client_key(name), name)
+    return tuple(seen.values())
+
+
+def consultants_enabled() -> bool:
+    """La capacidad está disponible para consultores solo si el interruptor, las garantías de integridad Y al menos un cliente autorizado coinciden."""
+    return _env_flag(CONSULTANTS_ENV) and publication_guarantees_active() and bool(consultant_clients())
+
+
 def can_execute(request) -> bool:
-    """Publicar en el Catálogo gobernado es una operación de dueño (``access.is_owner``). NO comparte la política del Assessment
-    ad-hoc, que se abrió a los consultores: este predicado es propio y no se deriva de ``asd.can_execute``."""
+    """Publicar en el Catálogo gobernado: el dueño (``access.is_owner_user``), o —solo con la capacidad para consultores disponible (``consultants_enabled``)— un consultor con sesión válida y perfil COMPLETO del
+    Hub (``user_tier == "full"``: el de solo lectura y quien está fuera de la allowlist quedan afuera; el retiro de la allowlist surte efecto en la siguiente request). UN SOLO predicado gobierna la UI (botón «+»,
+    panel, deep links) y el backend (POST /run). NO amplía ``access.is_owner``: las capacidades administrativas siguen siendo del dueño (``can_use_client_profiles``, ``can_administer``)."""
     from webapp import access
-    return access.is_owner(request)
+    from webapp.services import auth_service
+    user = auth_service.session_user(request)
+    if not user:
+        return False
+    if access.is_owner_user(user):
+        return True
+    return consultants_enabled() and auth_service.user_tier(str(user.get("sub") or "")) == "full"
+
+
+def can_use_client_profiles(request) -> bool:
+    """Perfiles de clientes de SharePoint (credenciales OAuth de TODOS los clientes): solo el dueño; un consultor usa SUS credenciales en el formulario."""
+    return asd.can_use_client_profiles(request)
+
+
+def client_authorized(request, client: str) -> bool:
+    """¿Puede ESTE usuario publicar sobre ``client``? El dueño, sobre cualquiera; un consultor, solo sobre los clientes autorizados explícitamente (sin distinguir mayúsculas ni espacios repetidos)."""
+    from webapp import access
+    from webapp.services import auth_service
+    if access.is_owner_user(auth_service.session_user(request)):
+        return True
+    return _client_key(client) in {_client_key(c) for c in consultant_clients()}
+
+
+def denied_run_events(code: str, message: str) -> str:
+    """Cuerpo NDJSON de una ejecución rechazada ANTES de empezar (mismo contrato que el stream del run; no se ejecuta nada)."""
+    import json
+    return (json.dumps({"t": "start"}) + "\n" + json.dumps({"t": "done", "state": "FAILED", "error_code": code, "message": message, "title": CLIENT_NOT_AUTHORIZED_TITLE,
+                                                          "errors": {}, "operation_id": None, "duration_s": 0, "result_url": None}, ensure_ascii=False) + "\n")
 
 
 def tool_context(request, stem: str) -> dict:
@@ -69,6 +148,7 @@ def tool_context(request, stem: str) -> dict:
     tenant, nunca el secreto)."""
     enabled = tool_enabled(stem)
     can = bool(enabled and can_execute(request))
+    owner_only = bool(can and can_use_client_profiles(request))
     values: dict[str, str] = {}
     if can:
         values = asd.load_form_context(asd.session_key(request))
@@ -77,7 +157,8 @@ def tool_context(request, stem: str) -> dict:
     options = [{"value": f, "label": asd.FEATURE_LABELS[f], "checked": f in checked} for f in asd.OPTIONAL_FEATURES]
     from webapp.services import datasphere_profiles
     return {"enabled": enabled, "can_execute": can, "stem": stem, "form": values, "feature_options": options,
-            "owner_profiles_url": datasphere_profiles.selector_url(stem, can)}
+            "owner_profiles_url": datasphere_profiles.selector_url(stem, owner_only),               # el libro compartido de perfiles es SOLO del dueño
+            "allowed_clients": [] if (owner_only or not can) else list(consultant_clients())}      # lo que un consultor puede publicar (informativo; el servidor lo exige igual)
 
 
 # ───────────────────────────── recuperación: confirmar o deshacer lo que quedó a medias, con la compuerta de lectores ─────────────────────────────
