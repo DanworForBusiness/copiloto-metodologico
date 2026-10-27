@@ -86,6 +86,26 @@ def test_publishing_records_who_published_first_and_last(world):
     assert gov.provenance(entry_id(world, "Kensing")) is None                                               # otro tile: intacto
 
 
+@pytest.mark.parametrize("state, recorded", [("SUCCESS", True), ("PARTIAL", True), ("FAILED", False)])
+def test_the_safe_publication_path_also_records_who_published(world, monkeypatch, state, recorded):
+    """Integracion con P1: con ``DANWOR_PUBLICATION_SAFE`` el flujo vuelve por ``_safe_outcome`` y no por la ruta clasica: la procedencia se registra igual (publicado, aun con advertencias) y no si fallo."""
+    from tools.catalog import DSP_CLI_Export_Lineage as dsp, publication_txn as txn
+    monkeypatch.setattr(asd, "cli_available", lambda: True)
+    monkeypatch.setattr(txn, "safe_mode_enabled", lambda: True)
+    monkeypatch.setattr(txn, "recover_pending", lambda root: None)
+    monkeypatch.setattr(dsp, "run_export", lambda request: types.SimpleNamespace())
+    monkeypatch.setattr(pub, "_safe_outcome", lambda *a, **k: pub.PublicationOutcome(state, operation_id="opSAFE"))
+    values = asd.FormValues.from_mapping({"host": "https://t.eu10.hcs.cloud.sap", "token_url": "https://t.authentication.eu10.hana.ondemand.com/oauth/token", "client_id": "sb",
+                                          "space": "PROD", "root_object": "4AM_CONSOLIDADO_GASTOS", "client": "Biogenesis", "features": None})
+    monkeypatch.setattr(dsp, "capture_output", __import__("contextlib").contextmanager(lambda on_line=None: (yield types.SimpleNamespace(lines=[]))))
+    monkeypatch.setattr(asd, "validate", lambda v, s: [])
+    out = pub.run(values, "secret", user_email=ANA)
+    assert out.state == state
+    assert bool(gov.provenance(entry_id(world, "Biogenesis"))) is recorded
+    if recorded:
+        assert gov.provenance(entry_id(world, "Biogenesis"))["last_publisher"] == ANA and gov.provenance(entry_id(world, "Biogenesis"))["operation_id"] == "opSAFE"
+
+
 def test_a_failed_provenance_write_never_breaks_a_publication(world, monkeypatch):
     monkeypatch.setattr(gov, "record_publication", lambda *a, **k: (_ for _ in ()).throw(gov.GovernanceStorageError("x")))
     values = asd.FormValues.from_mapping({"host": "https://t.eu10.hcs.cloud.sap", "token_url": "https://t.authentication.eu10.hana.ondemand.com/oauth/token", "client_id": "sb",

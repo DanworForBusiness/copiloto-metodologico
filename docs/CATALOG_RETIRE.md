@@ -30,7 +30,7 @@ El diálogo de confirmación (compartido, `dwConfirm`) admite una **casilla opci
 | Último actualizador | no existe; solo `activity_log` (opcional `LOG_ACTIVITY`, se escribe al terminar, se enlaza por (cliente, space, raíz) y no por tile) | `last_publisher` por tile, desde ahora |
 | Actor de la operación | `operation_id` solo en memoria/log | `operation_id` + instante en el sidecar |
 
-Sidecar `catalog_local/.publication_actors/<entry_id>.json`, escrito por `datasphere_publication_service.run` tras una publicación exitosa (no rompe la publicación si falla). **Los tiles publicados antes de este cambio no tienen procedencia y solo los puede retirar el dueño**: nunca se infiere un autor.
+Sidecar `catalog_local/.publication_actors/<entry_id>.json`, escrito por `datasphere_publication_service.run` tras una publicación exitosa (en la ruta clásica y en la segura de P1, también si quedó con advertencias) (no rompe la publicación si falla). **Los tiles publicados antes de este cambio no tienen procedencia y solo los puede retirar el dueño**: nunca se infiere un autor.
 
 ## Política (decisión del owner) y base de la regla
 
@@ -43,5 +43,5 @@ Hoy los consultores no publican (la capacidad para consultores está apagada), a
 * Un tile sin procedencia (todo lo existente) solo lo retira el dueño.
 * El retiro está atado a `entry_id` (derivado de la ruta del flujo): si el dominio/consumo se renombra, el tile reaparecería con otro id.
 * Sin la casilla, el flujo, el pool, el assessment y los objetos de Spaces permanecen (residuo intencional y reversible); con ella solo se elimina la carpeta propia del tile (el pool y el assessment siguen); una limpieza física futura requiere propagar borrados a Spaces y definir propiedad de objetos compartidos.
-* El retiro no oculta el tile en caminos que lean `catalog_service` directamente (herramientas offline, CLI) ni en la regeneración de assessments de P1 (que se verá cuando P1 se integre).
+* El retiro no oculta el tile en caminos que lean `catalog_service` directamente (herramientas offline, CLI) ni en la regeneración de assessments de P1 (que trabaja por modelo analítico, no por tile: un tile retirado sigue teniendo su assessment vigente y se regenera si su catálogo cambia).
 * Dos consultores publicando el mismo tile: gana el último; el anterior pierde el derecho a retirarlo.
