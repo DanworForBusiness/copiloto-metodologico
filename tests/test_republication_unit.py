@@ -32,8 +32,8 @@ def remote_keys(s3):
     return sorted(s3.objects)
 
 
-def local_tree(ctx):
-    return {p.relative_to(ctx.catalog).as_posix(): p.read_bytes() for p in sorted(ctx.catalog.rglob("*")) if p.is_file()}
+def local_tree(ctx, *, with_intent=True):
+    return {p.relative_to(ctx.catalog).as_posix(): p.read_bytes() for p in sorted(ctx.catalog.rglob("*")) if p.is_file() and (with_intent or ".intent/" not in p.relative_to(ctx.catalog).as_posix())}
 
 
 @pytest.fixture()
@@ -46,9 +46,10 @@ def remote(ctx, monkeypatch):                                                   
     gate.set_resolver(None)
 
 
-def crash_before_remote(monkeypatch, then=None):
-    def hook(point, **kw):
-        if point == "before_remote" and then is not None:
+def crash_before_remote(monkeypatch, then=None, point="after_intent"):
+    """Spaces cae justo al empezar la confirmación del cuerpo: después de registrar la intención (``after_intent``), antes de subir el primer objeto."""
+    def hook(p, **kw):
+        if p == point and then is not None:
             then()
     monkeypatch.setattr(txn, "FAULT_HOOK", hook)
 
@@ -188,9 +189,11 @@ def test_the_activation_marker_is_uploaded_last_and_removals_are_deleted_before_
     v2(ctx.tenant)
     start = len(remote.log)
     res, _ = ctx.publish(mirror=True)
-    ops = remote.log[start:]
+    ops = [(o, k) for o, k in remote.log[start:] if ".intent/" not in k]                                    # la intención (evidencia de recuperación) se registra antes y se retira al confirmar
     assert res.status == txn.COMPLETED and not any(k.endswith("1VR_LP_EXTRA.json") for k in remote.objects)    # el objeto retirado NO queda en Spaces (no resucita en un restore)
-    assert {o for o, _k in ops[:2]} == {"delete"}                                                             # lo retirado se borra ANTES de subir lo nuevo
+    kinds = [o for o, _k in ops]
+    assert kinds[0] == "delete" and ops[0][1].endswith("1VR_LP_EXTRA.json")                                   # lo retirado se borra ANTES de subir lo nuevo…
+    assert max(i for i, o in enumerate(kinds) if o == "delete") < kinds.index("put")                          # …y ningún borrado ocurre después de la primera subida (el marcador de activación jamás se borra)
     assert {k.rsplit("/", 1)[-1] for o, k in ops[-2:]} == {MARKER, ".catalog_manifest.json"} and all(o == "put" for o, _k in ops[-2:])   # y los marcadores van AL FINAL
 
 
@@ -277,11 +280,13 @@ def test_if_the_compensation_cannot_complete_the_previous_version_stays_active_a
     remote.fail_keys = ("3VF_LP.json", "1VR_LP_EXTRA.json")                                                   # ni la nueva ni la previa pueden escribirse para esas claves
     recovered = txn.recover_pending(ctx.catalog)
     assert [r["action"] for r in recovered] == ["DIVERGED"]
-    assert local_tree(ctx) == confirmed_local and gate.read_state(ctx.catalog) is None                       # los lectores vuelven a la ÚLTIMA versión confirmada
+    assert local_tree(ctx, with_intent=False) == confirmed_local and gate.read_state(ctx.catalog) is None   # los lectores vuelven a la ÚLTIMA versión confirmada
+    assert any(".intent/intent.json" in k for k in local_tree(ctx))                                          # y la evidencia se conserva mientras la compensación siga pendiente
     blocked, _ = ctx.publish(mirror=True)
     assert blocked.error_code == "RECOVERY_REQUIRED"
     remote.fail_keys = ()
     assert [r["action"] for r in txn.recover_pending(ctx.catalog)] == ["ROLLED_BACK"] and not txn.has_pending(ctx.catalog)
+    assert local_tree(ctx) == confirmed_local and not any(".intent/" in k for k in remote.objects)          # resuelto: ni rastro de la evidencia, local ni remota
     assert ctx.publish(mirror=True)[0].status == txn.COMPLETED
 
 

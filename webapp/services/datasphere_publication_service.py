@@ -84,16 +84,75 @@ def tool_context(request, stem: str) -> dict:
 def resolve_pending(root=None) -> list[dict]:
     """Resuelve (VERIFICANDO Spaces) las publicaciones a medias o sin confirmar y descarta las cachés si algo cambió. Lo usa la compuerta de lectores (cada ≤30 s mientras haya un
     bloqueo), el arranque y el servicio antes de publicar. Nunca lanza."""
+    from core import publication_gate as gate
     from tools.catalog import publication_txn as txn
     try:
         base = Path(root) if root else _canonical_roots()[0]
+        was_closed = gate.read_state(base) is not None
+        if gate.is_boot_closed(base):
+            _retry_restore_async()                                      # un restore de arranque que falló o quedó incompleto se reintenta sin bloquear al lector
         results = txn.recover_pending(base, timeout=0)
     except Exception:                                                   # noqa: BLE001 — sin candado o sin poder restaurar: sigue pendiente (la compuerta no se abre)
         log.warning("datasphere_publication: la recuperación no pudo completarse", exc_info=True)
         return []
-    if results:
-        republication_stage.AssessmentStage().finished(None)
+    if results or (was_closed and gate.read_state(base) is None):
+        republication_stage.AssessmentStage().finished(None)           # lo restaurado/recuperado es la verdad: la memoria no conserva nada de antes
+    for item in results:
+        if item.get("action") in ("UNCERTAIN", "BLOCKED"):
+            log.error("datasphere_publication: la publicación %s (cliente %s) NO pudo resolverse: %s %s; la lectura del Catálogo sigue bloqueada hasta resolverlo",
+                      item.get("operation_id"), item.get("client_dir"), item.get("code"), item.get("detail"))
     return results
+
+
+_RESTORE_RETRY = {"running": False}
+
+
+def _retry_restore_async() -> None:
+    """Reintenta el restore de arranque (sin sobrescribir lo local) si falló o quedó incompleto: mientras tanto no se puede verificar que lo restaurado sea UNA versión publicada."""
+    from core import remote_store
+    if _RESTORE_RETRY["running"] or remote_store.restore_status() == "in_progress" or remote_store.sync_blocked_reason() is None:
+        return
+    _RESTORE_RETRY["running"] = True
+
+    def run() -> None:
+        try:
+            remote_store.restore()
+        finally:
+            _RESTORE_RETRY["running"] = False
+
+    threading.Thread(target=run, name="publication-restore-retry", daemon=True).start()
+
+
+def begin_boot_gate() -> bool:
+    """Arranque con la publicación segura y la persistencia remota encendidas: cierra la compuerta de lectores ANTES de servir, hasta que el restore termine y la recuperación verifique lo
+    restaurado (un disco perdido con Spaces a medias no puede mostrarse como vigente). True si la cerró."""
+    from core import publication_gate as gate, remote_store
+    from tools.catalog import publication_txn as txn
+    if not (txn.safe_mode_enabled() and remote_store.enabled()):
+        return False
+    gate.begin_boot(_canonical_roots()[0])
+    return True
+
+
+def _mirror_guard() -> str | None:
+    """Guarda del sync periódico: con la publicación segura encendida, NO sube mientras haya una publicación, una verificación de arranque o una recuperación sin resolver."""
+    from core import publication_gate as gate
+    from tools.catalog import publication_txn as txn
+    if not txn.safe_mode_enabled():
+        return None
+    root = _canonical_roots()[0]
+    if gate.read_state(root) is not None:
+        return "hay una publicación o una verificación de arranque en curso"
+    if txn.has_pending(root):
+        return "hay una publicación sin resolver"
+    return None
+
+
+try:
+    from core import remote_store as _remote_store
+    _remote_store.set_mirror_guard(_mirror_guard)
+except Exception:                                                       # noqa: BLE001
+    log.warning("datasphere_publication: no se pudo registrar la guarda del sync periódico")
 
 
 def verify_ledgers(root=None) -> dict[str, list[str]]:
@@ -126,6 +185,14 @@ def boot_recover() -> None:
     if not txn.safe_mode_enabled():
         return
     resolve_pending()
+    try:
+        from core import publication_gate as gate
+        st = gate.read_state(_canonical_roots()[0])
+        if st is not None:
+            log.error("datasphere_publication: la lectura del Catálogo sigue BLOQUEADA tras el arranque (%s, operación %s, cliente %s); se reintenta sola y se resuelve a mano según docs/PUBLICATION_SAFE_RUNBOOK.md",
+                      st.get("reason") or st.get("state"), st.get("operation_id"), st.get("client_dir"))
+    except Exception:                                                   # noqa: BLE001
+        log.warning("datasphere_publication: no se pudo leer la compuerta tras el arranque", exc_info=True)
     try:
         for client, problems in verify_ledgers().items():
             log.error("datasphere_publication: el cliente %s NO coincide con su última publicación (%d diferencia(s): %s); republicá su modelo para reconstruirlo", client, len(problems), "; ".join(problems[:3]))

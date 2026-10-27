@@ -120,6 +120,13 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _reconciled(rs, key: str) -> None:
+    """El local y el remoto de ``key`` quedaron verificados idénticos: ya no es un archivo «sin reconciliar» tras un restore que preservó un local distinto."""
+    unrec = getattr(rs, "_unreconciled", None)
+    if unrec:
+        unrec.discard(rs._key(key))
+
+
 def converge(rs, keyed: dict[str, Path], last: Iterable[str] = ()) -> RemoteOutcome:
     """Deja el remoto IDÉNTICO al local en las rutas de ``keyed`` (clave → ruta): si el archivo local EXISTE, el objeto remoto debe tener sus bytes exactos; si NO existe, el objeto remoto debe
     estar AUSENTE. Lee el remoto ANTES de escribir (una escritura efectiva con respuesta perdida no se repite ni se declara fallo) y verifica DESPUÉS. Las claves de ``last`` (marcadores de
@@ -144,6 +151,7 @@ def converge(rs, keyed: dict[str, Path], last: Iterable[str] = ()) -> RemoteOutc
                 problems.append(f"remoto ilegible {key}")
                 continue
             if remote is not None and _sha(remote) == _sha(local):
+                _reconciled(rs, key)
                 continue
             wrote = True
             pushed = rs.push_path(path)
@@ -155,6 +163,8 @@ def converge(rs, keyed: dict[str, Path], last: Iterable[str] = ()) -> RemoteOutc
                 continue
             if after is None or _sha(after) != _sha(local):
                 problems.append(f"no se confirmó {key}" + ("" if pushed else " (PUT rechazado)"))
+            else:
+                _reconciled(rs, key)
         else:
             try:
                 exists = rs.persisted_object_exists(path)
@@ -163,6 +173,7 @@ def converge(rs, keyed: dict[str, Path], last: Iterable[str] = ()) -> RemoteOutc
                 problems.append(f"remoto ilegible {key}")
                 continue
             if not exists:
+                _reconciled(rs, key)
                 continue
             wrote = True
             rs.delete_path(path)
@@ -174,6 +185,8 @@ def converge(rs, keyed: dict[str, Path], last: Iterable[str] = ()) -> RemoteOutc
                 continue
             if still:
                 problems.append(f"no se borró {key}")
+            else:
+                _reconciled(rs, key)
     if uncertain:
         return RemoteOutcome(UNCERTAIN, wrote, "no se pudo verificar el remoto", problems)
     if problems:
