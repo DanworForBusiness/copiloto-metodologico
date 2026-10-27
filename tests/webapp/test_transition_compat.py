@@ -74,7 +74,7 @@ def test_a_pending_profile_is_presented_as_current_and_nothing_about_it_changes(
 
 def test_other_stale_causes_are_not_hidden_in_a_real_envelope(kworld):
     _make_v3(kworld, kworld.k)
-    _rewrite(_path(kworld, "Kensing"), lambda e: e.update(input_pool_signature="0" * 64))
+    _rewrite(_path(kworld, "Kensing"), lambda e: (e.update(input_pool_signature="0" * 64), e.pop("input_closure_signature", None)))
     restart()
     st = svc.status_for_entry(kworld.k)
     assert st.state == svc.STALE and st.stale_reason == svc.STALE_VERSION_AND_INPUT and st.pending_migration is None

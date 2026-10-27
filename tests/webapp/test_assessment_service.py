@@ -195,13 +195,14 @@ def test_stale_when_assessment_versions_change(env, monkeypatch):
     assert st.state == svc.STALE and st.profile is not None
 
 
-def test_stale_never_a_false_current_when_only_another_model_of_the_client_changes(env):
-    # LIMITACIÓN V1 documentada: la firma es de TODO el cliente → un cambio en otro modelo marca STALE (falso STALE aceptado)
+def test_stale_never_a_false_current_when_a_shared_dependency_of_another_model_changes(env):
+    # P1: la vigencia ya NO es la firma de TODO el cliente sino la de las dependencias del AM (ver test_assessment_dependency_currentness.py): un cambio en un objeto que el AM LEE
+    # (aquí la vista compartida 3VF_P, tocada "desde" el otro modelo) sigue siendo STALE; un cambio que no lee conserva su vigencia.
     e = entry("Acme", ACME)
     svc.generate(e)
-    f = env.inbound / "Acme/analytic-models/4AM_OTHER.json"
+    f = env.inbound / "Acme/views/3VF_P.json"
     body = json.loads(f.read_text(encoding="utf-8"))
-    body["definitions"]["4AM_OTHER"]["elements"]["Z"] = {"type": "cds.String"}
+    body["definitions"]["3VF_P"]["elements"]["Z"] = {"type": "cds.String"}
     f.write_text(json.dumps(body), encoding="utf-8")
     assert svc.status_for_entry(e).state == svc.STALE
 

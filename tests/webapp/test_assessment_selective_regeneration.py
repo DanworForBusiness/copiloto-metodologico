@@ -72,7 +72,7 @@ def test_the_candidate_refreshes_evidence_rederives_judgment_and_keeps_the_sibli
 def test_only_a_current_record_with_the_current_judgment_contract_can_be_regenerated(kworld):
     s = seed(kworld)
     orig_sig = _env(s["target"])["input_pool_signature"]
-    _rewrite(s["target"], lambda e: e.update(input_pool_signature="0" * 64))                 # ahora es STALE (el pool cambio): otro camino
+    _rewrite(s["target"], lambda e: (e.update(input_pool_signature="0" * 64), e.pop("input_closure_signature", None)))                 # ahora es STALE (el pool cambio): otro camino
     restart()
     with pytest.raises(svc.EnrichmentError) as ei:
         svc.regenerate_current_evidence(kworld.k)
@@ -132,7 +132,7 @@ def test_the_projected_judgment_is_a_precondition_not_a_wish(kworld):
 
 def test_a_stale_record_is_not_eligible_for_the_selective_regeneration(kworld):
     s = seed(kworld)
-    _rewrite(s["target"], lambda e: e.update(input_pool_signature="0" * 64))
+    _rewrite(s["target"], lambda e: (e.update(input_pool_signature="0" * 64), e.pop("input_closure_signature", None)))
     restart()
     out = plan_of(kworld, [s["root"]])
     assert out["records"][0]["reason"] == bf.SKIPPED_NOT_CURRENT_SELECTED and out["plan"]["items"] == []

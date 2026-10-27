@@ -30,7 +30,7 @@ def _surfaces(w, entry) -> dict:
 
 def test_a_pending_v3_is_presented_as_current_everywhere_while_other_stale_causes_stay_visible(kworld):
     _make_v3(kworld, kworld.k, kworld.k2)
-    _rewrite(_path(kworld, "Kensing2"), lambda e: e.update(input_pool_signature="0" * 64))                    # k2: ademas cambio la entrada
+    _rewrite(_path(kworld, "Kensing2"), lambda e: (e.update(input_pool_signature="0" * 64), e.pop("input_closure_signature", None)))                    # k2: ademas cambio la entrada
     restart()
     pend, stale = _surfaces(kworld, kworld.k), _surfaces(kworld, kworld.k2)
     assert pend == {"state": svc.CURRENT, "pending": MIG, "report_state": svc.CURRENT, "report_note": None, "report_body": None, "row_state": svc.CURRENT, "row_ref": True}

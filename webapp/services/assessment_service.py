@@ -53,6 +53,7 @@ from typing import Any, Iterable
 
 import config
 from core import remote_store
+from tools.catalog.modeling_assessment import dependency_signature as ma_dependencies
 from tools.catalog.modeling_assessment import paths as ma_paths
 from tools.catalog.modeling_assessment import profile as ma_profile
 from tools.catalog.modeling_assessment import shadow as ma_shadow
@@ -242,6 +243,8 @@ class AssessmentStatus:
     stale_targeted: str | None = field(default=None, compare=False)     # solo STALE VERSION_ONLY: nombre de la migracion de evidencia que lo cubre (None = no cubierto)
     stale_version_diff: tuple = field(default=(), compare=False)        # solo STALE: claves de ``versions`` que difieren
     pending_migration: str | None = field(default=None, compare=False)  # solo CURRENT por compatibilidad de transicion: migracion de evidencia pendiente (sigue siendo CURRENT)
+    pool_drift: bool = field(default=False, compare=False)             # CURRENT porque las DEPENDENCIAS del AM no cambiaron aunque la firma del pool completo sí (independencia demostrada)
+    stale_dependency: str | None = field(default=None, compare=False)  # solo STALE por entrada: AFFECTED (cambió algo que el AM lee) | UNCERTAIN (no se puede afirmar independencia)
 
     @property
     def viewable(self) -> bool:
@@ -324,6 +327,57 @@ def invalidate_pool_index() -> None:
     recalcula en el próximo acceso; la huella de tamaños/mtimes ya detecta cambios sin esta llamada."""
     with _index_lock:
         _index_memo.clear()
+        _dependency_memo.clear()
+
+
+# ── firma de DEPENDENCIAS (granularidad de la vigencia) ──
+# La vigencia compara la firma del pool COMPLETO del cliente; publicar un modelo dejaba STALE a todos los demás. La firma de dependencias (ver ``dependency_signature``)
+# cubre solo lo que el assessment de UN AM puede leer. Es un dato de vigencia APARTE: no entra al perfil, a su firma ni a ninguna regla metodológica.
+_dependency_memo: dict[tuple, dict[str, str | None]] = {}
+_DEPENDENCY_MEMO_MAX = 64
+
+
+def dependency_signatures_for(res: "Resolution") -> dict[str, str | None]:
+    """``{AM terminal: firma de dependencias | None}`` del grupo de pool de ``res`` (memoizado por firma del pool). Vacío si no se puede calcular: el llamador lo trata como INCIERTO."""
+    if res.pool_root is None or not res.client_dir or not res.pool_signature:
+        return {}
+    key = (str(res.pool_root), res.client_dir, res.domain_dir, res.pool_signature)
+    with _index_lock:
+        cached = _dependency_memo.get(key)
+    if cached is not None:
+        return cached
+    try:
+        _k, group = ma_shadow.select_pool(res.pool_root, res.client_dir, res.domain_dir)
+        entities, universe, _shadows = ma_shadow.semantic_universe(ma_shadow.load_pool(group), group)
+        sigs = ma_dependencies.dependency_signatures(res.pool_root, group, entities, universe)
+    except Exception:                                   # noqa: BLE001 — incierto, jamás un fallo de lectura
+        log.warning("assessment: no se pudo calcular la firma de dependencias de %s/%s", res.client_dir, res.domain_dir, exc_info=True)
+        sigs = {}
+    with _index_lock:
+        if len(_dependency_memo) >= _DEPENDENCY_MEMO_MAX:
+            _dependency_memo.clear()
+        _dependency_memo[key] = sigs
+    return sigs
+
+
+def closure_signature(res: "Resolution") -> str | None:
+    """Firma de dependencias del AM terminal de ``res`` contra el pool ACTUAL, o None (incierto)."""
+    return dependency_signatures_for(res).get(res.terminal_am) if res.terminal_am else None
+
+
+DEP_INDEPENDENT, DEP_AFFECTED, DEP_UNCERTAIN = "INDEPENDENT", "AFFECTED", "UNCERTAIN"
+
+
+def dependency_verdict(env: dict | None, res: "Resolution") -> str:
+    """¿Cambió algo de lo que el assessment guardado puede haber leído? ``INDEPENDENT`` = las firmas de dependencias (guardada y actual) existen, son de la MISMA regla y coinciden;
+    ``AFFECTED`` = existen y difieren; ``UNCERTAIN`` = falta alguna (sobre previo a esta firma, regla distinta o dependencias no calculables): no se afirma independencia."""
+    stored = (env or {}).get("input_closure_signature")
+    if not stored or (env or {}).get("dependency_rule_version") != ma_dependencies.DEPENDENCY_RULE_VERSION:
+        return DEP_UNCERTAIN
+    current = closure_signature(res)
+    if current is None:
+        return DEP_UNCERTAIN
+    return DEP_INDEPENDENT if current == stored else DEP_AFFECTED
 
 
 def _stat_fingerprint(files: Iterable[Path]) -> tuple:
@@ -484,8 +538,8 @@ def _derive_domain_classification(entry: Any, am: str | None) -> dict | None:
 def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_signature: str | None,
               versions: dict | None, error_code: str | None = None, generated_at: str | None = None,
               judgment: dict | None = _UNSET, domain_classification: dict | None = None,
-              business_classification: dict | None = None) -> dict:
-    return {
+              business_classification: dict | None = None, closure_signature: str | None = None) -> dict:
+    env = {
         "envelope_version": ENVELOPE_VERSION,
         "client": client,
         "terminal_am": am,
@@ -503,6 +557,10 @@ def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_s
         "business_classification": business_classification,
         "error_code": error_code,
     }
+    if closure_signature:                               # vigencia por dependencias (aditivo): sin ella el sobre se juzga solo por la firma del pool completo, como siempre
+        env["input_closure_signature"] = closure_signature
+        env["dependency_rule_version"] = ma_dependencies.DEPENDENCY_RULE_VERSION
+    return env
 
 
 # ═══════════════════════════ almacén: memoria + disco DURABLE (gobernado) ═══════════════════════════
@@ -796,11 +854,18 @@ def _status_from(entry: Any, res: Resolution, versions: dict) -> AssessmentStatu
         return AssessmentStatus(INCOMPATIBLE_SCHEMA, eid, client, am, reason=INCOMPATIBLE_MESSAGE, error_code="INCOMPATIBLE_SCHEMA",
                                 generated_at=env.get("generated_at"), business_classification=bcl)
     cur = classify_currentness(env.get("input_pool_signature"), env.get("assessment_versions"), res.pool_signature, versions)
+    drift, dependency = False, None
+    if cur.state == STALE and cur.reason in (STALE_INPUT_CHANGED, STALE_VERSION_AND_INPUT):
+        # El pool completo del cliente cambió. Eso solo invalida este assessment si cambió algo que ÉL puede leer: se juzga por la firma de dependencias del AM.
+        dependency = dependency_verdict(env, res)
+        if dependency == DEP_INDEPENDENT:
+            drift = True
+            cur = classify_currentness(env.get("input_pool_signature"), env.get("assessment_versions"), env.get("input_pool_signature"), versions)   # a efectos de vigencia, su entrada no cambió
     if cur.state == CURRENT:
         return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl,
-                                pending_migration=cur.pending_migration)
+                                pending_migration=cur.pending_migration, pool_drift=drift)
     return AssessmentStatus(STALE, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl, stale_reason=cur.reason, stale_targeted=cur.targeted,
-                            stale_version_diff=cur.version_diff)
+                            stale_version_diff=cur.version_diff, pool_drift=drift, stale_dependency=dependency)
 
 
 def _persisted_judgment(env: dict) -> dict | None:
@@ -955,7 +1020,8 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict, *, force: bool
             sig = (doc.get("scope") or {}).get("pool_signature") or meta.get("pool_signature")
             durable = _store_envelope(_envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
                                                 domain_classification=_derive_domain_classification(entry, am),
-                                                business_classification=_derive_business_classification(entry, am)))
+                                                business_classification=_derive_business_classification(entry, am),
+                                                closure_signature=closure_signature(res) if sig == res.pool_signature else None))
             return replace(_status_from(entry, res, versions), durable=durable)
         if state == "NOT_APPLICABLE":
             return AssessmentStatus(NOT_APPLICABLE, entry.entry_id, client, None, reason=NA_REASONS["NO_TERMINAL_AM"])
