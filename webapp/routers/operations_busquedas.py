@@ -18,6 +18,10 @@ Seguridad (TODAS las rutas, lectura y escritura):
      (histórica / alta directa de CCHH) responde 404 como si no existiera.
 El actor que se registra en el historial es el claim `sub` de la sesión.
 
+Vigentes / Cerradas: el MISMO criterio que Capital Humano (`estado` de la búsqueda: `activo` vs `cerrado`; una solicitud cancelada queda cerrada). El DETALLE reutiliza las piezas de CCHH: el historial
+COMPARTIDO (misma proyección que ve CCHH), la botonera de vistas y el pipeline (solo lectura para Operaciones; el dueño de la app, APP_OWNER, lo ve en modo total). Operaciones edita su solicitud mientras está
+vigente, también después de la toma, y cada edición queda en el historial con el actor y los campos cambiados (`busqueda_repository.edit_solicitud`).
+
 Clasificación: OPERATIONS / BÚSQUEDAS HTTP. NO toca las pantallas de CCHH (I3)."""
 from __future__ import annotations
 
@@ -29,7 +33,7 @@ from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from core.content_registry import DEFAULT_PACK
-from webapp import hub_metrics_access, operations_access, same_origin_guard, workspaces
+from webapp import access as app_access, hub_metrics_access, operations_access, same_origin_guard, workspaces
 from webapp.services import auth_service, busqueda_repository, human_capital_catalog_repository, human_capital_service, pagination, search_text
 from webapp.templating import templates
 
@@ -65,7 +69,7 @@ BADGE_TONOS = {"nueva": "otro", "reenviada": "otro", "observada": "tentativo", "
 VEREDICTO_TONOS = {"nueva": "neutra", "reenviada": "neutra", "observada": "parcial", "en_gestion": "plena", "cancelada": "neutra", "cerrada": "neutra"}
 _OK_MESSAGES = {
     "enviada": "Solicitud enviada a Capital Humano. Quedó registrada con estado «Enviada».",
-    "editada": "Cambios guardados. La solicitud sigue en estado «Enviada».",
+    "editada": "Cambios guardados y registrados en el historial. La solicitud conserva su estado.",
     "reenviada": "Solicitud corregida y reenviada a Capital Humano.",
     "cancelada": "Solicitud cancelada.",
     "eliminada": "Solicitud eliminada.",
@@ -78,7 +82,7 @@ DURACION_LABELS = {"meses": "Meses", "indefinida": "Indefinida"}
 TRANSICION_LABELS = {
     "enviar": "Enviada a Capital Humano", "editar": "Editada por Operaciones", "observar": "Observada por Capital Humano",
     "reenviar": "Corregida y reenviada", "tomar": "Tomada por Capital Humano", "cancelar": "Cancelada por Operaciones",
-    "proceso_eliminado": "Proceso eliminado por Capital Humano",
+    "proceso_eliminado": "Proceso eliminado por Capital Humano", "editar_cchh": "Editada por Capital Humano", "cerrar": "Proceso cerrado por Capital Humano",
 }
 
 
@@ -236,10 +240,10 @@ def _parse_revision(raw) -> int:
         raise HTTPException(400, "expected_revision inválido") from None
 
 
-def _solicitud_or_404(busqueda_id: str) -> dict:
+def _solicitud_or_404(busqueda_id: str, *, full_history: bool = False) -> dict:
     """Vista segura de la solicitud o 404 (también para búsquedas que no son solicitudes de Operaciones y para ids inválidos)."""
     try:
-        view = human_capital_service.get_solicitud_view(busqueda_id)
+        view = human_capital_service.get_solicitud_view(busqueda_id, full_history=full_history)
     except _STORAGE_ERRORS:
         raise HTTPException(503, _MSG_SOURCE) from None
     if view is None:
@@ -248,7 +252,12 @@ def _solicitud_or_404(busqueda_id: str) -> dict:
 
 
 # ---- Listado --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-def _list_context(estado: str, q: str, page, page_size) -> dict:
+def _is_closed(view: dict) -> bool:
+    """«Cerrada» = el mismo criterio que Capital Humano: el proceso está `cerrado` (cierre de CCHH o cancelación de la solicitud). Todo lo demás es VIGENTE."""
+    return view.get("estado") == "cerrado"
+
+
+def _list_context(estado: str, q: str, page, page_size, page_closed="") -> dict:
     estado = estado if estado in INDICADORES else ""
     q = " ".join((q or "").split())[:120]
     source_error = None
@@ -267,9 +276,15 @@ def _list_context(estado: str, q: str, page, page_size) -> dict:
     ]
     # Orden: fecha de inicio prevista DESCENDENTE (las sin fecha al final), desempate por apertura y luego por id; ANTES de paginar.
     visible.sort(key=lambda r: (r["requerimiento"].get("fecha_inicio_prevista") or "", r.get("fecha_apertura") or "", r["busqueda_id"]), reverse=True)
-    pager = pagination.paginate(visible, page=page, page_size=page_size, base_url=BASE_PATH, params={"estado": estado, "q": q})
+    vigentes = [r for r in visible if not _is_closed(r)]
+    cerradas = [r for r in visible if _is_closed(r)]
+    # Dos contenedores con paginador propio (`page` / `page_c`; el tamaño de página es compartido): cada URL conserva la página del otro.
+    pager = pagination.paginate(vigentes, page=page, page_size=page_size, base_url=BASE_PATH, params={"estado": estado, "q": q})            # solo para conocer la página vigente ya acotada
+    pager_c = pagination.paginate(cerradas, page=page_closed, page_size=page_size, base_url=BASE_PATH, params={"estado": estado, "q": q, "page": pager["page"]}, page_param="page_c")
+    pager = pagination.paginate(vigentes, page=page, page_size=page_size, base_url=BASE_PATH, params={"estado": estado, "q": q, "page_c": pager_c["page"]})
     return {
-        "rows": pager["items"], "total_rows": pager["total"], "pager": pager,     # total FILTRADO (contador del dashboard-section), nunca el tamaño de la página
+        "rows": pager["items"], "total_rows": pager["total"], "pager": pager,       # VIGENTES: total FILTRADO (contador del dashboard-section), nunca el tamaño de la página
+        "rows_closed": pager_c["items"], "total_closed": pager_c["total"], "pager_closed": pager_c,
         "has_any": bool(rows), "filtro_estado": estado, "q": q, "estado_options": FILTRO_ESTADOS, "new_url": f"{BASE_PATH}/nueva",   # destino único de «+ Nueva búsqueda» (botón superior y estado vacío)
         "indicadores": INDICADORES, "badge_tonos": BADGE_TONOS, "tipo_labels": TIPO_LABELS, "source_error": source_error,
     }
@@ -277,11 +292,11 @@ def _list_context(estado: str, q: str, page, page_size) -> dict:
 
 @router.get(BASE_PATH, response_class=HTMLResponse, include_in_schema=False)
 def operations_busquedas_list(request: Request, estado: str = Query(""), q: str = Query(""), ok: str = Query(""),
-                              page: str = Query(""), page_size: str = Query("")):
+                              page: str = Query(""), page_size: str = Query(""), page_c: str = Query("")):
     user, redirect = _authorize_read(request)
     if redirect is not None:
         return redirect
-    ctx = _list_context(estado, q, page, page_size)
+    ctx = _list_context(estado, q, page, page_size, page_c)
     # Filtros/paginación reactivos (HTMX): solo se re-renderiza el panel (`#opsb-panel`), MISMO criterio de fragmento que las listas de CCHH.
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(request=request, name="partials/operations_busquedas_panel.html", context={"request": request, **ctx})
@@ -339,14 +354,52 @@ def operations_busqueda_detail(request: Request, busqueda_id: str, ok: str = Que
     return _render_detail(request, user, view, ok_message=_OK_MESSAGES.get(ok))
 
 
+def _readonly_pipeline(doc: dict) -> dict:
+    """Contexto del pipeline en SOLO LECTURA para Operaciones: el tablero (etapas, conteos, quién está en cada una) SIN datos de contacto ni nada del Banco más allá de lo que muestra la tarjeta (nombre, perfil
+    y seniority). Ni el documento completo de la búsqueda (JD, palabras clave, postulaciones con sus ids internos) llega a la plantilla."""
+    board = {etapa: [] for etapa in busqueda_repository.ETAPAS}
+    total = 0
+    for app in human_capital_service.busqueda_candidates_view(doc):
+        prof = app.get("profile")
+        board.setdefault(app.get("etapa"), []).append({
+            "application_id": app.get("application_id"), "etapa": app.get("etapa"), "resultado_final": app.get("resultado_final"),
+            "profile": {k: prof.get(k) for k in ("first_name", "last_name", "profile_skills", "seniority", "deleted_at")} if prof else None})
+        total += 1
+    return {"read_only": True, "busqueda": {"busqueda_id": doc.get("busqueda_id"), "estado": doc.get("estado")}, "board": board, "etapas": busqueda_repository.ETAPAS,
+            "resultados": busqueda_repository.RESULTADOS_FINALES, "etapa_final": busqueda_repository.ETAPA_FINAL, "total_candidatos": total,
+            "entrevista_links": {}, "onboarding_links": {}, "available_profiles": [], "blocked_profiles_count": 0, "busqueda_is_deletable": False}
+
+
+def _pipeline_context(view: dict, user: dict) -> dict:
+    """Pipeline del detalle: solo cuando CCHH ya tomó la solicitud (antes no hay proceso). Solo lectura para Operaciones; el dueño de la app (APP_OWNER) lo ve en modo TOTAL, con el MISMO contexto y las MISMAS
+    acciones del detalle de CCHH (cuyos endpoints siguen validando la autorización de Capital Humano en el servidor)."""
+    if view.get("estado_solicitud") != busqueda_repository.SOLICITUD_EN_GESTION:
+        return {"pipeline": False}
+    try:
+        doc = busqueda_repository.get(view["busqueda_id"])
+    except _STORAGE_ERRORS:
+        doc = None
+    if doc is None:
+        return {"pipeline": False}
+    if app_access.is_owner_user(user):
+        from webapp.routers import human_capital as cchh                   # import diferido: el modo total reutiliza EL contexto de CCHH, no lo copia
+        return {"pipeline": True, "owner_full": True, **cchh._busqueda_detail_context(doc), "read_only": False}
+    return {"pipeline": True, "owner_full": False, **_readonly_pipeline(doc)}
+
+
 def _render_detail(request: Request, user: dict, view: dict, status_code: int = 200, **extra) -> HTMLResponse:
+    try:                                                                       # el detalle muestra el MISMO historial que CCHH (candidatos, ejecutores, eliminación del proceso)
+        view = human_capital_service.get_solicitud_view(view["busqueda_id"], full_history=True) or view
+    except _STORAGE_ERRORS:
+        pass
     view = dict(view)
     view["indicador"] = indicador_of(view)
+    pipe = _pipeline_context(view, user)
     return templates.TemplateResponse(
         request=request, name="operations/busqueda_detail.html",
         context=_base_context(
             request, user, view=view, indicadores=INDICADORES, badge_tonos=BADGE_TONOS, veredicto_tonos=VEREDICTO_TONOS, tipo_labels=TIPO_LABELS, dedicacion_labels=DEDICACION_LABELS,
-            transicion_labels=TRANSICION_LABELS, **extra),
+            transicion_labels=TRANSICION_LABELS, vista="pipeline", can_use_evaluation=app_access.is_owner_user(user), **{**pipe, "busqueda_historial": view}, **extra),
         status_code=status_code,
     )
 

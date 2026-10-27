@@ -93,7 +93,10 @@ def test_screens_use_the_hub_primitives_and_no_custom_styles_or_typography(path)
     assert "human_capital.css" in html                                                       # mismas hojas que CCHH
     assert not re.search(r'class="[^"]*\bopsb-(?!hero|checks)', html)                              # ninguna clase de estilo propia salvo la cabecera estándar de Operaciones
     assert "font-family" not in html and "font-size" not in html and "font:" not in html     # ni tipografía propia inline
-    assert re.search(r'class="module-hero [^"]*opsb-hero"', html) and ("hero-lead full-page-subtitle" in html or "catalog-verdict-line" in html)   # detalle = cabecera del informe del Catálogo
+    if path == f"{BASE}/{SID}":                                                               # detalle = MISMA composición que el detalle de un proceso de CCHH (hero + fila de estado + acciones a la derecha)
+        assert 'class="module-hero hc-profiles-hero"' in html and "busqueda-status-row" in html and "hc-profiles-hero-actions" in html and "status-badge" in html
+    else:
+        assert re.search(r'class="module-hero [^"]*opsb-hero"', html) and ("hero-lead full-page-subtitle" in html or "catalog-verdict-line" in html)
 
 
 # ═══════════════════════ autorización server-side en TODAS las rutas ═══════════════════════
@@ -499,14 +502,27 @@ def test_detail_shows_the_full_request_and_its_history():
     assert f'href="{BASE}/{SID}/editar"' in html and 'data-dialog-open="opsb-cancel-dialog"' in html and 'data-indicador="nueva"' in html
 
 
-def test_detail_of_an_observed_request_shows_the_observation_and_the_correct_action_but_not_the_cchh_user():
+def test_detail_of_an_observed_request_shows_the_observation_the_correct_action_and_the_shared_history():
     to_state("observada")
     html = ops().get(f"{BASE}/{SID}").text
     assert "data-observacion" in html and "Falta el proyecto" in html and "Corregir y reenviar" in html and ">Editar<" not in html
-    assert CCHH_EMAIL not in html and "Corrección solicitada por Capital Humano" in html and 'data-indicador="observada"' in html
+    # El historial es EL MISMO que ve Capital Humano: Operaciones ve también quién de CCHH hizo cada movimiento (decisión del owner: entender qué pasó con la búsqueda).
+    assert CCHH_EMAIL in html and "Corrección solicitada por Capital Humano" in html and 'data-indicador="observada"' in html
 
 
-@pytest.mark.parametrize("estado", ["en_gestion", "cancelada"])
+def test_a_taken_and_vigente_request_stays_editable_with_a_read_only_pipeline_and_no_cancel_or_delete():
+    to_state("en_gestion")
+    html = ops().get(f"{BASE}/{SID}").text
+    assert "data-vigente-en-gestion" in html and f'href="{BASE}/{SID}/editar"' in html and 'data-indicador="en_gestion"' in html
+    assert "opsb-cancel-dialog" not in html and "opsb-delete-dialog" not in html and "Cancelar solicitud" not in html and "Eliminar solicitud" not in html
+    assert 'data-pipeline-mode="solo-lectura"' in html and "busqueda-board" in html and "busqueda-views" in html                    # botonera + tablero (ciclo), solo lectura
+    for action in ("busqueda-add-dialog", "busqueda-close-dialog", "/cchh/busquedas", 'name="etapa"', "Contactar", "Quitar del proceso", "Agregar candidato"):
+        assert action not in html, action
+    assert "data-evaluation-locked" in html and "Sugeridos" in html and "Reportes" in html                                         # Evaluación bloqueada igual que en CCHH para quien no es el dueño
+    assert "El pipeline se muestra en solo lectura" not in html                                                                    # sin la nota aclaratoria (pedido del owner)
+
+
+@pytest.mark.parametrize("estado", ["cancelada"])
 def test_non_editable_states_are_read_only_in_the_detail(estado):
     to_state(estado)
     html = ops().get(f"{BASE}/{SID}").text
@@ -523,7 +539,7 @@ def test_a_closed_process_is_labelled_closed_and_read_only():
     assert 'data-indicador="cerrada"' in html and "Cerrada el" in html and "data-readonly" in html and "/editar" not in html
 
 
-def test_detail_never_exposes_candidates_applications_internal_fields_or_cchh_identities():
+def test_detail_shows_the_read_only_board_but_never_contact_data_internal_ids_or_internal_process_fields():
     to_state("en_gestion")
     pid = profile_repository.create({"first_name": "Cand", "last_name": "Secreto", "email": "secreto@candidato.com"})["profile_id"]
     d = doc()
@@ -531,7 +547,9 @@ def test_detail_never_exposes_candidates_applications_internal_fields_or_cchh_id
                                              "palabras_clave": "CLAVES INTERNAS", "descripcion": "DESCRIPCION INTERNA"})
     svc.add_candidate_to_busqueda(SID, pid)
     html = ops().get(f"{BASE}/{SID}").text
-    for secret in ("Secreto", "secreto@candidato.com", pid, "JD INTERNO", "CLAVES INTERNAS", "DESCRIPCION INTERNA", CCHH_EMAIL, "tomada_por", "postulaciones", "Preselección"):
+    # Decisión del owner: Operaciones ve el tablero (quién está en cada etapa) y el MISMO historial que CCHH. Sigue sin ver contacto, ids internos ni datos internos del proceso.
+    assert "Cand Secreto" in html and "Preselección" in html and "Candidato asociado" in html
+    for secret in ("secreto@candidato.com", pid, "JD INTERNO", "CLAVES INTERNAS", "DESCRIPCION INTERNA", "tomada_por", "postulaciones", "/cchh/candidatos", "mailto:", "wa.me"):
         assert secret not in html, secret
 
 
@@ -589,7 +607,33 @@ def test_correcting_an_observed_request_resubmits_it_as_enviada_with_a_visible_r
     assert "Solicitud corregida y reenviada" in page and 'data-indicador="reenviada"' in page and "Falta el proyecto" in page      # la observación queda en el historial
 
 
-@pytest.mark.parametrize("estado", ["en_gestion", "cancelada"])
+def test_editing_a_taken_vigente_request_is_allowed_and_leaves_actor_and_fields_in_the_history():
+    to_state("en_gestion")
+    c = ops(OPS_B)
+    assert 'data-mode="editar"' in c.get(f"{BASE}/{SID}/editar").text
+    r = c.post(f"{BASE}/{SID}/editar", data={"expected_revision": str(rev()), **form_payload(None, nombre_puesto="Consultor SAP MM", comentarios="tras la toma")}, headers=ORIGIN)
+    assert r.status_code == 303 and r.headers["location"] == f"{BASE}/{SID}?ok=editada"
+    d = doc()
+    assert d["solicitud"]["estado"] == "en_gestion" and d["nombre_puesto"] == "Consultor SAP MM" and d["requerimiento"]["nombre_puesto"] == "Consultor SAP MM"   # CCHH ve el cambio en su proceso
+    ev = d["solicitud"]["historial"][-1]
+    assert ev["transicion"] == "editar" and ev["actor"] == OPS_B and "Perfil solicitado" in ev["motivo"] and "Observaciones" in ev["motivo"]
+    page = c.get(r.headers["location"]).text
+    assert "Editada por Operaciones" in page and OPS_B in page and "Cambios guardados" in page
+    hc = session_client(CCHH_EMAIL).get(f"/cchh/busquedas/{SID}").text                       # visibilidad cruzada: la misma edición en el historial y el requerimiento de CCHH
+    assert "Editada por Operaciones" in hc and "Consultor SAP MM" in hc
+
+
+def test_a_cancelled_or_closed_request_cannot_be_edited_from_operations():
+    to_state("en_gestion")
+    svc.close_busqueda(SID, actor=CCHH_EMAIL)
+    c = ops()
+    before = doc()
+    assert c.get(f"{BASE}/{SID}/editar").status_code == 303
+    r = c.post(f"{BASE}/{SID}/editar", data={"expected_revision": str(rev()), **form_payload(None, nombre_puesto="Intento")}, headers=ORIGIN)
+    assert r.status_code == 409 and doc() == before
+
+
+@pytest.mark.parametrize("estado", ["cancelada"])
 def test_non_editable_requests_redirect_on_get_and_reject_posts_without_changes(estado):
     to_state(estado)
     c = ops()
@@ -729,7 +773,7 @@ def test_storage_errors_on_edit_and_cancel_are_controlled_responses_and_keep_the
 
 
 def test_reading_a_request_with_a_failing_store_is_a_503_not_a_500(monkeypatch):
-    monkeypatch.setattr(svc, "get_solicitud_view", lambda bid: (_ for _ in ()).throw(repo.BusquedaConfigIncompleteError("x")))
+    monkeypatch.setattr(svc, "get_solicitud_view", lambda bid, **kw: (_ for _ in ()).throw(repo.BusquedaConfigIncompleteError("x")))
     assert ops().get(f"{BASE}/{SID}").status_code == 503
 
 

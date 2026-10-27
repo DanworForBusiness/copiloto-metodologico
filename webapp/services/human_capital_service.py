@@ -662,10 +662,10 @@ def create_busqueda(fields: dict, *, actor: str | None = None) -> dict:
     return busqueda_repository.create(_shape_busqueda_fields(fields), actor=(actor or "").strip().lower() or None)
 
 
-def update_busqueda(busqueda_id: str, expected_revision: int, fields: dict) -> dict:
+def update_busqueda(busqueda_id: str, expected_revision: int, fields: dict, *, actor: str | None = None) -> dict:
     existing = busqueda_repository.get(busqueda_id)
     return busqueda_repository.update(
-        busqueda_id, expected_revision, _shape_busqueda_fields(fields, existing=existing))
+        busqueda_id, expected_revision, _shape_busqueda_fields(fields, existing=existing), actor=actor)
 
 
 def _candidate_display_name(profile_id) -> str | None:
@@ -1125,11 +1125,13 @@ def solicitud_view(doc: dict, *, include_cchh_actors: bool = False) -> dict | No
         "reenviada": busqueda_repository.solicitud_reenviada(doc),
         "reenvios": busqueda_repository.solicitud_reenvios(doc),
         # Qué puede hacer Operaciones HOY (el router lo usa para habilitar acciones; la regla real vive en el repositorio).
-        "puede_editar": estado == busqueda_repository.SOLICITUD_ENVIADA and not busqueda_repository.solicitud_fue_tomada(doc),
+        # Editar: mientras la solicitud está VIGENTE (enviada, o tomada por CCHH con el proceso todavía activo); cerrada o cancelada es solo lectura. Cancelar/eliminar siguen siendo solo antes de la toma.
+        "puede_editar": busqueda_repository.solicitud_puede_editar(doc),
         "puede_corregir": estado == busqueda_repository.SOLICITUD_OBSERVADA and not busqueda_repository.solicitud_fue_tomada(doc),
         "puede_cancelar": estado in (busqueda_repository.SOLICITUD_ENVIADA, busqueda_repository.SOLICITUD_OBSERVADA) and not busqueda_repository.solicitud_fue_tomada(doc),
         "puede_eliminar": busqueda_repository.solicitud_puede_eliminar(doc),
-        "solo_lectura": estado in (busqueda_repository.SOLICITUD_EN_GESTION, busqueda_repository.SOLICITUD_CANCELADA),
+        "solo_lectura": estado == busqueda_repository.SOLICITUD_CANCELADA or doc.get("estado") == "cerrado",
+        "vigente": doc.get("estado") != "cerrado",
     }
     if include_cchh_actors:                                       # solo la vista de Capital Humano agrega esta clave (la proyección segura para Operaciones conserva su lista blanca exacta)
         view["ejecutores_cchh_visibles"] = True
@@ -1157,9 +1159,11 @@ def resumen_solicitudes() -> dict:
     return out
 
 
-def get_solicitud_view(busqueda_id: str) -> dict | None:
+def get_solicitud_view(busqueda_id: str, *, full_history: bool = False) -> dict | None:
+    """`full_history=True`: la MISMA proyección de historial que ve Capital Humano (movimientos de candidatos, ejecutores de CCHH y constancia de proceso eliminado): lo usa el DETALLE de Operaciones para que
+    pueda entender qué pasó con la búsqueda. Sin el flag, la proyección segura de siempre (lista blanca exacta, sin candidatos)."""
     doc = busqueda_repository.get(busqueda_id)
-    return solicitud_view(doc) if doc is not None else None
+    return solicitud_view(doc, include_cchh_actors=full_history) if doc is not None else None
 
 
 def list_solicitudes_view() -> list[dict]:

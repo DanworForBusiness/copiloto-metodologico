@@ -1897,7 +1897,7 @@ def human_capital_busqueda_edit_submit(
                 form_values=fv, is_edit=True, **extra)))
 
     try:
-        human_capital_service.update_busqueda(busqueda_id, revision_int, form_values)
+        human_capital_service.update_busqueda(busqueda_id, revision_int, form_values, actor=_pipeline_actor(request))
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
     except ValueError as exc:

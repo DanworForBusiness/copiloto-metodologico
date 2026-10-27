@@ -512,7 +512,7 @@ def test_the_transition_table_is_exactly_the_approved_matrix():
     T = repo.SOLICITUD_TRANSICIONES
     assert set(T) == {"enviar", "editar", "observar", "reenviar", "tomar", "cancelar"}
     assert {k: (v["actor"], v["desde"], v["hasta"]) for k, v in T.items()} == {
-        "enviar": ("operaciones", (None,), "enviada"), "editar": ("operaciones", ("enviada",), "enviada"), "observar": ("cchh", ("enviada",), "observada"),
+        "enviar": ("operaciones", (None,), "enviada"), "editar": ("operaciones", ("enviada", "en_gestion"), None), "observar": ("cchh", ("enviada",), "observada"),
         "reenviar": ("operaciones", ("observada",), "enviada"), "tomar": ("cchh", ("enviada",), "en_gestion"), "cancelar": ("operaciones", ("enviada", "observada"), "cancelada")}
     assert repo.SOLICITUD_ESTADOS == ("enviada", "observada", "en_gestion", "cancelada") and "reenviada" not in repo.SOLICITUD_ESTADOS
 
@@ -526,9 +526,10 @@ def test_full_transition_matrix(estado, op):
     if allowed:
         out = OPS[op](SID, before["revision"])
         d = repo.get(SID)
-        assert d["solicitud"]["estado"] == HASTA[op] and d["revision"] == before["revision"] + 1
+        hasta = estado if op == "editar" else HASTA[op]                       # editar NO cambia el estado (enviada o en_gestion)
+        assert d["solicitud"]["estado"] == hasta and d["revision"] == before["revision"] + 1
         h = d["solicitud"]["historial"][-1]
-        assert h["transicion"] == op and h["desde"] == estado and h["hasta"] == HASTA[op] and h["actor_tipo"] == repo.SOLICITUD_TRANSICIONES[op]["actor"] and h["fecha"] and h["actor"]
+        assert h["transicion"] == op and h["desde"] == estado and h["hasta"] == hasta and h["actor_tipo"] == repo.SOLICITUD_TRANSICIONES[op]["actor"] and h["fecha"] and h["actor"]
         assert out is not None
     else:
         with pytest.raises(repo.BusquedaInvalidTransitionError):
@@ -717,16 +718,24 @@ def test_cchh_cannot_edit_close_or_add_candidates_on_a_request_that_is_not_in_ge
 
 def test_cchh_operations_work_once_the_request_is_in_gestion_and_the_closing_stays_coherent():
     to_state("en_gestion")
+    to_state_requerimiento = json.loads(json.dumps(doc()["requerimiento"]))
     pid = profile_repository.create({"first_name": "C", "last_name": "I", "email": "c@danwor.com"})["profile_id"]
     assert svc.add_candidate_to_busqueda(SID, pid)["candidatos"]
     d = doc()
     svc.update_busqueda(SID, d["revision"], {"nombre_puesto": "Ajuste CCHH", "fecha_apertura": d["fecha_apertura"], "area_consultora": "Cloud", "modalidad": "Remoto", "descripcion": "nota interna"})
     d = doc()
     assert d["nombre_puesto"] == "Ajuste CCHH" and d["area_consultora"] == "Cloud" and d["descripcion"] == "nota interna"
-    assert d["requerimiento"]["nombre_puesto"] == "Consultor SAP FI" and d["requerimiento"]["area_consultora"] == "SAP"          # lo pedido NO cambia
+    # Acordado entre equipos: el requerimiento y el proceso comparten puesto, área y modalidad; un cambio de CCHH se refleja en lo que ve Operaciones (y queda en el historial). El resto de lo pedido NO se toca.
+    req0 = to_state_requerimiento
+    assert d["requerimiento"]["nombre_puesto"] == "Ajuste CCHH" and d["requerimiento"]["area_consultora"] == "Cloud" and d["requerimiento"]["modalidad"] == "Remoto"
+    assert d["requerimiento"]["presencialidad"] is None                                      # Remoto no tiene presencialidad
+    assert {k: v for k, v in d["requerimiento"].items() if k not in ("nombre_puesto", "area_consultora", "modalidad", "presencialidad")} == {k: v for k, v in req0.items() if k not in ("nombre_puesto", "area_consultora", "modalidad", "presencialidad")}
+    ev = d["solicitud"]["historial"][-1]
+    assert ev["transicion"] == "editar_cchh" and ev["actor_tipo"] == "cchh" and ev["hasta"] is None and "Nombre del puesto" in ev["motivo"] and "nota interna" not in str(ev)   # solo rótulos, nunca valores
     assert d["origen"]["tipo"] == "operaciones" and d["solicitud"]["estado"] == "en_gestion" and "submission_fingerprint" in d["solicitud"]
-    closed = svc.close_busqueda(SID)
+    closed = svc.close_busqueda(SID, actor=CCHH_EMAIL)
     assert closed["estado"] == "cerrado" and closed["solicitud"]["estado"] == "en_gestion"
+    assert closed["solicitud"]["historial"][-1]["transicion"] == "cerrar" and closed["solicitud"]["historial"][-1]["actor"] == CCHH_EMAIL
 
 
 def test_fecha_apertura_and_pedido_formal_cannot_be_changed_by_the_general_edit_when_the_origin_is_operations():
@@ -750,7 +759,9 @@ def test_a_cchh_edit_of_a_historical_or_direct_busqueda_never_loses_new_structur
     d = doc()
     svc.update_busqueda(SID, d["revision"], {"nombre_puesto": "A", "fecha_apertura": d["fecha_apertura"], "area_consultora": "SAP"})
     out = doc()
-    assert {"origen", "solicitud", "requerimiento"} <= set(out) and out["solicitud"]["historial"] == d["solicitud"]["historial"] and out["requerimiento"] == d["requerimiento"]
+    assert {"origen", "solicitud", "requerimiento"} <= set(out)
+    assert out["solicitud"]["historial"][:-1] == d["solicitud"]["historial"] and out["solicitud"]["historial"][-1]["transicion"] == "editar_cchh"   # el historial previo intacto + el evento de la edición
+    assert {k: v for k, v in out["requerimiento"].items() if k != "nombre_puesto"} == {k: v for k, v in d["requerimiento"].items() if k != "nombre_puesto"}   # solo el campo compartido cambia
 
 
 # ═══════════════════════ listados y métricas (preparación para I3) ═══════════════════════
@@ -772,7 +783,7 @@ def test_services_distinguish_pending_observed_cancelled_and_effectively_managed
 # ═══════════════════════ proyección segura hacia Operaciones ═══════════════════════
 VIEW_KEYS = {"busqueda_id", "solicitud_id", "revision", "estado_solicitud", "estado", "fecha_apertura", "fecha_cierre", "nombre_puesto", "area_consultora", "modalidad", "solicitante",
              "enviada_en", "ultimo_envio_en", "observacion", "tomada_en", "cancelada_en", "motivo_cancelacion", "requerimiento", "historial", "categoria", "reenviada", "reenvios",
-             "puede_editar", "puede_corregir", "puede_cancelar", "puede_eliminar", "solo_lectura"}
+             "puede_editar", "puede_corregir", "puede_cancelar", "puede_eliminar", "solo_lectura", "vigente"}
 
 
 def test_the_operations_projection_is_an_exact_whitelist_without_candidates_or_internal_data():
@@ -800,11 +811,46 @@ def test_the_operations_projection_hides_who_in_cchh_observed_and_exposes_only_t
     assert "actor" not in obs and obs["actor_tipo"] == "cchh" and obs["motivo"] == "Falta el proyecto"
 
 
-@pytest.mark.parametrize("estado, flags", [("enviada", (True, False, True, True, False)), ("observada", (False, True, True, True, False)), ("en_gestion", (False, False, False, False, True)), ("cancelada", (False, False, False, False, True))])
+@pytest.mark.parametrize("estado, flags", [("enviada", (True, False, True, True, False)), ("observada", (False, True, True, True, False)), ("en_gestion", (True, False, False, False, False)),
+                                           ("cancelada", (False, False, False, False, True))])
 def test_the_projection_tells_operations_what_it_may_do_today(estado, flags):
+    # en gestión (tomada, proceso activo): Operaciones puede EDITAR (acordado entre equipos) pero no cancelar ni eliminar; cancelada es solo lectura.
     to_state(estado)
     v = svc.get_solicitud_view(SID)
     assert (v["puede_editar"], v["puede_corregir"], v["puede_cancelar"], v["puede_eliminar"], v["solo_lectura"]) == flags
+
+
+def test_a_closed_process_is_read_only_for_operations_and_not_vigente():
+    to_state("en_gestion")
+    svc.close_busqueda(SID, actor=CCHH_EMAIL)
+    v = svc.get_solicitud_view(SID)
+    assert (v["puede_editar"], v["puede_corregir"], v["puede_cancelar"], v["puede_eliminar"], v["solo_lectura"], v["vigente"]) == (False, False, False, False, True, False)
+    with pytest.raises(repo.BusquedaInvalidTransitionError):
+        svc.edit_solicitud(SID, doc()["revision"], req(comentarios="tarde"), OPS_A)
+
+
+def test_operations_edits_after_the_take_keep_the_state_and_leave_actor_and_changed_fields_in_the_shared_ledger():
+    to_state("en_gestion")
+    before = doc()
+    svc.edit_solicitud(SID, before["revision"], req(comentarios="ajuste de Operaciones", ubicacion="Rosario"), OPS_B)
+    after = doc()
+    assert after["solicitud"]["estado"] == "en_gestion" and after["estado"] == "activo" and after["revision"] == before["revision"] + 1
+    ev = after["solicitud"]["historial"][-1]
+    assert ev["transicion"] == "editar" and ev["actor"] == OPS_B and ev["actor_tipo"] == "operaciones" and ev["desde"] == "en_gestion" and ev["hasta"] == "en_gestion"
+    assert "Observaciones" in ev["motivo"] and "Ubicación" in ev["motivo"] and "ajuste de Operaciones" not in str(ev)          # rótulos, nunca valores
+    assert after["candidatos"] == before["candidatos"] and after["jd_texto"] == before["jd_texto"] and after["estado"] == before["estado"]   # nada del proceso de CCHH se toca
+    # el mismo ledger lo ve CCHH (misma lista) y cualquiera de las dos proyecciones
+    assert svc.get_solicitud_view(SID, full_history=True)["historial"][-1]["transicion"] == "editar"
+
+
+def test_the_full_history_projection_is_the_one_cchh_sees_and_the_default_one_stays_the_safe_whitelist():
+    to_state("en_gestion")
+    pid = profile_repository.create({"first_name": "Ana", "last_name": "Perez", "email": "ana@candidato.com"})["profile_id"]
+    svc.add_candidate_to_busqueda(SID, pid, actor=CCHH_EMAIL)
+    full = svc.get_solicitud_view(SID, full_history=True)
+    assert full["historial"] == svc.solicitud_view(doc(), include_cchh_actors=True)["historial"]
+    assert any(h["transicion"] == "candidato_asociado" and h.get("candidato") == "Ana Perez" for h in full["historial"])      # movimientos de candidatos + ejecutores de CCHH
+    assert not any(h["transicion"].startswith("candidato_") for h in svc.get_solicitud_view(SID)["historial"])               # la proyección por defecto sigue siendo la lista blanca
 
 
 def test_a_request_originated_projection_is_none_for_non_requests_and_missing_ids():

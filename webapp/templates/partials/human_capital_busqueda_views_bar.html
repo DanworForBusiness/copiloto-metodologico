@@ -1,0 +1,14 @@
+{# Botonera de vistas del proceso (Pipeline / Evaluación / Sugeridos / Reportes), COMPARTIDA por el detalle de CCHH y el de Operaciones (mismo markup, mismo primitivo `.dashboard-view-switch`).
+   Espera: `vista` (vista activa), `can_use_evaluation` (solo el dueño de la app: la pestaña está en desarrollo), `views_pipeline_url` y `views_evaluation_url` (a dónde lleva cada pestaña funcional: CCHH las
+   resuelve en su propio detalle; Operaciones lleva «Evaluación» —solo para el dueño— al detalle de CCHH, donde vive). «Sugeridos» y «Reportes» siguen pendientes. #}
+<div class="dashboard-view-switch busqueda-views" role="group" aria-label="Vistas del proceso">
+  <a href="{{ views_pipeline_url }}" class="{% if vista != 'evaluacion' %}is-active{% endif %}"{% if vista != 'evaluacion' %} aria-current="page"{% endif %}>Pipeline</a>
+  {% if can_use_evaluation %}
+  <a href="{{ views_evaluation_url }}" class="{% if vista == 'evaluacion' %}is-active{% endif %}"{% if vista == 'evaluacion' %} aria-current="page"{% endif %}>Evaluación</a>
+  {% else %}
+  {# En desarrollo: solo el dueño de la app (APP_OWNER) la usa; para el resto queda visible pero deshabilitada, igual que Sugeridos/Reportes (sin navegación ni acción; el servidor además protege sus endpoints). #}
+  <button type="button" disabled title="En desarrollo: disponible solo para el dueño de la app" data-evaluation-locked>Evaluación</button>
+  {% endif %}
+  <button type="button" disabled title="Próximamente">Sugeridos</button>
+  <button type="button" disabled title="Próximamente">Reportes</button>
+</div>

@@ -5,6 +5,8 @@
    siempre en sincronía. La relación es por `profile_id`: los datos personales
    se leen en vivo del Banco (app.profile), nunca se copian acá. #}
 {% set bid = busqueda.busqueda_id %}
+{# `read_only` (Operaciones, salvo el dueño de la app): MISMO tablero y mismos conteos, sin ninguna acción —ni mover etapa, ni contactar, ni quitar, ni agregar— ni enlaces a pantallas de CCHH, y sin los diálogos de edición. #}
+{% set read_only = read_only | default(false) %}
 
 {% if pipeline_notice %}<div class="dashboard-empty" data-error-kind="eligibility" role="alert"><span class="dashboard-empty__label">No se pudo agregar</span><p>{{ pipeline_notice }}</p></div>{% endif %}
 <div class="busqueda-pipeline-bar">
@@ -36,7 +38,7 @@
            endpoint. Reusa el primitivo de ícono compartido `.table-action-btn`
            + tooltip `.chart-tooltip`. En etapas posteriores y en procesos cerrados
            el empty-state queda sólo informativo. #}
-        {% if busqueda.estado == 'activo' and loop.first %}
+        {% if busqueda.estado == 'activo' and loop.first and not read_only %}
         <button type="button" class="table-action-btn chart-tooltip-anchor busqueda-col__empty-add" data-dialog-open="busqueda-add-dialog" aria-label="Agregar candidato">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
           <span class="chart-tooltip" aria-hidden="true"><p>Agregar candidato</p></span>
@@ -48,7 +50,8 @@
       <div class="busqueda-cand">
         <div class="busqueda-cand__id">
           {% if app.profile %}
-          <a class="busqueda-cand__name" href="/cchh/candidatos/{{ app.profile.profile_id }}/editar">{{ app.profile.first_name }} {{ app.profile.last_name }}</a>
+          {% if read_only %}<span class="busqueda-cand__name">{{ app.profile.first_name }} {{ app.profile.last_name }}</span>
+          {% else %}<a class="busqueda-cand__name" href="/cchh/candidatos/{{ app.profile.profile_id }}/editar">{{ app.profile.first_name }} {{ app.profile.last_name }}</a>{% endif %}
           <span class="busqueda-cand__meta">{% if app.profile.profile_skills %}{{ app.profile.profile_skills }}{% endif %}{% if app.profile.seniority %} · {{ app.profile.seniority }}{% endif %}</span>
           {% else %}
           <span class="busqueda-cand__name busqueda-cand__name--gone">Candidato eliminado del Banco</span>
@@ -56,7 +59,9 @@
           {% if app.resultado_final %}<span class="status-badge busqueda-cand__result busqueda-cand__result--{{ app.resultado_final|lower }}">{{ app.resultado_final }}</span>{% endif %}
         </div>
         {% set _onb = onboarding_links.get(app.application_id) %}
-        {% if busqueda.estado == 'activo' %}
+        {% if read_only %}
+        {# solo lectura: sin acciones #}
+        {% elif busqueda.estado == 'activo' %}
         {% set _ent = entrevista_links.get(app.application_id) %}
         <div class="busqueda-cand__actions busqueda-move{% if _ent %} busqueda-cand__actions--interview{% endif %}">
           <select name="etapa" aria-label="Etapa"
@@ -127,7 +132,7 @@
   {% endfor %}
 </div>
 
-{% if busqueda.estado == 'activo' %}
+{% if busqueda.estado == 'activo' and not read_only %}
 {# El Historial NO vive acá: está en su lugar de siempre, al final de la pantalla (una sola tabla). Cuando este cuerpo se devuelve como fragmento HTMX tras una mutación, se lo reenvía además FUERA DE BANDA
    (`oob_historial`) para reemplazar esa tabla por id y que muestre al instante el movimiento recién registrado. En el render completo de la página no se emite. #}
 {% if oob_historial and solicitud_gestion %}
